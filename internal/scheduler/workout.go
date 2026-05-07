@@ -34,6 +34,8 @@ type WorkoutStore interface {
 	UpdateSessionVariant(sessionID int64, variantID int64) error
 	GetCurrentTimezone() (string, error)
 	GetLatestSessionScheduledDate(groupID, userID int64) (time.Time, bool, error)
+	ListPendingAdHocSessions(userID int64, before time.Time) ([]store.WorkoutSession, error)
+	GetExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error)
 }
 
 // crossTZSessionCooldown is the minimum gap between two scheduled_dates for
@@ -338,6 +340,181 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 			}
 		}
 	}
+
+	// 11. Pre-scheduled ad-hoc sessions (group_id == -1, status == 'pending').
+	// These have no group, no rotation, and no cross-TZ cooldown — just a
+	// fixed scheduled_date + scheduled_time chosen by the user. Notify when
+	// the moment is due, then flip status to 'notified'. Already-notified
+	// ad-hoc sessions are picked up by the history-driven branch below.
+	if err := c.checkPendingAdHocSessions(ctx, now, activeSession); err != nil {
+		slog.Error("Failed to check pending ad-hoc workout sessions", "error", err)
+	}
+
+	// 12. Re-notification / auto-skip for already-notified ad-hoc sessions.
+	// Mirrors the recurring 3h-resend / 6h-auto-skip behaviour for sessions
+	// that have no group attached. Snooze wake-ups for ad-hoc are also
+	// handled here so the user can defer a one-off the same way.
+	c.checkNotifiedAdHocSessions(ctx, now, activeSession)
+
+	return nil
+}
+
+// checkPendingAdHocSessions fires the initial notification for any
+// pre-scheduled ad-hoc workout whose moment has arrived.
+func (c *WorkoutChecker) checkPendingAdHocSessions(ctx context.Context, now time.Time, activeSession *store.WorkoutSession) error {
+	pending, err := c.store.ListPendingAdHocSessions(c.allowedUserID, now)
+	if err != nil {
+		return fmt.Errorf("list pending ad-hoc sessions: %w", err)
+	}
+	for i := range pending {
+		sess := &pending[i]
+		if activeSession != nil {
+			// Mirrors the recurring branch: don't pile a fresh notification on
+			// top of a session the user is currently doing.
+			continue
+		}
+		if err := c.sendAdHocWorkoutNotification(ctx, sess); err != nil {
+			slog.Error("Failed to send ad-hoc workout notification", "session", sess.ID, "error", err)
+			continue
+		}
+		if err := c.store.UpdateSessionStatus(sess.ID, "notified"); err != nil {
+			slog.Error("Failed to mark ad-hoc session notified", "session", sess.ID, "error", err)
+		}
+	}
+	return nil
+}
+
+// checkNotifiedAdHocSessions handles snooze wake-ups, the 3h re-notify, and
+// the 6h auto-skip for ad-hoc sessions that already received their first
+// notification. We read from the recent history rather than introducing a new
+// dedicated query because the volume is small and history is already loaded
+// elsewhere — but call it a second time here so this path is independent of
+// the groups loop above.
+func (c *WorkoutChecker) checkNotifiedAdHocSessions(ctx context.Context, now time.Time, activeSession *store.WorkoutSession) {
+	history, err := c.store.GetWorkoutHistory(c.allowedUserID, 50)
+	if err != nil {
+		slog.Error("Failed to load workout history for ad-hoc re-notify", "error", err)
+		return
+	}
+	for i := range history {
+		sess := &history[i]
+		if sess.GroupID != -1 {
+			continue
+		}
+		if sess.Status != "notified" {
+			continue
+		}
+
+		scheduledMoment := adHocScheduledMoment(sess, now.Location())
+
+		// Snooze wake-up: if a user snoozed and the snooze just elapsed,
+		// re-fire the same ad-hoc notification.
+		if sess.SnoozedUntil != nil && now.After(*sess.SnoozedUntil) {
+			if activeSession != nil {
+				continue
+			}
+			if err := c.sendAdHocWorkoutNotification(ctx, sess); err != nil {
+				slog.Error("Failed to re-send snoozed ad-hoc notification", "session", sess.ID, "error", err)
+				continue
+			}
+			if err := c.store.ClearSnooze(sess.ID); err != nil {
+				slog.Error("Failed to clear ad-hoc snooze state", "session", sess.ID, "error", err)
+			}
+			if strings.Contains(sess.Notes, "resent_3h") {
+				newNotes := strings.TrimSpace(strings.ReplaceAll(sess.Notes, "resent_3h", ""))
+				if err := c.store.UpdateWorkoutSessionNotes(sess.ID, newNotes); err != nil {
+					slog.Error("Failed to update ad-hoc session notes", "session", sess.ID, "error", err)
+				}
+			}
+			continue
+		}
+
+		if now.After(scheduledMoment.Add(3 * time.Hour)) {
+			if !strings.Contains(sess.Notes, "resent_3h") {
+				if sess.SnoozedUntil == nil || now.After(*sess.SnoozedUntil) {
+					if activeSession != nil {
+						continue
+					}
+					if err := c.sendAdHocWorkoutNotification(ctx, sess); err != nil {
+						slog.Error("Failed to re-send 3h ad-hoc notification", "session", sess.ID, "error", err)
+					}
+					if err := c.store.UpdateWorkoutSessionNotes(sess.ID, sess.Notes+" resent_3h"); err != nil {
+						slog.Error("Failed to update ad-hoc session notes", "session", sess.ID, "error", err)
+					}
+				}
+			} else if now.After(scheduledMoment.Add(6 * time.Hour)) {
+				if err := c.workoutSvc.SkipSession(sess.ID); err != nil {
+					slog.Error("Failed to skip ad-hoc session", "session", sess.ID, "error", err)
+				}
+				if sess.NotificationMessageID != nil {
+					c.DeleteNotification(ctx, *sess.NotificationMessageID)
+				}
+			}
+		}
+	}
+}
+
+// adHocScheduledMoment combines a session's stored scheduled_date and
+// scheduled_time into a single time.Time anchored to the supplied location.
+// Falls back gracefully if scheduled_time is malformed.
+func adHocScheduledMoment(sess *store.WorkoutSession, loc *time.Location) time.Time {
+	if loc == nil {
+		loc = time.Local
+	}
+	d := sess.ScheduledDate.In(loc)
+	hh := parseHour(sess.ScheduledTime)
+	mm := parseMinute(sess.ScheduledTime)
+	return time.Date(d.Year(), d.Month(), d.Day(), hh, mm, 0, 0, loc)
+}
+
+// sendAdHocWorkoutNotification builds and dispatches the workout-due
+// notification for a one-off scheduled ad-hoc session. Lists the planned
+// exercises (sourced from workout_exercise_logs placeholders) when present,
+// and falls back to a generic message when the user scheduled the session
+// without any exercises.
+func (c *WorkoutChecker) sendAdHocWorkoutNotification(_ context.Context, session *store.WorkoutSession) error {
+	logs, err := c.store.GetExerciseLogs(session.ID)
+	if err != nil {
+		return fmt.Errorf("failed to list planned exercise logs: %w", err)
+	}
+
+	message := "🏋️ **Workout starting now**\n\n"
+	if len(logs) > 0 {
+		message += "Planned exercises:\n"
+		for i, l := range logs {
+			line := fmt.Sprintf("%d. **%s**", i+1, l.ExerciseName)
+			message += line + "\n"
+		}
+	} else {
+		message += "_No exercises planned — start when you're ready._\n"
+	}
+
+	if session.NotificationMessageID != nil {
+		c.DeleteNotification(context.Background(), *session.NotificationMessageID)
+	}
+
+	n := notifier.Notification{
+		Text: message,
+		Actions: []notifier.Action{
+			{ID: fmt.Sprintf("workout_start_%d", session.ID), Label: "▶️ Start Now"},
+			{ID: fmt.Sprintf("workout_snooze1_%d", session.ID), Label: "⏰ Snooze 1h"},
+			{ID: fmt.Sprintf("workout_snooze2_%d", session.ID), Label: "⏰ Snooze 2h"},
+			{ID: fmt.Sprintf("workout_skip_%d", session.ID), Label: "⏭ Skip"},
+		},
+		Tag: fmt.Sprintf("workout-%d", session.ID),
+		Metadata: map[string]interface{}{
+			"type":       "workout",
+			"session_id": session.ID,
+			"ad_hoc":     true,
+		},
+	}
+
+	sessionID := session.ID
+	c.Notify(context.Background(), n, func(msgID int) {
+		if err := c.store.SetSessionNotificationMessageID(sessionID, msgID); err != nil {
+			slog.Error("Failed to store ad-hoc notification message ID", "error", err)
+		}
+	})
 	return nil
 }
 

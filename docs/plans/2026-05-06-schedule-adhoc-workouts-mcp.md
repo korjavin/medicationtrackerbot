@@ -95,12 +95,12 @@ Today, the user can either create a recurring workout group (which becomes a per
 - Modify: `internal/scheduler/workout.go`
 - Modify: `internal/scheduler/workout_test.go`
 
-- [ ] extend the `WorkoutStore` interface in `scheduler/workout.go` with `ListPendingAdHocSessions(userID int64, before time.Time) ([]store.WorkoutSession, error)`
-- [ ] in `WorkoutChecker.Check()`, after the existing groups loop, add a pass that fetches pending ad-hoc sessions whose `scheduled_date + scheduled_time` is `<= now` (in user TZ) and: (a) sends a workout-due notification listing planned exercises, (b) flips status to `notified`, (c) reuses existing notification helpers and `SetSessionNotificationMessageID`
-- [ ] do not run rotation/cooldown logic for these (no group); skip the cross-TZ cooldown
-- [ ] keep handling for already-notified-but-stale ad-hoc sessions — same auto-skip / re-notify rules already applied to recurring sessions, branch on `group_id == -1` only where we'd otherwise touch rotation
-- [ ] write tests covering: (a) future pending ad-hoc not notified, (b) due pending ad-hoc notified and flipped, (c) ad-hoc with no exercises still notifies but message is generic
-- [ ] run `go test ./internal/scheduler/...` — must pass before task 6
+- [x] extend the `WorkoutStore` interface in `scheduler/workout.go` with `ListPendingAdHocSessions(userID int64, before time.Time) ([]store.WorkoutSession, error)`
+- [x] in `WorkoutChecker.Check()`, after the existing groups loop, add a pass that fetches pending ad-hoc sessions whose `scheduled_date + scheduled_time` is `<= now` (in user TZ) and: (a) sends a workout-due notification listing planned exercises, (b) flips status to `notified`, (c) reuses existing notification helpers and `SetSessionNotificationMessageID`
+- [x] do not run rotation/cooldown logic for these (no group); skip the cross-TZ cooldown
+- [x] keep handling for already-notified-but-stale ad-hoc sessions — same auto-skip / re-notify rules already applied to recurring sessions, branch on `group_id == -1` only where we'd otherwise touch rotation
+- [x] write tests covering: (a) future pending ad-hoc not notified, (b) due pending ad-hoc notified and flipped, (c) ad-hoc with no exercises still notifies but message is generic
+- [x] run `go test ./internal/scheduler/...` — must pass before task 6 (passes; pre-existing unrelated `TestMedicationCheckerTZAware/cancelled_plan` failure exists on master and is not caused by this task)
 
 ### Task 6: Verify acceptance criteria
 
