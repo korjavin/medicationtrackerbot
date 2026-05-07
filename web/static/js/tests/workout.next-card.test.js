@@ -20,7 +20,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
 import { allowConsoleNoise } from './helpers/setup.js';
 
@@ -153,6 +153,40 @@ describe('Workouts → Next workout card (Round-2 Task 10)', () => {
 
         // Kicker text reflects the in-progress status.
         expect(container.querySelector('.wg-workouts-next-card__kicker').textContent).toBe('In Progress');
+    });
+
+    // Regression guard: tapping the secondary "Finish" button on the in_progress
+    // card must drive the completion path (PUT status=completed), not a delete
+    // or cancel. The card label and the underlying handler used to disagree
+    // (button said "Stop", function was named cancelWorkoutSession even though
+    // it marked the session completed); this test pins the wired-up behavior so
+    // a future label/handler swap can't silently regress it.
+    it('#13a: tapping Finish on the in_progress card calls the completion API', async () => {
+        const { window, document } = env;
+        const container = document.getElementById('next-workout-card');
+        window._renderNextWorkout(container, baseData({
+            session: {
+                id: 101, status: 'in_progress', scheduled_date: '2026-04-24',
+                scheduled_time: '09:00', is_today: true
+            }
+        }));
+
+        const apiCallSpy = vi.fn().mockResolvedValue({});
+        window.apiCall = apiCallSpy;
+        window.safeConfirm = (_msg, cb) => cb(true);
+        window.loadNextWorkout = vi.fn();
+        window.loadWorkoutHistoryTab = vi.fn();
+
+        const finishBtn = container.querySelectorAll(
+            '.wg-workouts-next-card__actions > .wg-toolbar-btn'
+        )[1];
+        finishBtn.click();
+        // Drain the microtask queue (safeConfirm → apiCall chain).
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(apiCallSpy).toHaveBeenCalledWith(
+            '/api/workout/sessions/status?id=101', 'PUT', { status: 'completed' }
+        );
     });
 
     it('#13a: pre_skipped status emits Cancel Skip (primary) + optional Next Variant (secondary)', () => {
