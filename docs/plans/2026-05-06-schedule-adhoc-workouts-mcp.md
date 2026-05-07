@@ -47,10 +47,10 @@ Today, the user can either create a recurring workout group (which becomes a per
 - Modify: `internal/store/workout.go`
 - Modify: `internal/store/workout_test.go`
 
-- [ ] add `ListPendingAdHocSessions(userID int64, before time.Time) ([]WorkoutSession, error)` returning sessions with `group_id = -1` AND `status = 'pending'` AND `scheduled_date <= before` (date+time combined), ordered by date+time ascending
-- [ ] add a helper `CreatePlannedAdHocSession(userID int64, scheduledDate time.Time, scheduledTime string) (*WorkoutSession, error)` that mirrors `CreateAdHocWorkoutSession` but inserts with `status = 'pending'` and `started_at = NULL`
-- [ ] write integration tests for both new methods in `internal/store/workout_test.go`
-- [ ] run `go test ./internal/store/...` — must pass before task 2
+- [x] add `ListPendingAdHocSessions(userID int64, before time.Time) ([]WorkoutSession, error)` returning sessions with `group_id = -1` AND `status = 'pending'` AND `scheduled_date <= before` (date+time combined), ordered by date+time ascending
+- [x] add a helper `CreatePlannedAdHocSession(userID int64, scheduledDate time.Time, scheduledTime string) (*WorkoutSession, error)` that mirrors `CreateAdHocWorkoutSession` but inserts with `status = 'pending'` and `started_at = NULL`
+- [x] write integration tests for both new methods in `internal/store/workout_test.go`
+- [x] run `go test ./internal/store/...` — new tests pass; one pre-existing unrelated failure (`TestListDiaryNotes_Since`) was already failing before this task
 
 ### Task 2: Domain service — schedule operation
 
