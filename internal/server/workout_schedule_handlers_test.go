@@ -441,6 +441,70 @@ func TestHandleScheduleAdHocWorkoutSession_RejectsNegativeExerciseID(t *testing.
 	}
 }
 
+func TestHandleScheduleAdHocWorkoutSession_RejectsWhitespaceOnlyName(t *testing.T) {
+	srv, db := createGenericTestServer(t)
+	defer db.Close()
+
+	tomorrow := time.Now().AddDate(0, 0, 1).Format("2006-01-02")
+	body := map[string]any{
+		"scheduled_date": tomorrow,
+		"scheduled_time": "07:30",
+		"exercises": []map[string]any{
+			{"exercise_name": "   ", "target_sets": 3, "target_reps_min": 6},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/workout/sessions/schedule", bytes.NewReader(bodyBytes))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleScheduleAdHocWorkoutSession(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Expected 400 for whitespace-only exercise_name, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleScheduleAdHocWorkoutSession_TrimsExerciseName(t *testing.T) {
+	srv, db := createGenericTestServer(t)
+	defer db.Close()
+
+	tomorrow := time.Now().AddDate(0, 0, 1).Format("2006-01-02")
+	body := map[string]any{
+		"scheduled_date": tomorrow,
+		"scheduled_time": "07:30",
+		"exercises": []map[string]any{
+			{"exercise_name": "  Bench Press  ", "target_sets": 3, "target_reps_min": 6},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/workout/sessions/schedule", bytes.NewReader(bodyBytes))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleScheduleAdHocWorkoutSession(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("Expected 201 for padded exercise_name, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Session *store.WorkoutSession `json:"session"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+	logs, err := db.GetExerciseLogs(resp.Session.ID)
+	if err != nil {
+		t.Fatalf("GetExerciseLogs: %v", err)
+	}
+	if len(logs) != 1 {
+		t.Fatalf("Expected 1 placeholder log, got %d", len(logs))
+	}
+	if logs[0].ExerciseName != "Bench Press" {
+		t.Errorf("Expected trimmed exercise_name, got %q", logs[0].ExerciseName)
+	}
+}
+
 func TestHandleScheduleAdHocWorkoutSession_RejectsMissingIDAndName(t *testing.T) {
 	srv, db := createGenericTestServer(t)
 	defer db.Close()
