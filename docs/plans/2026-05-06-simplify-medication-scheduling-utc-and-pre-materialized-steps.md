@@ -374,19 +374,24 @@ so the table is left as DATETIME until D5 retires it.
   `internal/scheduler/tz_plan_notifier.go` switch to calling the
   service; the Telegram bot's approve callback (if any) does the
   same.
-- [ ] add `Store.ApproveAndMaterialize(planID, allowedUserID int64, approvedAtUnix int64) (bool, error)`:
+- [ ] add `Store.ApproveAndMaterialize(planID, allowedUserID, approvedAtUnix int64) (bool, error)`:
   internal helper used by the service that opens a single `*sql.Tx`
   and calls private `setTZTransitionPlanApprovedTx(tx, …)` and
   `materializePlanStepsAsIntakesTx(tx, planID, allowedUserID)`
-  against that tx, then `Commit()`. The runtime helper takes
-  `allowedUserID` explicitly — same single-user-derivation problem
-  as the backfill (see D2's "one-shot backfill" task), but at runtime
-  the service has the value in scope from the bot/server wiring at
-  `cmd/bot/main.go:218`. Plumb it through `LifecycleService.Approve`
-  (constructed once with the operator's user_id) so the approve
-  callers don't need to think about it.
-  Approve→crash→restart cannot leave a plan APPROVED with no
-  materialized intakes, because both writes share one tx.
+  against that tx, then `Commit()`. **Bool semantics**: `(true, nil)`
+  when this call performed the approval (plan was PENDING_APPROVAL /
+  NOTIFIED at tx start, is now APPROVED with steps materialized);
+  `(false, nil)` when the plan was already past pending and this call
+  is a benign no-op (e.g. another caller approved first). Any error
+  rolls the tx back via the deferred `Rollback` and returns
+  `(false, err)`. The runtime helper takes `allowedUserID` explicitly
+  — same single-user-derivation problem as the backfill (see D2's
+  "one-shot backfill" task), but at runtime the service has the
+  value in scope from the bot/server wiring at `cmd/bot/main.go:218`.
+  Plumb it through `LifecycleService.Approve` (constructed once with
+  the operator's user_id) so the approve callers don't need to think
+  about it. Approve→crash→restart cannot leave a plan APPROVED with
+  no materialized intakes, because both writes share one tx.
 - [ ] add a partial unique index
   `(tz_plan_id, tz_step_number) WHERE tz_plan_id IS NOT NULL` so
   re-running materialize is idempotent (e.g. via `INSERT OR IGNORE`)
@@ -405,9 +410,13 @@ so the table is left as DATETIME until D5 retires it.
   (a) `intake_log.user_id` is `INTEGER NOT NULL` and must reference the
   operator's Telegram ID; the project is single-user gated by
   `ALLOWED_USER_ID` at `cmd/bot/main.go:66`, but SQL migrations have no
-  access to env vars; (b) `medications` has no `user_id` column
-  (`001_init.sql:1-9`), so we can't join through it to derive one;
-  (c) `tz_transition_steps.scheduled_at` and `consumed_at` are still
+  access to env vars and the migration can't fall back to
+  `SELECT user_id FROM intake_log LIMIT 1` because a fresh deploy may
+  have an APPROVED plan with zero fired intake rows yet — the SELECT
+  would no-op and silently lose that plan's scheduling; (b)
+  `medications` has no `user_id` column (`001_init.sql:1-9`), so we
+  can't join through it to derive one either; (c)
+  `tz_transition_steps.scheduled_at` and `consumed_at` are still
   `DATETIME` at this point — A5 deliberately skipped the table since
   D5 will drop it — so the backfill must use `strftime('%s', …)` to
   bridge the two formats.
@@ -419,24 +428,32 @@ so the table is left as DATETIME until D5 retires it.
   ```go
   // 0XX_backfill_pre_materialized_tz_steps.go
   func upBackfillPreMaterializedTZSteps(ctx context.Context, tx *sql.Tx) error {
-      // Operator's user_id from any existing intake row. Single-user
-      // project; if intake_log is empty there is no historical user
-      // to attribute backfilled rows to, and there can also be no
-      // APPROVED plan that fired against a vanished user — bail.
-      var userID int64
-      err := tx.QueryRowContext(ctx, `SELECT user_id FROM intake_log LIMIT 1`).Scan(&userID)
-      if errors.Is(err, sql.ErrNoRows) {
-          return nil
+      // Operator's user_id from env — single-user project gated by
+      // ALLOWED_USER_ID at cmd/bot/main.go:66. Reading from env (vs.
+      // SELECT user_id FROM intake_log LIMIT 1) is stricter: a fresh
+      // deploy can have an APPROVED plan but zero fired intake rows
+      // yet, and a SELECT-based fallback would silently no-op and
+      // lose that plan's scheduling. Failing loudly when the env var
+      // is unset is the right behaviour — the binary itself won't
+      // start without ALLOWED_USER_ID, so this can only fire if the
+      // migration is run out-of-band.
+      userIDStr := os.Getenv("ALLOWED_USER_ID")
+      if userIDStr == "" {
+          return errors.New("backfill: ALLOWED_USER_ID not set; cannot attribute pre-materialized tz_step rows")
       }
+      userID, err := strconv.ParseInt(userIDStr, 10, 64)
       if err != nil {
-          return err
+          return fmt.Errorf("backfill: invalid ALLOWED_USER_ID %q: %w", userIDStr, err)
       }
 
       // Defensive: count steps whose medication has been deleted
       // (FK is declared but unenforced — PRAGMA foreign_keys=OFF
       // per internal/store/miband_workouts.go:419). Surface the
       // count so an operator can investigate; the inner JOIN below
-      // will silently drop these rows.
+      // will silently drop these rows. That drop is the correct
+      // outcome: a step for a deleted medication has no medication
+      // to dose, so there is nothing to schedule and no user-facing
+      // regression.
       var orphans int
       _ = tx.QueryRowContext(ctx, `
           SELECT COUNT(*) FROM tz_transition_steps s
@@ -671,25 +688,39 @@ producing duplicates.
 ### Atomic approve + materialize
 
 ```go
-func (s *Store) ApproveAndMaterialize(planID int64, approvedAtUnix int64) error {
+// ApproveAndMaterialize flips the plan to APPROVED and pre-materializes
+// every unconsumed step into intake_log under one transaction.
+//
+// Returns (true, nil) when this call performed the approval — the plan
+// was in PENDING_APPROVAL or NOTIFIED at the start of the tx and is now
+// APPROVED with steps materialized. Returns (false, nil) when the plan
+// was already in a non-pending status (e.g. another caller approved it
+// first); callers treat this as a benign no-op. Any error short-circuits
+// the tx via the deferred Rollback.
+func (s *Store) ApproveAndMaterialize(planID, allowedUserID, approvedAtUnix int64) (bool, error) {
     tx, err := s.db.Begin()
-    if err != nil { return err }
+    if err != nil { return false, err }
     defer tx.Rollback() // no-op after Commit
 
-    if err := setTZTransitionPlanApproved(tx, planID, approvedAtUnix); err != nil {
-        return err
+    approved, err := setTZTransitionPlanApprovedTx(tx, planID, approvedAtUnix)
+    if err != nil { return false, err }
+    if !approved {
+        return false, nil // plan already moved past PENDING — benign no-op
     }
-    if err := materializePlanStepsAsIntakes(tx, planID); err != nil {
-        return err
+    if err := materializePlanStepsAsIntakesTx(tx, planID, allowedUserID); err != nil {
+        return false, err
     }
-    return tx.Commit()
+    return true, tx.Commit()
 }
 ```
 
-Both the HTTP `tz_plan_approve` handler and `tz_plan_notifier`'s
-auto-approve path call this single helper. There is no code path that
-flips `status='APPROVED'` without immediately materializing — a crash
-between the two is impossible because they share one tx.
+`allowedUserID` is plumbed in from the wiring site at
+`cmd/bot/main.go:218` via `LifecycleService`, the same env-var-derived
+operator ID the runtime uses elsewhere. Both the HTTP
+`tz_plan_approve` handler and `tz_plan_notifier`'s auto-approve path
+call the service, which wraps this single helper. There is no code
+path that flips `status='APPROVED'` without immediately materializing
+— a crash between the two is impossible because they share one tx.
 
 ### Dedup predicate (Task D3)
 
