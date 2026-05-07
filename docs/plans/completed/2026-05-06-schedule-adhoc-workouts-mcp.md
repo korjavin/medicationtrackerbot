@@ -110,7 +110,7 @@ Today, the user can either create a recurring workout group (which becomes a per
 
 ### Task 7: Update documentation
 
-- [ ] update `docs/api.md` with the new `POST /api/workout/sessions/schedule` route
-- [ ] update `docs/features.md` workout section with one paragraph on scheduled ad-hoc workouts (MCP-only creation)
-- [ ] add the new operation to `docs/mcp-coverage.md` if it lists ops explicitly (otherwise covered automatically by registry)
-- [ ] move this plan to `docs/plans/completed/`
+- [x] update `docs/api.md` with the new `POST /api/workout/sessions/schedule` route
+- [x] update `docs/features.md` workout section with one paragraph on scheduled ad-hoc workouts (MCP-only creation)
+- [x] add the new operation to `docs/mcp-coverage.md` if it lists ops explicitly (otherwise covered automatically by registry) — N/A: `mcp-coverage.md` is descriptive only and does not list ops explicitly; the registered Operation in `internal/mcp/registry/operations_workouts.go` is automatically covered by the guard test
+- [x] move this plan to `docs/plans/completed/`
