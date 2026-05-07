@@ -123,6 +123,15 @@ Every numbered point above was the source of one of the recent bugs.
   `0XX_*` placeholders throughout and pins `057` only as the
   next-free number at the time of writing — A5's expansion will
   consume several more before D-track ships.
+- **Goose Go migrations are introduced by this plan.** The project
+  has been goose-SQL-only by convention (verified: every file in
+  `internal/store/migrations/` is `*.sql`, and `goose.SetBaseFS` /
+  `goose.Up` at `internal/store/store.go:222-226` runs against the
+  embedded SQL FS). Goose itself supports Go migrations alongside
+  SQL — the D2 backfill is the first use, and exists because the SQL
+  form needs the operator's `user_id` from env, which SQL migrations
+  can't read. Document the precedent in `docs/architecture.md` so
+  future Go migrations follow the same pattern.
 - **TDD.** Every gap I've identified has a regression test that exists or
   needs to exist. Each task starts with a red test and ends green. The
   cross-TZ tests added in 1169cd6 and the overlap-guard tests added in
@@ -365,12 +374,17 @@ so the table is left as DATETIME until D5 retires it.
   `internal/scheduler/tz_plan_notifier.go` switch to calling the
   service; the Telegram bot's approve callback (if any) does the
   same.
-- [ ] add `Store.ApproveAndMaterialize(planID int64, approvedAtUnix int64) (bool, error)`:
+- [ ] add `Store.ApproveAndMaterialize(planID, allowedUserID int64, approvedAtUnix int64) (bool, error)`:
   internal helper used by the service that opens a single `*sql.Tx`
   and calls private `setTZTransitionPlanApprovedTx(tx, …)` and
-  `materializePlanStepsAsIntakesTx(tx, …)` against that tx, then
-  `Commit()`. The exported helpers in `Store.*` retain their current
-  signatures for tests but route through the tx-internal versions.
+  `materializePlanStepsAsIntakesTx(tx, planID, allowedUserID)`
+  against that tx, then `Commit()`. The runtime helper takes
+  `allowedUserID` explicitly — same single-user-derivation problem
+  as the backfill (see D2's "one-shot backfill" task), but at runtime
+  the service has the value in scope from the bot/server wiring at
+  `cmd/bot/main.go:218`. Plumb it through `LifecycleService.Approve`
+  (constructed once with the operator's user_id) so the approve
+  callers don't need to think about it.
   Approve→crash→restart cannot leave a plan APPROVED with no
   materialized intakes, because both writes share one tx.
 - [ ] add a partial unique index
@@ -380,44 +394,98 @@ so the table is left as DATETIME until D5 retires it.
   pre-materialized rows" path: `DELETE FROM intake_log WHERE
   tz_plan_id=? AND status='PENDING' AND source='tz_step'` — wire it
   into the plan cancel flow in `tzreschedule/planner.go`
-- [ ] **one-shot backfill via SQL migration, not a new tracking
-  table.** When this migration ships, plans already in `APPROVED`
-  (with steps not yet fired) must have their steps materialized too —
-  otherwise an APPROVED plan whose first step is two days out
-  silently loses its scheduling because the scheduler now reads
-  `intake_log` instead of `tz_transition_steps`. The project uses
-  goose SQL migrations only — no Go migrations, no separate
-  `_data_migrations` table. Do the backfill inline in the same SQL
-  migration that creates the `source` / `tz_plan_id` columns:
+- [ ] **one-shot backfill via a goose Go migration.** When this
+  migration ships, plans already in `APPROVED` (with steps not yet
+  fired) must have their steps materialized too — otherwise an
+  APPROVED plan whose first step is two days out silently loses its
+  scheduling because the scheduler now reads `intake_log` instead of
+  `tz_transition_steps`.
 
-  ```sql
-  INSERT OR IGNORE INTO intake_log
-    (medication_id, user_id, scheduled_at_unix, status, source,
-     tz_plan_id, tz_step_number)
-  SELECT
-    s.medication_id,
-    (SELECT user_id FROM intake_log LIMIT 1) AS user_id, -- single-user app
-    s.scheduled_at_unix,
-    'PENDING',
-    'tz_step',
-    s.plan_id,
-    s.step_number
-  FROM tz_transition_steps s
-  JOIN tz_transition_plans p ON p.id = s.plan_id
-  WHERE p.status = 'APPROVED'
-    AND s.consumed_at_unix IS NULL;
+  Three constraints push this to a Go migration rather than pure SQL:
+  (a) `intake_log.user_id` is `INTEGER NOT NULL` and must reference the
+  operator's Telegram ID; the project is single-user gated by
+  `ALLOWED_USER_ID` at `cmd/bot/main.go:66`, but SQL migrations have no
+  access to env vars; (b) `medications` has no `user_id` column
+  (`001_init.sql:1-9`), so we can't join through it to derive one;
+  (c) `tz_transition_steps.scheduled_at` and `consumed_at` are still
+  `DATETIME` at this point — A5 deliberately skipped the table since
+  D5 will drop it — so the backfill must use `strftime('%s', …)` to
+  bridge the two formats.
+
+  Goose supports Go migrations alongside SQL (the project has been
+  SQL-only by convention; this introduces the first Go migration —
+  document the precedent in `docs/architecture.md`). Shape:
+
+  ```go
+  // 0XX_backfill_pre_materialized_tz_steps.go
+  func upBackfillPreMaterializedTZSteps(ctx context.Context, tx *sql.Tx) error {
+      // Operator's user_id from any existing intake row. Single-user
+      // project; if intake_log is empty there is no historical user
+      // to attribute backfilled rows to, and there can also be no
+      // APPROVED plan that fired against a vanished user — bail.
+      var userID int64
+      err := tx.QueryRowContext(ctx, `SELECT user_id FROM intake_log LIMIT 1`).Scan(&userID)
+      if errors.Is(err, sql.ErrNoRows) {
+          return nil
+      }
+      if err != nil {
+          return err
+      }
+
+      // Defensive: count steps whose medication has been deleted
+      // (FK is declared but unenforced — PRAGMA foreign_keys=OFF
+      // per internal/store/miband_workouts.go:419). Surface the
+      // count so an operator can investigate; the inner JOIN below
+      // will silently drop these rows.
+      var orphans int
+      _ = tx.QueryRowContext(ctx, `
+          SELECT COUNT(*) FROM tz_transition_steps s
+          JOIN tz_transition_plans p ON p.id = s.plan_id
+          LEFT JOIN medications m ON m.id = s.medication_id
+          WHERE p.status = 'APPROVED' AND s.consumed_at IS NULL
+            AND m.id IS NULL`).Scan(&orphans)
+      if orphans > 0 {
+          slog.Warn("backfill: skipping tz steps for deleted medications",
+              "orphan_count", orphans)
+      }
+
+      res, err := tx.ExecContext(ctx, `
+          INSERT OR IGNORE INTO intake_log
+            (medication_id, user_id, scheduled_at_unix, status,
+             source, tz_plan_id, tz_step_number)
+          SELECT
+            s.medication_id,
+            ?,
+            CAST(strftime('%s', s.scheduled_at) AS INTEGER),
+            'PENDING',
+            'tz_step',
+            s.plan_id,
+            s.step_number
+          FROM tz_transition_steps s
+          JOIN tz_transition_plans p ON p.id = s.plan_id
+          JOIN medications m ON m.id = s.medication_id
+          WHERE p.status = 'APPROVED'
+            AND s.consumed_at IS NULL`, userID)
+      if err != nil {
+          return err
+      }
+      n, _ := res.RowsAffected()
+      slog.Info("backfill: pre-materialized tz step rows",
+          "count", n, "orphans_skipped", orphans)
+      return nil
+  }
   ```
 
-  Goose runs each migration once per DB; the `INSERT OR IGNORE`
+  Goose only runs the migration once per DB. The `INSERT OR IGNORE`
   against the partial unique index added in this same migration makes
   the SQL safe to re-run if anyone manually replays the migration.
-  Backfill is therefore idempotent without a tracking table.
-- [ ] verify the backfill SQL on a CI fixture seeded with: one
+- [ ] verify the backfill on a CI fixture seeded with: one
   `APPROVED` plan with two steps, the first consumed and the second
   unconsumed; one `COMPLETED` plan with all steps consumed; one
-  `PENDING_APPROVAL` plan. Assert exactly one row was inserted into
-  `intake_log` (the unconsumed step from the APPROVED plan) and that
-  re-running the migration is a no-op.
+  `PENDING_APPROVAL` plan; one orphan step whose medication was
+  deleted. Assert exactly one row was inserted into `intake_log` (the
+  unconsumed step from the APPROVED plan), the orphan-skipped count
+  is 1, and re-running the migration is a no-op.
 - [ ] tests: approve + materialize, reject leaves no rows, cancel
   cleans up PENDING `tz_step` rows; idempotent re-approve produces no
   duplicates; **one explicit test that simulates the backfill on a
@@ -588,6 +656,11 @@ INSERT OR IGNORE INTO intake_log
 VALUES
   (?, ?, ?, 'PENDING', 'tz_step', ?, ?);
 ```
+
+`user_id` is the operator's Telegram ID (single-user project gated by
+`ALLOWED_USER_ID`); the runtime helper takes it as a parameter and the
+backfill migration reads it from the first existing `intake_log` row
+(see D2 backfill task for the rationale).
 
 `INSERT OR IGNORE` against the partial unique index
 `(tz_plan_id, tz_step_number) WHERE tz_plan_id IS NOT NULL` makes
