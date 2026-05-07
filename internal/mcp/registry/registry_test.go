@@ -411,6 +411,7 @@ func TestWorkoutOperations(t *testing.T) {
 		"workouts.miband.delete":            true,
 		"workouts.rotation.initialize":      true,
 		"workouts.sessions.adhoc":           true,
+		"workouts.sessions.schedule":        true,
 		"workouts.sessions.delete":          true,
 		"workouts.sessions.snooze":          true,
 		"workouts.sessions.skip":            true,
