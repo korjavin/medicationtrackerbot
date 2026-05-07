@@ -123,6 +123,39 @@ func TestWorkoutChecker_AdHocDue_NotifiedAndFlipped(t *testing.T) {
 	}
 }
 
+// TestAdHocScheduledMoment_WestOfUTC verifies that reconstructing the
+// scheduled moment from a stored UTC-midnight scheduled_date does not shift
+// the calendar day for west-of-UTC users. Regression for a bug that caused
+// the 3h re-notify and 6h auto-skip to fire immediately after first
+// notification because the moment was computed for the previous day.
+func TestAdHocScheduledMoment_WestOfUTC(t *testing.T) {
+	// stored as the handler stores it: time.Parse("2006-01-02", ...) yields
+	// UTC midnight on the user's intended calendar day.
+	sess := &store.WorkoutSession{
+		ScheduledDate: time.Date(2030, 6, 15, 0, 0, 0, 0, time.UTC),
+		ScheduledTime: "07:30",
+	}
+
+	for _, tz := range []string{"UTC", "Asia/Tokyo", "America/New_York", "Pacific/Honolulu"} {
+		t.Run(tz, func(t *testing.T) {
+			loc, err := time.LoadLocation(tz)
+			if err != nil {
+				t.Skipf("LoadLocation(%q) unavailable on host: %v", tz, err)
+			}
+			got := adHocScheduledMoment(sess, loc)
+			if got.Year() != 2030 || got.Month() != time.June || got.Day() != 15 {
+				t.Errorf("expected calendar date 2030-06-15, got %v", got)
+			}
+			if got.Hour() != 7 || got.Minute() != 30 {
+				t.Errorf("expected 07:30 wall-clock, got %v", got)
+			}
+			if got.Location().String() != tz {
+				t.Errorf("expected location %q, got %q", tz, got.Location().String())
+			}
+		})
+	}
+}
+
 // TestWorkoutChecker_AdHocDue_NoExercises_GenericMessage covers the edge case
 // where a user scheduled a one-off without specifying any exercises: the
 // scheduler must still notify them, with a generic body.

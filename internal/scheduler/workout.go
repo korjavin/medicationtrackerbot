@@ -457,11 +457,19 @@ func (c *WorkoutChecker) checkNotifiedAdHocSessions(ctx context.Context, now tim
 // adHocScheduledMoment combines a session's stored scheduled_date and
 // scheduled_time into a single time.Time anchored to the supplied location.
 // Falls back gracefully if scheduled_time is malformed.
+//
+// scheduled_date is persisted as UTC midnight on the user's intended calendar
+// day (the HTTP handler parses YYYY-MM-DD via time.Parse, which yields UTC).
+// We extract Y/M/D in UTC — re-localizing to a non-UTC zone before extraction
+// would shift the calendar day by one for west-of-UTC users (e.g. "2030-06-15
+// 00:00 UTC".In("America/New_York") = "2030-06-14 20:00 EDT", whose Day() is
+// 14), which would make the 3h re-notify / 6h auto-skip fire against the
+// wrong reference moment.
 func adHocScheduledMoment(sess *store.WorkoutSession, loc *time.Location) time.Time {
 	if loc == nil {
 		loc = time.Local
 	}
-	d := sess.ScheduledDate.In(loc)
+	d := sess.ScheduledDate.UTC()
 	hh := parseHour(sess.ScheduledTime)
 	mm := parseMinute(sess.ScheduledTime)
 	return time.Date(d.Year(), d.Month(), d.Day(), hh, mm, 0, 0, loc)

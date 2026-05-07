@@ -9,6 +9,15 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
+// ErrScheduleInPast is returned by SchedulePlannedAdHocSession when the
+// requested moment is at-or-before the current time in the user's timezone.
+// HTTP callers map this to 400 Bad Request; other errors should be 500.
+var ErrScheduleInPast = errors.New("scheduled time must be in the future")
+
+// ErrScheduleBadTime is returned by SchedulePlannedAdHocSession when the
+// scheduled_time string does not match strict 24-hour HH:MM form.
+var ErrScheduleBadTime = errors.New("scheduled_time must be HH:MM (24h)")
+
 // WorkoutStore is the narrow interface needed for compound workout operations.
 type WorkoutStore interface {
 	GetWorkoutSession(id int64) (*store.WorkoutSession, error)
@@ -137,7 +146,7 @@ func (s *Service) SchedulePlannedAdHocSession(userID int64, scheduledDate time.T
 
 	planned := time.Date(scheduledDate.Year(), scheduledDate.Month(), scheduledDate.Day(), hh, mm, 0, 0, loc)
 	if !planned.After(s.Now()) {
-		return nil, fmt.Errorf("scheduled time must be in the future")
+		return nil, ErrScheduleInPast
 	}
 
 	session, err := s.store.CreatePlannedAdHocSession(userID, scheduledDate, scheduledTime)
@@ -163,11 +172,11 @@ func (s *Service) SchedulePlannedAdHocSession(userID int64, scheduledDate time.T
 // values like "7:30" or "07:30:00".
 func parseHHMM(s string) (int, int, error) {
 	if len(s) != 5 || s[2] != ':' {
-		return 0, 0, errors.New("scheduled_time must be HH:MM (24h)")
+		return 0, 0, ErrScheduleBadTime
 	}
 	t, err := time.Parse("15:04", s)
 	if err != nil {
-		return 0, 0, errors.New("scheduled_time must be HH:MM (24h)")
+		return 0, 0, ErrScheduleBadTime
 	}
 	return t.Hour(), t.Minute(), nil
 }
