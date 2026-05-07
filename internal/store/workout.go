@@ -714,6 +714,90 @@ func (s *Store) CreateAdHocWorkoutSession(userID int64, scheduledDate time.Time,
 	return s.GetWorkoutSession(id)
 }
 
+// CreatePlannedAdHocSession creates a future ad-hoc workout in 'pending' state.
+// Mirrors CreateAdHocWorkoutSession but leaves started_at NULL and status='pending'
+// so the scheduler can later notify the user at scheduledDate+scheduledTime.
+func (s *Store) CreatePlannedAdHocSession(userID int64, scheduledDate time.Time, scheduledTime string) (*WorkoutSession, error) {
+	res, err := s.db.Exec(`
+		INSERT INTO workout_sessions (group_id, variant_id, user_id, scheduled_date, scheduled_time, status)
+		VALUES (-1, -1, ?, ?, ?, 'pending')`,
+		userID, scheduledDate, scheduledTime)
+	if err != nil {
+		return nil, err
+	}
+
+	id, err := res.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
+
+	return s.GetWorkoutSession(id)
+}
+
+// ListPendingAdHocSessions returns ad-hoc workout sessions (group_id = -1)
+// for the given user that are still 'pending' and whose scheduled date+time
+// is at or before `before`. Sessions are ordered by scheduled_date ASC then
+// scheduled_time ASC. The scheduler uses this to fire the notification when
+// a planned ad-hoc workout becomes due.
+//
+// scheduled_date is stored by the modernc.org/sqlite driver as an RFC 3339
+// string (e.g. "2030-06-01T00:00:00Z"). SQLite's DATE() builtin doesn't
+// parse the trailing 'Z', so we use a leading 10-char substring instead —
+// the lexicographic order matches calendar order.
+func (s *Store) ListPendingAdHocSessions(userID int64, before time.Time) ([]WorkoutSession, error) {
+	dateBound := before.Format("2006-01-02")
+	timeBound := before.Format("15:04")
+	rows, err := s.db.Query(`
+		SELECT id, group_id, variant_id, user_id, scheduled_date, scheduled_time, status, started_at, completed_at, snoozed_until, snooze_count, notification_message_id, notes
+		FROM workout_sessions
+		WHERE user_id = ?
+		  AND group_id = -1
+		  AND status = 'pending'
+		  AND (
+		      substr(scheduled_date, 1, 10) < ?
+		      OR (substr(scheduled_date, 1, 10) = ? AND scheduled_time <= ?)
+		  )
+		ORDER BY scheduled_date ASC, scheduled_time ASC`,
+		userID, dateBound, dateBound, timeBound)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var sessions []WorkoutSession
+	for rows.Next() {
+		var ws WorkoutSession
+		var startedAt, completedAt, snoozedUntil sql.NullTime
+		var notificationMsgID sql.NullInt64
+		var notes sql.NullString
+
+		if err := rows.Scan(&ws.ID, &ws.GroupID, &ws.VariantID, &ws.UserID, &ws.ScheduledDate, &ws.ScheduledTime, &ws.Status,
+			&startedAt, &completedAt, &snoozedUntil, &ws.SnoozeCount, &notificationMsgID, &notes); err != nil {
+			return nil, err
+		}
+
+		if startedAt.Valid {
+			ws.StartedAt = &startedAt.Time
+		}
+		if completedAt.Valid {
+			ws.CompletedAt = &completedAt.Time
+		}
+		if snoozedUntil.Valid {
+			ws.SnoozedUntil = &snoozedUntil.Time
+		}
+		if notificationMsgID.Valid {
+			msgID := int(notificationMsgID.Int64)
+			ws.NotificationMessageID = &msgID
+		}
+		if notes.Valid {
+			ws.Notes = notes.String
+		}
+
+		sessions = append(sessions, ws)
+	}
+	return sessions, nil
+}
+
 func (s *Store) GetWorkoutSession(id int64) (*WorkoutSession, error) {
 	var ws WorkoutSession
 	var startedAt, completedAt, snoozedUntil sql.NullTime
