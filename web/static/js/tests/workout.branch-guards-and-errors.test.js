@@ -236,7 +236,7 @@ describe('workout.js guard and error branches', () => {
       expect(window.safeAlert).toHaveBeenCalledWith('❌ Failed to start workout. Please try again.');
 
       window.apiCall = vi.fn().mockRejectedValue(new Error('no finish'));
-      await window.cancelWorkoutSession(17);
+      await window.completeWorkoutSession(17);
       expect(window.safeAlert).toHaveBeenCalledWith('Failed to finish workout');
 
       window.apiCall = vi.fn().mockRejectedValue(new Error('preskip fail'));

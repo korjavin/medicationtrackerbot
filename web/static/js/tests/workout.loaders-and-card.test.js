@@ -35,7 +35,7 @@ describe('workout.js loaders and next-card behavior', () => {
       await window.loadNextWorkout();
       expect(window.DataStore.loadSWR).toHaveBeenCalled();
       expect(nextCard.innerHTML).toContain('In Progress');
-      expect(nextCard.innerHTML).toContain('Continue');
+      expect(nextCard.innerHTML).toContain('View');
 
       window._renderNextWorkout(nextCard, {
         ...nextData,

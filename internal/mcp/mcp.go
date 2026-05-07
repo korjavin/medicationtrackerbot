@@ -230,7 +230,7 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcpServer,
 		&mcp.Tool{
 			Name:        "mcp_help",
-			Description: "List available backend operations for use in mcp_execute scripts. Filter by topic or look up a single operation_id. Each entry includes params, body schema, and a Python example.",
+			Description: "List available backend operations for use in mcp_execute scripts. Filter by topic (one of: 'workouts', 'medications', 'food', 'health'; omit or pass 'all' for the full catalog) or pass operation_id (e.g. 'workouts.groups.list') for a single-entry lookup. operation_id takes precedence over topic when both are passed. Each entry includes params/body schema, return shape, and a Python example. Read-only and safe to call before any write.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -252,7 +252,7 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcpServer,
 		&mcp.Tool{
 			Name:        "mcp_execute",
-			Description: "Run a sandboxed Python script against backend APIs. Scripts call api.call(operation_id, params, body) and record a final result with output(value). Use mcp_help to discover available operations and their schemas before writing scripts.",
+			Description: "Run a sandboxed Python script against backend APIs. The script MUST call output(value) exactly once — calling it zero times or more than once aborts the run. Discover operations via mcp_help BEFORE writing the script. For writes, pass mode='write' AND a non-empty intent (a one-sentence human-readable summary of what the script will change, e.g. 'Archive medication Lisinopril'). topic_allowlist (optional) restricts which operation topics the script may access; an empty list means all topics are allowed. Timestamps inside scripts use the user's stored timezone unless an operation accepts an explicit tz/tz_offset. Returns {status, result, error, api_calls, stdout, stderr}.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"required": ["script"],
@@ -268,7 +268,7 @@ func (s *Server) registerTools() {
 					},
 					"intent": {
 						"type": "string",
-						"description": "Human-readable description of what the script intends to change. Required when mode='write'."
+						"description": "Required when mode='write'. One short human-readable sentence describing the change (e.g. 'Archive medication Lisinopril', 'Log 200kcal lunch'). Recorded in the audit trail."
 					},
 					"timeout_ms": {
 						"type": "integer",
@@ -487,7 +487,7 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcpServer,
 		&mcp.Tool{
 			Name:        "log_food_intake",
-			Description: "Log a food intake entry with macros (calories, carbs, protein, fat) and the time it was eaten. Use this when you can estimate or look up nutritional info from a description or photo of a meal. You can backfill past meals by specifying eaten_at. The name is the shared identity for every future log of this food, so always normalize it: canonical English, lowercase, generic ingredient form, no situational notes (good: \"boiled egg\", \"oatmeal\", \"chicken breast\"; bad: \"вареное яйцо\", \"boiled eggs breakfast\", \"boiled eggs airline\", \"2 boiled eggs\"). Prefer a name the user has already logged (visible via get_food_intake) so logs roll up under one product.",
+			Description: "Log a single food intake entry with macros (kcal calories, gram-based carbs/protein/fat) and the time eaten. Use when you can estimate or look up nutritional info from a description or photo of a meal. eaten_at can be any past date for backfill (no window limit) or 'now'. The name is the shared identity for every future log of this food, so always normalize it: canonical English, lowercase, generic ingredient form, no situational notes (good: \"boiled egg\", \"oatmeal\", \"chicken breast\"; bad: \"вареное яйцо\", \"boiled eggs breakfast\", \"boiled eggs airline\", \"2 boiled eggs\"). Prefer a name the user has already logged (visible via get_food_intake) so logs roll up under one product. SIDE EFFECT: each call creates a new row — duplicates are NOT deduplicated, so verify before re-logging. NOTE: this legacy tool always creates a fresh ad-hoc product; for entries that should reuse a saved product, prefer the food.products.search + food.log.create flow via mcp_execute.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"required": ["name", "eaten_at", "calories", "carbs_g", "protein_g", "fat_g", "weight_g"],
@@ -530,7 +530,7 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcpServer,
 		&mcp.Tool{
 			Name:        "workout_log",
-			Description: "Log, retrieve, and delete workout exercises. The 'operation' field selects one of: help (returns full protocol — call this first), log (append/upsert exercises to a session), get (recent N sessions with exercise logs), delete_exercise (remove an exercise log). Always call operation:\"help\" first to get input/response shapes, resolution rules, and idempotency semantics.",
+			Description: "Granular workout exercise logger. operation='help' returns the full protocol document with detailed shapes, resolution rules, and idempotency semantics — CALL FIRST before any other operation. operation='log' upserts exercises into a session: idempotent by (session_id + exercise_name), so a second call with the same exercise name updates the existing row instead of duplicating. operation='get' lists recent N sessions with exercise logs (default N=10, max 50). operation='delete_exercise' removes one exercise log by resolved name. session_ref is an alternative to session_id: 'last' = most recent session, 'today' = today's session, 'YYYY-MM-DD' = session on that date.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"required": ["operation"],
