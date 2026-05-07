@@ -161,18 +161,20 @@ Every numbered point above was the source of one of the recent bugs.
 
 ### Track A — Canonicalize `scheduled_at` as UTC unix seconds
 
-#### Task A1: Add `unixsec` helper package and audit current usages
+#### Task A1: Document the convention; no helper package
 
-- [ ] add `internal/util/unixsec/unixsec.go` with two functions:
-  `ToUnix(t time.Time) int64` (returns `t.Unix()` — independent of zone)
-  and `FromUnix(n int64) time.Time` (returns `time.Unix(n, 0).UTC()`)
-- [ ] write a table-driven test that asserts `FromUnix(ToUnix(t)).Equal(t)`
-  for `t` constructed in `Europe/Berlin`, `America/Los_Angeles`, and `UTC`
-- [ ] grep-audit every column in the table at the top of "What stores
-  dose times today" and record the call sites in a comment block at the
-  top of `unixsec.go` (so future readers know which columns went through
-  this helper)
-- [ ] no production code changes yet — task is preparation
+- [ ] **No new `internal/util/unixsec` package.** `t.Unix()` and
+  `time.Unix(n, 0).UTC()` are already the entire implementation; wrapping
+  them invents a top-level `internal/util` convention this repo doesn't
+  use, for one-line sugar. Conversions live inline at the store boundary.
+- [ ] add a single comment block at the top of `internal/store/store.go`
+  listing every dose-related column that's INTEGER (unix seconds, UTC)
+  and the Go-type expected on the read path. This is the audit anchor —
+  future readers grep one place to know which columns are unix-seconds.
+- [ ] add a table-driven test in `store_time_invariants_test.go` that,
+  for `t` constructed in `Europe/Berlin`, `America/Los_Angeles`, and
+  `UTC`, asserts `time.Unix(t.Unix(), 0).UTC().Equal(t)` — the
+  invariant the comment block is documenting
 
 #### Task A2: Migration — add `scheduled_at_unix` column to `intake_log`, backfill, dual-write
 
@@ -235,12 +237,21 @@ Every numbered point above was the source of one of the recent bugs.
 
 - [ ] update `docs/architecture.md` with a "Time storage" subsection:
   every dose-related time column is INTEGER unix seconds, UTC; the
-  `unixsec` helper is the only path; SQL equality is safe
-- [ ] add a `go vet`-style architecture test in `internal/store/` that
-  scans `*.sql` migrations and `store.go` for `DATETIME` declarations
-  on dose columns and fails CI when one reappears
+  comment block at the top of `store.go` is the audit anchor; SQL
+  equality is safe
+- [ ] add an architecture test in `internal/store/` that uses an
+  **allowlist of column names** (not a DATETIME grep). The list is
+  exactly the dose-related columns enumerated in A2/A5 (e.g.
+  `intake_log.scheduled_at_unix`, `intake_log.taken_at_unix`,
+  `intake_log.snoozed_until_unix`, `tz_transition_steps.*_unix` while
+  the table still exists, `tz_transition_plans.{created,notified,
+  approved}_at_unix`). The test parses the live SQLite schema via
+  `PRAGMA table_info(<table>)` and fails when any column on the
+  allowlist is not declared `INTEGER`. Non-dose `DATETIME` columns
+  (workouts, BP, weight, sleep) are deliberately untouched — the test
+  has no opinion about them.
 - [ ] update `CLAUDE.md` "Common tasks → Adding a new health metric" to
-  point at the unix-seconds rule
+  point at the unix-seconds rule for dose-like columns
 
 ### Track D — Pre-materialized transition steps as `intake_log` rows
 
@@ -250,37 +261,72 @@ Every numbered point above was the source of one of the recent bugs.
   `ALTER TABLE intake_log ADD COLUMN source TEXT NOT NULL DEFAULT 'schedule';`
   + `ADD COLUMN tz_plan_id INTEGER;`
   + `ADD COLUMN tz_step_number INTEGER;`
-  + foreign key `tz_plan_id` references `tz_transition_plans(id)`
+  + foreign key `tz_plan_id REFERENCES tz_transition_plans(id) ON DELETE SET NULL`
+    — the plan lifecycle (CANCELLED / COMPLETED / future GC) is owned by
+    the lifecycle plan, not this one; `SET NULL` keeps the historical
+    intake row intact when a plan is eventually deleted, and the
+    `source = 'tz_step'` value remains as audit. Document this in
+    `docs/architecture.md` "Time storage" subsection.
   + index `idx_intake_log_tz_plan_id` for the planner's "delete pending
     rows on plan cancel" query
 - [ ] update `IntakeLog` struct + `Scan` calls to expose the new columns
 - [ ] no behaviour change yet — `source` is always `'schedule'` in
   practice; this task only opens the slot
 - [ ] tests: existing intake suite green; one new test asserts the
-  default `source = 'schedule'`
+  default `source = 'schedule'`; one new test deletes a plan row and
+  asserts associated intakes survive with `tz_plan_id = NULL`
 
 #### Task D2: When a plan is approved, materialize steps as PENDING intakes
 
-- [ ] add `Store.MaterializePlanStepsAsIntakes(planID int64) error`:
-  in one transaction, iterate the plan's `tz_transition_steps`, insert
-  one `intake_log` row per step with `status='PENDING'`,
-  `source='tz_step'`, `tz_plan_id=planID`, `tz_step_number=step.StepNumber`,
-  `scheduled_at_unix = step.scheduled_at_unix`
-- [ ] hook into the approve path in `internal/server/medication_handlers.go`
-  (the `tz_plan_approve` endpoint) and the auto-approve path in
-  `tz_plan_notifier.go` — every code path that flips a plan to `APPROVED`
-  must call `MaterializePlanStepsAsIntakes` afterward, atomically with
-  the status update
-- [ ] add a uniqueness constraint or in-method dedup so re-running approve
-  is idempotent (e.g., `INSERT OR IGNORE` against a partial unique index
-  on `(tz_plan_id, tz_step_number)` where `tz_plan_id IS NOT NULL`)
+- [ ] add `Store.MaterializePlanStepsAsIntakes(tx *sql.Tx, planID int64) error`:
+  the helper takes the *Tx, **not** a *Store, so the caller controls
+  the transaction. Inside the call: iterate the plan's
+  `tz_transition_steps`, insert one `intake_log` row per step with
+  `status='PENDING'`, `source='tz_step'`, `tz_plan_id=planID`,
+  `tz_step_number=step.StepNumber`,
+  `scheduled_at_unix = step.scheduled_at_unix`.
+- [ ] explicit atomicity: every code path that flips a plan to
+  `APPROVED` opens a single `*sql.Tx`, calls
+  `SetTZTransitionPlanApproved(tx, ...)` and
+  `MaterializePlanStepsAsIntakes(tx, ...)` against that tx, then
+  `Commit()`. If the approve path is split between
+  `medication_handlers.go` (`tz_plan_approve`) and `tz_plan_notifier.go`
+  (auto-approve), refactor both to share one helper that owns the tx —
+  approve→crash→restart must not leave a plan APPROVED with no
+  materialized intakes.
+- [ ] add a partial unique index
+  `(tz_plan_id, tz_step_number) WHERE tz_plan_id IS NOT NULL` so
+  re-running materialize is idempotent (e.g. via `INSERT OR IGNORE`)
 - [ ] add a corresponding "on plan cancel, delete unconsumed
   pre-materialized rows" path: `DELETE FROM intake_log WHERE
   tz_plan_id=? AND status='PENDING' AND source='tz_step'` — wire it
   into the plan cancel flow in `tzreschedule/planner.go`
-- [ ] tests: approve + materialize + reject + materialize-clean,
-  idempotent re-approve, and a cross-TZ end-to-end that mirrors the
-  westbound-flexible scenario
+- [ ] **one-shot backfill at deploy time.** When the migration ships,
+  plans already in `APPROVED` (with steps not yet fired) must have
+  their steps materialized too — otherwise an APPROVED plan whose
+  first step is two days out silently loses its scheduling because
+  the scheduler now reads `intake_log` instead of `tz_transition_steps`.
+  Add a Go-level data migration (run once at startup, behind a
+  `tz_steps_backfilled_at` row in a small `_data_migrations` table to
+  ensure idempotency) that walks every `APPROVED` plan, finds its
+  unconsumed steps in `tz_transition_steps`, and inserts the
+  corresponding `intake_log` rows — same code path as
+  `MaterializePlanStepsAsIntakes`, just iterated over historical
+  plans. Log a count of materialized rows per plan.
+- [ ] tests: approve + materialize, reject leaves no rows, cancel
+  cleans up PENDING `tz_step` rows; idempotent re-approve produces no
+  duplicates; **one explicit test that simulates the backfill on a
+  fixture DB seeded with an APPROVED plan + one consumed and one
+  unconsumed step, asserts only the unconsumed step is materialized,
+  asserts a second backfill run is a no-op**; cross-TZ end-to-end
+  that mirrors the westbound-flexible scenario from
+  `medication_tz_test.go`
+- [ ] **MCP coverage**: `medications.tz_plan.approve` and
+  `medications.tz_plan.reject` registry entries (added in commit
+  ebad46a) are unaffected — the handler signatures and HTTP paths
+  don't change. Re-run
+  `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` after the
+  refactor to confirm green.
 
 #### Task D3: Teach the scheduler to consume `intake_log` rows directly
 
@@ -301,11 +347,36 @@ Every numbered point above was the source of one of the recent bugs.
   slot, skip it if a PENDING or TAKEN `intake_log` row already exists
   for the same medication within ±`minInterval` of the proposed time —
   one SQL query, executed in the scheduler before insertion
+- [ ] **asymmetric vs symmetric verification.** Today's overlap guard
+  (`internal/domain/medplan/medplan.go:143-149`) is asymmetric: it
+  suppresses normal targets that are at-or-before the consumed step
+  *or* within `minInterval` after it (`!target.After(stepAt)` ||
+  `target.Sub(stepAt) <= minIntv`). The new symmetric ±`minInterval`
+  predicate against any existing intake row is cleaner but is **not**
+  a literal refactor of the old logic. Argument that the difference
+  is empty in practice:
+  - In **fire mode** (`window == 0`) `medplan` only emits targets at
+    or before `now`. Consumed steps are by definition in the past, so
+    `stepAt ≤ now` and any `target ≤ stepAt` is also `≤ now`; the new
+    `[stepAt - minInterval, stepAt + minInterval]` band still catches
+    these via the lower bound.
+  - In **forecast mode** (`window > 0`) `medplan` only emits targets
+    in `(now, now + window]`. A target in that future window cannot
+    fall before a stepAt that's in the past, so the lower-bound clause
+    of the old guard (`!target.After(stepAt)`) had nothing to bite —
+    only the upper-bound (`target - stepAt ≤ minInterval`) did real
+    work, and the new predicate matches that exactly.
+  - **Verification task**: run every scenario in `medication_tz_test.go`
+    (especially `TestMedicationCheckerTZAware/*` and the post-westbound
+    cases from ec97a1f / 0bb7485 / 1169cd6 #3) against the new dedup
+    predicate; if any case produces a different intake row set, the
+    asymmetry has a real consumer and the new predicate must be
+    adjusted to a one-sided window before this task is checked off.
 - [ ] tests: every scenario from `medication_tz_test.go`,
   `notifier_test.go`, `medplan_test.go` stays green; **delete** the
   `consumedStepTimeByMed` plumbing in `medplan.Inputs` and the overlap
   guard in `medplan.PlanDoses` (the dedup query in the scheduler now
-  owns this)
+  owns this) — but only after the verification step above passes
 
 #### Task D4: Teach the forecast endpoint to consume `intake_log` rows
 
@@ -352,19 +423,30 @@ Every numbered point above was the source of one of the recent bugs.
 
 ## Technical Details
 
-### `unixsec` helper
+### Inline conversion convention (no helper package)
+
+Writes use `t.Unix()`. Reads scan into `int64` and convert via
+`time.Unix(n, 0).UTC()` immediately before populating the struct field.
+The single audit anchor is a comment block at the top of
+`internal/store/store.go` listing the dose columns and their Go-type:
 
 ```go
-// Package unixsec is the single conversion point between time.Time and the
-// INTEGER (unix seconds, UTC) representation used in every dose-related
-// column. Use ToUnix when writing, FromUnix when reading; never call
-// time.Time.Unix() or time.Unix() ad-hoc in store code.
-package unixsec
-
-import "time"
-
-func ToUnix(t time.Time) int64       { return t.Unix() }
-func FromUnix(n int64) time.Time     { return time.Unix(n, 0).UTC() }
+// Dose-related time columns are stored as INTEGER unix seconds (UTC).
+// Equality on these columns is safe across server/user time zones because
+// modernc.org/sqlite no longer round-trips a zone string. Reads must
+// convert via time.Unix(n, 0).UTC(); writes must use t.Unix().
+//
+//   intake_log.scheduled_at_unix
+//   intake_log.taken_at_unix             (nullable)
+//   intake_log.snoozed_until_unix        (nullable)
+//   tz_transition_plans.created_at_unix
+//   tz_transition_plans.notified_at_unix (nullable)
+//   tz_transition_plans.approved_at_unix (nullable)
+//   tz_transition_steps.scheduled_at_unix       (until Task D5 drops table)
+//   tz_transition_steps.consumed_at_unix        (until Task D5 drops table)
+//
+// The architecture test in store_time_invariants_test.go enforces INTEGER
+// type on this list via PRAGMA table_info.
 ```
 
 ### Why dual-write before cut-over
@@ -381,13 +463,42 @@ new `scheduled_at_unix` co-exist, both populated on insert) lets us:
 ### Pre-materialized step row shape
 
 ```sql
-INSERT INTO intake_log
+INSERT OR IGNORE INTO intake_log
   (medication_id, user_id, scheduled_at_unix, status, source, tz_plan_id, tz_step_number)
 VALUES
   (?, ?, ?, 'PENDING', 'tz_step', ?, ?);
 ```
 
-The dedup invariant in Task D3 is:
+`INSERT OR IGNORE` against the partial unique index
+`(tz_plan_id, tz_step_number) WHERE tz_plan_id IS NOT NULL` makes
+materialize idempotent — the approve path can retry, and the one-shot
+backfill on deploy can run alongside any newly-approved plan without
+producing duplicates.
+
+### Atomic approve + materialize
+
+```go
+func (s *Store) ApproveAndMaterialize(planID int64, approvedAtUnix int64) error {
+    tx, err := s.db.Begin()
+    if err != nil { return err }
+    defer tx.Rollback() // no-op after Commit
+
+    if err := setTZTransitionPlanApproved(tx, planID, approvedAtUnix); err != nil {
+        return err
+    }
+    if err := materializePlanStepsAsIntakes(tx, planID); err != nil {
+        return err
+    }
+    return tx.Commit()
+}
+```
+
+Both the HTTP `tz_plan_approve` handler and `tz_plan_notifier`'s
+auto-approve path call this single helper. There is no code path that
+flips `status='APPROVED'` without immediately materializing — a crash
+between the two is impossible because they share one tx.
+
+### Dedup predicate (Task D3)
 
 > Before inserting a `source='schedule'` row at instant T for med M,
 > assert there is no `intake_log` row for M with `status IN ('PENDING','TAKEN')`
@@ -397,6 +508,8 @@ The dedup invariant in Task D3 is:
 policy)` — same formula `medplan.PlanDoses` uses today, just relocated
 to the SQL pre-insert check. This is the single replacement for the
 "consumed step overlap guard" from `medplan.Inputs.ConsumedStepTimeByMed`.
+See Task D3 for the asymmetric-vs-symmetric verification argument that
+this predicate is observably equivalent to today's guard.
 
 ### What we deliberately do NOT touch
 
