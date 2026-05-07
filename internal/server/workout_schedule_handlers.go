@@ -57,8 +57,8 @@ func (s *Server) handleScheduleAdHocWorkoutSession(w http.ResponseWriter, r *htt
 	exercises := make([]workoutsvc.PlannedExercise, 0, len(req.Exercises))
 	// Track non-zero exercise_ids so we reject duplicates upfront with a clear
 	// 400 — otherwise the unique index on workout_exercise_logs(session_id,
-	// exercise_id, source) WHERE exercise_id > 0 would surface as a 500 after
-	// the session row was already created.
+	// exercise_id) WHERE exercise_id > 0 would surface as a 500 after the
+	// session row was already created.
 	seenExerciseIDs := make(map[int64]bool)
 	for _, ex := range req.Exercises {
 		if ex.ExerciseName == "" {

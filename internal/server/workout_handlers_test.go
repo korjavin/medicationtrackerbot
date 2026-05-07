@@ -1123,3 +1123,58 @@ func TestGetWorkoutStats(t *testing.T) {
 		}
 	}
 }
+
+// TestHandleGetNextWorkout_AdHocCountsPlaceholderLogs verifies that an active
+// ad-hoc session (group_id = -1) reports the count of its placeholder
+// workout_exercise_logs as exercises_count, instead of zero from
+// ListExercisesByVariant(-1).
+func TestHandleGetNextWorkout_AdHocCountsPlaceholderLogs(t *testing.T) {
+	db, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+	defer db.Close()
+
+	userID := int64(123456)
+	srv := &Server{
+		workouts:      db,
+		allowedUserID: userID,
+	}
+
+	today := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 0, 0, 0, 0, time.Now().Location())
+	session, err := db.CreatePlannedAdHocSession(userID, today, "23:59")
+	if err != nil {
+		t.Fatalf("CreatePlannedAdHocSession: %v", err)
+	}
+	if err := db.UpdateSessionStatus(session.ID, "notified"); err != nil {
+		t.Fatalf("UpdateSessionStatus: %v", err)
+	}
+	for i, name := range []string{"Squat", "Burpees", "Pull-ups"} {
+		if _, err := db.LogExerciseWithSource(session.ID, int64(i+1), name, nil, nil, nil, "", "", "library"); err != nil {
+			t.Fatalf("LogExerciseWithSource: %v", err)
+		}
+	}
+
+	req := withUser(httptest.NewRequest(http.MethodGet, "/api/workout/sessions/next", nil), userID)
+	w := httptest.NewRecorder()
+	srv.handleGetNextWorkout(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		ExercisesCount int   `json:"exercises_count"`
+		GroupID        int64 `json:"group_id"`
+		VariantID      int64 `json:"variant_id"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.GroupID != -1 {
+		t.Fatalf("expected group_id=-1 (ad-hoc), got %d", resp.GroupID)
+	}
+	if resp.ExercisesCount != 3 {
+		t.Errorf("expected exercises_count=3 from placeholder logs, got %d", resp.ExercisesCount)
+	}
+}
