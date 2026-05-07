@@ -35,6 +35,7 @@ type WorkoutStore interface {
 	GetCurrentTimezone() (string, error)
 	GetLatestSessionScheduledDate(groupID, userID int64) (time.Time, bool, error)
 	ListPendingAdHocSessions(userID int64, before time.Time) ([]store.WorkoutSession, error)
+	ListNotifiedAdHocSessions(userID int64) ([]store.WorkoutSession, error)
 	GetExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error)
 }
 
@@ -386,24 +387,17 @@ func (c *WorkoutChecker) checkPendingAdHocSessions(ctx context.Context, now time
 
 // checkNotifiedAdHocSessions handles snooze wake-ups, the 3h re-notify, and
 // the 6h auto-skip for ad-hoc sessions that already received their first
-// notification. We read from the recent history rather than introducing a new
-// dedicated query because the volume is small and history is already loaded
-// elsewhere — but call it a second time here so this path is independent of
-// the groups loop above.
+// notification. Uses a dedicated status='notified' query so an active user
+// with >50 recent sessions can't lose stale ad-hoc handling to history's
+// row limit.
 func (c *WorkoutChecker) checkNotifiedAdHocSessions(ctx context.Context, now time.Time, activeSession *store.WorkoutSession) {
-	history, err := c.store.GetWorkoutHistory(c.allowedUserID, 50)
+	notified, err := c.store.ListNotifiedAdHocSessions(c.allowedUserID)
 	if err != nil {
-		slog.Error("Failed to load workout history for ad-hoc re-notify", "error", err)
+		slog.Error("Failed to load notified ad-hoc sessions for re-notify", "error", err)
 		return
 	}
-	for i := range history {
-		sess := &history[i]
-		if sess.GroupID != -1 {
-			continue
-		}
-		if sess.Status != "notified" {
-			continue
-		}
+	for i := range notified {
+		sess := &notified[i]
 
 		scheduledMoment := adHocScheduledMoment(sess, now.Location())
 

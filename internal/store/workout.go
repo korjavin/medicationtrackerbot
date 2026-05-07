@@ -734,6 +734,60 @@ func (s *Store) CreatePlannedAdHocSession(userID int64, scheduledDate time.Time,
 	return s.GetWorkoutSession(id)
 }
 
+// ListNotifiedAdHocSessions returns every ad-hoc session (group_id = -1)
+// for the user whose status is 'notified'. The scheduler iterates these to
+// run the snooze wake-up, 3h re-notify, and 6h auto-skip handlers without
+// being bounded by GetWorkoutHistory's row limit — an active user can easily
+// accumulate >50 recent sessions, which would otherwise let an old notified
+// ad-hoc fall outside the window and stay stuck in 'notified' forever.
+func (s *Store) ListNotifiedAdHocSessions(userID int64) ([]WorkoutSession, error) {
+	rows, err := s.db.Query(`
+		SELECT id, group_id, variant_id, user_id, scheduled_date, scheduled_time, status, started_at, completed_at, snoozed_until, snooze_count, notification_message_id, notes
+		FROM workout_sessions
+		WHERE user_id = ?
+		  AND group_id = -1
+		  AND status = 'notified'
+		ORDER BY scheduled_date ASC, scheduled_time ASC`,
+		userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var sessions []WorkoutSession
+	for rows.Next() {
+		var ws WorkoutSession
+		var startedAt, completedAt, snoozedUntil sql.NullTime
+		var notificationMsgID sql.NullInt64
+		var notes sql.NullString
+
+		if err := rows.Scan(&ws.ID, &ws.GroupID, &ws.VariantID, &ws.UserID, &ws.ScheduledDate, &ws.ScheduledTime, &ws.Status,
+			&startedAt, &completedAt, &snoozedUntil, &ws.SnoozeCount, &notificationMsgID, &notes); err != nil {
+			return nil, err
+		}
+
+		if startedAt.Valid {
+			ws.StartedAt = &startedAt.Time
+		}
+		if completedAt.Valid {
+			ws.CompletedAt = &completedAt.Time
+		}
+		if snoozedUntil.Valid {
+			ws.SnoozedUntil = &snoozedUntil.Time
+		}
+		if notificationMsgID.Valid {
+			msgID := int(notificationMsgID.Int64)
+			ws.NotificationMessageID = &msgID
+		}
+		if notes.Valid {
+			ws.Notes = notes.String
+		}
+
+		sessions = append(sessions, ws)
+	}
+	return sessions, nil
+}
+
 // ListPendingAdHocSessions returns ad-hoc workout sessions (group_id = -1)
 // for the given user that are still 'pending' and whose scheduled date+time
 // is at or before `before`. Sessions are ordered by scheduled_date ASC then
