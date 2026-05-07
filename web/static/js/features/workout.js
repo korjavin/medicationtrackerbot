@@ -449,8 +449,8 @@ function _renderNextWorkout(container, data) {
     const actions = document.createElement('div');
     actions.className = 'wg-workouts-next-card__actions';
     if (status === 'in_progress') {
-        actions.appendChild(createButton('Continue', 'primary', showWorkoutSessionModal));
-        actions.appendChild(createButton('Stop', 'secondary', cancelWorkoutSession));
+        actions.appendChild(createButton('View', 'primary', showWorkoutSessionModal));
+        actions.appendChild(createButton('Finish', 'secondary', completeWorkoutSession));
     } else if (status === 'pre_skipped') {
         actions.appendChild(createButton('Cancel Skip', 'primary', cancelPreSkipWorkoutSession));
         if (isRotating) {
@@ -2347,8 +2347,7 @@ async function showWorkoutSessionModal(sessionId) {
         if (actionsContainer) {
             renderSessionDetailActions(actionsContainer, {
                 onLogSet: () => showAddExerciseToSessionModal(),
-                onFinish: () => finishWorkoutSession(),
-                onDelete: () => deleteWorkoutSession()
+                onFinish: () => finishWorkoutSession()
             });
         }
 
@@ -2439,7 +2438,6 @@ function renderSessionDetailActions(container, opts) {
 
     const onLogSet = (opts && typeof opts.onLogSet === 'function') ? opts.onLogSet : () => {};
     const onFinish = (opts && typeof opts.onFinish === 'function') ? opts.onFinish : () => {};
-    const onDelete = (opts && typeof opts.onDelete === 'function') ? opts.onDelete : () => {};
 
     // `.workout-action-btn` hooks these into sync.js's offline toggling
     // sweep so the buttons stay disabled/enabled as connectivity changes
@@ -2456,22 +2454,14 @@ function renderSessionDetailActions(container, opts) {
     finishBtn.type = 'button';
     finishBtn.id = 'workout-session-finish-btn';
     finishBtn.className = 'wg-gloss wg-workouts-session-actions__btn wg-workouts-session-actions__finish workout-action-btn';
-    finishBtn.textContent = 'Finish';
+    finishBtn.textContent = 'Finish workout';
     finishBtn.addEventListener('click', () => onFinish());
-
-    const deleteBtn = document.createElement('button');
-    deleteBtn.type = 'button';
-    deleteBtn.id = 'workout-session-bottom-delete-btn';
-    deleteBtn.className = 'wg-gloss wg-workouts-session-actions__btn wg-workouts-session-actions__delete workout-action-btn';
-    deleteBtn.textContent = 'Delete';
-    deleteBtn.addEventListener('click', () => onDelete());
 
     container.appendChild(logSetBtn);
     container.appendChild(finishBtn);
-    container.appendChild(deleteBtn);
 
     if (typeof window !== 'undefined' && window.SyncManager && window.SyncManager.isOnline === false) {
-        [logSetBtn, finishBtn, deleteBtn].forEach((btn) => {
+        [logSetBtn, finishBtn].forEach((btn) => {
             btn.classList.add('offline-disabled');
             btn.setAttribute('data-offline-disabled', 'true');
             btn.disabled = true;
@@ -2488,10 +2478,10 @@ function closeWorkoutSessionModal() {
 }
 
 async function saveWorkoutSessionDetails() {
-    // Either the top "Save Changes" button or the bottom "Finish" button can
-    // trigger this flow (finishWorkoutSession re-enters here after flipping
-    // the status select). Disable both so the unclicked one can't be tapped
-    // a second time while the first request is in-flight.
+    // Either the top "Save progress" button or the bottom "Finish workout"
+    // button can trigger this flow (finishWorkoutSession re-enters here
+    // after flipping the status select). Disable both so the unclicked
+    // one can't be tapped a second time while the first request is in-flight.
     const topSaveBtn = document.getElementById('workout-session-save-btn');
     const finishBtn = document.getElementById('workout-session-finish-btn');
     const busyTargets = [topSaveBtn, finishBtn].filter(Boolean);
@@ -2854,7 +2844,7 @@ async function startWorkoutSession(sessionId) {
     });
 }
 
-async function cancelWorkoutSession(sessionId) {
+async function completeWorkoutSession(sessionId) {
     await safeConfirm('Finish this workout now? It will be marked as completed.', async (ok) => {
         if (ok) {
             try {

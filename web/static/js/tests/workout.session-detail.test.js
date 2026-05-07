@@ -162,14 +162,13 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
         expect(entry.querySelector('.wg-workouts-session-exercise__hint')).toBeNull();
     });
 
-    it('renders three Log set / Finish / Delete buttons in the action cluster', () => {
+    it('renders Log set + Finish workout buttons in the action cluster', () => {
         const { window, document } = env;
         const actionsContainer = document.getElementById('workout-session-actions');
         const onLogSet = vi.fn();
         const onFinish = vi.fn();
-        const onDelete = vi.fn();
 
-        window.renderSessionDetailActions(actionsContainer, { onLogSet, onFinish, onDelete });
+        window.renderSessionDetailActions(actionsContainer, { onLogSet, onFinish });
 
         expect(actionsContainer.classList.contains('wg-workouts-session-actions')).toBe(true);
 
@@ -178,35 +177,29 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
         const deleteBtn = actionsContainer.querySelector('.wg-workouts-session-actions__delete');
         expect(logSetBtn).not.toBeNull();
         expect(finishBtn).not.toBeNull();
-        expect(deleteBtn).not.toBeNull();
+        expect(deleteBtn).toBeNull();
 
-        // Log set is the sun pill; Finish/Delete are neutral gloss buttons.
+        // Log set is the sun pill; Finish is a neutral gloss button.
         expect(logSetBtn.classList.contains('wg-gloss--sun')).toBe(true);
         expect(finishBtn.classList.contains('wg-gloss')).toBe(true);
         expect(finishBtn.classList.contains('wg-gloss--sun')).toBe(false);
-        expect(deleteBtn.classList.contains('wg-gloss')).toBe(true);
-        expect(deleteBtn.classList.contains('wg-gloss--sun')).toBe(false);
 
         expect(logSetBtn.textContent).toBe('Log set');
-        expect(finishBtn.textContent).toBe('Finish');
-        expect(deleteBtn.textContent).toBe('Delete');
+        expect(finishBtn.textContent).toBe('Finish workout');
     });
 
-    it('dispatches Log set, Finish, and Delete callbacks independently', () => {
+    it('dispatches Log set and Finish callbacks independently', () => {
         const { window, document } = env;
         const actionsContainer = document.getElementById('workout-session-actions');
         const onLogSet = vi.fn();
         const onFinish = vi.fn();
-        const onDelete = vi.fn();
-        window.renderSessionDetailActions(actionsContainer, { onLogSet, onFinish, onDelete });
+        window.renderSessionDetailActions(actionsContainer, { onLogSet, onFinish });
 
         actionsContainer.querySelector('.wg-workouts-session-actions__log-set').click();
         actionsContainer.querySelector('.wg-workouts-session-actions__finish').click();
-        actionsContainer.querySelector('.wg-workouts-session-actions__delete').click();
 
         expect(onLogSet).toHaveBeenCalledTimes(1);
         expect(onFinish).toHaveBeenCalledTimes(1);
-        expect(onDelete).toHaveBeenCalledTimes(1);
     });
 
     it('tolerates omitted handlers without throwing on click', () => {
@@ -217,7 +210,6 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
         expect(() => {
             actionsContainer.querySelector('.wg-workouts-session-actions__log-set').click();
             actionsContainer.querySelector('.wg-workouts-session-actions__finish').click();
-            actionsContainer.querySelector('.wg-workouts-session-actions__delete').click();
         }).not.toThrow();
     });
 
