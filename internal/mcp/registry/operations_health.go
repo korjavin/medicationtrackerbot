@@ -207,8 +207,8 @@ output({"deleted": 11})`,
 			Method:          "GET",
 			Path:            "/api/weight/reminder/status",
 			Risk:            RiskRead,
-			Description:     "Get the weight reminder state: enabled flag, snooze-until, dontbug-until, last/next reminder times.",
-			ResponseSummary: "ReminderState object with enabled, snoozed_until, dontbug_until, last_reminded_at, next_reminder_at.",
+			Description:     "Get the weight reminder state. Reminders are temporarily muted while snoozed_until > now or dontbug_until > now (use this to decide whether to prompt the user). next_reminder_at is when the scheduler will fire the next reminder.",
+			ResponseSummary: "Object {enabled (bool), snoozed_until (RFC3339 or null), dontbug_until (RFC3339 or null), last_reminded_at (RFC3339 or null), next_reminder_at (RFC3339 or null)}.",
 			Example: `result = api.call("health.weight.reminder.status")
 output(result)`,
 		},
@@ -342,7 +342,7 @@ output({"deleted": 11})`,
     }
   }
 }`),
-			Description:     "Create a diary note, optionally tagged. Use tag=SLEEP for sleep entries, HR/SPO2 for vitals, STEPS for step counts.",
+			Description:     "Create a diary note, optionally tagged. Tag values: SLEEP = sleep log entry; HR / SPO2 = single-sample vitals (heart rate / oxygen saturation, encode the number in content); STEPS = step counts; STRESS = stress / mood entry; NOTE = explicit category for general journaling. Pass null (or omit tag) for an untagged free-form note. Empty/invalid tag values are silently coerced to null.",
 			ResponseSummary: "DiaryNote object with id, content, tag, created_at (HTTP 201).",
 			Example: `result = api.call(
     "health.notes.create",

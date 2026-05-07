@@ -200,7 +200,7 @@ output(result)`,
     "active":                       {"type": "boolean"}
   }
 }`),
-			Description:     "Update a workout group. This is a full replacement: every field in the body overwrites the stored value, so omitted fields decode to zero values (false / empty string / 0) and would clear or deactivate the group. To change a single field, first fetch the current group via workouts.groups.list and send the merged object back.",
+			Description:     "Update a workout group via FULL REPLACEMENT (not partial update). The schema marks all fields required because they cannot be sent empty; every field in the body overwrites the stored value, and omitted fields decode to zero values (false / empty string / 0) — including active=false, which DEACTIVATES the group. Required workflow: (1) fetch the current group via workouts.groups.list, (2) mutate only the field(s) you want to change, (3) send the merged COMPLETE object back.",
 			ResponseSummary: "Empty body on success (HTTP 200).",
 			Example: `groups = api.call("workouts.groups.list")
 current = next(g for g in groups if g["id"] == 1)
@@ -411,7 +411,7 @@ output(result)`,
 			Method:          "POST",
 			Path:            "/api/workout/rotation/initialize",
 			Risk:            RiskWrite,
-			Description:     "Initialize (or reset) the rotation state for all rotating groups. Use after creating new groups/variants or to bring a stale rotation back to a clean baseline.",
+			Description:     "Initialize (or reset) the rotation state for all of the user's rotating groups: resets each group's rotation pointer to its first variant. Use after creating new groups/variants, or when manual skips/changes have left the rotation pointing at the wrong variant. Does NOT delete sessions or exercise logs — only repositions the rotation cursor.",
 			ResponseSummary: "Empty body on success (HTTP 200).",
 			Example: `api.call("workouts.rotation.initialize")
 output({"reset": True})`,
@@ -526,8 +526,8 @@ output(result)`,
 			Method:          "POST",
 			Path:            "/api/workout/sessions/adhoc",
 			Risk:            RiskWrite,
-			Description:     "Create an unscheduled (ad-hoc) workout session for now. The server picks a default group/variant and the scheduled_time is the current clock time.",
-			ResponseSummary: "Object {session, group_name, variant_name}.",
+			Description:     "Create an unscheduled (ad-hoc) workout session for now. The session has group_id=-1 and variant_id=-1 (sentinel values — it's NOT tied to any saved group/variant), status starts as 'in_progress', started_at=NOW. scheduled_time is set to the current clock time in the user's timezone. group_name is always returned as 'Ad-hoc Workout', variant_name is empty. Use this for spontaneous workouts that don't match the rotation schedule; afterwards add exercises via workouts.sessions.logs.create.",
+			ResponseSummary: "Object {session, group_name:\"Ad-hoc Workout\", variant_name:\"\"}.",
 			Example: `result = api.call("workouts.sessions.adhoc")
 output(result)`,
 		},
@@ -698,12 +698,12 @@ output({"started": 42})`,
     "target_reps_min":  {"type": "integer", "minimum": 1},
     "target_reps_max":  {"type": ["integer", "null"]},
     "target_weight_kg": {"type": ["number", "null"]},
-    "status":           {"type": "string", "enum": ["", "completed", "skipped"], "description": "Initial status; empty means pending"},
+    "status":           {"type": "string", "enum": ["", "completed", "skipped"], "description": "Initial status: \"\" (default) = pending/not yet started; \"completed\" = exercise already done at log time; \"skipped\" = exercise was skipped"},
     "notes":            {"type": "string"},
-    "source":           {"type": "string", "enum": ["", "schedule", "library"], "description": "Defaults to \"schedule\""}
+    "source":           {"type": "string", "enum": ["", "schedule", "library"], "description": "Where the exercise came from. \"\" or \"schedule\" (default) = part of the planned variant; \"library\" = picked from the user's saved exercise library mid-session"}
   }
 }`),
-			Description:     "Add an exercise log row to an existing workout session. Use this when the user wants to add an exercise mid-session that wasn't part of the planned variant.",
+			Description:     "Add an exercise log row to an existing workout session. Use when the user adds an exercise mid-session that wasn't part of the planned variant. PREREQUISITE: a session must already exist (find one via workouts.sessions.next or create with workouts.sessions.adhoc); look up exercise_id via workouts.exercise_library.list.",
 			ResponseSummary: "Created exercise log row.",
 			Example: `result = api.call(
     "workouts.sessions.logs.create",
@@ -737,7 +737,7 @@ output(result)`,
     "status":         {"type": "string", "enum": ["", "completed", "skipped"], "description": "Optional. Explicit status to set; if omitted, a placeholder log (status==\"\") with sets_completed>=1 auto-promotes to \"completed\". Existing non-empty status is left untouched unless this field is set."}
   }
 }`),
-			Description:     "Update an exercise log row with completed sets/reps/weight. Non-zero values propagate to the schedule's defaults so the next session inherits them. For scheduled ad-hoc workouts (placeholder logs with empty status), supplying sets_completed >= 1 also flips the row's status to \"completed\" so it counts in stats and history; pass status=\"skipped\" to mark a planned exercise as deliberately skipped instead. Equivalent functionality is also available via the workout_log MCP tool's \"log\" operation; this registry op is for callers building scripts via mcp_execute.",
+			Description:     "Update an exercise log row with completed sets/reps/weight. SIDE EFFECT: non-zero values propagate to the schedule's defaults so the NEXT session inherits them (e.g. consistently doing 12 reps bumps the planned target up). Zero/null values are treated as 'no data' and do NOT overwrite existing defaults. For scheduled ad-hoc workouts (placeholder logs with empty status), supplying sets_completed >= 1 also flips the row's status to \"completed\" so it counts in stats and history; pass status=\"skipped\" to mark a planned exercise as deliberately skipped instead. Equivalent functionality is also available via the workout_log MCP tool's \"log\" operation; this registry op is for callers building scripts via mcp_execute.",
 			ResponseSummary: "Empty body on success (HTTP 200).",
 			Example: `api.call(
     "workouts.sessions.logs.update",

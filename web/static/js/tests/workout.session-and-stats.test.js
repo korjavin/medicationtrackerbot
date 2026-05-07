@@ -337,7 +337,7 @@ describe('workout.js session and stats flows', () => {
       expect(window.safeAlert).toHaveBeenCalledWith('✅ Workout started! You can now log exercises.');
 
       window.confirm = vi.fn().mockReturnValue(true);
-      await window.cancelWorkoutSession(10);
+      await window.completeWorkoutSession(10);
       expect(apiCallSpy).toHaveBeenCalledWith('/api/workout/sessions/status?id=10', 'PUT', { status: 'completed' });
       expect(window.loadWorkoutHistoryTab).toHaveBeenCalled();
 
