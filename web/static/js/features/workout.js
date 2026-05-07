@@ -450,7 +450,7 @@ function _renderNextWorkout(container, data) {
     actions.className = 'wg-workouts-next-card__actions';
     if (status === 'in_progress') {
         actions.appendChild(createButton('View', 'primary', showWorkoutSessionModal));
-        actions.appendChild(createButton('Finish', 'secondary', cancelWorkoutSession));
+        actions.appendChild(createButton('Finish', 'secondary', completeWorkoutSession));
     } else if (status === 'pre_skipped') {
         actions.appendChild(createButton('Cancel Skip', 'primary', cancelPreSkipWorkoutSession));
         if (isRotating) {
@@ -2844,7 +2844,7 @@ async function startWorkoutSession(sessionId) {
     });
 }
 
-async function cancelWorkoutSession(sessionId) {
+async function completeWorkoutSession(sessionId) {
     await safeConfirm('Finish this workout now? It will be marked as completed.', async (ok) => {
         if (ok) {
             try {
