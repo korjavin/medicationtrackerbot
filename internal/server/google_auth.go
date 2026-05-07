@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -169,7 +170,10 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get User Info
-	req, err := http.NewRequest(http.MethodGet, s.oidcUserInfo, nil) // #nosec G107
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.oidcUserInfo, nil) // #nosec G107
 	if err != nil {
 		http.Error(w, "failed creating userinfo request", http.StatusInternalServerError)
 		return
@@ -177,7 +181,9 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
 	req.Header.Set("Accept", "application/json")
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
 	resp, err := client.Do(req) // #nosec G107
 	if err != nil {
 		http.Error(w, "failed getting user info: "+err.Error(), http.StatusInternalServerError)
@@ -196,7 +202,7 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		ID                string `json:"id"`
 		PreferredUsername string `json:"preferred_username"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&userInfo); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&userInfo); err != nil {
 		http.Error(w, "failed decoding user info", http.StatusInternalServerError)
 		return
 	}
@@ -276,11 +282,17 @@ func resolveOIDCEndpoints(cfg OIDCConfig) (oauth2.Endpoint, string, error) {
 	}
 
 	discoveryURL := strings.TrimSuffix(cfg.IssuerURL, "/") + "/.well-known/openid-configuration"
-	req, err := http.NewRequest(http.MethodGet, discoveryURL, nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, discoveryURL, nil)
 	if err != nil {
 		return oauth2.Endpoint{}, "", err
 	}
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return oauth2.Endpoint{}, "", err
@@ -295,7 +307,7 @@ func resolveOIDCEndpoints(cfg OIDCConfig) (oauth2.Endpoint, string, error) {
 		TokenEndpoint         string `json:"token_endpoint"`
 		UserInfoEndpoint      string `json:"userinfo_endpoint"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&discovery); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&discovery); err != nil {
 		return oauth2.Endpoint{}, "", err
 	}
 	if discovery.AuthorizationEndpoint == "" || discovery.TokenEndpoint == "" {
