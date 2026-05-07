@@ -104,9 +104,9 @@ Today, the user can either create a recurring workout group (which becomes a per
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] run `go test ./...` (full Go test suite) — must pass
-- [ ] run `pnpm test` (frontend tests) — should be untouched, but verify architecture-globals and MCP-coverage guard tests still pass
-- [ ] run `go vet ./...`
+- [x] run `go test ./...` (full Go test suite) — must pass (only pre-existing unrelated failures remain: `TestHandleGetVitalsHeart_Truncation` in `internal/mcp` per Task 4 note, `TestMedicationCheckerTZAware/cancelled_plan` in `internal/scheduler` per Task 5 note, `TestListDiaryNotes_Since` in `internal/store` per Task 1 note — all present on master, none touched by this branch)
+- [x] run `pnpm test` (frontend tests) — architecture-globals and MCP-coverage guard tests pass; only pre-existing date-dependent failures in `components.wg-sleep-chart.test.js` and `components.wg-steps-chart.test.js` (chart files unmodified on this branch — verified via `git diff master`)
+- [x] run `go vet ./...` — passed clean
 
 ### Task 7: Update documentation
 
