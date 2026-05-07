@@ -5,11 +5,19 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/workout"
 )
+
+// maxScheduledExercises caps a single schedule request. The body is already
+// MaxBytesReader-bounded, but ~30-byte JSON entries leave room for thousands
+// of exercises in 1 MiB; bound the count explicitly so the per-exercise
+// LogExerciseWithSource loop (and the rollback DeleteSession on failure
+// inside it) can't run away.
+const maxScheduledExercises = 50
 
 type scheduleAdHocExerciseRequest struct {
 	ExerciseID     int64    `json:"exercise_id"`
@@ -53,13 +61,22 @@ func (s *Server) handleScheduleAdHocWorkoutSession(w http.ResponseWriter, r *htt
 		http.Error(w, "exercises must not be empty", http.StatusBadRequest)
 		return
 	}
+	if len(req.Exercises) > maxScheduledExercises {
+		http.Error(w, "too many exercises in a single request", http.StatusBadRequest)
+		return
+	}
 
 	exercises := make([]workoutsvc.PlannedExercise, 0, len(req.Exercises))
-	// Track non-zero exercise_ids so we reject duplicates upfront with a clear
-	// 400 — otherwise the unique index on workout_exercise_logs(session_id,
-	// exercise_id) WHERE exercise_id > 0 would surface as a 500 after the
-	// session row was already created.
+	// Track duplicates upfront with a clear 400. The unique index on
+	// workout_exercise_logs is `(session_id, exercise_id, source) WHERE
+	// exercise_id > 0`, so it does NOT catch:
+	//   - two free-form entries (exercise_id=0) with the same name
+	//   - one library-id entry plus one free-form entry that resolves to the
+	//     same name
+	// Without this de-dupe the user would silently get duplicate placeholders
+	// in the same session.
 	seenExerciseIDs := make(map[int64]bool)
+	seenNames := make(map[string]bool)
 	for _, ex := range req.Exercises {
 		if ex.ExerciseID < 0 {
 			http.Error(w, "exercises[].exercise_id must be >= 0", http.StatusBadRequest)
@@ -98,6 +115,14 @@ func (s *Server) handleScheduleAdHocWorkoutSession(w http.ResponseWriter, r *htt
 			if name == "" {
 				name = item.Name
 			}
+		}
+		nameKey := strings.ToLower(strings.TrimSpace(name))
+		if nameKey != "" {
+			if seenNames[nameKey] {
+				http.Error(w, "exercises[] names must be unique within a request", http.StatusBadRequest)
+				return
+			}
+			seenNames[nameKey] = true
 		}
 		exercises = append(exercises, workoutsvc.PlannedExercise{
 			ExerciseID:     ex.ExerciseID,
