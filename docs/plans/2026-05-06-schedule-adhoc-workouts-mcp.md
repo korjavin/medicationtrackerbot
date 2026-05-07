@@ -86,8 +86,8 @@ Today, the user can either create a recurring workout group (which becomes a per
 - [x] add `Operation{ID: "workouts.sessions.schedule", Topic: "workouts", Method: "POST", Path: "/api/workout/sessions/schedule", Risk: RiskWrite, BodySchema: ..., Description: ..., ResponseSummary: ..., Example: ...}` next to the existing `workouts.sessions.adhoc` entry (done in Task 3 to satisfy MCP coverage guard)
 - [x] schema describes all body fields: `scheduled_date` (YYYY-MM-DD), `scheduled_time` (HH:MM, 24h), `exercises[]` with `exercise_id`, `exercise_name`, `target_sets`, `target_reps_min`, `target_reps_max?`, `target_weight_kg?` (done in Task 3)
 - [x] description clarifies: ad-hoc one-off, not recurring; uses library exercise IDs when given, free-form name otherwise; user can later complete via `workouts.sessions.logs.update` after `workouts.sessions.start` (done in Task 3)
-- [ ] add an end-to-end test that schedules a session through the MCP executor and reads it back via `workouts.sessions.details`
-- [ ] run `go test ./internal/mcp/...` and the MCP coverage guard test — must pass before task 5
+- [x] add an end-to-end test that schedules a session through the MCP executor and reads it back via `workouts.sessions.details`
+- [x] run `go test ./internal/mcp/...` and the MCP coverage guard test — executor/proxy/registry pass, new test green; MCP coverage guard passes; one pre-existing unrelated failure (`TestHandleGetVitalsHeart_Truncation` in `internal/mcp`) remains, verified to fail on `master` too.
 
 ### Task 5: Scheduler — notify pending ad-hoc sessions
 
