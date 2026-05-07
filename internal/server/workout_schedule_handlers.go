@@ -61,8 +61,12 @@ func (s *Server) handleScheduleAdHocWorkoutSession(w http.ResponseWriter, r *htt
 	// session row was already created.
 	seenExerciseIDs := make(map[int64]bool)
 	for _, ex := range req.Exercises {
-		if ex.ExerciseName == "" {
-			http.Error(w, "exercises[].exercise_name is required", http.StatusBadRequest)
+		if ex.ExerciseID < 0 {
+			http.Error(w, "exercises[].exercise_id must be >= 0", http.StatusBadRequest)
+			return
+		}
+		if ex.ExerciseName == "" && ex.ExerciseID == 0 {
+			http.Error(w, "exercises[] requires exercise_id or exercise_name", http.StatusBadRequest)
 			return
 		}
 		if ex.TargetSets < 1 || ex.TargetRepsMin < 1 {
@@ -73,16 +77,31 @@ func (s *Server) handleScheduleAdHocWorkoutSession(w http.ResponseWriter, r *htt
 			http.Error(w, "exercises[].target_reps_max must be >= target_reps_min", http.StatusBadRequest)
 			return
 		}
+		name := ex.ExerciseName
 		if ex.ExerciseID > 0 {
 			if seenExerciseIDs[ex.ExerciseID] {
 				http.Error(w, "exercises[].exercise_id values must be unique within a request", http.StatusBadRequest)
 				return
 			}
 			seenExerciseIDs[ex.ExerciseID] = true
+
+			item, lookupErr := s.workouts.GetExerciseLibraryItem(ex.ExerciseID)
+			if lookupErr != nil {
+				slog.Error("schedule ad-hoc workout session: lookup library item", "error", lookupErr, "exercise_id", ex.ExerciseID)
+				http.Error(w, "failed to resolve exercise_id", http.StatusInternalServerError)
+				return
+			}
+			if item == nil || item.UserID != userID {
+				http.Error(w, "exercises[].exercise_id not found in this user's library", http.StatusBadRequest)
+				return
+			}
+			if name == "" {
+				name = item.Name
+			}
 		}
 		exercises = append(exercises, workoutsvc.PlannedExercise{
 			ExerciseID:     ex.ExerciseID,
-			ExerciseName:   ex.ExerciseName,
+			ExerciseName:   name,
 			TargetSets:     ex.TargetSets,
 			TargetRepsMin:  ex.TargetRepsMin,
 			TargetRepsMax:  ex.TargetRepsMax,

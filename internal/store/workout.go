@@ -1068,19 +1068,31 @@ func (s *Store) GetExerciseLogs(sessionID int64) ([]WorkoutExerciseLog, error) {
 	return logs, nil
 }
 
+// UpdateExerciseLog updates a log's sets/reps/weight/notes. When the row is
+// still a placeholder (status=''), it also bumps logged_at to the current
+// time so a scheduled placeholder finished days later records the completion
+// time, not the schedule-creation time. Once status is non-empty, logged_at
+// is preserved so subsequent edits don't rewrite the original completion
+// timestamp.
 func (s *Store) UpdateExerciseLog(id int64, setsCompleted, repsCompleted *int, weightKg *float64, notes string) error {
 	_, err := s.db.Exec(`
-		UPDATE workout_exercise_logs 
-		SET sets_completed = ?, reps_completed = ?, weight_kg = ?, notes = ?
+		UPDATE workout_exercise_logs
+		SET sets_completed = ?, reps_completed = ?, weight_kg = ?, notes = ?,
+		    logged_at = CASE WHEN status = '' THEN CURRENT_TIMESTAMP ELSE logged_at END
 		WHERE id = ?`,
 		setsCompleted, repsCompleted, weightKg, notes, id)
 	return err
 }
 
+// UpdateExerciseLogStatus updates the status of a log. When the row is still
+// a placeholder (status=''), it also bumps logged_at to the current time so a
+// placeholder promoted to completed/skipped records the actual transition
+// time, not the schedule-creation time.
 func (s *Store) UpdateExerciseLogStatus(id int64, status string) error {
 	_, err := s.db.Exec(`
 		UPDATE workout_exercise_logs
-		SET status = ?
+		SET status = ?,
+		    logged_at = CASE WHEN status = '' THEN CURRENT_TIMESTAMP ELSE logged_at END
 		WHERE id = ?`,
 		status, id)
 	return err

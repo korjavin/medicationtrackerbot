@@ -155,13 +155,20 @@ func TestHandleScheduleAdHocWorkoutSession_RejectsDuplicateExerciseID(t *testing
 	srv, db := createGenericTestServer(t)
 	defer db.Close()
 
+	// The handler now resolves exercise_id against the user's library; pre-seed
+	// a row so the duplicate check (not the lookup) is what rejects the request.
+	libItem, err := db.CreateExerciseLibraryItem(123456, "Bench Press", 3, 6, nil, nil, "")
+	if err != nil {
+		t.Fatalf("CreateExerciseLibraryItem: %v", err)
+	}
+
 	tomorrow := time.Now().AddDate(0, 0, 1).Format("2006-01-02")
 	body := map[string]any{
 		"scheduled_date": tomorrow,
 		"scheduled_time": "07:30",
 		"exercises": []map[string]any{
-			{"exercise_id": 7, "exercise_name": "Bench Press", "target_sets": 3, "target_reps_min": 6},
-			{"exercise_id": 7, "exercise_name": "Bench Press (dup)", "target_sets": 3, "target_reps_min": 6},
+			{"exercise_id": libItem.ID, "exercise_name": "Bench Press", "target_sets": 3, "target_reps_min": 6},
+			{"exercise_id": libItem.ID, "exercise_name": "Bench Press (dup)", "target_sets": 3, "target_reps_min": 6},
 		},
 	}
 	bodyBytes, _ := json.Marshal(body)
@@ -203,6 +210,166 @@ func TestHandleScheduleAdHocWorkoutSession_RejectsRepsMaxLessThanMin(t *testing.
 	}
 	if !strings.Contains(strings.ToLower(w.Body.String()), "target_reps_max") {
 		t.Errorf("Expected error message to mention 'target_reps_max', got %q", w.Body.String())
+	}
+}
+
+func TestHandleScheduleAdHocWorkoutSession_LibraryIDFillsName(t *testing.T) {
+	srv, db := createGenericTestServer(t)
+	defer db.Close()
+
+	libItem, err := db.CreateExerciseLibraryItem(123456, "Squat", 5, 5, nil, nil, "")
+	if err != nil {
+		t.Fatalf("CreateExerciseLibraryItem: %v", err)
+	}
+
+	tomorrow := time.Now().AddDate(0, 0, 1).Format("2006-01-02")
+	body := map[string]any{
+		"scheduled_date": tomorrow,
+		"scheduled_time": "07:30",
+		"exercises": []map[string]any{
+			// exercise_id only — no exercise_name. The handler should resolve
+			// the library item and fill in the name.
+			{"exercise_id": libItem.ID, "target_sets": 5, "target_reps_min": 5},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/workout/sessions/schedule", bytes.NewReader(bodyBytes))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleScheduleAdHocWorkoutSession(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("Expected 201 for library-id-only request, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Session *store.WorkoutSession `json:"session"`
+		Planned int                   `json:"planned"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+	logs, err := db.GetExerciseLogs(resp.Session.ID)
+	if err != nil {
+		t.Fatalf("GetExerciseLogs: %v", err)
+	}
+	if len(logs) != 1 {
+		t.Fatalf("Expected 1 placeholder log, got %d", len(logs))
+	}
+	if logs[0].ExerciseName != "Squat" {
+		t.Errorf("Expected exercise_name to be filled from library (Squat), got %q", logs[0].ExerciseName)
+	}
+	if logs[0].ExerciseID != libItem.ID {
+		t.Errorf("Expected exercise_id=%d, got %d", libItem.ID, logs[0].ExerciseID)
+	}
+}
+
+func TestHandleScheduleAdHocWorkoutSession_RejectsUnknownExerciseID(t *testing.T) {
+	srv, db := createGenericTestServer(t)
+	defer db.Close()
+
+	tomorrow := time.Now().AddDate(0, 0, 1).Format("2006-01-02")
+	body := map[string]any{
+		"scheduled_date": tomorrow,
+		"scheduled_time": "07:30",
+		"exercises": []map[string]any{
+			{"exercise_id": 999999, "target_sets": 3, "target_reps_min": 6},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/workout/sessions/schedule", bytes.NewReader(bodyBytes))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleScheduleAdHocWorkoutSession(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Expected 400 for unknown exercise_id, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(strings.ToLower(w.Body.String()), "library") {
+		t.Errorf("Expected error message to mention 'library', got %q", w.Body.String())
+	}
+}
+
+func TestHandleScheduleAdHocWorkoutSession_RejectsOtherUserLibraryID(t *testing.T) {
+	srv, db := createGenericTestServer(t)
+	defer db.Close()
+
+	otherUserID := int64(999000)
+	libItem, err := db.CreateExerciseLibraryItem(otherUserID, "Deadlift", 3, 5, nil, nil, "")
+	if err != nil {
+		t.Fatalf("CreateExerciseLibraryItem: %v", err)
+	}
+
+	tomorrow := time.Now().AddDate(0, 0, 1).Format("2006-01-02")
+	body := map[string]any{
+		"scheduled_date": tomorrow,
+		"scheduled_time": "07:30",
+		"exercises": []map[string]any{
+			{"exercise_id": libItem.ID, "target_sets": 3, "target_reps_min": 5},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/workout/sessions/schedule", bytes.NewReader(bodyBytes))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleScheduleAdHocWorkoutSession(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Expected 400 when exercise_id belongs to another user, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleScheduleAdHocWorkoutSession_RejectsNegativeExerciseID(t *testing.T) {
+	srv, db := createGenericTestServer(t)
+	defer db.Close()
+
+	tomorrow := time.Now().AddDate(0, 0, 1).Format("2006-01-02")
+	body := map[string]any{
+		"scheduled_date": tomorrow,
+		"scheduled_time": "07:30",
+		"exercises": []map[string]any{
+			{"exercise_id": -1, "target_sets": 3, "target_reps_min": 6},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/workout/sessions/schedule", bytes.NewReader(bodyBytes))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleScheduleAdHocWorkoutSession(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Expected 400 for negative exercise_id, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(strings.ToLower(w.Body.String()), "exercise_id") {
+		t.Errorf("Expected error message to mention 'exercise_id', got %q", w.Body.String())
+	}
+}
+
+func TestHandleScheduleAdHocWorkoutSession_RejectsMissingIDAndName(t *testing.T) {
+	srv, db := createGenericTestServer(t)
+	defer db.Close()
+
+	tomorrow := time.Now().AddDate(0, 0, 1).Format("2006-01-02")
+	body := map[string]any{
+		"scheduled_date": tomorrow,
+		"scheduled_time": "07:30",
+		"exercises": []map[string]any{
+			{"target_sets": 3, "target_reps_min": 6},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/workout/sessions/schedule", bytes.NewReader(bodyBytes))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleScheduleAdHocWorkoutSession(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Expected 400 when neither exercise_id nor exercise_name supplied, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
