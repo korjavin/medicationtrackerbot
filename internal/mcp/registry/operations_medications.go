@@ -52,8 +52,8 @@ output(result)`,
     "med_id": {"type": "integer", "description": "Filter to a single medication by id"}
   }
 }`),
-			Description:     "List intake log rows (taken/skipped/pending) over a recent window. Filter by medication with med_id.",
-			ResponseSummary: "JSON array of IntakeLog rows with id, medication_id, scheduled_at, taken_at, status.",
+			Description:     "List intake log rows over a recent window, filterable by med_id. Each row's status is one of 'PENDING' (not yet due), 'TAKEN' (logged), 'SKIPPED' (user explicitly skipped), or 'MISSED' (passed without action). Use this to find intake_id values for medications.snooze / medications.skip / medications.cancel_intake.",
+			ResponseSummary: "JSON array of IntakeLog rows with id, medication_id, scheduled_at (RFC3339), taken_at (RFC3339 or null), status (PENDING|TAKEN|SKIPPED|MISSED).",
 			Example: `result = api.call("medications.history", params={"days": 7})
 output(result)`,
 		},
@@ -160,7 +160,7 @@ output(result)`,
     "tz_shift_policy": {"type": "string", "enum": ["", "flexible", "medium", "strict"]}
   }
 }`),
-			Description:     "Update a medication. This is a full replacement: omitted fields decode to zero values (false / empty string / null) and overwrite the stored row, so always read the medication via medications.list, mutate the field(s) you want to change, and send the merged object back. Use this to archive (set archived=true) or rename a medication.",
+			Description:     "Update a medication via FULL REPLACEMENT (not partial update). The schema marks name, dosage, schedule as required because they cannot be sent empty; every other field decodes to a zero value (false / empty string / null) and OVERWRITES the stored row. Required workflow: (1) call medications.list to fetch the current row, (2) mutate only the field(s) you want to change, (3) send the merged COMPLETE object back. Use this to archive (set archived=true), rename, or change schedule. Sending a partial body will silently clear fields you didn't include.",
 			ResponseSummary: "Object {status:\"updated\", warning} where warning carries any drug-interaction note.",
 			Example: `# Archive a medication: list, find the row, flip archived=true, send everything back.
 meds = api.call("medications.list", params={"archived": "true"})
@@ -211,7 +211,7 @@ output({"deleted": 7})`,
     "taken_at":      {"type": "string", "description": "RFC3339 timestamp the dose was taken"}
   }
 }`),
-			Description:     "Record a single past medication intake. Routes through MedicationService.LogMedicationAt, which decrements inventory and writes change events. Use this for retroactive logging only — to add future doses, use medications.create with a schedule instead.",
+			Description:     "Record a single past medication intake. SIDE EFFECTS: decrements inventory_count and emits a change event. Use for retroactive logging only — to add future doses, use medications.create with a schedule instead. Find the medication_id via medications.list first.",
 			ResponseSummary: "IntakeLog object with id, medication_id, scheduled_at, taken_at, status.",
 			Example: `result = api.call(
     "medications.log_past",
@@ -384,7 +384,7 @@ else:
 			Path:       "/api/tz-plan/{id}/approve",
 			PathParams: []string{"id"},
 			Risk:       RiskWrite,
-			Description:     "Approve a pending timezone transition plan, letting the medication scheduler execute the reconciliation. Returns 409 if the plan is no longer pending.",
+			Description:     "Approve a pending timezone transition plan, letting the medication scheduler execute the reconciliation. PREREQUISITE: only call when medications.tz_plan.current returns a plan whose status is 'PENDING_APPROVAL' or 'NOTIFIED' — pass that plan's id. Returns 409 if the plan is no longer pending.",
 			ResponseSummary: "Empty body on success (HTTP 200).",
 			Example: `api.call("medications.tz_plan.approve", path_params={"id": 12})
 output({"approved": 12})`,
@@ -396,7 +396,7 @@ output({"approved": 12})`,
 			Path:       "/api/tz-plan/{id}/reject",
 			PathParams: []string{"id"},
 			Risk:       RiskWrite,
-			Description:     "Reject a pending timezone transition plan; the stored timezone is reverted to the previous value. Returns 409 if the plan is no longer pending.",
+			Description:     "Reject a pending timezone transition plan; the stored timezone is reverted to the previous value. PREREQUISITE: only call when medications.tz_plan.current returns a plan whose status is 'PENDING_APPROVAL' or 'NOTIFIED' — pass that plan's id. Returns 409 if the plan is no longer pending.",
 			ResponseSummary: "Empty body on success (HTTP 200).",
 			Example: `api.call("medications.tz_plan.reject", path_params={"id": 12})
 output({"rejected": 12})`,

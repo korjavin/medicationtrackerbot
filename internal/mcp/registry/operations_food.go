@@ -23,7 +23,7 @@ func FoodOperations() []*Operation {
     "tz_offset": {"type": "integer", "description": "Fallback offset minutes west of UTC"}
   }
 }`),
-			Description:     "List food log entries grouped into meals. Use date+days or tz to control the window.",
+			Description:     "List food log entries for a date window, grouped into meals. date defaults to today in the user's timezone. tz overrides with an IANA name (e.g. 'America/Los_Angeles'); tz_offset (minutes west of UTC) is a fallback only when the IANA name is unrecognized. The date string is interpreted in whichever timezone resolves first: tz, then tz_offset, then the user's stored timezone.",
 			ResponseSummary: "JSON array of food groups; each group has logs[] with id, eaten_at, weight, carbs, protein, fat, calories, name, product_id.",
 			Example: `result = api.call("food.log.list", params={"date": "2026-04-29", "days": 1})
 output(result)`,
@@ -89,7 +89,7 @@ output({"count": result["total"], "products": result["products"]})`,
     "limit": {"type": "integer", "description": "Max results (default 20)"}
   }
 }`),
-			Description:     "Search the user's saved food products (and the open_food_facts cache) by name. Always call this before food.log.create unless you already have a product_id — reusing an existing product keeps the user's history consistent.",
+			Description:     "Search the user's saved food products (and the open_food_facts cache) by name. ALWAYS call this before food.log.create unless you already have a product_id. Logging the same food without a product_id creates a NEW duplicate product row each time, breaking history rollup and statistics.",
 			ResponseSummary: "JSON array of matching products with id, name, barcode, per-100g macros.",
 			Example: `result = api.call("food.products.search", params={"q": "oatmeal"})
 output(result)`,
