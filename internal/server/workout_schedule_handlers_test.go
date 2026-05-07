@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -183,6 +184,97 @@ func TestHandleScheduleAdHocWorkoutSession_RejectsDuplicateExerciseID(t *testing
 	}
 	if !strings.Contains(strings.ToLower(w.Body.String()), "unique") {
 		t.Errorf("Expected error message to mention 'unique', got %q", w.Body.String())
+	}
+}
+
+func TestHandleScheduleAdHocWorkoutSession_RejectsDuplicateName(t *testing.T) {
+	srv, db := createGenericTestServer(t)
+	defer db.Close()
+
+	tomorrow := time.Now().AddDate(0, 0, 1).Format("2006-01-02")
+	body := map[string]any{
+		"scheduled_date": tomorrow,
+		"scheduled_time": "07:30",
+		"exercises": []map[string]any{
+			{"exercise_name": "Bench Press", "target_sets": 3, "target_reps_min": 6},
+			// Same name with different casing/whitespace must also be caught.
+			{"exercise_name": " bench press ", "target_sets": 3, "target_reps_min": 6},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/workout/sessions/schedule", bytes.NewReader(bodyBytes))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleScheduleAdHocWorkoutSession(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Expected 400 for duplicate exercise name, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(strings.ToLower(w.Body.String()), "unique") {
+		t.Errorf("Expected error message to mention 'unique', got %q", w.Body.String())
+	}
+}
+
+func TestHandleScheduleAdHocWorkoutSession_RejectsLibraryAndFreeFormSameName(t *testing.T) {
+	srv, db := createGenericTestServer(t)
+	defer db.Close()
+
+	libItem, err := db.CreateExerciseLibraryItem(123456, "Bench Press", 3, 6, nil, nil, "")
+	if err != nil {
+		t.Fatalf("CreateExerciseLibraryItem: %v", err)
+	}
+
+	tomorrow := time.Now().AddDate(0, 0, 1).Format("2006-01-02")
+	body := map[string]any{
+		"scheduled_date": tomorrow,
+		"scheduled_time": "07:30",
+		"exercises": []map[string]any{
+			// Resolves to library name "Bench Press"
+			{"exercise_id": libItem.ID, "target_sets": 3, "target_reps_min": 6},
+			// Free-form with the same name — must be rejected.
+			{"exercise_name": "Bench Press", "target_sets": 3, "target_reps_min": 6},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/workout/sessions/schedule", bytes.NewReader(bodyBytes))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleScheduleAdHocWorkoutSession(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Expected 400 for library-id + free-form duplicate name, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleScheduleAdHocWorkoutSession_RejectsTooManyExercises(t *testing.T) {
+	srv, db := createGenericTestServer(t)
+	defer db.Close()
+
+	tomorrow := time.Now().AddDate(0, 0, 1).Format("2006-01-02")
+	exercises := make([]map[string]any, 0, maxScheduledExercises+1)
+	for i := 0; i < maxScheduledExercises+1; i++ {
+		exercises = append(exercises, map[string]any{
+			"exercise_name":   fmt.Sprintf("Exercise %d", i),
+			"target_sets":     1,
+			"target_reps_min": 1,
+		})
+	}
+	body := map[string]any{
+		"scheduled_date": tomorrow,
+		"scheduled_time": "07:30",
+		"exercises":      exercises,
+	}
+	bodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/workout/sessions/schedule", bytes.NewReader(bodyBytes))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleScheduleAdHocWorkoutSession(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Expected 400 for too many exercises, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

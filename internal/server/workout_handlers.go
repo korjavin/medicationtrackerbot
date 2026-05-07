@@ -1202,13 +1202,15 @@ func (s *Server) handleUpdateExerciseLog(w http.ResponseWriter, r *http.Request)
 	// auto-promote a placeholder log (status=="") to "completed" once the caller
 	// records sets_completed >= 1, since the scheduled-ad-hoc design relies on
 	// this endpoint to flip placeholders into the completed state that
-	// stats/history queries filter on.
+	// stats/history queries filter on. Skip the update entirely when we
+	// could not load the row — promoting status without a confirmed pre-state
+	// risks overwriting an unrelated row if the id was wrong or already gone.
 	newStatus := req.Status
 	if newStatus == "" && logEntry != nil && logEntry.Status == "" &&
 		req.SetsCompleted != nil && *req.SetsCompleted >= 1 {
 		newStatus = "completed"
 	}
-	if newStatus != "" && (logEntry == nil || logEntry.Status != newStatus) {
+	if newStatus != "" && logEntry != nil && logEntry.Status != newStatus {
 		if err := s.workouts.UpdateExerciseLogStatus(req.ID, newStatus); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
