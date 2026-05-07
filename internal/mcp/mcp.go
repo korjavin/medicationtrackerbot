@@ -487,14 +487,14 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcpServer,
 		&mcp.Tool{
 			Name:        "log_food_intake",
-			Description: "Log a single food intake entry with macros (kcal calories, gram-based carbs/protein/fat) and the time eaten. Use when you can estimate or look up nutritional info from a description or photo of a meal. eaten_at can be any past date for backfill (no window limit) or 'now'. SIDE EFFECT: each call creates a new row — duplicates are NOT deduplicated, so verify before re-logging. NOTE: this legacy tool always creates a fresh ad-hoc product; for entries that should reuse a saved product, prefer the food.products.search + food.log.create flow via mcp_execute.",
+			Description: "Log a single food intake entry with macros (kcal calories, gram-based carbs/protein/fat) and the time eaten. Use when you can estimate or look up nutritional info from a description or photo of a meal. eaten_at can be any past date for backfill (no window limit) or 'now'. The name is the shared identity for every future log of this food, so always normalize it: canonical English, lowercase, generic ingredient form, no situational notes (good: \"boiled egg\", \"oatmeal\", \"chicken breast\"; bad: \"вареное яйцо\", \"boiled eggs breakfast\", \"boiled eggs airline\", \"2 boiled eggs\"). Prefer a name the user has already logged (visible via get_food_intake) so logs roll up under one product. SIDE EFFECT: each call creates a new row — duplicates are NOT deduplicated, so verify before re-logging. NOTE: this legacy tool always creates a fresh ad-hoc product; for entries that should reuse a saved product, prefer the food.products.search + food.log.create flow via mcp_execute.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"required": ["name", "eaten_at", "calories", "carbs_g", "protein_g", "fat_g", "weight_g"],
 				"properties": {
 					"name": {
 						"type": "string",
-						"description": "Name or description of the food item or meal."
+						"description": "Canonical English food name in generic, reusable form. Lowercase, singular, ingredient-style, with no meal-time/quantity/context notes. Good: \"boiled egg\", \"oatmeal\", \"chicken breast\". Bad: \"вареное яйцо\" (not English), \"boiled eggs breakfast\" (meal-time note), \"boiled eggs airline\" (context note), \"2 boiled eggs\" (quantity belongs in weight_g). Match the spelling of an existing entry whenever possible so logs share one product."
 					},
 					"eaten_at": {
 						"type": "string",
