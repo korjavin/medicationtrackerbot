@@ -72,10 +72,10 @@ Today, the user can either create a recurring workout group (which becomes a per
 - Modify: `internal/server/store_interfaces.go` (if any new method must be exposed to the server's narrow interface)
 - Modify: `internal/server/workout_handlers_test.go`
 
-- [ ] add `handleScheduleAdHocWorkoutSession` that (a) reads `userID` from request, (b) parses JSON body `{scheduled_date, scheduled_time, exercises: [...]}`, (c) validates date format `YYYY-MM-DD` and time `HH:MM`, (d) calls `s.workouts.SchedulePlannedAdHocSession`, (e) returns `{session, planned: <count>}` with HTTP 201
-- [ ] register `apiMux.HandleFunc("POST /api/workout/sessions/schedule", s.handleScheduleAdHocWorkoutSession)` in `server.go`
-- [ ] write a handler test covering the happy path, past-date rejection, empty exercise list rejection
-- [ ] run `go test ./internal/server/...` — must pass before task 4
+- [x] add `handleScheduleAdHocWorkoutSession` that (a) reads `userID` from request, (b) parses JSON body `{scheduled_date, scheduled_time, exercises: [...]}`, (c) validates date format `YYYY-MM-DD` and time `HH:MM`, (d) calls `s.workoutSvc.SchedulePlannedAdHocSession`, (e) returns `{session, planned: <count>}` with HTTP 201
+- [x] register `apiMux.HandleFunc("POST /api/workout/sessions/schedule", s.handleScheduleAdHocWorkoutSession)` in `server.go`
+- [x] write a handler test covering the happy path, past-date rejection, empty exercise list rejection
+- [x] run `go test ./internal/server/...` — must pass before task 4 (passes; MCP coverage test required registering the registry operation now — see Task 4 first three boxes also marked done)
 
 ### Task 4: MCP registry operation
 
@@ -83,9 +83,9 @@ Today, the user can either create a recurring workout group (which becomes a per
 - Modify: `internal/mcp/registry/operations_workouts.go`
 - Modify: `internal/mcp/executor/e2e_workouts_test.go`
 
-- [ ] add `Operation{ID: "workouts.sessions.schedule", Topic: "workouts", Method: "POST", Path: "/api/workout/sessions/schedule", Risk: RiskWrite, BodySchema: ..., Description: ..., ResponseSummary: ..., Example: ...}` next to the existing `workouts.sessions.adhoc` entry
-- [ ] schema describes all body fields: `scheduled_date` (YYYY-MM-DD), `scheduled_time` (HH:MM, 24h), `exercises[]` with `exercise_id`, `exercise_name`, `target_sets`, `target_reps_min`, `target_reps_max?`, `target_weight_kg?`
-- [ ] description clarifies: ad-hoc one-off, not recurring; uses library exercise IDs when given, free-form name otherwise; user can later complete via `workouts.sessions.logs.update` after `workouts.sessions.start`
+- [x] add `Operation{ID: "workouts.sessions.schedule", Topic: "workouts", Method: "POST", Path: "/api/workout/sessions/schedule", Risk: RiskWrite, BodySchema: ..., Description: ..., ResponseSummary: ..., Example: ...}` next to the existing `workouts.sessions.adhoc` entry (done in Task 3 to satisfy MCP coverage guard)
+- [x] schema describes all body fields: `scheduled_date` (YYYY-MM-DD), `scheduled_time` (HH:MM, 24h), `exercises[]` with `exercise_id`, `exercise_name`, `target_sets`, `target_reps_min`, `target_reps_max?`, `target_weight_kg?` (done in Task 3)
+- [x] description clarifies: ad-hoc one-off, not recurring; uses library exercise IDs when given, free-form name otherwise; user can later complete via `workouts.sessions.logs.update` after `workouts.sessions.start` (done in Task 3)
 - [ ] add an end-to-end test that schedules a session through the MCP executor and reads it back via `workouts.sessions.details`
 - [ ] run `go test ./internal/mcp/...` and the MCP coverage guard test — must pass before task 5
 

@@ -1,0 +1,91 @@
+package server
+
+import (
+	"encoding/json"
+	"log/slog"
+	"net/http"
+	"time"
+
+	"github.com/korjavin/medicationtrackerbot/internal/store"
+	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/workout"
+)
+
+type scheduleAdHocExerciseRequest struct {
+	ExerciseID     int64    `json:"exercise_id"`
+	ExerciseName   string   `json:"exercise_name"`
+	TargetSets     int      `json:"target_sets"`
+	TargetRepsMin  int      `json:"target_reps_min"`
+	TargetRepsMax  *int     `json:"target_reps_max"`
+	TargetWeightKg *float64 `json:"target_weight_kg"`
+}
+
+type scheduleAdHocRequest struct {
+	ScheduledDate string                         `json:"scheduled_date"`
+	ScheduledTime string                         `json:"scheduled_time"`
+	Exercises     []scheduleAdHocExerciseRequest `json:"exercises"`
+}
+
+// handleScheduleAdHocWorkoutSession schedules a future ad-hoc workout session
+// with a pre-selected list of planned exercises. The created session is in
+// 'pending' state until the user starts it (or the scheduler notifies them).
+func (s *Server) handleScheduleAdHocWorkoutSession(w http.ResponseWriter, r *http.Request) {
+	userID, err := getUserID(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	var req scheduleAdHocRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+
+	scheduledDate, err := time.Parse("2006-01-02", req.ScheduledDate)
+	if err != nil {
+		http.Error(w, "scheduled_date must be YYYY-MM-DD", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.Exercises) == 0 {
+		http.Error(w, "exercises must not be empty", http.StatusBadRequest)
+		return
+	}
+
+	exercises := make([]workoutsvc.PlannedExercise, 0, len(req.Exercises))
+	for _, ex := range req.Exercises {
+		if ex.ExerciseName == "" {
+			http.Error(w, "exercises[].exercise_name is required", http.StatusBadRequest)
+			return
+		}
+		exercises = append(exercises, workoutsvc.PlannedExercise{
+			ExerciseID:     ex.ExerciseID,
+			ExerciseName:   ex.ExerciseName,
+			TargetSets:     ex.TargetSets,
+			TargetRepsMin:  ex.TargetRepsMin,
+			TargetRepsMax:  ex.TargetRepsMax,
+			TargetWeightKg: ex.TargetWeightKg,
+		})
+	}
+
+	session, err := s.workoutSvc.SchedulePlannedAdHocSession(userID, scheduledDate, req.ScheduledTime, exercises)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	resp := struct {
+		Session *store.WorkoutSession `json:"session"`
+		Planned int                   `json:"planned"`
+	}{
+		Session: session,
+		Planned: len(exercises),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		slog.Error("encode response", "error", err)
+	}
+}
