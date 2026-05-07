@@ -104,9 +104,25 @@ Every numbered point above was the source of one of the recent bugs.
   pure storage refactor; Track D (pre-materialized steps) is data-model.
   We do A first because it makes D simpler — once `scheduled_at` is an
   int64 the dedup join in step (D2) is a clean equality.
-- **No big-bang migration.** Each migration is additive (new column, new
-  index, new table) until the very last task that drops the legacy column
-  / table. Rollback is the previous migration's down-step.
+- **Single-binary, self-hosted deploy.** This project is one Go binary
+  the operator restarts on upgrade — no rolling deploy, no two
+  versions running at once. Dual-write windows therefore exist purely
+  to keep migrations reversible during development, not to support
+  mixed-version production traffic.
+- **No big-bang migration, but forward-only after table-rebuilds.**
+  Each migration is additive (new column, new index, new table) and
+  rolls back via its down-step — except for A4 and D5, which use the
+  SQLite `CREATE TABLE … new` + copy + drop + rename pattern to remove
+  columns. Their down-steps are best-effort (recreate the prior shape,
+  copy back; original row order and any post-A4 inserts are
+  preserved, but production rollback past these points should rely on
+  a DB backup, not the goose down). Tasks A4 and D5 explicitly call
+  this out.
+- **Migration numbers are placeholders.** Concrete numbers are
+  assigned at PR time in the order tasks merge. The plan keeps
+  `0XX_*` placeholders throughout and pins `057` only as the
+  next-free number at the time of writing — A5's expansion will
+  consume several more before D-track ships.
 - **TDD.** Every gap I've identified has a regression test that exists or
   needs to exist. Each task starts with a red test and ends green. The
   cross-TZ tests added in 1169cd6 and the overlap-guard tests added in
@@ -117,9 +133,15 @@ Every numbered point above was the source of one of the recent bugs.
   simplifies the *implementation*; new features (auto-approve, undo
   affordance, etc. — recommendations C and E) are deliberately out of
   scope.
-- **One PR per track.** Track A merges first and bakes for at least one
-  release before Track D starts, so we can spot any TZ-equality regression
-  in production before pulling out the workarounds.
+- **PR boundaries.** Track A merges first and bakes for at least one
+  release before Track D starts, so we can spot any TZ-equality
+  regression in production before pulling out the workarounds. Within
+  Track D, **D1 + D2 + D3 + D4 ship as a single PR** — D2 writes
+  pre-materialized rows but only D3 + D4 teach the scheduler and the
+  forecast endpoint to read them; shipping D2 alone would leave the
+  Today UI's next-intake preview stale until each step's tick fires.
+  D5 (drop the legacy `tz_transition_steps` table) ships in a
+  follow-up PR after D1–D4 has baked.
 
 ## Testing Strategy
 
@@ -178,7 +200,8 @@ Every numbered point above was the source of one of the recent bugs.
 
 #### Task A2: Migration — add `scheduled_at_unix` column to `intake_log`, backfill, dual-write
 
-- [ ] migration `057_add_intake_log_scheduled_at_unix.sql`:
+- [ ] migration `0XX_add_intake_log_scheduled_at_unix.sql` (concrete
+  number assigned at PR time; `057` is next-free at time of writing):
   `ALTER TABLE intake_log ADD COLUMN scheduled_at_unix INTEGER;`
   + backfill `UPDATE intake_log SET scheduled_at_unix = strftime('%s', scheduled_at);`
   + index `idx_intake_log_scheduled_at_unix`
@@ -209,29 +232,68 @@ Every numbered point above was the source of one of the recent bugs.
 
 #### Task A4: Drop the legacy `scheduled_at` text column from `intake_log`
 
-- [ ] migration `058_drop_intake_log_scheduled_at_text.sql`:
-  SQLite doesn't support `DROP COLUMN` cleanly pre-3.35 — use
-  table-rebuild (`CREATE TABLE intake_log_new` with the new shape, copy,
-  drop, rename); preserve every other column verbatim including the
-  existing indexes
+- [ ] migration `0XX_drop_intake_log_scheduled_at_text.sql`:
+  table-rebuild (`CREATE TABLE intake_log_new` with the new shape,
+  `INSERT INTO intake_log_new SELECT … FROM intake_log`, drop the old,
+  rename); preserve every other column verbatim including indexes,
+  triggers, and the foreign-key declarations.
+- [ ] **forward-only checkpoint.** The down step recreates the prior
+  shape via the same rebuild pattern, but row IDs are renumbered and
+  any column added between A2 and this migration is dropped on
+  rollback. Document in the migration's down-section that production
+  rollback past A4 should restore from a DB backup, not run the down.
 - [ ] confirm migration runs against a populated DB on a CI fixture
   carrying ≥ 100 historical rows
 - [ ] remove the `scheduled_at` legacy field from the dual-write in
   `CreateIntake` / `CreateManualIntake`
 - [ ] full `go test ./...` — green
 
-#### Task A5: Apply the same pattern to the remaining timestamp columns
+#### Task A5: Apply the same A2→A3→A4 pattern to the remaining columns
 
-- [ ] `intake_log.taken_at` → `taken_at_unix INTEGER` (nullable)
-- [ ] `intake_log.snoozed_until` → `snoozed_until_unix INTEGER` (nullable)
-- [ ] `tz_transition_steps.scheduled_at` → `scheduled_at_unix INTEGER`
-- [ ] `tz_transition_steps.consumed_at` → `consumed_at_unix INTEGER`
-  (nullable)
-- [ ] `tz_transition_plans.created_at` / `notified_at` / `approved_at` →
-  unix-seconds equivalents (these are only used with `time.Since` today,
-  so equality risk is low — convert anyway for consistency)
-- [ ] each conversion follows the A2 → A3 → A4 staging within a single
-  task entry (`add column + dual-write + cut over readers + drop legacy`)
+Each subtask is its own three-step sequence (`add column + dual-write
+→ cut over readers → drop legacy via table-rebuild`). They are
+independent and can ship in parallel PRs after A4 lands. **Track D's
+columns are deliberately excluded** — `tz_transition_steps.scheduled_at`
+and `consumed_at` would convert and then immediately be dropped by D5,
+so the table is left as DATETIME until D5 retires it.
+
+##### A5a: `intake_log.taken_at` → `taken_at_unix INTEGER` (nullable)
+
+- [ ] add column + backfill `UPDATE intake_log SET taken_at_unix =
+  strftime('%s', taken_at) WHERE taken_at IS NOT NULL;`
+- [ ] dual-write in `MarkIntakeTaken`, `CreateManualIntake`, any
+  setter that touches `taken_at`
+- [ ] cut over readers in history endpoint, archived-meds query,
+  per-id `GetIntake`
+- [ ] table-rebuild migration drops the legacy column
+- [ ] tests: history endpoint cross-TZ scan + per-id read
+
+##### A5b: `intake_log.snoozed_until` → `snoozed_until_unix INTEGER` (nullable)
+
+- [ ] add column + backfill
+- [ ] dual-write in `SnoozeIntake`
+- [ ] cut over reader in `GetPendingIntakes` (the `medication_reminder`
+  loop currently uses `time.After(*p.SnoozedUntil)` in-memory — keep
+  the in-memory comparison but read into `int64` then convert to
+  `time.Time` for the existing API)
+- [ ] table-rebuild migration drops the legacy column
+- [ ] tests: snooze round-trip across TZ change
+
+##### A5c: `tz_transition_plans.created_at` / `notified_at` / `approved_at`
+
+- [ ] one migration covers all three columns on the same table to
+  minimize rebuild churn
+- [ ] dual-write in `CreateTZTransitionPlan*`, `MarkPlanNotified`,
+  `SetTZTransitionPlanApproved`
+- [ ] cut over readers in `tz_plan_notifier` (uses `time.Since`),
+  observability log lines
+- [ ] table-rebuild migration drops the three legacy columns
+- [ ] tests: plan-lifecycle test fixture covers each setter
+
+##### A5d: invariant test gains the new columns
+
+- [ ] update `store_time_invariants_test.go` allowlist (Task A6) to
+  include every column converted in A5a–A5c
 
 #### Task A6: Document and lock in the invariant
 
@@ -262,11 +324,21 @@ Every numbered point above was the source of one of the recent bugs.
   + `ADD COLUMN tz_plan_id INTEGER;`
   + `ADD COLUMN tz_step_number INTEGER;`
   + foreign key `tz_plan_id REFERENCES tz_transition_plans(id) ON DELETE SET NULL`
-    — the plan lifecycle (CANCELLED / COMPLETED / future GC) is owned by
-    the lifecycle plan, not this one; `SET NULL` keeps the historical
-    intake row intact when a plan is eventually deleted, and the
-    `source = 'tz_step'` value remains as audit. Document this in
-    `docs/architecture.md` "Time storage" subsection.
+    — **but FK enforcement is OFF in this project**.
+    `internal/store/miband_workouts.go:419` documents that
+    `PRAGMA foreign_keys=ON` is not set on the modernc.org/sqlite
+    connection (and miband cleanup cascades manually for the same
+    reason). The `ON DELETE SET NULL` clause is therefore documentation
+    of intent, not enforcement: with FKs off, deleting a plan row
+    leaves dangling `tz_plan_id` values. There is **no plan GC code
+    today**, so this isn't an active risk; the lifecycle follow-up plan
+    is where any future plan-deletion path will live, and that plan is
+    responsible for either (a) turning FKs on globally — its own
+    decision because it would activate dormant constraints across the
+    schema, or (b) doing an explicit `UPDATE intake_log SET tz_plan_id
+    = NULL WHERE tz_plan_id = ?` in the deletion code path.
+    Document the current state in `docs/architecture.md` "Time storage"
+    subsection.
   + index `idx_intake_log_tz_plan_id` for the planner's "delete pending
     rows on plan cancel" query
 - [ ] update `IntakeLog` struct + `Scan` calls to expose the new columns
@@ -278,22 +350,29 @@ Every numbered point above was the source of one of the recent bugs.
 
 #### Task D2: When a plan is approved, materialize steps as PENDING intakes
 
-- [ ] add `Store.MaterializePlanStepsAsIntakes(tx *sql.Tx, planID int64) error`:
-  the helper takes the *Tx, **not** a *Store, so the caller controls
-  the transaction. Inside the call: iterate the plan's
-  `tz_transition_steps`, insert one `intake_log` row per step with
-  `status='PENDING'`, `source='tz_step'`, `tz_plan_id=planID`,
-  `tz_step_number=step.StepNumber`,
-  `scheduled_at_unix = step.scheduled_at_unix`.
-- [ ] explicit atomicity: every code path that flips a plan to
-  `APPROVED` opens a single `*sql.Tx`, calls
-  `SetTZTransitionPlanApproved(tx, ...)` and
-  `MaterializePlanStepsAsIntakes(tx, ...)` against that tx, then
-  `Commit()`. If the approve path is split between
-  `medication_handlers.go` (`tz_plan_approve`) and `tz_plan_notifier.go`
-  (auto-approve), refactor both to share one helper that owns the tx —
-  approve→crash→restart must not leave a plan APPROVED with no
-  materialized intakes.
+- [ ] **Domain service per CLAUDE.md rule #1.** Today's
+  `handleTZPlanApprove` (`internal/server/settings_handlers.go:645`)
+  calls `s.tzPlanStore.SetTZTransitionPlanApproved(...)` directly —
+  this already violates the "transports may only call domain
+  services" rule. Add `internal/domain/tzreschedule/lifecycle.go` (or
+  extend the existing `tzreschedule` package) with a
+  `LifecycleService` interface and one method:
+  `Approve(ctx, planID int64, approvedAt time.Time) (approved bool, err error)`.
+  The service is responsible for opening the `*sql.Tx`, flipping the
+  plan to `APPROVED`, calling `MaterializePlanStepsAsIntakes(tx,
+  planID)`, and committing. Both the HTTP handler
+  (`handleTZPlanApprove`) and the auto-approve path in
+  `internal/scheduler/tz_plan_notifier.go` switch to calling the
+  service; the Telegram bot's approve callback (if any) does the
+  same.
+- [ ] add `Store.ApproveAndMaterialize(planID int64, approvedAtUnix int64) (bool, error)`:
+  internal helper used by the service that opens a single `*sql.Tx`
+  and calls private `setTZTransitionPlanApprovedTx(tx, …)` and
+  `materializePlanStepsAsIntakesTx(tx, …)` against that tx, then
+  `Commit()`. The exported helpers in `Store.*` retain their current
+  signatures for tests but route through the tx-internal versions.
+  Approve→crash→restart cannot leave a plan APPROVED with no
+  materialized intakes, because both writes share one tx.
 - [ ] add a partial unique index
   `(tz_plan_id, tz_step_number) WHERE tz_plan_id IS NOT NULL` so
   re-running materialize is idempotent (e.g. via `INSERT OR IGNORE`)
@@ -301,18 +380,44 @@ Every numbered point above was the source of one of the recent bugs.
   pre-materialized rows" path: `DELETE FROM intake_log WHERE
   tz_plan_id=? AND status='PENDING' AND source='tz_step'` — wire it
   into the plan cancel flow in `tzreschedule/planner.go`
-- [ ] **one-shot backfill at deploy time.** When the migration ships,
-  plans already in `APPROVED` (with steps not yet fired) must have
-  their steps materialized too — otherwise an APPROVED plan whose
-  first step is two days out silently loses its scheduling because
-  the scheduler now reads `intake_log` instead of `tz_transition_steps`.
-  Add a Go-level data migration (run once at startup, behind a
-  `tz_steps_backfilled_at` row in a small `_data_migrations` table to
-  ensure idempotency) that walks every `APPROVED` plan, finds its
-  unconsumed steps in `tz_transition_steps`, and inserts the
-  corresponding `intake_log` rows — same code path as
-  `MaterializePlanStepsAsIntakes`, just iterated over historical
-  plans. Log a count of materialized rows per plan.
+- [ ] **one-shot backfill via SQL migration, not a new tracking
+  table.** When this migration ships, plans already in `APPROVED`
+  (with steps not yet fired) must have their steps materialized too —
+  otherwise an APPROVED plan whose first step is two days out
+  silently loses its scheduling because the scheduler now reads
+  `intake_log` instead of `tz_transition_steps`. The project uses
+  goose SQL migrations only — no Go migrations, no separate
+  `_data_migrations` table. Do the backfill inline in the same SQL
+  migration that creates the `source` / `tz_plan_id` columns:
+
+  ```sql
+  INSERT OR IGNORE INTO intake_log
+    (medication_id, user_id, scheduled_at_unix, status, source,
+     tz_plan_id, tz_step_number)
+  SELECT
+    s.medication_id,
+    (SELECT user_id FROM intake_log LIMIT 1) AS user_id, -- single-user app
+    s.scheduled_at_unix,
+    'PENDING',
+    'tz_step',
+    s.plan_id,
+    s.step_number
+  FROM tz_transition_steps s
+  JOIN tz_transition_plans p ON p.id = s.plan_id
+  WHERE p.status = 'APPROVED'
+    AND s.consumed_at_unix IS NULL;
+  ```
+
+  Goose runs each migration once per DB; the `INSERT OR IGNORE`
+  against the partial unique index added in this same migration makes
+  the SQL safe to re-run if anyone manually replays the migration.
+  Backfill is therefore idempotent without a tracking table.
+- [ ] verify the backfill SQL on a CI fixture seeded with: one
+  `APPROVED` plan with two steps, the first consumed and the second
+  unconsumed; one `COMPLETED` plan with all steps consumed; one
+  `PENDING_APPROVAL` plan. Assert exactly one row was inserted into
+  `intake_log` (the unconsumed step from the APPROVED plan) and that
+  re-running the migration is a no-op.
 - [ ] tests: approve + materialize, reject leaves no rows, cancel
   cleans up PENDING `tz_step` rows; idempotent re-approve produces no
   duplicates; **one explicit test that simulates the backfill on a
@@ -366,12 +471,20 @@ Every numbered point above was the source of one of the recent bugs.
     of the old guard (`!target.After(stepAt)`) had nothing to bite —
     only the upper-bound (`target - stepAt ≤ minInterval`) did real
     work, and the new predicate matches that exactly.
-  - **Verification task**: run every scenario in `medication_tz_test.go`
-    (especially `TestMedicationCheckerTZAware/*` and the post-westbound
-    cases from ec97a1f / 0bb7485 / 1169cd6 #3) against the new dedup
-    predicate; if any case produces a different intake row set, the
-    asymmetry has a real consumer and the new predicate must be
-    adjusted to a one-sided window before this task is checked off.
+  - **Verification gate**: write a one-shot side-by-side property
+    test (`internal/scheduler/dedup_equivalence_test.go`) that, for a
+    table-driven generator of (`stepAt`, `target`, `minInterval`)
+    triples spanning the relevant ranges, asserts the old guard
+    output equals the new dedup-predicate output across every
+    generated input. The test is the gate for deleting the old
+    overlap guard — green means the symmetric predicate observably
+    matches the asymmetric one. Mark this test with a `// REMOVE
+    AFTER D3 LANDS` comment; it is removable in the same PR that
+    deletes `medplan.Inputs.ConsumedStepTimeByMed`. Also run every
+    scenario in `medication_tz_test.go` (especially
+    `TestMedicationCheckerTZAware/*` and the post-westbound cases
+    from ec97a1f / 0bb7485 / 1169cd6 #3) against the new predicate
+    end-to-end.
 - [ ] tests: every scenario from `medication_tz_test.go`,
   `notifier_test.go`, `medplan_test.go` stays green; **delete** the
   `consumedStepTimeByMed` plumbing in `medplan.Inputs` and the overlap
@@ -392,9 +505,16 @@ Every numbered point above was the source of one of the recent bugs.
 
 #### Task D5: Drop the `tz_transition_steps` table
 
-- [ ] migration `0XX_drop_tz_transition_steps.sql` — table-rebuild with
-  no column changes elsewhere; the column was only read by the
-  scheduler and the planner, both of which now use `intake_log`
+- [ ] migration `0XX_drop_tz_transition_steps.sql` — full `DROP TABLE
+  tz_transition_steps` (no rebuild needed since the entire table
+  goes); the table was only read by the scheduler and the planner,
+  both of which now use `intake_log`. **Forward-only checkpoint**:
+  the down-step `CREATE TABLE … LIKE the old shape` recreates the
+  schema but cannot recover the row data — pre-D5 plans relied on
+  this table for their step lifecycle, but post-D5 those plans live
+  entirely as `intake_log` rows. Document in the migration's
+  down-section that production rollback past D5 should restore from
+  a DB backup.
 - [ ] delete `Store.GetPendingStepsForPlan`, `MarkStepConsumed`,
   `GetLatestConsumedStepTimePerMed`, `CreateTZTransitionSteps`,
   `CreateTZTransitionPlanWithSteps`'s step-bulk-insert (it now stores
@@ -511,6 +631,18 @@ to the SQL pre-insert check. This is the single replacement for the
 See Task D3 for the asymmetric-vs-symmetric verification argument that
 this predicate is observably equivalent to today's guard.
 
+### Pre-materialization footprint
+
+The "many step rows on approval" worry is small. A typical user has 1–5
+active medications; a strict-policy plan bridging the worst-case
+~12-hour offset (Berlin → LA) at a 2-hour-per-step max-shift produces
+≈6 steps per medication. Worst-case row count per plan is therefore on
+the order of `5 × 6 = 30` rows; common-case is `1–3 meds × 1–3 steps =
+3–9 rows`. Inserting that many rows in one tx on SQLite is
+sub-millisecond. The scheduler's per-tick cost goes **down**, not up,
+because the tick reads one query against `intake_log` instead of
+`tz_transition_steps` + `intake_log` + `consumed_step_time_per_med`.
+
 ### What we deliberately do NOT touch
 
 - The plan lifecycle: `PENDING_APPROVAL` → `NOTIFIED` → `APPROVED` →
@@ -544,6 +676,21 @@ this predicate is observably equivalent to today's guard.
   "existing_unix", e)` — surfaces every time the new dedup predicate
   catches a duplicate, so we can confirm in production that the natural
   dedup is doing what the overlap guard used to do.
+- `slog.Error("approve_and_materialize: tx commit failed",
+  "plan_id", planID, "step_count", n, "error", err)` at the
+  `tx.Commit()` failure path inside `Store.ApproveAndMaterialize`.
+  This is the failure mode that the atomicity guarantee actually
+  protects against — the operator needs to know if it ever fires
+  (because it means a plan stayed in `PENDING_APPROVAL` despite a
+  user clicking approve, with no intake rows materialized either).
+  Pair with a one-line `slog.Info("approve_and_materialize: ok",
+  "plan_id", planID, "step_count", n)` on success so the count of
+  successful approves is also visible in logs.
+- `slog.Info("scheduler: pre-materialized step fired",
+  "intake_id", id, "tz_plan_id", planID, "tz_step_number", n)` when
+  a `source='tz_step'` row hits its tick — confirms in production
+  that pre-materialization is actually driving transition fires
+  (rather than something silently falling back to normal-schedule).
 - A tiny dashboard query: `SELECT source, COUNT(*) FROM intake_log
   GROUP BY source` to track the share of pre-materialized rows.
 
