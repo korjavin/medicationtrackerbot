@@ -55,6 +55,11 @@ func (s *Server) handleScheduleAdHocWorkoutSession(w http.ResponseWriter, r *htt
 	}
 
 	exercises := make([]workoutsvc.PlannedExercise, 0, len(req.Exercises))
+	// Track non-zero exercise_ids so we reject duplicates upfront with a clear
+	// 400 — otherwise the unique index on workout_exercise_logs(session_id,
+	// exercise_id, source) WHERE exercise_id > 0 would surface as a 500 after
+	// the session row was already created.
+	seenExerciseIDs := make(map[int64]bool)
 	for _, ex := range req.Exercises {
 		if ex.ExerciseName == "" {
 			http.Error(w, "exercises[].exercise_name is required", http.StatusBadRequest)
@@ -63,6 +68,17 @@ func (s *Server) handleScheduleAdHocWorkoutSession(w http.ResponseWriter, r *htt
 		if ex.TargetSets < 1 || ex.TargetRepsMin < 1 {
 			http.Error(w, "exercises[].target_sets and target_reps_min must be >= 1", http.StatusBadRequest)
 			return
+		}
+		if ex.TargetRepsMax != nil && *ex.TargetRepsMax < ex.TargetRepsMin {
+			http.Error(w, "exercises[].target_reps_max must be >= target_reps_min", http.StatusBadRequest)
+			return
+		}
+		if ex.ExerciseID > 0 {
+			if seenExerciseIDs[ex.ExerciseID] {
+				http.Error(w, "exercises[].exercise_id values must be unique within a request", http.StatusBadRequest)
+				return
+			}
+			seenExerciseIDs[ex.ExerciseID] = true
 		}
 		exercises = append(exercises, workoutsvc.PlannedExercise{
 			ExerciseID:     ex.ExerciseID,
