@@ -49,6 +49,7 @@
 | DELETE | `/api/workout/exercises/delete` | Delete exercise |
 | GET | `/api/workout/sessions` | Session history |
 | GET | `/api/workout/sessions/details` | Session details with logs |
+| POST | `/api/workout/sessions/schedule` | Schedule a one-off ad-hoc workout for a future date/time with a pre-selected exercise list. Body: `{scheduled_date: "YYYY-MM-DD", scheduled_time: "HH:MM", exercises: [{exercise_id?, exercise_name?, target_sets, target_reps_min, target_reps_max?, target_weight_kg?}, …]}`. Each exercise must supply either `exercise_id` (library id; must belong to the caller — name is filled in from the library row) or a free-form `exercise_name`. The session is created with `group_id = -1`, `variant_id = -1`, `status = "pending"` and one pending `workout_exercise_logs` row per planned exercise; the scheduler notifies at `scheduled_date + scheduled_time` in the user's TZ. Pending placeholder logs auto-promote to `status = "completed"` when the user later POSTs to `/api/workout/sessions/logs/update` with `sets_completed >= 1` (or supplies an explicit `status`). MCP-only — no web UI for creation. |
 | GET | `/api/workout/stats` | 30-day statistics |
 | GET | `/api/workout/rotation/state` | Current rotation position |
 | POST | `/api/workout/rotation/initialize` | Initialize rotation |

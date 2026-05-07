@@ -988,3 +988,180 @@ func TestUpsertExerciseLogByName(t *testing.T) {
 		t.Errorf("expected 2 logs after second exercise, got %d", len(logs2))
 	}
 }
+
+// TestCreatePlannedAdHocSession verifies a future ad-hoc session is created
+// in 'pending' state with no started_at and the expected sentinel IDs.
+func TestCreatePlannedAdHocSession(t *testing.T) {
+	st := setupTestDB(t)
+	defer st.db.Close()
+
+	userID := int64(42)
+	scheduled := time.Date(2030, 6, 1, 0, 0, 0, 0, time.UTC)
+	sess, err := st.CreatePlannedAdHocSession(userID, scheduled, "07:30")
+	if err != nil {
+		t.Fatalf("CreatePlannedAdHocSession failed: %v", err)
+	}
+	if sess == nil {
+		t.Fatalf("expected session, got nil")
+	}
+	if sess.GroupID != -1 || sess.VariantID != -1 {
+		t.Errorf("expected sentinel ids -1/-1, got %d/%d", sess.GroupID, sess.VariantID)
+	}
+	if sess.UserID != userID {
+		t.Errorf("expected userID %d, got %d", userID, sess.UserID)
+	}
+	if sess.Status != "pending" {
+		t.Errorf("expected status pending, got %q", sess.Status)
+	}
+	if sess.StartedAt != nil {
+		t.Errorf("expected started_at to be NULL, got %v", *sess.StartedAt)
+	}
+	if sess.ScheduledTime != "07:30" {
+		t.Errorf("expected scheduled_time 07:30, got %q", sess.ScheduledTime)
+	}
+}
+
+// TestListPendingAdHocSessions verifies that only ad-hoc, pending, due
+// sessions for the requested user are returned, ordered by date+time.
+func TestListPendingAdHocSessions(t *testing.T) {
+	st := setupTestDB(t)
+	defer st.db.Close()
+
+	userID := int64(1)
+	otherUser := int64(2)
+
+	// Due (past) — should be returned
+	dueDate := time.Date(2030, 6, 1, 0, 0, 0, 0, time.UTC)
+	due, err := st.CreatePlannedAdHocSession(userID, dueDate, "07:00")
+	if err != nil {
+		t.Fatalf("create due session: %v", err)
+	}
+
+	// Same date, earlier time — should be first in result
+	earlier, err := st.CreatePlannedAdHocSession(userID, dueDate, "06:00")
+	if err != nil {
+		t.Fatalf("create earlier session: %v", err)
+	}
+
+	// Future — should NOT be returned
+	futureDate := time.Date(2030, 6, 2, 0, 0, 0, 0, time.UTC)
+	if _, err := st.CreatePlannedAdHocSession(userID, futureDate, "07:00"); err != nil {
+		t.Fatalf("create future session: %v", err)
+	}
+
+	// Already-notified ad-hoc — should NOT be returned (status filter)
+	notifiedSess, err := st.CreatePlannedAdHocSession(userID, dueDate, "05:00")
+	if err != nil {
+		t.Fatalf("create notified ad-hoc session: %v", err)
+	}
+	if err := st.UpdateSessionStatus(notifiedSess.ID, "notified"); err != nil {
+		t.Fatalf("flip status: %v", err)
+	}
+
+	// Other user's ad-hoc — should NOT be returned
+	if _, err := st.CreatePlannedAdHocSession(otherUser, dueDate, "07:00"); err != nil {
+		t.Fatalf("create other-user session: %v", err)
+	}
+
+	// A pending recurring session at the same time — should NOT be returned (group_id != -1)
+	group, _ := st.CreateWorkoutGroup("G", "", false, userID, "[1]", "07:00", 15)
+	variant, _ := st.CreateWorkoutVariant(group.ID, "V", intPtr(1), "")
+	if _, err := st.CreateWorkoutSession(group.ID, variant.ID, userID, dueDate, "07:00"); err != nil {
+		t.Fatalf("create recurring session: %v", err)
+	}
+
+	// Query at a moment after the due time but before the future date.
+	now := time.Date(2030, 6, 1, 8, 0, 0, 0, time.UTC)
+	got, err := st.ListPendingAdHocSessions(userID, now)
+	if err != nil {
+		t.Fatalf("ListPendingAdHocSessions failed: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 due ad-hoc sessions, got %d (%+v)", len(got), got)
+	}
+	if got[0].ID != earlier.ID {
+		t.Errorf("expected earlier session first, got id %d (want %d)", got[0].ID, earlier.ID)
+	}
+	if got[1].ID != due.ID {
+		t.Errorf("expected later session second, got id %d (want %d)", got[1].ID, due.ID)
+	}
+
+	// Query before any sessions are due.
+	earlyNow := time.Date(2030, 5, 30, 0, 0, 0, 0, time.UTC)
+	got, err = st.ListPendingAdHocSessions(userID, earlyNow)
+	if err != nil {
+		t.Fatalf("ListPendingAdHocSessions early: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("expected no sessions before due time, got %d", len(got))
+	}
+}
+
+// TestListNotifiedAdHocSessions verifies that only ad-hoc sessions in
+// 'notified' state for the requested user are returned, regardless of how
+// far back the scheduled date sits — i.e. the result is not bounded by a
+// recent-history row limit.
+func TestListNotifiedAdHocSessions(t *testing.T) {
+	st := setupTestDB(t)
+	defer st.db.Close()
+
+	userID := int64(1)
+	otherUser := int64(2)
+
+	// Notified ad-hoc — should be returned
+	dueDate := time.Date(2030, 6, 1, 0, 0, 0, 0, time.UTC)
+	notified, err := st.CreatePlannedAdHocSession(userID, dueDate, "07:00")
+	if err != nil {
+		t.Fatalf("create notified session: %v", err)
+	}
+	if err := st.UpdateSessionStatus(notified.ID, "notified"); err != nil {
+		t.Fatalf("flip status: %v", err)
+	}
+
+	// Pending ad-hoc — should NOT be returned
+	if _, err := st.CreatePlannedAdHocSession(userID, dueDate, "06:00"); err != nil {
+		t.Fatalf("create pending session: %v", err)
+	}
+
+	// Other user's notified ad-hoc — should NOT be returned
+	otherSess, err := st.CreatePlannedAdHocSession(otherUser, dueDate, "08:00")
+	if err != nil {
+		t.Fatalf("create other-user session: %v", err)
+	}
+	if err := st.UpdateSessionStatus(otherSess.ID, "notified"); err != nil {
+		t.Fatalf("flip other-user status: %v", err)
+	}
+
+	// Notified recurring session — should NOT be returned (group_id != -1)
+	group, _ := st.CreateWorkoutGroup("G", "", false, userID, "[1]", "07:00", 15)
+	variant, _ := st.CreateWorkoutVariant(group.ID, "V", intPtr(1), "")
+	rec, err := st.CreateWorkoutSession(group.ID, variant.ID, userID, dueDate, "07:00")
+	if err != nil {
+		t.Fatalf("create recurring session: %v", err)
+	}
+	if err := st.UpdateSessionStatus(rec.ID, "notified"); err != nil {
+		t.Fatalf("flip recurring status: %v", err)
+	}
+
+	// Old notified ad-hoc beyond a typical history window — should still be returned
+	oldDate := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	oldSess, err := st.CreatePlannedAdHocSession(userID, oldDate, "09:00")
+	if err != nil {
+		t.Fatalf("create old session: %v", err)
+	}
+	if err := st.UpdateSessionStatus(oldSess.ID, "notified"); err != nil {
+		t.Fatalf("flip old status: %v", err)
+	}
+
+	got, err := st.ListNotifiedAdHocSessions(userID)
+	if err != nil {
+		t.Fatalf("ListNotifiedAdHocSessions failed: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 notified ad-hoc sessions for userID, got %d (%+v)", len(got), got)
+	}
+	// Ordered by date ASC: oldSess (2025) then notified (2030)
+	if got[0].ID != oldSess.ID || got[1].ID != notified.ID {
+		t.Errorf("unexpected order: got ids [%d, %d], want [%d, %d]", got[0].ID, got[1].ID, oldSess.ID, notified.ID)
+	}
+}
