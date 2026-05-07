@@ -156,6 +156,48 @@ func TestAdHocScheduledMoment_WestOfUTC(t *testing.T) {
 	}
 }
 
+// TestWorkoutChecker_AdHocDue_EscapesMarkdownInExerciseNames verifies that
+// free-form exercise names containing Telegram Markdown V1 special chars (e.g.
+// "pull_up", "set [A]") are escaped in the notification body — otherwise
+// Telegram rejects the message with "can't parse entities" and the user never
+// sees it.
+func TestWorkoutChecker_AdHocDue_EscapesMarkdownInExerciseNames(t *testing.T) {
+	sched, db, mock := adhocSetup(t)
+
+	scheduled := time.Date(2026, 5, 6, 9, 0, 0, 0, time.UTC)
+	now := scheduled.Add(2 * time.Minute)
+	sched.WorkoutChecker.now = func() time.Time { return now }
+
+	scheduledDate := time.Date(scheduled.Year(), scheduled.Month(), scheduled.Day(), 0, 0, 0, 0, time.UTC)
+	session, err := db.CreatePlannedAdHocSession(123456, scheduledDate, "09:00")
+	if err != nil {
+		t.Fatalf("CreatePlannedAdHocSession: %v", err)
+	}
+
+	if _, err := db.LogExerciseWithSource(session.ID, 0, "pull_up", nil, nil, nil, "", "", "schedule"); err != nil {
+		t.Fatalf("LogExerciseWithSource: %v", err)
+	}
+	if _, err := db.LogExerciseWithSource(session.ID, 0, "set [A]", nil, nil, nil, "", "", "schedule"); err != nil {
+		t.Fatalf("LogExerciseWithSource: %v", err)
+	}
+
+	if err := sched.WorkoutChecker.Check(context.Background()); err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	if got := len(mock.Notifications); got != 1 {
+		t.Fatalf("expected 1 notification, got %d", got)
+	}
+	body := mock.Notifications[0].Text
+	if !strings.Contains(body, `pull\_up`) {
+		t.Errorf("expected escaped underscore in body, got: %s", body)
+	}
+	if !strings.Contains(body, `set \[A]`) {
+		t.Errorf("expected escaped bracket in body, got: %s", body)
+	}
+}
+
 // TestWorkoutChecker_AdHocDue_NoExercises_GenericMessage covers the edge case
 // where a user scheduled a one-off without specifying any exercises: the
 // scheduler must still notify them, with a generic body.

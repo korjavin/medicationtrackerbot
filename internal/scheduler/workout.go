@@ -490,7 +490,10 @@ func (c *WorkoutChecker) sendAdHocWorkoutNotification(_ context.Context, session
 	if len(logs) > 0 {
 		message += "Planned exercises:\n"
 		for i, l := range logs {
-			line := fmt.Sprintf("%d. **%s**", i+1, l.ExerciseName)
+			// Escape because ad-hoc names from MCP are free-form: a name like
+			// "pull_up" or "set [A]" would otherwise unbalance Markdown V1 and
+			// Telegram would reject the message with "can't parse entities".
+			line := fmt.Sprintf("%d. **%s**", i+1, mdV1Escaper.Replace(l.ExerciseName))
 			message += line + "\n"
 		}
 	} else {
