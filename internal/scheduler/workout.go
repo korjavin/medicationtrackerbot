@@ -362,17 +362,17 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 // checkPendingAdHocSessions fires the initial notification for any
 // pre-scheduled ad-hoc workout whose moment has arrived.
 func (c *WorkoutChecker) checkPendingAdHocSessions(ctx context.Context, now time.Time, activeSession *store.WorkoutSession) error {
+	if activeSession != nil {
+		// Mirrors the recurring branch: don't pile a fresh notification on
+		// top of a session the user is currently doing.
+		return nil
+	}
 	pending, err := c.store.ListPendingAdHocSessions(c.allowedUserID, now)
 	if err != nil {
 		return fmt.Errorf("list pending ad-hoc sessions: %w", err)
 	}
 	for i := range pending {
 		sess := &pending[i]
-		if activeSession != nil {
-			// Mirrors the recurring branch: don't pile a fresh notification on
-			// top of a session the user is currently doing.
-			continue
-		}
 		if err := c.sendAdHocWorkoutNotification(ctx, sess); err != nil {
 			slog.Error("Failed to send ad-hoc workout notification", "session", sess.ID, "error", err)
 			continue

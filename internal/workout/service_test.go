@@ -359,11 +359,11 @@ func TestSchedulePlannedAdHocSession_NoExercises(t *testing.T) {
 }
 
 // TestSchedulePlannedAdHocSession_RollsBackOnPlaceholderFailure verifies that
-// when a placeholder log insert fails partway through, the session row is
-// removed so we don't leave an orphan with an incomplete exercise list.
-// Reproduces the duplicate-exercise_id case which the unique index on
-// workout_exercise_logs(session_id, exercise_id, source) WHERE exercise_id > 0
-// would otherwise turn into a 500 with a half-built session in the DB.
+// when a placeholder log insert fails partway through, the session row AND
+// any prior placeholder logs are removed. PRAGMA foreign_keys is not enabled
+// in this SQLite driver, so the declared ON DELETE CASCADE on
+// workout_exercise_logs is a no-op — DeleteSession must explicitly clean up
+// the child rows or they survive as orphans forever.
 func TestSchedulePlannedAdHocSession_RollsBackOnPlaceholderFailure(t *testing.T) {
 	db, err := store.New(":memory:")
 	if err != nil {
@@ -397,4 +397,22 @@ func TestSchedulePlannedAdHocSession_RollsBackOnPlaceholderFailure(t *testing.T)
 			t.Fatalf("expected no orphan ad-hoc session after rollback, found id=%d", sess.ID)
 		}
 	}
+
+	// And no orphan exercise log rows should remain — the unique partial
+	// index lookup proves any stragglers would surface immediately.
+	var orphanCount int
+	if err := dbDriverQueryRow(t, db, "SELECT COUNT(*) FROM workout_exercise_logs WHERE exercise_id = 7", &orphanCount); err != nil {
+		t.Fatalf("count orphan logs: %v", err)
+	}
+	if orphanCount != 0 {
+		t.Fatalf("expected no orphan workout_exercise_logs rows after rollback, found %d", orphanCount)
+	}
+}
+
+// dbDriverQueryRow runs a single-value SELECT against the underlying *sql.DB
+// for tests that need to assert raw row counts. The store does not expose a
+// generic query helper.
+func dbDriverQueryRow(t *testing.T, s *store.Store, q string, dest ...interface{}) error {
+	t.Helper()
+	return s.DB().QueryRow(q).Scan(dest...)
 }

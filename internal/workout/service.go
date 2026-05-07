@@ -162,9 +162,9 @@ func (s *Service) SchedulePlannedAdHocSession(userID int64, scheduledDate time.T
 		}
 		if _, err := s.store.LogExerciseWithSource(session.ID, ex.ExerciseID, ex.ExerciseName, nil, nil, nil, "", "", source); err != nil {
 			// Roll back the just-created session so we don't leave an orphan
-			// row whose placeholders are missing or partial. The FK on
-			// workout_exercise_logs has ON DELETE CASCADE, so any logs
-			// inserted before the failing one are removed too.
+			// row whose placeholders are missing or partial. DeleteSession
+			// also removes any prior placeholder logs for the session — FK
+			// cascade is not active in this SQLite driver.
 			if delErr := s.store.DeleteSession(session.ID); delErr != nil {
 				slog.Error("workout service: failed to roll back orphan session after placeholder error", "session_id", session.ID, "error", delErr)
 			}

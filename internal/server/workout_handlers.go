@@ -641,6 +641,14 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 			variantName = variant.Name
 		}
 
+		// Ad-hoc sessions (group_id = -1) have no variant — count placeholder
+		// workout_exercise_logs instead of empty ListExercisesByVariant(-1).
+		exerciseCount := len(exercises)
+		if session.GroupID == -1 {
+			logs, _ := s.workouts.GetExerciseLogs(session.ID)
+			exerciseCount = len(logs)
+		}
+
 		isRotating := group != nil && group.IsRotating
 		response := struct {
 			Session        interface{} `json:"session"`
@@ -662,7 +670,7 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 			},
 			GroupName:      groupName,
 			VariantName:    variantName,
-			ExercisesCount: len(exercises),
+			ExercisesCount: exerciseCount,
 			VariantID:      session.VariantID,
 			GroupID:        session.GroupID,
 			IsRotating:     isRotating,
@@ -704,6 +712,14 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 				variantName = variant.Name
 			}
 
+			// Ad-hoc sessions (group_id = -1) have no variant — count placeholder
+			// workout_exercise_logs instead of empty ListExercisesByVariant(-1).
+			exerciseCount := len(exercises)
+			if earliestSnoozed.GroupID == -1 {
+				logs, _ := s.workouts.GetExerciseLogs(earliestSnoozed.ID)
+				exerciseCount = len(logs)
+			}
+
 			isRotating := group != nil && group.IsRotating
 			response := struct {
 				Session        interface{} `json:"session"`
@@ -725,7 +741,7 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 				},
 				GroupName:      groupName,
 				VariantName:    variantName,
-				ExercisesCount: len(exercises),
+				ExercisesCount: exerciseCount,
 				VariantID:      earliestSnoozed.VariantID,
 				GroupID:        earliestSnoozed.GroupID,
 				IsRotating:     isRotating,

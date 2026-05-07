@@ -974,6 +974,13 @@ func (s *Store) CancelPreSkip(id int64) error {
 }
 
 func (s *Store) DeleteSession(id int64) error {
+	// PRAGMA foreign_keys is not enabled in this SQLite driver, so the
+	// declared ON DELETE CASCADE on workout_exercise_logs is a no-op.
+	// Delete child rows explicitly to avoid orphan logs after rollback /
+	// session deletion.
+	if _, err := s.db.Exec("DELETE FROM workout_exercise_logs WHERE session_id = ?", id); err != nil {
+		return err
+	}
 	_, err := s.db.Exec("DELETE FROM workout_sessions WHERE id = ?", id)
 	return err
 }
