@@ -181,9 +181,7 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
 	req.Header.Set("Accept", "application/json")
 
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
+	client := &http.Client{}
 	resp, err := client.Do(req) // #nosec G107
 	if err != nil {
 		http.Error(w, "failed getting user info: "+err.Error(), http.StatusInternalServerError)
@@ -290,9 +288,7 @@ func resolveOIDCEndpoints(cfg OIDCConfig) (oauth2.Endpoint, string, error) {
 	if err != nil {
 		return oauth2.Endpoint{}, "", err
 	}
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
+	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
 		return oauth2.Endpoint{}, "", err
