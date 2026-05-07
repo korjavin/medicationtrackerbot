@@ -246,7 +246,10 @@ func (b *Bot) sendAdHocStartConfirmation(sessionID, chatID int64) {
 		var sb strings.Builder
 		sb.WriteString(fmt.Sprintf("🏋️ **Workout #%d started**\n\nPlanned exercises:\n", sessionID))
 		for i, l := range logs {
-			fmt.Fprintf(&sb, "%d. %s\n", i+1, l.ExerciseName)
+			// Escape Markdown V1 special chars: ad-hoc free-form names from MCP
+			// (e.g. "pull_up", "set [A]") would otherwise cause Telegram to
+			// reject the message with "can't parse entities".
+			fmt.Fprintf(&sb, "%d. %s\n", i+1, mdV1EscapeForBot(l.ExerciseName))
 		}
 		sb.WriteString("\nLog exercises in the app to complete this workout.")
 		text = sb.String()
@@ -261,6 +264,12 @@ func (b *Bot) sendAdHocStartConfirmation(sessionID, chatID int64) {
 	}
 	b.trackWorkoutMessage(sessionID, sent.MessageID)
 }
+
+// mdV1EscaperForBot escapes Telegram Markdown V1 special chars in dynamic
+// strings rendered into bot messages that use ParseMode = "Markdown".
+var mdV1EscaperForBot = strings.NewReplacer(`_`, `\_`, `*`, `\*`, "`", "\\`", `[`, `\[`)
+
+func mdV1EscapeForBot(s string) string { return mdV1EscaperForBot.Replace(s) }
 
 // handleExerciseCallback handles exercise actions (done, edit, skip)
 func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
