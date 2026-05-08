@@ -10,3 +10,8 @@
 **Vulnerability:** Cross-Site Scripting (XSS) via `r.Host` injected using `strings.ReplaceAll` instead of `html/template`.
 **Learning:** Because the project serves HTML by reading static files and injecting variables (like `r.Host` or environmental overrides) via `strings.ReplaceAll`, it bypasses the automatic context-aware escaping provided by `html/template`. Unsanitized HTTP headers or external inputs injected directly into HTML payloads can lead to XSS.
 **Prevention:** Always explicitly wrap injected variables derived from HTTP requests or external sources with `html.EscapeString()` when using string substitution for templating.
+
+## 2024-05-08 - [High] Fix OAuth audience/subject bypass
+**Vulnerability:** The MCP server's OAuth middleware accepted JWT tokens from any valid subject if the `MCP_ALLOWED_SUBJECT` configuration was left empty. Additionally, `LoadConfigFromEnv` did not require `MCP_ALLOWED_SUBJECT` to be present.
+**Learning:** Configurations meant for access control lists should default to a fail-closed secure state. Allowing access when an allowlist configuration variable is empty is a dangerous fail-open default.
+**Prevention:** Always enforce required security configurations at application startup. Ensure authorization middleware strictly denies access unless an explicit allowlist check succeeds (fail-closed by default).
