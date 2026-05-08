@@ -212,11 +212,9 @@ func (h *OAuthHandler) Middleware(next http.Handler) http.Handler {
 			slog.Warn("[MCP/OAuth] Subject not allowed", "subject", subject, "expected", h.config.AllowedSubject) // #nosec G706
 			h.sendForbidden(w, "user not authorized")
 			return
-		} else if strings.TrimSpace(h.config.AllowedSubject) == "" {
-			slog.Info("[MCP/OAuth] Any subject allowed (no restriction configured)", "user", subject) // #nosec G706
-		} else {
-			slog.Info("[MCP/OAuth] Authorized request", "subject", subject) // #nosec G706
 		}
+
+		slog.Info("[MCP/OAuth] Authorized request", "subject", subject) // #nosec G706
 
 		// Add subject to context
 		ctx := context.WithValue(r.Context(), UserSubjectCtxKey, subject)
@@ -227,7 +225,7 @@ func (h *OAuthHandler) Middleware(next http.Handler) http.Handler {
 func (h *OAuthHandler) isSubjectAllowed(subject string) bool {
 	raw := strings.TrimSpace(h.config.AllowedSubject)
 	if raw == "" {
-		return true
+		return false
 	}
 
 	for _, candidate := range strings.Split(raw, ",") {
