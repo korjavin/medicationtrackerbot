@@ -94,15 +94,15 @@ This plan adds two capabilities to **both** surfaces:
 
 ### Task 2: Add mute and photo buttons to the floating call-indicator pill
 
-- [ ] in `call-indicator.js`, add two buttons inside `mount()` next to the existing hang-up button: `.wg-call-indicator__mute` (text starts as `Mute`, `aria-pressed="false"`) and `.wg-call-indicator__photo` (text `Photo`). Insert them before `hangUpEl` so the visual order is `[mute] [photo] [end call]`.
-- [ ] add a hidden `<input type="file" accept="image/*" capture="environment">` appended to `rootEl`; clicking the photo button calls `input.click()`, and the input's `change` handler calls `window.WGCallAgent?.sendPhoto(file)` then resets `input.value = ''` so re-picking the same file fires `change` again
-- [ ] mute button click handler calls `window.WGCallAgent?.toggleMute()`
-- [ ] extend `render(state, message, muted, uploading)` to: (a) hide both buttons when state is `idle` or `error`; (b) disable both when `state === 'connecting'`; (c) disable photo button when `uploading === true` and update its label to `Sending…`; (d) reflect mute state on the mute button via `aria-pressed` and a `Mute` / `Unmute` label
-- [ ] update the `wg-call-state` listener to read `detail.muted` and `detail.uploading` and pass them to `render`
-- [ ] update the initial-state read on mount (current line 86-90) to also pull `muted`/`uploading` from `getState()`
-- [ ] write tests in `features.call-indicator.test.js`: (a) mute and photo buttons exist after mount; (b) both hidden when state is `idle`; (c) both visible & enabled when `in_call`; (d) both disabled when `connecting`; (e) mute button shows `aria-pressed="true"` after a `wg-call-state` with `muted: true`; (f) photo button shows `Sending…` and is disabled when `uploading: true`; (g) clicking the mute button invokes `WGCallAgent.toggleMute`; (h) the file input's change event invokes `WGCallAgent.sendPhoto` with the chosen file; (i) inline-style assertion still passes for the new elements
-- [ ] write tests for edge cases: (a) mounting mid-call with `getState()` returning `{ state: 'in_call', muted: true }` renders the mute button as pressed/Unmute; (b) destroy() removes the new buttons too
-- [ ] run `pnpm test` — must pass before Task 3
+- [x] in `call-indicator.js`, add two buttons inside `mount()` next to the existing hang-up button: `.wg-call-indicator__mute` (text starts as `Mute`, `aria-pressed="false"`) and `.wg-call-indicator__photo` (text `Photo`). Insert them before `hangUpEl` so the visual order is `[mute] [photo] [end call]`.
+- [x] add a hidden `<input type="file" accept="image/*" capture="environment">` appended to `rootEl`; clicking the photo button calls `input.click()`, and the input's `change` handler calls `window.WGCallAgent?.sendPhoto(file)` then resets `input.value = ''` so re-picking the same file fires `change` again
+- [x] mute button click handler calls `window.WGCallAgent?.toggleMute()`
+- [x] extend `render(state, message, muted, uploading)` to: (a) hide both buttons when state is `idle` or `error`; (b) disable both when `state === 'connecting'`; (c) disable photo button when `uploading === true` and update its label to `Sending…`; (d) reflect mute state on the mute button via `aria-pressed` and a `Mute` / `Unmute` label
+- [x] update the `wg-call-state` listener to read `detail.muted` and `detail.uploading` and pass them to `render`
+- [x] update the initial-state read on mount (current line 86-90) to also pull `muted`/`uploading` from `getState()`
+- [x] write tests in `features.call-indicator.test.js`: (a) mute and photo buttons exist after mount; (b) both hidden when state is `idle`; (c) both visible & enabled when `in_call`; (d) both disabled when `connecting`; (e) mute button shows `aria-pressed="true"` after a `wg-call-state` with `muted: true`; (f) photo button shows `Sending…` and is disabled when `uploading: true`; (g) clicking the mute button invokes `WGCallAgent.toggleMute`; (h) the file input's change event invokes `WGCallAgent.sendPhoto` with the chosen file; (i) inline-style assertion still passes for the new elements
+- [x] write tests for edge cases: (a) mounting mid-call with `getState()` returning `{ state: 'in_call', muted: true }` renders the mute button as pressed/Unmute; (b) destroy() removes the new buttons too
+- [x] run `pnpm test` — must pass before Task 3
 
 ### Task 3: Style the new buttons via CSS tokens
 
