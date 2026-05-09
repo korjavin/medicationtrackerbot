@@ -106,15 +106,10 @@ Files:
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] verify all requirements from Overview are implemented (reload preserves last section; Today remains the default for first-time users and disabled-feature fallback; deep links still override).
-- [ ] run full project test suite: `cd web/static/js/tests && npx vitest run` and `go test ./...`.
-- [ ] run project linter - all issues must be fixed.
-- [ ] Manual smoke (Telegram Mini App in browser):
-  - Open BP → reload → land on BP.
-  - Open Workouts → reload → land on Workouts.
-  - On BP, open the app via `?action=add&tab=weight` deep link → land on Weight with the Add modal (deep link wins).
-  - Disable BP feature in Settings while on BP → reload → land on Today (graceful fallback).
-  - Sign out, sign in as a different user on the same browser → land on Today (allowlist clear).
+- [x] verify all requirements from Overview are implemented (reload preserves last section; Today remains the default for first-time users and disabled-feature fallback; deep links still override). Confirmed: `app.js:1038` writes `mt-active-tab` only when `activated`; `bootstrap.js:84-95` `readSavedActiveTab` falls back to `today` for missing/invalid/disabled-feature values; `bootstrap.js:185` restores via `switchTab(readSavedActiveTab())` and `handleDeepLinks()` runs after; `auth-flow.js:22` clears the key on logout.
+- [x] run full project test suite: vitest 1577/1579 passed. The 2 failures (`components.wg-sleep-chart`, `components.wg-steps-chart` "Today" x-axis label) reproduce on master and are date-dependent fixture bugs unrelated to this branch. `go test ./...`: same — `TestMedicationCheckerTZAware/cancelled_plan` and `TestListDiaryNotes_Since` also fail on clean master, no regression introduced here. New tab-related tests (`bootstrap.today-default`, `bootstrap.dynamic-tab`, `app.tab-single-source`) all green.
+- [x] run project linter - `golangci-lint run ./...` reports 0 issues. (No JS linter configured in repo.)
+- [x] Manual smoke (Telegram Mini App in browser): manual test (skipped - not automatable in this environment; covered by automated jsdom tests for the saved-key restore, disabled-feature fallback, and unknown-id fallback paths).
 
 ## Post-Completion
 
