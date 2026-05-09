@@ -264,6 +264,50 @@ describe('features/elevenlabs-call.js — setMute / toggleMute', () => {
         }
     });
 
+    it('rejects setMute when SDK is missing setMicMuted (mic state cannot be trusted)', async () => {
+        const conv = makeFakeConversation();
+        // Drop setMicMuted entirely to simulate older SDK / partial mock.
+        delete conv.setMicMuted;
+        const { window, events, cleanup } = createConversationEnv({ conv });
+        try {
+            await startCall(window);
+            expect(() => window.WGCallAgent.setMute(true)).not.toThrow();
+            // Must not lie that the mic is muted.
+            const state = window.WGCallAgent.getState();
+            expect(state.muted).toBe(false);
+            const last = events[events.length - 1];
+            expect(last.message).toBe('Mute unsupported');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('successful setMute clears a stale "Mute failed" message', async () => {
+        let shouldThrow = true;
+        const conv = makeFakeConversation({
+            setMicMuted: vi.fn(() => {
+                if (shouldThrow) {
+                    shouldThrow = false;
+                    throw new Error('first attempt fails');
+                }
+            }),
+        });
+        const { window, events, cleanup } = createConversationEnv({ conv });
+        try {
+            await startCall(window);
+            // First attempt fails → message becomes 'Mute failed'.
+            window.WGCallAgent.setMute(true);
+            expect(events[events.length - 1].message).toBe('Mute failed');
+            // Second attempt succeeds → must not re-broadcast the stale failure.
+            window.WGCallAgent.setMute(true);
+            const last = events[events.length - 1];
+            expect(last.muted).toBe(true);
+            expect(last.message).toBe('');
+        } finally {
+            cleanup();
+        }
+    });
+
     it('idle transition resets muted to false', async () => {
         const { window, cleanup } = createConversationEnv();
         try {
@@ -329,6 +373,33 @@ describe('features/elevenlabs-call.js — sendPhoto', () => {
             const uploadingFalseAtEnd = after[after.length - 1];
             expect(uploadingTrue).toBeDefined();
             expect(uploadingFalseAtEnd.uploading).toBe(false);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('preserves a live mode-change status across the upload (does not blank "Listening…")', async () => {
+        let resolveUpload;
+        const conv = makeFakeConversation({
+            uploadFile: vi.fn(() => new Promise((resolve) => { resolveUpload = resolve; })),
+        });
+        const { window, events, cleanup } = createConversationEnv({ conv });
+        try {
+            const { opts } = await startCall(window);
+            // Drive a mode-change so activeMessage = 'Listening…' before upload starts.
+            opts.onModeChange({ mode: 'listening' });
+            expect(events[events.length - 1].message).toBe('Listening…');
+            const blob = new window.Blob(['x'], { type: 'image/jpeg' });
+            const sendPromise = window.WGCallAgent.sendPhoto(blob);
+            // Upload-start broadcast must NOT have wiped the listening status.
+            expect(events[events.length - 1].message).toBe('Listening…');
+            expect(events[events.length - 1].uploading).toBe(true);
+            resolveUpload({ fileId: 'f' });
+            await sendPromise;
+            // Final broadcast: still preserves the live message.
+            const last = events[events.length - 1];
+            expect(last.uploading).toBe(false);
+            expect(last.message).toBe('Listening…');
         } finally {
             cleanup();
         }
