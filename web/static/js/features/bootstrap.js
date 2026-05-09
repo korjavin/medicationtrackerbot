@@ -81,6 +81,18 @@ function filterNavItemsByFeatures(items, features) {
         return !feature || features[feature];
     });
 }
+function readSavedActiveTab() {
+    try {
+        const saved = window.localStorage.getItem('mt-active-tab');
+        if (!saved) return 'today';
+        const items = window.WGBottomNav
+            ? filterNavItemsByFeatures(window.WGBottomNav.DEFAULT_ITEMS, window.featureSettings)
+            : [];
+        return items.some((i) => i.id === saved) ? saved : 'today';
+    } catch (_) {
+        return 'today';
+    }
+}
 let navCtrl = null;
 function mountCanonicalBottomNav() {
     if (!window.WGBottomNav || document.querySelector('.wg-bottom-nav')) return;
@@ -89,7 +101,7 @@ function mountCanonicalBottomNav() {
     const items = filterNavItemsByFeatures(window.WGBottomNav.DEFAULT_ITEMS, window.featureSettings);
     navCtrl = window.WGBottomNav.mount(host, {
         items,
-        active: 'today',
+        active: readSavedActiveTab(),
         onChange: (id) => {
             if (typeof switchTab === 'function') switchTab(id);
         },
@@ -169,9 +181,8 @@ checkAuth().then(async authorized => {
             window.WGCallIndicator.mount(document.body);
         }
 
-        // Today is unconditionally the initial view; sections are reached via
-        // Today cards or deep links.
-        switchTab('today');
+        // Restore the last section the user was on (Today by default; deep links below override)
+        switchTab(readSavedActiveTab());
 
         // Wire the Telegram BackButton to return-to-Today once the initial tab is active.
         if (window.AppBackButton && typeof window.AppBackButton.setup === 'function') {

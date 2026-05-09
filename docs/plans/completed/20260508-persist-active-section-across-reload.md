@@ -56,17 +56,17 @@ When the user reloads the Mini App in a browser they are always thrown back to t
 Files:
 - Modify: `web/static/js/app.js`
 
-- [ ] In `switchTab(tab)` (around `app.js:1037`), after the existing `window.AppStore && window.AppStore.set('currentTab', tab)` line and only when `activated` is truthy, write the tab to `localStorage` under the key `mt-active-tab` inside a `try/catch` (silent on failure — match the existing `try { ... } catch (_) {}` pattern used elsewhere in the codebase for sandboxed-localStorage cases).
-- [ ] Do **not** persist when `switchTab` early-returns due to feature-disabled bounce (the recursive call to `switchTab('today')` will record `today` correctly).
-- [ ] write tests: extend `web/static/js/tests/app.tab-single-source.test.js` (or create `app.active-tab-persistence.test.js`) to mount the minimal DOM, call `switchTab('bp')` and assert `localStorage.getItem('mt-active-tab') === 'bp'`, then call `switchTab('today')` and assert the value flips to `today`.
-- [ ] run project tests - must pass before next task (`cd web/static/js/tests && npx vitest run`).
+- [x] In `switchTab(tab)` (around `app.js:1037`), after the existing `window.AppStore && window.AppStore.set('currentTab', tab)` line and only when `activated` is truthy, write the tab to `localStorage` under the key `mt-active-tab` inside a `try/catch` (silent on failure — match the existing `try { ... } catch (_) {}` pattern used elsewhere in the codebase for sandboxed-localStorage cases).
+- [x] Do **not** persist when `switchTab` early-returns due to feature-disabled bounce (the recursive call to `switchTab('today')` will record `today` correctly).
+- [x] write tests: extend `web/static/js/tests/app.tab-single-source.test.js` (or create `app.active-tab-persistence.test.js`) to mount the minimal DOM, call `switchTab('bp')` and assert `localStorage.getItem('mt-active-tab') === 'bp'`, then call `switchTab('today')` and assert the value flips to `today`.
+- [x] run project tests - must pass before next task (`cd web/static/js/tests && npx vitest run`).
 
 ### Task 2: Restore the active tab on bootstrap
 
 Files:
 - Modify: `web/static/js/features/bootstrap.js`
 
-- [ ] Add a private helper near the top of the file (next to `filterNavItemsByFeatures`):
+- [x] Add a private helper near the top of the file (next to `filterNavItemsByFeatures`):
   ```js
   function readSavedActiveTab() {
       try {
@@ -81,10 +81,10 @@ Files:
       }
   }
   ```
-- [ ] In `mountCanonicalBottomNav` (`bootstrap.js:85-102`), replace `active: 'today'` with `active: readSavedActiveTab()`.
-- [ ] In the post-auth block (`bootstrap.js:172-174`), replace `switchTab('today')` with `switchTab(readSavedActiveTab())`. Keep the surrounding comment but reword it to: "Restore the last section the user was on (Today by default; deep links below override)".
-- [ ] Confirm `handleDeepLinks()` is still called after the initial restore (`bootstrap.js:182`) so deep links continue to win.
-- [ ] write tests: update `web/static/js/tests/bootstrap.today-default.test.js`:
+- [x] In `mountCanonicalBottomNav` (`bootstrap.js:85-102`), replace `active: 'today'` with `active: readSavedActiveTab()`.
+- [x] In the post-auth block (`bootstrap.js:172-174`), replace `switchTab('today')` with `switchTab(readSavedActiveTab())`. Keep the surrounding comment but reword it to: "Restore the last section the user was on (Today by default; deep links below override)".
+- [x] Confirm `handleDeepLinks()` is still called after the initial restore (`bootstrap.js:182`) so deep links continue to win.
+- [x] write tests: update `web/static/js/tests/bootstrap.today-default.test.js`:
   - Rename describe to "bootstrap.js initial-section restore".
   - Keep the "no saved key → today" case.
   - Replace the "saved tab_order is ignored" case with three new cases:
@@ -92,29 +92,24 @@ Files:
     - `localStorage['mt-active-tab'] = 'bp'` + `bp` feature disabled → `switchTab('today')` (and never `'bp'`).
     - `localStorage['mt-active-tab'] = 'unknown-id'` → `switchTab('today')`.
   - The existing helpers (`stubFetch`, `stubBootstrapGlobals`) can be reused; just set `window.localStorage` before `window.eval(bootstrapSource)`.
-- [ ] Verify `bootstrap.dynamic-tab.test.js` still passes (no source changes; the new client-side key is empty in a fresh JSDOM).
-- [ ] run project tests - must pass before next task (`cd web/static/js/tests && npx vitest run`).
+- [x] Verify `bootstrap.dynamic-tab.test.js` still passes (no source changes; the new client-side key is empty in a fresh JSDOM).
+- [x] run project tests - must pass before next task (`cd web/static/js/tests && npx vitest run`).
 
 ### Task 3: Add `mt-active-tab` to the user-scoped logout-clear allowlist
 
 Files:
 - Modify: `web/static/js/features/auth-flow.js`
 
-- [ ] At `auth-flow.js:22`, extend `USER_SCOPED_LOCAL_KEYS` to include `'mt-active-tab'`.
-- [ ] write tests: no new test required — the existing `clearAuthState` loop already iterates this array; coverage is implicit. Skip if no behavior delta beyond the array entry.
-- [ ] run project tests - must pass before next task (`cd web/static/js/tests && npx vitest run`).
+- [x] At `auth-flow.js:22`, extend `USER_SCOPED_LOCAL_KEYS` to include `'mt-active-tab'`.
+- [x] write tests: no new test required — the existing `clearAuthState` loop already iterates this array; coverage is implicit. Skip if no behavior delta beyond the array entry.
+- [x] run project tests - must pass before next task (`cd web/static/js/tests && npx vitest run`).
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] verify all requirements from Overview are implemented (reload preserves last section; Today remains the default for first-time users and disabled-feature fallback; deep links still override).
-- [ ] run full project test suite: `cd web/static/js/tests && npx vitest run` and `go test ./...`.
-- [ ] run project linter - all issues must be fixed.
-- [ ] Manual smoke (Telegram Mini App in browser):
-  - Open BP → reload → land on BP.
-  - Open Workouts → reload → land on Workouts.
-  - On BP, open the app via `?action=add&tab=weight` deep link → land on Weight with the Add modal (deep link wins).
-  - Disable BP feature in Settings while on BP → reload → land on Today (graceful fallback).
-  - Sign out, sign in as a different user on the same browser → land on Today (allowlist clear).
+- [x] verify all requirements from Overview are implemented (reload preserves last section; Today remains the default for first-time users and disabled-feature fallback; deep links still override). Confirmed: `app.js:1038` writes `mt-active-tab` only when `activated`; `bootstrap.js:84-95` `readSavedActiveTab` falls back to `today` for missing/invalid/disabled-feature values; `bootstrap.js:185` restores via `switchTab(readSavedActiveTab())` and `handleDeepLinks()` runs after; `auth-flow.js:22` clears the key on logout.
+- [x] run full project test suite: vitest 1577/1579 passed. The 2 failures (`components.wg-sleep-chart`, `components.wg-steps-chart` "Today" x-axis label) reproduce on master and are date-dependent fixture bugs unrelated to this branch. `go test ./...`: same — `TestMedicationCheckerTZAware/cancelled_plan` and `TestListDiaryNotes_Since` also fail on clean master, no regression introduced here. New tab-related tests (`bootstrap.today-default`, `bootstrap.dynamic-tab`, `app.tab-single-source`) all green.
+- [x] run project linter - `golangci-lint run ./...` reports 0 issues. (No JS linter configured in repo.)
+- [x] Manual smoke (Telegram Mini App in browser): manual test (skipped - not automatable in this environment; covered by automated jsdom tests for the saved-key restore, disabled-feature fallback, and unknown-id fallback paths).
 
 ## Post-Completion
 
