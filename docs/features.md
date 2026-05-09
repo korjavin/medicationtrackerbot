@@ -103,6 +103,14 @@ Returns `active_weeks` (count of weeks with at least one completed session) and 
 - **Edit**: the legacy `#note-modal` still opens from a list row for editing an existing note's content (tag editing is not exposed in the edit modal yet — only the inline composer creates tagged rows).
 - **Bot**: `/note` command (`internal/bot/note_commands.go`) routes through the domain service with `tag = nil` — the bot surface has no tag picker.
 
+## Voice Agent Call
+
+- **Surfaces**: a "Call agent" card on the Today screen (`web/static/js/features/elevenlabs-call.js`) and a persistent floating pill above the bottom nav (`web/static/js/features/call-indicator.js`). Both are driven by the same `wg-call-state` event and the `window.WGCallAgent` API; the pill keeps the call accessible after switching tabs.
+- **Transport**: the ElevenLabs JS SDK (`@elevenlabs/client`) opens the live conversation using a signed URL fetched from `/api/elevenlabs/signed-url`. Disabled when `ELEVENLABS_API_KEY` or `ELEVENLABS_AGENT_ID` is unset (handler returns 503 and the card hides itself).
+- **Mute / unmute**: tap toggles the user's mic via `Conversation.setMicMuted()`. Mute state lives in module-scope mirrors so it survives a Today re-render mid-call and is reflected on both the card and the pill (`muted` is included in the `wg-call-state` event detail). Mute resets to off whenever the call returns to `idle` or `error`.
+- **Send photo**: a hidden `<input type="file" accept="image/*" capture="environment">` opens the system picker (camera-capable on mobile). The chosen image is uploaded via `Conversation.uploadFile()` and announced to the agent via `sendMultimodalMessage({ fileId })`. Non-image blobs are rejected client-side; upload failures surface a status message but keep the call alive. The button is disabled while uploading and during `connecting`.
+- **Agent-side prerequisites** (one-time, configured in the ElevenLabs dashboard, not in this repo): `file_input: true` on the agent's `ConversationConfig`, and a multimodal-capable LLM (e.g., GPT-4o, Claude 3.5 Sonnet, Gemini 1.5 Pro). Without `file_input`, `sendMultimodalMessage` is silently ignored by the platform; without a multimodal LLM, the message is delivered but the agent cannot reason about the image.
+
 ## MCP Server
 
 - **Purpose**: AI-assistant access to health data, including scripted multi-step workflows

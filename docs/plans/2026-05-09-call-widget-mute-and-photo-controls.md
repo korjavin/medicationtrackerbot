@@ -124,8 +124,8 @@ This plan adds two capabilities to **both** surfaces:
 
 ### Task 5: [Final] Update documentation
 
-- [ ] add a brief paragraph to `docs/features.md` (or whichever section covers the agent call) noting mute and photo controls and the agent-side prerequisites (`file_input: true` + multimodal LLM)
-- [ ] no `CLAUDE.md` change required (no new architectural pattern)
+- [x] add a brief paragraph to `docs/features.md` (or whichever section covers the agent call) noting mute and photo controls and the agent-side prerequisites (`file_input: true` + multimodal LLM)
+- [x] no `CLAUDE.md` change required (no new architectural pattern)
 
 *Note: ralphex automatically moves completed plans to `docs/plans/completed/`*
 
