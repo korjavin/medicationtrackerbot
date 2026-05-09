@@ -115,12 +115,12 @@ This plan adds two capabilities to **both** surfaces:
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] verify all requirements from Overview: mute toggle works, mute survives Today re-render, photo button opens picker, photo upload calls the SDK and the agent receives it, both surfaces stay in sync
-- [ ] verify edge cases: rapid mute toggling, picking same photo twice, picking non-image (blocked), photo while `connecting` (button disabled)
-- [ ] run full frontend test suite: `pnpm test`
-- [ ] run `go test ./...` as a sanity check (no backend changes, but bundled-assets/build tests should still pass)
-- [ ] run linter — fix any issues
-- [ ] verify no new `window.*` global was introduced (extending `WGCallAgent` only); confirm `tests/architecture.globals.test.js` still passes
+- [x] verify all requirements from Overview: mute toggle works, mute survives Today re-render, photo button opens picker, photo upload calls the SDK and the agent receives it, both surfaces stay in sync
+- [x] verify edge cases: rapid mute toggling, picking same photo twice, picking non-image (blocked), photo while `connecting` (button disabled)
+- [x] run full frontend test suite: `pnpm test` — 1606/1606 pass
+- [x] run `go test ./...` as a sanity check (no backend changes, but bundled-assets/build tests should still pass) — 2 pre-existing failures (`TestMedicationCheckerTZAware/cancelled_plan:_normal_scheduling_resumes`, `TestListDiaryNotes_Since`) reproduce on a clean tree with no local changes; date-dependent and unrelated to this branch
+- [x] run linter — fix any issues — `go vet ./...` clean; no frontend lint script (architecture tests in `pnpm test` cover inline-styles, design-tokens, globals)
+- [x] verify no new `window.*` global was introduced (extending `WGCallAgent` only); confirm `tests/architecture.globals.test.js` still passes — only `window.WGCallAgent` (extended in place) and pre-existing `window.WGCallIndicator` exist; test passes
 
 ### Task 5: [Final] Update documentation
 
