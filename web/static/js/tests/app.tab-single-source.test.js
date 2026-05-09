@@ -101,6 +101,21 @@ describe('Top-level view switching', () => {
     }
   });
 
+  it('switchTab persists the active tab id under mt-active-tab on every successful activation', () => {
+    const { window, cleanup } = loadFrontendEnv();
+    try {
+      window.loadBPReadings = vi.fn();
+
+      window.switchTab('bp');
+      expect(window.localStorage.getItem('mt-active-tab')).toBe('bp');
+
+      window.switchTab('today');
+      expect(window.localStorage.getItem('mt-active-tab')).toBe('today');
+    } finally {
+      cleanup();
+    }
+  });
+
   it('bottom nav with the default 8 items lays out as 2 rows of 4 cols', () => {
     const { window, document, cleanup } = loadFrontendEnv();
     try {
