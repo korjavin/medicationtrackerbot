@@ -4388,6 +4388,47 @@ textarea.wg-input {
     color: var(--wg-paper);
 }
 
+/* In-call secondary controls on the Today card: mute toggle + photo
+   sender. Hidden via attribute selectors when the card is idle/error
+   (the parent's data-state drives visibility — no JS .hidden toggling
+   needed here). The hidden file input is the standard photo-picker
+   pattern (camera-capable on mobile via capture="environment"). */
+.wg-call-card__mute,
+.wg-call-card__photo {
+    align-self: flex-start;
+    padding: var(--space-xs) var(--space-md);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--wg-fg-1);
+    background: var(--wg-bg-card);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-pill);
+    cursor: pointer;
+}
+
+.wg-call-card__mute[disabled],
+.wg-call-card__photo[disabled] {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.wg-call-card__mute[aria-pressed="true"] {
+    background: var(--color-danger);
+    color: var(--wg-paper);
+    border-color: var(--color-danger);
+}
+
+.wg-call-card[data-state="idle"] .wg-call-card__mute,
+.wg-call-card[data-state="idle"] .wg-call-card__photo,
+.wg-call-card[data-state="error"] .wg-call-card__mute,
+.wg-call-card[data-state="error"] .wg-call-card__photo {
+    display: none;
+}
+
+.wg-call-card__photo-input {
+    display: none;
+}
+
 /* Persistent call indicator — floating pill mounted at app-shell level so
    call status (connecting / in_call / error) and the hang-up affordance
    survive tab switches. Anchored above the bottom nav via
@@ -4460,6 +4501,45 @@ textarea.wg-input {
 .wg-call-indicator__hang-up[disabled] {
     opacity: 0.6;
     cursor: not-allowed;
+}
+
+/* In-call secondary controls on the floating pill: mute toggle + photo
+   sender. Order in the pill: [mute] [photo] [end call]. The pill itself
+   is hidden via the [hidden] attribute when idle, so children only need
+   the error-state guard here. The hidden file input is the standard
+   photo-picker pattern (camera-capable on mobile via capture="environment"). */
+.wg-call-indicator__mute,
+.wg-call-indicator__photo {
+    flex-shrink: 0;
+    padding: var(--space-xs) var(--space-md);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--wg-fg-1);
+    background: var(--wg-bg-card);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-pill);
+    cursor: pointer;
+}
+
+.wg-call-indicator__mute[disabled],
+.wg-call-indicator__photo[disabled] {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.wg-call-indicator__mute[aria-pressed="true"] {
+    background: var(--color-danger);
+    color: var(--wg-paper);
+    border-color: var(--color-danger);
+}
+
+.wg-call-indicator[data-state="error"] .wg-call-indicator__mute,
+.wg-call-indicator[data-state="error"] .wg-call-indicator__photo {
+    display: none;
+}
+
+.wg-call-indicator__photo-input {
+    display: none;
 }
 
 /* Today meds card (Task 3) — header row (icon + kicker + "Take" CTA),

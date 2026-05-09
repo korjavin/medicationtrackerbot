@@ -106,12 +106,12 @@ This plan adds two capabilities to **both** surfaces:
 
 ### Task 3: Style the new buttons via CSS tokens
 
-- [ ] add `.wg-call-card__mute`, `.wg-call-card__photo`, `.wg-call-indicator__mute`, `.wg-call-indicator__photo` to `web/static/css/styles.css` near the existing call styles (around line 4395 / 4470). Use existing `--wg-*` design tokens for color, spacing, and radius — no hardcoded values, no inline `style.` assignments.
-- [ ] visually distinguish muted state: `.wg-call-card__mute[aria-pressed="true"]` and `.wg-call-indicator__mute[aria-pressed="true"]` use a danger-tinted token (mirror how `[data-state="in_call"] .wg-call-indicator__hang-up` already shifts to clay/danger tones)
-- [ ] hide the buttons when the parent card/pill is in `idle` or `error` state via attribute selectors (`.wg-call-card[data-state="idle"] .wg-call-card__mute { display: none; }` etc.) — use `display: none` rather than the `hidden` attribute, since the parent is what toggles state
-- [ ] hide the file input via the existing `wg-visually-hidden` utility (or `display: none` if no util exists)
-- [ ] write a CSS architecture sanity check: load the relevant test file (or extend an existing one in `web/static/js/tests/`) to assert no inline style attributes appear on the new buttons after a state cycle
-- [ ] run `pnpm test` — must pass before Task 4
+- [x] add `.wg-call-card__mute`, `.wg-call-card__photo`, `.wg-call-indicator__mute`, `.wg-call-indicator__photo` to `web/static/css/styles.css` near the existing call styles (around line 4395 / 4470). Use existing `--wg-*` design tokens for color, spacing, and radius — no hardcoded values, no inline `style.` assignments.
+- [x] visually distinguish muted state: `.wg-call-card__mute[aria-pressed="true"]` and `.wg-call-indicator__mute[aria-pressed="true"]` use a danger-tinted token (mirror how `[data-state="in_call"] .wg-call-indicator__hang-up` already shifts to clay/danger tones)
+- [x] hide the buttons when the parent card/pill is in `idle` or `error` state via attribute selectors (`.wg-call-card[data-state="idle"] .wg-call-card__mute { display: none; }` etc.) — use `display: none` rather than the `hidden` attribute, since the parent is what toggles state
+- [x] hide the file input via the existing `wg-visually-hidden` utility (or `display: none` if no util exists)
+- [x] write a CSS architecture sanity check: load the relevant test file (or extend an existing one in `web/static/js/tests/`) to assert no inline style attributes appear on the new buttons after a state cycle
+- [x] run `pnpm test` — must pass before Task 4
 
 ### Task 4: Verify acceptance criteria
 

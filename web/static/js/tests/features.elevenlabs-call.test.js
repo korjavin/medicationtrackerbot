@@ -367,3 +367,50 @@ describe('features/elevenlabs-call.js — wg-call-state event detail', () => {
         }
     });
 });
+
+describe('features/elevenlabs-call.js — Today card markup', () => {
+    it('mountCard() renders mute, photo, and hidden file input', () => {
+        const { window, document, cleanup } = createEnv();
+        try {
+            const container = document.createElement('div');
+            document.body.appendChild(container);
+            window.WGCallAgent.mountCard(container);
+            expect(container.querySelector('.wg-call-card__mute')).not.toBeNull();
+            expect(container.querySelector('.wg-call-card__photo')).not.toBeNull();
+            const input = container.querySelector('.wg-call-card__photo-input');
+            expect(input).not.toBeNull();
+            expect(input.getAttribute('type')).toBe('file');
+            expect(input.getAttribute('accept')).toBe('image/*');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('does not assign inline styles on the call card or its children after a state cycle', async () => {
+        const { window, document, conversation, cleanup } = createConversationEnv();
+        try {
+            const container = document.createElement('div');
+            document.body.appendChild(container);
+            // Mount the card first, then drive startCall against that very
+            // card so applyState exercises the mounted DOM (not a bare
+            // throwaway <section>).
+            const card = window.WGCallAgent.mountCard(container);
+            const startPromise = window.WGCallAgent.startCall(card);
+            await startPromise;
+            const opts = window.__TEST_CONVERSATION_OPTS__;
+            if (opts && typeof opts.onConnect === 'function') opts.onConnect();
+            window.WGCallAgent.setMute(true);
+            window.WGCallAgent.setMute(false);
+            await window.WGCallAgent.endCall();
+            expect(card).not.toBeNull();
+            expect(card.getAttribute('style')).toBeNull();
+            for (const child of card.querySelectorAll('*')) {
+                expect(child.getAttribute('style')).toBeNull();
+            }
+            // Conversation methods were exercised by setMute.
+            expect(conversation.setMicMuted).toHaveBeenCalled();
+        } finally {
+            cleanup();
+        }
+    });
+});
