@@ -132,6 +132,11 @@ describe('Food day-nav toolbar row (Round-2 Task 6, defect #9)', () => {
         expect(input).not.toBeNull();
         expect(input.getAttribute('type')).toBe('file');
         expect(input.getAttribute('accept')).toBe('image/*');
+        // The picker must offer both camera and gallery, so it MUST NOT
+        // carry a `capture` attribute — otherwise mobile browsers force
+        // straight into the camera and the user can't pick an existing
+        // photo from their library.
+        expect(input.hasAttribute('capture')).toBe(false);
     });
 
     it('CSS: the dead .wg-food-day-nav__add and __add-label rules are removed', () => {
