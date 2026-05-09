@@ -61,12 +61,16 @@
     let activeCard = null;
     let activeState = 'idle';
     let activeMessage = '';
+    let activeMuted = false;
+    let activeUploading = false;
 
     function applyState(card, state, message) {
         if (!card) return;
         card.dataset.state = state;
         const btn = card.querySelector('.wg-call-card__btn');
         const status = card.querySelector('.wg-call-card__status');
+        const muteBtn = card.querySelector('.wg-call-card__mute');
+        const photoBtn = card.querySelector('.wg-call-card__photo');
         if (btn) {
             btn.disabled = state === 'connecting';
             if (state === 'idle') btn.textContent = 'Call agent';
@@ -81,21 +85,135 @@
             status.textContent = message || '';
             status.hidden = !message;
         }
+        if (muteBtn) {
+            muteBtn.setAttribute('aria-pressed', activeMuted ? 'true' : 'false');
+            muteBtn.textContent = activeMuted ? 'Unmute' : 'Mute';
+            muteBtn.disabled = state === 'connecting';
+        }
+        if (photoBtn) {
+            photoBtn.disabled = state === 'connecting' || activeUploading;
+            photoBtn.textContent = activeUploading ? 'Sending…' : 'Send photo';
+        }
     }
 
     function setState(state, message) {
         activeState = state;
         activeMessage = message || '';
+        if (state === 'idle' || state === 'error') {
+            activeMuted = false;
+            activeUploading = false;
+        }
         applyState(activeCard, state, activeMessage);
         try {
             window.dispatchEvent(new CustomEvent('wg-call-state', {
-                detail: { state: activeState, message: activeMessage },
+                detail: {
+                    state: activeState,
+                    message: activeMessage,
+                    muted: activeMuted,
+                    uploading: activeUploading,
+                },
             }));
         } catch (_) { /* ignore */ }
     }
 
     function getState() {
-        return { state: activeState, message: activeMessage };
+        return {
+            state: activeState,
+            message: activeMessage,
+            muted: activeMuted,
+            uploading: activeUploading,
+        };
+    }
+
+    function setMute(muted) {
+        if (!activeConversation) return;
+        const next = Boolean(muted);
+        if (typeof activeConversation.setMicMuted !== 'function') {
+            // Same privacy concern as the throw path below: never claim the
+            // mic is muted when we couldn't actually mute it.
+            setState(activeState, 'Mute unsupported');
+            return;
+        }
+        try {
+            activeConversation.setMicMuted(next);
+            activeMuted = next;
+            // Clear a stale failure message so a successful toggle doesn't
+            // re-broadcast "Mute failed" / "Mute unsupported".
+            const nextMessage = (activeMessage === 'Mute failed' || activeMessage === 'Mute unsupported')
+                ? ''
+                : activeMessage;
+            setState(activeState, nextMessage);
+        } catch (_) {
+            // SDK failed — do NOT update activeMuted. Showing "muted" while
+            // the mic is still hot would mislead the user about whether the
+            // agent can hear them. Surface the failure instead.
+            setState(activeState, 'Mute failed');
+        }
+    }
+
+    function toggleMute() {
+        setMute(!activeMuted);
+    }
+
+    async function sendPhoto(file) {
+        if (!activeConversation) {
+            throw new Error('No active call');
+        }
+        if (activeState !== 'in_call') {
+            throw new Error('Not in call');
+        }
+        const isBlob = (file && typeof file === 'object'
+            && typeof Blob !== 'undefined' && file instanceof Blob);
+        const type = isBlob ? (file.type || '').toString() : '';
+        if (!isBlob || !type.startsWith('image/')) {
+            // Surface a status so the user sees why nothing happened.
+            setState(activeState, 'Image required');
+            throw new Error('File must be an image');
+        }
+        // Capture the conversation reference so we can detect a hang-up
+        // during the await and avoid clobbering UI state back to in_call
+        // after the user has already ended the call.
+        const conv = activeConversation;
+        activeUploading = true;
+        // Clear a prior photo-failure message so a retry starts clean, but
+        // preserve live mode-change messages like "Listening…" / "Agent
+        // speaking…" — wiping those would leave the call card looking dead
+        // for the duration of the upload.
+        const startMessage = (activeMessage === 'Photo upload failed' || activeMessage === 'Image required')
+            ? ''
+            : activeMessage;
+        setState(activeState, startMessage);
+        try {
+            if (typeof conv.uploadFile !== 'function') {
+                throw new Error('SDK missing uploadFile');
+            }
+            const result = await conv.uploadFile(file);
+            if (conv !== activeConversation) {
+                // Call ended mid-upload — bail without touching UI state.
+                return;
+            }
+            const fileId = result && (result.fileId || result.file_id);
+            if (!fileId) {
+                throw new Error('Upload missing fileId');
+            }
+            if (typeof conv.sendMultimodalMessage !== 'function') {
+                throw new Error('SDK missing sendMultimodalMessage');
+            }
+            conv.sendMultimodalMessage({ fileId });
+        } catch (err) {
+            if (conv === activeConversation && activeState === 'in_call') {
+                activeUploading = false;
+                setState('in_call', 'Photo upload failed');
+            }
+            throw err;
+        }
+        if (conv === activeConversation && activeState === 'in_call') {
+            activeUploading = false;
+            // Re-broadcast whatever the controller currently shows (could be
+            // a mode-change status set during the upload). Don't clobber it
+            // with an empty string.
+            setState(activeState, activeMessage);
+        }
     }
 
     async function endCall() {
@@ -179,6 +297,40 @@
         });
         card.appendChild(btn);
 
+        const muteBtn = document.createElement('button');
+        muteBtn.type = 'button';
+        muteBtn.className = 'wg-call-card__mute';
+        muteBtn.setAttribute('aria-pressed', 'false');
+        muteBtn.textContent = 'Mute';
+        muteBtn.addEventListener('click', () => {
+            toggleMute();
+        });
+        card.appendChild(muteBtn);
+
+        const photoBtn = document.createElement('button');
+        photoBtn.type = 'button';
+        photoBtn.className = 'wg-call-card__photo';
+        photoBtn.textContent = 'Send photo';
+        card.appendChild(photoBtn);
+
+        const photoInput = document.createElement('input');
+        photoInput.type = 'file';
+        photoInput.accept = 'image/*';
+        photoInput.capture = 'environment';
+        photoInput.className = 'wg-call-card__photo-input';
+        photoInput.addEventListener('change', (event) => {
+            const file = event.target && event.target.files && event.target.files[0];
+            if (file) {
+                sendPhoto(file).catch(() => { /* status surfaced via setState */ });
+            }
+            try { photoInput.value = ''; } catch (_) { /* ignore */ }
+        });
+        card.appendChild(photoInput);
+
+        photoBtn.addEventListener('click', () => {
+            photoInput.click();
+        });
+
         const status = document.createElement('div');
         status.className = 'wg-call-card__status';
         status.setAttribute('aria-live', 'polite');
@@ -213,5 +365,14 @@
         return card;
     }
 
-    window.WGCallAgent = { mountCard, startCall, endCall, fetchSignedURL, getState };
+    window.WGCallAgent = {
+        mountCard,
+        startCall,
+        endCall,
+        fetchSignedURL,
+        getState,
+        toggleMute,
+        setMute,
+        sendPhoto,
+    };
 })();

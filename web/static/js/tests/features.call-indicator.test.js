@@ -243,4 +243,224 @@ describe('features/call-indicator.js — persistent call-state pill', () => {
             cleanup();
         }
     });
+
+    it('mount() includes mute and photo buttons plus a hidden file input', () => {
+        const { window, document, cleanup } = createEnv();
+        try {
+            window.WGCallIndicator.mount(document.body);
+            const mute = document.querySelector('.wg-call-indicator__mute');
+            const photo = document.querySelector('.wg-call-indicator__photo');
+            const input = document.querySelector('.wg-call-indicator__photo-input');
+            expect(mute).not.toBeNull();
+            expect(photo).not.toBeNull();
+            expect(input).not.toBeNull();
+            expect(mute.getAttribute('aria-pressed')).toBe('false');
+            expect(input.getAttribute('type')).toBe('file');
+            expect(input.getAttribute('accept')).toBe('image/*');
+            // hidden initially (idle)
+            expect(mute.hidden).toBe(true);
+            expect(photo.hidden).toBe(true);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('hides mute and photo when state is idle', () => {
+        const { window, document, cleanup } = createEnv();
+        try {
+            window.WGCallIndicator.mount(document.body);
+            dispatchState(window, { state: 'in_call' });
+            dispatchState(window, { state: 'idle' });
+            const mute = document.querySelector('.wg-call-indicator__mute');
+            const photo = document.querySelector('.wg-call-indicator__photo');
+            expect(mute.hidden).toBe(true);
+            expect(photo.hidden).toBe(true);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('hides mute and photo when state is error', () => {
+        const { window, document, cleanup } = createEnv();
+        try {
+            window.WGCallIndicator.mount(document.body);
+            dispatchState(window, { state: 'error', message: 'boom' });
+            const mute = document.querySelector('.wg-call-indicator__mute');
+            const photo = document.querySelector('.wg-call-indicator__photo');
+            expect(mute.hidden).toBe(true);
+            expect(photo.hidden).toBe(true);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('shows mute and photo enabled when state is in_call', () => {
+        const { window, document, cleanup } = createEnv();
+        try {
+            window.WGCallIndicator.mount(document.body);
+            dispatchState(window, { state: 'in_call' });
+            const mute = document.querySelector('.wg-call-indicator__mute');
+            const photo = document.querySelector('.wg-call-indicator__photo');
+            expect(mute.hidden).toBe(false);
+            expect(photo.hidden).toBe(false);
+            expect(mute.disabled).toBe(false);
+            expect(photo.disabled).toBe(false);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('shows mute and photo but disabled when state is connecting', () => {
+        const { window, document, cleanup } = createEnv();
+        try {
+            window.WGCallIndicator.mount(document.body);
+            dispatchState(window, { state: 'connecting' });
+            const mute = document.querySelector('.wg-call-indicator__mute');
+            const photo = document.querySelector('.wg-call-indicator__photo');
+            expect(mute.hidden).toBe(false);
+            expect(photo.hidden).toBe(false);
+            expect(mute.disabled).toBe(true);
+            expect(photo.disabled).toBe(true);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('reflects muted state via aria-pressed and label', () => {
+        const { window, document, cleanup } = createEnv();
+        try {
+            window.WGCallIndicator.mount(document.body);
+            dispatchState(window, { state: 'in_call', muted: true });
+            const mute = document.querySelector('.wg-call-indicator__mute');
+            expect(mute.getAttribute('aria-pressed')).toBe('true');
+            expect(mute.textContent).toBe('Unmute');
+            dispatchState(window, { state: 'in_call', muted: false });
+            expect(mute.getAttribute('aria-pressed')).toBe('false');
+            expect(mute.textContent).toBe('Mute');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('shows Sending… and disables photo button while uploading', () => {
+        const { window, document, cleanup } = createEnv();
+        try {
+            window.WGCallIndicator.mount(document.body);
+            dispatchState(window, { state: 'in_call', uploading: true });
+            const photo = document.querySelector('.wg-call-indicator__photo');
+            expect(photo.disabled).toBe(true);
+            expect(photo.textContent).toBe('Sending…');
+            dispatchState(window, { state: 'in_call', uploading: false });
+            expect(photo.disabled).toBe(false);
+            expect(photo.textContent).toBe('Photo');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('mute button click invokes WGCallAgent.toggleMute()', () => {
+        const toggleMute = vi.fn();
+        const { window, document, cleanup } = createEnv({
+            agent: { toggleMute, getState: () => ({ state: 'idle', message: '' }) }
+        });
+        try {
+            window.WGCallIndicator.mount(document.body);
+            dispatchState(window, { state: 'in_call' });
+            const mute = document.querySelector('.wg-call-indicator__mute');
+            mute.click();
+            expect(toggleMute).toHaveBeenCalledTimes(1);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('file input change invokes WGCallAgent.sendPhoto with the chosen file and resets value', () => {
+        const sendPhoto = vi.fn().mockResolvedValue(undefined);
+        const { window, document, cleanup } = createEnv({
+            agent: { sendPhoto, getState: () => ({ state: 'in_call', message: '' }) }
+        });
+        try {
+            window.WGCallIndicator.mount(document.body);
+            const input = document.querySelector('.wg-call-indicator__photo-input');
+            const file = new window.File(['xx'], 'photo.jpg', { type: 'image/jpeg' });
+            // jsdom: the .files setter requires a FileList; use Object.defineProperty.
+            Object.defineProperty(input, 'files', {
+                value: [file],
+                configurable: true,
+            });
+            input.dispatchEvent(new window.Event('change', { bubbles: true }));
+            expect(sendPhoto).toHaveBeenCalledTimes(1);
+            expect(sendPhoto.mock.calls[0][0]).toBe(file);
+            expect(input.value).toBe('');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('clicking the photo button triggers a click on the hidden file input', () => {
+        const { window, document, cleanup } = createEnv({
+            agent: { sendPhoto: vi.fn(), getState: () => ({ state: 'in_call', message: '' }) }
+        });
+        try {
+            window.WGCallIndicator.mount(document.body);
+            const photo = document.querySelector('.wg-call-indicator__photo');
+            const input = document.querySelector('.wg-call-indicator__photo-input');
+            const inputClick = vi.fn();
+            input.click = inputClick;
+            photo.click();
+            expect(inputClick).toHaveBeenCalledTimes(1);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('does not assign inline styles on the new mute / photo elements', () => {
+        const { window, document, cleanup } = createEnv();
+        try {
+            window.WGCallIndicator.mount(document.body);
+            dispatchState(window, { state: 'in_call', muted: true, uploading: true });
+            dispatchState(window, { state: 'in_call', muted: false, uploading: false });
+            dispatchState(window, { state: 'idle' });
+            const pill = document.querySelector('.wg-call-indicator');
+            expect(pill.getAttribute('style')).toBeNull();
+            for (const child of pill.querySelectorAll('*')) {
+                expect(child.getAttribute('style')).toBeNull();
+            }
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('mounts mid-call from getState() with muted: true and renders mute pressed/Unmute', () => {
+        const { window, document, cleanup } = createEnv({
+            agent: {
+                endCall: vi.fn(),
+                getState: () => ({ state: 'in_call', message: 'Live', muted: true, uploading: false })
+            }
+        });
+        try {
+            window.WGCallIndicator.mount(document.body);
+            const mute = document.querySelector('.wg-call-indicator__mute');
+            const photo = document.querySelector('.wg-call-indicator__photo');
+            expect(mute.hidden).toBe(false);
+            expect(mute.getAttribute('aria-pressed')).toBe('true');
+            expect(mute.textContent).toBe('Unmute');
+            expect(photo.hidden).toBe(false);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('destroy() removes the new mute/photo elements as well', () => {
+        const { window, document, cleanup } = createEnv();
+        try {
+            window.WGCallIndicator.mount(document.body);
+            window.WGCallIndicator.destroy();
+            expect(document.querySelector('.wg-call-indicator__mute')).toBeNull();
+            expect(document.querySelector('.wg-call-indicator__photo')).toBeNull();
+            expect(document.querySelector('.wg-call-indicator__photo-input')).toBeNull();
+        } finally {
+            cleanup();
+        }
+    });
 });
