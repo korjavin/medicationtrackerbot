@@ -61,12 +61,18 @@
     let activeCard = null;
     let activeState = 'idle';
     let activeMessage = '';
+    let activeMuted = false;
+    let activeUploading = false;
 
     function applyState(card, state, message) {
         if (!card) return;
         card.dataset.state = state;
+        card.dataset.muted = activeMuted ? 'true' : 'false';
+        card.dataset.uploading = activeUploading ? 'true' : 'false';
         const btn = card.querySelector('.wg-call-card__btn');
         const status = card.querySelector('.wg-call-card__status');
+        const muteBtn = card.querySelector('.wg-call-card__mute');
+        const photoBtn = card.querySelector('.wg-call-card__photo');
         if (btn) {
             btn.disabled = state === 'connecting';
             if (state === 'idle') btn.textContent = 'Call agent';
@@ -81,21 +87,103 @@
             status.textContent = message || '';
             status.hidden = !message;
         }
+        if (muteBtn) {
+            muteBtn.setAttribute('aria-pressed', activeMuted ? 'true' : 'false');
+            muteBtn.textContent = activeMuted ? 'Unmute' : 'Mute';
+            muteBtn.disabled = state === 'connecting';
+        }
+        if (photoBtn) {
+            photoBtn.disabled = state === 'connecting' || activeUploading;
+            photoBtn.textContent = activeUploading ? 'Sending…' : 'Send photo';
+        }
     }
 
     function setState(state, message) {
         activeState = state;
         activeMessage = message || '';
+        if (state === 'idle' || state === 'error') {
+            activeMuted = false;
+            activeUploading = false;
+        }
         applyState(activeCard, state, activeMessage);
         try {
             window.dispatchEvent(new CustomEvent('wg-call-state', {
-                detail: { state: activeState, message: activeMessage },
+                detail: {
+                    state: activeState,
+                    message: activeMessage,
+                    muted: activeMuted,
+                    uploading: activeUploading,
+                },
             }));
         } catch (_) { /* ignore */ }
     }
 
     function getState() {
-        return { state: activeState, message: activeMessage };
+        return {
+            state: activeState,
+            message: activeMessage,
+            muted: activeMuted,
+            uploading: activeUploading,
+        };
+    }
+
+    function setMute(muted) {
+        if (!activeConversation) return;
+        const next = Boolean(muted);
+        try {
+            if (typeof activeConversation.setMicMuted === 'function') {
+                activeConversation.setMicMuted(next);
+            }
+        } catch (_) { /* mute is non-critical; swallow SDK errors */ }
+        activeMuted = next;
+        setState(activeState, activeMessage);
+    }
+
+    function toggleMute() {
+        setMute(!activeMuted);
+    }
+
+    async function sendPhoto(file) {
+        if (!activeConversation) {
+            throw new Error('No active call');
+        }
+        if (activeState !== 'in_call') {
+            throw new Error('Not in call');
+        }
+        if (!file || typeof file !== 'object') {
+            throw new Error('Invalid file');
+        }
+        const isBlob = (typeof Blob !== 'undefined' && file instanceof Blob);
+        if (!isBlob) {
+            throw new Error('Invalid file');
+        }
+        const type = (file.type || '').toString();
+        if (!type.startsWith('image/')) {
+            throw new Error('File must be an image');
+        }
+        activeUploading = true;
+        setState(activeState, activeMessage);
+        try {
+            if (typeof activeConversation.uploadFile !== 'function') {
+                throw new Error('SDK missing uploadFile');
+            }
+            const result = await activeConversation.uploadFile(file);
+            const fileId = result && (result.fileId || result.file_id);
+            if (!fileId) {
+                throw new Error('Upload missing fileId');
+            }
+            if (typeof activeConversation.sendMultimodalMessage !== 'function') {
+                throw new Error('SDK missing sendMultimodalMessage');
+            }
+            activeConversation.sendMultimodalMessage({ fileId });
+        } catch (err) {
+            activeUploading = false;
+            // Keep the call alive — only the upload failed.
+            setState('in_call', 'Photo upload failed');
+            throw err;
+        }
+        activeUploading = false;
+        setState(activeState, activeMessage);
     }
 
     async function endCall() {
@@ -152,6 +240,8 @@
         card.className = 'wg-card wg-call-card';
         card.dataset.section = 'call-agent';
         card.dataset.state = 'idle';
+        card.dataset.muted = 'false';
+        card.dataset.uploading = 'false';
 
         const head = document.createElement('div');
         head.className = 'wg-call-card__head';
@@ -178,6 +268,40 @@
             }
         });
         card.appendChild(btn);
+
+        const muteBtn = document.createElement('button');
+        muteBtn.type = 'button';
+        muteBtn.className = 'wg-call-card__mute';
+        muteBtn.setAttribute('aria-pressed', 'false');
+        muteBtn.textContent = 'Mute';
+        muteBtn.addEventListener('click', () => {
+            toggleMute();
+        });
+        card.appendChild(muteBtn);
+
+        const photoBtn = document.createElement('button');
+        photoBtn.type = 'button';
+        photoBtn.className = 'wg-call-card__photo';
+        photoBtn.textContent = 'Send photo';
+        card.appendChild(photoBtn);
+
+        const photoInput = document.createElement('input');
+        photoInput.type = 'file';
+        photoInput.accept = 'image/*';
+        photoInput.capture = 'environment';
+        photoInput.className = 'wg-call-card__photo-input';
+        photoInput.addEventListener('change', (event) => {
+            const file = event.target && event.target.files && event.target.files[0];
+            if (file) {
+                sendPhoto(file).catch(() => { /* status surfaced via setState */ });
+            }
+            try { photoInput.value = ''; } catch (_) { /* ignore */ }
+        });
+        card.appendChild(photoInput);
+
+        photoBtn.addEventListener('click', () => {
+            photoInput.click();
+        });
 
         const status = document.createElement('div');
         status.className = 'wg-call-card__status';
@@ -213,5 +337,14 @@
         return card;
     }
 
-    window.WGCallAgent = { mountCard, startCall, endCall, fetchSignedURL, getState };
+    window.WGCallAgent = {
+        mountCard,
+        startCall,
+        endCall,
+        fetchSignedURL,
+        getState,
+        toggleMute,
+        setMute,
+        sendPhoto,
+    };
 })();
