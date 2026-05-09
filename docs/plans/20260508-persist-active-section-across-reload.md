@@ -1,4 +1,3 @@
----
 # Persist Active Section Across Page Reload
 
 ## Overview
@@ -20,26 +19,28 @@ When the user reloads the Mini App in a browser they are always thrown back to t
 - **Existing tests that must change**:
   - `web/static/js/tests/bootstrap.today-default.test.js` — explicitly asserts `switchTab('today')` is called even with a saved server-side `tab_order`. Its premise ("Today is unconditionally the initial view") is what we are deliberately relaxing. Needs rewriting.
   - `web/static/js/tests/bootstrap.dynamic-tab.test.js` — guards that the **server-side** `tab_order` setting (used for ordering Today cards) does not redirect bootstrap to a section. Different concept from the new client-side `mt-active-tab` key, so the assertions stay valid; the test should remain green because `loadFrontendEnv` produces a fresh JSDOM (and therefore an empty localStorage) per test.
+- Adopted from `docs/plans/2026-05-06-persist-active-section-across-reload.md`.
 
 ## Development Approach
 
-- **Testing approach**: Regular (code first, then tests). Each task ships with new/updated tests as in the project standard.
-- **Storage key**: `mt-active-tab` (matches the existing `mt-*-subtab` convention).
-- **Restore precedence**:
+- Testing approach: regular (code first, then tests). Each task ships with new/updated tests as in the project standard.
+- Storage key: `mt-active-tab` (matches the existing `mt-*-subtab` convention).
+- Restore precedence:
   1. Saved value from `mt-active-tab` if present, valid, and feature-enabled.
   2. Otherwise `today`.
   3. Deep links (path/query/push/Telegram `start_param`) override either of the above by calling `switchTab(target)` themselves after the initial restore.
-- **No new write-after-read race**: `switchTab` writes the key on every successful activation, including `today`. So returning to Today is also remembered.
-- **CRITICAL: every task MUST include new/updated tests.**
-- **CRITICAL: all tests must pass before starting next task.**
+- No new write-after-read race: `switchTab` writes the key on every successful activation, including `today`. So returning to Today is also remembered.
+- Complete each task fully before moving to the next.
+- Update this plan when scope changes during implementation.
 
 ## Testing Strategy
 
-- **Frontend unit tests** (Vitest + jsdom):
+- Frontend unit tests (Vitest + jsdom):
   - New cases in `bootstrap.today-default.test.js` (renamed conceptually but the file can stay) covering: no key → today; valid key (`bp`) → bp; key for disabled feature → today; key with unknown value → today.
   - Extend an existing app-level tab test (e.g., `app.tab-single-source.test.js`) to assert that calling `switchTab('bp')` writes `bp` to `localStorage['mt-active-tab']`, and `switchTab('today')` writes `today`.
-- **No backend changes**, so no Go tests needed. CLAUDE.md MCP-coverage guard is unaffected (no new HTTP routes).
-- **Manual smoke**: open BP → reload → expect BP. Open Workouts → reload → expect Workouts. Open BP via `/bp_add` deep link after reloading on Vitals → expect BP modal (deep link still wins). Disable BP feature in Settings while currently on BP → reload → expect Today.
+- No backend changes, so no Go tests needed. CLAUDE.md MCP-coverage guard is unaffected (no new HTTP routes).
+- Manual smoke: open BP → reload → expect BP. Open Workouts → reload → expect Workouts. Open BP via `/bp_add` deep link after reloading on Vitals → expect BP modal (deep link still wins). Disable BP feature in Settings while currently on BP → reload → expect Today.
+- Run project tests after each Task before proceeding.
 
 ## Progress Tracking
 
@@ -52,20 +53,17 @@ When the user reloads the Mini App in a browser they are always thrown back to t
 
 ### Task 1: Persist the active tab on every `switchTab`
 
-**Files:**
+Files:
 - Modify: `web/static/js/app.js`
 
 - [ ] In `switchTab(tab)` (around `app.js:1037`), after the existing `window.AppStore && window.AppStore.set('currentTab', tab)` line and only when `activated` is truthy, write the tab to `localStorage` under the key `mt-active-tab` inside a `try/catch` (silent on failure — match the existing `try { ... } catch (_) {}` pattern used elsewhere in the codebase for sandboxed-localStorage cases).
 - [ ] Do **not** persist when `switchTab` early-returns due to feature-disabled bounce (the recursive call to `switchTab('today')` will record `today` correctly).
-- [ ] Add a unit test (extend `web/static/js/tests/app.tab-single-source.test.js` or create `app.active-tab-persistence.test.js`) that:
-  - mounts the minimal DOM,
-  - calls `switchTab('bp')` and asserts `localStorage.getItem('mt-active-tab') === 'bp'`,
-  - calls `switchTab('today')` and asserts the value flips to `today`.
-- [ ] Run `cd web/static/js/tests && npx vitest run` — must pass before Task 2.
+- [ ] write tests: extend `web/static/js/tests/app.tab-single-source.test.js` (or create `app.active-tab-persistence.test.js`) to mount the minimal DOM, call `switchTab('bp')` and assert `localStorage.getItem('mt-active-tab') === 'bp'`, then call `switchTab('today')` and assert the value flips to `today`.
+- [ ] run project tests - must pass before next task (`cd web/static/js/tests && npx vitest run`).
 
 ### Task 2: Restore the active tab on bootstrap
 
-**Files:**
+Files:
 - Modify: `web/static/js/features/bootstrap.js`
 
 - [ ] Add a private helper near the top of the file (next to `filterNavItemsByFeatures`):
@@ -86,7 +84,7 @@ When the user reloads the Mini App in a browser they are always thrown back to t
 - [ ] In `mountCanonicalBottomNav` (`bootstrap.js:85-102`), replace `active: 'today'` with `active: readSavedActiveTab()`.
 - [ ] In the post-auth block (`bootstrap.js:172-174`), replace `switchTab('today')` with `switchTab(readSavedActiveTab())`. Keep the surrounding comment but reword it to: "Restore the last section the user was on (Today by default; deep links below override)".
 - [ ] Confirm `handleDeepLinks()` is still called after the initial restore (`bootstrap.js:182`) so deep links continue to win.
-- [ ] Update `web/static/js/tests/bootstrap.today-default.test.js`:
+- [ ] write tests: update `web/static/js/tests/bootstrap.today-default.test.js`:
   - Rename describe to "bootstrap.js initial-section restore".
   - Keep the "no saved key → today" case.
   - Replace the "saved tab_order is ignored" case with three new cases:
@@ -95,21 +93,22 @@ When the user reloads the Mini App in a browser they are always thrown back to t
     - `localStorage['mt-active-tab'] = 'unknown-id'` → `switchTab('today')`.
   - The existing helpers (`stubFetch`, `stubBootstrapGlobals`) can be reused; just set `window.localStorage` before `window.eval(bootstrapSource)`.
 - [ ] Verify `bootstrap.dynamic-tab.test.js` still passes (no source changes; the new client-side key is empty in a fresh JSDOM).
-- [ ] Run `cd web/static/js/tests && npx vitest run` — must pass before Task 3.
+- [ ] run project tests - must pass before next task (`cd web/static/js/tests && npx vitest run`).
 
 ### Task 3: Add `mt-active-tab` to the user-scoped logout-clear allowlist
 
-**Files:**
+Files:
 - Modify: `web/static/js/features/auth-flow.js`
 
 - [ ] At `auth-flow.js:22`, extend `USER_SCOPED_LOCAL_KEYS` to include `'mt-active-tab'`.
-- [ ] No new test required — the existing `clearAuthState` loop already iterates this array; coverage is implicit.
-- [ ] Run `cd web/static/js/tests && npx vitest run` — must pass before Task 4.
+- [ ] write tests: no new test required — the existing `clearAuthState` loop already iterates this array; coverage is implicit. Skip if no behavior delta beyond the array entry.
+- [ ] run project tests - must pass before next task (`cd web/static/js/tests && npx vitest run`).
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] Run full frontend suite: `cd web/static/js/tests && npx vitest run`.
-- [ ] Run Go suite: `go test ./...` (sanity, even though no Go changed).
+- [ ] verify all requirements from Overview are implemented (reload preserves last section; Today remains the default for first-time users and disabled-feature fallback; deep links still override).
+- [ ] run full project test suite: `cd web/static/js/tests && npx vitest run` and `go test ./...`.
+- [ ] run project linter - all issues must be fixed.
 - [ ] Manual smoke (Telegram Mini App in browser):
   - Open BP → reload → land on BP.
   - Open Workouts → reload → land on Workouts.
@@ -117,11 +116,13 @@ When the user reloads the Mini App in a browser they are always thrown back to t
   - Disable BP feature in Settings while on BP → reload → land on Today (graceful fallback).
   - Sign out, sign in as a different user on the same browser → land on Today (allowlist clear).
 
-### Task 5: Update documentation and close out
+## Post-Completion
 
-- [ ] Update CLAUDE.md rule 6 only if the wording becomes misleading (likely a one-line addition that the bottom-nav active state restores from localStorage, defaulting to Today).
-- [ ] Update `docs/frontend.md` "navigation" / "data flow" section with one paragraph describing the `mt-active-tab` key (default fallback behaviour, logout clearing).
-- [ ] Move this plan to `docs/plans/completed/` once everything above is checked.
+*Items requiring manual intervention - no checkboxes, informational only*
+
+- Update CLAUDE.md rule 6 only if the wording becomes misleading (likely a one-line addition that the bottom-nav active state restores from localStorage, defaulting to Today).
+- Update `docs/frontend.md` "navigation" / "data flow" section with one paragraph describing the `mt-active-tab` key (default fallback behaviour, logout clearing).
+- Move this plan to `docs/plans/completed/` once everything above is checked.
 
 ## Risks / Open Questions
 
