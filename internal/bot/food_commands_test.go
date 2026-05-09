@@ -155,6 +155,13 @@ func (m *mockFoodAI) ParseMealDescription(ctx context.Context, description strin
 	return m.logs, nil
 }
 
+func (m *mockFoodAI) ParseMealPhoto(ctx context.Context, imageBytes []byte, mimeType string) ([]domain.FoodLog, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.logs, nil
+}
+
 func TestHandleFoodCommand_Disabled(t *testing.T) {
 	bot := &Bot{
 		food: &mockFoodStore{enabled: false},

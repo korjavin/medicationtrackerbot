@@ -49,6 +49,7 @@ type Server struct {
 	workouts            WorkoutStore
 	workoutSvc          workoutsvc.WorkoutService
 	food                FoodStore
+	foodAI              domain.FoodAIService
 	settings            SettingsStore
 	health              HealthStore
 	changes             ChangeStore
@@ -259,6 +260,12 @@ func (s *Server) SetWorkoutInteractor(w WorkoutInteractor) {
 // SetMCPAuditSecret sets the secret used to authenticate MCP audit payloads.
 func (s *Server) SetMCPAuditSecret(secret string) {
 	s.mcpAuditSecret = secret
+}
+
+// SetFoodAIService wires the AI-backed food parser used by the photo upload
+// endpoint. When unset, /api/food/log/from-photo returns 503.
+func (s *Server) SetFoodAIService(svc domain.FoodAIService) {
+	s.foodAI = svc
 }
 
 // SetNotifiers configures the notification channels after construction.
@@ -514,6 +521,7 @@ func (s *Server) Routes() http.Handler {
 
 	// Food Intake endpoints
 	apiMux.HandleFunc("POST /api/food/log", s.handleCreateFoodLog)
+	apiMux.HandleFunc("POST /api/food/log/from-photo", s.handleCreateFoodLogFromPhoto)
 	apiMux.HandleFunc("PUT /api/food/log/{id}", s.handleUpdateFoodLog)
 	apiMux.HandleFunc("GET /api/food/log", s.handleGetFoodLogs)
 	apiMux.HandleFunc("GET /api/food/stats", s.handleGetFoodStats)

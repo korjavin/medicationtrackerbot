@@ -3,6 +3,7 @@ package ai
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -396,4 +397,141 @@ func extractJSONContent(content string) string {
 	content = strings.TrimPrefix(content, "```")
 	content = strings.TrimSuffix(content, "```")
 	return strings.TrimSpace(content)
+}
+
+// MealPhotoSystemPrompt extends the meal-parsing rules with image-specific guidance
+// for the vision-enabled flow.
+const MealPhotoSystemPrompt = MealSystemPrompt + `
+
+You are looking at a single photograph of a meal. Identify each visible food
+item, estimate its eaten weight in grams from the apparent portion size, and
+report typical macronutrients per 100 grams for that food. If multiple distinct
+foods share a plate, list each as its own item. If the photo does not show
+food, return an empty items array.`
+
+// ParseMealFromImage sends a food photograph to the OpenAI Vision API and
+// returns the same ParsedMeal shape produced by ParseMealFromDescription.
+// imageBytes is the raw image; mimeType (e.g. "image/jpeg") gates the data
+// URL OpenAI expects. The caller is responsible for any size limits.
+func (c *Client) ParseMealFromImage(ctx context.Context, imageBytes []byte, mimeType string) (*ParsedMeal, error) {
+	if len(imageBytes) == 0 {
+		return nil, errors.New("image bytes are empty")
+	}
+	if mimeType == "" {
+		mimeType = "image/jpeg"
+	}
+
+	dataURL := "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(imageBytes)
+
+	reqBody := map[string]any{
+		"model": c.model,
+		"messages": []map[string]any{
+			{"role": "system", "content": MealPhotoSystemPrompt},
+			{
+				"role": "user",
+				"content": []map[string]any{
+					{"type": "text", "text": "Identify the foods in this photo and return the JSON described above."},
+					{"type": "image_url", "image_url": map[string]any{"url": dataURL}},
+				},
+			},
+		},
+		"temperature": 0.1,
+		"response_format": map[string]any{
+			"type": "json_schema",
+			"json_schema": map[string]any{
+				"name":   "parsed_meal",
+				"strict": true,
+				"schema": mealSchema,
+			},
+		},
+	}
+
+	parsed, err := c.parseMealVisionRequest(ctx, reqBody)
+	if err == nil {
+		return parsed, nil
+	}
+
+	// Some OpenAI-compatible providers reject json_schema; fall back to a
+	// plain instruction the same way the text path does.
+	var apiErr *apiError
+	if errors.As(err, &apiErr) && strings.Contains(strings.ToLower(apiErr.Message), "response_format") {
+		fallback := map[string]any{
+			"model": c.model,
+			"messages": []map[string]any{
+				{
+					"role": "system",
+					"content": MealPhotoSystemPrompt + `
+Return only valid JSON with the shape {"items": [{"name": string, "weight_grams": number, "carbs_100g": number, "protein_100g": number, "fat_100g": number}, ...]}.
+Do not wrap the JSON in markdown fences or add explanations.`,
+				},
+				{
+					"role": "user",
+					"content": []map[string]any{
+						{"type": "text", "text": "Identify the foods in this photo and return JSON."},
+						{"type": "image_url", "image_url": map[string]any{"url": dataURL}},
+					},
+				},
+			},
+			"temperature": 0.1,
+		}
+		return c.parseMealVisionRequest(ctx, fallback)
+	}
+
+	return nil, err
+}
+
+func (c *Client) parseMealVisionRequest(ctx context.Context, reqBody map[string]any) (*ParsedMeal, error) {
+	reqBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.apiURL+"/chat/completions", bytes.NewReader(reqBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("API request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var errResp chatCompletionResponse
+		if err := json.NewDecoder(resp.Body).Decode(&errResp); err == nil && errResp.Error != nil {
+			return nil, &apiError{Message: errResp.Error.Message}
+		}
+		return nil, fmt.Errorf("API returned status code: %d", resp.StatusCode)
+	}
+
+	var completion chatCompletionResponse
+	if err := json.NewDecoder(resp.Body).Decode(&completion); err != nil {
+		return nil, fmt.Errorf("failed to decode API response: %w", err)
+	}
+
+	if len(completion.Choices) == 0 {
+		return nil, errors.New("API returned no choices")
+	}
+
+	content := completion.Choices[0].Message.Content
+	if content == "" {
+		return nil, errors.New("API returned empty content")
+	}
+
+	var parsed ParsedMeal
+	if err := json.Unmarshal([]byte(extractJSONContent(content)), &parsed); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON from API content: %w", err)
+	}
+
+	if len(parsed.Items) == 0 {
+		return nil, errors.New("AI returned no meal items")
+	}
+
+	return &parsed, nil
 }

@@ -60,15 +60,16 @@ describe('Food round-2 design parity', () => {
             }];
             window._renderFoodData(groups, null, 'day', '2026-04-20');
 
-            // The only Add-food button in the DOM must be the header inline
-            // pill — no `.wg-food-add-cta` inside `#food-list`, no second
-            // `#add-food-btn`, nothing duplicated in `#food-log-tab`.
+            // The only Add-food buttons in the DOM must be the header inline
+            // pill and the new photo-shortcut pill — no `.wg-food-add-cta`
+            // inside `#food-list`, no second `#add-food-btn`, nothing
+            // duplicated in `#food-log-tab`.
             expect(document.querySelectorAll('.wg-food-add-cta')).toHaveLength(0);
             expect(document.querySelectorAll('#add-food-btn')).toHaveLength(0);
 
             const addButtons = document.querySelectorAll('#food-view [id^="add-food"]');
-            expect(addButtons).toHaveLength(1);
-            expect(addButtons[0].id).toBe('add-food-inline-btn');
+            const ids = Array.from(addButtons).map(el => el.id).sort();
+            expect(ids).toEqual(['add-food-inline-btn', 'add-food-photo-btn']);
         });
     });
 

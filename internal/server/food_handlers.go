@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -142,6 +143,141 @@ func (s *Server) handleCreateFoodLog(w http.ResponseWriter, r *http.Request) {
 		"id":         id,
 		"product_id": resolvedProductID,
 		"name":       resolvedName,
+	}); err != nil {
+		slog.Error("encode response", "error", err)
+	}
+}
+
+// maxFoodPhotoBytes caps uploaded food photos at ~8 MB. Larger images are
+// rejected before the multipart parser consumes the body.
+const maxFoodPhotoBytes = 8 << 20
+
+func (s *Server) handleCreateFoodLogFromPhoto(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+
+	enabled, err := s.food.GetFoodIntakeEnabled(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !enabled {
+		http.Error(w, "Food intake tracking is disabled", http.StatusForbidden)
+		return
+	}
+
+	if s.foodAI == nil {
+		http.Error(w, "AI food logging is not configured on this server", http.StatusServiceUnavailable)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxFoodPhotoBytes)
+	if err := r.ParseMultipartForm(maxFoodPhotoBytes); err != nil {
+		http.Error(w, "Invalid multipart upload: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	file, header, err := r.FormFile("image")
+	if err != nil {
+		http.Error(w, "Missing 'image' file field", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	imageBytes, err := io.ReadAll(file)
+	if err != nil {
+		http.Error(w, "Failed to read uploaded image", http.StatusBadRequest)
+		return
+	}
+	if len(imageBytes) == 0 {
+		http.Error(w, "Uploaded image is empty", http.StatusBadRequest)
+		return
+	}
+
+	mimeType := header.Header.Get("Content-Type")
+	if mimeType == "" || !strings.HasPrefix(mimeType, "image/") {
+		mimeType = http.DetectContentType(imageBytes)
+		if !strings.HasPrefix(mimeType, "image/") {
+			http.Error(w, "Uploaded file is not an image", http.StatusBadRequest)
+			return
+		}
+	}
+
+	eatenAt := time.Now()
+	if raw := strings.TrimSpace(r.FormValue("eaten_at")); raw != "" {
+		if parsed, err := time.Parse(time.RFC3339, raw); err == nil {
+			eatenAt = parsed
+		} else if parsed, err := time.Parse("2006-01-02T15:04", raw); err == nil {
+			eatenAt = parsed
+		}
+	}
+
+	parseCtx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+
+	parsedLogs, err := s.foodAI.ParseMealPhoto(parseCtx, imageBytes, mimeType)
+	if err != nil {
+		slog.Error("food photo: AI parse failed", "user_id", userID, "error", err)
+		http.Error(w, "Failed to analyze food photo: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	if len(parsedLogs) == 0 {
+		http.Error(w, "No food items detected in photo", http.StatusUnprocessableEntity)
+		return
+	}
+
+	saveCtx, saveCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer saveCancel()
+
+	type savedItem struct {
+		ID       int64  `json:"id"`
+		Name     string `json:"name"`
+		Weight   int    `json:"weight"`
+		Carbs    int    `json:"carbs"`
+		Protein  int    `json:"protein"`
+		Fat      int    `json:"fat"`
+		Calories int    `json:"calories"`
+	}
+
+	saved := make([]savedItem, 0, len(parsedLogs))
+	var failed int
+	for _, item := range parsedLogs {
+		entry := &store.FoodLog{
+			UserID:   userID,
+			EatenAt:  eatenAt,
+			Weight:   item.Weight,
+			Carbs:    item.Carbs,
+			Protein:  item.Protein,
+			Fat:      item.Fat,
+			Calories: item.Calories,
+			Name:     item.Name,
+		}
+		id, err := s.food.CreateFoodLog(saveCtx, entry)
+		if err != nil {
+			slog.Error("food photo: save failed", "user_id", userID, "name", item.Name, "error", err)
+			failed++
+			continue
+		}
+		saved = append(saved, savedItem{
+			ID:       id,
+			Name:     item.Name,
+			Weight:   item.Weight,
+			Carbs:    item.Carbs,
+			Protein:  item.Protein,
+			Fat:      item.Fat,
+			Calories: item.Calories,
+		})
+	}
+
+	if len(saved) == 0 {
+		http.Error(w, "Failed to save any food items", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]any{
+		"status": "created",
+		"items":  saved,
+		"failed": failed,
 	}); err != nil {
 		slog.Error("encode response", "error", err)
 	}

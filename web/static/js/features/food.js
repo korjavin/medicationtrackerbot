@@ -31,8 +31,13 @@ function renderFoodModalIcons() {
 function renderFoodInlineAddIcon() {
     if (!window.WGIcons || typeof window.WGIcons.iconSvg !== 'function') return;
     const btn = document.getElementById('add-food-inline-btn');
-    if (!btn || btn.querySelector('svg')) return;
-    btn.insertBefore(window.WGIcons.iconSvg('plus', { size: 14 }), btn.firstChild);
+    if (btn && !btn.querySelector('svg')) {
+        btn.insertBefore(window.WGIcons.iconSvg('plus', { size: 14 }), btn.firstChild);
+    }
+    const photoBtn = document.getElementById('add-food-photo-btn');
+    if (photoBtn && !photoBtn.querySelector('svg')) {
+        photoBtn.insertBefore(window.WGIcons.iconSvg('camera', { size: 14 }), photoBtn.firstChild);
+    }
 }
 
 function toggleFoodLibraryView() {
@@ -136,6 +141,8 @@ function bindFoodControls() {
     });
 
     bindClick('add-food-inline-btn', () => showAddFoodModal());
+    bindClick('add-food-photo-btn', () => triggerFoodPhotoPicker());
+    bindChange('food-photo-input', (e) => uploadFoodPhoto(e.target));
     bindClick('food-library-toggle-btn', () => toggleFoodLibraryView());
 
     const macrosToggle = document.getElementById('food-macros-toggle');
@@ -792,6 +799,75 @@ async function decodeFromImageWithDetector(image) {
     if (!results || results.length === 0) return '';
     const first = results.find(r => r && r.rawValue) || results[0];
     return first && first.rawValue ? first.rawValue : '';
+}
+
+function triggerFoodPhotoPicker() {
+    const input = document.getElementById('food-photo-input');
+    if (!input) return;
+    // Reset value so picking the same file twice still fires `change`.
+    input.value = '';
+    input.click();
+}
+
+async function uploadFoodPhoto(input) {
+    const file = input && input.files && input.files[0];
+    if (!file) return;
+
+    if (!file.type || !file.type.startsWith('image/')) {
+        safeAlert('Please choose an image file.');
+        return;
+    }
+
+    const photoBtn = document.getElementById('add-food-photo-btn');
+    const originalLabel = photoBtn ? photoBtn.querySelector('.wg-toolbar-btn__label') : null;
+    const restoreLabel = originalLabel ? originalLabel.textContent : 'Photo';
+
+    await withSubmit(photoBtn, async () => {
+        if (originalLabel) originalLabel.textContent = 'Analyzing…';
+
+        try {
+            const form = new FormData();
+            form.append('image', file, file.name || 'food.jpg');
+            form.append('eaten_at', new Date().toISOString());
+
+            const res = await fetch('/api/food/log/from-photo', {
+                method: 'POST',
+                headers: { 'X-Telegram-Init-Data': window.userInitData },
+                body: form,
+            });
+
+            if (!res.ok) {
+                const txt = await res.text();
+                throw new Error(txt || `HTTP ${res.status}`);
+            }
+
+            const data = await res.json().catch(() => null);
+            const items = (data && Array.isArray(data.items)) ? data.items : [];
+
+            // Same cache invalidation as saveFoodLog().
+            await window.DataStore.invalidateTags(['food']);
+            if (typeof todayFoodKey === 'function' && window.DataStore.clearCached) {
+                await window.DataStore.clearCached(todayFoodKey(new Date()));
+            }
+            if (window.DataStore?.advanceCursorSilently) {
+                window.DataStore.advanceCursorSilently();
+            }
+
+            loadFoodLogs();
+            if (typeof loadToday === 'function') loadToday();
+
+            const summary = items.length
+                ? `Logged ${items.length} item${items.length === 1 ? '' : 's'}: ${items.map(i => i.name).join(', ')}`
+                : 'Photo logged.';
+            safeAlert(summary);
+        } catch (e) {
+            console.error('Food photo upload failed:', e);
+            safeAlert('Failed to log food from photo: ' + (e.message || e));
+        } finally {
+            if (originalLabel) originalLabel.textContent = restoreLabel;
+            input.value = '';
+        }
+    });
 }
 
 async function openPhotoPickerAndDecode() {
