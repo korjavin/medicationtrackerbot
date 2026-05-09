@@ -100,9 +100,9 @@ Files:
 Files:
 - Modify: `web/static/js/features/auth-flow.js`
 
-- [ ] At `auth-flow.js:22`, extend `USER_SCOPED_LOCAL_KEYS` to include `'mt-active-tab'`.
-- [ ] write tests: no new test required — the existing `clearAuthState` loop already iterates this array; coverage is implicit. Skip if no behavior delta beyond the array entry.
-- [ ] run project tests - must pass before next task (`cd web/static/js/tests && npx vitest run`).
+- [x] At `auth-flow.js:22`, extend `USER_SCOPED_LOCAL_KEYS` to include `'mt-active-tab'`.
+- [x] write tests: no new test required — the existing `clearAuthState` loop already iterates this array; coverage is implicit. Skip if no behavior delta beyond the array entry.
+- [x] run project tests - must pass before next task (`cd web/static/js/tests && npx vitest run`).
 
 ### Task 4: Verify acceptance criteria
 
