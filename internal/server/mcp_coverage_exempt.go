@@ -81,6 +81,7 @@ var mcpCoverageExempt = []routeExemption{
 
 	// --- Bulk import / export: CSV-shaped, awkward via mcp_execute ---
 	{Method: "POST", Path: "/api/bp/import", Reason: "CSV upload, multipart form; not a JSON RPC shape"},
+	{Method: "POST", Path: "/api/food/log/from-photo", Reason: "multipart image upload routed through OpenAI Vision; agents log food via the JSON /api/food/log endpoint"},
 	{Method: "GET", Path: "/api/bp/export", Reason: "CSV download; agent uses health.bp.list instead"},
 	{Method: "GET", Path: "/api/weight/export", Reason: "CSV download; agent uses health.weight.list instead"},
 

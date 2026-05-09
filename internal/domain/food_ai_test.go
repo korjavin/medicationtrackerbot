@@ -17,6 +17,10 @@ func (m *mockAIClient) ParseMealFromDescription(ctx context.Context, description
 	return m.result, m.err
 }
 
+func (m *mockAIClient) ParseMealFromImage(ctx context.Context, imageBytes []byte, mimeType string) (*ai.ParsedMeal, error) {
+	return m.result, m.err
+}
+
 func TestParseMealDescription_EmptyDescription(t *testing.T) {
 	service := NewFoodAIService(&mockAIClient{})
 	_, err := service.ParseMealDescription(context.Background(), "")

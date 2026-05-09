@@ -182,6 +182,10 @@ func main() {
 
 	srv := server.New(s, botToken, sessionSecret, allowedUserID, oidcConfig, botUsername, vapidPublicKey)
 
+	if foodAI != nil {
+		srv.SetFoodAIService(foodAI)
+	}
+
 	if mcpAuditSecret := os.Getenv("MCP_AUDIT_SECRET"); mcpAuditSecret != "" {
 		srv.SetMCPAuditSecret(mcpAuditSecret)
 
