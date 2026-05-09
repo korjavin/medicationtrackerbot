@@ -1035,6 +1035,7 @@ function switchTab(tab) {
     if (!activated) return;
 
     window.AppStore && window.AppStore.set('currentTab', tab);
+    try { window.localStorage.setItem('mt-active-tab', tab); } catch (_) {}
     if (window.AppKernel && typeof window.AppKernel.onTabSwitch === 'function') {
         window.AppKernel.onTabSwitch(tab);
     }

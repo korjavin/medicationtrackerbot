@@ -56,10 +56,10 @@ When the user reloads the Mini App in a browser they are always thrown back to t
 Files:
 - Modify: `web/static/js/app.js`
 
-- [ ] In `switchTab(tab)` (around `app.js:1037`), after the existing `window.AppStore && window.AppStore.set('currentTab', tab)` line and only when `activated` is truthy, write the tab to `localStorage` under the key `mt-active-tab` inside a `try/catch` (silent on failure — match the existing `try { ... } catch (_) {}` pattern used elsewhere in the codebase for sandboxed-localStorage cases).
-- [ ] Do **not** persist when `switchTab` early-returns due to feature-disabled bounce (the recursive call to `switchTab('today')` will record `today` correctly).
-- [ ] write tests: extend `web/static/js/tests/app.tab-single-source.test.js` (or create `app.active-tab-persistence.test.js`) to mount the minimal DOM, call `switchTab('bp')` and assert `localStorage.getItem('mt-active-tab') === 'bp'`, then call `switchTab('today')` and assert the value flips to `today`.
-- [ ] run project tests - must pass before next task (`cd web/static/js/tests && npx vitest run`).
+- [x] In `switchTab(tab)` (around `app.js:1037`), after the existing `window.AppStore && window.AppStore.set('currentTab', tab)` line and only when `activated` is truthy, write the tab to `localStorage` under the key `mt-active-tab` inside a `try/catch` (silent on failure — match the existing `try { ... } catch (_) {}` pattern used elsewhere in the codebase for sandboxed-localStorage cases).
+- [x] Do **not** persist when `switchTab` early-returns due to feature-disabled bounce (the recursive call to `switchTab('today')` will record `today` correctly).
+- [x] write tests: extend `web/static/js/tests/app.tab-single-source.test.js` (or create `app.active-tab-persistence.test.js`) to mount the minimal DOM, call `switchTab('bp')` and assert `localStorage.getItem('mt-active-tab') === 'bp'`, then call `switchTab('today')` and assert the value flips to `today`.
+- [x] run project tests - must pass before next task (`cd web/static/js/tests && npx vitest run`).
 
 ### Task 2: Restore the active tab on bootstrap
 
