@@ -245,16 +245,20 @@ describe('features/elevenlabs-call.js — setMute / toggleMute', () => {
         }
     });
 
-    it('swallows SDK errors from setMicMuted without crashing state', async () => {
+    it('rolls back muted state when setMicMuted throws (mic state cannot be trusted)', async () => {
         const conv = makeFakeConversation({
             setMicMuted: vi.fn(() => { throw new Error('webrtc fail'); }),
         });
-        const { window, cleanup } = createConversationEnv({ conv });
+        const { window, events, cleanup } = createConversationEnv({ conv });
         try {
             await startCall(window);
             expect(() => window.WGCallAgent.setMute(true)).not.toThrow();
-            // activeMuted still updates so the UI reflects user intent.
-            expect(window.WGCallAgent.getState().muted).toBe(true);
+            // SDK failed — UI must not lie that the mic is muted.
+            const state = window.WGCallAgent.getState();
+            expect(state.muted).toBe(false);
+            // A "Mute failed" status should have been broadcast.
+            const last = events[events.length - 1];
+            expect(last.message).toBe('Mute failed');
         } finally {
             cleanup();
         }
@@ -294,12 +298,16 @@ describe('features/elevenlabs-call.js — sendPhoto', () => {
         }
     });
 
-    it('rejects non-image blobs', async () => {
-        const { window, cleanup } = createConversationEnv();
+    it('rejects non-image blobs and surfaces a status message', async () => {
+        const { window, events, cleanup } = createConversationEnv();
         try {
             await startCall(window);
             const txt = new window.Blob(['hello'], { type: 'text/plain' });
             await expect(window.WGCallAgent.sendPhoto(txt)).rejects.toThrow();
+            // The UI must tell the user why the file was rejected.
+            const last = events[events.length - 1];
+            expect(last.state).toBe('in_call');
+            expect(last.message).toBe('Image required');
         } finally {
             cleanup();
         }
@@ -321,6 +329,83 @@ describe('features/elevenlabs-call.js — sendPhoto', () => {
             const uploadingFalseAtEnd = after[after.length - 1];
             expect(uploadingTrue).toBeDefined();
             expect(uploadingFalseAtEnd.uploading).toBe(false);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('hang-up during in-flight upload does not clobber idle state back to in_call', async () => {
+        let resolveUpload;
+        const conv = makeFakeConversation({
+            uploadFile: vi.fn(() => new Promise((resolve) => { resolveUpload = resolve; })),
+        });
+        const { window, events, cleanup } = createConversationEnv({ conv });
+        try {
+            await startCall(window);
+            const blob = new window.Blob(['x'], { type: 'image/jpeg' });
+            const sendPromise = window.WGCallAgent.sendPhoto(blob);
+            // User hangs up while uploadFile is still pending.
+            await window.WGCallAgent.endCall();
+            expect(window.WGCallAgent.getState().state).toBe('idle');
+            // Upload now resolves — must not flip UI back to in_call.
+            resolveUpload({ fileId: 'late_file' });
+            await sendPromise;
+            const finalState = window.WGCallAgent.getState();
+            expect(finalState.state).toBe('idle');
+            // sendMultimodalMessage must NOT fire after hang-up.
+            expect(conv.sendMultimodalMessage).not.toHaveBeenCalled();
+            // Last broadcast must be the idle one — not 'in_call'.
+            const last = events[events.length - 1];
+            expect(last.state).toBe('idle');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('upload failure after hang-up leaves UI idle (no in_call clobber)', async () => {
+        let rejectUpload;
+        const conv = makeFakeConversation({
+            uploadFile: vi.fn(() => new Promise((_, reject) => { rejectUpload = reject; })),
+        });
+        const { window, events, cleanup } = createConversationEnv({ conv });
+        try {
+            await startCall(window);
+            const blob = new window.Blob(['x'], { type: 'image/jpeg' });
+            const sendPromise = window.WGCallAgent.sendPhoto(blob);
+            await window.WGCallAgent.endCall();
+            rejectUpload(new Error('network'));
+            await expect(sendPromise).rejects.toThrow();
+            expect(window.WGCallAgent.getState().state).toBe('idle');
+            const last = events[events.length - 1];
+            expect(last.state).toBe('idle');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('successful retry after a prior failure clears the failure status', async () => {
+        let firstAttempt = true;
+        const conv = makeFakeConversation({
+            uploadFile: vi.fn(async () => {
+                if (firstAttempt) {
+                    firstAttempt = false;
+                    throw new Error('network');
+                }
+                return { fileId: 'file_xyz' };
+            }),
+        });
+        const { window, events, cleanup } = createConversationEnv({ conv });
+        try {
+            await startCall(window);
+            const blob = new window.Blob(['x'], { type: 'image/jpeg' });
+            await expect(window.WGCallAgent.sendPhoto(blob)).rejects.toThrow();
+            // First attempt set 'Photo upload failed'.
+            await window.WGCallAgent.sendPhoto(blob);
+            // After a successful retry, the failure message must be cleared.
+            const last = events[events.length - 1];
+            expect(last.state).toBe('in_call');
+            expect(last.message).toBe('');
+            expect(last.uploading).toBe(false);
         } finally {
             cleanup();
         }

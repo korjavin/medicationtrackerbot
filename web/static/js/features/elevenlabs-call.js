@@ -67,8 +67,6 @@
     function applyState(card, state, message) {
         if (!card) return;
         card.dataset.state = state;
-        card.dataset.muted = activeMuted ? 'true' : 'false';
-        card.dataset.uploading = activeUploading ? 'true' : 'false';
         const btn = card.querySelector('.wg-call-card__btn');
         const status = card.querySelector('.wg-call-card__status');
         const muteBtn = card.querySelector('.wg-call-card__mute');
@@ -134,9 +132,14 @@
             if (typeof activeConversation.setMicMuted === 'function') {
                 activeConversation.setMicMuted(next);
             }
-        } catch (_) { /* mute is non-critical; swallow SDK errors */ }
-        activeMuted = next;
-        setState(activeState, activeMessage);
+            activeMuted = next;
+            setState(activeState, activeMessage);
+        } catch (_) {
+            // SDK failed — do NOT update activeMuted. Showing "muted" while
+            // the mic is still hot would mislead the user about whether the
+            // agent can hear them. Surface the failure instead.
+            setState(activeState, 'Mute failed');
+        }
     }
 
     function toggleMute() {
@@ -150,40 +153,49 @@
         if (activeState !== 'in_call') {
             throw new Error('Not in call');
         }
-        if (!file || typeof file !== 'object') {
-            throw new Error('Invalid file');
-        }
-        const isBlob = (typeof Blob !== 'undefined' && file instanceof Blob);
-        if (!isBlob) {
-            throw new Error('Invalid file');
-        }
-        const type = (file.type || '').toString();
-        if (!type.startsWith('image/')) {
+        const isBlob = (file && typeof file === 'object'
+            && typeof Blob !== 'undefined' && file instanceof Blob);
+        const type = isBlob ? (file.type || '').toString() : '';
+        if (!isBlob || !type.startsWith('image/')) {
+            // Surface a status so the user sees why nothing happened.
+            setState(activeState, 'Image required');
             throw new Error('File must be an image');
         }
+        // Capture the conversation reference so we can detect a hang-up
+        // during the await and avoid clobbering UI state back to in_call
+        // after the user has already ended the call.
+        const conv = activeConversation;
         activeUploading = true;
-        setState(activeState, activeMessage);
+        // Clear any prior failure message so a retry starts clean.
+        setState(activeState, '');
         try {
-            if (typeof activeConversation.uploadFile !== 'function') {
+            if (typeof conv.uploadFile !== 'function') {
                 throw new Error('SDK missing uploadFile');
             }
-            const result = await activeConversation.uploadFile(file);
+            const result = await conv.uploadFile(file);
+            if (conv !== activeConversation) {
+                // Call ended mid-upload — bail without touching UI state.
+                return;
+            }
             const fileId = result && (result.fileId || result.file_id);
             if (!fileId) {
                 throw new Error('Upload missing fileId');
             }
-            if (typeof activeConversation.sendMultimodalMessage !== 'function') {
+            if (typeof conv.sendMultimodalMessage !== 'function') {
                 throw new Error('SDK missing sendMultimodalMessage');
             }
-            activeConversation.sendMultimodalMessage({ fileId });
+            conv.sendMultimodalMessage({ fileId });
         } catch (err) {
-            activeUploading = false;
-            // Keep the call alive — only the upload failed.
-            setState('in_call', 'Photo upload failed');
+            if (conv === activeConversation && activeState === 'in_call') {
+                activeUploading = false;
+                setState('in_call', 'Photo upload failed');
+            }
             throw err;
         }
-        activeUploading = false;
-        setState(activeState, activeMessage);
+        if (conv === activeConversation && activeState === 'in_call') {
+            activeUploading = false;
+            setState(activeState, '');
+        }
     }
 
     async function endCall() {
@@ -240,8 +252,6 @@
         card.className = 'wg-card wg-call-card';
         card.dataset.section = 'call-agent';
         card.dataset.state = 'idle';
-        card.dataset.muted = 'false';
-        card.dataset.uploading = 'false';
 
         const head = document.createElement('div');
         head.className = 'wg-call-card__head';
