@@ -19,7 +19,7 @@ const AUTH_CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days in ms
 // alongside the auth cache on logout, so a prior user's preferences can't
 // leak into the next session on a shared browser. Keep this list in sync with
 // any new user-scoped localStorage writes elsewhere in the app.
-const USER_SCOPED_LOCAL_KEYS = ['medtracker_tab_order'];
+const USER_SCOPED_LOCAL_KEYS = ['medtracker_tab_order', 'mt-active-tab'];
 
 function saveAuthState(authMethod = 'cookie') {
     const authState = {
