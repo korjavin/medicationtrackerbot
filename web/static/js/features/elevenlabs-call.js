@@ -128,12 +128,21 @@
     function setMute(muted) {
         if (!activeConversation) return;
         const next = Boolean(muted);
+        if (typeof activeConversation.setMicMuted !== 'function') {
+            // Same privacy concern as the throw path below: never claim the
+            // mic is muted when we couldn't actually mute it.
+            setState(activeState, 'Mute unsupported');
+            return;
+        }
         try {
-            if (typeof activeConversation.setMicMuted === 'function') {
-                activeConversation.setMicMuted(next);
-            }
+            activeConversation.setMicMuted(next);
             activeMuted = next;
-            setState(activeState, activeMessage);
+            // Clear a stale failure message so a successful toggle doesn't
+            // re-broadcast "Mute failed" / "Mute unsupported".
+            const nextMessage = (activeMessage === 'Mute failed' || activeMessage === 'Mute unsupported')
+                ? ''
+                : activeMessage;
+            setState(activeState, nextMessage);
         } catch (_) {
             // SDK failed — do NOT update activeMuted. Showing "muted" while
             // the mic is still hot would mislead the user about whether the
@@ -166,8 +175,14 @@
         // after the user has already ended the call.
         const conv = activeConversation;
         activeUploading = true;
-        // Clear any prior failure message so a retry starts clean.
-        setState(activeState, '');
+        // Clear a prior photo-failure message so a retry starts clean, but
+        // preserve live mode-change messages like "Listening…" / "Agent
+        // speaking…" — wiping those would leave the call card looking dead
+        // for the duration of the upload.
+        const startMessage = (activeMessage === 'Photo upload failed' || activeMessage === 'Image required')
+            ? ''
+            : activeMessage;
+        setState(activeState, startMessage);
         try {
             if (typeof conv.uploadFile !== 'function') {
                 throw new Error('SDK missing uploadFile');
@@ -194,7 +209,10 @@
         }
         if (conv === activeConversation && activeState === 'in_call') {
             activeUploading = false;
-            setState(activeState, '');
+            // Re-broadcast whatever the controller currently shows (could be
+            // a mode-change status set during the upload). Don't clobber it
+            // with an empty string.
+            setState(activeState, activeMessage);
         }
     }
 
