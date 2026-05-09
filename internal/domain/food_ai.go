@@ -7,15 +7,18 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/ai"
 )
 
-// FoodAIService defines the interface for parsing natural language meal descriptions.
+// FoodAIService defines the interface for parsing meal descriptions, whether
+// from natural-language text or a food photograph.
 type FoodAIService interface {
 	ParseMealDescription(ctx context.Context, description string) ([]FoodLog, error)
+	ParseMealPhoto(ctx context.Context, imageBytes []byte, mimeType string) ([]FoodLog, error)
 }
 
 // AIClient is an interface describing the methods we need from the AI client,
 // making it easier to mock for tests.
 type AIClient interface {
 	ParseMealFromDescription(ctx context.Context, description string) (*ai.ParsedMeal, error)
+	ParseMealFromImage(ctx context.Context, imageBytes []byte, mimeType string) (*ai.ParsedMeal, error)
 }
 
 type foodAIService struct {
@@ -39,6 +42,23 @@ func (s *foodAIService) ParseMealDescription(ctx context.Context, description st
 		return nil, fmt.Errorf("failed to parse meal description: %w", err)
 	}
 
+	return convertParsedMeal(parsed)
+}
+
+func (s *foodAIService) ParseMealPhoto(ctx context.Context, imageBytes []byte, mimeType string) ([]FoodLog, error) {
+	if len(imageBytes) == 0 {
+		return nil, fmt.Errorf("image bytes are empty")
+	}
+
+	parsed, err := s.client.ParseMealFromImage(ctx, imageBytes, mimeType)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse meal photo: %w", err)
+	}
+
+	return convertParsedMeal(parsed)
+}
+
+func convertParsedMeal(parsed *ai.ParsedMeal) ([]FoodLog, error) {
 	if parsed == nil {
 		return nil, fmt.Errorf("received nil meal data from AI service")
 	}

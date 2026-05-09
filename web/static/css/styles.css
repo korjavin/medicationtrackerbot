@@ -8800,7 +8800,7 @@ textarea.wg-input {
    override AFTER the base rule fixes the wrap. */
 .wg-food-day-nav--with-action {
     grid-template-columns:
-        var(--wg-food-day-nav-icon-size) 1fr var(--wg-food-day-nav-icon-size) auto;
+        var(--wg-food-day-nav-icon-size) 1fr var(--wg-food-day-nav-icon-size) auto auto;
 }
 
 .wg-food-day-nav__icon-btn {
