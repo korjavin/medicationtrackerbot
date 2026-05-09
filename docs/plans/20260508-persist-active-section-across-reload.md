@@ -66,7 +66,7 @@ Files:
 Files:
 - Modify: `web/static/js/features/bootstrap.js`
 
-- [ ] Add a private helper near the top of the file (next to `filterNavItemsByFeatures`):
+- [x] Add a private helper near the top of the file (next to `filterNavItemsByFeatures`):
   ```js
   function readSavedActiveTab() {
       try {
@@ -81,10 +81,10 @@ Files:
       }
   }
   ```
-- [ ] In `mountCanonicalBottomNav` (`bootstrap.js:85-102`), replace `active: 'today'` with `active: readSavedActiveTab()`.
-- [ ] In the post-auth block (`bootstrap.js:172-174`), replace `switchTab('today')` with `switchTab(readSavedActiveTab())`. Keep the surrounding comment but reword it to: "Restore the last section the user was on (Today by default; deep links below override)".
-- [ ] Confirm `handleDeepLinks()` is still called after the initial restore (`bootstrap.js:182`) so deep links continue to win.
-- [ ] write tests: update `web/static/js/tests/bootstrap.today-default.test.js`:
+- [x] In `mountCanonicalBottomNav` (`bootstrap.js:85-102`), replace `active: 'today'` with `active: readSavedActiveTab()`.
+- [x] In the post-auth block (`bootstrap.js:172-174`), replace `switchTab('today')` with `switchTab(readSavedActiveTab())`. Keep the surrounding comment but reword it to: "Restore the last section the user was on (Today by default; deep links below override)".
+- [x] Confirm `handleDeepLinks()` is still called after the initial restore (`bootstrap.js:182`) so deep links continue to win.
+- [x] write tests: update `web/static/js/tests/bootstrap.today-default.test.js`:
   - Rename describe to "bootstrap.js initial-section restore".
   - Keep the "no saved key → today" case.
   - Replace the "saved tab_order is ignored" case with three new cases:
@@ -92,8 +92,8 @@ Files:
     - `localStorage['mt-active-tab'] = 'bp'` + `bp` feature disabled → `switchTab('today')` (and never `'bp'`).
     - `localStorage['mt-active-tab'] = 'unknown-id'` → `switchTab('today')`.
   - The existing helpers (`stubFetch`, `stubBootstrapGlobals`) can be reused; just set `window.localStorage` before `window.eval(bootstrapSource)`.
-- [ ] Verify `bootstrap.dynamic-tab.test.js` still passes (no source changes; the new client-side key is empty in a fresh JSDOM).
-- [ ] run project tests - must pass before next task (`cd web/static/js/tests && npx vitest run`).
+- [x] Verify `bootstrap.dynamic-tab.test.js` still passes (no source changes; the new client-side key is empty in a fresh JSDOM).
+- [x] run project tests - must pass before next task (`cd web/static/js/tests && npx vitest run`).
 
 ### Task 3: Add `mt-active-tab` to the user-scoped logout-clear allowlist
 

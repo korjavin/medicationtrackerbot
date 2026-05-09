@@ -24,8 +24,8 @@ function stubBootstrapGlobals(window, switchTabSpy) {
     window.handleDeepLinks = vi.fn();
 }
 
-describe('bootstrap.js Today is unconditionally the initial view', () => {
-    it('calls switchTab("today") for a fresh user (no saved tab_order)', async () => {
+describe('bootstrap.js initial-section restore', () => {
+    it('calls switchTab("today") for a fresh user (no saved active tab)', async () => {
         allowConsoleNoise();
         const { window, cleanup } = loadFrontendEnv();
         try {
@@ -47,14 +47,39 @@ describe('bootstrap.js Today is unconditionally the initial view', () => {
         }
     });
 
-    it('calls switchTab("today") even when a saved tab_order exists', async () => {
+    it('restores switchTab("bp") when mt-active-tab="bp" and bp feature is enabled', async () => {
         allowConsoleNoise();
         const { window, cleanup } = loadFrontendEnv();
         try {
             stubFetch(window, {
-                features: { bp: true, weight: true, medication: true },
-                settings: { tab_order: JSON.stringify(['bp', 'weight']) }
+                features: { bp: true, weight: true, medication: true }
             });
+            window.featureSettings = { bp: true, weight: true, medication: true };
+            window.localStorage.setItem('mt-active-tab', 'bp');
+
+            const switchTabSpy = vi.fn();
+            stubBootstrapGlobals(window, switchTabSpy);
+
+            const bootstrapSource = fs.readFileSync(BOOTSTRAP_JS, 'utf8');
+            window.eval(bootstrapSource);
+
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            expect(switchTabSpy).toHaveBeenCalledWith('bp');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('falls back to switchTab("today") when mt-active-tab points to a disabled feature', async () => {
+        allowConsoleNoise();
+        const { window, cleanup } = loadFrontendEnv();
+        try {
+            stubFetch(window, {
+                features: { bp: false, weight: true, medication: true }
+            });
+            window.featureSettings = { bp: false, weight: true, medication: true };
+            window.localStorage.setItem('mt-active-tab', 'bp');
 
             const switchTabSpy = vi.fn();
             stubBootstrapGlobals(window, switchTabSpy);
@@ -66,6 +91,31 @@ describe('bootstrap.js Today is unconditionally the initial view', () => {
 
             expect(switchTabSpy).toHaveBeenCalledWith('today');
             expect(switchTabSpy).not.toHaveBeenCalledWith('bp');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('falls back to switchTab("today") when mt-active-tab is an unknown id', async () => {
+        allowConsoleNoise();
+        const { window, cleanup } = loadFrontendEnv();
+        try {
+            stubFetch(window, {
+                features: { bp: true, weight: true, medication: true }
+            });
+            window.featureSettings = { bp: true, weight: true, medication: true };
+            window.localStorage.setItem('mt-active-tab', 'unknown-id');
+
+            const switchTabSpy = vi.fn();
+            stubBootstrapGlobals(window, switchTabSpy);
+
+            const bootstrapSource = fs.readFileSync(BOOTSTRAP_JS, 'utf8');
+            window.eval(bootstrapSource);
+
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            expect(switchTabSpy).toHaveBeenCalledWith('today');
+            expect(switchTabSpy).not.toHaveBeenCalledWith('unknown-id');
         } finally {
             cleanup();
         }
