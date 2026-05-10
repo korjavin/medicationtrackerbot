@@ -809,6 +809,13 @@ function triggerFoodPhotoPicker() {
     input.click();
 }
 
+// Exposed so other features (e.g. the Today shortcut tile) can open the
+// food-photo picker without first navigating to the Food section. The
+// picker's hidden <input> and its change handler are bound at app startup
+// via bindFoodControls(), so this works on a cold session too.
+window.FoodActions = window.FoodActions || {};
+window.FoodActions.triggerPhotoPicker = triggerFoodPhotoPicker;
+
 async function uploadFoodPhoto(input) {
     const file = input && input.files && input.files[0];
     if (!file) return;
