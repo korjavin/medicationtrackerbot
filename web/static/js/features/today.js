@@ -93,10 +93,72 @@
         };
     }
 
-    function nextMedCell(bootstrap, nowMs, enabled) {
+    // Find the earliest upcoming scheduled dose across the cached medications
+    // list. Groups meds whose next dose lands inside the same minute so the
+    // returned value mirrors the server's /api/medications/next-intake shape
+    // (multiple meds taken at one slot collapse into one card). Returns null
+    // when the helpers aren't available, the list is empty, or no med has a
+    // computable next dose. Used as the offline fallback when the cached
+    // next_intake response is missing or stale.
+    function computeFallbackFromMedications(meds, nowMs, parseSchedule, getNext) {
+        if (!Array.isArray(meds) || meds.length === 0) return null;
+        if (typeof parseSchedule !== 'function' || typeof getNext !== 'function') return null;
+        const nowDate = new Date(nowMs);
+        let bestMs = Infinity;
+        const candidates = [];
+        for (const med of meds) {
+            if (!med || med.archived) continue;
+            const schedule = parseSchedule(med.schedule);
+            if (!schedule) continue;
+            const type = schedule.type;
+            if (type !== 'daily' && type !== 'weekly') continue;
+            const next = getNext(schedule, nowDate);
+            if (!next) continue;
+            const t = next instanceof Date ? next.getTime() : Date.parse(next);
+            if (!Number.isFinite(t)) continue;
+            candidates.push({ med, t });
+            if (t < bestMs) bestMs = t;
+        }
+        if (!Number.isFinite(bestMs)) return null;
+        // 60s tolerance so meds saved with off-by-seconds schedules still group.
+        const TOL_MS = 60 * 1000;
+        const grouped = candidates
+            .filter((c) => c.t - bestMs <= TOL_MS)
+            .sort((a, b) => a.t - b.t);
+        const earliest = grouped[0];
+        return {
+            scheduledAt: new Date(earliest.t).toISOString(),
+            names: grouped.map((c) => c.med.name).filter((n) => typeof n === 'string'),
+            ids: grouped.map((c) => c.med.id).filter((id) => id != null)
+        };
+    }
+
+    function nextMedCell(bootstrap, nowMs, enabled, opts) {
         if (!enabled) return cell(null, 'meds', 'disabled');
         const meta = bootstrap && bootstrap.__next_intake_meta;
         const nx = bootstrap && bootstrap.next_intake;
+        // Fall back to computing the next dose from the cached medications list
+        // when the server-rendered next_intake is missing entirely, or its
+        // cached value is stale (e.g. relaunch-while-offline). A populated
+        // next_intake that's still fresh stays authoritative — only the server
+        // knows whether the upcoming dose has already been taken in another
+        // session.
+        const nextIntakeUsable = nx && nx.scheduled_at && (!meta || !meta.isStale);
+        if (!nextIntakeUsable) {
+            const helpers = opts || {};
+            const parseSchedule = helpers.parseMedicationSchedule
+                || (typeof window !== 'undefined' ? window.parseMedicationSchedule : null);
+            const getNext = helpers.getNextScheduledDate
+                || (typeof window !== 'undefined' ? window.getNextScheduledDate : null);
+            const meds = bootstrap && bootstrap.medications;
+            const fallback = computeFallbackFromMedications(meds, nowMs, parseSchedule, getNext);
+            if (fallback) {
+                const medsMeta = bootstrap && bootstrap.__medications_meta;
+                const at = Date.parse(fallback.scheduledAt);
+                const status = Number.isFinite(at) && at + OVERDUE_GRACE_MS < nowMs ? 'overdue' : 'ok';
+                return cell(fallback, 'meds', status, medsMeta || meta);
+            }
+        }
         if (!nx || !nx.scheduled_at) return cell(null, 'meds', 'missing', meta);
         const at = Date.parse(nx.scheduled_at);
         if (!Number.isFinite(at)) return cell(null, 'meds', 'missing', meta);
@@ -265,7 +327,7 @@
         return cell(value, 'health', status);
     }
 
-    function aggregateToday(bootstrap, swrCaches, now) {
+    function aggregateToday(bootstrap, swrCaches, now, opts) {
         const caches = swrCaches || {};
         const nowDate = now instanceof Date ? now : new Date(now || Date.now());
         const nowMs = nowDate.getTime();
@@ -280,7 +342,7 @@
 
         const result = {
             greeting: cell(greetingFor(nowDate), null, 'ok'),
-            nextMed: nextMedCell(bootstrap, nowMs, medEnabled),
+            nextMed: nextMedCell(bootstrap, nowMs, medEnabled, opts),
             bpLatest: bpLatestCell(bootstrap, nowMs, bpEnabled),
             bpTrend7d: bpTrendCell(bootstrap, nowMs, bpEnabled),
             weightLatest: weightLatestCell(bootstrap, nowMs, weightEnabled),
