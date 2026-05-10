@@ -158,6 +158,43 @@
         setMute(!activeMuted);
     }
 
+    // Proxy the file through our backend so the server's xi-api-key can sign
+    // the upload. The SDK's conv.uploadFile() posts directly to ElevenLabs
+    // from the browser and 401s with `sign_in_required` because we never
+    // expose the API key to the client.
+    async function uploadFileViaProxy(conv, file) {
+        const conversationId = (typeof conv.getId === 'function')
+            ? conv.getId()
+            : (conv.conversationId || conv.id || null);
+        if (!conversationId) {
+            throw new Error('Conversation id unavailable');
+        }
+        const form = new FormData();
+        form.append('file', file, (file && file.name) || 'photo.jpg');
+        const url = `/api/elevenlabs/upload-file?conversation_id=${encodeURIComponent(conversationId)}`;
+        const headers = {};
+        // Mirror the auth pattern used by /api/food/log/from-photo: pass the
+        // Telegram init data so the apiMux AuthMiddleware accepts the call.
+        // FormData bodies set their own Content-Type with boundary, so we
+        // don't add Content-Type here.
+        if (typeof window !== 'undefined' && window.userInitData) {
+            headers['X-Telegram-Init-Data'] = window.userInitData;
+        }
+        const resp = await fetch(url, { method: 'POST', headers, body: form });
+        if (!resp.ok) {
+            const text = await resp.text().catch(() => '');
+            const err = new Error(`Upload failed (${resp.status})${text ? `: ${text}` : ''}`);
+            err.status = resp.status;
+            throw err;
+        }
+        const data = await resp.json().catch(() => null);
+        const fileId = data && (data.file_id || data.fileId);
+        if (!fileId) {
+            throw new Error('Upload missing file_id');
+        }
+        return fileId;
+    }
+
     async function sendPhoto(file) {
         if (!activeConversation) {
             throw new Error('No active call');
@@ -187,17 +224,10 @@
             : activeMessage;
         setState(activeState, startMessage);
         try {
-            if (typeof conv.uploadFile !== 'function') {
-                throw new Error('SDK missing uploadFile');
-            }
-            const result = await conv.uploadFile(file);
+            const fileId = await uploadFileViaProxy(conv, file);
             if (conv !== activeConversation) {
                 // Call ended mid-upload — bail without touching UI state.
                 return;
-            }
-            const fileId = result && (result.fileId || result.file_id);
-            if (!fileId) {
-                throw new Error('Upload missing fileId');
             }
             if (typeof conv.sendMultimodalMessage !== 'function') {
                 throw new Error('SDK missing sendMultimodalMessage');
