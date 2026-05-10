@@ -211,10 +211,13 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	// showArchived=true matches /api/medications?archived=true so the bootstrap
 	// payload is identical to the lazy fetch — clients seeding Dexie from
 	// bootstrap stay in sync with subsequent /api/medications requests.
+	// Degrade gracefully (mirror bp/weight/etc. below) so a transient medications
+	// query failure doesn't 500 the entire bootstrap — Today, BP, and Weight
+	// would otherwise all blank instead of just the meds tile.
 	medications, err := s.meds.ListMedications(true)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		slog.Error("bootstrap medications query failed", "error", err)
+		medications = []store.Medication{}
 	}
 
 	historyDefault, err := s.meds.GetIntakeHistory(0, 3)

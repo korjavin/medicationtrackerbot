@@ -854,15 +854,17 @@ function renderMedsEmptyState() {
 async function loadMeds() {
     if (initialAuthLoad) {
         initialAuthLoad = false;
-        // medications already set from auth; cache and render immediately
-        await window.DataStore.setCached('medications', medications);
-        if (window.MedTrackerDB?.MedicationStore) {
-            await window.MedTrackerDB.MedicationStore.saveCache(medications);
-        }
+        // `medications` already set by applyBootstrapPayload, hydrateMedicationsFromDexie,
+        // or the cached-auth path; the corresponding cache write already ran with the
+        // authoritative timestamp (Date.now() for bootstrap, preserved Dexie age for
+        // hydration). Skip a redundant setCached/saveCache here — restamping would
+        // overwrite the hydration-preserved timestamp the stale badge reads.
         renderMeds();
         populateMedFilter();
         await renderMedsScheduleStaleBadge();
-        // Refresh in background to ensure up-to-date data
+        // Refresh in background to ensure up-to-date data. fetchFresh writes to
+        // api_cache (with Date.now()) internally; we only need to mirror the
+        // result into MedicationStore so subsequent cold-start hydration sees it.
         const res = await window.DataStore.fetchFresh(
             'medications',
             async () => await apiCall('/api/medications?archived=true'),
@@ -870,7 +872,6 @@ async function loadMeds() {
         );
         if (res) {
             medications = res;
-            await window.DataStore.setCached('medications', medications);
             if (window.MedTrackerDB?.MedicationStore) {
                 await window.MedTrackerDB.MedicationStore.saveCache(medications);
             }
