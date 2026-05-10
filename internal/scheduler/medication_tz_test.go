@@ -336,6 +336,13 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		// Normal schedule at 09:00 UTC fires at 09:05 UTC.
 		db := mustNewDB(t)
 		db.SetMedicationEnabled(context.Background(), true) //nolint:errcheck
+		// Pin the user TZ to UTC so the scheduler's no-plan branch — which
+		// otherwise falls through to time.Local — interprets "09:00" as 09:00
+		// UTC regardless of the test runner's local timezone. Other subtests
+		// in this file do the same via RecordTimezone.
+		if err := db.RecordTimezone("UTC"); err != nil {
+			t.Fatalf("RecordTimezone: %v", err)
+		}
 
 		medID, err := db.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 		if err != nil {
