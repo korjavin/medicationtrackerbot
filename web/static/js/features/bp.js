@@ -164,17 +164,36 @@ async function loadBPReadings() {
         },
         onCached: async (cached) => {
             await _renderBPData(cached.readingsRes, cached.goalRes, cached.statsRes);
+            await renderBPStaleBadge();
         },
         onFresh: async (fresh) => {
             await _renderBPData(fresh.readingsRes, fresh.goalRes, fresh.statsRes);
+            await renderBPStaleBadge();
         },
         onError: async (e, cached) => {
             console.error('Failed to load BP data:', e);
             if (!cached && list) {
                 list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
             }
+            await renderBPStaleBadge();
         }
     });
+}
+
+// Mounts the wg-stale-badge into the BP section header from the api_cache
+// 'bp' timestamp (warmed by /api/bootstrap and refreshed by loadBPReadings).
+// Mirrors the Food / Today wiring from Task 5; tone is offline whenever
+// navigator.onLine is false so users can tell stale-cache from fresh data.
+async function renderBPStaleBadge() {
+    const slot = document.getElementById('bp-stale-badge');
+    if (!slot) return;
+    const api = (typeof window !== 'undefined') ? window.WGStaleBadge : null;
+    if (!api || typeof api.mountFromKey !== 'function') {
+        slot.replaceChildren();
+        slot.classList.add('hidden');
+        return;
+    }
+    await api.mountFromKey({ slot, key: 'bp' });
 }
 
 async function _renderBPData(readingsRes, goalRes, statsRes) {

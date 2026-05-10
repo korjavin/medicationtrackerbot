@@ -872,3 +872,4 @@ function isServerError(err) {
 // Export for global access
 window.SyncManager = SyncManager;
 window.offlineAwareApiCall = offlineAwareApiCall;
+window.isServerError = isServerError;

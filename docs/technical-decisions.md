@@ -12,6 +12,8 @@ Adding offline write support requires: IndexedDB schema, optimistic UI rendering
 
 When the app runs behind Traefik (or any reverse proxy), `navigator.onLine` stays `true` even when the backend Go process is down — the browser has a TCP connection to Traefik, just not to the app. HTTP 502/503/504 from the proxy are functionally identical to being offline, so the SW and sync layer treat them the same way: serve cached responses for reads, queue writes locally.
 
+The frontend read-resilience helper `cachedFetch` (`web/static/js/cached-fetch.js`) inherits this policy via `isServerError` from `sync.js`: a 5xx falls through to the same cached-with-`isStale`-flag branch as a true offline read, and a missing cache raises `OfflineNoCacheError` for the consumer to render an explicit empty state. See [frontend.md → Local-First Read Resilience](frontend.md#local-first-read-resilience) for the full behaviour matrix and per-section freshness windows.
+
 ## Why IndexedDB is a write-ahead queue, not a full replica
 
 After successful sync, records are deleted from IndexedDB rather than kept as "synced" copies. This keeps the local store small and avoids the complexity of bidirectional sync and conflict resolution. The SW cache and `api_cache` in IndexedDB already provide read-only offline access to previously fetched data.

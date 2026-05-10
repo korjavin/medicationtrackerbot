@@ -7,6 +7,16 @@ let foodControlsBound = false;
 const FOOD_MACROS_RANGES = ['day', 'week'];
 let foodMacrosRange = 'day';
 
+// Freshness metadata captured from the most recent cachedFetch call for the
+// daily food log. Task 5 mounts the badge component on the Food section header
+// from this timestamp.
+let lastFoodLogsMeta = null;
+
+// Threshold past which the food daily-log cache is considered stale. Shared
+// by the cachedFetch call (so the helper's isStale flag aligns) and the badge
+// renderer (so the warning tone fires at the same age).
+const FOOD_LOGS_STALE_AFTER_MS = 24 * 60 * 60 * 1000;
+
 function renderFoodDayNavIcons() {
     const prev = document.getElementById('food-date-prev-btn');
     const next = document.getElementById('food-date-next-btn');
@@ -247,8 +257,30 @@ async function initFoodProductsCache() {
     }
     if (!foodProductsCache) {
         try {
-            const resp = await apiCall('/api/food/products', 'GET');
-            foodProductsCache = resp ? (resp.products || []) : [];
+            let products = [];
+            if (typeof window.cachedFetch === 'function') {
+                try {
+                    const result = await window.cachedFetch(
+                        'food_products_cache',
+                        '/api/food/products',
+                        {
+                            tags: ['food'],
+                            freshAfterMs: 60 * 60 * 1000,
+                            staleAfterMs: 7 * 24 * 60 * 60 * 1000,
+                            transform: (raw) => (raw && Array.isArray(raw.products)) ? raw.products : []
+                        }
+                    );
+                    products = Array.isArray(result?.data) ? result.data : [];
+                } catch (cfErr) {
+                    if (!(window.OfflineNoCacheError && cfErr instanceof window.OfflineNoCacheError)) {
+                        throw cfErr;
+                    }
+                }
+            } else {
+                const resp = await apiCall('/api/food/products', 'GET');
+                products = resp ? (resp.products || []) : [];
+            }
+            foodProductsCache = products;
             if (window.MedTrackerDB && foodProductsCache.length > 0) {
                 await window.MedTrackerDB.FoodProductsStore.saveCache(foodProductsCache);
             }
@@ -1746,8 +1778,10 @@ async function loadFoodLogs() {
     });
 
     // Show cached data immediately (stale-while-revalidate). Cache key
-    // mirrors the new always-fetch-both shape; the macros toggle reads
-    // from the same cache without invalidating it.
+    // mirrors the always-fetch-both shape; the macros toggle reads from
+    // the same cache without invalidating it. The newer cachedFetch path
+    // populates `food_<date>_day` (matching the bootstrap apply path) so
+    // offline reloads survive even when this v2 cache is empty.
     const cacheKey = `food_${dateStr}_v2`;
     const cached = await window.DataStore.getCached(cacheKey);
     if (cached) {
@@ -1759,25 +1793,87 @@ async function loadFoodLogs() {
 
     updateFoodDateNav();
 
-    // Always fetch fresh data for both the daily groups and the weekly
-    // stats totals; toggling Daily/Weekly in the macros card re-renders
-    // from the same payload without a second round-trip.
+    const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const tzOffset = new Date(`${dateStr}T00:00:00`).getTimezoneOffset();
+    const tzParams = tzName
+        ? `&tz=${encodeURIComponent(tzName)}`
+        : `&tz_offset=${tzOffset}`;
+
     try {
-        const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        const tzOffset = new Date(`${dateStr}T00:00:00`).getTimezoneOffset();
-        const tzParams = tzName
-            ? `&tz=${encodeURIComponent(tzName)}`
-            : `&tz_offset=${tzOffset}`;
+        let groups = [];
+        let groupsMeta = null;
+        if (typeof window.cachedFetch === 'function') {
+            // Local-first read: route /api/food/log through cachedFetch so the
+            // bootstrap-warmed `food_<date>_day` cache is reused offline. The
+            // helper also propagates `fetchedAt` + `isStale` to power the
+            // section freshness badge (Task 4 / Task 5).
+            const groupsResult = await window.cachedFetch(
+                `food_${dateStr}_day`,
+                `/api/food/log?date=${dateStr}${tzParams}`,
+                {
+                    tags: ['food'],
+                    freshAfterMs: 60_000,
+                    staleAfterMs: FOOD_LOGS_STALE_AFTER_MS,
+                    transform: (raw) => ({ groups: Array.isArray(raw) ? raw : [] })
+                }
+            );
+            groups = (groupsResult?.data && Array.isArray(groupsResult.data.groups))
+                ? groupsResult.data.groups
+                : [];
+            groupsMeta = groupsResult ? {
+                fetchedAt: groupsResult.fetchedAt,
+                isStale: !!groupsResult.isStale,
+                isFromCache: !!groupsResult.isFromCache
+            } : null;
+        } else {
+            const raw = await apiCall(`/api/food/log?date=${dateStr}${tzParams}`, 'GET');
+            groups = Array.isArray(raw) ? raw : [];
+            groupsMeta = { fetchedAt: Date.now(), isStale: false, isFromCache: false };
+        }
 
-        const [groups, weekStats] = await Promise.all([
-            apiCall(`/api/food/log?date=${dateStr}${tzParams}`, 'GET'),
-            apiCall(`/api/food/stats?date=${dateStr}&days=7${tzParams}`, 'GET'),
-        ]);
+        const weekStats = await apiCall(`/api/food/stats?date=${dateStr}&days=7${tzParams}`, 'GET');
 
-        await window.DataStore.setCached(cacheKey, { groups: groups || [], weekStats: weekStats || null });
+        // weekStats can be null when /api/food/stats fails (offline / 5xx). Fall
+        // back to whatever was previously cached so a successful daily-log read
+        // doesn't blank out the macros card on every offline reload.
+        const persistedWeekStats = weekStats != null
+            ? weekStats
+            : (cached && cached.weekStats != null ? cached.weekStats : null);
+        await window.DataStore.setCached(cacheKey, { groups: groups || [], weekStats: persistedWeekStats });
 
-        _renderFoodData(groups || [], weekStats || null, foodMacrosRange, dateStr);
+        lastFoodLogsMeta = groupsMeta;
+        _renderFoodData(groups || [], persistedWeekStats, foodMacrosRange, dateStr);
     } catch (e) {
+        if (window.OfflineNoCacheError && e instanceof window.OfflineNoCacheError) {
+            // No `food_<date>_day` cache and the network is unreachable.
+            // If the legacy v2 cache already rendered groups for this date,
+            // keep that render — wiping it for an "offline · no cache" message
+            // would be a regression for users upgrading from a session that
+            // pre-dates the cachedFetch wiring.
+            if (!cached) {
+                const errP = document.createElement('p');
+                errP.className = 'error';
+                errP.textContent = 'No cached food data — connect to load.';
+                list.replaceChildren(errP);
+                lastFoodLogsMeta = null;
+            } else {
+                // v2 cache rendered above — surface its timestamp so the badge
+                // shows "Offline · Xh old" instead of falsely claiming "no cache"
+                // while real data is on screen.
+                let v2Ts = null;
+                try {
+                    if (window.MedTrackerDB?.ApiCache?.getWithMeta) {
+                        const v2Entry = await window.MedTrackerDB.ApiCache.getWithMeta(`food_${dateStr}_v2`);
+                        if (v2Entry && Number.isFinite(v2Entry.timestamp)) v2Ts = v2Entry.timestamp;
+                    }
+                } catch (_) { /* best-effort cache read */ }
+                lastFoodLogsMeta = v2Ts !== null
+                    ? { fetchedAt: v2Ts, isStale: true, isFromCache: true }
+                    : null;
+            }
+            renderFoodStaleBadge();
+            return;
+        }
         console.error(e);
         if (!cached) {
             const errP = document.createElement('p');
@@ -2010,6 +2106,50 @@ function _renderFoodData(groups, weekStats, range, dateStr) {
     syncFoodMacrosToggleActiveClass();
 
     updateFoodSelectUI();
+
+    renderFoodStaleBadge();
+}
+
+// Task 5 of local-first read resilience — paints the wg-stale-badge chip into
+// the #food-stale-badge slot using the freshness metadata captured by the
+// most recent cachedFetch call (lastFoodLogsMeta). The slot is hidden when
+// no metadata exists yet OR when the data was just fetched online (avoids
+// flashing a "Updated just now" chip on every keystroke-driven re-render).
+function renderFoodStaleBadge() {
+    const slot = document.getElementById('food-stale-badge');
+    if (!slot) return;
+    const api = (typeof window !== 'undefined') ? window.WGStaleBadge : null;
+    if (!api || typeof api.render !== 'function') {
+        slot.replaceChildren();
+        slot.classList.add('hidden');
+        return;
+    }
+    const meta = lastFoodLogsMeta;
+    const isOnline = typeof navigator !== 'undefined' ? navigator.onLine !== false : true;
+    if (!meta || !Number.isFinite(meta.fetchedAt)) {
+        // Cold-start offline: no cache hit AND no fresh fetch — surface the
+        // explicit "Offline · no cache" tone so the user knows we have nothing.
+        if (!isOnline) {
+            const badge = api.render({ fetchedAt: null, isOffline: true });
+            slot.replaceChildren(badge);
+            slot.classList.remove('hidden');
+            return;
+        }
+        slot.replaceChildren();
+        slot.classList.add('hidden');
+        return;
+    }
+    // Tone uses raw navigator-offline only — passing the same staleAfterMs the
+    // helper used keeps the warning class aligned with cachedFetch's isStale
+    // signal so an online + 5xx fallback to >24h cache still flips warning
+    // (without mislabeling it as "Offline · 25h old").
+    const badge = api.render({
+        fetchedAt: meta.fetchedAt,
+        isOffline: !isOnline,
+        staleAfterMs: FOOD_LOGS_STALE_AFTER_MS,
+    });
+    slot.replaceChildren(badge);
+    slot.classList.remove('hidden');
 }
 
 // Phase 4, Task 4 — populate the Wandergeek daily macros card. Renders the

@@ -23,6 +23,7 @@ const WG_SLEEP_CHART_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-slee
 const WG_STEPS_CHART_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-steps-chart.js');
 const WG_VITALS_CHART_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-vitals-chart.js');
 const WG_MACRO_BAR_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-macro-bar.js');
+const WG_STALE_BADGE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-stale-badge.js');
 const WG_TOGGLE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-toggle.js');
 const WG_SETTINGS_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-settings.js');
 const MODAL_MANAGER_JS = path.join(REPO_ROOT, 'web/static/js/core/modal-manager.js');
@@ -173,6 +174,7 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   evalFileCached(window, WG_STEPS_CHART_JS);
   evalFileCached(window, WG_VITALS_CHART_JS);
   evalFileCached(window, WG_MACRO_BAR_JS);
+  evalFileCached(window, WG_STALE_BADGE_JS);
   evalFileCached(window, WG_SETTINGS_JS);
   evalFileCached(window, MODAL_MANAGER_JS);
   evalFileCached(window, CORE_API_JS);

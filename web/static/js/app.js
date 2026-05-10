@@ -1085,6 +1085,42 @@ async function fetchNextIntakePayload() {
     return res && typeof res === 'object' ? res : null;
 }
 
+// next_intake freshness windows: revalidate after 5 min so the card cannot lag
+// the schedule by more than a few minutes online; treat anything beyond 12 h
+// as "stale" for the offline badge tone (longer than that and the schedule
+// itself may no longer match reality after a TZ change or course edit).
+const NEXT_INTAKE_FRESH_AFTER_MS = 5 * 60 * 1000;
+const NEXT_INTAKE_STALE_AFTER_MS = 12 * 60 * 60 * 1000;
+
+// Read-through wrapper for the Next Medication tile. Returns the same payload
+// shape as fetchNextIntakePayload plus { fetchedAt, isFromCache, isStale } so
+// Today can attach freshness metadata to the rendered cell. When cachedFetch
+// is unavailable (e.g. tests that didn't load it) or throws OfflineNoCacheError,
+// resolves to null so callers can fall back to the existing render path.
+async function loadNextIntakeCached() {
+    if (typeof window.cachedFetch !== 'function') {
+        const data = await fetchNextIntakePayload();
+        return data == null ? null : { data, fetchedAt: Date.now(), isFromCache: false, isStale: false };
+    }
+    try {
+        const result = await window.cachedFetch('next_intake', '/api/medications/next-intake', {
+            tags: ['history', 'medications'],
+            freshAfterMs: NEXT_INTAKE_FRESH_AFTER_MS,
+            staleAfterMs: NEXT_INTAKE_STALE_AFTER_MS,
+            transform: (raw) => {
+                if (raw === true) return { scheduled_at: null, medication_names: [] };
+                return raw && typeof raw === 'object' ? raw : null;
+            }
+        });
+        return result;
+    } catch (err) {
+        if (window.OfflineNoCacheError && err instanceof window.OfflineNoCacheError) {
+            return null;
+        }
+        throw err;
+    }
+}
+
 // Returns a timezone-qualified DataStore key for health overview so that a
 // cached response from a prior timezone is never served as though it were
 // current. The in-memory swrCaches object always uses the fixed property name
@@ -1245,9 +1281,23 @@ async function _todayReadCaches(foodKey) {
     // cache (e.g. health_overview) pin the window even after bootstrap just
     // refreshed.
     let latestCacheTimestamp = null;
-    const trackTs = (ts) => {
-        if (Number.isFinite(ts) && (latestCacheTimestamp === null || ts > latestCacheTimestamp)) {
+    // Worst-case freshness for the section-header badge (Task 5): the oldest
+    // timestamp across the caches feeding Today. The user reads it as
+    // "everything you see is at least this old", which lines up with how the
+    // chip is positioned at the top of the screen.
+    let oldestCacheTimestamp = null;
+    // latest tracks every cache we read (used for firstRun + offline-stale gates).
+    // oldest skips disabled-feature caches so the badge reflects only data the
+    // user can actually see; otherwise a stale cache for a disabled feature
+    // (e.g. health_overview the user turned off weeks ago) would pin the chip
+    // to "Updated 7d ago" even when everything visible is fresh.
+    const trackTs = (ts, { includeInOldest } = { includeInOldest: true }) => {
+        if (!Number.isFinite(ts)) return;
+        if (latestCacheTimestamp === null || ts > latestCacheTimestamp) {
             latestCacheTimestamp = ts;
+        }
+        if (includeInOldest && (oldestCacheTimestamp === null || ts < oldestCacheTimestamp)) {
+            oldestCacheTimestamp = ts;
         }
     };
     try {
@@ -1276,7 +1326,15 @@ async function _todayReadCaches(foodKey) {
                     }
                 }
             }
-            if (nextIntakeM?.data) bootstrap.next_intake = nextIntakeM.data;
+            if (nextIntakeM?.data) {
+                bootstrap.next_intake = nextIntakeM.data;
+                if (Number.isFinite(nextIntakeM.timestamp)) {
+                    bootstrap.__next_intake_meta = {
+                        fetchedAt: nextIntakeM.timestamp,
+                        isStale: (Date.now() - nextIntakeM.timestamp) > NEXT_INTAKE_STALE_AFTER_MS
+                    };
+                }
+            }
             if (bpM?.data) {
                 bootstrap.bp = {
                     readings: bpM.data.readingsRes || [],
@@ -1296,8 +1354,27 @@ async function _todayReadCaches(foodKey) {
                 const groups = Array.isArray(foodM.data.groups) ? foodM.data.groups : [];
                 swrCaches.food_today = { groups };
             }
-            for (const m of metas) {
-                if (m) trackTs(m.timestamp);
+            const featuresMap = bootstrap.features || {};
+            const isFeatureOn = (feature) => {
+                if (!feature) return true;
+                if (Object.prototype.hasOwnProperty.call(featuresMap, feature)) {
+                    return !!featuresMap[feature];
+                }
+                return true;
+            };
+            const keyFeatures = {
+                settings_bundle: null,
+                next_intake: 'medication',
+                bp: 'bp',
+                weight: 'weight',
+                workout_next: 'workout',
+                [hoKey]: 'health',
+                [foodKey]: 'food'
+            };
+            for (let i = 0; i < keys.length; i++) {
+                const m = metas[i];
+                if (!m) continue;
+                trackTs(m.timestamp, { includeInOldest: isFeatureOn(keyFeatures[keys[i]]) });
             }
         } else if (window.DataStore && typeof window.DataStore.getCached === 'function') {
             const keys = ['settings_bundle', 'next_intake', 'bp', 'weight', 'workout_next', hoKey, foodKey];
@@ -1359,13 +1436,13 @@ async function _todayReadCaches(foodKey) {
         const persisted = readPersistedTabOrder();
         if (persisted) cardOrder = persisted;
     }
-    return { bootstrap, swrCaches, latestCacheTimestamp, cardOrder };
+    return { bootstrap, swrCaches, latestCacheTimestamp, oldestCacheTimestamp, cardOrder };
 }
 
 async function _todayRender(foodKey) {
     const root = document.getElementById('today-content');
     if (!root || !window.TodayDashboard) return { rendered: false };
-    const { bootstrap, swrCaches, latestCacheTimestamp, cardOrder } = await _todayReadCaches(foodKey);
+    const { bootstrap, swrCaches, latestCacheTimestamp, oldestCacheTimestamp, cardOrder } = await _todayReadCaches(foodKey);
     const online = typeof navigator !== 'undefined' ? navigator.onLine !== false : true;
     const nowMs = Date.now();
     const state = window.TodayDashboard.aggregateToday(bootstrap, swrCaches, nowMs);
@@ -1378,6 +1455,18 @@ async function _todayRender(foodKey) {
     }
     if (window.TodayDashboard.isOfflineStale({ online, cacheTimestamp: latestCacheTimestamp, now: nowMs })) {
         state.__offline = true;
+    }
+    // The badge tone needs the raw "navigator is offline" signal so an
+    // offline session with a recent cache still renders "Offline · 5m old"
+    // (warning tone) instead of a neutral "Updated 5m ago" — state.__offline
+    // is gated on offline+stale and is the wrong signal for that.
+    if (!online) {
+        state.__navigatorOffline = true;
+    }
+    if (oldestCacheTimestamp !== null) {
+        // Worst-case freshness — read by renderToday to mount the wg-stale-badge
+        // chip so the user can see how old the displayed data really is.
+        state.__fetchedAt = oldestCacheTimestamp;
     }
     window.TodayDashboard.renderToday(state, root, { now: nowMs, cardOrder });
     return { rendered: true, bootstrap, swrCaches, online };
@@ -1456,7 +1545,6 @@ async function loadToday() {
         // the card hidden indefinitely until some unrelated invalidation ran.
         const hoKey = healthOverviewCacheKey();
         const presence = {
-            next_intake: !!(bootstrap.next_intake && bootstrap.next_intake.scheduled_at),
             bp: !!bootstrap.bp,
             weight: !!bootstrap.weight,
             workout_next: !!swrCaches.workout_next,
@@ -1481,10 +1569,17 @@ async function loadToday() {
         if (!missing.includes(foodKey) && specs[foodKey] && !isFeatureDisabled(specs[foodKey].feature)) {
             missing.push(foodKey);
         }
-        if (missing.length === 0) return;
-        await Promise.allSettled(
-            missing.map((k) => window.DataStore.fetchFresh(k, specs[k].fetch, specs[k].tags))
-        );
+        // next_intake goes through cachedFetch so the helper's SWR window
+        // (5 min) handles wall-clock drift without forcing a network call on
+        // every render. cachedFetch returns cached instantly when fresh and
+        // background-revalidates; on offline / 5xx it keeps cached.
+        const nextIntakePromise = isFeatureDisabled('medication')
+            ? Promise.resolve(null)
+            : loadNextIntakeCached().catch(() => null);
+        const otherFetches = missing.length > 0
+            ? Promise.allSettled(missing.map((k) => window.DataStore.fetchFresh(k, specs[k].fetch, specs[k].tags)))
+            : Promise.resolve([]);
+        await Promise.all([nextIntakePromise, otherFetches]);
     } finally {
         todayRefreshInFlight = false;
     }
@@ -2472,19 +2567,38 @@ async function loadHistory() {
         allowNullFresh: true,
         onCached: async (cached) => {
             renderHistory(cached);
+            await renderMedsHistoryStaleBadge(cacheKey);
         },
         onFresh: async (fresh) => {
             if (fresh && window.MedTrackerDB?.IntakeHistoryStore) {
                 await window.MedTrackerDB.IntakeHistoryStore.saveCache(cacheKey, fresh);
             }
             renderHistory(fresh || []);
+            await renderMedsHistoryStaleBadge(cacheKey);
         },
         onError: async (_err, cached) => {
             if (!cached) renderHistory([]);
+            await renderMedsHistoryStaleBadge(cacheKey);
         }
     });
     renderNextIntakeTrigger();
     return result;
+}
+
+// Mounts the wg-stale-badge into the Meds History subtab from the active
+// `history_<days>_<medId>` api_cache key. Re-runs whenever the user flips the
+// filters because the cache key shifts with them. Mirrors the BP/Weight Task 6
+// pattern.
+async function renderMedsHistoryStaleBadge(cacheKey) {
+    const slot = document.getElementById('meds-history-stale-badge');
+    if (!slot) return;
+    const api = (typeof window !== 'undefined') ? window.WGStaleBadge : null;
+    if (!api || typeof api.mountFromKey !== 'function') {
+        slot.replaceChildren();
+        slot.classList.add('hidden');
+        return;
+    }
+    await api.mountFromKey({ slot, key: cacheKey });
 }
 
 let _nextIntakeTimerInterval = null;
@@ -2845,7 +2959,14 @@ async function snoozeWorkout(minutes) {
     const btn = document.getElementById(`workout-start-snooze-${minutes}-btn`);
     await withSubmit(btn, async () => {
         const res = await apiCall(`/api/workout/sessions/${pendingWorkoutSessionId}/snooze`, 'POST', { minutes: minutes });
-        if (res) safeAlert(`Snoozed for ${minutes} minutes`);
+        if (res) {
+            if (typeof invalidateWorkoutCache === 'function') {
+                await invalidateWorkoutCache();
+            } else if (window.DataStore?.invalidateTags) {
+                await window.DataStore.invalidateTags(['workout']);
+            }
+            safeAlert(`Snoozed for ${minutes} minutes`);
+        }
         closeWorkoutStartModal();
     });
 }
@@ -2857,6 +2978,11 @@ async function skipWorkout() {
 
         const res = await apiCall(`/api/workout/sessions/${pendingWorkoutSessionId}/skip`, 'POST');
         if (res) {
+            if (typeof invalidateWorkoutCache === 'function') {
+                await invalidateWorkoutCache();
+            } else if (window.DataStore?.invalidateTags) {
+                await window.DataStore.invalidateTags(['workout']);
+            }
             safeAlert("Workout skipped");
             loadWorkouts();
         }

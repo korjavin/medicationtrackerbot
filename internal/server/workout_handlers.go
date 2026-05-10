@@ -496,7 +496,7 @@ func (s *Server) handleListWorkoutSessions(w http.ResponseWriter, r *http.Reques
 		TotalVolume float64     `json:"total_volume"` // Total weight lifted (sets * reps * weight)
 	}
 
-	var enriched []EnrichedSession
+	enriched := make([]EnrichedSession, 0, len(sessions))
 	for _, session := range sessions {
 		group, _ := s.workouts.GetWorkoutGroup(session.GroupID)
 		variant, _ := s.workouts.GetWorkoutVariant(session.VariantID)

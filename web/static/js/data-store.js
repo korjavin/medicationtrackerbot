@@ -99,6 +99,15 @@
             await window.MedTrackerDB.ApiCache.clear(key);
         },
 
+        // Read-only peek at the current generation counter for a key. Used by
+        // cachedFetch to detect mid-flight invalidations: if the generation
+        // changed between the start of a fetch and its resolution, the
+        // resolved payload is older than the authoritative state DataStore now
+        // holds and must not be written back to the cache.
+        peekGeneration(key) {
+            return fetchGeneration.get(key) || 0;
+        },
+
         async fetchFresh(key, fetcher, tags = []) {
             registerKeyTags(key, tags);
             if (inFlight.has(key)) return await inFlight.get(key);
