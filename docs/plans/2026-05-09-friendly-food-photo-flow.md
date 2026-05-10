@@ -120,11 +120,11 @@ For the Today shortcut to trigger the same picker, factor `triggerFoodPhotoPicke
 
 ### Task 6: Add "Add food from photo" shortcut to Today
 
-- [ ] in `web/static/js/features/today.js` `renderShortcutRow()` (617–646), add a new tile after the existing "Log food" tile, only when the food feature is enabled
-- [ ] use `renderShortcutTile('camera', 'Photo meal', () => window.FoodActions.triggerPhotoPicker())` (label can be tuned — keep it short to match existing tiles)
-- [ ] verify the row layout still looks balanced with one extra tile (consider whether to wrap to a second row if it overflows; check existing `.wg-today-shortcuts` CSS for flex/wrap behavior)
-- [ ] write a Vitest test in `tests/` that renders the Today shortcut row with food enabled and asserts a tile with label "Photo meal" exists; clicking it invokes `window.FoodActions.triggerPhotoPicker`
-- [ ] run `pnpm test` — must pass before next task
+- [x] in `web/static/js/features/today.js` `renderShortcutRow()` (617–646), add a new tile after the existing "Log food" tile, only when the food feature is enabled — appended a `'Photo meal'` tile inside the same `if (foodCell && foodCell.status !== 'disabled')` branch so disabling food removes both tiles together
+- [x] use `renderShortcutTile('camera', 'Photo meal', () => window.FoodActions.triggerPhotoPicker())` (label can be tuned — keep it short to match existing tiles) — added `onPhotoMeal` handler to `renderToday`/`renderShortcutRow` that defaults to `window.FoodActions.triggerPhotoPicker()` when no override is supplied (mirrors how `onLogFood` falls through to `defaultHandler('showAddFoodModal', 'food')`)
+- [x] verify the row layout still looks balanced with one extra tile (consider whether to wrap to a second row if it overflows; check existing `.wg-today-shortcuts` CSS for flex/wrap behavior) — bumped `.wg-today-shortcuts` from `grid-template-columns: 1fr 1fr 1fr` to `repeat(4, 1fr)` since 4 is the new max tile count; existing-tile-only layouts still keep visible tiles at equal width
+- [x] write a Vitest test in `tests/` that renders the Today shortcut row with food enabled and asserts a tile with label "Photo meal" exists; clicking it invokes `window.FoodActions.triggerPhotoPicker` — added `web/static/js/tests/today.shortcut-photo-meal.test.js` with 6 tests (label exists, position next to Log food, camera icon present, `onPhotoMeal` override fires, `window.FoodActions.triggerPhotoPicker` fallback fires, food-disabled path drops both tiles); also updated `today.render.test.js` and `today.render.task3.test.js` to reflect the 4-tile shortcut row
+- [x] run `pnpm test` — passes (all 6 new tests + the updated existing today tests pass; the 3 still-failing tests are the pre-existing inline-styles violation in `food.js:2211-2212` and the two date-sensitive chart-label flakes, same set noted in Tasks 2–5)
 
 ### Task 7: Verify acceptance criteria
 
