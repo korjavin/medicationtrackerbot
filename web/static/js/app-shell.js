@@ -8,7 +8,17 @@ window.initServiceWorker = function () {
                     updateViaCache: 'none'
                 });
                 console.log('SW registered:', registration.scope);
-                registration.update().catch(() => { /* Ignore transient update-check failures */ });
+                const checkForUpdate = () => registration.update().catch(() => { /* Ignore transient update-check failures */ });
+                checkForUpdate();
+
+                // iOS PWAs often resume from a backgrounded state without firing 'load',
+                // so the one-shot update check above never re-runs. Re-check whenever the
+                // app becomes visible/focused, plus a periodic tick for long-lived sessions.
+                document.addEventListener('visibilitychange', () => {
+                    if (document.visibilityState === 'visible') checkForUpdate();
+                });
+                window.addEventListener('focus', checkForUpdate);
+                setInterval(checkForUpdate, 60 * 60 * 1000);
 
                 // Check for updates
                 registration.onupdatefound = () => {
