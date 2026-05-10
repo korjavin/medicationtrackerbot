@@ -2308,6 +2308,26 @@ async function undoFoodPhotoLog(items, summary, originalCount) {
     }));
 
     const allOk = results.every(r => r.ok);
+    const anyOk = results.some(r => r.ok);
+
+    // Refresh whenever at least one delete succeeded — partial failure still
+    // mutates the server, so the UI must reflect the new state or stale rows
+    // (already gone from the DB) will linger until the next manual refresh.
+    if (anyOk) {
+        try {
+            await window.DataStore.invalidateTags(['food']);
+            if (typeof todayFoodKey === 'function' && window.DataStore.clearCached) {
+                await window.DataStore.clearCached(todayFoodKey(new Date()));
+            }
+            if (window.DataStore?.advanceCursorSilently) {
+                window.DataStore.advanceCursorSilently();
+            }
+        } catch (e) {
+            console.error('Food photo undo cache invalidation failed:', e);
+        }
+        loadFoodLogs();
+        if (typeof loadToday === 'function') loadToday();
+    }
 
     if (!allOk) {
         const remaining = results.filter(r => !r.ok).map(r => r.item);
@@ -2319,21 +2339,6 @@ async function undoFoodPhotoLog(items, summary, originalCount) {
         }
         return;
     }
-
-    try {
-        await window.DataStore.invalidateTags(['food']);
-        if (typeof todayFoodKey === 'function' && window.DataStore.clearCached) {
-            await window.DataStore.clearCached(todayFoodKey(new Date()));
-        }
-        if (window.DataStore?.advanceCursorSilently) {
-            window.DataStore.advanceCursorSilently();
-        }
-    } catch (e) {
-        console.error('Food photo undo cache invalidation failed:', e);
-    }
-
-    loadFoodLogs();
-    if (typeof loadToday === 'function') loadToday();
 
     if (summary && typeof summary.showRemoved === 'function') {
         summary.showRemoved(total);
