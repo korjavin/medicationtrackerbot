@@ -2120,10 +2120,13 @@ function renderFoodStaleBadge() {
         slot.classList.add('hidden');
         return;
     }
-    const isOffline = !isOnline || !!meta.isStale;
+    // Tone uses raw navigator-offline only — meta.isStale (online + 5xx + cache
+    // > staleAfterMs) already drives the warning tone via staleAfterMs inside
+    // renderStaleBadge, so reusing it as an offline signal would mislabel
+    // online-but-stale data as "Offline · 25h old" instead of "Updated 25h ago".
     const badge = api.render({
         fetchedAt: meta.fetchedAt,
-        isOffline,
+        isOffline: !isOnline,
     });
     slot.replaceChildren(badge);
     slot.classList.remove('hidden');
