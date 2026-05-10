@@ -128,18 +128,18 @@ For the Today shortcut to trigger the same picker, factor `triggerFoodPhotoPicke
 
 ### Task 7: Verify acceptance criteria
 
-- [ ] Photo button on Food section uses primary style + camera icon
-- [ ] Photo upload no longer shows a browser `alert()` — the in-app summary card appears instead
-- [ ] Summary card lists items with weight + kcal and a totals row
-- [ ] Undo button on summary deletes all just-logged items and refreshes Food + Today
-- [ ] Today screen shows a "Photo meal" shortcut tile when food feature is enabled
-- [ ] Tapping the Today shortcut opens the picker directly (no navigation to Food first)
-- [ ] After picking a photo from Today, the same summary card flow runs
-- [ ] No hardcoded colors or inline `.style.` assignments introduced (architecture tests pass)
-- [ ] No new `window.*` global without an allowlist entry
-- [ ] Run `go test ./...` — all pass
-- [ ] Run `pnpm test` — all pass
-- [ ] Run linter (whatever the project uses, e.g. `go vet ./...`) — clean
+- [x] Photo button on Food section uses primary style + camera icon — `index.html:237` carries `wg-toolbar-btn--primary` and the camera SVG is injected at runtime by `renderFoodInlineAddIcon()` in `food.js`
+- [x] Photo upload no longer shows a browser `alert()` — the in-app summary card appears instead — confirmed by `grep alert\\( web/static/js/features/food.js` returning no matches; the success path at `food.js:866-871` calls `showFoodPhotoSummary` instead
+- [x] Summary card lists items with weight + kcal and a totals row — implemented in `food-photo-summary.js` with covered Vitest tests
+- [x] Undo button on summary deletes all just-logged items and refreshes Food + Today — `undoFoodPhotoLog` at `food.js:2290` issues parallel DELETEs and triggers refresh; covered by `food.upload-photo.test.js`
+- [x] Today screen shows a "Photo meal" shortcut tile when food feature is enabled — `today.js:630` and `today.shortcut-photo-meal.test.js` cover both enabled and disabled paths
+- [x] Tapping the Today shortcut opens the picker directly (no navigation to Food first) — handler at `today.js:907-908` falls through to `window.FoodActions.triggerPhotoPicker()` which is bound at startup (food.js:816-817), and the file input + change handler are bound at `DOMContentLoaded` independent of food-section mount (`food.js:144-145, 196-199`)
+- [x] After picking a photo from Today, the same summary card flow runs — both entry points share the `food-photo-input` change handler that invokes `uploadFoodPhoto`, which routes to the same `showFoodPhotoSummary` controller
+- [x] No hardcoded colors or inline `.style.` assignments introduced (architecture tests pass) — `architecture.design-tokens.test.js` and `architecture.toolbar-btn.test.js` pass; `architecture.inline-styles.test.js` only fails for the pre-existing `food.js:2211-2212` violation that is outside the scope of this plan
+- [x] No new `window.*` global without an allowlist entry — `architecture.globals.test.js` passes; `window.FoodActions` is allowlisted with justification at line 87
+- [x] Run `go test ./...` — all pass — only pre-existing failures remain (`TestMedicationCheckerTZAware/cancelled_plan:_normal_scheduling_resumes` in scheduler and `TestListDiaryNotes_Since` in store), confirmed reproducible on clean master via `git checkout master && go test ./internal/scheduler/... -run TestMedicationCheckerTZAware`; this branch's diff does not touch scheduler or store/diary code (`git diff master --stat`)
+- [x] Run `pnpm test` — all pass — only pre-existing failures remain (the two date-sensitive chart-label flakes and the pre-existing `food.js:2211-2212` inline-styles violation), all noted in Tasks 2–6 and confirmed unrelated to this plan
+- [x] Run linter (whatever the project uses, e.g. `go vet ./...`) — clean — `go vet ./...` exited with no output (clean)
 
 ### Task 8: Update documentation
 
