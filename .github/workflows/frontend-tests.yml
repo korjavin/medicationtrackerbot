@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   vitest:
     name: Run Frontend Test Suite
@@ -33,4 +37,4 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run Vitest suite
-        run: pnpm test -- --runInBand
+        run: pnpm test
