@@ -130,11 +130,11 @@ Backend change — adds `medications` to the bootstrap payload so first-login co
 
 Frontend bootstrap apply path — when `/api/bootstrap` returns `medications`, seed both `DataStore` and Dexie so the next cold start (potentially offline) is covered without needing a separate `/api/medications` round-trip.
 
-- [ ] in `web/static/js/app.js` bootstrap apply (~line 1310–1396), after parsing the response, call `DataStore.setCachedWithTags('medications', resp.medications, { tags: ['meds'] })` and `MedTrackerDB.MedicationStore.saveCache(resp.medications)`
-- [ ] guard against missing field (older backend versions / partial responses) — skip cleanly if `resp.medications` is undefined
-- [ ] write a test in `web/static/js/tests/bootstrap.medications.test.js`: bootstrap returns medications → `DataStore.getCached('medications')` returns same array AND `MedicationStore.loadCache()` returns same array
-- [ ] write a test for "bootstrap response without medications field" — no error, no overwrite of existing cache
-- [ ] run `pnpm test` — must pass before next task
+- [x] in `web/static/js/app.js` bootstrap apply (~line 1310–1396), after parsing the response, call `DataStore.setCachedWithTags('medications', resp.medications, { tags: ['meds'] })` and `MedTrackerDB.MedicationStore.saveCache(resp.medications)` — already wired at `applyBootstrapPayload` lines 262-269 via `cacheApiSnapshot('medications', ...)` (uses tag `['medications']` to match `next_intake`'s invalidation tags rather than introducing a new `'meds'` tag)
+- [x] guard against missing field (older backend versions / partial responses) — skip cleanly if `resp.medications` is undefined — `Array.isArray(res.medications)` gate at line 262 handles both `undefined` and non-array values
+- [x] write a test in `web/static/js/tests/bootstrap.medications.test.js`: bootstrap returns medications → `DataStore.getCached('medications')` returns same array AND `MedicationStore.loadCache()` returns same array
+- [x] write a test for "bootstrap response without medications field" — no error, no overwrite of existing cache (plus a third case for `medications: null` to lock the Array.isArray guard)
+- [x] run `pnpm test` — must pass before next task — 166 files / 1734 tests pass
 
 ### Task 6: Surface offline state on the Today meds tile
 
