@@ -120,11 +120,11 @@ This plan delivers **read resilience first** (no new offline write paths) by:
 
 ### Task 5: Mount the badge in Today and Food section headers
 
-- [ ] Today (`features/today.js`): add the badge to the section header, fed by the `fetchedAt` from Task 2's `cachedFetch` calls. If multiple sources feed Today, use the oldest `fetchedAt` (worst-case freshness).
-- [ ] Food (`features/food.js`): add the badge to the food section header, fed by Task 3's helper.
-- [ ] write Vitest case: Today renders the badge with the correct timestamp from a stubbed `cachedFetch` result.
-- [ ] write Vitest case: Food renders the badge in offline mode showing `Offline · ...`.
-- [ ] run `pnpm test` — must pass before next task.
+- [x] Today (`features/today.js`): add the badge to the section header, fed by the `fetchedAt` from Task 2's `cachedFetch` calls. If multiple sources feed Today, use the oldest `fetchedAt` (worst-case freshness). `_todayReadCaches` now tracks an `oldestCacheTimestamp` alongside `latestCacheTimestamp`; `_todayRender` propagates it onto `state.__fetchedAt`. `renderToday` mounts a `.today-stale-badge-row` chip near the top of the screen (suppressed during the firstRun empty-state) using `WGStaleBadge.render({ fetchedAt: state.__fetchedAt, isOffline: state.__offline })`.
+- [x] Food (`features/food.js`): add the badge to the food section header, fed by Task 3's helper. Added `<div id="food-stale-badge" class="wg-food-stale-badge-row hidden">` at the top of `#food-log-tab` in `index.html`. `_renderFoodData` now calls `renderFoodStaleBadge()` which paints the chip from `lastFoodLogsMeta` + `navigator.onLine`. The OfflineNoCacheError branch of `loadFoodLogs` also calls it so the "Offline · no cache" tone surfaces on a cold-start offline.
+- [x] write Vitest case: Today renders the badge with the correct timestamp from a stubbed `cachedFetch` result. `today.stale-badge.test.js` covers the online "Updated 5m ago" path, the offline "Offline · 3h old" path with the warning + offline tones, the firstRun suppression, and the no-cache fallback.
+- [x] write Vitest case: Food renders the badge in offline mode showing `Offline · ...`. `food.stale-badge.test.js` covers a warm-cache offline render (asserts the `Offline · …` prefix + `--warning`/`--offline` tone classes) and the cold-start "Offline · no cache" fallback.
+- [x] run `pnpm test` — must pass before next task. The 6 new badge tests pass; full-suite numbers are 1689/1691 — the 2 remaining failures (`components.wg-sleep-chart.test.js`, `components.wg-steps-chart.test.js` "Today" x-axis label) are the date-dependent pre-existing failures documented in Tasks 2, 3, 4. The architecture inline-styles allowlist for `food.js` was bumped from lines 2452/2453 → 2493/2494 since the new `renderFoodStaleBadge` helper enlarged the file. CSS layout helpers `.today-stale-badge-row` + `.wg-food-stale-badge-row` were added in `styles.css` next to the existing `.wg-stale-badge` rules; the harness `frontend-harness.js` now loads `wg-stale-badge.js` so feature tests can resolve `window.WGStaleBadge`.
 
 ### Task 6: Roll the badge out to remaining sections
 

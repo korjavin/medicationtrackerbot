@@ -1850,6 +1850,7 @@ async function loadFoodLogs() {
             errP.textContent = 'No cached food data — connect to load.';
             list.replaceChildren(errP);
             lastFoodLogsMeta = null;
+            renderFoodStaleBadge();
             return;
         }
         console.error(e);
@@ -2084,6 +2085,46 @@ function _renderFoodData(groups, weekStats, range, dateStr) {
     syncFoodMacrosToggleActiveClass();
 
     updateFoodSelectUI();
+
+    renderFoodStaleBadge();
+}
+
+// Task 5 of local-first read resilience — paints the wg-stale-badge chip into
+// the #food-stale-badge slot using the freshness metadata captured by the
+// most recent cachedFetch call (lastFoodLogsMeta). The slot is hidden when
+// no metadata exists yet OR when the data was just fetched online (avoids
+// flashing a "Updated just now" chip on every keystroke-driven re-render).
+function renderFoodStaleBadge() {
+    const slot = document.getElementById('food-stale-badge');
+    if (!slot) return;
+    const api = (typeof window !== 'undefined') ? window.WGStaleBadge : null;
+    if (!api || typeof api.render !== 'function') {
+        slot.replaceChildren();
+        slot.classList.add('hidden');
+        return;
+    }
+    const meta = lastFoodLogsMeta;
+    const isOnline = typeof navigator !== 'undefined' ? navigator.onLine !== false : true;
+    if (!meta || !Number.isFinite(meta.fetchedAt)) {
+        // Cold-start offline: no cache hit AND no fresh fetch — surface the
+        // explicit "Offline · no cache" tone so the user knows we have nothing.
+        if (!isOnline) {
+            const badge = api.render({ fetchedAt: null, isOffline: true });
+            slot.replaceChildren(badge);
+            slot.classList.remove('hidden');
+            return;
+        }
+        slot.replaceChildren();
+        slot.classList.add('hidden');
+        return;
+    }
+    const isOffline = !isOnline || !!meta.isStale;
+    const badge = api.render({
+        fetchedAt: meta.fetchedAt,
+        isOffline,
+    });
+    slot.replaceChildren(badge);
+    slot.classList.remove('hidden');
 }
 
 // Phase 4, Task 4 — populate the Wandergeek daily macros card. Renders the
