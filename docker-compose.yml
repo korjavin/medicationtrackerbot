@@ -47,6 +47,13 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_URL=${OPENAI_URL}
       - OPENAI_MODEL=${OPENAI_MODEL}
+      # Optional split-provider config for food-photo (vision) requests.
+      # Each var falls back to its OPENAI_* counterpart when unset. Use this
+      # when the primary provider is text-only (e.g. DeepSeek) and a separate
+      # vision-capable model (e.g. gemini-2.0-flash, gpt-4o-mini) handles photos.
+      - OPENAI_VISION_API_KEY=${OPENAI_VISION_API_KEY}
+      - OPENAI_VISION_URL=${OPENAI_VISION_URL}
+      - OPENAI_VISION_MODEL=${OPENAI_VISION_MODEL}
       - EXTERNAL_WORKOUT_API_KEY=${EXTERNAL_WORKOUT_API_KEY}
       - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
       - ELEVENLABS_AGENT_ID=${ELEVENLABS_AGENT_ID}

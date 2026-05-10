@@ -3,6 +3,7 @@ package domain
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/korjavin/medicationtrackerbot/internal/ai"
@@ -11,13 +12,18 @@ import (
 type mockAIClient struct {
 	result *ai.ParsedMeal
 	err    error
+
+	descriptionCalls int
+	imageCalls       int
 }
 
 func (m *mockAIClient) ParseMealFromDescription(ctx context.Context, description string) (*ai.ParsedMeal, error) {
+	m.descriptionCalls++
 	return m.result, m.err
 }
 
 func (m *mockAIClient) ParseMealFromImage(ctx context.Context, imageBytes []byte, mimeType string) (*ai.ParsedMeal, error) {
+	m.imageCalls++
 	return m.result, m.err
 }
 
@@ -190,6 +196,63 @@ func TestParseMealDescription_NegativeMacros(t *testing.T) {
 				t.Fatalf("expected error for item with negative macros")
 			}
 		})
+	}
+}
+
+func TestNewFoodAIServiceWithVision_RoutesToCorrectClient(t *testing.T) {
+	textClient := &mockAIClient{
+		result: &ai.ParsedMeal{Items: []ai.MealItem{
+			{Name: "Apple", WeightGrams: 100, Carbs100g: 14, Protein100g: 0, Fat100g: 0},
+		}},
+	}
+	visionClient := &mockAIClient{
+		result: &ai.ParsedMeal{Items: []ai.MealItem{
+			{Name: "Banana", WeightGrams: 120, Carbs100g: 23, Protein100g: 1, Fat100g: 0},
+		}},
+	}
+	service := NewFoodAIServiceWithVision(textClient, visionClient)
+
+	if _, err := service.ParseMealDescription(context.Background(), "an apple"); err != nil {
+		t.Fatalf("description: %v", err)
+	}
+	if _, err := service.ParseMealPhoto(context.Background(), []byte{0x1, 0x2}, "image/jpeg"); err != nil {
+		t.Fatalf("photo: %v", err)
+	}
+
+	if textClient.descriptionCalls != 1 || textClient.imageCalls != 0 {
+		t.Errorf("text client should only see description: desc=%d img=%d", textClient.descriptionCalls, textClient.imageCalls)
+	}
+	if visionClient.imageCalls != 1 || visionClient.descriptionCalls != 0 {
+		t.Errorf("vision client should only see image: desc=%d img=%d", visionClient.descriptionCalls, visionClient.imageCalls)
+	}
+}
+
+func TestNewFoodAIServiceWithVision_NilVisionFallsBackToText(t *testing.T) {
+	textClient := &mockAIClient{
+		result: &ai.ParsedMeal{Items: []ai.MealItem{
+			{Name: "Apple", WeightGrams: 100, Carbs100g: 14, Protein100g: 0, Fat100g: 0},
+		}},
+	}
+	service := NewFoodAIServiceWithVision(textClient, nil)
+	if _, err := service.ParseMealPhoto(context.Background(), []byte{0x1}, "image/jpeg"); err != nil {
+		t.Fatalf("photo: %v", err)
+	}
+	if textClient.imageCalls != 1 {
+		t.Errorf("expected fallback to text client, got imageCalls=%d", textClient.imageCalls)
+	}
+}
+
+func TestParseMealPhoto_ProviderNoVisionErrorIsFriendly(t *testing.T) {
+	service := NewFoodAIService(&mockAIClient{
+		err: errors.New("API error: Failed to deserialize the JSON body into the target type: messages[1]: unknown variant `image_url`, expected `text` at line 1 column 3663405"),
+	})
+	_, err := service.ParseMealPhoto(context.Background(), []byte{0x1}, "image/jpeg")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "does not support photo analysis") || !strings.Contains(msg, "OPENAI_VISION_") {
+		t.Errorf("expected friendly error, got: %v", msg)
 	}
 }
 
