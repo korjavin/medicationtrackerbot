@@ -5,14 +5,35 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/korjavin/medicationtrackerbot/internal/domain"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
+
+// stubFoodAI is a minimal FoodAIService used to drive the photo upload handler
+// in tests without depending on a real OpenAI-compatible vision provider.
+type stubFoodAI struct {
+	photoLogs []domain.FoodLog
+	photoErr  error
+}
+
+func (s *stubFoodAI) ParseMealDescription(ctx context.Context, description string) ([]domain.FoodLog, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (s *stubFoodAI) ParseMealPhoto(ctx context.Context, imageBytes []byte, mimeType string) ([]domain.FoodLog, error) {
+	if s.photoErr != nil {
+		return nil, s.photoErr
+	}
+	return s.photoLogs, nil
+}
 
 func createFoodTestServer(t *testing.T) (*Server, *store.Store) {
 	db, err := store.New(":memory:")
@@ -651,5 +672,101 @@ func TestHandleGetFoodStats_DST(t *testing.T) {
 	}
 	if statsIANA.Calories != 400+600 {
 		t.Errorf("tz=America/Los_Angeles: expected %d calories for March 8, got %d", 400+600, statsIANA.Calories)
+	}
+}
+
+// TestHandleCreateFoodLogFromPhoto_ReturnsItemIDs locks in the contract that
+// each item in the response carries a non-zero "id" field, which the frontend
+// summary card relies on to issue Undo deletes via DELETE /api/food/log/{id}.
+func TestHandleCreateFoodLogFromPhoto_ReturnsItemIDs(t *testing.T) {
+	srv, db := createFoodTestServer(t)
+	defer db.Close()
+
+	if err := db.SetFoodIntakeEnabled(context.Background(), true); err != nil {
+		t.Fatalf("SetFoodIntakeEnabled: %v", err)
+	}
+
+	srv.SetFoodAIService(&stubFoodAI{
+		photoLogs: []domain.FoodLog{
+			{Name: "Apple", Weight: 150, Carbs: 20, Protein: 1, Fat: 0, Calories: 80},
+			{Name: "Toast", Weight: 60, Carbs: 30, Protein: 5, Fat: 2, Calories: 160},
+		},
+	})
+
+	body := &bytes.Buffer{}
+	mw := multipart.NewWriter(body)
+	hdr := make(textproto.MIMEHeader)
+	hdr.Set("Content-Disposition", `form-data; name="image"; filename="meal.jpg"`)
+	hdr.Set("Content-Type", "image/jpeg")
+	part, err := mw.CreatePart(hdr)
+	if err != nil {
+		t.Fatalf("CreatePart: %v", err)
+	}
+	if _, err := part.Write([]byte("fake-jpeg-bytes")); err != nil {
+		t.Fatalf("write part: %v", err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
+
+	req := httptest.NewRequest("POST", "/api/food/log/from-photo", body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleCreateFoodLogFromPhoto(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Status string `json:"status"`
+		Items  []struct {
+			ID       int64  `json:"id"`
+			Name     string `json:"name"`
+			Weight   int    `json:"weight"`
+			Calories int    `json:"calories"`
+		} `json:"items"`
+		Failed int `json:"failed"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if resp.Status != "created" {
+		t.Errorf("expected status 'created', got %q", resp.Status)
+	}
+	if resp.Failed != 0 {
+		t.Errorf("expected failed=0, got %d", resp.Failed)
+	}
+	if len(resp.Items) != 2 {
+		t.Fatalf("expected 2 items in response, got %d", len(resp.Items))
+	}
+
+	seen := map[int64]bool{}
+	for i, item := range resp.Items {
+		if item.ID == 0 {
+			t.Errorf("item %d (%q): expected non-zero id, got 0", i, item.Name)
+		}
+		if seen[item.ID] {
+			t.Errorf("item %d (%q): duplicate id %d in response", i, item.Name, item.ID)
+		}
+		seen[item.ID] = true
+	}
+
+	// The IDs must point to real rows so that the frontend Undo path
+	// (DELETE /api/food/log/{id}) actually removes them.
+	logs, err := db.GetFoodLogs(context.Background(), 123456, time.Now(), 1)
+	if err != nil {
+		t.Fatalf("GetFoodLogs: %v", err)
+	}
+	if len(logs) != 2 {
+		t.Fatalf("expected 2 persisted logs, got %d", len(logs))
+	}
+	for _, log := range logs {
+		if !seen[log.ID] {
+			t.Errorf("persisted log id %d not present in response items", log.ID)
+		}
 	}
 }

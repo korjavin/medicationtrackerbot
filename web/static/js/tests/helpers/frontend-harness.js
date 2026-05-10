@@ -34,6 +34,7 @@ const CHART_UTILS_JS = path.join(REPO_ROOT, 'web/static/js/core/chart-utils.js')
 const DATA_STORE_JS = path.join(REPO_ROOT, 'web/static/js/data-store.js');
 const APP_JS = path.join(REPO_ROOT, 'web/static/js/app.js');
 const MEDS_JS = path.join(REPO_ROOT, 'web/static/js/features/meds.js');
+const FOOD_PHOTO_SUMMARY_JS = path.join(REPO_ROOT, 'web/static/js/features/food-photo-summary.js');
 const FOOD_JS = path.join(REPO_ROOT, 'web/static/js/features/food.js');
 const BP_JS = path.join(REPO_ROOT, 'web/static/js/features/bp.js');
 const WEIGHT_JS = path.join(REPO_ROOT, 'web/static/js/features/weight.js');
@@ -174,6 +175,7 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
 
   // Feature modules extracted from app.js (meds, food, bp, weight, health).
   evalWithSourceURL(window, fs.readFileSync(MEDS_JS, 'utf8'), MEDS_JS);
+  evalWithSourceURL(window, fs.readFileSync(FOOD_PHOTO_SUMMARY_JS, 'utf8'), FOOD_PHOTO_SUMMARY_JS);
   evalWithSourceURL(window, fs.readFileSync(FOOD_JS, 'utf8'), FOOD_JS);
   evalWithSourceURL(window, fs.readFileSync(BP_JS, 'utf8'), BP_JS);
   evalWithSourceURL(window, fs.readFileSync(WEIGHT_JS, 'utf8'), WEIGHT_JS);
