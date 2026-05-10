@@ -7,6 +7,7 @@ export default defineConfig({
     setupFiles: ['web/static/js/tests/helpers/setup.js'],
     restoreMocks: true,
     clearMocks: true,
+    pool: 'threads',
     coverage: {
       provider: 'v8',
       reportsDirectory: 'coverage/frontend',
