@@ -152,7 +152,7 @@ describe('resolveFoodPhotoEatenAt', () => {
     beforeEach(() => { env = loadFrontendEnv(); });
     afterEach(() => { env.cleanup(); env = null; });
 
-    it('falls back to "now" when no EXIF date is present', async () => {
+    it('falls back to "now" when no EXIF date and no lastModified are present', async () => {
         env.window.readFoodPhotoExifDate = async () => null;
         let confirmCalls = 0;
         env.window.safeConfirm = async () => { confirmCalls++; return true; };
@@ -161,6 +161,39 @@ describe('resolveFoodPhotoEatenAt', () => {
         const got = await env.window.resolveFoodPhotoEatenAt({}, now);
         expect(got.getTime()).toBe(now.getTime());
         expect(confirmCalls).toBe(0);
+    });
+
+    it('falls back to file.lastModified when EXIF is missing (HEIC / stripped metadata)', async () => {
+        env.window.readFoodPhotoExifDate = async () => null;
+        const lastModified = new Date('2024-05-30T18:00:00Z').getTime();
+        let confirmMsg = null;
+        env.window.safeConfirm = async (msg) => { confirmMsg = msg; return true; };
+
+        const now = new Date('2024-06-01T12:00:00Z');
+        const got = await env.window.resolveFoodPhotoEatenAt({ lastModified }, now);
+        expect(got.getTime()).toBe(lastModified);
+        expect(confirmMsg).toMatch(/photo/i);
+    });
+
+    it('uses file.lastModified silently when within 1h of now', async () => {
+        env.window.readFoodPhotoExifDate = async () => null;
+        const now = new Date('2024-06-01T12:00:00Z');
+        const lastModified = now.getTime() - 30 * 60 * 1000;
+        let confirmCalls = 0;
+        env.window.safeConfirm = async () => { confirmCalls++; return true; };
+
+        const got = await env.window.resolveFoodPhotoEatenAt({ lastModified }, now);
+        expect(got.getTime()).toBe(lastModified);
+        expect(confirmCalls).toBe(0);
+    });
+
+    it('ignores zero / nonsensical lastModified values', async () => {
+        env.window.readFoodPhotoExifDate = async () => null;
+        env.window.safeConfirm = async () => true;
+
+        const now = new Date('2024-06-01T12:00:00Z');
+        const got = await env.window.resolveFoodPhotoEatenAt({ lastModified: 0 }, now);
+        expect(got.getTime()).toBe(now.getTime());
     });
 
     it('uses the photo time silently when within 1 hour of now', async () => {
