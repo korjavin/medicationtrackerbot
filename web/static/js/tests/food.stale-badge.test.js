@@ -157,6 +157,51 @@ describe('Food section-header stale badge', () => {
         expect(badge.classList.contains('wg-stale-badge--warning')).toBe(true);
     });
 
+    it('uses the v2 cache timestamp when offline + new key empty + v2 cache rendered', async () => {
+        // Regression: the OfflineNoCacheError catch path used to nullify
+        // lastFoodLogsMeta unconditionally, which surfaced "Offline · no cache"
+        // even though the legacy v2 cache had just rendered groups for the
+        // date. The badge now reads `food_<date>_v2`'s timestamp via
+        // ApiCache.getWithMeta and surfaces "Offline · Xh old" instead.
+        const { window, document } = env;
+        installCachedFetch(window);
+
+        const v2Groups = [{
+            name: 'Lunch',
+            time: '12:30',
+            calories: 540,
+            carbs: 60,
+            protein: 28,
+            fat: 18,
+            logs: [{ id: 9, name: 'Soup', weight: 300, calories: 540, carbs: 60, protein: 28, fat: 18 }]
+        }];
+        const v2CachedAt = Date.now() - 30 * 60 * 1000; // 30m ago
+        // Seed both api_cache (so getWithMeta returns timestamp) AND
+        // DataStore.getCached (so the loadFoodLogs `cached` variable is truthy).
+        installApiCacheMap(window, {
+            'food_2026-05-09_v2': { data: { groups: v2Groups, weekStats: null }, timestamp: v2CachedAt }
+        });
+        window.DataStore.getCached = async (key) => key === 'food_2026-05-09_v2'
+            ? { groups: v2Groups, weekStats: null }
+            : null;
+
+        setOnline(window, false);
+        window.apiCall = vi.fn();
+        window.apiCallDirect = vi.fn();
+
+        await window.loadFoodLogs();
+
+        const slot = document.getElementById('food-stale-badge');
+        expect(slot).not.toBeNull();
+        const badge = slot.querySelector('.wg-stale-badge');
+        expect(badge).not.toBeNull();
+        // Should NOT claim "no cache" — v2 data is on screen.
+        expect(badge.textContent).not.toBe('Offline · no cache');
+        expect(badge.classList.contains('wg-stale-badge--offline')).toBe(true);
+        // 30m old → either "Offline · 30m old" or close.
+        expect(badge.textContent).toMatch(/^Offline · \d+m old$/);
+    });
+
     it('falls back to Offline · no cache when offline and no api_cache entry exists', async () => {
         const { window, document } = env;
         installCachedFetch(window);

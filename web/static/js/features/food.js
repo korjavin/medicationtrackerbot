@@ -12,6 +12,11 @@ let foodMacrosRange = 'day';
 // from this timestamp.
 let lastFoodLogsMeta = null;
 
+// Threshold past which the food daily-log cache is considered stale. Shared
+// by the cachedFetch call (so the helper's isStale flag aligns) and the badge
+// renderer (so the warning tone fires at the same age).
+const FOOD_LOGS_STALE_AFTER_MS = 24 * 60 * 60 * 1000;
+
 function renderFoodDayNavIcons() {
     const prev = document.getElementById('food-date-prev-btn');
     const next = document.getElementById('food-date-next-btn');
@@ -1808,7 +1813,7 @@ async function loadFoodLogs() {
                 {
                     tags: ['food'],
                     freshAfterMs: 60_000,
-                    staleAfterMs: 24 * 60 * 60 * 1000,
+                    staleAfterMs: FOOD_LOGS_STALE_AFTER_MS,
                     transform: (raw) => ({ groups: Array.isArray(raw) ? raw : [] })
                 }
             );
@@ -1850,8 +1855,22 @@ async function loadFoodLogs() {
                 errP.className = 'error';
                 errP.textContent = 'No cached food data — connect to load.';
                 list.replaceChildren(errP);
+                lastFoodLogsMeta = null;
+            } else {
+                // v2 cache rendered above — surface its timestamp so the badge
+                // shows "Offline · Xh old" instead of falsely claiming "no cache"
+                // while real data is on screen.
+                let v2Ts = null;
+                try {
+                    if (window.MedTrackerDB?.ApiCache?.getWithMeta) {
+                        const v2Entry = await window.MedTrackerDB.ApiCache.getWithMeta(`food_${dateStr}_v2`);
+                        if (v2Entry && Number.isFinite(v2Entry.timestamp)) v2Ts = v2Entry.timestamp;
+                    }
+                } catch (_) { /* best-effort cache read */ }
+                lastFoodLogsMeta = v2Ts !== null
+                    ? { fetchedAt: v2Ts, isStale: true, isFromCache: true }
+                    : null;
             }
-            lastFoodLogsMeta = null;
             renderFoodStaleBadge();
             return;
         }
@@ -2120,13 +2139,14 @@ function renderFoodStaleBadge() {
         slot.classList.add('hidden');
         return;
     }
-    // Tone uses raw navigator-offline only — meta.isStale (online + 5xx + cache
-    // > staleAfterMs) already drives the warning tone via staleAfterMs inside
-    // renderStaleBadge, so reusing it as an offline signal would mislabel
-    // online-but-stale data as "Offline · 25h old" instead of "Updated 25h ago".
+    // Tone uses raw navigator-offline only — passing the same staleAfterMs the
+    // helper used keeps the warning class aligned with cachedFetch's isStale
+    // signal so an online + 5xx fallback to >24h cache still flips warning
+    // (without mislabeling it as "Offline · 25h old").
     const badge = api.render({
         fetchedAt: meta.fetchedAt,
         isOffline: !isOnline,
+        staleAfterMs: FOOD_LOGS_STALE_AFTER_MS,
     });
     slot.replaceChildren(badge);
     slot.classList.remove('hidden');
