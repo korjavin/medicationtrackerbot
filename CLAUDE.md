@@ -117,3 +117,12 @@ Every backend route registered on the server MUST be either reachable via the MC
 - Scheduler integration: `internal/scheduler/workout.go`
 - Bot callbacks: `internal/bot/workout_callbacks.go`
 - Tests: `internal/store/workout_test.go`
+
+### Adding a local-first read to a feature module
+
+When a screen needs to render cached data offline (or behind a 5xx proxy), route the read through `window.cachedFetch` and surface freshness via `<wg-stale-badge>` instead of writing a new ad-hoc cache fallback. See [docs/frontend.md → Local-First Read Resilience](docs/frontend.md#local-first-read-resilience).
+
+1. Replace the direct `apiCall(url)` with `await window.cachedFetch(key, url, { tags, freshAfterMs, staleAfterMs, transform })` — returns `{ data, fetchedAt, isFromCache, isStale }`. Pick a `key` that matches the bootstrap apply path in `app.js` if one exists, so the bootstrap-warmed cache is reused.
+2. Catch `window.OfflineNoCacheError` and render an explicit empty state (e.g., "No cached data — connect to load"). Never let it bubble to the console.
+3. Mount the freshness chip into the section header: `await window.WGStaleBadge.mountFromKey({ slot, key })`. For sections that don't go through `cachedFetch` (BP/Weight/Meds/Workouts/Vitals still use `offlineAwareApiCall`), `mountFromKey` reads the bootstrap-warmed timestamp directly.
+4. Tests (Vitest): one case for warm-cache offline render (asserts data + `Offline · …` chip), one for `OfflineNoCacheError` empty state. Reference: `web/static/js/tests/food.offline-cached-fetch.test.js`, `sections.stale-badge.test.js`.

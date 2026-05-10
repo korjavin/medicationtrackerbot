@@ -26,6 +26,44 @@ Offline writes are supported for BP readings, weight logs, and medication confir
 - "(saved locally)" confirmations for offline-capable writes
 - Treat HTTP 502/503/504 as "offline" — `navigator.onLine` stays `true` behind reverse proxies
 
+### Local-First Read Resilience
+
+When the app is offline (or the backend returns 5xx behind Traefik) every priority section renders cached data instead of an empty screen — *something stale is better than nothing*. The mechanism is `cachedFetch` (`web/static/js/cached-fetch.js`) on top of the existing `api_cache` Dexie store, plus a small `<wg-stale-badge>` chip that surfaces freshness.
+
+**`cachedFetch(key, url, opts)`** — read-through wrapper, exposed as `window.cachedFetch`. Returns `{ data, fetchedAt, isFromCache, isStale }`. Behaviour matrix:
+
+| State | Behaviour |
+|-------|-----------|
+| Cache hit, online | Return cached immediately, kick off background revalidation (SWR) |
+| Cache miss, online | Fetch, write to cache, return fresh |
+| Cache hit, offline / 5xx | Return cached with `isFromCache: true`; sets `isStale: true` if age > `staleAfterMs` |
+| Cache miss, offline / 5xx | Throw `OfflineNoCacheError` so callers render an explicit empty state |
+
+Options: `tags` (forwarded to `cacheApiSnapshot`), `freshAfterMs` (default 60s — background revalidate after this), `staleAfterMs` (default 24h — flip the badge tone past this), `transform` (raw → cached value), `fetchOpts.method/body`. The 5xx-as-offline check reuses `window.isServerError` from `sync.js` when available, with an inline fallback so the helper works in isolation.
+
+**`OfflineNoCacheError`** — typed error (`window.OfflineNoCacheError`) raised only when no cache *and* network is unavailable. Every consumer must catch it and render a friendly empty state. Current consumers: `app.js` (Today's Next Medication tile), `features/food.js` (daily food log + products cache).
+
+**`<wg-stale-badge>`** — `web/static/js/components/wg-stale-badge.js`, exposes `window.WGStaleBadge`. Two entry points:
+- `WGStaleBadge.render({ fetchedAt, isOffline, staleAfterMs, now })` — returns an HTMLElement chip
+- `WGStaleBadge.mountFromKey({ slot, key, staleAfterMs, fallbackFetchedAt })` — reads `api_cache[key].timestamp` and paints the chip into a slot element
+
+Tone classes (defined in `styles.css`, no inline styles): `.wg-stale-badge--neutral`, `.wg-stale-badge--warning`, `.wg-stale-badge--offline`. Label format: `Updated 5m ago` / `Updated 2h ago` (online), `Offline · 12m old` / `Offline · 3h old` (offline), `Offline · no cache` (cold-start offline).
+
+**Per-section freshness windows** — `freshAfterMs` controls how often we revalidate online; `staleAfterMs` flips the badge tone:
+
+| Section | Cache key(s) | freshAfterMs | staleAfterMs |
+|---------|--------------|--------------|--------------|
+| Today next-intake | `next_intake` | 5 min | 12 h |
+| Food daily log | `food_<date>_day` | 60 s | 24 h |
+| Food products | `food_products_cache` | 1 h | 7 d |
+| BP / Weight / Meds / Workouts / Vitals | `bp`, `weight`, `medications`, `history_<days>_<medId>`, `workout_next`, `workout_groups`, `health_overview_<…>`, `diary_notes` | n/a (existing `offlineAwareApiCall` reads) | inherits the badge default (1 h) — chip uses `mountFromKey` against the bootstrap-warmed key |
+
+The "rolling-out" sections (BP, Weight, Meds, Workouts, Vitals) keep their existing `offlineAwareApiCall` read paths; only the badge is mounted via `mountFromKey`. Only Today's Next Medication tile and Food (daily log + products) actually route through `cachedFetch` for the read itself.
+
+**Bootstrap interaction**: `/api/bootstrap` continues to seed `medications`, `next_intake`, `bp`, `weight`, `food_<date>_day`, `settings_bundle`, etc. via `cacheApiSnapshot`. `cachedFetch` simply reads from the same store, so bootstrap-warmed entries are immediately usable as the first cache hit on any consumer.
+
+**Out of scope (explicitly)**: this layer is read-only. No new offline write queues (food/notes/workouts), no cold-start offline (no prior bootstrap), no full "IndexedDB is source of truth" rewrite.
+
 ### Change Detection
 
 Polls `/api/changes?since=` every 30s (SSE disabled due to HTTP/2 proxy issues — see [technical-decisions.md](technical-decisions.md)). When the poll reports invalidated tags, `data-store.js` both calls `window.requestTabRefresh({ changedTags, source })` (debounced 500ms, reloads the active tab) **and** dispatches a `datastore:changed` CustomEvent on `window` with `detail = { changedTags, source }`. Features that need to react without owning the active tab (e.g. the Today dashboard's live-update subscriber) listen on the CustomEvent.
@@ -109,6 +147,9 @@ All explicit `window.*` assignments are tracked in `tests/architecture.globals.t
 | `window.WGSleepChart` | `components/wg-sleep-chart.js` | `features/health.js` (Overview sub-tab sleep stacked-bar + HR overlay card) |
 | `window.WGStepsChart` | `components/wg-steps-chart.js` | `features/health.js` (Overview sub-tab steps bar card) |
 | `window.WGVitalsChart` | `components/wg-vitals-chart.js` | `features/health.js` (Overview sub-tab HR / SpO2 / Stress area+line cards, parameterised by `vital`) |
+| `window.WGStaleBadge` | `components/wg-stale-badge.js` | `features/today.js`, `features/food.js`, `features/bp.js`, `features/weight.js`, `features/meds.js`, `features/workout.js`, `features/health.js` (per-section freshness chip) |
+| `window.cachedFetch` | `cached-fetch.js` | `app.js` (Today next_intake), `features/food.js` (daily log + products) |
+| `window.OfflineNoCacheError` | `cached-fetch.js` | same consumers as `cachedFetch` (catch-and-render-empty-state branch) |
 
 ## Design Tokens
 

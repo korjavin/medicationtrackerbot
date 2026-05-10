@@ -149,9 +149,9 @@ For BP, Weight, Workouts, Meds, and Vitals/Health: the goal is uniform badging. 
 
 ### Task 8: Update documentation
 
-- [ ] Add a "Local-first read resilience" subsection to `docs/frontend.md` documenting `cachedFetch`, the badge component, and the per-section freshness windows.
-- [ ] Cross-link from `docs/technical-decisions.md`'s 5xx-as-offline section to the new helper.
-- [ ] If any new pattern is introduced (e.g., `OfflineNoCacheError` handling in feature modules), add a "Common Tasks" entry to `CLAUDE.md` so future modules follow the same pattern.
+- [x] Add a "Local-first read resilience" subsection to `docs/frontend.md` documenting `cachedFetch`, the badge component, and the per-section freshness windows. Added between "Offline UX" and "Change Detection" (`docs/frontend.md` lines 28–62) — covers the `cachedFetch` behaviour matrix, options, `OfflineNoCacheError` consumers, the `WGStaleBadge` API (both `render` and `mountFromKey`), tone classes, label format, the per-section freshness window table (Today next-intake 5m/12h, Food daily 60s/24h, Food products 1h/7d, the badge-only sections inheriting bootstrap-warmed keys), bootstrap interaction, and the explicit out-of-scope list. Also added three new entries to the global namespace policy table (`window.WGStaleBadge`, `window.cachedFetch`, `window.OfflineNoCacheError`) so the registry stays in sync with `tests/architecture.globals.test.js`.
+- [x] Cross-link from `docs/technical-decisions.md`'s 5xx-as-offline section to the new helper. Added a paragraph to "Why 5xx responses are treated as offline" pointing at `cachedFetch` and the new `frontend.md` section, calling out that `cachedFetch` reuses `isServerError` from `sync.js` so 5xx falls through the same `isStale`-flag branch as a true offline read.
+- [x] If any new pattern is introduced (e.g., `OfflineNoCacheError` handling in feature modules), add a "Common Tasks" entry to `CLAUDE.md` so future modules follow the same pattern. Added "Adding a local-first read to a feature module" — 4 numbered steps covering `cachedFetch` adoption, `OfflineNoCacheError` catch-and-render, `WGStaleBadge.mountFromKey` for the badge, and the test-references (Vitest cases in `food.offline-cached-fetch.test.js` and `sections.stale-badge.test.js`).
 
 *Note: ralphex automatically moves completed plans to `docs/plans/completed/`.*
 
