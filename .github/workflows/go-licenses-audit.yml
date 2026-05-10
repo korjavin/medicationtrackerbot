@@ -4,6 +4,10 @@ on:
   pull_request:
     branches:
       - master
+    paths:
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/go-licenses-audit.yml'
 
 permissions:
   contents: read
