@@ -115,16 +115,29 @@ describe('Food day-nav toolbar row (Round-2 Task 6, defect #9)', () => {
         expect(rule).toMatch(/grid-template-columns\s*:[^;]*var\(--wg-food-day-nav-icon-size\)[^;]*1fr[^;]*var\(--wg-food-day-nav-icon-size\)[^;]*auto[^;]*auto/);
     });
 
-    it('Photo button uses .wg-toolbar-btn + .wg-toolbar-btn--secondary and triggers the hidden file input', () => {
+    it('Photo button uses .wg-toolbar-btn + .wg-toolbar-btn--primary, carries a camera icon, and triggers the hidden file input', () => {
         const { document } = env;
         const photo = document.getElementById('add-food-photo-btn');
         expect(photo).not.toBeNull();
         expect(photo.classList.contains('wg-toolbar-btn')).toBe(true);
-        expect(photo.classList.contains('wg-toolbar-btn--secondary')).toBe(true);
+        // Friendly food-photo flow: Photo is now a primary action, equal in
+        // weight to Add (was --secondary; the outline variant suggested it
+        // was a lesser action even though it's the most useful one).
+        expect(photo.classList.contains('wg-toolbar-btn--primary')).toBe(true);
+        expect(photo.classList.contains('wg-toolbar-btn--secondary')).toBe(false);
 
         const label = photo.querySelector('.wg-toolbar-btn__label');
         expect(label).not.toBeNull();
         expect(label.textContent).toBe('Photo');
+
+        // Camera icon is injected by renderFoodInlineAddIcon() at bind time
+        // via WGIcons.iconSvg('camera'), which sets data-wg-icon="camera"
+        // on the resulting <svg>. The icon must be a child of the button
+        // so the flex `gap: var(--space-xs)` from .wg-toolbar-btn pulls it
+        // alongside the label, not on its own row.
+        const icon = photo.querySelector('svg[data-wg-icon="camera"]');
+        expect(icon).not.toBeNull();
+        expect(icon.parentElement).toBe(photo);
 
         // The hidden file input lives outside the day-nav so it doesn't add a
         // grid item, but it must be present somewhere in the food view.

@@ -76,12 +76,12 @@ The summary card's Undo needs to delete each just-logged food item by ID. Before
 
 ### Task 2: Restyle Photo button to match Add button (primary + camera icon)
 
-- [ ] in `web/static/index.html` (lines 234–239), change `#add-food-photo-btn` class from `wg-toolbar-btn wg-toolbar-btn--secondary` to `wg-toolbar-btn wg-toolbar-btn--primary`
-- [ ] add a camera icon span inside the button before the label, using the existing `wg-icon` component (`<wg-icon name="camera" size="14"></wg-icon>`) — match how other buttons inject icons
-- [ ] in `web/static/css/styles.css`, add a `.wg-toolbar-btn__icon` rule (or extend `.wg-toolbar-btn`) so the icon sits aligned to the left of the label with a small gap; use existing `--wg-*` tokens for spacing — no hardcoded values
-- [ ] verify the existing "Analyzing…" label-swap in `food.js:823` (`originalLabel.textContent = 'Analyzing…'`) still works with the icon present (the label span is separate from the icon, so it should)
-- [ ] write a Vitest test in `tests/` that mounts the food toolbar markup and asserts the Photo button has `wg-toolbar-btn--primary` and contains a `wg-icon[name="camera"]` child
-- [ ] run `pnpm test` — must pass before next task
+- [x] in `web/static/index.html` (lines 234–239), change `#add-food-photo-btn` class from `wg-toolbar-btn wg-toolbar-btn--secondary` to `wg-toolbar-btn wg-toolbar-btn--primary`
+- [x] add a camera icon span inside the button before the label — already injected at runtime by `renderFoodInlineAddIcon()` in `food.js:37-40` via `WGIcons.iconSvg('camera', { size: 14 })`, matching how the inline Add button gets its plus icon (project pattern is `WGIcons.iconSvg`, not a `<wg-icon>` custom element); no markup change required
+- [x] CSS rule for icon spacing — not needed: the base `.wg-toolbar-btn` rule already sets `display: inline-flex` + `gap: var(--space-xs)` + `align-items: center`, so the prepended SVG and the `.wg-toolbar-btn__label` span sit side-by-side with the canonical token-driven gap (same path the Add button uses for its plus icon — no per-button CSS there either)
+- [x] verify the existing "Analyzing…" label-swap in `food.js:823` (`originalLabel.textContent = 'Analyzing…'`) still works with the icon present — the swap targets `.wg-toolbar-btn__label`, which remains a separate sibling of the prepended icon, so it's unaffected
+- [x] update `food.toolbar-row.test.js` to assert the Photo button has `wg-toolbar-btn--primary` (was `--secondary`) AND contains an `svg[data-wg-icon="camera"]` child rendered by `WGIcons.iconSvg` at bind time
+- [x] run `pnpm test` — passes (the only 2 failures are pre-existing date-sensitive flakes in `components.wg-sleep-chart.test.js` and `components.wg-steps-chart.test.js`, confirmed by re-running on `git stash`'d clean tree)
 
 ### Task 3: Build the in-app summary card component
 
