@@ -38,6 +38,45 @@ func TestParseMealFromDescription_APIError(t *testing.T) {
 	}
 }
 
+func TestParseMealFromDescription_GeminiArrayWrappedError(t *testing.T) {
+	// Gemini's OpenAI-compat layer returns errors wrapped in a top-level array
+	// (e.g. [{"error": {"message": "...", "code": 404}}]). Make sure that real
+	// message surfaces instead of an opaque "API returned status code: 404".
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`[{"error": {"code": 404, "message": "models/gemini-2.0-flash is not found for API version v1beta", "status": "NOT_FOUND"}}]`))
+	}))
+	defer ts.Close()
+
+	client := NewClient("test-key", ts.URL, "")
+	_, err := client.ParseMealFromDescription(context.Background(), "apple")
+	if err == nil {
+		t.Fatal("expected API error, got nil")
+	}
+	if !strings.Contains(err.Error(), "models/gemini-2.0-flash is not found") {
+		t.Fatalf("expected Gemini error message to surface, got: %v", err)
+	}
+}
+
+func TestParseMealFromDescription_NonJSONErrorBodyIncluded(t *testing.T) {
+	// If the upstream returns plain text or HTML on error, the body excerpt
+	// should be in the error so the operator can see what happened.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		w.Write([]byte(`upstream timeout`))
+	}))
+	defer ts.Close()
+
+	client := NewClient("test-key", ts.URL, "")
+	_, err := client.ParseMealFromDescription(context.Background(), "apple")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "upstream timeout") || !strings.Contains(err.Error(), "502") {
+		t.Fatalf("expected status code and body excerpt in error, got: %v", err)
+	}
+}
+
 func TestParseMealFromDescription_InvalidJSON(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
