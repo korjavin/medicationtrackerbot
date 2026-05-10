@@ -22,8 +22,15 @@
     const OVERDUE_GRACE_MS = 5 * 60 * 1000; // next med treated as overdue after 5 min
     const MIN_TREND_POINTS = 2;
 
-    function cell(value, deeplink, status) {
-        return { value, deeplink, status };
+    function cell(value, deeplink, status, meta) {
+        const out = { value, deeplink, status };
+        if (meta && (meta.fetchedAt != null || meta.isStale != null)) {
+            out.meta = {
+                fetchedAt: meta.fetchedAt != null ? meta.fetchedAt : null,
+                isStale: !!meta.isStale
+            };
+        }
+        return out;
     }
 
     function greetingFor(now) {
@@ -88,15 +95,16 @@
 
     function nextMedCell(bootstrap, nowMs, enabled) {
         if (!enabled) return cell(null, 'meds', 'disabled');
+        const meta = bootstrap && bootstrap.__next_intake_meta;
         const nx = bootstrap && bootstrap.next_intake;
-        if (!nx || !nx.scheduled_at) return cell(null, 'meds', 'missing');
+        if (!nx || !nx.scheduled_at) return cell(null, 'meds', 'missing', meta);
         const at = Date.parse(nx.scheduled_at);
-        if (!Number.isFinite(at)) return cell(null, 'meds', 'missing');
+        if (!Number.isFinite(at)) return cell(null, 'meds', 'missing', meta);
         const names = Array.isArray(nx.medication_names) ? nx.medication_names : [];
         const ids = Array.isArray(nx.medication_ids) ? nx.medication_ids : [];
         const value = { scheduledAt: nx.scheduled_at, names, ids };
         const status = at + OVERDUE_GRACE_MS < nowMs ? 'overdue' : 'ok';
-        return cell(value, 'meds', status);
+        return cell(value, 'meds', status, meta);
     }
 
     function bpLatestCell(bootstrap, nowMs, enabled) {
@@ -497,7 +505,7 @@
     // class so existing deep-link handlers keep working; the surrounding
     // `.wg-today-meds` modifier swaps out the sun-yellow banner background
     // for the plain card surface mandated by the mockup.
-    function renderTodayMedsCard(cell, onDeeplink, nowMs) {
+    function renderTodayMedsCard(cell, onDeeplink, nowMs, isOffline) {
         if (!cell || cell.status === 'disabled') return null;
         const d = doc();
         const card = d.createElement('div');
@@ -524,7 +532,10 @@
         const names = (cell.value && Array.isArray(cell.value.names)) ? cell.value.names : [];
 
         if (cell.status === 'missing' || !cell.value) {
-            kicker.textContent = 'No scheduled doses';
+            // When offline, the empty next_intake cache may simply mean the
+            // bootstrap fetch never landed — be explicit so the user does not
+            // assume the schedule is empty.
+            kicker.textContent = isOffline ? 'Next dose data unavailable offline' : 'No scheduled doses';
             value.textContent = `${names.length} medication${names.length === 1 ? '' : 's'}`;
         } else {
             const v = cell.value;
@@ -987,7 +998,7 @@
             if (tzCard) { rendered += 1; }
         }
 
-        const medsCard = renderTodayMedsCard(state && state.nextMed, onDeeplink, nowMs);
+        const medsCard = renderTodayMedsCard(state && state.nextMed, onDeeplink, nowMs, !!(state && state.__offline));
         if (medsCard) { root.appendChild(medsCard); rendered += 1; }
 
         if (rendered === 0) {

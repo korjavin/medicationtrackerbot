@@ -1085,6 +1085,42 @@ async function fetchNextIntakePayload() {
     return res && typeof res === 'object' ? res : null;
 }
 
+// next_intake freshness windows: revalidate after 5 min so the card cannot lag
+// the schedule by more than a few minutes online; treat anything beyond 12 h
+// as "stale" for the offline badge tone (longer than that and the schedule
+// itself may no longer match reality after a TZ change or course edit).
+const NEXT_INTAKE_FRESH_AFTER_MS = 5 * 60 * 1000;
+const NEXT_INTAKE_STALE_AFTER_MS = 12 * 60 * 60 * 1000;
+
+// Read-through wrapper for the Next Medication tile. Returns the same payload
+// shape as fetchNextIntakePayload plus { fetchedAt, isFromCache, isStale } so
+// Today can attach freshness metadata to the rendered cell. When cachedFetch
+// is unavailable (e.g. tests that didn't load it) or throws OfflineNoCacheError,
+// resolves to null so callers can fall back to the existing render path.
+async function loadNextIntakeCached() {
+    if (typeof window.cachedFetch !== 'function') {
+        const data = await fetchNextIntakePayload();
+        return data == null ? null : { data, fetchedAt: Date.now(), isFromCache: false, isStale: false };
+    }
+    try {
+        const result = await window.cachedFetch('next_intake', '/api/medications/next-intake', {
+            tags: ['history', 'medications'],
+            freshAfterMs: NEXT_INTAKE_FRESH_AFTER_MS,
+            staleAfterMs: NEXT_INTAKE_STALE_AFTER_MS,
+            transform: (raw) => {
+                if (raw === true) return { scheduled_at: null, medication_names: [] };
+                return raw && typeof raw === 'object' ? raw : null;
+            }
+        });
+        return result;
+    } catch (err) {
+        if (window.OfflineNoCacheError && err instanceof window.OfflineNoCacheError) {
+            return null;
+        }
+        throw err;
+    }
+}
+
 // Returns a timezone-qualified DataStore key for health overview so that a
 // cached response from a prior timezone is never served as though it were
 // current. The in-memory swrCaches object always uses the fixed property name
@@ -1276,7 +1312,15 @@ async function _todayReadCaches(foodKey) {
                     }
                 }
             }
-            if (nextIntakeM?.data) bootstrap.next_intake = nextIntakeM.data;
+            if (nextIntakeM?.data) {
+                bootstrap.next_intake = nextIntakeM.data;
+                if (Number.isFinite(nextIntakeM.timestamp)) {
+                    bootstrap.__next_intake_meta = {
+                        fetchedAt: nextIntakeM.timestamp,
+                        isStale: (Date.now() - nextIntakeM.timestamp) > NEXT_INTAKE_STALE_AFTER_MS
+                    };
+                }
+            }
             if (bpM?.data) {
                 bootstrap.bp = {
                     readings: bpM.data.readingsRes || [],
@@ -1456,7 +1500,6 @@ async function loadToday() {
         // the card hidden indefinitely until some unrelated invalidation ran.
         const hoKey = healthOverviewCacheKey();
         const presence = {
-            next_intake: !!(bootstrap.next_intake && bootstrap.next_intake.scheduled_at),
             bp: !!bootstrap.bp,
             weight: !!bootstrap.weight,
             workout_next: !!swrCaches.workout_next,
@@ -1481,10 +1524,17 @@ async function loadToday() {
         if (!missing.includes(foodKey) && specs[foodKey] && !isFeatureDisabled(specs[foodKey].feature)) {
             missing.push(foodKey);
         }
-        if (missing.length === 0) return;
-        await Promise.allSettled(
-            missing.map((k) => window.DataStore.fetchFresh(k, specs[k].fetch, specs[k].tags))
-        );
+        // next_intake goes through cachedFetch so the helper's SWR window
+        // (5 min) handles wall-clock drift without forcing a network call on
+        // every render. cachedFetch returns cached instantly when fresh and
+        // background-revalidates; on offline / 5xx it keeps cached.
+        const nextIntakePromise = isFeatureDisabled('medication')
+            ? Promise.resolve(null)
+            : loadNextIntakeCached().catch(() => null);
+        const otherFetches = missing.length > 0
+            ? Promise.allSettled(missing.map((k) => window.DataStore.fetchFresh(k, specs[k].fetch, specs[k].tags)))
+            : Promise.resolve([]);
+        await Promise.all([nextIntakePromise, otherFetches]);
     } finally {
         todayRefreshInFlight = false;
     }
