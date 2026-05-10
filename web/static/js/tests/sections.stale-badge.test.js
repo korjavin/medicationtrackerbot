@@ -16,6 +16,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import { allowConsoleNoise } from './helpers/setup.js';
 
 function installApiCacheMap(window, initialCache = {}) {
     const map = new Map();
@@ -172,6 +173,46 @@ describe('Section-header stale badges (Task 6)', () => {
             const badge = expectOfflineBadge(slot);
             // 90m old offline → "Offline · 1h old" (formatAge truncates to whole hours)
             expect(badge.textContent).toMatch(/^Offline · 1h old$/);
+        });
+
+        it('surfaces MedicationStore timestamp when api_cache is empty but offline cache has data', async () => {
+            // Regression: the onError fallback path re-renders meds from
+            // MedicationStore (separate Dexie table) but previously did not
+            // pass that store's saved-at timestamp through to the badge,
+            // causing "Offline · no cache" while real meds were on screen.
+            allowConsoleNoise();
+            const { window, document } = env;
+            installApiCacheMap(window, {}); // empty api_cache
+            const savedAt = Date.now() - 3 * 60 * 60 * 1000; // 3h ago
+            const meds = [{
+                id: 7,
+                name: 'Lisinopril',
+                dosage: '10mg',
+                schedule: JSON.stringify({ type: 'daily', times: ['09:00'] })
+            }];
+            window.MedTrackerDB.MedicationStore = {
+                getCache: async () => meds,
+                saveCache: async () => undefined
+            };
+            window.MedTrackerDB.db = {
+                medication_cache: {
+                    get: async (id) => id === 'medications_list'
+                        ? { id, timestamp: savedAt, data: meds }
+                        : null
+                }
+            };
+            window.medications = [];
+            window.initialAuthLoad = false;
+            setOnline(window, false);
+            // Throw to trigger loadSWR's onError branch (the fallback path
+            // that pulls data from MedicationStore when api_cache is empty).
+            window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+
+            await window.loadMeds();
+
+            const slot = document.getElementById('meds-schedule-stale-badge');
+            const badge = expectOfflineBadge(slot);
+            expect(badge.textContent).toMatch(/^Offline · 3h old$/);
         });
     });
 
