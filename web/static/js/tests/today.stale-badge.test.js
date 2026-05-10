@@ -120,6 +120,35 @@ describe('Today section-header stale badge', () => {
         expect(root.querySelector('.today-empty-firstrun')).not.toBeNull();
     });
 
+    it('shows Offline · Nm old when offline with a fresh (sub-stale-threshold) cache', () => {
+        // Regression: the badge tone used to gate on state.__offline (offline+stale)
+        // so an offline session with a fresh cache rendered the neutral "Updated 5m ago"
+        // instead of the documented "Offline · 5m old". The Today badge must surface
+        // the raw navigator-offline signal independently of the offline-stale banner.
+        const now = new Date('2026-05-09T12:00:00Z');
+        const fetchedAt = now.getTime() - 5 * 60 * 1000; // 5 min old, well within the 1h stale threshold
+        const bootstrap = {
+            features: { medication: true, bp: false, weight: false, food: false, workout: false, health: false },
+            next_intake: {
+                scheduled_at: new Date(now.getTime() + 60 * 60 * 1000).toISOString(),
+                medication_names: ['Aspirin'],
+                medication_ids: [11]
+            }
+        };
+        const state = env.aggregate(bootstrap, null, now);
+        state.__fetchedAt = fetchedAt;
+        state.__navigatorOffline = true; // raw offline flag without offline-stale gating
+
+        const root = env.document.createElement('div');
+        env.render(state, root, { now });
+
+        const badge = root.querySelector('.today-stale-badge-row .wg-stale-badge');
+        expect(badge).not.toBeNull();
+        expect(badge.textContent).toBe('Offline · 5m old');
+        expect(badge.classList.contains('wg-stale-badge--warning')).toBe(true);
+        expect(badge.classList.contains('wg-stale-badge--offline')).toBe(true);
+    });
+
     it('falls back to "Offline · no cache" when offline and no fetchedAt was tracked', () => {
         const now = new Date('2026-05-09T12:00:00Z');
         const bootstrap = {

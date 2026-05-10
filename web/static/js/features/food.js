@@ -8,10 +8,9 @@ const FOOD_MACROS_RANGES = ['day', 'week'];
 let foodMacrosRange = 'day';
 
 // Freshness metadata captured from the most recent cachedFetch call for the
-// daily food log + the products library. Task 5 mounts the badge component
-// on the Food section header from these timestamps.
+// daily food log. Task 5 mounts the badge component on the Food section header
+// from this timestamp.
 let lastFoodLogsMeta = null;
-let lastFoodProductsMeta = null;
 
 function renderFoodDayNavIcons() {
     const prev = document.getElementById('food-date-prev-btn');
@@ -267,22 +266,14 @@ async function initFoodProductsCache() {
                         }
                     );
                     products = Array.isArray(result?.data) ? result.data : [];
-                    lastFoodProductsMeta = result ? {
-                        fetchedAt: result.fetchedAt,
-                        isStale: !!result.isStale,
-                        isFromCache: !!result.isFromCache
-                    } : null;
                 } catch (cfErr) {
-                    if (window.OfflineNoCacheError && cfErr instanceof window.OfflineNoCacheError) {
-                        lastFoodProductsMeta = null;
-                    } else {
+                    if (!(window.OfflineNoCacheError && cfErr instanceof window.OfflineNoCacheError)) {
                         throw cfErr;
                     }
                 }
             } else {
                 const resp = await apiCall('/api/food/products', 'GET');
                 products = resp ? (resp.products || []) : [];
-                lastFoodProductsMeta = { fetchedAt: Date.now(), isStale: false, isFromCache: false };
             }
             foodProductsCache = products;
             if (window.MedTrackerDB && foodProductsCache.length > 0) {
