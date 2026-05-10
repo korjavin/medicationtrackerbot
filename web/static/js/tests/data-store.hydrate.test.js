@@ -159,4 +159,34 @@ describe('DataStore.hydrateFromDexie', () => {
       cleanup();
     }
   });
+
+  it('still registers tags when the freshness check short-circuits the write', async () => {
+    // Mirrors the cold-start path: bootstrap from the previous session wrote
+    // MedicationStore (Dexie) first, ApiCache second, so on reload the
+    // ApiCache row is slightly newer than the MedicationStore row. The
+    // freshness no-op must still register tags or invalidateByTag silently
+    // misses the key until some later loadSWR/setCachedWithTags repopulates it.
+    const fresherTs = Date.now();
+    const { window, cacheMap, cleanup } = loadDataStoreEnv({
+      initialCache: { medications: [{ id: 'fresh' }] },
+      initialMeta: { medications: fresherTs }
+    });
+
+    try {
+      const olderTs = fresherTs - 1_000;
+      const loader = vi.fn().mockResolvedValue({
+        data: [{ id: 'stale' }],
+        timestamp: olderTs
+      });
+
+      const result = await window.DataStore.hydrateFromDexie('medications', loader, { tags: ['medications'] });
+      expect(result).toEqual({ hydrated: false, fetchedAt: fresherTs });
+      expect(cacheMap.get('medications')).toEqual([{ id: 'fresh' }]);
+
+      await window.DataStore.invalidateByTag('medications');
+      expect(cacheMap.has('medications')).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
 });

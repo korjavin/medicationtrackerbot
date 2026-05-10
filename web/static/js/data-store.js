@@ -138,6 +138,16 @@
             }
             if (!hasValue(rawData)) return { hydrated: false };
 
+            // Register tags up-front so a later invalidateByTag can find this
+            // key even when the freshness check below short-circuits the
+            // hydration write. On a normal reload the bootstrap-warmed
+            // ApiCache row is slightly newer than the MedicationStore row
+            // (bootstrap writes Dexie first, ApiCache second), so without
+            // this `tagToKeys` would be empty for the hydrated key on cold
+            // start and tag-based invalidation would silently no-op until
+            // some later loadSWR/setCachedWithTags call repopulated it.
+            registerKeyTags(key, tags || []);
+
             const apiCache = window.MedTrackerDB?.ApiCache;
             if (apiCache && typeof apiCache.getWithMeta === 'function' && dexieTs !== null) {
                 try {
@@ -162,8 +172,6 @@
                 }
             }
             if (!hasValue(value)) return { hydrated: false };
-
-            registerKeyTags(key, tags || []);
 
             try {
                 if (apiCache && typeof apiCache.setWithMeta === 'function' && dexieTs !== null) {
