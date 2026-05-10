@@ -134,7 +134,7 @@ describe('TodayDashboard.renderToday', () => {
         expect(root.querySelector('.section-header')).toBeNull();
 
         expect(root.querySelector('.wg-today-shortcuts')).not.toBeNull();
-        expect(root.querySelectorAll('.wg-shortcut-tile').length).toBe(3);
+        expect(root.querySelectorAll('.wg-shortcut-tile').length).toBe(4);
         expect(root.querySelector('.wg-vitals-grid')).not.toBeNull();
         expect(root.querySelectorAll('.wg-metric-tile').length).toBe(2);
         expect(root.querySelector('.wg-fuel-card')).not.toBeNull();
@@ -282,17 +282,20 @@ describe('TodayDashboard.renderToday', () => {
     it('shortcut tiles invoke the modal openers, not tab switches', () => {
         const root = env.document.getElementById('today-content');
         const onLogFood = vi.fn();
+        const onPhotoMeal = vi.fn();
         const onAddBp = vi.fn();
         const onAddWeight = vi.fn();
-        env.render(allPresentState(now), root, { now, onLogFood, onAddBp, onAddWeight });
+        env.render(allPresentState(now), root, { now, onLogFood, onPhotoMeal, onAddBp, onAddWeight });
 
         const tiles = root.querySelectorAll('.wg-shortcut-tile');
-        expect(tiles.length).toBe(3);
+        expect(tiles.length).toBe(4);
         tiles[0].click(); // Log food
-        tiles[1].click(); // Add BP
-        tiles[2].click(); // Add weight
+        tiles[1].click(); // Photo meal
+        tiles[2].click(); // Add BP
+        tiles[3].click(); // Add weight
 
         expect(onLogFood).toHaveBeenCalledTimes(1);
+        expect(onPhotoMeal).toHaveBeenCalledTimes(1);
         expect(onAddBp).toHaveBeenCalledTimes(1);
         expect(onAddWeight).toHaveBeenCalledTimes(1);
     });
@@ -302,14 +305,17 @@ describe('TodayDashboard.renderToday', () => {
         env.window.showAddFoodModal = vi.fn();
         env.window.showBPRecordModal = vi.fn();
         env.window.showWeightModal = vi.fn();
+        env.window.FoodActions = { triggerPhotoPicker: vi.fn() };
         env.render(allPresentState(now), root, { now });
 
         const tiles = root.querySelectorAll('.wg-shortcut-tile');
-        tiles[0].click();
-        tiles[1].click();
-        tiles[2].click();
+        tiles[0].click(); // Log food
+        tiles[1].click(); // Photo meal
+        tiles[2].click(); // Add BP
+        tiles[3].click(); // Add weight
 
         expect(env.window.showAddFoodModal).toHaveBeenCalledTimes(1);
+        expect(env.window.FoodActions.triggerPhotoPicker).toHaveBeenCalledTimes(1);
         expect(env.window.showBPRecordModal).toHaveBeenCalledTimes(1);
         expect(env.window.showWeightModal).toHaveBeenCalledTimes(1);
     });
