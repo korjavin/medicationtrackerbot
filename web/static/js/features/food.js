@@ -7,6 +7,12 @@ let foodControlsBound = false;
 const FOOD_MACROS_RANGES = ['day', 'week'];
 let foodMacrosRange = 'day';
 
+// Freshness metadata captured from the most recent cachedFetch call for the
+// daily food log + the products library. Task 5 mounts the badge component
+// on the Food section header from these timestamps.
+let lastFoodLogsMeta = null;
+let lastFoodProductsMeta = null;
+
 function renderFoodDayNavIcons() {
     const prev = document.getElementById('food-date-prev-btn');
     const next = document.getElementById('food-date-next-btn');
@@ -247,8 +253,38 @@ async function initFoodProductsCache() {
     }
     if (!foodProductsCache) {
         try {
-            const resp = await apiCall('/api/food/products', 'GET');
-            foodProductsCache = resp ? (resp.products || []) : [];
+            let products = [];
+            if (typeof window.cachedFetch === 'function') {
+                try {
+                    const result = await window.cachedFetch(
+                        'food_products_cache',
+                        '/api/food/products',
+                        {
+                            tags: ['food'],
+                            freshAfterMs: 60 * 60 * 1000,
+                            staleAfterMs: 7 * 24 * 60 * 60 * 1000,
+                            transform: (raw) => (raw && Array.isArray(raw.products)) ? raw.products : []
+                        }
+                    );
+                    products = Array.isArray(result?.data) ? result.data : [];
+                    lastFoodProductsMeta = result ? {
+                        fetchedAt: result.fetchedAt,
+                        isStale: !!result.isStale,
+                        isFromCache: !!result.isFromCache
+                    } : null;
+                } catch (cfErr) {
+                    if (window.OfflineNoCacheError && cfErr instanceof window.OfflineNoCacheError) {
+                        lastFoodProductsMeta = null;
+                    } else {
+                        throw cfErr;
+                    }
+                }
+            } else {
+                const resp = await apiCall('/api/food/products', 'GET');
+                products = resp ? (resp.products || []) : [];
+                lastFoodProductsMeta = { fetchedAt: Date.now(), isStale: false, isFromCache: false };
+            }
+            foodProductsCache = products;
             if (window.MedTrackerDB && foodProductsCache.length > 0) {
                 await window.MedTrackerDB.FoodProductsStore.saveCache(foodProductsCache);
             }
@@ -1746,8 +1782,10 @@ async function loadFoodLogs() {
     });
 
     // Show cached data immediately (stale-while-revalidate). Cache key
-    // mirrors the new always-fetch-both shape; the macros toggle reads
-    // from the same cache without invalidating it.
+    // mirrors the always-fetch-both shape; the macros toggle reads from
+    // the same cache without invalidating it. The newer cachedFetch path
+    // populates `food_<date>_day` (matching the bootstrap apply path) so
+    // offline reloads survive even when this v2 cache is empty.
     const cacheKey = `food_${dateStr}_v2`;
     const cached = await window.DataStore.getCached(cacheKey);
     if (cached) {
@@ -1759,25 +1797,61 @@ async function loadFoodLogs() {
 
     updateFoodDateNav();
 
-    // Always fetch fresh data for both the daily groups and the weekly
-    // stats totals; toggling Daily/Weekly in the macros card re-renders
-    // from the same payload without a second round-trip.
-    try {
-        const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        const tzOffset = new Date(`${dateStr}T00:00:00`).getTimezoneOffset();
-        const tzParams = tzName
-            ? `&tz=${encodeURIComponent(tzName)}`
-            : `&tz_offset=${tzOffset}`;
+    const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const tzOffset = new Date(`${dateStr}T00:00:00`).getTimezoneOffset();
+    const tzParams = tzName
+        ? `&tz=${encodeURIComponent(tzName)}`
+        : `&tz_offset=${tzOffset}`;
 
-        const [groups, weekStats] = await Promise.all([
-            apiCall(`/api/food/log?date=${dateStr}${tzParams}`, 'GET'),
-            apiCall(`/api/food/stats?date=${dateStr}&days=7${tzParams}`, 'GET'),
-        ]);
+    try {
+        let groups = [];
+        let groupsMeta = null;
+        if (typeof window.cachedFetch === 'function') {
+            // Local-first read: route /api/food/log through cachedFetch so the
+            // bootstrap-warmed `food_<date>_day` cache is reused offline. The
+            // helper also propagates `fetchedAt` + `isStale` to power the
+            // section freshness badge (Task 4 / Task 5).
+            const groupsResult = await window.cachedFetch(
+                `food_${dateStr}_day`,
+                `/api/food/log?date=${dateStr}${tzParams}`,
+                {
+                    tags: ['food'],
+                    freshAfterMs: 60_000,
+                    staleAfterMs: 24 * 60 * 60 * 1000,
+                    transform: (raw) => ({ groups: Array.isArray(raw) ? raw : [] })
+                }
+            );
+            groups = (groupsResult?.data && Array.isArray(groupsResult.data.groups))
+                ? groupsResult.data.groups
+                : [];
+            groupsMeta = groupsResult ? {
+                fetchedAt: groupsResult.fetchedAt,
+                isStale: !!groupsResult.isStale,
+                isFromCache: !!groupsResult.isFromCache
+            } : null;
+        } else {
+            const raw = await apiCall(`/api/food/log?date=${dateStr}${tzParams}`, 'GET');
+            groups = Array.isArray(raw) ? raw : [];
+            groupsMeta = { fetchedAt: Date.now(), isStale: false, isFromCache: false };
+        }
+
+        const weekStats = await apiCall(`/api/food/stats?date=${dateStr}&days=7${tzParams}`, 'GET');
 
         await window.DataStore.setCached(cacheKey, { groups: groups || [], weekStats: weekStats || null });
 
+        lastFoodLogsMeta = groupsMeta;
         _renderFoodData(groups || [], weekStats || null, foodMacrosRange, dateStr);
     } catch (e) {
+        if (window.OfflineNoCacheError && e instanceof window.OfflineNoCacheError) {
+            // No `food_<date>_day` cache and the network is unreachable —
+            // surface an explicit empty state instead of a silent empty list.
+            const errP = document.createElement('p');
+            errP.className = 'error';
+            errP.textContent = 'No cached food data — connect to load.';
+            list.replaceChildren(errP);
+            lastFoodLogsMeta = null;
+            return;
+        }
         console.error(e);
         if (!cached) {
             const errP = document.createElement('p');
