@@ -22,6 +22,22 @@ describe('DataStore.hydrateFromDexie', () => {
     }
   });
 
+  it('tolerates a null opts argument without throwing (never-throws contract)', async () => {
+    const { window, cleanup } = loadDataStoreEnv();
+
+    try {
+      const loader = vi.fn().mockResolvedValue(null);
+      // Default params only kick in for `undefined`; a caller threading
+      // through an optional config could legitimately pass null.
+      const result = await window.DataStore.hydrateFromDexie('medications', loader, null);
+
+      expect(loader).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({ hydrated: false });
+    } finally {
+      cleanup();
+    }
+  });
+
   it('seeds the cache from a populated Dexie record and preserves the original timestamp', async () => {
     const { window, cacheMap, metaMap, cleanup } = loadDataStoreEnv();
 

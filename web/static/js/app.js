@@ -448,7 +448,12 @@ async function hydrateMedicationsFromDexie() {
                 initialAuthLoad = true;
             }
         }
-    } catch (_) { /* hydration must not block auth flow */ }
+    } catch (e) {
+        // Hydration must not block the auth flow, but swallowing silently leaves
+        // a diagnostic blind spot when IndexedDB itself is in a broken state
+        // (quota, schema mismatch, private-mode block). Log once and continue.
+        console.warn('[Hydrate] Dexie medications hydration failed', e);
+    }
 }
 
 // Check Auth Environment
