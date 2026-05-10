@@ -120,8 +120,10 @@
             if (t < bestMs) bestMs = t;
         }
         if (!Number.isFinite(bestMs)) return null;
-        // 60s tolerance so meds saved with off-by-seconds schedules still group.
-        const TOL_MS = 60 * 1000;
+        // Mirror the server's forecastClusterWindow / triggerNextIntakeClusterWindow
+        // (10 minutes) so the offline fallback collapses multi-med slots into one
+        // card the same way /api/medications/next-intake does.
+        const TOL_MS = 10 * 60 * 1000;
         const grouped = candidates
             .filter((c) => c.t - bestMs <= TOL_MS)
             .sort((a, b) => a.t - b.t);
