@@ -254,6 +254,56 @@ describe('Today next-intake meds fallback', () => {
         });
     });
 
+    it('skips medications whose course has already ended or has not started yet (medplan.PlanDoses parity)', () => {
+        const now = new Date('2026-05-09T07:30:00');
+        const nowMs = now.getTime();
+        // Three meds: a finished antibiotic course (end_date yesterday), a not-yet-started
+        // course (start_date tomorrow), and an active med. Only the active one should drive
+        // the next-dose tile — mirrors medplan.go's StartDate/EndDate filter at lines 117-122.
+        const yesterday = new Date(nowMs - 24 * 60 * 60 * 1000).toISOString();
+        const tomorrow = new Date(nowMs + 24 * 60 * 60 * 1000).toISOString();
+        const bootstrap = {
+            features: FEATURES_MED_ONLY,
+            medications: [
+                { id: 1, name: 'FinishedAntibiotic', archived: false, end_date: yesterday,
+                  schedule: JSON.stringify({ type: 'daily', times: ['08:00'] }) },
+                { id: 2, name: 'NotYetStarted', archived: false, start_date: tomorrow,
+                  schedule: JSON.stringify({ type: 'daily', times: ['09:00'] }) },
+                { id: 3, name: 'Active', archived: false,
+                  schedule: JSON.stringify({ type: 'daily', times: ['12:00'] }) }
+            ],
+            __medications_meta: { fetchedAt: nowMs - 60 * 60 * 1000, isStale: true }
+        };
+
+        const state = env.aggregate(bootstrap, null, now, HELPERS);
+
+        expect(state.nextMed.status).toBe('ok');
+        expect(state.nextMed.value.names).toEqual(['Active']);
+        expect(state.nextMed.value.ids).toEqual([3]);
+    });
+
+    it('skips computed next doses that fall after the course end_date', () => {
+        const now = new Date('2026-05-09T07:30:00');
+        const nowMs = now.getTime();
+        // Med's end_date is 08:00 today — the daily schedule's next dose computes to 09:00
+        // today, which is past end_date. Server-side medplan filters this target at line 132,
+        // so the offline fallback must too.
+        const earlierToday = new Date(now);
+        earlierToday.setHours(8, 0, 0, 0);
+        const bootstrap = {
+            features: FEATURES_MED_ONLY,
+            medications: [
+                { id: 1, name: 'EndsBeforeNextDose', archived: false,
+                  end_date: earlierToday.toISOString(),
+                  schedule: JSON.stringify({ type: 'daily', times: ['09:00'] }) }
+            ],
+            __medications_meta: { fetchedAt: nowMs - 60 * 60 * 1000, isStale: true }
+        };
+
+        const state = env.aggregate(bootstrap, null, now, HELPERS);
+        expect(state.nextMed.status).toBe('missing');
+    });
+
     it('does not throw when helpers are not provided (graceful degrade to existing missing state)', () => {
         const now = new Date('2026-05-09T07:30:00');
         const bootstrap = {

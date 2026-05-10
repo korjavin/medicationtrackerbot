@@ -100,6 +100,10 @@
     // when the helpers aren't available, the list is empty, or no med has a
     // computable next dose. Used as the offline fallback when the cached
     // next_intake response is missing or stale.
+    //
+    // Course-window filter (start_date / end_date) mirrors medplan.PlanDoses
+    // so the offline fallback does not advertise a finished antibiotic course
+    // or a med that doesn't start until tomorrow.
     function computeFallbackFromMedications(meds, nowMs, parseSchedule, getNext) {
         if (!Array.isArray(meds) || meds.length === 0) return null;
         if (typeof parseSchedule !== 'function' || typeof getNext !== 'function') return null;
@@ -109,6 +113,10 @@
         for (const med of meds) {
             if (!med || med.archived) continue;
             if (typeof med.name !== 'string' || med.id == null) continue;
+            const startMs = med.start_date ? Date.parse(med.start_date) : NaN;
+            if (Number.isFinite(startMs) && startMs > nowMs) continue;
+            const endMs = med.end_date ? Date.parse(med.end_date) : NaN;
+            if (Number.isFinite(endMs) && endMs <= nowMs) continue;
             const schedule = parseSchedule(med.schedule);
             if (!schedule) continue;
             const type = schedule.type;
@@ -117,6 +125,7 @@
             if (!next) continue;
             const t = next instanceof Date ? next.getTime() : Date.parse(next);
             if (!Number.isFinite(t)) continue;
+            if (Number.isFinite(endMs) && t > endMs) continue;
             candidates.push({ med, t });
             if (t < bestMs) bestMs = t;
         }
