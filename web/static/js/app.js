@@ -420,8 +420,44 @@ function hydrateFeatureSettingsFromBundle(bundle) {
     if (window.AppStore) window.AppStore.set('featureSettings', featureSettings);
 }
 
+// Cold-start preflight: seed DataStore with the previous session's
+// medications list from Dexie so any view that mounts before /api/bootstrap
+// resolves (offline relaunch, slow first response) renders planned doses
+// immediately. Gated on auth presence — Telegram initData OR a cached auth
+// state from a prior session — so a fully unauthenticated cold start does
+// not surface a former user's meds.
+async function hydrateMedicationsFromDexie() {
+    if (!window.DataStore?.hydrateFromDexie) return;
+    if (!window.MedTrackerDB?.MedicationStore?.loadCache) return;
+    const hasAuthPresence = !!userInitData
+        || (typeof getCachedAuthState === 'function' && !!getCachedAuthState());
+    if (!hasAuthPresence) return;
+    try {
+        const result = await window.DataStore.hydrateFromDexie(
+            'medications',
+            () => window.MedTrackerDB.MedicationStore.loadCache(),
+            { tags: ['medications'] }
+        );
+        if (result?.hydrated) {
+            // Keep the let-scoped `medications` mirror in sync so feature
+            // modules that read it directly (rather than via DataStore)
+            // see the seeded list before bootstrap returns.
+            const seeded = await window.DataStore.getCached('medications');
+            if (Array.isArray(seeded)) {
+                medications = seeded;
+                initialAuthLoad = true;
+            }
+        }
+    } catch (_) { /* hydration must not block auth flow */ }
+}
+
 // Check Auth Environment
 async function checkAuth() {
+    // Preflight Dexie hydration runs before any bootstrap fetch so a
+    // relaunch-while-offline already has the meds list in DataStore by the
+    // time the first switchTab() / Today tile / loadMeds() reads it.
+    await hydrateMedicationsFromDexie();
+
     if (userInitData) {
         // We are in Telegram, proceed as normal
         sessionStorage.removeItem('medtracker_auth_reload_in_progress');
