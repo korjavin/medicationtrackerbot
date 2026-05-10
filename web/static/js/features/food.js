@@ -2285,31 +2285,36 @@ async function deleteFoodLog(id) {
 
 // Undo handler for the friendly food-photo summary card. Issues a parallel
 // DELETE for every just-logged item, refreshes the food list + Today, then
-// transitions the card to a "Removed N items" success state. Any failure
-// flips the card to its retry-able error state instead.
-async function undoFoodPhotoLog(items, summary) {
+// transitions the card to a "Removed N items" success state. On partial
+// failure the card flips to its retry-able error state, and Retry only
+// re-attempts the items that haven't already been deleted — otherwise the
+// store's "no rows" 500 for already-deleted ids would lock the user in
+// permanent error after a single successful round.
+async function undoFoodPhotoLog(items, summary, originalCount) {
     if (!Array.isArray(items) || items.length === 0) return;
+    const total = (typeof originalCount === 'number') ? originalCount : items.length;
 
     const results = await Promise.all(items.map(async (it) => {
-        if (!it || it.id == null) return false;
+        if (!it || !it.id) return { item: it, ok: false };
         try {
             const res = await fetch(`/api/food/log/${it.id}`, {
                 method: 'DELETE',
                 headers: { 'X-Telegram-Init-Data': window.userInitData },
             });
-            return !!(res && res.ok);
+            return { item: it, ok: !!(res && res.ok) };
         } catch (_) {
-            return false;
+            return { item: it, ok: false };
         }
     }));
 
-    const allOk = results.every(Boolean);
+    const allOk = results.every(r => r.ok);
 
     if (!allOk) {
+        const remaining = results.filter(r => !r.ok).map(r => r.item);
         if (summary && typeof summary.showError === 'function') {
             summary.showError(
                 'Could not undo all items. Tap retry to try again.',
-                () => undoFoodPhotoLog(items, summary),
+                () => undoFoodPhotoLog(remaining, summary, total),
             );
         }
         return;
@@ -2331,7 +2336,7 @@ async function undoFoodPhotoLog(items, summary) {
     if (typeof loadToday === 'function') loadToday();
 
     if (summary && typeof summary.showRemoved === 'function') {
-        summary.showRemoved(items.length);
+        summary.showRemoved(total);
     }
 }
 
