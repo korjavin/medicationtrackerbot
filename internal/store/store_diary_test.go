@@ -123,9 +123,14 @@ func TestListDiaryNotes_Since(t *testing.T) {
 	ctx := context.Background()
 
 	// Insert old note with explicit past timestamp to avoid sub-second flakiness.
+	// Bind the timestamp as a time.Time so go-sqlite3 serializes it the same way
+	// CreateDiaryNote serializes its row — otherwise a runner in a non-UTC local
+	// timezone gets a text-comparison flip in the WHERE created_at >= ? clause
+	// (raw "2006-01-02 15:04:05" with no offset vs the driver's offset-suffixed
+	// form sort differently when the offset starts with '-').
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO diary_notes (user_id, content, created_at) VALUES (?, ?, ?)`,
-		1, "old note", time.Now().Add(-time.Hour).UTC().Format("2006-01-02 15:04:05"))
+		1, "old note", time.Now().Add(-time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
