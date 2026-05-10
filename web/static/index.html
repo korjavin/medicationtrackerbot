@@ -241,6 +241,12 @@
             <input type="file" id="food-photo-input" accept="image/*" class="hidden" aria-hidden="true">
 
             <div id="food-log-tab" class="food-tab-content active">
+                <!-- Stale-data chip (Task 5 of local-first read resilience).
+                     Populated by _renderFoodData() from the lastFoodLogsMeta
+                     captured on every cachedFetch read; hidden by default so
+                     it does not flash before the first daily-log read. -->
+                <div id="food-stale-badge" class="wg-food-stale-badge-row hidden" aria-live="polite"></div>
+
                 <!-- Daily macros card (Phase 4, Task 4). Populated by
                      renderFoodMacrosCard() with kcal total, % of target, and
                      four WGMacroBar rows. Phase 5, Task 4: adds an in-card

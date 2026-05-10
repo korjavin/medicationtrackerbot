@@ -5888,6 +5888,17 @@ textarea.wg-input {
     border-color: var(--wg-tag-alert-border);
 }
 
+/* Wrapper rows that mount the stale chip in the Today and Food section
+   headers (Task 5 of local-first read-resilience). The chip itself owns
+   colour/border; the row only sets layout (right-aligned with a small
+   bottom gap so it does not crowd the cards underneath). */
+.today-stale-badge-row,
+.wg-food-stale-badge-row {
+    display: flex;
+    justify-content: flex-end;
+    margin: 0 0 var(--space-sm) 0;
+}
+
 /* Daily macros card (Phase 4, Task 4). `.wg-card` shell with a mono kcal
    total on the left, sun-tinted `% of target` on the right, and four
    WGMacroBar rows stacked below. Populated by renderFoodMacrosCard()

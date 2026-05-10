@@ -924,6 +924,29 @@
         root.classList.add('wg-today');
         root.classList.add('today-root');
 
+        // Stale-data chip (Task 5 of local-first read resilience). Rendered at
+        // the top of Today using the OLDEST fetchedAt across the caches that
+        // feed the screen, so the user reads it as a worst-case freshness
+        // floor. Suppressed during the firstRun empty-state — the placeholder
+        // already explains what's going on.
+        if (!state.__firstRun
+            && typeof window !== 'undefined'
+            && window.WGStaleBadge
+            && typeof window.WGStaleBadge.render === 'function') {
+            const fetchedAt = (state && Number.isFinite(state.__fetchedAt)) ? state.__fetchedAt : null;
+            if (fetchedAt !== null || state.__offline) {
+                const headerRow = d.createElement('div');
+                headerRow.className = 'today-stale-badge-row';
+                const badge = window.WGStaleBadge.render({
+                    fetchedAt,
+                    isOffline: !!state.__offline,
+                    now: nowMs
+                });
+                headerRow.appendChild(badge);
+                root.appendChild(headerRow);
+            }
+        }
+
         if (state && state.__offline && !state.__firstRun) {
             const banner = d.createElement('div');
             banner.className = 'today-offline-banner';

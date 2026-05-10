@@ -1281,9 +1281,18 @@ async function _todayReadCaches(foodKey) {
     // cache (e.g. health_overview) pin the window even after bootstrap just
     // refreshed.
     let latestCacheTimestamp = null;
+    // Worst-case freshness for the section-header badge (Task 5): the oldest
+    // timestamp across the caches feeding Today. The user reads it as
+    // "everything you see is at least this old", which lines up with how the
+    // chip is positioned at the top of the screen.
+    let oldestCacheTimestamp = null;
     const trackTs = (ts) => {
-        if (Number.isFinite(ts) && (latestCacheTimestamp === null || ts > latestCacheTimestamp)) {
+        if (!Number.isFinite(ts)) return;
+        if (latestCacheTimestamp === null || ts > latestCacheTimestamp) {
             latestCacheTimestamp = ts;
+        }
+        if (oldestCacheTimestamp === null || ts < oldestCacheTimestamp) {
+            oldestCacheTimestamp = ts;
         }
     };
     try {
@@ -1403,13 +1412,13 @@ async function _todayReadCaches(foodKey) {
         const persisted = readPersistedTabOrder();
         if (persisted) cardOrder = persisted;
     }
-    return { bootstrap, swrCaches, latestCacheTimestamp, cardOrder };
+    return { bootstrap, swrCaches, latestCacheTimestamp, oldestCacheTimestamp, cardOrder };
 }
 
 async function _todayRender(foodKey) {
     const root = document.getElementById('today-content');
     if (!root || !window.TodayDashboard) return { rendered: false };
-    const { bootstrap, swrCaches, latestCacheTimestamp, cardOrder } = await _todayReadCaches(foodKey);
+    const { bootstrap, swrCaches, latestCacheTimestamp, oldestCacheTimestamp, cardOrder } = await _todayReadCaches(foodKey);
     const online = typeof navigator !== 'undefined' ? navigator.onLine !== false : true;
     const nowMs = Date.now();
     const state = window.TodayDashboard.aggregateToday(bootstrap, swrCaches, nowMs);
@@ -1422,6 +1431,11 @@ async function _todayRender(foodKey) {
     }
     if (window.TodayDashboard.isOfflineStale({ online, cacheTimestamp: latestCacheTimestamp, now: nowMs })) {
         state.__offline = true;
+    }
+    if (oldestCacheTimestamp !== null) {
+        // Worst-case freshness — read by renderToday to mount the wg-stale-badge
+        // chip so the user can see how old the displayed data really is.
+        state.__fetchedAt = oldestCacheTimestamp;
     }
     window.TodayDashboard.renderToday(state, root, { now: nowMs, cardOrder });
     return { rendered: true, bootstrap, swrCaches, online };
