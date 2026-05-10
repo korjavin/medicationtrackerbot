@@ -42,12 +42,12 @@ const ALLOWED = new Map([
         "style.setProperty on a neutral CSS custom property (--fill-pct) — CSS class reads it via width: var(--fill-pct, 0%); no hardcoded visual value lives in JS",
     ],
     [
-        'web/static/js/features/food.js:2484',
-        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS. Line shifted after Task 5 of the local-first read-resilience plan added the section-header stale-badge mount logic.",
+        'web/static/js/features/food.js:2490',
+        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS. Line shifted after the second-pass review fix that preserves cached weekStats on offline reload.",
     ],
     [
-        'web/static/js/features/food.js:2485',
-        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS. Line shifted after Task 5 of the local-first read-resilience plan added the section-header stale-badge mount logic.",
+        'web/static/js/features/food.js:2491',
+        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS. Line shifted after the second-pass review fix that preserves cached weekStats on offline reload.",
     ],
     [
         'web/static/js/features/meds.js:83',
