@@ -2959,7 +2959,14 @@ async function snoozeWorkout(minutes) {
     const btn = document.getElementById(`workout-start-snooze-${minutes}-btn`);
     await withSubmit(btn, async () => {
         const res = await apiCall(`/api/workout/sessions/${pendingWorkoutSessionId}/snooze`, 'POST', { minutes: minutes });
-        if (res) safeAlert(`Snoozed for ${minutes} minutes`);
+        if (res) {
+            if (typeof invalidateWorkoutCache === 'function') {
+                await invalidateWorkoutCache();
+            } else if (window.DataStore?.invalidateTags) {
+                await window.DataStore.invalidateTags(['workout']);
+            }
+            safeAlert(`Snoozed for ${minutes} minutes`);
+        }
         closeWorkoutStartModal();
     });
 }
@@ -2971,6 +2978,11 @@ async function skipWorkout() {
 
         const res = await apiCall(`/api/workout/sessions/${pendingWorkoutSessionId}/skip`, 'POST');
         if (res) {
+            if (typeof invalidateWorkoutCache === 'function') {
+                await invalidateWorkoutCache();
+            } else if (window.DataStore?.invalidateTags) {
+                await window.DataStore.invalidateTags(['workout']);
+            }
             safeAlert("Workout skipped");
             loadWorkouts();
         }

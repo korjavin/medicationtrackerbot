@@ -56,7 +56,7 @@ Tone classes (defined in `styles.css`, no inline styles): `.wg-stale-badge--neut
 | Today next-intake | `next_intake` | 5 min | 12 h |
 | Food daily log | `food_<date>_day` | 60 s | 24 h |
 | Food products | `food_products_cache` | 1 h | 7 d |
-| BP / Weight / Meds / Workouts / Vitals | `bp`, `weight`, `medications`, `history_<days>_<medId>`, `workout_next`, `workout_groups`, `health_overview_<…>`, `diary_notes` | n/a (existing `offlineAwareApiCall` reads) | inherits the badge default (1 h) — chip uses `mountFromKey` against the bootstrap-warmed key |
+| BP / Weight / Meds / Workouts / Vitals | `bp`, `weight`, `medications`, `history_<days>_<medId>`, `workout_next`, `workout_history`, `workout_groups`, `health_overview_<…>`, `diary_notes` | n/a (existing `offlineAwareApiCall` reads) | inherits the badge default (1 h) — chip uses `mountFromKey` against the bootstrap-warmed key (Workouts History reads the older of `workout_next` / `workout_history` so the chip never disagrees with the list below) |
 
 The "rolling-out" sections (BP, Weight, Meds, Workouts, Vitals) keep their existing `offlineAwareApiCall` read paths; only the badge is mounted via `mountFromKey`. Only Today's Next Medication tile and Food (daily log + products) actually route through `cachedFetch` for the read itself.
 
