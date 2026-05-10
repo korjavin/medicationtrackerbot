@@ -112,7 +112,10 @@
             if (!key || typeof dexieLoader !== 'function') {
                 return { hydrated: false };
             }
-            const { transform, tags } = opts;
+            // Tolerate `null` (caller passing through an optional config) — default
+            // params only kick in for `undefined`, so destructuring `null` would
+            // throw and violate the never-throws contract documented above.
+            const { transform, tags } = opts || {};
 
             let record;
             try {

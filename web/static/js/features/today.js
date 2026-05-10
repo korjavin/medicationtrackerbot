@@ -138,6 +138,7 @@
     function nextMedCell(bootstrap, nowMs, enabled, opts) {
         if (!enabled) return cell(null, 'meds', 'disabled');
         const meta = bootstrap && bootstrap.__next_intake_meta;
+        const medsMeta = bootstrap && bootstrap.__medications_meta;
         const nx = bootstrap && bootstrap.next_intake;
         // Fall back to computing the next dose from the cached medications list
         // when the server-rendered next_intake is missing entirely, or its
@@ -155,15 +156,18 @@
             const meds = bootstrap && bootstrap.medications;
             const fallback = computeFallbackFromMedications(meds, nowMs, parseSchedule, getNext);
             if (fallback) {
-                const medsMeta = bootstrap && bootstrap.__medications_meta;
                 const at = Date.parse(fallback.scheduledAt);
                 const status = Number.isFinite(at) && at + OVERDUE_GRACE_MS < nowMs ? 'overdue' : 'ok';
                 return cell(fallback, 'meds', status, medsMeta || meta);
             }
         }
-        if (!nx || !nx.scheduled_at) return cell(null, 'meds', 'missing', meta);
+        // When next_intake is absent or unparseable, prefer the medications-list
+        // freshness if we have it — that's the cache the renderer just consulted
+        // via the fallback path, and its provenance is more honest than an
+        // undefined next_intake meta.
+        if (!nx || !nx.scheduled_at) return cell(null, 'meds', 'missing', meta || medsMeta);
         const at = Date.parse(nx.scheduled_at);
-        if (!Number.isFinite(at)) return cell(null, 'meds', 'missing', meta);
+        if (!Number.isFinite(at)) return cell(null, 'meds', 'missing', meta || medsMeta);
         const names = Array.isArray(nx.medication_names) ? nx.medication_names : [];
         const ids = Array.isArray(nx.medication_ids) ? nx.medication_ids : [];
         const value = { scheduledAt: nx.scheduled_at, names, ids };

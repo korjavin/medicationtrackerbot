@@ -245,6 +245,13 @@ describe('Today next-intake meds fallback', () => {
 
         const state = env.aggregate(bootstrap, null, now, HELPERS);
         expect(state.nextMed.status).toBe('missing');
+        // The medications cache freshness should still surface on the chip so
+        // the user knows the data backing the empty state is from the cached
+        // list — falling back silently to no meta hides provenance.
+        expect(state.nextMed.meta).toEqual({
+            fetchedAt: bootstrap.__medications_meta.fetchedAt,
+            isStale: false
+        });
     });
 
     it('does not throw when helpers are not provided (graceful degrade to existing missing state)', () => {
