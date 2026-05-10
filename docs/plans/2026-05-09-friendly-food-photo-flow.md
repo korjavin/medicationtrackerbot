@@ -69,10 +69,10 @@ This plan addresses all three:
 
 The summary card's Undo needs to delete each just-logged food item by ID. Before building the frontend, confirm the backend already returns IDs (it appears to, but verify and lock it in with a test).
 
-- [ ] read `internal/server/food_handlers.go` `handlePostFoodLogFromPhoto` (155–284) and verify the response includes `id` for each item
-- [ ] if `id` is missing, update the handler to include it (use the ID returned by `s.food.CreateFoodLog`)
-- [ ] write/extend a Go unit test in `internal/server/food_handlers_test.go` that posts a photo (with a stub vision client) and asserts each item in the response has a non-zero `id`
-- [ ] run `go test ./internal/server/...` — must pass before next task
+- [x] read `internal/server/food_handlers.go` `handlePostFoodLogFromPhoto` (155–284) and verify the response includes `id` for each item
+- [x] if `id` is missing, update the handler to include it (use the ID returned by `s.food.CreateFoodLog`) — already present (savedItem.ID at line 232, populated at line 261); no handler change needed
+- [x] write/extend a Go unit test in `internal/server/food_handlers_test.go` that posts a photo (with a stub vision client) and asserts each item in the response has a non-zero `id`
+- [x] run `go test ./internal/server/...` — must pass before next task
 
 ### Task 2: Restyle Photo button to match Add button (primary + camera icon)
 
