@@ -1,11 +1,19 @@
 FROM golang:1.26.1-alpine AS builder
 
 WORKDIR /app
+
+# Download modules in their own layer so it only re-runs when go.mod/go.sum change.
 COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+
 COPY . .
-# CGO_ENABLED=0 for static binary, works with Checkpoint/ModernC SQLite
-RUN CGO_ENABLED=0 GOOS=linux go build -o bot ./cmd/bot
-RUN CGO_ENABLED=0 GOOS=linux go build -o mcptool ./cmd/mcptool
+# CGO_ENABLED=0 for static binary, works with Checkpoint/ModernC SQLite.
+# Cache mounts persist the module + build caches across CI runs (via cache-to: type=gha).
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -o bot ./cmd/bot && \
+    CGO_ENABLED=0 GOOS=linux go build -o mcptool ./cmd/mcptool
 
 FROM alpine:latest
 WORKDIR /app
