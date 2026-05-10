@@ -111,12 +111,12 @@ Replace the `alert()` in `uploadFoodPhoto` with the new summary card and impleme
 
 For the Today shortcut to trigger the same picker, factor `triggerFoodPhotoPicker()` so it's invokable from outside the food section even before the user has navigated there.
 
-- [ ] in `web/static/js/features/food.js`, ensure `triggerFoodPhotoPicker()` is exposed as `window.FoodActions = window.FoodActions || {}; window.FoodActions.triggerPhotoPicker = triggerFoodPhotoPicker;` (or add to the existing food namespace if one exists)
-- [ ] **add `window.FoodActions` to the allowlist** in `tests/architecture.globals.test.js` with a justification comment per CLAUDE.md rule #4
-- [ ] confirm the file input (`#food-photo-input`) is rendered into the DOM at startup, not lazily when the food section mounts — if it's lazy, hoist its markup to `index.html` so the picker works from Today without first visiting Food
-- [ ] verify the change handler that calls `uploadFoodPhoto(input)` is bound at startup (not on food-section mount) for the same reason
-- [ ] write a Vitest test that mocks the file input and asserts `window.FoodActions.triggerPhotoPicker()` calls `.click()` on the input
-- [ ] run `pnpm test` — must pass before next task
+- [x] in `web/static/js/features/food.js`, ensure `triggerFoodPhotoPicker()` is exposed as `window.FoodActions = window.FoodActions || {}; window.FoodActions.triggerPhotoPicker = triggerFoodPhotoPicker;` — added immediately after the function definition (no pre-existing food namespace to extend)
+- [x] **add `window.FoodActions` to the allowlist** in `web/static/js/tests/architecture.globals.test.js` with a one-line justification per CLAUDE.md rule #4
+- [x] confirm the file input (`#food-photo-input`) is rendered into the DOM at startup — already present in `web/static/index.html:241` inside `#food-view` (a static `<div class="view">`, always in the initial DOM, just visually hidden when food view is inactive); no markup hoisting needed
+- [x] verify the change handler that calls `uploadFoodPhoto(input)` is bound at startup — `bindFoodControls()` runs at `DOMContentLoaded` (food.js:196-199), and registers `bindChange('food-photo-input', ...)` at line 145 — bound globally, not on food-section mount
+- [x] write a Vitest test that mocks the file input and asserts `window.FoodActions.triggerPhotoPicker()` calls `.click()` on the input — added `web/static/js/tests/food.actions-photo-picker.test.js` with 4 tests covering: function exposed at boot, .click() invocation, value-reset before click, change handler bound at startup
+- [x] run `pnpm test` — passes (4/4 new tests; the 3 failing tests are the pre-existing inline-styles violation in `food.js:2211-2212` and the date-sensitive flakes in `components.wg-sleep-chart.test.js` and `components.wg-steps-chart.test.js`, all confirmed by re-running on `git stash`'d tree)
 
 ### Task 6: Add "Add food from photo" shortcut to Today
 
