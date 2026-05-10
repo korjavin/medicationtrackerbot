@@ -158,9 +158,9 @@ Today's meds tile currently relies on `next_intake` from bootstrap. With Task 5 
 
 ### Task 8: Update documentation
 
-- [ ] update `docs/frontend.md` "Local-First Read Resilience" section: document `DataStore.hydrateFromDexie()` as the canonical primitive for cold-start hydration, with a short example referencing `meds.js`
-- [ ] update `docs/api.md` `/api/bootstrap` entry: note the new `medications` field in the response
-- [ ] do not create new `*.md` files — extend existing ones only (CLAUDE.md preference)
+- [x] update `docs/frontend.md` "Local-First Read Resilience" section: document `DataStore.hydrateFromDexie()` as the canonical primitive for cold-start hydration, with a short example referencing `meds.js`
+- [x] update `docs/api.md` `/api/bootstrap` entry: note the new `medications` field in the response
+- [x] do not create new `*.md` files — extend existing ones only (CLAUDE.md preference)
 
 ## Technical Details
 
