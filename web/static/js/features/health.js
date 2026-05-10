@@ -436,26 +436,46 @@ async function loadHealthOverview() {
                 renderHealthOverviewContent(content, cached);
                 loading.style.display = 'none';
                 content.classList.remove('hidden');
+                await renderHealthOverviewStaleBadge(hoKey);
             },
             onFresh: async (fresh, cached) => {
                 loading.style.display = 'none';
                 if (!fresh) {
                     if (!cached) renderHealthOverviewError(content);
+                    await renderHealthOverviewStaleBadge(hoKey);
                     return;
                 }
                 renderHealthOverviewContent(content, fresh);
                 content.classList.remove('hidden');
+                await renderHealthOverviewStaleBadge(hoKey);
             },
             onError: async (e, cached) => {
                 console.error('Failed to load health overview:', e);
                 loading.style.display = 'none';
                 if (!cached) renderHealthOverviewError(content);
+                await renderHealthOverviewStaleBadge(hoKey);
             }
         });
     } else {
         loading.style.display = 'none';
         renderHealthOverviewError(content);
     }
+}
+
+// Mounts the wg-stale-badge into the Vitals/Health Overview subtab from the
+// active overview cache key (date-scoped via healthOverviewCacheKey()). Keeps
+// the badge tone aligned with the actual data being shown — flips to offline
+// whenever navigator.onLine is false. Mirrors the BP/Weight/Meds Task 6 wiring.
+async function renderHealthOverviewStaleBadge(cacheKey) {
+    const slot = (typeof document !== 'undefined') ? document.getElementById('health-overview-stale-badge') : null;
+    if (!slot) return;
+    const api = (typeof window !== 'undefined') ? window.WGStaleBadge : null;
+    if (!api || typeof api.mountFromKey !== 'function') {
+        slot.replaceChildren();
+        slot.classList.add('hidden');
+        return;
+    }
+    await api.mountFromKey({ slot, key: cacheKey });
 }
 
 // ---- Diary Notes ----
@@ -502,6 +522,7 @@ async function loadNotes() {
             renderNotes(list, cached);
             if (cached.length > 0) _notesCursor = cached[cached.length - 1].id;
             if (loading) loading.style.display = 'none';
+            await renderHealthNotesStaleBadge();
         },
         onFresh: async (fresh) => {
             if (loading) loading.style.display = 'none';
@@ -509,7 +530,10 @@ async function loadNotes() {
             // over (e.g. the user added/deleted a note while this fetch was in
             // flight and the post-write refresh incremented _notesGeneration).
             if (myGeneration !== _notesGeneration) return;
-            if (!fresh) return;
+            if (!fresh) {
+                await renderHealthNotesStaleBadge();
+                return;
+            }
             // Only replace page 1 if the user has not yet clicked "Load more".
             // When _notesHasLoadedMore is true, the list contains pages 2+ that we
             // must not wipe; a full reload requires an explicit loadNotes() call anyway.
@@ -522,6 +546,7 @@ async function loadNotes() {
                 // apply it if that fetch fails and no page was actually appended.
                 _notesPendingFresh = { data: fresh, generation: _notesGeneration };
             }
+            await renderHealthNotesStaleBadge();
         },
         onError: async (e, cached) => {
             console.error('Failed to load notes:', e);
@@ -533,6 +558,7 @@ async function loadNotes() {
                     list.appendChild(buildNotesEmptyCard('No cached data \u2014 will load when online'));
                 }
             }
+            await renderHealthNotesStaleBadge();
         }
     });
 
@@ -542,6 +568,20 @@ async function loadNotes() {
         saveBtn.addEventListener('click', addNote);
     }
     bindNotesComposer();
+}
+
+// Mounts the wg-stale-badge into the Vitals/Health Notes subtab from the
+// 'diary_notes' api_cache timestamp. Mirrors the BP/Weight/Meds Task 6 wiring.
+async function renderHealthNotesStaleBadge() {
+    const slot = (typeof document !== 'undefined') ? document.getElementById('health-notes-stale-badge') : null;
+    if (!slot) return;
+    const api = (typeof window !== 'undefined') ? window.WGStaleBadge : null;
+    if (!api || typeof api.mountFromKey !== 'function') {
+        slot.replaceChildren();
+        slot.classList.add('hidden');
+        return;
+    }
+    await api.mountFromKey({ slot, key: 'diary_notes' });
 }
 
 // Note-tag composer (Phase 8 / Task 7). Backend enum is SLEEP | STRESS | HR |

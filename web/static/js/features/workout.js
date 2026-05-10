@@ -11,6 +11,41 @@ let currentEditingExerciseId = null;
 let currentGroupForVariant = null;
 let currentVariantForExercise = null;
 
+// Invalidate the workout-tagged caches (workout_history, workout_groups,
+// workout_next, workout_stats) after a successful workout mutation. Must be
+// awaited before the subsequent loadXxx() reload so that a network failure
+// during refresh doesn't leave the previously-cached pre-mutation payload
+// visible (the deleted session resurrected, the edited Mi Band entry showing
+// stale numbers). apiCallDirect's `advanceCursorSilently` deliberately does
+// NOT invalidate caller-owned tags — every mutation must clear its own.
+//
+// Also clears the legacy WorkoutStore Dexie cache: offlineAwareApiCall falls
+// back to it when the post-mutation refresh fetch fails (offline/5xx), so
+// without this, a successful save followed by a failed reload would re-paint
+// the stale groups list and re-save it under workout_groups via onFresh.
+const WORKOUT_CACHE_KEYS = ['workout_next', 'workout_history', 'workout_groups', 'workout_stats'];
+
+// Register the known workout cache keys with the 'workout' tag eagerly. Makes
+// invalidateTags(['workout']) effective even when called from a context that
+// hasn't yet executed loadXxx() — e.g. the push-modal snooze/skip flow from
+// app.js, which can fire before the user has ever visited the workouts tab,
+// so the tagToKeys map would otherwise be empty for these keys.
+if (typeof window !== 'undefined' && window.DataStore?.registerTags) {
+    WORKOUT_CACHE_KEYS.forEach((key) => window.DataStore.registerTags(key, ['workout']));
+}
+
+async function invalidateWorkoutCache() {
+    if (window.DataStore?.registerTags) {
+        WORKOUT_CACHE_KEYS.forEach((key) => window.DataStore.registerTags(key, ['workout']));
+    }
+    if (window.DataStore?.invalidateTags) {
+        await window.DataStore.invalidateTags(['workout']);
+    }
+    if (window.MedTrackerDB?.WorkoutStore?.clearCache) {
+        try { await window.MedTrackerDB.WorkoutStore.clearCache(); } catch (_) { /* best-effort */ }
+    }
+}
+
 // ====================================
 // TAB SWITCHING
 // ====================================
@@ -321,19 +356,74 @@ async function loadNextWorkout() {
     await window.DataStore.loadSWR({
         key: 'workout_next',
         tags: ['workout'],
-        fetcher: async () => await apiCall('/api/workout/sessions/next'),
+        // apiCallDirect throws on offline/5xx so a transient refresh failure
+        // routes through onError (cached card preserved). The legacy apiCall
+        // path returned null on offline (handleOfflineWorkoutRead has no
+        // 'sessions' fallback populated by this module), and with
+        // allowNullFresh: true that null reached onFresh and cleared the
+        // just-rendered cached card. A real "no next workout" response from
+        // the server is JSON null; wrap it into { session: null } so the
+        // matched bootstrap shape (app.js workout_next spec) is cached and
+        // _renderNextWorkout clears the container the same way it would for
+        // that legitimate server response.
+        fetcher: async () => {
+            if (!window.apiCallDirect) throw new Error('apiCallDirect not available');
+            const res = await window.apiCallDirect('/api/workout/sessions/next');
+            return res === null ? { session: null } : res;
+        },
         onCached: async (cached) => {
             _renderNextWorkout(container, cached);
+            await renderWorkoutHistoryStaleBadge();
         },
         onFresh: async (fresh) => {
             _renderNextWorkout(container, fresh);
+            await renderWorkoutHistoryStaleBadge();
         },
         onError: async (error, cached) => {
             console.error('Error loading next workout:', error);
             if (!cached) container.replaceChildren();
-        },
-        allowNullFresh: true
+            await renderWorkoutHistoryStaleBadge();
+        }
     });
+}
+
+// Mounts the wg-stale-badge into the Workouts History subtab. The subtab
+// surfaces two data sources (the next-workout card driven by 'workout_next'
+// and the history list driven by 'workout_history'); the chip reads the
+// OLDER of the two timestamps so the user sees a worst-case freshness floor
+// rather than a freshness chip that disagrees with the list below it.
+async function renderWorkoutHistoryStaleBadge() {
+    const slot = (typeof document !== 'undefined') ? document.getElementById('workout-history-stale-badge') : null;
+    if (!slot) return;
+    const api = (typeof window !== 'undefined') ? window.WGStaleBadge : null;
+    if (!api || typeof api.render !== 'function') {
+        slot.replaceChildren();
+        slot.classList.add('hidden');
+        return;
+    }
+    const cache = (typeof window !== 'undefined') && window.MedTrackerDB
+        ? window.MedTrackerDB.ApiCache
+        : null;
+    const offline = (typeof navigator !== 'undefined') ? navigator.onLine === false : false;
+    let oldestTs = null;
+    if (cache && typeof cache.getWithMeta === 'function') {
+        for (const key of ['workout_next', 'workout_history']) {
+            try {
+                const entry = await cache.getWithMeta(key);
+                if (entry && Number.isFinite(entry.timestamp)) {
+                    if (oldestTs === null || entry.timestamp < oldestTs) oldestTs = entry.timestamp;
+                }
+            } catch (_) { /* best-effort cache read */ }
+        }
+    }
+    if (oldestTs === null && !offline) {
+        slot.replaceChildren();
+        slot.classList.add('hidden');
+        return;
+    }
+    const badge = api.render({ fetchedAt: oldestTs, isOffline: offline });
+    slot.replaceChildren(badge);
+    slot.classList.remove('hidden');
 }
 
 function _renderNextWorkout(container, data) {
@@ -482,6 +572,7 @@ async function nextWorkoutVariant(sessionId) {
     try {
         const result = await apiCall(`/api/workout/sessions/${sessionId}/next-variant`, 'POST');
         if (result === null) return;
+        await invalidateWorkoutCache();
         await loadNextWorkout();
     } catch (error) {
         console.error('Error switching to next variant:', error);
@@ -498,9 +589,21 @@ async function loadWorkoutGroups() {
     await window.DataStore.loadSWR({
         key: 'workout_groups',
         tags: ['workout'],
-        fetcher: async () => await apiCall('/api/workout/groups'),
+        // apiCallDirect throws on offline/5xx so a post-mutation refresh
+        // failure routes through onError, which renders an explicit "no
+        // cached data" empty state. The legacy apiCall path returned null
+        // on offline; with no `allowNullFresh` and no cached value (just
+        // cleared by invalidateWorkoutCache), loadSWR would skip BOTH
+        // onFresh and onError, leaving the pre-mutation DOM visible after
+        // a successful save followed by a failed refresh.
+        fetcher: async () => {
+            if (!window.apiCallDirect) throw new Error('apiCallDirect not available');
+            const res = await window.apiCallDirect('/api/workout/groups');
+            return Array.isArray(res) ? res : [];
+        },
         onCached: async (cached) => {
             _renderWorkoutGroups(container, cached);
+            await renderWorkoutGroupsStaleBadge();
         },
         onFresh: async (groups) => {
             workoutGroups = groups || [];
@@ -508,6 +611,7 @@ async function loadWorkoutGroups() {
                 await window.MedTrackerDB.WorkoutStore.saveCache('groups', groups);
             }
             _renderWorkoutGroups(container, groups);
+            await renderWorkoutGroupsStaleBadge();
         },
         onError: async (error, cached) => {
             console.error('Error loading workout groups:', error);
@@ -517,8 +621,23 @@ async function loadWorkoutGroups() {
                 message.textContent = 'No cached data \u2014 will load when online';
                 container.replaceChildren(message);
             }
+            await renderWorkoutGroupsStaleBadge();
         }
     });
+}
+
+// Mounts the wg-stale-badge into the Workouts Groups subtab from the
+// 'workout_groups' api_cache timestamp.
+async function renderWorkoutGroupsStaleBadge() {
+    const slot = (typeof document !== 'undefined') ? document.getElementById('workout-groups-stale-badge') : null;
+    if (!slot) return;
+    const api = (typeof window !== 'undefined') ? window.WGStaleBadge : null;
+    if (!api || typeof api.mountFromKey !== 'function') {
+        slot.replaceChildren();
+        slot.classList.add('hidden');
+        return;
+    }
+    await api.mountFromKey({ slot, key: 'workout_groups' });
 }
 
 function _renderWorkoutGroups(container, groups) {
@@ -740,6 +859,9 @@ async function showEditWorkoutGroupModal(groupId) {
         document.getElementById('workout-group-flat-exercises-section').style.display = 'block';
 
         // Fetch variants. If none exists, create a default one for non-rotating groups.
+        // Creating a variant is a workout mutation that can flip workout_next
+        // eligibility for the group, so invalidate the workout-tagged caches
+        // before continuing — even if the user cancels the modal afterwards.
         let variants = await apiCall(`/api/workout/variants?group_id=${groupId}`);
         if (!variants || variants.length === 0) {
             const newVariant = await apiCall('/api/workout/variants/create', 'POST', {
@@ -748,7 +870,12 @@ async function showEditWorkoutGroupModal(groupId) {
                 rotation_order: null,
                 description: ''
             });
-            variants = newVariant ? [newVariant] : [];
+            if (newVariant) {
+                await invalidateWorkoutCache();
+                variants = [newVariant];
+            } else {
+                variants = [];
+            }
         }
 
         if (variants.length === 0) {
@@ -782,7 +909,9 @@ async function toggleRotatingFields() {
         document.getElementById('workout-variants-section').style.display = 'none';
         document.getElementById('workout-group-flat-exercises-section').style.display = 'block';
         if (currentEditingGroupId) {
-            // Re-run the logic to fetch/create default variant and load exercises
+            // Re-run the logic to fetch/create default variant and load exercises.
+            // The variant POST is a workout mutation, so invalidate the
+            // workout-tagged caches if the implicit create succeeds.
             let variants = await apiCall(`/api/workout/variants?group_id=${currentEditingGroupId}`);
             if (!variants || variants.length === 0) {
                 const newVariant = await apiCall('/api/workout/variants/create', 'POST', {
@@ -791,7 +920,12 @@ async function toggleRotatingFields() {
                     rotation_order: null,
                     description: ''
                 });
-                variants = newVariant ? [newVariant] : [];
+                if (newVariant) {
+                    await invalidateWorkoutCache();
+                    variants = [newVariant];
+                } else {
+                    variants = [];
+                }
             }
             if (variants.length === 0) {
                 setFlatExercisesPendingSaveMessage();
@@ -854,6 +988,7 @@ async function saveWorkoutGroup() {
     }
 
     if (result || result === true) {
+        await invalidateWorkoutCache();
         closeWorkoutGroupModal();
         loadWorkoutGroups();
     }
@@ -872,6 +1007,7 @@ async function deleteWorkoutGroup(groupId, event) {
 async function _deleteWorkoutGroupApi(groupId) {
     const result = await apiCall(`/api/workout/groups/delete?id=${groupId}`, 'DELETE');
     if (result || result === true) {
+        await invalidateWorkoutCache();
         loadWorkoutGroups();
     }
 }
@@ -1025,6 +1161,7 @@ async function saveVariant() {
     }
 
     if (result || result === true) {
+        await invalidateWorkoutCache();
         closeVariantModal();
         loadVariantsForGroup(currentGroupForVariant);
     }
@@ -1042,6 +1179,7 @@ async function deleteVariant(variantId, event) {
 async function _deleteVariantApi(variantId) {
     const result = await apiCall(`/api/workout/variants/delete?id=${variantId}`, 'DELETE');
     if (result || result === true) {
+        await invalidateWorkoutCache();
         loadVariantsForGroup(currentGroupForVariant);
     }
 }
@@ -1131,6 +1269,9 @@ async function resolveVariantForExercise() {
     }
 
     try {
+        // The variant POST below is a workout mutation; invalidate the
+        // workout-tagged caches if the implicit create succeeds so a later
+        // cancel doesn't leave workout_next / workout_stats stale.
         let variants = await apiCall(`/api/workout/variants?group_id=${groupId}`);
         if (!variants || variants.length === 0) {
             const createdVariant = await apiCall('/api/workout/variants/create', 'POST', {
@@ -1139,7 +1280,12 @@ async function resolveVariantForExercise() {
                 rotation_order: null,
                 description: ''
             });
-            variants = createdVariant ? [createdVariant] : [];
+            if (createdVariant) {
+                await invalidateWorkoutCache();
+                variants = [createdVariant];
+            } else {
+                variants = [];
+            }
         }
 
         const variantId = variants[0]?.id;
@@ -1278,6 +1424,7 @@ async function saveExercise() {
     }
 
     if (result || result === true) {
+        await invalidateWorkoutCache();
         closeExerciseModal();
         loadExercisesForVariant(currentVariantForExercise, currentExercisesContainerId);
     }
@@ -1295,6 +1442,7 @@ async function deleteExercise(exerciseId, event) {
 async function _deleteExerciseApi(id) {
     const result = await apiCall(`/api/workout/exercises/delete?id=${id}`, 'DELETE');
     if (result || result === true) {
+        await invalidateWorkoutCache();
         loadExercisesForVariant(currentVariantForExercise, currentExercisesContainerId);
     }
 }
@@ -1543,33 +1691,64 @@ async function _deleteExerciseLibraryApi(id) {
 
 async function loadWorkoutHistoryTab() {
     const container = document.getElementById('workout-history-display');
-    try {
-        // Fetch both manual sessions and Mi Band outdoor workouts in parallel.
-        // Also read the cached settings_bundle to get the user's saved timezone so that
-        // skipped-session sort timestamps are interpreted in the same timezone the backend
-        // used when scheduling, not the browser's local timezone.
-        const cachedBundle = window.DataStore
-            ? await window.DataStore.getCached('settings_bundle').catch(() => null)
-            : null;
-        let userTz = cachedBundle?.timezone || '';
-        // If the bundle was cleared by a tag invalidation (e.g. after /tz change),
-        // fall back to a direct settings fetch so the correct timezone is used.
-        if (!userTz) {
-            const fresh = await apiCall('/api/settings', 'GET').catch(() => null);
-            if (fresh?.timezone) userTz = fresh.timezone;
-        }
-        const [sessionsResp, mibandResp] = await Promise.all([
-            apiCall('/api/workout/sessions?limit=50').catch(() => []),
-            apiCall('/api/workout/miband?limit=100').catch(() => [])
-        ]);
-        _renderWorkoutHistory(container, sessionsResp || [], mibandResp || [], userTz);
-    } catch (error) {
-        console.error('Error loading workout history:', error);
-        const message = document.createElement('p');
-        message.className = 'text-danger';
-        message.textContent = 'Error loading history';
-        container.replaceChildren(message);
+    // Read the cached settings_bundle to get the user's saved timezone so that
+    // skipped-session sort timestamps are interpreted in the same timezone the backend
+    // used when scheduling, not the browser's local timezone.
+    const cachedBundle = window.DataStore
+        ? await window.DataStore.getCached('settings_bundle').catch(() => null)
+        : null;
+    let userTz = cachedBundle?.timezone || '';
+    if (!userTz) {
+        const fresh = await apiCall('/api/settings', 'GET').catch(() => null);
+        if (fresh?.timezone) userTz = fresh.timezone;
     }
+    // Cache the combined sessions + miband payload under 'workout_history' so
+    // the history list renders from cache offline (matches the BP/Weight pattern).
+    // Without this, the freshness chip in the section header could read
+    // "Updated Nm ago" while the list beneath is empty because the raw
+    // apiCall returned null.
+    await window.DataStore.loadSWR({
+        key: 'workout_history',
+        tags: ['workout'],
+        fetcher: async () => {
+            const [sessionsResp, mibandResp] = await Promise.all([
+                apiCall('/api/workout/sessions?limit=50').catch(() => null),
+                apiCall('/api/workout/miband?limit=100').catch(() => null)
+            ]);
+            // Both endpoints encode no-data as `[]`, so a null response from
+            // either leg means a fetch error (network/5xx with no offline
+            // fallback). Throw so loadSWR's onError fires: when a combined
+            // cache exists onCached already painted it and the cache is
+            // preserved (fetchFresh doesn't write on throw); on first visit
+            // / cache-pruned visit onError renders the explicit error state
+            // instead of leaving the UI stuck on "Loading...".
+            if (sessionsResp == null || mibandResp == null) {
+                throw new Error('workout history fetch failed');
+            }
+            return {
+                sessions: Array.isArray(sessionsResp) ? sessionsResp : [],
+                miband: Array.isArray(mibandResp) ? mibandResp : []
+            };
+        },
+        onCached: async (cached) => {
+            _renderWorkoutHistory(container, cached.sessions || [], cached.miband || [], userTz);
+            await renderWorkoutHistoryStaleBadge();
+        },
+        onFresh: async (fresh) => {
+            _renderWorkoutHistory(container, fresh.sessions || [], fresh.miband || [], userTz);
+            await renderWorkoutHistoryStaleBadge();
+        },
+        onError: async (error, cached) => {
+            console.error('Error loading workout history:', error);
+            if (!cached) {
+                const message = document.createElement('p');
+                message.className = 'text-danger';
+                message.textContent = 'Error loading history';
+                container.replaceChildren(message);
+            }
+            await renderWorkoutHistoryStaleBadge();
+        }
+    });
 }
 
 // Maps Mi Band activity_name → display label + icon
@@ -1860,6 +2039,7 @@ async function deleteWorkoutSessionById(sessionId) {
         if (!ok) return;
         const result = await apiCall(`/api/workout/sessions/delete?id=${sessionId}`, 'DELETE');
         if (result || result === true) {
+            await invalidateWorkoutCache();
             loadWorkoutHistoryTab();
         }
     });
@@ -2046,6 +2226,7 @@ async function saveMiBandWorkout() {
     try {
         const result = await apiCall(`/api/workout/miband/${id}`, 'PATCH', payload);
         if (result || result === true) {
+            await invalidateWorkoutCache();
             closeMiBandWorkoutModal();
             loadWorkoutHistoryTab();
         } else {
@@ -2070,6 +2251,7 @@ async function _deleteMiBandWorkoutApi() {
     try {
         const result = await apiCall(`/api/workout/miband/${currentMiBandWorkout.id}`, 'DELETE');
         if (result || result === true) {
+            await invalidateWorkoutCache();
             closeMiBandWorkoutModal();
             loadWorkoutHistoryTab();
         } else {
@@ -2397,7 +2579,11 @@ async function deleteExerciseLog(index) {
         // If it has an ID (already saved in DB), delete from backend
         if (log.id && log.id > 0) {
             try {
-                await apiCall(`/api/workout/sessions/logs/delete?id=${log.id}`, 'DELETE');
+                // apiCall returns null on failure (network/5xx) without throwing,
+                // so check the result before invalidating cache or splicing local state.
+                const result = await apiCall(`/api/workout/sessions/logs/delete?id=${log.id}`, 'DELETE');
+                if (result === null) return;
+                await invalidateWorkoutCache();
             } catch (error) {
                 console.error('Error deleting exercise log:', error);
                 safeAlert('Failed to delete exercise log');
@@ -2418,6 +2604,7 @@ async function deleteWorkoutSession() {
         if (ok) {
             const result = await apiCall(`/api/workout/sessions/delete?id=${currentSessionData.id}`, 'DELETE');
             if (result || result === true) {
+                await invalidateWorkoutCache();
                 closeWorkoutSessionModal();
                 loadWorkoutHistoryTab();
             }
@@ -2511,19 +2698,32 @@ async function saveWorkoutSessionDetails() {
             }
         }
 
+        // Track whether any mutation succeeded so we can invalidate the
+        // workout-tagged caches before any early return — otherwise a
+        // partial failure (status saved, later log update returns null)
+        // leaves workout_history / workout_stats holding the pre-mutation
+        // payload until the next manual refresh.
+        let anyMutationSucceeded = false;
+
         // Save status if changed
         if (statusChanged && currentSessionData) {
             const statusResult = await apiCall(`/api/workout/sessions/status?id=${currentSessionData.id}`, 'PUT', {
                 status: newStatus
             });
-            if (statusResult === null) return;
+            if (statusResult === null) {
+                if (anyMutationSucceeded) await invalidateWorkoutCache();
+                return;
+            }
+            anyMutationSucceeded = true;
         }
 
         // Save each log — only save new entries that the user actually edited (_dirty)
         for (const log of currentSessionLogs) {
             let logResult;
+            let attempted = false;
             if (log.id && log.id > 0) {
                 // Existing log — always update
+                attempted = true;
                 logResult = await apiCall('/api/workout/sessions/logs/update', 'POST', {
                     id: log.id,
                     sets_completed: Math.round(log.sets_completed),
@@ -2533,6 +2733,7 @@ async function saveWorkoutSessionDetails() {
                 });
             } else if (log._dirty) {
                 // New log that user actually edited — create it
+                attempted = true;
                 logResult = await apiCall('/api/workout/sessions/logs/create', 'POST', {
                     session_id: currentSessionData.id,
                     exercise_id: log.exercise_id,
@@ -2544,8 +2745,16 @@ async function saveWorkoutSessionDetails() {
                     notes: log.notes || ''
                 });
             }
-            if (logResult === null) return;
+            if (attempted && logResult === null) {
+                if (anyMutationSucceeded) await invalidateWorkoutCache();
+                return;
+            }
+            if (attempted) anyMutationSucceeded = true;
             // Skip: id===0 && !_dirty — pre-filled but untouched, don't save
+        }
+
+        if (anyMutationSucceeded) {
+            await invalidateWorkoutCache();
         }
 
         closeWorkoutSessionModal();
@@ -2591,7 +2800,16 @@ async function loadWorkoutStatsTab() {
     await window.DataStore.loadSWR({
         key: 'workout_stats',
         tags: ['workout'],
-        fetcher: async () => await apiCall('/api/workout/stats'),
+        // apiCallDirect throws on offline/5xx so a post-mutation refresh
+        // failure routes through onError. The legacy apiCall path returned
+        // null on offline; with no `allowNullFresh` and no cached value
+        // (just cleared by invalidateWorkoutCache), loadSWR would skip
+        // BOTH onFresh and onError, leaving the previously-rendered stats
+        // DOM visible after a successful save followed by a failed refresh.
+        fetcher: async () => {
+            if (!window.apiCallDirect) throw new Error('apiCallDirect not available');
+            return await window.apiCallDirect('/api/workout/stats');
+        },
         onCached: async (cached) => {
             _renderWorkoutStats(container, cached);
         },
@@ -2810,6 +3028,7 @@ async function startAdHocWorkout() {
             await showWorkoutSessionModal(result.session.id);
 
             // Refresh the next workout card
+            await invalidateWorkoutCache();
             await loadNextWorkout();
         } else {
             safeAlert('Failed to start ad-hoc workout');
@@ -2836,6 +3055,7 @@ async function startWorkoutSession(sessionId) {
             safeAlert('✅ Workout started! You can now log exercises.');
 
             // Refresh the next workout card
+            await invalidateWorkoutCache();
             loadNextWorkout();
         } catch (error) {
             console.error('Error starting workout:', error);
@@ -2850,6 +3070,7 @@ async function completeWorkoutSession(sessionId) {
             try {
                 const result = await apiCall(`/api/workout/sessions/status?id=${sessionId}`, 'PUT', { status: 'completed' });
                 if (result === null) return;
+                await invalidateWorkoutCache();
                 loadNextWorkout();
                 loadWorkoutHistoryTab(); // Refresh history if visible
             } catch (e) {
@@ -2867,6 +3088,7 @@ async function preSkipWorkoutSession(sessionId) {
         try {
             const result = await apiCall(`/api/workout/sessions/${sessionId}/preskip`, 'POST');
             if (result === null) return;
+            await invalidateWorkoutCache();
             loadNextWorkout();
         } catch (error) {
             console.error('Error pre-skipping workout:', error);
@@ -2879,6 +3101,7 @@ async function cancelPreSkipWorkoutSession(sessionId) {
     try {
         const result = await apiCall(`/api/workout/sessions/${sessionId}/cancel-preskip`, 'POST');
         if (result === null) return;
+        await invalidateWorkoutCache();
         loadNextWorkout();
     } catch (error) {
         console.error('Error cancelling pre-skip:', error);
@@ -3015,6 +3238,7 @@ async function saveNewSessionExercise() {
         });
         if (result === null) return;
 
+        await invalidateWorkoutCache();
         closeAddExerciseToSessionModal();
         // Refresh session modal
         showWorkoutSessionModal(currentSessionData.id);
