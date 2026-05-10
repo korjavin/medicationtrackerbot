@@ -108,13 +108,13 @@ Wire the new primitive into the early-init path in `app.js` so the medications l
 
 Currently `loadMeds()` (`features/meds.js` line ~848+) calls `DataStore.loadSWR()` which fires `onCached` only if the in-memory cache is populated. With Task 2 done, the in-memory cache is populated. Now make sure `renderMeds()` actually runs synchronously off the cached list and that the stale badge mounts from the Dexie `fetchedAt`.
 
-- [ ] in `web/static/js/features/meds.js`, ensure the SWR `onCached` branch unconditionally calls `renderMeds(cachedList)` even when `cachedList.length === 0` (so the empty case is rendered, not skipped)
-- [ ] replace the `onError` "No cached data — will load when online" branch with: if cache exists → keep showing it + offline chip; if no cache and offline → existing empty-state message
-- [ ] mount the stale badge via `WGStaleBadge.mountFromKey({ slot, key: 'medications' })` instead of the existing ad-hoc badge call (or confirm the existing call already reads `fetchedAt` from the cache entry)
-- [ ] write a test in `web/static/js/tests/meds.offline-cold-start.test.js`: with `navigator.onLine = false`, Dexie pre-populated, no bootstrap response — assert planned medications render with hourly buckets and a stale chip
-- [ ] write a test for "no Dexie data + offline" — asserts the explicit empty state still shows
-- [ ] write a test for "Dexie data + bootstrap returns updated list" — asserts the SWR refresh swaps in the fresh data without a flash of empty state
-- [ ] run `pnpm test` — must pass before next task
+- [x] in `web/static/js/features/meds.js`, ensure the SWR `onCached` branch unconditionally calls `renderMeds(cachedList)` even when `cachedList.length === 0` (so the empty case is rendered, not skipped)
+- [x] replace the `onError` "No cached data — will load when online" branch with: if cache exists → keep showing it + offline chip; if no cache and offline → existing empty-state message
+- [x] mount the stale badge via `WGStaleBadge.mountFromKey({ slot, key: 'medications' })` instead of the existing ad-hoc badge call (or confirm the existing call already reads `fetchedAt` from the cache entry)
+- [x] write a test in `web/static/js/tests/meds.offline-cold-start.test.js`: with `navigator.onLine = false`, Dexie pre-populated, no bootstrap response — assert planned medications render with hourly buckets and a stale chip
+- [x] write a test for "no Dexie data + offline" — asserts the explicit empty state still shows
+- [x] write a test for "Dexie data + bootstrap returns updated list" — asserts the SWR refresh swaps in the fresh data without a flash of empty state
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 4: Seed medications list in `/api/bootstrap` response
 
