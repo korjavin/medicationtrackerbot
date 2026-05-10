@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -98,6 +99,38 @@ type apiError struct {
 
 func (e *apiError) Error() string {
 	return "API error: " + e.Message
+}
+
+// decodeAPIError builds an error for a non-2xx response. It first tries the
+// standard OpenAI error shape ({"error": {"message": ...}}), then the array
+// wrapper Gemini's OpenAI-compat layer uses ([{"error": {"message": ...}}]),
+// and finally falls back to a body excerpt so the underlying message is never
+// silently dropped.
+func decodeAPIError(statusCode int, body io.Reader) error {
+	raw, _ := io.ReadAll(body)
+
+	var obj chatCompletionResponse
+	if err := json.Unmarshal(raw, &obj); err == nil && obj.Error != nil && obj.Error.Message != "" {
+		return &apiError{Message: obj.Error.Message}
+	}
+
+	var arr []chatCompletionResponse
+	if err := json.Unmarshal(raw, &arr); err == nil {
+		for _, item := range arr {
+			if item.Error != nil && item.Error.Message != "" {
+				return &apiError{Message: item.Error.Message}
+			}
+		}
+	}
+
+	excerpt := strings.TrimSpace(string(raw))
+	if len(excerpt) > 300 {
+		excerpt = excerpt[:300] + "..."
+	}
+	if excerpt == "" {
+		return fmt.Errorf("API returned status code: %d", statusCode)
+	}
+	return fmt.Errorf("API returned status code %d: %s", statusCode, excerpt)
 }
 
 var mealSchema = map[string]any{
@@ -204,11 +237,7 @@ func (c *Client) parseMealWithRequest(ctx context.Context, reqBody chatCompletio
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		var errResp chatCompletionResponse
-		if err := json.NewDecoder(resp.Body).Decode(&errResp); err == nil && errResp.Error != nil {
-			return nil, &apiError{Message: errResp.Error.Message}
-		}
-		return nil, fmt.Errorf("API returned status code: %d", resp.StatusCode)
+		return nil, decodeAPIError(resp.StatusCode, resp.Body)
 	}
 
 	var completion chatCompletionResponse
@@ -360,11 +389,7 @@ func (c *Client) parseActivityWithRequest(ctx context.Context, reqBody chatCompl
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		var errResp chatCompletionResponse
-		if err := json.NewDecoder(resp.Body).Decode(&errResp); err == nil && errResp.Error != nil {
-			return nil, &apiError{Message: errResp.Error.Message}
-		}
-		return nil, fmt.Errorf("API returned status code: %d", resp.StatusCode)
+		return nil, decodeAPIError(resp.StatusCode, resp.Body)
 	}
 
 	var completion chatCompletionResponse
@@ -505,11 +530,7 @@ func (c *Client) parseMealVisionRequest(ctx context.Context, reqBody map[string]
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		var errResp chatCompletionResponse
-		if err := json.NewDecoder(resp.Body).Decode(&errResp); err == nil && errResp.Error != nil {
-			return nil, &apiError{Message: errResp.Error.Message}
-		}
-		return nil, fmt.Errorf("API returned status code: %d", resp.StatusCode)
+		return nil, decodeAPIError(resp.StatusCode, resp.Body)
 	}
 
 	var completion chatCompletionResponse
