@@ -856,10 +856,20 @@ async function uploadFoodPhoto(input) {
             loadFoodLogs();
             if (typeof loadToday === 'function') loadToday();
 
-            const summary = items.length
-                ? `Logged ${items.length} item${items.length === 1 ? '' : 's'}: ${items.map(i => i.name).join(', ')}`
-                : 'Photo logged.';
-            safeAlert(summary);
+            if (typeof showFoodPhotoSummary === 'function' && items.length) {
+                let summaryHandle;
+                summaryHandle = showFoodPhotoSummary({
+                    items,
+                    onUndo: () => undoFoodPhotoLog(items, summaryHandle),
+                });
+            } else {
+                // Fall back to a toast-or-alert for the no-items case (e.g. AI
+                // parsed nothing but the upload itself succeeded), since there
+                // is nothing to undo and the rich card would render empty.
+                safeAlert(items.length
+                    ? `Logged ${items.length} item${items.length === 1 ? '' : 's'}.`
+                    : 'Photo logged.');
+            }
         } catch (e) {
             console.error('Food photo upload failed:', e);
             safeAlert('Failed to log food from photo: ' + (e.message || e));
@@ -2264,6 +2274,58 @@ async function deleteFoodLog(id) {
             if (res) loadFoodLogs();
         }
     });
+}
+
+// Undo handler for the friendly food-photo summary card. Issues a parallel
+// DELETE for every just-logged item, refreshes the food list + Today, then
+// transitions the card to a "Removed N items" success state. Any failure
+// flips the card to its retry-able error state instead.
+async function undoFoodPhotoLog(items, summary) {
+    if (!Array.isArray(items) || items.length === 0) return;
+
+    const results = await Promise.all(items.map(async (it) => {
+        if (!it || it.id == null) return false;
+        try {
+            const res = await fetch(`/api/food/log/${it.id}`, {
+                method: 'DELETE',
+                headers: { 'X-Telegram-Init-Data': window.userInitData },
+            });
+            return !!(res && res.ok);
+        } catch (_) {
+            return false;
+        }
+    }));
+
+    const allOk = results.every(Boolean);
+
+    if (!allOk) {
+        if (summary && typeof summary.showError === 'function') {
+            summary.showError(
+                'Could not undo all items. Tap retry to try again.',
+                () => undoFoodPhotoLog(items, summary),
+            );
+        }
+        return;
+    }
+
+    try {
+        await window.DataStore.invalidateTags(['food']);
+        if (typeof todayFoodKey === 'function' && window.DataStore.clearCached) {
+            await window.DataStore.clearCached(todayFoodKey(new Date()));
+        }
+        if (window.DataStore?.advanceCursorSilently) {
+            window.DataStore.advanceCursorSilently();
+        }
+    } catch (e) {
+        console.error('Food photo undo cache invalidation failed:', e);
+    }
+
+    loadFoodLogs();
+    if (typeof loadToday === 'function') loadToday();
+
+    if (summary && typeof summary.showRemoved === 'function') {
+        summary.showRemoved(items.length);
+    }
 }
 
 

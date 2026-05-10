@@ -2041,6 +2041,15 @@ svg.chart-svg {
     gap: var(--space-sm);
 }
 
+.wg-food-photo-summary__message {
+    color: var(--wg-fg-1);
+    font-size: var(--font-size-sm);
+}
+
+.wg-food-photo-summary__message--error {
+    color: var(--color-danger);
+}
+
 .data-refresh-banner {
     position: fixed;
     left: var(--space-lg);
