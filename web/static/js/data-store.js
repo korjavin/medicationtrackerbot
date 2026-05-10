@@ -87,6 +87,97 @@
             await this.setCached(key, data);
         },
 
+        // Cold-start primer: read a long-lived Dexie record and seed
+        // `setCached(key, data)` so subsequent loadSWR/getCached calls find
+        // data immediately — even when bootstrap has not yet returned (or
+        // never will, if offline).
+        //
+        // Contract:
+        //   - `dexieLoader` is a 0-arg async fn returning either a raw value
+        //     OR a `{ data, timestamp }` record. The richer shape lets the
+        //     stale badge surface real age (preserved via ApiCache.setWithMeta);
+        //     a raw value still hydrates but the badge will fall back to "now".
+        //   - `opts.transform` reshapes the data before it lands in the cache.
+        //   - `opts.tags` registers the key with DataStore's tag index so a
+        //     later invalidateByTag eventually evicts the hydrated entry.
+        //
+        // Freshness guard: if ApiCache already holds an entry whose timestamp
+        // is at least as recent as the Dexie record, the call is a no-op so a
+        // bootstrap-served value (or a previous hydration with a fresher row)
+        // can't be clobbered by a stale Dexie cache.
+        //
+        // Never throws — hydration must not block first paint. On any
+        // failure path returns `{ hydrated: false }`.
+        async hydrateFromDexie(key, dexieLoader, opts = {}) {
+            if (!key || typeof dexieLoader !== 'function') {
+                return { hydrated: false };
+            }
+            const { transform, tags } = opts;
+
+            let record;
+            try {
+                record = await dexieLoader();
+            } catch (_e) {
+                return { hydrated: false };
+            }
+            if (!hasValue(record)) return { hydrated: false };
+
+            let rawData;
+            let dexieTs = null;
+            if (
+                typeof record === 'object'
+                && !Array.isArray(record)
+                && Object.prototype.hasOwnProperty.call(record, 'data')
+            ) {
+                rawData = record.data;
+                if (typeof record.timestamp === 'number' && Number.isFinite(record.timestamp)) {
+                    dexieTs = record.timestamp;
+                }
+            } else {
+                rawData = record;
+            }
+            if (!hasValue(rawData)) return { hydrated: false };
+
+            const apiCache = window.MedTrackerDB?.ApiCache;
+            if (apiCache && typeof apiCache.getWithMeta === 'function' && dexieTs !== null) {
+                try {
+                    const existing = await apiCache.getWithMeta(key);
+                    if (
+                        existing
+                        && typeof existing.timestamp === 'number'
+                        && Number.isFinite(existing.timestamp)
+                        && existing.timestamp >= dexieTs
+                    ) {
+                        return { hydrated: false, fetchedAt: existing.timestamp };
+                    }
+                } catch (_e) { /* best-effort */ }
+            }
+
+            let value = rawData;
+            if (typeof transform === 'function') {
+                try {
+                    value = transform(rawData);
+                } catch (_e) {
+                    return { hydrated: false };
+                }
+            }
+            if (!hasValue(value)) return { hydrated: false };
+
+            registerKeyTags(key, tags || []);
+
+            try {
+                if (apiCache && typeof apiCache.setWithMeta === 'function' && dexieTs !== null) {
+                    await apiCache.setWithMeta(key, value, dexieTs);
+                } else {
+                    await this.setCached(key, value);
+                }
+            } catch (_e) {
+                return { hydrated: false };
+            }
+
+            return { hydrated: true, fetchedAt: dexieTs ?? Date.now() };
+        },
+
         async clearCached(key) {
             // Bump generation and drop the in-flight entry first so any
             // pre-existing fetchFresh promise that resolves after this clear

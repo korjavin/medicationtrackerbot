@@ -12,24 +12,40 @@ function evalWithSourceURL(window, source, scriptPath) {
   window.eval(`${source}\n//# sourceURL=file://${scriptPath}`);
 }
 
-function createApiCacheMock(initialCache = {}) {
+function createApiCacheMock(initialCache = {}, initialMeta = {}) {
   const map = new Map(Object.entries(initialCache));
+  // Per-key timestamp ledger that mirrors the {id, timestamp, data} row shape
+  // of the real api_cache Dexie table. Keeps the simple `get(key)→data`
+  // contract intact while letting tests exercise getWithMeta / setWithMeta
+  // (used by hydrateFromDexie + WGStaleBadge.mountFromKey).
+  const meta = new Map(Object.entries(initialMeta));
 
   return {
     map,
+    meta,
     async get(key) {
       return map.has(key) ? map.get(key) : null;
     },
+    async getWithMeta(key) {
+      if (!map.has(key)) return null;
+      return { data: map.get(key), timestamp: meta.has(key) ? meta.get(key) : null };
+    },
     async set(key, value) {
       map.set(key, value);
+      meta.set(key, Date.now());
+    },
+    async setWithMeta(key, value, timestamp) {
+      map.set(key, value);
+      meta.set(key, Number.isFinite(timestamp) ? timestamp : Date.now());
     },
     async clear(key) {
       map.delete(key);
+      meta.delete(key);
     }
   };
 }
 
-export function loadDataStoreEnv({ initialCache = {} } = {}) {
+export function loadDataStoreEnv({ initialCache = {}, initialMeta = {} } = {}) {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', {
     url: 'https://example.test/',
     runScripts: 'outside-only',
@@ -37,7 +53,7 @@ export function loadDataStoreEnv({ initialCache = {} } = {}) {
   });
 
   const { window } = dom;
-  const apiCache = createApiCacheMock(initialCache);
+  const apiCache = createApiCacheMock(initialCache, initialMeta);
 
   window.MedTrackerDB = { ApiCache: apiCache };
   window.apiCallDirect = async () => ({ cursor: 0, changed_tags: [] });
@@ -48,6 +64,7 @@ export function loadDataStoreEnv({ initialCache = {} } = {}) {
   return {
     window,
     cacheMap: apiCache.map,
+    metaMap: apiCache.meta,
     cleanup: () => dom.window.close()
   };
 }
