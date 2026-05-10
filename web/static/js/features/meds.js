@@ -855,6 +855,7 @@ async function loadMeds() {
         }
         renderMeds();
         populateMedFilter();
+        await renderMedsScheduleStaleBadge();
         // Refresh in background to ensure up-to-date data
         const res = await window.DataStore.fetchFresh(
             'medications',
@@ -869,6 +870,7 @@ async function loadMeds() {
             }
             renderMeds();
             populateMedFilter();
+            await renderMedsScheduleStaleBadge();
         }
         return;
     }

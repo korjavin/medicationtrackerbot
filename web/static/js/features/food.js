@@ -1840,12 +1840,17 @@ async function loadFoodLogs() {
         _renderFoodData(groups || [], persistedWeekStats, foodMacrosRange, dateStr);
     } catch (e) {
         if (window.OfflineNoCacheError && e instanceof window.OfflineNoCacheError) {
-            // No `food_<date>_day` cache and the network is unreachable —
-            // surface an explicit empty state instead of a silent empty list.
-            const errP = document.createElement('p');
-            errP.className = 'error';
-            errP.textContent = 'No cached food data — connect to load.';
-            list.replaceChildren(errP);
+            // No `food_<date>_day` cache and the network is unreachable.
+            // If the legacy v2 cache already rendered groups for this date,
+            // keep that render — wiping it for an "offline · no cache" message
+            // would be a regression for users upgrading from a session that
+            // pre-dates the cachedFetch wiring.
+            if (!cached) {
+                const errP = document.createElement('p');
+                errP.className = 'error';
+                errP.textContent = 'No cached food data — connect to load.';
+                list.replaceChildren(errP);
+            }
             lastFoodLogsMeta = null;
             renderFoodStaleBadge();
             return;

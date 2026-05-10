@@ -1286,12 +1286,17 @@ async function _todayReadCaches(foodKey) {
     // "everything you see is at least this old", which lines up with how the
     // chip is positioned at the top of the screen.
     let oldestCacheTimestamp = null;
-    const trackTs = (ts) => {
+    // latest tracks every cache we read (used for firstRun + offline-stale gates).
+    // oldest skips disabled-feature caches so the badge reflects only data the
+    // user can actually see; otherwise a stale cache for a disabled feature
+    // (e.g. health_overview the user turned off weeks ago) would pin the chip
+    // to "Updated 7d ago" even when everything visible is fresh.
+    const trackTs = (ts, { includeInOldest } = { includeInOldest: true }) => {
         if (!Number.isFinite(ts)) return;
         if (latestCacheTimestamp === null || ts > latestCacheTimestamp) {
             latestCacheTimestamp = ts;
         }
-        if (oldestCacheTimestamp === null || ts < oldestCacheTimestamp) {
+        if (includeInOldest && (oldestCacheTimestamp === null || ts < oldestCacheTimestamp)) {
             oldestCacheTimestamp = ts;
         }
     };
@@ -1349,8 +1354,27 @@ async function _todayReadCaches(foodKey) {
                 const groups = Array.isArray(foodM.data.groups) ? foodM.data.groups : [];
                 swrCaches.food_today = { groups };
             }
-            for (const m of metas) {
-                if (m) trackTs(m.timestamp);
+            const featuresMap = bootstrap.features || {};
+            const isFeatureOn = (feature) => {
+                if (!feature) return true;
+                if (Object.prototype.hasOwnProperty.call(featuresMap, feature)) {
+                    return !!featuresMap[feature];
+                }
+                return true;
+            };
+            const keyFeatures = {
+                settings_bundle: null,
+                next_intake: 'medication',
+                bp: 'bp',
+                weight: 'weight',
+                workout_next: 'workout',
+                [hoKey]: 'health',
+                [foodKey]: 'food'
+            };
+            for (let i = 0; i < keys.length; i++) {
+                const m = metas[i];
+                if (!m) continue;
+                trackTs(m.timestamp, { includeInOldest: isFeatureOn(keyFeatures[keys[i]]) });
             }
         } else if (window.DataStore && typeof window.DataStore.getCached === 'function') {
             const keys = ['settings_bundle', 'next_intake', 'bp', 'weight', 'workout_next', hoKey, foodKey];
