@@ -4,7 +4,7 @@
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/bootstrap` | All initial data in one request |
+| GET | `/api/bootstrap` | All initial data in one request. Includes a `medications` array (same shape as `GET /api/medications?archived=true`) so the frontend can hydrate the meds list and Today tile without a follow-up round-trip; consumers seed both `DataStore` and Dexie via this field — see [frontend.md → Local-First Read Resilience](frontend.md#local-first-read-resilience). |
 | GET | `/api/medications` | List medications |
 | POST | `/api/medications` | Create medication |
 | PATCH | `/api/medications/:id` | Update medication |
