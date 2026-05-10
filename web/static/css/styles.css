@@ -5857,6 +5857,37 @@ textarea.wg-input {
     }
 }
 
+/* Stale-data badge (local-first read-resilience plan, Task 4). Compact pill
+   rendered by components/wg-stale-badge.js — communicates whether section
+   data is fresh, just stale, or actively offline. The neutral variant uses
+   the same muted-ink tokens as section labels; the warning variant reuses
+   the existing tag-alert triplet so no new colours enter the palette. */
+.wg-stale-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-font-size-tag);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    padding: 2px var(--space-sm);
+    border-radius: var(--radius-pill);
+    border: 1px solid transparent;
+    line-height: 1.2;
+}
+
+.wg-stale-badge--neutral {
+    background: transparent;
+    color: var(--wg-fg-3);
+    border-color: var(--wg-border-hairline);
+}
+
+.wg-stale-badge--warning {
+    background: var(--wg-tag-alert-bg);
+    color: var(--wg-tag-alert-fg);
+    border-color: var(--wg-tag-alert-border);
+}
+
 /* Daily macros card (Phase 4, Task 4). `.wg-card` shell with a mono kcal
    total on the left, sun-tinted `% of target` on the right, and four
    WGMacroBar rows stacked below. Populated by renderFoodMacrosCard()

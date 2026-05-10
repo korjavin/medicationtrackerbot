@@ -109,14 +109,14 @@ This plan delivers **read resilience first** (no new offline write paths) by:
 
 ### Task 4: Build the stale-data badge component
 
-- [ ] Add a small component `web/static/js/components/wg-stale-badge.js` (or extend an existing component if there's a header pattern). Inputs: `fetchedAt` (ms) and `isOffline` (bool). Output: a compact chip with text like `Updated 5m ago`, `Updated 2h ago`, or `Offline · 3h old`.
-- [ ] Style via existing `--wg-*` tokens only — no inline styles, no hardcoded colors. Use a muted tone for fresh, a warning tone for stale (>1h offline) per the Wandergeek system.
-- [ ] Choose tone by age: fresh = neutral, >`staleAfterMs` = warning. When `isOffline` is true, prefix label with `Offline · `.
-- [ ] No new `window.*` globals (architecture test will fail otherwise). If the component needs to be globally referenced, either keep it module-scoped and import where needed, or add an allowlist entry to `tests/architecture.globals.test.js` with justification.
-- [ ] write Vitest case: badge renders `Updated Nm ago` for recent timestamps.
-- [ ] write Vitest case: badge renders `Offline · ...` when `isOffline=true`.
-- [ ] write Vitest case: badge applies the warning tone class when age exceeds `staleAfterMs`.
-- [ ] run `pnpm test` — must pass before next task.
+- [x] Add a small component `web/static/js/components/wg-stale-badge.js` (or extend an existing component if there's a header pattern). Inputs: `fetchedAt` (ms) and `isOffline` (bool). Output: a compact chip with text like `Updated 5m ago`, `Updated 2h ago`, or `Offline · 3h old`. Created `web/static/js/components/wg-stale-badge.js` exposing `WGStaleBadge.render({ fetchedAt, isOffline, staleAfterMs, now })` and `WGStaleBadge.formatLabel(...)`. Wired into `index.html` (after `wg-macro-bar.js`) and `sw.js` precache.
+- [x] Style via existing `--wg-*` tokens only — no inline styles, no hardcoded colors. Use a muted tone for fresh, a warning tone for stale (>1h offline) per the Wandergeek system. `.wg-stale-badge` + `--neutral`/`--warning`/`--offline` modifiers in `web/static/css/styles.css` reuse `--wg-fg-3`, `--wg-border-hairline`, and the existing `--wg-tag-alert-*` triplet — no new colour tokens.
+- [x] Choose tone by age: fresh = neutral, >`staleAfterMs` = warning. When `isOffline` is true, prefix label with `Offline · `. Implemented: warning tone is applied when `isOffline` is true OR (online and `age > staleAfterMs`); the offline branch always also gets `--offline` for the prefix-style tone.
+- [x] No new `window.*` globals (architecture test will fail otherwise). If the component needs to be globally referenced, either keep it module-scoped and import where needed, or add an allowlist entry to `tests/architecture.globals.test.js` with justification. Added an entry for `window.WGStaleBadge` in `web/static/js/tests/architecture.globals.test.js` with the justification copy.
+- [x] write Vitest case: badge renders `Updated Nm ago` for recent timestamps. `components.wg-stale-badge.test.js` covers 5m/2h/just-now cases.
+- [x] write Vitest case: badge renders `Offline · ...` when `isOffline=true`. Same file covers `Offline · 12m old`, `Offline · 3h old`, `Offline · 3d old`, and the `Offline · no cache` fallback.
+- [x] write Vitest case: badge applies the warning tone class when age exceeds `staleAfterMs`. Online + 90m vs 1h threshold case asserts `.wg-stale-badge--warning` is applied without `--offline`.
+- [x] run `pnpm test` — must pass before next task. The 12 new badge tests pass (`npx vitest run web/static/js/tests/components.wg-stale-badge.test.js`); architecture guards (`globals`, `sw-precache`, `inline-styles`, `design-tokens`) all pass. Full-suite numbers: 1683/1685 passing — the 2 unchanged failures are the date-dependent `wg-sleep-chart` / `wg-steps-chart` "Today" label assertions documented as pre-existing in Tasks 2 and 3.
 
 ### Task 5: Mount the badge in Today and Food section headers
 
