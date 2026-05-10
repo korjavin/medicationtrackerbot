@@ -208,6 +208,9 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// showArchived=true matches /api/medications?archived=true so the bootstrap
+	// payload is identical to the lazy fetch — clients seeding Dexie from
+	// bootstrap stay in sync with subsequent /api/medications requests.
 	medications, err := s.meds.ListMedications(true)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
