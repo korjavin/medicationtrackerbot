@@ -49,15 +49,37 @@ function createEnv() {
 // Build a fake Conversation object that the SDK loader will return.
 // startCall() awaits Conversation.startSession({...}) so we need to
 // call onConnect from inside that call to flip state to 'in_call'.
+//
+// uploadFile is no longer called by the controller — sendPhoto now POSTs
+// the file to /api/elevenlabs/upload-file via the global fetch (the server
+// proxies it to ElevenLabs with xi-api-key). The fake still keeps a
+// uploadFile spy for legacy assertions but it should never be invoked.
 function makeFakeConversation(overrides = {}) {
     const conv = {
         setMicMuted: vi.fn(),
         uploadFile: vi.fn(async () => ({ fileId: 'file_abc' })),
+        getId: vi.fn(() => 'conv_test'),
         sendMultimodalMessage: vi.fn(),
         endSession: vi.fn(async () => {}),
         ...overrides,
     };
     return conv;
+}
+
+// Default fetch stub for the upload-file proxy. Tests can override
+// window.fetch after createConversationEnv() to simulate failures.
+function makeUploadFetchStub({ fileId = 'file_abc', status = 200 } = {}) {
+    return vi.fn(async (url) => {
+        if (typeof url === 'string' && url.startsWith('/api/elevenlabs/upload-file')) {
+            return {
+                ok: status >= 200 && status < 300,
+                status,
+                async json() { return { file_id: fileId }; },
+                async text() { return ''; },
+            };
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+    });
 }
 
 // Inject a fake SDK module so loadSDK()'s dynamic import resolves to it.
@@ -126,6 +148,10 @@ function createConversationEnv({ conv } = {}) {
 
     window.__TEST_CONVERSATION__ = conversation;
     window.apiCallDirect = vi.fn(async () => ({ signed_url: 'wss://stub.example/' }));
+    // Default to a successful upload-file proxy response. Tests that need
+    // failure modes can reassign window.fetch after createConversationEnv().
+    window.fetch = makeUploadFetchStub();
+    window.userInitData = 'init=stub';
 
     // Replace import(SDK_URL) with a resolved promise to a fake SDK whose
     // Conversation.startSession returns our injected conversation and
@@ -357,15 +383,27 @@ describe('features/elevenlabs-call.js — sendPhoto', () => {
         }
     });
 
-    it('happy path: uploads then sends multimodal message and toggles uploading', async () => {
+    it('happy path: posts to /api/elevenlabs/upload-file then sends multimodal message and toggles uploading', async () => {
         const { window, conversation, events, cleanup } = createConversationEnv();
         try {
             await startCall(window);
             const blob = makeImageBlob(window);
             const before = events.length;
             await window.WGCallAgent.sendPhoto(blob);
-            expect(conversation.uploadFile).toHaveBeenCalledTimes(1);
-            expect(conversation.uploadFile).toHaveBeenCalledWith(blob);
+            // The proxy fetch — not the SDK's uploadFile — handled the upload.
+            expect(conversation.uploadFile).not.toHaveBeenCalled();
+            expect(window.fetch).toHaveBeenCalledTimes(1);
+            const [url, init] = window.fetch.mock.calls[0];
+            expect(url).toBe('/api/elevenlabs/upload-file?conversation_id=conv_test');
+            expect(init.method).toBe('POST');
+            expect(init.body).toBeInstanceOf(window.FormData);
+            // FormData.append(blob, filename) wraps the Blob as a File; the
+            // bytes/type should round-trip through the wrapper.
+            const sentFile = init.body.get('file');
+            expect(sentFile instanceof window.Blob || sentFile instanceof window.File).toBe(true);
+            expect(sentFile.type).toBe('image/jpeg');
+            expect(sentFile.size).toBe(blob.size);
+            expect(init.headers['X-Telegram-Init-Data']).toBe('init=stub');
             expect(conversation.sendMultimodalMessage).toHaveBeenCalledWith({ fileId: 'file_abc' });
             // Expect at least two new events: uploading: true, then false.
             const after = events.slice(before);
@@ -379,11 +417,16 @@ describe('features/elevenlabs-call.js — sendPhoto', () => {
     });
 
     it('preserves a live mode-change status across the upload (does not blank "Listening…")', async () => {
+        const { window, events, cleanup } = createConversationEnv();
         let resolveUpload;
-        const conv = makeFakeConversation({
-            uploadFile: vi.fn(() => new Promise((resolve) => { resolveUpload = resolve; })),
-        });
-        const { window, events, cleanup } = createConversationEnv({ conv });
+        window.fetch = vi.fn(() => new Promise((resolve) => {
+            resolveUpload = () => resolve({
+                ok: true,
+                status: 200,
+                async json() { return { file_id: 'f' }; },
+                async text() { return ''; },
+            });
+        }));
         try {
             const { opts } = await startCall(window);
             // Drive a mode-change so activeMessage = 'Listening…' before upload starts.
@@ -394,7 +437,7 @@ describe('features/elevenlabs-call.js — sendPhoto', () => {
             // Upload-start broadcast must NOT have wiped the listening status.
             expect(events[events.length - 1].message).toBe('Listening…');
             expect(events[events.length - 1].uploading).toBe(true);
-            resolveUpload({ fileId: 'f' });
+            resolveUpload();
             await sendPromise;
             // Final broadcast: still preserves the live message.
             const last = events[events.length - 1];
@@ -406,25 +449,30 @@ describe('features/elevenlabs-call.js — sendPhoto', () => {
     });
 
     it('hang-up during in-flight upload does not clobber idle state back to in_call', async () => {
+        const { window, conversation, events, cleanup } = createConversationEnv();
         let resolveUpload;
-        const conv = makeFakeConversation({
-            uploadFile: vi.fn(() => new Promise((resolve) => { resolveUpload = resolve; })),
-        });
-        const { window, events, cleanup } = createConversationEnv({ conv });
+        window.fetch = vi.fn(() => new Promise((resolve) => {
+            resolveUpload = () => resolve({
+                ok: true,
+                status: 200,
+                async json() { return { file_id: 'late_file' }; },
+                async text() { return ''; },
+            });
+        }));
         try {
             await startCall(window);
             const blob = new window.Blob(['x'], { type: 'image/jpeg' });
             const sendPromise = window.WGCallAgent.sendPhoto(blob);
-            // User hangs up while uploadFile is still pending.
+            // User hangs up while the upload fetch is still pending.
             await window.WGCallAgent.endCall();
             expect(window.WGCallAgent.getState().state).toBe('idle');
             // Upload now resolves — must not flip UI back to in_call.
-            resolveUpload({ fileId: 'late_file' });
+            resolveUpload();
             await sendPromise;
             const finalState = window.WGCallAgent.getState();
             expect(finalState.state).toBe('idle');
             // sendMultimodalMessage must NOT fire after hang-up.
-            expect(conv.sendMultimodalMessage).not.toHaveBeenCalled();
+            expect(conversation.sendMultimodalMessage).not.toHaveBeenCalled();
             // Last broadcast must be the idle one — not 'in_call'.
             const last = events[events.length - 1];
             expect(last.state).toBe('idle');
@@ -434,11 +482,9 @@ describe('features/elevenlabs-call.js — sendPhoto', () => {
     });
 
     it('upload failure after hang-up leaves UI idle (no in_call clobber)', async () => {
+        const { window, events, cleanup } = createConversationEnv();
         let rejectUpload;
-        const conv = makeFakeConversation({
-            uploadFile: vi.fn(() => new Promise((_, reject) => { rejectUpload = reject; })),
-        });
-        const { window, events, cleanup } = createConversationEnv({ conv });
+        window.fetch = vi.fn(() => new Promise((_, reject) => { rejectUpload = reject; }));
         try {
             await startCall(window);
             const blob = new window.Blob(['x'], { type: 'image/jpeg' });
@@ -455,17 +501,15 @@ describe('features/elevenlabs-call.js — sendPhoto', () => {
     });
 
     it('successful retry after a prior failure clears the failure status', async () => {
+        const { window, events, cleanup } = createConversationEnv();
         let firstAttempt = true;
-        const conv = makeFakeConversation({
-            uploadFile: vi.fn(async () => {
-                if (firstAttempt) {
-                    firstAttempt = false;
-                    throw new Error('network');
-                }
-                return { fileId: 'file_xyz' };
-            }),
+        window.fetch = vi.fn(async () => {
+            if (firstAttempt) {
+                firstAttempt = false;
+                return { ok: false, status: 500, async json() { return {}; }, async text() { return 'boom'; } };
+            }
+            return { ok: true, status: 200, async json() { return { file_id: 'file_xyz' }; }, async text() { return ''; } };
         });
-        const { window, events, cleanup } = createConversationEnv({ conv });
         try {
             await startCall(window);
             const blob = new window.Blob(['x'], { type: 'image/jpeg' });
@@ -483,10 +527,8 @@ describe('features/elevenlabs-call.js — sendPhoto', () => {
     });
 
     it('upload failure: keeps call alive, sets status, clears uploading', async () => {
-        const conv = makeFakeConversation({
-            uploadFile: vi.fn(async () => { throw new Error('network'); }),
-        });
-        const { window, events, cleanup } = createConversationEnv({ conv });
+        const { window, conversation, events, cleanup } = createConversationEnv();
+        window.fetch = vi.fn(async () => { throw new Error('network'); });
         try {
             await startCall(window);
             const blob = makeImageBlob(window);
@@ -496,9 +538,30 @@ describe('features/elevenlabs-call.js — sendPhoto', () => {
             expect(last.message).toBe('Photo upload failed');
             expect(last.uploading).toBe(false);
             // sendMultimodalMessage must NOT have been called.
-            expect(conv.sendMultimodalMessage).not.toHaveBeenCalled();
+            expect(conversation.sendMultimodalMessage).not.toHaveBeenCalled();
             // Active state should still be in_call (call is alive).
             expect(window.WGCallAgent.getState().state).toBe('in_call');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('non-2xx upload-file proxy response surfaces "Photo upload failed"', async () => {
+        const { window, conversation, events, cleanup } = createConversationEnv();
+        window.fetch = vi.fn(async () => ({
+            ok: false,
+            status: 401,
+            async json() { return {}; },
+            async text() { return 'sign_in_required'; },
+        }));
+        try {
+            await startCall(window);
+            const blob = new window.Blob(['x'], { type: 'image/jpeg' });
+            await expect(window.WGCallAgent.sendPhoto(blob)).rejects.toThrow();
+            const last = events[events.length - 1];
+            expect(last.state).toBe('in_call');
+            expect(last.message).toBe('Photo upload failed');
+            expect(conversation.sendMultimodalMessage).not.toHaveBeenCalled();
         } finally {
             cleanup();
         }

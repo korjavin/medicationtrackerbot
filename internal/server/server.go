@@ -555,6 +555,7 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("GET /api/health/overview", s.handleGetHealthOverview)
 	// ElevenLabs conversational agent
 	apiMux.HandleFunc("GET /api/elevenlabs/signed-url", s.handleElevenLabsSignedURL)
+	apiMux.HandleFunc("POST /api/elevenlabs/upload-file", s.handleElevenLabsUploadFile)
 
 	apiMux.HandleFunc("GET /api/notes", s.handleListNotes)
 	apiMux.HandleFunc("POST /api/notes", s.handleCreateNote)
