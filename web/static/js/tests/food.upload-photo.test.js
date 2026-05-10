@@ -175,6 +175,72 @@ describe('uploadFoodPhoto + Undo (friendly food-photo flow, Task 4)', () => {
         expect(window.loadToday).toHaveBeenCalled();
     });
 
+    it('Retry after a partial Undo failure only re-attempts the failed items', async () => {
+        const { document, window } = env;
+
+        let firstDeleteRound = true;
+        const fetchSpy = vi.fn().mockImplementation((url, opts) => {
+            if (opts && opts.method === 'POST') {
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    async json() { return { items: SAMPLE_ITEMS }; },
+                    async text() { return JSON.stringify({ items: SAMPLE_ITEMS }); },
+                });
+            }
+            // First DELETE round: id 12 fails, id 11 succeeds.
+            // Second DELETE round (Retry): only id 12 should be re-attempted,
+            // and it should now succeed. If the retry path naively re-issues
+            // a DELETE for id 11 (already deleted), the store would return
+            // 500 and the user would be locked in error state forever.
+            if (opts && opts.method === 'DELETE') {
+                if (firstDeleteRound && url === '/api/food/log/12') {
+                    return Promise.resolve({ ok: false, status: 500, async text() { return ''; }, async json() { return {}; } });
+                }
+                return Promise.resolve({ ok: true, status: 200, async text() { return ''; }, async json() { return {}; } });
+            }
+            return Promise.resolve({ ok: true, status: 200, async text() { return ''; }, async json() { return {}; } });
+        });
+        window.fetch = fetchSpy;
+
+        const input = document.getElementById('food-photo-input');
+        attachFile(input, makeFakeImageFile(env));
+        await window.uploadFoodPhoto(input);
+        await flushPromises();
+
+        const card = document.querySelector('.wg-food-photo-summary');
+        const undoBtn = card.querySelector('.wg-food-photo-summary__undo');
+
+        undoBtn.click();
+        await flushPromises();
+        await flushPromises();
+
+        // Initial Undo round: 2 deletes, one of them failed.
+        let deleteCalls = fetchSpy.mock.calls.filter(([, opts]) => opts && opts.method === 'DELETE');
+        expect(deleteCalls.length).toBe(2);
+
+        const retry = document.querySelector('.wg-food-photo-summary__retry');
+        expect(retry).not.toBeNull();
+
+        // Now Retry: only the failed item (id 12) should be re-issued.
+        firstDeleteRound = false;
+        retry.click();
+        await flushPromises();
+        await flushPromises();
+
+        deleteCalls = fetchSpy.mock.calls.filter(([, opts]) => opts && opts.method === 'DELETE');
+        // Total calls: 2 from first round + 1 from retry (only id 12).
+        expect(deleteCalls.length).toBe(3);
+        expect(deleteCalls[2][0]).toBe('/api/food/log/12');
+
+        // After successful retry, card transitions to the success message —
+        // and reports the ORIGINAL total count, not the count of items
+        // attempted in the final round.
+        const message = document.querySelector('.wg-food-photo-summary__message');
+        expect(message).not.toBeNull();
+        expect(message.textContent).toBe('Removed 2 items');
+    });
+
     it('partial Undo failure puts the card into the error state with a Retry button', async () => {
         const { document, window } = env;
 
