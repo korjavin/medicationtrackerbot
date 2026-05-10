@@ -844,6 +844,12 @@ async function loadInventory() {
     renderInventory();
 }
 
+function renderMedsEmptyState() {
+    const list = document.getElementById('med-list');
+    if (!list) return;
+    list.replaceChildren(createEmptyState('No cached data — will load when online', { tag: 'div' }));
+}
+
 // Logic
 async function loadMeds() {
     if (initialAuthLoad) {
@@ -875,17 +881,29 @@ async function loadMeds() {
         return;
     }
 
+    // Tracks whether any callback (cached / fresh / offline-fallback) painted
+    // a list. When all three miss — apiCall returns null silently on offline,
+    // no api_cache, no MedicationStore — `loadSWR` resolves without ever
+    // firing onCached/onFresh/onError, leaving the list blank. We fall back
+    // to an explicit empty-state below so the user sees the same offline
+    // message BP/Weight surface.
+    let renderedSomething = false;
+
     await window.DataStore.loadSWR({
         key: 'medications',
         tags: ['medications'],
         fetcher: async () => await apiCall('/api/medications?archived=true'),
         onCached: async (cached) => {
-            medications = cached;
+            // Render even when cached is an empty array so the SWR refresh
+            // can later swap in a fresh list without a flash of stale UI.
+            renderedSomething = true;
+            medications = Array.isArray(cached) ? cached : [];
             renderMeds();
             populateMedFilter();
             await renderMedsScheduleStaleBadge();
         },
         onFresh: async (fresh) => {
+            renderedSomething = true;
             medications = fresh;
             if (window.MedTrackerDB?.MedicationStore) {
                 await window.MedTrackerDB.MedicationStore.saveCache(medications);
@@ -896,15 +914,19 @@ async function loadMeds() {
         },
         onError: async (_err, cached) => {
             if (cached) {
+                renderedSomething = true;
                 await renderMedsScheduleStaleBadge();
                 return;
             }
             // API failed and no ApiCache hit; fall back to offline cache
             let fallbackFetchedAt = null;
+            let fallbackHadData = false;
             if (window.MedTrackerDB?.MedicationStore) {
                 const offlineCached = await window.MedTrackerDB.MedicationStore.getCache();
                 if (offlineCached) {
                     console.log('[Meds] Loaded from offline cache:', offlineCached.length);
+                    fallbackHadData = true;
+                    renderedSomething = true;
                     medications = offlineCached;
                     renderMeds();
                     populateMedFilter();
@@ -919,9 +941,17 @@ async function loadMeds() {
                     } catch (_) { /* best-effort cache read */ }
                 }
             }
+            if (!fallbackHadData) {
+                renderMedsEmptyState();
+            }
             await renderMedsScheduleStaleBadge({ fallbackFetchedAt });
         }
     });
+
+    if (!renderedSomething) {
+        renderMedsEmptyState();
+        await renderMedsScheduleStaleBadge();
+    }
 }
 
 // Mounts the wg-stale-badge into the Meds Schedule subtab from the api_cache
