@@ -4,10 +4,18 @@ on:
   pull_request:
     branches:
       - master
+    paths:
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/go-licenses-audit.yml'
 
 permissions:
   contents: read
   pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   license-audit:
@@ -20,9 +28,18 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.26.1'
+          cache: true
+
+      - name: Cache go-licenses binary
+        id: cache-go-licenses
+        uses: actions/cache@v4
+        with:
+          path: ~/go/bin/go-licenses
+          key: go-licenses-${{ runner.os }}-v1.6.0
 
       - name: Install go-licenses
-        run: go install github.com/google/go-licenses@latest
+        if: steps.cache-go-licenses.outputs.cache-hit != 'true'
+        run: go install github.com/google/go-licenses@v1.6.0
 
       - name: Generate license report
         id: license-scan
