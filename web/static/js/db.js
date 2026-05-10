@@ -660,6 +660,20 @@ const ApiCache = {
         }
     },
 
+    // Same as `set`, but stamps the row with the supplied timestamp instead of
+    // Date.now(). Used by DataStore.hydrateFromDexie so a cold-start primer
+    // from a long-lived Dexie table preserves the original fetch age — without
+    // it the stale badge would surface "Updated just now" for data that's
+    // actually hours old.
+    async setWithMeta(key, data, timestamp) {
+        try {
+            const ts = Number.isFinite(timestamp) ? timestamp : Date.now();
+            await db.api_cache.put({ id: key, timestamp: ts, data });
+        } catch (e) {
+            console.warn('[ApiCache] Failed to save', key, e);
+        }
+    },
+
     async clear(key) {
         try {
             if (key) {

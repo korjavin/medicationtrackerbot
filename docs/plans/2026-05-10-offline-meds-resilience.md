@@ -84,14 +84,14 @@ This plan makes the planned-medications experience truly local-first by introduc
 
 Add a small async helper that reads a Dexie store and seeds `DataStore.setCached` so subsequent `DataStore.loadSWR()`/`getCached()` calls find data immediately. The primitive accepts a `key`, an async `dexieLoader` function, and an optional `transform` to shape the Dexie record into the in-memory cache value. It is a no-op when the Dexie store is empty.
 
-- [ ] add `DataStore.hydrateFromDexie(key, dexieLoader, { transform, tags } = {})` to `web/static/js/data-store.js` — returns `{ hydrated: boolean, fetchedAt }`
-- [ ] ensure it does not overwrite a cache entry that is already fresher than the Dexie record (compare `fetchedAt`)
-- [ ] expose as `window.DataStore.hydrateFromDexie` (no new global needed — extends existing one)
-- [ ] write tests for empty Dexie (no-op, returns `{ hydrated: false }`)
-- [ ] write tests for populated Dexie (seeds `setCached`, returns `{ hydrated: true, fetchedAt }`)
-- [ ] write tests for "in-memory cache fresher than Dexie" — does not overwrite
-- [ ] write tests for `transform` callback applied before seed
-- [ ] run `pnpm test` — must pass before next task
+- [x] add `DataStore.hydrateFromDexie(key, dexieLoader, { transform, tags } = {})` to `web/static/js/data-store.js` — returns `{ hydrated: boolean, fetchedAt }`
+- [x] ensure it does not overwrite a cache entry that is already fresher than the Dexie record (compare `fetchedAt`)
+- [x] expose as `window.DataStore.hydrateFromDexie` (no new global needed — extends existing one)
+- [x] write tests for empty Dexie (no-op, returns `{ hydrated: false }`)
+- [x] write tests for populated Dexie (seeds `setCached`, returns `{ hydrated: true, fetchedAt }`)
+- [x] write tests for "in-memory cache fresher than Dexie" — does not overwrite
+- [x] write tests for `transform` callback applied before seed
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 2: Hydrate meds list from Dexie before bootstrap completes
 
