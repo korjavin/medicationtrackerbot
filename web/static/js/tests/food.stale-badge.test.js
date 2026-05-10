@@ -110,6 +110,53 @@ describe('Food section-header stale badge', () => {
         expect(badge.textContent).toMatch(/^Offline · (just now|\d+m old)$/);
     });
 
+    it('keeps the Updated tone when online but cachedFetch reports the cache is stale', async () => {
+        // Regression: badge tone used to flip to "Offline · …" when meta.isStale
+        // was true (online + 5xx fallback to >24h cache), mislabeling the data
+        // as offline. Tone should follow navigator.onLine only; the warning
+        // class is driven by staleAfterMs inside renderStaleBadge.
+        const { window, document } = env;
+        installCachedFetch(window);
+
+        const cachedAt = Date.now() - 25 * 60 * 60 * 1000; // 25h ago — beyond default staleAfterMs (24h)
+        installApiCacheMap(window, {
+            'food_2026-05-09_day': {
+                data: {
+                    groups: [{
+                        name: 'Lunch',
+                        time: '13:00',
+                        calories: 420,
+                        carbs: 50,
+                        protein: 18,
+                        fat: 12,
+                        logs: [{ id: 99, name: 'Salad', weight: 250, calories: 420, carbs: 50, protein: 18, fat: 12 }]
+                    }]
+                },
+                timestamp: cachedAt
+            }
+        });
+        setOnline(window, true);
+        // apiCallDirect throws a 5xx-style error so cachedFetch falls back to cache
+        // and surfaces meta.isStale: true while navigator.onLine remains true.
+        const err = new Error('Service Unavailable');
+        err.status = 503;
+        window.apiCall = vi.fn();
+        window.apiCallDirect = vi.fn(async () => { throw err; });
+
+        await window.loadFoodLogs();
+
+        const slot = document.getElementById('food-stale-badge');
+        expect(slot).not.toBeNull();
+        const badge = slot.querySelector('.wg-stale-badge');
+        expect(badge).not.toBeNull();
+        // Online tone: no "Offline · " prefix and no offline class.
+        expect(badge.classList.contains('wg-stale-badge--offline')).toBe(false);
+        expect(badge.textContent.startsWith('Offline · ')).toBe(false);
+        expect(badge.textContent.startsWith('Updated ')).toBe(true);
+        // But warning class must still light up because cache age > staleAfterMs.
+        expect(badge.classList.contains('wg-stale-badge--warning')).toBe(true);
+    });
+
     it('falls back to Offline · no cache when offline and no api_cache entry exists', async () => {
         const { window, document } = env;
         installCachedFetch(window);

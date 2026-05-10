@@ -27,6 +27,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.MedTrackerDB',              // db.js — IndexedDB facade
     'window.SyncManager',               // sync.js — offline sync manager
     'window.offlineAwareApiCall',       // sync.js — public API entry point
+    'window.isServerError',             // sync.js — canonical 5xx-as-offline detector exposed so cached-fetch.js can keep the policy defined in one place
     'window.SyncDebug',                 // sync.js — dev-mode diagnostics
     'window.DataStore',                 // data-store.js — SWR cache layer
     'window.cachedFetch',               // cached-fetch.js — local-first read-through helper used by feature modules to render stale cache offline + power the freshness badge
