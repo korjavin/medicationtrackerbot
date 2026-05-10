@@ -292,8 +292,9 @@ describe('uploadFoodPhoto + Undo (friendly food-photo flow, Task 4)', () => {
         const retry = stillCard.querySelector('.wg-food-photo-summary__retry');
         expect(retry).not.toBeNull();
 
-        // The food list is NOT re-refreshed on a failed Undo: the items
-        // are still in the DB, so the list is already correct.
-        expect(window.loadFoodLogs).not.toHaveBeenCalled();
+        // Partial failure: id 12 was deleted server-side while id 11 was not,
+        // so the UI must refresh to drop the now-stale row. Otherwise the
+        // user sees a row that no longer exists in the DB.
+        expect(window.loadFoodLogs).toHaveBeenCalled();
     });
 });
