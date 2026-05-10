@@ -1917,6 +1917,130 @@ svg.chart-svg {
     color: white;
 }
 
+/* Friendly food-photo summary card. Shown after a successful
+   /api/food/log/from-photo upload — replaces the old browser alert() with
+   an in-app card that lists each parsed item, rolls up totals, and offers
+   an Undo. Pinned above the bottom nav so it doesn't collide with the nav
+   row, full-width on phones with a small horizontal inset, and capped at
+   a comfortable reading width on larger viewports. */
+.wg-food-photo-summary {
+    position: fixed;
+    left: var(--space-md);
+    right: var(--space-md);
+    bottom: calc(var(--wg-bottom-nav-reserved) + var(--space-md));
+    margin-left: auto;
+    margin-right: auto;
+    max-width: 420px;
+    z-index: var(--z-overlay);
+
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+
+    padding: var(--space-md);
+    border-radius: var(--wg-radius-card);
+    border: 1px solid var(--wg-border-hairline);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(0, 0, 0, 0) 60%),
+        var(--wg-bg-card);
+    box-shadow: var(--shadow-lg);
+    color: var(--wg-fg-1);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-sm);
+}
+
+.wg-food-photo-summary__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+}
+
+.wg-food-photo-summary__title {
+    font-weight: var(--font-weight-bold);
+    color: var(--wg-fg-1);
+}
+
+.wg-food-photo-summary__close {
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-gloss);
+    background: transparent;
+    color: var(--wg-fg-2);
+    font-size: var(--font-size-md);
+    line-height: 1;
+    cursor: pointer;
+}
+
+.wg-food-photo-summary__close:hover {
+    color: var(--wg-fg-1);
+    border-color: var(--wg-border-strong);
+}
+
+.wg-food-photo-summary__items {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-food-photo-summary__item {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: var(--space-sm);
+    align-items: baseline;
+}
+
+.wg-food-photo-summary__item-name {
+    color: var(--wg-fg-1);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wg-food-photo-summary__item-weight {
+    color: var(--wg-fg-3);
+    font-size: var(--font-size-xs);
+}
+
+.wg-food-photo-summary__item-kcal {
+    color: var(--wg-fg-2);
+    font-size: var(--font-size-xs);
+}
+
+.wg-food-photo-summary__totals {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: var(--space-sm);
+    align-items: baseline;
+    padding-top: var(--space-sm);
+    border-top: 1px solid var(--wg-border-hairline);
+}
+
+.wg-food-photo-summary__totals-label {
+    font-weight: var(--font-weight-bold);
+    color: var(--wg-fg-1);
+}
+
+.wg-food-photo-summary__totals-macros {
+    color: var(--wg-fg-3);
+    font-size: var(--font-size-xs);
+}
+
+.wg-food-photo-summary__totals-kcal {
+    color: var(--wg-fg-1);
+    font-weight: var(--font-weight-bold);
+}
+
+.wg-food-photo-summary__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-sm);
+}
+
 .data-refresh-banner {
     position: fixed;
     left: var(--space-lg);

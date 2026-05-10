@@ -87,13 +87,13 @@ The summary card's Undo needs to delete each just-logged food item by ID. Before
 
 A reusable card/toast that shows after a successful photo upload: lists each item (name, weight, kcal), shows total kcal + macros, and offers an Undo button.
 
-- [ ] create `web/static/js/features/food-photo-summary.js` exporting `showFoodPhotoSummary({ items, onUndo })` — appends a card to a designated mount point (e.g. body or a toast region) with auto-dismiss after ~8s and an explicit close button
-- [ ] structure the card with semantic markup using `wg-*` tokens for all colors/spacing (no inline styles, no hardcoded colors — enforced by architecture tests)
-- [ ] include: header ("Logged from photo"), per-item rows (name, weight in g, kcal), totals row (sum of kcal/carbs/protein/fat), Undo button, close button
-- [ ] add the corresponding CSS rules in `web/static/css/styles.css` under a `.wg-food-photo-summary` block, using existing tokens
-- [ ] register the new script in `web/static/index.html` in the correct load order (after `food.js` is loaded, or imported by it)
-- [ ] write Vitest tests covering: card renders with correct items + totals; clicking Undo fires the `onUndo` callback exactly once; clicking close dismisses the card; auto-dismiss timer dismisses the card
-- [ ] run `pnpm test` — must pass before next task
+- [x] create `web/static/js/features/food-photo-summary.js` exporting `showFoodPhotoSummary({ items, onUndo })` — appends a card to a designated mount point (e.g. body or a toast region) with auto-dismiss after ~8s (configurable via `autoDismissMs`; pass `0` to disable in tests) and an explicit close button
+- [x] structure the card with semantic markup using `wg-*` tokens for all colors/spacing (no inline styles, no hardcoded colors — enforced by architecture tests)
+- [x] include: header ("Logged N item(s) from photo"), per-item rows (name, weight in g, kcal), totals row (label + macros breakdown + sum kcal), Undo button (uses shared `wg-toolbar-btn--secondary` sizing), close button (×)
+- [x] add the corresponding CSS rules in `web/static/css/styles.css` under a `.wg-food-photo-summary` block, using existing tokens (`--wg-bg-card`, `--wg-fg-*`, `--wg-border-*`, `--space-*`, `--font-size-*`, `--shadow-lg`, `--z-overlay`, `--wg-bottom-nav-reserved` so the card floats above the nav)
+- [x] register the new script in `web/static/index.html` in the correct load order (between `meds.js` and `food.js` so Task 4's caller in `food.js` can reach `showFoodPhotoSummary`); also added to `sw.js` STATIC_ASSETS and `tests/helpers/frontend-harness.js` so the function is hydrated under jsdom
+- [x] write Vitest tests covering: card renders with correct items + totals; singular/plural header; Undo fires `onUndo` exactly once even on rapid double-click and disables the button; Close removes card from DOM; auto-dismiss timer dismisses; Close cancels the auto-timer (no double-removal); empty-items path still renders header + zero totals; CSS block exists and color values come from `--wg-*` tokens
+- [x] run `pnpm test` — passes (10/10 new tests; the only 2 failures are the pre-existing date-sensitive flakes in `components.wg-sleep-chart.test.js` and `components.wg-steps-chart.test.js`, same ones noted in Task 2)
 
 ### Task 4: Wire summary card + Undo into the photo upload flow
 
