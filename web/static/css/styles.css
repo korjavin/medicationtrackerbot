@@ -5888,18 +5888,42 @@ textarea.wg-input {
     border-color: var(--wg-tag-alert-border);
 }
 
-/* Wrapper rows that mount the stale chip in the Today and Food section
-   headers (Task 5 of local-first read-resilience). The chip itself owns
-   colour/border; the row only sets layout (right-aligned with a small
-   bottom gap so it does not crowd the cards underneath).
-   `.wg-section-stale-badge-row` (Task 6) is the generic variant used by BP,
-   Weight, Meds, Workouts, and Vitals/Health. */
+/* Wrapper rows that mount the stale chip. Originally placed inline above
+   each section's content, the chip is now pinned to the viewport's
+   bottom-right (under the bottom nav, on top of its safe-area padding) so
+   it sits in the same spot on every screen and never shifts cards around.
+   `pointer-events: none` keeps it from blocking taps on nav buttons; the
+   capped `max-width` plus `overflow: hidden` prevents wrap-induced scroll.
+   Only the active view's slot is in the layout (other views are
+   `display: none`), so multiple slots cannot overlap at runtime. */
 .today-stale-badge-row,
 .wg-food-stale-badge-row,
 .wg-section-stale-badge-row {
+    position: fixed;
+    right: var(--space-xs);
+    bottom: var(--space-xxs, 2px);
+    z-index: calc(var(--wg-bottom-nav-z) + 1);
+    pointer-events: none;
+    max-width: calc(100vw - var(--space-sm));
+    margin: 0;
     display: flex;
     justify-content: flex-end;
-    margin: 0 0 var(--space-sm) 0;
+}
+
+/* Compact variant for the pinned position — the corner chip is glanceable,
+   not interactive, so it shrinks well below the inline header sizing. */
+.today-stale-badge-row .wg-stale-badge,
+.wg-food-stale-badge-row .wg-stale-badge,
+.wg-section-stale-badge-row .wg-stale-badge {
+    font-size: var(--wg-nav-item-font-size);
+    letter-spacing: 0.02em;
+    padding: 1px var(--space-xs);
+    line-height: 1.15;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: 0.75;
 }
 
 /* Daily macros card (Phase 4, Task 4). `.wg-card` shell with a mono kcal
