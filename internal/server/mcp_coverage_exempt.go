@@ -55,6 +55,7 @@ var mcpCoverageExempt = []routeExemption{
 	{Method: "POST", Path: "/api/mcp-workout-log", Reason: "HMAC-signed write-through for the legacy workout_log atomic tool; will be removed alongside that tool"},
 	{Method: "POST", Path: "/api/workout/external", Reason: "external-API-key auth; not user-driven"},
 	{Method: "GET", Path: "/api/elevenlabs/signed-url", Reason: "browser-only voice integration handshake"},
+	{Method: "POST", Path: "/api/elevenlabs/upload-file", Reason: "browser-only voice integration: proxies image upload to ElevenLabs with the server's xi-api-key"},
 
 	// --- UI bootstrap and real-time sync ---
 	{Method: "GET", Path: "/api/init", Reason: "UI bootstrap aggregate; agent uses topic-specific reads"},
