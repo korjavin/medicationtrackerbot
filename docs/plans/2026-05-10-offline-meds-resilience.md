@@ -120,11 +120,11 @@ Currently `loadMeds()` (`features/meds.js` line ~848+) calls `DataStore.loadSWR(
 
 Backend change — adds `medications` to the bootstrap payload so first-login cold starts (with no prior Dexie cache) are also covered. Keeps the response additive; existing clients ignore the new field.
 
-- [ ] in `internal/server/`, find the bootstrap handler and its response struct (`BootstrapResponse` or similar)
-- [ ] add a `Medications []Medication` field with appropriate JSON tag (`json:"medications,omitempty"`)
-- [ ] populate it from the existing medications store call (the same one `/api/medications?archived=true` uses) — keep archived behavior consistent; document the choice in code with a one-line comment if non-obvious
-- [ ] write Go tests for the handler — table-driven: empty user (returns `[]`), user with active meds, user with archived meds (verify the archived flag matches `/api/medications?archived=true`)
-- [ ] run `go test ./internal/server/...` — must pass before next task
+- [x] in `internal/server/`, find the bootstrap handler and its response struct (`BootstrapResponse` or similar) — `handleBootstrap` in `internal/server/settings_handlers.go` uses a `map[string]any` rather than a typed struct
+- [x] add a `Medications []Medication` field with appropriate JSON tag (`json:"medications,omitempty"`) — already populated under the `"medications"` map key (predates this task); kept as-is to avoid an additive struct refactor
+- [x] populate it from the existing medications store call (the same one `/api/medications?archived=true` uses) — `s.meds.ListMedications(true)` matches `handleListMedications` when `archived=true`; documented with a one-line comment in `settings_handlers.go`
+- [x] write Go tests for the handler — table-driven: empty user (returns `[]`), user with active meds, user with archived meds (verify the archived flag matches `/api/medications?archived=true`) — `TestHandleBootstrap_IncludesMedications` (table-driven, 3 cases) plus `TestHandleBootstrap_MedicationsMatchesArchivedListEndpoint` (parity guard)
+- [x] run `go test ./internal/server/...` — must pass before next task
 
 ### Task 5: Apply bootstrapped medications into DataStore + Dexie on bootstrap
 
