@@ -46,8 +46,22 @@ const DEEPLINK_ROUTER_JS = path.join(REPO_ROOT, 'web/static/js/features/deeplink
 const HEALTH_JS = path.join(REPO_ROOT, 'web/static/js/features/health.js');
 const WORKOUT_JS = path.join(REPO_ROOT, 'web/static/js/features/workout.js');
 
+const _sourceCache = new Map();
+function readCached(filePath) {
+  let src = _sourceCache.get(filePath);
+  if (src === undefined) {
+    src = fs.readFileSync(filePath, 'utf8');
+    _sourceCache.set(filePath, src);
+  }
+  return src;
+}
+
 function evalWithSourceURL(window, source, scriptPath) {
   window.eval(`${source}\n//# sourceURL=file://${scriptPath}`);
+}
+
+function evalFileCached(window, scriptPath) {
+  evalWithSourceURL(window, readCached(scriptPath), scriptPath);
 }
 
 function disableAutoBootstrap(source) {
@@ -90,7 +104,7 @@ function isVersionAtLeast(currentVersion, targetVersion) {
 }
 
 export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', telegramVersion = '6.9', url = 'https://example.test/' } = {}) {
-  const html = fs.readFileSync(INDEX_HTML, 'utf8');
+  const html = readCached(INDEX_HTML);
   const dom = new JSDOM(html, {
     url,
     pretendToBeVisual: true,
@@ -142,61 +156,57 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   window.eval('var history = window.history;');
 
   // Core infrastructure files (loaded before data-store.js and app.js)
-  evalWithSourceURL(window, fs.readFileSync(UTILS_JS, 'utf8'), UTILS_JS);
+  evalFileCached(window, UTILS_JS);
   // wg-toggle.js must load before mt-elements.js so <mt-setting-toggle>
   // upgrades can pick up window.WGToggle in its connectedCallback.
-  evalWithSourceURL(window, fs.readFileSync(WG_TOGGLE_JS, 'utf8'), WG_TOGGLE_JS);
-  evalWithSourceURL(window, fs.readFileSync(MT_ELEMENTS_JS, 'utf8'), MT_ELEMENTS_JS);
-  evalWithSourceURL(window, fs.readFileSync(EMPTY_STATE_JS, 'utf8'), EMPTY_STATE_JS);
-  evalWithSourceURL(window, fs.readFileSync(STAT_CARD_JS, 'utf8'), STAT_CARD_JS);
-  evalWithSourceURL(window, fs.readFileSync(ACTION_ROW_JS, 'utf8'), ACTION_ROW_JS);
-  evalWithSourceURL(window, fs.readFileSync(WG_ICONS_JS, 'utf8'), WG_ICONS_JS);
-  evalWithSourceURL(window, fs.readFileSync(WG_BOTTOM_NAV_JS, 'utf8'), WG_BOTTOM_NAV_JS);
-  evalWithSourceURL(window, fs.readFileSync(WG_SPARKLINE_JS, 'utf8'), WG_SPARKLINE_JS);
-  evalWithSourceURL(window, fs.readFileSync(WG_BP_CHART_JS, 'utf8'), WG_BP_CHART_JS);
-  evalWithSourceURL(window, fs.readFileSync(WG_WEIGHT_CHART_JS, 'utf8'), WG_WEIGHT_CHART_JS);
-  evalWithSourceURL(window, fs.readFileSync(WG_WORKOUT_CHART_JS, 'utf8'), WG_WORKOUT_CHART_JS);
-  evalWithSourceURL(window, fs.readFileSync(WG_SLEEP_CHART_JS, 'utf8'), WG_SLEEP_CHART_JS);
-  evalWithSourceURL(window, fs.readFileSync(WG_STEPS_CHART_JS, 'utf8'), WG_STEPS_CHART_JS);
-  evalWithSourceURL(window, fs.readFileSync(WG_VITALS_CHART_JS, 'utf8'), WG_VITALS_CHART_JS);
-  evalWithSourceURL(window, fs.readFileSync(WG_MACRO_BAR_JS, 'utf8'), WG_MACRO_BAR_JS);
-  evalWithSourceURL(window, fs.readFileSync(WG_STALE_BADGE_JS, 'utf8'), WG_STALE_BADGE_JS);
-  evalWithSourceURL(window, fs.readFileSync(WG_SETTINGS_JS, 'utf8'), WG_SETTINGS_JS);
-  evalWithSourceURL(window, fs.readFileSync(MODAL_MANAGER_JS, 'utf8'), MODAL_MANAGER_JS);
-  evalWithSourceURL(window, fs.readFileSync(CORE_API_JS, 'utf8'), CORE_API_JS);
-  evalWithSourceURL(window, fs.readFileSync(APP_KERNEL_JS, 'utf8'), APP_KERNEL_JS);
-  evalWithSourceURL(window, fs.readFileSync(STORE_JS, 'utf8'), STORE_JS);
-  evalWithSourceURL(window, fs.readFileSync(MODAL_CONTROLLER_JS, 'utf8'), MODAL_CONTROLLER_JS);
-  evalWithSourceURL(window, fs.readFileSync(CHART_UTILS_JS, 'utf8'), CHART_UTILS_JS);
+  evalFileCached(window, WG_TOGGLE_JS);
+  evalFileCached(window, MT_ELEMENTS_JS);
+  evalFileCached(window, EMPTY_STATE_JS);
+  evalFileCached(window, STAT_CARD_JS);
+  evalFileCached(window, ACTION_ROW_JS);
+  evalFileCached(window, WG_ICONS_JS);
+  evalFileCached(window, WG_BOTTOM_NAV_JS);
+  evalFileCached(window, WG_SPARKLINE_JS);
+  evalFileCached(window, WG_BP_CHART_JS);
+  evalFileCached(window, WG_WEIGHT_CHART_JS);
+  evalFileCached(window, WG_WORKOUT_CHART_JS);
+  evalFileCached(window, WG_SLEEP_CHART_JS);
+  evalFileCached(window, WG_STEPS_CHART_JS);
+  evalFileCached(window, WG_VITALS_CHART_JS);
+  evalFileCached(window, WG_MACRO_BAR_JS);
+  evalFileCached(window, WG_STALE_BADGE_JS);
+  evalFileCached(window, WG_SETTINGS_JS);
+  evalFileCached(window, MODAL_MANAGER_JS);
+  evalFileCached(window, CORE_API_JS);
+  evalFileCached(window, APP_KERNEL_JS);
+  evalFileCached(window, STORE_JS);
+  evalFileCached(window, MODAL_CONTROLLER_JS);
+  evalFileCached(window, CHART_UTILS_JS);
 
-  const dataStoreSource = fs.readFileSync(DATA_STORE_JS, 'utf8');
-  evalWithSourceURL(window, dataStoreSource, DATA_STORE_JS);
+  evalFileCached(window, DATA_STORE_JS);
 
-  const appSource = disableAutoBootstrap(fs.readFileSync(APP_JS, 'utf8'));
+  const appSource = disableAutoBootstrap(readCached(APP_JS));
   evalWithSourceURL(window, appSource, APP_JS);
 
   // Feature modules extracted from app.js (meds, food, bp, weight, health).
-  evalWithSourceURL(window, fs.readFileSync(MEDS_JS, 'utf8'), MEDS_JS);
-  evalWithSourceURL(window, fs.readFileSync(FOOD_PHOTO_SUMMARY_JS, 'utf8'), FOOD_PHOTO_SUMMARY_JS);
-  evalWithSourceURL(window, fs.readFileSync(FOOD_JS, 'utf8'), FOOD_JS);
-  evalWithSourceURL(window, fs.readFileSync(BP_JS, 'utf8'), BP_JS);
-  evalWithSourceURL(window, fs.readFileSync(WEIGHT_JS, 'utf8'), WEIGHT_JS);
-  evalWithSourceURL(window, fs.readFileSync(HEALTH_JS, 'utf8'), HEALTH_JS);
+  evalFileCached(window, MEDS_JS);
+  evalFileCached(window, FOOD_PHOTO_SUMMARY_JS);
+  evalFileCached(window, FOOD_JS);
+  evalFileCached(window, BP_JS);
+  evalFileCached(window, WEIGHT_JS);
+  evalFileCached(window, HEALTH_JS);
 
   // auth-flow.js: provides saveAuthState / getCachedAuthState / clearAuthState.
-  const authFlowSource = fs.readFileSync(AUTH_FLOW_JS, 'utf8');
-  evalWithSourceURL(window, authFlowSource, AUTH_FLOW_JS);
+  evalFileCached(window, AUTH_FLOW_JS);
 
   // modal-history.js must load BEFORE DOMContentLoaded fires so its internal
   // 'DOMContentLoaded' listener can call setupObserver() at the right time.
   // (JSDOM keeps readyState='loading' until its own lifecycle completes.)
-  const modalHistorySource = fs.readFileSync(MODAL_HISTORY_JS, 'utf8');
-  evalWithSourceURL(window, modalHistorySource, MODAL_HISTORY_JS);
+  evalFileCached(window, MODAL_HISTORY_JS);
 
   // back-button.js must load before AppBackButton.setup() is called; it also
   // owns the Telegram BackButton onClick handler that modal-history relies on.
-  const backButtonSource = fs.readFileSync(BACK_BUTTON_JS, 'utf8');
-  evalWithSourceURL(window, backButtonSource, BACK_BUTTON_JS);
+  evalFileCached(window, BACK_BUTTON_JS);
 
   // Fire DOMContentLoaded – triggers setupObserver() inside modal-history.js.
   window.document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
@@ -208,12 +218,10 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
 
   // deeplink-router.js: provides handleDeepLinks() on window.
   // The Telegram start_param auto-run is harmless (initDataUnsafe={} in tests).
-  const deeplinkSource = fs.readFileSync(DEEPLINK_ROUTER_JS, 'utf8');
-  evalWithSourceURL(window, deeplinkSource, DEEPLINK_ROUTER_JS);
+  evalFileCached(window, DEEPLINK_ROUTER_JS);
 
   if (withWorkout) {
-    const workoutSource = fs.readFileSync(WORKOUT_JS, 'utf8');
-    evalWithSourceURL(window, workoutSource, WORKOUT_JS);
+    evalFileCached(window, WORKOUT_JS);
   }
 
   return {
