@@ -125,6 +125,44 @@ describe('Food loadFoodLogs() local-first read resilience', () => {
     expect(logRow).not.toBeNull();
   });
 
+  it('preserves an already-rendered v2-cached list when OfflineNoCacheError fires', async () => {
+    allowConsoleNoise();
+    const { window, document } = env;
+    installCachedFetch(window);
+
+    // Legacy v2 cache returns groups for the date; the new `food_<date>_day`
+    // key is missing so cachedFetch raises OfflineNoCacheError when offline.
+    const v2Groups = [
+      {
+        name: 'Lunch',
+        time: '12:30',
+        calories: 540,
+        carbs: 60,
+        protein: 28,
+        fat: 18,
+        logs: [{ id: 9, name: 'Soup', weight: 300, calories: 540, carbs: 60, protein: 28, fat: 18 }]
+      }
+    ];
+    window.DataStore.getCached = async (key) => key === 'food_2026-05-09_v2'
+      ? { groups: v2Groups, weekStats: null }
+      : null;
+
+    installApiCacheMap(window, {});
+    setOnline(window, false);
+    window.apiCall = vi.fn();
+    window.apiCallDirect = vi.fn();
+
+    await window.loadFoodLogs();
+
+    const list = document.getElementById('food-list');
+    // The v2 cache rendered "Lunch" before cachedFetch threw — the catch
+    // branch must NOT replace the list with the "No cached food data" copy.
+    expect(list.textContent).not.toContain('No cached food data');
+    const groupHeader = list.querySelector('.wg-food-meal-group__title');
+    expect(groupHeader).not.toBeNull();
+    expect(groupHeader.textContent).toContain('Lunch');
+  });
+
   it('renders the explicit "No cached food data" empty state on OfflineNoCacheError', async () => {
     allowConsoleNoise(); // _renderFoodData not invoked, but offline path touches console paths via guards
     const { window, document } = env;
