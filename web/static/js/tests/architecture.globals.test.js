@@ -84,6 +84,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.featureSettingsLoaded',     // features/settings.js — flag: settings have been fetched at least once
     'window.switchTab',                 // features/settings.js — re-exported tab switcher used by applyFeatureSettings
     'window.loadFeatureSettings',       // features/settings.js — SWR loader for /api/settings/features
+    'window.FoodActions',               // features/food.js — namespace exposing the food-photo picker (triggerPhotoPicker) so the Today shortcut tile can open it without first navigating to the Food section
     'window.foodTargets',               // features/settings.js — ephemeral cache of food macro targets
     'window.loadFoodTargets',           // features/settings.js — SWR loader for /api/food/settings/targets
     'window.saveFoodTargets',           // features/settings.js — POSTs updated food targets to backend

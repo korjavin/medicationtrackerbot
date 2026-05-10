@@ -74,16 +74,16 @@ describe('Today DOM — Task 3 mockup alignment', () => {
     beforeEach(() => { env = loadEnv(); });
     afterEach(() => { env?.cleanup(); env = null; });
 
-    it('shortcut row has exactly 3 buttons labelled Log food / Add BP / Add weight', () => {
+    it('shortcut row has buttons labelled Log food / Photo meal / Add BP / Add weight', () => {
         const root = env.document.getElementById('today-content');
         env.render(state(now), root, { now });
 
         const row = root.querySelector('.wg-today-shortcuts');
         expect(row).not.toBeNull();
         const tiles = row.querySelectorAll('.wg-shortcut-tile');
-        expect(tiles.length).toBe(3);
+        expect(tiles.length).toBe(4);
         const labels = Array.from(tiles).map((t) => t.querySelector('.wg-shortcut-tile__label').textContent);
-        expect(labels).toEqual(['Log food', 'Add BP', 'Add weight']);
+        expect(labels).toEqual(['Log food', 'Photo meal', 'Add BP', 'Add weight']);
     });
 
     it('shortcut tiles render SVG icons inside the icon slot', () => {

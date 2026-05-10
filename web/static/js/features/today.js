@@ -627,6 +627,10 @@
                 if (typeof handlers.onLogFood === 'function') handlers.onLogFood();
             }));
             added += 1;
+            row.appendChild(renderShortcutTile('camera', 'Photo meal', () => {
+                if (typeof handlers.onPhotoMeal === 'function') handlers.onPhotoMeal();
+            }));
+            added += 1;
         }
         const bpCell = state && state.bpLatest;
         if (bpCell && bpCell.status !== 'disabled') {
@@ -897,6 +901,13 @@
         const onLogFood = opts.onLogFood || defaultHandler('showAddFoodModal', 'food');
         const onAddBp = opts.onAddBp || defaultHandler('showBPRecordModal', 'bp');
         const onAddWeight = opts.onAddWeight || defaultHandler('showWeightModal', 'weight');
+        const onPhotoMeal = opts.onPhotoMeal || (() => {
+            if (typeof window !== 'undefined'
+                && window.FoodActions
+                && typeof window.FoodActions.triggerPhotoPicker === 'function') {
+                window.FoodActions.triggerPhotoPicker();
+            }
+        });
 
         root.innerHTML = '';
         root.classList.add('wg-today');
@@ -927,7 +938,7 @@
         }
 
         const shortcuts = renderShortcutRow(state, {
-            onLogFood, onAddBp, onAddWeight
+            onLogFood, onPhotoMeal, onAddBp, onAddWeight
         });
         if (shortcuts) { root.appendChild(shortcuts); rendered += 1; }
 

@@ -809,6 +809,13 @@ function triggerFoodPhotoPicker() {
     input.click();
 }
 
+// Exposed so other features (e.g. the Today shortcut tile) can open the
+// food-photo picker without first navigating to the Food section. The
+// picker's hidden <input> and its change handler are bound at app startup
+// via bindFoodControls(), so this works on a cold session too.
+window.FoodActions = window.FoodActions || {};
+window.FoodActions.triggerPhotoPicker = triggerFoodPhotoPicker;
+
 // readFoodPhotoExifDateFromBuffer parses just enough JPEG/EXIF to extract the
 // capture timestamp (DateTimeOriginal, tag 0x9003, with optional
 // OffsetTimeOriginal tag 0x9011). Falls back to DateTime (0x0132) in IFD0
@@ -1007,10 +1014,20 @@ async function uploadFoodPhoto(input) {
             loadFoodLogs();
             if (typeof loadToday === 'function') loadToday();
 
-            const summary = items.length
-                ? `Logged ${items.length} item${items.length === 1 ? '' : 's'}: ${items.map(i => i.name).join(', ')}`
-                : 'Photo logged.';
-            safeAlert(summary);
+            if (typeof showFoodPhotoSummary === 'function' && items.length) {
+                let summaryHandle;
+                summaryHandle = showFoodPhotoSummary({
+                    items,
+                    onUndo: () => undoFoodPhotoLog(items, summaryHandle),
+                });
+            } else {
+                // Fall back to a toast-or-alert for the no-items case (e.g. AI
+                // parsed nothing but the upload itself succeeded), since there
+                // is nothing to undo and the rich card would render empty.
+                safeAlert(items.length
+                    ? `Logged ${items.length} item${items.length === 1 ? '' : 's'}.`
+                    : 'Photo logged.');
+            }
         } catch (e) {
             console.error('Food photo upload failed:', e);
             safeAlert('Failed to log food from photo: ' + (e.message || e));
@@ -2415,6 +2432,68 @@ async function deleteFoodLog(id) {
             if (res) loadFoodLogs();
         }
     });
+}
+
+// Undo handler for the friendly food-photo summary card. Issues a parallel
+// DELETE for every just-logged item, refreshes the food list + Today, then
+// transitions the card to a "Removed N items" success state. On partial
+// failure the card flips to its retry-able error state, and Retry only
+// re-attempts the items that haven't already been deleted — otherwise the
+// store's "no rows" 500 for already-deleted ids would lock the user in
+// permanent error after a single successful round.
+async function undoFoodPhotoLog(items, summary, originalCount) {
+    if (!Array.isArray(items) || items.length === 0) return;
+    const total = (typeof originalCount === 'number') ? originalCount : items.length;
+
+    const results = await Promise.all(items.map(async (it) => {
+        if (!it || !it.id) return { item: it, ok: false };
+        try {
+            const res = await fetch(`/api/food/log/${it.id}`, {
+                method: 'DELETE',
+                headers: { 'X-Telegram-Init-Data': window.userInitData },
+            });
+            return { item: it, ok: !!(res && res.ok) };
+        } catch (_) {
+            return { item: it, ok: false };
+        }
+    }));
+
+    const allOk = results.every(r => r.ok);
+    const anyOk = results.some(r => r.ok);
+
+    // Refresh whenever at least one delete succeeded — partial failure still
+    // mutates the server, so the UI must reflect the new state or stale rows
+    // (already gone from the DB) will linger until the next manual refresh.
+    if (anyOk) {
+        try {
+            await window.DataStore.invalidateTags(['food']);
+            if (typeof todayFoodKey === 'function' && window.DataStore.clearCached) {
+                await window.DataStore.clearCached(todayFoodKey(new Date()));
+            }
+            if (window.DataStore?.advanceCursorSilently) {
+                window.DataStore.advanceCursorSilently();
+            }
+        } catch (e) {
+            console.error('Food photo undo cache invalidation failed:', e);
+        }
+        loadFoodLogs();
+        if (typeof loadToday === 'function') loadToday();
+    }
+
+    if (!allOk) {
+        const remaining = results.filter(r => !r.ok).map(r => r.item);
+        if (summary && typeof summary.showError === 'function') {
+            summary.showError(
+                'Could not undo all items. Tap retry to try again.',
+                () => undoFoodPhotoLog(remaining, summary, total),
+            );
+        }
+        return;
+    }
+
+    if (summary && typeof summary.showRemoved === 'function') {
+        summary.showRemoved(total);
+    }
 }
 
 
