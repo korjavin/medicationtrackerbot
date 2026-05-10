@@ -1828,10 +1828,16 @@ async function loadFoodLogs() {
 
         const weekStats = await apiCall(`/api/food/stats?date=${dateStr}&days=7${tzParams}`, 'GET');
 
-        await window.DataStore.setCached(cacheKey, { groups: groups || [], weekStats: weekStats || null });
+        // weekStats can be null when /api/food/stats fails (offline / 5xx). Fall
+        // back to whatever was previously cached so a successful daily-log read
+        // doesn't blank out the macros card on every offline reload.
+        const persistedWeekStats = weekStats != null
+            ? weekStats
+            : (cached && cached.weekStats != null ? cached.weekStats : null);
+        await window.DataStore.setCached(cacheKey, { groups: groups || [], weekStats: persistedWeekStats });
 
         lastFoodLogsMeta = groupsMeta;
-        _renderFoodData(groups || [], weekStats || null, foodMacrosRange, dateStr);
+        _renderFoodData(groups || [], persistedWeekStats, foodMacrosRange, dateStr);
     } catch (e) {
         if (window.OfflineNoCacheError && e instanceof window.OfflineNoCacheError) {
             // No `food_<date>_day` cache and the network is unreachable —

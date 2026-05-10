@@ -30,6 +30,15 @@
 
     function looksLikeNetworkError(err) {
         if (!err) return false;
+        // Prefer the canonical isServerError helper (sync.js) when loaded so
+        // the 5xx-as-offline policy stays defined in one place. Fall back to
+        // an inline detector when sync.js hasn't loaded yet (early boot, tests
+        // that exercise cached-fetch.js in isolation).
+        if (typeof window !== 'undefined' && typeof window.isServerError === 'function') {
+            try {
+                if (window.isServerError(err)) return true;
+            } catch (_) { /* fall through to inline detector */ }
+        }
         if (typeof err.status === 'number' && err.status >= 500) return true;
         const msg = err.message || '';
         if (typeof TypeError !== 'undefined' && err instanceof TypeError) return true;
@@ -103,7 +112,16 @@
                             if (fresh != null) return writeCache(key, fresh, tags);
                             return undefined;
                         })
-                        .catch(() => { /* background refresh failures swallowed */ });
+                        .catch((err) => {
+                            // Network/5xx during background revalidation is expected and
+                            // already covered by the foreground fallback path — silence
+                            // those. Programmer errors (transform throws, contract drift,
+                            // unauthorized) should surface in the console so deploys
+                            // don't fail silently.
+                            if (!looksLikeNetworkError(err) && typeof console !== 'undefined') {
+                                console.warn('cachedFetch background revalidation failed', key, err);
+                            }
+                        });
                 });
                 return {
                     data: cached.data,
