@@ -4,12 +4,12 @@ import (
 	"context"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
-	"crypto/tls"
 	"math/big"
 	"net"
 	"net/http"
@@ -49,9 +49,9 @@ type OAuthHandler struct {
 	tokens     APITokenStore
 
 	// Replay protection
-	seenJTIs   map[string]time.Time
-	jtiMutex   sync.RWMutex
-	cleanupCtx context.Context
+	seenJTIs      map[string]time.Time
+	jtiMutex      sync.RWMutex
+	cleanupCtx    context.Context
 	cleanupCancel context.CancelFunc
 }
 
@@ -212,8 +212,6 @@ func (h *OAuthHandler) Middleware(next http.Handler) http.Handler {
 			slog.Warn("[MCP/OAuth] Subject not allowed", "subject", subject, "expected", h.config.AllowedSubject) // #nosec G706
 			h.sendForbidden(w, "user not authorized")
 			return
-		} else if strings.TrimSpace(h.config.AllowedSubject) == "" {
-			slog.Info("[MCP/OAuth] Any subject allowed (no restriction configured)", "user", subject) // #nosec G706
 		} else {
 			slog.Info("[MCP/OAuth] Authorized request", "subject", subject) // #nosec G706
 		}
@@ -227,7 +225,7 @@ func (h *OAuthHandler) Middleware(next http.Handler) http.Handler {
 func (h *OAuthHandler) isSubjectAllowed(subject string) bool {
 	raw := strings.TrimSpace(h.config.AllowedSubject)
 	if raw == "" {
-		return true
+		return false
 	}
 
 	for _, candidate := range strings.Split(raw, ",") {

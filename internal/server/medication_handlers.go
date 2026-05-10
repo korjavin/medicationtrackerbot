@@ -532,8 +532,8 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 	// row to the right point on the timeline rather than collapsing the
 	// whole cluster onto a single bucket.
 	type clusterMember struct {
-		target  medplan.DoseTarget
-		isStep  bool
+		target medplan.DoseTarget
+		isStep bool
 	}
 	var clusterEarliest time.Time
 	var cluster []clusterMember

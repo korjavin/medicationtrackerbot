@@ -1123,7 +1123,7 @@ func (s *Store) GetExerciseLogs(sessionID int64) ([]WorkoutExerciseLog, error) {
 }
 
 // UpdateExerciseLog updates a log's sets/reps/weight/notes. When the row is
-// still a placeholder (status=''), it also bumps logged_at to the current
+// still a placeholder (status=”), it also bumps logged_at to the current
 // time so a scheduled placeholder finished days later records the completion
 // time, not the schedule-creation time. Once status is non-empty, logged_at
 // is preserved so subsequent edits don't rewrite the original completion
@@ -1139,7 +1139,7 @@ func (s *Store) UpdateExerciseLog(id int64, setsCompleted, repsCompleted *int, w
 }
 
 // UpdateExerciseLogStatus updates the status of a log. When the row is still
-// a placeholder (status=''), it also bumps logged_at to the current time so a
+// a placeholder (status=”), it also bumps logged_at to the current time so a
 // placeholder promoted to completed/skipped records the actual transition
 // time, not the schedule-creation time.
 func (s *Store) UpdateExerciseLogStatus(id int64, status string) error {
