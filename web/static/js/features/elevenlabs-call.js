@@ -68,15 +68,18 @@
         if (!card) return;
         card.dataset.state = state;
         const btn = card.querySelector('.wg-call-card__btn');
+        const label = card.querySelector('.wg-call-card__label');
         const status = card.querySelector('.wg-call-card__status');
         const muteBtn = card.querySelector('.wg-call-card__mute');
         const photoBtn = card.querySelector('.wg-call-card__photo');
         if (btn) {
             btn.disabled = state === 'connecting';
-            if (state === 'idle') btn.textContent = 'Call agent';
-            else if (state === 'connecting') btn.textContent = 'Connecting…';
-            else if (state === 'in_call') btn.textContent = 'End call';
-            else if (state === 'error') btn.textContent = 'Try again';
+        }
+        if (label) {
+            if (state === 'idle') label.textContent = 'Call agent';
+            else if (state === 'connecting') label.textContent = 'Connecting…';
+            else if (state === 'in_call') label.textContent = 'End call';
+            else if (state === 'error') label.textContent = 'Try again';
         }
         if (status) {
             const variant = state === 'error' ? 'error' : (state === 'in_call' ? 'ready' : (state === 'connecting' ? 'connecting' : null));
@@ -271,23 +274,25 @@
         card.dataset.section = 'call-agent';
         card.dataset.state = 'idle';
 
-        const head = document.createElement('div');
-        head.className = 'wg-call-card__head';
-        const title = document.createElement('h2');
-        title.className = 'wg-call-card__title';
-        title.textContent = 'Talk to your health agent';
-        head.appendChild(title);
-        card.appendChild(head);
-
-        const body = document.createElement('p');
-        body.className = 'wg-call-card__copy';
-        body.textContent = 'Voice-call the assistant about meds, vitals, or your day.';
-        card.appendChild(body);
-
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'wg-gloss wg-gloss--sun wg-call-card__btn';
-        btn.textContent = 'Call agent';
+        btn.className = 'wg-call-card__btn';
+        btn.setAttribute('data-section', 'shortcut');
+
+        const iconWrap = document.createElement('span');
+        iconWrap.className = 'wg-call-card__icon';
+        if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
+            try {
+                iconWrap.appendChild(window.WGIcons.iconSvg('phone', { size: 15 }));
+            } catch (_) { /* ignore */ }
+        }
+        btn.appendChild(iconWrap);
+
+        const label = document.createElement('span');
+        label.className = 'wg-call-card__label';
+        label.textContent = 'Call agent';
+        btn.appendChild(label);
+
         btn.addEventListener('click', () => {
             if (card.dataset.state === 'in_call') {
                 endCall();
@@ -297,6 +302,10 @@
         });
         card.appendChild(btn);
 
+        const controls = document.createElement('div');
+        controls.className = 'wg-call-card__controls';
+        card.appendChild(controls);
+
         const muteBtn = document.createElement('button');
         muteBtn.type = 'button';
         muteBtn.className = 'wg-call-card__mute';
@@ -305,13 +314,13 @@
         muteBtn.addEventListener('click', () => {
             toggleMute();
         });
-        card.appendChild(muteBtn);
+        controls.appendChild(muteBtn);
 
         const photoBtn = document.createElement('button');
         photoBtn.type = 'button';
         photoBtn.className = 'wg-call-card__photo';
         photoBtn.textContent = 'Send photo';
-        card.appendChild(photoBtn);
+        controls.appendChild(photoBtn);
 
         const photoInput = document.createElement('input');
         photoInput.type = 'file';
@@ -325,7 +334,7 @@
             }
             try { photoInput.value = ''; } catch (_) { /* ignore */ }
         });
-        card.appendChild(photoInput);
+        controls.appendChild(photoInput);
 
         photoBtn.addEventListener('click', () => {
             photoInput.click();

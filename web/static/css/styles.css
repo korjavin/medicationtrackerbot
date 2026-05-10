@@ -4458,48 +4458,75 @@ textarea.wg-input {
     font-weight: 600;
 }
 
-/* Today "Call agent" card — opens an ElevenLabs convai voice call. The card
-   stays on the Today stack; once the user starts a call, the embedded
-   <elevenlabs-convai> widget renders its own bubble UI inside the slot. */
+/* Today "Call agent" card — opens an ElevenLabs convai voice call. Shares
+   the shortcut-tile look (background, border, gloss icon, uppercase caps
+   label) with the Log food / Photo meal / Add BP / Add weight tiles, but
+   spans the full row so it reads as a primary action. In-call secondary
+   controls (mute, photo) appear below the trigger only while a call is
+   live; the hidden file input is the standard camera-capable picker. */
 .wg-call-card {
     display: flex;
     flex-direction: column;
     gap: var(--space-sm);
-    padding: var(--wg-tile-pad-block) var(--space-md);
-    background: var(--wg-bg-card);
-    border: 1px solid var(--wg-border-hairline);
-    border-radius: var(--wg-radius-card);
-}
-
-.wg-call-card__head {
-    display: flex;
-    align-items: center;
-    gap: var(--space-sm);
-}
-
-.wg-call-card__title {
-    margin: 0;
-    font-size: var(--font-size-md);
-    font-weight: 600;
-    color: var(--wg-fg-1);
-}
-
-.wg-call-card__copy {
-    margin: 0;
-    color: var(--wg-fg-2);
-    font-size: var(--font-size-sm);
 }
 
 .wg-call-card__btn {
-    align-self: flex-start;
-    padding: var(--space-xs) var(--space-md);
-    font-weight: 600;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-sm);
+    width: 100%;
+    padding: var(--wg-tile-pad-block) var(--space-md);
+    background: var(--wg-metric-tile-bg);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-card);
+    color: inherit;
+    font: inherit;
     cursor: pointer;
+    box-sizing: border-box;
 }
 
 .wg-call-card__btn[disabled] {
     opacity: 0.6;
     cursor: not-allowed;
+}
+
+.wg-call-card__icon {
+    width: 30px;
+    height: 30px;
+    border-radius: var(--wg-radius-gloss);
+    background: var(--wg-next-action-icon-bg);
+    border: 1px solid var(--wg-next-action-icon-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--wg-sun);
+    flex-shrink: 0;
+}
+
+.wg-call-card__label {
+    font-size: var(--wg-font-size-caps);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--wg-fg-2);
+    font-weight: 600;
+}
+
+.wg-call-card[data-state="in_call"] .wg-call-card__btn {
+    background: var(--color-danger);
+    border-color: var(--color-danger);
+}
+
+.wg-call-card[data-state="in_call"] .wg-call-card__label {
+    color: var(--wg-paper);
+}
+
+.wg-call-card__controls {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
 }
 
 .wg-call-card__status {
@@ -4519,19 +4546,9 @@ textarea.wg-input {
     color: var(--wg-fg-2);
 }
 
-.wg-call-card[data-state="in_call"] .wg-call-card__btn {
-    background: var(--color-danger);
-    color: var(--wg-paper);
-}
-
-/* In-call secondary controls on the Today card: mute toggle + photo
-   sender. Hidden via attribute selectors when the card is idle/error
-   (the parent's data-state drives visibility — no JS .hidden toggling
-   needed here). The hidden file input is the standard photo-picker
-   pattern (camera-capable on mobile via capture="environment"). */
 .wg-call-card__mute,
 .wg-call-card__photo {
-    align-self: flex-start;
+    flex: 1 1 0;
     padding: var(--space-xs) var(--space-md);
     font-size: var(--font-size-sm);
     font-weight: 600;
@@ -4554,10 +4571,8 @@ textarea.wg-input {
     border-color: var(--color-danger);
 }
 
-.wg-call-card[data-state="idle"] .wg-call-card__mute,
-.wg-call-card[data-state="idle"] .wg-call-card__photo,
-.wg-call-card[data-state="error"] .wg-call-card__mute,
-.wg-call-card[data-state="error"] .wg-call-card__photo {
+.wg-call-card[data-state="idle"] .wg-call-card__controls,
+.wg-call-card[data-state="error"] .wg-call-card__controls {
     display: none;
 }
 
