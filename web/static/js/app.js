@@ -2536,19 +2536,38 @@ async function loadHistory() {
         allowNullFresh: true,
         onCached: async (cached) => {
             renderHistory(cached);
+            await renderMedsHistoryStaleBadge(cacheKey);
         },
         onFresh: async (fresh) => {
             if (fresh && window.MedTrackerDB?.IntakeHistoryStore) {
                 await window.MedTrackerDB.IntakeHistoryStore.saveCache(cacheKey, fresh);
             }
             renderHistory(fresh || []);
+            await renderMedsHistoryStaleBadge(cacheKey);
         },
         onError: async (_err, cached) => {
             if (!cached) renderHistory([]);
+            await renderMedsHistoryStaleBadge(cacheKey);
         }
     });
     renderNextIntakeTrigger();
     return result;
+}
+
+// Mounts the wg-stale-badge into the Meds History subtab from the active
+// `history_<days>_<medId>` api_cache key. Re-runs whenever the user flips the
+// filters because the cache key shifts with them. Mirrors the BP/Weight Task 6
+// pattern.
+async function renderMedsHistoryStaleBadge(cacheKey) {
+    const slot = document.getElementById('meds-history-stale-badge');
+    if (!slot) return;
+    const api = (typeof window !== 'undefined') ? window.WGStaleBadge : null;
+    if (!api || typeof api.mountFromKey !== 'function') {
+        slot.replaceChildren();
+        slot.classList.add('hidden');
+        return;
+    }
+    await api.mountFromKey({ slot, key: cacheKey });
 }
 
 let _nextIntakeTimerInterval = null;

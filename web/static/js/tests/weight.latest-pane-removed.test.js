@@ -43,20 +43,19 @@ describe('Weight — Latest pane removed + +Log in toolbar (Round-2 Task 12, #15
         expect(view.querySelector('.wg-weight-trend')).toBeNull();
     });
 
-    it('#weight-view starts with the goal card (chart takes over the top area)', () => {
-        // The goal card is hidden when no goal is set but still occupies
-        // the first slot as a layout anchor — the chart and its range
-        // toolbar live directly below, so on the common no-goal install
-        // the chart renders flush with the stage (defect #15's explicit
-        // "verify the chart takes over the top of the section" outcome).
+    it('#weight-view starts with the stale-data chip then the goal card (chart takes over the top area)', () => {
+        // The local-first read-resilience plan (Task 6) inserted a small
+        // right-aligned wg-stale-badge slot at the very top of the view so
+        // every priority section gets a uniform freshness chip. The slot is
+        // hidden by default and is only painted once a cached/fresh load has
+        // landed; the goal card and chart still anchor the layout below.
         const { document } = env;
         const view = document.getElementById('weight-view');
-        expect(view.firstElementChild.id).toBe('weight-goal-card');
-        // Order below: goal card → range selector → chart → legend → prognosis → list.
         const order = Array.from(view.children).map((el) => el.id || el.tagName);
-        expect(order[0]).toBe('weight-goal-card');
-        expect(order[1]).toBe('weight-range-selector');
-        expect(order[2]).toBe('weightChart');
+        expect(order[0]).toBe('weight-stale-badge');
+        expect(order[1]).toBe('weight-goal-card');
+        expect(order[2]).toBe('weight-range-selector');
+        expect(order[3]).toBe('weightChart');
     });
 
     it('renderWeightRangeSelector emits #add-weight-btn inside the toolbar row with shared classes', () => {
