@@ -1,7 +1,11 @@
 // Service Worker for Med Tracker PWA
 const CACHE_VERSION = 'CACHE_VERSION_PLACEHOLDER'; // Auto-updated by CI/CD
-const STATIC_CACHE = `medtracker-static-${CACHE_VERSION}`;
-const DYNAMIC_CACHE = `medtracker-dynamic-${CACHE_VERSION}`;
+// Manual bump knob: increment when shipping a UI change clients must pick up
+// even if the deploy timestamp alone fails to invalidate (e.g. mid-cycle
+// hotfix, or to force re-fetch of today.js for the Photo meal shortcut tile).
+const BUILD_REVISION = '2';
+const STATIC_CACHE = `medtracker-static-${CACHE_VERSION}-r${BUILD_REVISION}`;
+const DYNAMIC_CACHE = `medtracker-dynamic-${CACHE_VERSION}-r${BUILD_REVISION}`;
 const APP_SHELL_CACHE_KEY = '/__app_shell__';
 
 // Static assets to cache on install
