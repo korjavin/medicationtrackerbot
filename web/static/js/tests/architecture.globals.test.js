@@ -29,6 +29,8 @@ const ALLOWED_GLOBALS = new Set([
     'window.offlineAwareApiCall',       // sync.js — public API entry point
     'window.SyncDebug',                 // sync.js — dev-mode diagnostics
     'window.DataStore',                 // data-store.js — SWR cache layer
+    'window.cachedFetch',               // cached-fetch.js — local-first read-through helper used by feature modules to render stale cache offline + power the freshness badge
+    'window.OfflineNoCacheError',       // cached-fetch.js — typed error thrown when no cache exists and the network is unavailable; sections catch it to render an explicit empty state
     'window.MedTrackerPush',            // push.js — web push manager
 
     // App shell
