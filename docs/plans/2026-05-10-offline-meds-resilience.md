@@ -140,11 +140,11 @@ Frontend bootstrap apply path — when `/api/bootstrap` returns `medications`, s
 
 Today's meds tile currently relies on `next_intake` from bootstrap. With Task 5 done, the full medications list is in cache, so the tile can compute its own next intake from `getNextScheduledDate()` if the bootstrap-served `next_intake` is missing or stale.
 
-- [ ] in `web/static/js/features/today.js` (~line 98–99), if `bootstrap.__next_intake_meta` is missing or marked stale by `cachedFetch`, fall back to computing the next intake from `DataStore.getCached('medications')` using the same `getNextScheduledDate()` helper that `meds.js` uses
-- [ ] preserve the existing stale badge behavior on the tile
-- [ ] write a test in `web/static/js/tests/today.next-intake-meds-fallback.test.js`: no `next_intake` cache, but `medications` cache populated → tile renders the soonest planned dose with stale chip
-- [ ] write a test for "neither cache present" — tile shows existing offline empty state
-- [ ] run `pnpm test` — must pass before next task
+- [x] in `web/static/js/features/today.js` (~line 98–99), if `bootstrap.__next_intake_meta` is missing or marked stale by `cachedFetch`, fall back to computing the next intake from `DataStore.getCached('medications')` using the same `getNextScheduledDate()` helper that `meds.js` uses — `nextMedCell` now accepts an `opts` arg with `parseMedicationSchedule`/`getNextScheduledDate`; helpers wired through `_todayRender` from `window.*`. `_todayReadCaches` reads the `medications` api_cache key into `bootstrap.medications` (+ `__medications_meta`); fallback grouping mirrors the server's `/api/medications/next-intake` shape (multi-med slots collapse into one card)
+- [x] preserve the existing stale badge behavior on the tile — `medications` is added to `_todayReadCaches`'s `keyFeatures` map so its timestamp folds into `oldestCacheTimestamp` → `state.__fetchedAt` → the section-header chip mounted by `renderToday` (`today-stale-badge-row`)
+- [x] write a test in `web/static/js/tests/today.next-intake-meds-fallback.test.js`: no `next_intake` cache, but `medications` cache populated → tile renders the soonest planned dose with stale chip — covered by "renders the soonest planned dose from cached medications when next_intake is absent (offline cold start)" plus 4 sibling cases (multi-med grouping, stale-meta fallback, fresh-next_intake precedence, missing-helpers graceful degrade)
+- [x] write a test for "neither cache present" — tile shows existing offline empty state — "shows the existing offline empty state when neither next_intake nor medications cache is present" asserts the `Next dose data unavailable offline` kicker
+- [x] run `pnpm test` — must pass before next task — 167 files / 1741 tests pass (was 166/1734 after Task 5; +1 file / +7 tests in this task)
 
 ### Task 7: Verify acceptance criteria
 
