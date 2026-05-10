@@ -330,9 +330,14 @@ func TestHandleGetVitalsHeart_Truncation(t *testing.T) {
 	}
 
 	req := &sdkmcp.CallToolRequest{}
+	// parseDateRange interprets these as 00:00 / 23:59 in the test runner's
+	// local timezone, so we widen the window to comfortably cover the entries
+	// (which span ~25h starting at 2026-02-18 00:00 UTC) regardless of TZ.
+	// The truncation under test is purely about exceeding the 1440 cap, so
+	// the exact window edges don't matter as long as all 1500 fixtures fit.
 	input := DateRangeInput{
-		StartDate: "2026-02-18",
-		EndDate:   "2026-02-19",
+		StartDate: "2026-02-17",
+		EndDate:   "2026-02-20",
 	}
 
 	res, resp, err := s.handleGetVitalsHeart(ctx, req, input)
