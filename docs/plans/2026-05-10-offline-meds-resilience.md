@@ -148,13 +148,13 @@ Today's meds tile currently relies on `next_intake` from bootstrap. With Task 5 
 
 ### Task 7: Verify acceptance criteria
 
-- [ ] verify all requirements from Overview are implemented (cold-start meds, bootstrap-seeded meds, Today tile fallback)
-- [ ] verify edge cases: empty Dexie + offline, populated Dexie + offline, populated Dexie + bootstrap returns fresh data, no `medications` field from older backend
-- [ ] run full test suite: `go test ./...` and `pnpm test`
-- [ ] run linter / formatter — all issues must be fixed
-- [ ] verify test coverage for `data-store.js` and `meds.js` changes is at parity with prior coverage (no regressions)
-- [ ] confirm no new `window.*` globals were added (or if they were, `tests/architecture.globals.test.js` is updated with a `Why:` justification)
-- [ ] confirm no new ad-hoc `.style.` assignments or hardcoded colors were introduced (CLAUDE.md rule 3)
+- [x] verify all requirements from Overview are implemented (cold-start meds, bootstrap-seeded meds, Today tile fallback) — covered by `meds.offline-cold-start.test.js`, `app.dexie-hydration.test.js`, `bootstrap.medications.test.js`, `settings_handlers_test.go`, `today.next-intake-meds-fallback.test.js`
+- [x] verify edge cases: empty Dexie + offline, populated Dexie + offline, populated Dexie + bootstrap returns fresh data, no `medications` field from older backend — all four cases covered by the test files above
+- [x] run full test suite: `go test ./...` and `pnpm test` — Go: all packages pass; Vitest: 167 files / 1741 tests pass
+- [x] run linter / formatter — `go vet ./...` clean; `gofmt -l` reports no issues for `settings_handlers.go` / `settings_handlers_test.go` (pre-existing gofmt drift in untouched files is out of scope for this plan)
+- [x] verify test coverage for `data-store.js` and `meds.js` changes is at parity with prior coverage (no regressions) — Task 1 added `data-store.hydrate.test.js` (8 tests); Task 3 added `meds.offline-cold-start.test.js`; all sibling test files still pass
+- [x] confirm no new `window.*` globals were added (or if they were, `tests/architecture.globals.test.js` is updated with a `Why:` justification) — `hydrateFromDexie` is a new method on the existing `window.DataStore`; `architecture.globals.test.js` passes unchanged
+- [x] confirm no new ad-hoc `.style.` assignments or hardcoded colors were introduced (CLAUDE.md rule 3) — diff scan shows no new `.style.` or hex-color lines in changed JS files; `architecture.inline-styles.test.js` + `architecture.design-tokens.test.js` pass
 
 ### Task 8: Update documentation
 
