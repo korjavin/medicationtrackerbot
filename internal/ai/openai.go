@@ -33,8 +33,10 @@ func NewClient(apiKey, apiURL, model string) *Client {
 		apiKey: apiKey,
 		apiURL: strings.TrimRight(apiURL, "/"),
 		model:  model,
+		// 90s covers slow uploads of base64-encoded photos (up to ~8 MB) plus
+		// vision-model latency. Text completions return well within this bound.
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 90 * time.Second,
 		},
 	}
 }

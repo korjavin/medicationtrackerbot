@@ -84,12 +84,35 @@ func main() {
 	openAIURL := os.Getenv("OPENAI_URL")
 	openAIModel := os.Getenv("OPENAI_MODEL")
 
+	// Optional split-provider configuration for vision (food photo parsing).
+	// When the primary provider is text-only (e.g. DeepSeek), set these to
+	// route ParseMealFromImage to a vision-capable model. Each var falls back
+	// to its OPENAI_* counterpart when unset.
+	visionApiKey := os.Getenv("OPENAI_VISION_API_KEY")
+	visionURL := os.Getenv("OPENAI_VISION_URL")
+	visionModel := os.Getenv("OPENAI_VISION_MODEL")
+	visionConfigured := visionApiKey != "" || visionURL != "" || visionModel != ""
+	if visionApiKey == "" {
+		visionApiKey = openAIApiKey
+	}
+	if visionURL == "" {
+		visionURL = openAIURL
+	}
+	if visionModel == "" {
+		visionModel = openAIModel
+	}
+
 	var foodAI domain.FoodAIService
 	var activityAI domain.ActivityAIService
 	// Enable AI features if API Key, URL, OR Model are explicitly set
 	if openAIApiKey != "" || openAIURL != "" || openAIModel != "" {
 		aiClient := ai.NewClient(openAIApiKey, openAIURL, openAIModel)
-		foodAI = domain.NewFoodAIService(aiClient)
+		visionClient := aiClient
+		if visionConfigured {
+			visionClient = ai.NewClient(visionApiKey, visionURL, visionModel)
+			slog.Info("AI vision client configured separately for food photos", "url", visionURL, "model", visionModel)
+		}
+		foodAI = domain.NewFoodAIServiceWithVision(aiClient, visionClient)
 		activityAI = domain.NewActivityAIService(aiClient)
 		slog.Info("AI food and activity logging enabled")
 	} else {

@@ -3,6 +3,7 @@ package domain
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/korjavin/medicationtrackerbot/internal/ai"
 )
@@ -22,13 +23,28 @@ type AIClient interface {
 }
 
 type foodAIService struct {
-	client AIClient
+	textClient   AIClient
+	visionClient AIClient
 }
 
-// NewFoodAIService creates a new FoodAIService using the provided AI client.
+// NewFoodAIService creates a new FoodAIService using a single AI client for both
+// text and vision flows. Convenience wrapper around NewFoodAIServiceWithVision
+// for deployments where one provider serves both.
 func NewFoodAIService(client AIClient) FoodAIService {
+	return NewFoodAIServiceWithVision(client, client)
+}
+
+// NewFoodAIServiceWithVision creates a FoodAIService that routes meal-description
+// (text) requests to textClient and meal-photo (vision) requests to visionClient.
+// Useful when the primary OpenAI-compatible provider is text-only (e.g. DeepSeek)
+// and a separate vision-capable model handles photo parsing.
+func NewFoodAIServiceWithVision(textClient, visionClient AIClient) FoodAIService {
+	if visionClient == nil {
+		visionClient = textClient
+	}
 	return &foodAIService{
-		client: client,
+		textClient:   textClient,
+		visionClient: visionClient,
 	}
 }
 
@@ -37,7 +53,7 @@ func (s *foodAIService) ParseMealDescription(ctx context.Context, description st
 		return nil, fmt.Errorf("description cannot be empty")
 	}
 
-	parsed, err := s.client.ParseMealFromDescription(ctx, description)
+	parsed, err := s.textClient.ParseMealFromDescription(ctx, description)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse meal description: %w", err)
 	}
@@ -50,12 +66,26 @@ func (s *foodAIService) ParseMealPhoto(ctx context.Context, imageBytes []byte, m
 		return nil, fmt.Errorf("image bytes are empty")
 	}
 
-	parsed, err := s.client.ParseMealFromImage(ctx, imageBytes, mimeType)
+	parsed, err := s.visionClient.ParseMealFromImage(ctx, imageBytes, mimeType)
 	if err != nil {
+		if isProviderNoVisionError(err) {
+			return nil, fmt.Errorf("the configured AI provider does not support photo analysis; set OPENAI_VISION_URL/OPENAI_VISION_MODEL/OPENAI_VISION_API_KEY to a vision-capable model")
+		}
 		return nil, fmt.Errorf("failed to parse meal photo: %w", err)
 	}
 
 	return convertParsedMeal(parsed)
+}
+
+// isProviderNoVisionError detects the serde-style rejection ("unknown variant
+// `image_url`") returned by OpenAI-compatible providers (e.g. DeepSeek) that
+// only accept text content parts.
+func isProviderNoVisionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unknown variant") && strings.Contains(msg, "image_url")
 }
 
 func convertParsedMeal(parsed *ai.ParsedMeal) ([]FoodLog, error) {

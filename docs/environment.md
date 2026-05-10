@@ -18,6 +18,15 @@ OPENAI_API_KEY=...            # For the /food and /activity AI commands
 OPENAI_URL=...                # Defaults to https://api.openai.com/v1
 OPENAI_MODEL=...              # Defaults to gpt-4o-mini
 
+# Vision (food photo) provider override (optional). Each variable falls back
+# to its OPENAI_* counterpart when unset. Use this when the primary provider
+# is text-only (e.g. DeepSeek's deepseek-chat returns "unknown variant
+# `image_url`") and a separate vision-capable model handles food photos —
+# e.g. point these at gemini-2.0-flash or gpt-4o-mini.
+OPENAI_VISION_API_KEY=...
+OPENAI_VISION_URL=...         # e.g. https://generativelanguage.googleapis.com/v1beta/openai
+OPENAI_VISION_MODEL=...       # e.g. gemini-2.0-flash or gpt-4o-mini
+
 # Google OIDC (optional, browser access)
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
