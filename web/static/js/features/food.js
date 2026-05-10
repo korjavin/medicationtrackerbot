@@ -950,11 +950,27 @@ async function readFoodPhotoExifDate(file) {
     }
 }
 
+// readFoodPhotoLastModifiedDate is a secondary timestamp source for files that
+// lack readable EXIF (HEIC, screenshots, forwarded/edited photos with stripped
+// metadata). On iOS Safari, picking from the Photos library sets
+// file.lastModified to the original capture time; on other platforms it's the
+// filesystem mtime, which is still closer to the truth than "now".
+function readFoodPhotoLastModifiedDate(file) {
+    if (!file || typeof file.lastModified !== 'number' || !file.lastModified) return null;
+    const dt = new Date(file.lastModified);
+    if (Number.isNaN(dt.getTime())) return null;
+    const yr = dt.getFullYear();
+    if (yr < 1995 || yr > new Date().getFullYear() + 1) return null;
+    return dt;
+}
+
 // resolveFoodPhotoEatenAt picks the eaten_at timestamp for a food photo upload:
-// prefer the photo's EXIF DateTimeOriginal; if that differs from "now" by more
-// than an hour, ask the user whether to use the photo's time (yes) or now (no).
+// prefer the photo's EXIF DateTimeOriginal, then fall back to the file's
+// lastModified time. If the chosen time differs from "now" by more than an
+// hour, ask the user whether to use it (yes) or now (no).
 async function resolveFoodPhotoEatenAt(file, now = new Date()) {
-    const photoTime = await readFoodPhotoExifDate(file);
+    const photoTime = (await readFoodPhotoExifDate(file))
+        || readFoodPhotoLastModifiedDate(file);
     if (!photoTime) return now;
     const diffMs = Math.abs(photoTime.getTime() - now.getTime());
     if (diffMs <= 60 * 60 * 1000) return photoTime;
