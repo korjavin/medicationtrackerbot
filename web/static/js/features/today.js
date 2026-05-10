@@ -934,12 +934,16 @@
             && window.WGStaleBadge
             && typeof window.WGStaleBadge.render === 'function') {
             const fetchedAt = (state && Number.isFinite(state.__fetchedAt)) ? state.__fetchedAt : null;
-            if (fetchedAt !== null || state.__offline) {
+            // Badge tone uses the raw navigator-offline signal (state.__navigatorOffline)
+            // so offline + fresh cache renders "Offline · 5m old" rather than the neutral
+            // "Updated 5m ago". state.__offline only flips when offline+stale.
+            const isOffline = !!(state.__navigatorOffline || state.__offline);
+            if (fetchedAt !== null || isOffline) {
                 const headerRow = d.createElement('div');
                 headerRow.className = 'today-stale-badge-row';
                 const badge = window.WGStaleBadge.render({
                     fetchedAt,
-                    isOffline: !!state.__offline,
+                    isOffline,
                     now: nowMs
                 });
                 headerRow.appendChild(badge);

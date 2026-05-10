@@ -1432,6 +1432,13 @@ async function _todayRender(foodKey) {
     if (window.TodayDashboard.isOfflineStale({ online, cacheTimestamp: latestCacheTimestamp, now: nowMs })) {
         state.__offline = true;
     }
+    // The badge tone needs the raw "navigator is offline" signal so an
+    // offline session with a recent cache still renders "Offline · 5m old"
+    // (warning tone) instead of a neutral "Updated 5m ago" — state.__offline
+    // is gated on offline+stale and is the wrong signal for that.
+    if (!online) {
+        state.__navigatorOffline = true;
+    }
     if (oldestCacheTimestamp !== null) {
         // Worst-case freshness — read by renderToday to mount the wg-stale-badge
         // chip so the user can see how old the displayed data really is.

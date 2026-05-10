@@ -30,9 +30,6 @@
 
     function looksLikeNetworkError(err) {
         if (!err) return false;
-        if (typeof window !== 'undefined' && typeof window.isServerError === 'function' && window.isServerError(err)) {
-            return true;
-        }
         if (typeof err.status === 'number' && err.status >= 500) return true;
         const msg = err.message || '';
         if (typeof TypeError !== 'undefined' && err instanceof TypeError) return true;
