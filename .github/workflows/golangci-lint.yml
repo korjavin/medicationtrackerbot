@@ -4,15 +4,29 @@ on:
   push:
     branches:
       - master
-      - fe-stage2
+    paths:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - '.golangci.yml'
+      - '.github/workflows/golangci-lint.yml'
   pull_request:
     branches:
       - master
-      - fe-stage2
+    paths:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - '.golangci.yml'
+      - '.github/workflows/golangci-lint.yml'
 
 permissions:
   contents: read
   security-events: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   golangci-lint:
@@ -32,7 +46,6 @@ jobs:
         with:
           version: v2.10.1
           args: --timeout=5m --output.text.path=stdout --output.sarif.path=golangci-lint-result.sarif
-          skip-cache: true
 
       - name: Upload SARIF to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v4

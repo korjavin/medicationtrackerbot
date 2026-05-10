@@ -4,11 +4,19 @@ on:
   pull_request:
     branches:
       - master
+    paths:
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/go-dependency-check.yml'
 
 permissions:
   contents: read
   security-events: write
   pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   dependency-check:
@@ -21,9 +29,18 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.26.1'
+          cache: true
+
+      - name: Cache nancy binary
+        id: cache-nancy
+        uses: actions/cache@v4
+        with:
+          path: ~/go/bin/nancy
+          key: nancy-${{ runner.os }}-v1.0.46
 
       - name: Install nancy
-        run: go install github.com/sonatype-nexus-community/nancy@latest
+        if: steps.cache-nancy.outputs.cache-hit != 'true'
+        run: go install github.com/sonatype-nexus-community/nancy@v1.0.46
 
       - name: Scan dependencies with nancy
         id: nancy-scan
