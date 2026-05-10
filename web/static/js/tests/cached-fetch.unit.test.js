@@ -251,6 +251,124 @@ describe('cachedFetch — read-through helper', () => {
     }
   });
 
+  it('SWR for stale (online) cache hits: returns cached immediately and refreshes in background', async () => {
+    const now = Date.now();
+    const cachedAt = now - (5 * 60 * 1000); // 5 min old — older than freshAfterMs
+    const { window, cacheMap, cleanup } = loadCachedFetchEnv({
+      initialCache: { meds: { data: [{ id: 1 }], timestamp: cachedAt } }
+    });
+
+    try {
+      let resolveFetch;
+      window.apiCallDirect = vi.fn(() => new Promise((resolve) => {
+        resolveFetch = resolve;
+      }));
+
+      const result = await window.cachedFetch('meds', '/api/medications', {
+        tags: ['medications'],
+        freshAfterMs: 60_000, // 1 min — cache is older
+        staleAfterMs: 60 * 60 * 1000, // 1h — cache is younger, isStale should be false
+        now
+      });
+
+      // Stale cache returned immediately (no waiting for network).
+      expect(result.data).toEqual([{ id: 1 }]);
+      expect(result.isFromCache).toBe(true);
+      expect(result.isStale).toBe(false);
+
+      for (let i = 0; i < 5 && window.apiCallDirect.mock.calls.length === 0; i++) {
+        await Promise.resolve();
+      }
+      expect(window.apiCallDirect).toHaveBeenCalledTimes(1);
+
+      // Background revalidation lands and updates the cache.
+      resolveFetch([{ id: 1 }, { id: 2 }]);
+      for (let i = 0; i < 20 && cacheMap.get('meds').data.length === 1; i++) {
+        await Promise.resolve();
+      }
+      expect(cacheMap.get('meds').data).toEqual([{ id: 1 }, { id: 2 }]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('drops the cache write when DataStore generation changes mid-flight (race guard)', async () => {
+    const now = Date.now();
+    const cachedAt = now - (10 * 60 * 1000); // 10 min old → triggers background fetch path
+    const { window, cacheMap, cleanup } = loadCachedFetchEnv({
+      initialCache: { meds: { data: [{ id: 1 }], timestamp: cachedAt } }
+    });
+
+    try {
+      // Stub a DataStore.peekGeneration that simulates a mutation/invalidation
+      // bumping the counter while our fetch is in flight.
+      let gen = 0;
+      window.DataStore = {
+        peekGeneration: () => gen
+      };
+
+      let resolveFetch;
+      window.apiCallDirect = vi.fn(() => new Promise((resolve) => {
+        resolveFetch = resolve;
+      }));
+
+      const result = await window.cachedFetch('meds', '/api/medications', {
+        tags: ['medications'],
+        freshAfterMs: 60_000,
+        now
+      });
+
+      // Cache returned immediately.
+      expect(result.data).toEqual([{ id: 1 }]);
+
+      // Drain microtasks so the background fetch starts (and captures gen=0).
+      for (let i = 0; i < 5 && window.apiCallDirect.mock.calls.length === 0; i++) {
+        await Promise.resolve();
+      }
+
+      // Simulate a mutation/invalidation: bump generation BEFORE the fetch resolves.
+      gen = 1;
+
+      // The (now-superseded) network request finally returns. Its write must
+      // be dropped — otherwise it would resurrect the stale payload.
+      resolveFetch([{ id: 999 }]);
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+
+      // Cache still holds the original cached value, NOT the stale fetch payload.
+      expect(cacheMap.get('meds').data).toEqual([{ id: 1 }]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('registers the key→tags mapping with DataStore before fetching so a mid-flight invalidation can find this key', async () => {
+    // Cold-start scenario: cache is empty, no bootstrap has registered tags.
+    // A mutation/invalidation racing with our GET must be able to bump the
+    // generation for this key — otherwise the gen guard sees the same value
+    // at start and end, and the (now-superseded) response gets cached.
+    const { window, cleanup } = loadCachedFetchEnv();
+
+    try {
+      const registerSpy = vi.fn();
+      const peekSpy = vi.fn().mockReturnValue(0);
+      window.DataStore = {
+        registerTags: registerSpy,
+        peekGeneration: peekSpy
+      };
+
+      window.apiCallDirect = vi.fn().mockResolvedValue({ groups: [] });
+
+      await window.cachedFetch('food_2026-05-09_day', '/api/food/log?date=2026-05-09', {
+        tags: ['food']
+      });
+
+      // registerTags must have been called before the fetch resolved.
+      expect(registerSpy).toHaveBeenCalledWith('food_2026-05-09_day', ['food']);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('applies the optional transform to the network response before caching', async () => {
     const { window, cacheMap, cleanup } = loadCachedFetchEnv();
 

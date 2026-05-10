@@ -7,12 +7,22 @@
 //
 // Behavior matrix:
 //   1. Cache hit, online       → return cached immediately, kick off
-//                                background revalidation (SWR).
+//                                background revalidation (SWR). Applies to
+//                                any cache hit regardless of age — older
+//                                entries surface with `isStale:true` so the
+//                                badge can flag them while the background
+//                                refresh lands.
 //   2. Cache miss, online      → fetch, write to cache, return fresh.
 //   3. Cache hit, offline/5xx  → return cached, isFromCache:true, isStale flag
 //                                set if age > staleAfterMs.
 //   4. Cache miss, offline/5xx → throw OfflineNoCacheError so callers can
 //                                render an explicit empty state.
+//
+// Generation guard: writes to the cache after a network round-trip are
+// dropped if DataStore's generation counter for the key advanced while the
+// fetch was in flight (mutation/invalidation/setCachedWithTags). Without the
+// guard, an older GET completing after an authoritative write could resurrect
+// stale data — the same race fetchFresh already protects against.
 
 (function () {
     class OfflineNoCacheError extends Error {
@@ -41,7 +51,17 @@
         }
         if (typeof err.status === 'number' && err.status >= 500) return true;
         const msg = err.message || '';
-        if (typeof TypeError !== 'undefined' && err instanceof TypeError) return true;
+        // Narrow TypeError check (matches sync.js's isNetworkError): only a
+        // TypeError that mentions fetch OR is observed while the browser is
+        // offline counts as a network failure. A bare TypeError (e.g. "Cannot
+        // read property 'x' of undefined" from a transform/contract bug) is
+        // a programmer error and must surface, not be silently swallowed by
+        // the offline fallback path.
+        if (typeof TypeError !== 'undefined' && err instanceof TypeError) {
+            const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+            if (offline) return true;
+            if (msg.includes('fetch')) return true;
+        }
         return (
             msg === 'Network request failed' ||
             msg === 'Failed to fetch' ||
@@ -85,6 +105,49 @@
         return typeof transform === 'function' ? transform(raw) : raw;
     }
 
+    function peekGen(key) {
+        const ds = (typeof window !== 'undefined') ? window.DataStore : null;
+        if (ds && typeof ds.peekGeneration === 'function') {
+            try { return ds.peekGeneration(key); } catch (_) { /* fall through */ }
+        }
+        return null;
+    }
+
+    // Register the key→tags mapping with DataStore so a mid-flight
+    // invalidateByTag can find this key and bump its generation. Without
+    // this, on cold/reload paths (where bootstrap hasn't yet cached the key,
+    // or this is the first read) `tagToKeys` is empty for the key and an
+    // invalidation that fires while a GET is in flight silently no-ops —
+    // peekGen sees the same value at start and end, the gen guard passes,
+    // and the (now-superseded) network response gets written back.
+    function registerTagsWithStore(key, tags) {
+        if (!Array.isArray(tags) || tags.length === 0) return;
+        const ds = (typeof window !== 'undefined') ? window.DataStore : null;
+        if (ds && typeof ds.registerTags === 'function') {
+            try { ds.registerTags(key, tags); } catch (_) { /* best-effort */ }
+        }
+    }
+
+    // Performs the network round-trip and writes the result to the cache,
+    // dropping the write when DataStore's generation counter advanced
+    // mid-flight (mutation/invalidation occurred). Returns the fetched value
+    // when the write happened, or null when the write was dropped or the
+    // backend returned no value.
+    async function performAndCacheFetch(key, url, fetchOpts, transform, tags) {
+        const startGen = peekGen(key);
+        const fresh = await performFetch(url, fetchOpts, transform);
+        if (fresh == null) return null;
+        const endGen = peekGen(key);
+        if (startGen !== null && endGen !== null && endGen !== startGen) {
+            // Superseded by a mutation/invalidation while in flight — the
+            // cache now holds the authoritative value (or has been cleared);
+            // writing this stale payload back would resurrect it.
+            return null;
+        }
+        await writeCache(key, fresh, tags);
+        return fresh;
+    }
+
     // cachedFetch(key, url, opts) — see module banner for behaviour.
     async function cachedFetch(key, url, opts = {}) {
         const {
@@ -96,22 +159,30 @@
             now = Date.now()
         } = opts;
 
+        // Eagerly register the key→tags mapping so that any invalidateByTag
+        // call (foreground mutation, /api/changes poll) racing with this
+        // fetch can find the key and bump its generation. The peekGen guard
+        // below relies on the bump to detect supersedes; without an eager
+        // registration the cold-start invalidation can't reach the key and
+        // the guard would silently let a stale response win.
+        registerTagsWithStore(key, tags);
+
         const cached = await readCache(key);
         const cachedTs = cached && typeof cached.timestamp === 'number' ? cached.timestamp : null;
         const cachedAge = cachedTs == null ? Infinity : Math.max(0, now - cachedTs);
         const cachedIsFresh = cachedAge <= freshAfterMs;
+        const cachedIsStale = cachedAge > staleAfterMs;
         const online = isOnline();
 
-        // Online path
-        if (online) {
-            // Fresh cache → return immediately, background revalidate.
-            if (cached && cachedIsFresh) {
+        // Online + cache hit → SWR. The behavior matrix says any cache hit
+        // online returns immediately and revalidates in the background; older
+        // entries surface with isStale:true so the badge can flag them while
+        // the refresh lands. Skip the background fetch for cache that is
+        // still within freshAfterMs — there's nothing to refresh.
+        if (online && cached) {
+            if (!cachedIsFresh) {
                 queueMicrotask(() => {
-                    performFetch(url, fetchOpts, transform)
-                        .then((fresh) => {
-                            if (fresh != null) return writeCache(key, fresh, tags);
-                            return undefined;
-                        })
+                    performAndCacheFetch(key, url, fetchOpts, transform, tags)
                         .catch((err) => {
                             // Network/5xx during background revalidation is expected and
                             // already covered by the foreground fallback path — silence
@@ -123,19 +194,32 @@
                             }
                         });
                 });
-                return {
-                    data: cached.data,
-                    fetchedAt: cachedTs,
-                    isFromCache: true,
-                    isStale: false
-                };
+            } else {
+                // Fresh cache: still kick a background refresh so the cache
+                // never gets older than freshAfterMs while the user has the
+                // tab open. Same gen guard, same error muting.
+                queueMicrotask(() => {
+                    performAndCacheFetch(key, url, fetchOpts, transform, tags)
+                        .catch((err) => {
+                            if (!looksLikeNetworkError(err) && typeof console !== 'undefined') {
+                                console.warn('cachedFetch background revalidation failed', key, err);
+                            }
+                        });
+                });
             }
+            return {
+                data: cached.data,
+                fetchedAt: cachedTs,
+                isFromCache: true,
+                isStale: cachedIsStale
+            };
+        }
 
-            // No cache or stale → fetch, fall back to cache on network/5xx error.
+        // Online + cache miss → foreground fetch.
+        if (online) {
             try {
-                const fresh = await performFetch(url, fetchOpts, transform);
+                const fresh = await performAndCacheFetch(key, url, fetchOpts, transform, tags);
                 if (fresh != null) {
-                    await writeCache(key, fresh, tags);
                     return {
                         data: fresh,
                         fetchedAt: Date.now(),
@@ -143,13 +227,20 @@
                         isStale: false
                     };
                 }
-                // Backend returned null/undefined — surface cached if any, else null payload.
-                if (cached) {
+                // fresh == null means either the backend returned no payload
+                // OR our write was superseded by a mid-flight invalidation.
+                // Re-read so we surface whatever DataStore now considers
+                // authoritative (could be a fresh value from setCachedWithTags
+                // or null after a clear).
+                const latest = await readCache(key);
+                if (latest) {
+                    const latestTs = typeof latest.timestamp === 'number' ? latest.timestamp : null;
+                    const latestAge = latestTs == null ? Infinity : Math.max(0, Date.now() - latestTs);
                     return {
-                        data: cached.data,
-                        fetchedAt: cachedTs,
+                        data: latest.data,
+                        fetchedAt: latestTs,
                         isFromCache: true,
-                        isStale: cachedAge > staleAfterMs
+                        isStale: latestAge > staleAfterMs
                     };
                 }
                 return {
@@ -160,14 +251,7 @@
                 };
             } catch (err) {
                 if (!looksLikeNetworkError(err)) throw err;
-                if (cached) {
-                    return {
-                        data: cached.data,
-                        fetchedAt: cachedTs,
-                        isFromCache: true,
-                        isStale: cachedAge > staleAfterMs
-                    };
-                }
+                // Network/5xx with no cache (cache hit branch handled above).
                 throw new OfflineNoCacheError(key, err);
             }
         }
@@ -178,7 +262,7 @@
                 data: cached.data,
                 fetchedAt: cachedTs,
                 isFromCache: true,
-                isStale: cachedAge > staleAfterMs
+                isStale: cachedIsStale
             };
         }
         throw new OfflineNoCacheError(key);

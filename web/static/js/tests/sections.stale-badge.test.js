@@ -248,6 +248,10 @@ describe('Section-header stale badges (Task 6)', () => {
         afterEach(() => { try { env.window.localStorage.clear(); } catch (_) { /* ignore */ } env.cleanup(); env = null; });
 
         it('renders the offline chip in the History subtab after loadNextWorkout()', async () => {
+            // loadNextWorkout uses apiCallDirect (which throws on offline/5xx)
+            // so the cached card is preserved by loadSWR's onError. That path
+            // emits console.error — silence it.
+            allowConsoleNoise();
             const { window, document } = env;
             window.MedTrackerDB = {
                 WorkoutStore: { saveCache: async () => undefined, getCache: async () => null }
@@ -260,14 +264,68 @@ describe('Section-header stale badges (Task 6)', () => {
                 }
             });
             setOnline(window, false);
-            window.apiCall = vi.fn(async () => null);
+            window.apiCallDirect = vi.fn(async () => { throw new Error('offline'); });
 
             await window.loadNextWorkout();
 
             expectOfflineBadge(document.getElementById('workout-history-stale-badge'));
         });
 
+        it('history list survives offline from workout_history cache and badge reflects oldest of {workout_next, workout_history}', async () => {
+            // The fetcher throws when either /api/workout/sessions or
+            // /api/workout/miband returns null so loadSWR's onError fires —
+            // that path emits a console.error before falling back to the
+            // already-painted cached UI. Allow that noise.
+            allowConsoleNoise();
+            const { window, document } = env;
+            window.MedTrackerDB = {
+                WorkoutStore: { saveCache: async () => undefined, getCache: async () => null }
+            };
+            const nextCachedAt = Date.now() - 5 * 60 * 1000;     // 5 min ago
+            const historyCachedAt = Date.now() - 90 * 60 * 1000; // 1.5h ago — oldest
+            installApiCacheMap(window, {
+                workout_next: { data: { session: null }, timestamp: nextCachedAt },
+                workout_history: {
+                    data: {
+                        sessions: [{
+                            session: {
+                                id: 1, status: 'completed', scheduled_date: '2026-05-09',
+                                scheduled_time: '08:00', started_at: '2026-05-09T08:00:00Z',
+                                completed_at: '2026-05-09T08:30:00Z', duration_minutes: 30
+                            },
+                            group_name: 'Push', variant_name: 'A',
+                            total_volume: 1200, exercises_completed: 3, exercises_count: 3
+                        }],
+                        miband: []
+                    },
+                    timestamp: historyCachedAt
+                }
+            });
+            setOnline(window, false);
+            // Stub apiCall to return null (matches the offline behaviour the
+            // wrapper now handles by surfacing the cached value rather than
+            // overwriting with empty).
+            window.apiCall = vi.fn(async () => null);
+
+            await window.loadWorkoutHistoryTab();
+
+            // List rendered from cache, not the empty state.
+            const display = document.getElementById('workout-history-display');
+            expect(display.innerHTML).not.toContain('No workout history yet');
+            expect(display.innerHTML).not.toContain('Error loading history');
+            expect(display.querySelectorAll('.wg-card.wg-workouts-history-row').length).toBeGreaterThanOrEqual(1);
+
+            // Badge present with offline tone, age driven by the older
+            // workout_history timestamp (1.5h) — formatLabel produces "1h".
+            const badge = expectOfflineBadge(document.getElementById('workout-history-stale-badge'));
+            expect(badge.textContent).toBe('Offline · 1h old');
+        });
+
         it('renders the offline chip in the Groups subtab after loadWorkoutGroups()', async () => {
+            // loadWorkoutGroups uses apiCallDirect (throws on offline/5xx) so
+            // a transient refresh failure routes through onError, preserving
+            // whatever onCached painted. That path emits console.error.
+            allowConsoleNoise();
             const { window, document } = env;
             window.MedTrackerDB = {
                 WorkoutStore: { saveCache: async () => undefined, getCache: async () => null }
@@ -280,7 +338,7 @@ describe('Section-header stale badges (Task 6)', () => {
                 }
             });
             setOnline(window, false);
-            window.apiCall = vi.fn(async () => null);
+            window.apiCallDirect = vi.fn(async () => { throw new Error('offline'); });
 
             await window.loadWorkoutGroups();
 
