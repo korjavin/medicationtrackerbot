@@ -97,12 +97,12 @@ Add a small async helper that reads a Dexie store and seeds `DataStore.setCached
 
 Wire the new primitive into the early-init path in `app.js` so the medications list is in memory by the time `loadMeds()` or the Today tile first reads it — even when bootstrap has not yet returned (or never will, if offline).
 
-- [ ] in `web/static/js/app.js`, locate the early-init code that runs before `await fetchBootstrap()` resolves
-- [ ] call `DataStore.hydrateFromDexie('medications', () => MedTrackerDB.MedicationStore.loadCache())` and `await` it before kicking off the first paint of meds-dependent screens
-- [ ] guarantee it runs before the auth gate decision (so unauthenticated PWA reopens still hydrate from the previous session — gated by an auth-presence check if PII concerns apply, see Technical Details)
-- [ ] write a test in `web/static/js/tests/app.dexie-hydration.test.js`: stub `MedTrackerDB.MedicationStore.loadCache()` to return a known list, simulate offline bootstrap failure, assert `DataStore.getCached('medications')` returns the seeded list
-- [ ] write a test for the unauth case — if no auth token, hydration is skipped (or scoped to the prior auth user-id; pick whichever the existing Dexie schema supports)
-- [ ] run `pnpm test` — must pass before next task
+- [x] in `web/static/js/app.js`, locate the early-init code that runs before `await fetchBootstrap()` resolves
+- [x] call `DataStore.hydrateFromDexie('medications', () => MedTrackerDB.MedicationStore.loadCache())` and `await` it before kicking off the first paint of meds-dependent screens
+- [x] guarantee it runs before the auth gate decision (so unauthenticated PWA reopens still hydrate from the previous session — gated by an auth-presence check if PII concerns apply, see Technical Details)
+- [x] write a test in `web/static/js/tests/app.dexie-hydration.test.js`: stub `MedTrackerDB.MedicationStore.loadCache()` to return a known list, simulate offline bootstrap failure, assert `DataStore.getCached('medications')` returns the seeded list
+- [x] write a test for the unauth case — if no auth token, hydration is skipped (or scoped to the prior auth user-id; pick whichever the existing Dexie schema supports)
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 3: Make `loadMeds()` use hydrated cache as the synchronous first paint
 
