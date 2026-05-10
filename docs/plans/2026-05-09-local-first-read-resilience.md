@@ -89,14 +89,14 @@ This plan delivers **read resilience first** (no new offline write paths) by:
 
 ### Task 2: Cache `next_intake` independently and wire Today's Next Medication tile
 
-- [ ] Verify (via grep) that `cacheApiSnapshot('next_intake', ...)` at `app.js:279` is the only writer; if `/api/bootstrap` is the only producer, also expose a thin `/api/next-intake` reader path through `cachedFetch` so non-bootstrap refreshes can update it. If no such endpoint exists, document the gap and rely on bootstrap-only writes for now (note as ⚠️).
-- [ ] In `web/static/js/features/today.js`, replace the direct `bootstrap.next_intake` read with a call that resolves from `api_cache['next_intake']` first (via `cachedFetch` with `freshAfterMs` tuned to a short window, e.g. 5 min).
-- [ ] Render the tile from cached `next_intake` even when bootstrap fetch fails. If `next_intake` is empty *and* `MedicationStore` has scheduled meds, fall back to deriving "next dose" from the cached medication list (re-use existing schedule logic if available; otherwise stop at "Next dose data unavailable offline" rather than rendering empty).
-- [ ] Surface `{ fetchedAt, isStale }` from the helper to the tile so Task 4 can attach the badge.
-- [ ] write Vitest case: bootstrap fails (mocked offline), `api_cache.next_intake` populated → tile renders the cached medication name.
-- [ ] write Vitest case: bootstrap fails, no `next_intake` cache, `medications` cache present → tile renders the derived next dose (or the documented fallback string).
-- [ ] write Vitest case: bootstrap fails, no caches at all → tile shows the explicit empty state, not a JS error.
-- [ ] run `pnpm test` — must pass before next task.
+- [x] Verify (via grep) that `cacheApiSnapshot('next_intake', ...)` at `app.js:279` is the only writer; if `/api/bootstrap` is the only producer, also expose a thin `/api/next-intake` reader path through `cachedFetch` so non-bootstrap refreshes can update it. Verified: bootstrap (app.js:279) + `loadToday` phase-2 (`fetchFresh('next_intake', fetchNextIntakePayload, ...)` calling `/api/medications/next-intake`) are the writers. The reader endpoint `/api/medications/next-intake` already exists (server.go:426); the new `loadNextIntakeCached()` helper routes through it via `cachedFetch`.
+- [x] In `web/static/js/features/today.js`, replace the direct `bootstrap.next_intake` read with a call that resolves from `api_cache['next_intake']` first (via `cachedFetch` with `freshAfterMs` tuned to a short window, e.g. 5 min). Implemented as `loadNextIntakeCached()` in `app.js` with `freshAfterMs: 5 * 60 * 1000` and `staleAfterMs: 12 * 60 * 60 * 1000`. `_todayReadCaches` continues to seed `bootstrap.next_intake` from `api_cache` first (offline-safe); `loadToday` phase-2 unconditionally calls the cached helper so SWR handles wall-clock drift online.
+- [x] Render the tile from cached `next_intake` even when bootstrap fetch fails. If `next_intake` is empty *and* `MedicationStore` has scheduled meds, fall back to deriving "next dose" from the cached medication list (re-use existing schedule logic if available; otherwise stop at "Next dose data unavailable offline" rather than rendering empty). Used the documented fallback string: when `state.__offline === true` and `nextMed.status === 'missing'`, `renderTodayMedsCard` shows "Next dose data unavailable offline" instead of "No scheduled doses".
+- [x] Surface `{ fetchedAt, isStale }` from the helper to the tile so Task 4 can attach the badge. `_todayReadCaches` populates `bootstrap.__next_intake_meta` from `api_cache.next_intake.timestamp`; `nextMedCell` propagates it onto `cell.meta = { fetchedAt, isStale }`.
+- [x] write Vitest case: bootstrap fails (mocked offline), `api_cache.next_intake` populated → tile renders the cached medication name.
+- [x] write Vitest case: bootstrap fails, no `next_intake` cache, `medications` cache present → tile renders the derived next dose (or the documented fallback string).
+- [x] write Vitest case: bootstrap fails, no caches at all → tile shows the explicit empty state, not a JS error.
+- [x] run `pnpm test` — must pass before next task. New `today.next-intake-cached.test.js` (4 tests) passes. Unrelated pre-existing failures in `components.wg-sleep-chart.test.js` and `components.wg-steps-chart.test.js` are date-dependent ("Today" label expectations break when run on a Saturday).
 
 ### Task 3: Wrap Food reads with `cachedFetch`
 
