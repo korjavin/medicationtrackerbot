@@ -143,8 +143,8 @@ For the Today shortcut to trigger the same picker, factor `triggerFoodPhotoPicke
 
 ### Task 8: Update documentation
 
-- [ ] update `docs/features.md` food section to mention the photo flow (new behavior: in-app summary + Undo, Today shortcut)
-- [ ] no `docs/api.md` change needed if the photo endpoint response shape didn't change (only verified `id` presence in Task 1)
+- [x] update `docs/features.md` food section to mention the photo flow (new behavior: in-app summary + Undo, Today shortcut) — added a new "Photo-to-meal (AI vision)" bullet under Food Tracking covering button restyle, summary card, Undo via parallel `DELETE /api/food/log/{id}`, retry-on-partial-failure, and the cold-session picker binding; also updated the Today Dashboard `.wg-today-shortcuts` description from "3-tile row" to "up to 4-tile row" and called out the "Photo meal" tile + `window.FoodActions.triggerPhotoPicker()` wiring
+- [x] no `docs/api.md` change needed if the photo endpoint response shape didn't change (only verified `id` presence in Task 1) — verified: Task 1 confirmed `id` was already returned by `handlePostFoodLogFromPhoto` (no handler change), so the public response shape is unchanged and `docs/api.md` requires no edit
 
 *Note: ralphex automatically moves completed plans to `docs/plans/completed/`*
 
