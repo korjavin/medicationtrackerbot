@@ -99,13 +99,13 @@ A reusable card/toast that shows after a successful photo upload: lists each ite
 
 Replace the `alert()` in `uploadFoodPhoto` with the new summary card and implement the Undo handler.
 
-- [ ] in `web/static/js/features/food.js` `uploadFoodPhoto()` (812–871), after a successful response, replace the `alert(\`Logged ${n} items: ...\`)` call with `showFoodPhotoSummary({ items: data.items, onUndo: () => undoFoodPhotoLog(data.items) })`
-- [ ] add a new `undoFoodPhotoLog(items)` function in `food.js` that issues `DELETE /api/food/log/{id}` for each item in parallel (`Promise.all`), invalidates the food-log cache, and reloads the food list + Today (mirroring what `deleteFoodLog` already does)
-- [ ] on Undo success, swap the summary card content to a brief "Removed N items" confirmation with the close button, then auto-dismiss
-- [ ] on Undo failure (any delete returns non-OK), show an error state in the card with a retry button
-- [ ] keep the existing `loadFoodLogs()` / `loadToday()` refresh on the original success path
-- [ ] write Vitest tests: success → summary shown; clicking Undo → fetch called N times with DELETE; partial failure → error state displayed
-- [ ] run `pnpm test` — must pass before next task
+- [x] in `web/static/js/features/food.js` `uploadFoodPhoto()` (812–871), after a successful response, replace the `alert(\`Logged ${n} items: ...\`)` call with `showFoodPhotoSummary({ items: data.items, onUndo: () => undoFoodPhotoLog(data.items) })` — the closure captures the controller via a `let` binding so `undoFoodPhotoLog` can call `summary.showRemoved` / `summary.showError` to drive the card transitions
+- [x] add a new `undoFoodPhotoLog(items)` function in `food.js` that issues `DELETE /api/food/log/{id}` for each item in parallel (`Promise.all`), invalidates the food-log cache, and reloads the food list + Today (mirroring what `deleteFoodLog` already does) — uses raw `fetch` (not `apiCall`) so a single failure doesn't surface a duplicate alert; the Undo handler maps each response into a per-item ok/fail and only invalidates caches + refreshes lists when every delete succeeds
+- [x] on Undo success, swap the summary card content to a brief "Removed N items" confirmation with the close button, then auto-dismiss — extended `showFoodPhotoSummary` controller with a `showRemoved(count)` method that clears the body content, renders a `.wg-food-photo-summary__message`, and re-arms the auto-dismiss timer
+- [x] on Undo failure (any delete returns non-OK), show an error state in the card with a retry button — extended controller with `showError(message, onRetry)` that swaps the body to an error message + `.wg-food-photo-summary__retry` button bound to a fresh `undoFoodPhotoLog(items, summary)` call (one-shot guard inside the retry handler prevents double-fire)
+- [x] keep the existing `loadFoodLogs()` / `loadToday()` refresh on the original success path — preserved verbatim before the summary card mounts
+- [x] write Vitest tests: success → summary shown; clicking Undo → fetch called N times with DELETE; partial failure → error state displayed — added `web/static/js/tests/food.upload-photo.test.js` with 3 tests covering all three branches (and confirming no `safeAlert`/`alert` is invoked on the success path)
+- [x] run `pnpm test` — passes (the only 2 failing tests are the pre-existing date-sensitive flakes in `components.wg-sleep-chart.test.js` and `components.wg-steps-chart.test.js`, same ones noted in Tasks 2 and 3)
 
 ### Task 5: Expose photo picker as a callable function
 

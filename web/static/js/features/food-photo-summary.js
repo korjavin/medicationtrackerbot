@@ -196,5 +196,63 @@ function showFoodPhotoSummary(opts) {
 
     mountPoint.appendChild(root);
 
-    return { root, dismiss };
+    // Replace everything below the header so the card can transition between
+    // the initial "summary" view and the post-Undo "Removed N items" /
+    // "Could not undo" views without re-mounting.
+    function clearBodyContent() {
+        const headerEl = root.querySelector('.wg-food-photo-summary__header');
+        Array.from(root.children).forEach((child) => {
+            if (child !== headerEl) root.removeChild(child);
+        });
+    }
+
+    function showRemoved(count) {
+        if (dismissed) return;
+        clearAutoTimer();
+        clearBodyContent();
+        const n = Number(count) || 0;
+        const msg = document.createElement('div');
+        msg.className = 'wg-food-photo-summary__message';
+        msg.textContent = `Removed ${n} item${n === 1 ? '' : 's'}`;
+        root.appendChild(msg);
+        if (autoDismissMs > 0) {
+            autoTimer = setTimeout(dismiss, autoDismissMs);
+        }
+    }
+
+    function showError(message, retryHandler) {
+        if (dismissed) return;
+        clearAutoTimer();
+        clearBodyContent();
+        const msg = document.createElement('div');
+        msg.className = 'wg-food-photo-summary__message wg-food-photo-summary__message--error';
+        msg.textContent = String(message || 'Could not undo all items.');
+        root.appendChild(msg);
+        if (typeof retryHandler === 'function') {
+            const actions = document.createElement('div');
+            actions.className = 'wg-food-photo-summary__actions';
+            const retry = document.createElement('button');
+            retry.type = 'button';
+            retry.className = 'wg-food-photo-summary__retry wg-toolbar-btn wg-toolbar-btn--secondary';
+            const label = document.createElement('span');
+            label.className = 'wg-toolbar-btn__label';
+            label.textContent = 'Retry';
+            retry.appendChild(label);
+            let retryFired = false;
+            retry.addEventListener('click', async () => {
+                if (retryFired) return;
+                retryFired = true;
+                retry.disabled = true;
+                try {
+                    await retryHandler();
+                } catch (e) {
+                    console.error('Food photo retry handler failed:', e);
+                }
+            });
+            actions.appendChild(retry);
+            root.appendChild(actions);
+        }
+    }
+
+    return { root, dismiss, showRemoved, showError };
 }
