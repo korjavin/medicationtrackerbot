@@ -108,6 +108,7 @@
         const candidates = [];
         for (const med of meds) {
             if (!med || med.archived) continue;
+            if (typeof med.name !== 'string' || med.id == null) continue;
             const schedule = parseSchedule(med.schedule);
             if (!schedule) continue;
             const type = schedule.type;
@@ -130,8 +131,8 @@
         const earliest = grouped[0];
         return {
             scheduledAt: new Date(earliest.t).toISOString(),
-            names: grouped.map((c) => c.med.name).filter((n) => typeof n === 'string'),
-            ids: grouped.map((c) => c.med.id).filter((id) => id != null)
+            names: grouped.map((c) => c.med.name),
+            ids: grouped.map((c) => c.med.id)
         };
     }
 
