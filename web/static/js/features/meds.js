@@ -881,6 +881,7 @@ async function loadMeds() {
             medications = cached;
             renderMeds();
             populateMedFilter();
+            await renderMedsScheduleStaleBadge();
         },
         onFresh: async (fresh) => {
             medications = fresh;
@@ -889,9 +890,13 @@ async function loadMeds() {
             }
             renderMeds();
             populateMedFilter();
+            await renderMedsScheduleStaleBadge();
         },
         onError: async (_err, cached) => {
-            if (cached) return;
+            if (cached) {
+                await renderMedsScheduleStaleBadge();
+                return;
+            }
             // API failed and no ApiCache hit; fall back to offline cache
             if (window.MedTrackerDB?.MedicationStore) {
                 const offlineCached = await window.MedTrackerDB.MedicationStore.getCache();
@@ -902,8 +907,24 @@ async function loadMeds() {
                     populateMedFilter();
                 }
             }
+            await renderMedsScheduleStaleBadge();
         }
     });
+}
+
+// Mounts the wg-stale-badge into the Meds Schedule subtab from the api_cache
+// 'medications' timestamp (warmed by /api/bootstrap and refreshed by
+// loadMeds). Mirrors the BP/Weight Task 6 pattern.
+async function renderMedsScheduleStaleBadge() {
+    const slot = document.getElementById('meds-schedule-stale-badge');
+    if (!slot) return;
+    const api = (typeof window !== 'undefined') ? window.WGStaleBadge : null;
+    if (!api || typeof api.mountFromKey !== 'function') {
+        slot.replaceChildren();
+        slot.classList.add('hidden');
+        return;
+    }
+    await api.mountFromKey({ slot, key: 'medications' });
 }
 
 function populateMedFilter() {

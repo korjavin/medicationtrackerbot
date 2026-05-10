@@ -751,17 +751,35 @@ async function loadWeightLogs() {
         },
         onCached: async (cached) => {
             await _renderWeightData(cached.logsRes, cached.goalRes);
+            await renderWeightStaleBadge();
         },
         onFresh: async (fresh) => {
             await _renderWeightData(fresh.logsRes, fresh.goalRes);
+            await renderWeightStaleBadge();
         },
         onError: async (e, cached) => {
             console.error('Failed to load weight data:', e);
             if (!cached) {
                 list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
             }
+            await renderWeightStaleBadge();
         }
     });
+}
+
+// Mounts the wg-stale-badge into the Weight section header from the
+// api_cache 'weight' timestamp (warmed by /api/bootstrap and refreshed by
+// loadWeightLogs). Tone flips to offline whenever navigator.onLine is false.
+async function renderWeightStaleBadge() {
+    const slot = document.getElementById('weight-stale-badge');
+    if (!slot) return;
+    const api = (typeof window !== 'undefined') ? window.WGStaleBadge : null;
+    if (!api || typeof api.mountFromKey !== 'function') {
+        slot.replaceChildren();
+        slot.classList.add('hidden');
+        return;
+    }
+    await api.mountFromKey({ slot, key: 'weight' });
 }
 
 async function _renderWeightData(logsRes, goalRes) {

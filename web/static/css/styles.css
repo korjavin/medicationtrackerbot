@@ -5891,9 +5891,12 @@ textarea.wg-input {
 /* Wrapper rows that mount the stale chip in the Today and Food section
    headers (Task 5 of local-first read-resilience). The chip itself owns
    colour/border; the row only sets layout (right-aligned with a small
-   bottom gap so it does not crowd the cards underneath). */
+   bottom gap so it does not crowd the cards underneath).
+   `.wg-section-stale-badge-row` (Task 6) is the generic variant used by BP,
+   Weight, Meds, Workouts, and Vitals/Health. */
 .today-stale-badge-row,
-.wg-food-stale-badge-row {
+.wg-food-stale-badge-row,
+.wg-section-stale-badge-row {
     display: flex;
     justify-content: flex-end;
     margin: 0 0 var(--space-sm) 0;

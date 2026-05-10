@@ -324,16 +324,34 @@ async function loadNextWorkout() {
         fetcher: async () => await apiCall('/api/workout/sessions/next'),
         onCached: async (cached) => {
             _renderNextWorkout(container, cached);
+            await renderWorkoutHistoryStaleBadge();
         },
         onFresh: async (fresh) => {
             _renderNextWorkout(container, fresh);
+            await renderWorkoutHistoryStaleBadge();
         },
         onError: async (error, cached) => {
             console.error('Error loading next workout:', error);
             if (!cached) container.replaceChildren();
+            await renderWorkoutHistoryStaleBadge();
         },
         allowNullFresh: true
     });
+}
+
+// Mounts the wg-stale-badge into the Workouts History subtab from the
+// 'workout_next' api_cache timestamp. Mirrors the BP/Weight/Meds Task 6
+// pattern: a single chip per visible subtab.
+async function renderWorkoutHistoryStaleBadge() {
+    const slot = (typeof document !== 'undefined') ? document.getElementById('workout-history-stale-badge') : null;
+    if (!slot) return;
+    const api = (typeof window !== 'undefined') ? window.WGStaleBadge : null;
+    if (!api || typeof api.mountFromKey !== 'function') {
+        slot.replaceChildren();
+        slot.classList.add('hidden');
+        return;
+    }
+    await api.mountFromKey({ slot, key: 'workout_next' });
 }
 
 function _renderNextWorkout(container, data) {
@@ -501,6 +519,7 @@ async function loadWorkoutGroups() {
         fetcher: async () => await apiCall('/api/workout/groups'),
         onCached: async (cached) => {
             _renderWorkoutGroups(container, cached);
+            await renderWorkoutGroupsStaleBadge();
         },
         onFresh: async (groups) => {
             workoutGroups = groups || [];
@@ -508,6 +527,7 @@ async function loadWorkoutGroups() {
                 await window.MedTrackerDB.WorkoutStore.saveCache('groups', groups);
             }
             _renderWorkoutGroups(container, groups);
+            await renderWorkoutGroupsStaleBadge();
         },
         onError: async (error, cached) => {
             console.error('Error loading workout groups:', error);
@@ -517,8 +537,23 @@ async function loadWorkoutGroups() {
                 message.textContent = 'No cached data \u2014 will load when online';
                 container.replaceChildren(message);
             }
+            await renderWorkoutGroupsStaleBadge();
         }
     });
+}
+
+// Mounts the wg-stale-badge into the Workouts Groups subtab from the
+// 'workout_groups' api_cache timestamp.
+async function renderWorkoutGroupsStaleBadge() {
+    const slot = (typeof document !== 'undefined') ? document.getElementById('workout-groups-stale-badge') : null;
+    if (!slot) return;
+    const api = (typeof window !== 'undefined') ? window.WGStaleBadge : null;
+    if (!api || typeof api.mountFromKey !== 'function') {
+        slot.replaceChildren();
+        slot.classList.add('hidden');
+        return;
+    }
+    await api.mountFromKey({ slot, key: 'workout_groups' });
 }
 
 function _renderWorkoutGroups(container, groups) {

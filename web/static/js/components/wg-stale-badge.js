@@ -73,6 +73,63 @@
         return `Updated ${ageLabel} ago`;
     }
 
+    function isOnline() {
+        return (typeof navigator !== 'undefined') ? navigator.onLine !== false : true;
+    }
+
+    // mountFromKey reads the `api_cache` timestamp for a given key and paints
+    // the badge into a slot element. Sections (BP, Weight, Meds, Workouts,
+    // Vitals/Health) mount one chip per screen header; the badge tone reflects
+    // whichever is true: navigator-offline OR cachedFetch flagged the value
+    // stale. When no cache entry exists and we are offline, the chip surfaces
+    // the explicit "Offline · no cache" fallback so users know data is missing
+    // rather than just empty. Returns null when the slot or component is
+    // unavailable; never throws.
+    async function mountFromKey(opts) {
+        const options = opts || {};
+        const slot = options.slot;
+        if (!slot || typeof slot.replaceChildren !== 'function') return null;
+
+        const cache = (typeof window !== 'undefined') && window.MedTrackerDB
+            ? window.MedTrackerDB.ApiCache
+            : null;
+        const offlineSignal = options.isOffline === true || !isOnline();
+
+        let timestamp = null;
+        if (cache && options.key) {
+            try {
+                if (typeof cache.getWithMeta === 'function') {
+                    const entry = await cache.getWithMeta(options.key);
+                    if (entry && Number.isFinite(entry.timestamp)) {
+                        timestamp = entry.timestamp;
+                    }
+                }
+            } catch (_) { /* best-effort cache read */ }
+        }
+
+        if (timestamp === null && Number.isFinite(options.fallbackFetchedAt)) {
+            timestamp = options.fallbackFetchedAt;
+        }
+
+        if (timestamp === null && !offlineSignal) {
+            // No cache + online: skip rendering — fresh fetch just landed and
+            // a "Updated just now" chip would only flash on every reload.
+            slot.replaceChildren();
+            slot.classList.add('hidden');
+            return null;
+        }
+
+        const badge = renderStaleBadge({
+            fetchedAt: timestamp,
+            isOffline: offlineSignal,
+            staleAfterMs: options.staleAfterMs,
+            now: options.now
+        });
+        slot.replaceChildren(badge);
+        slot.classList.remove('hidden');
+        return badge;
+    }
+
     function renderStaleBadge(opts) {
         const options = opts || {};
         const ts = asNumber(options.fetchedAt);
@@ -102,5 +159,6 @@
     window.WGStaleBadge = {
         render: renderStaleBadge,
         formatLabel,
+        mountFromKey,
     };
 })();
