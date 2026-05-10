@@ -76,16 +76,16 @@ This plan delivers **read resilience first** (no new offline write paths) by:
 
 ### Task 1: Build `cachedFetch` read-through helper
 
-- [ ] Add `cachedFetch(key, url, opts)` to `web/static/js/sync.js` (or new module `web/static/js/cached-fetch.js` if `sync.js` is too crowded — decide after reading current `sync.js` length). Signature: `({ tags = [], freshAfterMs, staleAfterMs, transform, fetchOpts }) => Promise<{ data, fetchedAt, isFromCache, isStale }>`.
-- [ ] Implementation order inside the helper: (1) read `api_cache` entry; (2) if fresh and online — still revalidate in background, return cached immediately (SWR); (3) if no cache and online — fetch, cache, return; (4) if offline / 5xx — return cached with `isFromCache: true, isStale: ageBeyondStaleAfter`; (5) if no cache and offline — throw a typed `OfflineNoCacheError` so callers can render an empty state explicitly.
-- [ ] Reuse `isServerError` from `sync.js` for the 5xx-as-offline check; reuse `db.api_cache` reads from `db.js` lines 639–668 (do not duplicate).
-- [ ] Ensure background revalidation writes via the existing `cacheApiSnapshot` so tag tracking continues to work.
-- [ ] write tests for `cachedFetch` fresh-hit (network skipped, returns cache, `isFromCache: true`)
-- [ ] write tests for `cachedFetch` SWR path (returns cache instantly, background fetch updates store)
-- [ ] write tests for offline fallback returning stale cache with `isStale: true` when age > `staleAfterMs`
-- [ ] write tests for `OfflineNoCacheError` when no cache exists and network is unavailable
-- [ ] write tests for 5xx response treated as offline (via mocked `apiCallDirect`)
-- [ ] run `pnpm test` — must pass before next task
+- [x] Add `cachedFetch(key, url, opts)` to `web/static/js/sync.js` (or new module `web/static/js/cached-fetch.js` if `sync.js` is too crowded — decide after reading current `sync.js` length). Signature: `({ tags = [], freshAfterMs, staleAfterMs, transform, fetchOpts }) => Promise<{ data, fetchedAt, isFromCache, isStale }>`. Created new module `web/static/js/cached-fetch.js` (sync.js was 874 lines).
+- [x] Implementation order inside the helper: (1) read `api_cache` entry; (2) if fresh and online — still revalidate in background, return cached immediately (SWR); (3) if no cache and online — fetch, cache, return; (4) if offline / 5xx — return cached with `isFromCache: true, isStale: ageBeyondStaleAfter`; (5) if no cache and offline — throw a typed `OfflineNoCacheError` so callers can render an empty state explicitly.
+- [x] Reuse `isServerError` from `sync.js` for the 5xx-as-offline check; reuse `db.api_cache` reads from `db.js` lines 639–668 (do not duplicate). Helper calls `window.isServerError` when present and falls back to its own inline detector (status >= 500 + 502/503/504 message sniff) so it works whether or not sync.js exposes the function.
+- [x] Ensure background revalidation writes via the existing `cacheApiSnapshot` so tag tracking continues to work.
+- [x] write tests for `cachedFetch` fresh-hit (network skipped, returns cache, `isFromCache: true`)
+- [x] write tests for `cachedFetch` SWR path (returns cache instantly, background fetch updates store)
+- [x] write tests for offline fallback returning stale cache with `isStale: true` when age > `staleAfterMs`
+- [x] write tests for `OfflineNoCacheError` when no cache exists and network is unavailable
+- [x] write tests for 5xx response treated as offline (via mocked `apiCallDirect`)
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 2: Cache `next_intake` independently and wire Today's Next Medication tile
 
