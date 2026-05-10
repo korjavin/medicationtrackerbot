@@ -13,6 +13,8 @@ on:
       - 'go.sum'
       - 'Dockerfile'
       - 'entrypoint.sh'
+      - 'web/**'
+      - 'python/**'
       - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
