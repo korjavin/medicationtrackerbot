@@ -136,12 +136,12 @@ Same pattern as Task 5 applied to `snoozed_until`. The medication reminder loop 
 
 ### Task 8: Verify acceptance criteria
 
-- [ ] verify the headline regression test (Task 3) is green: LA→Phoenix TZ-name change with same offset produces zero duplicates.
-- [ ] grep for any remaining `WHERE scheduled_at = ?` / `WHERE taken_at = ?` / `WHERE snoozed_until = ?` in `internal/store/`; expect zero hits.
-- [ ] grep for any remaining `time.Equal` workaround filters in the same paths; expect zero hits except where genuinely needed for in-memory logic.
-- [ ] run full test suite: `go test ./...` and `pnpm test`.
-- [ ] run the existing TZ-related tests explicitly: `go test -run TZ ./...` — every test added in `1169cd6`, `ec97a1f`, `0bb7485`, `b952747`, `26e4502`, `b1b4ced` must stay green.
-- [ ] run linter / `go vet ./...` — zero issues.
+- [x] verify the headline regression test (Task 3) is green: LA→Phoenix TZ-name change with same offset produces zero duplicates. (`TestScheduler_NoDuplicateIntakeAfterTZNameChangeSameOffset` passes.)
+- [x] grep for any remaining `WHERE scheduled_at = ?` / `WHERE taken_at = ?` / `WHERE snoozed_until = ?` in `internal/store/`; expect zero hits. (Only matches are inside doc/test comments describing the old bug — no active SQL.)
+- [x] grep for any remaining `time.Equal` workaround filters in the same paths; expect zero hits except where genuinely needed for in-memory logic. (Only matches are inside doc/test comments; the filter code itself is gone, per Task 3.)
+- [x] run full test suite: `go test ./...` and `pnpm test`. Go suite is fully green. `pnpm test` reports 1743/1745 passing — the 2 failures are in `components.wg-sleep-chart.test.js` and `components.wg-steps-chart.test.js`, are identical to master (this branch never touched `web/static/js/`), and unrelated to `intake_log` storage (weekday-label rendering for "Today").
+- [x] run the existing TZ-related tests explicitly: `go test -run TZ ./...` — every test added in `1169cd6`, `ec97a1f`, `0bb7485`, `b952747`, `26e4502`, `b1b4ced` must stay green. (All TZ-tagged tests across `bot`, `domain/tzreschedule`, `scheduler`, `server`, `store` pass.)
+- [x] run linter / `go vet ./...` — zero issues. (Clean run, no output.)
 
 ### Task 9: Update documentation
 
