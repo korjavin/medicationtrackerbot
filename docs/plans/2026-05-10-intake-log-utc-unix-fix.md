@@ -121,12 +121,12 @@ Same pattern as Tasks 2–4 applied to `taken_at`. Ships in a separate PR after 
 
 Same pattern as Task 5 applied to `snoozed_until`. The medication reminder loop currently uses `time.After(*p.SnoozedUntil)` in-memory — keep that in-memory comparison, only the wire format changes.
 
-- [ ] migration: add column + backfill (`strftime('%s', snoozed_until) WHERE snoozed_until IS NOT NULL`).
-- [ ] dual-write in `SnoozeIntake`.
-- [ ] cut over reader in `GetPendingIntakes` (scans into `int64` then converts to `*time.Time` for the existing struct field).
-- [ ] table-rebuild migration drops the legacy column.
-- [ ] write tests: snooze round-trip across a simulated TZ change.
-- [ ] run `go test ./...` — must pass before next task.
+- [x] migration: add column + backfill (`strftime('%s', snoozed_until) WHERE snoozed_until IS NOT NULL`). Backfill uses the same COALESCE/substr fallback as migrations 057/059 to cover the `+0200 CEST`-style `time.Time.String()` format and the monotonic-clock-residue variant. Implemented as `061_add_intake_log_snoozed_until_unix.sql`. No index added — snoozed_until is filtered only in-memory (no SQL equality on this column), matching the prior schema's lack of an index.
+- [x] dual-write in `SnoozeIntake`. The writer normalizes via `.Truncate(0)` + `.UTC().Unix()`, stripping monotonic-clock residue at the store boundary. Per Task 4/5 precedent, the writer cuts straight over to the new column (legacy `snoozed_until` is left untouched and will be dropped by migration 062 in the same iteration).
+- [x] cut over reader in `GetPendingIntakes` (scans into `sql.NullInt64` then converts to `*time.Time` for the existing struct field). Also cut over the other readers that selected `snoozed_until`: `GetTakenIntakesBySchedule`, `GetIntakeHistory`, `GetIntake`, `GetIntakeBySchedule`, `BatchGetIntakesBySchedule`, `GetPendingIntakesBySchedule`, `GetPendingIntakesForMedication`, `GetIntakesSince`.
+- [x] table-rebuild migration drops the legacy column: `062_drop_intake_log_snoozed_until_text.sql`.
+- [x] write tests: snooze round-trip across a simulated TZ change (`TestSnoozeIntake_WritesSnoozedUntilUnixUTC` — LA vs Phoenix), monotonic-residue regression (`TestSnoozeIntake_StripsMonotonicResidue`), backfill format coverage (`TestMigration061_BackfillsProductionSnoozedUntilFormats`), round-trips (`TestMigration061_RoundTrip`, `TestMigration062_RoundTrip`), table-rebuild data preservation (`TestMigration062_DropsSnoozedUntilAndPreservesData`).
+- [x] run `go test ./...` — passes.
 
 ### Task 7: Lock in the invariant with an architecture test
 
