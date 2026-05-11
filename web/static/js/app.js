@@ -456,12 +456,48 @@ async function hydrateMedicationsFromDexie() {
     }
 }
 
+// Cold-start preflight for section-level api_cache keys (BP, Weight, Workouts,
+// Health, Food, Settings). Runs alongside hydrateMedicationsFromDexie so any
+// section that mounts before /api/bootstrap resolves can render its last-known
+// data immediately. Each entry hydrates DataStore.api_cache from the matching
+// ApiCache row in Dexie via DataStore.hydrateFromDexie. Hydration is a no-op
+// when Dexie is empty for the key, so safely covers first-run users too. Gated
+// on auth presence to avoid surfacing a former user's cache on a logged-out
+// cold start.
+async function hydrateSectionsFromDexie() {
+    if (!window.DataStore?.hydrateFromDexie) return;
+    const apiCache = window.MedTrackerDB?.ApiCache;
+    if (!apiCache || typeof apiCache.getWithMeta !== 'function') return;
+    const hasAuthPresence = !!userInitData
+        || (typeof getCachedAuthState === 'function' && !!getCachedAuthState());
+    if (!hasAuthPresence) return;
+    // Each entry: { key, tags }. The Dexie loader is the same shape for every
+    // entry — read the {data, timestamp} record by key from ApiCache. Tags
+    // mirror what cacheApiSnapshot writes during the bootstrap apply path so
+    // a later invalidateByTag evicts the hydrated row alongside fresh ones.
+    const entries = [
+        { key: 'bp', tags: ['bp'] }
+    ];
+    await Promise.all(entries.map(async ({ key, tags }) => {
+        try {
+            await window.DataStore.hydrateFromDexie(
+                key,
+                () => apiCache.getWithMeta(key),
+                { tags }
+            );
+        } catch (e) {
+            console.warn('[Hydrate] Dexie section hydration failed', key, e);
+        }
+    }));
+}
+
 // Check Auth Environment
 async function checkAuth() {
     // Preflight Dexie hydration runs before any bootstrap fetch so a
     // relaunch-while-offline already has the meds list in DataStore by the
     // time the first switchTab() / Today tile / loadMeds() reads it.
     await hydrateMedicationsFromDexie();
+    await hydrateSectionsFromDexie();
 
     if (userInitData) {
         // We are in Telegram, proceed as normal

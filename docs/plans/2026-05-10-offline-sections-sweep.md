@@ -88,14 +88,14 @@ The fix is the same for every section: call `DataStore.hydrateFromDexie(key, dex
 
 ### Task 1: Hydrate BP section from Dexie
 
-`features/bp.js` has three SWR-backed reads (`bp`, `bp_goal`, `bp_stats`). Seed all three from `ApiCache` before bootstrap completes. Ensure `onCached` renders the BP chart + table even when the in-memory cache is freshly hydrated (no flash of empty state) and `onError` keeps the rendered data when network fails.
+`features/bp.js` has a single SWR-backed read keyed `bp` whose value bundles `{ readingsRes, goalRes, statsRes }` (plan originally listed three separate keys; current code stores them under one key — see `cacheApiSnapshot('bp', …)` in `app.js`). Seed that key from `ApiCache` before bootstrap completes. Ensure `onCached` renders the BP chart + table even when the in-memory cache is freshly hydrated (no flash of empty state) and `onError` keeps the rendered data when network fails.
 
-- [ ] in `web/static/js/app.js` early-init, add hydration for `bp`, `bp_goal`, `bp_stats` via `DataStore.hydrateFromDexie(key, () => ApiCache.get(key))`
-- [ ] in `web/static/js/features/bp.js`, verify `onCached` runs `renderBP(...)` unconditionally (including empty list)
-- [ ] verify `onError` does **not** wipe the rendered table — keep the hydrated render visible and show the "Offline · …" chip
-- [ ] write tests in `web/static/js/tests/bp.dexie-hydration.test.js`: Dexie pre-populated, offline, no bootstrap → BP chart + table render with stale chip
-- [ ] write tests for "Dexie empty + offline" → existing empty state
-- [ ] run `pnpm test` — must pass before next task
+- [x] in `web/static/js/app.js` early-init, add hydration for `bp` via `DataStore.hydrateFromDexie(key, () => ApiCache.getWithMeta(key))`. Implemented as `hydrateSectionsFromDexie` (sister to `hydrateMedicationsFromDexie`) so later tasks (Weight / Workouts / Health / Food / Settings) can extend the same allowlist.
+- [x] in `web/static/js/features/bp.js`, verify `onCached` runs `_renderBPData(...)` unconditionally (including empty list)
+- [x] verify `onError` does **not** wipe the rendered table — keep the hydrated render visible and show the "Offline · …" chip
+- [x] write tests in `web/static/js/tests/bp.dexie-hydration.test.js`: Dexie pre-populated, offline, no bootstrap → BP chart + table render with stale chip
+- [x] write tests for "Dexie empty + offline" → existing empty state. Required adding a `renderedSomething` post-loadSWR fallback to `loadBPReadings()` (mirrors the `loadMeds()` pattern) — without it, an offline cold start with no cache hits no callback at all and leaves the list silently blank.
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 2: Hydrate Weight section from Dexie
 
