@@ -167,8 +167,12 @@ func TestMigration057_RoundTrip(t *testing.T) {
 		t.Fatalf("goose up to 57: %v", err)
 	}
 
-	// Seed a row using the new dual-write writer.
-	store := &Store{db: db}
+	// Seed a row via raw SQL that still writes the legacy scheduled_at column.
+	// This simulates the dual-write window that existed between Task 2 and
+	// Task 4 (when the writer briefly populated both columns); we cannot use
+	// CreateIntake here because, after Task 4 in the May 10 fix plan, that
+	// writer stops writing scheduled_at and the column is still NOT NULL at
+	// schema version 57.
 	la, err := time.LoadLocation("America/Los_Angeles")
 	if err != nil {
 		t.Fatalf("load LA: %v", err)
@@ -176,9 +180,16 @@ func TestMigration057_RoundTrip(t *testing.T) {
 	medID := int64(42)
 	userID := int64(1)
 	sched := time.Date(2026, 5, 10, 8, 20, 0, 0, la)
-	id, err := store.CreateIntake(medID, userID, sched)
+	res, err := db.Exec(
+		"INSERT INTO intake_log (medication_id, user_id, scheduled_at, scheduled_at_unix, status) VALUES (?, ?, ?, ?, 'PENDING')",
+		medID, userID, sched, sched.UTC().Unix(),
+	)
 	if err != nil {
-		t.Fatalf("CreateIntake: %v", err)
+		t.Fatalf("seed insert: %v", err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		t.Fatalf("LastInsertId: %v", err)
 	}
 
 	// Assert column was populated.

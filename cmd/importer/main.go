@@ -236,10 +236,13 @@ func main() {
 
 			// user_id from flag
 
-			intakeStmt := fmt.Sprintf("INSERT INTO intake_log (medication_id, user_id, scheduled_at, taken_at, status) VALUES (%d, %d, %s, %s, %s);\n",
+			// scheduled_at is now stored as INTEGER unix-seconds-UTC
+			// (intake_log.scheduled_at_unix). taken_at remains DATETIME for now
+			// — Task 5 of the May 10 fix plan converts it next.
+			intakeStmt := fmt.Sprintf("INSERT INTO intake_log (medication_id, user_id, scheduled_at_unix, taken_at, status) VALUES (%d, %d, %d, %s, %s);\n",
 				medIDCounter,
 				*userID,
-				quoteSQL(schedTime.Format(time.RFC3339)),
+				schedTime.UTC().Unix(),
 				quoteSQL(takenTime.Format(time.RFC3339)),
 				quoteSQL(status),
 			)
