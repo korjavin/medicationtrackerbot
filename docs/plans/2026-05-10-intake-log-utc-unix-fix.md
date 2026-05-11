@@ -87,13 +87,13 @@ Both sets represent `2026-05-10 15:20:00 UTC`. SQL `WHERE scheduled_at = '… MS
 
 ### Task 3: Cut readers over to `scheduled_at_unix`
 
-- [ ] switch the following to read `scheduled_at_unix` instead of `scheduled_at`: `GetIntakeBySchedule`, `BatchGetIntakesBySchedule`, `GetPendingIntakesBySchedule`, `ConfirmIntakesBySchedule`, `GetTakenIntakesBySchedule`, `GetIntake`, `GetIntakeHistory`, `GetPendingIntakes`, `GetPendingIntakesForMedication`, `GetMedicationsWithIntakeHistory`. Pattern: `Scan(&n int64)` then `l.ScheduledAt = time.Unix(n, 0).UTC()`.
-- [ ] in `BatchGetIntakesBySchedule`: bind `sched.ScheduledAt.UTC().Unix()`; SQL becomes `WHERE (medication_id, scheduled_at_unix) IN (...)`. The map-key normalization at line 815 (`l.ScheduledAt.UTC().Truncate(0)`) becomes redundant — values are already UTC; simplify.
-- [ ] **delete the `time.Equal` filter** in `GetPendingIntakesBySchedule:958` and the candidate-list walk in `ConfirmIntakesBySchedule:847` — replace with `WHERE … AND scheduled_at_unix = ?`.
-- [ ] in `internal/scheduler/medication.go`: the `schedulesToCheck` build (line 203) and the `batchMap` lookup keys (lines 233, 254) continue to use `time.Time` in the public API — no caller-facing change. Verify the dedupe now hits via integer equality.
-- [ ] **Headline regression test:** new test in `internal/scheduler/medication_test.go` named `TestScheduler_NoDuplicateIntakeAfterTZNameChangeSameOffset`. Setup: write an intake at `2026-05-10 08:20:00 America/Los_Angeles`. Run the scheduler tick with `userLoc=America/Phoenix`, `now = 2026-05-10 09:00:00 America/Phoenix`. Assert: zero new `intake_log` rows, dedupe matched the existing row.
-- [ ] write tests: cross-TZ regression cases for each changed reader (server in `Europe/Berlin`, user in `America/Los_Angeles`).
-- [ ] run `go test ./...` — every existing TZ test from 1169cd6 must stay green using the new equality path.
+- [x] switch the following to read `scheduled_at_unix` instead of `scheduled_at`: `GetIntakeBySchedule`, `BatchGetIntakesBySchedule`, `GetPendingIntakesBySchedule`, `ConfirmIntakesBySchedule`, `GetTakenIntakesBySchedule`, `GetIntake`, `GetIntakeHistory`, `GetPendingIntakes`, `GetPendingIntakesForMedication`, `GetMedicationsWithIntakeHistory`. Pattern: `Scan(&n int64)` then `l.ScheduledAt = time.Unix(n, 0).UTC()`. (Note: `GetMedicationsWithIntakeHistory` doesn't exist in this codebase — phantom entry from the plan; `GetIntakesSince` was the remaining reader and was cut over instead.)
+- [x] in `BatchGetIntakesBySchedule`: bind `sched.ScheduledAt.UTC().Unix()`; SQL becomes `WHERE (medication_id, scheduled_at_unix) IN (...)`. The map-key normalization at line 815 (`l.ScheduledAt.UTC().Truncate(0)`) becomes redundant — values are already UTC; simplify.
+- [x] **delete the `time.Equal` filter** in `GetPendingIntakesBySchedule:958` and the candidate-list walk in `ConfirmIntakesBySchedule:847` — replace with `WHERE … AND scheduled_at_unix = ?`.
+- [x] in `internal/scheduler/medication.go`: the `schedulesToCheck` build (line 203) and the `batchMap` lookup keys (lines 233, 254) continue to use `time.Time` in the public API — no caller-facing change. Verify the dedupe now hits via integer equality.
+- [x] **Headline regression test:** new test in `internal/scheduler/medication_test.go` named `TestScheduler_NoDuplicateIntakeAfterTZNameChangeSameOffset`. Setup: write an intake at `2026-05-10 08:20:00 America/Los_Angeles`. Run the scheduler tick with `userLoc=America/Phoenix`, `now = 2026-05-10 09:00:00 America/Phoenix`. Assert: zero new `intake_log` rows, dedupe matched the existing row. (Lives in `internal/scheduler/medication_tz_test.go` alongside the other TZ regression tests.)
+- [x] write tests: cross-TZ regression cases for each changed reader (server in `Europe/Berlin`, user in `America/Los_Angeles`). Added to `internal/store/intake_log_readers_tz_test.go`.
+- [x] run `go test ./...` — every existing TZ test from 1169cd6 must stay green using the new equality path.
 
 ### Task 4: Drop legacy `intake_log.scheduled_at` text column
 

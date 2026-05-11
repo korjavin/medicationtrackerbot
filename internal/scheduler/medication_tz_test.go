@@ -645,6 +645,91 @@ func TestMedicationCheckerCompletedPlanOverlapGuard(t *testing.T) {
 	}
 }
 
+// TestScheduler_NoDuplicateIntakeAfterTZNameChangeSameOffset pins the headline
+// regression behind the 2026-05-10 incident: the user flew from California
+// (PDT, UTC-7) to Phoenix (MST, UTC-7) and accepted the timezone change. The
+// 08:20 dose taken in LA was stored as scheduled_at = "… -0700 PDT" while the
+// next scheduler tick built a Phoenix target whose driver-serialized form was
+// "… -0700 MST". SQL text equality on `scheduled_at` missed the existing row
+// because the TZ-name part of the string differed even though the absolute
+// instant matched. Cutover to scheduled_at_unix (INTEGER) collapses the
+// comparison to integer equality, so this test asserts no duplicate PENDING
+// row is created when the user TZ name changes between ticks at the same
+// offset.
+func TestScheduler_NoDuplicateIntakeAfterTZNameChangeSameOffset(t *testing.T) {
+	db := mustNewDB(t)
+	db.SetMedicationEnabled(context.Background(), true) //nolint:errcheck
+	if err := db.RecordTimezone("America/Los_Angeles"); err != nil {
+		t.Fatalf("RecordTimezone(LA): %v", err)
+	}
+
+	medID, err := db.CreateMedication("Metformin", "1000mg",
+		`{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
+	if err != nil {
+		t.Fatalf("CreateMedication: %v", err)
+	}
+
+	la, _ := time.LoadLocation("America/Los_Angeles")
+	phx, _ := time.LoadLocation("America/Phoenix")
+
+	// The user took the dose at 08:20 LA earlier in the day. Write it as the
+	// scheduler would: target time constructed in the user's location.
+	doseTimeLA := time.Date(2026, 5, 10, 8, 20, 0, 0, la)
+	if err := db.UpdateMedicationCreatedAt(medID, doseTimeLA.Add(-30*24*time.Hour)); err != nil {
+		t.Fatalf("UpdateMedicationCreatedAt: %v", err)
+	}
+	intakeID, err := db.CreateIntake(medID, 123456, doseTimeLA)
+	if err != nil {
+		t.Fatalf("CreateIntake (LA dose): %v", err)
+	}
+	// Confirm it taken — the buggy scheduler was duplicating TAKEN doses with
+	// fresh PENDING rows after the TZ name change.
+	if err := db.ConfirmIntake(intakeID, doseTimeLA.Add(5*time.Minute)); err != nil {
+		t.Fatalf("ConfirmIntake: %v", err)
+	}
+
+	// Now the user lands in Phoenix and the bot records the new TZ. Both
+	// zones are UTC-7 on this date, so 08:20 Phoenix == 08:20 LA == 15:20 UTC.
+	if err := db.RecordTimezone("America/Phoenix"); err != nil {
+		t.Fatalf("RecordTimezone(Phoenix): %v", err)
+	}
+
+	// Run the scheduler tick at 09:00 Phoenix. This is past 08:20 Phoenix, so
+	// medplan emits 08:20 Phoenix as a target and BatchGetIntakesBySchedule
+	// must find the existing row (15:20 UTC) by integer equality.
+	nowTime := time.Date(2026, 5, 10, 9, 0, 0, 0, phx)
+	mock := &MockNotifier{}
+	sched := New(db, 123456, []notifier.Notifier{mock})
+	sched.MedicationChecker.now = func() time.Time { return nowTime }
+
+	if err := sched.MedicationChecker.Check(context.Background()); err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	time.Sleep(10 * time.Millisecond)
+
+	// Pending = 0: the TAKEN dose covers the slot, no duplicate is created.
+	pending, _ := db.GetPendingIntakes()
+	if len(pending) != 0 {
+		for _, p := range pending {
+			t.Logf("unexpected pending intake: med=%d scheduled=%v status=%s",
+				p.MedicationID, p.ScheduledAt, p.Status)
+		}
+		t.Errorf("expected 0 PENDING intakes after TZ-name change (LA→Phoenix), got %d", len(pending))
+	}
+
+	// Total intakes for the med should still be exactly one (the TAKEN row).
+	hist, err := db.GetIntakeHistory(int(medID), 0)
+	if err != nil {
+		t.Fatalf("GetIntakeHistory: %v", err)
+	}
+	if len(hist) != 1 {
+		t.Errorf("expected 1 intake total (no duplicate row), got %d", len(hist))
+	}
+	if len(hist) > 0 && hist[0].Status != "TAKEN" {
+		t.Errorf("expected the surviving intake to be TAKEN, got %q", hist[0].Status)
+	}
+}
+
 // mustNewDB creates an in-memory store for testing. Fatals on error.
 func mustNewDB(t *testing.T) *store.Store {
 	t.Helper()
