@@ -211,16 +211,34 @@ Dependencies identified:
 - [x] run `go test ./internal/bot/...` — must pass
 
 ### Task 5: Verify acceptance criteria
-- [ ] re-read Overview: bot path creates a `PENDING_APPROVAL` plan, the
+- [x] re-read Overview: bot path creates a `PENDING_APPROVAL` plan, the
       next scheduler tick of `tz_plan_notifier` delivers the existing
       approve/reject prompt over Telegram, `medplan.PlanDoses` preserves
       `oldTZ` until approval — confirm by walking the code paths once more
-- [ ] run `go test ./...` (full suite)
-- [ ] run `go vet ./...`
-- [ ] run `gofmt -l .` (must produce no output) — project enforces gofmt
-- [ ] verify no test mentions "medication times are not affected" anywhere
+      — verified: `tz_commands.go:93` calls `tzUpdater.UpdateTimezone`
+      (the shared service generates the plan + records the TZ);
+      `tz_plan_notifier.go:65-184` picks up `PENDING_APPROVAL` plans each
+      tick and sends the approve/reject Telegram message via the
+      existing notifier set; `scheduler/medication.go:80-101` loads the
+      active plan and pins `userLoc` to `activePlan.OldTZ` when status
+      is `PENDING_APPROVAL` or `NOTIFIED`, so `medplan.PlanDoses` keeps
+      using the old timezone until the user approves
+- [x] run `go test ./...` (full suite) — all packages pass
+- [x] run `go vet ./...` — clean
+- [x] run `gofmt -l .` (must produce no output) — project enforces gofmt
+      — clean for this branch's files; the eight files flagged
+      (`internal/mcp/oauth.go`, `internal/mcp/registry/operations_{food,health,medications}.go`,
+      `internal/mcp/registry/registry_test.go`,
+      `internal/server/medication_handlers.go`,
+      `internal/server/trigger_next_intake_test.go`,
+      `internal/store/workout.go`) are pre-existing gofmt drift on
+      master, untouched by this branch
+- [x] verify no test mentions "medication times are not affected" anywhere
       (`grep -r "medication times are not affected" .`) — the lie is fully
-      removed
+      removed from production code; the two remaining occurrences in
+      `internal/bot/tz_commands_test.go:192,235` are
+      `strings.Contains(body, "...")` regression guards that fail if the
+      false disclaimer ever returns to the bot's confirmation message
 
 ### Task 6: Update CLAUDE.md / docs if needed
 - [ ] check `docs/architecture.md` and `docs/features.md` for any mention
