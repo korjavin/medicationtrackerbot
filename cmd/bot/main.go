@@ -13,6 +13,7 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/bot"
 	"github.com/korjavin/medicationtrackerbot/internal/domain"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
+	"github.com/korjavin/medicationtrackerbot/internal/domain/tzupdate"
 	"github.com/korjavin/medicationtrackerbot/internal/mcp/registry"
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/scheduler"
@@ -120,9 +121,15 @@ func main() {
 	}
 
 	// 3. Bot
+	// Construct the shared TZ-update service before the bot and the server so
+	// both transports serialize timezone changes through one mutex and apply
+	// the same plan-generation safety net.
+	tzPlanner := tzreschedule.NewPlannerService(s)
+	tzUpdater := tzupdate.NewService(s, s, tzPlanner, nil)
+
 	var tgBot *bot.Bot
 	if botToken != "" {
-		tgBot, err = bot.New(botToken, allowedUserID, s, foodAI, activityAI)
+		tgBot, err = bot.New(botToken, allowedUserID, s, foodAI, activityAI, tzUpdater)
 		if err != nil {
 			slog.Error("Failed to start bot", "error", err)
 			os.Exit(1)
@@ -223,8 +230,10 @@ func main() {
 		srv.SetMCPRegistry(server.NewRegistryAdapter(reg))
 	}
 
-	// Wire the timezone transition planner so that timezone changes trigger plan generation.
-	srv.SetTZPlanner(tzreschedule.NewPlannerService(s))
+	// Wire the timezone transition planner and the shared TZ-update service so
+	// both web and bot transports share one mutex and one plan-generation path.
+	srv.SetTZPlanner(tzPlanner)
+	srv.SetTZUpdater(tzUpdater)
 
 	// Set workout interactor (only if bot is available)
 	if tgBot != nil {

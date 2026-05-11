@@ -159,19 +159,19 @@ Dependencies identified:
 - [x] run `go test ./...` — must pass
 
 ### Task 3: Inject `tzupdate.Service` into the bot
-- [ ] update bot tests in `internal/bot/tz_commands_test.go` to introduce a
+- [x] update bot tests in `internal/bot/tz_commands_test.go` to introduce a
       `mockTZUpdater` (records calls, returns configurable
       `planCreated`/error); update the test fixture in `setupBotTest`
       (likely `bot_test_helpers.go` or similar) to construct the bot with
       the mock
-- [ ] add `tzUpdater tzupdate.Service` field to `Bot` struct
-- [ ] thread the parameter through `bot.New(...)` — extend the constructor
+- [x] add `tzUpdater tzupdate.Service` field to `Bot` struct
+- [x] thread the parameter through `bot.New(...)` — extend the constructor
       signature
-- [ ] update `cmd/bot/main.go:125,227` to construct one
+- [x] update `cmd/bot/main.go:125,227` to construct one
       `tzupdate.Service` instance and inject it into both `bot.New` and
       `srv.SetTZUpdater` (single shared mutex across transports)
-- [ ] write tests covering: ctor wiring is non-nil; mock is reachable
-- [ ] run `go test ./internal/bot/...` and `go build ./...` — must pass
+- [x] write tests covering: ctor wiring is non-nil; mock is reachable
+- [x] run `go test ./internal/bot/...` and `go build ./...` — must pass
 
 ### Task 4: Route `handleLocationMessage` through the service + fix message
 - [ ] write/extend tests in `internal/bot/tz_commands_test.go`:

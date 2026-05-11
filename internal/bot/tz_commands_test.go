@@ -28,6 +28,30 @@ func (m *mockTimezoneStore) GetCurrentTimezone() (string, error) {
 	return m.currentTZ, m.currentErr
 }
 
+func TestBotWiring_TZUpdaterIsReachable(t *testing.T) {
+	env := setupBotTest(t)
+	defer env.teardown()
+
+	if env.b.tzUpdater == nil {
+		t.Fatal("expected bot.tzUpdater to be wired, got nil")
+	}
+
+	mock, ok := env.b.tzUpdater.(*mockTZUpdater)
+	if !ok {
+		t.Fatalf("expected bot.tzUpdater to be *mockTZUpdater (the test default), got %T", env.b.tzUpdater)
+	}
+
+	// Drive the mock through the interface to prove the wiring is end-to-end:
+	// future handler code can call b.tzUpdater.UpdateTimezone and the mock
+	// will record the call.
+	if _, err := env.b.tzUpdater.UpdateTimezone(nil, "Europe/Berlin"); err != nil {
+		t.Fatalf("UpdateTimezone via wired mock: %v", err)
+	}
+	if calls := mock.recordedCalls(); len(calls) != 1 || calls[0] != "Europe/Berlin" {
+		t.Errorf("mock should have recorded one call to Europe/Berlin, got %v", calls)
+	}
+}
+
 func TestHandleTZCommand_SendsLocationKeyboard(t *testing.T) {
 	env := setupBotTest(t)
 	defer env.teardown()
