@@ -236,14 +236,14 @@ func main() {
 
 			// user_id from flag
 
-			// scheduled_at is now stored as INTEGER unix-seconds-UTC
-			// (intake_log.scheduled_at_unix). taken_at remains DATETIME for now
-			// — Task 5 of the May 10 fix plan converts it next.
-			intakeStmt := fmt.Sprintf("INSERT INTO intake_log (medication_id, user_id, scheduled_at_unix, taken_at, status) VALUES (%d, %d, %d, %s, %s);\n",
+			// scheduled_at and taken_at are stored as INTEGER unix-seconds-UTC
+			// (intake_log.scheduled_at_unix / taken_at_unix). The legacy
+			// DATETIME columns were dropped by migrations 058 and 060.
+			intakeStmt := fmt.Sprintf("INSERT INTO intake_log (medication_id, user_id, scheduled_at_unix, taken_at_unix, status) VALUES (%d, %d, %d, %d, %s);\n",
 				medIDCounter,
 				*userID,
 				schedTime.UTC().Unix(),
-				quoteSQL(takenTime.Format(time.RFC3339)),
+				takenTime.UTC().Unix(),
 				quoteSQL(status),
 			)
 			_, _ = writer.WriteString(intakeStmt)
