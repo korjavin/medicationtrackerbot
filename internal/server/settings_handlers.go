@@ -486,66 +486,9 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Invalid timezone: "+req.Timezone, http.StatusBadRequest)
 			return
 		}
-		// Serialize timezone updates so that plan generation + RecordTimezone
-		// are never interleaved by a concurrent request.
-		s.tzUpdateMu.Lock()
-		defer s.tzUpdateMu.Unlock()
-
-		// Capture the current timezone before the update so we can detect a change.
-		oldTZ, err := s.settings.GetCurrentTimezone()
-		if err != nil {
-			slog.Error("handleUpdateSettings: GetCurrentTimezone before update failed", "error", err)
-			http.Error(w, "Failed to read current timezone", http.StatusInternalServerError)
-			return
-		}
-		// Generate the transition plan BEFORE writing the new timezone so the
-		// scheduler never sees a window where newTZ is stored but no
-		// PENDING_APPROVAL plan exists yet.
-		// Skip plan generation when no notification channel is configured: the user
-		// has no way to receive or approve the plan, so generating it would leave
-		// the medication scheduler permanently stuck on the old timezone.
-		//
-		// Capture the superseded plan's baseline timezone so that if RecordTimezone
-		// fails we can fully revert: GenerateIfChanged cancels the existing plan
-		// internally, so merely cancelling the new plan isn't enough — the scheduler
-		// would fall through to the stored timezone (which may be an unapproved
-		// intermediate value). Reverting to the baseline prevents this.
-		var supersededBaseline string
-		planGenerated := false
-		if s.tzPlanner != nil && len(s.notifiers) > 0 && oldTZ != req.Timezone {
-			// Capture the active plan's OldTZ before GenerateIfChanged cancels it.
-			if s.tzPlanStore != nil {
-				if activePlan, planErr := s.tzPlanStore.GetLatestActiveOrPendingTZTransitionPlan(); planErr == nil && activePlan != nil {
-					supersededBaseline = activePlan.OldTZ
-				}
-			}
-			created, err := s.tzPlanner.GenerateIfChanged(oldTZ, req.Timezone, time.Now())
-			if err != nil {
-				slog.Error("handleUpdateSettings: GenerateIfChanged failed, not recording new timezone", "error", err)
-				http.Error(w, "Failed to generate timezone transition plan", http.StatusInternalServerError)
-				return
-			}
-			planGenerated = created
-		}
-		if err := s.settings.RecordTimezone(req.Timezone); err != nil {
-			// Plan was created but timezone write failed — cancel the orphaned plan
-			// and revert the stored timezone to the baseline that the superseded plan
-			// was protecting, so the scheduler doesn't run on an unapproved timezone.
-			if planGenerated {
-				if cancelErr := s.tzPlanner.CancelActivePlan("record-timezone-failed"); cancelErr != nil {
-					slog.Error("handleUpdateSettings: failed to cancel plan after RecordTimezone failure", "error", cancelErr)
-				}
-			}
-			if supersededBaseline != "" && supersededBaseline != oldTZ {
-				if revertErr := s.settings.RecordTimezone(supersededBaseline); revertErr != nil {
-					slog.Error("handleUpdateSettings: failed to revert timezone to superseded baseline",
-						"baseline", supersededBaseline, "error", revertErr)
-				} else {
-					slog.Info("handleUpdateSettings: reverted stored timezone to superseded plan baseline",
-						"baseline", supersededBaseline)
-				}
-			}
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		if _, err := s.tzUpdater.UpdateTimezone(r.Context(), req.Timezone); err != nil {
+			slog.Error("handleUpdateSettings: UpdateTimezone failed", "error", err)
+			http.Error(w, "Failed to update timezone", http.StatusInternalServerError)
 			return
 		}
 	}

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
@@ -510,6 +511,104 @@ func TestHandleUpdateSettings_InvalidTimezone(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("Expected status 400, got %d", w.Code)
 	}
+}
+
+// TestHandleUpdateSettings_GeneratesTransitionPlan is the end-to-end regression
+// guard for the web → tzupdate.Service → tzreschedule.PlannerService flow.
+// After SetTZPlanner wires a real planner, an actual timezone change must:
+//   - persist the new timezone, AND
+//   - leave a PENDING_APPROVAL plan in the store for the medication scheduler
+//     to honour until the user approves the stepped transition.
+//
+// This pins the parity between the web path and the bot path (Task 4); a
+// regression in either transport's wiring through tzupdate.Service would let
+// the new timezone land without a plan, silently shifting doses by the offset
+// delta on the next scheduler tick.
+func TestHandleUpdateSettings_GeneratesTransitionPlan(t *testing.T) {
+	srv, db := createBPTestServer(t)
+	defer db.Close()
+
+	if err := db.RecordTimezone("America/New_York"); err != nil {
+		t.Fatalf("seed RecordTimezone: %v", err)
+	}
+	if _, err := db.CreateMedication("Daily Med", "5mg", `{"type":"daily","times":["08:00","20:00"]}`, nil, nil, "", "", "medium"); err != nil {
+		t.Fatalf("CreateMedication: %v", err)
+	}
+	srv.SetTZPlanner(tzreschedule.NewPlannerService(db))
+
+	body, _ := json.Marshal(map[string]string{"timezone": "Asia/Tokyo"})
+	req := httptest.NewRequest("POST", "/api/settings", bytes.NewReader(body))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+	srv.handleUpdateSettings(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d", w.Code)
+	}
+
+	tz, err := db.GetCurrentTimezone()
+	if err != nil {
+		t.Fatalf("GetCurrentTimezone: %v", err)
+	}
+	if tz != "Asia/Tokyo" {
+		t.Fatalf("Expected stored timezone Asia/Tokyo, got %q", tz)
+	}
+
+	plan, err := db.GetLatestActiveOrPendingTZTransitionPlan()
+	if err != nil {
+		t.Fatalf("GetLatestActiveOrPendingTZTransitionPlan: %v", err)
+	}
+	if plan == nil {
+		t.Fatalf("Expected a PENDING_APPROVAL plan after timezone change, got nil")
+	}
+	if plan.Status != "PENDING_APPROVAL" {
+		t.Errorf("Expected plan.Status=PENDING_APPROVAL, got %q", plan.Status)
+	}
+	if plan.OldTZ != "America/New_York" || plan.NewTZ != "Asia/Tokyo" {
+		t.Errorf("Expected plan OldTZ=America/New_York NewTZ=Asia/Tokyo, got OldTZ=%q NewTZ=%q",
+			plan.OldTZ, plan.NewTZ)
+	}
+}
+
+// TestHandleUpdateSettings_UsesInjectedTZUpdater asserts the handler delegates
+// to the tzUpdater service rather than calling RecordTimezone directly. A
+// stub service captures the call and short-circuits persistence; the test
+// verifies the new timezone never reaches the store, proving the handler
+// goes through the service.
+func TestHandleUpdateSettings_UsesInjectedTZUpdater(t *testing.T) {
+	srv, db := createBPTestServer(t)
+	defer db.Close()
+
+	stub := &stubTZUpdater{}
+	srv.SetTZUpdater(stub)
+
+	body, _ := json.Marshal(map[string]string{"timezone": "Europe/Berlin"})
+	req := httptest.NewRequest("POST", "/api/settings", bytes.NewReader(body))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+	srv.handleUpdateSettings(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d (body=%s)", w.Code, w.Body.String())
+	}
+	if len(stub.calls) != 1 || stub.calls[0] != "Europe/Berlin" {
+		t.Errorf("Expected exactly one UpdateTimezone(Europe/Berlin) call, got %v", stub.calls)
+	}
+	// The stub did NOT call RecordTimezone, so the store must still be empty.
+	if tz, _ := db.GetCurrentTimezone(); tz != "" {
+		t.Errorf("Expected store untouched (empty), got %q — handler bypassed the service", tz)
+	}
+}
+
+type stubTZUpdater struct {
+	calls       []string
+	planCreated bool
+	err         error
+}
+
+func (s *stubTZUpdater) UpdateTimezone(_ context.Context, newTZ string) (bool, error) {
+	s.calls = append(s.calls, newTZ)
+	return s.planCreated, s.err
 }
 
 func TestHandleBootstrap_IncludesTimezone(t *testing.T) {
