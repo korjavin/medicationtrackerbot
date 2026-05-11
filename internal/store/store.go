@@ -601,8 +601,8 @@ func (s *Store) IsLowOnStock(m *Medication, daysThreshold int) bool {
 
 func (s *Store) CreateIntake(medID, userID int64, scheduledAt time.Time) (int64, error) {
 	scheduledAt = scheduledAt.Truncate(0)
-	res, err := s.db.Exec("INSERT INTO intake_log (medication_id, user_id, scheduled_at, scheduled_at_unix, status) VALUES (?, ?, ?, ?, 'PENDING')",
-		medID, userID, scheduledAt, scheduledAt.UTC().Unix())
+	res, err := s.db.Exec("INSERT INTO intake_log (medication_id, user_id, scheduled_at_unix, status) VALUES (?, ?, ?, 'PENDING')",
+		medID, userID, scheduledAt.UTC().Unix())
 	if err != nil {
 		return 0, err
 	}
@@ -611,9 +611,9 @@ func (s *Store) CreateIntake(medID, userID int64, scheduledAt time.Time) (int64,
 
 func (s *Store) CreateManualIntake(medID, userID int64, takenAt time.Time) (int64, error) {
 	takenAt = takenAt.Truncate(0)
-	// For manual intake, scheduled_at = taken_at
-	res, err := s.db.Exec("INSERT INTO intake_log (medication_id, user_id, scheduled_at, scheduled_at_unix, taken_at, status) VALUES (?, ?, ?, ?, ?, 'TAKEN')",
-		medID, userID, takenAt, takenAt.UTC().Unix(), takenAt)
+	// For manual intake, scheduled_at_unix = taken_at (taken_at remains DATETIME until Task 5).
+	res, err := s.db.Exec("INSERT INTO intake_log (medication_id, user_id, scheduled_at_unix, taken_at, status) VALUES (?, ?, ?, ?, 'TAKEN')",
+		medID, userID, takenAt.UTC().Unix(), takenAt)
 	if err != nil {
 		return 0, err
 	}

@@ -97,14 +97,14 @@ Both sets represent `2026-05-10 15:20:00 UTC`. SQL `WHERE scheduled_at = '… MS
 
 ### Task 4: Drop legacy `intake_log.scheduled_at` text column
 
-- [ ] migration `058_drop_intake_log_scheduled_at_text.sql`: SQLite table-rebuild (`CREATE TABLE intake_log_new AS …` with the new shape, `INSERT INTO intake_log_new SELECT … FROM intake_log`, recreate every index/trigger/FK, drop old, rename). Preserve `idx_intake_log_status`, `idx_intake_log_scheduled_at_unix`, and the three `trg_change_intake_log_*` triggers verbatim.
-- [ ] **Down-step caveat.** Document in the migration body that the down step is forward-only-friendly: it recreates the prior shape via the same rebuild pattern, but row IDs are renumbered and any column added between Task 2 and Task 4 is dropped on rollback. Production rollback past Task 4 must restore from a Litestream backup, not run goose down.
-- [ ] confirm the migration runs against a populated CI fixture carrying ≥100 historical rows and that no row's `scheduled_at_unix` is lost.
-- [ ] remove the legacy `scheduled_at` column from the dual-write in `CreateIntake` / `CreateManualIntake`.
-- [ ] update `cmd/importer/main.go:239` to write `scheduled_at_unix` instead of (or alongside, then-only) `scheduled_at`. Confirm the importer's date-parse path produces UTC seconds.
-- [ ] update `internal/seeddemo/meds.go:66` to match.
-- [ ] write tests: extend the migration round-trip suite to cover the table-rebuild on a populated fixture; assert all referenced indexes/triggers still exist after up-migration.
-- [ ] run `go test ./...` — must pass before next task.
+- [x] migration `058_drop_intake_log_scheduled_at_text.sql`: SQLite table-rebuild (`CREATE TABLE intake_log_new AS …` with the new shape, `INSERT INTO intake_log_new SELECT … FROM intake_log`, recreate every index/trigger/FK, drop old, rename). Preserve `idx_intake_log_status`, `idx_intake_log_scheduled_at_unix`, and the three `trg_change_intake_log_*` triggers verbatim. (The legacy `idx_intake_log_scheduled_at` is intentionally NOT recreated — its column is gone.)
+- [x] **Down-step caveat.** Documented in the migration body: the down step recreates the prior shape via the same rebuild pattern and reconstructs `scheduled_at` from `datetime(scheduled_at_unix,'unixepoch')` — a lossy UTC text representation with no original TZ-name; AUTOINCREMENT id values are preserved by copying ids verbatim. Production rollback past Task 4 must restore from a Litestream backup, not run goose down.
+- [x] confirm the migration runs against a populated CI fixture carrying ≥100 historical rows and that no row's `scheduled_at_unix` is lost. `TestMigration058_DropsScheduledAtAndPreservesData` seeds 120 mixed-TZ rows and asserts every (id, scheduled_at_unix, status, taken_at) tuple survives the rebuild.
+- [x] remove the legacy `scheduled_at` column from the dual-write in `CreateIntake` / `CreateManualIntake`.
+- [x] update `cmd/importer/main.go:239` to write `scheduled_at_unix` instead of (or alongside, then-only) `scheduled_at`. Confirm the importer's date-parse path produces UTC seconds — `schedTime` is parsed with offset-bearing layout `"2006-01-02 15:04:05 -0700"`, so `.UTC().Unix()` yields correct UTC seconds.
+- [x] `internal/seeddemo/meds.go` already routes through `s.CreateIntake`, which the writer change above covers. No raw SQL path in the seeder to update.
+- [x] write tests: extend the migration round-trip suite to cover the table-rebuild on a populated fixture; assert all referenced indexes/triggers still exist after up-migration. (`TestMigration058_DropsScheduledAtAndPreservesData`, `TestMigration058_RoundTrip`.)
+- [x] run `go test ./...` — all packages green.
 
 ### Task 5: Convert `intake_log.taken_at` → `taken_at_unix` (nullable)
 
