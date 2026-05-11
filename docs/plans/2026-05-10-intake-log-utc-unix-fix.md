@@ -78,11 +78,12 @@ Both sets represent `2026-05-10 15:20:00 UTC`. SQL `WHERE scheduled_at = '… MS
 
 ### Task 2: Migration — add `intake_log.scheduled_at_unix`, backfill, dual-write
 
-- [ ] migration `057_add_intake_log_scheduled_at_unix.sql`: `ALTER TABLE intake_log ADD COLUMN scheduled_at_unix INTEGER;` + backfill via SQLite's `strftime('%s', scheduled_at)` for every existing row (verified: `strftime('%s', '2026-05-10 08:20:00 -0700 PDT')` returns the correct UTC seconds because SQLite parses the offset before the zone name and ignores the zone abbreviation). Add `CREATE INDEX idx_intake_log_scheduled_at_unix ON intake_log(scheduled_at_unix);`
-- [ ] **Verify the backfill on the prod-shaped fixture before merging.** Add a migration test that loads a fixture row in each TZ-name format observed in production (`PDT`, `MST`, `CEST`, `+0000 UTC`) and asserts `strftime('%s', scheduled_at)` matches `t.Unix()` from the producing `time.Time`. If any format fails, the migration upgrades to a Go-based goose migration that re-parses in Go.
-- [ ] update `Store.CreateIntake` and `Store.CreateManualIntake` to write both `scheduled_at` (legacy) and `scheduled_at_unix = scheduledAt.UTC().Unix()`.
-- [ ] write tests: round-trip migration test (`up → down → up`) on a populated fixture. Also: a writer test that asserts both columns are populated and that `scheduled_at_unix` equals `t.UTC().Unix()` for a non-UTC input.
-- [ ] run `go test ./internal/store/... ./internal/scheduler/...` — must pass before next task.
+- [x] migration `057_add_intake_log_scheduled_at_unix.sql`: `ALTER TABLE intake_log ADD COLUMN scheduled_at_unix INTEGER;` + backfill via SQLite's `strftime('%s', scheduled_at)` for every existing row (verified: `strftime('%s', '2026-05-10 08:20:00 -0700 PDT')` returns the correct UTC seconds because SQLite parses the offset before the zone name and ignores the zone abbreviation). Add `CREATE INDEX idx_intake_log_scheduled_at_unix ON intake_log(scheduled_at_unix);`
+  - ⚠️ Plan assumption was incorrect: SQLite's `strftime('%s', ...)` does NOT parse the `+0200 CEST`-style `time.Time.String()` format produced by modernc.org/sqlite (parser returns NULL because the trailing zone name and un-colon'd offset are unrecognized). Backfill now uses `COALESCE(strftime('%s', col), strftime('%s', substr-reformat-to-+02:00))` to handle both the t.String() format (today's prod data) and any RFC3339 rows the driver may have written. Migration test `TestMigration057_BackfillsProductionTZFormats` pins both formats.
+- [x] **Verify the backfill on the prod-shaped fixture before merging.** Add a migration test that loads a fixture row in each TZ-name format observed in production (`PDT`, `MST`, `CEST`, `+0000 UTC`) and asserts `strftime('%s', scheduled_at)` matches `t.Unix()` from the producing `time.Time`. If any format fails, the migration upgrades to a Go-based goose migration that re-parses in Go.
+- [x] update `Store.CreateIntake` and `Store.CreateManualIntake` to write both `scheduled_at` (legacy) and `scheduled_at_unix = scheduledAt.UTC().Unix()`.
+- [x] write tests: round-trip migration test (`up → down → up`) on a populated fixture. Also: a writer test that asserts both columns are populated and that `scheduled_at_unix` equals `t.UTC().Unix()` for a non-UTC input.
+- [x] run `go test ./internal/store/... ./internal/scheduler/...` — must pass before next task.
 
 ### Task 3: Cut readers over to `scheduled_at_unix`
 
