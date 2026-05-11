@@ -181,6 +181,173 @@ func TestHandleBootstrap_IncludesTodayFood(t *testing.T) {
 	}
 }
 
+func TestHandleBootstrap_IncludesMedications(t *testing.T) {
+	cases := []struct {
+		name           string
+		seed           func(t *testing.T, db *store.Store)
+		wantNames      []string
+		wantArchived   map[string]bool
+		wantEmptySlice bool
+	}{
+		{
+			name:           "empty user returns empty slice (not null)",
+			seed:           func(t *testing.T, db *store.Store) {},
+			wantNames:      nil,
+			wantEmptySlice: true,
+		},
+		{
+			name: "user with active meds",
+			seed: func(t *testing.T, db *store.Store) {
+				if _, err := db.CreateMedication("Active A", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", ""); err != nil {
+					t.Fatalf("CreateMedication: %v", err)
+				}
+				if _, err := db.CreateMedication("Active B", "10mg", `{"type":"daily","times":["21:00"]}`, nil, nil, "", "", ""); err != nil {
+					t.Fatalf("CreateMedication: %v", err)
+				}
+			},
+			wantNames:    []string{"Active A", "Active B"},
+			wantArchived: map[string]bool{"Active A": false, "Active B": false},
+		},
+		{
+			name: "user with archived meds — bootstrap mirrors /api/medications?archived=true",
+			seed: func(t *testing.T, db *store.Store) {
+				if _, err := db.CreateMedication("Active Med", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", ""); err != nil {
+					t.Fatalf("CreateMedication: %v", err)
+				}
+				archivedID, err := db.CreateMedication("Archived Med", "20mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+				if err != nil {
+					t.Fatalf("CreateMedication: %v", err)
+				}
+				if err := db.UpdateMedication(archivedID, "Archived Med", "20mg", `{"type":"daily","times":["08:00"]}`, true, nil, nil, "", "", nil, ""); err != nil {
+					t.Fatalf("UpdateMedication archive: %v", err)
+				}
+			},
+			wantNames:    []string{"Active Med", "Archived Med"},
+			wantArchived: map[string]bool{"Active Med": false, "Archived Med": true},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, db := createBPTestServer(t)
+			defer db.Close()
+
+			tc.seed(t, db)
+
+			req := httptest.NewRequest("GET", "/api/bootstrap", nil)
+			req = withUser(req, 123456)
+			w := httptest.NewRecorder()
+			srv.handleBootstrap(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Fatalf("Expected status 200, got %d", w.Code)
+			}
+
+			raw := w.Body.Bytes()
+			var payload map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &payload); err != nil {
+				t.Fatalf("Decode payload: %v", err)
+			}
+
+			medsRaw, ok := payload["medications"]
+			if !ok {
+				t.Fatalf("Expected medications key in bootstrap payload")
+			}
+
+			if tc.wantEmptySlice {
+				// Empty user must return [] (initialized slice), never null —
+				// matches /api/medications behavior so clients can rely on a
+				// stable array shape when seeding Dexie.
+				if string(medsRaw) != "[]" {
+					t.Fatalf("Expected medications=[], got %s", string(medsRaw))
+				}
+				return
+			}
+
+			var meds []store.Medication
+			if err := json.Unmarshal(medsRaw, &meds); err != nil {
+				t.Fatalf("Decode medications: %v", err)
+			}
+
+			if len(meds) != len(tc.wantNames) {
+				t.Fatalf("Expected %d medications, got %d (%+v)", len(tc.wantNames), len(meds), meds)
+			}
+
+			gotByName := map[string]store.Medication{}
+			for _, m := range meds {
+				gotByName[m.Name] = m
+			}
+			for _, want := range tc.wantNames {
+				if _, ok := gotByName[want]; !ok {
+					t.Fatalf("Expected medication %q in bootstrap payload, got %+v", want, meds)
+				}
+			}
+			for name, wantArchived := range tc.wantArchived {
+				if got := gotByName[name].Archived; got != wantArchived {
+					t.Errorf("medication %q: expected archived=%v, got %v", name, wantArchived, got)
+				}
+			}
+		})
+	}
+}
+
+// TestHandleBootstrap_MedicationsMatchesArchivedListEndpoint guards the
+// invariant called out in the bootstrap inline comment: the medications array
+// in /api/bootstrap must match /api/medications?archived=true so a client
+// seeding Dexie from bootstrap stays in sync with the lazy fetch.
+func TestHandleBootstrap_MedicationsMatchesArchivedListEndpoint(t *testing.T) {
+	srv, db := createBPTestServer(t)
+	defer db.Close()
+
+	if _, err := db.CreateMedication("Active Med", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", ""); err != nil {
+		t.Fatalf("CreateMedication: %v", err)
+	}
+	archivedID, err := db.CreateMedication("Archived Med", "20mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	if err != nil {
+		t.Fatalf("CreateMedication: %v", err)
+	}
+	if err := db.UpdateMedication(archivedID, "Archived Med", "20mg", `{"type":"daily","times":["08:00"]}`, true, nil, nil, "", "", nil, ""); err != nil {
+		t.Fatalf("UpdateMedication archive: %v", err)
+	}
+
+	bootReq := httptest.NewRequest("GET", "/api/bootstrap", nil)
+	bootReq = withUser(bootReq, 123456)
+	bootW := httptest.NewRecorder()
+	srv.handleBootstrap(bootW, bootReq)
+	if bootW.Code != http.StatusOK {
+		t.Fatalf("bootstrap: expected 200, got %d", bootW.Code)
+	}
+	var bootPayload struct {
+		Medications []store.Medication `json:"medications"`
+	}
+	if err := json.Unmarshal(bootW.Body.Bytes(), &bootPayload); err != nil {
+		t.Fatalf("Decode bootstrap: %v", err)
+	}
+
+	listReq := httptest.NewRequest("GET", "/api/medications?archived=true", nil)
+	listReq = withUser(listReq, 123456)
+	listW := httptest.NewRecorder()
+	srv.handleListMedications(listW, listReq)
+	if listW.Code != http.StatusOK {
+		t.Fatalf("list: expected 200, got %d", listW.Code)
+	}
+	var listPayload []store.Medication
+	if err := json.Unmarshal(listW.Body.Bytes(), &listPayload); err != nil {
+		t.Fatalf("Decode list: %v", err)
+	}
+
+	if len(bootPayload.Medications) != len(listPayload) {
+		t.Fatalf("medication count mismatch: bootstrap=%d list=%d", len(bootPayload.Medications), len(listPayload))
+	}
+	for i := range bootPayload.Medications {
+		bm := bootPayload.Medications[i]
+		lm := listPayload[i]
+		if bm.ID != lm.ID || bm.Name != lm.Name || bm.Archived != lm.Archived {
+			t.Errorf("entry %d differs: bootstrap=%+v list=%+v", i, bm, lm)
+		}
+	}
+}
+
 func TestHandleChanges(t *testing.T) {
 	srv, db := createBPTestServer(t)
 	defer db.Close()

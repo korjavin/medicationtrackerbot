@@ -93,13 +93,91 @@
         };
     }
 
-    function nextMedCell(bootstrap, nowMs, enabled) {
+    // Find the earliest upcoming scheduled dose across the cached medications
+    // list. Groups meds whose next dose lands inside the same minute so the
+    // returned value mirrors the server's /api/medications/next-intake shape
+    // (multiple meds taken at one slot collapse into one card). Returns null
+    // when the helpers aren't available, the list is empty, or no med has a
+    // computable next dose. Used as the offline fallback when the cached
+    // next_intake response is missing or stale.
+    //
+    // Course-window filter (start_date / end_date) mirrors medplan.PlanDoses
+    // so the offline fallback does not advertise a finished antibiotic course
+    // or a med that doesn't start until tomorrow.
+    function computeFallbackFromMedications(meds, nowMs, parseSchedule, getNext) {
+        if (!Array.isArray(meds) || meds.length === 0) return null;
+        if (typeof parseSchedule !== 'function' || typeof getNext !== 'function') return null;
+        const nowDate = new Date(nowMs);
+        let bestMs = Infinity;
+        const candidates = [];
+        for (const med of meds) {
+            if (!med || med.archived) continue;
+            if (typeof med.name !== 'string' || med.id == null) continue;
+            const startMs = med.start_date ? Date.parse(med.start_date) : NaN;
+            if (Number.isFinite(startMs) && startMs > nowMs) continue;
+            const endMs = med.end_date ? Date.parse(med.end_date) : NaN;
+            if (Number.isFinite(endMs) && endMs <= nowMs) continue;
+            const schedule = parseSchedule(med.schedule);
+            if (!schedule) continue;
+            const type = schedule.type;
+            if (type !== 'daily' && type !== 'weekly') continue;
+            const next = getNext(schedule, nowDate);
+            if (!next) continue;
+            const t = next instanceof Date ? next.getTime() : Date.parse(next);
+            if (!Number.isFinite(t)) continue;
+            if (Number.isFinite(endMs) && t > endMs) continue;
+            candidates.push({ med, t });
+            if (t < bestMs) bestMs = t;
+        }
+        if (!Number.isFinite(bestMs)) return null;
+        // Mirror the server's forecastClusterWindow / triggerNextIntakeClusterWindow
+        // (10 minutes) so the offline fallback collapses multi-med slots into one
+        // card the same way /api/medications/next-intake does.
+        const TOL_MS = 10 * 60 * 1000;
+        const grouped = candidates
+            .filter((c) => c.t - bestMs <= TOL_MS)
+            .sort((a, b) => a.t - b.t);
+        const earliest = grouped[0];
+        return {
+            scheduledAt: new Date(earliest.t).toISOString(),
+            names: grouped.map((c) => c.med.name),
+            ids: grouped.map((c) => c.med.id)
+        };
+    }
+
+    function nextMedCell(bootstrap, nowMs, enabled, opts) {
         if (!enabled) return cell(null, 'meds', 'disabled');
         const meta = bootstrap && bootstrap.__next_intake_meta;
+        const medsMeta = bootstrap && bootstrap.__medications_meta;
         const nx = bootstrap && bootstrap.next_intake;
-        if (!nx || !nx.scheduled_at) return cell(null, 'meds', 'missing', meta);
+        // Fall back to computing the next dose from the cached medications list
+        // when the server-rendered next_intake is missing entirely, or its
+        // cached value is stale (e.g. relaunch-while-offline). A populated
+        // next_intake that's still fresh stays authoritative — only the server
+        // knows whether the upcoming dose has already been taken in another
+        // session.
+        const nextIntakeUsable = nx && nx.scheduled_at && (!meta || !meta.isStale);
+        if (!nextIntakeUsable) {
+            const helpers = opts || {};
+            const parseSchedule = helpers.parseMedicationSchedule
+                || (typeof window !== 'undefined' ? window.parseMedicationSchedule : null);
+            const getNext = helpers.getNextScheduledDate
+                || (typeof window !== 'undefined' ? window.getNextScheduledDate : null);
+            const meds = bootstrap && bootstrap.medications;
+            const fallback = computeFallbackFromMedications(meds, nowMs, parseSchedule, getNext);
+            if (fallback) {
+                const at = Date.parse(fallback.scheduledAt);
+                const status = Number.isFinite(at) && at + OVERDUE_GRACE_MS < nowMs ? 'overdue' : 'ok';
+                return cell(fallback, 'meds', status, medsMeta || meta);
+            }
+        }
+        // When next_intake is absent or unparseable, prefer the medications-list
+        // freshness if we have it — that's the cache the renderer just consulted
+        // via the fallback path, and its provenance is more honest than an
+        // undefined next_intake meta.
+        if (!nx || !nx.scheduled_at) return cell(null, 'meds', 'missing', meta || medsMeta);
         const at = Date.parse(nx.scheduled_at);
-        if (!Number.isFinite(at)) return cell(null, 'meds', 'missing', meta);
+        if (!Number.isFinite(at)) return cell(null, 'meds', 'missing', meta || medsMeta);
         const names = Array.isArray(nx.medication_names) ? nx.medication_names : [];
         const ids = Array.isArray(nx.medication_ids) ? nx.medication_ids : [];
         const value = { scheduledAt: nx.scheduled_at, names, ids };
@@ -265,7 +343,7 @@
         return cell(value, 'health', status);
     }
 
-    function aggregateToday(bootstrap, swrCaches, now) {
+    function aggregateToday(bootstrap, swrCaches, now, opts) {
         const caches = swrCaches || {};
         const nowDate = now instanceof Date ? now : new Date(now || Date.now());
         const nowMs = nowDate.getTime();
@@ -280,7 +358,7 @@
 
         const result = {
             greeting: cell(greetingFor(nowDate), null, 'ok'),
-            nextMed: nextMedCell(bootstrap, nowMs, medEnabled),
+            nextMed: nextMedCell(bootstrap, nowMs, medEnabled, opts),
             bpLatest: bpLatestCell(bootstrap, nowMs, bpEnabled),
             bpTrend7d: bpTrendCell(bootstrap, nowMs, bpEnabled),
             weightLatest: weightLatestCell(bootstrap, nowMs, weightEnabled),

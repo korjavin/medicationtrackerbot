@@ -62,7 +62,9 @@ The "rolling-out" sections (BP, Weight, Meds, Workouts, Vitals) keep their exist
 
 **Bootstrap interaction**: `/api/bootstrap` continues to seed `medications`, `next_intake`, `bp`, `weight`, `food_<date>_day`, `settings_bundle`, etc. via `cacheApiSnapshot`. `cachedFetch` simply reads from the same store, so bootstrap-warmed entries are immediately usable as the first cache hit on any consumer.
 
-**Out of scope (explicitly)**: this layer is read-only. No new offline write queues (food/notes/workouts), no cold-start offline (no prior bootstrap), no full "IndexedDB is source of truth" rewrite.
+**`DataStore.hydrateFromDexie(key, dexieLoader, opts)`** — cold-start hydration primitive used when the app relaunches offline and `/api/bootstrap` never returns. Reads from a feature's Dexie store (e.g. `MedTrackerDB.MedicationStore.loadCache()`) and seeds `DataStore.setCachedWithTags` so subsequent `loadSWR` / `getCached` calls find data on the very first paint. Signature: `(key, async dexieLoader, { transform?, tags? }) => { hydrated, fetchedAt }`. Never throws — empty Dexie or loader errors return `{ hydrated: false }`. Skips the seed if the in-memory cache is already fresher than the Dexie record. Canonical wiring lives in `app.js` early-init (before `await fetchBootstrap()`) for the `medications` key; `features/meds.js` then renders planned doses synchronously from the hydrated list with a `WGStaleBadge.mountFromKey({ key: 'medications' })` chip. Apply the same pattern to BP/Weight/Workouts/Health/Food in follow-up plans.
+
+**Out of scope (explicitly)**: this layer is read-only. No new offline write queues (food/notes/workouts), no full "IndexedDB is source of truth" rewrite. Cold-start offline is now in scope for sections that adopt `hydrateFromDexie` (medications first; others follow).
 
 ### Change Detection
 
