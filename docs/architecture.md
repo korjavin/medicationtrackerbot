@@ -59,6 +59,18 @@ SQLite with 47+ goose migrations tracking schema evolution:
 - Migrations auto-run on store initialization
 - Never modify existing migrations; create new ones
 
+### Time storage
+
+**Rule:** dose-time columns on `intake_log` are stored as `INTEGER` unix-seconds-UTC, not as SQLite `DATETIME` text. Specifically: `intake_log.scheduled_at_unix`, `intake_log.taken_at_unix`, `intake_log.snoozed_until_unix`. The audit anchor is the comment block at the top of `internal/store/store.go` listing the columns; the architecture test `internal/store/intake_log_time_columns_test.go` parses `PRAGMA table_info(intake_log)` and fails CI if any of these columns regresses to a text-typed column, or if a legacy `scheduled_at` / `taken_at` / `snoozed_until` text column reappears.
+
+**Why:** `modernc.org/sqlite` serializes `time.Time` via `t.String()`, which embeds the timezone *name* (e.g. `"2026-05-10 08:20:00 -0700 PDT"`). SQL text-equality (`WHERE scheduled_at = ?`) on such strings depends on the caller's `time.Location` and breaks whenever the user (or the scheduler) compares the same UTC instant across a TZ-name change — even when the *offset* is unchanged (PDT→MST). On 2026-05-10 this produced a duplicate set of pending intakes after a California→Phoenix flight and an hourly reminder storm. Storing unix seconds normalizes the value at the write boundary; SQL equality on `INTEGER` is then unambiguous regardless of caller `time.Location`.
+
+**Write path:** every writer normalizes via `t.UTC().Unix()`. `.UTC()` also strips Go's monotonic-clock residue, which has previously leaked through `t.String()` into other tables.
+
+**Read path:** `Scan(&n int64)` then `time.Unix(n, 0).UTC()`. Nullable columns scan into `sql.NullInt64` and populate `*time.Time` pointer fields only when valid.
+
+**Design history:** see `docs/plans/2026-05-10-intake-log-utc-unix-fix.md` (this implementation) and `docs/plans/20260508-simplify-medication-scheduling-utc-and-pre-materialized-steps.md` (Track A of the broader scheduler-simplification proposal).
+
 ## Authentication & Security
 
 **Telegram Mini App**:
