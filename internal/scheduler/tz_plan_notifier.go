@@ -105,13 +105,21 @@ func (n *TZPlanNotifier) Check(ctx context.Context) error {
 		return nil
 	}
 
-	// If there are no notifiers configured there is no channel through which the
-	// user can receive or approve the plan, so don't transition it to NOTIFIED.
-	// Leave it in PENDING_APPROVAL so the next scheduler run can retry once a
-	// notifier becomes available (e.g. after a push subscription is registered).
+	// If there are no notifiers configured (web-only deployment with no WebPush)
+	// the user has no channel to receive or approve the plan. Cancel it so the
+	// medication scheduler picks up the new timezone immediately rather than
+	// pinning to OldTZ for the 72h PENDING_APPROVAL safety-net window. Notifiers
+	// are wired once at process start, so waiting for one to appear isn't useful.
 	if len(n.notifiers) == 0 {
-		slog.Warn("tz_plan_notifier: no notifiers configured, cannot deliver plan — leaving in PENDING_APPROVAL",
+		slog.Warn("tz_plan_notifier: no notifiers configured, cancelling plan so new timezone takes effect immediately",
 			"plan_id", plan.ID)
+		// Guard the transition on PENDING_APPROVAL so a concurrent web-banner
+		// approve/reject (settings_handlers.go) that wins the race isn't
+		// clobbered by CANCELLED.
+		if cancelErr := n.store.UpdateTZTransitionPlanStatus(plan.ID, "CANCELLED", "no-notifiers-configured", "PENDING_APPROVAL"); cancelErr != nil {
+			slog.Error("tz_plan_notifier: failed to cancel plan with no notifiers configured",
+				"plan_id", plan.ID, "error", cancelErr)
+		}
 		return nil
 	}
 
@@ -160,7 +168,10 @@ func (n *TZPlanNotifier) Check(ctx context.Context) error {
 			// on OldTZ.
 			slog.Warn("tz_plan_notifier: no delivery channel, cancelling plan so new timezone takes effect immediately",
 				"plan_id", plan.ID)
-			if cancelErr := n.store.UpdateTZTransitionPlanStatus(plan.ID, "CANCELLED", "no-delivery-channel", ""); cancelErr != nil {
+			// MarkPlanNotified above transitioned the plan to NOTIFIED, so guard
+			// on that — SetTZTransitionPlanApproved accepts NOTIFIED, so a
+			// concurrent web-banner approval could otherwise race us.
+			if cancelErr := n.store.UpdateTZTransitionPlanStatus(plan.ID, "CANCELLED", "no-delivery-channel", "NOTIFIED"); cancelErr != nil {
 				slog.Error("tz_plan_notifier: failed to cancel undeliverable plan",
 					"plan_id", plan.ID, "error", cancelErr)
 			}

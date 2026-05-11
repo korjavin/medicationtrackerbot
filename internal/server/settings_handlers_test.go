@@ -535,7 +535,7 @@ func TestHandleUpdateSettings_GeneratesTransitionPlan(t *testing.T) {
 	if _, err := db.CreateMedication("Daily Med", "5mg", `{"type":"daily","times":["08:00","20:00"]}`, nil, nil, "", "", "medium"); err != nil {
 		t.Fatalf("CreateMedication: %v", err)
 	}
-	srv.SetTZUpdater(tzupdate.NewService(db, db, tzreschedule.NewPlannerService(db), nil))
+	srv.SetTZUpdater(tzupdate.NewService(db, db, tzreschedule.NewPlannerService(db), nil, nil))
 
 	body, _ := json.Marshal(map[string]string{"timezone": "Asia/Tokyo"})
 	req := httptest.NewRequest("POST", "/api/settings", bytes.NewReader(body))
