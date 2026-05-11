@@ -110,12 +110,12 @@ Both sets represent `2026-05-10 15:20:00 UTC`. SQL `WHERE scheduled_at = '… MS
 
 Same pattern as Tasks 2–4 applied to `taken_at`. Ships in a separate PR after Task 4 has baked for ≥ 1 release. Today's prod data shows `taken_at` strings in three different formats (`+0200 CEST`, `+0000 UTC`, `m=+...` monotonic-clock leak from an un-Truncated insert) — equally vulnerable to the equality bug class.
 
-- [ ] migration: `ALTER TABLE intake_log ADD COLUMN taken_at_unix INTEGER;` + backfill `UPDATE intake_log SET taken_at_unix = strftime('%s', taken_at) WHERE taken_at IS NOT NULL;`
-- [ ] dual-write in `CreateManualIntake`, `ConfirmIntake`, `UpdateIntake`, `ConfirmIntakesBySchedule`. **Strip monotonic clock by calling `.UTC()` on the input** — Go's `time.Now()` includes a monotonic component that leaks through `t.String()` (we saw it in `tz_transition_plans.approved_at`). `.UTC()` strips it.
-- [ ] cut over readers in history endpoint, archived-meds query, per-id `GetIntake`, `GetTakenIntakesBySchedule`, the `IntakeHistory` join in `internal/server`.
-- [ ] table-rebuild migration drops the legacy column.
-- [ ] write tests: cross-TZ history scan, per-id read, and a test that `time.Now()` written then read back has no monotonic residue.
-- [ ] run `go test ./...` — must pass before next task.
+- [x] migration: `ALTER TABLE intake_log ADD COLUMN taken_at_unix INTEGER;` + backfill `UPDATE intake_log SET taken_at_unix = strftime('%s', taken_at) WHERE taken_at IS NOT NULL;` Backfill uses the same COALESCE/substr fallback as migration 057 to cover the `+0200 CEST`-style `time.Time.String()` format and the monotonic-clock-residue variant. Implemented as migration `059_add_intake_log_taken_at_unix.sql`.
+- [x] dual-write in `CreateManualIntake`, `ConfirmIntake`, `UpdateIntake`, `ConfirmIntakesBySchedule` (the last is automatic — `ConfirmIntakesBySchedule` delegates to `ConfirmIntake`). Monotonic clock stripped via `.UTC()` on the input.
+- [x] cut over readers: `GetIntakeHistory`, `GetIntake`, `GetIntakeBySchedule`, `BatchGetIntakesBySchedule`, `GetIntakesSince`, and the `ListMedications` `last_taken` aggregation. `GetTakenIntakesBySchedule` and `GetPendingIntakes*` did not select `taken_at` so they were unchanged. Pattern: `Scan(&n sql.NullInt64)` then `time.Unix(n.Int64, 0).UTC()`.
+- [x] table-rebuild migration drops the legacy column: `060_drop_intake_log_taken_at_text.sql`.
+- [x] write tests: cross-TZ history scan (`TestGetIntakeHistory_TakenAtCrossTZ`), per-id read (`TestGetIntake_TakenAtCrossTZ`), monotonic-residue regression (`TestConfirmIntake_StripsMonotonicResidue`), backfill format coverage (`TestMigration059_BackfillsProductionTakenAtFormats`), round-trips (`TestMigration059_RoundTrip`, `TestMigration060_RoundTrip`), table-rebuild data preservation (`TestMigration060_DropsTakenAtAndPreservesData`).
+- [x] run `go test ./...` — passes.
 
 ### Task 6: Convert `intake_log.snoozed_until` → `snoozed_until_unix` (nullable)
 

@@ -174,6 +174,84 @@ func TestGetPendingIntakesForMedication_ScanIntoUTC(t *testing.T) {
 	}
 }
 
+// TestGetIntakeHistory_TakenAtCrossTZ asserts that a TAKEN row written in one
+// timezone is read back with TakenAt that compares equal to the original
+// instant — covers the taken_at_unix cutover (Task 5).
+func TestGetIntakeHistory_TakenAtCrossTZ(t *testing.T) {
+	db := setupTestStore(t)
+
+	medID, err := db.CreateMedication("Med", "5mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
+	if err != nil {
+		t.Fatalf("CreateMedication: %v", err)
+	}
+
+	la, _ := time.LoadLocation("America/Los_Angeles")
+	now := time.Now().UTC()
+	// schedule and taken_at both in LA, recent enough to be inside default window
+	sched := time.Date(now.Year(), now.Month(), now.Day(), 8, 20, 0, 0, la).Add(-2 * 24 * time.Hour)
+	taken := sched.Add(3 * time.Minute)
+
+	id, err := db.CreateIntake(medID, 12345, sched)
+	if err != nil {
+		t.Fatalf("CreateIntake: %v", err)
+	}
+	if err := db.ConfirmIntake(id, taken); err != nil {
+		t.Fatalf("ConfirmIntake: %v", err)
+	}
+
+	hist, err := db.GetIntakeHistory(int(medID), 7)
+	if err != nil {
+		t.Fatalf("GetIntakeHistory: %v", err)
+	}
+	if len(hist) != 1 {
+		t.Fatalf("expected 1 history row, got %d", len(hist))
+	}
+	if hist[0].TakenAt == nil {
+		t.Fatalf("expected non-nil TakenAt for TAKEN row")
+	}
+	if !hist[0].TakenAt.Equal(taken) {
+		t.Errorf("TakenAt=%s, want same instant as %s", hist[0].TakenAt, taken)
+	}
+	// Read path normalizes to UTC.
+	if hist[0].TakenAt.Location() != time.UTC {
+		t.Errorf("TakenAt.Location()=%v, want UTC", hist[0].TakenAt.Location())
+	}
+}
+
+// TestGetIntake_TakenAtCrossTZ — per-id read of a TAKEN row preserves the
+// instant across a TZ boundary (write in LA, read normalizes to UTC).
+func TestGetIntake_TakenAtCrossTZ(t *testing.T) {
+	db := setupTestStore(t)
+
+	medID, err := db.CreateMedication("Med", "5mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
+	if err != nil {
+		t.Fatalf("CreateMedication: %v", err)
+	}
+
+	la, _ := time.LoadLocation("America/Los_Angeles")
+	sched := time.Date(2026, 5, 10, 8, 20, 0, 0, la)
+	taken := sched.Add(7 * time.Minute)
+
+	id, err := db.CreateManualIntake(medID, 12345, taken)
+	if err != nil {
+		t.Fatalf("CreateManualIntake: %v", err)
+	}
+
+	got, err := db.GetIntake(id)
+	if err != nil {
+		t.Fatalf("GetIntake: %v", err)
+	}
+	if got == nil || got.TakenAt == nil {
+		t.Fatalf("expected non-nil TakenAt")
+	}
+	if !got.TakenAt.Equal(taken) {
+		t.Errorf("TakenAt=%s, want same instant as %s", got.TakenAt, taken)
+	}
+	if got.TakenAt.Location() != time.UTC {
+		t.Errorf("TakenAt.Location()=%v, want UTC", got.TakenAt.Location())
+	}
+}
+
 func TestGetIntakesSince_CrossTZ(t *testing.T) {
 	db := setupTestStore(t)
 
