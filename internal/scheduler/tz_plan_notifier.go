@@ -155,10 +155,9 @@ func (n *TZPlanNotifier) Check(ctx context.Context) error {
 		if errors.Is(err, notifier.ErrNoDeliveryChannel) {
 			// No delivery channel available (e.g. WebPush configured but no active
 			// subscriptions). Cancel the plan so the medication scheduler uses the
-			// new timezone immediately — consistent with the no-notifiers path in
-			// settings_handlers.go where no plan is generated at all.
-			// Without this, the plan would cycle PENDING→NOTIFIED→PENDING forever
-			// and the scheduler would stay stuck on OldTZ.
+			// new timezone immediately. Without this, the plan would cycle
+			// PENDING→NOTIFIED→PENDING forever and the scheduler would stay stuck
+			// on OldTZ.
 			slog.Warn("tz_plan_notifier: no delivery channel, cancelling plan so new timezone takes effect immediately",
 				"plan_id", plan.ID)
 			if cancelErr := n.store.UpdateTZTransitionPlanStatus(plan.ID, "CANCELLED", "no-delivery-channel", ""); cancelErr != nil {

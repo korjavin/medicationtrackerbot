@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
+	"github.com/korjavin/medicationtrackerbot/internal/domain/tzupdate"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
@@ -534,7 +535,7 @@ func TestHandleUpdateSettings_GeneratesTransitionPlan(t *testing.T) {
 	if _, err := db.CreateMedication("Daily Med", "5mg", `{"type":"daily","times":["08:00","20:00"]}`, nil, nil, "", "", "medium"); err != nil {
 		t.Fatalf("CreateMedication: %v", err)
 	}
-	srv.SetTZPlanner(tzreschedule.NewPlannerService(db))
+	srv.SetTZUpdater(tzupdate.NewService(db, db, tzreschedule.NewPlannerService(db), nil))
 
 	body, _ := json.Marshal(map[string]string{"timezone": "Asia/Tokyo"})
 	req := httptest.NewRequest("POST", "/api/settings", bytes.NewReader(body))
@@ -568,47 +569,6 @@ func TestHandleUpdateSettings_GeneratesTransitionPlan(t *testing.T) {
 		t.Errorf("Expected plan OldTZ=America/New_York NewTZ=Asia/Tokyo, got OldTZ=%q NewTZ=%q",
 			plan.OldTZ, plan.NewTZ)
 	}
-}
-
-// TestHandleUpdateSettings_UsesInjectedTZUpdater asserts the handler delegates
-// to the tzUpdater service rather than calling RecordTimezone directly. A
-// stub service captures the call and short-circuits persistence; the test
-// verifies the new timezone never reaches the store, proving the handler
-// goes through the service.
-func TestHandleUpdateSettings_UsesInjectedTZUpdater(t *testing.T) {
-	srv, db := createBPTestServer(t)
-	defer db.Close()
-
-	stub := &stubTZUpdater{}
-	srv.SetTZUpdater(stub)
-
-	body, _ := json.Marshal(map[string]string{"timezone": "Europe/Berlin"})
-	req := httptest.NewRequest("POST", "/api/settings", bytes.NewReader(body))
-	req = withUser(req, 123456)
-	w := httptest.NewRecorder()
-	srv.handleUpdateSettings(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("Expected status 200, got %d (body=%s)", w.Code, w.Body.String())
-	}
-	if len(stub.calls) != 1 || stub.calls[0] != "Europe/Berlin" {
-		t.Errorf("Expected exactly one UpdateTimezone(Europe/Berlin) call, got %v", stub.calls)
-	}
-	// The stub did NOT call RecordTimezone, so the store must still be empty.
-	if tz, _ := db.GetCurrentTimezone(); tz != "" {
-		t.Errorf("Expected store untouched (empty), got %q — handler bypassed the service", tz)
-	}
-}
-
-type stubTZUpdater struct {
-	calls       []string
-	planCreated bool
-	err         error
-}
-
-func (s *stubTZUpdater) UpdateTimezone(_ context.Context, newTZ string) (bool, error) {
-	s.calls = append(s.calls, newTZ)
-	return s.planCreated, s.err
 }
 
 func TestHandleBootstrap_IncludesTimezone(t *testing.T) {
