@@ -114,7 +114,7 @@ Dependencies identified:
 ## Implementation Steps
 
 ### Task 1: Define `tzupdate.Service` interface + tests
-- [ ] write `internal/domain/tzupdate/service_test.go` covering: happy-path
+- [x] write `internal/domain/tzupdate/service_test.go` covering: happy-path
       change (oldTZ != newTZ → planner called, RecordTimezone called, returns
       `planCreated=true`); no-op (oldTZ == newTZ → planner NOT called,
       RecordTimezone NOT called, returns `planCreated=false`); planner
@@ -124,17 +124,19 @@ Dependencies identified:
       created (planner.CancelActivePlan called, baseline revert attempted);
       concurrent updates serialize (two goroutines, second sees the first's
       newTZ as oldTZ)
-- [ ] write `internal/domain/tzupdate/service.go` with `Service` interface
+- [x] write `internal/domain/tzupdate/service.go` with `Service` interface
       and `service` struct; depends only on
       `tzreschedule.PlannerService`, a `SettingsStore`-style interface
       (`GetCurrentTimezone`, `RecordTimezone`), and a
       `PlanBaselineStore` (`GetLatestActiveOrPendingTZTransitionPlan` —
       reused from tzreschedule.PlannerStore, the bot store already
       satisfies it)
-- [ ] move `tzUpdateMu` from `Server` into the service so cross-transport
-      updates serialize through one lock
-- [ ] run `go test ./internal/domain/tzupdate/...` — must pass
-- [ ] run `go test ./...` to catch any unrelated breakage
+- [x] move `tzUpdateMu` from `Server` into the service so cross-transport
+      updates serialize through one lock (the `sync.Mutex` now lives on
+      the `service` struct; `Server.tzUpdateMu` removal happens in Task 2
+      when the handler stops using it)
+- [x] run `go test ./internal/domain/tzupdate/...` — must pass
+- [x] run `go test ./...` to catch any unrelated breakage
 
 ### Task 2: Refactor `handleUpdateSettings` to use the service
 - [ ] update `internal/server/settings_handlers_test.go` expectations: the
