@@ -89,7 +89,11 @@ func (s *service) UpdateTimezone(_ context.Context, newTZ string) (bool, error) 
 	// doesn't continue on an unapproved intermediate timezone.
 	var supersededBaseline string
 	if s.planBaseline != nil {
-		if activePlan, planErr := s.planBaseline.GetLatestActiveOrPendingTZTransitionPlan(); planErr == nil && activePlan != nil {
+		activePlan, planErr := s.planBaseline.GetLatestActiveOrPendingTZTransitionPlan()
+		if planErr != nil {
+			slog.Warn("tzupdate: failed to read superseded plan baseline, revert path will skip baseline restore",
+				"error", planErr)
+		} else if activePlan != nil {
 			supersededBaseline = activePlan.OldTZ
 		}
 	}

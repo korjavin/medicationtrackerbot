@@ -12,7 +12,6 @@ import (
 
 // TimezoneStore is the subset of store operations needed for timezone bot commands.
 type TimezoneStore interface {
-	RecordTimezone(tz string) error
 	GetCurrentTimezone() (string, error)
 }
 

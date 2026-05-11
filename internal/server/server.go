@@ -20,7 +20,6 @@ import (
 
 	"github.com/VictoriaMetrics/fastcache"
 	"github.com/korjavin/medicationtrackerbot/internal/domain"
-	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzupdate"
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/rxnorm"
@@ -76,7 +75,6 @@ type Server struct {
 	mcpAuditSecret      string
 	lastMCPNotification time.Time
 	mcpAuditMutex       sync.Mutex
-	tzPlanner           tzreschedule.PlannerService
 	tzUpdater           tzupdate.Service
 	tzPlanStore         TZPlanStore
 	nonces              NonceStore
@@ -278,18 +276,9 @@ func (s *Server) SetNotifiers(notifiers []notifier.Notifier) {
 	s.notifiers = notifiers
 }
 
-// SetTZPlanner configures the timezone transition plan generator after construction.
-// It also rebuilds the default tzUpdater to use the new planner so the web TZ-change
-// flow generates plans without requiring a separate SetTZUpdater call.
-func (s *Server) SetTZPlanner(p tzreschedule.PlannerService) {
-	s.tzPlanner = p
-	s.tzUpdater = tzupdate.NewService(s.settings, s.tzPlanStore, p, nil)
-}
-
 // SetTZUpdater configures the shared cross-transport timezone update service.
-// When set, this overrides whatever default was wired by SetTZPlanner — useful
-// when cmd/bot/main.go constructs one service instance and injects it into both
-// the server and the bot so they share a single update mutex.
+// cmd/bot/main.go constructs one service instance and injects it into both the
+// server and the bot so they share a single update mutex.
 func (s *Server) SetTZUpdater(svc tzupdate.Service) {
 	s.tzUpdater = svc
 }

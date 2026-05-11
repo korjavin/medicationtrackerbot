@@ -230,9 +230,8 @@ func main() {
 		srv.SetMCPRegistry(server.NewRegistryAdapter(reg))
 	}
 
-	// Wire the timezone transition planner and the shared TZ-update service so
-	// both web and bot transports share one mutex and one plan-generation path.
-	srv.SetTZPlanner(tzPlanner)
+	// Wire the shared TZ-update service so both web and bot transports share
+	// one mutex and one plan-generation path.
 	srv.SetTZUpdater(tzUpdater)
 
 	// Set workout interactor (only if bot is available)
