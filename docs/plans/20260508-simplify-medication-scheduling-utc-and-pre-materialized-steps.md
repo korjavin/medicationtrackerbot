@@ -1,5 +1,13 @@
 # Simplify Medication Scheduling: UTC Unix Storage + Pre-materialized TZ Steps
 
+> **Status (2026-05-10):** Track A Tasks 1–6 (and the `intake_log`-scoped portions of Task 8) were narrowed and shipped under `docs/plans/2026-05-10-intake-log-utc-unix-fix.md` after a 2026-05-10 production incident forced the work early. The remaining scope of this plan is:
+> - **Task 7** — convert `tz_transition_plans.created_at` / `notified_at` / `approved_at` to unix seconds.
+> - **Task 8** — extend `internal/store/intake_log_time_columns_test.go`'s allowlist (and any equivalent in `store_time_invariants_test.go`) to cover the columns added by Task 7.
+> - **Track D** (Tasks 9–13) — pre-materialize transition steps as `intake_log` rows; drop `tz_transition_steps`.
+> - **Tasks 14–16** — final doc sweep, follow-up stub, acceptance verification.
+>
+> Tasks 1–6 below are kept verbatim for design history; do not re-run them — the corresponding columns already exist on `intake_log` and are enforced by `intake_log_time_columns_test.go`.
+
 ## Overview
 
 The medication scheduler has produced a steady drip of bugs over the last
@@ -190,7 +198,7 @@ Every numbered point above was the source of one of the recent bugs.
 
 **Track A — Canonicalize `scheduled_at` as UTC unix seconds.** Tasks 1 through 8 cover the storage refactor: introduce INTEGER unix-seconds columns, dual-write, cut over readers, drop legacy DATETIME columns. Track A merges first and bakes for at least one release before Track D starts.
 
-### Task 1: Document the convention; no helper package
+### Task 1: Document the convention; no helper package — SUPERSEDED by 2026-05-10 plan
 
 - [ ] **No new `internal/util/unixsec` package.** `t.Unix()` and
   `time.Unix(n, 0).UTC()` are already the entire implementation; wrapping
@@ -206,7 +214,7 @@ Every numbered point above was the source of one of the recent bugs.
   invariant the comment block is documenting.
 - [ ] run project tests - must pass before next task.
 
-### Task 2: Migration — add `scheduled_at_unix` column to `intake_log`, backfill, dual-write
+### Task 2: Migration — add `scheduled_at_unix` column to `intake_log`, backfill, dual-write — SUPERSEDED by 2026-05-10 plan
 
 - [ ] migration `0XX_add_intake_log_scheduled_at_unix.sql` (concrete
   number assigned at PR time; `057` is next-free at time of writing):
@@ -219,7 +227,7 @@ Every numbered point above was the source of one of the recent bugs.
 - [ ] write tests: migration goes through `up → down → up` round-trip test.
 - [ ] run project tests - must pass before next task (`go test ./internal/store/... ./internal/scheduler/...`).
 
-### Task 3: Switch every reader to `scheduled_at_unix`
+### Task 3: Switch every reader to `scheduled_at_unix` — SUPERSEDED by 2026-05-10 plan
 
 - [ ] change `Store.GetIntakeBySchedule`, `BatchGetIntakesBySchedule`,
   `GetPendingIntakesBySchedule`, `ConfirmIntakesBySchedule`,
@@ -237,7 +245,7 @@ Every numbered point above was the source of one of the recent bugs.
   query matches.
 - [ ] run project tests - must pass before next task (`go test ./...`); the existing 1169cd6 cross-TZ tests stay green using the new SQL equality path.
 
-### Task 4: Drop the legacy `scheduled_at` text column from `intake_log`
+### Task 4: Drop the legacy `scheduled_at` text column from `intake_log` — SUPERSEDED by 2026-05-10 plan
 
 - [ ] migration `0XX_drop_intake_log_scheduled_at_text.sql`:
   table-rebuild (`CREATE TABLE intake_log_new` with the new shape,
@@ -256,7 +264,7 @@ Every numbered point above was the source of one of the recent bugs.
 - [ ] write tests: extend the migration round-trip suite to cover the table-rebuild on a populated fixture.
 - [ ] run project tests - must pass before next task (`go test ./...`).
 
-### Task 5: Convert `intake_log.taken_at` → `taken_at_unix`
+### Task 5: Convert `intake_log.taken_at` → `taken_at_unix` — SUPERSEDED by 2026-05-10 plan
 
 Apply the same Task 2 → Task 3 → Task 4 pattern (add column + dual-write → cut over readers → drop legacy via table-rebuild) to `taken_at`. Independent of Tasks 6 and 7 — can ship in a parallel PR after Task 4 lands. **Track D's columns are deliberately excluded** — `tz_transition_steps.scheduled_at` and `consumed_at` would convert and then immediately be dropped by Task 13, so the table is left as DATETIME until Task 13 retires it.
 
@@ -270,7 +278,7 @@ Apply the same Task 2 → Task 3 → Task 4 pattern (add column + dual-write →
 - [ ] write tests: history endpoint cross-TZ scan + per-id read.
 - [ ] run project tests - must pass before next task.
 
-### Task 6: Convert `intake_log.snoozed_until` → `snoozed_until_unix`
+### Task 6: Convert `intake_log.snoozed_until` → `snoozed_until_unix` — SUPERSEDED by 2026-05-10 plan
 
 Same pattern as Task 5, applied to `snoozed_until` (nullable INTEGER).
 

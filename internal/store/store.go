@@ -18,6 +18,30 @@ import (
 //go:embed migrations/*.sql
 var embedMigrations embed.FS
 
+// Dose-time columns convention (see docs/plans/2026-05-10-intake-log-utc-unix-fix.md
+// and docs/architecture.md → "Time storage").
+//
+// The following columns are (or are being migrated to) INTEGER unix-seconds-UTC.
+// SQL equality (WHERE col = ?) on these columns is unambiguous regardless of the
+// caller's time.Location — which is the property that closes the TZ-name-equality
+// bug class that has hit intake_log scheduling repeatedly:
+//
+//   - intake_log.scheduled_at_unix
+//   - intake_log.taken_at_unix     (NULL until the dose is taken)
+//   - intake_log.snoozed_until_unix (NULL unless snoozed)
+//
+// Write path: every writer normalizes at the store boundary via
+// `t.UTC().Unix()`. `.UTC()` strips Go's monotonic-clock residue (which has
+// previously leaked through t.String() into the DB) and forces the wall clock
+// onto UTC.
+//
+// Read path: `Scan(&n int64)` then `time.Unix(n, 0).UTC()`. Nullable columns
+// scan into `sql.NullInt64`; populate pointer fields only when Valid.
+//
+// The architecture test `TestIntakeLogTimeColumnsAreInteger` (see Task 7 of the
+// fix plan) parses `PRAGMA table_info(intake_log)` and fails CI if any of these
+// columns regresses to a DATETIME / TEXT storage type.
+
 type Store struct {
 	db *sql.DB
 }
@@ -259,7 +283,7 @@ func (s *Store) ListMedications(showArchived bool) ([]Medication, error) {
 	query := `
 		SELECT
 			m.id, m.name, m.dosage, m.schedule, m.archived, m.supplement, m.start_date, m.end_date, m.created_at, m.rxcui, m.normalized_name, m.inventory_count, m.tz_shift_policy,
-			MAX(CASE WHEN l.status = 'TAKEN' THEN l.taken_at ELSE NULL END) as last_taken
+			MAX(CASE WHEN l.status = 'TAKEN' THEN l.taken_at_unix ELSE NULL END) as last_taken_unix
 		FROM medications m
 		LEFT JOIN intake_log l ON m.id = l.medication_id
 	`
@@ -277,12 +301,12 @@ func (s *Store) ListMedications(showArchived bool) ([]Medication, error) {
 	meds := []Medication{}
 	for rows.Next() {
 		var m Medication
-		var lastTaken sql.NullString // Scan into string first
+		var lastTakenUnix sql.NullInt64
 		// Handle nullable fields
 		var rxcui, normalizedName sql.NullString
 		var inventoryCount sql.NullInt64
 
-		if err := rows.Scan(&m.ID, &m.Name, &m.Dosage, &m.Schedule, &m.Archived, &m.Supplement, &m.StartDate, &m.EndDate, &m.CreatedAt, &rxcui, &normalizedName, &inventoryCount, &m.TZShiftPolicy, &lastTaken); err != nil {
+		if err := rows.Scan(&m.ID, &m.Name, &m.Dosage, &m.Schedule, &m.Archived, &m.Supplement, &m.StartDate, &m.EndDate, &m.CreatedAt, &rxcui, &normalizedName, &inventoryCount, &m.TZShiftPolicy, &lastTakenUnix); err != nil {
 			return nil, err
 		}
 
@@ -297,29 +321,9 @@ func (s *Store) ListMedications(showArchived bool) ([]Medication, error) {
 			m.InventoryCount = &ic
 		}
 
-		if lastTaken.Valid {
-			raw := lastTaken.String
-			// Strip Go's monotonic clock suffix if present (e.g. " ... m=+123.456")
-			if idx := strings.Index(raw, " m="); idx != -1 {
-				raw = raw[:idx]
-			}
-
-			// Helper to parse potential SQLite formats
-			formats := []string{
-				"2006-01-02 15:04:05.999999999-07:00",     // Default driver format
-				"2006-01-02 15:04:05.999999999 -0700 MST", // Go String() format
-				"2006-01-02 15:04:05 -0700 MST",           // Go String() format (no nanos)
-				"2006-01-02 15:04:05.999999999",           // No TZ
-				"2006-01-02 15:04:05",                     // Simple
-				time.RFC3339,
-				time.RFC3339Nano,
-			}
-			for _, layout := range formats {
-				if t, err := time.Parse(layout, raw); err == nil {
-					m.LastTakenAt = &t
-					break
-				}
-			}
+		if lastTakenUnix.Valid {
+			t := time.Unix(lastTakenUnix.Int64, 0).UTC()
+			m.LastTakenAt = &t
 		}
 
 		meds = append(meds, m)
@@ -576,9 +580,8 @@ func (s *Store) IsLowOnStock(m *Medication, daysThreshold int) bool {
 // -- Intake Log --
 
 func (s *Store) CreateIntake(medID, userID int64, scheduledAt time.Time) (int64, error) {
-	scheduledAt = scheduledAt.Truncate(0)
-	res, err := s.db.Exec("INSERT INTO intake_log (medication_id, user_id, scheduled_at, status) VALUES (?, ?, ?, 'PENDING')",
-		medID, userID, scheduledAt)
+	res, err := s.db.Exec("INSERT INTO intake_log (medication_id, user_id, scheduled_at_unix, status) VALUES (?, ?, ?, 'PENDING')",
+		medID, userID, scheduledAt.UTC().Unix())
 	if err != nil {
 		return 0, err
 	}
@@ -586,10 +589,10 @@ func (s *Store) CreateIntake(medID, userID int64, scheduledAt time.Time) (int64,
 }
 
 func (s *Store) CreateManualIntake(medID, userID int64, takenAt time.Time) (int64, error) {
-	takenAt = takenAt.Truncate(0)
-	// For manual intake, scheduled_at = taken_at
-	res, err := s.db.Exec("INSERT INTO intake_log (medication_id, user_id, scheduled_at, taken_at, status) VALUES (?, ?, ?, ?, 'TAKEN')",
-		medID, userID, takenAt, takenAt)
+	// For manual intake, scheduled_at_unix = taken_at unix seconds.
+	takenUnix := takenAt.UTC().Unix()
+	res, err := s.db.Exec("INSERT INTO intake_log (medication_id, user_id, scheduled_at_unix, taken_at_unix, status) VALUES (?, ?, ?, ?, 'TAKEN')",
+		medID, userID, takenUnix, takenUnix)
 	if err != nil {
 		return 0, err
 	}
@@ -597,8 +600,8 @@ func (s *Store) CreateManualIntake(medID, userID int64, takenAt time.Time) (int6
 }
 
 func (s *Store) ConfirmIntake(id int64, takenAt time.Time) error {
-	takenAt = takenAt.Truncate(0)
-	res, err := s.db.Exec("UPDATE intake_log SET status = 'TAKEN', taken_at = ? WHERE id = ? AND status = 'PENDING'", takenAt, id)
+	res, err := s.db.Exec("UPDATE intake_log SET status = 'TAKEN', taken_at_unix = ? WHERE id = ? AND status = 'PENDING'",
+		takenAt.UTC().Unix(), id)
 	if err != nil {
 		return err
 	}
@@ -613,7 +616,7 @@ func (s *Store) ConfirmIntake(id int64, takenAt time.Time) error {
 }
 
 func (s *Store) SkipIntake(id int64) error {
-	res, err := s.db.Exec("UPDATE intake_log SET status = 'SKIPPED', taken_at = NULL WHERE id = ? AND status = 'PENDING'", id)
+	res, err := s.db.Exec("UPDATE intake_log SET status = 'SKIPPED', taken_at_unix = NULL WHERE id = ? AND status = 'PENDING'", id)
 	if err != nil {
 		return err
 	}
@@ -628,19 +631,19 @@ func (s *Store) SkipIntake(id int64) error {
 }
 
 func (s *Store) UpdateIntake(id int64, takenAt time.Time, status string) error {
-	takenAt = takenAt.Truncate(0)
-	var takenAtVal interface{}
+	var takenAtUnixVal interface{}
 	if status == "TAKEN" {
-		takenAtVal = takenAt
+		takenAtUnixVal = takenAt.UTC().Unix()
 	} else {
-		takenAtVal = nil
+		takenAtUnixVal = nil
 	}
-	_, err := s.db.Exec("UPDATE intake_log SET status = ?, taken_at = ? WHERE id = ?", status, takenAtVal, id)
+	_, err := s.db.Exec("UPDATE intake_log SET status = ?, taken_at_unix = ? WHERE id = ?", status, takenAtUnixVal, id)
 	return err
 }
 
 func (s *Store) SnoozeIntake(id int64, snoozeUntil time.Time) error {
-	res, err := s.db.Exec("UPDATE intake_log SET snoozed_until = ? WHERE id = ? AND status = 'PENDING'", snoozeUntil, id)
+	res, err := s.db.Exec("UPDATE intake_log SET snoozed_until_unix = ? WHERE id = ? AND status = 'PENDING'",
+		snoozeUntil.UTC().Unix(), id)
 	if err != nil {
 		return err
 	}
@@ -655,7 +658,7 @@ func (s *Store) SnoozeIntake(id int64, snoozeUntil time.Time) error {
 }
 
 func (s *Store) GetPendingIntakes() ([]IntakeLog, error) {
-	rows, err := s.db.Query("SELECT id, medication_id, user_id, scheduled_at, status, snoozed_until FROM intake_log WHERE status = 'PENDING'")
+	rows, err := s.db.Query("SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until_unix FROM intake_log WHERE status = 'PENDING'")
 	if err != nil {
 		return nil, err
 	}
@@ -664,8 +667,15 @@ func (s *Store) GetPendingIntakes() ([]IntakeLog, error) {
 	logs := []IntakeLog{}
 	for rows.Next() {
 		var l IntakeLog
-		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.Status, &l.SnoozedUntil); err != nil {
+		var schedUnix int64
+		var snoozeUnix sql.NullInt64
+		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &l.Status, &snoozeUnix); err != nil {
 			return nil, err
+		}
+		l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
+		if snoozeUnix.Valid {
+			t := time.Unix(snoozeUnix.Int64, 0).UTC()
+			l.SnoozedUntil = &t
 		}
 		logs = append(logs, l)
 	}
@@ -673,7 +683,7 @@ func (s *Store) GetPendingIntakes() ([]IntakeLog, error) {
 }
 
 func (s *Store) GetTakenIntakesBySchedule(userID int64, scheduledAt time.Time) ([]IntakeLog, error) {
-	rows, err := s.db.Query("SELECT id, medication_id, user_id, scheduled_at, status, snoozed_until FROM intake_log WHERE user_id = ? AND scheduled_at = ? AND status = 'TAKEN'", userID, scheduledAt)
+	rows, err := s.db.Query("SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until_unix FROM intake_log WHERE user_id = ? AND scheduled_at_unix = ? AND status = 'TAKEN'", userID, scheduledAt.UTC().Unix())
 	if err != nil {
 		return nil, err
 	}
@@ -681,8 +691,15 @@ func (s *Store) GetTakenIntakesBySchedule(userID int64, scheduledAt time.Time) (
 	logs := []IntakeLog{}
 	for rows.Next() {
 		var l IntakeLog
-		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.Status, &l.SnoozedUntil); err != nil {
+		var schedUnix int64
+		var snoozeUnix sql.NullInt64
+		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &l.Status, &snoozeUnix); err != nil {
 			return nil, err
+		}
+		l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
+		if snoozeUnix.Valid {
+			t := time.Unix(snoozeUnix.Int64, 0).UTC()
+			l.SnoozedUntil = &t
 		}
 		logs = append(logs, l)
 	}
@@ -690,7 +707,7 @@ func (s *Store) GetTakenIntakesBySchedule(userID int64, scheduledAt time.Time) (
 }
 
 func (s *Store) GetIntakeHistory(medID int, days int) ([]IntakeLog, error) {
-	query := "SELECT id, medication_id, user_id, scheduled_at, taken_at, status, snoozed_until FROM intake_log WHERE 1=1"
+	query := "SELECT id, medication_id, user_id, scheduled_at_unix, taken_at_unix, status, snoozed_until_unix FROM intake_log WHERE 1=1"
 	args := []interface{}{}
 
 	if medID > 0 {
@@ -700,11 +717,11 @@ func (s *Store) GetIntakeHistory(medID int, days int) ([]IntakeLog, error) {
 
 	if days > 0 {
 		since := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
-		query += " AND scheduled_at >= ?"
-		args = append(args, since)
+		query += " AND scheduled_at_unix >= ?"
+		args = append(args, since.UTC().Unix())
 	}
 
-	query += " ORDER BY scheduled_at DESC LIMIT 100"
+	query += " ORDER BY scheduled_at_unix DESC LIMIT 100"
 
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
@@ -715,8 +732,20 @@ func (s *Store) GetIntakeHistory(medID int, days int) ([]IntakeLog, error) {
 	logs := []IntakeLog{}
 	for rows.Next() {
 		var l IntakeLog
-		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.TakenAt, &l.Status, &l.SnoozedUntil); err != nil {
+		var schedUnix int64
+		var takenUnix sql.NullInt64
+		var snoozeUnix sql.NullInt64
+		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &takenUnix, &l.Status, &snoozeUnix); err != nil {
 			return nil, err
+		}
+		l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
+		if takenUnix.Valid {
+			t := time.Unix(takenUnix.Int64, 0).UTC()
+			l.TakenAt = &t
+		}
+		if snoozeUnix.Valid {
+			t := time.Unix(snoozeUnix.Int64, 0).UTC()
+			l.SnoozedUntil = &t
 		}
 		logs = append(logs, l)
 	}
@@ -725,8 +754,11 @@ func (s *Store) GetIntakeHistory(medID int, days int) ([]IntakeLog, error) {
 
 func (s *Store) GetIntake(id int64) (*IntakeLog, error) {
 	var l IntakeLog
-	err := s.db.QueryRow("SELECT id, medication_id, user_id, scheduled_at, taken_at, status, snoozed_until FROM intake_log WHERE id = ?", id).Scan(
-		&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.TakenAt, &l.Status, &l.SnoozedUntil,
+	var schedUnix int64
+	var takenUnix sql.NullInt64
+	var snoozeUnix sql.NullInt64
+	err := s.db.QueryRow("SELECT id, medication_id, user_id, scheduled_at_unix, taken_at_unix, status, snoozed_until_unix FROM intake_log WHERE id = ?", id).Scan(
+		&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &takenUnix, &l.Status, &snoozeUnix,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil // Not found
@@ -734,27 +766,40 @@ func (s *Store) GetIntake(id int64) (*IntakeLog, error) {
 	if err != nil {
 		return nil, err
 	}
+	l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
+	if takenUnix.Valid {
+		t := time.Unix(takenUnix.Int64, 0).UTC()
+		l.TakenAt = &t
+	}
+	if snoozeUnix.Valid {
+		t := time.Unix(snoozeUnix.Int64, 0).UTC()
+		l.SnoozedUntil = &t
+	}
 	return &l, nil
 }
 
 func (s *Store) GetIntakeBySchedule(medID int64, scheduledAt time.Time) (*IntakeLog, error) {
-	scheduledAt = scheduledAt.Truncate(0)
-	// We want to find a log that matches the medication and the exact scheduled time (or within a small window if we used drift, but here we construct exact time)
-	// Since we construct scheduledAt based on "Today + HH:MM", it should be exact.
-
-	// SQLite datetime comparison needs format match.
-	// Go's time.Time formats to ISO8601/RFC3339 in params usually.
-	// Let's rely on driver.
-
 	var l IntakeLog
-	err := s.db.QueryRow("SELECT id, medication_id, user_id, scheduled_at, taken_at, status, snoozed_until FROM intake_log WHERE medication_id = ? AND scheduled_at = ?", medID, scheduledAt).Scan(
-		&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.TakenAt, &l.Status, &l.SnoozedUntil,
+	var schedUnix int64
+	var takenUnix sql.NullInt64
+	var snoozeUnix sql.NullInt64
+	err := s.db.QueryRow("SELECT id, medication_id, user_id, scheduled_at_unix, taken_at_unix, status, snoozed_until_unix FROM intake_log WHERE medication_id = ? AND scheduled_at_unix = ?", medID, scheduledAt.UTC().Unix()).Scan(
+		&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &takenUnix, &l.Status, &snoozeUnix,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
+	}
+	l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
+	if takenUnix.Valid {
+		t := time.Unix(takenUnix.Int64, 0).UTC()
+		l.TakenAt = &t
+	}
+	if snoozeUnix.Valid {
+		t := time.Unix(snoozeUnix.Int64, 0).UTC()
+		l.SnoozedUntil = &t
 	}
 	return &l, nil
 }
@@ -766,7 +811,7 @@ func (s *Store) BatchGetIntakesBySchedule(schedules []MedicationSchedule) (map[M
 	}
 
 	// SQLite maximum variables is typically 32766, but we'll use a conservative batch size
-	// Each tuple (medication_id, scheduled_at) uses 2 variables.
+	// Each tuple (medication_id, scheduled_at_unix) uses 2 variables.
 	// 500 schedules * 2 = 1000 variables per batch.
 	const batchSize = 500
 
@@ -783,16 +828,11 @@ func (s *Store) BatchGetIntakesBySchedule(schedules []MedicationSchedule) (map[M
 		for j, sched := range batch {
 			placeholders[j] = "(?, ?)"
 			args[j*2] = sched.MedID
-			// Preserve the caller's Location: modernc.org/sqlite serializes
-			// time.Time via t.String(), so a stored local-tz value like
-			// "2026-04-18 10:13:00 +0200 CEST" only matches a bind parameter
-			// formatted the same way. Converting to UTC here would miss rows
-			// written by CreateIntake with a non-UTC target time.
-			args[j*2+1] = sched.ScheduledAt.Truncate(0)
+			args[j*2+1] = sched.ScheduledAt.UTC().Unix()
 		}
 
 		query := fmt.Sprintf(
-			"SELECT id, medication_id, user_id, scheduled_at, taken_at, status, snoozed_until FROM intake_log WHERE (medication_id, scheduled_at) IN (%s)",
+			"SELECT id, medication_id, user_id, scheduled_at_unix, taken_at_unix, status, snoozed_until_unix FROM intake_log WHERE (medication_id, scheduled_at_unix) IN (%s)",
 			strings.Join(placeholders, ", "),
 		)
 
@@ -803,18 +843,29 @@ func (s *Store) BatchGetIntakesBySchedule(schedules []MedicationSchedule) (map[M
 
 		for rows.Next() {
 			var l IntakeLog
+			var schedUnix int64
+			var takenUnix sql.NullInt64
+			var snoozeUnix sql.NullInt64
 			err := rows.Scan(
-				&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.TakenAt, &l.Status, &l.SnoozedUntil,
+				&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &takenUnix, &l.Status, &snoozeUnix,
 			)
 			if err != nil {
 				rows.Close()
 				return nil, err
 			}
-			sched := MedicationSchedule{
-				MedID:       l.MedicationID,
-				ScheduledAt: l.ScheduledAt.UTC().Truncate(0),
+			l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
+			if takenUnix.Valid {
+				t := time.Unix(takenUnix.Int64, 0).UTC()
+				l.TakenAt = &t
 			}
-			result[sched] = &l
+			if snoozeUnix.Valid {
+				t := time.Unix(snoozeUnix.Int64, 0).UTC()
+				l.SnoozedUntil = &t
+			}
+			// Key by UTC. Callers that look up with a non-UTC ScheduledAt
+			// must convert via .UTC() — the scheduler dedupe path already
+			// does so.
+			result[MedicationSchedule{MedID: l.MedicationID, ScheduledAt: l.ScheduledAt}] = &l
 		}
 		if err := rows.Err(); err != nil {
 			return nil, err
@@ -825,19 +876,14 @@ func (s *Store) BatchGetIntakesBySchedule(schedules []MedicationSchedule) (map[M
 	return result, nil
 }
 
-// ConfirmIntakesBySchedule marks every PENDING intake whose scheduled_at
-// represents the same instant as the supplied target as TAKEN, returning the
-// IDs that were updated. It compares by absolute time (time.Time.Equal), not
-// by SQL text equality: modernc.org/sqlite serializes time.Time via t.String()
-// (with embedded TZ name), so an exact "WHERE scheduled_at = ?" comparison
-// silently misses rows when the caller's location does not match the stored
-// row's location — e.g. the Telegram "Confirm ALL" callback constructs
-// time.Unix(ts,0) in the bot's local TZ while the row was written in the
-// user's TZ.
+// ConfirmIntakesBySchedule marks every PENDING intake whose scheduled_at_unix
+// matches the supplied target as TAKEN, returning the IDs that were updated.
+// The comparison is on the INTEGER scheduled_at_unix column, so it is
+// independent of the caller's time.Location — what previously required an
+// in-memory time.Equal filter (modernc.org/sqlite serialized time.Time via
+// t.String() with embedded TZ name, breaking SQL text equality across
+// locations) is now a single SQL predicate.
 func (s *Store) ConfirmIntakesBySchedule(userID int64, scheduledAt time.Time, takenAt time.Time) ([]int64, error) {
-	scheduledAt = scheduledAt.Truncate(0)
-	takenAt = takenAt.Truncate(0)
-
 	candidates, err := s.GetPendingIntakesBySchedule(userID, scheduledAt)
 	if err != nil {
 		return nil, err
@@ -930,20 +976,17 @@ func (s *Store) GetBatchIntakeReminders(intakeIDs []int64) (map[int64][]int, err
 }
 
 // GetPendingIntakesBySchedule returns every PENDING intake for the user whose
-// scheduled_at matches the supplied target instant. It loads all of the user's
-// PENDING rows (skipping archived medications) and filters in Go via
-// time.Time.Equal so the result is independent of the caller's location —
-// SQL text equality on the modernc.org/sqlite t.String() representation only
-// matches when the bind value carries the same Location/TZ name as the stored
-// row, which silently breaks when the bot binary's TZ differs from the user's.
+// scheduled_at_unix matches the supplied target instant. The match is on the
+// INTEGER unix-seconds column, so it is independent of the caller's
+// time.Location.
 func (s *Store) GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time) ([]IntakeLog, error) {
-	scheduledAt = scheduledAt.Truncate(0)
 	rows, err := s.db.Query(
-		`SELECT id, medication_id, user_id, scheduled_at, status, snoozed_until
+		`SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until_unix
 		 FROM intake_log
 		 WHERE user_id = ? AND status = 'PENDING'
+		   AND scheduled_at_unix = ?
 		   AND medication_id IN (SELECT id FROM medications WHERE archived = 0)`,
-		userID,
+		userID, scheduledAt.UTC().Unix(),
 	)
 	if err != nil {
 		return nil, err
@@ -952,11 +995,15 @@ func (s *Store) GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time)
 	var logs []IntakeLog
 	for rows.Next() {
 		var l IntakeLog
-		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.Status, &l.SnoozedUntil); err != nil {
+		var schedUnix int64
+		var snoozeUnix sql.NullInt64
+		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &l.Status, &snoozeUnix); err != nil {
 			return nil, err
 		}
-		if !l.ScheduledAt.Equal(scheduledAt) {
-			continue
+		l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
+		if snoozeUnix.Valid {
+			t := time.Unix(snoozeUnix.Int64, 0).UTC()
+			l.SnoozedUntil = &t
 		}
 		logs = append(logs, l)
 	}
@@ -967,7 +1014,7 @@ func (s *Store) GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time)
 }
 
 func (s *Store) GetPendingIntakesForMedication(medID int64) ([]IntakeLog, error) {
-	rows, err := s.db.Query("SELECT id, medication_id, user_id, scheduled_at, status, snoozed_until FROM intake_log WHERE medication_id = ? AND status = 'PENDING'", medID)
+	rows, err := s.db.Query("SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until_unix FROM intake_log WHERE medication_id = ? AND status = 'PENDING'", medID)
 	if err != nil {
 		return nil, err
 	}
@@ -975,8 +1022,15 @@ func (s *Store) GetPendingIntakesForMedication(medID int64) ([]IntakeLog, error)
 	var logs []IntakeLog
 	for rows.Next() {
 		var l IntakeLog
-		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.Status, &l.SnoozedUntil); err != nil {
+		var schedUnix int64
+		var snoozeUnix sql.NullInt64
+		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &l.Status, &snoozeUnix); err != nil {
 			return nil, err
+		}
+		l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
+		if snoozeUnix.Valid {
+			t := time.Unix(snoozeUnix.Int64, 0).UTC()
+			l.SnoozedUntil = &t
 		}
 		logs = append(logs, l)
 	}
@@ -1083,14 +1137,14 @@ func (s *Store) SetBPGoal(targetSystolic, targetDiastolic int) error {
 func (s *Store) GetIntakesSince(since time.Time) ([]IntakeWithMedication, error) {
 	query := `
 		SELECT
-			il.id, il.medication_id, il.user_id, il.scheduled_at, il.taken_at, il.status, il.snoozed_until,
+			il.id, il.medication_id, il.user_id, il.scheduled_at_unix, il.taken_at_unix, il.status, il.snoozed_until_unix,
 			m.name AS medication_name, m.dosage AS medication_dosage
 		FROM intake_log il
 		JOIN medications m ON il.medication_id = m.id
-		WHERE il.scheduled_at >= ?
-		ORDER BY il.scheduled_at DESC
+		WHERE il.scheduled_at_unix >= ?
+		ORDER BY il.scheduled_at_unix DESC
 	`
-	rows, err := s.db.Query(query, since)
+	rows, err := s.db.Query(query, since.UTC().Unix())
 	if err != nil {
 		return nil, err
 	}
@@ -1099,8 +1153,20 @@ func (s *Store) GetIntakesSince(since time.Time) ([]IntakeWithMedication, error)
 	var logs []IntakeWithMedication
 	for rows.Next() {
 		var l IntakeWithMedication
-		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.TakenAt, &l.Status, &l.SnoozedUntil, &l.MedicationName, &l.MedicationDosage); err != nil {
+		var schedUnix int64
+		var takenUnix sql.NullInt64
+		var snoozeUnix sql.NullInt64
+		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &takenUnix, &l.Status, &snoozeUnix, &l.MedicationName, &l.MedicationDosage); err != nil {
 			return nil, err
+		}
+		l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
+		if takenUnix.Valid {
+			t := time.Unix(takenUnix.Int64, 0).UTC()
+			l.TakenAt = &t
+		}
+		if snoozeUnix.Valid {
+			t := time.Unix(snoozeUnix.Int64, 0).UTC()
+			l.SnoozedUntil = &t
 		}
 		logs = append(logs, l)
 	}
