@@ -18,6 +18,30 @@ import (
 //go:embed migrations/*.sql
 var embedMigrations embed.FS
 
+// Dose-time columns convention (see docs/plans/2026-05-10-intake-log-utc-unix-fix.md
+// and docs/architecture.md → "Time storage").
+//
+// The following columns are (or are being migrated to) INTEGER unix-seconds-UTC.
+// SQL equality (WHERE col = ?) on these columns is unambiguous regardless of the
+// caller's time.Location — which is the property that closes the TZ-name-equality
+// bug class that has hit intake_log scheduling repeatedly:
+//
+//   - intake_log.scheduled_at_unix
+//   - intake_log.taken_at_unix     (NULL until the dose is taken)
+//   - intake_log.snoozed_until_unix (NULL unless snoozed)
+//
+// Write path: every writer normalizes at the store boundary via
+// `t.UTC().Unix()`. `.UTC()` strips Go's monotonic-clock residue (which has
+// previously leaked through t.String() into the DB) and forces the wall clock
+// onto UTC.
+//
+// Read path: `Scan(&n int64)` then `time.Unix(n, 0).UTC()`. Nullable columns
+// scan into `sql.NullInt64`; populate pointer fields only when Valid.
+//
+// The architecture test `TestIntakeLogTimeColumnsAreInteger` (see Task 7 of the
+// fix plan) parses `PRAGMA table_info(intake_log)` and fails CI if any of these
+// columns regresses to a DATETIME / TEXT storage type.
+
 type Store struct {
 	db *sql.DB
 }
