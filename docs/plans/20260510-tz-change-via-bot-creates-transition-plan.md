@@ -139,24 +139,24 @@ Dependencies identified:
 - [x] run `go test ./...` to catch any unrelated breakage
 
 ### Task 2: Refactor `handleUpdateSettings` to use the service
-- [ ] update `internal/server/settings_handlers_test.go` expectations: the
+- [x] update `internal/server/settings_handlers_test.go` expectations: the
       handler now delegates to `tzupdate.Service`; remove direct
       planner-invocation assertions and replace with service-invocation
       assertions; keep one end-to-end test that exercises the real
       planner + service to prove parity with current behaviour
-- [ ] replace `internal/server/settings_handlers.go:489-550` (the entire
+- [x] replace `internal/server/settings_handlers.go:489-550` (the entire
       mutex + capture + GenerateIfChanged + RecordTimezone + revert block)
       with `s.tzUpdater.UpdateTimezone(ctx, req.Timezone)`
-- [ ] add `tzUpdater tzupdate.Service` field to `Server`; add
+- [x] add `tzUpdater tzupdate.Service` field to `Server`; add
       `SetTZUpdater` setter mirroring `SetTZPlanner`
-- [ ] remove the now-unused `tzUpdateMu` field from `Server`
-- [ ] keep the `len(s.notifiers) > 0` decision inside the service if we
+- [x] remove the now-unused `tzUpdateMu` field from `Server`
+- [x] keep the `len(s.notifiers) > 0` decision inside the service if we
       want to preserve the optimization, OR remove it and rely on
       `tz_plan_notifier`'s "no delivery channel → cancel plan" path —
-      ⚠️ decide during Task 1 design: prefer removing the gate (one less
-      branch, behaviour is identical because the notifier cancels)
-- [ ] run `go test ./internal/server/...` — must pass
-- [ ] run `go test ./...` — must pass
+      ⚠️ decided: removed the gate (one less branch, behaviour is identical
+      because the notifier cancels)
+- [x] run `go test ./internal/server/...` — must pass
+- [x] run `go test ./...` — must pass
 
 ### Task 3: Inject `tzupdate.Service` into the bot
 - [ ] update bot tests in `internal/bot/tz_commands_test.go` to introduce a
