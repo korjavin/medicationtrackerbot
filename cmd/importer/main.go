@@ -226,7 +226,6 @@ func main() {
 		// Insert Intakes
 		for _, l := range agg.Logs {
 			schedTime, _ := time.Parse(layout, l.ScheduledDate)
-			takenTime, _ := time.Parse(layout, l.Start) // Start is taken time
 
 			// Status
 			status := "TAKEN"
@@ -234,16 +233,22 @@ func main() {
 				status = "MISSED"
 			}
 
-			// user_id from flag
-
 			// scheduled_at and taken_at are stored as INTEGER unix-seconds-UTC
 			// (intake_log.scheduled_at_unix / taken_at_unix). The legacy
 			// DATETIME columns were dropped by migrations 058 and 060.
-			intakeStmt := fmt.Sprintf("INSERT INTO intake_log (medication_id, user_id, scheduled_at_unix, taken_at_unix, status) VALUES (%d, %d, %d, %d, %s);\n",
+			// taken_at_unix is NULL for MISSED rows; l.Start is empty for
+			// skipped doses and parsing it would otherwise yield Go's zero
+			// time (unix = -62135596800).
+			takenAtSQL := "NULL"
+			if status == "TAKEN" {
+				takenTime, _ := time.Parse(layout, l.Start)
+				takenAtSQL = fmt.Sprintf("%d", takenTime.UTC().Unix())
+			}
+			intakeStmt := fmt.Sprintf("INSERT INTO intake_log (medication_id, user_id, scheduled_at_unix, taken_at_unix, status) VALUES (%d, %d, %d, %s, %s);\n",
 				medIDCounter,
 				*userID,
 				schedTime.UTC().Unix(),
-				takenTime.UTC().Unix(),
+				takenAtSQL,
 				quoteSQL(status),
 			)
 			_, _ = writer.WriteString(intakeStmt)

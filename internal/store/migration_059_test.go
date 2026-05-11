@@ -50,6 +50,13 @@ func TestMigration059_BackfillsProductionTakenAtFormats(t *testing.T) {
 		{"UTC", time.Date(2026, 5, 10, 15, 20, 0, 0, time.UTC)},
 		// PST: LA winter
 		{"PST", time.Date(2026, 1, 15, 9, 0, 0, 0, la)},
+		// Sub-second precision — ConfirmIntake/UpdateIntake feed time.Now() into
+		// the taken_at writer; .Truncate(0) strips monotonic but preserves
+		// nanoseconds, and t.String() renders the fractional portion. The
+		// no-fraction substr formula breaks on this; the dynamic-position
+		// formula handles both.
+		{"CEST.frac", time.Date(2026, 5, 10, 17, 20, 0, 123456789, berlin)},
+		{"CDT.frac", time.Date(2026, 5, 10, 9, 20, 0, 819544000, la)},
 	}
 
 	db, err := sql.Open("sqlite", ":memory:")

@@ -48,6 +48,12 @@ func TestMigration061_BackfillsProductionSnoozedUntilFormats(t *testing.T) {
 		{"UTC", time.Date(2026, 5, 10, 15, 20, 0, 0, time.UTC)},
 		// PST: LA during winter.
 		{"PST", time.Date(2026, 1, 15, 9, 0, 0, 0, la)},
+		// Sub-second precision — SnoozeIntake binds time.Now().Add(d);
+		// .Truncate(0) preserves nanoseconds and t.String() renders the
+		// fractional portion. The dynamic-position substr formula handles
+		// both with- and without-fractional variants.
+		{"CEST.frac", time.Date(2026, 5, 10, 17, 20, 0, 123456789, berlin)},
+		{"CDT.frac", time.Date(2026, 5, 10, 9, 20, 0, 819544000, la)},
 	}
 
 	db, err := sql.Open("sqlite", ":memory:")

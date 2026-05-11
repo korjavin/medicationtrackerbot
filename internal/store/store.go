@@ -580,7 +580,6 @@ func (s *Store) IsLowOnStock(m *Medication, daysThreshold int) bool {
 // -- Intake Log --
 
 func (s *Store) CreateIntake(medID, userID int64, scheduledAt time.Time) (int64, error) {
-	scheduledAt = scheduledAt.Truncate(0)
 	res, err := s.db.Exec("INSERT INTO intake_log (medication_id, user_id, scheduled_at_unix, status) VALUES (?, ?, ?, 'PENDING')",
 		medID, userID, scheduledAt.UTC().Unix())
 	if err != nil {
@@ -590,7 +589,6 @@ func (s *Store) CreateIntake(medID, userID int64, scheduledAt time.Time) (int64,
 }
 
 func (s *Store) CreateManualIntake(medID, userID int64, takenAt time.Time) (int64, error) {
-	takenAt = takenAt.Truncate(0)
 	// For manual intake, scheduled_at_unix = taken_at unix seconds.
 	takenUnix := takenAt.UTC().Unix()
 	res, err := s.db.Exec("INSERT INTO intake_log (medication_id, user_id, scheduled_at_unix, taken_at_unix, status) VALUES (?, ?, ?, ?, 'TAKEN')",
@@ -602,7 +600,6 @@ func (s *Store) CreateManualIntake(medID, userID int64, takenAt time.Time) (int6
 }
 
 func (s *Store) ConfirmIntake(id int64, takenAt time.Time) error {
-	takenAt = takenAt.Truncate(0)
 	res, err := s.db.Exec("UPDATE intake_log SET status = 'TAKEN', taken_at_unix = ? WHERE id = ? AND status = 'PENDING'",
 		takenAt.UTC().Unix(), id)
 	if err != nil {
@@ -634,7 +631,6 @@ func (s *Store) SkipIntake(id int64) error {
 }
 
 func (s *Store) UpdateIntake(id int64, takenAt time.Time, status string) error {
-	takenAt = takenAt.Truncate(0)
 	var takenAtUnixVal interface{}
 	if status == "TAKEN" {
 		takenAtUnixVal = takenAt.UTC().Unix()
@@ -646,7 +642,6 @@ func (s *Store) UpdateIntake(id int64, takenAt time.Time, status string) error {
 }
 
 func (s *Store) SnoozeIntake(id int64, snoozeUntil time.Time) error {
-	snoozeUntil = snoozeUntil.Truncate(0)
 	res, err := s.db.Exec("UPDATE intake_log SET snoozed_until_unix = ? WHERE id = ? AND status = 'PENDING'",
 		snoozeUntil.UTC().Unix(), id)
 	if err != nil {
@@ -889,8 +884,6 @@ func (s *Store) BatchGetIntakesBySchedule(schedules []MedicationSchedule) (map[M
 // t.String() with embedded TZ name, breaking SQL text equality across
 // locations) is now a single SQL predicate.
 func (s *Store) ConfirmIntakesBySchedule(userID int64, scheduledAt time.Time, takenAt time.Time) ([]int64, error) {
-	takenAt = takenAt.Truncate(0)
-
 	candidates, err := s.GetPendingIntakesBySchedule(userID, scheduledAt)
 	if err != nil {
 		return nil, err
