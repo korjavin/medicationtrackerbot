@@ -733,6 +733,11 @@ function buildWeightChartCurrentBadge(logs) {
 
 async function loadWeightLogs() {
     const list = document.getElementById('weight-list');
+    // Mirrors loadBPReadings: when offline with no api_cache row, apiCall
+    // returns null silently and the SWR fetcher resolves to null, so none of
+    // onCached / onFresh / onError fire. Track whether any callback painted
+    // the list and fall back to the explicit empty state below.
+    let renderedSomething = false;
     await window.DataStore.loadSWR({
         key: 'weight',
         tags: ['weight'],
@@ -750,21 +755,30 @@ async function loadWeightLogs() {
             return { logsRes, goalRes };
         },
         onCached: async (cached) => {
+            renderedSomething = true;
             await _renderWeightData(cached.logsRes, cached.goalRes);
             await renderWeightStaleBadge();
         },
         onFresh: async (fresh) => {
+            renderedSomething = true;
             await _renderWeightData(fresh.logsRes, fresh.goalRes);
             await renderWeightStaleBadge();
         },
         onError: async (e, cached) => {
             console.error('Failed to load weight data:', e);
-            if (!cached) {
+            if (cached) {
+                renderedSomething = true;
+            } else if (list) {
+                renderedSomething = true;
                 list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
             }
             await renderWeightStaleBadge();
         }
     });
+    if (!renderedSomething && list) {
+        list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
+        await renderWeightStaleBadge();
+    }
 }
 
 // Mounts the wg-stale-badge into the Weight section header from the

@@ -476,7 +476,8 @@ async function hydrateSectionsFromDexie() {
     // mirror what cacheApiSnapshot writes during the bootstrap apply path so
     // a later invalidateByTag evicts the hydrated row alongside fresh ones.
     const entries = [
-        { key: 'bp', tags: ['bp'] }
+        { key: 'bp', tags: ['bp'] },
+        { key: 'weight', tags: ['weight'] }
     ];
     await Promise.all(entries.map(async ({ key, tags }) => {
         try {

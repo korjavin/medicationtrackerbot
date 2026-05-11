@@ -99,13 +99,13 @@ The fix is the same for every section: call `DataStore.hydrateFromDexie(key, dex
 
 ### Task 2: Hydrate Weight section from Dexie
 
-Same shape as BP. Two SWR keys (`weight`, `weight_goal`).
+Same shape as BP. The plan originally listed two SWR keys (`weight`, `weight_goal`) but, just like BP, the current code bundles `{ logsRes, goalRes }` under a single `weight` key written by `cacheApiSnapshot('weight', …)` in `app.js`. No `weight_goal` key exists in the codebase, so hydration is one entry.
 
-- [ ] in `app.js` early-init, hydrate `weight` and `weight_goal`
-- [ ] in `web/static/js/features/weight.js`, audit `onCached` / `onError` branches (same contract as BP)
-- [ ] write tests in `web/static/js/tests/weight.dexie-hydration.test.js`: hydrated + offline → weight logs + goal render with stale chip
-- [ ] write tests for "no Dexie + offline" → empty state
-- [ ] run `pnpm test` — must pass before next task
+- [x] in `app.js` early-init, hydrate `weight` (single bundled key — no separate `weight_goal`)
+- [x] in `web/static/js/features/weight.js`, audit `onCached` / `onError` branches (same contract as BP) — also added a `renderedSomething` post-loadSWR fallback so an offline cold start with no cache hits an explicit empty state instead of leaving the list silently blank (mirrors `loadBPReadings()`)
+- [x] write tests in `web/static/js/tests/weight.dexie-hydration.test.js`: hydrated + offline → weight logs + goal render with stale chip
+- [x] write tests for "no Dexie + offline" → empty state
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 3: Hydrate Workouts section from Dexie
 
