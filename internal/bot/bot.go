@@ -14,6 +14,7 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/korjavin/medicationtrackerbot/internal/domain"
+	"github.com/korjavin/medicationtrackerbot/internal/domain/tzupdate"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/workout"
 )
@@ -46,6 +47,7 @@ type Bot struct {
 	imports       ImportStore
 	notesSvc      domain.NotesService
 	timezone      TimezoneStore
+	tzUpdater     tzupdate.Service
 	tzPlanStore   TZPlanCallbackStore
 	allowedUserID int64
 	appDomain     string
@@ -71,7 +73,7 @@ type featureFlags struct {
 	Food       bool
 }
 
-func New(token string, allowedUserID int64, s *store.Store, foodAI domain.FoodAIService, activityAI domain.ActivityAIService) (*Bot, error) {
+func New(token string, allowedUserID int64, s *store.Store, foodAI domain.FoodAIService, activityAI domain.ActivityAIService, tzUpdater tzupdate.Service) (*Bot, error) {
 	api, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
 		return nil, err
@@ -105,6 +107,7 @@ func New(token string, allowedUserID int64, s *store.Store, foodAI domain.FoodAI
 		imports:          s,
 		notesSvc:         domain.NewNotesService(s),
 		timezone:         s,
+		tzUpdater:        tzUpdater,
 		tzPlanStore:      s,
 		allowedUserID:    allowedUserID,
 		appDomain:        appDomain,

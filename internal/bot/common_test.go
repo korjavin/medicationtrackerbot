@@ -80,6 +80,7 @@ func setupBotTestCustom(t *testing.T, handler func(path, body string) string) *b
 		reminderSvc:   domain.NewReminderService(s),
 		food:          s,
 		imports:       s,
+		tzUpdater:     &mockTZUpdater{},
 		allowedUserID: 123456,
 		httpClient:    &http.Client{Timeout: 30 * time.Second},
 	}
