@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"time"
@@ -25,7 +26,7 @@ func (b *Bot) handleTZCommand(chatID int64) {
 	markup.OneTimeKeyboard = true
 	markup.ResizeKeyboard = true
 
-	msg := tgbotapi.NewMessage(chatID, "Please share your location so I can detect your timezone. Your workout, BP, and weight reminders will be adjusted. Medication times are not affected.")
+	msg := tgbotapi.NewMessage(chatID, "Please share your location so I can detect your timezone. Your workout, BP, and weight reminders will be adjusted. If your timezone changed, I'll send a separate transition plan you can approve or reject to control when medication times shift.")
 	msg.ReplyMarkup = markup
 
 	if _, err := b.api.Send(msg); err != nil {
@@ -89,8 +90,9 @@ func (b *Bot) handleLocationMessage(msg *tgbotapi.Message) {
 		return
 	}
 
-	if err := b.timezone.RecordTimezone(tz); err != nil {
-		slog.Error("RecordTimezone failed", "tz", tz, "error", err)
+	planCreated, err := b.tzUpdater.UpdateTimezone(context.Background(), tz)
+	if err != nil {
+		slog.Error("UpdateTimezone failed", "tz", tz, "error", err)
 		restoreAwaiting()
 		reply := tgbotapi.NewMessage(msg.Chat.ID, "Error saving timezone. Please try again.")
 		if _, err := b.api.Send(reply); err != nil {
@@ -99,10 +101,19 @@ func (b *Bot) handleLocationMessage(msg *tgbotapi.Message) {
 		return
 	}
 
-	reply := tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf(
-		"Timezone set to %s. Your workout, BP, and weight reminders are now adjusted. Note: medication times are not affected.",
-		tz,
-	))
+	var body string
+	if planCreated {
+		body = fmt.Sprintf(
+			"Timezone set to %s. Workout, BP, and weight reminders are adjusted. I'll send a separate transition plan for your medication times — approve or reject it to control when doses shift.",
+			tz,
+		)
+	} else {
+		body = fmt.Sprintf(
+			"Timezone set to %s. Workout, BP, and weight reminders are adjusted.",
+			tz,
+		)
+	}
+	reply := tgbotapi.NewMessage(msg.Chat.ID, body)
 	reply.ReplyMarkup = tgbotapi.NewRemoveKeyboard(true)
 	if _, err := b.api.Send(reply); err != nil {
 		slog.Error("send failed", "error", err)

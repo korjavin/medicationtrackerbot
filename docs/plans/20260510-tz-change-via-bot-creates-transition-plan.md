@@ -174,7 +174,7 @@ Dependencies identified:
 - [x] run `go test ./internal/bot/...` and `go build ./...` — must pass
 
 ### Task 4: Route `handleLocationMessage` through the service + fix message
-- [ ] write/extend tests in `internal/bot/tz_commands_test.go`:
+- [x] write/extend tests in `internal/bot/tz_commands_test.go`:
       `TestHandleLocationMessage_PlanCreated_MessageMentionsApprovalPrompt`
       — service returns `planCreated=true`, confirmation message contains
       the new TZ and references the upcoming approval prompt, and does
@@ -184,16 +184,16 @@ Dependencies identified:
       baseline), confirmation message contains only the TZ-set acknowledgement
       and the workout/BP/weight line, with no mention of an approval
       prompt
-- [ ] update tests `TestHandleLocationMessage_RecordsTZ` and
+- [x] update tests `TestHandleLocationMessage_RecordsTZ` and
       `TestHandleLocationMessage_StoreError` to drive the new
       `tzupdate.Service` mock instead of `mockTimezoneStore`
-- [ ] in `internal/bot/tz_commands.go:92`, replace
+- [x] in `internal/bot/tz_commands.go:92`, replace
       `b.timezone.RecordTimezone(tz)` with
       `planCreated, err := b.tzUpdater.UpdateTimezone(ctx, tz)`
-- [ ] keep the existing tzlookup error / `time.LoadLocation` validation
+- [x] keep the existing tzlookup error / `time.LoadLocation` validation
       and the `restoreAwaiting` retry behaviour exactly as-is; only the
       persistence call changes
-- [ ] rewrite the confirmation message:
+- [x] rewrite the confirmation message:
       - `planCreated == true`:
         "Timezone set to {tz}. Workout, BP, and weight reminders are
         adjusted. I'll send a separate transition plan for your medication
@@ -201,10 +201,14 @@ Dependencies identified:
       - `planCreated == false`:
         "Timezone set to {tz}. Workout, BP, and weight reminders are
         adjusted."
-- [ ] drop the `b.timezone TimezoneStore` field if it has no remaining
+- [x] drop the `b.timezone TimezoneStore` field if it has no remaining
       callers (verify with grep); otherwise keep it and just stop using
-      `RecordTimezone` in this handler
-- [ ] run `go test ./internal/bot/...` — must pass
+      `RecordTimezone` in this handler — kept the field; `userLocation`
+      in `workout_commands.go` still calls `b.timezone.GetCurrentTimezone()`,
+      so removing it would break workout reminders. Also updated the
+      `/tz` keyboard prompt to drop the misleading "Medication times are
+      not affected." disclaimer (Task 5's grep covers it).
+- [x] run `go test ./internal/bot/...` — must pass
 
 ### Task 5: Verify acceptance criteria
 - [ ] re-read Overview: bot path creates a `PENDING_APPROVAL` plan, the
