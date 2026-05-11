@@ -48,6 +48,11 @@ func TestMigration057_BackfillsProductionTZFormats(t *testing.T) {
 		{"UTC", time.Date(2026, 5, 10, 15, 20, 0, 0, time.UTC)},
 		// PST: LA winter
 		{"PST", time.Date(2026, 1, 15, 9, 0, 0, 0, la)},
+		// Sub-second precision — CreateManualIntake writes scheduled_at = taken_at
+		// where taken_at originates from time.Now(); .Truncate(0) strips monotonic
+		// but preserves nanoseconds, and t.String() renders the fractional portion.
+		{"CEST.frac", time.Date(2026, 5, 10, 17, 20, 0, 123456789, berlin)},
+		{"CDT.frac", time.Date(2026, 5, 10, 9, 20, 0, 819544000, la)},
 	}
 
 	db, err := sql.Open("sqlite", ":memory:")

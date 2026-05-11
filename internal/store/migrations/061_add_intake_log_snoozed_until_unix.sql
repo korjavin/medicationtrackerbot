@@ -11,14 +11,18 @@
 --      this directly.
 --   2. Go t.String(), e.g. "2026-05-10 17:20:00 +0200 CEST". SQLite's date
 --      parser does NOT accept the trailing zone name or the un-colon'd
---      "+0200" offset; we reformat via substr (same trick as migrations
---      057/059).
---   3. Go t.String() WITH monotonic-clock residue, e.g.
---      "2026-05-10 17:20:00 +0200 CEST m=+201.247835759". The substr-based
---      fallback only consumes positions 1..25 of the string, so the trailing
---      monotonic suffix is ignored.
+--      "+0200" offset; we reformat via substr.
+--   3. Go t.String() WITH sub-second precision, e.g.
+--      "2026-05-10 17:20:00.123456789 +0200 CEST" — SnoozeIntake takes
+--      time.Now().Add(d), so the input typically carries nanoseconds. We
+--      locate the offset dynamically with instr() instead of assuming a
+--      fixed position, so the formula handles both with- and without-
+--      fractional variants.
+--   4. Go t.String() WITH monotonic-clock residue, e.g.
+--      "… +0200 CEST m=+201.247835759". The substr prefix stops at the
+--      offset, so trailing monotonic residue is ignored.
 -- The migration test (TestMigration061_BackfillsProductionSnoozedUntilFormats)
--- pins all three formats against every TZ name observed in prod.
+-- pins all formats against every TZ name observed in prod.
 ALTER TABLE intake_log ADD COLUMN snoozed_until_unix INTEGER;
 
 UPDATE intake_log SET snoozed_until_unix = CAST(
@@ -26,8 +30,8 @@ UPDATE intake_log SET snoozed_until_unix = CAST(
         strftime('%s', snoozed_until),
         strftime('%s',
             substr(snoozed_until, 1, 19) || ' ' ||
-            substr(snoozed_until, 21, 3) || ':' ||
-            substr(snoozed_until, 24, 2)
+            substr(snoozed_until, 20 + instr(substr(snoozed_until, 20), ' '), 3) || ':' ||
+            substr(snoozed_until, 20 + instr(substr(snoozed_until, 20), ' ') + 3, 2)
         )
     ) AS INTEGER
 ) WHERE snoozed_until IS NOT NULL;
