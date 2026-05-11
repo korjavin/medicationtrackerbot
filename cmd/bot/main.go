@@ -120,27 +120,9 @@ func main() {
 		slog.Info("AI food and activity logging disabled (no OPENAI variables set)")
 	}
 
-	// 3. Bot
-	// Construct the shared TZ-update service before the bot and the server so
-	// both transports serialize timezone changes through one mutex and apply
-	// the same plan-generation safety net.
-	tzPlanner := tzreschedule.NewPlannerService(s)
-	tzUpdater := tzupdate.NewService(s, s, tzPlanner, nil)
-
-	var tgBot *bot.Bot
-	if botToken != "" {
-		tgBot, err = bot.New(botToken, allowedUserID, s, foodAI, activityAI, tzUpdater)
-		if err != nil {
-			slog.Error("Failed to start bot", "error", err)
-			os.Exit(1)
-		}
-
-		// Start Bot Listener
-		go tgBot.Start()
-		slog.Info("Bot started")
-	}
-
-	// 4. VAPID config for Web Push
+	// 3. VAPID config for Web Push (built before the bot so the notifier set
+	// is finalised before the Telegram listener starts processing messages —
+	// see the notifier-presence gate in tzupdate.Service.)
 	vapidPublicKey := os.Getenv("VAPID_PUBLIC_KEY")
 	vapidPrivateKey := os.Getenv("VAPID_PRIVATE_KEY")
 	vapidSubject := os.Getenv("VAPID_SUBJECT")
@@ -150,10 +132,45 @@ func main() {
 		vapidDomain = os.Getenv("APP_DOMAIN")
 	}
 
-	// Create WebPush service (before server, so we can build notifiers independently)
 	var wpService *webpush.Service
 	if vapidPublicKey != "" && vapidPrivateKey != "" {
 		wpService = webpush.New(s, vapidPublicKey, vapidPrivateKey, vapidSubject, vapidAdminEmail, vapidDomain)
+	}
+
+	// 4. Bot
+	// Construct the shared TZ-update service before the bot and the server so
+	// both transports serialize timezone changes through one mutex and apply
+	// the same plan-generation safety net. The notifier slice is built below
+	// before tgBot.Start() so the closure passed to tzupdate.NewService
+	// always observes the finalised set — otherwise a queued /tz + location
+	// arriving during startup could race past an empty notifier slice and
+	// skip plan generation.
+	tzPlanner := tzreschedule.NewPlannerService(s)
+	var notifiers []notifier.Notifier
+	tzUpdater := tzupdate.NewService(s, s, tzPlanner, nil, func() bool { return len(notifiers) > 0 })
+
+	var tgBot *bot.Bot
+	if botToken != "" {
+		tgBot, err = bot.New(botToken, allowedUserID, s, foodAI, activityAI, tzUpdater)
+		if err != nil {
+			slog.Error("Failed to start bot", "error", err)
+			os.Exit(1)
+		}
+	}
+
+	// Build the notifier set BEFORE starting the bot listener so the
+	// tzupdate.Service notifier-presence gate observes the populated slice
+	// from the first incoming message onward.
+	if tgBot != nil {
+		notifiers = append(notifiers, notifier.NewTelegram(tgBot))
+	}
+	if wpService != nil {
+		notifiers = append(notifiers, notifier.NewWebPush(wpService))
+	}
+
+	if tgBot != nil {
+		go tgBot.Start()
+		slog.Info("Bot started")
 	}
 
 	// 5. Server
@@ -239,14 +256,9 @@ func main() {
 		srv.SetWorkoutInteractor(tgBot)
 	}
 
-	// Build notifiers slice (shared between server and scheduler)
-	var notifiers []notifier.Notifier
-	if tgBot != nil {
-		notifiers = append(notifiers, notifier.NewTelegram(tgBot))
-	}
-	if wpService != nil {
-		notifiers = append(notifiers, notifier.NewWebPush(wpService))
-	}
+	// `notifiers` is fully built before tgBot.Start() above so the tzupdate
+	// service's closure observes the finalised set from the first incoming
+	// message; share the same slice with the HTTP server and scheduler.
 	srv.SetNotifiers(notifiers)
 
 	// Always start scheduler (works with web push even without bot)

@@ -49,17 +49,23 @@ type service struct {
 	planBaseline PlanBaselineStore
 	planner      tzreschedule.PlannerService
 	now          func() time.Time
+	hasNotifiers func() bool
 	mu           sync.Mutex
 }
 
 // NewService constructs a Service. `planBaseline` may be nil — in that case
 // the service skips the baseline-revert path on RecordTimezone failure.
-// `now` may be nil — defaults to time.Now.
+// `now` may be nil — defaults to time.Now. `hasNotifiers` may be nil — when
+// nil the service always asks the planner to generate a plan; when set and
+// returning false the service skips plan generation and just records the new
+// timezone so the medication scheduler picks it up immediately rather than
+// briefly pinning to OldTZ until tz_plan_notifier cancels the orphan plan.
 func NewService(
 	settings SettingsStore,
 	planBaseline PlanBaselineStore,
 	planner tzreschedule.PlannerService,
 	now func() time.Time,
+	hasNotifiers func() bool,
 ) Service {
 	if now == nil {
 		now = time.Now
@@ -69,6 +75,7 @@ func NewService(
 		planBaseline: planBaseline,
 		planner:      planner,
 		now:          now,
+		hasNotifiers: hasNotifiers,
 	}
 }
 
@@ -84,13 +91,36 @@ func (s *service) UpdateTimezone(_ context.Context, newTZ string) (bool, error) 
 		return false, nil
 	}
 
+	// Synchronous gate: if no notification channel is configured, skip plan
+	// generation entirely and just record the new timezone. Otherwise the
+	// medication scheduler tick (medication.go pins userLoc to plan.OldTZ for
+	// PENDING_APPROVAL plans) could fire before tz_plan_notifier's tick
+	// cancels the undeliverable plan, briefly creating dose intakes under the
+	// old timezone wall-clock. Skipping creation up-front matches the previous
+	// web-handler behaviour and eliminates the race.
+	if s.planner != nil && s.hasNotifiers != nil && !s.hasNotifiers() {
+		if err := s.settings.RecordTimezone(newTZ); err != nil {
+			return false, fmt.Errorf("record timezone: %w", err)
+		}
+		return false, nil
+	}
+
 	// Capture the active plan's baseline before GenerateIfChanged cancels it.
 	// If RecordTimezone later fails we revert to this baseline so the scheduler
 	// doesn't continue on an unapproved intermediate timezone.
+	//
+	// When the planner is configured we MUST have the baseline before mutating
+	// state: GenerateIfChanged will cancel the current active plan, and a
+	// subsequent RecordTimezone failure with no captured baseline would leave
+	// no active plan while the stored timezone is still the unapproved
+	// intermediate value the scheduler must not honour.
 	var supersededBaseline string
 	if s.planBaseline != nil {
 		activePlan, planErr := s.planBaseline.GetLatestActiveOrPendingTZTransitionPlan()
 		if planErr != nil {
+			if s.planner != nil {
+				return false, fmt.Errorf("read superseded plan baseline: %w", planErr)
+			}
 			slog.Warn("tzupdate: failed to read superseded plan baseline, revert path will skip baseline restore",
 				"error", planErr)
 		} else if activePlan != nil {

@@ -249,7 +249,7 @@ func New(s *store.Store, botToken, sessionSecret string, allowedUserID int64, oi
 
 	// Default tzUpdater: bare RecordTimezone with no planner. SetTZPlanner /
 	// SetTZUpdater swap in a planner-aware service after construction.
-	srv.tzUpdater = tzupdate.NewService(srv.settings, srv.tzPlanStore, nil, nil)
+	srv.tzUpdater = tzupdate.NewService(srv.settings, srv.tzPlanStore, nil, nil, nil)
 
 	srv.initOAUTH()
 	return srv

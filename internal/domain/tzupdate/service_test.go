@@ -116,7 +116,7 @@ func TestService_HappyPath_PlanCreated(t *testing.T) {
 	baseline := &mockPlanBaseline{}
 	now := time.Date(2026, 5, 10, 12, 0, 0, 0, time.UTC)
 
-	svc := NewService(settings, baseline, planner, fixedNow(now))
+	svc := NewService(settings, baseline, planner, fixedNow(now), nil)
 
 	created, err := svc.UpdateTimezone(context.Background(), "Europe/Berlin")
 	if err != nil {
@@ -144,7 +144,7 @@ func TestService_HappyPath_PlanCreated(t *testing.T) {
 func TestService_NoOp_SameTZ(t *testing.T) {
 	settings := newMockSettings("Europe/Berlin")
 	planner := &mockPlanner{generateReturn: true}
-	svc := NewService(settings, &mockPlanBaseline{}, planner, time.Now)
+	svc := NewService(settings, &mockPlanBaseline{}, planner, time.Now, nil)
 
 	created, err := svc.UpdateTimezone(context.Background(), "Europe/Berlin")
 	if err != nil {
@@ -167,7 +167,7 @@ func TestService_PlannerSkipped_RecordStillCalled(t *testing.T) {
 	// new timezone so the user-visible change actually takes effect.
 	settings := newMockSettings("America/New_York")
 	planner := &mockPlanner{generateReturn: false}
-	svc := NewService(settings, &mockPlanBaseline{}, planner, time.Now)
+	svc := NewService(settings, &mockPlanBaseline{}, planner, time.Now, nil)
 
 	created, err := svc.UpdateTimezone(context.Background(), "America/Detroit")
 	if err != nil {
@@ -189,7 +189,7 @@ func TestService_PlannerError_DoesNotRecord(t *testing.T) {
 	settings := newMockSettings("America/New_York")
 	plannerErr := errors.New("boom")
 	planner := &mockPlanner{generateErr: plannerErr}
-	svc := NewService(settings, &mockPlanBaseline{}, planner, time.Now)
+	svc := NewService(settings, &mockPlanBaseline{}, planner, time.Now, nil)
 
 	created, err := svc.UpdateTimezone(context.Background(), "Europe/Berlin")
 	if err == nil {
@@ -225,7 +225,7 @@ func TestService_RecordError_AfterPlanCreated_RevertsBaseline(t *testing.T) {
 		},
 	}
 	planner := &mockPlanner{generateReturn: true}
-	svc := NewService(settings, baseline, planner, time.Now)
+	svc := NewService(settings, baseline, planner, time.Now, nil)
 
 	created, err := svc.UpdateTimezone(context.Background(), "Asia/Tokyo")
 	if err == nil {
@@ -258,6 +258,55 @@ func TestService_RecordError_AfterPlanCreated_RevertsBaseline(t *testing.T) {
 	}
 }
 
+func TestService_BaselineReadError_WithPlanner_DoesNotMutate(t *testing.T) {
+	// When a planner is configured, a transient baseline-read failure must abort
+	// the update before GenerateIfChanged cancels the active plan. Otherwise a
+	// subsequent RecordTimezone failure would have no captured baseline to
+	// revert to, leaving the scheduler with no active plan and the stored
+	// timezone pinned to an unapproved intermediate value.
+	settings := newMockSettings("America/New_York")
+	baseline := &mockPlanBaseline{err: errors.New("db transient")}
+	planner := &mockPlanner{generateReturn: true}
+	svc := NewService(settings, baseline, planner, time.Now, nil)
+
+	created, err := svc.UpdateTimezone(context.Background(), "Europe/Berlin")
+	if err == nil {
+		t.Fatalf("expected baseline read error to abort update")
+	}
+	if created {
+		t.Errorf("planCreated must be false on baseline read error")
+	}
+	if calls := planner.calls(); len(calls) != 0 {
+		t.Errorf("planner.GenerateIfChanged must not run when baseline read fails: %v", calls)
+	}
+	if cancels := planner.cancels(); len(cancels) != 0 {
+		t.Errorf("planner.CancelActivePlan must not run when baseline read fails: %v", cancels)
+	}
+	if rec := settings.recordedCalls(); len(rec) != 0 {
+		t.Errorf("RecordTimezone must not run when baseline read fails: %v", rec)
+	}
+}
+
+func TestService_BaselineReadError_NoPlanner_StillRecords(t *testing.T) {
+	// Without a planner, no plan mutations occur, so a baseline read failure is
+	// non-fatal — the service still records the new timezone (logging the warning).
+	settings := newMockSettings("America/New_York")
+	baseline := &mockPlanBaseline{err: errors.New("db transient")}
+	svc := NewService(settings, baseline, nil, time.Now, nil)
+
+	created, err := svc.UpdateTimezone(context.Background(), "Europe/Berlin")
+	if err != nil {
+		t.Fatalf("UpdateTimezone: %v", err)
+	}
+	if created {
+		t.Errorf("planCreated must be false without a planner")
+	}
+	rec := settings.recordedCalls()
+	if len(rec) != 1 || rec[0] != "Europe/Berlin" {
+		t.Errorf("RecordTimezone calls = %v, want [Europe/Berlin]", rec)
+	}
+}
+
 func TestService_RecordError_NoActivePlanBaseline_NoRevert(t *testing.T) {
 	// When there's no superseded baseline to revert to, RecordTimezone failure
 	// still triggers plan cancellation but no revert call.
@@ -266,7 +315,7 @@ func TestService_RecordError_NoActivePlanBaseline_NoRevert(t *testing.T) {
 	settings.recordErrs["Europe/Berlin"] = recordErr
 
 	planner := &mockPlanner{generateReturn: true}
-	svc := NewService(settings, &mockPlanBaseline{}, planner, time.Now)
+	svc := NewService(settings, &mockPlanBaseline{}, planner, time.Now, nil)
 
 	_, err := svc.UpdateTimezone(context.Background(), "Europe/Berlin")
 	if err == nil {
@@ -301,7 +350,7 @@ func TestService_ConcurrentUpdates_Serialize(t *testing.T) {
 	}
 
 	planner := &mockPlanner{generateReturn: true}
-	svc := NewService(settings, &mockPlanBaseline{}, planner, time.Now)
+	svc := NewService(settings, &mockPlanBaseline{}, planner, time.Now, nil)
 
 	ctx := context.Background()
 	errA := make(chan error, 1)
@@ -355,12 +404,90 @@ func TestService_ConcurrentUpdates_Serialize(t *testing.T) {
 	}
 }
 
+func TestService_NoNotifiers_SkipsPlanCreation(t *testing.T) {
+	// In a no-notifier deployment the user has no channel to receive an
+	// approval prompt. The previous web-handler synchronously skipped plan
+	// generation in this case so the medication scheduler picked up the new
+	// timezone immediately. The service must preserve that behaviour: with
+	// hasNotifiers returning false, the planner is NOT called and the new
+	// timezone is recorded directly. Otherwise the medication checker tick
+	// could observe a brief PENDING_APPROVAL plan and pin to OldTZ for up
+	// to one minute until tz_plan_notifier cancels the orphan.
+	settings := newMockSettings("America/New_York")
+	planner := &mockPlanner{generateReturn: true}
+	svc := NewService(settings, &mockPlanBaseline{}, planner, time.Now, func() bool { return false })
+
+	created, err := svc.UpdateTimezone(context.Background(), "Europe/Berlin")
+	if err != nil {
+		t.Fatalf("UpdateTimezone: %v", err)
+	}
+	if created {
+		t.Errorf("planCreated must be false when no notifiers are configured")
+	}
+	if calls := planner.calls(); len(calls) != 0 {
+		t.Errorf("planner.GenerateIfChanged must NOT run when hasNotifiers returns false: %v", calls)
+	}
+	rec := settings.recordedCalls()
+	if len(rec) != 1 || rec[0] != "Europe/Berlin" {
+		t.Errorf("RecordTimezone calls = %v, want [Europe/Berlin]", rec)
+	}
+}
+
+func TestService_HasNotifiers_PlanStillCreated(t *testing.T) {
+	// When hasNotifiers returns true the gate is open: planner runs and a
+	// plan is created exactly as in the default (nil-probe) configuration.
+	settings := newMockSettings("America/New_York")
+	planner := &mockPlanner{generateReturn: true}
+	svc := NewService(settings, &mockPlanBaseline{}, planner, time.Now, func() bool { return true })
+
+	created, err := svc.UpdateTimezone(context.Background(), "Europe/Berlin")
+	if err != nil {
+		t.Fatalf("UpdateTimezone: %v", err)
+	}
+	if !created {
+		t.Errorf("expected planCreated=true when hasNotifiers returns true")
+	}
+	if calls := planner.calls(); len(calls) != 1 {
+		t.Errorf("expected 1 planner call when notifiers are configured, got %v", calls)
+	}
+}
+
+func TestService_NoNotifiers_RecordError_Propagated(t *testing.T) {
+	// When the gate skips plan creation but RecordTimezone fails, the error
+	// must propagate. There's no plan to cancel (none was created) and no
+	// baseline to revert to (the planner-cancellation path that captures it
+	// was bypassed).
+	settings := newMockSettings("America/New_York")
+	recordErr := errors.New("disk full")
+	settings.recordErrs["Europe/Berlin"] = recordErr
+
+	planner := &mockPlanner{generateReturn: true}
+	svc := NewService(settings, &mockPlanBaseline{}, planner, time.Now, func() bool { return false })
+
+	created, err := svc.UpdateTimezone(context.Background(), "Europe/Berlin")
+	if err == nil {
+		t.Fatalf("expected RecordTimezone error to propagate")
+	}
+	if !errors.Is(err, recordErr) {
+		t.Errorf("error chain should wrap recordErr, got %v", err)
+	}
+	if created {
+		t.Errorf("planCreated must be false")
+	}
+	if calls := planner.calls(); len(calls) != 0 {
+		t.Errorf("planner must not be called when hasNotifiers returns false: %v", calls)
+	}
+	if cancels := planner.cancels(); len(cancels) != 0 {
+		t.Errorf("no plan was created so cancel must not be called: %v", cancels)
+	}
+}
+
 func TestService_GetCurrentTimezoneError_Propagated(t *testing.T) {
 	settings := newMockSettings("")
 	settings.getTZErr = errors.New("db down")
 
 	planner := &mockPlanner{generateReturn: true}
-	svc := NewService(settings, &mockPlanBaseline{}, planner, time.Now)
+	svc := NewService(settings, &mockPlanBaseline{}, planner, time.Now, nil)
 
 	created, err := svc.UpdateTimezone(context.Background(), "Europe/Berlin")
 	if err == nil {
