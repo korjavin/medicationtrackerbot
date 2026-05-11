@@ -71,10 +71,10 @@ Both sets represent `2026-05-10 15:20:00 UTC`. SQL `WHERE scheduled_at = '… MS
 
 ### Task 1: Document the convention; add the time-invariant test
 
-- [ ] add a comment block at the top of `internal/store/store.go` listing the dose-time columns that are (about to be) `INTEGER` unix-seconds-UTC: `intake_log.scheduled_at_unix`, `intake_log.taken_at_unix`, `intake_log.snoozed_until_unix`. State the read pattern (scan into `int64`, convert via `time.Unix(n, 0).UTC()`).
-- [ ] add a new "Time storage" subsection in `docs/architecture.md`. State the rule, point at the `store.go` comment as the audit anchor, and reference this plan and the May 8 plan as the design history.
-- [ ] write tests: `internal/store/store_time_invariants_test.go` — table-driven, for `t` constructed in `Europe/Berlin`, `America/Los_Angeles`, and `UTC`, asserts `time.Unix(t.Unix(), 0).UTC().Equal(t)`.
-- [ ] run `go test ./internal/store/...` — must pass before next task.
+- [x] add a comment block at the top of `internal/store/store.go` listing the dose-time columns that are (about to be) `INTEGER` unix-seconds-UTC: `intake_log.scheduled_at_unix`, `intake_log.taken_at_unix`, `intake_log.snoozed_until_unix`. State the read pattern (scan into `int64`, convert via `time.Unix(n, 0).UTC()`).
+- [x] add a new "Time storage" subsection in `docs/architecture.md`. State the rule, point at the `store.go` comment as the audit anchor, and reference this plan and the May 8 plan as the design history.
+- [x] write tests: `internal/store/store_time_invariants_test.go` — table-driven, for `t` constructed in `Europe/Berlin`, `America/Los_Angeles`, and `UTC`, asserts `time.Unix(t.Unix(), 0).UTC().Equal(t)`.
+- [x] run `go test ./internal/store/...` — must pass before next task.
 
 ### Task 2: Migration — add `intake_log.scheduled_at_unix`, backfill, dual-write
 
