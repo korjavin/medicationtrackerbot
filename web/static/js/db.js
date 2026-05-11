@@ -443,6 +443,21 @@ const MedicationStore = {
         return cache.data;
     },
 
+    // Cold-start hydration loader. Returns the full `{ data, timestamp }`
+    // record (TTL-checked) so DataStore.hydrateFromDexie can preserve the
+    // real fetched-at timestamp for the stale badge. Returns null if missing
+    // or expired — same TTL semantics as getCache().
+    async loadCache() {
+        const cache = await db.medication_cache.get('medications_list');
+        if (!cache) return null;
+        const age = Date.now() - cache.timestamp;
+        if (age > this.CACHE_TTL) {
+            await db.medication_cache.clear();
+            return null;
+        }
+        return { data: cache.data, timestamp: cache.timestamp };
+    },
+
     // Check if cache exists and is valid
     async isCacheValid() {
         const cache = await db.medication_cache.get('medications_list');
@@ -655,6 +670,20 @@ const ApiCache = {
     async set(key, data) {
         try {
             await db.api_cache.put({ id: key, timestamp: Date.now(), data });
+        } catch (e) {
+            console.warn('[ApiCache] Failed to save', key, e);
+        }
+    },
+
+    // Same as `set`, but stamps the row with the supplied timestamp instead of
+    // Date.now(). Used by DataStore.hydrateFromDexie so a cold-start primer
+    // from a long-lived Dexie table preserves the original fetch age — without
+    // it the stale badge would surface "Updated just now" for data that's
+    // actually hours old.
+    async setWithMeta(key, data, timestamp) {
+        try {
+            const ts = Number.isFinite(timestamp) ? timestamp : Date.now();
+            await db.api_cache.put({ id: key, timestamp: ts, data });
         } catch (e) {
             console.warn('[ApiCache] Failed to save', key, e);
         }

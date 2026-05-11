@@ -420,8 +420,49 @@ function hydrateFeatureSettingsFromBundle(bundle) {
     if (window.AppStore) window.AppStore.set('featureSettings', featureSettings);
 }
 
+// Cold-start preflight: seed DataStore with the previous session's
+// medications list from Dexie so any view that mounts before /api/bootstrap
+// resolves (offline relaunch, slow first response) renders planned doses
+// immediately. Gated on auth presence — Telegram initData OR a cached auth
+// state from a prior session — so a fully unauthenticated cold start does
+// not surface a former user's meds.
+async function hydrateMedicationsFromDexie() {
+    if (!window.DataStore?.hydrateFromDexie) return;
+    if (!window.MedTrackerDB?.MedicationStore?.loadCache) return;
+    const hasAuthPresence = !!userInitData
+        || (typeof getCachedAuthState === 'function' && !!getCachedAuthState());
+    if (!hasAuthPresence) return;
+    try {
+        const result = await window.DataStore.hydrateFromDexie(
+            'medications',
+            () => window.MedTrackerDB.MedicationStore.loadCache(),
+            { tags: ['medications'] }
+        );
+        if (result?.hydrated) {
+            // Keep the let-scoped `medications` mirror in sync so feature
+            // modules that read it directly (rather than via DataStore)
+            // see the seeded list before bootstrap returns.
+            const seeded = await window.DataStore.getCached('medications');
+            if (Array.isArray(seeded)) {
+                medications = seeded;
+                initialAuthLoad = true;
+            }
+        }
+    } catch (e) {
+        // Hydration must not block the auth flow, but swallowing silently leaves
+        // a diagnostic blind spot when IndexedDB itself is in a broken state
+        // (quota, schema mismatch, private-mode block). Log once and continue.
+        console.warn('[Hydrate] Dexie medications hydration failed', e);
+    }
+}
+
 // Check Auth Environment
 async function checkAuth() {
+    // Preflight Dexie hydration runs before any bootstrap fetch so a
+    // relaunch-while-offline already has the meds list in DataStore by the
+    // time the first switchTab() / Today tile / loadMeds() reads it.
+    await hydrateMedicationsFromDexie();
+
     if (userInitData) {
         // We are in Telegram, proceed as normal
         sessionStorage.removeItem('medtracker_auth_reload_in_progress');
@@ -1307,9 +1348,9 @@ async function _todayReadCaches(foodKey) {
             : null;
         const hoKey = healthOverviewCacheKey();
         if (readMeta) {
-            const keys = ['settings_bundle', 'next_intake', 'bp', 'weight', 'workout_next', hoKey, foodKey];
+            const keys = ['settings_bundle', 'next_intake', 'medications', 'bp', 'weight', 'workout_next', hoKey, foodKey];
             const metas = await Promise.all(keys.map(readMeta));
-            const [bundleM, nextIntakeM, bpM, weightM, workoutM, healthM, foodM] = metas;
+            const [bundleM, nextIntakeM, medsM, bpM, weightM, workoutM, healthM, foodM] = metas;
             if (bundleM?.data) {
                 bootstrap.features = bundleM.data.featureSettings || bootstrap.features;
                 bootstrap.settings = { food_targets: bundleM.data.foodTargets };
@@ -1332,6 +1373,19 @@ async function _todayReadCaches(foodKey) {
                     bootstrap.__next_intake_meta = {
                         fetchedAt: nextIntakeM.timestamp,
                         isStale: (Date.now() - nextIntakeM.timestamp) > NEXT_INTAKE_STALE_AFTER_MS
+                    };
+                }
+            }
+            // Medications list — feeds the Today next-dose tile's offline
+            // fallback when next_intake is missing or stale (the schedule
+            // parser is fully client-side, so the tile can compute its own
+            // upcoming dose from the cached list).
+            if (Array.isArray(medsM?.data)) {
+                bootstrap.medications = medsM.data;
+                if (Number.isFinite(medsM.timestamp)) {
+                    bootstrap.__medications_meta = {
+                        fetchedAt: medsM.timestamp,
+                        isStale: (Date.now() - medsM.timestamp) > NEXT_INTAKE_STALE_AFTER_MS
                     };
                 }
             }
@@ -1365,6 +1419,7 @@ async function _todayReadCaches(foodKey) {
             const keyFeatures = {
                 settings_bundle: null,
                 next_intake: 'medication',
+                medications: 'medication',
                 bp: 'bp',
                 weight: 'weight',
                 workout_next: 'workout',
@@ -1377,8 +1432,8 @@ async function _todayReadCaches(foodKey) {
                 trackTs(m.timestamp, { includeInOldest: isFeatureOn(keyFeatures[keys[i]]) });
             }
         } else if (window.DataStore && typeof window.DataStore.getCached === 'function') {
-            const keys = ['settings_bundle', 'next_intake', 'bp', 'weight', 'workout_next', hoKey, foodKey];
-            const [bundle, nextIntake, bp, weight, workout, health, food] = await Promise.all(
+            const keys = ['settings_bundle', 'next_intake', 'medications', 'bp', 'weight', 'workout_next', hoKey, foodKey];
+            const [bundle, nextIntake, meds, bp, weight, workout, health, food] = await Promise.all(
                 keys.map((k) => window.DataStore.getCached(k).catch(() => null))
             );
             if (bundle) {
@@ -1394,6 +1449,7 @@ async function _todayReadCaches(foodKey) {
                 }
             }
             if (nextIntake) bootstrap.next_intake = nextIntake;
+            if (Array.isArray(meds)) bootstrap.medications = meds;
             if (bp) {
                 bootstrap.bp = {
                     readings: bp.readingsRes || [],
@@ -1445,7 +1501,15 @@ async function _todayRender(foodKey) {
     const { bootstrap, swrCaches, latestCacheTimestamp, oldestCacheTimestamp, cardOrder } = await _todayReadCaches(foodKey);
     const online = typeof navigator !== 'undefined' ? navigator.onLine !== false : true;
     const nowMs = Date.now();
-    const state = window.TodayDashboard.aggregateToday(bootstrap, swrCaches, nowMs);
+    // Hand the schedule helpers to the aggregator so the meds tile can compute
+    // its own fallback next-dose from bootstrap.medications when next_intake is
+    // missing or stale (e.g. relaunch-while-offline). Helpers live on app.js as
+    // top-level functions so they're already on window — pass explicitly to
+    // keep today.js side-effect-free for tests.
+    const state = window.TodayDashboard.aggregateToday(bootstrap, swrCaches, nowMs, {
+        getNextScheduledDate: window.getNextScheduledDate,
+        parseMedicationSchedule: window.parseMedicationSchedule
+    });
     if (latestCacheTimestamp === null) {
         // No cached entry of any kind means bootstrap has never loaded on this
         // device — show the first-run "connect to load your day" message rather

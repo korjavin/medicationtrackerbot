@@ -208,10 +208,19 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// showArchived=true matches /api/medications?archived=true so the bootstrap
+	// payload is identical to the lazy fetch — clients seeding Dexie from
+	// bootstrap stay in sync with subsequent /api/medications requests.
+	// Degrade gracefully so a transient medications query failure doesn't 500
+	// the entire bootstrap (Today, BP, and Weight would otherwise blank too),
+	// but track the failure so we omit the field instead of returning [] —
+	// the frontend treats any array as authoritative and would clobber its
+	// Dexie-cached meds list, blanking offline meds for a transient DB blip.
 	medications, err := s.meds.ListMedications(true)
+	medicationsOK := true
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		slog.Error("bootstrap medications query failed", "error", err)
+		medicationsOK = false
 	}
 
 	historyDefault, err := s.meds.GetIntakeHistory(0, 3)
@@ -342,7 +351,6 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	response := map[string]any{
 		"cursor":          bootstrapCursor,
 		"features":        features,
-		"medications":     medications,
 		"history_default": historyDefault,
 		"bp": map[string]any{
 			"readings": bpReadings,
@@ -370,6 +378,12 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	// transient backend failure as an explicit reset.
 	if tabOrderOK {
 		response["settings"].(map[string]any)["tab_order"] = tabOrder
+	}
+	// Only include medications when the read succeeded. If it errored, omit
+	// the key so the client preserves its Dexie-cached meds list rather than
+	// treating an empty slice as authoritative and blanking offline meds.
+	if medicationsOK {
+		response["medications"] = medications
 	}
 	// Only include next_intake when the computation succeeded. If it errored,
 	// omit the key so the client can preserve its cached value rather than
