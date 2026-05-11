@@ -241,10 +241,21 @@ Dependencies identified:
       false disclaimer ever returns to the bot's confirmation message
 
 ### Task 6: Update CLAUDE.md / docs if needed
-- [ ] check `docs/architecture.md` and `docs/features.md` for any mention
+- [x] check `docs/architecture.md` and `docs/features.md` for any mention
       of the bot `/tz` flow vs web TZ flow — if the doc described them as
-      different, update; if not, no change needed
-- [ ] do not add a new doc unless a real reader-facing concept emerged
+      different, update; if not, no change needed — checked
+      `docs/architecture.md` (L51-53 tables generic, L95-115 Domain
+      Service Pattern selective list), `docs/features.md` (L53 per-med
+      shift policy generic), `docs/api.md` (L63-64 settings endpoint),
+      `docs/frontend.md`, `docs/installer.md`. None describe the bot
+      `/tz` flow as different from the web TZ flow — the previous
+      bot-skips-plan behaviour was an undocumented bug. The line
+      "Generated when the stored timezone changes" in architecture.md
+      L52 is now accurate for both transports. No change needed.
+- [x] do not add a new doc unless a real reader-facing concept emerged —
+      no new reader-facing concept; the cross-transport `tzupdate.Service`
+      is an internal refactor that preserves existing behaviour (web
+      already generated plans; bot now matches).
 
 ## Technical Details
 
