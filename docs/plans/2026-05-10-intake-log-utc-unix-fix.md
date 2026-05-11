@@ -130,9 +130,9 @@ Same pattern as Task 5 applied to `snoozed_until`. The medication reminder loop 
 
 ### Task 7: Lock in the invariant with an architecture test
 
-- [ ] add `internal/store/intake_log_time_columns_test.go`. Open a fresh in-memory DB, run all migrations, `PRAGMA table_info(intake_log)`, assert that `scheduled_at_unix`, `taken_at_unix`, `snoozed_until_unix` are declared `INTEGER` and that no `scheduled_at`/`taken_at`/`snoozed_until` text column survives.
-- [ ] update `CLAUDE.md` "Common Tasks → Adding a new health metric" with a sentence pointing at the unix-seconds-UTC rule for any new dose-like column.
-- [ ] run `go test ./...` — must pass before next task.
+- [x] add `internal/store/intake_log_time_columns_test.go`. Open a fresh in-memory DB, run all migrations, `PRAGMA table_info(intake_log)`, assert that `scheduled_at_unix`, `taken_at_unix`, `snoozed_until_unix` are declared `INTEGER` and that no `scheduled_at`/`taken_at`/`snoozed_until` text column survives.
+- [x] update `CLAUDE.md` "Common Tasks → Adding a new health metric" with a sentence pointing at the unix-seconds-UTC rule for any new dose-like column.
+- [x] run `go test ./...` — must pass before next task.
 
 ### Task 8: Verify acceptance criteria
 
