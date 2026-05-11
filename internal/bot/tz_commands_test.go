@@ -10,18 +10,8 @@ import (
 )
 
 type mockTimezoneStore struct {
-	recorded   []string
-	recordErr  error
 	currentTZ  string
 	currentErr error
-}
-
-func (m *mockTimezoneStore) RecordTimezone(tz string) error {
-	if m.recordErr != nil {
-		return m.recordErr
-	}
-	m.recorded = append(m.recorded, tz)
-	return nil
 }
 
 func (m *mockTimezoneStore) GetCurrentTimezone() (string, error) {
@@ -59,8 +49,8 @@ func TestHandleLocationMessage_RecordsTZ(t *testing.T) {
 	env := setupBotTest(t)
 	defer env.teardown()
 
-	ms := &mockTimezoneStore{}
-	env.b.timezone = ms
+	mu := &mockTZUpdater{}
+	env.b.tzUpdater = mu
 
 	// Simulate user having invoked /tz first
 	env.b.awaitingLocationChatID = 123
@@ -78,11 +68,12 @@ func TestHandleLocationMessage_RecordsTZ(t *testing.T) {
 
 	env.b.handleMessage(msg)
 
-	if len(ms.recorded) != 1 {
-		t.Fatalf("Expected 1 timezone recorded, got %d", len(ms.recorded))
+	calls := mu.recordedCalls()
+	if len(calls) != 1 {
+		t.Fatalf("Expected 1 UpdateTimezone call, got %d", len(calls))
 	}
-	if ms.recorded[0] != "Europe/Berlin" {
-		t.Errorf("Expected Europe/Berlin, got %q", ms.recorded[0])
+	if calls[0] != "Europe/Berlin" {
+		t.Errorf("Expected Europe/Berlin, got %q", calls[0])
 	}
 
 	select {
@@ -99,8 +90,8 @@ func TestHandleLocationMessage_StoreError(t *testing.T) {
 	env := setupBotTest(t)
 	defer env.teardown()
 
-	ms := &mockTimezoneStore{recordErr: errors.New("db error")}
-	env.b.timezone = ms
+	mu := &mockTZUpdater{err: errors.New("db error")}
+	env.b.tzUpdater = mu
 
 	// Simulate user having invoked /tz first
 	env.b.awaitingLocationChatID = 123
@@ -126,8 +117,92 @@ func TestHandleLocationMessage_StoreError(t *testing.T) {
 		t.Fatal("Expected an error message, but none was sent")
 	}
 
-	if len(ms.recorded) != 0 {
-		t.Errorf("Expected 0 recorded timezones on error, got %d", len(ms.recorded))
+	// Even though UpdateTimezone failed, the call should still have been recorded.
+	if calls := mu.recordedCalls(); len(calls) != 1 {
+		t.Errorf("Expected exactly 1 UpdateTimezone call (which returned error), got %d", len(calls))
+	}
+}
+
+func TestHandleLocationMessage_PlanCreated_MessageMentionsApprovalPrompt(t *testing.T) {
+	env := setupBotTest(t)
+	defer env.teardown()
+
+	mu := &mockTZUpdater{planCreated: true}
+	env.b.tzUpdater = mu
+
+	env.b.awaitingLocationChatID = 123
+	env.b.awaitingLocationExpiry = time.Now().Add(time.Hour)
+
+	msg := &tgbotapi.Message{
+		Chat: &tgbotapi.Chat{ID: 123},
+		Location: &tgbotapi.Location{
+			Latitude:  52.52,
+			Longitude: 13.40,
+		},
+		From: &tgbotapi.User{ID: 123456},
+	}
+
+	env.b.handleMessage(msg)
+
+	select {
+	case body := <-env.messageChan:
+		if !strings.Contains(body, "Europe/Berlin") {
+			t.Errorf("Expected message to contain new timezone, got: %q", body)
+		}
+		if !strings.Contains(body, "transition plan") {
+			t.Errorf("Expected message to reference the transition plan, got: %q", body)
+		}
+		if !strings.Contains(body, "approve") && !strings.Contains(body, "reject") {
+			t.Errorf("Expected message to reference approval/rejection, got: %q", body)
+		}
+		if strings.Contains(body, "medication times are not affected") {
+			t.Errorf("Confirmation must not contain the old (false) disclaimer, got: %q", body)
+		}
+	default:
+		t.Fatal("Expected a confirmation message, but none was sent")
+	}
+}
+
+func TestHandleLocationMessage_NoPlan_MessageDoesNotMentionPrompt(t *testing.T) {
+	env := setupBotTest(t)
+	defer env.teardown()
+
+	mu := &mockTZUpdater{planCreated: false}
+	env.b.tzUpdater = mu
+
+	env.b.awaitingLocationChatID = 123
+	env.b.awaitingLocationExpiry = time.Now().Add(time.Hour)
+
+	msg := &tgbotapi.Message{
+		Chat: &tgbotapi.Chat{ID: 123},
+		Location: &tgbotapi.Location{
+			Latitude:  52.52,
+			Longitude: 13.40,
+		},
+		From: &tgbotapi.User{ID: 123456},
+	}
+
+	env.b.handleMessage(msg)
+
+	select {
+	case body := <-env.messageChan:
+		if !strings.Contains(body, "Europe/Berlin") {
+			t.Errorf("Expected message to contain timezone, got: %q", body)
+		}
+		if !strings.Contains(body, "Workout") && !strings.Contains(body, "workout") {
+			t.Errorf("Expected message to mention adjusted reminders, got: %q", body)
+		}
+		if strings.Contains(body, "transition plan") {
+			t.Errorf("No-plan branch must not reference a transition plan, got: %q", body)
+		}
+		if strings.Contains(body, "approve") || strings.Contains(body, "reject") {
+			t.Errorf("No-plan branch must not reference approval/rejection, got: %q", body)
+		}
+		if strings.Contains(body, "medication times are not affected") {
+			t.Errorf("Confirmation must not contain the old (false) disclaimer, got: %q", body)
+		}
+	default:
+		t.Fatal("Expected a confirmation message, but none was sent")
 	}
 }
 
@@ -135,8 +210,8 @@ func TestHandleLocationMessage_IgnoredWithoutTZCommand(t *testing.T) {
 	env := setupBotTest(t)
 	defer env.teardown()
 
-	ms := &mockTimezoneStore{}
-	env.b.timezone = ms
+	mu := &mockTZUpdater{}
+	env.b.tzUpdater = mu
 
 	// No /tz command issued — awaitingLocation is false
 	msg := &tgbotapi.Message{
@@ -150,8 +225,8 @@ func TestHandleLocationMessage_IgnoredWithoutTZCommand(t *testing.T) {
 
 	env.b.handleMessage(msg)
 
-	if len(ms.recorded) != 0 {
-		t.Errorf("Expected no timezone recorded for unsolicited location, got %d", len(ms.recorded))
+	if calls := mu.recordedCalls(); len(calls) != 0 {
+		t.Errorf("Expected no UpdateTimezone calls for unsolicited location, got %d", len(calls))
 	}
 	select {
 	case body := <-env.messageChan:
@@ -165,8 +240,8 @@ func TestHandleLocationMessage_InvalidCoords(t *testing.T) {
 	env := setupBotTest(t)
 	defer env.teardown()
 
-	ms := &mockTimezoneStore{}
-	env.b.timezone = ms
+	mu := &mockTZUpdater{}
+	env.b.tzUpdater = mu
 
 	// Simulate user having invoked /tz first
 	env.b.awaitingLocationChatID = 123
@@ -187,15 +262,16 @@ func TestHandleLocationMessage_InvalidCoords(t *testing.T) {
 	// Should send some message (either error or a valid ocean tz)
 	select {
 	case body := <-env.messageChan:
-		if len(ms.recorded) == 0 {
+		calls := mu.recordedCalls()
+		if len(calls) == 0 {
 			// No timezone found - should be an error/retry message
 			if !strings.Contains(body, "not") && !strings.Contains(body, "error") && !strings.Contains(body, "Error") && !strings.Contains(body, "Could not") {
 				t.Errorf("Expected error message for no-timezone case, got: %q", body)
 			}
 		} else {
 			// Timezone was found - confirmation should contain the tz name
-			if !strings.Contains(body, ms.recorded[0]) {
-				t.Errorf("Expected confirmation with tz %q, got: %q", ms.recorded[0], body)
+			if !strings.Contains(body, calls[0]) {
+				t.Errorf("Expected confirmation with tz %q, got: %q", calls[0], body)
 			}
 		}
 	default:
@@ -207,8 +283,8 @@ func TestHandleLocationMessage_IgnoredFromDifferentChat(t *testing.T) {
 	env := setupBotTest(t)
 	defer env.teardown()
 
-	ms := &mockTimezoneStore{}
-	env.b.timezone = ms
+	mu := &mockTZUpdater{}
+	env.b.tzUpdater = mu
 
 	// /tz was invoked in chat 123
 	env.b.awaitingLocationChatID = 123
@@ -226,8 +302,8 @@ func TestHandleLocationMessage_IgnoredFromDifferentChat(t *testing.T) {
 
 	env.b.handleMessage(msg)
 
-	if len(ms.recorded) != 0 {
-		t.Errorf("Expected no timezone recorded for location from different chat, got %d", len(ms.recorded))
+	if calls := mu.recordedCalls(); len(calls) != 0 {
+		t.Errorf("Expected no UpdateTimezone calls for location from different chat, got %d", len(calls))
 	}
 	select {
 	case body := <-env.messageChan:

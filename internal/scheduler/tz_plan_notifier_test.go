@@ -22,9 +22,10 @@ type mockTZPlanNotifierStore struct {
 	resetToPendingID  int64
 	resetToPendingErr error
 	// Captures calls to UpdateTZTransitionPlanStatus.
-	updatedPlanID     int64
-	updatedStatus     string
-	updatedUserAction string
+	updatedPlanID        int64
+	updatedStatus        string
+	updatedUserAction    string
+	updatedExpectedState string
 	// Captures calls to SetTZTransitionPlanApproved.
 	approvedPlanID int64
 	approvedOK     bool
@@ -45,10 +46,11 @@ func (m *mockTZPlanNotifierStore) ResetPlanToPending(id int64) error {
 	return m.resetToPendingErr
 }
 
-func (m *mockTZPlanNotifierStore) UpdateTZTransitionPlanStatus(id int64, newStatus, userAction, _ string) error {
+func (m *mockTZPlanNotifierStore) UpdateTZTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error {
 	m.updatedPlanID = id
 	m.updatedStatus = newStatus
 	m.updatedUserAction = userAction
+	m.updatedExpectedState = expectedStatus
 	return nil
 }
 
@@ -441,6 +443,51 @@ func TestTZPlanNotifier_SendFailure_ResetsToPending(t *testing.T) {
 	}
 }
 
+func TestTZPlanNotifier_NoNotifiersConfigured_CancelsPlan(t *testing.T) {
+	// With no notifiers in the slice (web-only deployment without WebPush) the
+	// plan can never be delivered. Cancel it so the medication scheduler picks
+	// up the new timezone immediately rather than pinning to OldTZ for 72h
+	// until the PENDING_APPROVAL safety-net auto-approval kicks in.
+	ms := &mockTZPlanNotifierStore{
+		plan: &store.TZTransitionPlan{
+			ID:        8,
+			OldTZ:     "UTC",
+			NewTZ:     "Europe/Berlin",
+			Status:    "PENDING_APPROVAL",
+			CreatedAt: time.Now(),
+		},
+	}
+	notif := &TZPlanNotifier{
+		NotifyHelper: NotifyHelper{
+			notifiers:     nil,
+			allowedUserID: 42,
+		},
+		store: ms,
+	}
+
+	if err := notif.Check(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ms.updatedPlanID != 8 {
+		t.Errorf("expected UpdateTZTransitionPlanStatus called with plan ID 8, got %d", ms.updatedPlanID)
+	}
+	if ms.updatedStatus != "CANCELLED" {
+		t.Errorf("expected plan to be CANCELLED, got %q", ms.updatedStatus)
+	}
+	if ms.updatedUserAction != "no-notifiers-configured" {
+		t.Errorf("expected user_action 'no-notifiers-configured', got %q", ms.updatedUserAction)
+	}
+	// Guard must be PENDING_APPROVAL so a concurrent web-banner approve/reject
+	// that wins the race isn't clobbered by CANCELLED.
+	if ms.updatedExpectedState != "PENDING_APPROVAL" {
+		t.Errorf("expected expectedStatus 'PENDING_APPROVAL', got %q", ms.updatedExpectedState)
+	}
+	// MarkPlanNotified must not be called when the plan is cancelled upfront.
+	if ms.markNotifiedID != 0 {
+		t.Errorf("expected MarkPlanNotified not called, got plan ID %d", ms.markNotifiedID)
+	}
+}
+
 func TestTZPlanNotifier_NoDeliveryChannel_CancelsPlan(t *testing.T) {
 	// When all notifiers return ErrNoDeliveryChannel, the plan must be cancelled
 	// so the medication scheduler uses the new timezone immediately — consistent
@@ -476,5 +523,11 @@ func TestTZPlanNotifier_NoDeliveryChannel_CancelsPlan(t *testing.T) {
 	}
 	if ms.updatedUserAction != "no-delivery-channel" {
 		t.Errorf("expected user_action 'no-delivery-channel', got %q", ms.updatedUserAction)
+	}
+	// MarkPlanNotified moved the plan to NOTIFIED before the send attempt, so
+	// the guard must be "NOTIFIED" — otherwise a concurrent web-banner approval
+	// (which accepts NOTIFIED) could be clobbered by CANCELLED.
+	if ms.updatedExpectedState != "NOTIFIED" {
+		t.Errorf("expected expectedStatus 'NOTIFIED', got %q", ms.updatedExpectedState)
 	}
 }
