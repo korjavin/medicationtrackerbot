@@ -103,6 +103,8 @@ go run ./cmd/seeddemo -user <telegram_user_id> -db meds.db -days 90 -wipe -seed 
 6. Add frontend UI in `web/static/`
 7. Add scheduler logic in `internal/scheduler/` if reminders are needed
 
+Any new dose-like timestamp column (one that participates in SQL equality — dedupe, lookup by instant, etc.) must be stored as `INTEGER` unix-seconds-UTC, not as `DATETIME` text. Normalize via `t.UTC().Unix()` at the writer and `time.Unix(n, 0).UTC()` at the reader. See [docs/architecture.md → Time storage](docs/architecture.md#time-storage); the convention is enforced for `intake_log` by `internal/store/intake_log_time_columns_test.go`.
+
 ### Adding an MCP tool
 
 For most new backend capabilities, prefer adding an entry to the operation registry (`internal/mcp/registry/`) so it becomes reachable from `mcp_execute` Python scripts via the proxy → bridge path — no new MCP tool registration required. Only add a top-level MCP tool when a granular tool has a clear standalone use case (e.g., `workout_log`'s natural-language inference). See [docs/mcp-deployment.md](docs/mcp-deployment.md#adding-mcp-tools), [docs/mcp-python-executor.md](docs/mcp-python-executor.md), and [docs/mcp-coverage.md](docs/mcp-coverage.md).
