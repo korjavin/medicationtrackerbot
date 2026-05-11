@@ -646,7 +646,9 @@ func (s *Store) UpdateIntake(id int64, takenAt time.Time, status string) error {
 }
 
 func (s *Store) SnoozeIntake(id int64, snoozeUntil time.Time) error {
-	res, err := s.db.Exec("UPDATE intake_log SET snoozed_until = ? WHERE id = ? AND status = 'PENDING'", snoozeUntil, id)
+	snoozeUntil = snoozeUntil.Truncate(0)
+	res, err := s.db.Exec("UPDATE intake_log SET snoozed_until_unix = ? WHERE id = ? AND status = 'PENDING'",
+		snoozeUntil.UTC().Unix(), id)
 	if err != nil {
 		return err
 	}
@@ -661,7 +663,7 @@ func (s *Store) SnoozeIntake(id int64, snoozeUntil time.Time) error {
 }
 
 func (s *Store) GetPendingIntakes() ([]IntakeLog, error) {
-	rows, err := s.db.Query("SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until FROM intake_log WHERE status = 'PENDING'")
+	rows, err := s.db.Query("SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until_unix FROM intake_log WHERE status = 'PENDING'")
 	if err != nil {
 		return nil, err
 	}
@@ -671,17 +673,22 @@ func (s *Store) GetPendingIntakes() ([]IntakeLog, error) {
 	for rows.Next() {
 		var l IntakeLog
 		var schedUnix int64
-		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &l.Status, &l.SnoozedUntil); err != nil {
+		var snoozeUnix sql.NullInt64
+		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &l.Status, &snoozeUnix); err != nil {
 			return nil, err
 		}
 		l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
+		if snoozeUnix.Valid {
+			t := time.Unix(snoozeUnix.Int64, 0).UTC()
+			l.SnoozedUntil = &t
+		}
 		logs = append(logs, l)
 	}
 	return logs, nil
 }
 
 func (s *Store) GetTakenIntakesBySchedule(userID int64, scheduledAt time.Time) ([]IntakeLog, error) {
-	rows, err := s.db.Query("SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until FROM intake_log WHERE user_id = ? AND scheduled_at_unix = ? AND status = 'TAKEN'", userID, scheduledAt.UTC().Unix())
+	rows, err := s.db.Query("SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until_unix FROM intake_log WHERE user_id = ? AND scheduled_at_unix = ? AND status = 'TAKEN'", userID, scheduledAt.UTC().Unix())
 	if err != nil {
 		return nil, err
 	}
@@ -690,17 +697,22 @@ func (s *Store) GetTakenIntakesBySchedule(userID int64, scheduledAt time.Time) (
 	for rows.Next() {
 		var l IntakeLog
 		var schedUnix int64
-		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &l.Status, &l.SnoozedUntil); err != nil {
+		var snoozeUnix sql.NullInt64
+		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &l.Status, &snoozeUnix); err != nil {
 			return nil, err
 		}
 		l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
+		if snoozeUnix.Valid {
+			t := time.Unix(snoozeUnix.Int64, 0).UTC()
+			l.SnoozedUntil = &t
+		}
 		logs = append(logs, l)
 	}
 	return logs, nil
 }
 
 func (s *Store) GetIntakeHistory(medID int, days int) ([]IntakeLog, error) {
-	query := "SELECT id, medication_id, user_id, scheduled_at_unix, taken_at_unix, status, snoozed_until FROM intake_log WHERE 1=1"
+	query := "SELECT id, medication_id, user_id, scheduled_at_unix, taken_at_unix, status, snoozed_until_unix FROM intake_log WHERE 1=1"
 	args := []interface{}{}
 
 	if medID > 0 {
@@ -727,13 +739,18 @@ func (s *Store) GetIntakeHistory(medID int, days int) ([]IntakeLog, error) {
 		var l IntakeLog
 		var schedUnix int64
 		var takenUnix sql.NullInt64
-		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &takenUnix, &l.Status, &l.SnoozedUntil); err != nil {
+		var snoozeUnix sql.NullInt64
+		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &takenUnix, &l.Status, &snoozeUnix); err != nil {
 			return nil, err
 		}
 		l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
 		if takenUnix.Valid {
 			t := time.Unix(takenUnix.Int64, 0).UTC()
 			l.TakenAt = &t
+		}
+		if snoozeUnix.Valid {
+			t := time.Unix(snoozeUnix.Int64, 0).UTC()
+			l.SnoozedUntil = &t
 		}
 		logs = append(logs, l)
 	}
@@ -744,8 +761,9 @@ func (s *Store) GetIntake(id int64) (*IntakeLog, error) {
 	var l IntakeLog
 	var schedUnix int64
 	var takenUnix sql.NullInt64
-	err := s.db.QueryRow("SELECT id, medication_id, user_id, scheduled_at_unix, taken_at_unix, status, snoozed_until FROM intake_log WHERE id = ?", id).Scan(
-		&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &takenUnix, &l.Status, &l.SnoozedUntil,
+	var snoozeUnix sql.NullInt64
+	err := s.db.QueryRow("SELECT id, medication_id, user_id, scheduled_at_unix, taken_at_unix, status, snoozed_until_unix FROM intake_log WHERE id = ?", id).Scan(
+		&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &takenUnix, &l.Status, &snoozeUnix,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil // Not found
@@ -758,6 +776,10 @@ func (s *Store) GetIntake(id int64) (*IntakeLog, error) {
 		t := time.Unix(takenUnix.Int64, 0).UTC()
 		l.TakenAt = &t
 	}
+	if snoozeUnix.Valid {
+		t := time.Unix(snoozeUnix.Int64, 0).UTC()
+		l.SnoozedUntil = &t
+	}
 	return &l, nil
 }
 
@@ -765,8 +787,9 @@ func (s *Store) GetIntakeBySchedule(medID int64, scheduledAt time.Time) (*Intake
 	var l IntakeLog
 	var schedUnix int64
 	var takenUnix sql.NullInt64
-	err := s.db.QueryRow("SELECT id, medication_id, user_id, scheduled_at_unix, taken_at_unix, status, snoozed_until FROM intake_log WHERE medication_id = ? AND scheduled_at_unix = ?", medID, scheduledAt.UTC().Unix()).Scan(
-		&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &takenUnix, &l.Status, &l.SnoozedUntil,
+	var snoozeUnix sql.NullInt64
+	err := s.db.QueryRow("SELECT id, medication_id, user_id, scheduled_at_unix, taken_at_unix, status, snoozed_until_unix FROM intake_log WHERE medication_id = ? AND scheduled_at_unix = ?", medID, scheduledAt.UTC().Unix()).Scan(
+		&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &takenUnix, &l.Status, &snoozeUnix,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -778,6 +801,10 @@ func (s *Store) GetIntakeBySchedule(medID int64, scheduledAt time.Time) (*Intake
 	if takenUnix.Valid {
 		t := time.Unix(takenUnix.Int64, 0).UTC()
 		l.TakenAt = &t
+	}
+	if snoozeUnix.Valid {
+		t := time.Unix(snoozeUnix.Int64, 0).UTC()
+		l.SnoozedUntil = &t
 	}
 	return &l, nil
 }
@@ -810,7 +837,7 @@ func (s *Store) BatchGetIntakesBySchedule(schedules []MedicationSchedule) (map[M
 		}
 
 		query := fmt.Sprintf(
-			"SELECT id, medication_id, user_id, scheduled_at_unix, taken_at_unix, status, snoozed_until FROM intake_log WHERE (medication_id, scheduled_at_unix) IN (%s)",
+			"SELECT id, medication_id, user_id, scheduled_at_unix, taken_at_unix, status, snoozed_until_unix FROM intake_log WHERE (medication_id, scheduled_at_unix) IN (%s)",
 			strings.Join(placeholders, ", "),
 		)
 
@@ -823,8 +850,9 @@ func (s *Store) BatchGetIntakesBySchedule(schedules []MedicationSchedule) (map[M
 			var l IntakeLog
 			var schedUnix int64
 			var takenUnix sql.NullInt64
+			var snoozeUnix sql.NullInt64
 			err := rows.Scan(
-				&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &takenUnix, &l.Status, &l.SnoozedUntil,
+				&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &takenUnix, &l.Status, &snoozeUnix,
 			)
 			if err != nil {
 				rows.Close()
@@ -834,6 +862,10 @@ func (s *Store) BatchGetIntakesBySchedule(schedules []MedicationSchedule) (map[M
 			if takenUnix.Valid {
 				t := time.Unix(takenUnix.Int64, 0).UTC()
 				l.TakenAt = &t
+			}
+			if snoozeUnix.Valid {
+				t := time.Unix(snoozeUnix.Int64, 0).UTC()
+				l.SnoozedUntil = &t
 			}
 			// Key by UTC. Callers that look up with a non-UTC ScheduledAt
 			// must convert via .UTC() — the scheduler dedupe path already
@@ -956,7 +988,7 @@ func (s *Store) GetBatchIntakeReminders(intakeIDs []int64) (map[int64][]int, err
 // time.Location.
 func (s *Store) GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time) ([]IntakeLog, error) {
 	rows, err := s.db.Query(
-		`SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until
+		`SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until_unix
 		 FROM intake_log
 		 WHERE user_id = ? AND status = 'PENDING'
 		   AND scheduled_at_unix = ?
@@ -971,10 +1003,15 @@ func (s *Store) GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time)
 	for rows.Next() {
 		var l IntakeLog
 		var schedUnix int64
-		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &l.Status, &l.SnoozedUntil); err != nil {
+		var snoozeUnix sql.NullInt64
+		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &l.Status, &snoozeUnix); err != nil {
 			return nil, err
 		}
 		l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
+		if snoozeUnix.Valid {
+			t := time.Unix(snoozeUnix.Int64, 0).UTC()
+			l.SnoozedUntil = &t
+		}
 		logs = append(logs, l)
 	}
 	if err := rows.Err(); err != nil {
@@ -984,7 +1021,7 @@ func (s *Store) GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time)
 }
 
 func (s *Store) GetPendingIntakesForMedication(medID int64) ([]IntakeLog, error) {
-	rows, err := s.db.Query("SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until FROM intake_log WHERE medication_id = ? AND status = 'PENDING'", medID)
+	rows, err := s.db.Query("SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until_unix FROM intake_log WHERE medication_id = ? AND status = 'PENDING'", medID)
 	if err != nil {
 		return nil, err
 	}
@@ -993,10 +1030,15 @@ func (s *Store) GetPendingIntakesForMedication(medID int64) ([]IntakeLog, error)
 	for rows.Next() {
 		var l IntakeLog
 		var schedUnix int64
-		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &l.Status, &l.SnoozedUntil); err != nil {
+		var snoozeUnix sql.NullInt64
+		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &l.Status, &snoozeUnix); err != nil {
 			return nil, err
 		}
 		l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
+		if snoozeUnix.Valid {
+			t := time.Unix(snoozeUnix.Int64, 0).UTC()
+			l.SnoozedUntil = &t
+		}
 		logs = append(logs, l)
 	}
 	return logs, nil
@@ -1102,7 +1144,7 @@ func (s *Store) SetBPGoal(targetSystolic, targetDiastolic int) error {
 func (s *Store) GetIntakesSince(since time.Time) ([]IntakeWithMedication, error) {
 	query := `
 		SELECT
-			il.id, il.medication_id, il.user_id, il.scheduled_at_unix, il.taken_at_unix, il.status, il.snoozed_until,
+			il.id, il.medication_id, il.user_id, il.scheduled_at_unix, il.taken_at_unix, il.status, il.snoozed_until_unix,
 			m.name AS medication_name, m.dosage AS medication_dosage
 		FROM intake_log il
 		JOIN medications m ON il.medication_id = m.id
@@ -1120,13 +1162,18 @@ func (s *Store) GetIntakesSince(since time.Time) ([]IntakeWithMedication, error)
 		var l IntakeWithMedication
 		var schedUnix int64
 		var takenUnix sql.NullInt64
-		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &takenUnix, &l.Status, &l.SnoozedUntil, &l.MedicationName, &l.MedicationDosage); err != nil {
+		var snoozeUnix sql.NullInt64
+		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &takenUnix, &l.Status, &snoozeUnix, &l.MedicationName, &l.MedicationDosage); err != nil {
 			return nil, err
 		}
 		l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
 		if takenUnix.Valid {
 			t := time.Unix(takenUnix.Int64, 0).UTC()
 			l.TakenAt = &t
+		}
+		if snoozeUnix.Valid {
+			t := time.Unix(snoozeUnix.Int64, 0).UTC()
+			l.SnoozedUntil = &t
 		}
 		logs = append(logs, l)
 	}
