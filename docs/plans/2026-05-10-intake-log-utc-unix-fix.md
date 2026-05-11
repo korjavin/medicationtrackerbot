@@ -145,9 +145,9 @@ Same pattern as Task 5 applied to `snoozed_until`. The medication reminder loop 
 
 ### Task 9: Update documentation
 
-- [ ] update `docs/architecture.md` "Time storage" subsection to reflect the shipped state (columns present, conventions enforced by `intake_log_time_columns_test.go`).
-- [ ] update `docs/plans/20260508-simplify-medication-scheduling-utc-and-pre-materialized-steps.md` — mark Track A Tasks 1–6 as superseded by this plan; leave Tasks 7–8 (plan lifecycle columns) and Track D as the remaining scope.
-- [ ] cross-link this plan from the May 8 plan and vice versa.
+- [x] update `docs/architecture.md` "Time storage" subsection to reflect the shipped state (columns present, conventions enforced by `intake_log_time_columns_test.go`). Tightened the architecture-test reference to the shipped state and explicitly call out that the test fails on regression of the legacy text columns.
+- [x] update `docs/plans/20260508-simplify-medication-scheduling-utc-and-pre-materialized-steps.md` — mark Track A Tasks 1–6 as superseded by this plan; leave Tasks 7–8 (plan lifecycle columns) and Track D as the remaining scope. Added a status banner at the top of the May 8 plan and a "— SUPERSEDED by 2026-05-10 plan" suffix on each of Tasks 1–6's headers. Note: Task 8 in the May 8 plan is partially superseded — its `intake_log`-scoped doc + test work is done; its allowlist will need to be extended to the `tz_transition_plans` columns once Task 7 ships.
+- [x] cross-link this plan from the May 8 plan and vice versa. The May 8 plan's status banner now links here; this plan already linked the May 8 plan from Overview, Context, and Design history sections.
 
 ## Technical Details
 
