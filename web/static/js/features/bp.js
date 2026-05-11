@@ -147,6 +147,12 @@ async function loadBPReadings() {
             loadBPReadings();
         }
     });
+    // Tracks whether any callback (cached / fresh / error) painted the list.
+    // When all three miss \u2014 apiCall returns null silently on offline and there's
+    // no api_cache row \u2014 `loadSWR` resolves without ever firing onCached,
+    // onFresh, or onError. Fall back to an explicit empty-state below so the
+    // user sees the same offline message the onError branch already renders.
+    let renderedSomething = false;
     await window.DataStore.loadSWR({
         key: 'bp',
         tags: ['bp'],
@@ -163,21 +169,30 @@ async function loadBPReadings() {
             return { readingsRes, goalRes, statsRes };
         },
         onCached: async (cached) => {
+            renderedSomething = true;
             await _renderBPData(cached.readingsRes, cached.goalRes, cached.statsRes);
             await renderBPStaleBadge();
         },
         onFresh: async (fresh) => {
+            renderedSomething = true;
             await _renderBPData(fresh.readingsRes, fresh.goalRes, fresh.statsRes);
             await renderBPStaleBadge();
         },
         onError: async (e, cached) => {
             console.error('Failed to load BP data:', e);
-            if (!cached && list) {
+            if (cached) {
+                renderedSomething = true;
+            } else if (list) {
+                renderedSomething = true;
                 list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
             }
             await renderBPStaleBadge();
         }
     });
+    if (!renderedSomething && list) {
+        list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
+        await renderBPStaleBadge();
+    }
 }
 
 // Mounts the wg-stale-badge into the BP section header from the api_cache
