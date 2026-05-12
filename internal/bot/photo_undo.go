@@ -39,6 +39,11 @@ func newUndoBatchStore() *undoBatchStore {
 }
 
 // put stores entry under a freshly minted token and returns the token.
+//
+// Expired entries are swept on the way in. The expireUndoBatch timer normally
+// consumes entries before they reach the TTL, but if the bot's Send fails
+// after put or the setMessageID race loses, the entry would otherwise persist
+// until process restart.
 func (s *undoBatchStore) put(entry undoBatchEntry) (string, error) {
 	token, err := newUndoBatchToken()
 	if err != nil {
@@ -46,11 +51,22 @@ func (s *undoBatchStore) put(entry undoBatchEntry) (string, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.gcExpiredLocked(s.now())
 	if entry.expiresAt.IsZero() {
 		entry.expiresAt = s.now().Add(undoBatchTTL)
 	}
 	s.entries[token] = entry
 	return token, nil
+}
+
+// gcExpiredLocked removes any entries whose expiresAt is at or before now.
+// The caller must hold s.mu.
+func (s *undoBatchStore) gcExpiredLocked(now time.Time) {
+	for token, entry := range s.entries {
+		if !entry.expiresAt.IsZero() && !now.Before(entry.expiresAt) {
+			delete(s.entries, token)
+		}
+	}
 }
 
 // take returns the entry stored under token and removes it. Returns ok=false

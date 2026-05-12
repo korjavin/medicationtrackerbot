@@ -42,6 +42,12 @@ func newPendingPhotoStore() *pendingPhotoStore {
 // put stores entry under a freshly minted token and returns the token. The
 // caller is expected to embed the token in callback_data; later, the callback
 // handler calls take(token) to retrieve and consume the entry.
+//
+// As a side effect, expired entries are swept from the map. The pending photo
+// payload includes the raw image bytes (up to maxFoodPhotoBytes), so without
+// this sweep an abandoned prompt would keep the bytes alive until process
+// restart. Sweeping on put bounds the live set to entries from interactions
+// since the last put.
 func (s *pendingPhotoStore) put(entry pendingPhotoEntry) (string, error) {
 	token, err := newPendingPhotoToken()
 	if err != nil {
@@ -49,6 +55,7 @@ func (s *pendingPhotoStore) put(entry pendingPhotoEntry) (string, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.gcExpiredLocked(s.now())
 	if entry.expiresAt.IsZero() {
 		entry.expiresAt = s.now().Add(pendingPhotoTTL)
 	}
@@ -73,11 +80,16 @@ func (s *pendingPhotoStore) take(token string) (pendingPhotoEntry, bool) {
 	return entry, true
 }
 
-// gcExpired removes any entries whose expiresAt is at or before now. Safe to
-// call from a background sweeper or a synchronous TTL test.
+// gcExpired removes any entries whose expiresAt is at or before now.
 func (s *pendingPhotoStore) gcExpired(now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.gcExpiredLocked(now)
+}
+
+// gcExpiredLocked is the lock-less variant of gcExpired. The caller must hold
+// s.mu.
+func (s *pendingPhotoStore) gcExpiredLocked(now time.Time) {
 	for token, entry := range s.entries {
 		if !entry.expiresAt.IsZero() && !now.Before(entry.expiresAt) {
 			delete(s.entries, token)
