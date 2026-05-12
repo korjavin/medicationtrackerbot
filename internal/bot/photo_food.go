@@ -307,8 +307,8 @@ func (b *Bot) handlePhotoMessage(msg *tgbotapi.Message) {
 		return
 	}
 
-	exifTime, hasExif := parseExifDateTimeOriginal(imageBytes)
-	if hasExif {
+	eatenAt := time.Now()
+	if exifTime, hasExif := parseExifDateTimeOriginal(imageBytes); hasExif {
 		delta := time.Since(exifTime)
 		if delta < 0 {
 			delta = -delta
@@ -317,9 +317,13 @@ func (b *Bot) handlePhotoMessage(msg *tgbotapi.Message) {
 			b.promptForFoodPhotoTime(chatID, imageBytes, mimeType, exifTime)
 			return
 		}
+		// Fresh EXIF (within foodPhotoExifStaleAfter): use the capture time so the
+		// food_log row reflects when the user ate, matching the web flow at
+		// web/static/js/features/food.js:1003 (resolveFoodPhotoEatenAt).
+		eatenAt = exifTime
 	}
 
-	b.respondWithFoodPhotoSummary(ctx, chatID, time.Now(), imageBytes, mimeType)
+	b.respondWithFoodPhotoSummary(ctx, chatID, eatenAt, imageBytes, mimeType)
 }
 
 // promptForFoodPhotoTime stores the photo bytes in pendingPhotos and asks the
@@ -376,6 +380,25 @@ func (b *Bot) handleFoodPhotoTimeCallback(cb *tgbotapi.CallbackQuery) {
 			tgbotapi.InlineKeyboardMarkup{InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{}})
 		if _, err := b.api.Send(edit); err != nil {
 			slog.Warn("food photo: failed to edit expired prompt", "chat_id", chatID, "error", err)
+		}
+		return
+	}
+
+	// The pending photo can sit for up to pendingPhotoTTL (10 minutes). The
+	// food-intake setting can be toggled in that window, so we must re-check
+	// it here before persisting anything — mirroring the server-side guard at
+	// internal/server/food_handlers.go:158.
+	enabled, err := b.food.GetFoodIntakeEnabled(context.Background())
+	if err != nil {
+		b.sendPlain(chatID, "❌ Error checking settings.")
+		return
+	}
+	if !enabled {
+		edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, cb.Message.MessageID,
+			"⚠️ Food intake tracking is disabled in settings.",
+			tgbotapi.InlineKeyboardMarkup{InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{}})
+		if _, err := b.api.Send(edit); err != nil {
+			slog.Warn("food photo: failed to edit disabled prompt", "chat_id", chatID, "error", err)
 		}
 		return
 	}

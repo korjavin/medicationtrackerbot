@@ -646,13 +646,16 @@ func TestHandlePhotoMessage_RecentEXIF_DirectSave(t *testing.T) {
 	}}
 	b, _ := newRecordingFoodBot(t, store, ai)
 
-	// EXIF is only ~5 minutes old → within 1h threshold → direct save path.
-	photoBytes := recentExifJPEG(t, 5*time.Minute)
+	// EXIF is only ~5 minutes old → within 1h threshold → direct save path,
+	// but the saved eaten_at MUST be the EXIF capture time (parity with the
+	// web flow at web/static/js/features/food.js:1003).
+	exifAge := 5 * time.Minute
+	before := time.Now()
+	photoBytes := recentExifJPEG(t, exifAge)
 	b.photoDownloader = func(ctx context.Context, fileID string) ([]byte, string, error) {
 		return photoBytes, "image/jpeg", nil
 	}
 
-	before := time.Now()
 	msg := &tgbotapi.Message{
 		Chat:  &tgbotapi.Chat{ID: 777},
 		Photo: []tgbotapi.PhotoSize{{FileID: "only", Width: 800, Height: 600}},
@@ -664,8 +667,17 @@ func TestHandlePhotoMessage_RecentEXIF_DirectSave(t *testing.T) {
 		t.Fatalf("expected 1 persisted log on recent-EXIF path, got %d", len(store.logs))
 	}
 	eatenAt := store.logs[0].EatenAt
-	if eatenAt.Before(before) || eatenAt.After(after) {
-		t.Errorf("EatenAt %v not within wall-clock [%v, %v] (should be ~now, not the EXIF time)", eatenAt, before, after)
+	// The EXIF time was built from (sample-before-handler - exifAge) and
+	// truncated to whole seconds via the "2006:01:02 15:04:05" format. The
+	// saved value should fall inside [before - exifAge - 1s, after - exifAge],
+	// well before wall-clock "now".
+	lower := before.Add(-exifAge - time.Second)
+	upper := after.Add(-exifAge)
+	if eatenAt.Before(lower) || eatenAt.After(upper) {
+		t.Errorf("EatenAt %v not within EXIF capture window [%v, %v]", eatenAt, lower, upper)
+	}
+	if !eatenAt.Before(before) {
+		t.Errorf("EatenAt %v should reflect EXIF capture (~now-%s), not wall-clock now", eatenAt, exifAge)
 	}
 	b.pendingPhotos.mu.Lock()
 	pending := len(b.pendingPhotos.entries)
@@ -956,6 +968,49 @@ func TestHandleFoodPhotoTimeCallback_UnknownToken(t *testing.T) {
 	joined := strings.Join(editBodies, "\n")
 	if !strings.Contains(joined, "expired") {
 		t.Errorf("expected 'expired' in edit body, got: %s", joined)
+	}
+}
+
+// TestHandleFoodPhotoTimeCallback_FoodIntakeDisabled regression-guards the
+// recheck of GetFoodIntakeEnabled inside the deferred callback. The flag was
+// true when the prompt was sent but may have flipped to false while the photo
+// sat in pendingPhotoStore (up to 10 minutes); the callback must refuse to
+// save just like handlePhotoMessage and the HTTP handler do.
+func TestHandleFoodPhotoTimeCallback_FoodIntakeDisabled(t *testing.T) {
+	store := &mockFoodStore{enabled: false}
+	ai := &mockFoodAI{logs: []domain.FoodLog{
+		{Name: "ShouldNotSave", Weight: 100, Carbs: 1, Protein: 1, Fat: 1, Calories: 10},
+	}}
+	b, recorded := newRecordingFoodBot(t, store, ai)
+
+	token, err := b.pendingPhotos.put(pendingPhotoEntry{
+		chatID:     321,
+		imageBytes: minimalJPEG(),
+		mimeType:   "image/jpeg",
+		exifTime:   time.Date(2026, 5, 11, 8, 30, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("seed pending photo: %v", err)
+	}
+
+	cb := timePickerCallback(321, foodPhotoTimeCallbackPrefix+"exif:"+token)
+	b.handleFoodPhotoTimeCallback(cb)
+
+	if len(store.logs) != 0 {
+		t.Errorf("expected no saves when food intake is disabled, got %d", len(store.logs))
+	}
+
+	requests := snapshot(recorded)
+	joined := strings.Join(bodiesForPath(requests, "/editMessageText"), "\n")
+	if !strings.Contains(joined, "disabled in settings") {
+		t.Errorf("expected 'disabled in settings' notice in edit body, got: %s", joined)
+	}
+
+	b.pendingPhotos.mu.Lock()
+	pendingCount := len(b.pendingPhotos.entries)
+	b.pendingPhotos.mu.Unlock()
+	if pendingCount != 0 {
+		t.Errorf("expected pendingPhotos consumed even on disabled flag, got %d", pendingCount)
 	}
 }
 
