@@ -96,13 +96,13 @@ Dependencies identified: **no new Go dependencies**. The web's inline JPEG/EXIF 
 
 ### Task 2: Telegram photo download helper
 
-- [ ] add `downloadTelegramPhoto(ctx context.Context, fileID string) (imageBytes []byte, mimeType string, err error)` to `internal/bot/photo_food.go`
-- [ ] reuse local-vs-remote dispatch from `sleep_import.go:54-90` (local `/`-prefixed path → `os.Open` + `io.ReadAll`; remote → `b.httpClient.Get(file.Link(b.api.Token))`)
-- [ ] enforce a max size of 8 MB (match `maxFoodPhotoBytes` in `internal/server/food_handlers.go:153`); abort with explicit error past the cap
-- [ ] detect MIME via `http.DetectContentType(imageBytes)`; reject non-`image/*`
-- [ ] write tests in `internal/bot/photo_food_test.go`:
-  - [ ] downloader is decomposed into a small interface (`telegramFileFetcher`) so tests can inject a fake that returns canned bytes + `FilePath` — covers local mode + remote mode + oversize + non-image
-- [ ] run tests — must pass before Task 3
+- [x] add `downloadTelegramPhoto(ctx context.Context, fileID string) (imageBytes []byte, mimeType string, err error)` to `internal/bot/photo_food.go`
+- [x] reuse local-vs-remote dispatch from `sleep_import.go:54-90` (local `/`-prefixed path → `os.Open` + `io.ReadAll`; remote → `b.httpClient.Get(file.Link(b.api.Token))`)
+- [x] enforce a max size of 8 MB (match `maxFoodPhotoBytes` in `internal/server/food_handlers.go:153`); abort with explicit error past the cap
+- [x] detect MIME via `http.DetectContentType(imageBytes)`; reject non-`image/*`
+- [x] write tests in `internal/bot/photo_food_test.go`:
+  - [x] downloader is decomposed into a small interface (`telegramFileFetcher`) so tests can inject a fake that returns canned bytes + `FilePath` — covers local mode + remote mode + oversize + non-image
+- [x] run tests — must pass before Task 3
 
 ### Task 3: Pending-photo cache (for the EXIF-old time picker)
 
