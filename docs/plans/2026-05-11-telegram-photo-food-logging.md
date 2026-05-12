@@ -83,16 +83,16 @@ Dependencies identified: **no new Go dependencies**. The web's inline JPEG/EXIF 
 
 ### Task 1: EXIF DateTimeOriginal parser (pure helper)
 
-- [ ] create `internal/bot/photo_exif.go` with `parseExifDateTimeOriginal(b []byte) (time.Time, bool)`
-- [ ] port the algorithm from `web/static/js/features/food.js:851-988` (find APP1 segment, read TIFF header for endianness, walk IFD0 → ExifIFD pointer 0x8769 → tag 0x9003 `DateTimeOriginal` ASCII `YYYY:MM:DD HH:MM:SS`, optional tag 0x9011 `OffsetTimeOriginal` for tz)
-- [ ] guard malformed/short inputs: any unexpected length, bad magic, missing tag → return `time.Time{}, false` (never panic)
-- [ ] write unit tests in `internal/bot/photo_exif_test.go`:
-  - [ ] success: handcrafted minimal JPEG-EXIF blob with known DateTimeOriginal + OffsetTimeOriginal
-  - [ ] success: DateTimeOriginal without OffsetTimeOriginal (assume UTC)
-  - [ ] no-EXIF JPEG: returns `false`
-  - [ ] non-JPEG bytes (e.g. PNG header): returns `false`
-  - [ ] truncated buffer: returns `false`
-- [ ] run `go test ./internal/bot/...` — must pass before Task 2
+- [x] create `internal/bot/photo_exif.go` with `parseExifDateTimeOriginal(b []byte) (time.Time, bool)`
+- [x] port the algorithm from `web/static/js/features/food.js:851-988` (find APP1 segment, read TIFF header for endianness, walk IFD0 → ExifIFD pointer 0x8769 → tag 0x9003 `DateTimeOriginal` ASCII `YYYY:MM:DD HH:MM:SS`, optional tag 0x9011 `OffsetTimeOriginal` for tz)
+- [x] guard malformed/short inputs: any unexpected length, bad magic, missing tag → return `time.Time{}, false` (never panic)
+- [x] write unit tests in `internal/bot/photo_exif_test.go`:
+  - [x] success: handcrafted minimal JPEG-EXIF blob with known DateTimeOriginal + OffsetTimeOriginal
+  - [x] success: DateTimeOriginal without OffsetTimeOriginal (assume UTC)
+  - [x] no-EXIF JPEG: returns `false`
+  - [x] non-JPEG bytes (e.g. PNG header): returns `false`
+  - [x] truncated buffer: returns `false`
+- [x] run `go test ./internal/bot/...` — must pass before Task 2
 
 ### Task 2: Telegram photo download helper
 
