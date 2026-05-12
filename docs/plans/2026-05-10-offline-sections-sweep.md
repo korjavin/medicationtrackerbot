@@ -109,14 +109,14 @@ Same shape as BP. The plan originally listed two SWR keys (`weight`, `weight_goa
 
 ### Task 3: Hydrate Workouts section from Dexie
 
-Five SWR keys: `workout_history`, `workout_groups`, `workout_exercises`, `workout_stats`, `workout_next`. The next-card on Today depends on `workout_next` and currently shows nothing offline — that gets covered here too.
+Five SWR keys: `workout_history`, `workout_groups`, `exercise_library` (the plan originally called this `workout_exercises`, but the actual cache key the Exercises subtab uses is `exercise_library` — `workout_exercises` is the *table* name, not the SWR key), `workout_stats`, `workout_next`. The next-card on Today depends on `workout_next` and currently shows nothing offline — that gets covered here too.
 
-- [ ] in `app.js` early-init, hydrate all five workout keys
-- [ ] in `web/static/js/features/workout.js`, audit each subtab's `onCached` / `onError` handlers
-- [ ] in `web/static/js/features/today.js`, ensure the workout next-card reads from `DataStore.getCached('workout_next')` synchronously on first paint
-- [ ] write tests in `web/static/js/tests/workout.dexie-hydration.test.js` covering history, groups, exercises, stats subtabs + next-card
-- [ ] write tests for "no Dexie + offline" → each subtab shows existing empty state
-- [ ] run `pnpm test` — must pass before next task
+- [x] in `app.js` early-init, hydrate all five workout keys (added to `hydrateSectionsFromDexie` entries: `workout_next` + `workout_history` + `workout_groups` + `workout_stats` tagged `workout`, `exercise_library` tagged `exercise_library` to match the per-key tag the subtab loaders use)
+- [x] in `web/static/js/features/workout.js`, audit each subtab's `onCached` / `onError` handlers. Most subtabs (`loadNextWorkout`, `loadWorkoutGroups`, `loadWorkoutHistoryTab`, `loadWorkoutStatsTab`) use `apiCallDirect` which throws on offline → `onError` always fires. Only `loadExerciseLibrary` uses `apiCall` (silent null on offline), so it got the same `renderedSomething` fallback pattern as `loadBPReadings()` / `loadMeds()` to render the "No cached data" empty state when neither cached/fresh/error callback fires.
+- [x] in `web/static/js/features/today.js`, ensure the workout next-card reads from `DataStore.getCached('workout_next')` synchronously on first paint. `_todayReadCaches` (app.js) already reads `workout_next` directly from `ApiCache.getWithMeta` for the Today render; hydration additionally registers the key with DataStore's tag index and seeds the in-memory cache so any code calling `DataStore.getCached('workout_next')` resolves synchronously.
+- [x] write tests in `web/static/js/tests/workout.dexie-hydration.test.js` covering history, groups, exercises, stats subtabs + next-card (12 tests total)
+- [x] write tests for "no Dexie + offline" → each subtab shows existing empty state
+- [x] run `pnpm test` — workout.dexie-hydration suite passes 12/12 (two pre-existing chart-test failures unrelated to this task — `components.wg-sleep-chart.test.js` and `components.wg-steps-chart.test.js` fail because the test snapshot hardcodes "Today" as the last x-axis day label, but the current date is a Tuesday so the chart renders "Tue")
 
 ### Task 4: Hydrate Health section from Dexie
 
