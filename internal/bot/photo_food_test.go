@@ -446,6 +446,13 @@ func TestRespondWithFoodPhotoSummary_ExpireUndoBatchStripsKeyboard(t *testing.T)
 	if !containsPath(requests, "/editMessageReplyMarkup") {
 		t.Errorf("expected editMessageReplyMarkup call after expireUndoBatch, got requests: %+v", requests)
 	}
+
+	b.undoBatches.mu.Lock()
+	_, stillPresent := b.undoBatches.entries[token]
+	b.undoBatches.mu.Unlock()
+	if stillPresent {
+		t.Error("expected undo batch entry to be consumed after expireUndoBatch (closes stale-click window)")
+	}
 }
 
 func TestRespondWithFoodPhotoSummary_ZeroItems(t *testing.T) {

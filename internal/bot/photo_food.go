@@ -240,10 +240,11 @@ func (b *Bot) respondWithFoodPhotoSummary(ctx context.Context, chatID int64, eat
 }
 
 // expireUndoBatch strips the [Undo] keyboard from the summary message after
-// foodPhotoUndoWindow elapses. Peek (not take) is used so a user click that
-// races the timer can still consume the entry via the callback handler.
+// foodPhotoUndoWindow elapses. The entry is consumed via take(), so any click
+// arriving after the window closes sees "expired" rather than silently
+// succeeding against a UI button that has already been removed.
 func (b *Bot) expireUndoBatch(token string) {
-	entry, ok := b.undoBatches.peek(token)
+	entry, ok := b.undoBatches.take(token)
 	if !ok {
 		return
 	}
