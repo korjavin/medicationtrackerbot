@@ -130,8 +130,8 @@ Dependencies identified: **no new Go dependencies**. The web's inline JPEG/EXIF 
 
 ### Task 5: Save-and-respond helper (parse → save → reply with Undo)
 
-- [ ] add `respondWithFoodPhotoSummary(ctx, chatID, eatenAt, imageBytes, mimeType)` in `internal/bot/photo_food.go`
-- [ ] flow:
+- [x] add `respondWithFoodPhotoSummary(ctx, chatID, eatenAt, imageBytes, mimeType)` in `internal/bot/photo_food.go`
+- [x] flow:
   1. send a "⏳ Analyzing photo…" status message (capture `MessageID` for later deletion, mirroring `food_commands.go:104-118`)
   2. call `b.foodAI.ParseMealPhoto(ctx, imageBytes, mimeType)` with a 60s timeout
   3. handle "no items detected" and provider-no-vision errors with explicit user-facing messages
@@ -139,12 +139,12 @@ Dependencies identified: **no new Go dependencies**. The web's inline JPEG/EXIF 
   5. render summary text via `renderFoodSummary(saved, failed)` (reuse the existing renderer in `food_commands.go:178`)
   6. attach an inline `[Undo]` keyboard with callback data `food_photo_undo:<token>`; persist `{chatID, messageID, ids}` to `undoBatchStore`
   7. schedule `time.AfterFunc(5*time.Second, ...)` to **edit-reply-markup** the message and strip the Undo button (preserving text)
-- [ ] write tests:
-  - [ ] in-package fake `FoodAIService` returns canned `[]domain.FoodLog`; fake store records create calls
-  - [ ] success path: 1 item → summary text contains item; undo batch is stored under returned token; expiry timer fires and the edit-markup call is observed (use a clock injection or test the scheduling function directly without sleeping)
-  - [ ] AI returns 0 items → user gets explicit "no food detected" message; no batch stored
-  - [ ] partial save failure: 2 parsed, 1 save fails → summary shows `failed=1`; only the successful ID is in the undo batch
-- [ ] run tests — must pass before Task 6
+- [x] write tests:
+  - [x] in-package fake `FoodAIService` returns canned `[]domain.FoodLog`; fake store records create calls
+  - [x] success path: 1 item → summary text contains item; undo batch is stored under returned token; expiry timer fires and the edit-markup call is observed (use a clock injection or test the scheduling function directly without sleeping)
+  - [x] AI returns 0 items → user gets explicit "no food detected" message; no batch stored
+  - [x] partial save failure: 2 parsed, 1 save fails → summary shows `failed=1`; only the successful ID is in the undo batch
+- [x] run tests — must pass before Task 6
 
 ### Task 6: Top-level photo handler + dispatch from `handleMessage`
 

@@ -69,6 +69,27 @@ func (s *undoBatchStore) take(token string) (undoBatchEntry, bool) {
 	return entry, true
 }
 
+// setMessageID updates the messageID on an existing entry without consuming
+// it. Use after the bot's summary message is sent: put() is called first so
+// the token can be embedded in the inline keyboard, then setMessageID stamps
+// the resulting MessageID once Send returns. Returns ok=false when the token
+// is unknown or expired.
+func (s *undoBatchStore) setMessageID(token string, messageID int) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, ok := s.entries[token]
+	if !ok {
+		return false
+	}
+	if !entry.expiresAt.IsZero() && !s.now().Before(entry.expiresAt) {
+		delete(s.entries, token)
+		return false
+	}
+	entry.messageID = messageID
+	s.entries[token] = entry
+	return true
+}
+
 // peek returns the entry stored under token without consuming it. Used by the
 // 5-second expiry goroutine to look up the message ID for an edit-markup call
 // while leaving the entry available to a racing user click.

@@ -2,17 +2,21 @@ package bot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/korjavin/medicationtrackerbot/internal/domain"
 )
 
 // fakeTelegramFileFetcher returns a canned tgbotapi.File response for GetFile
@@ -263,4 +267,324 @@ type panicReader struct{}
 
 func (panicReader) Read([]byte) (int, error) {
 	panic("readCapped read past the cap")
+}
+
+// recordedRequest captures a single request the bot sent to the (mock)
+// Telegram API. Tests use it to assert that the [Undo] expiry timer issues
+// an editMessageReplyMarkup call after foodPhotoUndoWindow elapses. Body is
+// the raw form-encoded payload; bodyDecoded is the URL-decoded view so tests
+// can plain-string-match on the message text and callback_data.
+type recordedRequest struct {
+	path        string
+	body        string
+	bodyDecoded string
+}
+
+// newRecordingFoodBot builds a Bot wired against a recording httptest server.
+// Every call to b.api.Send / b.api.Request lands in the returned []recordedRequest
+// (in order), so tests can assert that summary messages, status deletes, and
+// edit-reply-markup calls happen in the expected sequence.
+//
+// The mock server always returns message_id=999 so b.api.Send produces a Message
+// with MessageID=999 — the undo-batch entry's messageID is therefore stamped
+// with 999 after the summary is sent.
+func newRecordingFoodBot(t *testing.T, food FoodStore, ai domain.FoodAIService) (*Bot, *[]recordedRequest) {
+	t.Helper()
+	var (
+		mu       sync.Mutex
+		recorded []recordedRequest
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		decoded, decErr := url.QueryUnescape(string(body))
+		if decErr != nil {
+			decoded = string(body)
+		}
+		mu.Lock()
+		recorded = append(recorded, recordedRequest{path: r.URL.Path, body: string(body), bodyDecoded: decoded})
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true, "result": {"message_id": 999, "chat": {"id": 123}}}`))
+	}))
+	t.Cleanup(server.Close)
+
+	api, _ := tgbotapi.NewBotAPIWithClient("123:TOKEN", tgbotapi.APIEndpoint, &http.Client{})
+	if api == nil {
+		api = &tgbotapi.BotAPI{Token: "123:TOKEN", Client: &http.Client{}, Buffer: 100}
+	}
+	api.SetAPIEndpoint(server.URL + "/bot%s/%s")
+
+	b := &Bot{
+		api:           api,
+		food:          food,
+		foodAI:        ai,
+		allowedUserID: 123456,
+		undoBatches:   newUndoBatchStore(),
+	}
+	return b, &recorded
+}
+
+// snapshot copies the recorded requests under the mutex so tests can read
+// safely after concurrent timer callbacks may have appended entries.
+func snapshot(recorded *[]recordedRequest) []recordedRequest {
+	out := make([]recordedRequest, len(*recorded))
+	copy(out, *recorded)
+	return out
+}
+
+func containsPath(recorded []recordedRequest, suffix string) bool {
+	for _, r := range recorded {
+		if strings.HasSuffix(r.path, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+func bodiesForPath(recorded []recordedRequest, suffix string) []string {
+	var out []string
+	for _, r := range recorded {
+		if strings.HasSuffix(r.path, suffix) {
+			out = append(out, r.bodyDecoded)
+		}
+	}
+	return out
+}
+
+func TestRespondWithFoodPhotoSummary_SuccessSingleItem(t *testing.T) {
+	store := &mockFoodStore{enabled: true}
+	ai := &mockFoodAI{logs: []domain.FoodLog{
+		{Name: "Apple", Weight: 150, Carbs: 20, Protein: 1, Fat: 0, Calories: 80},
+	}}
+	b, recorded := newRecordingFoodBot(t, store, ai)
+
+	eatenAt := time.Date(2026, 5, 11, 9, 0, 0, 0, time.UTC)
+	b.respondWithFoodPhotoSummary(context.Background(), 123, eatenAt, minimalJPEG(), "image/jpeg")
+
+	// The store should have received the single CreateFoodLog call.
+	if len(store.logs) != 1 {
+		t.Fatalf("expected 1 persisted log, got %d", len(store.logs))
+	}
+	if store.logs[0].Name != "Apple" {
+		t.Errorf("expected Apple, got %s", store.logs[0].Name)
+	}
+	if !store.logs[0].EatenAt.Equal(eatenAt) {
+		t.Errorf("expected eaten_at=%v, got %v", eatenAt, store.logs[0].EatenAt)
+	}
+	if store.logs[0].UserID != 123456 {
+		t.Errorf("expected UserID=123456, got %d", store.logs[0].UserID)
+	}
+
+	// The undo batch should be stored with messageID set to the mock's 999.
+	b.undoBatches.mu.Lock()
+	defer b.undoBatches.mu.Unlock()
+	if len(b.undoBatches.entries) != 1 {
+		t.Fatalf("expected 1 undo batch entry, got %d", len(b.undoBatches.entries))
+	}
+	var (
+		token string
+		entry undoBatchEntry
+	)
+	for k, v := range b.undoBatches.entries {
+		token = k
+		entry = v
+	}
+	if len(token) != 32 {
+		t.Errorf("expected 32-char hex token, got %q (len=%d)", token, len(token))
+	}
+	if entry.chatID != 123 {
+		t.Errorf("entry.chatID: want 123, got %d", entry.chatID)
+	}
+	if entry.messageID != 999 {
+		t.Errorf("entry.messageID: want 999 (from mock), got %d", entry.messageID)
+	}
+	if len(entry.foodLogIDs) != 1 || entry.foodLogIDs[0] != 1 {
+		t.Errorf("entry.foodLogIDs: want [1], got %v", entry.foodLogIDs)
+	}
+
+	// The reply must contain item name + Undo button payload with the token.
+	requests := snapshot(recorded)
+	summaryBodies := bodiesForPath(requests, "/sendMessage")
+	if len(summaryBodies) < 2 {
+		t.Fatalf("expected at least 2 sendMessage calls (status + summary), got %d", len(summaryBodies))
+	}
+	summary := summaryBodies[len(summaryBodies)-1]
+	if !strings.Contains(summary, "Apple") {
+		t.Errorf("expected Apple in summary body, got: %s", summary)
+	}
+	if !strings.Contains(summary, foodPhotoUndoCallbackPrefix+token) {
+		t.Errorf("expected callback_data with token in summary body, got: %s", summary)
+	}
+}
+
+func TestRespondWithFoodPhotoSummary_ExpireUndoBatchStripsKeyboard(t *testing.T) {
+	store := &mockFoodStore{enabled: true}
+	ai := &mockFoodAI{logs: []domain.FoodLog{
+		{Name: "Banana", Weight: 120, Carbs: 27, Protein: 1, Fat: 0, Calories: 105},
+	}}
+	b, recorded := newRecordingFoodBot(t, store, ai)
+
+	b.respondWithFoodPhotoSummary(context.Background(), 456, time.Now(), minimalJPEG(), "image/jpeg")
+
+	b.undoBatches.mu.Lock()
+	var token string
+	for k := range b.undoBatches.entries {
+		token = k
+	}
+	b.undoBatches.mu.Unlock()
+
+	if token == "" {
+		t.Fatal("expected undo batch entry after respond")
+	}
+
+	// Drive the expiry helper directly — equivalent to the time.AfterFunc
+	// firing — without sleeping for the real 5-second window.
+	b.expireUndoBatch(token)
+
+	requests := snapshot(recorded)
+	if !containsPath(requests, "/editMessageReplyMarkup") {
+		t.Errorf("expected editMessageReplyMarkup call after expireUndoBatch, got requests: %+v", requests)
+	}
+}
+
+func TestRespondWithFoodPhotoSummary_ZeroItems(t *testing.T) {
+	store := &mockFoodStore{enabled: true}
+	ai := &mockFoodAI{logs: []domain.FoodLog{}}
+	b, recorded := newRecordingFoodBot(t, store, ai)
+
+	b.respondWithFoodPhotoSummary(context.Background(), 789, time.Now(), minimalJPEG(), "image/jpeg")
+
+	if len(store.logs) != 0 {
+		t.Errorf("expected no persisted logs on zero items, got %d", len(store.logs))
+	}
+	b.undoBatches.mu.Lock()
+	count := len(b.undoBatches.entries)
+	b.undoBatches.mu.Unlock()
+	if count != 0 {
+		t.Errorf("expected no undo batch entries, got %d", count)
+	}
+
+	requests := snapshot(recorded)
+	bodies := bodiesForPath(requests, "/sendMessage")
+	joined := strings.Join(bodies, "\n")
+	if !strings.Contains(joined, "No food detected") {
+		t.Errorf("expected 'No food detected' user message, got: %s", joined)
+	}
+	if strings.Contains(joined, foodPhotoUndoCallbackPrefix) {
+		t.Errorf("expected no undo button on zero-items reply, got: %s", joined)
+	}
+}
+
+func TestRespondWithFoodPhotoSummary_PartialSaveFailure(t *testing.T) {
+	store := &errFoodStore{
+		mockFoodStore: mockFoodStore{enabled: true},
+		failNames:     map[string]bool{"Broccoli": true},
+	}
+	ai := &mockFoodAI{logs: []domain.FoodLog{
+		{Name: "Rice", Weight: 150, Carbs: 40, Protein: 4, Fat: 1, Calories: 185},
+		{Name: "Broccoli", Weight: 100, Carbs: 7, Protein: 3, Fat: 0, Calories: 40},
+	}}
+	b, recorded := newRecordingFoodBot(t, store, ai)
+
+	b.respondWithFoodPhotoSummary(context.Background(), 321, time.Now(), minimalJPEG(), "image/jpeg")
+
+	if len(store.logs) != 1 {
+		t.Fatalf("expected 1 persisted log (Rice only), got %d", len(store.logs))
+	}
+	if store.logs[0].Name != "Rice" {
+		t.Errorf("expected only Rice to be persisted, got %s", store.logs[0].Name)
+	}
+
+	b.undoBatches.mu.Lock()
+	var entry undoBatchEntry
+	for _, v := range b.undoBatches.entries {
+		entry = v
+	}
+	b.undoBatches.mu.Unlock()
+	if len(entry.foodLogIDs) != 1 {
+		t.Errorf("expected 1 ID in undo batch (only successful save), got %v", entry.foodLogIDs)
+	}
+
+	requests := snapshot(recorded)
+	bodies := bodiesForPath(requests, "/sendMessage")
+	if len(bodies) == 0 {
+		t.Fatal("expected at least one sendMessage call")
+	}
+	summary := bodies[len(bodies)-1]
+	if !strings.Contains(summary, "Logged 1 of 2 items") {
+		t.Errorf("expected partial-success header in summary, got: %s", summary)
+	}
+	if !strings.Contains(summary, "1 failed") {
+		t.Errorf("expected failure count in summary, got: %s", summary)
+	}
+}
+
+func TestRespondWithFoodPhotoSummary_AIError(t *testing.T) {
+	store := &mockFoodStore{enabled: true}
+	ai := &mockFoodAI{err: errors.New("vision provider down")}
+	b, recorded := newRecordingFoodBot(t, store, ai)
+
+	b.respondWithFoodPhotoSummary(context.Background(), 12, time.Now(), minimalJPEG(), "image/jpeg")
+
+	if len(store.logs) != 0 {
+		t.Errorf("expected no persisted logs on AI error, got %d", len(store.logs))
+	}
+	b.undoBatches.mu.Lock()
+	count := len(b.undoBatches.entries)
+	b.undoBatches.mu.Unlock()
+	if count != 0 {
+		t.Errorf("expected no undo batch entries on AI error, got %d", count)
+	}
+
+	requests := snapshot(recorded)
+	joined := strings.Join(bodiesForPath(requests, "/sendMessage"), "\n")
+	if !strings.Contains(joined, "Failed to analyze photo") {
+		t.Errorf("expected 'Failed to analyze photo' error reply, got: %s", joined)
+	}
+	if !strings.Contains(joined, "vision provider down") {
+		t.Errorf("expected underlying error message, got: %s", joined)
+	}
+}
+
+func TestRespondWithFoodPhotoSummary_AllSavesFail(t *testing.T) {
+	store := &errFoodStore{
+		mockFoodStore: mockFoodStore{enabled: true},
+		failNames:     map[string]bool{"Rice": true, "Beans": true},
+	}
+	ai := &mockFoodAI{logs: []domain.FoodLog{
+		{Name: "Rice", Weight: 150, Carbs: 40, Protein: 4, Fat: 1, Calories: 185},
+		{Name: "Beans", Weight: 100, Carbs: 20, Protein: 8, Fat: 1, Calories: 120},
+	}}
+	b, recorded := newRecordingFoodBot(t, store, ai)
+
+	b.respondWithFoodPhotoSummary(context.Background(), 7, time.Now(), minimalJPEG(), "image/jpeg")
+
+	if len(store.logs) != 0 {
+		t.Errorf("expected no persisted logs when every save fails, got %d", len(store.logs))
+	}
+	b.undoBatches.mu.Lock()
+	count := len(b.undoBatches.entries)
+	b.undoBatches.mu.Unlock()
+	if count != 0 {
+		t.Errorf("expected no undo batch entries when every save fails, got %d", count)
+	}
+
+	requests := snapshot(recorded)
+	joined := strings.Join(bodiesForPath(requests, "/sendMessage"), "\n")
+	if !strings.Contains(joined, "Error saving food log") {
+		t.Errorf("expected 'Error saving food log' reply, got: %s", joined)
+	}
+}
+
+func TestExpireUndoBatch_NoOpOnUnknownToken(t *testing.T) {
+	store := &mockFoodStore{enabled: true}
+	ai := &mockFoodAI{}
+	b, recorded := newRecordingFoodBot(t, store, ai)
+
+	// Should not panic and should not issue any API request.
+	b.expireUndoBatch("token-that-was-never-stored")
+
+	if len(*recorded) != 0 {
+		t.Errorf("expected no API calls for unknown token, got %d", len(*recorded))
+	}
 }
