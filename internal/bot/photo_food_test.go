@@ -977,6 +977,68 @@ func TestHandleFoodPhotoTimeCallback_MalformedData(t *testing.T) {
 	}
 }
 
+// TestHandleFoodPhotoTimeCallback_ConfirmInUserTimezone regression-guards
+// against displaying confirm times in the EXIF zone (or server-local for the
+// "now" path) instead of the user's stored timezone — the bot's display
+// convention is to render every wall-clock string in b.userLocation().
+func TestHandleFoodPhotoTimeCallback_ConfirmInUserTimezone(t *testing.T) {
+	store := &mockFoodStore{enabled: true}
+	ai := &mockFoodAI{logs: []domain.FoodLog{
+		{Name: "Soup", Weight: 300, Carbs: 25, Protein: 8, Fat: 5, Calories: 175},
+	}}
+	b, recorded := newRecordingFoodBot(t, store, ai)
+	// America/New_York is UTC-4 on 2026-05-11 (EDT).
+	b.timezone = &mockTimezoneStore{currentTZ: "America/New_York"}
+
+	exifTime := time.Date(2026, 5, 11, 16, 30, 0, 0, time.UTC)
+	token, err := b.pendingPhotos.put(pendingPhotoEntry{
+		chatID:     321,
+		imageBytes: minimalJPEG(),
+		mimeType:   "image/jpeg",
+		exifTime:   exifTime,
+	})
+	if err != nil {
+		t.Fatalf("seed pending photo: %v", err)
+	}
+
+	cb := timePickerCallback(321, foodPhotoTimeCallbackPrefix+"exif:"+token)
+	b.handleFoodPhotoTimeCallback(cb)
+
+	requests := snapshot(recorded)
+	editBodies := bodiesForPath(requests, "/editMessageText")
+	if len(editBodies) == 0 {
+		t.Fatalf("expected editMessageText with confirm text, got requests: %+v", requests)
+	}
+	// 16:30 UTC → 12:30 in America/New_York on 2026-05-11.
+	if !strings.Contains(editBodies[0], "12:30 on 2026-05-11") {
+		t.Errorf("expected confirm time rendered in user TZ (America/New_York → 12:30), got: %s", editBodies[0])
+	}
+}
+
+// TestPromptForFoodPhotoTime_PromptInUserTimezone regression-guards the same
+// concern for the EXIF prompt: the suggested "photo's time" must be shown in
+// the user's stored timezone, not the EXIF zone or UTC.
+func TestPromptForFoodPhotoTime_PromptInUserTimezone(t *testing.T) {
+	store := &mockFoodStore{enabled: true}
+	ai := &mockFoodAI{}
+	b, recorded := newRecordingFoodBot(t, store, ai)
+	// Asia/Tokyo is UTC+9 year-round.
+	b.timezone = &mockTimezoneStore{currentTZ: "Asia/Tokyo"}
+
+	exifTime := time.Date(2026, 5, 11, 1, 15, 0, 0, time.UTC)
+	b.promptForFoodPhotoTime(777, minimalJPEG(), "image/jpeg", exifTime)
+
+	requests := snapshot(recorded)
+	bodies := bodiesForPath(requests, "/sendMessage")
+	if len(bodies) == 0 {
+		t.Fatalf("expected sendMessage with prompt, got: %+v", requests)
+	}
+	// 01:15 UTC → 10:15 in Asia/Tokyo on 2026-05-11.
+	if !strings.Contains(bodies[0], "10:15 on 2026-05-11") {
+		t.Errorf("expected prompt time rendered in user TZ (Asia/Tokyo → 10:15), got: %s", bodies[0])
+	}
+}
+
 // undoCallback builds a CallbackQuery as Telegram would deliver it for the
 // [Undo] button. The originating message has MessageID 77 and Text matching
 // what the summary renderer would have produced.
