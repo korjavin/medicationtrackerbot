@@ -11,7 +11,7 @@ The web UI already supports food logging from a photo: upload → OpenAI vision 
 
 1. Any photo the user sends is treated as a food photo (per user direction).
 2. The photo is downloaded, parsed via the existing `FoodAIService.ParseMealPhoto` domain method, and each detected item is saved as a `food_log` row.
-3. If the photo's EXIF `DateTimeOriginal` exists and is more than 1 hour older than now, the bot asks "Use the photo's time (HH:MM) or use now?" before saving. Otherwise it saves immediately at `now()` (matching the web behavior).
+3. If the photo's EXIF `DateTimeOriginal` exists and is more than 1 hour older than now, the bot asks "Use the photo's time (HH:MM) or use now?" before saving. If EXIF exists and is within 1 hour, the bot uses the EXIF capture time directly (mirroring `resolveFoodPhotoEatenAt` in `web/static/js/features/food.js`). If there is no EXIF, the bot uses `time.Now()`.
 4. After saving, the bot replies with a summary and an inline "Undo" button. The button stays active for 5 seconds; on click it deletes all newly created `food_log` rows for that batch. After 5 seconds the button is removed by editing the message.
 
 Benefits: parity between web and Telegram surfaces, makes the bot useful on-the-go without typing `/food <description>`, reuses the existing AI + storage layers.
@@ -158,7 +158,8 @@ Dependencies identified: **no new Go dependencies**. The web's inline JPEG/EXIF 
   4. attempt `parseExifDateTimeOriginal(imageBytes)`
   5. branch:
      - if EXIF parsed and `now - exifTime > 1 hour`: store `{imageBytes, mimeType, exifTime}` in `pendingPhotoStore`, reply with text "📸 Use the photo's time (HH:MM on YYYY-MM-DD) or use now?" and inline keyboard with two buttons: `food_photo_time:exif:<token>` and `food_photo_time:now:<token>` (return; saving happens in the callback handler)
-     - else: call `respondWithFoodPhotoSummary(ctx, chatID, time.Now(), imageBytes, mimeType)` directly
+     - if EXIF parsed and within 1 hour: call `respondWithFoodPhotoSummary(ctx, chatID, exifTime, imageBytes, mimeType)` — use the capture time, mirroring the web flow
+     - else (no EXIF): call `respondWithFoodPhotoSummary(ctx, chatID, time.Now(), imageBytes, mimeType)`
 - [x] write tests via the same fakes used in Task 5:
   - [x] no-EXIF photo bytes → `respondWithFoodPhotoSummary` is called with `eatenAt ≈ time.Now()`
   - [x] EXIF time within 1h of now → same: direct save path
@@ -173,6 +174,7 @@ Dependencies identified: **no new Go dependencies**. The web's inline JPEG/EXIF 
 - [x] `handleFoodPhotoTimeCallback(cb *tgbotapi.CallbackQuery)`:
   - parse callback data `food_photo_time:<exif|now>:<token>`
   - take the entry from `pendingPhotoStore`; if missing/expired, ack the callback and reply "⚠️ This photo prompt expired. Please send the photo again."
+  - re-check `b.food.GetFoodIntakeEnabled(ctx)`: the prompt can sit for up to 10 minutes and the flag may have flipped in that window; if disabled, edit the prompt message to the disabled notice and stop (mirrors the HTTP guard at `internal/server/food_handlers.go:158`)
   - resolve `eatenAt`: `entry.exifTime` if `exif`, else `time.Now()`
   - edit the prompt message: remove the keyboard and update text to "✅ Using <chosen time>"; ack callback
   - call `respondWithFoodPhotoSummary(ctx, chatID, eatenAt, entry.imageBytes, entry.mimeType)` as a fresh follow-up message
@@ -228,8 +230,9 @@ Telegram photo
       → downloadTelegramPhoto (largest PhotoSize)
       → parseExifDateTimeOriginal
         ├── EXIF >1h old → pendingPhotoStore.put → "use photo time / use now?" keyboard
-        │     └── time-picker callback → respondWithFoodPhotoSummary
-        └── else → respondWithFoodPhotoSummary (eatenAt = now())
+        │     └── time-picker callback → re-check GetFoodIntakeEnabled → respondWithFoodPhotoSummary
+        ├── EXIF within 1h → respondWithFoodPhotoSummary (eatenAt = exifTime)
+        └── no EXIF       → respondWithFoodPhotoSummary (eatenAt = now())
             → foodAI.ParseMealPhoto
             → food.CreateFoodLog per item
             → reply with renderFoodSummary + [Undo] button
