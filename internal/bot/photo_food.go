@@ -308,7 +308,7 @@ func (b *Bot) handlePhotoMessage(msg *tgbotapi.Message) {
 	}
 
 	eatenAt := time.Now()
-	if exifTime, hasExif := parseExifDateTimeOriginal(imageBytes); hasExif {
+	if exifTime, hasExif := parseExifDateTimeOriginal(imageBytes, b.userLocation()); hasExif {
 		delta := time.Since(exifTime)
 		if delta < 0 {
 			delta = -delta

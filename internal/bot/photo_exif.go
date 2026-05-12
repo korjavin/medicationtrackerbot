@@ -8,10 +8,17 @@ import (
 // parseExifDateTimeOriginal extracts the DateTimeOriginal (tag 0x9003) from a
 // JPEG byte slice's EXIF metadata. If present, OffsetTimeOriginal (tag 0x9011)
 // is honoured for timezone interpretation; otherwise the timestamp is treated
-// as UTC. Falls back to IFD0's DateTime (tag 0x0132) when the Exif sub-IFD
-// lacks DateTimeOriginal. Returns the zero time and false for non-JPEG inputs,
-// missing EXIF, malformed offsets, or out-of-range years.
-func parseExifDateTimeOriginal(b []byte) (time.Time, bool) {
+// as wall clock in fallbackLoc (the user's stored timezone), mirroring the web
+// reference at web/static/js/features/food.js:parseFoodPhotoExifDateString
+// which parses missing-offset timestamps as the browser's local time. Falls
+// back to IFD0's DateTime (tag 0x0132) when the Exif sub-IFD lacks
+// DateTimeOriginal. Returns the zero time and false for non-JPEG inputs,
+// missing EXIF, malformed offsets, or out-of-range years. A nil fallbackLoc
+// is treated as time.UTC.
+func parseExifDateTimeOriginal(b []byte, fallbackLoc *time.Location) (time.Time, bool) {
+	if fallbackLoc == nil {
+		fallbackLoc = time.UTC
+	}
 	if len(b) < 4 {
 		return time.Time{}, false
 	}
@@ -33,7 +40,7 @@ func parseExifDateTimeOriginal(b []byte) (time.Time, bool) {
 		}
 		if marker == 0xE1 && offset+4+6 <= len(b) {
 			if string(b[offset+4:offset+8]) == "Exif" && b[offset+8] == 0 && b[offset+9] == 0 {
-				return parseExifTiff(b, offset+10, segLen-8)
+				return parseExifTiff(b, offset+10, segLen-8, fallbackLoc)
 			}
 		}
 		offset += 2 + segLen
@@ -48,7 +55,7 @@ type exifIfdEntry struct {
 	valueFieldAt int
 }
 
-func parseExifTiff(b []byte, tiffStart, tiffLen int) (time.Time, bool) {
+func parseExifTiff(b []byte, tiffStart, tiffLen int, fallbackLoc *time.Location) (time.Time, bool) {
 	end := tiffStart + tiffLen
 	if end > len(b) {
 		end = len(b)
@@ -97,7 +104,7 @@ func parseExifTiff(b []byte, tiffStart, tiffLen int) (time.Time, bool) {
 	if s == "" {
 		s = dateTimeFallback
 	}
-	return parseExifDateString(s, offsetTimeOriginal)
+	return parseExifDateString(s, offsetTimeOriginal, fallbackLoc)
 }
 
 func readExifIfd(b []byte, ifdOffset, end int, order binary.ByteOrder) (map[uint16]exifIfdEntry, bool) {
@@ -150,7 +157,10 @@ func readExifAscii(b []byte, tiffStart, end int, entry exifIfdEntry, _ binary.By
 	return string(out), true
 }
 
-func parseExifDateString(s, offsetStr string) (time.Time, bool) {
+func parseExifDateString(s, offsetStr string, fallbackLoc *time.Location) (time.Time, bool) {
+	if fallbackLoc == nil {
+		fallbackLoc = time.UTC
+	}
 	if len(s) < 19 {
 		return time.Time{}, false
 	}
@@ -175,7 +185,7 @@ func parseExifDateString(s, offsetStr string) (time.Time, bool) {
 	minute := intFromDigits(s[14:16])
 	sec := intFromDigits(s[17:19])
 
-	loc := time.UTC
+	loc := fallbackLoc
 	if len(offsetStr) == 6 && (offsetStr[0] == '+' || offsetStr[0] == '-') &&
 		isDigit(offsetStr[1]) && isDigit(offsetStr[2]) &&
 		offsetStr[3] == ':' &&

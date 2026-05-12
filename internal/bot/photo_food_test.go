@@ -585,11 +585,14 @@ func TestRespondWithFoodPhotoSummary_AllSavesFail(t *testing.T) {
 }
 
 // recentExifJPEG returns a minimal JPEG-EXIF blob whose DateTimeOriginal is
-// set to (now - age) in UTC. With no OffsetTimeOriginal, parseExifDateTimeOriginal
-// treats the date as UTC, so time.Since(parsed) ≈ age in real wall-clock time.
+// set to (now - age) expressed in the test bot's userLocation() (which is
+// time.Local for the unit-test default newRecordingFoodBot fixture, since it
+// leaves b.timezone unset). With no OffsetTimeOriginal, parseExifDateTimeOriginal
+// interprets the digits in that same location, so time.Since(parsed) ≈ age in
+// real wall-clock time regardless of where the test machine runs.
 func recentExifJPEG(t *testing.T, age time.Duration) []byte {
 	t.Helper()
-	target := time.Now().UTC().Add(-age)
+	target := time.Now().Add(-age)
 	return buildJPEGWithExif(t, target.Format("2006:01:02 15:04:05"), "", false)
 }
 
