@@ -308,9 +308,15 @@ func (b *Bot) handlePhotoMessage(msg *tgbotapi.Message) {
 	}
 
 	exifTime, hasExif := parseExifDateTimeOriginal(imageBytes)
-	if hasExif && time.Since(exifTime) > foodPhotoExifStaleAfter {
-		b.promptForFoodPhotoTime(chatID, imageBytes, mimeType, exifTime)
-		return
+	if hasExif {
+		delta := time.Since(exifTime)
+		if delta < 0 {
+			delta = -delta
+		}
+		if delta > foodPhotoExifStaleAfter {
+			b.promptForFoodPhotoTime(chatID, imageBytes, mimeType, exifTime)
+			return
+		}
 	}
 
 	b.respondWithFoodPhotoSummary(ctx, chatID, time.Now(), imageBytes, mimeType)
@@ -365,8 +371,9 @@ func (b *Bot) handleFoodPhotoTimeCallback(cb *tgbotapi.CallbackQuery) {
 
 	entry, ok := b.pendingPhotos.take(token)
 	if !ok {
-		edit := tgbotapi.NewEditMessageText(chatID, cb.Message.MessageID,
-			"⚠️ This photo prompt expired. Please send the photo again.")
+		edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, cb.Message.MessageID,
+			"⚠️ This photo prompt expired. Please send the photo again.",
+			tgbotapi.InlineKeyboardMarkup{InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{}})
 		if _, err := b.api.Send(edit); err != nil {
 			slog.Warn("food photo: failed to edit expired prompt", "chat_id", chatID, "error", err)
 		}
@@ -381,7 +388,8 @@ func (b *Bot) handleFoodPhotoTimeCallback(cb *tgbotapi.CallbackQuery) {
 	}
 
 	confirmText := fmt.Sprintf("✅ Using %s", eatenAt.Format("15:04 on 2006-01-02"))
-	edit := tgbotapi.NewEditMessageText(chatID, cb.Message.MessageID, confirmText)
+	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, cb.Message.MessageID, confirmText,
+		tgbotapi.InlineKeyboardMarkup{InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{}})
 	if _, err := b.api.Send(edit); err != nil {
 		slog.Warn("food photo: failed to edit prompt after selection", "chat_id", chatID, "error", err)
 	}
@@ -434,7 +442,8 @@ func (b *Bot) handleFoodPhotoUndoCallback(cb *tgbotapi.CallbackQuery) {
 	}
 
 	newText := strings.TrimRight(originalText, "\n") + "\n\n" + status
-	edit := tgbotapi.NewEditMessageText(chatID, cb.Message.MessageID, newText)
+	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, cb.Message.MessageID, newText,
+		tgbotapi.InlineKeyboardMarkup{InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{}})
 	if _, err := b.api.Send(edit); err != nil {
 		slog.Warn("food photo: failed to edit summary after undo", "chat_id", chatID, "error", err)
 	}
