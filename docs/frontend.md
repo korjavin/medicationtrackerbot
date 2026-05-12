@@ -66,6 +66,8 @@ The "rolling-out" sections (BP, Weight, Meds, Workouts, Vitals) keep their exist
 
 **Out of scope (explicitly)**: this layer is read-only. No new offline write queues (food/notes/workouts), no full "IndexedDB is source of truth" rewrite. Cold-start offline is now in scope for sections that adopt `hydrateFromDexie` (medications first; others follow).
 
+**Architecture guard — `tests/architecture.offline-coverage.test.js`** — every file under `web/static/js/features/*.js` must either use one of the offline-aware primitives (`cachedFetch(`, `loadSWR(`, `hydrateFromDexie(`, `offlineAwareApiCall(`) OR appear in the test's `ALLOWLIST` array with a `reason` string. Adding a new section file therefore forces a choice: route reads through a primitive, or document why it doesn't need one (pure UI helper, event-driven indicator, transient one-shot write). The test also fails if an allowlisted file later adopts a primitive — keep the allowlist trimmed by removing dead entries.
+
 ### Change Detection
 
 Polls `/api/changes?since=` every 30s (SSE disabled due to HTTP/2 proxy issues — see [technical-decisions.md](technical-decisions.md)). When the poll reports invalidated tags, `data-store.js` both calls `window.requestTabRefresh({ changedTags, source })` (debounced 500ms, reloads the active tab) **and** dispatches a `datastore:changed` CustomEvent on `window` with `detail = { changedTags, source }`. Features that need to react without owning the active tab (e.g. the Today dashboard's live-update subscriber) listen on the CustomEvent.
