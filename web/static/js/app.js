@@ -538,11 +538,18 @@ async function hydrateSectionsFromDexie() {
     // recently written health_overview_* entry and seed the current TZ key
     // with that data. The original (older) timestamp is preserved so the
     // stale chip surfaces the real age rather than "Updated just now".
+    // Skip `health_overview_offset_<n>` rows when the current key is a real
+    // IANA TZ key: an offset-keyed row is a geography-less fallback written
+    // when Intl.DateTimeFormat returned no zone, and using it to seed an
+    // IANA-keyed row would mislabel a numeric-offset bucket as that zone.
     try {
         const currentSeed = await window.DataStore.getCached(healthOverviewKey);
         if (currentSeed === null
             && typeof apiCache.findMostRecentByPrefix === 'function') {
-            const fallback = await apiCache.findMostRecentByPrefix('health_overview_');
+            const currentIsOffsetKey = healthOverviewKey.startsWith('health_overview_offset_');
+            const fallback = await apiCache.findMostRecentByPrefix('health_overview_', {
+                exclude: (key) => !currentIsOffsetKey && key.startsWith('health_overview_offset_')
+            });
             if (fallback && fallback.data) {
                 await apiCache.setWithMeta(healthOverviewKey, fallback.data, fallback.timestamp);
                 if (typeof window.DataStore.registerTags === 'function') {
@@ -1969,16 +1976,18 @@ async function loadSettings() {
         ) {
             return null;
         }
-        // tab_order is delivered via /api/bootstrap (no standalone GET endpoint);
-        // preserve it from the existing cache so SWR re-writes don't drop the
-        // user's saved Today card order. Fall back to localStorage so invalidations
-        // of settings_bundle don't wipe tabOrder before this fetch runs.
+        // tab_order: /api/settings includes it (when set) but for compat with
+        // clients that haven't migrated to consuming it from here, prefer the
+        // existing cache, then fall back to localStorage, then to the /api/settings
+        // response. This preserves the user's saved Today card order across SWR
+        // re-writes and invalidations of settings_bundle.
         let tabOrder = null;
         try {
             const existing = await window.DataStore.getCached('settings_bundle');
             if (existing && Array.isArray(existing.tabOrder)) tabOrder = existing.tabOrder;
         } catch (_) { /* no cache available — leave tabOrder null */ }
         if (!tabOrder) tabOrder = readPersistedTabOrder();
+        if (!tabOrder && Array.isArray(settingsRes?.tab_order)) tabOrder = settingsRes.tab_order;
         return {
             featureSettings: featureSettingsRes || {},
             tabOrder,

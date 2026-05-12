@@ -437,12 +437,13 @@ func (s *Server) handleSetFeatureEnabled(w http.ResponseWriter, r *http.Request)
 }
 
 // handleGetSettings returns the full settings bundle the bootstrap response
-// embeds (Task 7 of the offline-sections-sweep). The frontend's loadSettings()
-// SWR fetcher uses this as the single source of truth so that opening the
-// Settings screen refreshes toggles, food targets, reminder status, timezone,
-// weight-unit preference, and tab order in one round-trip — and so cold-start
-// offline relaunches can render last-known values from the same shape the
-// bootstrap-warmed `settings_bundle` cache row holds.
+// embeds (Task 7 of the offline-sections-sweep). The expanded shape matches
+// the bootstrap-warmed `settings_bundle` cache row so a future
+// single-round-trip Settings refresh is possible; today's loadSettings() in
+// app.js still fans out to /api/settings/features, /api/food/settings/targets,
+// /api/bp/reminder/status, /api/weight/reminder/status alongside this endpoint
+// and reads only `timezone`, `server_time`, `server_timezone`,
+// `weight_unit_preference` from here.
 //
 // Backward compat: the four pre-existing fields (timezone, server_time,
 // server_timezone, weight_unit_preference) are kept verbatim so older clients
