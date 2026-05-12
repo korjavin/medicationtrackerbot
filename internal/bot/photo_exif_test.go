@@ -105,7 +105,9 @@ func buildJPEGWithExif(t *testing.T, dateTime, offsetTime string, little bool) [
 
 func TestParseExifDateTimeOriginal_WithOffset(t *testing.T) {
 	blob := buildJPEGWithExif(t, "2024:06:15 12:30:45", "+02:00", true)
-	got, ok := parseExifDateTimeOriginal(blob)
+	// Pass a non-UTC fallback to prove the explicit offset wins over fallback.
+	tokyo := time.FixedZone("Tokyo", 9*3600)
+	got, ok := parseExifDateTimeOriginal(blob, tokyo)
 	if !ok {
 		t.Fatalf("expected ok=true")
 	}
@@ -119,9 +121,26 @@ func TestParseExifDateTimeOriginal_WithOffset(t *testing.T) {
 	}
 }
 
-func TestParseExifDateTimeOriginal_NoOffsetTreatedAsUTC(t *testing.T) {
+func TestParseExifDateTimeOriginal_NoOffsetUsesFallbackLocation(t *testing.T) {
 	blob := buildJPEGWithExif(t, "2024:01:02 03:04:05", "", false)
-	got, ok := parseExifDateTimeOriginal(blob)
+	// Most smartphones write DateTimeOriginal in local wall clock without an
+	// offset tag. Match the web reference at food.js:parseFoodPhotoExifDateString
+	// — interpret the digits in the supplied fallback location (= user's stored
+	// timezone), not UTC.
+	tokyo := time.FixedZone("Tokyo", 9*3600)
+	got, ok := parseExifDateTimeOriginal(blob, tokyo)
+	if !ok {
+		t.Fatalf("expected ok=true")
+	}
+	want := time.Date(2024, 1, 2, 3, 4, 5, 0, tokyo)
+	if !got.Equal(want) {
+		t.Fatalf("time mismatch: got %s, want %s", got, want)
+	}
+}
+
+func TestParseExifDateTimeOriginal_NilFallbackTreatedAsUTC(t *testing.T) {
+	blob := buildJPEGWithExif(t, "2024:01:02 03:04:05", "", false)
+	got, ok := parseExifDateTimeOriginal(blob, nil)
 	if !ok {
 		t.Fatalf("expected ok=true")
 	}
@@ -139,14 +158,14 @@ func TestParseExifDateTimeOriginal_NoExifSegment(t *testing.T) {
 		0xFF, 0xE0, 0x00, 0x02,
 		0xFF, 0xD9,
 	}
-	if _, ok := parseExifDateTimeOriginal(blob); ok {
+	if _, ok := parseExifDateTimeOriginal(blob, time.UTC); ok {
 		t.Fatalf("expected ok=false for JPEG without EXIF")
 	}
 }
 
 func TestParseExifDateTimeOriginal_NonJPEG(t *testing.T) {
 	png := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
-	if _, ok := parseExifDateTimeOriginal(png); ok {
+	if _, ok := parseExifDateTimeOriginal(png, time.UTC); ok {
 		t.Fatalf("expected ok=false for PNG bytes")
 	}
 }
@@ -158,24 +177,24 @@ func TestParseExifDateTimeOriginal_Truncated(t *testing.T) {
 	// (38-65), DateTimeOriginal data (66-85). Cutting past byte 85 would still
 	// yield a valid date (offset bytes are optional), so we don't test those.
 	for _, n := range []int{0, 1, 2, 3, 4, 12, 18, 30, 50, 70} {
-		if _, ok := parseExifDateTimeOriginal(blob[:n]); ok {
+		if _, ok := parseExifDateTimeOriginal(blob[:n], time.UTC); ok {
 			t.Fatalf("expected ok=false for truncated buffer (len=%d)", n)
 		}
 	}
 }
 
 func TestParseExifDateTimeOriginal_EmptyAndShort(t *testing.T) {
-	if _, ok := parseExifDateTimeOriginal(nil); ok {
+	if _, ok := parseExifDateTimeOriginal(nil, time.UTC); ok {
 		t.Fatalf("expected ok=false for nil")
 	}
-	if _, ok := parseExifDateTimeOriginal([]byte{0xFF}); ok {
+	if _, ok := parseExifDateTimeOriginal([]byte{0xFF}, time.UTC); ok {
 		t.Fatalf("expected ok=false for 1-byte slice")
 	}
 }
 
 func TestParseExifDateTimeOriginal_OutOfRangeYear(t *testing.T) {
 	blob := buildJPEGWithExif(t, "1900:01:01 00:00:00", "", true)
-	if _, ok := parseExifDateTimeOriginal(blob); ok {
+	if _, ok := parseExifDateTimeOriginal(blob, time.UTC); ok {
 		t.Fatalf("expected ok=false for year < 1995")
 	}
 }
