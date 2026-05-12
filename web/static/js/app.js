@@ -477,7 +477,15 @@ async function hydrateSectionsFromDexie() {
     // a later invalidateByTag evicts the hydrated row alongside fresh ones.
     const entries = [
         { key: 'bp', tags: ['bp'] },
-        { key: 'weight', tags: ['weight'] }
+        { key: 'weight', tags: ['weight'] },
+        // Workout subtab caches — match the keys + tags features/workout.js
+        // writes via loadSWR. workout_next also feeds Today's next-workout
+        // tile so a cold-start offline relaunch paints it synchronously.
+        { key: 'workout_next', tags: ['workout'] },
+        { key: 'workout_history', tags: ['workout'] },
+        { key: 'workout_groups', tags: ['workout'] },
+        { key: 'workout_stats', tags: ['workout'] },
+        { key: 'exercise_library', tags: ['exercise_library'] }
     ];
     await Promise.all(entries.map(async ({ key, tags }) => {
         try {
