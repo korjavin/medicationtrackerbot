@@ -169,26 +169,26 @@ Dependencies identified: **no new Go dependencies**. The web's inline JPEG/EXIF 
 
 ### Task 7: Callback handlers (time picker + undo)
 
-- [ ] in `internal/bot/bot.go`'s `handleCallback`, route data prefixes `food_photo_time:` and `food_photo_undo:` to new handlers in `internal/bot/photo_food.go`
-- [ ] `handleFoodPhotoTimeCallback(cb *tgbotapi.CallbackQuery)`:
+- [x] in `internal/bot/bot.go`'s `handleCallback`, route data prefixes `food_photo_time:` and `food_photo_undo:` to new handlers in `internal/bot/photo_food.go`
+- [x] `handleFoodPhotoTimeCallback(cb *tgbotapi.CallbackQuery)`:
   - parse callback data `food_photo_time:<exif|now>:<token>`
   - take the entry from `pendingPhotoStore`; if missing/expired, ack the callback and reply "⚠️ This photo prompt expired. Please send the photo again."
   - resolve `eatenAt`: `entry.exifTime` if `exif`, else `time.Now()`
   - edit the prompt message: remove the keyboard and update text to "✅ Using <chosen time>"; ack callback
   - call `respondWithFoodPhotoSummary(ctx, chatID, eatenAt, entry.imageBytes, entry.mimeType)` as a fresh follow-up message
-- [ ] `handleFoodPhotoUndoCallback(cb *tgbotapi.CallbackQuery)`:
+- [x] `handleFoodPhotoUndoCallback(cb *tgbotapi.CallbackQuery)`:
   - parse `food_photo_undo:<token>`, `take()` from `undoBatchStore`
   - if missing/expired: ack callback with "Undo window expired"
   - for each `foodLogID`: `b.food.DeleteFoodLog(ctx, id, b.allowedUserID)`; collect successes vs. failures
   - edit the original summary message: remove keyboard, append a line "↩️ Undone (N items removed)"; ack callback
-- [ ] write tests using the existing fakes:
-  - [ ] time picker `exif` branch: pendingPhoto consumed, summary helper called with EXIF time
-  - [ ] time picker `now` branch: summary helper called with `~time.Now()`
-  - [ ] time picker token unknown/expired: returns expiration message, no save
-  - [ ] undo within window: all logs are deleted via the store fake; message edited to "Undone"
-  - [ ] undo after expiry (token already gone): user sees "expired" message; no deletes attempted
-  - [ ] undo with partial delete failure: edited message reflects partial outcome
-- [ ] run tests — must pass before Task 8
+- [x] write tests using the existing fakes:
+  - [x] time picker `exif` branch: pendingPhoto consumed, summary helper called with EXIF time
+  - [x] time picker `now` branch: summary helper called with `~time.Now()`
+  - [x] time picker token unknown/expired: returns expiration message, no save
+  - [x] undo within window: all logs are deleted via the store fake; message edited to "Undone"
+  - [x] undo after expiry (token already gone): user sees "expired" message; no deletes attempted
+  - [x] undo with partial delete failure: edited message reflects partial outcome
+- [x] run tests — must pass before Task 8
 
 ### Task 8: Acceptance criteria verification
 

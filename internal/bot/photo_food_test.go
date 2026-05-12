@@ -828,3 +828,289 @@ func TestExpireUndoBatch_NoOpOnUnknownToken(t *testing.T) {
 		t.Errorf("expected no API calls for unknown token, got %d", len(*recorded))
 	}
 }
+
+// timePickerCallback builds a CallbackQuery as Telegram would deliver it for
+// the EXIF time-picker prompt: the originating bot message has MessageID 42
+// and the user pressed the "Photo time" or "Now" button identified by
+// callbackData.
+func timePickerCallback(chatID int64, callbackData string) *tgbotapi.CallbackQuery {
+	return &tgbotapi.CallbackQuery{
+		ID:   "cbq",
+		Data: callbackData,
+		From: &tgbotapi.User{ID: chatID},
+		Message: &tgbotapi.Message{
+			MessageID: 42,
+			Chat:      &tgbotapi.Chat{ID: chatID},
+			Text:      "📸 Use the photo's time (12:34 on 2026-05-11) or use now?",
+		},
+	}
+}
+
+func TestHandleFoodPhotoTimeCallback_ExifBranch(t *testing.T) {
+	store := &mockFoodStore{enabled: true}
+	ai := &mockFoodAI{logs: []domain.FoodLog{
+		{Name: "Soup", Weight: 300, Carbs: 25, Protein: 8, Fat: 5, Calories: 175},
+	}}
+	b, recorded := newRecordingFoodBot(t, store, ai)
+
+	exifTime := time.Date(2026, 5, 11, 8, 30, 0, 0, time.UTC)
+	token, err := b.pendingPhotos.put(pendingPhotoEntry{
+		chatID:     321,
+		imageBytes: minimalJPEG(),
+		mimeType:   "image/jpeg",
+		exifTime:   exifTime,
+	})
+	if err != nil {
+		t.Fatalf("seed pending photo: %v", err)
+	}
+
+	cb := timePickerCallback(321, foodPhotoTimeCallbackPrefix+"exif:"+token)
+	b.handleFoodPhotoTimeCallback(cb)
+
+	b.pendingPhotos.mu.Lock()
+	pendingCount := len(b.pendingPhotos.entries)
+	b.pendingPhotos.mu.Unlock()
+	if pendingCount != 0 {
+		t.Errorf("expected pendingPhotos consumed, got %d remaining", pendingCount)
+	}
+
+	if len(store.logs) != 1 {
+		t.Fatalf("expected 1 saved log, got %d", len(store.logs))
+	}
+	if !store.logs[0].EatenAt.Equal(exifTime) {
+		t.Errorf("EatenAt: want %v, got %v", exifTime, store.logs[0].EatenAt)
+	}
+
+	requests := snapshot(recorded)
+	if !containsPath(requests, "/editMessageText") {
+		t.Errorf("expected editMessageText after selection, got %+v", requests)
+	}
+	editBodies := bodiesForPath(requests, "/editMessageText")
+	if len(editBodies) == 0 || !strings.Contains(editBodies[0], "Using") {
+		t.Errorf("expected confirm 'Using <time>' in edit body, got: %v", editBodies)
+	}
+}
+
+func TestHandleFoodPhotoTimeCallback_NowBranch(t *testing.T) {
+	store := &mockFoodStore{enabled: true}
+	ai := &mockFoodAI{logs: []domain.FoodLog{
+		{Name: "Toast", Weight: 60, Carbs: 30, Protein: 4, Fat: 2, Calories: 160},
+	}}
+	b, _ := newRecordingFoodBot(t, store, ai)
+
+	exifTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	token, err := b.pendingPhotos.put(pendingPhotoEntry{
+		chatID:     654,
+		imageBytes: minimalJPEG(),
+		mimeType:   "image/jpeg",
+		exifTime:   exifTime,
+	})
+	if err != nil {
+		t.Fatalf("seed pending photo: %v", err)
+	}
+
+	before := time.Now()
+	cb := timePickerCallback(654, foodPhotoTimeCallbackPrefix+"now:"+token)
+	b.handleFoodPhotoTimeCallback(cb)
+	after := time.Now()
+
+	if len(store.logs) != 1 {
+		t.Fatalf("expected 1 saved log, got %d", len(store.logs))
+	}
+	eatenAt := store.logs[0].EatenAt
+	if eatenAt.Before(before) || eatenAt.After(after) {
+		t.Errorf("EatenAt %v not within [%v, %v] (now branch)", eatenAt, before, after)
+	}
+	if eatenAt.Equal(exifTime) {
+		t.Errorf("EatenAt should not equal EXIF time on 'now' branch")
+	}
+}
+
+func TestHandleFoodPhotoTimeCallback_UnknownToken(t *testing.T) {
+	store := &mockFoodStore{enabled: true}
+	ai := &mockFoodAI{}
+	b, recorded := newRecordingFoodBot(t, store, ai)
+
+	cb := timePickerCallback(111, foodPhotoTimeCallbackPrefix+"exif:does-not-exist")
+	b.handleFoodPhotoTimeCallback(cb)
+
+	if len(store.logs) != 0 {
+		t.Errorf("expected no save on unknown token, got %d", len(store.logs))
+	}
+
+	requests := snapshot(recorded)
+	editBodies := bodiesForPath(requests, "/editMessageText")
+	if len(editBodies) == 0 {
+		t.Fatalf("expected editMessageText with expired notice, got requests: %+v", requests)
+	}
+	joined := strings.Join(editBodies, "\n")
+	if !strings.Contains(joined, "expired") {
+		t.Errorf("expected 'expired' in edit body, got: %s", joined)
+	}
+}
+
+func TestHandleFoodPhotoTimeCallback_MalformedData(t *testing.T) {
+	store := &mockFoodStore{enabled: true}
+	ai := &mockFoodAI{}
+	b, recorded := newRecordingFoodBot(t, store, ai)
+
+	cb := timePickerCallback(222, foodPhotoTimeCallbackPrefix+"banana:tok")
+	b.handleFoodPhotoTimeCallback(cb)
+
+	if len(store.logs) != 0 {
+		t.Errorf("expected no save on malformed callback, got %d", len(store.logs))
+	}
+	requests := snapshot(recorded)
+	joined := strings.Join(bodiesForPath(requests, "/sendMessage"), "\n")
+	if !strings.Contains(joined, "Invalid time selection") {
+		t.Errorf("expected invalid-selection reply, got: %s", joined)
+	}
+}
+
+// undoCallback builds a CallbackQuery as Telegram would deliver it for the
+// [Undo] button. The originating message has MessageID 77 and Text matching
+// what the summary renderer would have produced.
+func undoCallback(chatID int64, callbackData string) *tgbotapi.CallbackQuery {
+	return &tgbotapi.CallbackQuery{
+		ID:   "cbq",
+		Data: callbackData,
+		From: &tgbotapi.User{ID: chatID},
+		Message: &tgbotapi.Message{
+			MessageID: 77,
+			Chat:      &tgbotapi.Chat{ID: chatID},
+			Text:      "Logged 2 items: Apple, Banana",
+		},
+	}
+}
+
+func TestHandleFoodPhotoUndoCallback_Success(t *testing.T) {
+	store := &mockFoodStore{enabled: true}
+	b, recorded := newRecordingFoodBot(t, store, nil)
+	b.allowedUserID = 123456
+
+	token, err := b.undoBatches.put(undoBatchEntry{
+		chatID:     500,
+		messageID:  77,
+		foodLogIDs: []int64{10, 11, 12},
+	})
+	if err != nil {
+		t.Fatalf("seed undo batch: %v", err)
+	}
+
+	cb := undoCallback(500, foodPhotoUndoCallbackPrefix+token)
+	b.handleFoodPhotoUndoCallback(cb)
+
+	if len(store.deleted) != 3 {
+		t.Fatalf("expected 3 DeleteFoodLog calls, got %d", len(store.deleted))
+	}
+	for i, d := range store.deleted {
+		if d.UserID != 123456 {
+			t.Errorf("delete[%d].UserID = %d, want 123456", i, d.UserID)
+		}
+	}
+
+	b.undoBatches.mu.Lock()
+	count := len(b.undoBatches.entries)
+	b.undoBatches.mu.Unlock()
+	if count != 0 {
+		t.Errorf("expected undoBatches consumed, got %d remaining", count)
+	}
+
+	requests := snapshot(recorded)
+	editBodies := bodiesForPath(requests, "/editMessageText")
+	if len(editBodies) == 0 {
+		t.Fatalf("expected editMessageText after undo, got requests: %+v", requests)
+	}
+	joined := strings.Join(editBodies, "\n")
+	if !strings.Contains(joined, "Undone (3 items removed)") {
+		t.Errorf("expected 'Undone (3 items removed)' in edit body, got: %s", joined)
+	}
+	if !strings.Contains(joined, "Logged 2 items") {
+		t.Errorf("expected original summary text preserved, got: %s", joined)
+	}
+}
+
+func TestHandleFoodPhotoUndoCallback_Expired(t *testing.T) {
+	store := &mockFoodStore{enabled: true}
+	b, recorded := newRecordingFoodBot(t, store, nil)
+
+	cb := undoCallback(600, foodPhotoUndoCallbackPrefix+"unknown-token")
+	b.handleFoodPhotoUndoCallback(cb)
+
+	if len(store.deleted) != 0 {
+		t.Errorf("expected no deletes on expired token, got %d", len(store.deleted))
+	}
+
+	requests := snapshot(recorded)
+	joined := strings.Join(bodiesForPath(requests, "/sendMessage"), "\n")
+	if !strings.Contains(joined, "Undo window expired") {
+		t.Errorf("expected expired notice, got: %s", joined)
+	}
+	if containsPath(requests, "/editMessageText") {
+		t.Errorf("expected no edit on expired token")
+	}
+}
+
+func TestHandleFoodPhotoUndoCallback_PartialFailure(t *testing.T) {
+	store := &mockFoodStore{
+		enabled:   true,
+		deleteErr: map[int64]error{11: fmt.Errorf("boom")},
+	}
+	b, recorded := newRecordingFoodBot(t, store, nil)
+	b.allowedUserID = 123456
+
+	token, err := b.undoBatches.put(undoBatchEntry{
+		chatID:     700,
+		messageID:  77,
+		foodLogIDs: []int64{10, 11, 12},
+	})
+	if err != nil {
+		t.Fatalf("seed undo batch: %v", err)
+	}
+
+	cb := undoCallback(700, foodPhotoUndoCallbackPrefix+token)
+	b.handleFoodPhotoUndoCallback(cb)
+
+	if len(store.deleted) != 2 {
+		t.Fatalf("expected 2 successful deletes (10, 12), got %d", len(store.deleted))
+	}
+
+	requests := snapshot(recorded)
+	joined := strings.Join(bodiesForPath(requests, "/editMessageText"), "\n")
+	if !strings.Contains(joined, "Undone 2 items, 1 failed") {
+		t.Errorf("expected partial-undo status, got: %s", joined)
+	}
+}
+
+func TestHandleFoodPhotoUndoCallback_AllFail(t *testing.T) {
+	store := &mockFoodStore{
+		enabled: true,
+		deleteErr: map[int64]error{
+			10: fmt.Errorf("boom"),
+			11: fmt.Errorf("boom"),
+		},
+	}
+	b, recorded := newRecordingFoodBot(t, store, nil)
+
+	token, err := b.undoBatches.put(undoBatchEntry{
+		chatID:     800,
+		messageID:  77,
+		foodLogIDs: []int64{10, 11},
+	})
+	if err != nil {
+		t.Fatalf("seed undo batch: %v", err)
+	}
+
+	cb := undoCallback(800, foodPhotoUndoCallbackPrefix+token)
+	b.handleFoodPhotoUndoCallback(cb)
+
+	if len(store.deleted) != 0 {
+		t.Errorf("expected zero successful deletes, got %d", len(store.deleted))
+	}
+
+	requests := snapshot(recorded)
+	joined := strings.Join(bodiesForPath(requests, "/editMessageText"), "\n")
+	if !strings.Contains(joined, "Undo failed for all 2 items") {
+		t.Errorf("expected all-failed status, got: %s", joined)
+	}
+}
