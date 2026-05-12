@@ -118,15 +118,15 @@ Dependencies identified: **no new Go dependencies**. The web's inline JPEG/EXIF 
 
 ### Task 4: Undo-batch cache (for the 5-second undo window)
 
-- [ ] add `internal/bot/photo_undo.go` with `undoBatchStore` — `map[string]undoBatchEntry` + `sync.Mutex`
-- [ ] entry holds: `chatID int64`, `messageID int`, `foodLogIDs []int64`, `expiresAt time.Time`
-- [ ] methods: `put(entry) (token string)`, `take(token) (entry, ok)`, `peek(token) (entry, ok)` (non-consuming, used by the expiry goroutine to read messageID after the window)
-- [ ] entries TTL = 10s (5s active window + buffer); never longer than 1 minute
-- [ ] write tests in `internal/bot/photo_undo_test.go`:
-  - [ ] put → peek does not consume; take consumes
-  - [ ] expired entry returns `ok=false` and is removed
-  - [ ] concurrent access race-safe (`-race`)
-- [ ] run tests — must pass before Task 5
+- [x] add `internal/bot/photo_undo.go` with `undoBatchStore` — `map[string]undoBatchEntry` + `sync.Mutex`
+- [x] entry holds: `chatID int64`, `messageID int`, `foodLogIDs []int64`, `expiresAt time.Time`
+- [x] methods: `put(entry) (token string)`, `take(token) (entry, ok)`, `peek(token) (entry, ok)` (non-consuming, used by the expiry goroutine to read messageID after the window)
+- [x] entries TTL = 10s (5s active window + buffer); never longer than 1 minute
+- [x] write tests in `internal/bot/photo_undo_test.go`:
+  - [x] put → peek does not consume; take consumes
+  - [x] expired entry returns `ok=false` and is removed
+  - [x] concurrent access race-safe (`-race`)
+- [x] run tests — must pass before Task 5
 
 ### Task 5: Save-and-respond helper (parse → save → reply with Undo)
 
