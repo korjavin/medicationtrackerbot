@@ -1953,6 +1953,22 @@ async function loadSettings() {
             apiCall('/api/weight/reminder/status', 'GET'),
             apiCall('/api/settings', 'GET')
         ]);
+        // apiCall returns null silently on offline / 5xx. Defaulting null
+        // slices to {} / 0 / {enabled:false} here would produce a non-null
+        // bundle that fetchFresh would then write to ApiCache, blanking the
+        // good cached bundle and the rendered UI (toggles off, macros 0,
+        // weight unit back to kg). Surface the failure to loadSWR by
+        // returning null — it skips onFresh and the cached row + onCached
+        // already-painted UI stay intact.
+        if (
+            featureSettingsRes === null
+            || foodTargetsRes === null
+            || bpReminderStatus === null
+            || weightReminderStatus === null
+            || settingsRes === null
+        ) {
+            return null;
+        }
         // tab_order is delivered via /api/bootstrap (no standalone GET endpoint);
         // preserve it from the existing cache so SWR re-writes don't drop the
         // user's saved Today card order. Fall back to localStorage so invalidations
