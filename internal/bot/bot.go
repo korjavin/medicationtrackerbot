@@ -765,6 +765,10 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		if _, err := b.api.Request(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)); err != nil {
 			slog.Error("delete message failed", "error", err)
 		}
+	} else if strings.HasPrefix(data, foodPhotoTimeCallbackPrefix) {
+		b.handleFoodPhotoTimeCallback(cb)
+	} else if strings.HasPrefix(data, foodPhotoUndoCallbackPrefix) {
+		b.handleFoodPhotoUndoCallback(cb)
 	}
 }
 

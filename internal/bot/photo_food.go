@@ -347,6 +347,98 @@ func (b *Bot) promptForFoodPhotoTime(chatID int64, imageBytes []byte, mimeType s
 	}
 }
 
+// handleFoodPhotoTimeCallback resolves the EXIF time-picker prompt issued by
+// promptForFoodPhotoTime. The callback data is "food_photo_time:<choice>:<token>"
+// where choice is "exif" or "now"; the token addresses an entry in
+// pendingPhotoStore. Once the user picks, we update the prompt text, drop the
+// keyboard, and run the parse → save → reply pipeline as a fresh message.
+func (b *Bot) handleFoodPhotoTimeCallback(cb *tgbotapi.CallbackQuery) {
+	chatID := cb.Message.Chat.ID
+	payload := strings.TrimPrefix(cb.Data, foodPhotoTimeCallbackPrefix)
+	parts := strings.SplitN(payload, ":", 2)
+	if len(parts) != 2 || (parts[0] != "exif" && parts[0] != "now") || parts[1] == "" {
+		b.sendPlain(chatID, "⚠️ Invalid time selection.")
+		return
+	}
+	choice, token := parts[0], parts[1]
+
+	entry, ok := b.pendingPhotos.take(token)
+	if !ok {
+		edit := tgbotapi.NewEditMessageText(chatID, cb.Message.MessageID,
+			"⚠️ This photo prompt expired. Please send the photo again.")
+		if _, err := b.api.Send(edit); err != nil {
+			slog.Warn("food photo: failed to edit expired prompt", "chat_id", chatID, "error", err)
+		}
+		return
+	}
+
+	var eatenAt time.Time
+	if choice == "exif" {
+		eatenAt = entry.exifTime
+	} else {
+		eatenAt = time.Now()
+	}
+
+	confirmText := fmt.Sprintf("✅ Using %s", eatenAt.Format("15:04 on 2006-01-02"))
+	edit := tgbotapi.NewEditMessageText(chatID, cb.Message.MessageID, confirmText)
+	if _, err := b.api.Send(edit); err != nil {
+		slog.Warn("food photo: failed to edit prompt after selection", "chat_id", chatID, "error", err)
+	}
+
+	b.respondWithFoodPhotoSummary(context.Background(), chatID, eatenAt, entry.imageBytes, entry.mimeType)
+}
+
+// handleFoodPhotoUndoCallback resolves the [Undo] button on a photo summary
+// message. The callback data is "food_photo_undo:<token>"; the token addresses
+// an entry in undoBatchStore. We delete every food_log row in the batch, then
+// edit the summary message to strip the keyboard and append a status line.
+func (b *Bot) handleFoodPhotoUndoCallback(cb *tgbotapi.CallbackQuery) {
+	chatID := cb.Message.Chat.ID
+	token := strings.TrimPrefix(cb.Data, foodPhotoUndoCallbackPrefix)
+	if token == "" {
+		return
+	}
+
+	entry, ok := b.undoBatches.take(token)
+	if !ok {
+		b.sendPlain(chatID, "⚠️ Undo window expired.")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), foodPhotoSaveTimeout)
+	defer cancel()
+
+	var deleted, failed int
+	for _, id := range entry.foodLogIDs {
+		if err := b.food.DeleteFoodLog(ctx, id, b.allowedUserID); err != nil {
+			slog.Error("food photo: undo delete failed", "chat_id", chatID, "food_log_id", id, "error", err)
+			failed++
+			continue
+		}
+		deleted++
+	}
+
+	originalText := ""
+	if cb.Message != nil {
+		originalText = cb.Message.Text
+	}
+	var status string
+	switch {
+	case failed == 0:
+		status = fmt.Sprintf("↩️ Undone (%d items removed)", deleted)
+	case deleted == 0:
+		status = fmt.Sprintf("⚠️ Undo failed for all %d items", failed)
+	default:
+		status = fmt.Sprintf("↩️ Undone %d items, %d failed", deleted, failed)
+	}
+
+	newText := strings.TrimRight(originalText, "\n") + "\n\n" + status
+	edit := tgbotapi.NewEditMessageText(chatID, cb.Message.MessageID, newText)
+	if _, err := b.api.Send(edit); err != nil {
+		slog.Warn("food photo: failed to edit summary after undo", "chat_id", chatID, "error", err)
+	}
+}
+
 // readCapped reads up to maxFoodPhotoBytes+1 bytes from r. If the reader still
 // has bytes left after that, the source is over the limit and we return an
 // error rather than the truncated prefix.
