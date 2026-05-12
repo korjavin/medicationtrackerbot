@@ -699,6 +699,30 @@ const ApiCache = {
         } catch (e) {
             console.warn('[ApiCache] Failed to clear', e);
         }
+    },
+
+    // Returns the api_cache row with the newest `timestamp` whose `id` starts
+    // with `prefix`, as { key, data, timestamp }, or null. Used by the
+    // cold-start health-overview hydration fallback: if the user's current
+    // timezone has no cached row (e.g. they changed TZ while offline), seed
+    // the current-TZ key from whichever `health_overview_<tz>` row was
+    // written most recently instead of leaving the section blank.
+    async findMostRecentByPrefix(prefix, opts) {
+        if (!prefix || typeof prefix !== 'string') return null;
+        const exclude = (opts && typeof opts.exclude === 'function') ? opts.exclude : null;
+        try {
+            const entries = await db.api_cache.where('id').startsWith(prefix).toArray();
+            if (!entries || entries.length === 0) return null;
+            let best = null;
+            for (const entry of entries) {
+                if (!entry || typeof entry.timestamp !== 'number') continue;
+                if (exclude && exclude(entry.id)) continue;
+                if (!best || entry.timestamp > best.timestamp) best = entry;
+            }
+            return best ? { key: best.id, data: best.data, timestamp: best.timestamp } : null;
+        } catch (_e) {
+            return null;
+        }
     }
 };
 
