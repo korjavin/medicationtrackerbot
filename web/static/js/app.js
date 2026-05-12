@@ -456,12 +456,119 @@ async function hydrateMedicationsFromDexie() {
     }
 }
 
+// Cold-start preflight for section-level api_cache keys (BP, Weight, Workouts,
+// Health, Food, Settings). Runs alongside hydrateMedicationsFromDexie so any
+// section that mounts before /api/bootstrap resolves can render its last-known
+// data immediately. Each entry hydrates DataStore.api_cache from the matching
+// ApiCache row in Dexie via DataStore.hydrateFromDexie. Hydration is a no-op
+// when Dexie is empty for the key, so safely covers first-run users too. Gated
+// on auth presence to avoid surfacing a former user's cache on a logged-out
+// cold start.
+async function hydrateSectionsFromDexie() {
+    if (!window.DataStore?.hydrateFromDexie) return;
+    const apiCache = window.MedTrackerDB?.ApiCache;
+    if (!apiCache || typeof apiCache.getWithMeta !== 'function') return;
+    const hasAuthPresence = !!userInitData
+        || (typeof getCachedAuthState === 'function' && !!getCachedAuthState());
+    if (!hasAuthPresence) return;
+    // Each entry: { key, tags }. The Dexie loader is the same shape for every
+    // entry — read the {data, timestamp} record by key from ApiCache. Tags
+    // mirror what cacheApiSnapshot writes during the bootstrap apply path so
+    // a later invalidateByTag evicts the hydrated row alongside fresh ones.
+    const healthOverviewKey = healthOverviewCacheKey();
+    const todayFoodCacheKey = typeof todayFoodKey === 'function'
+        ? todayFoodKey(new Date())
+        : null;
+    const entries = [
+        { key: 'bp', tags: ['bp'] },
+        { key: 'weight', tags: ['weight'] },
+        // Workout subtab caches — match the keys + tags features/workout.js
+        // writes via loadSWR. workout_next also feeds Today's next-workout
+        // tile so a cold-start offline relaunch paints it synchronously.
+        { key: 'workout_next', tags: ['workout'] },
+        { key: 'workout_history', tags: ['workout'] },
+        { key: 'workout_groups', tags: ['workout'] },
+        { key: 'workout_stats', tags: ['workout'] },
+        { key: 'exercise_library', tags: ['exercise_library'] },
+        // Vitals/Health Overview — TZ-qualified key (e.g. health_overview_Europe/Berlin).
+        // The TZ fallback below handles the case where the current TZ has no
+        // cached row but an older TZ does (user changed timezone offline).
+        { key: healthOverviewKey, tags: ['health'] },
+        // Diary notes — the actual cache key features/health.js writes via
+        // loadSWR is 'diary_notes' (not 'health_notes'). Two tags so either a
+        // notes mutation OR a health-wide invalidation evicts the row.
+        { key: 'diary_notes', tags: ['notes', 'health-notes'] },
+        // Settings bundle — the canonical key written by applyBootstrapPayload
+        // (cacheApiSnapshot 'settings_bundle') and read by loadSettings()'
+        // loadSWR. Hydrating it lets the Settings screen's onCached callback
+        // paint toggles, food targets, reminder status, and weight-unit
+        // segmented state synchronously on cold-start offline relaunch instead
+        // of leaving the screen blank. NOTE: features/settings.js exists in
+        // the tree but is NOT loaded in production (see the comment in
+        // app.deeplinks-and-push.test.js); the production Settings UI is
+        // owned by loadSettings() in this file, keyed on 'settings_bundle'.
+        { key: 'settings_bundle', tags: ['settings', 'food_targets', 'feature_settings'] }
+    ];
+    // Today's food daily-log — already read directly from ApiCache.getWithMeta
+    // by _todayReadCaches() for the Today render, so the dashboard tile already
+    // surfaces cached data on cold start. Hydration additionally seeds
+    // DataStore's in-memory cache + tag index so any caller using
+    // DataStore.getCached(`food_<today>_day`) resolves synchronously — and
+    // cachedFetch's offline branch (loadFoodLogs in features/food.js) sees a
+    // pre-warmed entry instead of triggering OfflineNoCacheError on the very
+    // first paint after a cold-start-offline relaunch.
+    if (todayFoodCacheKey) {
+        entries.push({ key: todayFoodCacheKey, tags: ['food'] });
+    }
+    await Promise.all(entries.map(async ({ key, tags }) => {
+        try {
+            await window.DataStore.hydrateFromDexie(
+                key,
+                () => apiCache.getWithMeta(key),
+                { tags }
+            );
+        } catch (e) {
+            console.warn('[Hydrate] Dexie section hydration failed', key, e);
+        }
+    }));
+
+    // TZ-mismatch fallback for Vitals/Health Overview. If the current TZ key
+    // has no cached row (user changed timezone since the last sync, or the
+    // device clock jumped to a TZ without prior data), look up the most
+    // recently written health_overview_* entry and seed the current TZ key
+    // with that data. The original (older) timestamp is preserved so the
+    // stale chip surfaces the real age rather than "Updated just now".
+    // Skip `health_overview_offset_<n>` rows when the current key is a real
+    // IANA TZ key: an offset-keyed row is a geography-less fallback written
+    // when Intl.DateTimeFormat returned no zone, and using it to seed an
+    // IANA-keyed row would mislabel a numeric-offset bucket as that zone.
+    try {
+        const currentSeed = await window.DataStore.getCached(healthOverviewKey);
+        if (currentSeed === null
+            && typeof apiCache.findMostRecentByPrefix === 'function') {
+            const currentIsOffsetKey = healthOverviewKey.startsWith('health_overview_offset_');
+            const fallback = await apiCache.findMostRecentByPrefix('health_overview_', {
+                exclude: (key) => !currentIsOffsetKey && key.startsWith('health_overview_offset_')
+            });
+            if (fallback && fallback.data) {
+                await apiCache.setWithMeta(healthOverviewKey, fallback.data, fallback.timestamp);
+                if (typeof window.DataStore.registerTags === 'function') {
+                    window.DataStore.registerTags(healthOverviewKey, ['health']);
+                }
+            }
+        }
+    } catch (e) {
+        console.warn('[Hydrate] health_overview TZ fallback failed', e);
+    }
+}
+
 // Check Auth Environment
 async function checkAuth() {
     // Preflight Dexie hydration runs before any bootstrap fetch so a
     // relaunch-while-offline already has the meds list in DataStore by the
     // time the first switchTab() / Today tile / loadMeds() reads it.
     await hydrateMedicationsFromDexie();
+    await hydrateSectionsFromDexie();
 
     if (userInitData) {
         // We are in Telegram, proceed as normal
@@ -1853,32 +1960,75 @@ async function loadSettings() {
             apiCall('/api/weight/reminder/status', 'GET'),
             apiCall('/api/settings', 'GET')
         ]);
-        // tab_order is delivered via /api/bootstrap (no standalone GET endpoint);
-        // preserve it from the existing cache so SWR re-writes don't drop the
-        // user's saved Today card order. Fall back to localStorage so invalidations
-        // of settings_bundle don't wipe tabOrder before this fetch runs.
+        // /api/settings now returns the same slices the four legacy endpoints
+        // return (features, food_targets, bp_reminder_status,
+        // weight_reminder_status). Treat it as a fallback for any legacy slice
+        // that came back null, so a partial outage of one legacy endpoint
+        // doesn't make us skip onFresh and leave Settings stale.
+        const features = featureSettingsRes !== null
+            ? featureSettingsRes
+            : (settingsRes && settingsRes.features !== undefined ? settingsRes.features : null);
+        const foodTargetsData = foodTargetsRes !== null
+            ? foodTargetsRes
+            : (settingsRes && settingsRes.food_targets !== undefined ? settingsRes.food_targets : null);
+        const bpReminder = bpReminderStatus !== null
+            ? bpReminderStatus
+            : (settingsRes && settingsRes.bp_reminder_status !== undefined ? settingsRes.bp_reminder_status : null);
+        const weightReminder = weightReminderStatus !== null
+            ? weightReminderStatus
+            : (settingsRes && settingsRes.weight_reminder_status !== undefined ? settingsRes.weight_reminder_status : null);
+        // apiCall returns null silently on offline / 5xx. Defaulting null
+        // slices to {} / 0 / {enabled:false} here would produce a non-null
+        // bundle that fetchFresh would then write to ApiCache, blanking the
+        // good cached bundle and the rendered UI (toggles off, macros 0,
+        // weight unit back to kg). Surface the failure to loadSWR by
+        // returning null — it skips onFresh and the cached row + onCached
+        // already-painted UI stay intact.
+        if (
+            settingsRes === null
+            || features === null
+            || foodTargetsData === null
+            || bpReminder === null
+            || weightReminder === null
+        ) {
+            return null;
+        }
+        // tab_order: /api/settings includes it (when set) but for compat with
+        // clients that haven't migrated to consuming it from here, prefer the
+        // existing cache, then fall back to localStorage, then to the /api/settings
+        // response. This preserves the user's saved Today card order across SWR
+        // re-writes and invalidations of settings_bundle.
         let tabOrder = null;
         try {
             const existing = await window.DataStore.getCached('settings_bundle');
             if (existing && Array.isArray(existing.tabOrder)) tabOrder = existing.tabOrder;
         } catch (_) { /* no cache available — leave tabOrder null */ }
         if (!tabOrder) tabOrder = readPersistedTabOrder();
+        if (!tabOrder && Array.isArray(settingsRes?.tab_order)) tabOrder = settingsRes.tab_order;
         return {
-            featureSettings: featureSettingsRes || {},
+            featureSettings: features || {},
             tabOrder,
             timezone: settingsRes?.timezone || '',
             serverTime: settingsRes?.server_time || '',
             serverTimezone: settingsRes?.server_timezone || '',
             weightUnitPreference: settingsRes?.weight_unit_preference || window.weightUnitPreference || 'kg',
             foodTargets: {
-                calories: foodTargetsRes?.calories || 0,
-                carbs: foodTargetsRes?.carbs || 0,
-                protein: foodTargetsRes?.protein || 0,
-                fat: foodTargetsRes?.fat || 0
+                calories: foodTargetsData?.calories || 0,
+                carbs: foodTargetsData?.carbs || 0,
+                protein: foodTargetsData?.protein || 0,
+                fat: foodTargetsData?.fat || 0
             },
-            bpReminderStatus: bpReminderStatus || { enabled: false },
-            weightReminderStatus: weightReminderStatus || { enabled: false }
+            bpReminderStatus: bpReminder || { enabled: false },
+            weightReminderStatus: weightReminder || { enabled: false }
         };
+    };
+
+    // Mount the stale badge from the bootstrap-warmed settings_bundle row so
+    // the user can see "Offline · 2h old" when Settings is opened on a cold
+    // start without network — and "Updated just now" after the SWR fetch
+    // lands a fresh bundle. Best-effort: never blocks Settings render.
+    const mountStaleBadge = async () => {
+        try { await renderSettingsStaleBadge(); } catch (_) { /* no-op */ }
     };
 
     try {
@@ -1886,16 +2036,42 @@ async function loadSettings() {
             key: 'settings_bundle',
             tags: ['settings', 'food_targets', 'feature_settings'],
             fetcher: fetchBundle,
-            onCached: applyBundle,
-            onFresh: applyBundle,
+            onCached: async (cached) => {
+                await applyBundle(cached);
+                await mountStaleBadge();
+            },
+            onFresh: async (fresh) => {
+                await applyBundle(fresh);
+                await mountStaleBadge();
+            },
             onError: async (error, cached) => {
                 console.error('Failed to load settings:', error);
                 if (cached) applyBundle(cached);
+                await mountStaleBadge();
             }
         });
     } catch (error) {
         console.error('Failed to load settings:', error);
     }
+    // Safety-net mount for the case where no callback fires (e.g., no cached
+    // row AND fetcher returns null) — mountFromKey gracefully no-ops if
+    // there's nothing to surface.
+    await mountStaleBadge();
+}
+
+// Mounts the wg-stale-badge into the Settings section header from the
+// `settings_bundle` api_cache row (warmed by /api/bootstrap and refreshed by
+// loadSettings()'s SWR fetcher). Mirrors the BP/Weight/Workout/Health pattern.
+async function renderSettingsStaleBadge() {
+    const slot = document.getElementById('settings-stale-badge');
+    if (!slot) return;
+    const api = (typeof window !== 'undefined') ? window.WGStaleBadge : null;
+    if (!api || typeof api.mountFromKey !== 'function') {
+        slot.replaceChildren();
+        slot.classList.add('hidden');
+        return;
+    }
+    await api.mountFromKey({ slot, key: 'settings_bundle' });
 }
 
 function updateFeatureToggles() {

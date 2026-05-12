@@ -1455,19 +1455,30 @@ let currentEditingLibraryItemId = null;
 
 async function loadExerciseLibrary() {
     const container = document.getElementById('exercise-library-list');
+    // Tracks whether any callback (cached / fresh / error) painted the list.
+    // The fetcher uses `apiCall`, which silently returns `null` on offline/5xx.
+    // When that null reaches loadSWR with no cached value, neither onFresh
+    // nor onError fires \u2014 leaving the initial "Loading exercise library..."
+    // placeholder visible. Mirrors loadBPReadings / loadMeds.
+    let renderedSomething = false;
     await window.DataStore.loadSWR({
         key: 'exercise_library',
         tags: ['exercise_library'],
         fetcher: async () => await apiCall('/api/workout/exercise-library'),
         onCached: async (cached) => {
+            renderedSomething = true;
             _renderExerciseLibrary(container, cached);
         },
         onFresh: async (fresh) => {
+            renderedSomething = true;
             _renderExerciseLibrary(container, fresh);
         },
         onError: async (error, cached) => {
             console.error('Error loading exercise library:', error);
-            if (!cached) {
+            if (cached) {
+                renderedSomething = true;
+            } else if (container) {
+                renderedSomething = true;
                 const message = document.createElement('p');
                 message.className = 'text-hint';
                 message.textContent = 'No cached data \u2014 will load when online';
@@ -1475,6 +1486,12 @@ async function loadExerciseLibrary() {
             }
         }
     });
+    if (!renderedSomething && container) {
+        const message = document.createElement('p');
+        message.className = 'text-hint';
+        message.textContent = 'No cached data \u2014 will load when online';
+        container.replaceChildren(message);
+    }
 }
 
 function _renderExerciseLibrary(container, items) {

@@ -524,13 +524,26 @@ async function loadNotes() {
             if (loading) loading.style.display = 'none';
             await renderHealthNotesStaleBadge();
         },
-        onFresh: async (fresh) => {
+        onFresh: async (fresh, cached) => {
             if (loading) loading.style.display = 'none';
             // Discard the result if a newer loadNotes() call has already taken
             // over (e.g. the user added/deleted a note while this fetch was in
             // flight and the post-write refresh incremented _notesGeneration).
             if (myGeneration !== _notesGeneration) return;
             if (!fresh) {
+                // apiCall returns null silently when offline / 5xx, so this
+                // branch fires both on transient failures (cached covers it)
+                // and on a cold-start-offline with no Dexie row. The explicit
+                // empty card matches the onError fallback below so the list
+                // never looks frozen on "Loading notes..." after a failed
+                // first-paint fetch.
+                if (!cached) {
+                    const listEl = document.getElementById('notes-list');
+                    if (listEl) {
+                        listEl.replaceChildren();
+                        listEl.appendChild(buildNotesEmptyCard('No cached data — will load when online'));
+                    }
+                }
                 await renderHealthNotesStaleBadge();
                 return;
             }
