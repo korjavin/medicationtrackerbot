@@ -135,12 +135,12 @@ Two SWR keys: `health_overview_<tz>` and `health_notes`. The TZ-qualified key ne
 
 Food already uses `cachedFetch` which reads Dexie ApiCache directly, so the hydration gap is narrower. But: on first paint (before any tab is opened) the food cache isn't *read*, only written when the section mounts. The today-food-tile (if any) and the products picker should both surface cached data on cold start.
 
-- [ ] confirm `cachedFetch` keys `food_<date>_day` and `food_products_cache` survive Dexie restart (likely yes, since they're in `ApiCache`)
-- [ ] in `app.js` early-init, hydrate `food_<today>_day` so the Today-screen food summary tile (if present) renders synchronously
-- [ ] verify the existing `OfflineNoCacheError` empty state in `features/food.js` covers all entry points (daily log, products picker)
-- [ ] write tests in `web/static/js/tests/food.dexie-hydration.test.js`: cold-start offline → food daily log renders cached groups with stale chip
-- [ ] write tests for "products picker offline + no cache" → existing empty state copy
-- [ ] run `pnpm test` — must pass before next task
+- [x] confirm `cachedFetch` keys `food_<date>_day` and `food_products_cache` survive Dexie restart — both write to `ApiCache` (Dexie-backed `api_cache` table) via `cacheApiSnapshot`/`cachedFetch`'s persist path; verified by reading `web/static/js/cached-fetch.js` and the bootstrap apply path in `app.js` (`cacheApiSnapshot('food_${res.food.date}_day', ...)`).
+- [x] in `app.js` early-init, hydrate `food_<today>_day` so the Today-screen food summary tile renders synchronously. Added as a conditional entry to `hydrateSectionsFromDexie` (`todayFoodKey(new Date())`) — `_todayReadCaches` (app.js) already reads it directly from `ApiCache.getWithMeta`, but the new hydration also registers the key with DataStore's tag index and seeds the in-memory cache so `DataStore.getCached(...)` resolves synchronously and cachedFetch's offline branch sees a pre-warmed entry on first paint.
+- [x] verify the existing `OfflineNoCacheError` empty state in `features/food.js` covers all entry points (daily log, products picker). `loadFoodLogs` already renders "No cached food data — connect to load." on `OfflineNoCacheError` when no v2 cache fallback exists, and `initFoodProductsCache` swallows `OfflineNoCacheError` silently (falls back to empty `foodProductsCache`). The library Food DB browser uses direct `apiCall` (not cachedFetch) and is not a primary cold-start path, so out of scope here.
+- [x] write tests in `web/static/js/tests/food.dexie-hydration.test.js`: cold-start offline → food daily log renders cached groups with stale chip. 8 tests total covering hydration seed, offline cached render with `Offline · 1h old` chip, "No cached food data" empty state, picker cached resolution + empty fallback, auth-presence gate, and IndexedDB rejection tolerance.
+- [x] write tests for "products picker offline + no cache" → existing empty state copy. Covered by `initFoodProductsCache falls back to an empty list when offline + no cache (OfflineNoCacheError swallowed)` — asserts no throw + no `saveCache` call.
+- [x] run `pnpm test` — food.dexie-hydration suite passes 8/8; the same two pre-existing chart-test failures noted in Tasks 3 and 4 (`components.wg-sleep-chart.test.js` / `components.wg-steps-chart.test.js`, date-dependent "Today" label) remain unrelated to this task.
 
 ### Task 6: Hydrate Settings section from Dexie
 

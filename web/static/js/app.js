@@ -476,6 +476,9 @@ async function hydrateSectionsFromDexie() {
     // mirror what cacheApiSnapshot writes during the bootstrap apply path so
     // a later invalidateByTag evicts the hydrated row alongside fresh ones.
     const healthOverviewKey = healthOverviewCacheKey();
+    const todayFoodCacheKey = typeof todayFoodKey === 'function'
+        ? todayFoodKey(new Date())
+        : null;
     const entries = [
         { key: 'bp', tags: ['bp'] },
         { key: 'weight', tags: ['weight'] },
@@ -496,6 +499,17 @@ async function hydrateSectionsFromDexie() {
         // notes mutation OR a health-wide invalidation evicts the row.
         { key: 'diary_notes', tags: ['notes', 'health-notes'] }
     ];
+    // Today's food daily-log — already read directly from ApiCache.getWithMeta
+    // by _todayReadCaches() for the Today render, so the dashboard tile already
+    // surfaces cached data on cold start. Hydration additionally seeds
+    // DataStore's in-memory cache + tag index so any caller using
+    // DataStore.getCached(`food_<today>_day`) resolves synchronously — and
+    // cachedFetch's offline branch (loadFoodLogs in features/food.js) sees a
+    // pre-warmed entry instead of triggering OfflineNoCacheError on the very
+    // first paint after a cold-start-offline relaunch.
+    if (todayFoodCacheKey) {
+        entries.push({ key: todayFoodCacheKey, tags: ['food'] });
+    }
     await Promise.all(entries.map(async ({ key, tags }) => {
         try {
             await window.DataStore.hydrateFromDexie(
