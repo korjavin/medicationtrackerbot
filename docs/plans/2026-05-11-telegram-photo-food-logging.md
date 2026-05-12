@@ -192,23 +192,23 @@ Dependencies identified: **no new Go dependencies**. The web's inline JPEG/EXIF 
 
 ### Task 8: Acceptance criteria verification
 
-- [ ] verify the requested behavior:
-  - [ ] photo sent → items parsed and saved with `eatenAt = now()` (default branch)
-  - [ ] photo with EXIF >1h old → user is asked which time to use before saving
-  - [ ] summary message displays parsed items + totals (same renderer as `/food`)
-  - [ ] inline `[Undo]` button deletes all newly created rows within 5s
-  - [ ] after 5s, the `[Undo]` button is removed from the message
-  - [ ] feature respects `GetFoodIntakeEnabled`
-  - [ ] feature respects `foodAI == nil` (clean error message, no panic)
-- [ ] verify edge cases:
-  - [ ] zero items parsed → no rows written, user told nothing was detected
-  - [ ] image >8 MB → user told the photo is too large, no AI call
-  - [ ] pending-photo token expired before user answers → friendly expiry message
-  - [ ] undo token expired (clicked >10s late) → friendly expiry message
-  - [ ] AI provider not vision-capable → user told to set vision env vars (reuse the existing message from `food_ai.go:72`)
-- [ ] run full test suite: `go test ./...`
-- [ ] run linter: `golangci-lint run` — all issues fixed before completion
-- [ ] verify no new `window.*` globals (frontend untouched) and no new HTTP routes (so MCP coverage is unaffected)
+- [x] verify the requested behavior:
+  - [x] photo sent → items parsed and saved with `eatenAt = now()` (default branch) — covered by `TestHandlePhotoMessage_NoEXIF_DirectSave`, `TestHandlePhotoMessage_RecentEXIF_DirectSave`
+  - [x] photo with EXIF >1h old → user is asked which time to use before saving — covered by `TestHandlePhotoMessage_OldEXIF_PromptsForTime`
+  - [x] summary message displays parsed items + totals (same renderer as `/food`) — covered by `TestRespondWithFoodPhotoSummary_SuccessSingleItem`
+  - [x] inline `[Undo]` button deletes all newly created rows within 5s — covered by `TestHandleFoodPhotoUndoCallback_Success`
+  - [x] after 5s, the `[Undo]` button is removed from the message — covered by `TestRespondWithFoodPhotoSummary_ExpireUndoBatchStripsKeyboard`
+  - [x] feature respects `GetFoodIntakeEnabled` — covered by `TestHandlePhotoMessage_FoodIntakeDisabled`
+  - [x] feature respects `foodAI == nil` (clean error message, no panic) — covered by `TestHandlePhotoMessage_NilFoodAI`
+- [x] verify edge cases:
+  - [x] zero items parsed → no rows written, user told nothing was detected — covered by `TestRespondWithFoodPhotoSummary_ZeroItems`
+  - [x] image >8 MB → user told the photo is too large, no AI call — covered by `TestDownloadTelegramPhoto_RejectsOversizeLocal`, `TestDownloadTelegramPhoto_RejectsOversizeRemote`
+  - [x] pending-photo token expired before user answers → friendly expiry message — covered by `TestHandleFoodPhotoTimeCallback_UnknownToken`
+  - [x] undo token expired (clicked >10s late) → friendly expiry message — covered by `TestHandleFoodPhotoUndoCallback_Expired`
+  - [x] AI provider not vision-capable → user told to set vision env vars (reuse the existing message from `food_ai.go:72`) — covered by `TestRespondWithFoodPhotoSummary_AIError`
+- [x] run full test suite: `go test ./...` — all packages green
+- [x] run linter: `golangci-lint run` — fixed 2 issues (ineffassign in `photo_exif_test.go`, De Morgan's law in `photo_exif.go`); now 0 issues
+- [x] verify no new `window.*` globals (frontend untouched) and no new HTTP routes (so MCP coverage is unaffected) — diff stat confirms only `internal/bot/` files changed
 
 ### Task 9: Documentation
 
