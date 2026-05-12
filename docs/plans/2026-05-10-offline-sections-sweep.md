@@ -190,10 +190,10 @@ Mirror the `mcp_coverage_exempt.go` pattern. Every file in `web/static/js/featur
 
 ### Task 10: Update documentation
 
-- [ ] extend `docs/frontend.md` "Local-First Read Resilience" with the per-section hydration table (key → loader location)
-- [ ] document the architecture test rule and how to add an allowlist entry
-- [ ] update `docs/api.md` with the new `/api/settings` endpoint (if added in Task 7)
-- [ ] do not create new `*.md` files — extend existing only
+- [x] extend `docs/frontend.md` "Local-First Read Resilience" with the per-section hydration table (key → loader location). Added a 12-row table covering Medications, BP, Weight, Workouts (5 keys), Vitals Overview + Notes, Food (today), and Settings — each row lists cache key, Dexie loader call, and the consuming loader function. Also expanded the surrounding `hydrateFromDexie` paragraph to name both wrappers (`hydrateMedicationsFromDexie` + `hydrateSectionsFromDexie`) and note the auth-presence gate and the TZ-mismatch fallback for `health_overview_*`.
+- [x] document the architecture test rule and how to add an allowlist entry. Expanded the "Architecture guard" paragraph to enumerate the four sub-assertions the test runs (use-or-allowlist, non-empty reason, file exists, no stale entries) and added a "How to add an allowlist entry" paragraph explaining the `{ file, reason }` shape, the test command to re-run, and the acceptable justification categories drawn from the current allowlist (pure UI helpers, event-driven indicators, pure routing, transient one-shot fetches, DOM observers, render-only aggregators).
+- [x] update `docs/api.md` with the new `/api/settings` endpoint (if added in Task 7). The endpoint was already documented as `GET /api/settings`; replaced the one-line `{"timezone": "..."}` description with the full Task-7 response shape (`timezone, server_time, server_timezone, weight_unit_preference, features, food_targets, bp_reminder_status, weight_reminder_status, tab_order?`) plus the null-when-no-user semantics for the reminder fields and the "omit not null" convention for `tab_order`.
+- [x] do not create new `*.md` files — extend existing only. Only `docs/frontend.md` and `docs/api.md` were edited; no new files were created.
 
 ## Technical Details
 
