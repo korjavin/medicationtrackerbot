@@ -23,8 +23,8 @@ type undoBatchEntry struct {
 }
 
 // undoBatchStore is a TTL-bounded cache keyed by random tokens. take() is
-// one-shot (consume); peek() is read-only and used by the 5s expiry goroutine
-// to look up messageID without racing the user's click.
+// one-shot (consume); peek() is read-only and retained for tests that need
+// to assert on entry state without removing it.
 type undoBatchStore struct {
 	mu      sync.Mutex
 	entries map[string]undoBatchEntry
@@ -106,9 +106,8 @@ func (s *undoBatchStore) setMessageID(token string, messageID int) bool {
 	return true
 }
 
-// peek returns the entry stored under token without consuming it. Used by the
-// 5-second expiry goroutine to look up the message ID for an edit-markup call
-// while leaving the entry available to a racing user click.
+// peek returns the entry stored under token without consuming it. Retained
+// for tests that need to assert on entry state without removing it.
 func (s *undoBatchStore) peek(token string) (undoBatchEntry, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

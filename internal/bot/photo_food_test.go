@@ -896,6 +896,9 @@ func TestHandleFoodPhotoTimeCallback_ExifBranch(t *testing.T) {
 	if len(editBodies) == 0 || !strings.Contains(editBodies[0], "Using") {
 		t.Errorf("expected confirm 'Using <time>' in edit body, got: %v", editBodies)
 	}
+	if !strings.Contains(editBodies[0], `"inline_keyboard":[]`) {
+		t.Errorf("expected empty inline_keyboard to strip time-picker buttons, got: %s", editBodies[0])
+	}
 }
 
 func TestHandleFoodPhotoTimeCallback_NowBranch(t *testing.T) {
@@ -1034,6 +1037,9 @@ func TestHandleFoodPhotoUndoCallback_Success(t *testing.T) {
 	}
 	if !strings.Contains(joined, "Logged 2 items") {
 		t.Errorf("expected original summary text preserved, got: %s", joined)
+	}
+	if !strings.Contains(joined, `"inline_keyboard":[]`) {
+		t.Errorf("expected empty inline_keyboard to strip [Undo] button, got: %s", joined)
 	}
 }
 
