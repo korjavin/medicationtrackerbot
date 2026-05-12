@@ -68,7 +68,7 @@ The "rolling-out" sections (BP, Weight, Meds, Workouts, Vitals) keep their exist
 |---------|-----------|--------------|-------------------|
 | Medications | `medications` | `MedTrackerDB.MedicationStore.loadCache()` | `loadMeds()` in `features/meds.js` (and Today's next-intake tile via the same key) |
 | BP | `bp` | `MedTrackerDB.ApiCache.getWithMeta('bp')` | `loadBPReadings()` in `features/bp.js` (bundled `{readingsRes, goalRes, statsRes}`) |
-| Weight | `weight` | `MedTrackerDB.ApiCache.getWithMeta('weight')` | `loadWeight()` in `features/weight.js` (bundled `{logsRes, goalRes}`) |
+| Weight | `weight` | `MedTrackerDB.ApiCache.getWithMeta('weight')` | `loadWeightLogs()` in `features/weight.js` (bundled `{logsRes, goalRes}`) |
 | Workouts — Next | `workout_next` | `ApiCache.getWithMeta('workout_next')` | `loadNextWorkout()` in `features/workout.js` + Today's next-workout tile |
 | Workouts — History | `workout_history` | `ApiCache.getWithMeta('workout_history')` | `loadWorkoutHistoryTab()` in `features/workout.js` |
 | Workouts — Groups | `workout_groups` | `ApiCache.getWithMeta('workout_groups')` | `loadWorkoutGroups()` in `features/workout.js` |

@@ -246,6 +246,56 @@ describe('Settings on-mount refresh (Task 7)', () => {
         expect(window.weightUnitPreference).toBe('lb');
     });
 
+    it('apiCall returning null on offline does not clobber the cached bundle with empty defaults', async () => {
+        // Regression guard for the realistic offline path: `apiCall` swallows
+        // network errors and returns null (it does NOT throw), so the SWR
+        // fetcher would otherwise compose a non-null bundle of empty/zero
+        // defaults — `featureSettings: {}`, `foodTargets: {0,0,0,0}`,
+        // `bpReminderStatus: {enabled:false}`, `weightUnitPreference: 'kg'` —
+        // and fetchFresh would write that frankenstein bundle to ApiCache,
+        // destroying the bootstrap-warmed cache and reverting the rendered
+        // toggles. Fixed by returning null from fetchBundle when any input
+        // slice is null so loadSWR's onFresh never fires.
+        const { window } = env;
+        setAuthCache(window);
+        const cachedAt = Date.now() - 30 * 60 * 1000;
+        const bundle = makeBundle({
+            featureSettings: { medication: true, workout: false, food: true, bp: true, weight: true, health: false },
+            foodTargets: { calories: 1900, carbs: 200, protein: 130, fat: 65 },
+            bpReminderStatus: { enabled: true },
+            weightReminderStatus: { enabled: false },
+            weightUnitPreference: 'lb'
+        });
+        installApiCacheMap(window, {
+            settings_bundle: { data: bundle, timestamp: cachedAt }
+        });
+
+        await window.hydrateSectionsFromDexie();
+
+        setOnline(window, false);
+        // Realistic offline shape: every GET resolves to null (the offline-aware
+        // apiCall path), NOT throws.
+        window.apiCall = vi.fn(async () => null);
+
+        await expect(window.loadSettings()).resolves.toBeUndefined();
+
+        // Cached bundle must survive intact — not replaced by empty defaults.
+        const after = await window.DataStore.getCached('settings_bundle');
+        expect(after).not.toBeNull();
+        expect(after.featureSettings).toMatchObject({
+            medication: true, workout: false, food: true, bp: true, weight: true, health: false
+        });
+        expect(after.foodTargets).toEqual({ calories: 1900, carbs: 200, protein: 130, fat: 65 });
+        expect(after.bpReminderStatus).toEqual({ enabled: true });
+        expect(after.weightReminderStatus).toEqual({ enabled: false });
+        expect(after.weightUnitPreference).toBe('lb');
+
+        // And the original timestamp must NOT be advanced — the badge should
+        // continue to surface the real age of the cached row, not "just now".
+        const meta = await window.MedTrackerDB.ApiCache.getWithMeta('settings_bundle');
+        expect(meta.timestamp).toBe(cachedAt);
+    });
+
     it('opening Settings offline with NO cached bundle does not throw — degrades to module defaults', async () => {
         allowConsoleNoise();
         const { window } = env;
