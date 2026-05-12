@@ -60,11 +60,15 @@ function installApiCacheMap(window, initialCache = {}) {
         // Mirrors db.js: returns the entry with the largest timestamp whose
         // id starts with `prefix`, or null. The hydrate fallback path in
         // app.js calls this when the current-TZ health_overview row is empty.
-        async findMostRecentByPrefix(prefix) {
+        // `opts.exclude(key) => bool` skips matching ids — used to keep
+        // offset-keyed rows from seeding IANA-keyed buckets.
+        async findMostRecentByPrefix(prefix, opts) {
+            const exclude = (opts && typeof opts.exclude === 'function') ? opts.exclude : null;
             let best = null;
             for (const entry of map.values()) {
                 if (typeof entry.id !== 'string' || !entry.id.startsWith(prefix)) continue;
                 if (typeof entry.timestamp !== 'number') continue;
+                if (exclude && exclude(entry.id)) continue;
                 if (!best || entry.timestamp > best.timestamp) best = entry;
             }
             return best ? { key: best.id, data: best.data, timestamp: best.timestamp } : null;
