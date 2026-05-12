@@ -601,6 +601,262 @@ func TestHandleBootstrap_IncludesTimezone(t *testing.T) {
 	}
 }
 
+// TestHandleGetSettings_FullBundle is the regression guard for Task 7 of the
+// offline-sections-sweep plan: GET /api/settings now returns the same shape
+// the bootstrap response embeds, so opening the Settings screen refreshes
+// every toggle in one round-trip. Each sub-case pins one slice of the bundle
+// (features map, food targets, reminder status flags, tab order, weight unit
+// preference) so a regression in any single field is unambiguous.
+func TestHandleGetSettings_FullBundle(t *testing.T) {
+	srv, db := createBPTestServer(t)
+	defer db.Close()
+
+	ctx := context.Background()
+	const userID = int64(123456)
+
+	// Seed every slice of the bundle so each sub-case has a non-default value
+	// to assert against. Defaults would still produce a 200, but they don't
+	// distinguish "field was wired up" from "field was dropped silently".
+	if err := db.RecordTimezone("Europe/Berlin"); err != nil {
+		t.Fatalf("RecordTimezone: %v", err)
+	}
+	if err := db.SetWeightUnitPreference(ctx, "lb"); err != nil {
+		t.Fatalf("SetWeightUnitPreference: %v", err)
+	}
+	if err := db.SetBloodPressureEnabled(ctx, false); err != nil {
+		t.Fatalf("SetBloodPressureEnabled: %v", err)
+	}
+	if err := db.SetFoodTargets(ctx, store.FoodTargets{Calories: 2000, Carbs: 200, Protein: 150, Fat: 70}); err != nil {
+		t.Fatalf("SetFoodTargets: %v", err)
+	}
+	if _, err := db.GetBPReminderState(userID); err != nil { // creates default row
+		t.Fatalf("seed GetBPReminderState: %v", err)
+	}
+	if err := db.SetBPReminderEnabled(userID, false); err != nil {
+		t.Fatalf("SetBPReminderEnabled: %v", err)
+	}
+	if _, err := db.GetWeightReminderState(userID); err != nil { // creates default row
+		t.Fatalf("seed GetWeightReminderState: %v", err)
+	}
+	if err := db.SetTabOrder(ctx, `["food","bp","weight"]`); err != nil {
+		t.Fatalf("SetTabOrder: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/settings", nil)
+	req = withUser(req, userID)
+	w := httptest.NewRecorder()
+	srv.handleGetSettings(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("Decode failed: %v", err)
+	}
+
+	cases := []struct {
+		name   string
+		assert func(t *testing.T)
+	}{
+		{
+			name: "timezone preserved",
+			assert: func(t *testing.T) {
+				tz, _ := resp["timezone"].(string)
+				if tz != "Europe/Berlin" {
+					t.Errorf("Expected timezone=Europe/Berlin, got %q", tz)
+				}
+			},
+		},
+		{
+			name: "server_time is RFC3339",
+			assert: func(t *testing.T) {
+				st, _ := resp["server_time"].(string)
+				if st == "" {
+					t.Fatalf("Expected non-empty server_time")
+				}
+				if _, err := time.Parse(time.RFC3339, st); err != nil {
+					t.Errorf("Expected RFC3339 server_time, got %q: %v", st, err)
+				}
+			},
+		},
+		{
+			name: "server_timezone non-empty",
+			assert: func(t *testing.T) {
+				if stz, _ := resp["server_timezone"].(string); stz == "" {
+					t.Errorf("Expected non-empty server_timezone")
+				}
+			},
+		},
+		{
+			name: "weight_unit_preference reflects stored value",
+			assert: func(t *testing.T) {
+				if u, _ := resp["weight_unit_preference"].(string); u != "lb" {
+					t.Errorf("Expected weight_unit_preference=lb, got %q", u)
+				}
+			},
+		},
+		{
+			name: "features map mirrors bootstrap shape",
+			assert: func(t *testing.T) {
+				features, ok := resp["features"].(map[string]any)
+				if !ok {
+					t.Fatalf("Expected features map, got %T", resp["features"])
+				}
+				bp, ok := features["bp"].(bool)
+				if !ok {
+					t.Fatalf("Expected features.bp bool, got %T", features["bp"])
+				}
+				if bp {
+					t.Errorf("Expected features.bp=false after SetBloodPressureEnabled(false)")
+				}
+				// Sanity: the rest of the canonical bootstrap features are present.
+				for _, key := range []string{"food", "weight", "medication", "workout", "health"} {
+					if _, ok := features[key]; !ok {
+						t.Errorf("Expected features.%s present in response", key)
+					}
+				}
+			},
+		},
+		{
+			name: "food_targets carries macro values",
+			assert: func(t *testing.T) {
+				ft, ok := resp["food_targets"].(map[string]any)
+				if !ok {
+					t.Fatalf("Expected food_targets map, got %T", resp["food_targets"])
+				}
+				if cals, _ := ft["calories"].(float64); cals != 2000 {
+					t.Errorf("Expected food_targets.calories=2000, got %v", ft["calories"])
+				}
+				if carbs, _ := ft["carbs"].(float64); carbs != 200 {
+					t.Errorf("Expected food_targets.carbs=200, got %v", ft["carbs"])
+				}
+				if pro, _ := ft["protein"].(float64); pro != 150 {
+					t.Errorf("Expected food_targets.protein=150, got %v", ft["protein"])
+				}
+				if fat, _ := ft["fat"].(float64); fat != 70 {
+					t.Errorf("Expected food_targets.fat=70, got %v", ft["fat"])
+				}
+			},
+		},
+		{
+			name: "bp_reminder_status reflects toggled-off state",
+			assert: func(t *testing.T) {
+				bpRem, ok := resp["bp_reminder_status"].(map[string]any)
+				if !ok {
+					t.Fatalf("Expected bp_reminder_status map, got %T", resp["bp_reminder_status"])
+				}
+				enabled, ok := bpRem["enabled"].(bool)
+				if !ok {
+					t.Fatalf("Expected bp_reminder_status.enabled bool")
+				}
+				if enabled {
+					t.Errorf("Expected bp_reminder_status.enabled=false")
+				}
+			},
+		},
+		{
+			name: "weight_reminder_status present with default enabled=true",
+			assert: func(t *testing.T) {
+				wRem, ok := resp["weight_reminder_status"].(map[string]any)
+				if !ok {
+					t.Fatalf("Expected weight_reminder_status map, got %T", resp["weight_reminder_status"])
+				}
+				enabled, ok := wRem["enabled"].(bool)
+				if !ok {
+					t.Fatalf("Expected weight_reminder_status.enabled bool")
+				}
+				// Default created by GetWeightReminderState is enabled=true; no
+				// SetWeightReminderEnabled call followed it, so the response
+				// should carry that default.
+				if !enabled {
+					t.Errorf("Expected weight_reminder_status.enabled=true (default)")
+				}
+			},
+		},
+		{
+			name: "tab_order parsed from stored JSON",
+			assert: func(t *testing.T) {
+				rawOrder, ok := resp["tab_order"].([]any)
+				if !ok {
+					t.Fatalf("Expected tab_order array, got %T", resp["tab_order"])
+				}
+				if len(rawOrder) != 3 {
+					t.Fatalf("Expected 3 tabs in tab_order, got %d", len(rawOrder))
+				}
+				want := []string{"food", "bp", "weight"}
+				for i, s := range want {
+					if got, _ := rawOrder[i].(string); got != s {
+						t.Errorf("tab_order[%d]: expected %q, got %q", i, s, got)
+					}
+				}
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, tc.assert)
+	}
+}
+
+// TestHandleGetSettings_NoUser confirms the bundle handler degrades gracefully
+// when the auth middleware did not attach a TelegramUser to the context (e.g.
+// pre-login bootstrap probe). The route is auth-gated upstream, but the
+// handler must still avoid a nil-deref on the user-scoped reminder reads.
+func TestHandleGetSettings_NoUser(t *testing.T) {
+	srv, db := createBPTestServer(t)
+	defer db.Close()
+
+	req := httptest.NewRequest("GET", "/api/settings", nil) // no withUser
+	w := httptest.NewRecorder()
+	srv.handleGetSettings(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("Decode failed: %v", err)
+	}
+	if _, ok := resp["timezone"]; !ok {
+		t.Errorf("Expected timezone key even without user")
+	}
+	if _, ok := resp["features"]; !ok {
+		t.Errorf("Expected features key even without user")
+	}
+	if resp["bp_reminder_status"] != nil {
+		t.Errorf("Expected bp_reminder_status=null when user missing, got %v", resp["bp_reminder_status"])
+	}
+	if resp["weight_reminder_status"] != nil {
+		t.Errorf("Expected weight_reminder_status=null when user missing, got %v", resp["weight_reminder_status"])
+	}
+}
+
+// TestHandleGetSettings_TabOrderOmittedWhenUnset confirms that absent tab_order
+// data is omitted from the response (matching bootstrap's behaviour). Clients
+// preserve their local fallback when the key is missing rather than reseting
+// to an empty array.
+func TestHandleGetSettings_TabOrderOmittedWhenUnset(t *testing.T) {
+	srv, db := createBPTestServer(t)
+	defer db.Close()
+
+	req := httptest.NewRequest("GET", "/api/settings", nil)
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+	srv.handleGetSettings(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d", w.Code)
+	}
+	var resp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("Decode failed: %v", err)
+	}
+	if _, present := resp["tab_order"]; present {
+		t.Errorf("Expected tab_order to be omitted when unset, got %v", resp["tab_order"])
+	}
+}
+
 func TestHandleSetTabOrder(t *testing.T) {
 	srv, db := createFoodTestServer(t)
 	defer db.Close()

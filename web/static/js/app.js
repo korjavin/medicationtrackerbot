@@ -1996,6 +1996,26 @@ async function loadSettings() {
     } catch (error) {
         console.error('Failed to load settings:', error);
     }
+    // Mount the stale badge from the bootstrap-warmed settings_bundle row so
+    // the user can see "Offline · 2h old" when Settings is opened on a cold
+    // start without network — and "Updated just now" after the SWR fetch
+    // above lands a fresh bundle. Best-effort: never blocks Settings render.
+    try { await renderSettingsStaleBadge(); } catch (_) { /* no-op */ }
+}
+
+// Mounts the wg-stale-badge into the Settings section header from the
+// `settings_bundle` api_cache row (warmed by /api/bootstrap and refreshed by
+// loadSettings()'s SWR fetcher). Mirrors the BP/Weight/Workout/Health pattern.
+async function renderSettingsStaleBadge() {
+    const slot = document.getElementById('settings-stale-badge');
+    if (!slot) return;
+    const api = (typeof window !== 'undefined') ? window.WGStaleBadge : null;
+    if (!api || typeof api.mountFromKey !== 'function') {
+        slot.replaceChildren();
+        slot.classList.add('hidden');
+        return;
+    }
+    await api.mountFromKey({ slot, key: 'settings_bundle' });
 }
 
 function updateFeatureToggles() {

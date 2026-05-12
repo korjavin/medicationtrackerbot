@@ -436,25 +436,86 @@ func (s *Server) handleSetFeatureEnabled(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusOK)
 }
 
+// handleGetSettings returns the full settings bundle the bootstrap response
+// embeds (Task 7 of the offline-sections-sweep). The frontend's loadSettings()
+// SWR fetcher uses this as the single source of truth so that opening the
+// Settings screen refreshes toggles, food targets, reminder status, timezone,
+// weight-unit preference, and tab order in one round-trip — and so cold-start
+// offline relaunches can render last-known values from the same shape the
+// bootstrap-warmed `settings_bundle` cache row holds.
+//
+// Backward compat: the four pre-existing fields (timezone, server_time,
+// server_timezone, weight_unit_preference) are kept verbatim so older clients
+// reading just those continue to work.
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
+	tgUser, _ := r.Context().Value(UserCtxKey).(*TelegramUser)
+	ctx := r.Context()
+
 	tz, err := s.settings.GetCurrentTimezone()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	weightUnitPreference, err := s.settings.GetWeightUnitPreference(r.Context())
+	weightUnitPreference, err := s.settings.GetWeightUnitPreference(ctx)
 	if err != nil {
 		slog.Error("get settings weight unit preference failed", "error", err)
 		weightUnitPreference = "kg"
 	}
+
+	features, err := s.getFeatureMap(ctx)
+	if err != nil {
+		slog.Error("get settings features failed", "error", err)
+		features = map[string]bool{}
+	}
+
+	foodTargets, err := s.food.GetFoodTargets(ctx)
+	if err != nil {
+		slog.Error("get settings food targets failed", "error", err)
+		foodTargets = store.FoodTargets{}
+	}
+
+	var bpReminderStatus *store.BPReminderState
+	var weightReminderStatus *store.WeightReminderState
+	if tgUser != nil {
+		bpReminderStatus, err = s.bp.GetBPReminderState(tgUser.ID)
+		if err != nil {
+			slog.Error("get settings bp reminder state failed", "error", err)
+			bpReminderStatus = nil
+		}
+		weightReminderStatus, err = s.weight.GetWeightReminderState(tgUser.ID)
+		if err != nil {
+			slog.Error("get settings weight reminder state failed", "error", err)
+			weightReminderStatus = nil
+		}
+	}
+
+	var tabOrder any
+	tabOrderStr, err := s.settings.GetTabOrder(ctx)
+	if err != nil {
+		slog.Error("get settings tab order failed", "error", err)
+	} else if tabOrderStr != "" {
+		if err := json.Unmarshal([]byte(tabOrderStr), &tabOrder); err != nil {
+			slog.Error("get settings invalid tab order json", "error", err)
+			tabOrder = nil
+		}
+	}
+
 	now := time.Now()
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	resp := map[string]any{
 		"timezone":               tz,
 		"server_time":            now.Format(time.RFC3339),
 		"server_timezone":        formatServerTimezone(now),
 		"weight_unit_preference": weightUnitPreference,
-	})
+		"features":               features,
+		"food_targets":           foodTargets,
+		"bp_reminder_status":     bpReminderStatus,
+		"weight_reminder_status": weightReminderStatus,
+	}
+	if tabOrder != nil {
+		resp["tab_order"] = tabOrder
+	}
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func formatServerTimezone(now time.Time) string {
