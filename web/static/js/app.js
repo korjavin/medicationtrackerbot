@@ -475,6 +475,7 @@ async function hydrateSectionsFromDexie() {
     // entry — read the {data, timestamp} record by key from ApiCache. Tags
     // mirror what cacheApiSnapshot writes during the bootstrap apply path so
     // a later invalidateByTag evicts the hydrated row alongside fresh ones.
+    const healthOverviewKey = healthOverviewCacheKey();
     const entries = [
         { key: 'bp', tags: ['bp'] },
         { key: 'weight', tags: ['weight'] },
@@ -485,7 +486,15 @@ async function hydrateSectionsFromDexie() {
         { key: 'workout_history', tags: ['workout'] },
         { key: 'workout_groups', tags: ['workout'] },
         { key: 'workout_stats', tags: ['workout'] },
-        { key: 'exercise_library', tags: ['exercise_library'] }
+        { key: 'exercise_library', tags: ['exercise_library'] },
+        // Vitals/Health Overview — TZ-qualified key (e.g. health_overview_Europe/Berlin).
+        // The TZ fallback below handles the case where the current TZ has no
+        // cached row but an older TZ does (user changed timezone offline).
+        { key: healthOverviewKey, tags: ['health'] },
+        // Diary notes — the actual cache key features/health.js writes via
+        // loadSWR is 'diary_notes' (not 'health_notes'). Two tags so either a
+        // notes mutation OR a health-wide invalidation evicts the row.
+        { key: 'diary_notes', tags: ['notes', 'health-notes'] }
     ];
     await Promise.all(entries.map(async ({ key, tags }) => {
         try {
@@ -498,6 +507,28 @@ async function hydrateSectionsFromDexie() {
             console.warn('[Hydrate] Dexie section hydration failed', key, e);
         }
     }));
+
+    // TZ-mismatch fallback for Vitals/Health Overview. If the current TZ key
+    // has no cached row (user changed timezone since the last sync, or the
+    // device clock jumped to a TZ without prior data), look up the most
+    // recently written health_overview_* entry and seed the current TZ key
+    // with that data. The original (older) timestamp is preserved so the
+    // stale chip surfaces the real age rather than "Updated just now".
+    try {
+        const currentSeed = await window.DataStore.getCached(healthOverviewKey);
+        if (currentSeed === null
+            && typeof apiCache.findMostRecentByPrefix === 'function') {
+            const fallback = await apiCache.findMostRecentByPrefix('health_overview_');
+            if (fallback && fallback.data) {
+                await apiCache.setWithMeta(healthOverviewKey, fallback.data, fallback.timestamp);
+                if (typeof window.DataStore.registerTags === 'function') {
+                    window.DataStore.registerTags(healthOverviewKey, ['health']);
+                }
+            }
+        }
+    } catch (e) {
+        console.warn('[Hydrate] health_overview TZ fallback failed', e);
+    }
 }
 
 // Check Auth Environment

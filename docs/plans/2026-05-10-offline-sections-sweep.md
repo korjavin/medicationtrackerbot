@@ -122,14 +122,14 @@ Five SWR keys: `workout_history`, `workout_groups`, `exercise_library` (the plan
 
 Two SWR keys: `health_overview_<tz>` and `health_notes`. The TZ-qualified key needs a small wrinkle: hydration must use the same TZ the user had when the cache was written (Dexie record `fetchedAt` + TZ stored alongside).
 
-- [ ] in `app.js` early-init, resolve the user's current TZ (already done elsewhere in bootstrap) and hydrate `health_overview_<currentTz>` and `health_notes`
-- [ ] if no entry for current TZ exists, fall back to the most-recently-written `health_overview_*` entry and mark it as stale (avoid showing zero data when the user simply changed timezone offline)
-- [ ] in `web/static/js/features/health.js`, ensure both overview and notes tabs render synchronously from cache
-- [ ] add an explicit empty state for the Notes tab (currently missing per the audit)
-- [ ] write tests in `web/static/js/tests/health.dexie-hydration.test.js`: hydrated overview + notes render offline with stale chips
-- [ ] write tests for "TZ mismatch fallback" — verify the most-recent cache loads with stale chip
-- [ ] write tests for "Notes empty + offline" → new empty state copy
-- [ ] run `pnpm test` — must pass before next task
+- [x] in `app.js` early-init, resolve the user's current TZ (already done elsewhere in bootstrap) and hydrate `health_overview_<currentTz>` and `diary_notes` (note: the actual `loadSWR` cache key in `features/health.js` is `diary_notes`, not `health_notes` as the plan originally listed — `health_notes` only appears as a *tag*, alongside `notes`, on the same row)
+- [x] if no entry for current TZ exists, fall back to the most-recently-written `health_overview_*` entry and mark it as stale (avoid showing zero data when the user simply changed timezone offline). Implemented via a new `ApiCache.findMostRecentByPrefix('health_overview_')` helper in `web/static/js/db.js`; `hydrateSectionsFromDexie` calls it after the per-key loop and seeds the current-TZ key with the fallback row's data + original timestamp (so the stale chip surfaces real age, not "Updated just now").
+- [x] in `web/static/js/features/health.js`, ensure both overview and notes tabs render synchronously from cache. `loadHealthOverview` already paints unconditionally in `onCached`; `loadNotes` `onCached` does too. Both subtabs now have hydrated `DataStore` cache on first read so the cached payload paints before the SWR fetch even fires.
+- [x] add an explicit empty state for the Notes tab (currently missing per the audit). The gap was in `loadNotes`' `onFresh(null, null)` branch — `apiCall` returns null silently on offline, so without an empty state there the list stayed silently blank after a cold-start-offline first paint. Added a `buildNotesEmptyCard('No cached data — will load when online')` fallback that mirrors the existing `onError` path.
+- [x] write tests in `web/static/js/tests/health.dexie-hydration.test.js`: hydrated overview + notes render offline with stale chips
+- [x] write tests for "TZ mismatch fallback" — verify the most-recent cache loads with stale chip (covers both the seed assertion and the offline-chip render)
+- [x] write tests for "Notes empty + offline" → new empty state copy
+- [x] run `pnpm test` — health.dexie-hydration suite passes 10/10; the same two pre-existing chart-test failures noted in Task 3 (`components.wg-sleep-chart.test.js` / `components.wg-steps-chart.test.js`, date-dependent "Today" label) remain unrelated to this task and were confirmed by re-running them on a clean stash.
 
 ### Task 5: Audit Food section + explicit cold-start path
 
