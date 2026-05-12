@@ -154,7 +154,7 @@ func parseExifDateString(s, offsetStr string) (time.Time, bool) {
 	if len(s) < 19 {
 		return time.Time{}, false
 	}
-	if !(isDigit(s[0]) && isDigit(s[1]) && isDigit(s[2]) && isDigit(s[3]) &&
+	valid := isDigit(s[0]) && isDigit(s[1]) && isDigit(s[2]) && isDigit(s[3]) &&
 		s[4] == ':' &&
 		isDigit(s[5]) && isDigit(s[6]) &&
 		s[7] == ':' &&
@@ -164,7 +164,8 @@ func parseExifDateString(s, offsetStr string) (time.Time, bool) {
 		s[13] == ':' &&
 		isDigit(s[14]) && isDigit(s[15]) &&
 		s[16] == ':' &&
-		isDigit(s[17]) && isDigit(s[18])) {
+		isDigit(s[17]) && isDigit(s[18])
+	if !valid {
 		return time.Time{}, false
 	}
 	year := intFromDigits(s[0:4])

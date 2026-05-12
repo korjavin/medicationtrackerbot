@@ -81,9 +81,8 @@ func buildJPEGWithExif(t *testing.T, dateTime, offsetTime string, little bool) [
 		order.PutUint16(subIfd[pos+2:pos+4], 2)
 		order.PutUint32(subIfd[pos+4:pos+8], uint32(len(offBytes)))
 		order.PutUint32(subIfd[pos+8:pos+12], offOffset)
-		pos += 12
 	}
-	// next IFD offset (= 0) lives at subIfd[pos:pos+4]; already zero.
+	// next IFD offset (= 0) lives at the end of subIfd; already zero.
 
 	tiff = append(tiff, ifd0...)
 	tiff = append(tiff, subIfd...)
