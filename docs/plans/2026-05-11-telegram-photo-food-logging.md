@@ -212,9 +212,9 @@ Dependencies identified: **no new Go dependencies**. The web's inline JPEG/EXIF 
 
 ### Task 9: Documentation
 
-- [ ] update `docs/features.md` — add a "Telegram photo food logging" subsection under the food feature describing the flow and the 5s undo window
-- [ ] update `CLAUDE.md` "Common Tasks" only if a new pattern emerges that future work should follow (e.g., the `pendingPhotoStore` / `undoBatchStore` pattern for deferred callback flows). Otherwise leave CLAUDE.md alone.
-- [ ] do **not** add a README — this is feature work, not a new subsystem.
+- [x] update `docs/features.md` — add a "Telegram photo food logging" subsection under the food feature describing the flow and the 5s undo window
+- [x] update `CLAUDE.md` "Common Tasks" only if a new pattern emerges that future work should follow (e.g., the `pendingPhotoStore` / `undoBatchStore` pattern for deferred callback flows). Otherwise leave CLAUDE.md alone. — evaluated: the pending/undo cache pair is feature-specific (Telegram callback state for a single deferred flow), not a general pattern other features should reach for; CLAUDE.md left untouched as the plan instructs.
+- [x] do **not** add a README — this is feature work, not a new subsystem.
 
 ## Technical Details
 
