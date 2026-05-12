@@ -1960,6 +1960,23 @@ async function loadSettings() {
             apiCall('/api/weight/reminder/status', 'GET'),
             apiCall('/api/settings', 'GET')
         ]);
+        // /api/settings now returns the same slices the four legacy endpoints
+        // return (features, food_targets, bp_reminder_status,
+        // weight_reminder_status). Treat it as a fallback for any legacy slice
+        // that came back null, so a partial outage of one legacy endpoint
+        // doesn't make us skip onFresh and leave Settings stale.
+        const features = featureSettingsRes !== null
+            ? featureSettingsRes
+            : (settingsRes && settingsRes.features !== undefined ? settingsRes.features : null);
+        const foodTargetsData = foodTargetsRes !== null
+            ? foodTargetsRes
+            : (settingsRes && settingsRes.food_targets !== undefined ? settingsRes.food_targets : null);
+        const bpReminder = bpReminderStatus !== null
+            ? bpReminderStatus
+            : (settingsRes && settingsRes.bp_reminder_status !== undefined ? settingsRes.bp_reminder_status : null);
+        const weightReminder = weightReminderStatus !== null
+            ? weightReminderStatus
+            : (settingsRes && settingsRes.weight_reminder_status !== undefined ? settingsRes.weight_reminder_status : null);
         // apiCall returns null silently on offline / 5xx. Defaulting null
         // slices to {} / 0 / {enabled:false} here would produce a non-null
         // bundle that fetchFresh would then write to ApiCache, blanking the
@@ -1968,11 +1985,11 @@ async function loadSettings() {
         // returning null — it skips onFresh and the cached row + onCached
         // already-painted UI stay intact.
         if (
-            featureSettingsRes === null
-            || foodTargetsRes === null
-            || bpReminderStatus === null
-            || weightReminderStatus === null
-            || settingsRes === null
+            settingsRes === null
+            || features === null
+            || foodTargetsData === null
+            || bpReminder === null
+            || weightReminder === null
         ) {
             return null;
         }
@@ -1989,21 +2006,29 @@ async function loadSettings() {
         if (!tabOrder) tabOrder = readPersistedTabOrder();
         if (!tabOrder && Array.isArray(settingsRes?.tab_order)) tabOrder = settingsRes.tab_order;
         return {
-            featureSettings: featureSettingsRes || {},
+            featureSettings: features || {},
             tabOrder,
             timezone: settingsRes?.timezone || '',
             serverTime: settingsRes?.server_time || '',
             serverTimezone: settingsRes?.server_timezone || '',
             weightUnitPreference: settingsRes?.weight_unit_preference || window.weightUnitPreference || 'kg',
             foodTargets: {
-                calories: foodTargetsRes?.calories || 0,
-                carbs: foodTargetsRes?.carbs || 0,
-                protein: foodTargetsRes?.protein || 0,
-                fat: foodTargetsRes?.fat || 0
+                calories: foodTargetsData?.calories || 0,
+                carbs: foodTargetsData?.carbs || 0,
+                protein: foodTargetsData?.protein || 0,
+                fat: foodTargetsData?.fat || 0
             },
-            bpReminderStatus: bpReminderStatus || { enabled: false },
-            weightReminderStatus: weightReminderStatus || { enabled: false }
+            bpReminderStatus: bpReminder || { enabled: false },
+            weightReminderStatus: weightReminder || { enabled: false }
         };
+    };
+
+    // Mount the stale badge from the bootstrap-warmed settings_bundle row so
+    // the user can see "Offline · 2h old" when Settings is opened on a cold
+    // start without network — and "Updated just now" after the SWR fetch
+    // lands a fresh bundle. Best-effort: never blocks Settings render.
+    const mountStaleBadge = async () => {
+        try { await renderSettingsStaleBadge(); } catch (_) { /* no-op */ }
     };
 
     try {
@@ -2011,21 +2036,27 @@ async function loadSettings() {
             key: 'settings_bundle',
             tags: ['settings', 'food_targets', 'feature_settings'],
             fetcher: fetchBundle,
-            onCached: applyBundle,
-            onFresh: applyBundle,
+            onCached: async (cached) => {
+                await applyBundle(cached);
+                await mountStaleBadge();
+            },
+            onFresh: async (fresh) => {
+                await applyBundle(fresh);
+                await mountStaleBadge();
+            },
             onError: async (error, cached) => {
                 console.error('Failed to load settings:', error);
                 if (cached) applyBundle(cached);
+                await mountStaleBadge();
             }
         });
     } catch (error) {
         console.error('Failed to load settings:', error);
     }
-    // Mount the stale badge from the bootstrap-warmed settings_bundle row so
-    // the user can see "Offline · 2h old" when Settings is opened on a cold
-    // start without network — and "Updated just now" after the SWR fetch
-    // above lands a fresh bundle. Best-effort: never blocks Settings render.
-    try { await renderSettingsStaleBadge(); } catch (_) { /* no-op */ }
+    // Safety-net mount for the case where no callback fires (e.g., no cached
+    // row AND fetcher returns null) — mountFromKey gracefully no-ops if
+    // there's nothing to surface.
+    await mountStaleBadge();
 }
 
 // Mounts the wg-stale-badge into the Settings section header from the

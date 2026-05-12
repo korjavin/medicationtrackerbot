@@ -313,6 +313,101 @@ describe('Settings on-mount refresh (Task 7)', () => {
         await expect(window.loadSettings()).resolves.toBeUndefined();
     });
 
+    it('falls back to settingsRes slices when a legacy endpoint returns null — /api/settings is the canonical source for features/food_targets/reminders', async () => {
+        // Regression for codex review: /api/settings now bundles features,
+        // food_targets, bp_reminder_status, and weight_reminder_status. When
+        // one of the legacy single-slice endpoints fails (returns null), we
+        // should use the slice from /api/settings rather than throwing the
+        // whole refresh away and leaving Settings stale.
+        const { window } = env;
+        setAuthCache(window);
+        installApiCacheMap(window, {});
+        setOnline(window, true);
+
+        window.apiCall = vi.fn(async (url) => {
+            // Simulate a partial outage: the per-slice endpoint is unreachable
+            // (5xx → null), but the bundle endpoint succeeds with current data.
+            if (url === '/api/settings/features') return null;
+            if (url === '/api/food/settings/targets') return { calories: 2300, carbs: 270, protein: 155, fat: 80 };
+            if (url === '/api/bp/reminder/status') return { enabled: true };
+            if (url === '/api/weight/reminder/status') return { enabled: false };
+            if (url === '/api/settings') {
+                return {
+                    timezone: 'Europe/Berlin',
+                    server_time: new Date().toISOString(),
+                    server_timezone: 'UTC',
+                    weight_unit_preference: 'lb',
+                    features: { medication: true, workout: true, food: true, bp: false, weight: true, health: true },
+                    food_targets: { calories: 2300, carbs: 270, protein: 155, fat: 80 },
+                    bp_reminder_status: { enabled: true },
+                    weight_reminder_status: { enabled: false }
+                };
+            }
+            return null;
+        });
+
+        await window.loadSettings();
+
+        const refreshed = await window.DataStore.getCached('settings_bundle');
+        expect(refreshed).not.toBeNull();
+        expect(refreshed.featureSettings).toMatchObject({
+            medication: true, workout: true, food: true, bp: false, weight: true, health: true
+        });
+    });
+
+    it('mounts the stale badge from the onCached callback so cached values never appear without a freshness chip', async () => {
+        // Regression for codex review: previously the stale badge was mounted
+        // ONLY after loadSWR's awaited fetch returned. If the network was
+        // slow, users could see cached toggles painted without the "Offline
+        // · …" / "Updated …" chip. Mounting from onCached (in addition to the
+        // post-loadSWR safety-net call) ensures the badge appears on first
+        // paint of cached data, matching the BP / Weight / Workout pattern.
+        allowConsoleNoise();
+        const { window, document } = env;
+        setAuthCache(window);
+        const cachedAt = Date.now() - 2 * 60 * 60 * 1000; // 2 hours ago
+        const bundle = makeBundle();
+        installApiCacheMap(window, {
+            settings_bundle: { data: bundle, timestamp: cachedAt }
+        });
+        await window.hydrateSectionsFromDexie();
+        setOnline(window, false);
+
+        // The fetcher hangs forever — proves the badge mount does not depend
+        // on the awaited SWR fetch ever resolving.
+        let fetchResolve;
+        const fetcherPromise = new Promise((resolve) => { fetchResolve = resolve; });
+        window.apiCall = vi.fn(async () => fetcherPromise);
+
+        // Capture the badge state at the moment onCached returns — i.e.,
+        // before the awaited loadSWR call below has any chance to advance.
+        let badgeAtOnCached = null;
+        const origLoadSWR = window.DataStore.loadSWR.bind(window.DataStore);
+        window.DataStore.loadSWR = async (options) => {
+            const wrappedOnCached = options.onCached;
+            return origLoadSWR({
+                ...options,
+                onCached: async (cached) => {
+                    if (wrappedOnCached) await wrappedOnCached(cached);
+                    const slot = document.getElementById('settings-stale-badge');
+                    badgeAtOnCached = slot ? slot.querySelector('.wg-stale-badge') : null;
+                }
+            });
+        };
+
+        const settled = window.loadSettings();
+        // Let the cached path drain (onCached → mountStaleBadge) before
+        // resolving the fetcher.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        fetchResolve(null);
+        await settled;
+
+        expect(badgeAtOnCached).not.toBeNull();
+        expect(badgeAtOnCached.classList.contains('wg-stale-badge--offline')).toBe(true);
+
+        window.DataStore.loadSWR = origLoadSWR;
+    });
+
     it('a fresh on-mount refresh updates the cache timestamp so the stale chip flips from "Offline" to "Updated just now"', async () => {
         const { window } = env;
         setAuthCache(window);
