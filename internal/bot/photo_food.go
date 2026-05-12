@@ -341,7 +341,7 @@ func (b *Bot) promptForFoodPhotoTime(chatID int64, imageBytes []byte, mimeType s
 	}
 
 	prompt := fmt.Sprintf("📸 Use the photo's time (%s) or use now?",
-		exifTime.Format("15:04 on 2006-01-02"))
+		exifTime.In(b.userLocation()).Format("15:04 on 2006-01-02"))
 	msgCfg := tgbotapi.NewMessage(chatID, prompt)
 	msgCfg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
@@ -387,7 +387,7 @@ func (b *Bot) handleFoodPhotoTimeCallback(cb *tgbotapi.CallbackQuery) {
 		eatenAt = time.Now()
 	}
 
-	confirmText := fmt.Sprintf("✅ Using %s", eatenAt.Format("15:04 on 2006-01-02"))
+	confirmText := fmt.Sprintf("✅ Using %s", eatenAt.In(b.userLocation()).Format("15:04 on 2006-01-02"))
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, cb.Message.MessageID, confirmText,
 		tgbotapi.InlineKeyboardMarkup{InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{}})
 	if _, err := b.api.Send(edit); err != nil {
