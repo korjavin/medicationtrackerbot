@@ -319,6 +319,7 @@ func newRecordingFoodBot(t *testing.T, food FoodStore, ai domain.FoodAIService) 
 		food:          food,
 		foodAI:        ai,
 		allowedUserID: 123456,
+		pendingPhotos: newPendingPhotoStore(),
 		undoBatches:   newUndoBatchStore(),
 	}
 	return b, &recorded
@@ -573,6 +574,245 @@ func TestRespondWithFoodPhotoSummary_AllSavesFail(t *testing.T) {
 	joined := strings.Join(bodiesForPath(requests, "/sendMessage"), "\n")
 	if !strings.Contains(joined, "Error saving food log") {
 		t.Errorf("expected 'Error saving food log' reply, got: %s", joined)
+	}
+}
+
+// recentExifJPEG returns a minimal JPEG-EXIF blob whose DateTimeOriginal is
+// set to (now - age) in UTC. With no OffsetTimeOriginal, parseExifDateTimeOriginal
+// treats the date as UTC, so time.Since(parsed) ≈ age in real wall-clock time.
+func recentExifJPEG(t *testing.T, age time.Duration) []byte {
+	t.Helper()
+	target := time.Now().UTC().Add(-age)
+	return buildJPEGWithExif(t, target.Format("2006:01:02 15:04:05"), "", false)
+}
+
+func TestHandlePhotoMessage_NoEXIF_DirectSave(t *testing.T) {
+	store := &mockFoodStore{enabled: true}
+	ai := &mockFoodAI{logs: []domain.FoodLog{
+		{Name: "Pizza", Weight: 200, Carbs: 30, Protein: 12, Fat: 10, Calories: 280},
+	}}
+	b, _ := newRecordingFoodBot(t, store, ai)
+
+	var downloadCalls int
+	b.photoDownloader = func(ctx context.Context, fileID string) ([]byte, string, error) {
+		downloadCalls++
+		if fileID != "large" {
+			t.Errorf("expected to download largest photo, got fileID=%s", fileID)
+		}
+		return minimalJPEG(), "image/jpeg", nil
+	}
+
+	before := time.Now()
+	msg := &tgbotapi.Message{
+		Chat: &tgbotapi.Chat{ID: 555},
+		Photo: []tgbotapi.PhotoSize{
+			{FileID: "small", Width: 100, Height: 100},
+			{FileID: "medium", Width: 320, Height: 240},
+			{FileID: "large", Width: 1280, Height: 720},
+		},
+	}
+	b.handlePhotoMessage(msg)
+	after := time.Now()
+
+	if downloadCalls != 1 {
+		t.Fatalf("expected 1 download call, got %d", downloadCalls)
+	}
+	if len(store.logs) != 1 {
+		t.Fatalf("expected 1 persisted log, got %d", len(store.logs))
+	}
+	eatenAt := store.logs[0].EatenAt
+	if eatenAt.Before(before) || eatenAt.After(after) {
+		t.Errorf("EatenAt %v not within [%v, %v]", eatenAt, before, after)
+	}
+	b.pendingPhotos.mu.Lock()
+	pending := len(b.pendingPhotos.entries)
+	b.pendingPhotos.mu.Unlock()
+	if pending != 0 {
+		t.Errorf("expected no pending photos on direct save, got %d", pending)
+	}
+}
+
+func TestHandlePhotoMessage_RecentEXIF_DirectSave(t *testing.T) {
+	store := &mockFoodStore{enabled: true}
+	ai := &mockFoodAI{logs: []domain.FoodLog{
+		{Name: "Salad", Weight: 250, Carbs: 12, Protein: 5, Fat: 8, Calories: 130},
+	}}
+	b, _ := newRecordingFoodBot(t, store, ai)
+
+	// EXIF is only ~5 minutes old → within 1h threshold → direct save path.
+	photoBytes := recentExifJPEG(t, 5*time.Minute)
+	b.photoDownloader = func(ctx context.Context, fileID string) ([]byte, string, error) {
+		return photoBytes, "image/jpeg", nil
+	}
+
+	before := time.Now()
+	msg := &tgbotapi.Message{
+		Chat:  &tgbotapi.Chat{ID: 777},
+		Photo: []tgbotapi.PhotoSize{{FileID: "only", Width: 800, Height: 600}},
+	}
+	b.handlePhotoMessage(msg)
+	after := time.Now()
+
+	if len(store.logs) != 1 {
+		t.Fatalf("expected 1 persisted log on recent-EXIF path, got %d", len(store.logs))
+	}
+	eatenAt := store.logs[0].EatenAt
+	if eatenAt.Before(before) || eatenAt.After(after) {
+		t.Errorf("EatenAt %v not within wall-clock [%v, %v] (should be ~now, not the EXIF time)", eatenAt, before, after)
+	}
+	b.pendingPhotos.mu.Lock()
+	pending := len(b.pendingPhotos.entries)
+	b.pendingPhotos.mu.Unlock()
+	if pending != 0 {
+		t.Errorf("expected no pending photos when EXIF is fresh, got %d", pending)
+	}
+}
+
+func TestHandlePhotoMessage_OldEXIF_PromptsForTime(t *testing.T) {
+	store := &mockFoodStore{enabled: true}
+	ai := &mockFoodAI{logs: []domain.FoodLog{
+		{Name: "ShouldNotSave", Weight: 100, Carbs: 1, Protein: 1, Fat: 1, Calories: 10},
+	}}
+	b, recorded := newRecordingFoodBot(t, store, ai)
+
+	// EXIF is 3 hours old → > 1h threshold → prompt path; no save until user picks.
+	photoBytes := recentExifJPEG(t, 3*time.Hour)
+	b.photoDownloader = func(ctx context.Context, fileID string) ([]byte, string, error) {
+		return photoBytes, "image/jpeg", nil
+	}
+
+	msg := &tgbotapi.Message{
+		Chat:  &tgbotapi.Chat{ID: 888},
+		Photo: []tgbotapi.PhotoSize{{FileID: "only", Width: 800, Height: 600}},
+	}
+	b.handlePhotoMessage(msg)
+
+	if len(store.logs) != 0 {
+		t.Errorf("expected no saves on old-EXIF prompt path, got %d", len(store.logs))
+	}
+
+	b.pendingPhotos.mu.Lock()
+	if len(b.pendingPhotos.entries) != 1 {
+		b.pendingPhotos.mu.Unlock()
+		t.Fatalf("expected 1 pending photo entry, got %d", len(b.pendingPhotos.entries))
+	}
+	var (
+		token string
+		entry pendingPhotoEntry
+	)
+	for k, v := range b.pendingPhotos.entries {
+		token = k
+		entry = v
+	}
+	b.pendingPhotos.mu.Unlock()
+
+	if entry.chatID != 888 {
+		t.Errorf("entry.chatID: want 888, got %d", entry.chatID)
+	}
+	if entry.mimeType != "image/jpeg" {
+		t.Errorf("entry.mimeType: want image/jpeg, got %s", entry.mimeType)
+	}
+	if len(entry.imageBytes) != len(photoBytes) {
+		t.Errorf("entry.imageBytes length mismatch: got %d, want %d", len(entry.imageBytes), len(photoBytes))
+	}
+
+	// Verify the bot sent a single prompt message with both inline buttons
+	// carrying the same token.
+	requests := snapshot(recorded)
+	bodies := bodiesForPath(requests, "/sendMessage")
+	if len(bodies) != 1 {
+		t.Fatalf("expected exactly 1 sendMessage call (the prompt), got %d", len(bodies))
+	}
+	body := bodies[0]
+	if !strings.Contains(body, foodPhotoTimeCallbackPrefix+"exif:"+token) {
+		t.Errorf("expected exif callback_data with token in prompt body, got: %s", body)
+	}
+	if !strings.Contains(body, foodPhotoTimeCallbackPrefix+"now:"+token) {
+		t.Errorf("expected now callback_data with token in prompt body, got: %s", body)
+	}
+	if !strings.Contains(body, "Use the photo's time") {
+		t.Errorf("expected prompt text to ask which time to use, got: %s", body)
+	}
+}
+
+func TestHandlePhotoMessage_FoodIntakeDisabled(t *testing.T) {
+	store := &mockFoodStore{enabled: false}
+	ai := &mockFoodAI{}
+	b, recorded := newRecordingFoodBot(t, store, ai)
+
+	var downloadCalls int
+	b.photoDownloader = func(ctx context.Context, fileID string) ([]byte, string, error) {
+		downloadCalls++
+		return nil, "", nil
+	}
+
+	msg := &tgbotapi.Message{
+		Chat:  &tgbotapi.Chat{ID: 1},
+		Photo: []tgbotapi.PhotoSize{{FileID: "only"}},
+	}
+	b.handlePhotoMessage(msg)
+
+	if downloadCalls != 0 {
+		t.Errorf("expected no download attempts when food intake disabled, got %d", downloadCalls)
+	}
+	requests := snapshot(recorded)
+	joined := strings.Join(bodiesForPath(requests, "/sendMessage"), "\n")
+	if !strings.Contains(joined, "disabled in settings") {
+		t.Errorf("expected disabled-in-settings reply, got: %s", joined)
+	}
+}
+
+func TestHandlePhotoMessage_NilFoodAI(t *testing.T) {
+	store := &mockFoodStore{enabled: true}
+	b, recorded := newRecordingFoodBot(t, store, nil)
+
+	var downloadCalls int
+	b.photoDownloader = func(ctx context.Context, fileID string) ([]byte, string, error) {
+		downloadCalls++
+		return nil, "", nil
+	}
+
+	msg := &tgbotapi.Message{
+		Chat:  &tgbotapi.Chat{ID: 2},
+		Photo: []tgbotapi.PhotoSize{{FileID: "only"}},
+	}
+	b.handlePhotoMessage(msg)
+
+	if downloadCalls != 0 {
+		t.Errorf("expected no download attempts when foodAI is nil, got %d", downloadCalls)
+	}
+	requests := snapshot(recorded)
+	joined := strings.Join(bodiesForPath(requests, "/sendMessage"), "\n")
+	if !strings.Contains(joined, "AI food logging is not configured") {
+		t.Errorf("expected not-configured reply, got: %s", joined)
+	}
+}
+
+func TestHandlePhotoMessage_DownloadError(t *testing.T) {
+	store := &mockFoodStore{enabled: true}
+	ai := &mockFoodAI{}
+	b, recorded := newRecordingFoodBot(t, store, ai)
+
+	b.photoDownloader = func(ctx context.Context, fileID string) ([]byte, string, error) {
+		return nil, "", errors.New("network down")
+	}
+
+	msg := &tgbotapi.Message{
+		Chat:  &tgbotapi.Chat{ID: 3},
+		Photo: []tgbotapi.PhotoSize{{FileID: "only"}},
+	}
+	b.handlePhotoMessage(msg)
+
+	if len(store.logs) != 0 {
+		t.Errorf("expected no saves on download error, got %d", len(store.logs))
+	}
+	requests := snapshot(recorded)
+	joined := strings.Join(bodiesForPath(requests, "/sendMessage"), "\n")
+	if !strings.Contains(joined, "Could not download photo") {
+		t.Errorf("expected download-error reply, got: %s", joined)
+	}
+	if !strings.Contains(joined, "network down") {
+		t.Errorf("expected underlying error in reply, got: %s", joined)
 	}
 }
 

@@ -21,6 +21,17 @@ import (
 // Telegram's 64-byte cap.
 const foodPhotoUndoCallbackPrefix = "food_photo_undo:"
 
+// foodPhotoTimeCallbackPrefix is the inline-keyboard callback_data prefix used
+// by the "use photo time / use now?" picker shown when EXIF DateTimeOriginal
+// is more than foodPhotoExifStaleAfter old. The full payload is
+// "food_photo_time:<exif|now>:<32-char hex token>" — at most 53 bytes.
+const foodPhotoTimeCallbackPrefix = "food_photo_time:"
+
+// foodPhotoExifStaleAfter is the threshold beyond which a photo's EXIF time
+// is considered "old enough that the user probably meant a different time
+// than now" — the bot then asks which timestamp to use.
+const foodPhotoExifStaleAfter = time.Hour
+
 // foodPhotoUndoWindow is the visible undo window. After it expires, the bot
 // edits the summary message to remove the [Undo] button. The undoBatchStore
 // entry itself lives a little longer (see undoBatchTTL) so a click that races
@@ -252,6 +263,87 @@ func (b *Bot) expireUndoBatch(token string) {
 func (b *Bot) sendPlain(chatID int64, text string) {
 	if _, err := b.api.Send(tgbotapi.NewMessage(chatID, text)); err != nil {
 		slog.Warn("food photo: failed to send message", "chat_id", chatID, "error", err)
+	}
+}
+
+// handlePhotoMessage routes an incoming photo through the food-AI pipeline.
+// It performs the feature-flag and AI nil-guard checks, downloads the largest
+// PhotoSize, attempts to read EXIF DateTimeOriginal, and either saves the
+// items immediately (default) or asks the user which timestamp to use when
+// the photo is more than foodPhotoExifStaleAfter old.
+func (b *Bot) handlePhotoMessage(msg *tgbotapi.Message) {
+	chatID := msg.Chat.ID
+	ctx := context.Background()
+
+	enabled, err := b.food.GetFoodIntakeEnabled(ctx)
+	if err != nil {
+		b.sendPlain(chatID, "❌ Error checking settings.")
+		return
+	}
+	if !enabled {
+		b.sendPlain(chatID, "⚠️ Food intake tracking is disabled in settings.")
+		return
+	}
+
+	if b.foodAI == nil {
+		b.sendPlain(chatID, "⚠️ AI food logging is not configured. Missing OPENAI environment variables.")
+		return
+	}
+
+	if len(msg.Photo) == 0 {
+		return
+	}
+	largest := msg.Photo[len(msg.Photo)-1]
+
+	download := b.photoDownloader
+	if download == nil {
+		download = b.downloadTelegramPhoto
+	}
+	imageBytes, mimeType, err := download(ctx, largest.FileID)
+	if err != nil {
+		slog.Error("food photo: download failed", "chat_id", chatID, "file_id", largest.FileID, "error", err)
+		b.sendPlain(chatID, "❌ Could not download photo: "+err.Error())
+		return
+	}
+
+	exifTime, hasExif := parseExifDateTimeOriginal(imageBytes)
+	if hasExif && time.Since(exifTime) > foodPhotoExifStaleAfter {
+		b.promptForFoodPhotoTime(chatID, imageBytes, mimeType, exifTime)
+		return
+	}
+
+	b.respondWithFoodPhotoSummary(ctx, chatID, time.Now(), imageBytes, mimeType)
+}
+
+// promptForFoodPhotoTime stores the photo bytes in pendingPhotos and asks the
+// user whether to use the EXIF capture time or time.Now() as the meal's
+// EatenAt. The actual save runs in handleFoodPhotoTimeCallback (Task 7) once
+// the user picks a button.
+func (b *Bot) promptForFoodPhotoTime(chatID int64, imageBytes []byte, mimeType string, exifTime time.Time) {
+	token, err := b.pendingPhotos.put(pendingPhotoEntry{
+		chatID:     chatID,
+		imageBytes: imageBytes,
+		mimeType:   mimeType,
+		exifTime:   exifTime,
+	})
+	if err != nil {
+		slog.Error("food photo: failed to mint pending token", "chat_id", chatID, "error", err)
+		// Fall back to a now-anchored save so we don't lose the photo.
+		b.respondWithFoodPhotoSummary(context.Background(), chatID, time.Now(), imageBytes, mimeType)
+		return
+	}
+
+	prompt := fmt.Sprintf("📸 Use the photo's time (%s) or use now?",
+		exifTime.Format("15:04 on 2006-01-02"))
+	msgCfg := tgbotapi.NewMessage(chatID, prompt)
+	msgCfg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📷 Photo time", foodPhotoTimeCallbackPrefix+"exif:"+token),
+			tgbotapi.NewInlineKeyboardButtonData("⏱ Now", foodPhotoTimeCallbackPrefix+"now:"+token),
+		),
+	)
+	if _, err := b.api.Send(msgCfg); err != nil {
+		slog.Error("food photo: failed to send time picker", "chat_id", chatID, "error", err)
 	}
 }
 
