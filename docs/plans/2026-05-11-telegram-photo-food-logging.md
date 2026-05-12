@@ -148,10 +148,10 @@ Dependencies identified: **no new Go dependencies**. The web's inline JPEG/EXIF 
 
 ### Task 6: Top-level photo handler + dispatch from `handleMessage`
 
-- [ ] add `handlePhotoMessage(msg *tgbotapi.Message)` in `internal/bot/photo_food.go`
-- [ ] in `internal/bot/bot.go:248` (`handleMessage`), after the `msg.Document` branch and before the `msg.Location` branch, add:
+- [x] add `handlePhotoMessage(msg *tgbotapi.Message)` in `internal/bot/photo_food.go`
+- [x] in `internal/bot/bot.go:248` (`handleMessage`), after the `msg.Document` branch and before the `msg.Location` branch, add:
   - `if len(msg.Photo) > 0 { b.handlePhotoMessage(msg); return }`
-- [ ] handler flow:
+- [x] handler flow:
   1. feature-flag gate: `b.food.GetFoodIntakeEnabled(ctx)` → if disabled, reply with the existing "⚠️ Food intake tracking is disabled in settings." message and return
   2. nil-guard `b.foodAI` → reply with the existing "AI food logging is not configured" message
   3. choose the largest `PhotoSize` (last element of `msg.Photo`), call `downloadTelegramPhoto`
@@ -159,13 +159,13 @@ Dependencies identified: **no new Go dependencies**. The web's inline JPEG/EXIF 
   5. branch:
      - if EXIF parsed and `now - exifTime > 1 hour`: store `{imageBytes, mimeType, exifTime}` in `pendingPhotoStore`, reply with text "📸 Use the photo's time (HH:MM on YYYY-MM-DD) or use now?" and inline keyboard with two buttons: `food_photo_time:exif:<token>` and `food_photo_time:now:<token>` (return; saving happens in the callback handler)
      - else: call `respondWithFoodPhotoSummary(ctx, chatID, time.Now(), imageBytes, mimeType)` directly
-- [ ] write tests via the same fakes used in Task 5:
-  - [ ] no-EXIF photo bytes → `respondWithFoodPhotoSummary` is called with `eatenAt ≈ time.Now()`
-  - [ ] EXIF time within 1h of now → same: direct save path
-  - [ ] EXIF time >1h old → no save happens; pending store has the entry; reply contains both inline buttons with the same token
-  - [ ] food intake disabled → returns disabled message; no download attempt
-  - [ ] `foodAI == nil` → returns config-error message; no download attempt
-- [ ] run tests — must pass before Task 7
+- [x] write tests via the same fakes used in Task 5:
+  - [x] no-EXIF photo bytes → `respondWithFoodPhotoSummary` is called with `eatenAt ≈ time.Now()`
+  - [x] EXIF time within 1h of now → same: direct save path
+  - [x] EXIF time >1h old → no save happens; pending store has the entry; reply contains both inline buttons with the same token
+  - [x] food intake disabled → returns disabled message; no download attempt
+  - [x] `foodAI == nil` → returns config-error message; no download attempt
+- [x] run tests — must pass before Task 7
 
 ### Task 7: Callback handlers (time picker + undo)
 

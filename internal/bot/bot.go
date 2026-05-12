@@ -62,7 +62,13 @@ type Bot struct {
 	awaitingLocationChatID int64 // non-zero means /tz was invoked in this chat and location is expected
 	awaitingLocationExpiry time.Time
 
-	undoBatches *undoBatchStore
+	pendingPhotos *pendingPhotoStore
+	undoBatches   *undoBatchStore
+
+	// photoDownloader allows tests to inject canned photo bytes without
+	// standing up a fake Telegram file server. Nil in production; the
+	// handler then falls back to b.downloadTelegramPhoto.
+	photoDownloader func(ctx context.Context, fileID string) ([]byte, string, error)
 
 	httpClient *http.Client
 }
@@ -115,6 +121,7 @@ func New(token string, allowedUserID int64, s *store.Store, foodAI domain.FoodAI
 		appDomain:        appDomain,
 		httpClient:       &http.Client{Timeout: 30 * time.Second},
 		pendingExercises: make(map[int64][]pendingExercise),
+		pendingPhotos:    newPendingPhotoStore(),
 		undoBatches:      newUndoBatchStore(),
 	}, nil
 }
@@ -252,6 +259,12 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 	// Check for document upload (sleep import)
 	if msg.Document != nil {
 		b.handleDocumentUpload(msg)
+		return
+	}
+
+	// Photo uploads are treated as food photos.
+	if len(msg.Photo) > 0 {
+		b.handlePhotoMessage(msg)
 		return
 	}
 
