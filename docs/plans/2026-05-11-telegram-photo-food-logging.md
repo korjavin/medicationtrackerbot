@@ -106,15 +106,15 @@ Dependencies identified: **no new Go dependencies**. The web's inline JPEG/EXIF 
 
 ### Task 3: Pending-photo cache (for the EXIF-old time picker)
 
-- [ ] add `internal/bot/photo_pending.go` with `pendingPhotoStore` — `map[string]pendingPhotoEntry` + `sync.Mutex` + TTL sweep
-- [ ] entry holds: `chatID int64`, `imageBytes []byte`, `mimeType string`, `exifTime time.Time`, `expiresAt time.Time`
-- [ ] methods: `put(entry) (token string)` (random 16-byte hex token), `take(token) (entry, ok)` (one-shot consume), `gcExpired(now)`
-- [ ] entries TTL = 10 minutes; if user never answers, photo is dropped
-- [ ] write tests in `internal/bot/photo_pending_test.go`:
-  - [ ] put → take returns entry; second take returns `ok=false`
-  - [ ] expired entry is not returned and is removed by `gcExpired`
-  - [ ] concurrent put/take race-safe (run with `-race`)
-- [ ] run tests — must pass before Task 4
+- [x] add `internal/bot/photo_pending.go` with `pendingPhotoStore` — `map[string]pendingPhotoEntry` + `sync.Mutex` + TTL sweep
+- [x] entry holds: `chatID int64`, `imageBytes []byte`, `mimeType string`, `exifTime time.Time`, `expiresAt time.Time`
+- [x] methods: `put(entry) (token string)` (random 16-byte hex token), `take(token) (entry, ok)` (one-shot consume), `gcExpired(now)`
+- [x] entries TTL = 10 minutes; if user never answers, photo is dropped
+- [x] write tests in `internal/bot/photo_pending_test.go`:
+  - [x] put → take returns entry; second take returns `ok=false`
+  - [x] expired entry is not returned and is removed by `gcExpired`
+  - [x] concurrent put/take race-safe (run with `-race`)
+- [x] run tests — must pass before Task 4
 
 ### Task 4: Undo-batch cache (for the 5-second undo window)
 
