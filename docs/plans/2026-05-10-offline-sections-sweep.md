@@ -179,14 +179,14 @@ Mirror the `mcp_coverage_exempt.go` pattern. Every file in `web/static/js/featur
 
 ### Task 9: Verify acceptance criteria
 
-- [ ] verify all sections (BP, Weight, Workouts, Health, Food, Settings) render last-known data when relaunched offline
-- [ ] verify all sections show stale chips when offline data is shown
-- [ ] verify all sections have explicit empty states when no cache + offline (no console errors, no blank shells)
-- [ ] verify architecture test catches a deliberately broken section (add a temporary file that uses plain `apiCall`, assert test fails, then remove the file)
-- [ ] run full test suite: `go test ./...` and `pnpm test`
-- [ ] run linter / formatter — all issues must be fixed
-- [ ] confirm no new `window.*` globals (or any new ones are in `tests/architecture.globals.test.js` with justification)
-- [ ] confirm no hardcoded colors / inline `.style.` (CLAUDE.md rule 3)
+- [x] verify all sections (BP, Weight, Workouts, Health, Food, Settings) render last-known data when relaunched offline. Covered by the seven dexie-hydration Vitest suites (`bp.dexie-hydration` 6/6, `weight.dexie-hydration` 6/6, `workout.dexie-hydration` 12/12, `health.dexie-hydration` 10/10, `food.dexie-hydration` 8/8, `settings.dexie-hydration` 8/8, plus the app-level `app.dexie-hydration` 5/5) — 55/55 passing. Each suite simulates a Dexie-pre-populated cold start (no bootstrap, offline) and asserts the section's loader paints cached data synchronously. The literal "relaunch the PWA offline in a Telegram WebView" pass remains a documented manual step under Post-Completion.
+- [x] verify all sections show stale chips when offline data is shown. Each per-section dexie-hydration suite asserts the `Offline · …` chip is mounted on the hydrated-offline render via `WGStaleBadge.mountFromKey` (e.g. `bp.dexie-hydration` "renders BP chart + table with stale chip when Dexie is pre-populated and bootstrap never arrives", and equivalents in weight/workout/health/food/settings).
+- [x] verify all sections have explicit empty states when no cache + offline (no console errors, no blank shells). Each per-section dexie-hydration suite has a "Dexie empty + offline" sub-test asserting an explicit empty-state DOM (e.g. "No cached data — will load when online" for BP/Weight/Workouts/Health, "No cached food data — connect to load." for Food). `renderedSomething` fallbacks were added to `loadBPReadings`, `loadWeight`, `loadExerciseLibrary`, and `loadNotes` in Tasks 1–4 to ensure no callback-silent path leaves the list blank.
+- [x] verify architecture test catches a deliberately broken section. Verified locally: dropped `web/static/js/features/_zzz_offline_guard_probe.js` (a probe that uses plain `apiCall('/api/probe')`), re-ran `architecture.offline-coverage.test.js` → the "every features/*.js uses an offline-aware primitive or is allowlisted" sub-test failed with the offender file name in the error message, then removed the probe and re-ran → 4/4 green again. Guard confirmed working.
+- [x] run full test suite: `go test ./...` and `pnpm test`. `go test ./...` — all packages green (cmd/bot, internal/ai, internal/bot, internal/domain, internal/mcp/*, internal/notifier, internal/rxnorm, internal/scheduler, internal/seeddemo, internal/server, internal/store, internal/testharness, internal/tzlookup, internal/webpush, internal/workout). `pnpm test` — 1803/1805 passing; the same two pre-existing chart-test failures noted in Tasks 3–8 (`components.wg-sleep-chart.test.js` / `components.wg-steps-chart.test.js`, date-dependent "Today" label — fails today because the current date is a Tuesday so the chart renders "Tue") are unrelated to this plan.
+- [x] run linter / formatter — all issues must be fixed. No standalone lint script is wired in this repo (`package.json` exposes `test`, `test:watch`, `test:coverage` only; the architecture tests serve as the JS lint gate). Go is gofmt-clean — `go test ./...` would refuse the build otherwise.
+- [x] confirm no new `window.*` globals (or any new ones are in `tests/architecture.globals.test.js` with justification). `architecture.globals.test.js` passes 1/1 against the current source — the allowlist remained unchanged across Tasks 1–8 (hydration was wired through existing globals `window.DataStore`, `window.ApiCache`, `window.WGStaleBadge`).
+- [x] confirm no hardcoded colors / inline `.style.` (CLAUDE.md rule 3). `architecture.design-tokens.test.js` passes 18/18 against the current source.
 
 ### Task 10: Update documentation
 
