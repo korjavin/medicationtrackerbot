@@ -439,11 +439,15 @@ func (s *Server) handleSetFeatureEnabled(w http.ResponseWriter, r *http.Request)
 // handleGetSettings returns the full settings bundle the bootstrap response
 // embeds (Task 7 of the offline-sections-sweep). The expanded shape matches
 // the bootstrap-warmed `settings_bundle` cache row so a future
-// single-round-trip Settings refresh is possible; today's loadSettings() in
+// single-round-trip Settings refresh is possible. Today's loadSettings() in
 // app.js still fans out to /api/settings/features, /api/food/settings/targets,
-// /api/bp/reminder/status, /api/weight/reminder/status alongside this endpoint
-// and reads only `timezone`, `server_time`, `server_timezone`,
-// `weight_unit_preference` from here.
+// /api/bp/reminder/status, /api/weight/reminder/status alongside this
+// endpoint: it always reads `timezone`, `server_time`, `server_timezone`,
+// `weight_unit_preference` from here, and additionally falls back to the
+// `features`, `food_targets`, `bp_reminder_status`, `weight_reminder_status`
+// slices on this response when the corresponding granular endpoint returns
+// null (transient 5xx / offline). Removing or zeroing any of those slices
+// here will silently regress that fallback, so keep them populated.
 //
 // Backward compat: the four pre-existing fields (timezone, server_time,
 // server_timezone, weight_unit_preference) are kept verbatim so older clients

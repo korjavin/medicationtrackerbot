@@ -31,13 +31,23 @@ function loadEnv() {
     };
 }
 
+function toLocalISODate(d) {
+    // The chart's isToday() compares local-midnight boundaries; using
+    // toISOString() (UTC) here would label "today" as tomorrow whenever the
+    // test runs after local midnight UTC. Format YYYY-MM-DD from local parts.
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
 function makeStats({ days = 7, withHR = true, totalMinutes = 420 } = {}) {
     const anchor = Date.now() - 5000;
     const dayMs = 86400000;
     const out = [];
     for (let i = days - 1; i >= 0; i--) {
         const d = new Date(anchor - i * dayMs);
-        const iso = d.toISOString().slice(0, 10);
+        const iso = toLocalISODate(d);
         out.push({
             date: iso,
             deep_mins: 80,
