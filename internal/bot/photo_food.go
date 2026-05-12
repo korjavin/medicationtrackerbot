@@ -4,12 +4,37 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/korjavin/medicationtrackerbot/internal/domain"
+	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
+
+// foodPhotoUndoCallbackPrefix is the inline-keyboard callback_data prefix used
+// by the 5-second [Undo] button that follows a photo food log. The full
+// payload is "food_photo_undo:<32-char hex token>" — 48 bytes, well under
+// Telegram's 64-byte cap.
+const foodPhotoUndoCallbackPrefix = "food_photo_undo:"
+
+// foodPhotoUndoWindow is the visible undo window. After it expires, the bot
+// edits the summary message to remove the [Undo] button. The undoBatchStore
+// entry itself lives a little longer (see undoBatchTTL) so a click that races
+// the timer resolves cleanly via take().
+const foodPhotoUndoWindow = 5 * time.Second
+
+// foodPhotoParseTimeout caps the total time spent inside foodAI.ParseMealPhoto.
+// Vision providers can be slow on cold start; 60s mirrors the web upload's
+// generous timeout.
+const foodPhotoParseTimeout = 60 * time.Second
+
+// foodPhotoSaveTimeout caps the per-batch SQLite write. We expect milliseconds
+// in practice but a wide ceiling avoids spurious failures under load.
+const foodPhotoSaveTimeout = 15 * time.Second
 
 // maxFoodPhotoBytes caps photos at ~8 MB to mirror the web upload limit at
 // internal/server/food_handlers.go.
@@ -96,6 +121,138 @@ func readRemoteTelegramFile(ctx context.Context, httpClient *http.Client, url st
 		return nil, fmt.Errorf("telegram file download: HTTP %s", resp.Status)
 	}
 	return readCapped(resp.Body)
+}
+
+// respondWithFoodPhotoSummary runs the parse → save → reply pipeline for a
+// food photo. It sends a transient "analyzing" status message, calls
+// foodAI.ParseMealPhoto, persists each detected item via food.CreateFoodLog,
+// and replies with the standard /food summary plus an inline [Undo] button
+// that stays live for foodPhotoUndoWindow before being stripped.
+//
+// The caller is responsible for the feature-flag and foodAI nil-guard checks;
+// this function assumes both are satisfied.
+func (b *Bot) respondWithFoodPhotoSummary(ctx context.Context, chatID int64, eatenAt time.Time, imageBytes []byte, mimeType string) {
+	statusMsg := tgbotapi.NewMessage(chatID, "⏳ Analyzing photo…")
+	sentStatus, err := b.api.Send(statusMsg)
+	if err != nil {
+		slog.Warn("food photo: failed to send status message", "chat_id", chatID, "error", err)
+	}
+	defer func() {
+		if sentStatus.MessageID == 0 {
+			return
+		}
+		if _, err := b.api.Request(tgbotapi.NewDeleteMessage(chatID, sentStatus.MessageID)); err != nil {
+			slog.Warn("food photo: failed to delete status message", "chat_id", chatID, "message_id", sentStatus.MessageID, "error", err)
+		}
+	}()
+
+	parseCtx, parseCancel := context.WithTimeout(ctx, foodPhotoParseTimeout)
+	defer parseCancel()
+
+	parsed, err := b.foodAI.ParseMealPhoto(parseCtx, imageBytes, mimeType)
+	if err != nil {
+		slog.Error("food photo: parse failed", "chat_id", chatID, "error", err)
+		b.sendPlain(chatID, "❌ Failed to analyze photo: "+err.Error())
+		return
+	}
+	if len(parsed) == 0 {
+		b.sendPlain(chatID, "❌ No food detected in the photo.")
+		return
+	}
+
+	saveCtx, saveCancel := context.WithTimeout(ctx, foodPhotoSaveTimeout)
+	defer saveCancel()
+
+	saved := make([]domain.FoodLog, 0, len(parsed))
+	savedIDs := make([]int64, 0, len(parsed))
+	var failed int
+	for _, item := range parsed {
+		entry := &store.FoodLog{
+			UserID:   b.allowedUserID,
+			EatenAt:  eatenAt,
+			Weight:   item.Weight,
+			Carbs:    item.Carbs,
+			Protein:  item.Protein,
+			Fat:      item.Fat,
+			Calories: item.Calories,
+			Name:     item.Name,
+		}
+		id, err := b.food.CreateFoodLog(saveCtx, entry)
+		if err != nil {
+			slog.Error("food photo: failed to save food log", "chat_id", chatID, "name", item.Name, "error", err)
+			failed++
+			continue
+		}
+		saved = append(saved, item)
+		savedIDs = append(savedIDs, id)
+	}
+
+	if len(saved) == 0 {
+		b.sendPlain(chatID, "❌ Error saving food log to database.")
+		return
+	}
+
+	summaryText := renderFoodSummary(saved, failed)
+	token, tokenErr := b.undoBatches.put(undoBatchEntry{
+		chatID:     chatID,
+		foodLogIDs: savedIDs,
+	})
+
+	summaryMsg := tgbotapi.NewMessage(chatID, summaryText)
+	if tokenErr == nil {
+		summaryMsg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("↩️ Undo", foodPhotoUndoCallbackPrefix+token),
+			),
+		)
+	} else {
+		slog.Warn("food photo: failed to mint undo token", "chat_id", chatID, "error", tokenErr)
+	}
+
+	sentSummary, sendErr := b.api.Send(summaryMsg)
+	if sendErr != nil {
+		slog.Error("food photo: failed to send summary message", "chat_id", chatID, "error", sendErr)
+		return
+	}
+
+	if tokenErr != nil {
+		return
+	}
+	if ok := b.undoBatches.setMessageID(token, sentSummary.MessageID); !ok {
+		slog.Warn("food photo: undo batch missing after send", "chat_id", chatID, "token", token)
+		return
+	}
+
+	time.AfterFunc(foodPhotoUndoWindow, func() {
+		b.expireUndoBatch(token)
+	})
+}
+
+// expireUndoBatch strips the [Undo] keyboard from the summary message after
+// foodPhotoUndoWindow elapses. Peek (not take) is used so a user click that
+// races the timer can still consume the entry via the callback handler.
+func (b *Bot) expireUndoBatch(token string) {
+	entry, ok := b.undoBatches.peek(token)
+	if !ok {
+		return
+	}
+	if entry.messageID == 0 {
+		return
+	}
+	edit := tgbotapi.NewEditMessageReplyMarkup(entry.chatID, entry.messageID, tgbotapi.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
+	})
+	if _, err := b.api.Request(edit); err != nil {
+		slog.Warn("food photo: failed to strip undo keyboard", "chat_id", entry.chatID, "message_id", entry.messageID, "error", err)
+	}
+}
+
+// sendPlain is a thin wrapper around b.api.Send for fire-and-forget text
+// replies whose only failure mode is logged at warn level.
+func (b *Bot) sendPlain(chatID int64, text string) {
+	if _, err := b.api.Send(tgbotapi.NewMessage(chatID, text)); err != nil {
+		slog.Warn("food photo: failed to send message", "chat_id", chatID, "error", err)
+	}
 }
 
 // readCapped reads up to maxFoodPhotoBytes+1 bytes from r. If the reader still

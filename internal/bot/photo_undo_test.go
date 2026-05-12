@@ -73,6 +73,60 @@ func TestUndoBatchStore_PeekDoesNotConsume(t *testing.T) {
 	}
 }
 
+func TestUndoBatchStore_SetMessageIDUpdatesExistingEntry(t *testing.T) {
+	store := newUndoBatchStore()
+	token, err := store.put(undoBatchEntry{chatID: 5, foodLogIDs: []int64{1}})
+	if err != nil {
+		t.Fatalf("put: %v", err)
+	}
+
+	if ok := store.setMessageID(token, 999); !ok {
+		t.Fatal("setMessageID returned ok=false for a freshly put entry")
+	}
+
+	got, ok := store.peek(token)
+	if !ok {
+		t.Fatal("expected entry to still exist after setMessageID (non-consuming)")
+	}
+	if got.messageID != 999 {
+		t.Errorf("messageID: want 999, got %d", got.messageID)
+	}
+	if got.chatID != 5 {
+		t.Errorf("chatID should be preserved, got %d", got.chatID)
+	}
+}
+
+func TestUndoBatchStore_SetMessageIDOnUnknownToken(t *testing.T) {
+	store := newUndoBatchStore()
+	if ok := store.setMessageID("missing", 1); ok {
+		t.Error("setMessageID should return ok=false for unknown token")
+	}
+}
+
+func TestUndoBatchStore_SetMessageIDOnExpiredToken(t *testing.T) {
+	store := newUndoBatchStore()
+	current := time.Date(2026, 5, 11, 9, 0, 0, 0, time.UTC)
+	store.now = func() time.Time { return current }
+
+	token, err := store.put(undoBatchEntry{chatID: 1})
+	if err != nil {
+		t.Fatalf("put: %v", err)
+	}
+
+	current = current.Add(undoBatchTTL + time.Second)
+
+	if ok := store.setMessageID(token, 42); ok {
+		t.Error("setMessageID should return ok=false for an expired entry")
+	}
+
+	store.mu.Lock()
+	_, stillPresent := store.entries[token]
+	store.mu.Unlock()
+	if stillPresent {
+		t.Error("expected setMessageID to evict an expired entry it found")
+	}
+}
+
 func TestUndoBatchStore_TakeUnknownToken(t *testing.T) {
 	store := newUndoBatchStore()
 	if _, ok := store.take("nope"); ok {

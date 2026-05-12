@@ -62,6 +62,8 @@ type Bot struct {
 	awaitingLocationChatID int64 // non-zero means /tz was invoked in this chat and location is expected
 	awaitingLocationExpiry time.Time
 
+	undoBatches *undoBatchStore
+
 	httpClient *http.Client
 }
 
@@ -113,6 +115,7 @@ func New(token string, allowedUserID int64, s *store.Store, foodAI domain.FoodAI
 		appDomain:        appDomain,
 		httpClient:       &http.Client{Timeout: 30 * time.Second},
 		pendingExercises: make(map[int64][]pendingExercise),
+		undoBatches:      newUndoBatchStore(),
 	}, nil
 }
 
