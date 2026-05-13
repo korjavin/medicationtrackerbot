@@ -125,17 +125,28 @@ and recommended-priority item #4.
 
 ### Task 3: Architecture test prevents recurrence
 
-- [ ] extend `web/static/js/tests/architecture.sw-precache.test.js`
+- [x] extend `web/static/js/tests/architecture.sw-precache.test.js`
   with a new sub-assertion: for every precache entry matching
   `/^\/static\/js\/.+\.js$/` (excluding the SW's own
   `sw-api-helper.js` family — see SW unification plan), assert the
   same path appears as a `<script src>` in `web/static/index.html`;
   on failure, suggest either deleting the file or wiring it into
-  index.html
-- [ ] verify the new assertion fails when run against the pre-fix
+  index.html — new `every precached /static/js/*.js should be loaded
+  by index.html` case added; uses a `SW_SELF_IMPORTS` allowlist
+  (empty today; reserved for the future `sw-api-helper.js` from the
+  SW unification plan); error hint tells the reader to either remove
+  the STATIC_ASSETS entry, add a `<script src>`, or extend
+  `SW_SELF_IMPORTS`
+- [x] verify the new assertion fails when run against the pre-fix
   state (manually check by re-adding the line and running test) —
-  document this in the test file's comment block
-- [ ] run `pnpm test architecture.sw-precache` — must pass
+  document this in the test file's comment block — confirmed
+  manually: re-adding `/static/js/features/settings.js` to
+  STATIC_ASSETS makes the new case fail with that path in the
+  orphans list; sanity-check instructions captured in the test
+  file's top-of-file comment block
+- [x] run `pnpm test architecture.sw-precache` — must pass — 4/4 pass
+  (3 prior + 1 new) via `./node_modules/.bin/vitest run
+  web/static/js/tests/architecture.sw-precache.test.js`
 
 ### Task 4: Verify acceptance
 
