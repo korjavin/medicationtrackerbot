@@ -77,7 +77,7 @@ The "rolling-out" sections (BP, Weight, Meds, Workouts, Vitals) keep their exist
 | Vitals — Overview | `health_overview_<tz>` (TZ-qualified; with a most-recent-`health_overview_*` fallback when the current TZ has no row) | `ApiCache.getWithMeta(healthOverviewCacheKey())` + `ApiCache.findMostRecentByPrefix('health_overview_')` | `loadHealthOverview()` in `features/health.js` |
 | Vitals — Notes | `diary_notes` | `ApiCache.getWithMeta('diary_notes')` | `loadNotes()` in `features/health.js` |
 | Food — Today | `food_<YYYY-MM-DD>_day` (via `todayFoodKey(new Date())`) | `ApiCache.getWithMeta(todayFoodKey)` | `loadFoodLogs()` in `features/food.js` (via `cachedFetch`) + Today's food summary tile |
-| Settings | `settings_bundle` | `ApiCache.getWithMeta('settings_bundle')` | `loadSettings()` in `app.js` (the in-tree `features/settings.js` is dead code; not loaded by `index.html`) |
+| Settings | `settings_bundle` | `ApiCache.getWithMeta('settings_bundle')` | `loadSettings()` in `app.js` |
 
 Each consumer mounts a `WGStaleBadge.mountFromKey({ slot, key: <same key> })` chip so the freshness of the hydrated row is visible on the cold-start render. Sections that read via `apiCall` (silent null on offline) — BP, Weight, Workouts Exercises, Vitals Notes — additionally use a `renderedSomething` post-`loadSWR` fallback to paint an explicit empty state when neither `onCached` / `onFresh` / `onError` fires (mirrors the meds pattern).
 

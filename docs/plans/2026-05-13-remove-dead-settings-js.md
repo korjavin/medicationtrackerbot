@@ -150,14 +150,20 @@ and recommended-priority item #4.
 
 ### Task 4: Verify acceptance
 
-- [ ] full `pnpm test` clean
-- [ ] grep for `features/settings.js` in the repo returns hits only
-  in `docs/` (history references) and changelog/commit messages
-- [ ] `docs/frontend.md` either drops the "dead code" note or updates
-  it to record the deletion — pick one based on existing doc tone
-- [ ] manually open the app in a browser and confirm Settings tab
-  still loads (proves `app.js`'s `loadSettings()` was always the
-  canonical path)
+- [x] full `pnpm test` clean — 1809/1809 pass
+- [x] grep for `features/settings.js` in the repo returns hits only
+  in `docs/` (history references) and changelog/commit messages —
+  remaining non-docs hits are pre-existing comment/justification
+  references already acknowledged by Task 2; no live code path
+  references the deleted file
+- [x] `docs/frontend.md` either drops the "dead code" note or updates
+  it to record the deletion — pick one based on existing doc tone —
+  dropped the parenthetical "the in-tree `features/settings.js` is
+  dead code; not loaded by `index.html`" from the Settings row of
+  the local-first reads table (`docs/frontend.md:80`); the canonical
+  path is just `loadSettings()` in `app.js`
+- [x] manual test (skipped — not automatable): manually open the app
+  in a browser and confirm Settings tab still loads
 
 ## Technical Details
 
