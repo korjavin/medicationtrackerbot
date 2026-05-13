@@ -17,6 +17,7 @@ import (
 
 	"github.com/korjavin/medicationtrackerbot/internal/seeddemo"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
+	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
 )
 
 func main() {
@@ -32,12 +33,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	s, err := store.New(*dbPath)
+	sharedDB, err := storedb.Open(*dbPath)
 	if err != nil {
 		slog.Error("seeddemo: failed to open database", "error", err, "db", *dbPath)
 		os.Exit(1)
 	}
-	defer func() { _ = s.Close() }()
+	defer func() { _ = sharedDB.Close() }()
+	s, err := store.NewWithDB(sharedDB)
+	if err != nil {
+		slog.Error("seeddemo: failed to initialize store", "error", err, "db", *dbPath)
+		os.Exit(1)
+	}
 
 	ctx := context.Background()
 	if _, err := seeddemo.Run(ctx, s, seeddemo.Options{

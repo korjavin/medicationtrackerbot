@@ -10,6 +10,8 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
+
+	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
 )
 
 // setupTestDB creates an in-memory test database with the workout schema from migrations
@@ -60,7 +62,7 @@ func setupTestDB(t *testing.T) *Store {
 	// Apply exercise log source tracking migration
 	applyMigration(t, db, filepath.Join("migrations", "052_add_exercise_log_source.sql"))
 
-	return &Store{db: db}
+	return &Store{db: &storedb.DB{DB: db}}
 }
 
 // TestUpdateWorkoutExercise_OrderIndex verifies that updating an exercise correctly updates the order_index

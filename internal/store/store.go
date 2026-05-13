@@ -11,12 +11,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pressly/goose/v3"
-	_ "modernc.org/sqlite" // Pure Go SQLite driver
+	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
 )
 
 //go:embed migrations/*.sql
 var embedMigrations embed.FS
+
+// EmbeddedMigrations exposes the embed.FS that owns the SQL migration files
+// shipped with this package. It is exported so the composition root can
+// supply it to (*db.DB).Migrate when it manages the DB lifecycle directly.
+var EmbeddedMigrations = embedMigrations
 
 // Dose-time columns convention (see docs/plans/2026-05-10-intake-log-utc-unix-fix.md
 // and docs/architecture.md → "Time storage").
@@ -42,8 +46,19 @@ var embedMigrations embed.FS
 // fix plan) parses `PRAGMA table_info(intake_log)` and fails CI if any of these
 // columns regresses to a DATETIME / TEXT storage type.
 
+// Store is the legacy aggregate repository: a single struct with methods for
+// every domain. It is being decomposed into per-domain repositories under
+// internal/store/<domain>/ (see docs/plans/2026-05-13-split-store-package.md).
+//
+// New code should NOT add methods here — start a new package under
+// internal/store/<feature>/ and follow the diary/push pattern instead.
+//
+// While the split is in progress, Store wraps the shared *db.DB and exposes
+// per-domain methods via forwarders for backward compatibility. The db field
+// remains spelled "db" so the ~111 existing s.db.Query/Exec/BeginTx callsites
+// keep compiling unchanged (embedded *sql.DB methods are promoted).
 type Store struct {
-	db *sql.DB
+	db *storedb.DB
 }
 
 var nowFunc = time.Now
@@ -211,47 +226,30 @@ func CalculateBPCategory(systolic, diastolic int) string {
 	return "Unknown"
 }
 
+// New opens a SQLite database at dbPath, runs all migrations, and returns a
+// ready-to-use Store. This is the convenience entry point for tests and the
+// existing single-call command wiring; the per-domain split (see
+// docs/plans/2026-05-13-split-store-package.md) eventually deprecates this in
+// favor of composition-root code that calls db.Open and per-repo constructors
+// directly.
 func New(dbPath string) (*Store, error) {
-	db, err := sql.Open("sqlite", dbPath)
+	d, err := storedb.Open(dbPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
-	}
-
-	if err := db.Ping(); err != nil {
-		return nil, fmt.Errorf("failed to ping database: %w", err)
-	}
-
-	// Enable WAL mode for Litestream compatibility
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
-	}
-
-	// Set busy_timeout so concurrent writers retry instead of immediately
-	// returning SQLITE_BUSY ("database is locked"). 5 seconds gives enough
-	// time for the scheduler's simultaneous reminder writes to succeed.
-	if _, err := db.Exec("PRAGMA busy_timeout = 5000"); err != nil {
-		return nil, fmt.Errorf("failed to set busy_timeout: %w", err)
-	}
-
-	// Limit connection pool to 1 to avoid multiple connections racing each
-	// other for the WAL write lock in concurrent-write scenarios.
-	db.SetMaxOpenConns(1)
-
-	// Set dialect
-	if err := goose.SetDialect("sqlite3"); err != nil {
 		return nil, err
 	}
+	return NewWithDB(d)
+}
 
-	// Set Base FS
-	goose.SetBaseFS(embedMigrations)
-	goose.SetLogger(goose.NopLogger())
-
-	// Run migrations
-	if err := goose.Up(db, "migrations"); err != nil {
+// NewWithDB wraps a caller-supplied *db.DB in a Store and runs migrations.
+// The composition root (cmd/bot, cmd/mcptool, cmd/seeddemo, cmd/bpimporter)
+// uses this so a single *db.DB can be shared across per-domain repositories
+// as they come online. Migrations are idempotent — calling NewWithDB more
+// than once against the same *db.DB is harmless.
+func NewWithDB(d *storedb.DB) (*Store, error) {
+	if err := d.Migrate(embedMigrations, "migrations"); err != nil {
 		return nil, fmt.Errorf("failed to migrate db: %w", err)
 	}
-
-	return &Store{db: db}, nil
+	return &Store{db: d}, nil
 }
 
 func (s *Store) Close() error {
@@ -262,6 +260,13 @@ func (s *Store) Close() error {
 // demo seeder) that needs to issue raw SQL the public API does not cover.
 // Application code should use the typed methods on Store instead.
 func (s *Store) DB() *sql.DB {
+	return s.db.DB
+}
+
+// SharedDB exposes the wrapping *db.DB so composition-root code can pass it
+// into per-domain repository constructors as they land. Prefer this over DB()
+// for any new code under cmd/.
+func (s *Store) SharedDB() *storedb.DB {
 	return s.db
 }
 
