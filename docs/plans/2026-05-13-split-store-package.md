@@ -216,10 +216,10 @@ Tests construct only the repo they need.
 
 ### Task 1: Establish `internal/store/db` package
 
-- [ ] Create `internal/store/db/` package with `db.go` (connection open/close, busy-timeout config), `tx.go` (`TX` interface + `WithTx`), `migrations.go` (goose runner moved from `store.go`), `time.go` (unix-seconds helpers).
-- [ ] Add round-trip test for `WithTx`: commit path, rollback-on-error path, panic-in-fn path. Lives in `internal/store/db/tx_test.go`.
-- [ ] Update `cmd/bot/main.go`, `cmd/mcptool/main.go`, `cmd/seeddemo/main.go`, `cmd/bpimporter/main.go` to call `db.Open` and pass `*db.DB` into the existing `store.New` (which becomes a thin wrapper at this stage — no functional change).
-- [ ] Run `go test ./...` and `go test -race ./...` — must pass before Task 2.
+- [x] Create `internal/store/db/` package with `db.go` (connection open/close, busy-timeout config), `tx.go` (`TX` interface + `WithTx`), `migrations.go` (goose runner moved from `store.go`), `time.go` (unix-seconds helpers).
+- [x] Add round-trip test for `WithTx`: commit path, rollback-on-error path, panic-in-fn path. Lives in `internal/store/db/tx_test.go`.
+- [x] Update `cmd/bot/main.go`, `cmd/mcptool/main.go`, `cmd/seeddemo/main.go`, `cmd/bpimporter/main.go` to call `db.Open` and pass `*db.DB` into the existing `store.New` (which becomes a thin wrapper at this stage — no functional change). Implemented as: cmd files call `storedb.Open(path)` and then `store.NewWithDB(d)`; legacy `store.New(dbPath)` keeps working as a single-call entry point used by tests (~80 sites).
+- [x] Run `go test ./...` and `go test -race ./...` — must pass before Task 2. Pre-existing race in `internal/server/TestHandleTriggerNextIntake_EarlyNotifFormatsInUserTZ` (between `mockNotifier.Send` and a server goroutine) reproduces on master pre-refactor and is unrelated to Task 1; non-race full suite is green and `go test -race ./internal/store/...` is green.
 
 ---
 
