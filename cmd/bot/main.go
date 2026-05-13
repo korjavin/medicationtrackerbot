@@ -142,7 +142,7 @@ func main() {
 
 	var wpService *webpush.Service
 	if vapidPublicKey != "" && vapidPrivateKey != "" {
-		wpService = webpush.New(s, vapidPublicKey, vapidPrivateKey, vapidSubject, vapidAdminEmail, vapidDomain)
+		wpService = webpush.New(s.Push(), vapidPublicKey, vapidPrivateKey, vapidSubject, vapidAdminEmail, vapidDomain)
 	}
 
 	// 4. Bot

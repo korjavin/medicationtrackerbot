@@ -13,6 +13,7 @@ import (
 
 	"github.com/korjavin/medicationtrackerbot/internal/store/diary"
 	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
+	"github.com/korjavin/medicationtrackerbot/internal/store/push"
 )
 
 //go:embed migrations/*.sql
@@ -61,6 +62,7 @@ var EmbeddedMigrations = embedMigrations
 type Store struct {
 	db    *storedb.DB
 	diary *diary.Repo
+	push  *push.Repo
 }
 
 var nowFunc = time.Now
@@ -205,6 +207,12 @@ type FoodTargets struct {
 // diary.DiaryNote directly.
 type DiaryNote = diary.DiaryNote
 
+// PushSubscription is an alias for the canonical type defined in
+// internal/store/push. Kept here so existing references (server, webpush,
+// tests) continue to compile during the per-domain split; new code should
+// depend on push.PushSubscription directly.
+type PushSubscription = push.PushSubscription
+
 // CalculateBPCategory returns the ISH 2020 classification.
 // Deprecated: prefer domain.CalculateBPCategory for new code.
 func CalculateBPCategory(systolic, diastolic int) string {
@@ -251,9 +259,11 @@ func NewWithDB(d *storedb.DB) (*Store, error) {
 	}
 	diaryRepo := diary.New(d)
 	diaryRepo.SetClock(func() time.Time { return nowFunc() })
+	pushRepo := push.New(d)
 	return &Store{
 		db:    d,
 		diary: diaryRepo,
+		push:  pushRepo,
 	}, nil
 }
 
@@ -263,6 +273,15 @@ func NewWithDB(d *storedb.DB) (*Store, error) {
 // by it) and obtain it through this accessor.
 func (s *Store) Diary() *diary.Repo {
 	return s.diary
+}
+
+// Push returns the per-domain push subscription repository. The legacy
+// *Store still forwards CreatePushSubscription / GetPushSubscriptions /
+// DeletePushSubscription / DisablePushSubscription to this same Repo; new
+// callers should depend on *push.Repo (or a narrow interface satisfied by
+// it) and obtain it through this accessor.
+func (s *Store) Push() *push.Repo {
+	return s.push
 }
 
 func (s *Store) Close() error {
@@ -1896,63 +1915,24 @@ func (s *Store) GetSleepLogs(ctx context.Context, userID int64, since time.Time)
 	return logs, nil
 }
 
-// PushSubscription represents a Web Push subscription
-type PushSubscription struct {
-	ID        int64     `json:"id"`
-	UserID    int64     `json:"user_id"`
-	Endpoint  string    `json:"endpoint"`
-	Auth      string    `json:"auth"`
-	P256dh    string    `json:"p256dh"`
-	Enabled   bool      `json:"enabled"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
+// CreatePushSubscription forwards to (*push.Repo).Create.
 func (s *Store) CreatePushSubscription(userID int64, endpoint, auth, p256dh string) error {
-	query := `
-		INSERT INTO push_subscriptions (user_id, endpoint, auth, p256dh, enabled, updated_at)
-		VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
-		ON CONFLICT(endpoint) DO UPDATE SET
-			user_id = excluded.user_id,
-			auth = excluded.auth,
-			p256dh = excluded.p256dh,
-			enabled = 1,
-			updated_at = CURRENT_TIMESTAMP
-	`
-	_, err := s.db.Exec(query, userID, endpoint, auth, p256dh)
-	return err
+	return s.push.Create(userID, endpoint, auth, p256dh)
 }
 
+// GetPushSubscriptions forwards to (*push.Repo).List.
 func (s *Store) GetPushSubscriptions(userID int64) ([]PushSubscription, error) {
-	query := `SELECT id, user_id, endpoint, auth, p256dh, enabled, created_at, updated_at 
-	          FROM push_subscriptions 
-	          WHERE user_id = ? AND enabled = 1`
-
-	rows, err := s.db.Query(query, userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var subs []PushSubscription
-	for rows.Next() {
-		var sub PushSubscription
-		if err := rows.Scan(&sub.ID, &sub.UserID, &sub.Endpoint, &sub.Auth, &sub.P256dh, &sub.Enabled, &sub.CreatedAt, &sub.UpdatedAt); err != nil {
-			return nil, err
-		}
-		subs = append(subs, sub)
-	}
-	return subs, nil
+	return s.push.List(userID)
 }
 
+// DeletePushSubscription forwards to (*push.Repo).Delete.
 func (s *Store) DeletePushSubscription(endpoint string) error {
-	_, err := s.db.Exec("DELETE FROM push_subscriptions WHERE endpoint = ?", endpoint)
-	return err
+	return s.push.Delete(endpoint)
 }
 
+// DisablePushSubscription forwards to (*push.Repo).Disable.
 func (s *Store) DisablePushSubscription(endpoint string) error {
-	_, err := s.db.Exec("UPDATE push_subscriptions SET enabled = 0, updated_at = CURRENT_TIMESTAMP WHERE endpoint = ?", endpoint)
-	return err
+	return s.push.Disable(endpoint)
 }
 
 // -- Food Logs --

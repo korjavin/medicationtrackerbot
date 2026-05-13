@@ -246,12 +246,12 @@ Chosen as the pilot because it is the smallest domain, has no cross-repo transac
 
 Single consumer (`internal/notifier/webpush.go`, `internal/webpush/webpush.go`). Resolves §10.3 of the code review incidentally — `webpush.Service` will hold a narrow `push.Repo` instead of the concrete `*store.Store`.
 
-- [ ] Create `internal/store/push/` with `Repo`, `New(*db.DB) *Repo`, `PushSubscription` type.
-- [ ] Move `CreatePushSubscription`, `GetPushSubscriptions`, `DeletePushSubscription`, `DisablePushSubscription`.
-- [ ] Forwarders in `Store` (deletable in Task 13).
-- [ ] Update `internal/webpush/webpush.go:25-43` — replace `store *store.Store` with a narrow `push.Repo`-compatible interface.
-- [ ] Move push-related tests via `git mv`.
-- [ ] Run `go test ./...` and `go test -race ./...` — must pass before Task 4.
+- [x] Create `internal/store/push/` with `Repo`, `New(*db.DB) *Repo`, `PushSubscription` type. Public method names on the repo are `Create` / `List` / `Delete` / `Disable` (the "PushSubscription" suffix is implied by the package name).
+- [x] Move `CreatePushSubscription`, `GetPushSubscriptions`, `DeletePushSubscription`, `DisablePushSubscription`.
+- [x] Forwarders in `Store` (deletable in Task 13). `PushSubscription` becomes a type alias (`type PushSubscription = push.PushSubscription`) so existing `store.PushSubscription` references compile unchanged. `Store.Push()` accessor exposes the repo so `cmd/bot/main.go` can pass it through.
+- [x] Update `internal/webpush/webpush.go:25-43` — replace `store *store.Store` with a narrow `push.Repo`-compatible interface (`SubscriptionStore` with `List` / `Disable`). `cmd/bot/main.go:145` now passes `s.Push()` instead of `s`.
+- [x] Move push-related tests. Tests for push subscriptions lived inside `store_settings_test.go` (not a standalone file), so canonical tests now live at `internal/store/push/push_test.go` (rewritten against the `*Repo` API + an extra "re-create on disabled endpoint re-enables it" case to lock in the upsert behaviour); the duplicated `TestPushSubscriptions` and `TestPushSubscriptionDifferentUsers` were removed from `store_settings_test.go`.
+- [x] Run `go test ./...` and `go test -race ./...` — must pass before Task 4. Full `go test ./...` is green; `go test -race ./internal/store/... ./internal/webpush/ ./internal/notifier/` is green. Pre-existing race in `internal/server/TestHandleTriggerNextIntake_EarlyNotifFormatsInUserTZ` (documented in Task 1) is unchanged and unrelated to this split.
 
 ---
 
