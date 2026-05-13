@@ -87,10 +87,10 @@ and recommended-priority item #10.
 
 ### Task 1: Replace the inline handler
 
-- [ ] read `web/static/js/features/food.js` around line 1620 to
+- [x] read `web/static/js/features/food.js` around line 1620 to
   understand the full DOM context (parent element, what precedes/
   follows)
-- [ ] replace the `linkContainer.innerHTML = '<a href="#" onclick=...
+- [x] replace the `linkContainer.innerHTML = '<a href="#" onclick=...
   >...'` template at line 1620 with: build the `<a>` via
   `document.createElement('a')`, set `href = '#'`, set `className =
   'food-product-link'`, set `textContent = linkText` (so the link
@@ -100,17 +100,17 @@ and recommended-priority item #10.
   `link.addEventListener('click', (event) => { event.preventDefault();
   navigateToFoodProduct(event, log.product_id, log.is_meal); })`,
   then `linkContainer.replaceChildren(link)`
-- [ ] preserve the surrounding `linkContainer.classList.remove('hidden')`
+- [x] preserve the surrounding `linkContainer.classList.remove('hidden')`
   and the empty-state branch (lines 1623-1624 set
   `linkContainer.innerHTML = ''` and add `'hidden'` class — keep both)
-- [ ] write a test in
+- [x] write a test in
   `web/static/js/tests/food.product-link.test.js` covering:
   rendering with `product_id` set produces a clickable link;
   clicking calls `navigateToFoodProduct(event, productId, isMeal)`;
   rendering without `product_id` hides the container; the link does
   NOT have an `onclick` attribute (regression guard against re-
   introducing the inline form)
-- [ ] run `pnpm test food.product-link` — must pass before next task
+- [x] run `pnpm test food.product-link` — must pass before next task
 
 ### Task 2: Architecture test prevents recurrence
 

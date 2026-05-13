@@ -1617,10 +1617,20 @@ function editFoodLog(id) {
     const linkContainer = document.getElementById('food-product-link-container');
     if (log.product_id) {
         const linkText = log.is_meal ? '→ View Meal' : '→ View in Products';
-        linkContainer.innerHTML = `<a href="#" onclick="navigateToFoodProduct(event, ${log.product_id}, ${log.is_meal ? 'true' : 'false'})" class="food-product-link">${linkText}</a>`;
+        const link = document.createElement('a');
+        link.href = '#';
+        link.className = 'food-product-link';
+        link.textContent = linkText;
+        const productId = log.product_id;
+        const isMeal = !!log.is_meal;
+        link.addEventListener('click', (event) => {
+            event.preventDefault();
+            navigateToFoodProduct(event, productId, isMeal);
+        });
+        linkContainer.replaceChildren(link);
         linkContainer.classList.remove('hidden');
     } else {
-        linkContainer.innerHTML = '';
+        linkContainer.replaceChildren();
         linkContainer.classList.add('hidden');
     }
 
