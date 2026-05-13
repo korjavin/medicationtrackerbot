@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/korjavin/medicationtrackerbot/internal/store/diary"
 	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
 )
 
@@ -58,7 +59,8 @@ var EmbeddedMigrations = embedMigrations
 // remains spelled "db" so the ~111 existing s.db.Query/Exec/BeginTx callsites
 // keep compiling unchanged (embedded *sql.DB methods are promoted).
 type Store struct {
-	db *storedb.DB
+	db    *storedb.DB
+	diary *diary.Repo
 }
 
 var nowFunc = time.Now
@@ -197,13 +199,11 @@ type FoodTargets struct {
 	Fat      int `json:"fat"`
 }
 
-type DiaryNote struct {
-	ID        int64     `json:"id"`
-	UserID    int64     `json:"-"`
-	Content   string    `json:"content"`
-	Tag       *string   `json:"tag,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-}
+// DiaryNote is an alias for the canonical type defined in
+// internal/store/diary. Kept here so existing references (handlers, MCP, tests)
+// continue to compile during the per-domain split; new code should depend on
+// diary.DiaryNote directly.
+type DiaryNote = diary.DiaryNote
 
 // CalculateBPCategory returns the ISH 2020 classification.
 // Deprecated: prefer domain.CalculateBPCategory for new code.
@@ -249,7 +249,20 @@ func NewWithDB(d *storedb.DB) (*Store, error) {
 	if err := d.Migrate(embedMigrations, "migrations"); err != nil {
 		return nil, fmt.Errorf("failed to migrate db: %w", err)
 	}
-	return &Store{db: d}, nil
+	diaryRepo := diary.New(d)
+	diaryRepo.SetClock(func() time.Time { return nowFunc() })
+	return &Store{
+		db:    d,
+		diary: diaryRepo,
+	}, nil
+}
+
+// Diary returns the per-domain diary repository. The legacy *Store still
+// forwards CreateDiaryNote/ListDiaryNotes/DeleteDiaryNote to this same Repo;
+// new callers should depend on *diary.Repo (or a narrow interface satisfied
+// by it) and obtain it through this accessor.
+func (s *Store) Diary() *diary.Repo {
+	return s.diary
 }
 
 func (s *Store) Close() error {
@@ -2568,90 +2581,21 @@ func (s *Store) setSettingsBool(ctx context.Context, column string, enabled bool
 	return err
 }
 
-// CreateDiaryNote inserts a new diary note for the user. tag may be nil for an untagged note.
+// CreateDiaryNote forwards to (*diary.Repo).Create. Kept on *Store so the
+// pre-split callers (HTTP handler, MCP tools, bot command) compile unchanged;
+// this forwarder is one of the last things deleted in Task 13.
 func (s *Store) CreateDiaryNote(ctx context.Context, userID int64, content string, tag *string) (*DiaryNote, error) {
-	query := `INSERT INTO diary_notes (user_id, content, tag, created_at) VALUES (?, ?, ?, ?) RETURNING id, user_id, content, tag, created_at`
-	var note DiaryNote
-	var tagArg interface{}
-	if tag != nil {
-		tagArg = *tag
-	}
-	var tagOut sql.NullString
-	err := s.db.QueryRowContext(ctx, query, userID, content, tagArg, nowFunc()).Scan(&note.ID, &note.UserID, &note.Content, &tagOut, &note.CreatedAt)
-	if err != nil {
-		return nil, err
-	}
-	if tagOut.Valid {
-		v := tagOut.String
-		note.Tag = &v
-	}
-	return &note, nil
+	return s.diary.Create(ctx, userID, content, tag)
 }
 
-// ListDiaryNotes returns diary notes for a user, newest first.
-// If since is non-zero, only notes created at or after that time are returned.
-// If until is non-zero, only notes created at or before that time are returned.
-// limit <= 0 means no limit (up to 1000).
-// beforeID, when > 0, acts as a keyset cursor: only notes with id < beforeID are returned,
-// enabling stable pagination even when notes are added or deleted between pages.
+// ListDiaryNotes forwards to (*diary.Repo).List.
 func (s *Store) ListDiaryNotes(ctx context.Context, userID int64, since, until time.Time, limit int, beforeID int64) ([]DiaryNote, error) {
-	query := `SELECT id, user_id, content, tag, created_at FROM diary_notes WHERE user_id = ?`
-	args := []interface{}{userID}
-	if !since.IsZero() {
-		query += " AND created_at >= ?"
-		args = append(args, since)
-	}
-	if !until.IsZero() {
-		query += " AND created_at <= ?"
-		args = append(args, until)
-	}
-	if beforeID > 0 {
-		query += " AND id < ?"
-		args = append(args, beforeID)
-	}
-	query += " ORDER BY id DESC LIMIT ?"
-	if limit > 0 {
-		args = append(args, limit)
-	} else {
-		args = append(args, 1000)
-	}
-
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var notes []DiaryNote
-	for rows.Next() {
-		var n DiaryNote
-		var tag sql.NullString
-		if err := rows.Scan(&n.ID, &n.UserID, &n.Content, &tag, &n.CreatedAt); err != nil {
-			return nil, err
-		}
-		if tag.Valid {
-			v := tag.String
-			n.Tag = &v
-		}
-		notes = append(notes, n)
-	}
-	return notes, rows.Err()
+	return s.diary.List(ctx, userID, since, until, limit, beforeID)
 }
 
-// DeleteDiaryNote deletes a diary note by ID, scoped to the user.
+// DeleteDiaryNote forwards to (*diary.Repo).Delete.
 func (s *Store) DeleteDiaryNote(ctx context.Context, userID, noteID int64) error {
-	result, err := s.db.ExecContext(ctx, `DELETE FROM diary_notes WHERE id = ? AND user_id = ?`, noteID, userID)
-	if err != nil {
-		return err
-	}
-	n, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return sql.ErrNoRows
-	}
-	return nil
+	return s.diary.Delete(ctx, userID, noteID)
 }
 
 // GetCurrentTimezone returns the timezone string from the most recent timezone_history row,

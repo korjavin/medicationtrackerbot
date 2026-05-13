@@ -227,7 +227,7 @@ func New(s *store.Store, botToken, sessionSecret string, allowedUserID int64, oi
 		changes:         s,
 		push:            s,
 		miband:          s,
-		notesSvc:        domain.NewNotesService(s),
+		notesSvc:        domain.NewNotesService(s.Diary()),
 		tzPlanStore:     s,
 		rxnorm:          rxnorm.New(),
 		botToken:        botToken,

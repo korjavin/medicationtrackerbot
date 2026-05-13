@@ -227,18 +227,18 @@ Tests construct only the repo they need.
 
 Chosen as the pilot because it is the smallest domain, has no cross-repo transactions, and has exactly one consumer (`internal/domain/notes.go`).
 
-- [ ] Create `internal/store/diary/` package with `repo.go` containing `Repo`, `New(*db.DB) *Repo`, and `DiaryNote` type.
-- [ ] Move `CreateDiaryNote`, `DeleteDiaryNote`, `ListDiaryNotes` from `store.go` to `internal/store/diary/repo.go`. Method receivers change from `s *Store` to `r *Repo`; SQL is unchanged.
-- [ ] `git mv internal/store/store_diary_test.go internal/store/diary/diary_test.go` (preserves blame). Update package declaration and imports.
-- [ ] In `internal/store/store.go`, add forwarder methods so old callers compile unchanged:
+- [x] Create `internal/store/diary/` package with `repo.go` containing `Repo`, `New(*db.DB) *Repo`, and `DiaryNote` type.
+- [x] Move `CreateDiaryNote`, `DeleteDiaryNote`, `ListDiaryNotes` from `store.go` to `internal/store/diary/repo.go`. Method receivers change from `s *Store` to `r *Repo`; SQL is unchanged. Public method names on the repo are `Create` / `List` / `Delete` (the "Diary" prefix is implied by the package name).
+- [x] `git mv internal/store/store_diary_test.go internal/store/diary/diary_test.go` (preserves blame). Update package declaration and imports. Setup helper switches from `store.New(":memory:")` to `storedb.Open` + `migrations.FS` (new tiny `internal/store/migrations/` Go package added so subpackage tests can re-embed the schema without a cyclic import back into `internal/store`).
+- [x] In `internal/store/store.go`, add forwarder methods so old callers compile unchanged:
   ```go
-  func (s *Store) CreateDiaryNote(userID int64, body string, t time.Time) (int64, error) {
-      return s.diary.Create(userID, body, t)
+  func (s *Store) CreateDiaryNote(ctx context.Context, userID int64, content string, tag *string) (*DiaryNote, error) {
+      return s.diary.Create(ctx, userID, content, tag)
   }
   ```
-- [ ] Add `diary *diary.Repo` field to `Store` struct; initialize in `store.New`.
-- [ ] Update `internal/domain/notes.go` to take a narrow `diary.Repo`-compatible interface directly. Update `cmd/bot/main.go` composition.
-- [ ] Run `go test ./...` and `go test -race ./...` — must pass before Task 3. PR should be < 500 lines.
+- [x] Add `diary *diary.Repo` field to `Store` struct; initialize in `store.New`. `DiaryNote` becomes a type alias (`type DiaryNote = diary.DiaryNote`) so existing `store.DiaryNote` references compile unchanged. `Store.Diary()` accessor exposes the repo so composition code (server.go, bot.go) can pass it through.
+- [x] Update `internal/domain/notes.go` to take a narrow `diary.Repo`-compatible interface directly (`Create` / `List` / `Delete` methods returning `*diary.DiaryNote`). Wiring updated in `internal/server/server.go` and `internal/bot/bot.go` to call `domain.NewNotesService(s.Diary())`; `cmd/bot/main.go` did not require changes (already wires through `store.NewWithDB`).
+- [x] Run `go test ./...` and `go test -race ./...` — must pass before Task 3. Full `go test ./...` is green; `go test -race ./internal/store/... ./internal/domain/... ./internal/bot/...` is green. The pre-existing race in `internal/server/TestHandleTriggerNextIntake_EarlyNotifFormatsInUserTZ` (documented in Task 1's completion note) is still the only race-detector failure; reproduces on master pre-refactor and is unrelated to the diary split.
 
 ---
 
