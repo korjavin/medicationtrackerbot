@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/korjavin/medicationtrackerbot/internal/store"
+	"github.com/korjavin/medicationtrackerbot/internal/store/diary"
 )
 
 type fakeNotesStore struct {
-	notes       []store.DiaryNote
+	notes       []diary.DiaryNote
 	nextID      int64
 	createErr   error
 	deleteErr   error
@@ -19,28 +19,28 @@ type fakeNotesStore struct {
 	lastTagSent *string
 }
 
-func (f *fakeNotesStore) CreateDiaryNote(ctx context.Context, userID int64, content string, tag *string) (*store.DiaryNote, error) {
+func (f *fakeNotesStore) Create(ctx context.Context, userID int64, content string, tag *string) (*diary.DiaryNote, error) {
 	if f.createErr != nil {
 		return nil, f.createErr
 	}
 	f.lastTagSent = tag
 	f.nextID++
-	n := store.DiaryNote{
+	n := diary.DiaryNote{
 		ID:        f.nextID,
 		UserID:    userID,
 		Content:   content,
 		Tag:       tag,
 		CreatedAt: time.Now(),
 	}
-	f.notes = append([]store.DiaryNote{n}, f.notes...)
+	f.notes = append([]diary.DiaryNote{n}, f.notes...)
 	return &n, nil
 }
 
-func (f *fakeNotesStore) ListDiaryNotes(ctx context.Context, userID int64, since, until time.Time, limit int, beforeID int64) ([]store.DiaryNote, error) {
+func (f *fakeNotesStore) List(ctx context.Context, userID int64, since, until time.Time, limit int, beforeID int64) ([]diary.DiaryNote, error) {
 	if f.listErr != nil {
 		return nil, f.listErr
 	}
-	var out []store.DiaryNote
+	var out []diary.DiaryNote
 	for _, n := range f.notes {
 		if n.UserID != userID {
 			continue
@@ -50,7 +50,7 @@ func (f *fakeNotesStore) ListDiaryNotes(ctx context.Context, userID int64, since
 	return out, nil
 }
 
-func (f *fakeNotesStore) DeleteDiaryNote(ctx context.Context, userID, noteID int64) error {
+func (f *fakeNotesStore) Delete(ctx context.Context, userID, noteID int64) error {
 	if f.deleteErr != nil {
 		return f.deleteErr
 	}

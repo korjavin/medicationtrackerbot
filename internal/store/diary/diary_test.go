@@ -1,4 +1,4 @@
-package store
+package diary
 
 import (
 	"context"
@@ -7,25 +7,31 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
+	"github.com/korjavin/medicationtrackerbot/internal/store/migrations"
 )
 
-func setupDiaryTestStore(t *testing.T) *Store {
+func setupDiaryRepo(t *testing.T) *Repo {
 	t.Helper()
-	db, err := New(":memory:")
+	d, err := storedb.Open(":memory:")
 	if err != nil {
-		t.Fatalf("Failed to create test store: %v", err)
+		t.Fatalf("open db: %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
-	return db
+	t.Cleanup(func() { _ = d.Close() })
+	if err := d.Migrate(migrations.FS, "."); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	return New(d)
 }
 
 func TestCreateDiaryNote(t *testing.T) {
-	s := setupDiaryTestStore(t)
+	r := setupDiaryRepo(t)
 	ctx := context.Background()
 
-	note, err := s.CreateDiaryNote(ctx, 1, "feeling good today", nil)
+	note, err := r.Create(ctx, 1, "feeling good today", nil)
 	if err != nil {
-		t.Fatalf("CreateDiaryNote: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 	if note.ID == 0 {
 		t.Error("expected non-zero ID")
@@ -45,19 +51,19 @@ func TestCreateDiaryNote(t *testing.T) {
 }
 
 func TestCreateDiaryNote_WithTag(t *testing.T) {
-	s := setupDiaryTestStore(t)
+	r := setupDiaryRepo(t)
 	ctx := context.Background()
 
 	tag := "SLEEP"
-	note, err := s.CreateDiaryNote(ctx, 1, "slept 8h", &tag)
+	note, err := r.Create(ctx, 1, "slept 8h", &tag)
 	if err != nil {
-		t.Fatalf("CreateDiaryNote: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 	if note.Tag == nil || *note.Tag != "SLEEP" {
 		t.Errorf("expected tag SLEEP, got %v", note.Tag)
 	}
 
-	notes, err := s.ListDiaryNotes(ctx, 1, time.Time{}, time.Time{}, 0, 0)
+	notes, err := r.List(ctx, 1, time.Time{}, time.Time{}, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,25 +76,25 @@ func TestCreateDiaryNote_WithTag(t *testing.T) {
 }
 
 func TestListDiaryNotes(t *testing.T) {
-	s := setupDiaryTestStore(t)
+	r := setupDiaryRepo(t)
 	ctx := context.Background()
 
-	_, err := s.CreateDiaryNote(ctx, 1, "note 1", nil)
+	_, err := r.Create(ctx, 1, "note 1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = s.CreateDiaryNote(ctx, 1, "note 2", nil)
+	_, err = r.Create(ctx, 1, "note 2", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = s.CreateDiaryNote(ctx, 2, "other user note", nil)
+	_, err = r.Create(ctx, 2, "other user note", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	notes, err := s.ListDiaryNotes(ctx, 1, time.Time{}, time.Time{}, 0, 0)
+	notes, err := r.List(ctx, 1, time.Time{}, time.Time{}, 0, 0)
 	if err != nil {
-		t.Fatalf("ListDiaryNotes: %v", err)
+		t.Fatalf("List: %v", err)
 	}
 	if len(notes) != 2 {
 		t.Fatalf("expected 2 notes, got %d", len(notes))
@@ -100,18 +106,18 @@ func TestListDiaryNotes(t *testing.T) {
 }
 
 func TestListDiaryNotes_Limit(t *testing.T) {
-	s := setupDiaryTestStore(t)
+	r := setupDiaryRepo(t)
 	ctx := context.Background()
 
 	for i := 0; i < 5; i++ {
-		if _, err := s.CreateDiaryNote(ctx, 1, "note", nil); err != nil {
+		if _, err := r.Create(ctx, 1, "note", nil); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	notes, err := s.ListDiaryNotes(ctx, 1, time.Time{}, time.Time{}, 3, 0)
+	notes, err := r.List(ctx, 1, time.Time{}, time.Time{}, 3, 0)
 	if err != nil {
-		t.Fatalf("ListDiaryNotes: %v", err)
+		t.Fatalf("List: %v", err)
 	}
 	if len(notes) != 3 {
 		t.Errorf("expected 3 notes with limit, got %d", len(notes))
@@ -119,16 +125,16 @@ func TestListDiaryNotes_Limit(t *testing.T) {
 }
 
 func TestListDiaryNotes_Since(t *testing.T) {
-	s := setupDiaryTestStore(t)
+	r := setupDiaryRepo(t)
 	ctx := context.Background()
 
 	// Insert old note with explicit past timestamp to avoid sub-second flakiness.
 	// Bind the timestamp as a time.Time so go-sqlite3 serializes it the same way
-	// CreateDiaryNote serializes its row — otherwise a runner in a non-UTC local
+	// Create serializes its row — otherwise a runner in a non-UTC local
 	// timezone gets a text-comparison flip in the WHERE created_at >= ? clause
 	// (raw "2006-01-02 15:04:05" with no offset vs the driver's offset-suffixed
 	// form sort differently when the offset starts with '-').
-	_, err := s.db.ExecContext(ctx,
+	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO diary_notes (user_id, content, created_at) VALUES (?, ?, ?)`,
 		1, "old note", time.Now().Add(-time.Hour))
 	if err != nil {
@@ -137,14 +143,14 @@ func TestListDiaryNotes_Since(t *testing.T) {
 
 	cutoff := time.Now()
 
-	_, err = s.CreateDiaryNote(ctx, 1, "new note", nil)
+	_, err = r.Create(ctx, 1, "new note", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	notes, err := s.ListDiaryNotes(ctx, 1, cutoff, time.Time{}, 0, 0)
+	notes, err := r.List(ctx, 1, cutoff, time.Time{}, 0, 0)
 	if err != nil {
-		t.Fatalf("ListDiaryNotes with since: %v", err)
+		t.Fatalf("List with since: %v", err)
 	}
 	if len(notes) != 1 {
 		t.Fatalf("expected 1 note since cutoff, got %d", len(notes))
@@ -155,17 +161,17 @@ func TestListDiaryNotes_Since(t *testing.T) {
 }
 
 func TestListDiaryNotes_CursorPagination(t *testing.T) {
-	s := setupDiaryTestStore(t)
+	r := setupDiaryRepo(t)
 	ctx := context.Background()
 
 	for i := 0; i < 5; i++ {
-		if _, err := s.CreateDiaryNote(ctx, 1, fmt.Sprintf("note %d", i), nil); err != nil {
+		if _, err := r.Create(ctx, 1, fmt.Sprintf("note %d", i), nil); err != nil {
 			t.Fatal(err)
 		}
 	}
 
 	// Page 1: limit 3, no cursor — expect the 3 newest notes.
-	page1, err := s.ListDiaryNotes(ctx, 1, time.Time{}, time.Time{}, 3, 0)
+	page1, err := r.List(ctx, 1, time.Time{}, time.Time{}, 3, 0)
 	if err != nil {
 		t.Fatalf("page1: %v", err)
 	}
@@ -175,7 +181,7 @@ func TestListDiaryNotes_CursorPagination(t *testing.T) {
 
 	// Page 2: cursor is the ID of the last note on page 1.
 	cursor := page1[len(page1)-1].ID
-	page2, err := s.ListDiaryNotes(ctx, 1, time.Time{}, time.Time{}, 3, cursor)
+	page2, err := r.List(ctx, 1, time.Time{}, time.Time{}, 3, cursor)
 	if err != nil {
 		t.Fatalf("page2: %v", err)
 	}
@@ -192,19 +198,19 @@ func TestListDiaryNotes_CursorPagination(t *testing.T) {
 }
 
 func TestDeleteDiaryNote(t *testing.T) {
-	s := setupDiaryTestStore(t)
+	r := setupDiaryRepo(t)
 	ctx := context.Background()
 
-	note, err := s.CreateDiaryNote(ctx, 1, "to be deleted", nil)
+	note, err := r.Create(ctx, 1, "to be deleted", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if err := s.DeleteDiaryNote(ctx, 1, note.ID); err != nil {
-		t.Fatalf("DeleteDiaryNote: %v", err)
+	if err := r.Delete(ctx, 1, note.ID); err != nil {
+		t.Fatalf("Delete: %v", err)
 	}
 
-	notes, err := s.ListDiaryNotes(ctx, 1, time.Time{}, time.Time{}, 0, 0)
+	notes, err := r.List(ctx, 1, time.Time{}, time.Time{}, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,16 +220,16 @@ func TestDeleteDiaryNote(t *testing.T) {
 }
 
 func TestDeleteDiaryNote_WrongUser(t *testing.T) {
-	s := setupDiaryTestStore(t)
+	r := setupDiaryRepo(t)
 	ctx := context.Background()
 
-	note, err := s.CreateDiaryNote(ctx, 1, "my note", nil)
+	note, err := r.Create(ctx, 1, "my note", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// user 2 tries to delete user 1's note — should error with sql.ErrNoRows
-	err = s.DeleteDiaryNote(ctx, 2, note.ID)
+	err = r.Delete(ctx, 2, note.ID)
 	if !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("expected sql.ErrNoRows when deleting another user's note, got %v", err)
 	}

@@ -113,7 +113,7 @@ func New(token string, allowedUserID int64, s *store.Store, foodAI domain.FoodAI
 		activityAI:       activityAI,
 		activityLog:      s,
 		imports:          s,
-		notesSvc:         domain.NewNotesService(s),
+		notesSvc:         domain.NewNotesService(s.Diary()),
 		timezone:         s,
 		tzUpdater:        tzUpdater,
 		tzPlanStore:      s,
