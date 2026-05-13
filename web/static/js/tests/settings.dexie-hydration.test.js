@@ -6,12 +6,13 @@
 // opening Settings offline should render last-known toggle/input state — not
 // a blank screen waiting on a bootstrap fetch that will never resolve.
 //
-// Why settings_bundle and not settings_features / settings_food_targets:
-// features/settings.js (which keys on the latter two) exists in-tree but is
-// NOT loaded in production — see the comment in app.deeplinks-and-push.test.js
-// and docs/plans/completed/2026-03-10-fix-tab-order-not-persisting.md. The
-// production Settings UI is `loadSettings()` in app.js, keyed on
-// `settings_bundle` and bootstrap-cached by applyBootstrapPayload.
+// The production Settings UI is `loadSettings()` in app.js, keyed on
+// `settings_bundle` and bootstrap-cached by applyBootstrapPayload. The
+// per-key SWR keys settings_features / settings_food_targets are not the
+// hydration targets (an unloaded features/settings.js used them before
+// it was deleted on 2026-05-13 — see
+// docs/plans/2026-05-13-remove-dead-settings-js.md and
+// docs/plans/completed/2026-03-10-fix-tab-order-not-persisting.md).
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';

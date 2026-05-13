@@ -102,7 +102,7 @@ Tag vocabulary: `bp`, `weight`, `medications`, `history`, `food`, `workouts`, `h
 
 ### SW Cache Strategy
 
-- All static assets listed in the `STATIC_ASSETS` array, validated by `architecture.sw-precache.test.js`
+- All static assets listed in the `STATIC_ASSETS` array, validated bidirectionally by `architecture.sw-precache.test.js`: every `<script src>` / `<link rel="stylesheet">` in `index.html` must appear in `STATIC_ASSETS` (no offline breakage), and every precached `/static/js/*.js` entry must appear as a `<script src>` in `index.html` or in the test's `SW_SELF_IMPORTS` allowlist (no dead code shipped in the SW cache)
 - `/api/bootstrap`: stale-while-revalidate
 - Other API GETs: network-first with cache fallback
 - Only cache `GET` responses as fallbacks; never cache `POST`/`PATCH`/`DELETE`

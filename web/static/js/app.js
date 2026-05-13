@@ -503,10 +503,8 @@ async function hydrateSectionsFromDexie() {
         // loadSWR. Hydrating it lets the Settings screen's onCached callback
         // paint toggles, food targets, reminder status, and weight-unit
         // segmented state synchronously on cold-start offline relaunch instead
-        // of leaving the screen blank. NOTE: features/settings.js exists in
-        // the tree but is NOT loaded in production (see the comment in
-        // app.deeplinks-and-push.test.js); the production Settings UI is
-        // owned by loadSettings() in this file, keyed on 'settings_bundle'.
+        // of leaving the screen blank. The production Settings UI is owned
+        // by loadSettings() in this file, keyed on 'settings_bundle'.
         { key: 'settings_bundle', tags: ['settings', 'food_targets', 'feature_settings'] }
     ];
     // Today's food daily-log — already read directly from ApiCache.getWithMeta
