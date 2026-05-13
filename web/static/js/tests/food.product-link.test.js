@@ -64,7 +64,6 @@ describe('editFoodLog product-link wiring (CSP-safe)', () => {
         // Regression guard: the inline onclick attribute must NOT be set,
         // since the deployed CSP would silently drop it.
         expect(link.hasAttribute('onclick')).toBe(false);
-        expect(link.getAttribute('onclick')).toBeNull();
     });
 
     it('renders meal label when is_meal is true', () => {

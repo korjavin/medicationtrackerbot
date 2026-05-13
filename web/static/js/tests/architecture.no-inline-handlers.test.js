@@ -2,9 +2,9 @@
  * architecture.no-inline-handlers.test.js
  *
  * Lint guard: asserts that no JS source file under `web/static/js/`
- * (excluding `tests/` and `vendor/`) contains an inline HTML event
- * handler attribute (`onclick="…"`, `onchange='…'`, etc.) inside a
- * string or template literal.
+ * (excluding `tests/`) contains an inline HTML event handler
+ * attribute (`onclick="…"`, `onchange='…'`, etc.) inside a string or
+ * template literal.
  *
  * Why: the deployed CSP in `internal/server/server.go` ships
  * `script-src 'self' https://telegram.org https://esm.sh blob: data:`
@@ -27,11 +27,17 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const JS_ROOT = path.join(REPO_ROOT, 'web/static/js');
 
-const INLINE_HANDLER_RE =
-    /on(?:click|change|submit|input|load|error|focus|blur|keydown|keyup)=\s*['"][^'"]/i;
+// Match any HTML inline event-handler attribute (`on` + lowercase name)
+// when preceded by whitespace or `<` — i.e., attribute syntax inside a
+// tag, not a JS property assignment (`obj.onclick = …`, which is not
+// CSP-blocked because no inline attribute is created). The leading
+// `[\s<]` anchor prevents false positives on identifiers ending in
+// `on...`, while catching `<a onclick="…"`, `<button onchange='…'`,
+// `<div onmouseover="…"`, `<input onpointerdown="…"`, etc.
+const INLINE_HANDLER_RE = /[\s<]on[a-z]+\s*=\s*['"][^'"]/i;
 
 // Directories under JS_ROOT to skip (relative to JS_ROOT).
-const SKIP_DIRS = new Set(['tests', 'vendor']);
+const SKIP_DIRS = new Set(['tests']);
 
 function collectJsFiles(dir, acc) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
