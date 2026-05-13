@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,12 +17,23 @@ import (
 )
 
 type mockNotifier struct {
+	mu   sync.Mutex
 	sent []string
 }
 
 func (m *mockNotifier) Send(ctx context.Context, userID int64, n notifier.Notification) (int, error) {
+	m.mu.Lock()
 	m.sent = append(m.sent, n.Text)
+	m.mu.Unlock()
 	return 1, nil
+}
+
+func (m *mockNotifier) Sent() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, len(m.sent))
+	copy(out, m.sent)
+	return out
 }
 
 func (m *mockNotifier) Delete(ctx context.Context, userID int64, msgID int) error {

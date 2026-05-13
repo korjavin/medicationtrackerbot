@@ -369,9 +369,11 @@ func TestHandleTriggerNextIntake_EarlyNotifFormatsInUserTZ(t *testing.T) {
 	// notifyWithAutoDelete dispatches via a goroutine, so the assertion
 	// must wait for the worker to record the call rather than racing it.
 	var notif string
+	var sent []string
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		for _, s := range mock.sent {
+		sent = mock.Sent()
+		for _, s := range sent {
 			if strings.Contains(s, "Medication taken early") {
 				notif = s
 				break
@@ -383,7 +385,7 @@ func TestHandleTriggerNextIntake_EarlyNotifFormatsInUserTZ(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	if notif == "" {
-		t.Fatalf("did not find Medication-taken-early notification in sent=%v", mock.sent)
+		t.Fatalf("did not find Medication-taken-early notification in sent=%v", sent)
 	}
 	if !strings.Contains(notif, "scheduled for 22:30") {
 		t.Errorf("expected notification to mention 22:30 PT, got %q", notif)
