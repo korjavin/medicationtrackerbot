@@ -25,7 +25,6 @@ const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const SCOPED_FILES = [
     'web/static/js/features/food.js',
     'web/static/js/features/meds.js',
-    'web/static/js/features/settings.js',
     'web/static/js/components/wg-macro-bar.js',
 ];
 

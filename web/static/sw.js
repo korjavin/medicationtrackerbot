@@ -3,7 +3,7 @@ const CACHE_VERSION = 'CACHE_VERSION_PLACEHOLDER'; // Auto-updated by CI/CD
 // Manual bump knob: increment when shipping a UI change clients must pick up
 // even if the deploy timestamp alone fails to invalidate (e.g. mid-cycle
 // hotfix, or to force re-fetch of today.js for the Photo meal shortcut tile).
-const BUILD_REVISION = '2';
+const BUILD_REVISION = '3';
 const STATIC_CACHE = `medtracker-static-${CACHE_VERSION}-r${BUILD_REVISION}`;
 const DYNAMIC_CACHE = `medtracker-dynamic-${CACHE_VERSION}-r${BUILD_REVISION}`;
 const APP_SHELL_CACHE_KEY = '/__app_shell__';
@@ -54,7 +54,6 @@ const STATIC_ASSETS = [
     '/static/js/features/bp.js',
     '/static/js/features/weight.js',
     '/static/js/features/health.js',
-    '/static/js/features/settings.js',
     '/static/js/features/auth-flow.js',
     '/static/js/features/modal-history.js',
     '/static/js/features/back-button.js',
