@@ -259,12 +259,12 @@ Single consumer (`internal/notifier/webpush.go`, `internal/webpush/webpush.go`).
 
 API tokens + login hashes. Single consumer (`internal/server/auth.go`).
 
-- [ ] Create `internal/store/auth/` with `Repo`, `APIToken` type.
-- [ ] Move `CreateAPIToken`, `DeleteAPIToken`, `FindAPITokenByHash`, `ListAPITokens`, `TouchAPITokenLastUsed`, `TryUseLoginHash`.
-- [ ] Forwarders in `Store`.
-- [ ] `git mv internal/store/api_tokens_test.go internal/store/auth/api_tokens_test.go`.
-- [ ] `git mv internal/store/store_nonce_test.go internal/store/auth/nonce_test.go`.
-- [ ] Run `go test ./...` and `go test -race ./...` — must pass before Task 5.
+- [x] Create `internal/store/auth/` with `Repo`, `APIToken` type.
+- [x] Move `CreateAPIToken`, `DeleteAPIToken`, `FindAPITokenByHash`, `ListAPITokens`, `TouchAPITokenLastUsed`, `TryUseLoginHash`.
+- [x] Forwarders in `Store`. `APIToken` becomes a type alias (`type APIToken = auth.APIToken`) so existing `store.APIToken` references (MCP admin/oauth handlers + tests) compile unchanged. `Store.Auth()` accessor exposes the repo for new callers.
+- [x] `git mv internal/store/api_tokens_test.go internal/store/auth/api_tokens_test.go`. Tests rewritten against the `*Repo` API; setup helper switches from `store.New(":memory:")` to `storedb.Open` + `migrations.FS`.
+- [x] `git mv internal/store/store_nonce_test.go internal/store/auth/nonce_test.go`. Tests rewritten against the `*Repo` API using the shared `setupAuthRepo` helper.
+- [x] Run `go test ./...` and `go test -race ./...` — must pass before Task 5. Full `go test ./...` is green; `go test -race ./internal/store/... ./internal/mcp/... ./internal/bot/...` is green. Pre-existing race in `internal/server/TestHandleTriggerNextIntake_EarlyNotifFormatsInUserTZ` (documented in Task 1) is unchanged and unrelated to this split.
 
 ---
 

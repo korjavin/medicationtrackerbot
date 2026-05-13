@@ -1,4 +1,4 @@
-package store
+package auth
 
 import (
 	"context"
@@ -7,23 +7,29 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
+	"github.com/korjavin/medicationtrackerbot/internal/store/migrations"
 )
 
-func newTestStore(t *testing.T) *Store {
+func setupAuthRepo(t *testing.T) *Repo {
 	t.Helper()
-	db, err := New(":memory:")
+	d, err := storedb.Open(":memory:")
 	if err != nil {
-		t.Fatalf("Failed to create test store: %v", err)
+		t.Fatalf("open db: %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
-	return db
+	t.Cleanup(func() { _ = d.Close() })
+	if err := d.Migrate(migrations.FS, "."); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	return New(d)
 }
 
 func TestCreateAPIToken(t *testing.T) {
 	ctx := context.Background()
-	db := newTestStore(t)
+	r := setupAuthRepo(t)
 
-	id, err := db.CreateAPIToken(ctx, "ci-bot", "hash-1")
+	id, err := r.CreateAPIToken(ctx, "ci-bot", "hash-1")
 	if err != nil {
 		t.Fatalf("CreateAPIToken: %v", err)
 	}
@@ -34,12 +40,12 @@ func TestCreateAPIToken(t *testing.T) {
 
 func TestCreateAPIToken_DuplicateHashFails(t *testing.T) {
 	ctx := context.Background()
-	db := newTestStore(t)
+	r := setupAuthRepo(t)
 
-	if _, err := db.CreateAPIToken(ctx, "first", "shared-hash"); err != nil {
+	if _, err := r.CreateAPIToken(ctx, "first", "shared-hash"); err != nil {
 		t.Fatalf("first CreateAPIToken: %v", err)
 	}
-	_, err := db.CreateAPIToken(ctx, "second", "shared-hash")
+	_, err := r.CreateAPIToken(ctx, "second", "shared-hash")
 	if err == nil {
 		t.Fatalf("expected uniqueness violation, got nil")
 	}
@@ -50,9 +56,9 @@ func TestCreateAPIToken_DuplicateHashFails(t *testing.T) {
 
 func TestListAPITokens(t *testing.T) {
 	ctx := context.Background()
-	db := newTestStore(t)
+	r := setupAuthRepo(t)
 
-	tokens, err := db.ListAPITokens(ctx)
+	tokens, err := r.ListAPITokens(ctx)
 	if err != nil {
 		t.Fatalf("ListAPITokens empty: %v", err)
 	}
@@ -60,16 +66,16 @@ func TestListAPITokens(t *testing.T) {
 		t.Fatalf("expected empty list, got %d", len(tokens))
 	}
 
-	id1, err := db.CreateAPIToken(ctx, "alpha", "h1")
+	id1, err := r.CreateAPIToken(ctx, "alpha", "h1")
 	if err != nil {
 		t.Fatalf("CreateAPIToken alpha: %v", err)
 	}
-	id2, err := db.CreateAPIToken(ctx, "beta", "h2")
+	id2, err := r.CreateAPIToken(ctx, "beta", "h2")
 	if err != nil {
 		t.Fatalf("CreateAPIToken beta: %v", err)
 	}
 
-	tokens, err = db.ListAPITokens(ctx)
+	tokens, err = r.ListAPITokens(ctx)
 	if err != nil {
 		t.Fatalf("ListAPITokens: %v", err)
 	}
@@ -94,18 +100,18 @@ func TestListAPITokens(t *testing.T) {
 
 func TestDeleteAPIToken(t *testing.T) {
 	ctx := context.Background()
-	db := newTestStore(t)
+	r := setupAuthRepo(t)
 
-	id, err := db.CreateAPIToken(ctx, "to-delete", "h-del")
+	id, err := r.CreateAPIToken(ctx, "to-delete", "h-del")
 	if err != nil {
 		t.Fatalf("CreateAPIToken: %v", err)
 	}
 
-	if err := db.DeleteAPIToken(ctx, id); err != nil {
+	if err := r.DeleteAPIToken(ctx, id); err != nil {
 		t.Fatalf("DeleteAPIToken: %v", err)
 	}
 
-	tokens, err := db.ListAPITokens(ctx)
+	tokens, err := r.ListAPITokens(ctx)
 	if err != nil {
 		t.Fatalf("ListAPITokens after delete: %v", err)
 	}
@@ -116,9 +122,9 @@ func TestDeleteAPIToken(t *testing.T) {
 
 func TestDeleteAPIToken_MissingReturnsErrNoRows(t *testing.T) {
 	ctx := context.Background()
-	db := newTestStore(t)
+	r := setupAuthRepo(t)
 
-	err := db.DeleteAPIToken(ctx, 99999)
+	err := r.DeleteAPIToken(ctx, 99999)
 	if !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("expected sql.ErrNoRows, got %v", err)
 	}
@@ -126,14 +132,14 @@ func TestDeleteAPIToken_MissingReturnsErrNoRows(t *testing.T) {
 
 func TestFindAPITokenByHash(t *testing.T) {
 	ctx := context.Background()
-	db := newTestStore(t)
+	r := setupAuthRepo(t)
 
-	id, err := db.CreateAPIToken(ctx, "lookup", "find-me")
+	id, err := r.CreateAPIToken(ctx, "lookup", "find-me")
 	if err != nil {
 		t.Fatalf("CreateAPIToken: %v", err)
 	}
 
-	tok, err := db.FindAPITokenByHash(ctx, "find-me")
+	tok, err := r.FindAPITokenByHash(ctx, "find-me")
 	if err != nil {
 		t.Fatalf("FindAPITokenByHash: %v", err)
 	}
@@ -147,9 +153,9 @@ func TestFindAPITokenByHash(t *testing.T) {
 
 func TestFindAPITokenByHash_NotFound(t *testing.T) {
 	ctx := context.Background()
-	db := newTestStore(t)
+	r := setupAuthRepo(t)
 
-	tok, err := db.FindAPITokenByHash(ctx, "no-such-hash")
+	tok, err := r.FindAPITokenByHash(ctx, "no-such-hash")
 	if err != nil {
 		t.Fatalf("FindAPITokenByHash: %v", err)
 	}
@@ -162,18 +168,18 @@ func TestFindAPITokenByHash_NotFound(t *testing.T) {
 // token_hash (not by id, name, or "first row") when multiple tokens exist.
 func TestFindAPITokenByHash_MultiRow(t *testing.T) {
 	ctx := context.Background()
-	db := newTestStore(t)
+	r := setupAuthRepo(t)
 
-	idA, err := db.CreateAPIToken(ctx, "alpha", "hash-A")
+	idA, err := r.CreateAPIToken(ctx, "alpha", "hash-A")
 	if err != nil {
 		t.Fatalf("create alpha: %v", err)
 	}
-	idB, err := db.CreateAPIToken(ctx, "beta", "hash-B")
+	idB, err := r.CreateAPIToken(ctx, "beta", "hash-B")
 	if err != nil {
 		t.Fatalf("create beta: %v", err)
 	}
 
-	got, err := db.FindAPITokenByHash(ctx, "hash-B")
+	got, err := r.FindAPITokenByHash(ctx, "hash-B")
 	if err != nil {
 		t.Fatalf("find hash-B: %v", err)
 	}
@@ -185,7 +191,7 @@ func TestFindAPITokenByHash_MultiRow(t *testing.T) {
 			got.ID, got.Name, idB, "beta")
 	}
 
-	got, err = db.FindAPITokenByHash(ctx, "hash-A")
+	got, err = r.FindAPITokenByHash(ctx, "hash-A")
 	if err != nil {
 		t.Fatalf("find hash-A: %v", err)
 	}
@@ -200,14 +206,14 @@ func TestFindAPITokenByHash_MultiRow(t *testing.T) {
 
 func TestTouchAPITokenLastUsed(t *testing.T) {
 	ctx := context.Background()
-	db := newTestStore(t)
+	r := setupAuthRepo(t)
 
-	id, err := db.CreateAPIToken(ctx, "touch", "h-touch")
+	id, err := r.CreateAPIToken(ctx, "touch", "h-touch")
 	if err != nil {
 		t.Fatalf("CreateAPIToken: %v", err)
 	}
 
-	before, err := db.FindAPITokenByHash(ctx, "h-touch")
+	before, err := r.FindAPITokenByHash(ctx, "h-touch")
 	if err != nil {
 		t.Fatalf("FindAPITokenByHash before: %v", err)
 	}
@@ -219,11 +225,11 @@ func TestTouchAPITokenLastUsed(t *testing.T) {
 	// one second of resolution if needed.
 	time.Sleep(10 * time.Millisecond)
 
-	if err := db.TouchAPITokenLastUsed(ctx, id); err != nil {
+	if err := r.TouchAPITokenLastUsed(ctx, id); err != nil {
 		t.Fatalf("TouchAPITokenLastUsed: %v", err)
 	}
 
-	after, err := db.FindAPITokenByHash(ctx, "h-touch")
+	after, err := r.FindAPITokenByHash(ctx, "h-touch")
 	if err != nil {
 		t.Fatalf("FindAPITokenByHash after: %v", err)
 	}

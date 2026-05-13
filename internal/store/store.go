@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/korjavin/medicationtrackerbot/internal/store/auth"
 	"github.com/korjavin/medicationtrackerbot/internal/store/diary"
 	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
 	"github.com/korjavin/medicationtrackerbot/internal/store/push"
@@ -63,6 +64,7 @@ type Store struct {
 	db    *storedb.DB
 	diary *diary.Repo
 	push  *push.Repo
+	auth  *auth.Repo
 }
 
 var nowFunc = time.Now
@@ -213,6 +215,12 @@ type DiaryNote = diary.DiaryNote
 // depend on push.PushSubscription directly.
 type PushSubscription = push.PushSubscription
 
+// APIToken is an alias for the canonical type defined in internal/store/auth.
+// Kept here so existing references (MCP admin handler, OAuth middleware,
+// tests) continue to compile during the per-domain split; new code should
+// depend on auth.APIToken directly.
+type APIToken = auth.APIToken
+
 // CalculateBPCategory returns the ISH 2020 classification.
 // Deprecated: prefer domain.CalculateBPCategory for new code.
 func CalculateBPCategory(systolic, diastolic int) string {
@@ -260,10 +268,13 @@ func NewWithDB(d *storedb.DB) (*Store, error) {
 	diaryRepo := diary.New(d)
 	diaryRepo.SetClock(func() time.Time { return nowFunc() })
 	pushRepo := push.New(d)
+	authRepo := auth.New(d)
+	authRepo.SetClock(func() time.Time { return nowFunc() })
 	return &Store{
 		db:    d,
 		diary: diaryRepo,
 		push:  pushRepo,
+		auth:  authRepo,
 	}, nil
 }
 
@@ -282,6 +293,16 @@ func (s *Store) Diary() *diary.Repo {
 // it) and obtain it through this accessor.
 func (s *Store) Push() *push.Repo {
 	return s.push
+}
+
+// Auth returns the per-domain api_tokens + used_login_hashes repository.
+// The legacy *Store still forwards CreateAPIToken / ListAPITokens /
+// DeleteAPIToken / FindAPITokenByHash / TouchAPITokenLastUsed /
+// TryUseLoginHash to this same Repo; new callers should depend on
+// *auth.Repo (or a narrow interface satisfied by it) and obtain it through
+// this accessor.
+func (s *Store) Auth() *auth.Repo {
+	return s.auth
 }
 
 func (s *Store) Close() error {
@@ -3061,28 +3082,9 @@ func (s *Store) MarkStepConsumed(stepID int64, consumedAt time.Time) error {
 	return err
 }
 
-// -- Login Nonce Store --
-
-// TryUseLoginHash atomically checks whether a login hash has been used and marks it used if not.
-// Returns true if the hash is fresh (first use), false if it was already consumed (replay).
-// Uses INSERT OR IGNORE for atomicity — no SELECT+INSERT race under concurrent access.
-// Also prunes expired entries lazily.
+// TryUseLoginHash forwards to (*auth.Repo).TryUseLoginHash.
 func (s *Store) TryUseLoginHash(hash string, expiresAt time.Time) (bool, error) {
-	// Prune expired entries lazily (best-effort)
-	_, _ = s.db.Exec(`DELETE FROM used_login_hashes WHERE expires_at < ?`, nowFunc().Unix())
-
-	// Atomically try to insert; conflict on PRIMARY KEY means replay
-	result, err := s.db.Exec(`INSERT OR IGNORE INTO used_login_hashes (hash, expires_at) VALUES (?, ?)`, hash, expiresAt.Unix())
-	if err != nil {
-		return false, err
-	}
-
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return false, err
-	}
-
-	return rows > 0, nil
+	return s.auth.TryUseLoginHash(hash, expiresAt)
 }
 
 // BatchGetLastWeightLogs fetches the last weight log for multiple users
@@ -3166,100 +3168,27 @@ func (s *Store) BatchGetLastWeightLogs(ctx context.Context, userIDs []int64) (ma
 	return result, nil
 }
 
-// -- API Tokens --
-
-// APIToken represents a long-lived bearer token used by the MCP server's
-// API-token authentication path. The plaintext token is never stored — only
-// its sha256 hash. The plaintext is returned to the caller exactly once when
-// the token is created.
-type APIToken struct {
-	ID         int64        `json:"id"`
-	Name       string       `json:"name"`
-	CreatedAt  time.Time    `json:"created_at"`
-	LastUsedAt sql.NullTime `json:"last_used_at"`
-}
-
-// CreateAPIToken inserts a new token row and returns its id.
+// CreateAPIToken forwards to (*auth.Repo).CreateAPIToken.
 func (s *Store) CreateAPIToken(ctx context.Context, name, tokenHash string) (int64, error) {
-	res, err := s.db.ExecContext(
-		ctx,
-		`INSERT INTO api_tokens (name, token_hash) VALUES (?, ?)`,
-		name, tokenHash,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
+	return s.auth.CreateAPIToken(ctx, name, tokenHash)
 }
 
-// ListAPITokens returns all tokens ordered by id (oldest first). The
-// plaintext token and hash are never included.
+// ListAPITokens forwards to (*auth.Repo).ListAPITokens.
 func (s *Store) ListAPITokens(ctx context.Context) ([]APIToken, error) {
-	rows, err := s.db.QueryContext(
-		ctx,
-		`SELECT id, name, created_at, last_used_at FROM api_tokens ORDER BY id`,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var tokens []APIToken
-	for rows.Next() {
-		var t APIToken
-		if err := rows.Scan(&t.ID, &t.Name, &t.CreatedAt, &t.LastUsedAt); err != nil {
-			return nil, err
-		}
-		tokens = append(tokens, t)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return tokens, nil
+	return s.auth.ListAPITokens(ctx)
 }
 
-// DeleteAPIToken removes a token by id. Returns sql.ErrNoRows when the id is
-// not present so callers can map this to a 404.
+// DeleteAPIToken forwards to (*auth.Repo).DeleteAPIToken.
 func (s *Store) DeleteAPIToken(ctx context.Context, id int64) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM api_tokens WHERE id = ?`, id)
-	if err != nil {
-		return err
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return sql.ErrNoRows
-	}
-	return nil
+	return s.auth.DeleteAPIToken(ctx, id)
 }
 
-// FindAPITokenByHash looks up a token by its sha256 hash. Returns (nil, nil)
-// when no row matches so the OAuth middleware can cleanly fall through.
+// FindAPITokenByHash forwards to (*auth.Repo).FindAPITokenByHash.
 func (s *Store) FindAPITokenByHash(ctx context.Context, hash string) (*APIToken, error) {
-	var t APIToken
-	err := s.db.QueryRowContext(
-		ctx,
-		`SELECT id, name, created_at, last_used_at FROM api_tokens WHERE token_hash = ?`,
-		hash,
-	).Scan(&t.ID, &t.Name, &t.CreatedAt, &t.LastUsedAt)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &t, nil
+	return s.auth.FindAPITokenByHash(ctx, hash)
 }
 
-// TouchAPITokenLastUsed updates last_used_at to the current time. Best-effort
-// — callers should log but not block on errors.
+// TouchAPITokenLastUsed forwards to (*auth.Repo).TouchAPITokenLastUsed.
 func (s *Store) TouchAPITokenLastUsed(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(
-		ctx,
-		`UPDATE api_tokens SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?`,
-		id,
-	)
-	return err
+	return s.auth.TouchAPITokenLastUsed(ctx, id)
 }
