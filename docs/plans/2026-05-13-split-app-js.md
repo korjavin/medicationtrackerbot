@@ -297,8 +297,7 @@ extracts everything at once would be unreviewable.
 ### What stays in `app.js` after this plan
 
 - `checkAuth()` orchestrator
-- `loadSettings()` (the canonical one, replacing the dead
-  `features/settings.js`)
+- `loadSettings()` (the canonical Settings orchestrator)
 - The Today-tab refresh debouncer (still has cross-cutting concerns)
 - A handful of utility functions used only by `app.js`
 
