@@ -110,10 +110,12 @@ const SyncDebug = {
         panel.innerHTML = `
             <div class="sync-debug-header">
                 <strong>Sync Debug Log</strong>
-                <button onclick="SyncDebug.toggle()" class="sync-debug-close">Close</button>
+                <button type="button" class="sync-debug-close">Close</button>
             </div>
             <div class="debug-content"></div>
         `;
+        const closeBtn = panel.querySelector('.sync-debug-close');
+        if (closeBtn) closeBtn.addEventListener('click', () => this.toggle());
         document.body.appendChild(panel);
 
         // Add CSS for debug lines
