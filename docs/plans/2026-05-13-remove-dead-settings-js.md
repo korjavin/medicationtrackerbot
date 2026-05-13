@@ -78,20 +78,32 @@ and recommended-priority item #4.
 
 ### Task 1: Confirm no live caller exists
 
-- [ ] grep for `'features/settings.js'` and `"features/settings.js"`
+- [x] grep for `'features/settings.js'` and `"features/settings.js"`
   across the repo (`grep -rn "features/settings.js" .`) — expected
   hits: only `web/static/sw.js:57`, `docs/frontend.md` and any commit
-  messages
-- [ ] grep for explicit references to the file's exported function
+  messages — confirmed: only `web/static/sw.js:57` plus docs/plans
+  and tests/architecture allowlist references. `web/static/index.html`
+  has zero references (only `components/wg-settings.js` matches).
+- [x] grep for explicit references to the file's exported function
   names *only as they would resolve from the dead file*:
   `loadFeatureSettings` / `loadFoodTargets` / `loadSettings` —
   confirm callers resolve to the `app.js` definitions, not the dead
-  file (read first definition order in load chain)
-- [ ] confirm `web/static/js/features/settings.js:103`'s call to
+  file (read first definition order in load chain) — confirmed:
+  `loadSettings` callers (`app.js:1208`, `app.js:2426`) resolve to
+  `app.js:1926`; `loadFoodTargets` callers (`features/food.js:1759`)
+  resolve to local definition at `features/food.js:2528`;
+  `loadFeatureSettings` has zero live callers outside the dead file
+  and its tests (the bundle apply path in `app.js:1926` reads
+  `/api/settings/features` directly).
+- [x] confirm `web/static/js/features/settings.js:103`'s call to
   `window.loadFoodLogs` is the *only* feature-side call to that
-  global; any other caller (e.g. inside `app.js`) is unaffected
-- [ ] write a one-line note in `docs/2026-05-13-frontend-code-review.md`
-  §12 closing this finding once the file is deleted
+  global; any other caller (e.g. inside `app.js`) is unaffected —
+  confirmed: all other callers (`app.js:1206`, `app.js:2420`,
+  `features/food.js` body) call the local `loadFoodLogs()` directly,
+  not via `window.`; deletion has no live effect.
+- [x] write a one-line note in `docs/2026-05-13-frontend-code-review.md`
+  §12 closing this finding once the file is deleted — note added at
+  end of §12 pointing back to this plan.
 
 ### Task 2: Delete the file and remove SW precache entry
 
