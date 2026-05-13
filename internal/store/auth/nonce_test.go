@@ -1,4 +1,4 @@
-package store
+package auth
 
 import (
 	"testing"
@@ -6,17 +6,13 @@ import (
 )
 
 func TestTryUseLoginHash(t *testing.T) {
-	db, err := New(":memory:")
-	if err != nil {
-		t.Fatalf("Failed to create test store: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
+	r := setupAuthRepo(t)
 
 	hash := "abc123deadbeef"
 	expiresAt := time.Now().Add(24 * time.Hour)
 
 	// First use should succeed
-	fresh, err := db.TryUseLoginHash(hash, expiresAt)
+	fresh, err := r.TryUseLoginHash(hash, expiresAt)
 	if err != nil {
 		t.Fatalf("TryUseLoginHash first call: %v", err)
 	}
@@ -25,7 +21,7 @@ func TestTryUseLoginHash(t *testing.T) {
 	}
 
 	// Replay should fail
-	fresh, err = db.TryUseLoginHash(hash, expiresAt)
+	fresh, err = r.TryUseLoginHash(hash, expiresAt)
 	if err != nil {
 		t.Fatalf("TryUseLoginHash replay call: %v", err)
 	}
@@ -34,7 +30,7 @@ func TestTryUseLoginHash(t *testing.T) {
 	}
 
 	// Different hash should succeed
-	fresh, err = db.TryUseLoginHash("different_hash", expiresAt)
+	fresh, err = r.TryUseLoginHash("different_hash", expiresAt)
 	if err != nil {
 		t.Fatalf("TryUseLoginHash different hash: %v", err)
 	}
@@ -44,17 +40,13 @@ func TestTryUseLoginHash(t *testing.T) {
 }
 
 func TestTryUseLoginHash_ExpiredPruning(t *testing.T) {
-	db, err := New(":memory:")
-	if err != nil {
-		t.Fatalf("Failed to create test store: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
+	r := setupAuthRepo(t)
 
 	hash := "expired_hash"
 	// Insert with an already-expired time
 	expiresAt := time.Now().Add(-1 * time.Hour)
 
-	fresh, err := db.TryUseLoginHash(hash, expiresAt)
+	fresh, err := r.TryUseLoginHash(hash, expiresAt)
 	if err != nil {
 		t.Fatalf("TryUseLoginHash: %v", err)
 	}
@@ -64,7 +56,7 @@ func TestTryUseLoginHash_ExpiredPruning(t *testing.T) {
 
 	// The entry is now in the table but expired. Next call should prune it
 	// and allow the same hash to be reused.
-	fresh, err = db.TryUseLoginHash(hash, expiresAt)
+	fresh, err = r.TryUseLoginHash(hash, expiresAt)
 	if err != nil {
 		t.Fatalf("TryUseLoginHash after prune: %v", err)
 	}
