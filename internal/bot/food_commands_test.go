@@ -129,6 +129,15 @@ type mockFoodStore struct {
 	err     error
 
 	logs []*store.FoodLog
+
+	nextID    int64
+	deleted   []deletedFoodLog
+	deleteErr map[int64]error
+}
+
+type deletedFoodLog struct {
+	ID     int64
+	UserID int64
 }
 
 func (m *mockFoodStore) GetFoodIntakeEnabled(ctx context.Context) (bool, error) {
@@ -140,7 +149,20 @@ func (m *mockFoodStore) CreateFoodLog(ctx context.Context, f *store.FoodLog) (in
 		return 0, m.err
 	}
 	m.logs = append(m.logs, f)
-	return 1, nil
+	if m.nextID == 0 {
+		return 1, nil
+	}
+	id := m.nextID
+	m.nextID++
+	return id, nil
+}
+
+func (m *mockFoodStore) DeleteFoodLog(ctx context.Context, id, userID int64) error {
+	if err, ok := m.deleteErr[id]; ok {
+		return err
+	}
+	m.deleted = append(m.deleted, deletedFoodLog{ID: id, UserID: userID})
+	return nil
 }
 
 type mockFoodAI struct {

@@ -69,6 +69,7 @@ type WorkoutStore interface {
 type FoodStore interface {
 	GetFoodIntakeEnabled(ctx context.Context) (bool, error)
 	CreateFoodLog(ctx context.Context, f *store.FoodLog) (int64, error)
+	DeleteFoodLog(ctx context.Context, id, userID int64) error
 }
 
 // ImportStore is the subset of store operations needed for sleep/vitals import.
