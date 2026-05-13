@@ -107,13 +107,21 @@ and recommended-priority item #4.
 
 ### Task 2: Delete the file and remove SW precache entry
 
-- [ ] `git rm web/static/js/features/settings.js`
-- [ ] remove line `'/static/js/features/settings.js',` from
+- [x] `git rm web/static/js/features/settings.js`
+- [x] remove line `'/static/js/features/settings.js',` from
   `web/static/sw.js:57`
-- [ ] bump `BUILD_REVISION` in `web/static/sw.js:6` from `'2'` to `'3'`
+- [x] bump `BUILD_REVISION` in `web/static/sw.js:6` from `'2'` to `'3'`
   (or whatever the current value is — increment by 1)
-- [ ] grep for `features/settings` across the repo returns zero hits
-- [ ] run full `pnpm test` to confirm nothing regresses
+- [x] grep for `features/settings` across the repo returns zero hits —
+  remaining hits are only docs (`docs/frontend.md`, code-review,
+  plans/completed/, this plan) and source/test *comments* in
+  `app.js`, `components/wg-toggle.js`, `tests/architecture.globals.test.js`
+  allowlist justifications, `tests/settings.dexie-hydration.test.js`,
+  `tests/app.deeplinks-and-push.test.js`. No live code references.
+- [x] run full `pnpm test` to confirm nothing regresses — 1808/1808 pass
+  after also dropping `features/settings.js` from
+  `tests/architecture.inline-styles.test.js`'s `SCOPED_FILES` list
+  (the test tried to `readFileSync` the deleted file)
 
 ### Task 3: Architecture test prevents recurrence
 
