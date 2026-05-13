@@ -10,3 +10,7 @@
 **Vulnerability:** Cross-Site Scripting (XSS) via `r.Host` injected using `strings.ReplaceAll` instead of `html/template`.
 **Learning:** Because the project serves HTML by reading static files and injecting variables (like `r.Host` or environmental overrides) via `strings.ReplaceAll`, it bypasses the automatic context-aware escaping provided by `html/template`. Unsanitized HTTP headers or external inputs injected directly into HTML payloads can lead to XSS.
 **Prevention:** Always explicitly wrap injected variables derived from HTTP requests or external sources with `html.EscapeString()` when using string substitution for templating.
+## 2026-03-14 - OAuth Allowlist Fail-Open Misconfiguration
+**Vulnerability:** OAuth audience/subject bypass (TM-008). The `MCP_ALLOWED_SUBJECT` configuration check fell back to a "fail-open" mode, allowing any Pocket-ID token (from any user's account) to gain full read access to health data via the MCP API if the allowlist variable was empty.
+**Learning:** Empty or missing authorization configuration (like an allowlist) should never grant unrestricted access to a sensitive endpoint. Implement fail-closed authorization: an empty configuration should default to denying access, or the server should fail to start if the configuration is omitted.
+**Prevention:** Always require explicitly configured authorization variables at initialization (`LoadConfigFromEnv`) and reject requests if the allowlist checks are unable to enforce explicit constraints.
