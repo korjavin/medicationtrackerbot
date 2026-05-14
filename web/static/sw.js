@@ -15,6 +15,7 @@ const STATIC_ASSETS = [
     '/static/css/styles.css',
     // Core modules
     '/static/js/core/utils.js',
+    '/static/js/core/time-format.js',
     '/static/js/core/api.js',
     '/static/js/core/app-kernel.js',
     '/static/js/core/store.js',
@@ -47,10 +48,15 @@ const STATIC_ASSETS = [
     '/static/js/sync.js',
     '/static/js/data-store.js',
     '/static/js/cached-fetch.js',
+    '/static/js/features/tab-controller.js',
     '/static/js/app.js',
     '/static/js/push.js',
     '/static/js/app-shell.js',
     // Features
+    '/static/js/features/weight-unit-state.js',
+    '/static/js/features/auth-bootstrap.js',
+    '/static/js/features/push-modal.js',
+    '/static/js/features/medication-utils.js',
     '/static/js/features/meds.js',
     '/static/js/features/food-photo-summary.js',
     '/static/js/features/food/products.js',

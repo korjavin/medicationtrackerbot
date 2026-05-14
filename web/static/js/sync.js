@@ -68,15 +68,14 @@ const SyncDebug = {
     error(msg, data) { this.log('ERROR', msg, data); },
     warn(msg, data) { this.log('WARN', msg, data); },
 
-    // Robust fallback for escaping HTML entities
+    // Robust fallback for escaping HTML entities. window.escapeHtml is defined
+    // in core/utils.js (loaded before sync.js); the inline branch is the safety
+    // net for any execution path that loads sync.js standalone (tests, tooling).
     _escapeHtml(unsafe) {
         if (!unsafe) return '';
-        // Use global escapeHtml if available, otherwise fallback
-        const escapeFn = window['escapeHtml'];
-        if (typeof escapeFn === 'function') {
-            return escapeFn(unsafe);
+        if (typeof window.escapeHtml === 'function') {
+            return window.escapeHtml(unsafe);
         }
-
         return String(unsafe)
             .replace(/&/g, "&amp;")
             .replace(/</g, "&lt;")
