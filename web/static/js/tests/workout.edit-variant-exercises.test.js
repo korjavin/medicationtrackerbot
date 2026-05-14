@@ -30,7 +30,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const CSS_PATH = path.join(REPO_ROOT, 'web/static/css/styles.css');
-const WORKOUT_JS_PATH = path.join(REPO_ROOT, 'web/static/js/features/workout.js');
+// loadExercisesForVariant now lives in the split-out exercises.js sub-file.
+const WORKOUT_JS_PATH = path.join(REPO_ROOT, 'web/static/js/features/workout/exercises.js');
 
 function exerciseFixture(overrides = {}) {
     return {

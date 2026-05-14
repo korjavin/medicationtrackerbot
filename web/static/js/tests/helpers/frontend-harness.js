@@ -44,7 +44,22 @@ const MODAL_HISTORY_JS = path.join(REPO_ROOT, 'web/static/js/features/modal-hist
 const BACK_BUTTON_JS = path.join(REPO_ROOT, 'web/static/js/features/back-button.js');
 const DEEPLINK_ROUTER_JS = path.join(REPO_ROOT, 'web/static/js/features/deeplink-router.js');
 const HEALTH_JS = path.join(REPO_ROOT, 'web/static/js/features/health.js');
-const WORKOUT_JS = path.join(REPO_ROOT, 'web/static/js/features/workout.js');
+// features/workout.js was split into per-concern sub-files under
+// features/workout/ (2026-05-13). The harness loads them in dependency order:
+// next-card.js first (it provides getRotationSlot/_slotTagModifier shared
+// utils consumed by groups.js / history.js / library.js / sessions.js),
+// followed by domain CRUD files, then sessions/history wiring, and finally
+// index.js (orchestrator) which binds controls + sub-tab routing.
+const WORKOUT_NEXT_CARD_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/next-card.js');
+const WORKOUT_GROUPS_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/groups.js');
+const WORKOUT_VARIANTS_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/variants.js');
+const WORKOUT_EXERCISES_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/exercises.js');
+const WORKOUT_LIBRARY_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/library.js');
+const WORKOUT_HISTORY_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/history.js');
+const WORKOUT_MIBAND_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/miband.js');
+const WORKOUT_SESSIONS_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/sessions.js');
+const WORKOUT_STATS_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/stats.js');
+const WORKOUT_INDEX_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/index.js');
 
 const _sourceCache = new Map();
 function readCached(filePath) {
@@ -221,7 +236,21 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   evalFileCached(window, DEEPLINK_ROUTER_JS);
 
   if (withWorkout) {
-    evalFileCached(window, WORKOUT_JS);
+    // Order matters: next-card.js defines getRotationSlot / _slotTagModifier
+    // consumed by the renderer helpers in groups.js / history.js / library.js
+    // / sessions.js. The orchestrator (index.js) is loaded last because its
+    // `bindWorkoutControls` IIFE attaches click handlers that reference
+    // functions declared in the other sub-files.
+    evalFileCached(window, WORKOUT_NEXT_CARD_JS);
+    evalFileCached(window, WORKOUT_GROUPS_JS);
+    evalFileCached(window, WORKOUT_VARIANTS_JS);
+    evalFileCached(window, WORKOUT_EXERCISES_JS);
+    evalFileCached(window, WORKOUT_LIBRARY_JS);
+    evalFileCached(window, WORKOUT_HISTORY_JS);
+    evalFileCached(window, WORKOUT_MIBAND_JS);
+    evalFileCached(window, WORKOUT_SESSIONS_JS);
+    evalFileCached(window, WORKOUT_STATS_JS);
+    evalFileCached(window, WORKOUT_INDEX_JS);
   }
 
   return {

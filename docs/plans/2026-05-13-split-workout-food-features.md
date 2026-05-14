@@ -112,49 +112,49 @@ app.js!), `currentFoodStatsPeriod`, etc. — 23 total.
 
 ### Task 1: Carve `features/workout.js` into sub-files
 
-- [ ] create `web/static/js/features/workout/` directory; move
+- [x] create `web/static/js/features/workout/` directory; move
   `features/workout.js` → `features/workout/index.js` as a thin
   orchestrator (sub-tab routing only — Sub-tab block above)
-- [ ] extract `features/workout/groups.js` — workout-groups CRUD
+- [x] extract `features/workout/groups.js` — workout-groups CRUD
   (loadWorkoutGroups, showAddWorkoutGroupModal, saveWorkoutGroup,
   deleteWorkoutGroup, closeWorkoutGroupModal); expose as
   `window.WorkoutGroups`
-- [ ] extract `features/workout/variants.js` — variants CRUD; expose
+- [x] extract `features/workout/variants.js` — variants CRUD; expose
   as `window.WorkoutVariants`
-- [ ] extract `features/workout/exercises.js` — exercises-within-variants
+- [x] extract `features/workout/exercises.js` — exercises-within-variants
   CRUD; expose as `window.WorkoutExercises`
-- [ ] extract `features/workout/library.js` — exercise library;
+- [x] extract `features/workout/library.js` — exercise library;
   expose as `window.WorkoutLibrary`
-- [ ] extract `features/workout/sessions.js` — workout sessions
+- [x] extract `features/workout/sessions.js` — workout sessions
   (CRUD, save details, add-exercise-to-session, delete session,
   ad-hoc start, snooze, skip); expose as `window.WorkoutSessions`
-- [ ] extract `features/workout/miband.js` — Mi-Band import flow;
+- [x] extract `features/workout/miband.js` — Mi-Band import flow;
   expose as `window.WorkoutMiBand`
-- [ ] extract `features/workout/stats.js` — stats sub-tab loader;
+- [x] extract `features/workout/stats.js` — stats sub-tab loader;
   expose as `window.WorkoutStats`
-- [ ] extract `features/workout/history.js` — history sub-tab loader
+- [x] extract `features/workout/history.js` — history sub-tab loader
   (`loadWorkoutHistoryTab`); expose as `window.WorkoutHistory`
-- [ ] extract `features/workout/next-card.js` — next-workout card
+- [x] extract `features/workout/next-card.js` — next-workout card
   + ad-hoc affordances; expose as `window.WorkoutNextCard`
-- [ ] **eliminate the 6 "currently editing" globals** by moving each
+- [x] **eliminate the 6 "currently editing" globals** by moving each
   into the closure of the file that owns the editing flow
   (currentEditingGroupId → groups.js; currentEditingVariantId +
   currentGroupForVariant → variants.js; currentEditingExerciseId +
   currentVariantForExercise → exercises.js); use a single
   `window.WorkoutEdit.openSomething(id)` API per concern, mutually
   exclusive at the surface level
-- [ ] update `web/static/index.html` and `web/static/sw.js`
+- [x] update `web/static/index.html` and `web/static/sw.js`
   `STATIC_ASSETS` to load the new files in dependency order
   (orchestrator last)
-- [ ] update `web/static/js/tests/architecture.globals.test.js`
+- [x] update `web/static/js/tests/architecture.globals.test.js`
   allowlist for the new `window.WorkoutX` names
-- [ ] write `web/static/js/tests/features.workout-groups.test.js`,
+- [x] write `web/static/js/tests/features.workout-groups.test.js`,
   `features.workout-variants.test.js`, etc. — one focused test file
   per extracted file, covering at minimum: open-edit, save, close
   flows
-- [ ] verify all existing `workout.*.test.js` tests still pass
+- [x] verify all existing `workout.*.test.js` tests still pass
   unchanged
-- [ ] run `pnpm test workout.` — must pass before next task
+- [x] run `pnpm test workout.` — must pass before next task
 
 ### Task 2: Carve `features/food.js` into sub-files
 
