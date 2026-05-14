@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -354,6 +355,62 @@ func noCacheMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// recoverResponseWriter wraps http.ResponseWriter to track whether any bytes
+// or a status code have already been sent. panicRecover uses this so it does
+// not try to re-write headers when a streaming handler (e.g. SSE) panics
+// after it has begun writing the response body.
+type recoverResponseWriter struct {
+	http.ResponseWriter
+	wroteHeader bool
+}
+
+func (w *recoverResponseWriter) WriteHeader(code int) {
+	w.wroteHeader = true
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *recoverResponseWriter) Write(b []byte) (int, error) {
+	w.wroteHeader = true
+	return w.ResponseWriter.Write(b)
+}
+
+func (w *recoverResponseWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (w *recoverResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
+// panicRecover wraps next so that any panic raised by an HTTP handler (or by
+// inner middleware) is logged with structured context and converted to a 500
+// response if nothing has been written yet. It is intended to be the outermost
+// middleware so it also catches panics inside other middleware.
+func panicRecover(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		wrapped := &recoverResponseWriter{ResponseWriter: w}
+		defer func() {
+			if rec := recover(); rec != nil {
+				if err, ok := rec.(error); ok && errors.Is(err, http.ErrAbortHandler) {
+					panic(rec)
+				}
+				slog.Error("panic recovered",
+					"error", fmt.Sprintf("%v", rec),
+					"method", r.Method,
+					"path", r.URL.Path,
+					"stack", string(debug.Stack()),
+				)
+				if !wrapped.wroteHeader {
+					http.Error(wrapped.ResponseWriter, "internal error", http.StatusInternalServerError)
+				}
+			}
+		}()
+		next.ServeHTTP(wrapped, r)
+	})
+}
+
 // securityHeadersMiddleware adds headers to improve application security
 func securityHeadersMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -580,7 +637,7 @@ func (s *Server) Routes() http.Handler {
 	authMW := AuthMiddleware(s.botToken, s.sessionSecret, s.allowedUserID)
 	mux.Handle("/api/", authMW(apiMux))
 
-	return securityHeadersMiddleware(mux)
+	return panicRecover(securityHeadersMiddleware(mux))
 }
 
 func (s *Server) handleListHistory(w http.ResponseWriter, r *http.Request) {
