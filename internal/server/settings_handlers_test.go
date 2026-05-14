@@ -7,11 +7,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzupdate"
+	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
@@ -985,5 +987,83 @@ func TestTZSuggestionDismiss_InvalidTZ(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for invalid TZ, got %d. Body: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestHandleUpdateSettings_NotifiesOnTimezoneChange is the integration guard for
+// the web-accept-confirms-via-chat flow: when the user changes their timezone
+// through POST /api/settings, the server must fire exactly one informational
+// notification (per configured notifier) carrying the new TZ in the text. The
+// dismiss endpoint must stay silent.
+func TestHandleUpdateSettings_NotifiesOnTimezoneChange(t *testing.T) {
+	srv, db := createBPTestServer(t)
+	defer db.Close()
+
+	if err := db.TZ.RecordTimezone("America/New_York"); err != nil {
+		t.Fatalf("seed RecordTimezone: %v", err)
+	}
+	// Use the default tzUpdater (no planner) — we want to assert the
+	// notification fires whenever the stored TZ changes, regardless of
+	// whether a transition plan was generated. Plan-created text is
+	// covered by behaviour, not asserted here.
+
+	mock := &mockNotifier{}
+	srv.SetNotifiers([]notifier.Notifier{mock})
+
+	body, _ := json.Marshal(map[string]string{"timezone": "Asia/Tokyo"})
+	req := httptest.NewRequest("POST", "/api/settings", bytes.NewReader(body))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+	srv.handleUpdateSettings(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("update: expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	// s.notify dispatches via a goroutine, so wait for the worker to record
+	// the call rather than racing it.
+	var sent []string
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		sent = mock.Sent()
+		if len(sent) >= 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(sent) != 1 {
+		t.Fatalf("expected exactly 1 notification on TZ accept, got %d: %v", len(sent), sent)
+	}
+	if !strings.Contains(sent[0], "Asia/Tokyo") {
+		t.Errorf("expected notification text to mention Asia/Tokyo, got %q", sent[0])
+	}
+
+	// A no-op POST /api/settings with the same TZ must NOT fire another
+	// notification — the tzupdate service short-circuits old==new writes.
+	noopBody, _ := json.Marshal(map[string]string{"timezone": "Asia/Tokyo"})
+	noopReq := httptest.NewRequest("POST", "/api/settings", bytes.NewReader(noopBody))
+	noopReq = withUser(noopReq, 123456)
+	noopW := httptest.NewRecorder()
+	srv.handleUpdateSettings(noopW, noopReq)
+	if noopW.Code != http.StatusOK {
+		t.Fatalf("no-op update: expected 200, got %d", noopW.Code)
+	}
+	// Give any (incorrect) goroutine a moment to land.
+	time.Sleep(50 * time.Millisecond)
+	if got := len(mock.Sent()); got != 1 {
+		t.Errorf("expected no-op TZ write to fire 0 additional notifications, total now %d: %v", got, mock.Sent())
+	}
+
+	// Dismiss path must NOT trigger a notification.
+	dismissBody, _ := json.Marshal(map[string]string{"detected_tz": "Europe/Paris"})
+	dismissReq := httptest.NewRequest("POST", "/api/tz-suggestion/dismiss", bytes.NewReader(dismissBody))
+	dismissReq = withUser(dismissReq, 123456)
+	dismissW := httptest.NewRecorder()
+	srv.handleTZSuggestionDismiss(dismissW, dismissReq)
+	if dismissW.Code != http.StatusOK {
+		t.Fatalf("dismiss: expected 200, got %d. Body: %s", dismissW.Code, dismissW.Body.String())
+	}
+	time.Sleep(50 * time.Millisecond)
+	if got := len(mock.Sent()); got != 1 {
+		t.Errorf("expected dismiss to fire 0 notifications, total now %d: %v", got, mock.Sent())
 	}
 }

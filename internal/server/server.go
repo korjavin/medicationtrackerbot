@@ -365,10 +365,17 @@ func (s *Server) closeNotification(ctx context.Context, tag string) {
 }
 
 // notify sends a notification through all configured notifiers.
+// ErrNoDeliveryChannel is a documented "no recipients right now" sentinel
+// (see notifier.ErrNoDeliveryChannel) and is not logged — that lets best-effort
+// informational notifications (e.g. the web TZ-change confirmation) stay quiet
+// on web-only deployments with no push subscribers.
 func (s *Server) notify(ctx context.Context, n notifier.Notification) {
 	for _, nr := range s.notifiers {
 		go func(nr notifier.Notifier) {
 			if _, err := nr.Send(ctx, s.allowedUserID, n); err != nil {
+				if errors.Is(err, notifier.ErrNoDeliveryChannel) {
+					return
+				}
 				slog.Error("notification send failed", "notifier", nr, "error", err)
 			}
 		}(nr)
