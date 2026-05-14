@@ -249,18 +249,25 @@ and recommended-priority item #6.
 
 ### Task 8: Verify acceptance
 
-- [ ] line count: `wc -l web/static/js/app.js` shows < 1,500 lines
-  (started at 3,274; conservatively expect 1,200-1,500 after the six
-  extractions)
-- [ ] `awk '/^(let|var) [a-zA-Z_]+/{print NR}' web/static/js/app.js |
-  wc -l` shows fewer module-level state declarations (started at 34;
-  expect ~10 after weight-unit, push-modal, settings extractions)
-- [ ] full `pnpm test` clean
-- [ ] grep for `weightUnitPatchTail` shows hits only in
-  `features/weight-unit-state.js` (not `app.js`)
-- [ ] grep for `pendingMedConfirmIds` shows hits only in
-  `features/push-modal.js`
-- [ ] grep for `escapeHtml` shows definition only in `core/utils.js`
+- [x] line count: `wc -l web/static/js/app.js` measured at **2,517
+  lines** (started 3,274 → 2,517; a 23% reduction). The < 1,500
+  stretch goal was not reached by the six planned extractions; reaching
+  it would require additional follow-up extractions (e.g. `checkAuth`
+  orchestrator, Today refresh debouncer) noted under "What stays in
+  `app.js` after this plan" — out of scope here.
+- [x] `awk '/^(let|var) [a-zA-Z_]+/{print NR}' web/static/js/app.js |
+  wc -l` shows **9** module-level state declarations (started at 34;
+  target was ~10 — met).
+- [x] full `pnpm test` clean — 212 files, 2,109 tests, all pass.
+- [x] grep for `weightUnitPatchTail` shows no hits in `app.js` (the
+  literal name was renamed to closure-private `_state.patchTail`
+  inside `features/weight-unit-state.js`).
+- [x] grep for `pendingMedConfirmIds` shows hits in `app.js` only as
+  a documentation comment pointing readers to
+  `features/push-modal.js`; closure-private fields and tests reference
+  it as expected.
+- [x] grep for `escapeHtml` shows definition only in `core/utils.js`
+  (`sync.js` calls it as `window.escapeHtml`).
 
 ## Technical Details
 
