@@ -79,24 +79,24 @@ plan approval" path that the prod incident exposed.
 
 ### Task 1: Expose `GetPendingIntakesForMedication` on the scheduler store interface
 
-- [ ] add `GetPendingIntakesForMedication(medID int64) ([]store.IntakeLog, error)`
+- [x] add `GetPendingIntakesForMedication(medID int64) ([]store.IntakeLog, error)`
       to the `MedicationStore` interface in
       `internal/scheduler/medication.go` (next to the existing
       `GetPendingIntakes`).
-- [ ] confirm the live store adapter at `internal/scheduler/adapter.go`
+- [x] confirm the live store adapter at `internal/scheduler/adapter.go`
       already forwards to `Repo.GetPendingIntakesForMedication`; add the
       pass-through if missing.
-- [ ] update any test stores / mocks that implement `MedicationStore`
+- [x] update any test stores / mocks that implement `MedicationStore`
       (`internal/scheduler/medication_bench_test.go` mocks,
       `internal/scheduler/test_helpers*.go`) to satisfy the new method —
       backing the real repo or returning an empty slice as appropriate.
-- [ ] write/update a tiny test that the adapter forwards correctly (only if
+- [x] write/update a tiny test that the adapter forwards correctly (only if
       adapter pass-through was added in this task).
-- [ ] run `go test ./internal/scheduler/...` — must pass before next task.
+- [x] run `go test ./internal/scheduler/...` — must pass before next task.
 
 ### Task 2: Add near-match plan-step dedup in `MedicationChecker.Check`
 
-- [ ] inside the plan-step branch at
+- [x] inside the plan-step branch at
       `internal/scheduler/medication.go:227-241`, when the exact-match
       `batchMap` lookup misses, perform a per-med fallback:
   1. compute `minInterval` for the med via
@@ -109,7 +109,9 @@ plan approval" path that the prod incident exposed.
      `|scheduled_at - step.ScheduledAt| <= minInterval` AND that has no
      `taken_at` set (status PENDING is enforced by the query, but be explicit
      about non-terminal). Ties: prefer the one already attached to the user
-     (i.e., earliest existing).
+     (i.e., earliest existing). Additionally skip intakes covered by a
+     previously-consumed step (symmetric with medplan's overlap guard) so a
+     later step does not get folded into an earlier consumed step's intake.
   4. if a match is found:
      - call `store.MarkStepConsumed(t.StepID, now)` (same as the existing
        exact-match path).
@@ -120,11 +122,11 @@ plan approval" path that the prod incident exposed.
      - `continue` (do NOT add to `groups`, do NOT create a new intake).
   5. if no match is found, fall through to the existing create-new-intake
      path unchanged.
-- [ ] keep `planMedTriggered[med.ID] = true` semantics intact — the merge
+- [x] keep `planMedTriggered[med.ID] = true` semantics intact — the merge
       counts as "one plan step handled for this med this tick".
-- [ ] keep behaviour identical for the SourceNormalSchedule branch (line 253)
+- [x] keep behaviour identical for the SourceNormalSchedule branch (line 253)
       — the bug is plan-step-specific.
-- [ ] write tests in `internal/scheduler/medication_tz_test.go`:
+- [x] write tests in `internal/scheduler/medication_tz_test.go`:
   - **subtest A — "approved plan: past step merges into pre-existing normal
     intake"**: seed a med with daily schedule, create a pending intake at
     `02:30 UTC`, create an APPROVED plan with a step at `02:28:24 UTC` for the
@@ -132,52 +134,66 @@ plan approval" path that the prod incident exposed.
     `intake_log` row for this med remains, the plan step is consumed (no
     pending steps left), and no new intake was created at `02:28:24`.
   - **subtest B — "approved plan: step outside minInterval still creates new
-    intake"**: same setup but the step is 12h away from the pending normal
-    intake. Assert: a second intake IS created (current behaviour preserved).
+    intake"**: same setup but the step is 18h away from the pending normal
+    intake (clearly outside flexible/medium/strict minIntervals for a daily
+    med). Assert: a second intake IS created (current behaviour preserved).
   - **subtest C — "approved plan: near-match merge respects per-med
     minInterval policy"**: parameterise tz_shift_policy (`flexible`,
-    `medium`, `strict`) and pick a step delta that is inside `medium`'s
-    minInterval but outside `flexible`'s. Assert that the medium-policy med
-    merges and the flexible-policy med (different med, same scenario) creates
-    a new intake.
-- [ ] run `go test ./internal/scheduler/...` — all subtests must pass before
+    `medium`) and pick a step delta (15h) that is inside `medium`'s
+    minInterval (15.6h) but outside `flexible`'s (14.4h). Assert that the
+    medium-policy med merges and the flexible-policy med (different med,
+    same scenario) creates a new intake.
+- [x] run `go test ./internal/scheduler/...` — all subtests must pass before
       next task.
 
 ### Task 3: Forecast parity check (medplan)
 
-- [ ] sanity-read `internal/domain/medplan/medplan.go:77-167` (`PlanDoses`) to
+- [x] sanity-read `internal/domain/medplan/medplan.go:77-167` (`PlanDoses`) to
       confirm the forecast path does NOT need the same change. Rationale:
       `PlanDoses` is pure and does not create intakes; forecast consumers
       either render plan-step targets or normal targets but never both for the
       same med in a single window (the `pendingByMed[med.ID]` branch at line
       93 already short-circuits the normal branch).
-- [ ] if a documented invariant is missing, add a 1-2-line comment near
+- [x] if a documented invariant is missing, add a 1-2-line comment near
       `pendingByMed[med.ID]` clarifying that the *materialisation*
       deduplication lives in the scheduler — pointer to
       `medication.go:227-241` and this plan.
-- [ ] no test required if no behaviour change; if a comment is added, that's
+- [x] no test required if no behaviour change; if a comment is added, that's
       sufficient.
-- [ ] run `go test ./internal/domain/medplan/...` — must pass.
+- [x] run `go test ./internal/domain/medplan/...` — must pass.
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] verify the prod scenario from the debug session is covered by subtest A
+- [x] verify the prod scenario from the debug session is covered by subtest A
       (Candecor, daily 21:30, anchor drift of 96 seconds, plan medium policy,
-      eastbound shift).
-- [ ] run full unit test suite: `go test ./...`.
-- [ ] run linter: `go vet ./...` and `gofmt -l .` — fix anything flagged.
-- [ ] confirm no new `slog.Warn`/`Error` logs were introduced in normal
-      operation by skimming test logs.
-- [ ] confirm the plan-step `intake_reminders` table behaviour is unchanged
-      (we never created the duplicate intake, so the reminder loop never sees
-      it).
+      eastbound shift). Confirmed at
+      `internal/scheduler/medication_tz_test.go:548-636` — Candecor 16mg daily
+      02:30, medium policy, Chicago→Berlin, step at 02:28:24 vs intake at
+      02:30:00 (96-second drift); asserts one intake row survives, step
+      consumed, no row at the step time.
+- [x] run full unit test suite: `go test ./...` — all packages OK.
+- [x] run linter: `go vet ./...` (clean) and `gofmt -l .` (13 entries; all
+      pre-existing on master, none introduced by this branch — verified via
+      master-checkout comparison; the only branch-touched file is
+      `internal/scheduler/adapter.go` and gofmt's complaint there is in the
+      unrelated workout one-liner block).
+- [x] confirm no new `slog.Warn`/`Error` logs were introduced in normal
+      operation by skimming test logs — only the deliberate INFO line
+      "medication scheduler: plan step consumed against pre-existing
+      near-match intake" appears on the merge path.
+- [x] confirm the plan-step `intake_reminders` table behaviour is unchanged —
+      the near-match branch at `internal/scheduler/medication.go:312-327`
+      `continue`s before the `CreateIntake` block at line 363, so no new
+      `intake_log` row and therefore no new `intake_reminders` row is
+      written. The pre-existing intake's existing reminder thread continues
+      unchanged.
 
 ### Task 5: [Final] Update documentation
 
-- [ ] add a short note to `docs/architecture.md` (or wherever tz-transition
+- [x] add a short note to `docs/architecture.md` (or wherever tz-transition
       semantics are documented) about the near-match dedup, since this is a
       subtle invariant future readers will want to find.
-- [ ] no README update needed.
+- [x] no README update needed.
 
 ## Technical Details
 

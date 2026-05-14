@@ -544,6 +544,283 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 			t.Errorf("expected 0 pending intakes (consumed-step guard suppresses both today targets), got %d", len(pending))
 		}
 	})
+
+	t.Run("approved plan: past step merges into pre-existing normal intake", func(t *testing.T) {
+		// Reproduces the 2026-05-14 prod incident: an approved plan emitted a
+		// step at 02:28:24 UTC for Candecor (daily 02:30) while a normal-
+		// schedule PENDING intake already lived at 02:30:00 UTC. The exact-
+		// match batchMap lookup missed the 96-second offset and the scheduler
+		// created a second intake. The near-match dedup must consume the step
+		// against the existing intake without creating a duplicate.
+		db := mustNewDB(t)
+		db.Settings.SetMedicationEnabled(context.Background(), true) //nolint:errcheck
+		if err := db.TZ.RecordTimezone("UTC"); err != nil {
+			t.Fatalf("RecordTimezone: %v", err)
+		}
+
+		medID, err := db.Medication.CreateMedication("Candecor", "16mg",
+			`{"type":"daily","times":["02:30"]}`, nil, nil, "", "", "medium")
+		if err != nil {
+			t.Fatalf("CreateMedication: %v", err)
+		}
+		nowTime := time.Date(2026, 5, 14, 5, 27, 0, 0, time.UTC)
+		if err := db.Medication.UpdateMedicationCreatedAt(medID, nowTime.Add(-30*24*time.Hour)); err != nil {
+			t.Fatalf("UpdateMedicationCreatedAt: %v", err)
+		}
+
+		// Pre-existing PENDING intake at 02:30:00 UTC today (a previous tick
+		// materialised it from the normal schedule before the plan was approved).
+		normalSlot := time.Date(2026, 5, 14, 2, 30, 0, 0, time.UTC)
+		existingID, err := db.Medication.CreateIntake(medID, 123456, normalSlot)
+		if err != nil {
+			t.Fatalf("CreateIntake (pre-existing): %v", err)
+		}
+
+		// Approved plan with a step at 02:28:24 UTC — 96 seconds before the
+		// existing intake, well inside minInterval (medium daily = 15.6h).
+		planID, err := db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
+			OldTZ:      "America/Chicago",
+			NewTZ:      "Europe/Berlin",
+			Status:     "APPROVED",
+			StepsJSON:  "[]",
+			InputsJSON: "{}",
+			PlanHash:   "testhash-near-match-A",
+		})
+		if err != nil {
+			t.Fatalf("CreateTZTransitionPlan: %v", err)
+		}
+		if _, err := db.TZ.SetTZTransitionPlanApproved(planID, nowTime.Add(-10*time.Minute)); err != nil {
+			t.Fatalf("SetTZTransitionPlanApproved: %v", err)
+		}
+		stepTime := time.Date(2026, 5, 14, 2, 28, 24, 0, time.UTC)
+		if err := db.TZ.CreateTZTransitionSteps([]store.TZTransitionStep{
+			{PlanID: planID, MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "step 1"},
+		}); err != nil {
+			t.Fatalf("CreateTZTransitionSteps: %v", err)
+		}
+
+		mock := &MockNotifier{}
+		sched := New(db, 123456, []notifier.Notifier{mock})
+		sched.MedicationChecker.now = func() time.Time { return nowTime }
+
+		if err := sched.MedicationChecker.Check(context.Background()); err != nil {
+			t.Fatalf("Check: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+
+		// Exactly one intake_log row for this med — the original 02:30 one.
+		hist, err := db.Medication.GetIntakeHistory(int(medID), 0)
+		if err != nil {
+			t.Fatalf("GetIntakeHistory: %v", err)
+		}
+		if len(hist) != 1 {
+			for _, h := range hist {
+				t.Logf("intake row: id=%d scheduled=%v status=%s", h.ID, h.ScheduledAt, h.Status)
+			}
+			t.Errorf("expected 1 intake_log row after near-match merge, got %d", len(hist))
+		}
+		if len(hist) > 0 && hist[0].ID != existingID {
+			t.Errorf("expected surviving intake to be the pre-existing one (id=%d), got id=%d", existingID, hist[0].ID)
+		}
+
+		// Step consumed — no pending steps left on the plan.
+		remaining, _ := db.TZ.GetPendingStepsForPlan(planID)
+		if len(remaining) != 0 {
+			t.Errorf("expected 0 remaining steps after near-match merge, got %d", len(remaining))
+		}
+
+		// No intake at the step's exact 02:28:24 UTC time.
+		if got, _ := db.Medication.GetIntakeBySchedule(medID, stepTime); got != nil {
+			t.Errorf("unexpected new intake at step time %v: %+v", stepTime, got)
+		}
+	})
+
+	t.Run("approved plan: step outside minInterval still creates new intake", func(t *testing.T) {
+		// Same setup as subtest A but the step is 18h after the pre-existing
+		// PENDING intake — well outside flexible minInterval (14.4h for daily).
+		// The fallback must NOT merge; the step must materialise its own
+		// intake at the step time.
+		db := mustNewDB(t)
+		db.Settings.SetMedicationEnabled(context.Background(), true) //nolint:errcheck
+		if err := db.TZ.RecordTimezone("UTC"); err != nil {
+			t.Fatalf("RecordTimezone: %v", err)
+		}
+
+		medID, err := db.Medication.CreateMedication("Candecor", "16mg",
+			`{"type":"daily","times":["02:30"]}`, nil, nil, "", "", "")
+		if err != nil {
+			t.Fatalf("CreateMedication: %v", err)
+		}
+		nowTime := time.Date(2026, 5, 14, 21, 0, 0, 0, time.UTC)
+		if err := db.Medication.UpdateMedicationCreatedAt(medID, nowTime.Add(-30*24*time.Hour)); err != nil {
+			t.Fatalf("UpdateMedicationCreatedAt: %v", err)
+		}
+
+		normalSlot := time.Date(2026, 5, 14, 2, 30, 0, 0, time.UTC)
+		if _, err := db.Medication.CreateIntake(medID, 123456, normalSlot); err != nil {
+			t.Fatalf("CreateIntake (pre-existing): %v", err)
+		}
+
+		planID, err := db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
+			OldTZ:      "America/Chicago",
+			NewTZ:      "Europe/Berlin",
+			Status:     "APPROVED",
+			StepsJSON:  "[]",
+			InputsJSON: "{}",
+			PlanHash:   "testhash-near-match-B",
+		})
+		if err != nil {
+			t.Fatalf("CreateTZTransitionPlan: %v", err)
+		}
+		if _, err := db.TZ.SetTZTransitionPlanApproved(planID, nowTime.Add(-10*time.Minute)); err != nil {
+			t.Fatalf("SetTZTransitionPlanApproved: %v", err)
+		}
+		stepTime := time.Date(2026, 5, 14, 20, 30, 0, 0, time.UTC) // 18h after 02:30
+		if err := db.TZ.CreateTZTransitionSteps([]store.TZTransitionStep{
+			{PlanID: planID, MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "step 1"},
+		}); err != nil {
+			t.Fatalf("CreateTZTransitionSteps: %v", err)
+		}
+
+		mock := &MockNotifier{}
+		sched := New(db, 123456, []notifier.Notifier{mock})
+		sched.MedicationChecker.now = func() time.Time { return nowTime }
+
+		if err := sched.MedicationChecker.Check(context.Background()); err != nil {
+			t.Fatalf("Check: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+
+		// Two intakes: the pre-existing 02:30 plus the new step at 20:30.
+		hist, err := db.Medication.GetIntakeHistory(int(medID), 0)
+		if err != nil {
+			t.Fatalf("GetIntakeHistory: %v", err)
+		}
+		if len(hist) != 2 {
+			for _, h := range hist {
+				t.Logf("intake row: id=%d scheduled=%v status=%s", h.ID, h.ScheduledAt, h.Status)
+			}
+			t.Fatalf("expected 2 intake_log rows (step delta outside minInterval), got %d", len(hist))
+		}
+
+		// The step intake must exist at the step time.
+		if got, _ := db.Medication.GetIntakeBySchedule(medID, stepTime); got == nil {
+			t.Errorf("expected new intake at step time %v, got none", stepTime)
+		}
+
+		// Step still consumed.
+		remaining, _ := db.TZ.GetPendingStepsForPlan(planID)
+		if len(remaining) != 0 {
+			t.Errorf("expected 0 remaining steps, got %d", len(remaining))
+		}
+	})
+
+	t.Run("approved plan: near-match merge respects per-med minInterval policy", func(t *testing.T) {
+		// Step delta = 15h. For a daily med:
+		//   flexible minInterval = 24h * 0.60 = 14.4h → 15h is OUTSIDE → new intake.
+		//   medium   minInterval = 24h * 0.65 = 15.6h → 15h is INSIDE  → merge.
+		// Two meds with identical schedules but different policies exercise both
+		// branches in one tick.
+		db := mustNewDB(t)
+		db.Settings.SetMedicationEnabled(context.Background(), true) //nolint:errcheck
+		if err := db.TZ.RecordTimezone("UTC"); err != nil {
+			t.Fatalf("RecordTimezone: %v", err)
+		}
+
+		flexID, err := db.Medication.CreateMedication("Flex-Med", "10mg",
+			`{"type":"daily","times":["02:30"]}`, nil, nil, "", "", "flexible")
+		if err != nil {
+			t.Fatalf("CreateMedication (flexible): %v", err)
+		}
+		medID, err := db.Medication.CreateMedication("Med-Med", "10mg",
+			`{"type":"daily","times":["02:30"]}`, nil, nil, "", "", "medium")
+		if err != nil {
+			t.Fatalf("CreateMedication (medium): %v", err)
+		}
+		nowTime := time.Date(2026, 5, 14, 18, 0, 0, 0, time.UTC)
+		if err := db.Medication.UpdateMedicationCreatedAt(flexID, nowTime.Add(-30*24*time.Hour)); err != nil {
+			t.Fatalf("UpdateMedicationCreatedAt (flex): %v", err)
+		}
+		if err := db.Medication.UpdateMedicationCreatedAt(medID, nowTime.Add(-30*24*time.Hour)); err != nil {
+			t.Fatalf("UpdateMedicationCreatedAt (med): %v", err)
+		}
+
+		normalSlot := time.Date(2026, 5, 14, 2, 30, 0, 0, time.UTC)
+		flexExistingID, err := db.Medication.CreateIntake(flexID, 123456, normalSlot)
+		if err != nil {
+			t.Fatalf("CreateIntake (flex pre-existing): %v", err)
+		}
+		medExistingID, err := db.Medication.CreateIntake(medID, 123456, normalSlot)
+		if err != nil {
+			t.Fatalf("CreateIntake (med pre-existing): %v", err)
+		}
+
+		planID, err := db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
+			OldTZ:      "America/Chicago",
+			NewTZ:      "Europe/Berlin",
+			Status:     "APPROVED",
+			StepsJSON:  "[]",
+			InputsJSON: "{}",
+			PlanHash:   "testhash-near-match-C",
+		})
+		if err != nil {
+			t.Fatalf("CreateTZTransitionPlan: %v", err)
+		}
+		if _, err := db.TZ.SetTZTransitionPlanApproved(planID, nowTime.Add(-10*time.Minute)); err != nil {
+			t.Fatalf("SetTZTransitionPlanApproved: %v", err)
+		}
+		stepTime := time.Date(2026, 5, 14, 17, 30, 0, 0, time.UTC) // 15h after 02:30
+		if err := db.TZ.CreateTZTransitionSteps([]store.TZTransitionStep{
+			{PlanID: planID, MedicationID: flexID, StepNumber: 1, ScheduledAt: stepTime, Note: "flex"},
+			{PlanID: planID, MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "med"},
+		}); err != nil {
+			t.Fatalf("CreateTZTransitionSteps: %v", err)
+		}
+
+		mock := &MockNotifier{}
+		sched := New(db, 123456, []notifier.Notifier{mock})
+		sched.MedicationChecker.now = func() time.Time { return nowTime }
+
+		if err := sched.MedicationChecker.Check(context.Background()); err != nil {
+			t.Fatalf("Check: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+
+		// Flexible med: 15h > 14.4h → new intake created at stepTime.
+		flexHist, _ := db.Medication.GetIntakeHistory(int(flexID), 0)
+		if len(flexHist) != 2 {
+			for _, h := range flexHist {
+				t.Logf("flex intake: id=%d scheduled=%v status=%s", h.ID, h.ScheduledAt, h.Status)
+			}
+			t.Errorf("flexible: expected 2 intake_log rows (step outside minInterval), got %d", len(flexHist))
+		}
+		if got, _ := db.Medication.GetIntakeBySchedule(flexID, stepTime); got == nil {
+			t.Errorf("flexible: expected new intake at step time %v, got none", stepTime)
+		}
+
+		// Medium med: 15h < 15.6h → merge, only the original intake.
+		medHist, _ := db.Medication.GetIntakeHistory(int(medID), 0)
+		if len(medHist) != 1 {
+			for _, h := range medHist {
+				t.Logf("med intake: id=%d scheduled=%v status=%s", h.ID, h.ScheduledAt, h.Status)
+			}
+			t.Errorf("medium: expected 1 intake_log row (near-match merged step), got %d", len(medHist))
+		}
+		if len(medHist) > 0 && medHist[0].ID != medExistingID {
+			t.Errorf("medium: expected surviving intake to be the pre-existing id=%d, got id=%d", medExistingID, medHist[0].ID)
+		}
+		if got, _ := db.Medication.GetIntakeBySchedule(medID, stepTime); got != nil {
+			t.Errorf("medium: unexpected new intake at step time %v: %+v", stepTime, got)
+		}
+
+		// Both steps consumed regardless of merge/create path.
+		remaining, _ := db.TZ.GetPendingStepsForPlan(planID)
+		if len(remaining) != 0 {
+			t.Errorf("expected 0 remaining steps, got %d", len(remaining))
+		}
+
+		_ = flexExistingID // referenced only via flexHist length / GetIntakeBySchedule
+	})
 }
 
 // TestMedicationCheckerCompletedPlanOverlapGuard pins the regression behind
@@ -727,6 +1004,34 @@ func TestScheduler_NoDuplicateIntakeAfterTZNameChangeSameOffset(t *testing.T) {
 	}
 	if len(hist) > 0 && hist[0].Status != "TAKEN" {
 		t.Errorf("expected the surviving intake to be TAKEN, got %q", hist[0].Status)
+	}
+}
+
+// TestStoreAdapter_GetPendingIntakesForMedication confirms the scheduler's
+// store adapter forwards the per-med pending lookup to the underlying
+// medication repo. Used by the plan-step near-match dedup in
+// MedicationChecker.Check (see plan 2026-05-14-tz-plan-step-dedupe-near-match).
+func TestStoreAdapter_GetPendingIntakesForMedication(t *testing.T) {
+	db := mustNewDB(t)
+	medID, err := db.Medication.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	if err != nil {
+		t.Fatalf("CreateMedication: %v", err)
+	}
+	if _, err := db.Medication.CreateIntake(medID, 1, time.Date(2026, 5, 14, 9, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("CreateIntake: %v", err)
+	}
+
+	adapter := newStoreAdapter(db)
+	var ms MedicationStore = adapter
+	got, err := ms.GetPendingIntakesForMedication(medID)
+	if err != nil {
+		t.Fatalf("adapter.GetPendingIntakesForMedication: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 pending intake via adapter, got %d", len(got))
+	}
+	if got[0].MedicationID != medID {
+		t.Errorf("expected medication ID %d, got %d", medID, got[0].MedicationID)
 	}
 }
 

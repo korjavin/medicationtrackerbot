@@ -63,6 +63,9 @@ func (a *storeAdapter) AddIntakeReminder(intakeID int64, msgID int) error {
 func (a *storeAdapter) GetPendingIntakes() ([]store.IntakeLog, error) {
 	return a.med.GetPendingIntakes()
 }
+func (a *storeAdapter) GetPendingIntakesForMedication(medID int64) ([]store.IntakeLog, error) {
+	return a.med.GetPendingIntakesForMedication(medID)
+}
 func (a *storeAdapter) GetMedication(id int64) (*store.Medication, error) {
 	return a.med.GetMedication(id)
 }
