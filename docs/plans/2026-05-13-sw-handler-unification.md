@@ -200,17 +200,20 @@ and recommended-priority item #1.
 
 ### Task 5: Bump SW revision and verify acceptance
 
-- [ ] bump `BUILD_REVISION` in `web/static/sw.js:6` from `'2'` to `'3'`
+- [x] bump `BUILD_REVISION` in `web/static/sw.js:6` from `'2'` to `'3'`
   so existing clients pick up the new SW
-- [ ] grep for `await fetch(` inside `web/static/sw.js` returns zero
+- [x] grep for `await fetch(` inside `web/static/sw.js` returns zero
   hits (proves all handlers route through `swApiCall`); the only
   remaining `fetch(` should be inside `sw-api-helper.js`
-- [ ] grep for `console.error` inside `web/static/sw.js` returns zero
-  hits in the handler bodies (proves failures are queued, not dropped)
-- [ ] run full `pnpm test` clean
-- [ ] run `go test ./...` clean (defensive — sw changes don't touch Go,
+- [x] grep for `console.error` inside `web/static/sw.js` returns zero
+  hits in the handler bodies (proves failures are queued, not dropped) —
+  one remaining hit at sw.js:100 is in the install/cache step, not a
+  handler body
+- [x] run full `pnpm test` clean (1891 tests passed, used vitest directly
+  since pnpm not installed locally)
+- [x] run `go test ./...` clean (defensive — sw changes don't touch Go,
   but architecture tests sometimes cross-validate)
-- [ ] verify `architecture.sw-precache.test.js` still passes
+- [x] verify `architecture.sw-precache.test.js` still passes
 
 ## Technical Details
 
