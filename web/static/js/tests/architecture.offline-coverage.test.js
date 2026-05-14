@@ -79,6 +79,10 @@ const ALLOWLIST = [
         file: 'weight-unit-state.js',
         reason: 'kg/lb preference state machine; the only network call is the Settings PATCH /api/settings/weight-unit (write, not a section-landing read), and the module short-circuits to a silent no-op when SyncManager.isOnline === false',
     },
+    {
+        file: 'push-modal.js',
+        reason: 'closure-private state coordinator for the medication-confirm + workout-start push modals; getters/setters only, no API reads',
+    },
     // ---- Workout split sub-files (orchestrator + mutation-only / nested-form readers) ----
     {
         file: 'workout/index.js',

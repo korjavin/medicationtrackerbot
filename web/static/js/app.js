@@ -2319,11 +2319,11 @@ function handlePushAction(action, params) {
     }
 }
 
-var pendingMedConfirmIds = [];
-var pendingMedConfirmScheduled = null;
-var pendingWorkoutSessionId = null;
-var pendingMedConfirmMode = 'confirm'; // 'confirm' or 'edit'
-var pendingMedConfirmIntakeIds = []; // For edit mode
+// pendingMedConfirmIds / pendingMedConfirmScheduled / pendingWorkoutSessionId
+// / pendingMedConfirmMode / pendingMedConfirmIntakeIds live in
+// features/push-modal.js as closure-private fields on window.PushModalState
+// (Plan 2026-05-13, Task 4). The "at most one push modal open at a time"
+// invariant is enforced by the openMedConfirm / openWorkoutStart API.
 
 // showMedicationConfirmModal() moved to features/meds.js (Phase 5 Task 1)
 
@@ -2334,15 +2334,17 @@ function closeMedicationConfirmModal() {
 async function confirmSelectedMedications() {
     const checks = document.querySelectorAll('.med-confirm-check:checked');
     const selectedIndices = Array.from(checks).map(c => parseInt(c.value, 10));
-    const selectedIds = selectedIndices.map(idx => Number(pendingMedConfirmIds[idx]));
+    const ids = window.PushModalState.getMedConfirmIds();
+    const intakeIds = window.PushModalState.getMedConfirmIntakeIds();
+    const selectedIds = selectedIndices.map(idx => Number(ids[idx]));
     const selectedIntakeIds = selectedIndices
-        .map(idx => pendingMedConfirmIntakeIds[idx])
+        .map(idx => intakeIds[idx])
         .filter(id => id != null);
 
     const btn = document.getElementById('med-confirm-action-btn');
     await withSubmit(btn, async () => {
         const body = {
-            scheduled_at: pendingMedConfirmScheduled,
+            scheduled_at: window.PushModalState.getMedConfirmScheduled(),
             medication_ids: selectedIds
         };
         if (selectedIntakeIds.length > 0) {
@@ -2371,16 +2373,19 @@ async function skipSelectedMedications() {
     const btn = document.getElementById('med-confirm-skip-btn');
     await withSubmit(btn, async () => {
         let hasErrors = false;
+        const ids = window.PushModalState.getMedConfirmIds();
+        const intakeIds = window.PushModalState.getMedConfirmIntakeIds();
+        const scheduled = window.PushModalState.getMedConfirmScheduled();
         for (const idx of selectedIndices) {
-            const medId = Number(pendingMedConfirmIds[idx]);
-            let intakeId = pendingMedConfirmIntakeIds[idx];
+            const medId = Number(ids[idx]);
+            let intakeId = intakeIds[idx];
 
             if (!intakeId) {
                 // If opened from a push notification where intakeIds weren't passed directly,
                 // fetch pending intakes for the scheduled time to find the correct intake ID
                 const pendingLogs = await apiCall(`/api/history?days=1`);
                 if (pendingLogs && pendingLogs.length > 0) {
-                    const scheduledTime = new Date(pendingMedConfirmScheduled).getTime();
+                    const scheduledTime = new Date(scheduled).getTime();
                     const log = pendingLogs.find(l =>
                         l.medication_id === medId &&
                         l.status === 'PENDING' &&
@@ -2430,12 +2435,13 @@ async function updateIntakeHistory() {
     const takenAt = new Date(timeInput.value).toISOString();
 
     const updates = [];
+    const intakeIds = window.PushModalState.getMedConfirmIntakeIds();
 
     // For selected items (TAKEN)
     selectedIndices.forEach(idx => {
-        if (pendingMedConfirmIntakeIds[idx]) {
+        if (intakeIds[idx]) {
             updates.push({
-                id: pendingMedConfirmIntakeIds[idx],
+                id: intakeIds[idx],
                 status: 'TAKEN',
                 taken_at: takenAt
             });
@@ -2444,9 +2450,9 @@ async function updateIntakeHistory() {
 
     // For unselected items (PENDING - Reverting)
     unselectedIndices.forEach(idx => {
-        if (pendingMedConfirmIntakeIds[idx]) {
+        if (intakeIds[idx]) {
             updates.push({
-                id: pendingMedConfirmIntakeIds[idx],
+                id: intakeIds[idx],
                 status: 'PENDING',
                 taken_at: '' // Backend handles null/empty
             });
@@ -2474,7 +2480,7 @@ async function confirmLogPast() {
     const takenAt = new Date(timeInput.value).toISOString();
 
     // In log_past mode, we only support one med at a time for simplicity in this UI
-    const medId = pendingMedConfirmIds[0];
+    const medId = window.PushModalState.getMedConfirmIds()[0];
 
     const btn = document.getElementById('med-confirm-action-btn');
     await withSubmit(btn, async () => {
@@ -2525,7 +2531,7 @@ function snoozeMedicationConfirm() {
 }
 
 function showWorkoutStartModal(sessionId) {
-    pendingWorkoutSessionId = sessionId;
+    window.PushModalState.openWorkoutStart({ sessionId });
     window.ModalManager.workoutStart.open();
 }
 
@@ -2539,10 +2545,11 @@ function startWorkoutFromModal() {
 }
 
 async function snoozeWorkout(minutes) {
-    if (!pendingWorkoutSessionId) return;
+    const sessionId = window.PushModalState.getWorkoutSessionId();
+    if (!sessionId) return;
     const btn = document.getElementById(`workout-start-snooze-${minutes}-btn`);
     await withSubmit(btn, async () => {
-        const res = await apiCall(`/api/workout/sessions/${pendingWorkoutSessionId}/snooze`, 'POST', { minutes: minutes });
+        const res = await apiCall(`/api/workout/sessions/${sessionId}/snooze`, 'POST', { minutes: minutes });
         if (res) {
             if (typeof invalidateWorkoutCache === 'function') {
                 await invalidateWorkoutCache();
@@ -2556,11 +2563,12 @@ async function snoozeWorkout(minutes) {
 }
 
 async function skipWorkout() {
-    if (!pendingWorkoutSessionId) return;
+    const sessionId = window.PushModalState.getWorkoutSessionId();
+    if (!sessionId) return;
     await safeConfirm("Are you sure you want to skip this workout?", async (ok) => {
         if (!ok) return;
 
-        const res = await apiCall(`/api/workout/sessions/${pendingWorkoutSessionId}/skip`, 'POST');
+        const res = await apiCall(`/api/workout/sessions/${sessionId}/skip`, 'POST');
         if (res) {
             if (typeof invalidateWorkoutCache === 'function') {
                 await invalidateWorkoutCache();

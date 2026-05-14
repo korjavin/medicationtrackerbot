@@ -38,6 +38,7 @@ const DATA_STORE_JS = path.join(REPO_ROOT, 'web/static/js/data-store.js');
 const APP_JS = path.join(REPO_ROOT, 'web/static/js/app.js');
 const WEIGHT_UNIT_STATE_JS = path.join(REPO_ROOT, 'web/static/js/features/weight-unit-state.js');
 const AUTH_BOOTSTRAP_JS = path.join(REPO_ROOT, 'web/static/js/features/auth-bootstrap.js');
+const PUSH_MODAL_JS = path.join(REPO_ROOT, 'web/static/js/features/push-modal.js');
 const MEDS_JS = path.join(REPO_ROOT, 'web/static/js/features/meds.js');
 const FOOD_PHOTO_SUMMARY_JS = path.join(REPO_ROOT, 'web/static/js/features/food-photo-summary.js');
 // features/food.js was split into per-concern sub-files under
@@ -247,6 +248,12 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   // WeightUnitState.applyAuthoritative; before feature modules that read
   // window.featureSettings at load time (e.g. tests asserting it's defined).
   evalFileCached(window, AUTH_BOOTSTRAP_JS);
+
+  // push-modal.js owns the medication-confirm + workout-start coordination
+  // state (Plan 2026-05-13, Task 4). Loaded before meds.js because
+  // showMedicationConfirmModal in features/meds.js calls
+  // PushModalState.openMedConfirm to write the modal's pending state.
+  evalFileCached(window, PUSH_MODAL_JS);
 
   // Feature modules extracted from app.js (meds, food, bp, weight, health).
   evalFileCached(window, MEDS_JS);

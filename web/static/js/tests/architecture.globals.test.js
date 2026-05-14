@@ -120,6 +120,9 @@ const ALLOWED_GLOBALS = new Set([
     'window.cacheApiSnapshot',              // features/auth-bootstrap.js — backwards-compat shim consumed by cached-fetch.js (looks it up at call time) so the bootstrap-cache plumbing keeps working after the extraction.
     'window.normalizeSettingsBundle',       // features/auth-bootstrap.js — backwards-compat shim consumed by tests (app.unit.test.js asserts shape) and loadSettings() in app.js.
 
+    // Push-modal coordination — extracted from app.js (Plan 2026-05-13, Task 4).
+    'window.PushModalState',                // features/push-modal.js — collapses the five module-level vars (pendingMedConfirmIds, pendingMedConfirmScheduled, pendingWorkoutSessionId, pendingMedConfirmMode, pendingMedConfirmIntakeIds) into closure-private fields behind openMedConfirm({ids, scheduled, mode, intakeIds}), openWorkoutStart({sessionId}), clear, and getters. Opening one modal clears the other so a stale snooze/skip click after switching cannot fire against the previous modal's data.
+
     // Workout split (2026-05-13: features/workout.js → features/workout/*.js).
     // Each split file exposes a single public-API namespace on window; the
     // shared editing-form state for the legacy 6 "currently editing" globals

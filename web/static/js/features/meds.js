@@ -1152,10 +1152,12 @@ async function deleteMed(id) {
 }
 
 function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', intakeIds = []) {
-    pendingMedConfirmIds = ids;
-    pendingMedConfirmScheduled = scheduledAt;
-    pendingMedConfirmMode = mode;
-    pendingMedConfirmIntakeIds = intakeIds;
+    window.PushModalState.openMedConfirm({
+        ids,
+        scheduled: scheduledAt,
+        mode,
+        intakeIds,
+    });
 
     window.ModalManager.medConfirm.open();
 
