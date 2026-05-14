@@ -54,6 +54,41 @@ function installApiCacheMap(window, initialCache = {}) {
     return map;
 }
 
+function forceDetectedTimezone(window, detectedTz) {
+    const originalDTF = window.Intl.DateTimeFormat;
+    window.Intl.DateTimeFormat = function DateTimeFormat(...args) {
+        const inst = new originalDTF(...args);
+        const orig = inst.resolvedOptions.bind(inst);
+        inst.resolvedOptions = () => ({ ...orig(), timeZone: detectedTz });
+        return inst;
+    };
+}
+
+function stubBootstrapFetch(window) {
+    vi.spyOn(window, 'fetch').mockImplementation(async (url) => {
+        if (url === '/api/bootstrap') return createMockResponse({ json: {} });
+        if (url === '/auth/status') return createMockResponse({ json: { authenticated: true } });
+        return createMockResponse({ json: {} });
+    });
+}
+
+function stubBootstrapGlobals(window) {
+    window.switchTab = vi.fn();
+    window.checkAuth = vi.fn().mockResolvedValue(true);
+    window.initOIDCSetupBanner = vi.fn();
+    window.handleDeepLinks = vi.fn();
+}
+
+async function waitForModal(document, { timeoutMs = 200 } = {}) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        const modal = document.querySelector('mt-modal.mt-confirm-modal');
+        if (modal) return modal;
+        await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    return null;
+}
+
 describe('bootstrap.js TZ prompt is non-blocking', () => {
     let env;
 
@@ -76,13 +111,7 @@ describe('bootstrap.js TZ prompt is non-blocking', () => {
         // prompt. To stay deterministic across CI environments we force
         // Intl.DateTimeFormat().resolvedOptions().timeZone to a known value.
         const detectedTz = 'America/Chicago';
-        const originalDTF = window.Intl.DateTimeFormat;
-        window.Intl.DateTimeFormat = function DateTimeFormat(...args) {
-            const inst = new originalDTF(...args);
-            const orig = inst.resolvedOptions.bind(inst);
-            inst.resolvedOptions = () => ({ ...orig(), timeZone: detectedTz });
-            return inst;
-        };
+        forceDetectedTimezone(window, detectedTz);
 
         installApiCacheMap(window, {
             settings_bundle: { timezone: 'Europe/Berlin' }
@@ -97,11 +126,7 @@ describe('bootstrap.js TZ prompt is non-blocking', () => {
             return new Promise(() => { /* never resolves */ });
         };
 
-        vi.spyOn(window, 'fetch').mockImplementation(async (url) => {
-            if (url === '/api/bootstrap') return createMockResponse({ json: {} });
-            if (url === '/auth/status') return createMockResponse({ json: { authenticated: true } });
-            return createMockResponse({ json: {} });
-        });
+        stubBootstrapFetch(window);
 
         const switchTabSpy = vi.fn();
         window.switchTab = switchTabSpy;
@@ -121,5 +146,133 @@ describe('bootstrap.js TZ prompt is non-blocking', () => {
         // The prompt was scheduled — confirms we genuinely hit the await
         // path and bootstrap did not short-circuit before the TZ check.
         expect(promptCalled).toBe(1);
+    });
+
+    it('maybeUpdateTimezone: accept POSTs /api/settings and invalidates cache', async () => {
+        allowConsoleNoise();
+        const { window, document } = env;
+
+        const detectedTz = 'America/Chicago';
+        forceDetectedTimezone(window, detectedTz);
+        installApiCacheMap(window, {
+            settings_bundle: { timezone: 'Europe/Berlin' }
+        });
+
+        // Pre-seed a stale dismissal cookie — accept path should clear it.
+        window.localStorage.setItem('tz_prompt_dismissed', 'Asia/Tokyo');
+
+        const apiCallSpy = vi.fn().mockResolvedValue({ status: 'ok' });
+        window.apiCall = apiCallSpy;
+        const invalidateSpy = vi.fn().mockResolvedValue(undefined);
+        window.DataStore.invalidateKey = invalidateSpy;
+
+        stubBootstrapFetch(window);
+        stubBootstrapGlobals(window);
+
+        const bootstrapSource = fs.readFileSync(BOOTSTRAP_JS, 'utf8');
+        window.eval(bootstrapSource);
+
+        const modal = await waitForModal(document);
+        expect(modal).not.toBeNull();
+        const message = modal.querySelector('.mt-confirm-modal__message');
+        expect(message.textContent).toContain(detectedTz);
+        expect(message.textContent).toContain('Europe/Berlin');
+
+        modal.querySelector('.mt-confirm-modal__confirm').click();
+
+        // Yield for: safeConfirm resolve → await apiCall → await invalidateKey → localStorage.removeItem
+        await new Promise(resolve => setTimeout(resolve, 30));
+
+        expect(apiCallSpy).toHaveBeenCalledWith('/api/settings', 'POST', { timezone: detectedTz });
+        expect(invalidateSpy).toHaveBeenCalledWith('settings_bundle');
+        expect(window.localStorage.getItem('tz_prompt_dismissed')).toBeNull();
+    });
+
+    it('maybeUpdateTimezone: cancel writes tz_prompt_dismissed', async () => {
+        allowConsoleNoise();
+        const { window, document } = env;
+
+        const detectedTz = 'America/Chicago';
+        forceDetectedTimezone(window, detectedTz);
+        installApiCacheMap(window, {
+            settings_bundle: { timezone: 'Europe/Berlin' }
+        });
+
+        const apiCallSpy = vi.fn().mockResolvedValue({ status: 'ok' });
+        window.apiCall = apiCallSpy;
+        const invalidateSpy = vi.fn().mockResolvedValue(undefined);
+        window.DataStore.invalidateKey = invalidateSpy;
+
+        stubBootstrapFetch(window);
+        stubBootstrapGlobals(window);
+
+        const bootstrapSource = fs.readFileSync(BOOTSTRAP_JS, 'utf8');
+        window.eval(bootstrapSource);
+
+        const modal = await waitForModal(document);
+        expect(modal).not.toBeNull();
+
+        modal.querySelector('.mt-confirm-modal__cancel').click();
+
+        await new Promise(resolve => setTimeout(resolve, 30));
+
+        expect(window.localStorage.getItem('tz_prompt_dismissed')).toBe(detectedTz);
+        // Cancel must NOT trigger an /api/settings POST nor a cache invalidation.
+        const settingsCalls = apiCallSpy.mock.calls.filter(args => args[0] === '/api/settings');
+        expect(settingsCalls).toHaveLength(0);
+        expect(invalidateSpy).not.toHaveBeenCalled();
+    });
+
+    it('maybeUpdateTimezone: skip when detectedTz equals stored timezone', async () => {
+        allowConsoleNoise();
+        const { window, document } = env;
+
+        const detectedTz = 'America/Chicago';
+        forceDetectedTimezone(window, detectedTz);
+        installApiCacheMap(window, {
+            settings_bundle: { timezone: detectedTz }
+        });
+
+        const apiCallSpy = vi.fn().mockResolvedValue({ status: 'ok' });
+        window.apiCall = apiCallSpy;
+
+        stubBootstrapFetch(window);
+        stubBootstrapGlobals(window);
+
+        const bootstrapSource = fs.readFileSync(BOOTSTRAP_JS, 'utf8');
+        window.eval(bootstrapSource);
+
+        // Give the queueMicrotask path a chance to run; modal must NOT appear.
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        expect(document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
+        expect(apiCallSpy).not.toHaveBeenCalledWith('/api/settings', expect.anything(), expect.anything());
+    });
+
+    it('maybeUpdateTimezone: skip when tz_prompt_dismissed matches detectedTz', async () => {
+        allowConsoleNoise();
+        const { window, document } = env;
+
+        const detectedTz = 'America/Chicago';
+        forceDetectedTimezone(window, detectedTz);
+        installApiCacheMap(window, {
+            settings_bundle: { timezone: 'Europe/Berlin' }
+        });
+        window.localStorage.setItem('tz_prompt_dismissed', detectedTz);
+
+        const apiCallSpy = vi.fn().mockResolvedValue({ status: 'ok' });
+        window.apiCall = apiCallSpy;
+
+        stubBootstrapFetch(window);
+        stubBootstrapGlobals(window);
+
+        const bootstrapSource = fs.readFileSync(BOOTSTRAP_JS, 'utf8');
+        window.eval(bootstrapSource);
+
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        expect(document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
+        // Suppression cookie remains untouched.
+        expect(window.localStorage.getItem('tz_prompt_dismissed')).toBe(detectedTz);
     });
 });

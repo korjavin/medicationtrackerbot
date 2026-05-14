@@ -197,26 +197,26 @@ The fix has two complementary parts:
 
 ### Task 3: Cover the `maybeUpdateTimezone` happy path / cancel path with the new modal
 
-- [ ] add a Vitest case
+- [x] add a Vitest case
       `"maybeUpdateTimezone: accept POSTs /api/settings and invalidates
        cache"` — drives the new mt-modal Confirm and asserts the
       `fetch('/api/settings', {method:'POST', body:{timezone:...}})`
       call, plus `DataStore.invalidateKey('settings_bundle')`, plus
       that `localStorage.tz_prompt_dismissed` is cleared.
-- [ ] add a Vitest case
+- [x] add a Vitest case
       `"maybeUpdateTimezone: cancel writes tz_prompt_dismissed"` —
       drives Cancel, asserts `localStorage.tz_prompt_dismissed ===
       detectedTz` and that `/api/settings` was NOT POSTed.
-- [ ] add a Vitest case
+- [x] add a Vitest case
       `"maybeUpdateTimezone: skip when detectedTz equals stored
        timezone"` — asserts no modal is mounted.
-- [ ] add a Vitest case
+- [x] add a Vitest case
       `"maybeUpdateTimezone: skip when tz_prompt_dismissed matches
        detectedTz"` — asserts no modal is mounted.
-- [ ] place these in
+- [x] place these in
       `web/static/js/tests/bootstrap.tz-prompt-nonblocking.test.js`
       (created in Task 1) or a sibling.
-- [ ] run `pnpm test web/static/js/tests/bootstrap` — must pass.
+- [x] run `pnpm test web/static/js/tests/bootstrap` — must pass.
 
 ### Task 4: Architecture-test housekeeping
 
