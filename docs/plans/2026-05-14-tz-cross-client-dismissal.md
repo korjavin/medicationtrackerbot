@@ -54,10 +54,10 @@ Files:
 Files:
 - Create: `internal/domain/tzsuggestion/service.go`
 
-- [ ] Define `Service` with two methods:
+- [x] Define `Service` with two methods:
   - `ShouldPrompt(ctx, detectedTZ string) (bool, reason string, err error)` — returns `false` if detected matches current TZ, if detected matches `dismissed_tz_suggestion`, or if there is an active (`PENDING_APPROVAL`/`NOTIFIED`/`APPROVED`) plan whose `new_tz == detectedTZ`. Otherwise `true`.
   - `RecordDismissal(ctx, detectedTZ string) error` — writes `dismissed_tz_suggestion = detectedTZ`. Validate `detectedTZ` with `time.LoadLocation`.
-- [ ] Constructor takes the settings repo and the existing `PlanBaselineStore`-style accessor; keep deps minimal so cmd/bot, cmd/mcptool, and cmd/seeddemo wiring stays simple.
+- [x] Constructor takes the settings repo and the existing `PlanBaselineStore`-style accessor; keep deps minimal so cmd/bot, cmd/mcptool, and cmd/seeddemo wiring stays simple.
 
 ### Task 3: Expose the dismissal decision via HTTP
 
