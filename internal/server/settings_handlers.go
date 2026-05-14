@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/domain/medplan"
+	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
@@ -566,10 +567,22 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Invalid timezone: "+req.Timezone, http.StatusBadRequest)
 			return
 		}
-		if _, err := s.tzUpdater.UpdateTimezone(r.Context(), req.Timezone); err != nil {
+		oldTZ, _ := s.timezone.GetCurrentTimezone()
+		planCreated, err := s.tzUpdater.UpdateTimezone(r.Context(), req.Timezone)
+		if err != nil {
 			slog.Error("handleUpdateSettings: UpdateTimezone failed", "error", err)
 			http.Error(w, "Failed to update timezone", http.StatusInternalServerError)
 			return
+		}
+		// Notify only when the TZ actually changed. The tzupdate service
+		// short-circuits no-op writes (old == new), so the dismiss path and
+		// repeat-save buttons never fire a chat confirmation.
+		if oldTZ != req.Timezone {
+			text := fmt.Sprintf("Timezone updated to %s.", req.Timezone)
+			if planCreated {
+				text += "\n\nI sent a separate transition plan you can review."
+			}
+			s.notify(r.Context(), notifier.Notification{Text: text})
 		}
 	}
 	w.WriteHeader(http.StatusOK)

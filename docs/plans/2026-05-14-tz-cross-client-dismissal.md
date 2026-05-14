@@ -75,11 +75,11 @@ Files:
 Files:
 - Modify: `internal/server/settings_handlers.go`
 
-- [ ] In the existing `handleUpdateSettings` TZ-change branch, after `s.tzUpdater.UpdateTimezone` returns success AND when the new TZ differs from the old (skip no-op writes), fire a best-effort notification through the existing `s.notify(ctx, notifier.Notification{...})` helper.
-- [ ] Message body: short confirmation like `"Timezone updated to <NEW_TZ>."` plus, when `planCreated == true`, a one-line "I sent a separate transition plan you can review" hint. No action buttons — this is informational only; the existing tz_plan_notifier still owns plan approval prompts.
-- [ ] Run the notify call asynchronously (it already is via `s.notify`'s goroutine fanout) and swallow `notifier.ErrNoDeliveryChannel` silently so web-only deployments are unaffected.
-- [ ] Decline path (`POST /api/tz-suggestion/dismiss` from Task 3) must NOT call `notify`.
-- [ ] Add an integration test that uses a fake notifier, POSTs `/api/settings` with a new TZ, and asserts exactly one notification was sent with the new TZ in the text; and a second case posting `/api/tz-suggestion/dismiss` that asserts zero notifications were sent.
+- [x] In the existing `handleUpdateSettings` TZ-change branch, after `s.tzUpdater.UpdateTimezone` returns success AND when the new TZ differs from the old (skip no-op writes), fire a best-effort notification through the existing `s.notify(ctx, notifier.Notification{...})` helper.
+- [x] Message body: short confirmation like `"Timezone updated to <NEW_TZ>."` plus, when `planCreated == true`, a one-line "I sent a separate transition plan you can review" hint. No action buttons — this is informational only; the existing tz_plan_notifier still owns plan approval prompts.
+- [x] Run the notify call asynchronously (it already is via `s.notify`'s goroutine fanout) and swallow `notifier.ErrNoDeliveryChannel` silently so web-only deployments are unaffected.
+- [x] Decline path (`POST /api/tz-suggestion/dismiss` from Task 3) must NOT call `notify`.
+- [x] Add an integration test that uses a fake notifier, POSTs `/api/settings` with a new TZ, and asserts exactly one notification was sent with the new TZ in the text; and a second case posting `/api/tz-suggestion/dismiss` that asserts zero notifications were sent.
 
 ### Task 5: Rework the web bootstrap to use the server decision
 
