@@ -87,6 +87,10 @@ const ALLOWLIST = [
         file: 'medication-utils.js',
         reason: 'pure helpers (parseMedicationSchedule, getNextScheduledDate, getMedicationScheduleText, getLastTakenTimeMs) that derive schedule strings + the next occurrence from in-memory data — no API reads',
     },
+    {
+        file: 'tab-controller.js',
+        reason: 'pure DOM helpers (bindTabGroup / activateTabGroup / bindOnce) that wire delegated click handlers and toggle .active classes — no API reads',
+    },
     // ---- Workout split sub-files (orchestrator + mutation-only / nested-form readers) ----
     {
         file: 'workout/index.js',

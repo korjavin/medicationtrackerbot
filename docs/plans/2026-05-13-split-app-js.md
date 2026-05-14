@@ -221,18 +221,18 @@ and recommended-priority item #6.
 
 ### Task 6: Extract `features/tab-controller.js`
 
-- [ ] move tab-binding helpers (`bindTabGroup`, `activateTabGroup`,
+- [x] move tab-binding helpers (`bindTabGroup`, `activateTabGroup`,
   the `dataset.tabBound` guard pattern from `app.js:1151-1152`,
   per-section tab persistence) into
   `web/static/js/features/tab-controller.js`; expose as
   `window.TabController.{...}`
-- [ ] consolidate the three `*ControlsBound` flags
+- [x] consolidate the three `*ControlsBound` flags
   (`medicationControlsBound` line 1783, `measurementControlsBound`
   line 1832, `notificationControlsBound` line 1869) into a single
   `TabController.bindOnce(scope, fn)` helper
-- [ ] write tests in `web/static/js/tests/features.tab-controller.test.js`
+- [x] write tests in `web/static/js/tests/features.tab-controller.test.js`
   covering one-time binding, tab activation, sub-tab persistence
-- [ ] run `pnpm test features.tab-controller app.` — must pass
+- [x] run `pnpm test features.tab-controller app.` — must pass
 
 ### Task 7: Architecture test prevents regression
 

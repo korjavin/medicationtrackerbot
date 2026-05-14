@@ -35,6 +35,7 @@ const MODAL_CONTROLLER_JS = path.join(REPO_ROOT, 'web/static/js/core/modal-contr
 const CHART_UTILS_JS = path.join(REPO_ROOT, 'web/static/js/core/chart-utils.js');
 const CACHE_KEYS_JS = path.join(REPO_ROOT, 'web/static/js/core/cache-keys.js');
 const DATA_STORE_JS = path.join(REPO_ROOT, 'web/static/js/data-store.js');
+const TAB_CONTROLLER_JS = path.join(REPO_ROOT, 'web/static/js/features/tab-controller.js');
 const APP_JS = path.join(REPO_ROOT, 'web/static/js/app.js');
 const WEIGHT_UNIT_STATE_JS = path.join(REPO_ROOT, 'web/static/js/features/weight-unit-state.js');
 const AUTH_BOOTSTRAP_JS = path.join(REPO_ROOT, 'web/static/js/features/auth-bootstrap.js');
@@ -232,6 +233,12 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   if (window.CacheKeys && typeof window.CacheKeys.registerAll === 'function') {
     window.CacheKeys.registerAll(window.DataStore);
   }
+
+  // tab-controller.js owns bindTabGroup/activateTabGroup/bindOnce (Plan
+  // 2026-05-13, Task 6). Must load BEFORE app.js because app.js calls
+  // TabController.bindTabGroup at top level for the .health-tabs and
+  // .med-tabs groups, and bindOnce for the three *Controls scopes.
+  evalFileCached(window, TAB_CONTROLLER_JS);
 
   const appSource = disableAutoBootstrap(readCached(APP_JS));
   evalWithSourceURL(window, appSource, APP_JS);
