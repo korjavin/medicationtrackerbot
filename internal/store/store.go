@@ -4,10 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"embed"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store/auth"
@@ -15,6 +12,7 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/store/diary"
 	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
 	"github.com/korjavin/medicationtrackerbot/internal/store/food"
+	"github.com/korjavin/medicationtrackerbot/internal/store/medication"
 	"github.com/korjavin/medicationtrackerbot/internal/store/push"
 	"github.com/korjavin/medicationtrackerbot/internal/store/settings"
 	storetz "github.com/korjavin/medicationtrackerbot/internal/store/tz"
@@ -67,89 +65,55 @@ var EmbeddedMigrations = embedMigrations
 // remains spelled "db" so the ~111 existing s.db.Query/Exec/BeginTx callsites
 // keep compiling unchanged (embedded *sql.DB methods are promoted).
 type Store struct {
-	db       *storedb.DB
-	diary    *diary.Repo
-	push     *push.Repo
-	auth     *auth.Repo
-	vitals   *vitals.Repo
-	settings *settings.Repo
-	bp       *bp.Repo
-	weight   *weight.Repo
-	food     *food.Repo
-	workout  *workout.Repo
-	tz       *storetz.Repo
+	db         *storedb.DB
+	diary      *diary.Repo
+	push       *push.Repo
+	auth       *auth.Repo
+	vitals     *vitals.Repo
+	settings   *settings.Repo
+	bp         *bp.Repo
+	weight     *weight.Repo
+	food       *food.Repo
+	workout    *workout.Repo
+	tz         *storetz.Repo
+	medication *medication.Repo
 }
 
 var nowFunc = time.Now
 
-type ScheduleConfig struct {
-	Type  string   `json:"type"`            // "daily", "weekly", "as_needed"
-	Days  []int    `json:"days,omitempty"`  // 0=Sunday, 1=Monday...
-	Times []string `json:"times,omitempty"` // ["08:00", "20:00"]
-}
+// ScheduleConfig is an alias for the canonical type defined in
+// internal/store/medication. Kept here so existing references (domain medplan
+// + tzreschedule engines + tests) continue to compile during the per-domain
+// split; new code should depend on medication.ScheduleConfig directly.
+type ScheduleConfig = medication.ScheduleConfig
 
-type Medication struct {
-	ID             int64      `json:"id"`
-	Name           string     `json:"name"`
-	Dosage         string     `json:"dosage"`
-	Schedule       string     `json:"schedule"` // e.g. "09:00" or JSON
-	Archived       bool       `json:"archived"`
-	Supplement     bool       `json:"supplement"`
-	StartDate      *time.Time `json:"start_date"`
-	EndDate        *time.Time `json:"end_date"`
-	LastTakenAt    *time.Time `json:"last_taken_at"`
-	CreatedAt      time.Time  `json:"created_at"`
-	RxCUI          string     `json:"rxcui,omitempty"`
-	NormalizedName string     `json:"normalized_name,omitempty"`
-	InventoryCount *int       `json:"inventory_count,omitempty"` // NULL = not tracking
-	TZShiftPolicy  string     `json:"tz_shift_policy"`           // flexible / medium / strict
-}
+// Medication is an alias for the canonical type defined in
+// internal/store/medication. Kept here so existing references (server
+// handlers, MCP tools, bot callbacks, narrow consumer interfaces, importer,
+// demo seeder, scheduler, domain services, tests) continue to compile during
+// the per-domain split; new code should depend on medication.Medication
+// directly.
+type Medication = medication.Medication
 
-type Restock struct {
-	ID           int64     `json:"id"`
-	MedicationID int64     `json:"medication_id"`
-	Quantity     int       `json:"quantity"`
-	Note         string    `json:"note,omitempty"`
-	RestockedAt  time.Time `json:"restocked_at"`
-}
+// Restock is an alias for the canonical type defined in
+// internal/store/medication. New code should depend on medication.Restock
+// directly.
+type Restock = medication.Restock
 
-func (m *Medication) ValidSchedule() (*ScheduleConfig, error) {
-	var s ScheduleConfig
-	// Check if legacy "HH:MM"
-	if len(m.Schedule) == 5 && m.Schedule[2] == ':' {
-		s.Type = "daily"
-		s.Times = []string{m.Schedule}
-		return &s, nil
-	}
-	// Try JSON
-	if err := json.Unmarshal([]byte(m.Schedule), &s); err != nil {
-		return nil, err
-	}
-	return &s, nil
-}
+// IntakeLog is an alias for the canonical type defined in
+// internal/store/medication. New code should depend on medication.IntakeLog
+// directly.
+type IntakeLog = medication.IntakeLog
 
-type IntakeLog struct {
-	ID           int64      `json:"id"`
-	MedicationID int64      `json:"medication_id"`
-	UserID       int64      `json:"user_id"`
-	ScheduledAt  time.Time  `json:"scheduled_at"`
-	TakenAt      *time.Time `json:"taken_at,omitempty"`
-	Status       string     `json:"status"` // PENDING, TAKEN, SKIPPED, MISSED
-	SnoozedUntil *time.Time `json:"snoozed_until,omitempty"`
-}
+// MedicationSchedule is an alias for the canonical type defined in
+// internal/store/medication. New code should depend on
+// medication.MedicationSchedule directly.
+type MedicationSchedule = medication.MedicationSchedule
 
-// MedicationSchedule represents a combination of medication ID and target time
-// for batch fetching intakes.
-type MedicationSchedule struct {
-	MedID       int64
-	ScheduledAt time.Time
-}
-
-type IntakeWithMedication struct {
-	IntakeLog
-	MedicationName   string `json:"medication_name"`
-	MedicationDosage string `json:"medication_dosage"`
-}
+// IntakeWithMedication is an alias for the canonical type defined in
+// internal/store/medication. New code should depend on
+// medication.IntakeWithMedication directly.
+type IntakeWithMedication = medication.IntakeWithMedication
 
 // BloodPressure is an alias for the canonical type defined in
 // internal/store/bp. Kept here so existing references (server BP handlers,
@@ -301,17 +265,19 @@ func NewWithDB(d *storedb.DB) (*Store, error) {
 	foodRepo := food.New(d)
 	workoutRepo := workout.New(d)
 	tzRepo := storetz.New(d)
+	medicationRepo := medication.New(d)
 	s := &Store{
-		db:       d,
-		diary:    diaryRepo,
-		push:     pushRepo,
-		auth:     authRepo,
-		vitals:   vitalsRepo,
-		settings: settingsRepo,
-		weight:   weightRepo,
-		food:     foodRepo,
-		workout:  workoutRepo,
-		tz:       tzRepo,
+		db:         d,
+		diary:      diaryRepo,
+		push:       pushRepo,
+		auth:       authRepo,
+		vitals:     vitalsRepo,
+		settings:   settingsRepo,
+		weight:     weightRepo,
+		food:       foodRepo,
+		workout:    workoutRepo,
+		tz:         tzRepo,
+		medication: medicationRepo,
 	}
 	// bp.Repo needs a TimezoneLookup for day-boundary calculations in
 	// GetBPDailyWeightedStats. The tz repo owns the timezone table, so pass
@@ -444,6 +410,15 @@ func (s *Store) TZ() *storetz.Repo {
 	return s.tz
 }
 
+// Medication returns the per-domain medications + intake_log + medication_restocks
+// + intake_reminders repository. The legacy *Store still forwards every
+// medication / intake / restock / inventory method to this same Repo; new
+// callers should depend on *medication.Repo (or a narrow interface satisfied
+// by it) and obtain it through this accessor.
+func (s *Store) Medication() *medication.Repo {
+	return s.medication
+}
+
 func (s *Store) Close() error {
 	return s.db.Close()
 }
@@ -462,781 +437,182 @@ func (s *Store) SharedDB() *storedb.DB {
 	return s.db
 }
 
-// -- Medications CRUD --
+// -- Medications + intake_log + restock + inventory (forwarders to
+// internal/store/medication.Repo) --
 
+// CreateMedication forwards to (*medication.Repo).CreateMedication.
 func (s *Store) CreateMedication(name, dosage, schedule string, startDate, endDate *time.Time, rxcui, normalizedName string, tzShiftPolicy string) (int64, error) {
-	if tzShiftPolicy == "" {
-		tzShiftPolicy = "flexible"
-	}
-	res, err := s.db.Exec("INSERT INTO medications (name, dosage, schedule, start_date, end_date, rxcui, normalized_name, tz_shift_policy) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		name, dosage, schedule, startDate, endDate, rxcui, normalizedName, tzShiftPolicy)
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
+	return s.medication.CreateMedication(name, dosage, schedule, startDate, endDate, rxcui, normalizedName, tzShiftPolicy)
 }
 
+// ListMedications forwards to (*medication.Repo).ListMedications.
 func (s *Store) ListMedications(showArchived bool) ([]Medication, error) {
-	query := `
-		SELECT
-			m.id, m.name, m.dosage, m.schedule, m.archived, m.supplement, m.start_date, m.end_date, m.created_at, m.rxcui, m.normalized_name, m.inventory_count, m.tz_shift_policy,
-			MAX(CASE WHEN l.status = 'TAKEN' THEN l.taken_at_unix ELSE NULL END) as last_taken_unix
-		FROM medications m
-		LEFT JOIN intake_log l ON m.id = l.medication_id
-	`
-	if !showArchived {
-		query += " WHERE m.archived = 0"
-	}
-	query += " GROUP BY m.id ORDER BY m.name ASC"
-
-	rows, err := s.db.Query(query)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	meds := []Medication{}
-	for rows.Next() {
-		var m Medication
-		var lastTakenUnix sql.NullInt64
-		// Handle nullable fields
-		var rxcui, normalizedName sql.NullString
-		var inventoryCount sql.NullInt64
-
-		if err := rows.Scan(&m.ID, &m.Name, &m.Dosage, &m.Schedule, &m.Archived, &m.Supplement, &m.StartDate, &m.EndDate, &m.CreatedAt, &rxcui, &normalizedName, &inventoryCount, &m.TZShiftPolicy, &lastTakenUnix); err != nil {
-			return nil, err
-		}
-
-		if rxcui.Valid {
-			m.RxCUI = rxcui.String
-		}
-		if normalizedName.Valid {
-			m.NormalizedName = normalizedName.String
-		}
-		if inventoryCount.Valid {
-			ic := int(inventoryCount.Int64)
-			m.InventoryCount = &ic
-		}
-
-		if lastTakenUnix.Valid {
-			t := time.Unix(lastTakenUnix.Int64, 0).UTC()
-			m.LastTakenAt = &t
-		}
-
-		meds = append(meds, m)
-	}
-	return meds, nil
+	return s.medication.ListMedications(showArchived)
 }
 
+// GetMedication forwards to (*medication.Repo).GetMedication.
 func (s *Store) GetMedication(id int64) (*Medication, error) {
-	var m Medication
-	var rxcui, normalizedName sql.NullString
-	var inventoryCount sql.NullInt64
-	err := s.db.QueryRow("SELECT id, name, dosage, schedule, archived, supplement, start_date, end_date, created_at, rxcui, normalized_name, inventory_count, tz_shift_policy FROM medications WHERE id = ?", id).Scan(
-		&m.ID, &m.Name, &m.Dosage, &m.Schedule, &m.Archived, &m.Supplement, &m.StartDate, &m.EndDate, &m.CreatedAt, &rxcui, &normalizedName, &inventoryCount, &m.TZShiftPolicy,
-	)
-	if err == sql.ErrNoRows {
-		return nil, nil // Not found
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	if rxcui.Valid {
-		m.RxCUI = rxcui.String
-	}
-	if normalizedName.Valid {
-		m.NormalizedName = normalizedName.String
-	}
-	if inventoryCount.Valid {
-		ic := int(inventoryCount.Int64)
-		m.InventoryCount = &ic
-	}
-
-	return &m, nil
+	return s.medication.GetMedication(id)
 }
 
+// UpdateMedication forwards to (*medication.Repo).UpdateMedication.
 func (s *Store) UpdateMedication(id int64, name, dosage, schedule string, archived bool, startDate, endDate *time.Time, rxcui, normalizedName string, inventoryCount *int, tzShiftPolicy string) error {
-	if tzShiftPolicy == "" {
-		tzShiftPolicy = "flexible"
-	}
-	_, err := s.db.Exec("UPDATE medications SET name = ?, dosage = ?, schedule = ?, archived = ?, start_date = ?, end_date = ?, rxcui = ?, normalized_name = ?, inventory_count = ?, tz_shift_policy = ? WHERE id = ?",
-		name, dosage, schedule, archived, startDate, endDate, rxcui, normalizedName, inventoryCount, tzShiftPolicy, id)
-	return err
+	return s.medication.UpdateMedication(id, name, dosage, schedule, archived, startDate, endDate, rxcui, normalizedName, inventoryCount, tzShiftPolicy)
 }
 
+// DeleteMedication forwards to (*medication.Repo).DeleteMedication.
 func (s *Store) DeleteMedication(id int64) error {
-	_, err := s.db.Exec("DELETE FROM medications WHERE id = ?", id)
-	return err
+	return s.medication.DeleteMedication(id)
 }
 
+// CanDeleteMedication forwards to (*medication.Repo).CanDeleteMedication.
 func (s *Store) CanDeleteMedication(id int64) (bool, error) {
-	var count int
-	err := s.db.QueryRow("SELECT COUNT(*) FROM intake_log WHERE medication_id = ?", id).Scan(&count)
-	if err != nil {
-		return false, err
-	}
-	return count == 0, nil
+	return s.medication.CanDeleteMedication(id)
 }
 
+// SetMedicationSupplement forwards to (*medication.Repo).SetMedicationSupplement.
 func (s *Store) SetMedicationSupplement(id int64, supplement bool) error {
-	_, err := s.db.Exec("UPDATE medications SET supplement = ? WHERE id = ?", supplement, id)
-	return err
+	return s.medication.SetMedicationSupplement(id, supplement)
 }
 
+// UpdateMedicationCreatedAt forwards to (*medication.Repo).UpdateMedicationCreatedAt.
 func (s *Store) UpdateMedicationCreatedAt(id int64, createdAt time.Time) error {
-	_, err := s.db.Exec("UPDATE medications SET created_at = ? WHERE id = ?", createdAt, id)
-	if err != nil {
-		return err
-	}
-	return nil
+	return s.medication.UpdateMedicationCreatedAt(id, createdAt)
 }
 
-// -- Inventory Functions --
-
-// DecrementInventory reduces the inventory count by the given quantity
-// Only decrements if inventory is being tracked (not NULL)
+// DecrementInventory forwards to (*medication.Repo).DecrementInventory.
 func (s *Store) DecrementInventory(medID int64, qty int) error {
-	_, err := s.db.Exec("UPDATE medications SET inventory_count = inventory_count - ? WHERE id = ? AND inventory_count IS NOT NULL", qty, medID)
-	return err
+	return s.medication.DecrementInventory(medID, qty)
 }
 
-// IncrementInventory increases the inventory count by the given quantity
-// Only increments if inventory is being tracked (not NULL)
+// IncrementInventory forwards to (*medication.Repo).IncrementInventory.
 func (s *Store) IncrementInventory(medID int64, qty int) error {
-	_, err := s.db.Exec("UPDATE medications SET inventory_count = inventory_count + ? WHERE id = ? AND inventory_count IS NOT NULL", qty, medID)
-	return err
+	return s.medication.IncrementInventory(medID, qty)
 }
 
-// SetInventory sets the inventory count for a medication (nil to disable tracking)
+// SetInventory forwards to (*medication.Repo).SetInventory.
 func (s *Store) SetInventory(medID int64, count *int) error {
-	_, err := s.db.Exec("UPDATE medications SET inventory_count = ? WHERE id = ?", count, medID)
-	return err
+	return s.medication.SetInventory(medID, count)
 }
 
-// AddRestock adds inventory and logs the restock event
+// AddRestock forwards to (*medication.Repo).AddRestock.
 func (s *Store) AddRestock(medID int64, qty int, note string) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	// Update inventory count (initialize to qty if NULL)
-	_, err = tx.Exec(`
-		UPDATE medications 
-		SET inventory_count = COALESCE(inventory_count, 0) + ? 
-		WHERE id = ?`, qty, medID)
-	if err != nil {
-		return err
-	}
-
-	// Log restock event
-	_, err = tx.Exec("INSERT INTO medication_restocks (medication_id, quantity, note) VALUES (?, ?, ?)", medID, qty, note)
-	if err != nil {
-		return err
-	}
-
-	return tx.Commit()
+	return s.medication.AddRestock(medID, qty, note)
 }
 
-// GetRestockHistory returns restock events for a medication
+// GetRestockHistory forwards to (*medication.Repo).GetRestockHistory.
 func (s *Store) GetRestockHistory(medID int64) ([]Restock, error) {
-	rows, err := s.db.Query("SELECT id, medication_id, quantity, note, restocked_at FROM medication_restocks WHERE medication_id = ? ORDER BY restocked_at DESC", medID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var restocks []Restock
-	for rows.Next() {
-		var r Restock
-		var note sql.NullString
-		if err := rows.Scan(&r.ID, &r.MedicationID, &r.Quantity, &note, &r.RestockedAt); err != nil {
-			return nil, err
-		}
-		if note.Valid {
-			r.Note = note.String
-		}
-		restocks = append(restocks, r)
-	}
-	return restocks, nil
+	return s.medication.GetRestockHistory(medID)
 }
 
-// GetMedicationsLowOnStock returns medications with inventory tracking that are low on stock
-// daysThreshold: warn if stock lasts fewer than this many days
+// GetMedicationsLowOnStock forwards to (*medication.Repo).GetMedicationsLowOnStock.
 func (s *Store) GetMedicationsLowOnStock(daysThreshold int) ([]Medication, error) {
-	// First get all active medications with inventory tracking
-	meds, err := s.ListMedications(false)
-	if err != nil {
-		return nil, err
-	}
-
-	var lowStock []Medication
-	for _, m := range meds {
-		if m.InventoryCount == nil {
-			continue // Not tracking inventory
-		}
-
-		// Calculate daily usage from schedule
-		dailyUsage := s.calculateDailyUsage(&m)
-		if dailyUsage == 0 {
-			continue // As-needed or invalid schedule
-		}
-
-		// Check if medication has enough stock
-		if s.hasEnoughStock(&m, dailyUsage, daysThreshold) {
-			continue
-		}
-
-		lowStock = append(lowStock, m)
-	}
-
-	return lowStock, nil
+	return s.medication.GetMedicationsLowOnStock(daysThreshold)
 }
 
-// hasEnoughStock returns true if medication has enough stock
-// If medication has end date: check if stock lasts until end date
-// If no end date: check if stock lasts at least daysThreshold days
-func (s *Store) hasEnoughStock(m *Medication, dailyUsage float64, daysThreshold int) bool {
-	if m.InventoryCount == nil {
-		return true // Not tracking
-	}
-
-	daysOfStock := float64(*m.InventoryCount) / dailyUsage
-
-	// If medication has an end date, calculate how many days until it ends
-	if m.EndDate != nil {
-		daysUntilEnd := time.Until(*m.EndDate).Hours() / 24
-		if daysUntilEnd <= 0 {
-			return true // Already ended, no warning needed
-		}
-		// Enough stock if we have more days than needed until end
-		return daysOfStock >= daysUntilEnd
-	}
-
-	// No end date: use the threshold
-	return daysOfStock >= float64(daysThreshold)
-}
-
-// calculateDailyUsage returns the average daily intakes for a medication
-func (s *Store) calculateDailyUsage(m *Medication) float64 {
-	cfg, err := m.ValidSchedule()
-	if err != nil {
-		return 0
-	}
-
-	if cfg.Type == "as_needed" {
-		return 0 // Can't calculate for as-needed
-	}
-
-	timesPerDay := float64(len(cfg.Times))
-
-	if cfg.Type == "daily" {
-		return timesPerDay
-	}
-
-	if cfg.Type == "weekly" {
-		// Days per week that the medication is taken
-		daysPerWeek := float64(len(cfg.Days))
-		return (daysPerWeek / 7.0) * timesPerDay
-	}
-
-	return 0
-}
-
-// GetDaysOfStockRemaining calculates how many days of stock remain for a medication
+// GetDaysOfStockRemaining forwards to (*medication.Repo).GetDaysOfStockRemaining.
 func (s *Store) GetDaysOfStockRemaining(m *Medication) *float64 {
-	if m.InventoryCount == nil {
-		return nil
-	}
-
-	dailyUsage := s.calculateDailyUsage(m)
-	if dailyUsage == 0 {
-		return nil
-	}
-
-	days := float64(*m.InventoryCount) / dailyUsage
-	return &days
+	return s.medication.GetDaysOfStockRemaining(m)
 }
 
-// IsLowOnStock checks if a medication is low on stock considering its end date
+// IsLowOnStock forwards to (*medication.Repo).IsLowOnStock.
 func (s *Store) IsLowOnStock(m *Medication, daysThreshold int) bool {
-	if m.InventoryCount == nil {
-		return false
-	}
-
-	dailyUsage := s.calculateDailyUsage(m)
-	if dailyUsage == 0 {
-		return false
-	}
-
-	return !s.hasEnoughStock(m, dailyUsage, daysThreshold)
+	return s.medication.IsLowOnStock(m, daysThreshold)
 }
 
-// -- Intake Log --
-
+// CreateIntake forwards to (*medication.Repo).CreateIntake.
 func (s *Store) CreateIntake(medID, userID int64, scheduledAt time.Time) (int64, error) {
-	res, err := s.db.Exec("INSERT INTO intake_log (medication_id, user_id, scheduled_at_unix, status) VALUES (?, ?, ?, 'PENDING')",
-		medID, userID, scheduledAt.UTC().Unix())
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
+	return s.medication.CreateIntake(medID, userID, scheduledAt)
 }
 
+// CreateManualIntake forwards to (*medication.Repo).CreateManualIntake.
 func (s *Store) CreateManualIntake(medID, userID int64, takenAt time.Time) (int64, error) {
-	// For manual intake, scheduled_at_unix = taken_at unix seconds.
-	takenUnix := takenAt.UTC().Unix()
-	res, err := s.db.Exec("INSERT INTO intake_log (medication_id, user_id, scheduled_at_unix, taken_at_unix, status) VALUES (?, ?, ?, ?, 'TAKEN')",
-		medID, userID, takenUnix, takenUnix)
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
+	return s.medication.CreateManualIntake(medID, userID, takenAt)
 }
 
+// ConfirmIntake forwards to (*medication.Repo).ConfirmIntake.
 func (s *Store) ConfirmIntake(id int64, takenAt time.Time) error {
-	res, err := s.db.Exec("UPDATE intake_log SET status = 'TAKEN', taken_at_unix = ? WHERE id = ? AND status = 'PENDING'",
-		takenAt.UTC().Unix(), id)
-	if err != nil {
-		return err
-	}
-	rowsAffected, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if rowsAffected == 0 {
-		return sql.ErrNoRows
-	}
-	return nil
+	return s.medication.ConfirmIntake(id, takenAt)
 }
 
+// SkipIntake forwards to (*medication.Repo).SkipIntake.
 func (s *Store) SkipIntake(id int64) error {
-	res, err := s.db.Exec("UPDATE intake_log SET status = 'SKIPPED', taken_at_unix = NULL WHERE id = ? AND status = 'PENDING'", id)
-	if err != nil {
-		return err
-	}
-	rowsAffected, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if rowsAffected == 0 {
-		return sql.ErrNoRows
-	}
-	return nil
+	return s.medication.SkipIntake(id)
 }
 
+// UpdateIntake forwards to (*medication.Repo).UpdateIntake.
 func (s *Store) UpdateIntake(id int64, takenAt time.Time, status string) error {
-	var takenAtUnixVal interface{}
-	if status == "TAKEN" {
-		takenAtUnixVal = takenAt.UTC().Unix()
-	} else {
-		takenAtUnixVal = nil
-	}
-	_, err := s.db.Exec("UPDATE intake_log SET status = ?, taken_at_unix = ? WHERE id = ?", status, takenAtUnixVal, id)
-	return err
+	return s.medication.UpdateIntake(id, takenAt, status)
 }
 
+// SnoozeIntake forwards to (*medication.Repo).SnoozeIntake.
 func (s *Store) SnoozeIntake(id int64, snoozeUntil time.Time) error {
-	res, err := s.db.Exec("UPDATE intake_log SET snoozed_until_unix = ? WHERE id = ? AND status = 'PENDING'",
-		snoozeUntil.UTC().Unix(), id)
-	if err != nil {
-		return err
-	}
-	rowsAffected, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if rowsAffected == 0 {
-		return sql.ErrNoRows
-	}
-	return nil
+	return s.medication.SnoozeIntake(id, snoozeUntil)
 }
 
+// GetPendingIntakes forwards to (*medication.Repo).GetPendingIntakes.
 func (s *Store) GetPendingIntakes() ([]IntakeLog, error) {
-	rows, err := s.db.Query("SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until_unix FROM intake_log WHERE status = 'PENDING'")
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	logs := []IntakeLog{}
-	for rows.Next() {
-		var l IntakeLog
-		var schedUnix int64
-		var snoozeUnix sql.NullInt64
-		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &l.Status, &snoozeUnix); err != nil {
-			return nil, err
-		}
-		l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
-		if snoozeUnix.Valid {
-			t := time.Unix(snoozeUnix.Int64, 0).UTC()
-			l.SnoozedUntil = &t
-		}
-		logs = append(logs, l)
-	}
-	return logs, nil
+	return s.medication.GetPendingIntakes()
 }
 
+// GetTakenIntakesBySchedule forwards to (*medication.Repo).GetTakenIntakesBySchedule.
 func (s *Store) GetTakenIntakesBySchedule(userID int64, scheduledAt time.Time) ([]IntakeLog, error) {
-	rows, err := s.db.Query("SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until_unix FROM intake_log WHERE user_id = ? AND scheduled_at_unix = ? AND status = 'TAKEN'", userID, scheduledAt.UTC().Unix())
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	logs := []IntakeLog{}
-	for rows.Next() {
-		var l IntakeLog
-		var schedUnix int64
-		var snoozeUnix sql.NullInt64
-		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &l.Status, &snoozeUnix); err != nil {
-			return nil, err
-		}
-		l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
-		if snoozeUnix.Valid {
-			t := time.Unix(snoozeUnix.Int64, 0).UTC()
-			l.SnoozedUntil = &t
-		}
-		logs = append(logs, l)
-	}
-	return logs, nil
+	return s.medication.GetTakenIntakesBySchedule(userID, scheduledAt)
 }
 
+// GetIntakeHistory forwards to (*medication.Repo).GetIntakeHistory.
 func (s *Store) GetIntakeHistory(medID int, days int) ([]IntakeLog, error) {
-	query := "SELECT id, medication_id, user_id, scheduled_at_unix, taken_at_unix, status, snoozed_until_unix FROM intake_log WHERE 1=1"
-	args := []interface{}{}
-
-	if medID > 0 {
-		query += " AND medication_id = ?"
-		args = append(args, medID)
-	}
-
-	if days > 0 {
-		since := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
-		query += " AND scheduled_at_unix >= ?"
-		args = append(args, since.UTC().Unix())
-	}
-
-	query += " ORDER BY scheduled_at_unix DESC LIMIT 100"
-
-	rows, err := s.db.Query(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	logs := []IntakeLog{}
-	for rows.Next() {
-		var l IntakeLog
-		var schedUnix int64
-		var takenUnix sql.NullInt64
-		var snoozeUnix sql.NullInt64
-		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &takenUnix, &l.Status, &snoozeUnix); err != nil {
-			return nil, err
-		}
-		l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
-		if takenUnix.Valid {
-			t := time.Unix(takenUnix.Int64, 0).UTC()
-			l.TakenAt = &t
-		}
-		if snoozeUnix.Valid {
-			t := time.Unix(snoozeUnix.Int64, 0).UTC()
-			l.SnoozedUntil = &t
-		}
-		logs = append(logs, l)
-	}
-	return logs, nil
+	return s.medication.GetIntakeHistory(medID, days)
 }
 
+// GetIntake forwards to (*medication.Repo).GetIntake.
 func (s *Store) GetIntake(id int64) (*IntakeLog, error) {
-	var l IntakeLog
-	var schedUnix int64
-	var takenUnix sql.NullInt64
-	var snoozeUnix sql.NullInt64
-	err := s.db.QueryRow("SELECT id, medication_id, user_id, scheduled_at_unix, taken_at_unix, status, snoozed_until_unix FROM intake_log WHERE id = ?", id).Scan(
-		&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &takenUnix, &l.Status, &snoozeUnix,
-	)
-	if err == sql.ErrNoRows {
-		return nil, nil // Not found
-	}
-	if err != nil {
-		return nil, err
-	}
-	l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
-	if takenUnix.Valid {
-		t := time.Unix(takenUnix.Int64, 0).UTC()
-		l.TakenAt = &t
-	}
-	if snoozeUnix.Valid {
-		t := time.Unix(snoozeUnix.Int64, 0).UTC()
-		l.SnoozedUntil = &t
-	}
-	return &l, nil
+	return s.medication.GetIntake(id)
 }
 
+// GetIntakeBySchedule forwards to (*medication.Repo).GetIntakeBySchedule.
 func (s *Store) GetIntakeBySchedule(medID int64, scheduledAt time.Time) (*IntakeLog, error) {
-	var l IntakeLog
-	var schedUnix int64
-	var takenUnix sql.NullInt64
-	var snoozeUnix sql.NullInt64
-	err := s.db.QueryRow("SELECT id, medication_id, user_id, scheduled_at_unix, taken_at_unix, status, snoozed_until_unix FROM intake_log WHERE medication_id = ? AND scheduled_at_unix = ?", medID, scheduledAt.UTC().Unix()).Scan(
-		&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &takenUnix, &l.Status, &snoozeUnix,
-	)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
-	if takenUnix.Valid {
-		t := time.Unix(takenUnix.Int64, 0).UTC()
-		l.TakenAt = &t
-	}
-	if snoozeUnix.Valid {
-		t := time.Unix(snoozeUnix.Int64, 0).UTC()
-		l.SnoozedUntil = &t
-	}
-	return &l, nil
+	return s.medication.GetIntakeBySchedule(medID, scheduledAt)
 }
 
+// BatchGetIntakesBySchedule forwards to (*medication.Repo).BatchGetIntakesBySchedule.
 func (s *Store) BatchGetIntakesBySchedule(schedules []MedicationSchedule) (map[MedicationSchedule]*IntakeLog, error) {
-	result := make(map[MedicationSchedule]*IntakeLog, len(schedules))
-	if len(schedules) == 0 {
-		return result, nil
-	}
-
-	// SQLite maximum variables is typically 32766, but we'll use a conservative batch size
-	// Each tuple (medication_id, scheduled_at_unix) uses 2 variables.
-	// 500 schedules * 2 = 1000 variables per batch.
-	const batchSize = 500
-
-	for i := 0; i < len(schedules); i += batchSize {
-		end := i + batchSize
-		if end > len(schedules) {
-			end = len(schedules)
-		}
-
-		batch := schedules[i:end]
-		placeholders := make([]string, len(batch))
-		args := make([]interface{}, len(batch)*2)
-
-		for j, sched := range batch {
-			placeholders[j] = "(?, ?)"
-			args[j*2] = sched.MedID
-			args[j*2+1] = sched.ScheduledAt.UTC().Unix()
-		}
-
-		query := fmt.Sprintf(
-			"SELECT id, medication_id, user_id, scheduled_at_unix, taken_at_unix, status, snoozed_until_unix FROM intake_log WHERE (medication_id, scheduled_at_unix) IN (%s)",
-			strings.Join(placeholders, ", "),
-		)
-
-		rows, err := s.db.Query(query, args...)
-		if err != nil {
-			return nil, err
-		}
-
-		for rows.Next() {
-			var l IntakeLog
-			var schedUnix int64
-			var takenUnix sql.NullInt64
-			var snoozeUnix sql.NullInt64
-			err := rows.Scan(
-				&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &takenUnix, &l.Status, &snoozeUnix,
-			)
-			if err != nil {
-				rows.Close()
-				return nil, err
-			}
-			l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
-			if takenUnix.Valid {
-				t := time.Unix(takenUnix.Int64, 0).UTC()
-				l.TakenAt = &t
-			}
-			if snoozeUnix.Valid {
-				t := time.Unix(snoozeUnix.Int64, 0).UTC()
-				l.SnoozedUntil = &t
-			}
-			// Key by UTC. Callers that look up with a non-UTC ScheduledAt
-			// must convert via .UTC() — the scheduler dedupe path already
-			// does so.
-			result[MedicationSchedule{MedID: l.MedicationID, ScheduledAt: l.ScheduledAt}] = &l
-		}
-		if err := rows.Err(); err != nil {
-			return nil, err
-		}
-		rows.Close()
-	}
-
-	return result, nil
+	return s.medication.BatchGetIntakesBySchedule(schedules)
 }
 
-// ConfirmIntakesBySchedule marks every PENDING intake whose scheduled_at_unix
-// matches the supplied target as TAKEN, returning the IDs that were updated.
-// The comparison is on the INTEGER scheduled_at_unix column, so it is
-// independent of the caller's time.Location — what previously required an
-// in-memory time.Equal filter (modernc.org/sqlite serialized time.Time via
-// t.String() with embedded TZ name, breaking SQL text equality across
-// locations) is now a single SQL predicate.
+// ConfirmIntakesBySchedule forwards to (*medication.Repo).ConfirmIntakesBySchedule.
 func (s *Store) ConfirmIntakesBySchedule(userID int64, scheduledAt time.Time, takenAt time.Time) ([]int64, error) {
-	candidates, err := s.GetPendingIntakesBySchedule(userID, scheduledAt)
-	if err != nil {
-		return nil, err
-	}
-
-	var ids []int64
-	for _, c := range candidates {
-		// ConfirmIntake guards on status='PENDING', so a concurrent confirm
-		// returns sql.ErrNoRows here — treat that as "already taken" and skip
-		// instead of failing the batch.
-		if err := s.ConfirmIntake(c.ID, takenAt); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				continue
-			}
-			return nil, err
-		}
-		ids = append(ids, c.ID)
-	}
-	return ids, nil
+	return s.medication.ConfirmIntakesBySchedule(userID, scheduledAt, takenAt)
 }
 
+// AddIntakeReminder forwards to (*medication.Repo).AddIntakeReminder.
 func (s *Store) AddIntakeReminder(intakeID int64, messageID int) error {
-	_, err := s.db.Exec("INSERT INTO intake_reminders (intake_id, message_id) VALUES (?, ?)", intakeID, messageID)
-	return err
+	return s.medication.AddIntakeReminder(intakeID, messageID)
 }
 
+// GetIntakeReminders forwards to (*medication.Repo).GetIntakeReminders.
 func (s *Store) GetIntakeReminders(intakeID int64) ([]int, error) {
-	rows, err := s.db.Query("SELECT message_id FROM intake_reminders WHERE intake_id = ?", intakeID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var ids []int
-	for rows.Next() {
-		var id int
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	return ids, nil
+	return s.medication.GetIntakeReminders(intakeID)
 }
 
+// GetBatchIntakeReminders forwards to (*medication.Repo).GetBatchIntakeReminders.
 func (s *Store) GetBatchIntakeReminders(intakeIDs []int64) (map[int64][]int, error) {
-	if len(intakeIDs) == 0 {
-		return make(map[int64][]int), nil
-	}
-
-	result := make(map[int64][]int)
-
-	chunkSize := 500
-	for i := 0; i < len(intakeIDs); i += chunkSize {
-		end := i + chunkSize
-		if end > len(intakeIDs) {
-			end = len(intakeIDs)
-		}
-		chunk := intakeIDs[i:end]
-
-		args := make([]interface{}, len(chunk))
-		placeholders := make([]string, len(chunk))
-		for j, id := range chunk {
-			args[j] = id
-			placeholders[j] = "?"
-		}
-
-		query := fmt.Sprintf("SELECT intake_id, message_id FROM intake_reminders WHERE intake_id IN (%s)", strings.Join(placeholders, ","))
-		rows, err := s.db.Query(query, args...)
-		if err != nil {
-			return nil, err
-		}
-
-		for rows.Next() {
-			var intakeID int64
-			var msgID int
-			if err := rows.Scan(&intakeID, &msgID); err != nil {
-				rows.Close()
-				return nil, err
-			}
-			result[intakeID] = append(result[intakeID], msgID)
-		}
-
-		if err := rows.Err(); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		rows.Close()
-	}
-
-	return result, nil
+	return s.medication.GetBatchIntakeReminders(intakeIDs)
 }
 
-// GetPendingIntakesBySchedule returns every PENDING intake for the user whose
-// scheduled_at_unix matches the supplied target instant. The match is on the
-// INTEGER unix-seconds column, so it is independent of the caller's
-// time.Location.
+// GetPendingIntakesBySchedule forwards to (*medication.Repo).GetPendingIntakesBySchedule.
 func (s *Store) GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time) ([]IntakeLog, error) {
-	rows, err := s.db.Query(
-		`SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until_unix
-		 FROM intake_log
-		 WHERE user_id = ? AND status = 'PENDING'
-		   AND scheduled_at_unix = ?
-		   AND medication_id IN (SELECT id FROM medications WHERE archived = 0)`,
-		userID, scheduledAt.UTC().Unix(),
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var logs []IntakeLog
-	for rows.Next() {
-		var l IntakeLog
-		var schedUnix int64
-		var snoozeUnix sql.NullInt64
-		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &l.Status, &snoozeUnix); err != nil {
-			return nil, err
-		}
-		l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
-		if snoozeUnix.Valid {
-			t := time.Unix(snoozeUnix.Int64, 0).UTC()
-			l.SnoozedUntil = &t
-		}
-		logs = append(logs, l)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return logs, nil
+	return s.medication.GetPendingIntakesBySchedule(userID, scheduledAt)
 }
 
+// GetPendingIntakesForMedication forwards to (*medication.Repo).GetPendingIntakesForMedication.
 func (s *Store) GetPendingIntakesForMedication(medID int64) ([]IntakeLog, error) {
-	rows, err := s.db.Query("SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until_unix FROM intake_log WHERE medication_id = ? AND status = 'PENDING'", medID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var logs []IntakeLog
-	for rows.Next() {
-		var l IntakeLog
-		var schedUnix int64
-		var snoozeUnix sql.NullInt64
-		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &l.Status, &snoozeUnix); err != nil {
-			return nil, err
-		}
-		l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
-		if snoozeUnix.Valid {
-			t := time.Unix(snoozeUnix.Int64, 0).UTC()
-			l.SnoozedUntil = &t
-		}
-		logs = append(logs, l)
-	}
-	return logs, nil
+	return s.medication.GetPendingIntakesForMedication(medID)
 }
 
+// DeleteIntake forwards to (*medication.Repo).DeleteIntake.
 func (s *Store) DeleteIntake(id int64) error {
-	_, err := s.db.Exec("DELETE FROM intake_log WHERE id = ?", id)
-	return err
+	return s.medication.DeleteIntake(id)
 }
 
 // -- Settings --
@@ -1267,43 +643,9 @@ func (s *Store) SetWeightGoal(weightVal float64, targetDate time.Time) error {
 
 // -- Downloads --
 
+// GetIntakesSince forwards to (*medication.Repo).GetIntakesSince.
 func (s *Store) GetIntakesSince(since time.Time) ([]IntakeWithMedication, error) {
-	query := `
-		SELECT
-			il.id, il.medication_id, il.user_id, il.scheduled_at_unix, il.taken_at_unix, il.status, il.snoozed_until_unix,
-			m.name AS medication_name, m.dosage AS medication_dosage
-		FROM intake_log il
-		JOIN medications m ON il.medication_id = m.id
-		WHERE il.scheduled_at_unix >= ?
-		ORDER BY il.scheduled_at_unix DESC
-	`
-	rows, err := s.db.Query(query, since.UTC().Unix())
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var logs []IntakeWithMedication
-	for rows.Next() {
-		var l IntakeWithMedication
-		var schedUnix int64
-		var takenUnix sql.NullInt64
-		var snoozeUnix sql.NullInt64
-		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &takenUnix, &l.Status, &snoozeUnix, &l.MedicationName, &l.MedicationDosage); err != nil {
-			return nil, err
-		}
-		l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
-		if takenUnix.Valid {
-			t := time.Unix(takenUnix.Int64, 0).UTC()
-			l.TakenAt = &t
-		}
-		if snoozeUnix.Valid {
-			t := time.Unix(snoozeUnix.Int64, 0).UTC()
-			l.SnoozedUntil = &t
-		}
-		logs = append(logs, l)
-	}
-	return logs, nil
+	return s.medication.GetIntakesSince(since)
 }
 
 // -- Blood Pressure (forwarders to internal/store/bp.Repo) --

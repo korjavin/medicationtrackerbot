@@ -1,4 +1,4 @@
-package store
+package medication
 
 import (
 	"testing"
@@ -13,7 +13,7 @@ import (
 // internal/store/tz/ in Task 11.
 
 func TestMedicationTZShiftPolicyDefaultsToFlexible(t *testing.T) {
-	s := setupTestStore(t)
+	s := setupMedicationRepo(t)
 
 	id, err := s.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
@@ -30,7 +30,7 @@ func TestMedicationTZShiftPolicyDefaultsToFlexible(t *testing.T) {
 }
 
 func TestMedicationTZShiftPolicyRoundTrip(t *testing.T) {
-	s := setupTestStore(t)
+	s := setupMedicationRepo(t)
 
 	id, err := s.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "strict")
 	if err != nil {
@@ -60,7 +60,7 @@ func TestMedicationTZShiftPolicyRoundTrip(t *testing.T) {
 }
 
 func TestListMedicationsIncludesTZShiftPolicy(t *testing.T) {
-	s := setupTestStore(t)
+	s := setupMedicationRepo(t)
 
 	if _, err := s.CreateMedication("MedA", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "flexible"); err != nil {
 		t.Fatalf("CreateMedication: %v", err)

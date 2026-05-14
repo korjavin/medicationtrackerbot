@@ -1,4 +1,4 @@
-package store
+package medication
 
 import (
 	"testing"
@@ -31,7 +31,7 @@ func crossTZTimes(t *testing.T) (storedLA, queryBerlin time.Time) {
 }
 
 func TestGetIntakeBySchedule_CrossTZ(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	medID, err := db.CreateMedication("Med", "5mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
 	if err != nil {
@@ -56,7 +56,7 @@ func TestGetIntakeBySchedule_CrossTZ(t *testing.T) {
 }
 
 func TestGetTakenIntakesBySchedule_CrossTZ(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	medID, err := db.CreateMedication("Med", "5mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
 	if err != nil {
@@ -85,7 +85,7 @@ func TestGetTakenIntakesBySchedule_CrossTZ(t *testing.T) {
 }
 
 func TestGetIntake_ScanIntoUTC(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	medID, err := db.CreateMedication("Med", "5mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
 	if err != nil {
@@ -115,7 +115,7 @@ func TestGetIntake_ScanIntoUTC(t *testing.T) {
 }
 
 func TestGetIntakeHistory_CrossTZSince(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	medID, err := db.CreateMedication("Med", "5mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
 	if err != nil {
@@ -150,7 +150,7 @@ func TestGetIntakeHistory_CrossTZSince(t *testing.T) {
 }
 
 func TestGetPendingIntakesForMedication_ScanIntoUTC(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	medID, err := db.CreateMedication("Med", "5mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
 	if err != nil {
@@ -178,7 +178,7 @@ func TestGetPendingIntakesForMedication_ScanIntoUTC(t *testing.T) {
 // timezone is read back with TakenAt that compares equal to the original
 // instant — covers the taken_at_unix cutover (Task 5).
 func TestGetIntakeHistory_TakenAtCrossTZ(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	medID, err := db.CreateMedication("Med", "5mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
 	if err != nil {
@@ -221,7 +221,7 @@ func TestGetIntakeHistory_TakenAtCrossTZ(t *testing.T) {
 // TestGetIntake_TakenAtCrossTZ — per-id read of a TAKEN row preserves the
 // instant across a TZ boundary (write in LA, read normalizes to UTC).
 func TestGetIntake_TakenAtCrossTZ(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	medID, err := db.CreateMedication("Med", "5mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
 	if err != nil {
@@ -253,7 +253,7 @@ func TestGetIntake_TakenAtCrossTZ(t *testing.T) {
 }
 
 func TestGetIntakesSince_CrossTZ(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	medID, err := db.CreateMedication("Med", "5mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
 	if err != nil {

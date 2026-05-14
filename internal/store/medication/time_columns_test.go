@@ -1,37 +1,32 @@
-package store
+package medication
 
 import (
 	"database/sql"
 	"testing"
 
-	"github.com/pressly/goose/v3"
+	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
+	"github.com/korjavin/medicationtrackerbot/internal/store/migrations"
 	_ "modernc.org/sqlite"
 )
 
 // TestIntakeLogTimeColumnsAreInteger locks in the dose-time storage convention
-// documented at the top of store.go and in docs/architecture.md → "Time
-// storage": every dose-time column on intake_log must be stored as INTEGER
-// unix-seconds-UTC, and the legacy text-typed (DATETIME) columns from the
-// pre-2026-05-10 schema must not survive. A future migration that regresses any
-// of these columns to DATETIME / TEXT will fail this test loudly.
+// documented at the top of medication/repo.go and in docs/architecture.md →
+// "Time storage": every dose-time column on intake_log must be stored as
+// INTEGER unix-seconds-UTC, and the legacy text-typed (DATETIME) columns from
+// the pre-2026-05-10 schema must not survive. A future migration that regresses
+// any of these columns to DATETIME / TEXT will fail this test loudly.
 func TestIntakeLogTimeColumnsAreInteger(t *testing.T) {
-	db, err := sql.Open("sqlite", ":memory:")
+	d, err := storedb.Open(":memory:")
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { _ = d.Close() })
 
-	if err := goose.SetDialect("sqlite3"); err != nil {
-		t.Fatalf("set dialect: %v", err)
-	}
-	goose.SetBaseFS(embedMigrations)
-	goose.SetLogger(goose.NopLogger())
-
-	if err := goose.Up(db, "migrations"); err != nil {
-		t.Fatalf("goose up: %v", err)
+	if err := d.Migrate(migrations.FS, "."); err != nil {
+		t.Fatalf("migrate: %v", err)
 	}
 
-	rows, err := db.Query("PRAGMA table_info(intake_log)")
+	rows, err := d.Query("PRAGMA table_info(intake_log)")
 	if err != nil {
 		t.Fatalf("PRAGMA table_info(intake_log): %v", err)
 	}
