@@ -193,14 +193,14 @@ app.js!), `currentFoodStatsPeriod`, etc. — 23 total.
 
 ### Task 3: Wire architecture test
 
-- [ ] extend `architecture.no-module-state.test.js` (from the app.js
+- [x] extend `architecture.no-module-state.test.js` (from the app.js
   split plan) to also enforce on the new `features/workout/*.js` and
   `features/food/*.js` files; the orchestrator may carry the one
   allowed `let _state` (annotated)
-- [ ] add the new sub-files to the `architecture.offline-coverage.test.js`
+- [x] add the new sub-files to the `architecture.offline-coverage.test.js`
   allowlist or wire them through `cachedFetch` /
   `offlineAwareApiCall` per the existing rules
-- [ ] run `pnpm test architecture.` — must pass before next task
+- [x] run `pnpm test architecture.` — must pass before next task
 
 ### Task 4: Verify acceptance
 
