@@ -37,6 +37,7 @@ const CACHE_KEYS_JS = path.join(REPO_ROOT, 'web/static/js/core/cache-keys.js');
 const DATA_STORE_JS = path.join(REPO_ROOT, 'web/static/js/data-store.js');
 const APP_JS = path.join(REPO_ROOT, 'web/static/js/app.js');
 const WEIGHT_UNIT_STATE_JS = path.join(REPO_ROOT, 'web/static/js/features/weight-unit-state.js');
+const AUTH_BOOTSTRAP_JS = path.join(REPO_ROOT, 'web/static/js/features/auth-bootstrap.js');
 const MEDS_JS = path.join(REPO_ROOT, 'web/static/js/features/meds.js');
 const FOOD_PHOTO_SUMMARY_JS = path.join(REPO_ROOT, 'web/static/js/features/food-photo-summary.js');
 // features/food.js was split into per-concern sub-files under
@@ -239,6 +240,13 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   // segmented control, hydration in applyBootstrapPayload) find
   // window.WeightUnitState.
   evalFileCached(window, WEIGHT_UNIT_STATE_JS);
+
+  // auth-bootstrap.js owns SettingsState + bootstrap hydration helpers
+  // extracted from app.js (Plan 2026-05-13, Task 3). Loaded after
+  // weight-unit-state.js because applyBootstrapPayload calls
+  // WeightUnitState.applyAuthoritative; before feature modules that read
+  // window.featureSettings at load time (e.g. tests asserting it's defined).
+  evalFileCached(window, AUTH_BOOTSTRAP_JS);
 
   // Feature modules extracted from app.js (meds, food, bp, weight, health).
   evalFileCached(window, MEDS_JS);

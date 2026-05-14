@@ -53,6 +53,7 @@ const STATIC_ASSETS = [
     '/static/js/app-shell.js',
     // Features
     '/static/js/features/weight-unit-state.js',
+    '/static/js/features/auth-bootstrap.js',
     '/static/js/features/meds.js',
     '/static/js/features/food-photo-summary.js',
     '/static/js/features/food/products.js',
