@@ -124,6 +124,36 @@ describe('data-store.js tag-family invalidation', () => {
     }
   });
 
+  it('family-prefix sweep exempts static-registered keys whose tag differs', async () => {
+    // food_targets shares the food_ family prefix but is registered with
+    // tag=null because it's overwritten on save, not invalidated by the food
+    // family. invalidateTags(['food']) must keep it intact while still
+    // evicting the per-day food log keys.
+    const { window, cacheMap, cleanup } = loadDataStoreEnv({
+      initialCache: {
+        food_2026_05_14_day: { groups: [{ id: 1 }] },
+        food_targets: { calories: 2000, protein: 150 }
+      }
+    });
+
+    try {
+      window.CacheKeys = {
+        static: {
+          food_targets: { key: 'food_targets', tag: null },
+          food_products_cache: { key: 'food_products_cache', tag: 'food' }
+        }
+      };
+      window.DataStore.registerTagFamily('food_', 'food');
+
+      await window.DataStore.invalidateTags(['food']);
+
+      expect(cacheMap.has('food_2026_05_14_day')).toBe(false);
+      expect(cacheMap.has('food_targets')).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('invalidateByTag is a no-op when neither registered keys nor families exist', async () => {
     const { window, cacheMap, cleanup } = loadDataStoreEnv({
       initialCache: { lingering: { v: 1 } }
