@@ -12,11 +12,18 @@ package tzsuggestion
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
+
+// ErrInvalidTimezone signals that the supplied detected TZ failed validation
+// (empty or not a known IANA location). Callers wrap with errors.Is to map
+// it to HTTP 400; any other error indicates a store/internal failure and
+// should map to 500.
+var ErrInvalidTimezone = errors.New("invalid timezone")
 
 // SettingsStore is the minimal slice of settings persistence the service needs.
 type SettingsStore interface {
@@ -64,7 +71,7 @@ func (s *service) ShouldPrompt(ctx context.Context, detectedTZ string) (bool, st
 		return false, "empty detected timezone", nil
 	}
 	if _, err := time.LoadLocation(detectedTZ); err != nil {
-		return false, "", fmt.Errorf("invalid detected timezone %q: %w", detectedTZ, err)
+		return false, "", fmt.Errorf("%w: %q: %v", ErrInvalidTimezone, detectedTZ, err)
 	}
 
 	currentTZ, err := s.settings.GetCurrentTimezone()
@@ -98,10 +105,10 @@ func (s *service) ShouldPrompt(ctx context.Context, detectedTZ string) (bool, st
 
 func (s *service) RecordDismissal(ctx context.Context, detectedTZ string) error {
 	if detectedTZ == "" {
-		return fmt.Errorf("detected timezone is required")
+		return fmt.Errorf("%w: detected timezone is required", ErrInvalidTimezone)
 	}
 	if _, err := time.LoadLocation(detectedTZ); err != nil {
-		return fmt.Errorf("invalid detected timezone %q: %w", detectedTZ, err)
+		return fmt.Errorf("%w: %q: %v", ErrInvalidTimezone, detectedTZ, err)
 	}
 	return s.settings.SetDismissedTZSuggestion(ctx, detectedTZ)
 }

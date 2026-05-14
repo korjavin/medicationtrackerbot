@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/domain/medplan"
+	"github.com/korjavin/medicationtrackerbot/internal/domain/tzsuggestion"
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
@@ -677,8 +679,12 @@ func (s *Server) handleTZSuggestionDismiss(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err := s.tzSuggester.RecordDismissal(r.Context(), req.DetectedTZ); err != nil {
-		slog.Error("handleTZSuggestionDismiss: RecordDismissal failed", "error", err)
-		http.Error(w, "Invalid timezone: "+req.DetectedTZ, http.StatusBadRequest)
+		slog.Error("handleTZSuggestionDismiss: RecordDismissal failed", "error", err, "detected_tz", req.DetectedTZ)
+		if errors.Is(err, tzsuggestion.ErrInvalidTimezone) {
+			http.Error(w, "Invalid timezone", http.StatusBadRequest)
+			return
+		}
+		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusOK)

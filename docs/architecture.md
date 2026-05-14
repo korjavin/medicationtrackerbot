@@ -207,7 +207,8 @@ parity is documented at `internal/domain/medplan/medplan.go` near
 
 ### TZ suggestion cross-client dismissal
 
-TZ suggestion dismissal is persisted in `user_settings.dismissed_tz_suggestion`;
+TZ suggestion dismissal is persisted in the singleton `settings` table's
+`dismissed_tz_suggestion` column (migration `063_add_dismissed_tz_suggestion.sql`);
 the web bootstrap consults the settings bundle before prompting, so dismissing
 in one browser silences other clients until the detected TZ changes or the
 user explicitly updates settings. The decision flow lives in
