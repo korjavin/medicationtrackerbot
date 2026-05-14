@@ -51,7 +51,3 @@ func applyMigration(t *testing.T, db *sql.DB, migrationFile string) {
 	}
 }
 
-// intPtr is a tiny convenience helper used across test files in this package.
-// Lives here (formerly inside workout_test.go) so it survives the per-domain
-// split — the inventory and medication tests still reference it.
-func intPtr(i int) *int { return &i }
