@@ -898,3 +898,92 @@ func TestHandleSetTabOrder(t *testing.T) {
 		t.Fatalf("Expected status 400, got %d", wInvalid.Code)
 	}
 }
+
+// TestTZSuggestionDismiss_BundleRoundTrip is the cross-client dismissal
+// integration guard: a POST to /api/tz-suggestion/dismiss must persist the
+// detected TZ so a subsequent GET /api/settings reports the same value, and a
+// follow-up TZ change via POST /api/settings must clear the dismissal so the
+// next genuine TZ mismatch prompts normally.
+func TestTZSuggestionDismiss_BundleRoundTrip(t *testing.T) {
+	srv, db := createBPTestServer(t)
+	defer db.Close()
+	const userID = int64(123456)
+
+	if err := db.TZ.RecordTimezone("America/New_York"); err != nil {
+		t.Fatalf("seed RecordTimezone: %v", err)
+	}
+
+	// Dismiss the detected TZ via the new endpoint.
+	body, _ := json.Marshal(map[string]string{"detected_tz": "Asia/Tokyo"})
+	req := httptest.NewRequest("POST", "/api/tz-suggestion/dismiss", bytes.NewReader(body))
+	req = withUser(req, userID)
+	w := httptest.NewRecorder()
+	srv.handleTZSuggestionDismiss(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("dismiss: expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	// GET /api/settings must reflect the dismissal in the bundle.
+	getReq := httptest.NewRequest("GET", "/api/settings", nil)
+	getReq = withUser(getReq, userID)
+	getW := httptest.NewRecorder()
+	srv.handleGetSettings(getW, getReq)
+	if getW.Code != http.StatusOK {
+		t.Fatalf("get settings: expected 200, got %d", getW.Code)
+	}
+	var resp map[string]any
+	if err := json.NewDecoder(getW.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode settings: %v", err)
+	}
+	if got, _ := resp["dismissed_tz_suggestion"].(string); got != "Asia/Tokyo" {
+		t.Fatalf("expected dismissed_tz_suggestion=Asia/Tokyo after dismiss, got %q", got)
+	}
+
+	// Wire the tz updater with a planner so POST /api/settings exercises the
+	// full RecordTimezone path (which clears the dismissed flag in the same
+	// transaction).
+	srv.SetTZUpdater(tzupdate.NewService(db.TZ, db.TZ, tzreschedule.NewPlannerService(&testTZPlannerStore{db}), nil, nil))
+
+	// Now record a new TZ via POST /api/settings — the same TZ the user had
+	// dismissed. This must clear the dismissal so the next mismatch prompts
+	// normally.
+	updateBody, _ := json.Marshal(map[string]string{"timezone": "Asia/Tokyo"})
+	updateReq := httptest.NewRequest("POST", "/api/settings", bytes.NewReader(updateBody))
+	updateReq = withUser(updateReq, userID)
+	updateW := httptest.NewRecorder()
+	srv.handleUpdateSettings(updateW, updateReq)
+	if updateW.Code != http.StatusOK {
+		t.Fatalf("update settings: expected 200, got %d. Body: %s", updateW.Code, updateW.Body.String())
+	}
+
+	// Re-fetch the bundle and assert the dismissed flag is gone.
+	getReq2 := httptest.NewRequest("GET", "/api/settings", nil)
+	getReq2 = withUser(getReq2, userID)
+	getW2 := httptest.NewRecorder()
+	srv.handleGetSettings(getW2, getReq2)
+	var resp2 map[string]any
+	if err := json.NewDecoder(getW2.Body).Decode(&resp2); err != nil {
+		t.Fatalf("decode settings after update: %v", err)
+	}
+	if got, _ := resp2["dismissed_tz_suggestion"].(string); got != "" {
+		t.Fatalf("expected dismissed_tz_suggestion cleared after RecordTimezone, got %q", got)
+	}
+}
+
+// TestTZSuggestionDismiss_InvalidTZ confirms the dismiss endpoint rejects
+// non-IANA timezone strings with 400, matching the validation in the
+// tzsuggestion domain service.
+func TestTZSuggestionDismiss_InvalidTZ(t *testing.T) {
+	srv, db := createBPTestServer(t)
+	defer db.Close()
+
+	body, _ := json.Marshal(map[string]string{"detected_tz": "Not/ATimezone"})
+	req := httptest.NewRequest("POST", "/api/tz-suggestion/dismiss", bytes.NewReader(body))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+	srv.handleTZSuggestionDismiss(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid TZ, got %d. Body: %s", w.Code, w.Body.String())
+	}
+}

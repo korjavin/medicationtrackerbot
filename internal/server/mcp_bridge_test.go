@@ -366,6 +366,7 @@ func (f *fakeSettings) GetHealthEnabled(ctx context.Context) (bool, error)      
 func (f *fakeSettings) SetHealthEnabled(ctx context.Context, enabled bool) error     { return nil }
 func (f *fakeSettings) GetTabOrder(ctx context.Context) (string, error)              { return "", nil }
 func (f *fakeSettings) SetTabOrder(ctx context.Context, order string) error          { return nil }
+func (f *fakeSettings) GetDismissedTZSuggestion(ctx context.Context) (string, error) { return "", nil }
 func (f *fakeSettings) GetCurrentTimezone() (string, error)                          { return "", nil }
 func (f *fakeSettings) RecordTimezone(tz string) error                               { return nil }
 func (f *fakeSettings) GetWeightUnitPreference(ctx context.Context) (string, error) {
