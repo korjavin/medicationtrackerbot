@@ -7,11 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"strings"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store/auth"
+	"github.com/korjavin/medicationtrackerbot/internal/store/bp"
 	"github.com/korjavin/medicationtrackerbot/internal/store/diary"
 	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
 	"github.com/korjavin/medicationtrackerbot/internal/store/push"
@@ -69,6 +69,7 @@ type Store struct {
 	auth     *auth.Repo
 	vitals   *vitals.Repo
 	settings *settings.Repo
+	bp       *bp.Repo
 }
 
 var nowFunc = time.Now
@@ -142,20 +143,28 @@ type IntakeWithMedication struct {
 	MedicationDosage string `json:"medication_dosage"`
 }
 
-type BloodPressure struct {
-	ID         int64     `json:"id"`
-	UserID     int64     `json:"user_id"`
-	MeasuredAt time.Time `json:"measured_at"`
-	Systolic   int       `json:"systolic"`
-	Diastolic  int       `json:"diastolic"`
-	Pulse      *int      `json:"pulse,omitempty"`
-	Site       string    `json:"site,omitempty"`
-	Position   string    `json:"position,omitempty"`
-	Category   string    `json:"category,omitempty"`
-	IgnoreCalc bool      `json:"ignore_calc"`
-	Notes      string    `json:"notes,omitempty"`
-	Tag        string    `json:"tag,omitempty"`
-}
+// BloodPressure is an alias for the canonical type defined in
+// internal/store/bp. Kept here so existing references (server BP handlers,
+// MCP cardiovascular tools, bot BP callbacks, narrow consumer interfaces,
+// importer, demo seeder, tests) continue to compile during the per-domain
+// split; new code should depend on bp.BloodPressure directly.
+type BloodPressure = bp.BloodPressure
+
+// BPGoal is an alias for the canonical type defined in internal/store/bp.
+// New code should depend on bp.BPGoal directly.
+type BPGoal = bp.BPGoal
+
+// BPStats is an alias for the canonical type defined in internal/store/bp.
+// New code should depend on bp.BPStats directly.
+type BPStats = bp.BPStats
+
+// BPPeriodStats is an alias for the canonical type defined in
+// internal/store/bp. New code should depend on bp.BPPeriodStats directly.
+type BPPeriodStats = bp.BPPeriodStats
+
+// BPReminderState is an alias for the canonical type defined in
+// internal/store/bp. New code should depend on bp.BPReminderState directly.
+type BPReminderState = bp.BPReminderState
 
 type WeightLog struct {
 	ID              int64     `json:"id"`
@@ -224,23 +233,16 @@ type APIToken = auth.APIToken
 
 // CalculateBPCategory returns the ISH 2020 classification.
 // Deprecated: prefer domain.CalculateBPCategory for new code.
+// CalculateBPCategory is a forwarder to bp.CalculateBPCategory. New code
+// should call the bp package function directly.
 func CalculateBPCategory(systolic, diastolic int) string {
-	if systolic > 180 || diastolic > 120 {
-		return "Hypertensive Crisis"
-	}
-	if systolic >= 140 || diastolic >= 90 {
-		return "High BP Stage 2"
-	}
-	if systolic >= 130 || diastolic >= 80 {
-		return "High BP Stage 1"
-	}
-	if systolic >= 120 && systolic < 130 && diastolic < 80 {
-		return "Elevated"
-	}
-	if systolic < 120 && diastolic < 80 {
-		return "Normal"
-	}
-	return "Unknown"
+	return bp.CalculateBPCategory(systolic, diastolic)
+}
+
+// CategorySeverity is a forwarder to bp.CategorySeverity. New code should
+// call the bp package function directly.
+func CategorySeverity(category string) int {
+	return bp.CategorySeverity(category)
 }
 
 // New opens a SQLite database at dbPath, runs all migrations, and returns a
@@ -273,14 +275,22 @@ func NewWithDB(d *storedb.DB) (*Store, error) {
 	authRepo.SetClock(func() time.Time { return nowFunc() })
 	vitalsRepo := vitals.New(d)
 	settingsRepo := settings.New(d)
-	return &Store{
+	s := &Store{
 		db:       d,
 		diary:    diaryRepo,
 		push:     pushRepo,
 		auth:     authRepo,
 		vitals:   vitalsRepo,
 		settings: settingsRepo,
-	}, nil
+	}
+	// bp.Repo needs a TimezoneLookup for day-boundary calculations in
+	// GetBPDailyWeightedStats. *Store still owns the timezone table until
+	// Task 11, so it satisfies that interface today; after Task 11 the
+	// composition root will pass *tz.Repo directly.
+	bpRepo := bp.New(d, s)
+	bpRepo.SetClock(func() time.Time { return nowFunc() })
+	s.bp = bpRepo
+	return s, nil
 }
 
 // Diary returns the per-domain diary repository. The legacy *Store still
@@ -318,6 +328,21 @@ func (s *Store) Auth() *auth.Repo {
 // it through this accessor.
 func (s *Store) Vitals() *vitals.Repo {
 	return s.vitals
+}
+
+// BP returns the per-domain blood-pressure repository. The legacy *Store
+// still forwards CreateBloodPressureReading / GetBloodPressureReadings /
+// DeleteBloodPressureReading / ImportBloodPressureReadings / GetBPGoal /
+// SetBPGoal / GetBPDailyWeightedStats / GetBPReminderState /
+// SetBPReminderEnabled / SnoozeBPReminder / DontBugMeBPReminder /
+// UpdateBPReminderNotificationSent / ClearBPReminderNotificationMessage /
+// GetLastBPReading / GetDominantBPCategory / CalculatePreferredReminderHour /
+// UpdatePreferredReminderHour / GetUsersForBPReminders /
+// BatchGetBPReminderStates / BatchGetLastBPReadings to this same Repo; new
+// callers should depend on *bp.Repo (or a narrow interface satisfied by it)
+// and obtain it through this accessor.
+func (s *Store) BP() *bp.Repo {
+	return s.bp
 }
 
 // Settings returns the per-domain settings + change_events repository. The
@@ -1177,40 +1202,6 @@ func (s *Store) SetWeightGoal(weight float64, targetDate time.Time) error {
 	return err
 }
 
-// BP Goal Settings
-type BPGoal struct {
-	TargetSystolic  *int `json:"target_systolic,omitempty"`
-	TargetDiastolic *int `json:"target_diastolic,omitempty"`
-}
-
-func (s *Store) GetBPGoal() (*BPGoal, error) {
-	var systolic, diastolic sql.NullInt64
-
-	err := s.db.QueryRow("SELECT bp_target_systolic, bp_target_diastolic FROM settings WHERE id = 1").Scan(&systolic, &diastolic)
-	if err == sql.ErrNoRows {
-		return &BPGoal{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	result := &BPGoal{}
-	if systolic.Valid {
-		v := int(systolic.Int64)
-		result.TargetSystolic = &v
-	}
-	if diastolic.Valid {
-		v := int(diastolic.Int64)
-		result.TargetDiastolic = &v
-	}
-	return result, nil
-}
-
-func (s *Store) SetBPGoal(targetSystolic, targetDiastolic int) error {
-	_, err := s.db.Exec("UPDATE settings SET bp_target_systolic = ?, bp_target_diastolic = ? WHERE id = 1", targetSystolic, targetDiastolic)
-	return err
-}
-
 // -- Downloads --
 
 func (s *Store) GetIntakesSince(since time.Time) ([]IntakeWithMedication, error) {
@@ -1252,309 +1243,106 @@ func (s *Store) GetIntakesSince(since time.Time) ([]IntakeWithMedication, error)
 	return logs, nil
 }
 
-// -- Blood Pressure --
+// -- Blood Pressure (forwarders to internal/store/bp.Repo) --
 
-func (s *Store) CreateBloodPressureReading(ctx context.Context, bp *BloodPressure) (int64, error) {
-	if bp.Category == "" && !bp.IgnoreCalc {
-		bp.Category = CalculateBPCategory(bp.Systolic, bp.Diastolic)
-	}
-
-	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO blood_pressure_readings (user_id, measured_at, systolic, diastolic, pulse, site, position, category, ignore_calc, notes, tag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		bp.UserID, bp.MeasuredAt, bp.Systolic, bp.Diastolic, bp.Pulse, bp.Site, bp.Position, bp.Category, bp.IgnoreCalc, bp.Notes, bp.Tag)
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
+// GetBPGoal forwards to (*bp.Repo).GetBPGoal.
+func (s *Store) GetBPGoal() (*BPGoal, error) {
+	return s.bp.GetBPGoal()
 }
 
+// SetBPGoal forwards to (*bp.Repo).SetBPGoal.
+func (s *Store) SetBPGoal(targetSystolic, targetDiastolic int) error {
+	return s.bp.SetBPGoal(targetSystolic, targetDiastolic)
+}
+
+// CreateBloodPressureReading forwards to (*bp.Repo).CreateBloodPressureReading.
+func (s *Store) CreateBloodPressureReading(ctx context.Context, reading *BloodPressure) (int64, error) {
+	return s.bp.CreateBloodPressureReading(ctx, reading)
+}
+
+// GetBloodPressureReadings forwards to (*bp.Repo).GetBloodPressureReadings.
 func (s *Store) GetBloodPressureReadings(ctx context.Context, userID int64, since time.Time) ([]BloodPressure, error) {
-	query := "SELECT id, user_id, measured_at, systolic, diastolic, pulse, site, position, category, ignore_calc, notes, tag FROM blood_pressure_readings WHERE user_id = ?"
-	args := []interface{}{userID}
-
-	if !since.IsZero() {
-		query += " AND measured_at >= ?"
-		args = append(args, since)
-	}
-
-	query += " ORDER BY measured_at DESC"
-
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var readings []BloodPressure
-	for rows.Next() {
-		var bp BloodPressure
-		var pulse sql.NullInt64
-		var site, position, category, notes, tag sql.NullString
-
-		if err := rows.Scan(&bp.ID, &bp.UserID, &bp.MeasuredAt, &bp.Systolic, &bp.Diastolic, &pulse, &site, &position, &category, &bp.IgnoreCalc, &notes, &tag); err != nil {
-			return nil, err
-		}
-
-		if pulse.Valid {
-			bp.Pulse = new(int)
-			*bp.Pulse = int(pulse.Int64)
-		}
-		if site.Valid {
-			bp.Site = site.String
-		}
-		if position.Valid {
-			bp.Position = position.String
-		}
-		if category.Valid {
-			bp.Category = category.String
-		}
-		if notes.Valid {
-			bp.Notes = notes.String
-		}
-		if tag.Valid {
-			bp.Tag = tag.String
-		}
-
-		readings = append(readings, bp)
-	}
-	return readings, nil
+	return s.bp.GetBloodPressureReadings(ctx, userID, since)
 }
 
+// DeleteBloodPressureReading forwards to (*bp.Repo).DeleteBloodPressureReading.
 func (s *Store) DeleteBloodPressureReading(ctx context.Context, id, userID int64) error {
-	res, err := s.db.ExecContext(ctx, "DELETE FROM blood_pressure_readings WHERE id = ? AND user_id = ?", id, userID)
-	if err != nil {
-		return err
-	}
-	rowsAffected, _ := res.RowsAffected()
-	if rowsAffected == 0 {
-		return sql.ErrNoRows
-	}
-	return nil
+	return s.bp.DeleteBloodPressureReading(ctx, id, userID)
 }
 
+// ImportBloodPressureReadings forwards to (*bp.Repo).ImportBloodPressureReadings.
 func (s *Store) ImportBloodPressureReadings(ctx context.Context, userID int64, readings []BloodPressure) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	stmt, err := tx.PrepareContext(ctx,
-		"INSERT INTO blood_pressure_readings (user_id, measured_at, systolic, diastolic, pulse, site, position, category, ignore_calc, notes, tag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-
-	for _, bp := range readings {
-		bp.UserID = userID
-		if bp.Category == "" && !bp.IgnoreCalc {
-			bp.Category = CalculateBPCategory(bp.Systolic, bp.Diastolic)
-		}
-
-		var pulse interface{}
-		if bp.Pulse != nil {
-			pulse = *bp.Pulse
-		} else {
-			pulse = nil
-		}
-
-		_, err := stmt.ExecContext(ctx, bp.UserID, bp.MeasuredAt, bp.Systolic, bp.Diastolic, pulse, bp.Site, bp.Position, bp.Category, bp.IgnoreCalc, bp.Notes, bp.Tag)
-		if err != nil {
-			return err
-		}
-	}
-
-	return tx.Commit()
+	return s.bp.ImportBloodPressureReadings(ctx, userID, readings)
 }
 
-// BPPeriodStats represents daily-weighted BP stats for a specific time period
-type BPPeriodStats struct {
-	Systolic  int `json:"systolic"`
-	Diastolic int `json:"diastolic"`
-	Days      int `json:"days"`     // Number of days with readings
-	Readings  int `json:"readings"` // Total number of readings
-}
-
-// BPStats contains daily time-weighted blood pressure statistics for multiple time periods
-type BPStats struct {
-	Stats14 *BPPeriodStats `json:"stats_14,omitempty"`
-	Stats30 *BPPeriodStats `json:"stats_30,omitempty"`
-	Stats60 *BPPeriodStats `json:"stats_60,omitempty"`
-}
-
-// GetBPDailyWeightedStats computes blood pressure averages using a two-stage algorithm
-// that prevents measurement-frequency bias.
-//
-// Problem: A user who measures 5 times on a stressful day (high BP) and once on 3 calm
-// days would get an inflated average if we simply averaged all 8 readings. The stressful
-// day would contribute 5/8 of the result instead of 1/4.
-//
-// Stage 1 — Per-day time-weighted average:
-//
-//	Within each calendar day, each reading is weighted by the duration until the next
-//	reading (or end-of-day / current time, whichever comes first). This gives a fair
-//	intra-day average that accounts for how long each BP level was sustained.
-//
-// Stage 2 — Equal-weight daily average across the period:
-//
-//	Each day that has data contributes exactly one vote to the period average, regardless
-//	of how many readings that day had. Days without readings are excluded entirely (they
-//	don't count as zero — they're simply absent).
-//
-// Day boundaries use the user's stored timezone (from timezone_history table) so that
-// readings near midnight local time are assigned to the correct calendar day. Falls back
-// to UTC when no timezone is stored.
+// GetBPDailyWeightedStats forwards to (*bp.Repo).GetBPDailyWeightedStats.
 func (s *Store) GetBPDailyWeightedStats(ctx context.Context, userID int64) (*BPStats, error) {
-	// Load user's timezone for day-boundary calculation. Falls back to UTC
-	// if no timezone is stored or the stored value is invalid.
-	loc := time.UTC
-	if tzStr, err := s.GetCurrentTimezone(); err == nil && tzStr != "" {
-		if parsed, err := time.LoadLocation(tzStr); err == nil {
-			loc = parsed
-		}
-	}
-
-	now := nowFunc().In(loc)
-	maxDays := 60
-	windowStart := truncateToDay(now.AddDate(0, 0, -maxDays), loc)
-
-	var readings []BloodPressure
-	{
-		rows, err := s.db.QueryContext(ctx,
-			"SELECT measured_at, systolic, diastolic FROM blood_pressure_readings WHERE user_id = ? AND ignore_calc = 0 AND measured_at >= ? ORDER BY measured_at ASC",
-			userID, windowStart)
-		if err != nil {
-			return nil, err
-		}
-		defer rows.Close()
-
-		for rows.Next() {
-			var bp BloodPressure
-			if err := rows.Scan(&bp.MeasuredAt, &bp.Systolic, &bp.Diastolic); err != nil {
-				return nil, err
-			}
-			readings = append(readings, bp)
-		}
-		if err := rows.Err(); err != nil {
-			return nil, err
-		}
-	}
-
-	if len(readings) == 0 {
-		return &BPStats{}, nil
-	}
-
-	type dayAgg struct {
-		sumSys float64
-		sumDia float64
-		durSec float64
-	}
-
-	dayAggs := map[time.Time]*dayAgg{}
-
-	// Stage 1: Aggregate readings into per-day time-weighted sums.
-	// Each reading's weight = seconds until the next event (next reading, end-of-day, or now).
-	for i := 0; i < len(readings); i++ {
-		// Skip duplicate timestamps — keep only the last reading at any given instant.
-		if i+1 < len(readings) && readings[i+1].MeasuredAt.Equal(readings[i].MeasuredAt) {
-			continue
-		}
-		start := readings[i].MeasuredAt.In(loc)
-		if start.After(now) {
-			continue
-		}
-		dayStart := truncateToDay(start, loc)
-		dayEnd := dayStart.AddDate(0, 0, 1)
-
-		// Cap the reading's influence at the day boundary so it doesn't bleed into the next day.
-		end := dayEnd
-		if i+1 < len(readings) {
-			next := readings[i+1].MeasuredAt.In(loc)
-			// If the next reading is on the same calendar day, use it as the end point.
-			if truncateToDay(next, loc).Equal(dayStart) {
-				end = next
-			}
-		}
-		// Cap at current time so future end-of-day doesn't inflate today's duration.
-		if end.After(now) {
-			end = now
-		}
-		if !end.After(start) {
-			continue
-		}
-
-		dur := end.Sub(start).Seconds()
-		if dur <= 0 {
-			continue
-		}
-		agg := dayAggs[dayStart]
-		if agg == nil {
-			agg = &dayAgg{}
-			dayAggs[dayStart] = agg
-		}
-		agg.sumSys += float64(readings[i].Systolic) * dur
-		agg.sumDia += float64(readings[i].Diastolic) * dur
-		agg.durSec += dur
-	}
-
-	// Stage 2: Compute period averages (14d, 30d, 60d) where each day with data
-	// contributes equally, regardless of how many readings that day had.
-	buildStats := func(periodDays int) *BPPeriodStats {
-		periodStart := truncateToDay(now.AddDate(0, 0, -periodDays), loc)
-		var sumSys, sumDia float64
-		var days int
-
-		for day, agg := range dayAggs {
-			if day.Before(periodStart) || day.After(truncateToDay(now, loc)) {
-				continue
-			}
-			if agg.durSec <= 0 {
-				continue
-			}
-			// Convert time-weighted sums to a single daily average.
-			avgSys := agg.sumSys / agg.durSec
-			avgDia := agg.sumDia / agg.durSec
-			sumSys += avgSys
-			sumDia += avgDia
-			days++
-		}
-
-		if days == 0 {
-			return nil
-		}
-
-		readingsCount := 0
-		for _, bp := range readings {
-			measured := bp.MeasuredAt.In(loc)
-			if measured.Before(periodStart) || measured.After(now) {
-				continue
-			}
-			readingsCount++
-		}
-
-		return &BPPeriodStats{
-			Systolic:  int(math.Round(sumSys / float64(days))),
-			Diastolic: int(math.Round(sumDia / float64(days))),
-			Days:      days,
-			Readings:  readingsCount,
-		}
-	}
-
-	result := &BPStats{}
-	result.Stats14 = buildStats(14)
-	result.Stats30 = buildStats(30)
-	result.Stats60 = buildStats(60)
-
-	return result, nil
+	return s.bp.GetBPDailyWeightedStats(ctx, userID)
 }
 
-// truncateToDay returns midnight (start of day) in the given timezone.
-// This ensures day boundaries respect the user's local calendar, e.g. a reading
-// at 00:30 Europe/Berlin is on the correct local day, not the previous UTC day.
-func truncateToDay(t time.Time, loc *time.Location) time.Time {
-	local := t.In(loc)
-	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
+// GetBPReminderState forwards to (*bp.Repo).GetBPReminderState.
+func (s *Store) GetBPReminderState(userID int64) (*BPReminderState, error) {
+	return s.bp.GetBPReminderState(userID)
+}
+
+// SetBPReminderEnabled forwards to (*bp.Repo).SetBPReminderEnabled.
+func (s *Store) SetBPReminderEnabled(userID int64, enabled bool) error {
+	return s.bp.SetBPReminderEnabled(userID, enabled)
+}
+
+// SnoozeBPReminder forwards to (*bp.Repo).SnoozeBPReminder.
+func (s *Store) SnoozeBPReminder(userID int64) error {
+	return s.bp.SnoozeBPReminder(userID)
+}
+
+// DontBugMeBPReminder forwards to (*bp.Repo).DontBugMeBPReminder.
+func (s *Store) DontBugMeBPReminder(userID int64) error {
+	return s.bp.DontBugMeBPReminder(userID)
+}
+
+// UpdateBPReminderNotificationSent forwards to (*bp.Repo).UpdateBPReminderNotificationSent.
+func (s *Store) UpdateBPReminderNotificationSent(userID int64, messageID *int) error {
+	return s.bp.UpdateBPReminderNotificationSent(userID, messageID)
+}
+
+// ClearBPReminderNotificationMessage forwards to (*bp.Repo).ClearBPReminderNotificationMessage.
+func (s *Store) ClearBPReminderNotificationMessage(userID int64) error {
+	return s.bp.ClearBPReminderNotificationMessage(userID)
+}
+
+// GetLastBPReading forwards to (*bp.Repo).GetLastBPReading.
+func (s *Store) GetLastBPReading(ctx context.Context, userID int64) (*BloodPressure, error) {
+	return s.bp.GetLastBPReading(ctx, userID)
+}
+
+// GetDominantBPCategory forwards to (*bp.Repo).GetDominantBPCategory.
+func (s *Store) GetDominantBPCategory(ctx context.Context, userID int64) (string, error) {
+	return s.bp.GetDominantBPCategory(ctx, userID)
+}
+
+// CalculatePreferredReminderHour forwards to (*bp.Repo).CalculatePreferredReminderHour.
+func (s *Store) CalculatePreferredReminderHour(ctx context.Context, userID int64) (int, error) {
+	return s.bp.CalculatePreferredReminderHour(ctx, userID)
+}
+
+// UpdatePreferredReminderHour forwards to (*bp.Repo).UpdatePreferredReminderHour.
+func (s *Store) UpdatePreferredReminderHour(userID int64, hour int) error {
+	return s.bp.UpdatePreferredReminderHour(userID, hour)
+}
+
+// GetUsersForBPReminders forwards to (*bp.Repo).GetUsersForBPReminders.
+func (s *Store) GetUsersForBPReminders() ([]int64, error) {
+	return s.bp.GetUsersForBPReminders()
+}
+
+// BatchGetBPReminderStates forwards to (*bp.Repo).BatchGetBPReminderStates.
+func (s *Store) BatchGetBPReminderStates(ctx context.Context, userIDs []int64) (map[int64]*BPReminderState, error) {
+	return s.bp.BatchGetBPReminderStates(ctx, userIDs)
+}
+
+// BatchGetLastBPReadings forwards to (*bp.Repo).BatchGetLastBPReadings.
+func (s *Store) BatchGetLastBPReadings(ctx context.Context, userIDs []int64) (map[int64]*BloodPressure, error) {
+	return s.bp.BatchGetLastBPReadings(ctx, userIDs)
 }
 
 // -- Weight Tracking --

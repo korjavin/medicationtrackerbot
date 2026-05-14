@@ -297,13 +297,13 @@ Widely consumed but each touch is trivial — likely the largest "import-path-on
 
 ### Task 7: `bp` (13 methods including reminder state)
 
-- [ ] Create `internal/store/bp/` with `Repo`, `BloodPressureReading`, `BPReminderState`, `BPGoal` types.
-- [ ] Move `CreateBloodPressureReading`, `GetBloodPressureReadings`, `GetBPDailyWeightedStats`, `ImportBloodPressureReadings`, `GetBPGoal`, `SetBPGoal`, `DeleteBloodPressureReading`, plus `BatchGetLastBPReadings`.
-- [ ] Move all of `bp_reminders.go` into `internal/store/bp/reminders.go` (14 methods).
-- [ ] ➕ **Fix `defer rows.Close()` bug** at the old `bp_reminders.go:345-362` and `:429-445` (loop guard exists; normal-exit path leaks rows). Carrying this fix in the move PR keeps it atomic with the file move.
-- [ ] Forwarders in `Store`.
-- [ ] `git mv` the relevant test files: `store_bp_test.go`, `bp_stats_test.go`, `bp_batch_methods_test.go`, `bp_reminders_test.go` → `internal/store/bp/`.
-- [ ] Run `go test ./...` and `go test -race ./...` — must pass before Task 8.
+- [x] Create `internal/store/bp/` with `Repo`, `BloodPressure`, `BPReminderState`, `BPGoal`, `BPStats`, `BPPeriodStats` types. The package also exposes `CalculateBPCategory` / `CategorySeverity` (pure functions, no DB) and an internal `TimezoneLookup` interface that `*store.Store` satisfies today and `*tz.Repo` will satisfy after Task 11.
+- [x] Move `CreateBloodPressureReading`, `GetBloodPressureReadings`, `GetBPDailyWeightedStats`, `ImportBloodPressureReadings`, `GetBPGoal`, `SetBPGoal`, `DeleteBloodPressureReading`, plus `BatchGetLastBPReadings`. `truncateToDay` (private helper used only by `GetBPDailyWeightedStats`) also moves into the package. `nowFunc` access becomes per-repo `r.now` (defaults to `time.Now`, overridable via `SetClock`) so the BP-stats tests no longer touch the package-global `store.nowFunc`.
+- [x] Move all of `bp_reminders.go` into `internal/store/bp/reminders.go` (14 methods).
+- [x] ➕ **Fix `defer rows.Close()` bug** at the old `bp_reminders.go:345-362` and `:429-445` (loop guard exists; normal-exit path leaks rows). Carrying this fix in the move PR keeps it atomic with the file move. Implemented by extracting `scanReminderStateChunk` / `scanLastReadingsChunk` so each chunked query owns a single `defer rows.Close()` that fires on every exit path (success + error), instead of the prior pattern that hand-closed rows in two error branches and post-loop — which left a leak in the no-rows / iteration-error paths.
+- [x] Forwarders in `Store`. `BloodPressure` / `BPGoal` / `BPStats` / `BPPeriodStats` / `BPReminderState` become type aliases (e.g. `type BloodPressure = bp.BloodPressure`) so existing `store.BloodPressure` references (server BP handlers, MCP cardiovascular tools, bot BP callbacks, importer, demo seeder, narrow consumer interfaces, tests) compile unchanged. `CalculateBPCategory` and `CategorySeverity` remain at the package level as one-line forwarders. `Store.BP()` accessor exposes the repo for new callers.
+- [x] `git mv` the relevant test files: `store_bp_test.go` → `internal/store/bp/bp_test.go`, `bp_stats_test.go` → `internal/store/bp/stats_test.go`, `bp_batch_methods_test.go` → `internal/store/bp/batch_test.go`, `bp_reminders_test.go` → `internal/store/bp/reminders_test.go`. Tests rewritten against the `*Repo` API; setup helper switches from `store.New(":memory:")` to `storedb.Open` + `migrations.FS`. A local `stubTZ` implements `TimezoneLookup` for the Tokyo-day-boundary test that needs a non-UTC zone; the UTC-fallback test uses `stubTZ{tz: ""}`.
+- [x] Run `go test ./...` and `go test -race ./...` — must pass before Task 8. Full `go test ./...` is green; `go test -race ./internal/store/... ./internal/domain/... ./internal/bot/...` is green. The two pre-existing notifier-pattern races (`internal/server/TestHandleTriggerNextIntake_EarlyNotifFormatsInUserTZ` and `internal/scheduler/TestWorkoutCheckerScenarios/Stale_session_notification`, documented in Task 1 and Task 6's completion notes) still reproduce on master pre-refactor and are unrelated to the BP split.
 
 ---
 
