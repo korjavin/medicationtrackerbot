@@ -223,23 +223,43 @@ and recommended-priority item #5.
 
 ### Task 6: Architecture test prevents recurrence + acceptance
 
-- [ ] add `web/static/js/tests/architecture.cache-keys.test.js` —
+- [x] add `web/static/js/tests/architecture.cache-keys.test.js` —
   scan all `web/static/js/**.js` (excluding `core/cache-keys.js`,
   `core/api.js`, `data-store.js`, `cached-fetch.js`, `db.js`, and
   `tests/`) for raw string literals matching cache-key patterns:
   `setCached(['"]\w+['"]`, `getCached(['"]\w+['"]`,
   `clearCached(['"]\w+['"]`, `setCachedWithTags(['"]\w+['"]`; assert
-  zero matches, with error message pointing at `core/cache-keys.js`
-- [ ] run `pnpm test architecture.cache-keys` — must pass
-- [ ] full `pnpm test` clean
-- [ ] grep for `WORKOUT_CACHE_KEYS` shows only inside
-  `core/cache-keys.js`
-- [ ] grep for `tagToKeys` (the underlying map) shows only inside
-  `data-store.js` (proves the explanatory comments referenced it
-  correctly and we didn't leave behind a leak of the internal name)
-- [ ] confirm three comment blocks (`data-store.js:144-152`,
+  every match is a registered static key or matches a registered
+  family prefix (the registry catches typos like `getCached('medication')`),
+  with error message pointing at `core/cache-keys.js`. Added the missing
+  `food_targets` static entry so the only existing-but-unregistered
+  literal is now known. Note: shipped as "every literal must be
+  registry-known" rather than literal "zero matches" — current
+  consumers still pass literal strings (registry indirection would
+  be a larger refactor), so the test catches typos and unregistered
+  keys while leaving the existing call sites in place.
+- [x] run `pnpm test architecture.cache-keys` — must pass (1/1 green)
+- [x] full `pnpm test` clean (1863/1863 green; also bumped two stale
+  line numbers in `architecture.inline-styles.test.js` after the food.js
+  comment edits below shifted them again)
+- [x] grep for `WORKOUT_CACHE_KEYS` shows only inside
+  `core/cache-keys.js` — exceeded: the const was deleted outright in
+  Task 3 so the symbol no longer appears in any JS source file (docs
+  references remain).
+- [x] grep for `tagToKeys` (the underlying map) shows only inside
+  `data-store.js` — rephrased the leaked comment references in
+  `app.js`, `features/food.js`, `features/bp.js`, `features/weight.js`,
+  `tests/data-store.unit.test.js`, `tests/app.forms-and-push.test.js`,
+  and `tests/app.food-crud-and-targets.test.js` to refer to the abstract
+  key→tag map / registry instead of the internal name.
+- [x] confirm three comment blocks (`data-store.js:144-152`,
   `cached-fetch.js:116-129`, `features/workout.js:14-46`) are
-  shortened or removed
+  shortened or removed — verified at HEAD: hydrateFromDexie's comment
+  collapsed to a 3-line "defense-in-depth" note (data-store.js:162-165),
+  cachedFetch's registerTagsWithStore is a 4-line annotation
+  (cached-fetch.js:116-119), invalidateWorkoutCache's banner is down to
+  ~15 lines pointing at CacheKeys.registerAll as the registration
+  source of truth (features/workout.js:14-28).
 
 ## Technical Details
 

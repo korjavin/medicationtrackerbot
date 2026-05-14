@@ -408,12 +408,11 @@ describe('app.js form submissions and push modal behavior', () => {
   });
 
   it('handleWeightSubmit explicitly clears the Today weight cache by key', async () => {
-    // Regression: tagToKeys is in-memory, so if bootstrap was skipped
-    // (cached-auth fast path, or bootstrap fetch failed) the 'weight' key
-    // isn't registered and invalidateTags(['weight']) silently no-ops.
-    // Today's presence check then treats the stale IndexedDB snapshot as
-    // fresh and zeroes the weight tile after the save. Must clear by key
-    // to guarantee eviction.
+    // Regression: this exercise predates CacheKeys.registerAll wiring the
+    // 'weight' key at boot. It pins the belt-and-suspenders contract — a
+    // bypass of registration (future refactor, or a code path that skips
+    // the registry) must still result in eviction via clearCached('weight')
+    // so Today's presence check doesn't treat the stale snapshot as fresh.
     const { window, document, cleanup } = loadFrontendEnv();
 
     try {

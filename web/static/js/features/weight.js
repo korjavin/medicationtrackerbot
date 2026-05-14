@@ -378,13 +378,12 @@ async function handleWeightSubmit(event) {
     }
 
     await window.DataStore.invalidateTags(['weight']);
-    // Belt-and-suspenders: tagToKeys is in-memory, so if bootstrap was
-    // skipped (cached-auth fast path, or bootstrap fetch failed) the
-    // 'weight' key isn't registered and invalidateTags silently no-ops.
-    // Today's presence check then sees the stale IndexedDB snapshot,
-    // treats it as fresh, and skips the refetch — zeroing the weight
-    // tile after a new log. Clearing the key directly guarantees
-    // eviction regardless of map state.
+    // Belt-and-suspenders: CacheKeys.registerAll wires the 'weight'
+    // key→tag mapping at boot, so the invalidateTags(['weight']) above
+    // already covers the eviction. Clearing the key directly is a
+    // redundant safety net for any future code path that might bypass
+    // the registry — Today's presence check would otherwise see the
+    // stale IndexedDB snapshot and skip the refetch.
     if (window.DataStore.clearCached) {
         await window.DataStore.clearCached('weight');
     }

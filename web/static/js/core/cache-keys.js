@@ -70,6 +70,11 @@
             staleAfterMs: 7 * DAY_MS,
             description: 'Food products lookup cache.'
         },
+        food_targets: {
+            key: 'food_targets',
+            tag: null,
+            description: 'Food macro targets (calories/carbs/protein/fat). Invalidated indirectly via settings_bundle tagged with food_targets; the row itself is overwritten on each save.'
+        },
         diary_notes: {
             key: 'diary_notes',
             tag: 'health-notes',

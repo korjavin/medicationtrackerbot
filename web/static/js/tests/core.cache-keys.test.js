@@ -61,6 +61,7 @@ describe('core/cache-keys.js — static-key registry', () => {
             'workout_stats',
             'exercise_library',
             'food_products_cache',
+            'food_targets',
             'diary_notes',
             'settings_bundle'
         ];
