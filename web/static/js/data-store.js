@@ -309,12 +309,22 @@
             const registered = tagToKeys.get(tag);
             const prefixes = tagFamilies.get(tag);
 
-            // Collect every concrete key that should be evicted: explicitly
-            // registered keys + every api_cache row whose id starts with a
-            // registered family prefix for this tag. The Set merges duplicates
-            // so a key that's both registered AND prefix-matched isn't cleared
-            // twice.
+            // Phase 1 (synchronous): bump generation and drop the in-flight
+            // slot for every explicitly-registered key BEFORE any await.
+            // Otherwise a pending fetchFresh whose fetcher resolves during
+            // the family-prefix scan below would see the un-bumped generation,
+            // pass its supersede check, write stale data into the cache, and
+            // repaint UI via loadSWR's onFresh. Doing the bump synchronously
+            // here forces those resolutions to detect the supersede and abort.
             const toEvict = new Set(registered || []);
+            for (const key of toEvict) {
+                fetchGeneration.set(key, (fetchGeneration.get(key) || 0) + 1);
+                inFlight.delete(key);
+            }
+
+            // Phase 2 (async): extend the eviction set with family-prefix
+            // matches. Newly-discovered keys also need their generation bumped
+            // + in-flight slot dropped before clearCached runs.
             if (prefixes && prefixes.size > 0) {
                 const apiCache = window.MedTrackerDB?.ApiCache;
                 const staticRegistry = (window.CacheKeys && window.CacheKeys.static) || {};
@@ -332,6 +342,9 @@
                                 // food log family.
                                 const reg = staticRegistry[key];
                                 if (reg && reg.tag !== tag) continue;
+                                if (toEvict.has(key)) continue;
+                                fetchGeneration.set(key, (fetchGeneration.get(key) || 0) + 1);
+                                inFlight.delete(key);
                                 toEvict.add(key);
                             }
                         }
@@ -340,15 +353,6 @@
             }
 
             if (toEvict.size === 0) return;
-
-            // Evict any in-flight request so the next fetchFresh call starts a
-            // fresh GET rather than reusing a pre-invalidation promise.
-            // Also increment the generation so that the abandoned in-flight,
-            // when it eventually resolves, cannot re-cache its stale payload.
-            for (const key of toEvict) {
-                fetchGeneration.set(key, (fetchGeneration.get(key) || 0) + 1);
-                inFlight.delete(key);
-            }
 
             await Promise.all([...toEvict].map((key) => this.clearCached(key)));
         },
