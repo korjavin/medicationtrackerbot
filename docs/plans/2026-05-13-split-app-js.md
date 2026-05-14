@@ -108,26 +108,26 @@ and recommended-priority item #6.
 
 ### Task 1: Extract `core/escape-html.js` and `core/time-format.js`
 
-- [ ] move `escapeHtml` (`app.js:2779`) into `web/static/js/core/utils.js`
+- [x] move `escapeHtml` (`app.js:2779`) into `web/static/js/core/utils.js`
   next to `safeAlert`; expose as `window.escapeHtml`
-- [ ] move time-formatting utilities — `formatSettingsDateTime`
+- [x] move time-formatting utilities — `formatSettingsDateTime`
   (`app.js:92`), `parseRFC3339OffsetMinutes` (`app.js:105`),
   `formatFixedOffsetDateTime` (`app.js:114`), and
   `renderSettingsTimeInfo` — into `web/static/js/core/time-format.js`;
   expose as `window.TimeFormat.{...}`
-- [ ] update `app.js` to delete the moved functions and not re-define
+- [x] update `app.js` to delete the moved functions and not re-define
   them
-- [ ] update existing callers (only `sync.js:59` uses `escapeHtml` by
+- [x] update existing callers (only `sync.js:59` uses `escapeHtml` by
   name; `renderSettingsTimeInfo` is called via `window.X`)
-- [ ] add `core/time-format.js` to `index.html` and `sw.js`
+- [x] add `core/time-format.js` to `index.html` and `sw.js`
   `STATIC_ASSETS` (early — before `app.js`)
-- [ ] add `window.escapeHtml` and `window.TimeFormat` to
+- [x] add `window.escapeHtml` and `window.TimeFormat` to
   `architecture.globals.test.js` allowlist
-- [ ] write tests in `web/static/js/tests/core.escape-html.test.js`
+- [x] write tests in `web/static/js/tests/core.escape-html.test.js`
   (canonical behaviour: amp/lt/gt/quote/apos) and
   `web/static/js/tests/core.time-format.test.js` (RFC3339 offset
   parsing, fixed-offset render, locale fallback)
-- [ ] run `pnpm test core.escape-html core.time-format app.` — must
+- [x] run `pnpm test core.escape-html core.time-format app.` — must
   pass before next task
 
 ### Task 2: Extract `features/weight-unit-state.js` (the racy cluster)

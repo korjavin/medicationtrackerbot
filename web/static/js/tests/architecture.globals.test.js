@@ -55,6 +55,8 @@ const ALLOWED_GLOBALS = new Set([
     'window.apiCallDirect',             // core/api.js — low-level fetch used by data-store.js
     'window.AppKernel',                 // core/app-kernel.js — module registry
     'window.ChartUtils',               // core/chart-utils.js — shared SVG chart utilities
+    'window.escapeHtml',               // core/utils.js — canonical HTML entity escaper; consumed by sync.js debug panel + app.js medication schedule renderer
+    'window.TimeFormat',               // core/time-format.js — Settings timezone/server-clock row helpers; exposes render(bundle), ensureTimer(), formatSettingsDateTime, parseRFC3339OffsetMinutes, formatFixedOffsetDateTime
     'window.ModalManager',              // core/modal-manager.js — modal lifecycle façade
     'window.AppStore',                  // core/store.js — ephemeral UI state
     'window.CacheKeys',                 // core/cache-keys.js — centralized registry of api_cache keys, tags, and freshness windows; registerAll() is invoked at boot so tag-based invalidation works regardless of which feature loader has executed
