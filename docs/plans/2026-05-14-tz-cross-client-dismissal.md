@@ -87,11 +87,11 @@ Files:
 - Modify: `web/static/js/features/bootstrap.js`
 - Modify: `web/static/js/tests/bootstrap.tz-prompt-nonblocking.test.js` (existing tests will need updating to the new flow)
 
-- [ ] Replace the `localStorage.getItem('tz_prompt_dismissed')` check with a check against `settings_bundle.dismissed_tz_suggestion`. If `detectedTz === dismissed_tz_suggestion`, skip the prompt.
-- [ ] On user cancel, POST to `/api/tz-suggestion/dismiss` with `{ detected_tz }` instead of writing to `localStorage`. Best-effort; swallow errors but log.
-- [ ] On user accept, keep the existing `POST /api/settings` call — server-side `RecordTimezone` will clear the dismissed flag automatically. Remove the `localStorage.removeItem` and `localStorage.setItem` calls.
-- [ ] Drop the `tz_prompt_dismissed` localStorage key entirely (no migration needed — it is per-browser ephemeral).
-- [ ] Add a Vitest integration case: bootstrap with `settings_bundle.dismissed_tz_suggestion === detectedTz` does not call `safeConfirm`. A second case: cancel triggers a `POST /api/tz-suggestion/dismiss` with the right body.
+- [x] Replace the `localStorage.getItem('tz_prompt_dismissed')` check with a check against `settings_bundle.dismissed_tz_suggestion`. If `detectedTz === dismissed_tz_suggestion`, skip the prompt.
+- [x] On user cancel, POST to `/api/tz-suggestion/dismiss` with `{ detected_tz }` instead of writing to `localStorage`. Best-effort; swallow errors but log.
+- [x] On user accept, keep the existing `POST /api/settings` call — server-side `RecordTimezone` will clear the dismissed flag automatically. Remove the `localStorage.removeItem` and `localStorage.setItem` calls.
+- [x] Drop the `tz_prompt_dismissed` localStorage key entirely (no migration needed — it is per-browser ephemeral).
+- [x] Add a Vitest integration case: bootstrap with `settings_bundle.dismissed_tz_suggestion === detectedTz` does not call `safeConfirm`. A second case: cancel triggers a `POST /api/tz-suggestion/dismiss` with the right body.
 
 ### Task 6: Wire the new service in cmd entry points
 

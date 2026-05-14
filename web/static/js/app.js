@@ -76,6 +76,7 @@ function normalizeSettingsBundle(raw) {
         timezone: raw?.timezone || raw?.settings?.timezone || '',
         serverTime: raw?.serverTime || raw?.server_time || raw?.settings?.server_time || '',
         serverTimezone: raw?.serverTimezone || raw?.server_timezone || raw?.settings?.server_timezone || '',
+        dismissedTzSuggestion: raw?.dismissedTzSuggestion || raw?.dismissed_tz_suggestion || raw?.settings?.dismissed_tz_suggestion || '',
         weightUnitPreference: weightUnit,
         foodTargets: {
             calories: Number(foodTargetsRaw.calories) || 0,
@@ -1420,6 +1421,7 @@ async function fetchSettingsBundle() {
         timezone: settingsRes?.timezone || '',
         serverTime: settingsRes?.server_time || '',
         serverTimezone: settingsRes?.server_timezone || '',
+        dismissedTzSuggestion: settingsRes?.dismissed_tz_suggestion || '',
         weightUnitPreference: settingsRes?.weight_unit_preference || window.weightUnitPreference || 'kg',
         foodTargets: {
             calories: foodTargetsRes?.calories || 0,
