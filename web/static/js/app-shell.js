@@ -1,4 +1,21 @@
 // PWA Registration and App Shell Management
+
+// Send the Telegram init-data blob to the active SW so its notification
+// action handlers can attach the X-Telegram-Init-Data auth header. Safe to
+// call repeatedly; no-op when initData is absent or no controller is active.
+window.sendSwAuthToken = function () {
+    if (!navigator.serviceWorker) return;
+    const token = window.userInitData;
+    if (!token) return;
+    const controller = navigator.serviceWorker.controller;
+    if (!controller) return;
+    try {
+        controller.postMessage({ type: 'SET_AUTH_TOKEN', token });
+    } catch (err) {
+        console.log('SW token post failed:', err);
+    }
+};
+
 window.initServiceWorker = function () {
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', async () => {
@@ -8,6 +25,7 @@ window.initServiceWorker = function () {
                     updateViaCache: 'none'
                 });
                 console.log('SW registered:', registration.scope);
+                window.sendSwAuthToken();
                 const checkForUpdate = () => registration.update().catch(() => { /* Ignore transient update-check failures */ });
                 checkForUpdate();
 
@@ -38,8 +56,11 @@ window.initServiceWorker = function () {
             }
         });
 
-        // Reload when the controller changes (e.g. after skipWaiting)
+        // Reload when the controller changes (e.g. after skipWaiting).
+        // Re-post the auth token first so the new SW receives it even if the
+        // reload races; the new page load will also call sendSwAuthToken.
         navigator.serviceWorker.addEventListener('controllerchange', () => {
+            window.sendSwAuthToken();
             console.log('Controller changed, reloading...');
             window.location.reload();
         });

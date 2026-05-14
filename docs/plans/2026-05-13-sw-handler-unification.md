@@ -129,21 +129,21 @@ and recommended-priority item #1.
 
 ### Task 2: Wire client → SW token handoff
 
-- [ ] in `web/static/js/app-shell.js` `initServiceWorker()` (after the
+- [x] in `web/static/js/app-shell.js` `initServiceWorker()` (after the
   registration resolves), if `window.userInitData` exists, post
   `{ type: 'SET_AUTH_TOKEN', token: window.userInitData }` to the
   controller; also re-post on `controllerchange` event so updated SWs
   receive the token
-- [ ] in `web/static/sw.js` message listener (line 381), add a branch
+- [x] in `web/static/sw.js` message listener (line 381), add a branch
   for `event.data.type === 'SET_AUTH_TOKEN'` that sets
   `self.SwApi.authToken = event.data.token`
-- [ ] in `web/static/js/app.js:5-13` (the early Telegram init), if the
+- [x] in `web/static/js/app.js:5-13` (the early Telegram init), if the
   SW controller is already present at this point, also send the token —
   covers the hot-cache reload case
-- [ ] write tests in `web/static/js/tests/app-shell.sw-token.test.js`:
+- [x] write tests in `web/static/js/tests/app-shell.sw-token.test.js`:
   registration + token send sequence; controllerchange resends token;
   no-op when initData absent
-- [ ] run `pnpm test app-shell` — must pass before next task
+- [x] run `pnpm test app-shell` — must pass before next task
 
 ### Task 3: Replace bodies of all 11 handlers
 
