@@ -45,9 +45,12 @@ async function maybeUpdateTimezone() {
         await apiCall('/api/settings', 'POST', { timezone: detectedTz });
         // Clear the cached settings_bundle so that any tab loaded during this same
         // startup (e.g. workout history) reads the updated timezone from the server
-        // rather than the now-stale cached value.  advanceCursorSilently() runs
-        // fire-and-forget inside apiCall and may not finish before switchTab() is
-        // called below, so we eagerly invalidate here to close the race window.
+        // rather than the now-stale cached value.  This race is now hot: bootstrap
+        // schedules this function fire-and-forget AFTER switchTab() runs so the
+        // first paint is not blocked by the confirm dialog, which means the active
+        // tab may already be rendering with the old cached timezone when the user
+        // accepts the prompt.  Invalidating here lets the next interaction (tab
+        // switch, polling tick) re-fetch with the updated timezone.
         if (window.DataStore?.invalidateKey) {
             await window.DataStore.invalidateKey('settings_bundle');
         }
@@ -161,16 +164,6 @@ checkAuth().then(async authorized => {
 
         initOIDCSetupBanner();
 
-        // Detect timezone after auth so bootstrap payload is cached
-        await maybeUpdateTimezone();
-
-        // Surface a pending TZ transition plan if one is in flight. The banner
-        // stays hidden when no plan exists, so this is silent for users who
-        // never travel.
-        if (window.TZPlanBanner && typeof window.TZPlanBanner.refresh === 'function') {
-            window.TZPlanBanner.refresh();
-        }
-
         // Mount the canonical bottom nav once (before the first switchTab so
         // it can receive the AppKernel.onTabSwitch('today') notification).
         mountCanonicalBottomNav();
@@ -183,6 +176,20 @@ checkAuth().then(async authorized => {
 
         // Restore the last section the user was on (Today by default; deep links below override)
         switchTab(readSavedActiveTab());
+
+        // Detect timezone after the visible shell has mounted. Fire-and-forget
+        // so the confirm dialog never blocks first paint — in a plain browser
+        // (non-Telegram) the fallback was the synchronous native confirm(),
+        // which halted the main thread before any UI rendered and left users
+        // staring at a white page until they pressed Esc.
+        queueMicrotask(() => { maybeUpdateTimezone(); });
+
+        // Surface a pending TZ transition plan if one is in flight. The banner
+        // stays hidden when no plan exists, so this is silent for users who
+        // never travel.
+        if (window.TZPlanBanner && typeof window.TZPlanBanner.refresh === 'function') {
+            window.TZPlanBanner.refresh();
+        }
 
         // Wire the Telegram BackButton to return-to-Today once the initial tab is active.
         if (window.AppBackButton && typeof window.AppBackButton.setup === 'function') {

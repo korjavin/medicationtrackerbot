@@ -114,7 +114,7 @@ The fix has two complementary parts:
 
 ### Task 1: Move `maybeUpdateTimezone()` out of the pre-paint critical path
 
-- [ ] in `web/static/js/features/bootstrap.js`, reorder the post-auth
+- [x] in `web/static/js/features/bootstrap.js`, reorder the post-auth
       block so the visible shell mounts before TZ detection:
   1. call `mountCanonicalBottomNav()` first
   2. call `switchTab(readSavedActiveTab())` next
@@ -122,11 +122,11 @@ The fix has two complementary parts:
      ideally inside `queueMicrotask(...)` or
      `requestAnimationFrame(() => requestAnimationFrame(() => ...))` so it
      runs after the first paint.
-- [ ] keep the `TZPlanBanner.refresh()` call where it is (after the TZ
+- [x] keep the `TZPlanBanner.refresh()` call where it is (after the TZ
       detection schedule), and keep `AppBackButton.setup()` /
       `handleDeepLinks()` at the bottom — those depend on the active tab
       existing, not on TZ.
-- [ ] confirm the "Clear the cached settings_bundle" comment block inside
+- [x] confirm the "Clear the cached settings_bundle" comment block inside
       `maybeUpdateTimezone` still makes sense (the race it describes is
       now a real, hot race because `switchTab` runs first). Update the
       comment to reflect the new ordering and verify the existing
@@ -135,7 +135,7 @@ The fix has two complementary parts:
       `window.refreshActiveTab?.()` if such a helper exists, otherwise
       leave a follow-up note in Post-Completion — do **not** add new
       cross-feature plumbing in this plan).
-- [ ] write a Vitest case in
+- [x] write a Vitest case in
       `web/static/js/tests/bootstrap.today-default.test.js` (or a new
       sibling file `bootstrap.tz-prompt-nonblocking.test.js`) named
       `"renders the initial tab before the TZ prompt resolves"`. Setup:
@@ -147,12 +147,12 @@ The fix has two complementary parts:
       - eval bootstrap.js
       Assert: `switchTab` was called with the saved/default tab even
       though `safeConfirm` is still pending.
-- [ ] run `pnpm test web/static/js/tests/bootstrap` — all bootstrap tests
+- [x] run `pnpm test web/static/js/tests/bootstrap` — all bootstrap tests
       must pass before next task.
 
 ### Task 2: Replace native `confirm()` fallback in `safeConfirm` with `<mt-modal>`
 
-- [ ] in `web/static/js/core/utils.js`, refactor the non-Telegram path of
+- [x] in `web/static/js/core/utils.js`, refactor the non-Telegram path of
       `safeConfirm(msg, callback)`:
   1. build an `<mt-modal>` element with two buttons (`Confirm`,
      `Cancel`) and the supplied message text. Reuse existing modal CSS
@@ -170,15 +170,15 @@ The fix has two complementary parts:
   4. preserve the existing `callback` semantics: if the caller passed a
      `callback`, await its return value before resolving the outer
      Promise (mirror the current `invokeCallback` flow on lines 20-23).
-- [ ] keep the Telegram-context branch (`tg.showConfirm`) untouched —
+- [x] keep the Telegram-context branch (`tg.showConfirm`) untouched —
       verify by reading it side-by-side with the new code. The `try /
       catch` fallback to `confirm(msg)` inside the Telegram branch
       (line 33-35) should also be swapped to the new modal, since
       reaching that branch means Telegram's own dialog failed.
-- [ ] confirm there's no remaining reference to `window.confirm` /
+- [x] confirm there's no remaining reference to `window.confirm` /
       bare `confirm(` in `web/static/js/` after this change (other than
       possibly in tests).
-- [ ] write Vitest cases in a new file
+- [x] write Vitest cases in a new file
       `web/static/js/tests/safe-confirm.test.js`:
   - `"browser mode mounts an <mt-modal> and resolves true on Confirm"`
   - `"browser mode resolves false on Cancel"`
@@ -188,76 +188,95 @@ The fix has two complementary parts:
   - `"Telegram mode calls tg.showConfirm and does not mount mt-modal"`
   - `"callback receives the boolean result and its return value
        propagates"`
-- [ ] update any existing test that asserts on the native `confirm`
+- [x] update any existing test that asserts on the native `confirm`
       being called (grep `tests/` for `spyOn(window, 'confirm')` or
       similar) — replace with mt-modal assertions. If none exist, note
       that in the task body.
-- [ ] run `pnpm test web/static/js/tests/safe-confirm` and `pnpm test
+- [x] run `pnpm test web/static/js/tests/safe-confirm` and `pnpm test
       web/static/js/tests/bootstrap` — must pass before next task.
 
 ### Task 3: Cover the `maybeUpdateTimezone` happy path / cancel path with the new modal
 
-- [ ] add a Vitest case
+- [x] add a Vitest case
       `"maybeUpdateTimezone: accept POSTs /api/settings and invalidates
        cache"` — drives the new mt-modal Confirm and asserts the
       `fetch('/api/settings', {method:'POST', body:{timezone:...}})`
       call, plus `DataStore.invalidateKey('settings_bundle')`, plus
       that `localStorage.tz_prompt_dismissed` is cleared.
-- [ ] add a Vitest case
+- [x] add a Vitest case
       `"maybeUpdateTimezone: cancel writes tz_prompt_dismissed"` —
       drives Cancel, asserts `localStorage.tz_prompt_dismissed ===
       detectedTz` and that `/api/settings` was NOT POSTed.
-- [ ] add a Vitest case
+- [x] add a Vitest case
       `"maybeUpdateTimezone: skip when detectedTz equals stored
        timezone"` — asserts no modal is mounted.
-- [ ] add a Vitest case
+- [x] add a Vitest case
       `"maybeUpdateTimezone: skip when tz_prompt_dismissed matches
        detectedTz"` — asserts no modal is mounted.
-- [ ] place these in
+- [x] place these in
       `web/static/js/tests/bootstrap.tz-prompt-nonblocking.test.js`
       (created in Task 1) or a sibling.
-- [ ] run `pnpm test web/static/js/tests/bootstrap` — must pass.
+- [x] run `pnpm test web/static/js/tests/bootstrap` — must pass.
 
 ### Task 4: Architecture-test housekeeping
 
-- [ ] re-run `pnpm test` (full Vitest suite) — confirm
+- [x] re-run `pnpm test` (full Vitest suite) — confirm
       `tests/architecture.globals.test.js`,
       `tests/architecture.wg-primitives.test.js`, and any
       design-token / no-inline-style architecture tests still pass.
       If the new `safe-confirm` modal introduces a new `window.*`
       global, add an allowlist entry per CLAUDE.md rule 4.
-- [ ] if any CSS was added in Task 2, re-run the design-token /
+      (Result: 200 files / 1980 tests pass; no new window.* globals
+      added by Tasks 1-3, so no allowlist entry needed.)
+- [x] if any CSS was added in Task 2, re-run the design-token /
       no-hardcoded-color architecture tests specifically and fix any
       violations (use `--wg-*` tokens, no inline `.style.` assignments
       per CLAUDE.md rule 3).
+      (Result: `.mt-confirm-backdrop` / `.mt-confirm-modal__*` use only
+      design tokens — `--color-overlay`, `--z-overlay`, `--wg-font-ui`,
+      `--font-size-sm`, `--wg-fg-2`, `--space-sm`, `--space-lg`.
+      `architecture.design-tokens.test.js` (18 tests) and
+      `architecture.inline-styles.test.js` pass.)
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] verify in code that bootstrap.js no longer `await`s
+- [x] verify in code that bootstrap.js no longer `await`s
       `maybeUpdateTimezone()` before `switchTab()`.
-- [ ] verify `safeConfirm` no longer calls the native `confirm()` in
+      (Verified: `web/static/js/features/bootstrap.js:185` schedules
+      `maybeUpdateTimezone()` via `queueMicrotask` after
+      `mountCanonicalBottomNav()` and `switchTab(readSavedActiveTab())`
+      on lines 169 and 178; no `await` in between.)
+- [x] verify `safeConfirm` no longer calls the native `confirm()` in
       browser mode.
-- [ ] run full Vitest suite: `pnpm test`.
-- [ ] run full Go test suite: `go test ./...` (no server-side changes
+      (Verified: `web/static/js/core/utils.js` has no `confirm(`
+      reference. The fallback path on line 40 calls
+      `_mountConfirmModal(msg, handleResult)` which builds an
+      `<mt-modal>`; the Telegram-failure branch on lines 34-37 also
+      falls through to the same in-page modal.)
+- [x] run full Vitest suite: `pnpm test`.
+      (200 test files / 1980 tests pass via `npx vitest run`.)
+- [x] run full Go test suite: `go test ./...` (no server-side changes
       expected — this is a smoke check that the build still passes).
-- [ ] manually load the app in a regular browser (not Telegram) with a
-      mismatched timezone (e.g., flip system TZ before reload, or seed
-      `settings_bundle.timezone` to a different value via DevTools)
-      and confirm:
-      - the bottom nav and Today tab paint immediately
-      - the TZ prompt appears as a visible in-page modal
-      - Confirm updates the stored TZ; Cancel suppresses re-prompt for
-        this detected TZ
-- [ ] confirm in the Telegram WebApp that the TZ prompt still shows as
-      `tg.showConfirm` (visual smoke test).
+      (All packages green; no failures.)
+- [x] manually load the app in a regular browser (not Telegram) with a
+      mismatched timezone (skipped - not automatable in this loop;
+      see Post-Completion → Manual verification after deploy).
+- [x] confirm in the Telegram WebApp that the TZ prompt still shows as
+      `tg.showConfirm` (skipped - not automatable in this loop; see
+      Post-Completion → Manual verification after deploy).
 
 ### Task 6: [Final] Update documentation
 
-- [ ] add a one-line note to `docs/frontend.md` (find the section that
+- [x] add a one-line note to `docs/frontend.md` (find the section that
       covers bootstrap / modal primitives) describing that
       `safeConfirm` now uses `<mt-modal>` in browser mode and
       `tg.showConfirm` in Telegram mode.
-- [ ] no README change needed.
+      (Updated the Script Load Order entry for `core/utils.js` to
+      describe `safeConfirm`'s in-app modal + Telegram-native split,
+      and updated the `features/bootstrap.js` entry to reflect the new
+      `mountCanonicalBottomNav` → `switchTab` → `queueMicrotask(maybeUpdateTimezone)`
+      ordering so the modal can never block first paint.)
+- [x] no README change needed.
 
 ## Technical Details
 

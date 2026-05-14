@@ -171,20 +171,27 @@ describe('food product edit/delete in autocomplete', () => {
       window.safeAlert = vi.fn();
 
       // User cancels - no API call
-      window.confirm = vi.fn().mockReturnValue(false);
+      const cancelSpy = vi.spyOn(window, 'safeConfirm').mockImplementation(async (_msg, cb) => {
+        if (cb) await cb(false);
+        return false;
+      });
       window.apiCall = vi.fn();
       await window.deleteFoodProduct(5, 'Oats');
       expect(window.apiCall).not.toHaveBeenCalled();
+      cancelSpy.mockRestore();
 
       // User confirms - sends DELETE, no success alert
-      window.confirm = vi.fn().mockReturnValue(true);
+      const confirmSpy = vi.spyOn(window, 'safeConfirm').mockImplementation(async (_msg, cb) => {
+        if (cb) await cb(true);
+        return true;
+      });
       window.apiCall = vi.fn().mockResolvedValue({});
       window.initFoodProductsCache = vi.fn().mockResolvedValue(undefined);
       window.renderFoodAutocomplete = vi.fn();
       window.MedTrackerDB = { FoodProductsStore: { clearCache: vi.fn().mockResolvedValue(undefined) } };
 
       await window.deleteFoodProduct(5, 'Oats');
-      expect(window.confirm).toHaveBeenCalledWith('Delete "Oats" from your food database?');
+      expect(confirmSpy).toHaveBeenCalledWith('Delete "Oats" from your food database?', expect.any(Function));
       expect(window.apiCall).toHaveBeenCalledWith('/api/food/products/5', 'DELETE');
       expect(window.MedTrackerDB.FoodProductsStore.clearCache).toHaveBeenCalled();
       expect(window.initFoodProductsCache).toHaveBeenCalled();
@@ -199,7 +206,10 @@ describe('food product edit/delete in autocomplete', () => {
 
     try {
       window.safeAlert = vi.fn();
-      window.confirm = vi.fn().mockReturnValue(true);
+      vi.spyOn(window, 'safeConfirm').mockImplementation(async (_msg, cb) => {
+        if (cb) await cb(true);
+        return true;
+      });
       window.apiCall = vi.fn().mockRejectedValue(new Error('delete failed'));
 
       await window.deleteFoodProduct(5, 'Oats');

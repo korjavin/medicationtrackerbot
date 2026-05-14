@@ -112,7 +112,7 @@ Tag vocabulary: `bp`, `weight`, `medications`, `history`, `food`, `workouts`, `h
 
 Loading order matters — there is no bundler; cross-file communication happens via `window.*` globals.
 
-1. `core/utils.js` — `safeAlert`, format helpers
+1. `core/utils.js` — `safeAlert`, `safeConfirm` (in-app confirm dialog; uses Telegram's `tg.showConfirm` when running inside the Telegram WebApp, falls back to an `<mt-modal>` overlay in a plain browser — never the synchronous native `confirm()`, which would block first paint), format helpers
 2. `components/mt-elements.js` — registers `<mt-modal>`, `<mt-setting-toggle>`
 3. `components/empty-state.js`, `stat-card.js`, `action-row.js` — UI primitives
 3b. `components/wg-icons.js`, `wg-bottom-nav.js`, `wg-sparkline.js`, `wg-phone-chrome.js`, `wg-bp-chart.js`, `wg-weight-chart.js`, `wg-workout-chart.js`, `wg-macro-bar.js`, `wg-sleep-chart.js`, `wg-steps-chart.js`, `wg-vitals-chart.js` — Wandergeek design-system primitives (icon registry, bottom nav, sparkline, phone-chrome, BP chart, weight chart with optional goal overlay, workout sessions-per-week chart, macro bar, sleep stacked-bar chart with HR overlay, steps bar chart, vitals area+line chart parameterised by `vital`). Must load before `features/bootstrap.js` mounts the bottom nav, before `today.js` renders sparklines, before `features/food.js` renders the daily macros card, before `features/workout.js` renders the Stats sub-tab chart, and before `features/health.js` renders the Overview sub-tab sleep/steps/vitals cards.
@@ -131,7 +131,7 @@ Loading order matters — there is no bundler; cross-file communication happens 
 16. `features/modal-history.js` — MutationObserver setup
 17. `features/deeplink-router.js` — `window.handleDeepLinks`
 18. `push.js`, `app-shell.js` — feature extensions
-19. `features/bootstrap.js` — **must be last**. Runs `checkAuth()`, then `maybeUpdateTimezone()` (detects browser timezone via `Intl.DateTimeFormat`, compares against `settings_bundle` cache, prompts on change; errors are swallowed), then `mountCanonicalBottomNav()` (filters `WGBottomNav.DEFAULT_ITEMS` by `window.featureSettings`, mounts the nav into `#app`, and registers an AppKernel module so `switchTab()` mirrors into `ctrl.setActive()`), then the initial `switchTab('today')`, then `AppBackButton.setup()`, then `handleDeepLinks()`.
+19. `features/bootstrap.js` — **must be last**. Runs `checkAuth()`, then `mountCanonicalBottomNav()` (filters `WGBottomNav.DEFAULT_ITEMS` by `window.featureSettings`, mounts the nav into `#app`, and registers an AppKernel module so `switchTab()` mirrors into `ctrl.setActive()`), then the initial `switchTab('today')`, then schedules `maybeUpdateTimezone()` via `queueMicrotask` so the TZ-mismatch prompt (`safeConfirm` → `<mt-modal>` in browser, `tg.showConfirm` in Telegram) runs after first paint and never blocks the visible shell, then `AppBackButton.setup()`, then `handleDeepLinks()`.
 
 ## Global Namespace Policy
 

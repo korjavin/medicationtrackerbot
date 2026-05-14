@@ -30,14 +30,91 @@ function safeConfirm(msg, callback) {
         if (hasTelegramContext && tg.showConfirm) {
             try {
                 tg.showConfirm(msg, handleResult);
+                return;
             } catch (e) {
-                handleResult(confirm(msg));
+                // fall through to in-page modal — never to native confirm(),
+                // which is synchronous-modal and freezes first paint.
             }
-            return;
         }
 
-        handleResult(confirm(msg));
+        _mountConfirmModal(msg, handleResult);
     });
+}
+
+// In-page replacement for the synchronous native confirm() dialog. The
+// Telegram-native path (tg.showConfirm) is preferred when available because
+// it renders non-blockingly over the WebView; this is the fallback for
+// regular browsers and for any Telegram environment where showConfirm fails.
+function _mountConfirmModal(msg, onResult) {
+    const doc = document;
+    const backdrop = doc.createElement('div');
+    backdrop.className = 'mt-confirm-backdrop';
+
+    const modal = doc.createElement('mt-modal');
+    modal.className = 'wg-modal mt-confirm-modal';
+
+    const header = doc.createElement('div');
+    header.className = 'wg-modal__header';
+    const title = doc.createElement('h3');
+    title.className = 'wg-modal__title';
+    title.textContent = 'Confirm';
+    header.appendChild(title);
+
+    const body = doc.createElement('div');
+    body.className = 'wg-modal__body';
+    const messageEl = doc.createElement('p');
+    messageEl.className = 'mt-confirm-modal__message';
+    messageEl.textContent = String(msg ?? '');
+    body.appendChild(messageEl);
+
+    const actions = doc.createElement('div');
+    actions.className = 'wg-modal__actions';
+    const cancelBtn = doc.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'wg-gloss mt-confirm-modal__cancel';
+    cancelBtn.textContent = 'Cancel';
+    const confirmBtn = doc.createElement('button');
+    confirmBtn.type = 'button';
+    confirmBtn.className = 'wg-gloss wg-gloss--sun mt-confirm-modal__confirm';
+    confirmBtn.textContent = 'Confirm';
+    actions.appendChild(cancelBtn);
+    actions.appendChild(confirmBtn);
+
+    modal.appendChild(header);
+    modal.appendChild(body);
+    modal.appendChild(actions);
+
+    let resolved = false;
+    function settle(ok) {
+        if (resolved) return;
+        resolved = true;
+        doc.removeEventListener('keydown', onKeydown, true);
+        if (typeof modal.close === 'function') {
+            try { modal.close(); } catch (_) { /* ignore */ }
+        }
+        if (modal.parentNode) modal.parentNode.removeChild(modal);
+        if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
+        onResult(ok);
+    }
+
+    function onKeydown(e) {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            settle(false);
+        }
+    }
+
+    cancelBtn.addEventListener('click', () => settle(false));
+    confirmBtn.addEventListener('click', () => settle(true));
+    backdrop.addEventListener('click', () => settle(false));
+    doc.addEventListener('keydown', onKeydown, true);
+
+    doc.body.appendChild(backdrop);
+    doc.body.appendChild(modal);
+    if (typeof modal.open === 'function') {
+        try { modal.open(); } catch (_) { /* ignore */ }
+    }
+    try { confirmBtn.focus(); } catch (_) { /* ignore */ }
 }
 
 function formatDateTimeLocalForInput(dateValue = new Date()) {

@@ -110,7 +110,7 @@ describe('workout.js SWR and modal edge branches', () => {
       await window.loadWorkoutGroups();
       expect(document.getElementById('workout-groups-list').innerHTML).toContain('No cached data');
 
-      window.confirm = vi.fn().mockReturnValue(true);
+      vi.spyOn(window, 'safeConfirm').mockImplementation(async (_msg, cb) => { if (cb) await cb(true); return true; });
       window.apiCall = vi.fn().mockResolvedValue(true);
       window.DataStore.loadSWR = vi.fn(async (options) => {
         await options.onFresh([]);
@@ -197,8 +197,12 @@ describe('workout.js SWR and modal edge branches', () => {
 
       const editSpy = vi.spyOn(window, 'showEditExerciseLibraryModal').mockResolvedValue(undefined);
       const deleteSpy = vi.spyOn(window, 'deleteExerciseLibraryItem');
-      window.Telegram.WebApp.showConfirm = vi.fn((_msg, cb) => cb(false));
-      window.confirm = vi.fn().mockReturnValue(false);
+      // Keep safeConfirm from popping an in-page modal if deleteSpy lets the
+      // real implementation through during this assertion window.
+      vi.spyOn(window, 'safeConfirm').mockImplementation(async (_msg, cb) => {
+        if (cb) await cb(false);
+        return false;
+      });
 
       await window.loadExerciseLibrary();
 

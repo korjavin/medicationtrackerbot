@@ -190,6 +190,7 @@ const REQUIRED_TOKENS = [
     '--z-overlay',
     '--z-modal',
     '--z-popover',
+    '--z-confirm',
     '--z-toast',
 ];
 

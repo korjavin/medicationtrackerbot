@@ -224,9 +224,13 @@ describe('app.js medication modal CRUD and history edge branches', () => {
 
       window.apiCall.mockClear();
       window.Telegram.WebApp.showConfirm = vi.fn(() => { throw new Error('unsupported'); });
-      window.confirm = vi.fn().mockReturnValue(true);
+      // safeConfirm now falls back to an in-page <mt-modal> rather than the
+      // synchronous native confirm(). Stub safeConfirm directly so the
+      // boolean outcome is deterministic without driving the modal DOM.
+      const safeConfirmSpy = vi.spyOn(window, 'safeConfirm').mockImplementation(async (_msg, cb) => { if (cb) await cb(true); return true; });
       await window.deleteMed(1);
-      expect(window.confirm).toHaveBeenCalledWith('Archive this medication?');
+      expect(safeConfirmSpy).toHaveBeenCalledWith('Archive this medication?', expect.any(Function));
+      safeConfirmSpy.mockRestore();
 
       window.Telegram.WebApp.showAlert = vi.fn();
       window.apiCall = vi.fn().mockResolvedValue({ warning: 'already archived' });
