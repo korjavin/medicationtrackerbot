@@ -236,16 +236,16 @@ and recommended-priority item #6.
 
 ### Task 7: Architecture test prevents regression
 
-- [ ] add `web/static/js/tests/architecture.no-module-state.test.js`
+- [x] add `web/static/js/tests/architecture.no-module-state.test.js`
   that scans `web/static/js/{core,features}/*.js` (excluding `app.js`
   and existing files explicitly grandfathered with a justification)
   and fails any file with `^(let|var) ` at column zero — i.e.
   module-level mutable state is forbidden in extracted files; one
   `let _state = ...` per file allowed if the line includes the comment
   `// module-state: <reason>` immediately after
-- [ ] include the grandfather list (current files that have known
+- [x] include the grandfather list (current files that have known
   module state pending extraction) and document each entry
-- [ ] run `pnpm test architecture.no-module-state` — must pass
+- [x] run `pnpm test architecture.no-module-state` — must pass
 
 ### Task 8: Verify acceptance
 
