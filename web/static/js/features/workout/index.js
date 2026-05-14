@@ -76,7 +76,7 @@ if (document.readyState === 'loading') {
 }
 
 function switchWorkoutTab(tab) {
-    const activated = activateTabGroup(tab, {
+    const activated = window.TabController.activateTabGroup(tab, {
         buttonSelector: '.workout-tab',
         contentSelector: '.workout-tab-content',
         contentIdFromTab: (tabName) => `workout-${tabName}-tab`
@@ -92,7 +92,7 @@ function switchWorkoutTab(tab) {
     else if (tab === 'stats') { loadWorkoutStatsTab(); }
 }
 
-bindTabGroup({
+window.TabController.bindTabGroup({
     container: document.querySelector('.workout-tabs'),
     buttonSelector: '.workout-tab',
     onTabSelect: switchWorkoutTab

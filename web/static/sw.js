@@ -48,6 +48,7 @@ const STATIC_ASSETS = [
     '/static/js/sync.js',
     '/static/js/data-store.js',
     '/static/js/cached-fetch.js',
+    '/static/js/features/tab-controller.js',
     '/static/js/app.js',
     '/static/js/push.js',
     '/static/js/app-shell.js',

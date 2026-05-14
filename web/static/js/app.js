@@ -647,44 +647,11 @@ var formatDate = (dateStr) => {
 };
 
 // UI Functions
-function activateTabGroup(tab, options) {
-    const { buttonSelector, contentSelector, contentIdFromTab, ariaCurrent } = options;
-    // Validate target exists BEFORE clearing active state to avoid blank-page on unknown tabs.
-    // tabButton is optional: the top-level view group has no button strip after the
-    // Wandergeek bottom-nav rework (buttonSelector is omitted), so the button-side
-    // toggle is a no-op when missing.
-    const tabButton = buttonSelector ? document.querySelector(`${buttonSelector}[data-tab="${tab}"]`) : null;
-    const tabContent = document.getElementById(contentIdFromTab(tab));
-    if (!tabContent) return false;
-
-    if (buttonSelector) {
-        document.querySelectorAll(buttonSelector).forEach((el) => {
-            el.classList.remove('active');
-            if (ariaCurrent) el.removeAttribute('aria-current');
-        });
-    }
-    document.querySelectorAll(contentSelector).forEach((el) => el.classList.remove('active'));
-    if (tabButton) {
-        tabButton.classList.add('active');
-        if (ariaCurrent) tabButton.setAttribute('aria-current', ariaCurrent);
-    }
-    tabContent.classList.add('active');
-    return true;
-}
-
-function bindTabGroup(options) {
-    const { container, buttonSelector, onTabSelect } = options;
-    if (!container || container.dataset.tabBound === '1') return;
-    container.dataset.tabBound = '1';
-
-    container.addEventListener('click', (event) => {
-        const button = event.target.closest(buttonSelector);
-        if (!button || !container.contains(button)) return;
-        const tab = button.dataset.tab;
-        if (!tab) return;
-        onTabSelect(tab);
-    });
-}
+// activateTabGroup + bindTabGroup live in features/tab-controller.js
+// (Plan 2026-05-13, Task 6). Local aliases keep this file's call sites
+// short; both helpers are also reachable as window.TabController.*.
+const activateTabGroup = (tab, options) => window.TabController.activateTabGroup(tab, options);
+const bindTabGroup = (options) => window.TabController.bindTabGroup(options);
 
 function switchTab(tab) {
     const tabToFeature = {
@@ -1304,48 +1271,51 @@ bindTabGroup({
     onTabSelect: switchHealthTab
 });
 
-let medicationControlsBound = false;
+// The three bind* helpers below previously each carried their own
+// module-level `*ControlsBound = false` flag. They now share a single
+// TabController.bindOnce(scope, fn) registry (Plan 2026-05-13, Task 6),
+// so adding a fourth bind-once scope is free and the flags can't drift
+// apart.
 
 function bindMedicationControls() {
-    if (medicationControlsBound) return;
-    medicationControlsBound = true;
+    window.TabController.bindOnce('medicationControls', () => {
+        const bindClick = (id, handler) => {
+            const element = document.getElementById(id);
+            if (element) element.addEventListener('click', handler);
+        };
 
-    const bindClick = (id, handler) => {
-        const element = document.getElementById(id);
-        if (element) element.addEventListener('click', handler);
-    };
+        const bindChange = (id, handler) => {
+            const element = document.getElementById(id);
+            if (element) element.addEventListener('change', handler);
+        };
 
-    const bindChange = (id, handler) => {
-        const element = document.getElementById(id);
-        if (element) element.addEventListener('change', handler);
-    };
+        bindChange('history-filter-med', () => loadHistory());
+        bindChange('history-filter-days', () => loadHistory());
 
-    bindChange('history-filter-med', () => loadHistory());
-    bindChange('history-filter-days', () => loadHistory());
+        bindClick('add-btn', () => showAddModal());
+        bindClick('med-modal-cancel-btn', () => closeModal());
+        bindClick('med-modal-save-btn', () => saveMedication());
 
-    bindClick('add-btn', () => showAddModal());
-    bindClick('med-modal-cancel-btn', () => closeModal());
-    bindClick('med-modal-save-btn', () => saveMedication());
-
-    bindChange('schedule-type', () => toggleScheduleFields());
-    document.querySelectorAll('.wg-meds-modal__pill').forEach((pill) => {
-        pill.addEventListener('click', () => {
-            const type = pill.dataset.scheduleType;
-            if (type) setScheduleType(type);
+        bindChange('schedule-type', () => toggleScheduleFields());
+        document.querySelectorAll('.wg-meds-modal__pill').forEach((pill) => {
+            pill.addEventListener('click', () => {
+                const type = pill.dataset.scheduleType;
+                if (type) setScheduleType(type);
+            });
         });
-    });
-    document.querySelectorAll('#days-container .days-select span').forEach((day) => {
-        day.addEventListener('click', () => toggleDay(day));
-    });
+        document.querySelectorAll('#days-container .days-select span').forEach((day) => {
+            day.addEventListener('click', () => toggleDay(day));
+        });
 
-    bindClick('initial-remove-time-btn', () => {
-        const button = document.getElementById('initial-remove-time-btn');
-        if (button) removeTime(button);
-    });
-    bindClick('add-time-btn', () => addTimeInput());
+        bindClick('initial-remove-time-btn', () => {
+            const button = document.getElementById('initial-remove-time-btn');
+            if (button) removeTime(button);
+        });
+        bindClick('add-time-btn', () => addTimeInput());
 
-    bindChange('med-track-inventory', () => toggleInventoryFields());
-    bindClick('restock-add-btn', () => handleRestock());
+        bindChange('med-track-inventory', () => toggleInventoryFields());
+        bindClick('restock-add-btn', () => handleRestock());
+    });
 }
 
 if (document.readyState === 'loading') {
@@ -1353,36 +1323,33 @@ if (document.readyState === 'loading') {
 }
 bindMedicationControls();
 
-let measurementControlsBound = false;
-
 function bindMeasurementControls() {
-    if (measurementControlsBound) return;
-    measurementControlsBound = true;
+    window.TabController.bindOnce('measurementControls', () => {
+        const bindClick = (id, handler) => {
+            const element = document.getElementById(id);
+            if (element) element.addEventListener('click', handler);
+        };
 
-    const bindClick = (id, handler) => {
-        const element = document.getElementById(id);
-        if (element) element.addEventListener('click', handler);
-    };
+        // #add-bp-btn lives inside the dynamically-rendered #bp-range-selector
+        // row (Phase 5, Task 5); its click handler is bound in renderRangeSelector.
+        bindClick('bp-modal-cancel-btn', () => closeBPRecordModal());
+        bindClick('add-weight-btn', () => showWeightModal());
+        bindClick('weight-modal-cancel-btn', () => closeWeightModal());
 
-    // #add-bp-btn lives inside the dynamically-rendered #bp-range-selector
-    // row (Phase 5, Task 5); its click handler is bound in renderRangeSelector.
-    bindClick('bp-modal-cancel-btn', () => closeBPRecordModal());
-    bindClick('add-weight-btn', () => showWeightModal());
-    bindClick('weight-modal-cancel-btn', () => closeWeightModal());
+        const bpForm = document.getElementById('bp-form');
+        if (bpForm) {
+            bpForm.addEventListener('submit', (event) => {
+                handleBPSubmit(event);
+            });
+        }
 
-    const bpForm = document.getElementById('bp-form');
-    if (bpForm) {
-        bpForm.addEventListener('submit', (event) => {
-            handleBPSubmit(event);
-        });
-    }
-
-    const weightForm = document.getElementById('weight-form');
-    if (weightForm) {
-        weightForm.addEventListener('submit', (event) => {
-            handleWeightSubmit(event);
-        });
-    }
+        const weightForm = document.getElementById('weight-form');
+        if (weightForm) {
+            weightForm.addEventListener('submit', (event) => {
+                handleWeightSubmit(event);
+            });
+        }
+    });
 }
 
 if (document.readyState === 'loading') {
@@ -1390,30 +1357,27 @@ if (document.readyState === 'loading') {
 }
 bindMeasurementControls();
 
-let notificationControlsBound = false;
-
 function bindNotificationControls() {
-    if (notificationControlsBound) return;
-    notificationControlsBound = true;
+    window.TabController.bindOnce('notificationControls', () => {
+        const bindClick = (id, handler) => {
+            const element = document.getElementById(id);
+            if (element) element.addEventListener('click', handler);
+        };
 
-    const bindClick = (id, handler) => {
-        const element = document.getElementById(id);
-        if (element) element.addEventListener('click', handler);
-    };
+        bindClick('test-med-notification-btn', () => sendTestMedicationNotification());
+        bindClick('test-bp-notification-btn', () => sendTestBPNotification());
 
-    bindClick('test-med-notification-btn', () => sendTestMedicationNotification());
-    bindClick('test-bp-notification-btn', () => sendTestBPNotification());
+        bindClick('med-confirm-dismiss-btn', () => closeMedicationConfirmModal());
+        bindClick('med-confirm-action-btn', () => confirmSelectedMedications());
+        bindClick('med-confirm-snooze-btn', () => snoozeMedicationConfirm());
+        bindClick('med-confirm-skip-btn', () => skipSelectedMedications());
 
-    bindClick('med-confirm-dismiss-btn', () => closeMedicationConfirmModal());
-    bindClick('med-confirm-action-btn', () => confirmSelectedMedications());
-    bindClick('med-confirm-snooze-btn', () => snoozeMedicationConfirm());
-    bindClick('med-confirm-skip-btn', () => skipSelectedMedications());
-
-    bindClick('workout-start-now-btn', () => startWorkoutFromModal());
-    bindClick('workout-start-snooze-60-btn', () => snoozeWorkout(60));
-    bindClick('workout-start-snooze-120-btn', () => snoozeWorkout(120));
-    bindClick('workout-start-skip-btn', () => skipWorkout());
-    bindClick('workout-start-dismiss-btn', () => closeWorkoutStartModal());
+        bindClick('workout-start-now-btn', () => startWorkoutFromModal());
+        bindClick('workout-start-snooze-60-btn', () => snoozeWorkout(60));
+        bindClick('workout-start-snooze-120-btn', () => snoozeWorkout(120));
+        bindClick('workout-start-skip-btn', () => skipWorkout());
+        bindClick('workout-start-dismiss-btn', () => closeWorkoutStartModal());
+    });
 }
 
 if (document.readyState === 'loading') {
