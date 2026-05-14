@@ -188,11 +188,12 @@ describe('workout.js guard and error branches', () => {
       await window.deleteExerciseLog(1000);
       expect(window.safeAlert).not.toHaveBeenCalled();
 
-      window.confirm = vi.fn().mockReturnValue(false);
+      const confirmFalseSpy = vi.spyOn(window, 'safeConfirm').mockImplementation(async (_msg, cb) => { if (cb) await cb(false); return false; });
       await window.deleteExerciseLog(0);
       expect(window.apiCall).not.toHaveBeenCalledWith('/api/workout/sessions/logs/delete?id=5001', 'DELETE');
+      confirmFalseSpy.mockRestore();
 
-      window.confirm = vi.fn().mockReturnValue(true);
+      vi.spyOn(window, 'safeConfirm').mockImplementation(async (_msg, cb) => { if (cb) await cb(true); return true; });
       window.apiCall = vi.fn(async (endpoint) => {
         if (endpoint.startsWith('/api/workout/sessions/details')) return sessionDetailsWithTwoLogs();
         if (endpoint.startsWith('/api/workout/exercises?variant_id=')) return [];
@@ -230,7 +231,7 @@ describe('workout.js guard and error branches', () => {
       await window.startAdHocWorkout();
       expect(window.safeAlert).toHaveBeenCalledWith('Error starting ad-hoc workout: offline');
 
-      window.confirm = vi.fn().mockReturnValue(true);
+      vi.spyOn(window, 'safeConfirm').mockImplementation(async (_msg, cb) => { if (cb) await cb(true); return true; });
       window.apiCall = vi.fn().mockRejectedValue(new Error('no start'));
       await window.startWorkoutSession(17);
       expect(window.safeAlert).toHaveBeenCalledWith('❌ Failed to start workout. Please try again.');

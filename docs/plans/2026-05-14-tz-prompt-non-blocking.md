@@ -152,7 +152,7 @@ The fix has two complementary parts:
 
 ### Task 2: Replace native `confirm()` fallback in `safeConfirm` with `<mt-modal>`
 
-- [ ] in `web/static/js/core/utils.js`, refactor the non-Telegram path of
+- [x] in `web/static/js/core/utils.js`, refactor the non-Telegram path of
       `safeConfirm(msg, callback)`:
   1. build an `<mt-modal>` element with two buttons (`Confirm`,
      `Cancel`) and the supplied message text. Reuse existing modal CSS
@@ -170,15 +170,15 @@ The fix has two complementary parts:
   4. preserve the existing `callback` semantics: if the caller passed a
      `callback`, await its return value before resolving the outer
      Promise (mirror the current `invokeCallback` flow on lines 20-23).
-- [ ] keep the Telegram-context branch (`tg.showConfirm`) untouched —
+- [x] keep the Telegram-context branch (`tg.showConfirm`) untouched —
       verify by reading it side-by-side with the new code. The `try /
       catch` fallback to `confirm(msg)` inside the Telegram branch
       (line 33-35) should also be swapped to the new modal, since
       reaching that branch means Telegram's own dialog failed.
-- [ ] confirm there's no remaining reference to `window.confirm` /
+- [x] confirm there's no remaining reference to `window.confirm` /
       bare `confirm(` in `web/static/js/` after this change (other than
       possibly in tests).
-- [ ] write Vitest cases in a new file
+- [x] write Vitest cases in a new file
       `web/static/js/tests/safe-confirm.test.js`:
   - `"browser mode mounts an <mt-modal> and resolves true on Confirm"`
   - `"browser mode resolves false on Cancel"`
@@ -188,11 +188,11 @@ The fix has two complementary parts:
   - `"Telegram mode calls tg.showConfirm and does not mount mt-modal"`
   - `"callback receives the boolean result and its return value
        propagates"`
-- [ ] update any existing test that asserts on the native `confirm`
+- [x] update any existing test that asserts on the native `confirm`
       being called (grep `tests/` for `spyOn(window, 'confirm')` or
       similar) — replace with mt-modal assertions. If none exist, note
       that in the task body.
-- [ ] run `pnpm test web/static/js/tests/safe-confirm` and `pnpm test
+- [x] run `pnpm test web/static/js/tests/safe-confirm` and `pnpm test
       web/static/js/tests/bootstrap` — must pass before next task.
 
 ### Task 3: Cover the `maybeUpdateTimezone` happy path / cancel path with the new modal

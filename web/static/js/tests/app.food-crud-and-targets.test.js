@@ -240,11 +240,12 @@ describe('app.js food CRUD, targets and period helpers', () => {
       window.loadFoodLogs = vi.fn();
       window.safeAlert = vi.fn();
 
-      window.confirm = vi.fn().mockReturnValue(false);
+      const confirmFalseSpy = vi.spyOn(window, 'safeConfirm').mockImplementation(async (_msg, cb) => { if (cb) await cb(false); return false; });
       await window.deleteFoodLog(5);
       expect(window.apiCall).not.toHaveBeenCalled();
+      confirmFalseSpy.mockRestore();
 
-      window.confirm = vi.fn().mockReturnValue(true);
+      vi.spyOn(window, 'safeConfirm').mockImplementation(async (_msg, cb) => { if (cb) await cb(true); return true; });
       await window.deleteFoodLog(6);
       expect(window.apiCall).toHaveBeenCalledWith('/api/food/log/6', 'DELETE');
       expect(window.loadFoodLogs).toHaveBeenCalled();
@@ -411,29 +412,32 @@ describe('app.js food CRUD, targets and period helpers', () => {
         <button id="fooddb-next-btn"></button>
       `;
 
-      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+      const confirmSpy = vi.spyOn(window, 'safeConfirm').mockImplementation(async (_msg, cb) => { if (cb) await cb(true); return true; });
       window.safeAlert = vi.fn();
       window.apiCall = vi.fn().mockResolvedValue({ ok: true });
       window.initFoodProductsCache = vi.fn().mockResolvedValue([]);
       window.loadFoodDB = vi.fn();
       window.renderFoodAutocomplete = vi.fn();
-      
+
       // Test direct function call
       await window.deleteFoodProduct(123, 'Del Kim');
       expect(confirmSpy).toHaveBeenCalledTimes(1);
-      expect(confirmSpy).toHaveBeenCalledWith('Delete "Del Kim" from your food database?');
+      expect(confirmSpy).toHaveBeenCalledWith('Delete "Del Kim" from your food database?', expect.any(Function));
       confirmSpy.mockClear();
 
       // Test UI handler via renderFoodDBList
       const products = [{ id: 456, name: 'Burger', carbs_100g: 20, protein_100g: 15, fat_100g: 10, energy_kcal_100g: 250 }];
       window.renderFoodDBList(products, 1);
-      
+
       const delBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent === '🗑️');
       delBtn.click();
-      
+      // The click handler returns immediately while safeConfirm awaits; flush
+      // a microtask so the synchronous stub has resolved before we assert.
+      await Promise.resolve();
+
       // Should be called EXACTLY ONCE with correct name
       expect(confirmSpy).toHaveBeenCalledTimes(1);
-      expect(confirmSpy).toHaveBeenCalledWith('Delete "Burger" from your food database?');
+      expect(confirmSpy).toHaveBeenCalledWith('Delete "Burger" from your food database?', expect.any(Function));
       expect(window.safeAlert).not.toHaveBeenCalled();
     } finally {
       cleanup();
