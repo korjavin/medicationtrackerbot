@@ -213,14 +213,13 @@ describe('workout.js CRUD flows', () => {
       await window.loadVariantsForGroup(55);
       await window.loadExercisesForVariant(66);
 
-      window.Telegram.WebApp.showConfirm = vi.fn((_msg, cb) => cb(false));
-      window.confirm = vi.fn().mockReturnValue(false);
+      const confirmFalseSpy = vi.spyOn(window, 'safeConfirm').mockImplementation(async (_msg, cb) => { if (cb) await cb(false); return false; });
       await window.deleteVariant(7, { stopPropagation() {} });
       await window.deleteExercise(8, { stopPropagation() {} });
       expect(apiCallSpy).not.toHaveBeenCalled();
+      confirmFalseSpy.mockRestore();
 
-      window.Telegram.WebApp.showConfirm = vi.fn((_msg, cb) => cb(true));
-      window.confirm = vi.fn().mockReturnValue(true);
+      vi.spyOn(window, 'safeConfirm').mockImplementation(async (_msg, cb) => { if (cb) await cb(true); return true; });
       await window.deleteVariant(7, { stopPropagation() {} });
       await window.deleteExercise(8, { stopPropagation() {} });
 

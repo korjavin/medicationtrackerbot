@@ -60,29 +60,34 @@ describe('app.js BP/weight data and export branch coverage', () => {
     }
   });
 
-  it('deleteBPReading uses Telegram confirm when init data exists and falls back to window confirm', () => {
+  it('deleteBPReading uses Telegram confirm when init data exists and falls back to safeConfirm', async () => {
     const { window, cleanup } = loadFrontendEnv({ telegramInitData: 'token=abc' });
 
     try {
       const deleteSpy = vi.spyOn(window, '_deleteBPApi').mockResolvedValue(undefined);
 
       window.Telegram.WebApp.showConfirm = vi.fn((_msg, cb) => cb(true));
-      window.deleteBPReading(15);
+      await window.deleteBPReading(15);
       expect(window.Telegram.WebApp.showConfirm).toHaveBeenCalled();
       expect(deleteSpy).toHaveBeenCalledWith(15);
 
+      // When tg.showConfirm throws, safeConfirm falls back to the in-page modal
+      // (no longer the synchronous native confirm). Stub safeConfirm so the
+      // boolean outcome is deterministic without driving the modal DOM.
       window.Telegram.WebApp.showConfirm = vi.fn(() => {
         throw new Error('unsupported');
       });
-      window.confirm = vi.fn().mockReturnValue(true);
-      window.deleteBPReading(16);
-      expect(window.confirm).toHaveBeenCalledWith('Delete this blood pressure reading?');
+      const confirmTrueSpy = vi.spyOn(window, 'safeConfirm').mockImplementation(async (_msg, cb) => { if (cb) await cb(true); return true; });
+      await window.deleteBPReading(16);
+      expect(confirmTrueSpy).toHaveBeenCalledWith('Delete this blood pressure reading?', expect.any(Function));
       expect(deleteSpy).toHaveBeenCalledWith(16);
+      confirmTrueSpy.mockRestore();
 
       window.Telegram.WebApp.showConfirm = undefined;
-      window.confirm = vi.fn().mockReturnValue(false);
-      window.deleteBPReading(17);
+      const confirmFalseSpy = vi.spyOn(window, 'safeConfirm').mockImplementation(async (_msg, cb) => { if (cb) await cb(false); return false; });
+      await window.deleteBPReading(17);
       expect(deleteSpy).not.toHaveBeenCalledWith(17);
+      confirmFalseSpy.mockRestore();
     } finally {
       cleanup();
     }
