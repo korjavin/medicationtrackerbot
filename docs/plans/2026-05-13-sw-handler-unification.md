@@ -108,23 +108,24 @@ and recommended-priority item #1.
 
 ### Task 1: Extract `swApiCall` helper
 
-- [ ] create `web/static/js/sw-api-helper.js` — exports global
+- [x] create `web/static/js/sw-api-helper.js` — exports global
   `swApiCall(endpoint, method, body)` (attached to `self.SwApi`); reads
   `self.SwApi.authToken` (set by message handler) and adds
   `X-Telegram-Init-Data` header when present; always sends
   `credentials: 'include'` so the cookie path keeps working
-- [ ] register `importScripts('/static/js/sw-api-helper.js')` at the top
+- [x] register `importScripts('/static/js/sw-api-helper.js')` at the top
   of `web/static/sw.js`
-- [ ] add `'/static/js/sw-api-helper.js'` to `STATIC_ASSETS` in
+- [x] add `'/static/js/sw-api-helper.js'` to `STATIC_ASSETS` in
   `sw.js:12-80`
-- [ ] add the helper path to `web/static/js/tests/architecture.sw-precache.test.js`
-  expected-list assertion if the test enumerates each entry
-- [ ] write tests in `web/static/js/tests/sw-api-helper.test.js`:
+- [x] add the helper path to `web/static/js/tests/architecture.sw-precache.test.js`
+  expected-list assertion if the test enumerates each entry (added
+  to the `SW_SELF_IMPORTS` allowlist used by the orphan check)
+- [x] write tests in `web/static/js/tests/sw-api-helper.test.js`:
   helper sends header when token set; helper omits header when token
   unset; helper attaches `credentials: 'include'`; helper returns the
   parsed JSON body for 2xx; helper throws an `Error` with `.status` for
   non-2xx (matches main-thread `apiCallDirect` shape)
-- [ ] run `pnpm test sw-api-helper` — must pass before next task
+- [x] run `pnpm test sw-api-helper` — must pass before next task
 
 ### Task 2: Wire client → SW token handoff
 

@@ -1,4 +1,5 @@
 // Service Worker for Med Tracker PWA
+importScripts('/static/js/sw-api-helper.js');
 const CACHE_VERSION = 'CACHE_VERSION_PLACEHOLDER'; // Auto-updated by CI/CD
 // Manual bump knob: increment when shipping a UI change clients must pick up
 // even if the deploy timestamp alone fails to invalidate (e.g. mid-cycle
@@ -40,6 +41,7 @@ const STATIC_ASSETS = [
     '/static/js/components/wg-toggle.js',
     '/static/js/components/wg-settings.js',
     // Infrastructure
+    '/static/js/sw-api-helper.js',
     '/static/js/db.js',
     '/static/js/sync.js',
     '/static/js/data-store.js',
