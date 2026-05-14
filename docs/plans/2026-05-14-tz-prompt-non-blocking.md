@@ -220,16 +220,23 @@ The fix has two complementary parts:
 
 ### Task 4: Architecture-test housekeeping
 
-- [ ] re-run `pnpm test` (full Vitest suite) — confirm
+- [x] re-run `pnpm test` (full Vitest suite) — confirm
       `tests/architecture.globals.test.js`,
       `tests/architecture.wg-primitives.test.js`, and any
       design-token / no-inline-style architecture tests still pass.
       If the new `safe-confirm` modal introduces a new `window.*`
       global, add an allowlist entry per CLAUDE.md rule 4.
-- [ ] if any CSS was added in Task 2, re-run the design-token /
+      (Result: 200 files / 1980 tests pass; no new window.* globals
+      added by Tasks 1-3, so no allowlist entry needed.)
+- [x] if any CSS was added in Task 2, re-run the design-token /
       no-hardcoded-color architecture tests specifically and fix any
       violations (use `--wg-*` tokens, no inline `.style.` assignments
       per CLAUDE.md rule 3).
+      (Result: `.mt-confirm-backdrop` / `.mt-confirm-modal__*` use only
+      design tokens — `--color-overlay`, `--z-overlay`, `--wg-font-ui`,
+      `--font-size-sm`, `--wg-fg-2`, `--space-sm`, `--space-lg`.
+      `architecture.design-tokens.test.js` (18 tests) and
+      `architecture.inline-styles.test.js` pass.)
 
 ### Task 5: Verify acceptance criteria
 
