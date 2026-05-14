@@ -86,7 +86,7 @@ func TestHandleListNotes(t *testing.T) {
 
 	ctx := ctxWithUser(123456)
 	for i := 0; i < 3; i++ {
-		_, err := db.CreateDiaryNote(ctx, 123456, fmt.Sprintf("note %d", i), nil)
+		_, err := db.Diary.Create(ctx, 123456, fmt.Sprintf("note %d", i), nil)
 		if err != nil {
 			t.Fatalf("CreateDiaryNote: %v", err)
 		}
@@ -117,7 +117,7 @@ func TestHandleListNotes_LimitParam(t *testing.T) {
 
 	ctx := ctxWithUser(123456)
 	for i := 0; i < 5; i++ {
-		_, err := db.CreateDiaryNote(ctx, 123456, fmt.Sprintf("note %d", i), nil)
+		_, err := db.Diary.Create(ctx, 123456, fmt.Sprintf("note %d", i), nil)
 		if err != nil {
 			t.Fatalf("CreateDiaryNote: %v", err)
 		}
@@ -148,7 +148,7 @@ func TestHandleListNotes_CursorPagination(t *testing.T) {
 	ctx := ctxWithUser(123456)
 	var lastID int64
 	for i := 0; i < 5; i++ {
-		note, err := db.CreateDiaryNote(ctx, 123456, fmt.Sprintf("note %d", i), nil)
+		note, err := db.Diary.Create(ctx, 123456, fmt.Sprintf("note %d", i), nil)
 		if err != nil {
 			t.Fatalf("CreateDiaryNote: %v", err)
 		}
@@ -200,7 +200,7 @@ func TestHandleDeleteNote(t *testing.T) {
 	defer db.Close()
 
 	ctx := ctxWithUser(123456)
-	note, err := db.CreateDiaryNote(ctx, 123456, "to delete", nil)
+	note, err := db.Diary.Create(ctx, 123456, "to delete", nil)
 	if err != nil {
 		t.Fatalf("CreateDiaryNote: %v", err)
 	}
@@ -216,7 +216,7 @@ func TestHandleDeleteNote(t *testing.T) {
 		t.Errorf("Expected 204, got %d. Body: %s", w.Code, w.Body.String())
 	}
 
-	notes, err := db.ListDiaryNotes(ctx, 123456, time.Time{}, time.Time{}, 0, 0 /*beforeID*/)
+	notes, err := db.Diary.List(ctx, 123456, time.Time{}, time.Time{}, 0, 0 /*beforeID*/)
 	if err != nil {
 		t.Fatalf("ListDiaryNotes: %v", err)
 	}
@@ -372,7 +372,7 @@ func TestHandleListNotes_ReturnsTag(t *testing.T) {
 
 	ctx := ctxWithUser(123456)
 	tag := "HR"
-	if _, err := db.CreateDiaryNote(ctx, 123456, "resting 58", &tag); err != nil {
+	if _, err := db.Diary.Create(ctx, 123456, "resting 58", &tag); err != nil {
 		t.Fatalf("CreateDiaryNote: %v", err)
 	}
 

@@ -301,14 +301,14 @@ func TestCreateManualIntake_DualWritesTakenAtUnix(t *testing.T) {
 		t.Fatalf("load Phoenix: %v", err)
 	}
 
-	medID, err := db.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
+	medID, err := db.Medication.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
 	}
 
 	takenLA := time.Date(2026, 5, 10, 8, 20, 0, 0, la)
 	wantUnix := takenLA.UTC().Unix()
-	idLA, err := db.CreateManualIntake(medID, 1, takenLA)
+	idLA, err := db.Medication.CreateManualIntake(medID, 1, takenLA)
 	if err != nil {
 		t.Fatalf("CreateManualIntake (LA): %v", err)
 	}
@@ -324,7 +324,7 @@ func TestCreateManualIntake_DualWritesTakenAtUnix(t *testing.T) {
 	// Same wall clock 08:20 in Phoenix (MST = -07:00, same offset as PDT but
 	// different name and Location).
 	takenPhx := time.Date(2026, 5, 10, 8, 20, 0, 0, phoenix)
-	idPhx, err := db.CreateManualIntake(medID, 1, takenPhx)
+	idPhx, err := db.Medication.CreateManualIntake(medID, 1, takenPhx)
 	if err != nil {
 		t.Fatalf("CreateManualIntake (Phoenix): %v", err)
 	}
@@ -353,13 +353,13 @@ func TestCreateManualIntake_DualWritesTakenAtUnix(t *testing.T) {
 func TestConfirmIntake_StripsMonotonicResidue(t *testing.T) {
 	db := setupTestStore(t)
 
-	medID, err := db.CreateMedication("Med", "5mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	medID, err := db.Medication.CreateMedication("Med", "5mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
 	}
 
 	scheduledAt := time.Date(2026, 5, 10, 8, 0, 0, 0, time.UTC)
-	id, err := db.CreateIntake(medID, 1, scheduledAt)
+	id, err := db.Medication.CreateIntake(medID, 1, scheduledAt)
 	if err != nil {
 		t.Fatalf("CreateIntake: %v", err)
 	}
@@ -367,11 +367,11 @@ func TestConfirmIntake_StripsMonotonicResidue(t *testing.T) {
 	// time.Now() carries a monotonic clock component. The writer must strip it
 	// via .UTC() before binding so it doesn't leak into the DB.
 	now := time.Now()
-	if err := db.ConfirmIntake(id, now); err != nil {
+	if err := db.Medication.ConfirmIntake(id, now); err != nil {
 		t.Fatalf("ConfirmIntake: %v", err)
 	}
 
-	got, err := db.GetIntake(id)
+	got, err := db.Medication.GetIntake(id)
 	if err != nil {
 		t.Fatalf("GetIntake: %v", err)
 	}

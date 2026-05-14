@@ -17,43 +17,43 @@ func TestHandleListWorkoutSessions_AdHocNames(t *testing.T) {
 	userID := int64(123456)
 
 	// Create a regular (non-ad-hoc) session for comparison
-	group, err := db.CreateWorkoutGroup("Legs", "Leg day", false, userID, "[1,2,3]", "10:00", 15)
+	group, err := db.Workout.CreateWorkoutGroup("Legs", "Leg day", false, userID, "[1,2,3]", "10:00", 15)
 	if err != nil {
 		t.Fatalf("CreateWorkoutGroup: %v", err)
 	}
 	rotOrder := 0
-	variant, err := db.CreateWorkoutVariant(group.ID, "Heavy", &rotOrder, "")
+	variant, err := db.Workout.CreateWorkoutVariant(group.ID, "Heavy", &rotOrder, "")
 	if err != nil {
 		t.Fatalf("CreateWorkoutVariant: %v", err)
 	}
-	regularSession, err := db.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "10:00")
+	regularSession, err := db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "10:00")
 	if err != nil {
 		t.Fatalf("CreateWorkoutSession: %v", err)
 	}
 	_ = regularSession
 
 	// Create an ad-hoc session with two exercises; Squats has bigger volume
-	adHocSession, err := db.CreateAdHocWorkoutSession(userID, time.Now(), "11:00")
+	adHocSession, err := db.Workout.CreateAdHocWorkoutSession(userID, time.Now(), "11:00")
 	if err != nil {
 		t.Fatalf("CreateAdHocWorkoutSession: %v", err)
 	}
 	sets1 := 3
 	reps1 := 10
 	w1 := 100.0 // Squats: vol = 3000
-	_, err = db.LogExercise(adHocSession.ID, 0, "Squats", &sets1, &reps1, &w1, "completed", "")
+	_, err = db.Workout.LogExercise(adHocSession.ID, 0, "Squats", &sets1, &reps1, &w1, "completed", "")
 	if err != nil {
 		t.Fatalf("LogExercise Squats: %v", err)
 	}
 	sets2 := 3
 	reps2 := 10
 	w2 := 50.0 // Bench: vol = 1500
-	_, err = db.LogExercise(adHocSession.ID, 0, "Bench Press", &sets2, &reps2, &w2, "completed", "")
+	_, err = db.Workout.LogExercise(adHocSession.ID, 0, "Bench Press", &sets2, &reps2, &w2, "completed", "")
 	if err != nil {
 		t.Fatalf("LogExercise Bench: %v", err)
 	}
 
 	// Create an ad-hoc session with no logged exercises
-	emptyAdHocSession, err := db.CreateAdHocWorkoutSession(userID, time.Now(), "12:00")
+	emptyAdHocSession, err := db.Workout.CreateAdHocWorkoutSession(userID, time.Now(), "12:00")
 	if err != nil {
 		t.Fatalf("CreateAdHocWorkoutSession empty: %v", err)
 	}

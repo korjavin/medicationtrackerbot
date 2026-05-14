@@ -17,17 +17,17 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		// now = 2024-03-15T04:05:00Z = 09:05 in UTC+5.
 		// Expected target: 09:00 UTC+5 = 04:00 UTC. since now (04:05) > target (04:00) → fires.
 		db := mustNewDB(t)
-		db.SetMedicationEnabled(context.Background(), true) //nolint:errcheck
-		if err := db.RecordTimezone("Asia/Yekaterinburg"); err != nil {
+		db.Settings.SetMedicationEnabled(context.Background(), true) //nolint:errcheck
+		if err := db.TZ.RecordTimezone("Asia/Yekaterinburg"); err != nil {
 			t.Fatalf("RecordTimezone: %v", err)
 		}
 
-		id, err := db.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+		id, err := db.Medication.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 		if err != nil {
 			t.Fatalf("CreateMedication: %v", err)
 		}
 		nowTime := time.Date(2024, 3, 15, 4, 5, 0, 0, time.UTC)
-		if err := db.UpdateMedicationCreatedAt(id, nowTime.Add(-48*time.Hour)); err != nil {
+		if err := db.Medication.UpdateMedicationCreatedAt(id, nowTime.Add(-48*time.Hour)); err != nil {
 			t.Fatalf("UpdateMedicationCreatedAt: %v", err)
 		}
 
@@ -40,7 +40,7 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 
-		pending, _ := db.GetPendingIntakes()
+		pending, _ := db.Medication.GetPendingIntakes()
 		if len(pending) != 1 {
 			t.Errorf("expected 1 pending intake, got %d", len(pending))
 		}
@@ -52,17 +52,17 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		// now = 2024-03-15T03:55:00Z = 08:55 in UTC+5.
 		// Target: 09:00 UTC+5 = 04:00 UTC. now (03:55) < target (04:00) → does not fire.
 		db := mustNewDB(t)
-		db.SetMedicationEnabled(context.Background(), true) //nolint:errcheck
-		if err := db.RecordTimezone("Asia/Yekaterinburg"); err != nil {
+		db.Settings.SetMedicationEnabled(context.Background(), true) //nolint:errcheck
+		if err := db.TZ.RecordTimezone("Asia/Yekaterinburg"); err != nil {
 			t.Fatalf("RecordTimezone: %v", err)
 		}
 
-		id, err := db.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+		id, err := db.Medication.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 		if err != nil {
 			t.Fatalf("CreateMedication: %v", err)
 		}
 		nowTime := time.Date(2024, 3, 15, 3, 55, 0, 0, time.UTC)
-		if err := db.UpdateMedicationCreatedAt(id, nowTime.Add(-48*time.Hour)); err != nil {
+		if err := db.Medication.UpdateMedicationCreatedAt(id, nowTime.Add(-48*time.Hour)); err != nil {
 			t.Fatalf("UpdateMedicationCreatedAt: %v", err)
 		}
 
@@ -75,7 +75,7 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 
-		pending, _ := db.GetPendingIntakes()
+		pending, _ := db.Medication.GetPendingIntakes()
 		if len(pending) != 0 {
 			t.Errorf("expected 0 pending intakes (not yet due in user TZ), got %d", len(pending))
 		}
@@ -85,19 +85,19 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		// Medication normally at 09:00 UTC. An approved plan has a step at 11:00 UTC.
 		// now = 11:05 UTC → plan step fires, normal schedule does not.
 		db := mustNewDB(t)
-		db.SetMedicationEnabled(context.Background(), true) //nolint:errcheck
+		db.Settings.SetMedicationEnabled(context.Background(), true) //nolint:errcheck
 
-		medID, err := db.CreateMedication("Warfarin", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+		medID, err := db.Medication.CreateMedication("Warfarin", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 		if err != nil {
 			t.Fatalf("CreateMedication: %v", err)
 		}
 		nowTime := time.Date(2024, 3, 15, 11, 5, 0, 0, time.UTC)
-		if err := db.UpdateMedicationCreatedAt(medID, nowTime.Add(-48*time.Hour)); err != nil {
+		if err := db.Medication.UpdateMedicationCreatedAt(medID, nowTime.Add(-48*time.Hour)); err != nil {
 			t.Fatalf("UpdateMedicationCreatedAt: %v", err)
 		}
 
 		// Create approved plan.
-		planID, err := db.CreateTZTransitionPlan(&store.TZTransitionPlan{
+		planID, err := db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
 			OldTZ:      "UTC",
 			NewTZ:      "Europe/Berlin",
 			Status:     "APPROVED",
@@ -108,12 +108,12 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateTZTransitionPlan: %v", err)
 		}
-		if _, err := db.SetTZTransitionPlanApproved(planID, nowTime.Add(-5*time.Minute)); err != nil {
+		if _, err := db.TZ.SetTZTransitionPlanApproved(planID, nowTime.Add(-5*time.Minute)); err != nil {
 			t.Fatalf("SetTZTransitionPlanApproved: %v", err)
 		}
 
 		stepTime := time.Date(2024, 3, 15, 11, 0, 0, 0, time.UTC)
-		if err := db.CreateTZTransitionSteps([]store.TZTransitionStep{
+		if err := db.TZ.CreateTZTransitionSteps([]store.TZTransitionStep{
 			{PlanID: planID, MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "step 1"},
 		}); err != nil {
 			t.Fatalf("CreateTZTransitionSteps: %v", err)
@@ -128,7 +128,7 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 
-		pending, _ := db.GetPendingIntakes()
+		pending, _ := db.Medication.GetPendingIntakes()
 		if len(pending) != 1 {
 			t.Errorf("expected 1 pending intake (from plan step), got %d", len(pending))
 		}
@@ -137,7 +137,7 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		}
 
 		// Verify the step was marked consumed.
-		remaining, _ := db.GetPendingStepsForPlan(planID)
+		remaining, _ := db.TZ.GetPendingStepsForPlan(planID)
 		if len(remaining) != 0 {
 			t.Errorf("expected 0 pending steps after consumption, got %d", len(remaining))
 		}
@@ -148,18 +148,18 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		// Normal schedule is also 09:00 UTC. The plan step is not yet due, but the
 		// med is in the plan → normal scheduling must be suppressed.
 		db := mustNewDB(t)
-		db.SetMedicationEnabled(context.Background(), true) //nolint:errcheck
+		db.Settings.SetMedicationEnabled(context.Background(), true) //nolint:errcheck
 
-		medID, err := db.CreateMedication("Warfarin", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+		medID, err := db.Medication.CreateMedication("Warfarin", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 		if err != nil {
 			t.Fatalf("CreateMedication: %v", err)
 		}
 		nowTime := time.Date(2024, 3, 15, 9, 5, 0, 0, time.UTC)
-		if err := db.UpdateMedicationCreatedAt(medID, nowTime.Add(-48*time.Hour)); err != nil {
+		if err := db.Medication.UpdateMedicationCreatedAt(medID, nowTime.Add(-48*time.Hour)); err != nil {
 			t.Fatalf("UpdateMedicationCreatedAt: %v", err)
 		}
 
-		planID, err := db.CreateTZTransitionPlan(&store.TZTransitionPlan{
+		planID, err := db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
 			OldTZ:      "UTC",
 			NewTZ:      "Europe/Berlin",
 			Status:     "APPROVED",
@@ -170,12 +170,12 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateTZTransitionPlan: %v", err)
 		}
-		if _, err := db.SetTZTransitionPlanApproved(planID, nowTime.Add(-5*time.Minute)); err != nil {
+		if _, err := db.TZ.SetTZTransitionPlanApproved(planID, nowTime.Add(-5*time.Minute)); err != nil {
 			t.Fatalf("SetTZTransitionPlanApproved: %v", err)
 		}
 
 		futureStepTime := time.Date(2024, 3, 15, 14, 0, 0, 0, time.UTC)
-		if err := db.CreateTZTransitionSteps([]store.TZTransitionStep{
+		if err := db.TZ.CreateTZTransitionSteps([]store.TZTransitionStep{
 			{PlanID: planID, MedicationID: medID, StepNumber: 1, ScheduledAt: futureStepTime, Note: "future step"},
 		}); err != nil {
 			t.Fatalf("CreateTZTransitionSteps: %v", err)
@@ -191,7 +191,7 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 
 		// Normal schedule would have fired at 09:00 UTC; plan suppresses it.
-		pending, _ := db.GetPendingIntakes()
+		pending, _ := db.Medication.GetPendingIntakes()
 		if len(pending) != 0 {
 			t.Errorf("expected 0 pending intakes (plan suppresses normal schedule), got %d", len(pending))
 		}
@@ -201,18 +201,18 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		// Plan has 2 steps. Step 1 already consumed. Step 2 at 14:00 UTC.
 		// now = 14:05 UTC → only step 2 fires.
 		db := mustNewDB(t)
-		db.SetMedicationEnabled(context.Background(), true) //nolint:errcheck
+		db.Settings.SetMedicationEnabled(context.Background(), true) //nolint:errcheck
 
-		medID, err := db.CreateMedication("Warfarin", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+		medID, err := db.Medication.CreateMedication("Warfarin", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 		if err != nil {
 			t.Fatalf("CreateMedication: %v", err)
 		}
 		nowTime := time.Date(2024, 3, 15, 14, 5, 0, 0, time.UTC)
-		if err := db.UpdateMedicationCreatedAt(medID, nowTime.Add(-48*time.Hour)); err != nil {
+		if err := db.Medication.UpdateMedicationCreatedAt(medID, nowTime.Add(-48*time.Hour)); err != nil {
 			t.Fatalf("UpdateMedicationCreatedAt: %v", err)
 		}
 
-		planID, err := db.CreateTZTransitionPlan(&store.TZTransitionPlan{
+		planID, err := db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
 			OldTZ:      "UTC",
 			NewTZ:      "Europe/Berlin",
 			Status:     "APPROVED",
@@ -223,13 +223,13 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateTZTransitionPlan: %v", err)
 		}
-		if _, err := db.SetTZTransitionPlanApproved(planID, nowTime.Add(-6*time.Hour)); err != nil {
+		if _, err := db.TZ.SetTZTransitionPlanApproved(planID, nowTime.Add(-6*time.Hour)); err != nil {
 			t.Fatalf("SetTZTransitionPlanApproved: %v", err)
 		}
 
 		step1Time := time.Date(2024, 3, 15, 11, 0, 0, 0, time.UTC)
 		step2Time := time.Date(2024, 3, 15, 14, 0, 0, 0, time.UTC)
-		if err := db.CreateTZTransitionSteps([]store.TZTransitionStep{
+		if err := db.TZ.CreateTZTransitionSteps([]store.TZTransitionStep{
 			{PlanID: planID, MedicationID: medID, StepNumber: 1, ScheduledAt: step1Time, Note: "step 1"},
 			{PlanID: planID, MedicationID: medID, StepNumber: 2, ScheduledAt: step2Time, Note: "step 2"},
 		}); err != nil {
@@ -237,7 +237,7 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		}
 
 		// Mark step 1 already consumed (and create its intake).
-		steps, _ := db.GetPendingStepsForPlan(planID)
+		steps, _ := db.TZ.GetPendingStepsForPlan(planID)
 		var step1ID int64
 		for _, s := range steps {
 			if s.StepNumber == 1 {
@@ -248,10 +248,10 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		if step1ID == 0 {
 			t.Fatal("could not find step 1 ID")
 		}
-		if _, err := db.CreateIntake(medID, 123456, step1Time); err != nil {
+		if _, err := db.Medication.CreateIntake(medID, 123456, step1Time); err != nil {
 			t.Fatalf("CreateIntake for step 1: %v", err)
 		}
-		if err := db.MarkStepConsumed(step1ID, step1Time.Add(2*time.Minute)); err != nil {
+		if err := db.TZ.MarkStepConsumed(step1ID, step1Time.Add(2*time.Minute)); err != nil {
 			t.Fatalf("MarkStepConsumed: %v", err)
 		}
 
@@ -264,14 +264,14 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 
-		pending, _ := db.GetPendingIntakes()
+		pending, _ := db.Medication.GetPendingIntakes()
 		// step 1 intake is in PENDING state; step 2 intake just created → 2 total
 		if len(pending) != 2 {
 			t.Errorf("expected 2 pending intakes (step1 existing + step2 new), got %d", len(pending))
 		}
 
 		// Verify step 2 was consumed.
-		remaining, _ := db.GetPendingStepsForPlan(planID)
+		remaining, _ := db.TZ.GetPendingStepsForPlan(planID)
 		if len(remaining) != 0 {
 			t.Errorf("expected 0 remaining steps, got %d", len(remaining))
 		}
@@ -283,21 +283,21 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		// use the old TZ (UTC from the plan's OldTZ) and build target = 09:00 UTC.
 		// now = 09:05 UTC → dose fires at 09:00 UTC (old TZ), not 07:00 UTC.
 		db := mustNewDB(t)
-		db.SetMedicationEnabled(context.Background(), true) //nolint:errcheck
-		if err := db.RecordTimezone("Europe/Berlin"); err != nil {
+		db.Settings.SetMedicationEnabled(context.Background(), true) //nolint:errcheck
+		if err := db.TZ.RecordTimezone("Europe/Berlin"); err != nil {
 			t.Fatalf("RecordTimezone: %v", err)
 		}
 
-		medID, err := db.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+		medID, err := db.Medication.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 		if err != nil {
 			t.Fatalf("CreateMedication: %v", err)
 		}
 		nowTime := time.Date(2024, 3, 15, 9, 5, 0, 0, time.UTC)
-		if err := db.UpdateMedicationCreatedAt(medID, nowTime.Add(-48*time.Hour)); err != nil {
+		if err := db.Medication.UpdateMedicationCreatedAt(medID, nowTime.Add(-48*time.Hour)); err != nil {
 			t.Fatalf("UpdateMedicationCreatedAt: %v", err)
 		}
 
-		planID, err := db.CreateTZTransitionPlan(&store.TZTransitionPlan{
+		planID, err := db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
 			OldTZ:      "UTC",
 			NewTZ:      "Europe/Berlin",
 			Status:     "PENDING_APPROVAL",
@@ -319,7 +319,7 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 
-		pending, _ := db.GetPendingIntakes()
+		pending, _ := db.Medication.GetPendingIntakes()
 		if len(pending) != 1 {
 			t.Errorf("expected 1 pending intake (using old UTC timezone), got %d", len(pending))
 			return
@@ -335,26 +335,26 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		// Plan exists but is CANCELLED → GetLatestActiveOrPendingTZTransitionPlan returns nil.
 		// Normal schedule at 09:00 UTC fires at 09:05 UTC.
 		db := mustNewDB(t)
-		db.SetMedicationEnabled(context.Background(), true) //nolint:errcheck
+		db.Settings.SetMedicationEnabled(context.Background(), true) //nolint:errcheck
 		// Pin the user TZ to UTC so the scheduler's no-plan branch — which
 		// otherwise falls through to time.Local — interprets "09:00" as 09:00
 		// UTC regardless of the test runner's local timezone. Other subtests
 		// in this file do the same via RecordTimezone.
-		if err := db.RecordTimezone("UTC"); err != nil {
+		if err := db.TZ.RecordTimezone("UTC"); err != nil {
 			t.Fatalf("RecordTimezone: %v", err)
 		}
 
-		medID, err := db.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+		medID, err := db.Medication.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 		if err != nil {
 			t.Fatalf("CreateMedication: %v", err)
 		}
 		nowTime := time.Date(2024, 3, 15, 9, 5, 0, 0, time.UTC)
-		if err := db.UpdateMedicationCreatedAt(medID, nowTime.Add(-48*time.Hour)); err != nil {
+		if err := db.Medication.UpdateMedicationCreatedAt(medID, nowTime.Add(-48*time.Hour)); err != nil {
 			t.Fatalf("UpdateMedicationCreatedAt: %v", err)
 		}
 
 		// Create a CANCELLED plan (should be ignored).
-		planID, err := db.CreateTZTransitionPlan(&store.TZTransitionPlan{
+		planID, err := db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
 			OldTZ:      "UTC",
 			NewTZ:      "Europe/Berlin",
 			Status:     "PENDING_APPROVAL",
@@ -365,7 +365,7 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateTZTransitionPlan: %v", err)
 		}
-		if err := db.UpdateTZTransitionPlanStatus(planID, "CANCELLED", "superseded", "PENDING_APPROVAL"); err != nil {
+		if err := db.TZ.UpdateTZTransitionPlanStatus(planID, "CANCELLED", "superseded", "PENDING_APPROVAL"); err != nil {
 			t.Fatalf("UpdateTZTransitionPlanStatus: %v", err)
 		}
 
@@ -378,7 +378,7 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 
-		pending, _ := db.GetPendingIntakes()
+		pending, _ := db.Medication.GetPendingIntakes()
 		if len(pending) != 1 {
 			t.Errorf("expected 1 pending intake (normal scheduling resumed), got %d", len(pending))
 		}
@@ -388,18 +388,18 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		// An intake already exists at step.ScheduledAt. Running Check again should not
 		// create a duplicate intake but should mark the step consumed.
 		db := mustNewDB(t)
-		db.SetMedicationEnabled(context.Background(), true) //nolint:errcheck
+		db.Settings.SetMedicationEnabled(context.Background(), true) //nolint:errcheck
 
-		medID, err := db.CreateMedication("Warfarin", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+		medID, err := db.Medication.CreateMedication("Warfarin", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 		if err != nil {
 			t.Fatalf("CreateMedication: %v", err)
 		}
 		nowTime := time.Date(2024, 3, 15, 11, 5, 0, 0, time.UTC)
-		if err := db.UpdateMedicationCreatedAt(medID, nowTime.Add(-48*time.Hour)); err != nil {
+		if err := db.Medication.UpdateMedicationCreatedAt(medID, nowTime.Add(-48*time.Hour)); err != nil {
 			t.Fatalf("UpdateMedicationCreatedAt: %v", err)
 		}
 
-		planID, err := db.CreateTZTransitionPlan(&store.TZTransitionPlan{
+		planID, err := db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
 			OldTZ:      "UTC",
 			NewTZ:      "Europe/Berlin",
 			Status:     "APPROVED",
@@ -410,19 +410,19 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateTZTransitionPlan: %v", err)
 		}
-		if _, err := db.SetTZTransitionPlanApproved(planID, nowTime.Add(-10*time.Minute)); err != nil {
+		if _, err := db.TZ.SetTZTransitionPlanApproved(planID, nowTime.Add(-10*time.Minute)); err != nil {
 			t.Fatalf("SetTZTransitionPlanApproved: %v", err)
 		}
 
 		stepTime := time.Date(2024, 3, 15, 11, 0, 0, 0, time.UTC)
-		if err := db.CreateTZTransitionSteps([]store.TZTransitionStep{
+		if err := db.TZ.CreateTZTransitionSteps([]store.TZTransitionStep{
 			{PlanID: planID, MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "step 1"},
 		}); err != nil {
 			t.Fatalf("CreateTZTransitionSteps: %v", err)
 		}
 
 		// Pre-create the intake (simulates a previous tick already creating it).
-		if _, err := db.CreateIntake(medID, 123456, stepTime); err != nil {
+		if _, err := db.Medication.CreateIntake(medID, 123456, stepTime); err != nil {
 			t.Fatalf("pre-CreateIntake: %v", err)
 		}
 
@@ -436,12 +436,12 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 
 		// No new intake created (existing one already there), step marked consumed.
-		pending, _ := db.GetPendingIntakes()
+		pending, _ := db.Medication.GetPendingIntakes()
 		if len(pending) != 1 {
 			t.Errorf("expected 1 pending intake (no duplicate), got %d", len(pending))
 		}
 
-		remaining, _ := db.GetPendingStepsForPlan(planID)
+		remaining, _ := db.TZ.GetPendingStepsForPlan(planID)
 		if len(remaining) != 0 {
 			t.Errorf("expected step marked consumed, got %d remaining", len(remaining))
 		}
@@ -461,12 +461,12 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		// The tomorrow morning 08:20 PDT slot is well outside the window and
 		// stays available.
 		db := mustNewDB(t)
-		db.SetMedicationEnabled(context.Background(), true) //nolint:errcheck
-		if err := db.RecordTimezone("America/Los_Angeles"); err != nil {
+		db.Settings.SetMedicationEnabled(context.Background(), true) //nolint:errcheck
+		if err := db.TZ.RecordTimezone("America/Los_Angeles"); err != nil {
 			t.Fatalf("RecordTimezone: %v", err)
 		}
 
-		medID, err := db.CreateMedication("Metformin", "1000mg",
+		medID, err := db.Medication.CreateMedication("Metformin", "1000mg",
 			`{"type":"daily","times":["08:20","21:30"]}`, nil, nil, "", "", "")
 		if err != nil {
 			t.Fatalf("CreateMedication: %v", err)
@@ -475,11 +475,11 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		la, _ := time.LoadLocation("America/Los_Angeles")
 		// now = 21:35 PDT — past both 08:20 PDT and 21:30 PDT today.
 		nowTime := time.Date(2024, 3, 15, 21, 35, 0, 0, la)
-		if err := db.UpdateMedicationCreatedAt(medID, nowTime.Add(-30*24*time.Hour)); err != nil {
+		if err := db.Medication.UpdateMedicationCreatedAt(medID, nowTime.Add(-30*24*time.Hour)); err != nil {
 			t.Fatalf("UpdateMedicationCreatedAt: %v", err)
 		}
 
-		planID, err := db.CreateTZTransitionPlan(&store.TZTransitionPlan{
+		planID, err := db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
 			OldTZ:      "Europe/Copenhagen",
 			NewTZ:      "America/Los_Angeles",
 			Status:     "APPROVED",
@@ -490,37 +490,37 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateTZTransitionPlan: %v", err)
 		}
-		if _, err := db.SetTZTransitionPlanApproved(planID, nowTime.Add(-8*time.Hour)); err != nil {
+		if _, err := db.TZ.SetTZTransitionPlanApproved(planID, nowTime.Add(-8*time.Hour)); err != nil {
 			t.Fatalf("SetTZTransitionPlanApproved: %v", err)
 		}
 
 		// Single transition step at 14:18 PDT (the user-reported scenario).
 		stepTime := time.Date(2024, 3, 15, 14, 18, 0, 0, la)
-		if err := db.CreateTZTransitionSteps([]store.TZTransitionStep{
+		if err := db.TZ.CreateTZTransitionSteps([]store.TZTransitionStep{
 			{PlanID: planID, MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "step 1"},
 		}); err != nil {
 			t.Fatalf("CreateTZTransitionSteps: %v", err)
 		}
 		// Mark step consumed: the user took it, the scheduler matched the
 		// intake, and consumed_at was stamped.
-		steps, _ := db.GetPendingStepsForPlan(planID)
+		steps, _ := db.TZ.GetPendingStepsForPlan(planID)
 		if len(steps) != 1 {
 			t.Fatalf("expected 1 pending step, got %d", len(steps))
 		}
-		if _, err := db.CreateIntake(medID, 123456, stepTime); err != nil {
+		if _, err := db.Medication.CreateIntake(medID, 123456, stepTime); err != nil {
 			t.Fatalf("CreateIntake for step: %v", err)
 		}
-		if err := db.MarkStepConsumed(steps[0].ID, stepTime.Add(2*time.Minute)); err != nil {
+		if err := db.TZ.MarkStepConsumed(steps[0].ID, stepTime.Add(2*time.Minute)); err != nil {
 			t.Fatalf("MarkStepConsumed: %v", err)
 		}
 		// Mark the existing intake TAKEN so it is not in the PENDING set we
 		// assert on below — this isolates the new-intake creation from the
 		// pre-existing transition-step intake.
-		stepIntake, err := db.GetIntakeBySchedule(medID, stepTime)
+		stepIntake, err := db.Medication.GetIntakeBySchedule(medID, stepTime)
 		if err != nil || stepIntake == nil {
 			t.Fatalf("GetIntakeBySchedule for step: intake=%v err=%v", stepIntake, err)
 		}
-		if err := db.ConfirmIntake(stepIntake.ID, stepTime.Add(2*time.Minute)); err != nil {
+		if err := db.Medication.ConfirmIntake(stepIntake.ID, stepTime.Add(2*time.Minute)); err != nil {
 			t.Fatalf("ConfirmIntake: %v", err)
 		}
 
@@ -536,7 +536,7 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		// Both today's 08:20 PDT (predates the consumed step) and 21:30 PDT
 		// (within minInterval after the step) must be suppressed. Without the
 		// guard, two new PENDING intakes would land here.
-		pending, _ := db.GetPendingIntakes()
+		pending, _ := db.Medication.GetPendingIntakes()
 		if len(pending) != 0 {
 			for _, p := range pending {
 				t.Logf("unexpected pending intake: med=%d scheduled=%v", p.MedicationID, p.ScheduledAt)
@@ -555,12 +555,12 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 // fired even though the user had already taken the corresponding dose.
 func TestMedicationCheckerCompletedPlanOverlapGuard(t *testing.T) {
 	db := mustNewDB(t)
-	db.SetMedicationEnabled(context.Background(), true) //nolint:errcheck
-	if err := db.RecordTimezone("America/Los_Angeles"); err != nil {
+	db.Settings.SetMedicationEnabled(context.Background(), true) //nolint:errcheck
+	if err := db.TZ.RecordTimezone("America/Los_Angeles"); err != nil {
 		t.Fatalf("RecordTimezone: %v", err)
 	}
 
-	medID, err := db.CreateMedication("Candecor", "16mg",
+	medID, err := db.Medication.CreateMedication("Candecor", "16mg",
 		`{"type":"daily","times":["21:30"]}`, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
@@ -570,11 +570,11 @@ func TestMedicationCheckerCompletedPlanOverlapGuard(t *testing.T) {
 	// now = 22:11 PDT — past today's 21:30 PDT normal slot, just past the
 	// 22:30 PDT step we already consumed below.
 	nowTime := time.Date(2026, 5, 5, 22, 11, 0, 0, la)
-	if err := db.UpdateMedicationCreatedAt(medID, nowTime.Add(-30*24*time.Hour)); err != nil {
+	if err := db.Medication.UpdateMedicationCreatedAt(medID, nowTime.Add(-30*24*time.Hour)); err != nil {
 		t.Fatalf("UpdateMedicationCreatedAt: %v", err)
 	}
 
-	planID, err := db.CreateTZTransitionPlan(&store.TZTransitionPlan{
+	planID, err := db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
 		OldTZ:      "Europe/Copenhagen",
 		NewTZ:      "America/Los_Angeles",
 		Status:     "APPROVED",
@@ -585,35 +585,35 @@ func TestMedicationCheckerCompletedPlanOverlapGuard(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTZTransitionPlan: %v", err)
 	}
-	if _, err := db.SetTZTransitionPlanApproved(planID, nowTime.Add(-8*time.Hour)); err != nil {
+	if _, err := db.TZ.SetTZTransitionPlanApproved(planID, nowTime.Add(-8*time.Hour)); err != nil {
 		t.Fatalf("SetTZTransitionPlanApproved: %v", err)
 	}
 
 	stepTime := time.Date(2026, 5, 5, 22, 30, 0, 0, la)
-	if err := db.CreateTZTransitionSteps([]store.TZTransitionStep{
+	if err := db.TZ.CreateTZTransitionSteps([]store.TZTransitionStep{
 		{PlanID: planID, MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "final"},
 	}); err != nil {
 		t.Fatalf("CreateTZTransitionSteps: %v", err)
 	}
-	steps, _ := db.GetPendingStepsForPlan(planID)
+	steps, _ := db.TZ.GetPendingStepsForPlan(planID)
 	if len(steps) != 1 {
 		t.Fatalf("expected 1 pending step, got %d", len(steps))
 	}
 	// "Take now" path: create + immediately confirm the intake at the step
 	// time, then mark the step consumed.
-	stepIntakeID, err := db.CreateIntake(medID, 123456, stepTime)
+	stepIntakeID, err := db.Medication.CreateIntake(medID, 123456, stepTime)
 	if err != nil {
 		t.Fatalf("CreateIntake for step: %v", err)
 	}
-	if err := db.ConfirmIntake(stepIntakeID, nowTime); err != nil {
+	if err := db.Medication.ConfirmIntake(stepIntakeID, nowTime); err != nil {
 		t.Fatalf("ConfirmIntake: %v", err)
 	}
-	if err := db.MarkStepConsumed(steps[0].ID, nowTime); err != nil {
+	if err := db.TZ.MarkStepConsumed(steps[0].ID, nowTime); err != nil {
 		t.Fatalf("MarkStepConsumed: %v", err)
 	}
 	// The previous scheduler tick noticed there were no remaining steps and
 	// flipped the plan to COMPLETED.
-	if err := db.UpdateTZTransitionPlanStatus(planID, "COMPLETED", "all-steps-consumed", "APPROVED"); err != nil {
+	if err := db.TZ.UpdateTZTransitionPlanStatus(planID, "COMPLETED", "all-steps-consumed", "APPROVED"); err != nil {
 		t.Fatalf("UpdateTZTransitionPlanStatus → COMPLETED: %v", err)
 	}
 
@@ -629,7 +629,7 @@ func TestMedicationCheckerCompletedPlanOverlapGuard(t *testing.T) {
 	// The TAKEN step intake should be the ONLY intake. No new PENDING row
 	// should have been spawned at 21:30 PDT (the superseded normal slot) or
 	// at 22:30 PDT (the just-consumed step's own slot).
-	pending, _ := db.GetPendingIntakes()
+	pending, _ := db.Medication.GetPendingIntakes()
 	if len(pending) != 0 {
 		for _, p := range pending {
 			t.Logf("unexpected pending intake: med=%d scheduled=%v", p.MedicationID, p.ScheduledAt)
@@ -640,7 +640,7 @@ func TestMedicationCheckerCompletedPlanOverlapGuard(t *testing.T) {
 	// Sanity-check the bogus 21:30 PDT slot specifically — that was the
 	// duplicate reminder the user reported.
 	bogus := time.Date(2026, 5, 5, 21, 30, 0, 0, la)
-	if got, _ := db.GetIntakeBySchedule(medID, bogus); got != nil {
+	if got, _ := db.Medication.GetIntakeBySchedule(medID, bogus); got != nil {
 		t.Errorf("unexpected intake at superseded 21:30 PDT slot: %+v", got)
 	}
 }
@@ -658,12 +658,12 @@ func TestMedicationCheckerCompletedPlanOverlapGuard(t *testing.T) {
 // offset.
 func TestScheduler_NoDuplicateIntakeAfterTZNameChangeSameOffset(t *testing.T) {
 	db := mustNewDB(t)
-	db.SetMedicationEnabled(context.Background(), true) //nolint:errcheck
-	if err := db.RecordTimezone("America/Los_Angeles"); err != nil {
+	db.Settings.SetMedicationEnabled(context.Background(), true) //nolint:errcheck
+	if err := db.TZ.RecordTimezone("America/Los_Angeles"); err != nil {
 		t.Fatalf("RecordTimezone(LA): %v", err)
 	}
 
-	medID, err := db.CreateMedication("Metformin", "1000mg",
+	medID, err := db.Medication.CreateMedication("Metformin", "1000mg",
 		`{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
@@ -675,22 +675,22 @@ func TestScheduler_NoDuplicateIntakeAfterTZNameChangeSameOffset(t *testing.T) {
 	// The user took the dose at 08:20 LA earlier in the day. Write it as the
 	// scheduler would: target time constructed in the user's location.
 	doseTimeLA := time.Date(2026, 5, 10, 8, 20, 0, 0, la)
-	if err := db.UpdateMedicationCreatedAt(medID, doseTimeLA.Add(-30*24*time.Hour)); err != nil {
+	if err := db.Medication.UpdateMedicationCreatedAt(medID, doseTimeLA.Add(-30*24*time.Hour)); err != nil {
 		t.Fatalf("UpdateMedicationCreatedAt: %v", err)
 	}
-	intakeID, err := db.CreateIntake(medID, 123456, doseTimeLA)
+	intakeID, err := db.Medication.CreateIntake(medID, 123456, doseTimeLA)
 	if err != nil {
 		t.Fatalf("CreateIntake (LA dose): %v", err)
 	}
 	// Confirm it taken — the buggy scheduler was duplicating TAKEN doses with
 	// fresh PENDING rows after the TZ name change.
-	if err := db.ConfirmIntake(intakeID, doseTimeLA.Add(5*time.Minute)); err != nil {
+	if err := db.Medication.ConfirmIntake(intakeID, doseTimeLA.Add(5*time.Minute)); err != nil {
 		t.Fatalf("ConfirmIntake: %v", err)
 	}
 
 	// Now the user lands in Phoenix and the bot records the new TZ. Both
 	// zones are UTC-7 on this date, so 08:20 Phoenix == 08:20 LA == 15:20 UTC.
-	if err := db.RecordTimezone("America/Phoenix"); err != nil {
+	if err := db.TZ.RecordTimezone("America/Phoenix"); err != nil {
 		t.Fatalf("RecordTimezone(Phoenix): %v", err)
 	}
 
@@ -708,7 +708,7 @@ func TestScheduler_NoDuplicateIntakeAfterTZNameChangeSameOffset(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	// Pending = 0: the TAKEN dose covers the slot, no duplicate is created.
-	pending, _ := db.GetPendingIntakes()
+	pending, _ := db.Medication.GetPendingIntakes()
 	if len(pending) != 0 {
 		for _, p := range pending {
 			t.Logf("unexpected pending intake: med=%d scheduled=%v status=%s",
@@ -718,7 +718,7 @@ func TestScheduler_NoDuplicateIntakeAfterTZNameChangeSameOffset(t *testing.T) {
 	}
 
 	// Total intakes for the med should still be exactly one (the TAKEN row).
-	hist, err := db.GetIntakeHistory(int(medID), 0)
+	hist, err := db.Medication.GetIntakeHistory(int(medID), 0)
 	if err != nil {
 		t.Fatalf("GetIntakeHistory: %v", err)
 	}

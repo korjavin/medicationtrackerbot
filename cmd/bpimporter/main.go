@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store"
+	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
 )
 
 func main() {
@@ -26,16 +27,21 @@ func main() {
 	}
 
 	// Open database
-	s, err := store.New(*dbPath)
+	sharedDB, err := storedb.Open(*dbPath)
 	if err != nil {
 		slog.Error("Failed to open database", "error", err)
 		os.Exit(1)
 	}
-	defer s.Close()
+	defer sharedDB.Close()
+	s, err := store.NewWithDB(sharedDB)
+	if err != nil {
+		slog.Error("Failed to initialize store", "error", err)
+		os.Exit(1)
+	}
 
 	// If user ID not provided, get the first user
 	if *userID == 0 {
-		meds, err := s.ListMedications(false)
+		meds, err := s.Medication.ListMedications(false)
 		if err != nil {
 			slog.Error("Failed to list medications", "error", err)
 			os.Exit(1)
@@ -197,7 +203,7 @@ func main() {
 
 	// Import readings
 	ctx := context.Background()
-	err = s.ImportBloodPressureReadings(ctx, *userID, readings)
+	err = s.BP.ImportBloodPressureReadings(ctx, *userID, readings)
 	if err != nil {
 		slog.Error("Failed to import blood pressure readings", "error", err)
 		os.Exit(1)

@@ -17,7 +17,7 @@ func BenchmarkBPReminderChecker(b *testing.B) {
 	defer db.Close()
 
 	ctx := context.Background()
-	if err := db.SetBloodPressureEnabled(ctx, true); err != nil {
+	if err := db.Settings.SetBloodPressureEnabled(ctx, true); err != nil {
 		b.Fatalf("Failed to enable BP: %v", err)
 	}
 
@@ -26,18 +26,18 @@ func BenchmarkBPReminderChecker(b *testing.B) {
 	now := time.Now()
 	for i := 1; i <= numUsers; i++ {
 		userID := int64(i)
-		if err := db.SetBPReminderEnabled(userID, true); err != nil {
+		if err := db.BP.SetBPReminderEnabled(userID, true); err != nil {
 			b.Fatalf("Failed to enable reminder for user %d: %v", userID, err)
 		}
 
 		// Set some state so they don't immediately trigger a notification
 		// Just want to benchmark the loop logic, not sending notifications
-		if err := db.UpdatePreferredReminderHour(userID, 20); err != nil {
+		if err := db.BP.UpdatePreferredReminderHour(userID, 20); err != nil {
 			b.Fatalf("Failed to set preferred hour: %v", err)
 		}
 
 		// Insert a recent reading
-		_, err := db.CreateBloodPressureReading(ctx, &store.BloodPressure{
+		_, err := db.BP.CreateBloodPressureReading(ctx, &store.BloodPressure{
 			UserID:     userID,
 			Systolic:   120,
 			Diastolic:  80,

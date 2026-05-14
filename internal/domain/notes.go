@@ -7,7 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/korjavin/medicationtrackerbot/internal/store"
+	"github.com/korjavin/medicationtrackerbot/internal/store/diary"
 )
 
 // ErrEmptyContent is returned when a note's content is empty after trimming.
@@ -48,11 +48,13 @@ func NormalizeNoteTag(raw *string) *string {
 	return &t
 }
 
-// NotesStore is the narrow store interface required by NotesService.
+// NotesStore is the narrow store interface required by NotesService. It is
+// satisfied directly by *diary.Repo; the composition root wires that concrete
+// repo through (see cmd/bot/main.go and internal/server/server.go).
 type NotesStore interface {
-	CreateDiaryNote(ctx context.Context, userID int64, content string, tag *string) (*store.DiaryNote, error)
-	ListDiaryNotes(ctx context.Context, userID int64, since, until time.Time, limit int, beforeID int64) ([]store.DiaryNote, error)
-	DeleteDiaryNote(ctx context.Context, userID, noteID int64) error
+	Create(ctx context.Context, userID int64, content string, tag *string) (*diary.DiaryNote, error)
+	List(ctx context.Context, userID int64, since, until time.Time, limit int, beforeID int64) ([]diary.DiaryNote, error)
+	Delete(ctx context.Context, userID, noteID int64) error
 }
 
 // NotesService is the public interface for diary-note business logic.
@@ -61,11 +63,11 @@ type NotesService interface {
 	// CreateNote validates content length, normalizes the tag (invalid tags
 	// become nil), and persists the note. Returns ErrEmptyContent or
 	// ErrContentTooLong for bad input.
-	CreateNote(ctx context.Context, userID int64, content string, tag *string) (*store.DiaryNote, error)
+	CreateNote(ctx context.Context, userID int64, content string, tag *string) (*diary.DiaryNote, error)
 
 	// ListNotes returns the user's notes newest-first, paginated with the
 	// standard since/until/limit/beforeID contract.
-	ListNotes(ctx context.Context, userID int64, since, until time.Time, limit int, beforeID int64) ([]store.DiaryNote, error)
+	ListNotes(ctx context.Context, userID int64, since, until time.Time, limit int, beforeID int64) ([]diary.DiaryNote, error)
 
 	// DeleteNote deletes a note owned by the user. Returns the store's
 	// sql.ErrNoRows when the note does not exist or is not owned by the user.
@@ -81,7 +83,7 @@ func NewNotesService(s NotesStore) NotesService {
 	return &notesService{store: s}
 }
 
-func (s *notesService) CreateNote(ctx context.Context, userID int64, content string, tag *string) (*store.DiaryNote, error) {
+func (s *notesService) CreateNote(ctx context.Context, userID int64, content string, tag *string) (*diary.DiaryNote, error) {
 	content = strings.TrimSpace(content)
 	if content == "" {
 		return nil, ErrEmptyContent
@@ -89,13 +91,13 @@ func (s *notesService) CreateNote(ctx context.Context, userID int64, content str
 	if utf8.RuneCountInString(content) > MaxNoteContentRunes {
 		return nil, ErrContentTooLong
 	}
-	return s.store.CreateDiaryNote(ctx, userID, content, NormalizeNoteTag(tag))
+	return s.store.Create(ctx, userID, content, NormalizeNoteTag(tag))
 }
 
-func (s *notesService) ListNotes(ctx context.Context, userID int64, since, until time.Time, limit int, beforeID int64) ([]store.DiaryNote, error) {
-	return s.store.ListDiaryNotes(ctx, userID, since, until, limit, beforeID)
+func (s *notesService) ListNotes(ctx context.Context, userID int64, since, until time.Time, limit int, beforeID int64) ([]diary.DiaryNote, error) {
+	return s.store.List(ctx, userID, since, until, limit, beforeID)
 }
 
 func (s *notesService) DeleteNote(ctx context.Context, userID, noteID int64) error {
-	return s.store.DeleteDiaryNote(ctx, userID, noteID)
+	return s.store.Delete(ctx, userID, noteID)
 }

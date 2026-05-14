@@ -12,6 +12,7 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/mcp"
 	"github.com/korjavin/medicationtrackerbot/internal/mcp/executor"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
+	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
 )
 
 func main() {
@@ -34,13 +35,20 @@ func main() {
 	)
 
 	// Initialize store. The MCP server needs write access for goose migrations
-	// on startup and for the loopback admin API that manages api_tokens.
-	st, err := store.New(cfg.DatabasePath)
+	// on startup and for the loopback admin API that manages api_tokens. We
+	// open the shared *db.DB explicitly so per-domain repositories can share
+	// it as the internal/store split lands.
+	sharedDB, err := storedb.Open(cfg.DatabasePath)
+	if err != nil {
+		slog.Error("[MCP] Failed to open database", "error", err)
+		os.Exit(1)
+	}
+	defer sharedDB.Close()
+	st, err := store.NewWithDB(sharedDB)
 	if err != nil {
 		slog.Error("[MCP] Failed to initialize store", "error", err)
 		os.Exit(1)
 	}
-	defer st.Close()
 
 	slog.Info("[MCP] Database connection established")
 

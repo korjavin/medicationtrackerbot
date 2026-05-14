@@ -611,8 +611,8 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now()
 	// Apply user timezone if set, so date boundaries are computed in the user's local time.
-	if s.settings != nil {
-		if tzStr, tzErr := s.settings.GetCurrentTimezone(); tzErr == nil && tzStr != "" {
+	if s.timezone != nil {
+		if tzStr, tzErr := s.timezone.GetCurrentTimezone(); tzErr == nil && tzStr != "" {
 			if loc, locErr := time.LoadLocation(tzStr); locErr == nil {
 				now = now.In(loc)
 			}

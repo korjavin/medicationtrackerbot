@@ -68,7 +68,7 @@ func TestHandleMCPFoodLog_ValidRequest(t *testing.T) {
 	}
 
 	// Verify entry exists in DB
-	logs, err := db.GetFoodLogs(context.Background(), 123456, time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), 1)
+	logs, err := db.Food.GetFoodLogs(context.Background(), 123456, time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), 1)
 	if err != nil {
 		t.Fatalf("GetFoodLogs: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestHandleMCPFoodLog_ValidRequest(t *testing.T) {
 		t.Fatalf("second call: expected 201, got %d: %s", w2.Code, w2.Body.String())
 	}
 
-	prod, err := db.GetFoodProductByName(context.Background(), 123456, "Pasta")
+	prod, err := db.Food.GetFoodProductByName(context.Background(), 123456, "Pasta")
 	if err != nil {
 		t.Fatalf("GetFoodProductByName: %v", err)
 	}

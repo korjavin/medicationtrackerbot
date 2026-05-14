@@ -98,7 +98,7 @@ func generateMeds(ctx context.Context, s *store.Store, opts Options, clk *clock,
 			return fmt.Errorf("marshal schedule for %s: %w", spec.name, err)
 		}
 
-		medID, err := s.CreateMedication(
+		medID, err := s.Medication.CreateMedication(
 			spec.name,
 			spec.dosage,
 			string(schedule),
@@ -114,11 +114,11 @@ func generateMeds(ctx context.Context, s *store.Store, opts Options, clk *clock,
 		// CreateMedication stamps created_at with CURRENT_TIMESTAMP. Backdate
 		// it to the synthetic start_date so any UI that says "added X days
 		// ago" tells a consistent story for the demo.
-		if err := s.UpdateMedicationCreatedAt(medID, startDate); err != nil {
+		if err := s.Medication.UpdateMedicationCreatedAt(medID, startDate); err != nil {
 			return fmt.Errorf("backdate created_at for %s: %w", spec.name, err)
 		}
 		if spec.supplement {
-			if err := s.SetMedicationSupplement(medID, true); err != nil {
+			if err := s.Medication.SetMedicationSupplement(medID, true); err != nil {
 				return fmt.Errorf("mark supplement %s: %w", spec.name, err)
 			}
 		}
@@ -144,7 +144,7 @@ func generateMeds(ctx context.Context, s *store.Store, opts Options, clk *clock,
 				if scheduledAt.Before(windowStart) || scheduledAt.After(windowEnd) {
 					continue
 				}
-				intakeID, err := s.CreateIntake(medID, opts.UserID, scheduledAt)
+				intakeID, err := s.Medication.CreateIntake(medID, opts.UserID, scheduledAt)
 				if err != nil {
 					return fmt.Errorf("create intake for %s at %s: %w", spec.name, scheduledAt, err)
 				}
@@ -158,7 +158,7 @@ func generateMeds(ctx context.Context, s *store.Store, opts Options, clk *clock,
 				if status == "PENDING" {
 					continue
 				}
-				if err := s.UpdateIntake(intakeID, takenAt, status); err != nil {
+				if err := s.Medication.UpdateIntake(intakeID, takenAt, status); err != nil {
 					return fmt.Errorf("update intake %d: %w", intakeID, err)
 				}
 			}

@@ -95,7 +95,7 @@ func (s *Server) computeNextIntakeData(now time.Time) (time.Time, []int64, []str
 	// Use the user's stored timezone so that schedule times are interpreted
 	// correctly regardless of the server's local timezone.
 	userLoc := now.Location()
-	if tz, tzErr := s.settings.GetCurrentTimezone(); tzErr == nil && tz != "" {
+	if tz, tzErr := s.timezone.GetCurrentTimezone(); tzErr == nil && tz != "" {
 		if loc, locErr := time.LoadLocation(tz); locErr == nil {
 			userLoc = loc
 		}
@@ -315,12 +315,12 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	currentTimezone, err := s.settings.GetCurrentTimezone()
+	currentTimezone, err := s.timezone.GetCurrentTimezone()
 	if err != nil {
 		slog.Error("bootstrap timezone query failed", "error", err)
 	}
 
-	weightUnitPreference, err := s.settings.GetWeightUnitPreference(ctx)
+	weightUnitPreference, err := s.weight.GetWeightUnitPreference(ctx)
 	if err != nil {
 		slog.Error("bootstrap weight unit preference query failed", "error", err)
 		weightUnitPreference = "kg"
@@ -336,7 +336,7 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	//       calendar day.
 	// The query-string `tz` is kept as a fallback for when the user has not
 	// configured a timezone yet.
-	foodTZName, _ := s.settings.GetCurrentTimezone()
+	foodTZName, _ := s.timezone.GetCurrentTimezone()
 	if foodTZName == "" {
 		foodTZName = r.URL.Query().Get("tz")
 	}
@@ -456,12 +456,12 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	tgUser, _ := r.Context().Value(UserCtxKey).(*TelegramUser)
 	ctx := r.Context()
 
-	tz, err := s.settings.GetCurrentTimezone()
+	tz, err := s.timezone.GetCurrentTimezone()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	weightUnitPreference, err := s.settings.GetWeightUnitPreference(ctx)
+	weightUnitPreference, err := s.weight.GetWeightUnitPreference(ctx)
 	if err != nil {
 		slog.Error("get settings weight unit preference failed", "error", err)
 		weightUnitPreference = "kg"
@@ -621,7 +621,7 @@ func (s *Server) handleSetWeightUnitPreference(w http.ResponseWriter, r *http.Re
 		http.Error(w, "unit must be 'kg' or 'lb'", http.StatusBadRequest)
 		return
 	}
-	if err := s.settings.SetWeightUnitPreference(r.Context(), req.Unit); err != nil {
+	if err := s.weight.SetWeightUnitPreference(r.Context(), req.Unit); err != nil {
 		slog.Error("set weight unit preference failed", "error", err, "unit", req.Unit)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

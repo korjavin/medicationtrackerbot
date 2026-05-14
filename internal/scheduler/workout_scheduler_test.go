@@ -47,7 +47,7 @@ func TestWorkoutCheckerScenarios(t *testing.T) {
 		}
 		defer db.Close() // #nosec G104
 
-		if err := db.SetWorkoutEnabled(context.Background(), true); err != nil {
+		if err := db.Settings.SetWorkoutEnabled(context.Background(), true); err != nil {
 			t.Fatalf("SetWorkoutEnabled failed: %v", err)
 		}
 
@@ -85,13 +85,13 @@ func TestWorkoutCheckerScenarios(t *testing.T) {
 			scheduleTimeString = "12:00"
 		}
 
-		group, err := db.CreateWorkoutGroup("TestGroup", "desc", input.RotationState != "normal", 123456, daysOfWeek, scheduleTimeString, 15)
+		group, err := db.Workout.CreateWorkoutGroup("TestGroup", "desc", input.RotationState != "normal", 123456, daysOfWeek, scheduleTimeString, 15)
 		if err != nil {
 			t.Fatalf("CreateWorkoutGroup: %v", err)
 		}
 
 		order := 0
-		variant, err := db.CreateWorkoutVariant(group.ID, "Variant A", &order, "")
+		variant, err := db.Workout.CreateWorkoutVariant(group.ID, "Variant A", &order, "")
 		if err != nil {
 			t.Fatalf("CreateWorkoutVariant: %v", err)
 		}
@@ -108,25 +108,25 @@ func TestWorkoutCheckerScenarios(t *testing.T) {
 				today = time.Date(checkerBase.Year(), checkerBase.Month(), checkerBase.Day(), 0, 0, 0, 0, checkerBase.Location())
 			}
 
-			session, err := db.CreateWorkoutSession(group.ID, variant.ID, 123456, today, scheduleTimeString)
+			session, err := db.Workout.CreateWorkoutSession(group.ID, variant.ID, 123456, today, scheduleTimeString)
 			if err != nil {
 				t.Fatalf("CreateWorkoutSession: %v", err)
 			}
 
 			if input.InProgress {
-				if err := db.UpdateSessionStatus(session.ID, "in_progress"); err != nil {
+				if err := db.Workout.UpdateSessionStatus(session.ID, "in_progress"); err != nil {
 					t.Fatalf("UpdateSessionStatus: %v", err)
 				}
 
-				svc := workoutsvc.New(db)
+				svc := workoutsvc.New(db.Workout, db.TZ)
 				if err := svc.StartSession(session.ID); err != nil {
 					t.Fatalf("StartSession: %v", err)
 				}
 			} else {
-				if err := db.UpdateSessionStatus(session.ID, "notified"); err != nil {
+				if err := db.Workout.UpdateSessionStatus(session.ID, "notified"); err != nil {
 					t.Fatalf("UpdateSessionStatus: %v", err)
 				}
-				if err := db.SetSessionNotificationMessageID(session.ID, 1); err != nil {
+				if err := db.Workout.SetSessionNotificationMessageID(session.ID, 1); err != nil {
 					t.Fatalf("SetSessionNotificationMessageID: %v", err)
 				}
 				if input.TimeNow == "2023-10-27T12:05:00Z" && input.AlreadyNotified {
@@ -134,12 +134,12 @@ func TestWorkoutCheckerScenarios(t *testing.T) {
 				}
 				if input.TimeNow == "2023-10-27T15:05:00Z" && input.AlreadyNotified {
 					// For 6h auto skip, it must have already been resent
-					if err := db.UpdateWorkoutSessionNotes(session.ID, "resent_3h"); err != nil {
+					if err := db.Workout.UpdateWorkoutSessionNotes(session.ID, "resent_3h"); err != nil {
 						t.Fatalf("UpdateWorkoutSessionNotes: %v", err)
 					}
 				}
 				if input.SnoozeDurationHours > 0 {
-					svc := workoutsvc.New(db)
+					svc := workoutsvc.New(db.Workout, db.TZ)
 					if err := svc.SnoozeSession(session.ID, time.Duration(input.SnoozeDurationHours)*time.Hour); err != nil {
 						t.Fatalf("SnoozeSession: %v", err)
 					}
@@ -147,11 +147,11 @@ func TestWorkoutCheckerScenarios(t *testing.T) {
 			}
 		} else if input.ScheduleTime == "09:00" && input.StaleDurationHours == -1 {
 			today := time.Date(nowTime.Year(), nowTime.Month(), nowTime.Day(), 0, 0, 0, 0, nowTime.Location())
-			session, err := db.CreateWorkoutSession(group.ID, variant.ID, 123456, today, input.ScheduleTime)
+			session, err := db.Workout.CreateWorkoutSession(group.ID, variant.ID, 123456, today, input.ScheduleTime)
 			if err != nil {
 				t.Fatalf("CreateWorkoutSession: %v", err)
 			}
-			if err := db.PreSkipSession(session.ID); err != nil {
+			if err := db.Workout.PreSkipSession(session.ID); err != nil {
 				t.Fatalf("PreSkipSession: %v", err)
 			}
 		}
@@ -162,7 +162,7 @@ func TestWorkoutCheckerScenarios(t *testing.T) {
 		sched := New(db, 123456, []notifier.Notifier{mockNotifier})
 
 		// Use the correct embedded svc
-		sched.WorkoutChecker.workoutSvc = workoutsvc.New(db)
+		sched.WorkoutChecker.workoutSvc = workoutsvc.New(db.Workout, db.TZ)
 		sched.WorkoutChecker.daysCache = make(map[string][]int)
 
 		sched.WorkoutChecker.now = func() time.Time {

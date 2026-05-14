@@ -40,7 +40,7 @@ func TestBPCallbackScenarios(t *testing.T) {
 		defer env.teardown()
 
 		userID := int64(123456)
-		if err := env.s.SetBPReminderEnabled(userID, true); err != nil {
+		if err := env.s.BP.SetBPReminderEnabled(userID, true); err != nil {
 			t.Fatalf("SetBPReminderEnabled failed: %v", err)
 		}
 
@@ -82,7 +82,7 @@ func TestBPCallbackScenarios(t *testing.T) {
 			}
 		}
 
-		state, err := env.s.GetBPReminderState(userID)
+		state, err := env.s.BP.GetBPReminderState(userID)
 		if err != nil {
 			t.Fatalf("Failed to get state: %v", err)
 		}

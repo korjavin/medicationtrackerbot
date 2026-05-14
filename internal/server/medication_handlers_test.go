@@ -29,17 +29,17 @@ func TestHandleListMedications(t *testing.T) {
 	defer db.Close()
 
 	// 1. Create test data
-	_, err := db.CreateMedication("Med A", "10mg", "Wait", nil, nil, "", "", "")
+	_, err := db.Medication.CreateMedication("Med A", "10mg", "Wait", nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("Failed to create med: %v", err)
 	}
-	idB, err := db.CreateMedication("Med B", "20mg", "Wait", nil, nil, "", "", "")
+	idB, err := db.Medication.CreateMedication("Med B", "20mg", "Wait", nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("Failed to create med: %v", err)
 	}
 
 	// Archive one
-	err = db.UpdateMedication(idB, "Med B", "20mg", "Wait", true, nil, nil, "", "", nil, "")
+	err = db.Medication.UpdateMedication(idB, "Med B", "20mg", "Wait", true, nil, nil, "", "", nil, "")
 	if err != nil {
 		t.Fatalf("Failed to archive med: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestHandleCreateMedication(t *testing.T) {
 	}
 
 	// Verify in DB
-	meds, _ := db.ListMedications(false)
+	meds, _ := db.Medication.ListMedications(false)
 	if len(meds) != 1 {
 		t.Errorf("Expected 1 medication in DB, got %d", len(meds))
 	}
@@ -127,7 +127,7 @@ func TestHandleCreateMedication_Duplicate(t *testing.T) {
 	defer db.Close()
 
 	// Create initial medication
-	_, err := db.CreateMedication("Aspirin", "100mg", "daily", nil, nil, "", "", "")
+	_, err := db.Medication.CreateMedication("Aspirin", "100mg", "daily", nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("Failed to create med: %v", err)
 	}
@@ -170,8 +170,8 @@ func TestHandleCreateMedication_Duplicate(t *testing.T) {
 	}
 
 	// Also test duplicate against archived medication
-	idArchived, _ := db.CreateMedication("ArchivedMed", "50mg", "daily", nil, nil, "", "", "")
-	_ = db.UpdateMedication(idArchived, "ArchivedMed", "50mg", "daily", true, nil, nil, "", "", nil, "")
+	idArchived, _ := db.Medication.CreateMedication("ArchivedMed", "50mg", "daily", nil, nil, "", "", "")
+	_ = db.Medication.UpdateMedication(idArchived, "ArchivedMed", "50mg", "daily", true, nil, nil, "", "", nil, "")
 
 	reqBody := map[string]interface{}{
 		"name":     "archivedmed",
@@ -207,7 +207,7 @@ func TestHandleUpdateMedication(t *testing.T) {
 	defer db.Close()
 
 	// Setup: Create a medication
-	id, _ := db.CreateMedication("Old Name", "10mg", "Wait", nil, nil, "", "", "")
+	id, _ := db.Medication.CreateMedication("Old Name", "10mg", "Wait", nil, nil, "", "", "")
 
 	// Test: Update it
 	reqBody := map[string]interface{}{
@@ -232,7 +232,7 @@ func TestHandleUpdateMedication(t *testing.T) {
 	}
 
 	// Verify
-	med, _ := db.GetMedication(id)
+	med, _ := db.Medication.GetMedication(id)
 	if med.Name != "New Name" {
 		t.Errorf("Expected name 'New Name', got '%s'", med.Name)
 	}
@@ -249,8 +249,8 @@ func TestHandleUpdateMedication_Duplicate(t *testing.T) {
 	defer db.Close()
 
 	// Create two medications
-	idA, _ := db.CreateMedication("Aspirin", "100mg", "daily", nil, nil, "", "", "")
-	idB, _ := db.CreateMedication("Ibuprofen", "200mg", "daily", nil, nil, "", "", "")
+	idA, _ := db.Medication.CreateMedication("Aspirin", "100mg", "daily", nil, nil, "", "", "")
+	idB, _ := db.Medication.CreateMedication("Ibuprofen", "200mg", "daily", nil, nil, "", "", "")
 
 	// Test: renaming B to match A's name+dosage should return 409
 	reqBody := map[string]interface{}{
@@ -295,8 +295,8 @@ func TestHandleDeleteMedication(t *testing.T) {
 	defer db.Close()
 
 	// Setup: Create a medication without history and archive it
-	id, _ := db.CreateMedication("To Delete", "10mg", "Wait", nil, nil, "", "", "")
-	err := db.UpdateMedication(id, "To Delete", "10mg", "Wait", true, nil, nil, "", "", nil, "")
+	id, _ := db.Medication.CreateMedication("To Delete", "10mg", "Wait", nil, nil, "", "", "")
+	err := db.Medication.UpdateMedication(id, "To Delete", "10mg", "Wait", true, nil, nil, "", "", nil, "")
 	if err != nil {
 		t.Fatalf("Failed to archive med: %v", err)
 	}
@@ -315,13 +315,13 @@ func TestHandleDeleteMedication(t *testing.T) {
 	}
 
 	// Verify
-	med, _ := db.GetMedication(id)
+	med, _ := db.Medication.GetMedication(id)
 	if med != nil {
 		t.Errorf("Expected nil, got %v", med)
 	}
 
 	// Setup: Create an active medication without history
-	idActive, _ := db.CreateMedication("Active Med", "10mg", "Wait", nil, nil, "", "", "")
+	idActive, _ := db.Medication.CreateMedication("Active Med", "10mg", "Wait", nil, nil, "", "", "")
 
 	// Test: Delete it should fail because it's not archived
 	urlActive := fmt.Sprintf("/api/medications/%d", idActive)
@@ -336,15 +336,15 @@ func TestHandleDeleteMedication(t *testing.T) {
 	}
 
 	// Verify it was not deleted
-	medActive, _ := db.GetMedication(idActive)
+	medActive, _ := db.Medication.GetMedication(idActive)
 	if medActive == nil {
 		t.Errorf("Expected active medication to still exist, got nil")
 	}
 
 	// Setup: Create a medication with history
-	id2, _ := db.CreateMedication("With History", "10mg", "Wait", nil, nil, "", "", "")
+	id2, _ := db.Medication.CreateMedication("With History", "10mg", "Wait", nil, nil, "", "", "")
 	scheduled := time.Date(2026, 2, 28, 9, 0, 0, 0, time.UTC)
-	_, _ = db.CreateIntake(id2, 12345, scheduled)
+	_, _ = db.Medication.CreateIntake(id2, 12345, scheduled)
 
 	// Test: Delete it should fail
 	url2 := fmt.Sprintf("/api/medications/%d", id2)
@@ -359,7 +359,7 @@ func TestHandleDeleteMedication(t *testing.T) {
 	}
 
 	// Verify it was not deleted
-	med2, _ := db.GetMedication(id2)
+	med2, _ := db.Medication.GetMedication(id2)
 	if med2 == nil {
 		t.Errorf("Expected medication to still exist, got nil")
 	}
@@ -370,8 +370,8 @@ func TestHandleSnoozeMedication(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	medID, _ := db.CreateMedication("Med A", "10mg", "Wait", nil, nil, "", "", "")
-	intakeID, _ := db.CreateIntake(medID, userID, time.Now())
+	medID, _ := db.Medication.CreateMedication("Med A", "10mg", "Wait", nil, nil, "", "", "")
+	intakeID, _ := db.Medication.CreateIntake(medID, userID, time.Now())
 
 	reqBody := map[string]interface{}{
 		"intake_id":        intakeID,
@@ -390,7 +390,7 @@ func TestHandleSnoozeMedication(t *testing.T) {
 		t.Errorf("Expected status 200, got %d", w.Code)
 	}
 
-	intake, _ := db.GetIntake(intakeID)
+	intake, _ := db.Medication.GetIntake(intakeID)
 	if intake.SnoozedUntil == nil {
 		t.Error("Expected SnoozedUntil to be set")
 	}
@@ -401,8 +401,8 @@ func TestHandleSkipMedication(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	medID, _ := db.CreateMedication("Med A", "10mg", "Wait", nil, nil, "", "", "")
-	intakeID, _ := db.CreateIntake(medID, userID, time.Now())
+	medID, _ := db.Medication.CreateMedication("Med A", "10mg", "Wait", nil, nil, "", "", "")
+	intakeID, _ := db.Medication.CreateIntake(medID, userID, time.Now())
 
 	reqBody := map[string]interface{}{
 		"intake_id": intakeID,
@@ -420,7 +420,7 @@ func TestHandleSkipMedication(t *testing.T) {
 		t.Errorf("Expected status 200, got %d", w.Code)
 	}
 
-	intake, _ := db.GetIntake(intakeID)
+	intake, _ := db.Medication.GetIntake(intakeID)
 	if intake.Status != "SKIPPED" {
 		t.Errorf("Expected status SKIPPED, got %s", intake.Status)
 	}
@@ -446,10 +446,10 @@ func TestHandleUpdateIntake(t *testing.T) {
 	defer db.Close()
 
 	// 1. Setup Data
-	medID, _ := db.CreateMedication("Med A", "10mg", "Wait", nil, nil, "", "", "")
+	medID, _ := db.Medication.CreateMedication("Med A", "10mg", "Wait", nil, nil, "", "", "")
 	userID := int64(123456)
 	schedule := time.Now().Add(-1 * time.Hour)
-	intakeID, _ := db.CreateIntake(medID, userID, schedule)
+	intakeID, _ := db.Medication.CreateIntake(medID, userID, schedule)
 
 	// 2. Test: Mark as TAKEN
 	reqBody := map[string]interface{}{
@@ -477,7 +477,7 @@ func TestHandleUpdateIntake(t *testing.T) {
 	}
 
 	// Verify in DB
-	intake, _ := db.GetIntake(intakeID)
+	intake, _ := db.Medication.GetIntake(intakeID)
 	if intake.Status != "TAKEN" {
 		t.Errorf("Expected status TAKEN, got %s", intake.Status)
 	}
@@ -506,7 +506,7 @@ func TestHandleUpdateIntake(t *testing.T) {
 	}
 
 	// Verify Revert
-	intakeReverted, _ := db.GetIntake(intakeID)
+	intakeReverted, _ := db.Medication.GetIntake(intakeID)
 	if intakeReverted.Status != "PENDING" {
 		t.Errorf("Expected status PENDING, got %s", intakeReverted.Status)
 	}

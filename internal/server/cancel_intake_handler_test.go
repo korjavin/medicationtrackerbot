@@ -14,16 +14,16 @@ func TestHandleCancelIntake_Success(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	medID, _ := db.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, _ := db.Medication.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	count := 10
-	db.SetInventory(medID, &count)
+	db.Medication.SetInventory(medID, &count)
 
-	intakeID, _ := db.CreateIntake(medID, userID, time.Now())
+	intakeID, _ := db.Medication.CreateIntake(medID, userID, time.Now())
 	// Confirm so status = TAKEN, and simulate the inventory decrement that the HTTP confirm handler performs
-	if err := db.ConfirmIntake(intakeID, time.Now()); err != nil {
+	if err := db.Medication.ConfirmIntake(intakeID, time.Now()); err != nil {
 		t.Fatalf("ConfirmIntake: %v", err)
 	}
-	if err := db.DecrementInventory(medID, 1); err != nil {
+	if err := db.Medication.DecrementInventory(medID, 1); err != nil {
 		t.Fatalf("DecrementInventory: %v", err)
 	}
 
@@ -49,13 +49,13 @@ func TestHandleCancelIntake_Success(t *testing.T) {
 	}
 
 	// Verify reverted to PENDING
-	intake, _ := db.GetIntake(intakeID)
+	intake, _ := db.Medication.GetIntake(intakeID)
 	if intake.Status != "PENDING" {
 		t.Errorf("Expected PENDING after cancel, got %s", intake.Status)
 	}
 
 	// Inventory should be restored: was 10, decremented to 9 on confirm, incremented back to 10 on cancel
-	med, _ := db.GetMedication(medID)
+	med, _ := db.Medication.GetMedication(medID)
 	if med.InventoryCount == nil {
 		t.Error("Expected inventory count to be set")
 	} else if *med.InventoryCount != 10 {
@@ -68,10 +68,10 @@ func TestHandleCancelIntake_NotTaken_Skipped(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	medID, _ := db.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, _ := db.Medication.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 
 	// Create intake but don't confirm it (stays PENDING)
-	intakeID, _ := db.CreateIntake(medID, userID, time.Now())
+	intakeID, _ := db.Medication.CreateIntake(medID, userID, time.Now())
 
 	body, _ := json.Marshal(map[string]any{"intake_ids": []int64{intakeID}})
 	req := httptest.NewRequest("POST", "/api/medications/cancel-intake", bytes.NewReader(body))

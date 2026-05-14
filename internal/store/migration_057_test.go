@@ -252,7 +252,7 @@ func TestCreateIntake_DualWritesScheduledAtUnix(t *testing.T) {
 		t.Fatalf("load Phoenix: %v", err)
 	}
 
-	medID, err := db.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
+	medID, err := db.Medication.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestCreateIntake_DualWritesScheduledAtUnix(t *testing.T) {
 	// LA: 2026-05-10 08:20 PDT (-07:00) = 2026-05-10 15:20 UTC = unix 1778426400
 	schedLA := time.Date(2026, 5, 10, 8, 20, 0, 0, la)
 	wantUnix := schedLA.UTC().Unix()
-	idLA, err := db.CreateIntake(medID, 1, schedLA)
+	idLA, err := db.Medication.CreateIntake(medID, 1, schedLA)
 	if err != nil {
 		t.Fatalf("CreateIntake (LA): %v", err)
 	}
@@ -279,7 +279,7 @@ func TestCreateIntake_DualWritesScheduledAtUnix(t *testing.T) {
 	// Phoenix: same wall clock 08:20 but MST (-07:00). Same UTC offset as PDT,
 	// but a different Location and TZ name. The unix value MUST match.
 	schedPhx := time.Date(2026, 5, 10, 8, 20, 0, 0, phoenix)
-	idPhx, err := db.CreateIntake(medID, 1, schedPhx)
+	idPhx, err := db.Medication.CreateIntake(medID, 1, schedPhx)
 	if err != nil {
 		t.Fatalf("CreateIntake (Phoenix): %v", err)
 	}
@@ -315,14 +315,14 @@ func TestCreateManualIntake_DualWritesScheduledAtUnix(t *testing.T) {
 		t.Fatalf("load Berlin: %v", err)
 	}
 
-	medID, err := db.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
+	medID, err := db.Medication.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
 	}
 
 	taken := time.Date(2026, 5, 10, 17, 20, 0, 0, berlin)
 	wantUnix := taken.UTC().Unix()
-	id, err := db.CreateManualIntake(medID, 1, taken)
+	id, err := db.Medication.CreateManualIntake(medID, 1, taken)
 	if err != nil {
 		t.Fatalf("CreateManualIntake: %v", err)
 	}

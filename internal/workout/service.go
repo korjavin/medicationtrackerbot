@@ -32,6 +32,10 @@ type WorkoutStore interface {
 	CreatePlannedAdHocSession(userID int64, scheduledDate time.Time, scheduledTime string) (*store.WorkoutSession, error)
 	LogExerciseWithSource(sessionID, exerciseID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes, source string) (int64, error)
 	DeleteSession(id int64) error
+}
+
+// TZStore is the timezone lookup the workout service needs.
+type TZStore interface {
 	GetCurrentTimezone() (string, error)
 }
 
@@ -69,13 +73,15 @@ type WorkoutService interface {
 // Service implements WorkoutService using a WorkoutStore.
 type Service struct {
 	store WorkoutStore
+	tz    TZStore
 	// Now returns the current time. Defaults to time.Now; tests inject a fixed clock.
 	Now func() time.Time
 }
 
-// New creates a new workout Service.
-func New(s WorkoutStore) *Service {
-	return &Service{store: s, Now: time.Now}
+// New creates a new workout Service. tz may be nil — when nil
+// SchedulePlannedAdHocSession falls back to UTC.
+func New(s WorkoutStore, tz TZStore) *Service {
+	return &Service{store: s, tz: tz, Now: time.Now}
 }
 
 // StartSession marks a session as in-progress and clears any active snooze.
@@ -135,13 +141,15 @@ func (s *Service) SchedulePlannedAdHocSession(userID int64, scheduledDate time.T
 	}
 
 	loc := time.UTC
-	if tz, tzErr := s.store.GetCurrentTimezone(); tzErr != nil {
-		slog.Warn("workout service: failed to load user timezone, falling back to UTC", "error", tzErr)
-	} else if tz != "" {
-		if l, locErr := time.LoadLocation(tz); locErr != nil {
-			slog.Warn("workout service: invalid user timezone, falling back to UTC", "tz", tz, "error", locErr)
-		} else {
-			loc = l
+	if s.tz != nil {
+		if tz, tzErr := s.tz.GetCurrentTimezone(); tzErr != nil {
+			slog.Warn("workout service: failed to load user timezone, falling back to UTC", "error", tzErr)
+		} else if tz != "" {
+			if l, locErr := time.LoadLocation(tz); locErr != nil {
+				slog.Warn("workout service: invalid user timezone, falling back to UTC", "tz", tz, "error", locErr)
+			} else {
+				loc = l
+			}
 		}
 	}
 

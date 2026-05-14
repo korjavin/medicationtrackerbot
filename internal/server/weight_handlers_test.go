@@ -46,7 +46,7 @@ func TestHandleCreateWeight(t *testing.T) {
 		Weight:      80.0,
 		WeightTrend: &initialTrend,
 	}
-	db.CreateWeightLog(ctx, wLog1)
+	db.Weight.CreateWeightLog(ctx, wLog1)
 
 	reqBody := map[string]interface{}{
 		"measured_at": time.Now(),
@@ -92,7 +92,7 @@ func TestHandleCreateWeightReplacesExcludesOriginalFromTrend(t *testing.T) {
 
 	ctx := weightCtxWithUser(123456)
 	baseTrend := 80.0
-	_, err := db.CreateWeightLog(ctx, &store.WeightLog{
+	_, err := db.Weight.CreateWeightLog(ctx, &store.WeightLog{
 		UserID:      123456,
 		MeasuredAt:  time.Now().Add(-48 * time.Hour),
 		Weight:      80.0,
@@ -104,7 +104,7 @@ func TestHandleCreateWeightReplacesExcludesOriginalFromTrend(t *testing.T) {
 
 	// Original "latest" log with a trend already smoothed from the base.
 	origTrend := 79.95
-	origID, err := db.CreateWeightLog(ctx, &store.WeightLog{
+	origID, err := db.Weight.CreateWeightLog(ctx, &store.WeightLog{
 		UserID:      123456,
 		MeasuredAt:  time.Now().Add(-24 * time.Hour),
 		Weight:      79.5,
@@ -149,7 +149,7 @@ func TestHandleListWeight(t *testing.T) {
 	defer db.Close()
 
 	ctx := weightCtxWithUser(123456)
-	db.CreateWeightLog(ctx, &store.WeightLog{
+	db.Weight.CreateWeightLog(ctx, &store.WeightLog{
 		UserID:     123456,
 		MeasuredAt: time.Now(),
 		Weight:     80.0,
@@ -180,7 +180,7 @@ func TestHandleDeleteWeight(t *testing.T) {
 	defer db.Close()
 
 	ctx := weightCtxWithUser(123456)
-	id, _ := db.CreateWeightLog(ctx, &store.WeightLog{
+	id, _ := db.Weight.CreateWeightLog(ctx, &store.WeightLog{
 		UserID:     123456,
 		MeasuredAt: time.Now(),
 		Weight:     90.0,
@@ -199,7 +199,7 @@ func TestHandleDeleteWeight(t *testing.T) {
 	}
 
 	// Verify deletion
-	logs, _ := db.GetWeightLogs(ctx, 123456, time.Time{})
+	logs, _ := db.Weight.GetWeightLogs(ctx, 123456, time.Time{})
 	if len(logs) != 0 {
 		t.Errorf("Expected 0 logs, got %d", len(logs))
 	}
@@ -210,7 +210,7 @@ func TestHandleExportWeight(t *testing.T) {
 	defer db.Close()
 
 	ctx := weightCtxWithUser(123456)
-	db.CreateWeightLog(ctx, &store.WeightLog{
+	db.Weight.CreateWeightLog(ctx, &store.WeightLog{
 		UserID:     123456,
 		MeasuredAt: time.Now(),
 		Weight:     80.0,

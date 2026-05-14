@@ -21,7 +21,7 @@ User
 
 **Core Packages** (`internal/`):
 - `ai/` — AI client integration (OpenAI-compatible)
-- `store/` — database layer (SQLite repository, migrations)
+- `store/` — database layer. Per-domain repositories under sub-packages (`medication/`, `bp/`, `weight/`, `food/`, `workout/`, `vitals/`, `diary/`, `tz/`, `settings/`, `auth/`, `push/`), with shared infra in `store/db/` (connection, migrations runner, `WithTx`). `store.Repos` is the aggregator. See [Store layer](#store-layer).
 - `server/` — HTTP handlers for REST API
 - `bot/` — Telegram bot logic (commands, callbacks, notifications) — thin channel layer only
 - `domain/` — business logic services: `medication.go`, `exercise.go`, `reminder.go`, `food.go`, `food_ai.go`
@@ -61,7 +61,7 @@ SQLite with 47+ goose migrations tracking schema evolution:
 
 ### Time storage
 
-**Rule:** dose-time columns on `intake_log` are stored as `INTEGER` unix-seconds-UTC, not as SQLite `DATETIME` text. Specifically: `intake_log.scheduled_at_unix`, `intake_log.taken_at_unix`, `intake_log.snoozed_until_unix`. The audit anchor is the comment block at the top of `internal/store/store.go` listing the columns; the architecture test `internal/store/intake_log_time_columns_test.go` parses `PRAGMA table_info(intake_log)` and fails CI if any of these columns regresses to a text-typed column, or if a legacy `scheduled_at` / `taken_at` / `snoozed_until` text column reappears.
+**Rule:** dose-time columns on `intake_log` are stored as `INTEGER` unix-seconds-UTC, not as SQLite `DATETIME` text. Specifically: `intake_log.scheduled_at_unix`, `intake_log.taken_at_unix`, `intake_log.snoozed_until_unix`. The architecture test `internal/store/medication/time_columns_test.go` parses `PRAGMA table_info(intake_log)` and fails CI if any of these columns regresses to a text-typed column, or if a legacy `scheduled_at` / `taken_at` / `snoozed_until` text column reappears.
 
 **Why:** `modernc.org/sqlite` serializes `time.Time` via `t.String()`, which embeds the timezone *name* (e.g. `"2026-05-10 08:20:00 -0700 PDT"`). SQL text-equality (`WHERE scheduled_at = ?`) on such strings depends on the caller's `time.Location` and breaks whenever the user (or the scheduler) compares the same UTC instant across a TZ-name change — even when the *offset* is unchanged (PDT→MST). On 2026-05-10 this produced a duplicate set of pending intakes after a California→Phoenix flight and an hourly reminder storm. Storing unix seconds normalizes the value at the write boundary; SQL equality on `INTEGER` is then unambiguous regardless of caller `time.Location`.
 
@@ -70,6 +70,59 @@ SQLite with 47+ goose migrations tracking schema evolution:
 **Read path:** `Scan(&n int64)` then `time.Unix(n, 0).UTC()`. Nullable columns scan into `sql.NullInt64` and populate `*time.Time` pointer fields only when valid.
 
 **Design history:** see `docs/plans/2026-05-10-intake-log-utc-unix-fix.md` (this implementation) and `docs/plans/20260508-simplify-medication-scheduling-utc-and-pre-materialized-steps.md` (Track A of the broader scheduler-simplification proposal).
+
+## Store layer
+
+`internal/store` is split into one Go package per domain. The single 3.3k-line god-object `Store` was replaced with per-feature repositories during the 2026-05 store-split refactor (see `docs/plans/completed/2026-05-13-split-store-package.md`).
+
+### Layout
+
+```
+internal/store/
+├── db/            shared infra: Open(), *sql.DB wrapper, busy-timeout config,
+│                  WithTx cross-repo transaction helper, goose migrations runner,
+│                  unix-seconds time helpers.
+├── medication/    medication CRUD + intake_log + restock + inventory.
+├── bp/            blood-pressure readings + reminder state + goal + stats.
+├── weight/        weight logs + reminder state + goal + unit preference.
+├── food/          food logs + products + targets + Open Food Facts client.
+├── workout/       workout groups/variants/exercises/sessions/logs + mi-band.
+├── vitals/        sleep_logs + day_stats + heart/spo2/stress vitals.
+├── diary/         diary_notes.
+├── tz/            timezone_history + tz_transition_plans + tz_transition_steps.
+├── settings/      per-feature toggles + tab order + change_events stream
+│                  + download cursor.
+├── auth/          api_tokens + used_login_hashes.
+├── push/          push_subscriptions.
+└── migrations/    embedded goose SQL files + tiny Go re-export so subpackage
+                   tests can mount the schema.
+```
+
+Each per-domain package owns:
+- A `Repo` struct that holds `*db.DB` and is constructed with `New(*db.DB) *Repo`.
+- The domain types it returns (e.g. `medication.Medication`, `bp.BloodPressure`). Types live with their owner repo — there is no shared `types` package.
+- Its own tests using `storedb.Open` + `migrations.FS`.
+
+`store.Repos` (with a `type Store = Repos` alias for compatibility) is a thin aggregator wired in `cmd/bot/main.go`, `cmd/mcptool/main.go`, `cmd/seeddemo/main.go`, and `cmd/bpimporter/main.go`:
+
+```go
+type Repos struct {
+    Medication *medication.Repo
+    BP         *bp.Repo
+    Weight     *weight.Repo
+    // … one field per domain
+}
+```
+
+Consumers (server handlers, bot callbacks, scheduler checkers, MCP tools, domain services) depend on narrow per-feature interfaces — see `internal/server/store_interfaces.go` and `internal/bot/store_interfaces.go`. Where a consumer interface combines methods from multiple repos (e.g. scheduler's `MedicationStore` spans medication + settings + tz), a small adapter struct in the consumer package owns a `*store.Repos` and routes each method to the correct sub-repo (`internal/scheduler/adapter.go`, `internal/bot/adapter.go`, `internal/mcp/adapter.go`).
+
+### Cross-repo transactions
+
+When a write needs to atomically touch tables owned by two different packages, callers use the shared `db.WithTx` helper plus the `db.TX` interface (satisfied by both `*sql.DB` and `*sql.Tx`). Each repo can expose `…Tx` variants of methods that participate in caller-owned transactions; in practice this is rare — the canonical case (timezone-plan rejection touching `intake_log`) turned out to be sequential best-effort calls rather than a single atomic operation, so no `…Tx` variants exist today. The `db.WithTx` pattern is reserved for future cross-repo writes that genuinely need atomicity.
+
+### Adding a new feature
+
+See "Common Tasks → Adding a new health metric" in [CLAUDE.md](../CLAUDE.md). The short version: new migrations go in `internal/store/migrations/`; create a new `internal/store/<feature>/` package with a `Repo` + types + tests; wire it into `store.Repos`. Use the existing `diary/` and `push/` packages as the minimal reference shape.
 
 ## Authentication & Security
 

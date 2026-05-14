@@ -22,7 +22,7 @@ func BenchmarkWeightReminderChecker_Check(b *testing.B) {
 	db := setupBenchStoreForScheduler(b)
 	defer db.Close()
 
-	if err := db.SetWeightEnabled(context.Background(), true); err != nil {
+	if err := db.Settings.SetWeightEnabled(context.Background(), true); err != nil {
 		b.Fatalf("SetWeightEnabled failed: %v", err)
 	}
 
@@ -30,13 +30,13 @@ func BenchmarkWeightReminderChecker_Check(b *testing.B) {
 	now := time.Now()
 	for i := 1; i <= 1000; i++ {
 		userID := int64(i)
-		if err := db.SetWeightReminderEnabled(userID, true); err != nil {
+		if err := db.Weight.SetWeightReminderEnabled(userID, true); err != nil {
 			b.Fatalf("SetWeightReminderEnabled failed: %v", err)
 		}
 
 		// Set it up so it doesn't trigger notification (to avoid hitting the mock notifier constantly)
 		// by setting last log to very recent.
-		_, err := db.CreateWeightLog(context.Background(), &store.WeightLog{
+		_, err := db.Weight.CreateWeightLog(context.Background(), &store.WeightLog{
 			UserID:     userID,
 			Weight:     75.0,
 			MeasuredAt: now.Add(-1 * time.Hour), // Very recent
