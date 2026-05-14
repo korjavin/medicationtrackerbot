@@ -272,12 +272,12 @@ API tokens + login hashes. Single consumer (`internal/server/auth.go`).
 
 Sleep logs + day stats. Cross-references `workout` (mi-band imports day stats) — validate the boundary in this PR.
 
-- [ ] Create `internal/store/vitals/` with `Repo`, `SleepLog`, `DayStats` types.
-- [ ] Move `GetSleepLogs`, `ImportSleepLogs`, `GetDayStats`, `ImportDayStats` (and `vitals.go` content).
-- [ ] Forwarders in `Store`.
-- [ ] `git mv internal/store/store_sleep_vitals_test.go internal/store/vitals/vitals_test.go`.
-- [ ] Audit mi-band paths (`internal/store/miband_workouts.go`) for any sleep / day-stats coupling — document in the PR.
-- [ ] Run `go test ./...` and `go test -race ./...` — must pass before Task 6.
+- [x] Create `internal/store/vitals/` with `Repo`, `SleepLog`, `DayStat` types (plus `VitalsHeartLog` / `VitalsSpO2Log` / `VitalsStressLog` since `vitals.go` content moved here too).
+- [x] Move `GetSleepLogs`, `ImportSleepLogs`, `GetDayStats`, `ImportDayStats` (and `vitals.go` content — `ImportVitals` / `GetVitalsHeart` / `GetVitalsSpO2` / `GetVitalsStress`).
+- [x] Forwarders in `Store`. `SleepLog` / `DayStat` / `VitalsHeartLog` / `VitalsSpO2Log` / `VitalsStressLog` become type aliases (e.g. `type SleepLog = vitals.SleepLog`) so existing `store.SleepLog` references (server health handlers, MCP cardiovascular/fitness/vitals tools, bot sleep importer, narrow consumer interfaces, tests) compile unchanged. `Store.Vitals()` accessor exposes the repo for new callers.
+- [x] `git mv internal/store/store_sleep_vitals_test.go internal/store/vitals/vitals_test.go`. Tests rewritten against the `*Repo` API; setup helper switches from `store.New(":memory:")` to `storedb.Open` + `migrations.FS`.
+- [x] Audit mi-band paths (`internal/store/miband_workouts.go`) for any sleep / day-stats coupling — none found. `miband_workouts.go` (10 methods on `MiBandWorkout` / `MiBandGPSPoint`) reads and writes only the workout tables and never references `sleep_logs`, `day_stats`, or `vitals_*` — confirmed by `grep -i "sleep\|day_stat\|SleepLog\|DayStat\|vitals_"` returning no matches. The boundary between Task 5 (vitals) and Task 10 (workout) is clean; mi-band stays with workout.
+- [x] Run `go test ./...` and `go test -race ./...` — must pass before Task 6. Full `go test ./...` is green; `go test -race ./internal/store/... ./internal/mcp/... ./internal/bot/... ./internal/notifier/... ./internal/webpush/... ./internal/seeddemo/...` is green. The pre-existing race in `internal/server/TestHandleTriggerNextIntake_EarlyNotifFormatsInUserTZ` (documented in Task 1's completion note — between `mockNotifier.Send` and a `notifyWithAutoDelete` goroutine) reproduces on master pre-refactor and is unrelated to the vitals split.
 
 ---
 
