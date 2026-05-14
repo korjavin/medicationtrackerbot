@@ -327,27 +327,39 @@ describe('workout.js session and stats flows', () => {
       expect(window.showWorkoutSessionModal).toHaveBeenCalledWith(999);
       expect(window.loadNextWorkout).toHaveBeenCalled();
 
-      window.confirm = vi.fn().mockReturnValue(false);
+      // safeConfirm now uses an in-page <mt-modal> in browser mode; stub it
+      // so each branch resolves a deterministic boolean.
+      const stubConfirm = (ok) => vi.spyOn(window, 'safeConfirm').mockImplementation(async (_msg, cb) => {
+        if (cb) await cb(ok);
+        return ok;
+      });
+
+      let confirmSpy = stubConfirm(false);
       await window.startWorkoutSession(10);
       expect(apiCallSpy).not.toHaveBeenCalledWith('/api/workout/sessions/10/start', 'POST');
+      confirmSpy.mockRestore();
 
-      window.confirm = vi.fn().mockReturnValue(true);
+      confirmSpy = stubConfirm(true);
       await window.startWorkoutSession(10);
       expect(apiCallSpy).toHaveBeenCalledWith('/api/workout/sessions/10/start', 'POST');
       expect(window.safeAlert).toHaveBeenCalledWith('✅ Workout started! You can now log exercises.');
+      confirmSpy.mockRestore();
 
-      window.confirm = vi.fn().mockReturnValue(true);
+      confirmSpy = stubConfirm(true);
       await window.completeWorkoutSession(10);
       expect(apiCallSpy).toHaveBeenCalledWith('/api/workout/sessions/status?id=10', 'PUT', { status: 'completed' });
       expect(window.loadWorkoutHistoryTab).toHaveBeenCalled();
+      confirmSpy.mockRestore();
 
-      window.confirm = vi.fn().mockReturnValue(false);
+      confirmSpy = stubConfirm(false);
       await window.preSkipWorkoutSession(15);
       expect(apiCallSpy).not.toHaveBeenCalledWith('/api/workout/sessions/15/preskip', 'POST');
+      confirmSpy.mockRestore();
 
-      window.confirm = vi.fn().mockReturnValue(true);
+      confirmSpy = stubConfirm(true);
       await window.preSkipWorkoutSession(15);
       expect(apiCallSpy).toHaveBeenCalledWith('/api/workout/sessions/15/preskip', 'POST');
+      confirmSpy.mockRestore();
 
       await window.cancelPreSkipWorkoutSession(15);
       expect(apiCallSpy).toHaveBeenCalledWith('/api/workout/sessions/15/cancel-preskip', 'POST');

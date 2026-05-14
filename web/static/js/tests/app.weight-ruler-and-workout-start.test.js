@@ -55,11 +55,12 @@ describe('app.js weight modal helpers and workout start modal flows', () => {
       expect(alertSpy).toHaveBeenCalledWith('Snoozed for 15 minutes');
 
       window.showWorkoutStartModal(55);
-      window.confirm = vi.fn().mockReturnValue(false);
+      const skipFalseSpy = vi.spyOn(window, 'safeConfirm').mockImplementation(async (_msg, cb) => { if (cb) await cb(false); return false; });
       await window.skipWorkoutFromModal();
       expect(window.apiCall).toHaveBeenCalledTimes(1);
+      skipFalseSpy.mockRestore();
 
-      window.confirm = vi.fn().mockReturnValue(true);
+      vi.spyOn(window, 'safeConfirm').mockImplementation(async (_msg, cb) => { if (cb) await cb(true); return true; });
       window.apiCall = vi.fn().mockResolvedValue({ ok: true });
       await window.skipWorkoutFromModal();
       expect(window.apiCall).toHaveBeenCalledWith('/api/workout/sessions/55/skip', 'POST');
@@ -104,19 +105,24 @@ describe('app.js weight modal helpers and workout start modal flows', () => {
 
     try {
       const deleteSpy = vi.spyOn(window, '_deleteWeightApi').mockResolvedValue(undefined);
-      window.confirm = vi.fn().mockReturnValue(false);
-      window.deleteWeightLog(1);
+      const confirmFalseSpy = vi.spyOn(window, 'safeConfirm').mockImplementation(async (_msg, cb) => { if (cb) await cb(false); return false; });
+      await window.deleteWeightLog(1);
       expect(deleteSpy).not.toHaveBeenCalled();
+      confirmFalseSpy.mockRestore();
 
-      window.confirm = vi.fn().mockReturnValue(true);
-      window.deleteWeightLog(2);
+      const confirmTrueSpy = vi.spyOn(window, 'safeConfirm').mockImplementation(async (_msg, cb) => { if (cb) await cb(true); return true; });
+      await window.deleteWeightLog(2);
       expect(deleteSpy).toHaveBeenCalledWith(2);
 
+      // When Telegram.showConfirm throws, the fallback now uses the in-page
+      // <mt-modal>; safeConfirm is the only public surface, so we keep
+      // asserting that callers go through it.
       window.Telegram.WebApp.showConfirm = vi.fn(() => {
         throw new Error('unsupported');
       });
-      window.deleteWeightLog(3);
-      expect(window.confirm).toHaveBeenCalled();
+      await window.deleteWeightLog(3);
+      expect(confirmTrueSpy).toHaveBeenCalled();
+      confirmTrueSpy.mockRestore();
     } finally {
       cleanup();
     }

@@ -3694,6 +3694,32 @@ input:checked+.toggle-slider:before {
     gap: var(--space-sm);
 }
 
+/* In-page confirm dialog used by safeConfirm() when no Telegram WebApp
+   context is available. Shares the .wg-modal shell; adds a backdrop layer
+   and a message paragraph styled with shared design tokens. The buttons
+   reuse .wg-gloss / .wg-gloss--sun so no bespoke colours live here. */
+.mt-confirm-backdrop {
+    position: fixed;
+    inset: 0;
+    background: var(--color-overlay);
+    z-index: var(--z-overlay);
+}
+
+.mt-confirm-modal__message {
+    margin: 0;
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-2);
+    line-height: 1.5;
+}
+
+.mt-confirm-modal__cancel,
+.mt-confirm-modal__confirm {
+    min-height: 44px;
+    padding: var(--space-sm) var(--space-lg);
+    font-size: var(--font-size-sm);
+}
+
 .wg-field {
     display: flex;
     flex-direction: column;
