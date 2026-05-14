@@ -71,7 +71,7 @@ func (s *service) ShouldPrompt(ctx context.Context, detectedTZ string) (bool, st
 		return false, "empty detected timezone", nil
 	}
 	if _, err := time.LoadLocation(detectedTZ); err != nil {
-		return false, "", fmt.Errorf("%w: %q: %v", ErrInvalidTimezone, detectedTZ, err)
+		return false, "", errors.Join(ErrInvalidTimezone, fmt.Errorf("%q: %w", detectedTZ, err))
 	}
 
 	currentTZ, err := s.settings.GetCurrentTimezone()
@@ -108,7 +108,7 @@ func (s *service) RecordDismissal(ctx context.Context, detectedTZ string) error 
 		return fmt.Errorf("%w: detected timezone is required", ErrInvalidTimezone)
 	}
 	if _, err := time.LoadLocation(detectedTZ); err != nil {
-		return fmt.Errorf("%w: %q: %v", ErrInvalidTimezone, detectedTZ, err)
+		return errors.Join(ErrInvalidTimezone, fmt.Errorf("%q: %w", detectedTZ, err))
 	}
 	return s.settings.SetDismissedTZSuggestion(ctx, detectedTZ)
 }
