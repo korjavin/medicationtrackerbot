@@ -397,7 +397,7 @@ func panicRecover(next http.Handler) http.Handler {
 					panic(rec)
 				}
 				slog.Error("panic recovered",
-					"error", fmt.Sprintf("%v", rec),
+					"error", rec,
 					"method", r.Method,
 					"path", r.URL.Path,
 					"stack", string(debug.Stack()),

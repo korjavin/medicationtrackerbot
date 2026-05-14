@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -40,8 +41,8 @@ func (m *mockLowStockStore) callCount() int32 {
 }
 
 // fires at 11:00 user TZ when the server clock is in a different zone (§4.1).
-// 19:00 UTC = 11:00 PT (PDT) — without the fix, the checker reads server-local
-// hour (19) and skips; with the fix it converts to user TZ and fires.
+// 18:00 UTC = 11:00 PDT (PDT = UTC-7) — without the fix, the checker reads
+// server-local hour (18) and skips; with the fix it converts to user TZ and fires.
 func TestLowStockChecker_FiresAt11AMInUserTZ(t *testing.T) {
 	count := 1
 	mock := &mockLowStockStore{
@@ -190,8 +191,4 @@ func TestLowStockChecker_ConcurrentChecksDoNotDoubleFire(t *testing.T) {
 	}
 }
 
-var errFakeTZ = &fakeErr{msg: "boom"}
-
-type fakeErr struct{ msg string }
-
-func (e *fakeErr) Error() string { return e.msg }
+var errFakeTZ = errors.New("boom")
