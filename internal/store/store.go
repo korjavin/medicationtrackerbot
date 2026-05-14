@@ -15,6 +15,7 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/store/diary"
 	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
 	"github.com/korjavin/medicationtrackerbot/internal/store/push"
+	"github.com/korjavin/medicationtrackerbot/internal/store/settings"
 	"github.com/korjavin/medicationtrackerbot/internal/store/vitals"
 )
 
@@ -62,11 +63,12 @@ var EmbeddedMigrations = embedMigrations
 // remains spelled "db" so the ~111 existing s.db.Query/Exec/BeginTx callsites
 // keep compiling unchanged (embedded *sql.DB methods are promoted).
 type Store struct {
-	db     *storedb.DB
-	diary  *diary.Repo
-	push   *push.Repo
-	auth   *auth.Repo
-	vitals *vitals.Repo
+	db       *storedb.DB
+	diary    *diary.Repo
+	push     *push.Repo
+	auth     *auth.Repo
+	vitals   *vitals.Repo
+	settings *settings.Repo
 }
 
 var nowFunc = time.Now
@@ -270,12 +272,14 @@ func NewWithDB(d *storedb.DB) (*Store, error) {
 	authRepo := auth.New(d)
 	authRepo.SetClock(func() time.Time { return nowFunc() })
 	vitalsRepo := vitals.New(d)
+	settingsRepo := settings.New(d)
 	return &Store{
-		db:     d,
-		diary:  diaryRepo,
-		push:   pushRepo,
-		auth:   authRepo,
-		vitals: vitalsRepo,
+		db:       d,
+		diary:    diaryRepo,
+		push:     pushRepo,
+		auth:     authRepo,
+		vitals:   vitalsRepo,
+		settings: settingsRepo,
 	}, nil
 }
 
@@ -314,6 +318,19 @@ func (s *Store) Auth() *auth.Repo {
 // it through this accessor.
 func (s *Store) Vitals() *vitals.Repo {
 	return s.vitals
+}
+
+// Settings returns the per-domain settings + change_events repository. The
+// legacy *Store still forwards GetFoodIntakeEnabled / SetFoodIntakeEnabled /
+// GetBloodPressureEnabled / SetBloodPressureEnabled / GetWeightEnabled /
+// SetWeightEnabled / GetMedicationEnabled / SetMedicationEnabled /
+// GetWorkoutEnabled / SetWorkoutEnabled / GetHealthEnabled / SetHealthEnabled /
+// GetTabOrder / SetTabOrder / GetLastDownload / UpdateLastDownload /
+// GetLatestChangeCursor / GetChangedTagsSince / PruneChangeEvents to this
+// same Repo; new callers should depend on *settings.Repo (or a narrow
+// interface satisfied by it) and obtain it through this accessor.
+func (s *Store) Settings() *settings.Repo {
+	return s.settings
 }
 
 func (s *Store) Close() error {
@@ -1113,21 +1130,14 @@ func (s *Store) DeleteIntake(id int64) error {
 
 // -- Settings --
 
+// GetLastDownload forwards to (*settings.Repo).GetLastDownload.
 func (s *Store) GetLastDownload() (time.Time, error) {
-	var lastDownload time.Time
-	err := s.db.QueryRow("SELECT last_download FROM settings WHERE id = 1").Scan(&lastDownload)
-	if err == sql.ErrNoRows {
-		return time.Time{}, nil
-	}
-	if err != nil {
-		return time.Time{}, err
-	}
-	return lastDownload, nil
+	return s.settings.GetLastDownload()
 }
 
+// UpdateLastDownload forwards to (*settings.Repo).UpdateLastDownload.
 func (s *Store) UpdateLastDownload(t time.Time) error {
-	_, err := s.db.Exec("UPDATE settings SET last_download = ? WHERE id = 1", t)
-	return err
+	return s.settings.UpdateLastDownload(t)
 }
 
 // Weight Goal Settings
@@ -2239,12 +2249,14 @@ func (s *Store) DeleteFoodLog(ctx context.Context, id, userID int64) error {
 	return nil
 }
 
+// GetFoodIntakeEnabled forwards to (*settings.Repo).GetFoodIntakeEnabled.
 func (s *Store) GetFoodIntakeEnabled(ctx context.Context) (bool, error) {
-	return s.getSettingsBool(ctx, "food_intake_enabled")
+	return s.settings.GetFoodIntakeEnabled(ctx)
 }
 
+// SetFoodIntakeEnabled forwards to (*settings.Repo).SetFoodIntakeEnabled.
 func (s *Store) SetFoodIntakeEnabled(ctx context.Context, enabled bool) error {
-	return s.setSettingsBool(ctx, "food_intake_enabled", enabled)
+	return s.settings.SetFoodIntakeEnabled(ctx, enabled)
 }
 
 type FoodStats struct {
@@ -2286,64 +2298,64 @@ func (s *Store) SetFoodTargets(ctx context.Context, targets FoodTargets) error {
 	return err
 }
 
+// GetBloodPressureEnabled forwards to (*settings.Repo).GetBloodPressureEnabled.
 func (s *Store) GetBloodPressureEnabled(ctx context.Context) (bool, error) {
-	return s.getSettingsBool(ctx, "blood_pressure_enabled")
+	return s.settings.GetBloodPressureEnabled(ctx)
 }
 
+// SetBloodPressureEnabled forwards to (*settings.Repo).SetBloodPressureEnabled.
 func (s *Store) SetBloodPressureEnabled(ctx context.Context, enabled bool) error {
-	return s.setSettingsBool(ctx, "blood_pressure_enabled", enabled)
+	return s.settings.SetBloodPressureEnabled(ctx, enabled)
 }
 
+// GetWeightEnabled forwards to (*settings.Repo).GetWeightEnabled.
 func (s *Store) GetWeightEnabled(ctx context.Context) (bool, error) {
-	return s.getSettingsBool(ctx, "weight_enabled")
+	return s.settings.GetWeightEnabled(ctx)
 }
 
+// SetWeightEnabled forwards to (*settings.Repo).SetWeightEnabled.
 func (s *Store) SetWeightEnabled(ctx context.Context, enabled bool) error {
-	return s.setSettingsBool(ctx, "weight_enabled", enabled)
+	return s.settings.SetWeightEnabled(ctx, enabled)
 }
 
+// GetMedicationEnabled forwards to (*settings.Repo).GetMedicationEnabled.
 func (s *Store) GetMedicationEnabled(ctx context.Context) (bool, error) {
-	return s.getSettingsBool(ctx, "medication_enabled")
+	return s.settings.GetMedicationEnabled(ctx)
 }
 
+// SetMedicationEnabled forwards to (*settings.Repo).SetMedicationEnabled.
 func (s *Store) SetMedicationEnabled(ctx context.Context, enabled bool) error {
-	return s.setSettingsBool(ctx, "medication_enabled", enabled)
+	return s.settings.SetMedicationEnabled(ctx, enabled)
 }
 
+// GetWorkoutEnabled forwards to (*settings.Repo).GetWorkoutEnabled.
 func (s *Store) GetWorkoutEnabled(ctx context.Context) (bool, error) {
-	return s.getSettingsBool(ctx, "workout_enabled")
+	return s.settings.GetWorkoutEnabled(ctx)
 }
 
+// SetWorkoutEnabled forwards to (*settings.Repo).SetWorkoutEnabled.
 func (s *Store) SetWorkoutEnabled(ctx context.Context, enabled bool) error {
-	return s.setSettingsBool(ctx, "workout_enabled", enabled)
+	return s.settings.SetWorkoutEnabled(ctx, enabled)
 }
 
+// GetHealthEnabled forwards to (*settings.Repo).GetHealthEnabled.
 func (s *Store) GetHealthEnabled(ctx context.Context) (bool, error) {
-	return s.getSettingsBool(ctx, "health_enabled")
+	return s.settings.GetHealthEnabled(ctx)
 }
 
+// SetHealthEnabled forwards to (*settings.Repo).SetHealthEnabled.
 func (s *Store) SetHealthEnabled(ctx context.Context, enabled bool) error {
-	return s.setSettingsBool(ctx, "health_enabled", enabled)
+	return s.settings.SetHealthEnabled(ctx, enabled)
 }
 
+// GetTabOrder forwards to (*settings.Repo).GetTabOrder.
 func (s *Store) GetTabOrder(ctx context.Context) (string, error) {
-	var tabOrder sql.NullString
-	err := s.db.QueryRowContext(ctx, "SELECT tab_order FROM settings WHERE id = 1").Scan(&tabOrder)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	if tabOrder.Valid {
-		return tabOrder.String, nil
-	}
-	return "", nil
+	return s.settings.GetTabOrder(ctx)
 }
 
+// SetTabOrder forwards to (*settings.Repo).SetTabOrder.
 func (s *Store) SetTabOrder(ctx context.Context, order string) error {
-	_, err := s.db.ExecContext(ctx, "UPDATE settings SET tab_order = ? WHERE id = 1", order)
-	return err
+	return s.settings.SetTabOrder(ctx, order)
 }
 
 func (s *Store) GetWeightUnitPreference(ctx context.Context) (string, error) {
@@ -2369,48 +2381,6 @@ func (s *Store) SetWeightUnitPreference(ctx context.Context, unit string) error 
 	return err
 }
 
-// allowedSettingsBoolColumns is the allowlist of valid boolean column names in the settings table.
-
-var allowedSettingsBoolColumns = map[string]bool{
-	"food_intake_enabled":    true,
-	"blood_pressure_enabled": true,
-	"weight_enabled":         true,
-	"medication_enabled":     true,
-	"workout_enabled":        true,
-	"health_enabled":         true,
-}
-
-func (s *Store) getSettingsBool(ctx context.Context, column string) (bool, error) {
-	if !allowedSettingsBoolColumns[column] {
-		return false, fmt.Errorf("unknown settings column: %s", column)
-	}
-	var val interface{}
-	query := fmt.Sprintf("SELECT %s FROM settings WHERE id = 1", column) // #nosec G201 -- column validated against allowlist above
-	if err := s.db.QueryRowContext(ctx, query).Scan(&val); err != nil {
-		return false, err
-	}
-
-	switch v := val.(type) {
-	case int64:
-		return v == 1, nil
-	case bool:
-		return v, nil
-	case []uint8:
-		return len(v) > 0 && v[0] == 1, nil
-	default:
-		return false, nil
-	}
-}
-
-func (s *Store) setSettingsBool(ctx context.Context, column string, enabled bool) error {
-	if !allowedSettingsBoolColumns[column] {
-		return fmt.Errorf("unknown settings column: %s", column)
-	}
-	query := fmt.Sprintf("UPDATE settings SET %s = ? WHERE id = 1", column) // #nosec G201 -- column validated against allowlist above
-	_, err := s.db.ExecContext(ctx, query, enabled)
-	return err
-}
-
 // CreateDiaryNote forwards to (*diary.Repo).Create. Kept on *Store so the
 // pre-split callers (HTTP handler, MCP tools, bot command) compile unchanged;
 // this forwarder is one of the last things deleted in Task 13.
@@ -2426,6 +2396,21 @@ func (s *Store) ListDiaryNotes(ctx context.Context, userID int64, since, until t
 // DeleteDiaryNote forwards to (*diary.Repo).Delete.
 func (s *Store) DeleteDiaryNote(ctx context.Context, userID, noteID int64) error {
 	return s.diary.Delete(ctx, userID, noteID)
+}
+
+// GetLatestChangeCursor forwards to (*settings.Repo).GetLatestChangeCursor.
+func (s *Store) GetLatestChangeCursor(ctx context.Context) (int64, error) {
+	return s.settings.GetLatestChangeCursor(ctx)
+}
+
+// GetChangedTagsSince forwards to (*settings.Repo).GetChangedTagsSince.
+func (s *Store) GetChangedTagsSince(ctx context.Context, since int64) (int64, []string, error) {
+	return s.settings.GetChangedTagsSince(ctx, since)
+}
+
+// PruneChangeEvents forwards to (*settings.Repo).PruneChangeEvents.
+func (s *Store) PruneChangeEvents(ctx context.Context, keepLast, maxAgeDays int) error {
+	return s.settings.PruneChangeEvents(ctx, keepLast, maxAgeDays)
 }
 
 // GetCurrentTimezone returns the timezone string from the most recent timezone_history row,
