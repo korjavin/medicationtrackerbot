@@ -112,21 +112,21 @@ because this file diverged from the pattern that
 
 ### Task 2: LowStockChecker TZ + race fix
 
-- [ ] add `sync.Mutex` field `mu` to `LowStockChecker` in
+- [x] add `sync.Mutex` field `mu` to `LowStockChecker` in
   `internal/scheduler/low_stock.go`; guard `lastCheck` read at line 33
   and writes at lines 48, 76 (taking the lock for the entire
   read-decide-write critical section)
-- [ ] load user timezone at the top of `Check()` using the
+- [x] load user timezone at the top of `Check()` using the
   `bp_reminders.go:49-67` pattern: call
   `c.store.GetCurrentTimezone()`, on success+non-empty parse with
   `time.LoadLocation`, on either error log a warning and fall back to
   server TZ; then call `now = now.In(userLoc)` once and use that `now`
   consistently for both the `now.Hour() != 11` guard and the date
   comparison
-- [ ] when assigning `c.lastCheck` (currently lines 48 and 76), use the
+- [x] when assigning `c.lastCheck` (currently lines 48 and 76), use the
   TZ-adjusted `now` value (not `time.Now()`), so the next-day comparison
   is computed in a consistent zone
-- [ ] write `internal/scheduler/low_stock_test.go` covering:
+- [x] write `internal/scheduler/low_stock_test.go` covering:
   - fires at 11:00 user-TZ when server is in a different zone (regression
     test for §4.1) — inject `now` returning 19:00 UTC, set store TZ to
     `America/Los_Angeles`, assert `GetMedicationsLowOnStock` was called
@@ -137,15 +137,19 @@ because this file diverged from the pattern that
   - empty-meds path still updates `lastCheck` (preserves existing
     behavior)
   - invalid TZ string falls back to server TZ without panicking
-- [ ] write race test or add `-race` assertion: spawn 50 concurrent
+- [x] write race test or add `-race` assertion: spawn 50 concurrent
   `Check()` calls and assert no race detector hit, and that
   `GetMedicationsLowOnStock` is called at most once (regression test
   for §4.2). Mock store should count invocations atomically.
-- [ ] update `internal/scheduler/low_stock_bench_test.go` if the
-  `LowStockChecker` literal in it needs the new field — likely just
-  a no-op if `mu` zero-value works
-- [ ] run `go test -race ./internal/scheduler/...` — must pass before
-  task 3
+- [x] update `internal/scheduler/low_stock_bench_test.go` if the
+  `LowStockChecker` literal in it needs the new field — added a
+  `GetCurrentTimezone()` mock method since the bench mock embeds a nil
+  `MedicationStore` and the new TZ load path would otherwise panic
+- [x] run `go test -race ./internal/scheduler/...` — passes for new
+  low_stock tests; a pre-existing race in `TestWorkoutCheckerScenarios`
+  (unrelated to this task — `MockNotifier.Send` in `medication_test.go`)
+  remains, but that is outside Task 2's scope and was present before
+  this change
 
 ### Task 3: Verify acceptance
 
