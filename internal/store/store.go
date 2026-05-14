@@ -22,11 +22,6 @@ import (
 //go:embed migrations/*.sql
 var embedMigrations embed.FS
 
-// EmbeddedMigrations exposes the embed.FS that owns the SQL migration files
-// shipped with this package. It is exported so the composition root can
-// supply it to (*db.DB).Migrate when it manages the DB lifecycle directly.
-var EmbeddedMigrations = embedMigrations
-
 // Repos aggregates the per-domain repositories that replaced the legacy
 // monolithic *Store. The composition root (cmd/bot, cmd/mcptool, cmd/seeddemo,
 // cmd/bpimporter) opens a shared *db.DB and constructs one Repos that owns
@@ -194,11 +189,4 @@ func (r *Repos) Close() error {
 // Application code should use the typed methods on the per-domain repos instead.
 func (r *Repos) DB() *sql.DB {
 	return r.db.DB
-}
-
-// SharedDB exposes the wrapping *db.DB so composition-root code can pass it
-// into per-domain repository constructors as they land. Prefer this over DB()
-// for any new code under cmd/.
-func (r *Repos) SharedDB() *storedb.DB {
-	return r.db
 }

@@ -2,17 +2,9 @@
 // the per-user weight goal and weight-unit preference stored on the singleton
 // settings row.
 //
-// Repo is the per-domain repository. The legacy *store.Store still exposes
-// one-line forwarders (CreateWeightLog / GetWeightLogs / DeleteWeightLog /
-// GetLastWeightLog / GetLastWeightLogExcluding / GetHighestWeightRecord /
-// BatchGetLastWeightLogs / GetWeightGoal / SetWeightGoal /
-// GetWeightUnitPreference / SetWeightUnitPreference /
-// GetWeightReminderState / SetWeightReminderEnabled / SnoozeWeightReminder /
-// DontBugMeWeightReminder / UpdateWeightReminderNotificationSent /
-// ClearWeightReminderNotificationMessage / CalculatePreferredWeightReminderHour /
-// UpdatePreferredWeightReminderHour / GetUsersForWeightReminders /
-// GetWeightReminderStates) so old callers keep compiling; new code should
-// depend on *weight.Repo (or a narrow interface satisfied by it) directly.
+// Repo is the per-domain repository. Construct via store.New / store.NewWithDB
+// and reach it as r.Weight; new code should depend on *weight.Repo (or a
+// narrow interface satisfied by it) directly.
 package weight
 
 import (

@@ -82,7 +82,7 @@ internal/store/
 ├── db/            shared infra: Open(), *sql.DB wrapper, busy-timeout config,
 │                  WithTx cross-repo transaction helper, goose migrations runner,
 │                  unix-seconds time helpers.
-├── medication/    medication CRUD + intake_log + restock + inventory (38 methods).
+├── medication/    medication CRUD + intake_log + restock + inventory.
 ├── bp/            blood-pressure readings + reminder state + goal + stats.
 ├── weight/        weight logs + reminder state + goal + unit preference.
 ├── food/          food logs + products + targets + Open Food Facts client.

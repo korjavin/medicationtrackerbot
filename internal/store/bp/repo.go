@@ -2,17 +2,9 @@
 // individual BP measurements (systolic/diastolic/pulse), the singleton-row
 // BP goal stored in settings, and per-user reminder cadence state.
 //
-// Repo is the per-domain repository. The legacy *store.Store still exposes
-// one-line forwarders (CreateBloodPressureReading / GetBloodPressureReadings /
-// DeleteBloodPressureReading / ImportBloodPressureReadings / GetBPGoal /
-// SetBPGoal / GetBPDailyWeightedStats / GetBPReminderState /
-// SetBPReminderEnabled / SnoozeBPReminder / DontBugMeBPReminder /
-// UpdateBPReminderNotificationSent / ClearBPReminderNotificationMessage /
-// GetLastBPReading / GetDominantBPCategory / CalculatePreferredReminderHour /
-// UpdatePreferredReminderHour / GetUsersForBPReminders /
-// BatchGetBPReminderStates / BatchGetLastBPReadings) so old callers keep
-// compiling; new code should depend on *bp.Repo (or a narrow interface
-// satisfied by it) directly.
+// Repo is the per-domain repository. Construct via store.New / store.NewWithDB
+// and reach it as r.BP; new code should depend on *bp.Repo (or a narrow
+// interface satisfied by it) directly.
 package bp
 
 import (
@@ -67,8 +59,7 @@ type BPStats struct {
 
 // TimezoneLookup is the narrow interface the BP repo needs to find the user's
 // current timezone for day-boundary calculations in GetBPDailyWeightedStats.
-// Today this is satisfied by *store.Store (which still owns the timezone
-// table); after Task 11 (tz split) it will be satisfied by *tz.Repo.
+// Satisfied by *tz.Repo (which owns the timezone_history table).
 type TimezoneLookup interface {
 	GetCurrentTimezone() (string, error)
 }

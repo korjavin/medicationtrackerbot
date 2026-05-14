@@ -185,7 +185,7 @@ The system benefits from single-tenant isolation (no cross-tenant attack surface
 - **Channel**: Local file system
 - **Security guarantees**: File system permissions (OS-level)
 - **Validation**: Parameterized queries (prepared statements), type safety via Go structs, foreign key constraints
-- **Evidence**: `internal/store/store.go` (database initialization with foreign keys)
+- **Evidence**: `internal/store/db/db.go` (database initialization, WAL, busy-timeout, max conns)
 
 **Application → Litestream → Cloudflare R2**
 
@@ -519,7 +519,8 @@ For **this single-user health tracking application**, the severity levels are de
 | `internal/server/bp_handlers.go` | Blood pressure API endpoints. Health data input validation is critical. | TM-006 |
 | `internal/server/weight_handlers.go` | Weight API endpoints. Health data input validation is critical. | TM-006 |
 | `internal/server/food_handlers.go` | Food intake API endpoints. Data from Open Food Facts API needs validation. | TM-006 |
-| `internal/store/store.go` | Database initialization and migrations. Schema integrity and foreign key enforcement are important. | TM-006 |
+| `internal/store/db/db.go` | Database connection initialization (WAL, busy-timeout, max conns). Schema integrity is important. | TM-006 |
+| `internal/store/db/migrations.go` | Goose migration runner. Schema integrity and foreign key enforcement are important. | TM-006 |
 
 ---
 

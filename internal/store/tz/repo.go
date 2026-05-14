@@ -4,17 +4,9 @@
 // changes timezones), and the per-medication dose-shift steps generated for
 // each plan.
 //
-// Repo is the per-domain repository. The legacy *store.Store still exposes
-// one-line forwarders (GetCurrentTimezone / RecordTimezone /
-// CreateTZTransitionPlan / GetLatestCompletedTZTransitionPlan /
-// GetLatestActiveOrPendingTZTransitionPlan / UpdateTZTransitionPlanStatus /
-// SetTZTransitionPlanApproved / SetTZTransitionPlanRejected /
-// RejectTZTransitionPlanAndRevertTimezone / MarkPlanNotified /
-// ResetPlanToPending / CreateTZTransitionPlanWithSteps / GetPlanByHash /
-// CreateTZTransitionSteps / GetPendingStepsForPlan /
-// GetLatestConsumedStepTimePerMed / MarkStepConsumed) so old callers keep
-// compiling; new code should depend on *tz.Repo (or a narrow interface
-// satisfied by it) directly.
+// Repo is the per-domain repository. Construct via store.New / store.NewWithDB
+// and reach it as r.TZ; new code should depend on *tz.Repo (or a narrow
+// interface satisfied by it) directly.
 //
 // The 17 methods here form three sibling groups that share the same
 // transactional context, which is why they sit in one package:
@@ -494,42 +486,13 @@ func (r *Repo) GetLatestConsumedStepTimePerMed(planID int64) (map[int64]time.Tim
 		if !scheduledAtStr.Valid {
 			continue
 		}
-		t, parseErr := parseSQLiteDateTime(scheduledAtStr.String)
+		t, parseErr := storedb.ParseSQLiteDateTime(scheduledAtStr.String)
 		if parseErr != nil {
 			return nil, fmt.Errorf("parse scheduled_at %q for med %d: %w", scheduledAtStr.String, medID, parseErr)
 		}
 		out[medID] = t
 	}
 	return out, nil
-}
-
-// parseSQLiteDateTime parses the textual representation SQLite stores when a
-// time.Time is bound through database/sql. The same value comes back as
-// either RFC 3339 (when the driver wrote it) or a space-separated DATETIME
-// (when SQLite-side functions like MAX() materialise the column). Try the
-// most common forms in priority order.
-//
-// Duplicated from internal/store/workout/repo.go and the legacy
-// internal/store/store.go for now; Task 12 (medication split) will let all
-// three callers fold into a shared helper in internal/store/db.
-func parseSQLiteDateTime(s string) (time.Time, error) {
-	layouts := []string{
-		time.RFC3339Nano,
-		time.RFC3339,
-		"2006-01-02 15:04:05.999999999 -0700 MST",
-		"2006-01-02 15:04:05.999999999 -07:00",
-		"2006-01-02 15:04:05.999999999",
-		"2006-01-02 15:04:05",
-	}
-	var lastErr error
-	for _, layout := range layouts {
-		if t, err := time.Parse(layout, s); err == nil {
-			return t, nil
-		} else {
-			lastErr = err
-		}
-	}
-	return time.Time{}, lastErr
 }
 
 // MarkStepConsumed records the consumption time for a transition step.

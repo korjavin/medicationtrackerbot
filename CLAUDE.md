@@ -62,7 +62,7 @@ go run ./cmd/seeddemo -user <telegram_user_id> -db meds.db -days 90 -wipe -seed 
 
 - `cmd/` — entry points (`bot`, `mcptool`, `importer`, `bpimporter`, `genvapid`, `seeddemo`)
 - `internal/ai` — AI client (OpenAI-compatible)
-- `internal/store` — per-domain SQLite repositories (one Go package per feature). `store.Repos` (alias: `store.Store`) is a thin aggregator wired in `cmd/bot/main.go`. Sub-packages:
+- `internal/store` — per-domain SQLite repositories (one Go package per feature). `store.Repos` (alias: `store.Store`) is a thin aggregator wired in `cmd/bot/main.go` (and `cmd/mcptool`, `cmd/seeddemo`, `cmd/bpimporter`). Sub-packages:
   - `db/` — shared `*sql.DB` open/close + busy-timeout config, `WithTx` cross-repo transaction helper, goose migrations runner, unix-seconds time helpers.
   - `medication/` — medication CRUD + intake_log + restock + inventory.
   - `bp/`, `weight/`, `food/`, `workout/` (incl. mi-band), `vitals/` (sleep + day stats), `diary/`, `tz/` (timezone history + transition plans/steps), `settings/` (incl. download cursor + change_events), `auth/` (API tokens + login nonce), `push/` — one repo per feature, each with its own tests.

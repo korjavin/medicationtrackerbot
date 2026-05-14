@@ -1,13 +1,8 @@
 // Package food owns the food_log, food_products, and food_target_* columns on
 // the singleton settings row.
 //
-// Repo is the per-domain repository. The legacy *store.Store still exposes
-// one-line forwarders (CreateFoodLog / UpdateFoodLog / GetFoodLogs /
-// DeleteFoodLog / GetFoodStats / GetFoodTargets / SetFoodTargets /
-// UpsertFoodProduct / UpdateFoodProduct / DeleteFoodProduct /
-// GetFoodProductByID / GetFoodProductByName / GetFoodProducts /
-// SearchFoodProducts / SearchRemoteFoodAPI / CreateMealFromLogs) so old
-// callers keep compiling; new code should depend on *food.Repo (or a narrow
+// Repo is the per-domain repository. Construct via store.New / store.NewWithDB
+// and reach it as r.Food; new code should depend on *food.Repo (or a narrow
 // interface satisfied by it) directly.
 package food
 
