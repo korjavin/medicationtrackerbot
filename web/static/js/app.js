@@ -94,110 +94,6 @@ function normalizeSettingsBundle(raw) {
     };
 }
 
-let settingsTimeInfo = {
-    timezone: '',
-    serverTime: '',
-    serverTimezone: '',
-    serverOffsetMinutes: null,
-    serverBaseMs: null,
-    syncedAtMs: null
-};
-let settingsTimeInfoTimer = null;
-
-function formatSettingsDateTime(date, timeZone) {
-    const options = {
-        dateStyle: 'medium',
-        timeStyle: 'medium'
-    };
-    if (timeZone) options.timeZone = timeZone;
-    try {
-        return new Intl.DateTimeFormat(undefined, options).format(date);
-    } catch (_) {
-        return date.toLocaleString();
-    }
-}
-
-function parseRFC3339OffsetMinutes(value) {
-    if (!value || typeof value !== 'string') return null;
-    if (value.endsWith('Z')) return 0;
-    const match = value.match(/([+-])(\d{2}):(\d{2})$/);
-    if (!match) return null;
-    const sign = match[1] === '-' ? -1 : 1;
-    return sign * (Number(match[2]) * 60 + Number(match[3]));
-}
-
-function formatFixedOffsetDateTime(date, offsetMinutes) {
-    if (!(date instanceof Date) || Number.isNaN(date.getTime()) || typeof offsetMinutes !== 'number') {
-        return 'Unavailable';
-    }
-    const shifted = new Date(date.getTime() + offsetMinutes * 60 * 1000);
-    try {
-        return new Intl.DateTimeFormat(undefined, {
-            dateStyle: 'medium',
-            timeStyle: 'medium',
-            timeZone: 'UTC'
-        }).format(shifted);
-    } catch (_) {
-        return shifted.toISOString().replace('T', ' ').replace('Z', '');
-    }
-}
-
-function updateSettingsTimeInfoState(bundle) {
-    settingsTimeInfo.timezone = bundle?.timezone || '';
-    settingsTimeInfo.serverTimezone = bundle?.serverTimezone || '';
-    if (bundle?.serverTime) {
-        const parsed = Date.parse(bundle.serverTime);
-        settingsTimeInfo.serverTime = bundle.serverTime;
-        settingsTimeInfo.serverOffsetMinutes = parseRFC3339OffsetMinutes(bundle.serverTime);
-        if (!Number.isNaN(parsed)) {
-            settingsTimeInfo.serverBaseMs = parsed;
-            settingsTimeInfo.syncedAtMs = Date.now();
-        }
-    }
-}
-
-function getLiveServerTime() {
-    if (typeof settingsTimeInfo.serverBaseMs !== 'number' || typeof settingsTimeInfo.syncedAtMs !== 'number') {
-        return null;
-    }
-    return new Date(settingsTimeInfo.serverBaseMs + (Date.now() - settingsTimeInfo.syncedAtMs));
-}
-
-function renderSettingsTimeInfo(bundle) {
-    if (bundle) updateSettingsTimeInfoState(bundle);
-
-    const timezoneValue = document.getElementById('settings-timezone-value');
-    const savedTimeValue = document.getElementById('settings-saved-time-value');
-    const localTimeValue = document.getElementById('settings-local-time-value');
-    const serverTimeValue = document.getElementById('settings-server-time-value');
-    const timezoneNote = document.getElementById('settings-timezone-note');
-    if (!timezoneValue || !savedTimeValue || !localTimeValue || !serverTimeValue || !timezoneNote) return;
-
-    timezoneValue.textContent = settingsTimeInfo.timezone || 'Not set';
-    savedTimeValue.textContent = settingsTimeInfo.timezone
-        ? formatSettingsDateTime(new Date(), settingsTimeInfo.timezone)
-        : 'Unavailable until a timezone is saved';
-    localTimeValue.textContent = formatSettingsDateTime(new Date());
-
-    const serverNow = getLiveServerTime();
-    serverTimeValue.textContent = serverNow
-        ? `${formatFixedOffsetDateTime(serverNow, settingsTimeInfo.serverOffsetMinutes)}${settingsTimeInfo.serverTimezone ? ` • ${settingsTimeInfo.serverTimezone}` : ''}`
-        : 'Unavailable';
-
-    timezoneNote.textContent = settingsTimeInfo.timezone
-        ? 'Saved timezone affects all reminders and medication schedules. Changing timezone may trigger a transition plan for gradual dose adjustment.'
-        : 'No saved timezone yet. If the browser-detected timezone looks wrong, it will be visible here after the next confirmation.';
-}
-
-function ensureSettingsTimeInfoTimer() {
-    if (settingsTimeInfoTimer) return;
-    settingsTimeInfoTimer = window.setInterval(() => {
-        renderSettingsTimeInfo();
-    }, 1000);
-}
-
-window.renderSettingsTimeInfo = renderSettingsTimeInfo;
-
 const TAB_ORDER_STORAGE_KEY = 'medtracker_tab_order';
 
 // Persist tab_order to localStorage so it survives settings_bundle cache
@@ -1962,8 +1858,8 @@ async function loadSettings() {
 
         document.getElementById('bp-reminders-toggle').checked = !!bundle.bpReminderStatus.enabled;
         document.getElementById('weight-reminders-toggle').checked = !!bundle.weightReminderStatus.enabled;
-        renderSettingsTimeInfo(bundle);
-        ensureSettingsTimeInfoTimer();
+        window.TimeFormat.render(bundle);
+        window.TimeFormat.ensureTimer();
     };
 
     const fetchBundle = async () => {
@@ -2790,15 +2686,9 @@ function getLastTakenTimeMs(medication) {
 
 // renderMeds(), logMedicationPast(), renderHistory() moved to features/meds.js (Phase 5 Task 1)
 
-function escapeHtml(text) {
-    if (!text) return "";
-    return text
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-}
+// escapeHtml moved to core/utils.js (Task 1 of split-app-js plan); the local
+// call site below resolves to the function via global scope hoisting from
+// core/utils.js, which is loaded earlier in index.html.
 
 // loadMeds(), populateMedFilter(), saveMedication(), deleteMed() moved to features/meds.js (Phase 5 Task 1)
 
