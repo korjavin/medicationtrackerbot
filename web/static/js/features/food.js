@@ -1793,6 +1793,7 @@ async function loadFoodLogs() {
     // populates `food_<date>_day` (matching the bootstrap apply path) so
     // offline reloads survive even when this v2 cache is empty.
     const cacheKey = `food_${dateStr}_v2`;
+    const dayFoodCacheKey = window.CacheKeys.dayFoodKey(dateStr);
     const cached = await window.DataStore.getCached(cacheKey);
     if (cached) {
         _renderFoodData(cached.groups, cached.weekStats, foodMacrosRange, dateStr);
@@ -1818,10 +1819,9 @@ async function loadFoodLogs() {
             // helper also propagates `fetchedAt` + `isStale` to power the
             // section freshness badge (Task 4 / Task 5).
             const groupsResult = await window.cachedFetch(
-                `food_${dateStr}_day`,
+                dayFoodCacheKey,
                 `/api/food/log?date=${dateStr}${tzParams}`,
                 {
-                    tags: ['food'],
                     freshAfterMs: 60_000,
                     staleAfterMs: FOOD_LOGS_STALE_AFTER_MS,
                     transform: (raw) => ({ groups: Array.isArray(raw) ? raw : [] })
@@ -1849,7 +1849,10 @@ async function loadFoodLogs() {
         const persistedWeekStats = weekStats != null
             ? weekStats
             : (cached && cached.weekStats != null ? cached.weekStats : null);
-        await window.DataStore.setCached(cacheKey, { groups: groups || [], weekStats: persistedWeekStats });
+        // Tag the v2 cache row under the `food` family so `invalidateTags(['food'])`
+        // (mutation refresh, change-poll) evicts it alongside `food_<date>_day`.
+        // The key already matches the `food_` family prefix registered at boot.
+        await window.DataStore.setCachedWithTags(cacheKey, { groups: groups || [], weekStats: persistedWeekStats }, ['food']);
 
         lastFoodLogsMeta = groupsMeta;
         _renderFoodData(groups || [], persistedWeekStats, foodMacrosRange, dateStr);
