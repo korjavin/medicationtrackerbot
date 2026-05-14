@@ -148,19 +148,19 @@ plan approval" path that the prod incident exposed.
 
 ### Task 3: Forecast parity check (medplan)
 
-- [ ] sanity-read `internal/domain/medplan/medplan.go:77-167` (`PlanDoses`) to
+- [x] sanity-read `internal/domain/medplan/medplan.go:77-167` (`PlanDoses`) to
       confirm the forecast path does NOT need the same change. Rationale:
       `PlanDoses` is pure and does not create intakes; forecast consumers
       either render plan-step targets or normal targets but never both for the
       same med in a single window (the `pendingByMed[med.ID]` branch at line
       93 already short-circuits the normal branch).
-- [ ] if a documented invariant is missing, add a 1-2-line comment near
+- [x] if a documented invariant is missing, add a 1-2-line comment near
       `pendingByMed[med.ID]` clarifying that the *materialisation*
       deduplication lives in the scheduler — pointer to
       `medication.go:227-241` and this plan.
-- [ ] no test required if no behaviour change; if a comment is added, that's
+- [x] no test required if no behaviour change; if a comment is added, that's
       sufficient.
-- [ ] run `go test ./internal/domain/medplan/...` — must pass.
+- [x] run `go test ./internal/domain/medplan/...` — must pass.
 
 ### Task 4: Verify acceptance criteria
 
