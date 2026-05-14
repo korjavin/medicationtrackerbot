@@ -1134,12 +1134,12 @@ async function _todayRender(foodKey) {
     const nowMs = Date.now();
     // Hand the schedule helpers to the aggregator so the meds tile can compute
     // its own fallback next-dose from bootstrap.medications when next_intake is
-    // missing or stale (e.g. relaunch-while-offline). Helpers live on app.js as
-    // top-level functions so they're already on window — pass explicitly to
-    // keep today.js side-effect-free for tests.
+    // missing or stale (e.g. relaunch-while-offline). Helpers live on
+    // features/medication-utils.js as window.MedicationUtils.* — pass explicitly
+    // to keep today.js side-effect-free for tests.
     const state = window.TodayDashboard.aggregateToday(bootstrap, swrCaches, nowMs, {
-        getNextScheduledDate: window.getNextScheduledDate,
-        parseMedicationSchedule: window.parseMedicationSchedule
+        getNextScheduledDate: window.MedicationUtils.getNextScheduledDate,
+        parseMedicationSchedule: window.MedicationUtils.parseMedicationSchedule
     });
     if (latestCacheTimestamp === null) {
         // No cached entry of any kind means bootstrap has never loaded on this
@@ -2046,83 +2046,10 @@ function removeTime(btn) {
     btn.parentElement.remove();
 }
 
-function parseMedicationSchedule(rawSchedule) {
-    try {
-        return JSON.parse(rawSchedule);
-    } catch (e) {
-        return null;
-    }
-}
-
-function getNextScheduledDate(schedule, now = new Date()) {
-    if (!schedule) return null;
-
-    const parseCandidate = (baseDate, timeStr) => {
-        const [h, min] = String(timeStr).split(':').map(Number);
-        if (Number.isNaN(h) || Number.isNaN(min)) return null;
-        const candidate = new Date(baseDate);
-        candidate.setHours(h, min, 0, 0);
-        return candidate;
-    };
-
-    if (schedule.type === 'daily' && Array.isArray(schedule.times)) {
-        const candidates = schedule.times
-            .map((timeStr) => {
-                const candidate = parseCandidate(now, timeStr);
-                if (!candidate) return null;
-                if (candidate <= now) {
-                    candidate.setDate(candidate.getDate() + 1);
-                }
-                return candidate;
-            })
-            .filter(Boolean);
-        return candidates.sort((a, b) => a - b)[0] || null;
-    }
-
-    if (schedule.type === 'weekly' && Array.isArray(schedule.days) && Array.isArray(schedule.times)) {
-        const candidates = [];
-        for (let i = 0; i < 8; i++) {
-            const dayBase = new Date(now);
-            dayBase.setDate(now.getDate() + i);
-            if (!schedule.days.includes(dayBase.getDay())) continue;
-
-            schedule.times.forEach((timeStr) => {
-                const candidate = parseCandidate(dayBase, timeStr);
-                if (candidate && candidate > now) {
-                    candidates.push(candidate);
-                }
-            });
-        }
-        return candidates.sort((a, b) => a - b)[0] || null;
-    }
-
-    return null;
-}
-
-function getMedicationScheduleText(med, schedule) {
-    if (!schedule) {
-        return escapeHtml(med.schedule);
-    }
-
-    if (schedule.type === 'daily') {
-        const times = Array.isArray(schedule.times) ? schedule.times : [];
-        return `Daily: ${times.join(', ')}`;
-    }
-
-    if (schedule.type === 'weekly') {
-        const daysMap = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-        const days = Array.isArray(schedule.days) ? schedule.days : [];
-        const times = Array.isArray(schedule.times) ? schedule.times : [];
-        const dayNames = days.map((day) => daysMap[day]);
-        return `Weekly (${dayNames.join(', ')}): ${times.join(', ')}`;
-    }
-
-    return 'As Needed';
-}
-
-function getLastTakenTimeMs(medication) {
-    return medication.last_taken_at ? new Date(medication.last_taken_at).getTime() : 0;
-}
+// parseMedicationSchedule, getNextScheduledDate, getMedicationScheduleText, and
+// getLastTakenTimeMs moved to features/medication-utils.js (Plan 2026-05-13,
+// Task 5). Callers reach them through window.MedicationUtils.* or via the
+// bare-name backwards-compat shims attached on that module.
 
 // renderMeds(), logMedicationPast(), renderHistory() moved to features/meds.js (Phase 5 Task 1)
 

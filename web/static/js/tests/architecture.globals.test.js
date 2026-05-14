@@ -123,6 +123,13 @@ const ALLOWED_GLOBALS = new Set([
     // Push-modal coordination — extracted from app.js (Plan 2026-05-13, Task 4).
     'window.PushModalState',                // features/push-modal.js — collapses the five module-level vars (pendingMedConfirmIds, pendingMedConfirmScheduled, pendingWorkoutSessionId, pendingMedConfirmMode, pendingMedConfirmIntakeIds) into closure-private fields behind openMedConfirm({ids, scheduled, mode, intakeIds}), openWorkoutStart({sessionId}), clear, and getters. Opening one modal clears the other so a stale snooze/skip click after switching cannot fire against the previous modal's data.
 
+    // Medication scheduling utilities — extracted from app.js (Plan 2026-05-13, Task 5).
+    'window.MedicationUtils',               // features/medication-utils.js — namespace exposing parseMedicationSchedule, getNextScheduledDate, getMedicationScheduleText, getLastTakenTimeMs. Consumed by features/meds.js (row renderer + bucket sort) and app.js's _todayRender helper-hand-off so today.js can compute a fallback next-dose from bootstrap.medications.
+    'window.parseMedicationSchedule',       // features/medication-utils.js — backwards-compat shim; today.js helper fallback path (features/today.js:163) looks it up by name when the aggregator opts arg omits helpers.
+    'window.getNextScheduledDate',          // features/medication-utils.js — backwards-compat shim; today.js helper fallback path (features/today.js:165) looks it up by name when the aggregator opts arg omits helpers.
+    'window.getMedicationScheduleText',     // features/medication-utils.js — backwards-compat shim; not currently called by name elsewhere but preserved alongside its siblings so external consumers (push deeplink, future feature files) keep resolving.
+    'window.getLastTakenTimeMs',            // features/medication-utils.js — backwards-compat shim; not currently called by name elsewhere but preserved alongside its siblings.
+
     // Workout split (2026-05-13: features/workout.js → features/workout/*.js).
     // Each split file exposes a single public-API namespace on window; the
     // shared editing-form state for the legacy 6 "currently editing" globals

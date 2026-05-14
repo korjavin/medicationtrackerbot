@@ -39,6 +39,7 @@ const APP_JS = path.join(REPO_ROOT, 'web/static/js/app.js');
 const WEIGHT_UNIT_STATE_JS = path.join(REPO_ROOT, 'web/static/js/features/weight-unit-state.js');
 const AUTH_BOOTSTRAP_JS = path.join(REPO_ROOT, 'web/static/js/features/auth-bootstrap.js');
 const PUSH_MODAL_JS = path.join(REPO_ROOT, 'web/static/js/features/push-modal.js');
+const MEDICATION_UTILS_JS = path.join(REPO_ROOT, 'web/static/js/features/medication-utils.js');
 const MEDS_JS = path.join(REPO_ROOT, 'web/static/js/features/meds.js');
 const FOOD_PHOTO_SUMMARY_JS = path.join(REPO_ROOT, 'web/static/js/features/food-photo-summary.js');
 // features/food.js was split into per-concern sub-files under
@@ -254,6 +255,13 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   // showMedicationConfirmModal in features/meds.js calls
   // PushModalState.openMedConfirm to write the modal's pending state.
   evalFileCached(window, PUSH_MODAL_JS);
+
+  // medication-utils.js owns parseMedicationSchedule / getNextScheduledDate /
+  // getMedicationScheduleText / getLastTakenTimeMs (Plan 2026-05-13, Task 5).
+  // Loaded before meds.js because features/meds.js renders rely on
+  // MedicationUtils.* at call time, and before any code path that exercises
+  // app.js's _todayRender helper-hand-off (line 1141-1142).
+  evalFileCached(window, MEDICATION_UTILS_JS);
 
   // Feature modules extracted from app.js (meds, food, bp, weight, health).
   evalFileCached(window, MEDS_JS);
