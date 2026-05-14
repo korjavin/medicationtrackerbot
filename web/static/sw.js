@@ -4,7 +4,7 @@ const CACHE_VERSION = 'CACHE_VERSION_PLACEHOLDER'; // Auto-updated by CI/CD
 // Manual bump knob: increment when shipping a UI change clients must pick up
 // even if the deploy timestamp alone fails to invalidate (e.g. mid-cycle
 // hotfix, or to force re-fetch of today.js for the Photo meal shortcut tile).
-const BUILD_REVISION = '3';
+const BUILD_REVISION = '4';
 const STATIC_CACHE = `medtracker-static-${CACHE_VERSION}-r${BUILD_REVISION}`;
 const DYNAMIC_CACHE = `medtracker-dynamic-${CACHE_VERSION}-r${BUILD_REVISION}`;
 const APP_SHELL_CACHE_KEY = '/__app_shell__';
@@ -563,14 +563,6 @@ async function handleTZPlanAction(planId, action) {
     const endpoint = `/api/tz-plan/${planId}/${action}`;
     try {
         await self.swApiCall(endpoint, 'POST');
-        const label = action === 'approve' ? 'Approved' : 'Rejected';
-        await self.registration.showNotification(`Timezone Plan ${label}`, {
-            body: action === 'approve'
-                ? 'Medication doses will shift as scheduled.'
-                : 'Your original medication schedule is retained.',
-            icon: '/static/icons/icon-192.png',
-            tag: 'tz_plan_result'
-        });
     } catch (e) {
         await self.SwApi.enqueueFailedAction({ endpoint, method: 'POST', body: null });
         await self.registration.showNotification('Timezone Plan Action Failed', {
@@ -578,7 +570,16 @@ async function handleTZPlanAction(planId, action) {
             icon: '/static/icons/icon-192.png',
             tag: 'tz_plan_result'
         });
+        return;
     }
+    const label = action === 'approve' ? 'Approved' : 'Rejected';
+    await self.registration.showNotification(`Timezone Plan ${label}`, {
+        body: action === 'approve'
+            ? 'Medication doses will shift as scheduled.'
+            : 'Your original medication schedule is retained.',
+        icon: '/static/icons/icon-192.png',
+        tag: 'tz_plan_result'
+    });
 }
 
 async function handleCancelIntake(data) {
