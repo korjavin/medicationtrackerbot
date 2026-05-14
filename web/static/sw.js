@@ -585,20 +585,21 @@ async function handleCancelIntake(data) {
     const body = { intake_ids: data.intake_ids };
     try {
         await self.swApiCall('/api/medications/cancel-intake', 'POST', body);
-        await self.registration.showNotification('Intake Cancelled', {
-            body: 'Your medication has been unmarked. The scheduled notification will still arrive.',
-            icon: '/static/icons/icon-192.png',
-            tag: 'intake-cancelled'
-        });
-        const clients = await self.clients.matchAll();
-        clients.forEach(client => client.postMessage({ type: 'INTAKE_CANCELLED' }));
     } catch (e) {
         await self.SwApi.enqueueFailedAction({
             endpoint: '/api/medications/cancel-intake',
             method: 'POST',
             body,
         });
+        return;
     }
+    await self.registration.showNotification('Intake Cancelled', {
+        body: 'Your medication has been unmarked. The scheduled notification will still arrive.',
+        icon: '/static/icons/icon-192.png',
+        tag: 'intake-cancelled'
+    });
+    const clients = await self.clients.matchAll();
+    clients.forEach(client => client.postMessage({ type: 'INTAKE_CANCELLED' }));
 }
 
 async function handleMedicationConfirm(data) {
@@ -609,15 +610,16 @@ async function handleMedicationConfirm(data) {
     };
     try {
         await self.swApiCall('/api/medications/confirm-schedule', 'POST', body);
-        const clients = await self.clients.matchAll();
-        clients.forEach(client => client.postMessage({ type: 'MEDICATION_CONFIRMED' }));
     } catch (e) {
         await self.SwApi.enqueueFailedAction({
             endpoint: '/api/medications/confirm-schedule',
             method: 'POST',
             body,
         });
+        return;
     }
+    const clients = await self.clients.matchAll();
+    clients.forEach(client => client.postMessage({ type: 'MEDICATION_CONFIRMED' }));
 }
 
 async function handleBPSnooze() {
@@ -673,50 +675,54 @@ async function handleWorkoutSnooze(sessionId, hours) {
     const body = { minutes: hours * 60 };
     try {
         await self.swApiCall(endpoint, 'POST', body);
-        const clients = await self.clients.matchAll();
-        clients.forEach(client => client.postMessage({ type: 'WORKOUT_SNOOZED' }));
     } catch (e) {
         await self.SwApi.enqueueFailedAction({ endpoint, method: 'POST', body });
+        return;
     }
+    const clients = await self.clients.matchAll();
+    clients.forEach(client => client.postMessage({ type: 'WORKOUT_SNOOZED' }));
 }
 
 async function handleWorkoutSkip(sessionId) {
     const endpoint = `/api/workout/sessions/${sessionId}/skip`;
     try {
         await self.swApiCall(endpoint, 'POST');
-        const clients = await self.clients.matchAll();
-        clients.forEach(client => client.postMessage({ type: 'WORKOUT_SKIPPED' }));
     } catch (e) {
         await self.SwApi.enqueueFailedAction({ endpoint, method: 'POST', body: null });
+        return;
     }
+    const clients = await self.clients.matchAll();
+    clients.forEach(client => client.postMessage({ type: 'WORKOUT_SKIPPED' }));
 }
 
 async function handleMedicationSkip(intakeId) {
     const body = { intake_id: intakeId };
     try {
         await self.swApiCall('/api/medications/skip', 'POST', body);
-        const clients = await self.clients.matchAll();
-        clients.forEach(client => client.postMessage({ type: 'MEDICATION_SKIPPED' }));
     } catch (e) {
         await self.SwApi.enqueueFailedAction({
             endpoint: '/api/medications/skip',
             method: 'POST',
             body,
         });
+        return;
     }
+    const clients = await self.clients.matchAll();
+    clients.forEach(client => client.postMessage({ type: 'MEDICATION_SKIPPED' }));
 }
 
 async function handleMedicationServerSnooze(intakeId, minutes) {
     const body = { intake_id: intakeId, duration_minutes: minutes };
     try {
         await self.swApiCall('/api/medications/snooze', 'POST', body);
-        const clients = await self.clients.matchAll();
-        clients.forEach(client => client.postMessage({ type: 'MEDICATION_SNOOZED' }));
     } catch (e) {
         await self.SwApi.enqueueFailedAction({
             endpoint: '/api/medications/snooze',
             method: 'POST',
             body,
         });
+        return;
     }
+    const clients = await self.clients.matchAll();
+    clients.forEach(client => client.postMessage({ type: 'MEDICATION_SNOOZED' }));
 }
