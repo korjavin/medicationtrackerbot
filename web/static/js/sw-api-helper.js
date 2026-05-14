@@ -66,6 +66,25 @@
                     createdAt: Date.now(),
                 };
                 await idbAddPendingAction(record);
+                // Notify any open clients so SyncManager can drain
+                // immediately. Without this, an enqueue from a transient
+                // 5xx while the app is open sits idle until the next
+                // online/offline transition or page reload. Best-effort:
+                // clients may be absent (background push with no open
+                // tab) — that path is covered by SyncManager.syncAll()
+                // running on init / online.
+                if (typeof root.clients !== 'undefined' && root.clients.matchAll) {
+                    try {
+                        const clientList = await root.clients.matchAll({
+                            includeUncontrolled: true,
+                            type: 'window',
+                        });
+                        for (const c of clientList) {
+                            try { c.postMessage({ type: 'SW_ACTION_QUEUED' }); }
+                            catch (_) { /* client may be gone */ }
+                        }
+                    } catch (_) { /* matchAll itself failed — ignore */ }
+                }
                 return true;
             } catch (e) {
                 // Best-effort: cannot use console.error per Task 5

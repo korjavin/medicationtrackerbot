@@ -636,10 +636,20 @@ const IntakeQueueStore = {
 // store on online via SyncManager.drainSwActionQueue. Each entry is a
 // self-contained envelope so a re-issued request needs no context from
 // the original notification:
-//   { endpoint, method, body, syncStatus, createdAt, errorMessage? }
+//   { endpoint, method, body, syncStatus, createdAt, errorMessage?, claimedAt? }
 // The SW writes to the same pending_sw_actions table directly via the
 // raw IndexedDB API (Dexie isn't available in a SW context); this Store
 // is the main-thread surface for reading/marking/clearing entries.
+//
+// Race safety: when two app windows are open they can both reach
+// drainSwActionQueue() concurrently. claimPending() runs inside a single
+// Dexie 'rw' transaction so only one drain instance moves a given row
+// from pending/error into the 'syncing' claim state — the other call
+// sees zero rows. Stale 'syncing' rows older than STALE_CLAIM_MS are
+// reclaimed (a tab can crash mid-replay). Non-idempotent endpoints like
+// snooze/skip/cancel/tz-approve cannot be replayed twice safely.
+const STALE_CLAIM_MS = 5 * 60 * 1000;
+
 const SwActionQueueStore = {
     async save(action) {
         dbLog('Saving SW pending action', { endpoint: action.endpoint });
@@ -669,6 +679,37 @@ const SwActionQueueStore = {
         return all;
     },
 
+    // Atomically transition pending/error rows (and stale 'syncing'
+    // orphans) into 'syncing' state and return them for replay. Runs in
+    // a single Dexie 'rw' transaction so two concurrent drains cannot
+    // both claim the same row.
+    async claimPending() {
+        const now = Date.now();
+        const claimed = [];
+        await db.transaction('rw', db.pending_sw_actions, async () => {
+            // Reclaim orphans: 'syncing' rows whose claim is stale
+            // (older than STALE_CLAIM_MS) get reverted to 'pending' so
+            // they can be replayed again.
+            await db.pending_sw_actions
+                .where('syncStatus')
+                .equals('syncing')
+                .filter(r => !r.claimedAt || (now - r.claimedAt) > STALE_CLAIM_MS)
+                .modify({ syncStatus: 'pending', claimedAt: null });
+
+            // Claim everything currently pending/error.
+            await db.pending_sw_actions
+                .where('syncStatus')
+                .anyOf(['pending', 'error'])
+                .modify(record => {
+                    record.syncStatus = 'syncing';
+                    record.claimedAt = now;
+                    claimed.push({ ...record });
+                });
+        });
+        dbLog('SwActionQueue claimPending', { count: claimed.length });
+        return claimed;
+    },
+
     async markSynced(localId) {
         await db.pending_sw_actions.delete(localId);
     },
@@ -676,14 +717,16 @@ const SwActionQueueStore = {
     async markError(localId, errorMessage) {
         await db.pending_sw_actions.update(localId, {
             syncStatus: 'error',
-            errorMessage
+            errorMessage,
+            claimedAt: null
         });
     },
 
     async markRejected(localId, errorMessage) {
         await db.pending_sw_actions.update(localId, {
             syncStatus: 'rejected',
-            errorMessage
+            errorMessage,
+            claimedAt: null
         });
     },
 
@@ -696,7 +739,11 @@ const SwActionQueueStore = {
             .where('syncStatus')
             .equals('error')
             .count();
-        return pending + errored;
+        const syncing = await db.pending_sw_actions
+            .where('syncStatus')
+            .equals('syncing')
+            .count();
+        return pending + errored + syncing;
     },
 
     async getRejectedCount() {
