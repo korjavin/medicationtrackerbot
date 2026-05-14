@@ -267,11 +267,16 @@ The fix has two complementary parts:
 
 ### Task 6: [Final] Update documentation
 
-- [ ] add a one-line note to `docs/frontend.md` (find the section that
+- [x] add a one-line note to `docs/frontend.md` (find the section that
       covers bootstrap / modal primitives) describing that
       `safeConfirm` now uses `<mt-modal>` in browser mode and
       `tg.showConfirm` in Telegram mode.
-- [ ] no README change needed.
+      (Updated the Script Load Order entry for `core/utils.js` to
+      describe `safeConfirm`'s in-app modal + Telegram-native split,
+      and updated the `features/bootstrap.js` entry to reflect the new
+      `mountCanonicalBottomNav` → `switchTab` → `queueMicrotask(maybeUpdateTimezone)`
+      ordering so the modal can never block first paint.)
+- [x] no README change needed.
 
 ## Technical Details
 
