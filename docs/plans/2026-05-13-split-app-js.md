@@ -189,21 +189,21 @@ and recommended-priority item #6.
 
 ### Task 4: Extract `features/push-modal.js`
 
-- [ ] create `web/static/js/features/push-modal.js` containing the
+- [x] create `web/static/js/features/push-modal.js` containing the
   push-modal coordination state (lines 2978-2982:
   `pendingMedConfirmIds`, `pendingMedConfirmScheduled`,
   `pendingWorkoutSessionId`, `pendingMedConfirmMode`,
   `pendingMedConfirmIntakeIds`) plus the open/close/dispatch
   functions that consume them
-- [ ] all five `var`s become a single `window.PushModalState`
+- [x] all five `var`s become a single `window.PushModalState`
   object's private fields; expose `openMedConfirm({ids, ...})`,
   `openWorkoutStart({sessionId})`, `clear()` — invariant "at most one
   open at a time" enforced by the API
-- [ ] delete the corresponding code from `app.js`
-- [ ] write tests in `web/static/js/tests/features.push-modal.test.js`
+- [x] delete the corresponding code from `app.js`
+- [x] write tests in `web/static/js/tests/features.push-modal.test.js`
   covering: opening med while workout open clears workout (or refuses
   — pick deliberately); clear() resets all fields
-- [ ] run `pnpm test features.push-modal app.` — must pass
+- [x] run `pnpm test features.push-modal app.` — must pass
 
 ### Task 5: Extract `features/medication-utils.js`
 
