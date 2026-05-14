@@ -161,6 +161,31 @@ func (r *Repo) SetTabOrder(ctx context.Context, order string) error {
 	return err
 }
 
+// GetDismissedTZSuggestion returns the IANA timezone string the user most
+// recently dismissed when prompted to change timezones (cross-client suppression
+// signal so a dismissal in one browser silences other clients until the
+// detected TZ changes). Empty string means no dismissal is on record.
+func (r *Repo) GetDismissedTZSuggestion(ctx context.Context) (string, error) {
+	var tz sql.NullString
+	err := r.db.QueryRowContext(ctx, "SELECT dismissed_tz_suggestion FROM settings WHERE id = 1").Scan(&tz)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if tz.Valid {
+		return tz.String, nil
+	}
+	return "", nil
+}
+
+// SetDismissedTZSuggestion records the IANA timezone the user dismissed.
+func (r *Repo) SetDismissedTZSuggestion(ctx context.Context, tz string) error {
+	_, err := r.db.ExecContext(ctx, "UPDATE settings SET dismissed_tz_suggestion = ? WHERE id = 1", tz)
+	return err
+}
+
 // GetLastDownload returns the timestamp of the last drug-database download,
 // or the zero time if nothing has ever been downloaded.
 func (r *Repo) GetLastDownload() (time.Time, error) {

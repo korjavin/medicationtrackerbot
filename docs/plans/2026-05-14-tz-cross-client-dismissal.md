@@ -45,9 +45,9 @@ Files:
 - Create: `internal/store/migrations/063_add_dismissed_tz_suggestion.sql`
 - Modify: `internal/store/settings/repo.go`
 
-- [ ] Add migration `063_add_dismissed_tz_suggestion.sql` adding `dismissed_tz_suggestion TEXT NOT NULL DEFAULT ''` to `user_settings` (or whichever table holds the per-user timezone today).
-- [ ] Extend the settings repo with `GetDismissedTZSuggestion() (string, error)` and `SetDismissedTZSuggestion(tz string) error`.
-- [ ] Ensure the existing `RecordTimezone(tz)` clears `dismissed_tz_suggestion` (in the same write/transaction) so that the next genuine TZ change is prompted normally.
+- [x] Add migration `063_add_dismissed_tz_suggestion.sql` adding `dismissed_tz_suggestion TEXT NOT NULL DEFAULT ''` to `user_settings` (or whichever table holds the per-user timezone today).
+- [x] Extend the settings repo with `GetDismissedTZSuggestion() (string, error)` and `SetDismissedTZSuggestion(tz string) error`.
+- [x] Ensure the existing `RecordTimezone(tz)` clears `dismissed_tz_suggestion` (in the same write/transaction) so that the next genuine TZ change is prompted normally.
 
 ### Task 2: Add a tzsuggestion domain service
 
