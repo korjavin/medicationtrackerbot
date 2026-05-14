@@ -1,4 +1,4 @@
-package store
+package workout
 
 import (
 	"context"
@@ -7,14 +7,8 @@ import (
 	"time"
 )
 
-func setupMiBandTestStore(t *testing.T) *Store {
-	t.Helper()
-	db, err := New(":memory:")
-	if err != nil {
-		t.Fatalf("create test store: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-	return db
+func setupMiBandTestStore(t *testing.T) *Repo {
+	return setupTestDB(t)
 }
 
 // recentMs returns a Unix-millisecond timestamp that is recent enough

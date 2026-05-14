@@ -1,4 +1,4 @@
-package store
+package workout
 
 import (
 	"fmt"
@@ -8,7 +8,6 @@ import (
 
 func TestCreateAdHocWorkoutSession(t *testing.T) {
 	s := setupTestDB(t)
-	defer s.Close()
 
 	userID := int64(1)
 	now := time.Now()
@@ -43,7 +42,6 @@ func TestCreateAdHocWorkoutSession(t *testing.T) {
 
 func TestIsAdHocSession(t *testing.T) {
 	s := setupTestDB(t)
-	defer s.Close()
 
 	userID := int64(1)
 	now := time.Now()
@@ -89,7 +87,6 @@ func TestIsAdHocSession(t *testing.T) {
 
 func TestAdHocWorkoutWithExercises(t *testing.T) {
 	s := setupTestDB(t)
-	defer s.Close()
 
 	userID := int64(1)
 	now := time.Now()
@@ -146,7 +143,6 @@ func TestAdHocWorkoutWithExercises(t *testing.T) {
 
 func TestAdHocWorkoutWithMultipleCustomExercises(t *testing.T) {
 	s := setupTestDB(t)
-	defer s.Close()
 
 	userID := int64(1)
 	now := time.Now()
@@ -204,7 +200,6 @@ func TestAdHocWorkoutWithMultipleCustomExercises(t *testing.T) {
 
 func TestGetWorkoutHistoryWithAdHoc(t *testing.T) {
 	s := setupTestDB(t)
-	defer s.Close()
 
 	userID := int64(1)
 	now := time.Now()
