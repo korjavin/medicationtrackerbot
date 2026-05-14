@@ -1,4 +1,4 @@
-package store
+package food
 
 import (
 	"context"
@@ -6,20 +6,26 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
+	"github.com/korjavin/medicationtrackerbot/internal/store/migrations"
 )
 
-func setupFoodTestStore(t *testing.T) *Store {
+func setupFoodRepo(t *testing.T) *Repo {
 	t.Helper()
-	db, err := New(":memory:")
+	d, err := storedb.Open(":memory:")
 	if err != nil {
-		t.Fatalf("Failed to create test store: %v", err)
+		t.Fatalf("open db: %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
-	return db
+	t.Cleanup(func() { _ = d.Close() })
+	if err := d.Migrate(migrations.FS, "."); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	return New(d)
 }
 
 func TestCreateAndGetFoodLog(t *testing.T) {
-	s := setupFoodTestStore(t)
+	s := setupFoodRepo(t)
 	ctx := context.Background()
 
 	now := time.Now().Truncate(time.Second)
@@ -78,7 +84,7 @@ func TestCreateAndGetFoodLog(t *testing.T) {
 }
 
 func TestUpdateFoodLog(t *testing.T) {
-	s := setupFoodTestStore(t)
+	s := setupFoodRepo(t)
 	ctx := context.Background()
 
 	now := time.Now().Truncate(time.Second)
@@ -130,7 +136,7 @@ func TestUpdateFoodLog(t *testing.T) {
 }
 
 func TestUpdateFoodLogNotFound(t *testing.T) {
-	s := setupFoodTestStore(t)
+	s := setupFoodRepo(t)
 	ctx := context.Background()
 
 	log := &FoodLog{
@@ -152,7 +158,7 @@ func TestUpdateFoodLogNotFound(t *testing.T) {
 }
 
 func TestDeleteFoodLog(t *testing.T) {
-	s := setupFoodTestStore(t)
+	s := setupFoodRepo(t)
 	ctx := context.Background()
 
 	now := time.Now().Truncate(time.Second)
@@ -193,7 +199,7 @@ func TestDeleteFoodLog(t *testing.T) {
 }
 
 func TestDeleteFoodLogNotFound(t *testing.T) {
-	s := setupFoodTestStore(t)
+	s := setupFoodRepo(t)
 	ctx := context.Background()
 
 	err := s.DeleteFoodLog(ctx, 9999, 1)
@@ -203,7 +209,7 @@ func TestDeleteFoodLogNotFound(t *testing.T) {
 }
 
 func TestFoodLogDateRangeFiltering(t *testing.T) {
-	s := setupFoodTestStore(t)
+	s := setupFoodRepo(t)
 	ctx := context.Background()
 
 	base := time.Date(2026, 2, 28, 12, 0, 0, 0, time.UTC)
@@ -263,7 +269,7 @@ func TestFoodLogDateRangeFiltering(t *testing.T) {
 }
 
 func TestUpsertFoodProduct(t *testing.T) {
-	s := setupFoodTestStore(t)
+	s := setupFoodRepo(t)
 	ctx := context.Background()
 
 	p := &FoodProduct{
@@ -310,7 +316,7 @@ func TestUpsertFoodProduct(t *testing.T) {
 }
 
 func TestUpdateFoodProduct(t *testing.T) {
-	s := setupFoodTestStore(t)
+	s := setupFoodRepo(t)
 	ctx := context.Background()
 
 	p := &FoodProduct{
@@ -355,7 +361,7 @@ func TestUpdateFoodProduct(t *testing.T) {
 }
 
 func TestUpdateFoodProductWrongUser(t *testing.T) {
-	s := setupFoodTestStore(t)
+	s := setupFoodRepo(t)
 	ctx := context.Background()
 
 	p := &FoodProduct{
@@ -386,7 +392,7 @@ func TestUpdateFoodProductWrongUser(t *testing.T) {
 }
 
 func TestDeleteFoodProduct(t *testing.T) {
-	s := setupFoodTestStore(t)
+	s := setupFoodRepo(t)
 	ctx := context.Background()
 
 	p := &FoodProduct{
@@ -436,7 +442,7 @@ func TestDeleteFoodProduct(t *testing.T) {
 // incorrectly against the UTC "+00:00" boundaries that GetFoodLogs generates.
 // The fix is to store EatenAt always as UTC inside CreateFoodLog / UpdateFoodLog.
 func TestFoodLogNonUTCTimezoneStored(t *testing.T) {
-	s := setupFoodTestStore(t)
+	s := setupFoodRepo(t)
 	ctx := context.Background()
 
 	// Simulate the CET timezone (UTC+1).
@@ -482,7 +488,7 @@ func TestFoodLogNonUTCTimezoneStored(t *testing.T) {
 }
 
 func TestDeleteFoodProductNotFound(t *testing.T) {
-	s := setupFoodTestStore(t)
+	s := setupFoodRepo(t)
 	ctx := context.Background()
 
 	err := s.DeleteFoodProduct(ctx, 9999, 1)
@@ -492,7 +498,7 @@ func TestDeleteFoodProductNotFound(t *testing.T) {
 }
 
 func TestGetFoodProductsOrderedByUsage(t *testing.T) {
-	s := setupFoodTestStore(t)
+	s := setupFoodRepo(t)
 	ctx := context.Background()
 
 	// Create products with different usage counts
@@ -541,7 +547,7 @@ func TestGetFoodProductsOrderedByUsage(t *testing.T) {
 }
 
 func TestSearchFoodProductsByName(t *testing.T) {
-	s := setupFoodTestStore(t)
+	s := setupFoodRepo(t)
 	ctx := context.Background()
 
 	names := []string{"Chicken breast", "Chicken thigh", "Beef steak"}
@@ -577,7 +583,7 @@ func TestSearchFoodProductsByName(t *testing.T) {
 }
 
 func TestFoodStatsAggregation(t *testing.T) {
-	s := setupFoodTestStore(t)
+	s := setupFoodRepo(t)
 	ctx := context.Background()
 
 	base := time.Date(2026, 2, 28, 12, 0, 0, 0, time.UTC)
@@ -632,7 +638,7 @@ func TestFoodStatsAggregation(t *testing.T) {
 }
 
 func TestFoodStatsEmpty(t *testing.T) {
-	s := setupFoodTestStore(t)
+	s := setupFoodRepo(t)
 	ctx := context.Background()
 
 	stats, err := s.GetFoodStats(ctx, 1, time.Now(), 1)
@@ -645,7 +651,7 @@ func TestFoodStatsEmpty(t *testing.T) {
 }
 
 func TestCreateMealFromLogs(t *testing.T) {
-	s := setupFoodTestStore(t)
+	s := setupFoodRepo(t)
 	ctx := context.Background()
 
 	now := time.Now().Truncate(time.Second)
@@ -736,7 +742,7 @@ func TestCreateMealFromLogs(t *testing.T) {
 }
 
 func TestFoodTargetsSetAndGet(t *testing.T) {
-	s := setupFoodTestStore(t)
+	s := setupFoodRepo(t)
 	ctx := context.Background()
 
 	// Get default targets

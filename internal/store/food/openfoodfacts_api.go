@@ -1,4 +1,4 @@
-package store
+package food
 
 import (
 	"context"
@@ -25,7 +25,7 @@ type fastFoodProduct struct {
 
 // SearchRemoteFoodAPI performs a live, resilient search against the FastFoodDB API.
 // It maps the response safely to our local FoodProduct struct.
-func (s *Store) SearchRemoteFoodAPI(ctx context.Context, query string) ([]FoodProduct, error) {
+func (r *Repo) SearchRemoteFoodAPI(ctx context.Context, query string) ([]FoodProduct, error) {
 	baseURL := os.Getenv("FOOD_API_URL")
 	if baseURL == "" {
 		domain := os.Getenv("FOOD_DOMAIN")
