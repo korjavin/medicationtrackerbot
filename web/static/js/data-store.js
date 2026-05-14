@@ -11,6 +11,11 @@
     const fetchGeneration = new Map();
     const keyToTags = new Map();
     const tagToKeys = new Map();
+    // tag → Set<prefix>. Lets `invalidateByTag(tag)` evict every concrete
+    // dynamic key (`history_7_42`, `food_2026-05-14_day`, …) whose id starts
+    // with one of the registered prefixes, without each call site having to
+    // pre-enumerate the dynamic family.
+    const tagFamilies = new Map();
     const CHANGE_CURSOR_KEY = 'medtracker_changes_cursor';
     const CACHE_PRUNE_AT_KEY = 'medtracker_cache_pruned_at';
     const CHANGE_POLL_INTERVAL_MS = 30000;
@@ -71,6 +76,19 @@
         // (etc.) silently no-ops and stale payloads survive mutations.
         registerTags(key, tags = []) {
             registerKeyTags(key, tags);
+        },
+
+        // Register a dynamic key-family prefix under `tag`. Every concrete
+        // api_cache row whose id starts with `prefix` will be evicted when
+        // `invalidateByTag(tag)` runs, even if the row was never seeded
+        // through registerTags / fetchFresh (e.g. a `history_7_42` row that
+        // came in via a one-off cachedFetch the user has never re-issued).
+        // The CacheKeys registry calls this once at boot for every family
+        // (`history_`, `food_`, `health_overview_`).
+        registerTagFamily(prefix, tag) {
+            if (typeof prefix !== 'string' || !prefix || !tag) return;
+            if (!tagFamilies.has(tag)) tagFamilies.set(tag, new Set());
+            tagFamilies.get(tag).add(prefix);
         },
 
         // Cache an authoritative value (e.g. from a bootstrap payload) and
@@ -141,14 +159,9 @@
             }
             if (!hasValue(rawData)) return { hydrated: false };
 
-            // Register tags up-front so a later invalidateByTag can find this
-            // key even when the freshness check below short-circuits the
-            // hydration write. On a normal reload the bootstrap-warmed
-            // ApiCache row is slightly newer than the MedicationStore row
-            // (bootstrap writes Dexie first, ApiCache second), so without
-            // this `tagToKeys` would be empty for the hydrated key on cold
-            // start and tag-based invalidation would silently no-op until
-            // some later loadSWR/setCachedWithTags call repopulated it.
+            // Defense-in-depth: re-register the key's tags even though the
+            // CacheKeys registry already does this at boot. Cheap and keeps
+            // hydration self-sufficient when caller passes a one-off tag.
             registerKeyTags(key, tags || []);
 
             const apiCache = window.MedTrackerDB?.ApiCache;
@@ -293,19 +306,55 @@
         },
 
         async invalidateByTag(tag) {
-            const keys = tagToKeys.get(tag);
-            if (!keys || keys.size === 0) return;
+            const registered = tagToKeys.get(tag);
+            const prefixes = tagFamilies.get(tag);
 
-            // Evict any in-flight request so the next fetchFresh call starts a
-            // fresh GET rather than reusing a pre-invalidation promise.
-            // Also increment the generation so that the abandoned in-flight,
-            // when it eventually resolves, cannot re-cache its stale payload.
-            for (const key of keys) {
+            // Phase 1 (synchronous): bump generation and drop the in-flight
+            // slot for every explicitly-registered key BEFORE any await.
+            // Otherwise a pending fetchFresh whose fetcher resolves during
+            // the family-prefix scan below would see the un-bumped generation,
+            // pass its supersede check, write stale data into the cache, and
+            // repaint UI via loadSWR's onFresh. Doing the bump synchronously
+            // here forces those resolutions to detect the supersede and abort.
+            const toEvict = new Set(registered || []);
+            for (const key of toEvict) {
                 fetchGeneration.set(key, (fetchGeneration.get(key) || 0) + 1);
                 inFlight.delete(key);
             }
 
-            await Promise.all([...keys].map((key) => this.clearCached(key)));
+            // Phase 2 (async): extend the eviction set with family-prefix
+            // matches. Newly-discovered keys also need their generation bumped
+            // + in-flight slot dropped before clearCached runs.
+            if (prefixes && prefixes.size > 0) {
+                const apiCache = window.MedTrackerDB?.ApiCache;
+                const staticRegistry = (window.CacheKeys && window.CacheKeys.static) || {};
+                if (apiCache && typeof apiCache.keys === 'function') {
+                    for (const prefix of prefixes) {
+                        const matched = await apiCache.keys(prefix);
+                        if (Array.isArray(matched)) {
+                            for (const key of matched) {
+                                // A static-registered key whose tag differs
+                                // from the current tag is opted out of the
+                                // family-prefix sweep — e.g. `food_targets`
+                                // lives under the `food_` prefix but is
+                                // registered with tag=null because the row is
+                                // overwritten on save, not invalidated by the
+                                // food log family.
+                                const reg = staticRegistry[key];
+                                if (reg && reg.tag !== tag) continue;
+                                if (toEvict.has(key)) continue;
+                                fetchGeneration.set(key, (fetchGeneration.get(key) || 0) + 1);
+                                inFlight.delete(key);
+                                toEvict.add(key);
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (toEvict.size === 0) return;
+
+            await Promise.all([...toEvict].map((key) => this.clearCached(key)));
         },
 
         async invalidateTags(tags = []) {

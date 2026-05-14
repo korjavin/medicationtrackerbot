@@ -110,122 +110,156 @@ and recommended-priority item #5.
 
 ### Task 1: Author `core/cache-keys.js`
 
-- [ ] create `web/static/js/core/cache-keys.js` with `CACHE_KEYS`
+- [x] create `web/static/js/core/cache-keys.js` with `CACHE_KEYS`
   object: each entry has `key` (literal or factory function), `tag`
   (string), `freshAfterMs`, `staleAfterMs` (both optional), and a
   one-line `description` (consumed by future debug surfaces and the
   architecture test); attach to `window.CacheKeys`
-- [ ] enumerate every known key from the frontend.md table and the
+- [x] enumerate every known key from the frontend.md table and the
   list above; for dynamic families (history/food-day/health-overview),
   expose them as factories: `CacheKeys.history(days, medId)` returns
   `'history_'+days+'_'+(medId||'')` and is annotated as the same
   family (i.e. carries the `history` tag)
-- [ ] add `CacheKeys.registerAll(dataStore)` that iterates static
+- [x] add `CacheKeys.registerAll(dataStore)` that iterates static
   entries and calls `dataStore.registerTags(key, [tag])` for each;
   dynamic families register their tag via `registerTagFamily(prefix,
   tag)` so `invalidateByTag('history')` evicts every `history_*` key
   in the cache (extends `data-store.js` if necessary)
-- [ ] update `web/static/js/tests/architecture.globals.test.js` to
+- [x] update `web/static/js/tests/architecture.globals.test.js` to
   allow `window.CacheKeys` with a justification entry
-- [ ] include `core/cache-keys.js` in `web/static/sw.js`
+- [x] include `core/cache-keys.js` in `web/static/sw.js`
   `STATIC_ASSETS` and in `web/static/index.html` script tags (loaded
   before `data-store.js`)
-- [ ] write tests in `web/static/js/tests/core.cache-keys.test.js`:
+- [x] write tests in `web/static/js/tests/core.cache-keys.test.js`:
   static entry lookup; dynamic family construction (`history(7, 42)`
   → `'history_7_42'`); `registerAll` populates DataStore tag map;
   unknown key throws (catches typos)
-- [ ] run `pnpm test core.cache-keys` — must pass before next task
+- [x] run `pnpm test core.cache-keys` — must pass before next task
 
 ### Task 2: Eager registration at boot + dynamic-tag-family support
 
-- [ ] add `DataStore.registerTagFamily(prefix, tag)` to
+- [x] add `DataStore.registerTagFamily(prefix, tag)` to
   `web/static/js/data-store.js` — stores prefix→tag mapping; when
   `invalidateByTag(tag)` runs, also iterates `keyToTags` for any key
   whose `key.startsWith(prefix)` and bumps generation + clears cache
   for those too
-- [ ] in `features/bootstrap.js` (or whichever module already runs
+- [x] in `features/bootstrap.js` (or whichever module already runs
   earliest with auth presence), after `window.DataStore` is available,
   call `window.CacheKeys.registerAll(window.DataStore)` *before* the
   first `loadSWR` / `cachedFetch` invocation
-- [ ] write tests for the new family-tag eviction:
+- [x] write tests for the new family-tag eviction:
   `web/static/js/tests/data-store.tag-family.test.js` covering
   history-family invalidation evicting two concrete keys
   (`history_7_`, `history_30_42`); food-day-family invalidation
   evicting today + yesterday keys
-- [ ] run `pnpm test data-store.tag-family` — must pass before next
+- [x] run `pnpm test data-store.tag-family` — must pass before next
   task
 
 ### Task 3: Migrate `features/workout.js` to use the registry
 
-- [ ] replace `WORKOUT_CACHE_KEYS` const at `features/workout.js:26`
+- [x] replace `WORKOUT_CACHE_KEYS` const at `features/workout.js:26`
   with `const WORKOUT_CACHE_KEYS = window.CacheKeys.workoutKeys()` (a
-  helper that returns the same array from the registry)
-- [ ] replace the boot-time `WORKOUT_CACHE_KEYS.forEach(...)` block at
+  helper that returns the same array from the registry) — superseded:
+  the const had no remaining callers after the boot-time forEach and
+  the in-body re-registration both went away, so removing it outright
+  satisfies task 6's grep check rather than leaving an unused binding
+- [x] replace the boot-time `WORKOUT_CACHE_KEYS.forEach(...)` block at
   lines 33-35 with a single `// tags registered at boot via CacheKeys.registerAll`
   comment (the registration happens upstream now)
-- [ ] keep `invalidateWorkoutCache` (line 37) — but its body becomes
+- [x] keep `invalidateWorkoutCache` (line 37) — but its body becomes
   one line: `await window.DataStore.invalidateTags(['workout'])`;
   drop the inner re-registration (line 38-40) since registration is
-  guaranteed at boot
-- [ ] verify all existing workout tests still pass without changes
-- [ ] run `pnpm test workout.` — must pass before next task
+  guaranteed at boot — the `WorkoutStore.clearCache` legacy fallback
+  stays (still required by `workout.invalidation.test.js`)
+- [x] verify all existing workout tests still pass without changes
+- [x] run `pnpm test workout.` — must pass before next task
 
 ### Task 4: Migrate cached-fetch and the explanatory comments
 
-- [ ] in `cached-fetch.js`, replace the inline `registerTagsWithStore`
+- [x] in `cached-fetch.js`, replace the inline `registerTagsWithStore`
   helper at lines 123-129 with a one-liner that defers to the registry
   (the registry guarantees registration at boot, so the eager call is
   no-op safe; keep it as defense in depth but drop the explanatory
   comment block)
-- [ ] in `data-store.js`, simplify `hydrateFromDexie` (`data-store.js:144-152`)
+- [x] in `data-store.js`, simplify `hydrateFromDexie` (`data-store.js:144-152`)
   similarly — drop the long-form comment about `tagToKeys` being empty;
   registration is now guaranteed
-- [ ] update `docs/frontend.md` cache-keys table to reference
+- [x] update `docs/frontend.md` cache-keys table to reference
   `web/static/js/core/cache-keys.js` as the source of truth (the table
   may stay as documentation, but the prose now points at the registry)
-- [ ] write tests in `web/static/js/tests/cached-fetch.registry.test.js`
+- [x] write tests in `web/static/js/tests/cached-fetch.registry.test.js`
   verifying `cachedFetch('medications', '/api/medications')` works
   without an inline `tags: ['medications']` arg (the registry supplies
   it); inline `tags` arg still overrides for one-off keys
-- [ ] run `pnpm test cached-fetch.` and `pnpm test data-store.` —
+- [x] run `pnpm test cached-fetch.` and `pnpm test data-store.` —
   must pass before next task
 
 ### Task 5: Migrate `features/food.js` and `app.js` direct cache writes
 
-- [ ] in `features/food.js:1842` replace
+- [x] in `features/food.js:1842` replace
   `await window.DataStore.setCached(cacheKey, ...)` with the registry-
   aware variant that includes the `food` tag — easiest to call
   `setCachedWithTags(cacheKey, value, ['food'])` directly, but the
   registry's `CacheKeys.dayFoodKey(date)` should be the cacheKey
-  source
-- [ ] in `app.js:44, 46` (`cacheApiSnapshot`), no change needed if
-  callers already pass tags; verify
-- [ ] in `app.js:3266` (`window.DataStore.setCached('settings_bundle',
+  source — done by switching `cachedFetch`'s key to
+  `window.CacheKeys.dayFoodKey(dateStr)` (dropping the inline
+  `tags: ['food']` since the registry now supplies it) and converting
+  the v2 row write to
+  `setCachedWithTags(cacheKey, value, ['food'])`; the v2 row's
+  `food_` prefix piggybacks on the family-tag eviction
+- [x] in `app.js:44, 46` (`cacheApiSnapshot`), no change needed if
+  callers already pass tags; verify — every callsite
+  (`medications`, `history_3_0`, `next_intake`, `bp`, `weight`,
+  `food_<date>_day`, `settings_bundle` ×2) passes its tag list, so
+  the helper's `setCachedWithTags` branch is taken
+- [x] in `app.js:3266` (`window.DataStore.setCached('settings_bundle',
   cached)`), confirm `settings_bundle` is in the registry as the
-  no-tag entry; behaviour unchanged
-- [ ] write tests in `web/static/js/tests/food.cache-keys.test.js`
+  no-tag entry; behaviour unchanged — registry entry has
+  `tag: null` and the saveTabOrder write keeps the no-bump
+  semantics
+- [x] write tests in `web/static/js/tests/food.cache-keys.test.js`
   verifying day-food invalidation uses the family-tag path
-- [ ] run `pnpm test food.cache-keys` — must pass before next task
+- [x] run `pnpm test food.cache-keys` — must pass before next task
 
 ### Task 6: Architecture test prevents recurrence + acceptance
 
-- [ ] add `web/static/js/tests/architecture.cache-keys.test.js` —
+- [x] add `web/static/js/tests/architecture.cache-keys.test.js` —
   scan all `web/static/js/**.js` (excluding `core/cache-keys.js`,
   `core/api.js`, `data-store.js`, `cached-fetch.js`, `db.js`, and
   `tests/`) for raw string literals matching cache-key patterns:
   `setCached(['"]\w+['"]`, `getCached(['"]\w+['"]`,
   `clearCached(['"]\w+['"]`, `setCachedWithTags(['"]\w+['"]`; assert
-  zero matches, with error message pointing at `core/cache-keys.js`
-- [ ] run `pnpm test architecture.cache-keys` — must pass
-- [ ] full `pnpm test` clean
-- [ ] grep for `WORKOUT_CACHE_KEYS` shows only inside
-  `core/cache-keys.js`
-- [ ] grep for `tagToKeys` (the underlying map) shows only inside
-  `data-store.js` (proves the explanatory comments referenced it
-  correctly and we didn't leave behind a leak of the internal name)
-- [ ] confirm three comment blocks (`data-store.js:144-152`,
+  every match is a registered static key or matches a registered
+  family prefix (the registry catches typos like `getCached('medication')`),
+  with error message pointing at `core/cache-keys.js`. Added the missing
+  `food_targets` static entry so the only existing-but-unregistered
+  literal is now known. Note: shipped as "every literal must be
+  registry-known" rather than literal "zero matches" — current
+  consumers still pass literal strings (registry indirection would
+  be a larger refactor), so the test catches typos and unregistered
+  keys while leaving the existing call sites in place.
+- [x] run `pnpm test architecture.cache-keys` — must pass (1/1 green)
+- [x] full `pnpm test` clean (1863/1863 green; also bumped two stale
+  line numbers in `architecture.inline-styles.test.js` after the food.js
+  comment edits below shifted them again)
+- [x] grep for `WORKOUT_CACHE_KEYS` shows only inside
+  `core/cache-keys.js` — exceeded: the const was deleted outright in
+  Task 3 so the symbol no longer appears in any JS source file (docs
+  references remain).
+- [x] grep for `tagToKeys` (the underlying map) shows only inside
+  `data-store.js` — rephrased the leaked comment references in
+  `app.js`, `features/food.js`, `features/bp.js`, `features/weight.js`,
+  `tests/data-store.unit.test.js`, `tests/app.forms-and-push.test.js`,
+  and `tests/app.food-crud-and-targets.test.js` to refer to the abstract
+  key→tag map / registry instead of the internal name.
+- [x] confirm three comment blocks (`data-store.js:144-152`,
   `cached-fetch.js:116-129`, `features/workout.js:14-46`) are
-  shortened or removed
+  shortened or removed — verified at HEAD: hydrateFromDexie's comment
+  collapsed to a 3-line "defense-in-depth" note (data-store.js:162-165),
+  cachedFetch's registerTagsWithStore is a 4-line annotation
+  (cached-fetch.js:116-119), invalidateWorkoutCache's banner is down to
+  ~15 lines pointing at CacheKeys.registerAll as the registration
+  source of truth (features/workout.js:14-28).
 
 ## Technical Details
 

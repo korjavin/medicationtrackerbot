@@ -5,6 +5,16 @@
 // Loaded last (after auth-flow.js, deeplink-router.js, workout.js, push.js).
 // The test harness does NOT load this file – tests invoke functions directly.
 
+// Register every static cache key + dynamic key-family with DataStore before
+// any feature module's first loadSWR / cachedFetch call. The CacheKeys
+// registry is the single source of truth for which tag each key belongs to;
+// registering up-front means tag-based invalidation works on cold start even
+// for keys the user has not yet visited (e.g. the push-modal flow firing
+// invalidateTags(['workout']) before the workouts tab is ever opened).
+if (window.CacheKeys && window.DataStore && typeof window.CacheKeys.registerAll === 'function') {
+    window.CacheKeys.registerAll(window.DataStore);
+}
+
 // Detect and optionally sync the user's browser timezone to the server.
 // Called after successful auth so that the bootstrap payload (with stored TZ) is available.
 async function maybeUpdateTimezone() {

@@ -41,6 +41,13 @@ function createApiCacheMock(initialCache = {}, initialMeta = {}) {
     async clear(key) {
       map.delete(key);
       meta.delete(key);
+    },
+    async keys(prefix) {
+      const all = [...map.keys()];
+      if (typeof prefix === 'string' && prefix.length > 0) {
+        return all.filter((k) => k.startsWith(prefix));
+      }
+      return all;
     }
   };
 }
