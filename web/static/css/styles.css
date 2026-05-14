@@ -204,6 +204,7 @@
     --z-overlay: 1000;
     --z-modal: 1001;
     --z-popover: 1002;
+    --z-confirm: 1050;
     --z-toast: 1100;
 
     /* ==========================================================================
@@ -3697,12 +3698,22 @@ input:checked+.toggle-slider:before {
 /* In-page confirm dialog used by safeConfirm() when no Telegram WebApp
    context is available. Shares the .wg-modal shell; adds a backdrop layer
    and a message paragraph styled with shared design tokens. The buttons
-   reuse .wg-gloss / .wg-gloss--sun so no bespoke colours live here. */
+   reuse .wg-gloss / .wg-gloss--sun so no bespoke colours live here.
+
+   Both the backdrop and the modal sit on the dedicated --z-confirm layer
+   so a safeConfirm() opened from inside an existing modal (e.g. workout
+   session detail at --z-modal, food-product modal at --z-popover) reliably
+   occludes that underlying modal — the regression that would otherwise
+   surface is a visible/clickable surface around the confirm prompt. */
 .mt-confirm-backdrop {
     position: fixed;
     inset: 0;
     background: var(--color-overlay);
-    z-index: var(--z-overlay);
+    z-index: var(--z-confirm);
+}
+
+.mt-confirm-modal {
+    z-index: var(--z-confirm);
 }
 
 .mt-confirm-modal__message {
