@@ -23,7 +23,13 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 
 const SCOPED_FILES = [
-    'web/static/js/features/food.js',
+    'web/static/js/features/food/log.js',
+    'web/static/js/features/food/index.js',
+    'web/static/js/features/food/products.js',
+    'web/static/js/features/food/scanner.js',
+    'web/static/js/features/food/photo.js',
+    'web/static/js/features/food/meals.js',
+    'web/static/js/features/food/db.js',
     'web/static/js/features/meds.js',
     'web/static/js/components/wg-macro-bar.js',
 ];
@@ -41,12 +47,12 @@ const ALLOWED = new Map([
         "style.setProperty on a neutral CSS custom property (--fill-pct) — CSS class reads it via width: var(--fill-pct, 0%); no hardcoded visual value lives in JS",
     ],
     [
-        'web/static/js/features/food.js:2528',
-        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS. Line shifted after editFoodLog product-link rewrite (CSP-safe addEventListener replacement, 2026-05-13).",
+        'web/static/js/features/food/log.js:1032',
+        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS. Carried over from features/food.js:2528 after the 2026-05-13 food.js → food/log.js split.",
     ],
     [
-        'web/static/js/features/food.js:2529',
-        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS. Line shifted after editFoodLog product-link rewrite (CSP-safe addEventListener replacement, 2026-05-13).",
+        'web/static/js/features/food/log.js:1033',
+        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS. Carried over from features/food.js:2529 after the 2026-05-13 food.js → food/log.js split.",
     ],
     [
         'web/static/js/features/meds.js:83',
