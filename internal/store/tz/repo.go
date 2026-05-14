@@ -89,14 +89,34 @@ func (r *Repo) GetCurrentTimezone() (string, error) {
 // RecordTimezone appends the new timezone to timezone_history only if it differs
 // from the current active timezone. This prevents unbounded table growth when the
 // frontend calls the endpoint on every startup.
+//
+// When the timezone actually changes, the dismissed_tz_suggestion flag in the
+// singleton settings row is cleared in the same transaction so a future
+// detection that *also* differs from this new stored TZ prompts again
+// (the dismissal is for a specific detected TZ, not a permanent silence).
 func (r *Repo) RecordTimezone(tz string) error {
-	_, err := r.db.Exec(`
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	res, err := tx.Exec(`
 		INSERT INTO timezone_history (timezone)
 		SELECT ?
 		WHERE COALESCE(
 			(SELECT timezone FROM timezone_history ORDER BY recorded_at DESC, id DESC LIMIT 1),
 			'') != ?`, tz, tz)
-	return err
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n > 0 {
+		if _, err = tx.Exec(`UPDATE settings SET dismissed_tz_suggestion = '' WHERE id = 1`); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // -- TZ Transition Plans --
