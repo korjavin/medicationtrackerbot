@@ -77,6 +77,7 @@ var mcpCoverageExempt = []routeExemption{
 	{Method: "POST", Path: "/api/settings/features/{feature}", Reason: "toggles feature flags that gate MCP itself"},
 	{Method: "POST", Path: "/api/settings/tab-order", Reason: "UI-only navigation preference"},
 	{Method: "PATCH", Path: "/api/settings/weight-unit", Reason: "UI-only display preference"},
+	{Method: "POST", Path: "/api/tz-suggestion/dismiss", Reason: "UI/settings — TZ prompt dismissal"},
 	{Method: "GET", Path: "/api/food/settings/status", Reason: "feature flag status; gates MCP itself"},
 	{Method: "POST", Path: "/api/food/settings/toggle", Reason: "feature flag toggle; gates MCP itself"},
 

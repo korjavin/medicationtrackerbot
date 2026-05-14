@@ -168,6 +168,7 @@ type SettingsStore interface {
 	SetHealthEnabled(ctx context.Context, enabled bool) error
 	GetTabOrder(ctx context.Context) (string, error)
 	SetTabOrder(ctx context.Context, order string) error
+	GetDismissedTZSuggestion(ctx context.Context) (string, error)
 }
 
 // TimezoneStore is the subset of timezone operations needed by handlers.

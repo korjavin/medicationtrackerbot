@@ -65,10 +65,10 @@ Files:
 - Modify: `internal/server/settings_handlers.go`
 - Modify: `internal/server/mcp_coverage_exempt.go`
 
-- [ ] Include `dismissed_tz_suggestion` in the `settings_bundle` GET response so bootstrap can self-evaluate without an extra round-trip.
-- [ ] Add `POST /api/tz-suggestion/dismiss` body `{ "detected_tz": "..." }` that delegates to `tzsuggestion.Service.RecordDismissal`. 400 on invalid TZ. Do NOT trigger any notification on this path.
-- [ ] Register the new route in `mcpCoverageExempt` with reason "UI/settings — TZ prompt dismissal".
-- [ ] Add an integration test that POSTs the dismiss endpoint, fetches the settings bundle, and asserts `dismissed_tz_suggestion` is updated and is cleared when `POST /api/settings` records a new TZ.
+- [x] Include `dismissed_tz_suggestion` in the `settings_bundle` GET response so bootstrap can self-evaluate without an extra round-trip.
+- [x] Add `POST /api/tz-suggestion/dismiss` body `{ "detected_tz": "..." }` that delegates to `tzsuggestion.Service.RecordDismissal`. 400 on invalid TZ. Do NOT trigger any notification on this path.
+- [x] Register the new route in `mcpCoverageExempt` with reason "UI/settings — TZ prompt dismissal".
+- [x] Add an integration test that POSTs the dismiss endpoint, fetches the settings bundle, and asserts `dismissed_tz_suggestion` is updated and is cleared when `POST /api/settings` records a new TZ.
 
 ### Task 4: Send Telegram confirmation when web accepts a TZ change
 

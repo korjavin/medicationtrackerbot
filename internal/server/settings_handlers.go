@@ -320,6 +320,12 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		slog.Error("bootstrap timezone query failed", "error", err)
 	}
 
+	dismissedTZSuggestion, err := s.settings.GetDismissedTZSuggestion(ctx)
+	if err != nil {
+		slog.Error("bootstrap dismissed tz suggestion query failed", "error", err)
+		dismissedTZSuggestion = ""
+	}
+
 	weightUnitPreference, err := s.weight.GetWeightUnitPreference(ctx)
 	if err != nil {
 		slog.Error("bootstrap weight unit preference query failed", "error", err)
@@ -366,11 +372,12 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 			"groups": foodGroups,
 		},
 		"settings": map[string]any{
-			"food_targets":           foodTargets,
-			"bp_reminder_status":     bpReminderStatus,
-			"weight_reminder_status": weightReminderStatus,
-			"timezone":               currentTimezone,
-			"weight_unit_preference": weightUnitPreference,
+			"food_targets":            foodTargets,
+			"bp_reminder_status":      bpReminderStatus,
+			"weight_reminder_status":  weightReminderStatus,
+			"timezone":                currentTimezone,
+			"weight_unit_preference":  weightUnitPreference,
+			"dismissed_tz_suggestion": dismissedTZSuggestion,
 		},
 	}
 	// Only include tab_order when the read succeeded. If it errored, omit the
@@ -505,17 +512,24 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	dismissedTZSuggestion, err := s.settings.GetDismissedTZSuggestion(ctx)
+	if err != nil {
+		slog.Error("get settings dismissed tz suggestion failed", "error", err)
+		dismissedTZSuggestion = ""
+	}
+
 	now := time.Now()
 	w.Header().Set("Content-Type", "application/json")
 	resp := map[string]any{
-		"timezone":               tz,
-		"server_time":            now.Format(time.RFC3339),
-		"server_timezone":        formatServerTimezone(now),
-		"weight_unit_preference": weightUnitPreference,
-		"features":               features,
-		"food_targets":           foodTargets,
-		"bp_reminder_status":     bpReminderStatus,
-		"weight_reminder_status": weightReminderStatus,
+		"timezone":                tz,
+		"server_time":             now.Format(time.RFC3339),
+		"server_timezone":         formatServerTimezone(now),
+		"weight_unit_preference":  weightUnitPreference,
+		"features":                features,
+		"food_targets":            foodTargets,
+		"bp_reminder_status":      bpReminderStatus,
+		"weight_reminder_status":  weightReminderStatus,
+		"dismissed_tz_suggestion": dismissedTZSuggestion,
 	}
 	if tabOrder != nil {
 		resp["tab_order"] = tabOrder
@@ -628,6 +642,33 @@ func (s *Server) handleSetWeightUnitPreference(w http.ResponseWriter, r *http.Re
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"unit": req.Unit})
+}
+
+// handleTZSuggestionDismiss handles POST /api/tz-suggestion/dismiss.
+// It records that the user dismissed a prompt to switch to the detected TZ,
+// so other clients (different browsers) skip the same prompt until the
+// detected TZ changes or the user explicitly updates settings. Decline
+// path only — no notification is sent here; that is reserved for the accept
+// path in handleUpdateSettings.
+func (s *Server) handleTZSuggestionDismiss(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		DetectedTZ string `json:"detected_tz"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if s.tzSuggester == nil {
+		http.Error(w, "tz suggestion service not configured", http.StatusInternalServerError)
+		return
+	}
+	if err := s.tzSuggester.RecordDismissal(r.Context(), req.DetectedTZ); err != nil {
+		slog.Error("handleTZSuggestionDismiss: RecordDismissal failed", "error", err)
+		http.Error(w, "Invalid timezone: "+req.DetectedTZ, http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 // handleGetCurrentTZPlan handles GET /api/tz-plan/current.
