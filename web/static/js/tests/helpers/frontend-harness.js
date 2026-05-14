@@ -36,6 +36,7 @@ const CHART_UTILS_JS = path.join(REPO_ROOT, 'web/static/js/core/chart-utils.js')
 const CACHE_KEYS_JS = path.join(REPO_ROOT, 'web/static/js/core/cache-keys.js');
 const DATA_STORE_JS = path.join(REPO_ROOT, 'web/static/js/data-store.js');
 const APP_JS = path.join(REPO_ROOT, 'web/static/js/app.js');
+const WEIGHT_UNIT_STATE_JS = path.join(REPO_ROOT, 'web/static/js/features/weight-unit-state.js');
 const MEDS_JS = path.join(REPO_ROOT, 'web/static/js/features/meds.js');
 const FOOD_PHOTO_SUMMARY_JS = path.join(REPO_ROOT, 'web/static/js/features/food-photo-summary.js');
 // features/food.js was split into per-concern sub-files under
@@ -231,6 +232,13 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
 
   const appSource = disableAutoBootstrap(readCached(APP_JS));
   evalWithSourceURL(window, appSource, APP_JS);
+
+  // weight-unit-state.js owns the kg/lb preference state machine extracted
+  // from app.js (Plan 2026-05-13, Task 2). Loaded immediately after app.js so
+  // app.js's bind-time delegate calls (DOMContentLoaded handlers for the
+  // segmented control, hydration in applyBootstrapPayload) find
+  // window.WeightUnitState.
+  evalFileCached(window, WEIGHT_UNIT_STATE_JS);
 
   // Feature modules extracted from app.js (meds, food, bp, weight, health).
   evalFileCached(window, MEDS_JS);

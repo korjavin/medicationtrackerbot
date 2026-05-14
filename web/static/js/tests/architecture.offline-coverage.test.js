@@ -75,6 +75,10 @@ const ALLOWLIST = [
         file: 'tz-plan-banner.js',
         reason: 'transient banner that fetches /api/tz-plan/current as a single-shot; if offline the banner simply does not appear — no cached section state to surface',
     },
+    {
+        file: 'weight-unit-state.js',
+        reason: 'kg/lb preference state machine; the only network call is the Settings PATCH /api/settings/weight-unit (write, not a section-landing read), and the module short-circuits to a silent no-op when SyncManager.isOnline === false',
+    },
     // ---- Workout split sub-files (orchestrator + mutation-only / nested-form readers) ----
     {
         file: 'workout/index.js',

@@ -132,31 +132,31 @@ and recommended-priority item #6.
 
 ### Task 2: Extract `features/weight-unit-state.js` (the racy cluster)
 
-- [ ] create `web/static/js/features/weight-unit-state.js` exporting
+- [x] create `web/static/js/features/weight-unit-state.js` exporting
   `window.WeightUnitState` with the methods that today are scattered:
   - `commitAuthoritativeWeightUnit(unit)` (called from `app.js:411`,
     `app.js` ~lines 2150-2200)
   - `applyWeightUnitSegmentedState(unit)`
   - `reconcileAuthoritativeUnit(unit)` (line 2147 today)
   - The PATCH queueing loop (`weightUnitPatchTail`)
-- [ ] inside the new file, the five module-level `let`s become
+- [x] inside the new file, the five module-level `let`s become
   *closure-private* state behind a single `WeightUnitState` object
   (one allowed `let _state = { ... }` with documented invariants)
-- [ ] delete the corresponding code from `app.js` (lines ~2110-2218);
+- [x] delete the corresponding code from `app.js` (lines ~2110-2218);
   replace with a thin shim that calls the new module
-- [ ] preserve `window.weightUnitPreference` (consumed by
+- [x] preserve `window.weightUnitPreference` (consumed by
   `features/weight.js`, `features/today.js`, `core/utils.js`) by
   keeping the state machine's "current effective unit" mirrored to
   that global on every transition
-- [ ] write tests in `web/static/js/tests/features.weight-unit-state.test.js`
+- [x] write tests in `web/static/js/tests/features.weight-unit-state.test.js`
   that exercise the regression scenarios documented in the original
   comments: A→B→A with tail PATCH failure (must revert to last
   server-confirmed, not optimistic); SW BOOTSTRAP_UPDATED carrying
   pre-PATCH unit (must be rejected when locally mutated); concurrent
   user clicks during in-flight PATCH (queue order preserved)
-- [ ] verify the existing `app.behavior-extended.test.js` and any
+- [x] verify the existing `app.behavior-extended.test.js` and any
   weight-unit regression tests still pass
-- [ ] run `pnpm test features.weight-unit-state` and `pnpm test
+- [x] run `pnpm test features.weight-unit-state` and `pnpm test
   weight.` — must pass before next task
 
 ### Task 3: Extract `features/auth-bootstrap.js`
