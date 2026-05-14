@@ -108,13 +108,12 @@ describe('app.js food CRUD, targets and period helpers', () => {
   });
 
   it('saveFoodLog explicitly clears the Today per-day food cache by key', async () => {
-    // Regression: tagToKeys is in-memory, so if the user mutates food
-    // before Today has rendered in this session (cold start → deeplink to
-    // Food → +Add, or app reload between visits), invalidateTags(['food'])
-    // silently no-ops and Today's presence check then sees a stale cache
-    // persisted by a previous session and skips the refetch — the fuel
-    // card gets stuck at 0 kcal after the save. saveFoodLog must also
-    // clear the Today food key directly to guarantee eviction.
+    // Regression: even with the food family-tag registered at boot via
+    // CacheKeys.registerAll, the per-day Today food key is a dynamic-family
+    // entry and saveFoodLog must clear it directly so Today's presence
+    // check doesn't see a stale cache persisted by a previous session and
+    // skip the refetch — otherwise the fuel card gets stuck at 0 kcal
+    // after the save.
     const { window, document, cleanup } = loadFrontendEnv();
 
     try {

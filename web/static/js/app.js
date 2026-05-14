@@ -1592,12 +1592,12 @@ async function _todayReadCaches(foodKey) {
         }
     } catch (_) { /* best-effort — render whatever we have */ }
     // Register key→tag mappings for every Today cache we just read directly
-    // from IndexedDB. Without this, `tagToKeys` is empty for these keys on
-    // cached-start / reload paths, so a feature save's
-    // `invalidateTags(['food'])` etc. silently no-ops and the visible Today
-    // dashboard stays stale until a full bootstrap re-fetch. todayFetchSpecs
-    // owns the canonical key→tags map; reusing it keeps registration in sync
-    // with fetcher tags in one place.
+    // from IndexedDB. CacheKeys.registerAll now wires the static keys at
+    // boot, but this loop covers the dynamic-keyed entries built from
+    // todayFetchSpecs (food/health-overview today keys) so a feature save's
+    // invalidateTags(['food']) etc. evicts them even on cached-start /
+    // reload paths. todayFetchSpecs owns the canonical key→tags map;
+    // reusing it keeps registration in sync with fetcher tags in one place.
     if (window.DataStore && typeof window.DataStore.registerTags === 'function') {
         try {
             const specs = todayFetchSpecs(foodKey);

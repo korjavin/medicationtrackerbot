@@ -16,24 +16,10 @@
 // depends on functions declared in groups.js / variants.js / exercises.js /
 // library.js / history.js / miband.js / sessions.js / stats.js / next-card.js.
 
-// Cache keys for the workout-tagged invalidation sweep. Shared with the
-// individual loader files, which all register themselves under the 'workout'
-// tag so a mutation in one file refreshes the relevant SWR caches.
-const WORKOUT_CACHE_KEYS = ['workout_next', 'workout_history', 'workout_groups', 'workout_stats'];
-
-// Register the known workout cache keys with the 'workout' tag eagerly. Makes
-// invalidateTags(['workout']) effective even when called from a context that
-// hasn't yet executed loadXxx() — e.g. the push-modal snooze/skip flow from
-// app.js, which can fire before the user has ever visited the workouts tab,
-// so the tagToKeys map would otherwise be empty for these keys.
-if (typeof window !== 'undefined' && window.DataStore?.registerTags) {
-    WORKOUT_CACHE_KEYS.forEach((key) => window.DataStore.registerTags(key, ['workout']));
-}
+// Workout-tag registration happens at boot via CacheKeys.registerAll() — see
+// web/static/js/core/cache-keys.js for the single source of truth.
 
 async function invalidateWorkoutCache() {
-    if (window.DataStore?.registerTags) {
-        WORKOUT_CACHE_KEYS.forEach((key) => window.DataStore.registerTags(key, ['workout']));
-    }
     if (window.DataStore?.invalidateTags) {
         await window.DataStore.invalidateTags(['workout']);
     }

@@ -32,6 +32,7 @@ const APP_KERNEL_JS = path.join(REPO_ROOT, 'web/static/js/core/app-kernel.js');
 const STORE_JS = path.join(REPO_ROOT, 'web/static/js/core/store.js');
 const MODAL_CONTROLLER_JS = path.join(REPO_ROOT, 'web/static/js/core/modal-controller.js');
 const CHART_UTILS_JS = path.join(REPO_ROOT, 'web/static/js/core/chart-utils.js');
+const CACHE_KEYS_JS = path.join(REPO_ROOT, 'web/static/js/core/cache-keys.js');
 const DATA_STORE_JS = path.join(REPO_ROOT, 'web/static/js/data-store.js');
 const APP_JS = path.join(REPO_ROOT, 'web/static/js/app.js');
 const MEDS_JS = path.join(REPO_ROOT, 'web/static/js/features/meds.js');
@@ -210,7 +211,19 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   evalFileCached(window, MODAL_CONTROLLER_JS);
   evalFileCached(window, CHART_UTILS_JS);
 
+  // cache-keys.js must load before data-store.js so CacheKeys.registerAll
+  // can wire static keys + dynamic key families into the freshly-evaluated
+  // DataStore on the same boot path the production index.html uses.
+  evalFileCached(window, CACHE_KEYS_JS);
+
   evalFileCached(window, DATA_STORE_JS);
+
+  // Bootstrap parity: in production bootstrap.js calls registerAll(DataStore)
+  // after auth resolves; the harness skips bootstrap.js (its checkAuth side
+  // effects collide with test setup), so register tags eagerly here.
+  if (window.CacheKeys && typeof window.CacheKeys.registerAll === 'function') {
+    window.CacheKeys.registerAll(window.DataStore);
+  }
 
   const appSource = disableAutoBootstrap(readCached(APP_JS));
   evalWithSourceURL(window, appSource, APP_JS);
