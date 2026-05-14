@@ -176,22 +176,22 @@ and recommended-priority item #5.
 
 ### Task 4: Migrate cached-fetch and the explanatory comments
 
-- [ ] in `cached-fetch.js`, replace the inline `registerTagsWithStore`
+- [x] in `cached-fetch.js`, replace the inline `registerTagsWithStore`
   helper at lines 123-129 with a one-liner that defers to the registry
   (the registry guarantees registration at boot, so the eager call is
   no-op safe; keep it as defense in depth but drop the explanatory
   comment block)
-- [ ] in `data-store.js`, simplify `hydrateFromDexie` (`data-store.js:144-152`)
+- [x] in `data-store.js`, simplify `hydrateFromDexie` (`data-store.js:144-152`)
   similarly — drop the long-form comment about `tagToKeys` being empty;
   registration is now guaranteed
-- [ ] update `docs/frontend.md` cache-keys table to reference
+- [x] update `docs/frontend.md` cache-keys table to reference
   `web/static/js/core/cache-keys.js` as the source of truth (the table
   may stay as documentation, but the prose now points at the registry)
-- [ ] write tests in `web/static/js/tests/cached-fetch.registry.test.js`
+- [x] write tests in `web/static/js/tests/cached-fetch.registry.test.js`
   verifying `cachedFetch('medications', '/api/medications')` works
   without an inline `tags: ['medications']` arg (the registry supplies
   it); inline `tags` arg still overrides for one-off keys
-- [ ] run `pnpm test cached-fetch.` and `pnpm test data-store.` —
+- [x] run `pnpm test cached-fetch.` and `pnpm test data-store.` —
   must pass before next task
 
 ### Task 5: Migrate `features/food.js` and `app.js` direct cache writes

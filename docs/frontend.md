@@ -49,7 +49,7 @@ Options: `tags` (forwarded to `cacheApiSnapshot`), `freshAfterMs` (default 60s �
 
 Tone classes (defined in `styles.css`, no inline styles): `.wg-stale-badge--neutral`, `.wg-stale-badge--warning`, `.wg-stale-badge--offline`. Label format: `Updated 5m ago` / `Updated 2h ago` (online), `Offline · 12m old` / `Offline · 3h old` (offline), `Offline · no cache` (cold-start offline).
 
-**Per-section freshness windows** — `freshAfterMs` controls how often we revalidate online; `staleAfterMs` flips the badge tone:
+**Per-section freshness windows** — `freshAfterMs` controls how often we revalidate online; `staleAfterMs` flips the badge tone. The canonical list of cache keys, their invalidation tags, and the freshness windows below lives in `web/static/js/core/cache-keys.js`; `CacheKeys.registerAll(window.DataStore)` runs once at boot so tag-based invalidation works regardless of which feature has executed its first loader. Add new keys to that registry rather than passing inline `tags:` arrays at every `cachedFetch` call site. The table below mirrors the registry for reference:
 
 | Section | Cache key(s) | freshAfterMs | staleAfterMs |
 |---------|--------------|--------------|--------------|
