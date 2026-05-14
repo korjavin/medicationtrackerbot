@@ -190,10 +190,10 @@ plan approval" path that the prod incident exposed.
 
 ### Task 5: [Final] Update documentation
 
-- [ ] add a short note to `docs/architecture.md` (or wherever tz-transition
+- [x] add a short note to `docs/architecture.md` (or wherever tz-transition
       semantics are documented) about the near-match dedup, since this is a
       subtle invariant future readers will want to find.
-- [ ] no README update needed.
+- [x] no README update needed.
 
 ## Technical Details
 

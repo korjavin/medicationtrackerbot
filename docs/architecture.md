@@ -175,6 +175,36 @@ Bot struct fields: `medSvc domain.MedicationService`, `exerciseSvc domain.Exerci
 - Snooze logic: checks `snooze_until` timestamp
 - Rotation advancement: happens on workout completion or skip
 
+### TZ-transition plan-step dedup (near-match window)
+
+While an APPROVED `tz_transition_plan` exists for a user, the medication
+scheduler materialises pending `tz_transition_steps` into `intake_log` rows
+instead of using the normal schedule. The dedup rule when materialising a
+step is:
+
+1. Exact match first: if an `intake_log` row already exists for this med at
+   exactly the step's `scheduled_at`, mark the step consumed against it and
+   do not create a new intake.
+2. Near-match fallback: if the exact lookup misses, search pending intakes
+   for this med and pick the closest one whose `|scheduled_at - step.ScheduledAt|`
+   is `≤ minInterval`, where `minInterval = NominalIntervalHours(schedule) *
+   policy_factor` (e.g. `15.6h` for a daily med with `medium` TZ-shift
+   policy). If found, mark the step consumed against that pre-existing
+   intake and do not create a new one.
+3. Otherwise, create a new intake at the step's `scheduled_at`.
+
+The near-match window absorbs second-level anchor drift: tz-plan steps
+are anchored on real `taken_at` timestamps, which carry the user's actual
+intake timing rather than the scheduled slot, so step times routinely drift
+seconds-to-minutes from the matching normal-schedule slot. Without this
+fallback, both rows survived in production (2026-05-14 Chicago → Berlin
+plan) and the user got duplicate reminders for hours. Implementation:
+`internal/scheduler/medication.go` plan-step branch; regression tests in
+`internal/scheduler/medication_tz_test.go` (subtests "approved plan: past
+step merges into pre-existing normal intake" and siblings). Forecast-side
+parity is documented at `internal/domain/medplan/medplan.go` near
+`pendingByMed[med.ID]`.
+
 ## Telegram Bot Callbacks
 
 Callback data format is crucial for routing:
