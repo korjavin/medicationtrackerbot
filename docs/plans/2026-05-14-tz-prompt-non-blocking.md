@@ -114,7 +114,7 @@ The fix has two complementary parts:
 
 ### Task 1: Move `maybeUpdateTimezone()` out of the pre-paint critical path
 
-- [ ] in `web/static/js/features/bootstrap.js`, reorder the post-auth
+- [x] in `web/static/js/features/bootstrap.js`, reorder the post-auth
       block so the visible shell mounts before TZ detection:
   1. call `mountCanonicalBottomNav()` first
   2. call `switchTab(readSavedActiveTab())` next
@@ -122,11 +122,11 @@ The fix has two complementary parts:
      ideally inside `queueMicrotask(...)` or
      `requestAnimationFrame(() => requestAnimationFrame(() => ...))` so it
      runs after the first paint.
-- [ ] keep the `TZPlanBanner.refresh()` call where it is (after the TZ
+- [x] keep the `TZPlanBanner.refresh()` call where it is (after the TZ
       detection schedule), and keep `AppBackButton.setup()` /
       `handleDeepLinks()` at the bottom — those depend on the active tab
       existing, not on TZ.
-- [ ] confirm the "Clear the cached settings_bundle" comment block inside
+- [x] confirm the "Clear the cached settings_bundle" comment block inside
       `maybeUpdateTimezone` still makes sense (the race it describes is
       now a real, hot race because `switchTab` runs first). Update the
       comment to reflect the new ordering and verify the existing
@@ -135,7 +135,7 @@ The fix has two complementary parts:
       `window.refreshActiveTab?.()` if such a helper exists, otherwise
       leave a follow-up note in Post-Completion — do **not** add new
       cross-feature plumbing in this plan).
-- [ ] write a Vitest case in
+- [x] write a Vitest case in
       `web/static/js/tests/bootstrap.today-default.test.js` (or a new
       sibling file `bootstrap.tz-prompt-nonblocking.test.js`) named
       `"renders the initial tab before the TZ prompt resolves"`. Setup:
@@ -147,7 +147,7 @@ The fix has two complementary parts:
       - eval bootstrap.js
       Assert: `switchTab` was called with the saved/default tab even
       though `safeConfirm` is still pending.
-- [ ] run `pnpm test web/static/js/tests/bootstrap` — all bootstrap tests
+- [x] run `pnpm test web/static/js/tests/bootstrap` — all bootstrap tests
       must pass before next task.
 
 ### Task 2: Replace native `confirm()` fallback in `safeConfirm` with `<mt-modal>`
