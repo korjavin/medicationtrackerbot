@@ -26,15 +26,17 @@
 // wins, Dexie hydration only applies when nothing fresh has landed yet.
 
 window.SettingsState = (function () {
+    const DEFAULT_FEATURES = Object.freeze({
+        food: false,
+        bp: true,
+        weight: true,
+        medication: true,
+        workout: true,
+        health: true,
+    });
+
     let _state = {
-        features: {
-            food: false,
-            bp: true,
-            weight: true,
-            medication: true,
-            workout: true,
-            health: true,
-        },
+        features: { ...DEFAULT_FEATURES },
         loaded: false,
     }; // module-state: settings reducer; bootstrap/loadInitData/loadSettings own
        // `applyBootstrapFeatures`; Dexie-cache hydration owns `applyDexieFeatures`
@@ -83,14 +85,7 @@ window.SettingsState = (function () {
     }
 
     function _resetForTesting() {
-        _state.features = {
-            food: false,
-            bp: true,
-            weight: true,
-            medication: true,
-            workout: true,
-            health: true,
-        };
+        _state.features = { ...DEFAULT_FEATURES };
         _state.loaded = false;
         _mirror();
     }
