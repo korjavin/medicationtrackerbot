@@ -317,11 +317,23 @@
             const toEvict = new Set(registered || []);
             if (prefixes && prefixes.size > 0) {
                 const apiCache = window.MedTrackerDB?.ApiCache;
+                const staticRegistry = (window.CacheKeys && window.CacheKeys.static) || {};
                 if (apiCache && typeof apiCache.keys === 'function') {
                     for (const prefix of prefixes) {
                         const matched = await apiCache.keys(prefix);
                         if (Array.isArray(matched)) {
-                            for (const key of matched) toEvict.add(key);
+                            for (const key of matched) {
+                                // A static-registered key whose tag differs
+                                // from the current tag is opted out of the
+                                // family-prefix sweep — e.g. `food_targets`
+                                // lives under the `food_` prefix but is
+                                // registered with tag=null because the row is
+                                // overwritten on save, not invalidated by the
+                                // food log family.
+                                const reg = staticRegistry[key];
+                                if (reg && reg.tag !== tag) continue;
+                                toEvict.add(key);
+                            }
                         }
                     }
                 }

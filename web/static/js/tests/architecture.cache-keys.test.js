@@ -39,7 +39,8 @@ const SCAN_PATTERNS = [
     /\bsetCached\(\s*(['"])(\w+)\1/g,
     /\bgetCached\(\s*(['"])(\w+)\1/g,
     /\bclearCached\(\s*(['"])(\w+)\1/g,
-    /\bsetCachedWithTags\(\s*(['"])(\w+)\1/g
+    /\bsetCachedWithTags\(\s*(['"])(\w+)\1/g,
+    /\bcachedFetch\(\s*(['"])(\w+)\1/g
 ];
 
 function collectJsFiles(dir, results = []) {

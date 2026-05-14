@@ -144,7 +144,7 @@ describe('core/cache-keys.js — registerAll', () => {
         expect(byKey['workout_history']).toEqual(['workout']);
         expect(byKey['workout_groups']).toEqual(['workout']);
         expect(byKey['workout_stats']).toEqual(['workout']);
-        expect(byKey['exercise_library']).toEqual(['workout']);
+        expect(byKey['exercise_library']).toEqual(['exercise_library']);
         expect(byKey['food_products_cache']).toEqual(['food']);
         expect(byKey['diary_notes']).toEqual(['health-notes']);
     });
@@ -183,14 +183,3 @@ describe('core/cache-keys.js — registerAll', () => {
     });
 });
 
-describe('core/cache-keys.js — workoutKeys helper', () => {
-    let env;
-    beforeEach(() => { env = loadCacheKeysEnv(); });
-
-    it('returns the four workout list cache keys (excluding exercise_library)', () => {
-        const keys = env.window.CacheKeys.workoutKeys();
-        expect(keys.sort()).toEqual(
-            ['workout_groups', 'workout_history', 'workout_next', 'workout_stats'].sort()
-        );
-    });
-});

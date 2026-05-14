@@ -61,8 +61,8 @@
         },
         exercise_library: {
             key: 'exercise_library',
-            tag: 'workout',
-            description: 'Exercise library list.'
+            tag: 'exercise_library',
+            description: 'Exercise library list. Tagged separately from workout-session caches so a workout-log mutation does not evict the library.'
         },
         food_products_cache: {
             key: 'food_products_cache',
@@ -136,12 +136,6 @@
         return null;
     }
 
-    function workoutKeys() {
-        return Object.values(STATIC_KEYS)
-            .filter((entry) => entry.tag === 'workout' && entry.key !== 'exercise_library')
-            .map((entry) => entry.key);
-    }
-
     function registerAll(dataStore) {
         if (!dataStore || typeof dataStore.registerTags !== 'function') return;
         Object.values(STATIC_KEYS).forEach(({ key, tag }) => {
@@ -160,7 +154,6 @@
         history: FAMILIES[0].factory,
         dayFoodKey: FAMILIES[1].factory,
         healthOverviewKey: FAMILIES[2].factory,
-        workoutKeys,
         registerAll
     };
 
