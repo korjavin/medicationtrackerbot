@@ -42,6 +42,15 @@
                 return true;
             }
         },
+        // Placeholder for the failed-action queue. Task 4 of the SW
+        // handler unification plan replaces this with a direct
+        // IndexedDB write into the `pending_sw_actions` Dexie store
+        // (drained by the main thread in sync.js). Until then this is
+        // a no-op resolve so handler call sites are unconditional and
+        // safe to ship in the same PR as the handler rewrite.
+        async enqueueFailedAction(_action) {
+            return false;
+        },
     };
 
     root.SwApi = SwApi;
