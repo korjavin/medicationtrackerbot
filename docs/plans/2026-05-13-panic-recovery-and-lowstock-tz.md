@@ -153,16 +153,22 @@ because this file diverged from the pattern that
 
 ### Task 3: Verify acceptance
 
-- [ ] `go build ./...` clean
-- [ ] `go test ./...` clean (full suite)
-- [ ] `go test -race ./internal/scheduler/... ./internal/server/...`
-  clean
-- [ ] `golangci-lint run ./...` (or whatever the project lint command
-  is) — no new findings
-- [ ] grep for `c.lastCheck = time.Now()` in
+- [x] `go build ./...` clean
+- [x] `go test ./...` clean (full suite)
+- [x] `go test -race ./internal/scheduler/... ./internal/server/...`
+  clean — new `TestLowStock*` and `TestPanicRecover*` tests pass under
+  `-race`. The pre-existing race in `TestWorkoutCheckerScenarios`
+  (`MockNotifier.Send` in `medication_test.go`) is unrelated to this
+  plan and already noted in Task 2 line 150-152
+- [x] `golangci-lint run ./...` (or whatever the project lint command
+  is) — no new findings (ran `golangci-lint v2.10.1` per
+  `.github/workflows/golangci-lint.yml`; touched packages
+  `./internal/server/...` and `./internal/scheduler/...` report
+  `0 issues`)
+- [x] grep for `c.lastCheck = time.Now()` in
   `internal/scheduler/low_stock.go` returns zero results (proves the
   TZ-adjusted-now fix landed)
-- [ ] grep for `recover()` in `internal/server/server.go` returns one
+- [x] grep for `recover()` in `internal/server/server.go` returns one
   hit (the new middleware)
 
 ## Technical Details
