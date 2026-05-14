@@ -65,7 +65,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.WGPhoneChrome',             // components/wg-phone-chrome.js — Wandergeek decorative iPhone-frame wrapper (status bar, dynamic island, home indicator) around the SPA on desktop; collapses on mobile/PWA
     'window.WGIcons',                   // components/wg-icons.js — Wandergeek stroke-icon registry (iconSvg(name) returns an <svg>); consumed by wg-bottom-nav.js and later screens
     'window.WGBottomNav',               // components/wg-bottom-nav.js — canonical multi-row bottom nav; one slot per real section, no aggregator
-    'window.rebuildCanonicalBottomNav', // features/bootstrap.js — re-mounts the canonical bottom nav with the current feature flags; called from settings.js after a feature toggle
+    'window.rebuildCanonicalBottomNav', // features/bootstrap.js — re-mounts the canonical bottom nav with the current feature flags; called from toggleFeatureSetting() in app.js after a feature toggle
     'window.WGSparkline',               // components/wg-sparkline.js — Wandergeek SVG sparkline for Today metric tiles; stroke colour is driven by CSS variant class, not a JS colour
     'window.WGBpChart',                 // components/wg-bp-chart.js — Wandergeek BP sys/dia chart (band + lines + dotted guides + last-point markers); colours resolve via CSS classes on SVG children, never inline
     'window.WGWeightChart',             // components/wg-weight-chart.js — Wandergeek single-series weight chart with optional goal-line overlay; colours resolve via CSS classes on SVG children, never inline
@@ -75,27 +75,27 @@ const ALLOWED_GLOBALS = new Set([
     'window.WGVitalsChart',             // components/wg-vitals-chart.js — Wandergeek area+line vitals chart (HR / SpO2 / Stress) for the Health Overview sub-tab; parameterised by vital, line + area fill colour resolve via --wg-health-vitals-{vital}-* tokens on CSS classes, never inline
     'window.WGMacroBar',                // components/wg-macro-bar.js — Wandergeek Food-screen macro row (label + inset track + mono value/target); fill colour comes from .wg-macro-bar__fill--<variant> classes, fill width from a neutral --fill-pct custom property
     'window.WGStaleBadge',              // components/wg-stale-badge.js — Wandergeek freshness badge mounted in section headers; renders "Updated Nm ago" / "Offline · Nh old" with neutral|warning tone classes for cachedFetch-driven local-first reads (Task 4 of the local-first read-resilience plan)
-    'window.WGToggle',                  // components/wg-toggle.js — Wandergeek toggle primitive for the Settings screen (Phase 9); renders a pill + knob driven by a hidden <input type="checkbox"> so the existing id-based change-event wiring in features/settings.js keeps binding unchanged
+    'window.WGToggle',                  // components/wg-toggle.js — Wandergeek toggle primitive for the Settings screen (Phase 9); renders a pill + knob driven by a hidden <input type="checkbox"> so the existing id-based change-event wiring in app.js keeps binding unchanged
     'window.WGSettings',                // components/wg-settings.js — Wandergeek Settings-screen render helpers (Phase 9, Task 2): section() + row() + infoRow() DOM factories consumed by the Settings reskin to build sectioned cards, canonical left-title/right-control rows, and read-only timezone info rows
     'window.AppBackButton',             // features/back-button.js — wires Telegram WebApp BackButton to section → Today navigation
     'window.TZPlanBanner',              // features/tz-plan-banner.js — fetches GET /api/tz-plan/current and renders an actionable banner only when an active timezone-transition plan exists; bootstrap.js calls .refresh() once after auth
     'window.editNote',                  // features/health.js — called from dynamically-built edit buttons in notes rows
 
-    // features/settings.js — feature toggles, food targets, reminder settings
-    'window.applyFeatureSettings',      // features/settings.js — applies feature toggles to DOM and state
-    'window.featureSettings',           // features/settings.js — ephemeral cache of current feature flags
-    'window.saveTabOrder',              // features/settings.js - persists Today card order to DB
-    'window.featureSettingsLoaded',     // features/settings.js — flag: settings have been fetched at least once
-    'window.switchTab',                 // features/settings.js — re-exported tab switcher used by applyFeatureSettings
-    'window.loadFeatureSettings',       // features/settings.js — SWR loader for /api/settings/features
+    // Settings / Food — feature toggles, food targets, reminder settings
+    // (formerly produced by features/settings.js, deleted 2026-05-13;
+    //  the live owners are app.js, features/food.js, and core/utils.js)
+    'window.featureSettings',           // app.js — ephemeral cache of current feature flags
+    'window.saveTabOrder',              // app.js — persists Today card order to DB
+    'window.featureSettingsLoaded',     // app.js — flag: settings have been fetched at least once
+    'window.switchTab',                 // app.js — top-level tab switcher (becomes window.switchTab via global scope)
     'window.FoodActions',               // features/food.js — namespace exposing the food-photo picker (triggerPhotoPicker) so the Today shortcut tile can open it without first navigating to the Food section
-    'window.foodTargets',               // features/settings.js — ephemeral cache of food macro targets
-    'window.loadFoodTargets',           // features/settings.js — SWR loader for /api/food/settings/targets
-    'window.saveFoodTargets',           // features/settings.js — POSTs updated food targets to backend
-    'window.safeAlert',                 // features/settings.js — wrapped alert used after save actions
-    'window.loadFoodLogs',              // features/settings.js — triggers food log reload after target save
-    'window.toggleFeatureSetting',      // features/settings.js — toggles a single feature flag via API
-    'window.loadSettings',              // features/settings.js — loads all settings subsections in parallel
+    'window.foodTargets',               // features/food.js — ephemeral cache of food macro targets
+    'window.loadFoodTargets',           // features/food.js — SWR loader for /api/food/settings/targets
+    'window.saveFoodTargets',           // features/food.js — POSTs updated food targets to backend
+    'window.safeAlert',                 // core/utils.js — wrapped alert used after save actions
+    'window.loadFoodLogs',              // features/food.js — triggers food log reload after target save
+    'window.toggleFeatureSetting',      // app.js — toggles a single feature flag via API
+    'window.loadSettings',              // app.js — loads all settings subsections in parallel
     'window.weightUnitPreference',      // app.js / features/weight.js — user's preferred weight display unit ('kg' or 'lb'); hydrated from /api/bootstrap, read synchronously by the weight modal on open, written back via PATCH /api/settings/weight-unit when the user submits in a different unit
     'window.commitAuthoritativeWeightUnit', // app.js — keeps window.weightUnitPreference and the Settings PATCH failure-revert target in sync; called by features/weight.js after an out-of-band modal-side PATCH succeeds so a later Settings PATCH failure doesn't revert UI to a stale unit
     'window.setWeightUnitPreference',   // app.js — serial-queued PATCH /api/settings/weight-unit helper; features/weight.js modal-submit routes through it (with reload:false) so a concurrent Settings click and modal inference cannot land at the server in arrival order opposite to the user's click order

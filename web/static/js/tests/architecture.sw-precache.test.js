@@ -4,6 +4,20 @@
  * Validates that the Service Worker's STATIC_ASSETS array includes
  * every local script and stylesheet loaded by index.html.
  * Prevents offline breakage when new JS files are added but not precached.
+ *
+ * Also validates the inverse direction: every precached /static/js/*.js
+ * path is actually loaded by index.html (or in SW_SELF_IMPORTS for files
+ * loaded via importScripts inside the SW itself). Prevents shipping dead
+ * code in the SW cache — see plan
+ * docs/plans/2026-05-13-remove-dead-settings-js.md, which removed
+ * features/settings.js after it sat in STATIC_ASSETS for months without
+ * any <script src> wiring it into the page.
+ *
+ * Sanity check for the inverse assertion: temporarily re-add
+ *   '/static/js/features/settings.js',
+ * to STATIC_ASSETS in web/static/sw.js and re-run this file — the new
+ * "every precached /static/js/*.js is loaded by index.html" case must
+ * fail with that path in the orphans list.
  */
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
@@ -93,5 +107,29 @@ describe('Service Worker precache coverage', () => {
     it('STATIC_ASSETS should include root document and manifest', () => {
         expect(swAssets.has('/')).toBe(true);
         expect(swAssets.has('/static/manifest.json')).toBe(true);
+    });
+
+    // Allowlist for /static/js/*.js paths that the SW loads itself
+    // (via importScripts) rather than the page loading via <script src>.
+    // Keep this list short and justified. Empty today — the SW has no
+    // importScripts call yet (see docs/plans/2026-05-13-sw-handler-unification.md
+    // for the future sw-api-helper.js extraction).
+    const SW_SELF_IMPORTS = new Set([]);
+
+    it('every precached /static/js/*.js should be loaded by index.html', () => {
+        const orphans = [];
+        for (const asset of swAssets) {
+            if (!/^\/static\/js\/.+\.js$/.test(asset)) continue;
+            if (indexAssets.has(asset)) continue;
+            if (SW_SELF_IMPORTS.has(asset)) continue;
+            orphans.push(asset);
+        }
+        const hint = orphans.length === 0 ? '' :
+            `Precached JS files that are not loaded by index.html:\n  ${orphans.join('\n  ')}\n` +
+            `\nEither remove the entry from STATIC_ASSETS in web/static/sw.js (and ` +
+            `delete the file if it has no other callers), or add a <script src> ` +
+            `tag to web/static/index.html. If the SW loads the file via ` +
+            `importScripts, add it to SW_SELF_IMPORTS in this test with a comment.`;
+        expect(orphans, hint).toEqual([]);
     });
 });
