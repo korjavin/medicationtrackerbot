@@ -17,6 +17,7 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/store/push"
 	"github.com/korjavin/medicationtrackerbot/internal/store/settings"
 	"github.com/korjavin/medicationtrackerbot/internal/store/vitals"
+	"github.com/korjavin/medicationtrackerbot/internal/store/weight"
 )
 
 //go:embed migrations/*.sql
@@ -70,6 +71,7 @@ type Store struct {
 	vitals   *vitals.Repo
 	settings *settings.Repo
 	bp       *bp.Repo
+	weight   *weight.Repo
 }
 
 var nowFunc = time.Now
@@ -166,18 +168,17 @@ type BPPeriodStats = bp.BPPeriodStats
 // internal/store/bp. New code should depend on bp.BPReminderState directly.
 type BPReminderState = bp.BPReminderState
 
-type WeightLog struct {
-	ID              int64     `json:"id"`
-	UserID          int64     `json:"user_id"`
-	MeasuredAt      time.Time `json:"measured_at"`
-	Weight          float64   `json:"weight"`
-	WeightTrend     *float64  `json:"weight_trend,omitempty"`
-	BodyFat         *float64  `json:"body_fat,omitempty"`
-	BodyFatTrend    *float64  `json:"body_fat_trend,omitempty"`
-	MuscleMass      *float64  `json:"muscle_mass,omitempty"`
-	MuscleMassTrend *float64  `json:"muscle_mass_trend,omitempty"`
-	Notes           string    `json:"notes,omitempty"`
-}
+// WeightLog is an alias for the canonical type defined in
+// internal/store/weight. Kept here so existing references (server weight
+// handlers, MCP weight tools, bot weight callbacks, narrow consumer
+// interfaces, importer, demo seeder, tests) continue to compile during the
+// per-domain split; new code should depend on weight.WeightLog directly.
+type WeightLog = weight.WeightLog
+
+// WeightReminderState is an alias for the canonical type defined in
+// internal/store/weight. New code should depend on weight.WeightReminderState
+// directly.
+type WeightReminderState = weight.WeightReminderState
 
 // SleepLog is an alias for the canonical type defined in internal/store/vitals.
 // Kept here so existing references (server health handlers, MCP cardiovascular
@@ -275,6 +276,7 @@ func NewWithDB(d *storedb.DB) (*Store, error) {
 	authRepo.SetClock(func() time.Time { return nowFunc() })
 	vitalsRepo := vitals.New(d)
 	settingsRepo := settings.New(d)
+	weightRepo := weight.New(d)
 	s := &Store{
 		db:       d,
 		diary:    diaryRepo,
@@ -282,6 +284,7 @@ func NewWithDB(d *storedb.DB) (*Store, error) {
 		auth:     authRepo,
 		vitals:   vitalsRepo,
 		settings: settingsRepo,
+		weight:   weightRepo,
 	}
 	// bp.Repo needs a TimezoneLookup for day-boundary calculations in
 	// GetBPDailyWeightedStats. *Store still owns the timezone table until
@@ -356,6 +359,22 @@ func (s *Store) BP() *bp.Repo {
 // interface satisfied by it) and obtain it through this accessor.
 func (s *Store) Settings() *settings.Repo {
 	return s.settings
+}
+
+// Weight returns the per-domain weight repository. The legacy *Store still
+// forwards CreateWeightLog / GetWeightLogs / DeleteWeightLog /
+// GetLastWeightLog / GetLastWeightLogExcluding / GetHighestWeightRecord /
+// BatchGetLastWeightLogs / GetWeightGoal / SetWeightGoal /
+// GetWeightUnitPreference / SetWeightUnitPreference /
+// GetWeightReminderState / SetWeightReminderEnabled / SnoozeWeightReminder /
+// DontBugMeWeightReminder / UpdateWeightReminderNotificationSent /
+// ClearWeightReminderNotificationMessage /
+// CalculatePreferredWeightReminderHour / UpdatePreferredWeightReminderHour /
+// GetUsersForWeightReminders / GetWeightReminderStates to this same Repo;
+// new callers should depend on *weight.Repo (or a narrow interface satisfied
+// by it) and obtain it through this accessor.
+func (s *Store) Weight() *weight.Repo {
+	return s.weight
 }
 
 func (s *Store) Close() error {
@@ -1165,41 +1184,18 @@ func (s *Store) UpdateLastDownload(t time.Time) error {
 	return s.settings.UpdateLastDownload(t)
 }
 
-// Weight Goal Settings
-type WeightGoal struct {
-	Goal     *float64   `json:"goal,omitempty"`
-	GoalDate *time.Time `json:"goal_date,omitempty"`
-}
+// WeightGoal is an alias for the canonical type defined in
+// internal/store/weight. New code should depend on weight.WeightGoal directly.
+type WeightGoal = weight.WeightGoal
 
+// GetWeightGoal forwards to (*weight.Repo).GetWeightGoal.
 func (s *Store) GetWeightGoal() (*WeightGoal, error) {
-	var goal sql.NullFloat64
-	var goalDateStr sql.NullString
-
-	err := s.db.QueryRow("SELECT weight_goal, weight_goal_date FROM settings WHERE id = 1").Scan(&goal, &goalDateStr)
-	if err == sql.ErrNoRows {
-		return &WeightGoal{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	result := &WeightGoal{}
-	if goal.Valid {
-		result.Goal = &goal.Float64
-	}
-	if goalDateStr.Valid && goalDateStr.String != "" {
-		t, err := time.Parse("2006-01-02", goalDateStr.String)
-		if err == nil {
-			result.GoalDate = &t
-		}
-	}
-	return result, nil
+	return s.weight.GetWeightGoal()
 }
 
-func (s *Store) SetWeightGoal(weight float64, targetDate time.Time) error {
-	dateStr := targetDate.Format("2006-01-02")
-	_, err := s.db.Exec("UPDATE settings SET weight_goal = ?, weight_goal_date = ? WHERE id = 1", weight, dateStr)
-	return err
+// SetWeightGoal forwards to (*weight.Repo).SetWeightGoal.
+func (s *Store) SetWeightGoal(weightVal float64, targetDate time.Time) error {
+	return s.weight.SetWeightGoal(weightVal, targetDate)
 }
 
 // -- Downloads --
@@ -1345,182 +1341,43 @@ func (s *Store) BatchGetLastBPReadings(ctx context.Context, userIDs []int64) (ma
 	return s.bp.BatchGetLastBPReadings(ctx, userIDs)
 }
 
-// -- Weight Tracking --
+// -- Weight Tracking (forwarders to internal/store/weight.Repo) --
 
+// CreateWeightLog forwards to (*weight.Repo).CreateWeightLog.
 func (s *Store) CreateWeightLog(ctx context.Context, w *WeightLog) (int64, error) {
-	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO weight_logs (user_id, measured_at, weight, weight_trend, body_fat, body_fat_trend, muscle_mass, muscle_mass_trend, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		w.UserID, w.MeasuredAt, w.Weight, w.WeightTrend, w.BodyFat, w.BodyFatTrend, w.MuscleMass, w.MuscleMassTrend, w.Notes)
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
+	return s.weight.CreateWeightLog(ctx, w)
 }
 
+// GetWeightLogs forwards to (*weight.Repo).GetWeightLogs.
 func (s *Store) GetWeightLogs(ctx context.Context, userID int64, since time.Time) ([]WeightLog, error) {
-	query := "SELECT id, user_id, measured_at, weight, weight_trend, body_fat, body_fat_trend, muscle_mass, muscle_mass_trend, notes FROM weight_logs WHERE user_id = ?"
-	args := []interface{}{userID}
-
-	if !since.IsZero() {
-		query += " AND measured_at >= ?"
-		args = append(args, since)
-	}
-
-	query += " ORDER BY measured_at DESC"
-
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var logs []WeightLog
-	for rows.Next() {
-		var w WeightLog
-		var weightTrend, bodyFat, bodyFatTrend, muscleMass, muscleMassTrend sql.NullFloat64
-		var notes sql.NullString
-
-		if err := rows.Scan(&w.ID, &w.UserID, &w.MeasuredAt, &w.Weight, &weightTrend, &bodyFat, &bodyFatTrend, &muscleMass, &muscleMassTrend, &notes); err != nil {
-			return nil, err
-		}
-
-		if weightTrend.Valid {
-			w.WeightTrend = &weightTrend.Float64
-		}
-		if bodyFat.Valid {
-			w.BodyFat = &bodyFat.Float64
-		}
-		if bodyFatTrend.Valid {
-			w.BodyFatTrend = &bodyFatTrend.Float64
-		}
-		if muscleMass.Valid {
-			w.MuscleMass = &muscleMass.Float64
-		}
-		if muscleMassTrend.Valid {
-			w.MuscleMassTrend = &muscleMassTrend.Float64
-		}
-		if notes.Valid {
-			w.Notes = notes.String
-		}
-
-		logs = append(logs, w)
-	}
-	return logs, nil
+	return s.weight.GetWeightLogs(ctx, userID, since)
 }
 
+// DeleteWeightLog forwards to (*weight.Repo).DeleteWeightLog.
 func (s *Store) DeleteWeightLog(ctx context.Context, id, userID int64) error {
-	res, err := s.db.ExecContext(ctx, "DELETE FROM weight_logs WHERE id = ? AND user_id = ?", id, userID)
-	if err != nil {
-		return err
-	}
-	rowsAffected, _ := res.RowsAffected()
-	if rowsAffected == 0 {
-		return sql.ErrNoRows
-	}
-	return nil
+	return s.weight.DeleteWeightLog(ctx, id, userID)
 }
 
+// GetLastWeightLog forwards to (*weight.Repo).GetLastWeightLog.
 func (s *Store) GetLastWeightLog(ctx context.Context, userID int64) (*WeightLog, error) {
-	return s.GetLastWeightLogExcluding(ctx, userID, 0)
+	return s.weight.GetLastWeightLog(ctx, userID)
 }
 
-// GetLastWeightLogExcluding returns the most recent weight log for the user,
-// optionally excluding a row by ID. Pass excludeID = 0 to disable exclusion.
-// Used by the POST /api/weight edit path so the EMA trend baseline skips the
-// soon-to-be-deleted original log.
+// GetLastWeightLogExcluding forwards to (*weight.Repo).GetLastWeightLogExcluding.
 func (s *Store) GetLastWeightLogExcluding(ctx context.Context, userID, excludeID int64) (*WeightLog, error) {
-	var w WeightLog
-	var weightTrend, bodyFat, bodyFatTrend, muscleMass, muscleMassTrend sql.NullFloat64
-	var notes sql.NullString
-
-	query := "SELECT id, user_id, measured_at, weight, weight_trend, body_fat, body_fat_trend, muscle_mass, muscle_mass_trend, notes FROM weight_logs WHERE user_id = ?"
-	args := []interface{}{userID}
-	if excludeID > 0 {
-		query += " AND id != ?"
-		args = append(args, excludeID)
-	}
-	query += " ORDER BY measured_at DESC LIMIT 1"
-
-	err := s.db.QueryRowContext(ctx, query, args...).Scan(
-		&w.ID, &w.UserID, &w.MeasuredAt, &w.Weight,
-		&weightTrend, &bodyFat, &bodyFatTrend, &muscleMass, &muscleMassTrend, &notes)
-
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	if weightTrend.Valid {
-		w.WeightTrend = &weightTrend.Float64
-	}
-	if bodyFat.Valid {
-		w.BodyFat = &bodyFat.Float64
-	}
-	if bodyFatTrend.Valid {
-		w.BodyFatTrend = &bodyFatTrend.Float64
-	}
-	if muscleMass.Valid {
-		w.MuscleMass = &muscleMass.Float64
-	}
-	if muscleMassTrend.Valid {
-		w.MuscleMassTrend = &muscleMassTrend.Float64
-	}
-	if notes.Valid {
-		w.Notes = notes.String
-	}
-
-	return &w, nil
+	return s.weight.GetLastWeightLogExcluding(ctx, userID, excludeID)
 }
 
+// GetHighestWeightRecord forwards to (*weight.Repo).GetHighestWeightRecord.
 func (s *Store) GetHighestWeightRecord(ctx context.Context, userID int64) (*WeightLog, error) {
-	var w WeightLog
-	var weightTrend, bodyFat, bodyFatTrend, muscleMass, muscleMassTrend sql.NullFloat64
-	var notes sql.NullString
-
-	err := s.db.QueryRowContext(ctx,
-		"SELECT id, user_id, measured_at, weight, weight_trend, body_fat, body_fat_trend, muscle_mass, muscle_mass_trend, notes FROM weight_logs WHERE user_id = ? ORDER BY weight DESC LIMIT 1",
-		userID).Scan(&w.ID, &w.UserID, &w.MeasuredAt, &w.Weight, &weightTrend, &bodyFat, &bodyFatTrend, &muscleMass, &muscleMassTrend, &notes)
-
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	if weightTrend.Valid {
-		w.WeightTrend = &weightTrend.Float64
-	}
-	if bodyFat.Valid {
-		w.BodyFat = &bodyFat.Float64
-	}
-	if bodyFatTrend.Valid {
-		w.BodyFatTrend = &bodyFatTrend.Float64
-	}
-	if muscleMass.Valid {
-		w.MuscleMass = &muscleMass.Float64
-	}
-	if muscleMassTrend.Valid {
-		w.MuscleMassTrend = &muscleMassTrend.Float64
-	}
-	if notes.Valid {
-		w.Notes = notes.String
-	}
-
-	return &w, nil
+	return s.weight.GetHighestWeightRecord(ctx, userID)
 }
 
-// CalculateWeightTrend calculates a simple exponential moving average.
-// alpha = 0.1 gives roughly a 20-day smoothing.
+// CalculateWeightTrend forwards to weight.CalculateWeightTrend. New code
+// should call the weight package function directly.
 // Deprecated: prefer domain.CalculateWeightTrend for new code.
 func CalculateWeightTrend(currentWeight float64, previousTrend *float64) float64 {
-	if previousTrend == nil {
-		return currentWeight
-	}
-	alpha := 0.1
-	return alpha*currentWeight + (1-alpha)**previousTrend
+	return weight.CalculateWeightTrend(currentWeight, previousTrend)
 }
 
 // ImportSleepLogs forwards to (*vitals.Repo).ImportSleepLogs.
@@ -2146,27 +2003,14 @@ func (s *Store) SetTabOrder(ctx context.Context, order string) error {
 	return s.settings.SetTabOrder(ctx, order)
 }
 
+// GetWeightUnitPreference forwards to (*weight.Repo).GetWeightUnitPreference.
 func (s *Store) GetWeightUnitPreference(ctx context.Context) (string, error) {
-	var unit string
-	err := s.db.QueryRowContext(ctx, "SELECT weight_unit_preference FROM settings WHERE id = 1").Scan(&unit)
-	if err == sql.ErrNoRows {
-		return "kg", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	if unit != "kg" && unit != "lb" {
-		return "kg", nil
-	}
-	return unit, nil
+	return s.weight.GetWeightUnitPreference(ctx)
 }
 
+// SetWeightUnitPreference forwards to (*weight.Repo).SetWeightUnitPreference.
 func (s *Store) SetWeightUnitPreference(ctx context.Context, unit string) error {
-	if unit != "kg" && unit != "lb" {
-		return fmt.Errorf("invalid weight unit %q: must be 'kg' or 'lb'", unit)
-	}
-	_, err := s.db.ExecContext(ctx, "UPDATE settings SET weight_unit_preference = ? WHERE id = 1", unit)
-	return err
+	return s.weight.SetWeightUnitPreference(ctx, unit)
 }
 
 // CreateDiaryNote forwards to (*diary.Repo).Create. Kept on *Store so the
@@ -2689,85 +2533,9 @@ func (s *Store) TryUseLoginHash(hash string, expiresAt time.Time) (bool, error) 
 	return s.auth.TryUseLoginHash(hash, expiresAt)
 }
 
-// BatchGetLastWeightLogs fetches the last weight log for multiple users
+// BatchGetLastWeightLogs forwards to (*weight.Repo).BatchGetLastWeightLogs.
 func (s *Store) BatchGetLastWeightLogs(ctx context.Context, userIDs []int64) (map[int64]*WeightLog, error) {
-	result := make(map[int64]*WeightLog)
-	if len(userIDs) == 0 {
-		return result, nil
-	}
-
-	// SQLite has a limit on parameters, so we chunk the userIDs
-	const chunkSize = 500
-	for i := 0; i < len(userIDs); i += chunkSize {
-		end := i + chunkSize
-		if end > len(userIDs) {
-			end = len(userIDs)
-		}
-		chunk := userIDs[i:end]
-
-		query := `
-			SELECT id, user_id, measured_at, weight, weight_trend, body_fat, body_fat_trend, muscle_mass, muscle_mass_trend, notes
-			FROM (
-				SELECT *, ROW_NUMBER() OVER(PARTITION BY user_id ORDER BY measured_at DESC) as rn
-				FROM weight_logs
-				WHERE user_id IN (`
-
-		args := make([]interface{}, len(chunk))
-		for j, id := range chunk {
-			if j > 0 {
-				query += ", "
-			}
-			query += "?"
-			args[j] = id
-		}
-		query += `)
-			) WHERE rn = 1`
-
-		rows, err := s.db.QueryContext(ctx, query, args...)
-		if err != nil {
-			return nil, err
-		}
-
-		for rows.Next() {
-			var w WeightLog
-			var weightTrend, bodyFat, bodyFatTrend, muscleMass, muscleMassTrend sql.NullFloat64
-			var notes sql.NullString
-
-			if err := rows.Scan(&w.ID, &w.UserID, &w.MeasuredAt, &w.Weight, &weightTrend, &bodyFat, &bodyFatTrend, &muscleMass, &muscleMassTrend, &notes); err != nil {
-				rows.Close()
-				return nil, err
-			}
-
-			if weightTrend.Valid {
-				w.WeightTrend = &weightTrend.Float64
-			}
-			if bodyFat.Valid {
-				w.BodyFat = &bodyFat.Float64
-			}
-			if bodyFatTrend.Valid {
-				w.BodyFatTrend = &bodyFatTrend.Float64
-			}
-			if muscleMass.Valid {
-				w.MuscleMass = &muscleMass.Float64
-			}
-			if muscleMassTrend.Valid {
-				w.MuscleMassTrend = &muscleMassTrend.Float64
-			}
-			if notes.Valid {
-				w.Notes = notes.String
-			}
-
-			result[w.UserID] = &w
-		}
-
-		if err := rows.Err(); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		rows.Close()
-	}
-
-	return result, nil
+	return s.weight.BatchGetLastWeightLogs(ctx, userIDs)
 }
 
 // CreateAPIToken forwards to (*auth.Repo).CreateAPIToken.
