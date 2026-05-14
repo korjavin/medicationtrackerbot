@@ -13,6 +13,21 @@ const userInitData = window.tg ? window.tg.initData : null;
 window.userInitData = userInitData;
 var initialAuthLoad = false;
 
+// Hot-cache reload case: the SW controller may already be active by the time
+// this script runs (before app-shell.js registers its load handler). Post the
+// auth token directly so notification handlers can authenticate immediately;
+// app-shell.js will also re-post on registration & controllerchange.
+if (userInitData && navigator.serviceWorker && navigator.serviceWorker.controller) {
+    try {
+        navigator.serviceWorker.controller.postMessage({
+            type: 'SET_AUTH_TOKEN',
+            token: userInitData,
+        });
+    } catch (err) {
+        console.log('SW token post failed:', err);
+    }
+}
+
 // Auth-cache constants and helpers are defined in features/auth-flow.js.
 // checkAuth() (below) calls saveAuthState / getCachedAuthState / clearAuthState
 // by name; those names resolve to the window-scoped definitions from auth-flow.js

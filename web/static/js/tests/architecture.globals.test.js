@@ -37,6 +37,7 @@ const ALLOWED_GLOBALS = new Set([
     // App shell
     'window.initServiceWorker',         // app-shell.js — SW registration
     'window.showUpdateToast',           // app-shell.js — SW update banner
+    'window.sendSwAuthToken',           // app-shell.js — posts the Telegram init-data blob to the active SW controller so its notification-action handlers can attach X-Telegram-Init-Data; called after SW registration, on controllerchange, and (inline) from app.js for the hot-cache reload case
 
     // App core (app.js)
     'window.userInitData',              // app.js — Telegram initData for feature files

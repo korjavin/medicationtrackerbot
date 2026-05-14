@@ -382,6 +382,8 @@ async function syncIntakeLogs() {
 self.addEventListener('message', (event) => {
     if (event.data.type === 'SKIP_WAITING') {
         self.skipWaiting();
+    } else if (event.data.type === 'SET_AUTH_TOKEN' && self.SwApi) {
+        self.SwApi.authToken = event.data.token || null;
     }
 });
 
