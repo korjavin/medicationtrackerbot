@@ -1,10 +1,10 @@
 // ==================== Medication render + modal flow ====================
 // Extracted from app.js in Phase 5 Task 1. These functions remain global
-// (script-tag loading) and still rely on app.js helpers (parseMedicationSchedule,
-// getNextScheduledDate, getMedicationScheduleText, getLastTakenTimeMs,
-// isLowOnStock, formatDate, apiCall, withSubmit, safeAlert, safeConfirm,
-// editingMedId, medications, initialAuthLoad, etc.) that
-// remain in app.js.
+// (script-tag loading) and still rely on helpers from features/medication-utils.js
+// (parseMedicationSchedule, getNextScheduledDate, getMedicationScheduleText,
+// getLastTakenTimeMs — reached via window.MedicationUtils.*) plus app.js
+// helpers (isLowOnStock, formatDate, apiCall, withSubmit, safeAlert,
+// safeConfirm, editingMedId, medications, initialAuthLoad, etc.).
 
 // Sub-tab state (Phase 5, Task 2; revised Task 5; round-2 Task 4).
 // Scoped to sessionStorage so every fresh launch lands on the History
@@ -248,7 +248,7 @@ function _buildMedsRow(med, parsedSchedule) {
 
     const scheduleLine = document.createElement('div');
     scheduleLine.className = 'wg-meds-row__schedule';
-    scheduleLine.textContent = getMedicationScheduleText(med, parsedSchedule);
+    scheduleLine.textContent = window.MedicationUtils.getMedicationScheduleText(med, parsedSchedule);
     info.appendChild(scheduleLine);
 
     if (med.normalized_name) {
@@ -296,7 +296,7 @@ function renderMeds() {
     const archived = [];
 
     medications.forEach((med) => {
-        const schedule = parseMedicationSchedule(med.schedule);
+        const schedule = window.MedicationUtils.parseMedicationSchedule(med.schedule);
         const scheduleType = schedule?.type || 'daily';
 
         if (med.archived) {
@@ -309,7 +309,7 @@ function renderMeds() {
             return;
         }
 
-        const next = getNextScheduledDate(schedule, now);
+        const next = window.MedicationUtils.getNextScheduledDate(schedule, now);
         scheduledEntries.push({ med, schedule, next });
     });
 
@@ -342,7 +342,7 @@ function renderMeds() {
     const sortedBuckets = Array.from(hourBuckets.values())
         .sort((a, b) => a.earliest - b.earliest);
 
-    const sortByTaken = (a, b) => getLastTakenTimeMs(b.med) - getLastTakenTimeMs(a.med);
+    const sortByTaken = (a, b) => window.MedicationUtils.getLastTakenTimeMs(b.med) - window.MedicationUtils.getLastTakenTimeMs(a.med);
 
     sortedBuckets.forEach((bucket) => {
         bucket.entries.sort((a, b) => (a.next || 0) - (b.next || 0));

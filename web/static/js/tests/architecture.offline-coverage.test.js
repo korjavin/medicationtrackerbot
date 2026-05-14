@@ -83,6 +83,10 @@ const ALLOWLIST = [
         file: 'push-modal.js',
         reason: 'closure-private state coordinator for the medication-confirm + workout-start push modals; getters/setters only, no API reads',
     },
+    {
+        file: 'medication-utils.js',
+        reason: 'pure helpers (parseMedicationSchedule, getNextScheduledDate, getMedicationScheduleText, getLastTakenTimeMs) that derive schedule strings + the next occurrence from in-memory data — no API reads',
+    },
     // ---- Workout split sub-files (orchestrator + mutation-only / nested-form readers) ----
     {
         file: 'workout/index.js',

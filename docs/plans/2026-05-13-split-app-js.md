@@ -207,17 +207,17 @@ and recommended-priority item #6.
 
 ### Task 5: Extract `features/medication-utils.js`
 
-- [ ] move `parseMedicationSchedule`, `getNextScheduledDate`
+- [x] move `parseMedicationSchedule`, `getNextScheduledDate`
   (`app.js:2707`), `getMedicationScheduleText` (`app.js:2752`),
   `getLastTakenTimeMs` (`app.js:2773`) into
   `web/static/js/features/medication-utils.js`; expose as
   `window.MedicationUtils.{...}`
-- [ ] update `app.js` and any feature consumers to call via the
+- [x] update `app.js` and any feature consumers to call via the
   module
-- [ ] write tests in `web/static/js/tests/features.medication-utils.test.js`
+- [x] write tests in `web/static/js/tests/features.medication-utils.test.js`
   covering daily and weekly schedule next-date calculation, weekly
   cross-day boundary, edge cases (empty times, invalid time strings)
-- [ ] run `pnpm test features.medication-utils today.` — must pass
+- [x] run `pnpm test features.medication-utils today.` — must pass
 
 ### Task 6: Extract `features/tab-controller.js`
 

@@ -55,6 +55,7 @@ const STATIC_ASSETS = [
     '/static/js/features/weight-unit-state.js',
     '/static/js/features/auth-bootstrap.js',
     '/static/js/features/push-modal.js',
+    '/static/js/features/medication-utils.js',
     '/static/js/features/meds.js',
     '/static/js/features/food-photo-summary.js',
     '/static/js/features/food/products.js',
