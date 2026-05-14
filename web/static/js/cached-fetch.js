@@ -113,19 +113,28 @@
         return null;
     }
 
-    // Register the key→tags mapping with DataStore so a mid-flight
-    // invalidateByTag can find this key and bump its generation. Without
-    // this, on cold/reload paths (where bootstrap hasn't yet cached the key,
-    // or this is the first read) `tagToKeys` is empty for the key and an
-    // invalidation that fires while a GET is in flight silently no-ops —
-    // peekGen sees the same value at start and end, the gen guard passes,
-    // and the (now-superseded) network response gets written back.
+    // Defense-in-depth registration. `CacheKeys.registerAll` runs at boot, so
+    // every registered key/family already has its tag mapping wired before
+    // any cachedFetch call. This call is kept for one-off keys passed inline
+    // via `opts.tags` that aren't in the registry.
     function registerTagsWithStore(key, tags) {
         if (!Array.isArray(tags) || tags.length === 0) return;
         const ds = (typeof window !== 'undefined') ? window.DataStore : null;
         if (ds && typeof ds.registerTags === 'function') {
             try { ds.registerTags(key, tags); } catch (_) { /* best-effort */ }
         }
+    }
+
+    function resolveTags(key, explicit) {
+        if (Array.isArray(explicit) && explicit.length > 0) return explicit;
+        const ck = (typeof window !== 'undefined') ? window.CacheKeys : null;
+        if (ck && typeof ck.tagFor === 'function') {
+            try {
+                const tag = ck.tagFor(key);
+                if (tag) return [tag];
+            } catch (_) { /* registry not loaded or unknown key — fall through */ }
+        }
+        return [];
     }
 
     // Performs the network round-trip and writes the result to the cache,
@@ -151,7 +160,7 @@
     // cachedFetch(key, url, opts) — see module banner for behaviour.
     async function cachedFetch(key, url, opts = {}) {
         const {
-            tags = [],
+            tags: explicitTags,
             freshAfterMs = 60_000,
             staleAfterMs = 24 * 60 * 60 * 1000,
             transform,
@@ -159,12 +168,10 @@
             now = Date.now()
         } = opts;
 
-        // Eagerly register the key→tags mapping so that any invalidateByTag
-        // call (foreground mutation, /api/changes poll) racing with this
-        // fetch can find the key and bump its generation. The peekGen guard
-        // below relies on the bump to detect supersedes; without an eager
-        // registration the cold-start invalidation can't reach the key and
-        // the guard would silently let a stale response win.
+        // Resolve the tag list. An inline `opts.tags` arg overrides the
+        // registry — useful for one-off keys not enumerated in
+        // `core/cache-keys.js`. Registry hits avoid the per-call boilerplate.
+        const tags = resolveTags(key, explicitTags);
         registerTagsWithStore(key, tags);
 
         const cached = await readCache(key);
