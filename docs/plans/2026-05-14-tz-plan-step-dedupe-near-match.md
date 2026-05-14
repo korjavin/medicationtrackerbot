@@ -164,16 +164,29 @@ plan approval" path that the prod incident exposed.
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] verify the prod scenario from the debug session is covered by subtest A
+- [x] verify the prod scenario from the debug session is covered by subtest A
       (Candecor, daily 21:30, anchor drift of 96 seconds, plan medium policy,
-      eastbound shift).
-- [ ] run full unit test suite: `go test ./...`.
-- [ ] run linter: `go vet ./...` and `gofmt -l .` — fix anything flagged.
-- [ ] confirm no new `slog.Warn`/`Error` logs were introduced in normal
-      operation by skimming test logs.
-- [ ] confirm the plan-step `intake_reminders` table behaviour is unchanged
-      (we never created the duplicate intake, so the reminder loop never sees
-      it).
+      eastbound shift). Confirmed at
+      `internal/scheduler/medication_tz_test.go:548-636` — Candecor 16mg daily
+      02:30, medium policy, Chicago→Berlin, step at 02:28:24 vs intake at
+      02:30:00 (96-second drift); asserts one intake row survives, step
+      consumed, no row at the step time.
+- [x] run full unit test suite: `go test ./...` — all packages OK.
+- [x] run linter: `go vet ./...` (clean) and `gofmt -l .` (13 entries; all
+      pre-existing on master, none introduced by this branch — verified via
+      master-checkout comparison; the only branch-touched file is
+      `internal/scheduler/adapter.go` and gofmt's complaint there is in the
+      unrelated workout one-liner block).
+- [x] confirm no new `slog.Warn`/`Error` logs were introduced in normal
+      operation by skimming test logs — only the deliberate INFO line
+      "medication scheduler: plan step consumed against pre-existing
+      near-match intake" appears on the merge path.
+- [x] confirm the plan-step `intake_reminders` table behaviour is unchanged —
+      the near-match branch at `internal/scheduler/medication.go:312-327`
+      `continue`s before the `CreateIntake` block at line 363, so no new
+      `intake_log` row and therefore no new `intake_reminders` row is
+      written. The pre-existing intake's existing reminder thread continues
+      unchanged.
 
 ### Task 5: [Final] Update documentation
 
