@@ -1,74 +1,35 @@
-package store
+package workout
 
 import (
 	"context"
-	"database/sql"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
 	_ "modernc.org/sqlite"
 
 	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
+	"github.com/korjavin/medicationtrackerbot/internal/store/migrations"
 )
 
-// setupTestDB creates an in-memory test database with the workout schema from migrations
-func applyMigration(t *testing.T, db *sql.DB, migrationFile string) {
-	schemaBytes, err := os.ReadFile(migrationFile) // #nosec G304
+// setupTestDB creates an in-memory test database with all migrations applied
+// and returns a workout *Repo bound to it. The DB is closed automatically via
+// t.Cleanup.
+func setupTestDB(t *testing.T) *Repo {
+	t.Helper()
+	d, err := storedb.Open(":memory:")
 	if err != nil {
-		t.Fatalf("Failed to read migration file %s: %v", migrationFile, err)
+		t.Fatalf("open db: %v", err)
 	}
-
-	schemaSQL := string(schemaBytes)
-	upStart := strings.Index(schemaSQL, "-- +goose Up")
-	downStart := strings.Index(schemaSQL, "-- +goose Down")
-
-	if upStart == -1 || downStart == -1 {
-		t.Fatalf("Migration file %s doesn't contain goose directives", migrationFile)
+	t.Cleanup(func() { _ = d.Close() })
+	if err := d.Migrate(migrations.FS, "."); err != nil {
+		t.Fatalf("migrate: %v", err)
 	}
-
-	upSQL := schemaSQL[upStart:downStart]
-	upSQL = strings.TrimPrefix(upSQL, "-- +goose Up")
-	upSQL = strings.TrimSpace(upSQL)
-
-	if _, err := db.Exec(upSQL); err != nil {
-		t.Fatalf("Failed to execute migration %s: %v", migrationFile, err)
-	}
-}
-
-func setupTestDB(t *testing.T) *Store {
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatalf("Failed to open test database: %v", err)
-	}
-
-	// Apply workout migration
-	applyMigration(t, db, filepath.Join("migrations", "012_add_workout_tracking.sql"))
-
-	// Create change_events table (needed by exercise_library triggers)
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS change_events (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		tag TEXT NOT NULL,
-		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-	)`); err != nil {
-		t.Fatalf("Failed to create change_events table: %v", err)
-	}
-
-	// Apply exercise library migration
-	applyMigration(t, db, filepath.Join("migrations", "028_add_exercise_library.sql"))
-
-	// Apply exercise log source tracking migration
-	applyMigration(t, db, filepath.Join("migrations", "052_add_exercise_log_source.sql"))
-
-	return &Store{db: &storedb.DB{DB: db}}
+	return New(d)
 }
 
 // TestUpdateWorkoutExercise_OrderIndex verifies that updating an exercise correctly updates the order_index
 func TestUpdateWorkoutExercise_OrderIndex(t *testing.T) {
 	store := setupTestDB(t)
-	defer store.db.Close()
 
 	// Create test data
 	group, err := store.CreateWorkoutGroup("Test Group", "Test Description", false, 1, "[1,2,3]", "09:00", 15)
@@ -123,7 +84,6 @@ func TestUpdateWorkoutExercise_OrderIndex(t *testing.T) {
 // TestUpdateWorkoutExercise_OrderIndexChange verifies changing order affects exercise ordering
 func TestUpdateWorkoutExercise_OrderIndexChange(t *testing.T) {
 	store := setupTestDB(t)
-	defer store.db.Close()
 
 	// Create test data
 	group, err := store.CreateWorkoutGroup("Test Group", "Test Description", false, 1, "[1,2,3]", "09:00", 15)
@@ -199,7 +159,6 @@ func TestUpdateWorkoutExercise_OrderIndexChange(t *testing.T) {
 // TestStartSession verifies that starting a session updates status and sets started_at
 func TestStartSession(t *testing.T) {
 	store := setupTestDB(t)
-	defer store.db.Close()
 
 	// Create test data
 	group, err := store.CreateWorkoutGroup("Test Group", "", false, 1, "[1]", "09:00", 15)
@@ -250,7 +209,6 @@ func TestStartSession(t *testing.T) {
 // TestSnoozeSession verifies that snoozing a session sets snoozed_until
 func TestSnoozeSession(t *testing.T) {
 	store := setupTestDB(t)
-	defer store.db.Close()
 
 	// Create test data
 	group, _ := store.CreateWorkoutGroup("Test Group", "", false, 1, "[1]", "09:00", 15)
@@ -292,7 +250,6 @@ func TestSnoozeSession(t *testing.T) {
 // TestClearSnooze verifies that clearing snooze removes snoozed_until
 func TestClearSnooze(t *testing.T) {
 	store := setupTestDB(t)
-	defer store.db.Close()
 
 	// Create test data
 	group, _ := store.CreateWorkoutGroup("Test Group", "", false, 1, "[1]", "09:00", 15)
@@ -329,7 +286,6 @@ func TestClearSnooze(t *testing.T) {
 // TestGetSnoozedSessions verifies retrieving snoozed sessions
 func TestGetSnoozedSessions(t *testing.T) {
 	store := setupTestDB(t)
-	defer store.db.Close()
 
 	userID := int64(1)
 
@@ -399,7 +355,6 @@ func TestGetSnoozedSessions(t *testing.T) {
 // TestWorkoutStatistics verifies statistics calculation
 func TestWorkoutStatistics(t *testing.T) {
 	store := setupTestDB(t)
-	defer store.db.Close()
 
 	userID := int64(1)
 
@@ -512,7 +467,6 @@ func mustParseTime(s string) time.Time {
 // TestGetAllUniqueExercises verifies that unique exercises are retrieved across all active workouts
 func TestGetAllUniqueExercises(t *testing.T) {
 	store := setupTestDB(t)
-	defer store.db.Close()
 
 	userID := int64(1)
 
@@ -659,7 +613,6 @@ func TestGetAllUniqueExercises(t *testing.T) {
 // TestGetActiveSessions verifies retrieving active (notified/in_progress) sessions for a specific date
 func TestGetActiveSessions(t *testing.T) {
 	store := setupTestDB(t)
-	defer store.db.Close()
 
 	userID := int64(1)
 
@@ -727,7 +680,6 @@ func TestGetActiveSessions(t *testing.T) {
 // TestInitializeAndAdvanceRotation verifies workout rotation logic
 func TestInitializeAndAdvanceRotation(t *testing.T) {
 	store := setupTestDB(t)
-	defer store.db.Close()
 
 	userID := int64(1)
 	group, _ := store.CreateWorkoutGroup("Rotating Group", "", true, userID, "[1]", "09:00", 15)
@@ -768,7 +720,6 @@ func TestInitializeAndAdvanceRotation(t *testing.T) {
 // TestListWorkoutGroups verifies listing groups for a user
 func TestListWorkoutGroups(t *testing.T) {
 	store := setupTestDB(t)
-	defer store.db.Close()
 
 	userID := int64(1)
 	store.CreateWorkoutGroup("Group 1", "", false, userID, "[1]", "09:00", 15)
@@ -788,7 +739,6 @@ func TestListWorkoutGroups(t *testing.T) {
 // TestUpdateWorkoutVariant verifies updating a variant
 func TestUpdateWorkoutVariant(t *testing.T) {
 	store := setupTestDB(t)
-	defer store.db.Close()
 
 	group, _ := store.CreateWorkoutGroup("G", "", false, 1, "[1]", "09:00", 15)
 	variant, _ := store.CreateWorkoutVariant(group.ID, "Old Name", intPtr(1), "Old Desc")
@@ -810,7 +760,6 @@ func intPtr(i int) *int { return &i }
 // logs for a user, ordered newest-first, and ignores logs from other users.
 func TestListRecentExerciseLogsByName(t *testing.T) {
 	st := setupTestDB(t)
-	defer st.db.Close()
 
 	userA := int64(1)
 	userB := int64(2)
@@ -874,7 +823,6 @@ func TestListRecentExerciseLogsByName(t *testing.T) {
 // merges exercise_library and historical workout_exercise_logs for the user.
 func TestGetDistinctExerciseNamesForUser(t *testing.T) {
 	st := setupTestDB(t)
-	defer st.db.Close()
 
 	userA := int64(1)
 	userB := int64(2)
@@ -922,7 +870,6 @@ func TestGetDistinctExerciseNamesForUser(t *testing.T) {
 // inserts, subsequent call with same name (case-insensitive) updates.
 func TestUpsertExerciseLogByName(t *testing.T) {
 	st := setupTestDB(t)
-	defer st.db.Close()
 
 	userA := int64(1)
 	groupA, _ := st.CreateWorkoutGroup("A", "", false, userA, "[1]", "09:00", 15)
@@ -995,7 +942,6 @@ func TestUpsertExerciseLogByName(t *testing.T) {
 // in 'pending' state with no started_at and the expected sentinel IDs.
 func TestCreatePlannedAdHocSession(t *testing.T) {
 	st := setupTestDB(t)
-	defer st.db.Close()
 
 	userID := int64(42)
 	scheduled := time.Date(2030, 6, 1, 0, 0, 0, 0, time.UTC)
@@ -1027,7 +973,6 @@ func TestCreatePlannedAdHocSession(t *testing.T) {
 // sessions for the requested user are returned, ordered by date+time.
 func TestListPendingAdHocSessions(t *testing.T) {
 	st := setupTestDB(t)
-	defer st.db.Close()
 
 	userID := int64(1)
 	otherUser := int64(2)
@@ -1105,7 +1050,6 @@ func TestListPendingAdHocSessions(t *testing.T) {
 // recent-history row limit.
 func TestListNotifiedAdHocSessions(t *testing.T) {
 	st := setupTestDB(t)
-	defer st.db.Close()
 
 	userID := int64(1)
 	otherUser := int64(2)

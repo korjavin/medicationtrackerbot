@@ -1,4 +1,4 @@
-package store
+package workout
 
 import (
 	"math"
@@ -7,11 +7,7 @@ import (
 )
 
 func TestGetExerciseLogBySessionAndExercise(t *testing.T) {
-	db, err := New(":memory:")
-	if err != nil {
-		t.Fatalf("Failed to create test store: %v", err)
-	}
-	defer db.Close()
+	db := setupTestDB(t)
 
 	userID := int64(123456)
 	group, _ := db.CreateWorkoutGroup("Group", "Desc", false, userID, "[]", "10:00", 15)
@@ -63,11 +59,7 @@ func TestGetExerciseLogBySessionAndExercise(t *testing.T) {
 }
 
 func TestDeleteExerciseLog(t *testing.T) {
-	db, err := New(":memory:")
-	if err != nil {
-		t.Fatalf("Failed to create test store: %v", err)
-	}
-	defer db.Close()
+	db := setupTestDB(t)
 
 	userID := int64(123456)
 	group, _ := db.CreateWorkoutGroup("Group", "Desc", false, userID, "[]", "10:00", 15)
@@ -87,7 +79,7 @@ func TestDeleteExerciseLog(t *testing.T) {
 	}
 
 	// Delete it
-	err = db.DeleteExerciseLog(logID)
+	err := db.DeleteExerciseLog(logID)
 	if err != nil {
 		t.Fatalf("Failed to delete log: %v", err)
 	}
@@ -108,11 +100,7 @@ func TestDeleteExerciseLog(t *testing.T) {
 func TestIdempotentExerciseLogging(t *testing.T) {
 	// Simulates the scenario: TG bot logs exercise, then user edits on web,
 	// then TG bot tries to log again — should not create duplicate.
-	db, err := New(":memory:")
-	if err != nil {
-		t.Fatalf("Failed to create test store: %v", err)
-	}
-	defer db.Close()
+	db := setupTestDB(t)
 
 	userID := int64(123456)
 	group, _ := db.CreateWorkoutGroup("Group", "Desc", false, userID, "[]", "10:00", 15)
@@ -124,7 +112,7 @@ func TestIdempotentExerciseLogging(t *testing.T) {
 	reps := 8
 
 	// First log (simulates web save)
-	_, err = db.LogExercise(session.ID, ex.ID, "Bench Press", &sets, &reps, nil, "completed", "")
+	_, err := db.LogExercise(session.ID, ex.ID, "Bench Press", &sets, &reps, nil, "completed", "")
 	if err != nil {
 		t.Fatalf("Failed first log: %v", err)
 	}
@@ -159,11 +147,7 @@ func TestIdempotentExerciseLogging(t *testing.T) {
 }
 
 func TestGetExerciseLogByID(t *testing.T) {
-	db, err := New(":memory:")
-	if err != nil {
-		t.Fatalf("Failed to create test store: %v", err)
-	}
-	defer db.Close()
+	db := setupTestDB(t)
 
 	userID := int64(123456)
 	group, _ := db.CreateWorkoutGroup("Group", "Desc", false, userID, "[]", "10:00", 15)
@@ -221,11 +205,7 @@ func TestGetExerciseLogByID(t *testing.T) {
 
 func TestPropagateExerciseToSchedule(t *testing.T) {
 	t.Run("propagates for pending session", func(t *testing.T) {
-		db, err := New(":memory:")
-		if err != nil {
-			t.Fatalf("Failed to create test store: %v", err)
-		}
-		defer db.Close()
+		db := setupTestDB(t)
 
 		userID := int64(123456)
 		group, _ := db.CreateWorkoutGroup("Group", "", false, userID, "[]", "10:00", 15)
@@ -237,7 +217,7 @@ func TestPropagateExerciseToSchedule(t *testing.T) {
 		newSets := 4
 		newReps := 12
 		newWeight := 80.0
-		err = db.PropagateExerciseToSchedule(session.ID, ex.ID, "Bench Press", &newSets, &newReps, &newWeight)
+		err := db.PropagateExerciseToSchedule(session.ID, ex.ID, "Bench Press", &newSets, &newReps, &newWeight)
 		if err != nil {
 			t.Fatalf("PropagateExerciseToSchedule failed: %v", err)
 		}
@@ -258,11 +238,7 @@ func TestPropagateExerciseToSchedule(t *testing.T) {
 	})
 
 	t.Run("propagates for in_progress session", func(t *testing.T) {
-		db, err := New(":memory:")
-		if err != nil {
-			t.Fatalf("Failed to create test store: %v", err)
-		}
-		defer db.Close()
+		db := setupTestDB(t)
 
 		userID := int64(123456)
 		group, _ := db.CreateWorkoutGroup("Group", "", false, userID, "[]", "10:00", 15)
@@ -272,7 +248,7 @@ func TestPropagateExerciseToSchedule(t *testing.T) {
 		_ = db.UpdateSessionStatus(session.ID, "in_progress")
 
 		newWeight := 100.0
-		err = db.PropagateExerciseToSchedule(session.ID, ex.ID, "Squat", nil, nil, &newWeight)
+		err := db.PropagateExerciseToSchedule(session.ID, ex.ID, "Squat", nil, nil, &newWeight)
 		if err != nil {
 			t.Fatalf("PropagateExerciseToSchedule failed: %v", err)
 		}
@@ -294,11 +270,7 @@ func TestPropagateExerciseToSchedule(t *testing.T) {
 	})
 
 	t.Run("no propagation for completed session", func(t *testing.T) {
-		db, err := New(":memory:")
-		if err != nil {
-			t.Fatalf("Failed to create test store: %v", err)
-		}
-		defer db.Close()
+		db := setupTestDB(t)
 
 		userID := int64(123456)
 		group, _ := db.CreateWorkoutGroup("Group", "", false, userID, "[]", "10:00", 15)
@@ -309,7 +281,7 @@ func TestPropagateExerciseToSchedule(t *testing.T) {
 		_ = db.UpdateSessionStatus(session.ID, "completed")
 
 		newWeight := 120.0
-		err = db.PropagateExerciseToSchedule(session.ID, ex.ID, "Deadlift", nil, nil, &newWeight)
+		err := db.PropagateExerciseToSchedule(session.ID, ex.ID, "Deadlift", nil, nil, &newWeight)
 		if err != nil {
 			t.Fatalf("PropagateExerciseToSchedule failed: %v", err)
 		}
@@ -324,11 +296,7 @@ func TestPropagateExerciseToSchedule(t *testing.T) {
 	})
 
 	t.Run("no propagation when exercise not in session variant", func(t *testing.T) {
-		db, err := New(":memory:")
-		if err != nil {
-			t.Fatalf("Failed to create test store: %v", err)
-		}
-		defer db.Close()
+		db := setupTestDB(t)
 
 		userID := int64(123456)
 		group, _ := db.CreateWorkoutGroup("Group", "", false, userID, "[]", "10:00", 15)
@@ -339,7 +307,7 @@ func TestPropagateExerciseToSchedule(t *testing.T) {
 		session, _ := db.CreateWorkoutSession(group.ID, variantB.ID, userID, time.Now(), "10:00")
 
 		newSets := 5
-		err = db.PropagateExerciseToSchedule(session.ID, exA.ID, "Bench Press", &newSets, nil, nil)
+		err := db.PropagateExerciseToSchedule(session.ID, exA.ID, "Bench Press", &newSets, nil, nil)
 		if err != nil {
 			t.Fatalf("PropagateExerciseToSchedule failed: %v", err)
 		}
@@ -351,11 +319,7 @@ func TestPropagateExerciseToSchedule(t *testing.T) {
 	})
 
 	t.Run("no propagation for ad-hoc session", func(t *testing.T) {
-		db, err := New(":memory:")
-		if err != nil {
-			t.Fatalf("Failed to create test store: %v", err)
-		}
-		defer db.Close()
+		db := setupTestDB(t)
 
 		userID := int64(123456)
 		group, _ := db.CreateWorkoutGroup("Group", "", false, userID, "[]", "10:00", 15)
@@ -367,7 +331,7 @@ func TestPropagateExerciseToSchedule(t *testing.T) {
 		session, _ := db.CreateWorkoutSession(-1, -1, userID, time.Now(), "10:00")
 
 		newWeight := 50.0
-		err = db.PropagateExerciseToSchedule(session.ID, ex.ID, "OHP", nil, nil, &newWeight)
+		err := db.PropagateExerciseToSchedule(session.ID, ex.ID, "OHP", nil, nil, &newWeight)
 		if err != nil {
 			t.Fatalf("PropagateExerciseToSchedule failed: %v", err)
 		}
@@ -382,11 +346,7 @@ func TestPropagateExerciseToSchedule(t *testing.T) {
 	})
 
 	t.Run("propagates for notified session", func(t *testing.T) {
-		db, err := New(":memory:")
-		if err != nil {
-			t.Fatalf("Failed to create test store: %v", err)
-		}
-		defer db.Close()
+		db := setupTestDB(t)
 
 		userID := int64(123456)
 		group, err := db.CreateWorkoutGroup("Group", "", false, userID, "[]", "10:00", 15)
@@ -423,11 +383,7 @@ func TestPropagateExerciseToSchedule(t *testing.T) {
 	})
 
 	t.Run("no propagation for skipped session", func(t *testing.T) {
-		db, err := New(":memory:")
-		if err != nil {
-			t.Fatalf("Failed to create test store: %v", err)
-		}
-		defer db.Close()
+		db := setupTestDB(t)
 
 		userID := int64(123456)
 		group, err := db.CreateWorkoutGroup("Group", "", false, userID, "[]", "10:00", 15)
@@ -465,11 +421,7 @@ func TestPropagateExerciseToSchedule(t *testing.T) {
 	})
 
 	t.Run("no propagation when exercise ID not in variant", func(t *testing.T) {
-		db, err := New(":memory:")
-		if err != nil {
-			t.Fatalf("Failed to create test store: %v", err)
-		}
-		defer db.Close()
+		db := setupTestDB(t)
 
 		userID := int64(123456)
 		group, _ := db.CreateWorkoutGroup("Group", "", false, userID, "[]", "10:00", 15)
@@ -480,7 +432,7 @@ func TestPropagateExerciseToSchedule(t *testing.T) {
 
 		// Propagate for an exercise ID that doesn't exist in the variant
 		newWeight := 100.0
-		err = db.PropagateExerciseToSchedule(session.ID, 99999, "Unknown", nil, nil, &newWeight)
+		err := db.PropagateExerciseToSchedule(session.ID, 99999, "Unknown", nil, nil, &newWeight)
 		if err != nil {
 			t.Fatalf("PropagateExerciseToSchedule failed: %v", err)
 		}
@@ -496,11 +448,7 @@ func TestPropagateExerciseToSchedule(t *testing.T) {
 	})
 
 	t.Run("clears reps_max when new reps exceed range", func(t *testing.T) {
-		db, err := New(":memory:")
-		if err != nil {
-			t.Fatalf("Failed to create test store: %v", err)
-		}
-		defer db.Close()
+		db := setupTestDB(t)
 
 		userID := int64(123456)
 		group, _ := db.CreateWorkoutGroup("Group", "", false, userID, "[]", "10:00", 15)
@@ -511,7 +459,7 @@ func TestPropagateExerciseToSchedule(t *testing.T) {
 
 		// User logs 12 reps, which exceeds the 8-10 range
 		newReps := 12
-		err = db.PropagateExerciseToSchedule(session.ID, ex.ID, "Bench Press", nil, &newReps, nil)
+		err := db.PropagateExerciseToSchedule(session.ID, ex.ID, "Bench Press", nil, &newReps, nil)
 		if err != nil {
 			t.Fatalf("PropagateExerciseToSchedule failed: %v", err)
 		}
@@ -526,11 +474,7 @@ func TestPropagateExerciseToSchedule(t *testing.T) {
 	})
 
 	t.Run("preserves reps_max when new reps within range", func(t *testing.T) {
-		db, err := New(":memory:")
-		if err != nil {
-			t.Fatalf("Failed to create test store: %v", err)
-		}
-		defer db.Close()
+		db := setupTestDB(t)
 
 		userID := int64(123456)
 		group, _ := db.CreateWorkoutGroup("Group", "", false, userID, "[]", "10:00", 15)
@@ -541,7 +485,7 @@ func TestPropagateExerciseToSchedule(t *testing.T) {
 
 		// User logs 9 reps, which is within 8-10 range
 		newReps := 9
-		err = db.PropagateExerciseToSchedule(session.ID, ex.ID, "Bench Press", nil, &newReps, nil)
+		err := db.PropagateExerciseToSchedule(session.ID, ex.ID, "Bench Press", nil, &newReps, nil)
 		if err != nil {
 			t.Fatalf("PropagateExerciseToSchedule failed: %v", err)
 		}

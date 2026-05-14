@@ -19,6 +19,7 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/store/settings"
 	"github.com/korjavin/medicationtrackerbot/internal/store/vitals"
 	"github.com/korjavin/medicationtrackerbot/internal/store/weight"
+	"github.com/korjavin/medicationtrackerbot/internal/store/workout"
 )
 
 //go:embed migrations/*.sql
@@ -74,6 +75,7 @@ type Store struct {
 	bp       *bp.Repo
 	weight   *weight.Repo
 	food     *food.Repo
+	workout  *workout.Repo
 }
 
 var nowFunc = time.Now
@@ -280,6 +282,7 @@ func NewWithDB(d *storedb.DB) (*Store, error) {
 	settingsRepo := settings.New(d)
 	weightRepo := weight.New(d)
 	foodRepo := food.New(d)
+	workoutRepo := workout.New(d)
 	s := &Store{
 		db:       d,
 		diary:    diaryRepo,
@@ -289,6 +292,7 @@ func NewWithDB(d *storedb.DB) (*Store, error) {
 		settings: settingsRepo,
 		weight:   weightRepo,
 		food:     foodRepo,
+		workout:  workoutRepo,
 	}
 	// bp.Repo needs a TimezoneLookup for day-boundary calculations in
 	// GetBPDailyWeightedStats. *Store still owns the timezone table until
@@ -391,6 +395,17 @@ func (s *Store) Weight() *weight.Repo {
 // obtain it through this accessor.
 func (s *Store) Food() *food.Repo {
 	return s.food
+}
+
+// Workout returns the per-domain workout repository (workout_groups,
+// workout_variants, workout_exercises, workout_sessions, workout_exercise_logs,
+// workout_rotation_state, workout_schedule_snapshots, exercise_library, plus
+// the miband_workouts / miband_gps_tracks tables). The legacy *Store still
+// forwards every workout / Mi Band method to this same Repo; new callers
+// should depend on *workout.Repo (or a narrow interface satisfied by it) and
+// obtain it through this accessor.
+func (s *Store) Workout() *workout.Repo {
+	return s.workout
 }
 
 func (s *Store) Close() error {
