@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
@@ -14,26 +15,47 @@ import (
 type LowStockChecker struct {
 	NotifyHelper
 	store     MedicationStore
+	mu        sync.Mutex
 	lastCheck time.Time
 	now       func() time.Time // injectable clock; defaults to time.Now
 }
 
 func (c *LowStockChecker) Check(_ context.Context) error {
-	if c.now == nil {
-		c.now = time.Now
+	// Resolve clock into a local — avoid mutating c.now so Check is safe
+	// to call concurrently (the mutex below guards lastCheck, not c.now).
+	nowFn := c.now
+	if nowFn == nil {
+		nowFn = time.Now
 	}
-	now := c.now()
 
-	// Only send warnings between 11:00 and 11:59 AM
+	// Load user timezone — same pattern as bp_reminders.go:49-67.
+	userLoc := time.Local
+	if tz, err := c.store.GetCurrentTimezone(); err != nil {
+		slog.Warn("low_stock: failed to get user timezone, using system TZ", "error", err)
+	} else if tz != "" {
+		if loc, err := time.LoadLocation(tz); err != nil {
+			slog.Warn("low_stock: invalid user timezone, using system TZ", "tz", tz, "error", err)
+		} else {
+			userLoc = loc
+		}
+	}
+
+	now := nowFn().In(userLoc)
+
+	// Only send warnings between 11:00 and 11:59 AM in the user's timezone.
 	if now.Hour() != 11 {
 		return nil
 	}
 
-	// Only check once per day
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Only check once per day (date comparison in user TZ).
 	if !c.lastCheck.IsZero() {
-		lastCheckDate := time.Date(c.lastCheck.Year(), c.lastCheck.Month(), c.lastCheck.Day(), 0, 0, 0, 0, c.lastCheck.Location())
-		todayDate := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-		if !lastCheckDate.Before(todayDate) {
+		last := c.lastCheck.In(userLoc)
+		lastDate := time.Date(last.Year(), last.Month(), last.Day(), 0, 0, 0, 0, userLoc)
+		todayDate := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, userLoc)
+		if !lastDate.Before(todayDate) {
 			return nil
 		}
 	}
@@ -45,7 +67,7 @@ func (c *LowStockChecker) Check(_ context.Context) error {
 	}
 
 	if len(meds) == 0 {
-		c.lastCheck = time.Now()
+		c.lastCheck = now
 		return nil
 	}
 
@@ -73,6 +95,6 @@ func (c *LowStockChecker) Check(_ context.Context) error {
 
 	c.Notify(context.Background(), n, nil)
 
-	c.lastCheck = time.Now()
+	c.lastCheck = now
 	return nil
 }
