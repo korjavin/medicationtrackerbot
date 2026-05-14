@@ -154,6 +154,71 @@ describe('data-store.js tag-family invalidation', () => {
     }
   });
 
+  it('registered-key + family invalidation bumps generation BEFORE the family-prefix scan await', async () => {
+    // Regression: previously the generation bump for explicitly-registered
+    // keys ran AFTER awaiting apiCache.keys(prefix). A fetchFresh whose
+    // fetcher resolved during that await could see the un-bumped generation,
+    // pass its supersede check, and re-cache stale data.
+    //
+    // Forcing the interleave requires apiCache.keys() to be genuinely
+    // pending while we resolve the fetcher — otherwise JS microtask
+    // ordering lets the buggy version's continuation run its gen-bump loop
+    // synchronously after the (already-resolved) keys() await, so the bug
+    // is masked and the test passes against both implementations.
+    const { window, cacheMap, cleanup } = loadDataStoreEnv({
+      initialCache: { food_2026_05_14_day: { v: 1 } }
+    });
+
+    try {
+      window.DataStore.registerTags('food_products_cache', ['food']);
+      window.DataStore.registerTagFamily('food_', 'food');
+
+      let resolveFetch;
+      const pending = new Promise((resolve) => { resolveFetch = resolve; });
+      const fetchPromise = window.DataStore.fetchFresh(
+        'food_products_cache',
+        () => pending,
+        ['food']
+      );
+
+      // Suspend the family-prefix scan: apiCache.keys() now blocks on a
+      // gate we control. While suspended, the only way for fetchFresh's
+      // resolution to detect the supersede is if Phase 1 (the synchronous
+      // gen-bump for explicitly-registered keys) already ran before the
+      // await on apiCache.keys().
+      const apiCache = window.MedTrackerDB.ApiCache;
+      const realKeys = apiCache.keys.bind(apiCache);
+      let releaseKeys;
+      const keysGate = new Promise((resolve) => { releaseKeys = resolve; });
+      apiCache.keys = async (prefix) => {
+        await keysGate;
+        return realKeys(prefix);
+      };
+
+      const invalidationPromise = window.DataStore.invalidateTags(['food']);
+
+      // Resolve the in-flight fetcher while the family-prefix scan is
+      // still suspended on keysGate. With the fix in place, Phase 1 has
+      // already bumped food_products_cache's generation, so fetchFresh
+      // returns null and skips the cache write. Without the fix, the
+      // gen-bump only happens after we release keysGate — so the fetcher
+      // would observe the original generation and poison the cache.
+      resolveFetch({ products: ['stale-from-inflight'] });
+
+      const fetchResult = await fetchPromise;
+      expect(fetchResult).toBeNull();
+      expect(cacheMap.has('food_products_cache')).toBe(false);
+
+      releaseKeys();
+      await invalidationPromise;
+
+      expect(cacheMap.has('food_products_cache')).toBe(false);
+      expect(cacheMap.has('food_2026_05_14_day')).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('invalidateByTag is a no-op when neither registered keys nor families exist', async () => {
     const { window, cacheMap, cleanup } = loadDataStoreEnv({
       initialCache: { lingering: { v: 1 } }
