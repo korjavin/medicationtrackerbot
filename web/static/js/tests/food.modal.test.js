@@ -194,7 +194,7 @@ describe('EditFoodModal (Phase 4, Task 6)', () => {
 
     it('editFoodLog hydrates inputs from a stored log and recomputes per-100g totals', () => {
         const { document, window } = env;
-        window.currentFoodLogs = {
+        window.FoodLog.setCurrent({
             42: {
                 id: 42,
                 name: 'Oatmeal',
@@ -206,7 +206,7 @@ describe('EditFoodModal (Phase 4, Task 6)', () => {
                 calories: 320,
                 eaten_at: '2026-04-20T08:15:00Z'
             }
-        };
+        });
 
         window.editFoodLog(42);
 

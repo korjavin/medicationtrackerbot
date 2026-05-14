@@ -1,0 +1,750 @@
+// ====================================
+// FOOD PRODUCTS — search, autocomplete, CRUD
+// ====================================
+//
+// Owns the food-product catalogue:
+//   - the OpenFoodFacts-backed search (streaming /api/food/products/search)
+//   - the in-memory + Dexie-cached product list (foodProductsCache)
+//   - the autocomplete datalist (#food-autocomplete-list) and the
+//     barcode autofill that feeds the food-log modal
+//   - the standalone Edit/Delete product modal (#food-product-modal)
+//
+// Cross-file coupling: log.js calls renderFoodAutocomplete after the modal
+// opens; meals.js + db.js refresh foodProductsCache after writes. The cache
+// itself + the inflight-search state live in this file's IIFE; the
+// window.FoodProducts namespace exposes accessors so siblings can read
+// without touching the closure directly.
+
+(function () {
+    // Closure-private state — the rule from Task 1 of the workout split
+    // applies here too: no module-level `let foo` in the extracted files.
+    let foodProductsCache = [];
+    let foodAutoCompleteSuggestions = [];
+    let foodSearchTimeout;
+    let foodSearchRequestId = 0;
+    let lastFoodSearchQueryNormalized = '';
+
+    window.FoodProducts = window.FoodProducts || {};
+    Object.defineProperty(window.FoodProducts, 'cache', {
+        get: () => foodProductsCache,
+        set: (v) => { foodProductsCache = Array.isArray(v) ? v : []; },
+        enumerable: true,
+        configurable: true
+    });
+    Object.defineProperty(window.FoodProducts, 'suggestions', {
+        get: () => foodAutoCompleteSuggestions,
+        set: (v) => { foodAutoCompleteSuggestions = Array.isArray(v) ? v : []; },
+        enumerable: true,
+        configurable: true
+    });
+    window.FoodProducts._getSearchTimeout = () => foodSearchTimeout;
+    window.FoodProducts._setSearchTimeout = (v) => { foodSearchTimeout = v; };
+    window.FoodProducts._nextRequestId = () => ++foodSearchRequestId;
+    window.FoodProducts._getRequestId = () => foodSearchRequestId;
+    window.FoodProducts._getLastQuery = () => lastFoodSearchQueryNormalized;
+    window.FoodProducts._setLastQuery = (v) => { lastFoodSearchQueryNormalized = v || ''; };
+})();
+
+function normalizeFoodSearchQuery(value) {
+    return (value || '').trim().toLowerCase();
+}
+
+function decodeFoodDisplayText(value) {
+    const raw = (value || '').toString();
+    if (!raw) return '';
+
+    const textarea = document.createElement('textarea');
+    textarea.textContent = raw;
+    let decoded = textarea.value.trim();
+
+    if (decoded.includes('%')) {
+        try {
+            decoded = decodeURIComponent(decoded);
+        } catch (e) { }
+    }
+    return decoded;
+}
+
+async function initFoodProductsCache() {
+    let cache = null;
+    if (window.MedTrackerDB) {
+        cache = await window.MedTrackerDB.FoodProductsStore.getCache();
+    }
+    if (!cache) {
+        try {
+            let products = [];
+            if (typeof window.cachedFetch === 'function') {
+                try {
+                    const result = await window.cachedFetch(
+                        'food_products_cache',
+                        '/api/food/products',
+                        {
+                            tags: ['food'],
+                            freshAfterMs: 60 * 60 * 1000,
+                            staleAfterMs: 7 * 24 * 60 * 60 * 1000,
+                            transform: (raw) => (raw && Array.isArray(raw.products)) ? raw.products : []
+                        }
+                    );
+                    products = Array.isArray(result?.data) ? result.data : [];
+                } catch (cfErr) {
+                    if (!(window.OfflineNoCacheError && cfErr instanceof window.OfflineNoCacheError)) {
+                        throw cfErr;
+                    }
+                }
+            } else {
+                const resp = await apiCall('/api/food/products', 'GET');
+                products = resp ? (resp.products || []) : [];
+            }
+            cache = products;
+            if (window.MedTrackerDB && cache.length > 0) {
+                await window.MedTrackerDB.FoodProductsStore.saveCache(cache);
+            }
+        } catch (e) {
+            console.error('Failed to load food products', e);
+            cache = [];
+        }
+    }
+    window.FoodProducts.cache = cache || [];
+}
+
+async function onFoodNameChange() {
+    const foodNameInput = document.getElementById('food-name');
+    const query = foodNameInput.value;
+    const normalizedQuery = normalizeFoodSearchQuery(query);
+
+    // Clear previous selection
+    const pidEl = document.getElementById('food-log-product-id');
+    if (pidEl) pidEl.value = '';
+    const isMealEl = document.getElementById('food-log-is-meal');
+    if (isMealEl) isMealEl.value = '';
+
+    const linkContainer = document.getElementById('food-product-link-container');
+    if (linkContainer) {
+        linkContainer.innerHTML = '';
+        linkContainer.classList.add('hidden');
+    }
+
+    if (normalizedQuery.length >= 2 && normalizedQuery === window.FoodProducts._getLastQuery()) {
+        const list = document.getElementById('food-autocomplete-list');
+        if (list && window.FoodProducts.suggestions.length > 0) {
+            list.classList.remove('hidden');
+        }
+        return;
+    }
+
+    // Check if user selected something from the datalist
+    const selected = window.FoodProducts.suggestions.find(p => decodeFoodDisplayText(p.name) === query);
+    if (selected) {
+        autofillFoodProduct(selected);
+        setFoodSearchStatus('success', 'Product selected.');
+        return;
+    }
+
+    if (query.length < 2) {
+        renderFoodAutocomplete(window.FoodProducts.cache);
+        window.FoodProducts._setLastQuery('');
+        setFoodSearchStatus();
+        return;
+    }
+
+    // Debounce search
+    clearTimeout(window.FoodProducts._getSearchTimeout());
+    window.FoodProducts._setSearchTimeout(setTimeout(async () => {
+        const requestId = window.FoodProducts._nextRequestId();
+        window.FoodProducts._setLastQuery(normalizedQuery);
+        setFoodSearchStatus('loading', 'Searching local database...');
+        try {
+            if (!navigator.onLine) throw new Error("Network request failed");
+
+            // First pass: local fast search
+            const endpoint = `/api/food/products/search?q=${encodeURIComponent(query)}`;
+            const headers = { "X-Telegram-Init-Data": userInitData };
+            const res = await fetch(endpoint, { method: "GET", headers });
+
+            if (res.status === 503) throw new Error("Network request failed");
+            if (!res.ok) throw new Error("Search failed");
+            if (requestId !== window.FoodProducts._getRequestId()) return;
+
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+            let buffer = "";
+            let localResults = [];
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (value) {
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();
+
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
+                        try {
+                            const results = JSON.parse(line);
+                            if (requestId !== window.FoodProducts._getRequestId()) return;
+                            localResults = results || [];
+                        } catch (e) { console.error("Parse error on stream chunk", e); }
+                    }
+                }
+                if (done) {
+                    if (buffer.trim()) {
+                        try {
+                            const results = JSON.parse(buffer);
+                            if (requestId === window.FoodProducts._getRequestId()) {
+                                localResults = results || [];
+                            }
+                        } catch (e) { }
+                    }
+                    break;
+                }
+            }
+
+            if (requestId !== window.FoodProducts._getRequestId()) return;
+
+            const unique = [];
+            const seen = new Set();
+            for (const p of localResults) {
+                if (!seen.has(p.name)) {
+                    seen.add(p.name);
+                    unique.push(p);
+                }
+            }
+
+            // Define the callback for loading remote OpenFoodFacts
+            const loadMoreCallback = async () => {
+                if (requestId !== window.FoodProducts._getRequestId()) return;
+                setFoodSearchStatus('loading', 'Searching OpenFoodFacts...');
+                try {
+                    const remoteEndpoint = `/api/food/products/search?q=${encodeURIComponent(query)}&remote=true`;
+                    const remoteRes = await fetch(remoteEndpoint, { method: "GET", headers });
+                    if (!remoteRes.ok) throw new Error("Remote search failed");
+                    if (requestId !== window.FoodProducts._getRequestId()) return;
+
+                    const remoteReader = remoteRes.body.getReader();
+                    const remoteDecoder = new TextDecoder("utf-8");
+                    let remoteBuffer = "";
+                    let remoteResults = [];
+
+                    while (true) {
+                        const { done, value } = await remoteReader.read();
+                        if (value) {
+                            remoteBuffer += remoteDecoder.decode(value, { stream: true });
+                            const lines = remoteBuffer.split('\n');
+                            remoteBuffer = lines.pop();
+                            for (const line of lines) {
+                                if (!line.trim()) continue;
+                                try {
+                                    remoteResults = JSON.parse(line) || [];
+                                } catch (e) { }
+                            }
+                        }
+                        if (done) {
+                            if (remoteBuffer.trim()) {
+                                try {
+                                    remoteResults = JSON.parse(remoteBuffer) || [];
+                                } catch (e) { }
+                            }
+                            break;
+                        }
+                    }
+
+                    if (requestId !== window.FoodProducts._getRequestId()) return;
+
+                    // Merge remote on top of local
+                    const mergedUnique = [...unique];
+                    for (const p of remoteResults) {
+                        if (!seen.has(p.name)) {
+                            seen.add(p.name);
+                            mergedUnique.push(p);
+                        }
+                    }
+
+                    renderFoodAutocomplete(mergedUnique, false, null);
+                    setFoodSearchStatus('success', `Found ${mergedUnique.length} result(s).`);
+
+                } catch (e) {
+                    console.error("Load more failed", e);
+                    setFoodSearchStatus('success', `Found ${unique.length} local result(s). Remote fetch failed.`);
+                    renderFoodAutocomplete(unique, false, null);
+                }
+            };
+
+            renderFoodAutocomplete(unique, navigator.onLine, loadMoreCallback);
+
+            if (unique.length > 0) {
+                setFoodSearchStatus('success', `Found ${unique.length} local result(s).`);
+            } else {
+                setFoodSearchStatus('empty', 'No local products found.');
+                loadMoreCallback();
+            }
+
+        } catch (e) {
+            if (requestId !== window.FoodProducts._getRequestId()) return;
+            console.error('Search failed', e);
+            if (e.name === 'TypeError' || e.message.includes('fetch') || e.message === 'Network request failed' || e.message === 'Failed to fetch' || !navigator.onLine) {
+                setFoodSearchStatus('empty', 'Search finished: no products found.');
+                return;
+            }
+            setFoodSearchStatus('error', 'Search finished with an error. Please try again.');
+        }
+    }, 800));
+}
+
+async function onFoodBarcodeChange() {
+    const barcode = document.getElementById('food-barcode').value;
+    if (barcode.length < 5) {
+        setFoodSearchStatus();
+        return;
+    }
+
+    clearTimeout(window.FoodProducts._getSearchTimeout());
+    window.FoodProducts._setSearchTimeout(setTimeout(async () => {
+        const requestId = window.FoodProducts._nextRequestId();
+        setFoodSearchStatus('loading', 'Searching by barcode...');
+        try {
+            if (!navigator.onLine) throw new Error("Network request failed");
+
+            const endpoint = `/api/food/products/search?q=${encodeURIComponent(barcode)}`;
+            const headers = { "X-Telegram-Init-Data": window.userInitData };
+            const res = await fetch(endpoint, { method: "GET", headers });
+
+            if (res.status === 503) throw new Error("Network request failed");
+            if (!res.ok) throw new Error("Search failed");
+            if (requestId !== window.FoodProducts._getRequestId()) return;
+
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+            let buffer = "";
+            let localResults = [];
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (value) {
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();
+
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
+                        try {
+                            const results = JSON.parse(line);
+                            if (requestId !== window.FoodProducts._getRequestId()) return;
+                            localResults = results || [];
+                        } catch (e) { console.error("Parse error on stream chunk", e); }
+                    }
+                }
+                if (done) {
+                    if (buffer.trim()) {
+                        try {
+                            const results = JSON.parse(buffer);
+                            if (requestId === window.FoodProducts._getRequestId()) {
+                                localResults = results || [];
+                            }
+                        } catch (e) { }
+                    }
+                    break;
+                }
+            }
+
+            if (requestId !== window.FoodProducts._getRequestId()) return;
+
+            // Check for direct barcode match first
+            const match = localResults.find(p => p.barcode === barcode);
+            if (match) {
+                document.getElementById('food-name').value = decodeFoodDisplayText(match.name);
+                autofillFoodProduct(match);
+                setFoodSearchStatus('success', 'Product found and filled in.');
+                return;
+            }
+
+            const unique = [];
+            const seen = new Set();
+            for (const p of localResults) {
+                if (!seen.has(p.name)) {
+                    seen.add(p.name);
+                    unique.push(p);
+                }
+            }
+
+            const loadMoreCallback = async () => {
+                if (requestId !== window.FoodProducts._getRequestId()) return;
+                setFoodSearchStatus('loading', 'Searching OpenFoodFacts...');
+                try {
+                    const remoteEndpoint = `/api/food/products/search?q=${encodeURIComponent(barcode)}&remote=true`;
+                    const remoteRes = await fetch(remoteEndpoint, { method: "GET", headers });
+                    if (!remoteRes.ok) throw new Error("Remote search failed");
+                    if (requestId !== window.FoodProducts._getRequestId()) return;
+
+                    const remoteReader = remoteRes.body.getReader();
+                    const remoteDecoder = new TextDecoder("utf-8");
+                    let remoteBuffer = "";
+                    let remoteResults = [];
+
+                    while (true) {
+                        const { done, value } = await remoteReader.read();
+                        if (value) {
+                            remoteBuffer += remoteDecoder.decode(value, { stream: true });
+                            const lines = remoteBuffer.split('\n');
+                            remoteBuffer = lines.pop();
+                            for (const line of lines) {
+                                if (!line.trim()) continue;
+                                try {
+                                    remoteResults = JSON.parse(line) || [];
+                                } catch (e) { }
+                            }
+                        }
+                        if (done) {
+                            if (remoteBuffer.trim()) {
+                                try {
+                                    remoteResults = JSON.parse(remoteBuffer) || [];
+                                } catch (e) { }
+                            }
+                            break;
+                        }
+                    }
+
+                    if (requestId !== window.FoodProducts._getRequestId()) return;
+
+                    const remoteMatch = remoteResults.find(p => p.barcode === barcode);
+                    if (remoteMatch) {
+                        document.getElementById('food-name').value = decodeFoodDisplayText(remoteMatch.name);
+                        autofillFoodProduct(remoteMatch);
+                        const list = document.getElementById('food-autocomplete-list');
+                        if (list) list.classList.add('hidden');
+                        setFoodSearchStatus('success', 'Product found and filled in.');
+                        return;
+                    }
+
+                    const mergedUnique = [...unique];
+                    for (const p of remoteResults) {
+                        if (!seen.has(p.name)) {
+                            seen.add(p.name);
+                            mergedUnique.push(p);
+                        }
+                    }
+
+                    renderFoodAutocomplete(mergedUnique, false, null);
+                    setFoodSearchStatus('success', `Found ${mergedUnique.length} result(s).`);
+
+                } catch (e) {
+                    console.error("Load more failed", e);
+                    setFoodSearchStatus('success', `Found ${unique.length} local result(s). Remote fetch failed.`);
+                    renderFoodAutocomplete(unique, false, null);
+                }
+            };
+
+            renderFoodAutocomplete(unique, navigator.onLine, loadMoreCallback);
+
+            if (unique.length > 0) {
+                setFoodSearchStatus('success', `Found ${unique.length} local result(s).`);
+            } else {
+                setFoodSearchStatus('empty', 'No local products found.');
+                loadMoreCallback();
+            }
+
+        } catch (e) {
+            if (requestId !== window.FoodProducts._getRequestId()) return;
+            console.error('Barcode search failed', e);
+            if (e.name === 'TypeError' || e.message.includes('fetch') || e.message === 'Network request failed' || e.message === 'Failed to fetch' || !navigator.onLine) {
+                setFoodSearchStatus('empty', 'Search finished: no products found.');
+                return;
+            }
+            setFoodSearchStatus('error', 'Search finished with an error. Please try again.');
+        }
+    }, 800));
+}
+
+function setFoodSearchStatus(type, message) {
+    const status = document.getElementById('food-search-status');
+    if (!status) return;
+
+    status.classList.remove('loading', 'success', 'empty', 'error');
+    if (!type || !message) {
+        status.classList.add('hidden');
+        status.textContent = '';
+        return;
+    }
+
+    status.classList.remove('hidden');
+    status.classList.add(type);
+    status.textContent = message;
+}
+
+function renderFoodAutocomplete(products, showLoadMore = false, loadMoreCallback = null, showList = true) {
+    window.FoodProducts.suggestions = products || [];
+    const list = document.getElementById('food-autocomplete-list');
+    if (!list) return;
+
+    list.replaceChildren();
+
+    if (window.FoodProducts.suggestions.length === 0) {
+        list.classList.add('hidden');
+        return;
+    }
+
+    const closeBtn = document.createElement('div');
+    closeBtn.className = 'autocomplete-close';
+    const closeSpan = document.createElement('span');
+    closeSpan.textContent = '▲ Close';
+    closeBtn.appendChild(closeSpan);
+    closeBtn.onclick = function (e) {
+        e.stopPropagation();
+        list.classList.add('hidden');
+    };
+    list.appendChild(closeBtn);
+
+    const displayList = window.FoodProducts.suggestions.slice(0, 50);
+
+    displayList.forEach(p => {
+        const displayName = decodeFoodDisplayText(p.name);
+        const item = document.createElement('div');
+        item.className = 'autocomplete-item';
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'autocomplete-item-name';
+
+        let metaText = '';
+        if (p.is_meal) {
+            nameSpan.textContent = `🍱 ${displayName}`;
+            metaText = 'Meal';
+        } else {
+            nameSpan.textContent = displayName;
+            if (p.barcode) metaText = p.barcode;
+        }
+
+        nameSpan.onclick = function () {
+            document.getElementById('food-name').value = displayName;
+            autofillFoodProduct(p);
+            setFoodSearchStatus('success', 'Product selected.');
+            list.classList.add('hidden');
+        };
+        item.appendChild(nameSpan);
+
+        if (metaText) {
+            const metaSpan = document.createElement('span');
+            metaSpan.className = 'autocomplete-item-meta';
+            metaSpan.textContent = metaText;
+            metaSpan.onclick = nameSpan.onclick;
+            item.appendChild(metaSpan);
+        }
+
+        if (p.id && p.id > 0) {
+            const actions = document.createElement('span');
+            actions.className = 'autocomplete-item-actions';
+
+            const editBtn = document.createElement('button');
+            editBtn.className = 'autocomplete-action-btn';
+            editBtn.textContent = '✎';
+            editBtn.title = 'Edit product';
+            editBtn.onclick = function (e) {
+                e.stopPropagation();
+                list.classList.add('hidden');
+                showEditFoodProductModal(p);
+            };
+            actions.appendChild(editBtn);
+
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'autocomplete-action-btn autocomplete-action-delete';
+            deleteBtn.textContent = '✕';
+            deleteBtn.title = 'Delete product';
+            deleteBtn.onclick = function (e) {
+                e.stopPropagation();
+                deleteFoodProduct(p.id, displayName);
+            };
+            actions.appendChild(deleteBtn);
+
+            item.appendChild(actions);
+        }
+
+        list.appendChild(item);
+    });
+
+    if (showLoadMore && loadMoreCallback) {
+        const loadMoreBtn = document.createElement('div');
+        loadMoreBtn.className = 'autocomplete-load-more';
+        loadMoreBtn.textContent = '... Load more from OpenFoodFacts ...';
+        loadMoreBtn.onclick = function (e) {
+            e.stopPropagation();
+            loadMoreBtn.textContent = 'Loading...';
+            loadMoreBtn.classList.add('loading');
+            loadMoreCallback();
+        };
+        list.appendChild(loadMoreBtn);
+    }
+
+    if (showList) {
+        list.classList.remove('hidden');
+    } else {
+        list.classList.add('hidden');
+    }
+}
+
+function onFoodNameFocus() {
+    const list = document.getElementById('food-autocomplete-list');
+    if (!list) return;
+    if (window.FoodProducts.suggestions.length > 0) {
+        list.classList.remove('hidden');
+    }
+}
+
+// Close autocomplete when clicking outside
+document.addEventListener("click", function (e) {
+    const list = document.getElementById("food-autocomplete-list");
+    const input = document.getElementById("food-name");
+    if (list && e.target !== input && e.target !== list && !list.contains(e.target)) {
+        list.classList.add('hidden');
+    }
+});
+
+function autofillFoodProduct(product) {
+    const displayName = decodeFoodDisplayText(product.name);
+    const input = document.getElementById('food-name');
+    if (input && input.value !== displayName) {
+        input.value = displayName;
+    }
+
+    document.getElementById('food-barcode').value = product.barcode || '';
+
+    const pidEl = document.getElementById('food-log-product-id');
+    if (pidEl) pidEl.value = product.id || '';
+    const isMealEl = document.getElementById('food-log-is-meal');
+    if (isMealEl) isMealEl.value = product.is_meal ? 'true' : '';
+
+    document.getElementById('food-per-100g').checked = true;
+    document.getElementById('food-carbs').value = product.carbs_100g;
+    document.getElementById('food-protein').value = product.protein_100g;
+    document.getElementById('food-fat').value = product.fat_100g;
+    document.getElementById('food-calories').value = product.energy_kcal_100g;
+
+    const weightInput = document.getElementById('food-weight');
+    if (product.is_meal && product.total_weight_g > 0) {
+        weightInput.value = product.total_weight_g;
+    } else {
+        weightInput.value = '';
+    }
+
+    if (weightInput.value) {
+        document.getElementById('food-calories').focus();
+    } else {
+        weightInput.focus();
+    }
+
+    calculateFoodCalories();
+}
+
+function showEditFoodProductModal(product) {
+    document.getElementById('food-product-id').value = product.id;
+    document.getElementById('food-product-name').value = decodeFoodDisplayText(product.name);
+    document.getElementById('food-product-barcode').value = product.barcode || '';
+    document.getElementById('food-product-carbs').value = product.carbs_100g || '';
+    document.getElementById('food-product-protein').value = product.protein_100g || '';
+    document.getElementById('food-product-fat').value = product.fat_100g || '';
+    document.getElementById('food-product-calories').value = product.energy_kcal_100g || '';
+
+    const isMealInput = document.getElementById('food-product-is-meal');
+    if (isMealInput) isMealInput.value = product.is_meal ? 'true' : 'false';
+
+    const weightInput = document.getElementById('food-product-total-weight');
+    if (weightInput) weightInput.value = product.total_weight_g || 0;
+
+    window.ModalManager.foodProduct.open();
+}
+
+function closeFoodProductModal() {
+    window.ModalManager.foodProduct.close();
+}
+
+async function saveFoodProduct() {
+    const id = document.getElementById('food-product-id').value;
+    const name = document.getElementById('food-product-name').value.trim();
+    if (!name) {
+        safeAlert('Please enter a product name.');
+        return;
+    }
+
+    const isMealInput = document.getElementById('food-product-is-meal');
+    const isMeal = isMealInput ? isMealInput.value === 'true' : false;
+
+    const weightInput = document.getElementById('food-product-total-weight');
+    const totalWeight = weightInput ? (parseInt(weightInput.value, 10) || 0) : 0;
+
+    const payload = {
+        name: name,
+        barcode: document.getElementById('food-product-barcode').value.trim(),
+        carbs_100g: Math.round((parseFloat(document.getElementById('food-product-carbs').value) || 0) * 10) / 10,
+        protein_100g: Math.round((parseFloat(document.getElementById('food-product-protein').value) || 0) * 10) / 10,
+        fat_100g: Math.round((parseFloat(document.getElementById('food-product-fat').value) || 0) * 10) / 10,
+        energy_kcal_100g: Math.round(parseFloat(document.getElementById('food-product-calories').value) || 0),
+        is_meal: isMeal,
+        total_weight_g: totalWeight,
+    };
+
+    const btn = document.getElementById('food-product-save-btn');
+    await withSubmit(btn, async () => {
+        const res = await apiCall(`/api/food/products/${id}`, 'PUT', payload);
+        if (!res) return;
+        closeFoodProductModal();
+        window.FoodProducts.cache = [];
+        if (window.MedTrackerDB) {
+            await window.MedTrackerDB.FoodProductsStore.clearCache();
+        }
+        await initFoodProductsCache();
+        renderFoodAutocomplete(window.FoodProducts.cache, false, null, false);
+        safeAlert('Product updated.');
+    });
+}
+
+async function deleteFoodProduct(id, displayName) {
+    await safeConfirm(`Delete "${displayName}" from your food database?`, async (ok) => {
+        if (!ok) return;
+
+        try {
+            await apiCall(`/api/food/products/${id}`, 'DELETE');
+            window.FoodProducts.cache = [];
+            if (window.MedTrackerDB) {
+                await window.MedTrackerDB.FoodProductsStore.clearCache();
+            }
+            await initFoodProductsCache();
+
+            const fooddbTab = document.getElementById('food-fooddb-tab');
+            if (fooddbTab && !fooddbTab.classList.contains('hidden')) {
+                if (typeof loadFoodDB === 'function') loadFoodDB();
+            }
+            if (typeof loadMyMeals === 'function') loadMyMeals();
+        } catch (e) {
+            console.error('Failed to delete food product:', e);
+            safeAlert('Failed to delete product.');
+        }
+    });
+}
+
+async function navigateToFoodProduct(event, productId, isMeal) {
+    event.preventDefault();
+    window.ModalManager.food.close();
+
+    if (!window.FoodProducts.cache || window.FoodProducts.cache.length === 0) {
+        await initFoodProductsCache();
+    }
+
+    const libView = document.getElementById('food-library-view');
+    const libBtn = document.getElementById('food-library-toggle-btn');
+    if (libView) libView.classList.remove('hidden');
+    if (libBtn) {
+        libBtn.setAttribute('aria-expanded', 'true');
+        libBtn.classList.add('wg-food-library-entry__btn--open');
+    }
+    if (isMeal) {
+        if (typeof loadMyMeals === 'function') loadMyMeals();
+    } else {
+        if (typeof loadFoodDB === 'function') loadFoodDB();
+    }
+    setTimeout(() => {
+        const cache = window.FoodProducts.cache;
+        if (cache && cache.length > 0) {
+            const item = cache.find(p => p.id === productId);
+            if (item) {
+                showEditFoodProductModal(item);
+            }
+        }
+    }, 100);
+}
