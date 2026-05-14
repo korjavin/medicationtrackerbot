@@ -2,14 +2,8 @@
 // tab order, last-download timestamp) and the change_events stream consumed by
 // the offline-sync layer to discover which tags need a refetch.
 //
-// Repo is the per-domain repository. The legacy *store.Store still exposes
-// one-line forwarders (GetFoodIntakeEnabled / SetFoodIntakeEnabled /
-// GetBloodPressureEnabled / SetBloodPressureEnabled / GetWeightEnabled /
-// SetWeightEnabled / GetMedicationEnabled / SetMedicationEnabled /
-// GetWorkoutEnabled / SetWorkoutEnabled / GetHealthEnabled / SetHealthEnabled /
-// GetTabOrder / SetTabOrder / GetLastDownload / UpdateLastDownload /
-// GetLatestChangeCursor / GetChangedTagsSince / PruneChangeEvents) so old
-// callers keep compiling; new code should depend on *settings.Repo (or a
+// Repo is the per-domain repository. Construct via store.New / store.NewWithDB
+// and reach it as r.Settings; new code should depend on *settings.Repo (or a
 // narrow interface satisfied by it) directly.
 package settings
 

@@ -2,10 +2,8 @@
 // bearer tokens used by the MCP server's API-token authentication path, and
 // the replay-prevention table for one-shot login nonces.
 //
-// Repo is the per-domain repository. The legacy *store.Store still exposes
-// one-line forwarders (CreateAPIToken / ListAPITokens / DeleteAPIToken /
-// FindAPITokenByHash / TouchAPITokenLastUsed / TryUseLoginHash) so old
-// callers keep compiling; new code should depend on *auth.Repo (or a narrow
+// Repo is the per-domain repository. Construct via store.New / store.NewWithDB
+// and reach it as r.Auth; new code should depend on *auth.Repo (or a narrow
 // interface satisfied by it) directly.
 package auth
 

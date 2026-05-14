@@ -4,10 +4,9 @@
 // (pending / taken / skipped / snoozed), reminder message-id tracking, and the
 // restock event log.
 //
-// Repo is the per-domain repository. The legacy *store.Store still exposes
-// one-line forwarders for every method here so old callers keep compiling;
-// new code should depend on *medication.Repo (or a narrow interface satisfied
-// by it) directly.
+// Repo is the per-domain repository. Construct via store.New / store.NewWithDB
+// and reach it as r.Medication; new code should depend on *medication.Repo (or
+// a narrow interface satisfied by it) directly.
 //
 // The 41 methods here form four sibling groups that share the same
 // transactional context and the medications.id foreign key, which is why they

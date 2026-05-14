@@ -3,10 +3,9 @@
 // workout_rotation_state, workout_schedule_snapshots, exercise_library, and
 // (via miband.go) miband_workouts / miband_gps_tracks tables.
 //
-// Repo is the per-domain repository. The legacy *store.Store still exposes
-// one-line forwarders for every method here so old callers keep compiling;
-// new code should depend on *workout.Repo (or a narrow interface satisfied
-// by it) directly.
+// Repo is the per-domain repository. Construct via store.New / store.NewWithDB
+// and reach it as r.Workout; new code should depend on *workout.Repo (or a
+// narrow interface satisfied by it) directly.
 package workout
 
 import (
@@ -903,7 +902,7 @@ func (r *Repo) GetLatestSessionScheduledDate(groupID, userID int64) (time.Time, 
 	if !latestStr.Valid {
 		return time.Time{}, false, nil
 	}
-	t, err := parseSQLiteDateTime(latestStr.String)
+	t, err := storedb.ParseSQLiteDateTime(latestStr.String)
 	if err != nil {
 		return time.Time{}, false, fmt.Errorf("parse scheduled_date %q: %w", latestStr.String, err)
 	}
@@ -1659,31 +1658,3 @@ func scanExerciseLog(rows *sql.Rows) (WorkoutExerciseLog, error) {
 	return log, nil
 }
 
-// parseSQLiteDateTime parses the textual representation SQLite stores when a
-// time.Time is bound through database/sql. The same value comes back as
-// either RFC 3339 (when the driver wrote it) or a space-separated DATETIME
-// (when SQLite-side functions like MAX() materialise the column). Try the
-// most common forms in priority order.
-//
-// A copy of the helper in store.go exists here while the medication repo is
-// not yet split out; once Task 12 lands, both can collapse into a shared
-// helper in internal/store/db.
-func parseSQLiteDateTime(s string) (time.Time, error) {
-	layouts := []string{
-		time.RFC3339Nano,
-		time.RFC3339,
-		"2006-01-02 15:04:05.999999999 -0700 MST",
-		"2006-01-02 15:04:05.999999999 -07:00",
-		"2006-01-02 15:04:05.999999999",
-		"2006-01-02 15:04:05",
-	}
-	var lastErr error
-	for _, layout := range layouts {
-		if t, err := time.Parse(layout, s); err == nil {
-			return t, nil
-		} else {
-			lastErr = err
-		}
-	}
-	return time.Time{}, lastErr
-}

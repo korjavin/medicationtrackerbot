@@ -5,11 +5,9 @@ import (
 )
 
 // These four tests cover the tz_shift_policy column round-trip on the
-// medications table. They live in the legacy store package because they
-// exercise (*Store).CreateMedication / UpdateMedication / GetMedication /
-// ListMedications — methods that still belong to *Store until the
-// medication-package split (Task 12). They were split out of
-// store_tz_transition_test.go when the rest of that file moved to
+// medications table via CreateMedication / UpdateMedication / GetMedication /
+// ListMedications. They originated in store_tz_transition_test.go and stayed
+// with the medication repo when the rest of that file moved to
 // internal/store/tz/ in Task 11.
 
 func TestMedicationTZShiftPolicyDefaultsToFlexible(t *testing.T) {

@@ -2,11 +2,9 @@
 // and vitals_stress tables: sleep sessions and the time-series vitals captured
 // by wearable imports (mi-band today, others later).
 //
-// Repo is the per-domain repository. The legacy *store.Store still exposes
-// one-line forwarders (ImportSleepLogs / GetSleepLogs / ImportDayStats /
-// GetDayStats / ImportVitals / GetVitalsHeart / GetVitalsSpO2 /
-// GetVitalsStress) so old callers keep compiling; new code should depend on
-// *vitals.Repo (or a narrow interface satisfied by it) directly.
+// Repo is the per-domain repository. Construct via store.New / store.NewWithDB
+// and reach it as r.Vitals; new code should depend on *vitals.Repo (or a
+// narrow interface satisfied by it) directly.
 package vitals
 
 import (

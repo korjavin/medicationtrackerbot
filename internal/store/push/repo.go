@@ -2,11 +2,9 @@
 // endpoints (with VAPID auth/p256dh keys) that the notifier and bot use to
 // deliver background notifications to clients.
 //
-// Repo is the per-domain repository. The legacy *store.Store still exposes
-// one-line forwarders (CreatePushSubscription / GetPushSubscriptions /
-// DeletePushSubscription / DisablePushSubscription) so old callers keep
-// compiling; new code should depend on *push.Repo (or a narrow interface
-// satisfied by it) directly.
+// Repo is the per-domain repository. Construct via store.New / store.NewWithDB
+// and reach it as r.Push; new code should depend on *push.Repo (or a narrow
+// interface satisfied by it) directly.
 package push
 
 import (

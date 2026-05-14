@@ -2,10 +2,9 @@
 // optional tag from a curated enum) that the user records via the Telegram
 // /note command or the web "Notes" screen.
 //
-// Repo is the per-domain repository for this table. The legacy *store.Store
-// still exposes one-line forwarders (CreateDiaryNote / ListDiaryNotes /
-// DeleteDiaryNote) so old callers keep compiling; new code should depend on
-// *diary.Repo (or a narrow interface satisfied by it) directly.
+// Repo is the per-domain repository for this table. Construct via store.New /
+// store.NewWithDB and reach it as r.Diary; new code should depend on *diary.Repo
+// (or a narrow interface satisfied by it) directly.
 package diary
 
 import (
