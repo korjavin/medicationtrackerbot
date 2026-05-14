@@ -21,10 +21,13 @@ function compareValues(a, b) {
 }
 
 class FakeCollection {
-  constructor(items) {
+  constructor(items, { table = null, sourceIds = null } = {}) {
     this.items = items;
     this._reversed = false;
     this._limit = null;
+    this._table = table;
+    this._sourceIds = sourceIds;
+    this._filters = [];
   }
 
   reverse() {
@@ -37,8 +40,21 @@ class FakeCollection {
     return this;
   }
 
+  filter(predicate) {
+    this._filters.push(predicate);
+    return this;
+  }
+
+  _materialize() {
+    let items = this.items;
+    for (const pred of this._filters) {
+      items = items.filter(pred);
+    }
+    return items;
+  }
+
   async toArray() {
-    let results = this.items.map((item) => deepClone(item));
+    let results = this._materialize().map((item) => deepClone(item));
     if (this._reversed) {
       results = results.reverse();
     }
@@ -49,7 +65,31 @@ class FakeCollection {
   }
 
   async count() {
-    return this.items.length;
+    return this._materialize().length;
+  }
+
+  // Mutate matching rows. Accepts either a function (called with the
+  // record so the caller can assign fields in place) or an object whose
+  // keys are merged into each record. Mirrors the subset of Dexie's
+  // Collection.modify we use.
+  async modify(changesOrFn) {
+    if (!this._table) {
+      throw new Error('FakeCollection.modify requires a backing table');
+    }
+    const matching = this._materialize();
+    for (const item of matching) {
+      const key = item[this._table.primaryKey];
+      const stored = this._table.rows.get(key);
+      if (!stored) continue;
+      if (typeof changesOrFn === 'function') {
+        const draft = { ...stored };
+        changesOrFn(draft);
+        this._table.rows.set(key, draft);
+      } else {
+        this._table.rows.set(key, { ...stored, ...deepClone(changesOrFn) });
+      }
+    }
+    return matching.length;
   }
 }
 
@@ -61,12 +101,18 @@ class FakeWhereClause {
 
   equals(value) {
     const matched = this.table._values().filter((item) => item[this.field] === value);
-    return new FakeCollection(matched);
+    return new FakeCollection(matched, { table: this.table });
+  }
+
+  anyOf(values) {
+    const set = new Set(values);
+    const matched = this.table._values().filter((item) => set.has(item[this.field]));
+    return new FakeCollection(matched, { table: this.table });
   }
 
   between(start, end) {
     const matched = this.table._values().filter((item) => item[this.field] >= start && item[this.field] <= end);
-    return new FakeCollection(matched);
+    return new FakeCollection(matched, { table: this.table });
   }
 }
 
@@ -174,6 +220,13 @@ class FakeDexie {
         }
       }
     };
+  }
+
+  // Minimal Dexie transaction shim. The fake tables are already
+  // synchronous in-memory mutations, so a transaction is just running
+  // the callback. Mode and table arguments are accepted but unused.
+  async transaction(_mode, _table, cb) {
+    return await cb();
   }
 }
 

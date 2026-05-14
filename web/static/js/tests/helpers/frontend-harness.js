@@ -37,7 +37,19 @@ const DATA_STORE_JS = path.join(REPO_ROOT, 'web/static/js/data-store.js');
 const APP_JS = path.join(REPO_ROOT, 'web/static/js/app.js');
 const MEDS_JS = path.join(REPO_ROOT, 'web/static/js/features/meds.js');
 const FOOD_PHOTO_SUMMARY_JS = path.join(REPO_ROOT, 'web/static/js/features/food-photo-summary.js');
-const FOOD_JS = path.join(REPO_ROOT, 'web/static/js/features/food.js');
+// features/food.js was split into per-concern sub-files under
+// features/food/ (2026-05-13). The harness loads them in dependency order:
+// products.js first (decodeFoodDisplayText / renderFoodAutocomplete shared
+// utilities used by log.js + meals.js + db.js), then scanner.js + photo.js,
+// then log.js (the daily-log + targets + modal lifecycle), then meals.js +
+// db.js (My Meals + Food DB browse), and finally index.js (orchestrator).
+const FOOD_PRODUCTS_JS = path.join(REPO_ROOT, 'web/static/js/features/food/products.js');
+const FOOD_SCANNER_JS = path.join(REPO_ROOT, 'web/static/js/features/food/scanner.js');
+const FOOD_PHOTO_JS = path.join(REPO_ROOT, 'web/static/js/features/food/photo.js');
+const FOOD_LOG_JS = path.join(REPO_ROOT, 'web/static/js/features/food/log.js');
+const FOOD_MEALS_JS = path.join(REPO_ROOT, 'web/static/js/features/food/meals.js');
+const FOOD_DB_JS = path.join(REPO_ROOT, 'web/static/js/features/food/db.js');
+const FOOD_INDEX_JS = path.join(REPO_ROOT, 'web/static/js/features/food/index.js');
 const BP_JS = path.join(REPO_ROOT, 'web/static/js/features/bp.js');
 const WEIGHT_JS = path.join(REPO_ROOT, 'web/static/js/features/weight.js');
 const AUTH_FLOW_JS = path.join(REPO_ROOT, 'web/static/js/features/auth-flow.js');
@@ -45,7 +57,22 @@ const MODAL_HISTORY_JS = path.join(REPO_ROOT, 'web/static/js/features/modal-hist
 const BACK_BUTTON_JS = path.join(REPO_ROOT, 'web/static/js/features/back-button.js');
 const DEEPLINK_ROUTER_JS = path.join(REPO_ROOT, 'web/static/js/features/deeplink-router.js');
 const HEALTH_JS = path.join(REPO_ROOT, 'web/static/js/features/health.js');
-const WORKOUT_JS = path.join(REPO_ROOT, 'web/static/js/features/workout.js');
+// features/workout.js was split into per-concern sub-files under
+// features/workout/ (2026-05-13). The harness loads them in dependency order:
+// next-card.js first (it provides getRotationSlot/_slotTagModifier shared
+// utils consumed by groups.js / history.js / library.js / sessions.js),
+// followed by domain CRUD files, then sessions/history wiring, and finally
+// index.js (orchestrator) which binds controls + sub-tab routing.
+const WORKOUT_NEXT_CARD_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/next-card.js');
+const WORKOUT_GROUPS_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/groups.js');
+const WORKOUT_VARIANTS_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/variants.js');
+const WORKOUT_EXERCISES_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/exercises.js');
+const WORKOUT_LIBRARY_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/library.js');
+const WORKOUT_HISTORY_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/history.js');
+const WORKOUT_MIBAND_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/miband.js');
+const WORKOUT_SESSIONS_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/sessions.js');
+const WORKOUT_STATS_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/stats.js');
+const WORKOUT_INDEX_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/index.js');
 
 const _sourceCache = new Map();
 function readCached(filePath) {
@@ -204,7 +231,17 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   // Feature modules extracted from app.js (meds, food, bp, weight, health).
   evalFileCached(window, MEDS_JS);
   evalFileCached(window, FOOD_PHOTO_SUMMARY_JS);
-  evalFileCached(window, FOOD_JS);
+  // Order matters: products.js defines decodeFoodDisplayText /
+  // renderFoodAutocomplete which the other food sub-files reference; the
+  // orchestrator (index.js) is loaded last because its bindFoodControls IIFE
+  // wires handlers that live in those siblings.
+  evalFileCached(window, FOOD_PRODUCTS_JS);
+  evalFileCached(window, FOOD_SCANNER_JS);
+  evalFileCached(window, FOOD_PHOTO_JS);
+  evalFileCached(window, FOOD_LOG_JS);
+  evalFileCached(window, FOOD_MEALS_JS);
+  evalFileCached(window, FOOD_DB_JS);
+  evalFileCached(window, FOOD_INDEX_JS);
   evalFileCached(window, BP_JS);
   evalFileCached(window, WEIGHT_JS);
   evalFileCached(window, HEALTH_JS);
@@ -234,7 +271,21 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   evalFileCached(window, DEEPLINK_ROUTER_JS);
 
   if (withWorkout) {
-    evalFileCached(window, WORKOUT_JS);
+    // Order matters: next-card.js defines getRotationSlot / _slotTagModifier
+    // consumed by the renderer helpers in groups.js / history.js / library.js
+    // / sessions.js. The orchestrator (index.js) is loaded last because its
+    // `bindWorkoutControls` IIFE attaches click handlers that reference
+    // functions declared in the other sub-files.
+    evalFileCached(window, WORKOUT_NEXT_CARD_JS);
+    evalFileCached(window, WORKOUT_GROUPS_JS);
+    evalFileCached(window, WORKOUT_VARIANTS_JS);
+    evalFileCached(window, WORKOUT_EXERCISES_JS);
+    evalFileCached(window, WORKOUT_LIBRARY_JS);
+    evalFileCached(window, WORKOUT_HISTORY_JS);
+    evalFileCached(window, WORKOUT_MIBAND_JS);
+    evalFileCached(window, WORKOUT_SESSIONS_JS);
+    evalFileCached(window, WORKOUT_STATS_JS);
+    evalFileCached(window, WORKOUT_INDEX_JS);
   }
 
   return {
