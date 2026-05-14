@@ -22,6 +22,10 @@ func (m *mockMedStoreForBench) GetDaysOfStockRemaining(med *store.Medication) *f
 	return &d
 }
 
+func (m *mockMedStoreForBench) GetCurrentTimezone() (string, error) {
+	return "", nil
+}
+
 func BenchmarkLowStockChecker(b *testing.B) {
 	// Create a large number of dummy medications
 	meds := make([]store.Medication, 1000)
