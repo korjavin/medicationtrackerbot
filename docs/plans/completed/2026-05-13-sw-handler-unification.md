@@ -108,108 +108,112 @@ and recommended-priority item #1.
 
 ### Task 1: Extract `swApiCall` helper
 
-- [ ] create `web/static/js/sw-api-helper.js` — exports global
+- [x] create `web/static/js/sw-api-helper.js` — exports global
   `swApiCall(endpoint, method, body)` (attached to `self.SwApi`); reads
   `self.SwApi.authToken` (set by message handler) and adds
   `X-Telegram-Init-Data` header when present; always sends
   `credentials: 'include'` so the cookie path keeps working
-- [ ] register `importScripts('/static/js/sw-api-helper.js')` at the top
+- [x] register `importScripts('/static/js/sw-api-helper.js')` at the top
   of `web/static/sw.js`
-- [ ] add `'/static/js/sw-api-helper.js'` to `STATIC_ASSETS` in
+- [x] add `'/static/js/sw-api-helper.js'` to `STATIC_ASSETS` in
   `sw.js:12-80`
-- [ ] add the helper path to `web/static/js/tests/architecture.sw-precache.test.js`
-  expected-list assertion if the test enumerates each entry
-- [ ] write tests in `web/static/js/tests/sw-api-helper.test.js`:
+- [x] add the helper path to `web/static/js/tests/architecture.sw-precache.test.js`
+  expected-list assertion if the test enumerates each entry (added
+  to the `SW_SELF_IMPORTS` allowlist used by the orphan check)
+- [x] write tests in `web/static/js/tests/sw-api-helper.test.js`:
   helper sends header when token set; helper omits header when token
   unset; helper attaches `credentials: 'include'`; helper returns the
   parsed JSON body for 2xx; helper throws an `Error` with `.status` for
   non-2xx (matches main-thread `apiCallDirect` shape)
-- [ ] run `pnpm test sw-api-helper` — must pass before next task
+- [x] run `pnpm test sw-api-helper` — must pass before next task
 
 ### Task 2: Wire client → SW token handoff
 
-- [ ] in `web/static/js/app-shell.js` `initServiceWorker()` (after the
+- [x] in `web/static/js/app-shell.js` `initServiceWorker()` (after the
   registration resolves), if `window.userInitData` exists, post
   `{ type: 'SET_AUTH_TOKEN', token: window.userInitData }` to the
   controller; also re-post on `controllerchange` event so updated SWs
   receive the token
-- [ ] in `web/static/sw.js` message listener (line 381), add a branch
+- [x] in `web/static/sw.js` message listener (line 381), add a branch
   for `event.data.type === 'SET_AUTH_TOKEN'` that sets
   `self.SwApi.authToken = event.data.token`
-- [ ] in `web/static/js/app.js:5-13` (the early Telegram init), if the
+- [x] in `web/static/js/app.js:5-13` (the early Telegram init), if the
   SW controller is already present at this point, also send the token —
   covers the hot-cache reload case
-- [ ] write tests in `web/static/js/tests/app-shell.sw-token.test.js`:
+- [x] write tests in `web/static/js/tests/app-shell.sw-token.test.js`:
   registration + token send sequence; controllerchange resends token;
   no-op when initData absent
-- [ ] run `pnpm test app-shell` — must pass before next task
+- [x] run `pnpm test app-shell` — must pass before next task
 
 ### Task 3: Replace bodies of all 11 handlers
 
-- [ ] rewrite `handleMedicationConfirm` (`sw.js:614-640`) to call
+- [x] rewrite `handleMedicationConfirm` (`sw.js:614-640`) to call
   `swApiCall('/api/medications/confirm-schedule', 'POST', { scheduled_at,
   medication_ids, intake_ids })`; on failure call new `enqueueFailedAction`
   helper (Task 4) instead of `console.error`
-- [ ] rewrite `handleMedicationSkip` (`sw.js:735-750`) similarly
-- [ ] rewrite `handleMedicationServerSnooze` (`sw.js:752-767`) similarly
-- [ ] rewrite `handleCancelIntake` (`sw.js:583-612`) similarly
-- [ ] rewrite `handleBPSnooze` (`sw.js:642-655`) and `handleBPDontBug`
+- [x] rewrite `handleMedicationSkip` (`sw.js:735-750`) similarly
+- [x] rewrite `handleMedicationServerSnooze` (`sw.js:752-767`) similarly
+- [x] rewrite `handleCancelIntake` (`sw.js:583-612`) similarly
+- [x] rewrite `handleBPSnooze` (`sw.js:642-655`) and `handleBPDontBug`
   (`sw.js:657-670`)
-- [ ] rewrite `handleWeightSnooze` (`sw.js:672-685`) and
+- [x] rewrite `handleWeightSnooze` (`sw.js:672-685`) and
   `handleWeightDontBug` (`sw.js:687-700`)
-- [ ] rewrite `handleWorkoutSnooze` (`sw.js:702-717`) and
+- [x] rewrite `handleWorkoutSnooze` (`sw.js:702-717`) and
   `handleWorkoutSkip` (`sw.js:719-733`)
-- [ ] rewrite `handleTZPlanAction` (`sw.js:559-581`) — keep the result
+- [x] rewrite `handleTZPlanAction` (`sw.js:559-581`) — keep the result
   notification logic; only the underlying fetch changes
-- [ ] verify each handler still posts the matching `client.postMessage`
+- [x] verify each handler still posts the matching `client.postMessage`
   notification (`MEDICATION_CONFIRMED`, `WORKOUT_SKIPPED`, etc.) on
   success; do NOT post on failure
-- [ ] write integration tests in
+- [x] write integration tests in
   `web/static/js/tests/sw-handlers.test.js` covering one happy-path and
   one queue-on-failure case per *category* (med, bp, weight, workout,
   tz-plan, cancel) — 6 happy + 6 fail = 12 cases minimum
-- [ ] run `pnpm test sw-handlers` — must pass before next task
+- [x] run `pnpm test sw-handlers` — must pass before next task
 
 ### Task 4: Failed-action queue
 
-- [ ] add `pending_sw_actions` Dexie store to `web/static/js/db.js` —
+- [x] add `pending_sw_actions` Dexie store to `web/static/js/db.js` —
   bump version to 6, schema:
   `pending_sw_actions: '++localId, endpoint, syncStatus, createdAt'`;
   expose as `MedTrackerDB.SwActionQueue` with `save(action)`,
   `getPending()`, `markSynced(localId)`, `markRejected(localId, errorMsg)`
-- [ ] in `sw-api-helper.js`, add `enqueueFailedAction({ endpoint, method,
+- [x] in `sw-api-helper.js`, add `enqueueFailedAction({ endpoint, method,
   body })` that opens an IndexedDB connection directly (cannot import
   Dexie from SW) and writes to `pending_sw_actions` with
   `syncStatus: 'pending'`, `createdAt: Date.now()`
-- [ ] add `drainSwActionQueue()` to `web/static/js/sync.js` that runs in
+- [x] add `drainSwActionQueue()` to `web/static/js/sync.js` that runs in
   `SyncManager.syncAll()` after the existing three syncers; for each
   pending action, calls `apiCallDirect(endpoint, method, body)`, marks
   synced or rejected (using `isPermanentSyncError` for the 4xx vs 5xx
   branch — established pattern from sync.js:11-25)
-- [ ] in `SyncManager.updateStatus()`, add the queue's pending count to
+- [x] in `SyncManager.updateStatus()`, add the queue's pending count to
   `totalPending` so the status bar displays it
-- [ ] write tests in `web/static/js/tests/sw-action-queue.test.js`:
+- [x] write tests in `web/static/js/tests/sw-action-queue.test.js`:
   enqueue write, drain success path, drain transient-error path
   (re-queues), drain permanent-error path (marks rejected, does not
   re-queue)
-- [ ] write Dexie migration test (mirror existing migration tests in
+- [x] write Dexie migration test (mirror existing migration tests in
   `web/static/js/tests/`) verifying v5 → v6 upgrade preserves existing
   stores
-- [ ] run full `pnpm test` — must pass before next task
+- [x] run full `pnpm test` — must pass before next task
 
 ### Task 5: Bump SW revision and verify acceptance
 
-- [ ] bump `BUILD_REVISION` in `web/static/sw.js:6` from `'2'` to `'3'`
+- [x] bump `BUILD_REVISION` in `web/static/sw.js:6` from `'2'` to `'3'`
   so existing clients pick up the new SW
-- [ ] grep for `await fetch(` inside `web/static/sw.js` returns zero
+- [x] grep for `await fetch(` inside `web/static/sw.js` returns zero
   hits (proves all handlers route through `swApiCall`); the only
   remaining `fetch(` should be inside `sw-api-helper.js`
-- [ ] grep for `console.error` inside `web/static/sw.js` returns zero
-  hits in the handler bodies (proves failures are queued, not dropped)
-- [ ] run full `pnpm test` clean
-- [ ] run `go test ./...` clean (defensive — sw changes don't touch Go,
+- [x] grep for `console.error` inside `web/static/sw.js` returns zero
+  hits in the handler bodies (proves failures are queued, not dropped) —
+  one remaining hit at sw.js:100 is in the install/cache step, not a
+  handler body
+- [x] run full `pnpm test` clean (1891 tests passed, used vitest directly
+  since pnpm not installed locally)
+- [x] run `go test ./...` clean (defensive — sw changes don't touch Go,
   but architecture tests sometimes cross-validate)
-- [ ] verify `architecture.sw-precache.test.js` still passes
+- [x] verify `architecture.sw-precache.test.js` still passes
 
 ## Technical Details
 
