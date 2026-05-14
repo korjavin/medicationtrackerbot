@@ -15,6 +15,7 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/store/diary"
 	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
 	"github.com/korjavin/medicationtrackerbot/internal/store/push"
+	"github.com/korjavin/medicationtrackerbot/internal/store/vitals"
 )
 
 //go:embed migrations/*.sql
@@ -61,10 +62,11 @@ var EmbeddedMigrations = embedMigrations
 // remains spelled "db" so the ~111 existing s.db.Query/Exec/BeginTx callsites
 // keep compiling unchanged (embedded *sql.DB methods are promoted).
 type Store struct {
-	db    *storedb.DB
-	diary *diary.Repo
-	push  *push.Repo
-	auth  *auth.Repo
+	db     *storedb.DB
+	diary  *diary.Repo
+	push   *push.Repo
+	auth   *auth.Repo
+	vitals *vitals.Repo
 }
 
 var nowFunc = time.Now
@@ -166,35 +168,32 @@ type WeightLog struct {
 	Notes           string    `json:"notes,omitempty"`
 }
 
-type SleepLog struct {
-	ID             int64     `json:"id"`
-	UserID         int64     `json:"user_id"`
-	StartTime      time.Time `json:"start_time"`
-	EndTime        time.Time `json:"end_time"`
-	TimezoneOffset int       `json:"timezone_offset"`
-	Day            string    `json:"day"`
-	LightMinutes   *int      `json:"light_minutes,omitempty"`
-	DeepMinutes    *int      `json:"deep_minutes,omitempty"`
-	REMMinutes     *int      `json:"rem_minutes,omitempty"`
-	AwakeMinutes   *int      `json:"awake_minutes,omitempty"`
-	TotalMinutes   *int      `json:"total_minutes,omitempty"`
-	TurnOverCount  *int      `json:"turn_over_count,omitempty"`
-	HeartRateAvg   *int      `json:"heart_rate_avg,omitempty"`
-	SpO2Avg        *int      `json:"spo2_avg,omitempty"`
-	UserModified   bool      `json:"user_modified"`
-	Notes          string    `json:"notes,omitempty"`
-	CreatedAt      time.Time `json:"created_at"`
-}
+// SleepLog is an alias for the canonical type defined in internal/store/vitals.
+// Kept here so existing references (server health handlers, MCP cardiovascular
+// tools, bot sleep importer, tests) continue to compile during the per-domain
+// split; new code should depend on vitals.SleepLog directly.
+type SleepLog = vitals.SleepLog
 
-type DayStat struct {
-	ID        int64     `json:"id"`
-	UserID    int64     `json:"user_id"`
-	Day       string    `json:"day"`
-	Steps     int       `json:"steps"`
-	Calories  int       `json:"calories"`
-	Distance  int       `json:"distance"`
-	CreatedAt time.Time `json:"created_at"`
-}
+// DayStat is an alias for the canonical type defined in internal/store/vitals.
+// Kept here so existing references (server health handlers, MCP fitness tools,
+// bot sleep importer, tests) continue to compile during the per-domain split;
+// new code should depend on vitals.DayStat directly.
+type DayStat = vitals.DayStat
+
+// VitalsHeartLog is an alias for the canonical type defined in
+// internal/store/vitals. New code should depend on vitals.VitalsHeartLog
+// directly.
+type VitalsHeartLog = vitals.VitalsHeartLog
+
+// VitalsSpO2Log is an alias for the canonical type defined in
+// internal/store/vitals. New code should depend on vitals.VitalsSpO2Log
+// directly.
+type VitalsSpO2Log = vitals.VitalsSpO2Log
+
+// VitalsStressLog is an alias for the canonical type defined in
+// internal/store/vitals. New code should depend on vitals.VitalsStressLog
+// directly.
+type VitalsStressLog = vitals.VitalsStressLog
 
 type FoodTargets struct {
 	Calories int `json:"calories"`
@@ -270,11 +269,13 @@ func NewWithDB(d *storedb.DB) (*Store, error) {
 	pushRepo := push.New(d)
 	authRepo := auth.New(d)
 	authRepo.SetClock(func() time.Time { return nowFunc() })
+	vitalsRepo := vitals.New(d)
 	return &Store{
-		db:    d,
-		diary: diaryRepo,
-		push:  pushRepo,
-		auth:  authRepo,
+		db:     d,
+		diary:  diaryRepo,
+		push:   pushRepo,
+		auth:   authRepo,
+		vitals: vitalsRepo,
 	}, nil
 }
 
@@ -303,6 +304,16 @@ func (s *Store) Push() *push.Repo {
 // this accessor.
 func (s *Store) Auth() *auth.Repo {
 	return s.auth
+}
+
+// Vitals returns the per-domain sleep_logs + day_stats + vitals_* repository.
+// The legacy *Store still forwards ImportSleepLogs / GetSleepLogs /
+// ImportDayStats / GetDayStats / ImportVitals / GetVitalsHeart /
+// GetVitalsSpO2 / GetVitalsStress to this same Repo; new callers should
+// depend on *vitals.Repo (or a narrow interface satisfied by it) and obtain
+// it through this accessor.
+func (s *Store) Vitals() *vitals.Repo {
+	return s.vitals
 }
 
 func (s *Store) Close() error {
@@ -1714,226 +1725,44 @@ func CalculateWeightTrend(currentWeight float64, previousTrend *float64) float64
 	return alpha*currentWeight + (1-alpha)**previousTrend
 }
 
+// ImportSleepLogs forwards to (*vitals.Repo).ImportSleepLogs.
 func (s *Store) ImportSleepLogs(ctx context.Context, userID int64, logs []SleepLog) (int, int, error) {
-	if len(logs) == 0 {
-		return 0, 0, nil
-	}
-
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, 0, err
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	imported := 0
-	batchSize := 50
-
-	for i := 0; i < len(logs); i += batchSize {
-		end := i + batchSize
-		if end > len(logs) {
-			end = len(logs)
-		}
-
-		batch := logs[i:end]
-
-		query := `INSERT INTO sleep_logs (user_id, start_time, end_time,
-			 timezone_offset, day, light_minutes, deep_minutes, rem_minutes,
-			 awake_minutes, total_minutes, turn_over_count, heart_rate_avg,
-			 spo2_avg, user_modified, notes) VALUES `
-
-		var placeholders []string
-		var args []interface{}
-
-		for _, sl := range batch {
-			placeholders = append(placeholders, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-			args = append(args, userID, sl.StartTime, sl.EndTime,
-				sl.TimezoneOffset, sl.Day, sl.LightMinutes, sl.DeepMinutes,
-				sl.REMMinutes, sl.AwakeMinutes, sl.TotalMinutes, sl.TurnOverCount,
-				sl.HeartRateAvg, sl.SpO2Avg, sl.UserModified, sl.Notes)
-		}
-
-		query += strings.Join(placeholders, ", ")
-		query += ` ON CONFLICT(user_id, start_time) DO UPDATE SET
-			end_time=excluded.end_time,
-			light_minutes=COALESCE(excluded.light_minutes, sleep_logs.light_minutes),
-			deep_minutes=COALESCE(excluded.deep_minutes, sleep_logs.deep_minutes),
-			rem_minutes=COALESCE(excluded.rem_minutes, sleep_logs.rem_minutes),
-			awake_minutes=COALESCE(excluded.awake_minutes, sleep_logs.awake_minutes),
-			total_minutes=excluded.total_minutes,
-			turn_over_count=COALESCE(excluded.turn_over_count, sleep_logs.turn_over_count),
-			heart_rate_avg=COALESCE(excluded.heart_rate_avg, sleep_logs.heart_rate_avg),
-			spo2_avg=COALESCE(excluded.spo2_avg, sleep_logs.spo2_avg)
-		  WHERE excluded.total_minutes > COALESCE(sleep_logs.total_minutes, 0)
-		     OR (excluded.total_minutes = COALESCE(sleep_logs.total_minutes, 0) AND (
-		         (excluded.light_minutes IS NOT NULL AND sleep_logs.light_minutes IS NULL)
-		      OR (excluded.deep_minutes IS NOT NULL AND sleep_logs.deep_minutes IS NULL)
-		      OR (excluded.rem_minutes IS NOT NULL AND sleep_logs.rem_minutes IS NULL)
-		      OR (excluded.awake_minutes IS NOT NULL AND sleep_logs.awake_minutes IS NULL)
-		      OR (excluded.turn_over_count IS NOT NULL AND sleep_logs.turn_over_count IS NULL)
-		      OR (excluded.heart_rate_avg IS NOT NULL AND sleep_logs.heart_rate_avg IS NULL)
-		      OR (excluded.spo2_avg IS NOT NULL AND sleep_logs.spo2_avg IS NULL)
-		     ))`
-
-		res, err := tx.ExecContext(ctx, query, args...)
-		if err != nil {
-			return 0, 0, err
-		}
-
-		rowsAffected, _ := res.RowsAffected()
-		imported += int(rowsAffected)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return 0, 0, err
-	}
-
-	skipped := len(logs) - imported
-	return imported, skipped, nil
+	return s.vitals.ImportSleepLogs(ctx, userID, logs)
 }
 
-// ImportDayStats imports day statistics from backups
+// ImportDayStats forwards to (*vitals.Repo).ImportDayStats.
 func (s *Store) ImportDayStats(ctx context.Context, userID int64, stats []DayStat) (int, int, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, 0, err
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	stmt, err := tx.PrepareContext(ctx,
-		`INSERT INTO day_stats (user_id, day, steps, calories, distance)
-		 VALUES (?, ?, ?, ?, ?)
-		 ON CONFLICT(user_id, day) DO UPDATE SET
-		   steps=MAX(COALESCE(day_stats.steps, 0), COALESCE(excluded.steps, 0)),
-		   calories=MAX(COALESCE(day_stats.calories, 0), COALESCE(excluded.calories, 0)),
-		   distance=MAX(COALESCE(day_stats.distance, 0), COALESCE(excluded.distance, 0))
-		 WHERE COALESCE(excluded.steps, 0) > COALESCE(day_stats.steps, 0)
-		    OR COALESCE(excluded.calories, 0) > COALESCE(day_stats.calories, 0)
-		    OR COALESCE(excluded.distance, 0) > COALESCE(day_stats.distance, 0)`)
-	if err != nil {
-		return 0, 0, err
-	}
-	defer stmt.Close()
-
-	imported := 0
-	for _, st := range stats {
-		res, err := stmt.ExecContext(ctx, userID, st.Day, st.Steps, st.Calories, st.Distance)
-		if err != nil {
-			return 0, 0, err
-		}
-		rowsAffected, _ := res.RowsAffected()
-		imported += int(rowsAffected)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return 0, 0, err
-	}
-
-	skipped := len(stats) - imported
-	return imported, skipped, nil
+	return s.vitals.ImportDayStats(ctx, userID, stats)
 }
 
-// GetDayStats retrieves daily stats for a user since a given date
+// GetDayStats forwards to (*vitals.Repo).GetDayStats.
 func (s *Store) GetDayStats(ctx context.Context, userID int64, since time.Time) ([]DayStat, error) {
-	query := `SELECT id, user_id, day, steps, calories, distance, created_at
-		 FROM day_stats WHERE user_id = ?`
-	args := []interface{}{userID}
-
-	if !since.IsZero() {
-		// Day format is "2006-01-02", so we can do string comparison
-		sinceDay := since.Format("2006-01-02")
-		query += " AND day >= ?"
-		args = append(args, sinceDay)
-	}
-
-	query += " ORDER BY day DESC"
-
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var stats []DayStat
-	for rows.Next() {
-		var st DayStat
-		if err := rows.Scan(&st.ID, &st.UserID, &st.Day, &st.Steps, &st.Calories, &st.Distance, &st.CreatedAt); err != nil {
-			return nil, err
-		}
-		stats = append(stats, st)
-	}
-	return stats, nil
+	return s.vitals.GetDayStats(ctx, userID, since)
 }
 
-// GetSleepLogs retrieves sleep logs for a user since a given date
+// GetSleepLogs forwards to (*vitals.Repo).GetSleepLogs.
 func (s *Store) GetSleepLogs(ctx context.Context, userID int64, since time.Time) ([]SleepLog, error) {
-	query := `SELECT id, user_id, start_time, end_time, timezone_offset, day, light_minutes, deep_minutes, rem_minutes,
-		 awake_minutes, total_minutes, turn_over_count, heart_rate_avg, spo2_avg, user_modified, notes, created_at
-		 FROM sleep_logs WHERE user_id = ?`
-	args := []interface{}{userID}
+	return s.vitals.GetSleepLogs(ctx, userID, since)
+}
 
-	if !since.IsZero() {
-		query += " AND start_time >= ?"
-		args = append(args, since)
-	}
+// ImportVitals forwards to (*vitals.Repo).ImportVitals.
+func (s *Store) ImportVitals(ctx context.Context, userID int64, heartLogs []VitalsHeartLog, spo2Logs []VitalsSpO2Log, stressLogs []VitalsStressLog) (int, int, error) {
+	return s.vitals.ImportVitals(ctx, userID, heartLogs, spo2Logs, stressLogs)
+}
 
-	query += " ORDER BY start_time DESC"
+// GetVitalsHeart forwards to (*vitals.Repo).GetVitalsHeart.
+func (s *Store) GetVitalsHeart(ctx context.Context, userID int64, start, end time.Time) ([]VitalsHeartLog, error) {
+	return s.vitals.GetVitalsHeart(ctx, userID, start, end)
+}
 
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
+// GetVitalsSpO2 forwards to (*vitals.Repo).GetVitalsSpO2.
+func (s *Store) GetVitalsSpO2(ctx context.Context, userID int64, start, end time.Time) ([]VitalsSpO2Log, error) {
+	return s.vitals.GetVitalsSpO2(ctx, userID, start, end)
+}
 
-	var logs []SleepLog
-	for rows.Next() {
-		var sl SleepLog
-		var light, deep, rem, awake, total, turnOver, hr, spo2 sql.NullInt64
-		var notes sql.NullString
-
-		if err := rows.Scan(&sl.ID, &sl.UserID, &sl.StartTime, &sl.EndTime, &sl.TimezoneOffset, &sl.Day,
-			&light, &deep, &rem, &awake, &total, &turnOver, &hr, &spo2, &sl.UserModified, &notes, &sl.CreatedAt); err != nil {
-			return nil, err
-		}
-
-		if light.Valid {
-			val := int(light.Int64)
-			sl.LightMinutes = &val
-		}
-		if deep.Valid {
-			val := int(deep.Int64)
-			sl.DeepMinutes = &val
-		}
-		if rem.Valid {
-			val := int(rem.Int64)
-			sl.REMMinutes = &val
-		}
-		if awake.Valid {
-			val := int(awake.Int64)
-			sl.AwakeMinutes = &val
-		}
-		if total.Valid {
-			val := int(total.Int64)
-			sl.TotalMinutes = &val
-		}
-		if turnOver.Valid {
-			val := int(turnOver.Int64)
-			sl.TurnOverCount = &val
-		}
-		if hr.Valid {
-			val := int(hr.Int64)
-			sl.HeartRateAvg = &val
-		}
-		if spo2.Valid {
-			val := int(spo2.Int64)
-			sl.SpO2Avg = &val
-		}
-		if notes.Valid {
-			sl.Notes = notes.String
-		}
-
-		logs = append(logs, sl)
-	}
-	return logs, nil
+// GetVitalsStress forwards to (*vitals.Repo).GetVitalsStress.
+func (s *Store) GetVitalsStress(ctx context.Context, userID int64, start, end time.Time) ([]VitalsStressLog, error) {
+	return s.vitals.GetVitalsStress(ctx, userID, start, end)
 }
 
 // CreatePushSubscription forwards to (*push.Repo).Create.

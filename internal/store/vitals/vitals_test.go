@@ -1,24 +1,30 @@
-package store
+package vitals
 
 import (
 	"context"
 	"strings"
 	"testing"
 	"time"
+
+	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
+	"github.com/korjavin/medicationtrackerbot/internal/store/migrations"
 )
 
-func setupSleepVitalsTestStore(t *testing.T) *Store {
+func setupVitalsRepo(t *testing.T) *Repo {
 	t.Helper()
-	db, err := New(":memory:")
+	d, err := storedb.Open(":memory:")
 	if err != nil {
-		t.Fatalf("Failed to create test store: %v", err)
+		t.Fatalf("open db: %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
-	return db
+	t.Cleanup(func() { _ = d.Close() })
+	if err := d.Migrate(migrations.FS, "."); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	return New(d)
 }
 
 func TestImportSleepLogs(t *testing.T) {
-	db := setupSleepVitalsTestStore(t)
+	r := setupVitalsRepo(t)
 	ctx := context.Background()
 	userID := int64(123456)
 
@@ -52,7 +58,7 @@ func TestImportSleepLogs(t *testing.T) {
 		},
 	}
 
-	imported, skipped, err := db.ImportSleepLogs(ctx, userID, logs)
+	imported, skipped, err := r.ImportSleepLogs(ctx, userID, logs)
 	if err != nil {
 		t.Fatalf("ImportSleepLogs: %v", err)
 	}
@@ -64,7 +70,7 @@ func TestImportSleepLogs(t *testing.T) {
 	}
 
 	// Verify retrieval
-	result, err := db.GetSleepLogs(ctx, userID, time.Time{})
+	result, err := r.GetSleepLogs(ctx, userID, time.Time{})
 	if err != nil {
 		t.Fatalf("GetSleepLogs: %v", err)
 	}
@@ -101,7 +107,7 @@ func TestImportSleepLogs(t *testing.T) {
 }
 
 func TestImportSleepLogsDuplicates(t *testing.T) {
-	db := setupSleepVitalsTestStore(t)
+	r := setupVitalsRepo(t)
 	ctx := context.Background()
 	userID := int64(123456)
 
@@ -115,7 +121,7 @@ func TestImportSleepLogsDuplicates(t *testing.T) {
 	}
 
 	// Import once
-	imported, _, err := db.ImportSleepLogs(ctx, userID, logs)
+	imported, _, err := r.ImportSleepLogs(ctx, userID, logs)
 	if err != nil {
 		t.Fatalf("First import: %v", err)
 	}
@@ -124,7 +130,7 @@ func TestImportSleepLogsDuplicates(t *testing.T) {
 	}
 
 	// Import same again (conditional UPSERT — no update since total_minutes not greater)
-	imported, skipped, err := db.ImportSleepLogs(ctx, userID, logs)
+	imported, skipped, err := r.ImportSleepLogs(ctx, userID, logs)
 	if err != nil {
 		t.Fatalf("Second import: %v", err)
 	}
@@ -136,7 +142,7 @@ func TestImportSleepLogsDuplicates(t *testing.T) {
 	}
 
 	// Still only 1 log
-	result, _ := db.GetSleepLogs(ctx, userID, time.Time{})
+	result, _ := r.GetSleepLogs(ctx, userID, time.Time{})
 	if len(result) != 1 {
 		t.Errorf("Expected 1 log after duplicate import, got %d", len(result))
 	}
@@ -145,7 +151,7 @@ func TestImportSleepLogsDuplicates(t *testing.T) {
 func TestImportSleepLogsUpsertNullToNonNull(t *testing.T) {
 	// When a sleep log is first imported without total_minutes (NULL),
 	// a re-import with a non-NULL total_minutes must update the row.
-	db := setupSleepVitalsTestStore(t)
+	r := setupVitalsRepo(t)
 	ctx := context.Background()
 	userID := int64(123456)
 
@@ -158,7 +164,7 @@ func TestImportSleepLogsUpsertNullToNonNull(t *testing.T) {
 			Day:            "2025-01-10",
 		},
 	}
-	imported, _, err := db.ImportSleepLogs(ctx, userID, logs)
+	imported, _, err := r.ImportSleepLogs(ctx, userID, logs)
 	if err != nil {
 		t.Fatalf("First import: %v", err)
 	}
@@ -173,7 +179,7 @@ func TestImportSleepLogsUpsertNullToNonNull(t *testing.T) {
 	logs[0].TotalMinutes = &totalMinutes
 	logs[0].LightMinutes = &lightMinutes
 	logs[0].DeepMinutes = &deepMinutes
-	imported, skipped, err := db.ImportSleepLogs(ctx, userID, logs)
+	imported, skipped, err := r.ImportSleepLogs(ctx, userID, logs)
 	if err != nil {
 		t.Fatalf("Second import: %v", err)
 	}
@@ -185,7 +191,7 @@ func TestImportSleepLogsUpsertNullToNonNull(t *testing.T) {
 	}
 
 	// Verify values updated
-	result, err := db.GetSleepLogs(ctx, userID, time.Time{})
+	result, err := r.GetSleepLogs(ctx, userID, time.Time{})
 	if err != nil {
 		t.Fatalf("GetSleepLogs: %v", err)
 	}
@@ -201,7 +207,7 @@ func TestImportSleepLogsUpsertNullToNonNull(t *testing.T) {
 }
 
 func TestGetSleepLogsSinceFilter(t *testing.T) {
-	db := setupSleepVitalsTestStore(t)
+	r := setupVitalsRepo(t)
 	ctx := context.Background()
 	userID := int64(123456)
 
@@ -220,14 +226,14 @@ func TestGetSleepLogsSinceFilter(t *testing.T) {
 		},
 	}
 
-	_, _, err := db.ImportSleepLogs(ctx, userID, logs)
+	_, _, err := r.ImportSleepLogs(ctx, userID, logs)
 	if err != nil {
 		t.Fatalf("ImportSleepLogs: %v", err)
 	}
 
 	// Filter: only logs since Jan 8
 	since := time.Date(2025, 1, 8, 0, 0, 0, 0, time.UTC)
-	result, err := db.GetSleepLogs(ctx, userID, since)
+	result, err := r.GetSleepLogs(ctx, userID, since)
 	if err != nil {
 		t.Fatalf("GetSleepLogs with since: %v", err)
 	}
@@ -240,7 +246,7 @@ func TestGetSleepLogsSinceFilter(t *testing.T) {
 }
 
 func TestImportSleepLogsUpsertUpdatesWhenMoreComplete(t *testing.T) {
-	db := setupSleepVitalsTestStore(t)
+	r := setupVitalsRepo(t)
 	ctx := context.Background()
 	userID := int64(123456)
 
@@ -264,7 +270,7 @@ func TestImportSleepLogsUpsertUpdatesWhenMoreComplete(t *testing.T) {
 			TotalMinutes:   &totalPartial,
 		},
 	}
-	_, _, err := db.ImportSleepLogs(ctx, userID, partial)
+	_, _, err := r.ImportSleepLogs(ctx, userID, partial)
 	if err != nil {
 		t.Fatalf("First import: %v", err)
 	}
@@ -293,7 +299,7 @@ func TestImportSleepLogsUpsertUpdatesWhenMoreComplete(t *testing.T) {
 			SpO2Avg:        &spo2Complete,
 		},
 	}
-	imported, skipped, err := db.ImportSleepLogs(ctx, userID, complete)
+	imported, skipped, err := r.ImportSleepLogs(ctx, userID, complete)
 	if err != nil {
 		t.Fatalf("Second import: %v", err)
 	}
@@ -305,7 +311,7 @@ func TestImportSleepLogsUpsertUpdatesWhenMoreComplete(t *testing.T) {
 	}
 
 	// Verify values updated
-	result, err := db.GetSleepLogs(ctx, userID, time.Time{})
+	result, err := r.GetSleepLogs(ctx, userID, time.Time{})
 	if err != nil {
 		t.Fatalf("GetSleepLogs: %v", err)
 	}
@@ -328,7 +334,7 @@ func TestImportSleepLogsUpsertUpdatesWhenMoreComplete(t *testing.T) {
 }
 
 func TestImportSleepLogsUpsertNoDowngrade(t *testing.T) {
-	db := setupSleepVitalsTestStore(t)
+	r := setupVitalsRepo(t)
 	ctx := context.Background()
 	userID := int64(123456)
 
@@ -348,7 +354,7 @@ func TestImportSleepLogsUpsertNoDowngrade(t *testing.T) {
 			TotalMinutes:   &totalComplete,
 		},
 	}
-	_, _, err := db.ImportSleepLogs(ctx, userID, complete)
+	_, _, err := r.ImportSleepLogs(ctx, userID, complete)
 	if err != nil {
 		t.Fatalf("First import: %v", err)
 	}
@@ -369,7 +375,7 @@ func TestImportSleepLogsUpsertNoDowngrade(t *testing.T) {
 			TotalMinutes:   &totalPartial,
 		},
 	}
-	imported, skipped, err := db.ImportSleepLogs(ctx, userID, partial)
+	imported, skipped, err := r.ImportSleepLogs(ctx, userID, partial)
 	if err != nil {
 		t.Fatalf("Second import: %v", err)
 	}
@@ -381,7 +387,7 @@ func TestImportSleepLogsUpsertNoDowngrade(t *testing.T) {
 	}
 
 	// Verify original values preserved
-	result, err := db.GetSleepLogs(ctx, userID, time.Time{})
+	result, err := r.GetSleepLogs(ctx, userID, time.Time{})
 	if err != nil {
 		t.Fatalf("GetSleepLogs: %v", err)
 	}
@@ -398,7 +404,7 @@ func TestImportSleepLogsUpsertNoDowngrade(t *testing.T) {
 }
 
 func TestImportSleepLogsBackfillAwakeAndTurnOver(t *testing.T) {
-	db := setupSleepVitalsTestStore(t)
+	r := setupVitalsRepo(t)
 	ctx := context.Background()
 	userID := int64(123456)
 
@@ -414,7 +420,7 @@ func TestImportSleepLogsBackfillAwakeAndTurnOver(t *testing.T) {
 			TotalMinutes:   &totalMinutes,
 		},
 	}
-	_, _, err := db.ImportSleepLogs(ctx, userID, initial)
+	_, _, err := r.ImportSleepLogs(ctx, userID, initial)
 	if err != nil {
 		t.Fatalf("First import: %v", err)
 	}
@@ -434,7 +440,7 @@ func TestImportSleepLogsBackfillAwakeAndTurnOver(t *testing.T) {
 			TurnOverCount:  &turnOver,
 		},
 	}
-	imported, skipped, err := db.ImportSleepLogs(ctx, userID, backfill)
+	imported, skipped, err := r.ImportSleepLogs(ctx, userID, backfill)
 	if err != nil {
 		t.Fatalf("Second import: %v", err)
 	}
@@ -445,7 +451,7 @@ func TestImportSleepLogsBackfillAwakeAndTurnOver(t *testing.T) {
 		t.Errorf("Expected 0 skipped, got %d", skipped)
 	}
 
-	result, err := db.GetSleepLogs(ctx, userID, time.Time{})
+	result, err := r.GetSleepLogs(ctx, userID, time.Time{})
 	if err != nil {
 		t.Fatalf("GetSleepLogs: %v", err)
 	}
@@ -462,7 +468,7 @@ func TestImportSleepLogsBackfillAwakeAndTurnOver(t *testing.T) {
 }
 
 func TestImportVitalsHeart(t *testing.T) {
-	db := setupSleepVitalsTestStore(t)
+	r := setupVitalsRepo(t)
 	ctx := context.Background()
 	userID := int64(123456)
 
@@ -472,7 +478,7 @@ func TestImportVitalsHeart(t *testing.T) {
 		{DateTime: time.Date(2025, 1, 10, 12, 0, 0, 0, time.UTC), TzOffset: 3600, Value: 68, Type: 2},
 	}
 
-	imported, skipped, err := db.ImportVitals(ctx, userID, heartLogs, nil, nil)
+	imported, skipped, err := r.ImportVitals(ctx, userID, heartLogs, nil, nil)
 	if err != nil {
 		t.Fatalf("ImportVitals heart: %v", err)
 	}
@@ -486,7 +492,7 @@ func TestImportVitalsHeart(t *testing.T) {
 	// Retrieve
 	start := time.Date(2025, 1, 10, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2025, 1, 10, 23, 59, 59, 0, time.UTC)
-	result, err := db.GetVitalsHeart(ctx, userID, start, end)
+	result, err := r.GetVitalsHeart(ctx, userID, start, end)
 	if err != nil {
 		t.Fatalf("GetVitalsHeart: %v", err)
 	}
@@ -503,7 +509,7 @@ func TestImportVitalsHeart(t *testing.T) {
 }
 
 func TestImportVitalsSpO2(t *testing.T) {
-	db := setupSleepVitalsTestStore(t)
+	r := setupVitalsRepo(t)
 	ctx := context.Background()
 	userID := int64(123456)
 
@@ -512,7 +518,7 @@ func TestImportVitalsSpO2(t *testing.T) {
 		{DateTime: time.Date(2025, 1, 10, 14, 0, 0, 0, time.UTC), TzOffset: 0, Value: 97, Type: 1},
 	}
 
-	imported, _, err := db.ImportVitals(ctx, userID, nil, spo2Logs, nil)
+	imported, _, err := r.ImportVitals(ctx, userID, nil, spo2Logs, nil)
 	if err != nil {
 		t.Fatalf("ImportVitals spo2: %v", err)
 	}
@@ -522,7 +528,7 @@ func TestImportVitalsSpO2(t *testing.T) {
 
 	start := time.Date(2025, 1, 10, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2025, 1, 10, 23, 59, 59, 0, time.UTC)
-	result, err := db.GetVitalsSpO2(ctx, userID, start, end)
+	result, err := r.GetVitalsSpO2(ctx, userID, start, end)
 	if err != nil {
 		t.Fatalf("GetVitalsSpO2: %v", err)
 	}
@@ -535,7 +541,7 @@ func TestImportVitalsSpO2(t *testing.T) {
 }
 
 func TestImportVitalsStress(t *testing.T) {
-	db := setupSleepVitalsTestStore(t)
+	r := setupVitalsRepo(t)
 	ctx := context.Background()
 	userID := int64(123456)
 
@@ -544,7 +550,7 @@ func TestImportVitalsStress(t *testing.T) {
 		{DateTime: time.Date(2025, 1, 10, 15, 0, 0, 0, time.UTC), TzOffset: 0, Value: 65, Type: 1},
 	}
 
-	imported, _, err := db.ImportVitals(ctx, userID, nil, nil, stressLogs)
+	imported, _, err := r.ImportVitals(ctx, userID, nil, nil, stressLogs)
 	if err != nil {
 		t.Fatalf("ImportVitals stress: %v", err)
 	}
@@ -554,7 +560,7 @@ func TestImportVitalsStress(t *testing.T) {
 
 	start := time.Date(2025, 1, 10, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2025, 1, 10, 23, 59, 59, 0, time.UTC)
-	result, err := db.GetVitalsStress(ctx, userID, start, end)
+	result, err := r.GetVitalsStress(ctx, userID, start, end)
 	if err != nil {
 		t.Fatalf("GetVitalsStress: %v", err)
 	}
@@ -570,7 +576,7 @@ func TestImportVitalsStress(t *testing.T) {
 }
 
 func TestImportVitalsDuplicates(t *testing.T) {
-	db := setupSleepVitalsTestStore(t)
+	r := setupVitalsRepo(t)
 	ctx := context.Background()
 	userID := int64(123456)
 
@@ -579,7 +585,7 @@ func TestImportVitalsDuplicates(t *testing.T) {
 	}
 
 	// Import once
-	imported, _, err := db.ImportVitals(ctx, userID, heartLogs, nil, nil)
+	imported, _, err := r.ImportVitals(ctx, userID, heartLogs, nil, nil)
 	if err != nil {
 		t.Fatalf("First import: %v", err)
 	}
@@ -588,7 +594,7 @@ func TestImportVitalsDuplicates(t *testing.T) {
 	}
 
 	// Import again - should skip
-	imported, skipped, err := db.ImportVitals(ctx, userID, heartLogs, nil, nil)
+	imported, skipped, err := r.ImportVitals(ctx, userID, heartLogs, nil, nil)
 	if err != nil {
 		t.Fatalf("Second import: %v", err)
 	}
@@ -601,7 +607,7 @@ func TestImportVitalsDuplicates(t *testing.T) {
 }
 
 func TestImportVitalsMixed(t *testing.T) {
-	db := setupSleepVitalsTestStore(t)
+	r := setupVitalsRepo(t)
 	ctx := context.Background()
 	userID := int64(123456)
 
@@ -615,7 +621,7 @@ func TestImportVitalsMixed(t *testing.T) {
 		{DateTime: time.Date(2025, 1, 10, 10, 0, 0, 0, time.UTC), TzOffset: 0, Value: 30, Type: 1},
 	}
 
-	imported, skipped, err := db.ImportVitals(ctx, userID, heartLogs, spo2Logs, stressLogs)
+	imported, skipped, err := r.ImportVitals(ctx, userID, heartLogs, spo2Logs, stressLogs)
 	if err != nil {
 		t.Fatalf("ImportVitals mixed: %v", err)
 	}
@@ -628,7 +634,7 @@ func TestImportVitalsMixed(t *testing.T) {
 }
 
 func TestGetVitalsHeartTimeRange(t *testing.T) {
-	db := setupSleepVitalsTestStore(t)
+	r := setupVitalsRepo(t)
 	ctx := context.Background()
 	userID := int64(123456)
 
@@ -638,7 +644,7 @@ func TestGetVitalsHeartTimeRange(t *testing.T) {
 		{DateTime: time.Date(2025, 1, 10, 18, 0, 0, 0, time.UTC), TzOffset: 0, Value: 70, Type: 1},
 	}
 
-	_, _, err := db.ImportVitals(ctx, userID, heartLogs, nil, nil)
+	_, _, err := r.ImportVitals(ctx, userID, heartLogs, nil, nil)
 	if err != nil {
 		t.Fatalf("ImportVitals: %v", err)
 	}
@@ -646,7 +652,7 @@ func TestGetVitalsHeartTimeRange(t *testing.T) {
 	// Query only 10:00-14:00
 	start := time.Date(2025, 1, 10, 10, 0, 0, 0, time.UTC)
 	end := time.Date(2025, 1, 10, 14, 0, 0, 0, time.UTC)
-	result, err := db.GetVitalsHeart(ctx, userID, start, end)
+	result, err := r.GetVitalsHeart(ctx, userID, start, end)
 	if err != nil {
 		t.Fatalf("GetVitalsHeart: %v", err)
 	}
@@ -659,7 +665,7 @@ func TestGetVitalsHeartTimeRange(t *testing.T) {
 }
 
 func TestImportDayStats(t *testing.T) {
-	db := setupSleepVitalsTestStore(t)
+	r := setupVitalsRepo(t)
 	ctx := context.Background()
 	userID := int64(123456)
 
@@ -668,7 +674,7 @@ func TestImportDayStats(t *testing.T) {
 		{Day: "2025-01-11", Steps: 12000, Calories: 2500, Distance: 8000},
 	}
 
-	imported, skipped, err := db.ImportDayStats(ctx, userID, stats)
+	imported, skipped, err := r.ImportDayStats(ctx, userID, stats)
 	if err != nil {
 		t.Fatalf("ImportDayStats: %v", err)
 	}
@@ -680,7 +686,7 @@ func TestImportDayStats(t *testing.T) {
 	}
 
 	// Retrieve
-	result, err := db.GetDayStats(ctx, userID, time.Time{})
+	result, err := r.GetDayStats(ctx, userID, time.Time{})
 	if err != nil {
 		t.Fatalf("GetDayStats: %v", err)
 	}
@@ -697,7 +703,7 @@ func TestImportDayStats(t *testing.T) {
 }
 
 func TestImportDayStatsDuplicates(t *testing.T) {
-	db := setupSleepVitalsTestStore(t)
+	r := setupVitalsRepo(t)
 	ctx := context.Background()
 	userID := int64(123456)
 
@@ -706,7 +712,7 @@ func TestImportDayStatsDuplicates(t *testing.T) {
 	}
 
 	// Import once
-	imported, _, err := db.ImportDayStats(ctx, userID, stats)
+	imported, _, err := r.ImportDayStats(ctx, userID, stats)
 	if err != nil {
 		t.Fatalf("First import: %v", err)
 	}
@@ -715,7 +721,7 @@ func TestImportDayStatsDuplicates(t *testing.T) {
 	}
 
 	// Import again — identical data is now skipped (WHERE clause rejects no-op updates)
-	imported, skipped, err := db.ImportDayStats(ctx, userID, stats)
+	imported, skipped, err := r.ImportDayStats(ctx, userID, stats)
 	if err != nil {
 		t.Fatalf("Second import: %v", err)
 	}
@@ -727,7 +733,7 @@ func TestImportDayStatsDuplicates(t *testing.T) {
 	}
 
 	// Still only 1 row
-	result, err := db.GetDayStats(ctx, userID, time.Time{})
+	result, err := r.GetDayStats(ctx, userID, time.Time{})
 	if err != nil {
 		t.Fatalf("GetDayStats: %v", err)
 	}
@@ -737,7 +743,7 @@ func TestImportDayStatsDuplicates(t *testing.T) {
 }
 
 func TestImportDayStatsUpsertUpdatesValues(t *testing.T) {
-	db := setupSleepVitalsTestStore(t)
+	r := setupVitalsRepo(t)
 	ctx := context.Background()
 	userID := int64(123456)
 
@@ -745,7 +751,7 @@ func TestImportDayStatsUpsertUpdatesValues(t *testing.T) {
 	partial := []DayStat{
 		{Day: "2025-01-10", Steps: 2000, Calories: 800, Distance: 1500},
 	}
-	_, _, err := db.ImportDayStats(ctx, userID, partial)
+	_, _, err := r.ImportDayStats(ctx, userID, partial)
 	if err != nil {
 		t.Fatalf("First import: %v", err)
 	}
@@ -754,7 +760,7 @@ func TestImportDayStatsUpsertUpdatesValues(t *testing.T) {
 	complete := []DayStat{
 		{Day: "2025-01-10", Steps: 8000, Calories: 2200, Distance: 5500},
 	}
-	imported, skipped, err := db.ImportDayStats(ctx, userID, complete)
+	imported, skipped, err := r.ImportDayStats(ctx, userID, complete)
 	if err != nil {
 		t.Fatalf("Second import: %v", err)
 	}
@@ -766,7 +772,7 @@ func TestImportDayStatsUpsertUpdatesValues(t *testing.T) {
 	}
 
 	// Verify values updated
-	result, err := db.GetDayStats(ctx, userID, time.Time{})
+	result, err := r.GetDayStats(ctx, userID, time.Time{})
 	if err != nil {
 		t.Fatalf("GetDayStats: %v", err)
 	}
@@ -786,7 +792,7 @@ func TestImportDayStatsUpsertUpdatesValues(t *testing.T) {
 
 func TestImportDayStatsStaleDataProtection(t *testing.T) {
 	// Importing an older backup after a complete one must NOT overwrite higher values.
-	db := setupSleepVitalsTestStore(t)
+	r := setupVitalsRepo(t)
 	ctx := context.Background()
 	userID := int64(123456)
 
@@ -794,7 +800,7 @@ func TestImportDayStatsStaleDataProtection(t *testing.T) {
 	complete := []DayStat{
 		{Day: "2025-01-10", Steps: 8000, Calories: 2200, Distance: 5500},
 	}
-	_, _, err := db.ImportDayStats(ctx, userID, complete)
+	_, _, err := r.ImportDayStats(ctx, userID, complete)
 	if err != nil {
 		t.Fatalf("First import (complete): %v", err)
 	}
@@ -803,13 +809,13 @@ func TestImportDayStatsStaleDataProtection(t *testing.T) {
 	stale := []DayStat{
 		{Day: "2025-01-10", Steps: 2000, Calories: 800, Distance: 1500},
 	}
-	_, _, err = db.ImportDayStats(ctx, userID, stale)
+	_, _, err = r.ImportDayStats(ctx, userID, stale)
 	if err != nil {
 		t.Fatalf("Second import (stale): %v", err)
 	}
 
 	// Verify complete values are preserved (MAX used, not overwritten)
-	result, err := db.GetDayStats(ctx, userID, time.Time{})
+	result, err := r.GetDayStats(ctx, userID, time.Time{})
 	if err != nil {
 		t.Fatalf("GetDayStats: %v", err)
 	}
@@ -828,7 +834,7 @@ func TestImportDayStatsStaleDataProtection(t *testing.T) {
 }
 
 func TestImportDayStatsUpsertDifferentDays(t *testing.T) {
-	db := setupSleepVitalsTestStore(t)
+	r := setupVitalsRepo(t)
 	ctx := context.Background()
 	userID := int64(123456)
 
@@ -836,7 +842,7 @@ func TestImportDayStatsUpsertDifferentDays(t *testing.T) {
 	day1 := []DayStat{
 		{Day: "2025-01-10", Steps: 5000, Calories: 1800, Distance: 3000},
 	}
-	_, _, err := db.ImportDayStats(ctx, userID, day1)
+	_, _, err := r.ImportDayStats(ctx, userID, day1)
 	if err != nil {
 		t.Fatalf("First import: %v", err)
 	}
@@ -845,13 +851,13 @@ func TestImportDayStatsUpsertDifferentDays(t *testing.T) {
 	day2 := []DayStat{
 		{Day: "2025-01-11", Steps: 10000, Calories: 2500, Distance: 7000},
 	}
-	_, _, err = db.ImportDayStats(ctx, userID, day2)
+	_, _, err = r.ImportDayStats(ctx, userID, day2)
 	if err != nil {
 		t.Fatalf("Second import: %v", err)
 	}
 
 	// Both days exist
-	result, err := db.GetDayStats(ctx, userID, time.Time{})
+	result, err := r.GetDayStats(ctx, userID, time.Time{})
 	if err != nil {
 		t.Fatalf("GetDayStats: %v", err)
 	}
@@ -861,7 +867,7 @@ func TestImportDayStatsUpsertDifferentDays(t *testing.T) {
 }
 
 func TestGetDayStatsSinceFilter(t *testing.T) {
-	db := setupSleepVitalsTestStore(t)
+	r := setupVitalsRepo(t)
 	ctx := context.Background()
 	userID := int64(123456)
 
@@ -870,13 +876,13 @@ func TestGetDayStatsSinceFilter(t *testing.T) {
 		{Day: "2025-01-10", Steps: 10000, Calories: 2400, Distance: 7000},
 	}
 
-	_, _, err := db.ImportDayStats(ctx, userID, stats)
+	_, _, err := r.ImportDayStats(ctx, userID, stats)
 	if err != nil {
 		t.Fatalf("ImportDayStats: %v", err)
 	}
 
 	since := time.Date(2025, 1, 8, 0, 0, 0, 0, time.UTC)
-	result, err := db.GetDayStats(ctx, userID, since)
+	result, err := r.GetDayStats(ctx, userID, since)
 	if err != nil {
 		t.Fatalf("GetDayStats with since: %v", err)
 	}
