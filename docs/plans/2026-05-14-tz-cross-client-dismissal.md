@@ -111,5 +111,5 @@ Files:
 
 ### Task 8: Update documentation
 
-- [ ] Add a short paragraph to `docs/architecture.md` (or the TZ-related section if one exists) describing the cross-client dismissal flow: "TZ suggestion dismissal is persisted in `user_settings.dismissed_tz_suggestion`; the bootstrap consults the settings bundle before prompting, so dismissing in one browser silences other clients until the detected TZ changes or the user explicitly updates settings. A successful web-initiated TZ change also fires a Telegram confirmation through the existing notifier; decline does not."
-- [ ] No CLAUDE.md update needed — no new internal pattern; this is a feature addition, not a rule change.
+- [x] Add a short paragraph to `docs/architecture.md` (or the TZ-related section if one exists) describing the cross-client dismissal flow: "TZ suggestion dismissal is persisted in `user_settings.dismissed_tz_suggestion`; the bootstrap consults the settings bundle before prompting, so dismissing in one browser silences other clients until the detected TZ changes or the user explicitly updates settings. A successful web-initiated TZ change also fires a Telegram confirmation through the existing notifier; decline does not."
+- [x] No CLAUDE.md update needed — no new internal pattern; this is a feature addition, not a rule change.
