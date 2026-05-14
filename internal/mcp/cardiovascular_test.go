@@ -23,7 +23,7 @@ func setupCardiovascularTestServer(t *testing.T) (*Server, *store.Store) {
 			MaxQueryDays: 90,
 			UserID:       123456,
 		},
-		data:  st,
+		data:  newStoreAdapter(st),
 		audit: audit,
 	}
 
@@ -38,15 +38,15 @@ func TestAnalyzeCardiovascular_AllDomains(t *testing.T) {
 	userID := int64(123456)
 
 	// Enable features
-	if err := st.SetBloodPressureEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetBloodPressureEnabled(ctx, true); err != nil {
 		t.Fatalf("SetBloodPressureEnabled: %v", err)
 	}
-	if err := st.SetMedicationEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetMedicationEnabled(ctx, true); err != nil {
 		t.Fatalf("SetMedicationEnabled: %v", err)
 	}
 
 	// Add BP reading
-	if _, err := st.CreateBloodPressureReading(ctx, &store.BloodPressure{
+	if _, err := st.BP.CreateBloodPressureReading(ctx, &store.BloodPressure{
 		UserID:     userID,
 		Systolic:   120,
 		Diastolic:  80,
@@ -57,7 +57,7 @@ func TestAnalyzeCardiovascular_AllDomains(t *testing.T) {
 	}
 
 	// Add medication
-	if _, err := st.CreateMedication("Lisinopril", "10mg", "09:00", nil, nil, "", "", "flexible"); err != nil {
+	if _, err := st.Medication.CreateMedication("Lisinopril", "10mg", "09:00", nil, nil, "", "", "flexible"); err != nil {
 		t.Fatalf("CreateMedication: %v", err)
 	}
 
@@ -71,7 +71,7 @@ func TestAnalyzeCardiovascular_AllDomains(t *testing.T) {
 		TotalMinutes: &totalMin,
 		DeepMinutes:  &deepMin,
 	}}
-	if _, _, err := st.ImportSleepLogs(ctx, userID, sleepLogs); err != nil {
+	if _, _, err := st.Vitals.ImportSleepLogs(ctx, userID, sleepLogs); err != nil {
 		t.Fatalf("ImportSleepLogs: %v", err)
 	}
 
@@ -84,12 +84,12 @@ func TestAnalyzeCardiovascular_AllDomains(t *testing.T) {
 		{UserID: userID, DateTime: time.Date(2026, 3, 15, 8, 0, 0, 0, time.UTC), Value: 97, Type: 1},
 		{UserID: userID, DateTime: time.Date(2026, 3, 15, 12, 0, 0, 0, time.UTC), Value: 99, Type: 1},
 	}
-	if _, _, err := st.ImportVitals(ctx, userID, heartLogs, spo2Logs, nil); err != nil {
+	if _, _, err := st.Vitals.ImportVitals(ctx, userID, heartLogs, spo2Logs, nil); err != nil {
 		t.Fatalf("ImportVitals: %v", err)
 	}
 
 	// Add diary note (created with current timestamp)
-	if _, err := st.CreateDiaryNote(ctx, userID, "started new medication today", nil); err != nil {
+	if _, err := st.Diary.Create(ctx, userID, "started new medication today", nil); err != nil {
 		t.Fatalf("CreateDiaryNote: %v", err)
 	}
 
@@ -190,11 +190,11 @@ func TestAnalyzeCardiovascular_BPDisabledOmitsSection(t *testing.T) {
 	ctx := context.Background()
 
 	// Disable BP explicitly
-	if err := st.SetBloodPressureEnabled(ctx, false); err != nil {
+	if err := st.Settings.SetBloodPressureEnabled(ctx, false); err != nil {
 		t.Fatalf("SetBloodPressureEnabled: %v", err)
 	}
 	// Enable medication
-	if err := st.SetMedicationEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetMedicationEnabled(ctx, true); err != nil {
 		t.Fatalf("SetMedicationEnabled: %v", err)
 	}
 
@@ -230,10 +230,10 @@ func TestAnalyzeCardiovascular_EmptyDateRange(t *testing.T) {
 
 	ctx := context.Background()
 
-	if err := st.SetBloodPressureEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetBloodPressureEnabled(ctx, true); err != nil {
 		t.Fatalf("SetBloodPressureEnabled: %v", err)
 	}
-	if err := st.SetMedicationEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetMedicationEnabled(ctx, true); err != nil {
 		t.Fatalf("SetMedicationEnabled: %v", err)
 	}
 
@@ -279,10 +279,10 @@ func TestAnalyzeCardiovascular_DaysShorthand(t *testing.T) {
 
 	ctx := context.Background()
 
-	if err := st.SetBloodPressureEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetBloodPressureEnabled(ctx, true); err != nil {
 		t.Fatalf("SetBloodPressureEnabled: %v", err)
 	}
-	if err := st.SetMedicationEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetMedicationEnabled(ctx, true); err != nil {
 		t.Fatalf("SetMedicationEnabled: %v", err)
 	}
 
@@ -308,10 +308,10 @@ func TestAnalyzeCardiovascular_AuditLogging(t *testing.T) {
 
 	ctx := context.Background()
 
-	if err := st.SetBloodPressureEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetBloodPressureEnabled(ctx, true); err != nil {
 		t.Fatalf("SetBloodPressureEnabled: %v", err)
 	}
-	if err := st.SetMedicationEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetMedicationEnabled(ctx, true); err != nil {
 		t.Fatalf("SetMedicationEnabled: %v", err)
 	}
 

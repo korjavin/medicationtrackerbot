@@ -37,19 +37,21 @@ type Scheduler struct {
 	TZPlanNotifier            *TZPlanNotifier
 }
 
-func New(s *store.Store, allowedUserID int64, notifiers []notifier.Notifier) *Scheduler {
+func New(s *store.Repos, allowedUserID int64, notifiers []notifier.Notifier) *Scheduler {
 	helper := NotifyHelper{
 		notifiers:     notifiers,
 		allowedUserID: allowedUserID,
 	}
 
-	medChecker := &MedicationChecker{NotifyHelper: helper, store: s}
-	medReminderChecker := &MedicationReminderChecker{NotifyHelper: helper, store: s}
-	lowStockChecker := &LowStockChecker{NotifyHelper: helper, store: s}
-	workoutChecker := &WorkoutChecker{NotifyHelper: helper, store: s, workoutSvc: workoutsvc.New(s), daysCache: make(map[string][]int)}
-	bpChecker := &BPReminderChecker{store: s, notifiers: notifiers}
-	weightChecker := &WeightReminderChecker{store: s, notifiers: notifiers}
-	tzPlanNotifier := &TZPlanNotifier{NotifyHelper: helper, store: s}
+	a := newStoreAdapter(s)
+
+	medChecker := &MedicationChecker{NotifyHelper: helper, store: a}
+	medReminderChecker := &MedicationReminderChecker{NotifyHelper: helper, store: a}
+	lowStockChecker := &LowStockChecker{NotifyHelper: helper, store: a}
+	workoutChecker := &WorkoutChecker{NotifyHelper: helper, store: a, workoutSvc: workoutsvc.New(s.Workout, s.TZ), daysCache: make(map[string][]int)}
+	bpChecker := &BPReminderChecker{store: a, notifiers: notifiers}
+	weightChecker := &WeightReminderChecker{store: a, notifiers: notifiers}
+	tzPlanNotifier := &TZPlanNotifier{NotifyHelper: helper, store: a}
 
 	sched := &Scheduler{
 		MedicationChecker:         medChecker,

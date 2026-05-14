@@ -1,0 +1,939 @@
+// Package medication owns the medications, intake_log, intake_reminders, and
+// medication_restocks tables: the user's medication list (CRUD, archival,
+// supplements, inventory tracking), scheduled and manual intake events
+// (pending / taken / skipped / snoozed), reminder message-id tracking, and the
+// restock event log.
+//
+// Repo is the per-domain repository. Construct via store.New / store.NewWithDB
+// and reach it as r.Medication; new code should depend on *medication.Repo (or
+// a narrow interface satisfied by it) directly.
+//
+// The 41 methods here form four sibling groups that share the same
+// transactional context and the medications.id foreign key, which is why they
+// sit in one package:
+//   - Medication CRUD (Create / Get / List / Update / Delete plus supplement
+//     and creation-time tweaks).
+//   - Inventory + restock (DecrementInventory / IncrementInventory /
+//     SetInventory / AddRestock / GetRestockHistory plus low-stock policy).
+//   - Intake log (CreateIntake / CreateManualIntake / ConfirmIntake / Skip /
+//     Snooze / Update / Delete / various Get readers / BatchGet /
+//     ConfirmIntakesBySchedule).
+//   - Intake reminders (AddIntakeReminder, GetIntakeReminders, batch reader).
+//
+// Dose-time columns convention (mirrors the top-of-store.go comment): the
+// intake_log columns scheduled_at_unix, taken_at_unix, snoozed_until_unix are
+// INTEGER unix-seconds-UTC. Writers normalize via t.UTC().Unix(); readers scan
+// into int64 / sql.NullInt64 and return time.Unix(n, 0).UTC(). The
+// architecture test TestIntakeLogTimeColumnsAreInteger (now in this package's
+// time_columns_test.go) fails CI if a future migration regresses any of these
+// columns to DATETIME / TEXT.
+package medication
+
+import (
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
+)
+
+// ScheduleConfig is the parsed form of Medication.Schedule. The Schedule
+// column itself is either a legacy "HH:MM" string (treated as daily with one
+// dose) or a JSON document conforming to this struct.
+type ScheduleConfig struct {
+	Type  string   `json:"type"`            // "daily", "weekly", "as_needed"
+	Days  []int    `json:"days,omitempty"`  // 0=Sunday, 1=Monday...
+	Times []string `json:"times,omitempty"` // ["08:00", "20:00"]
+}
+
+// Medication is one row in the medications table.
+type Medication struct {
+	ID             int64      `json:"id"`
+	Name           string     `json:"name"`
+	Dosage         string     `json:"dosage"`
+	Schedule       string     `json:"schedule"` // e.g. "09:00" or JSON
+	Archived       bool       `json:"archived"`
+	Supplement     bool       `json:"supplement"`
+	StartDate      *time.Time `json:"start_date"`
+	EndDate        *time.Time `json:"end_date"`
+	LastTakenAt    *time.Time `json:"last_taken_at"`
+	CreatedAt      time.Time  `json:"created_at"`
+	RxCUI          string     `json:"rxcui,omitempty"`
+	NormalizedName string     `json:"normalized_name,omitempty"`
+	InventoryCount *int       `json:"inventory_count,omitempty"` // NULL = not tracking
+	TZShiftPolicy  string     `json:"tz_shift_policy"`           // flexible / medium / strict
+}
+
+// ValidSchedule parses the Schedule column into a ScheduleConfig. Legacy
+// "HH:MM" strings are accepted as daily with one dose.
+func (m *Medication) ValidSchedule() (*ScheduleConfig, error) {
+	var s ScheduleConfig
+	// Check if legacy "HH:MM"
+	if len(m.Schedule) == 5 && m.Schedule[2] == ':' {
+		s.Type = "daily"
+		s.Times = []string{m.Schedule}
+		return &s, nil
+	}
+	// Try JSON
+	if err := json.Unmarshal([]byte(m.Schedule), &s); err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+// Restock is one row in the medication_restocks table.
+type Restock struct {
+	ID           int64     `json:"id"`
+	MedicationID int64     `json:"medication_id"`
+	Quantity     int       `json:"quantity"`
+	Note         string    `json:"note,omitempty"`
+	RestockedAt  time.Time `json:"restocked_at"`
+}
+
+// IntakeLog is one row in the intake_log table.
+type IntakeLog struct {
+	ID           int64      `json:"id"`
+	MedicationID int64      `json:"medication_id"`
+	UserID       int64      `json:"user_id"`
+	ScheduledAt  time.Time  `json:"scheduled_at"`
+	TakenAt      *time.Time `json:"taken_at,omitempty"`
+	Status       string     `json:"status"` // PENDING, TAKEN, SKIPPED, MISSED
+	SnoozedUntil *time.Time `json:"snoozed_until,omitempty"`
+}
+
+// MedicationSchedule represents a combination of medication ID and target time
+// for batch fetching intakes.
+type MedicationSchedule struct {
+	MedID       int64
+	ScheduledAt time.Time
+}
+
+// IntakeWithMedication is an intake_log row joined with its parent
+// medications row's name + dosage; used by the download endpoints.
+type IntakeWithMedication struct {
+	IntakeLog
+	MedicationName   string `json:"medication_name"`
+	MedicationDosage string `json:"medication_dosage"`
+}
+
+// Repo is the medication + intake_log + restock + inventory repository.
+// Construct with New; share one *Repo per process — the underlying *db.DB
+// owns its own connection pool.
+type Repo struct {
+	db *storedb.DB
+}
+
+// New returns a Repo bound to the shared *db.DB. The composition root passes
+// in the same *db.DB it gives every other repo so all reads/writes go through
+// one connection pool.
+func New(d *storedb.DB) *Repo {
+	return &Repo{db: d}
+}
+
+// -- Medications CRUD --
+
+func (r *Repo) CreateMedication(name, dosage, schedule string, startDate, endDate *time.Time, rxcui, normalizedName string, tzShiftPolicy string) (int64, error) {
+	if tzShiftPolicy == "" {
+		tzShiftPolicy = "flexible"
+	}
+	res, err := r.db.Exec("INSERT INTO medications (name, dosage, schedule, start_date, end_date, rxcui, normalized_name, tz_shift_policy) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		name, dosage, schedule, startDate, endDate, rxcui, normalizedName, tzShiftPolicy)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (r *Repo) ListMedications(showArchived bool) ([]Medication, error) {
+	query := `
+		SELECT
+			m.id, m.name, m.dosage, m.schedule, m.archived, m.supplement, m.start_date, m.end_date, m.created_at, m.rxcui, m.normalized_name, m.inventory_count, m.tz_shift_policy,
+			MAX(CASE WHEN l.status = 'TAKEN' THEN l.taken_at_unix ELSE NULL END) as last_taken_unix
+		FROM medications m
+		LEFT JOIN intake_log l ON m.id = l.medication_id
+	`
+	if !showArchived {
+		query += " WHERE m.archived = 0"
+	}
+	query += " GROUP BY m.id ORDER BY m.name ASC"
+
+	rows, err := r.db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	meds := []Medication{}
+	for rows.Next() {
+		var m Medication
+		var lastTakenUnix sql.NullInt64
+		var rxcui, normalizedName sql.NullString
+		var inventoryCount sql.NullInt64
+
+		if err := rows.Scan(&m.ID, &m.Name, &m.Dosage, &m.Schedule, &m.Archived, &m.Supplement, &m.StartDate, &m.EndDate, &m.CreatedAt, &rxcui, &normalizedName, &inventoryCount, &m.TZShiftPolicy, &lastTakenUnix); err != nil {
+			return nil, err
+		}
+
+		if rxcui.Valid {
+			m.RxCUI = rxcui.String
+		}
+		if normalizedName.Valid {
+			m.NormalizedName = normalizedName.String
+		}
+		if inventoryCount.Valid {
+			ic := int(inventoryCount.Int64)
+			m.InventoryCount = &ic
+		}
+
+		if lastTakenUnix.Valid {
+			t := time.Unix(lastTakenUnix.Int64, 0).UTC()
+			m.LastTakenAt = &t
+		}
+
+		meds = append(meds, m)
+	}
+	return meds, nil
+}
+
+func (r *Repo) GetMedication(id int64) (*Medication, error) {
+	var m Medication
+	var rxcui, normalizedName sql.NullString
+	var inventoryCount sql.NullInt64
+	err := r.db.QueryRow("SELECT id, name, dosage, schedule, archived, supplement, start_date, end_date, created_at, rxcui, normalized_name, inventory_count, tz_shift_policy FROM medications WHERE id = ?", id).Scan(
+		&m.ID, &m.Name, &m.Dosage, &m.Schedule, &m.Archived, &m.Supplement, &m.StartDate, &m.EndDate, &m.CreatedAt, &rxcui, &normalizedName, &inventoryCount, &m.TZShiftPolicy,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if rxcui.Valid {
+		m.RxCUI = rxcui.String
+	}
+	if normalizedName.Valid {
+		m.NormalizedName = normalizedName.String
+	}
+	if inventoryCount.Valid {
+		ic := int(inventoryCount.Int64)
+		m.InventoryCount = &ic
+	}
+
+	return &m, nil
+}
+
+func (r *Repo) UpdateMedication(id int64, name, dosage, schedule string, archived bool, startDate, endDate *time.Time, rxcui, normalizedName string, inventoryCount *int, tzShiftPolicy string) error {
+	if tzShiftPolicy == "" {
+		tzShiftPolicy = "flexible"
+	}
+	_, err := r.db.Exec("UPDATE medications SET name = ?, dosage = ?, schedule = ?, archived = ?, start_date = ?, end_date = ?, rxcui = ?, normalized_name = ?, inventory_count = ?, tz_shift_policy = ? WHERE id = ?",
+		name, dosage, schedule, archived, startDate, endDate, rxcui, normalizedName, inventoryCount, tzShiftPolicy, id)
+	return err
+}
+
+func (r *Repo) DeleteMedication(id int64) error {
+	_, err := r.db.Exec("DELETE FROM medications WHERE id = ?", id)
+	return err
+}
+
+func (r *Repo) CanDeleteMedication(id int64) (bool, error) {
+	var count int
+	err := r.db.QueryRow("SELECT COUNT(*) FROM intake_log WHERE medication_id = ?", id).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count == 0, nil
+}
+
+func (r *Repo) SetMedicationSupplement(id int64, supplement bool) error {
+	_, err := r.db.Exec("UPDATE medications SET supplement = ? WHERE id = ?", supplement, id)
+	return err
+}
+
+func (r *Repo) UpdateMedicationCreatedAt(id int64, createdAt time.Time) error {
+	_, err := r.db.Exec("UPDATE medications SET created_at = ? WHERE id = ?", createdAt, id)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// -- Inventory Functions --
+
+// DecrementInventory reduces the inventory count by the given quantity.
+// Only decrements if inventory is being tracked (not NULL).
+func (r *Repo) DecrementInventory(medID int64, qty int) error {
+	_, err := r.db.Exec("UPDATE medications SET inventory_count = inventory_count - ? WHERE id = ? AND inventory_count IS NOT NULL", qty, medID)
+	return err
+}
+
+// IncrementInventory increases the inventory count by the given quantity.
+// Only increments if inventory is being tracked (not NULL).
+func (r *Repo) IncrementInventory(medID int64, qty int) error {
+	_, err := r.db.Exec("UPDATE medications SET inventory_count = inventory_count + ? WHERE id = ? AND inventory_count IS NOT NULL", qty, medID)
+	return err
+}
+
+// SetInventory sets the inventory count for a medication (nil to disable tracking).
+func (r *Repo) SetInventory(medID int64, count *int) error {
+	_, err := r.db.Exec("UPDATE medications SET inventory_count = ? WHERE id = ?", count, medID)
+	return err
+}
+
+// AddRestock adds inventory and logs the restock event.
+func (r *Repo) AddRestock(medID int64, qty int, note string) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	_, err = tx.Exec(`
+		UPDATE medications
+		SET inventory_count = COALESCE(inventory_count, 0) + ?
+		WHERE id = ?`, qty, medID)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec("INSERT INTO medication_restocks (medication_id, quantity, note) VALUES (?, ?, ?)", medID, qty, note)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// GetRestockHistory returns restock events for a medication.
+func (r *Repo) GetRestockHistory(medID int64) ([]Restock, error) {
+	rows, err := r.db.Query("SELECT id, medication_id, quantity, note, restocked_at FROM medication_restocks WHERE medication_id = ? ORDER BY restocked_at DESC", medID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var restocks []Restock
+	for rows.Next() {
+		var rec Restock
+		var note sql.NullString
+		if err := rows.Scan(&rec.ID, &rec.MedicationID, &rec.Quantity, &note, &rec.RestockedAt); err != nil {
+			return nil, err
+		}
+		if note.Valid {
+			rec.Note = note.String
+		}
+		restocks = append(restocks, rec)
+	}
+	return restocks, nil
+}
+
+// GetMedicationsLowOnStock returns medications with inventory tracking that
+// are low on stock. daysThreshold: warn if stock lasts fewer than this many days.
+func (r *Repo) GetMedicationsLowOnStock(daysThreshold int) ([]Medication, error) {
+	meds, err := r.ListMedications(false)
+	if err != nil {
+		return nil, err
+	}
+
+	var lowStock []Medication
+	for _, m := range meds {
+		if m.InventoryCount == nil {
+			continue
+		}
+
+		dailyUsage := r.calculateDailyUsage(&m)
+		if dailyUsage == 0 {
+			continue
+		}
+
+		if r.hasEnoughStock(&m, dailyUsage, daysThreshold) {
+			continue
+		}
+
+		lowStock = append(lowStock, m)
+	}
+
+	return lowStock, nil
+}
+
+// hasEnoughStock returns true if medication has enough stock. If medication
+// has an end date, checks if stock lasts until end date; otherwise checks if
+// stock lasts at least daysThreshold days.
+func (r *Repo) hasEnoughStock(m *Medication, dailyUsage float64, daysThreshold int) bool {
+	if m.InventoryCount == nil {
+		return true
+	}
+
+	daysOfStock := float64(*m.InventoryCount) / dailyUsage
+
+	if m.EndDate != nil {
+		daysUntilEnd := time.Until(*m.EndDate).Hours() / 24
+		if daysUntilEnd <= 0 {
+			return true
+		}
+		return daysOfStock >= daysUntilEnd
+	}
+
+	return daysOfStock >= float64(daysThreshold)
+}
+
+// calculateDailyUsage returns the average daily intakes for a medication.
+func (r *Repo) calculateDailyUsage(m *Medication) float64 {
+	cfg, err := m.ValidSchedule()
+	if err != nil {
+		return 0
+	}
+
+	if cfg.Type == "as_needed" {
+		return 0
+	}
+
+	timesPerDay := float64(len(cfg.Times))
+
+	if cfg.Type == "daily" {
+		return timesPerDay
+	}
+
+	if cfg.Type == "weekly" {
+		daysPerWeek := float64(len(cfg.Days))
+		return (daysPerWeek / 7.0) * timesPerDay
+	}
+
+	return 0
+}
+
+// GetDaysOfStockRemaining calculates how many days of stock remain for a medication.
+func (r *Repo) GetDaysOfStockRemaining(m *Medication) *float64 {
+	if m.InventoryCount == nil {
+		return nil
+	}
+
+	dailyUsage := r.calculateDailyUsage(m)
+	if dailyUsage == 0 {
+		return nil
+	}
+
+	days := float64(*m.InventoryCount) / dailyUsage
+	return &days
+}
+
+// IsLowOnStock checks if a medication is low on stock considering its end date.
+func (r *Repo) IsLowOnStock(m *Medication, daysThreshold int) bool {
+	if m.InventoryCount == nil {
+		return false
+	}
+
+	dailyUsage := r.calculateDailyUsage(m)
+	if dailyUsage == 0 {
+		return false
+	}
+
+	return !r.hasEnoughStock(m, dailyUsage, daysThreshold)
+}
+
+// -- Intake Log --
+
+func (r *Repo) CreateIntake(medID, userID int64, scheduledAt time.Time) (int64, error) {
+	res, err := r.db.Exec("INSERT INTO intake_log (medication_id, user_id, scheduled_at_unix, status) VALUES (?, ?, ?, 'PENDING')",
+		medID, userID, scheduledAt.UTC().Unix())
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (r *Repo) CreateManualIntake(medID, userID int64, takenAt time.Time) (int64, error) {
+	// For manual intake, scheduled_at_unix = taken_at unix seconds.
+	takenUnix := takenAt.UTC().Unix()
+	res, err := r.db.Exec("INSERT INTO intake_log (medication_id, user_id, scheduled_at_unix, taken_at_unix, status) VALUES (?, ?, ?, ?, 'TAKEN')",
+		medID, userID, takenUnix, takenUnix)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (r *Repo) ConfirmIntake(id int64, takenAt time.Time) error {
+	res, err := r.db.Exec("UPDATE intake_log SET status = 'TAKEN', taken_at_unix = ? WHERE id = ? AND status = 'PENDING'",
+		takenAt.UTC().Unix(), id)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (r *Repo) SkipIntake(id int64) error {
+	res, err := r.db.Exec("UPDATE intake_log SET status = 'SKIPPED', taken_at_unix = NULL WHERE id = ? AND status = 'PENDING'", id)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (r *Repo) UpdateIntake(id int64, takenAt time.Time, status string) error {
+	var takenAtUnixVal interface{}
+	if status == "TAKEN" {
+		takenAtUnixVal = takenAt.UTC().Unix()
+	} else {
+		takenAtUnixVal = nil
+	}
+	_, err := r.db.Exec("UPDATE intake_log SET status = ?, taken_at_unix = ? WHERE id = ?", status, takenAtUnixVal, id)
+	return err
+}
+
+func (r *Repo) SnoozeIntake(id int64, snoozeUntil time.Time) error {
+	res, err := r.db.Exec("UPDATE intake_log SET snoozed_until_unix = ? WHERE id = ? AND status = 'PENDING'",
+		snoozeUntil.UTC().Unix(), id)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (r *Repo) GetPendingIntakes() ([]IntakeLog, error) {
+	rows, err := r.db.Query("SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until_unix FROM intake_log WHERE status = 'PENDING'")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	logs := []IntakeLog{}
+	for rows.Next() {
+		var l IntakeLog
+		var schedUnix int64
+		var snoozeUnix sql.NullInt64
+		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &l.Status, &snoozeUnix); err != nil {
+			return nil, err
+		}
+		l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
+		if snoozeUnix.Valid {
+			t := time.Unix(snoozeUnix.Int64, 0).UTC()
+			l.SnoozedUntil = &t
+		}
+		logs = append(logs, l)
+	}
+	return logs, nil
+}
+
+func (r *Repo) GetTakenIntakesBySchedule(userID int64, scheduledAt time.Time) ([]IntakeLog, error) {
+	rows, err := r.db.Query("SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until_unix FROM intake_log WHERE user_id = ? AND scheduled_at_unix = ? AND status = 'TAKEN'", userID, scheduledAt.UTC().Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	logs := []IntakeLog{}
+	for rows.Next() {
+		var l IntakeLog
+		var schedUnix int64
+		var snoozeUnix sql.NullInt64
+		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &l.Status, &snoozeUnix); err != nil {
+			return nil, err
+		}
+		l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
+		if snoozeUnix.Valid {
+			t := time.Unix(snoozeUnix.Int64, 0).UTC()
+			l.SnoozedUntil = &t
+		}
+		logs = append(logs, l)
+	}
+	return logs, nil
+}
+
+func (r *Repo) GetIntakeHistory(medID int, days int) ([]IntakeLog, error) {
+	query := "SELECT id, medication_id, user_id, scheduled_at_unix, taken_at_unix, status, snoozed_until_unix FROM intake_log WHERE 1=1"
+	args := []interface{}{}
+
+	if medID > 0 {
+		query += " AND medication_id = ?"
+		args = append(args, medID)
+	}
+
+	if days > 0 {
+		since := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+		query += " AND scheduled_at_unix >= ?"
+		args = append(args, since.UTC().Unix())
+	}
+
+	query += " ORDER BY scheduled_at_unix DESC LIMIT 100"
+
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	logs := []IntakeLog{}
+	for rows.Next() {
+		var l IntakeLog
+		var schedUnix int64
+		var takenUnix sql.NullInt64
+		var snoozeUnix sql.NullInt64
+		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &takenUnix, &l.Status, &snoozeUnix); err != nil {
+			return nil, err
+		}
+		l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
+		if takenUnix.Valid {
+			t := time.Unix(takenUnix.Int64, 0).UTC()
+			l.TakenAt = &t
+		}
+		if snoozeUnix.Valid {
+			t := time.Unix(snoozeUnix.Int64, 0).UTC()
+			l.SnoozedUntil = &t
+		}
+		logs = append(logs, l)
+	}
+	return logs, nil
+}
+
+func (r *Repo) GetIntake(id int64) (*IntakeLog, error) {
+	var l IntakeLog
+	var schedUnix int64
+	var takenUnix sql.NullInt64
+	var snoozeUnix sql.NullInt64
+	err := r.db.QueryRow("SELECT id, medication_id, user_id, scheduled_at_unix, taken_at_unix, status, snoozed_until_unix FROM intake_log WHERE id = ?", id).Scan(
+		&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &takenUnix, &l.Status, &snoozeUnix,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
+	if takenUnix.Valid {
+		t := time.Unix(takenUnix.Int64, 0).UTC()
+		l.TakenAt = &t
+	}
+	if snoozeUnix.Valid {
+		t := time.Unix(snoozeUnix.Int64, 0).UTC()
+		l.SnoozedUntil = &t
+	}
+	return &l, nil
+}
+
+func (r *Repo) GetIntakeBySchedule(medID int64, scheduledAt time.Time) (*IntakeLog, error) {
+	var l IntakeLog
+	var schedUnix int64
+	var takenUnix sql.NullInt64
+	var snoozeUnix sql.NullInt64
+	err := r.db.QueryRow("SELECT id, medication_id, user_id, scheduled_at_unix, taken_at_unix, status, snoozed_until_unix FROM intake_log WHERE medication_id = ? AND scheduled_at_unix = ?", medID, scheduledAt.UTC().Unix()).Scan(
+		&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &takenUnix, &l.Status, &snoozeUnix,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
+	if takenUnix.Valid {
+		t := time.Unix(takenUnix.Int64, 0).UTC()
+		l.TakenAt = &t
+	}
+	if snoozeUnix.Valid {
+		t := time.Unix(snoozeUnix.Int64, 0).UTC()
+		l.SnoozedUntil = &t
+	}
+	return &l, nil
+}
+
+func (r *Repo) BatchGetIntakesBySchedule(schedules []MedicationSchedule) (map[MedicationSchedule]*IntakeLog, error) {
+	result := make(map[MedicationSchedule]*IntakeLog, len(schedules))
+	if len(schedules) == 0 {
+		return result, nil
+	}
+
+	// SQLite maximum variables is typically 32766, but we'll use a conservative batch size.
+	// Each tuple (medication_id, scheduled_at_unix) uses 2 variables.
+	// 500 schedules * 2 = 1000 variables per batch.
+	const batchSize = 500
+
+	for i := 0; i < len(schedules); i += batchSize {
+		end := i + batchSize
+		if end > len(schedules) {
+			end = len(schedules)
+		}
+
+		batch := schedules[i:end]
+		placeholders := make([]string, len(batch))
+		args := make([]interface{}, len(batch)*2)
+
+		for j, sched := range batch {
+			placeholders[j] = "(?, ?)"
+			args[j*2] = sched.MedID
+			args[j*2+1] = sched.ScheduledAt.UTC().Unix()
+		}
+
+		query := fmt.Sprintf(
+			"SELECT id, medication_id, user_id, scheduled_at_unix, taken_at_unix, status, snoozed_until_unix FROM intake_log WHERE (medication_id, scheduled_at_unix) IN (%s)",
+			strings.Join(placeholders, ", "),
+		)
+
+		rows, err := r.db.Query(query, args...)
+		if err != nil {
+			return nil, err
+		}
+
+		for rows.Next() {
+			var l IntakeLog
+			var schedUnix int64
+			var takenUnix sql.NullInt64
+			var snoozeUnix sql.NullInt64
+			err := rows.Scan(
+				&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &takenUnix, &l.Status, &snoozeUnix,
+			)
+			if err != nil {
+				rows.Close()
+				return nil, err
+			}
+			l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
+			if takenUnix.Valid {
+				t := time.Unix(takenUnix.Int64, 0).UTC()
+				l.TakenAt = &t
+			}
+			if snoozeUnix.Valid {
+				t := time.Unix(snoozeUnix.Int64, 0).UTC()
+				l.SnoozedUntil = &t
+			}
+			// Key by UTC. Callers that look up with a non-UTC ScheduledAt
+			// must convert via .UTC() — the scheduler dedupe path already does so.
+			result[MedicationSchedule{MedID: l.MedicationID, ScheduledAt: l.ScheduledAt}] = &l
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		rows.Close()
+	}
+
+	return result, nil
+}
+
+// ConfirmIntakesBySchedule marks every PENDING intake whose scheduled_at_unix
+// matches the supplied target as TAKEN, returning the IDs that were updated.
+// The comparison is on the INTEGER scheduled_at_unix column, so it is
+// independent of the caller's time.Location.
+func (r *Repo) ConfirmIntakesBySchedule(userID int64, scheduledAt time.Time, takenAt time.Time) ([]int64, error) {
+	candidates, err := r.GetPendingIntakesBySchedule(userID, scheduledAt)
+	if err != nil {
+		return nil, err
+	}
+
+	var ids []int64
+	for _, c := range candidates {
+		// ConfirmIntake guards on status='PENDING', so a concurrent confirm
+		// returns sql.ErrNoRows here — treat that as "already taken" and skip
+		// instead of failing the batch.
+		if err := r.ConfirmIntake(c.ID, takenAt); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			return nil, err
+		}
+		ids = append(ids, c.ID)
+	}
+	return ids, nil
+}
+
+func (r *Repo) AddIntakeReminder(intakeID int64, messageID int) error {
+	_, err := r.db.Exec("INSERT INTO intake_reminders (intake_id, message_id) VALUES (?, ?)", intakeID, messageID)
+	return err
+}
+
+func (r *Repo) GetIntakeReminders(intakeID int64) ([]int, error) {
+	rows, err := r.db.Query("SELECT message_id FROM intake_reminders WHERE intake_id = ?", intakeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []int
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+func (r *Repo) GetBatchIntakeReminders(intakeIDs []int64) (map[int64][]int, error) {
+	if len(intakeIDs) == 0 {
+		return make(map[int64][]int), nil
+	}
+
+	result := make(map[int64][]int)
+
+	chunkSize := 500
+	for i := 0; i < len(intakeIDs); i += chunkSize {
+		end := i + chunkSize
+		if end > len(intakeIDs) {
+			end = len(intakeIDs)
+		}
+		chunk := intakeIDs[i:end]
+
+		args := make([]interface{}, len(chunk))
+		placeholders := make([]string, len(chunk))
+		for j, id := range chunk {
+			args[j] = id
+			placeholders[j] = "?"
+		}
+
+		query := fmt.Sprintf("SELECT intake_id, message_id FROM intake_reminders WHERE intake_id IN (%s)", strings.Join(placeholders, ","))
+		rows, err := r.db.Query(query, args...)
+		if err != nil {
+			return nil, err
+		}
+
+		for rows.Next() {
+			var intakeID int64
+			var msgID int
+			if err := rows.Scan(&intakeID, &msgID); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			result[intakeID] = append(result[intakeID], msgID)
+		}
+
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+
+	return result, nil
+}
+
+// GetPendingIntakesBySchedule returns every PENDING intake for the user whose
+// scheduled_at_unix matches the supplied target instant. The match is on the
+// INTEGER unix-seconds column, so it is independent of the caller's
+// time.Location.
+func (r *Repo) GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time) ([]IntakeLog, error) {
+	rows, err := r.db.Query(
+		`SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until_unix
+		 FROM intake_log
+		 WHERE user_id = ? AND status = 'PENDING'
+		   AND scheduled_at_unix = ?
+		   AND medication_id IN (SELECT id FROM medications WHERE archived = 0)`,
+		userID, scheduledAt.UTC().Unix(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var logs []IntakeLog
+	for rows.Next() {
+		var l IntakeLog
+		var schedUnix int64
+		var snoozeUnix sql.NullInt64
+		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &l.Status, &snoozeUnix); err != nil {
+			return nil, err
+		}
+		l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
+		if snoozeUnix.Valid {
+			t := time.Unix(snoozeUnix.Int64, 0).UTC()
+			l.SnoozedUntil = &t
+		}
+		logs = append(logs, l)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return logs, nil
+}
+
+func (r *Repo) GetPendingIntakesForMedication(medID int64) ([]IntakeLog, error) {
+	rows, err := r.db.Query("SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until_unix FROM intake_log WHERE medication_id = ? AND status = 'PENDING'", medID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var logs []IntakeLog
+	for rows.Next() {
+		var l IntakeLog
+		var schedUnix int64
+		var snoozeUnix sql.NullInt64
+		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &l.Status, &snoozeUnix); err != nil {
+			return nil, err
+		}
+		l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
+		if snoozeUnix.Valid {
+			t := time.Unix(snoozeUnix.Int64, 0).UTC()
+			l.SnoozedUntil = &t
+		}
+		logs = append(logs, l)
+	}
+	return logs, nil
+}
+
+func (r *Repo) DeleteIntake(id int64) error {
+	_, err := r.db.Exec("DELETE FROM intake_log WHERE id = ?", id)
+	return err
+}
+
+// GetIntakesSince returns every intake_log row (joined with its parent
+// medication's name + dosage) whose scheduled_at_unix is >= the supplied
+// instant. Used by the download / export endpoints.
+func (r *Repo) GetIntakesSince(since time.Time) ([]IntakeWithMedication, error) {
+	query := `
+		SELECT
+			il.id, il.medication_id, il.user_id, il.scheduled_at_unix, il.taken_at_unix, il.status, il.snoozed_until_unix,
+			m.name AS medication_name, m.dosage AS medication_dosage
+		FROM intake_log il
+		JOIN medications m ON il.medication_id = m.id
+		WHERE il.scheduled_at_unix >= ?
+		ORDER BY il.scheduled_at_unix DESC
+	`
+	rows, err := r.db.Query(query, since.UTC().Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var logs []IntakeWithMedication
+	for rows.Next() {
+		var l IntakeWithMedication
+		var schedUnix int64
+		var takenUnix sql.NullInt64
+		var snoozeUnix sql.NullInt64
+		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &takenUnix, &l.Status, &snoozeUnix, &l.MedicationName, &l.MedicationDosage); err != nil {
+			return nil, err
+		}
+		l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
+		if takenUnix.Valid {
+			t := time.Unix(takenUnix.Int64, 0).UTC()
+			l.TakenAt = &t
+		}
+		if snoozeUnix.Valid {
+			t := time.Unix(snoozeUnix.Int64, 0).UTC()
+			l.SnoozedUntil = &t
+		}
+		logs = append(logs, l)
+	}
+	return logs, nil
+}

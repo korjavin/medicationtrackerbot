@@ -9,13 +9,15 @@ import (
 )
 
 type mockMedStoreBench struct {
-	store.Store
 	getIntakesBySchedCalls int
 }
 
 func (m *mockMedStoreBench) GetMedicationEnabled(ctx context.Context) (bool, error) { return true, nil }
 func (m *mockMedStoreBench) GetCurrentTimezone() (string, error)                    { return "UTC", nil }
 func (m *mockMedStoreBench) GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error) {
+	return nil, nil
+}
+func (m *mockMedStoreBench) GetLatestCompletedTZTransitionPlan() (*store.TZTransitionPlan, error) {
 	return nil, nil
 }
 

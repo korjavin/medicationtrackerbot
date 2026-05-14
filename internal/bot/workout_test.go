@@ -35,8 +35,9 @@ func TestWorkoutCallbackRouting_PanicRegression(t *testing.T) {
 		api = &tgbotapi.BotAPI{Token: "123:TOKEN", Client: &http.Client{}, Buffer: 100}
 	}
 	api.SetAPIEndpoint(server.URL + "/bot%s/%s")
+	a := newStoreAdapter(s)
 
-	b := &Bot{api: api, meds: s, bp: s, weight: s, workouts: s, workoutSvc: workoutsvc.New(s), exerciseSvc: domain.NewExerciseService(s), medSvc: domain.NewMedicationService(s), food: s, imports: s, allowedUserID: 123}
+	b := &Bot{api: api, meds: a, bp: a, weight: a, workouts: a, workoutSvc: workoutsvc.New(s.Workout, s.TZ), exerciseSvc: domain.NewExerciseService(s.Workout), medSvc: domain.NewMedicationService(s.Medication), food: a, imports: a, allowedUserID: 123}
 
 	// Create a dummy session so it doesn't fail on "session not found" before routing
 	// Actually routing happens before session lookup in handleCallback,
@@ -96,27 +97,28 @@ func TestWorkoutFinish_StateUpdate(t *testing.T) {
 	}
 	api.SetAPIEndpoint(server.URL + "/bot%s/%s")
 
+	a := newStoreAdapter(s)
 	b := &Bot{
 		api:           api,
-		meds:          s,
-		medSvc:        domain.NewMedicationService(s),
-		bp:            s,
-		weight:        s,
-		workouts:      s,
-		workoutSvc:    workoutsvc.New(s),
-		exerciseSvc:   domain.NewExerciseService(s),
-		food:          s,
-		imports:       s,
+		meds:          a,
+		medSvc:        domain.NewMedicationService(s.Medication),
+		bp:            a,
+		weight:        a,
+		workouts:      a,
+		workoutSvc:    workoutsvc.New(s.Workout, s.TZ),
+		exerciseSvc:   domain.NewExerciseService(s.Workout),
+		food:          a,
+		imports:       a,
 		allowedUserID: 123456,
 	}
 
 	// Setup data
 	userID := int64(123456)
-	group, _ := s.CreateWorkoutGroup("G", "", false, userID, "[1]", "09:00", 15)
-	variant, _ := s.CreateWorkoutVariant(group.ID, "V", nil, "")
-	s.AddExerciseToVariant(variant.ID, "Ex1", 3, 10, nil, nil, 0)
-	session, _ := s.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
-	s.StartSession(session.ID)
+	group, _ := s.Workout.CreateWorkoutGroup("G", "", false, userID, "[1]", "09:00", 15)
+	variant, _ := s.Workout.CreateWorkoutVariant(group.ID, "V", nil, "")
+	s.Workout.AddExerciseToVariant(variant.ID, "Ex1", 3, 10, nil, nil, 0)
+	session, _ := s.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	s.Workout.StartSession(session.ID)
 
 	// Simulate "workout_finish_ID" callback
 	cb := &tgbotapi.CallbackQuery{
@@ -131,7 +133,7 @@ func TestWorkoutFinish_StateUpdate(t *testing.T) {
 	b.handleWorkoutCallback(cb, cb.Data)
 
 	// Verify session status
-	updatedSession, _ := s.GetWorkoutSession(session.ID)
+	updatedSession, _ := s.Workout.GetWorkoutSession(session.ID)
 	if updatedSession.Status != "completed" {
 		t.Errorf("Expected session status 'completed', got '%s'", updatedSession.Status)
 	}
@@ -177,47 +179,48 @@ func TestCheckWorkoutCompletion_PostCompletionAddition(t *testing.T) {
 	}
 	api.SetAPIEndpoint(server.URL + "/bot%s/%s")
 
+	a := newStoreAdapter(s)
 	b := &Bot{
 		api:           api,
-		meds:          s,
-		medSvc:        domain.NewMedicationService(s),
-		bp:            s,
-		weight:        s,
-		workouts:      s,
-		workoutSvc:    workoutsvc.New(s),
-		exerciseSvc:   domain.NewExerciseService(s),
-		food:          s,
-		imports:       s,
+		meds:          a,
+		medSvc:        domain.NewMedicationService(s.Medication),
+		bp:            a,
+		weight:        a,
+		workouts:      a,
+		workoutSvc:    workoutsvc.New(s.Workout, s.TZ),
+		exerciseSvc:   domain.NewExerciseService(s.Workout),
+		food:          a,
+		imports:       a,
 		allowedUserID: 123456,
 	}
 
 	// 4. Setup Data with ROTATION
 	userID := int64(123456)
 	// Create ROTATING group
-	group, err := s.CreateWorkoutGroup("Test Group", "", true, userID, "[1]", "09:00", 15)
+	group, err := s.Workout.CreateWorkoutGroup("Test Group", "", true, userID, "[1]", "09:00", 15)
 	if err != nil {
 		t.Fatalf("CreateGroup: %v", err)
 	}
 
-	variant1, err := s.CreateWorkoutVariant(group.ID, "Variant 1", nil, "")
+	variant1, err := s.Workout.CreateWorkoutVariant(group.ID, "Variant 1", nil, "")
 	if err != nil {
 		t.Fatalf("CreateVariant1: %v", err)
 	}
 
 	zero := 0
-	_, err = s.CreateWorkoutVariant(group.ID, "Variant 2", &zero, "")
+	_, err = s.Workout.CreateWorkoutVariant(group.ID, "Variant 2", &zero, "")
 	if err != nil {
 		t.Fatalf("CreateVariant2: %v", err)
 	}
 
 	// Init rotation to Variant 1
-	err = s.InitializeRotation(group.ID, variant1.ID)
+	err = s.Workout.InitializeRotation(group.ID, variant1.ID)
 	if err != nil {
 		t.Fatalf("InitializeRotation: %v", err)
 	}
 
 	// Add exercise to Variant 1
-	ex1, err := s.AddExerciseToVariant(variant1.ID, "Pushups", 3, 10, nil, nil, 0)
+	ex1, err := s.Workout.AddExerciseToVariant(variant1.ID, "Pushups", 3, 10, nil, nil, 0)
 	if err != nil {
 		t.Fatalf("AddExercise1: %v", err)
 	}
@@ -225,21 +228,21 @@ func TestCheckWorkoutCompletion_PostCompletionAddition(t *testing.T) {
 	// Create a few library items so that the target library exercise gets an ID
 	// that doesn't collide with any workout_exercises ID. In production, the library
 	// is seeded from existing exercises during migration 028, so IDs diverge early.
-	_, _ = s.CreateExerciseLibraryItem(userID, "Dummy1", 1, 1, nil, nil, "")
-	_, _ = s.CreateExerciseLibraryItem(userID, "Dummy2", 1, 1, nil, nil, "")
-	libEx, err := s.CreateExerciseLibraryItem(userID, "Pullups", 3, 5, nil, nil, "")
+	_, _ = s.Workout.CreateExerciseLibraryItem(userID, "Dummy1", 1, 1, nil, nil, "")
+	_, _ = s.Workout.CreateExerciseLibraryItem(userID, "Dummy2", 1, 1, nil, nil, "")
+	libEx, err := s.Workout.CreateExerciseLibraryItem(userID, "Pullups", 3, 5, nil, nil, "")
 	if err != nil {
 		t.Fatalf("CreateExerciseLibraryItem: %v", err)
 	}
 
 	// Create session for Variant 1
-	session, err := s.CreateWorkoutSession(group.ID, variant1.ID, userID, time.Now(), "09:00")
+	session, err := s.Workout.CreateWorkoutSession(group.ID, variant1.ID, userID, time.Now(), "09:00")
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
 
 	// 5. Complete session normally via CALLBACK CHAIN
-	err = s.StartSession(session.ID)
+	err = s.Workout.StartSession(session.ID)
 	if err != nil {
 		t.Fatalf("StartSession: %v", err)
 	}
@@ -344,16 +347,17 @@ func TestPrematureCompletion_DuplicateLogs(t *testing.T) {
 
 	api := &tgbotapi.BotAPI{Token: "TEST", Client: &http.Client{}}
 	api.SetAPIEndpoint(server.URL + "/bot%s/%s")
-	b := &Bot{api: api, meds: s, bp: s, weight: s, workouts: s, workoutSvc: workoutsvc.New(s), exerciseSvc: domain.NewExerciseService(s), medSvc: domain.NewMedicationService(s), food: s, imports: s, allowedUserID: 1}
+	a := newStoreAdapter(s)
+	b := &Bot{api: api, meds: a, bp: a, weight: a, workouts: a, workoutSvc: workoutsvc.New(s.Workout, s.TZ), exerciseSvc: domain.NewExerciseService(s.Workout), medSvc: domain.NewMedicationService(s.Medication), food: a, imports: a, allowedUserID: 1}
 
 	// Create group/variant with 2 exercises
-	group, _ := s.CreateWorkoutGroup("G", "", false, 1, "[1]", "09:00", 15)
-	variant, _ := s.CreateWorkoutVariant(group.ID, "V", nil, "")
-	ex1, _ := s.AddExerciseToVariant(variant.ID, "Ex1", 3, 10, nil, nil, 0)
-	ex2, _ := s.AddExerciseToVariant(variant.ID, "Ex2", 3, 10, nil, nil, 1)
+	group, _ := s.Workout.CreateWorkoutGroup("G", "", false, 1, "[1]", "09:00", 15)
+	variant, _ := s.Workout.CreateWorkoutVariant(group.ID, "V", nil, "")
+	ex1, _ := s.Workout.AddExerciseToVariant(variant.ID, "Ex1", 3, 10, nil, nil, 0)
+	ex2, _ := s.Workout.AddExerciseToVariant(variant.ID, "Ex2", 3, 10, nil, nil, 1)
 
-	session, _ := s.CreateWorkoutSession(group.ID, variant.ID, 1, time.Now(), "09:00")
-	s.StartSession(session.ID)
+	session, _ := s.Workout.CreateWorkoutSession(group.ID, variant.ID, 1, time.Now(), "09:00")
+	s.Workout.StartSession(session.ID)
 
 	// Log Ex1 TWICE (simulate double click)
 	cb := &tgbotapi.CallbackQuery{
@@ -376,7 +380,7 @@ func TestPrematureCompletion_DuplicateLogs(t *testing.T) {
 	}
 
 	// Verify status
-	session, err = s.GetWorkoutSession(session.ID)
+	session, err = s.Workout.GetWorkoutSession(session.ID)
 	if err != nil {
 		t.Fatalf("Failed to get session: %v", err)
 	}
@@ -400,7 +404,7 @@ func TestPrematureCompletion_DuplicateLogs(t *testing.T) {
 		t.Fatal("Timeout waiting for completion message")
 	}
 
-	session, err = s.GetWorkoutSession(session.ID)
+	session, err = s.Workout.GetWorkoutSession(session.ID)
 	if err != nil {
 		t.Fatalf("Failed to get session: %v", err)
 	}
@@ -434,7 +438,8 @@ func TestDismissNotification(t *testing.T) {
 	}
 	api.SetAPIEndpoint(server.URL + "/bot%s/%s")
 
-	b := &Bot{api: api, meds: s, bp: s, weight: s, workouts: s, workoutSvc: workoutsvc.New(s), exerciseSvc: domain.NewExerciseService(s), medSvc: domain.NewMedicationService(s), food: s, imports: s, allowedUserID: 123}
+	a := newStoreAdapter(s)
+	b := &Bot{api: api, meds: a, bp: a, weight: a, workouts: a, workoutSvc: workoutsvc.New(s.Workout, s.TZ), exerciseSvc: domain.NewExerciseService(s.Workout), medSvc: domain.NewMedicationService(s.Medication), food: a, imports: a, allowedUserID: 123}
 
 	cb := &tgbotapi.CallbackQuery{
 		ID:   "1",

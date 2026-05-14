@@ -35,7 +35,7 @@ func TestHandleBPCommand(t *testing.T) {
 	}
 
 	// Verify it's in the store
-	readings, err := env.s.GetBloodPressureReadings(context.Background(), 123456, time.Time{})
+	readings, err := env.s.BP.GetBloodPressureReadings(context.Background(), 123456, time.Time{})
 	if err != nil {
 		t.Fatalf("Error getting BP readings: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestHandleWeightCommand(t *testing.T) {
 		t.Fatal("Timeout waiting for weight response")
 	}
 	// Verify it's in the store
-	logs, err := env.s.GetWeightLogs(context.Background(), 123456, time.Time{})
+	logs, err := env.s.Weight.GetWeightLogs(context.Background(), 123456, time.Time{})
 	if err != nil {
 		t.Fatalf("Error getting weight logs: %v", err)
 	}
@@ -93,9 +93,9 @@ func TestHandleStockCommand(t *testing.T) {
 	defer env.teardown()
 
 	// Add a medication with low stock
-	medID, _ := env.s.CreateMedication("Test Med", "10mg", "{\"type\":\"daily\",\"times\":[\"09:00\"]}", nil, nil, "", "", "")
+	medID, _ := env.s.Medication.CreateMedication("Test Med", "10mg", "{\"type\":\"daily\",\"times\":[\"09:00\"]}", nil, nil, "", "", "")
 	count := 5
-	env.s.SetInventory(medID, &count)
+	env.s.Medication.SetInventory(medID, &count)
 
 	msg := &tgbotapi.Message{
 		Chat: &tgbotapi.Chat{ID: 123},
@@ -122,8 +122,8 @@ func TestHandleLogCommandWithDosage(t *testing.T) {
 	env := setupBotTest(t)
 	defer env.teardown()
 
-	env.s.CreateMedication("Allopurinol AL", "100mg", "{\"type\":\"daily\",\"times\":[\"09:00\"]}", nil, nil, "", "", "")
-	env.s.CreateMedication("Bisoprolol", "", "{\"type\":\"daily\",\"times\":[\"09:00\"]}", nil, nil, "", "", "")
+	env.s.Medication.CreateMedication("Allopurinol AL", "100mg", "{\"type\":\"daily\",\"times\":[\"09:00\"]}", nil, nil, "", "", "")
+	env.s.Medication.CreateMedication("Bisoprolol", "", "{\"type\":\"daily\",\"times\":[\"09:00\"]}", nil, nil, "", "", "")
 
 	msg := &tgbotapi.Message{
 		Chat: &tgbotapi.Chat{ID: 123},

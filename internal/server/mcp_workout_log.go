@@ -556,10 +556,10 @@ func (s *Server) lookupSessionByRef(ref string, refDate time.Time, loc *time.Loc
 // formatting "today" and parsing wall-clock occurred_at strings in the
 // user's calendar — a UTC-hosted bot would otherwise misalign at midnight.
 func (s *Server) userLocation() *time.Location {
-	if s.settings == nil {
+	if s.timezone == nil {
 		return time.Local
 	}
-	tz, err := s.settings.GetCurrentTimezone()
+	tz, err := s.timezone.GetCurrentTimezone()
 	if err != nil || tz == "" {
 		return time.Local
 	}

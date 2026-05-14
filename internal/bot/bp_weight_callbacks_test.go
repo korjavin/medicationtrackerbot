@@ -35,7 +35,7 @@ func TestBPCallback_Snooze_UpdatesStore(t *testing.T) {
 	env := setupBotTest(t)
 	defer env.teardown()
 
-	if err := env.s.SetBPReminderEnabled(123456, true); err != nil {
+	if err := env.s.BP.SetBPReminderEnabled(123456, true); err != nil {
 		t.Fatalf("SetBPReminderEnabled: %v", err)
 	}
 
@@ -49,7 +49,7 @@ func TestBPCallback_Snooze_UpdatesStore(t *testing.T) {
 	}
 
 	// Verify snooze was recorded in the store
-	state, err := env.s.GetBPReminderState(123456)
+	state, err := env.s.BP.GetBPReminderState(123456)
 	if err != nil {
 		t.Fatalf("GetBPReminderState: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestBPCallback_DontBugMe_UpdatesStore(t *testing.T) {
 	env := setupBotTest(t)
 	defer env.teardown()
 
-	if err := env.s.SetBPReminderEnabled(123456, true); err != nil {
+	if err := env.s.BP.SetBPReminderEnabled(123456, true); err != nil {
 		t.Fatalf("SetBPReminderEnabled: %v", err)
 	}
 
@@ -74,7 +74,7 @@ func TestBPCallback_DontBugMe_UpdatesStore(t *testing.T) {
 		t.Errorf("Expected 'disabled' in response, got: %s", body)
 	}
 
-	state, err := env.s.GetBPReminderState(123456)
+	state, err := env.s.BP.GetBPReminderState(123456)
 	if err != nil {
 		t.Fatalf("GetBPReminderState: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestWeightCallback_Snooze_UpdatesStore(t *testing.T) {
 	env := setupBotTest(t)
 	defer env.teardown()
 
-	if err := env.s.SetWeightReminderEnabled(123456, true); err != nil {
+	if err := env.s.Weight.SetWeightReminderEnabled(123456, true); err != nil {
 		t.Fatalf("SetWeightReminderEnabled: %v", err)
 	}
 
@@ -115,7 +115,7 @@ func TestWeightCallback_Snooze_UpdatesStore(t *testing.T) {
 		t.Errorf("Expected snooze confirmation, got: %s", body)
 	}
 
-	state, err := env.s.GetWeightReminderState(123456)
+	state, err := env.s.Weight.GetWeightReminderState(123456)
 	if err != nil {
 		t.Fatalf("GetWeightReminderState: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestWeightCallback_DontBugMe_UpdatesStore(t *testing.T) {
 	env := setupBotTest(t)
 	defer env.teardown()
 
-	if err := env.s.SetWeightReminderEnabled(123456, true); err != nil {
+	if err := env.s.Weight.SetWeightReminderEnabled(123456, true); err != nil {
 		t.Fatalf("SetWeightReminderEnabled: %v", err)
 	}
 
@@ -140,7 +140,7 @@ func TestWeightCallback_DontBugMe_UpdatesStore(t *testing.T) {
 		t.Errorf("Expected 'disabled' in response, got: %s", body)
 	}
 
-	state, err := env.s.GetWeightReminderState(123456)
+	state, err := env.s.Weight.GetWeightReminderState(123456)
 	if err != nil {
 		t.Fatalf("GetWeightReminderState: %v", err)
 	}

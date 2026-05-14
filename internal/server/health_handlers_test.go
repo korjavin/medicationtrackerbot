@@ -64,7 +64,7 @@ func TestHandleGetHealthOverview_WithData(t *testing.T) {
 		{DateTime: now.Add(-2 * time.Hour), TzOffset: 0, Value: 80, Type: 1},
 		{DateTime: now.Add(-3 * time.Hour), TzOffset: 0, Value: 90, Type: 1},
 	}
-	_, _, err := db.ImportVitals(ctx, userID, heartLogs, nil, nil)
+	_, _, err := db.Vitals.ImportVitals(ctx, userID, heartLogs, nil, nil)
 	if err != nil {
 		t.Fatalf("ImportVitals heart: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestHandleGetHealthOverview_WithData(t *testing.T) {
 		{DateTime: now.Add(-1 * time.Hour), TzOffset: 0, Value: 98, Type: 1},
 		{DateTime: now.Add(-2 * time.Hour), TzOffset: 0, Value: 97, Type: 1},
 	}
-	_, _, err = db.ImportVitals(ctx, userID, nil, spo2Logs, nil)
+	_, _, err = db.Vitals.ImportVitals(ctx, userID, nil, spo2Logs, nil)
 	if err != nil {
 		t.Fatalf("ImportVitals spo2: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestHandleGetHealthOverview_WithData(t *testing.T) {
 			TotalMinutes:   &totalMins,
 		},
 	}
-	_, _, err = db.ImportSleepLogs(ctx, userID, sleepLogs)
+	_, _, err = db.Vitals.ImportSleepLogs(ctx, userID, sleepLogs)
 	if err != nil {
 		t.Fatalf("ImportSleepLogs: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestHandleGetHealthOverview_WithData(t *testing.T) {
 	dayStats := []store.DayStat{
 		{Day: now.Format("2006-01-02"), Steps: 10000, Calories: 2500, Distance: 7000},
 	}
-	_, _, err = db.ImportDayStats(ctx, userID, dayStats)
+	_, _, err = db.Vitals.ImportDayStats(ctx, userID, dayStats)
 	if err != nil {
 		t.Fatalf("ImportDayStats: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestHandleGetHealthOverview_30dVs7dAverages(t *testing.T) {
 		{DateTime: now.Add(-2 * time.Hour), TzOffset: 0, Value: 80, Type: 1},
 		{DateTime: now.Add(-15 * 24 * time.Hour), TzOffset: 0, Value: 60, Type: 1},
 	}
-	_, _, err := db.ImportVitals(ctx, userID, heartLogs, nil, nil)
+	_, _, err := db.Vitals.ImportVitals(ctx, userID, heartLogs, nil, nil)
 	if err != nil {
 		t.Fatalf("ImportVitals: %v", err)
 	}

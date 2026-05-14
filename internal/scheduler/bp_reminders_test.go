@@ -44,12 +44,12 @@ func TestBPReminderCheckerScenarios(t *testing.T) {
 		}
 		defer db.Close() // #nosec G104
 
-		if err := db.SetBloodPressureEnabled(context.Background(), true); err != nil {
+		if err := db.Settings.SetBloodPressureEnabled(context.Background(), true); err != nil {
 			t.Fatalf("SetBloodPressureEnabled failed: %v", err)
 		}
 
 		userID := int64(123456)
-		if err := db.SetBPReminderEnabled(userID, true); err != nil {
+		if err := db.BP.SetBPReminderEnabled(userID, true); err != nil {
 			t.Fatalf("SetBPReminderEnabled failed: %v", err)
 		}
 
@@ -60,27 +60,27 @@ func TestBPReminderCheckerScenarios(t *testing.T) {
 
 		// Configure state
 		if input.Snoozed {
-			if err := db.SnoozeBPReminder(userID); err != nil {
+			if err := db.BP.SnoozeBPReminder(userID); err != nil {
 				t.Fatalf("SnoozeBPReminder failed: %v", err)
 			}
 		}
 
 		if input.DontBugMe {
-			if err := db.DontBugMeBPReminder(userID); err != nil {
+			if err := db.BP.DontBugMeBPReminder(userID); err != nil {
 				t.Fatalf("DontBugMeBPReminder failed: %v", err)
 			}
 		}
 
 		if input.NotifiedToday {
 			msgID := 123
-			if err := db.UpdateBPReminderNotificationSent(userID, &msgID); err != nil {
+			if err := db.BP.UpdateBPReminderNotificationSent(userID, &msgID); err != nil {
 				t.Fatalf("UpdateBPReminderNotificationSent failed: %v", err)
 			}
 		}
 
 		if input.ReadingsToday > 0 {
 			for i := 0; i < input.ReadingsToday; i++ {
-				_, err := db.CreateBloodPressureReading(context.Background(), &store.BloodPressure{
+				_, err := db.BP.CreateBloodPressureReading(context.Background(), &store.BloodPressure{
 					UserID:     userID,
 					Systolic:   120,
 					Diastolic:  80,
@@ -92,7 +92,7 @@ func TestBPReminderCheckerScenarios(t *testing.T) {
 			}
 		} else {
 			// Older reading to ensure category severity logic can run
-			_, err := db.CreateBloodPressureReading(context.Background(), &store.BloodPressure{
+			_, err := db.BP.CreateBloodPressureReading(context.Background(), &store.BloodPressure{
 				UserID:     userID,
 				Systolic:   120,
 				Diastolic:  80,
@@ -110,7 +110,7 @@ func TestBPReminderCheckerScenarios(t *testing.T) {
 			return nowTime
 		}
 
-		if err := db.UpdatePreferredReminderHour(userID, nowTime.Hour()); err != nil {
+		if err := db.BP.UpdatePreferredReminderHour(userID, nowTime.Hour()); err != nil {
 			t.Fatalf("UpdatePreferredReminderHour failed: %v", err)
 		}
 

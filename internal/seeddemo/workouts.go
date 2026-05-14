@@ -171,7 +171,7 @@ func generateWorkouts(ctx context.Context, s *store.Store, opts Options, clk *cl
 // exercise IDs have been resolved.
 func seedWorkoutGroup(s *store.Store, userID int64, spec groupSpec) (*store.WorkoutGroup, []variantWithExercises, error) {
 	daysJSON := jsonIntArray(spec.daysOfWeek)
-	group, err := s.CreateWorkoutGroup(spec.name, spec.description, spec.isRotating, userID, daysJSON, spec.scheduledTime, spec.notifyAdvance)
+	group, err := s.Workout.CreateWorkoutGroup(spec.name, spec.description, spec.isRotating, userID, daysJSON, spec.scheduledTime, spec.notifyAdvance)
 	if err != nil {
 		return nil, nil, fmt.Errorf("create group %s: %w", spec.name, err)
 	}
@@ -183,7 +183,7 @@ func seedWorkoutGroup(s *store.Store, userID int64, spec groupSpec) (*store.Work
 			r := v.rotation
 			rotPtr = &r
 		}
-		variant, err := s.CreateWorkoutVariant(group.ID, v.name, rotPtr, "")
+		variant, err := s.Workout.CreateWorkoutVariant(group.ID, v.name, rotPtr, "")
 		if err != nil {
 			return nil, nil, fmt.Errorf("create variant %s/%s: %w", spec.name, v.name, err)
 		}
@@ -195,7 +195,7 @@ func seedWorkoutGroup(s *store.Store, userID int64, spec groupSpec) (*store.Work
 				w := ex.weightKg
 				weightPtr = &w
 			}
-			row, err := s.AddExerciseToVariant(variant.ID, ex.name, ex.sets, ex.repsMin, &repsMax, weightPtr, i)
+			row, err := s.Workout.AddExerciseToVariant(variant.ID, ex.name, ex.sets, ex.repsMin, &repsMax, weightPtr, i)
 			if err != nil {
 				return nil, nil, fmt.Errorf("add exercise %s/%s/%s: %w", spec.name, v.name, ex.name, err)
 			}
@@ -205,7 +205,7 @@ func seedWorkoutGroup(s *store.Store, userID int64, spec groupSpec) (*store.Work
 	}
 
 	if spec.isRotating && len(variants) > 0 {
-		if err := s.InitializeRotation(group.ID, variants[0].variant.ID); err != nil {
+		if err := s.Workout.InitializeRotation(group.ID, variants[0].variant.ID); err != nil {
 			return nil, nil, fmt.Errorf("init rotation %s: %w", spec.name, err)
 		}
 	}

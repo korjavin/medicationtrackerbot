@@ -16,19 +16,19 @@ func makeWorkoutEnv(t *testing.T) (*botTestEnv, int64 /*sessionID*/, int64 /*exe
 	env := setupBotTest(t)
 
 	userID := int64(123456)
-	group, err := env.s.CreateWorkoutGroup("Pull Day", "", false, userID, "[1]", "09:00", 15)
+	group, err := env.s.Workout.CreateWorkoutGroup("Pull Day", "", false, userID, "[1]", "09:00", 15)
 	if err != nil {
 		t.Fatalf("CreateWorkoutGroup: %v", err)
 	}
-	variant, err := env.s.CreateWorkoutVariant(group.ID, "Heavy", nil, "")
+	variant, err := env.s.Workout.CreateWorkoutVariant(group.ID, "Heavy", nil, "")
 	if err != nil {
 		t.Fatalf("CreateWorkoutVariant: %v", err)
 	}
-	ex, err := env.s.AddExerciseToVariant(variant.ID, "Pull-up", 4, 8, nil, nil, 0)
+	ex, err := env.s.Workout.AddExerciseToVariant(variant.ID, "Pull-up", 4, 8, nil, nil, 0)
 	if err != nil {
 		t.Fatalf("AddExerciseToVariant: %v", err)
 	}
-	session, err := env.s.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	session, err := env.s.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 	if err != nil {
 		t.Fatalf("CreateWorkoutSession: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestWorkoutStart_SessionBecomesInProgress(t *testing.T) {
 	cb := workoutCB(fmt.Sprintf("workout_start_%d", sessionID))
 	env.b.handleCallback(cb)
 
-	session, err := env.s.GetWorkoutSession(sessionID)
+	session, err := env.s.Workout.GetWorkoutSession(sessionID)
 	if err != nil {
 		t.Fatalf("GetWorkoutSession: %v", err)
 	}
@@ -110,11 +110,11 @@ func TestWorkoutStart_AdHocSendsConfirmation(t *testing.T) {
 
 	userID := int64(123456)
 	scheduled := time.Now().Add(time.Hour)
-	session, err := env.s.CreatePlannedAdHocSession(userID, scheduled, "12:00")
+	session, err := env.s.Workout.CreatePlannedAdHocSession(userID, scheduled, "12:00")
 	if err != nil {
 		t.Fatalf("CreatePlannedAdHocSession: %v", err)
 	}
-	if _, err := env.s.LogExerciseWithSource(session.ID, 0, "Burpees", nil, nil, nil, "", "", "schedule"); err != nil {
+	if _, err := env.s.Workout.LogExerciseWithSource(session.ID, 0, "Burpees", nil, nil, nil, "", "", "schedule"); err != nil {
 		t.Fatalf("LogExerciseWithSource: %v", err)
 	}
 	drainMessages(env)
@@ -135,7 +135,7 @@ func TestWorkoutStart_AdHocSendsConfirmation(t *testing.T) {
 		t.Errorf("expected confirmation to list planned exercise %q, got %q", "Burpees", got)
 	}
 
-	updated, err := env.s.GetWorkoutSession(session.ID)
+	updated, err := env.s.Workout.GetWorkoutSession(session.ID)
 	if err != nil {
 		t.Fatalf("GetWorkoutSession: %v", err)
 	}
@@ -155,11 +155,11 @@ func TestStartWorkoutFlowFromWeb_AdHocSendsConfirmation(t *testing.T) {
 
 	userID := int64(123456)
 	scheduled := time.Now().Add(time.Hour)
-	session, err := env.s.CreatePlannedAdHocSession(userID, scheduled, "12:00")
+	session, err := env.s.Workout.CreatePlannedAdHocSession(userID, scheduled, "12:00")
 	if err != nil {
 		t.Fatalf("CreatePlannedAdHocSession: %v", err)
 	}
-	if _, err := env.s.LogExerciseWithSource(session.ID, 0, "Burpees", nil, nil, nil, "", "", "schedule"); err != nil {
+	if _, err := env.s.Workout.LogExerciseWithSource(session.ID, 0, "Burpees", nil, nil, nil, "", "", "schedule"); err != nil {
 		t.Fatalf("LogExerciseWithSource: %v", err)
 	}
 	drainMessages(env)
@@ -192,7 +192,7 @@ func TestWorkoutSnooze1_SnoozesDuration(t *testing.T) {
 	cb := workoutCB(fmt.Sprintf("workout_snooze1_%d", sessionID))
 	env.b.handleCallback(cb)
 
-	session, err := env.s.GetWorkoutSession(sessionID)
+	session, err := env.s.Workout.GetWorkoutSession(sessionID)
 	if err != nil {
 		t.Fatalf("GetWorkoutSession: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestWorkoutSnooze2_SnoozesDuration(t *testing.T) {
 	cb := workoutCB(fmt.Sprintf("workout_snooze2_%d", sessionID))
 	env.b.handleCallback(cb)
 
-	session, err := env.s.GetWorkoutSession(sessionID)
+	session, err := env.s.Workout.GetWorkoutSession(sessionID)
 	if err != nil {
 		t.Fatalf("GetWorkoutSession: %v", err)
 	}
@@ -238,7 +238,7 @@ func TestWorkoutSkip_StatusBecomesSkipped(t *testing.T) {
 	cb := workoutCB(fmt.Sprintf("workout_skip_%d", sessionID))
 	env.b.handleCallback(cb)
 
-	session, err := env.s.GetWorkoutSession(sessionID)
+	session, err := env.s.Workout.GetWorkoutSession(sessionID)
 	if err != nil {
 		t.Fatalf("GetWorkoutSession: %v", err)
 	}
@@ -253,18 +253,18 @@ func TestWorkoutSkip_AdvancesRotationForRotatingGroup(t *testing.T) {
 
 	userID := int64(123456)
 	// Rotating group with two variants
-	group, _ := env.s.CreateWorkoutGroup("PPL", "", true, userID, "[1]", "09:00", 15)
-	v1, _ := env.s.CreateWorkoutVariant(group.ID, "Push", nil, "")
-	v2, _ := env.s.CreateWorkoutVariant(group.ID, "Pull", nil, "")
-	env.s.InitializeRotation(group.ID, v1.ID)
+	group, _ := env.s.Workout.CreateWorkoutGroup("PPL", "", true, userID, "[1]", "09:00", 15)
+	v1, _ := env.s.Workout.CreateWorkoutVariant(group.ID, "Push", nil, "")
+	v2, _ := env.s.Workout.CreateWorkoutVariant(group.ID, "Pull", nil, "")
+	env.s.Workout.InitializeRotation(group.ID, v1.ID)
 
-	session, _ := env.s.CreateWorkoutSession(group.ID, v1.ID, userID, time.Now(), "09:00")
+	session, _ := env.s.Workout.CreateWorkoutSession(group.ID, v1.ID, userID, time.Now(), "09:00")
 
 	cb := workoutCB(fmt.Sprintf("workout_skip_%d", session.ID))
 	env.b.handleCallback(cb)
 
 	// After skip+rotation advance, current variant should be v2
-	rotState, err := env.s.GetRotationState(group.ID)
+	rotState, err := env.s.Workout.GetRotationState(group.ID)
 	if err != nil {
 		t.Fatalf("GetRotationState: %v", err)
 	}
@@ -280,14 +280,14 @@ func TestExerciseDone_CreatesLog(t *testing.T) {
 	defer env.teardown()
 
 	// Start the session first
-	if err := env.s.StartSession(sessionID); err != nil {
+	if err := env.s.Workout.StartSession(sessionID); err != nil {
 		t.Fatalf("StartSession: %v", err)
 	}
 
 	cb := workoutCB(fmt.Sprintf("exercise_done_%d_%d", sessionID, exerciseID))
 	env.b.handleExerciseCallback(cb, cb.Data)
 
-	logs, err := env.s.GetExerciseLogs(sessionID)
+	logs, err := env.s.Workout.GetExerciseLogs(sessionID)
 	if err != nil {
 		t.Fatalf("GetExerciseLogs: %v", err)
 	}
@@ -303,18 +303,18 @@ func TestExerciseDone_ExistingSkippedLogBecomesCompleted(t *testing.T) {
 	env, sessionID, exerciseID := makeWorkoutEnv(t)
 	defer env.teardown()
 
-	if err := env.s.StartSession(sessionID); err != nil {
+	if err := env.s.Workout.StartSession(sessionID); err != nil {
 		t.Fatalf("StartSession: %v", err)
 	}
 
-	if _, err := env.s.LogExercise(sessionID, exerciseID, "Pull-up", nil, nil, nil, "skipped", ""); err != nil {
+	if _, err := env.s.Workout.LogExercise(sessionID, exerciseID, "Pull-up", nil, nil, nil, "skipped", ""); err != nil {
 		t.Fatalf("LogExercise skipped: %v", err)
 	}
 
 	cb := workoutCB(fmt.Sprintf("exercise_done_%d_%d", sessionID, exerciseID))
 	env.b.handleExerciseCallback(cb, cb.Data)
 
-	log, err := env.s.GetExerciseLogBySessionAndExercise(sessionID, exerciseID)
+	log, err := env.s.Workout.GetExerciseLogBySessionAndExercise(sessionID, exerciseID)
 	if err != nil {
 		t.Fatalf("GetExerciseLogBySessionAndExercise: %v", err)
 	}
@@ -330,14 +330,14 @@ func TestExerciseSkip_CreatesLogAsSkipped(t *testing.T) {
 	env, sessionID, exerciseID := makeWorkoutEnv(t)
 	defer env.teardown()
 
-	if err := env.s.StartSession(sessionID); err != nil {
+	if err := env.s.Workout.StartSession(sessionID); err != nil {
 		t.Fatalf("StartSession: %v", err)
 	}
 
 	cb := workoutCB(fmt.Sprintf("exercise_skip_%d_%d", sessionID, exerciseID))
 	env.b.handleExerciseCallback(cb, cb.Data)
 
-	logs, err := env.s.GetExerciseLogs(sessionID)
+	logs, err := env.s.Workout.GetExerciseLogs(sessionID)
 	if err != nil {
 		t.Fatalf("GetExerciseLogs: %v", err)
 	}
@@ -353,7 +353,7 @@ func TestExerciseEdit_SendsWebAppHint(t *testing.T) {
 	env, sessionID, exerciseID := makeWorkoutEnv(t)
 	defer env.teardown()
 
-	if err := env.s.StartSession(sessionID); err != nil {
+	if err := env.s.Workout.StartSession(sessionID); err != nil {
 		t.Fatalf("StartSession: %v", err)
 	}
 	drainMessages(env)
@@ -377,7 +377,7 @@ func TestAddExerciseCallback_SendsExerciseList(t *testing.T) {
 	env, sessionID, _ := makeWorkoutEnv(t)
 	defer env.teardown()
 
-	if err := env.s.StartSession(sessionID); err != nil {
+	if err := env.s.Workout.StartSession(sessionID); err != nil {
 		t.Fatalf("StartSession: %v", err)
 	}
 	drainMessages(env)
@@ -399,7 +399,7 @@ func TestAddExerciseCallback_WrongUser_Denied(t *testing.T) {
 	env, sessionID, _ := makeWorkoutEnv(t)
 	defer env.teardown()
 
-	if err := env.s.StartSession(sessionID); err != nil {
+	if err := env.s.Workout.StartSession(sessionID); err != nil {
 		t.Fatalf("StartSession: %v", err)
 	}
 	drainMessages(env)
@@ -431,7 +431,7 @@ func TestSelectExerciseCallback_SendsExercisePrompt(t *testing.T) {
 	env, sessionID, exerciseID := makeWorkoutEnv(t)
 	defer env.teardown()
 
-	if err := env.s.StartSession(sessionID); err != nil {
+	if err := env.s.Workout.StartSession(sessionID); err != nil {
 		t.Fatalf("StartSession: %v", err)
 	}
 	drainMessages(env)
@@ -457,9 +457,9 @@ func TestAdHocWorkoutCommand_CreatesSession(t *testing.T) {
 	env.b.timezone = &mockTimezoneStore{}
 
 	// Add some exercises so SendExerciseList has something to send
-	group, _ := env.s.CreateWorkoutGroup("Misc", "", false, 123456, "[1]", "09:00", 15)
-	variant, _ := env.s.CreateWorkoutVariant(group.ID, "A", nil, "")
-	env.s.AddExerciseToVariant(variant.ID, "Push-up", 3, 10, nil, nil, 0)
+	group, _ := env.s.Workout.CreateWorkoutGroup("Misc", "", false, 123456, "[1]", "09:00", 15)
+	variant, _ := env.s.Workout.CreateWorkoutVariant(group.ID, "A", nil, "")
+	env.s.Workout.AddExerciseToVariant(variant.ID, "Push-up", 3, 10, nil, nil, 0)
 
 	msgConfig := &tgbotapi.MessageConfig{
 		BaseChat: tgbotapi.BaseChat{ChatID: 123456},

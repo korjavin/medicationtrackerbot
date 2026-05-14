@@ -36,9 +36,6 @@ type MedicationStore interface {
 	ConfirmIntakesBySchedule(userID int64, scheduledAt time.Time, takenAt time.Time) ([]int64, error)
 	GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time) ([]store.IntakeLog, error)
 	GetTakenIntakesBySchedule(userID int64, scheduledAt time.Time) ([]store.IntakeLog, error)
-	GetIntakesSince(since time.Time) ([]store.IntakeWithMedication, error)
-	GetLastDownload() (time.Time, error)
-	UpdateLastDownload(t time.Time) error
 	GetPendingIntakes() ([]store.IntakeLog, error)
 	SnoozeIntake(id int64, snoozeUntil time.Time) error
 	SkipIntake(id int64) error
@@ -75,6 +72,8 @@ type WeightStore interface {
 	SnoozeWeightReminder(userID int64) error
 	DontBugMeWeightReminder(userID int64) error
 	ClearWeightReminderNotificationMessage(userID int64) error
+	GetWeightUnitPreference(ctx context.Context) (string, error)
+	SetWeightUnitPreference(ctx context.Context, unit string) error
 }
 
 // WorkoutStore is the subset of store operations needed for workout handlers.
@@ -135,8 +134,6 @@ type WorkoutStore interface {
 
 // FoodStore is the subset of store operations needed for food handlers.
 type FoodStore interface {
-	GetFoodIntakeEnabled(ctx context.Context) (bool, error)
-	SetFoodIntakeEnabled(ctx context.Context, enabled bool) error
 	CreateFoodLog(ctx context.Context, f *store.FoodLog) (int64, error)
 	GetFoodLogs(ctx context.Context, userID int64, date time.Time, days int) ([]store.FoodLog, error)
 	UpdateFoodLog(ctx context.Context, f *store.FoodLog) error
@@ -155,7 +152,7 @@ type FoodStore interface {
 	CreateMealFromLogs(ctx context.Context, userID int64, name string, logIDs []int64) (*store.FoodProduct, error)
 }
 
-// SettingsStore is the subset of store operations needed for feature toggles.
+// SettingsStore is the subset of feature-flag + tab-order operations.
 type SettingsStore interface {
 	GetFoodIntakeEnabled(ctx context.Context) (bool, error)
 	SetFoodIntakeEnabled(ctx context.Context, enabled bool) error
@@ -171,10 +168,12 @@ type SettingsStore interface {
 	SetHealthEnabled(ctx context.Context, enabled bool) error
 	GetTabOrder(ctx context.Context) (string, error)
 	SetTabOrder(ctx context.Context, order string) error
+}
+
+// TimezoneStore is the subset of timezone operations needed by handlers.
+type TimezoneStore interface {
 	GetCurrentTimezone() (string, error)
 	RecordTimezone(tz string) error
-	GetWeightUnitPreference(ctx context.Context) (string, error)
-	SetWeightUnitPreference(ctx context.Context, unit string) error
 }
 
 // HealthStore is the subset of store operations needed for health/vitals handlers.
@@ -195,9 +194,9 @@ type ChangeStore interface {
 
 // PushStore is the subset of store operations needed for push subscription management.
 type PushStore interface {
-	CreatePushSubscription(userID int64, endpoint, auth, p256dh string) error
-	DeletePushSubscription(endpoint string) error
-	GetPushSubscriptions(userID int64) ([]store.PushSubscription, error)
+	Create(userID int64, endpoint, auth, p256dh string) error
+	Delete(endpoint string) error
+	List(userID int64) ([]store.PushSubscription, error)
 }
 
 // MiBandStore is the subset of store operations needed for Mi Band workout history.

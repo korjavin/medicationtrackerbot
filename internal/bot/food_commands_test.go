@@ -33,20 +33,21 @@ func TestIntakeCommand(t *testing.T) {
 		api = &tgbotapi.BotAPI{Token: "123:TOKEN", Client: &http.Client{}, Buffer: 100}
 	}
 	api.SetAPIEndpoint(server.URL + "/bot%s/%s")
+	a := newStoreAdapter(s)
 
 	b := &Bot{
 		api:           api,
-		meds:          s,
-		bp:            s,
-		weight:        s,
-		workouts:      s,
-		food:          s,
-		imports:       s,
+		meds:          a,
+		bp:            a,
+		weight:        a,
+		workouts:      a,
+		food:          a,
+		imports:       a,
 		allowedUserID: 123456,
 	}
 
 	// Enable Food Intake feature
-	s.SetFoodIntakeEnabled(context.Background(), true)
+	s.Settings.SetFoodIntakeEnabled(context.Background(), true)
 
 	// Test command: /intake 20 10 5 150 Apple
 	// Carbs=20, Prot=10, Fat=5, Weight=150, Name=Apple
@@ -65,7 +66,7 @@ func TestIntakeCommand(t *testing.T) {
 	b.handleMessage(msg)
 
 	// Verify log created
-	logs, err := s.GetFoodLogs(context.Background(), 123456, time.Now(), 1)
+	logs, err := s.Food.GetFoodLogs(context.Background(), 123456, time.Now(), 1)
 	if err != nil {
 		t.Fatalf("GetFoodLogs error: %v", err)
 	}
@@ -102,10 +103,11 @@ func TestIntakeCommand_Disabled(t *testing.T) {
 	}
 	api.SetAPIEndpoint(server.URL + "/bot%s/%s")
 
-	b := &Bot{api: api, meds: s, bp: s, weight: s, workouts: s, food: s, imports: s, allowedUserID: 123456}
+	a := newStoreAdapter(s)
+	b := &Bot{api: api, meds: a, bp: a, weight: a, workouts: a, food: a, imports: a, allowedUserID: 123456}
 
 	// Ensure disabled
-	s.SetFoodIntakeEnabled(context.Background(), false)
+	s.Settings.SetFoodIntakeEnabled(context.Background(), false)
 
 	msg := &tgbotapi.Message{
 		Chat: &tgbotapi.Chat{ID: 123456},
@@ -116,7 +118,7 @@ func TestIntakeCommand_Disabled(t *testing.T) {
 	b.handleMessage(msg)
 
 	// Verify NO log created
-	logs, _ := s.GetFoodLogs(context.Background(), 123456, time.Now(), 1)
+	logs, _ := s.Food.GetFoodLogs(context.Background(), 123456, time.Now(), 1)
 	if len(logs) != 0 {
 		t.Errorf("Expected 0 logs (feature disabled), got %d", len(logs))
 	}

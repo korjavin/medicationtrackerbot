@@ -25,7 +25,7 @@ func TestDeleteFutureIntake_RegeneratedByScheduler(t *testing.T) {
 	defer db.Close() // #nosec G104
 
 	ctx := context.Background()
-	if err := db.SetMedicationEnabled(ctx, true); err != nil {
+	if err := db.Settings.SetMedicationEnabled(ctx, true); err != nil {
 		t.Fatalf("SetMedicationEnabled: %v", err)
 	}
 
@@ -40,20 +40,20 @@ func TestDeleteFutureIntake_RegeneratedByScheduler(t *testing.T) {
 	target := realNow.Add(2 * time.Hour).Round(time.Minute).In(time.Local)
 	schedule := fmt.Sprintf(`{"type":"daily","times":["%02d:%02d"]}`, target.Hour(), target.Minute())
 
-	medID, err := db.CreateMedication("Aspirin", "100mg", schedule, nil, nil, "", "", "")
+	medID, err := db.Medication.CreateMedication("Aspirin", "100mg", schedule, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
 	}
-	if err := db.UpdateMedicationCreatedAt(medID, realNow.Add(-24*time.Hour)); err != nil {
+	if err := db.Medication.UpdateMedicationCreatedAt(medID, realNow.Add(-24*time.Hour)); err != nil {
 		t.Fatalf("UpdateMedicationCreatedAt: %v", err)
 	}
 
 	// Step 1: an agent mistakenly creates a future intake at the scheduled slot.
-	intakeID, err := db.CreateIntake(medID, userID, target)
+	intakeID, err := db.Medication.CreateIntake(medID, userID, target)
 	if err != nil {
 		t.Fatalf("CreateIntake: %v", err)
 	}
-	pre, err := db.GetIntake(intakeID)
+	pre, err := db.Medication.GetIntake(intakeID)
 	if err != nil || pre == nil {
 		t.Fatalf("GetIntake setup check: pre=%v err=%v", pre, err)
 	}
@@ -63,11 +63,11 @@ func TestDeleteFutureIntake_RegeneratedByScheduler(t *testing.T) {
 	}
 
 	// Step 2: the user deletes the future intake via the real domain service.
-	svc := domain.NewMedicationService(db)
+	svc := domain.NewMedicationService(db.Medication)
 	if _, _, _, err := svc.DeleteFutureIntake(intakeID); err != nil {
 		t.Fatalf("DeleteFutureIntake: %v", err)
 	}
-	if got, _ := db.GetIntake(intakeID); got != nil {
+	if got, _ := db.Medication.GetIntake(intakeID); got != nil {
 		t.Fatalf("expected intake row removed, got %+v", got)
 	}
 
@@ -87,7 +87,7 @@ func TestDeleteFutureIntake_RegeneratedByScheduler(t *testing.T) {
 	// Step 4: a fresh PENDING intake must exist — the user is "bugged" again
 	// and has to explicitly take or skip. The deleted future intake did NOT
 	// cause the dose to be silently swallowed.
-	pending, err := db.GetPendingIntakes()
+	pending, err := db.Medication.GetPendingIntakes()
 	if err != nil {
 		t.Fatalf("GetPendingIntakes: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestDeleteFutureIntake_RejectedAfterScheduledTimePassed(t *testing.T) {
 	defer db.Close() // #nosec G104
 
 	userID := int64(123456)
-	medID, err := db.CreateMedication("Aspirin", "100mg",
+	medID, err := db.Medication.CreateMedication("Aspirin", "100mg",
 		`{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
@@ -137,19 +137,19 @@ func TestDeleteFutureIntake_RejectedAfterScheduledTimePassed(t *testing.T) {
 	// the same on-disk shape as an intake that has aged past its slot before
 	// the user got around to deleting it.
 	pastSched := time.Now().Add(-1 * time.Hour)
-	intakeID, err := db.CreateIntake(medID, userID, pastSched)
+	intakeID, err := db.Medication.CreateIntake(medID, userID, pastSched)
 	if err != nil {
 		t.Fatalf("CreateIntake: %v", err)
 	}
 
-	svc := domain.NewMedicationService(db)
+	svc := domain.NewMedicationService(db.Medication)
 	_, _, _, err = svc.DeleteFutureIntake(intakeID)
 	if !errors.Is(err, domain.ErrNotFutureIntake) {
 		t.Fatalf("expected ErrNotFutureIntake once scheduled time has passed, got %v", err)
 	}
 
 	// Row must still exist; the user has to explicitly TAKE or SKIP.
-	got, err := db.GetIntake(intakeID)
+	got, err := db.Medication.GetIntake(intakeID)
 	if err != nil {
 		t.Fatalf("GetIntake: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestDeleteFutureIntake_RejectedForPastIntakes(t *testing.T) {
 		{
 			name: "past PENDING (missed dose)",
 			prep: func(db *store.Store, medID, userID int64) (int64, string) {
-				id, err := db.CreateIntake(medID, userID, time.Now().Add(-2*time.Hour))
+				id, err := db.Medication.CreateIntake(medID, userID, time.Now().Add(-2*time.Hour))
 				if err != nil {
 					t.Fatalf("CreateIntake: %v", err)
 				}
@@ -184,11 +184,11 @@ func TestDeleteFutureIntake_RejectedForPastIntakes(t *testing.T) {
 		{
 			name: "past TAKEN (recorded history)",
 			prep: func(db *store.Store, medID, userID int64) (int64, string) {
-				id, err := db.CreateIntake(medID, userID, time.Now().Add(-2*time.Hour))
+				id, err := db.Medication.CreateIntake(medID, userID, time.Now().Add(-2*time.Hour))
 				if err != nil {
 					t.Fatalf("CreateIntake: %v", err)
 				}
-				if err := db.ConfirmIntake(id, time.Now().Add(-1*time.Hour)); err != nil {
+				if err := db.Medication.ConfirmIntake(id, time.Now().Add(-1*time.Hour)); err != nil {
 					t.Fatalf("ConfirmIntake: %v", err)
 				}
 				return id, "TAKEN"
@@ -197,11 +197,11 @@ func TestDeleteFutureIntake_RejectedForPastIntakes(t *testing.T) {
 		{
 			name: "past SKIPPED (recorded history)",
 			prep: func(db *store.Store, medID, userID int64) (int64, string) {
-				id, err := db.CreateIntake(medID, userID, time.Now().Add(-2*time.Hour))
+				id, err := db.Medication.CreateIntake(medID, userID, time.Now().Add(-2*time.Hour))
 				if err != nil {
 					t.Fatalf("CreateIntake: %v", err)
 				}
-				if err := db.SkipIntake(id); err != nil {
+				if err := db.Medication.SkipIntake(id); err != nil {
 					t.Fatalf("SkipIntake: %v", err)
 				}
 				return id, "SKIPPED"
@@ -218,7 +218,7 @@ func TestDeleteFutureIntake_RejectedForPastIntakes(t *testing.T) {
 			defer db.Close() // #nosec G104
 
 			userID := int64(123456)
-			medID, err := db.CreateMedication("Aspirin", "100mg",
+			medID, err := db.Medication.CreateMedication("Aspirin", "100mg",
 				`{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 			if err != nil {
 				t.Fatalf("CreateMedication: %v", err)
@@ -226,13 +226,13 @@ func TestDeleteFutureIntake_RejectedForPastIntakes(t *testing.T) {
 
 			intakeID, wantStatus := tc.prep(db, medID, userID)
 
-			svc := domain.NewMedicationService(db)
+			svc := domain.NewMedicationService(db.Medication)
 			_, _, _, err = svc.DeleteFutureIntake(intakeID)
 			if !errors.Is(err, domain.ErrNotFutureIntake) {
 				t.Fatalf("expected ErrNotFutureIntake for past %s intake, got %v", wantStatus, err)
 			}
 
-			got, err := db.GetIntake(intakeID)
+			got, err := db.Medication.GetIntake(intakeID)
 			if err != nil {
 				t.Fatalf("GetIntake: %v", err)
 			}

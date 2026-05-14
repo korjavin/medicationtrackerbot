@@ -32,7 +32,7 @@ func TestHandleFeatureSettings(t *testing.T) {
 		t.Fatalf("Expected status 200, got %d", w.Code)
 	}
 
-	enabled, err := db.GetBloodPressureEnabled(context.Background())
+	enabled, err := db.Settings.GetBloodPressureEnabled(context.Background())
 	if err != nil {
 		t.Fatalf("GetBloodPressureEnabled failed: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestHandleBootstrap(t *testing.T) {
 	srv, db := createBPTestServer(t)
 	defer db.Close()
 
-	if _, err := db.CreateMedication("Bootstrap Med", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", ""); err != nil {
+	if _, err := db.Medication.CreateMedication("Bootstrap Med", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", ""); err != nil {
 		t.Fatalf("CreateMedication failed: %v", err)
 	}
 
@@ -102,7 +102,7 @@ func TestHandleBootstrap(t *testing.T) {
 
 	// Set a tab order and test again
 	ctx := context.Background()
-	_ = db.SetTabOrder(ctx, `["food","bp","workouts"]`)
+	_ = db.Settings.SetTabOrder(ctx, `["food","bp","workouts"]`)
 
 	req2 := httptest.NewRequest("GET", "/api/bootstrap", nil)
 	req2 = withUser(req2, 123456)
@@ -136,7 +136,7 @@ func TestHandleBootstrap_IncludesTodayFood(t *testing.T) {
 	// Pre-existing food row eaten today in UTC (avoid near-midnight flakiness).
 	nowUTC := time.Now().UTC()
 	eatenAt := time.Date(nowUTC.Year(), nowUTC.Month(), nowUTC.Day(), 12, 0, 0, 0, time.UTC)
-	if _, err := db.CreateFoodLog(context.Background(), &store.FoodLog{
+	if _, err := db.Food.CreateFoodLog(context.Background(), &store.FoodLog{
 		UserID:   123456,
 		EatenAt:  eatenAt,
 		Weight:   100,
@@ -200,10 +200,10 @@ func TestHandleBootstrap_IncludesMedications(t *testing.T) {
 		{
 			name: "user with active meds",
 			seed: func(t *testing.T, db *store.Store) {
-				if _, err := db.CreateMedication("Active A", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", ""); err != nil {
+				if _, err := db.Medication.CreateMedication("Active A", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", ""); err != nil {
 					t.Fatalf("CreateMedication: %v", err)
 				}
-				if _, err := db.CreateMedication("Active B", "10mg", `{"type":"daily","times":["21:00"]}`, nil, nil, "", "", ""); err != nil {
+				if _, err := db.Medication.CreateMedication("Active B", "10mg", `{"type":"daily","times":["21:00"]}`, nil, nil, "", "", ""); err != nil {
 					t.Fatalf("CreateMedication: %v", err)
 				}
 			},
@@ -213,14 +213,14 @@ func TestHandleBootstrap_IncludesMedications(t *testing.T) {
 		{
 			name: "user with archived meds — bootstrap mirrors /api/medications?archived=true",
 			seed: func(t *testing.T, db *store.Store) {
-				if _, err := db.CreateMedication("Active Med", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", ""); err != nil {
+				if _, err := db.Medication.CreateMedication("Active Med", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", ""); err != nil {
 					t.Fatalf("CreateMedication: %v", err)
 				}
-				archivedID, err := db.CreateMedication("Archived Med", "20mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+				archivedID, err := db.Medication.CreateMedication("Archived Med", "20mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 				if err != nil {
 					t.Fatalf("CreateMedication: %v", err)
 				}
-				if err := db.UpdateMedication(archivedID, "Archived Med", "20mg", `{"type":"daily","times":["08:00"]}`, true, nil, nil, "", "", nil, ""); err != nil {
+				if err := db.Medication.UpdateMedication(archivedID, "Archived Med", "20mg", `{"type":"daily","times":["08:00"]}`, true, nil, nil, "", "", nil, ""); err != nil {
 					t.Fatalf("UpdateMedication archive: %v", err)
 				}
 			},
@@ -301,14 +301,14 @@ func TestHandleBootstrap_MedicationsMatchesArchivedListEndpoint(t *testing.T) {
 	srv, db := createBPTestServer(t)
 	defer db.Close()
 
-	if _, err := db.CreateMedication("Active Med", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", ""); err != nil {
+	if _, err := db.Medication.CreateMedication("Active Med", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", ""); err != nil {
 		t.Fatalf("CreateMedication: %v", err)
 	}
-	archivedID, err := db.CreateMedication("Archived Med", "20mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	archivedID, err := db.Medication.CreateMedication("Archived Med", "20mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
 	}
-	if err := db.UpdateMedication(archivedID, "Archived Med", "20mg", `{"type":"daily","times":["08:00"]}`, true, nil, nil, "", "", nil, ""); err != nil {
+	if err := db.Medication.UpdateMedication(archivedID, "Archived Med", "20mg", `{"type":"daily","times":["08:00"]}`, true, nil, nil, "", "", nil, ""); err != nil {
 		t.Fatalf("UpdateMedication archive: %v", err)
 	}
 
@@ -373,7 +373,7 @@ func TestHandleChanges(t *testing.T) {
 	}
 
 	// Simulate a write-side mutation in DB, should be captured by change_events trigger.
-	if _, err := db.CreateBloodPressureReading(ctxWithUser(123456), &store.BloodPressure{
+	if _, err := db.BP.CreateBloodPressureReading(ctxWithUser(123456), &store.BloodPressure{
 		UserID:     123456,
 		MeasuredAt: time.Now(),
 		Systolic:   120,
@@ -450,7 +450,7 @@ func TestHandleGetSettings_Timezone(t *testing.T) {
 	}
 
 	// Record a timezone and verify it is returned
-	if err := db.RecordTimezone("America/New_York"); err != nil {
+	if err := db.TZ.RecordTimezone("America/New_York"); err != nil {
 		t.Fatalf("RecordTimezone: %v", err)
 	}
 
@@ -490,7 +490,7 @@ func TestHandleUpdateSettings_ValidTimezone(t *testing.T) {
 		t.Fatalf("Expected status 200, got %d", w.Code)
 	}
 
-	tz, err := db.GetCurrentTimezone()
+	tz, err := db.TZ.GetCurrentTimezone()
 	if err != nil {
 		t.Fatalf("GetCurrentTimezone: %v", err)
 	}
@@ -529,13 +529,13 @@ func TestHandleUpdateSettings_GeneratesTransitionPlan(t *testing.T) {
 	srv, db := createBPTestServer(t)
 	defer db.Close()
 
-	if err := db.RecordTimezone("America/New_York"); err != nil {
+	if err := db.TZ.RecordTimezone("America/New_York"); err != nil {
 		t.Fatalf("seed RecordTimezone: %v", err)
 	}
-	if _, err := db.CreateMedication("Daily Med", "5mg", `{"type":"daily","times":["08:00","20:00"]}`, nil, nil, "", "", "medium"); err != nil {
+	if _, err := db.Medication.CreateMedication("Daily Med", "5mg", `{"type":"daily","times":["08:00","20:00"]}`, nil, nil, "", "", "medium"); err != nil {
 		t.Fatalf("CreateMedication: %v", err)
 	}
-	srv.SetTZUpdater(tzupdate.NewService(db, db, tzreschedule.NewPlannerService(db), nil, nil))
+	srv.SetTZUpdater(tzupdate.NewService(db.TZ, db.TZ, tzreschedule.NewPlannerService(&testTZPlannerStore{db}), nil, nil))
 
 	body, _ := json.Marshal(map[string]string{"timezone": "Asia/Tokyo"})
 	req := httptest.NewRequest("POST", "/api/settings", bytes.NewReader(body))
@@ -547,7 +547,7 @@ func TestHandleUpdateSettings_GeneratesTransitionPlan(t *testing.T) {
 		t.Fatalf("Expected status 200, got %d", w.Code)
 	}
 
-	tz, err := db.GetCurrentTimezone()
+	tz, err := db.TZ.GetCurrentTimezone()
 	if err != nil {
 		t.Fatalf("GetCurrentTimezone: %v", err)
 	}
@@ -555,7 +555,7 @@ func TestHandleUpdateSettings_GeneratesTransitionPlan(t *testing.T) {
 		t.Fatalf("Expected stored timezone Asia/Tokyo, got %q", tz)
 	}
 
-	plan, err := db.GetLatestActiveOrPendingTZTransitionPlan()
+	plan, err := db.TZ.GetLatestActiveOrPendingTZTransitionPlan()
 	if err != nil {
 		t.Fatalf("GetLatestActiveOrPendingTZTransitionPlan: %v", err)
 	}
@@ -575,7 +575,7 @@ func TestHandleBootstrap_IncludesTimezone(t *testing.T) {
 	srv, db := createBPTestServer(t)
 	defer db.Close()
 
-	if err := db.RecordTimezone("Europe/Berlin"); err != nil {
+	if err := db.TZ.RecordTimezone("Europe/Berlin"); err != nil {
 		t.Fatalf("RecordTimezone: %v", err)
 	}
 
@@ -617,28 +617,28 @@ func TestHandleGetSettings_FullBundle(t *testing.T) {
 	// Seed every slice of the bundle so each sub-case has a non-default value
 	// to assert against. Defaults would still produce a 200, but they don't
 	// distinguish "field was wired up" from "field was dropped silently".
-	if err := db.RecordTimezone("Europe/Berlin"); err != nil {
+	if err := db.TZ.RecordTimezone("Europe/Berlin"); err != nil {
 		t.Fatalf("RecordTimezone: %v", err)
 	}
-	if err := db.SetWeightUnitPreference(ctx, "lb"); err != nil {
+	if err := db.Weight.SetWeightUnitPreference(ctx, "lb"); err != nil {
 		t.Fatalf("SetWeightUnitPreference: %v", err)
 	}
-	if err := db.SetBloodPressureEnabled(ctx, false); err != nil {
+	if err := db.Settings.SetBloodPressureEnabled(ctx, false); err != nil {
 		t.Fatalf("SetBloodPressureEnabled: %v", err)
 	}
-	if err := db.SetFoodTargets(ctx, store.FoodTargets{Calories: 2000, Carbs: 200, Protein: 150, Fat: 70}); err != nil {
+	if err := db.Food.SetFoodTargets(ctx, store.FoodTargets{Calories: 2000, Carbs: 200, Protein: 150, Fat: 70}); err != nil {
 		t.Fatalf("SetFoodTargets: %v", err)
 	}
-	if _, err := db.GetBPReminderState(userID); err != nil { // creates default row
+	if _, err := db.BP.GetBPReminderState(userID); err != nil { // creates default row
 		t.Fatalf("seed GetBPReminderState: %v", err)
 	}
-	if err := db.SetBPReminderEnabled(userID, false); err != nil {
+	if err := db.BP.SetBPReminderEnabled(userID, false); err != nil {
 		t.Fatalf("SetBPReminderEnabled: %v", err)
 	}
-	if _, err := db.GetWeightReminderState(userID); err != nil { // creates default row
+	if _, err := db.Weight.GetWeightReminderState(userID); err != nil { // creates default row
 		t.Fatalf("seed GetWeightReminderState: %v", err)
 	}
-	if err := db.SetTabOrder(ctx, `["food","bp","weight"]`); err != nil {
+	if err := db.Settings.SetTabOrder(ctx, `["food","bp","weight"]`); err != nil {
 		t.Fatalf("SetTabOrder: %v", err)
 	}
 
@@ -864,7 +864,7 @@ func TestHandleSetTabOrder(t *testing.T) {
 	ctx := context.Background()
 
 	// Initial value should be empty
-	order, _ := db.GetTabOrder(ctx)
+	order, _ := db.Settings.GetTabOrder(ctx)
 	if order != "" {
 		t.Fatalf("expected empty tab order")
 	}
@@ -881,7 +881,7 @@ func TestHandleSetTabOrder(t *testing.T) {
 		t.Fatalf("Expected status 200, got %d", w.Code)
 	}
 
-	order, _ = db.GetTabOrder(ctx)
+	order, _ = db.Settings.GetTabOrder(ctx)
 	if order != `["food","bp","weight"]` {
 		t.Fatalf("Expected '[\"food\",\"bp\",\"weight\"]', got '%s'", order)
 	}

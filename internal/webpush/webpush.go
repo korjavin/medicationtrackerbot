@@ -15,7 +15,18 @@ import (
 
 	"github.com/SherClockHolmes/webpush-go"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
+	"github.com/korjavin/medicationtrackerbot/internal/store/push"
 )
+
+// SubscriptionStore is the narrow slice of push.Repo that the notifier needs:
+// list a user's enabled endpoints to fan out to, and disable an endpoint that
+// the push service has reported as gone (HTTP 410). It is satisfied by
+// *push.Repo and (during the per-domain split) by *store.Store via its
+// forwarders.
+type SubscriptionStore interface {
+	List(userID int64) ([]push.PushSubscription, error)
+	Disable(endpoint string) error
+}
 
 // ErrNoSubscriptions is returned by SendNotification when the user has no
 // active push subscriptions. Callers that treat delivery to zero recipients
@@ -23,7 +34,7 @@ import (
 var ErrNoSubscriptions = errors.New("webpush: no active push subscriptions")
 
 type Service struct {
-	store           *store.Store
+	subs            SubscriptionStore
 	vapidPublicKey  string
 	vapidPrivateKey string
 	vapidSubject    string
@@ -31,9 +42,9 @@ type Service struct {
 	domain          string
 }
 
-func New(store *store.Store, publicKey, privateKey, subject, adminEmail, domain string) *Service {
+func New(subs SubscriptionStore, publicKey, privateKey, subject, adminEmail, domain string) *Service {
 	return &Service{
-		store:           store,
+		subs:            subs,
 		vapidPublicKey:  publicKey,
 		vapidPrivateKey: privateKey,
 		vapidSubject:    subject,
@@ -237,7 +248,7 @@ func (s *Service) SendNotification(userID int64, payload NotificationPayload) er
 }
 
 func (s *Service) sendToUser(userID int64, payload NotificationPayload) error {
-	subs, err := s.store.GetPushSubscriptions(userID)
+	subs, err := s.subs.List(userID)
 	if err != nil {
 		return err
 	}
@@ -262,7 +273,7 @@ func (s *Service) sendToUser(userID int64, payload NotificationPayload) error {
 	)
 	for _, sub := range subs {
 		wg.Add(1)
-		go func(subscription store.PushSubscription) {
+		go func(subscription push.PushSubscription) {
 			defer wg.Done()
 			if err := s.sendToSubscription(subscription, payloadBytes); err != nil {
 				mu.Lock()
@@ -286,7 +297,7 @@ func (s *Service) sendToUser(userID int64, payload NotificationPayload) error {
 	return nil
 }
 
-func (s *Service) sendToSubscription(sub store.PushSubscription, payload []byte) error {
+func (s *Service) sendToSubscription(sub push.PushSubscription, payload []byte) error {
 	wpSub := &webpush.Subscription{
 		Endpoint: sub.Endpoint,
 		Keys: webpush.Keys{
@@ -349,7 +360,7 @@ func (s *Service) sendToSubscription(sub store.PushSubscription, payload []byte)
 	if resp.StatusCode == http.StatusGone {
 		// Subscription is no longer valid
 		slog.Info("WebPush subscription gone", "endpoint", sub.Endpoint)
-		if err := s.store.DisablePushSubscription(sub.Endpoint); err != nil {
+		if err := s.subs.Disable(sub.Endpoint); err != nil {
 			slog.Error("Failed to disable subscription", "error", err)
 		}
 		return fmt.Errorf("webpush: subscription gone: %s", sub.Endpoint)

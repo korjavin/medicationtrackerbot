@@ -19,6 +19,7 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/scheduler"
 	"github.com/korjavin/medicationtrackerbot/internal/server"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
+	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
 	"github.com/korjavin/medicationtrackerbot/internal/webpush"
 )
 
@@ -71,13 +72,20 @@ func main() {
 		port = "8080"
 	}
 
-	// 2. Store
-	s, err := store.New(dbPath)
+	// 2. Store. We open the shared *db.DB explicitly so it can be passed into
+	// per-domain repositories as the internal/store package splits land
+	// (docs/plans/2026-05-13-split-store-package.md).
+	sharedDB, err := storedb.Open(dbPath)
+	if err != nil {
+		slog.Error("Failed to open database", "error", err)
+		os.Exit(1)
+	}
+	defer sharedDB.Close()
+	s, err := store.NewWithDB(sharedDB)
 	if err != nil {
 		slog.Error("Failed to initialize store", "error", err)
 		os.Exit(1)
 	}
-	defer s.Close()
 	slog.Info("Database initialized", "path", dbPath)
 
 	// 2.5 OpenAI Client
@@ -134,7 +142,7 @@ func main() {
 
 	var wpService *webpush.Service
 	if vapidPublicKey != "" && vapidPrivateKey != "" {
-		wpService = webpush.New(s, vapidPublicKey, vapidPrivateKey, vapidSubject, vapidAdminEmail, vapidDomain)
+		wpService = webpush.New(s.Push, vapidPublicKey, vapidPrivateKey, vapidSubject, vapidAdminEmail, vapidDomain)
 	}
 
 	// 4. Bot
@@ -145,9 +153,9 @@ func main() {
 	// always observes the finalised set — otherwise a queued /tz + location
 	// arriving during startup could race past an empty notifier slice and
 	// skip plan generation.
-	tzPlanner := tzreschedule.NewPlannerService(s)
+	tzPlanner := tzreschedule.NewPlannerService(newTZPlannerStore(s))
 	var notifiers []notifier.Notifier
-	tzUpdater := tzupdate.NewService(s, s, tzPlanner, nil, func() bool { return len(notifiers) > 0 })
+	tzUpdater := tzupdate.NewService(s.TZ, s.TZ, tzPlanner, nil, func() bool { return len(notifiers) > 0 })
 
 	var tgBot *bot.Bot
 	if botToken != "" {

@@ -59,7 +59,7 @@ type mealSpec struct {
 // target patterns. On a small subset of days it also rolls those logs into
 // an aggregated meal product so the meal-template UI has data.
 func generateFood(ctx context.Context, s *store.Store, opts Options, clk *clock, rng *rand.Rand, summary *Summary) error {
-	if err := s.SetFoodTargets(ctx, store.FoodTargets{
+	if err := s.Food.SetFoodTargets(ctx, store.FoodTargets{
 		Calories: 2200,
 		Carbs:    250,
 		Protein:  110,
@@ -120,7 +120,7 @@ func generateFood(ctx context.Context, s *store.Store, opts Options, clk *clock,
 			eatenAt := clk.at(off, m.hour, m.minute).Add(time.Duration(jitterMin) * time.Minute)
 			pid := productIDs[m.product]
 
-			id, err := s.CreateFoodLog(ctx, &store.FoodLog{
+			id, err := s.Food.CreateFoodLog(ctx, &store.FoodLog{
 				UserID:    opts.UserID,
 				EatenAt:   eatenAt,
 				Weight:    grams,
@@ -140,7 +140,7 @@ func generateFood(ctx context.Context, s *store.Store, opts Options, clk *clock,
 
 		if _, ok := aggregateDays[off]; ok && len(dayLogIDs) > 0 {
 			mealName := fmt.Sprintf("Demo Meal — Day %d", off+1)
-			if _, err := s.CreateMealFromLogs(ctx, opts.UserID, mealName, dayLogIDs); err != nil {
+			if _, err := s.Food.CreateMealFromLogs(ctx, opts.UserID, mealName, dayLogIDs); err != nil {
 				return fmt.Errorf("create meal from logs day %d: %w", off, err)
 			}
 			summary.FoodProducts++
@@ -167,7 +167,7 @@ func seedFoodProducts(ctx context.Context, s *store.Store, opts Options, summary
 			b := p.barcode
 			prod.Barcode = &b
 		}
-		if err := s.UpsertFoodProduct(ctx, prod); err != nil {
+		if err := s.Food.UpsertFoodProduct(ctx, prod); err != nil {
 			return nil, fmt.Errorf("upsert product %s: %w", p.name, err)
 		}
 		var id int64
