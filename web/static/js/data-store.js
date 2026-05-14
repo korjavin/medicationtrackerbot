@@ -11,6 +11,11 @@
     const fetchGeneration = new Map();
     const keyToTags = new Map();
     const tagToKeys = new Map();
+    // tag → Set<prefix>. Lets `invalidateByTag(tag)` evict every concrete
+    // dynamic key (`history_7_42`, `food_2026-05-14_day`, …) whose id starts
+    // with one of the registered prefixes, without each call site having to
+    // pre-enumerate the dynamic family.
+    const tagFamilies = new Map();
     const CHANGE_CURSOR_KEY = 'medtracker_changes_cursor';
     const CACHE_PRUNE_AT_KEY = 'medtracker_cache_pruned_at';
     const CHANGE_POLL_INTERVAL_MS = 30000;
@@ -71,6 +76,19 @@
         // (etc.) silently no-ops and stale payloads survive mutations.
         registerTags(key, tags = []) {
             registerKeyTags(key, tags);
+        },
+
+        // Register a dynamic key-family prefix under `tag`. Every concrete
+        // api_cache row whose id starts with `prefix` will be evicted when
+        // `invalidateByTag(tag)` runs, even if the row was never seeded
+        // through registerTags / fetchFresh (e.g. a `history_7_42` row that
+        // came in via a one-off cachedFetch the user has never re-issued).
+        // The CacheKeys registry calls this once at boot for every family
+        // (`history_`, `food_`, `health_overview_`).
+        registerTagFamily(prefix, tag) {
+            if (typeof prefix !== 'string' || !prefix || !tag) return;
+            if (!tagFamilies.has(tag)) tagFamilies.set(tag, new Set());
+            tagFamilies.get(tag).add(prefix);
         },
 
         // Cache an authoritative value (e.g. from a bootstrap payload) and
@@ -293,19 +311,39 @@
         },
 
         async invalidateByTag(tag) {
-            const keys = tagToKeys.get(tag);
-            if (!keys || keys.size === 0) return;
+            const registered = tagToKeys.get(tag);
+            const prefixes = tagFamilies.get(tag);
+
+            // Collect every concrete key that should be evicted: explicitly
+            // registered keys + every api_cache row whose id starts with a
+            // registered family prefix for this tag. The Set merges duplicates
+            // so a key that's both registered AND prefix-matched isn't cleared
+            // twice.
+            const toEvict = new Set(registered || []);
+            if (prefixes && prefixes.size > 0) {
+                const apiCache = window.MedTrackerDB?.ApiCache;
+                if (apiCache && typeof apiCache.keys === 'function') {
+                    for (const prefix of prefixes) {
+                        const matched = await apiCache.keys(prefix);
+                        if (Array.isArray(matched)) {
+                            for (const key of matched) toEvict.add(key);
+                        }
+                    }
+                }
+            }
+
+            if (toEvict.size === 0) return;
 
             // Evict any in-flight request so the next fetchFresh call starts a
             // fresh GET rather than reusing a pre-invalidation promise.
             // Also increment the generation so that the abandoned in-flight,
             // when it eventually resolves, cannot re-cache its stale payload.
-            for (const key of keys) {
+            for (const key of toEvict) {
                 fetchGeneration.set(key, (fetchGeneration.get(key) || 0) + 1);
                 inFlight.delete(key);
             }
 
-            await Promise.all([...keys].map((key) => this.clearCached(key)));
+            await Promise.all([...toEvict].map((key) => this.clearCached(key)));
         },
 
         async invalidateTags(tags = []) {

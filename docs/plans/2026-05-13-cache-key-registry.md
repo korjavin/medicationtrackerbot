@@ -138,21 +138,21 @@ and recommended-priority item #5.
 
 ### Task 2: Eager registration at boot + dynamic-tag-family support
 
-- [ ] add `DataStore.registerTagFamily(prefix, tag)` to
+- [x] add `DataStore.registerTagFamily(prefix, tag)` to
   `web/static/js/data-store.js` — stores prefix→tag mapping; when
   `invalidateByTag(tag)` runs, also iterates `keyToTags` for any key
   whose `key.startsWith(prefix)` and bumps generation + clears cache
   for those too
-- [ ] in `features/bootstrap.js` (or whichever module already runs
+- [x] in `features/bootstrap.js` (or whichever module already runs
   earliest with auth presence), after `window.DataStore` is available,
   call `window.CacheKeys.registerAll(window.DataStore)` *before* the
   first `loadSWR` / `cachedFetch` invocation
-- [ ] write tests for the new family-tag eviction:
+- [x] write tests for the new family-tag eviction:
   `web/static/js/tests/data-store.tag-family.test.js` covering
   history-family invalidation evicting two concrete keys
   (`history_7_`, `history_30_42`); food-day-family invalidation
   evicting today + yesterday keys
-- [ ] run `pnpm test data-store.tag-family` — must pass before next
+- [x] run `pnpm test data-store.tag-family` — must pass before next
   task
 
 ### Task 3: Migrate `features/workout.js` to use the registry
