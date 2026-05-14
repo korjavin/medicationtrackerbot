@@ -415,14 +415,12 @@ async function saveFoodLog() {
         // leaving the macros card out of date. loadFoodLogs() writes its
         // own `food_<date>_v2` cache and doesn't touch the Today key.
         await window.DataStore.invalidateTags(['food']);
-        // Belt-and-suspenders: tagToKeys is in-memory, so if the user
-        // mutates food before ever rendering Today in this session
-        // (cold start → deeplink to Food → +Add, or app reload between
-        // visits), the map is empty and invalidateTags silently no-ops.
-        // Today's presence check then sees a stale `{groups: []}`
-        // persisted by a previous session and skips the refetch, leaving
-        // the fuel card at 0 kcal after the save. Clearing the key
-        // directly guarantees eviction regardless of map state.
+        // Belt-and-suspenders: the per-day food key is a dynamic-family
+        // entry, so it's evicted by the food family-tag registration from
+        // CacheKeys.registerAll. Clearing the key directly guarantees the
+        // current-day row is gone even if a future refactor reshapes the
+        // family prefix — Today's presence check would otherwise see the
+        // stale {groups: []} row and skip the refetch.
         if (typeof todayFoodKey === 'function' && window.DataStore.clearCached) {
             await window.DataStore.clearCached(todayFoodKey(new Date()));
         }
@@ -472,6 +470,7 @@ async function loadFoodLogs() {
     // populates `food_<date>_day` (matching the bootstrap apply path) so
     // offline reloads survive even when this v2 cache is empty.
     const cacheKey = `food_${dateStr}_v2`;
+    const dayFoodCacheKey = window.CacheKeys.dayFoodKey(dateStr);
     const cached = await window.DataStore.getCached(cacheKey);
     if (cached) {
         _renderFoodData(cached.groups, cached.weekStats, window.FoodLog.macrosRange, dateStr);
@@ -493,10 +492,9 @@ async function loadFoodLogs() {
         let groupsMeta = null;
         if (typeof window.cachedFetch === 'function') {
             const groupsResult = await window.cachedFetch(
-                `food_${dateStr}_day`,
+                dayFoodCacheKey,
                 `/api/food/log?date=${dateStr}${tzParams}`,
                 {
-                    tags: ['food'],
                     freshAfterMs: 60_000,
                     staleAfterMs: FOOD_LOGS_STALE_AFTER_MS,
                     transform: (raw) => ({ groups: Array.isArray(raw) ? raw : [] })
@@ -521,7 +519,10 @@ async function loadFoodLogs() {
         const persistedWeekStats = weekStats != null
             ? weekStats
             : (cached && cached.weekStats != null ? cached.weekStats : null);
-        await window.DataStore.setCached(cacheKey, { groups: groups || [], weekStats: persistedWeekStats });
+        // Tag the v2 cache row under the `food` family so `invalidateTags(['food'])`
+        // (mutation refresh, change-poll) evicts it alongside `food_<date>_day`.
+        // The key already matches the `food_` family prefix registered at boot.
+        await window.DataStore.setCachedWithTags(cacheKey, { groups: groups || [], weekStats: persistedWeekStats }, ['food']);
 
         window.FoodLog.meta = groupsMeta;
         _renderFoodData(groups || [], persistedWeekStats, window.FoodLog.macrosRange, dateStr);
