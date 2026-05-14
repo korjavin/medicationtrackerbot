@@ -173,30 +173,30 @@ and recommended-priority item #1.
 
 ### Task 4: Failed-action queue
 
-- [ ] add `pending_sw_actions` Dexie store to `web/static/js/db.js` —
+- [x] add `pending_sw_actions` Dexie store to `web/static/js/db.js` —
   bump version to 6, schema:
   `pending_sw_actions: '++localId, endpoint, syncStatus, createdAt'`;
   expose as `MedTrackerDB.SwActionQueue` with `save(action)`,
   `getPending()`, `markSynced(localId)`, `markRejected(localId, errorMsg)`
-- [ ] in `sw-api-helper.js`, add `enqueueFailedAction({ endpoint, method,
+- [x] in `sw-api-helper.js`, add `enqueueFailedAction({ endpoint, method,
   body })` that opens an IndexedDB connection directly (cannot import
   Dexie from SW) and writes to `pending_sw_actions` with
   `syncStatus: 'pending'`, `createdAt: Date.now()`
-- [ ] add `drainSwActionQueue()` to `web/static/js/sync.js` that runs in
+- [x] add `drainSwActionQueue()` to `web/static/js/sync.js` that runs in
   `SyncManager.syncAll()` after the existing three syncers; for each
   pending action, calls `apiCallDirect(endpoint, method, body)`, marks
   synced or rejected (using `isPermanentSyncError` for the 4xx vs 5xx
   branch — established pattern from sync.js:11-25)
-- [ ] in `SyncManager.updateStatus()`, add the queue's pending count to
+- [x] in `SyncManager.updateStatus()`, add the queue's pending count to
   `totalPending` so the status bar displays it
-- [ ] write tests in `web/static/js/tests/sw-action-queue.test.js`:
+- [x] write tests in `web/static/js/tests/sw-action-queue.test.js`:
   enqueue write, drain success path, drain transient-error path
   (re-queues), drain permanent-error path (marks rejected, does not
   re-queue)
-- [ ] write Dexie migration test (mirror existing migration tests in
+- [x] write Dexie migration test (mirror existing migration tests in
   `web/static/js/tests/`) verifying v5 → v6 upgrade preserves existing
   stores
-- [ ] run full `pnpm test` — must pass before next task
+- [x] run full `pnpm test` — must pass before next task
 
 ### Task 5: Bump SW revision and verify acceptance
 
