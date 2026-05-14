@@ -105,9 +105,9 @@ Files:
 
 ### Task 7: Verify acceptance criteria
 
-- [ ] `go test ./...` — must pass, including new integration tests from Task 3 and Task 4 and the updated Vitest cases from Task 5.
-- [ ] `pnpm test` — must pass.
-- [ ] `go vet ./...` and the project's standard lint pass.
+- [x] `go test ./...` — must pass, including new integration tests from Task 3 and Task 4 and the updated Vitest cases from Task 5.
+- [x] `pnpm test` — must pass.
+- [x] `go vet ./...` and the project's standard lint pass.
 
 ### Task 8: Update documentation
 
