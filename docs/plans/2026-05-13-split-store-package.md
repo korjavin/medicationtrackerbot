@@ -325,12 +325,12 @@ Mirror of Task 7. If unifying `bp_reminders.go` / `weight_reminders.go` duplicat
 
 Largest single-consumer feature: `internal/server/food_handlers.go`, `internal/server/mcp_food_log.go`, `internal/bot/photo_food.go`, `internal/domain/food*`.
 
-- [ ] Create `internal/store/food/` with `Repo`, `FoodLog`, `FoodProduct`, `FoodTargets` types.
-- [ ] Move `CreateFoodLog`, `CreateMealFromLogs`, `DeleteFoodLog`, `GetFoodLogs`, `UpdateFoodLog`, `GetFoodProductByID`, `GetFoodProductByName`, `GetFoodProducts`, `SearchFoodProducts`, `UpsertFoodProduct`, `UpdateFoodProduct`, `DeleteFoodProduct`, `GetFoodStats`, `GetFoodTargets`, `SetFoodTargets`.
-- [ ] Move `openfoodfacts_api.go` if it stays purely a food helper (verify imports first).
-- [ ] Forwarders.
-- [ ] `git mv internal/store/store_food_test.go internal/store/food/food_test.go`.
-- [ ] Run `go test ./...` and `go test -race ./...` — must pass before Task 10.
+- [x] Create `internal/store/food/` with `Repo`, `FoodLog`, `FoodProduct`, `FoodTargets` types (plus `FoodStats`, `FoodProductsFilter`, `OpenFoodFact` since they all live with the food domain).
+- [x] Move `CreateFoodLog`, `CreateMealFromLogs`, `DeleteFoodLog`, `GetFoodLogs`, `UpdateFoodLog`, `GetFoodProductByID`, `GetFoodProductByName`, `GetFoodProducts`, `SearchFoodProducts`, `UpsertFoodProduct`, `UpdateFoodProduct`, `DeleteFoodProduct`, `GetFoodStats`, `GetFoodTargets`, `SetFoodTargets`. All SQL is unchanged.
+- [x] Move `openfoodfacts_api.go` — `SearchRemoteFoodAPI` and its `fastFoodProduct` / `mapFastFoodProductToLocal` / `normalizeFoodProductName` / `isNumeric` helpers only reference `FoodProduct` (no other store-internal types) and are only consumed via `s.food.SearchRemoteFoodAPI` in `food_handlers.go`, so the file `git mv`'d cleanly to `internal/store/food/openfoodfacts_api.go` and its receiver changed from `*Store` to `*Repo`.
+- [x] Forwarders in `Store`. `FoodLog` / `FoodProduct` / `FoodTargets` / `FoodStats` / `FoodProductsFilter` / `OpenFoodFact` become type aliases (e.g. `type FoodLog = food.FoodLog`) so existing `store.FoodLog` references (server food handlers + MCP food-log + settings handlers + tests; MCP fitness/tools; bot food commands + photo food; demo seeder; narrow consumer interfaces) continue to compile unchanged. `Store.Food()` accessor exposes the repo for new callers. Includes a `SearchRemoteFoodAPI` forwarder.
+- [x] `git mv internal/store/store_food_test.go internal/store/food/food_test.go`. Tests rewritten against the `*Repo` API; setup helper switches from `store.New(":memory:")` to `storedb.Open` + `migrations.FS`.
+- [x] Run `go test ./...` and `go test -race ./...` — must pass before Task 10. Full `go test ./...` is green; `go test -race ./internal/store/... ./internal/domain/... ./internal/bot/... ./internal/notifier/... ./internal/webpush/... ./internal/seeddemo/...` is green; `go test -race ./internal/server/ -run Food` is also green. The two pre-existing notifier-pattern races (`internal/server/TestHandleTriggerNextIntake_EarlyNotifFormatsInUserTZ` and `internal/scheduler/TestWorkoutCheckerScenarios/Stale_session_notification`, documented in Task 1, Task 6, Task 7 and Task 8's completion notes) still reproduce on master pre-refactor and are unrelated to the food split.
 
 ---
 
