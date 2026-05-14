@@ -13,6 +13,21 @@ const userInitData = window.tg ? window.tg.initData : null;
 window.userInitData = userInitData;
 var initialAuthLoad = false;
 
+// Hot-cache reload case: the SW controller may already be active by the time
+// this script runs (before app-shell.js registers its load handler). Post the
+// auth token directly so notification handlers can authenticate immediately;
+// app-shell.js will also re-post on registration & controllerchange.
+if (userInitData && navigator.serviceWorker && navigator.serviceWorker.controller) {
+    try {
+        navigator.serviceWorker.controller.postMessage({
+            type: 'SET_AUTH_TOKEN',
+            token: userInitData,
+        });
+    } catch (err) {
+        console.log('SW token post failed:', err);
+    }
+}
+
 // Auth-cache constants and helpers are defined in features/auth-flow.js.
 // checkAuth() (below) calls saveAuthState / getCachedAuthState / clearAuthState
 // by name; those names resolve to the window-scoped definitions from auth-flow.js
@@ -1074,13 +1089,13 @@ document.getElementById('bp-diastolic').addEventListener('input', function (e) {
 // State
 var medications = [];
 var editingMedId = null;
-var currentFoodLogs = {};
-var foodTargets = {
-    calories: 0,
-    carbs: 0,
-    protein: 0,
-    fat: 0
-};
+// `currentFoodLogs` and `foodTargets` previously lived here as top-level
+// `var` declarations. They moved to features/food/log.js as part of the
+// food.js split (2026-05-13). `currentFoodLogs` is now closure-private and
+// accessed via window.FoodLog.getCurrent(); `foodTargets` is closure-private
+// and accessed via window.FoodLog.targets (the legacy window.foodTargets
+// alias is still defined for back-compat readers but new code should use
+// the namespaced accessor).
 let featureSettings = {
     food: false,
     bp: true,
@@ -1934,15 +1949,16 @@ async function loadSettings() {
         updateFeatureToggles();
         updateFeatureTabVisibility();
 
-        foodTargets = { ...bundle.foodTargets };
+        window.FoodLog.targets = { ...bundle.foodTargets };
+        const targets = window.FoodLog.targets;
         const calsInput = document.getElementById('food-target-calories');
         const carbsInput = document.getElementById('food-target-carbs');
         const protInput = document.getElementById('food-target-protein');
         const fatInput = document.getElementById('food-target-fat');
-        if (calsInput) calsInput.value = foodTargets.calories || '';
-        if (carbsInput) carbsInput.value = foodTargets.carbs || '';
-        if (protInput) protInput.value = foodTargets.protein || '';
-        if (fatInput) fatInput.value = foodTargets.fat || '';
+        if (calsInput) calsInput.value = targets.calories || '';
+        if (carbsInput) carbsInput.value = targets.carbs || '';
+        if (protInput) protInput.value = targets.protein || '';
+        if (fatInput) fatInput.value = targets.fat || '';
 
         document.getElementById('bp-reminders-toggle').checked = !!bundle.bpReminderStatus.enabled;
         document.getElementById('weight-reminders-toggle').checked = !!bundle.weightReminderStatus.enabled;

@@ -34,7 +34,7 @@ describe('editFoodLog product-link wiring (CSP-safe)', () => {
 
     function seedLog(extra = {}) {
         const { window } = env;
-        window.currentFoodLogs = {
+        window.FoodLog.setCurrent({
             7: {
                 id: 7,
                 name: 'Oatmeal',
@@ -46,7 +46,7 @@ describe('editFoodLog product-link wiring (CSP-safe)', () => {
                 eaten_at: '2026-04-20T08:15:00Z',
                 ...extra,
             }
-        };
+        });
     }
 
     it('renders a clickable link (no inline onclick attribute) when product_id is set', () => {
