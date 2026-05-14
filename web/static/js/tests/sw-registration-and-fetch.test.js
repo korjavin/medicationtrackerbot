@@ -133,10 +133,22 @@ describe('Service Worker (sw.js) Fetch and Cache Strategies', () => {
             skipWaiting: vi.fn()
         };
         global.fetch = vi.fn().mockResolvedValue(new Response());
-        // Load the sw.js script securely without executing any global conflicts
+        // Load the sw.js script securely without executing any global conflicts.
+        // sw.js calls importScripts('/static/js/sw-api-helper.js') at the top —
+        // route that through a stub that inlines the helper into the same
+        // sandbox so self.SwApi is available to the SW message handler.
         const swCode = fs.readFileSync(path.resolve(__dirname, '../../sw.js'), 'utf-8');
-        // Simple wrap to inject our mocks
-        eval(`(function(self, caches, fetch) { ${swCode} })(global.self, global.caches, global.fetch)`);
+        const swApiHelperCode = fs.readFileSync(path.resolve(__dirname, '../sw-api-helper.js'), 'utf-8');
+        const importScripts = (p) => {
+            if (typeof p === 'string' && p.includes('sw-api-helper.js')) {
+                // eslint-disable-next-line no-new-func
+                new Function('self', 'fetch', swApiHelperCode)(global.self, global.fetch);
+            }
+        };
+        // eslint-disable-next-line no-new-func
+        new Function('self', 'caches', 'fetch', 'importScripts', swCode)(
+            global.self, global.caches, global.fetch, importScripts
+        );
     });
 
     it('returns cached APP_SHELL_CACHE_KEY immediately and initiates background refresh on navigation', async () => {
