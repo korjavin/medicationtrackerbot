@@ -701,6 +701,21 @@ const ApiCache = {
         }
     },
 
+    // Enumerate api_cache primary keys, optionally filtered to those starting
+    // with `prefix`. Used by DataStore.invalidateByTag when a tag has a
+    // registered family prefix so the eviction can sweep every concrete
+    // dynamic key (e.g. every `history_*` row when the `history` tag fires).
+    async keys(prefix) {
+        try {
+            if (typeof prefix === 'string' && prefix.length > 0) {
+                return await db.api_cache.where('id').startsWith(prefix).primaryKeys();
+            }
+            return await db.api_cache.toCollection().primaryKeys();
+        } catch (_e) {
+            return [];
+        }
+    },
+
     // Returns the api_cache row with the newest `timestamp` whose `id` starts
     // with `prefix`, as { key, data, timestamp }, or null. Used by the
     // cold-start health-overview hydration fallback: if the user's current
