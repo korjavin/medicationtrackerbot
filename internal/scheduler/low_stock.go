@@ -21,8 +21,11 @@ type LowStockChecker struct {
 }
 
 func (c *LowStockChecker) Check(_ context.Context) error {
-	if c.now == nil {
-		c.now = time.Now
+	// Resolve clock into a local — avoid mutating c.now so Check is safe
+	// to call concurrently (the mutex below guards lastCheck, not c.now).
+	nowFn := c.now
+	if nowFn == nil {
+		nowFn = time.Now
 	}
 
 	// Load user timezone — same pattern as bp_reminders.go:49-67.
@@ -37,7 +40,7 @@ func (c *LowStockChecker) Check(_ context.Context) error {
 		}
 	}
 
-	now := c.now().In(userLoc)
+	now := nowFn().In(userLoc)
 
 	// Only send warnings between 11:00 and 11:59 AM in the user's timezone.
 	if now.Hour() != 11 {
