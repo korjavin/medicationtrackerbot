@@ -1,26 +1,45 @@
-package store
+package bp
 
 import (
 	"context"
 	"math"
 	"testing"
 	"time"
+
+	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
+	"github.com/korjavin/medicationtrackerbot/internal/store/migrations"
 )
 
-func TestGetBPDailyWeightedStats_TimeWeightedDailyAverages(t *testing.T) {
-	db, err := New(":memory:")
-	if err != nil {
-		t.Fatalf("failed to create store: %v", err)
+// setupStatsRepo opens an in-memory DB, runs migrations, and returns a Repo
+// bound to the supplied TimezoneLookup (or a UTC stub when nil). The returned
+// *Repo and *storedb.DB share the same connection — the DB is exposed so tests
+// that need to seed the timezone_history table (the UTC-fallback test pins
+// the "no timezone" path; the Tokyo test seeds an explicit zone) can do so
+// directly.
+func setupStatsRepo(t *testing.T, tz TimezoneLookup) (*Repo, *storedb.DB) {
+	t.Helper()
+	if tz == nil {
+		tz = stubTZ{tz: ""}
 	}
-	defer db.Close()
+	d, err := storedb.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { _ = d.Close() })
+	if err := d.Migrate(migrations.FS, "."); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	return New(d, tz), d
+}
+
+func TestGetBPDailyWeightedStats_TimeWeightedDailyAverages(t *testing.T) {
+	r, _ := setupStatsRepo(t, nil)
 
 	ctx := context.Background()
 	userID := int64(1)
 
 	fixedNow := time.Date(2025, 1, 10, 12, 0, 0, 0, time.UTC)
-	origNow := nowFunc
-	nowFunc = func() time.Time { return fixedNow }
-	t.Cleanup(func() { nowFunc = origNow })
+	r.SetClock(func() time.Time { return fixedNow })
 
 	base := time.Date(fixedNow.Year(), fixedNow.Month(), fixedNow.Day(), 10, 0, 0, 0, time.UTC)
 	day1 := base.AddDate(0, 0, -2)
@@ -28,7 +47,7 @@ func TestGetBPDailyWeightedStats_TimeWeightedDailyAverages(t *testing.T) {
 
 	add := func(ts time.Time, sys, dia int) {
 		t.Helper()
-		_, err := db.CreateBloodPressureReading(ctx, &BloodPressure{
+		_, err := r.CreateBloodPressureReading(ctx, &BloodPressure{
 			UserID:     userID,
 			MeasuredAt: ts,
 			Systolic:   sys,
@@ -48,7 +67,7 @@ func TestGetBPDailyWeightedStats_TimeWeightedDailyAverages(t *testing.T) {
 	add(time.Date(day2.Year(), day2.Month(), day2.Day(), 9, 30, 0, 0, time.UTC), 150, 95)
 	add(time.Date(day2.Year(), day2.Month(), day2.Day(), 18, 0, 0, 0, time.UTC), 120, 80)
 
-	stats, err := db.GetBPDailyWeightedStats(ctx, userID)
+	stats, err := r.GetBPDailyWeightedStats(ctx, userID)
 	if err != nil {
 		t.Fatalf("failed to get stats: %v", err)
 	}
@@ -86,19 +105,13 @@ func TestGetBPDailyWeightedStats_TimeWeightedDailyAverages(t *testing.T) {
 }
 
 func TestGetBPDailyWeightedStats_TodayCappedAtNow(t *testing.T) {
-	db, err := New(":memory:")
-	if err != nil {
-		t.Fatalf("failed to create store: %v", err)
-	}
-	defer db.Close()
+	r, _ := setupStatsRepo(t, nil)
 
 	ctx := context.Background()
 	userID := int64(1)
 
 	fixedNow := time.Date(2025, 1, 10, 12, 0, 0, 0, time.UTC)
-	origNow := nowFunc
-	nowFunc = func() time.Time { return fixedNow }
-	t.Cleanup(func() { nowFunc = origNow })
+	r.SetClock(func() time.Time { return fixedNow })
 
 	dayStart := time.Date(fixedNow.Year(), fixedNow.Month(), fixedNow.Day(), 0, 0, 0, 0, time.UTC)
 	r1 := dayStart.Add(1 * time.Hour)
@@ -106,7 +119,7 @@ func TestGetBPDailyWeightedStats_TodayCappedAtNow(t *testing.T) {
 
 	add := func(ts time.Time, sys, dia int) {
 		t.Helper()
-		_, err := db.CreateBloodPressureReading(ctx, &BloodPressure{
+		_, err := r.CreateBloodPressureReading(ctx, &BloodPressure{
 			UserID:     userID,
 			MeasuredAt: ts,
 			Systolic:   sys,
@@ -120,7 +133,7 @@ func TestGetBPDailyWeightedStats_TodayCappedAtNow(t *testing.T) {
 	add(r1, 120, 80)
 	add(r2, 180, 110)
 
-	stats, err := db.GetBPDailyWeightedStats(ctx, userID)
+	stats, err := r.GetBPDailyWeightedStats(ctx, userID)
 	if err != nil {
 		t.Fatalf("failed to get stats: %v", err)
 	}
@@ -151,26 +164,20 @@ func TestGetBPDailyWeightedStats_TodayCappedAtNow(t *testing.T) {
 }
 
 func TestGetBPDailyWeightedStats_NoCarryOverAcrossDays(t *testing.T) {
-	db, err := New(":memory:")
-	if err != nil {
-		t.Fatalf("failed to create store: %v", err)
-	}
-	defer db.Close()
+	r, _ := setupStatsRepo(t, nil)
 
 	ctx := context.Background()
 	userID := int64(1)
 
 	fixedNow := time.Date(2025, 1, 10, 12, 0, 0, 0, time.UTC)
-	origNow := nowFunc
-	nowFunc = func() time.Time { return fixedNow }
-	t.Cleanup(func() { nowFunc = origNow })
+	r.SetClock(func() time.Time { return fixedNow })
 
 	day1 := time.Date(2025, 1, 8, 0, 0, 0, 0, time.UTC)
 	day2 := time.Date(2025, 1, 9, 0, 0, 0, 0, time.UTC)
 
 	add := func(ts time.Time, sys, dia int) {
 		t.Helper()
-		_, err := db.CreateBloodPressureReading(ctx, &BloodPressure{
+		_, err := r.CreateBloodPressureReading(ctx, &BloodPressure{
 			UserID:     userID,
 			MeasuredAt: ts,
 			Systolic:   sys,
@@ -185,7 +192,7 @@ func TestGetBPDailyWeightedStats_NoCarryOverAcrossDays(t *testing.T) {
 	add(day1.Add(23*time.Hour), 160, 100)
 	add(day2.Add(9*time.Hour), 120, 80)
 
-	stats, err := db.GetBPDailyWeightedStats(ctx, userID)
+	stats, err := r.GetBPDailyWeightedStats(ctx, userID)
 	if err != nil {
 		t.Fatalf("failed to get stats: %v", err)
 	}
@@ -215,23 +222,17 @@ func TestGetBPDailyWeightedStats_NoCarryOverAcrossDays(t *testing.T) {
 }
 
 func TestGetBPDailyWeightedStats_IgnoreCalcReadingsExcluded(t *testing.T) {
-	db, err := New(":memory:")
-	if err != nil {
-		t.Fatalf("failed to create store: %v", err)
-	}
-	defer db.Close()
+	r, _ := setupStatsRepo(t, nil)
 
 	ctx := context.Background()
 	userID := int64(1)
 
 	fixedNow := time.Date(2025, 1, 10, 12, 0, 0, 0, time.UTC)
-	origNow := nowFunc
-	nowFunc = func() time.Time { return fixedNow }
-	t.Cleanup(func() { nowFunc = origNow })
+	r.SetClock(func() time.Time { return fixedNow })
 
 	day := time.Date(2025, 1, 9, 0, 0, 0, 0, time.UTC)
 
-	_, err = db.CreateBloodPressureReading(ctx, &BloodPressure{
+	_, err := r.CreateBloodPressureReading(ctx, &BloodPressure{
 		UserID:     userID,
 		MeasuredAt: day.Add(8 * time.Hour),
 		Systolic:   120,
@@ -241,7 +242,7 @@ func TestGetBPDailyWeightedStats_IgnoreCalcReadingsExcluded(t *testing.T) {
 		t.Fatalf("failed to insert reading: %v", err)
 	}
 
-	_, err = db.CreateBloodPressureReading(ctx, &BloodPressure{
+	_, err = r.CreateBloodPressureReading(ctx, &BloodPressure{
 		UserID:     userID,
 		MeasuredAt: day.Add(12 * time.Hour),
 		Systolic:   180,
@@ -252,7 +253,7 @@ func TestGetBPDailyWeightedStats_IgnoreCalcReadingsExcluded(t *testing.T) {
 		t.Fatalf("failed to insert ignored reading: %v", err)
 	}
 
-	stats, err := db.GetBPDailyWeightedStats(ctx, userID)
+	stats, err := r.GetBPDailyWeightedStats(ctx, userID)
 	if err != nil {
 		t.Fatalf("failed to get stats: %v", err)
 	}
@@ -270,19 +271,13 @@ func TestGetBPDailyWeightedStats_IgnoreCalcReadingsExcluded(t *testing.T) {
 }
 
 func TestGetBPDailyWeightedStats_SameTimestampUsesLast(t *testing.T) {
-	db, err := New(":memory:")
-	if err != nil {
-		t.Fatalf("failed to create store: %v", err)
-	}
-	defer db.Close()
+	r, _ := setupStatsRepo(t, nil)
 
 	ctx := context.Background()
 	userID := int64(1)
 
 	fixedNow := time.Date(2025, 1, 10, 12, 0, 0, 0, time.UTC)
-	origNow := nowFunc
-	nowFunc = func() time.Time { return fixedNow }
-	t.Cleanup(func() { nowFunc = origNow })
+	r.SetClock(func() time.Time { return fixedNow })
 
 	day := time.Date(2025, 1, 9, 0, 0, 0, 0, time.UTC)
 	t1 := day.Add(8 * time.Hour)
@@ -290,7 +285,7 @@ func TestGetBPDailyWeightedStats_SameTimestampUsesLast(t *testing.T) {
 
 	add := func(ts time.Time, sys, dia int) {
 		t.Helper()
-		_, err := db.CreateBloodPressureReading(ctx, &BloodPressure{
+		_, err := r.CreateBloodPressureReading(ctx, &BloodPressure{
 			UserID:     userID,
 			MeasuredAt: ts,
 			Systolic:   sys,
@@ -306,7 +301,7 @@ func TestGetBPDailyWeightedStats_SameTimestampUsesLast(t *testing.T) {
 	add(t1, 160, 100)
 	add(t2, 120, 80)
 
-	stats, err := db.GetBPDailyWeightedStats(ctx, userID)
+	stats, err := r.GetBPDailyWeightedStats(ctx, userID)
 	if err != nil {
 		t.Fatalf("failed to get stats: %v", err)
 	}
@@ -325,23 +320,17 @@ func TestGetBPDailyWeightedStats_SameTimestampUsesLast(t *testing.T) {
 }
 
 func TestBPStats_FrequentHighBPDayVsSparseNormal(t *testing.T) {
-	db, err := New(":memory:")
-	if err != nil {
-		t.Fatalf("failed to create store: %v", err)
-	}
-	defer db.Close()
+	r, _ := setupStatsRepo(t, nil)
 
 	ctx := context.Background()
 	userID := int64(1)
 
 	fixedNow := time.Date(2025, 1, 10, 23, 0, 0, 0, time.UTC)
-	origNow := nowFunc
-	nowFunc = func() time.Time { return fixedNow }
-	t.Cleanup(func() { nowFunc = origNow })
+	r.SetClock(func() time.Time { return fixedNow })
 
 	add := func(ts time.Time, sys, dia int) {
 		t.Helper()
-		_, err := db.CreateBloodPressureReading(ctx, &BloodPressure{
+		_, err := r.CreateBloodPressureReading(ctx, &BloodPressure{
 			UserID:     userID,
 			MeasuredAt: ts,
 			Systolic:   sys,
@@ -364,7 +353,7 @@ func TestBPStats_FrequentHighBPDayVsSparseNormal(t *testing.T) {
 		add(time.Date(day4.Year(), day4.Month(), day4.Day(), 10, i*30, 0, 0, time.UTC), 150-i*2, 95-i)
 	}
 
-	stats, err := db.GetBPDailyWeightedStats(ctx, userID)
+	stats, err := r.GetBPDailyWeightedStats(ctx, userID)
 	if err != nil {
 		t.Fatalf("failed to get stats: %v", err)
 	}
@@ -387,23 +376,17 @@ func TestBPStats_FrequentHighBPDayVsSparseNormal(t *testing.T) {
 }
 
 func TestBPStats_SingleReadingPerDay(t *testing.T) {
-	db, err := New(":memory:")
-	if err != nil {
-		t.Fatalf("failed to create store: %v", err)
-	}
-	defer db.Close()
+	r, _ := setupStatsRepo(t, nil)
 
 	ctx := context.Background()
 	userID := int64(1)
 
 	fixedNow := time.Date(2025, 1, 10, 23, 0, 0, 0, time.UTC)
-	origNow := nowFunc
-	nowFunc = func() time.Time { return fixedNow }
-	t.Cleanup(func() { nowFunc = origNow })
+	r.SetClock(func() time.Time { return fixedNow })
 
 	add := func(ts time.Time, sys, dia int) {
 		t.Helper()
-		_, err := db.CreateBloodPressureReading(ctx, &BloodPressure{
+		_, err := r.CreateBloodPressureReading(ctx, &BloodPressure{
 			UserID:     userID,
 			MeasuredAt: ts,
 			Systolic:   sys,
@@ -432,7 +415,7 @@ func TestBPStats_SingleReadingPerDay(t *testing.T) {
 		add(time.Date(d.Year(), d.Month(), d.Day(), r.hour, 0, 0, 0, time.UTC), r.sys, r.dia)
 	}
 
-	stats, err := db.GetBPDailyWeightedStats(ctx, userID)
+	stats, err := r.GetBPDailyWeightedStats(ctx, userID)
 	if err != nil {
 		t.Fatalf("failed to get stats: %v", err)
 	}
@@ -457,23 +440,17 @@ func TestBPStats_SingleReadingPerDay(t *testing.T) {
 }
 
 func TestBPStats_LongGapBetweenDays(t *testing.T) {
-	db, err := New(":memory:")
-	if err != nil {
-		t.Fatalf("failed to create store: %v", err)
-	}
-	defer db.Close()
+	r, _ := setupStatsRepo(t, nil)
 
 	ctx := context.Background()
 	userID := int64(1)
 
 	fixedNow := time.Date(2025, 2, 15, 12, 0, 0, 0, time.UTC)
-	origNow := nowFunc
-	nowFunc = func() time.Time { return fixedNow }
-	t.Cleanup(func() { nowFunc = origNow })
+	r.SetClock(func() time.Time { return fixedNow })
 
 	add := func(ts time.Time, sys, dia int) {
 		t.Helper()
-		_, err := db.CreateBloodPressureReading(ctx, &BloodPressure{
+		_, err := r.CreateBloodPressureReading(ctx, &BloodPressure{
 			UserID:     userID,
 			MeasuredAt: ts,
 			Systolic:   sys,
@@ -489,7 +466,7 @@ func TestBPStats_LongGapBetweenDays(t *testing.T) {
 	add(time.Date(day1.Year(), day1.Month(), day1.Day(), 9, 0, 0, 0, time.UTC), 140, 90)
 	add(time.Date(fixedNow.Year(), fixedNow.Month(), fixedNow.Day(), 8, 0, 0, 0, time.UTC), 110, 70)
 
-	stats, err := db.GetBPDailyWeightedStats(ctx, userID)
+	stats, err := r.GetBPDailyWeightedStats(ctx, userID)
 	if err != nil {
 		t.Fatalf("failed to get stats: %v", err)
 	}
@@ -520,23 +497,17 @@ func TestBPStats_LongGapBetweenDays(t *testing.T) {
 }
 
 func TestBPStats_ManyReadingsInShortBurst(t *testing.T) {
-	db, err := New(":memory:")
-	if err != nil {
-		t.Fatalf("failed to create store: %v", err)
-	}
-	defer db.Close()
+	r, _ := setupStatsRepo(t, nil)
 
 	ctx := context.Background()
 	userID := int64(1)
 
 	fixedNow := time.Date(2025, 1, 10, 23, 0, 0, 0, time.UTC)
-	origNow := nowFunc
-	nowFunc = func() time.Time { return fixedNow }
-	t.Cleanup(func() { nowFunc = origNow })
+	r.SetClock(func() time.Time { return fixedNow })
 
 	add := func(ts time.Time, sys, dia int) {
 		t.Helper()
-		_, err := db.CreateBloodPressureReading(ctx, &BloodPressure{
+		_, err := r.CreateBloodPressureReading(ctx, &BloodPressure{
 			UserID:     userID,
 			MeasuredAt: ts,
 			Systolic:   sys,
@@ -556,7 +527,7 @@ func TestBPStats_ManyReadingsInShortBurst(t *testing.T) {
 	// Day 2 (today): 1 reading at 09:00 (normal)
 	add(time.Date(fixedNow.Year(), fixedNow.Month(), fixedNow.Day(), 9, 0, 0, 0, time.UTC), 118, 75)
 
-	stats, err := db.GetBPDailyWeightedStats(ctx, userID)
+	stats, err := r.GetBPDailyWeightedStats(ctx, userID)
 	if err != nil {
 		t.Fatalf("failed to get stats: %v", err)
 	}
@@ -587,34 +558,19 @@ func absDiff(a, b int) int {
 }
 
 func TestBPStats_TimezoneAwareDayBoundary(t *testing.T) {
-	db, err := New(":memory:")
-	if err != nil {
-		t.Fatalf("failed to create store: %v", err)
-	}
-	defer db.Close()
+	tokyo, _ := time.LoadLocation("Asia/Tokyo")
+	r, _ := setupStatsRepo(t, stubTZ{tz: "Asia/Tokyo"})
 
 	ctx := context.Background()
 	userID := int64(1)
 
-	// Set user timezone to Asia/Tokyo (UTC+9)
-	_, err = db.db.ExecContext(ctx,
-		"INSERT INTO timezone_history (timezone, recorded_at) VALUES (?, ?)",
-		"Asia/Tokyo", time.Now())
-	if err != nil {
-		t.Fatalf("failed to insert timezone: %v", err)
-	}
-
-	tokyo, _ := time.LoadLocation("Asia/Tokyo")
-
 	// "now" is 2025-01-10 12:00 Tokyo time
 	fixedNow := time.Date(2025, 1, 10, 12, 0, 0, 0, tokyo)
-	origNow := nowFunc
-	nowFunc = func() time.Time { return fixedNow }
-	t.Cleanup(func() { nowFunc = origNow })
+	r.SetClock(func() time.Time { return fixedNow })
 
 	add := func(ts time.Time, sys, dia int) {
 		t.Helper()
-		_, err := db.CreateBloodPressureReading(ctx, &BloodPressure{
+		_, err := r.CreateBloodPressureReading(ctx, &BloodPressure{
 			UserID:     userID,
 			MeasuredAt: ts,
 			Systolic:   sys,
@@ -631,7 +587,7 @@ func TestBPStats_TimezoneAwareDayBoundary(t *testing.T) {
 	add(time.Date(2025, 1, 8, 23, 30, 0, 0, tokyo), 160, 100)
 	add(time.Date(2025, 1, 9, 0, 30, 0, 0, tokyo), 110, 70)
 
-	stats, err := db.GetBPDailyWeightedStats(ctx, userID)
+	stats, err := r.GetBPDailyWeightedStats(ctx, userID)
 	if err != nil {
 		t.Fatalf("failed to get stats: %v", err)
 	}
@@ -654,11 +610,7 @@ func TestBPStats_TimezoneAwareDayBoundary(t *testing.T) {
 }
 
 func TestBPStats_NoTimezoneFallsBackToUTC(t *testing.T) {
-	db, err := New(":memory:")
-	if err != nil {
-		t.Fatalf("failed to create store: %v", err)
-	}
-	defer db.Close()
+	r, _ := setupStatsRepo(t, nil)
 
 	ctx := context.Background()
 	userID := int64(1)
@@ -666,13 +618,11 @@ func TestBPStats_NoTimezoneFallsBackToUTC(t *testing.T) {
 	// No timezone stored — should fall back to UTC
 
 	fixedNow := time.Date(2025, 1, 10, 12, 0, 0, 0, time.UTC)
-	origNow := nowFunc
-	nowFunc = func() time.Time { return fixedNow }
-	t.Cleanup(func() { nowFunc = origNow })
+	r.SetClock(func() time.Time { return fixedNow })
 
 	add := func(ts time.Time, sys, dia int) {
 		t.Helper()
-		_, err := db.CreateBloodPressureReading(ctx, &BloodPressure{
+		_, err := r.CreateBloodPressureReading(ctx, &BloodPressure{
 			UserID:     userID,
 			MeasuredAt: ts,
 			Systolic:   sys,
@@ -687,7 +637,7 @@ func TestBPStats_NoTimezoneFallsBackToUTC(t *testing.T) {
 	add(time.Date(2025, 1, 9, 8, 0, 0, 0, time.UTC), 120, 80)
 	add(time.Date(2025, 1, 9, 20, 0, 0, 0, time.UTC), 140, 90)
 
-	stats, err := db.GetBPDailyWeightedStats(ctx, userID)
+	stats, err := r.GetBPDailyWeightedStats(ctx, userID)
 	if err != nil {
 		t.Fatalf("failed to get stats: %v", err)
 	}
@@ -715,24 +665,18 @@ func TestBPStats_NoTimezoneFallsBackToUTC(t *testing.T) {
 }
 
 func TestGetBPDailyWeightedStats_PartialPeriodOnlyIn60Days(t *testing.T) {
-	db, err := New(":memory:")
-	if err != nil {
-		t.Fatalf("failed to create store: %v", err)
-	}
-	defer db.Close()
+	r, _ := setupStatsRepo(t, nil)
 
 	ctx := context.Background()
 	userID := int64(1)
 
 	fixedNow := time.Date(2025, 1, 10, 12, 0, 0, 0, time.UTC)
-	origNow := nowFunc
-	nowFunc = func() time.Time { return fixedNow }
-	t.Cleanup(func() { nowFunc = origNow })
+	r.SetClock(func() time.Time { return fixedNow })
 
 	day := fixedNow.AddDate(0, 0, -40)
 	readingTime := time.Date(day.Year(), day.Month(), day.Day(), 9, 0, 0, 0, time.UTC)
 
-	_, err = db.CreateBloodPressureReading(ctx, &BloodPressure{
+	_, err := r.CreateBloodPressureReading(ctx, &BloodPressure{
 		UserID:     userID,
 		MeasuredAt: readingTime,
 		Systolic:   130,
@@ -742,7 +686,7 @@ func TestGetBPDailyWeightedStats_PartialPeriodOnlyIn60Days(t *testing.T) {
 		t.Fatalf("failed to insert reading: %v", err)
 	}
 
-	stats, err := db.GetBPDailyWeightedStats(ctx, userID)
+	stats, err := r.GetBPDailyWeightedStats(ctx, userID)
 	if err != nil {
 		t.Fatalf("failed to get stats: %v", err)
 	}

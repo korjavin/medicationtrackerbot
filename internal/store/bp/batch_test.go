@@ -1,4 +1,4 @@
-package store
+package bp
 
 import (
 	"context"
@@ -7,25 +7,19 @@ import (
 )
 
 func TestBatchGetBPReminderStates(t *testing.T) {
-	db, err := New(":memory:")
-	if err != nil {
-		t.Fatalf("Failed to create memory db: %v", err)
-	}
-	defer db.Close()
-
+	r := setupBPRepo(t)
 	ctx := context.Background()
 
-	// Initializing some users
 	userIDs := []int64{1, 2, 3}
 
 	for _, uid := range userIDs {
-		_, err := db.GetBPReminderState(uid)
+		_, err := r.GetBPReminderState(uid)
 		if err != nil {
 			t.Fatalf("Init state failed: %v", err)
 		}
 	}
 
-	states, err := db.BatchGetBPReminderStates(ctx, userIDs)
+	states, err := r.BatchGetBPReminderStates(ctx, userIDs)
 	if err != nil {
 		t.Fatalf("BatchGetBPReminderStates failed: %v", err)
 	}
@@ -36,20 +30,14 @@ func TestBatchGetBPReminderStates(t *testing.T) {
 }
 
 func TestBatchGetLastBPReadings(t *testing.T) {
-	db, err := New(":memory:")
-	if err != nil {
-		t.Fatalf("Failed to create memory db: %v", err)
-	}
-	defer db.Close()
-
+	r := setupBPRepo(t)
 	ctx := context.Background()
 
-	// Initializing some users and readings
 	userIDs := []int64{1, 2, 3}
 
 	for _, uid := range userIDs {
-		// Create an older reading
-		_, err := db.CreateBloodPressureReading(ctx, &BloodPressure{
+		// Older reading
+		_, err := r.CreateBloodPressureReading(ctx, &BloodPressure{
 			UserID:     uid,
 			Systolic:   120,
 			Diastolic:  80,
@@ -59,8 +47,8 @@ func TestBatchGetLastBPReadings(t *testing.T) {
 			t.Fatalf("Create reading failed: %v", err)
 		}
 
-		// Create a newer reading
-		_, err = db.CreateBloodPressureReading(ctx, &BloodPressure{
+		// Newer reading
+		_, err = r.CreateBloodPressureReading(ctx, &BloodPressure{
 			UserID:     uid,
 			Systolic:   130,
 			Diastolic:  90,
@@ -71,7 +59,7 @@ func TestBatchGetLastBPReadings(t *testing.T) {
 		}
 	}
 
-	readings, err := db.BatchGetLastBPReadings(ctx, userIDs)
+	readings, err := r.BatchGetLastBPReadings(ctx, userIDs)
 	if err != nil {
 		t.Fatalf("BatchGetLastBPReadings failed: %v", err)
 	}
