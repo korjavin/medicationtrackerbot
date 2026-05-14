@@ -730,6 +730,34 @@ func TestScheduler_NoDuplicateIntakeAfterTZNameChangeSameOffset(t *testing.T) {
 	}
 }
 
+// TestStoreAdapter_GetPendingIntakesForMedication confirms the scheduler's
+// store adapter forwards the per-med pending lookup to the underlying
+// medication repo. Used by the plan-step near-match dedup in
+// MedicationChecker.Check (see plan 2026-05-14-tz-plan-step-dedupe-near-match).
+func TestStoreAdapter_GetPendingIntakesForMedication(t *testing.T) {
+	db := mustNewDB(t)
+	medID, err := db.Medication.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	if err != nil {
+		t.Fatalf("CreateMedication: %v", err)
+	}
+	if _, err := db.Medication.CreateIntake(medID, 1, time.Date(2026, 5, 14, 9, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("CreateIntake: %v", err)
+	}
+
+	adapter := newStoreAdapter(db)
+	var ms MedicationStore = adapter
+	got, err := ms.GetPendingIntakesForMedication(medID)
+	if err != nil {
+		t.Fatalf("adapter.GetPendingIntakesForMedication: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 pending intake via adapter, got %d", len(got))
+	}
+	if got[0].MedicationID != medID {
+		t.Errorf("expected medication ID %d, got %d", medID, got[0].MedicationID)
+	}
+}
+
 // mustNewDB creates an in-memory store for testing. Fatals on error.
 func mustNewDB(t *testing.T) *store.Store {
 	t.Helper()

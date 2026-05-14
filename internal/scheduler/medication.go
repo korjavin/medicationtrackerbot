@@ -22,6 +22,7 @@ type MedicationStore interface {
 	CreateIntake(medID, userID int64, scheduledAt time.Time) (int64, error)
 	AddIntakeReminder(intakeID int64, msgID int) error
 	GetPendingIntakes() ([]store.IntakeLog, error)
+	GetPendingIntakesForMedication(medID int64) ([]store.IntakeLog, error)
 	GetMedication(id int64) (*store.Medication, error)
 	GetMedicationsLowOnStock(days int) ([]store.Medication, error)
 	GetDaysOfStockRemaining(med *store.Medication) *float64
