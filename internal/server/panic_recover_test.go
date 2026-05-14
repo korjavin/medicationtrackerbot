@@ -53,6 +53,35 @@ func TestPanicRecover_DoesNotRewriteHeadersWhenAlreadyStreaming(t *testing.T) {
 	}
 }
 
+func TestPanicRecover_DoesNotRewriteHeadersAfterFlush(t *testing.T) {
+	// Regression: Flush() commits any buffered headers/bytes to the wire
+	// even when the handler has not called Write/WriteHeader yet. After
+	// Flush, the response has effectively started, so panicRecover must
+	// not try to send a fresh 500 (which would either no-op with a
+	// "superfluous WriteHeader" warning or corrupt the response).
+	h := panicRecover(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		f, ok := w.(http.Flusher)
+		if !ok {
+			t.Fatalf("recoverResponseWriter must implement http.Flusher")
+		}
+		f.Flush()
+		panic("post-flush boom")
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/flush-then-panic", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if strings.Contains(rr.Body.String(), "internal error") {
+		t.Fatalf("body must not contain rewritten 500 message after flush; got %q", rr.Body.String())
+	}
+	// The status set by the implicit Flush should not be overwritten to 500.
+	if rr.Code == http.StatusInternalServerError {
+		t.Fatalf("status: got %d, must not be rewritten to 500 after flush started the response", rr.Code)
+	}
+}
+
 func TestPanicRecover_PassesThroughNonPanicResponses(t *testing.T) {
 	h := panicRecover(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTeapot)

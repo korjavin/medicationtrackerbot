@@ -23,7 +23,11 @@ func (m *mockMedStoreForBench) GetDaysOfStockRemaining(med *store.Medication) *f
 }
 
 func (m *mockMedStoreForBench) GetCurrentTimezone() (string, error) {
-	return "", nil
+	// Pin to UTC so the benchmark exercises the same code path on every
+	// host: empty TZ would fall back to time.Local, and on a non-UTC
+	// machine the fixed 11:00 UTC clock would no longer satisfy the
+	// hour gate and the bench would measure the no-op path.
+	return "UTC", nil
 }
 
 func BenchmarkLowStockChecker(b *testing.B) {

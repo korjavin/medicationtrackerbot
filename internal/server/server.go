@@ -375,6 +375,10 @@ func (w *recoverResponseWriter) Write(b []byte) (int, error) {
 }
 
 func (w *recoverResponseWriter) Flush() {
+	// Flush commits buffered headers/bytes to the client. Even with a
+	// zero-length body, the underlying response has begun, so mark the
+	// response as started so panicRecover does not try to rewrite headers.
+	w.wroteHeader = true
 	if f, ok := w.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
