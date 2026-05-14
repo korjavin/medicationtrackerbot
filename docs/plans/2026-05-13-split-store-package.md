@@ -285,13 +285,13 @@ Sleep logs + day stats. Cross-references `workout` (mi-band imports day stats) �
 
 Widely consumed but each touch is trivial — likely the largest "import-path-only" PR.
 
-- [ ] Create `internal/store/settings/` with `Repo`.
-- [ ] Move `getSettingsBool`, `setSettingsBool`, `GetTabOrder`, `SetTabOrder`, and all per-feature `Get/Set*Enabled` (`GetMedicationEnabled`, `GetBloodPressureEnabled`, `GetWeightEnabled`, `GetWorkoutEnabled`, `GetHealthEnabled`, `GetFoodIntakeEnabled` and their setters).
-- [ ] Fold in `changes.go`'s 3 methods (`GetLastDownload`, `UpdateLastDownload`, plus any third) — too small for their own package.
-- [ ] Forwarders in `Store`.
-- [ ] `git mv internal/store/store_settings_test.go internal/store/settings/settings_test.go`.
-- [ ] `git mv internal/store/store_changes_test.go internal/store/settings/changes_test.go`.
-- [ ] Run `go test ./...` and `go test -race ./...` — must pass before Task 7.
+- [x] Create `internal/store/settings/` with `Repo`.
+- [x] Move `getSettingsBool`, `setSettingsBool`, `GetTabOrder`, `SetTabOrder`, and all per-feature `Get/Set*Enabled` (`GetMedicationEnabled`, `GetBloodPressureEnabled`, `GetWeightEnabled`, `GetWorkoutEnabled`, `GetHealthEnabled`, `GetFoodIntakeEnabled` and their setters). The private `getSettingsBool`/`setSettingsBool` are exposed as `(*Repo).GetBool`/`SetBool` so the SQL-injection allowlist test (previously `store_validation_test.go`) keeps a public surface to test against.
+- [x] Fold in `changes.go`'s 3 methods (`GetLastDownload`, `UpdateLastDownload`, plus any third) — too small for their own package. Note: the plan author misremembered which methods lived where. `changes.go` actually contained `GetLatestChangeCursor` / `GetChangedTagsSince` / `PruneChangeEvents` (the change_events stream); `GetLastDownload` / `UpdateLastDownload` lived in `store.go` under the "-- Settings --" comment. Both groups (5 methods total) are folded into `internal/store/settings` since they all sit on the singleton `settings` row + the change-stream sibling table; `changes.go` is deleted in this task.
+- [x] Forwarders in `Store`. `Store.Settings()` accessor exposes the repo for new callers.
+- [x] `git mv internal/store/store_settings_test.go internal/store/settings/settings_test.go`. The `WeightUnitPreference` tests that lived in this file are extracted to a new `internal/store/store_weight_unit_pref_test.go` because those methods stay on `*Store` until Task 8 (weight). `store_validation_test.go` is deleted; its SQL-injection allowlist coverage is preserved as `TestSettingsBoolValidation` in the moved settings_test.go (rewritten against the new `(*Repo).GetBool`/`SetBool` surface).
+- [x] `git mv internal/store/store_changes_test.go internal/store/settings/changes_test.go`. Tests rewritten against the `*Repo` API.
+- [x] Run `go test ./...` and `go test -race ./...` — must pass before Task 7. Full `go test ./...` is green; `go test -race ./internal/store/... ./internal/domain/... ./internal/bot/...` is green. The pre-existing race in `internal/server/TestHandleTriggerNextIntake_EarlyNotifFormatsInUserTZ` (documented in Task 1) reproduces on master pre-refactor and is unrelated. A second pre-existing notifier-pattern race surfaced in `internal/scheduler/TestWorkoutCheckerScenarios/Stale_session_notification` (mockNotifier.Send raced by `(*WorkoutChecker).Check`'s notify goroutine); verified on master pre-refactor in this same loop and likewise unrelated to the settings split.
 
 ---
 

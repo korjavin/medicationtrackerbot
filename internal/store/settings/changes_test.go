@@ -1,25 +1,15 @@
-package store
+package settings
 
 import (
 	"context"
 	"testing"
 )
 
-func setupChangesTestStore(t *testing.T) *Store {
-	t.Helper()
-	db, err := New(":memory:")
-	if err != nil {
-		t.Fatalf("Failed to create test store: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-	return db
-}
-
 func TestGetLatestChangeCursorEmpty(t *testing.T) {
-	db := setupChangesTestStore(t)
+	r := setupSettingsRepo(t)
 	ctx := context.Background()
 
-	cursor, err := db.GetLatestChangeCursor(ctx)
+	cursor, err := r.GetLatestChangeCursor(ctx)
 	if err != nil {
 		t.Fatalf("GetLatestChangeCursor: %v", err)
 	}
@@ -29,10 +19,10 @@ func TestGetLatestChangeCursorEmpty(t *testing.T) {
 }
 
 func TestGetChangedTagsSinceEmpty(t *testing.T) {
-	db := setupChangesTestStore(t)
+	r := setupSettingsRepo(t)
 	ctx := context.Background()
 
-	cursor, tags, err := db.GetChangedTagsSince(ctx, 0)
+	cursor, tags, err := r.GetChangedTagsSince(ctx, 0)
 	if err != nil {
 		t.Fatalf("GetChangedTagsSince: %v", err)
 	}
@@ -45,25 +35,25 @@ func TestGetChangedTagsSinceEmpty(t *testing.T) {
 }
 
 func TestChangeEventsWithData(t *testing.T) {
-	db := setupChangesTestStore(t)
+	r := setupSettingsRepo(t)
 	ctx := context.Background()
 
 	// Insert change events directly (normally done by triggers)
-	_, err := db.db.ExecContext(ctx, "INSERT INTO change_events (tag) VALUES (?)", "bp")
+	_, err := r.db.ExecContext(ctx, "INSERT INTO change_events (tag) VALUES (?)", "bp")
 	if err != nil {
 		t.Fatalf("Insert change event: %v", err)
 	}
-	_, err = db.db.ExecContext(ctx, "INSERT INTO change_events (tag) VALUES (?)", "weight")
+	_, err = r.db.ExecContext(ctx, "INSERT INTO change_events (tag) VALUES (?)", "weight")
 	if err != nil {
 		t.Fatalf("Insert change event: %v", err)
 	}
-	_, err = db.db.ExecContext(ctx, "INSERT INTO change_events (tag) VALUES (?)", "bp")
+	_, err = r.db.ExecContext(ctx, "INSERT INTO change_events (tag) VALUES (?)", "bp")
 	if err != nil {
 		t.Fatalf("Insert change event: %v", err)
 	}
 
 	// Latest cursor should be 3
-	cursor, err := db.GetLatestChangeCursor(ctx)
+	cursor, err := r.GetLatestChangeCursor(ctx)
 	if err != nil {
 		t.Fatalf("GetLatestChangeCursor: %v", err)
 	}
@@ -72,7 +62,7 @@ func TestChangeEventsWithData(t *testing.T) {
 	}
 
 	// Get all tags since 0
-	cursor, tags, err := db.GetChangedTagsSince(ctx, 0)
+	cursor, tags, err := r.GetChangedTagsSince(ctx, 0)
 	if err != nil {
 		t.Fatalf("GetChangedTagsSince(0): %v", err)
 	}
@@ -88,7 +78,7 @@ func TestChangeEventsWithData(t *testing.T) {
 	}
 
 	// Get tags since cursor 1 (should still include both)
-	_, tags, err = db.GetChangedTagsSince(ctx, 1)
+	_, tags, err = r.GetChangedTagsSince(ctx, 1)
 	if err != nil {
 		t.Fatalf("GetChangedTagsSince(1): %v", err)
 	}
@@ -97,7 +87,7 @@ func TestChangeEventsWithData(t *testing.T) {
 	}
 
 	// Get tags since cursor 2 (only bp at id=3)
-	_, tags, err = db.GetChangedTagsSince(ctx, 2)
+	_, tags, err = r.GetChangedTagsSince(ctx, 2)
 	if err != nil {
 		t.Fatalf("GetChangedTagsSince(2): %v", err)
 	}
@@ -109,7 +99,7 @@ func TestChangeEventsWithData(t *testing.T) {
 	}
 
 	// Get tags since cursor 3 (nothing new)
-	_, tags, err = db.GetChangedTagsSince(ctx, 3)
+	_, tags, err = r.GetChangedTagsSince(ctx, 3)
 	if err != nil {
 		t.Fatalf("GetChangedTagsSince(3): %v", err)
 	}
@@ -119,18 +109,18 @@ func TestChangeEventsWithData(t *testing.T) {
 }
 
 func TestPruneChangeEvents(t *testing.T) {
-	db := setupChangesTestStore(t)
+	r := setupSettingsRepo(t)
 	ctx := context.Background()
 
 	// Insert 10 events
 	for i := 0; i < 10; i++ {
-		_, err := db.db.ExecContext(ctx, "INSERT INTO change_events (tag) VALUES (?)", "test")
+		_, err := r.db.ExecContext(ctx, "INSERT INTO change_events (tag) VALUES (?)", "test")
 		if err != nil {
 			t.Fatalf("Insert event %d: %v", i, err)
 		}
 	}
 
-	cursor, err := db.GetLatestChangeCursor(ctx)
+	cursor, err := r.GetLatestChangeCursor(ctx)
 	if err != nil {
 		t.Fatalf("GetLatestChangeCursor: %v", err)
 	}
@@ -139,14 +129,14 @@ func TestPruneChangeEvents(t *testing.T) {
 	}
 
 	// Prune keeping last 5
-	err = db.PruneChangeEvents(ctx, 5, 0)
+	err = r.PruneChangeEvents(ctx, 5, 0)
 	if err != nil {
 		t.Fatalf("PruneChangeEvents: %v", err)
 	}
 
 	// Count remaining
 	var count int
-	err = db.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM change_events").Scan(&count)
+	err = r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM change_events").Scan(&count)
 	if err != nil {
 		t.Fatalf("Count: %v", err)
 	}
@@ -155,7 +145,7 @@ func TestPruneChangeEvents(t *testing.T) {
 	}
 
 	// Cursor should still be 10 (max id)
-	cursor, err = db.GetLatestChangeCursor(ctx)
+	cursor, err = r.GetLatestChangeCursor(ctx)
 	if err != nil {
 		t.Fatalf("GetLatestChangeCursor after prune: %v", err)
 	}
@@ -165,27 +155,27 @@ func TestPruneChangeEvents(t *testing.T) {
 }
 
 func TestPruneChangeEventsByAge(t *testing.T) {
-	db := setupChangesTestStore(t)
+	r := setupSettingsRepo(t)
 	ctx := context.Background()
 
 	// Insert old events
-	_, err := db.db.ExecContext(ctx, "INSERT INTO change_events (tag, created_at) VALUES (?, datetime('now', '-10 days'))", "old")
+	_, err := r.db.ExecContext(ctx, "INSERT INTO change_events (tag, created_at) VALUES (?, datetime('now', '-10 days'))", "old")
 	if err != nil {
 		t.Fatalf("Insert old event: %v", err)
 	}
-	_, err = db.db.ExecContext(ctx, "INSERT INTO change_events (tag) VALUES (?)", "new")
+	_, err = r.db.ExecContext(ctx, "INSERT INTO change_events (tag) VALUES (?)", "new")
 	if err != nil {
 		t.Fatalf("Insert new event: %v", err)
 	}
 
 	// Prune events older than 5 days
-	err = db.PruneChangeEvents(ctx, 0, 5)
+	err = r.PruneChangeEvents(ctx, 0, 5)
 	if err != nil {
 		t.Fatalf("PruneChangeEvents by age: %v", err)
 	}
 
 	var count int
-	err = db.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM change_events").Scan(&count)
+	err = r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM change_events").Scan(&count)
 	if err != nil {
 		t.Fatalf("Count: %v", err)
 	}
