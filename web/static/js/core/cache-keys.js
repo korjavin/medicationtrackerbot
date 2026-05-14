@@ -77,7 +77,14 @@
         },
         diary_notes: {
             key: 'diary_notes',
-            tag: 'health-notes',
+            // Dual-tag registration: the backend's diary_notes triggers (migration
+            // 041) emit change_events with tag='notes', so the change-poll loop
+            // invalidates via 'notes'. The Vitals UI separately invalidates
+            // 'health-notes' on note create/delete (features/health.js). Both
+            // tags must evict this key, or a cookie-only auth path that skips
+            // hydrateSectionsFromDexie leaves the row registered under only one
+            // side and stale notes survive the other invalidation.
+            tag: ['notes', 'health-notes'],
             description: 'Vitals diary notes.'
         },
         settings_bundle: {
@@ -124,9 +131,16 @@
         return STATIC_KEYS[name];
     }
 
+    // Returns the primary invalidation tag for `keyOrName` (string) or null.
+    // For entries that declare multiple tags (array), the first one is the
+    // primary — it's the tag the backend emits via change_events, so it's
+    // the right default for `cachedFetch.resolveTags`. Registration via
+    // `registerAll` still wires every tag, so DataStore invalidates the
+    // key whichever tag is dispatched.
     function tagFor(keyOrName) {
         if (Object.prototype.hasOwnProperty.call(STATIC_KEYS, keyOrName)) {
-            return STATIC_KEYS[keyOrName].tag;
+            const t = STATIC_KEYS[keyOrName].tag;
+            return Array.isArray(t) ? (t[0] || null) : t;
         }
         for (const fam of FAMILIES) {
             if (typeof keyOrName === 'string' && keyOrName.startsWith(fam.prefix)) {
@@ -139,7 +153,11 @@
     function registerAll(dataStore) {
         if (!dataStore || typeof dataStore.registerTags !== 'function') return;
         Object.values(STATIC_KEYS).forEach(({ key, tag }) => {
-            if (tag) dataStore.registerTags(key, [tag]);
+            if (Array.isArray(tag)) {
+                if (tag.length > 0) dataStore.registerTags(key, tag);
+            } else if (tag) {
+                dataStore.registerTags(key, [tag]);
+            }
         });
         if (typeof dataStore.registerTagFamily === 'function') {
             FAMILIES.forEach(({ prefix, tag }) => dataStore.registerTagFamily(prefix, tag));

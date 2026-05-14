@@ -113,6 +113,11 @@ describe('core/cache-keys.js — dynamic key families', () => {
         expect(CacheKeys.tagFor('health_overview_UTC')).toBe('health');
         expect(CacheKeys.tagFor('settings_bundle')).toBeNull();
         expect(CacheKeys.tagFor('completely_unknown')).toBeNull();
+        // diary_notes declares two tags; tagFor returns the primary one
+        // (the backend-emitted change_events tag) so cachedFetch.resolveTags
+        // defaults a freshly-cached row to the tag that the change-poll
+        // loop actually dispatches.
+        expect(CacheKeys.tagFor('diary_notes')).toBe('notes');
     });
 
     it('exposes families[] with prefix and tag for downstream registerTagFamily', () => {
@@ -146,7 +151,12 @@ describe('core/cache-keys.js — registerAll', () => {
         expect(byKey['workout_stats']).toEqual(['workout']);
         expect(byKey['exercise_library']).toEqual(['exercise_library']);
         expect(byKey['food_products_cache']).toEqual(['food']);
-        expect(byKey['diary_notes']).toEqual(['health-notes']);
+        // diary_notes is dual-tagged: 'notes' (backend change_events emission
+        // from migration 041) and 'health-notes' (UI-side invalidation in
+        // features/health.js). Both must be registered at boot so a
+        // cookie-only auth path that skips hydrateSectionsFromDexie still
+        // gets correct invalidation on either tag.
+        expect(byKey['diary_notes']).toEqual(['notes', 'health-notes']);
     });
 
     it('skips static entries with no tag (settings_bundle is never registered)', () => {
