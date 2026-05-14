@@ -569,19 +569,19 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Invalid timezone: "+req.Timezone, http.StatusBadRequest)
 			return
 		}
-		oldTZ, _ := s.timezone.GetCurrentTimezone()
-		planCreated, err := s.tzUpdater.UpdateTimezone(r.Context(), req.Timezone)
+		result, err := s.tzUpdater.UpdateTimezone(r.Context(), req.Timezone)
 		if err != nil {
 			slog.Error("handleUpdateSettings: UpdateTimezone failed", "error", err)
 			http.Error(w, "Failed to update timezone", http.StatusInternalServerError)
 			return
 		}
-		// Notify only when the TZ actually changed. The tzupdate service
-		// short-circuits no-op writes (old == new), so the dismiss path and
-		// repeat-save buttons never fire a chat confirmation.
-		if oldTZ != req.Timezone {
+		// Notify only when this call actually changed the stored TZ. The
+		// service decides Changed inside its mutex, so two concurrent POSTs
+		// with the same new TZ can't both pass this gate — exactly one wins
+		// and exactly one chat confirmation is sent.
+		if result.Changed {
 			text := fmt.Sprintf("Timezone updated to %s.", req.Timezone)
-			if planCreated {
+			if result.PlanCreated {
 				text += "\n\nI sent a separate transition plan you can review."
 			}
 			s.notify(r.Context(), notifier.Notification{Text: text})

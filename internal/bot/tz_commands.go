@@ -89,7 +89,7 @@ func (b *Bot) handleLocationMessage(msg *tgbotapi.Message) {
 		return
 	}
 
-	planCreated, err := b.tzUpdater.UpdateTimezone(context.Background(), tz)
+	result, err := b.tzUpdater.UpdateTimezone(context.Background(), tz)
 	if err != nil {
 		slog.Error("UpdateTimezone failed", "tz", tz, "error", err)
 		restoreAwaiting()
@@ -101,7 +101,7 @@ func (b *Bot) handleLocationMessage(msg *tgbotapi.Message) {
 	}
 
 	var body string
-	if planCreated {
+	if result.PlanCreated {
 		body = fmt.Sprintf(
 			"Timezone set to %s. Workout, BP, and weight reminders are adjusted. I'll send a separate transition plan for your medication times — approve or reject it to control when doses shift.",
 			tz,

@@ -33,15 +33,33 @@ type PlanBaselineStore interface {
 	GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error)
 }
 
+// UpdateResult reports what an UpdateTimezone call did inside the serialized
+// path. Both fields are read by callers that need to make user-visible
+// decisions (notifications, confirmation copy) AFTER the mutex has been
+// released; computing them before the call is racy when two clients submit
+// the same new TZ concurrently.
+type UpdateResult struct {
+	// Changed is true when this specific call modified the stored timezone.
+	// Concurrent calls with the same target see Changed=true exactly once;
+	// the later caller observes the already-applied value and gets
+	// Changed=false. This is the signal to fire one-shot side effects like
+	// chat confirmations.
+	Changed bool
+	// PlanCreated is true when a new PENDING_APPROVAL transition plan landed
+	// in the store as part of this call. Only set when Changed=true.
+	PlanCreated bool
+}
+
 // Service serializes timezone updates across transports.
 type Service interface {
 	// UpdateTimezone validates the new timezone, generates a transition plan
-	// when the timezone actually changes, and persists the new value. Returns
-	// planCreated=true when a new PENDING_APPROVAL plan landed in the store
-	// (the caller can use this to phrase confirmation messages). On
-	// RecordTimezone failure the service cancels any orphan plan and reverts
-	// the stored timezone to the superseded plan's baseline.
-	UpdateTimezone(ctx context.Context, newTZ string) (planCreated bool, err error)
+	// when the timezone actually changes, and persists the new value. The
+	// returned UpdateResult reports whether this call actually changed the
+	// stored TZ and whether a plan was created — both decided inside the
+	// service's mutex so concurrent callers don't double-fire confirmation
+	// side effects. On RecordTimezone failure the service cancels any orphan
+	// plan and reverts the stored timezone to the superseded plan's baseline.
+	UpdateTimezone(ctx context.Context, newTZ string) (UpdateResult, error)
 }
 
 type service struct {
@@ -79,16 +97,16 @@ func NewService(
 	}
 }
 
-func (s *service) UpdateTimezone(_ context.Context, newTZ string) (bool, error) {
+func (s *service) UpdateTimezone(_ context.Context, newTZ string) (UpdateResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	oldTZ, err := s.settings.GetCurrentTimezone()
 	if err != nil {
-		return false, fmt.Errorf("read current timezone: %w", err)
+		return UpdateResult{}, fmt.Errorf("read current timezone: %w", err)
 	}
 	if oldTZ == newTZ {
-		return false, nil
+		return UpdateResult{}, nil
 	}
 
 	// Synchronous gate: if no notification channel is configured, skip plan
@@ -100,9 +118,9 @@ func (s *service) UpdateTimezone(_ context.Context, newTZ string) (bool, error) 
 	// web-handler behaviour and eliminates the race.
 	if s.planner != nil && s.hasNotifiers != nil && !s.hasNotifiers() {
 		if err := s.settings.RecordTimezone(newTZ); err != nil {
-			return false, fmt.Errorf("record timezone: %w", err)
+			return UpdateResult{}, fmt.Errorf("record timezone: %w", err)
 		}
-		return false, nil
+		return UpdateResult{Changed: true}, nil
 	}
 
 	// Capture the active plan's baseline before GenerateIfChanged cancels it.
@@ -119,7 +137,7 @@ func (s *service) UpdateTimezone(_ context.Context, newTZ string) (bool, error) 
 		activePlan, planErr := s.planBaseline.GetLatestActiveOrPendingTZTransitionPlan()
 		if planErr != nil {
 			if s.planner != nil {
-				return false, fmt.Errorf("read superseded plan baseline: %w", planErr)
+				return UpdateResult{}, fmt.Errorf("read superseded plan baseline: %w", planErr)
 			}
 			slog.Warn("tzupdate: failed to read superseded plan baseline, revert path will skip baseline restore",
 				"error", planErr)
@@ -132,7 +150,7 @@ func (s *service) UpdateTimezone(_ context.Context, newTZ string) (bool, error) 
 	if s.planner != nil {
 		created, err := s.planner.GenerateIfChanged(oldTZ, newTZ, s.now())
 		if err != nil {
-			return false, fmt.Errorf("generate transition plan: %w", err)
+			return UpdateResult{}, fmt.Errorf("generate transition plan: %w", err)
 		}
 		planCreated = created
 	}
@@ -152,7 +170,7 @@ func (s *service) UpdateTimezone(_ context.Context, newTZ string) (bool, error) 
 					"baseline", supersededBaseline)
 			}
 		}
-		return false, fmt.Errorf("record timezone: %w", err)
+		return UpdateResult{}, fmt.Errorf("record timezone: %w", err)
 	}
-	return planCreated, nil
+	return UpdateResult{Changed: true, PlanCreated: planCreated}, nil
 }
