@@ -157,18 +157,22 @@ and recommended-priority item #5.
 
 ### Task 3: Migrate `features/workout.js` to use the registry
 
-- [ ] replace `WORKOUT_CACHE_KEYS` const at `features/workout.js:26`
+- [x] replace `WORKOUT_CACHE_KEYS` const at `features/workout.js:26`
   with `const WORKOUT_CACHE_KEYS = window.CacheKeys.workoutKeys()` (a
-  helper that returns the same array from the registry)
-- [ ] replace the boot-time `WORKOUT_CACHE_KEYS.forEach(...)` block at
+  helper that returns the same array from the registry) — superseded:
+  the const had no remaining callers after the boot-time forEach and
+  the in-body re-registration both went away, so removing it outright
+  satisfies task 6's grep check rather than leaving an unused binding
+- [x] replace the boot-time `WORKOUT_CACHE_KEYS.forEach(...)` block at
   lines 33-35 with a single `// tags registered at boot via CacheKeys.registerAll`
   comment (the registration happens upstream now)
-- [ ] keep `invalidateWorkoutCache` (line 37) — but its body becomes
+- [x] keep `invalidateWorkoutCache` (line 37) — but its body becomes
   one line: `await window.DataStore.invalidateTags(['workout'])`;
   drop the inner re-registration (line 38-40) since registration is
-  guaranteed at boot
-- [ ] verify all existing workout tests still pass without changes
-- [ ] run `pnpm test workout.` — must pass before next task
+  guaranteed at boot — the `WorkoutStore.clearCache` legacy fallback
+  stays (still required by `workout.invalidation.test.js`)
+- [x] verify all existing workout tests still pass without changes
+- [x] run `pnpm test workout.` — must pass before next task
 
 ### Task 4: Migrate cached-fetch and the explanatory comments
 

@@ -23,21 +23,10 @@ let currentVariantForExercise = null;
 // back to it when the post-mutation refresh fetch fails (offline/5xx), so
 // without this, a successful save followed by a failed reload would re-paint
 // the stale groups list and re-save it under workout_groups via onFresh.
-const WORKOUT_CACHE_KEYS = ['workout_next', 'workout_history', 'workout_groups', 'workout_stats'];
-
-// Register the known workout cache keys with the 'workout' tag eagerly. Makes
-// invalidateTags(['workout']) effective even when called from a context that
-// hasn't yet executed loadXxx() — e.g. the push-modal snooze/skip flow from
-// app.js, which can fire before the user has ever visited the workouts tab,
-// so the tagToKeys map would otherwise be empty for these keys.
-if (typeof window !== 'undefined' && window.DataStore?.registerTags) {
-    WORKOUT_CACHE_KEYS.forEach((key) => window.DataStore.registerTags(key, ['workout']));
-}
-
+//
+// Workout-tag registration happens at boot via CacheKeys.registerAll() — see
+// web/static/js/core/cache-keys.js for the single source of truth.
 async function invalidateWorkoutCache() {
-    if (window.DataStore?.registerTags) {
-        WORKOUT_CACHE_KEYS.forEach((key) => window.DataStore.registerTags(key, ['workout']));
-    }
     if (window.DataStore?.invalidateTags) {
         await window.DataStore.invalidateTags(['workout']);
     }
