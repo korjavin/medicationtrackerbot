@@ -196,20 +196,30 @@ and recommended-priority item #5.
 
 ### Task 5: Migrate `features/food.js` and `app.js` direct cache writes
 
-- [ ] in `features/food.js:1842` replace
+- [x] in `features/food.js:1842` replace
   `await window.DataStore.setCached(cacheKey, ...)` with the registry-
   aware variant that includes the `food` tag — easiest to call
   `setCachedWithTags(cacheKey, value, ['food'])` directly, but the
   registry's `CacheKeys.dayFoodKey(date)` should be the cacheKey
-  source
-- [ ] in `app.js:44, 46` (`cacheApiSnapshot`), no change needed if
-  callers already pass tags; verify
-- [ ] in `app.js:3266` (`window.DataStore.setCached('settings_bundle',
+  source — done by switching `cachedFetch`'s key to
+  `window.CacheKeys.dayFoodKey(dateStr)` (dropping the inline
+  `tags: ['food']` since the registry now supplies it) and converting
+  the v2 row write to
+  `setCachedWithTags(cacheKey, value, ['food'])`; the v2 row's
+  `food_` prefix piggybacks on the family-tag eviction
+- [x] in `app.js:44, 46` (`cacheApiSnapshot`), no change needed if
+  callers already pass tags; verify — every callsite
+  (`medications`, `history_3_0`, `next_intake`, `bp`, `weight`,
+  `food_<date>_day`, `settings_bundle` ×2) passes its tag list, so
+  the helper's `setCachedWithTags` branch is taken
+- [x] in `app.js:3266` (`window.DataStore.setCached('settings_bundle',
   cached)`), confirm `settings_bundle` is in the registry as the
-  no-tag entry; behaviour unchanged
-- [ ] write tests in `web/static/js/tests/food.cache-keys.test.js`
+  no-tag entry; behaviour unchanged — registry entry has
+  `tag: null` and the saveTabOrder write keeps the no-bump
+  semantics
+- [x] write tests in `web/static/js/tests/food.cache-keys.test.js`
   verifying day-food invalidation uses the family-tag path
-- [ ] run `pnpm test food.cache-keys` — must pass before next task
+- [x] run `pnpm test food.cache-keys` — must pass before next task
 
 ### Task 6: Architecture test prevents recurrence + acceptance
 
