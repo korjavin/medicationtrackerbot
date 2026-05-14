@@ -56,6 +56,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.ChartUtils',               // core/chart-utils.js — shared SVG chart utilities
     'window.ModalManager',              // core/modal-manager.js — modal lifecycle façade
     'window.AppStore',                  // core/store.js — ephemeral UI state
+    'window.CacheKeys',                 // core/cache-keys.js — centralized registry of api_cache keys, tags, and freshness windows; registerAll() is invoked at boot so tag-based invalidation works regardless of which feature loader has executed
 
     // Features
     'window.handleDeepLinks',           // features/deeplink-router.js — called by bootstrap.js

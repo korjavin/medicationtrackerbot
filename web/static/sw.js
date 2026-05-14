@@ -20,6 +20,7 @@ const STATIC_ASSETS = [
     '/static/js/core/modal-manager.js',
     '/static/js/core/modal-controller.js',
     '/static/js/core/chart-utils.js',
+    '/static/js/core/cache-keys.js',
     // Components
     '/static/js/components/mt-elements.js',
     '/static/js/components/empty-state.js',

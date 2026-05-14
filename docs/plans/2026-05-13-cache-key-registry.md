@@ -110,31 +110,31 @@ and recommended-priority item #5.
 
 ### Task 1: Author `core/cache-keys.js`
 
-- [ ] create `web/static/js/core/cache-keys.js` with `CACHE_KEYS`
+- [x] create `web/static/js/core/cache-keys.js` with `CACHE_KEYS`
   object: each entry has `key` (literal or factory function), `tag`
   (string), `freshAfterMs`, `staleAfterMs` (both optional), and a
   one-line `description` (consumed by future debug surfaces and the
   architecture test); attach to `window.CacheKeys`
-- [ ] enumerate every known key from the frontend.md table and the
+- [x] enumerate every known key from the frontend.md table and the
   list above; for dynamic families (history/food-day/health-overview),
   expose them as factories: `CacheKeys.history(days, medId)` returns
   `'history_'+days+'_'+(medId||'')` and is annotated as the same
   family (i.e. carries the `history` tag)
-- [ ] add `CacheKeys.registerAll(dataStore)` that iterates static
+- [x] add `CacheKeys.registerAll(dataStore)` that iterates static
   entries and calls `dataStore.registerTags(key, [tag])` for each;
   dynamic families register their tag via `registerTagFamily(prefix,
   tag)` so `invalidateByTag('history')` evicts every `history_*` key
   in the cache (extends `data-store.js` if necessary)
-- [ ] update `web/static/js/tests/architecture.globals.test.js` to
+- [x] update `web/static/js/tests/architecture.globals.test.js` to
   allow `window.CacheKeys` with a justification entry
-- [ ] include `core/cache-keys.js` in `web/static/sw.js`
+- [x] include `core/cache-keys.js` in `web/static/sw.js`
   `STATIC_ASSETS` and in `web/static/index.html` script tags (loaded
   before `data-store.js`)
-- [ ] write tests in `web/static/js/tests/core.cache-keys.test.js`:
+- [x] write tests in `web/static/js/tests/core.cache-keys.test.js`:
   static entry lookup; dynamic family construction (`history(7, 42)`
   → `'history_7_42'`); `registerAll` populates DataStore tag map;
   unknown key throws (catches typos)
-- [ ] run `pnpm test core.cache-keys` — must pass before next task
+- [x] run `pnpm test core.cache-keys` — must pass before next task
 
 ### Task 2: Eager registration at boot + dynamic-tag-family support
 
