@@ -111,10 +111,13 @@ describe('Service Worker precache coverage', () => {
 
     // Allowlist for /static/js/*.js paths that the SW loads itself
     // (via importScripts) rather than the page loading via <script src>.
-    // Keep this list short and justified. Empty today — the SW has no
-    // importScripts call yet (see docs/plans/2026-05-13-sw-handler-unification.md
-    // for the future sw-api-helper.js extraction).
-    const SW_SELF_IMPORTS = new Set([]);
+    // Keep this list short and justified.
+    const SW_SELF_IMPORTS = new Set([
+        // Auth-aware fetch wrapper used by notification action handlers
+        // inside the SW. Loaded via importScripts at the top of sw.js;
+        // not consumed by the main thread.
+        '/static/js/sw-api-helper.js',
+    ]);
 
     it('every precached /static/js/*.js should be loaded by index.html', () => {
         const orphans = [];
