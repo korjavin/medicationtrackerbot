@@ -59,6 +59,9 @@ func (m *mockMedStoreBench) UpdateTZTransitionPlanStatus(id int64, newStatus, us
 }
 func (m *mockMedStoreBench) AddIntakeReminder(intakeID int64, msgID int) error { return nil }
 func (m *mockMedStoreBench) GetPendingIntakes() ([]store.IntakeLog, error)     { return nil, nil }
+func (m *mockMedStoreBench) GetPendingIntakesForMedication(medID int64) ([]store.IntakeLog, error) {
+	return nil, nil
+}
 func (m *mockMedStoreBench) GetMedication(id int64) (*store.Medication, error) { return nil, nil }
 func (m *mockMedStoreBench) GetMedicationsLowOnStock(days int) ([]store.Medication, error) {
 	return nil, nil

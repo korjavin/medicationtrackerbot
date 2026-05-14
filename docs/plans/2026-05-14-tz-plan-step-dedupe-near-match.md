@@ -79,20 +79,20 @@ plan approval" path that the prod incident exposed.
 
 ### Task 1: Expose `GetPendingIntakesForMedication` on the scheduler store interface
 
-- [ ] add `GetPendingIntakesForMedication(medID int64) ([]store.IntakeLog, error)`
+- [x] add `GetPendingIntakesForMedication(medID int64) ([]store.IntakeLog, error)`
       to the `MedicationStore` interface in
       `internal/scheduler/medication.go` (next to the existing
       `GetPendingIntakes`).
-- [ ] confirm the live store adapter at `internal/scheduler/adapter.go`
+- [x] confirm the live store adapter at `internal/scheduler/adapter.go`
       already forwards to `Repo.GetPendingIntakesForMedication`; add the
       pass-through if missing.
-- [ ] update any test stores / mocks that implement `MedicationStore`
+- [x] update any test stores / mocks that implement `MedicationStore`
       (`internal/scheduler/medication_bench_test.go` mocks,
       `internal/scheduler/test_helpers*.go`) to satisfy the new method —
       backing the real repo or returning an empty slice as appropriate.
-- [ ] write/update a tiny test that the adapter forwards correctly (only if
+- [x] write/update a tiny test that the adapter forwards correctly (only if
       adapter pass-through was added in this task).
-- [ ] run `go test ./internal/scheduler/...` — must pass before next task.
+- [x] run `go test ./internal/scheduler/...` — must pass before next task.
 
 ### Task 2: Add near-match plan-step dedup in `MedicationChecker.Check`
 
