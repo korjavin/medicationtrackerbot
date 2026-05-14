@@ -205,6 +205,18 @@ step merges into pre-existing normal intake" and siblings). Forecast-side
 parity is documented at `internal/domain/medplan/medplan.go` near
 `pendingByMed[med.ID]`.
 
+### TZ suggestion cross-client dismissal
+
+TZ suggestion dismissal is persisted in `user_settings.dismissed_tz_suggestion`;
+the web bootstrap consults the settings bundle before prompting, so dismissing
+in one browser silences other clients until the detected TZ changes or the
+user explicitly updates settings. The decision flow lives in
+`internal/domain/tzsuggestion/service.go` (`ShouldPrompt`, `RecordDismissal`)
+and is exposed via `POST /api/tz-suggestion/dismiss`. `RecordTimezone` clears
+the dismissed flag in the same write so the next genuine TZ change prompts
+normally. A successful web-initiated TZ change also fires a Telegram
+confirmation through the existing notifier; decline does not.
+
 ## Telegram Bot Callbacks
 
 Callback data format is crucial for routing:
