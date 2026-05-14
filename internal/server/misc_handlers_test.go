@@ -57,10 +57,10 @@ func TestHandleListHistory_WithData(t *testing.T) {
 	srv, db := createGenericTestServer(t)
 	defer db.Close()
 
-	medID, _ := db.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	medID, _ := db.Medication.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	scheduledAt := time.Now().Add(-1 * time.Hour)
-	intakeID, _ := db.CreateIntake(medID, 123456, scheduledAt)
-	_ = db.ConfirmIntake(intakeID, scheduledAt)
+	intakeID, _ := db.Medication.CreateIntake(medID, 123456, scheduledAt)
+	_ = db.Medication.ConfirmIntake(intakeID, scheduledAt)
 
 	req := httptest.NewRequest("GET", "/api/history?days=7", nil)
 	req = withUser(req, 123456)
@@ -85,14 +85,14 @@ func TestHandleListHistory_MedIDFilter(t *testing.T) {
 	srv, db := createGenericTestServer(t)
 	defer db.Close()
 
-	med1, _ := db.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
-	med2, _ := db.CreateMedication("Ibuprofen", "200mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	med1, _ := db.Medication.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	med2, _ := db.Medication.CreateMedication("Ibuprofen", "200mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 
 	scheduledAt := time.Now().Add(-1 * time.Hour)
-	id1, _ := db.CreateIntake(med1, 123456, scheduledAt)
-	id2, _ := db.CreateIntake(med2, 123456, scheduledAt)
-	_ = db.ConfirmIntake(id1, scheduledAt)
-	_ = db.ConfirmIntake(id2, scheduledAt)
+	id1, _ := db.Medication.CreateIntake(med1, 123456, scheduledAt)
+	id2, _ := db.Medication.CreateIntake(med2, 123456, scheduledAt)
+	_ = db.Medication.ConfirmIntake(id1, scheduledAt)
+	_ = db.Medication.ConfirmIntake(id2, scheduledAt)
 
 	req := httptest.NewRequest("GET", fmt.Sprintf("/api/history?med_id=%d", med1), nil)
 	req = withUser(req, 123456)

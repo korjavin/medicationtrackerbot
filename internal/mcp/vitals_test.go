@@ -22,7 +22,7 @@ func setupVitalsMCPTestServer(t *testing.T) (*Server, *store.Store) {
 			MaxQueryDays: 90,
 			UserID:       123456,
 		},
-		data: st,
+		data: newStoreAdapter(st),
 	}
 
 	return s, st
@@ -42,7 +42,7 @@ func TestHandleGetVitalsHeart_HappyPath(t *testing.T) {
 		{UserID: userID, DateTime: time.Date(2026, 2, 18, 9, 30, 0, 0, time.UTC), TzOffset: tzOffset, Value: 75, Type: 1},
 	}
 
-	_, _, err := st.ImportVitals(ctx, userID, heartLogs, nil, nil)
+	_, _, err := st.Vitals.ImportVitals(ctx, userID, heartLogs, nil, nil)
 	if err != nil {
 		t.Fatalf("failed to import vitals: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestHandleGetVitalsSpO2_HappyPath(t *testing.T) {
 		{UserID: userID, DateTime: time.Date(2026, 2, 18, 9, 30, 0, 0, time.UTC), TzOffset: tzOffset, Value: 99, Type: 1},
 	}
 
-	_, _, err := st.ImportVitals(ctx, userID, nil, spo2Logs, nil)
+	_, _, err := st.Vitals.ImportVitals(ctx, userID, nil, spo2Logs, nil)
 	if err != nil {
 		t.Fatalf("failed to import vitals: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestHandleGetVitalsStress_HappyPath(t *testing.T) {
 		{UserID: userID, DateTime: time.Date(2026, 2, 18, 9, 30, 0, 0, time.UTC), TzOffset: tzOffset, Value: 80, Type: 1, Info: "High Stress"},
 	}
 
-	_, _, err := st.ImportVitals(ctx, userID, nil, nil, stressLogs)
+	_, _, err := st.Vitals.ImportVitals(ctx, userID, nil, nil, stressLogs)
 	if err != nil {
 		t.Fatalf("failed to import vitals: %v", err)
 	}
@@ -263,7 +263,7 @@ func TestHandleGetHealthOverview(t *testing.T) {
 		{UserID: userID, DateTime: time.Date(2026, 2, 18, 10, 30, 0, 0, time.UTC), TzOffset: tzOffset, Value: 40, Type: 1},
 	}
 
-	_, _, err := st.ImportVitals(ctx, userID, heartLogs, spo2Logs, stressLogs)
+	_, _, err := st.Vitals.ImportVitals(ctx, userID, heartLogs, spo2Logs, stressLogs)
 	if err != nil {
 		t.Fatalf("failed to import vitals: %v", err)
 	}
@@ -324,7 +324,7 @@ func TestHandleGetVitalsHeart_Truncation(t *testing.T) {
 		})
 	}
 
-	_, _, err := st.ImportVitals(ctx, userID, heartLogs, nil, nil)
+	_, _, err := st.Vitals.ImportVitals(ctx, userID, heartLogs, nil, nil)
 	if err != nil {
 		t.Fatalf("failed to import vitals: %v", err)
 	}

@@ -18,20 +18,20 @@ func setupBenchStore(tb testing.TB) *Store {
 func BenchmarkAddIntakeReminder(b *testing.B) {
 	db := setupBenchStore(b)
 
-	medID, err := db.CreateMedication("BenchMed", "5mg", `{"type":"daily","times":["21:30"]}`, nil, nil, "", "", "")
+	medID, err := db.Medication.CreateMedication("BenchMed", "5mg", `{"type":"daily","times":["21:30"]}`, nil, nil, "", "", "")
 	if err != nil {
 		b.Fatalf("CreateMedication failed: %v", err)
 	}
 
 	scheduled := time.Now()
-	intakeID, err := db.CreateIntake(medID, 12345, scheduled)
+	intakeID, err := db.Medication.CreateIntake(medID, 12345, scheduled)
 	if err != nil {
 		b.Fatalf("CreateIntake failed: %v", err)
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		err := db.AddIntakeReminder(intakeID, i)
+		err := db.Medication.AddIntakeReminder(intakeID, i)
 		if err != nil {
 			b.Fatalf("AddIntakeReminder failed: %v", err)
 		}

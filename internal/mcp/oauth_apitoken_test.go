@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store"
+	"github.com/korjavin/medicationtrackerbot/internal/store/auth"
 )
 
 type fakeAPITokenStore struct {
@@ -217,9 +218,9 @@ func TestMiddleware_NonAPITokenFallsThroughToJWT(t *testing.T) {
 	}
 }
 
-// Sanity check that *store.Store satisfies APITokenStore at compile time.
+// Sanity check that *auth.Repo satisfies APITokenStore at compile time.
 func TestStoreImplementsAPITokenStore(t *testing.T) {
-	var _ APITokenStore = (*store.Store)(nil)
+	var _ APITokenStore = (*auth.Repo)(nil)
 
 	// And that the lookup signature returns sql.ErrNoRows-mapped nil.
 	var s APITokenStore = &fakeAPITokenStore{

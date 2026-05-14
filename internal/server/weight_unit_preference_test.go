@@ -43,7 +43,7 @@ func TestHandleBootstrap_IncludesWeightUnitPreferenceAfterSet(t *testing.T) {
 	srv, db := createBPTestServer(t)
 	defer db.Close()
 
-	if err := db.SetWeightUnitPreference(context.Background(), "lb"); err != nil {
+	if err := db.Weight.SetWeightUnitPreference(context.Background(), "lb"); err != nil {
 		t.Fatalf("SetWeightUnitPreference: %v", err)
 	}
 
@@ -74,7 +74,7 @@ func TestHandleSetWeightUnitPreference_SetKg(t *testing.T) {
 	defer db.Close()
 
 	// First set to lb so we can observe the change to kg.
-	if err := db.SetWeightUnitPreference(context.Background(), "lb"); err != nil {
+	if err := db.Weight.SetWeightUnitPreference(context.Background(), "lb"); err != nil {
 		t.Fatalf("setup SetWeightUnitPreference: %v", err)
 	}
 
@@ -88,7 +88,7 @@ func TestHandleSetWeightUnitPreference_SetKg(t *testing.T) {
 		t.Fatalf("expected status 200, got %d (body: %s)", w.Code, w.Body.String())
 	}
 
-	got, err := db.GetWeightUnitPreference(context.Background())
+	got, err := db.Weight.GetWeightUnitPreference(context.Background())
 	if err != nil {
 		t.Fatalf("GetWeightUnitPreference: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestHandleSetWeightUnitPreference_SetLb(t *testing.T) {
 		t.Fatalf("expected status 200, got %d (body: %s)", w.Code, w.Body.String())
 	}
 
-	got, err := db.GetWeightUnitPreference(context.Background())
+	got, err := db.Weight.GetWeightUnitPreference(context.Background())
 	if err != nil {
 		t.Fatalf("GetWeightUnitPreference: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestHandleSetWeightUnitPreference_RejectsInvalid(t *testing.T) {
 	}
 
 	// Stored preference should remain at the default.
-	got, err := db.GetWeightUnitPreference(context.Background())
+	got, err := db.Weight.GetWeightUnitPreference(context.Background())
 	if err != nil {
 		t.Fatalf("GetWeightUnitPreference: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestHandleSetWeightUnitPreference_UnauthenticatedRejected(t *testing.T) {
 	}
 
 	// Stored preference must remain at the default.
-	got, err := db.GetWeightUnitPreference(context.Background())
+	got, err := db.Weight.GetWeightUnitPreference(context.Background())
 	if err != nil {
 		t.Fatalf("GetWeightUnitPreference: %v", err)
 	}

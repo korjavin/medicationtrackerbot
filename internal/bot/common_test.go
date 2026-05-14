@@ -67,19 +67,20 @@ func setupBotTestCustom(t *testing.T, handler func(path, body string) string) *b
 		Buffer: 100,
 	}
 	api.SetAPIEndpoint(server.URL + "/bot%s/%s")
+	a := newStoreAdapter(s)
 
 	b := &Bot{
 		api:           api,
-		meds:          s,
-		medSvc:        domain.NewMedicationService(s),
-		bp:            s,
-		weight:        s,
-		workouts:      s,
-		workoutSvc:    workoutsvc.New(s),
-		exerciseSvc:   domain.NewExerciseService(s),
-		reminderSvc:   domain.NewReminderService(s),
-		food:          s,
-		imports:       s,
+		meds:          a,
+		medSvc:        domain.NewMedicationService(s.Medication),
+		bp:            a,
+		weight:        a,
+		workouts:      a,
+		workoutSvc:    workoutsvc.New(s.Workout, s.TZ),
+		exerciseSvc:   domain.NewExerciseService(s.Workout),
+		reminderSvc:   domain.NewReminderService(a),
+		food:          a,
+		imports:       a,
 		tzUpdater:     &mockTZUpdater{},
 		allowedUserID: 123456,
 		httpClient:    &http.Client{Timeout: 30 * time.Second},

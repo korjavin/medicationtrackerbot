@@ -21,7 +21,7 @@ func TestHandleGetNextWorkout_CompletedSession(t *testing.T) {
 	// Create test server
 	userID := int64(123456)
 	srv := &Server{
-		workouts:      db,
+		workouts:      db.Workout,
 		allowedUserID: userID,
 	}
 
@@ -29,14 +29,14 @@ func TestHandleGetNextWorkout_CompletedSession(t *testing.T) {
 	// Using 23:59 to avoid "rolling into tomorrow" flake near midnight
 	timeStr := "23:59"
 
-	group, err := db.CreateWorkoutGroup("Daily Workout", "Test", false, userID, "[0,1,2,3,4,5,6]", timeStr, 15)
+	group, err := db.Workout.CreateWorkoutGroup("Daily Workout", "Test", false, userID, "[0,1,2,3,4,5,6]", timeStr, 15)
 	if err != nil {
 		t.Fatalf("Failed to create workout group: %v", err)
 	}
 
 	// Create variant
 	rotationOrder := 0
-	variant, err := db.CreateWorkoutVariant(group.ID, "Variant A", &rotationOrder, "")
+	variant, err := db.Workout.CreateWorkoutVariant(group.ID, "Variant A", &rotationOrder, "")
 	if err != nil {
 		t.Fatalf("Failed to create workout variant: %v", err)
 	}
@@ -45,12 +45,12 @@ func TestHandleGetNextWorkout_CompletedSession(t *testing.T) {
 	// Create a session for today that is COMPLETED
 	now := time.Now()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	session, err := db.CreateWorkoutSession(group.ID, variant.ID, userID, today, timeStr)
+	session, err := db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, today, timeStr)
 	if err != nil {
 		t.Fatalf("Failed to create workout session: %v", err)
 	}
 
-	err = db.CompleteSession(session.ID)
+	err = db.Workout.CompleteSession(session.ID)
 	if err != nil {
 		t.Fatalf("Failed to complete session: %v", err)
 	}
@@ -93,19 +93,19 @@ func TestHandleGetNextWorkout_SnoozedThenCompleted(t *testing.T) {
 	// Create test server
 	userID := int64(123456)
 	srv := &Server{
-		workouts:      db,
+		workouts:      db.Workout,
 		allowedUserID: userID,
 	}
 
 	// Create workout group
-	group, err := db.CreateWorkoutGroup("Daily Workout", "Test", false, userID, "[0,1,2,3,4,5,6]", "09:00", 15)
+	group, err := db.Workout.CreateWorkoutGroup("Daily Workout", "Test", false, userID, "[0,1,2,3,4,5,6]", "09:00", 15)
 	if err != nil {
 		t.Fatalf("Failed to create workout group: %v", err)
 	}
 
 	// Create variant
 	rotationOrder := 0
-	variant, err := db.CreateWorkoutVariant(group.ID, "Variant A", &rotationOrder, "")
+	variant, err := db.Workout.CreateWorkoutVariant(group.ID, "Variant A", &rotationOrder, "")
 	if err != nil {
 		t.Fatalf("Failed to create workout variant: %v", err)
 	}
@@ -113,25 +113,25 @@ func TestHandleGetNextWorkout_SnoozedThenCompleted(t *testing.T) {
 	// Create a session for today
 	now := time.Now()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	session, err := db.CreateWorkoutSession(group.ID, variant.ID, userID, today, "09:00")
+	session, err := db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, today, "09:00")
 	if err != nil {
 		t.Fatalf("Failed to create workout session: %v", err)
 	}
 
 	// Snooze it - snoozed until simple past so it would be picked up
-	err = db.SnoozeSession(session.ID, -1*time.Hour)
+	err = db.Workout.SnoozeSession(session.ID, -1*time.Hour)
 	if err != nil {
 		t.Fatalf("Failed to snooze session: %v", err)
 	}
 
 	// Complete it (simulating user completed it via bot or another device while snoozed)
-	err = db.CompleteSession(session.ID)
+	err = db.Workout.CompleteSession(session.ID)
 	if err != nil {
 		t.Fatalf("Failed to complete session: %v", err)
 	}
 
 	// Verify it is actually completed in DB
-	s, _ := db.GetWorkoutSession(session.ID)
+	s, _ := db.Workout.GetWorkoutSession(session.ID)
 	if s.Status != "completed" {
 		t.Fatalf("Session status is %s, expected completed", s.Status)
 	}

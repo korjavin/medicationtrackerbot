@@ -41,7 +41,7 @@ func main() {
 
 	// If user ID not provided, get the first user
 	if *userID == 0 {
-		meds, err := s.ListMedications(false)
+		meds, err := s.Medication.ListMedications(false)
 		if err != nil {
 			slog.Error("Failed to list medications", "error", err)
 			os.Exit(1)
@@ -203,7 +203,7 @@ func main() {
 
 	// Import readings
 	ctx := context.Background()
-	err = s.ImportBloodPressureReadings(ctx, *userID, readings)
+	err = s.BP.ImportBloodPressureReadings(ctx, *userID, readings)
 	if err != nil {
 		slog.Error("Failed to import blood pressure readings", "error", err)
 		os.Exit(1)

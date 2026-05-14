@@ -285,13 +285,13 @@ func TestSnoozeIntake_WritesSnoozedUntilUnixUTC(t *testing.T) {
 		t.Fatalf("load Phoenix: %v", err)
 	}
 
-	medID, err := db.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
+	medID, err := db.Medication.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
 	}
 
 	scheduledAt := time.Date(2026, 5, 10, 8, 20, 0, 0, la)
-	id, err := db.CreateIntake(medID, 1, scheduledAt)
+	id, err := db.Medication.CreateIntake(medID, 1, scheduledAt)
 	if err != nil {
 		t.Fatalf("CreateIntake: %v", err)
 	}
@@ -299,7 +299,7 @@ func TestSnoozeIntake_WritesSnoozedUntilUnixUTC(t *testing.T) {
 	// Snooze with a time.Time in LA. UTC unix seconds for 08:35 PDT.
 	snoozeLA := time.Date(2026, 5, 10, 8, 35, 0, 0, la)
 	wantUnix := snoozeLA.UTC().Unix()
-	if err := db.SnoozeIntake(id, snoozeLA); err != nil {
+	if err := db.Medication.SnoozeIntake(id, snoozeLA); err != nil {
 		t.Fatalf("SnoozeIntake: %v", err)
 	}
 	var u sql.NullInt64
@@ -313,16 +313,16 @@ func TestSnoozeIntake_WritesSnoozedUntilUnixUTC(t *testing.T) {
 	// Snooze again with the same wall clock in Phoenix (MST = -07:00, same
 	// offset as PDT but different zone name). Should produce the same UTC
 	// unix seconds — closing the TZ-name equality bug class.
-	medID2, err := db.CreateMedication("Vitamin", "1tab", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
+	medID2, err := db.Medication.CreateMedication("Vitamin", "1tab", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication 2: %v", err)
 	}
-	id2, err := db.CreateIntake(medID2, 1, scheduledAt)
+	id2, err := db.Medication.CreateIntake(medID2, 1, scheduledAt)
 	if err != nil {
 		t.Fatalf("CreateIntake 2: %v", err)
 	}
 	snoozePhx := time.Date(2026, 5, 10, 8, 35, 0, 0, phoenix)
-	if err := db.SnoozeIntake(id2, snoozePhx); err != nil {
+	if err := db.Medication.SnoozeIntake(id2, snoozePhx); err != nil {
 		t.Fatalf("SnoozeIntake Phoenix: %v", err)
 	}
 	var uPhx sql.NullInt64
@@ -335,7 +335,7 @@ func TestSnoozeIntake_WritesSnoozedUntilUnixUTC(t *testing.T) {
 
 	// Round-trip via GetPendingIntakes: the *time.Time read back is UTC,
 	// matches the original instant, and has no monotonic residue.
-	pendings, err := db.GetPendingIntakes()
+	pendings, err := db.Medication.GetPendingIntakes()
 	if err != nil {
 		t.Fatalf("GetPendingIntakes: %v", err)
 	}
@@ -366,13 +366,13 @@ func TestSnoozeIntake_WritesSnoozedUntilUnixUTC(t *testing.T) {
 func TestSnoozeIntake_StripsMonotonicResidue(t *testing.T) {
 	db := setupTestStore(t)
 
-	medID, err := db.CreateMedication("Med", "5mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	medID, err := db.Medication.CreateMedication("Med", "5mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
 	}
 
 	scheduledAt := time.Date(2026, 5, 10, 8, 0, 0, 0, time.UTC)
-	id, err := db.CreateIntake(medID, 1, scheduledAt)
+	id, err := db.Medication.CreateIntake(medID, 1, scheduledAt)
 	if err != nil {
 		t.Fatalf("CreateIntake: %v", err)
 	}
@@ -380,11 +380,11 @@ func TestSnoozeIntake_StripsMonotonicResidue(t *testing.T) {
 	// time.Now() carries a monotonic clock component. The writer must strip
 	// it via .UTC() before binding so it doesn't leak into the DB.
 	now := time.Now()
-	if err := db.SnoozeIntake(id, now); err != nil {
+	if err := db.Medication.SnoozeIntake(id, now); err != nil {
 		t.Fatalf("SnoozeIntake: %v", err)
 	}
 
-	got, err := db.GetIntake(id)
+	got, err := db.Medication.GetIntake(id)
 	if err != nil {
 		t.Fatalf("GetIntake: %v", err)
 	}

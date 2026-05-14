@@ -39,7 +39,7 @@ func TestExternalWorkoutIntegration_FuzzyDedup(t *testing.T) {
 			DistanceM:     5000,
 		},
 	}
-	imported, _, err := db.ImportMiBandWorkouts(ctx, workouts, nil)
+	imported, _, err := db.Workout.ImportMiBandWorkouts(ctx, workouts, nil)
 	if err != nil {
 		t.Fatalf("ImportMiBandWorkouts: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestExternalWorkoutIntegration_FuzzyDedup(t *testing.T) {
 	// 2. Post the same workout via the external webhook (seconds precision)
 	s := &Server{
 		externalAPIKey: "testkey",
-		miband:         db, // Use the real DB
+		miband:         db.Workout, // Use the real DB
 		allowedUserID:  userID,
 	}
 	mux := http.NewServeMux()
@@ -83,7 +83,7 @@ func TestExternalWorkoutIntegration_FuzzyDedup(t *testing.T) {
 	}
 
 	// 3. Verify no second row was created
-	result, err := db.ListMiBandWorkouts(ctx, userID, 10)
+	result, err := db.Workout.ListMiBandWorkouts(ctx, userID, 10)
 	if err != nil {
 		t.Fatalf("ListMiBandWorkouts: %v", err)
 	}

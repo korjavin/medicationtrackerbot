@@ -29,7 +29,7 @@ func TestWeightCallbackScenarios(t *testing.T) {
 		defer env.teardown()
 
 		userID := int64(123456)
-		if err := env.s.SetWeightReminderEnabled(userID, true); err != nil {
+		if err := env.s.Weight.SetWeightReminderEnabled(userID, true); err != nil {
 			t.Fatalf("SetWeightReminderEnabled failed: %v", err)
 		}
 
@@ -70,7 +70,7 @@ func TestWeightCallbackScenarios(t *testing.T) {
 			}
 		}
 
-		state, err := env.s.GetWeightReminderState(userID)
+		state, err := env.s.Weight.GetWeightReminderState(userID)
 		if err != nil {
 			t.Fatalf("Failed to get state: %v", err)
 		}

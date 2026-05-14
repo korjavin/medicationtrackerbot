@@ -383,20 +383,53 @@ Includes intake_log, restock, inventory. Deliberately last so all the other patt
 
 ### Task 13: Remove the forwarder layer
 
-- [ ] Update all remaining consumers to depend on per-repo types or narrow interfaces directly. Touch sites: ~50 production files, but each touch is a one-line import + one-line type swap.
-- [ ] Delete every `*Store` forwarder method.
-- [ ] Replace `store.Store` with `store.Repos` aggregation (per D6):
+- [x] Update all remaining consumers to depend on per-repo types or narrow interfaces directly. Production code (server handlers, bot callbacks, scheduler checkers, MCP tools, seeddemo, webpush, notifier, domain services) now talks to per-domain repos (`s.Medication`, `s.BP`, ...) instead of a god-object handle. Type aliases for `store.Medication` / `store.BloodPressure` / etc. are kept in `internal/store/store.go` so the ~117 files that still spell types as `store.X` compile unchanged — the aliases are zero-cost and the canonical types live in the per-domain packages. Test files were updated via systematic find-and-replace per-method-per-domain (e.g. `db.CreateMedication(` → `db.Medication.CreateMedication(`).
+- [x] Delete every `*Store` forwarder method. `internal/store/store.go` no longer carries any forwarder methods. `internal/store/workout.go`, `internal/store/miband_workouts.go`, and `internal/store/weight_reminders.go` (which only existed to hold forwarders) are deleted. `Store` now has only `Close`, `DB()`, and `SharedDB()` (a stable shared-pool accessor) — no per-domain methods.
+- [x] Replace `store.Store` with `store.Repos` aggregation (per D6):
   ```go
   type Repos struct {
+      db *storedb.DB
       Medication *medication.Repo
       BP         *bp.Repo
-      // …
+      Weight     *weight.Repo
+      Food       *food.Repo
+      Workout    *workout.Repo
+      Vitals     *vitals.Repo
+      Diary      *diary.Repo
+      TZ         *storetz.Repo
+      Settings   *settings.Repo
+      Auth       *auth.Repo
+      Push       *push.Repo
   }
-  func New(d *db.DB) *Repos { … }
+  func New(dbPath string) (*Repos, error) { … }
+  func NewWithDB(d *storedb.DB) (*Repos, error) { … }
   ```
-- [ ] Remove `nowFunc` package var; verify per-repo `Clock` fields are wired (or accept that follow-up).
-- [ ] Update `cmd/bot/main.go`, `cmd/mcptool/main.go`, `cmd/seeddemo/main.go`, `cmd/bpimporter/main.go` compositions.
-- [ ] Run `go test ./...` and `go test -race ./...` — must pass before Task 14.
+  A `type Store = Repos` alias is kept so the ~50 files that spell their store handle as `*store.Store` continue to compile. New code uses `*store.Repos` directly.
+- [x] Remove `nowFunc` package var. Each per-domain repo that needs an injectable clock owns its own (e.g. `diary.Repo.SetClock`, `bp.Repo.SetClock`, `auth.Repo.SetClock`), so `internal/store/store.go` no longer has a `var nowFunc = time.Now` global.
+- [x] Update `cmd/bot/main.go`, `cmd/mcptool/main.go`, `cmd/seeddemo/main.go`, `cmd/bpimporter/main.go` compositions. `cmd/bot/main.go` now passes `s.Push` (the public field) to `webpush.New`, `s.TZ` to `tzupdate.NewService`, and a small `tzPlannerStore` adapter (`cmd/bot/tz_planner_adapter.go`) to `tzreschedule.NewPlannerService` to satisfy its multi-repo `PlannerStore` interface (medication + tz). `cmd/bpimporter/main.go` now calls `s.Medication.ListMedications` / `s.BP.ImportBloodPressureReadings` directly. `cmd/seeddemo` had its many forwarder calls (food/meds/vitals/workouts/diary) sed-rewritten to go through `s.<Domain>.X()`. `cmd/mcptool` unchanged because it only constructs the Repos and forwards it.
+- [x] Run `go test ./...` and `go test -race ./...` — must pass before Task 14. Full `go test ./...` is green across every package. `go test -race -count=1 ./internal/store/...` is green for all 12 store sub-packages. The two pre-existing notifier-pattern races (`internal/server/TestHandleTriggerNextIntake_EarlyNotifFormatsInUserTZ` and `internal/scheduler/TestWorkoutCheckerScenarios/Stale_session_notification`, documented in Tasks 1 / 6 / 7 / 8 / 9 / 10 / 11 / 12 completion notes) still reproduce on master pre-refactor and are unrelated to this task — they involve notifier goroutines (`mockNotifier.Send` vs `notifyWithAutoDelete`) that this refactor did not touch.
+
+**Multi-repo aggregator adapters added** (call this out explicitly because it's a design refinement not in the original plan):
+
+The narrow consumer interfaces in `internal/server/store_interfaces.go`, `internal/bot/store_interfaces.go`, and the scheduler / mcp packages were originally designed against the god-object `*Store` and span multiple per-domain repos (e.g. server.SettingsStore combined settings + tz + weight unit pref; scheduler.MedicationStore combined medication + settings + tz). After the split, those interfaces no longer have a single per-domain repo that satisfies them.
+
+Three options were considered:
+1. Re-add the forwarders on `*Repos` — rejected, plan explicitly forbids it.
+2. Split every multi-repo interface into per-repo interfaces and add more fields to Server/Bot — pure but very invasive across handlers.
+3. Add a thin per-consumer **adapter struct** that owns a `*store.Repos` and delegates each method to the correct per-domain repo.
+
+Option 3 was chosen as the minimum-change path:
+- `internal/scheduler/adapter.go` — `storeAdapter` satisfies MedicationStore / WorkoutStore / BPReminderStore / WeightReminderStore / TZPlanNotifierStore. Constructed once in `scheduler.New`, reused by every checker.
+- `internal/bot/adapter.go` — `storeAdapter` satisfies bot's MedicationStore / BloodPressureStore / WeightStore / WorkoutStore / FoodStore / ImportStore / ActivityLogStore / TimezoneStore / TZPlanCallbackStore / domain.MedicationStore / domain.ExerciseStore / domain.ReminderStore. Constructed once in `bot.New` (and in each test that builds `&Bot{}` directly).
+- `internal/mcp/adapter.go` — `storeAdapter` satisfies `HealthDataReader` (which spans bp + weight + medication + workout + vitals + food + diary + settings). `AdminStore` and `APITokenStore` are single-repo (`*auth.Repo`) and wired directly.
+- `cmd/bot/tz_planner_adapter.go` — adapter for `tzreschedule.PlannerStore` (medication + tz).
+- `internal/server/tz_planner_store_test.go` — same adapter for the one test that wires a full tzupdate.Service.
+
+Server's `store_interfaces.go` was the only narrow interface set that was actively split: SettingsStore had timezone + weight unit methods removed (now a new `TimezoneStore` field on Server plus the existing `WeightStore` interface picking up `Get/SetWeightUnitPreference`), and FoodStore lost `Get/SetFoodIntakeEnabled` (which moved to `SettingsStore` so handlers can call `s.settings.GetFoodIntakeEnabled` directly without going through `s.food`). Unused multi-repo methods on `MedicationStore` (`GetLastDownload`, `UpdateLastDownload`, `GetIntakesSince`) were removed.
+
+The `workoutsvc.WorkoutStore` interface had `GetCurrentTimezone` removed (it spanned workout + tz). `workoutsvc.New` now takes an additional `TZStore` parameter; callers pass `s.Workout, s.TZ`. Tests pass `m, m` against a mock that satisfies both interfaces, or `db.Workout, db.TZ` against a real Repos.
+
+The push repo's methods are now `Create / List / Delete / Disable` (the package name `push` makes "Subscription" implicit). Server's handler code and the PushStore narrow interface were updated to match.
 
 ---
 

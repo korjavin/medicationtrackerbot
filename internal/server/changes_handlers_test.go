@@ -83,7 +83,7 @@ func TestHandleChanges_AfterBPCreate_ReturnsBPTag(t *testing.T) {
 		Systolic:   120,
 		Diastolic:  80,
 	}
-	_, err := db.CreateBloodPressureReading(ctx, bp)
+	_, err := db.BP.CreateBloodPressureReading(ctx, bp)
 	if err != nil {
 		t.Fatalf("CreateBloodPressureReading: %v", err)
 	}
@@ -136,10 +136,10 @@ func TestHandleChanges_SinceCurrentCursorReturnsEmpty(t *testing.T) {
 		Systolic:   120,
 		Diastolic:  80,
 	}
-	db.CreateBloodPressureReading(ctx, bp)
+	db.BP.CreateBloodPressureReading(ctx, bp)
 
 	// Get current cursor
-	cursor, err := db.GetLatestChangeCursor(ctx)
+	cursor, err := db.Settings.GetLatestChangeCursor(ctx)
 	if err != nil {
 		t.Fatalf("GetLatestChangeCursor: %v", err)
 	}

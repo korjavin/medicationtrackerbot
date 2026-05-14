@@ -559,7 +559,7 @@ func (s *Server) userLocation() *time.Location {
 	if s.settings == nil {
 		return time.Local
 	}
-	tz, err := s.settings.GetCurrentTimezone()
+	tz, err := s.timezone.GetCurrentTimezone()
 	if err != nil || tz == "" {
 		return time.Local
 	}

@@ -155,7 +155,7 @@ const maxFoodPhotoBytes = 8 << 20
 func (s *Server) handleCreateFoodLogFromPhoto(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
-	enabled, err := s.food.GetFoodIntakeEnabled(r.Context())
+	enabled, err := s.settings.GetFoodIntakeEnabled(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -608,7 +608,7 @@ func (s *Server) handleGetFoodStats(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetFoodIntakeEnabled(w http.ResponseWriter, r *http.Request) {
-	enabled, err := s.food.GetFoodIntakeEnabled(context.Background())
+	enabled, err := s.settings.GetFoodIntakeEnabled(context.Background())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -628,7 +628,7 @@ func (s *Server) handleSetFoodIntakeEnabled(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if err := s.food.SetFoodIntakeEnabled(context.Background(), req.Enabled); err != nil {
+	if err := s.settings.SetFoodIntakeEnabled(context.Background(), req.Enabled); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

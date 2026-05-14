@@ -27,7 +27,7 @@ func setupFoodMCPTestServer(t *testing.T) (*Server, *store.Store) {
 			MaxQueryDays: 90,
 			UserID:       123456,
 		},
-		data: st,
+		data: newStoreAdapter(st),
 	}
 
 	return s, st
@@ -38,10 +38,10 @@ func TestHandleGetFoodIntakeIncludesTargetWhenConfigured(t *testing.T) {
 	defer st.Close()
 
 	ctx := context.Background()
-	if err := st.SetFoodIntakeEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetFoodIntakeEnabled(ctx, true); err != nil {
 		t.Fatalf("failed to enable food intake: %v", err)
 	}
-	if err := st.SetFoodTargets(ctx, store.FoodTargets{
+	if err := st.Food.SetFoodTargets(ctx, store.FoodTargets{
 		Calories: 2200,
 		Carbs:    250,
 		Protein:  150,
@@ -50,7 +50,7 @@ func TestHandleGetFoodIntakeIncludesTargetWhenConfigured(t *testing.T) {
 		t.Fatalf("failed to set food targets: %v", err)
 	}
 
-	_, err := st.CreateFoodLog(ctx, &store.FoodLog{
+	_, err := st.Food.CreateFoodLog(ctx, &store.FoodLog{
 		UserID:   123456,
 		EatenAt:  time.Date(2026, 2, 18, 8, 30, 0, 0, time.Local),
 		Name:     "Oatmeal",
@@ -88,11 +88,11 @@ func TestHandleGetFoodIntakeOmitsTargetWhenNotConfigured(t *testing.T) {
 	defer st.Close()
 
 	ctx := context.Background()
-	if err := st.SetFoodIntakeEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetFoodIntakeEnabled(ctx, true); err != nil {
 		t.Fatalf("failed to enable food intake: %v", err)
 	}
 
-	_, err := st.CreateFoodLog(ctx, &store.FoodLog{
+	_, err := st.Food.CreateFoodLog(ctx, &store.FoodLog{
 		UserID:   123456,
 		EatenAt:  time.Date(2026, 2, 19, 13, 0, 0, 0, time.Local),
 		Name:     "Chicken",
@@ -129,10 +129,10 @@ func TestHandleGetDiaryNotesReturnsNotes(t *testing.T) {
 	ctx := context.Background()
 
 	// Create two notes within range and one outside
-	if _, err := st.CreateDiaryNote(ctx, 123456, "feeling great today", nil); err != nil {
+	if _, err := st.Diary.Create(ctx, 123456, "feeling great today", nil); err != nil {
 		t.Fatalf("CreateDiaryNote: %v", err)
 	}
-	if _, err := st.CreateDiaryNote(ctx, 123456, "a bit tired", nil); err != nil {
+	if _, err := st.Diary.Create(ctx, 123456, "a bit tired", nil); err != nil {
 		t.Fatalf("CreateDiaryNote: %v", err)
 	}
 
@@ -191,7 +191,7 @@ func TestHandleGetDiaryNotesDefaultLimit(t *testing.T) {
 
 	ctx := context.Background()
 
-	if _, err := st.CreateDiaryNote(ctx, 123456, "note one", nil); err != nil {
+	if _, err := st.Diary.Create(ctx, 123456, "note one", nil); err != nil {
 		t.Fatalf("CreateDiaryNote: %v", err)
 	}
 
@@ -209,11 +209,11 @@ func TestHandleGetFoodIntakeAcceptsCamelCaseDates(t *testing.T) {
 	defer st.Close()
 
 	ctx := context.Background()
-	if err := st.SetFoodIntakeEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetFoodIntakeEnabled(ctx, true); err != nil {
 		t.Fatalf("failed to enable food intake: %v", err)
 	}
 
-	_, err := st.CreateFoodLog(ctx, &store.FoodLog{
+	_, err := st.Food.CreateFoodLog(ctx, &store.FoodLog{
 		UserID:   123456,
 		EatenAt:  time.Date(2026, 2, 19, 9, 0, 0, 0, time.Local),
 		Name:     "Yogurt",
@@ -254,12 +254,12 @@ func TestHandleGetBloodPressure_WithData(t *testing.T) {
 	defer st.Close()
 
 	ctx := context.Background()
-	if err := st.SetBloodPressureEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetBloodPressureEnabled(ctx, true); err != nil {
 		t.Fatalf("SetBloodPressureEnabled: %v", err)
 	}
 
 	pulse := 72
-	_, err := st.CreateBloodPressureReading(ctx, &store.BloodPressure{
+	_, err := st.BP.CreateBloodPressureReading(ctx, &store.BloodPressure{
 		UserID:     123456,
 		MeasuredAt: time.Date(2026, 2, 18, 9, 0, 0, 0, time.UTC),
 		Systolic:   120,
@@ -299,7 +299,7 @@ func TestHandleGetBloodPressure_FeatureDisabled(t *testing.T) {
 	defer st.Close()
 
 	ctx := context.Background()
-	if err := st.SetBloodPressureEnabled(ctx, false); err != nil {
+	if err := st.Settings.SetBloodPressureEnabled(ctx, false); err != nil {
 		t.Fatalf("SetBloodPressureEnabled: %v", err)
 	}
 
@@ -317,7 +317,7 @@ func TestHandleGetBloodPressure_EmptyRange(t *testing.T) {
 	defer st.Close()
 
 	ctx := context.Background()
-	if err := st.SetBloodPressureEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetBloodPressureEnabled(ctx, true); err != nil {
 		t.Fatalf("SetBloodPressureEnabled: %v", err)
 	}
 
@@ -344,11 +344,11 @@ func TestHandleGetWeight_WithData(t *testing.T) {
 	defer st.Close()
 
 	ctx := context.Background()
-	if err := st.SetWeightEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetWeightEnabled(ctx, true); err != nil {
 		t.Fatalf("SetWeightEnabled: %v", err)
 	}
 
-	_, err := st.CreateWeightLog(ctx, &store.WeightLog{
+	_, err := st.Weight.CreateWeightLog(ctx, &store.WeightLog{
 		UserID:     123456,
 		MeasuredAt: time.Date(2026, 2, 18, 8, 0, 0, 0, time.UTC),
 		Weight:     75.5,
@@ -378,7 +378,7 @@ func TestHandleGetWeight_FeatureDisabled(t *testing.T) {
 	defer st.Close()
 
 	ctx := context.Background()
-	if err := st.SetWeightEnabled(ctx, false); err != nil {
+	if err := st.Settings.SetWeightEnabled(ctx, false); err != nil {
 		t.Fatalf("SetWeightEnabled: %v", err)
 	}
 
@@ -398,21 +398,21 @@ func TestHandleGetMedicationIntake_WithData(t *testing.T) {
 	defer st.Close()
 
 	ctx := context.Background()
-	if err := st.SetMedicationEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetMedicationEnabled(ctx, true); err != nil {
 		t.Fatalf("SetMedicationEnabled: %v", err)
 	}
 
-	medID, err := st.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	medID, err := st.Medication.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
 	}
 
 	scheduledAt := time.Date(2026, 2, 18, 8, 0, 0, 0, time.UTC)
-	intakeID, err := st.CreateIntake(medID, 123456, scheduledAt)
+	intakeID, err := st.Medication.CreateIntake(medID, 123456, scheduledAt)
 	if err != nil {
 		t.Fatalf("CreateIntake: %v", err)
 	}
-	if err := st.ConfirmIntake(intakeID, scheduledAt); err != nil {
+	if err := st.Medication.ConfirmIntake(intakeID, scheduledAt); err != nil {
 		t.Fatalf("ConfirmIntake: %v", err)
 	}
 
@@ -440,19 +440,19 @@ func TestHandleGetMedicationIntake_FilterByName(t *testing.T) {
 	defer st.Close()
 
 	ctx := context.Background()
-	if err := st.SetMedicationEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetMedicationEnabled(ctx, true); err != nil {
 		t.Fatalf("SetMedicationEnabled: %v", err)
 	}
 
 	// Create two medications
-	med1ID, _ := st.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
-	med2ID, _ := st.CreateMedication("Ibuprofen", "200mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	med1ID, _ := st.Medication.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	med2ID, _ := st.Medication.CreateMedication("Ibuprofen", "200mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 
 	scheduledAt := time.Date(2026, 2, 18, 8, 0, 0, 0, time.UTC)
-	id1, _ := st.CreateIntake(med1ID, 123456, scheduledAt)
-	id2, _ := st.CreateIntake(med2ID, 123456, scheduledAt)
-	_ = st.ConfirmIntake(id1, scheduledAt) // #nosec G104
-	_ = st.ConfirmIntake(id2, scheduledAt) // #nosec G104
+	id1, _ := st.Medication.CreateIntake(med1ID, 123456, scheduledAt)
+	id2, _ := st.Medication.CreateIntake(med2ID, 123456, scheduledAt)
+	_ = st.Medication.ConfirmIntake(id1, scheduledAt) // #nosec G104
+	_ = st.Medication.ConfirmIntake(id2, scheduledAt) // #nosec G104
 
 	_, resp, err := s.handleGetMedicationIntake(ctx, nil, MedicationIntakeInput{
 		StartDate:      "2026-02-17",
@@ -476,7 +476,7 @@ func TestHandleGetMedicationIntake_FeatureDisabled(t *testing.T) {
 	defer st.Close()
 
 	ctx := context.Background()
-	if err := st.SetMedicationEnabled(ctx, false); err != nil {
+	if err := st.Settings.SetMedicationEnabled(ctx, false); err != nil {
 		t.Fatalf("SetMedicationEnabled: %v", err)
 	}
 
@@ -496,26 +496,26 @@ func TestHandleGetWorkoutHistory_WithData(t *testing.T) {
 	defer st.Close()
 
 	ctx := context.Background()
-	if err := st.SetWorkoutEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetWorkoutEnabled(ctx, true); err != nil {
 		t.Fatalf("SetWorkoutEnabled: %v", err)
 	}
 
-	group, err := st.CreateWorkoutGroup("Push Day", "chest/shoulders/triceps", false, 123456, "[1]", "08:00", 15)
+	group, err := st.Workout.CreateWorkoutGroup("Push Day", "chest/shoulders/triceps", false, 123456, "[1]", "08:00", 15)
 	if err != nil {
 		t.Fatalf("CreateWorkoutGroup: %v", err)
 	}
 	order := 0
-	variant, err := st.CreateWorkoutVariant(group.ID, "Heavy", &order, "")
+	variant, err := st.Workout.CreateWorkoutVariant(group.ID, "Heavy", &order, "")
 	if err != nil {
 		t.Fatalf("CreateWorkoutVariant: %v", err)
 	}
 
 	scheduledDate := time.Date(2026, 2, 18, 0, 0, 0, 0, time.UTC)
-	session, err := st.CreateWorkoutSession(group.ID, variant.ID, 123456, scheduledDate, "08:00")
+	session, err := st.Workout.CreateWorkoutSession(group.ID, variant.ID, 123456, scheduledDate, "08:00")
 	if err != nil {
 		t.Fatalf("CreateWorkoutSession: %v", err)
 	}
-	if err := st.CompleteSession(session.ID); err != nil {
+	if err := st.Workout.CompleteSession(session.ID); err != nil {
 		t.Fatalf("CompleteSession: %v", err)
 	}
 
@@ -546,7 +546,7 @@ func TestHandleGetWorkoutHistory_FeatureDisabled(t *testing.T) {
 	defer st.Close()
 
 	ctx := context.Background()
-	if err := st.SetWorkoutEnabled(ctx, false); err != nil {
+	if err := st.Settings.SetWorkoutEnabled(ctx, false); err != nil {
 		t.Fatalf("SetWorkoutEnabled: %v", err)
 	}
 
@@ -564,7 +564,7 @@ func TestHandleGetWorkoutHistory_EmptyRange(t *testing.T) {
 	defer st.Close()
 
 	ctx := context.Background()
-	if err := st.SetWorkoutEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetWorkoutEnabled(ctx, true); err != nil {
 		t.Fatalf("SetWorkoutEnabled: %v", err)
 	}
 
@@ -600,7 +600,7 @@ func TestHandleGetSleepLogs_WithData(t *testing.T) {
 		TotalMinutes: &total,
 		DeepMinutes:  &deep,
 	}
-	if _, _, err := st.ImportSleepLogs(ctx, 123456, []store.SleepLog{log}); err != nil {
+	if _, _, err := st.Vitals.ImportSleepLogs(ctx, 123456, []store.SleepLog{log}); err != nil {
 		t.Fatalf("ImportSleepLogs: %v", err)
 	}
 
@@ -658,7 +658,7 @@ func TestHandleGetStepHistory_WithData(t *testing.T) {
 		Calories: 320,
 		Distance: 6200,
 	}
-	if _, _, err := st.ImportDayStats(ctx, 123456, []store.DayStat{stat}); err != nil {
+	if _, _, err := st.Vitals.ImportDayStats(ctx, 123456, []store.DayStat{stat}); err != nil {
 		t.Fatalf("ImportDayStats: %v", err)
 	}
 
@@ -735,7 +735,7 @@ func TestHandleLogFoodIntake_Success(t *testing.T) {
 	s.foodWriter = NewFoodWriter(fakeSrv.URL, "test-secret")
 
 	ctx := context.Background()
-	if err := st.SetFoodIntakeEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetFoodIntakeEnabled(ctx, true); err != nil {
 		t.Fatalf("SetFoodIntakeEnabled: %v", err)
 	}
 
@@ -776,7 +776,7 @@ func TestHandleLogFoodIntake_RFC3339(t *testing.T) {
 	s.foodWriter = NewFoodWriter(fakeSrv.URL, "test-secret")
 
 	ctx := context.Background()
-	if err := st.SetFoodIntakeEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetFoodIntakeEnabled(ctx, true); err != nil {
 		t.Fatalf("SetFoodIntakeEnabled: %v", err)
 	}
 
@@ -802,7 +802,7 @@ func TestHandleLogFoodIntake_WriterNotConfigured(t *testing.T) {
 	defer st.Close()
 
 	ctx := context.Background()
-	if err := st.SetFoodIntakeEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetFoodIntakeEnabled(ctx, true); err != nil {
 		t.Fatalf("SetFoodIntakeEnabled: %v", err)
 	}
 
@@ -825,7 +825,7 @@ func TestHandleLogFoodIntake_FeatureDisabled(t *testing.T) {
 	s.foodWriter = NewFoodWriter(fakeSrv.URL, "test-secret")
 
 	ctx := context.Background()
-	if err := st.SetFoodIntakeEnabled(ctx, false); err != nil {
+	if err := st.Settings.SetFoodIntakeEnabled(ctx, false); err != nil {
 		t.Fatalf("SetFoodIntakeEnabled: %v", err)
 	}
 
@@ -847,7 +847,7 @@ func TestHandleLogFoodIntake_MissingName(t *testing.T) {
 	s.foodWriter = NewFoodWriter(fakeSrv.URL, "test-secret")
 
 	ctx := context.Background()
-	if err := st.SetFoodIntakeEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetFoodIntakeEnabled(ctx, true); err != nil {
 		t.Fatalf("SetFoodIntakeEnabled: %v", err)
 	}
 
@@ -869,7 +869,7 @@ func TestHandleLogFoodIntake_InvalidDate(t *testing.T) {
 	s.foodWriter = NewFoodWriter(fakeSrv.URL, "test-secret")
 
 	ctx := context.Background()
-	if err := st.SetFoodIntakeEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetFoodIntakeEnabled(ctx, true); err != nil {
 		t.Fatalf("SetFoodIntakeEnabled: %v", err)
 	}
 
@@ -889,19 +889,19 @@ func TestHandleGetBloodPressure_IncludesContextNotes(t *testing.T) {
 	defer st.Close()
 
 	ctx := context.Background()
-	if err := st.SetBloodPressureEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetBloodPressureEnabled(ctx, true); err != nil {
 		t.Fatalf("SetBloodPressureEnabled: %v", err)
 	}
 
 	// Create a diary note
-	if _, err := st.CreateDiaryNote(ctx, 123456, "started new medication today", nil); err != nil {
+	if _, err := st.Diary.Create(ctx, 123456, "started new medication today", nil); err != nil {
 		t.Fatalf("CreateDiaryNote: %v", err)
 	}
 
 	// Create a BP reading in the same range
 	pulse := 72
 	now := time.Now()
-	_, err := st.CreateBloodPressureReading(ctx, &store.BloodPressure{
+	_, err := st.BP.CreateBloodPressureReading(ctx, &store.BloodPressure{
 		UserID:     123456,
 		MeasuredAt: now,
 		Systolic:   130,
@@ -937,12 +937,12 @@ func TestHandleGetBloodPressure_ExcludeNotesOmitsContextNotes(t *testing.T) {
 	defer st.Close()
 
 	ctx := context.Background()
-	if err := st.SetBloodPressureEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetBloodPressureEnabled(ctx, true); err != nil {
 		t.Fatalf("SetBloodPressureEnabled: %v", err)
 	}
 
 	// Create a diary note
-	if _, err := st.CreateDiaryNote(ctx, 123456, "some note", nil); err != nil {
+	if _, err := st.Diary.Create(ctx, 123456, "some note", nil); err != nil {
 		t.Fatalf("CreateDiaryNote: %v", err)
 	}
 
@@ -1032,7 +1032,7 @@ func TestHandleWorkoutLog_FeatureDisabled(t *testing.T) {
 	defer st.Close()
 
 	ctx := context.Background()
-	if err := st.SetWorkoutEnabled(ctx, false); err != nil {
+	if err := st.Settings.SetWorkoutEnabled(ctx, false); err != nil {
 		t.Fatalf("SetWorkoutEnabled: %v", err)
 	}
 
@@ -1052,7 +1052,7 @@ func TestHandleWorkoutLog_WriterNotConfigured(t *testing.T) {
 	defer st.Close()
 
 	ctx := context.Background()
-	if err := st.SetWorkoutEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetWorkoutEnabled(ctx, true); err != nil {
 		t.Fatalf("SetWorkoutEnabled: %v", err)
 	}
 
@@ -1071,7 +1071,7 @@ func TestHandleWorkoutLog_LogPassesThroughResponse(t *testing.T) {
 	defer st.Close()
 
 	ctx := context.Background()
-	if err := st.SetWorkoutEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetWorkoutEnabled(ctx, true); err != nil {
 		t.Fatalf("SetWorkoutEnabled: %v", err)
 	}
 
@@ -1132,7 +1132,7 @@ func TestHandleWorkoutLog_PartialSuccess_PassesThrough(t *testing.T) {
 	defer st.Close()
 
 	ctx := context.Background()
-	if err := st.SetWorkoutEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetWorkoutEnabled(ctx, true); err != nil {
 		t.Fatalf("SetWorkoutEnabled: %v", err)
 	}
 
@@ -1162,7 +1162,7 @@ func TestHandleWorkoutLog_GetForwarded(t *testing.T) {
 	defer st.Close()
 
 	ctx := context.Background()
-	if err := st.SetWorkoutEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetWorkoutEnabled(ctx, true); err != nil {
 		t.Fatalf("SetWorkoutEnabled: %v", err)
 	}
 
@@ -1188,7 +1188,7 @@ func TestHandleWorkoutLog_DeleteExerciseForwarded(t *testing.T) {
 	defer st.Close()
 
 	ctx := context.Background()
-	if err := st.SetWorkoutEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetWorkoutEnabled(ctx, true); err != nil {
 		t.Fatalf("SetWorkoutEnabled: %v", err)
 	}
 
@@ -1222,7 +1222,7 @@ func TestHandleWorkoutLog_WriterErrorPassThrough(t *testing.T) {
 	defer st.Close()
 
 	ctx := context.Background()
-	if err := st.SetWorkoutEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetWorkoutEnabled(ctx, true); err != nil {
 		t.Fatalf("SetWorkoutEnabled: %v", err)
 	}
 
@@ -1253,15 +1253,15 @@ func TestHandleGetWeight_UnitPreferenceDoesNotLeak(t *testing.T) {
 	defer st.Close()
 
 	ctx := context.Background()
-	if err := st.SetWeightEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetWeightEnabled(ctx, true); err != nil {
 		t.Fatalf("SetWeightEnabled: %v", err)
 	}
 	// Flip the user's unit preference to lb. The MCP response must remain in kg.
-	if err := st.SetWeightUnitPreference(ctx, "lb"); err != nil {
+	if err := st.Weight.SetWeightUnitPreference(ctx, "lb"); err != nil {
 		t.Fatalf("SetWeightUnitPreference: %v", err)
 	}
 
-	_, err := st.CreateWeightLog(ctx, &store.WeightLog{
+	_, err := st.Weight.CreateWeightLog(ctx, &store.WeightLog{
 		UserID:     123456,
 		MeasuredAt: time.Date(2026, 2, 18, 8, 0, 0, 0, time.UTC),
 		Weight:     75.5, // stored in kg

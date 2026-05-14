@@ -489,7 +489,7 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 		now = s.now()
 	}
 	userLoc := now.Location()
-	if tz, tzErr := s.settings.GetCurrentTimezone(); tzErr == nil && tz != "" {
+	if tz, tzErr := s.timezone.GetCurrentTimezone(); tzErr == nil && tz != "" {
 		if loc, locErr := time.LoadLocation(tz); locErr == nil {
 			userLoc = loc
 		}

@@ -44,12 +44,12 @@ func TestWeightReminderCheckerScenarios(t *testing.T) {
 		}
 		defer db.Close() // #nosec G104
 
-		if err := db.SetWeightEnabled(context.Background(), true); err != nil {
+		if err := db.Settings.SetWeightEnabled(context.Background(), true); err != nil {
 			t.Fatalf("SetWeightEnabled failed: %v", err)
 		}
 
 		userID := int64(123456)
-		if err := db.SetWeightReminderEnabled(userID, true); err != nil {
+		if err := db.Weight.SetWeightReminderEnabled(userID, true); err != nil {
 			t.Fatalf("SetWeightReminderEnabled failed: %v", err)
 		}
 
@@ -60,20 +60,20 @@ func TestWeightReminderCheckerScenarios(t *testing.T) {
 
 		// Configure state
 		if input.Snoozed {
-			if err := db.SnoozeWeightReminder(userID); err != nil {
+			if err := db.Weight.SnoozeWeightReminder(userID); err != nil {
 				t.Fatalf("SnoozeWeightReminder failed: %v", err)
 			}
 		}
 
 		if input.DontBugMe {
-			if err := db.DontBugMeWeightReminder(userID); err != nil {
+			if err := db.Weight.DontBugMeWeightReminder(userID); err != nil {
 				t.Fatalf("DontBugMeWeightReminder failed: %v", err)
 			}
 		}
 
 		if input.NotifiedRecently {
 			msgID := 123
-			if err := db.UpdateWeightReminderNotificationSent(userID, &msgID); err != nil {
+			if err := db.Weight.UpdateWeightReminderNotificationSent(userID, &msgID); err != nil {
 				t.Fatalf("UpdateWeightReminderNotificationSent failed: %v", err)
 			}
 			// Update the notification time to 2 days ago explicitly so it fits
@@ -88,7 +88,7 @@ func TestWeightReminderCheckerScenarios(t *testing.T) {
 
 		if input.ReadingsRecent > 0 {
 			for i := 0; i < input.ReadingsRecent; i++ {
-				_, err := db.CreateWeightLog(context.Background(), &store.WeightLog{
+				_, err := db.Weight.CreateWeightLog(context.Background(), &store.WeightLog{
 					UserID:     userID,
 					Weight:     75.0,
 					MeasuredAt: nowTime.Add(-1 * time.Hour), // Very recent
@@ -99,7 +99,7 @@ func TestWeightReminderCheckerScenarios(t *testing.T) {
 			}
 		} else {
 			// Older reading so it sends reminder
-			_, err := db.CreateWeightLog(context.Background(), &store.WeightLog{
+			_, err := db.Weight.CreateWeightLog(context.Background(), &store.WeightLog{
 				UserID:     userID,
 				Weight:     75.0,
 				MeasuredAt: nowTime.Add(-8 * 24 * time.Hour), // 8 days ago
@@ -118,7 +118,7 @@ func TestWeightReminderCheckerScenarios(t *testing.T) {
 		}
 
 		// Set preferred hour explicitly to match test TimeNow hour
-		if err := db.UpdatePreferredWeightReminderHour(userID, nowTime.Hour()); err != nil {
+		if err := db.Weight.UpdatePreferredWeightReminderHour(userID, nowTime.Hour()); err != nil {
 			t.Fatalf("UpdatePreferredWeightReminderHour failed: %v", err)
 		}
 
