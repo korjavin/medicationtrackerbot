@@ -90,6 +90,11 @@ func PlanDoses(in Inputs) []DoseTarget {
 		// Plan owns the schedule for this med while any step is unconsumed.
 		// Mirrors the scheduler's existing branch and prevents normal-schedule
 		// targets from racing with planned transition steps.
+		// Note: dedup against an already-materialised pending intake (a normal
+		// dose that beat plan approval into intake_log) lives at the
+		// materialisation site — see MedicationChecker.Check's plan-step
+		// branch in internal/scheduler/medication.go. The forecast path is
+		// pure and never creates intakes, so it does not need that lookup.
 		if steps, has := pendingByMed[med.ID]; has {
 			for _, step := range steps {
 				if !targetInWindow(step.ScheduledAt, in.Now, in.Window) {
