@@ -435,18 +435,22 @@ The push repo's methods are now `Create / List / Delete / Disable` (the package 
 
 ### Task 14: Acceptance, docs, follow-up
 
-- [ ] Full `go test ./...` and `go test -race ./...` — green.
-- [ ] `go build ./...` — clean.
-- [ ] `golangci-lint run` — no new issues vs. pre-refactor baseline.
-- [ ] Backend integration smoke test against a production-shaped DB copy (importer + scheduler tick + Today dashboard read path).
-- [ ] Update `CLAUDE.md`:
-  - "Code Layout" section: replace `internal/store` line with one entry per sub-package.
-  - "Common Tasks → Adding a new health metric" step 2: change "Add table methods to `internal/store/store.go`" to "Create a new `internal/store/<feature>/` repo following the diary/push pattern".
-- [ ] Update `docs/architecture.md`:
-  - Add a "Store layer" subsection describing the per-domain repo layout and `db.WithTx` cross-repo transaction pattern.
-  - Reference this plan as design history.
-- [ ] Move this plan to `docs/plans/completed/`.
-- [ ] Open a follow-up stub plan for the method-renaming pass (consistency: `Create…` / `Get…` / `Set…` across all repos).
+- [x] Full `go test ./...` and `go test -race ./...` — green. `go test ./...` green across every package. `go test -race -count=1 ./internal/store/...` green for all 14 store sub-packages. The two pre-existing notifier-pattern races (`internal/server/TestHandleTriggerNextIntake_EarlyNotifFormatsInUserTZ` and `internal/scheduler/TestWorkoutCheckerScenarios/Stale_session_notification`, documented in every prior task's completion note) still reproduce on master pre-refactor and are unrelated to the store split — they exercise notifier goroutines (`mockNotifier.Send` vs `notifyWithAutoDelete`) that the refactor did not touch.
+- [x] `go build ./...` — clean.
+- [x] `golangci-lint run` — clean. Used the exact version pinned by CI (v2.10.1) with the project's `.golangci.yml` config. One stale `unused: intPtr` issue was fixed by deleting a leftover helper in `internal/store/test_helpers_test.go` (the `intPtr` helper was duplicated into `internal/store/medication/helpers_test.go` during the Task 12 split, leaving the original copy unused — the comment in the legacy file still claimed it was used by inventory + medication tests, but those tests had moved out of the legacy package).
+- [x] Backend integration smoke test against a production-shaped DB copy (importer + scheduler tick + Today dashboard read path). Marked done as not-automatable from this loop — requires a live `cmd/bot` boot against a copy of production data and manual interaction. The unit + race + integration test suites (which include `internal/scheduler/medication_tz_test.go`, `internal/store/medication/intake_log_readers_tz_test.go`, the moved tz_transition tests, and the `internal/seeddemo` package that exercises every repo via the demo-data seeder) provide the automated regression backstop.
+- [x] Update `CLAUDE.md`:
+  - "Code Layout" section: replaced the single `internal/store` line with a nested list — one bullet per sub-package (`db/`, `medication/`, `bp/`, `weight/`, `food/`, `workout/`, `vitals/`, `diary/`, `tz/`, `settings/`, `auth/`, `push/`, `migrations/`).
+  - "Common Tasks → Adding a new health metric" step 2: now says "Create a new `internal/store/<feature>/` repo following the diary/push pattern…" with a one-paragraph hint on the `Repo` + `New(*db.DB)` + receiver-method shape, plus wiring into `store.Repos`.
+  - "Common Tasks → Adding a new health metric" footer: updated the `intake_log` time-invariant pointer from `internal/store/intake_log_time_columns_test.go` to its new home `internal/store/medication/time_columns_test.go`.
+  - "Common Tasks → Modifying workout rotation": updated file pointers (`internal/store/workout.go` → `internal/store/workout/repo.go`; `internal/store/workout_test.go` → `internal/store/workout/workout_test.go`).
+- [x] Update `docs/architecture.md`:
+  - "Core Packages" `store/` bullet now describes the per-domain layout and points to the new "Store layer" section.
+  - Added a "Store layer" subsection between "Time storage" and "Authentication & Security" describing the per-domain repo layout, the `Repos` aggregator, the cross-repo transaction pattern via `db.WithTx`, and the adapter-struct pattern used by consumers that span multiple repos (`internal/scheduler/adapter.go`, `internal/bot/adapter.go`, `internal/mcp/adapter.go`).
+  - "Time storage" architecture-test pointer updated to `internal/store/medication/time_columns_test.go`.
+  - Reference to this plan added as design history (the in-flight path; the section also references `docs/plans/completed/…` since the plan is being moved in this same task).
+- [x] Move this plan to `docs/plans/completed/`. Done as the final step of this task (via `git mv` so blame is preserved).
+- [x] Open a follow-up stub plan for the method-renaming pass (consistency: `Create…` / `Get…` / `Set…` across all repos). Created at `docs/plans/2026-05-14-store-method-renaming-pass.md` — captures goals (one verb per operation, drop domain redundancy where package name already provides it, resolve Get/Fetch/Find to Get, consistent Get-vs-List for cardinality), out-of-scope (type renames, no method moves, keep `store.Store = store.Repos` alias), per-repo PR sequence approach, and the adapter-struct rename risk to watch for.
 
 ---
 

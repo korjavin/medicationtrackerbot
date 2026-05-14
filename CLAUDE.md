@@ -62,7 +62,11 @@ go run ./cmd/seeddemo -user <telegram_user_id> -db meds.db -days 90 -wipe -seed 
 
 - `cmd/` — entry points (`bot`, `mcptool`, `importer`, `bpimporter`, `genvapid`, `seeddemo`)
 - `internal/ai` — AI client (OpenAI-compatible)
-- `internal/store` — SQLite repository + goose migrations
+- `internal/store` — per-domain SQLite repositories (one Go package per feature). `store.Repos` (alias: `store.Store`) is a thin aggregator wired in `cmd/bot/main.go`. Sub-packages:
+  - `db/` — shared `*sql.DB` open/close + busy-timeout config, `WithTx` cross-repo transaction helper, goose migrations runner, unix-seconds time helpers.
+  - `medication/` — medication CRUD + intake_log + restock + inventory.
+  - `bp/`, `weight/`, `food/`, `workout/` (incl. mi-band), `vitals/` (sleep + day stats), `diary/`, `tz/` (timezone history + transition plans/steps), `settings/` (incl. download cursor + change_events), `auth/` (API tokens + login nonce), `push/` — one repo per feature, each with its own tests.
+  - `migrations/` — embedded goose SQL files (plus a tiny Go re-export of the embed.FS so subpackage tests can mount the schema).
 - `internal/server` — HTTP handlers
 - `internal/bot` — Telegram bot — **thin channel layer only**
 - `internal/domain` — business logic services (medication, exercise, reminder, food, food_ai)
@@ -96,14 +100,14 @@ go run ./cmd/seeddemo -user <telegram_user_id> -db meds.db -days 90 -wipe -seed 
 ### Adding a new health metric
 
 1. Create migration in `internal/store/migrations/`
-2. Add table methods to `internal/store/store.go`
+2. Create a new `internal/store/<feature>/` repo following the `diary` / `push` pattern: a `Repo` struct that holds `*db.DB`, a `New(*db.DB) *Repo` constructor, and per-method receivers (`func (r *Repo) …`). Add types alongside their owner repo (e.g. `type Foo struct` lives in the same package as `Repo`). Wire the new repo into `store.Repos` in `internal/store/store.go`.
 3. Create a domain service in `internal/domain/` (see [docs/architecture.md](docs/architecture.md#domain-service-pattern))
 4. Add HTTP handlers in `internal/server/`
 5. Add bot commands in `internal/bot/` — call the domain service only
 6. Add frontend UI in `web/static/`
 7. Add scheduler logic in `internal/scheduler/` if reminders are needed
 
-Any new dose-like timestamp column (one that participates in SQL equality — dedupe, lookup by instant, etc.) must be stored as `INTEGER` unix-seconds-UTC, not as `DATETIME` text. Normalize via `t.UTC().Unix()` at the writer and `time.Unix(n, 0).UTC()` at the reader. See [docs/architecture.md → Time storage](docs/architecture.md#time-storage); the convention is enforced for `intake_log` by `internal/store/intake_log_time_columns_test.go`.
+Any new dose-like timestamp column (one that participates in SQL equality — dedupe, lookup by instant, etc.) must be stored as `INTEGER` unix-seconds-UTC, not as `DATETIME` text. Normalize via `t.UTC().Unix()` at the writer and `time.Unix(n, 0).UTC()` at the reader. See [docs/architecture.md → Time storage](docs/architecture.md#time-storage); the convention is enforced for `intake_log` by `internal/store/medication/time_columns_test.go`.
 
 ### Adding an MCP tool
 
@@ -115,10 +119,10 @@ Every backend route registered on the server MUST be either reachable via the MC
 
 ### Modifying workout rotation
 
-- Core logic: `internal/store/workout.go` (`AdvanceRotation`)
+- Core logic: `internal/store/workout/repo.go` (`AdvanceRotation`)
 - Scheduler integration: `internal/scheduler/workout.go`
 - Bot callbacks: `internal/bot/workout_callbacks.go`
-- Tests: `internal/store/workout_test.go`
+- Tests: `internal/store/workout/workout_test.go`
 
 ### Adding a local-first read to a feature module
 
