@@ -15,10 +15,10 @@ func TestFetchContextNotesReturnsNotesInRange(t *testing.T) {
 	ctx := context.Background()
 	userID := int64(123456)
 
-	if _, err := st.CreateDiaryNote(ctx, userID, "started new medication", nil); err != nil {
+	if _, err := st.Diary.Create(ctx, userID, "started new medication", nil); err != nil {
 		t.Fatalf("CreateDiaryNote: %v", err)
 	}
-	if _, err := st.CreateDiaryNote(ctx, userID, "high stress at work", nil); err != nil {
+	if _, err := st.Diary.Create(ctx, userID, "high stress at work", nil); err != nil {
 		t.Fatalf("CreateDiaryNote: %v", err)
 	}
 
@@ -70,7 +70,7 @@ func TestFetchContextNotesExcludesOutOfRange(t *testing.T) {
 	ctx := context.Background()
 	userID := int64(123456)
 
-	if _, err := st.CreateDiaryNote(ctx, userID, "within range", nil); err != nil {
+	if _, err := st.Diary.Create(ctx, userID, "within range", nil); err != nil {
 		t.Fatalf("CreateDiaryNote: %v", err)
 	}
 
@@ -93,7 +93,7 @@ func TestFetchContextNotesOtherUserExcluded(t *testing.T) {
 
 	ctx := context.Background()
 	// Create note for a different user
-	if _, err := st.CreateDiaryNote(ctx, 999999, "other user note", nil); err != nil {
+	if _, err := st.Diary.Create(ctx, 999999, "other user note", nil); err != nil {
 		t.Fatalf("CreateDiaryNote: %v", err)
 	}
 
@@ -102,7 +102,7 @@ func TestFetchContextNotesOtherUserExcluded(t *testing.T) {
 			MaxQueryDays: 90,
 			UserID:       123456,
 		},
-		data: st,
+		data: newStoreAdapter(st),
 	}
 
 	now := time.Now()

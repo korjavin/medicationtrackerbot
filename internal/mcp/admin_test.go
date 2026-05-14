@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store"
+	"github.com/korjavin/medicationtrackerbot/internal/store/auth"
 )
 
 type fakeAdminStore struct {
@@ -317,9 +318,9 @@ func TestAdminHandler_TokensAreUnique(t *testing.T) {
 	}
 }
 
-// Confirm *store.Store satisfies AdminStore at compile time.
+// Confirm *auth.Repo satisfies AdminStore at compile time.
 func TestStoreImplementsAdminStore(t *testing.T) {
-	var _ AdminStore = (*store.Store)(nil)
+	var _ AdminStore = (*auth.Repo)(nil)
 }
 
 // TestAdminHandler_ListTokens_NeverIncludesPlaintext pins the security

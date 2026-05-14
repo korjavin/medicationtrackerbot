@@ -33,20 +33,20 @@ func TestDeleteMessageUsesRequest(t *testing.T) {
 	defer env.teardown()
 
 	// Set up: create medication + intake + reminder record
-	medID, err := env.s.CreateMedication("Candecor", "16mg", `{"type":"daily","times":["21:30"]}`, nil, nil, "", "", "")
+	medID, err := env.s.Medication.CreateMedication("Candecor", "16mg", `{"type":"daily","times":["21:30"]}`, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication failed: %v", err)
 	}
 
 	scheduledAt := time.Date(2026, 3, 11, 21, 30, 0, 0, time.UTC)
-	intakeID, err := env.s.CreateIntake(medID, 123456, scheduledAt)
+	intakeID, err := env.s.Medication.CreateIntake(medID, 123456, scheduledAt)
 	if err != nil {
 		t.Fatalf("CreateIntake failed: %v", err)
 	}
 
 	// Simulate: a reminder message was sent (msgID=500) and stored in DB
 	reminderMsgID := 500
-	if err := env.s.AddIntakeReminder(intakeID, reminderMsgID); err != nil {
+	if err := env.s.Medication.AddIntakeReminder(intakeID, reminderMsgID); err != nil {
 		t.Fatalf("AddIntakeReminder failed: %v", err)
 	}
 
@@ -88,7 +88,7 @@ func TestDeleteMessageUsesRequest(t *testing.T) {
 	// Most importantly: the callback handling should NOT have errored out
 	// (if it used Send() instead of Request(), the JSON parse error would
 	// prevent the rest of the cleanup from happening or cause a panic in tests)
-	intake, err := env.s.GetIntake(intakeID)
+	intake, err := env.s.Medication.GetIntake(intakeID)
 	if err != nil {
 		t.Fatalf("GetIntake failed: %v", err)
 	}

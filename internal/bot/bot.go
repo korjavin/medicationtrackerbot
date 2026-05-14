@@ -81,7 +81,7 @@ type featureFlags struct {
 	Food       bool
 }
 
-func New(token string, allowedUserID int64, s *store.Store, foodAI domain.FoodAIService, activityAI domain.ActivityAIService, tzUpdater tzupdate.Service) (*Bot, error) {
+func New(token string, allowedUserID int64, s *store.Repos, foodAI domain.FoodAIService, activityAI domain.ActivityAIService, tzUpdater tzupdate.Service) (*Bot, error) {
 	api, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
 		return nil, err
@@ -98,25 +98,27 @@ func New(token string, allowedUserID int64, s *store.Store, foodAI domain.FoodAI
 		appDomain = os.Getenv("DOMAIN")
 	}
 
+	a := newStoreAdapter(s)
+
 	return &Bot{
 		api:              api,
-		meds:             s,
-		medSvc:           domain.NewMedicationService(s),
-		bp:               s,
-		weight:           s,
-		workouts:         s,
-		workoutSvc:       workoutsvc.New(s),
-		exerciseSvc:      domain.NewExerciseService(s),
-		reminderSvc:      domain.NewReminderService(s),
-		food:             s,
+		meds:             a,
+		medSvc:           domain.NewMedicationService(a),
+		bp:               a,
+		weight:           a,
+		workouts:         a,
+		workoutSvc:       workoutsvc.New(s.Workout, s.TZ),
+		exerciseSvc:      domain.NewExerciseService(a),
+		reminderSvc:      domain.NewReminderService(a),
+		food:             a,
 		foodAI:           foodAI,
 		activityAI:       activityAI,
-		activityLog:      s,
-		imports:          s,
-		notesSvc:         domain.NewNotesService(s.Diary()),
-		timezone:         s,
+		activityLog:      a,
+		imports:          a,
+		notesSvc:         domain.NewNotesService(s.Diary),
+		timezone:         a,
 		tzUpdater:        tzUpdater,
-		tzPlanStore:      s,
+		tzPlanStore:      a,
 		allowedUserID:    allowedUserID,
 		appDomain:        appDomain,
 		httpClient:       &http.Client{Timeout: 30 * time.Second},

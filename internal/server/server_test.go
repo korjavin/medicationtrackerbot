@@ -34,40 +34,40 @@ func TestNew(t *testing.T) {
 		t.Fatal("New returned nil")
 	}
 
-	if srv.meds != db {
+	if srv.meds != db.Medication {
 		t.Error("srv.meds not set correctly")
 	}
-	if srv.bp != db {
+	if srv.bp != db.BP {
 		t.Error("srv.bp not set correctly")
 	}
-	if srv.weight != db {
+	if srv.weight != db.Weight {
 		t.Error("srv.weight not set correctly")
 	}
-	if srv.workouts != db {
+	if srv.workouts != db.Workout {
 		t.Error("srv.workouts not set correctly")
 	}
-	if srv.food != db {
+	if srv.food != db.Food {
 		t.Error("srv.food not set correctly")
 	}
-	if srv.settings != db {
+	if srv.settings != db.Settings {
 		t.Error("srv.settings not set correctly")
 	}
-	if srv.health != db {
+	if srv.health != db.Vitals {
 		t.Error("srv.health not set correctly")
 	}
-	if srv.changes != db {
+	if srv.changes != db.Settings {
 		t.Error("srv.changes not set correctly")
 	}
-	if srv.push != db {
+	if srv.push != db.Push {
 		t.Error("srv.push not set correctly")
 	}
-	if srv.miband != db {
+	if srv.miband != db.Workout {
 		t.Error("srv.miband not set correctly")
 	}
-	if srv.tzPlanStore != db {
+	if srv.tzPlanStore != db.TZ {
 		t.Error("srv.tzPlanStore not set correctly")
 	}
-	if srv.nonces != db {
+	if srv.nonces != db.Auth {
 		t.Error("srv.nonces not set correctly")
 	}
 	if srv.medSvc == nil {

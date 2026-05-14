@@ -41,7 +41,7 @@ func TestAddIntakeReminderConcurrentFileDB(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 
-	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["21:30"]}`, nil, nil, "", "", "")
+	medID, err := db.Medication.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["21:30"]}`, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication failed: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestAddIntakeReminderConcurrentFileDB(t *testing.T) {
 	// Create 3 intakes (simulating 3 medications at the same schedule time)
 	var intakeIDs []int64
 	for i := 0; i < 3; i++ {
-		intakeID, err := db.CreateIntake(medID, 12345, scheduled)
+		intakeID, err := db.Medication.CreateIntake(medID, 12345, scheduled)
 		if err != nil {
 			t.Fatalf("CreateIntake %d failed: %v", i, err)
 		}
@@ -67,7 +67,7 @@ func TestAddIntakeReminderConcurrentFileDB(t *testing.T) {
 		go func(idx int, id int64) {
 			defer wg.Done()
 			msgID := 1001 + idx
-			errors[idx] = db.AddIntakeReminder(id, msgID)
+			errors[idx] = db.Medication.AddIntakeReminder(id, msgID)
 		}(i, intakeID)
 	}
 	wg.Wait()
@@ -80,7 +80,7 @@ func TestAddIntakeReminderConcurrentFileDB(t *testing.T) {
 
 	// Verify all reminders were recorded
 	for i, intakeID := range intakeIDs {
-		reminders, err := db.GetIntakeReminders(intakeID)
+		reminders, err := db.Medication.GetIntakeReminders(intakeID)
 		if err != nil {
 			t.Fatalf("GetIntakeReminders for intake %d failed: %v", i, err)
 		}

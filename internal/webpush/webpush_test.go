@@ -14,7 +14,7 @@ func TestSendMedicationNotification(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create store: %v", err)
 	}
-	svc := New(s.Push(), "pub", "priv", "mailto:test@test.com", "admin@test.com", "example.com")
+	svc := New(s.Push, "pub", "priv", "mailto:test@test.com", "admin@test.com", "example.com")
 
 	ctx := context.Background()
 	userID := int64(123)
@@ -29,7 +29,7 @@ func TestSendMedicationNotification(t *testing.T) {
 	}
 
 	// Test with no VAPID keys — early return before subscription check.
-	svcNoKeys := New(s.Push(), "", "", "", "", "")
+	svcNoKeys := New(s.Push, "", "", "", "", "")
 	err = svcNoKeys.SendMedicationNotification(ctx, userID, med, scheduledTime, intakeID)
 	if err != nil {
 		t.Errorf("Expected nil error when keys missing, got %v", err)
@@ -41,7 +41,7 @@ func TestSendLowStockNotification(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create store: %v", err)
 	}
-	svc := New(s.Push(), "pub", "priv", "subject", "admin@test.com", "example.com")
+	svc := New(s.Push, "pub", "priv", "subject", "admin@test.com", "example.com")
 
 	ctx := context.Background()
 	userID := int64(123)
@@ -58,7 +58,7 @@ func TestSendWorkoutNotification(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create store: %v", err)
 	}
-	svc := New(s.Push(), "pub", "priv", "subject", "admin@test.com", "example.com")
+	svc := New(s.Push, "pub", "priv", "subject", "admin@test.com", "example.com")
 
 	ctx := context.Background()
 	userID := int64(123)
@@ -77,7 +77,7 @@ func TestSendBPReminderNotification(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create store: %v", err)
 	}
-	svc := New(s.Push(), "pub", "priv", "subject", "admin@test.com", "example.com")
+	svc := New(s.Push, "pub", "priv", "subject", "admin@test.com", "example.com")
 
 	err = svc.SendBPReminderNotification(context.Background(), 123, true)
 	if !errors.Is(err, ErrNoSubscriptions) {
@@ -90,7 +90,7 @@ func TestSendWeightReminderNotification(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create store: %v", err)
 	}
-	svc := New(s.Push(), "pub", "priv", "subject", "admin@test.com", "example.com")
+	svc := New(s.Push, "pub", "priv", "subject", "admin@test.com", "example.com")
 
 	err = svc.SendWeightReminderNotification(context.Background(), 123)
 	if !errors.Is(err, ErrNoSubscriptions) {
@@ -103,7 +103,7 @@ func TestSendEarlyIntakeConfirmation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create store: %v", err)
 	}
-	svc := New(s.Push(), "pub", "priv", "subject", "admin@test.com", "example.com")
+	svc := New(s.Push, "pub", "priv", "subject", "admin@test.com", "example.com")
 
 	err = svc.SendEarlyIntakeConfirmation(context.Background(), 123, []store.Medication{{Name: "Med"}}, time.Now(), time.Now(), []int64{1})
 	if !errors.Is(err, ErrNoSubscriptions) {

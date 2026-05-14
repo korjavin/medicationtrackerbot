@@ -177,12 +177,13 @@ type Server struct {
 func (s *Server) AuditBuffer() *AuditBuffer { return s.audit }
 
 // NewServer creates a new MCP server
-func NewServer(cfg *Config, st *store.Store, audit *AuditBuffer) (*Server, error) {
+func NewServer(cfg *Config, st *store.Repos, audit *AuditBuffer) (*Server, error) {
+	adapter := newStoreAdapter(st)
 	s := &Server{
 		config: cfg,
-		data:   st,
+		data:   adapter,
 		audit:  audit,
-		admin:  st,
+		admin:  st.Auth,
 	}
 
 	// Create MCP server instance
@@ -201,9 +202,9 @@ func NewServer(cfg *Config, st *store.Store, audit *AuditBuffer) (*Server, error
 	}
 	s.reg = reg
 
-	// Create OAuth handler. The store satisfies APITokenStore so long-lived
+	// Create OAuth handler. The auth repo satisfies APITokenStore so long-lived
 	// API tokens can be validated alongside JWTs.
-	s.oauth = NewOAuthHandler(cfg, st)
+	s.oauth = NewOAuthHandler(cfg, st.Auth)
 
 	// Wire food + workout writers using the audit endpoint base URL.
 	if cfg.AuditEndpoint != "" && cfg.AuditSecret != "" {

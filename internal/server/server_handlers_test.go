@@ -56,9 +56,9 @@ func TestHandleRestock(t *testing.T) {
 	srv, db := createGenericTestServer(t)
 	defer db.Close()
 
-	medID, _ := db.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, _ := db.Medication.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	count := 10
-	db.SetInventory(medID, &count)
+	db.Medication.SetInventory(medID, &count)
 
 	reqBody := map[string]interface{}{
 		"quantity": 20,
@@ -87,7 +87,7 @@ func TestHandleRestock(t *testing.T) {
 	}
 
 	// Verify DB
-	med, _ := db.GetMedication(medID)
+	med, _ := db.Medication.GetMedication(medID)
 	if med.InventoryCount == nil || *med.InventoryCount != 30 {
 		t.Errorf("Expected inventory 30, got %v", med.InventoryCount)
 	}
@@ -97,7 +97,7 @@ func TestHandleRestock_InvalidQuantity(t *testing.T) {
 	srv, db := createGenericTestServer(t)
 	defer db.Close()
 
-	medID, _ := db.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, _ := db.Medication.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 
 	reqBody := map[string]interface{}{"quantity": 0}
 	body, _ := json.Marshal(reqBody)
@@ -117,8 +117,8 @@ func TestHandleGetRestockHistory(t *testing.T) {
 	srv, db := createGenericTestServer(t)
 	defer db.Close()
 
-	medID, _ := db.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
-	db.AddRestock(medID, 30, "Initial")
+	medID, _ := db.Medication.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	db.Medication.AddRestock(medID, 30, "Initial")
 
 	req := httptest.NewRequest("GET", fmt.Sprintf("/api/medications/%d/restocks", medID), nil)
 	req.SetPathValue("id", fmt.Sprintf("%d", medID))
@@ -146,9 +146,9 @@ func TestHandleGetLowStock(t *testing.T) {
 	defer db.Close()
 
 	// Create a medication with low stock
-	medID, _ := db.CreateMedication("LowMed", "10mg", `{"type":"daily","times":["09:00","21:00"]}`, nil, nil, "", "", "")
+	medID, _ := db.Medication.CreateMedication("LowMed", "10mg", `{"type":"daily","times":["09:00","21:00"]}`, nil, nil, "", "", "")
 	count := 3
-	db.SetInventory(medID, &count)
+	db.Medication.SetInventory(medID, &count)
 
 	req := httptest.NewRequest("GET", "/api/inventory/low?days=7", nil)
 	w := httptest.NewRecorder()
@@ -193,7 +193,7 @@ func TestHandleSubscribePush(t *testing.T) {
 	}
 
 	// Verify in DB
-	subs, _ := db.GetPushSubscriptions(123456)
+	subs, _ := db.Push.List(123456)
 	if len(subs) != 1 {
 		t.Fatalf("Expected 1 subscription, got %d", len(subs))
 	}
@@ -207,7 +207,7 @@ func TestHandleUnsubscribePush(t *testing.T) {
 	defer db.Close()
 
 	// Create subscription first
-	db.CreatePushSubscription(123456, "https://push.example.com/test", "auth", "p256dh")
+	db.Push.Create(123456, "https://push.example.com/test", "auth", "p256dh")
 
 	reqBody := map[string]interface{}{
 		"endpoint": "https://push.example.com/test",
@@ -224,7 +224,7 @@ func TestHandleUnsubscribePush(t *testing.T) {
 		t.Fatalf("Expected 200, got %d", w.Code)
 	}
 
-	subs, _ := db.GetPushSubscriptions(123456)
+	subs, _ := db.Push.List(123456)
 	if len(subs) != 0 {
 		t.Errorf("Expected 0 subscriptions after unsubscribe, got %d", len(subs))
 	}
@@ -234,8 +234,8 @@ func TestHandleListPushSubscriptions(t *testing.T) {
 	srv, db := createGenericTestServer(t)
 	defer db.Close()
 
-	db.CreatePushSubscription(123456, "https://push.example.com/1", "auth1", "p256dh1")
-	db.CreatePushSubscription(123456, "https://push.example.com/2", "auth2", "p256dh2")
+	db.Push.Create(123456, "https://push.example.com/1", "auth1", "p256dh1")
+	db.Push.Create(123456, "https://push.example.com/2", "auth2", "p256dh2")
 
 	req := httptest.NewRequest("GET", "/api/webpush/subscriptions", nil)
 	req = withUser(req, 123456)
@@ -262,12 +262,12 @@ func TestHandleConfirmSchedule_WithIntakeIDs(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	medID, _ := db.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, _ := db.Medication.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	count := 10
-	db.SetInventory(medID, &count)
+	db.Medication.SetInventory(medID, &count)
 
 	schedTime := time.Now()
-	intakeID, _ := db.CreateIntake(medID, userID, schedTime)
+	intakeID, _ := db.Medication.CreateIntake(medID, userID, schedTime)
 
 	reqBody := map[string]interface{}{
 		"intake_ids": []int64{intakeID},
@@ -285,13 +285,13 @@ func TestHandleConfirmSchedule_WithIntakeIDs(t *testing.T) {
 	}
 
 	// Verify intake confirmed
-	intake, _ := db.GetIntake(intakeID)
+	intake, _ := db.Medication.GetIntake(intakeID)
 	if intake.Status != "TAKEN" {
 		t.Errorf("Expected status TAKEN, got %s", intake.Status)
 	}
 
 	// Verify inventory decremented
-	med, _ := db.GetMedication(medID)
+	med, _ := db.Medication.GetMedication(medID)
 	if med.InventoryCount == nil || *med.InventoryCount != 9 {
 		t.Errorf("Expected inventory 9, got %v", med.InventoryCount)
 	}
@@ -302,17 +302,17 @@ func TestHandleConfirmSchedule_RevertsAllTakenIntakesWhenEmpty(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	medID1, _ := db.CreateMedication("TestMed1", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID1, _ := db.Medication.CreateMedication("TestMed1", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 
 	count1 := 10
-	db.SetInventory(medID1, &count1)
+	db.Medication.SetInventory(medID1, &count1)
 
 	schedTime := time.Date(2026, 2, 28, 9, 0, 0, 0, time.UTC)
-	intake1, _ := db.CreateIntake(medID1, userID, schedTime)
+	intake1, _ := db.Medication.CreateIntake(medID1, userID, schedTime)
 
 	// Mark as TAKEN initially
-	db.ConfirmIntake(intake1, time.Now())
-	db.DecrementInventory(medID1, 1) // Simulate inventory decremented
+	db.Medication.ConfirmIntake(intake1, time.Now())
+	db.Medication.DecrementInventory(medID1, 1) // Simulate inventory decremented
 
 	// Client sends empty medication_ids to confirm-schedule
 	reqBody := map[string]interface{}{
@@ -332,7 +332,7 @@ func TestHandleConfirmSchedule_RevertsAllTakenIntakesWhenEmpty(t *testing.T) {
 	}
 
 	// Verify med1 intake reverted to PENDING
-	i1, _ := db.GetIntake(intake1)
+	i1, _ := db.Medication.GetIntake(intake1)
 	if i1.Status != "PENDING" {
 		t.Errorf("Expected intake 1 status PENDING, got %s", i1.Status)
 	}
@@ -341,7 +341,7 @@ func TestHandleConfirmSchedule_RevertsAllTakenIntakesWhenEmpty(t *testing.T) {
 	}
 
 	// Verify inventory
-	m1, _ := db.GetMedication(medID1)
+	m1, _ := db.Medication.GetMedication(medID1)
 	if *m1.InventoryCount != 10 { // Should have incremented back from 9
 		t.Errorf("Expected med1 inventory 10, got %v", m1.InventoryCount)
 	}
@@ -352,23 +352,23 @@ func TestHandleConfirmSchedule_RevertsUncheckedTakenIntake(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	medID1, _ := db.CreateMedication("TestMed1", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
-	medID2, _ := db.CreateMedication("TestMed2", "20mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID1, _ := db.Medication.CreateMedication("TestMed1", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID2, _ := db.Medication.CreateMedication("TestMed2", "20mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 
 	count1 := 10
-	db.SetInventory(medID1, &count1)
+	db.Medication.SetInventory(medID1, &count1)
 	count2 := 10
-	db.SetInventory(medID2, &count2)
+	db.Medication.SetInventory(medID2, &count2)
 
 	schedTime := time.Date(2026, 2, 28, 9, 0, 0, 0, time.UTC)
-	intake1, _ := db.CreateIntake(medID1, userID, schedTime)
-	intake2, _ := db.CreateIntake(medID2, userID, schedTime)
+	intake1, _ := db.Medication.CreateIntake(medID1, userID, schedTime)
+	intake2, _ := db.Medication.CreateIntake(medID2, userID, schedTime)
 
 	// Mark both as TAKEN initially
-	db.ConfirmIntake(intake1, time.Now())
-	db.DecrementInventory(medID1, 1) // Simulate inventory decremented
-	db.ConfirmIntake(intake2, time.Now())
-	db.DecrementInventory(medID2, 1) // Simulate inventory decremented
+	db.Medication.ConfirmIntake(intake1, time.Now())
+	db.Medication.DecrementInventory(medID1, 1) // Simulate inventory decremented
+	db.Medication.ConfirmIntake(intake2, time.Now())
+	db.Medication.DecrementInventory(medID2, 1) // Simulate inventory decremented
 
 	// Client sends only medID1 to confirm-schedule
 	reqBody := map[string]interface{}{
@@ -388,13 +388,13 @@ func TestHandleConfirmSchedule_RevertsUncheckedTakenIntake(t *testing.T) {
 	}
 
 	// Verify med1 intake is still TAKEN
-	i1, _ := db.GetIntake(intake1)
+	i1, _ := db.Medication.GetIntake(intake1)
 	if i1.Status != "TAKEN" {
 		t.Errorf("Expected intake 1 status TAKEN, got %s", i1.Status)
 	}
 
 	// Verify med2 intake reverted to PENDING
-	i2, _ := db.GetIntake(intake2)
+	i2, _ := db.Medication.GetIntake(intake2)
 	if i2.Status != "PENDING" {
 		t.Errorf("Expected intake 2 status PENDING, got %s", i2.Status)
 	}
@@ -403,11 +403,11 @@ func TestHandleConfirmSchedule_RevertsUncheckedTakenIntake(t *testing.T) {
 	}
 
 	// Verify inventory
-	m1, _ := db.GetMedication(medID1)
+	m1, _ := db.Medication.GetMedication(medID1)
 	if *m1.InventoryCount != 9 {
 		t.Errorf("Expected med1 inventory 9, got %v", m1.InventoryCount)
 	}
-	m2, _ := db.GetMedication(medID2)
+	m2, _ := db.Medication.GetMedication(medID2)
 	if *m2.InventoryCount != 10 { // Should have incremented back from 9
 		t.Errorf("Expected med2 inventory 10, got %v", m2.InventoryCount)
 	}
@@ -418,21 +418,21 @@ func TestHandleConfirmSchedule_ConfirmsAndRevertsInSameRequest(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	medID1, _ := db.CreateMedication("TestMed1", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
-	medID2, _ := db.CreateMedication("TestMed2", "20mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID1, _ := db.Medication.CreateMedication("TestMed1", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID2, _ := db.Medication.CreateMedication("TestMed2", "20mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 
 	count1 := 10
-	db.SetInventory(medID1, &count1)
+	db.Medication.SetInventory(medID1, &count1)
 	count2 := 10
-	db.SetInventory(medID2, &count2)
+	db.Medication.SetInventory(medID2, &count2)
 
 	schedTime := time.Date(2026, 2, 28, 9, 0, 0, 0, time.UTC)
-	intake1, _ := db.CreateIntake(medID1, userID, schedTime)
-	intake2, _ := db.CreateIntake(medID2, userID, schedTime)
+	intake1, _ := db.Medication.CreateIntake(medID1, userID, schedTime)
+	intake2, _ := db.Medication.CreateIntake(medID2, userID, schedTime)
 
 	// med1 is PENDING, med2 is TAKEN
-	db.ConfirmIntake(intake2, time.Now())
-	db.DecrementInventory(medID2, 1)
+	db.Medication.ConfirmIntake(intake2, time.Now())
+	db.Medication.DecrementInventory(medID2, 1)
 
 	// Client unchecks med2, checks med1
 	reqBody := map[string]interface{}{
@@ -452,23 +452,23 @@ func TestHandleConfirmSchedule_ConfirmsAndRevertsInSameRequest(t *testing.T) {
 	}
 
 	// Verify med1 intake is now TAKEN
-	i1, _ := db.GetIntake(intake1)
+	i1, _ := db.Medication.GetIntake(intake1)
 	if i1.Status != "TAKEN" {
 		t.Errorf("Expected intake 1 status TAKEN, got %s", i1.Status)
 	}
 
 	// Verify med2 intake reverted to PENDING
-	i2, _ := db.GetIntake(intake2)
+	i2, _ := db.Medication.GetIntake(intake2)
 	if i2.Status != "PENDING" {
 		t.Errorf("Expected intake 2 status PENDING, got %s", i2.Status)
 	}
 
 	// Verify inventory
-	m1, _ := db.GetMedication(medID1)
+	m1, _ := db.Medication.GetMedication(medID1)
 	if *m1.InventoryCount != 9 { // Should have decremented from 10
 		t.Errorf("Expected med1 inventory 9, got %v", m1.InventoryCount)
 	}
-	m2, _ := db.GetMedication(medID2)
+	m2, _ := db.Medication.GetMedication(medID2)
 	if *m2.InventoryCount != 10 { // Should have incremented back from 9
 		t.Errorf("Expected med2 inventory 10, got %v", m2.InventoryCount)
 	}
@@ -481,7 +481,7 @@ func TestHandleLogPastIntake(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	medID, _ := db.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, _ := db.Medication.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 
 	takenAt := time.Now().Add(-2 * time.Hour)
 	reqBody := map[string]interface{}{
@@ -501,7 +501,7 @@ func TestHandleLogPastIntake(t *testing.T) {
 	}
 
 	// Verify in DB
-	history, _ := db.GetIntakeHistory(int(medID), 1)
+	history, _ := db.Medication.GetIntakeHistory(int(medID), 1)
 	if len(history) == 0 {
 		t.Error("Expected at least 1 intake in history")
 	}
@@ -518,7 +518,7 @@ func TestLogPastIntake_AppearsInListHistory(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	medID, err := db.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, err := db.Medication.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
 	}
@@ -649,7 +649,7 @@ func TestHandleToggleWeightReminder(t *testing.T) {
 	}
 
 	// Verify state
-	state, _ := db.GetWeightReminderState(123456)
+	state, _ := db.Weight.GetWeightReminderState(123456)
 	if !state.Enabled {
 		t.Error("Expected weight reminder to be enabled")
 	}
@@ -660,7 +660,7 @@ func TestHandleSnoozeWeightReminder(t *testing.T) {
 	defer db.Close()
 
 	// Enable first
-	db.SetWeightReminderEnabled(123456, true)
+	db.Weight.SetWeightReminderEnabled(123456, true)
 
 	req := httptest.NewRequest("POST", "/api/weight/reminder/snooze", nil)
 	req = weightReqWithUser(req, 123456)
@@ -672,7 +672,7 @@ func TestHandleSnoozeWeightReminder(t *testing.T) {
 		t.Fatalf("Expected 200, got %d", w.Code)
 	}
 
-	state, _ := db.GetWeightReminderState(123456)
+	state, _ := db.Weight.GetWeightReminderState(123456)
 	if state.SnoozedUntil == nil {
 		t.Error("Expected snooze to be set")
 	}
@@ -682,7 +682,7 @@ func TestHandleDontBugMeWeightReminder(t *testing.T) {
 	srv, db := createWeightTestServer(t)
 	defer db.Close()
 
-	db.SetWeightReminderEnabled(123456, true)
+	db.Weight.SetWeightReminderEnabled(123456, true)
 
 	req := httptest.NewRequest("POST", "/api/weight/reminder/dontbug", nil)
 	req = weightReqWithUser(req, 123456)
@@ -694,7 +694,7 @@ func TestHandleDontBugMeWeightReminder(t *testing.T) {
 		t.Fatalf("Expected 200, got %d", w.Code)
 	}
 
-	state, _ := db.GetWeightReminderState(123456)
+	state, _ := db.Weight.GetWeightReminderState(123456)
 	if state.DontRemindUntil == nil {
 		t.Error("Expected dont-remind-until to be set")
 	}
@@ -707,7 +707,7 @@ func TestHandleUpdateFoodLog(t *testing.T) {
 	defer db.Close()
 
 	ctx := ctxWithUser(123456)
-	logID, _ := db.CreateFoodLog(ctx, &store.FoodLog{
+	logID, _ := db.Food.CreateFoodLog(ctx, &store.FoodLog{
 		UserID:   123456,
 		EatenAt:  time.Now(),
 		Name:     "Original",
@@ -749,7 +749,7 @@ func TestHandleGetFoodStats(t *testing.T) {
 	// Use an explicit UTC noon so the test is timezone-independent:
 	// the query uses date=<UTC-date>&tz=UTC so boundaries are UTC midnights.
 	mealTime := time.Date(time.Now().UTC().Year(), time.Now().UTC().Month(), time.Now().UTC().Day(), 12, 0, 0, 0, time.UTC)
-	db.CreateFoodLog(ctx, &store.FoodLog{
+	db.Food.CreateFoodLog(ctx, &store.FoodLog{
 		UserID:   123456,
 		EatenAt:  mealTime,
 		Name:     "Meal",
@@ -783,7 +783,7 @@ func TestHandleGetFoodTargets(t *testing.T) {
 	srv, db := createFoodTestServer(t)
 	defer db.Close()
 
-	db.SetFoodTargets(context.Background(), store.FoodTargets{
+	db.Food.SetFoodTargets(context.Background(), store.FoodTargets{
 		Calories: 2000, Carbs: 250, Protein: 100, Fat: 70,
 	})
 
@@ -823,7 +823,7 @@ func TestHandleSetFoodTargets(t *testing.T) {
 	}
 
 	// Verify
-	targets, _ := db.GetFoodTargets(context.Background())
+	targets, _ := db.Food.GetFoodTargets(context.Background())
 	if targets.Calories != 1800 {
 		t.Errorf("Expected 1800, got %d", targets.Calories)
 	}
@@ -834,7 +834,7 @@ func TestHandleGetFoodProducts(t *testing.T) {
 	defer db.Close()
 
 	ctx := ctxWithUser(123456)
-	db.UpsertFoodProduct(ctx, &store.FoodProduct{
+	db.Food.UpsertFoodProduct(ctx, &store.FoodProduct{
 		UserID:         123456,
 		Name:           "Apple",
 		Carbs100g:      14,
@@ -872,7 +872,7 @@ func TestHandleUpdateFoodProduct(t *testing.T) {
 	defer db.Close()
 
 	ctx := ctxWithUser(123456)
-	db.UpsertFoodProduct(ctx, &store.FoodProduct{
+	db.Food.UpsertFoodProduct(ctx, &store.FoodProduct{
 		UserID:         123456,
 		Name:           "Apple",
 		Carbs100g:      14,
@@ -881,7 +881,7 @@ func TestHandleUpdateFoodProduct(t *testing.T) {
 		EnergyKcal100g: 52,
 	})
 
-	products, _, _ := db.GetFoodProducts(ctx, 123456, store.FoodProductsFilter{Limit: 10})
+	products, _, _ := db.Food.GetFoodProducts(ctx, 123456, store.FoodProductsFilter{Limit: 10})
 	if len(products) == 0 {
 		t.Fatal("Expected at least 1 product")
 	}
@@ -913,7 +913,7 @@ func TestHandleDeleteFoodProduct(t *testing.T) {
 	defer db.Close()
 
 	ctx := ctxWithUser(123456)
-	db.UpsertFoodProduct(ctx, &store.FoodProduct{
+	db.Food.UpsertFoodProduct(ctx, &store.FoodProduct{
 		UserID:         123456,
 		Name:           "ToDelete",
 		Carbs100g:      10,
@@ -922,7 +922,7 @@ func TestHandleDeleteFoodProduct(t *testing.T) {
 		EnergyKcal100g: 40,
 	})
 
-	products, _, _ := db.GetFoodProducts(ctx, 123456, store.FoodProductsFilter{Limit: 10})
+	products, _, _ := db.Food.GetFoodProducts(ctx, 123456, store.FoodProductsFilter{Limit: 10})
 	productID := products[0].ID
 
 	req := httptest.NewRequest("DELETE", fmt.Sprintf("/api/food/products/%d", productID), nil)
@@ -936,7 +936,7 @@ func TestHandleDeleteFoodProduct(t *testing.T) {
 		t.Fatalf("Expected 200, got %d", w.Code)
 	}
 
-	products, _, _ = db.GetFoodProducts(ctx, 123456, store.FoodProductsFilter{Limit: 10})
+	products, _, _ = db.Food.GetFoodProducts(ctx, 123456, store.FoodProductsFilter{Limit: 10})
 	if len(products) != 0 {
 		t.Errorf("Expected 0 products after delete, got %d", len(products))
 	}
@@ -1014,7 +1014,7 @@ func TestHandleWorkoutGroupCRUD(t *testing.T) {
 	}
 
 	// Verify update
-	group, _ := db.GetWorkoutGroup(groupID)
+	group, _ := db.Workout.GetWorkoutGroup(groupID)
 	if group.Name != "Updated PPL" {
 		t.Errorf("Expected 'Updated PPL', got %q", group.Name)
 	}
@@ -1025,7 +1025,7 @@ func TestHandleWorkoutVariantCRUD(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	group, _ := db.CreateWorkoutGroup("Test", "desc", false, userID, "[1,3,5]", "09:00", 15)
+	group, _ := db.Workout.CreateWorkoutGroup("Test", "desc", false, userID, "[1,3,5]", "09:00", 15)
 
 	// Create variant
 	reqBody := map[string]interface{}{
@@ -1097,9 +1097,9 @@ func TestHandleWorkoutExerciseCRUD(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	group, _ := db.CreateWorkoutGroup("Test", "desc", false, userID, "[1,3,5]", "09:00", 15)
+	group, _ := db.Workout.CreateWorkoutGroup("Test", "desc", false, userID, "[1,3,5]", "09:00", 15)
 	order := 0
-	variant, _ := db.CreateWorkoutVariant(group.ID, "Variant A", &order, "")
+	variant, _ := db.Workout.CreateWorkoutVariant(group.ID, "Variant A", &order, "")
 
 	// Create exercise
 	reqBody := map[string]interface{}{
@@ -1160,10 +1160,10 @@ func TestHandleStartWorkoutSession(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	group, _ := db.CreateWorkoutGroup("Test", "desc", false, userID, "[1,3,5]", "09:00", 15)
+	group, _ := db.Workout.CreateWorkoutGroup("Test", "desc", false, userID, "[1,3,5]", "09:00", 15)
 	order := 0
-	variant, _ := db.CreateWorkoutVariant(group.ID, "A", &order, "")
-	session, _ := db.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	variant, _ := db.Workout.CreateWorkoutVariant(group.ID, "A", &order, "")
+	session, _ := db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 
 	req := httptest.NewRequest("POST", fmt.Sprintf("/api/workout/sessions/%d/start", session.ID), nil)
 	req.SetPathValue("id", fmt.Sprintf("%d", session.ID))
@@ -1175,7 +1175,7 @@ func TestHandleStartWorkoutSession(t *testing.T) {
 		t.Fatalf("Expected 200, got %d. Body: %s", w.Code, w.Body.String())
 	}
 
-	s, _ := db.GetWorkoutSession(session.ID)
+	s, _ := db.Workout.GetWorkoutSession(session.ID)
 	if s.Status != "in_progress" {
 		t.Errorf("Expected status 'in_progress', got %q", s.Status)
 	}
@@ -1186,10 +1186,10 @@ func TestHandleSkipWorkoutSession(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	group, _ := db.CreateWorkoutGroup("Test", "desc", false, userID, "[1,3,5]", "09:00", 15)
+	group, _ := db.Workout.CreateWorkoutGroup("Test", "desc", false, userID, "[1,3,5]", "09:00", 15)
 	order := 0
-	variant, _ := db.CreateWorkoutVariant(group.ID, "A", &order, "")
-	session, _ := db.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	variant, _ := db.Workout.CreateWorkoutVariant(group.ID, "A", &order, "")
+	session, _ := db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 
 	req := httptest.NewRequest("POST", fmt.Sprintf("/api/workout/sessions/%d/skip", session.ID), nil)
 	req.SetPathValue("id", fmt.Sprintf("%d", session.ID))
@@ -1201,7 +1201,7 @@ func TestHandleSkipWorkoutSession(t *testing.T) {
 		t.Fatalf("Expected 200, got %d. Body: %s", w.Code, w.Body.String())
 	}
 
-	s, _ := db.GetWorkoutSession(session.ID)
+	s, _ := db.Workout.GetWorkoutSession(session.ID)
 	if s.Status != "skipped" {
 		t.Errorf("Expected status 'skipped', got %q", s.Status)
 	}
@@ -1212,11 +1212,11 @@ func TestHandleGetWorkoutStats(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	group, _ := db.CreateWorkoutGroup("Test", "desc", false, userID, "[1,3,5]", "09:00", 15)
+	group, _ := db.Workout.CreateWorkoutGroup("Test", "desc", false, userID, "[1,3,5]", "09:00", 15)
 	order := 0
-	variant, _ := db.CreateWorkoutVariant(group.ID, "A", &order, "")
-	session, _ := db.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
-	db.CompleteSession(session.ID)
+	variant, _ := db.Workout.CreateWorkoutVariant(group.ID, "A", &order, "")
+	session, _ := db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	db.Workout.CompleteSession(session.ID)
 
 	req := httptest.NewRequest("GET", "/api/workout/stats", nil)
 	req = withUser(req, userID)
@@ -1240,10 +1240,10 @@ func TestHandleListWorkoutSessions(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	group, _ := db.CreateWorkoutGroup("Test", "desc", false, userID, "[1,3,5]", "09:00", 15)
+	group, _ := db.Workout.CreateWorkoutGroup("Test", "desc", false, userID, "[1,3,5]", "09:00", 15)
 	order := 0
-	variant, _ := db.CreateWorkoutVariant(group.ID, "A", &order, "")
-	db.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	variant, _ := db.Workout.CreateWorkoutVariant(group.ID, "A", &order, "")
+	db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 
 	req := httptest.NewRequest("GET", "/api/workout/sessions?limit=30", nil)
 	req = withUser(req, userID)
@@ -1260,10 +1260,10 @@ func TestHandleGetSessionDetails(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	group, _ := db.CreateWorkoutGroup("Test", "desc", false, userID, "[1,3,5]", "09:00", 15)
+	group, _ := db.Workout.CreateWorkoutGroup("Test", "desc", false, userID, "[1,3,5]", "09:00", 15)
 	order := 0
-	variant, _ := db.CreateWorkoutVariant(group.ID, "A", &order, "")
-	session, _ := db.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	variant, _ := db.Workout.CreateWorkoutVariant(group.ID, "A", &order, "")
+	session, _ := db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 
 	req := httptest.NewRequest("GET", fmt.Sprintf("/api/workout/sessions/details?id=%d", session.ID), nil)
 	req = withUser(req, userID)
@@ -1280,10 +1280,10 @@ func TestHandleGetRotationState(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	group, _ := db.CreateWorkoutGroup("Test", "desc", true, userID, "[1,3,5]", "09:00", 15)
+	group, _ := db.Workout.CreateWorkoutGroup("Test", "desc", true, userID, "[1,3,5]", "09:00", 15)
 	order := 0
-	variant, _ := db.CreateWorkoutVariant(group.ID, "A", &order, "")
-	db.InitializeRotation(group.ID, variant.ID)
+	variant, _ := db.Workout.CreateWorkoutVariant(group.ID, "A", &order, "")
+	db.Workout.InitializeRotation(group.ID, variant.ID)
 
 	req := httptest.NewRequest("GET", fmt.Sprintf("/api/workout/rotation/state?group_id=%d", group.ID), nil)
 	req = withUser(req, userID)

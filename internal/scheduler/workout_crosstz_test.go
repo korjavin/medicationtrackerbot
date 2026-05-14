@@ -24,17 +24,17 @@ func TestWorkoutChecker_CrossTZCooldownPreventsDuplicateSession(t *testing.T) {
 	}
 	defer db.Close() //nolint:errcheck
 
-	if err := db.SetWorkoutEnabled(context.Background(), true); err != nil {
+	if err := db.Settings.SetWorkoutEnabled(context.Background(), true); err != nil {
 		t.Fatalf("SetWorkoutEnabled: %v", err)
 	}
 
 	// Group fires every weekday at 12:00.
-	group, err := db.CreateWorkoutGroup("CrossTZ", "", false, 123456, "[0,1,2,3,4,5,6]", "12:00", 15)
+	group, err := db.Workout.CreateWorkoutGroup("CrossTZ", "", false, 123456, "[0,1,2,3,4,5,6]", "12:00", 15)
 	if err != nil {
 		t.Fatalf("CreateWorkoutGroup: %v", err)
 	}
 	one := 1
-	if _, err := db.CreateWorkoutVariant(group.ID, "Default", &one, ""); err != nil {
+	if _, err := db.Workout.CreateWorkoutVariant(group.ID, "Default", &one, ""); err != nil {
 		t.Fatalf("CreateWorkoutVariant: %v", err)
 	}
 
@@ -43,11 +43,11 @@ func TestWorkoutChecker_CrossTZCooldownPreventsDuplicateSession(t *testing.T) {
 
 	mockNotifier := &MockNotifier{}
 	sched := New(db, 123456, []notifier.Notifier{mockNotifier})
-	sched.WorkoutChecker.workoutSvc = workoutsvc.New(db)
+	sched.WorkoutChecker.workoutSvc = workoutsvc.New(db.Workout, db.TZ)
 	sched.WorkoutChecker.daysCache = make(map[string][]int)
 
 	// Tick 1: Tokyo. Wed 2026-05-04 12:30 JST = 2026-05-04 03:30 UTC.
-	if err := db.RecordTimezone("Asia/Tokyo"); err != nil {
+	if err := db.TZ.RecordTimezone("Asia/Tokyo"); err != nil {
 		t.Fatalf("RecordTimezone Tokyo: %v", err)
 	}
 	tokyoTick := time.Date(2026, 5, 4, 12, 30, 0, 0, tokyo)
@@ -58,7 +58,7 @@ func TestWorkoutChecker_CrossTZCooldownPreventsDuplicateSession(t *testing.T) {
 	}
 
 	// Confirm exactly one session got created on the Tokyo "today" date.
-	first, err := db.GetWorkoutHistory(123456, 10)
+	first, err := db.Workout.GetWorkoutHistory(123456, 10)
 	if err != nil {
 		t.Fatalf("GetWorkoutHistory: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestWorkoutChecker_CrossTZCooldownPreventsDuplicateSession(t *testing.T) {
 	// "today" is computed against Berlin midnight (a different UTC instant
 	// from Tokyo midnight), so without the cooldown the session lookup
 	// could miss the existing row.
-	if err := db.RecordTimezone("Europe/Berlin"); err != nil {
+	if err := db.TZ.RecordTimezone("Europe/Berlin"); err != nil {
 		t.Fatalf("RecordTimezone Berlin: %v", err)
 	}
 	berlinTick := time.Date(2026, 5, 4, 12, 30, 0, 0, berlin) // ~9h later UTC
@@ -85,7 +85,7 @@ func TestWorkoutChecker_CrossTZCooldownPreventsDuplicateSession(t *testing.T) {
 		t.Fatalf("Berlin Check: %v", err)
 	}
 
-	second, err := db.GetWorkoutHistory(123456, 10)
+	second, err := db.Workout.GetWorkoutHistory(123456, 10)
 	if err != nil {
 		t.Fatalf("GetWorkoutHistory after Berlin: %v", err)
 	}
@@ -107,25 +107,25 @@ func TestWorkoutChecker_ConsecutiveDaysAllowed(t *testing.T) {
 		t.Fatalf("store.New: %v", err)
 	}
 	defer db.Close() //nolint:errcheck
-	if err := db.SetWorkoutEnabled(context.Background(), true); err != nil {
+	if err := db.Settings.SetWorkoutEnabled(context.Background(), true); err != nil {
 		t.Fatalf("SetWorkoutEnabled: %v", err)
 	}
-	if err := db.RecordTimezone("UTC"); err != nil {
+	if err := db.TZ.RecordTimezone("UTC"); err != nil {
 		t.Fatalf("RecordTimezone: %v", err)
 	}
 
-	group, err := db.CreateWorkoutGroup("Daily", "", false, 123456, "[0,1,2,3,4,5,6]", "09:00", 15)
+	group, err := db.Workout.CreateWorkoutGroup("Daily", "", false, 123456, "[0,1,2,3,4,5,6]", "09:00", 15)
 	if err != nil {
 		t.Fatalf("CreateWorkoutGroup: %v", err)
 	}
 	one := 1
-	if _, err := db.CreateWorkoutVariant(group.ID, "Default", &one, ""); err != nil {
+	if _, err := db.Workout.CreateWorkoutVariant(group.ID, "Default", &one, ""); err != nil {
 		t.Fatalf("CreateWorkoutVariant: %v", err)
 	}
 
 	mockNotifier := &MockNotifier{}
 	sched := New(db, 123456, []notifier.Notifier{mockNotifier})
-	sched.WorkoutChecker.workoutSvc = workoutsvc.New(db)
+	sched.WorkoutChecker.workoutSvc = workoutsvc.New(db.Workout, db.TZ)
 	sched.WorkoutChecker.daysCache = make(map[string][]int)
 
 	// Day 1: Mon 2026-05-04 09:30 UTC.
@@ -142,7 +142,7 @@ func TestWorkoutChecker_ConsecutiveDaysAllowed(t *testing.T) {
 		t.Fatalf("day2 Check: %v", err)
 	}
 
-	sessions, err := db.GetWorkoutHistory(123456, 10)
+	sessions, err := db.Workout.GetWorkoutHistory(123456, 10)
 	if err != nil {
 		t.Fatalf("GetWorkoutHistory: %v", err)
 	}

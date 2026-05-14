@@ -142,7 +142,7 @@ func main() {
 
 	var wpService *webpush.Service
 	if vapidPublicKey != "" && vapidPrivateKey != "" {
-		wpService = webpush.New(s.Push(), vapidPublicKey, vapidPrivateKey, vapidSubject, vapidAdminEmail, vapidDomain)
+		wpService = webpush.New(s.Push, vapidPublicKey, vapidPrivateKey, vapidSubject, vapidAdminEmail, vapidDomain)
 	}
 
 	// 4. Bot
@@ -153,9 +153,9 @@ func main() {
 	// always observes the finalised set — otherwise a queued /tz + location
 	// arriving during startup could race past an empty notifier slice and
 	// skip plan generation.
-	tzPlanner := tzreschedule.NewPlannerService(s)
+	tzPlanner := tzreschedule.NewPlannerService(newTZPlannerStore(s))
 	var notifiers []notifier.Notifier
-	tzUpdater := tzupdate.NewService(s, s, tzPlanner, nil, func() bool { return len(notifiers) > 0 })
+	tzUpdater := tzupdate.NewService(s.TZ, s.TZ, tzPlanner, nil, func() bool { return len(notifiers) > 0 })
 
 	var tgBot *bot.Bot
 	if botToken != "" {

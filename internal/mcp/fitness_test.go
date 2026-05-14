@@ -24,7 +24,7 @@ func setupFitnessTestServer(t *testing.T) (*Server, *store.Store) {
 			MaxQueryDays: 90,
 			UserID:       123456,
 		},
-		data:  st,
+		data:  newStoreAdapter(st),
 		audit: audit,
 	}
 
@@ -39,25 +39,25 @@ func TestAnalyzeFitness_AllDomains(t *testing.T) {
 	userID := int64(123456)
 
 	// Enable features
-	if err := st.SetWorkoutEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetWorkoutEnabled(ctx, true); err != nil {
 		t.Fatalf("SetWorkoutEnabled: %v", err)
 	}
-	if err := st.SetFoodIntakeEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetFoodIntakeEnabled(ctx, true); err != nil {
 		t.Fatalf("SetFoodIntakeEnabled: %v", err)
 	}
-	if err := st.SetWeightEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetWeightEnabled(ctx, true); err != nil {
 		t.Fatalf("SetWeightEnabled: %v", err)
 	}
 
 	// Add weight logs
-	if _, err := st.CreateWeightLog(ctx, &store.WeightLog{
+	if _, err := st.Weight.CreateWeightLog(ctx, &store.WeightLog{
 		UserID:     userID,
 		MeasuredAt: time.Date(2026, 3, 10, 8, 0, 0, 0, time.Local),
 		Weight:     80.0,
 	}); err != nil {
 		t.Fatalf("CreateWeightLog: %v", err)
 	}
-	if _, err := st.CreateWeightLog(ctx, &store.WeightLog{
+	if _, err := st.Weight.CreateWeightLog(ctx, &store.WeightLog{
 		UserID:     userID,
 		MeasuredAt: time.Date(2026, 3, 15, 8, 0, 0, 0, time.Local),
 		Weight:     79.5,
@@ -66,7 +66,7 @@ func TestAnalyzeFitness_AllDomains(t *testing.T) {
 	}
 
 	// Add food log
-	if _, err := st.CreateFoodLog(ctx, &store.FoodLog{
+	if _, err := st.Food.CreateFoodLog(ctx, &store.FoodLog{
 		UserID:   userID,
 		EatenAt:  time.Date(2026, 3, 15, 12, 0, 0, 0, time.Local),
 		Name:     "Chicken Breast Salad",
@@ -80,14 +80,14 @@ func TestAnalyzeFitness_AllDomains(t *testing.T) {
 	}
 
 	// Add step data
-	if _, _, err := st.ImportDayStats(ctx, userID, []store.DayStat{
+	if _, _, err := st.Vitals.ImportDayStats(ctx, userID, []store.DayStat{
 		{Day: "2026-03-15", Steps: 8500, Calories: 350, Distance: 6200},
 	}); err != nil {
 		t.Fatalf("ImportDayStats: %v", err)
 	}
 
 	// Add diary note
-	if _, err := st.CreateDiaryNote(ctx, userID, "felt great during workout", nil); err != nil {
+	if _, err := st.Diary.Create(ctx, userID, "felt great during workout", nil); err != nil {
 		t.Fatalf("CreateDiaryNote: %v", err)
 	}
 
@@ -168,13 +168,13 @@ func TestAnalyzeFitness_NutritionDailyTotalsNoFoodNames(t *testing.T) {
 	ctx := context.Background()
 	userID := int64(123456)
 
-	if err := st.SetFoodIntakeEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetFoodIntakeEnabled(ctx, true); err != nil {
 		t.Fatalf("SetFoodIntakeEnabled: %v", err)
 	}
-	if err := st.SetWorkoutEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetWorkoutEnabled(ctx, true); err != nil {
 		t.Fatalf("SetWorkoutEnabled: %v", err)
 	}
-	if err := st.SetWeightEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetWeightEnabled(ctx, true); err != nil {
 		t.Fatalf("SetWeightEnabled: %v", err)
 	}
 
@@ -189,7 +189,7 @@ func TestAnalyzeFitness_NutritionDailyTotalsNoFoodNames(t *testing.T) {
 		{"Secret Recipe Smoothie", 200, 10, 30, 5},
 		{"Personal Comfort Food", 600, 25, 50, 30},
 	} {
-		if _, err := st.CreateFoodLog(ctx, &store.FoodLog{
+		if _, err := st.Food.CreateFoodLog(ctx, &store.FoodLog{
 			UserID:   userID,
 			EatenAt:  time.Date(2026, 3, 15, 12, 0, 0, 0, time.Local),
 			Name:     food.name,
@@ -251,14 +251,14 @@ func TestAnalyzeFitness_FoodDisabledOmitsNutrition(t *testing.T) {
 	ctx := context.Background()
 
 	// Disable food
-	if err := st.SetFoodIntakeEnabled(ctx, false); err != nil {
+	if err := st.Settings.SetFoodIntakeEnabled(ctx, false); err != nil {
 		t.Fatalf("SetFoodIntakeEnabled: %v", err)
 	}
 	// Enable workout and weight
-	if err := st.SetWorkoutEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetWorkoutEnabled(ctx, true); err != nil {
 		t.Fatalf("SetWorkoutEnabled: %v", err)
 	}
-	if err := st.SetWeightEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetWeightEnabled(ctx, true); err != nil {
 		t.Fatalf("SetWeightEnabled: %v", err)
 	}
 
@@ -300,13 +300,13 @@ func TestAnalyzeFitness_EmptyDateRange(t *testing.T) {
 
 	ctx := context.Background()
 
-	if err := st.SetWorkoutEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetWorkoutEnabled(ctx, true); err != nil {
 		t.Fatalf("SetWorkoutEnabled: %v", err)
 	}
-	if err := st.SetFoodIntakeEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetFoodIntakeEnabled(ctx, true); err != nil {
 		t.Fatalf("SetFoodIntakeEnabled: %v", err)
 	}
-	if err := st.SetWeightEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetWeightEnabled(ctx, true); err != nil {
 		t.Fatalf("SetWeightEnabled: %v", err)
 	}
 
@@ -347,13 +347,13 @@ func TestAnalyzeFitness_AuditLogging(t *testing.T) {
 
 	ctx := context.Background()
 
-	if err := st.SetWorkoutEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetWorkoutEnabled(ctx, true); err != nil {
 		t.Fatalf("SetWorkoutEnabled: %v", err)
 	}
-	if err := st.SetFoodIntakeEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetFoodIntakeEnabled(ctx, true); err != nil {
 		t.Fatalf("SetFoodIntakeEnabled: %v", err)
 	}
-	if err := st.SetWeightEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetWeightEnabled(ctx, true); err != nil {
 		t.Fatalf("SetWeightEnabled: %v", err)
 	}
 
@@ -394,29 +394,29 @@ func TestAnalyzeFitness_WeightUnitPreferenceDoesNotLeak(t *testing.T) {
 	ctx := context.Background()
 	userID := int64(123456)
 
-	if err := st.SetWorkoutEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetWorkoutEnabled(ctx, true); err != nil {
 		t.Fatalf("SetWorkoutEnabled: %v", err)
 	}
-	if err := st.SetFoodIntakeEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetFoodIntakeEnabled(ctx, true); err != nil {
 		t.Fatalf("SetFoodIntakeEnabled: %v", err)
 	}
-	if err := st.SetWeightEnabled(ctx, true); err != nil {
+	if err := st.Settings.SetWeightEnabled(ctx, true); err != nil {
 		t.Fatalf("SetWeightEnabled: %v", err)
 	}
 	// Flip the user's unit preference to lb. The analyze_fitness response must
 	// remain in kg.
-	if err := st.SetWeightUnitPreference(ctx, "lb"); err != nil {
+	if err := st.Weight.SetWeightUnitPreference(ctx, "lb"); err != nil {
 		t.Fatalf("SetWeightUnitPreference: %v", err)
 	}
 
-	if _, err := st.CreateWeightLog(ctx, &store.WeightLog{
+	if _, err := st.Weight.CreateWeightLog(ctx, &store.WeightLog{
 		UserID:     userID,
 		MeasuredAt: time.Date(2026, 3, 10, 8, 0, 0, 0, time.Local),
 		Weight:     80.0, // stored in kg
 	}); err != nil {
 		t.Fatalf("CreateWeightLog: %v", err)
 	}
-	if _, err := st.CreateWeightLog(ctx, &store.WeightLog{
+	if _, err := st.Weight.CreateWeightLog(ctx, &store.WeightLog{
 		UserID:     userID,
 		MeasuredAt: time.Date(2026, 3, 15, 8, 0, 0, 0, time.Local),
 		Weight:     79.5, // stored in kg

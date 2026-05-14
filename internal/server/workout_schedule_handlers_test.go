@@ -60,7 +60,7 @@ func TestHandleScheduleAdHocWorkoutSession_HappyPath(t *testing.T) {
 		t.Errorf("Expected planned=2, got %d", resp.Planned)
 	}
 
-	logs, err := db.GetExerciseLogs(resp.Session.ID)
+	logs, err := db.Workout.GetExerciseLogs(resp.Session.ID)
 	if err != nil {
 		t.Fatalf("GetExerciseLogs: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestHandleScheduleAdHocWorkoutSession_RejectsDuplicateExerciseID(t *testing
 
 	// The handler now resolves exercise_id against the user's library; pre-seed
 	// a row so the duplicate check (not the lookup) is what rejects the request.
-	libItem, err := db.CreateExerciseLibraryItem(123456, "Bench Press", 3, 6, nil, nil, "")
+	libItem, err := db.Workout.CreateExerciseLibraryItem(123456, "Bench Press", 3, 6, nil, nil, "")
 	if err != nil {
 		t.Fatalf("CreateExerciseLibraryItem: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestHandleScheduleAdHocWorkoutSession_RejectsLibraryAndFreeFormSameName(t *
 	srv, db := createGenericTestServer(t)
 	defer db.Close()
 
-	libItem, err := db.CreateExerciseLibraryItem(123456, "Bench Press", 3, 6, nil, nil, "")
+	libItem, err := db.Workout.CreateExerciseLibraryItem(123456, "Bench Press", 3, 6, nil, nil, "")
 	if err != nil {
 		t.Fatalf("CreateExerciseLibraryItem: %v", err)
 	}
@@ -309,7 +309,7 @@ func TestHandleScheduleAdHocWorkoutSession_LibraryIDFillsName(t *testing.T) {
 	srv, db := createGenericTestServer(t)
 	defer db.Close()
 
-	libItem, err := db.CreateExerciseLibraryItem(123456, "Squat", 5, 5, nil, nil, "")
+	libItem, err := db.Workout.CreateExerciseLibraryItem(123456, "Squat", 5, 5, nil, nil, "")
 	if err != nil {
 		t.Fatalf("CreateExerciseLibraryItem: %v", err)
 	}
@@ -342,7 +342,7 @@ func TestHandleScheduleAdHocWorkoutSession_LibraryIDFillsName(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("Decode error: %v", err)
 	}
-	logs, err := db.GetExerciseLogs(resp.Session.ID)
+	logs, err := db.Workout.GetExerciseLogs(resp.Session.ID)
 	if err != nil {
 		t.Fatalf("GetExerciseLogs: %v", err)
 	}
@@ -389,7 +389,7 @@ func TestHandleScheduleAdHocWorkoutSession_RejectsOtherUserLibraryID(t *testing.
 	defer db.Close()
 
 	otherUserID := int64(999000)
-	libItem, err := db.CreateExerciseLibraryItem(otherUserID, "Deadlift", 3, 5, nil, nil, "")
+	libItem, err := db.Workout.CreateExerciseLibraryItem(otherUserID, "Deadlift", 3, 5, nil, nil, "")
 	if err != nil {
 		t.Fatalf("CreateExerciseLibraryItem: %v", err)
 	}
@@ -493,7 +493,7 @@ func TestHandleScheduleAdHocWorkoutSession_TrimsExerciseName(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("Decode error: %v", err)
 	}
-	logs, err := db.GetExerciseLogs(resp.Session.ID)
+	logs, err := db.Workout.GetExerciseLogs(resp.Session.ID)
 	if err != nil {
 		t.Fatalf("GetExerciseLogs: %v", err)
 	}

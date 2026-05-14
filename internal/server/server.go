@@ -51,6 +51,7 @@ type Server struct {
 	food                FoodStore
 	foodAI              domain.FoodAIService
 	settings            SettingsStore
+	timezone            TimezoneStore
 	health              HealthStore
 	changes             ChangeStore
 	push                PushStore
@@ -215,20 +216,21 @@ func New(s *store.Store, botToken, sessionSecret string, allowedUserID int64, oi
 	changeStreamMaxConn := parseIntEnv("CHANGES_STREAM_MAX_CONN", 40)
 
 	srv := &Server{
-		meds:            s,
-		medSvc:          domain.NewMedicationService(s),
-		bp:              s,
-		weight:          s,
-		workouts:        s,
-		workoutSvc:      workoutsvc.New(s),
-		food:            s,
-		settings:        s,
-		health:          s,
-		changes:         s,
-		push:            s,
-		miband:          s,
-		notesSvc:        domain.NewNotesService(s.Diary()),
-		tzPlanStore:     s,
+		meds:            s.Medication,
+		medSvc:          domain.NewMedicationService(s.Medication),
+		bp:              s.BP,
+		weight:          s.Weight,
+		workouts:        s.Workout,
+		workoutSvc:      workoutsvc.New(s.Workout, s.TZ),
+		food:            s.Food,
+		settings:        s.Settings,
+		timezone:        s.TZ,
+		health:          s.Vitals,
+		changes:         s.Settings,
+		push:            s.Push,
+		miband:          s.Workout,
+		notesSvc:        domain.NewNotesService(s.Diary),
+		tzPlanStore:     s.TZ,
 		rxnorm:          rxnorm.New(),
 		botToken:        botToken,
 		sessionSecret:   sessionSecret,
@@ -240,7 +242,7 @@ func New(s *store.Store, botToken, sessionSecret string, allowedUserID int64, oi
 		foodSearchCache: fastcache.New(foodSearchCacheSizeMB * 1024 * 1024),
 		changeStreamSem: make(chan struct{}, changeStreamMaxConn),
 		externalAPIKey:  os.Getenv("EXTERNAL_WORKOUT_API_KEY"),
-		nonces:          s,
+		nonces:          s.Auth,
 	}
 
 	if srv.externalAPIKey == "" {
@@ -249,7 +251,7 @@ func New(s *store.Store, botToken, sessionSecret string, allowedUserID int64, oi
 
 	// Default tzUpdater: bare RecordTimezone with no planner. SetTZPlanner /
 	// SetTZUpdater swap in a planner-aware service after construction.
-	srv.tzUpdater = tzupdate.NewService(srv.settings, srv.tzPlanStore, nil, nil, nil)
+	srv.tzUpdater = tzupdate.NewService(srv.timezone, srv.tzPlanStore, nil, nil, nil)
 
 	srv.initOAUTH()
 	return srv
@@ -996,7 +998,7 @@ func (s *Server) handleSubscribePush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.push.CreatePushSubscription(userID, req.Endpoint, req.Keys.Auth, req.Keys.P256dh); err != nil {
+	if err := s.push.Create(userID, req.Endpoint, req.Keys.Auth, req.Keys.P256dh); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1014,7 +1016,7 @@ func (s *Server) handleUnsubscribePush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.push.DeletePushSubscription(req.Endpoint); err != nil {
+	if err := s.push.Delete(req.Endpoint); err != nil {
 		// Log but don't fail hard
 		slog.Warn("Error deleting subscription", "error", err)
 	}
@@ -1025,7 +1027,7 @@ func (s *Server) handleUnsubscribePush(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListPushSubscriptions(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
-	subs, err := s.push.GetPushSubscriptions(userID)
+	subs, err := s.push.List(userID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

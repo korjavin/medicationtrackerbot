@@ -19,13 +19,13 @@ import (
 func TestHandleCallback_ConfirmScheduleAcrossTimezones(t *testing.T) {
 	env := setupBotTest(t)
 	defer env.teardown()
-	env.b.timezone = env.s
+	env.b.timezone = env.s.TZ
 
-	if err := env.s.RecordTimezone("America/Los_Angeles"); err != nil {
+	if err := env.s.TZ.RecordTimezone("America/Los_Angeles"); err != nil {
 		t.Fatalf("RecordTimezone: %v", err)
 	}
 
-	medID, err := env.s.CreateMedication("Candecor", "16mg",
+	medID, err := env.s.Medication.CreateMedication("Candecor", "16mg",
 		`{"type":"daily","times":["21:30"]}`, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
@@ -36,7 +36,7 @@ func TestHandleCallback_ConfirmScheduleAcrossTimezones(t *testing.T) {
 		t.Fatalf("LoadLocation: %v", err)
 	}
 	scheduledAt := time.Date(2026, 5, 5, 21, 30, 0, 0, la)
-	intakeID, err := env.s.CreateIntake(medID, env.b.allowedUserID, scheduledAt)
+	intakeID, err := env.s.Medication.CreateIntake(medID, env.b.allowedUserID, scheduledAt)
 	if err != nil {
 		t.Fatalf("CreateIntake: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestHandleCallback_ConfirmScheduleAcrossTimezones(t *testing.T) {
 
 	env.b.handleCallback(cb)
 
-	intake, err := env.s.GetIntake(intakeID)
+	intake, err := env.s.Medication.GetIntake(intakeID)
 	if err != nil {
 		t.Fatalf("GetIntake: %v", err)
 	}
@@ -73,16 +73,16 @@ func TestHandleCallback_SkipIntake(t *testing.T) {
 	env := setupBotTest(t)
 	defer env.teardown()
 
-	medID, err := env.s.CreateMedication("Magnesium", "200mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, err := env.s.Medication.CreateMedication("Magnesium", "200mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication failed: %v", err)
 	}
-	if err := env.s.SetMedicationSupplement(medID, true); err != nil {
+	if err := env.s.Medication.SetMedicationSupplement(medID, true); err != nil {
 		t.Fatalf("SetMedicationSupplement failed: %v", err)
 	}
 
 	scheduledAt := time.Now().Add(-2 * time.Hour).Truncate(time.Minute)
-	intakeID, err := env.s.CreateIntake(medID, 123456, scheduledAt)
+	intakeID, err := env.s.Medication.CreateIntake(medID, 123456, scheduledAt)
 	if err != nil {
 		t.Fatalf("CreateIntake failed: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestHandleCallback_SkipIntake(t *testing.T) {
 
 	env.b.handleCallback(cb)
 
-	intake, err := env.s.GetIntake(intakeID)
+	intake, err := env.s.Medication.GetIntake(intakeID)
 	if err != nil {
 		t.Fatalf("GetIntake failed: %v", err)
 	}
@@ -124,23 +124,23 @@ func TestHandleCallback_CancelIntake(t *testing.T) {
 	env := setupBotTest(t)
 	defer env.teardown()
 
-	medID, err := env.s.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, err := env.s.Medication.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication failed: %v", err)
 	}
 
 	scheduledAt := time.Now().Add(-2 * time.Hour).Truncate(time.Minute)
-	intakeID, err := env.s.CreateIntake(medID, 123456, scheduledAt)
+	intakeID, err := env.s.Medication.CreateIntake(medID, 123456, scheduledAt)
 	if err != nil {
 		t.Fatalf("CreateIntake failed: %v", err)
 	}
 
 	// Confirm the intake first so it's TAKEN
-	if err := env.s.ConfirmIntake(intakeID, time.Now()); err != nil {
+	if err := env.s.Medication.ConfirmIntake(intakeID, time.Now()); err != nil {
 		t.Fatalf("ConfirmIntake failed: %v", err)
 	}
 
-	intake, _ := env.s.GetIntake(intakeID)
+	intake, _ := env.s.Medication.GetIntake(intakeID)
 	if intake.Status != "TAKEN" {
 		t.Fatalf("expected TAKEN status before cancel, got %q", intake.Status)
 	}
@@ -158,7 +158,7 @@ func TestHandleCallback_CancelIntake(t *testing.T) {
 
 	env.b.handleCallback(cb)
 
-	intake, err = env.s.GetIntake(intakeID)
+	intake, err = env.s.Medication.GetIntake(intakeID)
 	if err != nil {
 		t.Fatalf("GetIntake failed: %v", err)
 	}
@@ -174,13 +174,13 @@ func TestHandleCallback_CancelIntake_AlreadyPending(t *testing.T) {
 	env := setupBotTest(t)
 	defer env.teardown()
 
-	medID, err := env.s.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, err := env.s.Medication.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication failed: %v", err)
 	}
 
 	scheduledAt := time.Now().Add(-2 * time.Hour).Truncate(time.Minute)
-	intakeID, err := env.s.CreateIntake(medID, 123456, scheduledAt)
+	intakeID, err := env.s.Medication.CreateIntake(medID, 123456, scheduledAt)
 	if err != nil {
 		t.Fatalf("CreateIntake failed: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestHandleCallback_CancelIntake_AlreadyPending(t *testing.T) {
 	env.b.handleCallback(cb)
 
 	// Intake should remain PENDING
-	intake, err := env.s.GetIntake(intakeID)
+	intake, err := env.s.Medication.GetIntake(intakeID)
 	if err != nil {
 		t.Fatalf("GetIntake failed: %v", err)
 	}
@@ -214,13 +214,13 @@ func TestHandleCallback_SkipIntake_NonSupplement(t *testing.T) {
 	defer env.teardown()
 
 	// Non-supplement medication: skip must work since the supplement restriction was removed
-	medID, err := env.s.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, err := env.s.Medication.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication failed: %v", err)
 	}
 
 	scheduledAt := time.Now().Add(-1 * time.Hour).Truncate(time.Minute)
-	intakeID, err := env.s.CreateIntake(medID, 123456, scheduledAt)
+	intakeID, err := env.s.Medication.CreateIntake(medID, 123456, scheduledAt)
 	if err != nil {
 		t.Fatalf("CreateIntake failed: %v", err)
 	}
@@ -246,7 +246,7 @@ func TestHandleCallback_SkipIntake_NonSupplement(t *testing.T) {
 
 	env.b.handleCallback(cb)
 
-	intake, err := env.s.GetIntake(intakeID)
+	intake, err := env.s.Medication.GetIntake(intakeID)
 	if err != nil {
 		t.Fatalf("GetIntake failed: %v", err)
 	}

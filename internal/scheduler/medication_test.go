@@ -72,12 +72,12 @@ func TestMedicationCheckerScenarios(t *testing.T) {
 		}
 		defer db.Close() // #nosec G104
 
-		if err := db.SetMedicationEnabled(context.Background(), true); err != nil {
+		if err := db.Settings.SetMedicationEnabled(context.Background(), true); err != nil {
 			t.Fatalf("SetMedicationEnabled failed: %v", err)
 		}
 
 		if input.UserTimezone != "" {
-			if err := db.RecordTimezone(input.UserTimezone); err != nil {
+			if err := db.TZ.RecordTimezone(input.UserTimezone); err != nil {
 				t.Fatalf("RecordTimezone failed: %v", err)
 			}
 		}
@@ -104,14 +104,14 @@ func TestMedicationCheckerScenarios(t *testing.T) {
 				}
 			}
 
-			id, err := db.CreateMedication(m.Name, m.Dosage, m.Schedule, sd, ed, "", "", "")
+			id, err := db.Medication.CreateMedication(m.Name, m.Dosage, m.Schedule, sd, ed, "", "", "")
 			if err != nil {
 				t.Fatalf("CreateMedication failed: %v", err)
 			}
 
 			// Adjust the created_at to be before the scheduled time in the tests
 			// so that it behaves correctly and triggers notifications as before.
-			if err := db.UpdateMedicationCreatedAt(id, nowTime.Add(-24*time.Hour)); err != nil {
+			if err := db.Medication.UpdateMedicationCreatedAt(id, nowTime.Add(-24*time.Hour)); err != nil {
 				t.Fatalf("UpdateMedicationCreatedAt failed: %v", err)
 			}
 
@@ -127,7 +127,7 @@ func TestMedicationCheckerScenarios(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to parse ExistingIntake scheduled time: %v", err)
 			}
-			_, err = db.CreateIntake(medID, 123456, st)
+			_, err = db.Medication.CreateIntake(medID, 123456, st)
 			if err != nil {
 				t.Fatalf("CreateIntake failed: %v", err)
 			}
@@ -150,7 +150,7 @@ func TestMedicationCheckerScenarios(t *testing.T) {
 		// Wait briefly for fire-and-forget notifications to be processed
 		time.Sleep(10 * time.Millisecond)
 
-		pending, err := db.GetPendingIntakes()
+		pending, err := db.Medication.GetPendingIntakes()
 		if err != nil {
 			t.Fatalf("GetPendingIntakes failed: %v", err)
 		}

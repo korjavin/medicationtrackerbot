@@ -100,7 +100,7 @@ func TestSkipSession_IgnoresRotationAdvanceError(t *testing.T) {
 		group:      &store.WorkoutGroup{ID: 7, IsRotating: true},
 		advanceErr: errors.New("advance failed"),
 	}
-	svc := New(m)
+	svc := New(m, m)
 
 	err := svc.SkipSession(42)
 	if err != nil {
@@ -120,7 +120,7 @@ func TestSkipSession_ReturnsSkipError(t *testing.T) {
 		group:   &store.WorkoutGroup{ID: 7, IsRotating: true},
 		skipErr: errors.New("skip failed"),
 	}
-	svc := New(m)
+	svc := New(m, m)
 
 	err := svc.SkipSession(42)
 	if err == nil {
@@ -140,7 +140,7 @@ func TestCompleteSession_IgnoresGroupLookupError(t *testing.T) {
 		group:       &store.WorkoutGroup{ID: 7, IsRotating: true},
 		getGroupErr: errors.New("group read failed"),
 	}
-	svc := New(m)
+	svc := New(m, m)
 
 	err := svc.CompleteSession(42)
 	if err != nil {
@@ -160,7 +160,7 @@ func TestCompleteSession_ReturnsCompleteError(t *testing.T) {
 		group:       &store.WorkoutGroup{ID: 7, IsRotating: true},
 		completeErr: errors.New("complete failed"),
 	}
-	svc := New(m)
+	svc := New(m, m)
 
 	err := svc.CompleteSession(42)
 	if err == nil {
@@ -187,11 +187,11 @@ func TestSchedulePlannedAdHocSession_HappyPath(t *testing.T) {
 	}
 	defer db.Close() //nolint:errcheck
 
-	if err := db.RecordTimezone("UTC"); err != nil {
+	if err := db.TZ.RecordTimezone("UTC"); err != nil {
 		t.Fatalf("RecordTimezone: %v", err)
 	}
 
-	svc := New(db)
+	svc := New(db.Workout, db.TZ)
 	svc.Now = fixedClock(time.Date(2030, 6, 1, 12, 0, 0, 0, time.UTC))
 
 	scheduled := time.Date(2030, 6, 2, 0, 0, 0, 0, time.UTC)
@@ -222,7 +222,7 @@ func TestSchedulePlannedAdHocSession_HappyPath(t *testing.T) {
 		t.Errorf("expected scheduled_time 07:30, got %q", sess.ScheduledTime)
 	}
 
-	logs, err := db.GetExerciseLogs(sess.ID)
+	logs, err := db.Workout.GetExerciseLogs(sess.ID)
 	if err != nil {
 		t.Fatalf("GetExerciseLogs: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestSchedulePlannedAdHocSession_RejectsPastTime(t *testing.T) {
 	}
 	defer db.Close() //nolint:errcheck
 
-	svc := New(db)
+	svc := New(db.Workout, db.TZ)
 	svc.Now = fixedClock(time.Date(2030, 6, 1, 12, 0, 0, 0, time.UTC))
 
 	// Same calendar date as "now" but earlier time-of-day → in the past.
@@ -290,11 +290,11 @@ func TestSchedulePlannedAdHocSession_RespectsUserTimezone(t *testing.T) {
 	defer db.Close() //nolint:errcheck
 
 	// User is in Tokyo (+09:00). 07:00 Tokyo == 22:00 UTC the previous day.
-	if err := db.RecordTimezone("Asia/Tokyo"); err != nil {
+	if err := db.TZ.RecordTimezone("Asia/Tokyo"); err != nil {
 		t.Fatalf("RecordTimezone: %v", err)
 	}
 
-	svc := New(db)
+	svc := New(db.Workout, db.TZ)
 	// "Now" is 2030-06-01 23:00 UTC == 2030-06-02 08:00 Tokyo.
 	svc.Now = fixedClock(time.Date(2030, 6, 1, 23, 0, 0, 0, time.UTC))
 
@@ -323,7 +323,7 @@ func TestSchedulePlannedAdHocSession_RejectsBadTimeFormat(t *testing.T) {
 	}
 	defer db.Close() //nolint:errcheck
 
-	svc := New(db)
+	svc := New(db.Workout, db.TZ)
 	svc.Now = fixedClock(time.Date(2030, 6, 1, 0, 0, 0, 0, time.UTC))
 
 	scheduled := time.Date(2030, 6, 2, 0, 0, 0, 0, time.UTC)
@@ -341,7 +341,7 @@ func TestSchedulePlannedAdHocSession_NoExercises(t *testing.T) {
 	}
 	defer db.Close() //nolint:errcheck
 
-	svc := New(db)
+	svc := New(db.Workout, db.TZ)
 	svc.Now = fixedClock(time.Date(2030, 6, 1, 12, 0, 0, 0, time.UTC))
 
 	scheduled := time.Date(2030, 6, 2, 0, 0, 0, 0, time.UTC)
@@ -349,7 +349,7 @@ func TestSchedulePlannedAdHocSession_NoExercises(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected success with no exercises, got %v", err)
 	}
-	logs, err := db.GetExerciseLogs(sess.ID)
+	logs, err := db.Workout.GetExerciseLogs(sess.ID)
 	if err != nil {
 		t.Fatalf("GetExerciseLogs: %v", err)
 	}
@@ -371,7 +371,7 @@ func TestSchedulePlannedAdHocSession_RollsBackOnPlaceholderFailure(t *testing.T)
 	}
 	defer db.Close() //nolint:errcheck
 
-	svc := New(db)
+	svc := New(db.Workout, db.TZ)
 	svc.Now = fixedClock(time.Date(2030, 6, 1, 12, 0, 0, 0, time.UTC))
 
 	scheduled := time.Date(2030, 6, 2, 0, 0, 0, 0, time.UTC)
@@ -388,7 +388,7 @@ func TestSchedulePlannedAdHocSession_RollsBackOnPlaceholderFailure(t *testing.T)
 	}
 
 	// No orphan session should remain.
-	history, err := db.GetWorkoutHistory(123, 50)
+	history, err := db.Workout.GetWorkoutHistory(123, 50)
 	if err != nil {
 		t.Fatalf("GetWorkoutHistory: %v", err)
 	}

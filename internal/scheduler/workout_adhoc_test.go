@@ -22,16 +22,16 @@ func adhocSetup(t *testing.T) (*Scheduler, *store.Store, *MockNotifier) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 
-	if err := db.SetWorkoutEnabled(context.Background(), true); err != nil {
+	if err := db.Settings.SetWorkoutEnabled(context.Background(), true); err != nil {
 		t.Fatalf("SetWorkoutEnabled: %v", err)
 	}
-	if err := db.RecordTimezone("UTC"); err != nil {
+	if err := db.TZ.RecordTimezone("UTC"); err != nil {
 		t.Fatalf("RecordTimezone: %v", err)
 	}
 
 	mock := &MockNotifier{}
 	sched := New(db, 123456, []notifier.Notifier{mock})
-	sched.WorkoutChecker.workoutSvc = workoutsvc.New(db)
+	sched.WorkoutChecker.workoutSvc = workoutsvc.New(db.Workout, db.TZ)
 	sched.WorkoutChecker.daysCache = make(map[string][]int)
 	return sched, db, mock
 }
@@ -46,7 +46,7 @@ func TestWorkoutChecker_AdHocFuture_NotNotified(t *testing.T) {
 	sched.WorkoutChecker.now = func() time.Time { return now }
 
 	scheduledDate := time.Date(future.Year(), future.Month(), future.Day(), 0, 0, 0, 0, time.UTC)
-	session, err := db.CreatePlannedAdHocSession(123456, scheduledDate, future.Format("15:04"))
+	session, err := db.Workout.CreatePlannedAdHocSession(123456, scheduledDate, future.Format("15:04"))
 	if err != nil {
 		t.Fatalf("CreatePlannedAdHocSession: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestWorkoutChecker_AdHocFuture_NotNotified(t *testing.T) {
 		t.Errorf("expected 0 notifications for a future ad-hoc, got %d", got)
 	}
 
-	updated, err := db.GetWorkoutSession(session.ID)
+	updated, err := db.Workout.GetWorkoutSession(session.ID)
 	if err != nil {
 		t.Fatalf("GetWorkoutSession: %v", err)
 	}
@@ -82,15 +82,15 @@ func TestWorkoutChecker_AdHocDue_NotifiedAndFlipped(t *testing.T) {
 	sched.WorkoutChecker.now = func() time.Time { return now }
 
 	scheduledDate := time.Date(scheduled.Year(), scheduled.Month(), scheduled.Day(), 0, 0, 0, 0, time.UTC)
-	session, err := db.CreatePlannedAdHocSession(123456, scheduledDate, "09:00")
+	session, err := db.Workout.CreatePlannedAdHocSession(123456, scheduledDate, "09:00")
 	if err != nil {
 		t.Fatalf("CreatePlannedAdHocSession: %v", err)
 	}
 
-	if _, err := db.LogExerciseWithSource(session.ID, 0, "Goblet Squat", nil, nil, nil, "", "", "schedule"); err != nil {
+	if _, err := db.Workout.LogExerciseWithSource(session.ID, 0, "Goblet Squat", nil, nil, nil, "", "", "schedule"); err != nil {
 		t.Fatalf("LogExerciseWithSource: %v", err)
 	}
-	if _, err := db.LogExerciseWithSource(session.ID, 0, "Push-up", nil, nil, nil, "", "", "schedule"); err != nil {
+	if _, err := db.Workout.LogExerciseWithSource(session.ID, 0, "Push-up", nil, nil, nil, "", "", "schedule"); err != nil {
 		t.Fatalf("LogExerciseWithSource: %v", err)
 	}
 
@@ -114,7 +114,7 @@ func TestWorkoutChecker_AdHocDue_NotifiedAndFlipped(t *testing.T) {
 		t.Errorf("metadata ad_hoc = %v, want true", got)
 	}
 
-	updated, err := db.GetWorkoutSession(session.ID)
+	updated, err := db.Workout.GetWorkoutSession(session.ID)
 	if err != nil {
 		t.Fatalf("GetWorkoutSession: %v", err)
 	}
@@ -169,15 +169,15 @@ func TestWorkoutChecker_AdHocDue_EscapesMarkdownInExerciseNames(t *testing.T) {
 	sched.WorkoutChecker.now = func() time.Time { return now }
 
 	scheduledDate := time.Date(scheduled.Year(), scheduled.Month(), scheduled.Day(), 0, 0, 0, 0, time.UTC)
-	session, err := db.CreatePlannedAdHocSession(123456, scheduledDate, "09:00")
+	session, err := db.Workout.CreatePlannedAdHocSession(123456, scheduledDate, "09:00")
 	if err != nil {
 		t.Fatalf("CreatePlannedAdHocSession: %v", err)
 	}
 
-	if _, err := db.LogExerciseWithSource(session.ID, 0, "pull_up", nil, nil, nil, "", "", "schedule"); err != nil {
+	if _, err := db.Workout.LogExerciseWithSource(session.ID, 0, "pull_up", nil, nil, nil, "", "", "schedule"); err != nil {
 		t.Fatalf("LogExerciseWithSource: %v", err)
 	}
-	if _, err := db.LogExerciseWithSource(session.ID, 0, "set [A]", nil, nil, nil, "", "", "schedule"); err != nil {
+	if _, err := db.Workout.LogExerciseWithSource(session.ID, 0, "set [A]", nil, nil, nil, "", "", "schedule"); err != nil {
 		t.Fatalf("LogExerciseWithSource: %v", err)
 	}
 
@@ -209,7 +209,7 @@ func TestWorkoutChecker_AdHocDue_NoExercises_GenericMessage(t *testing.T) {
 	sched.WorkoutChecker.now = func() time.Time { return now }
 
 	scheduledDate := time.Date(scheduled.Year(), scheduled.Month(), scheduled.Day(), 0, 0, 0, 0, time.UTC)
-	session, err := db.CreatePlannedAdHocSession(123456, scheduledDate, "09:00")
+	session, err := db.Workout.CreatePlannedAdHocSession(123456, scheduledDate, "09:00")
 	if err != nil {
 		t.Fatalf("CreatePlannedAdHocSession: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestWorkoutChecker_AdHocDue_NoExercises_GenericMessage(t *testing.T) {
 		t.Errorf("expected generic-message marker, got: %s", body)
 	}
 
-	updated, err := db.GetWorkoutSession(session.ID)
+	updated, err := db.Workout.GetWorkoutSession(session.ID)
 	if err != nil {
 		t.Fatalf("GetWorkoutSession: %v", err)
 	}

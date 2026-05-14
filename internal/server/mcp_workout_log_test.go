@@ -132,7 +132,7 @@ func TestMCPWorkoutLog_LogAdHocCreatesSession(t *testing.T) {
 	}
 
 	// Verify the row exists in the DB.
-	logs, err := db.GetExerciseLogs(resp.SessionID)
+	logs, err := db.Workout.GetExerciseLogs(resp.SessionID)
 	if err != nil {
 		t.Fatalf("GetExerciseLogs: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestMCPWorkoutLog_LogIdempotent(t *testing.T) {
 
 	// Pre-create a session so we have a stable session_id between two calls.
 	day := time.Now()
-	sess, err := db.CreateAdHocWorkoutSession(123456, day, day.Format("15:04"))
+	sess, err := db.Workout.CreateAdHocWorkoutSession(123456, day, day.Format("15:04"))
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestMCPWorkoutLog_LogIdempotent(t *testing.T) {
 		t.Errorf("expected is_new=false on idempotent re-send")
 	}
 
-	logs, err := db.GetExerciseLogs(sess.ID)
+	logs, err := db.Workout.GetExerciseLogs(sess.ID)
 	if err != nil {
 		t.Fatalf("GetExerciseLogs: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestMCPWorkoutLog_LogIdempotent_PreservesLoggedAt(t *testing.T) {
 	defer db.Close()
 
 	day := time.Now()
-	sess, err := db.CreateAdHocWorkoutSession(123456, day, day.Format("15:04"))
+	sess, err := db.Workout.CreateAdHocWorkoutSession(123456, day, day.Format("15:04"))
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -223,7 +223,7 @@ func TestMCPWorkoutLog_LogIdempotent_PreservesLoggedAt(t *testing.T) {
 		t.Fatalf("first call: got %d: %s", w.Code, w.Body.String())
 	}
 
-	logsBefore, err := db.GetExerciseLogs(sess.ID)
+	logsBefore, err := db.Workout.GetExerciseLogs(sess.ID)
 	if err != nil || len(logsBefore) != 1 {
 		t.Fatalf("seed read: err=%v len=%d", err, len(logsBefore))
 	}
@@ -238,7 +238,7 @@ func TestMCPWorkoutLog_LogIdempotent_PreservesLoggedAt(t *testing.T) {
 		t.Fatalf("second call: got %d: %s", w.Code, w.Body.String())
 	}
 
-	logsAfter, err := db.GetExerciseLogs(sess.ID)
+	logsAfter, err := db.Workout.GetExerciseLogs(sess.ID)
 	if err != nil || len(logsAfter) != 1 {
 		t.Fatalf("post-update read: err=%v len=%d", err, len(logsAfter))
 	}
@@ -343,20 +343,20 @@ func TestMCPWorkoutLog_PartialSuccess(t *testing.T) {
 	// Seed two exercises that both contain "press" so a "press" lookup is
 	// ambiguous. Also seed one exercise we can match exactly.
 	day := time.Now()
-	sess, _ := db.CreateAdHocWorkoutSession(123456, day, day.Format("15:04"))
-	if _, err := db.LogExerciseWithSource(sess.ID, 0, "Bench Press", intPtr(3), intPtr(8), floatPtr(80), "completed", "", "library"); err != nil {
+	sess, _ := db.Workout.CreateAdHocWorkoutSession(123456, day, day.Format("15:04"))
+	if _, err := db.Workout.LogExerciseWithSource(sess.ID, 0, "Bench Press", intPtr(3), intPtr(8), floatPtr(80), "completed", "", "library"); err != nil {
 		t.Fatalf("seed bench press: %v", err)
 	}
-	if _, err := db.LogExerciseWithSource(sess.ID, 0, "Inclined Press", intPtr(3), intPtr(8), floatPtr(60), "completed", "", "library"); err != nil {
+	if _, err := db.Workout.LogExerciseWithSource(sess.ID, 0, "Inclined Press", intPtr(3), intPtr(8), floatPtr(60), "completed", "", "library"); err != nil {
 		t.Fatalf("seed inclined press: %v", err)
 	}
-	if _, err := db.LogExerciseWithSource(sess.ID, 0, "Biceps Curls", intPtr(3), intPtr(10), floatPtr(12.5), "completed", "", "library"); err != nil {
+	if _, err := db.Workout.LogExerciseWithSource(sess.ID, 0, "Biceps Curls", intPtr(3), intPtr(10), floatPtr(12.5), "completed", "", "library"); err != nil {
 		t.Fatalf("seed biceps: %v", err)
 	}
 
 	// New session for the actual log call so we don't collide with the seed
 	// rows on idempotency.
-	target, _ := db.CreateAdHocWorkoutSession(123456, day, day.Format("15:04"))
+	target, _ := db.Workout.CreateAdHocWorkoutSession(123456, day, day.Format("15:04"))
 
 	payload := MCPWorkoutLogRequest{
 		Operation: "log",
@@ -441,8 +441,8 @@ func TestMCPWorkoutLog_Get(t *testing.T) {
 	defer db.Close()
 
 	day := time.Now()
-	sess, _ := db.CreateAdHocWorkoutSession(123456, day, day.Format("15:04"))
-	if _, err := db.LogExerciseWithSource(sess.ID, 0, "Squat", intPtr(3), intPtr(8), floatPtr(80), "completed", "", "library"); err != nil {
+	sess, _ := db.Workout.CreateAdHocWorkoutSession(123456, day, day.Format("15:04"))
+	if _, err := db.Workout.LogExerciseWithSource(sess.ID, 0, "Squat", intPtr(3), intPtr(8), floatPtr(80), "completed", "", "library"); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 
@@ -479,11 +479,11 @@ func TestMCPWorkoutLog_DeleteExercise(t *testing.T) {
 	defer db.Close()
 
 	day := time.Now()
-	sess, _ := db.CreateAdHocWorkoutSession(123456, day, day.Format("15:04"))
-	if _, err := db.LogExerciseWithSource(sess.ID, 0, "Squat", intPtr(3), intPtr(8), floatPtr(80), "completed", "", "library"); err != nil {
+	sess, _ := db.Workout.CreateAdHocWorkoutSession(123456, day, day.Format("15:04"))
+	if _, err := db.Workout.LogExerciseWithSource(sess.ID, 0, "Squat", intPtr(3), intPtr(8), floatPtr(80), "completed", "", "library"); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	if _, err := db.LogExerciseWithSource(sess.ID, 0, "Biceps Curls", intPtr(3), intPtr(10), floatPtr(12.5), "completed", "", "library"); err != nil {
+	if _, err := db.Workout.LogExerciseWithSource(sess.ID, 0, "Biceps Curls", intPtr(3), intPtr(10), floatPtr(12.5), "completed", "", "library"); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 
@@ -504,7 +504,7 @@ func TestMCPWorkoutLog_DeleteExercise(t *testing.T) {
 		t.Errorf("expected deleted=1, got %d", resp.Deleted)
 	}
 
-	logs, err := db.GetExerciseLogs(sess.ID)
+	logs, err := db.Workout.GetExerciseLogs(sess.ID)
 	if err != nil {
 		t.Fatalf("GetExerciseLogs: %v", err)
 	}
@@ -553,7 +553,7 @@ func TestMCPWorkoutLog_DurationPersistedToNotes(t *testing.T) {
 		t.Fatalf("expected 1 logged result, got %+v", resp.Results)
 	}
 
-	logs, err := db.GetExerciseLogs(resp.SessionID)
+	logs, err := db.Workout.GetExerciseLogs(resp.SessionID)
 	if err != nil {
 		t.Fatalf("GetExerciseLogs: %v", err)
 	}
@@ -585,7 +585,7 @@ func TestMCPWorkoutLog_DurationOnlyNotesPrefix(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	logs, err := db.GetExerciseLogs(resp.SessionID)
+	logs, err := db.Workout.GetExerciseLogs(resp.SessionID)
 	if err != nil {
 		t.Fatalf("GetExerciseLogs: %v", err)
 	}
@@ -602,7 +602,7 @@ func TestMCPWorkoutLog_LogRejectsForeignSession(t *testing.T) {
 
 	const otherUserID = 999999
 	day := time.Now()
-	foreign, err := db.CreateAdHocWorkoutSession(otherUserID, day, day.Format("15:04"))
+	foreign, err := db.Workout.CreateAdHocWorkoutSession(otherUserID, day, day.Format("15:04"))
 	if err != nil {
 		t.Fatalf("create foreign session: %v", err)
 	}
@@ -618,7 +618,7 @@ func TestMCPWorkoutLog_LogRejectsForeignSession(t *testing.T) {
 		t.Fatalf("expected 400 for foreign session, got %d: %s", w.Code, w.Body.String())
 	}
 
-	logs, _ := db.GetExerciseLogs(foreign.ID)
+	logs, _ := db.Workout.GetExerciseLogs(foreign.ID)
 	if len(logs) != 0 {
 		t.Errorf("foreign session got %d logs written; expected 0", len(logs))
 	}
@@ -630,11 +630,11 @@ func TestMCPWorkoutLog_DeleteRejectsForeignSession(t *testing.T) {
 
 	const otherUserID = 999999
 	day := time.Now()
-	foreign, err := db.CreateAdHocWorkoutSession(otherUserID, day, day.Format("15:04"))
+	foreign, err := db.Workout.CreateAdHocWorkoutSession(otherUserID, day, day.Format("15:04"))
 	if err != nil {
 		t.Fatalf("create foreign session: %v", err)
 	}
-	if _, err := db.LogExerciseWithSource(foreign.ID, 0, "Squat", intPtr(3), intPtr(8), floatPtr(80), "completed", "", "library"); err != nil {
+	if _, err := db.Workout.LogExerciseWithSource(foreign.ID, 0, "Squat", intPtr(3), intPtr(8), floatPtr(80), "completed", "", "library"); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 
@@ -647,7 +647,7 @@ func TestMCPWorkoutLog_DeleteRejectsForeignSession(t *testing.T) {
 		t.Fatalf("expected 404 for foreign session, got %d: %s", w.Code, w.Body.String())
 	}
 
-	logs, _ := db.GetExerciseLogs(foreign.ID)
+	logs, _ := db.Workout.GetExerciseLogs(foreign.ID)
 	if len(logs) != 1 {
 		t.Errorf("foreign session log was deleted; expected 1 row to remain")
 	}
@@ -677,7 +677,7 @@ func TestMCPWorkoutLog_LogAllFailDoesNotCreateSession(t *testing.T) {
 	if resp.SessionID != 0 {
 		t.Errorf("expected SessionID=0 when no exercise was logged, got %d", resp.SessionID)
 	}
-	sessions, err := db.GetWorkoutHistory(123456, 50)
+	sessions, err := db.Workout.GetWorkoutHistory(123456, 50)
 	if err != nil {
 		t.Fatalf("GetWorkoutHistory: %v", err)
 	}
@@ -720,8 +720,8 @@ func TestMCPWorkoutLog_LogPreservesScheduleSourceOnUpdate(t *testing.T) {
 	defer db.Close()
 
 	day := time.Now()
-	sess, _ := db.CreateAdHocWorkoutSession(123456, day, day.Format("15:04"))
-	if _, err := db.LogExerciseWithSource(sess.ID, 42, "Bench Press", intPtr(3), intPtr(8), floatPtr(60), "completed", "scheduled", "schedule"); err != nil {
+	sess, _ := db.Workout.CreateAdHocWorkoutSession(123456, day, day.Format("15:04"))
+	if _, err := db.Workout.LogExerciseWithSource(sess.ID, 42, "Bench Press", intPtr(3), intPtr(8), floatPtr(60), "completed", "scheduled", "schedule"); err != nil {
 		t.Fatalf("seed scheduled log: %v", err)
 	}
 
@@ -736,7 +736,7 @@ func TestMCPWorkoutLog_LogPreservesScheduleSourceOnUpdate(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	logs, err := db.GetExerciseLogs(sess.ID)
+	logs, err := db.Workout.GetExerciseLogs(sess.ID)
 	if err != nil {
 		t.Fatalf("GetExerciseLogs: %v", err)
 	}
@@ -764,20 +764,20 @@ func TestMCPWorkoutLog_LogScheduledSession_AttachesPlannedExerciseID(t *testing.
 	defer db.Close()
 
 	userID := int64(123456)
-	group, err := db.CreateWorkoutGroup("Push", "", false, userID, "[1]", "09:00", 15)
+	group, err := db.Workout.CreateWorkoutGroup("Push", "", false, userID, "[1]", "09:00", 15)
 	if err != nil {
 		t.Fatalf("create group: %v", err)
 	}
-	variant, err := db.CreateWorkoutVariant(group.ID, "Day A", nil, "")
+	variant, err := db.Workout.CreateWorkoutVariant(group.ID, "Day A", nil, "")
 	if err != nil {
 		t.Fatalf("create variant: %v", err)
 	}
-	planned, err := db.AddExerciseToVariant(variant.ID, "Bench Press", 3, 8, intPtr(10), floatPtr(60), 0)
+	planned, err := db.Workout.AddExerciseToVariant(variant.ID, "Bench Press", 3, 8, intPtr(10), floatPtr(60), 0)
 	if err != nil {
 		t.Fatalf("add exercise: %v", err)
 	}
 	day := time.Now()
-	sess, err := db.CreateWorkoutSession(group.ID, variant.ID, userID, day, "09:00")
+	sess, err := db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, day, "09:00")
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -793,7 +793,7 @@ func TestMCPWorkoutLog_LogScheduledSession_AttachesPlannedExerciseID(t *testing.
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	logs, err := db.GetExerciseLogs(sess.ID)
+	logs, err := db.Workout.GetExerciseLogs(sess.ID)
 	if err != nil {
 		t.Fatalf("GetExerciseLogs: %v", err)
 	}
@@ -815,8 +815,8 @@ func TestMCPWorkoutLog_PerSetOmittedWeightInfersFromHistory(t *testing.T) {
 	defer db.Close()
 
 	day := time.Now().AddDate(0, 0, -1)
-	prior, _ := db.CreateAdHocWorkoutSession(123456, day, day.Format("15:04"))
-	if _, err := db.LogExerciseWithSource(prior.ID, 0, "Biceps Curls", intPtr(3), intPtr(10), floatPtr(12.5), "completed", "", "library"); err != nil {
+	prior, _ := db.Workout.CreateAdHocWorkoutSession(123456, day, day.Format("15:04"))
+	if _, err := db.Workout.LogExerciseWithSource(prior.ID, 0, "Biceps Curls", intPtr(3), intPtr(10), floatPtr(12.5), "completed", "", "library"); err != nil {
 		t.Fatalf("seed history: %v", err)
 	}
 
@@ -856,7 +856,7 @@ func TestMCPWorkoutLog_LogSessionRefLast(t *testing.T) {
 	defer db.Close()
 
 	day := time.Now()
-	sess, _ := db.CreateAdHocWorkoutSession(123456, day, day.Format("15:04"))
+	sess, _ := db.Workout.CreateAdHocWorkoutSession(123456, day, day.Format("15:04"))
 
 	w := postMCPWorkoutLog(t, srv, "test-secret", MCPWorkoutLogRequest{
 		Operation:  "log",

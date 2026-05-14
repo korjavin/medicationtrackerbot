@@ -18,15 +18,15 @@ func TestHandleGetUniqueExercises(t *testing.T) {
 	}
 	defer db.Close()
 
-	srv := &Server{workouts: db, allowedUserID: 123456}
+	srv := &Server{workouts: db.Workout, allowedUserID: 123456}
 	userID := int64(123456)
 
 	// Create group and variant
-	group, _ := db.CreateWorkoutGroup("Group", "Desc", false, userID, "[]", "10:00", 15)
-	variant, _ := db.CreateWorkoutVariant(group.ID, "Variant", nil, "")
+	group, _ := db.Workout.CreateWorkoutGroup("Group", "Desc", false, userID, "[]", "10:00", 15)
+	variant, _ := db.Workout.CreateWorkoutVariant(group.ID, "Variant", nil, "")
 
-	db.AddExerciseToVariant(variant.ID, "Pushups", 3, 10, nil, nil, 0)
-	db.AddExerciseToVariant(variant.ID, "Squats", 3, 10, nil, nil, 1)
+	db.Workout.AddExerciseToVariant(variant.ID, "Pushups", 3, 10, nil, nil, 0)
+	db.Workout.AddExerciseToVariant(variant.ID, "Squats", 3, 10, nil, nil, 1)
 
 	req := withUser(httptest.NewRequest(http.MethodGet, "/api/workout/exercises/unique", nil), userID)
 	w := httptest.NewRecorder()
@@ -44,20 +44,20 @@ func TestHandleAddExerciseToSession(t *testing.T) {
 	}
 	defer db.Close()
 
-	srv := &Server{workouts: db, allowedUserID: 123456}
+	srv := &Server{workouts: db.Workout, allowedUserID: 123456}
 	userID := int64(123456)
 	otherUserID := int64(999999)
 
 	// Setup
-	group, _ := db.CreateWorkoutGroup("Group", "Desc", false, userID, "[]", "10:00", 15)
-	variant, _ := db.CreateWorkoutVariant(group.ID, "Variant", nil, "")
-	ex, _ := db.AddExerciseToVariant(variant.ID, "Burpees", 3, 10, nil, nil, 0)
-	session, _ := db.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "10:00")
+	group, _ := db.Workout.CreateWorkoutGroup("Group", "Desc", false, userID, "[]", "10:00", 15)
+	variant, _ := db.Workout.CreateWorkoutVariant(group.ID, "Variant", nil, "")
+	ex, _ := db.Workout.AddExerciseToVariant(variant.ID, "Burpees", 3, 10, nil, nil, 0)
+	session, _ := db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "10:00")
 
 	// Setup other user session
-	group2, _ := db.CreateWorkoutGroup("Group 2", "Desc", false, otherUserID, "[]", "10:00", 15)
-	variant2, _ := db.CreateWorkoutVariant(group2.ID, "Variant 2", nil, "")
-	session2, _ := db.CreateWorkoutSession(group2.ID, variant2.ID, otherUserID, time.Now(), "10:00")
+	group2, _ := db.Workout.CreateWorkoutGroup("Group 2", "Desc", false, otherUserID, "[]", "10:00", 15)
+	variant2, _ := db.Workout.CreateWorkoutVariant(group2.ID, "Variant 2", nil, "")
+	session2, _ := db.Workout.CreateWorkoutSession(group2.ID, variant2.ID, otherUserID, time.Now(), "10:00")
 
 	// Test adding exercise - Success
 	payload := map[string]interface{}{
