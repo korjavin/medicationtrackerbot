@@ -100,8 +100,8 @@ Files:
 - Modify: `cmd/mcptool/main.go` (if it constructs the HTTP server)
 - Modify: `cmd/seeddemo/main.go` (only if it wires settings handlers — likely not)
 
-- [ ] Construct the `tzsuggestion.Service` alongside the existing `tzupdate.Service` and pass it into the HTTP server constructor.
-- [ ] No bot changes to `/tz` — that flow remains an explicit user-initiated path.
+- [x] Construct the `tzsuggestion.Service` alongside the existing `tzupdate.Service` and pass it into the HTTP server constructor.
+- [x] No bot changes to `/tz` — that flow remains an explicit user-initiated path.
 
 ### Task 7: Verify acceptance criteria
 
