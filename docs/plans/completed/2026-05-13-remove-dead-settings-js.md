@@ -78,55 +78,92 @@ and recommended-priority item #4.
 
 ### Task 1: Confirm no live caller exists
 
-- [ ] grep for `'features/settings.js'` and `"features/settings.js"`
+- [x] grep for `'features/settings.js'` and `"features/settings.js"`
   across the repo (`grep -rn "features/settings.js" .`) — expected
   hits: only `web/static/sw.js:57`, `docs/frontend.md` and any commit
-  messages
-- [ ] grep for explicit references to the file's exported function
+  messages — confirmed: only `web/static/sw.js:57` plus docs/plans
+  and tests/architecture allowlist references. `web/static/index.html`
+  has zero references (only `components/wg-settings.js` matches).
+- [x] grep for explicit references to the file's exported function
   names *only as they would resolve from the dead file*:
   `loadFeatureSettings` / `loadFoodTargets` / `loadSettings` —
   confirm callers resolve to the `app.js` definitions, not the dead
-  file (read first definition order in load chain)
-- [ ] confirm `web/static/js/features/settings.js:103`'s call to
+  file (read first definition order in load chain) — confirmed:
+  `loadSettings` callers (`app.js:1208`, `app.js:2426`) resolve to
+  `app.js:1926`; `loadFoodTargets` callers (`features/food.js:1759`)
+  resolve to local definition at `features/food.js:2528`;
+  `loadFeatureSettings` has zero live callers outside the dead file
+  and its tests (the bundle apply path in `app.js:1926` reads
+  `/api/settings/features` directly).
+- [x] confirm `web/static/js/features/settings.js:103`'s call to
   `window.loadFoodLogs` is the *only* feature-side call to that
-  global; any other caller (e.g. inside `app.js`) is unaffected
-- [ ] write a one-line note in `docs/2026-05-13-frontend-code-review.md`
-  §12 closing this finding once the file is deleted
+  global; any other caller (e.g. inside `app.js`) is unaffected —
+  confirmed: all other callers (`app.js:1206`, `app.js:2420`,
+  `features/food.js` body) call the local `loadFoodLogs()` directly,
+  not via `window.`; deletion has no live effect.
+- [x] write a one-line note in `docs/2026-05-13-frontend-code-review.md`
+  §12 closing this finding once the file is deleted — note added at
+  end of §12 pointing back to this plan.
 
 ### Task 2: Delete the file and remove SW precache entry
 
-- [ ] `git rm web/static/js/features/settings.js`
-- [ ] remove line `'/static/js/features/settings.js',` from
+- [x] `git rm web/static/js/features/settings.js`
+- [x] remove line `'/static/js/features/settings.js',` from
   `web/static/sw.js:57`
-- [ ] bump `BUILD_REVISION` in `web/static/sw.js:6` from `'2'` to `'3'`
+- [x] bump `BUILD_REVISION` in `web/static/sw.js:6` from `'2'` to `'3'`
   (or whatever the current value is — increment by 1)
-- [ ] grep for `features/settings` across the repo returns zero hits
-- [ ] run full `pnpm test` to confirm nothing regresses
+- [x] grep for `features/settings` across the repo returns zero hits —
+  remaining hits are only docs (`docs/frontend.md`, code-review,
+  plans/completed/, this plan) and source/test *comments* in
+  `app.js`, `components/wg-toggle.js`, `tests/architecture.globals.test.js`
+  allowlist justifications, `tests/settings.dexie-hydration.test.js`,
+  `tests/app.deeplinks-and-push.test.js`. No live code references.
+- [x] run full `pnpm test` to confirm nothing regresses — 1808/1808 pass
+  after also dropping `features/settings.js` from
+  `tests/architecture.inline-styles.test.js`'s `SCOPED_FILES` list
+  (the test tried to `readFileSync` the deleted file)
 
 ### Task 3: Architecture test prevents recurrence
 
-- [ ] extend `web/static/js/tests/architecture.sw-precache.test.js`
+- [x] extend `web/static/js/tests/architecture.sw-precache.test.js`
   with a new sub-assertion: for every precache entry matching
   `/^\/static\/js\/.+\.js$/` (excluding the SW's own
   `sw-api-helper.js` family — see SW unification plan), assert the
   same path appears as a `<script src>` in `web/static/index.html`;
   on failure, suggest either deleting the file or wiring it into
-  index.html
-- [ ] verify the new assertion fails when run against the pre-fix
+  index.html — new `every precached /static/js/*.js should be loaded
+  by index.html` case added; uses a `SW_SELF_IMPORTS` allowlist
+  (empty today; reserved for the future `sw-api-helper.js` from the
+  SW unification plan); error hint tells the reader to either remove
+  the STATIC_ASSETS entry, add a `<script src>`, or extend
+  `SW_SELF_IMPORTS`
+- [x] verify the new assertion fails when run against the pre-fix
   state (manually check by re-adding the line and running test) —
-  document this in the test file's comment block
-- [ ] run `pnpm test architecture.sw-precache` — must pass
+  document this in the test file's comment block — confirmed
+  manually: re-adding `/static/js/features/settings.js` to
+  STATIC_ASSETS makes the new case fail with that path in the
+  orphans list; sanity-check instructions captured in the test
+  file's top-of-file comment block
+- [x] run `pnpm test architecture.sw-precache` — must pass — 4/4 pass
+  (3 prior + 1 new) via `./node_modules/.bin/vitest run
+  web/static/js/tests/architecture.sw-precache.test.js`
 
 ### Task 4: Verify acceptance
 
-- [ ] full `pnpm test` clean
-- [ ] grep for `features/settings.js` in the repo returns hits only
-  in `docs/` (history references) and changelog/commit messages
-- [ ] `docs/frontend.md` either drops the "dead code" note or updates
-  it to record the deletion — pick one based on existing doc tone
-- [ ] manually open the app in a browser and confirm Settings tab
-  still loads (proves `app.js`'s `loadSettings()` was always the
-  canonical path)
+- [x] full `pnpm test` clean — 1809/1809 pass
+- [x] grep for `features/settings.js` in the repo returns hits only
+  in `docs/` (history references) and changelog/commit messages —
+  remaining non-docs hits are pre-existing comment/justification
+  references already acknowledged by Task 2; no live code path
+  references the deleted file
+- [x] `docs/frontend.md` either drops the "dead code" note or updates
+  it to record the deletion — pick one based on existing doc tone —
+  dropped the parenthetical "the in-tree `features/settings.js` is
+  dead code; not loaded by `index.html`" from the Settings row of
+  the local-first reads table (`docs/frontend.md:80`); the canonical
+  path is just `loadSettings()` in `app.js`
+- [x] manual test (skipped — not automatable): manually open the app
+  in a browser and confirm Settings tab still loads
 
 ## Technical Details
 

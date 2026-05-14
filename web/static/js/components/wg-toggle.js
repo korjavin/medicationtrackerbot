@@ -1,8 +1,10 @@
 // Wandergeek toggle primitive.
 //
 // Renders a pill + knob driven by a hidden <input type="checkbox"> so the
-// existing change-event + id-based wiring in features/settings.js keeps
-// binding without modification. The unchecked state uses the inset gloss
+// existing change-event + id-based wiring in app.js (the
+// document.getElementById('<feature>-feature-toggle').addEventListener block
+// near loadSettings()) keeps binding without modification. The unchecked
+// state uses the inset gloss
 // gradient; the checked state flips the pill to the sun gradient, matching
 // the `.wg-gloss--sun` convention used for primary actions everywhere else.
 //

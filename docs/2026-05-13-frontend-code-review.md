@@ -488,6 +488,8 @@ lives in `app.js:1926`) and remove from the SW precache, or wire it into
 former: ~250 lines of code goes away, plus a small bandwidth saving on
 every install.
 
+**Status (2026-05-13):** addressed by [docs/plans/2026-05-13-remove-dead-settings-js.md](plans/2026-05-13-remove-dead-settings-js.md) — file deleted, SW precache entry removed, architecture test added to prevent recurrence.
+
 ---
 
 ## 13. Cache-key ownership is scattered

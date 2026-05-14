@@ -216,9 +216,8 @@ describe('handleDeepLinks – query-param deep links (?tab=…&action=add)', () 
 });
 
 describe('handleDeepLinks – feature flag visibility in production', () => {
-  // features/settings.js is NOT loaded in production (see index.html); app.js
-  // owns featureSettings/featureSettingsLoaded and must mirror them onto
-  // window so deeplink-router's isDeepLinkFeatureEnabled() can read them.
+  // app.js owns featureSettings/featureSettingsLoaded and must mirror them
+  // onto window so deeplink-router's isDeepLinkFeatureEnabled() can read them.
   // Regression: if app.js stops writing window.featureSettings,
   // the disabled-feature guard silently becomes a no-op.
   it('loading app.js initialises window.featureSettings and window.featureSettingsLoaded', () => {
