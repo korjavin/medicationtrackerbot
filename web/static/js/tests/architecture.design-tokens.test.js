@@ -1182,8 +1182,13 @@ describe('Architecture – design tokens', () => {
         }
     });
 
-    it('no inline style assignments in food.js (except dynamic progress bar values)', () => {
-        const foodPath = path.join(REPO_ROOT, 'web/static/js/features/food.js');
+    it('no inline style assignments in food/log.js (except dynamic progress bar values)', () => {
+        // features/food.js was split into features/food/*.js on 2026-05-13;
+        // the legacy renderFoodTargetProgress (the only inline-style emitter
+        // in the old monolith) landed in features/food/log.js. The remaining
+        // food/*.js sub-files are guarded by the broader file-walker test
+        // below and by architecture.inline-styles.test.js.
+        const foodPath = path.join(REPO_ROOT, 'web/static/js/features/food/log.js');
         const foodJs = fs.readFileSync(foodPath, 'utf8');
         const lines = foodJs.split('\n');
 
@@ -1218,7 +1223,7 @@ describe('Architecture – design tokens', () => {
                 .map(v => `  L${v.line}: ${v.text}`)
                 .join('\n');
             throw new Error(
-                `Found ${violations.length} inline style assignments in food.js:\n\n${report}\n\n` +
+                `Found ${violations.length} inline style assignments in food/log.js:\n\n${report}\n\n` +
                 `Replace with CSS classes. Allowed exceptions: style.width (dynamic progress), ` +
                 `style.background (dynamic color).`
             );
@@ -1302,8 +1307,11 @@ describe('Architecture – design tokens', () => {
         }
 
         const jsFiles = collectJsFiles(jsDir, '');
-        // Exclude app.js and food.js — they have dedicated tests above
-        const skipFiles = new Set(['app.js', 'features/food.js']);
+        // Exclude app.js and food/log.js — they have dedicated tests above.
+        // features/food.js was split into features/food/*.js on 2026-05-13;
+        // the legacy renderFoodTargetProgress inline-styles landed in
+        // features/food/log.js, which is guarded by the dedicated test above.
+        const skipFiles = new Set(['app.js', 'features/food/log.js']);
 
         const allViolations = [];
 

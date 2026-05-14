@@ -329,12 +329,12 @@ describe('Food meal-grouped item list (Phase 4, Task 5)', () => {
         expect(document.querySelector('.wg-food-add-cta')).toBeNull();
     });
 
-    it('selects the correct log into currentFoodLogs by id', () => {
+    it('selects the correct log into window.FoodLog by id', () => {
         const { window } = env;
         window._renderFoodData(FIXTURE, null, 'day', '2026-04-20');
 
-        expect(window.currentFoodLogs[1].name).toBe('Oatmeal');
-        expect(window.currentFoodLogs[3].name).toBe('Apple');
+        expect(window.FoodLog.getCurrent()[1].name).toBe('Oatmeal');
+        expect(window.FoodLog.getCurrent()[3].name).toBe('Apple');
     });
 
     it('handles a group with missing logs array without throwing', () => {
