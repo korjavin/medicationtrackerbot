@@ -560,211 +560,163 @@ self.addEventListener('notificationclick', (event) => {
 });
 
 async function handleTZPlanAction(planId, action) {
+    const endpoint = `/api/tz-plan/${planId}/${action}`;
     try {
-        const response = await fetch(`/api/tz-plan/${planId}/${action}`, { method: 'POST' });
-        if (response.ok) {
-            const label = action === 'approve' ? 'Approved' : 'Rejected';
-            await self.registration.showNotification(`Timezone Plan ${label}`, {
-                body: action === 'approve'
-                    ? 'Medication doses will shift as scheduled.'
-                    : 'Your original medication schedule is retained.',
-                icon: '/static/icons/icon-192.png',
-                tag: 'tz_plan_result'
-            });
-        } else {
-            await self.registration.showNotification('Timezone Plan Action Failed', {
-                body: 'Could not process your response. Please try again in the app.',
-                icon: '/static/icons/icon-192.png',
-                tag: 'tz_plan_result'
-            });
-        }
+        await self.swApiCall(endpoint, 'POST');
+        const label = action === 'approve' ? 'Approved' : 'Rejected';
+        await self.registration.showNotification(`Timezone Plan ${label}`, {
+            body: action === 'approve'
+                ? 'Medication doses will shift as scheduled.'
+                : 'Your original medication schedule is retained.',
+            icon: '/static/icons/icon-192.png',
+            tag: 'tz_plan_result'
+        });
     } catch (e) {
-        console.error('[SW] handleTZPlanAction failed', e);
+        await self.SwApi.enqueueFailedAction({ endpoint, method: 'POST', body: null });
+        await self.registration.showNotification('Timezone Plan Action Failed', {
+            body: 'Could not process your response. Please try again in the app.',
+            icon: '/static/icons/icon-192.png',
+            tag: 'tz_plan_result'
+        });
     }
 }
 
 async function handleCancelIntake(data) {
-    // POST to API to cancel
+    const body = { intake_ids: data.intake_ids };
     try {
-        const response = await fetch('/api/medications/cancel-intake', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                intake_ids: data.intake_ids
-            })
+        await self.swApiCall('/api/medications/cancel-intake', 'POST', body);
+        await self.registration.showNotification('Intake Cancelled', {
+            body: 'Your medication has been unmarked. The scheduled notification will still arrive.',
+            icon: '/static/icons/icon-192.png',
+            tag: 'intake-cancelled'
         });
-
-        if (response.ok) {
-            console.log('[SW] Intake cancelled, reverted to PENDING');
-            // Show a new notification confirming the cancellation
-            await self.registration.showNotification('Intake Cancelled', {
-                body: 'Your medication has been unmarked. The scheduled notification will still arrive.',
-                icon: '/static/icons/icon-192.png',
-                tag: 'intake-cancelled'
-            });
-        }
+        const clients = await self.clients.matchAll();
+        clients.forEach(client => client.postMessage({ type: 'INTAKE_CANCELLED' }));
     } catch (e) {
-        console.error('[SW] Failed to cancel intake', e);
+        await self.SwApi.enqueueFailedAction({
+            endpoint: '/api/medications/cancel-intake',
+            method: 'POST',
+            body,
+        });
     }
-
-    // Notify all clients to update UI
-    const clients = await self.clients.matchAll();
-    clients.forEach(client => {
-        client.postMessage({ type: 'INTAKE_CANCELLED' });
-    });
 }
 
 async function handleMedicationConfirm(data) {
-    // POST to API
+    const body = {
+        scheduled_at: data.scheduled_at,
+        medication_ids: data.medication_ids,
+        intake_ids: data.intake_ids
+    };
     try {
-        const response = await fetch('/api/medications/confirm-schedule', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                scheduled_at: data.scheduled_at,
-                medication_ids: data.medication_ids,
-                intake_ids: data.intake_ids
-            })
-        });
-
-        if (response.ok) {
-            console.log("Confirmed from push");
-        }
+        await self.swApiCall('/api/medications/confirm-schedule', 'POST', body);
+        const clients = await self.clients.matchAll();
+        clients.forEach(client => client.postMessage({ type: 'MEDICATION_CONFIRMED' }));
     } catch (e) {
-        console.error("Failed to confirm from push", e);
-        // Maybe sync later?
+        await self.SwApi.enqueueFailedAction({
+            endpoint: '/api/medications/confirm-schedule',
+            method: 'POST',
+            body,
+        });
     }
-
-    // Notify all clients to update UI
-    const clients = await self.clients.matchAll();
-    clients.forEach(client => {
-        client.postMessage({ type: 'MEDICATION_CONFIRMED' });
-    });
 }
 
 async function handleBPSnooze() {
     try {
-        const response = await fetch('/api/bp/reminder/snooze', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-        });
-
-        if (response.ok) {
-            console.log('[SW] BP reminder snoozed');
-        }
+        await self.swApiCall('/api/bp/reminder/snooze', 'POST');
     } catch (e) {
-        console.error('[SW] Failed to snooze BP reminder', e);
+        await self.SwApi.enqueueFailedAction({
+            endpoint: '/api/bp/reminder/snooze',
+            method: 'POST',
+            body: null,
+        });
     }
 }
 
 async function handleBPDontBug() {
     try {
-        const response = await fetch('/api/bp/reminder/dontbug', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-        });
-
-        if (response.ok) {
-            console.log('[SW] BP reminder disabled for 24h');
-        }
+        await self.swApiCall('/api/bp/reminder/dontbug', 'POST');
     } catch (e) {
-        console.error('[SW] Failed to disable BP reminder', e);
+        await self.SwApi.enqueueFailedAction({
+            endpoint: '/api/bp/reminder/dontbug',
+            method: 'POST',
+            body: null,
+        });
     }
 }
 
 async function handleWeightSnooze() {
     try {
-        const response = await fetch('/api/weight/reminder/snooze', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-        });
-
-        if (response.ok) {
-            console.log('[SW] Weight reminder snoozed');
-        }
+        await self.swApiCall('/api/weight/reminder/snooze', 'POST');
     } catch (e) {
-        console.error('[SW] Failed to snooze weight reminder', e);
+        await self.SwApi.enqueueFailedAction({
+            endpoint: '/api/weight/reminder/snooze',
+            method: 'POST',
+            body: null,
+        });
     }
 }
 
 async function handleWeightDontBug() {
     try {
-        const response = await fetch('/api/weight/reminder/dontbug', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-        });
-
-        if (response.ok) {
-            console.log('[SW] Weight reminder disabled for 24h');
-        }
+        await self.swApiCall('/api/weight/reminder/dontbug', 'POST');
     } catch (e) {
-        console.error('[SW] Failed to disable weight reminder', e);
+        await self.SwApi.enqueueFailedAction({
+            endpoint: '/api/weight/reminder/dontbug',
+            method: 'POST',
+            body: null,
+        });
     }
 }
 
 async function handleWorkoutSnooze(sessionId, hours) {
+    const endpoint = `/api/workout/sessions/${sessionId}/snooze`;
+    const body = { minutes: hours * 60 };
     try {
-        const response = await fetch(`/api/workout/sessions/${sessionId}/snooze`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ minutes: hours * 60 })
-        });
-        if (response.ok) {
-            console.log('[SW] Workout snoozed');
-            const clients = await self.clients.matchAll();
-            clients.forEach(client => client.postMessage({ type: 'WORKOUT_SNOOZED' }));
-        }
+        await self.swApiCall(endpoint, 'POST', body);
+        const clients = await self.clients.matchAll();
+        clients.forEach(client => client.postMessage({ type: 'WORKOUT_SNOOZED' }));
     } catch (e) {
-        console.error('[SW] Failed to snooze workout', e);
+        await self.SwApi.enqueueFailedAction({ endpoint, method: 'POST', body });
     }
 }
 
 async function handleWorkoutSkip(sessionId) {
+    const endpoint = `/api/workout/sessions/${sessionId}/skip`;
     try {
-        const response = await fetch(`/api/workout/sessions/${sessionId}/skip`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-        });
-        if (response.ok) {
-            console.log('[SW] Workout skipped');
-            const clients = await self.clients.matchAll();
-            clients.forEach(client => client.postMessage({ type: 'WORKOUT_SKIPPED' }));
-        }
+        await self.swApiCall(endpoint, 'POST');
+        const clients = await self.clients.matchAll();
+        clients.forEach(client => client.postMessage({ type: 'WORKOUT_SKIPPED' }));
     } catch (e) {
-        console.error('[SW] Failed to skip workout', e);
+        await self.SwApi.enqueueFailedAction({ endpoint, method: 'POST', body: null });
     }
 }
 
 async function handleMedicationSkip(intakeId) {
+    const body = { intake_id: intakeId };
     try {
-        const response = await fetch('/api/medications/skip', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ intake_id: intakeId })
-        });
-        if (response.ok) {
-            console.log('[SW] Medication skipped');
-            const clients = await self.clients.matchAll();
-            clients.forEach(client => client.postMessage({ type: 'MEDICATION_SKIPPED' }));
-        }
+        await self.swApiCall('/api/medications/skip', 'POST', body);
+        const clients = await self.clients.matchAll();
+        clients.forEach(client => client.postMessage({ type: 'MEDICATION_SKIPPED' }));
     } catch (e) {
-        console.error('[SW] Failed to skip medication', e);
+        await self.SwApi.enqueueFailedAction({
+            endpoint: '/api/medications/skip',
+            method: 'POST',
+            body,
+        });
     }
 }
 
 async function handleMedicationServerSnooze(intakeId, minutes) {
+    const body = { intake_id: intakeId, duration_minutes: minutes };
     try {
-        const response = await fetch('/api/medications/snooze', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ intake_id: intakeId, duration_minutes: minutes })
-        });
-        if (response.ok) {
-            console.log('[SW] Medication snoozed');
-            const clients = await self.clients.matchAll();
-            clients.forEach(client => client.postMessage({ type: 'MEDICATION_SNOOZED' }));
-        }
+        await self.swApiCall('/api/medications/snooze', 'POST', body);
+        const clients = await self.clients.matchAll();
+        clients.forEach(client => client.postMessage({ type: 'MEDICATION_SNOOZED' }));
     } catch (e) {
-        console.error('[SW] Failed to snooze medication', e);
+        await self.SwApi.enqueueFailedAction({
+            endpoint: '/api/medications/snooze',
+            method: 'POST',
+            body,
+        });
     }
 }

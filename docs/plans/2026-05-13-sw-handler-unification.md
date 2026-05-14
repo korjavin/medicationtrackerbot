@@ -147,29 +147,29 @@ and recommended-priority item #1.
 
 ### Task 3: Replace bodies of all 11 handlers
 
-- [ ] rewrite `handleMedicationConfirm` (`sw.js:614-640`) to call
+- [x] rewrite `handleMedicationConfirm` (`sw.js:614-640`) to call
   `swApiCall('/api/medications/confirm-schedule', 'POST', { scheduled_at,
   medication_ids, intake_ids })`; on failure call new `enqueueFailedAction`
   helper (Task 4) instead of `console.error`
-- [ ] rewrite `handleMedicationSkip` (`sw.js:735-750`) similarly
-- [ ] rewrite `handleMedicationServerSnooze` (`sw.js:752-767`) similarly
-- [ ] rewrite `handleCancelIntake` (`sw.js:583-612`) similarly
-- [ ] rewrite `handleBPSnooze` (`sw.js:642-655`) and `handleBPDontBug`
+- [x] rewrite `handleMedicationSkip` (`sw.js:735-750`) similarly
+- [x] rewrite `handleMedicationServerSnooze` (`sw.js:752-767`) similarly
+- [x] rewrite `handleCancelIntake` (`sw.js:583-612`) similarly
+- [x] rewrite `handleBPSnooze` (`sw.js:642-655`) and `handleBPDontBug`
   (`sw.js:657-670`)
-- [ ] rewrite `handleWeightSnooze` (`sw.js:672-685`) and
+- [x] rewrite `handleWeightSnooze` (`sw.js:672-685`) and
   `handleWeightDontBug` (`sw.js:687-700`)
-- [ ] rewrite `handleWorkoutSnooze` (`sw.js:702-717`) and
+- [x] rewrite `handleWorkoutSnooze` (`sw.js:702-717`) and
   `handleWorkoutSkip` (`sw.js:719-733`)
-- [ ] rewrite `handleTZPlanAction` (`sw.js:559-581`) — keep the result
+- [x] rewrite `handleTZPlanAction` (`sw.js:559-581`) — keep the result
   notification logic; only the underlying fetch changes
-- [ ] verify each handler still posts the matching `client.postMessage`
+- [x] verify each handler still posts the matching `client.postMessage`
   notification (`MEDICATION_CONFIRMED`, `WORKOUT_SKIPPED`, etc.) on
   success; do NOT post on failure
-- [ ] write integration tests in
+- [x] write integration tests in
   `web/static/js/tests/sw-handlers.test.js` covering one happy-path and
   one queue-on-failure case per *category* (med, bp, weight, workout,
   tz-plan, cancel) — 6 happy + 6 fail = 12 cases minimum
-- [ ] run `pnpm test sw-handlers` — must pass before next task
+- [x] run `pnpm test sw-handlers` — must pass before next task
 
 ### Task 4: Failed-action queue
 
