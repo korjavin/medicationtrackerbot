@@ -24,6 +24,22 @@ function isPermanentSyncError(err) {
     return false;
 }
 
+// Map a queued SW action endpoint to the DataStore tags that should be
+// invalidated when the replay succeeds. The queued envelopes are POSTs
+// from notification handlers (medication confirm/skip/snooze/cancel,
+// workout snooze/skip, bp/weight reminder snooze/dontbug, tz-plan
+// approve/reject) — the affected tags mirror the invalidateTags calls
+// the main-thread mutation paths already use.
+function swActionEndpointTags(endpoint) {
+    if (!endpoint) return [];
+    if (endpoint.startsWith('/api/medications/')) return ['medications', 'history'];
+    if (endpoint.startsWith('/api/bp/')) return ['bp'];
+    if (endpoint.startsWith('/api/weight/')) return ['weight'];
+    if (endpoint.startsWith('/api/workout/')) return ['workout'];
+    if (endpoint.startsWith('/api/tz-plan/')) return ['settings'];
+    return [];
+}
+
 // Debug logger - visible in Telegram WebApp where console isn't accessible
 const SyncDebug = {
     enabled: true,
@@ -166,6 +182,14 @@ const SyncManager = {
                     this.syncWeightLogs();
                 } else if (event.data.type === 'SYNC_INTAKE_LOGS') {
                     this.syncIntakeLogs();
+                } else if (event.data.type === 'SW_ACTION_QUEUED') {
+                    // A notification-handler POST just failed and got
+                    // enqueued. Route through syncAll() so a transient
+                    // failure on the immediate replay still schedules
+                    // the exponential-backoff retry (drainSwActionQueue
+                    // by itself only marks rows back to 'error' and
+                    // exits — retry scheduling lives in syncAll).
+                    this.syncAll();
                 }
             });
         } else {
@@ -590,17 +614,26 @@ const SyncManager = {
     // transient 5xx, blip). We re-issue them here with the same
     // permanent-vs-transient logic as the BP/weight queues so a 4xx
     // (e.g. intake already confirmed) doesn't loop forever.
+    //
+    // Concurrency: rows are claimed atomically by claimPending() — two
+    // tabs draining at once cannot replay the same envelope twice, which
+    // matters because most endpoints (snooze/skip/cancel/tz-approve) are
+    // not idempotent.
     async drainSwActionQueue() {
         if (!this.isOnline) return;
         if (!window.MedTrackerDB || !window.MedTrackerDB.SwActionQueue) return;
 
-        const pending = await window.MedTrackerDB.SwActionQueue.getPending();
+        const claimFn = window.MedTrackerDB.SwActionQueue.claimPending
+            || window.MedTrackerDB.SwActionQueue.getPending;
+        const pending = await claimFn.call(window.MedTrackerDB.SwActionQueue);
         if (pending.length === 0) {
             SyncDebug.info('No pending SW actions');
             return;
         }
 
         SyncDebug.info(`Draining ${pending.length} SW actions...`);
+
+        const invalidatedTags = new Set();
 
         for (const entry of pending) {
             try {
@@ -617,6 +650,13 @@ const SyncManager = {
 
                 await window.MedTrackerDB.SwActionQueue.markSynced(entry.localId);
                 SyncDebug.info('SW action synced', { localId: entry.localId });
+
+                // Collect DataStore tags affected by this endpoint so the
+                // visible tab refreshes cached views (mirrors the
+                // invalidateTags calls done by the main-thread mutation
+                // sites — see meds.js / bp.js / weight.js / workout.js).
+                const tags = swActionEndpointTags(entry.endpoint);
+                for (const t of tags) invalidatedTags.add(t);
             } catch (err) {
                 SyncDebug.error(`SW action sync failed for ${entry.localId}`, {
                     error: err.message
@@ -632,6 +672,39 @@ const SyncManager = {
                     await window.MedTrackerDB.SwActionQueue.markError(
                         entry.localId, err.message
                     );
+                }
+            }
+        }
+
+        if (invalidatedTags.size > 0 && window.DataStore
+            && typeof window.DataStore.invalidateTags === 'function') {
+            try {
+                await window.DataStore.invalidateTags([...invalidatedTags]);
+            } catch (e) {
+                SyncDebug.error('DataStore.invalidateTags failed after drain', {
+                    error: e.message
+                });
+            }
+            // apiCallDirect advances the change cursor silently after a
+            // POST, so the normal change-poll path won't repaint the
+            // visible tab for replayed writes. Trigger a refresh
+            // explicitly — mirrors the loadX() call that main-thread
+            // mutation sites do after invalidateTags.
+            const tags = [...invalidatedTags];
+            if (window.DataStore
+                && typeof window.DataStore.requestTabRefresh === 'function') {
+                try { window.DataStore.requestTabRefresh(tags); }
+                catch (e) {
+                    SyncDebug.error('DataStore.requestTabRefresh failed after drain', {
+                        error: e.message
+                    });
+                }
+            } else if (typeof window.requestTabRefresh === 'function') {
+                try { window.requestTabRefresh({ changedTags: tags, source: 'sw-action-drain' }); }
+                catch (e) {
+                    SyncDebug.error('requestTabRefresh failed after drain', {
+                        error: e.message
+                    });
                 }
             }
         }

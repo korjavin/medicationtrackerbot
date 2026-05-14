@@ -38,6 +38,7 @@ function loadDrainEnv({ apiCallDirect } = {}) {
     // In-memory queue state mirrors db.js SwActionQueueStore semantics.
     const rows = new Map();
     let nextId = 1;
+    const STALE_CLAIM_MS = 5 * 60 * 1000;
     const swActionQueue = {
         rows,
         async save(action) {
@@ -58,20 +59,45 @@ function loadDrainEnv({ apiCallDirect } = {}) {
                 (r) => r.syncStatus === 'pending' || r.syncStatus === 'error'
             );
         },
+        // Mirror the atomic claim transaction in db.js: revert stale
+        // 'syncing' orphans to 'pending', then move pending/error rows
+        // into 'syncing' as a single step. We synchronously snapshot
+        // and mutate the Map so two concurrent callers cannot both
+        // observe the same row in pending/error state.
+        async claimPending() {
+            const now = Date.now();
+            const claimed = [];
+            for (const [id, r] of [...rows.entries()]) {
+                if (r.syncStatus === 'syncing'
+                    && (!r.claimedAt || (now - r.claimedAt) > STALE_CLAIM_MS)) {
+                    rows.set(id, { ...r, syncStatus: 'pending', claimedAt: null });
+                }
+            }
+            for (const [id, r] of [...rows.entries()]) {
+                if (r.syncStatus === 'pending' || r.syncStatus === 'error') {
+                    const next = { ...r, syncStatus: 'syncing', claimedAt: now };
+                    rows.set(id, next);
+                    claimed.push({ ...next });
+                }
+            }
+            return claimed;
+        },
         async markSynced(localId) {
             rows.delete(localId);
         },
         async markError(localId, errorMessage) {
             const r = rows.get(localId);
-            if (r) rows.set(localId, { ...r, syncStatus: 'error', errorMessage });
+            if (r) rows.set(localId, { ...r, syncStatus: 'error', errorMessage, claimedAt: null });
         },
         async markRejected(localId, errorMessage) {
             const r = rows.get(localId);
-            if (r) rows.set(localId, { ...r, syncStatus: 'rejected', errorMessage });
+            if (r) rows.set(localId, { ...r, syncStatus: 'rejected', errorMessage, claimedAt: null });
         },
         async getPendingCount() {
             return [...rows.values()].filter(
-                (r) => r.syncStatus === 'pending' || r.syncStatus === 'error'
+                (r) => r.syncStatus === 'pending'
+                    || r.syncStatus === 'error'
+                    || r.syncStatus === 'syncing'
             ).length;
         },
         async getRejectedCount() {
@@ -210,6 +236,75 @@ describe('SwActionQueue store (db.js)', () => {
 
             expect(await SwActionQueue.getPendingCount()).toBe(0);
             expect(await SwActionQueue.getRejectedCount()).toBe(1);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('claimPending() atomically moves pending and error rows into syncing state', async () => {
+        const { window, cleanup } = loadDbEnv();
+        try {
+            const { SwActionQueue } = window.MedTrackerDB;
+            const a = await SwActionQueue.save({
+                endpoint: '/api/medications/skip',
+                body: { intake_id: 7 },
+            });
+            const b = await SwActionQueue.save({
+                endpoint: '/api/bp/reminder/snooze',
+                method: 'POST',
+                body: null,
+            });
+            await SwActionQueue.markError(b.localId, 'previous blip');
+
+            const claimed = await SwActionQueue.claimPending();
+            expect(claimed).toHaveLength(2);
+            expect(claimed.every((r) => r.syncStatus === 'syncing')).toBe(true);
+            expect(claimed.every((r) => typeof r.claimedAt === 'number')).toBe(true);
+
+            // A second claim sees no rows — the originals are already in
+            // 'syncing' state, which is the cross-tab race protection.
+            const second = await SwActionQueue.claimPending();
+            expect(second).toHaveLength(0);
+
+            // getPendingCount still reflects them (in-flight is pending).
+            expect(await SwActionQueue.getPendingCount()).toBe(2);
+
+            // Caller completes the replay loop: success deletes, transient
+            // failure transitions back to 'error' so the next claim picks
+            // it up.
+            await SwActionQueue.markSynced(a.localId);
+            await SwActionQueue.markError(b.localId, 'still flaky');
+
+            const third = await SwActionQueue.claimPending();
+            expect(third).toHaveLength(1);
+            expect(third[0].localId).toBe(b.localId);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('claimPending() reclaims stale syncing orphans (crashed-tab recovery)', async () => {
+        const { window, cleanup } = loadDbEnv();
+        try {
+            const { SwActionQueue, db } = window.MedTrackerDB;
+            const rec = await SwActionQueue.save({
+                endpoint: '/api/medications/skip',
+                body: { intake_id: 7 },
+            });
+            // Simulate a tab that claimed the row but then crashed: row
+            // is in 'syncing' state with a claim timestamp well in the
+            // past.
+            const longAgo = Date.now() - (10 * 60 * 1000);
+            await db.pending_sw_actions.update(rec.localId, {
+                syncStatus: 'syncing',
+                claimedAt: longAgo,
+            });
+
+            const claimed = await SwActionQueue.claimPending();
+            expect(claimed).toHaveLength(1);
+            expect(claimed[0].localId).toBe(rec.localId);
+            expect(claimed[0].syncStatus).toBe('syncing');
+            expect(claimed[0].claimedAt).toBeGreaterThan(longAgo);
         } finally {
             cleanup();
         }
@@ -369,6 +464,159 @@ describe('SyncManager.drainSwActionQueue (sync.js)', () => {
             cleanup();
         }
     });
+
+    // Race: two app windows open, both reach drainSwActionQueue() at the
+    // same instant. claimPending() runs in a Dexie 'rw' transaction so
+    // only one drain can pick up a given envelope; the other observes
+    // zero rows. Otherwise non-idempotent endpoints (snooze/skip/cancel)
+    // would be POSTed twice.
+    it('two concurrent drains claim each queued action exactly once', async () => {
+        const apiCallDirect = vi.fn().mockResolvedValue({ ok: true });
+        const { window, swActionQueue, cleanup } = loadDrainEnv({ apiCallDirect });
+        try {
+            await swActionQueue.save({
+                endpoint: '/api/medications/skip',
+                method: 'POST',
+                body: { intake_id: 7 },
+            });
+            await swActionQueue.save({
+                endpoint: '/api/workout/sessions/3/snooze',
+                method: 'POST',
+                body: { minutes: 60 },
+            });
+
+            await Promise.all([
+                window.SyncManager.drainSwActionQueue(),
+                window.SyncManager.drainSwActionQueue(),
+            ]);
+
+            // Each envelope POSTed exactly once across both drains.
+            expect(apiCallDirect).toHaveBeenCalledTimes(2);
+            expect(swActionQueue.rows.size).toBe(0);
+        } finally {
+            cleanup();
+        }
+    });
+
+    // After a successful replay, the visible tab needs to refresh —
+    // drainSwActionQueue invalidates the DataStore tags affected by each
+    // queued endpoint, mirroring the invalidateTags calls the main-thread
+    // mutation paths already use.
+    it('invalidates DataStore tags after a successful drain', async () => {
+        const apiCallDirect = vi.fn().mockResolvedValue({ ok: true });
+        const invalidateTags = vi.fn().mockResolvedValue(undefined);
+        const { window, swActionQueue, cleanup } = loadDrainEnv({ apiCallDirect });
+        try {
+            window.DataStore = { invalidateTags };
+
+            await swActionQueue.save({
+                endpoint: '/api/medications/skip',
+                method: 'POST',
+                body: { intake_id: 7 },
+            });
+            await swActionQueue.save({
+                endpoint: '/api/workout/sessions/3/snooze',
+                method: 'POST',
+                body: { minutes: 60 },
+            });
+            await swActionQueue.save({
+                endpoint: '/api/bp/reminder/snooze',
+                method: 'POST',
+                body: null,
+            });
+
+            await window.SyncManager.drainSwActionQueue();
+
+            expect(invalidateTags).toHaveBeenCalledTimes(1);
+            const tags = invalidateTags.mock.calls[0][0];
+            expect(tags).toEqual(expect.arrayContaining(['medications', 'history', 'workout', 'bp']));
+        } finally {
+            cleanup();
+        }
+    });
+
+    // apiCallDirect advances the change cursor silently after each POST,
+    // so the normal change-poll path will not repaint the visible tab
+    // for replayed writes. After a successful drain the visible tab
+    // must therefore be refreshed explicitly — mirrors the loadX()
+    // call that main-thread mutation sites issue after invalidateTags.
+    it('refreshes the visible tab after a successful drain', async () => {
+        const apiCallDirect = vi.fn().mockResolvedValue({ ok: true });
+        const invalidateTags = vi.fn().mockResolvedValue(undefined);
+        const requestTabRefresh = vi.fn();
+        const { window, swActionQueue, cleanup } = loadDrainEnv({ apiCallDirect });
+        try {
+            window.DataStore = { invalidateTags, requestTabRefresh };
+
+            await swActionQueue.save({
+                endpoint: '/api/medications/skip',
+                method: 'POST',
+                body: { intake_id: 7 },
+            });
+
+            await window.SyncManager.drainSwActionQueue();
+
+            expect(requestTabRefresh).toHaveBeenCalledTimes(1);
+            const tags = requestTabRefresh.mock.calls[0][0];
+            expect(tags).toEqual(expect.arrayContaining(['medications', 'history']));
+        } finally {
+            cleanup();
+        }
+    });
+
+    // Fallback path when DataStore is missing requestTabRefresh: the
+    // drain still triggers a visible refresh via the global helper.
+    it('falls back to window.requestTabRefresh when DataStore.requestTabRefresh is absent', async () => {
+        const apiCallDirect = vi.fn().mockResolvedValue({ ok: true });
+        const invalidateTags = vi.fn().mockResolvedValue(undefined);
+        const requestTabRefresh = vi.fn();
+        const { window, swActionQueue, cleanup } = loadDrainEnv({ apiCallDirect });
+        try {
+            window.DataStore = { invalidateTags };
+            window.requestTabRefresh = requestTabRefresh;
+
+            await swActionQueue.save({
+                endpoint: '/api/bp/reminder/snooze',
+                method: 'POST',
+                body: null,
+            });
+
+            await window.SyncManager.drainSwActionQueue();
+
+            expect(requestTabRefresh).toHaveBeenCalledTimes(1);
+            expect(requestTabRefresh).toHaveBeenCalledWith({
+                changedTags: expect.arrayContaining(['bp']),
+                source: 'sw-action-drain',
+            });
+        } finally {
+            cleanup();
+        }
+    });
+
+    // If every replay fails, no tags should be invalidated — otherwise
+    // we'd churn caches without any data actually changing server-side.
+    it('does not invalidate tags when every replay fails', async () => {
+        const apiCallDirect = vi.fn().mockRejectedValue(
+            Object.assign(new Error('Bad Gateway'), { status: 502 })
+        );
+        const invalidateTags = vi.fn().mockResolvedValue(undefined);
+        const { window, swActionQueue, cleanup } = loadDrainEnv({ apiCallDirect });
+        try {
+            window.DataStore = { invalidateTags };
+
+            await swActionQueue.save({
+                endpoint: '/api/medications/skip',
+                method: 'POST',
+                body: { intake_id: 7 },
+            });
+
+            await window.SyncManager.drainSwActionQueue();
+
+            expect(invalidateTags).not.toHaveBeenCalled();
+        } finally {
+            cleanup();
+        }
+    });
 });
 
 // Verifies sw-api-helper.js writes into the pending_sw_actions store via the
@@ -479,6 +727,66 @@ describe('sw-api-helper enqueueFailedAction (raw IDB write)', () => {
         });
 
         expect(ok).toBe(false);
+    });
+
+    it('notifies open clients via postMessage(SW_ACTION_QUEUED) after a successful enqueue', async () => {
+        const fs2 = await import('node:fs');
+        const vm = await import('node:vm');
+        const HELPER_PATH = path.join(REPO_ROOT, 'web/static/js/sw-api-helper.js');
+        const HELPER_SOURCE = fs2.readFileSync(HELPER_PATH, 'utf-8');
+
+        const fakeDb = {
+            objectStoreNames: { contains: (name) => name === 'pending_sw_actions' },
+            close: () => {},
+            transaction(_storeName, _mode) {
+                const tx = {};
+                const store = {
+                    add(_record) {
+                        const req = { onsuccess: null, onerror: null, result: 1 };
+                        setTimeout(() => req.onsuccess && req.onsuccess({ target: req }), 0);
+                        setTimeout(() => tx.oncomplete && tx.oncomplete(), 1);
+                        return req;
+                    },
+                };
+                tx.objectStore = () => store;
+                return tx;
+            },
+        };
+        const fakeIndexedDB = {
+            open(_name) {
+                const req = { onsuccess: null, onerror: null, onblocked: null, result: fakeDb };
+                setTimeout(() => req.onsuccess && req.onsuccess({ target: req }), 0);
+                return req;
+            },
+        };
+
+        const postMessage = vi.fn();
+        const fakeClients = {
+            matchAll: vi.fn().mockResolvedValue([{ postMessage }]),
+        };
+
+        const selfObj = { clients: fakeClients };
+        const sandbox = {
+            self: selfObj,
+            fetch: () => { throw new Error('not used'); },
+            indexedDB: fakeIndexedDB,
+            setTimeout, clearTimeout, Promise, JSON, Error, TypeError,
+        };
+        sandbox.globalThis = sandbox;
+        selfObj.indexedDB = fakeIndexedDB;
+
+        vm.createContext(sandbox);
+        vm.runInContext(HELPER_SOURCE, sandbox, { filename: HELPER_PATH });
+
+        const ok = await selfObj.SwApi.enqueueFailedAction({
+            endpoint: '/api/medications/skip',
+            method: 'POST',
+            body: { intake_id: 7 },
+        });
+
+        expect(ok).toBe(true);
+        expect(fakeClients.matchAll).toHaveBeenCalled();
+        expect(postMessage).toHaveBeenCalledWith({ type: 'SW_ACTION_QUEUED' });
     });
 
     it('returns false when pending_sw_actions store is missing (DB not yet upgraded to v6)', async () => {
