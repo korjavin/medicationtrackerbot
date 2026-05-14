@@ -1,22 +1,12 @@
-package store
+package medication
 
 import (
 	"testing"
 	"time"
 )
 
-func setupTestStore(t *testing.T) *Store {
-	t.Helper()
-	db, err := New(":memory:")
-	if err != nil {
-		t.Fatalf("Failed to create test store: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-	return db
-}
-
 func TestCreateMedication(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	id, err := db.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, &start, nil, "1191", "aspirin", "")
@@ -38,7 +28,7 @@ func TestCreateMedication(t *testing.T) {
 }
 
 func TestGetMedication(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	id, err := db.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["09:00","21:00"]}`, &start, nil, "1191", "aspirin", "")
@@ -71,7 +61,7 @@ func TestGetMedication(t *testing.T) {
 }
 
 func TestGetMedicationNotFound(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	med, err := db.GetMedication(99999)
 	if err != nil {
@@ -83,7 +73,7 @@ func TestGetMedicationNotFound(t *testing.T) {
 }
 
 func TestUpdateMedication(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	id, err := db.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
@@ -119,7 +109,7 @@ func TestUpdateMedication(t *testing.T) {
 }
 
 func TestSetMedicationSupplement(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	id, err := db.CreateMedication("Magnesium", "200mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
@@ -160,7 +150,7 @@ func TestSetMedicationSupplement(t *testing.T) {
 }
 
 func TestDeleteMedication(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	id, err := db.CreateMedication("ToDelete", "50mg", `{"type":"daily","times":["12:00"]}`, nil, nil, "", "", "")
 	if err != nil {
@@ -182,7 +172,7 @@ func TestDeleteMedication(t *testing.T) {
 }
 
 func TestCanDeleteMedication(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	// Create a medication
 	id, err := db.CreateMedication("CheckDelete", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
@@ -217,7 +207,7 @@ func TestCanDeleteMedication(t *testing.T) {
 }
 
 func TestListMedicationsExcludesArchived(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	id1, err := db.CreateMedication("Active Med", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
@@ -271,7 +261,7 @@ func TestListMedicationsExcludesArchived(t *testing.T) {
 }
 
 func TestListMedicationsEmptyReturnsNonNil(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	meds, err := db.ListMedications(false)
 	if err != nil {
@@ -286,7 +276,7 @@ func TestListMedicationsEmptyReturnsNonNil(t *testing.T) {
 }
 
 func TestCreateIntakePending(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
@@ -318,7 +308,7 @@ func TestCreateIntakePending(t *testing.T) {
 }
 
 func TestSkipIntake(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
@@ -361,7 +351,7 @@ func TestSkipIntake(t *testing.T) {
 }
 
 func TestSnoozeIntake(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
@@ -396,7 +386,7 @@ func TestSnoozeIntake(t *testing.T) {
 }
 
 func TestCreateManualIntake(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
@@ -425,7 +415,7 @@ func TestCreateManualIntake(t *testing.T) {
 }
 
 func TestConfirmIntake(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
@@ -457,7 +447,7 @@ func TestConfirmIntake(t *testing.T) {
 }
 
 func TestUpdateIntakeStatusNotTakenClearsTakenAt(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
@@ -506,7 +496,7 @@ func TestUpdateIntakeStatusNotTakenClearsTakenAt(t *testing.T) {
 }
 
 func TestGetPendingIntakes(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
@@ -544,7 +534,7 @@ func TestGetPendingIntakes(t *testing.T) {
 }
 
 func TestGetIntakeNotFound(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	intake, err := db.GetIntake(99999)
 	if err != nil {
@@ -556,7 +546,7 @@ func TestGetIntakeNotFound(t *testing.T) {
 }
 
 func TestGetIntakeBySchedule(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
@@ -592,7 +582,7 @@ func TestGetIntakeBySchedule(t *testing.T) {
 }
 
 func TestGetIntakeHistoryFilters(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	med1, err := db.CreateMedication("Med1", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
@@ -657,7 +647,7 @@ func TestGetIntakeHistoryFilters(t *testing.T) {
 }
 
 func TestGetIntakeHistoryEmpty(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	// Fetch history when there's no data
 	history, err := db.GetIntakeHistory(1, 7)
@@ -673,7 +663,7 @@ func TestGetIntakeHistoryEmpty(t *testing.T) {
 }
 
 func TestConfirmIntakesByScheduleSkipsArchived(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	activeMed, err := db.CreateMedication("Active", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
@@ -726,7 +716,7 @@ func TestConfirmIntakesByScheduleSkipsArchived(t *testing.T) {
 }
 
 func TestIntakeReminders(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
@@ -768,7 +758,7 @@ func TestIntakeReminders(t *testing.T) {
 }
 
 func TestIncrementInventory(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	// Create a medication
 	id, err := db.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
@@ -799,7 +789,7 @@ func TestIncrementInventory(t *testing.T) {
 }
 
 func TestGetPendingIntakesBySchedule(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["09:00","21:00"]}`, nil, nil, "", "", "")
 	if err != nil {
@@ -841,7 +831,7 @@ func TestGetPendingIntakesBySchedule(t *testing.T) {
 // the bind value's location did not match the stored location, even when the
 // two times referred to the same instant.
 func TestGetPendingIntakesBySchedule_TZAgnostic(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["21:30"]}`, nil, nil, "", "", "")
 	if err != nil {
@@ -893,7 +883,7 @@ func TestGetPendingIntakesBySchedule_TZAgnostic(t *testing.T) {
 // zero rows, leaving the medications stuck PENDING while the bot reported
 // success.
 func TestConfirmIntakesBySchedule_TZAgnostic(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["21:30"]}`, nil, nil, "", "", "")
 	if err != nil {
@@ -931,7 +921,7 @@ func TestConfirmIntakesBySchedule_TZAgnostic(t *testing.T) {
 }
 
 func TestGetTakenIntakesBySchedule(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["09:00","21:00"]}`, nil, nil, "", "", "")
 	if err != nil {
@@ -979,7 +969,7 @@ func TestGetTakenIntakesBySchedule(t *testing.T) {
 }
 
 func TestGetPendingIntakesForMedication(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	med1, err := db.CreateMedication("Med1", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
@@ -1013,7 +1003,7 @@ func TestGetPendingIntakesForMedication(t *testing.T) {
 }
 
 func TestDeleteIntake(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
@@ -1041,7 +1031,7 @@ func TestDeleteIntake(t *testing.T) {
 }
 
 func TestGetBatchIntakeReminders(t *testing.T) {
-	db := setupTestStore(t)
+	db := setupMedicationRepo(t)
 
 	// Create some medications and intakes
 	med1, _ := db.CreateMedication("Med1", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
@@ -1051,8 +1041,15 @@ func TestGetBatchIntakeReminders(t *testing.T) {
 	intake2, _ := db.CreateIntake(med1, 12345, scheduled.Add(24*time.Hour))
 
 	// Add reminders
-	_, _ = db.db.Exec("INSERT INTO intake_reminders (intake_id, message_id) VALUES (?, ?), (?, ?)", intake1, 101, intake1, 102)
-	_, _ = db.db.Exec("INSERT INTO intake_reminders (intake_id, message_id) VALUES (?, ?)", intake2, 201)
+	if err := db.AddIntakeReminder(intake1, 101); err != nil {
+		t.Fatalf("AddIntakeReminder(intake1, 101): %v", err)
+	}
+	if err := db.AddIntakeReminder(intake1, 102); err != nil {
+		t.Fatalf("AddIntakeReminder(intake1, 102): %v", err)
+	}
+	if err := db.AddIntakeReminder(intake2, 201); err != nil {
+		t.Fatalf("AddIntakeReminder(intake2, 201): %v", err)
+	}
 
 	reminders, err := db.GetBatchIntakeReminders([]int64{intake1, intake2})
 	if err != nil {

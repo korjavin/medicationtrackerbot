@@ -1,4 +1,4 @@
-package store
+package medication
 
 import (
 	"testing"
@@ -6,8 +6,8 @@ import (
 )
 
 func TestBatchGetIntakesBySchedule(t *testing.T) {
-	db := setupTestStore(t)
-	defer db.Close()
+	db := setupMedicationRepo(t)
+
 
 	// Create user
 	userID := int64(1)
@@ -86,8 +86,8 @@ func TestBatchGetIntakesBySchedule(t *testing.T) {
 // underlying driver serialises time.Time via t.String() which preserves
 // the original Location.
 func TestBatchGetIntakesBySchedule_NonUTCLocation(t *testing.T) {
-	db := setupTestStore(t)
-	defer db.Close()
+	db := setupMedicationRepo(t)
+
 
 	userID := int64(1)
 	medID, err := db.CreateMedication("Med1", "10mg", `{"type":"daily","times":["10:13"]}`, nil, nil, "", "", "")

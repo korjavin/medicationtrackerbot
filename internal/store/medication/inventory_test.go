@@ -1,23 +1,15 @@
-package store
+package medication
 
 import (
 	"testing"
 	"time"
 )
 
-func setupInventoryTestStore(t *testing.T) *Store {
+// createTestMedication is a local helper for inventory tests: creates a
+// medication with a fixed dosage and returns its ID.
+func createTestMedication(t *testing.T, r *Repo, name, schedule string) int64 {
 	t.Helper()
-	db, err := New(":memory:")
-	if err != nil {
-		t.Fatalf("Failed to create test store: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-	return db
-}
-
-func createTestMedication(t *testing.T, s *Store, name, schedule string) int64 {
-	t.Helper()
-	id, err := s.CreateMedication(name, "10mg", schedule, nil, nil, "", "", "")
+	id, err := r.CreateMedication(name, "10mg", schedule, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("Failed to create medication %s: %v", name, err)
 	}
@@ -25,7 +17,7 @@ func createTestMedication(t *testing.T, s *Store, name, schedule string) int64 {
 }
 
 func TestDecrementInventory_TrackingEnabled(t *testing.T) {
-	s := setupInventoryTestStore(t)
+	s := setupMedicationRepo(t)
 	id := createTestMedication(t, s, "Aspirin", `{"type":"daily","times":["09:00"]}`)
 
 	if err := s.SetInventory(id, intPtr(10)); err != nil {
@@ -49,7 +41,7 @@ func TestDecrementInventory_TrackingEnabled(t *testing.T) {
 }
 
 func TestDecrementInventory_TrackingDisabled(t *testing.T) {
-	s := setupInventoryTestStore(t)
+	s := setupMedicationRepo(t)
 	id := createTestMedication(t, s, "Aspirin", `{"type":"daily","times":["09:00"]}`)
 
 	// inventory_count is NULL by default, decrement should be a no-op
@@ -67,7 +59,7 @@ func TestDecrementInventory_TrackingDisabled(t *testing.T) {
 }
 
 func TestDecrementInventory_MultipleUnits(t *testing.T) {
-	s := setupInventoryTestStore(t)
+	s := setupMedicationRepo(t)
 	id := createTestMedication(t, s, "Vitamin D", `{"type":"daily","times":["09:00"]}`)
 
 	if err := s.SetInventory(id, intPtr(20)); err != nil {
@@ -88,7 +80,7 @@ func TestDecrementInventory_MultipleUnits(t *testing.T) {
 }
 
 func TestSetInventory_Enable(t *testing.T) {
-	s := setupInventoryTestStore(t)
+	s := setupMedicationRepo(t)
 	id := createTestMedication(t, s, "Aspirin", `{"type":"daily","times":["09:00"]}`)
 
 	if err := s.SetInventory(id, intPtr(30)); err != nil {
@@ -108,7 +100,7 @@ func TestSetInventory_Enable(t *testing.T) {
 }
 
 func TestSetInventory_Disable(t *testing.T) {
-	s := setupInventoryTestStore(t)
+	s := setupMedicationRepo(t)
 	id := createTestMedication(t, s, "Aspirin", `{"type":"daily","times":["09:00"]}`)
 
 	// First enable
@@ -131,7 +123,7 @@ func TestSetInventory_Disable(t *testing.T) {
 }
 
 func TestSetInventory_Update(t *testing.T) {
-	s := setupInventoryTestStore(t)
+	s := setupMedicationRepo(t)
 	id := createTestMedication(t, s, "Aspirin", `{"type":"daily","times":["09:00"]}`)
 
 	if err := s.SetInventory(id, intPtr(30)); err != nil {
@@ -151,7 +143,7 @@ func TestSetInventory_Update(t *testing.T) {
 }
 
 func TestAddRestock_InitializesNullInventory(t *testing.T) {
-	s := setupInventoryTestStore(t)
+	s := setupMedicationRepo(t)
 	id := createTestMedication(t, s, "Aspirin", `{"type":"daily","times":["09:00"]}`)
 
 	// Inventory is NULL, AddRestock should initialize it
@@ -172,7 +164,7 @@ func TestAddRestock_InitializesNullInventory(t *testing.T) {
 }
 
 func TestAddRestock_AddsToExisting(t *testing.T) {
-	s := setupInventoryTestStore(t)
+	s := setupMedicationRepo(t)
 	id := createTestMedication(t, s, "Aspirin", `{"type":"daily","times":["09:00"]}`)
 
 	if err := s.SetInventory(id, intPtr(10)); err != nil {
@@ -193,7 +185,7 @@ func TestAddRestock_AddsToExisting(t *testing.T) {
 }
 
 func TestAddRestock_LogsRestockEvent(t *testing.T) {
-	s := setupInventoryTestStore(t)
+	s := setupMedicationRepo(t)
 	id := createTestMedication(t, s, "Aspirin", `{"type":"daily","times":["09:00"]}`)
 
 	if err := s.AddRestock(id, 30, "Pharmacy pickup"); err != nil {
@@ -219,7 +211,7 @@ func TestAddRestock_LogsRestockEvent(t *testing.T) {
 }
 
 func TestGetRestockHistory_OrderedByDateDesc(t *testing.T) {
-	s := setupInventoryTestStore(t)
+	s := setupMedicationRepo(t)
 	id := createTestMedication(t, s, "Aspirin", `{"type":"daily","times":["09:00"]}`)
 
 	if err := s.AddRestock(id, 10, "First"); err != nil {
@@ -253,7 +245,7 @@ func TestGetRestockHistory_OrderedByDateDesc(t *testing.T) {
 }
 
 func TestGetRestockHistory_Empty(t *testing.T) {
-	s := setupInventoryTestStore(t)
+	s := setupMedicationRepo(t)
 	id := createTestMedication(t, s, "Aspirin", `{"type":"daily","times":["09:00"]}`)
 
 	history, err := s.GetRestockHistory(id)
@@ -266,7 +258,7 @@ func TestGetRestockHistory_Empty(t *testing.T) {
 }
 
 func TestGetMedicationsLowOnStock_DailySchedule(t *testing.T) {
-	s := setupInventoryTestStore(t)
+	s := setupMedicationRepo(t)
 	// 2 times per day = 2 units/day, 14 days threshold = 28 units needed
 	id := createTestMedication(t, s, "DailyMed", `{"type":"daily","times":["09:00","21:00"]}`)
 
@@ -293,7 +285,7 @@ func TestGetMedicationsLowOnStock_DailySchedule(t *testing.T) {
 }
 
 func TestGetMedicationsLowOnStock_SufficientStock(t *testing.T) {
-	s := setupInventoryTestStore(t)
+	s := setupMedicationRepo(t)
 	// 1 time per day, 14 days = 14 units needed
 	id := createTestMedication(t, s, "WellStocked", `{"type":"daily","times":["09:00"]}`)
 
@@ -315,7 +307,7 @@ func TestGetMedicationsLowOnStock_SufficientStock(t *testing.T) {
 }
 
 func TestGetMedicationsLowOnStock_NullInventoryExcluded(t *testing.T) {
-	s := setupInventoryTestStore(t)
+	s := setupMedicationRepo(t)
 	createTestMedication(t, s, "NoTracking", `{"type":"daily","times":["09:00"]}`)
 
 	// Don't set inventory (stays NULL)
@@ -332,7 +324,7 @@ func TestGetMedicationsLowOnStock_NullInventoryExcluded(t *testing.T) {
 }
 
 func TestGetMedicationsLowOnStock_WeeklySchedule(t *testing.T) {
-	s := setupInventoryTestStore(t)
+	s := setupMedicationRepo(t)
 	// 3 days/week, 1 time/day = 3 units/week ≈ 0.43 units/day
 	// 14 days threshold = ~6 units needed
 	id := createTestMedication(t, s, "WeeklyMed", `{"type":"weekly","days":[1,3,5],"times":["09:00"]}`)
@@ -360,7 +352,7 @@ func TestGetMedicationsLowOnStock_WeeklySchedule(t *testing.T) {
 }
 
 func TestIsLowOnStock_NilInventory(t *testing.T) {
-	s := setupInventoryTestStore(t)
+	s := setupMedicationRepo(t)
 
 	med := &Medication{
 		ID:             1,
@@ -375,7 +367,7 @@ func TestIsLowOnStock_NilInventory(t *testing.T) {
 }
 
 func TestIsLowOnStock_LowCount(t *testing.T) {
-	s := setupInventoryTestStore(t)
+	s := setupMedicationRepo(t)
 
 	count := 3
 	med := &Medication{
@@ -392,7 +384,7 @@ func TestIsLowOnStock_LowCount(t *testing.T) {
 }
 
 func TestIsLowOnStock_WithEndDate(t *testing.T) {
-	s := setupInventoryTestStore(t)
+	s := setupMedicationRepo(t)
 
 	// Medication ends in 3 days, with 5 pills and 1/day usage
 	endDate := time.Now().Add(3 * 24 * time.Hour)
@@ -412,7 +404,7 @@ func TestIsLowOnStock_WithEndDate(t *testing.T) {
 }
 
 func TestIsLowOnStock_WithEndDateLowStock(t *testing.T) {
-	s := setupInventoryTestStore(t)
+	s := setupMedicationRepo(t)
 
 	// Medication ends in 10 days, with 5 pills and 2/day usage (needs 20)
 	endDate := time.Now().Add(10 * 24 * time.Hour)
@@ -431,7 +423,7 @@ func TestIsLowOnStock_WithEndDateLowStock(t *testing.T) {
 }
 
 func TestGetDaysOfStockRemaining_NilInventory(t *testing.T) {
-	s := setupInventoryTestStore(t)
+	s := setupMedicationRepo(t)
 
 	med := &Medication{
 		ID:             1,
@@ -447,7 +439,7 @@ func TestGetDaysOfStockRemaining_NilInventory(t *testing.T) {
 }
 
 func TestGetDaysOfStockRemaining_AsNeeded(t *testing.T) {
-	s := setupInventoryTestStore(t)
+	s := setupMedicationRepo(t)
 
 	count := 10
 	med := &Medication{
@@ -464,7 +456,7 @@ func TestGetDaysOfStockRemaining_AsNeeded(t *testing.T) {
 }
 
 func TestGetDaysOfStockRemaining_DailySchedule(t *testing.T) {
-	s := setupInventoryTestStore(t)
+	s := setupMedicationRepo(t)
 
 	count := 20
 	med := &Medication{
@@ -485,7 +477,7 @@ func TestGetDaysOfStockRemaining_DailySchedule(t *testing.T) {
 }
 
 func TestGetDaysOfStockRemaining_WeeklySchedule(t *testing.T) {
-	s := setupInventoryTestStore(t)
+	s := setupMedicationRepo(t)
 
 	count := 6
 	med := &Medication{
@@ -508,7 +500,7 @@ func TestGetDaysOfStockRemaining_WeeklySchedule(t *testing.T) {
 }
 
 func TestGetDaysOfStockRemaining_ZeroInventory(t *testing.T) {
-	s := setupInventoryTestStore(t)
+	s := setupMedicationRepo(t)
 
 	count := 0
 	med := &Medication{
@@ -528,7 +520,7 @@ func TestGetDaysOfStockRemaining_ZeroInventory(t *testing.T) {
 }
 
 func TestAddRestock_MultipleRestocks(t *testing.T) {
-	s := setupInventoryTestStore(t)
+	s := setupMedicationRepo(t)
 	id := createTestMedication(t, s, "Aspirin", `{"type":"daily","times":["09:00"]}`)
 
 	if err := s.SetInventory(id, intPtr(5)); err != nil {
@@ -561,7 +553,7 @@ func TestAddRestock_MultipleRestocks(t *testing.T) {
 }
 
 func TestAddRestock_EmptyNote(t *testing.T) {
-	s := setupInventoryTestStore(t)
+	s := setupMedicationRepo(t)
 	id := createTestMedication(t, s, "Aspirin", `{"type":"daily","times":["09:00"]}`)
 
 	if err := s.AddRestock(id, 30, ""); err != nil {
@@ -581,7 +573,7 @@ func TestAddRestock_EmptyNote(t *testing.T) {
 }
 
 func TestGetRestockHistory_IsolatedPerMedication(t *testing.T) {
-	s := setupInventoryTestStore(t)
+	s := setupMedicationRepo(t)
 	id1 := createTestMedication(t, s, "Med1", `{"type":"daily","times":["09:00"]}`)
 	id2 := createTestMedication(t, s, "Med2", `{"type":"daily","times":["09:00"]}`)
 
