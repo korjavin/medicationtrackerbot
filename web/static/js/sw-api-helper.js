@@ -42,16 +42,73 @@
                 return true;
             }
         },
-        // Placeholder for the failed-action queue. Task 4 of the SW
-        // handler unification plan replaces this with a direct
-        // IndexedDB write into the `pending_sw_actions` Dexie store
-        // (drained by the main thread in sync.js). Until then this is
-        // a no-op resolve so handler call sites are unconditional and
-        // safe to ship in the same PR as the handler rewrite.
-        async enqueueFailedAction(_action) {
-            return false;
+        // Persist a failed POST envelope into the `pending_sw_actions`
+        // Dexie object store so the main thread can drain it later via
+        // SyncManager.drainSwActionQueue. Dexie itself lives on
+        // `window` and isn't available inside a SW; we write through
+        // the raw IndexedDB API against the already-existing
+        // MedTrackerDB. The schema (++localId, endpoint, syncStatus,
+        // createdAt) must already be present — it's created by the
+        // main thread on first load (db.js v6).
+        //
+        // Errors swallowed: this is the SAFETY-NET for already-failed
+        // requests. If we can't even queue the action (DB closed,
+        // private mode, quota), we resolve(false) and let the user
+        // re-trigger the action from the app the next time it opens.
+        // Throwing here would break the calling handler's catch path.
+        async enqueueFailedAction(action) {
+            try {
+                const record = {
+                    endpoint: action.endpoint,
+                    method: action.method || 'POST',
+                    body: action.body ?? null,
+                    syncStatus: 'pending',
+                    createdAt: Date.now(),
+                };
+                await idbAddPendingAction(record);
+                return true;
+            } catch (e) {
+                // Best-effort: cannot use console.error per Task 5
+                // grep rule; the request is already lost so this
+                // additional swallow is the failure mode of last
+                // resort. The main thread's SyncManager will display
+                // nothing because nothing got queued — that matches
+                // the legacy "lost on failure" behaviour.
+                return false;
+            }
         },
     };
+
+    function idbOpen() {
+        return new Promise((resolve, reject) => {
+            const req = root.indexedDB.open('MedTrackerDB');
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error || new Error('indexedDB.open failed'));
+            req.onblocked = () => reject(new Error('indexedDB.open blocked'));
+        });
+    }
+
+    function idbAddPendingAction(record) {
+        return new Promise((resolve, reject) => {
+            let db;
+            idbOpen().then((openedDb) => {
+                db = openedDb;
+                if (!db.objectStoreNames.contains('pending_sw_actions')) {
+                    db.close();
+                    reject(new Error('pending_sw_actions store missing — main thread has not opened v6 yet'));
+                    return;
+                }
+                const tx = db.transaction('pending_sw_actions', 'readwrite');
+                const store = tx.objectStore('pending_sw_actions');
+                const addReq = store.add(record);
+                addReq.onsuccess = () => { /* localId in addReq.result */ };
+                addReq.onerror = () => reject(addReq.error || new Error('add failed'));
+                tx.oncomplete = () => { db.close(); resolve(true); };
+                tx.onerror = () => { db.close(); reject(tx.error || new Error('tx failed')); };
+                tx.onabort = () => { db.close(); reject(tx.error || new Error('tx aborted')); };
+            }, reject);
+        });
+    }
 
     root.SwApi = SwApi;
     root.swApiCall = (endpoint, method, body) => SwApi.call(endpoint, method, body);

@@ -332,13 +332,17 @@ const SyncManager = {
         const weightPending = await window.MedTrackerDB.WeightStore.getPendingCount();
         const intakePending = window.MedTrackerDB.IntakeQueueStore
             ? await window.MedTrackerDB.IntakeQueueStore.getPendingCount() : 0;
-        const totalPending = bpPending + weightPending + intakePending;
+        const swActionPending = window.MedTrackerDB.SwActionQueue
+            ? await window.MedTrackerDB.SwActionQueue.getPendingCount() : 0;
+        const totalPending = bpPending + weightPending + intakePending + swActionPending;
 
         const bpRejected = await window.MedTrackerDB.BPStore.getRejectedCount();
         const weightRejected = await window.MedTrackerDB.WeightStore.getRejectedCount();
         const intakeRejected = window.MedTrackerDB.IntakeQueueStore
             ? await window.MedTrackerDB.IntakeQueueStore.getRejectedCount() : 0;
-        const totalRejected = bpRejected + weightRejected + intakeRejected;
+        const swActionRejected = window.MedTrackerDB.SwActionQueue
+            ? await window.MedTrackerDB.SwActionQueue.getRejectedCount() : 0;
+        const totalRejected = bpRejected + weightRejected + intakeRejected + swActionRejected;
 
         const status = {
             isOnline: this.isOnline,
@@ -416,7 +420,8 @@ const SyncManager = {
             await Promise.all([
                 this.syncBPReadings(),
                 this.syncWeightLogs(),
-                this.syncIntakeLogs()
+                this.syncIntakeLogs(),
+                this.drainSwActionQueue()
             ]);
             SyncDebug.info('Full sync completed');
         } catch (err) {
@@ -577,6 +582,61 @@ const SyncManager = {
         }
 
         this.updateStatus();
+    },
+
+    // Drain failed Service Worker notification-action POSTs.
+    // The SW writes envelopes (endpoint, method, body) into
+    // pending_sw_actions when its in-handler fetch fails (offline,
+    // transient 5xx, blip). We re-issue them here with the same
+    // permanent-vs-transient logic as the BP/weight queues so a 4xx
+    // (e.g. intake already confirmed) doesn't loop forever.
+    async drainSwActionQueue() {
+        if (!this.isOnline) return;
+        if (!window.MedTrackerDB || !window.MedTrackerDB.SwActionQueue) return;
+
+        const pending = await window.MedTrackerDB.SwActionQueue.getPending();
+        if (pending.length === 0) {
+            SyncDebug.info('No pending SW actions');
+            return;
+        }
+
+        SyncDebug.info(`Draining ${pending.length} SW actions...`);
+
+        for (const entry of pending) {
+            try {
+                SyncDebug.info('Replaying SW action', {
+                    localId: entry.localId,
+                    endpoint: entry.endpoint
+                });
+
+                await window.apiCallDirect(
+                    entry.endpoint,
+                    entry.method || 'POST',
+                    entry.body ?? null
+                );
+
+                await window.MedTrackerDB.SwActionQueue.markSynced(entry.localId);
+                SyncDebug.info('SW action synced', { localId: entry.localId });
+            } catch (err) {
+                SyncDebug.error(`SW action sync failed for ${entry.localId}`, {
+                    error: err.message
+                });
+                if (isPermanentSyncError(err)) {
+                    SyncDebug.warn(`SW action ${entry.localId} rejected permanently`, {
+                        error: err.message
+                    });
+                    await window.MedTrackerDB.SwActionQueue.markRejected(
+                        entry.localId, err.message
+                    );
+                } else {
+                    await window.MedTrackerDB.SwActionQueue.markError(
+                        entry.localId, err.message
+                    );
+                }
+            }
+        }
+
+        await this.updateStatus();
     },
 
     // Register background sync with Service Worker

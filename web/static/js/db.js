@@ -70,6 +70,24 @@ db.version(5).stores({
     api_cache: 'id, timestamp'
 });
 
+// Version 6: Add failed-action queue for Service Worker notification handlers.
+// When a SW handler's POST fails (offline, 5xx, network blip) it writes the
+// {endpoint, method, body} envelope here and the main thread drains the
+// queue on the next online sync. See sw-api-helper.js enqueueFailedAction
+// and sync.js drainSwActionQueue.
+db.version(6).stores({
+    bp_readings: '++localId, serverId, measured_at, syncStatus',
+    weight_logs: '++localId, serverId, measured_at, syncStatus',
+    medication_cache: 'id, timestamp',
+    intake_history_cache: 'id, timestamp',
+    workout_cache: 'id, timestamp',
+    intake_queue: '++localId, medication_id, syncStatus',
+    food_products_cache: 'id, timestamp',
+    api_cache: 'id, timestamp',
+
+    pending_sw_actions: '++localId, endpoint, syncStatus, createdAt'
+});
+
 // Simple logger for db operations (will be enhanced by sync.js SyncDebug)
 const dbLog = (msg, data) => {
     console.log(`[DB] ${msg}`, data || '');
@@ -612,6 +630,87 @@ const IntakeQueueStore = {
     }
 };
 
+// Service Worker failed-action queue.
+// The SW writes entries here when a notification-handler POST fails
+// (offline, transient 5xx, network blip). The main thread drains this
+// store on online via SyncManager.drainSwActionQueue. Each entry is a
+// self-contained envelope so a re-issued request needs no context from
+// the original notification:
+//   { endpoint, method, body, syncStatus, createdAt, errorMessage? }
+// The SW writes to the same pending_sw_actions table directly via the
+// raw IndexedDB API (Dexie isn't available in a SW context); this Store
+// is the main-thread surface for reading/marking/clearing entries.
+const SwActionQueueStore = {
+    async save(action) {
+        dbLog('Saving SW pending action', { endpoint: action.endpoint });
+        const record = {
+            endpoint: action.endpoint,
+            method: action.method || 'POST',
+            body: action.body ?? null,
+            syncStatus: 'pending',
+            createdAt: Date.now()
+        };
+        const localId = await db.pending_sw_actions.add(record);
+        dbLog('SW action queued', { localId, endpoint: action.endpoint });
+        return { ...record, localId };
+    },
+
+    async getPending() {
+        const pending = await db.pending_sw_actions
+            .where('syncStatus')
+            .equals('pending')
+            .toArray();
+        const errored = await db.pending_sw_actions
+            .where('syncStatus')
+            .equals('error')
+            .toArray();
+        const all = pending.concat(errored);
+        dbLog('SwActionQueue getPending', { count: all.length });
+        return all;
+    },
+
+    async markSynced(localId) {
+        await db.pending_sw_actions.delete(localId);
+    },
+
+    async markError(localId, errorMessage) {
+        await db.pending_sw_actions.update(localId, {
+            syncStatus: 'error',
+            errorMessage
+        });
+    },
+
+    async markRejected(localId, errorMessage) {
+        await db.pending_sw_actions.update(localId, {
+            syncStatus: 'rejected',
+            errorMessage
+        });
+    },
+
+    async getPendingCount() {
+        const pending = await db.pending_sw_actions
+            .where('syncStatus')
+            .equals('pending')
+            .count();
+        const errored = await db.pending_sw_actions
+            .where('syncStatus')
+            .equals('error')
+            .count();
+        return pending + errored;
+    },
+
+    async getRejectedCount() {
+        return await db.pending_sw_actions
+            .where('syncStatus')
+            .equals('rejected')
+            .count();
+    },
+
+    async clear() {
+        await db.pending_sw_actions.clear();
+    }
+};
+
 // Food Products Cache
 const FoodProductsStore = {
     CACHE_TTL: 7 * 24 * 60 * 60 * 1000, // 7 days
@@ -735,6 +834,7 @@ window.MedTrackerDB = {
     IntakeHistoryStore,
     WorkoutStore,
     IntakeQueueStore,
+    SwActionQueue: SwActionQueueStore,
     FoodProductsStore,
     ApiCache
 };
