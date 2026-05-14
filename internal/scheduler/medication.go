@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/domain/medplan"
+	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
@@ -49,6 +50,68 @@ type notificationGroup struct {
 	Target  time.Time
 	Meds    []store.Medication
 	StepIDs map[int64]int64 // medID → stepID from transition plan (0 = normal schedule)
+}
+
+// findNearMatchPendingIntake returns the existing PENDING intake whose
+// scheduled_at is closest to stepScheduledAt and within the medication's
+// per-policy minInterval window, or nil. Returns nil when the schedule is
+// unparsable (the med should not have made it into the plan, so let the
+// caller fall through to the normal create-intake path).
+//
+// Pending intakes covered by a previously-consumed step in the same plan
+// (mirroring the medplan overlap guard) are skipped so we don't fold the
+// current step into an intake that already "belongs" to an earlier consumed
+// step.
+func (c *MedicationChecker) findNearMatchPendingIntake(med store.Medication, stepScheduledAt time.Time, consumedStepTimeByMed map[int64]time.Time) *store.IntakeLog {
+	cfg, err := med.ValidSchedule()
+	if err != nil || cfg == nil {
+		return nil
+	}
+	minInterval := tzreschedule.MinDoseInterval(
+		tzreschedule.NominalIntervalHours(cfg),
+		tzreschedule.NormalizePolicy(med.TZShiftPolicy),
+	)
+	if minInterval <= 0 {
+		return nil
+	}
+	pending, err := c.store.GetPendingIntakesForMedication(med.ID)
+	if err != nil {
+		slog.Warn("medication scheduler: failed to load pending intakes for near-match dedup",
+			"medID", med.ID, "error", err)
+		return nil
+	}
+	consumedStepAt, hasConsumedStep := consumedStepTimeByMed[med.ID]
+	var best *store.IntakeLog
+	var bestDelta time.Duration
+	for i := range pending {
+		p := &pending[i]
+		if p.TakenAt != nil {
+			continue
+		}
+		if hasConsumedStep {
+			// Mirror medplan's overlap guard: intakes at-or-before the
+			// consumed step (old timezone) or within minInterval after it
+			// already belong to that step.
+			if !p.ScheduledAt.After(consumedStepAt) {
+				continue
+			}
+			if p.ScheduledAt.Sub(consumedStepAt) <= minInterval {
+				continue
+			}
+		}
+		delta := p.ScheduledAt.Sub(stepScheduledAt)
+		if delta < 0 {
+			delta = -delta
+		}
+		if delta > minInterval {
+			continue
+		}
+		if best == nil || delta < bestDelta || (delta == bestDelta && p.ID < best.ID) {
+			best = p
+			bestDelta = delta
+		}
+	}
+	return best
 }
 
 func (c *MedicationChecker) Check(ctx context.Context) error {
@@ -238,6 +301,28 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 					slog.Warn("medication scheduler: failed to mark already-scheduled step consumed",
 						"stepID", t.StepID, "error", err)
 				}
+				continue
+			}
+
+			// Near-match fallback: a pre-existing PENDING normal intake within
+			// minInterval of this step time covers the same dose. Mark the step
+			// consumed against it instead of creating a duplicate. Without this
+			// the exact-match lookup above misses when the step time inherits
+			// second-level drift from a prior taken_at (engine.go anchor).
+			if near := c.findNearMatchPendingIntake(med, t.ScheduledAt, consumedStepTimeByMed); near != nil {
+				if err := c.store.MarkStepConsumed(t.StepID, now); err != nil {
+					slog.Warn("medication scheduler: failed to mark step consumed against near-match intake",
+						"stepID", t.StepID, "medID", med.ID, "error", err)
+				} else {
+					slog.Info("medication scheduler: plan step consumed against pre-existing near-match intake",
+						"stepID", t.StepID,
+						"medID", med.ID,
+						"stepScheduledAt", t.ScheduledAt,
+						"existingIntakeID", near.ID,
+						"existingScheduledAt", near.ScheduledAt,
+						"deltaSeconds", int64(t.ScheduledAt.Sub(near.ScheduledAt).Abs().Seconds()))
+				}
+				planMedTriggered[med.ID] = true
 				continue
 			}
 

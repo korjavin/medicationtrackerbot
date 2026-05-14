@@ -96,7 +96,7 @@ plan approval" path that the prod incident exposed.
 
 ### Task 2: Add near-match plan-step dedup in `MedicationChecker.Check`
 
-- [ ] inside the plan-step branch at
+- [x] inside the plan-step branch at
       `internal/scheduler/medication.go:227-241`, when the exact-match
       `batchMap` lookup misses, perform a per-med fallback:
   1. compute `minInterval` for the med via
@@ -109,7 +109,9 @@ plan approval" path that the prod incident exposed.
      `|scheduled_at - step.ScheduledAt| <= minInterval` AND that has no
      `taken_at` set (status PENDING is enforced by the query, but be explicit
      about non-terminal). Ties: prefer the one already attached to the user
-     (i.e., earliest existing).
+     (i.e., earliest existing). Additionally skip intakes covered by a
+     previously-consumed step (symmetric with medplan's overlap guard) so a
+     later step does not get folded into an earlier consumed step's intake.
   4. if a match is found:
      - call `store.MarkStepConsumed(t.StepID, now)` (same as the existing
        exact-match path).
@@ -120,11 +122,11 @@ plan approval" path that the prod incident exposed.
      - `continue` (do NOT add to `groups`, do NOT create a new intake).
   5. if no match is found, fall through to the existing create-new-intake
      path unchanged.
-- [ ] keep `planMedTriggered[med.ID] = true` semantics intact — the merge
+- [x] keep `planMedTriggered[med.ID] = true` semantics intact — the merge
       counts as "one plan step handled for this med this tick".
-- [ ] keep behaviour identical for the SourceNormalSchedule branch (line 253)
+- [x] keep behaviour identical for the SourceNormalSchedule branch (line 253)
       — the bug is plan-step-specific.
-- [ ] write tests in `internal/scheduler/medication_tz_test.go`:
+- [x] write tests in `internal/scheduler/medication_tz_test.go`:
   - **subtest A — "approved plan: past step merges into pre-existing normal
     intake"**: seed a med with daily schedule, create a pending intake at
     `02:30 UTC`, create an APPROVED plan with a step at `02:28:24 UTC` for the
@@ -132,15 +134,16 @@ plan approval" path that the prod incident exposed.
     `intake_log` row for this med remains, the plan step is consumed (no
     pending steps left), and no new intake was created at `02:28:24`.
   - **subtest B — "approved plan: step outside minInterval still creates new
-    intake"**: same setup but the step is 12h away from the pending normal
-    intake. Assert: a second intake IS created (current behaviour preserved).
+    intake"**: same setup but the step is 18h away from the pending normal
+    intake (clearly outside flexible/medium/strict minIntervals for a daily
+    med). Assert: a second intake IS created (current behaviour preserved).
   - **subtest C — "approved plan: near-match merge respects per-med
     minInterval policy"**: parameterise tz_shift_policy (`flexible`,
-    `medium`, `strict`) and pick a step delta that is inside `medium`'s
-    minInterval but outside `flexible`'s. Assert that the medium-policy med
-    merges and the flexible-policy med (different med, same scenario) creates
-    a new intake.
-- [ ] run `go test ./internal/scheduler/...` — all subtests must pass before
+    `medium`) and pick a step delta (15h) that is inside `medium`'s
+    minInterval (15.6h) but outside `flexible`'s (14.4h). Assert that the
+    medium-policy med merges and the flexible-policy med (different med,
+    same scenario) creates a new intake.
+- [x] run `go test ./internal/scheduler/...` — all subtests must pass before
       next task.
 
 ### Task 3: Forecast parity check (medplan)
