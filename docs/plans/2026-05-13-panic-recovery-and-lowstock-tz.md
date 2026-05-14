@@ -86,7 +86,7 @@ because this file diverged from the pattern that
 
 ### Task 1: Panic-recovery middleware
 
-- [ ] add `panicRecover` middleware in `internal/server/server.go`
+- [x] add `panicRecover` middleware in `internal/server/server.go`
   (next to `securityHeadersMiddleware`); on `recover()` it logs via
   `slog.Error` with `error`, `path`, `method`, and `stack`
   (`debug.Stack()`), then writes `http.StatusInternalServerError` —
@@ -94,21 +94,21 @@ because this file diverged from the pattern that
   `responseWriter` wrapper or `http.NewResponseController`-style flag,
   to avoid corrupting an already-streaming response like
   `/api/changes/stream`)
-- [ ] wrap the `Server.Routes()` return value: replace
+- [x] wrap the `Server.Routes()` return value: replace
   `return securityHeadersMiddleware(mux)` with
   `return panicRecover(securityHeadersMiddleware(mux))` so the recover
   is the outermost layer (catches panics in security headers and
   rate-limit middleware too)
-- [ ] add `runtime/debug` to imports as needed
-- [ ] write unit test in `internal/server/panic_recover_test.go`:
+- [x] add `runtime/debug` to imports as needed
+- [x] write unit test in `internal/server/panic_recover_test.go`:
   handler that panics → response is 500, body is non-empty, no goroutine
   crash; assert via `httptest.NewRecorder` and a deliberate
   `panic("boom")` handler mounted on a tiny `http.ServeMux`
-- [ ] write unit test for the "already-streamed" case: handler writes
+- [x] write unit test for the "already-streamed" case: handler writes
   `w.WriteHeader(200)` and some bytes, then panics → status stays 200,
   body contains the partial write, recover still logs without trying to
   re-write headers
-- [ ] run `go test ./internal/server/...` — must pass before task 2
+- [x] run `go test ./internal/server/...` — must pass before task 2
 
 ### Task 2: LowStockChecker TZ + race fix
 
