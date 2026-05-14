@@ -1,25 +1,15 @@
-package store
+package weight
 
 import (
 	"context"
 	"testing"
 )
 
-func setupWeightUnitPrefTestStore(t *testing.T) *Store {
-	t.Helper()
-	db, err := New(":memory:")
-	if err != nil {
-		t.Fatalf("Failed to create test store: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-	return db
-}
-
-func TestStore_WeightUnitPreference_DefaultIsKg(t *testing.T) {
-	s := setupWeightUnitPrefTestStore(t)
+func TestWeightUnitPreference_DefaultIsKg(t *testing.T) {
+	r := setupWeightRepo(t)
 	ctx := context.Background()
 
-	unit, err := s.GetWeightUnitPreference(ctx)
+	unit, err := r.GetWeightUnitPreference(ctx)
 	if err != nil {
 		t.Fatalf("GetWeightUnitPreference: %v", err)
 	}
@@ -28,14 +18,14 @@ func TestStore_WeightUnitPreference_DefaultIsKg(t *testing.T) {
 	}
 }
 
-func TestStore_WeightUnitPreference_SetAndGet(t *testing.T) {
-	s := setupWeightUnitPrefTestStore(t)
+func TestWeightUnitPreference_SetAndGet(t *testing.T) {
+	r := setupWeightRepo(t)
 	ctx := context.Background()
 
-	if err := s.SetWeightUnitPreference(ctx, "lb"); err != nil {
+	if err := r.SetWeightUnitPreference(ctx, "lb"); err != nil {
 		t.Fatalf("SetWeightUnitPreference(lb): %v", err)
 	}
-	unit, err := s.GetWeightUnitPreference(ctx)
+	unit, err := r.GetWeightUnitPreference(ctx)
 	if err != nil {
 		t.Fatalf("GetWeightUnitPreference: %v", err)
 	}
@@ -43,10 +33,10 @@ func TestStore_WeightUnitPreference_SetAndGet(t *testing.T) {
 		t.Fatalf("expected 'lb', got %q", unit)
 	}
 
-	if err := s.SetWeightUnitPreference(ctx, "kg"); err != nil {
+	if err := r.SetWeightUnitPreference(ctx, "kg"); err != nil {
 		t.Fatalf("SetWeightUnitPreference(kg): %v", err)
 	}
-	unit, err = s.GetWeightUnitPreference(ctx)
+	unit, err = r.GetWeightUnitPreference(ctx)
 	if err != nil {
 		t.Fatalf("GetWeightUnitPreference after set kg: %v", err)
 	}
@@ -55,19 +45,19 @@ func TestStore_WeightUnitPreference_SetAndGet(t *testing.T) {
 	}
 }
 
-func TestStore_WeightUnitPreference_RejectsInvalid(t *testing.T) {
-	s := setupWeightUnitPrefTestStore(t)
+func TestWeightUnitPreference_RejectsInvalid(t *testing.T) {
+	r := setupWeightRepo(t)
 	ctx := context.Background()
 
 	cases := []string{"", "lbs", "KG", "pounds", "stone", "g"}
 	for _, c := range cases {
-		if err := s.SetWeightUnitPreference(ctx, c); err == nil {
+		if err := r.SetWeightUnitPreference(ctx, c); err == nil {
 			t.Errorf("expected SetWeightUnitPreference(%q) to fail, got nil", c)
 		}
 	}
 
 	// Confirm preference unchanged after invalid attempts.
-	unit, err := s.GetWeightUnitPreference(ctx)
+	unit, err := r.GetWeightUnitPreference(ctx)
 	if err != nil {
 		t.Fatalf("GetWeightUnitPreference: %v", err)
 	}
@@ -76,15 +66,15 @@ func TestStore_WeightUnitPreference_RejectsInvalid(t *testing.T) {
 	}
 }
 
-func TestStore_WeightUnitPreference_PersistsAcrossReads(t *testing.T) {
-	s := setupWeightUnitPrefTestStore(t)
+func TestWeightUnitPreference_PersistsAcrossReads(t *testing.T) {
+	r := setupWeightRepo(t)
 	ctx := context.Background()
 
-	if err := s.SetWeightUnitPreference(ctx, "lb"); err != nil {
+	if err := r.SetWeightUnitPreference(ctx, "lb"); err != nil {
 		t.Fatalf("SetWeightUnitPreference: %v", err)
 	}
 	for i := 0; i < 3; i++ {
-		unit, err := s.GetWeightUnitPreference(ctx)
+		unit, err := r.GetWeightUnitPreference(ctx)
 		if err != nil {
 			t.Fatalf("GetWeightUnitPreference iteration %d: %v", i, err)
 		}

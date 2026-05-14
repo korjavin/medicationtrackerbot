@@ -1,4 +1,4 @@
-package store
+package weight
 
 import (
 	"context"
@@ -6,21 +6,11 @@ import (
 	"time"
 )
 
-// setupWeightReminderTestDB creates an in-memory test database with all required tables
-func setupWeightReminderTestDB(t *testing.T) *Store {
-	db, err := New(":memory:")
-	if err != nil {
-		t.Fatalf("Failed to create test store: %v", err)
-	}
-	return db
-}
-
 func TestGetWeightReminderState_NewUser(t *testing.T) {
-	store := setupWeightReminderTestDB(t)
-	defer store.Close()
+	r := setupWeightRepo(t)
 
 	// Test: Get state for new user (should auto-initialize)
-	state, err := store.GetWeightReminderState(12345)
+	state, err := r.GetWeightReminderState(12345)
 	if err != nil {
 		t.Fatalf("Failed to get weight reminder state: %v", err)
 	}
@@ -44,18 +34,15 @@ func TestGetWeightReminderState_NewUser(t *testing.T) {
 }
 
 func TestSetWeightReminderEnabled(t *testing.T) {
-	store := setupWeightReminderTestDB(t)
-	defer store.Close()
-
+	r := setupWeightRepo(t)
 	userID := int64(12345)
 
 	// Test: Disable reminders
-	err := store.SetWeightReminderEnabled(userID, false)
-	if err != nil {
+	if err := r.SetWeightReminderEnabled(userID, false); err != nil {
 		t.Fatalf("Failed to disable weight reminders: %v", err)
 	}
 
-	state, err := store.GetWeightReminderState(userID)
+	state, err := r.GetWeightReminderState(userID)
 	if err != nil {
 		t.Fatalf("Failed to get state: %v", err)
 	}
@@ -64,12 +51,11 @@ func TestSetWeightReminderEnabled(t *testing.T) {
 	}
 
 	// Test: Enable reminders
-	err = store.SetWeightReminderEnabled(userID, true)
-	if err != nil {
+	if err := r.SetWeightReminderEnabled(userID, true); err != nil {
 		t.Fatalf("Failed to enable weight reminders: %v", err)
 	}
 
-	state, err = store.GetWeightReminderState(userID)
+	state, err = r.GetWeightReminderState(userID)
 	if err != nil {
 		t.Fatalf("Failed to get state: %v", err)
 	}
@@ -79,25 +65,21 @@ func TestSetWeightReminderEnabled(t *testing.T) {
 }
 
 func TestSnoozeWeightReminder(t *testing.T) {
-	store := setupWeightReminderTestDB(t)
-	defer store.Close()
-
+	r := setupWeightRepo(t)
 	userID := int64(12345)
 
 	// Initialize state
-	_, err := store.GetWeightReminderState(userID)
-	if err != nil {
+	if _, err := r.GetWeightReminderState(userID); err != nil {
 		t.Fatalf("Failed to initialize state: %v", err)
 	}
 
 	// Test: Snooze
 	beforeSnooze := time.Now()
-	err = store.SnoozeWeightReminder(userID)
-	if err != nil {
+	if err := r.SnoozeWeightReminder(userID); err != nil {
 		t.Fatalf("Failed to snooze weight reminder: %v", err)
 	}
 
-	state, err := store.GetWeightReminderState(userID)
+	state, err := r.GetWeightReminderState(userID)
 	if err != nil {
 		t.Fatalf("Failed to get state: %v", err)
 	}
@@ -115,25 +97,21 @@ func TestSnoozeWeightReminder(t *testing.T) {
 }
 
 func TestDontBugMeWeightReminder(t *testing.T) {
-	store := setupWeightReminderTestDB(t)
-	defer store.Close()
-
+	r := setupWeightRepo(t)
 	userID := int64(12345)
 
 	// Initialize state
-	_, err := store.GetWeightReminderState(userID)
-	if err != nil {
+	if _, err := r.GetWeightReminderState(userID); err != nil {
 		t.Fatalf("Failed to initialize state: %v", err)
 	}
 
 	// Test: Don't bug me
 	beforeBlock := time.Now()
-	err = store.DontBugMeWeightReminder(userID)
-	if err != nil {
+	if err := r.DontBugMeWeightReminder(userID); err != nil {
 		t.Fatalf("Failed to set don't bug me: %v", err)
 	}
 
-	state, err := store.GetWeightReminderState(userID)
+	state, err := r.GetWeightReminderState(userID)
 	if err != nil {
 		t.Fatalf("Failed to get state: %v", err)
 	}
@@ -150,15 +128,14 @@ func TestDontBugMeWeightReminder(t *testing.T) {
 	}
 }
 
-func TestGetLastWeightLog(t *testing.T) {
-	store := setupWeightReminderTestDB(t)
-	defer store.Close()
+func TestGetLastWeightLog_WithReminderRepo(t *testing.T) {
+	r := setupWeightRepo(t)
 
 	ctx := context.Background()
 	userID := int64(12345)
 
 	// Test: No logs
-	log, err := store.GetLastWeightLog(ctx, userID)
+	log, err := r.GetLastWeightLog(ctx, userID)
 	if err != nil {
 		t.Fatalf("Failed to get last weight log: %v", err)
 	}
@@ -168,7 +145,7 @@ func TestGetLastWeightLog(t *testing.T) {
 
 	// Create weight logs
 	now := time.Now()
-	_, err = store.CreateWeightLog(ctx, &WeightLog{
+	_, err = r.CreateWeightLog(ctx, &WeightLog{
 		UserID:     userID,
 		MeasuredAt: now.Add(-2 * time.Hour),
 		Weight:     70.5,
@@ -177,7 +154,7 @@ func TestGetLastWeightLog(t *testing.T) {
 		t.Fatalf("Failed to create weight log: %v", err)
 	}
 
-	_, err = store.CreateWeightLog(ctx, &WeightLog{
+	_, err = r.CreateWeightLog(ctx, &WeightLog{
 		UserID:     userID,
 		MeasuredAt: now.Add(-1 * time.Hour),
 		Weight:     71.0,
@@ -187,7 +164,7 @@ func TestGetLastWeightLog(t *testing.T) {
 	}
 
 	// Test: Get last log
-	log, err = store.GetLastWeightLog(ctx, userID)
+	log, err = r.GetLastWeightLog(ctx, userID)
 	if err != nil {
 		t.Fatalf("Failed to get last weight log: %v", err)
 	}
@@ -203,14 +180,13 @@ func TestGetLastWeightLog(t *testing.T) {
 }
 
 func TestCalculatePreferredWeightReminderHour(t *testing.T) {
-	store := setupWeightReminderTestDB(t)
-	defer store.Close()
+	r := setupWeightRepo(t)
 
 	ctx := context.Background()
 	userID := int64(12345)
 
 	// Test: No logs (should return default 9)
-	hour, err := store.CalculatePreferredWeightReminderHour(ctx, userID)
+	hour, err := r.CalculatePreferredWeightReminderHour(ctx, userID)
 	if err != nil {
 		t.Fatalf("Failed to calculate preferred hour: %v", err)
 	}
@@ -220,7 +196,7 @@ func TestCalculatePreferredWeightReminderHour(t *testing.T) {
 
 	// Test: Too few logs (< 3)
 	now := time.Now()
-	_, err = store.CreateWeightLog(ctx, &WeightLog{
+	_, err = r.CreateWeightLog(ctx, &WeightLog{
 		UserID:     userID,
 		MeasuredAt: now,
 		Weight:     70.0,
@@ -229,7 +205,7 @@ func TestCalculatePreferredWeightReminderHour(t *testing.T) {
 		t.Fatalf("Failed to create weight log: %v", err)
 	}
 
-	hour, err = store.CalculatePreferredWeightReminderHour(ctx, userID)
+	hour, err = r.CalculatePreferredWeightReminderHour(ctx, userID)
 	if err != nil {
 		t.Fatalf("Failed to calculate preferred hour: %v", err)
 	}
@@ -242,7 +218,7 @@ func TestCalculatePreferredWeightReminderHour(t *testing.T) {
 
 	for i, h := range hours {
 		measuredAt := time.Date(now.Year(), now.Month(), now.Day()-i, h, 0, 0, 0, now.Location())
-		_, err = store.CreateWeightLog(ctx, &WeightLog{
+		_, err = r.CreateWeightLog(ctx, &WeightLog{
 			UserID:     userID,
 			MeasuredAt: measuredAt,
 			Weight:     70.0 + float64(i)*0.1,
@@ -256,7 +232,7 @@ func TestCalculatePreferredWeightReminderHour(t *testing.T) {
 	// We now have 6 logs total: the first one at current hour + 5 with [7, 8, 8, 9, 8]
 	// The calculation should only use the 5 most recent ones if that's what the query does
 	// or all 6 if they're all within 14 days. Let's check what we actually get.
-	hour, err = store.CalculatePreferredWeightReminderHour(ctx, userID)
+	hour, err = r.CalculatePreferredWeightReminderHour(ctx, userID)
 	if err != nil {
 		t.Fatalf("Failed to calculate preferred hour: %v", err)
 	}
@@ -269,8 +245,7 @@ func TestCalculatePreferredWeightReminderHour(t *testing.T) {
 }
 
 func TestCalculatePreferredWeightReminderHour_Constraints(t *testing.T) {
-	store := setupWeightReminderTestDB(t)
-	defer store.Close()
+	r := setupWeightRepo(t)
 
 	ctx := context.Background()
 	userID := int64(12345)
@@ -281,7 +256,7 @@ func TestCalculatePreferredWeightReminderHour_Constraints(t *testing.T) {
 	earlyHours := []int{3, 4, 5}
 	for i, h := range earlyHours {
 		measuredAt := time.Date(now.Year(), now.Month(), now.Day()-i, h, 0, 0, 0, now.Location())
-		_, err := store.CreateWeightLog(ctx, &WeightLog{
+		_, err := r.CreateWeightLog(ctx, &WeightLog{
 			UserID:     userID,
 			MeasuredAt: measuredAt,
 			Weight:     70.0,
@@ -291,7 +266,7 @@ func TestCalculatePreferredWeightReminderHour_Constraints(t *testing.T) {
 		}
 	}
 
-	hour, err := store.CalculatePreferredWeightReminderHour(ctx, userID)
+	hour, err := r.CalculatePreferredWeightReminderHour(ctx, userID)
 	if err != nil {
 		t.Fatalf("Failed to calculate preferred hour: %v", err)
 	}
@@ -300,15 +275,14 @@ func TestCalculatePreferredWeightReminderHour_Constraints(t *testing.T) {
 	}
 
 	// Test: Hours above maximum (> 12 PM)
-	store2 := setupWeightReminderTestDB(t)
-	defer store2.Close()
+	r2 := setupWeightRepo(t)
 	userID2 := int64(54321)
 
 	// Create logs at 18, 19, 20 (average = 19, should constrain to 12)
 	lateHours := []int{18, 19, 20}
 	for i, h := range lateHours {
 		measuredAt := time.Date(now.Year(), now.Month(), now.Day()-i, h, 0, 0, 0, now.Location())
-		_, err := store2.CreateWeightLog(ctx, &WeightLog{
+		_, err := r2.CreateWeightLog(ctx, &WeightLog{
 			UserID:     userID2,
 			MeasuredAt: measuredAt,
 			Weight:     70.0,
@@ -318,7 +292,7 @@ func TestCalculatePreferredWeightReminderHour_Constraints(t *testing.T) {
 		}
 	}
 
-	hour, err = store2.CalculatePreferredWeightReminderHour(ctx, userID2)
+	hour, err = r2.CalculatePreferredWeightReminderHour(ctx, userID2)
 	if err != nil {
 		t.Fatalf("Failed to calculate preferred hour: %v", err)
 	}
@@ -328,24 +302,20 @@ func TestCalculatePreferredWeightReminderHour_Constraints(t *testing.T) {
 }
 
 func TestUpdatePreferredWeightReminderHour(t *testing.T) {
-	store := setupWeightReminderTestDB(t)
-	defer store.Close()
-
+	r := setupWeightRepo(t)
 	userID := int64(12345)
 
 	// Initialize state
-	_, err := store.GetWeightReminderState(userID)
-	if err != nil {
+	if _, err := r.GetWeightReminderState(userID); err != nil {
 		t.Fatalf("Failed to initialize state: %v", err)
 	}
 
 	// Test: Update preferred hour
-	err = store.UpdatePreferredWeightReminderHour(userID, 7)
-	if err != nil {
+	if err := r.UpdatePreferredWeightReminderHour(userID, 7); err != nil {
 		t.Fatalf("Failed to update preferred hour: %v", err)
 	}
 
-	state, err := store.GetWeightReminderState(userID)
+	state, err := r.GetWeightReminderState(userID)
 	if err != nil {
 		t.Fatalf("Failed to get state: %v", err)
 	}
@@ -356,8 +326,7 @@ func TestUpdatePreferredWeightReminderHour(t *testing.T) {
 }
 
 func TestGetUsersForWeightReminders(t *testing.T) {
-	store := setupWeightReminderTestDB(t)
-	defer store.Close()
+	r := setupWeightRepo(t)
 
 	// Create multiple users with different states
 	users := []struct {
@@ -370,14 +339,13 @@ func TestGetUsersForWeightReminders(t *testing.T) {
 	}
 
 	for _, u := range users {
-		err := store.SetWeightReminderEnabled(u.id, u.enabled)
-		if err != nil {
+		if err := r.SetWeightReminderEnabled(u.id, u.enabled); err != nil {
 			t.Fatalf("Failed to set enabled for user %d: %v", u.id, err)
 		}
 	}
 
 	// Test: Get users with reminders enabled
-	userIDs, err := store.GetUsersForWeightReminders()
+	userIDs, err := r.GetUsersForWeightReminders()
 	if err != nil {
 		t.Fatalf("Failed to get users: %v", err)
 	}
@@ -411,25 +379,21 @@ func TestGetUsersForWeightReminders(t *testing.T) {
 }
 
 func TestUpdateWeightReminderNotificationSent(t *testing.T) {
-	store := setupWeightReminderTestDB(t)
-	defer store.Close()
-
+	r := setupWeightRepo(t)
 	userID := int64(12345)
 
 	// Initialize state
-	_, err := store.GetWeightReminderState(userID)
-	if err != nil {
+	if _, err := r.GetWeightReminderState(userID); err != nil {
 		t.Fatalf("Failed to initialize state: %v", err)
 	}
 
 	// Test: Update notification sent
 	messageID := 98765
-	err = store.UpdateWeightReminderNotificationSent(userID, &messageID)
-	if err != nil {
+	if err := r.UpdateWeightReminderNotificationSent(userID, &messageID); err != nil {
 		t.Fatalf("Failed to update notification sent: %v", err)
 	}
 
-	state, err := store.GetWeightReminderState(userID)
+	state, err := r.GetWeightReminderState(userID)
 	if err != nil {
 		t.Fatalf("Failed to get state: %v", err)
 	}
