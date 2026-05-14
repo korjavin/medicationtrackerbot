@@ -105,6 +105,21 @@ const ALLOWED_GLOBALS = new Set([
     'window.commitAuthoritativeWeightUnit', // features/weight-unit-state.js — backwards-compat shim around WeightUnitState.commitAuthoritative; called by features/weight.js after an out-of-band modal-side PATCH succeeds so a later Settings PATCH failure doesn't revert UI to a stale unit
     'window.setWeightUnitPreference',   // features/weight-unit-state.js — backwards-compat shim around WeightUnitState.setPreference; features/weight.js modal-submit routes through it (with reload:false) so a concurrent Settings click and modal inference cannot land at the server in arrival order opposite to the user's click order
 
+    // Auth + bootstrap hydration — extracted from app.js (Plan 2026-05-13, Task 3).
+    'window.AuthBootstrap',                 // features/auth-bootstrap.js — namespace exposing applyBootstrapPayload, verifyAuthInBackground, clearSwBootstrapCache, bootstrapURL, hydrateFeatureSettingsFromBundle, hydrateMedicationsFromDexie, hydrateSectionsFromDexie, cacheApiSnapshot, normalizeSettingsBundle. checkAuth() in app.js orchestrates these.
+    'window.medications',                   // features/auth-bootstrap.js — explicit mirror of the `var medications = []` global declared by app.js (line 612). applyBootstrapPayload and hydrateMedicationsFromDexie write here so features/meds.js (and any feature that reads the bare `medications` identifier) sees the new list before the cross-script var binding is observed.
+    'window.initialAuthLoad',               // features/auth-bootstrap.js — explicit mirror of the `var initialAuthLoad = false` global declared by app.js (line 14). applyBootstrapPayload + hydrateMedicationsFromDexie flip this to `true` so features/meds.js's "first-paint after auth" guard fires once and only once.
+    'window.SettingsState',                 // features/auth-bootstrap.js — closure-private reducer that owns featureSettings + featureSettingsLoaded; collapses the three-writer race (bootstrap, /api/init, Dexie hydration) behind applyBootstrapFeatures (fresh-data wins, marks loaded=true), applyDexieFeatures (skipped once loaded=true so stale-cache cannot stomp), setFeature (per-toggle update), getFeatureSettings, isLoaded.
+    'window.applyBootstrapPayload',         // features/auth-bootstrap.js — backwards-compat shim for tests + features/bootstrap.js that call it by name.
+    'window.verifyAuthInBackground',        // features/auth-bootstrap.js — backwards-compat shim for tests that call it by name.
+    'window.clearSwBootstrapCache',         // features/auth-bootstrap.js — backwards-compat shim; app.js's checkAuth orchestrator calls it during hard auth rejection.
+    'window.bootstrapURL',                  // features/auth-bootstrap.js — backwards-compat shim; checkAuth uses it via bare lookup.
+    'window.hydrateFeatureSettingsFromBundle', // features/auth-bootstrap.js — backwards-compat shim; checkAuth's no-bootstrap fallback path uses it.
+    'window.hydrateMedicationsFromDexie',   // features/auth-bootstrap.js — backwards-compat shim for tests that call it by name + checkAuth preflight.
+    'window.hydrateSectionsFromDexie',      // features/auth-bootstrap.js — backwards-compat shim for tests that call it by name + checkAuth preflight.
+    'window.cacheApiSnapshot',              // features/auth-bootstrap.js — backwards-compat shim consumed by cached-fetch.js (looks it up at call time) so the bootstrap-cache plumbing keeps working after the extraction.
+    'window.normalizeSettingsBundle',       // features/auth-bootstrap.js — backwards-compat shim consumed by tests (app.unit.test.js asserts shape) and loadSettings() in app.js.
+
     // Workout split (2026-05-13: features/workout.js → features/workout/*.js).
     // Each split file exposes a single public-API namespace on window; the
     // shared editing-form state for the legacy 6 "currently editing" globals

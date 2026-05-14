@@ -161,7 +161,7 @@ and recommended-priority item #6.
 
 ### Task 3: Extract `features/auth-bootstrap.js`
 
-- [ ] create `web/static/js/features/auth-bootstrap.js` containing:
+- [x] create `web/static/js/features/auth-bootstrap.js` containing:
   - `verifyAuthInBackground` (`app.js:353`)
   - `clearSwBootstrapCache` (`app.js:379`)
   - `bootstrapURL` (`app.js:394`)
@@ -171,21 +171,21 @@ and recommended-priority item #6.
   - `applyBootstrapPayload` (the full hydration function)
   - `cacheApiSnapshot` (`app.js:37`)
   - `normalizeSettingsBundle` (`app.js:50`)
-- [ ] expose as `window.AuthBootstrap.{...}`
-- [ ] keep `checkAuth()` in `app.js` for now — it orchestrates the
+- [x] expose as `window.AuthBootstrap.{...}`
+- [x] keep `checkAuth()` in `app.js` for now — it orchestrates the
   above and is the entry point; extracting it later
-- [ ] **important**: `featureSettings` and `featureSettingsLoaded`
+- [x] **important**: `featureSettings` and `featureSettingsLoaded`
   must move into the new file as a small `window.SettingsState`
   reducer with `getFeatureSettings()`, `applyBootstrapFeatures(flags)`,
   `applyDexieFeatures(flags)`, `isLoaded()` — three writers race today
   (lines 226-230, 341-345, 414-420), so a single owning module ends
   the race
-- [ ] update `app.js` to delegate
-- [ ] write tests in `web/static/js/tests/features.auth-bootstrap.test.js`
+- [x] update `app.js` to delegate
+- [x] write tests in `web/static/js/tests/features.auth-bootstrap.test.js`
   covering: bootstrap-then-Dexie-hydration order is idempotent;
   Dexie hydration after bootstrap does not stomp fresh values;
   `verifyAuthInBackground` triggers reload on 4xx, swallows on 5xx
-- [ ] run `pnpm test features.auth-bootstrap app.` — must pass
+- [x] run `pnpm test features.auth-bootstrap app.` — must pass
 
 ### Task 4: Extract `features/push-modal.js`
 
