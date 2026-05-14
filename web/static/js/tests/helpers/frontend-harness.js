@@ -36,7 +36,19 @@ const DATA_STORE_JS = path.join(REPO_ROOT, 'web/static/js/data-store.js');
 const APP_JS = path.join(REPO_ROOT, 'web/static/js/app.js');
 const MEDS_JS = path.join(REPO_ROOT, 'web/static/js/features/meds.js');
 const FOOD_PHOTO_SUMMARY_JS = path.join(REPO_ROOT, 'web/static/js/features/food-photo-summary.js');
-const FOOD_JS = path.join(REPO_ROOT, 'web/static/js/features/food.js');
+// features/food.js was split into per-concern sub-files under
+// features/food/ (2026-05-13). The harness loads them in dependency order:
+// products.js first (decodeFoodDisplayText / renderFoodAutocomplete shared
+// utilities used by log.js + meals.js + db.js), then scanner.js + photo.js,
+// then log.js (the daily-log + targets + modal lifecycle), then meals.js +
+// db.js (My Meals + Food DB browse), and finally index.js (orchestrator).
+const FOOD_PRODUCTS_JS = path.join(REPO_ROOT, 'web/static/js/features/food/products.js');
+const FOOD_SCANNER_JS = path.join(REPO_ROOT, 'web/static/js/features/food/scanner.js');
+const FOOD_PHOTO_JS = path.join(REPO_ROOT, 'web/static/js/features/food/photo.js');
+const FOOD_LOG_JS = path.join(REPO_ROOT, 'web/static/js/features/food/log.js');
+const FOOD_MEALS_JS = path.join(REPO_ROOT, 'web/static/js/features/food/meals.js');
+const FOOD_DB_JS = path.join(REPO_ROOT, 'web/static/js/features/food/db.js');
+const FOOD_INDEX_JS = path.join(REPO_ROOT, 'web/static/js/features/food/index.js');
 const BP_JS = path.join(REPO_ROOT, 'web/static/js/features/bp.js');
 const WEIGHT_JS = path.join(REPO_ROOT, 'web/static/js/features/weight.js');
 const AUTH_FLOW_JS = path.join(REPO_ROOT, 'web/static/js/features/auth-flow.js');
@@ -206,7 +218,17 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   // Feature modules extracted from app.js (meds, food, bp, weight, health).
   evalFileCached(window, MEDS_JS);
   evalFileCached(window, FOOD_PHOTO_SUMMARY_JS);
-  evalFileCached(window, FOOD_JS);
+  // Order matters: products.js defines decodeFoodDisplayText /
+  // renderFoodAutocomplete which the other food sub-files reference; the
+  // orchestrator (index.js) is loaded last because its bindFoodControls IIFE
+  // wires handlers that live in those siblings.
+  evalFileCached(window, FOOD_PRODUCTS_JS);
+  evalFileCached(window, FOOD_SCANNER_JS);
+  evalFileCached(window, FOOD_PHOTO_JS);
+  evalFileCached(window, FOOD_LOG_JS);
+  evalFileCached(window, FOOD_MEALS_JS);
+  evalFileCached(window, FOOD_DB_JS);
+  evalFileCached(window, FOOD_INDEX_JS);
   evalFileCached(window, BP_JS);
   evalFileCached(window, WEIGHT_JS);
   evalFileCached(window, HEALTH_JS);

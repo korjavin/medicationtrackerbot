@@ -88,12 +88,12 @@ const ALLOWED_GLOBALS = new Set([
     'window.saveTabOrder',              // app.js — persists Today card order to DB
     'window.featureSettingsLoaded',     // app.js — flag: settings have been fetched at least once
     'window.switchTab',                 // app.js — top-level tab switcher (becomes window.switchTab via global scope)
-    'window.FoodActions',               // features/food.js — namespace exposing the food-photo picker (triggerPhotoPicker) so the Today shortcut tile can open it without first navigating to the Food section
-    'window.foodTargets',               // features/food.js — ephemeral cache of food macro targets
-    'window.loadFoodTargets',           // features/food.js — SWR loader for /api/food/settings/targets
-    'window.saveFoodTargets',           // features/food.js — POSTs updated food targets to backend
+    'window.FoodActions',               // features/food/photo.js — namespace exposing the food-photo picker (triggerPhotoPicker) so the Today shortcut tile can open it without first navigating to the Food section
+    'window.foodTargets',               // features/food/log.js — ephemeral cache of food macro targets (defineProperty getter/setter into the log.js closure)
+    'window.loadFoodTargets',           // features/food/log.js — SWR loader for /api/food/settings/targets
+    'window.saveFoodTargets',           // features/food/log.js — POSTs updated food targets to backend
     'window.safeAlert',                 // core/utils.js — wrapped alert used after save actions
-    'window.loadFoodLogs',              // features/food.js — triggers food log reload after target save
+    'window.loadFoodLogs',              // features/food/log.js — triggers food log reload after target save
     'window.toggleFeatureSetting',      // app.js — toggles a single feature flag via API
     'window.loadSettings',              // app.js — loads all settings subsections in parallel
     'window.weightUnitPreference',      // app.js / features/weight.js — user's preferred weight display unit ('kg' or 'lb'); hydrated from /api/bootstrap, read synchronously by the weight modal on open, written back via PATCH /api/settings/weight-unit when the user submits in a different unit
@@ -117,6 +117,18 @@ const ALLOWED_GLOBALS = new Set([
     'window.WorkoutSessionsState',      // features/workout/sessions.js — closure-private session-modal state (logs / data / originalStatus) exposed via getter/setter
     'window.WorkoutStats',              // features/workout/stats.js — stats sub-tab public API
     'window.WorkoutNextCard',           // features/workout/next-card.js — next-workout card public API
+
+    // Food split (2026-05-13: features/food.js → features/food/*.js).
+    // Each split file exposes a single public-API namespace on window; the
+    // closure-private state from the original food.js (foodProductsCache,
+    // foodScannerStream, currentFoodLogs, foodTargets, foodDBPage, etc.) is
+    // consolidated on these namespaces via getter/setter accessors.
+    'window.FoodLog',                   // features/food/log.js — daily food log + edit modal + targets public API
+    'window.FoodProducts',              // features/food/products.js — product search + cache + autocomplete public API
+    'window.FoodScanner',               // features/food/scanner.js — barcode/QR scanner modal public API
+    'window.FoodPhoto',                 // features/food/photo.js — food photo capture + EXIF + undo public API
+    'window.FoodMeals',                 // features/food/meals.js — My Meals list + save-as-meal flow public API
+    'window.FoodDB',                    // features/food/db.js — Food DB browse + paginate public API
 ]);
 
 /**

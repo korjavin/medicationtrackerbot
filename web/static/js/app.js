@@ -1074,13 +1074,12 @@ document.getElementById('bp-diastolic').addEventListener('input', function (e) {
 // State
 var medications = [];
 var editingMedId = null;
-var currentFoodLogs = {};
-var foodTargets = {
-    calories: 0,
-    carbs: 0,
-    protein: 0,
-    fat: 0
-};
+// `currentFoodLogs` and `foodTargets` previously lived here as top-level
+// `var` declarations. They moved to features/food/log.js as part of the
+// food.js split (2026-05-13). `currentFoodLogs` is now closure-private and
+// accessed via window.FoodLog.getCurrent(); `foodTargets` is exposed on
+// window via Object.defineProperty so existing readers (bundle hydration
+// below, settings save flow) keep working without a duplicate declaration.
 let featureSettings = {
     food: false,
     bp: true,

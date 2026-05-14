@@ -158,38 +158,38 @@ app.js!), `currentFoodStatsPeriod`, etc. — 23 total.
 
 ### Task 2: Carve `features/food.js` into sub-files
 
-- [ ] create `web/static/js/features/food/` directory; move
+- [x] create `web/static/js/features/food/` directory; move
   `features/food.js` → `features/food/index.js` as orchestrator
   (day-nav + macros-toggle binding)
-- [ ] extract `features/food/log.js` — daily food log
+- [x] extract `features/food/log.js` — daily food log
   (loadFoodLogs, addFoodLog, editFoodLog, deleteFoodLog,
   closeFoodModal); expose as `window.FoodLog`
-- [ ] extract `features/food/products.js` — product search (the
+- [x] extract `features/food/products.js` — product search (the
   streaming `searchFoodProducts`, `foodSearchTimeout` /
   `foodSearchRequestId` state lives in this file's closure); expose
   as `window.FoodProducts`
-- [ ] extract `features/food/scanner.js` — barcode scanner modal
+- [x] extract `features/food/scanner.js` — barcode scanner modal
   (startFoodScanner, stopFoodScanner, setFoodScannerStatus); expose
   as `window.FoodScanner`
-- [ ] extract `features/food/photo.js` — food photo capture entry
+- [x] extract `features/food/photo.js` — food photo capture entry
   point (does NOT swallow `food-photo-summary.js`; remains a coordinator
   between this file and the existing summary helper); expose as
   `window.FoodPhoto`
-- [ ] extract `features/food/meals.js` — My Meals section + save-as-
+- [x] extract `features/food/meals.js` — My Meals section + save-as-
   meal flow; expose as `window.FoodMeals`
-- [ ] extract `features/food/db.js` — Food DB browse panel; expose
+- [x] extract `features/food/db.js` — Food DB browse panel; expose
   as `window.FoodDB`
-- [ ] **eliminate `currentFoodLogs` duplicate** between
+- [x] **eliminate `currentFoodLogs` duplicate** between
   `app.js:1079` and `features/food.js`; canonical location =
   `features/food/log.js` closure, accessed via `window.FoodLog.getCurrent()`;
   delete the `app.js` `var`
-- [ ] update `web/static/index.html` and `web/static/sw.js`
+- [x] update `web/static/index.html` and `web/static/sw.js`
   `STATIC_ASSETS`
-- [ ] update `architecture.globals.test.js` allowlist
-- [ ] write `web/static/js/tests/features.food-log.test.js`,
+- [x] update `architecture.globals.test.js` allowlist
+- [x] write `web/static/js/tests/features.food-log.test.js`,
   `features.food-products.test.js`, etc. — focused per-file
-- [ ] verify existing `food.*.test.js` tests still pass
-- [ ] run `pnpm test food.` — must pass before next task
+- [x] verify existing `food.*.test.js` tests still pass
+- [x] run `pnpm test food.` — must pass before next task
 
 ### Task 3: Wire architecture test
 
