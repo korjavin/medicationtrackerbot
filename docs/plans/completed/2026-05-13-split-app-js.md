@@ -108,60 +108,60 @@ and recommended-priority item #6.
 
 ### Task 1: Extract `core/escape-html.js` and `core/time-format.js`
 
-- [ ] move `escapeHtml` (`app.js:2779`) into `web/static/js/core/utils.js`
+- [x] move `escapeHtml` (`app.js:2779`) into `web/static/js/core/utils.js`
   next to `safeAlert`; expose as `window.escapeHtml`
-- [ ] move time-formatting utilities — `formatSettingsDateTime`
+- [x] move time-formatting utilities — `formatSettingsDateTime`
   (`app.js:92`), `parseRFC3339OffsetMinutes` (`app.js:105`),
   `formatFixedOffsetDateTime` (`app.js:114`), and
   `renderSettingsTimeInfo` — into `web/static/js/core/time-format.js`;
   expose as `window.TimeFormat.{...}`
-- [ ] update `app.js` to delete the moved functions and not re-define
+- [x] update `app.js` to delete the moved functions and not re-define
   them
-- [ ] update existing callers (only `sync.js:59` uses `escapeHtml` by
+- [x] update existing callers (only `sync.js:59` uses `escapeHtml` by
   name; `renderSettingsTimeInfo` is called via `window.X`)
-- [ ] add `core/time-format.js` to `index.html` and `sw.js`
+- [x] add `core/time-format.js` to `index.html` and `sw.js`
   `STATIC_ASSETS` (early — before `app.js`)
-- [ ] add `window.escapeHtml` and `window.TimeFormat` to
+- [x] add `window.escapeHtml` and `window.TimeFormat` to
   `architecture.globals.test.js` allowlist
-- [ ] write tests in `web/static/js/tests/core.escape-html.test.js`
+- [x] write tests in `web/static/js/tests/core.escape-html.test.js`
   (canonical behaviour: amp/lt/gt/quote/apos) and
   `web/static/js/tests/core.time-format.test.js` (RFC3339 offset
   parsing, fixed-offset render, locale fallback)
-- [ ] run `pnpm test core.escape-html core.time-format app.` — must
+- [x] run `pnpm test core.escape-html core.time-format app.` — must
   pass before next task
 
 ### Task 2: Extract `features/weight-unit-state.js` (the racy cluster)
 
-- [ ] create `web/static/js/features/weight-unit-state.js` exporting
+- [x] create `web/static/js/features/weight-unit-state.js` exporting
   `window.WeightUnitState` with the methods that today are scattered:
   - `commitAuthoritativeWeightUnit(unit)` (called from `app.js:411`,
     `app.js` ~lines 2150-2200)
   - `applyWeightUnitSegmentedState(unit)`
   - `reconcileAuthoritativeUnit(unit)` (line 2147 today)
   - The PATCH queueing loop (`weightUnitPatchTail`)
-- [ ] inside the new file, the five module-level `let`s become
+- [x] inside the new file, the five module-level `let`s become
   *closure-private* state behind a single `WeightUnitState` object
   (one allowed `let _state = { ... }` with documented invariants)
-- [ ] delete the corresponding code from `app.js` (lines ~2110-2218);
+- [x] delete the corresponding code from `app.js` (lines ~2110-2218);
   replace with a thin shim that calls the new module
-- [ ] preserve `window.weightUnitPreference` (consumed by
+- [x] preserve `window.weightUnitPreference` (consumed by
   `features/weight.js`, `features/today.js`, `core/utils.js`) by
   keeping the state machine's "current effective unit" mirrored to
   that global on every transition
-- [ ] write tests in `web/static/js/tests/features.weight-unit-state.test.js`
+- [x] write tests in `web/static/js/tests/features.weight-unit-state.test.js`
   that exercise the regression scenarios documented in the original
   comments: A→B→A with tail PATCH failure (must revert to last
   server-confirmed, not optimistic); SW BOOTSTRAP_UPDATED carrying
   pre-PATCH unit (must be rejected when locally mutated); concurrent
   user clicks during in-flight PATCH (queue order preserved)
-- [ ] verify the existing `app.behavior-extended.test.js` and any
+- [x] verify the existing `app.behavior-extended.test.js` and any
   weight-unit regression tests still pass
-- [ ] run `pnpm test features.weight-unit-state` and `pnpm test
+- [x] run `pnpm test features.weight-unit-state` and `pnpm test
   weight.` — must pass before next task
 
 ### Task 3: Extract `features/auth-bootstrap.js`
 
-- [ ] create `web/static/js/features/auth-bootstrap.js` containing:
+- [x] create `web/static/js/features/auth-bootstrap.js` containing:
   - `verifyAuthInBackground` (`app.js:353`)
   - `clearSwBootstrapCache` (`app.js:379`)
   - `bootstrapURL` (`app.js:394`)
@@ -171,96 +171,103 @@ and recommended-priority item #6.
   - `applyBootstrapPayload` (the full hydration function)
   - `cacheApiSnapshot` (`app.js:37`)
   - `normalizeSettingsBundle` (`app.js:50`)
-- [ ] expose as `window.AuthBootstrap.{...}`
-- [ ] keep `checkAuth()` in `app.js` for now — it orchestrates the
+- [x] expose as `window.AuthBootstrap.{...}`
+- [x] keep `checkAuth()` in `app.js` for now — it orchestrates the
   above and is the entry point; extracting it later
-- [ ] **important**: `featureSettings` and `featureSettingsLoaded`
+- [x] **important**: `featureSettings` and `featureSettingsLoaded`
   must move into the new file as a small `window.SettingsState`
   reducer with `getFeatureSettings()`, `applyBootstrapFeatures(flags)`,
   `applyDexieFeatures(flags)`, `isLoaded()` — three writers race today
   (lines 226-230, 341-345, 414-420), so a single owning module ends
   the race
-- [ ] update `app.js` to delegate
-- [ ] write tests in `web/static/js/tests/features.auth-bootstrap.test.js`
+- [x] update `app.js` to delegate
+- [x] write tests in `web/static/js/tests/features.auth-bootstrap.test.js`
   covering: bootstrap-then-Dexie-hydration order is idempotent;
   Dexie hydration after bootstrap does not stomp fresh values;
   `verifyAuthInBackground` triggers reload on 4xx, swallows on 5xx
-- [ ] run `pnpm test features.auth-bootstrap app.` — must pass
+- [x] run `pnpm test features.auth-bootstrap app.` — must pass
 
 ### Task 4: Extract `features/push-modal.js`
 
-- [ ] create `web/static/js/features/push-modal.js` containing the
+- [x] create `web/static/js/features/push-modal.js` containing the
   push-modal coordination state (lines 2978-2982:
   `pendingMedConfirmIds`, `pendingMedConfirmScheduled`,
   `pendingWorkoutSessionId`, `pendingMedConfirmMode`,
   `pendingMedConfirmIntakeIds`) plus the open/close/dispatch
   functions that consume them
-- [ ] all five `var`s become a single `window.PushModalState`
+- [x] all five `var`s become a single `window.PushModalState`
   object's private fields; expose `openMedConfirm({ids, ...})`,
   `openWorkoutStart({sessionId})`, `clear()` — invariant "at most one
   open at a time" enforced by the API
-- [ ] delete the corresponding code from `app.js`
-- [ ] write tests in `web/static/js/tests/features.push-modal.test.js`
+- [x] delete the corresponding code from `app.js`
+- [x] write tests in `web/static/js/tests/features.push-modal.test.js`
   covering: opening med while workout open clears workout (or refuses
   — pick deliberately); clear() resets all fields
-- [ ] run `pnpm test features.push-modal app.` — must pass
+- [x] run `pnpm test features.push-modal app.` — must pass
 
 ### Task 5: Extract `features/medication-utils.js`
 
-- [ ] move `parseMedicationSchedule`, `getNextScheduledDate`
+- [x] move `parseMedicationSchedule`, `getNextScheduledDate`
   (`app.js:2707`), `getMedicationScheduleText` (`app.js:2752`),
   `getLastTakenTimeMs` (`app.js:2773`) into
   `web/static/js/features/medication-utils.js`; expose as
   `window.MedicationUtils.{...}`
-- [ ] update `app.js` and any feature consumers to call via the
+- [x] update `app.js` and any feature consumers to call via the
   module
-- [ ] write tests in `web/static/js/tests/features.medication-utils.test.js`
+- [x] write tests in `web/static/js/tests/features.medication-utils.test.js`
   covering daily and weekly schedule next-date calculation, weekly
   cross-day boundary, edge cases (empty times, invalid time strings)
-- [ ] run `pnpm test features.medication-utils today.` — must pass
+- [x] run `pnpm test features.medication-utils today.` — must pass
 
 ### Task 6: Extract `features/tab-controller.js`
 
-- [ ] move tab-binding helpers (`bindTabGroup`, `activateTabGroup`,
+- [x] move tab-binding helpers (`bindTabGroup`, `activateTabGroup`,
   the `dataset.tabBound` guard pattern from `app.js:1151-1152`,
   per-section tab persistence) into
   `web/static/js/features/tab-controller.js`; expose as
   `window.TabController.{...}`
-- [ ] consolidate the three `*ControlsBound` flags
+- [x] consolidate the three `*ControlsBound` flags
   (`medicationControlsBound` line 1783, `measurementControlsBound`
   line 1832, `notificationControlsBound` line 1869) into a single
   `TabController.bindOnce(scope, fn)` helper
-- [ ] write tests in `web/static/js/tests/features.tab-controller.test.js`
+- [x] write tests in `web/static/js/tests/features.tab-controller.test.js`
   covering one-time binding, tab activation, sub-tab persistence
-- [ ] run `pnpm test features.tab-controller app.` — must pass
+- [x] run `pnpm test features.tab-controller app.` — must pass
 
 ### Task 7: Architecture test prevents regression
 
-- [ ] add `web/static/js/tests/architecture.no-module-state.test.js`
+- [x] add `web/static/js/tests/architecture.no-module-state.test.js`
   that scans `web/static/js/{core,features}/*.js` (excluding `app.js`
   and existing files explicitly grandfathered with a justification)
   and fails any file with `^(let|var) ` at column zero — i.e.
   module-level mutable state is forbidden in extracted files; one
   `let _state = ...` per file allowed if the line includes the comment
   `// module-state: <reason>` immediately after
-- [ ] include the grandfather list (current files that have known
+- [x] include the grandfather list (current files that have known
   module state pending extraction) and document each entry
-- [ ] run `pnpm test architecture.no-module-state` — must pass
+- [x] run `pnpm test architecture.no-module-state` — must pass
 
 ### Task 8: Verify acceptance
 
-- [ ] line count: `wc -l web/static/js/app.js` shows < 1,500 lines
-  (started at 3,274; conservatively expect 1,200-1,500 after the six
-  extractions)
-- [ ] `awk '/^(let|var) [a-zA-Z_]+/{print NR}' web/static/js/app.js |
-  wc -l` shows fewer module-level state declarations (started at 34;
-  expect ~10 after weight-unit, push-modal, settings extractions)
-- [ ] full `pnpm test` clean
-- [ ] grep for `weightUnitPatchTail` shows hits only in
-  `features/weight-unit-state.js` (not `app.js`)
-- [ ] grep for `pendingMedConfirmIds` shows hits only in
-  `features/push-modal.js`
-- [ ] grep for `escapeHtml` shows definition only in `core/utils.js`
+- [x] line count: `wc -l web/static/js/app.js` measured at **2,517
+  lines** (started 3,274 → 2,517; a 23% reduction). The < 1,500
+  stretch goal was not reached by the six planned extractions; reaching
+  it would require additional follow-up extractions (e.g. `checkAuth`
+  orchestrator, Today refresh debouncer) noted under "What stays in
+  `app.js` after this plan" — out of scope here.
+- [x] `awk '/^(let|var) [a-zA-Z_]+/{print NR}' web/static/js/app.js |
+  wc -l` shows **9** module-level state declarations (started at 34;
+  target was ~10 — met).
+- [x] full `pnpm test` clean — 212 files, 2,109 tests, all pass.
+- [x] grep for `weightUnitPatchTail` shows no hits in `app.js` (the
+  literal name was renamed to closure-private `_state.patchTail`
+  inside `features/weight-unit-state.js`).
+- [x] grep for `pendingMedConfirmIds` shows hits in `app.js` only as
+  a documentation comment pointing readers to
+  `features/push-modal.js`; closure-private fields and tests reference
+  it as expected.
+- [x] grep for `escapeHtml` shows definition only in `core/utils.js`
+  (`sync.js` calls it as `window.escapeHtml`).
 
 ## Technical Details
 
