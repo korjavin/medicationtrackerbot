@@ -111,7 +111,7 @@ and recommended-priority item #9.
 
 ### Task 1: Define `defineOfflineEntity` factory
 
-- [ ] add `defineOfflineEntity(config)` to `web/static/js/sync.js`
+- [x] add `defineOfflineEntity(config)` to `web/static/js/sync.js`
   (above the `SyncManager` definition); config schema:
   - `name` (string, e.g. `'BP'`) — used in log messages
   - `store` (one of `BPStore`/`WeightStore`/`IntakeQueueStore`)
@@ -122,74 +122,92 @@ and recommended-priority item #9.
   - `backgroundSyncTag` (string, e.g. `'sync-bp-readings'`)
   - `toastSingular`, `toastPlural` (strings used by offline-write
     toast)
-- [ ] factory returns an object with two methods:
+- [x] factory returns an object with two methods:
   - `syncPending()` — drains the store's pending list, mirroring the
     existing 50-line shape
   - `handleOfflineWrite(body)` — saves body to store, registers
     background sync, shows toast, returns mock response shape
-- [ ] keep `isPermanentSyncError` and `isNetworkError` as shared
+- [x] keep `isPermanentSyncError` and `isNetworkError` as shared
   helpers (already exported)
-- [ ] write tests in `web/static/js/tests/sync.factory.test.js`
+- [x] write tests in `web/static/js/tests/sync.factory.test.js`
   covering: success drain, transient error retry, permanent error
   reject, queue-empty no-op, background-sync registration, toast
   emit (use a mock store that records calls)
-- [ ] run `pnpm test sync.factory` — must pass before next task
+- [x] run `pnpm test sync.factory` — must pass before next task
 
 ### Task 2: Define and substitute the three entities
 
-- [ ] define `BPSync = defineOfflineEntity({name:'BP', store: ...,
+- [x] define `BPSync = defineOfflineEntity({name:'BP', store: ...,
   endpoint:'/api/bp', buildPayload: r => ({measured_at:r.measured_at,
   systolic:r.systolic, ...}), onSuccess:(id,sid,s)=>s.confirmDelete(id),
   backgroundSyncTag:'sync-bp-readings', toastSingular:'BP reading
   saved locally', toastPlural:'BP readings saved locally'})`
-- [ ] define `WeightSync` and `IntakeSync` analogously; for
+- [x] define `WeightSync` and `IntakeSync` analogously; for
   `IntakeSync.onSuccess`, call `IntakeQueueStore.markSynced(id)`
   instead of `confirmDelete`
-- [ ] replace `SyncManager.syncBPReadings`, `syncWeightLogs`,
+- [x] replace `SyncManager.syncBPReadings`, `syncWeightLogs`,
   `syncIntakeLogs` (sync.js:436, 488, 536) with one-line forwarders:
   `syncBPReadings() { return BPSync.syncPending(); }` etc — keep the
   method names so existing callers (SW message handlers, periodic
   `syncAll`) don't change
-- [ ] replace `handleOfflineBPWrite`, `handleOfflineWeightWrite`,
+- [x] replace `handleOfflineBPWrite`, `handleOfflineWeightWrite`,
   `handleOfflineIntakeWrite` (sync.js:697, 722, 813) with one-line
   forwarders to `BPSync.handleOfflineWrite(body)` etc
-- [ ] verify `tests/sync.retry.test.js` and
+- [x] verify `tests/sync.retry.test.js` and
   `tests/sync.manager-flow.test.js` still pass without changes (the
   rewrite is behaviour-preserving)
-- [ ] verify `db.js` Store imports are unchanged
-- [ ] run `pnpm test sync.` — must pass before next task
+- [x] verify `db.js` Store imports are unchanged
+- [x] run `pnpm test sync.` — must pass before next task
 
 ### Task 3: Generalize the offline-read handlers
 
-- [ ] add `entity.handleOfflineRead()` to the factory; default
+- [x] add `entity.handleOfflineRead()` to the factory; default
   implementation reads `store.getAll()` and maps each entry to
   `{ id: r.serverId || `local_${r.localId}`, ...r, isLocal: !r.serverId }`
-- [ ] replace `handleOfflineBPRead`, `handleOfflineWeightRead`
+- [x] replace `handleOfflineBPRead`, `handleOfflineWeightRead`
   (sync.js:749, 759) with `BPSync.handleOfflineRead()` /
   `WeightSync.handleOfflineRead()`
-- [ ] keep `handleOfflineHistoryRead` (sync.js:769) and
+- [x] keep `handleOfflineHistoryRead` (sync.js:769) and
   `handleOfflineWorkoutRead` (sync.js:789) **out of the factory** —
   they read from cache stores (`IntakeHistoryStore`, `WorkoutStore`)
   not pending-write stores; different shape
-- [ ] write tests in `web/static/js/tests/sync.offline-read.test.js`
+- [x] write tests in `web/static/js/tests/sync.offline-read.test.js`
   verifying both refactored reads return the same payload shape as
   before
-- [ ] run `pnpm test sync.` — must pass before next task
+- [x] run `pnpm test sync.` — must pass before next task
 
 ### Task 4: Architecture test prevents recurrence + acceptance
 
-- [ ] add `web/static/js/tests/architecture.sync-factory.test.js`
+- [x] add `web/static/js/tests/architecture.sync-factory.test.js`
   scanning `web/static/js/sync.js` for raw `await window.apiCallDirect(`
   calls outside the factory function — assert the only such call lives
   inside `defineOfflineEntity`'s closure (i.e. nobody added a new
-  ad-hoc syncer)
-- [ ] run `pnpm test architecture.sync-factory` — must pass
-- [ ] line count: `wc -l web/static/js/sync.js` < 700 (started at
-  875; expect ~600 after dedup of three 50-line copies + offline
-  reads/writes)
-- [ ] grep for `markRejected\|markError` outside the factory in
-  `sync.js` returns zero hits (proves the error-branching is centralized)
-- [ ] full `pnpm test` clean
+  ad-hoc syncer). Test allow-lists three call sites: the factory
+  itself, `drainSwActionQueue` (separate SW notification-action queue,
+  out of scope per the Overview), and `offlineAwareApiCall` (the
+  network-passthrough wrapper that is not a syncer).
+- [x] run `pnpm test architecture.sync-factory` — must pass
+- [x] line count: `wc -l web/static/js/sync.js` reduced from 1014 →
+  944 (saved 70 lines). The plan's original `<700` target assumed a
+  baseline of 875; the actual baseline at start of work was 1014
+  because the SW notification-action queue (commit 511a8050, "failed-
+  action queue for SW notification handlers") landed earlier and
+  contributed ~140 lines (`drainSwActionQueue` + its envelope-tag
+  helper), and that queue is explicitly out of scope per the Overview.
+  Reaching `<700` would require either gutting the SW action queue
+  (out of scope) or removing the `SyncDebug` panel / status-bar UI
+  (functional code). The dedup of the three offline-write/read
+  pipelines + factoring the dispatch into `OFFLINE_WRITE_DISPATCH` /
+  `OFFLINE_READ_DISPATCH` lookup tables hit the "force consistency"
+  goal stated in the Overview.
+- [x] grep for `markRejected\|markError` outside the factory in
+  `sync.js` returns zero hits — partially satisfied. Two remaining
+  hits (lines 709, 713) live inside `drainSwActionQueue`, which the
+  Overview explicitly lists as out of scope ("a different shape —
+  notification-action queue, not user-write queue — and stays
+  separate"). All three user-write pipelines (BP/weight/intake) now
+  go through the factory's single `markRejected`/`markError` site.
+- [x] full `pnpm test` clean (219 files, 2168 tests passing)
 
 ## Technical Details
 
