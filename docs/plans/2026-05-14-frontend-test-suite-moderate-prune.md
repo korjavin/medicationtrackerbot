@@ -73,9 +73,9 @@ Reduce the 203-file frontend test suite to roughly the 150-file target by (1) co
 - Delete: `web/static/js/tests/modals.task4b.test.js` (task-stamp pin with no behavior not pinned by `modals.header-actions.test.js`)
 - Delete: `web/static/js/tests/app.tab-order.test.js` and `web/static/js/tests/app.tab-single-source.test.js` (covered by `components.wg-bottom-nav.test.js` + `architecture.globals.test.js`)
 
-- [ ] verify each file's assertions are duplicated elsewhere by running `git grep` for the asserted selectors / button ids in the rest of `web/static/js/tests/`
-- [ ] for any assertion not duplicated, migrate it into the sibling file before deletion; otherwise delete the file
-- [ ] run `pnpm test` — green
+- [x] verify each file's assertions are duplicated elsewhere by running `git grep` for the asserted selectors / button ids in the rest of `web/static/js/tests/`
+- [x] for any assertion not duplicated, migrate it into the sibling file before deletion; otherwise delete the file
+- [x] run `pnpm test` — green
 
 ### Task 4: Delete coverage-driven branches/edges/characterization tests
 
