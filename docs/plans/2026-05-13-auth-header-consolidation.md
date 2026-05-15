@@ -128,16 +128,24 @@ None of the four sites have a JSON body, so the plain
 
 ### Task 3: Migrate `features/elevenlabs-call.js` and `app.js`
 
-- [ ] replace `headers['X-Telegram-Init-Data'] = window.userInitData`
+- [x] replace `headers['X-Telegram-Init-Data'] = window.userInitData`
   at `features/elevenlabs-call.js:181` with merging
   `makeAuthHeaders()` into the headers object before fetch
-- [ ] replace `headers: { 'X-Telegram-Init-Data': userInitData }` at
+- [x] replace `headers: { 'X-Telegram-Init-Data': userInitData }` at
   `app.js:3241` (multipart photo upload) with
   `headers: makeAuthHeaders()`; preserve existing FormData body
-- [ ] write tests in `web/static/js/tests/elevenlabs.auth-headers.test.js`
+  — note: the multipart photo upload referenced by the original line
+  number had since migrated into `features/food/photo.js` (covered in
+  Task 2). The remaining `X-Telegram-Init-Data` literal in `app.js`
+  was `sendTestMedicationNotification` (`/api/webpush/test-medication`,
+  app.js:2486 after the split), which is what this checkbox actually
+  migrated.
+- [x] write tests in `web/static/js/tests/elevenlabs.auth-headers.test.js`
   and add a case to `app.unit.test.js` (or appropriate existing app
   test) verifying header construction
-- [ ] run `pnpm test elevenlabs.auth-headers` and `pnpm test app.` —
+  — added to `app.gestures-and-notifications.test.js` (the existing
+  home for `sendTestMedicationNotification` coverage).
+- [x] run `pnpm test elevenlabs.auth-headers` and `pnpm test app.` —
   must pass before next task
 
 ### Task 4: Migrate CSV-export call sites and drop `Authorization: tma`
