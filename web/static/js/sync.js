@@ -748,7 +748,7 @@ const SyncManager = {
 
 // Offline-aware API call wrapper
 // This replaces the original apiCall function with offline support
-async function offlineAwareApiCall(endpoint, method = "GET", body = null) {
+async function offlineAwareApiCall(endpoint, method = "GET", body = null, opts = {}) {
     const isWrite = method === 'POST' || method === 'PUT' || method === 'DELETE';
 
     SyncDebug.info(`API: ${method} ${endpoint}`, { online: SyncManager.isOnline, isWrite });
@@ -776,7 +776,7 @@ async function offlineAwareApiCall(endpoint, method = "GET", body = null) {
     // Try the network request
     try {
         SyncDebug.info('Sending to network...', { endpoint });
-        const result = await window.apiCallDirect(endpoint, method, body);
+        const result = await window.apiCallDirect(endpoint, method, body, opts);
         SyncDebug.info('Network response OK', { endpoint, hasResult: !!result });
 
         // Return the server response directly
@@ -976,6 +976,11 @@ async function handleOfflineIntakeWrite(body) {
 // Check if error is a network error or server unavailable
 function isNetworkError(err) {
     if (!err) return false;
+    // AbortController timeouts (and caller-signal aborts) thrown by
+    // apiCallDirect indicate the request never reached a usable backend
+    // response. Treat them like other network failures so the offline
+    // write queue / cached read fallback engage on stalled networks.
+    if (err.aborted === true || err.name === 'AbortError' || err.name === 'TimeoutError') return true;
     // All fetch API network failures are TypeErrors; when the browser
     // reports offline, treat any TypeError as a network error regardless
     // of the message text (different browsers/WebViews use different wording).

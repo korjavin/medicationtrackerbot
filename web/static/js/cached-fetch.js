@@ -40,6 +40,12 @@
 
     function looksLikeNetworkError(err) {
         if (!err) return false;
+        // Caller-driven aborts (timeouts, signal cancellations) are expected
+        // and silent — the foreground caller already has the cached payload
+        // and there's nothing for an operator to act on.
+        if (err.aborted === true || err.name === 'AbortError' || err.name === 'TimeoutError') {
+            return true;
+        }
         // Prefer the canonical isServerError helper (sync.js) when loaded so
         // the 5xx-as-offline policy stays defined in one place. Fall back to
         // an inline detector when sync.js hasn't loaded yet (early boot, tests
@@ -101,7 +107,17 @@
         }
         const method = (fetchOpts && fetchOpts.method) || 'GET';
         const body = (fetchOpts && fetchOpts.body) || null;
-        const raw = await direct(url, method, body);
+        // Only build a 4th opts arg when something is set — leaving it off
+        // preserves the existing 3-arg call shape that tests assert against
+        // and keeps `apiCallDirect`'s default timeout behaviour intact.
+        const hasTimeout = fetchOpts && Number.isFinite(fetchOpts.timeoutMs);
+        const hasSignal = fetchOpts && fetchOpts.signal;
+        const raw = (hasTimeout || hasSignal)
+            ? await direct(url, method, body, {
+                ...(hasTimeout ? { timeoutMs: fetchOpts.timeoutMs } : {}),
+                ...(hasSignal ? { signal: fetchOpts.signal } : {})
+            })
+            : await direct(url, method, body);
         return typeof transform === 'function' ? transform(raw) : raw;
     }
 
@@ -165,8 +181,15 @@
             staleAfterMs = 24 * 60 * 60 * 1000,
             transform,
             fetchOpts,
+            timeoutMs,
             now = Date.now()
         } = opts;
+
+        // Thread a caller-supplied timeoutMs through to apiCallDirect via
+        // fetchOpts. When unspecified, apiCallDirect's 60s default applies.
+        const effectiveFetchOpts = Number.isFinite(timeoutMs)
+            ? { ...(fetchOpts || {}), timeoutMs }
+            : fetchOpts;
 
         // Resolve the tag list. An inline `opts.tags` arg overrides the
         // registry — useful for one-off keys not enumerated in
@@ -189,7 +212,7 @@
         if (online && cached) {
             if (!cachedIsFresh) {
                 queueMicrotask(() => {
-                    performAndCacheFetch(key, url, fetchOpts, transform, tags)
+                    performAndCacheFetch(key, url, effectiveFetchOpts, transform, tags)
                         .catch((err) => {
                             // Network/5xx during background revalidation is expected and
                             // already covered by the foreground fallback path — silence
@@ -206,7 +229,7 @@
                 // never gets older than freshAfterMs while the user has the
                 // tab open. Same gen guard, same error muting.
                 queueMicrotask(() => {
-                    performAndCacheFetch(key, url, fetchOpts, transform, tags)
+                    performAndCacheFetch(key, url, effectiveFetchOpts, transform, tags)
                         .catch((err) => {
                             if (!looksLikeNetworkError(err) && typeof console !== 'undefined') {
                                 console.warn('cachedFetch background revalidation failed', key, err);
@@ -225,7 +248,7 @@
         // Online + cache miss → foreground fetch.
         if (online) {
             try {
-                const fresh = await performAndCacheFetch(key, url, fetchOpts, transform, tags);
+                const fresh = await performAndCacheFetch(key, url, effectiveFetchOpts, transform, tags);
                 if (fresh != null) {
                     return {
                         data: fresh,

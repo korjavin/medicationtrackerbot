@@ -23,6 +23,7 @@
     let foodSearchTimeout;
     let foodSearchRequestId = 0;
     let lastFoodSearchQueryNormalized = '';
+    let foodSearchAbortController = null;
 
     window.FoodProducts = window.FoodProducts || {};
     Object.defineProperty(window.FoodProducts, 'cache', {
@@ -43,10 +44,29 @@
     window.FoodProducts._getRequestId = () => foodSearchRequestId;
     window.FoodProducts._getLastQuery = () => lastFoodSearchQueryNormalized;
     window.FoodProducts._setLastQuery = (v) => { lastFoodSearchQueryNormalized = v || ''; };
+    window.FoodProducts._getAbortController = () => foodSearchAbortController;
+    window.FoodProducts._setAbortController = (v) => { foodSearchAbortController = v || null; };
 })();
 
 function normalizeFoodSearchQuery(value) {
     return (value || '').trim().toLowerCase();
+}
+
+// Tear down any pending or in-flight food search so its async tail cannot
+// render into a UI that has since moved on (the user cleared the input or
+// picked a product). Bumping the requestId makes the existing guards in the
+// streaming/loadMore callbacks bail; aborting the controller unblocks any
+// fetch that hasn't returned yet.
+function cancelInFlightFoodSearch() {
+    const pendingTimeout = window.FoodProducts._getSearchTimeout();
+    if (pendingTimeout !== undefined) {
+        clearTimeout(pendingTimeout);
+        window.FoodProducts._setSearchTimeout(undefined);
+    }
+    const prevController = window.FoodProducts._getAbortController();
+    if (prevController) prevController.abort();
+    window.FoodProducts._setAbortController(null);
+    window.FoodProducts._nextRequestId();
 }
 
 function decodeFoodDisplayText(value) {
@@ -125,6 +145,12 @@ async function onFoodNameChange() {
     }
 
     if (normalizedQuery.length >= 2 && normalizedQuery === window.FoodProducts._getLastQuery()) {
+        // The user typed back to the most recently completed query — but a
+        // pending debounce from an intermediate keystroke (e.g. `apple` →
+        // `banana` → back to `apple` within 800ms) could still fire and
+        // render results for the intermediate value over the existing
+        // suggestions. Cancel any in-flight work before re-showing.
+        cancelInFlightFoodSearch();
         const list = document.getElementById('food-autocomplete-list');
         if (list && window.FoodProducts.suggestions.length > 0) {
             list.classList.remove('hidden');
@@ -135,31 +161,55 @@ async function onFoodNameChange() {
     // Check if user selected something from the datalist
     const selected = window.FoodProducts.suggestions.find(p => decodeFoodDisplayText(p.name) === query);
     if (selected) {
+        // The user picked a concrete product — any in-flight search is now
+        // stale and must not render results on top of the selection. Cancel
+        // the pending debounce, abort the in-flight controller, and bump
+        // the requestId so async callbacks already past the fetch() bail
+        // via the existing guards.
+        cancelInFlightFoodSearch();
         autofillFoodProduct(selected);
         setFoodSearchStatus('success', 'Product selected.');
         return;
     }
 
     if (query.length < 2) {
+        // The query is no longer searchable — same hazard as the selection
+        // path: a pending debounce or an in-flight fetch tagged with the
+        // current requestId would still complete and render stale
+        // suggestions into a now-empty input. Cancel before returning.
+        cancelInFlightFoodSearch();
         renderFoodAutocomplete(window.FoodProducts.cache);
         window.FoodProducts._setLastQuery('');
         setFoodSearchStatus();
         return;
     }
 
-    // Debounce search
-    clearTimeout(window.FoodProducts._getSearchTimeout());
+    // The query changed to a different searchable value — eagerly cancel
+    // the prior in-flight fetch (bumps requestId, aborts controller,
+    // clears the pending debounce). Without this, an old fetch that
+    // completes during the new 800ms debounce window would still pass
+    // the requestId guard and render stale results into the autocomplete.
+    cancelInFlightFoodSearch();
     window.FoodProducts._setSearchTimeout(setTimeout(async () => {
         const requestId = window.FoodProducts._nextRequestId();
         window.FoodProducts._setLastQuery(normalizedQuery);
         setFoodSearchStatus('loading', 'Searching local database...');
+
+        const prevController = window.FoodProducts._getAbortController();
+        if (prevController) prevController.abort();
+        const controller = new AbortController();
+        window.FoodProducts._setAbortController(controller);
+        let timeoutId;
+
         try {
             if (!navigator.onLine) throw new Error("Network request failed");
+
+            timeoutId = setTimeout(() => controller.abort(), 10_000);
 
             // First pass: local fast search
             const endpoint = `/api/food/products/search?q=${encodeURIComponent(query)}`;
             const headers = { "X-Telegram-Init-Data": userInitData };
-            const res = await fetch(endpoint, { method: "GET", headers });
+            const res = await fetch(endpoint, { method: "GET", headers, signal: controller.signal });
 
             if (res.status === 503) throw new Error("Network request failed");
             if (!res.ok) throw new Error("Search failed");
@@ -201,6 +251,13 @@ async function onFoodNameChange() {
 
             if (requestId !== window.FoodProducts._getRequestId()) return;
 
+            // Local stream complete — release the 10s search budget. The
+            // remote OpenFoodFacts callback below runs separately (and may
+            // fire much later via a user click) so it shouldn't share the
+            // local-search deadline.
+            clearTimeout(timeoutId);
+            timeoutId = undefined;
+
             const unique = [];
             const seen = new Set();
             for (const p of localResults) {
@@ -210,15 +267,28 @@ async function onFoodNameChange() {
                 }
             }
 
-            // Define the callback for loading remote OpenFoodFacts
+            // Define the callback for loading remote OpenFoodFacts. Each
+            // invocation claims a fresh (requestId, controller) lifecycle:
+            // a sibling search cancellation between the original render and
+            // a user click would bump requestId and abort the parent's
+            // controller, leaving a captured pair stale and freezing the
+            // "Loading..." button. Claiming our own lifecycle here means the
+            // click always reaches a real fetch with its own 10s deadline.
             const loadMoreCallback = async () => {
-                if (requestId !== window.FoodProducts._getRequestId()) return;
+                const prevController = window.FoodProducts._getAbortController();
+                if (prevController) prevController.abort();
+                const myController = new AbortController();
+                window.FoodProducts._setAbortController(myController);
+                const myRequestId = window.FoodProducts._nextRequestId();
+
                 setFoodSearchStatus('loading', 'Searching OpenFoodFacts...');
+                let remoteTimeoutId;
                 try {
+                    remoteTimeoutId = setTimeout(() => myController.abort(), 10_000);
                     const remoteEndpoint = `/api/food/products/search?q=${encodeURIComponent(query)}&remote=true`;
-                    const remoteRes = await fetch(remoteEndpoint, { method: "GET", headers });
+                    const remoteRes = await fetch(remoteEndpoint, { method: "GET", headers, signal: myController.signal });
                     if (!remoteRes.ok) throw new Error("Remote search failed");
-                    if (requestId !== window.FoodProducts._getRequestId()) return;
+                    if (myRequestId !== window.FoodProducts._getRequestId()) return;
 
                     const remoteReader = remoteRes.body.getReader();
                     const remoteDecoder = new TextDecoder("utf-8");
@@ -248,7 +318,7 @@ async function onFoodNameChange() {
                         }
                     }
 
-                    if (requestId !== window.FoodProducts._getRequestId()) return;
+                    if (myRequestId !== window.FoodProducts._getRequestId()) return;
 
                     // Merge remote on top of local
                     const mergedUnique = [...unique];
@@ -263,9 +333,22 @@ async function onFoodNameChange() {
                     setFoodSearchStatus('success', `Found ${mergedUnique.length} result(s).`);
 
                 } catch (e) {
+                    // A new search starting aborts our controller — that is
+                    // the user's intent, not a remote failure. The requestId
+                    // guard filters that case silently. A 10s deadline firing
+                    // surfaces a typed status without console noise. Anything
+                    // else is a genuine remote failure.
+                    if (myRequestId !== window.FoodProducts._getRequestId()) return;
+                    if (e && (e.name === 'AbortError' || e.name === 'TimeoutError')) {
+                        setFoodSearchStatus('success', `Found ${unique.length} local result(s). Remote search timed out.`);
+                        renderFoodAutocomplete(unique, false, null);
+                        return;
+                    }
                     console.error("Load more failed", e);
                     setFoodSearchStatus('success', `Found ${unique.length} local result(s). Remote fetch failed.`);
                     renderFoodAutocomplete(unique, false, null);
+                } finally {
+                    if (remoteTimeoutId !== undefined) clearTimeout(remoteTimeoutId);
                 }
             };
 
@@ -280,12 +363,22 @@ async function onFoodNameChange() {
 
         } catch (e) {
             if (requestId !== window.FoodProducts._getRequestId()) return;
+            // Caller-initiated aborts (new search starting) are filtered by
+            // the requestId guard above; anything left here is either the
+            // 10s timeout firing or an external abort — surface it as a
+            // typed status without console noise.
+            if (e && (e.name === 'AbortError' || e.name === 'TimeoutError')) {
+                setFoodSearchStatus('error', 'Search timed out');
+                return;
+            }
             console.error('Search failed', e);
             if (e.name === 'TypeError' || e.message.includes('fetch') || e.message === 'Network request failed' || e.message === 'Failed to fetch' || !navigator.onLine) {
                 setFoodSearchStatus('empty', 'Search finished: no products found.');
                 return;
             }
             setFoodSearchStatus('error', 'Search finished with an error. Please try again.');
+        } finally {
+            if (timeoutId !== undefined) clearTimeout(timeoutId);
         }
     }, 800));
 }
@@ -293,20 +386,39 @@ async function onFoodNameChange() {
 async function onFoodBarcodeChange() {
     const barcode = document.getElementById('food-barcode').value;
     if (barcode.length < 5) {
+        // Same hazard as the name-search too-short branch: a pending
+        // debounce or in-flight barcode fetch must not autofill the form
+        // after the user has cleared the field. Cancel before returning.
+        cancelInFlightFoodSearch();
         setFoodSearchStatus();
         return;
     }
 
-    clearTimeout(window.FoodProducts._getSearchTimeout());
+    // The barcode changed to a different valid value — eagerly cancel
+    // any prior in-flight fetch. Without this, an old fetch that
+    // completes during the new 800ms debounce window would still pass
+    // the requestId guard and silently autofill the form with the
+    // previous barcode's product data while the input shows the new
+    // barcode.
+    cancelInFlightFoodSearch();
     window.FoodProducts._setSearchTimeout(setTimeout(async () => {
         const requestId = window.FoodProducts._nextRequestId();
         setFoodSearchStatus('loading', 'Searching by barcode...');
+
+        const prevController = window.FoodProducts._getAbortController();
+        if (prevController) prevController.abort();
+        const controller = new AbortController();
+        window.FoodProducts._setAbortController(controller);
+        let timeoutId;
+
         try {
             if (!navigator.onLine) throw new Error("Network request failed");
 
+            timeoutId = setTimeout(() => controller.abort(), 10_000);
+
             const endpoint = `/api/food/products/search?q=${encodeURIComponent(barcode)}`;
             const headers = { "X-Telegram-Init-Data": window.userInitData };
-            const res = await fetch(endpoint, { method: "GET", headers });
+            const res = await fetch(endpoint, { method: "GET", headers, signal: controller.signal });
 
             if (res.status === 503) throw new Error("Network request failed");
             if (!res.ok) throw new Error("Search failed");
@@ -347,6 +459,11 @@ async function onFoodBarcodeChange() {
             }
 
             if (requestId !== window.FoodProducts._getRequestId()) return;
+
+            // Local stream complete — release the 10s budget so the remote
+            // OpenFoodFacts callback below can run on its own deadline.
+            clearTimeout(timeoutId);
+            timeoutId = undefined;
 
             // Check for direct barcode match first
             const match = localResults.find(p => p.barcode === barcode);
@@ -366,14 +483,25 @@ async function onFoodBarcodeChange() {
                 }
             }
 
+            // Same lifecycle pattern as the name-search loadMoreCallback:
+            // claim a fresh (requestId, controller) on each invocation so
+            // an intervening cancellation can't strand the "Loading..."
+            // button with a stale closure.
             const loadMoreCallback = async () => {
-                if (requestId !== window.FoodProducts._getRequestId()) return;
+                const prevController = window.FoodProducts._getAbortController();
+                if (prevController) prevController.abort();
+                const myController = new AbortController();
+                window.FoodProducts._setAbortController(myController);
+                const myRequestId = window.FoodProducts._nextRequestId();
+
                 setFoodSearchStatus('loading', 'Searching OpenFoodFacts...');
+                let remoteTimeoutId;
                 try {
+                    remoteTimeoutId = setTimeout(() => myController.abort(), 10_000);
                     const remoteEndpoint = `/api/food/products/search?q=${encodeURIComponent(barcode)}&remote=true`;
-                    const remoteRes = await fetch(remoteEndpoint, { method: "GET", headers });
+                    const remoteRes = await fetch(remoteEndpoint, { method: "GET", headers, signal: myController.signal });
                     if (!remoteRes.ok) throw new Error("Remote search failed");
-                    if (requestId !== window.FoodProducts._getRequestId()) return;
+                    if (myRequestId !== window.FoodProducts._getRequestId()) return;
 
                     const remoteReader = remoteRes.body.getReader();
                     const remoteDecoder = new TextDecoder("utf-8");
@@ -403,7 +531,7 @@ async function onFoodBarcodeChange() {
                         }
                     }
 
-                    if (requestId !== window.FoodProducts._getRequestId()) return;
+                    if (myRequestId !== window.FoodProducts._getRequestId()) return;
 
                     const remoteMatch = remoteResults.find(p => p.barcode === barcode);
                     if (remoteMatch) {
@@ -427,9 +555,22 @@ async function onFoodBarcodeChange() {
                     setFoodSearchStatus('success', `Found ${mergedUnique.length} result(s).`);
 
                 } catch (e) {
+                    // A new barcode search starting aborts our controller —
+                    // that is the user's intent, not a remote failure. The
+                    // requestId guard filters that case silently. A 10s
+                    // deadline firing surfaces a typed status without console
+                    // noise.
+                    if (myRequestId !== window.FoodProducts._getRequestId()) return;
+                    if (e && (e.name === 'AbortError' || e.name === 'TimeoutError')) {
+                        setFoodSearchStatus('success', `Found ${unique.length} local result(s). Remote search timed out.`);
+                        renderFoodAutocomplete(unique, false, null);
+                        return;
+                    }
                     console.error("Load more failed", e);
                     setFoodSearchStatus('success', `Found ${unique.length} local result(s). Remote fetch failed.`);
                     renderFoodAutocomplete(unique, false, null);
+                } finally {
+                    if (remoteTimeoutId !== undefined) clearTimeout(remoteTimeoutId);
                 }
             };
 
@@ -444,12 +585,22 @@ async function onFoodBarcodeChange() {
 
         } catch (e) {
             if (requestId !== window.FoodProducts._getRequestId()) return;
+            // Caller-initiated aborts (new search starting) are filtered by
+            // the requestId guard above; anything left here is either the
+            // 10s timeout firing or an external abort — surface it as a
+            // typed status without console noise.
+            if (e && (e.name === 'AbortError' || e.name === 'TimeoutError')) {
+                setFoodSearchStatus('error', 'Search timed out');
+                return;
+            }
             console.error('Barcode search failed', e);
             if (e.name === 'TypeError' || e.message.includes('fetch') || e.message === 'Network request failed' || e.message === 'Failed to fetch' || !navigator.onLine) {
                 setFoodSearchStatus('empty', 'Search finished: no products found.');
                 return;
             }
             setFoodSearchStatus('error', 'Search finished with an error. Please try again.');
+        } finally {
+            if (timeoutId !== undefined) clearTimeout(timeoutId);
         }
     }, 800));
 }

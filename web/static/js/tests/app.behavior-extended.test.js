@@ -23,7 +23,7 @@ describe('app.js extended behavior coverage', () => {
 
       const result = await window.apiCall('/api/test', 'GET');
       expect(result).toEqual(payload);
-      expect(window.offlineAwareApiCall).toHaveBeenCalledWith('/api/test', 'GET', null);
+      expect(window.offlineAwareApiCall).toHaveBeenCalledWith('/api/test', 'GET', null, {});
     } finally {
       cleanup();
     }

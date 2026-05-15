@@ -4,7 +4,7 @@ const CACHE_VERSION = 'CACHE_VERSION_PLACEHOLDER'; // Auto-updated by CI/CD
 // Manual bump knob: increment when shipping a UI change clients must pick up
 // even if the deploy timestamp alone fails to invalidate (e.g. mid-cycle
 // hotfix, or to force re-fetch of today.js for the Photo meal shortcut tile).
-const BUILD_REVISION = '4';
+const BUILD_REVISION = '5';
 const STATIC_CACHE = `medtracker-static-${CACHE_VERSION}-r${BUILD_REVISION}`;
 const DYNAMIC_CACHE = `medtracker-dynamic-${CACHE_VERSION}-r${BUILD_REVISION}`;
 const APP_SHELL_CACHE_KEY = '/__app_shell__';
@@ -168,9 +168,14 @@ self.addEventListener('fetch', (event) => {
                 if (cachedResponse) {
                     // Clone for comparison before respondWith consumes the body
                     const cachedClone = cachedResponse.clone();
-                    // Serve cached immediately, revalidate in background
+                    // Serve cached immediately, revalidate in background. The
+                    // 15s timeout keeps a stalled backend from holding the
+                    // waitUntil lifecycle alive arbitrarily long.
+                    const revalSignal = typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+                        ? AbortSignal.timeout(15_000)
+                        : undefined;
                     event.waitUntil(
-                        fetch(event.request)
+                        fetch(event.request, revalSignal ? { signal: revalSignal } : undefined)
                             .then(async (freshResponse) => {
                                 if (freshResponse.ok) {
                                     // Compare fresh vs cached — only notify clients if data changed
@@ -186,7 +191,7 @@ self.addEventListener('fetch', (event) => {
                                     }
                                 }
                             })
-                            .catch(() => { /* offline — cached response already served */ })
+                            .catch(() => { /* offline or timed out — cached response already served */ })
                     );
                     return cachedResponse;
                 }
