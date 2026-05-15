@@ -86,29 +86,29 @@ and recommended-priority item #3.
 
 ### Task 1: Add timeout/signal support to `apiCallDirect`
 
-- [ ] modify `apiCallDirect` signature in `core/api.js:7` to
+- [x] modify `apiCallDirect` signature in `core/api.js:7` to
   `apiCallDirect(endpoint, method = 'GET', body = null, opts = {})`;
   destructure `{ timeoutMs = 60_000, signal: callerSignal }` from
   `opts`
-- [ ] inside the function, build a composite signal: if both
+- [x] inside the function, build a composite signal: if both
   `timeoutMs` is finite AND `callerSignal` is provided, use
   `AbortSignal.any([AbortSignal.timeout(timeoutMs), callerSignal])`;
   if only one is provided, use that; pass the resulting signal to
   `fetch(endpoint, { method, headers, body, signal })`
-- [ ] wrap the existing `fetch()` await in a try/catch — when
+- [x] wrap the existing `fetch()` await in a try/catch — when
   `error.name === 'TimeoutError'` or `error.name === 'AbortError'`,
   rethrow with `err.aborted = true` so callers can distinguish abort
   from network error
-- [ ] update `apiCall` in `core/api.js:65-92` to forward the optional
+- [x] update `apiCall` in `core/api.js:65-92` to forward the optional
   4th `opts` arg unchanged; do NOT swallow `AbortError`s the same way
   it swallows network errors — let them bubble so the caller can
   decide
-- [ ] write tests in `web/static/js/tests/core.api-abort.test.js`:
+- [x] write tests in `web/static/js/tests/core.api-abort.test.js`:
   default 60s timeout fires when fetch never resolves; caller-supplied
   signal aborts mid-flight; signal+timeout composition aborts on
   whichever fires first; successful fast call is unaffected; abort
   surfaces with `err.aborted === true`
-- [ ] run `pnpm test core.api-abort` — must pass before next task
+- [x] run `pnpm test core.api-abort` — must pass before next task
 
 ### Task 2: Thread tighter deadlines through cached-fetch
 

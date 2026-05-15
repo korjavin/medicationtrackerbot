@@ -4,11 +4,39 @@
 // window.DataStore (data-store.js, for cursor advancement).
 // safeAlert() is provided by core/utils.js, loaded before this file.
 
-async function apiCallDirect(endpoint, method = "GET", body = null) {
+// Composes an AbortSignal from an optional timeout and an optional caller
+// signal. Returns undefined when neither is supplied so fetch() runs unguarded.
+function composeAbortSignal(timeoutMs, callerSignal) {
+    const timeoutSignal = Number.isFinite(timeoutMs)
+        ? AbortSignal.timeout(timeoutMs)
+        : null;
+    if (timeoutSignal && callerSignal) {
+        return AbortSignal.any([timeoutSignal, callerSignal]);
+    }
+    return timeoutSignal || callerSignal || undefined;
+}
+
+async function apiCallDirect(endpoint, method = "GET", body = null, opts = {}) {
+    const { timeoutMs = 60_000, signal: callerSignal } = opts;
     const headers = { "X-Telegram-Init-Data": window.userInitData };
     if (body) headers["Content-Type"] = "application/json";
 
-    const res = await fetch(endpoint, { method, headers, body: body ? JSON.stringify(body) : null });
+    const signal = composeAbortSignal(timeoutMs, callerSignal);
+
+    let res;
+    try {
+        res = await fetch(endpoint, {
+            method,
+            headers,
+            body: body ? JSON.stringify(body) : null,
+            signal
+        });
+    } catch (err) {
+        if (err && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+            err.aborted = true;
+        }
+        throw err;
+    }
     if (res.status === 401 || res.status === 403) {
         const err = new Error("Unauthorized");
         err.status = res.status;
@@ -62,12 +90,15 @@ async function apiCallDirect(endpoint, method = "GET", body = null) {
 window.apiCallDirect = apiCallDirect;
 
 // API Client (offline-aware wrapper)
-async function apiCall(endpoint, method = "GET", body = null) {
+async function apiCall(endpoint, method = "GET", body = null, opts = {}) {
     // Use offline-aware wrapper if available for all API endpoints
     if (window.offlineAwareApiCall) {
         try {
-            return await window.offlineAwareApiCall(endpoint, method, body);
+            return await window.offlineAwareApiCall(endpoint, method, body, opts);
         } catch (e) {
+            // Aborts/timeouts are caller-driven — let them bubble so the
+            // caller can render a typed status instead of seeing null.
+            if (e && e.aborted) throw e;
             console.error(e);
             // Only show alerts for write operations that fail
             // GET requests failing is expected when offline - UI will handle empty state
@@ -80,8 +111,9 @@ async function apiCall(endpoint, method = "GET", body = null) {
 
     // Fallback to direct API call if offline wrapper not available
     try {
-        return await apiCallDirect(endpoint, method, body);
+        return await apiCallDirect(endpoint, method, body, opts);
     } catch (e) {
+        if (e && e.aborted) throw e;
         console.error(e);
         // Only show alerts for write operations that fail
         if (method !== 'GET') {
