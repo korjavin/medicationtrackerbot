@@ -120,9 +120,9 @@ func TestHandleLogFoodNameOnlyAttachesResolvedProductID(t *testing.T) {
 		t.Fatalf("expected response name Apple, got %q", resp.Name)
 	}
 
-	logs, err := db.Food.GetFoodLogs(context.Background(), 123456, time.Now(), 1)
+	logs, err := db.Food.ListLogs(context.Background(), 123456, time.Now(), 1)
 	if err != nil {
-		t.Fatalf("GetFoodLogs: %v", err)
+		t.Fatalf("ListLogs: %v", err)
 	}
 	if len(logs) != 1 {
 		t.Fatalf("expected 1 log, got %d", len(logs))
@@ -137,7 +137,7 @@ func TestHandleLogFoodProductIDOnlyPersistsProductName(t *testing.T) {
 	defer db.Close()
 
 	ctx := context.Background()
-	if err := db.Food.UpsertFoodProduct(ctx, &store.FoodProduct{
+	if err := db.Food.UpsertProduct(ctx, &store.FoodProduct{
 		UserID:         123456,
 		Name:           "Chicken Rice Bowl",
 		Carbs100g:      25,
@@ -145,11 +145,11 @@ func TestHandleLogFoodProductIDOnlyPersistsProductName(t *testing.T) {
 		Fat100g:        4,
 		EnergyKcal100g: 170,
 	}); err != nil {
-		t.Fatalf("UpsertFoodProduct: %v", err)
+		t.Fatalf("UpsertProduct: %v", err)
 	}
-	product, err := db.Food.GetFoodProductByName(ctx, 123456, "Chicken Rice Bowl")
+	product, err := db.Food.GetProductByName(ctx, 123456, "Chicken Rice Bowl")
 	if err != nil {
-		t.Fatalf("GetFoodProductByName: %v", err)
+		t.Fatalf("GetProductByName: %v", err)
 	}
 
 	reqBody := map[string]interface{}{
@@ -187,9 +187,9 @@ func TestHandleLogFoodProductIDOnlyPersistsProductName(t *testing.T) {
 		t.Fatalf("expected response name from product, got %q", resp.Name)
 	}
 
-	logs, err := db.Food.GetFoodLogs(ctx, 123456, time.Now(), 1)
+	logs, err := db.Food.ListLogs(ctx, 123456, time.Now(), 1)
 	if err != nil {
-		t.Fatalf("GetFoodLogs: %v", err)
+		t.Fatalf("ListLogs: %v", err)
 	}
 	if len(logs) != 1 {
 		t.Fatalf("expected 1 log, got %d", len(logs))
@@ -208,7 +208,7 @@ func TestHandleGetFoodLogs(t *testing.T) {
 
 	// Setup: Create logs
 	ctx := ctxWithUser(123456)
-	db.Food.CreateFoodLog(ctx, &store.FoodLog{
+	db.Food.CreateLog(ctx, &store.FoodLog{
 		UserID:   123456,
 		EatenAt:  time.Now(), // Today
 		Name:     "Breakfast",
@@ -241,7 +241,7 @@ func TestHandleDeleteFoodLog(t *testing.T) {
 
 	// Setup
 	ctx := ctxWithUser(123456)
-	logID, _ := db.Food.CreateFoodLog(ctx, &store.FoodLog{
+	logID, _ := db.Food.CreateLog(ctx, &store.FoodLog{
 		UserID:   123456,
 		EatenAt:  time.Now(),
 		Name:     "To Delete",
@@ -262,7 +262,7 @@ func TestHandleDeleteFoodLog(t *testing.T) {
 	}
 
 	// Verify
-	logs, _ := db.Food.GetFoodLogs(ctx, 123456, time.Now(), 1)
+	logs, _ := db.Food.ListLogs(ctx, 123456, time.Now(), 1)
 	if len(logs) != 0 {
 		t.Errorf("Expected 0 logs, got %d", len(logs))
 	}
@@ -405,11 +405,11 @@ func TestHandleGetFoodLogsTimezone_IANA(t *testing.T) {
 
 	// Item at 2026-03-18T01:00Z = 18:00 PDT on 2026-03-17 (UTC-7 after DST started Mar 8)
 	californiaEvening := time.Date(2026, time.March, 18, 1, 0, 0, 0, time.UTC)
-	_, err := db.Food.CreateFoodLog(ctx, &store.FoodLog{
+	_, err := db.Food.CreateLog(ctx, &store.FoodLog{
 		UserID: 123456, EatenAt: californiaEvening, Name: "Late dinner", Calories: 600,
 	})
 	if err != nil {
-		t.Fatalf("CreateFoodLog: %v", err)
+		t.Fatalf("CreateLog: %v", err)
 	}
 
 	// With tz=America/Los_Angeles: querying 2026-03-17 SHOULD return it.
@@ -451,14 +451,14 @@ func TestHandleGetFoodLogsTimezone(t *testing.T) {
 	// Simulate food added at 18:00 PDT on 2026-03-17.
 	// 18:00 PDT (UTC-7) = 2026-03-18T01:00Z — next UTC day.
 	californiaEvening := time.Date(2026, time.March, 18, 1, 0, 0, 0, time.UTC)
-	_, err := db.Food.CreateFoodLog(ctx, &store.FoodLog{
+	_, err := db.Food.CreateLog(ctx, &store.FoodLog{
 		UserID:   123456,
 		EatenAt:  californiaEvening,
 		Name:     "Late dinner",
 		Calories: 600,
 	})
 	if err != nil {
-		t.Fatalf("CreateFoodLog: %v", err)
+		t.Fatalf("CreateLog: %v", err)
 	}
 
 	// Without tz_offset (UTC day boundaries): querying 2026-03-17 should NOT return it.
@@ -555,7 +555,7 @@ func TestHandleCreateMealFromLogs(t *testing.T) {
 	defer db.Close()
 
 	ctx := ctxWithUser(123456)
-	id1, _ := db.Food.CreateFoodLog(ctx, &store.FoodLog{
+	id1, _ := db.Food.CreateLog(ctx, &store.FoodLog{
 		UserID:   123456,
 		EatenAt:  time.Now(),
 		Name:     "Apple",
@@ -563,7 +563,7 @@ func TestHandleCreateMealFromLogs(t *testing.T) {
 		Carbs:    14,
 		Calories: 52,
 	})
-	id2, _ := db.Food.CreateFoodLog(ctx, &store.FoodLog{
+	id2, _ := db.Food.CreateLog(ctx, &store.FoodLog{
 		UserID:   123456,
 		EatenAt:  time.Now(),
 		Name:     "Banana",
@@ -634,10 +634,10 @@ func TestHandleGetFoodStats_DST(t *testing.T) {
 		{time.Date(2026, time.March, 9, 8, 0, 0, 0, time.UTC), 999},
 	}
 	for _, e := range entries {
-		if _, err := db.Food.CreateFoodLog(ctx, &store.FoodLog{
+		if _, err := db.Food.CreateLog(ctx, &store.FoodLog{
 			UserID: 123456, EatenAt: e.utc, Name: "test", Calories: e.calories,
 		}); err != nil {
-			t.Fatalf("CreateFoodLog: %v", err)
+			t.Fatalf("CreateLog: %v", err)
 		}
 	}
 
@@ -757,9 +757,9 @@ func TestHandleCreateFoodLogFromPhoto_ReturnsItemIDs(t *testing.T) {
 
 	// The IDs must point to real rows so that the frontend Undo path
 	// (DELETE /api/food/log/{id}) actually removes them.
-	logs, err := db.Food.GetFoodLogs(context.Background(), 123456, time.Now(), 1)
+	logs, err := db.Food.ListLogs(context.Background(), 123456, time.Now(), 1)
 	if err != nil {
-		t.Fatalf("GetFoodLogs: %v", err)
+		t.Fatalf("ListLogs: %v", err)
 	}
 	if len(logs) != 2 {
 		t.Fatalf("expected 2 persisted logs, got %d", len(logs))

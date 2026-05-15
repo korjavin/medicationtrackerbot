@@ -40,17 +40,17 @@ func TestCreateAndGetFoodLog(t *testing.T) {
 		Name:     "Chicken breast",
 	}
 
-	id, err := s.CreateFoodLog(ctx, log)
+	id, err := s.CreateLog(ctx, log)
 	if err != nil {
-		t.Fatalf("CreateFoodLog: %v", err)
+		t.Fatalf("CreateLog: %v", err)
 	}
 	if id == 0 {
 		t.Fatal("expected non-zero ID")
 	}
 
-	logs, err := s.GetFoodLogs(ctx, 1, now, 1)
+	logs, err := s.ListLogs(ctx, 1, now, 1)
 	if err != nil {
-		t.Fatalf("GetFoodLogs: %v", err)
+		t.Fatalf("ListLogs: %v", err)
 	}
 	if len(logs) != 1 {
 		t.Fatalf("expected 1 log, got %d", len(logs))
@@ -83,7 +83,7 @@ func TestCreateAndGetFoodLog(t *testing.T) {
 	}
 }
 
-func TestUpdateFoodLog(t *testing.T) {
+func TestUpdateLog(t *testing.T) {
 	s := setupFoodRepo(t)
 	ctx := context.Background()
 
@@ -99,9 +99,9 @@ func TestUpdateFoodLog(t *testing.T) {
 		Name:     "Rice",
 	}
 
-	id, err := s.CreateFoodLog(ctx, log)
+	id, err := s.CreateLog(ctx, log)
 	if err != nil {
-		t.Fatalf("CreateFoodLog: %v", err)
+		t.Fatalf("CreateLog: %v", err)
 	}
 
 	log.ID = id
@@ -110,13 +110,13 @@ func TestUpdateFoodLog(t *testing.T) {
 	log.Calories = 248
 	log.Name = "Brown rice"
 
-	if err := s.UpdateFoodLog(ctx, log); err != nil {
-		t.Fatalf("UpdateFoodLog: %v", err)
+	if err := s.UpdateLog(ctx, log); err != nil {
+		t.Fatalf("UpdateLog: %v", err)
 	}
 
-	logs, err := s.GetFoodLogs(ctx, 1, now, 1)
+	logs, err := s.ListLogs(ctx, 1, now, 1)
 	if err != nil {
-		t.Fatalf("GetFoodLogs: %v", err)
+		t.Fatalf("ListLogs: %v", err)
 	}
 	if len(logs) != 1 {
 		t.Fatalf("expected 1 log, got %d", len(logs))
@@ -135,7 +135,7 @@ func TestUpdateFoodLog(t *testing.T) {
 	}
 }
 
-func TestUpdateFoodLogNotFound(t *testing.T) {
+func TestUpdateLogNotFound(t *testing.T) {
 	s := setupFoodRepo(t)
 	ctx := context.Background()
 
@@ -151,13 +151,13 @@ func TestUpdateFoodLogNotFound(t *testing.T) {
 		Name:     "Ghost food",
 	}
 
-	err := s.UpdateFoodLog(ctx, log)
+	err := s.UpdateLog(ctx, log)
 	if !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("expected sql.ErrNoRows, got %v", err)
 	}
 }
 
-func TestDeleteFoodLog(t *testing.T) {
+func TestDeleteLog(t *testing.T) {
 	s := setupFoodRepo(t)
 	ctx := context.Background()
 
@@ -173,36 +173,36 @@ func TestDeleteFoodLog(t *testing.T) {
 		Name:     "Snack",
 	}
 
-	id, err := s.CreateFoodLog(ctx, log)
+	id, err := s.CreateLog(ctx, log)
 	if err != nil {
-		t.Fatalf("CreateFoodLog: %v", err)
+		t.Fatalf("CreateLog: %v", err)
 	}
 
 	// Delete with wrong user should fail
-	err = s.DeleteFoodLog(ctx, id, 9999)
+	err = s.DeleteLog(ctx, id, 9999)
 	if !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("delete wrong user: expected sql.ErrNoRows, got %v", err)
 	}
 
 	// Delete with correct user should succeed
-	if err := s.DeleteFoodLog(ctx, id, 1); err != nil {
-		t.Fatalf("DeleteFoodLog: %v", err)
+	if err := s.DeleteLog(ctx, id, 1); err != nil {
+		t.Fatalf("DeleteLog: %v", err)
 	}
 
-	logs, err := s.GetFoodLogs(ctx, 1, now, 1)
+	logs, err := s.ListLogs(ctx, 1, now, 1)
 	if err != nil {
-		t.Fatalf("GetFoodLogs: %v", err)
+		t.Fatalf("ListLogs: %v", err)
 	}
 	if len(logs) != 0 {
 		t.Errorf("expected 0 logs after delete, got %d", len(logs))
 	}
 }
 
-func TestDeleteFoodLogNotFound(t *testing.T) {
+func TestDeleteLogNotFound(t *testing.T) {
 	s := setupFoodRepo(t)
 	ctx := context.Background()
 
-	err := s.DeleteFoodLog(ctx, 9999, 1)
+	err := s.DeleteLog(ctx, 9999, 1)
 	if !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("expected sql.ErrNoRows, got %v", err)
 	}
@@ -217,7 +217,7 @@ func TestFoodLogDateRangeFiltering(t *testing.T) {
 	// Create logs on different days
 	for i, name := range []string{"Day0", "Day1", "Day2", "Day3"} {
 		eatenAt := base.AddDate(0, 0, -i)
-		_, err := s.CreateFoodLog(ctx, &FoodLog{
+		_, err := s.CreateLog(ctx, &FoodLog{
 			UserID:   1,
 			EatenAt:  eatenAt,
 			Weight:   100,
@@ -228,23 +228,23 @@ func TestFoodLogDateRangeFiltering(t *testing.T) {
 			Name:     name,
 		})
 		if err != nil {
-			t.Fatalf("CreateFoodLog(%s): %v", name, err)
+			t.Fatalf("CreateLog(%s): %v", name, err)
 		}
 	}
 
 	// Query with days=1 should return only today's log
-	logs, err := s.GetFoodLogs(ctx, 1, base, 1)
+	logs, err := s.ListLogs(ctx, 1, base, 1)
 	if err != nil {
-		t.Fatalf("GetFoodLogs days=1: %v", err)
+		t.Fatalf("ListLogs days=1: %v", err)
 	}
 	if len(logs) != 1 {
 		t.Errorf("days=1: expected 1 log, got %d", len(logs))
 	}
 
 	// Query with days=3 should return 3 logs (today, yesterday, day before)
-	logs, err = s.GetFoodLogs(ctx, 1, base, 3)
+	logs, err = s.ListLogs(ctx, 1, base, 3)
 	if err != nil {
-		t.Fatalf("GetFoodLogs days=3: %v", err)
+		t.Fatalf("ListLogs days=3: %v", err)
 	}
 	if len(logs) != 3 {
 		t.Errorf("days=3: expected 3 logs, got %d", len(logs))
@@ -259,16 +259,16 @@ func TestFoodLogDateRangeFiltering(t *testing.T) {
 	}
 
 	// Query for different user should return no logs
-	logs, err = s.GetFoodLogs(ctx, 9999, base, 7)
+	logs, err = s.ListLogs(ctx, 9999, base, 7)
 	if err != nil {
-		t.Fatalf("GetFoodLogs other user: %v", err)
+		t.Fatalf("ListLogs other user: %v", err)
 	}
 	if len(logs) != 0 {
 		t.Errorf("other user: expected 0 logs, got %d", len(logs))
 	}
 }
 
-func TestUpsertFoodProduct(t *testing.T) {
+func TestUpsertProduct(t *testing.T) {
 	s := setupFoodRepo(t)
 	ctx := context.Background()
 
@@ -282,13 +282,13 @@ func TestUpsertFoodProduct(t *testing.T) {
 	}
 
 	// First upsert creates the product
-	if err := s.UpsertFoodProduct(ctx, p); err != nil {
-		t.Fatalf("UpsertFoodProduct (create): %v", err)
+	if err := s.UpsertProduct(ctx, p); err != nil {
+		t.Fatalf("UpsertProduct (create): %v", err)
 	}
 
-	products, _, err := s.GetFoodProducts(ctx, 1, FoodProductsFilter{Limit: 10})
+	products, _, err := s.ListProducts(ctx, 1, FoodProductsFilter{Limit: 10})
 	if err != nil {
-		t.Fatalf("GetFoodProducts: %v", err)
+		t.Fatalf("ListProducts: %v", err)
 	}
 	if len(products) != 1 {
 		t.Fatalf("expected 1 product, got %d", len(products))
@@ -299,13 +299,13 @@ func TestUpsertFoodProduct(t *testing.T) {
 	initialUsage := products[0].UsageCount
 
 	// Second upsert with same user_id+name should increment usage_count
-	if err := s.UpsertFoodProduct(ctx, p); err != nil {
-		t.Fatalf("UpsertFoodProduct (increment): %v", err)
+	if err := s.UpsertProduct(ctx, p); err != nil {
+		t.Fatalf("UpsertProduct (increment): %v", err)
 	}
 
-	products, _, err = s.GetFoodProducts(ctx, 1, FoodProductsFilter{Limit: 10})
+	products, _, err = s.ListProducts(ctx, 1, FoodProductsFilter{Limit: 10})
 	if err != nil {
-		t.Fatalf("GetFoodProducts: %v", err)
+		t.Fatalf("ListProducts: %v", err)
 	}
 	if len(products) != 1 {
 		t.Fatalf("expected 1 product after upsert, got %d", len(products))
@@ -315,7 +315,7 @@ func TestUpsertFoodProduct(t *testing.T) {
 	}
 }
 
-func TestUpdateFoodProduct(t *testing.T) {
+func TestUpdateProduct(t *testing.T) {
 	s := setupFoodRepo(t)
 	ctx := context.Background()
 
@@ -328,13 +328,13 @@ func TestUpdateFoodProduct(t *testing.T) {
 		EnergyKcal100g: 60.0,
 	}
 
-	if err := s.UpsertFoodProduct(ctx, p); err != nil {
-		t.Fatalf("UpsertFoodProduct: %v", err)
+	if err := s.UpsertProduct(ctx, p); err != nil {
+		t.Fatalf("UpsertProduct: %v", err)
 	}
 
-	products, _, err := s.GetFoodProducts(ctx, 1, FoodProductsFilter{Limit: 10})
+	products, _, err := s.ListProducts(ctx, 1, FoodProductsFilter{Limit: 10})
 	if err != nil {
-		t.Fatalf("GetFoodProducts: %v", err)
+		t.Fatalf("ListProducts: %v", err)
 	}
 	if len(products) == 0 {
 		t.Fatal("expected at least 1 product")
@@ -344,13 +344,13 @@ func TestUpdateFoodProduct(t *testing.T) {
 	toUpdate.Protein100g = 12.0
 	toUpdate.EnergyKcal100g = 65.0
 
-	if err := s.UpdateFoodProduct(ctx, &toUpdate); err != nil {
-		t.Fatalf("UpdateFoodProduct: %v", err)
+	if err := s.UpdateProduct(ctx, &toUpdate); err != nil {
+		t.Fatalf("UpdateProduct: %v", err)
 	}
 
-	products, _, err = s.GetFoodProducts(ctx, 1, FoodProductsFilter{Limit: 10})
+	products, _, err = s.ListProducts(ctx, 1, FoodProductsFilter{Limit: 10})
 	if err != nil {
-		t.Fatalf("GetFoodProducts after update: %v", err)
+		t.Fatalf("ListProducts after update: %v", err)
 	}
 	if products[0].Protein100g != 12.0 {
 		t.Errorf("Protein100g: got %f, want 12.0", products[0].Protein100g)
@@ -360,7 +360,7 @@ func TestUpdateFoodProduct(t *testing.T) {
 	}
 }
 
-func TestUpdateFoodProductWrongUser(t *testing.T) {
+func TestUpdateProductWrongUser(t *testing.T) {
 	s := setupFoodRepo(t)
 	ctx := context.Background()
 
@@ -373,25 +373,25 @@ func TestUpdateFoodProductWrongUser(t *testing.T) {
 		EnergyKcal100g: 64.0,
 	}
 
-	if err := s.UpsertFoodProduct(ctx, p); err != nil {
-		t.Fatalf("UpsertFoodProduct: %v", err)
+	if err := s.UpsertProduct(ctx, p); err != nil {
+		t.Fatalf("UpsertProduct: %v", err)
 	}
 
-	products, _, err := s.GetFoodProducts(ctx, 1, FoodProductsFilter{Limit: 10})
+	products, _, err := s.ListProducts(ctx, 1, FoodProductsFilter{Limit: 10})
 	if err != nil {
-		t.Fatalf("GetFoodProducts: %v", err)
+		t.Fatalf("ListProducts: %v", err)
 	}
 
 	wrongUser := products[0]
 	wrongUser.UserID = 9999
 
-	err = s.UpdateFoodProduct(ctx, &wrongUser)
+	err = s.UpdateProduct(ctx, &wrongUser)
 	if !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("expected sql.ErrNoRows, got %v", err)
 	}
 }
 
-func TestDeleteFoodProduct(t *testing.T) {
+func TestDeleteProduct(t *testing.T) {
 	s := setupFoodRepo(t)
 	ctx := context.Background()
 
@@ -404,30 +404,30 @@ func TestDeleteFoodProduct(t *testing.T) {
 		EnergyKcal100g: 265.0,
 	}
 
-	if err := s.UpsertFoodProduct(ctx, p); err != nil {
-		t.Fatalf("UpsertFoodProduct: %v", err)
+	if err := s.UpsertProduct(ctx, p); err != nil {
+		t.Fatalf("UpsertProduct: %v", err)
 	}
 
-	products, _, err := s.GetFoodProducts(ctx, 1, FoodProductsFilter{Limit: 10})
+	products, _, err := s.ListProducts(ctx, 1, FoodProductsFilter{Limit: 10})
 	if err != nil {
-		t.Fatalf("GetFoodProducts: %v", err)
+		t.Fatalf("ListProducts: %v", err)
 	}
 	id := products[0].ID
 
 	// Delete with wrong user
-	err = s.DeleteFoodProduct(ctx, id, 9999)
+	err = s.DeleteProduct(ctx, id, 9999)
 	if !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("delete wrong user: expected sql.ErrNoRows, got %v", err)
 	}
 
 	// Delete with correct user
-	if err := s.DeleteFoodProduct(ctx, id, 1); err != nil {
-		t.Fatalf("DeleteFoodProduct: %v", err)
+	if err := s.DeleteProduct(ctx, id, 1); err != nil {
+		t.Fatalf("DeleteProduct: %v", err)
 	}
 
-	products, _, err = s.GetFoodProducts(ctx, 1, FoodProductsFilter{Limit: 10})
+	products, _, err = s.ListProducts(ctx, 1, FoodProductsFilter{Limit: 10})
 	if err != nil {
-		t.Fatalf("GetFoodProducts after delete: %v", err)
+		t.Fatalf("ListProducts after delete: %v", err)
 	}
 	if len(products) != 0 {
 		t.Errorf("expected 0 products after delete, got %d", len(products))
@@ -439,8 +439,8 @@ func TestDeleteFoodProduct(t *testing.T) {
 // the web UI.  The bot uses time.Unix which creates time in time.Local; if the
 // server runs in a non-UTC zone, the stored timestamp carries a non-UTC offset.
 // SQLite does lexicographic text comparison, so "+01:00" timestamps are compared
-// incorrectly against the UTC "+00:00" boundaries that GetFoodLogs generates.
-// The fix is to store EatenAt always as UTC inside CreateFoodLog / UpdateFoodLog.
+// incorrectly against the UTC "+00:00" boundaries that ListLogs generates.
+// The fix is to store EatenAt always as UTC inside CreateLog / UpdateLog.
 func TestFoodLogNonUTCTimezoneStored(t *testing.T) {
 	s := setupFoodRepo(t)
 	ctx := context.Background()
@@ -452,7 +452,7 @@ func TestFoodLogNonUTCTimezoneStored(t *testing.T) {
 	// The user is in CET, so this is still "March 24" in their timezone.
 	eatTime := time.Date(2026, 3, 24, 23, 0, 0, 0, cet)
 
-	_, err := s.CreateFoodLog(ctx, &FoodLog{
+	_, err := s.CreateLog(ctx, &FoodLog{
 		UserID:   1,
 		EatenAt:  eatTime, // stored with +01:00 offset if bug is present
 		Weight:   200,
@@ -463,14 +463,14 @@ func TestFoodLogNonUTCTimezoneStored(t *testing.T) {
 		Name:     "Late snack",
 	})
 	if err != nil {
-		t.Fatalf("CreateFoodLog: %v", err)
+		t.Fatalf("CreateLog: %v", err)
 	}
 
 	// Query for March 24 in CET — the food MUST appear under this day.
 	queryDate := time.Date(2026, 3, 24, 0, 0, 0, 0, cet)
-	logs, err := s.GetFoodLogs(ctx, 1, queryDate, 1)
+	logs, err := s.ListLogs(ctx, 1, queryDate, 1)
 	if err != nil {
-		t.Fatalf("GetFoodLogs (March 24 CET): %v", err)
+		t.Fatalf("ListLogs (March 24 CET): %v", err)
 	}
 	if len(logs) != 1 {
 		t.Errorf("expected 1 log for March 24 CET, got %d (food added at 23:00 CET was placed on wrong day)", len(logs))
@@ -478,26 +478,26 @@ func TestFoodLogNonUTCTimezoneStored(t *testing.T) {
 
 	// Query for March 25 in CET — the food must NOT appear here.
 	nextDay := time.Date(2026, 3, 25, 0, 0, 0, 0, cet)
-	logsNext, err := s.GetFoodLogs(ctx, 1, nextDay, 1)
+	logsNext, err := s.ListLogs(ctx, 1, nextDay, 1)
 	if err != nil {
-		t.Fatalf("GetFoodLogs (March 25 CET): %v", err)
+		t.Fatalf("ListLogs (March 25 CET): %v", err)
 	}
 	if len(logsNext) != 0 {
 		t.Errorf("expected 0 logs for March 25 CET, got %d (food added on March 24 at 23:00 CET leaked into March 25)", len(logsNext))
 	}
 }
 
-func TestDeleteFoodProductNotFound(t *testing.T) {
+func TestDeleteProductNotFound(t *testing.T) {
 	s := setupFoodRepo(t)
 	ctx := context.Background()
 
-	err := s.DeleteFoodProduct(ctx, 9999, 1)
+	err := s.DeleteProduct(ctx, 9999, 1)
 	if !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("expected sql.ErrNoRows, got %v", err)
 	}
 }
 
-func TestGetFoodProductsOrderedByUsage(t *testing.T) {
+func TestListProductsOrderedByUsage(t *testing.T) {
 	s := setupFoodRepo(t)
 	ctx := context.Background()
 
@@ -513,7 +513,7 @@ func TestGetFoodProductsOrderedByUsage(t *testing.T) {
 
 	for _, p := range products {
 		for i := 0; i < p.upserts; i++ {
-			if err := s.UpsertFoodProduct(ctx, &FoodProduct{
+			if err := s.UpsertProduct(ctx, &FoodProduct{
 				UserID:         1,
 				Name:           p.name,
 				Carbs100g:      10.0,
@@ -521,14 +521,14 @@ func TestGetFoodProductsOrderedByUsage(t *testing.T) {
 				Fat100g:        0.5,
 				EnergyKcal100g: 50.0,
 			}); err != nil {
-				t.Fatalf("UpsertFoodProduct(%s, %d): %v", p.name, i, err)
+				t.Fatalf("UpsertProduct(%s, %d): %v", p.name, i, err)
 			}
 		}
 	}
 
-	got, _, err := s.GetFoodProducts(ctx, 1, FoodProductsFilter{Limit: 10})
+	got, _, err := s.ListProducts(ctx, 1, FoodProductsFilter{Limit: 10})
 	if err != nil {
-		t.Fatalf("GetFoodProducts: %v", err)
+		t.Fatalf("ListProducts: %v", err)
 	}
 	if len(got) != 3 {
 		t.Fatalf("expected 3 products, got %d", len(got))
@@ -546,13 +546,13 @@ func TestGetFoodProductsOrderedByUsage(t *testing.T) {
 	}
 }
 
-func TestSearchFoodProductsByName(t *testing.T) {
+func TestSearchProductsByName(t *testing.T) {
 	s := setupFoodRepo(t)
 	ctx := context.Background()
 
 	names := []string{"Chicken breast", "Chicken thigh", "Beef steak"}
 	for _, name := range names {
-		if err := s.UpsertFoodProduct(ctx, &FoodProduct{
+		if err := s.UpsertProduct(ctx, &FoodProduct{
 			UserID:         1,
 			Name:           name,
 			Carbs100g:      0,
@@ -560,13 +560,13 @@ func TestSearchFoodProductsByName(t *testing.T) {
 			Fat100g:        5.0,
 			EnergyKcal100g: 150.0,
 		}); err != nil {
-			t.Fatalf("UpsertFoodProduct(%s): %v", name, err)
+			t.Fatalf("UpsertProduct(%s): %v", name, err)
 		}
 	}
 
-	results, err := s.SearchFoodProducts(ctx, 1, "chicken")
+	results, err := s.SearchProducts(ctx, 1, "chicken")
 	if err != nil {
-		t.Fatalf("SearchFoodProducts: %v", err)
+		t.Fatalf("SearchProducts: %v", err)
 	}
 	if len(results) < 2 {
 		t.Errorf("expected at least 2 results for 'chicken', got %d", len(results))
@@ -601,18 +601,18 @@ func TestFoodStatsAggregation(t *testing.T) {
 	}
 
 	for _, m := range meals {
-		if _, err := s.CreateFoodLog(ctx, &m); err != nil {
-			t.Fatalf("CreateFoodLog: %v", err)
+		if _, err := s.CreateLog(ctx, &m); err != nil {
+			t.Fatalf("CreateLog: %v", err)
 		}
 	}
-	if _, err := s.CreateFoodLog(ctx, &oldMeal); err != nil {
-		t.Fatalf("CreateFoodLog (old): %v", err)
+	if _, err := s.CreateLog(ctx, &oldMeal); err != nil {
+		t.Fatalf("CreateLog (old): %v", err)
 	}
 
 	// Stats for 1 day should only include today's meals
-	stats, err := s.GetFoodStats(ctx, 1, base, 1)
+	stats, err := s.GetStats(ctx, 1, base, 1)
 	if err != nil {
-		t.Fatalf("GetFoodStats: %v", err)
+		t.Fatalf("GetStats: %v", err)
 	}
 	if stats.Calories != 522 {
 		t.Errorf("Calories: got %d, want 522", stats.Calories)
@@ -628,9 +628,9 @@ func TestFoodStatsAggregation(t *testing.T) {
 	}
 
 	// Stats for 7 days should include all meals
-	stats, err = s.GetFoodStats(ctx, 1, base, 7)
+	stats, err = s.GetStats(ctx, 1, base, 7)
 	if err != nil {
-		t.Fatalf("GetFoodStats 7 days: %v", err)
+		t.Fatalf("GetStats 7 days: %v", err)
 	}
 	if stats.Calories != 1062 {
 		t.Errorf("Calories 7 days: got %d, want 1062", stats.Calories)
@@ -641,9 +641,9 @@ func TestFoodStatsEmpty(t *testing.T) {
 	s := setupFoodRepo(t)
 	ctx := context.Background()
 
-	stats, err := s.GetFoodStats(ctx, 1, time.Now(), 1)
+	stats, err := s.GetStats(ctx, 1, time.Now(), 1)
 	if err != nil {
-		t.Fatalf("GetFoodStats: %v", err)
+		t.Fatalf("GetStats: %v", err)
 	}
 	if stats.Calories != 0 || stats.Carbs != 0 || stats.Protein != 0 || stats.Fat != 0 {
 		t.Errorf("expected all zeros, got %+v", stats)
@@ -678,8 +678,8 @@ func TestCreateMealFromLogs(t *testing.T) {
 		Name:     "Rice",
 	}
 
-	id1, _ := s.CreateFoodLog(ctx, log1)
-	id2, _ := s.CreateFoodLog(ctx, log2)
+	id1, _ := s.CreateLog(ctx, log1)
+	id2, _ := s.CreateLog(ctx, log2)
 
 	// Happy path
 	product, err := s.CreateMealFromLogs(ctx, 1, "Chicken & Rice Meal", []int64{id1, id2})
@@ -746,9 +746,9 @@ func TestFoodTargetsSetAndGet(t *testing.T) {
 	ctx := context.Background()
 
 	// Get default targets
-	defaults, err := s.GetFoodTargets(ctx)
+	defaults, err := s.GetTargets(ctx)
 	if err != nil {
-		t.Fatalf("GetFoodTargets (defaults): %v", err)
+		t.Fatalf("GetTargets (defaults): %v", err)
 	}
 
 	// Set new targets
@@ -758,13 +758,13 @@ func TestFoodTargetsSetAndGet(t *testing.T) {
 		Protein:  150,
 		Fat:      80,
 	}
-	if err := s.SetFoodTargets(ctx, targets); err != nil {
-		t.Fatalf("SetFoodTargets: %v", err)
+	if err := s.SetTargets(ctx, targets); err != nil {
+		t.Fatalf("SetTargets: %v", err)
 	}
 
-	got, err := s.GetFoodTargets(ctx)
+	got, err := s.GetTargets(ctx)
 	if err != nil {
-		t.Fatalf("GetFoodTargets: %v", err)
+		t.Fatalf("GetTargets: %v", err)
 	}
 	if got.Calories != 2200 {
 		t.Errorf("Calories: got %d, want 2200", got.Calories)
@@ -784,13 +784,13 @@ func TestFoodTargetsSetAndGet(t *testing.T) {
 
 	// Update targets again
 	targets.Calories = 1800
-	if err := s.SetFoodTargets(ctx, targets); err != nil {
-		t.Fatalf("SetFoodTargets (update): %v", err)
+	if err := s.SetTargets(ctx, targets); err != nil {
+		t.Fatalf("SetTargets (update): %v", err)
 	}
 
-	got, err = s.GetFoodTargets(ctx)
+	got, err = s.GetTargets(ctx)
 	if err != nil {
-		t.Fatalf("GetFoodTargets after update: %v", err)
+		t.Fatalf("GetTargets after update: %v", err)
 	}
 	if got.Calories != 1800 {
 		t.Errorf("Calories after update: got %d, want 1800", got.Calories)

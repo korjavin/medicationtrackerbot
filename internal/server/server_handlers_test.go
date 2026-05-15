@@ -707,7 +707,7 @@ func TestHandleUpdateFoodLog(t *testing.T) {
 	defer db.Close()
 
 	ctx := ctxWithUser(123456)
-	logID, _ := db.Food.CreateFoodLog(ctx, &store.FoodLog{
+	logID, _ := db.Food.CreateLog(ctx, &store.FoodLog{
 		UserID:   123456,
 		EatenAt:  time.Now(),
 		Name:     "Original",
@@ -749,7 +749,7 @@ func TestHandleGetFoodStats(t *testing.T) {
 	// Use an explicit UTC noon so the test is timezone-independent:
 	// the query uses date=<UTC-date>&tz=UTC so boundaries are UTC midnights.
 	mealTime := time.Date(time.Now().UTC().Year(), time.Now().UTC().Month(), time.Now().UTC().Day(), 12, 0, 0, 0, time.UTC)
-	db.Food.CreateFoodLog(ctx, &store.FoodLog{
+	db.Food.CreateLog(ctx, &store.FoodLog{
 		UserID:   123456,
 		EatenAt:  mealTime,
 		Name:     "Meal",
@@ -783,7 +783,7 @@ func TestHandleGetFoodTargets(t *testing.T) {
 	srv, db := createFoodTestServer(t)
 	defer db.Close()
 
-	db.Food.SetFoodTargets(context.Background(), store.FoodTargets{
+	db.Food.SetTargets(context.Background(), store.FoodTargets{
 		Calories: 2000, Carbs: 250, Protein: 100, Fat: 70,
 	})
 
@@ -823,7 +823,7 @@ func TestHandleSetFoodTargets(t *testing.T) {
 	}
 
 	// Verify
-	targets, _ := db.Food.GetFoodTargets(context.Background())
+	targets, _ := db.Food.GetTargets(context.Background())
 	if targets.Calories != 1800 {
 		t.Errorf("Expected 1800, got %d", targets.Calories)
 	}
@@ -834,7 +834,7 @@ func TestHandleGetFoodProducts(t *testing.T) {
 	defer db.Close()
 
 	ctx := ctxWithUser(123456)
-	db.Food.UpsertFoodProduct(ctx, &store.FoodProduct{
+	db.Food.UpsertProduct(ctx, &store.FoodProduct{
 		UserID:         123456,
 		Name:           "Apple",
 		Carbs100g:      14,
@@ -872,7 +872,7 @@ func TestHandleUpdateFoodProduct(t *testing.T) {
 	defer db.Close()
 
 	ctx := ctxWithUser(123456)
-	db.Food.UpsertFoodProduct(ctx, &store.FoodProduct{
+	db.Food.UpsertProduct(ctx, &store.FoodProduct{
 		UserID:         123456,
 		Name:           "Apple",
 		Carbs100g:      14,
@@ -881,7 +881,7 @@ func TestHandleUpdateFoodProduct(t *testing.T) {
 		EnergyKcal100g: 52,
 	})
 
-	products, _, _ := db.Food.GetFoodProducts(ctx, 123456, store.FoodProductsFilter{Limit: 10})
+	products, _, _ := db.Food.ListProducts(ctx, 123456, store.FoodProductsFilter{Limit: 10})
 	if len(products) == 0 {
 		t.Fatal("Expected at least 1 product")
 	}
@@ -913,7 +913,7 @@ func TestHandleDeleteFoodProduct(t *testing.T) {
 	defer db.Close()
 
 	ctx := ctxWithUser(123456)
-	db.Food.UpsertFoodProduct(ctx, &store.FoodProduct{
+	db.Food.UpsertProduct(ctx, &store.FoodProduct{
 		UserID:         123456,
 		Name:           "ToDelete",
 		Carbs100g:      10,
@@ -922,7 +922,7 @@ func TestHandleDeleteFoodProduct(t *testing.T) {
 		EnergyKcal100g: 40,
 	})
 
-	products, _, _ := db.Food.GetFoodProducts(ctx, 123456, store.FoodProductsFilter{Limit: 10})
+	products, _, _ := db.Food.ListProducts(ctx, 123456, store.FoodProductsFilter{Limit: 10})
 	productID := products[0].ID
 
 	req := httptest.NewRequest("DELETE", fmt.Sprintf("/api/food/products/%d", productID), nil)
@@ -936,7 +936,7 @@ func TestHandleDeleteFoodProduct(t *testing.T) {
 		t.Fatalf("Expected 200, got %d", w.Code)
 	}
 
-	products, _, _ = db.Food.GetFoodProducts(ctx, 123456, store.FoodProductsFilter{Limit: 10})
+	products, _, _ = db.Food.ListProducts(ctx, 123456, store.FoodProductsFilter{Limit: 10})
 	if len(products) != 0 {
 		t.Errorf("Expected 0 products after delete, got %d", len(products))
 	}

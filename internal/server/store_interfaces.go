@@ -134,21 +134,21 @@ type WorkoutStore interface {
 
 // FoodStore is the subset of store operations needed for food handlers.
 type FoodStore interface {
-	CreateFoodLog(ctx context.Context, f *store.FoodLog) (int64, error)
-	GetFoodLogs(ctx context.Context, userID int64, date time.Time, days int) ([]store.FoodLog, error)
-	UpdateFoodLog(ctx context.Context, f *store.FoodLog) error
-	DeleteFoodLog(ctx context.Context, id, userID int64) error
-	GetFoodStats(ctx context.Context, userID int64, endDate time.Time, days int) (*store.FoodStats, error)
-	GetFoodTargets(ctx context.Context) (store.FoodTargets, error)
-	SetFoodTargets(ctx context.Context, targets store.FoodTargets) error
-	UpsertFoodProduct(ctx context.Context, p *store.FoodProduct) error
-	GetFoodProductByID(ctx context.Context, userID, id int64) (*store.FoodProduct, error)
-	GetFoodProductByName(ctx context.Context, userID int64, name string) (*store.FoodProduct, error)
-	UpdateFoodProduct(ctx context.Context, p *store.FoodProduct) error
-	DeleteFoodProduct(ctx context.Context, id, userID int64) error
-	GetFoodProducts(ctx context.Context, userID int64, filter store.FoodProductsFilter) ([]store.FoodProduct, int, error)
-	SearchFoodProducts(ctx context.Context, userID int64, queryStr string) ([]store.FoodProduct, error)
-	SearchRemoteFoodAPI(ctx context.Context, query string) ([]store.FoodProduct, error)
+	CreateLog(ctx context.Context, f *store.FoodLog) (int64, error)
+	ListLogs(ctx context.Context, userID int64, date time.Time, days int) ([]store.FoodLog, error)
+	UpdateLog(ctx context.Context, f *store.FoodLog) error
+	DeleteLog(ctx context.Context, id, userID int64) error
+	GetStats(ctx context.Context, userID int64, endDate time.Time, days int) (*store.FoodStats, error)
+	GetTargets(ctx context.Context) (store.FoodTargets, error)
+	SetTargets(ctx context.Context, targets store.FoodTargets) error
+	UpsertProduct(ctx context.Context, p *store.FoodProduct) error
+	GetProductByID(ctx context.Context, userID, id int64) (*store.FoodProduct, error)
+	GetProductByName(ctx context.Context, userID int64, name string) (*store.FoodProduct, error)
+	UpdateProduct(ctx context.Context, p *store.FoodProduct) error
+	DeleteProduct(ctx context.Context, id, userID int64) error
+	ListProducts(ctx context.Context, userID int64, filter store.FoodProductsFilter) ([]store.FoodProduct, int, error)
+	SearchProducts(ctx context.Context, userID int64, queryStr string) ([]store.FoodProduct, error)
+	SearchRemoteAPI(ctx context.Context, query string) ([]store.FoodProduct, error)
 	CreateMealFromLogs(ctx context.Context, userID int64, name string, logIDs []int64) (*store.FoodProduct, error)
 }
 

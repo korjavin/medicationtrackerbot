@@ -66,7 +66,7 @@ func TestAnalyzeFitness_AllDomains(t *testing.T) {
 	}
 
 	// Add food log
-	if _, err := st.Food.CreateFoodLog(ctx, &store.FoodLog{
+	if _, err := st.Food.CreateLog(ctx, &store.FoodLog{
 		UserID:   userID,
 		EatenAt:  time.Date(2026, 3, 15, 12, 0, 0, 0, time.Local),
 		Name:     "Chicken Breast Salad",
@@ -76,7 +76,7 @@ func TestAnalyzeFitness_AllDomains(t *testing.T) {
 		Carbs:    20,
 		Fat:      15,
 	}); err != nil {
-		t.Fatalf("CreateFoodLog: %v", err)
+		t.Fatalf("CreateLog: %v", err)
 	}
 
 	// Add step data
@@ -189,7 +189,7 @@ func TestAnalyzeFitness_NutritionDailyTotalsNoFoodNames(t *testing.T) {
 		{"Secret Recipe Smoothie", 200, 10, 30, 5},
 		{"Personal Comfort Food", 600, 25, 50, 30},
 	} {
-		if _, err := st.Food.CreateFoodLog(ctx, &store.FoodLog{
+		if _, err := st.Food.CreateLog(ctx, &store.FoodLog{
 			UserID:   userID,
 			EatenAt:  time.Date(2026, 3, 15, 12, 0, 0, 0, time.Local),
 			Name:     food.name,
@@ -199,7 +199,7 @@ func TestAnalyzeFitness_NutritionDailyTotalsNoFoodNames(t *testing.T) {
 			Carbs:    food.carbs,
 			Fat:      food.fat,
 		}); err != nil {
-			t.Fatalf("CreateFoodLog: %v", err)
+			t.Fatalf("CreateLog: %v", err)
 		}
 	}
 

@@ -41,7 +41,7 @@ func TestHandleGetFoodIntakeIncludesTargetWhenConfigured(t *testing.T) {
 	if err := st.Settings.SetFoodIntakeEnabled(ctx, true); err != nil {
 		t.Fatalf("failed to enable food intake: %v", err)
 	}
-	if err := st.Food.SetFoodTargets(ctx, store.FoodTargets{
+	if err := st.Food.SetTargets(ctx, store.FoodTargets{
 		Calories: 2200,
 		Carbs:    250,
 		Protein:  150,
@@ -50,7 +50,7 @@ func TestHandleGetFoodIntakeIncludesTargetWhenConfigured(t *testing.T) {
 		t.Fatalf("failed to set food targets: %v", err)
 	}
 
-	_, err := st.Food.CreateFoodLog(ctx, &store.FoodLog{
+	_, err := st.Food.CreateLog(ctx, &store.FoodLog{
 		UserID:   123456,
 		EatenAt:  time.Date(2026, 2, 18, 8, 30, 0, 0, time.Local),
 		Name:     "Oatmeal",
@@ -92,7 +92,7 @@ func TestHandleGetFoodIntakeOmitsTargetWhenNotConfigured(t *testing.T) {
 		t.Fatalf("failed to enable food intake: %v", err)
 	}
 
-	_, err := st.Food.CreateFoodLog(ctx, &store.FoodLog{
+	_, err := st.Food.CreateLog(ctx, &store.FoodLog{
 		UserID:   123456,
 		EatenAt:  time.Date(2026, 2, 19, 13, 0, 0, 0, time.Local),
 		Name:     "Chicken",
@@ -213,7 +213,7 @@ func TestHandleGetFoodIntakeAcceptsCamelCaseDates(t *testing.T) {
 		t.Fatalf("failed to enable food intake: %v", err)
 	}
 
-	_, err := st.Food.CreateFoodLog(ctx, &store.FoodLog{
+	_, err := st.Food.CreateLog(ctx, &store.FoodLog{
 		UserID:   123456,
 		EatenAt:  time.Date(2026, 2, 19, 9, 0, 0, 0, time.Local),
 		Name:     "Yogurt",

@@ -289,7 +289,7 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		weightGoalResponse.HighestDate = &highestRecord.MeasuredAt
 	}
 
-	foodTargets, err := s.food.GetFoodTargets(ctx)
+	foodTargets, err := s.food.GetTargets(ctx)
 	if err != nil {
 		slog.Error("bootstrap food targets query failed", "error", err)
 		foodTargets = store.FoodTargets{}
@@ -350,7 +350,7 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		foodTZName = r.URL.Query().Get("tz")
 	}
 	foodDate := parseDateInLocation("", foodTZName, r.URL.Query().Get("tz_offset"))
-	foodLogs, err := s.food.GetFoodLogs(ctx, userID, foodDate, 1)
+	foodLogs, err := s.food.ListLogs(ctx, userID, foodDate, 1)
 	if err != nil {
 		slog.Error("bootstrap food logs query failed", "error", err)
 		foodLogs = []store.FoodLog{}
@@ -483,7 +483,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		features = map[string]bool{}
 	}
 
-	foodTargets, err := s.food.GetFoodTargets(ctx)
+	foodTargets, err := s.food.GetTargets(ctx)
 	if err != nil {
 		slog.Error("get settings food targets failed", "error", err)
 		foodTargets = store.FoodTargets{}

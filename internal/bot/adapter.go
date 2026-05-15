@@ -182,12 +182,17 @@ func (a *storeAdapter) SetWeightUnitPreference(ctx context.Context, unit string)
 }
 
 // --- Food ---
+//
+// Adapter method names keep the "Food" disambiguator so the bot's narrow
+// interface (FoodStore) can coexist with the weight-side Log methods of the
+// same shape on this single struct. Each method bridges to the renamed
+// food.Repo method.
 
 func (a *storeAdapter) CreateFoodLog(ctx context.Context, f *store.FoodLog) (int64, error) {
-	return a.food.CreateFoodLog(ctx, f)
+	return a.food.CreateLog(ctx, f)
 }
 func (a *storeAdapter) DeleteFoodLog(ctx context.Context, id, userID int64) error {
-	return a.food.DeleteFoodLog(ctx, id, userID)
+	return a.food.DeleteLog(ctx, id, userID)
 }
 
 // --- Workout ---

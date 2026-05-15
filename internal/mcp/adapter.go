@@ -58,10 +58,10 @@ func (a *storeAdapter) GetSleepLogs(ctx context.Context, userID int64, since tim
 	return a.s.Vitals.GetSleepLogs(ctx, userID, since)
 }
 func (a *storeAdapter) GetFoodLogs(ctx context.Context, userID int64, date time.Time, days int) ([]store.FoodLog, error) {
-	return a.s.Food.GetFoodLogs(ctx, userID, date, days)
+	return a.s.Food.ListLogs(ctx, userID, date, days)
 }
 func (a *storeAdapter) GetFoodTargets(ctx context.Context) (store.FoodTargets, error) {
-	return a.s.Food.GetFoodTargets(ctx)
+	return a.s.Food.GetTargets(ctx)
 }
 func (a *storeAdapter) GetDayStats(ctx context.Context, userID int64, since time.Time) ([]store.DayStat, error) {
 	return a.s.Vitals.GetDayStats(ctx, userID, since)
