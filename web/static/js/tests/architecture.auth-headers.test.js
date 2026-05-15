@@ -42,10 +42,14 @@ const EXCLUDED_DIRS = new Set(['tests', 'vendor', 'node_modules']);
 // Each entry: [regex, hint]. Patterns cover all three string-literal
 // quote styles (single, double, backtick) because the pre-consolidation
 // CSV-export code used a backtick template literal — the exact form a
-// regression is most likely to take.
+// regression is most likely to take. The Authorization-key regex also
+// matches the unquoted-key shorthand (`{ Authorization: \`tma ${...}\` }`)
+// since ES object literals permit bare identifiers as keys and that is a
+// plausible regression shape.
 const FORBIDDEN_PATTERNS = [
     [/["'`]X-Telegram-Init-Data["'`]/g, 'X-Telegram-Init-Data header literal'],
-    [/["']Authorization["']\s*:\s*["'`]tma\s/g, "Authorization: 'tma ...' literal"],
+    [/(?:["'`]Authorization["'`]|\bAuthorization\b)\s*:\s*["'`]tma\s/g, "Authorization: 'tma ...' literal"],
+    [/headers\s*\[\s*["'`]Authorization["'`]\s*\]\s*=\s*["'`]tma\s/g, "headers['Authorization'] = 'tma ...' assignment"],
 ];
 
 function collectJsFiles(dir, results = []) {
