@@ -186,4 +186,97 @@ describe('Food product search — AbortController + 10s timeout', () => {
         expect(status.textContent).toBe('Search timed out');
         expect(status.classList.contains('error')).toBe(true);
     });
+
+    it('times out the remote OpenFoodFacts fetch after a fresh 10s budget when local results are empty', async () => {
+        allowConsoleNoise();
+        const { window, document } = env;
+
+        // First call (local search): returns an empty array immediately so
+        // loadMoreCallback auto-fires. Second call (remote OpenFoodFacts):
+        // hangs until aborted by the per-loadMore deadline.
+        let callIdx = 0;
+        window.fetch = vi.fn((_url, fetchOpts) => {
+            const i = callIdx++;
+            if (i === 0) {
+                return Promise.resolve(streamingResponse([JSON.stringify([])]));
+            }
+            return new Promise((_resolve, reject) => {
+                if (fetchOpts && fetchOpts.signal) {
+                    fetchOpts.signal.addEventListener('abort', () => {
+                        reject(fetchOpts.signal.reason);
+                    });
+                }
+            });
+        });
+
+        document.getElementById('food-name').value = 'unobtanium';
+        window.onFoodNameChange();
+
+        // Fire the 800ms debounce so the search starts; local stream
+        // resolves immediately and triggers loadMoreCallback.
+        await vi.advanceTimersByTimeAsync(850);
+        for (let i = 0; i < 30; i++) await Promise.resolve();
+
+        // Both fetches should have fired (local + remote).
+        expect(window.fetch).toHaveBeenCalledTimes(2);
+        const status = document.getElementById('food-search-status');
+        expect(status.textContent).toContain('Searching OpenFoodFacts');
+
+        // Advance past the per-loadMore 10s deadline; the remote fetch must
+        // abort and surface a typed status without throwing.
+        await vi.advanceTimersByTimeAsync(10_500);
+        for (let i = 0; i < 30; i++) await Promise.resolve();
+
+        expect(status.textContent).toContain('Remote search timed out');
+    });
+
+    it('does not surface "Remote fetch failed" when a new search aborts an in-flight remote loadMore', async () => {
+        allowConsoleNoise();
+        const { window, document } = env;
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        let callIdx = 0;
+        window.fetch = vi.fn((_url, fetchOpts) => {
+            const i = callIdx++;
+            // First call (local for query 1): empty → triggers loadMore.
+            if (i === 0) {
+                return Promise.resolve(streamingResponse([JSON.stringify([])]));
+            }
+            // Second call (remote for query 1): hangs until aborted.
+            if (i === 1) {
+                return new Promise((_resolve, reject) => {
+                    if (fetchOpts && fetchOpts.signal) {
+                        fetchOpts.signal.addEventListener('abort', () => {
+                            reject(fetchOpts.signal.reason);
+                        });
+                    }
+                });
+            }
+            // Third call (local for query 2): resolves with results.
+            return Promise.resolve(streamingResponse([JSON.stringify([{ id: 9, name: 'Cherry' }])]));
+        });
+
+        document.getElementById('food-name').value = 'aaa';
+        window.onFoodNameChange();
+        await vi.advanceTimersByTimeAsync(850);
+        for (let i = 0; i < 20; i++) await Promise.resolve();
+
+        // Local stream done, remote in flight.
+        expect(window.fetch).toHaveBeenCalledTimes(2);
+
+        // User types a new query — must abort the remote fetch silently.
+        document.getElementById('food-name').value = 'bbb';
+        window.onFoodNameChange();
+        await vi.advanceTimersByTimeAsync(850);
+        await vi.runAllTimersAsync();
+        for (let i = 0; i < 30; i++) await Promise.resolve();
+
+        const status = document.getElementById('food-search-status');
+        expect(status.textContent).not.toContain('Remote fetch failed');
+        expect(status.textContent).not.toContain('Remote search timed out');
+        // No console.error from the user-initiated abort.
+        const sawLoadMoreError = errorSpy.mock.calls.some((c) => String(c[0]).includes('Load more failed'));
+        expect(sawLoadMoreError).toBe(false);
+        errorSpy.mockRestore();
+    });
 });

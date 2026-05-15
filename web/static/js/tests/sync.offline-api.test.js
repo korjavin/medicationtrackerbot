@@ -227,8 +227,27 @@ describe('sync.js offlineAwareApiCall behavior', () => {
 
       const result = await window.offlineAwareApiCall('/api/something', 'GET');
 
-      expect(window.apiCallDirect).toHaveBeenCalledWith('/api/something', 'GET', null);
+      expect(window.apiCallDirect).toHaveBeenCalledWith('/api/something', 'GET', null, {});
       expect(result).toEqual({ ok: true, value: 1 });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('forwards opts (timeoutMs / signal) through to apiCallDirect', async () => {
+    const { window, cleanup } = loadSyncEnv();
+
+    try {
+      window.SyncManager.isOnline = true;
+      window.apiCallDirect = vi.fn().mockResolvedValue({ ok: true });
+
+      const controller = new AbortController();
+      const opts = { timeoutMs: 5_000, signal: controller.signal };
+      await window.offlineAwareApiCall('/api/anything', 'GET', null, opts);
+
+      expect(window.apiCallDirect).toHaveBeenCalledTimes(1);
+      const args = window.apiCallDirect.mock.calls[0];
+      expect(args[3]).toEqual(opts);
     } finally {
       cleanup();
     }

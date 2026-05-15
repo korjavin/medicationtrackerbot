@@ -748,7 +748,7 @@ const SyncManager = {
 
 // Offline-aware API call wrapper
 // This replaces the original apiCall function with offline support
-async function offlineAwareApiCall(endpoint, method = "GET", body = null) {
+async function offlineAwareApiCall(endpoint, method = "GET", body = null, opts = {}) {
     const isWrite = method === 'POST' || method === 'PUT' || method === 'DELETE';
 
     SyncDebug.info(`API: ${method} ${endpoint}`, { online: SyncManager.isOnline, isWrite });
@@ -776,7 +776,7 @@ async function offlineAwareApiCall(endpoint, method = "GET", body = null) {
     // Try the network request
     try {
         SyncDebug.info('Sending to network...', { endpoint });
-        const result = await window.apiCallDirect(endpoint, method, body);
+        const result = await window.apiCallDirect(endpoint, method, body, opts);
         SyncDebug.info('Network response OK', { endpoint, hasResult: !!result });
 
         // Return the server response directly

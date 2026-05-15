@@ -229,11 +229,16 @@ async function onFoodNameChange() {
                 }
             }
 
-            // Define the callback for loading remote OpenFoodFacts
+            // Define the callback for loading remote OpenFoodFacts. Each
+            // invocation gets a fresh 10s deadline so a stalled OpenFoodFacts
+            // can't hang the spinner forever (the local-search timeout was
+            // already cleared above).
             const loadMoreCallback = async () => {
                 if (requestId !== window.FoodProducts._getRequestId()) return;
                 setFoodSearchStatus('loading', 'Searching OpenFoodFacts...');
+                let remoteTimeoutId;
                 try {
+                    remoteTimeoutId = setTimeout(() => controller.abort(), 10_000);
                     const remoteEndpoint = `/api/food/products/search?q=${encodeURIComponent(query)}&remote=true`;
                     const remoteRes = await fetch(remoteEndpoint, { method: "GET", headers, signal: controller.signal });
                     if (!remoteRes.ok) throw new Error("Remote search failed");
@@ -282,9 +287,22 @@ async function onFoodNameChange() {
                     setFoodSearchStatus('success', `Found ${mergedUnique.length} result(s).`);
 
                 } catch (e) {
+                    // A new search starting aborts our shared controller — that
+                    // is the user's intent, not a remote failure. The
+                    // requestId guard filters that case silently. A 10s
+                    // deadline firing surfaces a typed status without console
+                    // noise. Anything else is a genuine remote failure.
+                    if (requestId !== window.FoodProducts._getRequestId()) return;
+                    if (e && (e.name === 'AbortError' || e.name === 'TimeoutError')) {
+                        setFoodSearchStatus('success', `Found ${unique.length} local result(s). Remote search timed out.`);
+                        renderFoodAutocomplete(unique, false, null);
+                        return;
+                    }
                     console.error("Load more failed", e);
                     setFoodSearchStatus('success', `Found ${unique.length} local result(s). Remote fetch failed.`);
                     renderFoodAutocomplete(unique, false, null);
+                } finally {
+                    if (remoteTimeoutId !== undefined) clearTimeout(remoteTimeoutId);
                 }
             };
 
