@@ -137,27 +137,27 @@ and recommended-priority item #9.
 
 ### Task 2: Define and substitute the three entities
 
-- [ ] define `BPSync = defineOfflineEntity({name:'BP', store: ...,
+- [x] define `BPSync = defineOfflineEntity({name:'BP', store: ...,
   endpoint:'/api/bp', buildPayload: r => ({measured_at:r.measured_at,
   systolic:r.systolic, ...}), onSuccess:(id,sid,s)=>s.confirmDelete(id),
   backgroundSyncTag:'sync-bp-readings', toastSingular:'BP reading
   saved locally', toastPlural:'BP readings saved locally'})`
-- [ ] define `WeightSync` and `IntakeSync` analogously; for
+- [x] define `WeightSync` and `IntakeSync` analogously; for
   `IntakeSync.onSuccess`, call `IntakeQueueStore.markSynced(id)`
   instead of `confirmDelete`
-- [ ] replace `SyncManager.syncBPReadings`, `syncWeightLogs`,
+- [x] replace `SyncManager.syncBPReadings`, `syncWeightLogs`,
   `syncIntakeLogs` (sync.js:436, 488, 536) with one-line forwarders:
   `syncBPReadings() { return BPSync.syncPending(); }` etc — keep the
   method names so existing callers (SW message handlers, periodic
   `syncAll`) don't change
-- [ ] replace `handleOfflineBPWrite`, `handleOfflineWeightWrite`,
+- [x] replace `handleOfflineBPWrite`, `handleOfflineWeightWrite`,
   `handleOfflineIntakeWrite` (sync.js:697, 722, 813) with one-line
   forwarders to `BPSync.handleOfflineWrite(body)` etc
-- [ ] verify `tests/sync.retry.test.js` and
+- [x] verify `tests/sync.retry.test.js` and
   `tests/sync.manager-flow.test.js` still pass without changes (the
   rewrite is behaviour-preserving)
-- [ ] verify `db.js` Store imports are unchanged
-- [ ] run `pnpm test sync.` — must pass before next task
+- [x] verify `db.js` Store imports are unchanged
+- [x] run `pnpm test sync.` — must pass before next task
 
 ### Task 3: Generalize the offline-read handlers
 

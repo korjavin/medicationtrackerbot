@@ -256,6 +256,74 @@ function defineOfflineEntity(config) {
 // Expose factory globally for tests and Task 2 entity definitions.
 window.defineOfflineEntity = defineOfflineEntity;
 
+// Entity definitions for the three offline-write pipelines.
+// Stores are resolved lazily via getter functions because
+// window.MedTrackerDB may not be loaded at the time sync.js is parsed
+// (notably during tests that import sync.js before db.js).
+const BPSync = defineOfflineEntity({
+    name: 'BP readings',
+    store: () => window.MedTrackerDB && window.MedTrackerDB.BPStore,
+    endpoint: '/api/bp',
+    buildPayload: (reading) => ({
+        measured_at: reading.measured_at,
+        systolic: reading.systolic,
+        diastolic: reading.diastolic,
+        pulse: reading.pulse,
+        site: reading.site,
+        position: reading.position,
+        notes: reading.notes
+    }),
+    onSuccess: async (localId, result, store) => {
+        if (!(result && result.id)) {
+            throw new Error('No ID returned from server');
+        }
+        await store.confirmDelete(localId);
+    },
+    backgroundSyncTag: 'sync-bp-readings',
+    toastSingular: 'BP reading saved locally'
+});
+
+const WeightSync = defineOfflineEntity({
+    name: 'weight logs',
+    store: () => window.MedTrackerDB && window.MedTrackerDB.WeightStore,
+    endpoint: '/api/weight',
+    buildPayload: (log) => ({
+        measured_at: log.measured_at,
+        weight: log.weight,
+        notes: log.notes
+    }),
+    onSuccess: async (localId, result, store) => {
+        if (!(result && result.id)) {
+            throw new Error('No ID returned from server');
+        }
+        await store.confirmDelete(localId);
+    },
+    backgroundSyncTag: 'sync-weight-logs',
+    toastSingular: 'Weight saved locally'
+});
+
+const IntakeSync = defineOfflineEntity({
+    name: 'intake logs',
+    store: () => window.MedTrackerDB && window.MedTrackerDB.IntakeQueueStore,
+    endpoint: '/api/medications/confirm-schedule',
+    buildPayload: (entry) => ({
+        scheduled_at: entry.scheduled_at,
+        medication_ids: entry.medication_ids,
+        intake_ids: entry.intake_ids || []
+    }),
+    onSuccess: async (localId, result, store) => {
+        await store.markSynced(localId);
+    },
+    backgroundSyncTag: 'sync-intake-logs',
+    toastSingular: 'Medication confirmed locally',
+    prepareOfflineEntry: (body) => ({
+        scheduled_at: body.scheduled_at,
+        medication_ids: body.medication_ids,
+        intake_ids: body.intake_ids || [],
+        taken_at: new Date().toISOString()
+    })
+});
+
 const SyncManager = {
     isOnline: navigator.onLine,
     isSyncing: false,
@@ -566,149 +634,19 @@ const SyncManager = {
         }
     },
 
-    // Sync BP readings to server
+    // Sync BP readings to server (forwards to BPSync factory entity)
     async syncBPReadings() {
-        if (!this.isOnline) return;
-
-        const pending = await window.MedTrackerDB.BPStore.getPending();
-        if (pending.length === 0) {
-            SyncDebug.info('No pending BP readings');
-            return;
-        }
-
-        SyncDebug.info(`Syncing ${pending.length} BP readings...`);
-
-        for (const reading of pending) {
-            try {
-                // Prepare payload for server
-                const payload = {
-                    measured_at: reading.measured_at,
-                    systolic: reading.systolic,
-                    diastolic: reading.diastolic,
-                    pulse: reading.pulse,
-                    site: reading.site,
-                    position: reading.position,
-                    notes: reading.notes
-                };
-
-                SyncDebug.info('Sending BP to server', { localId: reading.localId, sys: reading.systolic });
-
-                // Send to server using the global apiCall function
-                const result = await window.apiCallDirect('/api/bp', 'POST', payload);
-
-                if (result && result.id) {
-                    // Delete from local DB since it's now on the server
-                    // We don't need to keep synced records locally
-                    await window.MedTrackerDB.BPStore.confirmDelete(reading.localId);
-                    SyncDebug.info('BP synced and removed from local DB', { localId: reading.localId, serverId: result.id });
-                } else {
-                    throw new Error('No ID returned from server');
-                }
-            } catch (err) {
-                SyncDebug.error(`BP sync failed for ${reading.localId}`, { error: err.message });
-                if (isPermanentSyncError(err)) {
-                    SyncDebug.warn(`BP ${reading.localId} rejected permanently`, { error: err.message });
-                    await window.MedTrackerDB.BPStore.markRejected(reading.localId, err.message);
-                } else {
-                    await window.MedTrackerDB.BPStore.markError(reading.localId, err.message);
-                }
-            }
-        }
-
-        this.updateStatus();
+        return BPSync.syncPending();
     },
 
-    // Sync weight logs to server
+    // Sync weight logs to server (forwards to WeightSync factory entity)
     async syncWeightLogs() {
-        if (!this.isOnline) return;
-
-        const pending = await window.MedTrackerDB.WeightStore.getPending();
-        if (pending.length === 0) {
-            SyncDebug.info('No pending weight logs');
-            return;
-        }
-
-        SyncDebug.info(`Syncing ${pending.length} weight logs...`);
-
-        for (const log of pending) {
-            try {
-                // Prepare payload for server
-                const payload = {
-                    measured_at: log.measured_at,
-                    weight: log.weight,
-                    notes: log.notes
-                };
-
-                SyncDebug.info('Sending weight to server', { localId: log.localId, weight: log.weight });
-
-                // Send to server
-                const result = await window.apiCallDirect('/api/weight', 'POST', payload);
-
-                if (result && result.id) {
-                    // Delete from local DB since it's now on the server
-                    // We don't need to keep synced records locally
-                    await window.MedTrackerDB.WeightStore.confirmDelete(log.localId);
-                    SyncDebug.info('Weight synced and removed from local DB', { localId: log.localId, serverId: result.id });
-                } else {
-                    throw new Error('No ID returned from server');
-                }
-            } catch (err) {
-                SyncDebug.error(`Weight sync failed for ${log.localId}`, { error: err.message });
-                if (isPermanentSyncError(err)) {
-                    SyncDebug.warn(`Weight ${log.localId} rejected permanently`, { error: err.message });
-                    await window.MedTrackerDB.WeightStore.markRejected(log.localId, err.message);
-                } else {
-                    await window.MedTrackerDB.WeightStore.markError(log.localId, err.message);
-                }
-            }
-        }
-
-        this.updateStatus();
+        return WeightSync.syncPending();
     },
 
-    // Sync intake logs to server
+    // Sync intake logs to server (forwards to IntakeSync factory entity)
     async syncIntakeLogs() {
-        if (!this.isOnline) return;
-        if (!window.MedTrackerDB || !window.MedTrackerDB.IntakeQueueStore) return;
-
-        const pending = await window.MedTrackerDB.IntakeQueueStore.getPending();
-        if (pending.length === 0) {
-            SyncDebug.info('No pending intake logs');
-            return;
-        }
-
-        SyncDebug.info(`Syncing ${pending.length} intake logs...`);
-
-        for (const entry of pending) {
-            try {
-                const payload = {
-                    scheduled_at: entry.scheduled_at,
-                    medication_ids: entry.medication_ids,
-                    intake_ids: entry.intake_ids || []
-                };
-
-                SyncDebug.info('Sending intake to server', { localId: entry.localId });
-
-                const result = await window.apiCallDirect('/api/medications/confirm-schedule', 'POST', payload);
-
-                if (result) {
-                    await window.MedTrackerDB.IntakeQueueStore.markSynced(entry.localId);
-                    SyncDebug.info('Intake synced', { localId: entry.localId });
-                } else {
-                    throw new Error('No response from server');
-                }
-            } catch (err) {
-                SyncDebug.error(`Intake sync failed for ${entry.localId}`, { error: err.message });
-                if (isPermanentSyncError(err)) {
-                    SyncDebug.warn(`Intake ${entry.localId} rejected permanently`, { error: err.message });
-                    await window.MedTrackerDB.IntakeQueueStore.markRejected(entry.localId, err.message);
-                } else {
-                    await window.MedTrackerDB.IntakeQueueStore.markError(entry.localId, err.message);
-                }
-            }
-        }
-
-        this.updateStatus();
+        return IntakeSync.syncPending();
     },
 
     // Drain failed Service Worker notification-action POSTs.
@@ -931,54 +869,14 @@ async function offlineAwareApiCall(endpoint, method = "GET", body = null, opts =
     }
 }
 
-// Handle offline BP write
+// Handle offline BP write (forwards to BPSync factory entity)
 async function handleOfflineBPWrite(body) {
-    SyncDebug.info('Saving BP offline', { sys: body.systolic, dia: body.diastolic });
-
-    const localEntry = await window.MedTrackerDB.BPStore.save(body);
-    SyncDebug.info('BP saved to IndexedDB', { localId: localEntry.localId });
-
-    // Register background sync
-    SyncManager.registerBackgroundSync('sync-bp-readings');
-
-    // Show toast
-    SyncManager.showToast('BP reading saved locally — will sync when online', 'info');
-
-    // Update status
-    SyncManager.updateStatus();
-
-    // Return a mock response that looks like the server response
-    return {
-        ...body,
-        id: `local_${localEntry.localId}`,
-        localId: localEntry.localId,
-        isLocal: true
-    };
+    return BPSync.handleOfflineWrite(body);
 }
 
-// Handle offline weight write
+// Handle offline weight write (forwards to WeightSync factory entity)
 async function handleOfflineWeightWrite(body) {
-    SyncDebug.info('Saving weight offline', { weight: body.weight });
-
-    const localEntry = await window.MedTrackerDB.WeightStore.save(body);
-    SyncDebug.info('Weight saved to IndexedDB', { localId: localEntry.localId });
-
-    // Register background sync
-    SyncManager.registerBackgroundSync('sync-weight-logs');
-
-    // Show toast
-    SyncManager.showToast('Weight saved locally — will sync when online', 'info');
-
-    // Update status
-    SyncManager.updateStatus();
-
-    // Return a mock response
-    return {
-        ...body,
-        id: `local_${localEntry.localId}`,
-        localId: localEntry.localId,
-        isLocal: true
-    };
+    return WeightSync.handleOfflineWrite(body);
 }
 
 // Handle offline BP read — return pending/rejected local writes.
@@ -1047,34 +945,9 @@ async function handleOfflineWorkoutRead(endpoint) {
     return null;
 }
 
-// Handle offline medication intake confirmation
+// Handle offline medication intake confirmation (forwards to IntakeSync factory entity)
 async function handleOfflineIntakeWrite(body) {
-    if (!window.MedTrackerDB || !window.MedTrackerDB.IntakeQueueStore) return null;
-
-    SyncDebug.info('Saving intake confirmation offline', { medication_ids: body.medication_ids });
-
-    const localEntry = await window.MedTrackerDB.IntakeQueueStore.save({
-        scheduled_at: body.scheduled_at,
-        medication_ids: body.medication_ids,
-        intake_ids: body.intake_ids || [],
-        taken_at: new Date().toISOString()
-    });
-
-    // Register background sync
-    SyncManager.registerBackgroundSync('sync-intake-logs');
-
-    // Show toast
-    SyncManager.showToast('Medication confirmed locally — will sync when online', 'info');
-
-    // Update status
-    SyncManager.updateStatus();
-
-    return {
-        ...body,
-        id: `local_${localEntry.localId}`,
-        localId: localEntry.localId,
-        isLocal: true
-    };
+    return IntakeSync.handleOfflineWrite(body);
 }
 
 // Check if error is a network error or server unavailable

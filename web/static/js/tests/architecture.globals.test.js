@@ -29,6 +29,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.offlineAwareApiCall',       // sync.js — public API entry point
     'window.isServerError',             // sync.js — canonical 5xx-as-offline detector exposed so cached-fetch.js can keep the policy defined in one place
     'window.SyncDebug',                 // sync.js — dev-mode diagnostics
+    'window.defineOfflineEntity',       // sync.js — factory shared by BP/weight/intake offline-write pipelines; exposed for tests and future entity additions
     'window.DataStore',                 // data-store.js — SWR cache layer
     'window.cachedFetch',               // cached-fetch.js — local-first read-through helper used by feature modules to render stale cache offline + power the freshness badge
     'window.OfflineNoCacheError',       // cached-fetch.js — typed error thrown when no cache exists and the network is unavailable; sections catch it to render an explicit empty state
