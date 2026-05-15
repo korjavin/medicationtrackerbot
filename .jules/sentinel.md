@@ -10,3 +10,7 @@
 **Vulnerability:** Cross-Site Scripting (XSS) via `r.Host` injected using `strings.ReplaceAll` instead of `html/template`.
 **Learning:** Because the project serves HTML by reading static files and injecting variables (like `r.Host` or environmental overrides) via `strings.ReplaceAll`, it bypasses the automatic context-aware escaping provided by `html/template`. Unsanitized HTTP headers or external inputs injected directly into HTML payloads can lead to XSS.
 **Prevention:** Always explicitly wrap injected variables derived from HTTP requests or external sources with `html.EscapeString()` when using string substitution for templating.
+## 2025-05-24 - MCP OAuth Default Allow-All on Empty AllowedSubject
+**Vulnerability:** OAuth audience/subject bypass (TM-008). If `MCP_ALLOWED_SUBJECT` is not explicitly set or empty, the system defaults to allowing any authenticated user from the configured OIDC provider (e.g. Pocket-ID) to access the MCP endpoint.
+**Learning:** Returning `true` for empty subject allowlists enables a fail-open access control bypass if configuration falls through or if the admin incorrectly assumes empty means "no access".
+**Prevention:** Access control checks (e.g. `isSubjectAllowed`) must default to a fail-closed behavior, returning `false` for empty configuration. System initialization (e.g. `LoadConfigFromEnv`) must also mandate configuration of such critical security parameters rather than silently permitting unsafe defaults.
