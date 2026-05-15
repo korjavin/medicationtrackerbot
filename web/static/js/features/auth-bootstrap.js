@@ -135,6 +135,7 @@ window.AuthBootstrap = (function () {
             timezone: raw?.timezone || raw?.settings?.timezone || '',
             serverTime: raw?.serverTime || raw?.server_time || raw?.settings?.server_time || '',
             serverTimezone: raw?.serverTimezone || raw?.server_timezone || raw?.settings?.server_timezone || '',
+            dismissedTzSuggestion: raw?.dismissedTzSuggestion || raw?.dismissed_tz_suggestion || raw?.settings?.dismissed_tz_suggestion || '',
             weightUnitPreference: weightUnit,
             foodTargets: {
                 calories: Number(foodTargetsRaw.calories) || 0,

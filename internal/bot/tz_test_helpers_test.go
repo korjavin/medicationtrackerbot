@@ -12,9 +12,10 @@ import (
 var _ tzupdate.Service = (*mockTZUpdater)(nil)
 
 // mockTZUpdater is a shared test double for tzupdate.Service used across bot
-// tests. It records every UpdateTimezone call and returns configurable
-// (planCreated, err) values so tests can drive both branches of the bot's
-// confirmation-message logic.
+// tests. It records every UpdateTimezone call and returns a configurable
+// (planCreated, err). A successful (err==nil) call always reports
+// Changed=true — the bot doesn't branch on Changed, and modelling the
+// short-circuit case would require state the bot tests don't exercise.
 type mockTZUpdater struct {
 	mu          sync.Mutex
 	calls       []string
@@ -22,11 +23,14 @@ type mockTZUpdater struct {
 	err         error
 }
 
-func (m *mockTZUpdater) UpdateTimezone(_ context.Context, newTZ string) (bool, error) {
+func (m *mockTZUpdater) UpdateTimezone(_ context.Context, newTZ string) (tzupdate.UpdateResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.calls = append(m.calls, newTZ)
-	return m.planCreated, m.err
+	if m.err != nil {
+		return tzupdate.UpdateResult{}, m.err
+	}
+	return tzupdate.UpdateResult{Changed: true, PlanCreated: m.planCreated}, nil
 }
 
 func (m *mockTZUpdater) recordedCalls() []string {

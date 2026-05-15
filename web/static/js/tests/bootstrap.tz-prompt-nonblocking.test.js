@@ -158,9 +158,6 @@ describe('bootstrap.js TZ prompt is non-blocking', () => {
             settings_bundle: { timezone: 'Europe/Berlin' }
         });
 
-        // Pre-seed a stale dismissal cookie — accept path should clear it.
-        window.localStorage.setItem('tz_prompt_dismissed', 'Asia/Tokyo');
-
         const apiCallSpy = vi.fn().mockResolvedValue({ status: 'ok' });
         window.apiCall = apiCallSpy;
         const invalidateSpy = vi.fn().mockResolvedValue(undefined);
@@ -180,15 +177,18 @@ describe('bootstrap.js TZ prompt is non-blocking', () => {
 
         modal.querySelector('.mt-confirm-modal__confirm').click();
 
-        // Yield for: safeConfirm resolve → await apiCall → await invalidateKey → localStorage.removeItem
+        // Yield for: safeConfirm resolve → await apiCall → await invalidateKey
         await new Promise(resolve => setTimeout(resolve, 30));
 
         expect(apiCallSpy).toHaveBeenCalledWith('/api/settings', 'POST', { timezone: detectedTz });
         expect(invalidateSpy).toHaveBeenCalledWith('settings_bundle');
-        expect(window.localStorage.getItem('tz_prompt_dismissed')).toBeNull();
+        // Accept path must NOT call the dismiss endpoint — the server-side
+        // RecordTimezone clears the dismissed flag for us.
+        const dismissCalls = apiCallSpy.mock.calls.filter(args => args[0] === '/api/tz-suggestion/dismiss');
+        expect(dismissCalls).toHaveLength(0);
     });
 
-    it('maybeUpdateTimezone: cancel writes tz_prompt_dismissed', async () => {
+    it('maybeUpdateTimezone: cancel POSTs /api/tz-suggestion/dismiss with detected_tz', async () => {
         allowConsoleNoise();
         const { window, document } = env;
 
@@ -216,11 +216,52 @@ describe('bootstrap.js TZ prompt is non-blocking', () => {
 
         await new Promise(resolve => setTimeout(resolve, 30));
 
-        expect(window.localStorage.getItem('tz_prompt_dismissed')).toBe(detectedTz);
+        expect(apiCallSpy).toHaveBeenCalledWith(
+            '/api/tz-suggestion/dismiss',
+            'POST',
+            { detected_tz: detectedTz },
+        );
         // Cancel must NOT trigger an /api/settings POST nor a cache invalidation.
         const settingsCalls = apiCallSpy.mock.calls.filter(args => args[0] === '/api/settings');
         expect(settingsCalls).toHaveLength(0);
         expect(invalidateSpy).not.toHaveBeenCalled();
+    });
+
+    it('maybeUpdateTimezone: cancel mirrors dismissal into cached settings_bundle (offline-safe)', async () => {
+        // When the user dismisses while the dismiss POST is silently dropped
+        // (offline / 5xx → apiCall returns null without throwing), the same
+        // browser must still skip the prompt on reload. Mirror the dismissal
+        // into the cached settings_bundle so the next maybeUpdateTimezone call
+        // sees it locally even if the server never recorded it.
+        allowConsoleNoise();
+        const { window, document } = env;
+
+        const detectedTz = 'America/Chicago';
+        forceDetectedTimezone(window, detectedTz);
+        const cacheMap = installApiCacheMap(window, {
+            settings_bundle: { timezone: 'Europe/Berlin' }
+        });
+
+        // Simulate offline: dismiss endpoint returns null (no throw).
+        const apiCallSpy = vi.fn().mockResolvedValue(null);
+        window.apiCall = apiCallSpy;
+        window.DataStore.invalidateKey = vi.fn().mockResolvedValue(undefined);
+
+        stubBootstrapFetch(window);
+        stubBootstrapGlobals(window);
+
+        const bootstrapSource = fs.readFileSync(BOOTSTRAP_JS, 'utf8');
+        window.eval(bootstrapSource);
+
+        const modal = await waitForModal(document);
+        expect(modal).not.toBeNull();
+        modal.querySelector('.mt-confirm-modal__cancel').click();
+
+        await new Promise(resolve => setTimeout(resolve, 30));
+
+        const cached = cacheMap.get('settings_bundle');
+        expect(cached?.data?.dismissedTzSuggestion).toBe(detectedTz);
+        expect(cached?.data?.timezone).toBe('Europe/Berlin');
     });
 
     it('maybeUpdateTimezone: skip when detectedTz equals stored timezone', async () => {
@@ -249,16 +290,18 @@ describe('bootstrap.js TZ prompt is non-blocking', () => {
         expect(apiCallSpy).not.toHaveBeenCalledWith('/api/settings', expect.anything(), expect.anything());
     });
 
-    it('maybeUpdateTimezone: skip when tz_prompt_dismissed matches detectedTz', async () => {
+    it('maybeUpdateTimezone: skip when settings_bundle.dismissed_tz_suggestion matches detectedTz', async () => {
         allowConsoleNoise();
         const { window, document } = env;
 
         const detectedTz = 'America/Chicago';
         forceDetectedTimezone(window, detectedTz);
         installApiCacheMap(window, {
-            settings_bundle: { timezone: 'Europe/Berlin' }
+            settings_bundle: {
+                timezone: 'Europe/Berlin',
+                dismissedTzSuggestion: detectedTz,
+            }
         });
-        window.localStorage.setItem('tz_prompt_dismissed', detectedTz);
 
         const apiCallSpy = vi.fn().mockResolvedValue({ status: 'ok' });
         window.apiCall = apiCallSpy;
@@ -272,7 +315,8 @@ describe('bootstrap.js TZ prompt is non-blocking', () => {
         await new Promise(resolve => setTimeout(resolve, 50));
 
         expect(document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
-        // Suppression cookie remains untouched.
-        expect(window.localStorage.getItem('tz_prompt_dismissed')).toBe(detectedTz);
+        // Neither endpoint should be touched when we silently skip.
+        expect(apiCallSpy).not.toHaveBeenCalledWith('/api/settings', expect.anything(), expect.anything());
+        expect(apiCallSpy).not.toHaveBeenCalledWith('/api/tz-suggestion/dismiss', expect.anything(), expect.anything());
     });
 });

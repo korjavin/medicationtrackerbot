@@ -13,6 +13,7 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/bot"
 	"github.com/korjavin/medicationtrackerbot/internal/domain"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
+	"github.com/korjavin/medicationtrackerbot/internal/domain/tzsuggestion"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzupdate"
 	"github.com/korjavin/medicationtrackerbot/internal/mcp/registry"
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
@@ -153,9 +154,16 @@ func main() {
 	// always observes the finalised set — otherwise a queued /tz + location
 	// arriving during startup could race past an empty notifier slice and
 	// skip plan generation.
-	tzPlanner := tzreschedule.NewPlannerService(newTZPlannerStore(s))
+	tzPlannerStore := newTZPlannerStore(s)
+	tzPlanner := tzreschedule.NewPlannerService(tzPlannerStore)
 	var notifiers []notifier.Notifier
 	tzUpdater := tzupdate.NewService(s.TZ, s.TZ, tzPlanner, nil, func() bool { return len(notifiers) > 0 })
+	// Construct the TZ-suggestion decision service alongside the tz updater so
+	// /api/tz-suggestion/dismiss and the bootstrap dismissal hint share the
+	// canonical store + active-plan baseline rather than the placeholder
+	// constructed inside server.New. The bot's `/tz` flow is unchanged — it
+	// stays an explicit user-initiated path that bypasses the suggester.
+	tzSuggester := tzsuggestion.NewService(newTZSuggestionSettings(s), tzPlannerStore)
 
 	var tgBot *bot.Bot
 	if botToken != "" {
@@ -258,6 +266,10 @@ func main() {
 	// Wire the shared TZ-update service so both web and bot transports share
 	// one mutex and one plan-generation path.
 	srv.SetTZUpdater(tzUpdater)
+
+	// Wire the TZ-suggestion service so the HTTP server's dismiss endpoint
+	// and bootstrap consult the canonical settings + active-plan baseline.
+	srv.SetTZSuggester(tzSuggester)
 
 	// Set workout interactor (only if bot is available)
 	if tgBot != nil {

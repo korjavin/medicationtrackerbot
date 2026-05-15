@@ -45,19 +45,19 @@ Files:
 - Create: `internal/store/migrations/063_add_dismissed_tz_suggestion.sql`
 - Modify: `internal/store/settings/repo.go`
 
-- [ ] Add migration `063_add_dismissed_tz_suggestion.sql` adding `dismissed_tz_suggestion TEXT NOT NULL DEFAULT ''` to `user_settings` (or whichever table holds the per-user timezone today).
-- [ ] Extend the settings repo with `GetDismissedTZSuggestion() (string, error)` and `SetDismissedTZSuggestion(tz string) error`.
-- [ ] Ensure the existing `RecordTimezone(tz)` clears `dismissed_tz_suggestion` (in the same write/transaction) so that the next genuine TZ change is prompted normally.
+- [x] Add migration `063_add_dismissed_tz_suggestion.sql` adding `dismissed_tz_suggestion TEXT NOT NULL DEFAULT ''` to `user_settings` (or whichever table holds the per-user timezone today).
+- [x] Extend the settings repo with `GetDismissedTZSuggestion() (string, error)` and `SetDismissedTZSuggestion(tz string) error`.
+- [x] Ensure the existing `RecordTimezone(tz)` clears `dismissed_tz_suggestion` (in the same write/transaction) so that the next genuine TZ change is prompted normally.
 
 ### Task 2: Add a tzsuggestion domain service
 
 Files:
 - Create: `internal/domain/tzsuggestion/service.go`
 
-- [ ] Define `Service` with two methods:
+- [x] Define `Service` with two methods:
   - `ShouldPrompt(ctx, detectedTZ string) (bool, reason string, err error)` — returns `false` if detected matches current TZ, if detected matches `dismissed_tz_suggestion`, or if there is an active (`PENDING_APPROVAL`/`NOTIFIED`/`APPROVED`) plan whose `new_tz == detectedTZ`. Otherwise `true`.
   - `RecordDismissal(ctx, detectedTZ string) error` — writes `dismissed_tz_suggestion = detectedTZ`. Validate `detectedTZ` with `time.LoadLocation`.
-- [ ] Constructor takes the settings repo and the existing `PlanBaselineStore`-style accessor; keep deps minimal so cmd/bot, cmd/mcptool, and cmd/seeddemo wiring stays simple.
+- [x] Constructor takes the settings repo and the existing `PlanBaselineStore`-style accessor; keep deps minimal so cmd/bot, cmd/mcptool, and cmd/seeddemo wiring stays simple.
 
 ### Task 3: Expose the dismissal decision via HTTP
 
@@ -65,21 +65,21 @@ Files:
 - Modify: `internal/server/settings_handlers.go`
 - Modify: `internal/server/mcp_coverage_exempt.go`
 
-- [ ] Include `dismissed_tz_suggestion` in the `settings_bundle` GET response so bootstrap can self-evaluate without an extra round-trip.
-- [ ] Add `POST /api/tz-suggestion/dismiss` body `{ "detected_tz": "..." }` that delegates to `tzsuggestion.Service.RecordDismissal`. 400 on invalid TZ. Do NOT trigger any notification on this path.
-- [ ] Register the new route in `mcpCoverageExempt` with reason "UI/settings — TZ prompt dismissal".
-- [ ] Add an integration test that POSTs the dismiss endpoint, fetches the settings bundle, and asserts `dismissed_tz_suggestion` is updated and is cleared when `POST /api/settings` records a new TZ.
+- [x] Include `dismissed_tz_suggestion` in the `settings_bundle` GET response so bootstrap can self-evaluate without an extra round-trip.
+- [x] Add `POST /api/tz-suggestion/dismiss` body `{ "detected_tz": "..." }` that delegates to `tzsuggestion.Service.RecordDismissal`. 400 on invalid TZ. Do NOT trigger any notification on this path.
+- [x] Register the new route in `mcpCoverageExempt` with reason "UI/settings — TZ prompt dismissal".
+- [x] Add an integration test that POSTs the dismiss endpoint, fetches the settings bundle, and asserts `dismissed_tz_suggestion` is updated and is cleared when `POST /api/settings` records a new TZ.
 
 ### Task 4: Send Telegram confirmation when web accepts a TZ change
 
 Files:
 - Modify: `internal/server/settings_handlers.go`
 
-- [ ] In the existing `handleUpdateSettings` TZ-change branch, after `s.tzUpdater.UpdateTimezone` returns success AND when the new TZ differs from the old (skip no-op writes), fire a best-effort notification through the existing `s.notify(ctx, notifier.Notification{...})` helper.
-- [ ] Message body: short confirmation like `"Timezone updated to <NEW_TZ>."` plus, when `planCreated == true`, a one-line "I sent a separate transition plan you can review" hint. No action buttons — this is informational only; the existing tz_plan_notifier still owns plan approval prompts.
-- [ ] Run the notify call asynchronously (it already is via `s.notify`'s goroutine fanout) and swallow `notifier.ErrNoDeliveryChannel` silently so web-only deployments are unaffected.
-- [ ] Decline path (`POST /api/tz-suggestion/dismiss` from Task 3) must NOT call `notify`.
-- [ ] Add an integration test that uses a fake notifier, POSTs `/api/settings` with a new TZ, and asserts exactly one notification was sent with the new TZ in the text; and a second case posting `/api/tz-suggestion/dismiss` that asserts zero notifications were sent.
+- [x] In the existing `handleUpdateSettings` TZ-change branch, after `s.tzUpdater.UpdateTimezone` returns success AND when the new TZ differs from the old (skip no-op writes), fire a best-effort notification through the existing `s.notify(ctx, notifier.Notification{...})` helper.
+- [x] Message body: short confirmation like `"Timezone updated to <NEW_TZ>."` plus, when `planCreated == true`, a one-line "I sent a separate transition plan you can review" hint. No action buttons — this is informational only; the existing tz_plan_notifier still owns plan approval prompts.
+- [x] Run the notify call asynchronously (it already is via `s.notify`'s goroutine fanout) and swallow `notifier.ErrNoDeliveryChannel` silently so web-only deployments are unaffected.
+- [x] Decline path (`POST /api/tz-suggestion/dismiss` from Task 3) must NOT call `notify`.
+- [x] Add an integration test that uses a fake notifier, POSTs `/api/settings` with a new TZ, and asserts exactly one notification was sent with the new TZ in the text; and a second case posting `/api/tz-suggestion/dismiss` that asserts zero notifications were sent.
 
 ### Task 5: Rework the web bootstrap to use the server decision
 
@@ -87,11 +87,11 @@ Files:
 - Modify: `web/static/js/features/bootstrap.js`
 - Modify: `web/static/js/tests/bootstrap.tz-prompt-nonblocking.test.js` (existing tests will need updating to the new flow)
 
-- [ ] Replace the `localStorage.getItem('tz_prompt_dismissed')` check with a check against `settings_bundle.dismissed_tz_suggestion`. If `detectedTz === dismissed_tz_suggestion`, skip the prompt.
-- [ ] On user cancel, POST to `/api/tz-suggestion/dismiss` with `{ detected_tz }` instead of writing to `localStorage`. Best-effort; swallow errors but log.
-- [ ] On user accept, keep the existing `POST /api/settings` call — server-side `RecordTimezone` will clear the dismissed flag automatically. Remove the `localStorage.removeItem` and `localStorage.setItem` calls.
-- [ ] Drop the `tz_prompt_dismissed` localStorage key entirely (no migration needed — it is per-browser ephemeral).
-- [ ] Add a Vitest integration case: bootstrap with `settings_bundle.dismissed_tz_suggestion === detectedTz` does not call `safeConfirm`. A second case: cancel triggers a `POST /api/tz-suggestion/dismiss` with the right body.
+- [x] Replace the `localStorage.getItem('tz_prompt_dismissed')` check with a check against `settings_bundle.dismissed_tz_suggestion`. If `detectedTz === dismissed_tz_suggestion`, skip the prompt.
+- [x] On user cancel, POST to `/api/tz-suggestion/dismiss` with `{ detected_tz }` instead of writing to `localStorage`. Best-effort; swallow errors but log.
+- [x] On user accept, keep the existing `POST /api/settings` call — server-side `RecordTimezone` will clear the dismissed flag automatically. Remove the `localStorage.removeItem` and `localStorage.setItem` calls.
+- [x] Drop the `tz_prompt_dismissed` localStorage key entirely (no migration needed — it is per-browser ephemeral).
+- [x] Add a Vitest integration case: bootstrap with `settings_bundle.dismissed_tz_suggestion === detectedTz` does not call `safeConfirm`. A second case: cancel triggers a `POST /api/tz-suggestion/dismiss` with the right body.
 
 ### Task 6: Wire the new service in cmd entry points
 
@@ -100,16 +100,16 @@ Files:
 - Modify: `cmd/mcptool/main.go` (if it constructs the HTTP server)
 - Modify: `cmd/seeddemo/main.go` (only if it wires settings handlers — likely not)
 
-- [ ] Construct the `tzsuggestion.Service` alongside the existing `tzupdate.Service` and pass it into the HTTP server constructor.
-- [ ] No bot changes to `/tz` — that flow remains an explicit user-initiated path.
+- [x] Construct the `tzsuggestion.Service` alongside the existing `tzupdate.Service` and pass it into the HTTP server constructor.
+- [x] No bot changes to `/tz` — that flow remains an explicit user-initiated path.
 
 ### Task 7: Verify acceptance criteria
 
-- [ ] `go test ./...` — must pass, including new integration tests from Task 3 and Task 4 and the updated Vitest cases from Task 5.
-- [ ] `pnpm test` — must pass.
-- [ ] `go vet ./...` and the project's standard lint pass.
+- [x] `go test ./...` — must pass, including new integration tests from Task 3 and Task 4 and the updated Vitest cases from Task 5.
+- [x] `pnpm test` — must pass.
+- [x] `go vet ./...` and the project's standard lint pass.
 
 ### Task 8: Update documentation
 
-- [ ] Add a short paragraph to `docs/architecture.md` (or the TZ-related section if one exists) describing the cross-client dismissal flow: "TZ suggestion dismissal is persisted in `user_settings.dismissed_tz_suggestion`; the bootstrap consults the settings bundle before prompting, so dismissing in one browser silences other clients until the detected TZ changes or the user explicitly updates settings. A successful web-initiated TZ change also fires a Telegram confirmation through the existing notifier; decline does not."
-- [ ] No CLAUDE.md update needed — no new internal pattern; this is a feature addition, not a rule change.
+- [x] Add a short paragraph to `docs/architecture.md` (or the TZ-related section if one exists) describing the cross-client dismissal flow: "TZ suggestion dismissal is persisted in `user_settings.dismissed_tz_suggestion`; the bootstrap consults the settings bundle before prompting, so dismissing in one browser silences other clients until the detected TZ changes or the user explicitly updates settings. A successful web-initiated TZ change also fires a Telegram confirmation through the existing notifier; decline does not."
+- [x] No CLAUDE.md update needed — no new internal pattern; this is a feature addition, not a rule change.
