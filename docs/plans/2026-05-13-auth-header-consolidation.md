@@ -84,22 +84,22 @@ and recommended-priority item #2.
 
 ### Task 1: Extract `makeAuthHeaders()` helper
 
-- [ ] add `makeAuthHeaders(extra = {})` to `web/static/js/core/api.js`
+- [x] add `makeAuthHeaders(extra = {})` to `web/static/js/core/api.js`
   (top of file, exported on `window.makeAuthHeaders`); returns a fresh
   headers object containing `X-Telegram-Init-Data` from
   `window.userInitData` when present, plus any caller-supplied extras
-- [ ] refactor `apiCallDirect` (`core/api.js:7-58`) to use the new
+- [x] refactor `apiCallDirect` (`core/api.js:7-58`) to use the new
   helper instead of constructing the header inline
-- [ ] add `window.makeAuthHeaders` to the allowlist in
+- [x] add `window.makeAuthHeaders` to the allowlist in
   `web/static/js/tests/architecture.globals.test.js` with a justification
   ("auth header construction shared by direct-fetch callers")
-- [ ] write tests in `web/static/js/tests/core.api-headers.test.js`:
+- [x] write tests in `web/static/js/tests/core.api-headers.test.js`:
   with token present, returns header object containing
   `X-Telegram-Init-Data`; with token absent, returns object without that
   key; merges caller-supplied extras (e.g. `Content-Type`); does not
   mutate `extra`; subsequent reads of `window.userInitData` reflect
   changes (for the SW-token-update edge)
-- [ ] run `pnpm test core.api-headers` — must pass before next task
+- [x] run `pnpm test core.api-headers` — must pass before next task
 
 ### Task 2: Migrate direct-fetch call sites in `features/food.js`
 
