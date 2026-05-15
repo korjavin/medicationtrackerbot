@@ -152,6 +152,110 @@ const SyncDebug = {
 // Expose globally
 window.SyncDebug = SyncDebug;
 
+// Factory for offline-write entities. Compresses the near-identical
+// BP / weight / intake sync pipelines into one configurable shape.
+// Config keys: name, store (ref or getter), endpoint, buildPayload(row),
+// onSuccess(localId, result, store), backgroundSyncTag, toastSingular,
+// prepareOfflineEntry(body)?. Returns { syncPending, handleOfflineWrite,
+// handleOfflineRead }. SyncManager is referenced lazily so the factory
+// may be defined above it.
+function defineOfflineEntity(config) {
+    const {
+        name,
+        store,
+        endpoint,
+        buildPayload,
+        onSuccess,
+        backgroundSyncTag,
+        toastSingular,
+        prepareOfflineEntry
+    } = config;
+
+    function resolveStore() {
+        return typeof store === 'function' ? store() : store;
+    }
+
+    async function syncPending() {
+        if (!SyncManager.isOnline) return;
+        const targetStore = resolveStore();
+        if (!targetStore) return;
+
+        const pending = await targetStore.getPending();
+        if (pending.length === 0) {
+            SyncDebug.info(`No pending ${name}`);
+            return;
+        }
+
+        SyncDebug.info(`Syncing ${pending.length} ${name}...`);
+
+        for (const entry of pending) {
+            try {
+                const payload = buildPayload(entry);
+                SyncDebug.info(`Sending ${name} to server`, { localId: entry.localId });
+
+                const result = await window.apiCallDirect(endpoint, 'POST', payload);
+
+                if (!result) throw new Error('No response from server');
+
+                await onSuccess(entry.localId, result, targetStore);
+                SyncDebug.info(`${name} synced`, {
+                    localId: entry.localId,
+                    serverId: (result && result.id) || null
+                });
+            } catch (err) {
+                SyncDebug.error(`${name} sync failed for ${entry.localId}`, { error: err.message });
+                if (isPermanentSyncError(err)) {
+                    SyncDebug.warn(`${name} ${entry.localId} rejected permanently`, { error: err.message });
+                    await targetStore.markRejected(entry.localId, err.message);
+                } else {
+                    await targetStore.markError(entry.localId, err.message);
+                }
+            }
+        }
+
+        SyncManager.updateStatus();
+    }
+
+    async function handleOfflineWrite(body) {
+        const targetStore = resolveStore();
+        if (!targetStore) return null;
+
+        SyncDebug.info(`Saving ${name} offline`);
+        const entryToSave = typeof prepareOfflineEntry === 'function'
+            ? prepareOfflineEntry(body)
+            : body;
+        const localEntry = await targetStore.save(entryToSave);
+        SyncDebug.info(`${name} saved to IndexedDB`, { localId: localEntry.localId });
+
+        SyncManager.registerBackgroundSync(backgroundSyncTag);
+        SyncManager.showToast(`${toastSingular} — will sync when online`, 'info');
+        SyncManager.updateStatus();
+
+        return {
+            ...body,
+            id: `local_${localEntry.localId}`,
+            localId: localEntry.localId,
+            isLocal: true
+        };
+    }
+
+    async function handleOfflineRead() {
+        const targetStore = resolveStore();
+        if (!targetStore) return [];
+        const items = await targetStore.getAll();
+        return items.map(r => ({
+            id: r.serverId || `local_${r.localId}`,
+            ...r,
+            isLocal: !r.serverId
+        }));
+    }
+
+    return { syncPending, handleOfflineWrite, handleOfflineRead };
+}
+
+// Expose factory globally for tests and Task 2 entity definitions.
+window.defineOfflineEntity = defineOfflineEntity;
+
 const SyncManager = {
     isOnline: navigator.onLine,
     isSyncing: false,

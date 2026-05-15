@@ -111,7 +111,7 @@ and recommended-priority item #9.
 
 ### Task 1: Define `defineOfflineEntity` factory
 
-- [ ] add `defineOfflineEntity(config)` to `web/static/js/sync.js`
+- [x] add `defineOfflineEntity(config)` to `web/static/js/sync.js`
   (above the `SyncManager` definition); config schema:
   - `name` (string, e.g. `'BP'`) — used in log messages
   - `store` (one of `BPStore`/`WeightStore`/`IntakeQueueStore`)
@@ -122,18 +122,18 @@ and recommended-priority item #9.
   - `backgroundSyncTag` (string, e.g. `'sync-bp-readings'`)
   - `toastSingular`, `toastPlural` (strings used by offline-write
     toast)
-- [ ] factory returns an object with two methods:
+- [x] factory returns an object with two methods:
   - `syncPending()` — drains the store's pending list, mirroring the
     existing 50-line shape
   - `handleOfflineWrite(body)` — saves body to store, registers
     background sync, shows toast, returns mock response shape
-- [ ] keep `isPermanentSyncError` and `isNetworkError` as shared
+- [x] keep `isPermanentSyncError` and `isNetworkError` as shared
   helpers (already exported)
-- [ ] write tests in `web/static/js/tests/sync.factory.test.js`
+- [x] write tests in `web/static/js/tests/sync.factory.test.js`
   covering: success drain, transient error retry, permanent error
   reject, queue-empty no-op, background-sync registration, toast
   emit (use a mock store that records calls)
-- [ ] run `pnpm test sync.factory` — must pass before next task
+- [x] run `pnpm test sync.factory` — must pass before next task
 
 ### Task 2: Define and substitute the three entities
 
