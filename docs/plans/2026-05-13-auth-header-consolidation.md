@@ -187,12 +187,22 @@ None of the four sites have a JSON body, so the plain
 
 ### Task 6: Verify acceptance
 
-- [ ] grep for `X-Telegram-Init-Data` in `web/static/js/` (excluding
+- [x] grep for `X-Telegram-Init-Data` in `web/static/js/` (excluding
   `core/api.js` and tests) returns zero matches
-- [ ] grep for `Authorization': 'tma` and `"Authorization": "tma` in
+  — verified: only remaining hits outside `tests/` and `core/api.js`
+  are `app-shell.js:4` (a code comment describing the SW handoff) and
+  `sw-api-helper.js:3,20` (Service Worker file, explicitly out of
+  scope per Task 5 and the SW handler unification plan).
+- [x] grep for `Authorization': 'tma` and `"Authorization": "tma` in
   `web/static/js/` returns zero matches
-- [ ] full `pnpm test` clean
-- [ ] `go test ./...` clean (sanity)
+  — verified: matches exist only inside
+  `tests/architecture.auth-headers.test.js` (the regex patterns the
+  guard test scans for); no production code carries the literal.
+- [x] full `pnpm test` clean
+  — ran via `node_modules/.bin/vitest run`: 199 files, 2116 passed,
+  29 skipped, 0 failed.
+- [x] `go test ./...` clean (sanity)
+  — all packages OK.
 
 ## Technical Details
 
