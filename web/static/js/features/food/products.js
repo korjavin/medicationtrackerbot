@@ -23,6 +23,7 @@
     let foodSearchTimeout;
     let foodSearchRequestId = 0;
     let lastFoodSearchQueryNormalized = '';
+    let foodSearchAbortController = null;
 
     window.FoodProducts = window.FoodProducts || {};
     Object.defineProperty(window.FoodProducts, 'cache', {
@@ -43,6 +44,8 @@
     window.FoodProducts._getRequestId = () => foodSearchRequestId;
     window.FoodProducts._getLastQuery = () => lastFoodSearchQueryNormalized;
     window.FoodProducts._setLastQuery = (v) => { lastFoodSearchQueryNormalized = v || ''; };
+    window.FoodProducts._getAbortController = () => foodSearchAbortController;
+    window.FoodProducts._setAbortController = (v) => { foodSearchAbortController = v || null; };
 })();
 
 function normalizeFoodSearchQuery(value) {
@@ -153,13 +156,22 @@ async function onFoodNameChange() {
         const requestId = window.FoodProducts._nextRequestId();
         window.FoodProducts._setLastQuery(normalizedQuery);
         setFoodSearchStatus('loading', 'Searching local database...');
+
+        const prevController = window.FoodProducts._getAbortController();
+        if (prevController) prevController.abort();
+        const controller = new AbortController();
+        window.FoodProducts._setAbortController(controller);
+        let timeoutId;
+
         try {
             if (!navigator.onLine) throw new Error("Network request failed");
+
+            timeoutId = setTimeout(() => controller.abort(), 10_000);
 
             // First pass: local fast search
             const endpoint = `/api/food/products/search?q=${encodeURIComponent(query)}`;
             const headers = { "X-Telegram-Init-Data": userInitData };
-            const res = await fetch(endpoint, { method: "GET", headers });
+            const res = await fetch(endpoint, { method: "GET", headers, signal: controller.signal });
 
             if (res.status === 503) throw new Error("Network request failed");
             if (!res.ok) throw new Error("Search failed");
@@ -201,6 +213,13 @@ async function onFoodNameChange() {
 
             if (requestId !== window.FoodProducts._getRequestId()) return;
 
+            // Local stream complete — release the 10s search budget. The
+            // remote OpenFoodFacts callback below runs separately (and may
+            // fire much later via a user click) so it shouldn't share the
+            // local-search deadline.
+            clearTimeout(timeoutId);
+            timeoutId = undefined;
+
             const unique = [];
             const seen = new Set();
             for (const p of localResults) {
@@ -216,7 +235,7 @@ async function onFoodNameChange() {
                 setFoodSearchStatus('loading', 'Searching OpenFoodFacts...');
                 try {
                     const remoteEndpoint = `/api/food/products/search?q=${encodeURIComponent(query)}&remote=true`;
-                    const remoteRes = await fetch(remoteEndpoint, { method: "GET", headers });
+                    const remoteRes = await fetch(remoteEndpoint, { method: "GET", headers, signal: controller.signal });
                     if (!remoteRes.ok) throw new Error("Remote search failed");
                     if (requestId !== window.FoodProducts._getRequestId()) return;
 
@@ -280,12 +299,22 @@ async function onFoodNameChange() {
 
         } catch (e) {
             if (requestId !== window.FoodProducts._getRequestId()) return;
+            // Caller-initiated aborts (new search starting) are filtered by
+            // the requestId guard above; anything left here is either the
+            // 10s timeout firing or an external abort — surface it as a
+            // typed status without console noise.
+            if (e && (e.name === 'AbortError' || e.name === 'TimeoutError')) {
+                setFoodSearchStatus('error', 'Search timed out');
+                return;
+            }
             console.error('Search failed', e);
             if (e.name === 'TypeError' || e.message.includes('fetch') || e.message === 'Network request failed' || e.message === 'Failed to fetch' || !navigator.onLine) {
                 setFoodSearchStatus('empty', 'Search finished: no products found.');
                 return;
             }
             setFoodSearchStatus('error', 'Search finished with an error. Please try again.');
+        } finally {
+            if (timeoutId !== undefined) clearTimeout(timeoutId);
         }
     }, 800));
 }

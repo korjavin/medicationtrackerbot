@@ -126,21 +126,21 @@ and recommended-priority item #3.
 
 ### Task 3: Apply 10s timeout to food-product search
 
-- [ ] in `features/food.js:336-384`, create a per-search
+- [x] in `features/food.js:336-384`, create a per-search
   `AbortController`; abort the previous controller when a new search
   starts (currently handled via `foodSearchRequestId` token — keep
   that, add abort on top); pass `signal: controller.signal` to the
   `fetch(endpoint, { method: 'GET', headers, signal })` call at line 346
-- [ ] add `setTimeout(() => controller.abort(), 10_000)` inside the
+- [x] add `setTimeout(() => controller.abort(), 10_000)` inside the
   search debounce; clear the timeout on stream completion
-- [ ] handle `AbortError` in the existing try/catch block
+- [x] handle `AbortError` in the existing try/catch block
   (`features/food.js:~395`) — render a "Search timed out" status via
   `setFoodSearchStatus`, do not log to console
-- [ ] write tests in `web/static/js/tests/food.search-abort.test.js`:
+- [x] write tests in `web/static/js/tests/food.search-abort.test.js`:
   rapid sequential searches abort the previous fetch (proves no
   stream-leak); 10s timeout surfaces the typed status; successful
   search still resolves
-- [ ] run `pnpm test food.search-abort` — must pass before next task
+- [x] run `pnpm test food.search-abort` — must pass before next task
 
 ### Task 4: Apply 15s timeout to SW bootstrap revalidation
 
