@@ -115,9 +115,9 @@ Reduce the 203-file frontend test suite to roughly the 150-file target by (1) co
 - Modify: `CLAUDE.md` (one-line pointer to the new section under "Critical Rules" — only if it changes how Claude writes future tests)
 - Delete: `docs/plans/notes/frontend-test-inventory.md` (working note from Task 1)
 
-- [ ] write a "Testing posture" section that states: integration tests through `frontend-harness.js` are the preferred level; new pure-unit tests are added only when there is no integration entry point (web components, DB layer, service worker, sync engine); coverage-driven tests are not added; "pin defect #N" tests should be merged into the owning feature suite rather than created as standalone files
-- [ ] reference the file-naming conventions that survived the prune: `architecture.*`, `components.wg-*`, `features.*`, `<feature>.<aspect>.test.js`, and the consolidated `modals.header-actions.test.js`
-- [ ] remove the working inventory note
+- [x] write a "Testing posture" section that states: integration tests through `frontend-harness.js` are the preferred level; new pure-unit tests are added only when there is no integration entry point (web components, DB layer, service worker, sync engine); coverage-driven tests are not added; "pin defect #N" tests should be merged into the owning feature suite rather than created as standalone files
+- [x] reference the file-naming conventions that survived the prune: `architecture.*`, `components.wg-*`, `features.*`, `<feature>.<aspect>.test.js`, and the consolidated `modals.header-actions.test.js`
+- [x] remove the working inventory note
 
 ### Task 7: Verify acceptance criteria
 

@@ -263,3 +263,27 @@ loadSWR({ cacheKey, fetchFn })     ← Layer 4 (data-store.js)
               ├── Success → update cache, call onFresh → re-render UI
               └── Failure → keep showing cached data (no error shown)
 ```
+
+## Testing posture
+
+The frontend test suite (`web/static/js/tests/*.test.js`, run via `pnpm test`) is **integration-first**. Most tests should boot the real app shell through `web/static/js/tests/helpers/frontend-harness.js` (which mounts `index.html` under jsdom and loads the production scripts in their real order) and assert on observable DOM, store state, or API call shape — not on internal helper call counts.
+
+Rules for adding tests:
+
+- **Default to integration.** A new test for a feature behavior belongs in that feature's existing suite (`features.<topic>.test.js` or `<feature>.<aspect>.test.js`, e.g. `bp.render.test.js`, `meds.history.test.js`, `food.modal.test.js`). Extend an existing `describe` block before creating a new file.
+- **Pure-unit tests are reserved for layers without an integration entry point.** Acceptable: web components (`components.wg-*.test.js`), the Dexie/IndexedDB layer (`db.*.test.js`), the service worker (`sw-*.test.js`), the sync engine (`sync.manager-flow.test.js`, `sync.retry.test.js`), the cached-fetch primitive (`cached-fetch.*.test.js`), and the cross-cutting bootstrap path (`bootstrap.*.test.js`). Anywhere else, prefer the integration entry point.
+- **Do not add coverage-driven tests.** Files named `*-branches`, `*-edges`, `*-characterization`, `*-extended`, or otherwise written to lift coverage numbers (rather than to pin a real user-visible behavior) are not added. The 2026-05 prune removed the existing ones; they made the suite brittle without catching regressions the integration suites already caught.
+- **No standalone "pin defect #N" or task-stamp files.** A regression for a fixed bug is added as one more `it()` in the owning feature suite, not as `<feature>.<defect-name>-removed.test.js` or `<view>.task<N>.test.js`. The pinned assertion travels with the rest of the feature's coverage and stays discoverable when the feature is rewritten.
+- **Parameterize structurally identical suites.** When several modal/section tests differ only by selectors and ids (the original 11 `modals.*.header-actions.test.js` files were the canonical example), collapse them into one `describe.each([...])` table. The consolidated `modals.header-actions.test.js` is the reference.
+- **Architecture tests stay narrow.** `architecture.*.test.js` files pin invariants the human reviewer cannot eyeball (globals allowlist, design-token usage, SW precache contents, MCP coverage, etc.). They are not a place to assert feature behavior.
+
+File-naming conventions that survived the prune:
+
+| Pattern | Purpose |
+|---------|---------|
+| `architecture.*.test.js` | Repo-wide invariants — globals, design tokens, SW precache, MCP coverage, offline-coverage allowlist |
+| `components.wg-*.test.js` | Web-component unit tests (one file per `<wg-*>` element) |
+| `features.*.test.js` | Cross-feature integration suites that boot the harness and exercise multiple modules together |
+| `<feature>.<aspect>.test.js` | Per-feature integration suites — `bp.render`, `meds.history`, `weight.history`, `food.modal`, `workout.next`, `today.subscribe`, etc. One file per feature × aspect, not per task or defect. |
+| `modals.header-actions.test.js` | The single parameterized suite covering header-action wiring across every modal. New modals add a row to its `describe.each` table — they do not add a new file. |
+| `db.*`, `sw-*`, `cached-fetch.*`, `data-store.*`, `sync.*`, `bootstrap.*` | Cross-cutting infra layers without an integration entry point — pure-unit tests live here. |
