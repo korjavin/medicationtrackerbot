@@ -1,22 +1,7 @@
-// Consolidated header-actions tests for every wg-* modal (Tasks 1–11
-// of the original mobile-keyboard refactor). Each modal's Cancel +
-// primary button (Save or Start) must live inside the modal's
-// `.wg-<modal>__header-actions` row so they stay visible above a
-// focused mobile keyboard. The legacy body footer row must be gone
-// and the existing button IDs must still resolve.
-//
-// This single parameterized suite replaces the per-modal files:
-//   modals.bp.header-actions.test.js
-//   modals.food.header-actions.test.js
-//   modals.meds.header-actions.test.js
-//   modals.note.header-actions.test.js
-//   modals.weight.header-actions.test.js
-//   modals.workouts-exercise.header-actions.test.js
-//   modals.workouts-group.header-actions.test.js
-//   modals.workouts-library.header-actions.test.js
-//   modals.workouts-log-set.header-actions.test.js
-//   modals.workouts-start.header-actions.test.js
-//   modals.workouts-variant.header-actions.test.js
+// Each wg-* modal's Cancel + primary button (Save or Start) must live
+// inside the modal's `.wg-<modal>__header-actions` row so they stay
+// visible above a focused mobile keyboard, with no legacy body footer
+// row and with the documented button IDs still resolving.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
