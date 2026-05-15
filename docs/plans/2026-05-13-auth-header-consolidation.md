@@ -150,16 +150,26 @@ None of the four sites have a JSON body, so the plain
 
 ### Task 4: Migrate CSV-export call sites and drop `Authorization: tma`
 
-- [ ] replace the `headers: { 'Authorization': 'tma ${userInitData}' }`
+- [x] replace the `headers: { 'Authorization': 'tma ${userInitData}' }`
   at `features/bp.js:682` with `headers: window.makeAuthHeaders()`
-- [ ] same for `features/weight.js:1163`
-- [ ] verify backend accepts `X-Telegram-Init-Data` for `/api/bp/export`
+- [x] same for `features/weight.js:1163`
+- [x] verify backend accepts `X-Telegram-Init-Data` for `/api/bp/export`
   and `/api/weight/export` by reading `internal/server/bp_handlers.go`
   and `weight_handlers.go` — they should already use the standard
   middleware; if not, document the gap and stop here
-- [ ] write a CSV-export test that mounts the export handler and
+  — verified via `internal/server/auth.go:212`: the requireAuth
+  middleware reads `X-Telegram-Init-Data` (or `?initData=`, or the
+  OIDC `auth_session` cookie). `Authorization: tma` is not parsed
+  server-side at all, so the old CSV-export call sites were already
+  silently reliant on the session cookie path. Migration is a pure
+  correctness improvement — once a token client (no session cookie)
+  hits the export, the new header works.
+- [x] write a CSV-export test that mounts the export handler and
   asserts the migrated header form is sent (one test per export)
-- [ ] run `pnpm test bp.` and `pnpm test weight.` — must pass before
+  — `web/static/js/tests/csv-export.auth-headers.test.js` covers
+  both `exportBPCSV` and `exportWeightCSV` (header present with
+  token, header absent without token).
+- [x] run `pnpm test bp.` and `pnpm test weight.` — must pass before
   next task
 
 ### Task 5: Architecture test prevents regression
