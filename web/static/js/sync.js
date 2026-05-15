@@ -788,6 +788,72 @@ const SyncManager = {
     }
 };
 
+// Endpoint → factory-entity dispatch for offline writes. Adding a new
+// offline-write entity means defining it via `defineOfflineEntity({...})`
+// and adding one row here. The shape is `{ POST: '/api/...': entity }` —
+// keep it grouped by HTTP method for cheap branching.
+const OFFLINE_WRITE_DISPATCH = {
+    POST: {
+        '/api/bp': BPSync,
+        '/api/weight': WeightSync,
+        '/api/medications/confirm-schedule': IntakeSync
+    }
+};
+
+function dispatchOfflineWrite(endpoint, method, body) {
+    const byMethod = OFFLINE_WRITE_DISPATCH[method];
+    if (!byMethod) return null;
+    const entity = byMethod[endpoint];
+    if (!entity) return null;
+    return entity.handleOfflineWrite(body);
+}
+
+// Endpoint-prefix → reader. Pending-write stores (BP/weight) go through the
+// factory; cache-only stores (history, workout) keep their bespoke readers
+// because they read from cache stores rather than pending-write queues.
+async function handleOfflineHistoryRead(endpoint) {
+    if (!window.MedTrackerDB || !window.MedTrackerDB.IntakeHistoryStore) return null;
+    const url = new URL(endpoint, window.location.origin);
+    const days = url.searchParams.get('days') || '7';
+    const medId = url.searchParams.get('med_id') || '';
+    const cacheKey = `history_${days}_${medId}`;
+    const cached = await window.MedTrackerDB.IntakeHistoryStore.getCache(cacheKey);
+    if (cached) {
+        SyncDebug.info('Serving intake history from cache', { key: cacheKey, count: cached.length });
+        return cached;
+    }
+    SyncDebug.warn('No cached intake history', { key: cacheKey });
+    return [];
+}
+
+async function handleOfflineWorkoutRead(endpoint) {
+    if (!window.MedTrackerDB || !window.MedTrackerDB.WorkoutStore) return null;
+    if (endpoint.includes('/api/workout/groups')) {
+        const cached = await window.MedTrackerDB.WorkoutStore.getCache('groups');
+        if (cached) { SyncDebug.info('Serving workout groups from cache'); return cached; }
+    }
+    if (endpoint.includes('/api/workout/sessions')) {
+        const cached = await window.MedTrackerDB.WorkoutStore.getCache('sessions');
+        if (cached) { SyncDebug.info('Serving workout sessions from cache'); return cached; }
+    }
+    SyncDebug.warn('No cached workout data', { endpoint });
+    return null;
+}
+
+const OFFLINE_READ_DISPATCH = [
+    { prefix: '/api/bp',      handler: () => BPSync.handleOfflineRead() },
+    { prefix: '/api/weight',  handler: () => WeightSync.handleOfflineRead() },
+    { prefix: '/api/history', handler: (ep) => handleOfflineHistoryRead(ep) },
+    { prefix: '/api/workout', handler: (ep) => handleOfflineWorkoutRead(ep) }
+];
+
+function dispatchOfflineRead(endpoint) {
+    for (const entry of OFFLINE_READ_DISPATCH) {
+        if (endpoint.startsWith(entry.prefix)) return entry.handler(endpoint);
+    }
+    return undefined;
+}
+
 // Offline-aware API call wrapper
 // This replaces the original apiCall function with offline support
 async function offlineAwareApiCall(endpoint, method = "GET", body = null, opts = {}) {
@@ -795,149 +861,46 @@ async function offlineAwareApiCall(endpoint, method = "GET", body = null, opts =
 
     SyncDebug.info(`API: ${method} ${endpoint}`, { online: SyncManager.isOnline, isWrite });
 
-    // For writes, check if this is a BP or weight endpoint that supports offline
     if (isWrite && !SyncManager.isOnline) {
         SyncDebug.warn('Offline write attempt', { endpoint });
-        // Handle offline writes for BP
-        if (endpoint === '/api/bp' && method === 'POST') {
-            return await handleOfflineBPWrite(body);
-        }
-        // Handle offline writes for weight
-        if (endpoint === '/api/weight' && method === 'POST') {
-            return await handleOfflineWeightWrite(body);
-        }
-        // Handle offline medication intake confirmations
-        if (endpoint === '/api/medications/confirm-schedule' && method === 'POST') {
-            return await handleOfflineIntakeWrite(body);
-        }
-        // Other endpoints don't support offline writes — throw so apiCall shows an alert
+        const offlineResult = dispatchOfflineWrite(endpoint, method, body);
+        if (offlineResult !== null) return await offlineResult;
         SyncDebug.warn('Endpoint does not support offline writes', { endpoint });
         throw new Error('This action requires an internet connection');
     }
 
-    // Try the network request
     try {
         SyncDebug.info('Sending to network...', { endpoint });
         const result = await window.apiCallDirect(endpoint, method, body, opts);
         SyncDebug.info('Network response OK', { endpoint, hasResult: !!result });
-
-        // Return the server response directly
-        // Note: We don't save to IndexedDB here because:
-        // 1. For offline writes that later sync, the sync layer calls markSynced()
-        // 2. For online writes, we don't need local storage - data comes from server
+        // Return the server response directly. We don't save to IndexedDB
+        // because (1) offline writes are persisted by the sync layer and
+        // marked synced after server confirmation, and (2) online writes
+        // get their authoritative state back from the next bootstrap/poll.
         return result;
     } catch (err) {
         SyncDebug.error('Network request failed', { endpoint, error: err.message });
 
-        // If network error and this is a supported offline write, handle it
         if (isWrite && isNetworkError(err)) {
-            SyncDebug.warn('Falling back to offline write', { endpoint });
-            if (endpoint === '/api/bp' && method === 'POST') {
-                return await handleOfflineBPWrite(body);
-            }
-            if (endpoint === '/api/weight' && method === 'POST') {
-                return await handleOfflineWeightWrite(body);
-            }
-            if (endpoint === '/api/medications/confirm-schedule' && method === 'POST') {
-                return await handleOfflineIntakeWrite(body);
+            const fallback = dispatchOfflineWrite(endpoint, method, body);
+            if (fallback !== null) {
+                SyncDebug.warn('Falling back to offline write', { endpoint });
+                return await fallback;
             }
         }
 
-        // For read operations when offline, try to serve from cache
         if (method === 'GET' && isNetworkError(err)) {
             SyncDebug.warn('Falling back to offline read', { endpoint });
-            if (endpoint.startsWith('/api/bp')) {
-                return await handleOfflineBPRead(endpoint);
-            }
-            if (endpoint.startsWith('/api/weight')) {
-                return await handleOfflineWeightRead(endpoint);
-            }
-            if (endpoint.startsWith('/api/history')) {
-                return await handleOfflineHistoryRead(endpoint);
-            }
-            if (endpoint.startsWith('/api/workout')) {
-                return await handleOfflineWorkoutRead(endpoint);
-            }
-            // For other GET endpoints that don't have offline support,
-            // return empty data instead of throwing to avoid alerts
+            const offlineRead = dispatchOfflineRead(endpoint);
+            if (offlineRead !== undefined) return await offlineRead;
+            // Unsupported GET endpoints return null (instead of throwing)
+            // so callers don't surface an alert when offline.
             SyncDebug.warn('No offline support for endpoint, returning empty', { endpoint });
             return null;
         }
 
-        // Only throw for write operations or non-network errors
         throw err;
     }
-}
-
-// Handle offline BP write (forwards to BPSync factory entity)
-async function handleOfflineBPWrite(body) {
-    return BPSync.handleOfflineWrite(body);
-}
-
-// Handle offline weight write (forwards to WeightSync factory entity)
-async function handleOfflineWeightWrite(body) {
-    return WeightSync.handleOfflineWrite(body);
-}
-
-// Handle offline BP read (forwards to BPSync factory entity).
-// Server-synced data is served by the SW dynamic cache; IndexedDB only holds
-// records created offline that haven't been synced yet.
-async function handleOfflineBPRead(endpoint) {
-    return BPSync.handleOfflineRead();
-}
-
-// Handle offline weight read (forwards to WeightSync factory entity).
-async function handleOfflineWeightRead(endpoint) {
-    return WeightSync.handleOfflineRead();
-}
-
-// Handle offline history read
-async function handleOfflineHistoryRead(endpoint) {
-    if (!window.MedTrackerDB || !window.MedTrackerDB.IntakeHistoryStore) return null;
-
-    // Parse query params to build cache key
-    const url = new URL(endpoint, window.location.origin);
-    const days = url.searchParams.get('days') || '7';
-    const medId = url.searchParams.get('med_id') || '';
-    const cacheKey = `history_${days}_${medId}`;
-
-    const cached = await window.MedTrackerDB.IntakeHistoryStore.getCache(cacheKey);
-    if (cached) {
-        SyncDebug.info('Serving intake history from cache', { key: cacheKey, count: cached.length });
-        return cached;
-    }
-
-    SyncDebug.warn('No cached intake history', { key: cacheKey });
-    return [];
-}
-
-// Handle offline workout read
-async function handleOfflineWorkoutRead(endpoint) {
-    if (!window.MedTrackerDB || !window.MedTrackerDB.WorkoutStore) return null;
-
-    if (endpoint.includes('/api/workout/groups')) {
-        const cached = await window.MedTrackerDB.WorkoutStore.getCache('groups');
-        if (cached) {
-            SyncDebug.info('Serving workout groups from cache');
-            return cached;
-        }
-    }
-
-    if (endpoint.includes('/api/workout/sessions')) {
-        const cached = await window.MedTrackerDB.WorkoutStore.getCache('sessions');
-        if (cached) {
-            SyncDebug.info('Serving workout sessions from cache');
-            return cached;
-        }
-    }
-
-    SyncDebug.warn('No cached workout data', { endpoint });
-    return null;
-}
-
-// Handle offline medication intake confirmation (forwards to IntakeSync factory entity)
-async function handleOfflineIntakeWrite(body) {
-    return IntakeSync.handleOfflineWrite(body);
 }
 
 // Check if error is a network error or server unavailable

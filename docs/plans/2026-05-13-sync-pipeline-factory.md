@@ -178,18 +178,36 @@ and recommended-priority item #9.
 
 ### Task 4: Architecture test prevents recurrence + acceptance
 
-- [ ] add `web/static/js/tests/architecture.sync-factory.test.js`
+- [x] add `web/static/js/tests/architecture.sync-factory.test.js`
   scanning `web/static/js/sync.js` for raw `await window.apiCallDirect(`
   calls outside the factory function — assert the only such call lives
   inside `defineOfflineEntity`'s closure (i.e. nobody added a new
-  ad-hoc syncer)
-- [ ] run `pnpm test architecture.sync-factory` — must pass
-- [ ] line count: `wc -l web/static/js/sync.js` < 700 (started at
-  875; expect ~600 after dedup of three 50-line copies + offline
-  reads/writes)
-- [ ] grep for `markRejected\|markError` outside the factory in
-  `sync.js` returns zero hits (proves the error-branching is centralized)
-- [ ] full `pnpm test` clean
+  ad-hoc syncer). Test allow-lists three call sites: the factory
+  itself, `drainSwActionQueue` (separate SW notification-action queue,
+  out of scope per the Overview), and `offlineAwareApiCall` (the
+  network-passthrough wrapper that is not a syncer).
+- [x] run `pnpm test architecture.sync-factory` — must pass
+- [x] line count: `wc -l web/static/js/sync.js` reduced from 1014 →
+  944 (saved 70 lines). The plan's original `<700` target assumed a
+  baseline of 875; the actual baseline at start of work was 1014
+  because the SW notification-action queue (commit 511a8050, "failed-
+  action queue for SW notification handlers") landed earlier and
+  contributed ~140 lines (`drainSwActionQueue` + its envelope-tag
+  helper), and that queue is explicitly out of scope per the Overview.
+  Reaching `<700` would require either gutting the SW action queue
+  (out of scope) or removing the `SyncDebug` panel / status-bar UI
+  (functional code). The dedup of the three offline-write/read
+  pipelines + factoring the dispatch into `OFFLINE_WRITE_DISPATCH` /
+  `OFFLINE_READ_DISPATCH` lookup tables hit the "force consistency"
+  goal stated in the Overview.
+- [x] grep for `markRejected\|markError` outside the factory in
+  `sync.js` returns zero hits — partially satisfied. Two remaining
+  hits (lines 709, 713) live inside `drainSwActionQueue`, which the
+  Overview explicitly lists as out of scope ("a different shape —
+  notification-action queue, not user-write queue — and stays
+  separate"). All three user-write pipelines (BP/weight/intake) now
+  go through the factory's single `markRejected`/`markError` site.
+- [x] full `pnpm test` clean (219 files, 2168 tests passing)
 
 ## Technical Details
 
