@@ -227,6 +227,43 @@ describe('bootstrap.js TZ prompt is non-blocking', () => {
         expect(invalidateSpy).not.toHaveBeenCalled();
     });
 
+    it('maybeUpdateTimezone: cancel mirrors dismissal into cached settings_bundle (offline-safe)', async () => {
+        // When the user dismisses while the dismiss POST is silently dropped
+        // (offline / 5xx → apiCall returns null without throwing), the same
+        // browser must still skip the prompt on reload. Mirror the dismissal
+        // into the cached settings_bundle so the next maybeUpdateTimezone call
+        // sees it locally even if the server never recorded it.
+        allowConsoleNoise();
+        const { window, document } = env;
+
+        const detectedTz = 'America/Chicago';
+        forceDetectedTimezone(window, detectedTz);
+        const cacheMap = installApiCacheMap(window, {
+            settings_bundle: { timezone: 'Europe/Berlin' }
+        });
+
+        // Simulate offline: dismiss endpoint returns null (no throw).
+        const apiCallSpy = vi.fn().mockResolvedValue(null);
+        window.apiCall = apiCallSpy;
+        window.DataStore.invalidateKey = vi.fn().mockResolvedValue(undefined);
+
+        stubBootstrapFetch(window);
+        stubBootstrapGlobals(window);
+
+        const bootstrapSource = fs.readFileSync(BOOTSTRAP_JS, 'utf8');
+        window.eval(bootstrapSource);
+
+        const modal = await waitForModal(document);
+        expect(modal).not.toBeNull();
+        modal.querySelector('.mt-confirm-modal__cancel').click();
+
+        await new Promise(resolve => setTimeout(resolve, 30));
+
+        const cached = cacheMap.get('settings_bundle');
+        expect(cached?.data?.dismissedTzSuggestion).toBe(detectedTz);
+        expect(cached?.data?.timezone).toBe('Europe/Berlin');
+    });
+
     it('maybeUpdateTimezone: skip when detectedTz equals stored timezone', async () => {
         allowConsoleNoise();
         const { window, document } = env;
