@@ -82,14 +82,14 @@ Steps:
 - Modify: `internal/mcp/registry/registry_test.go`
 
 Steps:
-- [ ] delete `TestWorkoutOperations` (lines 357–496 in current file)
-- [ ] delete `TestFoodOperations` (lines 497–566)
-- [ ] delete `TestHealthOperations` (lines 567–663)
-- [ ] delete `TestMedicationOperations` (lines 664–750)
-- [ ] keep all other tests in the file (`TestRegister_Validation`, `TestRegister_DuplicateID`, `TestGet`, `TestByTopic`, `TestAll`, `TestNormalization`, `TestTopics_Order`, `TestMarshalForHelp_Examples`, `TestMarshalForHelp_Shape`, `TestDefaultOperations`, `TestRegister_PathParamsMustMatchPlaceholders`, `TestSubstitutePath`) — these test actual logic
-- [ ] verify `TestDefaultOperations` (line 751) still provides a basic "all operations register cleanly" smoke; if it does not, add a single-assertion smoke test that loads the default registry and asserts `len(r.All()) > 0` and no duplicate IDs returned
-- [ ] run `go test ./internal/mcp/registry/...` — must pass
-- [ ] run `go test ./...` — must pass
+- [x] delete `TestWorkoutOperations` (lines 357–496 in current file)
+- [x] delete `TestFoodOperations` (lines 497–566)
+- [x] delete `TestHealthOperations` (lines 567–663)
+- [x] delete `TestMedicationOperations` (lines 664–750)
+- [x] keep all other tests in the file (`TestRegister_Validation`, `TestRegister_DuplicateID`, `TestGet`, `TestByTopic`, `TestAll`, `TestNormalization`, `TestTopics_Order`, `TestMarshalForHelp_Examples`, `TestMarshalForHelp_Shape`, `TestDefaultOperations`, `TestRegister_PathParamsMustMatchPlaceholders`, `TestSubstitutePath`) — these test actual logic
+- [x] verify `TestDefaultOperations` (line 751) still provides a basic "all operations register cleanly" smoke; if it does not, add a single-assertion smoke test that loads the default registry and asserts `len(r.All()) > 0` and no duplicate IDs returned — confirmed: TestDefaultOperations registers all ops, runs `uniqueIDs`, runs `schemasParse`, checks all 4 topics populated, checks every op has description + response_summary, and validates MarshalForHelp output
+- [x] run `go test ./internal/mcp/registry/...` — must pass
+- [x] run `go test ./...` — must pass (registry: 360 LOC removed; file 904 → 544)
 
 ### Task 3: Delete domain mock-spy tests, migrating any unique assertions to handler tests
 
