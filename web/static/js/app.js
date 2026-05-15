@@ -900,6 +900,7 @@ async function fetchSettingsBundle() {
         timezone: settingsRes?.timezone || '',
         serverTime: settingsRes?.server_time || '',
         serverTimezone: settingsRes?.server_timezone || '',
+        dismissedTzSuggestion: settingsRes?.dismissed_tz_suggestion || '',
         weightUnitPreference: settingsRes?.weight_unit_preference || window.weightUnitPreference || 'kg',
         foodTargets: {
             calories: foodTargetsRes?.calories || 0,
@@ -1495,6 +1496,7 @@ async function loadSettings() {
             timezone: settingsRes?.timezone || '',
             serverTime: settingsRes?.server_time || '',
             serverTimezone: settingsRes?.server_timezone || '',
+            dismissedTzSuggestion: settingsRes?.dismissed_tz_suggestion || '',
             weightUnitPreference: settingsRes?.weight_unit_preference || window.weightUnitPreference || 'kg',
             foodTargets: {
                 calories: foodTargetsData?.calories || 0,

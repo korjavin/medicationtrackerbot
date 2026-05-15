@@ -21,6 +21,7 @@ import (
 
 	"github.com/VictoriaMetrics/fastcache"
 	"github.com/korjavin/medicationtrackerbot/internal/domain"
+	"github.com/korjavin/medicationtrackerbot/internal/domain/tzsuggestion"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzupdate"
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/rxnorm"
@@ -78,6 +79,7 @@ type Server struct {
 	lastMCPNotification time.Time
 	mcpAuditMutex       sync.Mutex
 	tzUpdater           tzupdate.Service
+	tzSuggester         tzsuggestion.Service
 	tzPlanStore         TZPlanStore
 	nonces              NonceStore
 	mcpRegistry         MCPRegistry
@@ -254,8 +256,48 @@ func New(s *store.Store, botToken, sessionSecret string, allowedUserID int64, oi
 	// SetTZUpdater swap in a planner-aware service after construction.
 	srv.tzUpdater = tzupdate.NewService(srv.timezone, srv.tzPlanStore, nil, nil, nil)
 
+	// Default tzSuggester: backed by the settings + timezone repos plus the
+	// active-plan baseline so /api/tz-suggestion/dismiss and the bootstrap
+	// dismissal hint work out of the box. cmd entry points may override via
+	// SetTZSuggester.
+	srv.tzSuggester = tzsuggestion.NewService(newTZSuggestionSettings(s.Settings, s.TZ), srv.tzPlanStore)
+
 	srv.initOAUTH()
 	return srv
+}
+
+// tzSuggestionSettings adapts the per-domain settings + tz repos to the
+// tzsuggestion.SettingsStore interface (which expects current-timezone reads
+// and dismissed-suggestion read/writes on a single dependency).
+type tzSuggestionSettings struct {
+	settings interface {
+		GetDismissedTZSuggestion(ctx context.Context) (string, error)
+		SetDismissedTZSuggestion(ctx context.Context, tz string) error
+	}
+	tz interface {
+		GetCurrentTimezone() (string, error)
+	}
+}
+
+func newTZSuggestionSettings(settings interface {
+	GetDismissedTZSuggestion(ctx context.Context) (string, error)
+	SetDismissedTZSuggestion(ctx context.Context, tz string) error
+}, tz interface {
+	GetCurrentTimezone() (string, error)
+}) *tzSuggestionSettings {
+	return &tzSuggestionSettings{settings: settings, tz: tz}
+}
+
+func (a *tzSuggestionSettings) GetCurrentTimezone() (string, error) {
+	return a.tz.GetCurrentTimezone()
+}
+
+func (a *tzSuggestionSettings) GetDismissedTZSuggestion(ctx context.Context) (string, error) {
+	return a.settings.GetDismissedTZSuggestion(ctx)
+}
+
+func (a *tzSuggestionSettings) SetDismissedTZSuggestion(ctx context.Context, tz string) error {
+	return a.settings.SetDismissedTZSuggestion(ctx, tz)
 }
 
 // SetWorkoutInteractor configures the chat interaction for web-started workouts.
@@ -284,6 +326,14 @@ func (s *Server) SetNotifiers(notifiers []notifier.Notifier) {
 // server and the bot so they share a single update mutex.
 func (s *Server) SetTZUpdater(svc tzupdate.Service) {
 	s.tzUpdater = svc
+}
+
+// SetTZSuggester configures the TZ-suggestion decision service that backs the
+// cross-client dismissal flow. cmd entry points may override the default
+// constructed in New so the service is wired with the canonical store /
+// plan-store dependencies; tests may inject a fake.
+func (s *Server) SetTZSuggester(svc tzsuggestion.Service) {
+	s.tzSuggester = svc
 }
 
 // deleteNotification deletes a previously sent notification from all notifiers.
@@ -315,10 +365,17 @@ func (s *Server) closeNotification(ctx context.Context, tag string) {
 }
 
 // notify sends a notification through all configured notifiers.
+// ErrNoDeliveryChannel is a documented "no recipients right now" sentinel
+// (see notifier.ErrNoDeliveryChannel) and is not logged — that lets best-effort
+// informational notifications (e.g. the web TZ-change confirmation) stay quiet
+// on web-only deployments with no push subscribers.
 func (s *Server) notify(ctx context.Context, n notifier.Notification) {
 	for _, nr := range s.notifiers {
 		go func(nr notifier.Notifier) {
 			if _, err := nr.Send(ctx, s.allowedUserID, n); err != nil {
+				if errors.Is(err, notifier.ErrNoDeliveryChannel) {
+					return
+				}
 				slog.Error("notification send failed", "notifier", nr, "error", err)
 			}
 		}(nr)
@@ -620,6 +677,7 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("GET /api/tz-plan/current", s.handleGetCurrentTZPlan)
 	apiMux.HandleFunc("POST /api/tz-plan/{id}/approve", s.handleTZPlanApprove)
 	apiMux.HandleFunc("POST /api/tz-plan/{id}/reject", s.handleTZPlanReject)
+	apiMux.HandleFunc("POST /api/tz-suggestion/dismiss", s.handleTZSuggestionDismiss)
 	apiMux.HandleFunc("GET /api/health/overview", s.handleGetHealthOverview)
 	// ElevenLabs conversational agent
 	apiMux.HandleFunc("GET /api/elevenlabs/signed-url", s.handleElevenLabsSignedURL)

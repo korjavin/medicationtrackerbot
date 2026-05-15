@@ -22,21 +22,25 @@ async function maybeUpdateTimezone() {
         const detectedTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
         if (!detectedTz) return;
 
-        // Read stored timezone from the cached settings bundle (populated by applyBootstrapPayload)
+        // Read stored timezone + dismissal decision from the cached settings bundle.
+        // The dismissal is server-shared (user_settings.dismissed_tz_suggestion) so that
+        // dismissing the prompt in one browser silences other clients until the detected
+        // TZ changes or the user explicitly updates settings. The cached bundle is the
+        // normalized (camelCase) shape; accept the raw server snake_case as a fallback
+        // so a bundle written by an older client still suppresses the prompt.
         let storedTz = '';
+        let dismissedTz = '';
         if (window.DataStore) {
             const cached = await window.DataStore.getCached('settings_bundle');
-            if (cached && cached.timezone) {
-                storedTz = cached.timezone;
+            if (cached) {
+                if (cached.timezone) storedTz = cached.timezone;
+                const dismissed = cached.dismissedTzSuggestion || cached.dismissed_tz_suggestion;
+                if (dismissed) dismissedTz = dismissed;
             }
         }
 
         if (detectedTz === storedTz) return;
-
-        // If the user already dismissed the prompt for this specific detected timezone, don't ask again.
-        try {
-            if (localStorage.getItem('tz_prompt_dismissed') === detectedTz) return;
-        } catch (_) { /* localStorage unavailable in some sandboxed environments */ }
+        if (detectedTz === dismissedTz) return;
 
         const message = storedTz
             ? `You appear to be in ${detectedTz} (currently set to ${storedTz}). Change your timezone and adjust notifications?`
@@ -44,11 +48,31 @@ async function maybeUpdateTimezone() {
 
         const confirmed = await safeConfirm(message);
         if (!confirmed) {
-            // Suppress re-prompt until the browser timezone changes to something different.
-            // Use localStorage because applyBootstrapPayload always overwrites the IndexedDB
-            // settings_bundle with the server value before maybeUpdateTimezone reads it, making
-            // an IndexedDB write here ineffective as a suppression mechanism.
-            try { localStorage.setItem('tz_prompt_dismissed', detectedTz); } catch (_) { /* ignore */ }
+            // Persist the dismissal server-side so other browsers skip the same prompt.
+            // Best-effort: swallow errors so a transient network failure does not surface.
+            try {
+                await apiCall('/api/tz-suggestion/dismiss', 'POST', { detected_tz: detectedTz });
+            } catch (e) {
+                console.warn('Failed to record TZ dismissal:', e);
+            }
+            // Mirror the dismissal into the cached settings_bundle so the same browser
+            // suppresses the prompt on reload even if the server write was silently
+            // dropped (apiCall returns null on offline/5xx without throwing). When the
+            // next bootstrap succeeds it will overwrite this with the authoritative
+            // server value, which should match.
+            try {
+                if (window.DataStore) {
+                    const cached = await window.DataStore.getCached('settings_bundle');
+                    if (cached && cached.dismissedTzSuggestion !== detectedTz) {
+                        await window.DataStore.setCached('settings_bundle', {
+                            ...cached,
+                            dismissedTzSuggestion: detectedTz,
+                        });
+                    }
+                }
+            } catch (e) {
+                console.warn('Failed to mirror TZ dismissal to cache:', e);
+            }
             return;
         }
 
@@ -64,8 +88,6 @@ async function maybeUpdateTimezone() {
         if (window.DataStore?.invalidateKey) {
             await window.DataStore.invalidateKey('settings_bundle');
         }
-        // Clear any previous dismissal so future timezone changes are prompted correctly.
-        try { localStorage.removeItem('tz_prompt_dismissed'); } catch (_) { /* ignore */ }
     } catch (e) {
         // Timezone detection is best-effort; never block the app
         console.warn('Timezone detection failed:', e);
