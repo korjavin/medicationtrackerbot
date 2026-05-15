@@ -285,12 +285,12 @@ Already minimal: `Create`, `List`, `Delete`. No renames.
 
 ### Task 5: Rename food repo methods
 
-- [ ] apply rename mapping to `internal/store/food/`
-- [ ] update consumer interfaces in `internal/server/store_interfaces.go` and `internal/bot/store_interfaces.go`
-- [ ] update adapter forwarders in scheduler/bot/mcp adapters and `cmd/bot/tz_planner_adapter.go`
-- [ ] update MCP registry operation handlers in `internal/mcp/registry/operations_food*.go`
-- [ ] update tests inside `internal/store/food/` and any caller tests
-- [ ] run project tests - must pass (`go test ./...`, `go test -race ./...`, `golangci-lint run`)
+- [x] apply rename mapping to `internal/store/food/`
+- [x] update consumer interfaces in `internal/server/store_interfaces.go` and `internal/bot/store_interfaces.go`
+- [x] update adapter forwarders in scheduler/bot/mcp adapters and `cmd/bot/tz_planner_adapter.go`
+- [x] update MCP registry operation handlers in `internal/mcp/registry/operations_food*.go`
+- [x] update tests inside `internal/store/food/` and any caller tests
+- [x] run project tests - must pass (`go test ./...`, `go test -race ./...`, `golangci-lint run`)
 
 ### Task 6: Rename workout repo methods
 

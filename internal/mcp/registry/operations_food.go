@@ -5,7 +5,7 @@ import "encoding/json"
 // FoodOperations returns the set of food-related operations for the registry.
 // Includes read-only operations for browsing logs/products/targets and write
 // operations whose backend handlers carry strong domain validation
-// (FoodService.CreateFoodLog, SetFoodTargets).
+// (FoodService.CreateLog, SetTargets).
 func FoodOperations() []*Operation {
 	return []*Operation{
 		{

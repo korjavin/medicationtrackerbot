@@ -78,7 +78,7 @@ type FoodStats struct {
 	Fat      int `json:"fat"`
 }
 
-// FoodProductsFilter is the query filter for GetFoodProducts.
+// FoodProductsFilter is the query filter for ListProducts.
 type FoodProductsFilter struct {
 	IsMeal *bool
 	Query  string
@@ -100,10 +100,10 @@ func New(d *storedb.DB) *Repo {
 	return &Repo{db: d}
 }
 
-// UpsertFoodProduct inserts a product or, on (user_id, name) conflict,
+// UpsertProduct inserts a product or, on (user_id, name) conflict,
 // increments usage_count and refreshes last_used_at while preserving
 // previously-set macro fields when the new row supplies zeros.
-func (r *Repo) UpsertFoodProduct(ctx context.Context, p *FoodProduct) error {
+func (r *Repo) UpsertProduct(ctx context.Context, p *FoodProduct) error {
 	query := `
 		INSERT INTO food_products (user_id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, usage_count, last_used_at, is_meal, total_weight_g)
 		VALUES (?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, ?, ?)
@@ -126,9 +126,9 @@ func (r *Repo) UpsertFoodProduct(ctx context.Context, p *FoodProduct) error {
 	return err
 }
 
-// GetFoodProductByName returns the user's product with the given name, or
+// GetProductByName returns the user's product with the given name, or
 // sql.ErrNoRows.
-func (r *Repo) GetFoodProductByName(ctx context.Context, userID int64, name string) (*FoodProduct, error) {
+func (r *Repo) GetProductByName(ctx context.Context, userID int64, name string) (*FoodProduct, error) {
 	query := `
 		SELECT id, user_id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, usage_count, is_meal, total_weight_g, created_at, last_used_at
 		FROM food_products
@@ -147,9 +147,9 @@ func (r *Repo) GetFoodProductByName(ctx context.Context, userID int64, name stri
 	return &p, nil
 }
 
-// GetFoodProductByID returns the user's product with the given id, or
+// GetProductByID returns the user's product with the given id, or
 // sql.ErrNoRows.
-func (r *Repo) GetFoodProductByID(ctx context.Context, userID, id int64) (*FoodProduct, error) {
+func (r *Repo) GetProductByID(ctx context.Context, userID, id int64) (*FoodProduct, error) {
 	query := `
 		SELECT id, user_id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, usage_count, is_meal, total_weight_g, created_at, last_used_at
 		FROM food_products
@@ -168,9 +168,9 @@ func (r *Repo) GetFoodProductByID(ctx context.Context, userID, id int64) (*FoodP
 	return &p, nil
 }
 
-// UpdateFoodProduct updates a product owned by the given user. Returns
+// UpdateProduct updates a product owned by the given user. Returns
 // sql.ErrNoRows when no row matches the id+user_id pair.
-func (r *Repo) UpdateFoodProduct(ctx context.Context, p *FoodProduct) error {
+func (r *Repo) UpdateProduct(ctx context.Context, p *FoodProduct) error {
 	var barcode interface{}
 	if p.Barcode != nil && *p.Barcode != "" {
 		barcode = *p.Barcode
@@ -188,9 +188,9 @@ func (r *Repo) UpdateFoodProduct(ctx context.Context, p *FoodProduct) error {
 	return nil
 }
 
-// DeleteFoodProduct removes a product owned by the given user. Returns
+// DeleteProduct removes a product owned by the given user. Returns
 // sql.ErrNoRows when no row matches.
-func (r *Repo) DeleteFoodProduct(ctx context.Context, id, userID int64) error {
+func (r *Repo) DeleteProduct(ctx context.Context, id, userID int64) error {
 	res, err := r.db.ExecContext(ctx, "DELETE FROM food_products WHERE id = ? AND user_id = ?", id, userID)
 	if err != nil {
 		return err
@@ -202,9 +202,9 @@ func (r *Repo) DeleteFoodProduct(ctx context.Context, id, userID int64) error {
 	return nil
 }
 
-// GetFoodProducts returns a filtered, paginated list of the user's products
+// ListProducts returns a filtered, paginated list of the user's products
 // plus the unfiltered total count for pagination.
-func (r *Repo) GetFoodProducts(ctx context.Context, userID int64, filter FoodProductsFilter) ([]FoodProduct, int, error) {
+func (r *Repo) ListProducts(ctx context.Context, userID int64, filter FoodProductsFilter) ([]FoodProduct, int, error) {
 	var countQuery strings.Builder
 	var selectQuery strings.Builder
 	var args []interface{}
@@ -265,10 +265,10 @@ func (r *Repo) GetFoodProducts(ctx context.Context, userID int64, filter FoodPro
 	return products, total, nil
 }
 
-// SearchFoodProducts returns up to 50 products matching queryStr, drawing
+// SearchProducts returns up to 50 products matching queryStr, drawing
 // from both the user's saved products and the global open_food_facts table.
 // Meals sort first, then by usage_count desc, then by name.
-func (r *Repo) SearchFoodProducts(ctx context.Context, userID int64, queryStr string) ([]FoodProduct, error) {
+func (r *Repo) SearchProducts(ctx context.Context, userID int64, queryStr string) ([]FoodProduct, error) {
 	likeQuery := "%" + queryStr + "%"
 
 	query := `
@@ -395,7 +395,7 @@ func (r *Repo) CreateMealFromLogs(ctx context.Context, userID int64, name string
 		TotalWeightG:   totalWeight,
 	}
 
-	if err := r.UpsertFoodProduct(ctx, product); err != nil {
+	if err := r.UpsertProduct(ctx, product); err != nil {
 		return nil, err
 	}
 
@@ -410,10 +410,10 @@ func (r *Repo) CreateMealFromLogs(ctx context.Context, userID int64, name string
 	return &createdProduct, nil
 }
 
-// CreateFoodLog inserts a single food_log row. eaten_at is normalised to UTC
+// CreateLog inserts a single food_log row. eaten_at is normalised to UTC
 // so SQLite's lexicographic datetime comparison aligns with the UTC midnight
 // boundaries used elsewhere in this package.
-func (r *Repo) CreateFoodLog(ctx context.Context, f *FoodLog) (int64, error) {
+func (r *Repo) CreateLog(ctx context.Context, f *FoodLog) (int64, error) {
 	if f.ProductID != nil {
 		var exists int
 		err := r.db.QueryRowContext(ctx, "SELECT 1 FROM food_products WHERE id = ? AND user_id = ?", *f.ProductID, f.UserID).Scan(&exists)
@@ -426,7 +426,7 @@ func (r *Repo) CreateFoodLog(ctx context.Context, f *FoodLog) (int64, error) {
 
 	// Always store eaten_at in UTC so that SQLite's lexicographic datetime
 	// comparison works correctly against the UTC midnight boundaries used in
-	// GetFoodLogs / GetFoodStats.  Without this, a +01:00 offset stored by a
+	// ListLogs / GetStats.  Without this, a +01:00 offset stored by a
 	// CET server would sort as if it were an hour later than it actually is.
 	eatenAt := f.EatenAt.UTC()
 
@@ -439,9 +439,9 @@ func (r *Repo) CreateFoodLog(ctx context.Context, f *FoodLog) (int64, error) {
 	return res.LastInsertId()
 }
 
-// UpdateFoodLog updates a food_log row owned by the given user. Returns
+// UpdateLog updates a food_log row owned by the given user. Returns
 // sql.ErrNoRows when no row matches.
-func (r *Repo) UpdateFoodLog(ctx context.Context, f *FoodLog) error {
+func (r *Repo) UpdateLog(ctx context.Context, f *FoodLog) error {
 	if f.ProductID != nil {
 		var exists int
 		err := r.db.QueryRowContext(ctx, "SELECT 1 FROM food_products WHERE id = ? AND user_id = ?", *f.ProductID, f.UserID).Scan(&exists)
@@ -452,7 +452,7 @@ func (r *Repo) UpdateFoodLog(ctx context.Context, f *FoodLog) error {
 		}
 	}
 
-	// Normalise to UTC for the same reason as CreateFoodLog.
+	// Normalise to UTC for the same reason as CreateLog.
 	eatenAt := f.EatenAt.UTC()
 
 	res, err := r.db.ExecContext(ctx,
@@ -468,10 +468,10 @@ func (r *Repo) UpdateFoodLog(ctx context.Context, f *FoodLog) error {
 	return nil
 }
 
-// GetFoodLogs returns the user's food_log rows for [date - (days-1), date]
+// ListLogs returns the user's food_log rows for [date - (days-1), date]
 // using calendar midnights in the location of `date` (DST-safe) ordered
 // ascending by eaten_at.
-func (r *Repo) GetFoodLogs(ctx context.Context, userID int64, date time.Time, days int) ([]FoodLog, error) {
+func (r *Repo) ListLogs(ctx context.Context, userID int64, date time.Time, days int) ([]FoodLog, error) {
 	// Range for the days — compute calendar midnights in the client's timezone so DST
 	// transitions don't shift boundaries by an hour, then convert to UTC for SQLite.
 	dayMidnight := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
@@ -518,9 +518,9 @@ func (r *Repo) GetFoodLogs(ctx context.Context, userID int64, date time.Time, da
 	return logs, nil
 }
 
-// DeleteFoodLog removes a food_log row owned by the given user. Returns
+// DeleteLog removes a food_log row owned by the given user. Returns
 // sql.ErrNoRows when no row matches.
-func (r *Repo) DeleteFoodLog(ctx context.Context, id, userID int64) error {
+func (r *Repo) DeleteLog(ctx context.Context, id, userID int64) error {
 	res, err := r.db.ExecContext(ctx, "DELETE FROM food_log WHERE id = ? AND user_id = ?", id, userID)
 	if err != nil {
 		return err
@@ -532,11 +532,11 @@ func (r *Repo) DeleteFoodLog(ctx context.Context, id, userID int64) error {
 	return nil
 }
 
-// GetFoodStats sums calories/carbs/protein/fat across the user's food_log
+// GetStats sums calories/carbs/protein/fat across the user's food_log
 // rows for [endDate - (days-1), endDate] (calendar midnights in endDate's
 // location, DST-safe).
-func (r *Repo) GetFoodStats(ctx context.Context, userID int64, endDate time.Time, days int) (*FoodStats, error) {
-	// Range for the days — calendar midnights in client timezone (DST-safe), same as GetFoodLogs.
+func (r *Repo) GetStats(ctx context.Context, userID int64, endDate time.Time, days int) (*FoodStats, error) {
+	// Range for the days — calendar midnights in client timezone (DST-safe), same as ListLogs.
 	dayMidnight := time.Date(endDate.Year(), endDate.Month(), endDate.Day(), 0, 0, 0, 0, endDate.Location())
 	endOfDay := dayMidnight.AddDate(0, 0, 1).UTC()
 	startOfDay := dayMidnight.AddDate(0, 0, -(days - 1)).UTC()
@@ -551,9 +551,9 @@ func (r *Repo) GetFoodStats(ctx context.Context, userID int64, endDate time.Time
 	return &stats, nil
 }
 
-// GetFoodTargets reads the per-user daily targets from the singleton
+// GetTargets reads the per-user daily targets from the singleton
 // settings row.
-func (r *Repo) GetFoodTargets(ctx context.Context) (FoodTargets, error) {
+func (r *Repo) GetTargets(ctx context.Context) (FoodTargets, error) {
 	var targets FoodTargets
 	err := r.db.QueryRowContext(ctx,
 		"SELECT food_target_calories, food_target_carbs, food_target_protein, food_target_fat FROM settings WHERE id = 1",
@@ -561,9 +561,9 @@ func (r *Repo) GetFoodTargets(ctx context.Context) (FoodTargets, error) {
 	return targets, err
 }
 
-// SetFoodTargets writes the per-user daily targets to the singleton settings
+// SetTargets writes the per-user daily targets to the singleton settings
 // row.
-func (r *Repo) SetFoodTargets(ctx context.Context, targets FoodTargets) error {
+func (r *Repo) SetTargets(ctx context.Context, targets FoodTargets) error {
 	_, err := r.db.ExecContext(ctx,
 		"UPDATE settings SET food_target_calories = ?, food_target_carbs = ?, food_target_protein = ?, food_target_fat = ? WHERE id = 1",
 		targets.Calories, targets.Carbs, targets.Protein, targets.Fat,

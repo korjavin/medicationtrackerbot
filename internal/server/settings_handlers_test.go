@@ -138,7 +138,7 @@ func TestHandleBootstrap_IncludesTodayFood(t *testing.T) {
 	// Pre-existing food row eaten today in UTC (avoid near-midnight flakiness).
 	nowUTC := time.Now().UTC()
 	eatenAt := time.Date(nowUTC.Year(), nowUTC.Month(), nowUTC.Day(), 12, 0, 0, 0, time.UTC)
-	if _, err := db.Food.CreateFoodLog(context.Background(), &store.FoodLog{
+	if _, err := db.Food.CreateLog(context.Background(), &store.FoodLog{
 		UserID:   123456,
 		EatenAt:  eatenAt,
 		Weight:   100,
@@ -628,7 +628,7 @@ func TestHandleGetSettings_FullBundle(t *testing.T) {
 	if err := db.Settings.SetBloodPressureEnabled(ctx, false); err != nil {
 		t.Fatalf("SetBloodPressureEnabled: %v", err)
 	}
-	if err := db.Food.SetFoodTargets(ctx, store.FoodTargets{Calories: 2000, Carbs: 200, Protein: 150, Fat: 70}); err != nil {
+	if err := db.Food.SetTargets(ctx, store.FoodTargets{Calories: 2000, Carbs: 200, Protein: 150, Fat: 70}); err != nil {
 		t.Fatalf("SetFoodTargets: %v", err)
 	}
 	if _, err := db.BP.GetReminderState(userID); err != nil { // creates default row
