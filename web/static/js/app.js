@@ -2483,7 +2483,7 @@ async function sendTestMedicationNotification() {
     try {
         const res = await fetch('/api/webpush/test-medication', {
             method: 'POST',
-            headers: { 'X-Telegram-Init-Data': userInitData }
+            headers: window.makeAuthHeaders()
         });
 
         const text = await res.text();
