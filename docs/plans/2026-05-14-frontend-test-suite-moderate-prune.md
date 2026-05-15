@@ -60,10 +60,10 @@ Reduce the 203-file frontend test suite to roughly the 150-file target by (1) co
 - Delete: `web/static/js/tests/modals.workouts-start.header-actions.test.js`
 - Delete: `web/static/js/tests/modals.workouts-variant.header-actions.test.js`
 
-- [ ] write a single parameterized suite with one `describe.each([...])` block: each row gives `modalSelector`, `headerActionsSelector`, `cancelBtnId`, `saveBtnId`, optional `formAttr` (only bp + workouts-log-set have it), optional `closeBtnSelector` (only bp + weight + note had close-X assertions)
-- [ ] migrate every distinct `it()` from the 11 files into the parameterized block; assertions present in some files but not others become conditional `it.skipIf(!row.formAttr)` or simply guarded inside the assertion
-- [ ] delete the 11 source files
-- [ ] run `pnpm test web/static/js/tests/modals.header-actions.test.js` — must show the same per-modal assertion counts as before consolidation
+- [x] write a single parameterized suite with one `describe.each([...])` block: each row gives `modalSelector`, `headerActionsSelector`, `cancelBtnId`, `saveBtnId`, optional `formAttr` (only bp + workouts-log-set have it), optional `closeBtnSelector` (only bp + weight + note had close-X assertions)
+- [x] migrate every distinct `it()` from the 11 files into the parameterized block; assertions present in some files but not others become conditional `it.skipIf(!row.formAttr)` or simply guarded inside the assertion
+- [x] delete the 11 source files
+- [x] run `pnpm test web/static/js/tests/modals.header-actions.test.js` — must show the same per-modal assertion counts as before consolidation
 
 ### Task 3: Delete obsolete pin-removed-feature and task-specific tests
 
