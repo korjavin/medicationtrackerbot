@@ -474,3 +474,251 @@ func TestAdHocWorkoutCommand_CreatesSession(t *testing.T) {
 	// Give the goroutine time to run and create any needed messages
 	time.Sleep(200 * time.Millisecond)
 }
+
+// ExerciseSvc.LogExercise must fall through to the exercise_library when the
+// numeric exerciseID resolves to a workout_exercises row belonging to a
+// different variant than the session. This is a non-obvious resolution rule
+// (variant-mismatch guard) that prevents corrupted callback data from logging
+// against the wrong scheduled exercise.
+func TestExerciseDone_VariantMismatch_FallsThruToLibrary(t *testing.T) {
+	env := setupBotTest(t)
+	defer env.teardown()
+
+	userID := int64(123456)
+
+	groupA, err := env.s.Workout.CreateWorkoutGroup("Push", "", false, userID, "[1]", "09:00", 15)
+	if err != nil {
+		t.Fatalf("CreateWorkoutGroup A: %v", err)
+	}
+	variantA, err := env.s.Workout.CreateWorkoutVariant(groupA.ID, "Heavy", nil, "")
+	if err != nil {
+		t.Fatalf("CreateWorkoutVariant A: %v", err)
+	}
+	// Workout exercise in variant A — its name is "Squat".
+	squat, err := env.s.Workout.AddExerciseToVariant(variantA.ID, "Squat", 5, 5, nil, nil, 0)
+	if err != nil {
+		t.Fatalf("AddExerciseToVariant A: %v", err)
+	}
+
+	groupB, err := env.s.Workout.CreateWorkoutGroup("Pull", "", false, userID, "[2]", "09:00", 15)
+	if err != nil {
+		t.Fatalf("CreateWorkoutGroup B: %v", err)
+	}
+	variantB, err := env.s.Workout.CreateWorkoutVariant(groupB.ID, "Heavy", nil, "")
+	if err != nil {
+		t.Fatalf("CreateWorkoutVariant B: %v", err)
+	}
+	// Both workout_exercises and exercise_library are fresh AUTOINCREMENT tables
+	// in the :memory: DB, so the first row in each gets id=1 — guaranteeing the
+	// cross-table ID collision the variant guard must handle. Fatal if that
+	// invariant ever drifts (e.g., default-seeded library rows), since silent
+	// fixture changes would otherwise neuter this test.
+	libItem, err := env.s.Workout.CreateExerciseLibraryItem(userID, "Cable Row", 3, 12, nil, nil, "")
+	if err != nil {
+		t.Fatalf("CreateExerciseLibraryItem: %v", err)
+	}
+	if libItem.ID != squat.ID {
+		t.Fatalf("expected library_id == squat.ID for cross-table collision, got lib=%d squat=%d (fixture seeded extra rows?)", libItem.ID, squat.ID)
+	}
+
+	// Session in variant B — does NOT contain the workout_exercise with squat.ID.
+	session, err := env.s.Workout.CreateWorkoutSession(groupB.ID, variantB.ID, userID, time.Now(), "09:00")
+	if err != nil {
+		t.Fatalf("CreateWorkoutSession: %v", err)
+	}
+	if err := env.s.Workout.StartSession(session.ID); err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+
+	// Fire exercise_done with the colliding ID and NO "L" prefix (fromLibrary=false).
+	// The variant-mismatch guard must fall through to the library lookup.
+	cb := workoutCB(fmt.Sprintf("exercise_done_%d_%d", session.ID, squat.ID))
+	env.b.handleExerciseCallback(cb, cb.Data)
+
+	logs, err := env.s.Workout.GetExerciseLogs(session.ID)
+	if err != nil {
+		t.Fatalf("GetExerciseLogs: %v", err)
+	}
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 log, got %d", len(logs))
+	}
+	if logs[0].Source != "library" {
+		t.Errorf("expected source=library (variant-mismatch fall-through), got %q", logs[0].Source)
+	}
+	if logs[0].ExerciseName != "Cable Row" {
+		t.Errorf("expected exercise_name=Cable Row (library item), got %q", logs[0].ExerciseName)
+	}
+}
+
+// ExerciseSvc.LogExercise must use the workout_exercises row (NOT fall through
+// to a same-id exercise_library item) when the session's variant matches the
+// workout_exercise's variant.
+func TestExerciseDone_SameVariant_UsesWorkoutExercise(t *testing.T) {
+	env := setupBotTest(t)
+	defer env.teardown()
+
+	userID := int64(123456)
+
+	group, err := env.s.Workout.CreateWorkoutGroup("Push", "", false, userID, "[1]", "09:00", 15)
+	if err != nil {
+		t.Fatalf("CreateWorkoutGroup: %v", err)
+	}
+	variant, err := env.s.Workout.CreateWorkoutVariant(group.ID, "Heavy", nil, "")
+	if err != nil {
+		t.Fatalf("CreateWorkoutVariant: %v", err)
+	}
+	squat, err := env.s.Workout.AddExerciseToVariant(variant.ID, "Squat", 5, 5, nil, nil, 0)
+	if err != nil {
+		t.Fatalf("AddExerciseToVariant: %v", err)
+	}
+
+	// Fresh AUTOINCREMENT tables — both first rows get id=1, so the cross-table
+	// collision is guaranteed. Fatal if a future fixture change breaks it.
+	libItem, err := env.s.Workout.CreateExerciseLibraryItem(userID, "Cable Row", 3, 12, nil, nil, "")
+	if err != nil {
+		t.Fatalf("CreateExerciseLibraryItem: %v", err)
+	}
+	if libItem.ID != squat.ID {
+		t.Fatalf("expected library_id == squat.ID for cross-table collision, got lib=%d squat=%d (fixture seeded extra rows?)", libItem.ID, squat.ID)
+	}
+
+	// Session in the SAME variant as squat. fromLibrary=false → must use workout_exercise.
+	session, err := env.s.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	if err != nil {
+		t.Fatalf("CreateWorkoutSession: %v", err)
+	}
+	if err := env.s.Workout.StartSession(session.ID); err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+
+	cb := workoutCB(fmt.Sprintf("exercise_done_%d_%d", session.ID, squat.ID))
+	env.b.handleExerciseCallback(cb, cb.Data)
+
+	logs, err := env.s.Workout.GetExerciseLogs(session.ID)
+	if err != nil {
+		t.Fatalf("GetExerciseLogs: %v", err)
+	}
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 log, got %d", len(logs))
+	}
+	if logs[0].Source == "library" {
+		t.Errorf("expected source != library (variants match), got %q", logs[0].Source)
+	}
+	if logs[0].ExerciseName != "Squat" {
+		t.Errorf("expected exercise_name=Squat (workout_exercise), got %q", logs[0].ExerciseName)
+	}
+}
+
+// exerciseService.LogExercise's idempotent upgrade rules say: an existing
+// completed log must not be overwritten by a second exercise_done (duplicate
+// callback) or by an exercise_skip (manual web edits win over later bot taps).
+// Likewise, repeating exercise_skip on an already-skipped log is a no-op.
+// These guards live in applyUpgradeRules (internal/domain/exercise.go).
+func TestExerciseDone_AlreadyCompleted_NoOp(t *testing.T) {
+	env, sessionID, exerciseID := makeWorkoutEnv(t)
+	defer env.teardown()
+
+	if err := env.s.Workout.StartSession(sessionID); err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+
+	manualSets, manualReps, manualWeight := 7, 7, 99.0
+	logID, err := env.s.Workout.LogExercise(sessionID, exerciseID, "Pull-up", &manualSets, &manualReps, &manualWeight, "completed", "manual note")
+	if err != nil {
+		t.Fatalf("LogExercise completed: %v", err)
+	}
+
+	cb := workoutCB(fmt.Sprintf("exercise_done_%d_%d", sessionID, exerciseID))
+	env.b.handleExerciseCallback(cb, cb.Data)
+
+	logs, err := env.s.Workout.GetExerciseLogs(sessionID)
+	if err != nil {
+		t.Fatalf("GetExerciseLogs: %v", err)
+	}
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 log (no duplicate row), got %d", len(logs))
+	}
+	got := logs[0]
+	if got.ID != logID {
+		t.Errorf("expected log ID %d unchanged, got %d", logID, got.ID)
+	}
+	if got.Status != "completed" {
+		t.Errorf("expected status remains completed, got %q", got.Status)
+	}
+	if got.SetsCompleted == nil || *got.SetsCompleted != manualSets {
+		t.Errorf("expected sets_completed preserved at %d, got %v", manualSets, got.SetsCompleted)
+	}
+	if got.WeightKg == nil || *got.WeightKg != manualWeight {
+		t.Errorf("expected weight_kg preserved at %v, got %v", manualWeight, got.WeightKg)
+	}
+	if got.Notes != "manual note" {
+		t.Errorf("expected notes preserved, got %q", got.Notes)
+	}
+}
+
+func TestExerciseSkip_AfterCompleted_NoOp(t *testing.T) {
+	env, sessionID, exerciseID := makeWorkoutEnv(t)
+	defer env.teardown()
+
+	if err := env.s.Workout.StartSession(sessionID); err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+
+	manualSets, manualReps, manualWeight := 5, 5, 80.0
+	logID, err := env.s.Workout.LogExercise(sessionID, exerciseID, "Pull-up", &manualSets, &manualReps, &manualWeight, "completed", "")
+	if err != nil {
+		t.Fatalf("LogExercise completed: %v", err)
+	}
+
+	cb := workoutCB(fmt.Sprintf("exercise_skip_%d_%d", sessionID, exerciseID))
+	env.b.handleExerciseCallback(cb, cb.Data)
+
+	logs, err := env.s.Workout.GetExerciseLogs(sessionID)
+	if err != nil {
+		t.Fatalf("GetExerciseLogs: %v", err)
+	}
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 log, got %d", len(logs))
+	}
+	got := logs[0]
+	if got.ID != logID {
+		t.Errorf("expected log ID %d unchanged, got %d", logID, got.ID)
+	}
+	if got.Status != "completed" {
+		t.Errorf("expected status remains completed (manual edits not overwritten by skip), got %q", got.Status)
+	}
+	if got.SetsCompleted == nil || *got.SetsCompleted != manualSets {
+		t.Errorf("expected sets_completed preserved at %d, got %v", manualSets, got.SetsCompleted)
+	}
+}
+
+func TestExerciseSkip_AlreadySkipped_NoOp(t *testing.T) {
+	env, sessionID, exerciseID := makeWorkoutEnv(t)
+	defer env.teardown()
+
+	if err := env.s.Workout.StartSession(sessionID); err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+
+	logID, err := env.s.Workout.LogExercise(sessionID, exerciseID, "Pull-up", nil, nil, nil, "skipped", "")
+	if err != nil {
+		t.Fatalf("LogExercise skipped: %v", err)
+	}
+
+	cb := workoutCB(fmt.Sprintf("exercise_skip_%d_%d", sessionID, exerciseID))
+	env.b.handleExerciseCallback(cb, cb.Data)
+
+	logs, err := env.s.Workout.GetExerciseLogs(sessionID)
+	if err != nil {
+		t.Fatalf("GetExerciseLogs: %v", err)
+	}
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 log (no duplicate row), got %d", len(logs))
+	}
+	if logs[0].ID != logID {
+		t.Errorf("expected log ID %d unchanged, got %d", logID, logs[0].ID)
+	}
+	if logs[0].Status != "skipped" {
+		t.Errorf("expected status remains skipped, got %q", logs[0].Status)
+	}
+}
