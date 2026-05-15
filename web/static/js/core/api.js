@@ -23,67 +23,69 @@ async function apiCallDirect(endpoint, method = "GET", body = null, opts = {}) {
 
     const signal = composeAbortSignal(timeoutMs, callerSignal);
 
-    let res;
+    // The try/catch spans the body-read too — a timeout firing after headers
+    // arrive aborts res.text(), and that abort must still surface as
+    // err.aborted so apiCall() can rethrow instead of swallowing it.
     try {
-        res = await fetch(endpoint, {
+        const res = await fetch(endpoint, {
             method,
             headers,
             body: body ? JSON.stringify(body) : null,
             signal
         });
+        if (res.status === 401 || res.status === 403) {
+            const err = new Error("Unauthorized");
+            err.status = res.status;
+            throw err;
+        }
+
+        if (!res.ok) {
+            const txt = await res.text();
+            // Check if this is a service worker offline response (503 with {error:'offline'})
+            if (res.status === 503) {
+                try {
+                    const json = JSON.parse(txt);
+                    if (json.error === 'offline') {
+                        throw new Error('Network request failed');
+                    }
+                } catch (e) {
+                    if (e.message === 'Network request failed') throw e;
+                }
+            }
+            const err = new Error(txt || 'Service Unavailable');
+            err.status = res.status;
+            throw err;
+        }
+        let result;
+        if (res.status === 204 || method === "DELETE") {
+            result = true;
+        } else {
+            const txt = await res.text();
+            if (!txt) {
+                result = true;
+            } else {
+                try {
+                    result = JSON.parse(txt);
+                } catch (e) {
+                    console.log("Response is not JSON:", txt);
+                    result = true;
+                }
+            }
+        }
+
+        // After a successful write, advance the change cursor so that the
+        // next poll does not show a refresh banner for our own mutations.
+        if (method !== 'GET' && window.DataStore?.advanceCursorSilently) {
+            window.DataStore.advanceCursorSilently(); // fire-and-forget
+        }
+
+        return result;
     } catch (err) {
         if (err && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
             err.aborted = true;
         }
         throw err;
     }
-    if (res.status === 401 || res.status === 403) {
-        const err = new Error("Unauthorized");
-        err.status = res.status;
-        throw err;
-    }
-
-    if (!res.ok) {
-        const txt = await res.text();
-        // Check if this is a service worker offline response (503 with {error:'offline'})
-        if (res.status === 503) {
-            try {
-                const json = JSON.parse(txt);
-                if (json.error === 'offline') {
-                    throw new Error('Network request failed');
-                }
-            } catch (e) {
-                if (e.message === 'Network request failed') throw e;
-            }
-        }
-        const err = new Error(txt || 'Service Unavailable');
-        err.status = res.status;
-        throw err;
-    }
-    let result;
-    if (res.status === 204 || method === "DELETE") {
-        result = true;
-    } else {
-        const txt = await res.text();
-        if (!txt) {
-            result = true;
-        } else {
-            try {
-                result = JSON.parse(txt);
-            } catch (e) {
-                console.log("Response is not JSON:", txt);
-                result = true;
-            }
-        }
-    }
-
-    // After a successful write, advance the change cursor so that the
-    // next poll does not show a refresh banner for our own mutations.
-    if (method !== 'GET' && window.DataStore?.advanceCursorSilently) {
-        window.DataStore.advanceCursorSilently(); // fire-and-forget
-    }
-
-    return result;
 }
 
 // Expose for sync.js
