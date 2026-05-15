@@ -100,19 +100,20 @@ Steps:
 - Delete: `internal/domain/exercise_test.go`
 
 Steps:
-- [ ] for each `func Test*` in `medication_test.go` (7 functions: `TestCancelIntake`, `TestConfirmIntakeWithCleanup`, `TestSkipIntake`, `TestLogMedicationNow`, `TestConfirmScheduleWithCleanup`, `TestConfirmMedicationByMedID`, `TestDeleteFutureIntake`):
+- [x] for each `func Test*` in `medication_test.go` (7 functions: `TestCancelIntake`, `TestConfirmIntakeWithCleanup`, `TestSkipIntake`, `TestLogMedicationNow`, `TestConfirmScheduleWithCleanup`, `TestConfirmMedicationByMedID`, `TestDeleteFutureIntake`):
   - find the corresponding handler test in `internal/server/` (`grep -rn "TestHandle.*Intake\|TestHandle.*Confirm\|TestHandle.*Skip\|TestHandle.*LogMed"`)
   - confirm the handler test asserts the same externally-observable outcome (DB row state, HTTP response code, response JSON). Spy-on-mock assertions do NOT need to be preserved.
   - if a unique externally-observable assertion exists ONLY in the domain test (rare), migrate it to the matching handler test as a new `t.Run("<scenario>", ...)` case — DO NOT recreate a mock store at the handler level
-- [ ] for each `func Test*` in `exercise_test.go` (27 functions): same protocol. Likely outcomes:
-  - the 3 happy-path tests (`TestLogExercise_NewLog`, `TestCheckSessionCompletion_AllDone`, `TestLogExercise_LibraryItem_NewLog`) — confirm coverage exists in `server_handlers_test.go` workout-session tests; migrate one assertion if needed
-  - the ~20 error-path tests (`TestLogExercise_StoreError`, `TestLogExercise_GetLogError`, etc.) — these mock a store error and assert the error is returned. Delete; the production error paths are simple `return err` and the value lies in real failures, not synthetic ones
-  - the ID-collision / library-item differentiation tests (`TestLogExercise_IDCollision_FallsThruToLibrary`, `TestLogExercise_SameVariant_UsesWorkoutExercise`) — these encode a non-obvious resolution rule; migrate them to handler-level tests against the real store
-- [ ] delete both files
-- [ ] run `go test ./internal/domain/...` — must pass (the package may have other test files that should remain)
-- [ ] run `go test ./internal/server/...` — must pass (handler tests + any migrated assertions)
-- [ ] run `go test ./...` — must pass
-- [ ] record LOC removed and assertions migrated in the PR description
+  - confirmed coverage exists in: `cancel_intake_handler_test.go` (TestHandleCancelIntake_*), `delete_intake_handler_test.go` (TestHandleDeleteFutureIntake_*), `server_handlers_test.go` (TestHandleConfirmSchedule_*, TestHandleLogPastIntake), `medication_handlers_test.go` (TestHandleSkipMedication), `trigger_next_intake_test.go` (TestHandleTriggerNextIntake_*). No unique externally-observable assertion needed migration.
+- [x] for each `func Test*` in `exercise_test.go` (27 functions): same protocol. Likely outcomes:
+  - the 3 happy-path tests (`TestLogExercise_NewLog`, `TestCheckSessionCompletion_AllDone`, `TestLogExercise_LibraryItem_NewLog`) — confirm coverage exists in `server_handlers_test.go` workout-session tests; migrate one assertion if needed — already covered by `workout_new_test.go` `TestExerciseDone_CreatesLog`, `TestExerciseSkip_CreatesLogAsSkipped`, `TestExerciseDone_ExistingSkippedLogBecomesCompleted` (bot path against real store)
+  - the ~20 error-path tests (`TestLogExercise_StoreError`, `TestLogExercise_GetLogError`, etc.) — these mock a store error and assert the error is returned. Delete; the production error paths are simple `return err` and the value lies in real failures, not synthetic ones — deleted
+  - the ID-collision / library-item differentiation tests (`TestLogExercise_IDCollision_FallsThruToLibrary`, `TestLogExercise_SameVariant_UsesWorkoutExercise`) — these encode a non-obvious resolution rule; migrate them to handler-level tests against the real store — migrated assertions: `TestExerciseDone_VariantMismatch_FallsThruToLibrary` and `TestExerciseDone_SameVariant_UsesWorkoutExercise` in `internal/bot/workout_new_test.go`, exercising `exerciseSvc.LogExercise` end-to-end through the bot callback against a real SQLite store (with a best-effort id-collision loop and t.Skipf fallback)
+- [x] delete both files
+- [x] run `go test ./internal/domain/...` — must pass (the package may have other test files that should remain) — pass (0.045s)
+- [x] run `go test ./internal/server/...` — must pass (handler tests + any migrated assertions) — pass (16.351s)
+- [x] run `go test ./...` — must pass — full suite green
+- [x] record LOC removed and assertions migrated in the PR description — 970 + 797 = 1767 LOC removed; ~170 LOC of migrated integration tests added in `internal/bot/workout_new_test.go` (net ≈ 1600 LOC removed)
 
 ### Task 4: Consolidate `internal/scheduler/notifier_test.go` to table-driven
 

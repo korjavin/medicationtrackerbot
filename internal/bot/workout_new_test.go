@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
 // makeWorkoutEnv creates a test environment with a workout group, variant,
@@ -473,4 +474,148 @@ func TestAdHocWorkoutCommand_CreatesSession(t *testing.T) {
 
 	// Give the goroutine time to run and create any needed messages
 	time.Sleep(200 * time.Millisecond)
+}
+
+// ExerciseSvc.LogExercise must fall through to the exercise_library when the
+// numeric exerciseID resolves to a workout_exercises row belonging to a
+// different variant than the session. This is a non-obvious resolution rule
+// (variant-mismatch guard) that prevents corrupted callback data from logging
+// against the wrong scheduled exercise.
+func TestExerciseDone_VariantMismatch_FallsThruToLibrary(t *testing.T) {
+	env := setupBotTest(t)
+	defer env.teardown()
+
+	userID := int64(123456)
+
+	groupA, err := env.s.Workout.CreateWorkoutGroup("Push", "", false, userID, "[1]", "09:00", 15)
+	if err != nil {
+		t.Fatalf("CreateWorkoutGroup A: %v", err)
+	}
+	variantA, err := env.s.Workout.CreateWorkoutVariant(groupA.ID, "Heavy", nil, "")
+	if err != nil {
+		t.Fatalf("CreateWorkoutVariant A: %v", err)
+	}
+	// Workout exercise in variant A — its name is "Squat".
+	squat, err := env.s.Workout.AddExerciseToVariant(variantA.ID, "Squat", 5, 5, nil, nil, 0)
+	if err != nil {
+		t.Fatalf("AddExerciseToVariant A: %v", err)
+	}
+
+	groupB, err := env.s.Workout.CreateWorkoutGroup("Pull", "", false, userID, "[2]", "09:00", 15)
+	if err != nil {
+		t.Fatalf("CreateWorkoutGroup B: %v", err)
+	}
+	variantB, err := env.s.Workout.CreateWorkoutVariant(groupB.ID, "Heavy", nil, "")
+	if err != nil {
+		t.Fatalf("CreateWorkoutVariant B: %v", err)
+	}
+	// Library item whose AUTOINCREMENT id may or may not collide with squat.ID.
+	// We loop until library id == squat.ID to force the collision.
+	var libItem *store.ExerciseLibraryItem
+	for i := 0; i < 10; i++ {
+		item, err := env.s.Workout.CreateExerciseLibraryItem(userID, "Cable Row", 3, 12, nil, nil, "")
+		if err != nil {
+			t.Fatalf("CreateExerciseLibraryItem: %v", err)
+		}
+		if item.ID == squat.ID {
+			libItem = item
+			break
+		}
+	}
+	if libItem == nil {
+		t.Skipf("could not force exercise_library.id == workout_exercises.id collision (squat.ID=%d)", squat.ID)
+	}
+
+	// Session in variant B — does NOT contain the workout_exercise with squat.ID.
+	session, err := env.s.Workout.CreateWorkoutSession(groupB.ID, variantB.ID, userID, time.Now(), "09:00")
+	if err != nil {
+		t.Fatalf("CreateWorkoutSession: %v", err)
+	}
+	if err := env.s.Workout.StartSession(session.ID); err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+
+	// Fire exercise_done with the colliding ID and NO "L" prefix (fromLibrary=false).
+	// The variant-mismatch guard must fall through to the library lookup.
+	cb := workoutCB(fmt.Sprintf("exercise_done_%d_%d", session.ID, squat.ID))
+	env.b.handleExerciseCallback(cb, cb.Data)
+
+	logs, err := env.s.Workout.GetExerciseLogs(session.ID)
+	if err != nil {
+		t.Fatalf("GetExerciseLogs: %v", err)
+	}
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 log, got %d", len(logs))
+	}
+	if logs[0].Source != "library" {
+		t.Errorf("expected source=library (variant-mismatch fall-through), got %q", logs[0].Source)
+	}
+	if logs[0].ExerciseName != "Cable Row" {
+		t.Errorf("expected exercise_name=Cable Row (library item), got %q", logs[0].ExerciseName)
+	}
+}
+
+// ExerciseSvc.LogExercise must use the workout_exercises row (NOT fall through
+// to a same-id exercise_library item) when the session's variant matches the
+// workout_exercise's variant.
+func TestExerciseDone_SameVariant_UsesWorkoutExercise(t *testing.T) {
+	env := setupBotTest(t)
+	defer env.teardown()
+
+	userID := int64(123456)
+
+	group, err := env.s.Workout.CreateWorkoutGroup("Push", "", false, userID, "[1]", "09:00", 15)
+	if err != nil {
+		t.Fatalf("CreateWorkoutGroup: %v", err)
+	}
+	variant, err := env.s.Workout.CreateWorkoutVariant(group.ID, "Heavy", nil, "")
+	if err != nil {
+		t.Fatalf("CreateWorkoutVariant: %v", err)
+	}
+	squat, err := env.s.Workout.AddExerciseToVariant(variant.ID, "Squat", 5, 5, nil, nil, 0)
+	if err != nil {
+		t.Fatalf("AddExerciseToVariant: %v", err)
+	}
+
+	// Force a library item id == squat.ID collision (best-effort).
+	var libItem *store.ExerciseLibraryItem
+	for i := 0; i < 10; i++ {
+		item, err := env.s.Workout.CreateExerciseLibraryItem(userID, "Cable Row", 3, 12, nil, nil, "")
+		if err != nil {
+			t.Fatalf("CreateExerciseLibraryItem: %v", err)
+		}
+		if item.ID == squat.ID {
+			libItem = item
+			break
+		}
+	}
+	if libItem == nil {
+		t.Skipf("could not force exercise_library.id == workout_exercises.id collision")
+	}
+
+	// Session in the SAME variant as squat. fromLibrary=false → must use workout_exercise.
+	session, err := env.s.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	if err != nil {
+		t.Fatalf("CreateWorkoutSession: %v", err)
+	}
+	if err := env.s.Workout.StartSession(session.ID); err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+
+	cb := workoutCB(fmt.Sprintf("exercise_done_%d_%d", session.ID, squat.ID))
+	env.b.handleExerciseCallback(cb, cb.Data)
+
+	logs, err := env.s.Workout.GetExerciseLogs(session.ID)
+	if err != nil {
+		t.Fatalf("GetExerciseLogs: %v", err)
+	}
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 log, got %d", len(logs))
+	}
+	if logs[0].Source == "library" {
+		t.Errorf("expected source != library (variants match), got %q", logs[0].Source)
+	}
+	if logs[0].ExerciseName != "Squat" {
+		t.Errorf("expected exercise_name=Squat (workout_exercise), got %q", logs[0].ExerciseName)
+	}
 }
