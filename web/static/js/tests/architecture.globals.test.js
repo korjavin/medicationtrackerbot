@@ -55,6 +55,8 @@ const ALLOWED_GLOBALS = new Set([
     'window.apiCallDirect',             // core/api.js — low-level fetch used by data-store.js
     'window.AppKernel',                 // core/app-kernel.js — module registry
     'window.ChartUtils',               // core/chart-utils.js — shared SVG chart utilities
+    'window.escapeHtml',               // core/utils.js — canonical HTML entity escaper; consumed by sync.js debug panel + app.js medication schedule renderer
+    'window.TimeFormat',               // core/time-format.js — Settings timezone/server-clock row helpers; exposes render(bundle), ensureTimer(), formatSettingsDateTime, parseRFC3339OffsetMinutes, formatFixedOffsetDateTime
     'window.ModalManager',              // core/modal-manager.js — modal lifecycle façade
     'window.AppStore',                  // core/store.js — ephemeral UI state
     'window.CacheKeys',                 // core/cache-keys.js — centralized registry of api_cache keys, tags, and freshness windows; registerAll() is invoked at boot so tag-based invalidation works regardless of which feature loader has executed
@@ -99,8 +101,37 @@ const ALLOWED_GLOBALS = new Set([
     'window.toggleFeatureSetting',      // app.js — toggles a single feature flag via API
     'window.loadSettings',              // app.js — loads all settings subsections in parallel
     'window.weightUnitPreference',      // app.js / features/weight.js — user's preferred weight display unit ('kg' or 'lb'); hydrated from /api/bootstrap, read synchronously by the weight modal on open, written back via PATCH /api/settings/weight-unit when the user submits in a different unit
-    'window.commitAuthoritativeWeightUnit', // app.js — keeps window.weightUnitPreference and the Settings PATCH failure-revert target in sync; called by features/weight.js after an out-of-band modal-side PATCH succeeds so a later Settings PATCH failure doesn't revert UI to a stale unit
-    'window.setWeightUnitPreference',   // app.js — serial-queued PATCH /api/settings/weight-unit helper; features/weight.js modal-submit routes through it (with reload:false) so a concurrent Settings click and modal inference cannot land at the server in arrival order opposite to the user's click order
+    'window.WeightUnitState',           // features/weight-unit-state.js — kg/lb preference state machine extracted from app.js (Plan 2026-05-13, Task 2). Owns the closure-private serial PATCH queue, intent counter, rollback baseline, pending-PATCH count, and locally-mutated flag. Public: commitAuthoritative, applySegmentedState, applyAuthoritative, reconcile, setPreference.
+    'window.commitAuthoritativeWeightUnit', // features/weight-unit-state.js — backwards-compat shim around WeightUnitState.commitAuthoritative; called by features/weight.js after an out-of-band modal-side PATCH succeeds so a later Settings PATCH failure doesn't revert UI to a stale unit
+    'window.setWeightUnitPreference',   // features/weight-unit-state.js — backwards-compat shim around WeightUnitState.setPreference; features/weight.js modal-submit routes through it (with reload:false) so a concurrent Settings click and modal inference cannot land at the server in arrival order opposite to the user's click order
+
+    // Auth + bootstrap hydration — extracted from app.js (Plan 2026-05-13, Task 3).
+    'window.AuthBootstrap',                 // features/auth-bootstrap.js — namespace exposing applyBootstrapPayload, verifyAuthInBackground, clearSwBootstrapCache, bootstrapURL, hydrateFeatureSettingsFromBundle, hydrateMedicationsFromDexie, hydrateSectionsFromDexie, cacheApiSnapshot, normalizeSettingsBundle. checkAuth() in app.js orchestrates these.
+    'window.medications',                   // features/auth-bootstrap.js — explicit mirror of the `var medications = []` global declared by app.js (line 612). applyBootstrapPayload and hydrateMedicationsFromDexie write here so features/meds.js (and any feature that reads the bare `medications` identifier) sees the new list before the cross-script var binding is observed.
+    'window.initialAuthLoad',               // features/auth-bootstrap.js — explicit mirror of the `var initialAuthLoad = false` global declared by app.js (line 14). applyBootstrapPayload + hydrateMedicationsFromDexie flip this to `true` so features/meds.js's "first-paint after auth" guard fires once and only once.
+    'window.SettingsState',                 // features/auth-bootstrap.js — closure-private reducer that owns featureSettings + featureSettingsLoaded; collapses the three-writer race (bootstrap, /api/init, Dexie hydration) behind applyBootstrapFeatures (fresh-data wins, marks loaded=true), applyDexieFeatures (skipped once loaded=true so stale-cache cannot stomp), setFeature (per-toggle update), getFeatureSettings, isLoaded.
+    'window.applyBootstrapPayload',         // features/auth-bootstrap.js — backwards-compat shim for tests + features/bootstrap.js that call it by name.
+    'window.verifyAuthInBackground',        // features/auth-bootstrap.js — backwards-compat shim for tests that call it by name.
+    'window.clearSwBootstrapCache',         // features/auth-bootstrap.js — backwards-compat shim; app.js's checkAuth orchestrator calls it during hard auth rejection.
+    'window.bootstrapURL',                  // features/auth-bootstrap.js — backwards-compat shim; checkAuth uses it via bare lookup.
+    'window.hydrateFeatureSettingsFromBundle', // features/auth-bootstrap.js — backwards-compat shim; checkAuth's no-bootstrap fallback path uses it.
+    'window.hydrateMedicationsFromDexie',   // features/auth-bootstrap.js — backwards-compat shim for tests that call it by name + checkAuth preflight.
+    'window.hydrateSectionsFromDexie',      // features/auth-bootstrap.js — backwards-compat shim for tests that call it by name + checkAuth preflight.
+    'window.cacheApiSnapshot',              // features/auth-bootstrap.js — backwards-compat shim consumed by cached-fetch.js (looks it up at call time) so the bootstrap-cache plumbing keeps working after the extraction.
+    'window.normalizeSettingsBundle',       // features/auth-bootstrap.js — backwards-compat shim consumed by tests (app.unit.test.js asserts shape) and loadSettings() in app.js.
+
+    // Push-modal coordination — extracted from app.js (Plan 2026-05-13, Task 4).
+    'window.PushModalState',                // features/push-modal.js — collapses the five module-level vars (pendingMedConfirmIds, pendingMedConfirmScheduled, pendingWorkoutSessionId, pendingMedConfirmMode, pendingMedConfirmIntakeIds) into closure-private fields behind openMedConfirm({ids, scheduled, mode, intakeIds}), openWorkoutStart({sessionId}), clear, and getters. Opening one modal clears the other so a stale snooze/skip click after switching cannot fire against the previous modal's data.
+
+    // Tab binding + activation — extracted from app.js (Plan 2026-05-13, Task 6).
+    'window.TabController',                 // features/tab-controller.js — namespace exposing activateTabGroup, bindTabGroup, and bindOnce. bindOnce collapses the three module-level *ControlsBound flags previously declared in app.js (medication / measurement / notification) into a single shared closure-private registry, so reentrant bind* calls stay idempotent.
+
+    // Medication scheduling utilities — extracted from app.js (Plan 2026-05-13, Task 5).
+    'window.MedicationUtils',               // features/medication-utils.js — namespace exposing parseMedicationSchedule, getNextScheduledDate, getMedicationScheduleText, getLastTakenTimeMs. Consumed by features/meds.js (row renderer + bucket sort) and app.js's _todayRender helper-hand-off so today.js can compute a fallback next-dose from bootstrap.medications.
+    'window.parseMedicationSchedule',       // features/medication-utils.js — backwards-compat shim; today.js helper fallback path (features/today.js:163) looks it up by name when the aggregator opts arg omits helpers.
+    'window.getNextScheduledDate',          // features/medication-utils.js — backwards-compat shim; today.js helper fallback path (features/today.js:165) looks it up by name when the aggregator opts arg omits helpers.
+    'window.getMedicationScheduleText',     // features/medication-utils.js — backwards-compat shim; not currently called by name elsewhere but preserved alongside its siblings so external consumers (push deeplink, future feature files) keep resolving.
+    'window.getLastTakenTimeMs',            // features/medication-utils.js — backwards-compat shim; not currently called by name elsewhere but preserved alongside its siblings.
 
     // Workout split (2026-05-13: features/workout.js → features/workout/*.js).
     // Each split file exposes a single public-API namespace on window; the

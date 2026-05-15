@@ -49,155 +49,13 @@ window.onDataStoreUnauthorized = function () {
     window.location.reload();
 };
 
-async function cacheApiSnapshot(key, value, tags = []) {
-    if (!window.DataStore) return;
-    if (tags.length > 0 && typeof window.DataStore.setCachedWithTags === 'function') {
-        // setCachedWithTags writes the authoritative value directly and
-        // bumps the key's generation so any older fetchFresh still in flight
-        // (which could have been issued before the server-side change that
-        // produced `value`) cannot overwrite this snapshot when it resolves.
-        await window.DataStore.setCachedWithTags(key, value, tags);
-    } else {
-        await window.DataStore.setCached(key, value);
-    }
-}
-
-function normalizeSettingsBundle(raw) {
-    const foodTargetsRaw = raw?.foodTargets || raw?.food_targets || raw?.settings?.food_targets || {};
-    const bpReminderRaw = raw?.bpReminderStatus || raw?.bp_reminder_status || raw?.settings?.bp_reminder_status || {};
-    const weightReminderRaw = raw?.weightReminderStatus || raw?.weight_reminder_status || raw?.settings?.weight_reminder_status || {};
-    const tabOrderRaw = raw?.tabOrder || raw?.tab_order || raw?.settings?.tab_order || null;
-    const weightUnitRaw = raw?.weightUnitPreference || raw?.weight_unit_preference || raw?.settings?.weight_unit_preference || 'kg';
-    const weightUnit = weightUnitRaw === 'lb' ? 'lb' : 'kg';
-
-    return {
-        featureSettings: raw?.featureSettings || raw?.features || {},
-        tabOrder: tabOrderRaw,
-        timezone: raw?.timezone || raw?.settings?.timezone || '',
-        serverTime: raw?.serverTime || raw?.server_time || raw?.settings?.server_time || '',
-        serverTimezone: raw?.serverTimezone || raw?.server_timezone || raw?.settings?.server_timezone || '',
-        dismissedTzSuggestion: raw?.dismissedTzSuggestion || raw?.dismissed_tz_suggestion || raw?.settings?.dismissed_tz_suggestion || '',
-        weightUnitPreference: weightUnit,
-        foodTargets: {
-            calories: Number(foodTargetsRaw.calories) || 0,
-            carbs: Number(foodTargetsRaw.carbs) || 0,
-            protein: Number(foodTargetsRaw.protein) || 0,
-            fat: Number(foodTargetsRaw.fat) || 0
-        },
-        bpReminderStatus: {
-            ...bpReminderRaw,
-            enabled: !!bpReminderRaw.enabled
-        },
-        weightReminderStatus: {
-            ...weightReminderRaw,
-            enabled: !!weightReminderRaw.enabled
-        }
-    };
-}
-
-let settingsTimeInfo = {
-    timezone: '',
-    serverTime: '',
-    serverTimezone: '',
-    serverOffsetMinutes: null,
-    serverBaseMs: null,
-    syncedAtMs: null
-};
-let settingsTimeInfoTimer = null;
-
-function formatSettingsDateTime(date, timeZone) {
-    const options = {
-        dateStyle: 'medium',
-        timeStyle: 'medium'
-    };
-    if (timeZone) options.timeZone = timeZone;
-    try {
-        return new Intl.DateTimeFormat(undefined, options).format(date);
-    } catch (_) {
-        return date.toLocaleString();
-    }
-}
-
-function parseRFC3339OffsetMinutes(value) {
-    if (!value || typeof value !== 'string') return null;
-    if (value.endsWith('Z')) return 0;
-    const match = value.match(/([+-])(\d{2}):(\d{2})$/);
-    if (!match) return null;
-    const sign = match[1] === '-' ? -1 : 1;
-    return sign * (Number(match[2]) * 60 + Number(match[3]));
-}
-
-function formatFixedOffsetDateTime(date, offsetMinutes) {
-    if (!(date instanceof Date) || Number.isNaN(date.getTime()) || typeof offsetMinutes !== 'number') {
-        return 'Unavailable';
-    }
-    const shifted = new Date(date.getTime() + offsetMinutes * 60 * 1000);
-    try {
-        return new Intl.DateTimeFormat(undefined, {
-            dateStyle: 'medium',
-            timeStyle: 'medium',
-            timeZone: 'UTC'
-        }).format(shifted);
-    } catch (_) {
-        return shifted.toISOString().replace('T', ' ').replace('Z', '');
-    }
-}
-
-function updateSettingsTimeInfoState(bundle) {
-    settingsTimeInfo.timezone = bundle?.timezone || '';
-    settingsTimeInfo.serverTimezone = bundle?.serverTimezone || '';
-    if (bundle?.serverTime) {
-        const parsed = Date.parse(bundle.serverTime);
-        settingsTimeInfo.serverTime = bundle.serverTime;
-        settingsTimeInfo.serverOffsetMinutes = parseRFC3339OffsetMinutes(bundle.serverTime);
-        if (!Number.isNaN(parsed)) {
-            settingsTimeInfo.serverBaseMs = parsed;
-            settingsTimeInfo.syncedAtMs = Date.now();
-        }
-    }
-}
-
-function getLiveServerTime() {
-    if (typeof settingsTimeInfo.serverBaseMs !== 'number' || typeof settingsTimeInfo.syncedAtMs !== 'number') {
-        return null;
-    }
-    return new Date(settingsTimeInfo.serverBaseMs + (Date.now() - settingsTimeInfo.syncedAtMs));
-}
-
-function renderSettingsTimeInfo(bundle) {
-    if (bundle) updateSettingsTimeInfoState(bundle);
-
-    const timezoneValue = document.getElementById('settings-timezone-value');
-    const savedTimeValue = document.getElementById('settings-saved-time-value');
-    const localTimeValue = document.getElementById('settings-local-time-value');
-    const serverTimeValue = document.getElementById('settings-server-time-value');
-    const timezoneNote = document.getElementById('settings-timezone-note');
-    if (!timezoneValue || !savedTimeValue || !localTimeValue || !serverTimeValue || !timezoneNote) return;
-
-    timezoneValue.textContent = settingsTimeInfo.timezone || 'Not set';
-    savedTimeValue.textContent = settingsTimeInfo.timezone
-        ? formatSettingsDateTime(new Date(), settingsTimeInfo.timezone)
-        : 'Unavailable until a timezone is saved';
-    localTimeValue.textContent = formatSettingsDateTime(new Date());
-
-    const serverNow = getLiveServerTime();
-    serverTimeValue.textContent = serverNow
-        ? `${formatFixedOffsetDateTime(serverNow, settingsTimeInfo.serverOffsetMinutes)}${settingsTimeInfo.serverTimezone ? ` • ${settingsTimeInfo.serverTimezone}` : ''}`
-        : 'Unavailable';
-
-    timezoneNote.textContent = settingsTimeInfo.timezone
-        ? 'Saved timezone affects all reminders and medication schedules. Changing timezone may trigger a transition plan for gradual dose adjustment.'
-        : 'No saved timezone yet. If the browser-detected timezone looks wrong, it will be visible here after the next confirmation.';
-}
-
-function ensureSettingsTimeInfoTimer() {
-    if (settingsTimeInfoTimer) return;
-    settingsTimeInfoTimer = window.setInterval(() => {
-        renderSettingsTimeInfo();
-    }, 1000);
-}
-
-window.renderSettingsTimeInfo = renderSettingsTimeInfo;
+// cacheApiSnapshot, normalizeSettingsBundle, applyBootstrapPayload,
+// verifyAuthInBackground, clearSwBootstrapCache, bootstrapURL,
+// hydrateFeatureSettingsFromBundle, hydrateMedicationsFromDexie, and
+// hydrateSectionsFromDexie live in features/auth-bootstrap.js (Plan
+// 2026-05-13-split-app-js.md, Task 3). They remain reachable as the
+// original window.X globals through the backwards-compat shims at the
+// bottom of that file.
 
 const TAB_ORDER_STORAGE_KEY = 'medtracker_tab_order';
 
@@ -228,351 +86,14 @@ function clearPersistedTabOrder() {
     } catch (_) { /* localStorage unavailable — best-effort */ }
 }
 
-// Apply bootstrap payload and warm caches so first tab render can use local data.
-// Idempotent: safe to call multiple times (e.g. once from SW cache, once from
-// fresh network response via BOOTSTRAP_UPDATED). Every field is a full replacement.
-async function applyBootstrapPayload(res) {
-    if (!res) return false;
-
-    if (typeof res.cursor === 'number') {
-        window.DataStore.setChangeCursor(res.cursor);
-    }
-
-    if (res.features) {
-        featureSettings = { ...featureSettings, ...res.features };
-        featureSettingsLoaded = true;
-        window.featureSettings = featureSettings;
-        window.featureSettingsLoaded = true;
-        window.AppStore && window.AppStore.set('featureSettings', featureSettings);
-        updateFeatureTabVisibility();
-        // When fresh features arrive after the canonical nav is already mounted
-        // (e.g. SW BOOTSTRAP_UPDATED from another device's toggle), rebuild so
-        // the nav filters disabled slots rather than bouncing on tap.
-        // Skipped during initial boot — the nav hasn't mounted yet there.
-        if (document.querySelector('.wg-bottom-nav') && typeof window.rebuildCanonicalBottomNav === 'function') {
-            window.rebuildCanonicalBottomNav();
-        }
-    }
-
-    if (res.settings) {
-        let order = res.settings.tab_order;
-        if (typeof order === 'string') {
-            try {
-                order = JSON.parse(order);
-            } catch (e) {
-                console.error("Failed to parse tab_order", e);
-                order = null;
-            }
-        }
-        if (Array.isArray(order)) {
-            persistTabOrder(order);
-        } else if ('tab_order' in res.settings) {
-            // Server returned settings with tab_order explicitly null/missing —
-            // clear any stale localStorage fallback so a previous user's saved
-            // order on this browser can't leak into the current session and a
-            // server-side reset can actually restore the default layout.
-            clearPersistedTabOrder();
-        }
-    }
-
-    if (Array.isArray(res.medications)) {
-        medications = res.medications;
-        initialAuthLoad = true;
-        if (window.MedTrackerDB?.MedicationStore) {
-            await window.MedTrackerDB.MedicationStore.saveCache(medications);
-        }
-        await cacheApiSnapshot('medications', medications, ['medications']);
-    }
-
-    if (Array.isArray(res.history_default)) {
-        await cacheApiSnapshot('history_3_0', res.history_default, ['history']);
-        if (window.MedTrackerDB?.IntakeHistoryStore) {
-            await window.MedTrackerDB.IntakeHistoryStore.saveCache('history_3_0', res.history_default);
-        }
-    }
-
-    if (res.next_intake) {
-        await cacheApiSnapshot('next_intake', res.next_intake, ['history', 'medications']);
-    } else if ('next_intake' in res && window.DataStore) {
-        // Key present with falsy value = backend confirmed no upcoming dose;
-        // clear any stale cache so Today doesn't keep showing the last reminder
-        // after the final pending dose is taken or the schedule is removed.
-        // Key absent = backend's compute step errored; preserve cache instead
-        // of wiping it on a transient subquery failure.
-        await window.DataStore.clearCached('next_intake');
-    }
-
-    if (res.bp) {
-        await cacheApiSnapshot('bp', {
-            readingsRes: res.bp.readings || [],
-            goalRes: res.bp.goal || {},
-            statsRes: res.bp.stats || {}
-        }, ['bp']);
-    }
-
-    if (res.weight) {
-        await cacheApiSnapshot('weight', {
-            logsRes: res.weight.logs || [],
-            goalRes: res.weight.goal || {}
-        }, ['weight']);
-    }
-
-    // Today's food log groups, scoped to the date the server computed in the
-    // user's timezone. Mirroring BP/weight here is what makes the bootstrap-
-    // advances-cursor-without-food race fixable: any external write that lands
-    // before the next change-poll is now reflected in the cache as soon as
-    // bootstrap returns, instead of being stranded behind the cursor.
-    if (res.food && typeof res.food.date === 'string' && res.food.date.length > 0) {
-        const groups = Array.isArray(res.food.groups) ? res.food.groups : [];
-        await cacheApiSnapshot(`food_${res.food.date}_day`, { groups }, ['food']);
-    }
-
-    const settingsBundle = normalizeSettingsBundle({
-        features: res.features || {},
-        settings: res.settings || {},
-        food_targets: res.settings?.food_targets,
-        bp_reminder_status: res.settings?.bp_reminder_status,
-        weight_reminder_status: res.settings?.weight_reminder_status
-    });
-    // Reconcile the bundle's unit before caching: if this payload is a stale
-    // SW BOOTSTRAP_UPDATED (server fetch pre-dates a successful local PATCH),
-    // overwrite its unit with the locally-committed truth so loadSettings can't
-    // later read the stale value back from the cache.
-    const effectiveBootstrapUnit = commitAuthoritativeWeightUnit(settingsBundle.weightUnitPreference);
-    if (effectiveBootstrapUnit) {
-        settingsBundle.weightUnitPreference = effectiveBootstrapUnit;
-        applyWeightUnitSegmentedState(effectiveBootstrapUnit);
-    }
-    await cacheApiSnapshot('settings_bundle', settingsBundle, ['settings', 'food_targets', 'feature_settings']);
-
-    return true;
-}
-
 // Load init data (feature settings) needed before first render.
 // Falls back gracefully so auth flow is not blocked on failure.
 // apiCall() already catches errors and returns null – no try/catch needed here.
 async function loadInitData() {
     const res = await apiCall('/api/init', 'GET');
     if (res && res.features) {
-        featureSettings = { ...featureSettings, ...res.features };
-        featureSettingsLoaded = true;
-        window.featureSettings = featureSettings;
-        window.featureSettingsLoaded = true;
-        window.AppStore && window.AppStore.set('featureSettings', featureSettings);
+        window.SettingsState.applyBootstrapFeatures(res.features);
         updateFeatureTabVisibility();
-    }
-}
-
-// Background auth verification for non-blocking cached-auth path.
-// Fires /auth/status without blocking the UI. If the session has expired,
-// clears auth state and reloads so the user sees the login screen.
-function verifyAuthInBackground() {
-    fetch('/auth/status', { method: 'GET', credentials: 'same-origin' })
-        .then(res => {
-            if (res.status === 200) {
-                return res.json().then(data => {
-                    if (!data.authenticated) {
-                        console.log('[Auth] Background check: session expired');
-                        clearAuthState();
-                        clearSwBootstrapCache().then(() => location.reload());
-                    }
-                });
-            } else if (res.status < 500) {
-                // 4xx (not server error) means auth is invalid
-                console.log('[Auth] Background check: auth invalid', res.status);
-                clearAuthState();
-                clearSwBootstrapCache().then(() => location.reload());
-            }
-            // 5xx — server is down, keep using cached auth silently
-        })
-        .catch(() => {
-            // Network error — server unreachable, keep using cached auth
-        });
-}
-
-// Clear the SW dynamic cache bootstrap entry so stale user data
-// is not served after logout or session expiry.
-function clearSwBootstrapCache() {
-    return caches.keys().then(names => {
-        const dynamicName = names.find(n => n.startsWith('medtracker-dynamic-'));
-        if (!dynamicName) return;
-        // ignoreSearch covers the tz query param now appended to /api/bootstrap.
-        return caches.open(dynamicName).then(cache =>
-            cache.delete(new Request('/api/bootstrap'), { ignoreSearch: true })
-        );
-    }).catch(() => { /* best-effort */ });
-}
-
-// Build the /api/bootstrap URL with the client's timezone hint. The handler
-// uses this to scope today's food log groups it bundles into the response —
-// keeping the cache key the server writes (`food_<date>_day`) aligned with
-// the one loadToday() reads via todayFoodKey(new Date()).
-function bootstrapURL() {
-    const tzName = (typeof Intl !== 'undefined' && Intl.DateTimeFormat
-        && Intl.DateTimeFormat().resolvedOptions().timeZone) || '';
-    if (tzName) return `/api/bootstrap?tz=${encodeURIComponent(tzName)}`;
-    const tzOffset = new Date().getTimezoneOffset();
-    return `/api/bootstrap?tz_offset=${tzOffset}`;
-}
-
-// Hydrate in-memory feature settings from a cached settings_bundle so deep-link
-// and start_param guards (isDeepLinkFeatureEnabled) see the user's real flags
-// on cache-only boot paths, not the default-on fallback. Also restores the
-// saved weight unit so Today/Weight render in the user's preferred unit
-// without waiting for a fresh bootstrap.
-function hydrateFeatureSettingsFromBundle(bundle) {
-    if (!bundle || typeof bundle !== 'object') return;
-    const cachedUnit = bundle.weightUnitPreference === 'lb' ? 'lb' : (bundle.weightUnitPreference === 'kg' ? 'kg' : null);
-    if (cachedUnit) {
-        const effective = commitAuthoritativeWeightUnit(cachedUnit);
-        if (effective) applyWeightUnitSegmentedState(effective);
-    }
-    const cachedFeatures = bundle.featureSettings;
-    if (!cachedFeatures || typeof cachedFeatures !== 'object') return;
-    featureSettings = { ...featureSettings, ...cachedFeatures };
-    featureSettingsLoaded = true;
-    window.featureSettings = featureSettings;
-    window.featureSettingsLoaded = true;
-    if (window.AppStore) window.AppStore.set('featureSettings', featureSettings);
-}
-
-// Cold-start preflight: seed DataStore with the previous session's
-// medications list from Dexie so any view that mounts before /api/bootstrap
-// resolves (offline relaunch, slow first response) renders planned doses
-// immediately. Gated on auth presence — Telegram initData OR a cached auth
-// state from a prior session — so a fully unauthenticated cold start does
-// not surface a former user's meds.
-async function hydrateMedicationsFromDexie() {
-    if (!window.DataStore?.hydrateFromDexie) return;
-    if (!window.MedTrackerDB?.MedicationStore?.loadCache) return;
-    const hasAuthPresence = !!userInitData
-        || (typeof getCachedAuthState === 'function' && !!getCachedAuthState());
-    if (!hasAuthPresence) return;
-    try {
-        const result = await window.DataStore.hydrateFromDexie(
-            'medications',
-            () => window.MedTrackerDB.MedicationStore.loadCache(),
-            { tags: ['medications'] }
-        );
-        if (result?.hydrated) {
-            // Keep the let-scoped `medications` mirror in sync so feature
-            // modules that read it directly (rather than via DataStore)
-            // see the seeded list before bootstrap returns.
-            const seeded = await window.DataStore.getCached('medications');
-            if (Array.isArray(seeded)) {
-                medications = seeded;
-                initialAuthLoad = true;
-            }
-        }
-    } catch (e) {
-        // Hydration must not block the auth flow, but swallowing silently leaves
-        // a diagnostic blind spot when IndexedDB itself is in a broken state
-        // (quota, schema mismatch, private-mode block). Log once and continue.
-        console.warn('[Hydrate] Dexie medications hydration failed', e);
-    }
-}
-
-// Cold-start preflight for section-level api_cache keys (BP, Weight, Workouts,
-// Health, Food, Settings). Runs alongside hydrateMedicationsFromDexie so any
-// section that mounts before /api/bootstrap resolves can render its last-known
-// data immediately. Each entry hydrates DataStore.api_cache from the matching
-// ApiCache row in Dexie via DataStore.hydrateFromDexie. Hydration is a no-op
-// when Dexie is empty for the key, so safely covers first-run users too. Gated
-// on auth presence to avoid surfacing a former user's cache on a logged-out
-// cold start.
-async function hydrateSectionsFromDexie() {
-    if (!window.DataStore?.hydrateFromDexie) return;
-    const apiCache = window.MedTrackerDB?.ApiCache;
-    if (!apiCache || typeof apiCache.getWithMeta !== 'function') return;
-    const hasAuthPresence = !!userInitData
-        || (typeof getCachedAuthState === 'function' && !!getCachedAuthState());
-    if (!hasAuthPresence) return;
-    // Each entry: { key, tags }. The Dexie loader is the same shape for every
-    // entry — read the {data, timestamp} record by key from ApiCache. Tags
-    // mirror what cacheApiSnapshot writes during the bootstrap apply path so
-    // a later invalidateByTag evicts the hydrated row alongside fresh ones.
-    const healthOverviewKey = healthOverviewCacheKey();
-    const todayFoodCacheKey = typeof todayFoodKey === 'function'
-        ? todayFoodKey(new Date())
-        : null;
-    const entries = [
-        { key: 'bp', tags: ['bp'] },
-        { key: 'weight', tags: ['weight'] },
-        // Workout subtab caches — match the keys + tags features/workout.js
-        // writes via loadSWR. workout_next also feeds Today's next-workout
-        // tile so a cold-start offline relaunch paints it synchronously.
-        { key: 'workout_next', tags: ['workout'] },
-        { key: 'workout_history', tags: ['workout'] },
-        { key: 'workout_groups', tags: ['workout'] },
-        { key: 'workout_stats', tags: ['workout'] },
-        { key: 'exercise_library', tags: ['exercise_library'] },
-        // Vitals/Health Overview — TZ-qualified key (e.g. health_overview_Europe/Berlin).
-        // The TZ fallback below handles the case where the current TZ has no
-        // cached row but an older TZ does (user changed timezone offline).
-        { key: healthOverviewKey, tags: ['health'] },
-        // Diary notes — the actual cache key features/health.js writes via
-        // loadSWR is 'diary_notes' (not 'health_notes'). Two tags so either a
-        // notes mutation OR a health-wide invalidation evicts the row.
-        { key: 'diary_notes', tags: ['notes', 'health-notes'] },
-        // Settings bundle — the canonical key written by applyBootstrapPayload
-        // (cacheApiSnapshot 'settings_bundle') and read by loadSettings()'
-        // loadSWR. Hydrating it lets the Settings screen's onCached callback
-        // paint toggles, food targets, reminder status, and weight-unit
-        // segmented state synchronously on cold-start offline relaunch instead
-        // of leaving the screen blank. The production Settings UI is owned
-        // by loadSettings() in this file, keyed on 'settings_bundle'.
-        { key: 'settings_bundle', tags: ['settings', 'food_targets', 'feature_settings'] }
-    ];
-    // Today's food daily-log — already read directly from ApiCache.getWithMeta
-    // by _todayReadCaches() for the Today render, so the dashboard tile already
-    // surfaces cached data on cold start. Hydration additionally seeds
-    // DataStore's in-memory cache + tag index so any caller using
-    // DataStore.getCached(`food_<today>_day`) resolves synchronously — and
-    // cachedFetch's offline branch (loadFoodLogs in features/food.js) sees a
-    // pre-warmed entry instead of triggering OfflineNoCacheError on the very
-    // first paint after a cold-start-offline relaunch.
-    if (todayFoodCacheKey) {
-        entries.push({ key: todayFoodCacheKey, tags: ['food'] });
-    }
-    await Promise.all(entries.map(async ({ key, tags }) => {
-        try {
-            await window.DataStore.hydrateFromDexie(
-                key,
-                () => apiCache.getWithMeta(key),
-                { tags }
-            );
-        } catch (e) {
-            console.warn('[Hydrate] Dexie section hydration failed', key, e);
-        }
-    }));
-
-    // TZ-mismatch fallback for Vitals/Health Overview. If the current TZ key
-    // has no cached row (user changed timezone since the last sync, or the
-    // device clock jumped to a TZ without prior data), look up the most
-    // recently written health_overview_* entry and seed the current TZ key
-    // with that data. The original (older) timestamp is preserved so the
-    // stale chip surfaces the real age rather than "Updated just now".
-    // Skip `health_overview_offset_<n>` rows when the current key is a real
-    // IANA TZ key: an offset-keyed row is a geography-less fallback written
-    // when Intl.DateTimeFormat returned no zone, and using it to seed an
-    // IANA-keyed row would mislabel a numeric-offset bucket as that zone.
-    try {
-        const currentSeed = await window.DataStore.getCached(healthOverviewKey);
-        if (currentSeed === null
-            && typeof apiCache.findMostRecentByPrefix === 'function') {
-            const currentIsOffsetKey = healthOverviewKey.startsWith('health_overview_offset_');
-            const fallback = await apiCache.findMostRecentByPrefix('health_overview_', {
-                exclude: (key) => !currentIsOffsetKey && key.startsWith('health_overview_offset_')
-            });
-            if (fallback && fallback.data) {
-                await apiCache.setWithMeta(healthOverviewKey, fallback.data, fallback.timestamp);
-                if (typeof window.DataStore.registerTags === 'function') {
-                    window.DataStore.registerTags(healthOverviewKey, ['health']);
-                }
-            }
-        }
-    } catch (e) {
-        console.warn('[Hydrate] health_overview TZ fallback failed', e);
     }
 }
 
@@ -597,7 +118,7 @@ async function checkAuth() {
             // cached settings_bundle so the start_param BP/weight deep-link
             // guard sees real flags instead of defaulting to ON and bypassing
             // the user's disabled-feature preference when the backend is down.
-            if (!featureSettingsLoaded && window.DataStore) {
+            if (!window.SettingsState.isLoaded() && window.DataStore) {
                 try {
                     const cachedBundle = await window.DataStore.getCached('settings_bundle');
                     if (cachedBundle) {
@@ -1042,7 +563,7 @@ document.getElementById('save-food-targets-btn').addEventListener('click', async
         if (!btn || !root.contains(btn)) return;
         const unit = btn.getAttribute('data-unit');
         if (unit !== 'kg' && unit !== 'lb') return;
-        await setWeightUnitPreference(unit);
+        await window.WeightUnitState.setPreference(unit);
     });
 })();
 
@@ -1097,21 +618,12 @@ var editingMedId = null;
 // and accessed via window.FoodLog.targets (the legacy window.foodTargets
 // alias is still defined for back-compat readers but new code should use
 // the namespaced accessor).
-let featureSettings = {
-    food: false,
-    bp: true,
-    weight: true,
-    medication: true,
-    workout: true,
-    health: true
-};
-let featureSettingsLoaded = false;
-// Expose via AppStore so feature modules can read without tight coupling.
-// Also mirror onto window so early consumers (e.g. deeplink-router's
-// start_param branch) can observe the loaded state without depending on AppStore.
-window.featureSettings = featureSettings;
-window.featureSettingsLoaded = featureSettingsLoaded;
-window.AppStore && window.AppStore.set('featureSettings', featureSettings);
+// featureSettings + featureSettingsLoaded live in features/auth-bootstrap.js
+// behind window.SettingsState (Plan 2026-05-13-split-app-js.md, Task 3).
+// The reducer owns the previously-racy three-writer cluster (bootstrap,
+// /api/init, Dexie hydration) and mirrors to window.featureSettings,
+// window.featureSettingsLoaded, and AppStore on every transition. Readers
+// here go through window.featureSettings; writers through SettingsState.
 
 // Default weight-unit preference. Hydrated from /api/bootstrap into a window
 // property so weight.js can seed the modal toggle synchronously on open.
@@ -1135,44 +647,11 @@ var formatDate = (dateStr) => {
 };
 
 // UI Functions
-function activateTabGroup(tab, options) {
-    const { buttonSelector, contentSelector, contentIdFromTab, ariaCurrent } = options;
-    // Validate target exists BEFORE clearing active state to avoid blank-page on unknown tabs.
-    // tabButton is optional: the top-level view group has no button strip after the
-    // Wandergeek bottom-nav rework (buttonSelector is omitted), so the button-side
-    // toggle is a no-op when missing.
-    const tabButton = buttonSelector ? document.querySelector(`${buttonSelector}[data-tab="${tab}"]`) : null;
-    const tabContent = document.getElementById(contentIdFromTab(tab));
-    if (!tabContent) return false;
-
-    if (buttonSelector) {
-        document.querySelectorAll(buttonSelector).forEach((el) => {
-            el.classList.remove('active');
-            if (ariaCurrent) el.removeAttribute('aria-current');
-        });
-    }
-    document.querySelectorAll(contentSelector).forEach((el) => el.classList.remove('active'));
-    if (tabButton) {
-        tabButton.classList.add('active');
-        if (ariaCurrent) tabButton.setAttribute('aria-current', ariaCurrent);
-    }
-    tabContent.classList.add('active');
-    return true;
-}
-
-function bindTabGroup(options) {
-    const { container, buttonSelector, onTabSelect } = options;
-    if (!container || container.dataset.tabBound === '1') return;
-    container.dataset.tabBound = '1';
-
-    container.addEventListener('click', (event) => {
-        const button = event.target.closest(buttonSelector);
-        if (!button || !container.contains(button)) return;
-        const tab = button.dataset.tab;
-        if (!tab) return;
-        onTabSelect(tab);
-    });
-}
+// activateTabGroup + bindTabGroup live in features/tab-controller.js
+// (Plan 2026-05-13, Task 6). Local aliases keep this file's call sites
+// short; both helpers are also reachable as window.TabController.*.
+const activateTabGroup = (tab, options) => window.TabController.activateTabGroup(tab, options);
+const bindTabGroup = (options) => window.TabController.bindTabGroup(options);
 
 function switchTab(tab) {
     const tabToFeature = {
@@ -1184,7 +663,7 @@ function switchTab(tab) {
         workouts: 'workout'
     };
     const feature = tabToFeature[tab];
-    if (feature && featureSettingsLoaded && !featureSettings[feature]) {
+    if (feature && window.featureSettingsLoaded && !window.featureSettings[feature]) {
         switchTab('today');
         return;
     }
@@ -1435,7 +914,7 @@ async function fetchSettingsBundle() {
 }
 
 async function _todayReadCaches(foodKey) {
-    const bootstrap = { features: featureSettings || {} };
+    const bootstrap = { features: window.featureSettings || {} };
     const swrCaches = {};
     let cardOrder = null;
     // Tracks the *most recent* write among all caches we read. The offline-stale
@@ -1484,8 +963,7 @@ async function _todayReadCaches(foodKey) {
                 const cachedUnit = bundleM.data.weightUnitPreference;
                 if (cachedUnit === 'kg' || cachedUnit === 'lb') {
                     if (window.weightUnitPreference !== cachedUnit) {
-                        const effective = commitAuthoritativeWeightUnit(cachedUnit);
-                        if (effective) applyWeightUnitSegmentedState(effective);
+                        window.WeightUnitState.applyAuthoritative(cachedUnit);
                     }
                 }
             }
@@ -1565,8 +1043,7 @@ async function _todayReadCaches(foodKey) {
                 const cachedUnit = bundle.weightUnitPreference;
                 if (cachedUnit === 'kg' || cachedUnit === 'lb') {
                     if (window.weightUnitPreference !== cachedUnit) {
-                        const effective = commitAuthoritativeWeightUnit(cachedUnit);
-                        if (effective) applyWeightUnitSegmentedState(effective);
+                        window.WeightUnitState.applyAuthoritative(cachedUnit);
                     }
                 }
             }
@@ -1625,12 +1102,12 @@ async function _todayRender(foodKey) {
     const nowMs = Date.now();
     // Hand the schedule helpers to the aggregator so the meds tile can compute
     // its own fallback next-dose from bootstrap.medications when next_intake is
-    // missing or stale (e.g. relaunch-while-offline). Helpers live on app.js as
-    // top-level functions so they're already on window — pass explicitly to
-    // keep today.js side-effect-free for tests.
+    // missing or stale (e.g. relaunch-while-offline). Helpers live on
+    // features/medication-utils.js as window.MedicationUtils.* — pass explicitly
+    // to keep today.js side-effect-free for tests.
     const state = window.TodayDashboard.aggregateToday(bootstrap, swrCaches, nowMs, {
-        getNextScheduledDate: window.getNextScheduledDate,
-        parseMedicationSchedule: window.parseMedicationSchedule
+        getNextScheduledDate: window.MedicationUtils.getNextScheduledDate,
+        parseMedicationSchedule: window.MedicationUtils.parseMedicationSchedule
     });
     if (latestCacheTimestamp === null) {
         // No cached entry of any kind means bootstrap has never loaded on this
@@ -1719,8 +1196,8 @@ async function loadToday() {
             if (renderFeatures && Object.prototype.hasOwnProperty.call(renderFeatures, feature)) {
                 return !renderFeatures[feature];
             }
-            if (featureSettingsLoaded) {
-                return !featureSettings[feature];
+            if (window.featureSettingsLoaded) {
+                return !window.featureSettings[feature];
             }
             return false;
         };
@@ -1795,48 +1272,51 @@ bindTabGroup({
     onTabSelect: switchHealthTab
 });
 
-let medicationControlsBound = false;
+// The three bind* helpers below previously each carried their own
+// module-level `*ControlsBound = false` flag. They now share a single
+// TabController.bindOnce(scope, fn) registry (Plan 2026-05-13, Task 6),
+// so adding a fourth bind-once scope is free and the flags can't drift
+// apart.
 
 function bindMedicationControls() {
-    if (medicationControlsBound) return;
-    medicationControlsBound = true;
+    window.TabController.bindOnce('medicationControls', () => {
+        const bindClick = (id, handler) => {
+            const element = document.getElementById(id);
+            if (element) element.addEventListener('click', handler);
+        };
 
-    const bindClick = (id, handler) => {
-        const element = document.getElementById(id);
-        if (element) element.addEventListener('click', handler);
-    };
+        const bindChange = (id, handler) => {
+            const element = document.getElementById(id);
+            if (element) element.addEventListener('change', handler);
+        };
 
-    const bindChange = (id, handler) => {
-        const element = document.getElementById(id);
-        if (element) element.addEventListener('change', handler);
-    };
+        bindChange('history-filter-med', () => loadHistory());
+        bindChange('history-filter-days', () => loadHistory());
 
-    bindChange('history-filter-med', () => loadHistory());
-    bindChange('history-filter-days', () => loadHistory());
+        bindClick('add-btn', () => showAddModal());
+        bindClick('med-modal-cancel-btn', () => closeModal());
+        bindClick('med-modal-save-btn', () => saveMedication());
 
-    bindClick('add-btn', () => showAddModal());
-    bindClick('med-modal-cancel-btn', () => closeModal());
-    bindClick('med-modal-save-btn', () => saveMedication());
-
-    bindChange('schedule-type', () => toggleScheduleFields());
-    document.querySelectorAll('.wg-meds-modal__pill').forEach((pill) => {
-        pill.addEventListener('click', () => {
-            const type = pill.dataset.scheduleType;
-            if (type) setScheduleType(type);
+        bindChange('schedule-type', () => toggleScheduleFields());
+        document.querySelectorAll('.wg-meds-modal__pill').forEach((pill) => {
+            pill.addEventListener('click', () => {
+                const type = pill.dataset.scheduleType;
+                if (type) setScheduleType(type);
+            });
         });
-    });
-    document.querySelectorAll('#days-container .days-select span').forEach((day) => {
-        day.addEventListener('click', () => toggleDay(day));
-    });
+        document.querySelectorAll('#days-container .days-select span').forEach((day) => {
+            day.addEventListener('click', () => toggleDay(day));
+        });
 
-    bindClick('initial-remove-time-btn', () => {
-        const button = document.getElementById('initial-remove-time-btn');
-        if (button) removeTime(button);
-    });
-    bindClick('add-time-btn', () => addTimeInput());
+        bindClick('initial-remove-time-btn', () => {
+            const button = document.getElementById('initial-remove-time-btn');
+            if (button) removeTime(button);
+        });
+        bindClick('add-time-btn', () => addTimeInput());
 
-    bindChange('med-track-inventory', () => toggleInventoryFields());
-    bindClick('restock-add-btn', () => handleRestock());
+        bindChange('med-track-inventory', () => toggleInventoryFields());
+        bindClick('restock-add-btn', () => handleRestock());
+    });
 }
 
 if (document.readyState === 'loading') {
@@ -1844,36 +1324,33 @@ if (document.readyState === 'loading') {
 }
 bindMedicationControls();
 
-let measurementControlsBound = false;
-
 function bindMeasurementControls() {
-    if (measurementControlsBound) return;
-    measurementControlsBound = true;
+    window.TabController.bindOnce('measurementControls', () => {
+        const bindClick = (id, handler) => {
+            const element = document.getElementById(id);
+            if (element) element.addEventListener('click', handler);
+        };
 
-    const bindClick = (id, handler) => {
-        const element = document.getElementById(id);
-        if (element) element.addEventListener('click', handler);
-    };
+        // #add-bp-btn lives inside the dynamically-rendered #bp-range-selector
+        // row (Phase 5, Task 5); its click handler is bound in renderRangeSelector.
+        bindClick('bp-modal-cancel-btn', () => closeBPRecordModal());
+        bindClick('add-weight-btn', () => showWeightModal());
+        bindClick('weight-modal-cancel-btn', () => closeWeightModal());
 
-    // #add-bp-btn lives inside the dynamically-rendered #bp-range-selector
-    // row (Phase 5, Task 5); its click handler is bound in renderRangeSelector.
-    bindClick('bp-modal-cancel-btn', () => closeBPRecordModal());
-    bindClick('add-weight-btn', () => showWeightModal());
-    bindClick('weight-modal-cancel-btn', () => closeWeightModal());
+        const bpForm = document.getElementById('bp-form');
+        if (bpForm) {
+            bpForm.addEventListener('submit', (event) => {
+                handleBPSubmit(event);
+            });
+        }
 
-    const bpForm = document.getElementById('bp-form');
-    if (bpForm) {
-        bpForm.addEventListener('submit', (event) => {
-            handleBPSubmit(event);
-        });
-    }
-
-    const weightForm = document.getElementById('weight-form');
-    if (weightForm) {
-        weightForm.addEventListener('submit', (event) => {
-            handleWeightSubmit(event);
-        });
-    }
+        const weightForm = document.getElementById('weight-form');
+        if (weightForm) {
+            weightForm.addEventListener('submit', (event) => {
+                handleWeightSubmit(event);
+            });
+        }
+    });
 }
 
 if (document.readyState === 'loading') {
@@ -1881,30 +1358,27 @@ if (document.readyState === 'loading') {
 }
 bindMeasurementControls();
 
-let notificationControlsBound = false;
-
 function bindNotificationControls() {
-    if (notificationControlsBound) return;
-    notificationControlsBound = true;
+    window.TabController.bindOnce('notificationControls', () => {
+        const bindClick = (id, handler) => {
+            const element = document.getElementById(id);
+            if (element) element.addEventListener('click', handler);
+        };
 
-    const bindClick = (id, handler) => {
-        const element = document.getElementById(id);
-        if (element) element.addEventListener('click', handler);
-    };
+        bindClick('test-med-notification-btn', () => sendTestMedicationNotification());
+        bindClick('test-bp-notification-btn', () => sendTestBPNotification());
 
-    bindClick('test-med-notification-btn', () => sendTestMedicationNotification());
-    bindClick('test-bp-notification-btn', () => sendTestBPNotification());
+        bindClick('med-confirm-dismiss-btn', () => closeMedicationConfirmModal());
+        bindClick('med-confirm-action-btn', () => confirmSelectedMedications());
+        bindClick('med-confirm-snooze-btn', () => snoozeMedicationConfirm());
+        bindClick('med-confirm-skip-btn', () => skipSelectedMedications());
 
-    bindClick('med-confirm-dismiss-btn', () => closeMedicationConfirmModal());
-    bindClick('med-confirm-action-btn', () => confirmSelectedMedications());
-    bindClick('med-confirm-snooze-btn', () => snoozeMedicationConfirm());
-    bindClick('med-confirm-skip-btn', () => skipSelectedMedications());
-
-    bindClick('workout-start-now-btn', () => startWorkoutFromModal());
-    bindClick('workout-start-snooze-60-btn', () => snoozeWorkout(60));
-    bindClick('workout-start-snooze-120-btn', () => snoozeWorkout(120));
-    bindClick('workout-start-skip-btn', () => skipWorkout());
-    bindClick('workout-start-dismiss-btn', () => closeWorkoutStartModal());
+        bindClick('workout-start-now-btn', () => startWorkoutFromModal());
+        bindClick('workout-start-snooze-60-btn', () => snoozeWorkout(60));
+        bindClick('workout-start-snooze-120-btn', () => snoozeWorkout(120));
+        bindClick('workout-start-skip-btn', () => skipWorkout());
+        bindClick('workout-start-dismiss-btn', () => closeWorkoutStartModal());
+    });
 }
 
 if (document.readyState === 'loading') {
@@ -1940,14 +1414,9 @@ bindTabGroup({
 // Load settings (BP reminders status, etc.)
 async function loadSettings() {
     const applyBundle = async (rawBundle) => {
-        const bundle = normalizeSettingsBundle(rawBundle);
-        featureSettings = { ...featureSettings, ...bundle.featureSettings };
-        featureSettingsLoaded = true;
-        window.featureSettings = featureSettings;
-        window.featureSettingsLoaded = true;
-        window.AppStore && window.AppStore.set('featureSettings', featureSettings);
-        const effectiveBundleUnit = commitAuthoritativeWeightUnit(bundle.weightUnitPreference);
-        if (effectiveBundleUnit) applyWeightUnitSegmentedState(effectiveBundleUnit);
+        const bundle = window.AuthBootstrap.normalizeSettingsBundle(rawBundle);
+        window.SettingsState.applyBootstrapFeatures(bundle.featureSettings);
+        window.WeightUnitState.applyAuthoritative(bundle.weightUnitPreference);
         updateFeatureToggles();
         updateFeatureTabVisibility();
 
@@ -1964,8 +1433,8 @@ async function loadSettings() {
 
         document.getElementById('bp-reminders-toggle').checked = !!bundle.bpReminderStatus.enabled;
         document.getElementById('weight-reminders-toggle').checked = !!bundle.weightReminderStatus.enabled;
-        renderSettingsTimeInfo(bundle);
-        ensureSettingsTimeInfoTimer();
+        window.TimeFormat.render(bundle);
+        window.TimeFormat.ensureTimer();
     };
 
     const fetchBundle = async () => {
@@ -2091,195 +1560,26 @@ async function renderSettingsStaleBadge() {
 }
 
 function updateFeatureToggles() {
-    document.getElementById('food-intake-toggle').checked = !!featureSettings.food;
-    document.getElementById('bp-feature-toggle').checked = !!featureSettings.bp;
-    document.getElementById('weight-feature-toggle').checked = !!featureSettings.weight;
-    document.getElementById('health-feature-toggle').checked = !!featureSettings.health;
-    document.getElementById('medication-feature-toggle').checked = !!featureSettings.medication;
-    document.getElementById('workout-feature-toggle').checked = !!featureSettings.workout;
+    const flags = window.featureSettings || {};
+    document.getElementById('food-intake-toggle').checked = !!flags.food;
+    document.getElementById('bp-feature-toggle').checked = !!flags.bp;
+    document.getElementById('weight-feature-toggle').checked = !!flags.weight;
+    document.getElementById('health-feature-toggle').checked = !!flags.health;
+    document.getElementById('medication-feature-toggle').checked = !!flags.medication;
+    document.getElementById('workout-feature-toggle').checked = !!flags.workout;
 }
 
-function applyWeightUnitSegmentedState(unit) {
-    const root = document.getElementById('weight-unit-segmented');
-    if (!root) return;
-    const target = unit === 'lb' ? 'lb' : 'kg';
-    root.querySelectorAll('.wg-settings-segmented__btn').forEach((btn) => {
-        const isActive = btn.getAttribute('data-unit') === target;
-        btn.classList.toggle('wg-settings-segmented__btn--active', isActive);
-        btn.classList.toggle('wg-gloss--sun', isActive);
-        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
-    });
-}
-
-// Serial queue for setWeightUnitPreference: rapid toggling could otherwise race
-// at the server — two concurrent PATCHes can land in arrival order opposite to
-// click order, leaving the server on the older intent while the client/cache
-// show the newer one. We chain each PATCH onto the previous one so the server
-// observes the same order the user did. Optimistic local state still flips
-// instantly so the UI feels responsive.
-//
-// Stale-completion guard uses a monotonic intent counter (not unit equality):
-// in an A-B-A click sequence (kg→lb→kg→lb) the latest intent and an early
-// failed PATCH can carry the same unit value, so equality would falsely
-// classify the failed older PATCH as "still latest" and clobber the user's
-// newer choices. The seq id is unique per click, so only the actual latest
-// intent owns the revert / reload paths.
-//
-// Failure-revert target is the last server-confirmed unit (weightUnitLastCommitted),
-// not the optimistic state captured at click time. Otherwise an A→B→A sequence
-// whose tail PATCH fails would revert UI to B (the optimistic state at the time
-// the tail click was issued), even though the server is still at A.
-let weightUnitPatchTail = Promise.resolve();
-let weightUnitIntentSeq = 0;
-let weightUnitLastCommitted = null;
-// Count of queued/in-flight Settings PATCHes. While > 0 the local intent owns
-// the rollback baseline — hydration may carry a pre-PATCH server snapshot and
-// must not advance weightUnitLastCommitted, otherwise an A→B sequence (A
-// succeeds, stale hydration arrives with the pre-A value, B fails) reverts UI
-// to the stale value instead of A. Once the queue drains, hydration is safe
-// again.
-let weightUnitPendingPatches = 0;
-// Flips true on the first successful local PATCH in this session. Once the
-// user has explicitly committed a unit locally, an SW BOOTSTRAP_UPDATED whose
-// underlying network fetch was issued *before* that PATCH but resolves *after*
-// the queue drained carries the stale pre-PATCH unit. With no pending PATCH to
-// gate it, the original guard accepted that stale value as authoritative —
-// rolling window.weightUnitPreference, weightUnitLastCommitted and the cached
-// settings_bundle back to the unit the server has since moved off of. The
-// in-session flag lets reconcileAuthoritativeUnit reject hydration that
-// disagrees with the last known-good local commit.
-let weightUnitLocallyMutated = false;
-
-// Choose the unit to apply when an external source (bootstrap payload, cache
-// hydration, BOOTSTRAP_UPDATED postMessage) hands us a unit. While PATCHes are
-// queued, the user's mid-click intent in window.weightUnitPreference owns the
-// UI — pass the incoming value through so the optimistic state isn't pre-empted
-// by hydration that races with their click. Once the queue is drained AND a
-// local PATCH has succeeded in this session, prefer the last successful local
-// commit over a disagreeing incoming value: the bootstrap fetch was almost
-// certainly issued before the PATCH and is carrying the pre-PATCH server unit.
-function reconcileAuthoritativeUnit(unit) {
-    if (unit !== 'kg' && unit !== 'lb') return unit;
-    if (weightUnitPendingPatches > 0) return unit;
-    if (!weightUnitLocallyMutated) return unit;
-    if (!weightUnitLastCommitted) return unit;
-    if (unit === weightUnitLastCommitted) return unit;
-    return weightUnitLastCommitted;
-}
-
-// Sync the failure-revert target with an authoritative unit. Bootstrap,
-// cache hydration, and out-of-band PATCHes (modal-side inference) all need
-// to nudge weightUnitLastCommitted forward — otherwise a later Settings
-// PATCH that fails will revert UI to a stale unit even though the server
-// has long since moved on. Returns the effective unit that was applied
-// (after reconciliation) so callers can keep applyWeightUnitSegmentedState
-// in sync — passing the raw incoming value would let the toggle visually
-// flip to a stale unit while window.weightUnitPreference correctly held
-// the locally-committed truth.
-function commitAuthoritativeWeightUnit(unit) {
-    const effective = reconcileAuthoritativeUnit(unit);
-    if (effective !== 'kg' && effective !== 'lb') return null;
-    window.weightUnitPreference = effective;
-    // While Settings PATCHes are queued/in-flight, leave the rollback baseline
-    // alone — the queue's own advance is authoritative, and stale hydration
-    // could otherwise overwrite a just-committed success with the pre-PATCH
-    // server value before the next queued PATCH resolves.
-    if (weightUnitPendingPatches === 0) {
-        weightUnitLastCommitted = effective;
-    }
-    return effective;
-}
-window.commitAuthoritativeWeightUnit = commitAuthoritativeWeightUnit;
-
-async function setWeightUnitPreference(unit, opts = {}) {
-    if (unit !== 'kg' && unit !== 'lb') return false;
-    const reload = opts.reload !== false;
-    if (weightUnitLastCommitted === null) {
-        weightUnitLastCommitted = window.weightUnitPreference === 'lb' ? 'lb' : 'kg';
-    }
-    if (unit === window.weightUnitPreference) return true;
-    // PATCH has no offline-queue fallback in sync.js (offlineAwareApiCall
-    // only queues POST/PUT/DELETE), so an offline attempt would surface a
-    // "needs internet" alert via apiCall after a useless network round-trip.
-    // Treat offline clicks as a silent no-op: the UI stays on the committed
-    // unit, mirroring the modal-submit path.
-    if (window.SyncManager && window.SyncManager.isOnline === false) return false;
-
-    // Optimistically commit so a fast follow-up click compares against the
-    // latest intended unit, not the still-in-flight previous value.
-    const seq = ++weightUnitIntentSeq;
-    weightUnitPendingPatches++;
-    window.weightUnitPreference = unit;
-    applyWeightUnitSegmentedState(unit);
-
-    const run = async () => {
-        try {
-            const isLatestIntent = () => seq === weightUnitIntentSeq;
-            const result = await apiCall('/api/settings/weight-unit', 'PATCH', { unit });
-            if (!result) {
-                // Only revert if this PATCH still represents the latest user
-                // intent — a later queued PATCH owns the final UI state otherwise.
-                if (isLatestIntent()) {
-                    window.weightUnitPreference = weightUnitLastCommitted;
-                    applyWeightUnitSegmentedState(weightUnitLastCommitted);
-                }
-                return false;
-            }
-            weightUnitLastCommitted = unit;
-            // Mark the session as having a known-good local commit so a
-            // delayed BOOTSTRAP_UPDATED carrying the pre-PATCH server unit
-            // can be rejected by reconcileAuthoritativeUnit instead of
-            // clobbering this just-committed success.
-            weightUnitLocallyMutated = true;
-
-            if (window.DataStore && typeof window.DataStore.getCached === 'function') {
-                try {
-                    const cached = await window.DataStore.getCached('settings_bundle');
-                    if (cached) {
-                        cached.weightUnitPreference = unit;
-                        // setCachedWithTags (via cacheApiSnapshot) bumps the
-                        // settings_bundle generation and drops any in-flight
-                        // bootstrap fetch so a concurrent loadSettings() SWR
-                        // cannot resolve later and overwrite this authoritative
-                        // unit with a stale pre-PATCH bundle.
-                        await cacheApiSnapshot('settings_bundle', cached, ['settings', 'food_targets', 'feature_settings']);
-                    }
-                } catch (_) { /* best-effort */ }
-            }
-
-            // Skip the rerender when a newer click has already moved on — the
-            // newer call's reload will paint the final unit and avoids flashing
-            // intermediate states.
-            if (isLatestIntent()) {
-                // Re-sync window.weightUnitPreference: a stale bootstrap/SWR/loadSettings
-                // hydration may have landed during the awaits above and called
-                // commitAuthoritativeWeightUnit with the pre-PATCH server value,
-                // clobbering window.weightUnitPreference. (weightUnitLastCommitted
-                // is already protected by weightUnitPendingPatches.)
-                commitAuthoritativeWeightUnit(unit);
-                applyWeightUnitSegmentedState(unit);
-                // Modal-submit callers pass reload:false because handleWeightSubmit
-                // already calls loadWeightLogs() (and conditionally loadToday()) after
-                // closing the modal — a queued reload here would duplicate that work
-                // and could repaint mid-modal.
-                if (reload) reloadCurrentTab();
-            }
-            return true;
-        } finally {
-            weightUnitPendingPatches--;
-        }
-    };
-
-    const next = weightUnitPatchTail.then(run, run);
-    weightUnitPatchTail = next;
-    return next;
-}
-window.setWeightUnitPreference = setWeightUnitPreference;
+// The weight-unit (kg/lb) preference state machine — the PATCH serial queue,
+// the optimistic-rollback baseline, the stale-hydration guard, and the
+// segmented-toggle DOM helper — lives in features/weight-unit-state.js.
+// app.js delegates via window.WeightUnitState (commit/apply/setPreference);
+// window.commitAuthoritativeWeightUnit and window.setWeightUnitPreference
+// remain as backwards-compatible shims for features/weight.js and tests.
 
 function updateFoodTargetsVisibility() {
     const settingsBlock = document.getElementById('food-target-settings');
     if (!settingsBlock) return;
-    settingsBlock.style.display = featureSettings.food ? 'flex' : 'none';
+    settingsBlock.style.display = window.featureSettings.food ? 'flex' : 'none';
 }
 
 async function toggleFeatureSetting(feature, enabled) {
@@ -2290,8 +1590,7 @@ async function toggleFeatureSetting(feature, enabled) {
         updateFeatureToggles();
         return;
     }
-    featureSettings[feature] = enabled;
-    window.AppStore && window.AppStore.set('featureSettings', featureSettings);
+    window.SettingsState.setFeature(feature, enabled);
     if (typeof window.rebuildCanonicalBottomNav === 'function') {
         window.rebuildCanonicalBottomNav();
     }
@@ -2315,7 +1614,7 @@ function updateFeatureTabVisibility() {
 
     const currentTab = window.AppStore && window.AppStore.get('currentTab');
     const currentFeature = tabToFeature[currentTab];
-    if (currentFeature && !featureSettings[currentFeature]) {
+    if (currentFeature && !window.featureSettings[currentFeature]) {
         switchTab('today');
     }
     updateFoodTargetsVisibility();
@@ -2712,95 +2011,16 @@ function removeTime(btn) {
     btn.parentElement.remove();
 }
 
-function parseMedicationSchedule(rawSchedule) {
-    try {
-        return JSON.parse(rawSchedule);
-    } catch (e) {
-        return null;
-    }
-}
-
-function getNextScheduledDate(schedule, now = new Date()) {
-    if (!schedule) return null;
-
-    const parseCandidate = (baseDate, timeStr) => {
-        const [h, min] = String(timeStr).split(':').map(Number);
-        if (Number.isNaN(h) || Number.isNaN(min)) return null;
-        const candidate = new Date(baseDate);
-        candidate.setHours(h, min, 0, 0);
-        return candidate;
-    };
-
-    if (schedule.type === 'daily' && Array.isArray(schedule.times)) {
-        const candidates = schedule.times
-            .map((timeStr) => {
-                const candidate = parseCandidate(now, timeStr);
-                if (!candidate) return null;
-                if (candidate <= now) {
-                    candidate.setDate(candidate.getDate() + 1);
-                }
-                return candidate;
-            })
-            .filter(Boolean);
-        return candidates.sort((a, b) => a - b)[0] || null;
-    }
-
-    if (schedule.type === 'weekly' && Array.isArray(schedule.days) && Array.isArray(schedule.times)) {
-        const candidates = [];
-        for (let i = 0; i < 8; i++) {
-            const dayBase = new Date(now);
-            dayBase.setDate(now.getDate() + i);
-            if (!schedule.days.includes(dayBase.getDay())) continue;
-
-            schedule.times.forEach((timeStr) => {
-                const candidate = parseCandidate(dayBase, timeStr);
-                if (candidate && candidate > now) {
-                    candidates.push(candidate);
-                }
-            });
-        }
-        return candidates.sort((a, b) => a - b)[0] || null;
-    }
-
-    return null;
-}
-
-function getMedicationScheduleText(med, schedule) {
-    if (!schedule) {
-        return escapeHtml(med.schedule);
-    }
-
-    if (schedule.type === 'daily') {
-        const times = Array.isArray(schedule.times) ? schedule.times : [];
-        return `Daily: ${times.join(', ')}`;
-    }
-
-    if (schedule.type === 'weekly') {
-        const daysMap = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-        const days = Array.isArray(schedule.days) ? schedule.days : [];
-        const times = Array.isArray(schedule.times) ? schedule.times : [];
-        const dayNames = days.map((day) => daysMap[day]);
-        return `Weekly (${dayNames.join(', ')}): ${times.join(', ')}`;
-    }
-
-    return 'As Needed';
-}
-
-function getLastTakenTimeMs(medication) {
-    return medication.last_taken_at ? new Date(medication.last_taken_at).getTime() : 0;
-}
+// parseMedicationSchedule, getNextScheduledDate, getMedicationScheduleText, and
+// getLastTakenTimeMs moved to features/medication-utils.js (Plan 2026-05-13,
+// Task 5). Callers reach them through window.MedicationUtils.* or via the
+// bare-name backwards-compat shims attached on that module.
 
 // renderMeds(), logMedicationPast(), renderHistory() moved to features/meds.js (Phase 5 Task 1)
 
-function escapeHtml(text) {
-    if (!text) return "";
-    return text
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-}
+// escapeHtml moved to core/utils.js (Task 1 of split-app-js plan); the local
+// call site below resolves to the function via global scope hoisting from
+// core/utils.js, which is loaded earlier in index.html.
 
 // loadMeds(), populateMedFilter(), saveMedication(), deleteMed() moved to features/meds.js (Phase 5 Task 1)
 
@@ -2991,11 +2211,11 @@ function handlePushAction(action, params) {
     }
 }
 
-var pendingMedConfirmIds = [];
-var pendingMedConfirmScheduled = null;
-var pendingWorkoutSessionId = null;
-var pendingMedConfirmMode = 'confirm'; // 'confirm' or 'edit'
-var pendingMedConfirmIntakeIds = []; // For edit mode
+// pendingMedConfirmIds / pendingMedConfirmScheduled / pendingWorkoutSessionId
+// / pendingMedConfirmMode / pendingMedConfirmIntakeIds live in
+// features/push-modal.js as closure-private fields on window.PushModalState
+// (Plan 2026-05-13, Task 4). The "at most one push modal open at a time"
+// invariant is enforced by the openMedConfirm / openWorkoutStart API.
 
 // showMedicationConfirmModal() moved to features/meds.js (Phase 5 Task 1)
 
@@ -3006,15 +2226,17 @@ function closeMedicationConfirmModal() {
 async function confirmSelectedMedications() {
     const checks = document.querySelectorAll('.med-confirm-check:checked');
     const selectedIndices = Array.from(checks).map(c => parseInt(c.value, 10));
-    const selectedIds = selectedIndices.map(idx => Number(pendingMedConfirmIds[idx]));
+    const ids = window.PushModalState.getMedConfirmIds();
+    const intakeIds = window.PushModalState.getMedConfirmIntakeIds();
+    const selectedIds = selectedIndices.map(idx => Number(ids[idx]));
     const selectedIntakeIds = selectedIndices
-        .map(idx => pendingMedConfirmIntakeIds[idx])
+        .map(idx => intakeIds[idx])
         .filter(id => id != null);
 
     const btn = document.getElementById('med-confirm-action-btn');
     await withSubmit(btn, async () => {
         const body = {
-            scheduled_at: pendingMedConfirmScheduled,
+            scheduled_at: window.PushModalState.getMedConfirmScheduled(),
             medication_ids: selectedIds
         };
         if (selectedIntakeIds.length > 0) {
@@ -3043,16 +2265,19 @@ async function skipSelectedMedications() {
     const btn = document.getElementById('med-confirm-skip-btn');
     await withSubmit(btn, async () => {
         let hasErrors = false;
+        const ids = window.PushModalState.getMedConfirmIds();
+        const intakeIds = window.PushModalState.getMedConfirmIntakeIds();
+        const scheduled = window.PushModalState.getMedConfirmScheduled();
         for (const idx of selectedIndices) {
-            const medId = Number(pendingMedConfirmIds[idx]);
-            let intakeId = pendingMedConfirmIntakeIds[idx];
+            const medId = Number(ids[idx]);
+            let intakeId = intakeIds[idx];
 
             if (!intakeId) {
                 // If opened from a push notification where intakeIds weren't passed directly,
                 // fetch pending intakes for the scheduled time to find the correct intake ID
                 const pendingLogs = await apiCall(`/api/history?days=1`);
                 if (pendingLogs && pendingLogs.length > 0) {
-                    const scheduledTime = new Date(pendingMedConfirmScheduled).getTime();
+                    const scheduledTime = new Date(scheduled).getTime();
                     const log = pendingLogs.find(l =>
                         l.medication_id === medId &&
                         l.status === 'PENDING' &&
@@ -3102,12 +2327,13 @@ async function updateIntakeHistory() {
     const takenAt = new Date(timeInput.value).toISOString();
 
     const updates = [];
+    const intakeIds = window.PushModalState.getMedConfirmIntakeIds();
 
     // For selected items (TAKEN)
     selectedIndices.forEach(idx => {
-        if (pendingMedConfirmIntakeIds[idx]) {
+        if (intakeIds[idx]) {
             updates.push({
-                id: pendingMedConfirmIntakeIds[idx],
+                id: intakeIds[idx],
                 status: 'TAKEN',
                 taken_at: takenAt
             });
@@ -3116,9 +2342,9 @@ async function updateIntakeHistory() {
 
     // For unselected items (PENDING - Reverting)
     unselectedIndices.forEach(idx => {
-        if (pendingMedConfirmIntakeIds[idx]) {
+        if (intakeIds[idx]) {
             updates.push({
-                id: pendingMedConfirmIntakeIds[idx],
+                id: intakeIds[idx],
                 status: 'PENDING',
                 taken_at: '' // Backend handles null/empty
             });
@@ -3146,7 +2372,7 @@ async function confirmLogPast() {
     const takenAt = new Date(timeInput.value).toISOString();
 
     // In log_past mode, we only support one med at a time for simplicity in this UI
-    const medId = pendingMedConfirmIds[0];
+    const medId = window.PushModalState.getMedConfirmIds()[0];
 
     const btn = document.getElementById('med-confirm-action-btn');
     await withSubmit(btn, async () => {
@@ -3197,7 +2423,7 @@ function snoozeMedicationConfirm() {
 }
 
 function showWorkoutStartModal(sessionId) {
-    pendingWorkoutSessionId = sessionId;
+    window.PushModalState.openWorkoutStart({ sessionId });
     window.ModalManager.workoutStart.open();
 }
 
@@ -3211,10 +2437,11 @@ function startWorkoutFromModal() {
 }
 
 async function snoozeWorkout(minutes) {
-    if (!pendingWorkoutSessionId) return;
+    const sessionId = window.PushModalState.getWorkoutSessionId();
+    if (!sessionId) return;
     const btn = document.getElementById(`workout-start-snooze-${minutes}-btn`);
     await withSubmit(btn, async () => {
-        const res = await apiCall(`/api/workout/sessions/${pendingWorkoutSessionId}/snooze`, 'POST', { minutes: minutes });
+        const res = await apiCall(`/api/workout/sessions/${sessionId}/snooze`, 'POST', { minutes: minutes });
         if (res) {
             if (typeof invalidateWorkoutCache === 'function') {
                 await invalidateWorkoutCache();
@@ -3228,11 +2455,12 @@ async function snoozeWorkout(minutes) {
 }
 
 async function skipWorkout() {
-    if (!pendingWorkoutSessionId) return;
+    const sessionId = window.PushModalState.getWorkoutSessionId();
+    if (!sessionId) return;
     await safeConfirm("Are you sure you want to skip this workout?", async (ok) => {
         if (!ok) return;
 
-        const res = await apiCall(`/api/workout/sessions/${pendingWorkoutSessionId}/skip`, 'POST');
+        const res = await apiCall(`/api/workout/sessions/${sessionId}/skip`, 'POST');
         if (res) {
             if (typeof invalidateWorkoutCache === 'function') {
                 await invalidateWorkoutCache();
