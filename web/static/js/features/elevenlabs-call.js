@@ -174,10 +174,7 @@
         const url = `/api/elevenlabs/upload-file?conversation_id=${encodeURIComponent(conversationId)}`;
         // FormData bodies set their own Content-Type with boundary, so the
         // helper's plain auth-only headers form applies here.
-        const headers = (typeof window !== 'undefined' && typeof window.makeAuthHeaders === 'function')
-            ? window.makeAuthHeaders()
-            : {};
-        const resp = await fetch(url, { method: 'POST', headers, body: form });
+        const resp = await fetch(url, { method: 'POST', headers: window.makeAuthHeaders(), body: form });
         if (!resp.ok) {
             const text = await resp.text().catch(() => '');
             const err = new Error(`Upload failed (${resp.status})${text ? `: ${text}` : ''}`);

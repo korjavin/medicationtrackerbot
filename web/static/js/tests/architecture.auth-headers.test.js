@@ -39,12 +39,13 @@ const EXCLUDED_RELATIVE = new Set([
 const EXCLUDED_DIRS = new Set(['tests', 'vendor', 'node_modules']);
 
 // Literals that mean "constructing a Telegram auth header inline".
-// Each entry: [regex, hint].
+// Each entry: [regex, hint]. Patterns cover all three string-literal
+// quote styles (single, double, backtick) because the pre-consolidation
+// CSV-export code used a backtick template literal — the exact form a
+// regression is most likely to take.
 const FORBIDDEN_PATTERNS = [
-    [/"X-Telegram-Init-Data"/g, '"X-Telegram-Init-Data" literal'],
-    [/'X-Telegram-Init-Data'/g, "'X-Telegram-Init-Data' literal"],
-    [/'Authorization'\s*:\s*'tma\s/g, "'Authorization': 'tma ...' literal"],
-    [/"Authorization"\s*:\s*"tma\s/g, '"Authorization": "tma ..." literal'],
+    [/["'`]X-Telegram-Init-Data["'`]/g, 'X-Telegram-Init-Data header literal'],
+    [/["']Authorization["']\s*:\s*["'`]tma\s/g, "Authorization: 'tma ...' literal"],
 ];
 
 function collectJsFiles(dir, results = []) {
