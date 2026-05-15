@@ -9,13 +9,13 @@ import (
 
 // MedicationStore is the subset of store operations needed for medication handlers.
 type MedicationStore interface {
-	ListMedications(showArchived bool) ([]store.Medication, error)
-	CreateMedication(name, dosage, schedule string, startDate, endDate *time.Time, rxcui, normalizedName string, tzShiftPolicy string) (int64, error)
-	SetMedicationSupplement(id int64, supplement bool) error
-	GetMedication(id int64) (*store.Medication, error)
-	UpdateMedication(id int64, name, dosage, schedule string, archived bool, startDate, endDate *time.Time, rxcui, normalizedName string, inventoryCount *int, tzShiftPolicy string) error
-	DeleteMedication(id int64) error
-	CanDeleteMedication(id int64) (bool, error)
+	List(showArchived bool) ([]store.Medication, error)
+	Create(name, dosage, schedule string, startDate, endDate *time.Time, rxcui, normalizedName string, tzShiftPolicy string) (int64, error)
+	SetSupplement(id int64, supplement bool) error
+	Get(id int64) (*store.Medication, error)
+	Update(id int64, name, dosage, schedule string, archived bool, startDate, endDate *time.Time, rxcui, normalizedName string, inventoryCount *int, tzShiftPolicy string) error
+	Delete(id int64) error
+	CanDelete(id int64) (bool, error)
 	CreateIntake(medID, userID int64, scheduledAt time.Time) (int64, error)
 	CreateManualIntake(medID, userID int64, takenAt time.Time) (int64, error)
 	ConfirmIntake(id int64, takenAt time.Time) error
@@ -23,20 +23,20 @@ type MedicationStore interface {
 	DeleteIntake(id int64) error
 	GetIntake(id int64) (*store.IntakeLog, error)
 	GetIntakeBySchedule(medID int64, scheduledAt time.Time) (*store.IntakeLog, error)
-	GetIntakeHistory(medID int, days int) ([]store.IntakeLog, error)
-	GetIntakeReminders(intakeID int64) ([]int, error)
-	GetBatchIntakeReminders(intakeIDs []int64) (map[int64][]int, error)
-	GetPendingIntakesForMedication(medID int64) ([]store.IntakeLog, error)
+	ListIntakeHistory(medID int, days int) ([]store.IntakeLog, error)
+	ListIntakeReminders(intakeID int64) ([]int, error)
+	BatchGetIntakeReminders(intakeIDs []int64) (map[int64][]int, error)
+	ListPendingIntakesForMedication(medID int64) ([]store.IntakeLog, error)
 	DecrementInventory(medID int64, qty int) error
 	IncrementInventory(medID int64, qty int) error
-	AddRestock(medID int64, qty int, note string) error
-	GetRestockHistory(medID int64) ([]store.Restock, error)
-	GetMedicationsLowOnStock(daysThreshold int) ([]store.Medication, error)
+	CreateRestock(medID int64, qty int, note string) error
+	ListRestocks(medID int64) ([]store.Restock, error)
+	ListLowOnStock(daysThreshold int) ([]store.Medication, error)
 	GetDaysOfStockRemaining(m *store.Medication) *float64
 	ConfirmIntakesBySchedule(userID int64, scheduledAt time.Time, takenAt time.Time) ([]int64, error)
-	GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time) ([]store.IntakeLog, error)
-	GetTakenIntakesBySchedule(userID int64, scheduledAt time.Time) ([]store.IntakeLog, error)
-	GetPendingIntakes() ([]store.IntakeLog, error)
+	ListPendingIntakesBySchedule(userID int64, scheduledAt time.Time) ([]store.IntakeLog, error)
+	ListTakenIntakesBySchedule(userID int64, scheduledAt time.Time) ([]store.IntakeLog, error)
+	ListPendingIntakes() ([]store.IntakeLog, error)
 	SnoozeIntake(id int64, snoozeUntil time.Time) error
 	SkipIntake(id int64) error
 }

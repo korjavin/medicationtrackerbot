@@ -5,17 +5,17 @@ import (
 )
 
 // testTZPlannerStore adapts *store.Repos to tzreschedule.PlannerStore for
-// tests that wire a full tzupdate.Service. It delegates ListMedications /
-// GetIntakeHistory to *medication.Repo and the plan CRUD to *tz.Repo.
+// tests that wire a full tzupdate.Service. It delegates List /
+// ListIntakeHistory to *medication.Repo and the plan CRUD to *tz.Repo.
 type testTZPlannerStore struct {
 	s *store.Repos
 }
 
-func (a *testTZPlannerStore) ListMedications(showArchived bool) ([]store.Medication, error) {
-	return a.s.Medication.ListMedications(showArchived)
+func (a *testTZPlannerStore) List(showArchived bool) ([]store.Medication, error) {
+	return a.s.Medication.List(showArchived)
 }
-func (a *testTZPlannerStore) GetIntakeHistory(medID int, days int) ([]store.IntakeLog, error) {
-	return a.s.Medication.GetIntakeHistory(medID, days)
+func (a *testTZPlannerStore) ListIntakeHistory(medID int, days int) ([]store.IntakeLog, error) {
+	return a.s.Medication.ListIntakeHistory(medID, days)
 }
 func (a *testTZPlannerStore) GetPlanByHash(hash string) (*store.TZTransitionPlan, error) {
 	return a.s.TZ.GetPlanByHash(hash)

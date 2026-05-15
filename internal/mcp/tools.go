@@ -374,7 +374,7 @@ func (s *Server) handleGetMedicationIntake(ctx context.Context, req *mcp.CallToo
 	warning = appendWarnings(argsWarning, warning)
 
 	// Get intakes since start date
-	intakes, err := s.data.GetIntakesSince(startDate)
+	intakes, err := s.data.ListIntakesSince(startDate)
 	if err != nil {
 		return nil, MedicationIntakeResponse{}, err
 	}

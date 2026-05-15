@@ -90,7 +90,7 @@ type weightGoalBootstrapResponse struct {
 // course, weekly-day gate, …) only needs to be expressed once, in medplan,
 // and both surfaces inherit it.
 func (s *Server) computeNextIntakeData(now time.Time) (time.Time, []int64, []string, error) {
-	meds, err := s.meds.ListMedications(false)
+	meds, err := s.meds.List(false)
 	if err != nil {
 		return time.Time{}, nil, nil, err
 	}
@@ -219,14 +219,14 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	// but track the failure so we omit the field instead of returning [] —
 	// the frontend treats any array as authoritative and would clobber its
 	// Dexie-cached meds list, blanking offline meds for a transient DB blip.
-	medications, err := s.meds.ListMedications(true)
+	medications, err := s.meds.List(true)
 	medicationsOK := true
 	if err != nil {
 		slog.Error("bootstrap medications query failed", "error", err)
 		medicationsOK = false
 	}
 
-	historyDefault, err := s.meds.GetIntakeHistory(0, 3)
+	historyDefault, err := s.meds.ListIntakeHistory(0, 3)
 	if err != nil {
 		slog.Error("bootstrap history query failed", "error", err)
 		historyDefault = []store.IntakeLog{}

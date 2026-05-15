@@ -5,40 +5,40 @@ import (
 	"time"
 )
 
-func TestCreateMedication(t *testing.T) {
+func TestCreate(t *testing.T) {
 	db := setupMedicationRepo(t)
 
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	id, err := db.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, &start, nil, "1191", "aspirin", "")
+	id, err := db.Create("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, &start, nil, "1191", "aspirin", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 	if id <= 0 {
 		t.Errorf("expected positive ID, got %d", id)
 	}
 
 	// Create a second medication without optional fields
-	id2, err := db.CreateMedication("Vitamin D", "1000IU", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	id2, err := db.Create("Vitamin D", "1000IU", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication without optional fields failed: %v", err)
+		t.Fatalf("Create without optional fields failed: %v", err)
 	}
 	if id2 <= id {
 		t.Errorf("expected second ID (%d) > first ID (%d)", id2, id)
 	}
 }
 
-func TestGetMedication(t *testing.T) {
+func TestGet(t *testing.T) {
 	db := setupMedicationRepo(t)
 
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	id, err := db.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["09:00","21:00"]}`, &start, nil, "1191", "aspirin", "")
+	id, err := db.Create("Aspirin", "100mg", `{"type":"daily","times":["09:00","21:00"]}`, &start, nil, "1191", "aspirin", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
-	med, err := db.GetMedication(id)
+	med, err := db.Get(id)
 	if err != nil {
-		t.Fatalf("GetMedication failed: %v", err)
+		t.Fatalf("Get failed: %v", err)
 	}
 	if med == nil {
 		t.Fatal("expected medication, got nil")
@@ -63,33 +63,33 @@ func TestGetMedication(t *testing.T) {
 func TestGetMedicationNotFound(t *testing.T) {
 	db := setupMedicationRepo(t)
 
-	med, err := db.GetMedication(99999)
+	med, err := db.Get(99999)
 	if err != nil {
-		t.Fatalf("GetMedication for non-existent ID should not error, got: %v", err)
+		t.Fatalf("Get for non-existent ID should not error, got: %v", err)
 	}
 	if med != nil {
 		t.Errorf("expected nil medication for non-existent ID, got %+v", med)
 	}
 }
 
-func TestUpdateMedication(t *testing.T) {
+func TestUpdate(t *testing.T) {
 	db := setupMedicationRepo(t)
 
-	id, err := db.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	id, err := db.Create("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	end := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
 	inventory := 30
-	err = db.UpdateMedication(id, "Aspirin Updated", "200mg", `{"type":"daily","times":["10:00"]}`, true, nil, &end, "1191", "aspirin", &inventory, "")
+	err = db.Update(id, "Aspirin Updated", "200mg", `{"type":"daily","times":["10:00"]}`, true, nil, &end, "1191", "aspirin", &inventory, "")
 	if err != nil {
-		t.Fatalf("UpdateMedication failed: %v", err)
+		t.Fatalf("Update failed: %v", err)
 	}
 
-	med, err := db.GetMedication(id)
+	med, err := db.Get(id)
 	if err != nil {
-		t.Fatalf("GetMedication after update failed: %v", err)
+		t.Fatalf("Get after update failed: %v", err)
 	}
 	if med.Name != "Aspirin Updated" {
 		t.Errorf("expected name 'Aspirin Updated', got %q", med.Name)
@@ -108,21 +108,21 @@ func TestUpdateMedication(t *testing.T) {
 	}
 }
 
-func TestSetMedicationSupplement(t *testing.T) {
+func TestSetSupplement(t *testing.T) {
 	db := setupMedicationRepo(t)
 
-	id, err := db.CreateMedication("Magnesium", "200mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	id, err := db.Create("Magnesium", "200mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
-	if err := db.SetMedicationSupplement(id, true); err != nil {
-		t.Fatalf("SetMedicationSupplement failed: %v", err)
+	if err := db.SetSupplement(id, true); err != nil {
+		t.Fatalf("SetSupplement failed: %v", err)
 	}
 
-	med, err := db.GetMedication(id)
+	med, err := db.Get(id)
 	if err != nil {
-		t.Fatalf("GetMedication failed: %v", err)
+		t.Fatalf("Get failed: %v", err)
 	}
 	if med == nil {
 		t.Fatal("expected medication, got nil")
@@ -131,9 +131,9 @@ func TestSetMedicationSupplement(t *testing.T) {
 		t.Fatal("expected supplement=true")
 	}
 
-	meds, err := db.ListMedications(true)
+	meds, err := db.List(true)
 	if err != nil {
-		t.Fatalf("ListMedications failed: %v", err)
+		t.Fatalf("List failed: %v", err)
 	}
 	found := false
 	for _, m := range meds {
@@ -149,44 +149,44 @@ func TestSetMedicationSupplement(t *testing.T) {
 	}
 }
 
-func TestDeleteMedication(t *testing.T) {
+func TestDelete(t *testing.T) {
 	db := setupMedicationRepo(t)
 
-	id, err := db.CreateMedication("ToDelete", "50mg", `{"type":"daily","times":["12:00"]}`, nil, nil, "", "", "")
+	id, err := db.Create("ToDelete", "50mg", `{"type":"daily","times":["12:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
-	err = db.DeleteMedication(id)
+	err = db.Delete(id)
 	if err != nil {
-		t.Fatalf("DeleteMedication failed: %v", err)
+		t.Fatalf("Delete failed: %v", err)
 	}
 
-	med, err := db.GetMedication(id)
+	med, err := db.Get(id)
 	if err != nil {
-		t.Fatalf("GetMedication after delete should not error: %v", err)
+		t.Fatalf("Get after delete should not error: %v", err)
 	}
 	if med != nil {
 		t.Errorf("expected nil after deletion, got %+v", med)
 	}
 }
 
-func TestCanDeleteMedication(t *testing.T) {
+func TestCanDelete(t *testing.T) {
 	db := setupMedicationRepo(t)
 
 	// Create a medication
-	id, err := db.CreateMedication("CheckDelete", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	id, err := db.Create("CheckDelete", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	// Should be deletable initially
-	canDelete, err := db.CanDeleteMedication(id)
+	canDelete, err := db.CanDelete(id)
 	if err != nil {
-		t.Fatalf("CanDeleteMedication failed: %v", err)
+		t.Fatalf("CanDelete failed: %v", err)
 	}
 	if !canDelete {
-		t.Error("expected CanDeleteMedication to return true for medication without history")
+		t.Error("expected CanDelete to return true for medication without history")
 	}
 
 	// Add an intake
@@ -197,41 +197,41 @@ func TestCanDeleteMedication(t *testing.T) {
 	}
 
 	// Should no longer be deletable
-	canDelete, err = db.CanDeleteMedication(id)
+	canDelete, err = db.CanDelete(id)
 	if err != nil {
-		t.Fatalf("CanDeleteMedication failed: %v", err)
+		t.Fatalf("CanDelete failed: %v", err)
 	}
 	if canDelete {
-		t.Error("expected CanDeleteMedication to return false for medication with history")
+		t.Error("expected CanDelete to return false for medication with history")
 	}
 }
 
 func TestListMedicationsExcludesArchived(t *testing.T) {
 	db := setupMedicationRepo(t)
 
-	id1, err := db.CreateMedication("Active Med", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	id1, err := db.Create("Active Med", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
-	id2, err := db.CreateMedication("Archived Med", "20mg", `{"type":"daily","times":["10:00"]}`, nil, nil, "", "", "")
+	id2, err := db.Create("Archived Med", "20mg", `{"type":"daily","times":["10:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	// Archive the second medication
-	err = db.UpdateMedication(id2, "Archived Med", "20mg", `{"type":"daily","times":["10:00"]}`, true, nil, nil, "", "", nil, "")
+	err = db.Update(id2, "Archived Med", "20mg", `{"type":"daily","times":["10:00"]}`, true, nil, nil, "", "", nil, "")
 	if err != nil {
-		t.Fatalf("UpdateMedication (archive) failed: %v", err)
+		t.Fatalf("Update (archive) failed: %v", err)
 	}
 
 	// List without archived
-	meds, err := db.ListMedications(false)
+	meds, err := db.List(false)
 	if err != nil {
-		t.Fatalf("ListMedications(false) failed: %v", err)
+		t.Fatalf("List(false) failed: %v", err)
 	}
 	if meds == nil {
-		t.Fatal("ListMedications should never return nil slice")
+		t.Fatal("List should never return nil slice")
 	}
 
 	for _, m := range meds {
@@ -251,9 +251,9 @@ func TestListMedicationsExcludesArchived(t *testing.T) {
 	}
 
 	// List with archived
-	medsAll, err := db.ListMedications(true)
+	medsAll, err := db.List(true)
 	if err != nil {
-		t.Fatalf("ListMedications(true) failed: %v", err)
+		t.Fatalf("List(true) failed: %v", err)
 	}
 	if len(medsAll) < 2 {
 		t.Errorf("expected at least 2 medications with showArchived=true, got %d", len(medsAll))
@@ -263,12 +263,12 @@ func TestListMedicationsExcludesArchived(t *testing.T) {
 func TestListMedicationsEmptyReturnsNonNil(t *testing.T) {
 	db := setupMedicationRepo(t)
 
-	meds, err := db.ListMedications(false)
+	meds, err := db.List(false)
 	if err != nil {
-		t.Fatalf("ListMedications on empty DB failed: %v", err)
+		t.Fatalf("List on empty DB failed: %v", err)
 	}
 	if meds == nil {
-		t.Error("ListMedications should return initialized slice, not nil")
+		t.Error("List should return initialized slice, not nil")
 	}
 	if len(meds) != 0 {
 		t.Errorf("expected 0 medications, got %d", len(meds))
@@ -278,9 +278,9 @@ func TestListMedicationsEmptyReturnsNonNil(t *testing.T) {
 func TestCreateIntakePending(t *testing.T) {
 	db := setupMedicationRepo(t)
 
-	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, err := db.Create("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	scheduled := time.Date(2026, 2, 28, 9, 0, 0, 0, time.UTC)
@@ -310,9 +310,9 @@ func TestCreateIntakePending(t *testing.T) {
 func TestSkipIntake(t *testing.T) {
 	db := setupMedicationRepo(t)
 
-	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, err := db.Create("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	scheduled := time.Date(2026, 2, 28, 9, 0, 0, 0, time.UTC)
@@ -339,7 +339,7 @@ func TestSkipIntake(t *testing.T) {
 		t.Fatal("expected taken_at to be NULL for skipped intake")
 	}
 
-	pending, err := db.GetPendingIntakes()
+	pending, err := db.ListPendingIntakes()
 	if err != nil {
 		t.Fatalf("GetPendingIntakes failed: %v", err)
 	}
@@ -353,9 +353,9 @@ func TestSkipIntake(t *testing.T) {
 func TestSnoozeIntake(t *testing.T) {
 	db := setupMedicationRepo(t)
 
-	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, err := db.Create("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	scheduled := time.Date(2026, 2, 28, 9, 0, 0, 0, time.UTC)
@@ -388,9 +388,9 @@ func TestSnoozeIntake(t *testing.T) {
 func TestCreateManualIntake(t *testing.T) {
 	db := setupMedicationRepo(t)
 
-	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, err := db.Create("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	takenAt := time.Date(2026, 2, 28, 9, 30, 0, 0, time.UTC)
@@ -417,9 +417,9 @@ func TestCreateManualIntake(t *testing.T) {
 func TestConfirmIntake(t *testing.T) {
 	db := setupMedicationRepo(t)
 
-	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, err := db.Create("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	scheduled := time.Date(2026, 2, 28, 9, 0, 0, 0, time.UTC)
@@ -449,9 +449,9 @@ func TestConfirmIntake(t *testing.T) {
 func TestUpdateIntakeStatusNotTakenClearsTakenAt(t *testing.T) {
 	db := setupMedicationRepo(t)
 
-	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, err := db.Create("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	takenAt := time.Date(2026, 2, 28, 9, 30, 0, 0, time.UTC)
@@ -495,12 +495,12 @@ func TestUpdateIntakeStatusNotTakenClearsTakenAt(t *testing.T) {
 	}
 }
 
-func TestGetPendingIntakes(t *testing.T) {
+func TestListPendingIntakes(t *testing.T) {
 	db := setupMedicationRepo(t)
 
-	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, err := db.Create("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	scheduled1 := time.Date(2026, 2, 28, 9, 0, 0, 0, time.UTC)
@@ -521,7 +521,7 @@ func TestGetPendingIntakes(t *testing.T) {
 		t.Fatalf("ConfirmIntake failed: %v", err)
 	}
 
-	pending, err := db.GetPendingIntakes()
+	pending, err := db.ListPendingIntakes()
 	if err != nil {
 		t.Fatalf("GetPendingIntakes failed: %v", err)
 	}
@@ -548,9 +548,9 @@ func TestGetIntakeNotFound(t *testing.T) {
 func TestGetIntakeBySchedule(t *testing.T) {
 	db := setupMedicationRepo(t)
 
-	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, err := db.Create("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	scheduled := time.Date(2026, 2, 28, 9, 0, 0, 0, time.UTC)
@@ -584,13 +584,13 @@ func TestGetIntakeBySchedule(t *testing.T) {
 func TestGetIntakeHistoryFilters(t *testing.T) {
 	db := setupMedicationRepo(t)
 
-	med1, err := db.CreateMedication("Med1", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	med1, err := db.Create("Med1", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
-	med2, err := db.CreateMedication("Med2", "10mg", `{"type":"daily","times":["10:00"]}`, nil, nil, "", "", "")
+	med2, err := db.Create("Med2", "10mg", `{"type":"daily","times":["10:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	now := time.Now().UTC()
@@ -611,18 +611,18 @@ func TestGetIntakeHistoryFilters(t *testing.T) {
 	}
 
 	// All intakes, no filter
-	all, err := db.GetIntakeHistory(0, 0)
+	all, err := db.ListIntakeHistory(0, 0)
 	if err != nil {
-		t.Fatalf("GetIntakeHistory(0,0) failed: %v", err)
+		t.Fatalf("ListIntakeHistory(0,0) failed: %v", err)
 	}
 	if len(all) < 3 {
 		t.Errorf("expected at least 3 intakes with no filter, got %d", len(all))
 	}
 
 	// Filter by med1 only
-	med1History, err := db.GetIntakeHistory(int(med1), 0)
+	med1History, err := db.ListIntakeHistory(int(med1), 0)
 	if err != nil {
-		t.Fatalf("GetIntakeHistory(med1,0) failed: %v", err)
+		t.Fatalf("ListIntakeHistory(med1,0) failed: %v", err)
 	}
 	for _, intake := range med1History {
 		if intake.MedicationID != med1 {
@@ -634,14 +634,14 @@ func TestGetIntakeHistoryFilters(t *testing.T) {
 	}
 
 	// Filter by days=1 (last 24 hours)
-	recentHistory, err := db.GetIntakeHistory(0, 1)
+	recentHistory, err := db.ListIntakeHistory(0, 1)
 	if err != nil {
-		t.Fatalf("GetIntakeHistory(0,1) failed: %v", err)
+		t.Fatalf("ListIntakeHistory(0,1) failed: %v", err)
 	}
 	// Should include the recent intakes but not the old one
 	for _, intake := range recentHistory {
 		if intake.ScheduledAt.Before(now.Add(-25 * time.Hour)) {
-			t.Errorf("GetIntakeHistory(0,1) returned intake older than 1 day: %v", intake.ScheduledAt)
+			t.Errorf("ListIntakeHistory(0,1) returned intake older than 1 day: %v", intake.ScheduledAt)
 		}
 	}
 }
@@ -650,9 +650,9 @@ func TestGetIntakeHistoryEmpty(t *testing.T) {
 	db := setupMedicationRepo(t)
 
 	// Fetch history when there's no data
-	history, err := db.GetIntakeHistory(1, 7)
+	history, err := db.ListIntakeHistory(1, 7)
 	if err != nil {
-		t.Fatalf("GetIntakeHistory failed: %v", err)
+		t.Fatalf("ListIntakeHistory failed: %v", err)
 	}
 	if history == nil {
 		t.Fatalf("expected empty non-nil slice, got nil")
@@ -665,19 +665,19 @@ func TestGetIntakeHistoryEmpty(t *testing.T) {
 func TestConfirmIntakesByScheduleSkipsArchived(t *testing.T) {
 	db := setupMedicationRepo(t)
 
-	activeMed, err := db.CreateMedication("Active", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	activeMed, err := db.Create("Active", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
-	archivedMed, err := db.CreateMedication("Archived", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	archivedMed, err := db.Create("Archived", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	// Archive the second medication
-	err = db.UpdateMedication(archivedMed, "Archived", "10mg", `{"type":"daily","times":["09:00"]}`, true, nil, nil, "", "", nil, "")
+	err = db.Update(archivedMed, "Archived", "10mg", `{"type":"daily","times":["09:00"]}`, true, nil, nil, "", "", nil, "")
 	if err != nil {
-		t.Fatalf("UpdateMedication (archive) failed: %v", err)
+		t.Fatalf("Update (archive) failed: %v", err)
 	}
 
 	scheduled := time.Date(2026, 2, 28, 9, 0, 0, 0, time.UTC)
@@ -718,9 +718,9 @@ func TestConfirmIntakesByScheduleSkipsArchived(t *testing.T) {
 func TestIntakeReminders(t *testing.T) {
 	db := setupMedicationRepo(t)
 
-	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, err := db.Create("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	scheduled := time.Date(2026, 2, 28, 9, 0, 0, 0, time.UTC)
@@ -730,27 +730,27 @@ func TestIntakeReminders(t *testing.T) {
 	}
 
 	// Add reminders
-	err = db.AddIntakeReminder(intakeID, 1001)
+	err = db.CreateIntakeReminder(intakeID, 1001)
 	if err != nil {
-		t.Fatalf("AddIntakeReminder failed: %v", err)
+		t.Fatalf("CreateIntakeReminder failed: %v", err)
 	}
-	err = db.AddIntakeReminder(intakeID, 1002)
+	err = db.CreateIntakeReminder(intakeID, 1002)
 	if err != nil {
-		t.Fatalf("AddIntakeReminder failed: %v", err)
+		t.Fatalf("CreateIntakeReminder failed: %v", err)
 	}
 
-	reminders, err := db.GetIntakeReminders(intakeID)
+	reminders, err := db.ListIntakeReminders(intakeID)
 	if err != nil {
-		t.Fatalf("GetIntakeReminders failed: %v", err)
+		t.Fatalf("ListIntakeReminders failed: %v", err)
 	}
 	if len(reminders) != 2 {
 		t.Errorf("expected 2 reminders, got %d", len(reminders))
 	}
 
 	// Empty reminders for non-existent intake
-	empty, err := db.GetIntakeReminders(99999)
+	empty, err := db.ListIntakeReminders(99999)
 	if err != nil {
-		t.Fatalf("GetIntakeReminders for non-existent should not error: %v", err)
+		t.Fatalf("ListIntakeReminders for non-existent should not error: %v", err)
 	}
 	if len(empty) != 0 {
 		t.Errorf("expected 0 reminders for non-existent intake, got %d", len(empty))
@@ -761,16 +761,16 @@ func TestIncrementInventory(t *testing.T) {
 	db := setupMedicationRepo(t)
 
 	// Create a medication
-	id, err := db.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	id, err := db.Create("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	// Set inventory
 	inventory := 30
-	err = db.UpdateMedication(id, "Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, false, nil, nil, "", "", &inventory, "")
+	err = db.Update(id, "Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, false, nil, nil, "", "", &inventory, "")
 	if err != nil {
-		t.Fatalf("UpdateMedication failed: %v", err)
+		t.Fatalf("Update failed: %v", err)
 	}
 
 	// Increment inventory
@@ -779,21 +779,21 @@ func TestIncrementInventory(t *testing.T) {
 		t.Fatalf("IncrementInventory failed: %v", err)
 	}
 
-	med, err := db.GetMedication(id)
+	med, err := db.Get(id)
 	if err != nil {
-		t.Fatalf("GetMedication failed: %v", err)
+		t.Fatalf("Get failed: %v", err)
 	}
 	if med.InventoryCount == nil || *med.InventoryCount != 35 {
 		t.Errorf("expected inventory count 35, got %v", med.InventoryCount)
 	}
 }
 
-func TestGetPendingIntakesBySchedule(t *testing.T) {
+func TestListPendingIntakesBySchedule(t *testing.T) {
 	db := setupMedicationRepo(t)
 
-	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["09:00","21:00"]}`, nil, nil, "", "", "")
+	medID, err := db.Create("TestMed", "5mg", `{"type":"daily","times":["09:00","21:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	scheduled := time.Date(2026, 2, 28, 9, 0, 0, 0, time.UTC)
@@ -808,9 +808,9 @@ func TestGetPendingIntakesBySchedule(t *testing.T) {
 		t.Fatalf("CreateIntake failed: %v", err)
 	}
 
-	pending, err := db.GetPendingIntakesBySchedule(12345, scheduled)
+	pending, err := db.ListPendingIntakesBySchedule(12345, scheduled)
 	if err != nil {
-		t.Fatalf("GetPendingIntakesBySchedule failed: %v", err)
+		t.Fatalf("ListPendingIntakesBySchedule failed: %v", err)
 	}
 
 	for _, p := range pending {
@@ -833,9 +833,9 @@ func TestGetPendingIntakesBySchedule(t *testing.T) {
 func TestGetPendingIntakesBySchedule_TZAgnostic(t *testing.T) {
 	db := setupMedicationRepo(t)
 
-	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["21:30"]}`, nil, nil, "", "", "")
+	medID, err := db.Create("TestMed", "5mg", `{"type":"daily","times":["21:30"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	la, err := time.LoadLocation("America/Los_Angeles")
@@ -856,9 +856,9 @@ func TestGetPendingIntakesBySchedule_TZAgnostic(t *testing.T) {
 	}
 	queryAt := storedAt.In(berlin)
 
-	pending, err := db.GetPendingIntakesBySchedule(12345, queryAt)
+	pending, err := db.ListPendingIntakesBySchedule(12345, queryAt)
 	if err != nil {
-		t.Fatalf("GetPendingIntakesBySchedule failed: %v", err)
+		t.Fatalf("ListPendingIntakesBySchedule failed: %v", err)
 	}
 	if len(pending) != 1 {
 		t.Fatalf("expected 1 pending intake matched across TZs, got %d", len(pending))
@@ -869,9 +869,9 @@ func TestGetPendingIntakesBySchedule_TZAgnostic(t *testing.T) {
 
 	// time.Unix(ts,0) yields a time in time.Local — emulate that path too.
 	queryUnix := time.Unix(storedAt.Unix(), 0)
-	pendingUnix, err := db.GetPendingIntakesBySchedule(12345, queryUnix)
+	pendingUnix, err := db.ListPendingIntakesBySchedule(12345, queryUnix)
 	if err != nil {
-		t.Fatalf("GetPendingIntakesBySchedule (unix) failed: %v", err)
+		t.Fatalf("ListPendingIntakesBySchedule (unix) failed: %v", err)
 	}
 	if len(pendingUnix) != 1 {
 		t.Fatalf("expected 1 pending intake for time.Unix bind, got %d", len(pendingUnix))
@@ -885,9 +885,9 @@ func TestGetPendingIntakesBySchedule_TZAgnostic(t *testing.T) {
 func TestConfirmIntakesBySchedule_TZAgnostic(t *testing.T) {
 	db := setupMedicationRepo(t)
 
-	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["21:30"]}`, nil, nil, "", "", "")
+	medID, err := db.Create("TestMed", "5mg", `{"type":"daily","times":["21:30"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	la, err := time.LoadLocation("America/Los_Angeles")
@@ -920,12 +920,12 @@ func TestConfirmIntakesBySchedule_TZAgnostic(t *testing.T) {
 	}
 }
 
-func TestGetTakenIntakesBySchedule(t *testing.T) {
+func TestListTakenIntakesBySchedule(t *testing.T) {
 	db := setupMedicationRepo(t)
 
-	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["09:00","21:00"]}`, nil, nil, "", "", "")
+	medID, err := db.Create("TestMed", "5mg", `{"type":"daily","times":["09:00","21:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	scheduled := time.Date(2026, 2, 28, 9, 0, 0, 0, time.UTC)
@@ -946,9 +946,9 @@ func TestGetTakenIntakesBySchedule(t *testing.T) {
 		t.Fatalf("ConfirmIntake failed: %v", err)
 	}
 
-	taken, err := db.GetTakenIntakesBySchedule(12345, scheduled)
+	taken, err := db.ListTakenIntakesBySchedule(12345, scheduled)
 	if err != nil {
-		t.Fatalf("GetTakenIntakesBySchedule failed: %v", err)
+		t.Fatalf("ListTakenIntakesBySchedule failed: %v", err)
 	}
 
 	if len(taken) != 1 {
@@ -968,16 +968,16 @@ func TestGetTakenIntakesBySchedule(t *testing.T) {
 	}
 }
 
-func TestGetPendingIntakesForMedication(t *testing.T) {
+func TestListPendingIntakesForMedication(t *testing.T) {
 	db := setupMedicationRepo(t)
 
-	med1, err := db.CreateMedication("Med1", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	med1, err := db.Create("Med1", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
-	med2, err := db.CreateMedication("Med2", "10mg", `{"type":"daily","times":["10:00"]}`, nil, nil, "", "", "")
+	med2, err := db.Create("Med2", "10mg", `{"type":"daily","times":["10:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	scheduled := time.Date(2026, 2, 28, 9, 0, 0, 0, time.UTC)
@@ -990,9 +990,9 @@ func TestGetPendingIntakesForMedication(t *testing.T) {
 		t.Fatalf("CreateIntake failed: %v", err)
 	}
 
-	pending, err := db.GetPendingIntakesForMedication(med1)
+	pending, err := db.ListPendingIntakesForMedication(med1)
 	if err != nil {
-		t.Fatalf("GetPendingIntakesForMedication failed: %v", err)
+		t.Fatalf("ListPendingIntakesForMedication failed: %v", err)
 	}
 
 	for _, p := range pending {
@@ -1005,9 +1005,9 @@ func TestGetPendingIntakesForMedication(t *testing.T) {
 func TestDeleteIntake(t *testing.T) {
 	db := setupMedicationRepo(t)
 
-	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, err := db.Create("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	scheduled := time.Date(2026, 2, 28, 9, 0, 0, 0, time.UTC)
@@ -1030,30 +1030,30 @@ func TestDeleteIntake(t *testing.T) {
 	}
 }
 
-func TestGetBatchIntakeReminders(t *testing.T) {
+func TestBatchGetIntakeReminders(t *testing.T) {
 	db := setupMedicationRepo(t)
 
 	// Create some medications and intakes
-	med1, _ := db.CreateMedication("Med1", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	med1, _ := db.Create("Med1", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 
 	scheduled := time.Date(2026, 2, 28, 9, 0, 0, 0, time.UTC)
 	intake1, _ := db.CreateIntake(med1, 12345, scheduled)
 	intake2, _ := db.CreateIntake(med1, 12345, scheduled.Add(24*time.Hour))
 
 	// Add reminders
-	if err := db.AddIntakeReminder(intake1, 101); err != nil {
-		t.Fatalf("AddIntakeReminder(intake1, 101): %v", err)
+	if err := db.CreateIntakeReminder(intake1, 101); err != nil {
+		t.Fatalf("CreateIntakeReminder(intake1, 101): %v", err)
 	}
-	if err := db.AddIntakeReminder(intake1, 102); err != nil {
-		t.Fatalf("AddIntakeReminder(intake1, 102): %v", err)
+	if err := db.CreateIntakeReminder(intake1, 102); err != nil {
+		t.Fatalf("CreateIntakeReminder(intake1, 102): %v", err)
 	}
-	if err := db.AddIntakeReminder(intake2, 201); err != nil {
-		t.Fatalf("AddIntakeReminder(intake2, 201): %v", err)
+	if err := db.CreateIntakeReminder(intake2, 201); err != nil {
+		t.Fatalf("CreateIntakeReminder(intake2, 201): %v", err)
 	}
 
-	reminders, err := db.GetBatchIntakeReminders([]int64{intake1, intake2})
+	reminders, err := db.BatchGetIntakeReminders([]int64{intake1, intake2})
 	if err != nil {
-		t.Fatalf("GetBatchIntakeReminders failed: %v", err)
+		t.Fatalf("BatchGetIntakeReminders failed: %v", err)
 	}
 
 	if len(reminders) != 2 {

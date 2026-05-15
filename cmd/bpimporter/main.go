@@ -41,7 +41,7 @@ func main() {
 
 	// If user ID not provided, get the first user
 	if *userID == 0 {
-		meds, err := s.Medication.ListMedications(false)
+		meds, err := s.Medication.List(false)
 		if err != nil {
 			slog.Error("Failed to list medications", "error", err)
 			os.Exit(1)

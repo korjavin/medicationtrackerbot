@@ -247,7 +247,7 @@ func (s *Server) fetchBPSection(ctx context.Context, userID int64, startDate, en
 
 func (s *Server) fetchMedicationsSection(startDate, endDate time.Time) (*MedicationsSection, error) {
 	// Active medications
-	meds, err := s.data.ListMedications(false)
+	meds, err := s.data.List(false)
 	if err != nil {
 		slog.Warn("[MCP] CardiovascularAnalysis: failed to fetch medications", "error", err)
 		return nil, err
@@ -263,7 +263,7 @@ func (s *Server) fetchMedicationsSection(startDate, endDate time.Time) (*Medicat
 	}
 
 	// Intake log
-	intakes, err := s.data.GetIntakesSince(startDate)
+	intakes, err := s.data.ListIntakesSince(startDate)
 	if err != nil {
 		slog.Warn("[MCP] CardiovascularAnalysis: failed to fetch intakes", "error", err)
 		return nil, fmt.Errorf("fetch medication intakes: %w", err)

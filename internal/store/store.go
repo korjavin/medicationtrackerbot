@@ -28,7 +28,7 @@ var embedMigrations embed.FS
 // every repo. Callers reach into individual repos via the public fields:
 //
 //	r := store.New(":memory:")
-//	med, err := r.Medication.GetMedication(id)
+//	med, err := r.Medication.Get(id)
 //	bpState, err := r.BP.GetBPReminderState(userID)
 //
 // New code SHOULD NOT add methods to Repos. Each domain's methods live on its

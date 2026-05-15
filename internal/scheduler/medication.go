@@ -17,15 +17,15 @@ import (
 // MedicationStore is the subset of store operations needed for medication scheduling.
 type MedicationStore interface {
 	GetMedicationEnabled(ctx context.Context) (bool, error)
-	ListMedications(archived bool) ([]store.Medication, error)
+	List(archived bool) ([]store.Medication, error)
 	GetIntakeBySchedule(medID int64, scheduledAt time.Time) (*store.IntakeLog, error)
 	BatchGetIntakesBySchedule(schedules []store.MedicationSchedule) (map[store.MedicationSchedule]*store.IntakeLog, error)
 	CreateIntake(medID, userID int64, scheduledAt time.Time) (int64, error)
-	AddIntakeReminder(intakeID int64, msgID int) error
-	GetPendingIntakes() ([]store.IntakeLog, error)
-	GetPendingIntakesForMedication(medID int64) ([]store.IntakeLog, error)
-	GetMedication(id int64) (*store.Medication, error)
-	GetMedicationsLowOnStock(days int) ([]store.Medication, error)
+	CreateIntakeReminder(intakeID int64, msgID int) error
+	ListPendingIntakes() ([]store.IntakeLog, error)
+	ListPendingIntakesForMedication(medID int64) ([]store.IntakeLog, error)
+	Get(id int64) (*store.Medication, error)
+	ListLowOnStock(days int) ([]store.Medication, error)
 	GetDaysOfStockRemaining(med *store.Medication) *float64
 	SnoozeIntake(id int64, snoozeUntil time.Time) error
 	// TZ-aware scheduling
@@ -74,7 +74,7 @@ func (c *MedicationChecker) findNearMatchPendingIntake(med store.Medication, ste
 	if minInterval <= 0 {
 		return nil
 	}
-	pending, err := c.store.GetPendingIntakesForMedication(med.ID)
+	pending, err := c.store.ListPendingIntakesForMedication(med.ID)
 	if err != nil {
 		slog.Warn("medication scheduler: failed to load pending intakes for near-match dedup",
 			"medID", med.ID, "error", err)
@@ -241,7 +241,7 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 		}
 	}
 
-	meds, err := c.store.ListMedications(false)
+	meds, err := c.store.List(false)
 	if err != nil {
 		return err
 	}
@@ -441,7 +441,7 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 		iIDs := intakeIDs
 		c.Notify(ctx, n, func(msgID int) {
 			for _, iID := range iIDs {
-				if err := c.store.AddIntakeReminder(iID, msgID); err != nil {
+				if err := c.store.CreateIntakeReminder(iID, msgID); err != nil {
 					slog.Error("Failed to add intake reminder", "intakeID", iID, "msgID", msgID, "error", err)
 				}
 			}

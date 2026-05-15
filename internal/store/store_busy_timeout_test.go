@@ -26,7 +26,7 @@ func TestStoreOpensBusyTimeout(t *testing.T) {
 	}
 }
 
-// TestAddIntakeReminderConcurrentFileDB verifies that AddIntakeReminder succeeds
+// TestAddIntakeReminderConcurrentFileDB verifies that CreateIntakeReminder succeeds
 // even under concurrent write load on a file-based database.
 // This simulates the real production scenario where the scheduler fires 3
 // reminders concurrently and all try to write to intake_reminders.
@@ -41,9 +41,9 @@ func TestAddIntakeReminderConcurrentFileDB(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 
-	medID, err := db.Medication.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["21:30"]}`, nil, nil, "", "", "")
+	medID, err := db.Medication.Create("TestMed", "5mg", `{"type":"daily","times":["21:30"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	scheduled := time.Date(2026, 3, 11, 21, 30, 0, 0, time.UTC)
@@ -67,22 +67,22 @@ func TestAddIntakeReminderConcurrentFileDB(t *testing.T) {
 		go func(idx int, id int64) {
 			defer wg.Done()
 			msgID := 1001 + idx
-			errors[idx] = db.Medication.AddIntakeReminder(id, msgID)
+			errors[idx] = db.Medication.CreateIntakeReminder(id, msgID)
 		}(i, intakeID)
 	}
 	wg.Wait()
 
 	for i, err := range errors {
 		if err != nil {
-			t.Errorf("AddIntakeReminder goroutine %d failed (SQLITE_BUSY?): %v", i, err)
+			t.Errorf("CreateIntakeReminder goroutine %d failed (SQLITE_BUSY?): %v", i, err)
 		}
 	}
 
 	// Verify all reminders were recorded
 	for i, intakeID := range intakeIDs {
-		reminders, err := db.Medication.GetIntakeReminders(intakeID)
+		reminders, err := db.Medication.ListIntakeReminders(intakeID)
 		if err != nil {
-			t.Fatalf("GetIntakeReminders for intake %d failed: %v", i, err)
+			t.Fatalf("ListIntakeReminders for intake %d failed: %v", i, err)
 		}
 		if len(reminders) != 1 {
 			t.Errorf("expected 1 reminder for intake %d, got %d", i, len(reminders))

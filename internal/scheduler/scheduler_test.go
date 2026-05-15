@@ -47,9 +47,9 @@ func TestCheckSchedule_NoMedications(t *testing.T) {
 func TestCheckSchedule_AsNeededMedicationSkipped(t *testing.T) {
 	sched, db := setupTestScheduler(t)
 
-	_, err := db.Medication.CreateMedication("Ibuprofen", "400mg", `{"type":"as_needed"}`, nil, nil, "", "", "")
+	_, err := db.Medication.Create("Ibuprofen", "400mg", `{"type":"as_needed"}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	err = sched.MedicationChecker.Check(context.Background())
@@ -57,7 +57,7 @@ func TestCheckSchedule_AsNeededMedicationSkipped(t *testing.T) {
 		t.Errorf("Check: %v", err)
 	}
 
-	pending, err := db.Medication.GetPendingIntakes()
+	pending, err := db.Medication.ListPendingIntakes()
 	if err != nil {
 		t.Fatalf("GetPendingIntakes: %v", err)
 	}
@@ -74,9 +74,9 @@ func TestCheckSchedule_WeeklyNotToday(t *testing.T) {
 	otherDay := (todayIdx + 1) % 7
 
 	schedule := `{"type":"weekly","days":[` + intToStr(otherDay) + `],"times":["` + now.Format("15:04") + `"]}`
-	_, err := db.Medication.CreateMedication("WeeklyMed", "10mg", schedule, nil, nil, "", "", "")
+	_, err := db.Medication.Create("WeeklyMed", "10mg", schedule, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	err = sched.MedicationChecker.Check(context.Background())
@@ -84,7 +84,7 @@ func TestCheckSchedule_WeeklyNotToday(t *testing.T) {
 		t.Errorf("Check: %v", err)
 	}
 
-	pending, err := db.Medication.GetPendingIntakes()
+	pending, err := db.Medication.ListPendingIntakes()
 	if err != nil {
 		t.Fatalf("GetPendingIntakes: %v", err)
 	}
@@ -103,9 +103,9 @@ func TestCheckSchedule_FutureTimeSkipped(t *testing.T) {
 	}
 	futureTime := futureTimeObj.Format("15:04")
 	schedule := `{"type":"daily","times":["` + futureTime + `"]}`
-	_, err := db.Medication.CreateMedication("FutureMed", "5mg", schedule, nil, nil, "", "", "")
+	_, err := db.Medication.Create("FutureMed", "5mg", schedule, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	err = sched.MedicationChecker.Check(context.Background())
@@ -113,7 +113,7 @@ func TestCheckSchedule_FutureTimeSkipped(t *testing.T) {
 		t.Errorf("Check: %v", err)
 	}
 
-	pending, err := db.Medication.GetPendingIntakes()
+	pending, err := db.Medication.ListPendingIntakes()
 	if err != nil {
 		t.Fatalf("GetPendingIntakes: %v", err)
 	}
@@ -133,9 +133,9 @@ func TestCheckSchedule_StartDateNotYetActive(t *testing.T) {
 	pastTime := pastTimeObj.Format("15:04")
 	futureStart := now.Add(24 * time.Hour)
 	schedule := `{"type":"daily","times":["` + pastTime + `"]}`
-	_, err := db.Medication.CreateMedication("FutureStartMed", "5mg", schedule, &futureStart, nil, "", "", "")
+	_, err := db.Medication.Create("FutureStartMed", "5mg", schedule, &futureStart, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	err = sched.MedicationChecker.Check(context.Background())
@@ -143,7 +143,7 @@ func TestCheckSchedule_StartDateNotYetActive(t *testing.T) {
 		t.Errorf("Check: %v", err)
 	}
 
-	pending, err := db.Medication.GetPendingIntakes()
+	pending, err := db.Medication.ListPendingIntakes()
 	if err != nil {
 		t.Fatalf("GetPendingIntakes: %v", err)
 	}
@@ -163,9 +163,9 @@ func TestCheckSchedule_EndDatePassed(t *testing.T) {
 	pastTime := pastTimeObj.Format("15:04")
 	pastEnd := now.Add(-24 * time.Hour)
 	schedule := `{"type":"daily","times":["` + pastTime + `"]}`
-	_, err := db.Medication.CreateMedication("EndedMed", "5mg", schedule, nil, &pastEnd, "", "", "")
+	_, err := db.Medication.Create("EndedMed", "5mg", schedule, nil, &pastEnd, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	err = sched.MedicationChecker.Check(context.Background())
@@ -173,7 +173,7 @@ func TestCheckSchedule_EndDatePassed(t *testing.T) {
 		t.Errorf("Check: %v", err)
 	}
 
-	pending, err := db.Medication.GetPendingIntakes()
+	pending, err := db.Medication.ListPendingIntakes()
 	if err != nil {
 		t.Fatalf("GetPendingIntakes: %v", err)
 	}
@@ -192,9 +192,9 @@ func TestCheckSchedule_ExistingIntakeNotDuplicated(t *testing.T) {
 	}
 	timeStr := pastTime.Format("15:04")
 	schedule := `{"type":"daily","times":["` + timeStr + `"]}`
-	medID, err := db.Medication.CreateMedication("DailyMed", "5mg", schedule, nil, nil, "", "", "")
+	medID, err := db.Medication.Create("DailyMed", "5mg", schedule, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	target := time.Date(now.Year(), now.Month(), now.Day(),
@@ -221,20 +221,20 @@ func TestCheckSchedule_MultipleMedicationsCreatesMultipleNotifications(t *testin
 	timeStr := pastTime.Format("15:04")
 	schedule := `{"type":"daily","times":["` + timeStr + `"]}`
 
-	id1, err := db.Medication.CreateMedication("Med1", "5mg", schedule, nil, nil, "", "", "")
+	id1, err := db.Medication.Create("Med1", "5mg", schedule, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
-	if err := db.Medication.UpdateMedicationCreatedAt(id1, pastTime.Add(-24*time.Hour)); err != nil {
-		t.Fatalf("UpdateMedicationCreatedAt Med1: %v", err)
+	if err := db.Medication.UpdateCreatedAt(id1, pastTime.Add(-24*time.Hour)); err != nil {
+		t.Fatalf("UpdateCreatedAt Med1: %v", err)
 	}
 
-	id2, err := db.Medication.CreateMedication("Med2", "10mg", schedule, nil, nil, "", "", "")
+	id2, err := db.Medication.Create("Med2", "10mg", schedule, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
-	if err := db.Medication.UpdateMedicationCreatedAt(id2, pastTime.Add(-24*time.Hour)); err != nil {
-		t.Fatalf("UpdateMedicationCreatedAt Med2: %v", err)
+	if err := db.Medication.UpdateCreatedAt(id2, pastTime.Add(-24*time.Hour)); err != nil {
+		t.Fatalf("UpdateCreatedAt Med2: %v", err)
 	}
 
 	err = sched.MedicationChecker.Check(context.Background())

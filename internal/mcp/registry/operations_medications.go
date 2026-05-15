@@ -12,7 +12,7 @@ import "encoding/json"
 //     Tests in mcp_bridge_test.go verify this.
 //  2. Write audit behavior is preserved: writes flow through the existing HTTP
 //     handlers and domain services (MedicationService.LogMedicationAt,
-//     MedicationStore.AddRestock), which already populate change events
+//     MedicationStore.CreateRestock), which already populate change events
 //     and audit fields.
 //
 // Path-templated IDs (e.g. POST /api/medications/{id}) are supported by the

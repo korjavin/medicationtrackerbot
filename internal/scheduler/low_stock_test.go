@@ -11,7 +11,7 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
-// mockLowStockStore counts GetMedicationsLowOnStock invocations and lets
+// mockLowStockStore counts ListLowOnStock invocations and lets
 // tests configure the timezone returned by GetCurrentTimezone, plus an
 // optional fixed result set for the low-stock query.
 type mockLowStockStore struct {
@@ -26,7 +26,7 @@ func (m *mockLowStockStore) GetCurrentTimezone() (string, error) {
 	return m.tz, m.tzErr
 }
 
-func (m *mockLowStockStore) GetMedicationsLowOnStock(_ int) ([]store.Medication, error) {
+func (m *mockLowStockStore) ListLowOnStock(_ int) ([]store.Medication, error) {
 	atomic.AddInt32(&m.lowCalls, 1)
 	return m.meds, nil
 }
@@ -61,7 +61,7 @@ func TestLowStockChecker_FiresAt11AMInUserTZ(t *testing.T) {
 		t.Fatalf("Check returned err: %v", err)
 	}
 	if got := mock.callCount(); got != 1 {
-		t.Errorf("GetMedicationsLowOnStock calls = %d, want 1", got)
+		t.Errorf("ListLowOnStock calls = %d, want 1", got)
 	}
 }
 
@@ -78,7 +78,7 @@ func TestLowStockChecker_SkipsOutside11AMUserTZ(t *testing.T) {
 		t.Fatalf("Check returned err: %v", err)
 	}
 	if got := mock.callCount(); got != 0 {
-		t.Errorf("GetMedicationsLowOnStock calls = %d, want 0", got)
+		t.Errorf("ListLowOnStock calls = %d, want 0", got)
 	}
 }
 
@@ -99,7 +99,7 @@ func TestLowStockChecker_SkipsWhenAlreadyCheckedToday(t *testing.T) {
 	}
 
 	if got := mock.callCount(); got != 1 {
-		t.Errorf("GetMedicationsLowOnStock calls = %d, want 1 (date guard)", got)
+		t.Errorf("ListLowOnStock calls = %d, want 1 (date guard)", got)
 	}
 }
 
@@ -124,7 +124,7 @@ func TestLowStockChecker_EmptyMedsStillUpdatesLastCheck(t *testing.T) {
 		t.Fatalf("second Check returned err: %v", err)
 	}
 	if got := mock.callCount(); got != 1 {
-		t.Errorf("GetMedicationsLowOnStock calls = %d, want 1 (empty meds path should still take date guard)", got)
+		t.Errorf("ListLowOnStock calls = %d, want 1 (empty meds path should still take date guard)", got)
 	}
 }
 
@@ -143,7 +143,7 @@ func TestLowStockChecker_InvalidTZFallsBack(t *testing.T) {
 		t.Fatalf("Check returned err: %v", err)
 	}
 	if got := mock.callCount(); got != 1 {
-		t.Errorf("GetMedicationsLowOnStock calls = %d, want 1 (server-TZ fallback should fire at 11 local)", got)
+		t.Errorf("ListLowOnStock calls = %d, want 1 (server-TZ fallback should fire at 11 local)", got)
 	}
 }
 
@@ -160,12 +160,12 @@ func TestLowStockChecker_TZErrorFallsBack(t *testing.T) {
 		t.Fatalf("Check returned err: %v", err)
 	}
 	if got := mock.callCount(); got != 1 {
-		t.Errorf("GetMedicationsLowOnStock calls = %d, want 1 on TZ-load error fallback", got)
+		t.Errorf("ListLowOnStock calls = %d, want 1 on TZ-load error fallback", got)
 	}
 }
 
 // race test (§4.2): 50 concurrent Check() calls. With the mutex around the
-// read-decide-write critical section, GetMedicationsLowOnStock must be
+// read-decide-write critical section, ListLowOnStock must be
 // invoked at most once even when many goroutines race, and the race
 // detector must not fire.
 func TestLowStockChecker_ConcurrentChecksDoNotDoubleFire(t *testing.T) {
@@ -187,7 +187,7 @@ func TestLowStockChecker_ConcurrentChecksDoNotDoubleFire(t *testing.T) {
 	wg.Wait()
 
 	if got := mock.callCount(); got != 1 {
-		t.Errorf("GetMedicationsLowOnStock calls = %d, want 1 (race / lock test)", got)
+		t.Errorf("ListLowOnStock calls = %d, want 1 (race / lock test)", got)
 	}
 }
 

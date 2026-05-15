@@ -104,15 +104,15 @@ func TestMedicationCheckerScenarios(t *testing.T) {
 				}
 			}
 
-			id, err := db.Medication.CreateMedication(m.Name, m.Dosage, m.Schedule, sd, ed, "", "", "")
+			id, err := db.Medication.Create(m.Name, m.Dosage, m.Schedule, sd, ed, "", "", "")
 			if err != nil {
-				t.Fatalf("CreateMedication failed: %v", err)
+				t.Fatalf("Create failed: %v", err)
 			}
 
 			// Adjust the created_at to be before the scheduled time in the tests
 			// so that it behaves correctly and triggers notifications as before.
-			if err := db.Medication.UpdateMedicationCreatedAt(id, nowTime.Add(-24*time.Hour)); err != nil {
-				t.Fatalf("UpdateMedicationCreatedAt failed: %v", err)
+			if err := db.Medication.UpdateCreatedAt(id, nowTime.Add(-24*time.Hour)); err != nil {
+				t.Fatalf("UpdateCreatedAt failed: %v", err)
 			}
 
 			medNameMap[m.Name] = id
@@ -150,7 +150,7 @@ func TestMedicationCheckerScenarios(t *testing.T) {
 		// Wait briefly for fire-and-forget notifications to be processed
 		time.Sleep(10 * time.Millisecond)
 
-		pending, err := db.Medication.GetPendingIntakes()
+		pending, err := db.Medication.ListPendingIntakes()
 		if err != nil {
 			t.Fatalf("GetPendingIntakes failed: %v", err)
 		}

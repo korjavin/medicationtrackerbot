@@ -30,7 +30,7 @@ type HealthDataReader interface {
 	GetFoodIntakeEnabled(ctx context.Context) (bool, error)
 	GetBloodPressureReadings(ctx context.Context, userID int64, since time.Time) ([]store.BloodPressure, error)
 	GetWeightLogs(ctx context.Context, userID int64, since time.Time) ([]store.WeightLog, error)
-	GetIntakesSince(since time.Time) ([]store.IntakeWithMedication, error)
+	ListIntakesSince(since time.Time) ([]store.IntakeWithMedication, error)
 	GetWorkoutHistory(userID int64, limit int) ([]store.WorkoutSession, error)
 	GetWorkoutGroup(groupID int64) (*store.WorkoutGroup, error)
 	GetWorkoutVariant(variantID int64) (*store.WorkoutVariant, error)
@@ -44,7 +44,7 @@ type HealthDataReader interface {
 	GetVitalsStress(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsStressLog, error)
 	ListMiBandWorkouts(ctx context.Context, userID int64, limit int) ([]store.MiBandWorkout, error)
 	ListDiaryNotes(ctx context.Context, userID int64, since, until time.Time, limit int, beforeID int64) ([]store.DiaryNote, error)
-	ListMedications(showArchived bool) ([]store.Medication, error)
+	List(showArchived bool) ([]store.Medication, error)
 }
 
 // Config holds MCP server configuration

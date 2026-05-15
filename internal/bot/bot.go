@@ -292,7 +292,7 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 			break
 		}
 		// Fetch active medications
-		meds, err := b.meds.ListMedications(false)
+		meds, err := b.meds.List(false)
 		if err != nil {
 			msgConfig.Text = "Error fetching medications."
 			break
@@ -655,7 +655,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		}
 
 		// Fetch med name for confirmation (display only).
-		med, _ := b.meds.GetMedication(medID)
+		med, _ := b.meds.Get(medID)
 		medName := "Medication"
 		if med != nil {
 			medName = med.Name
@@ -1041,7 +1041,7 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 	}
 
 	// Get medication intakes
-	intakes, err := b.meds.GetIntakesSince(since)
+	intakes, err := b.meds.ListIntakesSince(since)
 	if err != nil {
 		slog.Error("Error getting intakes", "error", err)
 		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error retrieving intake data.")); err != nil {
@@ -1580,7 +1580,7 @@ Example: /bpgoal 120 70`
 // -- Inventory Command --
 
 func (b *Bot) handleStockCommand(msgConfig *tgbotapi.MessageConfig) {
-	meds, err := b.meds.ListMedications(false)
+	meds, err := b.meds.List(false)
 	if err != nil {
 		slog.Error("Error getting medications", "error", err)
 		msgConfig.Text = "❌ Error retrieving medications."
@@ -1605,7 +1605,7 @@ func (b *Bot) handleStockCommand(msgConfig *tgbotapi.MessageConfig) {
 	sb.WriteString("📦 **Medication Inventory**\n\n")
 
 	// Check for low stock (< 7 days)
-	lowStockMeds, _ := b.meds.GetMedicationsLowOnStock(7)
+	lowStockMeds, _ := b.meds.ListLowOnStock(7)
 	lowStockIDs := make(map[int64]bool)
 	for _, m := range lowStockMeds {
 		lowStockIDs[m.ID] = true
@@ -1638,7 +1638,7 @@ func (b *Bot) handleStockCommand(msgConfig *tgbotapi.MessageConfig) {
 // handleNextIntakeCommand sends a notification for the next scheduled medication with confirm/cancel buttons
 func (b *Bot) handleNextIntakeCommand(msgConfig *tgbotapi.MessageConfig) {
 	// Get all active medications
-	meds, err := b.meds.ListMedications(false)
+	meds, err := b.meds.List(false)
 	if err != nil {
 		msgConfig.Text = "❌ Error fetching medications."
 		return
@@ -1782,8 +1782,8 @@ func (b *Bot) handleNextIntakeCommand(msgConfig *tgbotapi.MessageConfig) {
 		slog.Error("send failed", "error", err)
 	} else {
 		for _, intakeID := range intakeByMedication {
-			if err := b.meds.AddIntakeReminder(intakeID, sent.MessageID); err != nil {
-				slog.Error("AddIntakeReminder error", "intakeID", intakeID, "error", err)
+			if err := b.meds.CreateIntakeReminder(intakeID, sent.MessageID); err != nil {
+				slog.Error("CreateIntakeReminder error", "intakeID", intakeID, "error", err)
 			}
 		}
 	}

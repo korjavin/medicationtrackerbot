@@ -13,13 +13,13 @@ func TestBatchGetIntakesBySchedule(t *testing.T) {
 	userID := int64(1)
 
 	// Create medications
-	medID1, err := db.CreateMedication("Med1", "10mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	medID1, err := db.Create("Med1", "10mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
-	medID2, err := db.CreateMedication("Med2", "20mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID2, err := db.Create("Med2", "20mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	// Create intakes
@@ -90,9 +90,9 @@ func TestBatchGetIntakesBySchedule_NonUTCLocation(t *testing.T) {
 
 
 	userID := int64(1)
-	medID, err := db.CreateMedication("Med1", "10mg", `{"type":"daily","times":["10:13"]}`, nil, nil, "", "", "")
+	medID, err := db.Create("Med1", "10mg", `{"type":"daily","times":["10:13"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	berlin, err := time.LoadLocation("Europe/Berlin")

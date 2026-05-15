@@ -24,11 +24,11 @@ var ErrNotFutureIntake = errors.New("intake is not a future pending dose")
 // MedicationStore is the narrow store interface required by MedicationService.
 type MedicationStore interface {
 	GetIntake(id int64) (*store.IntakeLog, error)
-	GetMedication(id int64) (*store.Medication, error)
-	GetIntakeReminders(intakeID int64) ([]int, error)
-	GetBatchIntakeReminders(intakeIDs []int64) (map[int64][]int, error)
-	GetPendingIntakes() ([]store.IntakeLog, error)
-	GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time) ([]store.IntakeLog, error)
+	Get(id int64) (*store.Medication, error)
+	ListIntakeReminders(intakeID int64) ([]int, error)
+	BatchGetIntakeReminders(intakeIDs []int64) (map[int64][]int, error)
+	ListPendingIntakes() ([]store.IntakeLog, error)
+	ListPendingIntakesBySchedule(userID int64, scheduledAt time.Time) ([]store.IntakeLog, error)
 	ConfirmIntake(id int64, takenAt time.Time) error
 	ConfirmIntakesBySchedule(userID int64, scheduledAt time.Time, takenAt time.Time) ([]int64, error)
 	SkipIntake(id int64) error
@@ -113,17 +113,17 @@ func (s *medicationService) ConfirmIntakeWithCleanup(intakeID int64, takenAt tim
 	// Fetch medication for supplement status and display name/dosage (best-effort).
 	isSupplement := false
 	medName, medDosage := "", ""
-	if med, err := s.store.GetMedication(intake.MedicationID); err != nil {
-		slog.Error("GetMedication for intake failed", "intakeID", intakeID, "error", err)
+	if med, err := s.store.Get(intake.MedicationID); err != nil {
+		slog.Error("Get for intake failed", "intakeID", intakeID, "error", err)
 	} else if med != nil {
 		isSupplement = med.Supplement
 		medName = med.Name
 		medDosage = med.Dosage
 	}
 
-	reminders, err := s.store.GetIntakeReminders(intakeID)
+	reminders, err := s.store.ListIntakeReminders(intakeID)
 	if err != nil {
-		slog.Error("GetIntakeReminders failed", "intakeID", intakeID, "error", err)
+		slog.Error("ListIntakeReminders failed", "intakeID", intakeID, "error", err)
 	}
 
 	if err := s.store.ConfirmIntake(intakeID, takenAt); err != nil {
@@ -152,16 +152,16 @@ func (s *medicationService) SkipIntake(intakeID int64) ([]int, string, string, e
 
 	// Fetch medication name/dosage for display (best-effort).
 	medName, medDosage := "", ""
-	if med, err := s.store.GetMedication(intake.MedicationID); err != nil {
-		slog.Error("GetMedication for intake failed", "intakeID", intakeID, "error", err)
+	if med, err := s.store.Get(intake.MedicationID); err != nil {
+		slog.Error("Get for intake failed", "intakeID", intakeID, "error", err)
 	} else if med != nil {
 		medName = med.Name
 		medDosage = med.Dosage
 	}
 
-	reminders, err := s.store.GetIntakeReminders(intakeID)
+	reminders, err := s.store.ListIntakeReminders(intakeID)
 	if err != nil {
-		slog.Error("GetIntakeReminders failed", "intakeID", intakeID, "error", err)
+		slog.Error("ListIntakeReminders failed", "intakeID", intakeID, "error", err)
 	}
 
 	if err := s.store.SkipIntake(intakeID); err != nil {
@@ -194,16 +194,16 @@ func (s *medicationService) LogMedicationAt(userID, medID int64, takenAt time.Ti
 }
 
 func (s *medicationService) ConfirmScheduleWithCleanup(userID int64, scheduledAt time.Time) ([]int, int, error) {
-	pending, err := s.store.GetPendingIntakesBySchedule(userID, scheduledAt)
+	pending, err := s.store.ListPendingIntakesBySchedule(userID, scheduledAt)
 	if err != nil {
 		return nil, 0, fmt.Errorf("get pending intakes by schedule: %w", err)
 	}
 
 	var allReminders []int
 	for _, p := range pending {
-		reminders, err := s.store.GetIntakeReminders(p.ID)
+		reminders, err := s.store.ListIntakeReminders(p.ID)
 		if err != nil {
-			slog.Error("GetIntakeReminders failed", "intakeID", p.ID, "error", err)
+			slog.Error("ListIntakeReminders failed", "intakeID", p.ID, "error", err)
 		}
 		allReminders = append(allReminders, reminders...)
 	}
@@ -231,7 +231,7 @@ func (s *medicationService) ConfirmScheduleWithCleanup(userID int64, scheduledAt
 }
 
 func (s *medicationService) ConfirmMedicationByMedID(medID int64, takenAt time.Time) ([]int, bool, string, string, error) {
-	pending, err := s.store.GetPendingIntakes()
+	pending, err := s.store.ListPendingIntakes()
 	if err != nil {
 		return nil, false, "", "", fmt.Errorf("get pending intakes: %w", err)
 	}
@@ -267,8 +267,8 @@ func (s *medicationService) CancelIntake(intakeID int64) (string, string, error)
 
 	// Fetch medication name/dosage for display (best-effort).
 	medName, medDosage := "", ""
-	if med, err := s.store.GetMedication(intake.MedicationID); err != nil {
-		slog.Error("GetMedication for intake failed", "intakeID", intakeID, "error", err)
+	if med, err := s.store.Get(intake.MedicationID); err != nil {
+		slog.Error("Get for intake failed", "intakeID", intakeID, "error", err)
 	} else if med != nil {
 		medName = med.Name
 		medDosage = med.Dosage
@@ -301,16 +301,16 @@ func (s *medicationService) DeleteFutureIntake(intakeID int64) ([]int, string, s
 	}
 
 	medName, medDosage := "", ""
-	if med, err := s.store.GetMedication(intake.MedicationID); err != nil {
-		slog.Error("GetMedication for intake failed", "intakeID", intakeID, "error", err)
+	if med, err := s.store.Get(intake.MedicationID); err != nil {
+		slog.Error("Get for intake failed", "intakeID", intakeID, "error", err)
 	} else if med != nil {
 		medName = med.Name
 		medDosage = med.Dosage
 	}
 
-	reminders, err := s.store.GetIntakeReminders(intakeID)
+	reminders, err := s.store.ListIntakeReminders(intakeID)
 	if err != nil {
-		slog.Error("GetIntakeReminders failed", "intakeID", intakeID, "error", err)
+		slog.Error("ListIntakeReminders failed", "intakeID", intakeID, "error", err)
 	}
 
 	if err := s.store.DeleteIntake(intakeID); err != nil {
@@ -329,9 +329,9 @@ func (s *medicationService) SilenceIntake(intakeID int64) ([]int, error) {
 		return nil, ErrNotPending
 	}
 
-	reminders, err := s.store.GetIntakeReminders(intakeID)
+	reminders, err := s.store.ListIntakeReminders(intakeID)
 	if err != nil {
-		slog.Error("GetIntakeReminders failed", "intakeID", intakeID, "error", err)
+		slog.Error("ListIntakeReminders failed", "intakeID", intakeID, "error", err)
 	}
 
 	snoozeUntil := time.Now().Add(24 * time.Hour)

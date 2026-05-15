@@ -74,17 +74,17 @@ func (a *storeAdapter) UpdateLastDownload(t time.Time) error {
 
 // --- Medication ---
 
-func (a *storeAdapter) ListMedications(showArchived bool) ([]store.Medication, error) {
-	return a.med.ListMedications(showArchived)
+func (a *storeAdapter) List(showArchived bool) ([]store.Medication, error) {
+	return a.med.List(showArchived)
 }
-func (a *storeAdapter) GetMedication(id int64) (*store.Medication, error) {
-	return a.med.GetMedication(id)
+func (a *storeAdapter) Get(id int64) (*store.Medication, error) {
+	return a.med.Get(id)
 }
 func (a *storeAdapter) CreateIntake(medID, userID int64, scheduledAt time.Time) (int64, error) {
 	return a.med.CreateIntake(medID, userID, scheduledAt)
 }
-func (a *storeAdapter) AddIntakeReminder(intakeID int64, msgID int) error {
-	return a.med.AddIntakeReminder(intakeID, msgID)
+func (a *storeAdapter) CreateIntakeReminder(intakeID int64, msgID int) error {
+	return a.med.CreateIntakeReminder(intakeID, msgID)
 }
 func (a *storeAdapter) GetIntake(id int64) (*store.IntakeLog, error) {
 	return a.med.GetIntake(id)
@@ -92,29 +92,29 @@ func (a *storeAdapter) GetIntake(id int64) (*store.IntakeLog, error) {
 func (a *storeAdapter) GetIntakeBySchedule(medID int64, scheduledAt time.Time) (*store.IntakeLog, error) {
 	return a.med.GetIntakeBySchedule(medID, scheduledAt)
 }
-func (a *storeAdapter) GetMedicationsLowOnStock(daysThreshold int) ([]store.Medication, error) {
-	return a.med.GetMedicationsLowOnStock(daysThreshold)
+func (a *storeAdapter) ListLowOnStock(daysThreshold int) ([]store.Medication, error) {
+	return a.med.ListLowOnStock(daysThreshold)
 }
 func (a *storeAdapter) GetDaysOfStockRemaining(m *store.Medication) *float64 {
 	return a.med.GetDaysOfStockRemaining(m)
 }
-func (a *storeAdapter) GetIntakesSince(since time.Time) ([]store.IntakeWithMedication, error) {
-	return a.med.GetIntakesSince(since)
+func (a *storeAdapter) ListIntakesSince(since time.Time) ([]store.IntakeWithMedication, error) {
+	return a.med.ListIntakesSince(since)
 }
 
 // Also satisfies domain.MedicationService's MedicationStore.
 
-func (a *storeAdapter) GetIntakeReminders(intakeID int64) ([]int, error) {
-	return a.med.GetIntakeReminders(intakeID)
+func (a *storeAdapter) ListIntakeReminders(intakeID int64) ([]int, error) {
+	return a.med.ListIntakeReminders(intakeID)
 }
-func (a *storeAdapter) GetBatchIntakeReminders(intakeIDs []int64) (map[int64][]int, error) {
-	return a.med.GetBatchIntakeReminders(intakeIDs)
+func (a *storeAdapter) BatchGetIntakeReminders(intakeIDs []int64) (map[int64][]int, error) {
+	return a.med.BatchGetIntakeReminders(intakeIDs)
 }
-func (a *storeAdapter) GetPendingIntakes() ([]store.IntakeLog, error) {
-	return a.med.GetPendingIntakes()
+func (a *storeAdapter) ListPendingIntakes() ([]store.IntakeLog, error) {
+	return a.med.ListPendingIntakes()
 }
-func (a *storeAdapter) GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time) ([]store.IntakeLog, error) {
-	return a.med.GetPendingIntakesBySchedule(userID, scheduledAt)
+func (a *storeAdapter) ListPendingIntakesBySchedule(userID int64, scheduledAt time.Time) ([]store.IntakeLog, error) {
+	return a.med.ListPendingIntakesBySchedule(userID, scheduledAt)
 }
 func (a *storeAdapter) ConfirmIntake(id int64, takenAt time.Time) error {
 	return a.med.ConfirmIntake(id, takenAt)

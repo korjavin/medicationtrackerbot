@@ -54,13 +54,13 @@ func (c *triggerCtx) callTrigger(userID int64) (map[string]any, int) {
 
 func mustCreateMed(t *testing.T, db *store.Store, name, dosage, schedule, policy string) int64 {
 	t.Helper()
-	id, err := db.Medication.CreateMedication(name, dosage, schedule, nil, nil, "", "", policy)
+	id, err := db.Medication.Create(name, dosage, schedule, nil, nil, "", "", policy)
 	if err != nil {
-		t.Fatalf("CreateMedication %s: %v", name, err)
+		t.Fatalf("Create %s: %v", name, err)
 	}
 	// Anchor created_at safely in the past so target.Before(med.CreatedAt) checks pass.
-	if err := db.Medication.UpdateMedicationCreatedAt(id, time.Now().AddDate(0, 0, -30)); err != nil {
-		t.Fatalf("UpdateMedicationCreatedAt %s: %v", name, err)
+	if err := db.Medication.UpdateCreatedAt(id, time.Now().AddDate(0, 0, -30)); err != nil {
+		t.Fatalf("UpdateCreatedAt %s: %v", name, err)
 	}
 	return id
 }

@@ -60,7 +60,7 @@ func (c *LowStockChecker) Check(_ context.Context) error {
 		}
 	}
 
-	meds, err := c.store.GetMedicationsLowOnStock(7)
+	meds, err := c.store.ListLowOnStock(7)
 	if err != nil {
 		slog.Error("Error checking low stock", "error", err)
 		return nil

@@ -258,12 +258,12 @@ Already minimal: `Create`, `List`, `Delete`. No renames.
 
 ### Task 2: Rename medication repo methods
 
-- [ ] apply rename mapping to `internal/store/medication/` (e.g. `CreateMedication` → `Create`, `AddRestock` → `CreateRestock`, `AddIntakeReminder` → `CreateIntakeReminder`)
-- [ ] update consumer interfaces in `internal/server/store_interfaces.go` and `internal/bot/store_interfaces.go` to match
-- [ ] update adapter forwarders in `internal/scheduler/adapter.go`, `internal/bot/adapter.go`, `internal/mcp/adapter.go`, `cmd/bot/tz_planner_adapter.go` where they touch medication
-- [ ] update MCP registry operation handlers in `internal/mcp/registry/operations_medication*.go` if they reference renamed methods
-- [ ] update tests inside `internal/store/medication/` and any caller tests
-- [ ] run project tests - must pass (`go test ./...`, `go test -race ./...`, `golangci-lint run`)
+- [x] apply rename mapping to `internal/store/medication/` (e.g. `CreateMedication` → `Create`, `AddRestock` → `CreateRestock`, `AddIntakeReminder` → `CreateIntakeReminder`)
+- [x] update consumer interfaces in `internal/server/store_interfaces.go` and `internal/bot/store_interfaces.go` to match
+- [x] update adapter forwarders in `internal/scheduler/adapter.go`, `internal/bot/adapter.go`, `internal/mcp/adapter.go`, `cmd/bot/tz_planner_adapter.go` where they touch medication
+- [x] update MCP registry operation handlers in `internal/mcp/registry/operations_medication*.go` if they reference renamed methods
+- [x] update tests inside `internal/store/medication/` and any caller tests
+- [x] run project tests - must pass (`go test ./...`, `go test -race ./...`, `golangci-lint run`)
 
 ### Task 3: Rename BP repo methods
 

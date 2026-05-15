@@ -57,8 +57,8 @@ func TestAnalyzeCardiovascular_AllDomains(t *testing.T) {
 	}
 
 	// Add medication
-	if _, err := st.Medication.CreateMedication("Lisinopril", "10mg", "09:00", nil, nil, "", "", "flexible"); err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+	if _, err := st.Medication.Create("Lisinopril", "10mg", "09:00", nil, nil, "", "", "flexible"); err != nil {
+		t.Fatalf("Create: %v", err)
 	}
 
 	// Add sleep log

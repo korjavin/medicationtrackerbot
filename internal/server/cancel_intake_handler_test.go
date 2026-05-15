@@ -14,7 +14,7 @@ func TestHandleCancelIntake_Success(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	medID, _ := db.Medication.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, _ := db.Medication.Create("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	count := 10
 	db.Medication.SetInventory(medID, &count)
 
@@ -55,7 +55,7 @@ func TestHandleCancelIntake_Success(t *testing.T) {
 	}
 
 	// Inventory should be restored: was 10, decremented to 9 on confirm, incremented back to 10 on cancel
-	med, _ := db.Medication.GetMedication(medID)
+	med, _ := db.Medication.Get(medID)
 	if med.InventoryCount == nil {
 		t.Error("Expected inventory count to be set")
 	} else if *med.InventoryCount != 10 {
@@ -68,7 +68,7 @@ func TestHandleCancelIntake_NotTaken_Skipped(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	medID, _ := db.Medication.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, _ := db.Medication.Create("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 
 	// Create intake but don't confirm it (stays PENDING)
 	intakeID, _ := db.Medication.CreateIntake(medID, userID, time.Now())
