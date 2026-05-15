@@ -150,8 +150,8 @@ Steps:
 
 ### Task 6: Update documentation
 
-- [ ] no CLAUDE.md change required — the domain-service rule is a *production code* rule, not a "must have unit tests with mocks" rule. Confirm this by re-reading the rule and verifying it still reads correctly after the deletions.
-- [ ] no `docs/architecture.md` change unless we want to document the testing posture explicitly. If documenting: append a short paragraph stating "domain services are tested end-to-end via handler tests against the real store; package-level domain mock-spy tests are not added." Decide at execution time; skip if redundant with the deletions themselves.
+- [x] no CLAUDE.md change required — the domain-service rule is a *production code* rule, not a "must have unit tests with mocks" rule. Confirmed: rule 1 says "Bot callbacks and HTTP handlers may only call `internal/domain/*` services" / "both transports must share the same code path" — both still true after Task 3, since only test files were deleted, not production code. No change made.
+- [x] updated `docs/architecture.md:240` — the existing "Testing Patterns" bullet ("Domain service tests use mock store structs … with table-driven cases") was stale after Task 3 deleted those mock-spy tests. Replaced with: "Domain services are tested end-to-end via handler tests against the real store (`internal/server/*_test.go` for HTTP, `internal/bot/*_test.go` for bot callbacks). Both transports share the same domain code path, so handler-level coverage validates the contract — package-level mock-spy tests under `internal/domain/` are intentionally not maintained." This is a doc *correction* (existing line contradicted current reality), not a redundant addition.
 
 *Note: ralphex automatically moves completed plans to `docs/plans/completed/`*
 
