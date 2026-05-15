@@ -264,17 +264,17 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	}
 
 	weightSince := now.AddDate(0, 0, -35)
-	weightLogs, err := s.weight.GetWeightLogs(ctx, userID, weightSince)
+	weightLogs, err := s.weight.ListLogs(ctx, userID, weightSince)
 	if err != nil {
 		slog.Error("bootstrap weight logs query failed", "error", err)
 		weightLogs = []store.WeightLog{}
 	}
-	weightGoal, err := s.weight.GetWeightGoal()
+	weightGoal, err := s.weight.GetGoal()
 	if err != nil {
 		slog.Error("bootstrap weight goal query failed", "error", err)
 		weightGoal = nil
 	}
-	highestRecord, err := s.weight.GetHighestWeightRecord(ctx, userID)
+	highestRecord, err := s.weight.GetHighestLog(ctx, userID)
 	if err != nil {
 		slog.Error("bootstrap highest weight query failed", "error", err)
 		highestRecord = nil
@@ -299,7 +299,7 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		slog.Error("bootstrap bp reminder state query failed", "error", err)
 		bpReminderStatus = nil
 	}
-	weightReminderStatus, err := s.weight.GetWeightReminderState(userID)
+	weightReminderStatus, err := s.weight.GetReminderState(userID)
 	if err != nil {
 		slog.Error("bootstrap weight reminder state query failed", "error", err)
 		weightReminderStatus = nil
@@ -329,7 +329,7 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		dismissedTZSuggestion = ""
 	}
 
-	weightUnitPreference, err := s.weight.GetWeightUnitPreference(ctx)
+	weightUnitPreference, err := s.weight.GetUnitPreference(ctx)
 	if err != nil {
 		slog.Error("bootstrap weight unit preference query failed", "error", err)
 		weightUnitPreference = "kg"
@@ -471,7 +471,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	weightUnitPreference, err := s.weight.GetWeightUnitPreference(ctx)
+	weightUnitPreference, err := s.weight.GetUnitPreference(ctx)
 	if err != nil {
 		slog.Error("get settings weight unit preference failed", "error", err)
 		weightUnitPreference = "kg"
@@ -497,7 +497,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 			slog.Error("get settings bp reminder state failed", "error", err)
 			bpReminderStatus = nil
 		}
-		weightReminderStatus, err = s.weight.GetWeightReminderState(tgUser.ID)
+		weightReminderStatus, err = s.weight.GetReminderState(tgUser.ID)
 		if err != nil {
 			slog.Error("get settings weight reminder state failed", "error", err)
 			weightReminderStatus = nil
@@ -650,7 +650,7 @@ func (s *Server) handleSetWeightUnitPreference(w http.ResponseWriter, r *http.Re
 		http.Error(w, "unit must be 'kg' or 'lb'", http.StatusBadRequest)
 		return
 	}
-	if err := s.weight.SetWeightUnitPreference(r.Context(), req.Unit); err != nil {
+	if err := s.weight.SetUnitPreference(r.Context(), req.Unit); err != nil {
 		slog.Error("set weight unit preference failed", "error", err, "unit", req.Unit)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

@@ -743,7 +743,7 @@ func TestSendWeightReminder_StoresMsgID(t *testing.T) {
 	sched, db, mock := setupTestSchedulerWithMock(t)
 	mock.sendMsgID = 888
 
-	if err := db.Weight.SetWeightReminderEnabled(123456, true); err != nil {
+	if err := db.Weight.SetReminderEnabled(123456, true); err != nil {
 		t.Fatalf("SetWeightReminderEnabled: %v", err)
 	}
 
@@ -752,7 +752,7 @@ func TestSendWeightReminder_StoresMsgID(t *testing.T) {
 		t.Fatalf("sendWeightReminder: %v", err)
 	}
 
-	state, err := db.Weight.GetWeightReminderState(123456)
+	state, err := db.Weight.GetReminderState(123456)
 	if err != nil {
 		t.Fatalf("GetWeightReminderState: %v", err)
 	}
@@ -954,7 +954,7 @@ func TestMultipleNotifiers_BothCalled(t *testing.T) {
 	m2 := &mockNotifier{sendMsgID: 0}
 	sched := New(db, 123456, []notifier.Notifier{m1, m2})
 
-	if err := db.Weight.SetWeightReminderEnabled(123456, true); err != nil {
+	if err := db.Weight.SetReminderEnabled(123456, true); err != nil {
 		t.Fatalf("SetWeightReminderEnabled: %v", err)
 	}
 
@@ -984,7 +984,7 @@ func TestMultipleNotifiers_PartialFailure_StillSucceeds(t *testing.T) {
 	working := &mockNotifier{sendMsgID: 0}
 	sched := New(db, 123456, []notifier.Notifier{failing, working})
 
-	if err := db.Weight.SetWeightReminderEnabled(123456, true); err != nil {
+	if err := db.Weight.SetReminderEnabled(123456, true); err != nil {
 		t.Fatalf("SetWeightReminderEnabled: %v", err)
 	}
 

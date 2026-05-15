@@ -31,7 +31,7 @@ func float64Ptr(v float64) *float64 {
 	return &v
 }
 
-func TestCreateWeightLogAllFields(t *testing.T) {
+func TestCreateLogAllFields(t *testing.T) {
 	r := setupWeightRepo(t)
 	ctx := context.Background()
 
@@ -48,16 +48,16 @@ func TestCreateWeightLogAllFields(t *testing.T) {
 		Notes:           "Morning measurement",
 	}
 
-	id, err := r.CreateWeightLog(ctx, w)
+	id, err := r.CreateLog(ctx, w)
 	if err != nil {
-		t.Fatalf("CreateWeightLog failed: %v", err)
+		t.Fatalf("CreateLog failed: %v", err)
 	}
 	if id == 0 {
 		t.Fatal("Expected non-zero ID")
 	}
 }
 
-func TestCreateWeightLogMinimal(t *testing.T) {
+func TestCreateLogMinimal(t *testing.T) {
 	r := setupWeightRepo(t)
 	ctx := context.Background()
 
@@ -67,16 +67,16 @@ func TestCreateWeightLogMinimal(t *testing.T) {
 		Weight:     80.0,
 	}
 
-	id, err := r.CreateWeightLog(ctx, w)
+	id, err := r.CreateLog(ctx, w)
 	if err != nil {
-		t.Fatalf("CreateWeightLog failed: %v", err)
+		t.Fatalf("CreateLog failed: %v", err)
 	}
 	if id == 0 {
 		t.Fatal("Expected non-zero ID")
 	}
 }
 
-func TestGetWeightLogsOrderedByDateDesc(t *testing.T) {
+func TestListLogsOrderedByDateDesc(t *testing.T) {
 	r := setupWeightRepo(t)
 	ctx := context.Background()
 
@@ -88,14 +88,14 @@ func TestGetWeightLogsOrderedByDateDesc(t *testing.T) {
 			MeasuredAt: base.Add(time.Duration(i) * 24 * time.Hour),
 			Weight:     80.0 + float64(i),
 		}
-		if _, err := r.CreateWeightLog(ctx, w); err != nil {
-			t.Fatalf("CreateWeightLog failed: %v", err)
+		if _, err := r.CreateLog(ctx, w); err != nil {
+			t.Fatalf("CreateLog failed: %v", err)
 		}
 	}
 
-	logs, err := r.GetWeightLogs(ctx, 123, base.Add(-24*time.Hour))
+	logs, err := r.ListLogs(ctx, 123, base.Add(-24*time.Hour))
 	if err != nil {
-		t.Fatalf("GetWeightLogs failed: %v", err)
+		t.Fatalf("ListLogs failed: %v", err)
 	}
 	if len(logs) != 3 {
 		t.Fatalf("Expected 3 logs, got %d", len(logs))
@@ -107,7 +107,7 @@ func TestGetWeightLogsOrderedByDateDesc(t *testing.T) {
 	}
 }
 
-func TestGetWeightLogsSinceFilter(t *testing.T) {
+func TestListLogsSinceFilter(t *testing.T) {
 	r := setupWeightRepo(t)
 	ctx := context.Background()
 
@@ -119,23 +119,23 @@ func TestGetWeightLogsSinceFilter(t *testing.T) {
 			MeasuredAt: base.Add(time.Duration(i) * 24 * time.Hour),
 			Weight:     80.0 + float64(i),
 		}
-		if _, err := r.CreateWeightLog(ctx, w); err != nil {
-			t.Fatalf("CreateWeightLog failed: %v", err)
+		if _, err := r.CreateLog(ctx, w); err != nil {
+			t.Fatalf("CreateLog failed: %v", err)
 		}
 	}
 
 	// Only get logs from day 3 onwards
 	since := base.Add(2 * 24 * time.Hour)
-	logs, err := r.GetWeightLogs(ctx, 123, since)
+	logs, err := r.ListLogs(ctx, 123, since)
 	if err != nil {
-		t.Fatalf("GetWeightLogs failed: %v", err)
+		t.Fatalf("ListLogs failed: %v", err)
 	}
 	if len(logs) < 2 {
 		t.Fatalf("Expected at least 2 logs since filter, got %d", len(logs))
 	}
 }
 
-func TestDeleteWeightLogSuccess(t *testing.T) {
+func TestDeleteLogSuccess(t *testing.T) {
 	r := setupWeightRepo(t)
 	ctx := context.Background()
 
@@ -144,18 +144,18 @@ func TestDeleteWeightLogSuccess(t *testing.T) {
 		MeasuredAt: time.Now().UTC().Truncate(time.Second),
 		Weight:     80.0,
 	}
-	id, err := r.CreateWeightLog(ctx, w)
+	id, err := r.CreateLog(ctx, w)
 	if err != nil {
-		t.Fatalf("CreateWeightLog failed: %v", err)
+		t.Fatalf("CreateLog failed: %v", err)
 	}
 
-	err = r.DeleteWeightLog(ctx, id, 123)
+	err = r.DeleteLog(ctx, id, 123)
 	if err != nil {
-		t.Fatalf("DeleteWeightLog failed: %v", err)
+		t.Fatalf("DeleteLog failed: %v", err)
 	}
 }
 
-func TestDeleteWeightLogWrongUser(t *testing.T) {
+func TestDeleteLogWrongUser(t *testing.T) {
 	r := setupWeightRepo(t)
 	ctx := context.Background()
 
@@ -164,28 +164,28 @@ func TestDeleteWeightLogWrongUser(t *testing.T) {
 		MeasuredAt: time.Now().UTC().Truncate(time.Second),
 		Weight:     80.0,
 	}
-	id, err := r.CreateWeightLog(ctx, w)
+	id, err := r.CreateLog(ctx, w)
 	if err != nil {
-		t.Fatalf("CreateWeightLog failed: %v", err)
+		t.Fatalf("CreateLog failed: %v", err)
 	}
 
-	err = r.DeleteWeightLog(ctx, id, 999)
+	err = r.DeleteLog(ctx, id, 999)
 	if !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("Expected sql.ErrNoRows for wrong user, got: %v", err)
 	}
 }
 
-func TestDeleteWeightLogNotFound(t *testing.T) {
+func TestDeleteLogNotFound(t *testing.T) {
 	r := setupWeightRepo(t)
 	ctx := context.Background()
 
-	err := r.DeleteWeightLog(ctx, 99999, 123)
+	err := r.DeleteLog(ctx, 99999, 123)
 	if !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("Expected sql.ErrNoRows for non-existent log, got: %v", err)
 	}
 }
 
-func TestGetLastWeightLogReturnsMostRecent(t *testing.T) {
+func TestGetLastLogReturnsMostRecent(t *testing.T) {
 	r := setupWeightRepo(t)
 	ctx := context.Background()
 
@@ -197,8 +197,8 @@ func TestGetLastWeightLogReturnsMostRecent(t *testing.T) {
 		MeasuredAt: base,
 		Weight:     80.0,
 	}
-	if _, err := r.CreateWeightLog(ctx, w1); err != nil {
-		t.Fatalf("CreateWeightLog failed: %v", err)
+	if _, err := r.CreateLog(ctx, w1); err != nil {
+		t.Fatalf("CreateLog failed: %v", err)
 	}
 
 	// Insert newer entry
@@ -207,13 +207,13 @@ func TestGetLastWeightLogReturnsMostRecent(t *testing.T) {
 		MeasuredAt: base.Add(48 * time.Hour),
 		Weight:     81.5,
 	}
-	if _, err := r.CreateWeightLog(ctx, w2); err != nil {
-		t.Fatalf("CreateWeightLog failed: %v", err)
+	if _, err := r.CreateLog(ctx, w2); err != nil {
+		t.Fatalf("CreateLog failed: %v", err)
 	}
 
-	last, err := r.GetLastWeightLog(ctx, 123)
+	last, err := r.GetLastLog(ctx, 123)
 	if err != nil {
-		t.Fatalf("GetLastWeightLog failed: %v", err)
+		t.Fatalf("GetLastLog failed: %v", err)
 	}
 	if last == nil {
 		t.Fatal("Expected non-nil result")
@@ -223,20 +223,20 @@ func TestGetLastWeightLogReturnsMostRecent(t *testing.T) {
 	}
 }
 
-func TestGetLastWeightLogEmpty(t *testing.T) {
+func TestGetLastLogEmpty(t *testing.T) {
 	r := setupWeightRepo(t)
 	ctx := context.Background()
 
-	last, err := r.GetLastWeightLog(ctx, 123)
+	last, err := r.GetLastLog(ctx, 123)
 	if err != nil {
-		t.Fatalf("GetLastWeightLog failed: %v", err)
+		t.Fatalf("GetLastLog failed: %v", err)
 	}
 	if last != nil {
 		t.Fatalf("Expected nil for empty table, got %+v", last)
 	}
 }
 
-func TestGetHighestWeightRecord(t *testing.T) {
+func TestGetHighestLog(t *testing.T) {
 	r := setupWeightRepo(t)
 	ctx := context.Background()
 
@@ -249,14 +249,14 @@ func TestGetHighestWeightRecord(t *testing.T) {
 			MeasuredAt: base.Add(time.Duration(i) * 24 * time.Hour),
 			Weight:     w,
 		}
-		if _, err := r.CreateWeightLog(ctx, log); err != nil {
-			t.Fatalf("CreateWeightLog failed: %v", err)
+		if _, err := r.CreateLog(ctx, log); err != nil {
+			t.Fatalf("CreateLog failed: %v", err)
 		}
 	}
 
-	highest, err := r.GetHighestWeightRecord(ctx, 123)
+	highest, err := r.GetHighestLog(ctx, 123)
 	if err != nil {
-		t.Fatalf("GetHighestWeightRecord failed: %v", err)
+		t.Fatalf("GetHighestLog failed: %v", err)
 	}
 	if highest == nil {
 		t.Fatal("Expected non-nil result")
@@ -266,31 +266,31 @@ func TestGetHighestWeightRecord(t *testing.T) {
 	}
 }
 
-func TestGetHighestWeightRecordEmpty(t *testing.T) {
+func TestGetHighestLogEmpty(t *testing.T) {
 	r := setupWeightRepo(t)
 	ctx := context.Background()
 
-	highest, err := r.GetHighestWeightRecord(ctx, 123)
+	highest, err := r.GetHighestLog(ctx, 123)
 	if err != nil {
-		t.Fatalf("GetHighestWeightRecord failed: %v", err)
+		t.Fatalf("GetHighestLog failed: %v", err)
 	}
 	if highest != nil {
 		t.Fatalf("Expected nil for empty table, got %+v", highest)
 	}
 }
 
-func TestSetAndGetWeightGoal(t *testing.T) {
+func TestSetAndGetGoal(t *testing.T) {
 	r := setupWeightRepo(t)
 
 	targetDate := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
-	err := r.SetWeightGoal(75.0, targetDate)
+	err := r.SetGoal(75.0, targetDate)
 	if err != nil {
-		t.Fatalf("SetWeightGoal failed: %v", err)
+		t.Fatalf("SetGoal failed: %v", err)
 	}
 
-	goal, err := r.GetWeightGoal()
+	goal, err := r.GetGoal()
 	if err != nil {
-		t.Fatalf("GetWeightGoal failed: %v", err)
+		t.Fatalf("GetGoal failed: %v", err)
 	}
 	if goal == nil {
 		t.Fatal("Expected non-nil goal")
@@ -306,12 +306,12 @@ func TestSetAndGetWeightGoal(t *testing.T) {
 	}
 }
 
-func TestGetWeightGoalEmpty(t *testing.T) {
+func TestGetGoalEmpty(t *testing.T) {
 	r := setupWeightRepo(t)
 
-	goal, err := r.GetWeightGoal()
+	goal, err := r.GetGoal()
 	if err != nil {
-		t.Fatalf("GetWeightGoal failed: %v", err)
+		t.Fatalf("GetGoal failed: %v", err)
 	}
 	if goal == nil {
 		t.Fatal("Expected non-nil WeightGoal (empty struct)")

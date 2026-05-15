@@ -149,31 +149,36 @@ func (a *storeAdapter) SnoozeReminder(userID int64) error    { return a.bp.Snooz
 func (a *storeAdapter) DontBugMeReminder(userID int64) error { return a.bp.DontBugMeReminder(userID) }
 
 // --- Weight ---
+//
+// Adapter method names keep the "Weight" disambiguator so the bot's narrow
+// interfaces (WeightStore, ReminderStore) can coexist with the BP-side methods
+// of the same shape (GetGoal, SnoozeReminder, …) on this single struct. Each
+// method bridges to the renamed weight.Repo method.
 
 func (a *storeAdapter) GetLastWeightLog(ctx context.Context, userID int64) (*store.WeightLog, error) {
-	return a.weight.GetLastWeightLog(ctx, userID)
+	return a.weight.GetLastLog(ctx, userID)
 }
 func (a *storeAdapter) CreateWeightLog(ctx context.Context, w *store.WeightLog) (int64, error) {
-	return a.weight.CreateWeightLog(ctx, w)
+	return a.weight.CreateLog(ctx, w)
 }
 func (a *storeAdapter) GetWeightLogs(ctx context.Context, userID int64, since time.Time) ([]store.WeightLog, error) {
-	return a.weight.GetWeightLogs(ctx, userID, since)
+	return a.weight.ListLogs(ctx, userID, since)
 }
-func (a *storeAdapter) GetWeightGoal() (*store.WeightGoal, error) { return a.weight.GetWeightGoal() }
+func (a *storeAdapter) GetWeightGoal() (*store.WeightGoal, error) { return a.weight.GetGoal() }
 func (a *storeAdapter) SetWeightGoal(w float64, td time.Time) error {
-	return a.weight.SetWeightGoal(w, td)
+	return a.weight.SetGoal(w, td)
 }
 func (a *storeAdapter) SnoozeWeightReminder(userID int64) error {
-	return a.weight.SnoozeWeightReminder(userID)
+	return a.weight.SnoozeReminder(userID)
 }
 func (a *storeAdapter) DontBugMeWeightReminder(userID int64) error {
-	return a.weight.DontBugMeWeightReminder(userID)
+	return a.weight.DontBugMeReminder(userID)
 }
 func (a *storeAdapter) GetWeightUnitPreference(ctx context.Context) (string, error) {
-	return a.weight.GetWeightUnitPreference(ctx)
+	return a.weight.GetUnitPreference(ctx)
 }
 func (a *storeAdapter) SetWeightUnitPreference(ctx context.Context, unit string) error {
-	return a.weight.SetWeightUnitPreference(ctx, unit)
+	return a.weight.SetUnitPreference(ctx, unit)
 }
 
 // --- Food ---

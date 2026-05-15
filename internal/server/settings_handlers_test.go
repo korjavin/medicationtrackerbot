@@ -622,7 +622,7 @@ func TestHandleGetSettings_FullBundle(t *testing.T) {
 	if err := db.TZ.RecordTimezone("Europe/Berlin"); err != nil {
 		t.Fatalf("RecordTimezone: %v", err)
 	}
-	if err := db.Weight.SetWeightUnitPreference(ctx, "lb"); err != nil {
+	if err := db.Weight.SetUnitPreference(ctx, "lb"); err != nil {
 		t.Fatalf("SetWeightUnitPreference: %v", err)
 	}
 	if err := db.Settings.SetBloodPressureEnabled(ctx, false); err != nil {
@@ -637,7 +637,7 @@ func TestHandleGetSettings_FullBundle(t *testing.T) {
 	if err := db.BP.SetReminderEnabled(userID, false); err != nil {
 		t.Fatalf("SetReminderEnabled: %v", err)
 	}
-	if _, err := db.Weight.GetWeightReminderState(userID); err != nil { // creates default row
+	if _, err := db.Weight.GetReminderState(userID); err != nil { // creates default row
 		t.Fatalf("seed GetWeightReminderState: %v", err)
 	}
 	if err := db.Settings.SetTabOrder(ctx, `["food","bp","weight"]`); err != nil {

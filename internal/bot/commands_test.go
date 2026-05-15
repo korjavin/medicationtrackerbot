@@ -74,7 +74,7 @@ func TestHandleWeightCommand(t *testing.T) {
 		t.Fatal("Timeout waiting for weight response")
 	}
 	// Verify it's in the store
-	logs, err := env.s.Weight.GetWeightLogs(context.Background(), 123456, time.Time{})
+	logs, err := env.s.Weight.ListLogs(context.Background(), 123456, time.Time{})
 	if err != nil {
 		t.Fatalf("Error getting weight logs: %v", err)
 	}

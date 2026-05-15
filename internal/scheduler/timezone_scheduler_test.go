@@ -142,7 +142,7 @@ func TestWeightReminderChecker_UsesUserTimezone(t *testing.T) {
 	}
 
 	userID := int64(123456)
-	if err := db.Weight.SetWeightReminderEnabled(userID, true); err != nil {
+	if err := db.Weight.SetReminderEnabled(userID, true); err != nil {
 		t.Fatalf("SetWeightReminderEnabled: %v", err)
 	}
 
@@ -154,7 +154,7 @@ func TestWeightReminderChecker_UsesUserTimezone(t *testing.T) {
 	nowTime := time.Date(2024, 1, 15, 14, 0, 0, 0, time.UTC)
 
 	// Old weight log (>7 days ago) so reminder fires.
-	_, err = db.Weight.CreateWeightLog(context.Background(), &store.WeightLog{
+	_, err = db.Weight.CreateLog(context.Background(), &store.WeightLog{
 		UserID:     userID,
 		Weight:     75.0,
 		MeasuredAt: nowTime.Add(-8 * 24 * time.Hour),
@@ -164,7 +164,7 @@ func TestWeightReminderChecker_UsesUserTimezone(t *testing.T) {
 	}
 
 	// Preferred hour = 9 (matches New York hour, not UTC hour 14).
-	if err := db.Weight.UpdatePreferredWeightReminderHour(userID, 9); err != nil {
+	if err := db.Weight.UpdatePreferredReminderHour(userID, 9); err != nil {
 		t.Fatalf("UpdatePreferredWeightReminderHour: %v", err)
 	}
 

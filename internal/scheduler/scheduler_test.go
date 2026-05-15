@@ -399,11 +399,11 @@ func TestCheckWeightReminders_UserSnoozed(t *testing.T) {
 	sched, db := setupTestScheduler(t)
 	userID := int64(123456)
 
-	if err := db.Weight.SetWeightReminderEnabled(userID, true); err != nil {
+	if err := db.Weight.SetReminderEnabled(userID, true); err != nil {
 		t.Fatalf("SetWeightReminderEnabled: %v", err)
 	}
 
-	if err := db.Weight.SnoozeWeightReminder(userID); err != nil {
+	if err := db.Weight.SnoozeReminder(userID); err != nil {
 		t.Fatalf("SnoozeWeightReminder: %v", err)
 	}
 
@@ -417,12 +417,12 @@ func TestCheckWeightReminders_RecentMeasurement(t *testing.T) {
 	sched, db := setupTestScheduler(t)
 	userID := int64(123456)
 
-	if err := db.Weight.SetWeightReminderEnabled(userID, true); err != nil {
+	if err := db.Weight.SetReminderEnabled(userID, true); err != nil {
 		t.Fatalf("SetWeightReminderEnabled: %v", err)
 	}
 
 	ctx := context.Background()
-	_, err := db.Weight.CreateWeightLog(ctx, &store.WeightLog{
+	_, err := db.Weight.CreateLog(ctx, &store.WeightLog{
 		UserID:     userID,
 		Weight:     75.0,
 		MeasuredAt: time.Now(),
@@ -441,11 +441,11 @@ func TestCheckWeightReminders_DontRemindUntilActive(t *testing.T) {
 	sched, db := setupTestScheduler(t)
 	userID := int64(123456)
 
-	if err := db.Weight.SetWeightReminderEnabled(userID, true); err != nil {
+	if err := db.Weight.SetReminderEnabled(userID, true); err != nil {
 		t.Fatalf("SetWeightReminderEnabled: %v", err)
 	}
 
-	if err := db.Weight.DontBugMeWeightReminder(userID); err != nil {
+	if err := db.Weight.DontBugMeReminder(userID); err != nil {
 		t.Fatalf("DontBugMeWeightReminder: %v", err)
 	}
 

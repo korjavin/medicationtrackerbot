@@ -348,7 +348,7 @@ func TestHandleGetWeight_WithData(t *testing.T) {
 		t.Fatalf("SetWeightEnabled: %v", err)
 	}
 
-	_, err := st.Weight.CreateWeightLog(ctx, &store.WeightLog{
+	_, err := st.Weight.CreateLog(ctx, &store.WeightLog{
 		UserID:     123456,
 		MeasuredAt: time.Date(2026, 2, 18, 8, 0, 0, 0, time.UTC),
 		Weight:     75.5,
@@ -1257,11 +1257,11 @@ func TestHandleGetWeight_UnitPreferenceDoesNotLeak(t *testing.T) {
 		t.Fatalf("SetWeightEnabled: %v", err)
 	}
 	// Flip the user's unit preference to lb. The MCP response must remain in kg.
-	if err := st.Weight.SetWeightUnitPreference(ctx, "lb"); err != nil {
+	if err := st.Weight.SetUnitPreference(ctx, "lb"); err != nil {
 		t.Fatalf("SetWeightUnitPreference: %v", err)
 	}
 
-	_, err := st.Weight.CreateWeightLog(ctx, &store.WeightLog{
+	_, err := st.Weight.CreateLog(ctx, &store.WeightLog{
 		UserID:     123456,
 		MeasuredAt: time.Date(2026, 2, 18, 8, 0, 0, 0, time.UTC),
 		Weight:     75.5, // stored in kg
