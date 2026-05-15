@@ -92,9 +92,9 @@ Reduce the 203-file frontend test suite to roughly the 150-file target by (1) co
 - Delete: `web/static/js/tests/sync.fallback-branches.test.js`
 - Delete: `web/static/js/tests/sync.misc.test.js`
 
-- [ ] for each file: skim assertions and confirm each is duplicated by a feature test (`features.*`, `workout.*`, `sync.manager-flow`, `sync.retry`, `meds.*`, `bp.*`, `food.*`, `weight.*`, `today.*`). The criterion is the externally-observable behavior, not the spy call counts on internal helpers.
-- [ ] where an assertion targets a real user behavior not covered elsewhere (e.g., the offline-fallback render path), migrate that single assertion into the feature suite (e.g., `bp.render.test.js`, `sync.manager-flow.test.js`) before deleting the source file
-- [ ] delete files in two batches (app.* first, workout/sync second), running `pnpm test` between batches to catch unexpected dependencies
+- [x] for each file: skim assertions and confirm each is duplicated by a feature test (`features.*`, `workout.*`, `sync.manager-flow`, `sync.retry`, `meds.*`, `bp.*`, `food.*`, `weight.*`, `today.*`). The criterion is the externally-observable behavior, not the spy call counts on internal helpers.
+- [x] where an assertion targets a real user behavior not covered elsewhere (e.g., the offline-fallback render path), migrate that single assertion into the feature suite (e.g., `bp.render.test.js`, `sync.manager-flow.test.js`) before deleting the source file
+- [x] delete files in two batches (app.* first, workout/sync second), running `pnpm test` between batches to catch unexpected dependencies
 
 ### Task 5: Trim duplicate app.* form / push / modal suites
 
