@@ -103,17 +103,27 @@ and recommended-priority item #2.
 
 ### Task 2: Migrate direct-fetch call sites in `features/food.js`
 
-- [ ] replace `headers = { "X-Telegram-Init-Data": userInitData }` at
+Note: features/food.js was previously split into per-concern sub-files
+under features/food/, so the 4 call sites referenced by line number in
+the original plan now live as:
+  - food/products.js: streaming name search (was :345)
+  - food/products.js: streaming barcode search (was :492)
+  - food/photo.js: multipart POST /api/food/log/from-photo (was :1041)
+  - food/photo.js: Undo DELETE /api/food/log/{id} (was :2609)
+None of the four sites have a JSON body, so the plain
+`makeAuthHeaders()` form applies to all of them.
+
+- [x] replace `headers = { "X-Telegram-Init-Data": userInitData }` at
   `features/food.js:345` with `headers = window.makeAuthHeaders()`
-- [ ] same for `features/food.js:492`
-- [ ] same for `features/food.js:1041` (use
+- [x] same for `features/food.js:492`
+- [x] same for `features/food.js:1041` (use
   `makeAuthHeaders({ 'Content-Type': 'application/json' })` if the
   request has a body — verify per call site)
-- [ ] same for `features/food.js:2609`
-- [ ] write tests in `web/static/js/tests/food.auth-headers.test.js`
+- [x] same for `features/food.js:2609`
+- [x] write tests in `web/static/js/tests/food.auth-headers.test.js`
   verifying each refactored call passes the expected header into the
   mocked `fetch` (table-driven)
-- [ ] run `pnpm test food.auth-headers` and `pnpm test food.` — must
+- [x] run `pnpm test food.auth-headers` and `pnpm test food.` — must
   pass before next task
 
 ### Task 3: Migrate `features/elevenlabs-call.js` and `app.js`
