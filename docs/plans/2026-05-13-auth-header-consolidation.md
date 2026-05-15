@@ -174,13 +174,16 @@ None of the four sites have a JSON body, so the plain
 
 ### Task 5: Architecture test prevents regression
 
-- [ ] add `web/static/js/tests/architecture.auth-headers.test.js` that
+- [x] add `web/static/js/tests/architecture.auth-headers.test.js` that
   reads every file under `web/static/js/` (excluding `tests/`,
   `vendor/`, and `core/api.js` which is the canonical home), greps for
   the literal strings `"X-Telegram-Init-Data"`, `'X-Telegram-Init-Data'`,
   `Authorization': 'tma`, `"Authorization": "tma`, and asserts zero
   matches; on failure, the message points at the helper
-- [ ] run `pnpm test architecture.auth-headers` — must pass
+  — also excludes `sw-api-helper.js`, which is the Service Worker auth
+  path covered by the separate SW handler unification plan and
+  explicitly out of scope here.
+- [x] run `pnpm test architecture.auth-headers` — must pass
 
 ### Task 6: Verify acceptance
 
