@@ -40,9 +40,9 @@ Reduce the 203-file frontend test suite to roughly the 150-file target by (1) co
 **Files:**
 - Create: `docs/plans/notes/frontend-test-inventory.md` (working note, will not be committed long-term — delete on completion of Task 6)
 
-- [ ] generate one row per `web/static/js/tests/*.test.js` file with: file name, line count, `it()` count, top-level `describe()` text, and a category label (architecture / component / infra / feature / consolidate-candidate / obsolete-candidate / coverage-candidate)
-- [ ] for each consolidate/obsolete/coverage candidate, list the sibling file(s) whose assertions overlap, and note whether the assertion is fully duplicated (delete) or partially duplicated (need to migrate one assertion before deleting)
-- [ ] surface the final delete list (target ~50 files) and the migrate-then-delete list to confirm against the keep-rules above
+- [x] generate one row per `web/static/js/tests/*.test.js` file with: file name, line count, `it()` count, top-level `describe()` text, and a category label (architecture / component / infra / feature / consolidate-candidate / obsolete-candidate / coverage-candidate)
+- [x] for each consolidate/obsolete/coverage candidate, list the sibling file(s) whose assertions overlap, and note whether the assertion is fully duplicated (delete) or partially duplicated (need to migrate one assertion before deleting)
+- [x] surface the final delete list (target ~50 files) and the migrate-then-delete list to confirm against the keep-rules above
 
 ### Task 2: Consolidate modal header-actions suites
 
