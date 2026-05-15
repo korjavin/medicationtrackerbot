@@ -144,17 +144,17 @@ and recommended-priority item #3.
 
 ### Task 4: Apply 15s timeout to SW bootstrap revalidation
 
-- [ ] in `sw.js:148-167`, wrap the background `fetch(event.request)`
+- [x] in `sw.js:148-167`, wrap the background `fetch(event.request)`
   in `AbortSignal.timeout(15_000)`; on `AbortError` from that path,
   swallow silently — same as existing `.catch(() => {})` shape
   (revalidation failure is non-fatal; cached response was already
   served)
-- [ ] bump `BUILD_REVISION` in `sw.js:6` so existing clients pick up
+- [x] bump `BUILD_REVISION` in `sw.js:6` so existing clients pick up
   the new SW
-- [ ] write a test in `web/static/js/tests/sw-bootstrap-abort.test.js`
+- [x] write a test in `web/static/js/tests/sw-bootstrap-abort.test.js`
   verifying the SW returns the cached response on time even when the
   revalidation `fetch` is artificially slow
-- [ ] run `pnpm test sw-bootstrap-abort` — must pass before next task
+- [x] run `pnpm test sw-bootstrap-abort` — must pass before next task
 
 ### Task 5: Verify acceptance
 
