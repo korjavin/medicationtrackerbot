@@ -55,6 +55,24 @@ async function maybeUpdateTimezone() {
             } catch (e) {
                 console.warn('Failed to record TZ dismissal:', e);
             }
+            // Mirror the dismissal into the cached settings_bundle so the same browser
+            // suppresses the prompt on reload even if the server write was silently
+            // dropped (apiCall returns null on offline/5xx without throwing). When the
+            // next bootstrap succeeds it will overwrite this with the authoritative
+            // server value, which should match.
+            try {
+                if (window.DataStore) {
+                    const cached = await window.DataStore.getCached('settings_bundle');
+                    if (cached && cached.dismissedTzSuggestion !== detectedTz) {
+                        await window.DataStore.setCached('settings_bundle', {
+                            ...cached,
+                            dismissedTzSuggestion: detectedTz,
+                        });
+                    }
+                }
+            } catch (e) {
+                console.warn('Failed to mirror TZ dismissal to cache:', e);
+            }
             return;
         }
 
