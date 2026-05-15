@@ -9,6 +9,7 @@ const REPO_ROOT = path.resolve(__dirname, '../../../../..');
 
 const INDEX_HTML = path.join(REPO_ROOT, 'web/static/index.html');
 const UTILS_JS = path.join(REPO_ROOT, 'web/static/js/core/utils.js');
+const TIME_FORMAT_JS = path.join(REPO_ROOT, 'web/static/js/core/time-format.js');
 const MT_ELEMENTS_JS = path.join(REPO_ROOT, 'web/static/js/components/mt-elements.js');
 const EMPTY_STATE_JS = path.join(REPO_ROOT, 'web/static/js/components/empty-state.js');
 const STAT_CARD_JS = path.join(REPO_ROOT, 'web/static/js/components/stat-card.js');
@@ -34,7 +35,12 @@ const MODAL_CONTROLLER_JS = path.join(REPO_ROOT, 'web/static/js/core/modal-contr
 const CHART_UTILS_JS = path.join(REPO_ROOT, 'web/static/js/core/chart-utils.js');
 const CACHE_KEYS_JS = path.join(REPO_ROOT, 'web/static/js/core/cache-keys.js');
 const DATA_STORE_JS = path.join(REPO_ROOT, 'web/static/js/data-store.js');
+const TAB_CONTROLLER_JS = path.join(REPO_ROOT, 'web/static/js/features/tab-controller.js');
 const APP_JS = path.join(REPO_ROOT, 'web/static/js/app.js');
+const WEIGHT_UNIT_STATE_JS = path.join(REPO_ROOT, 'web/static/js/features/weight-unit-state.js');
+const AUTH_BOOTSTRAP_JS = path.join(REPO_ROOT, 'web/static/js/features/auth-bootstrap.js');
+const PUSH_MODAL_JS = path.join(REPO_ROOT, 'web/static/js/features/push-modal.js');
+const MEDICATION_UTILS_JS = path.join(REPO_ROOT, 'web/static/js/features/medication-utils.js');
 const MEDS_JS = path.join(REPO_ROOT, 'web/static/js/features/meds.js');
 const FOOD_PHOTO_SUMMARY_JS = path.join(REPO_ROOT, 'web/static/js/features/food-photo-summary.js');
 // features/food.js was split into per-concern sub-files under
@@ -185,6 +191,9 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
 
   // Core infrastructure files (loaded before data-store.js and app.js)
   evalFileCached(window, UTILS_JS);
+  // time-format.js owns Settings timezone/server-clock render helpers; loads
+  // right after utils.js since app.js delegates renderSettingsTimeInfo to it.
+  evalFileCached(window, TIME_FORMAT_JS);
   // wg-toggle.js must load before mt-elements.js so <mt-setting-toggle>
   // upgrades can pick up window.WGToggle in its connectedCallback.
   evalFileCached(window, WG_TOGGLE_JS);
@@ -225,8 +234,41 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
     window.CacheKeys.registerAll(window.DataStore);
   }
 
+  // tab-controller.js owns bindTabGroup/activateTabGroup/bindOnce (Plan
+  // 2026-05-13, Task 6). Must load BEFORE app.js because app.js calls
+  // TabController.bindTabGroup at top level for the .health-tabs and
+  // .med-tabs groups, and bindOnce for the three *Controls scopes.
+  evalFileCached(window, TAB_CONTROLLER_JS);
+
   const appSource = disableAutoBootstrap(readCached(APP_JS));
   evalWithSourceURL(window, appSource, APP_JS);
+
+  // weight-unit-state.js owns the kg/lb preference state machine extracted
+  // from app.js (Plan 2026-05-13, Task 2). Loaded immediately after app.js so
+  // app.js's bind-time delegate calls (DOMContentLoaded handlers for the
+  // segmented control, hydration in applyBootstrapPayload) find
+  // window.WeightUnitState.
+  evalFileCached(window, WEIGHT_UNIT_STATE_JS);
+
+  // auth-bootstrap.js owns SettingsState + bootstrap hydration helpers
+  // extracted from app.js (Plan 2026-05-13, Task 3). Loaded after
+  // weight-unit-state.js because applyBootstrapPayload calls
+  // WeightUnitState.applyAuthoritative; before feature modules that read
+  // window.featureSettings at load time (e.g. tests asserting it's defined).
+  evalFileCached(window, AUTH_BOOTSTRAP_JS);
+
+  // push-modal.js owns the medication-confirm + workout-start coordination
+  // state (Plan 2026-05-13, Task 4). Loaded before meds.js because
+  // showMedicationConfirmModal in features/meds.js calls
+  // PushModalState.openMedConfirm to write the modal's pending state.
+  evalFileCached(window, PUSH_MODAL_JS);
+
+  // medication-utils.js owns parseMedicationSchedule / getNextScheduledDate /
+  // getMedicationScheduleText / getLastTakenTimeMs (Plan 2026-05-13, Task 5).
+  // Loaded before meds.js because features/meds.js renders rely on
+  // MedicationUtils.* at call time, and before any code path that exercises
+  // app.js's _todayRender helper-hand-off (line 1141-1142).
+  evalFileCached(window, MEDICATION_UTILS_JS);
 
   // Feature modules extracted from app.js (meds, food, bp, weight, health).
   evalFileCached(window, MEDS_JS);
