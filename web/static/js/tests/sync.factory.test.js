@@ -395,12 +395,13 @@ describe('defineOfflineEntity factory', () => {
       }
     });
 
-    it('returns null when store getter resolves to null', async () => {
+    it('throws when store getter resolves to null so offlineAwareApiCall sees the failure', async () => {
       const { window, cleanup } = loadSyncEnv();
       try {
         const entity = window.defineOfflineEntity(makeBPLikeConfig(() => null));
-        const result = await entity.handleOfflineWrite({ systolic: 120 });
-        expect(result).toBeNull();
+        await expect(entity.handleOfflineWrite({ systolic: 120 })).rejects.toThrow(
+          /offline store unavailable/
+        );
       } finally {
         cleanup();
       }

@@ -218,7 +218,13 @@ function defineOfflineEntity(config) {
 
     async function handleOfflineWrite(body) {
         const targetStore = resolveStore();
-        if (!targetStore) return null;
+        if (!targetStore) {
+            // Throw rather than return null: dispatchOfflineWrite wraps
+            // this call in a Promise, so a null return would not be
+            // visible to offlineAwareApiCall's `!== null` check —
+            // the caller would treat the failure as a silent success.
+            throw new Error(`${name} offline store unavailable`);
+        }
 
         SyncDebug.info(`Saving ${name} offline`);
         const entryToSave = typeof prepareOfflineEntry === 'function'
