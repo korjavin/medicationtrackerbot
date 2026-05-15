@@ -105,8 +105,8 @@ Reduce the 203-file frontend test suite to roughly the 150-file target by (1) co
 - Delete: `web/static/js/tests/app.gestures-and-notifications.test.js` if assertions duplicated by `features.back-button.test.js` + `push.unit.test.js`; otherwise keep and skip
 - Delete: `web/static/js/tests/app.deeplinks-and-push.test.js` if assertions duplicated by `bootstrap.dynamic-tab.test.js`; otherwise keep
 
-- [ ] same migrate-then-delete protocol as Task 4: any unique externally-observable assertion is moved into the owning feature suite before the source file is removed
-- [ ] run `pnpm test` — green
+- [x] same migrate-then-delete protocol as Task 4: any unique externally-observable assertion is moved into the owning feature suite before the source file is removed (result: all 5 candidates own unique externally-observable behavior with no peer suite, so no migration/deletion was safe — modal-history.js pushState/popstate/sub-modal layering, populateMedFilter 7-day cutoff, loadMeds onError→MedicationStore.getCache render, renderNextIntakeTrigger CTA→triggerNextIntake, fetchNextIntakePayload 204 sentinel, handleBPSubmit double-submit-guard / await-loadBPReadings / POST-failure-modal-stay, sendTestMedicationNotification alerts, and the handleDeepLinks `/bp_add` `/weight_add` `?tab=...` `?action=...` routing branches all live only in their original files; Task 1 inventory's "full overlap" judgement was overstated; the protocol caught it)
+- [x] run `pnpm test` — green (193 files, 2088 tests passing)
 
 ### Task 6: Document integration-first testing posture
 
