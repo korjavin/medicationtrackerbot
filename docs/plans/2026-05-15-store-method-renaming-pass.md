@@ -58,16 +58,203 @@ This plan applies a mechanical rename pass across all per-domain repos to conver
 - **MCP registry** operations in `internal/mcp/registry/operations_*.go` reference store methods by string name in some handlers. Grep before each rename Task.
 - **Reflect-based tests**: a handful of tests use reflect to assert method-name presence on adapters. Grep step above catches these.
 
+### Rename mapping (built in Task 1)
+
+Each subsection below lists the renames to apply in the corresponding repo Task. `KEEP` means the existing name already follows the rules.
+
+Notes that apply across packages:
+- The two scheduler/bot adapters and the mcp/tz adapters forward to repos by identical method names, so renaming the repo method renames the adapter forwarder verbatim — no explicit bridge needed.
+- Consumer interfaces in `internal/server/store_interfaces.go` and `internal/bot/store_interfaces.go` use the same method names as the repos; rename both sides together.
+- String references to store method names in production code are limited to two comment lines: `internal/mcp/registry/operations_medications.go:15` (mentions `MedicationStore.AddRestock`) and `internal/mcp/registry/operations_health.go:147` (mentions `BloodPressureService.CreateBloodPressureReading` — a service method, not a repo method, but worth updating if its underlying service method is renamed elsewhere). No `reflect.MethodByName` usages on store types — grep returned zero hits.
+
+#### Task 2 — `medication.Repo`
+
+- `CreateMedication` → `Create`
+- `ListMedications` → `List`
+- `GetMedication` → `Get`
+- `UpdateMedication` → `Update`
+- `DeleteMedication` → `Delete`
+- `CanDeleteMedication` → `CanDelete`
+- `SetMedicationSupplement` → `SetSupplement`
+- `UpdateMedicationCreatedAt` → `UpdateCreatedAt`
+- `AddRestock` → `CreateRestock`
+- `GetRestockHistory` → `ListRestocks`
+- `GetMedicationsLowOnStock` → `ListLowOnStock`
+- `GetPendingIntakes` → `ListPendingIntakes`
+- `GetTakenIntakesBySchedule` → `ListTakenIntakesBySchedule`
+- `GetIntakeHistory` → `ListIntakeHistory`
+- `AddIntakeReminder` → `CreateIntakeReminder`
+- `GetIntakeReminders` → `ListIntakeReminders`
+- `GetBatchIntakeReminders` → `BatchGetIntakeReminders` (move `Batch` to front for parity with `BatchGetIntakesBySchedule`)
+- `GetPendingIntakesBySchedule` → `ListPendingIntakesBySchedule`
+- `GetPendingIntakesForMedication` → `ListPendingIntakesForMedication`
+- `GetIntakesSince` → `ListIntakesSince`
+- Update comment at `internal/mcp/registry/operations_medications.go:15` (`AddRestock` → `CreateRestock`).
+- KEEP: `DecrementInventory`, `IncrementInventory`, `SetInventory`, `GetDaysOfStockRemaining`, `IsLowOnStock`, `CreateIntake`, `CreateManualIntake`, `ConfirmIntake`, `SkipIntake`, `UpdateIntake`, `SnoozeIntake`, `GetIntake`, `GetIntakeBySchedule`, `BatchGetIntakesBySchedule`, `ConfirmIntakesBySchedule`, `DeleteIntake`.
+
+#### Task 3 — `bp.Repo`
+
+- `GetBPGoal` → `GetGoal`
+- `SetBPGoal` → `SetGoal`
+- `CreateBloodPressureReading` → `CreateReading`
+- `GetBloodPressureReadings` → `ListReadings`
+- `DeleteBloodPressureReading` → `DeleteReading`
+- `ImportBloodPressureReadings` → `ImportReadings`
+- `GetBPDailyWeightedStats` → `GetDailyWeightedStats`
+- `GetBPReminderState` → `GetReminderState`
+- `SetBPReminderEnabled` → `SetReminderEnabled`
+- `SnoozeBPReminder` → `SnoozeReminder`
+- `DontBugMeBPReminder` → `DontBugMeReminder`
+- `UpdateBPReminderNotificationSent` → `UpdateReminderNotificationSent`
+- `ClearBPReminderNotificationMessage` → `ClearReminderNotificationMessage`
+- `GetLastBPReading` → `GetLastReading`
+- `GetDominantBPCategory` → `GetDominantCategory`
+- `GetUsersForBPReminders` → `ListUsersForReminders`
+- `BatchGetBPReminderStates` → `BatchGetReminderStates`
+- `BatchGetLastBPReadings` → `BatchGetLastReadings`
+- Update comment at `internal/mcp/registry/operations_health.go:147` if it still references the old method name after BP service renames.
+- KEEP: `SetClock`, `CalculatePreferredReminderHour`, `UpdatePreferredReminderHour`.
+
+#### Task 4 — `weight.Repo`
+
+- `CreateWeightLog` → `CreateLog`
+- `GetWeightLogs` → `ListLogs`
+- `DeleteWeightLog` → `DeleteLog`
+- `GetLastWeightLog` → `GetLastLog`
+- `GetLastWeightLogExcluding` → `GetLastLogExcluding`
+- `GetHighestWeightRecord` → `GetHighestLog`
+- `BatchGetLastWeightLogs` → `BatchGetLastLogs`
+- `GetWeightGoal` → `GetGoal`
+- `SetWeightGoal` → `SetGoal`
+- `GetWeightUnitPreference` → `GetUnitPreference`
+- `SetWeightUnitPreference` → `SetUnitPreference`
+- `GetWeightReminderState` → `GetReminderState`
+- `SetWeightReminderEnabled` → `SetReminderEnabled`
+- `SnoozeWeightReminder` → `SnoozeReminder`
+- `DontBugMeWeightReminder` → `DontBugMeReminder`
+- `UpdateWeightReminderNotificationSent` → `UpdateReminderNotificationSent`
+- `ClearWeightReminderNotificationMessage` → `ClearReminderNotificationMessage`
+- `CalculatePreferredWeightReminderHour` → `CalculatePreferredReminderHour`
+- `UpdatePreferredWeightReminderHour` → `UpdatePreferredReminderHour`
+- `GetUsersForWeightReminders` → `ListUsersForReminders`
+- `GetWeightReminderStates` → `ListReminderStates`
+
+#### Task 5 — `food.Repo`
+
+- `UpsertFoodProduct` → `UpsertProduct`
+- `GetFoodProductByName` → `GetProductByName`
+- `GetFoodProductByID` → `GetProductByID`
+- `UpdateFoodProduct` → `UpdateProduct`
+- `DeleteFoodProduct` → `DeleteProduct`
+- `GetFoodProducts` → `ListProducts`
+- `SearchFoodProducts` → `SearchProducts`
+- `SearchRemoteFoodAPI` → `SearchRemoteAPI`
+- `CreateFoodLog` → `CreateLog`
+- `UpdateFoodLog` → `UpdateLog`
+- `GetFoodLogs` → `ListLogs`
+- `DeleteFoodLog` → `DeleteLog`
+- `GetFoodStats` → `GetStats`
+- `GetFoodTargets` → `GetTargets`
+- `SetFoodTargets` → `SetTargets`
+- KEEP: `CreateMealFromLogs` (distinct compound operation).
+
+#### Task 6 — `workout.Repo`
+
+Workout owns many sibling entities (groups, variants, exercises, sessions, exercise logs, library items, snapshots, mi-band). Keep the entity discriminator; only drop the redundant `Workout` prefix.
+
+- `CreateWorkoutGroup` → `CreateGroup`
+- `ListWorkoutGroups` → `ListGroups`
+- `GetWorkoutGroup` → `GetGroup`
+- `UpdateWorkoutGroup` → `UpdateGroup`
+- `DeleteWorkoutGroup` → `DeleteGroup`
+- `CreateWorkoutVariant` → `CreateVariant`
+- `GetWorkoutVariant` → `GetVariant`
+- `UpdateWorkoutVariant` → `UpdateVariant`
+- `DeleteWorkoutVariant` → `DeleteVariant`
+- `AddExerciseToVariant` → `CreateExerciseInVariant`
+- `GetWorkoutExercise` → `GetExercise`
+- `UpdateWorkoutExercise` → `UpdateExercise`
+- `DeleteWorkoutExercise` → `DeleteExercise`
+- `GetAllUniqueExercises` → `ListAllUniqueExercises`
+- `CreateWorkoutSession` → `CreateSession`
+- `CreateAdHocWorkoutSession` → `CreateAdHocSession`
+- `GetWorkoutSession` → `GetSession`
+- `UpdateWorkoutSessionNotes` → `UpdateSessionNotes`
+- `GetExerciseLogs` → `ListExerciseLogs`
+- `GetGroupSnapshots` → `ListGroupSnapshots`
+- `GetWorkoutHistory` → `ListHistory`
+- `GetSnoozedSessions` → `ListSnoozedSessions`
+- `GetExerciseStats` → `ListExerciseStats`
+- `GetActiveSessions` → `ListActiveSessions`
+- `GetDistinctExerciseNamesForUser` → `ListDistinctExerciseNamesForUser`
+- Mi-band sub-area: drop the redundant `Workout` suffix; keep `MiBand` as the entity discriminator.
+  - `CheckDuplicateMiBandWorkout` → `CheckDuplicateMiBand`
+  - `InsertMiBandWorkout` → `InsertMiBand`
+  - `ImportMiBandWorkouts` → `ImportMiBand`
+  - `ListMiBandWorkouts` → `ListMiBand`
+  - `GetMiBandWorkoutGPS` → `GetMiBandGPS`
+  - `GetMiBandWorkout` → `GetMiBand`
+  - `DeleteMiBandWorkout` → `DeleteMiBand`
+  - `UpdateMiBandWorkout` → `UpdateMiBand`
+- KEEP: `ListVariantsByGroup`, `ListExercisesByVariant`, `ListExerciseLibrary`, `GetExerciseLibraryItem`, `CreateExerciseLibraryItem`, `UpdateExerciseLibraryItem`, `DeleteExerciseLibraryItem`, `GetRotationState`, `InitializeRotation`, `AdvanceRotation`, `CreatePlannedAdHocSession`, `ListNotifiedAdHocSessions`, `ListPendingAdHocSessions`, `IsAdHocSession`, `GetLatestSessionScheduledDate`, `GetSessionByGroupAndDate`, `UpdateSessionStatus`, `StartSession`, `UpdateSessionVariant`, `CompleteSession`, `SkipSession`, `PreSkipSession`, `CancelPreSkip`, `DeleteSession`, `SnoozeSession`, `ClearSnooze`, `SetSessionNotificationMessageID`, `LogExercise`, `LogExerciseWithSource`, `UpdateExerciseLog`, `UpdateExerciseLogStatus`, `DeleteExerciseLog`, `UpsertExerciseLogByName`, `SetExerciseLogSource`, `GetExerciseLogByID`, `GetExerciseLogBySessionExerciseSource`, `PropagateExerciseToSchedule`, `GetExerciseLogBySessionAndExercise`, `CreateGroupSnapshot`, `ListRecentExerciseLogsByName`.
+
+#### Task 7 — `vitals.Repo`
+
+- `GetDayStats` → `ListDayStats`
+- `GetSleepLogs` → `ListSleepLogs`
+- `GetVitalsHeart` → `ListHeart`
+- `GetVitalsSpO2` → `ListSpO2`
+- `GetVitalsStress` → `ListStress`
+- KEEP: `ImportSleepLogs`, `ImportDayStats`, `ImportVitals` (the `Vitals` here is the aggregate import covering heart/spo2/stress and stays meaningful even though redundant with the package).
+
+#### Task 8 — `tz.Repo`
+
+- `GetCurrentTimezone` → `GetCurrent`
+- `RecordTimezone` → `Record`
+- `CreateTZTransitionPlan` → `CreateTransitionPlan`
+- `GetLatestCompletedTZTransitionPlan` → `GetLatestCompletedTransitionPlan`
+- `GetLatestActiveOrPendingTZTransitionPlan` → `GetLatestActiveOrPendingTransitionPlan`
+- `UpdateTZTransitionPlanStatus` → `UpdateTransitionPlanStatus`
+- `SetTZTransitionPlanApproved` → `SetTransitionPlanApproved`
+- `SetTZTransitionPlanRejected` → `SetTransitionPlanRejected`
+- `RejectTZTransitionPlanAndRevertTimezone` → `RejectTransitionPlanAndRevertTimezone`
+- `CreateTZTransitionPlanWithSteps` → `CreateTransitionPlanWithSteps`
+- `CreateTZTransitionSteps` → `CreateTransitionSteps`
+- `GetPendingStepsForPlan` → `ListPendingStepsForPlan`
+- KEEP: `MarkPlanNotified`, `ResetPlanToPending`, `GetPlanByHash`, `GetLatestConsumedStepTimePerMed` (single derived map keyed by med), `MarkStepConsumed`.
+
+#### Task 9 — `settings.Repo`
+
+- `GetChangedTagsSince` → `ListChangedTagsSince`
+- KEEP: all feature-flag get/set pairs (`GetFoodIntakeEnabled` / `SetFoodIntakeEnabled` and siblings) — the suffix is the column name, not a domain-redundancy. KEEP `GetBool`, `SetBool`, `GetTabOrder`, `SetTabOrder`, `GetDismissedTZSuggestion`, `SetDismissedTZSuggestion`, `GetLastDownload`, `UpdateLastDownload`, `GetLatestChangeCursor`, `PruneChangeEvents`.
+
+#### Task 10 — `auth.Repo`
+
+- `CreateAPIToken` → `CreateToken`
+- `ListAPITokens` → `ListTokens`
+- `DeleteAPIToken` → `DeleteToken`
+- `FindAPITokenByHash` → `GetTokenByHash` (the only `Find…` in the codebase, called out in the plan)
+- `TouchAPITokenLastUsed` → `TouchTokenLastUsed`
+- KEEP: `SetClock`, `TryUseLoginHash`.
+
+#### `push.Repo` (no Task)
+
+Already minimal: `Create`, `List`, `Delete`, `Disable`. No renames.
+
+#### `diary.Repo` (no Task)
+
+Already minimal: `Create`, `List`, `Delete`. No renames.
+
 ## Implementation Steps
 
 ### Task 1: Inventory and rename mapping
 
-- [ ] grep every repo package under `internal/store/` for exported method names and produce an old→new mapping per package
-- [ ] confirm the mapping against the naming rules in Technical Details (one verb, drop redundancy, `Get` vs `List`)
-- [ ] grep the codebase for string references to store method names (`internal/mcp/registry/operations_*.go`, reflect-based tests, comments) and note any callsites that need manual updates beyond `gopls rename`
-- [ ] note adapter methods in `internal/scheduler/adapter.go`, `internal/bot/adapter.go`, `internal/mcp/adapter.go`, `cmd/bot/tz_planner_adapter.go` that will need to follow consumer-interface names
-- [ ] document the mapping inline in this plan (append a "Rename mapping" subsection under Technical Details) so each subsequent Task can reference it
-- [ ] run project tests - must pass before next task
+- [x] grep every repo package under `internal/store/` for exported method names and produce an old→new mapping per package
+- [x] confirm the mapping against the naming rules in Technical Details (one verb, drop redundancy, `Get` vs `List`)
+- [x] grep the codebase for string references to store method names (`internal/mcp/registry/operations_*.go`, reflect-based tests, comments) and note any callsites that need manual updates beyond `gopls rename`
+- [x] note adapter methods in `internal/scheduler/adapter.go`, `internal/bot/adapter.go`, `internal/mcp/adapter.go`, `cmd/bot/tz_planner_adapter.go` that will need to follow consumer-interface names
+- [x] document the mapping inline in this plan (append a "Rename mapping" subsection under Technical Details) so each subsequent Task can reference it
+- [x] run project tests - must pass before next task
 
 ### Task 2: Rename medication repo methods
 
