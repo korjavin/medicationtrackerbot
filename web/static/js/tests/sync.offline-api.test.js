@@ -252,4 +252,55 @@ describe('sync.js offlineAwareApiCall behavior', () => {
       cleanup();
     }
   });
+
+  it('falls back to offline BP write when apiCallDirect aborts on timeout', async () => {
+    const { window, cleanup } = loadSyncEnv();
+
+    try {
+      window.SyncManager.isOnline = true;
+      // Simulate the typed TimeoutError that apiCallDirect throws when its
+      // composed AbortSignal fires before fetch resolves.
+      const abortErr = new Error('signal timed out');
+      abortErr.name = 'TimeoutError';
+      abortErr.aborted = true;
+      window.apiCallDirect = vi.fn().mockRejectedValue(abortErr);
+
+      const saveSpy = vi.fn().mockResolvedValue({ localId: 99 });
+      window.MedTrackerDB.BPStore.save = saveSpy;
+      vi.spyOn(window.SyncManager, 'registerBackgroundSync').mockResolvedValue(undefined);
+      vi.spyOn(window.SyncManager, 'showToast').mockImplementation(() => {});
+      vi.spyOn(window.SyncManager, 'updateStatus').mockResolvedValue(undefined);
+
+      const result = await window.offlineAwareApiCall('/api/bp', 'POST', { systolic: 130, diastolic: 84 });
+
+      expect(saveSpy).toHaveBeenCalled();
+      expect(result).toMatchObject({ localId: 99, isLocal: true });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('falls back to offline weight read when apiCallDirect aborts on timeout', async () => {
+    const { window, cleanup } = loadSyncEnv();
+
+    try {
+      window.SyncManager.isOnline = true;
+      const abortErr = new Error('aborted');
+      abortErr.name = 'AbortError';
+      abortErr.aborted = true;
+      window.apiCallDirect = vi.fn().mockRejectedValue(abortErr);
+
+      window.MedTrackerDB.WeightStore.getAll = vi.fn().mockResolvedValue([
+        { localId: 7, serverId: null, weight: 81.1, syncStatus: 'pending' }
+      ]);
+
+      const result = await window.offlineAwareApiCall('/api/weight', 'GET');
+
+      expect(result).toEqual([
+        { id: 'local_7', localId: 7, serverId: null, weight: 81.1, syncStatus: 'pending', isLocal: true }
+      ]);
+    } finally {
+      cleanup();
+    }
+  });
 });

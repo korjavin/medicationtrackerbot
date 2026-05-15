@@ -976,6 +976,11 @@ async function handleOfflineIntakeWrite(body) {
 // Check if error is a network error or server unavailable
 function isNetworkError(err) {
     if (!err) return false;
+    // AbortController timeouts (and caller-signal aborts) thrown by
+    // apiCallDirect indicate the request never reached a usable backend
+    // response. Treat them like other network failures so the offline
+    // write queue / cached read fallback engage on stalled networks.
+    if (err.aborted === true || err.name === 'AbortError' || err.name === 'TimeoutError') return true;
     // All fetch API network failures are TypeErrors; when the browser
     // reports offline, treat any TypeError as a network error regardless
     // of the message text (different browsers/WebViews use different wording).
