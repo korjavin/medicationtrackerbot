@@ -4,6 +4,20 @@
 // window.DataStore (data-store.js, for cursor advancement).
 // safeAlert() is provided by core/utils.js, loaded before this file.
 
+// Builds the canonical headers object for a Telegram-authenticated request.
+// Reads window.userInitData lazily so callers pick up SW-token updates
+// without re-importing. Returns a fresh object every call; never mutates
+// `extra`. Direct-fetch callers (streaming, multipart, CSV exports) that
+// cannot route through apiCallDirect must use this helper.
+function makeAuthHeaders(extra) {
+    const headers = { ...(extra || {}) };
+    if (window.userInitData) {
+        headers['X-Telegram-Init-Data'] = window.userInitData;
+    }
+    return headers;
+}
+window.makeAuthHeaders = makeAuthHeaders;
+
 // Composes an AbortSignal from an optional timeout and an optional caller
 // signal. Returns undefined when neither is supplied so fetch() runs unguarded.
 function composeAbortSignal(timeoutMs, callerSignal) {
@@ -18,8 +32,7 @@ function composeAbortSignal(timeoutMs, callerSignal) {
 
 async function apiCallDirect(endpoint, method = "GET", body = null, opts = {}) {
     const { timeoutMs = 60_000, signal: callerSignal } = opts;
-    const headers = { "X-Telegram-Init-Data": window.userInitData };
-    if (body) headers["Content-Type"] = "application/json";
+    const headers = makeAuthHeaders(body ? { "Content-Type": "application/json" } : null);
 
     const signal = composeAbortSignal(timeoutMs, callerSignal);
 

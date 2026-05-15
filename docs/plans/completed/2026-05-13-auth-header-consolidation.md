@@ -84,84 +84,125 @@ and recommended-priority item #2.
 
 ### Task 1: Extract `makeAuthHeaders()` helper
 
-- [ ] add `makeAuthHeaders(extra = {})` to `web/static/js/core/api.js`
+- [x] add `makeAuthHeaders(extra = {})` to `web/static/js/core/api.js`
   (top of file, exported on `window.makeAuthHeaders`); returns a fresh
   headers object containing `X-Telegram-Init-Data` from
   `window.userInitData` when present, plus any caller-supplied extras
-- [ ] refactor `apiCallDirect` (`core/api.js:7-58`) to use the new
+- [x] refactor `apiCallDirect` (`core/api.js:7-58`) to use the new
   helper instead of constructing the header inline
-- [ ] add `window.makeAuthHeaders` to the allowlist in
+- [x] add `window.makeAuthHeaders` to the allowlist in
   `web/static/js/tests/architecture.globals.test.js` with a justification
   ("auth header construction shared by direct-fetch callers")
-- [ ] write tests in `web/static/js/tests/core.api-headers.test.js`:
+- [x] write tests in `web/static/js/tests/core.api-headers.test.js`:
   with token present, returns header object containing
   `X-Telegram-Init-Data`; with token absent, returns object without that
   key; merges caller-supplied extras (e.g. `Content-Type`); does not
   mutate `extra`; subsequent reads of `window.userInitData` reflect
   changes (for the SW-token-update edge)
-- [ ] run `pnpm test core.api-headers` — must pass before next task
+- [x] run `pnpm test core.api-headers` — must pass before next task
 
 ### Task 2: Migrate direct-fetch call sites in `features/food.js`
 
-- [ ] replace `headers = { "X-Telegram-Init-Data": userInitData }` at
+Note: features/food.js was previously split into per-concern sub-files
+under features/food/, so the 4 call sites referenced by line number in
+the original plan now live as:
+  - food/products.js: streaming name search (was :345)
+  - food/products.js: streaming barcode search (was :492)
+  - food/photo.js: multipart POST /api/food/log/from-photo (was :1041)
+  - food/photo.js: Undo DELETE /api/food/log/{id} (was :2609)
+None of the four sites have a JSON body, so the plain
+`makeAuthHeaders()` form applies to all of them.
+
+- [x] replace `headers = { "X-Telegram-Init-Data": userInitData }` at
   `features/food.js:345` with `headers = window.makeAuthHeaders()`
-- [ ] same for `features/food.js:492`
-- [ ] same for `features/food.js:1041` (use
+- [x] same for `features/food.js:492`
+- [x] same for `features/food.js:1041` (use
   `makeAuthHeaders({ 'Content-Type': 'application/json' })` if the
   request has a body — verify per call site)
-- [ ] same for `features/food.js:2609`
-- [ ] write tests in `web/static/js/tests/food.auth-headers.test.js`
+- [x] same for `features/food.js:2609`
+- [x] write tests in `web/static/js/tests/food.auth-headers.test.js`
   verifying each refactored call passes the expected header into the
   mocked `fetch` (table-driven)
-- [ ] run `pnpm test food.auth-headers` and `pnpm test food.` — must
+- [x] run `pnpm test food.auth-headers` and `pnpm test food.` — must
   pass before next task
 
 ### Task 3: Migrate `features/elevenlabs-call.js` and `app.js`
 
-- [ ] replace `headers['X-Telegram-Init-Data'] = window.userInitData`
+- [x] replace `headers['X-Telegram-Init-Data'] = window.userInitData`
   at `features/elevenlabs-call.js:181` with merging
   `makeAuthHeaders()` into the headers object before fetch
-- [ ] replace `headers: { 'X-Telegram-Init-Data': userInitData }` at
+- [x] replace `headers: { 'X-Telegram-Init-Data': userInitData }` at
   `app.js:3241` (multipart photo upload) with
   `headers: makeAuthHeaders()`; preserve existing FormData body
-- [ ] write tests in `web/static/js/tests/elevenlabs.auth-headers.test.js`
+  — note: the multipart photo upload referenced by the original line
+  number had since migrated into `features/food/photo.js` (covered in
+  Task 2). The remaining `X-Telegram-Init-Data` literal in `app.js`
+  was `sendTestMedicationNotification` (`/api/webpush/test-medication`,
+  app.js:2486 after the split), which is what this checkbox actually
+  migrated.
+- [x] write tests in `web/static/js/tests/elevenlabs.auth-headers.test.js`
   and add a case to `app.unit.test.js` (or appropriate existing app
   test) verifying header construction
-- [ ] run `pnpm test elevenlabs.auth-headers` and `pnpm test app.` —
+  — added to `app.gestures-and-notifications.test.js` (the existing
+  home for `sendTestMedicationNotification` coverage).
+- [x] run `pnpm test elevenlabs.auth-headers` and `pnpm test app.` —
   must pass before next task
 
 ### Task 4: Migrate CSV-export call sites and drop `Authorization: tma`
 
-- [ ] replace the `headers: { 'Authorization': 'tma ${userInitData}' }`
+- [x] replace the `headers: { 'Authorization': 'tma ${userInitData}' }`
   at `features/bp.js:682` with `headers: window.makeAuthHeaders()`
-- [ ] same for `features/weight.js:1163`
-- [ ] verify backend accepts `X-Telegram-Init-Data` for `/api/bp/export`
+- [x] same for `features/weight.js:1163`
+- [x] verify backend accepts `X-Telegram-Init-Data` for `/api/bp/export`
   and `/api/weight/export` by reading `internal/server/bp_handlers.go`
   and `weight_handlers.go` — they should already use the standard
   middleware; if not, document the gap and stop here
-- [ ] write a CSV-export test that mounts the export handler and
+  — verified via `internal/server/auth.go:212`: the requireAuth
+  middleware reads `X-Telegram-Init-Data` (or `?initData=`, or the
+  OIDC `auth_session` cookie). `Authorization: tma` is not parsed
+  server-side at all, so the old CSV-export call sites were already
+  silently reliant on the session cookie path. Migration is a pure
+  correctness improvement — once a token client (no session cookie)
+  hits the export, the new header works.
+- [x] write a CSV-export test that mounts the export handler and
   asserts the migrated header form is sent (one test per export)
-- [ ] run `pnpm test bp.` and `pnpm test weight.` — must pass before
+  — `web/static/js/tests/csv-export.auth-headers.test.js` covers
+  both `exportBPCSV` and `exportWeightCSV` (header present with
+  token, header absent without token).
+- [x] run `pnpm test bp.` and `pnpm test weight.` — must pass before
   next task
 
 ### Task 5: Architecture test prevents regression
 
-- [ ] add `web/static/js/tests/architecture.auth-headers.test.js` that
+- [x] add `web/static/js/tests/architecture.auth-headers.test.js` that
   reads every file under `web/static/js/` (excluding `tests/`,
   `vendor/`, and `core/api.js` which is the canonical home), greps for
   the literal strings `"X-Telegram-Init-Data"`, `'X-Telegram-Init-Data'`,
   `Authorization': 'tma`, `"Authorization": "tma`, and asserts zero
   matches; on failure, the message points at the helper
-- [ ] run `pnpm test architecture.auth-headers` — must pass
+  — also excludes `sw-api-helper.js`, which is the Service Worker auth
+  path covered by the separate SW handler unification plan and
+  explicitly out of scope here.
+- [x] run `pnpm test architecture.auth-headers` — must pass
 
 ### Task 6: Verify acceptance
 
-- [ ] grep for `X-Telegram-Init-Data` in `web/static/js/` (excluding
+- [x] grep for `X-Telegram-Init-Data` in `web/static/js/` (excluding
   `core/api.js` and tests) returns zero matches
-- [ ] grep for `Authorization': 'tma` and `"Authorization": "tma` in
+  — verified: only remaining hits outside `tests/` and `core/api.js`
+  are `app-shell.js:4` (a code comment describing the SW handoff) and
+  `sw-api-helper.js:3,20` (Service Worker file, explicitly out of
+  scope per Task 5 and the SW handler unification plan).
+- [x] grep for `Authorization': 'tma` and `"Authorization": "tma` in
   `web/static/js/` returns zero matches
-- [ ] full `pnpm test` clean
-- [ ] `go test ./...` clean (sanity)
+  — verified: matches exist only inside
+  `tests/architecture.auth-headers.test.js` (the regex patterns the
+  guard test scans for); no production code carries the literal.
+- [x] full `pnpm test` clean
+  — ran via `node_modules/.bin/vitest run`: 199 files, 2116 passed,
+  29 skipped, 0 failed.
+- [x] `go test ./...` clean (sanity)
+  — all packages OK.
 
 ## Technical Details
 
