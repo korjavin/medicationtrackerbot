@@ -35,7 +35,7 @@ func TestHandleBPCommand(t *testing.T) {
 	}
 
 	// Verify it's in the store
-	readings, err := env.s.BP.GetBloodPressureReadings(context.Background(), 123456, time.Time{})
+	readings, err := env.s.BP.ListReadings(context.Background(), 123456, time.Time{})
 	if err != nil {
 		t.Fatalf("Error getting BP readings: %v", err)
 	}

@@ -144,7 +144,7 @@ output({"sent": True})`,
     "tag":         {"type": "string"}
   }
 }`),
-			Description:     "Record a blood pressure reading. Goes through BloodPressureService.CreateBloodPressureReading.",
+			Description:     "Record a blood pressure reading. Goes through BloodPressureService.CreateReading.",
 			ResponseSummary: "BloodPressure object with id and the persisted fields.",
 			Example: `result = api.call(
     "health.bp.create",

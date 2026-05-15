@@ -43,18 +43,18 @@ type MedicationStore interface {
 
 // BloodPressureStore is the subset of store operations needed for BP handlers.
 type BloodPressureStore interface {
-	CreateBloodPressureReading(ctx context.Context, bp *store.BloodPressure) (int64, error)
-	GetBloodPressureReadings(ctx context.Context, userID int64, since time.Time) ([]store.BloodPressure, error)
-	DeleteBloodPressureReading(ctx context.Context, id, userID int64) error
-	ImportBloodPressureReadings(ctx context.Context, userID int64, readings []store.BloodPressure) error
-	GetBPGoal() (*store.BPGoal, error)
-	SetBPGoal(targetSystolic, targetDiastolic int) error
-	GetBPDailyWeightedStats(ctx context.Context, userID int64) (*store.BPStats, error)
-	GetBPReminderState(userID int64) (*store.BPReminderState, error)
-	SetBPReminderEnabled(userID int64, enabled bool) error
-	SnoozeBPReminder(userID int64) error
-	DontBugMeBPReminder(userID int64) error
-	ClearBPReminderNotificationMessage(userID int64) error
+	CreateReading(ctx context.Context, bp *store.BloodPressure) (int64, error)
+	ListReadings(ctx context.Context, userID int64, since time.Time) ([]store.BloodPressure, error)
+	DeleteReading(ctx context.Context, id, userID int64) error
+	ImportReadings(ctx context.Context, userID int64, readings []store.BloodPressure) error
+	GetGoal() (*store.BPGoal, error)
+	SetGoal(targetSystolic, targetDiastolic int) error
+	GetDailyWeightedStats(ctx context.Context, userID int64) (*store.BPStats, error)
+	GetReminderState(userID int64) (*store.BPReminderState, error)
+	SetReminderEnabled(userID int64, enabled bool) error
+	SnoozeReminder(userID int64) error
+	DontBugMeReminder(userID int64) error
+	ClearReminderNotificationMessage(userID int64) error
 }
 
 // WeightStore is the subset of store operations needed for weight handlers.

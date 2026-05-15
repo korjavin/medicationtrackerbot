@@ -28,8 +28,8 @@ func TestBPReminderChecker_UsesUserTimezone(t *testing.T) {
 	}
 
 	userID := int64(123456)
-	if err := db.BP.SetBPReminderEnabled(userID, true); err != nil {
-		t.Fatalf("SetBPReminderEnabled: %v", err)
+	if err := db.BP.SetReminderEnabled(userID, true); err != nil {
+		t.Fatalf("SetReminderEnabled: %v", err)
 	}
 
 	// Record a user timezone of America/New_York (UTC-5).
@@ -41,14 +41,14 @@ func TestBPReminderChecker_UsesUserTimezone(t *testing.T) {
 	nowTime := time.Date(2024, 1, 15, 21, 30, 0, 0, time.UTC)
 
 	// Add an old BP reading (yesterday) so the "already measured today" guard does not block.
-	_, err = db.BP.CreateBloodPressureReading(context.Background(), &store.BloodPressure{
+	_, err = db.BP.CreateReading(context.Background(), &store.BloodPressure{
 		UserID:     userID,
 		Systolic:   120,
 		Diastolic:  80,
 		MeasuredAt: nowTime.Add(-24 * time.Hour),
 	})
 	if err != nil {
-		t.Fatalf("CreateBloodPressureReading: %v", err)
+		t.Fatalf("CreateReading: %v", err)
 	}
 
 	// Set preferred hour to 16 (matches New York hour, not UTC hour 21).
@@ -89,8 +89,8 @@ func TestBPReminderChecker_NoNotificationInWrongUserTZHour(t *testing.T) {
 	}
 
 	userID := int64(123456)
-	if err := db.BP.SetBPReminderEnabled(userID, true); err != nil {
-		t.Fatalf("SetBPReminderEnabled: %v", err)
+	if err := db.BP.SetReminderEnabled(userID, true); err != nil {
+		t.Fatalf("SetReminderEnabled: %v", err)
 	}
 
 	if err := db.TZ.RecordTimezone("America/New_York"); err != nil {
@@ -99,14 +99,14 @@ func TestBPReminderChecker_NoNotificationInWrongUserTZHour(t *testing.T) {
 
 	nowTime := time.Date(2024, 1, 15, 21, 30, 0, 0, time.UTC)
 
-	_, err = db.BP.CreateBloodPressureReading(context.Background(), &store.BloodPressure{
+	_, err = db.BP.CreateReading(context.Background(), &store.BloodPressure{
 		UserID:     userID,
 		Systolic:   120,
 		Diastolic:  80,
 		MeasuredAt: nowTime.Add(-24 * time.Hour),
 	})
 	if err != nil {
-		t.Fatalf("CreateBloodPressureReading: %v", err)
+		t.Fatalf("CreateReading: %v", err)
 	}
 
 	// Preferred hour = 21 (UTC hour), but in New York it's 16 — does not match.

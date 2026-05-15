@@ -61,8 +61,8 @@ func TestHandleBPHistoryCommand_WithData(t *testing.T) {
 
 	ctx := context.Background()
 	pulse := 72
-	env.s.BP.CreateBloodPressureReading(ctx, testBP(123456, 125, 82, &pulse, time.Now()))
-	env.s.BP.CreateBloodPressureReading(ctx, testBP(123456, 118, 78, nil, time.Now().Add(-time.Hour)))
+	env.s.BP.CreateReading(ctx, testBP(123456, 125, 82, &pulse, time.Now()))
+	env.s.BP.CreateReading(ctx, testBP(123456, 118, 78, nil, time.Now().Add(-time.Hour)))
 
 	body := sendCmd(env, "/bphistory")
 	if body == "" {
@@ -79,7 +79,7 @@ func TestHandleBPHistoryCommand_LimitsTo10(t *testing.T) {
 
 	ctx := context.Background()
 	for i := 0; i < 15; i++ {
-		env.s.BP.CreateBloodPressureReading(ctx, testBP(123456, 120, 80, nil, time.Now().Add(-time.Duration(i)*time.Hour)))
+		env.s.BP.CreateReading(ctx, testBP(123456, 120, 80, nil, time.Now().Add(-time.Duration(i)*time.Hour)))
 	}
 
 	body := sendCmd(env, "/bphistory")
@@ -112,8 +112,8 @@ func TestHandleBPStatsCommand_WithData(t *testing.T) {
 	defer env.teardown()
 
 	ctx := context.Background()
-	env.s.BP.CreateBloodPressureReading(ctx, testBP(123456, 120, 80, nil, time.Now()))
-	env.s.BP.CreateBloodPressureReading(ctx, testBP(123456, 130, 85, nil, time.Now().Add(-time.Hour)))
+	env.s.BP.CreateReading(ctx, testBP(123456, 120, 80, nil, time.Now()))
+	env.s.BP.CreateReading(ctx, testBP(123456, 130, 85, nil, time.Now().Add(-time.Hour)))
 
 	body := sendCmd(env, "/bpstats")
 	if body == "" {

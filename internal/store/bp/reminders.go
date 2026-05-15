@@ -21,10 +21,10 @@ type BPReminderState struct {
 	UpdatedAt              time.Time  `json:"updated_at"`
 }
 
-// GetBPReminderState retrieves the BP reminder state for a user. If no state
+// GetReminderState retrieves the BP reminder state for a user. If no state
 // exists, returns a default state with enabled=true and PreferredReminderHour=20
 // after lazily initializing the row.
-func (r *Repo) GetBPReminderState(userID int64) (*BPReminderState, error) {
+func (r *Repo) GetReminderState(userID int64) (*BPReminderState, error) {
 	var state BPReminderState
 	var snoozedUntil, dontRemindUntil, lastNotificationSentAt sql.NullTime
 	var notificationMessageID sql.NullInt64
@@ -47,7 +47,7 @@ func (r *Repo) GetBPReminderState(userID int64) (*BPReminderState, error) {
 			CreatedAt:             time.Now(),
 			UpdatedAt:             time.Now(),
 		}
-		if err := r.initBPReminderState(userID); err != nil {
+		if err := r.initReminderState(userID); err != nil {
 			return nil, err
 		}
 		return &state, nil
@@ -73,8 +73,8 @@ func (r *Repo) GetBPReminderState(userID int64) (*BPReminderState, error) {
 	return &state, nil
 }
 
-// initBPReminderState lazily inserts a default state row for a new user.
-func (r *Repo) initBPReminderState(userID int64) error {
+// initReminderState lazily inserts a default state row for a new user.
+func (r *Repo) initReminderState(userID int64) error {
 	_, err := r.db.Exec(`
 		INSERT OR IGNORE INTO bp_reminder_state
 		(user_id, enabled, preferred_reminder_hour)
@@ -82,8 +82,8 @@ func (r *Repo) initBPReminderState(userID int64) error {
 	return err
 }
 
-// SetBPReminderEnabled enables or disables BP reminders for a user.
-func (r *Repo) SetBPReminderEnabled(userID int64, enabled bool) error {
+// SetReminderEnabled enables or disables BP reminders for a user.
+func (r *Repo) SetReminderEnabled(userID int64, enabled bool) error {
 	_, err := r.db.Exec(`
 		INSERT INTO bp_reminder_state (user_id, enabled, updated_at)
 		VALUES (?, ?, CURRENT_TIMESTAMP)
@@ -94,8 +94,8 @@ func (r *Repo) SetBPReminderEnabled(userID int64, enabled bool) error {
 	return err
 }
 
-// SnoozeBPReminder snoozes BP reminders for 2 hours.
-func (r *Repo) SnoozeBPReminder(userID int64) error {
+// SnoozeReminder snoozes BP reminders for 2 hours.
+func (r *Repo) SnoozeReminder(userID int64) error {
 	snoozedUntil := time.Now().Add(2 * time.Hour)
 	_, err := r.db.Exec(`
 		UPDATE bp_reminder_state
@@ -105,8 +105,8 @@ func (r *Repo) SnoozeBPReminder(userID int64) error {
 	return err
 }
 
-// DontBugMeBPReminder disables BP reminders for 24 hours.
-func (r *Repo) DontBugMeBPReminder(userID int64) error {
+// DontBugMeReminder disables BP reminders for 24 hours.
+func (r *Repo) DontBugMeReminder(userID int64) error {
 	dontRemindUntil := time.Now().Add(24 * time.Hour)
 	_, err := r.db.Exec(`
 		UPDATE bp_reminder_state
@@ -116,8 +116,8 @@ func (r *Repo) DontBugMeBPReminder(userID int64) error {
 	return err
 }
 
-// UpdateBPReminderNotificationSent records when a notification was sent.
-func (r *Repo) UpdateBPReminderNotificationSent(userID int64, messageID *int) error {
+// UpdateReminderNotificationSent records when a notification was sent.
+func (r *Repo) UpdateReminderNotificationSent(userID int64, messageID *int) error {
 	_, err := r.db.Exec(`
 		UPDATE bp_reminder_state
 		SET last_notification_sent_at = CURRENT_TIMESTAMP,
@@ -128,9 +128,9 @@ func (r *Repo) UpdateBPReminderNotificationSent(userID int64, messageID *int) er
 	return err
 }
 
-// ClearBPReminderNotificationMessage clears the stored Telegram message ID for
+// ClearReminderNotificationMessage clears the stored Telegram message ID for
 // the current BP reminder.
-func (r *Repo) ClearBPReminderNotificationMessage(userID int64) error {
+func (r *Repo) ClearReminderNotificationMessage(userID int64) error {
 	_, err := r.db.Exec(`
 		UPDATE bp_reminder_state
 		SET notification_message_id = NULL,
@@ -140,9 +140,9 @@ func (r *Repo) ClearBPReminderNotificationMessage(userID int64) error {
 	return err
 }
 
-// GetLastBPReading retrieves the most recent BP reading for a user. Returns
+// GetLastReading retrieves the most recent BP reading for a user. Returns
 // (nil, nil) when the user has no readings.
-func (r *Repo) GetLastBPReading(ctx context.Context, userID int64) (*BloodPressure, error) {
+func (r *Repo) GetLastReading(ctx context.Context, userID int64) (*BloodPressure, error) {
 	var bp BloodPressure
 	var pulse sql.NullInt64
 	var site, position, category, notes, tag sql.NullString
@@ -188,11 +188,11 @@ func (r *Repo) GetLastBPReading(ctx context.Context, userID int64) (*BloodPressu
 	return &bp, nil
 }
 
-// GetDominantBPCategory calculates the dominant BP category over the last 14
+// GetDominantCategory calculates the dominant BP category over the last 14
 // days. Ties favour the more severe category.
-func (r *Repo) GetDominantBPCategory(ctx context.Context, userID int64) (string, error) {
+func (r *Repo) GetDominantCategory(ctx context.Context, userID int64) (string, error) {
 	since := time.Now().AddDate(0, 0, -14)
-	readings, err := r.GetBloodPressureReadings(ctx, userID, since)
+	readings, err := r.ListReadings(ctx, userID, since)
 	if err != nil {
 		return "", err
 	}
@@ -231,7 +231,7 @@ func (r *Repo) GetDominantBPCategory(ctx context.Context, userID int64) (string,
 // fewer than 3 readings available.
 func (r *Repo) CalculatePreferredReminderHour(ctx context.Context, userID int64) (int, error) {
 	since := time.Now().AddDate(0, 0, -14)
-	readings, err := r.GetBloodPressureReadings(ctx, userID, since)
+	readings, err := r.ListReadings(ctx, userID, since)
 	if err != nil {
 		return 20, err
 	}
@@ -265,8 +265,8 @@ func (r *Repo) UpdatePreferredReminderHour(userID int64, hour int) error {
 	return err
 }
 
-// GetUsersForBPReminders returns users who have BP reminders enabled.
-func (r *Repo) GetUsersForBPReminders() ([]int64, error) {
+// ListUsersForReminders returns users who have BP reminders enabled.
+func (r *Repo) ListUsersForReminders() ([]int64, error) {
 	rows, err := r.db.Query(`
 		SELECT user_id
 		FROM bp_reminder_state
@@ -287,10 +287,10 @@ func (r *Repo) GetUsersForBPReminders() ([]int64, error) {
 	return userIDs, nil
 }
 
-// BatchGetBPReminderStates retrieves BP reminder states for multiple users
+// BatchGetReminderStates retrieves BP reminder states for multiple users
 // efficiently. Users without an explicit state in the DB get a default state
 // with Enabled=true and PreferredReminderHour=20.
-func (r *Repo) BatchGetBPReminderStates(ctx context.Context, userIDs []int64) (map[int64]*BPReminderState, error) {
+func (r *Repo) BatchGetReminderStates(ctx context.Context, userIDs []int64) (map[int64]*BPReminderState, error) {
 	result := make(map[int64]*BPReminderState, len(userIDs))
 	if len(userIDs) == 0 {
 		return result, nil
@@ -332,14 +332,14 @@ func (r *Repo) BatchGetBPReminderStates(ctx context.Context, userIDs []int64) (m
 }
 
 // scanReminderStateChunk runs one IN-list query and merges results. Split out
-// of BatchGetBPReminderStates so that `defer rows.Close()` reliably fires on
+// of BatchGetReminderStates so that `defer rows.Close()` reliably fires on
 // every exit path — the previous inlined version leaked rows on the normal
 // success path (the loop hand-closed rows only after error, never after
 // successful exit). See plan §Task 7.
 func (r *Repo) scanReminderStateChunk(ctx context.Context, query string, args []interface{}, result map[int64]*BPReminderState) error {
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return fmt.Errorf("BatchGetBPReminderStates query failed: %w", err)
+		return fmt.Errorf("BatchGetReminderStates query failed: %w", err)
 	}
 	defer rows.Close()
 
@@ -379,9 +379,9 @@ func (r *Repo) scanReminderStateChunk(ctx context.Context, query string, args []
 	return rows.Err()
 }
 
-// BatchGetLastBPReadings retrieves the most recent BP reading for multiple
+// BatchGetLastReadings retrieves the most recent BP reading for multiple
 // users efficiently.
-func (r *Repo) BatchGetLastBPReadings(ctx context.Context, userIDs []int64) (map[int64]*BloodPressure, error) {
+func (r *Repo) BatchGetLastReadings(ctx context.Context, userIDs []int64) (map[int64]*BloodPressure, error) {
 	result := make(map[int64]*BloodPressure)
 	if len(userIDs) == 0 {
 		return result, nil
@@ -419,14 +419,14 @@ func (r *Repo) BatchGetLastBPReadings(ctx context.Context, userIDs []int64) (map
 }
 
 // scanLastReadingsChunk runs one IN-list query and merges results. Split out
-// of BatchGetLastBPReadings so that `defer rows.Close()` reliably fires on
+// of BatchGetLastReadings so that `defer rows.Close()` reliably fires on
 // every exit path — the previous inlined version leaked rows on the normal
 // success path (the loop hand-closed rows only after error, never after
 // successful exit). See plan §Task 7.
 func (r *Repo) scanLastReadingsChunk(ctx context.Context, query string, args []interface{}, result map[int64]*BloodPressure) error {
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return fmt.Errorf("BatchGetLastBPReadings query failed: %w", err)
+		return fmt.Errorf("BatchGetLastReadings query failed: %w", err)
 	}
 	defer rows.Close()
 

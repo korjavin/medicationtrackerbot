@@ -267,12 +267,12 @@ Already minimal: `Create`, `List`, `Delete`. No renames.
 
 ### Task 3: Rename BP repo methods
 
-- [ ] apply rename mapping to `internal/store/bp/` (e.g. `GetBloodPressureReadings` → `GetReadings` or `ListReadings`; `Get…` vs `Fetch…` collapses to `Get…`)
-- [ ] update consumer interfaces in `internal/server/store_interfaces.go` and `internal/bot/store_interfaces.go`
-- [ ] update adapter forwarders in scheduler/bot/mcp adapters and `cmd/bot/tz_planner_adapter.go`
-- [ ] update MCP registry operation handlers in `internal/mcp/registry/operations_bp*.go`
-- [ ] update tests inside `internal/store/bp/` and any caller tests
-- [ ] run project tests - must pass (`go test ./...`, `go test -race ./...`, `golangci-lint run`)
+- [x] apply rename mapping to `internal/store/bp/` (e.g. `GetBloodPressureReadings` → `GetReadings` or `ListReadings`; `Get…` vs `Fetch…` collapses to `Get…`)
+- [x] update consumer interfaces in `internal/server/store_interfaces.go` and `internal/bot/store_interfaces.go`
+- [x] update adapter forwarders in scheduler/bot/mcp adapters and `cmd/bot/tz_planner_adapter.go`
+- [x] update MCP registry operation handlers in `internal/mcp/registry/operations_bp*.go`
+- [x] update tests inside `internal/store/bp/` and any caller tests
+- [x] run project tests - must pass (`go test ./...`, `go test -race ./...`, `golangci-lint run`)
 
 ### Task 4: Rename weight repo methods
 

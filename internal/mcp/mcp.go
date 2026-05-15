@@ -28,7 +28,7 @@ type HealthDataReader interface {
 	GetMedicationEnabled(ctx context.Context) (bool, error)
 	GetWorkoutEnabled(ctx context.Context) (bool, error)
 	GetFoodIntakeEnabled(ctx context.Context) (bool, error)
-	GetBloodPressureReadings(ctx context.Context, userID int64, since time.Time) ([]store.BloodPressure, error)
+	ListReadings(ctx context.Context, userID int64, since time.Time) ([]store.BloodPressure, error)
 	GetWeightLogs(ctx context.Context, userID int64, since time.Time) ([]store.WeightLog, error)
 	ListIntakesSince(since time.Time) ([]store.IntakeWithMedication, error)
 	GetWorkoutHistory(userID int64, limit int) ([]store.WorkoutSession, error)

@@ -33,8 +33,8 @@ func (a *storeAdapter) GetWorkoutEnabled(ctx context.Context) (bool, error) {
 func (a *storeAdapter) GetFoodIntakeEnabled(ctx context.Context) (bool, error) {
 	return a.s.Settings.GetFoodIntakeEnabled(ctx)
 }
-func (a *storeAdapter) GetBloodPressureReadings(ctx context.Context, userID int64, since time.Time) ([]store.BloodPressure, error) {
-	return a.s.BP.GetBloodPressureReadings(ctx, userID, since)
+func (a *storeAdapter) ListReadings(ctx context.Context, userID int64, since time.Time) ([]store.BloodPressure, error) {
+	return a.s.BP.ListReadings(ctx, userID, since)
 }
 func (a *storeAdapter) GetWeightLogs(ctx context.Context, userID int64, since time.Time) ([]store.WeightLog, error) {
 	return a.s.Weight.GetWeightLogs(ctx, userID, since)

@@ -201,7 +201,7 @@ func (s *Server) resolveCompositeRange(req *sdkmcp.CallToolRequest, startStr, en
 }
 
 func (s *Server) fetchBPSection(ctx context.Context, userID int64, startDate, endDate time.Time) (*BPSection, error) {
-	readings, err := s.data.GetBloodPressureReadings(ctx, userID, startDate)
+	readings, err := s.data.ListReadings(ctx, userID, startDate)
 	if err != nil {
 		slog.Warn("[MCP] CardiovascularAnalysis: failed to fetch BP", "error", err)
 		return nil, err

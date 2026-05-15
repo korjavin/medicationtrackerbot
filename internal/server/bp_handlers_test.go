@@ -89,12 +89,12 @@ func TestHandleListBloodPressure(t *testing.T) {
 
 	// Setup: Create readings
 	ctx := ctxWithUser(123456)
-	db.BP.CreateBloodPressureReading(ctx, &store.BloodPressure{
+	db.BP.CreateReading(ctx, &store.BloodPressure{
 		UserID:     123456,
 		MeasuredAt: time.Now().Add(-1 * time.Hour),
 		Systolic:   120, Diastolic: 80,
 	})
-	db.BP.CreateBloodPressureReading(ctx, &store.BloodPressure{
+	db.BP.CreateReading(ctx, &store.BloodPressure{
 		UserID:     123456,
 		MeasuredAt: time.Now().Add(-25 * time.Hour),
 		Systolic:   130, Diastolic: 85,
@@ -126,7 +126,7 @@ func TestHandleDeleteBloodPressure(t *testing.T) {
 
 	// Setup
 	ctx := ctxWithUser(123456)
-	id, _ := db.BP.CreateBloodPressureReading(ctx, &store.BloodPressure{
+	id, _ := db.BP.CreateReading(ctx, &store.BloodPressure{
 		UserID:     123456,
 		MeasuredAt: time.Now(),
 		Systolic:   120, Diastolic: 80,
@@ -146,7 +146,7 @@ func TestHandleDeleteBloodPressure(t *testing.T) {
 	}
 
 	// Verify
-	readings, _ := db.BP.GetBloodPressureReadings(ctx, 123456, time.Time{})
+	readings, _ := db.BP.ListReadings(ctx, 123456, time.Time{})
 	if len(readings) != 0 {
 		t.Errorf("Expected 0 readings, got %d", len(readings))
 	}
@@ -179,7 +179,7 @@ func TestHandleGetBPStats(t *testing.T) {
 
 	// Setup data
 	ctx := ctxWithUser(123456)
-	db.BP.CreateBloodPressureReading(ctx, &store.BloodPressure{
+	db.BP.CreateReading(ctx, &store.BloodPressure{
 		UserID:     123456,
 		MeasuredAt: time.Now(),
 		Systolic:   120, Diastolic: 80,
@@ -225,7 +225,7 @@ func TestHandleImportBloodPressure(t *testing.T) {
 
 	// Verify DB
 	ctx := ctxWithUser(123456)
-	readings, _ := db.BP.GetBloodPressureReadings(ctx, 123456, time.Time{})
+	readings, _ := db.BP.ListReadings(ctx, 123456, time.Time{})
 	if len(readings) != 1 {
 		t.Errorf("Expected 1 reading, got %d", len(readings))
 	}
@@ -237,7 +237,7 @@ func TestHandleExportBloodPressure(t *testing.T) {
 
 	// Setup
 	ctx := ctxWithUser(123456)
-	db.BP.CreateBloodPressureReading(ctx, &store.BloodPressure{
+	db.BP.CreateReading(ctx, &store.BloodPressure{
 		UserID:     123456,
 		MeasuredAt: time.Now(),
 		Systolic:   120, Diastolic: 80,
@@ -325,7 +325,7 @@ func TestHandleToggleBPReminder(t *testing.T) {
 	}
 
 	// Verify in database
-	state, _ := db.BP.GetBPReminderState(123456)
+	state, _ := db.BP.GetReminderState(123456)
 	if state.Enabled {
 		t.Errorf("Expected enabled to be false in DB, got true")
 	}
@@ -344,7 +344,7 @@ func TestHandleToggleBPReminder(t *testing.T) {
 	}
 
 	// Verify in database
-	state, _ = db.BP.GetBPReminderState(123456)
+	state, _ = db.BP.GetReminderState(123456)
 	if !state.Enabled {
 		t.Errorf("Expected enabled to be true in DB, got false")
 	}
@@ -370,7 +370,7 @@ func TestHandleSnoozeBPReminder(t *testing.T) {
 	defer db.Close()
 
 	// Initialize state
-	_, err := db.BP.GetBPReminderState(123456)
+	_, err := db.BP.GetReminderState(123456)
 	if err != nil {
 		t.Fatalf("Failed to initialize state: %v", err)
 	}
@@ -400,7 +400,7 @@ func TestHandleSnoozeBPReminder(t *testing.T) {
 	}
 
 	// Verify in database
-	state, _ := db.BP.GetBPReminderState(123456)
+	state, _ := db.BP.GetReminderState(123456)
 	if state.SnoozedUntil == nil {
 		t.Fatalf("Expected snoozed_until to be set, got nil")
 	}
@@ -417,7 +417,7 @@ func TestHandleDontBugMeBPReminder(t *testing.T) {
 	defer db.Close()
 
 	// Initialize state
-	_, err := db.BP.GetBPReminderState(123456)
+	_, err := db.BP.GetReminderState(123456)
 	if err != nil {
 		t.Fatalf("Failed to initialize state: %v", err)
 	}
@@ -447,7 +447,7 @@ func TestHandleDontBugMeBPReminder(t *testing.T) {
 	}
 
 	// Verify in database
-	state, _ := db.BP.GetBPReminderState(123456)
+	state, _ := db.BP.GetReminderState(123456)
 	if state.DontRemindUntil == nil {
 		t.Fatalf("Expected dont_remind_until to be set, got nil")
 	}

@@ -26,12 +26,12 @@ type MedicationStore interface {
 // BloodPressureStore is the subset of store operations needed for BP bot commands.
 type BloodPressureStore interface {
 	GetBloodPressureEnabled(ctx context.Context) (bool, error)
-	CreateBloodPressureReading(ctx context.Context, bp *store.BloodPressure) (int64, error)
-	GetBloodPressureReadings(ctx context.Context, userID int64, since time.Time) ([]store.BloodPressure, error)
-	GetBPGoal() (*store.BPGoal, error)
-	SetBPGoal(targetSystolic, targetDiastolic int) error
-	SnoozeBPReminder(userID int64) error
-	DontBugMeBPReminder(userID int64) error
+	CreateReading(ctx context.Context, bp *store.BloodPressure) (int64, error)
+	ListReadings(ctx context.Context, userID int64, since time.Time) ([]store.BloodPressure, error)
+	GetGoal() (*store.BPGoal, error)
+	SetGoal(targetSystolic, targetDiastolic int) error
+	SnoozeReminder(userID int64) error
+	DontBugMeReminder(userID int64) error
 }
 
 // WeightStore is the subset of store operations needed for weight bot commands.
@@ -88,8 +88,8 @@ type ActivityLogStore interface {
 
 // ReminderStore is the subset of store operations needed for reminder operations.
 type ReminderStore interface {
-	SnoozeBPReminder(userID int64) error
-	DontBugMeBPReminder(userID int64) error
+	SnoozeReminder(userID int64) error
+	DontBugMeReminder(userID int64) error
 	SnoozeWeightReminder(userID int64) error
 	DontBugMeWeightReminder(userID int64) error
 }

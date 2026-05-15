@@ -82,7 +82,7 @@ func generateBP(ctx context.Context, s *store.Store, opts Options, clk *clock, r
 			Position:   bpPositions[rng.IntN(len(bpPositions))],
 			Tag:        bpTags[rng.IntN(len(bpTags))],
 		}
-		if _, err := s.BP.CreateBloodPressureReading(ctx, bp); err != nil {
+		if _, err := s.BP.CreateReading(ctx, bp); err != nil {
 			return fmt.Errorf("create bp at %s: %w", measuredAt, err)
 		}
 		summary.BPReadings++

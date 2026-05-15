@@ -26,7 +26,7 @@ func BenchmarkBPReminderChecker(b *testing.B) {
 	now := time.Now()
 	for i := 1; i <= numUsers; i++ {
 		userID := int64(i)
-		if err := db.BP.SetBPReminderEnabled(userID, true); err != nil {
+		if err := db.BP.SetReminderEnabled(userID, true); err != nil {
 			b.Fatalf("Failed to enable reminder for user %d: %v", userID, err)
 		}
 
@@ -37,7 +37,7 @@ func BenchmarkBPReminderChecker(b *testing.B) {
 		}
 
 		// Insert a recent reading
-		_, err := db.BP.CreateBloodPressureReading(ctx, &store.BloodPressure{
+		_, err := db.BP.CreateReading(ctx, &store.BloodPressure{
 			UserID:     userID,
 			Systolic:   120,
 			Diastolic:  80,

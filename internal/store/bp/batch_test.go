@@ -6,22 +6,22 @@ import (
 	"time"
 )
 
-func TestBatchGetBPReminderStates(t *testing.T) {
+func TestBatchGetReminderStates(t *testing.T) {
 	r := setupBPRepo(t)
 	ctx := context.Background()
 
 	userIDs := []int64{1, 2, 3}
 
 	for _, uid := range userIDs {
-		_, err := r.GetBPReminderState(uid)
+		_, err := r.GetReminderState(uid)
 		if err != nil {
 			t.Fatalf("Init state failed: %v", err)
 		}
 	}
 
-	states, err := r.BatchGetBPReminderStates(ctx, userIDs)
+	states, err := r.BatchGetReminderStates(ctx, userIDs)
 	if err != nil {
-		t.Fatalf("BatchGetBPReminderStates failed: %v", err)
+		t.Fatalf("BatchGetReminderStates failed: %v", err)
 	}
 
 	if len(states) != 3 {
@@ -29,7 +29,7 @@ func TestBatchGetBPReminderStates(t *testing.T) {
 	}
 }
 
-func TestBatchGetLastBPReadings(t *testing.T) {
+func TestBatchGetLastReadings(t *testing.T) {
 	r := setupBPRepo(t)
 	ctx := context.Background()
 
@@ -37,7 +37,7 @@ func TestBatchGetLastBPReadings(t *testing.T) {
 
 	for _, uid := range userIDs {
 		// Older reading
-		_, err := r.CreateBloodPressureReading(ctx, &BloodPressure{
+		_, err := r.CreateReading(ctx, &BloodPressure{
 			UserID:     uid,
 			Systolic:   120,
 			Diastolic:  80,
@@ -48,7 +48,7 @@ func TestBatchGetLastBPReadings(t *testing.T) {
 		}
 
 		// Newer reading
-		_, err = r.CreateBloodPressureReading(ctx, &BloodPressure{
+		_, err = r.CreateReading(ctx, &BloodPressure{
 			UserID:     uid,
 			Systolic:   130,
 			Diastolic:  90,
@@ -59,9 +59,9 @@ func TestBatchGetLastBPReadings(t *testing.T) {
 		}
 	}
 
-	readings, err := r.BatchGetLastBPReadings(ctx, userIDs)
+	readings, err := r.BatchGetLastReadings(ctx, userIDs)
 	if err != nil {
-		t.Fatalf("BatchGetLastBPReadings failed: %v", err)
+		t.Fatalf("BatchGetLastReadings failed: %v", err)
 	}
 
 	if len(readings) != 3 {

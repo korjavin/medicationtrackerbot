@@ -46,14 +46,14 @@ func TestAnalyzeCardiovascular_AllDomains(t *testing.T) {
 	}
 
 	// Add BP reading
-	if _, err := st.BP.CreateBloodPressureReading(ctx, &store.BloodPressure{
+	if _, err := st.BP.CreateReading(ctx, &store.BloodPressure{
 		UserID:     userID,
 		Systolic:   120,
 		Diastolic:  80,
 		MeasuredAt: time.Date(2026, 3, 15, 9, 0, 0, 0, time.Local),
 		Category:   "Normal",
 	}); err != nil {
-		t.Fatalf("CreateBloodPressureReading: %v", err)
+		t.Fatalf("CreateReading: %v", err)
 	}
 
 	// Add medication
