@@ -165,7 +165,7 @@ func main() {
 			bp.Position = strings.TrimSpace(position)
 		}
 
-		// Category will be recalculated by ImportBloodPressureReadings if empty
+		// Category will be recalculated by ImportReadings if empty
 
 		// Parse Ignore Calculation (optional)
 		ignoreCalcStr := getCol(row, colMap, "ignore calculation")
@@ -203,7 +203,7 @@ func main() {
 
 	// Import readings
 	ctx := context.Background()
-	err = s.BP.ImportBloodPressureReadings(ctx, *userID, readings)
+	err = s.BP.ImportReadings(ctx, *userID, readings)
 	if err != nil {
 		slog.Error("Failed to import blood pressure readings", "error", err)
 		os.Exit(1)

@@ -314,12 +314,12 @@ func TestCheckBPReminders_UserSnoozed(t *testing.T) {
 	sched, db := setupTestScheduler(t)
 	userID := int64(123456)
 
-	if err := db.BP.SetBPReminderEnabled(userID, true); err != nil {
-		t.Fatalf("SetBPReminderEnabled: %v", err)
+	if err := db.BP.SetReminderEnabled(userID, true); err != nil {
+		t.Fatalf("SetReminderEnabled: %v", err)
 	}
 
-	if err := db.BP.SnoozeBPReminder(userID); err != nil {
-		t.Fatalf("SnoozeBPReminder: %v", err)
+	if err := db.BP.SnoozeReminder(userID); err != nil {
+		t.Fatalf("SnoozeReminder: %v", err)
 	}
 
 	err := sched.BPReminderChecker.Check(context.Background())
@@ -332,19 +332,19 @@ func TestCheckBPReminders_AlreadyMeasuredToday(t *testing.T) {
 	sched, db := setupTestScheduler(t)
 	userID := int64(123456)
 
-	if err := db.BP.SetBPReminderEnabled(userID, true); err != nil {
-		t.Fatalf("SetBPReminderEnabled: %v", err)
+	if err := db.BP.SetReminderEnabled(userID, true); err != nil {
+		t.Fatalf("SetReminderEnabled: %v", err)
 	}
 
 	ctx := context.Background()
-	_, err := db.BP.CreateBloodPressureReading(ctx, &store.BloodPressure{
+	_, err := db.BP.CreateReading(ctx, &store.BloodPressure{
 		UserID:     userID,
 		Systolic:   120,
 		Diastolic:  80,
 		MeasuredAt: time.Now(),
 	})
 	if err != nil {
-		t.Fatalf("CreateBloodPressureReading: %v", err)
+		t.Fatalf("CreateReading: %v", err)
 	}
 
 	err = sched.BPReminderChecker.Check(context.Background())
@@ -357,12 +357,12 @@ func TestCheckBPReminders_DontRemindUntilActive(t *testing.T) {
 	sched, db := setupTestScheduler(t)
 	userID := int64(123456)
 
-	if err := db.BP.SetBPReminderEnabled(userID, true); err != nil {
-		t.Fatalf("SetBPReminderEnabled: %v", err)
+	if err := db.BP.SetReminderEnabled(userID, true); err != nil {
+		t.Fatalf("SetReminderEnabled: %v", err)
 	}
 
-	if err := db.BP.DontBugMeBPReminder(userID); err != nil {
-		t.Fatalf("DontBugMeBPReminder: %v", err)
+	if err := db.BP.DontBugMeReminder(userID); err != nil {
+		t.Fatalf("DontBugMeReminder: %v", err)
 	}
 
 	err := sched.BPReminderChecker.Check(context.Background())

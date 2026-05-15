@@ -16,14 +16,14 @@ type mockReminderStore struct {
 	dontBugMeWeightFn func(userID int64) error
 }
 
-func (m *mockReminderStore) SnoozeBPReminder(userID int64) error {
+func (m *mockReminderStore) SnoozeReminder(userID int64) error {
 	if m.snoozeBPFn != nil {
 		return m.snoozeBPFn(userID)
 	}
 	return nil
 }
 
-func (m *mockReminderStore) DontBugMeBPReminder(userID int64) error {
+func (m *mockReminderStore) DontBugMeReminder(userID int64) error {
 	if m.dontBugMeBPFn != nil {
 		return m.dontBugMeBPFn(userID)
 	}

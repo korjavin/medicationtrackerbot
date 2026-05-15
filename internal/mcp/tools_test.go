@@ -259,7 +259,7 @@ func TestHandleGetBloodPressure_WithData(t *testing.T) {
 	}
 
 	pulse := 72
-	_, err := st.BP.CreateBloodPressureReading(ctx, &store.BloodPressure{
+	_, err := st.BP.CreateReading(ctx, &store.BloodPressure{
 		UserID:     123456,
 		MeasuredAt: time.Date(2026, 2, 18, 9, 0, 0, 0, time.UTC),
 		Systolic:   120,
@@ -268,7 +268,7 @@ func TestHandleGetBloodPressure_WithData(t *testing.T) {
 		Category:   "normal",
 	})
 	if err != nil {
-		t.Fatalf("CreateBloodPressureReading: %v", err)
+		t.Fatalf("CreateReading: %v", err)
 	}
 
 	_, resp, err := s.handleGetBloodPressure(ctx, nil, DateRangeInput{
@@ -901,7 +901,7 @@ func TestHandleGetBloodPressure_IncludesContextNotes(t *testing.T) {
 	// Create a BP reading in the same range
 	pulse := 72
 	now := time.Now()
-	_, err := st.BP.CreateBloodPressureReading(ctx, &store.BloodPressure{
+	_, err := st.BP.CreateReading(ctx, &store.BloodPressure{
 		UserID:     123456,
 		MeasuredAt: now,
 		Systolic:   130,
@@ -910,7 +910,7 @@ func TestHandleGetBloodPressure_IncludesContextNotes(t *testing.T) {
 		Category:   "high-normal",
 	})
 	if err != nil {
-		t.Fatalf("CreateBloodPressureReading: %v", err)
+		t.Fatalf("CreateReading: %v", err)
 	}
 
 	_, resp, err := s.handleGetBloodPressure(ctx, nil, DateRangeInput{

@@ -213,20 +213,20 @@ func (a *storeAdapter) DeleteSession(id int64) error { return a.workout.DeleteSe
 
 // --- BP (bp.Repo) ---
 
-func (a *storeAdapter) GetUsersForBPReminders() ([]int64, error) {
-	return a.bp.GetUsersForBPReminders()
+func (a *storeAdapter) ListUsersForReminders() ([]int64, error) {
+	return a.bp.ListUsersForReminders()
 }
-func (a *storeAdapter) GetBPReminderState(userID int64) (*store.BPReminderState, error) {
-	return a.bp.GetBPReminderState(userID)
+func (a *storeAdapter) GetReminderState(userID int64) (*store.BPReminderState, error) {
+	return a.bp.GetReminderState(userID)
 }
-func (a *storeAdapter) BatchGetBPReminderStates(ctx context.Context, userIDs []int64) (map[int64]*store.BPReminderState, error) {
-	return a.bp.BatchGetBPReminderStates(ctx, userIDs)
+func (a *storeAdapter) BatchGetReminderStates(ctx context.Context, userIDs []int64) (map[int64]*store.BPReminderState, error) {
+	return a.bp.BatchGetReminderStates(ctx, userIDs)
 }
-func (a *storeAdapter) GetLastBPReading(ctx context.Context, userID int64) (*store.BloodPressure, error) {
-	return a.bp.GetLastBPReading(ctx, userID)
+func (a *storeAdapter) GetLastReading(ctx context.Context, userID int64) (*store.BloodPressure, error) {
+	return a.bp.GetLastReading(ctx, userID)
 }
-func (a *storeAdapter) BatchGetLastBPReadings(ctx context.Context, userIDs []int64) (map[int64]*store.BloodPressure, error) {
-	return a.bp.BatchGetLastBPReadings(ctx, userIDs)
+func (a *storeAdapter) BatchGetLastReadings(ctx context.Context, userIDs []int64) (map[int64]*store.BloodPressure, error) {
+	return a.bp.BatchGetLastReadings(ctx, userIDs)
 }
 func (a *storeAdapter) CalculatePreferredReminderHour(ctx context.Context, userID int64) (int, error) {
 	return a.bp.CalculatePreferredReminderHour(ctx, userID)
@@ -234,11 +234,11 @@ func (a *storeAdapter) CalculatePreferredReminderHour(ctx context.Context, userI
 func (a *storeAdapter) UpdatePreferredReminderHour(userID int64, hour int) error {
 	return a.bp.UpdatePreferredReminderHour(userID, hour)
 }
-func (a *storeAdapter) GetDominantBPCategory(ctx context.Context, userID int64) (string, error) {
-	return a.bp.GetDominantBPCategory(ctx, userID)
+func (a *storeAdapter) GetDominantCategory(ctx context.Context, userID int64) (string, error) {
+	return a.bp.GetDominantCategory(ctx, userID)
 }
-func (a *storeAdapter) UpdateBPReminderNotificationSent(userID int64, messageID *int) error {
-	return a.bp.UpdateBPReminderNotificationSent(userID, messageID)
+func (a *storeAdapter) UpdateReminderNotificationSent(userID int64, messageID *int) error {
+	return a.bp.UpdateReminderNotificationSent(userID, messageID)
 }
 
 // --- Weight (weight.Repo) ---

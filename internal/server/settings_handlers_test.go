@@ -375,13 +375,13 @@ func TestHandleChanges(t *testing.T) {
 	}
 
 	// Simulate a write-side mutation in DB, should be captured by change_events trigger.
-	if _, err := db.BP.CreateBloodPressureReading(ctxWithUser(123456), &store.BloodPressure{
+	if _, err := db.BP.CreateReading(ctxWithUser(123456), &store.BloodPressure{
 		UserID:     123456,
 		MeasuredAt: time.Now(),
 		Systolic:   120,
 		Diastolic:  80,
 	}); err != nil {
-		t.Fatalf("CreateBloodPressureReading failed: %v", err)
+		t.Fatalf("CreateReading failed: %v", err)
 	}
 
 	reqDelta := httptest.NewRequest("GET", "/api/changes?since="+strconv.FormatUint(uint64(cursor), 10), nil)
@@ -631,11 +631,11 @@ func TestHandleGetSettings_FullBundle(t *testing.T) {
 	if err := db.Food.SetFoodTargets(ctx, store.FoodTargets{Calories: 2000, Carbs: 200, Protein: 150, Fat: 70}); err != nil {
 		t.Fatalf("SetFoodTargets: %v", err)
 	}
-	if _, err := db.BP.GetBPReminderState(userID); err != nil { // creates default row
-		t.Fatalf("seed GetBPReminderState: %v", err)
+	if _, err := db.BP.GetReminderState(userID); err != nil { // creates default row
+		t.Fatalf("seed GetReminderState: %v", err)
 	}
-	if err := db.BP.SetBPReminderEnabled(userID, false); err != nil {
-		t.Fatalf("SetBPReminderEnabled: %v", err)
+	if err := db.BP.SetReminderEnabled(userID, false); err != nil {
+		t.Fatalf("SetReminderEnabled: %v", err)
 	}
 	if _, err := db.Weight.GetWeightReminderState(userID); err != nil { // creates default row
 		t.Fatalf("seed GetWeightReminderState: %v", err)

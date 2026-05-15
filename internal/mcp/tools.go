@@ -158,7 +158,7 @@ func (s *Server) handleGetBloodPressure(ctx context.Context, req *mcp.CallToolRe
 	// Get the user ID from config
 	userID := s.config.UserID
 
-	readings, err := s.data.GetBloodPressureReadings(ctx, userID, startDate)
+	readings, err := s.data.ListReadings(ctx, userID, startDate)
 	if err != nil {
 		slog.Error("[MCP] Failed to fetch BP readings", "error", err)
 		return nil, BloodPressureResponse{}, err

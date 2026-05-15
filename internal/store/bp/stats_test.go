@@ -32,7 +32,7 @@ func setupStatsRepo(t *testing.T, tz TimezoneLookup) (*Repo, *storedb.DB) {
 	return New(d, tz), d
 }
 
-func TestGetBPDailyWeightedStats_TimeWeightedDailyAverages(t *testing.T) {
+func TestGetDailyWeightedStats_TimeWeightedDailyAverages(t *testing.T) {
 	r, _ := setupStatsRepo(t, nil)
 
 	ctx := context.Background()
@@ -47,7 +47,7 @@ func TestGetBPDailyWeightedStats_TimeWeightedDailyAverages(t *testing.T) {
 
 	add := func(ts time.Time, sys, dia int) {
 		t.Helper()
-		_, err := r.CreateBloodPressureReading(ctx, &BloodPressure{
+		_, err := r.CreateReading(ctx, &BloodPressure{
 			UserID:     userID,
 			MeasuredAt: ts,
 			Systolic:   sys,
@@ -67,7 +67,7 @@ func TestGetBPDailyWeightedStats_TimeWeightedDailyAverages(t *testing.T) {
 	add(time.Date(day2.Year(), day2.Month(), day2.Day(), 9, 30, 0, 0, time.UTC), 150, 95)
 	add(time.Date(day2.Year(), day2.Month(), day2.Day(), 18, 0, 0, 0, time.UTC), 120, 80)
 
-	stats, err := r.GetBPDailyWeightedStats(ctx, userID)
+	stats, err := r.GetDailyWeightedStats(ctx, userID)
 	if err != nil {
 		t.Fatalf("failed to get stats: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestGetBPDailyWeightedStats_TimeWeightedDailyAverages(t *testing.T) {
 	}
 }
 
-func TestGetBPDailyWeightedStats_TodayCappedAtNow(t *testing.T) {
+func TestGetDailyWeightedStats_TodayCappedAtNow(t *testing.T) {
 	r, _ := setupStatsRepo(t, nil)
 
 	ctx := context.Background()
@@ -119,7 +119,7 @@ func TestGetBPDailyWeightedStats_TodayCappedAtNow(t *testing.T) {
 
 	add := func(ts time.Time, sys, dia int) {
 		t.Helper()
-		_, err := r.CreateBloodPressureReading(ctx, &BloodPressure{
+		_, err := r.CreateReading(ctx, &BloodPressure{
 			UserID:     userID,
 			MeasuredAt: ts,
 			Systolic:   sys,
@@ -133,7 +133,7 @@ func TestGetBPDailyWeightedStats_TodayCappedAtNow(t *testing.T) {
 	add(r1, 120, 80)
 	add(r2, 180, 110)
 
-	stats, err := r.GetBPDailyWeightedStats(ctx, userID)
+	stats, err := r.GetDailyWeightedStats(ctx, userID)
 	if err != nil {
 		t.Fatalf("failed to get stats: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestGetBPDailyWeightedStats_TodayCappedAtNow(t *testing.T) {
 	}
 }
 
-func TestGetBPDailyWeightedStats_NoCarryOverAcrossDays(t *testing.T) {
+func TestGetDailyWeightedStats_NoCarryOverAcrossDays(t *testing.T) {
 	r, _ := setupStatsRepo(t, nil)
 
 	ctx := context.Background()
@@ -177,7 +177,7 @@ func TestGetBPDailyWeightedStats_NoCarryOverAcrossDays(t *testing.T) {
 
 	add := func(ts time.Time, sys, dia int) {
 		t.Helper()
-		_, err := r.CreateBloodPressureReading(ctx, &BloodPressure{
+		_, err := r.CreateReading(ctx, &BloodPressure{
 			UserID:     userID,
 			MeasuredAt: ts,
 			Systolic:   sys,
@@ -192,7 +192,7 @@ func TestGetBPDailyWeightedStats_NoCarryOverAcrossDays(t *testing.T) {
 	add(day1.Add(23*time.Hour), 160, 100)
 	add(day2.Add(9*time.Hour), 120, 80)
 
-	stats, err := r.GetBPDailyWeightedStats(ctx, userID)
+	stats, err := r.GetDailyWeightedStats(ctx, userID)
 	if err != nil {
 		t.Fatalf("failed to get stats: %v", err)
 	}
@@ -221,7 +221,7 @@ func TestGetBPDailyWeightedStats_NoCarryOverAcrossDays(t *testing.T) {
 	}
 }
 
-func TestGetBPDailyWeightedStats_IgnoreCalcReadingsExcluded(t *testing.T) {
+func TestGetDailyWeightedStats_IgnoreCalcReadingsExcluded(t *testing.T) {
 	r, _ := setupStatsRepo(t, nil)
 
 	ctx := context.Background()
@@ -232,7 +232,7 @@ func TestGetBPDailyWeightedStats_IgnoreCalcReadingsExcluded(t *testing.T) {
 
 	day := time.Date(2025, 1, 9, 0, 0, 0, 0, time.UTC)
 
-	_, err := r.CreateBloodPressureReading(ctx, &BloodPressure{
+	_, err := r.CreateReading(ctx, &BloodPressure{
 		UserID:     userID,
 		MeasuredAt: day.Add(8 * time.Hour),
 		Systolic:   120,
@@ -242,7 +242,7 @@ func TestGetBPDailyWeightedStats_IgnoreCalcReadingsExcluded(t *testing.T) {
 		t.Fatalf("failed to insert reading: %v", err)
 	}
 
-	_, err = r.CreateBloodPressureReading(ctx, &BloodPressure{
+	_, err = r.CreateReading(ctx, &BloodPressure{
 		UserID:     userID,
 		MeasuredAt: day.Add(12 * time.Hour),
 		Systolic:   180,
@@ -253,7 +253,7 @@ func TestGetBPDailyWeightedStats_IgnoreCalcReadingsExcluded(t *testing.T) {
 		t.Fatalf("failed to insert ignored reading: %v", err)
 	}
 
-	stats, err := r.GetBPDailyWeightedStats(ctx, userID)
+	stats, err := r.GetDailyWeightedStats(ctx, userID)
 	if err != nil {
 		t.Fatalf("failed to get stats: %v", err)
 	}
@@ -270,7 +270,7 @@ func TestGetBPDailyWeightedStats_IgnoreCalcReadingsExcluded(t *testing.T) {
 	}
 }
 
-func TestGetBPDailyWeightedStats_SameTimestampUsesLast(t *testing.T) {
+func TestGetDailyWeightedStats_SameTimestampUsesLast(t *testing.T) {
 	r, _ := setupStatsRepo(t, nil)
 
 	ctx := context.Background()
@@ -285,7 +285,7 @@ func TestGetBPDailyWeightedStats_SameTimestampUsesLast(t *testing.T) {
 
 	add := func(ts time.Time, sys, dia int) {
 		t.Helper()
-		_, err := r.CreateBloodPressureReading(ctx, &BloodPressure{
+		_, err := r.CreateReading(ctx, &BloodPressure{
 			UserID:     userID,
 			MeasuredAt: ts,
 			Systolic:   sys,
@@ -301,7 +301,7 @@ func TestGetBPDailyWeightedStats_SameTimestampUsesLast(t *testing.T) {
 	add(t1, 160, 100)
 	add(t2, 120, 80)
 
-	stats, err := r.GetBPDailyWeightedStats(ctx, userID)
+	stats, err := r.GetDailyWeightedStats(ctx, userID)
 	if err != nil {
 		t.Fatalf("failed to get stats: %v", err)
 	}
@@ -330,7 +330,7 @@ func TestBPStats_FrequentHighBPDayVsSparseNormal(t *testing.T) {
 
 	add := func(ts time.Time, sys, dia int) {
 		t.Helper()
-		_, err := r.CreateBloodPressureReading(ctx, &BloodPressure{
+		_, err := r.CreateReading(ctx, &BloodPressure{
 			UserID:     userID,
 			MeasuredAt: ts,
 			Systolic:   sys,
@@ -353,7 +353,7 @@ func TestBPStats_FrequentHighBPDayVsSparseNormal(t *testing.T) {
 		add(time.Date(day4.Year(), day4.Month(), day4.Day(), 10, i*30, 0, 0, time.UTC), 150-i*2, 95-i)
 	}
 
-	stats, err := r.GetBPDailyWeightedStats(ctx, userID)
+	stats, err := r.GetDailyWeightedStats(ctx, userID)
 	if err != nil {
 		t.Fatalf("failed to get stats: %v", err)
 	}
@@ -386,7 +386,7 @@ func TestBPStats_SingleReadingPerDay(t *testing.T) {
 
 	add := func(ts time.Time, sys, dia int) {
 		t.Helper()
-		_, err := r.CreateBloodPressureReading(ctx, &BloodPressure{
+		_, err := r.CreateReading(ctx, &BloodPressure{
 			UserID:     userID,
 			MeasuredAt: ts,
 			Systolic:   sys,
@@ -415,7 +415,7 @@ func TestBPStats_SingleReadingPerDay(t *testing.T) {
 		add(time.Date(d.Year(), d.Month(), d.Day(), r.hour, 0, 0, 0, time.UTC), r.sys, r.dia)
 	}
 
-	stats, err := r.GetBPDailyWeightedStats(ctx, userID)
+	stats, err := r.GetDailyWeightedStats(ctx, userID)
 	if err != nil {
 		t.Fatalf("failed to get stats: %v", err)
 	}
@@ -450,7 +450,7 @@ func TestBPStats_LongGapBetweenDays(t *testing.T) {
 
 	add := func(ts time.Time, sys, dia int) {
 		t.Helper()
-		_, err := r.CreateBloodPressureReading(ctx, &BloodPressure{
+		_, err := r.CreateReading(ctx, &BloodPressure{
 			UserID:     userID,
 			MeasuredAt: ts,
 			Systolic:   sys,
@@ -466,7 +466,7 @@ func TestBPStats_LongGapBetweenDays(t *testing.T) {
 	add(time.Date(day1.Year(), day1.Month(), day1.Day(), 9, 0, 0, 0, time.UTC), 140, 90)
 	add(time.Date(fixedNow.Year(), fixedNow.Month(), fixedNow.Day(), 8, 0, 0, 0, time.UTC), 110, 70)
 
-	stats, err := r.GetBPDailyWeightedStats(ctx, userID)
+	stats, err := r.GetDailyWeightedStats(ctx, userID)
 	if err != nil {
 		t.Fatalf("failed to get stats: %v", err)
 	}
@@ -507,7 +507,7 @@ func TestBPStats_ManyReadingsInShortBurst(t *testing.T) {
 
 	add := func(ts time.Time, sys, dia int) {
 		t.Helper()
-		_, err := r.CreateBloodPressureReading(ctx, &BloodPressure{
+		_, err := r.CreateReading(ctx, &BloodPressure{
 			UserID:     userID,
 			MeasuredAt: ts,
 			Systolic:   sys,
@@ -527,7 +527,7 @@ func TestBPStats_ManyReadingsInShortBurst(t *testing.T) {
 	// Day 2 (today): 1 reading at 09:00 (normal)
 	add(time.Date(fixedNow.Year(), fixedNow.Month(), fixedNow.Day(), 9, 0, 0, 0, time.UTC), 118, 75)
 
-	stats, err := r.GetBPDailyWeightedStats(ctx, userID)
+	stats, err := r.GetDailyWeightedStats(ctx, userID)
 	if err != nil {
 		t.Fatalf("failed to get stats: %v", err)
 	}
@@ -570,7 +570,7 @@ func TestBPStats_TimezoneAwareDayBoundary(t *testing.T) {
 
 	add := func(ts time.Time, sys, dia int) {
 		t.Helper()
-		_, err := r.CreateBloodPressureReading(ctx, &BloodPressure{
+		_, err := r.CreateReading(ctx, &BloodPressure{
 			UserID:     userID,
 			MeasuredAt: ts,
 			Systolic:   sys,
@@ -587,7 +587,7 @@ func TestBPStats_TimezoneAwareDayBoundary(t *testing.T) {
 	add(time.Date(2025, 1, 8, 23, 30, 0, 0, tokyo), 160, 100)
 	add(time.Date(2025, 1, 9, 0, 30, 0, 0, tokyo), 110, 70)
 
-	stats, err := r.GetBPDailyWeightedStats(ctx, userID)
+	stats, err := r.GetDailyWeightedStats(ctx, userID)
 	if err != nil {
 		t.Fatalf("failed to get stats: %v", err)
 	}
@@ -622,7 +622,7 @@ func TestBPStats_NoTimezoneFallsBackToUTC(t *testing.T) {
 
 	add := func(ts time.Time, sys, dia int) {
 		t.Helper()
-		_, err := r.CreateBloodPressureReading(ctx, &BloodPressure{
+		_, err := r.CreateReading(ctx, &BloodPressure{
 			UserID:     userID,
 			MeasuredAt: ts,
 			Systolic:   sys,
@@ -637,7 +637,7 @@ func TestBPStats_NoTimezoneFallsBackToUTC(t *testing.T) {
 	add(time.Date(2025, 1, 9, 8, 0, 0, 0, time.UTC), 120, 80)
 	add(time.Date(2025, 1, 9, 20, 0, 0, 0, time.UTC), 140, 90)
 
-	stats, err := r.GetBPDailyWeightedStats(ctx, userID)
+	stats, err := r.GetDailyWeightedStats(ctx, userID)
 	if err != nil {
 		t.Fatalf("failed to get stats: %v", err)
 	}
@@ -664,7 +664,7 @@ func TestBPStats_NoTimezoneFallsBackToUTC(t *testing.T) {
 	}
 }
 
-func TestGetBPDailyWeightedStats_PartialPeriodOnlyIn60Days(t *testing.T) {
+func TestGetDailyWeightedStats_PartialPeriodOnlyIn60Days(t *testing.T) {
 	r, _ := setupStatsRepo(t, nil)
 
 	ctx := context.Background()
@@ -676,7 +676,7 @@ func TestGetBPDailyWeightedStats_PartialPeriodOnlyIn60Days(t *testing.T) {
 	day := fixedNow.AddDate(0, 0, -40)
 	readingTime := time.Date(day.Year(), day.Month(), day.Day(), 9, 0, 0, 0, time.UTC)
 
-	_, err := r.CreateBloodPressureReading(ctx, &BloodPressure{
+	_, err := r.CreateReading(ctx, &BloodPressure{
 		UserID:     userID,
 		MeasuredAt: readingTime,
 		Systolic:   130,
@@ -686,7 +686,7 @@ func TestGetBPDailyWeightedStats_PartialPeriodOnlyIn60Days(t *testing.T) {
 		t.Fatalf("failed to insert reading: %v", err)
 	}
 
-	stats, err := r.GetBPDailyWeightedStats(ctx, userID)
+	stats, err := r.GetDailyWeightedStats(ctx, userID)
 	if err != nil {
 		t.Fatalf("failed to get stats: %v", err)
 	}

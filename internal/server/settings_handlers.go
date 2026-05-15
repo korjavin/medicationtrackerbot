@@ -247,17 +247,17 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bpSince := now.AddDate(0, 0, -60)
-	bpReadings, err := s.bp.GetBloodPressureReadings(ctx, userID, bpSince)
+	bpReadings, err := s.bp.ListReadings(ctx, userID, bpSince)
 	if err != nil {
 		slog.Error("bootstrap bp readings query failed", "error", err)
 		bpReadings = []store.BloodPressure{}
 	}
-	bpGoal, err := s.bp.GetBPGoal()
+	bpGoal, err := s.bp.GetGoal()
 	if err != nil {
 		slog.Error("bootstrap bp goal query failed", "error", err)
 		bpGoal = nil
 	}
-	bpStats, err := s.bp.GetBPDailyWeightedStats(ctx, userID)
+	bpStats, err := s.bp.GetDailyWeightedStats(ctx, userID)
 	if err != nil {
 		slog.Error("bootstrap bp stats query failed", "error", err)
 		bpStats = nil
@@ -294,7 +294,7 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		slog.Error("bootstrap food targets query failed", "error", err)
 		foodTargets = store.FoodTargets{}
 	}
-	bpReminderStatus, err := s.bp.GetBPReminderState(userID)
+	bpReminderStatus, err := s.bp.GetReminderState(userID)
 	if err != nil {
 		slog.Error("bootstrap bp reminder state query failed", "error", err)
 		bpReminderStatus = nil
@@ -492,7 +492,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	var bpReminderStatus *store.BPReminderState
 	var weightReminderStatus *store.WeightReminderState
 	if tgUser != nil {
-		bpReminderStatus, err = s.bp.GetBPReminderState(tgUser.ID)
+		bpReminderStatus, err = s.bp.GetReminderState(tgUser.ID)
 		if err != nil {
 			slog.Error("get settings bp reminder state failed", "error", err)
 			bpReminderStatus = nil

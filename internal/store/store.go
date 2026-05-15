@@ -29,7 +29,7 @@ var embedMigrations embed.FS
 //
 //	r := store.New(":memory:")
 //	med, err := r.Medication.Get(id)
-//	bpState, err := r.BP.GetBPReminderState(userID)
+//	bpState, err := r.BP.GetReminderState(userID)
 //
 // New code SHOULD NOT add methods to Repos. Each domain's methods live on its
 // own *<domain>.Repo; reach them through the corresponding field.
@@ -173,7 +173,7 @@ func NewWithDB(d *storedb.DB) (*Repos, error) {
 		TZ:         tzRepo,
 		Medication: medication.New(d),
 		// bp.Repo needs a TimezoneLookup for day-boundary calculations in
-		// GetBPDailyWeightedStats. The tz repo owns the timezone table.
+		// GetDailyWeightedStats. The tz repo owns the timezone table.
 		BP: bp.New(d, tzRepo),
 	}
 	return r, nil

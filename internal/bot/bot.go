@@ -1051,7 +1051,7 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 	}
 
 	// Get blood pressure readings
-	bpReadings, err := b.bp.GetBloodPressureReadings(context.Background(), b.allowedUserID, since)
+	bpReadings, err := b.bp.ListReadings(context.Background(), b.allowedUserID, since)
 	if err != nil {
 		slog.Error("Error getting BP readings", "error", err)
 		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error retrieving blood pressure data.")); err != nil {
@@ -1245,7 +1245,7 @@ Pulse: heart rate (optional)`
 		bp.Pulse = &pulse
 	}
 
-	_, err = b.bp.CreateBloodPressureReading(context.Background(), bp)
+	_, err = b.bp.CreateReading(context.Background(), bp)
 	if err != nil {
 		slog.Error("Error creating BP reading", "error", err)
 		msgConfig.Text = "❌ Error saving blood pressure reading."
@@ -1261,7 +1261,7 @@ Pulse: heart rate (optional)`
 
 func (b *Bot) handleBPHistoryCommand(msgConfig *tgbotapi.MessageConfig) {
 	since := time.Now().AddDate(0, 0, -30)
-	readings, err := b.bp.GetBloodPressureReadings(context.Background(), b.allowedUserID, since)
+	readings, err := b.bp.ListReadings(context.Background(), b.allowedUserID, since)
 	if err != nil {
 		slog.Error("Error getting BP readings", "error", err)
 		msgConfig.Text = "❌ Error retrieving blood pressure history."
@@ -1299,7 +1299,7 @@ func (b *Bot) handleBPHistoryCommand(msgConfig *tgbotapi.MessageConfig) {
 
 func (b *Bot) handleBPStatsCommand(msgConfig *tgbotapi.MessageConfig) {
 	since := time.Now().AddDate(0, 0, -30)
-	readings, err := b.bp.GetBloodPressureReadings(context.Background(), b.allowedUserID, since)
+	readings, err := b.bp.ListReadings(context.Background(), b.allowedUserID, since)
 	if err != nil {
 		slog.Error("Error getting BP readings", "error", err)
 		msgConfig.Text = "❌ Error retrieving blood pressure statistics."
@@ -1524,7 +1524,7 @@ func (b *Bot) handleBPGoalCommand(msg *tgbotapi.Message, msgConfig *tgbotapi.Mes
 	args := msg.CommandArguments()
 	if args == "" {
 		// Show current goal
-		goal, err := b.bp.GetBPGoal()
+		goal, err := b.bp.GetGoal()
 		if err != nil {
 			slog.Error("Error getting BP goal", "error", err)
 			msgConfig.Text = "❌ Error retrieving BP goal."
@@ -1567,7 +1567,7 @@ Example: /bpgoal 120 70`
 		return
 	}
 
-	err = b.bp.SetBPGoal(systolic, diastolic)
+	err = b.bp.SetGoal(systolic, diastolic)
 	if err != nil {
 		slog.Error("Error setting BP goal", "error", err)
 		msgConfig.Text = "❌ Error saving BP goal."

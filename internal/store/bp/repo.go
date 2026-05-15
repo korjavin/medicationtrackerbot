@@ -58,7 +58,7 @@ type BPStats struct {
 }
 
 // TimezoneLookup is the narrow interface the BP repo needs to find the user's
-// current timezone for day-boundary calculations in GetBPDailyWeightedStats.
+// current timezone for day-boundary calculations in GetDailyWeightedStats.
 // Satisfied by *tz.Repo (which owns the timezone_history table).
 type TimezoneLookup interface {
 	GetCurrentTimezone() (string, error)
@@ -74,13 +74,13 @@ type Repo struct {
 
 // New returns a Repo bound to the shared *db.DB. The composition root passes
 // in the same *db.DB it gives every other repo so all reads/writes go through
-// one connection pool. The tz lookup is required for GetBPDailyWeightedStats
+// one connection pool. The tz lookup is required for GetDailyWeightedStats
 // to compute correct local-time day boundaries — pass nil to fall back to UTC.
 func New(d *storedb.DB, tz TimezoneLookup) *Repo {
 	return &Repo{db: d, now: time.Now, tz: tz}
 }
 
-// SetClock overrides the time source used by GetBPDailyWeightedStats. Tests
+// SetClock overrides the time source used by GetDailyWeightedStats. Tests
 // use it to inject a deterministic timestamp; production code should never
 // call it.
 func (r *Repo) SetClock(now func() time.Time) {
@@ -138,9 +138,9 @@ func truncateToDay(t time.Time, loc *time.Location) time.Time {
 	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
 }
 
-// GetBPGoal returns the user's BP target. Returns a zero-valued goal (both
+// GetGoal returns the user's BP target. Returns a zero-valued goal (both
 // fields nil) when no goal has been set.
-func (r *Repo) GetBPGoal() (*BPGoal, error) {
+func (r *Repo) GetGoal() (*BPGoal, error) {
 	var systolic, diastolic sql.NullInt64
 
 	err := r.db.QueryRow("SELECT bp_target_systolic, bp_target_diastolic FROM settings WHERE id = 1").Scan(&systolic, &diastolic)
@@ -163,16 +163,16 @@ func (r *Repo) GetBPGoal() (*BPGoal, error) {
 	return result, nil
 }
 
-// SetBPGoal records a new BP target on the singleton settings row.
-func (r *Repo) SetBPGoal(targetSystolic, targetDiastolic int) error {
+// SetGoal records a new BP target on the singleton settings row.
+func (r *Repo) SetGoal(targetSystolic, targetDiastolic int) error {
 	_, err := r.db.Exec("UPDATE settings SET bp_target_systolic = ?, bp_target_diastolic = ? WHERE id = 1", targetSystolic, targetDiastolic)
 	return err
 }
 
-// CreateBloodPressureReading inserts a single BP reading. When bp.Category is
+// CreateReading inserts a single BP reading. When bp.Category is
 // empty and bp.IgnoreCalc is false, the category is computed from
 // systolic/diastolic via CalculateBPCategory.
-func (r *Repo) CreateBloodPressureReading(ctx context.Context, bp *BloodPressure) (int64, error) {
+func (r *Repo) CreateReading(ctx context.Context, bp *BloodPressure) (int64, error) {
 	if bp.Category == "" && !bp.IgnoreCalc {
 		bp.Category = CalculateBPCategory(bp.Systolic, bp.Diastolic)
 	}
@@ -186,9 +186,9 @@ func (r *Repo) CreateBloodPressureReading(ctx context.Context, bp *BloodPressure
 	return res.LastInsertId()
 }
 
-// GetBloodPressureReadings returns the user's readings since the given
+// ListReadings returns the user's readings since the given
 // instant in descending measured_at order. A zero `since` returns all.
-func (r *Repo) GetBloodPressureReadings(ctx context.Context, userID int64, since time.Time) ([]BloodPressure, error) {
+func (r *Repo) ListReadings(ctx context.Context, userID int64, since time.Time) ([]BloodPressure, error) {
 	query := "SELECT id, user_id, measured_at, systolic, diastolic, pulse, site, position, category, ignore_calc, notes, tag FROM blood_pressure_readings WHERE user_id = ?"
 	args := []interface{}{userID}
 
@@ -240,11 +240,11 @@ func (r *Repo) GetBloodPressureReadings(ctx context.Context, userID int64, since
 	return readings, nil
 }
 
-// DeleteBloodPressureReading deletes the reading with the given id, but only
+// DeleteReading deletes the reading with the given id, but only
 // when it belongs to the supplied userID — prevents one user from deleting
 // another user's data even if they guess the id. Returns sql.ErrNoRows when
 // the row does not exist or belongs to a different user.
-func (r *Repo) DeleteBloodPressureReading(ctx context.Context, id, userID int64) error {
+func (r *Repo) DeleteReading(ctx context.Context, id, userID int64) error {
 	res, err := r.db.ExecContext(ctx, "DELETE FROM blood_pressure_readings WHERE id = ? AND user_id = ?", id, userID)
 	if err != nil {
 		return err
@@ -256,9 +256,9 @@ func (r *Repo) DeleteBloodPressureReading(ctx context.Context, id, userID int64)
 	return nil
 }
 
-// ImportBloodPressureReadings bulk-inserts BP readings inside a single
+// ImportReadings bulk-inserts BP readings inside a single
 // transaction. Missing categories are auto-computed when IgnoreCalc is false.
-func (r *Repo) ImportBloodPressureReadings(ctx context.Context, userID int64, readings []BloodPressure) error {
+func (r *Repo) ImportReadings(ctx context.Context, userID int64, readings []BloodPressure) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -294,7 +294,7 @@ func (r *Repo) ImportBloodPressureReadings(ctx context.Context, userID int64, re
 	return tx.Commit()
 }
 
-// GetBPDailyWeightedStats computes blood pressure averages using a two-stage
+// GetDailyWeightedStats computes blood pressure averages using a two-stage
 // algorithm that prevents measurement-frequency bias.
 //
 // Problem: A user who measures 5 times on a stressful day (high BP) and once
@@ -320,7 +320,7 @@ func (r *Repo) ImportBloodPressureReadings(ctx context.Context, userID int64, re
 // to New) so readings near midnight local time are assigned to the correct
 // calendar day. Falls back to UTC when no timezone is stored or the lookup
 // is nil.
-func (r *Repo) GetBPDailyWeightedStats(ctx context.Context, userID int64) (*BPStats, error) {
+func (r *Repo) GetDailyWeightedStats(ctx context.Context, userID int64) (*BPStats, error) {
 	// Load user's timezone for day-boundary calculation. Falls back to UTC
 	// if no timezone is stored or the stored value is invalid.
 	loc := time.UTC

@@ -13,15 +13,15 @@ import (
 // BPReminderStore is the subset needed for blood pressure reminders.
 type BPReminderStore interface {
 	GetBloodPressureEnabled(ctx context.Context) (bool, error)
-	GetUsersForBPReminders() ([]int64, error)
-	GetBPReminderState(userID int64) (*store.BPReminderState, error)
-	BatchGetBPReminderStates(ctx context.Context, userIDs []int64) (map[int64]*store.BPReminderState, error)
-	GetLastBPReading(ctx context.Context, userID int64) (*store.BloodPressure, error)
-	BatchGetLastBPReadings(ctx context.Context, userIDs []int64) (map[int64]*store.BloodPressure, error)
+	ListUsersForReminders() ([]int64, error)
+	GetReminderState(userID int64) (*store.BPReminderState, error)
+	BatchGetReminderStates(ctx context.Context, userIDs []int64) (map[int64]*store.BPReminderState, error)
+	GetLastReading(ctx context.Context, userID int64) (*store.BloodPressure, error)
+	BatchGetLastReadings(ctx context.Context, userIDs []int64) (map[int64]*store.BloodPressure, error)
 	CalculatePreferredReminderHour(ctx context.Context, userID int64) (int, error)
 	UpdatePreferredReminderHour(userID int64, hour int) error
-	GetDominantBPCategory(ctx context.Context, userID int64) (string, error)
-	UpdateBPReminderNotificationSent(userID int64, messageID *int) error
+	GetDominantCategory(ctx context.Context, userID int64) (string, error)
+	UpdateReminderNotificationSent(userID int64, messageID *int) error
 	GetCurrentTimezone() (string, error)
 }
 
@@ -41,7 +41,7 @@ func (c *BPReminderChecker) Check(ctx context.Context) error {
 		return nil
 	}
 
-	userIDs, err := c.store.GetUsersForBPReminders()
+	userIDs, err := c.store.ListUsersForReminders()
 	if err != nil {
 		return err
 	}
@@ -66,7 +66,7 @@ func (c *BPReminderChecker) Check(ctx context.Context) error {
 		now = now.In(userLoc)
 	}
 
-	states, err := c.store.BatchGetBPReminderStates(ctx, userIDs)
+	states, err := c.store.BatchGetReminderStates(ctx, userIDs)
 	if err != nil {
 		slog.Error("Error getting batch BP reminder states", "error", err)
 		return err
@@ -87,7 +87,7 @@ func (c *BPReminderChecker) Check(ctx context.Context) error {
 		activeUserIDs = append(activeUserIDs, userID)
 	}
 
-	readings, err := c.store.BatchGetLastBPReadings(ctx, activeUserIDs)
+	readings, err := c.store.BatchGetLastReadings(ctx, activeUserIDs)
 	if err != nil {
 		slog.Error("Error getting batch last BP readings", "error", err)
 		return err
@@ -136,7 +136,7 @@ func (c *BPReminderChecker) Check(ctx context.Context) error {
 		}
 
 		shouldSendEnhanced := false
-		dominantCategory, err := c.store.GetDominantBPCategory(ctx, userID)
+		dominantCategory, err := c.store.GetDominantCategory(ctx, userID)
 		if err != nil {
 			slog.Warn("Error getting dominant BP category", "userID", userID, "error", err)
 		} else if lastReading != nil {
@@ -204,5 +204,5 @@ func (c *BPReminderChecker) sendBPReminder(ctx context.Context, userID int64, en
 	if firstMsgID != 0 {
 		messageID = &firstMsgID
 	}
-	return c.store.UpdateBPReminderNotificationSent(userID, messageID)
+	return c.store.UpdateReminderNotificationSent(userID, messageID)
 }

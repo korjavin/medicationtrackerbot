@@ -35,8 +35,8 @@ func TestBPCallback_Snooze_UpdatesStore(t *testing.T) {
 	env := setupBotTest(t)
 	defer env.teardown()
 
-	if err := env.s.BP.SetBPReminderEnabled(123456, true); err != nil {
-		t.Fatalf("SetBPReminderEnabled: %v", err)
+	if err := env.s.BP.SetReminderEnabled(123456, true); err != nil {
+		t.Fatalf("SetReminderEnabled: %v", err)
 	}
 
 	// Send the bp_snooze callback
@@ -49,9 +49,9 @@ func TestBPCallback_Snooze_UpdatesStore(t *testing.T) {
 	}
 
 	// Verify snooze was recorded in the store
-	state, err := env.s.BP.GetBPReminderState(123456)
+	state, err := env.s.BP.GetReminderState(123456)
 	if err != nil {
-		t.Fatalf("GetBPReminderState: %v", err)
+		t.Fatalf("GetReminderState: %v", err)
 	}
 	if state.SnoozedUntil == nil {
 		t.Error("Expected SnoozedUntil to be set after bp_snooze callback")
@@ -62,8 +62,8 @@ func TestBPCallback_DontBugMe_UpdatesStore(t *testing.T) {
 	env := setupBotTest(t)
 	defer env.teardown()
 
-	if err := env.s.BP.SetBPReminderEnabled(123456, true); err != nil {
-		t.Fatalf("SetBPReminderEnabled: %v", err)
+	if err := env.s.BP.SetReminderEnabled(123456, true); err != nil {
+		t.Fatalf("SetReminderEnabled: %v", err)
 	}
 
 	body := sendCallback(env, "bp_dontbug")
@@ -74,9 +74,9 @@ func TestBPCallback_DontBugMe_UpdatesStore(t *testing.T) {
 		t.Errorf("Expected 'disabled' in response, got: %s", body)
 	}
 
-	state, err := env.s.BP.GetBPReminderState(123456)
+	state, err := env.s.BP.GetReminderState(123456)
 	if err != nil {
-		t.Fatalf("GetBPReminderState: %v", err)
+		t.Fatalf("GetReminderState: %v", err)
 	}
 	if state.DontRemindUntil == nil {
 		t.Error("Expected DontRemindUntil to be set after bp_dontbug callback")

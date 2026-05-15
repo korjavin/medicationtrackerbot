@@ -137,16 +137,16 @@ func (a *storeAdapter) DeleteIntake(id int64) error { return a.med.DeleteIntake(
 
 // --- BP ---
 
-func (a *storeAdapter) CreateBloodPressureReading(ctx context.Context, b *store.BloodPressure) (int64, error) {
-	return a.bp.CreateBloodPressureReading(ctx, b)
+func (a *storeAdapter) CreateReading(ctx context.Context, b *store.BloodPressure) (int64, error) {
+	return a.bp.CreateReading(ctx, b)
 }
-func (a *storeAdapter) GetBloodPressureReadings(ctx context.Context, userID int64, since time.Time) ([]store.BloodPressure, error) {
-	return a.bp.GetBloodPressureReadings(ctx, userID, since)
+func (a *storeAdapter) ListReadings(ctx context.Context, userID int64, since time.Time) ([]store.BloodPressure, error) {
+	return a.bp.ListReadings(ctx, userID, since)
 }
-func (a *storeAdapter) GetBPGoal() (*store.BPGoal, error)                   { return a.bp.GetBPGoal() }
-func (a *storeAdapter) SetBPGoal(s, d int) error                            { return a.bp.SetBPGoal(s, d) }
-func (a *storeAdapter) SnoozeBPReminder(userID int64) error                 { return a.bp.SnoozeBPReminder(userID) }
-func (a *storeAdapter) DontBugMeBPReminder(userID int64) error              { return a.bp.DontBugMeBPReminder(userID) }
+func (a *storeAdapter) GetGoal() (*store.BPGoal, error)                   { return a.bp.GetGoal() }
+func (a *storeAdapter) SetGoal(s, d int) error                            { return a.bp.SetGoal(s, d) }
+func (a *storeAdapter) SnoozeReminder(userID int64) error    { return a.bp.SnoozeReminder(userID) }
+func (a *storeAdapter) DontBugMeReminder(userID int64) error { return a.bp.DontBugMeReminder(userID) }
 
 // --- Weight ---
 

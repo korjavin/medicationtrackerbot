@@ -666,8 +666,8 @@ func TestSendBPReminder_StoresMsgID(t *testing.T) {
 	sched, db, mock := setupTestSchedulerWithMock(t)
 	mock.sendMsgID = 777
 
-	if err := db.BP.SetBPReminderEnabled(123456, true); err != nil {
-		t.Fatalf("SetBPReminderEnabled: %v", err)
+	if err := db.BP.SetReminderEnabled(123456, true); err != nil {
+		t.Fatalf("SetReminderEnabled: %v", err)
 	}
 
 	err := sched.BPReminderChecker.sendBPReminder(context.Background(), 123456, false)
@@ -675,9 +675,9 @@ func TestSendBPReminder_StoresMsgID(t *testing.T) {
 		t.Fatalf("sendBPReminder: %v", err)
 	}
 
-	state, err := db.BP.GetBPReminderState(123456)
+	state, err := db.BP.GetReminderState(123456)
 	if err != nil {
-		t.Fatalf("GetBPReminderState: %v", err)
+		t.Fatalf("GetReminderState: %v", err)
 	}
 	if state.LastNotificationSentAt == nil {
 		t.Error("expected LastNotificationSentAt to be set")
