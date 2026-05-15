@@ -110,9 +110,11 @@ describe('cachedFetch — timeoutMs propagation', () => {
       }
 
       expect(window.apiCallDirect).toHaveBeenCalledTimes(1);
-      // The abort is a non-network, non-programmer-error condition — it is
-      // currently logged as a warn (same path as any non-network failure).
-      // What matters is: it does NOT throw to the foreground caller.
+      // Aborts during background revalidation are caller-driven and
+      // expected — they must NOT throw to the foreground caller and must
+      // NOT pollute the console (otherwise every timed-out background
+      // refresh on a slow network would look like a programmer error).
+      expect(warnSpy).not.toHaveBeenCalled();
       warnSpy.mockRestore();
     } finally {
       cleanup();
@@ -151,6 +153,8 @@ describe('cachedFetch — timeoutMs propagation', () => {
       for (let i = 0; i < 20; i++) {
         await Promise.resolve();
       }
+      // Same as above: aborts are silenced in the background path.
+      expect(warnSpy).not.toHaveBeenCalled();
       warnSpy.mockRestore();
     } finally {
       cleanup();

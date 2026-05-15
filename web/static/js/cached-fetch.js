@@ -40,6 +40,12 @@
 
     function looksLikeNetworkError(err) {
         if (!err) return false;
+        // Caller-driven aborts (timeouts, signal cancellations) are expected
+        // and silent — the foreground caller already has the cached payload
+        // and there's nothing for an operator to act on.
+        if (err.aborted === true || err.name === 'AbortError' || err.name === 'TimeoutError') {
+            return true;
+        }
         // Prefer the canonical isServerError helper (sync.js) when loaded so
         // the 5xx-as-offline policy stays defined in one place. Fall back to
         // an inline detector when sync.js hasn't loaded yet (early boot, tests
