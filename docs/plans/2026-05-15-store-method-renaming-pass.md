@@ -276,12 +276,12 @@ Already minimal: `Create`, `List`, `Delete`. No renames.
 
 ### Task 4: Rename weight repo methods
 
-- [ ] apply rename mapping to `internal/store/weight/`
-- [ ] update consumer interfaces in `internal/server/store_interfaces.go` and `internal/bot/store_interfaces.go`
-- [ ] update adapter forwarders in scheduler/bot/mcp adapters and `cmd/bot/tz_planner_adapter.go`
-- [ ] update MCP registry operation handlers in `internal/mcp/registry/operations_weight*.go`
-- [ ] update tests inside `internal/store/weight/` and any caller tests
-- [ ] run project tests - must pass (`go test ./...`, `go test -race ./...`, `golangci-lint run`)
+- [x] apply rename mapping to `internal/store/weight/`
+- [x] update consumer interfaces in `internal/server/store_interfaces.go` and `internal/bot/store_interfaces.go`
+- [x] update adapter forwarders in scheduler/bot/mcp adapters and `cmd/bot/tz_planner_adapter.go`
+- [x] update MCP registry operation handlers in `internal/mcp/registry/operations_weight*.go`
+- [x] update tests inside `internal/store/weight/` and any caller tests
+- [x] run project tests - must pass (`go test ./...`, `go test -race ./...`, `golangci-lint run`)
 
 ### Task 5: Rename food repo methods
 

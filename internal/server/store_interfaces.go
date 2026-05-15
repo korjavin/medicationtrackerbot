@@ -59,21 +59,21 @@ type BloodPressureStore interface {
 
 // WeightStore is the subset of store operations needed for weight handlers.
 type WeightStore interface {
-	CreateWeightLog(ctx context.Context, w *store.WeightLog) (int64, error)
-	GetWeightLogs(ctx context.Context, userID int64, since time.Time) ([]store.WeightLog, error)
-	GetLastWeightLog(ctx context.Context, userID int64) (*store.WeightLog, error)
-	GetLastWeightLogExcluding(ctx context.Context, userID, excludeID int64) (*store.WeightLog, error)
-	DeleteWeightLog(ctx context.Context, id, userID int64) error
-	GetWeightGoal() (*store.WeightGoal, error)
-	SetWeightGoal(weight float64, targetDate time.Time) error
-	GetHighestWeightRecord(ctx context.Context, userID int64) (*store.WeightLog, error)
-	GetWeightReminderState(userID int64) (*store.WeightReminderState, error)
-	SetWeightReminderEnabled(userID int64, enabled bool) error
-	SnoozeWeightReminder(userID int64) error
-	DontBugMeWeightReminder(userID int64) error
-	ClearWeightReminderNotificationMessage(userID int64) error
-	GetWeightUnitPreference(ctx context.Context) (string, error)
-	SetWeightUnitPreference(ctx context.Context, unit string) error
+	CreateLog(ctx context.Context, w *store.WeightLog) (int64, error)
+	ListLogs(ctx context.Context, userID int64, since time.Time) ([]store.WeightLog, error)
+	GetLastLog(ctx context.Context, userID int64) (*store.WeightLog, error)
+	GetLastLogExcluding(ctx context.Context, userID, excludeID int64) (*store.WeightLog, error)
+	DeleteLog(ctx context.Context, id, userID int64) error
+	GetGoal() (*store.WeightGoal, error)
+	SetGoal(weight float64, targetDate time.Time) error
+	GetHighestLog(ctx context.Context, userID int64) (*store.WeightLog, error)
+	GetReminderState(userID int64) (*store.WeightReminderState, error)
+	SetReminderEnabled(userID int64, enabled bool) error
+	SnoozeReminder(userID int64) error
+	DontBugMeReminder(userID int64) error
+	ClearReminderNotificationMessage(userID int64) error
+	GetUnitPreference(ctx context.Context) (string, error)
+	SetUnitPreference(ctx context.Context, unit string) error
 }
 
 // WorkoutStore is the subset of store operations needed for workout handlers.

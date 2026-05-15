@@ -19,10 +19,10 @@ type WeightReminderState struct {
 	UpdatedAt              time.Time  `json:"updated_at"`
 }
 
-// GetWeightReminderState retrieves the weight reminder state for a user. If no
+// GetReminderState retrieves the weight reminder state for a user. If no
 // state exists, returns a default state with enabled=true and
 // PreferredReminderHour=9 after lazily initializing the row.
-func (r *Repo) GetWeightReminderState(userID int64) (*WeightReminderState, error) {
+func (r *Repo) GetReminderState(userID int64) (*WeightReminderState, error) {
 	var state WeightReminderState
 	var snoozedUntil, dontRemindUntil, lastNotificationSentAt sql.NullTime
 	var notificationMessageID sql.NullInt64
@@ -46,7 +46,7 @@ func (r *Repo) GetWeightReminderState(userID int64) (*WeightReminderState, error
 			CreatedAt:             time.Now(),
 			UpdatedAt:             time.Now(),
 		}
-		if err := r.initWeightReminderState(userID); err != nil {
+		if err := r.initReminderState(userID); err != nil {
 			return nil, err
 		}
 		return &state, nil
@@ -72,8 +72,8 @@ func (r *Repo) GetWeightReminderState(userID int64) (*WeightReminderState, error
 	return &state, nil
 }
 
-// initWeightReminderState initializes the weight reminder state for a new user.
-func (r *Repo) initWeightReminderState(userID int64) error {
+// initReminderState initializes the weight reminder state for a new user.
+func (r *Repo) initReminderState(userID int64) error {
 	_, err := r.db.Exec(`
 		INSERT OR IGNORE INTO weight_reminder_state
 		(user_id, enabled, preferred_reminder_hour)
@@ -81,8 +81,8 @@ func (r *Repo) initWeightReminderState(userID int64) error {
 	return err
 }
 
-// SetWeightReminderEnabled enables or disables weight reminders for a user.
-func (r *Repo) SetWeightReminderEnabled(userID int64, enabled bool) error {
+// SetReminderEnabled enables or disables weight reminders for a user.
+func (r *Repo) SetReminderEnabled(userID int64, enabled bool) error {
 	_, err := r.db.Exec(`
 		INSERT INTO weight_reminder_state (user_id, enabled, updated_at)
 		VALUES (?, ?, CURRENT_TIMESTAMP)
@@ -93,8 +93,8 @@ func (r *Repo) SetWeightReminderEnabled(userID int64, enabled bool) error {
 	return err
 }
 
-// SnoozeWeightReminder snoozes weight reminders for 2 hours.
-func (r *Repo) SnoozeWeightReminder(userID int64) error {
+// SnoozeReminder snoozes weight reminders for 2 hours.
+func (r *Repo) SnoozeReminder(userID int64) error {
 	snoozedUntil := time.Now().Add(2 * time.Hour)
 	_, err := r.db.Exec(`
 		UPDATE weight_reminder_state
@@ -104,8 +104,8 @@ func (r *Repo) SnoozeWeightReminder(userID int64) error {
 	return err
 }
 
-// DontBugMeWeightReminder disables weight reminders for 24 hours.
-func (r *Repo) DontBugMeWeightReminder(userID int64) error {
+// DontBugMeReminder disables weight reminders for 24 hours.
+func (r *Repo) DontBugMeReminder(userID int64) error {
 	dontRemindUntil := time.Now().Add(24 * time.Hour)
 	_, err := r.db.Exec(`
 		UPDATE weight_reminder_state
@@ -115,8 +115,8 @@ func (r *Repo) DontBugMeWeightReminder(userID int64) error {
 	return err
 }
 
-// UpdateWeightReminderNotificationSent records when a notification was sent.
-func (r *Repo) UpdateWeightReminderNotificationSent(userID int64, messageID *int) error {
+// UpdateReminderNotificationSent records when a notification was sent.
+func (r *Repo) UpdateReminderNotificationSent(userID int64, messageID *int) error {
 	_, err := r.db.Exec(`
 		UPDATE weight_reminder_state
 		SET last_notification_sent_at = CURRENT_TIMESTAMP,
@@ -127,9 +127,9 @@ func (r *Repo) UpdateWeightReminderNotificationSent(userID int64, messageID *int
 	return err
 }
 
-// ClearWeightReminderNotificationMessage clears the stored Telegram message ID
+// ClearReminderNotificationMessage clears the stored Telegram message ID
 // for the current weight reminder.
-func (r *Repo) ClearWeightReminderNotificationMessage(userID int64) error {
+func (r *Repo) ClearReminderNotificationMessage(userID int64) error {
 	_, err := r.db.Exec(`
 		UPDATE weight_reminder_state
 		SET notification_message_id = NULL,
@@ -139,13 +139,13 @@ func (r *Repo) ClearWeightReminderNotificationMessage(userID int64) error {
 	return err
 }
 
-// CalculatePreferredWeightReminderHour calculates the preferred reminder hour
+// CalculatePreferredReminderHour calculates the preferred reminder hour
 // based on recent weight logs. Analyzes last 14 days of weight logs, averages
 // the hour of measurement.
 // Constraints: 6 AM - 12 PM range (morning weigh-ins recommended).
 // Default: 9 AM if < 3 measurements.
 // Rationale: Weight measurements are most accurate in morning (fasting state).
-func (r *Repo) CalculatePreferredWeightReminderHour(ctx context.Context, userID int64) (int, error) {
+func (r *Repo) CalculatePreferredReminderHour(ctx context.Context, userID int64) (int, error) {
 	// Get weight logs from last 14 days
 	since := time.Now().AddDate(0, 0, -14)
 
@@ -189,8 +189,8 @@ func (r *Repo) CalculatePreferredWeightReminderHour(ctx context.Context, userID 
 	return avgHour, nil
 }
 
-// UpdatePreferredWeightReminderHour updates the preferred reminder hour for a user.
-func (r *Repo) UpdatePreferredWeightReminderHour(userID int64, hour int) error {
+// UpdatePreferredReminderHour updates the preferred reminder hour for a user.
+func (r *Repo) UpdatePreferredReminderHour(userID int64, hour int) error {
 	_, err := r.db.Exec(`
 		UPDATE weight_reminder_state
 		SET preferred_reminder_hour = ?, updated_at = CURRENT_TIMESTAMP
@@ -199,8 +199,8 @@ func (r *Repo) UpdatePreferredWeightReminderHour(userID int64, hour int) error {
 	return err
 }
 
-// GetUsersForWeightReminders returns users who have weight reminders enabled.
-func (r *Repo) GetUsersForWeightReminders() ([]int64, error) {
+// ListUsersForReminders returns users who have weight reminders enabled.
+func (r *Repo) ListUsersForReminders() ([]int64, error) {
 	rows, err := r.db.Query(`
 		SELECT user_id
 		FROM weight_reminder_state
@@ -221,9 +221,9 @@ func (r *Repo) GetUsersForWeightReminders() ([]int64, error) {
 	return userIDs, nil
 }
 
-// GetWeightReminderStates returns the weight reminder state for all users who
+// ListReminderStates returns the weight reminder state for all users who
 // have it enabled.
-func (r *Repo) GetWeightReminderStates(ctx context.Context) (map[int64]*WeightReminderState, error) {
+func (r *Repo) ListReminderStates(ctx context.Context) (map[int64]*WeightReminderState, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT user_id, enabled, snoozed_until, dont_remind_until,
 		       last_notification_sent_at, notification_message_id,

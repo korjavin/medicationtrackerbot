@@ -34,7 +34,7 @@ func TestHandleWeightCommand_BareNumberUsesPreference(t *testing.T) {
 	defer env.teardown()
 
 	ctx := context.Background()
-	if err := env.s.Weight.SetWeightUnitPreference(ctx, "lb"); err != nil {
+	if err := env.s.Weight.SetUnitPreference(ctx, "lb"); err != nil {
 		t.Fatalf("SetWeightUnitPreference: %v", err)
 	}
 
@@ -43,7 +43,7 @@ func TestHandleWeightCommand_BareNumberUsesPreference(t *testing.T) {
 		t.Errorf("Expected '150.0 lb' in reply, got: %s", body)
 	}
 	// Storage stays in kg; 150 lb ≈ 68.0 kg.
-	logs, err := env.s.Weight.GetWeightLogs(ctx, 123456, time.Time{})
+	logs, err := env.s.Weight.ListLogs(ctx, 123456, time.Time{})
 	if err != nil {
 		t.Fatalf("GetWeightLogs: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestHandleWeightCommand_BareNumberUsesPreference(t *testing.T) {
 		t.Errorf("expected stored kg ~ 68.0, got %v", logs[0].Weight)
 	}
 	// Preference should NOT change because no explicit suffix was provided.
-	pref, _ := env.s.Weight.GetWeightUnitPreference(ctx)
+	pref, _ := env.s.Weight.GetUnitPreference(ctx)
 	if pref != "lb" {
 		t.Errorf("expected pref unchanged 'lb', got %q", pref)
 	}
@@ -73,7 +73,7 @@ func TestHandleWeightCommand_LbSuffixSetsPreferenceToLb(t *testing.T) {
 	if !strings.Contains(body, "kg)") {
 		t.Errorf("Expected kg shown in parens for lb reply, got: %s", body)
 	}
-	pref, err := env.s.Weight.GetWeightUnitPreference(ctx)
+	pref, err := env.s.Weight.GetUnitPreference(ctx)
 	if err != nil {
 		t.Fatalf("GetWeightUnitPreference: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestHandleWeightCommand_KgSuffixSetsPreferenceToKg(t *testing.T) {
 	defer env.teardown()
 
 	ctx := context.Background()
-	if err := env.s.Weight.SetWeightUnitPreference(ctx, "lb"); err != nil {
+	if err := env.s.Weight.SetUnitPreference(ctx, "lb"); err != nil {
 		t.Fatalf("SetWeightUnitPreference: %v", err)
 	}
 
@@ -95,7 +95,7 @@ func TestHandleWeightCommand_KgSuffixSetsPreferenceToKg(t *testing.T) {
 	if !strings.Contains(body, "70.0 kg") {
 		t.Errorf("Expected '70.0 kg' in reply, got: %s", body)
 	}
-	pref, _ := env.s.Weight.GetWeightUnitPreference(ctx)
+	pref, _ := env.s.Weight.GetUnitPreference(ctx)
 	if pref != "kg" {
 		t.Errorf("expected pref 'kg' after explicit kg suffix, got %q", pref)
 	}
@@ -109,7 +109,7 @@ func TestHandleWeightCommand_InvalidSuffixRejected(t *testing.T) {
 	if !strings.Contains(body, "Invalid weight unit") {
 		t.Errorf("Expected invalid-unit error, got: %s", body)
 	}
-	logs, _ := env.s.Weight.GetWeightLogs(context.Background(), 123456, time.Time{})
+	logs, _ := env.s.Weight.ListLogs(context.Background(), 123456, time.Time{})
 	if len(logs) != 0 {
 		t.Errorf("expected no log saved, got %d", len(logs))
 	}
@@ -133,7 +133,7 @@ func TestHandleWeightCommand_ReplyFormatMatchesPreference(t *testing.T) {
 	// Pre-load a previous weight so the change/trend formatting is exercised.
 	prev := 154.3 * 0.45359237 // 154.3 lb ≈ 70.0 kg
 	prevTrend := prev
-	if _, err := env.s.Weight.CreateWeightLog(ctx, &store.WeightLog{
+	if _, err := env.s.Weight.CreateLog(ctx, &store.WeightLog{
 		UserID:      123456,
 		MeasuredAt:  time.Now().Add(-24 * time.Hour),
 		Weight:      prev,
@@ -142,7 +142,7 @@ func TestHandleWeightCommand_ReplyFormatMatchesPreference(t *testing.T) {
 		t.Fatalf("seed weight log: %v", err)
 	}
 
-	if err := env.s.Weight.SetWeightUnitPreference(ctx, "lb"); err != nil {
+	if err := env.s.Weight.SetUnitPreference(ctx, "lb"); err != nil {
 		t.Fatalf("SetWeightUnitPreference: %v", err)
 	}
 

@@ -42,7 +42,7 @@ func (s *Server) handleCreateWeight(w http.ResponseWriter, r *http.Request) {
 			excludeID = id
 		}
 	}
-	lastLog, _ := s.weight.GetLastWeightLogExcluding(r.Context(), userID, excludeID)
+	lastLog, _ := s.weight.GetLastLogExcluding(r.Context(), userID, excludeID)
 
 	var previousTrend *float64
 	if lastLog != nil && lastLog.WeightTrend != nil {
@@ -61,18 +61,18 @@ func (s *Server) handleCreateWeight(w http.ResponseWriter, r *http.Request) {
 		Notes:       req.Notes,
 	}
 
-	id, err := s.weight.CreateWeightLog(r.Context(), wLog)
+	id, err := s.weight.CreateLog(r.Context(), wLog)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	// Cross-channel sync: if reminder is handled from web, clear notification.
-	if state, err := s.weight.GetWeightReminderState(userID); err == nil && state != nil {
+	if state, err := s.weight.GetReminderState(userID); err == nil && state != nil {
 		if state.NotificationMessageID != nil {
 			s.deleteNotification(r.Context(), *state.NotificationMessageID)
 		}
-		_ = s.weight.ClearWeightReminderNotificationMessage(userID)
+		_ = s.weight.ClearReminderNotificationMessage(userID)
 	}
 
 	wLog.ID = id
@@ -105,7 +105,7 @@ func (s *Server) handleListWeight(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	logs, err := s.weight.GetWeightLogs(r.Context(), userID, since)
+	logs, err := s.weight.ListLogs(r.Context(), userID, since)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -130,7 +130,7 @@ func (s *Server) handleDeleteWeight(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.weight.DeleteWeightLog(r.Context(), id, userID); err != nil {
+	if err := s.weight.DeleteLog(r.Context(), id, userID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.Error(w, "Weight log not found", http.StatusNotFound)
 			return
@@ -153,7 +153,7 @@ func (s *Server) handleExportWeight(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	logs, err := s.weight.GetWeightLogs(r.Context(), userID, since)
+	logs, err := s.weight.ListLogs(r.Context(), userID, since)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -215,14 +215,14 @@ func (s *Server) handleExportWeight(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetWeightGoal(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
-	goal, err := s.weight.GetWeightGoal()
+	goal, err := s.weight.GetGoal()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	// Get highest weight record for diet plan line
-	highestRecord, err := s.weight.GetHighestWeightRecord(r.Context(), userID)
+	highestRecord, err := s.weight.GetHighestLog(r.Context(), userID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -256,7 +256,7 @@ func (s *Server) handleGetWeightGoal(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetWeightReminderStatus(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
-	state, err := s.weight.GetWeightReminderState(userID)
+	state, err := s.weight.GetReminderState(userID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -277,7 +277,7 @@ func (s *Server) handleToggleWeightReminder(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
-	if err := s.weight.SetWeightReminderEnabled(userID, req.Enabled); err != nil {
+	if err := s.weight.SetReminderEnabled(userID, req.Enabled); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -292,17 +292,17 @@ func (s *Server) handleToggleWeightReminder(w http.ResponseWriter, r *http.Reque
 
 func (s *Server) handleSnoozeWeightReminder(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
-	if err := s.weight.SnoozeWeightReminder(userID); err != nil {
+	if err := s.weight.SnoozeReminder(userID); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	// Cross-channel sync: remove notification when snoozed from web/push.
-	if state, err := s.weight.GetWeightReminderState(userID); err == nil && state != nil {
+	if state, err := s.weight.GetReminderState(userID); err == nil && state != nil {
 		if state.NotificationMessageID != nil {
 			s.deleteNotification(r.Context(), *state.NotificationMessageID)
 		}
-		_ = s.weight.ClearWeightReminderNotificationMessage(userID)
+		_ = s.weight.ClearReminderNotificationMessage(userID)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{
@@ -315,17 +315,17 @@ func (s *Server) handleSnoozeWeightReminder(w http.ResponseWriter, r *http.Reque
 
 func (s *Server) handleDontBugMeWeightReminder(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
-	if err := s.weight.DontBugMeWeightReminder(userID); err != nil {
+	if err := s.weight.DontBugMeReminder(userID); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	// Cross-channel sync: remove notification when disabled from web/push.
-	if state, err := s.weight.GetWeightReminderState(userID); err == nil && state != nil {
+	if state, err := s.weight.GetReminderState(userID); err == nil && state != nil {
 		if state.NotificationMessageID != nil {
 			s.deleteNotification(r.Context(), *state.NotificationMessageID)
 		}
-		_ = s.weight.ClearWeightReminderNotificationMessage(userID)
+		_ = s.weight.ClearReminderNotificationMessage(userID)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{

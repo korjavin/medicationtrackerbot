@@ -50,14 +50,14 @@ func TestAnalyzeFitness_AllDomains(t *testing.T) {
 	}
 
 	// Add weight logs
-	if _, err := st.Weight.CreateWeightLog(ctx, &store.WeightLog{
+	if _, err := st.Weight.CreateLog(ctx, &store.WeightLog{
 		UserID:     userID,
 		MeasuredAt: time.Date(2026, 3, 10, 8, 0, 0, 0, time.Local),
 		Weight:     80.0,
 	}); err != nil {
 		t.Fatalf("CreateWeightLog: %v", err)
 	}
-	if _, err := st.Weight.CreateWeightLog(ctx, &store.WeightLog{
+	if _, err := st.Weight.CreateLog(ctx, &store.WeightLog{
 		UserID:     userID,
 		MeasuredAt: time.Date(2026, 3, 15, 8, 0, 0, 0, time.Local),
 		Weight:     79.5,
@@ -405,18 +405,18 @@ func TestAnalyzeFitness_WeightUnitPreferenceDoesNotLeak(t *testing.T) {
 	}
 	// Flip the user's unit preference to lb. The analyze_fitness response must
 	// remain in kg.
-	if err := st.Weight.SetWeightUnitPreference(ctx, "lb"); err != nil {
+	if err := st.Weight.SetUnitPreference(ctx, "lb"); err != nil {
 		t.Fatalf("SetWeightUnitPreference: %v", err)
 	}
 
-	if _, err := st.Weight.CreateWeightLog(ctx, &store.WeightLog{
+	if _, err := st.Weight.CreateLog(ctx, &store.WeightLog{
 		UserID:     userID,
 		MeasuredAt: time.Date(2026, 3, 10, 8, 0, 0, 0, time.Local),
 		Weight:     80.0, // stored in kg
 	}); err != nil {
 		t.Fatalf("CreateWeightLog: %v", err)
 	}
-	if _, err := st.Weight.CreateWeightLog(ctx, &store.WeightLog{
+	if _, err := st.Weight.CreateLog(ctx, &store.WeightLog{
 		UserID:     userID,
 		MeasuredAt: time.Date(2026, 3, 15, 8, 0, 0, 0, time.Local),
 		Weight:     79.5, // stored in kg

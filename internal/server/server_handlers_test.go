@@ -649,7 +649,7 @@ func TestHandleToggleWeightReminder(t *testing.T) {
 	}
 
 	// Verify state
-	state, _ := db.Weight.GetWeightReminderState(123456)
+	state, _ := db.Weight.GetReminderState(123456)
 	if !state.Enabled {
 		t.Error("Expected weight reminder to be enabled")
 	}
@@ -660,7 +660,7 @@ func TestHandleSnoozeWeightReminder(t *testing.T) {
 	defer db.Close()
 
 	// Enable first
-	db.Weight.SetWeightReminderEnabled(123456, true)
+	db.Weight.SetReminderEnabled(123456, true)
 
 	req := httptest.NewRequest("POST", "/api/weight/reminder/snooze", nil)
 	req = weightReqWithUser(req, 123456)
@@ -672,7 +672,7 @@ func TestHandleSnoozeWeightReminder(t *testing.T) {
 		t.Fatalf("Expected 200, got %d", w.Code)
 	}
 
-	state, _ := db.Weight.GetWeightReminderState(123456)
+	state, _ := db.Weight.GetReminderState(123456)
 	if state.SnoozedUntil == nil {
 		t.Error("Expected snooze to be set")
 	}
@@ -682,7 +682,7 @@ func TestHandleDontBugMeWeightReminder(t *testing.T) {
 	srv, db := createWeightTestServer(t)
 	defer db.Close()
 
-	db.Weight.SetWeightReminderEnabled(123456, true)
+	db.Weight.SetReminderEnabled(123456, true)
 
 	req := httptest.NewRequest("POST", "/api/weight/reminder/dontbug", nil)
 	req = weightReqWithUser(req, 123456)
@@ -694,7 +694,7 @@ func TestHandleDontBugMeWeightReminder(t *testing.T) {
 		t.Fatalf("Expected 200, got %d", w.Code)
 	}
 
-	state, _ := db.Weight.GetWeightReminderState(123456)
+	state, _ := db.Weight.GetReminderState(123456)
 	if state.DontRemindUntil == nil {
 		t.Error("Expected dont-remind-until to be set")
 	}

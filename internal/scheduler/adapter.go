@@ -242,28 +242,32 @@ func (a *storeAdapter) UpdateReminderNotificationSent(userID int64, messageID *i
 }
 
 // --- Weight (weight.Repo) ---
+//
+// Adapter method names keep the "Weight" disambiguator so the scheduler's
+// WeightReminderStore can coexist with BPReminderStore on this single struct.
+// Each method bridges to the renamed weight.Repo method.
 
 func (a *storeAdapter) GetUsersForWeightReminders() ([]int64, error) {
-	return a.weight.GetUsersForWeightReminders()
+	return a.weight.ListUsersForReminders()
 }
 func (a *storeAdapter) GetWeightReminderState(userID int64) (*store.WeightReminderState, error) {
-	return a.weight.GetWeightReminderState(userID)
+	return a.weight.GetReminderState(userID)
 }
 func (a *storeAdapter) GetWeightReminderStates(ctx context.Context) (map[int64]*store.WeightReminderState, error) {
-	return a.weight.GetWeightReminderStates(ctx)
+	return a.weight.ListReminderStates(ctx)
 }
 func (a *storeAdapter) GetLastWeightLog(ctx context.Context, userID int64) (*store.WeightLog, error) {
-	return a.weight.GetLastWeightLog(ctx, userID)
+	return a.weight.GetLastLog(ctx, userID)
 }
 func (a *storeAdapter) BatchGetLastWeightLogs(ctx context.Context, userIDs []int64) (map[int64]*store.WeightLog, error) {
-	return a.weight.BatchGetLastWeightLogs(ctx, userIDs)
+	return a.weight.BatchGetLastLogs(ctx, userIDs)
 }
 func (a *storeAdapter) CalculatePreferredWeightReminderHour(ctx context.Context, userID int64) (int, error) {
-	return a.weight.CalculatePreferredWeightReminderHour(ctx, userID)
+	return a.weight.CalculatePreferredReminderHour(ctx, userID)
 }
 func (a *storeAdapter) UpdatePreferredWeightReminderHour(userID int64, hour int) error {
-	return a.weight.UpdatePreferredWeightReminderHour(userID, hour)
+	return a.weight.UpdatePreferredReminderHour(userID, hour)
 }
 func (a *storeAdapter) UpdateWeightReminderNotificationSent(userID int64, messageID *int) error {
-	return a.weight.UpdateWeightReminderNotificationSent(userID, messageID)
+	return a.weight.UpdateReminderNotificationSent(userID, messageID)
 }

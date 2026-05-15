@@ -37,7 +37,7 @@ func (a *storeAdapter) ListReadings(ctx context.Context, userID int64, since tim
 	return a.s.BP.ListReadings(ctx, userID, since)
 }
 func (a *storeAdapter) GetWeightLogs(ctx context.Context, userID int64, since time.Time) ([]store.WeightLog, error) {
-	return a.s.Weight.GetWeightLogs(ctx, userID, since)
+	return a.s.Weight.ListLogs(ctx, userID, since)
 }
 func (a *storeAdapter) ListIntakesSince(since time.Time) ([]store.IntakeWithMedication, error) {
 	return a.s.Medication.ListIntakesSince(since)

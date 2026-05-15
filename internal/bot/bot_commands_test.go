@@ -145,8 +145,8 @@ func TestHandleWeightHistoryCommand_WithData(t *testing.T) {
 	defer env.teardown()
 
 	ctx := context.Background()
-	env.s.Weight.CreateWeightLog(ctx, &store.WeightLog{UserID: 123456, MeasuredAt: time.Now(), Weight: 76.2})
-	env.s.Weight.CreateWeightLog(ctx, &store.WeightLog{UserID: 123456, MeasuredAt: time.Now().Add(-24 * time.Hour), Weight: 75.8})
+	env.s.Weight.CreateLog(ctx, &store.WeightLog{UserID: 123456, MeasuredAt: time.Now(), Weight: 76.2})
+	env.s.Weight.CreateLog(ctx, &store.WeightLog{UserID: 123456, MeasuredAt: time.Now().Add(-24 * time.Hour), Weight: 75.8})
 
 	body := sendCmd(env, "/weighthistory")
 	if body == "" {
