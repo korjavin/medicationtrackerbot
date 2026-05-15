@@ -227,8 +227,78 @@ describe('sync.js offlineAwareApiCall behavior', () => {
 
       const result = await window.offlineAwareApiCall('/api/something', 'GET');
 
-      expect(window.apiCallDirect).toHaveBeenCalledWith('/api/something', 'GET', null);
+      expect(window.apiCallDirect).toHaveBeenCalledWith('/api/something', 'GET', null, {});
       expect(result).toEqual({ ok: true, value: 1 });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('forwards opts (timeoutMs / signal) through to apiCallDirect', async () => {
+    const { window, cleanup } = loadSyncEnv();
+
+    try {
+      window.SyncManager.isOnline = true;
+      window.apiCallDirect = vi.fn().mockResolvedValue({ ok: true });
+
+      const controller = new AbortController();
+      const opts = { timeoutMs: 5_000, signal: controller.signal };
+      await window.offlineAwareApiCall('/api/anything', 'GET', null, opts);
+
+      expect(window.apiCallDirect).toHaveBeenCalledTimes(1);
+      const args = window.apiCallDirect.mock.calls[0];
+      expect(args[3]).toEqual(opts);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('falls back to offline BP write when apiCallDirect aborts on timeout', async () => {
+    const { window, cleanup } = loadSyncEnv();
+
+    try {
+      window.SyncManager.isOnline = true;
+      // Simulate the typed TimeoutError that apiCallDirect throws when its
+      // composed AbortSignal fires before fetch resolves.
+      const abortErr = new Error('signal timed out');
+      abortErr.name = 'TimeoutError';
+      abortErr.aborted = true;
+      window.apiCallDirect = vi.fn().mockRejectedValue(abortErr);
+
+      const saveSpy = vi.fn().mockResolvedValue({ localId: 99 });
+      window.MedTrackerDB.BPStore.save = saveSpy;
+      vi.spyOn(window.SyncManager, 'registerBackgroundSync').mockResolvedValue(undefined);
+      vi.spyOn(window.SyncManager, 'showToast').mockImplementation(() => {});
+      vi.spyOn(window.SyncManager, 'updateStatus').mockResolvedValue(undefined);
+
+      const result = await window.offlineAwareApiCall('/api/bp', 'POST', { systolic: 130, diastolic: 84 });
+
+      expect(saveSpy).toHaveBeenCalled();
+      expect(result).toMatchObject({ localId: 99, isLocal: true });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('falls back to offline weight read when apiCallDirect aborts on timeout', async () => {
+    const { window, cleanup } = loadSyncEnv();
+
+    try {
+      window.SyncManager.isOnline = true;
+      const abortErr = new Error('aborted');
+      abortErr.name = 'AbortError';
+      abortErr.aborted = true;
+      window.apiCallDirect = vi.fn().mockRejectedValue(abortErr);
+
+      window.MedTrackerDB.WeightStore.getAll = vi.fn().mockResolvedValue([
+        { localId: 7, serverId: null, weight: 81.1, syncStatus: 'pending' }
+      ]);
+
+      const result = await window.offlineAwareApiCall('/api/weight', 'GET');
+
+      expect(result).toEqual([
+        { id: 'local_7', localId: 7, serverId: null, weight: 81.1, syncStatus: 'pending', isLocal: true }
+      ]);
     } finally {
       cleanup();
     }

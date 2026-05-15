@@ -86,87 +86,97 @@ and recommended-priority item #3.
 
 ### Task 1: Add timeout/signal support to `apiCallDirect`
 
-- [ ] modify `apiCallDirect` signature in `core/api.js:7` to
+- [x] modify `apiCallDirect` signature in `core/api.js:7` to
   `apiCallDirect(endpoint, method = 'GET', body = null, opts = {})`;
   destructure `{ timeoutMs = 60_000, signal: callerSignal }` from
   `opts`
-- [ ] inside the function, build a composite signal: if both
+- [x] inside the function, build a composite signal: if both
   `timeoutMs` is finite AND `callerSignal` is provided, use
   `AbortSignal.any([AbortSignal.timeout(timeoutMs), callerSignal])`;
   if only one is provided, use that; pass the resulting signal to
   `fetch(endpoint, { method, headers, body, signal })`
-- [ ] wrap the existing `fetch()` await in a try/catch — when
+- [x] wrap the existing `fetch()` await in a try/catch — when
   `error.name === 'TimeoutError'` or `error.name === 'AbortError'`,
   rethrow with `err.aborted = true` so callers can distinguish abort
   from network error
-- [ ] update `apiCall` in `core/api.js:65-92` to forward the optional
+- [x] update `apiCall` in `core/api.js:65-92` to forward the optional
   4th `opts` arg unchanged; do NOT swallow `AbortError`s the same way
   it swallows network errors — let them bubble so the caller can
   decide
-- [ ] write tests in `web/static/js/tests/core.api-abort.test.js`:
+- [x] write tests in `web/static/js/tests/core.api-abort.test.js`:
   default 60s timeout fires when fetch never resolves; caller-supplied
   signal aborts mid-flight; signal+timeout composition aborts on
   whichever fires first; successful fast call is unaffected; abort
   surfaces with `err.aborted === true`
-- [ ] run `pnpm test core.api-abort` — must pass before next task
+- [x] run `pnpm test core.api-abort` — must pass before next task
 
 ### Task 2: Thread tighter deadlines through cached-fetch
 
-- [ ] modify `cachedFetch` in `web/static/js/cached-fetch.js:152` to
+- [x] modify `cachedFetch` in `web/static/js/cached-fetch.js:152` to
   accept `timeoutMs` in `opts` (default unspecified — i.e. uses
   `apiCallDirect`'s 60s default); forward it via `fetchOpts.timeoutMs`
   into the `performFetch` → `apiCallDirect` chain
-- [ ] update `performFetch` (`cached-fetch.js:97-106`) to pass
+- [x] update `performFetch` (`cached-fetch.js:97-106`) to pass
   `{ timeoutMs }` as the 4th arg to `direct(...)`
-- [ ] write tests in `web/static/js/tests/cached-fetch.abort.test.js`:
+- [x] write tests in `web/static/js/tests/cached-fetch.abort.test.js`:
   caller-supplied `timeoutMs` propagates; abort during background
   revalidation does not throw to the foreground caller; cache hit
   still returns even when revalidation aborts
-- [ ] run `pnpm test cached-fetch.abort` — must pass before next task
+- [x] run `pnpm test cached-fetch.abort` — must pass before next task
 
 ### Task 3: Apply 10s timeout to food-product search
 
-- [ ] in `features/food.js:336-384`, create a per-search
+- [x] in `features/food.js:336-384`, create a per-search
   `AbortController`; abort the previous controller when a new search
   starts (currently handled via `foodSearchRequestId` token — keep
   that, add abort on top); pass `signal: controller.signal` to the
   `fetch(endpoint, { method: 'GET', headers, signal })` call at line 346
-- [ ] add `setTimeout(() => controller.abort(), 10_000)` inside the
+- [x] add `setTimeout(() => controller.abort(), 10_000)` inside the
   search debounce; clear the timeout on stream completion
-- [ ] handle `AbortError` in the existing try/catch block
+- [x] handle `AbortError` in the existing try/catch block
   (`features/food.js:~395`) — render a "Search timed out" status via
   `setFoodSearchStatus`, do not log to console
-- [ ] write tests in `web/static/js/tests/food.search-abort.test.js`:
+- [x] write tests in `web/static/js/tests/food.search-abort.test.js`:
   rapid sequential searches abort the previous fetch (proves no
   stream-leak); 10s timeout surfaces the typed status; successful
   search still resolves
-- [ ] run `pnpm test food.search-abort` — must pass before next task
+- [x] run `pnpm test food.search-abort` — must pass before next task
 
 ### Task 4: Apply 15s timeout to SW bootstrap revalidation
 
-- [ ] in `sw.js:148-167`, wrap the background `fetch(event.request)`
+- [x] in `sw.js:148-167`, wrap the background `fetch(event.request)`
   in `AbortSignal.timeout(15_000)`; on `AbortError` from that path,
   swallow silently — same as existing `.catch(() => {})` shape
   (revalidation failure is non-fatal; cached response was already
   served)
-- [ ] bump `BUILD_REVISION` in `sw.js:6` so existing clients pick up
+- [x] bump `BUILD_REVISION` in `sw.js:6` so existing clients pick up
   the new SW
-- [ ] write a test in `web/static/js/tests/sw-bootstrap-abort.test.js`
+- [x] write a test in `web/static/js/tests/sw-bootstrap-abort.test.js`
   verifying the SW returns the cached response on time even when the
   revalidation `fetch` is artificially slow
-- [ ] run `pnpm test sw-bootstrap-abort` — must pass before next task
+- [x] run `pnpm test sw-bootstrap-abort` — must pass before next task
 
 ### Task 5: Verify acceptance
 
-- [ ] grep for `AbortController\|AbortSignal\.timeout` in
+- [x] grep for `AbortController\|AbortSignal\.timeout` in
   `web/static/js/` returns at least 4 hits (api.js, cached-fetch.js,
-  food.js, sw.js)
-- [ ] full `pnpm test` clean
-- [ ] no test takes longer than 5s wall-clock to run (proves no real
-  fetch races slipped in)
-- [ ] manually confirm `apiCallDirect` callers that wanted shorter
+  food.js, sw.js) — verified: api.js (1), sw.js (1), food/products.js
+  (2+) total 4+. cached-fetch.js intentionally forwards `timeoutMs` to
+  apiCallDirect rather than constructing its own controller (Task 2
+  design); food.js was reorganized into features/food/products.js.
+- [x] full `pnpm test` clean — 216 files / 2131 tests pass (run via
+  npx vitest since pnpm not installed locally; same runner)
+- [x] no test takes longer than 5s wall-clock to run (proves no real
+  fetch races slipped in) — slowest file in full run was 305ms; the
+  four abort-specific files max at 401ms
+- [x] manually confirm `apiCallDirect` callers that wanted shorter
   deadlines (food search, bootstrap) propagate them correctly by
-  reading the call sites
+  reading the call sites — features/food/products.js:162-174 wires
+  AbortController + 10s setTimeout into the fetch signal and clears
+  the timeout on stream completion; sw.js:174-178 builds
+  AbortSignal.timeout(15_000) (with feature-detect fallback) and
+  passes it to the background revalidation fetch, with the existing
+  catch swallowing AbortError silently.
 
 ## Technical Details
 
