@@ -158,15 +158,25 @@ and recommended-priority item #3.
 
 ### Task 5: Verify acceptance
 
-- [ ] grep for `AbortController\|AbortSignal\.timeout` in
+- [x] grep for `AbortController\|AbortSignal\.timeout` in
   `web/static/js/` returns at least 4 hits (api.js, cached-fetch.js,
-  food.js, sw.js)
-- [ ] full `pnpm test` clean
-- [ ] no test takes longer than 5s wall-clock to run (proves no real
-  fetch races slipped in)
-- [ ] manually confirm `apiCallDirect` callers that wanted shorter
+  food.js, sw.js) — verified: api.js (1), sw.js (1), food/products.js
+  (2+) total 4+. cached-fetch.js intentionally forwards `timeoutMs` to
+  apiCallDirect rather than constructing its own controller (Task 2
+  design); food.js was reorganized into features/food/products.js.
+- [x] full `pnpm test` clean — 216 files / 2131 tests pass (run via
+  npx vitest since pnpm not installed locally; same runner)
+- [x] no test takes longer than 5s wall-clock to run (proves no real
+  fetch races slipped in) — slowest file in full run was 305ms; the
+  four abort-specific files max at 401ms
+- [x] manually confirm `apiCallDirect` callers that wanted shorter
   deadlines (food search, bootstrap) propagate them correctly by
-  reading the call sites
+  reading the call sites — features/food/products.js:162-174 wires
+  AbortController + 10s setTimeout into the fetch signal and clears
+  the timeout on stream completion; sw.js:174-178 builds
+  AbortSignal.timeout(15_000) (with feature-detect fallback) and
+  passes it to the background revalidation fetch, with the existing
+  catch swallowing AbortError silently.
 
 ## Technical Details
 
