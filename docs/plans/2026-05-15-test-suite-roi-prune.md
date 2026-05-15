@@ -69,10 +69,10 @@ Two-category cleanup of the 171-file / ~55k-LOC Go test suite to remove maintena
 - Delete: `internal/store/workout/miband_bench_test.go`
 
 Steps:
-- [ ] re-grep one more time at execution to confirm zero references: `git grep -nE 'go test.*-bench|Benchmark[A-Z]' .github/ Makefile* docs/ scripts/ 2>/dev/null` — expected empty
-- [ ] delete the 7 files in a single commit
-- [ ] run `go test ./...` — must pass
-- [ ] record LOC removed (expect ~435)
+- [x] re-grep one more time at execution to confirm zero references: `git grep -nE 'go test.*-bench|Benchmark[A-Z]' .github/ Makefile* docs/ scripts/ 2>/dev/null` — expected empty
+- [x] delete the 7 files in a single commit
+- [x] run `go test ./...` — must pass
+- [x] record LOC removed (expect ~435) — actual: 435 LOC removed
 
 ### Task 2: Trim tautological operation-list tests in MCP registry
 
