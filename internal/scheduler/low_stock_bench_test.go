@@ -13,7 +13,7 @@ type mockMedStoreForBench struct {
 	meds []store.Medication
 }
 
-func (m *mockMedStoreForBench) GetMedicationsLowOnStock(days int) ([]store.Medication, error) {
+func (m *mockMedStoreForBench) ListLowOnStock(days int) ([]store.Medication, error) {
 	return m.meds, nil
 }
 

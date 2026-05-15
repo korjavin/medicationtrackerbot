@@ -46,7 +46,7 @@ func (c *MedicationReminderChecker) Check(ctx context.Context) error {
 		}
 	}
 
-	pending, err := c.store.GetPendingIntakes()
+	pending, err := c.store.ListPendingIntakes()
 	if err != nil {
 		return err
 	}
@@ -87,7 +87,7 @@ func (c *MedicationReminderChecker) Check(ctx context.Context) error {
 				}
 			}
 
-			med, err := c.store.GetMedication(p.MedicationID)
+			med, err := c.store.Get(p.MedicationID)
 			if err != nil {
 				continue
 			}
@@ -125,7 +125,7 @@ func (c *MedicationReminderChecker) Check(ctx context.Context) error {
 			}
 
 			c.Notify(ctx, n, func(msgID int) {
-				if err := c.store.AddIntakeReminder(intakeID, msgID); err != nil {
+				if err := c.store.CreateIntakeReminder(intakeID, msgID); err != nil {
 					slog.Error("Failed to store intake reminder", "error", err)
 				}
 			})

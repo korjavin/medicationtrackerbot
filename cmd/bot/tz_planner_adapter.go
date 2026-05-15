@@ -5,7 +5,7 @@ import (
 )
 
 // tzPlannerStore adapts *store.Repos to tzreschedule.PlannerStore. The
-// interface spans medication.Repo (ListMedications, GetIntakeHistory) and
+// interface spans medication.Repo (List, ListIntakeHistory) and
 // tz.Repo (plan CRUD) so we need a small aggregator at the composition root.
 type tzPlannerStore struct {
 	s *store.Repos
@@ -13,11 +13,11 @@ type tzPlannerStore struct {
 
 func newTZPlannerStore(s *store.Repos) *tzPlannerStore { return &tzPlannerStore{s: s} }
 
-func (a *tzPlannerStore) ListMedications(showArchived bool) ([]store.Medication, error) {
-	return a.s.Medication.ListMedications(showArchived)
+func (a *tzPlannerStore) List(showArchived bool) ([]store.Medication, error) {
+	return a.s.Medication.List(showArchived)
 }
-func (a *tzPlannerStore) GetIntakeHistory(medID int, days int) ([]store.IntakeLog, error) {
-	return a.s.Medication.GetIntakeHistory(medID, days)
+func (a *tzPlannerStore) ListIntakeHistory(medID int, days int) ([]store.IntakeLog, error) {
+	return a.s.Medication.ListIntakeHistory(medID, days)
 }
 func (a *tzPlannerStore) GetPlanByHash(hash string) (*store.TZTransitionPlan, error) {
 	return a.s.TZ.GetPlanByHash(hash)

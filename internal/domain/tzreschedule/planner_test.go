@@ -23,7 +23,7 @@ func newMockPlannerStore() *mockPlannerStore {
 	}
 }
 
-func (m *mockPlannerStore) ListMedications(showArchived bool) ([]store.Medication, error) {
+func (m *mockPlannerStore) List(showArchived bool) ([]store.Medication, error) {
 	if showArchived {
 		return m.medications, nil
 	}
@@ -36,7 +36,7 @@ func (m *mockPlannerStore) ListMedications(showArchived bool) ([]store.Medicatio
 	return active, nil
 }
 
-func (m *mockPlannerStore) GetIntakeHistory(medID int, days int) ([]store.IntakeLog, error) {
+func (m *mockPlannerStore) ListIntakeHistory(medID int, days int) ([]store.IntakeLog, error) {
 	return m.intakes[int64(medID)], nil
 }
 

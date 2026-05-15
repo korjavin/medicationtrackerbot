@@ -21,7 +21,7 @@ func (m *mockMedStoreBench) GetLatestCompletedTZTransitionPlan() (*store.TZTrans
 	return nil, nil
 }
 
-func (m *mockMedStoreBench) ListMedications(archived bool) ([]store.Medication, error) {
+func (m *mockMedStoreBench) List(archived bool) ([]store.Medication, error) {
 	meds := make([]store.Medication, 1000)
 	for i := range meds {
 		meds[i] = store.Medication{
@@ -57,13 +57,13 @@ func (m *mockMedStoreBench) MarkStepConsumed(stepID int64, consumedAt time.Time)
 func (m *mockMedStoreBench) UpdateTZTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error {
 	return nil
 }
-func (m *mockMedStoreBench) AddIntakeReminder(intakeID int64, msgID int) error { return nil }
-func (m *mockMedStoreBench) GetPendingIntakes() ([]store.IntakeLog, error)     { return nil, nil }
-func (m *mockMedStoreBench) GetPendingIntakesForMedication(medID int64) ([]store.IntakeLog, error) {
+func (m *mockMedStoreBench) CreateIntakeReminder(intakeID int64, msgID int) error { return nil }
+func (m *mockMedStoreBench) ListPendingIntakes() ([]store.IntakeLog, error)     { return nil, nil }
+func (m *mockMedStoreBench) ListPendingIntakesForMedication(medID int64) ([]store.IntakeLog, error) {
 	return nil, nil
 }
-func (m *mockMedStoreBench) GetMedication(id int64) (*store.Medication, error) { return nil, nil }
-func (m *mockMedStoreBench) GetMedicationsLowOnStock(days int) ([]store.Medication, error) {
+func (m *mockMedStoreBench) Get(id int64) (*store.Medication, error) { return nil, nil }
+func (m *mockMedStoreBench) ListLowOnStock(days int) ([]store.Medication, error) {
 	return nil, nil
 }
 func (m *mockMedStoreBench) GetDaysOfStockRemaining(med *store.Medication) *float64 { return nil }

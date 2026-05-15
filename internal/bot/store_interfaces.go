@@ -10,16 +10,16 @@ import (
 // MedicationStore is the subset of store operations needed for medication bot commands.
 type MedicationStore interface {
 	GetMedicationEnabled(ctx context.Context) (bool, error)
-	ListMedications(showArchived bool) ([]store.Medication, error)
-	GetMedication(id int64) (*store.Medication, error)
+	List(showArchived bool) ([]store.Medication, error)
+	Get(id int64) (*store.Medication, error)
 	CreateIntake(medID, userID int64, scheduledAt time.Time) (int64, error)
-	AddIntakeReminder(intakeID int64, msgID int) error
+	CreateIntakeReminder(intakeID int64, msgID int) error
 	GetIntake(id int64) (*store.IntakeLog, error)
 	GetIntakeBySchedule(medID int64, scheduledAt time.Time) (*store.IntakeLog, error)
-	GetMedicationsLowOnStock(daysThreshold int) ([]store.Medication, error)
+	ListLowOnStock(daysThreshold int) ([]store.Medication, error)
 	GetDaysOfStockRemaining(m *store.Medication) *float64
 	GetLastDownload() (time.Time, error)
-	GetIntakesSince(since time.Time) ([]store.IntakeWithMedication, error)
+	ListIntakesSince(since time.Time) ([]store.IntakeWithMedication, error)
 	UpdateLastDownload(t time.Time) error
 }
 

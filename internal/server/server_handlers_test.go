@@ -56,7 +56,7 @@ func TestHandleRestock(t *testing.T) {
 	srv, db := createGenericTestServer(t)
 	defer db.Close()
 
-	medID, _ := db.Medication.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, _ := db.Medication.Create("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	count := 10
 	db.Medication.SetInventory(medID, &count)
 
@@ -87,7 +87,7 @@ func TestHandleRestock(t *testing.T) {
 	}
 
 	// Verify DB
-	med, _ := db.Medication.GetMedication(medID)
+	med, _ := db.Medication.Get(medID)
 	if med.InventoryCount == nil || *med.InventoryCount != 30 {
 		t.Errorf("Expected inventory 30, got %v", med.InventoryCount)
 	}
@@ -97,7 +97,7 @@ func TestHandleRestock_InvalidQuantity(t *testing.T) {
 	srv, db := createGenericTestServer(t)
 	defer db.Close()
 
-	medID, _ := db.Medication.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, _ := db.Medication.Create("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 
 	reqBody := map[string]interface{}{"quantity": 0}
 	body, _ := json.Marshal(reqBody)
@@ -113,12 +113,12 @@ func TestHandleRestock_InvalidQuantity(t *testing.T) {
 	}
 }
 
-func TestHandleGetRestockHistory(t *testing.T) {
+func TestHandleListRestocks(t *testing.T) {
 	srv, db := createGenericTestServer(t)
 	defer db.Close()
 
-	medID, _ := db.Medication.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
-	db.Medication.AddRestock(medID, 30, "Initial")
+	medID, _ := db.Medication.Create("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	db.Medication.CreateRestock(medID, 30, "Initial")
 
 	req := httptest.NewRequest("GET", fmt.Sprintf("/api/medications/%d/restocks", medID), nil)
 	req.SetPathValue("id", fmt.Sprintf("%d", medID))
@@ -146,7 +146,7 @@ func TestHandleGetLowStock(t *testing.T) {
 	defer db.Close()
 
 	// Create a medication with low stock
-	medID, _ := db.Medication.CreateMedication("LowMed", "10mg", `{"type":"daily","times":["09:00","21:00"]}`, nil, nil, "", "", "")
+	medID, _ := db.Medication.Create("LowMed", "10mg", `{"type":"daily","times":["09:00","21:00"]}`, nil, nil, "", "", "")
 	count := 3
 	db.Medication.SetInventory(medID, &count)
 
@@ -262,7 +262,7 @@ func TestHandleConfirmSchedule_WithIntakeIDs(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	medID, _ := db.Medication.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, _ := db.Medication.Create("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	count := 10
 	db.Medication.SetInventory(medID, &count)
 
@@ -291,7 +291,7 @@ func TestHandleConfirmSchedule_WithIntakeIDs(t *testing.T) {
 	}
 
 	// Verify inventory decremented
-	med, _ := db.Medication.GetMedication(medID)
+	med, _ := db.Medication.Get(medID)
 	if med.InventoryCount == nil || *med.InventoryCount != 9 {
 		t.Errorf("Expected inventory 9, got %v", med.InventoryCount)
 	}
@@ -302,7 +302,7 @@ func TestHandleConfirmSchedule_RevertsAllTakenIntakesWhenEmpty(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	medID1, _ := db.Medication.CreateMedication("TestMed1", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID1, _ := db.Medication.Create("TestMed1", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 
 	count1 := 10
 	db.Medication.SetInventory(medID1, &count1)
@@ -341,7 +341,7 @@ func TestHandleConfirmSchedule_RevertsAllTakenIntakesWhenEmpty(t *testing.T) {
 	}
 
 	// Verify inventory
-	m1, _ := db.Medication.GetMedication(medID1)
+	m1, _ := db.Medication.Get(medID1)
 	if *m1.InventoryCount != 10 { // Should have incremented back from 9
 		t.Errorf("Expected med1 inventory 10, got %v", m1.InventoryCount)
 	}
@@ -352,8 +352,8 @@ func TestHandleConfirmSchedule_RevertsUncheckedTakenIntake(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	medID1, _ := db.Medication.CreateMedication("TestMed1", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
-	medID2, _ := db.Medication.CreateMedication("TestMed2", "20mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID1, _ := db.Medication.Create("TestMed1", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID2, _ := db.Medication.Create("TestMed2", "20mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 
 	count1 := 10
 	db.Medication.SetInventory(medID1, &count1)
@@ -403,11 +403,11 @@ func TestHandleConfirmSchedule_RevertsUncheckedTakenIntake(t *testing.T) {
 	}
 
 	// Verify inventory
-	m1, _ := db.Medication.GetMedication(medID1)
+	m1, _ := db.Medication.Get(medID1)
 	if *m1.InventoryCount != 9 {
 		t.Errorf("Expected med1 inventory 9, got %v", m1.InventoryCount)
 	}
-	m2, _ := db.Medication.GetMedication(medID2)
+	m2, _ := db.Medication.Get(medID2)
 	if *m2.InventoryCount != 10 { // Should have incremented back from 9
 		t.Errorf("Expected med2 inventory 10, got %v", m2.InventoryCount)
 	}
@@ -418,8 +418,8 @@ func TestHandleConfirmSchedule_ConfirmsAndRevertsInSameRequest(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	medID1, _ := db.Medication.CreateMedication("TestMed1", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
-	medID2, _ := db.Medication.CreateMedication("TestMed2", "20mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID1, _ := db.Medication.Create("TestMed1", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID2, _ := db.Medication.Create("TestMed2", "20mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 
 	count1 := 10
 	db.Medication.SetInventory(medID1, &count1)
@@ -464,11 +464,11 @@ func TestHandleConfirmSchedule_ConfirmsAndRevertsInSameRequest(t *testing.T) {
 	}
 
 	// Verify inventory
-	m1, _ := db.Medication.GetMedication(medID1)
+	m1, _ := db.Medication.Get(medID1)
 	if *m1.InventoryCount != 9 { // Should have decremented from 10
 		t.Errorf("Expected med1 inventory 9, got %v", m1.InventoryCount)
 	}
-	m2, _ := db.Medication.GetMedication(medID2)
+	m2, _ := db.Medication.Get(medID2)
 	if *m2.InventoryCount != 10 { // Should have incremented back from 9
 		t.Errorf("Expected med2 inventory 10, got %v", m2.InventoryCount)
 	}
@@ -481,7 +481,7 @@ func TestHandleLogPastIntake(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	medID, _ := db.Medication.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, _ := db.Medication.Create("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 
 	takenAt := time.Now().Add(-2 * time.Hour)
 	reqBody := map[string]interface{}{
@@ -501,7 +501,7 @@ func TestHandleLogPastIntake(t *testing.T) {
 	}
 
 	// Verify in DB
-	history, _ := db.Medication.GetIntakeHistory(int(medID), 1)
+	history, _ := db.Medication.ListIntakeHistory(int(medID), 1)
 	if len(history) == 0 {
 		t.Error("Expected at least 1 intake in history")
 	}
@@ -518,9 +518,9 @@ func TestLogPastIntake_AppearsInListHistory(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	medID, err := db.Medication.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, err := db.Medication.Create("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	cases := []struct {

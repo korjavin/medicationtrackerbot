@@ -45,8 +45,8 @@ func newStoreAdapter(s *store.Repos) *storeAdapter {
 
 // --- Medication (medication.Repo) ---
 
-func (a *storeAdapter) ListMedications(archived bool) ([]store.Medication, error) {
-	return a.med.ListMedications(archived)
+func (a *storeAdapter) List(archived bool) ([]store.Medication, error) {
+	return a.med.List(archived)
 }
 func (a *storeAdapter) GetIntakeBySchedule(medID int64, scheduledAt time.Time) (*store.IntakeLog, error) {
 	return a.med.GetIntakeBySchedule(medID, scheduledAt)
@@ -57,20 +57,20 @@ func (a *storeAdapter) BatchGetIntakesBySchedule(schedules []store.MedicationSch
 func (a *storeAdapter) CreateIntake(medID, userID int64, scheduledAt time.Time) (int64, error) {
 	return a.med.CreateIntake(medID, userID, scheduledAt)
 }
-func (a *storeAdapter) AddIntakeReminder(intakeID int64, msgID int) error {
-	return a.med.AddIntakeReminder(intakeID, msgID)
+func (a *storeAdapter) CreateIntakeReminder(intakeID int64, msgID int) error {
+	return a.med.CreateIntakeReminder(intakeID, msgID)
 }
-func (a *storeAdapter) GetPendingIntakes() ([]store.IntakeLog, error) {
-	return a.med.GetPendingIntakes()
+func (a *storeAdapter) ListPendingIntakes() ([]store.IntakeLog, error) {
+	return a.med.ListPendingIntakes()
 }
-func (a *storeAdapter) GetPendingIntakesForMedication(medID int64) ([]store.IntakeLog, error) {
-	return a.med.GetPendingIntakesForMedication(medID)
+func (a *storeAdapter) ListPendingIntakesForMedication(medID int64) ([]store.IntakeLog, error) {
+	return a.med.ListPendingIntakesForMedication(medID)
 }
-func (a *storeAdapter) GetMedication(id int64) (*store.Medication, error) {
-	return a.med.GetMedication(id)
+func (a *storeAdapter) Get(id int64) (*store.Medication, error) {
+	return a.med.Get(id)
 }
-func (a *storeAdapter) GetMedicationsLowOnStock(days int) ([]store.Medication, error) {
-	return a.med.GetMedicationsLowOnStock(days)
+func (a *storeAdapter) ListLowOnStock(days int) ([]store.Medication, error) {
+	return a.med.ListLowOnStock(days)
 }
 func (a *storeAdapter) GetDaysOfStockRemaining(med *store.Medication) *float64 {
 	return a.med.GetDaysOfStockRemaining(med)

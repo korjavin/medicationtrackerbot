@@ -56,10 +56,10 @@ func (m *mockMedicationStore) GetIntake(id int64) (*store.IntakeLog, error) {
 	return nil, nil
 }
 
-func (m *mockMedicationStore) GetBatchIntakeReminders(intakeIDs []int64) (map[int64][]int, error) {
+func (m *mockMedicationStore) BatchGetIntakeReminders(intakeIDs []int64) (map[int64][]int, error) {
 	result := make(map[int64][]int)
 	for _, id := range intakeIDs {
-		reminders, err := m.GetIntakeReminders(id)
+		reminders, err := m.ListIntakeReminders(id)
 		if err != nil {
 			return nil, err
 		}
@@ -70,28 +70,28 @@ func (m *mockMedicationStore) GetBatchIntakeReminders(intakeIDs []int64) (map[in
 	return result, nil
 }
 
-func (m *mockMedicationStore) GetMedication(id int64) (*store.Medication, error) {
+func (m *mockMedicationStore) Get(id int64) (*store.Medication, error) {
 	if m.getMedicationFn != nil {
 		return m.getMedicationFn(id)
 	}
 	return nil, nil
 }
 
-func (m *mockMedicationStore) GetIntakeReminders(intakeID int64) ([]int, error) {
+func (m *mockMedicationStore) ListIntakeReminders(intakeID int64) ([]int, error) {
 	if m.getIntakeRemindersFn != nil {
 		return m.getIntakeRemindersFn(intakeID)
 	}
 	return nil, nil
 }
 
-func (m *mockMedicationStore) GetPendingIntakes() ([]store.IntakeLog, error) {
+func (m *mockMedicationStore) ListPendingIntakes() ([]store.IntakeLog, error) {
 	if m.getPendingIntakesFn != nil {
 		return m.getPendingIntakesFn()
 	}
 	return nil, nil
 }
 
-func (m *mockMedicationStore) GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time) ([]store.IntakeLog, error) {
+func (m *mockMedicationStore) ListPendingIntakesBySchedule(userID int64, scheduledAt time.Time) ([]store.IntakeLog, error) {
 	if m.getPendingIntakesByScheduleFn != nil {
 		return m.getPendingIntakesByScheduleFn(userID, scheduledAt)
 	}
@@ -255,7 +255,7 @@ func TestCancelIntake(t *testing.T) {
 			wantMedDosage: "100mg",
 		},
 		{
-			name: "GetMedication error is non-fatal, returns empty name/dosage",
+			name: "Get error is non-fatal, returns empty name/dosage",
 			store: &mockMedicationStore{
 				getIntakeFn:     func(id int64) (*store.IntakeLog, error) { return takenIntake(id, 10), nil },
 				getMedicationFn: func(id int64) (*store.Medication, error) { return nil, errors.New("db error") },
@@ -635,7 +635,7 @@ func TestConfirmScheduleWithCleanup(t *testing.T) {
 			wantDecrementedMedIDs: []int64{10, 11}, // Only medications 10 and 11 should have inventory decremented
 		},
 		{
-			name: "GetPendingIntakesBySchedule error propagates",
+			name: "ListPendingIntakesBySchedule error propagates",
 			store: &mockMedicationStore{
 				getPendingIntakesByScheduleFn: func(userID int64, _ time.Time) ([]store.IntakeLog, error) {
 					return nil, errors.New("db error")
@@ -900,7 +900,7 @@ func TestDeleteFutureIntake(t *testing.T) {
 			wantErrContains: "delete intake",
 		},
 		{
-			name: "GetMedication error is non-fatal, returns empty name/dosage",
+			name: "Get error is non-fatal, returns empty name/dosage",
 			store: &mockMedicationStore{
 				getIntakeFn:     func(id int64) (*store.IntakeLog, error) { return futurePending(id, 10), nil },
 				getMedicationFn: func(id int64) (*store.Medication, error) { return nil, errors.New("db error") },
@@ -909,7 +909,7 @@ func TestDeleteFutureIntake(t *testing.T) {
 			wantDeleted: true,
 		},
 		{
-			name: "GetIntakeReminders error is non-fatal — delete still proceeds",
+			name: "ListIntakeReminders error is non-fatal — delete still proceeds",
 			store: &mockMedicationStore{
 				getIntakeFn:          func(id int64) (*store.IntakeLog, error) { return futurePending(id, 10), nil },
 				getMedicationFn:      func(id int64) (*store.Medication, error) { return &store.Medication{ID: id, Name: "Aspirin"}, nil },

@@ -725,7 +725,7 @@ func (s *Server) handleListHistory(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	logs, err := s.meds.GetIntakeHistory(medID, days)
+	logs, err := s.meds.ListIntakeHistory(medID, days)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -766,13 +766,13 @@ func (s *Server) handleRestock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.meds.AddRestock(id, req.Quantity, req.Note); err != nil {
+	if err := s.meds.CreateRestock(id, req.Quantity, req.Note); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	// Get updated medication to return new count
-	med, err := s.meds.GetMedication(id)
+	med, err := s.meds.Get(id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -796,7 +796,7 @@ func (s *Server) handleGetRestockHistory(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	restocks, err := s.meds.GetRestockHistory(id)
+	restocks, err := s.meds.ListRestocks(id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -817,7 +817,7 @@ func (s *Server) handleGetLowStock(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	meds, err := s.meds.GetMedicationsLowOnStock(days)
+	meds, err := s.meds.ListLowOnStock(days)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1189,7 +1189,7 @@ func (s *Server) handleConfirmSchedule(w http.ResponseWriter, r *http.Request) {
 
 			if intake.Status == "PENDING" {
 				// Delete notification messages
-				reminders, _ := s.meds.GetIntakeReminders(id)
+				reminders, _ := s.meds.ListIntakeReminders(id)
 				for _, msgID := range reminders {
 					s.deleteNotification(r.Context(), msgID)
 				}
@@ -1235,7 +1235,7 @@ func (s *Server) handleConfirmSchedule(w http.ResponseWriter, r *http.Request) {
 
 		if intake != nil && intake.UserID == userID && intake.Status == "PENDING" {
 			// Delete notification messages
-			reminders, _ := s.meds.GetIntakeReminders(intake.ID)
+			reminders, _ := s.meds.ListIntakeReminders(intake.ID)
 			for _, msgID := range reminders {
 				s.deleteNotification(r.Context(), msgID)
 			}
@@ -1267,7 +1267,7 @@ func (s *Server) handleConfirmSchedule(w http.ResponseWriter, r *http.Request) {
 		medSet[id] = true
 	}
 
-	takenIntakes, err := s.meds.GetTakenIntakesBySchedule(userID, parsedTime)
+	takenIntakes, err := s.meds.ListTakenIntakesBySchedule(userID, parsedTime)
 	if err != nil {
 		slog.Error("Error getting taken intakes for schedule", "scheduledAt", req.ScheduledAt, "error", err)
 	} else {
@@ -1295,7 +1295,7 @@ func (s *Server) handleSendTestMedicationNotification(w http.ResponseWriter, r *
 		return
 	}
 
-	meds, err := s.meds.ListMedications(false)
+	meds, err := s.meds.List(false)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

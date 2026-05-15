@@ -13,8 +13,8 @@ import (
 
 // PlannerStore is the minimal set of store methods required by PlannerService.
 type PlannerStore interface {
-	ListMedications(showArchived bool) ([]store.Medication, error)
-	GetIntakeHistory(medID int, days int) ([]store.IntakeLog, error)
+	List(showArchived bool) ([]store.Medication, error)
+	ListIntakeHistory(medID int, days int) ([]store.IntakeLog, error)
 	GetPlanByHash(hash string) (*store.TZTransitionPlan, error)
 	GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error)
 	UpdateTZTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error
@@ -122,7 +122,7 @@ func (p *plannerService) GenerateIfChanged(oldTZ, newTZ string, now time.Time) (
 	}
 
 	// Load active (non-archived) medications.
-	meds, err := p.store.ListMedications(false)
+	meds, err := p.store.List(false)
 	if err != nil {
 		return false, err
 	}
@@ -130,9 +130,9 @@ func (p *plannerService) GenerateIfChanged(oldTZ, newTZ string, now time.Time) (
 	// Build last-intake map from the last 30 days of history.
 	lastIntakes := make(map[int64]time.Time, len(meds))
 	for _, med := range meds {
-		history, err := p.store.GetIntakeHistory(int(med.ID), 30)
+		history, err := p.store.ListIntakeHistory(int(med.ID), 30)
 		if err != nil {
-			slog.Error("tzplanner: GetIntakeHistory failed", "med_id", med.ID, "error", err)
+			slog.Error("tzplanner: ListIntakeHistory failed", "med_id", med.ID, "error", err)
 			continue
 		}
 		for _, h := range history {

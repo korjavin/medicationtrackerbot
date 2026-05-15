@@ -176,7 +176,7 @@ func TestHandleNextIntakeCommand_WithScheduledMed(t *testing.T) {
 
 	futureTime := time.Now().Add(30 * time.Minute).Format("15:04")
 	schedule := `{"type":"daily","times":["` + futureTime + `"]}`
-	env.s.Medication.CreateMedication("Metoprolol", "50mg", schedule, nil, nil, "", "", "")
+	env.s.Medication.Create("Metoprolol", "50mg", schedule, nil, nil, "", "", "")
 
 	body := sendCmd(env, "/next")
 	if body == "" {

@@ -39,8 +39,8 @@ func (a *storeAdapter) GetBloodPressureReadings(ctx context.Context, userID int6
 func (a *storeAdapter) GetWeightLogs(ctx context.Context, userID int64, since time.Time) ([]store.WeightLog, error) {
 	return a.s.Weight.GetWeightLogs(ctx, userID, since)
 }
-func (a *storeAdapter) GetIntakesSince(since time.Time) ([]store.IntakeWithMedication, error) {
-	return a.s.Medication.GetIntakesSince(since)
+func (a *storeAdapter) ListIntakesSince(since time.Time) ([]store.IntakeWithMedication, error) {
+	return a.s.Medication.ListIntakesSince(since)
 }
 func (a *storeAdapter) GetWorkoutHistory(userID int64, limit int) ([]store.WorkoutSession, error) {
 	return a.s.Workout.GetWorkoutHistory(userID, limit)
@@ -81,6 +81,6 @@ func (a *storeAdapter) ListMiBandWorkouts(ctx context.Context, userID int64, lim
 func (a *storeAdapter) ListDiaryNotes(ctx context.Context, userID int64, since, until time.Time, limit int, beforeID int64) ([]store.DiaryNote, error) {
 	return a.s.Diary.List(ctx, userID, since, until, limit, beforeID)
 }
-func (a *storeAdapter) ListMedications(showArchived bool) ([]store.Medication, error) {
-	return a.s.Medication.ListMedications(showArchived)
+func (a *storeAdapter) List(showArchived bool) ([]store.Medication, error) {
+	return a.s.Medication.List(showArchived)
 }

@@ -13,9 +13,9 @@ func TestHandleCallback_LogMedicationDeletesMessage(t *testing.T) {
 	env := setupBotTest(t)
 	defer env.teardown()
 
-	medID, err := env.s.Medication.CreateMedication("Allopurinol", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, err := env.s.Medication.Create("Allopurinol", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	cbData := fmt.Sprintf("log:%d", medID)
