@@ -112,17 +112,17 @@ and recommended-priority item #3.
 
 ### Task 2: Thread tighter deadlines through cached-fetch
 
-- [ ] modify `cachedFetch` in `web/static/js/cached-fetch.js:152` to
+- [x] modify `cachedFetch` in `web/static/js/cached-fetch.js:152` to
   accept `timeoutMs` in `opts` (default unspecified — i.e. uses
   `apiCallDirect`'s 60s default); forward it via `fetchOpts.timeoutMs`
   into the `performFetch` → `apiCallDirect` chain
-- [ ] update `performFetch` (`cached-fetch.js:97-106`) to pass
+- [x] update `performFetch` (`cached-fetch.js:97-106`) to pass
   `{ timeoutMs }` as the 4th arg to `direct(...)`
-- [ ] write tests in `web/static/js/tests/cached-fetch.abort.test.js`:
+- [x] write tests in `web/static/js/tests/cached-fetch.abort.test.js`:
   caller-supplied `timeoutMs` propagates; abort during background
   revalidation does not throw to the foreground caller; cache hit
   still returns even when revalidation aborts
-- [ ] run `pnpm test cached-fetch.abort` — must pass before next task
+- [x] run `pnpm test cached-fetch.abort` — must pass before next task
 
 ### Task 3: Apply 10s timeout to food-product search
 
