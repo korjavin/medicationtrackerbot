@@ -237,7 +237,7 @@ See `internal/bot/handlers.go` and `internal/bot/workout_callbacks.go`.
 
 - Store tests use in-memory SQLite (`:memory:`)
 - Server tests use `httptest` for HTTP handlers
-- Domain service tests use mock store structs (implement the narrow `FooStore` interface inline) with table-driven cases
+- Domain services are tested end-to-end via handler tests against the real store (`internal/server/*_test.go` for HTTP, `internal/bot/*_test.go` for bot callbacks). Both transports share the same domain code path, so handler-level coverage validates the contract — package-level mock-spy tests under `internal/domain/` are intentionally not maintained.
 
 ### JSON Golden-File Pattern
 

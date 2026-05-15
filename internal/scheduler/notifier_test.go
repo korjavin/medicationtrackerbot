@@ -12,7 +12,8 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
-// mockNotifier records all Send/Delete calls for test assertions.
+// mockNotifier records Send/Delete calls. Use waitForSendCalls /
+// waitForDeleteCalls (not time.Sleep) to assert against async dispatch.
 type mockNotifier struct {
 	mu          sync.Mutex
 	sendCalls   []mockSendCall
@@ -54,40 +55,28 @@ func (m *mockNotifier) CloseNotification(_ context.Context, _ int64, _ string) e
 func (m *mockNotifier) getSendCalls() []mockSendCall {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	cp := make([]mockSendCall, len(m.sendCalls))
-	copy(cp, m.sendCalls)
-	return cp
+	return append([]mockSendCall(nil), m.sendCalls...)
 }
 
 func (m *mockNotifier) getDeleteCalls() []mockDeleteCall {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	cp := make([]mockDeleteCall, len(m.deleteCalls))
-	copy(cp, m.deleteCalls)
-	return cp
+	return append([]mockDeleteCall(nil), m.deleteCalls...)
 }
 
 func (m *mockNotifier) waitForSendCalls(n int, timeout time.Duration) bool {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		m.mu.Lock()
-		count := len(m.sendCalls)
-		m.mu.Unlock()
-		if count >= n {
-			return true
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	return false
+	return waitUntil(timeout, func() bool { return len(m.getSendCalls()) >= n })
 }
 
 func (m *mockNotifier) waitForDeleteCalls(n int, timeout time.Duration) bool {
+	return waitUntil(timeout, func() bool { return len(m.getDeleteCalls()) >= n })
+}
+
+// waitUntil polls cond every 5ms until it returns true or timeout elapses.
+func waitUntil(timeout time.Duration, cond func() bool) bool {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		m.mu.Lock()
-		count := len(m.deleteCalls)
-		m.mu.Unlock()
-		if count >= n {
+		if cond() {
 			return true
 		}
 		time.Sleep(5 * time.Millisecond)
@@ -97,1056 +86,710 @@ func (m *mockNotifier) waitForDeleteCalls(n int, timeout time.Duration) bool {
 
 func setupTestSchedulerWithMock(t *testing.T) (*Scheduler, *store.Store, *mockNotifier) {
 	t.Helper()
-	db, err := store.New(":memory:")
-	if err != nil {
-		t.Fatalf("Failed to create test store: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() }) // #nosec G104
-
 	mock := &mockNotifier{sendMsgID: 100}
-	sched := New(db, 123456, []notifier.Notifier{mock})
+	sched, db := newSchedWithNotifiers(t, mock)
 	return sched, db, mock
 }
 
-// --- NotifyHelper tests ---
-
-func TestNotify_CallsAllNotifiers(t *testing.T) {
-	m1 := &mockNotifier{sendMsgID: 10}
-	m2 := &mockNotifier{sendMsgID: 0}
-	helper := NotifyHelper{
-		notifiers:     []notifier.Notifier{m1, m2},
-		allowedUserID: 42,
+func newSchedWithNotifiers(t *testing.T, notifiers ...notifier.Notifier) (*Scheduler, *store.Store) {
+	t.Helper()
+	db, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
 	}
+	t.Cleanup(func() { _ = db.Close() }) // #nosec G104
+	return New(db, 123456, notifiers), db
+}
 
-	n := notifier.Notification{Text: "test", Tag: "t"}
-	var storedID int
-	helper.Notify(context.Background(), n, func(id int) { storedID = id })
+// findBatchedNotification returns the first send call with Metadata["type"]
+// == metaType. Fatals if none match.
+func findBatchedNotification(t *testing.T, calls []mockSendCall, metaType string) notifier.Notification {
+	t.Helper()
+	for _, c := range calls {
+		if c.Notification.Metadata["type"] == metaType {
+			return c.Notification
+		}
+	}
+	t.Fatalf("no notification with metadata type=%q in %d calls", metaType, len(calls))
+	return notifier.Notification{}
+}
 
-	m1.waitForSendCalls(1, time.Second)
-	m2.waitForSendCalls(1, time.Second)
-
-	calls1 := m1.getSendCalls()
-	calls2 := m2.getSendCalls()
-	if len(calls1) != 1 {
-		t.Errorf("m1: expected 1 send call, got %d", len(calls1))
+// assertActionIDs fatals if action IDs don't match want exactly.
+func assertActionIDs(t *testing.T, actions []notifier.Action, want ...string) {
+	t.Helper()
+	if len(actions) != len(want) {
+		t.Fatalf("expected %d actions, got %d", len(want), len(actions))
 	}
-	if len(calls2) != 1 {
-		t.Errorf("m2: expected 1 send call, got %d", len(calls2))
-	}
-	if calls1[0].UserID != 42 {
-		t.Errorf("m1: userID = %d, want 42", calls1[0].UserID)
-	}
-	time.Sleep(50 * time.Millisecond)
-	if storedID != 10 {
-		t.Errorf("storedID = %d, want 10", storedID)
+	for i, w := range want {
+		if actions[i].ID != w {
+			t.Errorf("action[%d] = %s, want %s", i, actions[i].ID, w)
+		}
 	}
 }
 
-func TestNotify_NoNotifiers(t *testing.T) {
-	helper := NotifyHelper{notifiers: nil, allowedUserID: 42}
-	// Should not panic with nil notifiers
-	helper.Notify(context.Background(), notifier.Notification{Text: "test"}, nil)
+// hasActionWithPrefix reports whether any action.ID starts with prefix.
+func hasActionWithPrefix(actions []notifier.Action, prefix string) bool {
+	for _, a := range actions {
+		if strings.HasPrefix(a.ID, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
-func TestDeleteNotification_CallsAllNotifiers(t *testing.T) {
-	m1 := &mockNotifier{}
-	m2 := &mockNotifier{}
-	helper := NotifyHelper{
-		notifiers:     []notifier.Notifier{m1, m2},
-		allowedUserID: 42,
+// setupMedAtNoon pins both medication-checker clocks to noon and creates a daily med scheduled for 10:00 (created 24h before noon).
+func setupMedAtNoon(t *testing.T, name, dosage string) (*Scheduler, *store.Store, *mockNotifier, int64, time.Time) {
+	t.Helper()
+	sched, db, mock := setupTestSchedulerWithMock(t)
+	now := time.Now()
+	fakeNow := time.Date(now.Year(), now.Month(), now.Day(), 12, 0, 0, 0, now.Location())
+	sched.MedicationChecker.now = func() time.Time { return fakeNow }
+	sched.MedicationReminderChecker.now = func() time.Time { return fakeNow }
+	id, err := db.Medication.CreateMedication(name, dosage, `{"type":"daily","times":["10:00"]}`, nil, nil, "", "", "")
+	if err != nil {
+		t.Fatalf("CreateMedication: %v", err)
 	}
-
-	type ctxKey struct{}
-	ctx := context.WithValue(context.Background(), ctxKey{}, "test")
-
-	helper.DeleteNotification(ctx, 99)
-
-	m1.waitForDeleteCalls(1, time.Second)
-	m2.waitForDeleteCalls(1, time.Second)
-
-	calls1 := m1.getDeleteCalls()
-	calls2 := m2.getDeleteCalls()
-	if len(calls1) != 1 || calls1[0].MsgID != 99 || calls1[0].UserID != 42 || calls1[0].Ctx != ctx {
-		t.Errorf("m1: expected delete(99) with ctx and UserID=42, got %v", calls1)
+	if err := db.Medication.UpdateMedicationCreatedAt(id, fakeNow.Add(-24*time.Hour)); err != nil {
+		t.Fatalf("UpdateMedicationCreatedAt: %v", err)
 	}
-	if len(calls2) != 1 || calls2[0].MsgID != 99 || calls2[0].UserID != 42 || calls2[0].Ctx != ctx {
-		t.Errorf("m2: expected delete(99) with ctx and UserID=42, got %v", calls2)
-	}
+	return sched, db, mock, id, fakeNow
 }
 
-func TestDeleteNotification_ZeroMsgID_Noop(t *testing.T) {
-	m := &mockNotifier{}
-	helper := NotifyHelper{
-		notifiers:     []notifier.Notifier{m},
-		allowedUserID: 42,
+// setupWorkoutSession creates a workout group+variant scheduled for the current weekday at -30m (so it is due) plus an associated session.
+func setupWorkoutSession(t *testing.T, groupName, variantName string) (*Scheduler, *store.Store, *mockNotifier, *store.WorkoutGroup, *store.WorkoutVariant, *store.WorkoutSession) {
+	t.Helper()
+	sched, db, mock := setupTestSchedulerWithMock(t)
+	now := time.Now()
+	daysOfWeek := "[" + intToStr(int(now.Weekday())) + "]"
+	pastTime := now.Add(-30 * time.Minute).Format("15:04")
+	group, err := db.Workout.CreateWorkoutGroup(groupName, "desc", false, 123456, daysOfWeek, pastTime, 15)
+	if err != nil {
+		t.Fatalf("CreateWorkoutGroup: %v", err)
 	}
-
-	helper.DeleteNotification(context.Background(), 0)
-	time.Sleep(50 * time.Millisecond)
-
-	if len(m.getDeleteCalls()) != 0 {
-		t.Error("expected no delete calls for msgID=0")
+	order := 0
+	variant, err := db.Workout.CreateWorkoutVariant(group.ID, variantName, &order, "")
+	if err != nil {
+		t.Fatalf("CreateWorkoutVariant: %v", err)
 	}
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	session, err := db.Workout.CreateWorkoutSession(group.ID, variant.ID, 123456, today, pastTime)
+	if err != nil {
+		t.Fatalf("CreateWorkoutSession: %v", err)
+	}
+	return sched, db, mock, group, variant, session
 }
 
-func TestNotify_SendError_DoesNotCallStoreMsgID(t *testing.T) {
-	m := &mockNotifier{sendErr: fmt.Errorf("network error")}
-	helper := NotifyHelper{
-		notifiers:     []notifier.Notifier{m},
-		allowedUserID: 42,
-	}
+// TestNotifyHelper_Dispatch covers async Notify / DeleteNotification fan-out.
+// The sync NotifySync code path is covered in helpers_test.go.
+func TestNotifyHelper_Dispatch(t *testing.T) {
+	t.Run("notify calls all notifiers and stores msgID from first", func(t *testing.T) {
+		m1 := &mockNotifier{sendMsgID: 10}
+		m2 := &mockNotifier{sendMsgID: 0}
+		helper := NotifyHelper{notifiers: []notifier.Notifier{m1, m2}, allowedUserID: 42}
+		var storedID int
+		helper.Notify(context.Background(), notifier.Notification{Text: "test", Tag: "t"}, func(id int) { storedID = id })
 
-	called := false
-	helper.Notify(context.Background(), notifier.Notification{Text: "test"}, func(_ int) {
-		called = true
+		m1.waitForSendCalls(1, time.Second)
+		m2.waitForSendCalls(1, time.Second)
+
+		if c := m1.getSendCalls(); len(c) != 1 || c[0].UserID != 42 {
+			t.Errorf("m1: want 1 call to UserID=42, got %v", c)
+		}
+		if c := m2.getSendCalls(); len(c) != 1 {
+			t.Errorf("m2: want 1 call, got %d", len(c))
+		}
+		time.Sleep(50 * time.Millisecond)
+		if storedID != 10 {
+			t.Errorf("storedID = %d, want 10", storedID)
+		}
 	})
 
-	m.waitForSendCalls(1, time.Second)
-	time.Sleep(50 * time.Millisecond)
+	t.Run("notify with no notifiers does not panic", func(t *testing.T) {
+		helper := NotifyHelper{notifiers: nil, allowedUserID: 42}
+		helper.Notify(context.Background(), notifier.Notification{Text: "test"}, nil)
+	})
 
-	if called {
-		t.Error("storeMsgID should not have been called on send error")
-	}
+	t.Run("notify with send error does not call storeMsgID", func(t *testing.T) {
+		m := &mockNotifier{sendErr: fmt.Errorf("network error")}
+		helper := NotifyHelper{notifiers: []notifier.Notifier{m}, allowedUserID: 42}
+		called := false
+		helper.Notify(context.Background(), notifier.Notification{Text: "test"}, func(_ int) { called = true })
+
+		m.waitForSendCalls(1, time.Second)
+		time.Sleep(50 * time.Millisecond)
+		if called {
+			t.Error("storeMsgID should not have been called on send error")
+		}
+	})
+
+	t.Run("delete propagates to all notifiers with correct args", func(t *testing.T) {
+		m1 := &mockNotifier{}
+		m2 := &mockNotifier{}
+		helper := NotifyHelper{notifiers: []notifier.Notifier{m1, m2}, allowedUserID: 42}
+		type ctxKey struct{}
+		ctx := context.WithValue(context.Background(), ctxKey{}, "test")
+
+		helper.DeleteNotification(ctx, 99)
+		m1.waitForDeleteCalls(1, time.Second)
+		m2.waitForDeleteCalls(1, time.Second)
+
+		for i, m := range []*mockNotifier{m1, m2} {
+			c := m.getDeleteCalls()
+			if len(c) != 1 || c[0].MsgID != 99 || c[0].UserID != 42 || c[0].Ctx != ctx {
+				t.Errorf("notifier[%d]: want delete(99) with ctx and UserID=42, got %v", i, c)
+			}
+		}
+	})
+
+	t.Run("delete with msgID 0 is a noop", func(t *testing.T) {
+		m := &mockNotifier{}
+		helper := NotifyHelper{notifiers: []notifier.Notifier{m}, allowedUserID: 42}
+		helper.DeleteNotification(context.Background(), 0)
+		time.Sleep(50 * time.Millisecond)
+		if len(m.getDeleteCalls()) != 0 {
+			t.Error("expected no delete calls for msgID=0")
+		}
+	})
 }
 
-// --- MedicationChecker with mock notifier ---
+func TestMedicationChecker_Check(t *testing.T) {
+	// Combined check of: batched notification structure (text, actions, tag,
+	// metadata), pending-intake creation, and async intake-reminder msgID
+	// storage — all observable on a single Check run.
+	t.Run("single med batched notification + stores intake reminder msgID", func(t *testing.T) {
+		sched, db, mock, _, _ := setupMedAtNoon(t, "TestMed", "10mg")
+		mock.sendMsgID = 321
 
-func TestCheckSchedule_SendsNotificationViaMock(t *testing.T) {
-	sched, db, mock := setupTestSchedulerWithMock(t)
+		if err := sched.MedicationChecker.Check(context.Background()); err != nil {
+			t.Fatalf("Check: %v", err)
+		}
+		if !mock.waitForSendCalls(2, 2*time.Second) {
+			t.Fatal("timed out waiting for send calls")
+		}
+		calls := mock.getSendCalls()
+		if len(calls) != 2 {
+			t.Fatalf("expected 2 send calls, got %d", len(calls))
+		}
+		n := findBatchedNotification(t, calls, "medication_batch")
 
-	// Use a fixed noon clock to avoid midnight-boundary failures.
-	fakeNow := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 12, 0, 0, 0, time.Now().Location())
-	sched.MedicationChecker.now = func() time.Time { return fakeNow }
+		if !strings.Contains(n.Text, "TestMed") || !strings.Contains(n.Text, "10mg") {
+			t.Errorf("notification text should contain name+dosage, got: %s", n.Text)
+		}
+		if len(n.Actions) < 2 {
+			t.Fatalf("expected at least 2 actions, got %d", len(n.Actions))
+		}
+		if !strings.Contains(n.Actions[0].ID, "confirm_intake:") {
+			t.Errorf("first action = %s, want confirm_intake", n.Actions[0].ID)
+		}
+		if n.Actions[0].Label != "Take TestMed" {
+			t.Errorf("first action label = %q, want %q", n.Actions[0].Label, "Take TestMed")
+		}
+		if last := n.Actions[len(n.Actions)-1]; !strings.Contains(last.ID, "confirm_schedule:") {
+			t.Errorf("last action = %s, want confirm_schedule", last.ID)
+		}
+		if !strings.HasPrefix(n.Tag, "medication-") {
+			t.Errorf("tag = %s, want prefix medication-", n.Tag)
+		}
+		if n.Metadata["type"] != "medication_batch" {
+			t.Errorf("metadata type = %v, want medication_batch", n.Metadata["type"])
+		}
 
-	schedule := `{"type":"daily","times":["10:00"]}` // 2 hours before noon
-	id, err := db.Medication.CreateMedication("TestMed", "10mg", schedule, nil, nil, "", "", "")
-	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
-	}
-	if err := db.Medication.UpdateMedicationCreatedAt(id, fakeNow.Add(-24*time.Hour)); err != nil {
-		t.Fatalf("UpdateMedicationCreatedAt: %v", err)
-	}
+		// Allow the async StoreIntakeReminderMsgID goroutine to complete.
+		time.Sleep(100 * time.Millisecond)
+		pending, err := db.Medication.GetPendingIntakes()
+		if err != nil {
+			t.Fatalf("GetPendingIntakes: %v", err)
+		}
+		if len(pending) != 1 {
+			t.Fatalf("expected 1 pending intake, got %d", len(pending))
+		}
+		reminders, err := db.Medication.GetIntakeReminders(pending[0].ID)
+		if err != nil {
+			t.Fatalf("GetIntakeReminders: %v", err)
+		}
+		if len(reminders) == 0 {
+			t.Error("expected intake to have reminder message ID stored")
+		}
+	})
 
-	err = sched.MedicationChecker.Check(context.Background())
-	if err != nil {
-		t.Fatalf("Check: %v", err)
-	}
+	t.Run("multiple meds are grouped in batched notification", func(t *testing.T) {
+		sched, db, mock, _, fakeNow := setupMedAtNoon(t, "MedA", "5mg")
+		idB, err := db.Medication.CreateMedication("MedB", "20mg", `{"type":"daily","times":["10:00"]}`, nil, nil, "", "", "")
+		if err != nil {
+			t.Fatalf("CreateMedication B: %v", err)
+		}
+		if err := db.Medication.UpdateMedicationCreatedAt(idB, fakeNow.Add(-24*time.Hour)); err != nil {
+			t.Fatalf("UpdateMedicationCreatedAt B: %v", err)
+		}
 
-	if !mock.waitForSendCalls(2, 2*time.Second) {
-		t.Fatal("timed out waiting for send call")
-	}
+		if err := sched.MedicationChecker.Check(context.Background()); err != nil {
+			t.Fatalf("Check: %v", err)
+		}
+		// 1 batched (Telegram) + 2 individual (one per med).
+		if !mock.waitForSendCalls(3, 2*time.Second) {
+			t.Fatal("timed out waiting for send calls")
+		}
+		calls := mock.getSendCalls()
+		if len(calls) != 3 {
+			t.Fatalf("expected 3 notifications, got %d", len(calls))
+		}
+		n := findBatchedNotification(t, calls, "medication_batch")
+		if !strings.Contains(n.Text, "MedA") || !strings.Contains(n.Text, "MedB") {
+			t.Errorf("batched text should contain both med names, got: %s", n.Text)
+		}
+		if len(n.Actions) != 5 {
+			t.Errorf("expected 5 actions (take a, skip a, take b, skip b, confirm all), got %d: %v", len(n.Actions), n.Actions)
+		}
+	})
 
-	calls := mock.getSendCalls()
-	if len(calls) != 2 {
-		t.Fatalf("expected 2 send calls, got %d", len(calls))
-	}
+	t.Run("supplement med adds skip action", func(t *testing.T) {
+		sched, db, mock, medID, _ := setupMedAtNoon(t, "Magnesium", "200mg")
+		if err := db.Medication.SetMedicationSupplement(medID, true); err != nil {
+			t.Fatalf("SetMedicationSupplement: %v", err)
+		}
 
-	var batchedNotifierCall mockSendCall
-	var foundBatched bool
-	for _, call := range calls {
-		if call.Notification.Metadata["type"] == "medication_batch" {
-			batchedNotifierCall = call
-			foundBatched = true
-			break
+		if err := sched.MedicationChecker.Check(context.Background()); err != nil {
+			t.Fatalf("Check: %v", err)
+		}
+		if !mock.waitForSendCalls(2, 2*time.Second) {
+			t.Fatal("timed out waiting for send calls")
+		}
+		n := findBatchedNotification(t, mock.getSendCalls(), "medication_batch")
+		if !hasActionWithPrefix(n.Actions, "confirm_intake:") {
+			t.Error("expected confirm_intake action for supplement")
+		}
+		if !hasActionWithPrefix(n.Actions, "skip_intake:") {
+			t.Error("expected skip_intake action for supplement")
+		}
+	})
+}
+
+func TestMedicationReminderChecker_Check(t *testing.T) {
+	t.Run("sends reminder for pending intake older than threshold", func(t *testing.T) {
+		sched, db, mock, medID, fakeNow := setupMedAtNoon(t, "ReminderMed", "5mg")
+		// Target is 09:00 — 3h before noon, past the >1h reminder threshold.
+		target := time.Date(fakeNow.Year(), fakeNow.Month(), fakeNow.Day(), 9, 0, 0, 0, fakeNow.Location())
+		if _, err := db.Medication.CreateIntake(medID, 123456, target); err != nil {
+			t.Fatalf("CreateIntake: %v", err)
+		}
+
+		if err := sched.MedicationReminderChecker.Check(context.Background()); err != nil {
+			t.Fatalf("Check: %v", err)
+		}
+		if !mock.waitForSendCalls(1, 2*time.Second) {
+			t.Fatal("timed out waiting for reminder")
+		}
+		n := mock.getSendCalls()[0].Notification
+		if !strings.Contains(n.Text, "REMINDER") || !strings.Contains(n.Text, "ReminderMed") {
+			t.Errorf("reminder text should contain REMINDER + med name, got: %s", n.Text)
+		}
+		if len(n.Actions) != 2 {
+			t.Fatalf("expected 2 actions (confirm + skip), got %d", len(n.Actions))
+		}
+		if !hasActionWithPrefix(n.Actions, "confirm_intake:") {
+			t.Errorf("expected a confirm_intake action, got %v", n.Actions)
+		}
+		if n.Metadata["type"] != "medication_reminder" {
+			t.Errorf("metadata type = %v, want medication_reminder", n.Metadata["type"])
+		}
+	})
+
+	// Repros the "reminder body shows UTC clock" bug: scheduled_at is stored
+	// in UTC but must be rendered in the user's stored timezone.
+	t.Run("formats scheduled_at in user timezone", func(t *testing.T) {
+		sched, db, mock := setupTestSchedulerWithMock(t)
+		if err := db.TZ.RecordTimezone("America/Los_Angeles"); err != nil {
+			t.Fatalf("RecordTimezone: %v", err)
+		}
+		la, _ := time.LoadLocation("America/Los_Angeles")
+		scheduled := time.Date(2026, 5, 4, 21, 18, 0, 0, time.UTC) // 14:18 PDT
+		fakeNow := scheduled.Add(2 * time.Hour)
+		sched.MedicationReminderChecker.now = func() time.Time { return fakeNow }
+
+		medID, err := db.Medication.CreateMedication("Lercanidipin", "10mg",
+			`{"type":"daily","times":["08:20","21:30"]}`, nil, nil, "", "", "medium")
+		if err != nil {
+			t.Fatalf("CreateMedication: %v", err)
+		}
+		if _, err := db.Medication.CreateIntake(medID, 123456, scheduled); err != nil {
+			t.Fatalf("CreateIntake: %v", err)
+		}
+
+		if err := sched.MedicationReminderChecker.Check(context.Background()); err != nil {
+			t.Fatalf("Check: %v", err)
+		}
+		if !mock.waitForSendCalls(1, 2*time.Second) {
+			t.Fatal("timed out waiting for reminder")
+		}
+		want := scheduled.In(la).Format("15:04") // 14:18
+		body := mock.getSendCalls()[0].Notification.Text
+		if !strings.Contains(body, want) {
+			t.Errorf("reminder body must contain user-local %q, got: %s", want, body)
+		}
+		if bogus := scheduled.UTC().Format("15:04"); want != bogus && strings.Contains(body, bogus) {
+			t.Errorf("reminder body must NOT contain raw UTC %q, got: %s", bogus, body)
+		}
+	})
+
+	t.Run("supplement reminder includes skip action", func(t *testing.T) {
+		sched, db, mock, medID, fakeNow := setupMedAtNoon(t, "Vitamin D", "1000IU")
+		if err := db.Medication.SetMedicationSupplement(medID, true); err != nil {
+			t.Fatalf("SetMedicationSupplement: %v", err)
+		}
+		target := time.Date(fakeNow.Year(), fakeNow.Month(), fakeNow.Day(), 9, 0, 0, 0, fakeNow.Location())
+		if _, err := db.Medication.CreateIntake(medID, 123456, target); err != nil {
+			t.Fatalf("CreateIntake: %v", err)
+		}
+
+		if err := sched.MedicationReminderChecker.Check(context.Background()); err != nil {
+			t.Fatalf("Check: %v", err)
+		}
+		if !mock.waitForSendCalls(1, 2*time.Second) {
+			t.Fatal("timed out waiting for reminder")
+		}
+		n := mock.getSendCalls()[0].Notification
+		if !hasActionWithPrefix(n.Actions, "confirm_intake:") {
+			t.Error("expected confirm_intake action in reminder")
+		}
+		if !hasActionWithPrefix(n.Actions, "skip_intake:") {
+			t.Error("expected skip_intake action in reminder for supplement")
+		}
+	})
+}
+
+func TestBPReminderChecker_SendBPReminder(t *testing.T) {
+	t.Run("standard reminder builds 3 actions + bp metadata", func(t *testing.T) {
+		sched, _, mock := setupTestSchedulerWithMock(t)
+		if err := sched.BPReminderChecker.sendBPReminder(context.Background(), 123456, false); err != nil {
+			t.Fatalf("sendBPReminder: %v", err)
+		}
+		calls := mock.getSendCalls()
+		if len(calls) != 1 {
+			t.Fatalf("expected 1 send call, got %d", len(calls))
+		}
+		n := calls[0].Notification
+		if !strings.Contains(n.Text, "blood pressure") {
+			t.Errorf("text should mention blood pressure, got: %s", n.Text)
+		}
+		if strings.Contains(n.Text, "higher than usual") {
+			t.Error("standard reminder should not contain enhanced warning")
+		}
+		assertActionIDs(t, n.Actions, "bp_confirm", "bp_snooze", "bp_dontbug")
+		if n.Tag != "bp-reminder" {
+			t.Errorf("tag = %s, want bp-reminder", n.Tag)
+		}
+		if n.Metadata["type"] != "bp_reminder" {
+			t.Errorf("metadata type = %v, want bp_reminder", n.Metadata["type"])
+		}
+		if n.Metadata["enhanced"] != false {
+			t.Errorf("metadata enhanced = %v, want false", n.Metadata["enhanced"])
+		}
+	})
+
+	t.Run("enhanced reminder adds warning + enhanced metadata", func(t *testing.T) {
+		sched, _, mock := setupTestSchedulerWithMock(t)
+		if err := sched.BPReminderChecker.sendBPReminder(context.Background(), 123456, true); err != nil {
+			t.Fatalf("sendBPReminder: %v", err)
+		}
+		n := mock.getSendCalls()[0].Notification
+		if !strings.Contains(n.Text, "higher than usual") {
+			t.Error("enhanced reminder should contain warning text")
+		}
+		if n.Metadata["enhanced"] != true {
+			t.Errorf("metadata enhanced = %v, want true", n.Metadata["enhanced"])
+		}
+	})
+
+	t.Run("returns error when all notifiers fail", func(t *testing.T) {
+		sched, _ := newSchedWithNotifiers(t, &mockNotifier{sendErr: fmt.Errorf("fail")})
+		err := sched.BPReminderChecker.sendBPReminder(context.Background(), 123456, false)
+		if err == nil {
+			t.Error("expected error when all notifiers fail")
+		}
+		if err != nil && !strings.Contains(err.Error(), "failed to send BP reminder") {
+			t.Errorf("unexpected error message: %v", err)
+		}
+	})
+
+	t.Run("updates LastNotificationSentAt", func(t *testing.T) {
+		sched, db, mock := setupTestSchedulerWithMock(t)
+		mock.sendMsgID = 777
+		if err := db.BP.SetBPReminderEnabled(123456, true); err != nil {
+			t.Fatalf("SetBPReminderEnabled: %v", err)
+		}
+
+		if err := sched.BPReminderChecker.sendBPReminder(context.Background(), 123456, false); err != nil {
+			t.Fatalf("sendBPReminder: %v", err)
+		}
+		state, err := db.BP.GetBPReminderState(123456)
+		if err != nil {
+			t.Fatalf("GetBPReminderState: %v", err)
+		}
+		if state.LastNotificationSentAt == nil {
+			t.Error("expected LastNotificationSentAt to be set")
+		}
+	})
+}
+
+func TestWeightReminderChecker_SendWeightReminder(t *testing.T) {
+	t.Run("standard reminder builds 3 actions + weight metadata", func(t *testing.T) {
+		sched, _, mock := setupTestSchedulerWithMock(t)
+		if err := sched.WeightReminderChecker.sendWeightReminder(context.Background(), 123456); err != nil {
+			t.Fatalf("sendWeightReminder: %v", err)
+		}
+		calls := mock.getSendCalls()
+		if len(calls) != 1 {
+			t.Fatalf("expected 1 send call, got %d", len(calls))
+		}
+		n := calls[0].Notification
+		if !strings.Contains(n.Text, "weight") {
+			t.Errorf("text should mention weight, got: %s", n.Text)
+		}
+		assertActionIDs(t, n.Actions, "weight_confirm", "weight_snooze", "weight_dontbug")
+		if n.Tag != "weight-reminder" {
+			t.Errorf("tag = %s, want weight-reminder", n.Tag)
+		}
+		if n.Metadata["type"] != "weight_reminder" {
+			t.Errorf("metadata type = %v, want weight_reminder", n.Metadata["type"])
+		}
+	})
+
+	t.Run("returns error when all notifiers fail", func(t *testing.T) {
+		sched, _ := newSchedWithNotifiers(t, &mockNotifier{sendErr: fmt.Errorf("fail")})
+		if err := sched.WeightReminderChecker.sendWeightReminder(context.Background(), 123456); err == nil {
+			t.Error("expected error when all notifiers fail")
+		}
+	})
+
+	t.Run("updates LastNotificationSentAt", func(t *testing.T) {
+		sched, db, mock := setupTestSchedulerWithMock(t)
+		mock.sendMsgID = 888
+		if err := db.Weight.SetWeightReminderEnabled(123456, true); err != nil {
+			t.Fatalf("SetWeightReminderEnabled: %v", err)
+		}
+
+		if err := sched.WeightReminderChecker.sendWeightReminder(context.Background(), 123456); err != nil {
+			t.Fatalf("sendWeightReminder: %v", err)
+		}
+		state, err := db.Weight.GetWeightReminderState(123456)
+		if err != nil {
+			t.Fatalf("GetWeightReminderState: %v", err)
+		}
+		if state.LastNotificationSentAt == nil {
+			t.Error("expected LastNotificationSentAt to be set")
+		}
+	})
+}
+
+func TestWorkoutChecker_SendWorkoutNotification(t *testing.T) {
+	t.Run("builds notification with text, actions, tag, and metadata", func(t *testing.T) {
+		sched, db, mock, group, variant, session := setupWorkoutSession(t, "Push Day", "Heavy")
+		if _, err := db.Workout.AddExerciseToVariant(variant.ID, "Bench Press", 4, 8, intPtr(10), floatPtr(80.0), 0); err != nil {
+			t.Fatalf("AddExerciseToVariant: %v", err)
+		}
+
+		if err := sched.WorkoutChecker.sendWorkoutNotification(session, group, variant.ID); err != nil {
+			t.Fatalf("sendWorkoutNotification: %v", err)
+		}
+		if !mock.waitForSendCalls(1, 2*time.Second) {
+			t.Fatal("timed out waiting for workout notification")
+		}
+		n := mock.getSendCalls()[0].Notification
+		for _, want := range []string{"Push Day", "Heavy", "Bench Press", "80kg"} {
+			if !strings.Contains(n.Text, want) {
+				t.Errorf("text should contain %q, got: %s", want, n.Text)
+			}
+		}
+		if len(n.Actions) != 4 {
+			t.Fatalf("expected 4 actions (start, snooze1, snooze2, skip), got %d", len(n.Actions))
+		}
+		if !strings.Contains(n.Actions[0].ID, "workout_start_") {
+			t.Errorf("action[0] = %s, want workout_start prefix", n.Actions[0].ID)
+		}
+		if !strings.Contains(n.Actions[1].ID, "workout_snooze1_") {
+			t.Errorf("action[1] = %s, want workout_snooze1 prefix", n.Actions[1].ID)
+		}
+		if !strings.Contains(n.Actions[3].ID, "workout_skip_") {
+			t.Errorf("action[3] = %s, want workout_skip prefix", n.Actions[3].ID)
+		}
+		if !strings.HasPrefix(n.Tag, "workout-") {
+			t.Errorf("tag = %s, want workout- prefix", n.Tag)
+		}
+		if n.Metadata["type"] != "workout" {
+			t.Errorf("metadata type = %v, want workout", n.Metadata["type"])
+		}
+		if n.Metadata["group_name"] != "Push Day" {
+			t.Errorf("metadata group_name = %v, want Push Day", n.Metadata["group_name"])
+		}
+	})
+
+	t.Run("deletes previously stored notification before sending", func(t *testing.T) {
+		sched, db, mock, group, variant, session := setupWorkoutSession(t, "Leg Day", "A")
+		if err := db.Workout.SetSessionNotificationMessageID(session.ID, 555); err != nil {
+			t.Fatalf("SetSessionNotificationMessageID: %v", err)
+		}
+		reloaded, err := db.Workout.GetWorkoutSession(session.ID)
+		if err != nil {
+			t.Fatalf("GetWorkoutSession: %v", err)
+		}
+
+		if err := sched.WorkoutChecker.sendWorkoutNotification(reloaded, group, variant.ID); err != nil {
+			t.Fatalf("sendWorkoutNotification: %v", err)
+		}
+		if !mock.waitForDeleteCalls(1, 2*time.Second) {
+			t.Fatal("timed out waiting for delete call")
+		}
+		dc := mock.getDeleteCalls()
+		if len(dc) != 1 {
+			t.Fatalf("expected 1 delete call, got %d", len(dc))
+		}
+		if dc[0].MsgID != 555 {
+			t.Errorf("deleted msgID = %d, want 555", dc[0].MsgID)
+		}
+	})
+
+	t.Run("stores returned message ID on session", func(t *testing.T) {
+		sched, db, mock, group, variant, session := setupWorkoutSession(t, "Arms", "A")
+		mock.sendMsgID = 999
+
+		if err := sched.WorkoutChecker.sendWorkoutNotification(session, group, variant.ID); err != nil {
+			t.Fatalf("sendWorkoutNotification: %v", err)
+		}
+		if !mock.waitForSendCalls(1, 2*time.Second) {
+			t.Fatal("timed out waiting for send call")
+		}
+		time.Sleep(50 * time.Millisecond)
+
+		updated, err := db.Workout.GetWorkoutSession(session.ID)
+		if err != nil {
+			t.Fatalf("GetWorkoutSession: %v", err)
+		}
+		if updated.NotificationMessageID == nil {
+			t.Error("expected notification message ID to be stored")
+		} else if *updated.NotificationMessageID != 999 {
+			t.Errorf("stored msgID = %d, want 999", *updated.NotificationMessageID)
+		}
+	})
+}
+
+func TestMultipleNotifiers(t *testing.T) {
+	enableWeight := func(t *testing.T, db *store.Store) {
+		t.Helper()
+		if err := db.Weight.SetWeightReminderEnabled(123456, true); err != nil {
+			t.Fatalf("SetWeightReminderEnabled: %v", err)
 		}
 	}
 
-	if !foundBatched {
-		t.Fatal("expected batched notification to be sent")
-	}
+	t.Run("all notifiers receive the send", func(t *testing.T) {
+		m1 := &mockNotifier{sendMsgID: 100}
+		m2 := &mockNotifier{sendMsgID: 0}
+		sched, db := newSchedWithNotifiers(t, m1, m2)
+		enableWeight(t, db)
 
-	n := batchedNotifierCall.Notification
-
-	if !strings.Contains(n.Text, "TestMed") {
-		t.Errorf("notification text should contain med name, got: %s", n.Text)
-	}
-	if !strings.Contains(n.Text, "10mg") {
-		t.Errorf("notification text should contain dosage, got: %s", n.Text)
-	}
-
-	if len(n.Actions) < 2 {
-		t.Fatalf("expected at least 2 actions, got %d", len(n.Actions))
-	}
-	if !strings.Contains(n.Actions[0].ID, "confirm_intake:") {
-		t.Errorf("first action should be confirm_intake, got %s", n.Actions[0].ID)
-	}
-	if n.Actions[0].Label != "Take TestMed" {
-		t.Errorf("first action label = %q, want %q", n.Actions[0].Label, "Take TestMed")
-	}
-	lastAction := n.Actions[len(n.Actions)-1]
-	if !strings.Contains(lastAction.ID, "confirm_schedule:") {
-		t.Errorf("last action should be confirm_schedule, got %s", lastAction.ID)
-	}
-
-	if !strings.HasPrefix(n.Tag, "medication-") {
-		t.Errorf("tag should start with medication-, got %s", n.Tag)
-	}
-
-	if n.Metadata["type"] != "medication_batch" {
-		t.Errorf("metadata type = %v, want medication_batch", n.Metadata["type"])
-	}
-
-	pending, err := db.Medication.GetPendingIntakes()
-	if err != nil {
-		t.Fatalf("GetPendingIntakes: %v", err)
-	}
-	if len(pending) != 1 {
-		t.Errorf("expected 1 pending intake, got %d", len(pending))
-	}
-}
-
-func TestCheckSchedule_MultipleMeds_GroupedNotification(t *testing.T) {
-	sched, db, mock := setupTestSchedulerWithMock(t)
-
-	fakeNow := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 12, 0, 0, 0, time.Now().Location())
-	sched.MedicationChecker.now = func() time.Time { return fakeNow }
-
-	schedule := `{"type":"daily","times":["10:00"]}`
-	idA, err := db.Medication.CreateMedication("MedA", "5mg", schedule, nil, nil, "", "", "")
-	if err != nil {
-		t.Fatalf("CreateMedication A: %v", err)
-	}
-	if err := db.Medication.UpdateMedicationCreatedAt(idA, fakeNow.Add(-24*time.Hour)); err != nil {
-		t.Fatalf("UpdateMedicationCreatedAt A: %v", err)
-	}
-	idB, err := db.Medication.CreateMedication("MedB", "20mg", schedule, nil, nil, "", "", "")
-	if err != nil {
-		t.Fatalf("CreateMedication B: %v", err)
-	}
-	if err := db.Medication.UpdateMedicationCreatedAt(idB, fakeNow.Add(-24*time.Hour)); err != nil {
-		t.Fatalf("UpdateMedicationCreatedAt B: %v", err)
-	}
-
-	err = sched.MedicationChecker.Check(context.Background())
-	if err != nil {
-		t.Fatalf("Check: %v", err)
-	}
-
-	// Expecting 1 batched (Telegram) + 2 individual (WebPush)
-	if !mock.waitForSendCalls(3, 2*time.Second) {
-		t.Fatal("timed out waiting for send calls")
-	}
-
-	calls := mock.getSendCalls()
-	if len(calls) != 3 {
-		t.Fatalf("expected 3 notifications, got %d", len(calls))
-	}
-
-	// We'll check the batched notification
-	var batchedNotifierCall mockSendCall
-	var foundBatched bool
-	for _, call := range calls {
-		if call.Notification.Metadata["type"] == "medication_batch" {
-			batchedNotifierCall = call
-			foundBatched = true
-			break
+		if err := sched.WeightReminderChecker.sendWeightReminder(context.Background(), 123456); err != nil {
+			t.Fatalf("sendWeightReminder: %v", err)
 		}
-	}
-
-	if !foundBatched {
-		t.Fatal("expected batched notification to be sent")
-	}
-
-	n := batchedNotifierCall.Notification
-	if !strings.Contains(n.Text, "MedA") || !strings.Contains(n.Text, "MedB") {
-		t.Errorf("notification should contain both med names, got: %s", n.Text)
-	}
-
-	if len(n.Actions) != 5 {
-		t.Errorf("expected 5 actions (take a, skip a, take b, skip b, confirm all), got %d: %v", len(n.Actions), n.Actions)
-	}
-}
-
-func TestCheckSchedule_SupplementHasSkipAction(t *testing.T) {
-	sched, db, mock := setupTestSchedulerWithMock(t)
-
-	fakeNow := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 12, 0, 0, 0, time.Now().Location())
-	sched.MedicationChecker.now = func() time.Time { return fakeNow }
-
-	schedule := `{"type":"daily","times":["10:00"]}`
-	medID, err := db.Medication.CreateMedication("Magnesium", "200mg", schedule, nil, nil, "", "", "")
-	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
-	}
-	if err := db.Medication.UpdateMedicationCreatedAt(medID, fakeNow.Add(-24*time.Hour)); err != nil {
-		t.Fatalf("UpdateMedicationCreatedAt: %v", err)
-	}
-	if err := db.Medication.SetMedicationSupplement(medID, true); err != nil {
-		t.Fatalf("SetMedicationSupplement: %v", err)
-	}
-
-	err = sched.MedicationChecker.Check(context.Background())
-	if err != nil {
-		t.Fatalf("Check: %v", err)
-	}
-
-	// Wait for 1 batched and 1 individual
-	if !mock.waitForSendCalls(2, 2*time.Second) {
-		t.Fatal("timed out waiting for send call")
-	}
-
-	calls := mock.getSendCalls()
-	if len(calls) != 2 {
-		t.Fatalf("expected 2 notifications, got %d", len(calls))
-	}
-
-	var batchedNotifierCall mockSendCall
-	var foundBatched bool
-	for _, call := range calls {
-		if call.Notification.Metadata["type"] == "medication_batch" {
-			batchedNotifierCall = call
-			foundBatched = true
-			break
+		if c := m1.getSendCalls(); len(c) != 1 {
+			t.Errorf("m1: expected 1 call, got %d", len(c))
 		}
-	}
-
-	if !foundBatched {
-		t.Fatal("expected batched notification to be sent")
-	}
-
-	n := batchedNotifierCall.Notification
-	hasTake := false
-	hasSkip := false
-	for _, action := range n.Actions {
-		if strings.HasPrefix(action.ID, "confirm_intake:") {
-			hasTake = true
+		if c := m2.getSendCalls(); len(c) != 1 {
+			t.Errorf("m2: expected 1 call, got %d", len(c))
 		}
-		if strings.HasPrefix(action.ID, "skip_intake:") {
-			hasSkip = true
+	})
+
+	t.Run("partial failure still succeeds overall", func(t *testing.T) {
+		failing := &mockNotifier{sendErr: fmt.Errorf("telegram down")}
+		working := &mockNotifier{sendMsgID: 0}
+		sched, db := newSchedWithNotifiers(t, failing, working)
+		enableWeight(t, db)
+
+		if err := sched.WeightReminderChecker.sendWeightReminder(context.Background(), 123456); err != nil {
+			t.Errorf("expected success with partial failure, got: %v", err)
 		}
-	}
-	if !hasTake {
-		t.Fatal("expected confirm_intake action for supplement")
-	}
-	if !hasSkip {
-		t.Fatal("expected skip_intake action for supplement")
-	}
+	})
 }
 
-// --- MedicationReminderChecker with mock notifier ---
-
-func TestCheckReminders_SendsReminderForOldPending(t *testing.T) {
-	sched, db, mock := setupTestSchedulerWithMock(t)
-
-	// Use a fixed noon clock to avoid midnight-boundary failures.
-	fakeNow := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 12, 0, 0, 0, time.Now().Location())
-	sched.MedicationReminderChecker.now = func() time.Time { return fakeNow }
-
-	schedule := `{"type":"daily","times":["09:00"]}`
-	medID, err := db.Medication.CreateMedication("ReminderMed", "5mg", schedule, nil, nil, "", "", "")
-	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
-	}
-
-	// Target is 09:00 today — 3 hours before fakeNow (noon), satisfying the >1h threshold.
-	target := time.Date(fakeNow.Year(), fakeNow.Month(), fakeNow.Day(), 9, 0, 0, 0, fakeNow.Location())
-	_, err = db.Medication.CreateIntake(medID, 123456, target)
-	if err != nil {
-		t.Fatalf("CreateIntake: %v", err)
-	}
-
-	err = sched.MedicationReminderChecker.Check(context.Background())
-	if err != nil {
-		t.Fatalf("Check: %v", err)
-	}
-
-	if !mock.waitForSendCalls(1, 2*time.Second) {
-		t.Fatal("timed out waiting for reminder send call")
-	}
-
-	calls := mock.getSendCalls()
-	n := calls[0].Notification
-
-	if !strings.Contains(n.Text, "REMINDER") {
-		t.Errorf("reminder text should contain REMINDER, got: %s", n.Text)
-	}
-	if !strings.Contains(n.Text, "ReminderMed") {
-		t.Errorf("reminder text should contain med name, got: %s", n.Text)
-	}
-	// All pending intakes now get both confirm and skip actions on follow-up reminders.
-	if len(n.Actions) != 2 {
-		t.Fatalf("expected 2 actions (confirm + skip), got %d", len(n.Actions))
-	}
-	hasConfirm := false
-	for _, a := range n.Actions {
-		if strings.Contains(a.ID, "confirm_intake:") {
-			hasConfirm = true
+func TestLowStockChecker_Check(t *testing.T) {
+	// runAt11AM creates a daily medication with the given inventory count,
+	// pins the LowStockChecker clock to 11:00 today, and runs Check.
+	runAt11AM := func(t *testing.T, name string, count int) (*Scheduler, *mockNotifier) {
+		t.Helper()
+		sched, db, mock := setupTestSchedulerWithMock(t)
+		medID, err := db.Medication.CreateMedication(name, "10mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+		if err != nil {
+			t.Fatalf("CreateMedication: %v", err)
 		}
-	}
-	if !hasConfirm {
-		t.Errorf("expected a confirm_intake action, got %v", n.Actions)
-	}
-	if n.Metadata["type"] != "medication_reminder" {
-		t.Errorf("metadata type = %v, want medication_reminder", n.Metadata["type"])
-	}
-}
-
-// TestCheckReminders_FormatsScheduledAtInUserTimezone reproduces the
-// reported "reminder shows old time" symptom: scheduled_at is stored in
-// UTC, and printing it without a timezone conversion shows the UTC clock
-// time on the user's phone instead of their local time. Set the user's
-// timezone to LA, schedule an intake at 21:18 UTC (= 14:18 PDT), and
-// assert the reminder body says "14:18", not "21:18".
-func TestCheckReminders_FormatsScheduledAtInUserTimezone(t *testing.T) {
-	sched, db, mock := setupTestSchedulerWithMock(t)
-
-	if err := db.TZ.RecordTimezone("America/Los_Angeles"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
-	}
-	la, _ := time.LoadLocation("America/Los_Angeles")
-
-	// fakeNow is two hours after the scheduled_at so the >1h reminder
-	// threshold fires.
-	scheduled := time.Date(2026, 5, 4, 21, 18, 0, 0, time.UTC) // 14:18 PDT
-	fakeNow := scheduled.Add(2 * time.Hour)
-	sched.MedicationReminderChecker.now = func() time.Time { return fakeNow }
-
-	medID, err := db.Medication.CreateMedication("Lercanidipin", "10mg",
-		`{"type":"daily","times":["08:20","21:30"]}`, nil, nil, "", "", "medium")
-	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
-	}
-	if _, err := db.Medication.CreateIntake(medID, 123456, scheduled); err != nil {
-		t.Fatalf("CreateIntake: %v", err)
-	}
-
-	if err := sched.MedicationReminderChecker.Check(context.Background()); err != nil {
-		t.Fatalf("Check: %v", err)
-	}
-	if !mock.waitForSendCalls(1, 2*time.Second) {
-		t.Fatal("timed out waiting for reminder send call")
-	}
-
-	want := scheduled.In(la).Format("15:04") // 14:18
-	body := mock.getSendCalls()[0].Notification.Text
-	if !strings.Contains(body, want) {
-		t.Errorf("reminder body must contain %q (user-local 15:04), got: %s", want, body)
-	}
-	bogus := scheduled.UTC().Format("15:04") // 21:18
-	if strings.Contains(body, bogus) && want != bogus {
-		t.Errorf("reminder body must NOT contain raw UTC %q, got: %s", bogus, body)
-	}
-}
-
-func TestCheckReminders_SupplementHasSkipAction(t *testing.T) {
-	sched, db, mock := setupTestSchedulerWithMock(t)
-
-	fakeNow := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 12, 0, 0, 0, time.Now().Location())
-	sched.MedicationReminderChecker.now = func() time.Time { return fakeNow }
-
-	schedule := `{"type":"daily","times":["09:00"]}`
-	medID, err := db.Medication.CreateMedication("Vitamin D", "1000IU", schedule, nil, nil, "", "", "")
-	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
-	}
-	if err := db.Medication.SetMedicationSupplement(medID, true); err != nil {
-		t.Fatalf("SetMedicationSupplement: %v", err)
-	}
-
-	target := time.Date(fakeNow.Year(), fakeNow.Month(), fakeNow.Day(), 9, 0, 0, 0, fakeNow.Location())
-	_, err = db.Medication.CreateIntake(medID, 123456, target)
-	if err != nil {
-		t.Fatalf("CreateIntake: %v", err)
-	}
-
-	err = sched.MedicationReminderChecker.Check(context.Background())
-	if err != nil {
-		t.Fatalf("Check: %v", err)
-	}
-
-	if !mock.waitForSendCalls(1, 2*time.Second) {
-		t.Fatal("timed out waiting for reminder send call")
-	}
-
-	calls := mock.getSendCalls()
-	n := calls[0].Notification
-
-	hasConfirm := false
-	hasSkip := false
-	for _, action := range n.Actions {
-		if strings.HasPrefix(action.ID, "confirm_intake:") {
-			hasConfirm = true
+		c := count
+		if err := db.Medication.SetInventory(medID, &c); err != nil {
+			t.Fatalf("SetInventory: %v", err)
 		}
-		if strings.HasPrefix(action.ID, "skip_intake:") {
-			hasSkip = true
+		now := time.Now()
+		elevenAM := time.Date(now.Year(), now.Month(), now.Day(), 11, 0, 0, 0, now.Location())
+		sched.LowStockChecker.now = func() time.Time { return elevenAM }
+		if err := sched.LowStockChecker.Check(context.Background()); err != nil {
+			t.Fatalf("Check: %v", err)
 		}
-	}
-
-	if !hasConfirm {
-		t.Fatal("expected confirm_intake action in reminder")
-	}
-	if !hasSkip {
-		t.Fatal("expected skip_intake action in reminder for supplement")
-	}
-}
-
-// --- BPReminderChecker.sendBPReminder with mock notifier ---
-
-func TestSendBPReminder_Standard(t *testing.T) {
-	sched, _, mock := setupTestSchedulerWithMock(t)
-
-	err := sched.BPReminderChecker.sendBPReminder(context.Background(), 123456, false)
-	if err != nil {
-		t.Fatalf("sendBPReminder: %v", err)
-	}
-
-	calls := mock.getSendCalls()
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 send call, got %d", len(calls))
-	}
-
-	n := calls[0].Notification
-	if !strings.Contains(n.Text, "blood pressure") {
-		t.Errorf("BP text should mention blood pressure, got: %s", n.Text)
-	}
-	if strings.Contains(n.Text, "higher than usual") {
-		t.Error("standard BP reminder should not contain enhanced warning")
-	}
-	if len(n.Actions) != 3 {
-		t.Fatalf("expected 3 actions, got %d", len(n.Actions))
-	}
-	if n.Actions[0].ID != "bp_confirm" {
-		t.Errorf("first action = %s, want bp_confirm", n.Actions[0].ID)
-	}
-	if n.Actions[1].ID != "bp_snooze" {
-		t.Errorf("second action = %s, want bp_snooze", n.Actions[1].ID)
-	}
-	if n.Actions[2].ID != "bp_dontbug" {
-		t.Errorf("third action = %s, want bp_dontbug", n.Actions[2].ID)
-	}
-	if n.Tag != "bp-reminder" {
-		t.Errorf("tag = %s, want bp-reminder", n.Tag)
-	}
-	if n.Metadata["type"] != "bp_reminder" {
-		t.Errorf("metadata type = %v, want bp_reminder", n.Metadata["type"])
-	}
-	if n.Metadata["enhanced"] != false {
-		t.Errorf("metadata enhanced = %v, want false", n.Metadata["enhanced"])
-	}
-}
-
-func TestSendBPReminder_Enhanced(t *testing.T) {
-	sched, _, mock := setupTestSchedulerWithMock(t)
-
-	err := sched.BPReminderChecker.sendBPReminder(context.Background(), 123456, true)
-	if err != nil {
-		t.Fatalf("sendBPReminder: %v", err)
-	}
-
-	calls := mock.getSendCalls()
-	n := calls[0].Notification
-	if !strings.Contains(n.Text, "higher than usual") {
-		t.Error("enhanced BP reminder should contain warning text")
-	}
-	if n.Metadata["enhanced"] != true {
-		t.Errorf("metadata enhanced = %v, want true", n.Metadata["enhanced"])
-	}
-}
-
-func TestSendBPReminder_AllFail_ReturnsError(t *testing.T) {
-	db, err := store.New(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	m := &mockNotifier{sendErr: fmt.Errorf("fail")}
-	sched := New(db, 123456, []notifier.Notifier{m})
-
-	err = sched.BPReminderChecker.sendBPReminder(context.Background(), 123456, false)
-	if err == nil {
-		t.Error("expected error when all notifiers fail")
-	}
-	if !strings.Contains(err.Error(), "failed to send BP reminder") {
-		t.Errorf("unexpected error message: %v", err)
-	}
-}
-
-func TestSendBPReminder_StoresMsgID(t *testing.T) {
-	sched, db, mock := setupTestSchedulerWithMock(t)
-	mock.sendMsgID = 777
-
-	if err := db.BP.SetBPReminderEnabled(123456, true); err != nil {
-		t.Fatalf("SetBPReminderEnabled: %v", err)
-	}
-
-	err := sched.BPReminderChecker.sendBPReminder(context.Background(), 123456, false)
-	if err != nil {
-		t.Fatalf("sendBPReminder: %v", err)
-	}
-
-	state, err := db.BP.GetBPReminderState(123456)
-	if err != nil {
-		t.Fatalf("GetBPReminderState: %v", err)
-	}
-	if state.LastNotificationSentAt == nil {
-		t.Error("expected LastNotificationSentAt to be set")
-	}
-}
-
-// --- WeightReminderChecker.sendWeightReminder with mock notifier ---
-
-func TestSendWeightReminder_Standard(t *testing.T) {
-	sched, _, mock := setupTestSchedulerWithMock(t)
-
-	err := sched.WeightReminderChecker.sendWeightReminder(context.Background(), 123456)
-	if err != nil {
-		t.Fatalf("sendWeightReminder: %v", err)
-	}
-
-	calls := mock.getSendCalls()
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 send call, got %d", len(calls))
-	}
-
-	n := calls[0].Notification
-	if !strings.Contains(n.Text, "weight") {
-		t.Errorf("weight text should mention weight, got: %s", n.Text)
-	}
-	if len(n.Actions) != 3 {
-		t.Fatalf("expected 3 actions, got %d", len(n.Actions))
-	}
-	if n.Actions[0].ID != "weight_confirm" {
-		t.Errorf("first action = %s, want weight_confirm", n.Actions[0].ID)
-	}
-	if n.Actions[1].ID != "weight_snooze" {
-		t.Errorf("second action = %s, want weight_snooze", n.Actions[1].ID)
-	}
-	if n.Actions[2].ID != "weight_dontbug" {
-		t.Errorf("third action = %s, want weight_dontbug", n.Actions[2].ID)
-	}
-	if n.Tag != "weight-reminder" {
-		t.Errorf("tag = %s, want weight-reminder", n.Tag)
-	}
-	if n.Metadata["type"] != "weight_reminder" {
-		t.Errorf("metadata type = %v, want weight_reminder", n.Metadata["type"])
-	}
-}
-
-func TestSendWeightReminder_AllFail_ReturnsError(t *testing.T) {
-	db, err := store.New(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	m := &mockNotifier{sendErr: fmt.Errorf("fail")}
-	sched := New(db, 123456, []notifier.Notifier{m})
-
-	err = sched.WeightReminderChecker.sendWeightReminder(context.Background(), 123456)
-	if err == nil {
-		t.Error("expected error when all notifiers fail")
-	}
-}
-
-func TestSendWeightReminder_StoresMsgID(t *testing.T) {
-	sched, db, mock := setupTestSchedulerWithMock(t)
-	mock.sendMsgID = 888
-
-	if err := db.Weight.SetWeightReminderEnabled(123456, true); err != nil {
-		t.Fatalf("SetWeightReminderEnabled: %v", err)
-	}
-
-	err := sched.WeightReminderChecker.sendWeightReminder(context.Background(), 123456)
-	if err != nil {
-		t.Fatalf("sendWeightReminder: %v", err)
-	}
-
-	state, err := db.Weight.GetWeightReminderState(123456)
-	if err != nil {
-		t.Fatalf("GetWeightReminderState: %v", err)
-	}
-	if state.LastNotificationSentAt == nil {
-		t.Error("expected LastNotificationSentAt to be set")
-	}
-}
-
-// --- WorkoutChecker.sendWorkoutNotification with mock notifier ---
-
-func TestSendWorkoutNotification_BuildsCorrectNotification(t *testing.T) {
-	sched, db, mock := setupTestSchedulerWithMock(t)
-
-	now := time.Now()
-	todayIdx := int(now.Weekday())
-	daysOfWeek := "[" + intToStr(todayIdx) + "]"
-	pastTime := now.Add(-30 * time.Minute).Format("15:04")
-
-	group, err := db.Workout.CreateWorkoutGroup("Push Day", "desc", false, 123456, daysOfWeek, pastTime, 15)
-	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
-	}
-
-	order := 0
-	variant, err := db.Workout.CreateWorkoutVariant(group.ID, "Heavy", &order, "")
-	if err != nil {
-		t.Fatalf("CreateWorkoutVariant: %v", err)
-	}
-
-	_, err = db.Workout.AddExerciseToVariant(variant.ID, "Bench Press", 4, 8, intPtr(10), floatPtr(80.0), 0)
-	if err != nil {
-		t.Fatalf("CreateWorkoutExercise: %v", err)
-	}
-
-	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	session, err := db.Workout.CreateWorkoutSession(group.ID, variant.ID, 123456, today, pastTime)
-	if err != nil {
-		t.Fatalf("CreateWorkoutSession: %v", err)
-	}
-
-	err = sched.WorkoutChecker.sendWorkoutNotification(session, group, variant.ID)
-	if err != nil {
-		t.Fatalf("sendWorkoutNotification: %v", err)
-	}
-
-	if !mock.waitForSendCalls(1, 2*time.Second) {
-		t.Fatal("timed out waiting for workout notification")
-	}
-
-	calls := mock.getSendCalls()
-	n := calls[0].Notification
-
-	if !strings.Contains(n.Text, "Push Day") {
-		t.Errorf("should contain group name, got: %s", n.Text)
-	}
-	if !strings.Contains(n.Text, "Heavy") {
-		t.Errorf("should contain variant name, got: %s", n.Text)
-	}
-	if !strings.Contains(n.Text, "Bench Press") {
-		t.Errorf("should contain exercise name, got: %s", n.Text)
-	}
-	if !strings.Contains(n.Text, "80kg") {
-		t.Errorf("should contain weight, got: %s", n.Text)
-	}
-
-	if len(n.Actions) != 4 {
-		t.Fatalf("expected 4 actions (start, snooze1, snooze2, skip), got %d", len(n.Actions))
-	}
-	if !strings.Contains(n.Actions[0].ID, "workout_start_") {
-		t.Errorf("first action should be workout_start, got %s", n.Actions[0].ID)
-	}
-	if !strings.Contains(n.Actions[1].ID, "workout_snooze1_") {
-		t.Errorf("second action should be snooze1, got %s", n.Actions[1].ID)
-	}
-	if !strings.Contains(n.Actions[3].ID, "workout_skip_") {
-		t.Errorf("fourth action should be skip, got %s", n.Actions[3].ID)
-	}
-
-	if !strings.HasPrefix(n.Tag, "workout-") {
-		t.Errorf("tag should start with workout-, got %s", n.Tag)
-	}
-
-	if n.Metadata["type"] != "workout" {
-		t.Errorf("metadata type = %v, want workout", n.Metadata["type"])
-	}
-	if n.Metadata["group_name"] != "Push Day" {
-		t.Errorf("metadata group_name = %v, want Push Day", n.Metadata["group_name"])
-	}
-}
-
-func TestSendWorkoutNotification_DeletesPreviousNotification(t *testing.T) {
-	sched, db, mock := setupTestSchedulerWithMock(t)
-
-	now := time.Now()
-	todayIdx := int(now.Weekday())
-	daysOfWeek := "[" + intToStr(todayIdx) + "]"
-	pastTime := now.Add(-30 * time.Minute).Format("15:04")
-
-	group, err := db.Workout.CreateWorkoutGroup("Leg Day", "desc", false, 123456, daysOfWeek, pastTime, 15)
-	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
-	}
-
-	order := 0
-	variant, err := db.Workout.CreateWorkoutVariant(group.ID, "A", &order, "")
-	if err != nil {
-		t.Fatalf("CreateWorkoutVariant: %v", err)
-	}
-
-	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	session, err := db.Workout.CreateWorkoutSession(group.ID, variant.ID, 123456, today, pastTime)
-	if err != nil {
-		t.Fatalf("CreateWorkoutSession: %v", err)
-	}
-
-	if err := db.Workout.SetSessionNotificationMessageID(session.ID, 555); err != nil {
-		t.Fatalf("SetSessionNotificationMessageID: %v", err)
-	}
-	session, err = db.Workout.GetWorkoutSession(session.ID)
-	if err != nil {
-		t.Fatalf("GetWorkoutSession: %v", err)
-	}
-
-	err = sched.WorkoutChecker.sendWorkoutNotification(session, group, variant.ID)
-	if err != nil {
-		t.Fatalf("sendWorkoutNotification: %v", err)
-	}
-
-	if !mock.waitForDeleteCalls(1, 2*time.Second) {
-		t.Fatal("timed out waiting for delete call")
-	}
-
-	delCalls := mock.getDeleteCalls()
-	if len(delCalls) != 1 {
-		t.Fatalf("expected 1 delete call, got %d", len(delCalls))
-	}
-	if delCalls[0].MsgID != 555 {
-		t.Errorf("deleted msgID = %d, want 555", delCalls[0].MsgID)
-	}
-}
-
-func TestSendWorkoutNotification_StoresMessageID(t *testing.T) {
-	sched, db, mock := setupTestSchedulerWithMock(t)
-	mock.sendMsgID = 999
-
-	now := time.Now()
-	todayIdx := int(now.Weekday())
-	daysOfWeek := "[" + intToStr(todayIdx) + "]"
-	pastTime := now.Add(-30 * time.Minute).Format("15:04")
-
-	group, err := db.Workout.CreateWorkoutGroup("Arms", "desc", false, 123456, daysOfWeek, pastTime, 15)
-	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
-	}
-
-	order := 0
-	variant, err := db.Workout.CreateWorkoutVariant(group.ID, "A", &order, "")
-	if err != nil {
-		t.Fatalf("CreateWorkoutVariant: %v", err)
-	}
-
-	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	session, err := db.Workout.CreateWorkoutSession(group.ID, variant.ID, 123456, today, pastTime)
-	if err != nil {
-		t.Fatalf("CreateWorkoutSession: %v", err)
-	}
-
-	err = sched.WorkoutChecker.sendWorkoutNotification(session, group, variant.ID)
-	if err != nil {
-		t.Fatalf("sendWorkoutNotification: %v", err)
-	}
-
-	if !mock.waitForSendCalls(1, 2*time.Second) {
-		t.Fatal("timed out waiting for send call")
-	}
-	time.Sleep(50 * time.Millisecond)
-
-	updated, err := db.Workout.GetWorkoutSession(session.ID)
-	if err != nil {
-		t.Fatalf("GetWorkoutSession: %v", err)
-	}
-	if updated.NotificationMessageID == nil {
-		t.Error("expected notification message ID to be stored")
-	} else if *updated.NotificationMessageID != 999 {
-		t.Errorf("stored msgID = %d, want 999", *updated.NotificationMessageID)
-	}
-}
-
-// --- Multiple notifiers tests ---
-
-func TestMultipleNotifiers_BothCalled(t *testing.T) {
-	db, err := store.New(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	m1 := &mockNotifier{sendMsgID: 100}
-	m2 := &mockNotifier{sendMsgID: 0}
-	sched := New(db, 123456, []notifier.Notifier{m1, m2})
-
-	if err := db.Weight.SetWeightReminderEnabled(123456, true); err != nil {
-		t.Fatalf("SetWeightReminderEnabled: %v", err)
-	}
-
-	err = sched.WeightReminderChecker.sendWeightReminder(context.Background(), 123456)
-	if err != nil {
-		t.Fatalf("sendWeightReminder: %v", err)
-	}
-
-	calls1 := m1.getSendCalls()
-	calls2 := m2.getSendCalls()
-	if len(calls1) != 1 {
-		t.Errorf("m1: expected 1 call, got %d", len(calls1))
-	}
-	if len(calls2) != 1 {
-		t.Errorf("m2: expected 1 call, got %d", len(calls2))
-	}
-}
-
-func TestMultipleNotifiers_PartialFailure_StillSucceeds(t *testing.T) {
-	db, err := store.New(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	failing := &mockNotifier{sendErr: fmt.Errorf("telegram down")}
-	working := &mockNotifier{sendMsgID: 0}
-	sched := New(db, 123456, []notifier.Notifier{failing, working})
-
-	if err := db.Weight.SetWeightReminderEnabled(123456, true); err != nil {
-		t.Fatalf("SetWeightReminderEnabled: %v", err)
-	}
-
-	err = sched.WeightReminderChecker.sendWeightReminder(context.Background(), 123456)
-	if err != nil {
-		t.Errorf("expected success with partial failure, got: %v", err)
-	}
-}
-
-// --- checkSchedule stores intake reminder msg IDs ---
-
-func TestCheckSchedule_StoresIntakeReminderMsgID(t *testing.T) {
-	sched, db, mock := setupTestSchedulerWithMock(t)
-	mock.sendMsgID = 321
-
-	fakeNow := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 12, 0, 0, 0, time.Now().Location())
-	sched.MedicationChecker.now = func() time.Time { return fakeNow }
-
-	schedule := `{"type":"daily","times":["10:00"]}`
-	id, err := db.Medication.CreateMedication("MsgIDMed", "1mg", schedule, nil, nil, "", "", "")
-	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
-	}
-	if err := db.Medication.UpdateMedicationCreatedAt(id, fakeNow.Add(-24*time.Hour)); err != nil {
-		t.Fatalf("UpdateMedicationCreatedAt: %v", err)
-	}
-
-	err = sched.MedicationChecker.Check(context.Background())
-	if err != nil {
-		t.Fatalf("Check: %v", err)
-	}
-
-	if !mock.waitForSendCalls(1, 2*time.Second) {
-		t.Fatal("timed out waiting for send call")
-	}
-	time.Sleep(100 * time.Millisecond)
-
-	pending, err := db.Medication.GetPendingIntakes()
-	if err != nil {
-		t.Fatalf("GetPendingIntakes: %v", err)
-	}
-	if len(pending) != 1 {
-		t.Fatalf("expected 1 pending intake, got %d", len(pending))
-	}
-	reminders, err := db.Medication.GetIntakeReminders(pending[0].ID)
-	if err != nil {
-		t.Fatalf("GetIntakeReminders: %v", err)
-	}
-	if len(reminders) == 0 {
-		t.Error("expected intake to have reminder message ID stored")
-	}
-}
-
-// --- LowStockChecker notification tests ---
-
-func TestCheckLowStock_SendsNotificationWhen11AM(t *testing.T) {
-	sched, db, mock := setupTestSchedulerWithMock(t)
-
-	// Create a daily medication with only 5 units inventory (< 7 days)
-	medID, err := db.Medication.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
-	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
-	}
-	count := 5
-	if err := db.Medication.SetInventory(medID, &count); err != nil {
-		t.Fatalf("SetInventory: %v", err)
-	}
-
-	// Inject clock returning 11:00 AM today
-	now := time.Now()
-	elevenAM := time.Date(now.Year(), now.Month(), now.Day(), 11, 0, 0, 0, now.Location())
-	sched.LowStockChecker.now = func() time.Time { return elevenAM }
-
-	if err := sched.LowStockChecker.Check(context.Background()); err != nil {
-		t.Fatalf("Check: %v", err)
-	}
-
-	if !mock.waitForSendCalls(1, 2*time.Second) {
-		t.Fatal("timed out waiting for low-stock notification")
-	}
-
-	calls := mock.getSendCalls()
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 send call, got %d", len(calls))
-	}
-
-	n := calls[0].Notification
-	if !strings.Contains(n.Text, "Aspirin") {
-		t.Errorf("notification should contain medication name, got: %s", n.Text)
-	}
-	if !strings.Contains(n.Text, "Low Stock") {
-		t.Errorf("notification should contain 'Low Stock', got: %s", n.Text)
-	}
-	if n.Tag != "low-stock" {
-		t.Errorf("tag = %q, want 'low-stock'", n.Tag)
-	}
-	if n.Metadata["type"] != "low_stock" {
-		t.Errorf("metadata type = %v, want low_stock", n.Metadata["type"])
-	}
-}
-
-func TestCheckLowStock_NoNotificationWhenEnoughStock(t *testing.T) {
-	sched, db, mock := setupTestSchedulerWithMock(t)
-
-	// Create a daily medication with plenty of inventory (50 > 7 days)
-	medID, err := db.Medication.CreateMedication("Vitamin", "500mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
-	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
-	}
-	count := 50
-	if err := db.Medication.SetInventory(medID, &count); err != nil {
-		t.Fatalf("SetInventory: %v", err)
-	}
-
-	now := time.Now()
-	elevenAM := time.Date(now.Year(), now.Month(), now.Day(), 11, 0, 0, 0, now.Location())
-	sched.LowStockChecker.now = func() time.Time { return elevenAM }
-
-	if err := sched.LowStockChecker.Check(context.Background()); err != nil {
-		t.Fatalf("Check: %v", err)
-	}
-
-	time.Sleep(50 * time.Millisecond)
-	calls := mock.getSendCalls()
-	if len(calls) != 0 {
-		t.Errorf("expected no notification when stock is adequate, got %d calls", len(calls))
-	}
-}
-
-func TestCheckLowStock_LastCheckUpdatedAfterCheck(t *testing.T) {
-	sched, db, mock := setupTestSchedulerWithMock(t)
-	_ = mock
-
-	// Create low-stock medication
-	medID, err := db.Medication.CreateMedication("LowMed", "10mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
-	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
-	}
-	count := 3
-	if err := db.Medication.SetInventory(medID, &count); err != nil {
-		t.Fatalf("SetInventory: %v", err)
-	}
-
-	now := time.Now()
-	elevenAM := time.Date(now.Year(), now.Month(), now.Day(), 11, 0, 0, 0, now.Location())
-	sched.LowStockChecker.now = func() time.Time { return elevenAM }
-
-	if sched.LowStockChecker.lastCheck.IsZero() == false {
-		t.Fatal("pre-condition: lastCheck should be zero before first Check")
-	}
-
-	if err := sched.LowStockChecker.Check(context.Background()); err != nil {
-		t.Fatalf("Check: %v", err)
-	}
-
-	// Wait for async notification to complete so lastCheck is updated
-	mock.waitForSendCalls(1, 2*time.Second)
-	time.Sleep(50 * time.Millisecond)
-
-	if sched.LowStockChecker.lastCheck.IsZero() {
-		t.Error("expected lastCheck to be updated after first Check")
-	}
+		return sched, mock
+	}
+
+	t.Run("sends notification when inventory below threshold", func(t *testing.T) {
+		_, mock := runAt11AM(t, "Aspirin", 5)
+		if !mock.waitForSendCalls(1, 2*time.Second) {
+			t.Fatal("timed out waiting for low-stock notification")
+		}
+		calls := mock.getSendCalls()
+		if len(calls) != 1 {
+			t.Fatalf("expected 1 send call, got %d", len(calls))
+		}
+		n := calls[0].Notification
+		if !strings.Contains(n.Text, "Aspirin") {
+			t.Errorf("notification should mention med name, got: %s", n.Text)
+		}
+		if !strings.Contains(n.Text, "Low Stock") {
+			t.Errorf("notification should contain 'Low Stock', got: %s", n.Text)
+		}
+		if n.Tag != "low-stock" {
+			t.Errorf("tag = %q, want 'low-stock'", n.Tag)
+		}
+		if n.Metadata["type"] != "low_stock" {
+			t.Errorf("metadata type = %v, want low_stock", n.Metadata["type"])
+		}
+	})
+
+	t.Run("no notification when inventory is adequate", func(t *testing.T) {
+		_, mock := runAt11AM(t, "Vitamin", 50)
+		time.Sleep(50 * time.Millisecond)
+		if c := mock.getSendCalls(); len(c) != 0 {
+			t.Errorf("expected no notification when stock is adequate, got %d calls", len(c))
+		}
+	})
+
+	t.Run("lastCheck is updated after Check (pre/post zero check)", func(t *testing.T) {
+		sched, db, mock := setupTestSchedulerWithMock(t)
+		medID, err := db.Medication.CreateMedication("LowMed", "10mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+		if err != nil {
+			t.Fatalf("CreateMedication: %v", err)
+		}
+		count := 3
+		if err := db.Medication.SetInventory(medID, &count); err != nil {
+			t.Fatalf("SetInventory: %v", err)
+		}
+		now := time.Now()
+		elevenAM := time.Date(now.Year(), now.Month(), now.Day(), 11, 0, 0, 0, now.Location())
+		sched.LowStockChecker.now = func() time.Time { return elevenAM }
+
+		if !sched.LowStockChecker.lastCheck.IsZero() {
+			t.Fatal("pre-condition: lastCheck should be zero before first Check")
+		}
+		if err := sched.LowStockChecker.Check(context.Background()); err != nil {
+			t.Fatalf("Check: %v", err)
+		}
+		mock.waitForSendCalls(1, 2*time.Second)
+		time.Sleep(50 * time.Millisecond)
+		if sched.LowStockChecker.lastCheck.IsZero() {
+			t.Error("expected lastCheck to be updated after first Check")
+		}
+	})
 }
 
 // --- Helpers ---
