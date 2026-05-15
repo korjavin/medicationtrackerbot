@@ -879,26 +879,16 @@ async function handleOfflineWeightWrite(body) {
     return WeightSync.handleOfflineWrite(body);
 }
 
-// Handle offline BP read — return pending/rejected local writes.
+// Handle offline BP read (forwards to BPSync factory entity).
 // Server-synced data is served by the SW dynamic cache; IndexedDB only holds
 // records created offline that haven't been synced yet.
 async function handleOfflineBPRead(endpoint) {
-    const readings = await window.MedTrackerDB.BPStore.getAll();
-    return readings.map(r => ({
-        id: r.serverId || `local_${r.localId}`,
-        ...r,
-        isLocal: !r.serverId
-    }));
+    return BPSync.handleOfflineRead();
 }
 
-// Handle offline weight read — return pending/rejected local writes.
+// Handle offline weight read (forwards to WeightSync factory entity).
 async function handleOfflineWeightRead(endpoint) {
-    const logs = await window.MedTrackerDB.WeightStore.getAll();
-    return logs.map(l => ({
-        id: l.serverId || `local_${l.localId}`,
-        ...l,
-        isLocal: !l.serverId
-    }));
+    return WeightSync.handleOfflineRead();
 }
 
 // Handle offline history read

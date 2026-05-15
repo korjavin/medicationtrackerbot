@@ -161,20 +161,20 @@ and recommended-priority item #9.
 
 ### Task 3: Generalize the offline-read handlers
 
-- [ ] add `entity.handleOfflineRead()` to the factory; default
+- [x] add `entity.handleOfflineRead()` to the factory; default
   implementation reads `store.getAll()` and maps each entry to
   `{ id: r.serverId || `local_${r.localId}`, ...r, isLocal: !r.serverId }`
-- [ ] replace `handleOfflineBPRead`, `handleOfflineWeightRead`
+- [x] replace `handleOfflineBPRead`, `handleOfflineWeightRead`
   (sync.js:749, 759) with `BPSync.handleOfflineRead()` /
   `WeightSync.handleOfflineRead()`
-- [ ] keep `handleOfflineHistoryRead` (sync.js:769) and
+- [x] keep `handleOfflineHistoryRead` (sync.js:769) and
   `handleOfflineWorkoutRead` (sync.js:789) **out of the factory** —
   they read from cache stores (`IntakeHistoryStore`, `WorkoutStore`)
   not pending-write stores; different shape
-- [ ] write tests in `web/static/js/tests/sync.offline-read.test.js`
+- [x] write tests in `web/static/js/tests/sync.offline-read.test.js`
   verifying both refactored reads return the same payload shape as
   before
-- [ ] run `pnpm test sync.` — must pass before next task
+- [x] run `pnpm test sync.` — must pass before next task
 
 ### Task 4: Architecture test prevents recurrence + acceptance
 
