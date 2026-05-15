@@ -12,7 +12,9 @@ class PushManager {
 
         // Fetch VAPID public key
         try {
-            const response = await fetch('/api/webpush/vapid-public-key');
+            const response = await fetch('/api/webpush/vapid-public-key', {
+                headers: window.makeAuthHeaders()
+            });
             if (!response.ok) return false;
             const data = await response.json();
             this.vapidPublicKey = data.public_key;
@@ -59,7 +61,7 @@ class PushManager {
             // Save to server
             const response = await fetch('/api/webpush/subscribe', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: window.makeAuthHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify({
                     endpoint: sub.endpoint,
                     keys: {
@@ -86,7 +88,7 @@ class PushManager {
             // Notify server
             await fetch('/api/webpush/unsubscribe', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: window.makeAuthHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify({ endpoint: this.subscription.endpoint })
             });
 
