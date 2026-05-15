@@ -276,8 +276,11 @@ describe('Service Worker (sw.js) Fetch and Cache Strategies', () => {
             await event.waitUntil.mock.calls[0][0];
             await new Promise(r => setTimeout(r, 0));
 
-            // Should have fetched from network
-            expect(global.fetch).toHaveBeenCalledWith(fakeRequest);
+            // Should have fetched from network. The bootstrap revalidation
+            // wraps fetch with an AbortSignal.timeout so the call site now
+            // passes a second `{ signal }` arg; assert request match only.
+            expect(global.fetch).toHaveBeenCalled();
+            expect(global.fetch.mock.calls[0][0]).toBe(fakeRequest);
 
             // Should have updated the cache
             expect(mockCacheInstance.put).toHaveBeenCalled();
