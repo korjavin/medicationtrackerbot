@@ -7,6 +7,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../../..');
 const PUSH_JS = path.join(REPO_ROOT, 'web/static/js/push.js');
+const CORE_API_JS = path.join(REPO_ROOT, 'web/static/js/core/api.js');
 
 function evalWithSourceURL(window, source, scriptPath) {
   window.eval(`${source}\n//# sourceURL=file://${scriptPath}`);
@@ -66,6 +67,12 @@ export function loadPushEnv({ support = true } = {}) {
     async json() { return { public_key: 'BEl6nA' }; },
     async text() { return ''; }
   });
+
+  // Load core/api.js first so window.makeAuthHeaders is available to
+  // push.js's authenticated fetch calls (matches the production load
+  // order in index.html where core/api.js is included before push.js).
+  const coreApiSource = fs.readFileSync(CORE_API_JS, 'utf8');
+  evalWithSourceURL(window, coreApiSource, CORE_API_JS);
 
   const source = fs.readFileSync(PUSH_JS, 'utf8');
   evalWithSourceURL(window, source, PUSH_JS);

@@ -1158,9 +1158,7 @@ async function exportWeightCSV() {
     try {
         const response = await fetch('/api/weight/export', {
             method: 'GET',
-            headers: {
-                'Authorization': `tma ${userInitData}`
-            }
+            headers: window.makeAuthHeaders()
         });
 
         if (!response.ok) {

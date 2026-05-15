@@ -208,7 +208,7 @@ async function onFoodNameChange() {
 
             // First pass: local fast search
             const endpoint = `/api/food/products/search?q=${encodeURIComponent(query)}`;
-            const headers = { "X-Telegram-Init-Data": userInitData };
+            const headers = window.makeAuthHeaders();
             const res = await fetch(endpoint, { method: "GET", headers, signal: controller.signal });
 
             if (res.status === 503) throw new Error("Network request failed");
@@ -417,7 +417,7 @@ async function onFoodBarcodeChange() {
             timeoutId = setTimeout(() => controller.abort(), 10_000);
 
             const endpoint = `/api/food/products/search?q=${encodeURIComponent(barcode)}`;
-            const headers = { "X-Telegram-Init-Data": window.userInitData };
+            const headers = window.makeAuthHeaders();
             const res = await fetch(endpoint, { method: "GET", headers, signal: controller.signal });
 
             if (res.status === 503) throw new Error("Network request failed");
