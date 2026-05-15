@@ -147,6 +147,37 @@ describe('apiCallDirect — timeout / AbortSignal support', () => {
     }
   });
 
+  it('tags err.aborted when the timeout fires during body read (after headers)', async () => {
+    const { window, cleanup } = loadApiEnv();
+    try {
+      // The fetch resolves immediately with a response whose .text() hangs
+      // until the abort signal fires. Reproduces a server that sends
+      // headers then stalls on the body — the old code only wrapped the
+      // initial fetch() await, so this branch missed the .aborted tag.
+      window.fetch = (_url, fetchOpts) => {
+        return Promise.resolve({
+          status: 200,
+          ok: true,
+          text() {
+            return new Promise((_resolve, reject) => {
+              if (fetchOpts && fetchOpts.signal) {
+                fetchOpts.signal.addEventListener('abort', () => {
+                  reject(fetchOpts.signal.reason);
+                });
+              }
+            });
+          }
+        });
+      };
+      const err = await window.apiCallDirect('/api/test', 'GET', null, { timeoutMs: 30 })
+        .catch((e) => e);
+      expect(err.aborted).toBe(true);
+      expect(err.name).toBe('TimeoutError');
+    } finally {
+      cleanup();
+    }
+  });
+
   it('allows opt-out of timeout via timeoutMs: Infinity (no AbortSignal.timeout call)', async () => {
     const { window, cleanup } = loadApiEnv();
     try {
