@@ -31,6 +31,25 @@ describe('app.js modal history and back behavior', () => {
     }
   });
 
+  it('BP modal Cancel button click closes the modal', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      window.showBPRecordModal();
+      await flushMutations();
+
+      const modal = document.getElementById('bp-modal');
+      expect(modal.classList.contains('hidden')).toBe(false);
+
+      document.getElementById('bp-modal-cancel-btn').click();
+      await flushMutations();
+
+      expect(modal.classList.contains('hidden')).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('popstate closes topmost modal when modal history is active', async () => {
     const { window, document, backButtonState, cleanup } = loadFrontendEnv();
 

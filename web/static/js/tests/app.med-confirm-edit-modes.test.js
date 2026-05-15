@@ -35,6 +35,27 @@ describe('app.js medication confirm edit/log modes', () => {
     }
   });
 
+  it('unchecking a med-confirm row drops the wg-med-confirm-modal__row--on modifier for that row only', () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      window.showMedicationConfirmModal(['1', '2'], ['Aspirin', 'Vitamin D'], '2026-02-27T10:00:00Z');
+      const rows = document.querySelectorAll('#med-confirm-list .wg-med-confirm-modal__row');
+      expect(rows.length).toBe(2);
+      expect(rows[0].classList.contains('wg-med-confirm-modal__row--on')).toBe(true);
+      expect(rows[1].classList.contains('wg-med-confirm-modal__row--on')).toBe(true);
+
+      const input = rows[0].querySelector('input.med-confirm-check');
+      input.checked = false;
+      input.dispatchEvent(new window.Event('change', { bubbles: true }));
+
+      expect(rows[0].classList.contains('wg-med-confirm-modal__row--on')).toBe(false);
+      expect(rows[1].classList.contains('wg-med-confirm-modal__row--on')).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('confirmSelectedMedications calls API with empty array when nothing is selected to allow reverting, and surfaces API errors', async () => {
     const { window, document, cleanup } = loadFrontendEnv();
 

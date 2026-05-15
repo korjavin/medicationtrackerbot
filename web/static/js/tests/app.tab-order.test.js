@@ -1,19 +1,19 @@
-/**
- * saveTabOrder persistence tests.
- *
- * After the Wandergeek bottom-nav rework the bottom nav is fixed-order (no
- * drag-to-reorder); the `tab_order` setting only conveys the Today card
- * order. The persistence API — POST /api/settings/tab-order plus the
- * settings_bundle.tabOrder cache — is unchanged, so these tests still
- * cover the save path end-to-end. Nav-strip reorderability tests were
- * deleted in the same rework.
- */
+// saveTabOrder persistence + fetchSettingsBundle tab-order preservation.
+//
+// After the Wandergeek bottom-nav rework the bottom nav is fixed-order
+// (no drag-to-reorder); the `tab_order` setting only conveys the Today
+// card order. The persistence API — POST /api/settings/tab-order plus the
+// settings_bundle.tabOrder cache — is unchanged, and /api/settings does
+// not echo tab_order back, so a naive fetchBundle rebuild would drop the
+// user's saved Today card order. These tests pin both halves of that
+// contract.
+
 import { describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
 
 describe('app.tab-order tests', () => {
     it('saveTabOrder validates array, posts to API, and updates cache', async () => {
-        const { window, document, cleanup } = loadFrontendEnv();
+        const { window, cleanup } = loadFrontendEnv();
         try {
             const apiCallSpy = vi.fn().mockResolvedValue({ status: 'ok' });
             window.apiCall = apiCallSpy;
@@ -37,23 +37,17 @@ describe('app.tab-order tests', () => {
                 tabOrder: newOrder
             });
 
-            // Also test invalid array short-circuit
             apiCallSpy.mockClear();
             await window.saveTabOrder(null);
             await window.saveTabOrder("not an array");
             await window.saveTabOrder({ a: 1 });
 
             expect(apiCallSpy).not.toHaveBeenCalled();
-
         } finally {
             cleanup();
         }
     });
 
-    // Regression: /api/settings has no tab_order field, so a naive fetchBundle
-    // rebuild of settings_bundle would drop the user's saved Today card order
-    // the next time loadSettings / fetchSettingsBundle runs. Both must read
-    // the existing cache and preserve tabOrder.
     it('fetchSettingsBundle preserves cached tabOrder when /api/settings omits it', async () => {
         const { window, cleanup } = loadFrontendEnv();
         try {
