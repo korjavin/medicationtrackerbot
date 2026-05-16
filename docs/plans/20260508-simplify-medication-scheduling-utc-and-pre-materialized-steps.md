@@ -318,27 +318,33 @@ Same pattern as Task 5, applied to all three plan-lifecycle timestamp columns at
 
 ### Task 8: Document and lock in the invariant
 
-- [ ] update `docs/architecture.md` with a "Time storage" subsection:
+- [x] update `docs/architecture.md` with a "Time storage" subsection:
   every dose-related time column is INTEGER unix seconds, UTC; the
   comment block at the top of `store.go` is the audit anchor; SQL
-  equality is safe
-- [ ] add an architecture test in `internal/store/` that uses an
-  **allowlist of column names** (not a DATETIME grep). The list is
-  exactly the dose-related columns enumerated in Tasks 2/5/6/7 (e.g.
-  `intake_log.scheduled_at_unix`, `intake_log.taken_at_unix`,
-  `intake_log.snoozed_until_unix`, `tz_transition_steps.*_unix` while
-  the table still exists, `tz_transition_plans.{created,notified,
-  approved}_at_unix`). The test parses the live SQLite schema via
-  `PRAGMA table_info(<table>)` and fails when any column on the
-  allowlist is not declared `INTEGER`. Non-dose `DATETIME` columns
-  (workouts, BP, weight, sleep) are deliberately untouched — the test
-  has no opinion about them.
-- [ ] update `store_time_invariants_test.go` allowlist to include every
-  column converted in Tasks 5–7.
-- [ ] update `CLAUDE.md` "Common tasks → Adding a new health metric" to
-  point at the unix-seconds rule for dose-like columns
-- [ ] write tests: covered by the architecture test above.
-- [ ] run project tests - must pass before next task.
+  equality is safe (subsection expanded to cover the
+  `tz_transition_plans.{created,notified,approved}_at_unix` columns
+  added by Task 7 and now references the cross-table architecture test)
+- [x] add an architecture test in `internal/store/` that uses an
+  **allowlist of column names** (not a DATETIME grep)
+  (`TestDoseTimeColumnsAreInteger` in
+  `internal/store/store_time_invariants_test.go` — runs
+  `PRAGMA table_info` per table, asserts the allowlist is INTEGER and
+  rejects the legacy DATETIME column names. Non-dose DATETIME columns
+  are deliberately untouched. `tz_transition_steps.*_unix` is
+  intentionally absent from the allowlist — Track A skipped that table
+  per the plan's "Track D's columns are deliberately excluded" note,
+  and Task 13 will drop the table.)
+- [x] update `store_time_invariants_test.go` allowlist to include every
+  column converted in Tasks 5–7 (cross-table allowlist added — covers
+  `intake_log.{scheduled,taken,snoozed_until}_at_unix` and
+  `tz_transition_plans.{created,notified,approved}_at_unix`).
+- [x] update `CLAUDE.md` "Common tasks → Adding a new health metric" to
+  point at the unix-seconds rule for dose-like columns (now points at
+  the cross-table allowlist test and the package comment in
+  `store.go`).
+- [x] write tests: covered by the architecture test above
+  (`TestDoseTimeColumnsAreInteger` parametrized over both tables).
+- [x] run project tests - must pass before next task (`go test ./...` green).
 
 **Track D — Pre-materialized transition steps as `intake_log` rows.** Tasks 9 through 13 collapse `tz_transition_steps` into `intake_log` rows with `source='tz_step'`. Track D starts only after Track A has shipped and baked. Tasks 9–12 ship as a single PR; Task 13 ships in a follow-up after that PR has baked.
 

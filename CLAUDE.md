@@ -108,7 +108,7 @@ go run ./cmd/seeddemo -user <telegram_user_id> -db meds.db -days 90 -wipe -seed 
 6. Add frontend UI in `web/static/`
 7. Add scheduler logic in `internal/scheduler/` if reminders are needed
 
-Any new dose-like timestamp column (one that participates in SQL equality — dedupe, lookup by instant, etc.) must be stored as `INTEGER` unix-seconds-UTC, not as `DATETIME` text. Normalize via `t.UTC().Unix()` at the writer and `time.Unix(n, 0).UTC()` at the reader. See [docs/architecture.md → Time storage](docs/architecture.md#time-storage); the convention is enforced for `intake_log` by `internal/store/medication/time_columns_test.go`.
+Any new dose-like timestamp column (one that participates in SQL equality — dedupe, lookup by instant, etc.) must be stored as `INTEGER` unix-seconds-UTC, not as `DATETIME` text. Normalize via `t.UTC().Unix()` (or `storedb.TimeToUnix`) at the writer and `time.Unix(n, 0).UTC()` (or `storedb.UnixToTime`) at the reader. See [docs/architecture.md → Time storage](docs/architecture.md#time-storage); the convention is enforced cross-table by `TestDoseTimeColumnsAreInteger` in `internal/store/store_time_invariants_test.go` (current allowlist covers `intake_log.{scheduled,taken,snoozed_until}_at_unix` and `tz_transition_plans.{created,notified,approved}_at_unix`). When adding a new dose-like column, append it to the allowlist in the same test and to the package comment at the top of `internal/store/store.go`.
 
 ### Adding an MCP tool
 
