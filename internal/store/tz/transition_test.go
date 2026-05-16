@@ -260,6 +260,141 @@ func TestCreateAndGetTZTransitionSteps(t *testing.T) {
 	}
 }
 
+// TestTZTransitionPlan_LifecycleTimestamps_UnixUTC pins Task 7's invariant:
+// every plan-lifecycle timestamp setter (Create / MarkPlanNotified /
+// SetTZTransitionPlanApproved / ResetPlanToPending) round-trips through
+// unix-seconds-UTC storage so SQL equality is safe across server/user TZs.
+// The struct's public time.Time fields stay UTC after read.
+func TestTZTransitionPlan_LifecycleTimestamps_UnixUTC(t *testing.T) {
+	r := setupTZRepo(t)
+
+	la, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		t.Fatalf("load LA: %v", err)
+	}
+
+	before := time.Now().UTC().Truncate(time.Second).Add(-time.Second)
+	id, err := r.CreateTZTransitionPlan(&TZTransitionPlan{
+		OldTZ:      "America/Los_Angeles",
+		NewTZ:      "Europe/Berlin",
+		Status:     "PENDING_APPROVAL",
+		StepsJSON:  `[]`,
+		InputsJSON: `{}`,
+		PlanHash:   "lifecycle-hash",
+	})
+	if err != nil {
+		t.Fatalf("CreateTZTransitionPlan: %v", err)
+	}
+	after := time.Now().UTC().Truncate(time.Second).Add(time.Second)
+
+	// Create stamps created_at_unix via column default. Read back and verify
+	// the time.Time is UTC and within the [before, after] window.
+	got, err := r.GetPlanByHash("lifecycle-hash")
+	if err != nil {
+		t.Fatalf("GetPlanByHash: %v", err)
+	}
+	if got == nil {
+		t.Fatal("plan not found")
+	}
+	if got.CreatedAt.Location() != time.UTC {
+		t.Errorf("CreatedAt.Location()=%v, want UTC", got.CreatedAt.Location())
+	}
+	if got.CreatedAt.Before(before) || got.CreatedAt.After(after) {
+		t.Errorf("CreatedAt=%s outside expected window [%s, %s]",
+			got.CreatedAt.Format(time.RFC3339),
+			before.Format(time.RFC3339), after.Format(time.RFC3339))
+	}
+	if got.NotifiedAt != nil {
+		t.Errorf("NotifiedAt should be nil before MarkPlanNotified, got %v", got.NotifiedAt)
+	}
+	if got.ApprovedAt != nil {
+		t.Errorf("ApprovedAt should be nil before SetTZTransitionPlanApproved, got %v", got.ApprovedAt)
+	}
+
+	// MarkPlanNotified stamps notified_at_unix.
+	beforeN := time.Now().UTC().Truncate(time.Second).Add(-time.Second)
+	won, err := r.MarkPlanNotified(id)
+	if err != nil {
+		t.Fatalf("MarkPlanNotified: %v", err)
+	}
+	if !won {
+		t.Fatal("expected MarkPlanNotified to win the CAS on a fresh PENDING_APPROVAL plan")
+	}
+	afterN := time.Now().UTC().Truncate(time.Second).Add(time.Second)
+
+	got, err = r.GetPlanByHash("lifecycle-hash")
+	if err != nil {
+		t.Fatalf("GetPlanByHash post-notify: %v", err)
+	}
+	if got.Status != "NOTIFIED" {
+		t.Errorf("Status: got %q want NOTIFIED", got.Status)
+	}
+	if got.NotifiedAt == nil {
+		t.Fatal("NotifiedAt should be populated after MarkPlanNotified")
+	}
+	if got.NotifiedAt.Location() != time.UTC {
+		t.Errorf("NotifiedAt.Location()=%v, want UTC", got.NotifiedAt.Location())
+	}
+	if got.NotifiedAt.Before(beforeN) || got.NotifiedAt.After(afterN) {
+		t.Errorf("NotifiedAt=%s outside expected window [%s, %s]",
+			got.NotifiedAt.Format(time.RFC3339),
+			beforeN.Format(time.RFC3339), afterN.Format(time.RFC3339))
+	}
+
+	// ResetPlanToPending clears notified_at_unix.
+	if err := r.ResetPlanToPending(id); err != nil {
+		t.Fatalf("ResetPlanToPending: %v", err)
+	}
+	got, err = r.GetPlanByHash("lifecycle-hash")
+	if err != nil {
+		t.Fatalf("GetPlanByHash post-reset: %v", err)
+	}
+	if got.Status != "PENDING_APPROVAL" {
+		t.Errorf("Status: got %q want PENDING_APPROVAL", got.Status)
+	}
+	if got.NotifiedAt != nil {
+		t.Errorf("NotifiedAt should be nil after ResetPlanToPending, got %v", got.NotifiedAt)
+	}
+
+	// Mark notified again so SetTZTransitionPlanApproved can transition NOTIFIED→APPROVED.
+	if _, err := r.MarkPlanNotified(id); err != nil {
+		t.Fatalf("MarkPlanNotified (second time): %v", err)
+	}
+
+	// Approve with a time.Time in a non-UTC location — the writer must
+	// normalize to UTC unix seconds and the reader must return UTC.
+	approveLA := time.Date(2026, 5, 10, 8, 35, 0, 0, la)
+	wantApproveUnix := approveLA.UTC().Unix()
+	ok, err := r.SetTZTransitionPlanApproved(id, approveLA)
+	if err != nil {
+		t.Fatalf("SetTZTransitionPlanApproved: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected SetTZTransitionPlanApproved to apply on NOTIFIED plan")
+	}
+
+	got, err = r.GetPlanByHash("lifecycle-hash")
+	if err != nil {
+		t.Fatalf("GetPlanByHash post-approve: %v", err)
+	}
+	if got.Status != "APPROVED" {
+		t.Errorf("Status: got %q want APPROVED", got.Status)
+	}
+	if got.ApprovedAt == nil {
+		t.Fatal("ApprovedAt should be populated after SetTZTransitionPlanApproved")
+	}
+	if got.ApprovedAt.Location() != time.UTC {
+		t.Errorf("ApprovedAt.Location()=%v, want UTC", got.ApprovedAt.Location())
+	}
+	if got.ApprovedAt.Unix() != wantApproveUnix {
+		t.Errorf("ApprovedAt.Unix()=%d want %d", got.ApprovedAt.Unix(), wantApproveUnix)
+	}
+	// Same instant in a different TZ name must compare equal as time.Time.
+	if !got.ApprovedAt.Equal(approveLA) {
+		t.Errorf("ApprovedAt=%s should be equal to input %s", got.ApprovedAt.Format(time.RFC3339), approveLA.Format(time.RFC3339))
+	}
+}
+
 func TestMarkStepConsumed(t *testing.T) {
 	r := setupTZRepo(t)
 

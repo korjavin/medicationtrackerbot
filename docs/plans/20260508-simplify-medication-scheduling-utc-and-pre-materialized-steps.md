@@ -296,15 +296,25 @@ Same pattern as Task 5, applied to `snoozed_until` (nullable INTEGER).
 
 Same pattern as Task 5, applied to all three plan-lifecycle timestamp columns at once.
 
-- [ ] one migration covers all three columns on the same table to
-  minimize rebuild churn
-- [ ] dual-write in `CreateTZTransitionPlan*`, `MarkPlanNotified`,
-  `SetTZTransitionPlanApproved`
-- [ ] cut over readers in `tz_plan_notifier` (uses `time.Since`),
-  observability log lines
-- [ ] table-rebuild migration drops the three legacy columns
-- [ ] write tests: plan-lifecycle test fixture covers each setter.
-- [ ] run project tests - must pass before next task.
+- [x] one migration covers all three columns on the same table to
+  minimize rebuild churn (migration 064 adds + backfills; migration 065
+  rebuilds the table to drop the three legacy DATETIME columns)
+- [x] dual-write in `CreateTZTransitionPlan*`, `MarkPlanNotified`,
+  `SetTZTransitionPlanApproved` (writers now stamp the `*_unix` columns
+  directly; `created_at_unix` is stamped by the column default
+  `strftime('%s','now')` to mirror the legacy `CURRENT_TIMESTAMP` shape)
+- [x] cut over readers in `tz_plan_notifier` (uses `time.Since`),
+  observability log lines (readers now scan `*_unix` INTEGER and convert
+  via `storedb.UnixToTime`/`NullableUnixToTimePtr`; `time.Since` and
+  slog calls still take the public `time.Time` fields which now arrive
+  in UTC — log keys unchanged)
+- [x] table-rebuild migration drops the three legacy columns (migration 065)
+- [x] write tests: plan-lifecycle test fixture covers each setter
+  (`TestTZTransitionPlan_LifecycleTimestamps_UnixUTC` in
+  `internal/store/tz/transition_test.go` plus migration round-trip and
+  prod-format backfill tests in
+  `internal/store/migration_064_test.go` and `migration_065_test.go`).
+- [x] run project tests - must pass before next task (`go test ./...` green).
 
 ### Task 8: Document and lock in the invariant
 
