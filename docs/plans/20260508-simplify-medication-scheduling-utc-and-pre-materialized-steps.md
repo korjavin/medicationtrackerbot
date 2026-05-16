@@ -315,15 +315,12 @@ Apply the same Task 2 → Task 3 → Task 4 pattern (add column + dual-write →
 
 Same pattern as Task 5, applied to `snoozed_until` (nullable INTEGER).
 
-- [ ] add column + backfill
-- [ ] dual-write in `SnoozeIntake`
-- [ ] cut over reader in `GetPendingIntakes` (the `medication_reminder`
-  loop currently uses `time.After(*p.SnoozedUntil)` in-memory — keep
-  the in-memory comparison but read into `int64` then convert to
-  `time.Time` for the existing API)
-- [ ] table-rebuild migration drops the legacy column
-- [ ] write tests: snooze round-trip across TZ change.
-- [ ] run project tests - must pass before next task.
+- [x] add column + backfill (satisfied by 2026-05-10 plan — `061_add_intake_log_snoozed_until_unix.sql` adds the nullable INTEGER column and backfills via the prod-format-aware strftime used for `scheduled_at_unix` / `taken_at_unix`)
+- [x] dual-write in `SnoozeIntake` (satisfied by 2026-05-10 plan — `SnoozeIntake` in `internal/store/medication/repo.go` writes `snoozed_until_unix` directly via `storedb.TimeToUnix`; migration 062 dropped the legacy DATETIME column so dual-write collapsed to single-write)
+- [x] cut over reader in `GetPendingIntakes` (satisfied by 2026-05-10 plan — readers in `internal/store/medication/repo.go` select `snoozed_until_unix` and convert via `storedb.NullableUnixToTimePtr` before populating `IntakeLog.SnoozedUntil`; the `medication_reminder` loop still uses in-memory `time.After(*p.SnoozedUntil)` against the `time.Time` field)
+- [x] table-rebuild migration drops the legacy column (satisfied by 2026-05-10 plan — `062_drop_intake_log_snoozed_until_text.sql` rebuilds `intake_log` via the standard SQLite CREATE-new + INSERT-SELECT + DROP + RENAME pattern, preserving indexes and triggers)
+- [x] write tests: snooze round-trip across TZ change. (satisfied by 2026-05-10 plan — covered by `internal/store/medication/intake_log_readers_tz_test.go` Berlin↔LA scenarios and migration round-trip in `internal/store/migration_061_test.go` / `migration_062_test.go`)
+- [x] run project tests - must pass before next task. (satisfied by 2026-05-10 plan — `go test ./...` was required green at every task boundary of that plan; nothing to re-run for an already-shipped task)
 
 ### Task 7: Convert `tz_transition_plans.created_at` / `notified_at` / `approved_at`
 
