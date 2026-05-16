@@ -4,15 +4,25 @@
 // window.DataStore (data-store.js, for cursor advancement).
 // safeAlert() is provided by core/utils.js, loaded before this file.
 
-// Builds the canonical headers object for a Telegram-authenticated request.
-// Reads window.userInitData lazily so callers pick up SW-token updates
-// without re-importing. Returns a fresh object every call; never mutates
-// `extra`. Direct-fetch callers (streaming, multipart, CSV exports) that
-// cannot route through apiCallDirect must use this helper.
+// Builds the canonical headers object for a messenger-authenticated request.
+// The header name is sourced from window.MessengerAdapter.authHeaderName()
+// (TelegramAdapter → 'X-Telegram-Init-Data'; BrowserAdapter → null, header
+// omitted entirely for the cookie-only path). The token value still comes
+// from window.userInitData so SW-token updates and adapter-driven boot
+// (Task 3) share one mutable global. When no adapter has loaded — e.g. in
+// isolated unit tests — falls back to the legacy 'X-Telegram-Init-Data'
+// header so older test harnesses continue to work without modification.
+// Returns a fresh object every call; never mutates `extra`. Direct-fetch
+// callers (streaming, multipart, CSV exports) that cannot route through
+// apiCallDirect must use this helper.
 function makeAuthHeaders(extra) {
     const headers = { ...(extra || {}) };
-    if (window.userInitData) {
-        headers['X-Telegram-Init-Data'] = window.userInitData;
+    const adapter = window.MessengerAdapter;
+    const headerName = (adapter && typeof adapter.authHeaderName === 'function')
+        ? adapter.authHeaderName()
+        : 'X-Telegram-Init-Data';
+    if (headerName && window.userInitData) {
+        headers[headerName] = window.userInitData;
     }
     return headers;
 }
