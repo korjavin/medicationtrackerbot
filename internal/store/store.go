@@ -1,3 +1,29 @@
+// Package store is the database layer aggregator. It composes the per-domain
+// repositories (medication, bp, weight, food, workout, vitals, diary, tz,
+// settings, auth, push) into a single *Repos struct wired from the composition
+// roots in cmd/.
+//
+// Dose-related time columns are stored as INTEGER unix seconds (UTC).
+// Equality on these columns is safe across server/user time zones because
+// modernc.org/sqlite no longer round-trips a zone string. Writers normalize
+// via t.UTC().Unix() (or storedb.TimeToUnix); readers Scan into int64 /
+// sql.NullInt64 and convert via time.Unix(n, 0).UTC() (or storedb.UnixToTime /
+// storedb.NullableUnixToTimePtr).
+//
+// The full allowlist of dose-related INTEGER unix-seconds columns is:
+//
+//	intake_log.scheduled_at_unix          (NOT NULL)
+//	intake_log.taken_at_unix              (nullable)
+//	intake_log.snoozed_until_unix         (nullable)
+//	tz_transition_plans.created_at_unix   (NOT NULL, defaulted to strftime('%s','now'))
+//	tz_transition_plans.notified_at_unix  (nullable)
+//	tz_transition_plans.approved_at_unix  (nullable)
+//
+// TestDoseTimeColumnsAreInteger (store_time_invariants_test.go) enforces
+// INTEGER on every name above via PRAGMA table_info, and rejects the legacy
+// text-typed DATETIME columns from re-appearing. See docs/architecture.md →
+// "Time storage" for the design history (2026-05-10 intake_log incident and
+// the Track A scheduler-simplification plan).
 package store
 
 import (

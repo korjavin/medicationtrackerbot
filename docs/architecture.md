@@ -61,15 +61,24 @@ SQLite with 47+ goose migrations tracking schema evolution:
 
 ### Time storage
 
-**Rule:** dose-time columns on `intake_log` are stored as `INTEGER` unix-seconds-UTC, not as SQLite `DATETIME` text. Specifically: `intake_log.scheduled_at_unix`, `intake_log.taken_at_unix`, `intake_log.snoozed_until_unix`. The architecture test `internal/store/medication/time_columns_test.go` parses `PRAGMA table_info(intake_log)` and fails CI if any of these columns regresses to a text-typed column, or if a legacy `scheduled_at` / `taken_at` / `snoozed_until` text column reappears.
+**Rule:** dose-related time columns are stored as `INTEGER` unix-seconds-UTC, not as SQLite `DATETIME` text. The full audit-anchor allowlist (also documented in the package comment at the top of `internal/store/store.go`):
+
+- `intake_log.scheduled_at_unix` (NOT NULL)
+- `intake_log.taken_at_unix` (nullable)
+- `intake_log.snoozed_until_unix` (nullable)
+- `tz_transition_plans.created_at_unix` (NOT NULL, defaulted to `strftime('%s','now')`)
+- `tz_transition_plans.notified_at_unix` (nullable)
+- `tz_transition_plans.approved_at_unix` (nullable)
+
+The architecture test `TestDoseTimeColumnsAreInteger` in `internal/store/store_time_invariants_test.go` parses `PRAGMA table_info(<table>)` for each table above and fails CI if any allowlisted column regresses to a text-typed column, or if a legacy `scheduled_at` / `taken_at` / `snoozed_until` / `created_at` / `notified_at` / `approved_at` text column reappears. A per-table check for `intake_log` also lives in `internal/store/medication/time_columns_test.go` (kept for the dose-time invariant the medication package owns). Non-dose `DATETIME` columns (workouts, BP, weight, sleep) are deliberately untouched — the test has no opinion about them.
 
 **Why:** `modernc.org/sqlite` serializes `time.Time` via `t.String()`, which embeds the timezone *name* (e.g. `"2026-05-10 08:20:00 -0700 PDT"`). SQL text-equality (`WHERE scheduled_at = ?`) on such strings depends on the caller's `time.Location` and breaks whenever the user (or the scheduler) compares the same UTC instant across a TZ-name change — even when the *offset* is unchanged (PDT→MST). On 2026-05-10 this produced a duplicate set of pending intakes after a California→Phoenix flight and an hourly reminder storm. Storing unix seconds normalizes the value at the write boundary; SQL equality on `INTEGER` is then unambiguous regardless of caller `time.Location`.
 
-**Write path:** every writer normalizes via `t.UTC().Unix()`. `.UTC()` also strips Go's monotonic-clock residue, which has previously leaked through `t.String()` into other tables.
+**Write path:** every writer normalizes via `t.UTC().Unix()` (or `storedb.TimeToUnix`). `.UTC()` also strips Go's monotonic-clock residue, which has previously leaked through `t.String()` into other tables.
 
-**Read path:** `Scan(&n int64)` then `time.Unix(n, 0).UTC()`. Nullable columns scan into `sql.NullInt64` and populate `*time.Time` pointer fields only when valid.
+**Read path:** `Scan(&n int64)` then `time.Unix(n, 0).UTC()` (or `storedb.UnixToTime`). Nullable columns scan into `sql.NullInt64` and use `storedb.NullableUnixToTimePtr` to populate `*time.Time` pointer fields only when valid.
 
-**Design history:** see `docs/plans/2026-05-10-intake-log-utc-unix-fix.md` (this implementation) and `docs/plans/20260508-simplify-medication-scheduling-utc-and-pre-materialized-steps.md` (Track A of the broader scheduler-simplification proposal).
+**Design history:** see `docs/plans/2026-05-10-intake-log-utc-unix-fix.md` (the `intake_log` rollout shipped after a production incident) and `docs/plans/20260508-simplify-medication-scheduling-utc-and-pre-materialized-steps.md` (Track A — extended the convention to `tz_transition_plans` lifecycle timestamps in Task 7).
 
 ## Store layer
 
