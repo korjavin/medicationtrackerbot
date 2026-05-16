@@ -287,12 +287,3 @@ func (a *storeAdapter) RejectTZTransitionPlanAndRevertTimezone(id int64) (bool, 
 func (a *storeAdapter) GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error) {
 	return a.tz.GetLatestActiveOrPendingTZTransitionPlan()
 }
-func (a *storeAdapter) GetPendingStepsForPlan(planID int64) ([]store.TZTransitionStep, error) {
-	return a.tz.GetPendingStepsForPlan(planID)
-}
-func (a *storeAdapter) GetLatestConsumedStepTimePerMed(planID int64) (map[int64]time.Time, error) {
-	return a.tz.GetLatestConsumedStepTimePerMed(planID)
-}
-func (a *storeAdapter) MarkStepConsumed(stepID int64, consumedAt time.Time) error {
-	return a.tz.MarkStepConsumed(stepID, consumedAt)
-}

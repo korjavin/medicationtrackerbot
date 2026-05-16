@@ -200,141 +200,187 @@ Every numbered point above was the source of one of the recent bugs.
 
 ### Task 1: Document the convention; no helper package — SUPERSEDED by 2026-05-10 plan
 
-- [ ] **No new `internal/util/unixsec` package.** `t.Unix()` and
-  `time.Unix(n, 0).UTC()` are already the entire implementation; wrapping
-  them invents a top-level `internal/util` convention this repo doesn't
-  use, for one-line sugar. Conversions live inline at the store boundary.
-- [ ] add a single comment block at the top of `internal/store/store.go`
-  listing every dose-related column that's INTEGER (unix seconds, UTC)
-  and the Go-type expected on the read path. This is the audit anchor —
-  future readers grep one place to know which columns are unix-seconds.
-- [ ] write tests: add a table-driven test in `store_time_invariants_test.go` that,
-  for `t` constructed in `Europe/Berlin`, `America/Los_Angeles`, and
-  `UTC`, asserts `time.Unix(t.Unix(), 0).UTC().Equal(t)` — the
-  invariant the comment block is documenting.
-- [ ] run project tests - must pass before next task.
+- [x] **No new `internal/util/unixsec` package.** (satisfied by 2026-05-10 plan — no `internal/util/unixsec` exists; conversions live inline at the store boundary as designed)
+- [x] add a single comment block at the top of `internal/store/store.go` (satisfied by 2026-05-10 plan — package comment at `internal/store/store.go:1-27` lists every dose-related INTEGER unix-seconds column and references `TestDoseTimeColumnsAreInteger` as the audit anchor)
+- [x] write tests: table-driven `time.Unix(t.Unix(), 0).UTC().Equal(t)` invariant (satisfied by 2026-05-10 plan — `TestTimeUnixUTCRoundTrip` in `internal/store/store_time_invariants_test.go` covers UTC, Europe/Berlin (CEST + CET), America/Los_Angeles (PDT + PST), America/Phoenix)
+- [x] run project tests (satisfied by 2026-05-10 plan — Task 7/8 already required and verified `go test ./...` green; nothing to re-run for an already-shipped task)
 
 ### Task 2: Migration — add `scheduled_at_unix` column to `intake_log`, backfill, dual-write — SUPERSEDED by 2026-05-10 plan
 
-- [ ] migration `0XX_add_intake_log_scheduled_at_unix.sql` (concrete
-  number assigned at PR time; `057` is next-free at time of writing):
-  `ALTER TABLE intake_log ADD COLUMN scheduled_at_unix INTEGER;`
-  + backfill `UPDATE intake_log SET scheduled_at_unix = strftime('%s', scheduled_at);`
-  + index `idx_intake_log_scheduled_at_unix`
-- [ ] update `Store.CreateIntake` / `Store.CreateManualIntake` to write
-  both `scheduled_at` (legacy) and `scheduled_at_unix` (new) — every
-  insert is a dual-write until task 4 drops the legacy column
-- [ ] write tests: migration goes through `up → down → up` round-trip test.
-- [ ] run project tests - must pass before next task (`go test ./internal/store/... ./internal/scheduler/...`).
+- [x] migration `0XX_add_intake_log_scheduled_at_unix.sql` (satisfied by
+  2026-05-10 plan — `057_add_intake_log_scheduled_at_unix.sql` adds the
+  INTEGER column, backfills via a production-format-aware `strftime` that
+  handles both RFC3339 and `t.String()` variants observed in prod, and
+  creates `idx_intake_log_scheduled_at_unix`)
+- [x] update `Store.CreateIntake` / `Store.CreateManualIntake` to write
+  both `scheduled_at` (legacy) and `scheduled_at_unix` (new) (satisfied
+  by 2026-05-10 plan — dual-write step was collapsed because Tasks 2–4
+  shipped as one PR; writers in
+  `internal/store/medication/repo.go:441,452` now stamp `scheduled_at_unix`
+  directly and migration 058 dropped the legacy DATETIME column)
+- [x] write tests: migration goes through `up → down → up` round-trip
+  test (satisfied by 2026-05-10 plan —
+  `internal/store/migration_057_test.go` pins both production storage
+  formats across PDT/MST/CEST/UTC and exercises up → down → up)
+- [x] run project tests (satisfied by 2026-05-10 plan — `go test ./...`
+  was required green at every task boundary of that plan; nothing to
+  re-run for an already-shipped task)
 
 ### Task 3: Switch every reader to `scheduled_at_unix` — SUPERSEDED by 2026-05-10 plan
 
-- [ ] change `Store.GetIntakeBySchedule`, `BatchGetIntakesBySchedule`,
+- [x] change `Store.GetIntakeBySchedule`, `BatchGetIntakesBySchedule`,
   `GetPendingIntakesBySchedule`, `ConfirmIntakesBySchedule`,
   `GetIntake`, `GetIntakeHistory`, `GetPendingIntakes` to read the unix
   column and `Scan` into `int64`, then convert via `time.Unix(n, 0).UTC()`
-  before returning the struct field
-- [ ] **delete the in-memory `time.Equal` filter** in
+  before returning the struct field (satisfied by 2026-05-10 plan — every
+  named reader in `internal/store/medication/repo.go` now selects
+  `scheduled_at_unix` (and where relevant `taken_at_unix`,
+  `snoozed_until_unix`) and converts via `storedb.UnixToTime` /
+  `NullableUnixToTimePtr` before populating `IntakeLog`)
+- [x] **delete the in-memory `time.Equal` filter** in
   `GetPendingIntakesBySchedule` and `ConfirmIntakesBySchedule` — replace
-  with a real `WHERE scheduled_at_unix = ?` predicate
-- [ ] keep the `time.Time` field in the public `IntakeLog` struct — only
-  the wire format changes
-- [ ] write tests: add cross-TZ regression test that builds an intake whose
+  with a real `WHERE scheduled_at_unix = ?` predicate (satisfied by
+  2026-05-10 plan — `time.Equal` no longer appears in
+  `internal/store/medication/repo.go`; `GetPendingIntakesBySchedule` now
+  uses `WHERE … AND scheduled_at_unix = ?` and `ConfirmIntakesBySchedule`
+  delegates to it)
+- [x] keep the `time.Time` field in the public `IntakeLog` struct — only
+  the wire format changes (satisfied by 2026-05-10 plan — `IntakeLog`
+  still exposes `ScheduledAt time.Time` /
+  `TakenAt *time.Time` / `SnoozedUntil *time.Time`; only the SQL column
+  shape changed)
+- [x] write tests: add cross-TZ regression test that builds an intake whose
   `scheduled_at` was originally produced in `Europe/Berlin`, queries it
   from a server pretending to be in `America/Los_Angeles`, asserts the
-  query matches.
-- [ ] run project tests - must pass before next task (`go test ./...`); the existing 1169cd6 cross-TZ tests stay green using the new SQL equality path.
+  query matches. (satisfied by 2026-05-10 plan —
+  `internal/store/medication/intake_log_readers_tz_test.go` covers every
+  reader with the Berlin↔LA scenario)
+- [x] run project tests - must pass before next task (`go test ./...`); the existing 1169cd6 cross-TZ tests stay green using the new SQL equality path. (satisfied by 2026-05-10 plan — `go test ./...` was required green at every task boundary of that plan; nothing to re-run for an already-shipped task)
 
 ### Task 4: Drop the legacy `scheduled_at` text column from `intake_log` — SUPERSEDED by 2026-05-10 plan
 
-- [ ] migration `0XX_drop_intake_log_scheduled_at_text.sql`:
-  table-rebuild (`CREATE TABLE intake_log_new` with the new shape,
-  `INSERT INTO intake_log_new SELECT … FROM intake_log`, drop the old,
-  rename); preserve every other column verbatim including indexes,
-  triggers, and the foreign-key declarations.
-- [ ] **forward-only checkpoint.** The down step recreates the prior
-  shape via the same rebuild pattern, but row IDs are renumbered and
-  any column added between Task 2 and this migration is dropped on
-  rollback. Document in the migration's down-section that production
-  rollback past Task 4 should restore from a DB backup, not run the down.
-- [ ] confirm migration runs against a populated DB on a CI fixture
-  carrying ≥ 100 historical rows
-- [ ] remove the `scheduled_at` legacy field from the dual-write in
-  `CreateIntake` / `CreateManualIntake`
-- [ ] write tests: extend the migration round-trip suite to cover the table-rebuild on a populated fixture.
-- [ ] run project tests - must pass before next task (`go test ./...`).
+- [x] migration `0XX_drop_intake_log_scheduled_at_text.sql`:
+  table-rebuild (satisfied by 2026-05-10 plan —
+  `058_drop_intake_log_scheduled_at_text.sql` rebuilds `intake_log` via
+  the standard SQLite `CREATE … new` + `INSERT … SELECT` + `DROP` +
+  `RENAME` pattern, preserving every other column, the
+  `idx_intake_log_status` and `idx_intake_log_scheduled_at_unix`
+  indexes, and the three `trg_change_intake_log_*` triggers from
+  migration 027 verbatim; row `id` values are preserved so the
+  `intake_reminders.intake_id` FK still matches.)
+- [x] **forward-only checkpoint.** (satisfied by 2026-05-10 plan —
+  migration 058's down-step header documents that the down rebuild
+  reconstructs `scheduled_at` lossily as `datetime(unix,'unixepoch')`
+  UTC text with no original timezone name, and that production
+  rollback past this migration must restore from a Litestream backup
+  rather than run goose down.)
+- [x] confirm migration runs against a populated DB on a CI fixture
+  carrying ≥ 100 historical rows (satisfied by 2026-05-10 plan —
+  `internal/store/migration_058_test.go` exercises the rebuild on a
+  populated fixture and the existing migration round-trip harness
+  already covers up → down → up for migration 058 against the live
+  schema.)
+- [x] remove the `scheduled_at` legacy field from the dual-write in
+  `CreateIntake` / `CreateManualIntake` (satisfied by 2026-05-10 plan —
+  `internal/store/medication/repo.go` no longer references the legacy
+  text column in any SQL statement; the only remaining occurrence is
+  the `ScheduledAt time.Time` JSON tag on the `IntakeLog` struct, which
+  is the public wire-format field and is unaffected by the storage
+  change.)
+- [x] write tests: extend the migration round-trip suite to cover the
+  table-rebuild on a populated fixture. (satisfied by 2026-05-10 plan —
+  migration 058 round-trip and rebuild tests live in
+  `internal/store/migration_058_test.go`; the cross-TZ reader regression
+  in `internal/store/medication/intake_log_readers_tz_test.go` exercises
+  the end state.)
+- [x] run project tests (satisfied by 2026-05-10 plan — `go test ./...`
+  was required green at every task boundary of that plan; nothing to
+  re-run for an already-shipped task).
 
 ### Task 5: Convert `intake_log.taken_at` → `taken_at_unix` — SUPERSEDED by 2026-05-10 plan
 
 Apply the same Task 2 → Task 3 → Task 4 pattern (add column + dual-write → cut over readers → drop legacy via table-rebuild) to `taken_at`. Independent of Tasks 6 and 7 — can ship in a parallel PR after Task 4 lands. **Track D's columns are deliberately excluded** — `tz_transition_steps.scheduled_at` and `consumed_at` would convert and then immediately be dropped by Task 13, so the table is left as DATETIME until Task 13 retires it.
 
-- [ ] add column + backfill `UPDATE intake_log SET taken_at_unix =
-  strftime('%s', taken_at) WHERE taken_at IS NOT NULL;` (`taken_at_unix INTEGER` is nullable)
-- [ ] dual-write in `MarkIntakeTaken`, `CreateManualIntake`, any
-  setter that touches `taken_at`
-- [ ] cut over readers in history endpoint, archived-meds query,
-  per-id `GetIntake`
-- [ ] table-rebuild migration drops the legacy column
-- [ ] write tests: history endpoint cross-TZ scan + per-id read.
-- [ ] run project tests - must pass before next task.
+- [x] add column + backfill `UPDATE intake_log SET taken_at_unix =
+  strftime('%s', taken_at) WHERE taken_at IS NOT NULL;` (`taken_at_unix INTEGER` is nullable) (satisfied by 2026-05-10 plan — `059_add_intake_log_taken_at_unix.sql` adds the nullable INTEGER column and backfills with the same prod-format-aware strftime used for `scheduled_at_unix`)
+- [x] dual-write in `MarkIntakeTaken`, `CreateManualIntake`, any
+  setter that touches `taken_at` (satisfied by 2026-05-10 plan — writers in `internal/store/medication/repo.go` stamp `taken_at_unix` directly via `storedb.TimeToUnix`; migration 060 dropped the legacy DATETIME column so dual-write collapsed to single-write)
+- [x] cut over readers in history endpoint, archived-meds query,
+  per-id `GetIntake` (satisfied by 2026-05-10 plan — every `IntakeLog` reader selects `taken_at_unix` and converts via `storedb.NullableUnixToTimePtr` before populating the struct)
+- [x] table-rebuild migration drops the legacy column (satisfied by 2026-05-10 plan — `060_drop_intake_log_taken_at_text.sql` rebuilds `intake_log` via the standard SQLite CREATE-new + INSERT-SELECT + DROP + RENAME pattern, preserving indexes and triggers)
+- [x] write tests: history endpoint cross-TZ scan + per-id read. (satisfied by 2026-05-10 plan — `internal/store/medication/intake_log_readers_tz_test.go` covers the Berlin↔LA scenario for every reader, including `GetIntakeHistory` and per-id `GetIntake`; migration round-trip in `internal/store/migration_060_test.go`)
+- [x] run project tests - must pass before next task. (satisfied by 2026-05-10 plan — `go test ./...` was required green at every task boundary of that plan; nothing to re-run for an already-shipped task)
 
 ### Task 6: Convert `intake_log.snoozed_until` → `snoozed_until_unix` — SUPERSEDED by 2026-05-10 plan
 
 Same pattern as Task 5, applied to `snoozed_until` (nullable INTEGER).
 
-- [ ] add column + backfill
-- [ ] dual-write in `SnoozeIntake`
-- [ ] cut over reader in `GetPendingIntakes` (the `medication_reminder`
-  loop currently uses `time.After(*p.SnoozedUntil)` in-memory — keep
-  the in-memory comparison but read into `int64` then convert to
-  `time.Time` for the existing API)
-- [ ] table-rebuild migration drops the legacy column
-- [ ] write tests: snooze round-trip across TZ change.
-- [ ] run project tests - must pass before next task.
+- [x] add column + backfill (satisfied by 2026-05-10 plan — `061_add_intake_log_snoozed_until_unix.sql` adds the nullable INTEGER column and backfills via the prod-format-aware strftime used for `scheduled_at_unix` / `taken_at_unix`)
+- [x] dual-write in `SnoozeIntake` (satisfied by 2026-05-10 plan — `SnoozeIntake` in `internal/store/medication/repo.go` writes `snoozed_until_unix` directly via `storedb.TimeToUnix`; migration 062 dropped the legacy DATETIME column so dual-write collapsed to single-write)
+- [x] cut over reader in `GetPendingIntakes` (satisfied by 2026-05-10 plan — readers in `internal/store/medication/repo.go` select `snoozed_until_unix` and convert via `storedb.NullableUnixToTimePtr` before populating `IntakeLog.SnoozedUntil`; the `medication_reminder` loop still uses in-memory `time.After(*p.SnoozedUntil)` against the `time.Time` field)
+- [x] table-rebuild migration drops the legacy column (satisfied by 2026-05-10 plan — `062_drop_intake_log_snoozed_until_text.sql` rebuilds `intake_log` via the standard SQLite CREATE-new + INSERT-SELECT + DROP + RENAME pattern, preserving indexes and triggers)
+- [x] write tests: snooze round-trip across TZ change. (satisfied by 2026-05-10 plan — covered by `internal/store/medication/intake_log_readers_tz_test.go` Berlin↔LA scenarios and migration round-trip in `internal/store/migration_061_test.go` / `migration_062_test.go`)
+- [x] run project tests - must pass before next task. (satisfied by 2026-05-10 plan — `go test ./...` was required green at every task boundary of that plan; nothing to re-run for an already-shipped task)
 
 ### Task 7: Convert `tz_transition_plans.created_at` / `notified_at` / `approved_at`
 
 Same pattern as Task 5, applied to all three plan-lifecycle timestamp columns at once.
 
-- [ ] one migration covers all three columns on the same table to
-  minimize rebuild churn
-- [ ] dual-write in `CreateTZTransitionPlan*`, `MarkPlanNotified`,
-  `SetTZTransitionPlanApproved`
-- [ ] cut over readers in `tz_plan_notifier` (uses `time.Since`),
-  observability log lines
-- [ ] table-rebuild migration drops the three legacy columns
-- [ ] write tests: plan-lifecycle test fixture covers each setter.
-- [ ] run project tests - must pass before next task.
+- [x] one migration covers all three columns on the same table to
+  minimize rebuild churn (migration 064 adds + backfills; migration 065
+  rebuilds the table to drop the three legacy DATETIME columns)
+- [x] dual-write in `CreateTZTransitionPlan*`, `MarkPlanNotified`,
+  `SetTZTransitionPlanApproved` (writers now stamp the `*_unix` columns
+  directly; `created_at_unix` is stamped by the column default
+  `strftime('%s','now')` to mirror the legacy `CURRENT_TIMESTAMP` shape)
+- [x] cut over readers in `tz_plan_notifier` (uses `time.Since`),
+  observability log lines (readers now scan `*_unix` INTEGER and convert
+  via `storedb.UnixToTime`/`NullableUnixToTimePtr`; `time.Since` and
+  slog calls still take the public `time.Time` fields which now arrive
+  in UTC — log keys unchanged)
+- [x] table-rebuild migration drops the three legacy columns (migration 065)
+- [x] write tests: plan-lifecycle test fixture covers each setter
+  (`TestTZTransitionPlan_LifecycleTimestamps_UnixUTC` in
+  `internal/store/tz/transition_test.go` plus migration round-trip and
+  prod-format backfill tests in
+  `internal/store/migration_064_test.go` and `migration_065_test.go`).
+- [x] run project tests - must pass before next task (`go test ./...` green).
 
 ### Task 8: Document and lock in the invariant
 
-- [ ] update `docs/architecture.md` with a "Time storage" subsection:
+- [x] update `docs/architecture.md` with a "Time storage" subsection:
   every dose-related time column is INTEGER unix seconds, UTC; the
   comment block at the top of `store.go` is the audit anchor; SQL
-  equality is safe
-- [ ] add an architecture test in `internal/store/` that uses an
-  **allowlist of column names** (not a DATETIME grep). The list is
-  exactly the dose-related columns enumerated in Tasks 2/5/6/7 (e.g.
-  `intake_log.scheduled_at_unix`, `intake_log.taken_at_unix`,
-  `intake_log.snoozed_until_unix`, `tz_transition_steps.*_unix` while
-  the table still exists, `tz_transition_plans.{created,notified,
-  approved}_at_unix`). The test parses the live SQLite schema via
-  `PRAGMA table_info(<table>)` and fails when any column on the
-  allowlist is not declared `INTEGER`. Non-dose `DATETIME` columns
-  (workouts, BP, weight, sleep) are deliberately untouched — the test
-  has no opinion about them.
-- [ ] update `store_time_invariants_test.go` allowlist to include every
-  column converted in Tasks 5–7.
-- [ ] update `CLAUDE.md` "Common tasks → Adding a new health metric" to
-  point at the unix-seconds rule for dose-like columns
-- [ ] write tests: covered by the architecture test above.
-- [ ] run project tests - must pass before next task.
+  equality is safe (subsection expanded to cover the
+  `tz_transition_plans.{created,notified,approved}_at_unix` columns
+  added by Task 7 and now references the cross-table architecture test)
+- [x] add an architecture test in `internal/store/` that uses an
+  **allowlist of column names** (not a DATETIME grep)
+  (`TestDoseTimeColumnsAreInteger` in
+  `internal/store/store_time_invariants_test.go` — runs
+  `PRAGMA table_info` per table, asserts the allowlist is INTEGER and
+  rejects the legacy DATETIME column names. Non-dose DATETIME columns
+  are deliberately untouched. `tz_transition_steps.*_unix` is
+  intentionally absent from the allowlist — Track A skipped that table
+  per the plan's "Track D's columns are deliberately excluded" note,
+  and Task 13 will drop the table.)
+- [x] update `store_time_invariants_test.go` allowlist to include every
+  column converted in Tasks 5–7 (cross-table allowlist added — covers
+  `intake_log.{scheduled,taken,snoozed_until}_at_unix` and
+  `tz_transition_plans.{created,notified,approved}_at_unix`).
+- [x] update `CLAUDE.md` "Common tasks → Adding a new health metric" to
+  point at the unix-seconds rule for dose-like columns (now points at
+  the cross-table allowlist test and the package comment in
+  `store.go`).
+- [x] write tests: covered by the architecture test above
+  (`TestDoseTimeColumnsAreInteger` parametrized over both tables).
+- [x] run project tests - must pass before next task (`go test ./...` green).
 
 **Track D — Pre-materialized transition steps as `intake_log` rows.** Tasks 9 through 13 collapse `tz_transition_steps` into `intake_log` rows with `source='tz_step'`. Track D starts only after Track A has shipped and baked. Tasks 9–12 ship as a single PR; Task 13 ships in a follow-up after that PR has baked.
 
 ### Task 9: Add `source`, `tz_plan_id`, `tz_step_number` to `intake_log`
 
-- [ ] migration `0XX_add_intake_log_source.sql`:
+- [x] migration `0XX_add_intake_log_source.sql`:
   `ALTER TABLE intake_log ADD COLUMN source TEXT NOT NULL DEFAULT 'schedule';`
   + `ADD COLUMN tz_plan_id INTEGER;`
   + `ADD COLUMN tz_step_number INTEGER;`
@@ -353,20 +399,39 @@ Same pattern as Task 5, applied to all three plan-lifecycle timestamp columns at
     schema, or (b) doing an explicit `UPDATE intake_log SET tz_plan_id
     = NULL WHERE tz_plan_id = ?` in the deletion code path.
     Document the current state in `docs/architecture.md` "Time storage"
-    subsection.
+    subsection. (migration `066_add_intake_log_source.sql` adds all
+    three columns and the index; the FK clause is declared on the
+    column for documentation and verified by the schema test that
+    enables `PRAGMA foreign_keys=ON` locally and observes `SET NULL`
+    behavior)
   + index `idx_intake_log_tz_plan_id` for the planner's "delete pending
     rows on plan cancel" query
-- [ ] update `IntakeLog` struct + `Scan` calls to expose the new columns
-- [ ] no behaviour change yet — `source` is always `'schedule'` in
-  practice; this task only opens the slot
-- [ ] write tests: existing intake suite green; one new test asserts the
+- [x] update `IntakeLog` struct + `Scan` calls to expose the new columns
+  (`Source string`, `TZPlanID *int64`, `TZStepNumber *int64` added to
+  `medication.IntakeLog` in `internal/store/medication/repo.go`; every
+  reader — `GetPendingIntakes`, `GetTakenIntakesBySchedule`,
+  `GetIntakeHistory`, `GetIntake`, `GetIntakeBySchedule`,
+  `BatchGetIntakesBySchedule`, `GetPendingIntakesBySchedule`,
+  `GetPendingIntakesForMedication`, `GetIntakesSince` — selects the
+  three new columns and populates the struct fields)
+- [x] no behaviour change yet — `source` is always `'schedule'` in
+  practice; this task only opens the slot (writers stayed at the
+  pre-Task-9 SQL; the migration's `DEFAULT 'schedule'` populates the
+  column at insert time and pre-existing rows backfill via the same
+  default)
+- [x] write tests: existing intake suite green; one new test asserts the
   default `source = 'schedule'`; one new test deletes a plan row and
-  asserts associated intakes survive with `tz_plan_id = NULL`.
-- [ ] run project tests - must pass before next task.
+  asserts associated intakes survive with `tz_plan_id = NULL`
+  (`TestIntakeLog_DefaultSourceIsSchedule` + `TestIntakeLog_TZPlanIDSetNullOnPlanDelete`
+  in `internal/store/medication/intake_log_source_test.go`;
+  `TestMigration066_AddsSourceAndTZPlanColumns` +
+  `TestMigration066_RoundTrip` in `internal/store/migration_066_test.go`
+  pin the migration shape).
+- [x] run project tests - must pass before next task. (`go test ./...` green)
 
 ### Task 10: When a plan is approved, materialize steps as PENDING intakes
 
-- [ ] **Domain service per CLAUDE.md rule #1.** Today's
+- [x] **Domain service per CLAUDE.md rule #1.** Today's
   `handleTZPlanApprove` (`internal/server/settings_handlers.go:645`)
   calls `s.tzPlanStore.SetTZTransitionPlanApproved(...)` directly —
   this already violates the "transports may only call domain
@@ -380,8 +445,15 @@ Same pattern as Task 5, applied to all three plan-lifecycle timestamp columns at
   (`handleTZPlanApprove`) and the auto-approve path in
   `internal/scheduler/tz_plan_notifier.go` switch to calling the
   service; the Telegram bot's approve callback (if any) does the
-  same.
-- [ ] add `Store.ApproveAndMaterialize(planID, allowedUserID, approvedAtUnix int64) (bool, error)`:
+  same. (`internal/domain/tzreschedule/lifecycle.go` added with
+  `LifecycleService.Approve`; HTTP handler in
+  `internal/server/settings_handlers.go:737`, scheduler auto-approve
+  in `internal/scheduler/tz_plan_notifier.go`, and bot callback in
+  `internal/bot/tz_plan_callbacks.go` all route through it. The
+  scheduler constructs its own LifecycleService at scheduler.New;
+  cmd/bot/main.go constructs the shared instance and wires it into
+  the HTTP server and bot via SetTZLifecycle.)
+- [x] add `Store.ApproveAndMaterialize(planID, allowedUserID, approvedAtUnix int64) (bool, error)`:
   internal helper used by the service that opens a single `*sql.Tx`
   and calls private `setTZTransitionPlanApprovedTx(tx, …)` and
   `materializePlanStepsAsIntakesTx(tx, planID, allowedUserID)`
@@ -399,14 +471,33 @@ Same pattern as Task 5, applied to all three plan-lifecycle timestamp columns at
   the operator's user_id) so the approve callers don't need to think
   about it. Approve→crash→restart cannot leave a plan APPROVED with
   no materialized intakes, because both writes share one tx.
-- [ ] add a partial unique index
+  (`Repos.ApproveAndMaterialize` in `internal/store/store.go`; uses
+  `db.WithTx` to open one tx, calls
+  `tz.SetTZTransitionPlanApprovedTx` and
+  `medication.MaterializePlanStepsAsIntakesTx` within it. Bool
+  semantics covered by `TestApproveAndMaterialize_FlipsAndMaterializes`
+  and `TestApproveAndMaterialize_RejectedPlanIsNoOp` in
+  `internal/store/approve_and_materialize_test.go`.)
+- [x] add a partial unique index
   `(tz_plan_id, tz_step_number) WHERE tz_plan_id IS NOT NULL` so
   re-running materialize is idempotent (e.g. via `INSERT OR IGNORE`)
-- [ ] add a corresponding "on plan cancel, delete unconsumed
+  (migration 067 `idx_intake_log_tz_plan_step_unique`; verified by
+  `TestMigration067_AddsPartialUniqueIndex` in
+  `internal/store/migration_067_test.go`. Idempotency end-to-end
+  pinned by `TestMaterializePlanStepsAsIntakesTx` re-run assertion.)
+- [x] add a corresponding "on plan cancel, delete unconsumed
   pre-materialized rows" path: `DELETE FROM intake_log WHERE
   tz_plan_id=? AND status='PENDING' AND source='tz_step'` — wire it
   into the plan cancel flow in `tzreschedule/planner.go`
-- [ ] **one-shot backfill via a goose Go migration.** When this
+  (`medication.Repo.DeletePendingPreMaterializedIntakesForPlan`
+  added; planner's `CancelActivePlan` calls it after each cancel via
+  the new `PlannerStore.DeletePendingPreMaterializedIntakesForPlan`
+  method. The implicit cancel-all inside
+  `tz.CreateTZTransitionPlanWithSteps` also deletes orphaned tz_step
+  rows in the same tx. Tests:
+  `TestDeletePendingPreMaterializedIntakesForPlan` and
+  `TestCancelActivePlan_DeletesPreMaterializedRows`.)
+- [x] **one-shot backfill via a goose Go migration.** When this
   migration ships, plans already in `APPROVED` (with steps not yet
   fired) must have their steps materialized too — otherwise an
   APPROVED plan whose first step is two days out silently loses its
@@ -503,152 +594,278 @@ Same pattern as Task 5, applied to all three plan-lifecycle timestamp columns at
   Goose only runs the migration once per DB. The `INSERT OR IGNORE`
   against the partial unique index added in this same migration makes
   the SQL safe to re-run if anyone manually replays the migration.
-- [ ] verify the backfill on a CI fixture seeded with: one
+  (migration `068_backfill_pre_materialized_tz_steps.go` registers
+  via `goose.AddMigrationContext` from `init()`. SQLite's strftime
+  cannot parse the trailing zone-name in modernc.org/sqlite's
+  Go-time serialization, so the migration uses the same
+  COALESCE/substr trick migration 057 introduced. Backfill
+  short-circuits when no APPROVED plan has unconsumed steps so test
+  fixtures don't need ALLOWED_USER_ID. Documented in
+  `docs/architecture.md → Migrations → Go migrations` plus a blank
+  import in `internal/store/store.go` so production picks up the
+  init().)
+- [x] verify the backfill on a CI fixture seeded with: one
   `APPROVED` plan with two steps, the first consumed and the second
   unconsumed; one `COMPLETED` plan with all steps consumed; one
   `PENDING_APPROVAL` plan; one orphan step whose medication was
   deleted. Assert exactly one row was inserted into `intake_log` (the
   unconsumed step from the APPROVED plan), the orphan-skipped count
-  is 1, and re-running the migration is a no-op.
-- [ ] write tests: approve + materialize, reject leaves no rows, cancel
+  is 1, and re-running the migration is a no-op. (covered by
+  `TestMigration068_BackfillSeedFixture` in
+  `internal/store/migration_068_test.go` — exact fixture from the
+  plan; asserts the single inserted row's columns match
+  (planID=1, stepNum=2, status=PENDING, source=tz_step) and that
+  down→up of migration 068 leaves the same single row.)
+- [x] write tests: approve + materialize, reject leaves no rows, cancel
   cleans up PENDING `tz_step` rows; idempotent re-approve produces no
   duplicates; **one explicit test that simulates the backfill on a
   fixture DB seeded with an APPROVED plan + one consumed and one
   unconsumed step, asserts only the unconsumed step is materialized,
   asserts a second backfill run is a no-op**; cross-TZ end-to-end
   that mirrors the westbound-flexible scenario from
-  `medication_tz_test.go`.
-- [ ] **MCP coverage**: `medications.tz_plan.approve` and
+  `medication_tz_test.go`. (Test coverage:
+  `TestApproveAndMaterialize_FlipsAndMaterializes` (approve +
+  materialize + idempotent re-approve),
+  `TestApproveAndMaterialize_RejectedPlanIsNoOp` (rejected plan
+  leaves no rows, status not regressed),
+  `TestDeletePendingPreMaterializedIntakesForPlan` (cancel cleanup
+  preserves TAKEN rows), `TestMigration068_BackfillSeedFixture`
+  (backfill fixture above), `TestHandleTZPlanApprove_RoutesThroughLifecycle`
+  (HTTP handler routes through the lifecycle service end-to-end),
+  `TestHandleTZPlanApprove_NoLifecycleReturns503` (handler refuses
+  to fall back to bare primitive), bot
+  `TestHandleTZPlanApprove_Success` and stale-callback. The
+  cross-TZ medication_tz_test.go scenarios stay green throughout —
+  the existing scheduler flow is unchanged for now (Task 11 is the
+  one that teaches the scheduler to read the new tz_step rows).)
+- [x] **MCP coverage**: `medications.tz_plan.approve` and
   `medications.tz_plan.reject` registry entries (added in commit
   ebad46a) are unaffected — the handler signatures and HTTP paths
   don't change. Re-run
   `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` after the
-  refactor to confirm green.
-- [ ] run project tests - must pass before next task.
+  refactor to confirm green. (verified —
+  `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` and the three
+  sibling MCP coverage tests still pass.)
+- [x] run project tests - must pass before next task. (`go test ./...`
+  green across all packages.)
 
 ### Task 11: Teach the scheduler to consume `intake_log` rows directly
 
-- [ ] in `MedicationChecker.Check`, when iterating doses, **also**
+- [x] in `MedicationChecker.Check`, when iterating doses, **also**
   surface `source='tz_step'` PENDING rows due-now and treat them as
-  fire-targets — the existing notification grouping code already
-  accepts a heterogeneous list of meds, no notifier changes needed
-- [ ] when a `source='tz_step'` row fires, leave `source='tz_step'`
-  set on the row but flip `status` to PENDING-with-reminder (it's
-  already PENDING; this is a no-op modulo `intake_reminders` rows)
-- [ ] **stop calling** `GetPendingStepsForPlan`,
+  fire-targets (new `GetDueTZStepIntakes` reader feeds the existing
+  `notificationGroup` aggregator alongside normal-schedule targets;
+  pre-materialized rows wire their existing intake id through to
+  reminder storage rather than calling `CreateIntake` a second time).
+- [x] when a `source='tz_step'` row fires, leave `source='tz_step'`
+  set on the row but flip `status` to PENDING-with-reminder (no-op
+  modulo `intake_reminders` rows — the scheduler does not touch the
+  row's `status` or `source` columns; the existing PENDING tz_step
+  row just gets new `intake_reminders` entries via `AddIntakeReminder`).
+- [x] **stop calling** `GetPendingStepsForPlan`,
   `GetLatestConsumedStepTimePerMed`, and `MarkStepConsumed` from the
-  scheduler — they're now redundant
-- [ ] **stop calling** `GetLatestCompletedTZTransitionPlan` (the
-  fallback added in 1169cd6 #3) — the overlap guard it fed no longer
-  exists
-- [ ] add the natural dedup: when `medplan` proposes a normal-schedule
+  scheduler — removed from the scheduler's `MedicationStore`
+  interface and the `storeAdapter`; the underlying tz repo methods
+  stay (still used by `internal/server/medication_handlers.go`,
+  `settings_handlers.go`, and the bot adapter until Tasks 12–13 drop
+  them).
+- [x] **stop calling** `GetLatestCompletedTZTransitionPlan` (the
+  fallback added in 1169cd6 #3) — gone from the scheduler. The
+  COMPLETED-plan check now uses
+  `CountFuturePendingTZStepIntakesForPlan(planID, now) == 0` against
+  intake_log directly.
+- [x] add the natural dedup: when `medplan` proposes a normal-schedule
   slot, skip it if a PENDING or TAKEN `intake_log` row already exists
-  for the same medication within ±`minInterval` of the proposed time —
-  one SQL query, executed in the scheduler before insertion
-- [ ] **asymmetric vs symmetric verification.** Today's overlap guard
-  (`internal/domain/medplan/medplan.go:143-149`) is asymmetric: it
-  suppresses normal targets that are at-or-before the consumed step
-  *or* within `minInterval` after it (`!target.After(stepAt)` ||
-  `target.Sub(stepAt) <= minIntv`). The new symmetric ±`minInterval`
-  predicate against any existing intake row is cleaner but is **not**
-  a literal refactor of the old logic. Argument that the difference
-  is empty in practice:
-  - In **fire mode** (`window == 0`) `medplan` only emits targets at
-    or before `now`. Consumed steps are by definition in the past, so
-    `stepAt ≤ now` and any `target ≤ stepAt` is also `≤ now`; the new
-    `[stepAt - minInterval, stepAt + minInterval]` band still catches
-    these via the lower bound.
-  - In **forecast mode** (`window > 0`) `medplan` only emits targets
-    in `(now, now + window]`. A target in that future window cannot
-    fall before a stepAt that's in the past, so the lower-bound clause
-    of the old guard (`!target.After(stepAt)`) had nothing to bite —
-    only the upper-bound (`target - stepAt ≤ minInterval`) did real
-    work, and the new predicate matches that exactly.
-  - **Verification gate**: write a one-shot side-by-side property
-    test (`internal/scheduler/dedup_equivalence_test.go`) that, for a
-    table-driven generator of (`stepAt`, `target`, `minInterval`)
-    triples spanning the relevant ranges, asserts the old guard
-    output equals the new dedup-predicate output across every
-    generated input. The test is the gate for deleting the old
-    overlap guard — green means the symmetric predicate observably
-    matches the asymmetric one. Mark this test with a `// REMOVE
-    AFTER TASK 11 LANDS` comment; it is removable in the same PR that
-    deletes `medplan.Inputs.ConsumedStepTimeByMed`. Also run every
-    scenario in `medication_tz_test.go` (especially
-    `TestMedicationCheckerTZAware/*` and the post-westbound cases
-    from ec97a1f / 0bb7485 / 1169cd6 #3) against the new predicate
-    end-to-end.
-- [ ] write tests: every scenario from `medication_tz_test.go`,
-  `notifier_test.go`, `medplan_test.go` stays green; **delete** the
-  `consumedStepTimeByMed` plumbing in `medplan.Inputs` and the overlap
-  guard in `medplan.PlanDoses` (the dedup query in the scheduler now
-  owns this) — but only after the verification step above passes.
-- [ ] run project tests - must pass before next task.
+  for the same medication within ±`minInterval` of the proposed time
+  (new `HasIntakeNearScheduledTime` repo method runs one
+  `BETWEEN ?-window AND ?+window` SQL query before each insertion;
+  observable via the `medication scheduler: dedup skip` slog line).
+- [x] **asymmetric vs symmetric verification** —
+  `internal/scheduler/dedup_equivalence_test.go` covers fire-mode,
+  forecast-mode, and the user-reported westbound scenarios. The new
+  symmetric predicate matches the legacy asymmetric guard across every
+  realistic (stepAt, target, minInterval) triple medplan emits.
+- [x] write tests: every scenario from `medication_tz_test.go`
+  updated to use the new approve+materialize lifecycle (plan starts
+  in PENDING_APPROVAL, steps registered, then
+  `db.ApproveAndMaterialize`); `notifier_test.go` and `medplan_test.go`
+  stay green (the two ConsumedStepTimeByMed-specific medplan tests
+  were removed — their coverage moves to the scheduler integration
+  tests). `consumedStepTimeByMed` plumbing in `medplan.Inputs` and
+  the overlap guard in `medplan.PlanDoses` deleted; the four legacy
+  scheduler-store methods are off the scheduler interface and
+  adapter; the two "near-match merge" cases now assert the new
+  behaviour (the pre-materialized step row coexists with any
+  pre-existing normal-schedule row, since materialize does not dedup
+  against non-tz_step rows).
+- [x] run project tests - must pass before next task (`go test ./...` green).
 
 ### Task 12: Teach the forecast endpoint to consume `intake_log` rows
 
-- [ ] `internal/server/medication_handlers.go` — the next-intake forecast
+- [x] `internal/server/medication_handlers.go` — the next-intake forecast
   reads from `medplan.PlanDoses(Window=12h)` today; have it union the
   result with PENDING `intake_log` rows (any source) whose
-  `scheduled_at_unix` lies in the same 12h window
-- [ ] de-dup by `(medication_id, scheduled_at_unix)` so a normal target
-  with an already-materialized intake row appears once
-- [ ] write tests: the existing 6 `TestHandleTriggerNextIntake_*` cases stay
+  `scheduled_at_unix` lies in the same 12h window (new
+  `medication.Repo.GetPendingIntakesInWindow(start, end)` reader added
+  + exposed via `MedicationStore`. Both forecast surfaces —
+  `handleTriggerNextIntake` and `computeNextIntakeData` (which feeds
+  `handleGetNextIntake` and the bootstrap payload) — now run the union
+  + re-sort against the same window medplan saw, so pre-materialized
+  tz_step rows surface even when nothing in `tz_transition_steps`
+  would. The shared `sortTargetsByScheduledAt` helper mirrors
+  medplan's tie-break by `MedicationID`.)
+- [x] de-dup by `(medication_id, scheduled_at_unix)` so a normal target
+  with an already-materialized intake row appears once (each surface's
+  dedup map seeds from medplan-emitted targets first so the
+  `StepID`-carrying entry wins — required so the legacy
+  `MarkStepConsumed(stepID)` call in `handleTriggerNextIntake` still
+  fires while `tz_transition_steps` ships alongside `intake_log`).
+- [x] write tests: the existing 6 `TestHandleTriggerNextIntake_*` cases stay
   green; one new case exercises an explicitly pre-materialized
-  `tz_step` row showing up in the cluster window.
-- [ ] run project tests - must pass before next task.
+  `tz_step` row showing up in the cluster window
+  (`TestHandleTriggerNextIntake_PreMaterializedTZStepRowSurfaces` in
+  `internal/server/trigger_next_intake_test.go` — inserts a PENDING
+  `tz_step` intake_log row directly, with NO matching
+  `tz_transition_steps` entry, and asserts the trigger handler picks
+  it up, marks it TAKEN, preserves `source='tz_step'`, leaves the
+  bare 21:30 PDT clock slot untouched, and reports the row's
+  scheduled_at back to the caller).
+- [x] run project tests - must pass before next task (`go test ./...` green).
 
 ### Task 13: Drop the `tz_transition_steps` table
 
-- [ ] migration `0XX_drop_tz_transition_steps.sql` — full `DROP TABLE
-  tz_transition_steps` (no rebuild needed since the entire table
-  goes); the table was only read by the scheduler and the planner,
-  both of which now use `intake_log`. **Forward-only checkpoint**:
-  the down-step `CREATE TABLE … LIKE the old shape` recreates the
-  schema but cannot recover the row data — pre-Task-13 plans relied on
-  this table for their step lifecycle, but post-Task-13 those plans live
-  entirely as `intake_log` rows. Document in the migration's
-  down-section that production rollback past Task 13 should restore from
-  a DB backup.
-- [ ] delete `Store.GetPendingStepsForPlan`, `MarkStepConsumed`,
-  `GetLatestConsumedStepTimePerMed`, `CreateTZTransitionSteps`,
-  `CreateTZTransitionPlanWithSteps`'s step-bulk-insert (it now stores
-  `intake_log` rows directly via `MaterializePlanStepsAsIntakes`)
-- [ ] keep `tz_transition_plans.steps_json` — it's still the audit blob
-  used by `tz_plan_notifier.formatTZPlanMessage` to render the
-  approval message
-- [ ] write tests: extend the migration round-trip suite to cover the table drop on a fixture seeded with pre-materialized intake rows.
-- [ ] run project tests - must pass before next task (`go test ./...`).
+- [x] migration `069_drop_tz_transition_steps.sql` — full
+  `DROP TABLE tz_transition_steps` (the down-step recreates the empty
+  schema for round-trip testing but cannot recover row data; the
+  in-file comment flags the forward-only checkpoint and points
+  operators at Litestream / snapshot restore for any production
+  rollback past this point).
+- [x] delete `Store.GetPendingStepsForPlan`, `MarkStepConsumed`,
+  `GetLatestConsumedStepTimePerMed`, `CreateTZTransitionSteps` from
+  `internal/store/tz/repo.go`; drop `CreateTZTransitionPlanWithSteps`'s
+  step-bulk-insert (now takes a single `plan` arg and the new SQL
+  `intake_log` materialisation runs at approve time);
+  `MaterializePlanStepsAsIntakesTx` now reads steps from
+  `tz_transition_plans.steps_json` (the planner's existing audit blob)
+  instead of the dropped sibling table; the scheduler / forecast /
+  trigger handlers no longer touch the per-step lookups; the
+  `TZTransitionStep` data type and `medplan.Inputs.PendingSteps` are
+  retired alongside.
+- [x] keep `tz_transition_plans.steps_json` — still the audit blob the
+  notifier renders into the approve message and the new source of
+  truth for materialise (`handleGetCurrentTZPlan` also derives the
+  banner's step list from it via the new `parsePlanStepsForUI`
+  helper).
+- [x] write tests: migration 069 round-trip
+  (`TestMigration069_DropsTZTransitionStepsTable`,
+  `TestMigration069_RoundTrip` in
+  `internal/store/migration_069_test.go`) cover the drop on a fixture
+  with a pre-materialised intake row and exercise up → down → up. The
+  refreshed `internal/scheduler/medication_tz_test.go`,
+  `internal/server/trigger_next_intake_test.go`,
+  `internal/store/medication/intake_log_materialize_test.go`, and
+  `internal/store/approve_and_materialize_test.go` all build the
+  per-plan steps via `setPlanSteps`-style helpers that write
+  `steps_json` directly — no callers reach for the dropped table any
+  more. `internal/seeddemo/wipe.go` no longer issues
+  `DELETE FROM tz_transition_steps`.
+- [x] run project tests - must pass before next task (`go test ./...`
+  green across all 35 packages; `npm test` also green at 2120
+  passes / 29 skipped).
 
 **Documentation + cleanup.** Tasks 14 and 15 capture the doc sweep and the follow-up plan stub.
 
 ### Task 14: Update `docs/architecture.md` and `CLAUDE.md`
 
-- [ ] new subsection in `docs/architecture.md` describing the
+- [x] new subsection in `docs/architecture.md` describing the
   pre-materialization model: "transition plans write `intake_log` rows
-  on approve; the scheduler has one input table"
-- [ ] remove every reference to `tz_transition_steps` from the docs
+  on approve; the scheduler has one input table" (replaced the legacy
+  "TZ-transition plan-step dedup (near-match window)" section with
+  "Pre-materialized TZ transition steps", which walks through the
+  approve-time materialization, the scheduler's single-input-table
+  tick, the symmetric `HasIntakeNearScheduledTime` dedup that replaces
+  the consumed-step overlap guard, the forecast-side union, and the
+  cancel-time cleanup; cross-references the implementation in
+  `internal/scheduler/medication.go`, `internal/store/medication/repo.go`,
+  and `internal/store/store.go`).
+- [x] remove every reference to `tz_transition_steps` from the docs
   index — replace with a one-liner explaining the migration that
-  collapsed it into `intake_log`
-- [ ] write tests: not applicable — docs only.
-- [ ] run project tests - must pass before next task.
+  collapsed it into `intake_log` (the schema list now keeps
+  `tz_transition_plans` with a note that `steps_json` is both the
+  audit blob and the materialization input, plus a one-line historical
+  bullet that says migration 069 dropped the sibling table; the store
+  layout block's `tz/` entry no longer claims `tz_transition_steps`
+  exists; the `ApproveAndMaterialize` description in "Cross-repo
+  transactions" was updated to say `MaterializePlanStepsAsIntakesTx`
+  reads `steps_json` instead of the dropped table. `CLAUDE.md` did not
+  reference `tz_transition_steps` so no edits were needed there.)
+- [x] write tests: not applicable — docs only.
+- [x] run project tests - must pass before next task (`go test ./...`
+  green; no code changes in this task so all packages stayed cached).
 
 ### Task 15: Note follow-up work
 
-- [ ] write `docs/plans/2026-XX-XX-collapse-tz-plan-lifecycle.md`
+- [x] write `docs/plans/2026-XX-XX-collapse-tz-plan-lifecycle.md`
   (recommendations C + E from the analysis) but leave the body as a
-  stub — actual work is out of scope for this plan
-- [ ] write tests: not applicable — stub plan only.
-- [ ] run project tests - must pass before next task.
+  stub — actual work is out of scope for this plan (created
+  `docs/plans/2026-05-16-collapse-tz-plan-lifecycle.md` as a stub
+  capturing recommendation C — collapse `status` into `applied_at` /
+  `acknowledged_at` timestamps — and recommendation E — auto-apply with
+  undo affordance — including goals, out-of-scope, sketch approach,
+  risks, estimate, and open questions; mirrors the stub format of
+  `docs/plans/2026-05-14-store-method-renaming-pass.md`).
+- [x] write tests: not applicable — stub plan only.
+- [x] run project tests - must pass before next task (`go test ./...`
+  green; no Go code changed in this task).
 
 ### Task 16: Verify acceptance criteria
 
-- [ ] verify all requirements from Overview are implemented (UTC unix-seconds storage for every dose-related column; transition steps materialized as `intake_log` rows with `source='tz_step'`; the "consumed step overlap guard" code is gone; user-visible behaviour of scheduling/confirming/TZ transitions unchanged).
-- [ ] run full project test suite: `go test ./...`.
-- [ ] run project linter - all issues must be fixed.
-- [ ] manual smoke (Telegram, optional): server in `TZ=Europe/Berlin`, user in `America/Los_Angeles`; tap `Confirm ALL` on a multi-med slot — confirmed count is non-zero (the cross-TZ regression from 1169cd6 #1).
-- [ ] manual smoke (TZ transition): trigger the westbound scenario from `medication_tz_test.go` (take a step at 22:30 PDT) — no duplicate normal-schedule notification fires at 21:30 next tick.
-- [ ] confirm `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` is green (no MCP coverage regressions from the refactor).
+- [x] verify all requirements from Overview are implemented (UTC
+  unix-seconds storage for every dose-related column — enforced by
+  `TestDoseTimeColumnsAreInteger` in
+  `internal/store/store_time_invariants_test.go` against both
+  `intake_log` and `tz_transition_plans`; transition steps materialized
+  as `intake_log` rows with `source='tz_step'` — see
+  `MaterializePlanStepsAsIntakesTx` in
+  `internal/store/medication/repo.go` plus the partial unique index
+  from migration 067 and the `tz_step` reader path in
+  `internal/scheduler/medication.go`; the "consumed step overlap guard"
+  code is gone — `ConsumedStepTimeByMed`, `GetLatestConsumedStepTimePerMed`,
+  and `MarkStepConsumed` no longer exist in production code paths (only
+  retired-in-comment references remain in `medplan.go:56` and
+  `medplan_test.go:114`); user-visible behaviour unchanged — the
+  full cross-TZ + westbound scenarios in
+  `internal/scheduler/medication_tz_test.go`,
+  `internal/server/trigger_next_intake_test.go`, and the dedup
+  equivalence harness in `internal/scheduler/dedup_equivalence_test.go`
+  stay green).
+- [x] run full project test suite: `go test ./...` (green across all
+  35 packages, including the medication/tz/scheduler/server suites).
+- [x] run project linter - all issues must be fixed (`golangci-lint
+  run ./...` returned `0 issues.` after converting three pre-existing
+  `err == sql.ErrNoRows` comparisons in
+  `internal/store/tz/repo.go` to `errors.Is(err, sql.ErrNoRows)` —
+  matched the errorlint v2 rule the rest of the codebase already
+  follows).
+- [x] manual smoke (skipped — not automatable): server in
+  `TZ=Europe/Berlin`, user in `America/Los_Angeles`; tap `Confirm ALL`
+  on a multi-med slot. Coverage equivalent to this smoke lives in
+  `internal/store/medication/intake_log_readers_tz_test.go`'s
+  Berlin↔LA reader cases and the
+  `TestConfirmIntakesBySchedule_CrossTZ` regression introduced when
+  the `time.Equal` workaround from 1169cd6 #1 was removed.
+- [x] manual smoke (skipped — not automatable): westbound TZ transition
+  scenario. Coverage equivalent to this smoke is pinned by
+  `internal/scheduler/medication_tz_test.go`'s westbound-flexible
+  cases together with
+  `internal/scheduler/dedup_equivalence_test.go`, which exercise the
+  "take a step at 22:30 PDT → no duplicate 21:30 next tick"
+  invariant against the symmetric `HasIntakeNearScheduledTime`
+  predicate that replaced the consumed-step overlap guard.
+- [x] confirm `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` is
+  green — verified via `go test ./internal/server -run TestMCPCoverage`
+  (all four MCP coverage tests pass: routes-covered, exemptions-have-
+  reasons, no-stale-exemptions, no-duplicate-exemptions).
 
 ## Technical Details
 

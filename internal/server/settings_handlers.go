@@ -104,32 +104,69 @@ func (s *Server) computeNextIntakeData(now time.Time) (time.Time, []int64, []str
 		}
 	}
 
-	// Plan inputs for the planner: pending steps for any APPROVED plan,
-	// plus the latest consumed step time per medication so the overlap
-	// guard fires the same way the scheduler does after a westbound flight.
-	var pendingSteps []store.TZTransitionStep
-	consumedStepTimeByMed := make(map[int64]time.Time)
-	if s.tzPlanStore != nil {
-		if plan, err := s.tzPlanStore.GetLatestActiveOrPendingTZTransitionPlan(); err == nil && plan != nil {
-			if plan.Status == "APPROVED" {
-				if steps, err := s.tzPlanStore.GetPendingStepsForPlan(plan.ID); err == nil {
-					pendingSteps = steps
-				}
-			}
-			if m, err := s.tzPlanStore.GetLatestConsumedStepTimePerMed(plan.ID); err == nil {
-				consumedStepTimeByMed = m
-			}
-		}
-	}
-
+	// Normal-schedule targets only. Pre-materialized tz_step rows surface via
+	// the intake_log union below — the legacy GetPendingStepsForPlan (against
+	// tz_transition_steps) was retired alongside the table in Task 13 of the
+	// scheduling-simplification plan.
+	const forecastWindow = 12 * time.Hour
 	targets := medplan.PlanDoses(medplan.Inputs{
-		Medications:           meds,
-		PendingSteps:          pendingSteps,
-		ConsumedStepTimeByMed: consumedStepTimeByMed,
-		UserLoc:               userLoc,
-		Now:                   now,
-		Window:                12 * time.Hour,
+		Medications: meds,
+		UserLoc:     userLoc,
+		Now:         now,
+		Window:      forecastWindow,
 	})
+
+	// Task 12: union medplan's targets with any PENDING intake_log rows
+	// inside the same forward window. Dedup by (medication_id,
+	// scheduled_at_unix) so a normal target with an already-materialized
+	// intake row appears once.
+	//
+	// Seed the dedup from intake_log rows first so a pre-materialized
+	// tz_step row wins on exact-time collisions with a normal-schedule
+	// slot — otherwise plannedOwnedMeds suppression would drop the normal
+	// target (because the plan still owns the med) AND the colliding step
+	// target would never be added, hiding the dose entirely. (Pre-Task-13
+	// the seeding order was reversed so the medplan target carried StepID
+	// for MarkStepConsumed; that path is gone.)
+	type dedupKey struct {
+		medID     int64
+		schedUnix int64
+	}
+	pendingRows, err := s.meds.GetPendingIntakesInWindow(now, now.Add(forecastWindow))
+	if err != nil {
+		slog.Warn("next-intake forecast: failed to load pending intakes in window, falling back to planner targets only",
+			"error", err)
+	}
+	seen := make(map[dedupKey]bool, len(pendingRows)+len(targets))
+	intakeTargets := make([]medplan.DoseTarget, 0, len(pendingRows))
+	for _, row := range pendingRows {
+		k := dedupKey{row.MedicationID, row.ScheduledAt.UTC().Unix()}
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		src := medplan.SourceNormalSchedule
+		if row.Source == "tz_step" {
+			src = medplan.SourceTransitionStep
+		}
+		intakeTargets = append(intakeTargets, medplan.DoseTarget{
+			MedicationID: row.MedicationID,
+			ScheduledAt:  row.ScheduledAt,
+			Source:       src,
+		})
+	}
+	deduped := targets[:0]
+	for _, t := range targets {
+		k := dedupKey{t.MedicationID, t.ScheduledAt.UTC().Unix()}
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		deduped = append(deduped, t)
+	}
+	targets = append(deduped, intakeTargets...)
+	targets = suppressNormalsCoveredByStep(targets, s.plannedOwnedMeds(now))
+	sortTargetsByScheduledAt(targets)
 
 	medByID := make(map[int64]store.Medication, len(meds))
 	for _, m := range meds {
@@ -695,6 +732,12 @@ func (s *Server) handleTZSuggestionDismiss(w http.ResponseWriter, r *http.Reques
 // steps as JSON, or `{"plan": null}` when there is nothing in flight. The UI uses
 // this to decide whether to render the timezone-transition banner; if no plan
 // exists, the response is small and the banner stays hidden.
+//
+// Track D Task 13 dropped tz_transition_steps. Steps for display now come from
+// plan.StepsJSON (the audit blob produced by tzreschedule.GeneratePlan at plan
+// creation time). The banner only renders for actionable statuses
+// (PENDING_APPROVAL / NOTIFIED), so the entire serialized list is "remaining"
+// from the user's perspective — no per-step consumption tracking is needed.
 func (s *Server) handleGetCurrentTZPlan(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -709,13 +752,7 @@ func (s *Server) handleGetCurrentTZPlan(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	steps, err := s.tzPlanStore.GetPendingStepsForPlan(plan.ID)
-	if err != nil {
-		slog.Error("handleGetCurrentTZPlan: GetPendingStepsForPlan failed", "plan_id", plan.ID, "error", err)
-		// Fall through with empty steps — surface the plan so the user can still
-		// approve or reject it; the banner will just not list per-dose detail.
-		steps = nil
-	}
+	steps := parsePlanStepsForUI(plan.StepsJSON)
 
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"plan":  plan,
@@ -723,8 +760,61 @@ func (s *Server) handleGetCurrentTZPlan(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+// uiTZPlanStep is the wire-shape the tz-plan banner expects: snake_case keys
+// matching the legacy `store.TZTransitionStep` JSON tags so the frontend's
+// `s.medication_id` / `s.step_number` / `s.scheduled_at` / `s.note` reads keep
+// working. Built from `tz_transition_plans.steps_json`, which planner.go
+// serializes with the PascalCase shape of `tzreschedule.TransitionStep`.
+type uiTZPlanStep struct {
+	PlanID       int64     `json:"plan_id"`
+	MedicationID int64     `json:"medication_id"`
+	StepNumber   int       `json:"step_number"`
+	ScheduledAt  time.Time `json:"scheduled_at"`
+	Note         string    `json:"note"`
+}
+
+// parsePlanStepsForUI converts the plan's StepsJSON audit blob into the
+// snake-case shape the tz-plan banner consumes. The input is the output of
+// `json.Marshal([]tzreschedule.TransitionStep)`, so keys are PascalCase.
+func parsePlanStepsForUI(stepsJSON string) []uiTZPlanStep {
+	if stepsJSON == "" {
+		return nil
+	}
+	var raw []struct {
+		PlanID       int64     `json:"PlanID"`
+		MedicationID int64     `json:"MedicationID"`
+		StepNumber   int       `json:"StepNumber"`
+		ScheduledAt  time.Time `json:"ScheduledAt"`
+		Note         string    `json:"Note"`
+	}
+	if err := json.Unmarshal([]byte(stepsJSON), &raw); err != nil {
+		slog.Warn("handleGetCurrentTZPlan: failed to parse steps_json; banner will render without per-step detail",
+			"error", err)
+		return nil
+	}
+	out := make([]uiTZPlanStep, 0, len(raw))
+	for _, r := range raw {
+		out = append(out, uiTZPlanStep{
+			PlanID:       r.PlanID,
+			MedicationID: r.MedicationID,
+			StepNumber:   r.StepNumber,
+			ScheduledAt:  r.ScheduledAt,
+			Note:         r.Note,
+		})
+	}
+	return out
+}
+
 // handleTZPlanApprove handles POST /api/tz-plan/{id}/approve.
-// It transitions the plan to APPROVED so the medication scheduler can execute it.
+// It transitions the plan to APPROVED so the medication scheduler can execute
+// it AND pre-materializes the plan's remaining steps as PENDING intake_log
+// rows (source='tz_step') under one transaction. Both writes share a tx so a
+// crash between them cannot leave the plan APPROVED with no rows to fire.
+//
+// Routes through tzreschedule.LifecycleService per CLAUDE.md rule #1; cmd/bot
+// wires the service via SetTZLifecycle. Without it the handler returns 503 —
+// the legacy bare SetTZTransitionPlanApproved is no longer acceptable because
+// it would skip the pre-materialize step.
 func (s *Server) handleTZPlanApprove(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	planID, err := strconv.ParseInt(idStr, 10, 64)
@@ -732,9 +822,14 @@ func (s *Server) handleTZPlanApprove(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid plan id", http.StatusBadRequest)
 		return
 	}
-	updated, err := s.tzPlanStore.SetTZTransitionPlanApproved(planID, time.Now())
+	if s.tzLifecycle == nil {
+		slog.Error("handleTZPlanApprove: tz lifecycle service not configured", "plan_id", planID)
+		http.Error(w, "tz lifecycle service unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	updated, err := s.tzLifecycle.Approve(r.Context(), planID, time.Now())
 	if err != nil {
-		slog.Error("handleTZPlanApprove: SetTZTransitionPlanApproved failed", "plan_id", planID, "error", err)
+		slog.Error("handleTZPlanApprove: lifecycle Approve failed", "plan_id", planID, "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}

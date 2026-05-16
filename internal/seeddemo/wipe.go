@@ -89,13 +89,13 @@ func WipeUser(ctx context.Context, s *store.Store, userID int64) error {
 
 	// Single-user tables that don't carry user_id but logically belong to
 	// the demoed user. The seeder will repopulate them, so wipe wholesale.
-	// tz_transition_steps must go before tz_transition_plans (FK reference)
-	// and before medications since plans reference medications.
 	// medication_restocks is a child of medications (FK ON DELETE CASCADE)
 	// but FK enforcement is off in modernc/sqlite, so clear it explicitly
-	// before medications to avoid orphan rows.
+	// before medications to avoid orphan rows. Track D Task 13 dropped the
+	// tz_transition_steps table; pre-materialized step rows now live in
+	// intake_log (wiped above by user_id) and the plan's audit blob lives in
+	// tz_transition_plans.steps_json, which the plan delete covers.
 	wholesale := []string{
-		"DELETE FROM tz_transition_steps",
 		"DELETE FROM tz_transition_plans",
 		"DELETE FROM medication_restocks",
 		"DELETE FROM medications",

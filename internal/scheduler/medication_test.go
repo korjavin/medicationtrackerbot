@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -29,6 +30,32 @@ func (m *MockNotifier) Delete(ctx context.Context, userID int64, msgID int) erro
 
 func (m *MockNotifier) CloseNotification(ctx context.Context, userID int64, tag string) error {
 	return nil
+}
+
+// zeroMsgIDNotifier mimics the WebPush notifier: every Send returns (0, nil).
+// Used by the WebPush-only regression test to confirm the tz_step dedup gate
+// in MedicationChecker is set independently of msgID-conditional callbacks.
+type zeroMsgIDNotifier struct {
+	mu    sync.Mutex
+	sends int
+}
+
+func (z *zeroMsgIDNotifier) Send(_ context.Context, _ int64, _ notifier.Notification) (int, error) {
+	z.mu.Lock()
+	z.sends++
+	z.mu.Unlock()
+	return 0, nil
+}
+
+func (z *zeroMsgIDNotifier) Delete(_ context.Context, _ int64, _ int) error { return nil }
+func (z *zeroMsgIDNotifier) CloseNotification(_ context.Context, _ int64, _ string) error {
+	return nil
+}
+
+func (z *zeroMsgIDNotifier) count() int {
+	z.mu.Lock()
+	defer z.mu.Unlock()
+	return z.sends
 }
 
 type medicationScenarioInput struct {

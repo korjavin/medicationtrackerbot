@@ -102,18 +102,6 @@ func (a *storeAdapter) GetCurrentTimezone() (string, error) {
 func (a *storeAdapter) GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error) {
 	return a.tz.GetLatestActiveOrPendingTZTransitionPlan()
 }
-func (a *storeAdapter) GetLatestCompletedTZTransitionPlan() (*store.TZTransitionPlan, error) {
-	return a.tz.GetLatestCompletedTZTransitionPlan()
-}
-func (a *storeAdapter) GetPendingStepsForPlan(planID int64) ([]store.TZTransitionStep, error) {
-	return a.tz.GetPendingStepsForPlan(planID)
-}
-func (a *storeAdapter) GetLatestConsumedStepTimePerMed(planID int64) (map[int64]time.Time, error) {
-	return a.tz.GetLatestConsumedStepTimePerMed(planID)
-}
-func (a *storeAdapter) MarkStepConsumed(stepID int64, consumedAt time.Time) error {
-	return a.tz.MarkStepConsumed(stepID, consumedAt)
-}
 func (a *storeAdapter) UpdateTZTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error {
 	return a.tz.UpdateTZTransitionPlanStatus(id, newStatus, userAction, expectedStatus)
 }
@@ -125,6 +113,21 @@ func (a *storeAdapter) ResetPlanToPending(id int64) error {
 }
 func (a *storeAdapter) SetTZTransitionPlanApproved(id int64, approvedAt time.Time) (bool, error) {
 	return a.tz.SetTZTransitionPlanApproved(id, approvedAt)
+}
+
+// --- Pre-materialized tz_step intakes + symmetric dedup (Task 11) ---
+
+func (a *storeAdapter) GetDueTZStepIntakes(asOf time.Time) ([]store.IntakeLog, error) {
+	return a.med.GetDueTZStepIntakes(asOf)
+}
+func (a *storeAdapter) CountFuturePendingTZStepIntakesForPlan(planID int64, asOf time.Time) (int, error) {
+	return a.med.CountFuturePendingTZStepIntakesForPlan(planID, asOf)
+}
+func (a *storeAdapter) MedsWithFuturePendingTZStepsForPlan(planID int64, asOf time.Time) ([]int64, error) {
+	return a.med.MedsWithFuturePendingTZStepsForPlan(planID, asOf)
+}
+func (a *storeAdapter) HasIntakeNearScheduledTime(medID int64, target time.Time, window time.Duration) (bool, error) {
+	return a.med.HasIntakeNearScheduledTime(medID, target, window)
 }
 
 // --- Workout (workout.Repo) ---

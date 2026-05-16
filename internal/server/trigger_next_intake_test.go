@@ -13,6 +13,31 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
+// planStepFixture mirrors the PascalCase JSON shape of
+// tzreschedule.TransitionStep — the same blob the planner writes into
+// tz_transition_plans.steps_json. Approve-time materialise reads from this
+// column post-Task-13.
+type planStepFixture struct {
+	MedicationID int64
+	StepNumber   int
+	ScheduledAt  time.Time
+	Note         string
+}
+
+// setPlanSteps overwrites tz_transition_plans.steps_json on the given plan
+// with the serialised list of steps. Replaces the pre-Task-13 pattern of
+// inserting rows into tz_transition_steps before calling ApproveAndMaterialize.
+func setPlanSteps(t *testing.T, db *store.Store, planID int64, steps []planStepFixture) {
+	t.Helper()
+	blob, err := json.Marshal(steps)
+	if err != nil {
+		t.Fatalf("marshal steps: %v", err)
+	}
+	if _, err := db.DB().Exec(`UPDATE tz_transition_plans SET steps_json = ? WHERE id = ?`, string(blob), planID); err != nil {
+		t.Fatalf("update steps_json: %v", err)
+	}
+}
+
 // triggerHelpers wraps the busywork around handleTriggerNextIntake into one
 // place: parsing the response, fixing the clock the handler reads, and
 // fetching the resulting intake state. Each subtest uses it so the tests
@@ -144,19 +169,17 @@ func TestHandleTriggerNextIntake_PendingPlanStepUsedNotClockTime(t *testing.T) {
 
 	planID, err := c.db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
 		OldTZ: "Europe/Copenhagen", NewTZ: "America/Los_Angeles",
-		Status: "APPROVED", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "h",
+		Status: "PENDING_APPROVAL", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "h",
 	})
 	if err != nil {
 		t.Fatalf("CreateTZTransitionPlan: %v", err)
 	}
-	if _, err := c.db.TZ.SetTZTransitionPlanApproved(planID, c.now.Add(-time.Hour)); err != nil {
-		t.Fatalf("SetTZTransitionPlanApproved: %v", err)
-	}
 	stepTime := time.Date(2026, 5, 4, 14, 18, 0, 0, la)
-	if err := c.db.TZ.CreateTZTransitionSteps([]store.TZTransitionStep{
-		{PlanID: planID, MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "step"},
-	}); err != nil {
-		t.Fatalf("CreateTZTransitionSteps: %v", err)
+	setPlanSteps(t, c.db, planID, []planStepFixture{
+		{MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "step"},
+	})
+	if _, err := c.db.ApproveAndMaterialize(context.Background(), planID, 123456, c.now.Add(-time.Hour)); err != nil {
+		t.Fatalf("ApproveAndMaterialize: %v", err)
 	}
 
 	resp, code := c.callTrigger(123456)
@@ -175,17 +198,14 @@ func TestHandleTriggerNextIntake_PendingPlanStepUsedNotClockTime(t *testing.T) {
 	if intake.Status != "TAKEN" {
 		t.Errorf("expected status TAKEN, got %s", intake.Status)
 	}
+	if intake.Source != "tz_step" {
+		t.Errorf("expected source=tz_step preserved on the pre-materialized row, got %q", intake.Source)
+	}
 
 	// And there must be NO intake at the bare 21:30 PDT clock target.
 	bogus := time.Date(2026, 5, 4, 21, 30, 0, 0, la)
 	if got, _ := c.db.Medication.GetIntakeBySchedule(medID, bogus); got != nil {
 		t.Errorf("did not expect a clock-time 21:30 PDT intake, but found %+v", got)
-	}
-
-	// And the step must be marked consumed.
-	pending, _ := c.db.TZ.GetPendingStepsForPlan(planID)
-	if len(pending) != 0 {
-		t.Errorf("expected step marked consumed, got %d still pending", len(pending))
 	}
 }
 
@@ -209,21 +229,21 @@ func TestHandleTriggerNextIntake_ClusterMixesStepAndNormal(t *testing.T) {
 
 	planID, err := c.db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
 		OldTZ: "Europe/Copenhagen", NewTZ: "America/Los_Angeles",
-		Status: "APPROVED", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "hcluster",
+		Status: "PENDING_APPROVAL", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "hcluster",
 	})
 	if err != nil {
 		t.Fatalf("CreateTZTransitionPlan: %v", err)
 	}
-	if _, err := c.db.TZ.SetTZTransitionPlanApproved(planID, c.now.Add(-time.Hour)); err != nil {
-		t.Fatalf("SetTZTransitionPlanApproved: %v", err)
-	}
 	driftedStep := time.Date(2026, 5, 4, 8, 22, 6, 0, la) // 2 m 6 s drift
-	if err := c.db.TZ.CreateTZTransitionSteps([]store.TZTransitionStep{
-		{PlanID: planID, MedicationID: allopurinol, StepNumber: 1, ScheduledAt: driftedStep, Note: "step a"},
-		{PlanID: planID, MedicationID: bisoprolol, StepNumber: 1, ScheduledAt: driftedStep, Note: "step b"},
-		{PlanID: planID, MedicationID: candecorComp, StepNumber: 1, ScheduledAt: driftedStep, Note: "step c"},
-	}); err != nil {
-		t.Fatalf("CreateTZTransitionSteps: %v", err)
+	// Three meds share a single step_number=1; pre-materialize one row per med
+	// so the unique index (tz_plan_id, tz_step_number) doesn't collide.
+	setPlanSteps(t, c.db, planID, []planStepFixture{
+		{MedicationID: allopurinol, StepNumber: 1, ScheduledAt: driftedStep, Note: "step a"},
+		{MedicationID: bisoprolol, StepNumber: 2, ScheduledAt: driftedStep, Note: "step b"},
+		{MedicationID: candecorComp, StepNumber: 3, ScheduledAt: driftedStep, Note: "step c"},
+	})
+	if _, err := c.db.ApproveAndMaterialize(context.Background(), planID, 123456, c.now.Add(-time.Hour)); err != nil {
+		t.Fatalf("ApproveAndMaterialize: %v", err)
 	}
 
 	resp, code := c.callTrigger(123456)
@@ -265,19 +285,17 @@ func TestHandleTriggerNextIntake_CancelRevertsToCorrectScheduledAt(t *testing.T)
 
 	planID, err := c.db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
 		OldTZ: "Europe/Copenhagen", NewTZ: "America/Los_Angeles",
-		Status: "APPROVED", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "hcancel",
+		Status: "PENDING_APPROVAL", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "hcancel",
 	})
 	if err != nil {
 		t.Fatalf("CreateTZTransitionPlan: %v", err)
 	}
-	if _, err := c.db.TZ.SetTZTransitionPlanApproved(planID, c.now.Add(-time.Hour)); err != nil {
-		t.Fatalf("SetTZTransitionPlanApproved: %v", err)
-	}
 	stepTime := time.Date(2026, 5, 4, 14, 18, 0, 0, la)
-	if err := c.db.TZ.CreateTZTransitionSteps([]store.TZTransitionStep{
-		{PlanID: planID, MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "step"},
-	}); err != nil {
-		t.Fatalf("CreateTZTransitionSteps: %v", err)
+	setPlanSteps(t, c.db, planID, []planStepFixture{
+		{MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "step"},
+	})
+	if _, err := c.db.ApproveAndMaterialize(context.Background(), planID, 123456, c.now.Add(-time.Hour)); err != nil {
+		t.Fatalf("ApproveAndMaterialize: %v", err)
 	}
 
 	resp, code := c.callTrigger(123456)
@@ -341,21 +359,19 @@ func TestHandleTriggerNextIntake_EarlyNotifFormatsInUserTZ(t *testing.T) {
 
 	planID, err := c.db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
 		OldTZ: "Europe/Copenhagen", NewTZ: "America/Los_Angeles",
-		Status: "APPROVED", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "h-tz-fmt",
+		Status: "PENDING_APPROVAL", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "h-tz-fmt",
 	})
 	if err != nil {
 		t.Fatalf("CreateTZTransitionPlan: %v", err)
 	}
-	if _, err := c.db.TZ.SetTZTransitionPlanApproved(planID, c.now.Add(-time.Hour)); err != nil {
-		t.Fatalf("SetTZTransitionPlanApproved: %v", err)
-	}
 	// 22:30 PDT == 05:30 UTC the next day — exactly the value persisted on
 	// the production row that produced the bad notification.
 	stepUTC := time.Date(2026, 5, 6, 5, 30, 0, 0, time.UTC)
-	if err := c.db.TZ.CreateTZTransitionSteps([]store.TZTransitionStep{
-		{PlanID: planID, MedicationID: medID, StepNumber: 1, ScheduledAt: stepUTC, Note: "step"},
-	}); err != nil {
-		t.Fatalf("CreateTZTransitionSteps: %v", err)
+	setPlanSteps(t, c.db, planID, []planStepFixture{
+		{MedicationID: medID, StepNumber: 1, ScheduledAt: stepUTC, Note: "step"},
+	})
+	if _, err := c.db.ApproveAndMaterialize(context.Background(), planID, 123456, c.now.Add(-time.Hour)); err != nil {
+		t.Fatalf("ApproveAndMaterialize: %v", err)
 	}
 
 	resp, code := c.callTrigger(123456)
@@ -392,6 +408,504 @@ func TestHandleTriggerNextIntake_EarlyNotifFormatsInUserTZ(t *testing.T) {
 	}
 	if strings.Contains(notif, "scheduled for 05:30") {
 		t.Errorf("notification still showing UTC 05:30: %q", notif)
+	}
+}
+
+// TestHandleTriggerNextIntake_PreMaterializedTZStepRowSurfaces pins Task 12 of
+// docs/plans/20260508-simplify-medication-scheduling-utc-and-pre-materialized-steps.md:
+// a PENDING intake_log row with source='tz_step' (the shape that
+// ApproveAndMaterialize produces, and the shape that survives once Task 13
+// drops tz_transition_steps) must show up in the trigger-next-intake cluster
+// window even when nothing in tz_transition_steps would surface it via the
+// legacy pendingSteps path. The handler's union with intake_log is the only
+// thing that closes this gap post-Task-13.
+func TestHandleTriggerNextIntake_PreMaterializedTZStepRowSurfaces(t *testing.T) {
+	c := newTriggerCtx(t)
+	if err := c.db.TZ.RecordTimezone("America/Los_Angeles"); err != nil {
+		t.Fatalf("RecordTimezone: %v", err)
+	}
+	la, _ := time.LoadLocation("America/Los_Angeles")
+	// 13:00 PDT — 08:20 slot is past, 21:30 slot is ~8.5h ahead (in window),
+	// pre-materialized tz_step row sits at 14:18 PDT (closer and earliest).
+	c.setNow(time.Date(2026, 5, 4, 13, 0, 0, 0, la))
+
+	medID := mustCreateMed(t, c.db, "Lercanidipin", "10mg", `{"type":"daily","times":["08:20","21:30"]}`, "medium")
+
+	// Pre-materialize a PENDING tz_step intake_log row at 14:18 PDT without a
+	// matching tz_transition_steps entry — only the Task 12 union path can
+	// surface it, since the handler's legacy pendingSteps lookup returns nil.
+	// The plan-status gate in GetPendingIntakesInWindow requires the owning
+	// plan to be APPROVED/COMPLETED, so create a real APPROVED plan row.
+	planID, err := c.db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
+		OldTZ: "Europe/Copenhagen", NewTZ: "America/Los_Angeles",
+		Status: "APPROVED", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "h-pre-mat-surfaces",
+	})
+	if err != nil {
+		t.Fatalf("CreateTZTransitionPlan: %v", err)
+	}
+	stepTime := time.Date(2026, 5, 4, 14, 18, 0, 0, la)
+	if _, err := c.db.DB().Exec(`
+		INSERT INTO intake_log
+			(medication_id, user_id, scheduled_at_unix, status, source, tz_plan_id, tz_step_number)
+		VALUES (?, ?, ?, 'PENDING', 'tz_step', ?, ?)`,
+		medID, int64(123456), stepTime.UTC().Unix(), planID, int64(1)); err != nil {
+		t.Fatalf("pre-materialize tz_step intake row: %v", err)
+	}
+
+	resp, code := c.callTrigger(123456)
+	if code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", code)
+	}
+	if got := int(resp["medication_count"].(float64)); got != 1 {
+		t.Fatalf("expected 1 medication taken, got %d (resp=%v)", got, resp)
+	}
+
+	// The pre-materialized row must now be TAKEN, retaining its source/plan
+	// metadata so downstream paths (CountFuturePendingTZStepIntakesForPlan,
+	// scheduler COMPLETED check) still recognise it as a tz_step row.
+	intake, err := c.db.Medication.GetIntakeBySchedule(medID, stepTime)
+	if err != nil || intake == nil {
+		t.Fatalf("expected intake at step time, got intake=%v err=%v", intake, err)
+	}
+	if intake.Status != "TAKEN" {
+		t.Errorf("expected status TAKEN, got %s", intake.Status)
+	}
+	if intake.Source != "tz_step" {
+		t.Errorf("expected source=tz_step preserved, got %q", intake.Source)
+	}
+
+	// And the bare 21:30 PDT clock slot must NOT have been picked — it is
+	// 7+ hours from the 14:18 PDT cluster anchor, well outside the 10-minute
+	// cluster window, so the planner's normal-schedule target must stay
+	// untouched by this call.
+	bareEvening := time.Date(2026, 5, 4, 21, 30, 0, 0, la)
+	if got, _ := c.db.Medication.GetIntakeBySchedule(medID, bareEvening); got != nil {
+		t.Errorf("did not expect a 21:30 PDT intake, but found %+v", got)
+	}
+
+	// Response's scheduled_at should match the pre-materialized row's time so
+	// the Telegram early-take notification labels the right slot.
+	gotTime, _ := time.Parse(time.RFC3339, resp["scheduled_at"].(string))
+	if !gotTime.Equal(stepTime) {
+		t.Errorf("expected scheduled_at = %v, got %v", stepTime, gotTime)
+	}
+}
+
+// TestHandleTriggerNextIntake_CancelledPlanLeftoverNotSurfaced is the
+// defense-in-depth companion to the scheduler-side "cancelled plan: leftover
+// tz_step row does not fire" case in medication_tz_test.go. The planner's
+// cancel cleanup (DeletePendingPreMaterializedIntakesForPlan) is best-effort:
+// if it fails after the plan status flip, leftover PENDING source='tz_step'
+// rows survive. GetPendingIntakesInWindow must refuse to surface those rows
+// in the forecast / Take-next paths — otherwise the cancelled plan's
+// orphan step would suppress the normal-schedule target via
+// suppressNormalsCoveredByStep and let the user confirm it.
+func TestHandleTriggerNextIntake_CancelledPlanLeftoverNotSurfaced(t *testing.T) {
+	c := newTriggerCtx(t)
+	if err := c.db.TZ.RecordTimezone("America/Los_Angeles"); err != nil {
+		t.Fatalf("RecordTimezone: %v", err)
+	}
+	la, _ := time.LoadLocation("America/Los_Angeles")
+	// 13:00 PDT — bare 21:30 PDT slot is the only legitimate target. The
+	// orphan tz_step row at 14:18 PDT must NOT win.
+	c.setNow(time.Date(2026, 5, 4, 13, 0, 0, 0, la))
+
+	medID := mustCreateMed(t, c.db, "Lercanidipin", "10mg", `{"type":"daily","times":["08:20","21:30"]}`, "medium")
+
+	planID, err := c.db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
+		OldTZ: "Europe/Copenhagen", NewTZ: "America/Los_Angeles",
+		Status: "PENDING_APPROVAL", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "h-cancel-leak",
+	})
+	if err != nil {
+		t.Fatalf("CreateTZTransitionPlan: %v", err)
+	}
+	stepTime := time.Date(2026, 5, 4, 14, 18, 0, 0, la)
+	setPlanSteps(t, c.db, planID, []planStepFixture{
+		{MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "step"},
+	})
+	if _, err := c.db.ApproveAndMaterialize(context.Background(), planID, 123456, c.now.Add(-time.Hour)); err != nil {
+		t.Fatalf("ApproveAndMaterialize: %v", err)
+	}
+
+	// Simulate the cancel-then-delete-fails scenario: plan is flipped to
+	// CANCELLED but the PENDING tz_step intake_log row survives.
+	if err := c.db.TZ.UpdateTZTransitionPlanStatus(planID, "CANCELLED", "test", "APPROVED"); err != nil {
+		t.Fatalf("UpdateTZTransitionPlanStatus: %v", err)
+	}
+
+	resp, code := c.callTrigger(123456)
+	if code != http.StatusOK {
+		t.Fatalf("expected 200 (normal 21:30 slot still in window), got %d", code)
+	}
+
+	// scheduled_at must be 21:30 PDT (the legitimate normal target), not
+	// 14:18 PDT (the orphan tz_step row from the cancelled plan).
+	wantTime := time.Date(2026, 5, 4, 21, 30, 0, 0, la)
+	gotTime, _ := time.Parse(time.RFC3339, resp["scheduled_at"].(string))
+	if !gotTime.Equal(wantTime) {
+		t.Errorf("expected scheduled_at = %v (bare evening slot), got %v (orphan tz_step row surfaced)", wantTime, gotTime)
+	}
+
+	// The orphan tz_step row must remain PENDING — the handler refused to
+	// confirm it. GetIntakeBySchedule hides orphan PENDING tz_step rows via
+	// tzStepPlanStatusGateForDedup, so query intake_log directly to verify
+	// physical persistence.
+	var stepIntakeStatus string
+	if err := c.db.DB().QueryRow(`
+		SELECT status FROM intake_log
+		WHERE medication_id = ? AND scheduled_at_unix = ? AND source = 'tz_step'`,
+		medID, stepTime.UTC().Unix()).Scan(&stepIntakeStatus); err != nil {
+		t.Fatalf("expected leftover tz_step intake row to still exist: %v", err)
+	}
+	if stepIntakeStatus != "PENDING" {
+		t.Errorf("expected leftover tz_step row to remain PENDING, got %q", stepIntakeStatus)
+	}
+}
+
+// TestHandleTriggerNextIntake_OrphanTZStepSameTimeAsNormalDoesNotBlock pins
+// the codex-flagged exact-time collision: when an orphan PENDING source='tz_step'
+// row from a CANCELLED plan shares (medication_id, scheduled_at_unix) with the
+// legitimate normal-schedule target, GetIntakeBySchedule used to return the
+// orphan, ConfirmIntake rejected it via the plan-status gate, and the handler
+// `continue`d without creating/confirming the normal slot — leaving the user
+// unable to "Take next" that dose. With the dedup gate applied to
+// GetIntakeBySchedule, the orphan is invisible to the handler, it creates a
+// fresh normal-schedule intake at that slot and confirms it.
+func TestHandleTriggerNextIntake_OrphanTZStepSameTimeAsNormalDoesNotBlock(t *testing.T) {
+	c := newTriggerCtx(t)
+	if err := c.db.TZ.RecordTimezone("UTC"); err != nil {
+		t.Fatalf("RecordTimezone: %v", err)
+	}
+	// now = 08:55 UTC — the 09:00 UTC normal slot is 5 minutes ahead, in
+	// window, and is also where the orphan tz_step row sits.
+	c.setNow(time.Date(2026, 5, 4, 8, 55, 0, 0, time.UTC))
+	collisionTime := time.Date(2026, 5, 4, 9, 0, 0, 0, time.UTC)
+
+	medID := mustCreateMed(t, c.db, "Aspirin", "100mg",
+		`{"type":"daily","times":["09:00"]}`, "medium")
+	initialStock := 30
+	if err := c.db.Medication.UpdateMedication(medID, "Aspirin", "100mg",
+		`{"type":"daily","times":["09:00"]}`, false, nil, nil, "", "", &initialStock, ""); err != nil {
+		t.Fatalf("UpdateMedication (set inventory): %v", err)
+	}
+
+	planID, err := c.db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
+		OldTZ: "UTC", NewTZ: "Asia/Tokyo",
+		Status: "PENDING_APPROVAL", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "h-collision",
+	})
+	if err != nil {
+		t.Fatalf("CreateTZTransitionPlan: %v", err)
+	}
+	setPlanSteps(t, c.db, planID, []planStepFixture{
+		{MedicationID: medID, StepNumber: 1, ScheduledAt: collisionTime, Note: "step"},
+	})
+	if _, err := c.db.ApproveAndMaterialize(context.Background(), planID, 123456, c.now.Add(-time.Hour)); err != nil {
+		t.Fatalf("ApproveAndMaterialize: %v", err)
+	}
+	// Cancel the plan but leave the materialized PENDING tz_step row in
+	// place (simulates DeletePendingPreMaterializedIntakesForPlan failing
+	// after the status flip).
+	if err := c.db.TZ.UpdateTZTransitionPlanStatus(planID, "CANCELLED", "test", "APPROVED"); err != nil {
+		t.Fatalf("UpdateTZTransitionPlanStatus: %v", err)
+	}
+
+	resp, code := c.callTrigger(123456)
+	if code != http.StatusOK {
+		t.Fatalf("expected 200 (orphan must not block the legitimate normal slot), got %d", code)
+	}
+	if got := int(resp["medication_count"].(float64)); got != 1 {
+		t.Fatalf("expected 1 medication taken, got %d (resp=%v)", got, resp)
+	}
+
+	// A new normal-schedule intake at 09:00 UTC must exist and be TAKEN. The
+	// orphan tz_step row still physically exists alongside it.
+	var normalStatus, normalSource string
+	if err := c.db.DB().QueryRow(`
+		SELECT status, source FROM intake_log
+		WHERE medication_id = ? AND scheduled_at_unix = ? AND source = 'schedule'`,
+		medID, collisionTime.UTC().Unix()).Scan(&normalStatus, &normalSource); err != nil {
+		t.Fatalf("expected a new normal-schedule intake at the collision slot: %v", err)
+	}
+	if normalStatus != "TAKEN" {
+		t.Errorf("expected fresh normal intake to be TAKEN, got %q", normalStatus)
+	}
+
+	var orphanStatus string
+	if err := c.db.DB().QueryRow(`
+		SELECT status FROM intake_log
+		WHERE medication_id = ? AND scheduled_at_unix = ? AND source = 'tz_step'`,
+		medID, collisionTime.UTC().Unix()).Scan(&orphanStatus); err != nil {
+		t.Fatalf("orphan tz_step row should still exist physically: %v", err)
+	}
+	if orphanStatus != "PENDING" {
+		t.Errorf("orphan tz_step row must remain PENDING (gate blocks confirm), got %q", orphanStatus)
+	}
+
+	// Inventory decremented exactly once — for the legitimate normal slot,
+	// not for the orphan.
+	med, _ := c.db.Medication.GetMedication(medID)
+	if med == nil || med.InventoryCount == nil || *med.InventoryCount != initialStock-1 {
+		t.Errorf("expected inventory %d (one decrement for the legit slot), got %+v", initialStock-1, med)
+	}
+}
+
+// TestHandleTriggerNextIntake_ApprovedTZStepSameTimeAsNormalStillSurfaces
+// pins the codex-flagged regression where the intake_log + medplan union
+// would seed dedup from medplan first: when an APPROVED plan's
+// pre-materialized tz_step row lands on the exact same
+// (medication_id, scheduled_at_unix) as the med's normal-schedule slot,
+// the step row was skipped via dedup AND the normal target was then
+// dropped by plannedOwnedMeds suppression (because the plan still owns
+// the med). Result: the dose vanished from the cluster entirely. With the
+// fix the intake_log row wins the dedup so the SourceTransitionStep entry
+// survives suppression and the user can take the dose.
+func TestHandleTriggerNextIntake_ApprovedTZStepSameTimeAsNormalStillSurfaces(t *testing.T) {
+	c := newTriggerCtx(t)
+	if err := c.db.TZ.RecordTimezone("UTC"); err != nil {
+		t.Fatalf("RecordTimezone: %v", err)
+	}
+	// now = 08:55 UTC — the 09:00 UTC slot is 5 minutes ahead, in window.
+	c.setNow(time.Date(2026, 5, 4, 8, 55, 0, 0, time.UTC))
+	collisionTime := time.Date(2026, 5, 4, 9, 0, 0, 0, time.UTC)
+	// A second future step keeps the med "plan-owned" (plannedOwnedMeds
+	// looks for any future PENDING tz_step row, not just the colliding
+	// one). Without this distant step the suppression would short-circuit
+	// and the bug would not reproduce.
+	futureStep := time.Date(2026, 5, 4, 18, 0, 0, 0, time.UTC)
+
+	medID := mustCreateMed(t, c.db, "Aspirin", "100mg",
+		`{"type":"daily","times":["09:00"]}`, "medium")
+
+	planID, err := c.db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
+		OldTZ: "UTC", NewTZ: "Asia/Tokyo",
+		Status: "APPROVED", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "h-approved-collision",
+	})
+	if err != nil {
+		t.Fatalf("CreateTZTransitionPlan: %v", err)
+	}
+	if _, err := c.db.DB().Exec(`
+		INSERT INTO intake_log
+			(medication_id, user_id, scheduled_at_unix, status, source, tz_plan_id, tz_step_number)
+		VALUES (?, ?, ?, 'PENDING', 'tz_step', ?, 1)`,
+		medID, int64(123456), collisionTime.UTC().Unix(), planID); err != nil {
+		t.Fatalf("pre-materialize colliding tz_step row: %v", err)
+	}
+	if _, err := c.db.DB().Exec(`
+		INSERT INTO intake_log
+			(medication_id, user_id, scheduled_at_unix, status, source, tz_plan_id, tz_step_number)
+		VALUES (?, ?, ?, 'PENDING', 'tz_step', ?, 2)`,
+		medID, int64(123456), futureStep.UTC().Unix(), planID); err != nil {
+		t.Fatalf("pre-materialize plan-owned future tz_step row: %v", err)
+	}
+
+	resp, code := c.callTrigger(123456)
+	if code != http.StatusOK {
+		t.Fatalf("expected 200 (the colliding step must remain visible), got %d", code)
+	}
+	if got := int(resp["medication_count"].(float64)); got != 1 {
+		t.Fatalf("expected 1 medication taken, got %d (resp=%v) — the colliding tz_step row was hidden by dedup + plannedOwnedMeds suppression", got, resp)
+	}
+
+	// The pre-materialized tz_step row must be the one that got confirmed,
+	// retaining its source/plan metadata. A new source='schedule' row at
+	// the same slot would mean the medplan target won the dedup instead.
+	var status, source string
+	if err := c.db.DB().QueryRow(`
+		SELECT status, source FROM intake_log
+		WHERE medication_id = ? AND scheduled_at_unix = ? AND tz_plan_id = ?`,
+		medID, collisionTime.UTC().Unix(), planID).Scan(&status, &source); err != nil {
+		t.Fatalf("lookup colliding tz_step row: %v", err)
+	}
+	if status != "TAKEN" {
+		t.Errorf("colliding tz_step row status=%q, want TAKEN", status)
+	}
+	if source != "tz_step" {
+		t.Errorf("colliding row source=%q, want tz_step (provenance must survive the dedup)", source)
+	}
+
+	// There must NOT also be a separate source='schedule' row at the same
+	// slot — if there were, the medplan target won dedup and we created a
+	// duplicate normal intake on top of the existing tz_step row.
+	var dupCount int
+	if err := c.db.DB().QueryRow(`
+		SELECT COUNT(*) FROM intake_log
+		WHERE medication_id = ? AND scheduled_at_unix = ? AND source = 'schedule'`,
+		medID, collisionTime.UTC().Unix()).Scan(&dupCount); err != nil {
+		t.Fatalf("dup-check query: %v", err)
+	}
+	if dupCount != 0 {
+		t.Errorf("found %d duplicate source='schedule' rows at the collision slot — tz_step must win the dedup", dupCount)
+	}
+}
+
+// TestHandleTriggerNextIntake_DualRowCollisionPrefersTZStep pins the
+// codex-flagged regression where intake_log holds BOTH a pre-existing
+// source='schedule' PENDING row and a source='tz_step' PENDING row from an
+// APPROVED plan at the exact same (medication_id, scheduled_at_unix). This
+// can arise when the medication scheduler fires the normal slot at T just
+// before the user approves a plan whose snap-to-clock final step also
+// landed at T. Without source-priority ordering in GetPendingIntakesInWindow
+// and GetIntakeBySchedule, the older schedule row wins the forecast dedup,
+// gets marked SourceNormalSchedule, and is then dropped by
+// suppressNormalsCoveredByStep because the plan still owns the med — the
+// dose disappears entirely. The fix orders rows so the tz_step row wins.
+func TestHandleTriggerNextIntake_DualRowCollisionPrefersTZStep(t *testing.T) {
+	c := newTriggerCtx(t)
+	if err := c.db.TZ.RecordTimezone("UTC"); err != nil {
+		t.Fatalf("RecordTimezone: %v", err)
+	}
+	c.setNow(time.Date(2026, 5, 4, 8, 55, 0, 0, time.UTC))
+	collisionTime := time.Date(2026, 5, 4, 9, 0, 0, 0, time.UTC)
+	futureStep := time.Date(2026, 5, 4, 18, 0, 0, 0, time.UTC)
+
+	medID := mustCreateMed(t, c.db, "Aspirin", "100mg",
+		`{"type":"daily","times":["09:00"]}`, "medium")
+
+	planID, err := c.db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
+		OldTZ: "UTC", NewTZ: "Asia/Tokyo",
+		Status: "APPROVED", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "h-dual-row-collision",
+	})
+	if err != nil {
+		t.Fatalf("CreateTZTransitionPlan: %v", err)
+	}
+
+	// Insert the source='schedule' row FIRST — it gets the lower id, which
+	// is the worst case for SQLite's natural ordering: without the fix it
+	// would win the no-ORDER-BY query and shadow the tz_step row.
+	scheduleRowID, err := c.db.Medication.CreateIntake(medID, int64(123456), collisionTime)
+	if err != nil {
+		t.Fatalf("CreateIntake (schedule row): %v", err)
+	}
+
+	// Materialize the tz_step row at the same instant. The unique partial
+	// index in migration 067 only covers (tz_plan_id, medication_id,
+	// tz_step_number), so a same-slot schedule row does not block it.
+	if _, err := c.db.DB().Exec(`
+		INSERT INTO intake_log
+			(medication_id, user_id, scheduled_at_unix, status, source, tz_plan_id, tz_step_number)
+		VALUES (?, ?, ?, 'PENDING', 'tz_step', ?, 1)`,
+		medID, int64(123456), collisionTime.UTC().Unix(), planID); err != nil {
+		t.Fatalf("pre-materialize colliding tz_step row: %v", err)
+	}
+	// A future plan-owned step keeps plannedOwnedMeds suppression active —
+	// without it the bug would not reproduce.
+	if _, err := c.db.DB().Exec(`
+		INSERT INTO intake_log
+			(medication_id, user_id, scheduled_at_unix, status, source, tz_plan_id, tz_step_number)
+		VALUES (?, ?, ?, 'PENDING', 'tz_step', ?, 2)`,
+		medID, int64(123456), futureStep.UTC().Unix(), planID); err != nil {
+		t.Fatalf("pre-materialize plan-owned future tz_step row: %v", err)
+	}
+
+	resp, code := c.callTrigger(123456)
+	if code != http.StatusOK {
+		t.Fatalf("expected 200 (the colliding tz_step must win dedup and surface), got %d", code)
+	}
+	if got := int(resp["medication_count"].(float64)); got != 1 {
+		t.Fatalf("expected 1 medication taken, got %d (resp=%v) — dose vanished from dedup/suppression", got, resp)
+	}
+
+	// The tz_step row must be the one that got confirmed.
+	var status, source string
+	if err := c.db.DB().QueryRow(`
+		SELECT status, source FROM intake_log
+		WHERE medication_id = ? AND scheduled_at_unix = ? AND tz_plan_id = ?`,
+		medID, collisionTime.UTC().Unix(), planID).Scan(&status, &source); err != nil {
+		t.Fatalf("lookup colliding tz_step row: %v", err)
+	}
+	if status != "TAKEN" {
+		t.Errorf("tz_step row status=%q, want TAKEN (confirmation must target the plan-owned row)", status)
+	}
+	if source != "tz_step" {
+		t.Errorf("confirmed row source=%q, want tz_step", source)
+	}
+
+	// And the pre-existing schedule row must NOT have been touched by the
+	// handler — its status stays PENDING physically. It is a dead row from
+	// the perspective of the active plan (the tz_step row owns the dose
+	// going forward) and is hidden from user-action surfaces by
+	// scheduleNotShadowedByTZStepGate: MedicationReminderChecker's
+	// GetPendingIntakes scan skips it, ConfirmIntakesBySchedule's
+	// confirm_schedule:<unix> path skips it, and the next scheduler tick
+	// sees the tz_step row in BatchGet so it does not re-fire the slot. The
+	// row therefore cannot be double-confirmed for a second inventory
+	// decrement.
+	var schedStatus string
+	if err := c.db.DB().QueryRow(`SELECT status FROM intake_log WHERE id = ?`, scheduleRowID).Scan(&schedStatus); err != nil {
+		t.Fatalf("lookup schedule row: %v", err)
+	}
+	if schedStatus != "PENDING" {
+		t.Errorf("schedule row status=%q, want PENDING (handler must target the tz_step row, not the schedule row)", schedStatus)
+	}
+
+	// The shadowed schedule row must be invisible to MedicationReminderChecker
+	// (which scans GetPendingIntakes) — otherwise the user gets a second
+	// reminder for the dose they already took via the tz_step row and a
+	// confirm_intake click decrements inventory a second time.
+	pending, err := c.db.Medication.GetPendingIntakes()
+	if err != nil {
+		t.Fatalf("GetPendingIntakes after trigger: %v", err)
+	}
+	for _, p := range pending {
+		if p.ID == scheduleRowID {
+			t.Errorf("shadowed schedule row %d still returned by GetPendingIntakes — reminder checker would fire it for a second inventory decrement", scheduleRowID)
+		}
+	}
+
+	// confirm_schedule:<unix> must not surface the shadowed schedule row either.
+	bySched, err := c.db.Medication.GetPendingIntakesBySchedule(123456, collisionTime)
+	if err != nil {
+		t.Fatalf("GetPendingIntakesBySchedule after trigger: %v", err)
+	}
+	for _, p := range bySched {
+		if p.ID == scheduleRowID {
+			t.Errorf("shadowed schedule row %d still returned by GetPendingIntakesBySchedule — confirm_schedule batch would double-confirm the dose", scheduleRowID)
+		}
+	}
+}
+
+// TestHandleTriggerNextIntake_PlanOwnsMedSuppressesDistantWindowNormal pins
+// the Take-next analogue of the scheduler's "plan owns this med while steps
+// remain" rule. An APPROVED plan has a single PENDING tz_step for the med
+// well beyond the 12h look-ahead window. The med's normal-schedule slot is
+// inside the window — without the plan-owned suppression the handler would
+// surface and confirm a bare clock-time dose for a medication the scheduler
+// considers fully governed by the plan, producing a phantom intake at the
+// wrong instant.
+func TestHandleTriggerNextIntake_PlanOwnsMedSuppressesDistantWindowNormal(t *testing.T) {
+	c := newTriggerCtx(t)
+	if err := c.db.TZ.RecordTimezone("UTC"); err != nil {
+		t.Fatalf("RecordTimezone: %v", err)
+	}
+	// now = 12:00 UTC today — the 20:00 UTC normal slot is 8h away (in
+	// window) but the next plan step is 24h away (out of window).
+	c.setNow(time.Date(2026, 5, 4, 12, 0, 0, 0, time.UTC))
+
+	medID := mustCreateMed(t, c.db, "Metformin", "1000mg",
+		`{"type":"daily","times":["20:00"]}`, "flexible")
+
+	planID, err := c.db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
+		OldTZ: "UTC", NewTZ: "Asia/Tokyo",
+		Status: "PENDING_APPROVAL", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "h-plan-owns-distant",
+	})
+	if err != nil {
+		t.Fatalf("CreateTZTransitionPlan: %v", err)
+	}
+	stepTime := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC) // 24h ahead, outside 12h window
+	setPlanSteps(t, c.db, planID, []planStepFixture{
+		{MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "step"},
+	})
+	if _, err := c.db.ApproveAndMaterialize(context.Background(), planID, 123456, c.now.Add(-time.Hour)); err != nil {
+		t.Fatalf("ApproveAndMaterialize: %v", err)
+	}
+
+	// No other med exists, so with plan-owned suppression there is no
+	// upcoming dose in window and the handler must say 404 — not pick the
+	// med's normal-schedule slot just because the plan step itself sits
+	// outside the look-ahead window.
+	_, code := c.callTrigger(123456)
+	if code != http.StatusNotFound {
+		t.Errorf("expected 404 (plan owns this med, no upcoming target in window), got %d — handler surfaced the bare normal-schedule slot for a plan-owned med", code)
 	}
 }
 
