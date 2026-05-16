@@ -8,8 +8,8 @@
 // hidden   → pop history entry + defer visibility to AppBackButton.refresh()
 //
 // All back-button toggling goes through window.MessengerAdapter so this file
-// behaves identically in the Telegram Mini App (Telegram.WebApp.BackButton)
-// and in the plain-browser path (in-app chevron + popstate).
+// behaves identically in the Telegram Mini App (forwards to the Telegram SDK
+// BackButton) and in the plain-browser path (in-app chevron + popstate).
 //
 // Loaded after app.js so ModalManager is available.
 // The harness loads this file so modal-history tests can rely on it.
