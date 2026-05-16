@@ -111,52 +111,6 @@ func TestPlanDoses_ForecastMode_DropsOutsideWindow(t *testing.T) {
 	}
 }
 
-func TestPlanDoses_PendingStepsSuppressNormalSchedule(t *testing.T) {
-	// Med has pending plan step; normal schedule is suppressed for this med
-	// even when normal targets fall in the same window.
-	now := time.Date(2024, 3, 15, 11, 5, 0, 0, time.UTC)
-	stepTime := time.Date(2024, 3, 15, 11, 0, 0, 0, time.UTC)
-	out := medplan.PlanDoses(medplan.Inputs{
-		Medications: []store.Medication{med(1, "Warfarin", dailySchedule("09:00"), "flexible")},
-		PendingSteps: []store.TZTransitionStep{
-			{ID: 100, PlanID: 1, MedicationID: 1, StepNumber: 1, ScheduledAt: stepTime, Note: "step"},
-		},
-		UserLoc: time.UTC,
-		Now:     now,
-	})
-	if len(out) != 1 {
-		t.Fatalf("want 1 step target, got %d: %+v", len(out), out)
-	}
-	if out[0].Source != medplan.SourceTransitionStep {
-		t.Errorf("source = %v, want SourceTransitionStep", out[0].Source)
-	}
-	if out[0].StepID != 100 {
-		t.Errorf("step id = %d, want 100", out[0].StepID)
-	}
-	if !out[0].ScheduledAt.Equal(stepTime) {
-		t.Errorf("step time = %v, want %v", out[0].ScheduledAt, stepTime)
-	}
-}
-
-func TestPlanDoses_FuturePendingStepStillSuppressesNormal(t *testing.T) {
-	// A pending step exists but is not yet due; normal schedule still must
-	// be suppressed for this med so the user is not pinged for a dose the
-	// plan is going to override later.
-	now := time.Date(2024, 3, 15, 9, 5, 0, 0, time.UTC)
-	out := medplan.PlanDoses(medplan.Inputs{
-		Medications: []store.Medication{med(1, "Warfarin", dailySchedule("09:00"), "flexible")},
-		PendingSteps: []store.TZTransitionStep{
-			{ID: 100, PlanID: 1, MedicationID: 1, StepNumber: 1,
-				ScheduledAt: time.Date(2024, 3, 15, 14, 0, 0, 0, time.UTC), Note: "step"},
-		},
-		UserLoc: time.UTC,
-		Now:     now,
-	})
-	if len(out) != 0 {
-		t.Errorf("normal schedule must be suppressed while plan steps remain, got %+v", out)
-	}
-}
-
 // The legacy ConsumedStepTimeByMed overlap-guard tests were removed in Task
 // 11 of the medication-scheduling simplification plan. The overlap guard
 // itself moved out of medplan and into the medication scheduler, where it
@@ -164,6 +118,11 @@ func TestPlanDoses_FuturePendingStepStillSuppressesNormal(t *testing.T) {
 // integration tests in internal/scheduler/medication_tz_test.go (the
 // "westbound" and "completed plan overlap guard" cases) pin that behaviour
 // end-to-end through the scheduler tick rather than the pure planner.
+//
+// Track D Task 13 also removed the PendingSteps input. Pre-materialized
+// step rows live as PENDING source='tz_step' intake_log rows and are
+// unioned in at the scheduler and forecast layers — medplan is now purely
+// normal-schedule.
 
 func TestPlanDoses_FinishedCourseSkipped(t *testing.T) {
 	now := time.Date(2024, 3, 15, 9, 5, 0, 0, time.UTC)

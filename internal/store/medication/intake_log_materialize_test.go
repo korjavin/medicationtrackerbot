@@ -2,6 +2,7 @@ package medication
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -11,10 +12,11 @@ import (
 
 // TestMaterializePlanStepsAsIntakesTx covers Task 10 of the
 // scheduler-simplification plan: when a tz_transition_plan is approved, every
-// unconsumed step is pre-materialized as a PENDING intake_log row with
-// source='tz_step', tz_plan_id=plan.ID, and tz_step_number=step.StepNumber.
-// Already-consumed steps are skipped — the user has taken those doses through
-// the legacy step-consumed path and a new intake row would double-count.
+// step recorded in plan.steps_json is pre-materialized as a PENDING intake_log
+// row with source='tz_step', tz_plan_id=plan.ID, and tz_step_number=step.StepNumber.
+// Track D Task 13 dropped the sibling tz_transition_steps table; steps_json
+// (the audit blob written by the planner at plan-create time) is now the
+// single input.
 func TestMaterializePlanStepsAsIntakesTx(t *testing.T) {
 	r := setupMedicationRepo(t)
 	medID, err := r.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
@@ -22,12 +24,10 @@ func TestMaterializePlanStepsAsIntakesTx(t *testing.T) {
 		t.Fatalf("CreateMedication: %v", err)
 	}
 
-	planID := insertTestPlan(t, r.db, "APPROVED")
-
-	// Two unconsumed steps and one consumed step.
-	insertTestStep(t, r.db, planID, medID, 1, time.Date(2026, 5, 16, 6, 0, 0, 0, time.UTC), false)
-	insertTestStep(t, r.db, planID, medID, 2, time.Date(2026, 5, 16, 7, 0, 0, 0, time.UTC), false)
-	insertTestStep(t, r.db, planID, medID, 3, time.Date(2026, 5, 16, 8, 0, 0, 0, time.UTC), true)
+	planID := insertTestPlan(t, r.db, "APPROVED", []materializeFixtureStep{
+		{MedicationID: medID, StepNumber: 1, ScheduledAt: time.Date(2026, 5, 16, 6, 0, 0, 0, time.UTC)},
+		{MedicationID: medID, StepNumber: 2, ScheduledAt: time.Date(2026, 5, 16, 7, 0, 0, 0, time.UTC)},
+	})
 
 	tx, err := r.db.Begin()
 	if err != nil {
@@ -41,7 +41,7 @@ func TestMaterializePlanStepsAsIntakesTx(t *testing.T) {
 		t.Fatalf("commit: %v", err)
 	}
 	if n != 2 {
-		t.Errorf("inserted=%d want 2 (one consumed step is skipped)", n)
+		t.Errorf("inserted=%d want 2 (one row per step in steps_json)", n)
 	}
 
 	// Re-running is a no-op thanks to migration 067's partial unique index.
@@ -119,7 +119,7 @@ func TestDeletePendingPreMaterializedIntakesForPlan(t *testing.T) {
 		t.Fatalf("CreateMedication: %v", err)
 	}
 
-	planID := insertTestPlan(t, r.db, "APPROVED")
+	planID := insertTestPlan(t, r.db, "APPROVED", nil)
 
 	// Insert: two PENDING tz_step rows + one TAKEN tz_step row + one
 	// unrelated source='schedule' PENDING row.
@@ -167,12 +167,30 @@ func TestDeletePendingPreMaterializedIntakesForPlan(t *testing.T) {
 
 // --- helpers ---
 
-func insertTestPlan(t *testing.T, db *storedb.DB, status string) int64 {
+// materializeFixtureStep mirrors the PascalCase JSON shape of
+// tzreschedule.TransitionStep — the same blob the planner serializes into
+// tz_transition_plans.steps_json at plan-creation time, and the shape
+// MaterializePlanStepsAsIntakesTx parses at approve time.
+type materializeFixtureStep struct {
+	MedicationID int64
+	StepNumber   int
+	ScheduledAt  time.Time
+}
+
+func insertTestPlan(t *testing.T, db *storedb.DB, status string, steps []materializeFixtureStep) int64 {
 	t.Helper()
+	blob := []byte("[]")
+	if len(steps) > 0 {
+		b, err := json.Marshal(steps)
+		if err != nil {
+			t.Fatalf("marshal steps: %v", err)
+		}
+		blob = b
+	}
 	res, err := db.Exec(
 		`INSERT INTO tz_transition_plans (old_tz, new_tz, status, steps_json, inputs_json, plan_hash)
-		 VALUES ('UTC', 'Europe/Berlin', ?, '[]', '{}', ?)`,
-		status, "test-hash-"+status+"-"+time.Now().Format(time.RFC3339Nano),
+		 VALUES ('UTC', 'Europe/Berlin', ?, ?, '{}', ?)`,
+		status, string(blob), "test-hash-"+status+"-"+time.Now().Format(time.RFC3339Nano),
 	)
 	if err != nil {
 		t.Fatalf("insert plan: %v", err)
@@ -182,24 +200,6 @@ func insertTestPlan(t *testing.T, db *storedb.DB, status string) int64 {
 		t.Fatalf("LastInsertId(plan): %v", err)
 	}
 	return id
-}
-
-func insertTestStep(t *testing.T, db *storedb.DB, planID, medID int64, stepNum int, scheduledAt time.Time, consumed bool) {
-	t.Helper()
-	res, err := db.Exec(
-		`INSERT INTO tz_transition_steps (plan_id, medication_id, step_number, scheduled_at, note)
-		 VALUES (?, ?, ?, ?, ?)`,
-		planID, medID, stepNum, scheduledAt, "test step",
-	)
-	if err != nil {
-		t.Fatalf("insert step: %v", err)
-	}
-	if consumed {
-		stepID, _ := res.LastInsertId()
-		if _, err := db.Exec(`UPDATE tz_transition_steps SET consumed_at = ? WHERE id = ?`, scheduledAt, stepID); err != nil {
-			t.Fatalf("mark step consumed: %v", err)
-		}
-	}
 }
 
 func insertTestIntakeRow(t *testing.T, db *storedb.DB, medID int64, scheduledAt time.Time, status, source string, planID *int64, stepNum *int64) {

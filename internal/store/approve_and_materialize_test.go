@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -23,9 +24,8 @@ func TestApproveAndMaterialize_FlipsAndMaterializes(t *testing.T) {
 	}
 
 	planID := insertPlanWithSteps(t, r, "PENDING_APPROVAL", []seedStep{
-		{medID: medID, stepNum: 1, scheduledAt: time.Date(2026, 5, 16, 6, 0, 0, 0, time.UTC), consumed: false},
-		{medID: medID, stepNum: 2, scheduledAt: time.Date(2026, 5, 16, 7, 0, 0, 0, time.UTC), consumed: false},
-		{medID: medID, stepNum: 3, scheduledAt: time.Date(2026, 5, 16, 8, 0, 0, 0, time.UTC), consumed: true},
+		{medID: medID, stepNum: 1, scheduledAt: time.Date(2026, 5, 16, 6, 0, 0, 0, time.UTC)},
+		{medID: medID, stepNum: 2, scheduledAt: time.Date(2026, 5, 16, 7, 0, 0, 0, time.UTC)},
 	})
 
 	approved, err := r.ApproveAndMaterialize(context.Background(), planID, 42, time.Date(2026, 5, 16, 5, 0, 0, 0, time.UTC))
@@ -89,7 +89,7 @@ func TestApproveAndMaterialize_RejectedPlanIsNoOp(t *testing.T) {
 		t.Fatalf("CreateMedication: %v", err)
 	}
 	planID := insertPlanWithSteps(t, r, "REJECTED", []seedStep{
-		{medID: medID, stepNum: 1, scheduledAt: time.Date(2026, 5, 16, 6, 0, 0, 0, time.UTC), consumed: false},
+		{medID: medID, stepNum: 1, scheduledAt: time.Date(2026, 5, 16, 6, 0, 0, 0, time.UTC)},
 	})
 
 	approved, err := r.ApproveAndMaterialize(context.Background(), planID, 42, time.Now())
@@ -125,7 +125,6 @@ type seedStep struct {
 	medID       int64
 	stepNum     int
 	scheduledAt time.Time
-	consumed    bool
 }
 
 func setupRepos(t *testing.T) *Repos {
@@ -142,12 +141,34 @@ func setupRepos(t *testing.T) *Repos {
 	return r
 }
 
+// approveFixtureStep mirrors the PascalCase JSON shape of
+// tzreschedule.TransitionStep — what the planner writes into
+// tz_transition_plans.steps_json. MaterializePlanStepsAsIntakesTx parses these
+// keys at approve time.
+type approveFixtureStep struct {
+	MedicationID int64
+	StepNumber   int
+	ScheduledAt  time.Time
+}
+
 func insertPlanWithSteps(t *testing.T, r *Repos, status string, steps []seedStep) int64 {
 	t.Helper()
+	fixtures := make([]approveFixtureStep, len(steps))
+	for i, s := range steps {
+		fixtures[i] = approveFixtureStep{
+			MedicationID: s.medID,
+			StepNumber:   s.stepNum,
+			ScheduledAt:  s.scheduledAt,
+		}
+	}
+	blob, err := json.Marshal(fixtures)
+	if err != nil {
+		t.Fatalf("marshal steps: %v", err)
+	}
 	res, err := r.DB().Exec(
 		`INSERT INTO tz_transition_plans (old_tz, new_tz, status, steps_json, inputs_json, plan_hash)
-		 VALUES ('UTC', 'Europe/Berlin', ?, '[]', '{}', ?)`,
-		status, "test-hash-"+status+"-"+time.Now().Format(time.RFC3339Nano),
+		 VALUES ('UTC', 'Europe/Berlin', ?, ?, '{}', ?)`,
+		status, string(blob), "test-hash-"+status+"-"+time.Now().Format(time.RFC3339Nano),
 	)
 	if err != nil {
 		t.Fatalf("insert plan: %v", err)
@@ -155,22 +176,6 @@ func insertPlanWithSteps(t *testing.T, r *Repos, status string, steps []seedStep
 	planID, err := res.LastInsertId()
 	if err != nil {
 		t.Fatalf("LastInsertId(plan): %v", err)
-	}
-	for _, s := range steps {
-		stepRes, err := r.DB().Exec(
-			`INSERT INTO tz_transition_steps (plan_id, medication_id, step_number, scheduled_at, note)
-			 VALUES (?, ?, ?, ?, ?)`,
-			planID, s.medID, s.stepNum, s.scheduledAt, "test step",
-		)
-		if err != nil {
-			t.Fatalf("insert step: %v", err)
-		}
-		if s.consumed {
-			stepID, _ := stepRes.LastInsertId()
-			if _, err := r.DB().Exec(`UPDATE tz_transition_steps SET consumed_at = ? WHERE id = ?`, s.scheduledAt, stepID); err != nil {
-				t.Fatalf("mark step consumed: %v", err)
-			}
-		}
 	}
 	return planID
 }
