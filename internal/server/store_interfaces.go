@@ -190,7 +190,7 @@ type HealthStore interface {
 type ChangeStore interface {
 	GetLatestChangeCursor(ctx context.Context) (int64, error)
 	PruneChangeEvents(ctx context.Context, keepLast, maxAgeDays int) error
-	GetChangedTagsSince(ctx context.Context, since int64) (int64, []string, error)
+	ListChangedTagsSince(ctx context.Context, since int64) (int64, []string, error)
 }
 
 // PushStore is the subset of store operations needed for push subscription management.

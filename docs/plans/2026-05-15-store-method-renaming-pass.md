@@ -321,12 +321,12 @@ Already minimal: `Create`, `List`, `Delete`. No renames.
 
 ### Task 9: Rename settings repo methods
 
-- [ ] apply rename mapping to `internal/store/settings/` (incl. download cursor + change_events)
-- [ ] update consumer interfaces in `internal/server/store_interfaces.go` and `internal/bot/store_interfaces.go`
-- [ ] update adapter forwarders in scheduler/bot/mcp adapters
-- [ ] update MCP registry operation handlers in `internal/mcp/registry/operations_settings*.go` if any
-- [ ] update tests inside `internal/store/settings/` and any caller tests
-- [ ] run project tests - must pass (`go test ./...`, `go test -race ./...`, `golangci-lint run`)
+- [x] apply rename mapping to `internal/store/settings/` (incl. download cursor + change_events) — only `GetChangedTagsSince` → `ListChangedTagsSince` (all other settings methods explicitly KEEP per plan: feature-flag get/set pairs use column-name suffixes, not domain redundancy)
+- [x] update consumer interfaces in `internal/server/store_interfaces.go` and `internal/bot/store_interfaces.go` — only `ChangeStore` in `internal/server/store_interfaces.go` referenced this method; `internal/bot/store_interfaces.go` has no settings references
+- [x] update adapter forwarders in scheduler/bot/mcp adapters — none reference settings change-stream methods (grep returned zero hits across `internal/scheduler/adapter.go`, `internal/bot/adapter.go`, `internal/mcp/adapter.go`)
+- [x] update MCP registry operation handlers in `internal/mcp/registry/operations_settings*.go` if any — no `operations_settings*.go` exists and no MCP registry handler references `GetChangedTagsSince`
+- [x] update tests inside `internal/store/settings/` and any caller tests — `internal/store/settings/changes_test.go` updated (test function name and log messages); no caller tests reference the method
+- [x] run project tests - `go test ./...` and `golangci-lint run` pass; `go test -race ./...` has the same pre-existing failure in `internal/scheduler/notifier_test.go::TestNotify_SendError_DoesNotCallStoreMsgID` (slog reflecting over the notifier mock's sync.Mutex) that Tasks 6/7/8 documented — reproduces identically on master without my changes and is out of scope for this renaming pass.
 
 ### Task 10: Rename auth repo methods
 
