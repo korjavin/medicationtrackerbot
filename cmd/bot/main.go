@@ -156,6 +156,13 @@ func main() {
 	// skip plan generation.
 	tzPlannerStore := newTZPlannerStore(s)
 	tzPlanner := tzreschedule.NewPlannerService(tzPlannerStore)
+	// Lifecycle service: shared by every transport that flips a plan to
+	// APPROVED (HTTP /api/tz-plan/{id}/approve, the bot's tz_plan_approve
+	// callback, and the scheduler's auto-approve safety nets) so the plan
+	// transition and the pre-materialize step inserts always share one
+	// transaction. See Track D Task 10 in
+	// docs/plans/20260508-simplify-medication-scheduling-utc-and-pre-materialized-steps.md.
+	tzLifecycle := tzreschedule.NewLifecycleService(s, allowedUserID)
 	var notifiers []notifier.Notifier
 	tzUpdater := tzupdate.NewService(s.TZ, s.TZ, tzPlanner, nil, func() bool { return len(notifiers) > 0 })
 	// Construct the TZ-suggestion decision service alongside the tz updater so
@@ -266,6 +273,13 @@ func main() {
 	// Wire the shared TZ-update service so both web and bot transports share
 	// one mutex and one plan-generation path.
 	srv.SetTZUpdater(tzUpdater)
+
+	// Wire the shared TZ-lifecycle service so HTTP, bot, and scheduler approve
+	// paths flip plans through one ApproveAndMaterialize tx.
+	srv.SetTZLifecycle(tzLifecycle)
+	if tgBot != nil {
+		tgBot.SetTZLifecycle(tzLifecycle)
+	}
 
 	// Wire the TZ-suggestion service so the HTTP server's dismiss endpoint
 	// and bootstrap consult the canonical settings + active-plan baseline.

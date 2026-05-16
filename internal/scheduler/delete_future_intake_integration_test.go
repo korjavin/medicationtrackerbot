@@ -89,7 +89,7 @@ func TestDeleteFutureIntake_RegeneratedByScheduler(t *testing.T) {
 	// cause the dose to be silently swallowed.
 	pending, err := db.Medication.ListPendingIntakes()
 	if err != nil {
-		t.Fatalf("GetPendingIntakes: %v", err)
+		t.Fatalf("ListPendingIntakes: %v", err)
 	}
 
 	var fresh *store.IntakeLog

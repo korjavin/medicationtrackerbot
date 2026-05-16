@@ -341,7 +341,7 @@ func TestSkipIntake(t *testing.T) {
 
 	pending, err := db.ListPendingIntakes()
 	if err != nil {
-		t.Fatalf("GetPendingIntakes failed: %v", err)
+		t.Fatalf("ListPendingIntakes failed: %v", err)
 	}
 	for _, p := range pending {
 		if p.ID == intakeID {
@@ -523,12 +523,12 @@ func TestListPendingIntakes(t *testing.T) {
 
 	pending, err := db.ListPendingIntakes()
 	if err != nil {
-		t.Fatalf("GetPendingIntakes failed: %v", err)
+		t.Fatalf("ListPendingIntakes failed: %v", err)
 	}
 
 	for _, p := range pending {
 		if p.Status != "PENDING" {
-			t.Errorf("GetPendingIntakes returned non-pending intake with status %q", p.Status)
+			t.Errorf("ListPendingIntakes returned non-pending intake with status %q", p.Status)
 		}
 	}
 }

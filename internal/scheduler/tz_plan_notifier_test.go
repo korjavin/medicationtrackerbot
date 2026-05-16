@@ -54,7 +54,10 @@ func (m *mockTZPlanNotifierStore) UpdateTransitionPlanStatus(id int64, newStatus
 	return nil
 }
 
-func (m *mockTZPlanNotifierStore) SetTransitionPlanApproved(id int64, _ time.Time) (bool, error) {
+// approve adapts the mock to tzreschedule.LifecycleService for tests that
+// exercise the auto-approve path. Production wires a real LifecycleService
+// via store.Repos.ApproveAndMaterialize at the composition root.
+func (m *mockTZPlanNotifierStore) Approve(_ context.Context, id int64, _ time.Time) (bool, error) {
 	m.approvedPlanID = id
 	return m.approvedOK, m.approvedErr
 }
@@ -83,7 +86,8 @@ func newTZPlanNotifierWithMocks(ms *mockTZPlanNotifierStore, cn *capturingNotifi
 			notifiers:     []notifier.Notifier{cn},
 			allowedUserID: 42,
 		},
-		store: ms,
+		store:     ms,
+		lifecycle: ms, // Same mock satisfies the LifecycleService.Approve method.
 	}
 }
 

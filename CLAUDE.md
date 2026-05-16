@@ -17,6 +17,7 @@ A self-hosted Telegram Mini App for comprehensive health tracking (medications, 
 5. **Use `log/slog` with contextual args** (`slog.Error("msg", "error", err)`), not `log.Printf`.
 6. **The bottom nav is the canonical navigation** — one slot per real section (row 1: Today, BP, Food, Meds — row 2: Vitals, Workouts, Weight, Settings). The Vitals slot keeps its internal id `health` for deeplink / localStorage stability; only the label is "Vitals". No "More" aggregator: every section is a first-class destination with its own icon. Disabled features are filtered out of the nav before mount, not bounced after tap. Screens sit directly on the teal stage — no `section-header-mount` banners. `<wg-phone-chrome>` is a design-system primitive available for Phase 3+ screen reskins; it is not yet wrapped around screens at runtime. See [docs/frontend.md](docs/frontend.md#navigation).
 7. **Merge PRs with `gh pr merge --merge`** (regular merge commit), never `--squash` or `--rebase`. The project's history uses merge commits to preserve feature-branch context.
+8. **Frontend tests are integration-first.** New behavior is added to the owning feature suite (`features.*` or `<feature>.<aspect>.test.js`) through `tests/helpers/frontend-harness.js`. Do not add coverage-driven `*-branches` / `*-edges` / `*-characterization` files, and do not create standalone `pin-defect-N` or `task-N` files — extend the feature's existing `describe` block instead. Pure-unit tests are reserved for layers without an integration entry point (web components, DB, SW, sync, cached-fetch). See [docs/frontend.md → Testing posture](docs/frontend.md#testing-posture).
 
 ## Development Commands
 
@@ -107,7 +108,7 @@ go run ./cmd/seeddemo -user <telegram_user_id> -db meds.db -days 90 -wipe -seed 
 6. Add frontend UI in `web/static/`
 7. Add scheduler logic in `internal/scheduler/` if reminders are needed
 
-Any new dose-like timestamp column (one that participates in SQL equality — dedupe, lookup by instant, etc.) must be stored as `INTEGER` unix-seconds-UTC, not as `DATETIME` text. Normalize via `t.UTC().Unix()` at the writer and `time.Unix(n, 0).UTC()` at the reader. See [docs/architecture.md → Time storage](docs/architecture.md#time-storage); the convention is enforced for `intake_log` by `internal/store/medication/time_columns_test.go`.
+Any new dose-like timestamp column (one that participates in SQL equality — dedupe, lookup by instant, etc.) must be stored as `INTEGER` unix-seconds-UTC, not as `DATETIME` text. Normalize via `t.UTC().Unix()` (or `storedb.TimeToUnix`) at the writer and `time.Unix(n, 0).UTC()` (or `storedb.UnixToTime`) at the reader. See [docs/architecture.md → Time storage](docs/architecture.md#time-storage); the convention is enforced cross-table by `TestDoseTimeColumnsAreInteger` in `internal/store/store_time_invariants_test.go` (current allowlist covers `intake_log.{scheduled,taken,snoozed_until}_at_unix` and `tz_transition_plans.{created,notified,approved}_at_unix`). When adding a new dose-like column, append it to the allowlist in the same test and to the package comment at the top of `internal/store/store.go`.
 
 ### Adding an MCP tool
 

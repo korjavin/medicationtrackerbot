@@ -41,10 +41,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.sendSwAuthToken',           // app-shell.js — posts the Telegram init-data blob to the active SW controller so its notification-action handlers can attach X-Telegram-Init-Data; called after SW registration, on controllerchange, and (inline) from app.js for the hot-cache reload case
 
     // App core (app.js)
-    'window.userInitData',              // app.js — Telegram initData for feature files
-    'window.tg',                        // app.js — Telegram.WebApp alias; exposed as window.tg
-    //   (not const) so feature files can safely alias it
-    //   without a const-redeclaration SyntaxError
+    'window.userInitData',              // app.js — messenger identity token mirrored for feature files; sourced via window.MessengerAdapter.identityToken() (null in BrowserAdapter)
     'window.onDataStoreUnauthorized',   // app.js — callback consumed by data-store.js
     'window.requestTabRefresh',         // app.js — called by data-store.js on change event
     'window.reloadCurrentTab',          // app.js — called by data-store.js + sync.js
@@ -54,6 +51,7 @@ const ALLOWED_GLOBALS = new Set([
 
     // Core modules
     'window.apiCallDirect',             // core/api.js — low-level fetch used by data-store.js
+    'window.makeAuthHeaders',           // core/api.js — auth header construction shared by direct-fetch callers (streaming food product search, multipart food-photo upload, ElevenLabs URL fetch, BP/weight CSV exports) that cannot route through apiCallDirect
     'window.AppKernel',                 // core/app-kernel.js — module registry
     'window.ChartUtils',               // core/chart-utils.js — shared SVG chart utilities
     'window.escapeHtml',               // core/utils.js — canonical HTML entity escaper; consumed by sync.js debug panel + app.js medication schedule renderer
@@ -61,6 +59,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.ModalManager',              // core/modal-manager.js — modal lifecycle façade
     'window.AppStore',                  // core/store.js — ephemeral UI state
     'window.CacheKeys',                 // core/cache-keys.js — centralized registry of api_cache keys, tags, and freshness windows; registerAll() is invoked at boot so tag-based invalidation works regardless of which feature loader has executed
+    'window.MessengerAdapter',          // core/messenger-adapter.js — the only file allowed to reach into window.Telegram.WebApp; exposes a thin interface (init, identityToken, authHeaderName, alert, confirm, showPopup, startParam, onBack/showBack/hideBack, isPresent) selected to TelegramAdapter or BrowserAdapter at boot so the same client code can serve a Telegram Mini App or a non-Telegram browser PWA
 
     // Features
     'window.handleDeepLinks',           // features/deeplink-router.js — called by bootstrap.js

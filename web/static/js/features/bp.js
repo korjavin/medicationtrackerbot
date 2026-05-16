@@ -677,9 +677,7 @@ async function exportBPCSV() {
     try {
         const response = await fetch('/api/bp/export', {
             method: 'GET',
-            headers: {
-                'Authorization': `tma ${userInitData}`
-            }
+            headers: window.makeAuthHeaders()
         });
 
         if (!response.ok) {

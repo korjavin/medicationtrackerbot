@@ -205,7 +205,7 @@ async function uploadFoodPhoto(input) {
 
             const res = await fetch('/api/food/log/from-photo', {
                 method: 'POST',
-                headers: { 'X-Telegram-Init-Data': window.userInitData },
+                headers: window.makeAuthHeaders(),
                 body: form,
             });
 
@@ -265,7 +265,7 @@ async function undoFoodPhotoLog(items, summary, originalCount) {
         try {
             const res = await fetch(`/api/food/log/${it.id}`, {
                 method: 'DELETE',
-                headers: { 'X-Telegram-Init-Data': window.userInitData },
+                headers: window.makeAuthHeaders(),
             });
             return { item: it, ok: !!(res && res.ok) };
         } catch (_) {

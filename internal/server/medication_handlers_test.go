@@ -47,7 +47,7 @@ func TestHandleList(t *testing.T) {
 	// 2. Test fetching active only (default)
 	req := httptest.NewRequest("GET", "/api/medications", nil)
 	w := httptest.NewRecorder()
-	srv.handleListMedications(w, req)
+	srv.handleList(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("Expected status 200, got %d", w.Code)
@@ -67,7 +67,7 @@ func TestHandleList(t *testing.T) {
 	// 3. Test fetching all (including archived)
 	reqAll := httptest.NewRequest("GET", "/api/medications?archived=true", nil)
 	wAll := httptest.NewRecorder()
-	srv.handleListMedications(wAll, reqAll)
+	srv.handleList(wAll, reqAll)
 
 	var medsAll []store.Medication
 	if err := json.NewDecoder(wAll.Body).Decode(&medsAll); err != nil {
@@ -94,7 +94,7 @@ func TestHandleCreate(t *testing.T) {
 	req := httptest.NewRequest("POST", "/api/medications", bytes.NewReader(body))
 	w := httptest.NewRecorder()
 
-	srv.handleCreateMedication(w, req)
+	srv.handleCreate(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("Expected status 200, got %d. Body: %s", w.Code, w.Body.String())
@@ -155,7 +155,7 @@ func TestHandleCreateMedication_Duplicate(t *testing.T) {
 			req := httptest.NewRequest("POST", "/api/medications", bytes.NewReader(body))
 			w := httptest.NewRecorder()
 
-			srv.handleCreateMedication(w, req)
+			srv.handleCreate(w, req)
 
 			if w.Code != tt.wantStatus {
 				t.Errorf("Expected status %d, got %d. Body: %s", tt.wantStatus, w.Code, w.Body.String())
@@ -181,7 +181,7 @@ func TestHandleCreateMedication_Duplicate(t *testing.T) {
 	body, _ := json.Marshal(reqBody)
 	req := httptest.NewRequest("POST", "/api/medications", bytes.NewReader(body))
 	w := httptest.NewRecorder()
-	srv.handleCreateMedication(w, req)
+	srv.handleCreate(w, req)
 
 	if w.Code != http.StatusConflict {
 		t.Errorf("Expected 409 for archived duplicate, got %d. Body: %s", w.Code, w.Body.String())
@@ -195,7 +195,7 @@ func TestHandleCreateMedication_InvalidJSON(t *testing.T) {
 	req := httptest.NewRequest("POST", "/api/medications", strings.NewReader("invalid json"))
 	w := httptest.NewRecorder()
 
-	srv.handleCreateMedication(w, req)
+	srv.handleCreate(w, req)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("Expected status 400, got %d", w.Code)
@@ -509,5 +509,76 @@ func TestHandleUpdateIntake(t *testing.T) {
 	intakeReverted, _ := db.Medication.GetIntake(intakeID)
 	if intakeReverted.Status != "PENDING" {
 		t.Errorf("Expected status PENDING, got %s", intakeReverted.Status)
+	}
+}
+
+// TestHandleUpdateIntake_OrphanTZStepDoesNotDecrementInventory pins the
+// fix for the silent-rejection inventory leak: when /api/intakes/update
+// targets a PENDING source='tz_step' row whose owning plan is CANCELLED,
+// UpdateIntake returns sql.ErrNoRows (the gate blocked the mutation), the
+// row stays PENDING, AND the handler must NOT decrement inventory off the
+// stale pre-read intake.Status="PENDING". Without the sql.ErrNoRows-aware
+// branch the handler would post-decrement against a row it failed to
+// transition to TAKEN.
+func TestHandleUpdateIntake_OrphanTZStepDoesNotDecrementInventory(t *testing.T) {
+	srv, db := createTestServer(t)
+	defer db.Close() //nolint:errcheck
+
+	userID := int64(123456)
+	medID, err := db.Medication.Create("Aspirin", "100mg",
+		`{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	initialStock := 30
+	if err := db.Medication.Update(medID, "Aspirin", "100mg",
+		`{"type":"daily","times":["08:00"]}`, false, nil, nil, "", "", &initialStock, ""); err != nil {
+		t.Fatalf("Update (set inventory): %v", err)
+	}
+
+	planID, err := db.TZ.CreateTransitionPlan(&store.TZTransitionPlan{
+		OldTZ: "UTC", NewTZ: "Asia/Tokyo",
+		Status: "PENDING_APPROVAL", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "h-orphan-update",
+	})
+	if err != nil {
+		t.Fatalf("CreateTransitionPlan: %v", err)
+	}
+	stepAt := time.Now().Add(1 * time.Hour).UTC()
+	if _, err := db.DB().Exec(`
+		INSERT INTO intake_log (medication_id, user_id, scheduled_at_unix, status, source, tz_plan_id, tz_step_number)
+		VALUES (?, ?, ?, 'PENDING', 'tz_step', ?, 1)`,
+		medID, userID, stepAt.Unix(), planID); err != nil {
+		t.Fatalf("insert orphan step row: %v", err)
+	}
+	var orphanID int64
+	if err := db.DB().QueryRow(`SELECT id FROM intake_log WHERE tz_plan_id = ?`, planID).Scan(&orphanID); err != nil {
+		t.Fatalf("lookup orphan row: %v", err)
+	}
+	// Flip the plan to CANCELLED so the gate blocks UpdateIntake.
+	if err := db.TZ.UpdateTransitionPlanStatus(planID, "CANCELLED", "test", "PENDING_APPROVAL"); err != nil {
+		t.Fatalf("UpdateTransitionPlanStatus: %v", err)
+	}
+
+	reqBody := map[string]interface{}{
+		"updates": []map[string]interface{}{
+			{"id": orphanID, "status": "TAKEN", "taken_at": time.Now().Format(time.RFC3339)},
+		},
+	}
+	body, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest("POST", "/api/intakes/update", bytes.NewReader(body))
+	req = req.WithContext(context.WithValue(req.Context(), UserCtxKey, &TelegramUser{ID: userID}))
+	w := httptest.NewRecorder()
+	srv.handleUpdateIntake(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	intake, _ := db.Medication.GetIntake(orphanID)
+	if intake == nil || intake.Status != "PENDING" {
+		t.Errorf("orphan row should remain PENDING after blocked UpdateIntake, got %+v", intake)
+	}
+	med, _ := db.Medication.Get(medID)
+	if med == nil || med.InventoryCount == nil || *med.InventoryCount != initialStock {
+		t.Errorf("inventory must NOT decrement when UpdateIntake gate blocks the mutation, got %+v (initial %d)", med, initialStock)
 	}
 }

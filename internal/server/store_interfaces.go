@@ -37,6 +37,8 @@ type MedicationStore interface {
 	ListPendingIntakesBySchedule(userID int64, scheduledAt time.Time) ([]store.IntakeLog, error)
 	ListTakenIntakesBySchedule(userID int64, scheduledAt time.Time) ([]store.IntakeLog, error)
 	ListPendingIntakes() ([]store.IntakeLog, error)
+	GetPendingIntakesInWindow(start, end time.Time) ([]store.IntakeLog, error)
+	MedsWithFuturePendingTZStepsForPlan(planID int64, asOf time.Time) ([]int64, error)
 	SnoozeIntake(id int64, snoozeUntil time.Time) error
 	SkipIntake(id int64) error
 }
@@ -211,14 +213,15 @@ type MiBandStore interface {
 	CheckDuplicateMiBand(ctx context.Context, userID int64, startMsMin, startMsMax int64) (bool, error)
 }
 
-// TZPlanStore is the subset of store operations needed for timezone plan approval/rejection.
+// TZPlanStore is the subset of store operations needed for timezone plan
+// approval/rejection. Track D Task 13 dropped the per-step methods
+// (GetPendingStepsForPlan, GetLatestConsumedStepTimePerMed, MarkStepConsumed)
+// alongside the tz_transition_steps table; step data now lives in
+// plan.StepsJSON for display and in intake_log for execution.
 type TZPlanStore interface {
 	SetTransitionPlanApproved(id int64, approvedAt time.Time) (bool, error)
 	RejectTransitionPlanAndRevertTimezone(id int64) (bool, error)
 	GetLatestActiveOrPendingTransitionPlan() (*store.TZTransitionPlan, error)
-	ListPendingStepsForPlan(planID int64) ([]store.TZTransitionStep, error)
-	GetLatestConsumedStepTimePerMed(planID int64) (map[int64]time.Time, error)
-	MarkStepConsumed(stepID int64, consumedAt time.Time) error
 }
 
 // NonceStore is the subset of store operations needed for login replay prevention.

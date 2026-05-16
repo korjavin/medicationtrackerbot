@@ -1,12 +1,15 @@
 package server
 
 import (
+	"time"
+
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
 // testTZPlannerStore adapts *store.Repos to tzreschedule.PlannerStore for
 // tests that wire a full tzupdate.Service. It delegates List /
-// ListIntakeHistory to *medication.Repo and the plan CRUD to *tz.Repo.
+// ListIntakeHistory / CountFuturePendingTZStepIntakesForPlan to *medication.Repo
+// and the plan CRUD to *tz.Repo.
 type testTZPlannerStore struct {
 	s *store.Repos
 }
@@ -26,9 +29,12 @@ func (a *testTZPlannerStore) GetLatestActiveOrPendingTransitionPlan() (*store.TZ
 func (a *testTZPlannerStore) UpdateTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error {
 	return a.s.TZ.UpdateTransitionPlanStatus(id, newStatus, userAction, expectedStatus)
 }
-func (a *testTZPlannerStore) ListPendingStepsForPlan(planID int64) ([]store.TZTransitionStep, error) {
-	return a.s.TZ.ListPendingStepsForPlan(planID)
+func (a *testTZPlannerStore) CountFuturePendingTZStepIntakesForPlan(planID int64, asOf time.Time) (int, error) {
+	return a.s.Medication.CountFuturePendingTZStepIntakesForPlan(planID, asOf)
 }
-func (a *testTZPlannerStore) CreateTransitionPlanWithSteps(plan *store.TZTransitionPlan, steps []store.TZTransitionStep) (int64, error) {
-	return a.s.TZ.CreateTransitionPlanWithSteps(plan, steps)
+func (a *testTZPlannerStore) CreateTransitionPlanWithSteps(plan *store.TZTransitionPlan) (int64, error) {
+	return a.s.TZ.CreateTransitionPlanWithSteps(plan)
+}
+func (a *testTZPlannerStore) DeletePendingPreMaterializedIntakesForPlan(planID int64) error {
+	return a.s.Medication.DeletePendingPreMaterializedIntakesForPlan(planID)
 }

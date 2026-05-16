@@ -331,7 +331,7 @@ func TestHandleBootstrap_MedicationsMatchesArchivedListEndpoint(t *testing.T) {
 	listReq := httptest.NewRequest("GET", "/api/medications?archived=true", nil)
 	listReq = withUser(listReq, 123456)
 	listW := httptest.NewRecorder()
-	srv.handleListMedications(listW, listReq)
+	srv.handleList(listW, listReq)
 	if listW.Code != http.StatusOK {
 		t.Fatalf("list: expected 200, got %d", listW.Code)
 	}

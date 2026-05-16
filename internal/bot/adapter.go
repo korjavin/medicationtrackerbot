@@ -301,12 +301,3 @@ func (a *storeAdapter) RejectTransitionPlanAndRevertTimezone(id int64) (bool, er
 func (a *storeAdapter) GetLatestActiveOrPendingTransitionPlan() (*store.TZTransitionPlan, error) {
 	return a.tz.GetLatestActiveOrPendingTransitionPlan()
 }
-func (a *storeAdapter) ListPendingStepsForPlan(planID int64) ([]store.TZTransitionStep, error) {
-	return a.tz.ListPendingStepsForPlan(planID)
-}
-func (a *storeAdapter) GetLatestConsumedStepTimePerMed(planID int64) (map[int64]time.Time, error) {
-	return a.tz.GetLatestConsumedStepTimePerMed(planID)
-}
-func (a *storeAdapter) MarkStepConsumed(stepID int64, consumedAt time.Time) error {
-	return a.tz.MarkStepConsumed(stepID, consumedAt)
-}

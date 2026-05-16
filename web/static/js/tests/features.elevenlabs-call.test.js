@@ -25,6 +25,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const ELEVENLABS_JS = path.join(REPO_ROOT, 'web/static/js/features/elevenlabs-call.js');
+const CORE_API_JS = path.join(REPO_ROOT, 'web/static/js/core/api.js');
 
 function createEnv() {
     const dom = new JSDOM('<!doctype html><html><body></body></html>', {
@@ -147,11 +148,19 @@ function createConversationEnv({ conv } = {}) {
     const conversation = conv || makeFakeConversation();
 
     window.__TEST_CONVERSATION__ = conversation;
-    window.apiCallDirect = vi.fn(async () => ({ signed_url: 'wss://stub.example/' }));
     // Default to a successful upload-file proxy response. Tests that need
     // failure modes can reassign window.fetch after createConversationEnv().
     window.fetch = makeUploadFetchStub();
     window.userInitData = 'init=stub';
+
+    // Load the real makeAuthHeaders helper into this DOM so the
+    // controller's upload-file fetch reaches the same auth-header
+    // construction path used in production. core/api.js also assigns
+    // window.apiCallDirect; we override it below with the signed-URL
+    // stub so the signed-URL fetch in startCall() does not hit the
+    // upload-only fetch stub.
+    window.eval(fs.readFileSync(CORE_API_JS, 'utf8'));
+    window.apiCallDirect = vi.fn(async () => ({ signed_url: 'wss://stub.example/' }));
 
     // Replace import(SDK_URL) with a resolved promise to a fake SDK whose
     // Conversation.startSession returns our injected conversation and
