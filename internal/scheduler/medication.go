@@ -271,6 +271,7 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 
 		var intakeIDs []int64
 		intakeByMedication := make(map[int64]int64, len(group.Meds))
+		var preMatStepIDs []int64
 		for _, med := range group.Meds {
 			existingID := group.IntakeIDs[med.ID]
 			if existingID != 0 {
@@ -278,6 +279,7 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 				// intake — wire the existing id into the notification.
 				intakeIDs = append(intakeIDs, existingID)
 				intakeByMedication[med.ID] = existingID
+				preMatStepIDs = append(preMatStepIDs, existingID)
 				slog.Info("Triggering medication (pre-materialized step)",
 					"name", med.Name, "dosage", med.Dosage, "schedule", med.Schedule, "target", group.Target, "intakeID", existingID)
 				continue
@@ -290,6 +292,20 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 			}
 			intakeIDs = append(intakeIDs, id)
 			intakeByMedication[med.ID] = id
+		}
+
+		// Set the GetDueTZStepIntakes dedup gate for pre-materialized rows
+		// synchronously, with a sentinel msgID=0. The async Notify callback
+		// below only writes intake_reminders when a notifier returns a non-
+		// zero msgID, so a WebPush-only deployment (WebPush.Send always
+		// returns 0) would otherwise leave the gate clear and re-fire the
+		// same row on every minute tick until the user confirms or skips.
+		// Normal-schedule rows don't need this — their dedup is the
+		// intake_log row created by CreateIntake above.
+		for _, iID := range preMatStepIDs {
+			if err := c.store.AddIntakeReminder(iID, 0); err != nil {
+				slog.Error("Failed to set tz_step fire gate", "intakeID", iID, "error", err)
+			}
 		}
 
 		var sb strings.Builder
