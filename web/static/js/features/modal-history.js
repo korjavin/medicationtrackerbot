@@ -45,13 +45,21 @@
     }
 
     // iOS edge-swipe (and desktop browser back)
-    window.addEventListener('popstate', () => {
+    window.addEventListener('popstate', (event) => {
         if (!modalPushed) return;
         const overlay = document.getElementById('modal-overlay');
         if (!overlay || overlay.classList.contains('hidden')) {
             modalPushed = false;
             reconcileBackButtonVisibility();
             return;
+        }
+        // BrowserAdapter.onBack also listens on popstate to drive section-back
+        // (switchTab('today')). When we're consuming this event to close a
+        // modal, stop it so that listener doesn't also fire and bounce the
+        // user back to Today on top of the modal close. No-op in TelegramAdapter
+        // mode because that adapter doesn't register a popstate listener.
+        if (event && typeof event.stopImmediatePropagation === 'function') {
+            event.stopImmediatePropagation();
         }
         poppingFromHistory = true;
         window.ModalManager.closeTopMostVisibleModal();
