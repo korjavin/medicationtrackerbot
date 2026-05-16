@@ -315,7 +315,7 @@ func (s *Server) fetchMedicationsSection(startDate, endDate time.Time) (*Medicat
 }
 
 func (s *Server) fetchSleepSection(ctx context.Context, userID int64, startDate, endDate time.Time) (*SleepSection, error) {
-	logs, err := s.data.GetSleepLogs(ctx, userID, startDate)
+	logs, err := s.data.ListSleepLogs(ctx, userID, startDate)
 	if err != nil {
 		slog.Warn("[MCP] CardiovascularAnalysis: failed to fetch sleep", "error", err)
 		return nil, err
@@ -367,7 +367,7 @@ func (s *Server) fetchSleepSection(ctx context.Context, userID int64, startDate,
 }
 
 func (s *Server) fetchHeartRateSection(ctx context.Context, userID int64, startDate, endDate time.Time) (*HeartRateSection, error) {
-	logs, err := s.data.GetVitalsHeart(ctx, userID, startDate, endDate)
+	logs, err := s.data.ListHeart(ctx, userID, startDate, endDate)
 	if err != nil {
 		slog.Warn("[MCP] CardiovascularAnalysis: failed to fetch heart rate", "error", err)
 		return nil, err
@@ -396,7 +396,7 @@ func (s *Server) fetchHeartRateSection(ctx context.Context, userID int64, startD
 }
 
 func (s *Server) fetchSpO2Section(ctx context.Context, userID int64, startDate, endDate time.Time) (*SpO2Section, error) {
-	logs, err := s.data.GetVitalsSpO2(ctx, userID, startDate, endDate)
+	logs, err := s.data.ListSpO2(ctx, userID, startDate, endDate)
 	if err != nil {
 		slog.Warn("[MCP] CardiovascularAnalysis: failed to fetch SpO2", "error", err)
 		return nil, err

@@ -70,9 +70,9 @@ func TestImportSleepLogs(t *testing.T) {
 	}
 
 	// Verify retrieval
-	result, err := r.GetSleepLogs(ctx, userID, time.Time{})
+	result, err := r.ListSleepLogs(ctx, userID, time.Time{})
 	if err != nil {
-		t.Fatalf("GetSleepLogs: %v", err)
+		t.Fatalf("ListSleepLogs: %v", err)
 	}
 	if len(result) != 2 {
 		t.Fatalf("Expected 2 sleep logs, got %d", len(result))
@@ -142,7 +142,7 @@ func TestImportSleepLogsDuplicates(t *testing.T) {
 	}
 
 	// Still only 1 log
-	result, _ := r.GetSleepLogs(ctx, userID, time.Time{})
+	result, _ := r.ListSleepLogs(ctx, userID, time.Time{})
 	if len(result) != 1 {
 		t.Errorf("Expected 1 log after duplicate import, got %d", len(result))
 	}
@@ -191,9 +191,9 @@ func TestImportSleepLogsUpsertNullToNonNull(t *testing.T) {
 	}
 
 	// Verify values updated
-	result, err := r.GetSleepLogs(ctx, userID, time.Time{})
+	result, err := r.ListSleepLogs(ctx, userID, time.Time{})
 	if err != nil {
-		t.Fatalf("GetSleepLogs: %v", err)
+		t.Fatalf("ListSleepLogs: %v", err)
 	}
 	if len(result) != 1 {
 		t.Fatalf("Expected 1 sleep log, got %d", len(result))
@@ -206,7 +206,7 @@ func TestImportSleepLogsUpsertNullToNonNull(t *testing.T) {
 	}
 }
 
-func TestGetSleepLogsSinceFilter(t *testing.T) {
+func TestListSleepLogsSinceFilter(t *testing.T) {
 	r := setupVitalsRepo(t)
 	ctx := context.Background()
 	userID := int64(123456)
@@ -233,9 +233,9 @@ func TestGetSleepLogsSinceFilter(t *testing.T) {
 
 	// Filter: only logs since Jan 8
 	since := time.Date(2025, 1, 8, 0, 0, 0, 0, time.UTC)
-	result, err := r.GetSleepLogs(ctx, userID, since)
+	result, err := r.ListSleepLogs(ctx, userID, since)
 	if err != nil {
-		t.Fatalf("GetSleepLogs with since: %v", err)
+		t.Fatalf("ListSleepLogs with since: %v", err)
 	}
 	if len(result) != 1 {
 		t.Fatalf("Expected 1 log since Jan 8, got %d", len(result))
@@ -311,9 +311,9 @@ func TestImportSleepLogsUpsertUpdatesWhenMoreComplete(t *testing.T) {
 	}
 
 	// Verify values updated
-	result, err := r.GetSleepLogs(ctx, userID, time.Time{})
+	result, err := r.ListSleepLogs(ctx, userID, time.Time{})
 	if err != nil {
-		t.Fatalf("GetSleepLogs: %v", err)
+		t.Fatalf("ListSleepLogs: %v", err)
 	}
 	if len(result) != 1 {
 		t.Fatalf("Expected 1 sleep log, got %d", len(result))
@@ -387,9 +387,9 @@ func TestImportSleepLogsUpsertNoDowngrade(t *testing.T) {
 	}
 
 	// Verify original values preserved
-	result, err := r.GetSleepLogs(ctx, userID, time.Time{})
+	result, err := r.ListSleepLogs(ctx, userID, time.Time{})
 	if err != nil {
-		t.Fatalf("GetSleepLogs: %v", err)
+		t.Fatalf("ListSleepLogs: %v", err)
 	}
 	if len(result) != 1 {
 		t.Fatalf("Expected 1 sleep log, got %d", len(result))
@@ -451,9 +451,9 @@ func TestImportSleepLogsBackfillAwakeAndTurnOver(t *testing.T) {
 		t.Errorf("Expected 0 skipped, got %d", skipped)
 	}
 
-	result, err := r.GetSleepLogs(ctx, userID, time.Time{})
+	result, err := r.ListSleepLogs(ctx, userID, time.Time{})
 	if err != nil {
-		t.Fatalf("GetSleepLogs: %v", err)
+		t.Fatalf("ListSleepLogs: %v", err)
 	}
 	if len(result) != 1 {
 		t.Fatalf("Expected 1 sleep log, got %d", len(result))
@@ -492,9 +492,9 @@ func TestImportVitalsHeart(t *testing.T) {
 	// Retrieve
 	start := time.Date(2025, 1, 10, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2025, 1, 10, 23, 59, 59, 0, time.UTC)
-	result, err := r.GetVitalsHeart(ctx, userID, start, end)
+	result, err := r.ListHeart(ctx, userID, start, end)
 	if err != nil {
-		t.Fatalf("GetVitalsHeart: %v", err)
+		t.Fatalf("ListHeart: %v", err)
 	}
 	if len(result) != 3 {
 		t.Fatalf("Expected 3 heart logs, got %d", len(result))
@@ -528,9 +528,9 @@ func TestImportVitalsSpO2(t *testing.T) {
 
 	start := time.Date(2025, 1, 10, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2025, 1, 10, 23, 59, 59, 0, time.UTC)
-	result, err := r.GetVitalsSpO2(ctx, userID, start, end)
+	result, err := r.ListSpO2(ctx, userID, start, end)
 	if err != nil {
-		t.Fatalf("GetVitalsSpO2: %v", err)
+		t.Fatalf("ListSpO2: %v", err)
 	}
 	if len(result) != 2 {
 		t.Fatalf("Expected 2 spo2 logs, got %d", len(result))
@@ -560,9 +560,9 @@ func TestImportVitalsStress(t *testing.T) {
 
 	start := time.Date(2025, 1, 10, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2025, 1, 10, 23, 59, 59, 0, time.UTC)
-	result, err := r.GetVitalsStress(ctx, userID, start, end)
+	result, err := r.ListStress(ctx, userID, start, end)
 	if err != nil {
-		t.Fatalf("GetVitalsStress: %v", err)
+		t.Fatalf("ListStress: %v", err)
 	}
 	if len(result) != 2 {
 		t.Fatalf("Expected 2 stress logs, got %d", len(result))
@@ -633,7 +633,7 @@ func TestImportVitalsMixed(t *testing.T) {
 	}
 }
 
-func TestGetVitalsHeartTimeRange(t *testing.T) {
+func TestListHeartTimeRange(t *testing.T) {
 	r := setupVitalsRepo(t)
 	ctx := context.Background()
 	userID := int64(123456)
@@ -652,9 +652,9 @@ func TestGetVitalsHeartTimeRange(t *testing.T) {
 	// Query only 10:00-14:00
 	start := time.Date(2025, 1, 10, 10, 0, 0, 0, time.UTC)
 	end := time.Date(2025, 1, 10, 14, 0, 0, 0, time.UTC)
-	result, err := r.GetVitalsHeart(ctx, userID, start, end)
+	result, err := r.ListHeart(ctx, userID, start, end)
 	if err != nil {
-		t.Fatalf("GetVitalsHeart: %v", err)
+		t.Fatalf("ListHeart: %v", err)
 	}
 	if len(result) != 1 {
 		t.Fatalf("Expected 1 heart log in range, got %d", len(result))
@@ -686,9 +686,9 @@ func TestImportDayStats(t *testing.T) {
 	}
 
 	// Retrieve
-	result, err := r.GetDayStats(ctx, userID, time.Time{})
+	result, err := r.ListDayStats(ctx, userID, time.Time{})
 	if err != nil {
-		t.Fatalf("GetDayStats: %v", err)
+		t.Fatalf("ListDayStats: %v", err)
 	}
 	if len(result) != 2 {
 		t.Fatalf("Expected 2 day stats, got %d", len(result))
@@ -733,9 +733,9 @@ func TestImportDayStatsDuplicates(t *testing.T) {
 	}
 
 	// Still only 1 row
-	result, err := r.GetDayStats(ctx, userID, time.Time{})
+	result, err := r.ListDayStats(ctx, userID, time.Time{})
 	if err != nil {
-		t.Fatalf("GetDayStats: %v", err)
+		t.Fatalf("ListDayStats: %v", err)
 	}
 	if len(result) != 1 {
 		t.Errorf("Expected 1 stat after duplicate import, got %d", len(result))
@@ -772,9 +772,9 @@ func TestImportDayStatsUpsertUpdatesValues(t *testing.T) {
 	}
 
 	// Verify values updated
-	result, err := r.GetDayStats(ctx, userID, time.Time{})
+	result, err := r.ListDayStats(ctx, userID, time.Time{})
 	if err != nil {
-		t.Fatalf("GetDayStats: %v", err)
+		t.Fatalf("ListDayStats: %v", err)
 	}
 	if len(result) != 1 {
 		t.Fatalf("Expected 1 row, got %d", len(result))
@@ -815,9 +815,9 @@ func TestImportDayStatsStaleDataProtection(t *testing.T) {
 	}
 
 	// Verify complete values are preserved (MAX used, not overwritten)
-	result, err := r.GetDayStats(ctx, userID, time.Time{})
+	result, err := r.ListDayStats(ctx, userID, time.Time{})
 	if err != nil {
-		t.Fatalf("GetDayStats: %v", err)
+		t.Fatalf("ListDayStats: %v", err)
 	}
 	if len(result) != 1 {
 		t.Fatalf("Expected 1 row, got %d", len(result))
@@ -857,16 +857,16 @@ func TestImportDayStatsUpsertDifferentDays(t *testing.T) {
 	}
 
 	// Both days exist
-	result, err := r.GetDayStats(ctx, userID, time.Time{})
+	result, err := r.ListDayStats(ctx, userID, time.Time{})
 	if err != nil {
-		t.Fatalf("GetDayStats: %v", err)
+		t.Fatalf("ListDayStats: %v", err)
 	}
 	if len(result) != 2 {
 		t.Fatalf("Expected 2 rows, got %d", len(result))
 	}
 }
 
-func TestGetDayStatsSinceFilter(t *testing.T) {
+func TestListDayStatsSinceFilter(t *testing.T) {
 	r := setupVitalsRepo(t)
 	ctx := context.Background()
 	userID := int64(123456)
@@ -882,9 +882,9 @@ func TestGetDayStatsSinceFilter(t *testing.T) {
 	}
 
 	since := time.Date(2025, 1, 8, 0, 0, 0, 0, time.UTC)
-	result, err := r.GetDayStats(ctx, userID, since)
+	result, err := r.ListDayStats(ctx, userID, since)
 	if err != nil {
-		t.Fatalf("GetDayStats with since: %v", err)
+		t.Fatalf("ListDayStats with since: %v", err)
 	}
 	if len(result) != 1 {
 		t.Fatalf("Expected 1 stat since Jan 8, got %d", len(result))

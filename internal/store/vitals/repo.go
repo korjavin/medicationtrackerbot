@@ -221,10 +221,10 @@ func (r *Repo) ImportDayStats(ctx context.Context, userID int64, stats []DayStat
 	return imported, skipped, nil
 }
 
-// GetDayStats returns the user's daily aggregates from day_stats. If since is
+// ListDayStats returns the user's daily aggregates from day_stats. If since is
 // non-zero, only days >= since.Format("2006-01-02") are returned. Result is
 // ordered by day DESC.
-func (r *Repo) GetDayStats(ctx context.Context, userID int64, since time.Time) ([]DayStat, error) {
+func (r *Repo) ListDayStats(ctx context.Context, userID int64, since time.Time) ([]DayStat, error) {
 	query := `SELECT id, user_id, day, steps, calories, distance, created_at
 		 FROM day_stats WHERE user_id = ?`
 	args := []interface{}{userID}
@@ -255,11 +255,11 @@ func (r *Repo) GetDayStats(ctx context.Context, userID int64, since time.Time) (
 	return stats, nil
 }
 
-// GetSleepLogs returns the user's sleep sessions. If since is non-zero, only
+// ListSleepLogs returns the user's sleep sessions. If since is non-zero, only
 // rows with start_time >= since are returned. Result is ordered by start_time
 // DESC. Optional columns (phase breakdowns, turn-over count, HR/SpO2 averages)
 // scan via sql.NullInt64 and populate *int pointers only when present.
-func (r *Repo) GetSleepLogs(ctx context.Context, userID int64, since time.Time) ([]SleepLog, error) {
+func (r *Repo) ListSleepLogs(ctx context.Context, userID int64, since time.Time) ([]SleepLog, error) {
 	query := `SELECT id, user_id, start_time, end_time, timezone_offset, day, light_minutes, deep_minutes, rem_minutes,
 		 awake_minutes, total_minutes, turn_over_count, heart_rate_avg, spo2_avg, user_modified, notes, created_at
 		 FROM sleep_logs WHERE user_id = ?`
@@ -485,9 +485,9 @@ func importStressLogs(tx *sql.Tx, userID int64, logs []VitalsStressLog) (int, in
 	return imported, skipped, nil
 }
 
-// GetVitalsHeart returns heart-rate samples in [start, end] (inclusive bounds
+// ListHeart returns heart-rate samples in [start, end] (inclusive bounds
 // in millisecond UNIX time), ordered by date_time ASC.
-func (r *Repo) GetVitalsHeart(ctx context.Context, userID int64, start, end time.Time) ([]VitalsHeartLog, error) {
+func (r *Repo) ListHeart(ctx context.Context, userID int64, start, end time.Time) ([]VitalsHeartLog, error) {
 	query := "SELECT user_id, date_time, tz_offset, value, type FROM vitals_heart WHERE user_id = ? AND date_time >= ? AND date_time <= ? ORDER BY date_time ASC"
 	rows, err := r.db.QueryContext(ctx, query, userID, start.UnixMilli(), end.UnixMilli())
 	if err != nil {
@@ -508,9 +508,9 @@ func (r *Repo) GetVitalsHeart(ctx context.Context, userID int64, start, end time
 	return logs, nil
 }
 
-// GetVitalsSpO2 returns SpO2 samples in [start, end] (inclusive bounds in
+// ListSpO2 returns SpO2 samples in [start, end] (inclusive bounds in
 // millisecond UNIX time), ordered by date_time ASC.
-func (r *Repo) GetVitalsSpO2(ctx context.Context, userID int64, start, end time.Time) ([]VitalsSpO2Log, error) {
+func (r *Repo) ListSpO2(ctx context.Context, userID int64, start, end time.Time) ([]VitalsSpO2Log, error) {
 	query := "SELECT user_id, date_time, tz_offset, value, type FROM vitals_spo2 WHERE user_id = ? AND date_time >= ? AND date_time <= ? ORDER BY date_time ASC"
 	rows, err := r.db.QueryContext(ctx, query, userID, start.UnixMilli(), end.UnixMilli())
 	if err != nil {
@@ -531,10 +531,10 @@ func (r *Repo) GetVitalsSpO2(ctx context.Context, userID int64, start, end time.
 	return logs, nil
 }
 
-// GetVitalsStress returns stress samples in [start, end] (inclusive bounds in
+// ListStress returns stress samples in [start, end] (inclusive bounds in
 // millisecond UNIX time), ordered by date_time ASC. Info may be empty when
 // the underlying row has a NULL label.
-func (r *Repo) GetVitalsStress(ctx context.Context, userID int64, start, end time.Time) ([]VitalsStressLog, error) {
+func (r *Repo) ListStress(ctx context.Context, userID int64, start, end time.Time) ([]VitalsStressLog, error) {
 	query := "SELECT user_id, date_time, tz_offset, value, type, info FROM vitals_stress WHERE user_id = ? AND date_time >= ? AND date_time <= ? ORDER BY date_time ASC"
 	rows, err := r.db.QueryContext(ctx, query, userID, start.UnixMilli(), end.UnixMilli())
 	if err != nil {
