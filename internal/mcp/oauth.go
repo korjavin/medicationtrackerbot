@@ -37,8 +37,8 @@ const (
 // APITokenStore is the subset of the store needed by the OAuth middleware to
 // support long-lived API tokens. Both *store.Store and test fakes implement it.
 type APITokenStore interface {
-	FindAPITokenByHash(ctx context.Context, hash string) (*store.APIToken, error)
-	TouchAPITokenLastUsed(ctx context.Context, id int64) error
+	GetTokenByHash(ctx context.Context, hash string) (*store.APIToken, error)
+	TouchTokenLastUsed(ctx context.Context, id int64) error
 }
 
 // OAuthHandler handles OAuth-related endpoints and token validation
@@ -178,7 +178,7 @@ func (h *OAuthHandler) Middleware(next http.Handler) http.Handler {
 			}
 			sum := sha256.Sum256([]byte(tokenString))
 			hash := hex.EncodeToString(sum[:])
-			tok, err := h.tokens.FindAPITokenByHash(r.Context(), hash)
+			tok, err := h.tokens.GetTokenByHash(r.Context(), hash)
 			if err != nil {
 				slog.Error("[MCP/OAuth] API token lookup failed", "error", err)
 				h.sendUnauthorized(w, "invalid token")
@@ -189,7 +189,7 @@ func (h *OAuthHandler) Middleware(next http.Handler) http.Handler {
 				h.sendUnauthorized(w, "invalid token")
 				return
 			}
-			if err := h.tokens.TouchAPITokenLastUsed(r.Context(), tok.ID); err != nil {
+			if err := h.tokens.TouchTokenLastUsed(r.Context(), tok.ID); err != nil {
 				slog.Warn("[MCP/OAuth] Failed to touch API token last_used_at", "error", err, "token_id", tok.ID)
 			}
 			subject := "api-token:" + tok.Name

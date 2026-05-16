@@ -25,7 +25,7 @@ type fakeAPITokenStore struct {
 	missingHash bool
 }
 
-func (f *fakeAPITokenStore) FindAPITokenByHash(_ context.Context, hash string) (*store.APIToken, error) {
+func (f *fakeAPITokenStore) GetTokenByHash(_ context.Context, hash string) (*store.APIToken, error) {
 	f.findCalls++
 	if f.findErr != nil {
 		return nil, f.findErr
@@ -38,7 +38,7 @@ func (f *fakeAPITokenStore) FindAPITokenByHash(_ context.Context, hash string) (
 	return tok, nil
 }
 
-func (f *fakeAPITokenStore) TouchAPITokenLastUsed(_ context.Context, id int64) error {
+func (f *fakeAPITokenStore) TouchTokenLastUsed(_ context.Context, id int64) error {
 	f.touchedIDs = append(f.touchedIDs, id)
 	return f.touchErr
 }
@@ -226,9 +226,9 @@ func TestStoreImplementsAPITokenStore(t *testing.T) {
 	var s APITokenStore = &fakeAPITokenStore{
 		byHash: map[string]*store.APIToken{},
 	}
-	tok, err := s.FindAPITokenByHash(context.Background(), "missing")
+	tok, err := s.GetTokenByHash(context.Background(), "missing")
 	if err != nil {
-		t.Fatalf("FindAPITokenByHash: %v", err)
+		t.Fatalf("GetTokenByHash: %v", err)
 	}
 	if tok != nil {
 		t.Fatalf("expected nil, got %+v", tok)

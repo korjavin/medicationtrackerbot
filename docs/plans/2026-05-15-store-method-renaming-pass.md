@@ -330,12 +330,12 @@ Already minimal: `Create`, `List`, `Delete`. No renames.
 
 ### Task 10: Rename auth repo methods
 
-- [ ] apply rename mapping to `internal/store/auth/` — specifically rename `FindAPITokenByHash` → `GetAPITokenByHash` (the only `Find…` in the codebase), plus any other Find/Fetch holdovers
-- [ ] update consumer interfaces in `internal/server/store_interfaces.go` and `internal/bot/store_interfaces.go`
-- [ ] update adapter forwarders in scheduler/bot/mcp adapters
-- [ ] update MCP registry operation handlers in `internal/mcp/registry/operations_auth*.go` if any
-- [ ] update tests inside `internal/store/auth/` and any caller tests
-- [ ] run project tests - must pass (`go test ./...`, `go test -race ./...`, `golangci-lint run`)
+- [x] apply rename mapping to `internal/store/auth/` — applied the Technical Details mapping (CreateAPIToken→CreateToken, ListAPITokens→ListTokens, DeleteAPIToken→DeleteToken, FindAPITokenByHash→GetTokenByHash, TouchAPITokenLastUsed→TouchTokenLastUsed). The `auth` package owns only one entity (APIToken alongside the login-hash op), so per the "drop domain redundancy" rule the `APIToken` infix collapses to `Token`.
+- [x] update consumer interfaces in `internal/server/store_interfaces.go` and `internal/bot/store_interfaces.go` — neither file references auth/api-token methods (grep returned zero hits); the AdminStore and APITokenStore consumer interfaces live in `internal/mcp/admin.go` and `internal/mcp/oauth.go` and were renamed alongside their callsites.
+- [x] update adapter forwarders in scheduler/bot/mcp adapters — none reference auth methods (`*store.Store` is passed directly to `NewAdminHandler` / `NewOAuthHandler`, no adapter struct in between).
+- [x] update MCP registry operation handlers in `internal/mcp/registry/operations_auth*.go` if any — no `operations_auth*.go` exists; the auth surface is mounted as plain HTTP under `/admin/tokens` and `/mcp` oauth, not registered as MCP registry operations.
+- [x] update tests inside `internal/store/auth/` and any caller tests — `internal/store/auth/api_tokens_test.go` (test functions + assertion messages), `internal/mcp/admin_test.go` (fakeAdminStore methods + the seed call), `internal/mcp/oauth_apitoken_test.go` (fakeAPITokenStore methods + the sanity-test assertion).
+- [x] run project tests - `go test ./...` and `golangci-lint run` pass; `go test -race ./...` has the same pre-existing failure in `internal/scheduler/notifier_test.go::TestNotify_SendError_DoesNotCallStoreMsgID` (slog reflecting over the notifier mock's sync.Mutex) that Tasks 6/7/8/9 documented — reproduces identically on master without my changes and is out of scope for this renaming pass.
 
 ### Task 11: Verify acceptance criteria
 

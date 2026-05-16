@@ -49,8 +49,8 @@ func (r *Repo) SetClock(now func() time.Time) {
 	r.now = now
 }
 
-// CreateAPIToken inserts a new token row and returns its id.
-func (r *Repo) CreateAPIToken(ctx context.Context, name, tokenHash string) (int64, error) {
+// CreateToken inserts a new token row and returns its id.
+func (r *Repo) CreateToken(ctx context.Context, name, tokenHash string) (int64, error) {
 	res, err := r.db.ExecContext(
 		ctx,
 		`INSERT INTO api_tokens (name, token_hash) VALUES (?, ?)`,
@@ -62,9 +62,9 @@ func (r *Repo) CreateAPIToken(ctx context.Context, name, tokenHash string) (int6
 	return res.LastInsertId()
 }
 
-// ListAPITokens returns all tokens ordered by id (oldest first). The
+// ListTokens returns all tokens ordered by id (oldest first). The
 // plaintext token and hash are never included.
-func (r *Repo) ListAPITokens(ctx context.Context) ([]APIToken, error) {
+func (r *Repo) ListTokens(ctx context.Context) ([]APIToken, error) {
 	rows, err := r.db.QueryContext(
 		ctx,
 		`SELECT id, name, created_at, last_used_at FROM api_tokens ORDER BY id`,
@@ -88,9 +88,9 @@ func (r *Repo) ListAPITokens(ctx context.Context) ([]APIToken, error) {
 	return tokens, nil
 }
 
-// DeleteAPIToken removes a token by id. Returns sql.ErrNoRows when the id is
+// DeleteToken removes a token by id. Returns sql.ErrNoRows when the id is
 // not present so callers can map this to a 404.
-func (r *Repo) DeleteAPIToken(ctx context.Context, id int64) error {
+func (r *Repo) DeleteToken(ctx context.Context, id int64) error {
 	res, err := r.db.ExecContext(ctx, `DELETE FROM api_tokens WHERE id = ?`, id)
 	if err != nil {
 		return err
@@ -105,9 +105,9 @@ func (r *Repo) DeleteAPIToken(ctx context.Context, id int64) error {
 	return nil
 }
 
-// FindAPITokenByHash looks up a token by its sha256 hash. Returns (nil, nil)
+// GetTokenByHash looks up a token by its sha256 hash. Returns (nil, nil)
 // when no row matches so the OAuth middleware can cleanly fall through.
-func (r *Repo) FindAPITokenByHash(ctx context.Context, hash string) (*APIToken, error) {
+func (r *Repo) GetTokenByHash(ctx context.Context, hash string) (*APIToken, error) {
 	var t APIToken
 	err := r.db.QueryRowContext(
 		ctx,
@@ -123,9 +123,9 @@ func (r *Repo) FindAPITokenByHash(ctx context.Context, hash string) (*APIToken, 
 	return &t, nil
 }
 
-// TouchAPITokenLastUsed updates last_used_at to the current time. Best-effort
+// TouchTokenLastUsed updates last_used_at to the current time. Best-effort
 // — callers should log but not block on errors.
-func (r *Repo) TouchAPITokenLastUsed(ctx context.Context, id int64) error {
+func (r *Repo) TouchTokenLastUsed(ctx context.Context, id int64) error {
 	_, err := r.db.ExecContext(
 		ctx,
 		`UPDATE api_tokens SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?`,
