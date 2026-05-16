@@ -702,16 +702,35 @@ Same pattern as Task 5, applied to all three plan-lifecycle timestamp columns at
 
 ### Task 12: Teach the forecast endpoint to consume `intake_log` rows
 
-- [ ] `internal/server/medication_handlers.go` — the next-intake forecast
+- [x] `internal/server/medication_handlers.go` — the next-intake forecast
   reads from `medplan.PlanDoses(Window=12h)` today; have it union the
   result with PENDING `intake_log` rows (any source) whose
-  `scheduled_at_unix` lies in the same 12h window
-- [ ] de-dup by `(medication_id, scheduled_at_unix)` so a normal target
-  with an already-materialized intake row appears once
-- [ ] write tests: the existing 6 `TestHandleTriggerNextIntake_*` cases stay
+  `scheduled_at_unix` lies in the same 12h window (new
+  `medication.Repo.GetPendingIntakesInWindow(start, end)` reader added
+  + exposed via `MedicationStore`. Both forecast surfaces —
+  `handleTriggerNextIntake` and `computeNextIntakeData` (which feeds
+  `handleGetNextIntake` and the bootstrap payload) — now run the union
+  + re-sort against the same window medplan saw, so pre-materialized
+  tz_step rows surface even when nothing in `tz_transition_steps`
+  would. The shared `sortTargetsByScheduledAt` helper mirrors
+  medplan's tie-break by `MedicationID`.)
+- [x] de-dup by `(medication_id, scheduled_at_unix)` so a normal target
+  with an already-materialized intake row appears once (each surface's
+  dedup map seeds from medplan-emitted targets first so the
+  `StepID`-carrying entry wins — required so the legacy
+  `MarkStepConsumed(stepID)` call in `handleTriggerNextIntake` still
+  fires while `tz_transition_steps` ships alongside `intake_log`).
+- [x] write tests: the existing 6 `TestHandleTriggerNextIntake_*` cases stay
   green; one new case exercises an explicitly pre-materialized
-  `tz_step` row showing up in the cluster window.
-- [ ] run project tests - must pass before next task.
+  `tz_step` row showing up in the cluster window
+  (`TestHandleTriggerNextIntake_PreMaterializedTZStepRowSurfaces` in
+  `internal/server/trigger_next_intake_test.go` — inserts a PENDING
+  `tz_step` intake_log row directly, with NO matching
+  `tz_transition_steps` entry, and asserts the trigger handler picks
+  it up, marks it TAKEN, preserves `source='tz_step'`, leaves the
+  bare 21:30 PDT clock slot untouched, and reports the row's
+  scheduled_at back to the caller).
+- [x] run project tests - must pass before next task (`go test ./...` green).
 
 ### Task 13: Drop the `tz_transition_steps` table
 

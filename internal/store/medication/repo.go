@@ -1174,3 +1174,49 @@ func (r *Repo) HasIntakeNearScheduledTime(medID int64, target time.Time, window 
 	}
 	return n > 0, nil
 }
+
+// GetPendingIntakesInWindow returns every PENDING intake_log row whose
+// scheduled_at_unix lies in (start, end]. Used by the next-intake forecast
+// endpoints to surface pre-materialized tz_step rows (and any other PENDING
+// rows) alongside medplan's normal-schedule targets — see Task 12 of
+// docs/plans/20260508-simplify-medication-scheduling-utc-and-pre-materialized-steps.md.
+// The window matches medplan's forecast-mode predicate so the two sources
+// dedup cleanly on (medication_id, scheduled_at_unix).
+func (r *Repo) GetPendingIntakesInWindow(start, end time.Time) ([]IntakeLog, error) {
+	rows, err := r.db.Query(`
+		SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until_unix,
+		       source, tz_plan_id, tz_step_number
+		FROM intake_log
+		WHERE status = 'PENDING'
+		  AND scheduled_at_unix > ? AND scheduled_at_unix <= ?`,
+		start.UTC().Unix(), end.UTC().Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var logs []IntakeLog
+	for rows.Next() {
+		var l IntakeLog
+		var schedUnix int64
+		var snoozeUnix sql.NullInt64
+		var tzPlanID, tzStepNumber sql.NullInt64
+		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &l.Status, &snoozeUnix, &l.Source, &tzPlanID, &tzStepNumber); err != nil {
+			return nil, err
+		}
+		l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
+		if snoozeUnix.Valid {
+			t := time.Unix(snoozeUnix.Int64, 0).UTC()
+			l.SnoozedUntil = &t
+		}
+		if tzPlanID.Valid {
+			v := tzPlanID.Int64
+			l.TZPlanID = &v
+		}
+		if tzStepNumber.Valid {
+			v := tzStepNumber.Int64
+			l.TZStepNumber = &v
+		}
+		logs = append(logs, l)
+	}
+	return logs, rows.Err()
+}
