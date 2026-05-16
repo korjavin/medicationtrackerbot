@@ -26,6 +26,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const STORE_JS = path.join(REPO_ROOT, 'web/static/js/core/store.js');
+const MESSENGER_ADAPTER_JS = path.join(REPO_ROOT, 'web/static/js/core/messenger-adapter.js');
 const BACK_BUTTON_JS = path.join(REPO_ROOT, 'web/static/js/features/back-button.js');
 
 function isVersionAtLeast(current, target) {
@@ -79,6 +80,10 @@ function createEnv({ telegramVersion = '6.9' } = {}) {
     });
 
     window.eval(fs.readFileSync(STORE_JS, 'utf8'));
+    // Load the messenger adapter so back-button.js can call
+    // window.MessengerAdapter.{isBackButtonSupported,onBack,showBack,hideBack}
+    // (the adapter forwards to the Telegram BackButton primed above).
+    window.eval(fs.readFileSync(MESSENGER_ADAPTER_JS, 'utf8'));
     window.eval(fs.readFileSync(BACK_BUTTON_JS, 'utf8'));
 
     return {
@@ -246,6 +251,30 @@ describe('features/back-button.js — Telegram BackButton for section navigation
             expect(backButtonState.handlers.length).toBe(0);
             expect(backButtonState.showCalls).toBe(0);
             expect(backButtonState.hideCalls).toBe(0);
+        } finally {
+            cleanup();
+        }
+    });
+
+    // Regression for Task 3 of the messenger-adapter plan: back-button.js used
+    // to read window.Telegram.WebApp.BackButton directly. After migration,
+    // every BackButton interaction goes through window.MessengerAdapter
+    // (onBack / showBack / hideBack). Spy on the adapter to lock in that the
+    // wiring delegates instead of reaching into Telegram.WebApp again.
+    it('routes BackButton calls through window.MessengerAdapter', () => {
+        const { window, cleanup } = createEnv();
+        try {
+            const onBackSpy = vi.spyOn(window.MessengerAdapter, 'onBack');
+            const showSpy = vi.spyOn(window.MessengerAdapter, 'showBack');
+            const hideSpy = vi.spyOn(window.MessengerAdapter, 'hideBack');
+
+            window.AppBackButton.setup();
+            window.switchTab('bp');
+            window.switchTab('today');
+
+            expect(onBackSpy).toHaveBeenCalledTimes(1);
+            expect(showSpy).toHaveBeenCalled();
+            expect(hideSpy).toHaveBeenCalled();
         } finally {
             cleanup();
         }

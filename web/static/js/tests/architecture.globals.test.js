@@ -41,10 +41,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.sendSwAuthToken',           // app-shell.js — posts the Telegram init-data blob to the active SW controller so its notification-action handlers can attach X-Telegram-Init-Data; called after SW registration, on controllerchange, and (inline) from app.js for the hot-cache reload case
 
     // App core (app.js)
-    'window.userInitData',              // app.js — Telegram initData for feature files
-    'window.tg',                        // app.js — Telegram.WebApp alias; exposed as window.tg
-    //   (not const) so feature files can safely alias it
-    //   without a const-redeclaration SyntaxError
+    'window.userInitData',              // app.js — messenger identity token mirrored for feature files; sourced via window.MessengerAdapter.identityToken() (null in BrowserAdapter)
     'window.onDataStoreUnauthorized',   // app.js — callback consumed by data-store.js
     'window.requestTabRefresh',         // app.js — called by data-store.js on change event
     'window.reloadCurrentTab',          // app.js — called by data-store.js + sync.js

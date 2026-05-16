@@ -193,33 +193,33 @@ and recommended-priority item #8.
 
 ### Task 3: Migrate the 6 reach-in sites
 
-- [ ] `core/utils.js:5, 18` — replace `const tg = window.Telegram &&
+- [x] `core/utils.js:5, 18` — replace `const tg = window.Telegram &&
   window.Telegram.WebApp` with `const adapter = window.MessengerAdapter`;
   rewrite `safeAlert(msg)` to call `adapter.alert(msg)`; rewrite
   `safeConfirm(msg, cb)` to `adapter.confirm(msg).then(cb)`
-- [ ] `app.js:5-13` — replace the direct `window.tg = ...` /
+- [x] `app.js:5-13` — replace the direct `window.tg = ...` /
   `tg.ready()` / `tg.expand()` block with
   `await window.MessengerAdapter.init()`; replace `userInitData =
   window.tg ? window.tg.initData : null` with
   `userInitData = window.MessengerAdapter.identityToken()`; preserve
   `window.userInitData` global for backwards compat
-- [ ] `features/back-button.js:17` — replace `const webApp =
+- [x] `features/back-button.js:17` — replace `const webApp =
   window.Telegram && window.Telegram.WebApp` with
   `const adapter = window.MessengerAdapter`; rewrite the BackButton
   registration to use `adapter.onBack(handler)`,
   `adapter.showBack()`, `adapter.hideBack()`
-- [ ] `features/modal-history.js:15` — replace the direct WebApp
+- [x] `features/modal-history.js:15` — replace the direct WebApp
   reach with adapter-based wiring; if `adapter.isPresent()` is
   false, replace the MutationObserver-on-Telegram-modal logic with
   the popstate-based browser equivalent
-- [ ] `features/deeplink-router.js:89` — replace the inline
+- [x] `features/deeplink-router.js:89` — replace the inline
   `Telegram.WebApp.initDataUnsafe.start_param === 'bp_add'` check
   with `window.MessengerAdapter.startParam() === 'bp_add'`; keep the
   same routing behaviour
-- [ ] verify each migrated file's existing tests still pass; add
+- [x] verify each migrated file's existing tests still pass; add
   one regression test per migrated site that exercises the adapter
   path (mock `window.MessengerAdapter`)
-- [ ] run `pnpm test` — must pass before next task
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 4: Architecture test prevents recurrence
 

@@ -82,13 +82,16 @@
         confirm: function (msg) {
             const tg = window.Telegram && window.Telegram.WebApp;
             if (tg && typeof tg.showConfirm === 'function') {
-                return new Promise(function (resolve) {
-                    try {
-                        tg.showConfirm(msg, function (ok) { resolve(!!ok); });
-                    } catch (e) {
-                        resolve(!!window.confirm(msg));
-                    }
-                });
+                // Let any synchronous throw from showConfirm propagate out of
+                // confirm() so callers (safeConfirm) can fall back to the
+                // in-page modal *synchronously* — wrapping the call in a
+                // Promise executor would defer the rejection to a microtask,
+                // and at that point the caller's sync code has already
+                // returned without mounting a fallback dialog.
+                let resolveFn;
+                const promise = new Promise(function (resolve) { resolveFn = resolve; });
+                tg.showConfirm(msg, function (ok) { resolveFn(!!ok); });
+                return promise;
             }
             return Promise.resolve(!!window.confirm(msg));
         },
