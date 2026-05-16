@@ -303,4 +303,27 @@ describe('handleDeepLinks – push-action query params', () => {
       cleanup();
     }
   });
+
+  // Regression for Task 3 of the messenger-adapter plan: deeplink-router.js
+  // used to read window.Telegram.WebApp.initDataUnsafe.start_param directly.
+  // After migration the check goes through window.MessengerAdapter.startParam()
+  // so the same start_param='bp_add' handshake works in any messenger host
+  // (Telegram today; URL ?start=/#start= in BrowserAdapter). Spy on the
+  // adapter to lock in that the read goes through it.
+  it('reads the start_param via MessengerAdapter.startParam (not Telegram.WebApp)', () => {
+    const { window, cleanup } = loadFrontendEnv();
+    try {
+      const startParamSpy = vi.spyOn(window.MessengerAdapter, 'startParam');
+      // Re-evaluating the deeplink-router source triggers its top-level
+      // `if (window.MessengerAdapter && ... .startParam() === 'bp_add')`
+      // probe — the same guard the production load order runs.
+      const path = require('path');
+      const fs = require('fs');
+      const ROUTER = path.resolve(__dirname, '../features/deeplink-router.js');
+      window.eval(fs.readFileSync(ROUTER, 'utf8'));
+      expect(startParamSpy).toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
+  });
 });

@@ -409,4 +409,22 @@ describe('app.js unit tests', () => {
       cleanup();
     }
   });
+
+  // Regression for Task 3 of the messenger-adapter plan: app.js' boot block
+  // used to read window.Telegram.WebApp.initData directly. After migration,
+  // window.userInitData is populated from MessengerAdapter.identityToken()
+  // and the SDK ready/expand are invoked via MessengerAdapter.init(). These
+  // two assertions pin the new contract: the value comes from the adapter,
+  // and there is no top-level `window.tg` Telegram alias anymore.
+  it('app.js sources window.userInitData from MessengerAdapter.identityToken()', () => {
+    const { window, cleanup } = loadFrontendEnv({ telegramInitData: 'init-data-payload' });
+    try {
+      expect(window.userInitData).toBe('init-data-payload');
+      expect(window.userInitData).toBe(window.MessengerAdapter.identityToken());
+      // No more `window.tg` shim — every Telegram reach goes through the adapter.
+      expect(window.tg).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
 });
