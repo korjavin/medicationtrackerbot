@@ -301,15 +301,15 @@ Every numbered point above was the source of one of the recent bugs.
 
 Apply the same Task 2 → Task 3 → Task 4 pattern (add column + dual-write → cut over readers → drop legacy via table-rebuild) to `taken_at`. Independent of Tasks 6 and 7 — can ship in a parallel PR after Task 4 lands. **Track D's columns are deliberately excluded** — `tz_transition_steps.scheduled_at` and `consumed_at` would convert and then immediately be dropped by Task 13, so the table is left as DATETIME until Task 13 retires it.
 
-- [ ] add column + backfill `UPDATE intake_log SET taken_at_unix =
-  strftime('%s', taken_at) WHERE taken_at IS NOT NULL;` (`taken_at_unix INTEGER` is nullable)
-- [ ] dual-write in `MarkIntakeTaken`, `CreateManualIntake`, any
-  setter that touches `taken_at`
-- [ ] cut over readers in history endpoint, archived-meds query,
-  per-id `GetIntake`
-- [ ] table-rebuild migration drops the legacy column
-- [ ] write tests: history endpoint cross-TZ scan + per-id read.
-- [ ] run project tests - must pass before next task.
+- [x] add column + backfill `UPDATE intake_log SET taken_at_unix =
+  strftime('%s', taken_at) WHERE taken_at IS NOT NULL;` (`taken_at_unix INTEGER` is nullable) (satisfied by 2026-05-10 plan — `059_add_intake_log_taken_at_unix.sql` adds the nullable INTEGER column and backfills with the same prod-format-aware strftime used for `scheduled_at_unix`)
+- [x] dual-write in `MarkIntakeTaken`, `CreateManualIntake`, any
+  setter that touches `taken_at` (satisfied by 2026-05-10 plan — writers in `internal/store/medication/repo.go` stamp `taken_at_unix` directly via `storedb.TimeToUnix`; migration 060 dropped the legacy DATETIME column so dual-write collapsed to single-write)
+- [x] cut over readers in history endpoint, archived-meds query,
+  per-id `GetIntake` (satisfied by 2026-05-10 plan — every `IntakeLog` reader selects `taken_at_unix` and converts via `storedb.NullableUnixToTimePtr` before populating the struct)
+- [x] table-rebuild migration drops the legacy column (satisfied by 2026-05-10 plan — `060_drop_intake_log_taken_at_text.sql` rebuilds `intake_log` via the standard SQLite CREATE-new + INSERT-SELECT + DROP + RENAME pattern, preserving indexes and triggers)
+- [x] write tests: history endpoint cross-TZ scan + per-id read. (satisfied by 2026-05-10 plan — `internal/store/medication/intake_log_readers_tz_test.go` covers the Berlin↔LA scenario for every reader, including `GetIntakeHistory` and per-id `GetIntake`; migration round-trip in `internal/store/migration_060_test.go`)
+- [x] run project tests - must pass before next task. (satisfied by 2026-05-10 plan — `go test ./...` was required green at every task boundary of that plan; nothing to re-run for an already-shipped task)
 
 ### Task 6: Convert `intake_log.snoozed_until` → `snoozed_until_unix` — SUPERSEDED by 2026-05-10 plan
 
