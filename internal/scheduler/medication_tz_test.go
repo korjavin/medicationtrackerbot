@@ -477,6 +477,68 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		}
 	})
 
+	t.Run("webpush-only deployment: tz_step row fires exactly once across ticks", func(t *testing.T) {
+		// Regression for the WebPush-only deployment case: NotifyHelper only
+		// invokes the storeMsgID callback when a notifier returns msgID != 0,
+		// but WebPush always returns 0. Without writing intake_reminders
+		// upfront for pre-materialized tz_step rows, GetDueTZStepIntakes
+		// would re-surface the row every minute tick and the scheduler would
+		// re-fire it indefinitely. Use a zeroMsgIDNotifier that mimics
+		// WebPush's "always returns (0, nil)" semantics and assert two ticks
+		// produce one fire.
+		db := mustNewDB(t)
+		db.Settings.SetMedicationEnabled(context.Background(), true) //nolint:errcheck
+
+		medID, err := db.Medication.CreateMedication("Warfarin", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+		if err != nil {
+			t.Fatalf("CreateMedication: %v", err)
+		}
+		nowTime := time.Date(2024, 3, 15, 11, 5, 0, 0, time.UTC)
+		if err := db.Medication.UpdateMedicationCreatedAt(medID, nowTime.Add(-48*time.Hour)); err != nil {
+			t.Fatalf("UpdateMedicationCreatedAt: %v", err)
+		}
+
+		planID, err := db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
+			OldTZ:      "UTC",
+			NewTZ:      "Europe/Berlin",
+			Status:     "PENDING_APPROVAL",
+			StepsJSON:  "[]",
+			InputsJSON: "{}",
+			PlanHash:   "testhash-webpush-only",
+		})
+		if err != nil {
+			t.Fatalf("CreateTZTransitionPlan: %v", err)
+		}
+		stepTime := time.Date(2024, 3, 15, 11, 0, 0, 0, time.UTC)
+		setPlanSteps(t, db, planID, []planStepFixture{
+			{MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "step 1"},
+		})
+		if _, err := db.ApproveAndMaterialize(context.Background(), planID, 123456, nowTime.Add(-10*time.Minute)); err != nil {
+			t.Fatalf("ApproveAndMaterialize: %v", err)
+		}
+
+		zn := &zeroMsgIDNotifier{}
+		sched := New(db, 123456, []notifier.Notifier{zn})
+		sched.MedicationChecker.now = func() time.Time { return nowTime }
+
+		if err := sched.MedicationChecker.Check(context.Background()); err != nil {
+			t.Fatalf("Check (1): %v", err)
+		}
+		if err := sched.MedicationChecker.Check(context.Background()); err != nil {
+			t.Fatalf("Check (2): %v", err)
+		}
+		time.Sleep(20 * time.Millisecond)
+
+		// Both batched-Telegram and per-med-WebPush notifications are sent
+		// through Notify; with WebPush-only semantics both come back as
+		// msgID=0. Expect exactly 2 sends across both ticks (one batched +
+		// one individual on the first tick; the second tick must be gated
+		// out by the intake_reminders row written upfront).
+		if got := zn.count(); got != 2 {
+			t.Errorf("expected 2 sends across 2 ticks (one fire batched + individual), got %d", got)
+		}
+	})
+
 	t.Run("approved plan: consumed step suppresses overlapping normal doses", func(t *testing.T) {
 		// Reproduces the user-reported "duplicate evening dose" after a westbound
 		// flight: a flexible-policy single-step plan was approved+materialized
