@@ -431,7 +431,7 @@ Same pattern as Task 5, applied to all three plan-lifecycle timestamp columns at
 
 ### Task 10: When a plan is approved, materialize steps as PENDING intakes
 
-- [ ] **Domain service per CLAUDE.md rule #1.** Today's
+- [x] **Domain service per CLAUDE.md rule #1.** Today's
   `handleTZPlanApprove` (`internal/server/settings_handlers.go:645`)
   calls `s.tzPlanStore.SetTZTransitionPlanApproved(...)` directly —
   this already violates the "transports may only call domain
@@ -445,8 +445,15 @@ Same pattern as Task 5, applied to all three plan-lifecycle timestamp columns at
   (`handleTZPlanApprove`) and the auto-approve path in
   `internal/scheduler/tz_plan_notifier.go` switch to calling the
   service; the Telegram bot's approve callback (if any) does the
-  same.
-- [ ] add `Store.ApproveAndMaterialize(planID, allowedUserID, approvedAtUnix int64) (bool, error)`:
+  same. (`internal/domain/tzreschedule/lifecycle.go` added with
+  `LifecycleService.Approve`; HTTP handler in
+  `internal/server/settings_handlers.go:737`, scheduler auto-approve
+  in `internal/scheduler/tz_plan_notifier.go`, and bot callback in
+  `internal/bot/tz_plan_callbacks.go` all route through it. The
+  scheduler constructs its own LifecycleService at scheduler.New;
+  cmd/bot/main.go constructs the shared instance and wires it into
+  the HTTP server and bot via SetTZLifecycle.)
+- [x] add `Store.ApproveAndMaterialize(planID, allowedUserID, approvedAtUnix int64) (bool, error)`:
   internal helper used by the service that opens a single `*sql.Tx`
   and calls private `setTZTransitionPlanApprovedTx(tx, …)` and
   `materializePlanStepsAsIntakesTx(tx, planID, allowedUserID)`
@@ -464,14 +471,33 @@ Same pattern as Task 5, applied to all three plan-lifecycle timestamp columns at
   the operator's user_id) so the approve callers don't need to think
   about it. Approve→crash→restart cannot leave a plan APPROVED with
   no materialized intakes, because both writes share one tx.
-- [ ] add a partial unique index
+  (`Repos.ApproveAndMaterialize` in `internal/store/store.go`; uses
+  `db.WithTx` to open one tx, calls
+  `tz.SetTZTransitionPlanApprovedTx` and
+  `medication.MaterializePlanStepsAsIntakesTx` within it. Bool
+  semantics covered by `TestApproveAndMaterialize_FlipsAndMaterializes`
+  and `TestApproveAndMaterialize_RejectedPlanIsNoOp` in
+  `internal/store/approve_and_materialize_test.go`.)
+- [x] add a partial unique index
   `(tz_plan_id, tz_step_number) WHERE tz_plan_id IS NOT NULL` so
   re-running materialize is idempotent (e.g. via `INSERT OR IGNORE`)
-- [ ] add a corresponding "on plan cancel, delete unconsumed
+  (migration 067 `idx_intake_log_tz_plan_step_unique`; verified by
+  `TestMigration067_AddsPartialUniqueIndex` in
+  `internal/store/migration_067_test.go`. Idempotency end-to-end
+  pinned by `TestMaterializePlanStepsAsIntakesTx` re-run assertion.)
+- [x] add a corresponding "on plan cancel, delete unconsumed
   pre-materialized rows" path: `DELETE FROM intake_log WHERE
   tz_plan_id=? AND status='PENDING' AND source='tz_step'` — wire it
   into the plan cancel flow in `tzreschedule/planner.go`
-- [ ] **one-shot backfill via a goose Go migration.** When this
+  (`medication.Repo.DeletePendingPreMaterializedIntakesForPlan`
+  added; planner's `CancelActivePlan` calls it after each cancel via
+  the new `PlannerStore.DeletePendingPreMaterializedIntakesForPlan`
+  method. The implicit cancel-all inside
+  `tz.CreateTZTransitionPlanWithSteps` also deletes orphaned tz_step
+  rows in the same tx. Tests:
+  `TestDeletePendingPreMaterializedIntakesForPlan` and
+  `TestCancelActivePlan_DeletesPreMaterializedRows`.)
+- [x] **one-shot backfill via a goose Go migration.** When this
   migration ships, plans already in `APPROVED` (with steps not yet
   fired) must have their steps materialized too — otherwise an
   APPROVED plan whose first step is two days out silently loses its
@@ -568,28 +594,60 @@ Same pattern as Task 5, applied to all three plan-lifecycle timestamp columns at
   Goose only runs the migration once per DB. The `INSERT OR IGNORE`
   against the partial unique index added in this same migration makes
   the SQL safe to re-run if anyone manually replays the migration.
-- [ ] verify the backfill on a CI fixture seeded with: one
+  (migration `068_backfill_pre_materialized_tz_steps.go` registers
+  via `goose.AddMigrationContext` from `init()`. SQLite's strftime
+  cannot parse the trailing zone-name in modernc.org/sqlite's
+  Go-time serialization, so the migration uses the same
+  COALESCE/substr trick migration 057 introduced. Backfill
+  short-circuits when no APPROVED plan has unconsumed steps so test
+  fixtures don't need ALLOWED_USER_ID. Documented in
+  `docs/architecture.md → Migrations → Go migrations` plus a blank
+  import in `internal/store/store.go` so production picks up the
+  init().)
+- [x] verify the backfill on a CI fixture seeded with: one
   `APPROVED` plan with two steps, the first consumed and the second
   unconsumed; one `COMPLETED` plan with all steps consumed; one
   `PENDING_APPROVAL` plan; one orphan step whose medication was
   deleted. Assert exactly one row was inserted into `intake_log` (the
   unconsumed step from the APPROVED plan), the orphan-skipped count
-  is 1, and re-running the migration is a no-op.
-- [ ] write tests: approve + materialize, reject leaves no rows, cancel
+  is 1, and re-running the migration is a no-op. (covered by
+  `TestMigration068_BackfillSeedFixture` in
+  `internal/store/migration_068_test.go` — exact fixture from the
+  plan; asserts the single inserted row's columns match
+  (planID=1, stepNum=2, status=PENDING, source=tz_step) and that
+  down→up of migration 068 leaves the same single row.)
+- [x] write tests: approve + materialize, reject leaves no rows, cancel
   cleans up PENDING `tz_step` rows; idempotent re-approve produces no
   duplicates; **one explicit test that simulates the backfill on a
   fixture DB seeded with an APPROVED plan + one consumed and one
   unconsumed step, asserts only the unconsumed step is materialized,
   asserts a second backfill run is a no-op**; cross-TZ end-to-end
   that mirrors the westbound-flexible scenario from
-  `medication_tz_test.go`.
-- [ ] **MCP coverage**: `medications.tz_plan.approve` and
+  `medication_tz_test.go`. (Test coverage:
+  `TestApproveAndMaterialize_FlipsAndMaterializes` (approve +
+  materialize + idempotent re-approve),
+  `TestApproveAndMaterialize_RejectedPlanIsNoOp` (rejected plan
+  leaves no rows, status not regressed),
+  `TestDeletePendingPreMaterializedIntakesForPlan` (cancel cleanup
+  preserves TAKEN rows), `TestMigration068_BackfillSeedFixture`
+  (backfill fixture above), `TestHandleTZPlanApprove_RoutesThroughLifecycle`
+  (HTTP handler routes through the lifecycle service end-to-end),
+  `TestHandleTZPlanApprove_NoLifecycleReturns503` (handler refuses
+  to fall back to bare primitive), bot
+  `TestHandleTZPlanApprove_Success` and stale-callback. The
+  cross-TZ medication_tz_test.go scenarios stay green throughout —
+  the existing scheduler flow is unchanged for now (Task 11 is the
+  one that teaches the scheduler to read the new tz_step rows).)
+- [x] **MCP coverage**: `medications.tz_plan.approve` and
   `medications.tz_plan.reject` registry entries (added in commit
   ebad46a) are unaffected — the handler signatures and HTTP paths
   don't change. Re-run
   `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` after the
-  refactor to confirm green.
-- [ ] run project tests - must pass before next task.
+  refactor to confirm green. (verified —
+  `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` and the three
+  sibling MCP coverage tests still pass.)
+- [x] run project tests - must pass before next task. (`go test ./...`
+  green across all packages.)
 
 ### Task 11: Teach the scheduler to consume `intake_log` rows directly
 

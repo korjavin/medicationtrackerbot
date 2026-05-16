@@ -9,11 +9,12 @@ import (
 
 // mockPlannerStore is a simple in-memory mock of PlannerStore for unit tests.
 type mockPlannerStore struct {
-	medications []store.Medication
-	intakes     map[int64][]store.IntakeLog // medID → intake history
-	plans       []*store.TZTransitionPlan
-	steps       []store.TZTransitionStep
-	nextPlanID  int64
+	medications      []store.Medication
+	intakes          map[int64][]store.IntakeLog // medID → intake history
+	plans            []*store.TZTransitionPlan
+	steps            []store.TZTransitionStep
+	nextPlanID       int64
+	deletedPlanIDs   []int64 // planIDs passed to DeletePendingPreMaterializedIntakesForPlan
 }
 
 func newMockPlannerStore() *mockPlannerStore {
@@ -81,6 +82,13 @@ func (m *mockPlannerStore) GetPendingStepsForPlan(planID int64) ([]store.TZTrans
 		}
 	}
 	return pending, nil
+}
+
+func (m *mockPlannerStore) DeletePendingPreMaterializedIntakesForPlan(planID int64) error {
+	// Mock has no intake_log; record the call so cancel-cleanup tests can
+	// inspect it. The legacy planner tests just ignore this slice.
+	m.deletedPlanIDs = append(m.deletedPlanIDs, planID)
+	return nil
 }
 
 func (m *mockPlannerStore) CreateTZTransitionPlanWithSteps(plan *store.TZTransitionPlan, steps []store.TZTransitionStep) (int64, error) {
@@ -399,5 +407,33 @@ func TestCancelActivePlan_CancelsExisting(t *testing.T) {
 	}
 	if s.plans[0].Status != "CANCELLED" {
 		t.Fatalf("expected CANCELLED, got %q", s.plans[0].Status)
+	}
+}
+
+// TestCancelActivePlan_DeletesPreMaterializedRows pins Track D Task 10's
+// cancel-cleanup contract: when CancelActivePlan transitions a plan to
+// CANCELLED, the unfired source='tz_step' intake rows attached to the plan
+// must also be deleted so the medication scheduler stops firing them.
+func TestCancelActivePlan_DeletesPreMaterializedRows(t *testing.T) {
+	s := newMockPlannerStore()
+	plan := &store.TZTransitionPlan{
+		OldTZ:    "UTC",
+		NewTZ:    "Asia/Tokyo",
+		Status:   "APPROVED",
+		PlanHash: "abc-task10",
+	}
+	s.plans = append(s.plans, plan)
+	plan.ID = 7
+	s.nextPlanID = 8
+
+	svc := NewPlannerService(s)
+	if err := svc.CancelActivePlan("user_request"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if s.plans[0].Status != "CANCELLED" {
+		t.Fatalf("expected CANCELLED, got %q", s.plans[0].Status)
+	}
+	if len(s.deletedPlanIDs) != 1 || s.deletedPlanIDs[0] != 7 {
+		t.Fatalf("expected DeletePendingPreMaterializedIntakesForPlan called once with planID=7; got %v", s.deletedPlanIDs)
 	}
 }

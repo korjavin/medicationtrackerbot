@@ -34,3 +34,6 @@ func (a *tzPlannerStore) GetPendingStepsForPlan(planID int64) ([]store.TZTransit
 func (a *tzPlannerStore) CreateTZTransitionPlanWithSteps(plan *store.TZTransitionPlan, steps []store.TZTransitionStep) (int64, error) {
 	return a.s.TZ.CreateTZTransitionPlanWithSteps(plan, steps)
 }
+func (a *tzPlannerStore) DeletePendingPreMaterializedIntakesForPlan(planID int64) error {
+	return a.s.Medication.DeletePendingPreMaterializedIntakesForPlan(planID)
+}

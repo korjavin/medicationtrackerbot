@@ -14,6 +14,7 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/korjavin/medicationtrackerbot/internal/domain"
+	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzupdate"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/workout"
@@ -49,6 +50,7 @@ type Bot struct {
 	timezone      TimezoneStore
 	tzUpdater     tzupdate.Service
 	tzPlanStore   TZPlanCallbackStore
+	tzLifecycle   tzreschedule.LifecycleService
 	allowedUserID int64
 	appDomain     string
 
@@ -131,6 +133,14 @@ func New(token string, allowedUserID int64, s *store.Repos, foodAI domain.FoodAI
 // Username returns the bot's username from the Telegram API
 func (b *Bot) Username() string {
 	return b.api.Self.UserName
+}
+
+// SetTZLifecycle wires the cross-transport tz-plan lifecycle service so the
+// approve callback routes through the same atomic
+// approve+pre-materialize-steps path as the HTTP handler and the scheduler's
+// auto-approve. cmd/bot/main.go calls this after constructing the service.
+func (b *Bot) SetTZLifecycle(svc tzreschedule.LifecycleService) {
+	b.tzLifecycle = svc
 }
 
 func (b *Bot) getFeatureFlags(ctx context.Context) featureFlags {

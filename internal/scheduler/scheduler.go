@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/workout"
@@ -51,7 +52,15 @@ func New(s *store.Repos, allowedUserID int64, notifiers []notifier.Notifier) *Sc
 	workoutChecker := &WorkoutChecker{NotifyHelper: helper, store: a, workoutSvc: workoutsvc.New(s.Workout, s.TZ), daysCache: make(map[string][]int)}
 	bpChecker := &BPReminderChecker{store: a, notifiers: notifiers}
 	weightChecker := &WeightReminderChecker{store: a, notifiers: notifiers}
-	tzPlanNotifier := &TZPlanNotifier{NotifyHelper: helper, store: a}
+	tzPlanNotifier := &TZPlanNotifier{
+		NotifyHelper: helper,
+		store:        a,
+		// Lifecycle service is the auto-approve path. Constructed at the
+		// composition root (cmd/bot/main.go) and shared with the HTTP and bot
+		// approve handlers so all three routes write through one
+		// ApproveAndMaterialize tx.
+		lifecycle: tzreschedule.NewLifecycleService(s, allowedUserID),
+	}
 
 	sched := &Scheduler{
 		MedicationChecker:         medChecker,

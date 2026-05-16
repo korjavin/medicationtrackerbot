@@ -21,6 +21,11 @@ type PlannerStore interface {
 	GetPendingStepsForPlan(planID int64) ([]store.TZTransitionStep, error)
 	// CreateTZTransitionPlanWithSteps atomically creates a plan and its steps in one transaction.
 	CreateTZTransitionPlanWithSteps(plan *store.TZTransitionPlan, steps []store.TZTransitionStep) (int64, error)
+	// DeletePendingPreMaterializedIntakesForPlan removes the unfired
+	// source='tz_step' intake rows attached to a cancelled plan so the
+	// medication scheduler stops firing them. Called after every plan
+	// cancellation in CancelActivePlan.
+	DeletePendingPreMaterializedIntakesForPlan(planID int64) error
 }
 
 // PlannerService manages idempotent generation and lifecycle of timezone transition plans.
@@ -257,6 +262,13 @@ func isUniqueConstraintError(err error) bool {
 // CancelActivePlan transitions ALL active plans (PENDING_APPROVAL/NOTIFIED/APPROVED)
 // to CANCELLED. Cancelling in a loop prevents hidden older plans from resurfacing
 // if two concurrent timezone changes race and both create a plan.
+//
+// For each plan we cancel, we also delete the unfired source='tz_step'
+// intake_log rows attached to it (Track D pre-materialized step rows).
+// Without that delete the medication scheduler would keep firing steps for a
+// plan the user has dismissed. The cancel update and the row-delete are NOT
+// atomic — the worst case is a redundant delete-on-already-cancelled plan,
+// which is a no-op.
 func (p *plannerService) CancelActivePlan(reason string) error {
 	for {
 		active, err := p.store.GetLatestActiveOrPendingTZTransitionPlan()
@@ -268,6 +280,10 @@ func (p *plannerService) CancelActivePlan(reason string) error {
 		}
 		if err := p.store.UpdateTZTransitionPlanStatus(active.ID, "CANCELLED", reason, active.Status); err != nil {
 			return err
+		}
+		if err := p.store.DeletePendingPreMaterializedIntakesForPlan(active.ID); err != nil {
+			slog.Warn("tzplanner: failed to delete pre-materialized intakes for cancelled plan",
+				"plan_id", active.ID, "error", err)
 		}
 	}
 }

@@ -21,6 +21,7 @@ import (
 
 	"github.com/VictoriaMetrics/fastcache"
 	"github.com/korjavin/medicationtrackerbot/internal/domain"
+	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzsuggestion"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzupdate"
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
@@ -81,6 +82,7 @@ type Server struct {
 	tzUpdater           tzupdate.Service
 	tzSuggester         tzsuggestion.Service
 	tzPlanStore         TZPlanStore
+	tzLifecycle         tzreschedule.LifecycleService
 	nonces              NonceStore
 	mcpRegistry         MCPRegistry
 	internalMux         http.Handler
@@ -334,6 +336,15 @@ func (s *Server) SetTZUpdater(svc tzupdate.Service) {
 // plan-store dependencies; tests may inject a fake.
 func (s *Server) SetTZSuggester(svc tzsuggestion.Service) {
 	s.tzSuggester = svc
+}
+
+// SetTZLifecycle wires the cross-transport tz-plan lifecycle service so the
+// HTTP approve handler routes through the same atomic
+// approve+pre-materialize-steps path as the bot and scheduler. When unset,
+// the approve handler returns 503 — production wiring lives in
+// cmd/bot/main.go.
+func (s *Server) SetTZLifecycle(svc tzreschedule.LifecycleService) {
+	s.tzLifecycle = svc
 }
 
 // deleteNotification deletes a previously sent notification from all notifiers.

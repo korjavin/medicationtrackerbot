@@ -724,7 +724,15 @@ func (s *Server) handleGetCurrentTZPlan(w http.ResponseWriter, r *http.Request) 
 }
 
 // handleTZPlanApprove handles POST /api/tz-plan/{id}/approve.
-// It transitions the plan to APPROVED so the medication scheduler can execute it.
+// It transitions the plan to APPROVED so the medication scheduler can execute
+// it AND pre-materializes the plan's remaining steps as PENDING intake_log
+// rows (source='tz_step') under one transaction. Both writes share a tx so a
+// crash between them cannot leave the plan APPROVED with no rows to fire.
+//
+// Routes through tzreschedule.LifecycleService per CLAUDE.md rule #1; cmd/bot
+// wires the service via SetTZLifecycle. Without it the handler returns 503 —
+// the legacy bare SetTZTransitionPlanApproved is no longer acceptable because
+// it would skip the pre-materialize step.
 func (s *Server) handleTZPlanApprove(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	planID, err := strconv.ParseInt(idStr, 10, 64)
@@ -732,9 +740,14 @@ func (s *Server) handleTZPlanApprove(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid plan id", http.StatusBadRequest)
 		return
 	}
-	updated, err := s.tzPlanStore.SetTZTransitionPlanApproved(planID, time.Now())
+	if s.tzLifecycle == nil {
+		slog.Error("handleTZPlanApprove: tz lifecycle service not configured", "plan_id", planID)
+		http.Error(w, "tz lifecycle service unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	updated, err := s.tzLifecycle.Approve(r.Context(), planID, time.Now())
 	if err != nil {
-		slog.Error("handleTZPlanApprove: SetTZTransitionPlanApproved failed", "plan_id", planID, "error", err)
+		slog.Error("handleTZPlanApprove: lifecycle Approve failed", "plan_id", planID, "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
