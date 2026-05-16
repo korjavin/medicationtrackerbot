@@ -49,8 +49,8 @@ SQLite with 47+ goose migrations tracking schema evolution:
 - `change_events` — server-side change tracking for frontend cache invalidation
 - `diary_notes` — free-text personal diary notes with timestamps
 - `timezone_history` — per-user timezone history (most recent row is the active timezone). Overrides `TZ` env var for all schedulers including medications. When no timezone is recorded, falls back to `time.Local`.
-- `tz_transition_plans` — timezone transition plans (status: PENDING_APPROVAL / NOTIFIED / APPROVED / REJECTED / CANCELLED / EXPIRED). Generated when the stored timezone changes. Must be approved via Telegram before taking effect. Stores a SHA-256 `plan_hash` for idempotency and full `inputs_json` for reproducibility.
-- `tz_transition_steps` — individual dose steps within a transition plan. Each row has `scheduled_at` and `consumed_at` (NULL until triggered). The scheduler uses pending steps instead of normal schedule times while an APPROVED plan exists.
+- `tz_transition_plans` — timezone transition plans (status: PENDING_APPROVAL / NOTIFIED / APPROVED / REJECTED / CANCELLED / EXPIRED). Generated when the stored timezone changes. Must be approved via Telegram before taking effect. Stores a SHA-256 `plan_hash` for idempotency, full `inputs_json` for reproducibility, and `steps_json` (the planner's serialized `[]tzreschedule.TransitionStep`) which is both the approve-banner audit blob and the input to step materialization. See [Pre-materialized TZ transition steps](#pre-materialized-tz-transition-steps).
+- (Historical: a sibling `tz_transition_steps` table held one row per dose step. Migration 069 dropped it after Track D of `docs/plans/20260508-simplify-medication-scheduling-utc-and-pre-materialized-steps.md` collapsed the parallel state machine into `intake_log` rows with `source='tz_step'`.)
 
 ### Migrations
 
@@ -110,7 +110,9 @@ internal/store/
 ├── workout/       workout groups/variants/exercises/sessions/logs + mi-band.
 ├── vitals/        sleep_logs + day_stats + heart/spo2/stress vitals.
 ├── diary/         diary_notes.
-├── tz/            timezone_history + tz_transition_plans + tz_transition_steps.
+├── tz/            timezone_history + tz_transition_plans (steps live as
+│                  intake_log rows with source='tz_step' since Track D,
+│                  migration 069).
 ├── settings/      per-feature toggles + tab order + change_events stream
 │                  + download cursor.
 ├── auth/          api_tokens + used_login_hashes.
@@ -144,7 +146,7 @@ When a write needs to atomically touch tables owned by two different packages, c
 The first production user of this pattern is **`store.Repos.ApproveAndMaterialize`** (Track D Task 10): flipping a `tz_transition_plans` row to APPROVED and pre-materializing its remaining steps as PENDING `intake_log` rows must happen under one transaction so a crash between the two writes cannot leave the plan APPROVED with no rows to fire. The composition is:
 
 - `tz.SetTZTransitionPlanApprovedTx(tx, planID, approvedAt)` — guarded UPDATE on `tz_transition_plans`.
-- `medication.MaterializePlanStepsAsIntakesTx(tx, planID, allowedUserID)` — INSERT … SELECT from `tz_transition_steps` into `intake_log` with `INSERT OR IGNORE` against the partial unique index `idx_intake_log_tz_plan_step_unique`.
+- `medication.MaterializePlanStepsAsIntakesTx(tx, planID, allowedUserID)` — parses the plan's `steps_json` blob and `INSERT OR IGNORE`s one PENDING `source='tz_step'` row per step into `intake_log`, deduped via the partial unique index `idx_intake_log_tz_plan_step_unique` (migration 067). The `tz_transition_steps` sibling table is gone (migration 069); `steps_json` is the single input.
 
 Both are called inside one `db.WithTx` opened by `Repos.ApproveAndMaterialize`. Every transport that approves a plan (HTTP `/api/tz-plan/{id}/approve`, the bot's `tz_plan_approve` callback, the scheduler's auto-approve safety net) routes through `tzreschedule.LifecycleService.Approve`, which wraps this single helper. That keeps CLAUDE.md rule #1 satisfied — no transport calls the bare `SetTZTransitionPlanApproved` primitive that misses the materialize step.
 
@@ -203,35 +205,56 @@ Bot struct fields: `medSvc domain.MedicationService`, `exerciseSvc domain.Exerci
 - Snooze logic: checks `snooze_until` timestamp
 - Rotation advancement: happens on workout completion or skip
 
-### TZ-transition plan-step dedup (near-match window)
+### Pre-materialized TZ transition steps
 
-While an APPROVED `tz_transition_plan` exists for a user, the medication
-scheduler materialises pending `tz_transition_steps` into `intake_log` rows
-instead of using the normal schedule. The dedup rule when materialising a
-step is:
+Track D of `docs/plans/20260508-simplify-medication-scheduling-utc-and-pre-materialized-steps.md`
+collapsed the parallel `tz_transition_steps` table into `intake_log` rows.
+When a `tz_transition_plan` is approved, the same transaction that flips
+its `status` to APPROVED also pre-materializes every step from the plan's
+`steps_json` blob as a PENDING `intake_log` row with `source='tz_step'`,
+`tz_plan_id=plan.ID`, and `tz_step_number=step.StepNumber`. The plan-state
+flip and the step inserts are atomic via `Repos.ApproveAndMaterialize` —
+a crash between them cannot leave an APPROVED plan without rows to fire.
 
-1. Exact match first: if an `intake_log` row already exists for this med at
-   exactly the step's `scheduled_at`, mark the step consumed against it and
-   do not create a new intake.
-2. Near-match fallback: if the exact lookup misses, search pending intakes
-   for this med and pick the closest one whose `|scheduled_at - step.ScheduledAt|`
-   is `≤ minInterval`, where `minInterval = NominalIntervalHours(schedule) *
-   policy_factor` (e.g. `15.6h` for a daily med with `medium` TZ-shift
-   policy). If found, mark the step consumed against that pre-existing
-   intake and do not create a new one.
-3. Otherwise, create a new intake at the step's `scheduled_at`.
+The scheduler then has **one input table**. On each tick `MedicationChecker.Check`:
 
-The near-match window absorbs second-level anchor drift: tz-plan steps
-are anchored on real `taken_at` timestamps, which carry the user's actual
-intake timing rather than the scheduled slot, so step times routinely drift
-seconds-to-minutes from the matching normal-schedule slot. Without this
-fallback, both rows survived in production (2026-05-14 Chicago → Berlin
-plan) and the user got duplicate reminders for hours. Implementation:
-`internal/scheduler/medication.go` plan-step branch; regression tests in
-`internal/scheduler/medication_tz_test.go` (subtests "approved plan: past
-step merges into pre-existing normal intake" and siblings). Forecast-side
-parity is documented at `internal/domain/medplan/medplan.go` near
-`pendingByMed[med.ID]`.
+1. Reads pre-materialized `source='tz_step'` rows due-now via
+   `GetDueTZStepIntakes(asOf)` and merges them into the same per-target
+   notification grouping the normal schedule populates — the pre-existing
+   row's id is wired through to `intake_reminders` rather than creating a
+   second intake.
+2. Reads pending normal-schedule slots via the existing
+   `BatchGetIntakesBySchedule` path, but before inserting a new
+   `source='schedule'` row at instant T for med M asserts
+   `HasIntakeNearScheduledTime(medID, T, minInterval)` is false. That
+   symmetric `BETWEEN T-window AND T+window` predicate replaces the
+   asymmetric "consumed step overlap guard" the legacy two-table
+   implementation needed in `medplan.PlanDoses` and absorbs the
+   second-level anchor drift between tz-plan steps (anchored on real
+   `taken_at` timestamps) and the matching normal-schedule slot.
+3. Marks the plan COMPLETED when `CountFuturePendingTZStepIntakesForPlan(planID, asOf) == 0`.
+
+The forecast endpoint follows the same union shape:
+`handleTriggerNextIntake` and `computeNextIntakeData` both union the
+medplan-emitted targets with PENDING `intake_log` rows in the same 12h
+window (`GetPendingIntakesInWindow`) and dedupe by
+`(medication_id, scheduled_at_unix)` so a pre-materialized `tz_step` row
+surfaces in the Today UI's next-intake preview even before the scheduler
+tick that would fire it.
+
+On plan cancel, `tzreschedule.CancelActivePlan` deletes the still-PENDING
+`source='tz_step'` rows for the cancelled plan via
+`medication.Repo.DeletePendingPreMaterializedIntakesForPlan` so the
+scheduler doesn't keep firing them. Implementation:
+`internal/scheduler/medication.go`, `internal/store/medication/repo.go`
+(`MaterializePlanStepsAsIntakesTx`, `GetDueTZStepIntakes`,
+`HasIntakeNearScheduledTime`, `CountFuturePendingTZStepIntakesForPlan`,
+`DeletePendingPreMaterializedIntakesForPlan`), and
+`internal/store/store.go` (`ApproveAndMaterialize`). Regression coverage
+in `internal/scheduler/medication_tz_test.go`,
+`internal/scheduler/dedup_equivalence_test.go`,
+`internal/server/trigger_next_intake_test.go`, and
+`internal/store/approve_and_materialize_test.go`.
 
 ### TZ suggestion cross-client dismissal
 

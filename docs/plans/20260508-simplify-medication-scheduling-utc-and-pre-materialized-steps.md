@@ -777,14 +777,31 @@ Same pattern as Task 5, applied to all three plan-lifecycle timestamp columns at
 
 ### Task 14: Update `docs/architecture.md` and `CLAUDE.md`
 
-- [ ] new subsection in `docs/architecture.md` describing the
+- [x] new subsection in `docs/architecture.md` describing the
   pre-materialization model: "transition plans write `intake_log` rows
-  on approve; the scheduler has one input table"
-- [ ] remove every reference to `tz_transition_steps` from the docs
+  on approve; the scheduler has one input table" (replaced the legacy
+  "TZ-transition plan-step dedup (near-match window)" section with
+  "Pre-materialized TZ transition steps", which walks through the
+  approve-time materialization, the scheduler's single-input-table
+  tick, the symmetric `HasIntakeNearScheduledTime` dedup that replaces
+  the consumed-step overlap guard, the forecast-side union, and the
+  cancel-time cleanup; cross-references the implementation in
+  `internal/scheduler/medication.go`, `internal/store/medication/repo.go`,
+  and `internal/store/store.go`).
+- [x] remove every reference to `tz_transition_steps` from the docs
   index — replace with a one-liner explaining the migration that
-  collapsed it into `intake_log`
-- [ ] write tests: not applicable — docs only.
-- [ ] run project tests - must pass before next task.
+  collapsed it into `intake_log` (the schema list now keeps
+  `tz_transition_plans` with a note that `steps_json` is both the
+  audit blob and the materialization input, plus a one-line historical
+  bullet that says migration 069 dropped the sibling table; the store
+  layout block's `tz/` entry no longer claims `tz_transition_steps`
+  exists; the `ApproveAndMaterialize` description in "Cross-repo
+  transactions" was updated to say `MaterializePlanStepsAsIntakesTx`
+  reads `steps_json` instead of the dropped table. `CLAUDE.md` did not
+  reference `tz_transition_steps` so no edits were needed there.)
+- [x] write tests: not applicable — docs only.
+- [x] run project tests - must pass before next task (`go test ./...`
+  green; no code changes in this task so all packages stayed cached).
 
 ### Task 15: Note follow-up work
 
