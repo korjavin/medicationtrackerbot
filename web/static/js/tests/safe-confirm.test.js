@@ -138,4 +138,25 @@ describe('safeConfirm — Telegram mode', () => {
         modal.querySelector('.mt-confirm-modal__cancel').click();
         await expect(promise).resolves.toBe(false);
     });
+
+    // Regression: core/utils.js was migrated (Task 3) to route safeAlert /
+    // safeConfirm through window.MessengerAdapter rather than reading
+    // window.Telegram.WebApp directly. These two tests pin that the
+    // delegation actually happens — if a future refactor reintroduces a
+    // direct Telegram.WebApp read in utils.js the adapter spies stop firing.
+    it('safeAlert delegates to MessengerAdapter.alert', () => {
+        env = loadFrontendEnv({ telegramInitData: 'user=abc' });
+        const { window } = env;
+        const alertSpy = vi.spyOn(window.MessengerAdapter, 'alert');
+        window.safeAlert('hello-from-adapter');
+        expect(alertSpy).toHaveBeenCalledWith('hello-from-adapter');
+    });
+
+    it('safeConfirm delegates to MessengerAdapter.confirm in Telegram context', async () => {
+        env = loadFrontendEnv({ telegramInitData: 'user=abc' });
+        const { window } = env;
+        const confirmSpy = vi.spyOn(window.MessengerAdapter, 'confirm');
+        await window.safeConfirm('via-adapter');
+        expect(confirmSpy).toHaveBeenCalledWith('via-adapter');
+    });
 });

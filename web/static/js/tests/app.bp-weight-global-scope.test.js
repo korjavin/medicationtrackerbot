@@ -12,9 +12,9 @@
  * are never defined and tab clicks throw ReferenceError.
  *
  * Fix:
- *  - app.js assigns `window.tg = window.Telegram.WebApp` (property, not const)
- *    and uses `window.tg.*` throughout — no const tg binding in global lexical env.
- *  - feature files use `window.tg.*` directly — no top-level const tg at all.
+ *  - app.js no longer declares any top-level `tg` binding; every Telegram
+ *    reach now goes through window.MessengerAdapter (core/messenger-adapter.js).
+ *  - feature files have no top-level const tg at all.
  */
 import { describe, expect, it } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
@@ -38,14 +38,12 @@ describe('bp/weight feature globals are available after full env load', () => {
         }
     });
 
-    it('app.js exposes window.tg so feature scripts can reference it safely', () => {
-        const { window, cleanup } = loadFrontendEnv();
-        try {
-            expect(window.tg).toBeDefined();
-            expect(window.tg).toBe(window.Telegram.WebApp);
-        } finally {
-            cleanup();
-        }
+    it('app.js does not declare any top-level `tg` binding (all Telegram reaches go through MessengerAdapter)', () => {
+        const fs = require('fs');
+        const path = require('path');
+        const src = fs.readFileSync(path.resolve(__dirname, '../app.js'), 'utf8');
+        expect(src).not.toMatch(/^\s*(const|let|var)\s+tg\s*=/m);
+        expect(src).not.toMatch(/^window\.tg\s*=/m);
     });
 
     it('features/bp.js has no top-level const tg declaration (would conflict in browser global scope)', () => {
