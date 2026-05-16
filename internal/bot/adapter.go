@@ -122,8 +122,8 @@ func (a *storeAdapter) ConfirmIntake(id int64, takenAt time.Time) error {
 func (a *storeAdapter) ConfirmIntakesBySchedule(userID int64, scheduledAt time.Time, takenAt time.Time) ([]int64, error) {
 	return a.med.ConfirmIntakesBySchedule(userID, scheduledAt, takenAt)
 }
-func (a *storeAdapter) SkipIntake(id int64) error                  { return a.med.SkipIntake(id) }
-func (a *storeAdapter) SnoozeIntake(id int64, t time.Time) error    { return a.med.SnoozeIntake(id, t) }
+func (a *storeAdapter) SkipIntake(id int64) error                { return a.med.SkipIntake(id) }
+func (a *storeAdapter) SnoozeIntake(id int64, t time.Time) error { return a.med.SnoozeIntake(id, t) }
 func (a *storeAdapter) CreateManualIntake(medID, userID int64, takenAt time.Time) (int64, error) {
 	return a.med.CreateManualIntake(medID, userID, takenAt)
 }
@@ -143,8 +143,8 @@ func (a *storeAdapter) CreateReading(ctx context.Context, b *store.BloodPressure
 func (a *storeAdapter) ListReadings(ctx context.Context, userID int64, since time.Time) ([]store.BloodPressure, error) {
 	return a.bp.ListReadings(ctx, userID, since)
 }
-func (a *storeAdapter) GetGoal() (*store.BPGoal, error)                   { return a.bp.GetGoal() }
-func (a *storeAdapter) SetGoal(s, d int) error                            { return a.bp.SetGoal(s, d) }
+func (a *storeAdapter) GetGoal() (*store.BPGoal, error)      { return a.bp.GetGoal() }
+func (a *storeAdapter) SetGoal(s, d int) error               { return a.bp.SetGoal(s, d) }
 func (a *storeAdapter) SnoozeReminder(userID int64) error    { return a.bp.SnoozeReminder(userID) }
 func (a *storeAdapter) DontBugMeReminder(userID int64) error { return a.bp.DontBugMeReminder(userID) }
 
@@ -250,12 +250,16 @@ func (a *storeAdapter) UpdateExerciseLogStatus(id int64, status string) error {
 }
 
 // workoutsvc.WorkoutStore extras
-func (a *storeAdapter) StartSession(id int64) error                                { return a.workout.StartSession(id) }
-func (a *storeAdapter) ClearSnooze(id int64) error                                 { return a.workout.ClearSnooze(id) }
-func (a *storeAdapter) SnoozeSession(id int64, dur time.Duration) error            { return a.workout.SnoozeSession(id, dur) }
-func (a *storeAdapter) SkipSession(id int64) error                                 { return a.workout.SkipSession(id) }
-func (a *storeAdapter) CompleteSession(id int64) error                             { return a.workout.CompleteSession(id) }
-func (a *storeAdapter) AdvanceRotation(groupID int64) error                        { return a.workout.AdvanceRotation(groupID) }
+func (a *storeAdapter) StartSession(id int64) error { return a.workout.StartSession(id) }
+func (a *storeAdapter) ClearSnooze(id int64) error  { return a.workout.ClearSnooze(id) }
+func (a *storeAdapter) SnoozeSession(id int64, dur time.Duration) error {
+	return a.workout.SnoozeSession(id, dur)
+}
+func (a *storeAdapter) SkipSession(id int64) error     { return a.workout.SkipSession(id) }
+func (a *storeAdapter) CompleteSession(id int64) error { return a.workout.CompleteSession(id) }
+func (a *storeAdapter) AdvanceRotation(groupID int64) error {
+	return a.workout.AdvanceRotation(groupID)
+}
 func (a *storeAdapter) CreateAdHocSession(userID int64, d time.Time, t string) (*store.WorkoutSession, error) {
 	return a.workout.CreateAdHocSession(userID, d, t)
 }

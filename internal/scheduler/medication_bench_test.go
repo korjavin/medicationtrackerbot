@@ -13,7 +13,7 @@ type mockMedStoreBench struct {
 }
 
 func (m *mockMedStoreBench) GetMedicationEnabled(ctx context.Context) (bool, error) { return true, nil }
-func (m *mockMedStoreBench) GetCurrent() (string, error)                    { return "UTC", nil }
+func (m *mockMedStoreBench) GetCurrent() (string, error)                            { return "UTC", nil }
 func (m *mockMedStoreBench) GetLatestActiveOrPendingTransitionPlan() (*store.TZTransitionPlan, error) {
 	return nil, nil
 }
@@ -58,7 +58,7 @@ func (m *mockMedStoreBench) UpdateTransitionPlanStatus(id int64, newStatus, user
 	return nil
 }
 func (m *mockMedStoreBench) CreateIntakeReminder(intakeID int64, msgID int) error { return nil }
-func (m *mockMedStoreBench) ListPendingIntakes() ([]store.IntakeLog, error)     { return nil, nil }
+func (m *mockMedStoreBench) ListPendingIntakes() ([]store.IntakeLog, error)       { return nil, nil }
 func (m *mockMedStoreBench) ListPendingIntakesForMedication(medID int64) ([]store.IntakeLog, error) {
 	return nil, nil
 }
