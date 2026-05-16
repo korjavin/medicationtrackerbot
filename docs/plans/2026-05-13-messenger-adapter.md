@@ -157,7 +157,7 @@ and recommended-priority item #8.
 
 ### Task 2: Browser fallback implementation
 
-- [ ] implement `BrowserAdapter` in the same file:
+- [x] implement `BrowserAdapter` in the same file:
   - `init()` → no-op resolved Promise
   - `identityToken()` → `null` (cookie-only auth)
   - `authHeaderName()` → `null` (auth-header helper sees null and
@@ -178,17 +178,17 @@ and recommended-priority item #8.
   - `hideBack()` → hides the in-app back button
   - `isPresent()` → `false` (callers can use this to skip
     Telegram-specific UX)
-- [ ] adjust the auth-header helper from the
+- [x] adjust the auth-header helper from the
   [auth-header plan](2026-05-13-auth-header-consolidation.md) Task 1:
   if `MessengerAdapter.authHeaderName()` returns null, omit the
   header entirely (cookie path); otherwise use the returned header
   name with `MessengerAdapter.identityToken()` as the value
-- [ ] write tests in
+- [x] write tests in
   `web/static/js/tests/core.messenger-adapter.browser.test.js`
   with no `window.Telegram` defined: each method exercises its
   native fallback; `startParam()` reads URL params correctly; back
   button uses popstate
-- [ ] run `pnpm test core.messenger-adapter.browser` — must pass
+- [x] run `pnpm test core.messenger-adapter.browser` — must pass
   before next task
 
 ### Task 3: Migrate the 6 reach-in sites

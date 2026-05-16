@@ -150,25 +150,121 @@
         },
     };
 
-    // BrowserAdapter is filled in by Task 2; for now a placeholder stub keeps
-    // selection well-defined when window.Telegram is absent.
-    const BrowserAdapter = {
-        init: function () { return Promise.resolve(); },
-        identityToken: function () { return null; },
-        authHeaderName: function () { return null; },
-        alert: function (msg) { try { window.alert(msg); } catch (e) { /* ignore */ } },
-        confirm: function (msg) { return Promise.resolve(!!window.confirm(msg)); },
-        showPopup: function (opts) {
-            const msg = (opts && (opts.message || opts.title)) || '';
-            try { window.alert(msg); } catch (e) { /* ignore */ }
-        },
-        startParam: function () { return null; },
-        onBack: function () { /* placeholder — Task 2 wires popstate */ },
-        showBack: function () { /* placeholder */ },
-        hideBack: function () { /* placeholder */ },
-        isPresent: function () { return false; },
-        isBackButtonSupported: function () { return false; },
-    };
+    // BrowserAdapter — used when no Telegram WebApp host wraps the page.
+    // Identity: cookie-only (authHeaderName returns null → header omitted).
+    // Dialogs: native window.alert / window.confirm.
+    // Deep links: URL query (?start=foo) or hash (#start=foo or bare #foo).
+    // Back: popstate listener + an in-app chevron rendered into <body> on
+    // showBack(). The chevron and popstate both invoke the registered handler.
+    const BrowserAdapter = (function () {
+        let backHandler = null;
+        let backButtonEl = null;
+        let popstateListenerAttached = false;
+
+        function invokeHandler() {
+            if (typeof backHandler === 'function') {
+                try { backHandler(); } catch (e) { /* swallow */ }
+            }
+        }
+
+        function ensureBackButton() {
+            if (backButtonEl) return backButtonEl;
+            if (typeof document === 'undefined' || !document.createElement) return null;
+            const el = document.createElement('button');
+            el.id = 'wg-browser-back-button';
+            el.type = 'button';
+            el.setAttribute('aria-label', 'Back');
+            el.className = 'wg-browser-back-button';
+            el.textContent = '‹'; // ‹
+            el.hidden = true;
+            el.addEventListener('click', invokeHandler);
+            const mount = function () {
+                if (document.body && !backButtonEl.isConnected) {
+                    document.body.appendChild(backButtonEl);
+                }
+            };
+            backButtonEl = el;
+            if (document.body) {
+                mount();
+            } else if (typeof document.addEventListener === 'function') {
+                document.addEventListener('DOMContentLoaded', mount, { once: true });
+            }
+            return backButtonEl;
+        }
+
+        function readStartParam() {
+            try {
+                if (typeof window === 'undefined' || !window.location) return null;
+                const loc = window.location;
+                const search = loc.search || '';
+                if (search && typeof URLSearchParams === 'function') {
+                    const fromSearch = new URLSearchParams(search).get('start');
+                    if (fromSearch) return fromSearch;
+                }
+                const hashRaw = (loc.hash || '').replace(/^#/, '');
+                if (!hashRaw) return null;
+                if (hashRaw.indexOf('=') !== -1 && typeof URLSearchParams === 'function') {
+                    const fromHash = new URLSearchParams(hashRaw).get('start');
+                    if (fromHash) return fromHash;
+                    return null;
+                }
+                // Bare hash like #bp_add
+                return hashRaw || null;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        return {
+            init: function () { return Promise.resolve(); },
+
+            identityToken: function () { return null; },
+
+            authHeaderName: function () { return null; },
+
+            alert: function (msg) {
+                try { window.alert(msg); } catch (e) { /* ignore */ }
+            },
+
+            confirm: function (msg) {
+                try { return Promise.resolve(!!window.confirm(msg)); }
+                catch (e) { return Promise.resolve(false); }
+            },
+
+            showPopup: function (opts) {
+                const title = (opts && opts.title) ? String(opts.title) : '';
+                const message = (opts && opts.message) ? String(opts.message) : '';
+                const text = (title && message) ? (title + '\n\n' + message) : (title || message);
+                try { window.alert(text); } catch (e) { /* ignore */ }
+            },
+
+            startParam: readStartParam,
+
+            onBack: function (handler) {
+                backHandler = (typeof handler === 'function') ? handler : null;
+                if (!popstateListenerAttached && typeof window !== 'undefined'
+                    && typeof window.addEventListener === 'function') {
+                    window.addEventListener('popstate', invokeHandler);
+                    popstateListenerAttached = true;
+                }
+            },
+
+            showBack: function () {
+                const el = ensureBackButton();
+                if (el) el.hidden = false;
+            },
+
+            hideBack: function () {
+                if (backButtonEl) backButtonEl.hidden = true;
+            },
+
+            isPresent: function () { return false; },
+
+            // BrowserAdapter always provides a working in-app back affordance,
+            // so back-button.js can wire up without a version gate.
+            isBackButtonSupported: function () { return true; },
+        };
+    })();
 
     const hasTelegram = (typeof window.Telegram !== 'undefined')
         && !!window.Telegram

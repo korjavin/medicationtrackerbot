@@ -11,6 +11,9 @@
 //
 // Excluded from the scan:
 //   - `core/api.js` — canonical home of `makeAuthHeaders`.
+//   - `core/messenger-adapter.js` — TelegramAdapter.authHeaderName() is
+//     the new canonical source of the header name string
+//     (docs/plans/2026-05-13-messenger-adapter.md).
 //   - `sw-api-helper.js` — Service Worker auth path covered by the
 //     separate SW handler unification plan
 //     (docs/plans/2026-05-13-sw-handler-unification.md).
@@ -33,6 +36,7 @@ const JS_ROOT = path.join(REPO_ROOT, 'web/static/js');
 
 const EXCLUDED_RELATIVE = new Set([
     'web/static/js/core/api.js',
+    'web/static/js/core/messenger-adapter.js',
     'web/static/js/sw-api-helper.js',
 ]);
 
