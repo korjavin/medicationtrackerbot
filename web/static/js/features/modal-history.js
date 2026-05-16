@@ -16,6 +16,12 @@
 (function initModalHistory() {
     let modalPushed = false;
     let poppingFromHistory = false;
+    // True when we've just triggered history.back() ourselves from
+    // onOverlayClosed() and the resulting popstate is purely an echo of that
+    // call. Without this, BrowserAdapter's section-back popstate listener
+    // would fire on top of the in-app modal close and bounce the user to
+    // Today. No-op in TelegramAdapter mode (no popstate listener there).
+    let swallowNextPopstate = false;
     const adapter = window.MessengerAdapter;
     const isBackButtonSupported = !!(adapter
         && typeof adapter.isBackButtonSupported === 'function'
@@ -40,12 +46,22 @@
     function onOverlayClosed() {
         if (!modalPushed || poppingFromHistory) return;
         modalPushed = false;
+        swallowNextPopstate = true;
         history.back();
         reconcileBackButtonVisibility();
     }
 
     // iOS edge-swipe (and desktop browser back)
     window.addEventListener('popstate', (event) => {
+        if (swallowNextPopstate) {
+            swallowNextPopstate = false;
+            // Stop the BrowserAdapter section-back listener from also firing
+            // on this synthetic-from-history.back() popstate.
+            if (event && typeof event.stopImmediatePropagation === 'function') {
+                event.stopImmediatePropagation();
+            }
+            return;
+        }
         if (!modalPushed) return;
         const overlay = document.getElementById('modal-overlay');
         if (!overlay || overlay.classList.contains('hidden')) {
