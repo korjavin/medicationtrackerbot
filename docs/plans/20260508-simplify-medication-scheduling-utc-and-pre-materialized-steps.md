@@ -207,16 +207,24 @@ Every numbered point above was the source of one of the recent bugs.
 
 ### Task 2: Migration — add `scheduled_at_unix` column to `intake_log`, backfill, dual-write — SUPERSEDED by 2026-05-10 plan
 
-- [ ] migration `0XX_add_intake_log_scheduled_at_unix.sql` (concrete
-  number assigned at PR time; `057` is next-free at time of writing):
-  `ALTER TABLE intake_log ADD COLUMN scheduled_at_unix INTEGER;`
-  + backfill `UPDATE intake_log SET scheduled_at_unix = strftime('%s', scheduled_at);`
-  + index `idx_intake_log_scheduled_at_unix`
-- [ ] update `Store.CreateIntake` / `Store.CreateManualIntake` to write
-  both `scheduled_at` (legacy) and `scheduled_at_unix` (new) — every
-  insert is a dual-write until task 4 drops the legacy column
-- [ ] write tests: migration goes through `up → down → up` round-trip test.
-- [ ] run project tests - must pass before next task (`go test ./internal/store/... ./internal/scheduler/...`).
+- [x] migration `0XX_add_intake_log_scheduled_at_unix.sql` (satisfied by
+  2026-05-10 plan — `057_add_intake_log_scheduled_at_unix.sql` adds the
+  INTEGER column, backfills via a production-format-aware `strftime` that
+  handles both RFC3339 and `t.String()` variants observed in prod, and
+  creates `idx_intake_log_scheduled_at_unix`)
+- [x] update `Store.CreateIntake` / `Store.CreateManualIntake` to write
+  both `scheduled_at` (legacy) and `scheduled_at_unix` (new) (satisfied
+  by 2026-05-10 plan — dual-write step was collapsed because Tasks 2–4
+  shipped as one PR; writers in
+  `internal/store/medication/repo.go:441,452` now stamp `scheduled_at_unix`
+  directly and migration 058 dropped the legacy DATETIME column)
+- [x] write tests: migration goes through `up → down → up` round-trip
+  test (satisfied by 2026-05-10 plan —
+  `internal/store/migration_057_test.go` pins both production storage
+  formats across PDT/MST/CEST/UTC and exercises up → down → up)
+- [x] run project tests (satisfied by 2026-05-10 plan — `go test ./...`
+  was required green at every task boundary of that plan; nothing to
+  re-run for an already-shipped task)
 
 ### Task 3: Switch every reader to `scheduled_at_unix` — SUPERSEDED by 2026-05-10 plan
 
