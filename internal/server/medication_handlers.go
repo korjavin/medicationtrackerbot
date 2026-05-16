@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -16,6 +17,19 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
+
+// sortTargetsByScheduledAt sorts dose targets by ScheduledAt and falls back to
+// MedicationID. Mirrors the ordering medplan.PlanDoses produces so callers that
+// union extra targets (e.g. PENDING intake_log rows surfaced by Task 12 of the
+// scheduling-simplification plan) end up with a single deterministic sequence.
+func sortTargetsByScheduledAt(targets []medplan.DoseTarget) {
+	sort.SliceStable(targets, func(i, j int) bool {
+		if !targets[i].ScheduledAt.Equal(targets[j].ScheduledAt) {
+			return targets[i].ScheduledAt.Before(targets[j].ScheduledAt)
+		}
+		return targets[i].MedicationID < targets[j].MedicationID
+	})
+}
 
 func (s *Server) handleSnoozeMedication(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
@@ -497,9 +511,9 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 
 	// Plan inputs: identical to the forecast endpoint so the same cluster
 	// of doses surfaces here. The consumed-step overlap guard moved out of
-	// medplan in Task 11 of the scheduling simplification plan; the
-	// forecast endpoint's union with intake_log (Task 12) covers the same
-	// scenarios.
+	// medplan in Task 11 of the scheduling simplification plan; the union
+	// with intake_log below (Task 12) is what surfaces pre-materialized
+	// tz_step rows once Task 13 drops tz_transition_steps.
 	var pendingSteps []store.TZTransitionStep
 	if s.tzPlanStore != nil {
 		if plan, err := s.tzPlanStore.GetLatestActiveOrPendingTZTransitionPlan(); err == nil && plan != nil {
@@ -511,13 +525,51 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
+	const triggerWindow = 12 * time.Hour
 	targets := medplan.PlanDoses(medplan.Inputs{
 		Medications:  meds,
 		PendingSteps: pendingSteps,
 		UserLoc:      userLoc,
 		Now:          now,
-		Window:       12 * time.Hour,
+		Window:       triggerWindow,
 	})
+
+	// Task 12: union medplan's targets with any PENDING intake_log rows
+	// inside the same forward window. Dedup by (medication_id,
+	// scheduled_at_unix) so a normal target with an already-materialized
+	// intake row appears once; PlanDoses entries win on overlap so the
+	// transition-step StepID (used below for MarkStepConsumed) is
+	// preserved while we still ship alongside tz_transition_steps.
+	type dedupKey struct {
+		medID     int64
+		schedUnix int64
+	}
+	seen := make(map[dedupKey]bool, len(targets))
+	for _, t := range targets {
+		seen[dedupKey{t.MedicationID, t.ScheduledAt.UTC().Unix()}] = true
+	}
+	pendingRows, err := s.meds.GetPendingIntakesInWindow(now, now.Add(triggerWindow))
+	if err != nil {
+		slog.Warn("trigger-next-intake: failed to load pending intakes in window, falling back to planner targets only",
+			"error", err)
+	}
+	for _, row := range pendingRows {
+		k := dedupKey{row.MedicationID, row.ScheduledAt.UTC().Unix()}
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		src := medplan.SourceNormalSchedule
+		if row.Source == "tz_step" {
+			src = medplan.SourceTransitionStep
+		}
+		targets = append(targets, medplan.DoseTarget{
+			MedicationID: row.MedicationID,
+			ScheduledAt:  row.ScheduledAt,
+			Source:       src,
+		})
+	}
+	sortTargetsByScheduledAt(targets)
 
 	medByID := make(map[int64]store.Medication, len(meds))
 	for _, m := range meds {

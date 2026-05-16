@@ -395,6 +395,77 @@ func TestHandleTriggerNextIntake_EarlyNotifFormatsInUserTZ(t *testing.T) {
 	}
 }
 
+// TestHandleTriggerNextIntake_PreMaterializedTZStepRowSurfaces pins Task 12 of
+// docs/plans/20260508-simplify-medication-scheduling-utc-and-pre-materialized-steps.md:
+// a PENDING intake_log row with source='tz_step' (the shape that
+// ApproveAndMaterialize produces, and the shape that survives once Task 13
+// drops tz_transition_steps) must show up in the trigger-next-intake cluster
+// window even when nothing in tz_transition_steps would surface it via the
+// legacy pendingSteps path. The handler's union with intake_log is the only
+// thing that closes this gap post-Task-13.
+func TestHandleTriggerNextIntake_PreMaterializedTZStepRowSurfaces(t *testing.T) {
+	c := newTriggerCtx(t)
+	if err := c.db.TZ.RecordTimezone("America/Los_Angeles"); err != nil {
+		t.Fatalf("RecordTimezone: %v", err)
+	}
+	la, _ := time.LoadLocation("America/Los_Angeles")
+	// 13:00 PDT — 08:20 slot is past, 21:30 slot is ~8.5h ahead (in window),
+	// pre-materialized tz_step row sits at 14:18 PDT (closer and earliest).
+	c.setNow(time.Date(2026, 5, 4, 13, 0, 0, 0, la))
+
+	medID := mustCreateMed(t, c.db, "Lercanidipin", "10mg", `{"type":"daily","times":["08:20","21:30"]}`, "medium")
+
+	// Pre-materialize a PENDING tz_step intake_log row at 14:18 PDT without a
+	// matching tz_transition_steps entry — only the Task 12 union path can
+	// surface it, since the handler's legacy pendingSteps lookup returns nil.
+	stepTime := time.Date(2026, 5, 4, 14, 18, 0, 0, la)
+	if _, err := c.db.DB().Exec(`
+		INSERT INTO intake_log
+			(medication_id, user_id, scheduled_at_unix, status, source, tz_plan_id, tz_step_number)
+		VALUES (?, ?, ?, 'PENDING', 'tz_step', ?, ?)`,
+		medID, int64(123456), stepTime.UTC().Unix(), int64(99), int64(1)); err != nil {
+		t.Fatalf("pre-materialize tz_step intake row: %v", err)
+	}
+
+	resp, code := c.callTrigger(123456)
+	if code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", code)
+	}
+	if got := int(resp["medication_count"].(float64)); got != 1 {
+		t.Fatalf("expected 1 medication taken, got %d (resp=%v)", got, resp)
+	}
+
+	// The pre-materialized row must now be TAKEN, retaining its source/plan
+	// metadata so downstream paths (CountFuturePendingTZStepIntakesForPlan,
+	// scheduler COMPLETED check) still recognise it as a tz_step row.
+	intake, err := c.db.Medication.GetIntakeBySchedule(medID, stepTime)
+	if err != nil || intake == nil {
+		t.Fatalf("expected intake at step time, got intake=%v err=%v", intake, err)
+	}
+	if intake.Status != "TAKEN" {
+		t.Errorf("expected status TAKEN, got %s", intake.Status)
+	}
+	if intake.Source != "tz_step" {
+		t.Errorf("expected source=tz_step preserved, got %q", intake.Source)
+	}
+
+	// And the bare 21:30 PDT clock slot must NOT have been picked — it is
+	// 7+ hours from the 14:18 PDT cluster anchor, well outside the 10-minute
+	// cluster window, so the planner's normal-schedule target must stay
+	// untouched by this call.
+	bareEvening := time.Date(2026, 5, 4, 21, 30, 0, 0, la)
+	if got, _ := c.db.Medication.GetIntakeBySchedule(medID, bareEvening); got != nil {
+		t.Errorf("did not expect a 21:30 PDT intake, but found %+v", got)
+	}
+
+	// Response's scheduled_at should match the pre-materialized row's time so
+	// the Telegram early-take notification labels the right slot.
+	gotTime, _ := time.Parse(time.RFC3339, resp["scheduled_at"].(string))
+	if !gotTime.Equal(stepTime) {
+		t.Errorf("expected scheduled_at = %v, got %v", stepTime, gotTime)
+	}
+}
+
 // TestHandleTriggerNextIntake_NoneInWindowReturns404 is the negative path:
 // when no medication has any future scheduled dose inside the look-ahead
 // window the handler must say "nothing to take" rather than silently
