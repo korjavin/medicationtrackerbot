@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func TestCreateAdHocWorkoutSession(t *testing.T) {
+func TestCreateAdHocSession(t *testing.T) {
 	s := setupTestDB(t)
 
 	userID := int64(1)
@@ -14,7 +14,7 @@ func TestCreateAdHocWorkoutSession(t *testing.T) {
 	scheduledTime := now.Format("15:04")
 
 	// Create an ad-hoc workout session
-	session, err := s.CreateAdHocWorkoutSession(userID, now, scheduledTime)
+	session, err := s.CreateAdHocSession(userID, now, scheduledTime)
 	if err != nil {
 		t.Fatalf("Failed to create ad-hoc workout session: %v", err)
 	}
@@ -48,15 +48,15 @@ func TestIsAdHocSession(t *testing.T) {
 	scheduledTime := now.Format("15:04")
 
 	// Create an ad-hoc session
-	adhocSession, err := s.CreateAdHocWorkoutSession(userID, now, scheduledTime)
+	adhocSession, err := s.CreateAdHocSession(userID, now, scheduledTime)
 	if err != nil {
 		t.Fatalf("Failed to create ad-hoc session: %v", err)
 	}
 
 	// Create a regular scheduled session
-	group, _ := s.CreateWorkoutGroup("Test Group", "desc", false, userID, "[1,3,5]", "10:00", 30)
-	variant, _ := s.CreateWorkoutVariant(group.ID, "Test Variant", nil, "")
-	scheduledSession, err := s.CreateWorkoutSession(group.ID, variant.ID, userID, now, scheduledTime)
+	group, _ := s.CreateGroup("Test Group", "desc", false, userID, "[1,3,5]", "10:00", 30)
+	variant, _ := s.CreateVariant(group.ID, "Test Variant", nil, "")
+	scheduledSession, err := s.CreateSession(group.ID, variant.ID, userID, now, scheduledTime)
 	if err != nil {
 		t.Fatalf("Failed to create scheduled session: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestAdHocWorkoutWithExercises(t *testing.T) {
 	scheduledTime := now.Format("15:04")
 
 	// Create an ad-hoc workout session
-	session, err := s.CreateAdHocWorkoutSession(userID, now, scheduledTime)
+	session, err := s.CreateAdHocSession(userID, now, scheduledTime)
 	if err != nil {
 		t.Fatalf("Failed to create ad-hoc workout session: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestAdHocWorkoutWithExercises(t *testing.T) {
 	}
 
 	// Retrieve exercise logs
-	logs, err := s.GetExerciseLogs(session.ID)
+	logs, err := s.ListExerciseLogs(session.ID)
 	if err != nil {
 		t.Fatalf("Failed to get exercise logs: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestAdHocWorkoutWithExercises(t *testing.T) {
 	}
 
 	// Verify session is completed
-	completedSession, err := s.GetWorkoutSession(session.ID)
+	completedSession, err := s.GetSession(session.ID)
 	if err != nil {
 		t.Fatalf("Failed to get session: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestAdHocWorkoutWithMultipleCustomExercises(t *testing.T) {
 	scheduledTime := now.Format("15:04")
 
 	// Create an ad-hoc workout session
-	session, err := s.CreateAdHocWorkoutSession(userID, now, scheduledTime)
+	session, err := s.CreateAdHocSession(userID, now, scheduledTime)
 	if err != nil {
 		t.Fatalf("Failed to create ad-hoc workout session: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestAdHocWorkoutWithMultipleCustomExercises(t *testing.T) {
 	}
 
 	// Retrieve exercise logs
-	logs, err := s.GetExerciseLogs(session.ID)
+	logs, err := s.ListExerciseLogs(session.ID)
 	if err != nil {
 		t.Fatalf("Failed to get exercise logs: %v", err)
 	}
@@ -198,14 +198,14 @@ func TestAdHocWorkoutWithMultipleCustomExercises(t *testing.T) {
 	}
 }
 
-func TestGetWorkoutHistoryWithAdHoc(t *testing.T) {
+func TestListHistoryWithAdHoc(t *testing.T) {
 	s := setupTestDB(t)
 
 	userID := int64(1)
 	now := time.Now()
 
 	// Create an ad-hoc session
-	adhocSession, err := s.CreateAdHocWorkoutSession(userID, now, now.Format("15:04"))
+	adhocSession, err := s.CreateAdHocSession(userID, now, now.Format("15:04"))
 	if err != nil {
 		t.Fatalf("Failed to create ad-hoc session: %v", err)
 	}
@@ -214,9 +214,9 @@ func TestGetWorkoutHistoryWithAdHoc(t *testing.T) {
 	}
 
 	// Create a regular session
-	group, _ := s.CreateWorkoutGroup("Test Group", "desc", false, userID, "[1,3,5]", "10:00", 30)
-	variant, _ := s.CreateWorkoutVariant(group.ID, "Test Variant", nil, "")
-	scheduledSession, err := s.CreateWorkoutSession(group.ID, variant.ID, userID, now, "10:00")
+	group, _ := s.CreateGroup("Test Group", "desc", false, userID, "[1,3,5]", "10:00", 30)
+	variant, _ := s.CreateVariant(group.ID, "Test Variant", nil, "")
+	scheduledSession, err := s.CreateSession(group.ID, variant.ID, userID, now, "10:00")
 	if err != nil {
 		t.Fatalf("Failed to create scheduled session: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestGetWorkoutHistoryWithAdHoc(t *testing.T) {
 	}
 
 	// Get workout history
-	history, err := s.GetWorkoutHistory(userID, 10)
+	history, err := s.ListHistory(userID, 10)
 	if err != nil {
 		t.Fatalf("Failed to get workout history: %v", err)
 	}

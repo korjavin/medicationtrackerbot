@@ -25,9 +25,9 @@ const (
 // AdminStore is the subset of the store needed by the admin API to manage
 // long-lived API tokens. *store.Store satisfies this interface.
 type AdminStore interface {
-	CreateAPIToken(ctx context.Context, name, tokenHash string) (int64, error)
-	ListAPITokens(ctx context.Context) ([]store.APIToken, error)
-	DeleteAPIToken(ctx context.Context, id int64) error
+	CreateToken(ctx context.Context, name, tokenHash string) (int64, error)
+	ListTokens(ctx context.Context) ([]store.APIToken, error)
+	DeleteToken(ctx context.Context, id int64) error
 }
 
 // AdminHandler exposes a small JSON HTTP API for managing api_tokens. It is
@@ -90,7 +90,7 @@ func (h *AdminHandler) handleCreate(w http.ResponseWriter, r *http.Request) {
 	sum := sha256.Sum256([]byte(plaintext))
 	hash := hex.EncodeToString(sum[:])
 
-	id, err := h.store.CreateAPIToken(r.Context(), name, hash)
+	id, err := h.store.CreateToken(r.Context(), name, hash)
 	if err != nil {
 		slog.Error("[MCP/Admin] create api token", "error", err)
 		writeJSONError(w, http.StatusInternalServerError, "failed to create token")
@@ -113,7 +113,7 @@ type listedToken struct {
 }
 
 func (h *AdminHandler) handleList(w http.ResponseWriter, r *http.Request) {
-	tokens, err := h.store.ListAPITokens(r.Context())
+	tokens, err := h.store.ListTokens(r.Context())
 	if err != nil {
 		slog.Error("[MCP/Admin] list api tokens", "error", err)
 		writeJSONError(w, http.StatusInternalServerError, "failed to list tokens")
@@ -142,7 +142,7 @@ func (h *AdminHandler) handleDelete(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "id must be a positive integer")
 		return
 	}
-	if err := h.store.DeleteAPIToken(r.Context(), id); err != nil {
+	if err := h.store.DeleteToken(r.Context(), id); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			writeJSONError(w, http.StatusNotFound, "token not found")
 			return

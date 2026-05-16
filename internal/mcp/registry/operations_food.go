@@ -5,7 +5,7 @@ import "encoding/json"
 // FoodOperations returns the set of food-related operations for the registry.
 // Includes read-only operations for browsing logs/products/targets and write
 // operations whose backend handlers carry strong domain validation
-// (FoodService.CreateFoodLog, SetFoodTargets).
+// (FoodService.CreateLog, SetTargets).
 func FoodOperations() []*Operation {
 	return []*Operation{
 		{
@@ -189,12 +189,12 @@ output(result)`,
 output({"updated": 42})`,
 		},
 		{
-			ID:         "food.log.delete",
-			Topic:      "food",
-			Method:     "DELETE",
-			Path:       "/api/food/log/{id}",
-			PathParams: []string{"id"},
-			Risk:       RiskWrite,
+			ID:              "food.log.delete",
+			Topic:           "food",
+			Method:          "DELETE",
+			Path:            "/api/food/log/{id}",
+			PathParams:      []string{"id"},
+			Risk:            RiskWrite,
 			Description:     "Delete a food log entry by id.",
 			ResponseSummary: "Empty body on success (HTTP 200).",
 			Example: `api.call("food.log.delete", path_params={"id": 42})
@@ -231,12 +231,12 @@ output({"deleted": 42})`,
 output({"updated": 7})`,
 		},
 		{
-			ID:         "food.products.delete",
-			Topic:      "food",
-			Method:     "DELETE",
-			Path:       "/api/food/products/{id}",
-			PathParams: []string{"id"},
-			Risk:       RiskWrite,
+			ID:              "food.products.delete",
+			Topic:           "food",
+			Method:          "DELETE",
+			Path:            "/api/food/products/{id}",
+			PathParams:      []string{"id"},
+			Risk:            RiskWrite,
 			Description:     "Delete a saved food product by id.",
 			ResponseSummary: "Empty body on success (HTTP 200).",
 			Example: `api.call("food.products.delete", path_params={"id": 7})

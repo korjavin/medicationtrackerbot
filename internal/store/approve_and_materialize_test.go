@@ -18,9 +18,9 @@ import (
 func TestApproveAndMaterialize_FlipsAndMaterializes(t *testing.T) {
 	r := setupRepos(t)
 
-	medID, err := r.Medication.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	medID, err := r.Medication.Create("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	planID := insertPlanWithSteps(t, r, "PENDING_APPROVAL", []seedStep{
@@ -88,13 +88,13 @@ func TestApproveAndMaterialize_FlipsAndMaterializes(t *testing.T) {
 func TestApproveAndMaterialize_MultiMedicationPlan(t *testing.T) {
 	r := setupRepos(t)
 
-	medA, err := r.Medication.CreateMedication("MedA", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	medA, err := r.Medication.Create("MedA", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication A: %v", err)
+		t.Fatalf("Create A: %v", err)
 	}
-	medB, err := r.Medication.CreateMedication("MedB", "200mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medB, err := r.Medication.Create("MedB", "200mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication B: %v", err)
+		t.Fatalf("Create B: %v", err)
 	}
 
 	// Mirror tzreschedule.GeneratePlan: each med independently numbered 1..K.
@@ -141,9 +141,9 @@ func TestApproveAndMaterialize_MultiMedicationPlan(t *testing.T) {
 // regression and no spurious intake rows.
 func TestApproveAndMaterialize_RejectedPlanIsNoOp(t *testing.T) {
 	r := setupRepos(t)
-	medID, err := r.Medication.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	medID, err := r.Medication.Create("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 	planID := insertPlanWithSteps(t, r, "REJECTED", []seedStep{
 		{medID: medID, stepNum: 1, scheduledAt: time.Date(2026, 5, 16, 6, 0, 0, 0, time.UTC)},

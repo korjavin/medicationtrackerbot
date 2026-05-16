@@ -14,15 +14,15 @@ func TestSendExerciseList_Pagination(t *testing.T) {
 	defer env.teardown()
 
 	userID := int64(123456)
-	group, _ := env.s.Workout.CreateWorkoutGroup("Test Group", "", false, userID, "[1]", "09:00", 15)
-	variant, _ := env.s.Workout.CreateWorkoutVariant(group.ID, "A", nil, "")
+	group, _ := env.s.Workout.CreateGroup("Test Group", "", false, userID, "[1]", "09:00", 15)
+	variant, _ := env.s.Workout.CreateVariant(group.ID, "A", nil, "")
 
 	// Add 15 exercises to trigger pagination
 	for i := 1; i <= 15; i++ {
-		env.s.Workout.AddExerciseToVariant(variant.ID, fmt.Sprintf("Exercise %d", i), 3, 10, nil, nil, 0)
+		env.s.Workout.CreateExerciseInVariant(variant.ID, fmt.Sprintf("Exercise %d", i), 3, 10, nil, nil, 0)
 	}
 
-	session, _ := env.s.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	session, _ := env.s.Workout.CreateSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 	env.s.Workout.StartSession(session.ID)
 
 	// drain any messages that might be sent automatically during setup
@@ -76,12 +76,12 @@ func TestSendExerciseList_SessionNotActive(t *testing.T) {
 	defer env.teardown()
 
 	userID := int64(123456)
-	group, _ := env.s.Workout.CreateWorkoutGroup("Test", "", false, userID, "[1]", "09:00", 15)
-	variant, _ := env.s.Workout.CreateWorkoutVariant(group.ID, "A", nil, "")
-	env.s.Workout.AddExerciseToVariant(variant.ID, "Ex 1", 3, 10, nil, nil, 0)
+	group, _ := env.s.Workout.CreateGroup("Test", "", false, userID, "[1]", "09:00", 15)
+	variant, _ := env.s.Workout.CreateVariant(group.ID, "A", nil, "")
+	env.s.Workout.CreateExerciseInVariant(variant.ID, "Ex 1", 3, 10, nil, nil, 0)
 
 	// create session but don't start it (status=pending)
-	session, _ := env.s.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	session, _ := env.s.Workout.CreateSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 
 	_, err := env.b.SendExerciseList(session.ID, userID)
 	if err == nil || !strings.Contains(err.Error(), "session is not active") {
@@ -94,14 +94,14 @@ func TestHandleExercisePageCallback(t *testing.T) {
 	defer env.teardown()
 
 	userID := int64(123456)
-	group, _ := env.s.Workout.CreateWorkoutGroup("Test Group", "", false, userID, "[1]", "09:00", 15)
-	variant, _ := env.s.Workout.CreateWorkoutVariant(group.ID, "A", nil, "")
+	group, _ := env.s.Workout.CreateGroup("Test Group", "", false, userID, "[1]", "09:00", 15)
+	variant, _ := env.s.Workout.CreateVariant(group.ID, "A", nil, "")
 
 	for i := 1; i <= 15; i++ {
-		env.s.Workout.AddExerciseToVariant(variant.ID, fmt.Sprintf("Ex %d", i), 3, 10, nil, nil, 0)
+		env.s.Workout.CreateExerciseInVariant(variant.ID, fmt.Sprintf("Ex %d", i), 3, 10, nil, nil, 0)
 	}
 
-	session, _ := env.s.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	session, _ := env.s.Workout.CreateSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 	env.s.Workout.StartSession(session.ID)
 
 	drainMessages(env)
@@ -133,11 +133,11 @@ func TestHandleSelectExerciseCallback_SessionNotActive(t *testing.T) {
 	defer env.teardown()
 
 	userID := int64(123456)
-	group, _ := env.s.Workout.CreateWorkoutGroup("Test", "", false, userID, "[1]", "09:00", 15)
-	variant, _ := env.s.Workout.CreateWorkoutVariant(group.ID, "A", nil, "")
-	ex, _ := env.s.Workout.AddExerciseToVariant(variant.ID, "Ex 1", 3, 10, nil, nil, 0)
+	group, _ := env.s.Workout.CreateGroup("Test", "", false, userID, "[1]", "09:00", 15)
+	variant, _ := env.s.Workout.CreateVariant(group.ID, "A", nil, "")
+	ex, _ := env.s.Workout.CreateExerciseInVariant(variant.ID, "Ex 1", 3, 10, nil, nil, 0)
 
-	session, _ := env.s.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	session, _ := env.s.Workout.CreateSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 	// don't start session (status=pending)
 
 	drainMessages(env)
@@ -168,11 +168,11 @@ func TestHandleSelectExerciseCallback_WrongUser(t *testing.T) {
 	defer env.teardown()
 
 	userID := int64(123456)
-	group, _ := env.s.Workout.CreateWorkoutGroup("Test", "", false, userID, "[1]", "09:00", 15)
-	variant, _ := env.s.Workout.CreateWorkoutVariant(group.ID, "A", nil, "")
-	ex, _ := env.s.Workout.AddExerciseToVariant(variant.ID, "Ex 1", 3, 10, nil, nil, 0)
+	group, _ := env.s.Workout.CreateGroup("Test", "", false, userID, "[1]", "09:00", 15)
+	variant, _ := env.s.Workout.CreateVariant(group.ID, "A", nil, "")
+	ex, _ := env.s.Workout.CreateExerciseInVariant(variant.ID, "Ex 1", 3, 10, nil, nil, 0)
 
-	session, _ := env.s.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	session, _ := env.s.Workout.CreateSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 	env.s.Workout.StartSession(session.ID)
 
 	drainMessages(env)
@@ -203,10 +203,10 @@ func TestHandleSelectExerciseCallback_ExerciseNotFound(t *testing.T) {
 	defer env.teardown()
 
 	userID := int64(123456)
-	group, _ := env.s.Workout.CreateWorkoutGroup("Test", "", false, userID, "[1]", "09:00", 15)
-	variant, _ := env.s.Workout.CreateWorkoutVariant(group.ID, "A", nil, "")
+	group, _ := env.s.Workout.CreateGroup("Test", "", false, userID, "[1]", "09:00", 15)
+	variant, _ := env.s.Workout.CreateVariant(group.ID, "A", nil, "")
 
-	session, _ := env.s.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	session, _ := env.s.Workout.CreateSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 	env.s.Workout.StartSession(session.ID)
 
 	drainMessages(env)
@@ -240,13 +240,13 @@ func TestHandleSelectExerciseCallback_ExerciseNotAllowed(t *testing.T) {
 	userID2 := int64(999999)
 
 	// User 1 group and session
-	group1, _ := env.s.Workout.CreateWorkoutGroup("Test 1", "", false, userID1, "[1]", "09:00", 15)
-	variant1, _ := env.s.Workout.CreateWorkoutVariant(group1.ID, "A", nil, "")
+	group1, _ := env.s.Workout.CreateGroup("Test 1", "", false, userID1, "[1]", "09:00", 15)
+	variant1, _ := env.s.Workout.CreateVariant(group1.ID, "A", nil, "")
 
 	// User 2 group and exercise (in library)
 	libItem2, _ := env.s.Workout.CreateExerciseLibraryItem(userID2, "Ex 2", 3, 10, nil, nil, "")
 
-	session1, _ := env.s.Workout.CreateWorkoutSession(group1.ID, variant1.ID, userID1, time.Now(), "09:00")
+	session1, _ := env.s.Workout.CreateSession(group1.ID, variant1.ID, userID1, time.Now(), "09:00")
 	env.s.Workout.StartSession(session1.ID)
 
 	drainMessages(env)
@@ -276,7 +276,7 @@ func TestHandleSelectExerciseCallback_ExerciseNotAllowed(t *testing.T) {
 // TestHandleSelectExerciseCallback_FromLibrary reproduces the bug where exercises
 // added only to the exercise library (not to any workout variant) could not be
 // selected during a session — they caused "Exercise not found" because the code
-// incorrectly called GetWorkoutExercise (workout_exercises table) instead of
+// incorrectly called GetExercise (workout_exercises table) instead of
 // GetExerciseLibraryItem (exercise_library table).
 func TestHandleSelectExerciseCallback_FromLibrary(t *testing.T) {
 	env := setupBotTest(t)
@@ -291,9 +291,9 @@ func TestHandleSelectExerciseCallback_FromLibrary(t *testing.T) {
 	}
 
 	// Create a session
-	group, _ := env.s.Workout.CreateWorkoutGroup("Test", "", false, userID, "[1]", "09:00", 15)
-	variant, _ := env.s.Workout.CreateWorkoutVariant(group.ID, "A", nil, "")
-	session, _ := env.s.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	group, _ := env.s.Workout.CreateGroup("Test", "", false, userID, "[1]", "09:00", 15)
+	variant, _ := env.s.Workout.CreateVariant(group.ID, "A", nil, "")
+	session, _ := env.s.Workout.CreateSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 	env.s.Workout.StartSession(session.ID)
 
 	drainMessages(env)
@@ -307,7 +307,7 @@ func TestHandleSelectExerciseCallback_FromLibrary(t *testing.T) {
 		},
 	}
 
-	// The callback data contains the library item ID (as returned by GetAllUniqueExercises)
+	// The callback data contains the library item ID (as returned by ListAllUniqueExercises)
 	env.b.handleSelectExerciseCallback(cb, session.ID, libItem.ID)
 
 	select {
@@ -337,9 +337,9 @@ func TestSendExerciseList_HasCancelButton(t *testing.T) {
 	userID := int64(123456)
 	env.s.Workout.CreateExerciseLibraryItem(userID, "Push-ups", 3, 10, nil, nil, "")
 
-	group, _ := env.s.Workout.CreateWorkoutGroup("Test", "", false, userID, "[1]", "09:00", 15)
-	variant, _ := env.s.Workout.CreateWorkoutVariant(group.ID, "A", nil, "")
-	session, _ := env.s.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	group, _ := env.s.Workout.CreateGroup("Test", "", false, userID, "[1]", "09:00", 15)
+	variant, _ := env.s.Workout.CreateVariant(group.ID, "A", nil, "")
+	session, _ := env.s.Workout.CreateSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 	env.s.Workout.StartSession(session.ID)
 
 	drainMessages(env)

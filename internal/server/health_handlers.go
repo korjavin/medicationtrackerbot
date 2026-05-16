@@ -132,9 +132,9 @@ func (s *Server) handleGetHealthOverview(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Fetch Heart Rate (30d fetch covers 7d)
-	hrLogs, err := s.health.GetVitalsHeart(ctx, userId, start30d, now)
+	hrLogs, err := s.health.ListHeart(ctx, userId, start30d, now)
 	if err != nil {
-		slog.Error("health overview: GetVitalsHeart", "error", err, "user", userId)
+		slog.Error("health overview: ListHeart", "error", err, "user", userId)
 	}
 	var hr7d, hr30d []int
 	var hrBucketInput []struct {
@@ -158,9 +158,9 @@ func (s *Server) handleGetHealthOverview(w http.ResponseWriter, r *http.Request)
 	resp.HeartRateHistory30d = bucketVitals(hrBucketInput, start30d)
 
 	// Fetch SpO2
-	spo2Logs, err := s.health.GetVitalsSpO2(ctx, userId, start30d, now)
+	spo2Logs, err := s.health.ListSpO2(ctx, userId, start30d, now)
 	if err != nil {
-		slog.Error("health overview: GetVitalsSpO2", "error", err, "user", userId)
+		slog.Error("health overview: ListSpO2", "error", err, "user", userId)
 	}
 	var spo27d, spo230d []int
 	var spo2BucketInput []struct {
@@ -183,9 +183,9 @@ func (s *Server) handleGetHealthOverview(w http.ResponseWriter, r *http.Request)
 	resp.SpO2History30d = bucketVitals(spo2BucketInput, start30d)
 
 	// Fetch Stress
-	stressLogs, err := s.health.GetVitalsStress(ctx, userId, start30d, now)
+	stressLogs, err := s.health.ListStress(ctx, userId, start30d, now)
 	if err != nil {
-		slog.Error("health overview: GetVitalsStress", "error", err, "user", userId)
+		slog.Error("health overview: ListStress", "error", err, "user", userId)
 	}
 	var stress7d, stress30d []int
 	var stressBucketInput []struct {
@@ -210,9 +210,9 @@ func (s *Server) handleGetHealthOverview(w http.ResponseWriter, r *http.Request)
 	// Fetch Sleep Logs — extend window by 1 day so sessions whose start_time falls
 	// before UTC midnight on the boundary day (but whose local Day label is in range)
 	// are not excluded by the start_time >= since SQL filter.
-	sleepLogs, err := s.health.GetSleepLogs(ctx, userId, start30d.AddDate(0, 0, -1))
+	sleepLogs, err := s.health.ListSleepLogs(ctx, userId, start30d.AddDate(0, 0, -1))
 	if err != nil {
-		slog.Error("health overview: GetSleepLogs", "error", err, "user", userId)
+		slog.Error("health overview: ListSleepLogs", "error", err, "user", userId)
 	}
 	var sleep7dMins, sleep30dMins []int
 	dailyStatsMap30d := make(map[string]DailySleepStat)
@@ -298,9 +298,9 @@ func (s *Server) handleGetHealthOverview(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Fetch Day Stats for Steps
-	dayStats, err := s.health.GetDayStats(ctx, userId, start30d)
+	dayStats, err := s.health.ListDayStats(ctx, userId, start30d)
 	if err != nil {
-		slog.Error("health overview: GetDayStats", "error", err, "user", userId)
+		slog.Error("health overview: ListDayStats", "error", err, "user", userId)
 	}
 	var steps7d, steps30d []int
 	var stepStats7d, stepStats30d []store.DayStat
@@ -315,7 +315,7 @@ func (s *Server) handleGetHealthOverview(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	// Reverse to make it chronological because `GetDayStats` returns `ORDER BY day DESC`
+	// Reverse to make it chronological because `ListDayStats` returns `ORDER BY day DESC`
 	for i, j := 0, len(stepStats7d)-1; i < j; i, j = i+1, j-1 {
 		stepStats7d[i], stepStats7d[j] = stepStats7d[j], stepStats7d[i]
 	}

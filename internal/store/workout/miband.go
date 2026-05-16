@@ -50,8 +50,8 @@ type UpdateMiBandWorkoutFields struct {
 	SpO2Avg      *int     `json:"spo2_avg"`
 }
 
-// CheckDuplicateMiBandWorkout checks if a workout exists for a user within a given start timestamp range.
-func (r *Repo) CheckDuplicateMiBandWorkout(ctx context.Context, userID int64, startMsMin, startMsMax int64) (bool, error) {
+// CheckDuplicateMiBand checks if a workout exists for a user within a given start timestamp range.
+func (r *Repo) CheckDuplicateMiBand(ctx context.Context, userID int64, startMsMin, startMsMax int64) (bool, error) {
 	var count int
 	err := r.db.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM miband_workouts
@@ -63,9 +63,9 @@ func (r *Repo) CheckDuplicateMiBandWorkout(ctx context.Context, userID int64, st
 	return count > 0, nil
 }
 
-// InsertMiBandWorkout inserts or updates a single workout (keyed by user_id + source_start_ms).
+// InsertMiBand inserts or updates a single workout (keyed by user_id + source_start_ms).
 // Returns inserted=true if a new row was created, inserted=false if an existing row was updated or no-op.
-func (r *Repo) InsertMiBandWorkout(ctx context.Context, w *MiBandWorkout) (bool, error) {
+func (r *Repo) InsertMiBand(ctx context.Context, w *MiBandWorkout) (bool, error) {
 	src := w.Source
 	if src == "" {
 		src = "device"
@@ -144,11 +144,11 @@ func (r *Repo) InsertMiBandWorkout(ctx context.Context, w *MiBandWorkout) (bool,
 	return isNew, nil
 }
 
-// ImportMiBandWorkouts inserts or updates workouts (keyed by user_id + source_start_ms).
+// ImportMiBand inserts or updates workouts (keyed by user_id + source_start_ms).
 // GPS tracks are only inserted for new workouts (not re-imported on update).
 // Returns (imported, skipped, error). imported counts only new inserts;
 // updates to existing rows (richer data) are silent (neither imported nor skipped).
-func (r *Repo) ImportMiBandWorkouts(ctx context.Context, workouts []MiBandWorkout, gpsTracks map[int64][]MiBandGPSPoint) (int, int, error) {
+func (r *Repo) ImportMiBand(ctx context.Context, workouts []MiBandWorkout, gpsTracks map[int64][]MiBandGPSPoint) (int, int, error) {
 	imported := 0
 	skipped := 0
 
@@ -169,7 +169,7 @@ func (r *Repo) ImportMiBandWorkouts(ctx context.Context, workouts []MiBandWorkou
 	return imported, skipped, nil
 }
 
-// importSingleWorkout handles a single workout within ImportMiBandWorkouts.
+// importSingleWorkout handles a single workout within ImportMiBand.
 // Returns isNew=true if a new row was inserted, false if updated/skipped.
 func (r *Repo) importSingleWorkout(ctx context.Context, w *MiBandWorkout, gpsTracks map[int64][]MiBandGPSPoint) (bool, error) {
 	conn, err := r.db.Conn(ctx)
@@ -332,8 +332,8 @@ func insertGPSBatched(ctx context.Context, conn *sql.Conn, workoutID int64, pts 
 	return nil
 }
 
-// ListMiBandWorkouts returns the most recent outdoor workouts for the given user (last 90 days).
-func (r *Repo) ListMiBandWorkouts(ctx context.Context, userID int64, limit int) ([]MiBandWorkout, error) {
+// ListMiBand returns the most recent outdoor workouts for the given user (last 90 days).
+func (r *Repo) ListMiBand(ctx context.Context, userID int64, limit int) ([]MiBandWorkout, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -368,8 +368,8 @@ func (r *Repo) ListMiBandWorkouts(ctx context.Context, userID int64, limit int) 
 	return workouts, rows.Err()
 }
 
-// GetMiBandWorkoutGPS returns the GPS track for a single workout, ordered by point_index.
-func (r *Repo) GetMiBandWorkoutGPS(ctx context.Context, workoutID int64) ([]MiBandGPSPoint, error) {
+// GetMiBandGPS returns the GPS track for a single workout, ordered by point_index.
+func (r *Repo) GetMiBandGPS(ctx context.Context, workoutID int64) ([]MiBandGPSPoint, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT workout_id, point_index, ts_ms, latitude, longitude, altitude, is_pause
 		FROM miband_gps_tracks
@@ -393,8 +393,8 @@ func (r *Repo) GetMiBandWorkoutGPS(ctx context.Context, workoutID int64) ([]MiBa
 	return pts, rows.Err()
 }
 
-// GetMiBandWorkout returns a single workout by ID, or nil if not found.
-func (r *Repo) GetMiBandWorkout(ctx context.Context, id int64) (*MiBandWorkout, error) {
+// GetMiBand returns a single workout by ID, or nil if not found.
+func (r *Repo) GetMiBand(ctx context.Context, id int64) (*MiBandWorkout, error) {
 	var w MiBandWorkout
 	err := r.db.QueryRowContext(ctx, `
 		SELECT id, user_id, source_start_ms, source_end_ms, activity_type, activity_name,
@@ -415,10 +415,10 @@ func (r *Repo) GetMiBandWorkout(ctx context.Context, id int64) (*MiBandWorkout, 
 	return &w, nil
 }
 
-// DeleteMiBandWorkout deletes a Mi Band workout by ID and user ID.
+// DeleteMiBand deletes a Mi Band workout by ID and user ID.
 // Note: PRAGMA foreign_keys is not enabled by default in modernc.org/sqlite,
 // so we manually cascade the deletion of GPS tracks first.
-func (r *Repo) DeleteMiBandWorkout(ctx context.Context, id, userID int64) error {
+func (r *Repo) DeleteMiBand(ctx context.Context, id, userID int64) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -449,8 +449,8 @@ func (r *Repo) DeleteMiBandWorkout(ctx context.Context, id, userID int64) error 
 	return tx.Commit()
 }
 
-// UpdateMiBandWorkout updates the specified fields of a Mi Band workout.
-func (r *Repo) UpdateMiBandWorkout(ctx context.Context, id, userID int64, fields UpdateMiBandWorkoutFields) error {
+// UpdateMiBand updates the specified fields of a Mi Band workout.
+func (r *Repo) UpdateMiBand(ctx context.Context, id, userID int64, fields UpdateMiBandWorkoutFields) error {
 	query := "UPDATE miband_workouts SET "
 	var args []interface{}
 	var updates []string

@@ -16,9 +16,9 @@ import (
 func TestIntakeLog_DefaultSourceIsSchedule(t *testing.T) {
 	r := setupMedicationRepo(t)
 
-	medID, err := r.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	medID, err := r.Create("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	scheduledAt := time.Date(2026, 5, 16, 8, 0, 0, 0, time.UTC)
@@ -84,9 +84,9 @@ func TestIntakeLog_TZPlanIDSetNullOnPlanDelete(t *testing.T) {
 
 	r := New(d)
 
-	medID, err := r.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	medID, err := r.Create("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	// Insert a tz_transition_plans row directly. We don't depend on the tz

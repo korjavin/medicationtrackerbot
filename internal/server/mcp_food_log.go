@@ -78,7 +78,7 @@ func (s *Server) handleMCPFoodLog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	id, err := s.food.CreateFoodLog(ctx, &store.FoodLog{
+	id, err := s.food.CreateLog(ctx, &store.FoodLog{
 		UserID:   s.allowedUserID,
 		EatenAt:  req.EatenAt,
 		Name:     req.Name,
@@ -104,7 +104,7 @@ func (s *Server) handleMCPFoodLog(w http.ResponseWriter, r *http.Request) {
 		mult := 100.0 / float64(req.WeightG)
 		c100, p100, f100, k100 = carbs*mult, protein*mult, fat*mult, kcal*mult
 	}
-	_ = s.food.UpsertFoodProduct(ctx, &store.FoodProduct{
+	_ = s.food.UpsertProduct(ctx, &store.FoodProduct{
 		UserID:         s.allowedUserID,
 		Name:           req.Name,
 		Carbs100g:      c100,

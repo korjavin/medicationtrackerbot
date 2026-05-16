@@ -50,4 +50,3 @@ func applyMigration(t *testing.T, db *sql.DB, migrationFile string) {
 		t.Fatalf("Failed to execute migration %s: %v", migrationFile, err)
 	}
 }
-

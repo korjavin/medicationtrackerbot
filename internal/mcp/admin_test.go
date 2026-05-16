@@ -37,7 +37,7 @@ func newFakeAdminStore() *fakeAdminStore {
 	}
 }
 
-func (f *fakeAdminStore) CreateAPIToken(_ context.Context, name, hash string) (int64, error) {
+func (f *fakeAdminStore) CreateToken(_ context.Context, name, hash string) (int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.createErr != nil {
@@ -57,7 +57,7 @@ func (f *fakeAdminStore) CreateAPIToken(_ context.Context, name, hash string) (i
 	return id, nil
 }
 
-func (f *fakeAdminStore) ListAPITokens(_ context.Context) ([]store.APIToken, error) {
+func (f *fakeAdminStore) ListTokens(_ context.Context) ([]store.APIToken, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.listErr != nil {
@@ -72,7 +72,7 @@ func (f *fakeAdminStore) ListAPITokens(_ context.Context) ([]store.APIToken, err
 	return out, nil
 }
 
-func (f *fakeAdminStore) DeleteAPIToken(_ context.Context, id int64) error {
+func (f *fakeAdminStore) DeleteToken(_ context.Context, id int64) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.deleteErr != nil {
@@ -390,7 +390,7 @@ func TestAdminHandler_StoreErrorPaths(t *testing.T) {
 		fs := newFakeAdminStore()
 		// Pre-create a token so the path passes the not-found check, then
 		// trip the delete error.
-		if _, err := fs.CreateAPIToken(context.Background(), "x", "h"); err != nil {
+		if _, err := fs.CreateToken(context.Background(), "x", "h"); err != nil {
 			t.Fatalf("seed: %v", err)
 		}
 		fs.deleteErr = errors.New("simulated db failure: delete-secret")

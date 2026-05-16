@@ -252,9 +252,9 @@ func TestCreateIntake_DualWritesScheduledAtUnix(t *testing.T) {
 		t.Fatalf("load Phoenix: %v", err)
 	}
 
-	medID, err := db.Medication.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
+	medID, err := db.Medication.Create("Aspirin", "100mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	// LA: 2026-05-10 08:20 PDT (-07:00) = 2026-05-10 15:20 UTC = unix 1778426400
@@ -315,9 +315,9 @@ func TestCreateManualIntake_DualWritesScheduledAtUnix(t *testing.T) {
 		t.Fatalf("load Berlin: %v", err)
 	}
 
-	medID, err := db.Medication.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
+	medID, err := db.Medication.Create("Aspirin", "100mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	taken := time.Date(2026, 5, 10, 17, 20, 0, 0, berlin)

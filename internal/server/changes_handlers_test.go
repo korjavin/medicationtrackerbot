@@ -83,9 +83,9 @@ func TestHandleChanges_AfterBPCreate_ReturnsBPTag(t *testing.T) {
 		Systolic:   120,
 		Diastolic:  80,
 	}
-	_, err := db.BP.CreateBloodPressureReading(ctx, bp)
+	_, err := db.BP.CreateReading(ctx, bp)
 	if err != nil {
-		t.Fatalf("CreateBloodPressureReading: %v", err)
+		t.Fatalf("CreateReading: %v", err)
 	}
 
 	req := httptest.NewRequest("GET", "/api/changes?since=0", nil)
@@ -136,7 +136,7 @@ func TestHandleChanges_SinceCurrentCursorReturnsEmpty(t *testing.T) {
 		Systolic:   120,
 		Diastolic:  80,
 	}
-	db.BP.CreateBloodPressureReading(ctx, bp)
+	db.BP.CreateReading(ctx, bp)
 
 	// Get current cursor
 	cursor, err := db.Settings.GetLatestChangeCursor(ctx)

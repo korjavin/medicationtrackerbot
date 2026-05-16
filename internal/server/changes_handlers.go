@@ -69,7 +69,7 @@ func (s *Server) handleChanges(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	cursor, changedTags, err := s.changes.GetChangedTagsSince(r.Context(), since)
+	cursor, changedTags, err := s.changes.ListChangedTagsSince(r.Context(), since)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -125,7 +125,7 @@ func (s *Server) handleChangesStream(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 
 	queryCtx, cancel := context.WithTimeout(r.Context(), changeStreamQueryTimeout)
-	cursor, tags, err := s.changes.GetChangedTagsSince(queryCtx, since)
+	cursor, tags, err := s.changes.ListChangedTagsSince(queryCtx, since)
 	cancel()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -154,7 +154,7 @@ func (s *Server) handleChangesStream(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-ticker.C:
 			queryCtx, cancel := context.WithTimeout(r.Context(), changeStreamQueryTimeout)
-			cursor, tags, err := s.changes.GetChangedTagsSince(queryCtx, since)
+			cursor, tags, err := s.changes.ListChangedTagsSince(queryCtx, since)
 			cancel()
 			if err != nil {
 				return

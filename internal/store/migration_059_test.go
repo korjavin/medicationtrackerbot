@@ -301,9 +301,9 @@ func TestCreateManualIntake_DualWritesTakenAtUnix(t *testing.T) {
 		t.Fatalf("load Phoenix: %v", err)
 	}
 
-	medID, err := db.Medication.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
+	medID, err := db.Medication.Create("Aspirin", "100mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	takenLA := time.Date(2026, 5, 10, 8, 20, 0, 0, la)
@@ -353,9 +353,9 @@ func TestCreateManualIntake_DualWritesTakenAtUnix(t *testing.T) {
 func TestConfirmIntake_StripsMonotonicResidue(t *testing.T) {
 	db := setupTestStore(t)
 
-	medID, err := db.Medication.CreateMedication("Med", "5mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	medID, err := db.Medication.Create("Med", "5mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	scheduledAt := time.Date(2026, 5, 10, 8, 0, 0, 0, time.UTC)

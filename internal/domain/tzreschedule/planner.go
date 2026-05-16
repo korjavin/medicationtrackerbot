@@ -13,22 +13,22 @@ import (
 
 // PlannerStore is the minimal set of store methods required by PlannerService.
 type PlannerStore interface {
-	ListMedications(showArchived bool) ([]store.Medication, error)
-	GetIntakeHistory(medID int, days int) ([]store.IntakeLog, error)
+	List(showArchived bool) ([]store.Medication, error)
+	ListIntakeHistory(medID int, days int) ([]store.IntakeLog, error)
 	GetPlanByHash(hash string) (*store.TZTransitionPlan, error)
-	GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error)
-	UpdateTZTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error
+	GetLatestActiveOrPendingTransitionPlan() (*store.TZTransitionPlan, error)
+	UpdateTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error
 	// CountFuturePendingTZStepIntakesForPlan returns the number of PENDING
 	// source='tz_step' intake_log rows whose scheduled_at_unix is strictly
 	// after asOf. Used here to decide whether an APPROVED plan still has work
 	// remaining (post-Task-13 replacement for the dropped
 	// GetPendingStepsForPlan against tz_transition_steps).
 	CountFuturePendingTZStepIntakesForPlan(planID int64, asOf time.Time) (int, error)
-	// CreateTZTransitionPlanWithSteps atomically cancels any active plans and
+	// CreateTransitionPlanWithSteps atomically cancels any active plans and
 	// inserts the new one in one transaction. The plan's steps are carried in
 	// plan.StepsJSON; the dedicated tz_transition_steps table was dropped in
 	// Track D Task 13.
-	CreateTZTransitionPlanWithSteps(plan *store.TZTransitionPlan) (int64, error)
+	CreateTransitionPlanWithSteps(plan *store.TZTransitionPlan) (int64, error)
 	// DeletePendingPreMaterializedIntakesForPlan removes the unfired
 	// source='tz_step' intake rows attached to a cancelled plan so the
 	// medication scheduler stops firing them. Called after every plan
@@ -93,7 +93,7 @@ func (p *plannerService) GenerateIfChanged(oldTZ, newTZ string, now time.Time) (
 	// from the original starting point. For APPROVED plans this is conservative
 	// (the schedule may be partially shifted toward NewTZ already) but ensures no
 	// dose shift is under-counted.
-	activePlan, err := p.store.GetLatestActiveOrPendingTZTransitionPlan()
+	activePlan, err := p.store.GetLatestActiveOrPendingTransitionPlan()
 	if err != nil {
 		return false, err
 	}
@@ -116,7 +116,7 @@ func (p *plannerService) GenerateIfChanged(oldTZ, newTZ string, now time.Time) (
 			} else if remaining == 0 {
 				slog.Info("tzplanner: APPROVED plan has no remaining tz_step intakes, marking COMPLETED",
 					"plan_id", activePlan.ID)
-				if err := p.store.UpdateTZTransitionPlanStatus(activePlan.ID, "COMPLETED", "all-steps-consumed", "APPROVED"); err != nil {
+				if err := p.store.UpdateTransitionPlanStatus(activePlan.ID, "COMPLETED", "all-steps-consumed", "APPROVED"); err != nil {
 					slog.Warn("tzplanner: failed to mark plan COMPLETED", "plan_id", activePlan.ID, "error", err)
 				}
 				activePlan = nil
@@ -141,7 +141,7 @@ func (p *plannerService) GenerateIfChanged(oldTZ, newTZ string, now time.Time) (
 	}
 
 	// Load active (non-archived) medications.
-	meds, err := p.store.ListMedications(false)
+	meds, err := p.store.List(false)
 	if err != nil {
 		return false, err
 	}
@@ -149,9 +149,9 @@ func (p *plannerService) GenerateIfChanged(oldTZ, newTZ string, now time.Time) (
 	// Build last-intake map from the last 30 days of history.
 	lastIntakes := make(map[int64]time.Time, len(meds))
 	for _, med := range meds {
-		history, err := p.store.GetIntakeHistory(int(med.ID), 30)
+		history, err := p.store.ListIntakeHistory(int(med.ID), 30)
 		if err != nil {
-			slog.Error("tzplanner: GetIntakeHistory failed", "med_id", med.ID, "error", err)
+			slog.Error("tzplanner: ListIntakeHistory failed", "med_id", med.ID, "error", err)
 			continue
 		}
 		for _, h := range history {
@@ -201,7 +201,7 @@ func (p *plannerService) GenerateIfChanged(oldTZ, newTZ string, now time.Time) (
 		}
 	}
 
-	// Active plans are cancelled atomically inside CreateTZTransitionPlanWithSteps
+	// Active plans are cancelled atomically inside CreateTransitionPlanWithSteps
 	// to avoid a TOCTOU gap where the scheduler sees no active plan between the
 	// cancel and insert.
 
@@ -234,7 +234,7 @@ func (p *plannerService) GenerateIfChanged(oldTZ, newTZ string, now time.Time) (
 	// no longer live in a sibling table — plan.StepsJSON is the audit blob,
 	// and approve-time materialize (Repos.ApproveAndMaterialize) reads from
 	// it to populate intake_log.
-	planID, err := p.store.CreateTZTransitionPlanWithSteps(plan)
+	planID, err := p.store.CreateTransitionPlanWithSteps(plan)
 	if err != nil {
 		// The partial unique index on plan_hash catches concurrent identical inserts.
 		// Treat this as idempotent success: an identical plan already exists.
@@ -276,14 +276,14 @@ func isUniqueConstraintError(err error) bool {
 // which is a no-op.
 func (p *plannerService) CancelActivePlan(reason string) error {
 	for {
-		active, err := p.store.GetLatestActiveOrPendingTZTransitionPlan()
+		active, err := p.store.GetLatestActiveOrPendingTransitionPlan()
 		if err != nil {
 			return err
 		}
 		if active == nil {
 			return nil
 		}
-		if err := p.store.UpdateTZTransitionPlanStatus(active.ID, "CANCELLED", reason, active.Status); err != nil {
+		if err := p.store.UpdateTransitionPlanStatus(active.ID, "CANCELLED", reason, active.Status); err != nil {
 			return err
 		}
 		if err := p.store.DeletePendingPreMaterializedIntakesForPlan(active.ID); err != nil {

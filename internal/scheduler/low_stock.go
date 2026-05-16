@@ -30,7 +30,7 @@ func (c *LowStockChecker) Check(_ context.Context) error {
 
 	// Load user timezone — same pattern as bp_reminders.go:49-67.
 	userLoc := time.Local
-	if tz, err := c.store.GetCurrentTimezone(); err != nil {
+	if tz, err := c.store.GetCurrent(); err != nil {
 		slog.Warn("low_stock: failed to get user timezone, using system TZ", "error", err)
 	} else if tz != "" {
 		if loc, err := time.LoadLocation(tz); err != nil {
@@ -60,7 +60,7 @@ func (c *LowStockChecker) Check(_ context.Context) error {
 		}
 	}
 
-	meds, err := c.store.GetMedicationsLowOnStock(7)
+	meds, err := c.store.ListLowOnStock(7)
 	if err != nil {
 		slog.Error("Error checking low stock", "error", err)
 		return nil

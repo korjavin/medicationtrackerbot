@@ -45,8 +45,8 @@ func newStoreAdapter(s *store.Repos) *storeAdapter {
 
 // --- Medication (medication.Repo) ---
 
-func (a *storeAdapter) ListMedications(archived bool) ([]store.Medication, error) {
-	return a.med.ListMedications(archived)
+func (a *storeAdapter) List(archived bool) ([]store.Medication, error) {
+	return a.med.List(archived)
 }
 func (a *storeAdapter) GetIntakeBySchedule(medID int64, scheduledAt time.Time) (*store.IntakeLog, error) {
 	return a.med.GetIntakeBySchedule(medID, scheduledAt)
@@ -57,20 +57,20 @@ func (a *storeAdapter) BatchGetIntakesBySchedule(schedules []store.MedicationSch
 func (a *storeAdapter) CreateIntake(medID, userID int64, scheduledAt time.Time) (int64, error) {
 	return a.med.CreateIntake(medID, userID, scheduledAt)
 }
-func (a *storeAdapter) AddIntakeReminder(intakeID int64, msgID int) error {
-	return a.med.AddIntakeReminder(intakeID, msgID)
+func (a *storeAdapter) CreateIntakeReminder(intakeID int64, msgID int) error {
+	return a.med.CreateIntakeReminder(intakeID, msgID)
 }
-func (a *storeAdapter) GetPendingIntakes() ([]store.IntakeLog, error) {
-	return a.med.GetPendingIntakes()
+func (a *storeAdapter) ListPendingIntakes() ([]store.IntakeLog, error) {
+	return a.med.ListPendingIntakes()
 }
-func (a *storeAdapter) GetPendingIntakesForMedication(medID int64) ([]store.IntakeLog, error) {
-	return a.med.GetPendingIntakesForMedication(medID)
+func (a *storeAdapter) ListPendingIntakesForMedication(medID int64) ([]store.IntakeLog, error) {
+	return a.med.ListPendingIntakesForMedication(medID)
 }
-func (a *storeAdapter) GetMedication(id int64) (*store.Medication, error) {
-	return a.med.GetMedication(id)
+func (a *storeAdapter) Get(id int64) (*store.Medication, error) {
+	return a.med.Get(id)
 }
-func (a *storeAdapter) GetMedicationsLowOnStock(days int) ([]store.Medication, error) {
-	return a.med.GetMedicationsLowOnStock(days)
+func (a *storeAdapter) ListLowOnStock(days int) ([]store.Medication, error) {
+	return a.med.ListLowOnStock(days)
 }
 func (a *storeAdapter) GetDaysOfStockRemaining(med *store.Medication) *float64 {
 	return a.med.GetDaysOfStockRemaining(med)
@@ -96,14 +96,17 @@ func (a *storeAdapter) GetWeightEnabled(ctx context.Context) (bool, error) {
 
 // --- TZ (tz.Repo) ---
 
-func (a *storeAdapter) GetCurrentTimezone() (string, error) {
-	return a.tz.GetCurrentTimezone()
+func (a *storeAdapter) GetCurrent() (string, error) {
+	return a.tz.GetCurrent()
 }
-func (a *storeAdapter) GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error) {
-	return a.tz.GetLatestActiveOrPendingTZTransitionPlan()
+func (a *storeAdapter) GetLatestActiveOrPendingTransitionPlan() (*store.TZTransitionPlan, error) {
+	return a.tz.GetLatestActiveOrPendingTransitionPlan()
 }
-func (a *storeAdapter) UpdateTZTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error {
-	return a.tz.UpdateTZTransitionPlanStatus(id, newStatus, userAction, expectedStatus)
+func (a *storeAdapter) GetLatestCompletedTransitionPlan() (*store.TZTransitionPlan, error) {
+	return a.tz.GetLatestCompletedTransitionPlan()
+}
+func (a *storeAdapter) UpdateTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error {
+	return a.tz.UpdateTransitionPlanStatus(id, newStatus, userAction, expectedStatus)
 }
 func (a *storeAdapter) MarkPlanNotified(id int64) (bool, error) {
 	return a.tz.MarkPlanNotified(id)
@@ -111,8 +114,8 @@ func (a *storeAdapter) MarkPlanNotified(id int64) (bool, error) {
 func (a *storeAdapter) ResetPlanToPending(id int64) error {
 	return a.tz.ResetPlanToPending(id)
 }
-func (a *storeAdapter) SetTZTransitionPlanApproved(id int64, approvedAt time.Time) (bool, error) {
-	return a.tz.SetTZTransitionPlanApproved(id, approvedAt)
+func (a *storeAdapter) SetTransitionPlanApproved(id int64, approvedAt time.Time) (bool, error) {
+	return a.tz.SetTransitionPlanApproved(id, approvedAt)
 }
 
 // --- Pre-materialized tz_step intakes + symmetric dedup (Task 11) ---
@@ -132,11 +135,11 @@ func (a *storeAdapter) HasIntakeNearScheduledTime(medID int64, target time.Time,
 
 // --- Workout (workout.Repo) ---
 
-func (a *storeAdapter) GetWorkoutHistory(userID int64, limit int) ([]store.WorkoutSession, error) {
-	return a.workout.GetWorkoutHistory(userID, limit)
+func (a *storeAdapter) ListHistory(userID int64, limit int) ([]store.WorkoutSession, error) {
+	return a.workout.ListHistory(userID, limit)
 }
-func (a *storeAdapter) ListWorkoutGroups(userID int64, activeOnly bool) ([]store.WorkoutGroup, error) {
-	return a.workout.ListWorkoutGroups(userID, activeOnly)
+func (a *storeAdapter) ListGroups(userID int64, activeOnly bool) ([]store.WorkoutGroup, error) {
+	return a.workout.ListGroups(userID, activeOnly)
 }
 func (a *storeAdapter) GetRotationState(groupID int64) (*store.WorkoutRotationState, error) {
 	return a.workout.GetRotationState(groupID)
@@ -150,23 +153,23 @@ func (a *storeAdapter) InitializeRotation(groupID, variantID int64) error {
 func (a *storeAdapter) GetSessionByGroupAndDate(groupID int64, date time.Time) (*store.WorkoutSession, error) {
 	return a.workout.GetSessionByGroupAndDate(groupID, date)
 }
-func (a *storeAdapter) CreateWorkoutSession(groupID, variantID, userID int64, date time.Time, scheduledTime string) (*store.WorkoutSession, error) {
-	return a.workout.CreateWorkoutSession(groupID, variantID, userID, date, scheduledTime)
+func (a *storeAdapter) CreateSession(groupID, variantID, userID int64, date time.Time, scheduledTime string) (*store.WorkoutSession, error) {
+	return a.workout.CreateSession(groupID, variantID, userID, date, scheduledTime)
 }
-func (a *storeAdapter) GetWorkoutGroup(groupID int64) (*store.WorkoutGroup, error) {
-	return a.workout.GetWorkoutGroup(groupID)
+func (a *storeAdapter) GetGroup(groupID int64) (*store.WorkoutGroup, error) {
+	return a.workout.GetGroup(groupID)
 }
 func (a *storeAdapter) UpdateSessionStatus(sessionID int64, status string) error {
 	return a.workout.UpdateSessionStatus(sessionID, status)
 }
-func (a *storeAdapter) UpdateWorkoutSessionNotes(sessionID int64, notes string) error {
-	return a.workout.UpdateWorkoutSessionNotes(sessionID, notes)
+func (a *storeAdapter) UpdateSessionNotes(sessionID int64, notes string) error {
+	return a.workout.UpdateSessionNotes(sessionID, notes)
 }
 func (a *storeAdapter) ClearSnooze(sessionID int64) error {
 	return a.workout.ClearSnooze(sessionID)
 }
-func (a *storeAdapter) GetWorkoutVariant(variantID int64) (*store.WorkoutVariant, error) {
-	return a.workout.GetWorkoutVariant(variantID)
+func (a *storeAdapter) GetVariant(variantID int64) (*store.WorkoutVariant, error) {
+	return a.workout.GetVariant(variantID)
 }
 func (a *storeAdapter) ListExercisesByVariant(variantID int64) ([]store.WorkoutExercise, error) {
 	return a.workout.ListExercisesByVariant(variantID)
@@ -186,8 +189,8 @@ func (a *storeAdapter) ListPendingAdHocSessions(userID int64, before time.Time) 
 func (a *storeAdapter) ListNotifiedAdHocSessions(userID int64) ([]store.WorkoutSession, error) {
 	return a.workout.ListNotifiedAdHocSessions(userID)
 }
-func (a *storeAdapter) GetExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error) {
-	return a.workout.GetExerciseLogs(sessionID)
+func (a *storeAdapter) ListExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error) {
+	return a.workout.ListExerciseLogs(sessionID)
 }
 
 // --- workoutsvc.WorkoutStore extra methods (used by workout svc inside checker) ---
@@ -195,16 +198,20 @@ func (a *storeAdapter) GetExerciseLogs(sessionID int64) ([]store.WorkoutExercise
 // workoutsvc.New now also requires a workoutsvc.TZStore. We satisfy both
 // interfaces from this adapter.
 
-func (a *storeAdapter) GetWorkoutSession(id int64) (*store.WorkoutSession, error) {
-	return a.workout.GetWorkoutSession(id)
+func (a *storeAdapter) GetSession(id int64) (*store.WorkoutSession, error) {
+	return a.workout.GetSession(id)
 }
-func (a *storeAdapter) StartSession(id int64) error                                { return a.workout.StartSession(id) }
-func (a *storeAdapter) SnoozeSession(id int64, dur time.Duration) error            { return a.workout.SnoozeSession(id, dur) }
-func (a *storeAdapter) SkipSession(id int64) error                                 { return a.workout.SkipSession(id) }
-func (a *storeAdapter) CompleteSession(id int64) error                             { return a.workout.CompleteSession(id) }
-func (a *storeAdapter) AdvanceRotation(groupID int64) error                        { return a.workout.AdvanceRotation(groupID) }
-func (a *storeAdapter) CreateAdHocWorkoutSession(userID int64, d time.Time, t string) (*store.WorkoutSession, error) {
-	return a.workout.CreateAdHocWorkoutSession(userID, d, t)
+func (a *storeAdapter) StartSession(id int64) error { return a.workout.StartSession(id) }
+func (a *storeAdapter) SnoozeSession(id int64, dur time.Duration) error {
+	return a.workout.SnoozeSession(id, dur)
+}
+func (a *storeAdapter) SkipSession(id int64) error     { return a.workout.SkipSession(id) }
+func (a *storeAdapter) CompleteSession(id int64) error { return a.workout.CompleteSession(id) }
+func (a *storeAdapter) AdvanceRotation(groupID int64) error {
+	return a.workout.AdvanceRotation(groupID)
+}
+func (a *storeAdapter) CreateAdHocSession(userID int64, d time.Time, t string) (*store.WorkoutSession, error) {
+	return a.workout.CreateAdHocSession(userID, d, t)
 }
 func (a *storeAdapter) CreatePlannedAdHocSession(userID int64, d time.Time, t string) (*store.WorkoutSession, error) {
 	return a.workout.CreatePlannedAdHocSession(userID, d, t)
@@ -216,20 +223,20 @@ func (a *storeAdapter) DeleteSession(id int64) error { return a.workout.DeleteSe
 
 // --- BP (bp.Repo) ---
 
-func (a *storeAdapter) GetUsersForBPReminders() ([]int64, error) {
-	return a.bp.GetUsersForBPReminders()
+func (a *storeAdapter) ListUsersForReminders() ([]int64, error) {
+	return a.bp.ListUsersForReminders()
 }
-func (a *storeAdapter) GetBPReminderState(userID int64) (*store.BPReminderState, error) {
-	return a.bp.GetBPReminderState(userID)
+func (a *storeAdapter) GetReminderState(userID int64) (*store.BPReminderState, error) {
+	return a.bp.GetReminderState(userID)
 }
-func (a *storeAdapter) BatchGetBPReminderStates(ctx context.Context, userIDs []int64) (map[int64]*store.BPReminderState, error) {
-	return a.bp.BatchGetBPReminderStates(ctx, userIDs)
+func (a *storeAdapter) BatchGetReminderStates(ctx context.Context, userIDs []int64) (map[int64]*store.BPReminderState, error) {
+	return a.bp.BatchGetReminderStates(ctx, userIDs)
 }
-func (a *storeAdapter) GetLastBPReading(ctx context.Context, userID int64) (*store.BloodPressure, error) {
-	return a.bp.GetLastBPReading(ctx, userID)
+func (a *storeAdapter) GetLastReading(ctx context.Context, userID int64) (*store.BloodPressure, error) {
+	return a.bp.GetLastReading(ctx, userID)
 }
-func (a *storeAdapter) BatchGetLastBPReadings(ctx context.Context, userIDs []int64) (map[int64]*store.BloodPressure, error) {
-	return a.bp.BatchGetLastBPReadings(ctx, userIDs)
+func (a *storeAdapter) BatchGetLastReadings(ctx context.Context, userIDs []int64) (map[int64]*store.BloodPressure, error) {
+	return a.bp.BatchGetLastReadings(ctx, userIDs)
 }
 func (a *storeAdapter) CalculatePreferredReminderHour(ctx context.Context, userID int64) (int, error) {
 	return a.bp.CalculatePreferredReminderHour(ctx, userID)
@@ -237,36 +244,40 @@ func (a *storeAdapter) CalculatePreferredReminderHour(ctx context.Context, userI
 func (a *storeAdapter) UpdatePreferredReminderHour(userID int64, hour int) error {
 	return a.bp.UpdatePreferredReminderHour(userID, hour)
 }
-func (a *storeAdapter) GetDominantBPCategory(ctx context.Context, userID int64) (string, error) {
-	return a.bp.GetDominantBPCategory(ctx, userID)
+func (a *storeAdapter) GetDominantCategory(ctx context.Context, userID int64) (string, error) {
+	return a.bp.GetDominantCategory(ctx, userID)
 }
-func (a *storeAdapter) UpdateBPReminderNotificationSent(userID int64, messageID *int) error {
-	return a.bp.UpdateBPReminderNotificationSent(userID, messageID)
+func (a *storeAdapter) UpdateReminderNotificationSent(userID int64, messageID *int) error {
+	return a.bp.UpdateReminderNotificationSent(userID, messageID)
 }
 
 // --- Weight (weight.Repo) ---
+//
+// Adapter method names keep the "Weight" disambiguator so the scheduler's
+// WeightReminderStore can coexist with BPReminderStore on this single struct.
+// Each method bridges to the renamed weight.Repo method.
 
 func (a *storeAdapter) GetUsersForWeightReminders() ([]int64, error) {
-	return a.weight.GetUsersForWeightReminders()
+	return a.weight.ListUsersForReminders()
 }
 func (a *storeAdapter) GetWeightReminderState(userID int64) (*store.WeightReminderState, error) {
-	return a.weight.GetWeightReminderState(userID)
+	return a.weight.GetReminderState(userID)
 }
 func (a *storeAdapter) GetWeightReminderStates(ctx context.Context) (map[int64]*store.WeightReminderState, error) {
-	return a.weight.GetWeightReminderStates(ctx)
+	return a.weight.ListReminderStates(ctx)
 }
 func (a *storeAdapter) GetLastWeightLog(ctx context.Context, userID int64) (*store.WeightLog, error) {
-	return a.weight.GetLastWeightLog(ctx, userID)
+	return a.weight.GetLastLog(ctx, userID)
 }
 func (a *storeAdapter) BatchGetLastWeightLogs(ctx context.Context, userIDs []int64) (map[int64]*store.WeightLog, error) {
-	return a.weight.BatchGetLastWeightLogs(ctx, userIDs)
+	return a.weight.BatchGetLastLogs(ctx, userIDs)
 }
 func (a *storeAdapter) CalculatePreferredWeightReminderHour(ctx context.Context, userID int64) (int, error) {
-	return a.weight.CalculatePreferredWeightReminderHour(ctx, userID)
+	return a.weight.CalculatePreferredReminderHour(ctx, userID)
 }
 func (a *storeAdapter) UpdatePreferredWeightReminderHour(userID int64, hour int) error {
-	return a.weight.UpdatePreferredWeightReminderHour(userID, hour)
+	return a.weight.UpdatePreferredReminderHour(userID, hour)
 }
 func (a *storeAdapter) UpdateWeightReminderNotificationSent(userID int64, messageID *int) error {
-	return a.weight.UpdateWeightReminderNotificationSent(userID, messageID)
+	return a.weight.UpdateReminderNotificationSent(userID, messageID)
 }

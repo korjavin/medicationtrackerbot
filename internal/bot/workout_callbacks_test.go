@@ -37,20 +37,20 @@ func TestWorkoutCallbackScenarios(t *testing.T) {
 		userID := int64(123456)
 
 		// Create session
-		group, err := env.s.Workout.CreateWorkoutGroup("Test", "desc", false, userID, "[0,1,2,3,4,5,6]", "09:00", 15)
+		group, err := env.s.Workout.CreateGroup("Test", "desc", false, userID, "[0,1,2,3,4,5,6]", "09:00", 15)
 		if err != nil {
-			t.Fatalf("CreateWorkoutGroup: %v", err)
+			t.Fatalf("CreateGroup: %v", err)
 		}
 
 		order := 0
-		variant, err := env.s.Workout.CreateWorkoutVariant(group.ID, "A", &order, "")
+		variant, err := env.s.Workout.CreateVariant(group.ID, "A", &order, "")
 		if err != nil {
-			t.Fatalf("CreateWorkoutVariant: %v", err)
+			t.Fatalf("CreateVariant: %v", err)
 		}
 
-		session, err := env.s.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+		session, err := env.s.Workout.CreateSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 		if err != nil {
-			t.Fatalf("CreateWorkoutSession: %v", err)
+			t.Fatalf("CreateSession: %v", err)
 		}
 
 		// Since we use in-memory sqlite, the first session is always ID=1.
@@ -89,7 +89,7 @@ func TestWorkoutCallbackScenarios(t *testing.T) {
 			}
 		}
 
-		updatedSession, err := env.s.Workout.GetWorkoutSession(session.ID)
+		updatedSession, err := env.s.Workout.GetSession(session.ID)
 		if err != nil {
 			t.Fatalf("Failed to get session: %v", err)
 		}

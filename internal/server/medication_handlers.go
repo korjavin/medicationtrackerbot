@@ -77,7 +77,7 @@ func suppressNormalsCoveredByStep(targets []medplan.DoseTarget, ownedByPlan map[
 // active, so the caller's regular in-window dedup still applies as a floor.
 func (s *Server) plannedOwnedMeds(now time.Time) map[int64]bool {
 	owned := map[int64]bool{}
-	plan, err := s.tzPlanStore.GetLatestActiveOrPendingTZTransitionPlan()
+	plan, err := s.tzPlanStore.GetLatestActiveOrPendingTransitionPlan()
 	if err != nil {
 		slog.Warn("forecast: failed to load active plan for plan-owned suppression, falling back to in-window-only suppression",
 			"error", err)
@@ -176,9 +176,9 @@ func (s *Server) handleSkipMedication(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func (s *Server) handleListMedications(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	showArchived := r.URL.Query().Get("archived") == "true"
-	meds, err := s.meds.ListMedications(showArchived)
+	meds, err := s.meds.List(showArchived)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -189,7 +189,7 @@ func (s *Server) handleListMedications(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handleCreateMedication(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name          string     `json:"name"`
 		Dosage        string     `json:"dosage"`
@@ -212,7 +212,7 @@ func (s *Server) handleCreateMedication(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Check for duplicate medication (same name + dosage, including archived)
-	allMeds, err := s.meds.ListMedications(true)
+	allMeds, err := s.meds.List(true)
 	if err != nil {
 		slog.Error("list medications for duplicate check", "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -229,7 +229,7 @@ func (s *Server) handleCreateMedication(w http.ResponseWriter, r *http.Request) 
 	rxcui, normalizedName, _ := s.rxnorm.SearchRxNorm(req.Name)
 
 	// 2. Create in DB
-	id, err := s.meds.CreateMedication(req.Name, req.Dosage, req.Schedule, req.StartDate, req.EndDate, rxcui, normalizedName, req.TZShiftPolicy)
+	id, err := s.meds.Create(req.Name, req.Dosage, req.Schedule, req.StartDate, req.EndDate, rxcui, normalizedName, req.TZShiftPolicy)
 	if err != nil {
 		if isDuplicateMedicationError(err) {
 			http.Error(w, "Medication with this name and dosage already exists", http.StatusConflict)
@@ -239,7 +239,7 @@ func (s *Server) handleCreateMedication(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if req.Supplement != nil {
-		if err := s.meds.SetMedicationSupplement(id, *req.Supplement); err != nil {
+		if err := s.meds.SetSupplement(id, *req.Supplement); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -248,7 +248,7 @@ func (s *Server) handleCreateMedication(w http.ResponseWriter, r *http.Request) 
 	// 3. Check Interactions
 	var warning string
 	if rxcui != "" {
-		meds, err := s.meds.ListMedications(false) // Only active
+		meds, err := s.meds.List(false) // Only active
 		if err == nil {
 			var rxcuis []string
 			for _, m := range meds {
@@ -312,7 +312,7 @@ func (s *Server) handleUpdateMedication(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Check for duplicate medication (same name + dosage, excluding self)
-	allMeds, err := s.meds.ListMedications(true)
+	allMeds, err := s.meds.List(true)
 	if err != nil {
 		slog.Error("list medications for duplicate check", "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -330,16 +330,16 @@ func (s *Server) handleUpdateMedication(w http.ResponseWriter, r *http.Request) 
 
 	// If archiving, clean up pending notifications/intakes
 	if req.Archived {
-		pending, err := s.meds.GetPendingIntakesForMedication(id)
+		pending, err := s.meds.ListPendingIntakesForMedication(id)
 		if err == nil {
 			var intakeIDs []int64
 			for _, p := range pending {
 				intakeIDs = append(intakeIDs, p.ID)
 			}
 
-			remindersMap, err := s.meds.GetBatchIntakeReminders(intakeIDs)
+			remindersMap, err := s.meds.BatchGetIntakeReminders(intakeIDs)
 			if err != nil {
-				slog.Error("GetBatchIntakeReminders failed", "error", err)
+				slog.Error("BatchGetIntakeReminders failed", "error", err)
 			} else {
 				for _, msgIDs := range remindersMap {
 					for _, msgID := range msgIDs {
@@ -359,7 +359,7 @@ func (s *Server) handleUpdateMedication(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	if err := s.meds.UpdateMedication(id, req.Name, req.Dosage, req.Schedule, req.Archived, req.StartDate, req.EndDate, rxcui, normalizedName, req.InventoryCount, req.TZShiftPolicy); err != nil {
+	if err := s.meds.Update(id, req.Name, req.Dosage, req.Schedule, req.Archived, req.StartDate, req.EndDate, rxcui, normalizedName, req.InventoryCount, req.TZShiftPolicy); err != nil {
 		if isDuplicateMedicationError(err) {
 			http.Error(w, "Medication with this name and dosage already exists", http.StatusConflict)
 			return
@@ -368,7 +368,7 @@ func (s *Server) handleUpdateMedication(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if req.Supplement != nil {
-		if err := s.meds.SetMedicationSupplement(id, *req.Supplement); err != nil {
+		if err := s.meds.SetSupplement(id, *req.Supplement); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -380,14 +380,14 @@ func (s *Server) handleUpdateMedication(w http.ResponseWriter, r *http.Request) 
 	if !req.Archived {
 		// We have the new RxCUI now
 		if rxcui != "" {
-			meds, err := s.meds.ListMedications(false) // Active only
+			meds, err := s.meds.List(false) // Active only
 			if err == nil {
 				var rxcuis []string
 				for _, m := range meds {
 					// We need to exclude the current med from the list fetched from DB
 					// because the DB list technically has the OLD data for this ID if read before commit,
 					// BUT we just committed the update above. So DB list SHOULD have the new data.
-					// Let's rely on ListMedications returning the updated state.
+					// Let's rely on List returning the updated state.
 					if m.RxCUI != "" {
 						rxcuis = append(rxcuis, m.RxCUI)
 					}
@@ -422,7 +422,7 @@ func (s *Server) handleDeleteMedication(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	med, err := s.meds.GetMedication(id)
+	med, err := s.meds.Get(id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -436,7 +436,7 @@ func (s *Server) handleDeleteMedication(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	canDelete, err := s.meds.CanDeleteMedication(id)
+	canDelete, err := s.meds.CanDelete(id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -447,7 +447,7 @@ func (s *Server) handleDeleteMedication(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := s.meds.DeleteMedication(id); err != nil {
+	if err := s.meds.Delete(id); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -529,7 +529,7 @@ func (s *Server) handleUpdateIntake(w http.ResponseWriter, r *http.Request) {
 					slog.Error("Error decrementing inventory", "medicationID", intake.MedicationID, "error", err)
 				}
 				// Clear reminders
-				reminders, _ := s.meds.GetIntakeReminders(intake.ID)
+				reminders, _ := s.meds.ListIntakeReminders(intake.ID)
 				for _, msgID := range reminders {
 					s.deleteNotification(r.Context(), msgID)
 				}
@@ -569,7 +569,7 @@ const triggerNextIntakeClusterWindow = 10 * time.Minute
 func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
-	meds, err := s.meds.ListMedications(false)
+	meds, err := s.meds.List(false)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -580,7 +580,7 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 		now = s.now()
 	}
 	userLoc := now.Location()
-	if tz, tzErr := s.timezone.GetCurrentTimezone(); tzErr == nil && tz != "" {
+	if tz, tzErr := s.timezone.GetCurrent(); tzErr == nil && tz != "" {
 		if loc, locErr := time.LoadLocation(tz); locErr == nil {
 			userLoc = loc
 		}
@@ -694,7 +694,7 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 		medID := target.MedicationID
 		scheduledAt := target.ScheduledAt
 
-		med, _ := s.meds.GetMedication(medID)
+		med, _ := s.meds.Get(medID)
 		if med != nil {
 			medNames = append(medNames, med.Name)
 			confirmedMeds = append(confirmedMeds, *med)
@@ -706,7 +706,7 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 		// If intake exists and is pending, mark as taken
 		if intake != nil && intake.Status == "PENDING" {
 			// Delete notification messages
-			reminders, _ := s.meds.GetIntakeReminders(intake.ID)
+			reminders, _ := s.meds.ListIntakeReminders(intake.ID)
 			for _, msgID := range reminders {
 				s.deleteNotification(r.Context(), msgID)
 			}
@@ -918,7 +918,7 @@ func (s *Server) handleLogPastIntake(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify medication belongs to user (all meds are shared for now, but good practice)
-	med, err := s.meds.GetMedication(req.MedicationID)
+	med, err := s.meds.Get(req.MedicationID)
 	if err != nil || med == nil {
 		http.Error(w, "Medication not found", http.StatusNotFound)
 		return

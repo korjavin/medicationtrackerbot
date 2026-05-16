@@ -63,8 +63,8 @@ var embedMigrations embed.FS
 // every repo. Callers reach into individual repos via the public fields:
 //
 //	r := store.New(":memory:")
-//	med, err := r.Medication.GetMedication(id)
-//	bpState, err := r.BP.GetBPReminderState(userID)
+//	med, err := r.Medication.Get(id)
+//	bpState, err := r.BP.GetReminderState(userID)
 //
 // New code SHOULD NOT add methods to Repos. Each domain's methods live on its
 // own *<domain>.Repo; reach them through the corresponding field.
@@ -207,7 +207,7 @@ func NewWithDB(d *storedb.DB) (*Repos, error) {
 		TZ:         tzRepo,
 		Medication: medication.New(d),
 		// bp.Repo needs a TimezoneLookup for day-boundary calculations in
-		// GetBPDailyWeightedStats. The tz repo owns the timezone table.
+		// GetDailyWeightedStats. The tz repo owns the timezone table.
 		BP: bp.New(d, tzRepo),
 	}
 	return r, nil
@@ -236,7 +236,7 @@ func (r *Repos) Close() error {
 func (r *Repos) ApproveAndMaterialize(ctx context.Context, planID, allowedUserID int64, approvedAt time.Time) (bool, error) {
 	var approved bool
 	err := r.db.WithTx(ctx, func(tx storedb.TX) error {
-		ok, err := storetz.SetTZTransitionPlanApprovedTx(tx, planID, approvedAt)
+		ok, err := storetz.SetTransitionPlanApprovedTx(tx, planID, approvedAt)
 		if err != nil {
 			return err
 		}

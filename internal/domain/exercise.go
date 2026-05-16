@@ -11,8 +11,8 @@ import (
 
 // ExerciseStore is the narrow store interface required by ExerciseService.
 type ExerciseStore interface {
-	GetWorkoutSession(id int64) (*store.WorkoutSession, error)
-	GetWorkoutExercise(id int64) (*store.WorkoutExercise, error)
+	GetSession(id int64) (*store.WorkoutSession, error)
+	GetExercise(id int64) (*store.WorkoutExercise, error)
 	GetExerciseLibraryItem(id int64) (*store.ExerciseLibraryItem, error)
 	GetExerciseLogBySessionAndExercise(sessionID, exerciseID int64) (*store.WorkoutExerciseLog, error)
 	GetExerciseLogBySessionExerciseSource(sessionID, exerciseID int64, source string) (*store.WorkoutExerciseLog, error)
@@ -21,7 +21,7 @@ type ExerciseStore interface {
 	UpdateExerciseLog(id int64, setsCompleted, repsCompleted *int, weightKg *float64, notes string) error
 	UpdateExerciseLogStatus(id int64, status string) error
 	ListExercisesByVariant(variantID int64) ([]store.WorkoutExercise, error)
-	GetExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error)
+	ListExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error)
 }
 
 // ExerciseService handles exercise logging business logic.
@@ -84,7 +84,7 @@ func (s *exerciseService) LogExercise(sessionID, exerciseID int64, status string
 	// Guard: only allow logging to in-progress sessions. This closes the TOCTOU
 	// gap between the bot's pre-check and the actual data write — if the web API
 	// completed/skipped the session in the meantime, we bail out.
-	session, err := s.store.GetWorkoutSession(sessionID)
+	session, err := s.store.GetSession(sessionID)
 	if err != nil {
 		return false, fmt.Errorf("get workout session %d: %w", sessionID, err)
 	}
@@ -94,7 +94,7 @@ func (s *exerciseService) LogExercise(sessionID, exerciseID int64, status string
 
 	var exercise *store.WorkoutExercise
 	if !fromLibrary {
-		exercise, err = s.store.GetWorkoutExercise(exerciseID)
+		exercise, err = s.store.GetExercise(exerciseID)
 		if err != nil {
 			return false, fmt.Errorf("get exercise %d: %w", exerciseID, err)
 		}
@@ -184,7 +184,7 @@ func (s *exerciseService) CheckSessionCompletion(sessionID, variantID int64) (bo
 		return false, 0, 0, fmt.Errorf("list exercises for variant %d: %w", variantID, err)
 	}
 
-	logs, err := s.store.GetExerciseLogs(sessionID)
+	logs, err := s.store.ListExerciseLogs(sessionID)
 	if err != nil {
 		return false, 0, 0, fmt.Errorf("get exercise logs for session %d: %w", sessionID, err)
 	}

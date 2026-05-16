@@ -28,7 +28,7 @@ func (m *mockTZPlanCallbackStore) Approve(_ context.Context, id int64, at time.T
 	return m.approveErr == nil, m.approveErr
 }
 
-func (m *mockTZPlanCallbackStore) RejectTZTransitionPlanAndRevertTimezone(id int64) (bool, error) {
+func (m *mockTZPlanCallbackStore) RejectTransitionPlanAndRevertTimezone(id int64) (bool, error) {
 	m.updatedID = id
 	m.rejectedID = id
 	return m.rejectErr == nil, m.rejectErr
@@ -153,7 +153,7 @@ func (m *mockTZPlanCallbackStoreNoRows) Approve(_ context.Context, id int64, at 
 	return false, nil
 }
 
-func (m *mockTZPlanCallbackStoreNoRows) RejectTZTransitionPlanAndRevertTimezone(id int64) (bool, error) {
+func (m *mockTZPlanCallbackStoreNoRows) RejectTransitionPlanAndRevertTimezone(id int64) (bool, error) {
 	return false, nil
 }
 

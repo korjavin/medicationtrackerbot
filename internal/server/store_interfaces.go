@@ -9,13 +9,13 @@ import (
 
 // MedicationStore is the subset of store operations needed for medication handlers.
 type MedicationStore interface {
-	ListMedications(showArchived bool) ([]store.Medication, error)
-	CreateMedication(name, dosage, schedule string, startDate, endDate *time.Time, rxcui, normalizedName string, tzShiftPolicy string) (int64, error)
-	SetMedicationSupplement(id int64, supplement bool) error
-	GetMedication(id int64) (*store.Medication, error)
-	UpdateMedication(id int64, name, dosage, schedule string, archived bool, startDate, endDate *time.Time, rxcui, normalizedName string, inventoryCount *int, tzShiftPolicy string) error
-	DeleteMedication(id int64) error
-	CanDeleteMedication(id int64) (bool, error)
+	List(showArchived bool) ([]store.Medication, error)
+	Create(name, dosage, schedule string, startDate, endDate *time.Time, rxcui, normalizedName string, tzShiftPolicy string) (int64, error)
+	SetSupplement(id int64, supplement bool) error
+	Get(id int64) (*store.Medication, error)
+	Update(id int64, name, dosage, schedule string, archived bool, startDate, endDate *time.Time, rxcui, normalizedName string, inventoryCount *int, tzShiftPolicy string) error
+	Delete(id int64) error
+	CanDelete(id int64) (bool, error)
 	CreateIntake(medID, userID int64, scheduledAt time.Time) (int64, error)
 	CreateManualIntake(medID, userID int64, takenAt time.Time) (int64, error)
 	ConfirmIntake(id int64, takenAt time.Time) error
@@ -23,20 +23,20 @@ type MedicationStore interface {
 	DeleteIntake(id int64) error
 	GetIntake(id int64) (*store.IntakeLog, error)
 	GetIntakeBySchedule(medID int64, scheduledAt time.Time) (*store.IntakeLog, error)
-	GetIntakeHistory(medID int, days int) ([]store.IntakeLog, error)
-	GetIntakeReminders(intakeID int64) ([]int, error)
-	GetBatchIntakeReminders(intakeIDs []int64) (map[int64][]int, error)
-	GetPendingIntakesForMedication(medID int64) ([]store.IntakeLog, error)
+	ListIntakeHistory(medID int, days int) ([]store.IntakeLog, error)
+	ListIntakeReminders(intakeID int64) ([]int, error)
+	BatchGetIntakeReminders(intakeIDs []int64) (map[int64][]int, error)
+	ListPendingIntakesForMedication(medID int64) ([]store.IntakeLog, error)
 	DecrementInventory(medID int64, qty int) error
 	IncrementInventory(medID int64, qty int) error
-	AddRestock(medID int64, qty int, note string) error
-	GetRestockHistory(medID int64) ([]store.Restock, error)
-	GetMedicationsLowOnStock(daysThreshold int) ([]store.Medication, error)
+	CreateRestock(medID int64, qty int, note string) error
+	ListRestocks(medID int64) ([]store.Restock, error)
+	ListLowOnStock(daysThreshold int) ([]store.Medication, error)
 	GetDaysOfStockRemaining(m *store.Medication) *float64
 	ConfirmIntakesBySchedule(userID int64, scheduledAt time.Time, takenAt time.Time) ([]int64, error)
-	GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time) ([]store.IntakeLog, error)
-	GetTakenIntakesBySchedule(userID int64, scheduledAt time.Time) ([]store.IntakeLog, error)
-	GetPendingIntakes() ([]store.IntakeLog, error)
+	ListPendingIntakesBySchedule(userID int64, scheduledAt time.Time) ([]store.IntakeLog, error)
+	ListTakenIntakesBySchedule(userID int64, scheduledAt time.Time) ([]store.IntakeLog, error)
+	ListPendingIntakes() ([]store.IntakeLog, error)
 	GetPendingIntakesInWindow(start, end time.Time) ([]store.IntakeLog, error)
 	MedsWithFuturePendingTZStepsForPlan(planID int64, asOf time.Time) ([]int64, error)
 	SnoozeIntake(id int64, snoozeUntil time.Time) error
@@ -45,66 +45,66 @@ type MedicationStore interface {
 
 // BloodPressureStore is the subset of store operations needed for BP handlers.
 type BloodPressureStore interface {
-	CreateBloodPressureReading(ctx context.Context, bp *store.BloodPressure) (int64, error)
-	GetBloodPressureReadings(ctx context.Context, userID int64, since time.Time) ([]store.BloodPressure, error)
-	DeleteBloodPressureReading(ctx context.Context, id, userID int64) error
-	ImportBloodPressureReadings(ctx context.Context, userID int64, readings []store.BloodPressure) error
-	GetBPGoal() (*store.BPGoal, error)
-	SetBPGoal(targetSystolic, targetDiastolic int) error
-	GetBPDailyWeightedStats(ctx context.Context, userID int64) (*store.BPStats, error)
-	GetBPReminderState(userID int64) (*store.BPReminderState, error)
-	SetBPReminderEnabled(userID int64, enabled bool) error
-	SnoozeBPReminder(userID int64) error
-	DontBugMeBPReminder(userID int64) error
-	ClearBPReminderNotificationMessage(userID int64) error
+	CreateReading(ctx context.Context, bp *store.BloodPressure) (int64, error)
+	ListReadings(ctx context.Context, userID int64, since time.Time) ([]store.BloodPressure, error)
+	DeleteReading(ctx context.Context, id, userID int64) error
+	ImportReadings(ctx context.Context, userID int64, readings []store.BloodPressure) error
+	GetGoal() (*store.BPGoal, error)
+	SetGoal(targetSystolic, targetDiastolic int) error
+	GetDailyWeightedStats(ctx context.Context, userID int64) (*store.BPStats, error)
+	GetReminderState(userID int64) (*store.BPReminderState, error)
+	SetReminderEnabled(userID int64, enabled bool) error
+	SnoozeReminder(userID int64) error
+	DontBugMeReminder(userID int64) error
+	ClearReminderNotificationMessage(userID int64) error
 }
 
 // WeightStore is the subset of store operations needed for weight handlers.
 type WeightStore interface {
-	CreateWeightLog(ctx context.Context, w *store.WeightLog) (int64, error)
-	GetWeightLogs(ctx context.Context, userID int64, since time.Time) ([]store.WeightLog, error)
-	GetLastWeightLog(ctx context.Context, userID int64) (*store.WeightLog, error)
-	GetLastWeightLogExcluding(ctx context.Context, userID, excludeID int64) (*store.WeightLog, error)
-	DeleteWeightLog(ctx context.Context, id, userID int64) error
-	GetWeightGoal() (*store.WeightGoal, error)
-	SetWeightGoal(weight float64, targetDate time.Time) error
-	GetHighestWeightRecord(ctx context.Context, userID int64) (*store.WeightLog, error)
-	GetWeightReminderState(userID int64) (*store.WeightReminderState, error)
-	SetWeightReminderEnabled(userID int64, enabled bool) error
-	SnoozeWeightReminder(userID int64) error
-	DontBugMeWeightReminder(userID int64) error
-	ClearWeightReminderNotificationMessage(userID int64) error
-	GetWeightUnitPreference(ctx context.Context) (string, error)
-	SetWeightUnitPreference(ctx context.Context, unit string) error
+	CreateLog(ctx context.Context, w *store.WeightLog) (int64, error)
+	ListLogs(ctx context.Context, userID int64, since time.Time) ([]store.WeightLog, error)
+	GetLastLog(ctx context.Context, userID int64) (*store.WeightLog, error)
+	GetLastLogExcluding(ctx context.Context, userID, excludeID int64) (*store.WeightLog, error)
+	DeleteLog(ctx context.Context, id, userID int64) error
+	GetGoal() (*store.WeightGoal, error)
+	SetGoal(weight float64, targetDate time.Time) error
+	GetHighestLog(ctx context.Context, userID int64) (*store.WeightLog, error)
+	GetReminderState(userID int64) (*store.WeightReminderState, error)
+	SetReminderEnabled(userID int64, enabled bool) error
+	SnoozeReminder(userID int64) error
+	DontBugMeReminder(userID int64) error
+	ClearReminderNotificationMessage(userID int64) error
+	GetUnitPreference(ctx context.Context) (string, error)
+	SetUnitPreference(ctx context.Context, unit string) error
 }
 
 // WorkoutStore is the subset of store operations needed for workout handlers.
 type WorkoutStore interface {
-	ListWorkoutGroups(userID int64, activeOnly bool) ([]store.WorkoutGroup, error)
-	CreateWorkoutGroup(name, description string, isRotating bool, userID int64, daysOfWeek string, scheduledTime string, notificationAdvance int) (*store.WorkoutGroup, error)
-	UpdateWorkoutGroup(id int64, name, description string, isRotating bool, daysOfWeek string, scheduledTime string, notificationAdvance int, active bool) error
-	DeleteWorkoutGroup(id int64) error
+	ListGroups(userID int64, activeOnly bool) ([]store.WorkoutGroup, error)
+	CreateGroup(name, description string, isRotating bool, userID int64, daysOfWeek string, scheduledTime string, notificationAdvance int) (*store.WorkoutGroup, error)
+	UpdateGroup(id int64, name, description string, isRotating bool, daysOfWeek string, scheduledTime string, notificationAdvance int, active bool) error
+	DeleteGroup(id int64) error
 	CreateGroupSnapshot(groupID int64, snapshotData, changeReason string) error
 	ListVariantsByGroup(groupID int64) ([]store.WorkoutVariant, error)
-	CreateWorkoutVariant(groupID int64, name string, rotationOrder *int, description string) (*store.WorkoutVariant, error)
-	UpdateWorkoutVariant(id int64, name string, rotationOrder *int, description string) error
-	DeleteWorkoutVariant(id int64) error
+	CreateVariant(groupID int64, name string, rotationOrder *int, description string) (*store.WorkoutVariant, error)
+	UpdateVariant(id int64, name string, rotationOrder *int, description string) error
+	DeleteVariant(id int64) error
 	ListExercisesByVariant(variantID int64) ([]store.WorkoutExercise, error)
-	AddExerciseToVariant(variantID int64, exerciseName string, targetSets, targetRepsMin int, targetRepsMax *int, targetWeightKg *float64, orderIndex int) (*store.WorkoutExercise, error)
-	UpdateWorkoutExercise(id int64, exerciseName string, targetSets, targetRepsMin int, targetRepsMax *int, targetWeightKg *float64, orderIndex int) error
-	DeleteWorkoutExercise(id int64) error
-	GetWorkoutHistory(userID int64, limit int) ([]store.WorkoutSession, error)
-	GetWorkoutGroup(groupID int64) (*store.WorkoutGroup, error)
-	GetWorkoutVariant(variantID int64) (*store.WorkoutVariant, error)
-	GetExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error)
-	GetWorkoutSession(id int64) (*store.WorkoutSession, error)
-	GetActiveSessions(userID int64, date time.Time) ([]store.WorkoutSession, error)
-	GetSnoozedSessions(userID int64) ([]store.WorkoutSession, error)
+	CreateExerciseInVariant(variantID int64, exerciseName string, targetSets, targetRepsMin int, targetRepsMax *int, targetWeightKg *float64, orderIndex int) (*store.WorkoutExercise, error)
+	UpdateExercise(id int64, exerciseName string, targetSets, targetRepsMin int, targetRepsMax *int, targetWeightKg *float64, orderIndex int) error
+	DeleteExercise(id int64) error
+	ListHistory(userID int64, limit int) ([]store.WorkoutSession, error)
+	GetGroup(groupID int64) (*store.WorkoutGroup, error)
+	GetVariant(variantID int64) (*store.WorkoutVariant, error)
+	ListExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error)
+	GetSession(id int64) (*store.WorkoutSession, error)
+	ListActiveSessions(userID int64, date time.Time) ([]store.WorkoutSession, error)
+	ListSnoozedSessions(userID int64) ([]store.WorkoutSession, error)
 	GetRotationState(groupID int64) (*store.WorkoutRotationState, error)
 	InitializeRotation(groupID, startingVariantID int64) error
 	AdvanceRotation(groupID int64) error
-	CreateWorkoutSession(groupID, variantID, userID int64, scheduledDate time.Time, scheduledTime string) (*store.WorkoutSession, error)
-	CreateAdHocWorkoutSession(userID int64, scheduledDate time.Time, scheduledTime string) (*store.WorkoutSession, error)
+	CreateSession(groupID, variantID, userID int64, scheduledDate time.Time, scheduledTime string) (*store.WorkoutSession, error)
+	CreateAdHocSession(userID int64, scheduledDate time.Time, scheduledTime string) (*store.WorkoutSession, error)
 	GetSessionByGroupAndDate(groupID int64, scheduledDate time.Time) (*store.WorkoutSession, error)
 	UpdateSessionStatus(id int64, status string) error
 	StartSession(id int64) error
@@ -119,8 +119,8 @@ type WorkoutStore interface {
 	UpdateExerciseLog(id int64, setsCompleted, repsCompleted *int, weightKg *float64, notes string) error
 	UpdateExerciseLogStatus(id int64, status string) error
 	DeleteExerciseLog(id int64) error
-	GetExerciseStats(userID int64) ([]store.ExerciseStat, error)
-	GetAllUniqueExercises(userID int64) ([]store.WorkoutExercise, error)
+	ListExerciseStats(userID int64) ([]store.ExerciseStat, error)
+	ListAllUniqueExercises(userID int64) ([]store.WorkoutExercise, error)
 	ListExerciseLibrary(userID int64) ([]store.ExerciseLibraryItem, error)
 	GetExerciseLibraryItem(id int64) (*store.ExerciseLibraryItem, error)
 	CreateExerciseLibraryItem(userID int64, name string, sets, repsMin int, repsMax *int, weightKg *float64, notes string) (*store.ExerciseLibraryItem, error)
@@ -130,27 +130,27 @@ type WorkoutStore interface {
 	SetExerciseLogSource(id int64, source string) error
 	PropagateExerciseToSchedule(sessionID int64, exerciseID int64, exerciseName string, sets *int, reps *int, weight *float64) error
 	UpsertExerciseLogByName(ctx context.Context, sessionID, exerciseID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes, source string, loggedAt time.Time) (int64, bool, error)
-	GetDistinctExerciseNamesForUser(ctx context.Context, userID int64) ([]string, error)
+	ListDistinctExerciseNamesForUser(ctx context.Context, userID int64) ([]string, error)
 	ListRecentExerciseLogsByName(ctx context.Context, userID int64, exerciseName string, limit int) ([]store.WorkoutExerciseLog, error)
 }
 
 // FoodStore is the subset of store operations needed for food handlers.
 type FoodStore interface {
-	CreateFoodLog(ctx context.Context, f *store.FoodLog) (int64, error)
-	GetFoodLogs(ctx context.Context, userID int64, date time.Time, days int) ([]store.FoodLog, error)
-	UpdateFoodLog(ctx context.Context, f *store.FoodLog) error
-	DeleteFoodLog(ctx context.Context, id, userID int64) error
-	GetFoodStats(ctx context.Context, userID int64, endDate time.Time, days int) (*store.FoodStats, error)
-	GetFoodTargets(ctx context.Context) (store.FoodTargets, error)
-	SetFoodTargets(ctx context.Context, targets store.FoodTargets) error
-	UpsertFoodProduct(ctx context.Context, p *store.FoodProduct) error
-	GetFoodProductByID(ctx context.Context, userID, id int64) (*store.FoodProduct, error)
-	GetFoodProductByName(ctx context.Context, userID int64, name string) (*store.FoodProduct, error)
-	UpdateFoodProduct(ctx context.Context, p *store.FoodProduct) error
-	DeleteFoodProduct(ctx context.Context, id, userID int64) error
-	GetFoodProducts(ctx context.Context, userID int64, filter store.FoodProductsFilter) ([]store.FoodProduct, int, error)
-	SearchFoodProducts(ctx context.Context, userID int64, queryStr string) ([]store.FoodProduct, error)
-	SearchRemoteFoodAPI(ctx context.Context, query string) ([]store.FoodProduct, error)
+	CreateLog(ctx context.Context, f *store.FoodLog) (int64, error)
+	ListLogs(ctx context.Context, userID int64, date time.Time, days int) ([]store.FoodLog, error)
+	UpdateLog(ctx context.Context, f *store.FoodLog) error
+	DeleteLog(ctx context.Context, id, userID int64) error
+	GetStats(ctx context.Context, userID int64, endDate time.Time, days int) (*store.FoodStats, error)
+	GetTargets(ctx context.Context) (store.FoodTargets, error)
+	SetTargets(ctx context.Context, targets store.FoodTargets) error
+	UpsertProduct(ctx context.Context, p *store.FoodProduct) error
+	GetProductByID(ctx context.Context, userID, id int64) (*store.FoodProduct, error)
+	GetProductByName(ctx context.Context, userID int64, name string) (*store.FoodProduct, error)
+	UpdateProduct(ctx context.Context, p *store.FoodProduct) error
+	DeleteProduct(ctx context.Context, id, userID int64) error
+	ListProducts(ctx context.Context, userID int64, filter store.FoodProductsFilter) ([]store.FoodProduct, int, error)
+	SearchProducts(ctx context.Context, userID int64, queryStr string) ([]store.FoodProduct, error)
+	SearchRemoteAPI(ctx context.Context, query string) ([]store.FoodProduct, error)
 	CreateMealFromLogs(ctx context.Context, userID int64, name string, logIDs []int64) (*store.FoodProduct, error)
 }
 
@@ -175,24 +175,24 @@ type SettingsStore interface {
 
 // TimezoneStore is the subset of timezone operations needed by handlers.
 type TimezoneStore interface {
-	GetCurrentTimezone() (string, error)
-	RecordTimezone(tz string) error
+	GetCurrent() (string, error)
+	Record(tz string) error
 }
 
 // HealthStore is the subset of store operations needed for health/vitals handlers.
 type HealthStore interface {
-	GetVitalsHeart(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsHeartLog, error)
-	GetVitalsSpO2(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsSpO2Log, error)
-	GetVitalsStress(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsStressLog, error)
-	GetSleepLogs(ctx context.Context, userID int64, since time.Time) ([]store.SleepLog, error)
-	GetDayStats(ctx context.Context, userID int64, since time.Time) ([]store.DayStat, error)
+	ListHeart(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsHeartLog, error)
+	ListSpO2(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsSpO2Log, error)
+	ListStress(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsStressLog, error)
+	ListSleepLogs(ctx context.Context, userID int64, since time.Time) ([]store.SleepLog, error)
+	ListDayStats(ctx context.Context, userID int64, since time.Time) ([]store.DayStat, error)
 }
 
 // ChangeStore is the subset of store operations needed for change event streaming.
 type ChangeStore interface {
 	GetLatestChangeCursor(ctx context.Context) (int64, error)
 	PruneChangeEvents(ctx context.Context, keepLast, maxAgeDays int) error
-	GetChangedTagsSince(ctx context.Context, since int64) (int64, []string, error)
+	ListChangedTagsSince(ctx context.Context, since int64) (int64, []string, error)
 }
 
 // PushStore is the subset of store operations needed for push subscription management.
@@ -204,13 +204,13 @@ type PushStore interface {
 
 // MiBandStore is the subset of store operations needed for Mi Band workout history.
 type MiBandStore interface {
-	ListMiBandWorkouts(ctx context.Context, userID int64, limit int) ([]store.MiBandWorkout, error)
-	GetMiBandWorkout(ctx context.Context, id int64) (*store.MiBandWorkout, error)
-	GetMiBandWorkoutGPS(ctx context.Context, workoutID int64) ([]store.MiBandGPSPoint, error)
-	DeleteMiBandWorkout(ctx context.Context, id, userID int64) error
-	UpdateMiBandWorkout(ctx context.Context, id, userID int64, fields store.UpdateMiBandWorkoutFields) error
-	InsertMiBandWorkout(ctx context.Context, w *store.MiBandWorkout) (bool, error)
-	CheckDuplicateMiBandWorkout(ctx context.Context, userID int64, startMsMin, startMsMax int64) (bool, error)
+	ListMiBand(ctx context.Context, userID int64, limit int) ([]store.MiBandWorkout, error)
+	GetMiBand(ctx context.Context, id int64) (*store.MiBandWorkout, error)
+	GetMiBandGPS(ctx context.Context, workoutID int64) ([]store.MiBandGPSPoint, error)
+	DeleteMiBand(ctx context.Context, id, userID int64) error
+	UpdateMiBand(ctx context.Context, id, userID int64, fields store.UpdateMiBandWorkoutFields) error
+	InsertMiBand(ctx context.Context, w *store.MiBandWorkout) (bool, error)
+	CheckDuplicateMiBand(ctx context.Context, userID int64, startMsMin, startMsMax int64) (bool, error)
 }
 
 // TZPlanStore is the subset of store operations needed for timezone plan
@@ -219,9 +219,9 @@ type MiBandStore interface {
 // alongside the tz_transition_steps table; step data now lives in
 // plan.StepsJSON for display and in intake_log for execution.
 type TZPlanStore interface {
-	SetTZTransitionPlanApproved(id int64, approvedAt time.Time) (bool, error)
-	RejectTZTransitionPlanAndRevertTimezone(id int64) (bool, error)
-	GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error)
+	SetTransitionPlanApproved(id int64, approvedAt time.Time) (bool, error)
+	RejectTransitionPlanAndRevertTimezone(id int64) (bool, error)
+	GetLatestActiveOrPendingTransitionPlan() (*store.TZTransitionPlan, error)
 }
 
 // NonceStore is the subset of store operations needed for login replay prevention.

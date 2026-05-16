@@ -82,7 +82,7 @@ func generateBP(ctx context.Context, s *store.Store, opts Options, clk *clock, r
 			Position:   bpPositions[rng.IntN(len(bpPositions))],
 			Tag:        bpTags[rng.IntN(len(bpTags))],
 		}
-		if _, err := s.BP.CreateBloodPressureReading(ctx, bp); err != nil {
+		if _, err := s.BP.CreateReading(ctx, bp); err != nil {
 			return fmt.Errorf("create bp at %s: %w", measuredAt, err)
 		}
 		summary.BPReadings++
@@ -91,7 +91,7 @@ func generateBP(ctx context.Context, s *store.Store, opts Options, clk *clock, r
 }
 
 func generateWeight(ctx context.Context, s *store.Store, opts Options, clk *clock, rng *rand.Rand, summary *Summary) error {
-	if err := s.Weight.SetWeightUnitPreference(ctx, "kg"); err != nil {
+	if err := s.Weight.SetUnitPreference(ctx, "kg"); err != nil {
 		return fmt.Errorf("set weight unit: %w", err)
 	}
 
@@ -122,7 +122,7 @@ func generateWeight(ctx context.Context, s *store.Store, opts Options, clk *cloc
 			Weight:      w,
 			WeightTrend: &trendCopy,
 		}
-		if _, err := s.Weight.CreateWeightLog(ctx, log); err != nil {
+		if _, err := s.Weight.CreateLog(ctx, log); err != nil {
 			return fmt.Errorf("create weight at %s: %w", measuredAt, err)
 		}
 		summary.WeightLogs++

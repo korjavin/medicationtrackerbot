@@ -285,9 +285,9 @@ func TestSnoozeIntake_WritesSnoozedUntilUnixUTC(t *testing.T) {
 		t.Fatalf("load Phoenix: %v", err)
 	}
 
-	medID, err := db.Medication.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
+	medID, err := db.Medication.Create("Aspirin", "100mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	scheduledAt := time.Date(2026, 5, 10, 8, 20, 0, 0, la)
@@ -313,9 +313,9 @@ func TestSnoozeIntake_WritesSnoozedUntilUnixUTC(t *testing.T) {
 	// Snooze again with the same wall clock in Phoenix (MST = -07:00, same
 	// offset as PDT but different zone name). Should produce the same UTC
 	// unix seconds — closing the TZ-name equality bug class.
-	medID2, err := db.Medication.CreateMedication("Vitamin", "1tab", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
+	medID2, err := db.Medication.Create("Vitamin", "1tab", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication 2: %v", err)
+		t.Fatalf("Create 2: %v", err)
 	}
 	id2, err := db.Medication.CreateIntake(medID2, 1, scheduledAt)
 	if err != nil {
@@ -333,11 +333,11 @@ func TestSnoozeIntake_WritesSnoozedUntilUnixUTC(t *testing.T) {
 		t.Errorf("Phoenix: snoozed_until_unix=%v want %d (must match LA — same instant)", uPhx, wantUnix)
 	}
 
-	// Round-trip via GetPendingIntakes: the *time.Time read back is UTC,
+	// Round-trip via ListPendingIntakes: the *time.Time read back is UTC,
 	// matches the original instant, and has no monotonic residue.
-	pendings, err := db.Medication.GetPendingIntakes()
+	pendings, err := db.Medication.ListPendingIntakes()
 	if err != nil {
-		t.Fatalf("GetPendingIntakes: %v", err)
+		t.Fatalf("ListPendingIntakes: %v", err)
 	}
 	var found *IntakeLog
 	for i := range pendings {
@@ -366,9 +366,9 @@ func TestSnoozeIntake_WritesSnoozedUntilUnixUTC(t *testing.T) {
 func TestSnoozeIntake_StripsMonotonicResidue(t *testing.T) {
 	db := setupTestStore(t)
 
-	medID, err := db.Medication.CreateMedication("Med", "5mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	medID, err := db.Medication.Create("Med", "5mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	scheduledAt := time.Date(2026, 5, 10, 8, 0, 0, 0, time.UTC)

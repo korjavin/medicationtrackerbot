@@ -41,7 +41,7 @@ func TestHandleGetFoodIntakeIncludesTargetWhenConfigured(t *testing.T) {
 	if err := st.Settings.SetFoodIntakeEnabled(ctx, true); err != nil {
 		t.Fatalf("failed to enable food intake: %v", err)
 	}
-	if err := st.Food.SetFoodTargets(ctx, store.FoodTargets{
+	if err := st.Food.SetTargets(ctx, store.FoodTargets{
 		Calories: 2200,
 		Carbs:    250,
 		Protein:  150,
@@ -50,7 +50,7 @@ func TestHandleGetFoodIntakeIncludesTargetWhenConfigured(t *testing.T) {
 		t.Fatalf("failed to set food targets: %v", err)
 	}
 
-	_, err := st.Food.CreateFoodLog(ctx, &store.FoodLog{
+	_, err := st.Food.CreateLog(ctx, &store.FoodLog{
 		UserID:   123456,
 		EatenAt:  time.Date(2026, 2, 18, 8, 30, 0, 0, time.Local),
 		Name:     "Oatmeal",
@@ -92,7 +92,7 @@ func TestHandleGetFoodIntakeOmitsTargetWhenNotConfigured(t *testing.T) {
 		t.Fatalf("failed to enable food intake: %v", err)
 	}
 
-	_, err := st.Food.CreateFoodLog(ctx, &store.FoodLog{
+	_, err := st.Food.CreateLog(ctx, &store.FoodLog{
 		UserID:   123456,
 		EatenAt:  time.Date(2026, 2, 19, 13, 0, 0, 0, time.Local),
 		Name:     "Chicken",
@@ -213,7 +213,7 @@ func TestHandleGetFoodIntakeAcceptsCamelCaseDates(t *testing.T) {
 		t.Fatalf("failed to enable food intake: %v", err)
 	}
 
-	_, err := st.Food.CreateFoodLog(ctx, &store.FoodLog{
+	_, err := st.Food.CreateLog(ctx, &store.FoodLog{
 		UserID:   123456,
 		EatenAt:  time.Date(2026, 2, 19, 9, 0, 0, 0, time.Local),
 		Name:     "Yogurt",
@@ -259,7 +259,7 @@ func TestHandleGetBloodPressure_WithData(t *testing.T) {
 	}
 
 	pulse := 72
-	_, err := st.BP.CreateBloodPressureReading(ctx, &store.BloodPressure{
+	_, err := st.BP.CreateReading(ctx, &store.BloodPressure{
 		UserID:     123456,
 		MeasuredAt: time.Date(2026, 2, 18, 9, 0, 0, 0, time.UTC),
 		Systolic:   120,
@@ -268,7 +268,7 @@ func TestHandleGetBloodPressure_WithData(t *testing.T) {
 		Category:   "normal",
 	})
 	if err != nil {
-		t.Fatalf("CreateBloodPressureReading: %v", err)
+		t.Fatalf("CreateReading: %v", err)
 	}
 
 	_, resp, err := s.handleGetBloodPressure(ctx, nil, DateRangeInput{
@@ -348,7 +348,7 @@ func TestHandleGetWeight_WithData(t *testing.T) {
 		t.Fatalf("SetWeightEnabled: %v", err)
 	}
 
-	_, err := st.Weight.CreateWeightLog(ctx, &store.WeightLog{
+	_, err := st.Weight.CreateLog(ctx, &store.WeightLog{
 		UserID:     123456,
 		MeasuredAt: time.Date(2026, 2, 18, 8, 0, 0, 0, time.UTC),
 		Weight:     75.5,
@@ -402,9 +402,9 @@ func TestHandleGetMedicationIntake_WithData(t *testing.T) {
 		t.Fatalf("SetMedicationEnabled: %v", err)
 	}
 
-	medID, err := st.Medication.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	medID, err := st.Medication.Create("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	scheduledAt := time.Date(2026, 2, 18, 8, 0, 0, 0, time.UTC)
@@ -445,8 +445,8 @@ func TestHandleGetMedicationIntake_FilterByName(t *testing.T) {
 	}
 
 	// Create two medications
-	med1ID, _ := st.Medication.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
-	med2ID, _ := st.Medication.CreateMedication("Ibuprofen", "200mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	med1ID, _ := st.Medication.Create("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	med2ID, _ := st.Medication.Create("Ibuprofen", "200mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 
 	scheduledAt := time.Date(2026, 2, 18, 8, 0, 0, 0, time.UTC)
 	id1, _ := st.Medication.CreateIntake(med1ID, 123456, scheduledAt)
@@ -500,20 +500,20 @@ func TestHandleGetWorkoutHistory_WithData(t *testing.T) {
 		t.Fatalf("SetWorkoutEnabled: %v", err)
 	}
 
-	group, err := st.Workout.CreateWorkoutGroup("Push Day", "chest/shoulders/triceps", false, 123456, "[1]", "08:00", 15)
+	group, err := st.Workout.CreateGroup("Push Day", "chest/shoulders/triceps", false, 123456, "[1]", "08:00", 15)
 	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
+		t.Fatalf("CreateGroup: %v", err)
 	}
 	order := 0
-	variant, err := st.Workout.CreateWorkoutVariant(group.ID, "Heavy", &order, "")
+	variant, err := st.Workout.CreateVariant(group.ID, "Heavy", &order, "")
 	if err != nil {
-		t.Fatalf("CreateWorkoutVariant: %v", err)
+		t.Fatalf("CreateVariant: %v", err)
 	}
 
 	scheduledDate := time.Date(2026, 2, 18, 0, 0, 0, 0, time.UTC)
-	session, err := st.Workout.CreateWorkoutSession(group.ID, variant.ID, 123456, scheduledDate, "08:00")
+	session, err := st.Workout.CreateSession(group.ID, variant.ID, 123456, scheduledDate, "08:00")
 	if err != nil {
-		t.Fatalf("CreateWorkoutSession: %v", err)
+		t.Fatalf("CreateSession: %v", err)
 	}
 	if err := st.Workout.CompleteSession(session.ID); err != nil {
 		t.Fatalf("CompleteSession: %v", err)
@@ -901,7 +901,7 @@ func TestHandleGetBloodPressure_IncludesContextNotes(t *testing.T) {
 	// Create a BP reading in the same range
 	pulse := 72
 	now := time.Now()
-	_, err := st.BP.CreateBloodPressureReading(ctx, &store.BloodPressure{
+	_, err := st.BP.CreateReading(ctx, &store.BloodPressure{
 		UserID:     123456,
 		MeasuredAt: now,
 		Systolic:   130,
@@ -910,7 +910,7 @@ func TestHandleGetBloodPressure_IncludesContextNotes(t *testing.T) {
 		Category:   "high-normal",
 	})
 	if err != nil {
-		t.Fatalf("CreateBloodPressureReading: %v", err)
+		t.Fatalf("CreateReading: %v", err)
 	}
 
 	_, resp, err := s.handleGetBloodPressure(ctx, nil, DateRangeInput{
@@ -1257,11 +1257,11 @@ func TestHandleGetWeight_UnitPreferenceDoesNotLeak(t *testing.T) {
 		t.Fatalf("SetWeightEnabled: %v", err)
 	}
 	// Flip the user's unit preference to lb. The MCP response must remain in kg.
-	if err := st.Weight.SetWeightUnitPreference(ctx, "lb"); err != nil {
+	if err := st.Weight.SetUnitPreference(ctx, "lb"); err != nil {
 		t.Fatalf("SetWeightUnitPreference: %v", err)
 	}
 
-	_, err := st.Weight.CreateWeightLog(ctx, &store.WeightLog{
+	_, err := st.Weight.CreateLog(ctx, &store.WeightLog{
 		UserID:     123456,
 		MeasuredAt: time.Date(2026, 2, 18, 8, 0, 0, 0, time.UTC),
 		Weight:     75.5, // stored in kg

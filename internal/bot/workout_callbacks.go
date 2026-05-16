@@ -42,7 +42,7 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 		return
 	}
 
-	session, err := b.workouts.GetWorkoutSession(sessionID)
+	session, err := b.workouts.GetSession(sessionID)
 	if err != nil || session == nil {
 		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Workout session not found.")); err != nil {
 			slog.Error("send failed", "error", err)
@@ -236,7 +236,7 @@ func (b *Bot) startExerciseLoop(sessionID, variantID int64, chatID int64) {
 // ad-hoc exercises (free-form ones have exercise_id=0 and no library row),
 // so we point the user at the app for completion.
 func (b *Bot) sendAdHocStartConfirmation(sessionID, chatID int64) {
-	logs, err := b.workouts.GetExerciseLogs(sessionID)
+	logs, err := b.workouts.ListExerciseLogs(sessionID)
 	if err != nil {
 		slog.Error("Failed to load planned exercises for ad-hoc start", "error", err, "sessionID", sessionID)
 	}
@@ -306,7 +306,7 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 	}
 
 	// Verify the user owns this session and it is still in progress
-	session, err := b.workouts.GetWorkoutSession(sessionID)
+	session, err := b.workouts.GetSession(sessionID)
 	if err != nil || session == nil || session.UserID != cb.From.ID {
 		slog.Error("Session not found or unauthorized", "sessionID", sessionID, "userID", cb.From.ID)
 		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Unauthorized: this session belongs to another user.")); err != nil {
@@ -416,7 +416,7 @@ func (b *Bot) sendNextPendingExercise(sessionID int64) {
 
 	// Re-check session status to avoid sending prompts for sessions that were
 	// completed/skipped via the web while a Telegram callback was in flight.
-	session, err := b.workouts.GetWorkoutSession(sessionID)
+	session, err := b.workouts.GetSession(sessionID)
 	if err != nil {
 		// Transient failure — re-insert the exercise so it's not permanently lost.
 		slog.Error("Failed to re-check session for pending exercise, re-queuing", "error", err, "sessionID", sessionID)
@@ -457,7 +457,7 @@ func (b *Bot) ClearPendingExercises(sessionID int64) {
 
 // checkWorkoutCompletion checks if all exercises are done and prompts the user to finish.
 func (b *Bot) checkWorkoutCompletion(sessionID int64, chatID int64) {
-	session, err := b.workouts.GetWorkoutSession(sessionID)
+	session, err := b.workouts.GetSession(sessionID)
 	if err != nil || session == nil {
 		return
 	}

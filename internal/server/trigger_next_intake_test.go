@@ -79,13 +79,13 @@ func (c *triggerCtx) callTrigger(userID int64) (map[string]any, int) {
 
 func mustCreateMed(t *testing.T, db *store.Store, name, dosage, schedule, policy string) int64 {
 	t.Helper()
-	id, err := db.Medication.CreateMedication(name, dosage, schedule, nil, nil, "", "", policy)
+	id, err := db.Medication.Create(name, dosage, schedule, nil, nil, "", "", policy)
 	if err != nil {
-		t.Fatalf("CreateMedication %s: %v", name, err)
+		t.Fatalf("Create %s: %v", name, err)
 	}
 	// Anchor created_at safely in the past so target.Before(med.CreatedAt) checks pass.
-	if err := db.Medication.UpdateMedicationCreatedAt(id, time.Now().AddDate(0, 0, -30)); err != nil {
-		t.Fatalf("UpdateMedicationCreatedAt %s: %v", name, err)
+	if err := db.Medication.UpdateCreatedAt(id, time.Now().AddDate(0, 0, -30)); err != nil {
+		t.Fatalf("UpdateCreatedAt %s: %v", name, err)
 	}
 	return id
 }
@@ -96,8 +96,8 @@ func mustCreateMed(t *testing.T, db *store.Store, name, dosage, schedule, policy
 // four TAKEN — not just the first one.
 func TestHandleTriggerNextIntake_MorningClusterInWindow(t *testing.T) {
 	c := newTriggerCtx(t)
-	if err := c.db.TZ.RecordTimezone("America/Los_Angeles"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := c.db.TZ.Record("America/Los_Angeles"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 	la, _ := time.LoadLocation("America/Los_Angeles")
 	c.setNow(time.Date(2026, 5, 4, 6, 0, 0, 0, la)) // 06:00 PDT — 2 h 20 m before 08:20
@@ -124,13 +124,13 @@ func TestHandleTriggerNextIntake_MorningClusterInWindow(t *testing.T) {
 // inside the 12 h window, and the handler picks the evening cluster.
 func TestHandleTriggerNextIntake_MorningPastEveningPicked(t *testing.T) {
 	c := newTriggerCtx(t)
-	if err := c.db.TZ.RecordTimezone("America/Los_Angeles"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := c.db.TZ.Record("America/Los_Angeles"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 	la, _ := time.LoadLocation("America/Los_Angeles")
 	c.setNow(time.Date(2026, 5, 4, 10, 0, 0, 0, la)) // 10:00 PDT — past 08:20, before 21:30
 
-	mustCreateMed(t, c.db, "Allopurinol AL", "300mg", `{"type":"daily","times":["08:20"]}`, "flexible")     // morning only — no future window today
+	mustCreateMed(t, c.db, "Allopurinol AL", "300mg", `{"type":"daily","times":["08:20"]}`, "flexible")    // morning only — no future window today
 	mustCreateMed(t, c.db, "Candecor", "16mg", `{"type":"daily","times":["21:30"]}`, "flexible")           // evening only
 	mustCreateMed(t, c.db, "Lercanidipin", "10mg", `{"type":"daily","times":["08:20","21:30"]}`, "medium") // both
 	mustCreateMed(t, c.db, "Metformin", "1000mg", `{"type":"daily","times":["08:20","21:30"]}`, "flexible")
@@ -159,20 +159,20 @@ func TestHandleTriggerNextIntake_MorningPastEveningPicked(t *testing.T) {
 // flow can leave dangling as PENDING at the wrong moment.
 func TestHandleTriggerNextIntake_PendingPlanStepUsedNotClockTime(t *testing.T) {
 	c := newTriggerCtx(t)
-	if err := c.db.TZ.RecordTimezone("America/Los_Angeles"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := c.db.TZ.Record("America/Los_Angeles"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 	la, _ := time.LoadLocation("America/Los_Angeles")
 	c.setNow(time.Date(2026, 5, 4, 13, 0, 0, 0, la)) // 13:00 PDT, plan step at 14:18 PDT
 
 	medID := mustCreateMed(t, c.db, "Lercanidipin", "10mg", `{"type":"daily","times":["08:20","21:30"]}`, "medium")
 
-	planID, err := c.db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
+	planID, err := c.db.TZ.CreateTransitionPlan(&store.TZTransitionPlan{
 		OldTZ: "Europe/Copenhagen", NewTZ: "America/Los_Angeles",
 		Status: "PENDING_APPROVAL", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "h",
 	})
 	if err != nil {
-		t.Fatalf("CreateTZTransitionPlan: %v", err)
+		t.Fatalf("CreateTransitionPlan: %v", err)
 	}
 	stepTime := time.Date(2026, 5, 4, 14, 18, 0, 0, la)
 	setPlanSteps(t, c.db, planID, []planStepFixture{
@@ -216,8 +216,8 @@ func TestHandleTriggerNextIntake_PendingPlanStepUsedNotClockTime(t *testing.T) {
 // reasonably perceives them as one morning batch.
 func TestHandleTriggerNextIntake_ClusterMixesStepAndNormal(t *testing.T) {
 	c := newTriggerCtx(t)
-	if err := c.db.TZ.RecordTimezone("America/Los_Angeles"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := c.db.TZ.Record("America/Los_Angeles"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 	la, _ := time.LoadLocation("America/Los_Angeles")
 	c.setNow(time.Date(2026, 5, 4, 6, 0, 0, 0, la))
@@ -227,12 +227,12 @@ func TestHandleTriggerNextIntake_ClusterMixesStepAndNormal(t *testing.T) {
 	candecorComp := mustCreateMed(t, c.db, "Candecor comp", "16mg", `{"type":"daily","times":["08:20"]}`, "flexible")
 	metformin := mustCreateMed(t, c.db, "Metformin", "1000mg", `{"type":"daily","times":["08:20","21:30"]}`, "flexible")
 
-	planID, err := c.db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
+	planID, err := c.db.TZ.CreateTransitionPlan(&store.TZTransitionPlan{
 		OldTZ: "Europe/Copenhagen", NewTZ: "America/Los_Angeles",
 		Status: "PENDING_APPROVAL", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "hcluster",
 	})
 	if err != nil {
-		t.Fatalf("CreateTZTransitionPlan: %v", err)
+		t.Fatalf("CreateTransitionPlan: %v", err)
 	}
 	driftedStep := time.Date(2026, 5, 4, 8, 22, 6, 0, la) // 2 m 6 s drift
 	// Three meds share a single step_number=1; pre-materialize one row per med
@@ -275,20 +275,20 @@ func TestHandleTriggerNextIntake_ClusterMixesStepAndNormal(t *testing.T) {
 // wrong moment that the user could not get rid of.
 func TestHandleTriggerNextIntake_CancelRevertsToCorrectScheduledAt(t *testing.T) {
 	c := newTriggerCtx(t)
-	if err := c.db.TZ.RecordTimezone("America/Los_Angeles"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := c.db.TZ.Record("America/Los_Angeles"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 	la, _ := time.LoadLocation("America/Los_Angeles")
 	c.setNow(time.Date(2026, 5, 4, 13, 0, 0, 0, la))
 
 	medID := mustCreateMed(t, c.db, "Lercanidipin", "10mg", `{"type":"daily","times":["08:20","21:30"]}`, "medium")
 
-	planID, err := c.db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
+	planID, err := c.db.TZ.CreateTransitionPlan(&store.TZTransitionPlan{
 		OldTZ: "Europe/Copenhagen", NewTZ: "America/Los_Angeles",
 		Status: "PENDING_APPROVAL", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "hcancel",
 	})
 	if err != nil {
-		t.Fatalf("CreateTZTransitionPlan: %v", err)
+		t.Fatalf("CreateTransitionPlan: %v", err)
 	}
 	stepTime := time.Date(2026, 5, 4, 14, 18, 0, 0, la)
 	setPlanSteps(t, c.db, planID, []planStepFixture{
@@ -345,8 +345,8 @@ func TestHandleTriggerNextIntake_CancelRevertsToCorrectScheduledAt(t *testing.T)
 // The fix anchors the format in the user's stored timezone.
 func TestHandleTriggerNextIntake_EarlyNotifFormatsInUserTZ(t *testing.T) {
 	c := newTriggerCtx(t)
-	if err := c.db.TZ.RecordTimezone("America/Los_Angeles"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := c.db.TZ.Record("America/Los_Angeles"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 	la, _ := time.LoadLocation("America/Los_Angeles")
 	// 22:10 PDT — 20 min before the plan step at 22:30 PDT.
@@ -357,12 +357,12 @@ func TestHandleTriggerNextIntake_EarlyNotifFormatsInUserTZ(t *testing.T) {
 
 	medID := mustCreateMed(t, c.db, "Candecor", "16mg", `{"type":"daily","times":["21:30"]}`, "medium")
 
-	planID, err := c.db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
+	planID, err := c.db.TZ.CreateTransitionPlan(&store.TZTransitionPlan{
 		OldTZ: "Europe/Copenhagen", NewTZ: "America/Los_Angeles",
 		Status: "PENDING_APPROVAL", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "h-tz-fmt",
 	})
 	if err != nil {
-		t.Fatalf("CreateTZTransitionPlan: %v", err)
+		t.Fatalf("CreateTransitionPlan: %v", err)
 	}
 	// 22:30 PDT == 05:30 UTC the next day — exactly the value persisted on
 	// the production row that produced the bad notification.
@@ -421,8 +421,8 @@ func TestHandleTriggerNextIntake_EarlyNotifFormatsInUserTZ(t *testing.T) {
 // thing that closes this gap post-Task-13.
 func TestHandleTriggerNextIntake_PreMaterializedTZStepRowSurfaces(t *testing.T) {
 	c := newTriggerCtx(t)
-	if err := c.db.TZ.RecordTimezone("America/Los_Angeles"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := c.db.TZ.Record("America/Los_Angeles"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 	la, _ := time.LoadLocation("America/Los_Angeles")
 	// 13:00 PDT — 08:20 slot is past, 21:30 slot is ~8.5h ahead (in window),
@@ -436,12 +436,12 @@ func TestHandleTriggerNextIntake_PreMaterializedTZStepRowSurfaces(t *testing.T) 
 	// surface it, since the handler's legacy pendingSteps lookup returns nil.
 	// The plan-status gate in GetPendingIntakesInWindow requires the owning
 	// plan to be APPROVED/COMPLETED, so create a real APPROVED plan row.
-	planID, err := c.db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
+	planID, err := c.db.TZ.CreateTransitionPlan(&store.TZTransitionPlan{
 		OldTZ: "Europe/Copenhagen", NewTZ: "America/Los_Angeles",
 		Status: "APPROVED", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "h-pre-mat-surfaces",
 	})
 	if err != nil {
-		t.Fatalf("CreateTZTransitionPlan: %v", err)
+		t.Fatalf("CreateTransitionPlan: %v", err)
 	}
 	stepTime := time.Date(2026, 5, 4, 14, 18, 0, 0, la)
 	if _, err := c.db.DB().Exec(`
@@ -502,8 +502,8 @@ func TestHandleTriggerNextIntake_PreMaterializedTZStepRowSurfaces(t *testing.T) 
 // suppressNormalsCoveredByStep and let the user confirm it.
 func TestHandleTriggerNextIntake_CancelledPlanLeftoverNotSurfaced(t *testing.T) {
 	c := newTriggerCtx(t)
-	if err := c.db.TZ.RecordTimezone("America/Los_Angeles"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := c.db.TZ.Record("America/Los_Angeles"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 	la, _ := time.LoadLocation("America/Los_Angeles")
 	// 13:00 PDT — bare 21:30 PDT slot is the only legitimate target. The
@@ -512,12 +512,12 @@ func TestHandleTriggerNextIntake_CancelledPlanLeftoverNotSurfaced(t *testing.T) 
 
 	medID := mustCreateMed(t, c.db, "Lercanidipin", "10mg", `{"type":"daily","times":["08:20","21:30"]}`, "medium")
 
-	planID, err := c.db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
+	planID, err := c.db.TZ.CreateTransitionPlan(&store.TZTransitionPlan{
 		OldTZ: "Europe/Copenhagen", NewTZ: "America/Los_Angeles",
 		Status: "PENDING_APPROVAL", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "h-cancel-leak",
 	})
 	if err != nil {
-		t.Fatalf("CreateTZTransitionPlan: %v", err)
+		t.Fatalf("CreateTransitionPlan: %v", err)
 	}
 	stepTime := time.Date(2026, 5, 4, 14, 18, 0, 0, la)
 	setPlanSteps(t, c.db, planID, []planStepFixture{
@@ -529,8 +529,8 @@ func TestHandleTriggerNextIntake_CancelledPlanLeftoverNotSurfaced(t *testing.T) 
 
 	// Simulate the cancel-then-delete-fails scenario: plan is flipped to
 	// CANCELLED but the PENDING tz_step intake_log row survives.
-	if err := c.db.TZ.UpdateTZTransitionPlanStatus(planID, "CANCELLED", "test", "APPROVED"); err != nil {
-		t.Fatalf("UpdateTZTransitionPlanStatus: %v", err)
+	if err := c.db.TZ.UpdateTransitionPlanStatus(planID, "CANCELLED", "test", "APPROVED"); err != nil {
+		t.Fatalf("UpdateTransitionPlanStatus: %v", err)
 	}
 
 	resp, code := c.callTrigger(123456)
@@ -573,8 +573,8 @@ func TestHandleTriggerNextIntake_CancelledPlanLeftoverNotSurfaced(t *testing.T) 
 // fresh normal-schedule intake at that slot and confirms it.
 func TestHandleTriggerNextIntake_OrphanTZStepSameTimeAsNormalDoesNotBlock(t *testing.T) {
 	c := newTriggerCtx(t)
-	if err := c.db.TZ.RecordTimezone("UTC"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := c.db.TZ.Record("UTC"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 	// now = 08:55 UTC — the 09:00 UTC normal slot is 5 minutes ahead, in
 	// window, and is also where the orphan tz_step row sits.
@@ -584,17 +584,17 @@ func TestHandleTriggerNextIntake_OrphanTZStepSameTimeAsNormalDoesNotBlock(t *tes
 	medID := mustCreateMed(t, c.db, "Aspirin", "100mg",
 		`{"type":"daily","times":["09:00"]}`, "medium")
 	initialStock := 30
-	if err := c.db.Medication.UpdateMedication(medID, "Aspirin", "100mg",
+	if err := c.db.Medication.Update(medID, "Aspirin", "100mg",
 		`{"type":"daily","times":["09:00"]}`, false, nil, nil, "", "", &initialStock, ""); err != nil {
-		t.Fatalf("UpdateMedication (set inventory): %v", err)
+		t.Fatalf("Update (set inventory): %v", err)
 	}
 
-	planID, err := c.db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
+	planID, err := c.db.TZ.CreateTransitionPlan(&store.TZTransitionPlan{
 		OldTZ: "UTC", NewTZ: "Asia/Tokyo",
 		Status: "PENDING_APPROVAL", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "h-collision",
 	})
 	if err != nil {
-		t.Fatalf("CreateTZTransitionPlan: %v", err)
+		t.Fatalf("CreateTransitionPlan: %v", err)
 	}
 	setPlanSteps(t, c.db, planID, []planStepFixture{
 		{MedicationID: medID, StepNumber: 1, ScheduledAt: collisionTime, Note: "step"},
@@ -605,8 +605,8 @@ func TestHandleTriggerNextIntake_OrphanTZStepSameTimeAsNormalDoesNotBlock(t *tes
 	// Cancel the plan but leave the materialized PENDING tz_step row in
 	// place (simulates DeletePendingPreMaterializedIntakesForPlan failing
 	// after the status flip).
-	if err := c.db.TZ.UpdateTZTransitionPlanStatus(planID, "CANCELLED", "test", "APPROVED"); err != nil {
-		t.Fatalf("UpdateTZTransitionPlanStatus: %v", err)
+	if err := c.db.TZ.UpdateTransitionPlanStatus(planID, "CANCELLED", "test", "APPROVED"); err != nil {
+		t.Fatalf("UpdateTransitionPlanStatus: %v", err)
 	}
 
 	resp, code := c.callTrigger(123456)
@@ -643,7 +643,7 @@ func TestHandleTriggerNextIntake_OrphanTZStepSameTimeAsNormalDoesNotBlock(t *tes
 
 	// Inventory decremented exactly once — for the legitimate normal slot,
 	// not for the orphan.
-	med, _ := c.db.Medication.GetMedication(medID)
+	med, _ := c.db.Medication.Get(medID)
 	if med == nil || med.InventoryCount == nil || *med.InventoryCount != initialStock-1 {
 		t.Errorf("expected inventory %d (one decrement for the legit slot), got %+v", initialStock-1, med)
 	}
@@ -661,8 +661,8 @@ func TestHandleTriggerNextIntake_OrphanTZStepSameTimeAsNormalDoesNotBlock(t *tes
 // survives suppression and the user can take the dose.
 func TestHandleTriggerNextIntake_ApprovedTZStepSameTimeAsNormalStillSurfaces(t *testing.T) {
 	c := newTriggerCtx(t)
-	if err := c.db.TZ.RecordTimezone("UTC"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := c.db.TZ.Record("UTC"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 	// now = 08:55 UTC — the 09:00 UTC slot is 5 minutes ahead, in window.
 	c.setNow(time.Date(2026, 5, 4, 8, 55, 0, 0, time.UTC))
@@ -676,12 +676,12 @@ func TestHandleTriggerNextIntake_ApprovedTZStepSameTimeAsNormalStillSurfaces(t *
 	medID := mustCreateMed(t, c.db, "Aspirin", "100mg",
 		`{"type":"daily","times":["09:00"]}`, "medium")
 
-	planID, err := c.db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
+	planID, err := c.db.TZ.CreateTransitionPlan(&store.TZTransitionPlan{
 		OldTZ: "UTC", NewTZ: "Asia/Tokyo",
 		Status: "APPROVED", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "h-approved-collision",
 	})
 	if err != nil {
-		t.Fatalf("CreateTZTransitionPlan: %v", err)
+		t.Fatalf("CreateTransitionPlan: %v", err)
 	}
 	if _, err := c.db.DB().Exec(`
 		INSERT INTO intake_log
@@ -751,8 +751,8 @@ func TestHandleTriggerNextIntake_ApprovedTZStepSameTimeAsNormalStillSurfaces(t *
 // dose disappears entirely. The fix orders rows so the tz_step row wins.
 func TestHandleTriggerNextIntake_DualRowCollisionPrefersTZStep(t *testing.T) {
 	c := newTriggerCtx(t)
-	if err := c.db.TZ.RecordTimezone("UTC"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := c.db.TZ.Record("UTC"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 	c.setNow(time.Date(2026, 5, 4, 8, 55, 0, 0, time.UTC))
 	collisionTime := time.Date(2026, 5, 4, 9, 0, 0, 0, time.UTC)
@@ -761,12 +761,12 @@ func TestHandleTriggerNextIntake_DualRowCollisionPrefersTZStep(t *testing.T) {
 	medID := mustCreateMed(t, c.db, "Aspirin", "100mg",
 		`{"type":"daily","times":["09:00"]}`, "medium")
 
-	planID, err := c.db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
+	planID, err := c.db.TZ.CreateTransitionPlan(&store.TZTransitionPlan{
 		OldTZ: "UTC", NewTZ: "Asia/Tokyo",
 		Status: "APPROVED", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "h-dual-row-collision",
 	})
 	if err != nil {
-		t.Fatalf("CreateTZTransitionPlan: %v", err)
+		t.Fatalf("CreateTransitionPlan: %v", err)
 	}
 
 	// Insert the source='schedule' row FIRST — it gets the lower id, which
@@ -825,7 +825,7 @@ func TestHandleTriggerNextIntake_DualRowCollisionPrefersTZStep(t *testing.T) {
 	// the perspective of the active plan (the tz_step row owns the dose
 	// going forward) and is hidden from user-action surfaces by
 	// scheduleNotShadowedByTZStepGate: MedicationReminderChecker's
-	// GetPendingIntakes scan skips it, ConfirmIntakesBySchedule's
+	// ListPendingIntakes scan skips it, ConfirmIntakesBySchedule's
 	// confirm_schedule:<unix> path skips it, and the next scheduler tick
 	// sees the tz_step row in BatchGet so it does not re-fire the slot. The
 	// row therefore cannot be double-confirmed for a second inventory
@@ -839,27 +839,27 @@ func TestHandleTriggerNextIntake_DualRowCollisionPrefersTZStep(t *testing.T) {
 	}
 
 	// The shadowed schedule row must be invisible to MedicationReminderChecker
-	// (which scans GetPendingIntakes) — otherwise the user gets a second
+	// (which scans ListPendingIntakes) — otherwise the user gets a second
 	// reminder for the dose they already took via the tz_step row and a
 	// confirm_intake click decrements inventory a second time.
-	pending, err := c.db.Medication.GetPendingIntakes()
+	pending, err := c.db.Medication.ListPendingIntakes()
 	if err != nil {
-		t.Fatalf("GetPendingIntakes after trigger: %v", err)
+		t.Fatalf("ListPendingIntakes after trigger: %v", err)
 	}
 	for _, p := range pending {
 		if p.ID == scheduleRowID {
-			t.Errorf("shadowed schedule row %d still returned by GetPendingIntakes — reminder checker would fire it for a second inventory decrement", scheduleRowID)
+			t.Errorf("shadowed schedule row %d still returned by ListPendingIntakes — reminder checker would fire it for a second inventory decrement", scheduleRowID)
 		}
 	}
 
 	// confirm_schedule:<unix> must not surface the shadowed schedule row either.
-	bySched, err := c.db.Medication.GetPendingIntakesBySchedule(123456, collisionTime)
+	bySched, err := c.db.Medication.ListPendingIntakesBySchedule(123456, collisionTime)
 	if err != nil {
-		t.Fatalf("GetPendingIntakesBySchedule after trigger: %v", err)
+		t.Fatalf("ListPendingIntakesBySchedule after trigger: %v", err)
 	}
 	for _, p := range bySched {
 		if p.ID == scheduleRowID {
-			t.Errorf("shadowed schedule row %d still returned by GetPendingIntakesBySchedule — confirm_schedule batch would double-confirm the dose", scheduleRowID)
+			t.Errorf("shadowed schedule row %d still returned by ListPendingIntakesBySchedule — confirm_schedule batch would double-confirm the dose", scheduleRowID)
 		}
 	}
 }
@@ -874,8 +874,8 @@ func TestHandleTriggerNextIntake_DualRowCollisionPrefersTZStep(t *testing.T) {
 // wrong instant.
 func TestHandleTriggerNextIntake_PlanOwnsMedSuppressesDistantWindowNormal(t *testing.T) {
 	c := newTriggerCtx(t)
-	if err := c.db.TZ.RecordTimezone("UTC"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := c.db.TZ.Record("UTC"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 	// now = 12:00 UTC today — the 20:00 UTC normal slot is 8h away (in
 	// window) but the next plan step is 24h away (out of window).
@@ -884,12 +884,12 @@ func TestHandleTriggerNextIntake_PlanOwnsMedSuppressesDistantWindowNormal(t *tes
 	medID := mustCreateMed(t, c.db, "Metformin", "1000mg",
 		`{"type":"daily","times":["20:00"]}`, "flexible")
 
-	planID, err := c.db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
+	planID, err := c.db.TZ.CreateTransitionPlan(&store.TZTransitionPlan{
 		OldTZ: "UTC", NewTZ: "Asia/Tokyo",
 		Status: "PENDING_APPROVAL", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "h-plan-owns-distant",
 	})
 	if err != nil {
-		t.Fatalf("CreateTZTransitionPlan: %v", err)
+		t.Fatalf("CreateTransitionPlan: %v", err)
 	}
 	stepTime := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC) // 24h ahead, outside 12h window
 	setPlanSteps(t, c.db, planID, []planStepFixture{
@@ -915,8 +915,8 @@ func TestHandleTriggerNextIntake_PlanOwnsMedSuppressesDistantWindowNormal(t *tes
 // reaching back into past targets or into the next 24h.
 func TestHandleTriggerNextIntake_NoneInWindowReturns404(t *testing.T) {
 	c := newTriggerCtx(t)
-	if err := c.db.TZ.RecordTimezone("UTC"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := c.db.TZ.Record("UTC"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 	c.setNow(time.Date(2026, 5, 4, 9, 0, 0, 0, time.UTC)) // past 08:00; next slot 24 h away
 

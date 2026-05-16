@@ -12,7 +12,7 @@ import (
 
 // TimezoneStore is the subset of store operations needed for timezone bot commands.
 type TimezoneStore interface {
-	GetCurrentTimezone() (string, error)
+	GetCurrent() (string, error)
 }
 
 // handleTZCommand handles the /tz command by sending a location request keyboard.

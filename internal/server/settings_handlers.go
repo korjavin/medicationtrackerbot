@@ -90,7 +90,7 @@ type weightGoalBootstrapResponse struct {
 // course, weekly-day gate, …) only needs to be expressed once, in medplan,
 // and both surfaces inherit it.
 func (s *Server) computeNextIntakeData(now time.Time) (time.Time, []int64, []string, error) {
-	meds, err := s.meds.ListMedications(false)
+	meds, err := s.meds.List(false)
 	if err != nil {
 		return time.Time{}, nil, nil, err
 	}
@@ -98,7 +98,7 @@ func (s *Server) computeNextIntakeData(now time.Time) (time.Time, []int64, []str
 	// Use the user's stored timezone so that schedule times are interpreted
 	// correctly regardless of the server's local timezone.
 	userLoc := now.Location()
-	if tz, tzErr := s.timezone.GetCurrentTimezone(); tzErr == nil && tz != "" {
+	if tz, tzErr := s.timezone.GetCurrent(); tzErr == nil && tz != "" {
 		if loc, locErr := time.LoadLocation(tz); locErr == nil {
 			userLoc = loc
 		}
@@ -256,14 +256,14 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	// but track the failure so we omit the field instead of returning [] —
 	// the frontend treats any array as authoritative and would clobber its
 	// Dexie-cached meds list, blanking offline meds for a transient DB blip.
-	medications, err := s.meds.ListMedications(true)
+	medications, err := s.meds.List(true)
 	medicationsOK := true
 	if err != nil {
 		slog.Error("bootstrap medications query failed", "error", err)
 		medicationsOK = false
 	}
 
-	historyDefault, err := s.meds.GetIntakeHistory(0, 3)
+	historyDefault, err := s.meds.ListIntakeHistory(0, 3)
 	if err != nil {
 		slog.Error("bootstrap history query failed", "error", err)
 		historyDefault = []store.IntakeLog{}
@@ -284,34 +284,34 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bpSince := now.AddDate(0, 0, -60)
-	bpReadings, err := s.bp.GetBloodPressureReadings(ctx, userID, bpSince)
+	bpReadings, err := s.bp.ListReadings(ctx, userID, bpSince)
 	if err != nil {
 		slog.Error("bootstrap bp readings query failed", "error", err)
 		bpReadings = []store.BloodPressure{}
 	}
-	bpGoal, err := s.bp.GetBPGoal()
+	bpGoal, err := s.bp.GetGoal()
 	if err != nil {
 		slog.Error("bootstrap bp goal query failed", "error", err)
 		bpGoal = nil
 	}
-	bpStats, err := s.bp.GetBPDailyWeightedStats(ctx, userID)
+	bpStats, err := s.bp.GetDailyWeightedStats(ctx, userID)
 	if err != nil {
 		slog.Error("bootstrap bp stats query failed", "error", err)
 		bpStats = nil
 	}
 
 	weightSince := now.AddDate(0, 0, -35)
-	weightLogs, err := s.weight.GetWeightLogs(ctx, userID, weightSince)
+	weightLogs, err := s.weight.ListLogs(ctx, userID, weightSince)
 	if err != nil {
 		slog.Error("bootstrap weight logs query failed", "error", err)
 		weightLogs = []store.WeightLog{}
 	}
-	weightGoal, err := s.weight.GetWeightGoal()
+	weightGoal, err := s.weight.GetGoal()
 	if err != nil {
 		slog.Error("bootstrap weight goal query failed", "error", err)
 		weightGoal = nil
 	}
-	highestRecord, err := s.weight.GetHighestWeightRecord(ctx, userID)
+	highestRecord, err := s.weight.GetHighestLog(ctx, userID)
 	if err != nil {
 		slog.Error("bootstrap highest weight query failed", "error", err)
 		highestRecord = nil
@@ -326,17 +326,17 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		weightGoalResponse.HighestDate = &highestRecord.MeasuredAt
 	}
 
-	foodTargets, err := s.food.GetFoodTargets(ctx)
+	foodTargets, err := s.food.GetTargets(ctx)
 	if err != nil {
 		slog.Error("bootstrap food targets query failed", "error", err)
 		foodTargets = store.FoodTargets{}
 	}
-	bpReminderStatus, err := s.bp.GetBPReminderState(userID)
+	bpReminderStatus, err := s.bp.GetReminderState(userID)
 	if err != nil {
 		slog.Error("bootstrap bp reminder state query failed", "error", err)
 		bpReminderStatus = nil
 	}
-	weightReminderStatus, err := s.weight.GetWeightReminderState(userID)
+	weightReminderStatus, err := s.weight.GetReminderState(userID)
 	if err != nil {
 		slog.Error("bootstrap weight reminder state query failed", "error", err)
 		weightReminderStatus = nil
@@ -355,7 +355,7 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	currentTimezone, err := s.timezone.GetCurrentTimezone()
+	currentTimezone, err := s.timezone.GetCurrent()
 	if err != nil {
 		slog.Error("bootstrap timezone query failed", "error", err)
 	}
@@ -366,7 +366,7 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		dismissedTZSuggestion = ""
 	}
 
-	weightUnitPreference, err := s.weight.GetWeightUnitPreference(ctx)
+	weightUnitPreference, err := s.weight.GetUnitPreference(ctx)
 	if err != nil {
 		slog.Error("bootstrap weight unit preference query failed", "error", err)
 		weightUnitPreference = "kg"
@@ -382,12 +382,12 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	//       calendar day.
 	// The query-string `tz` is kept as a fallback for when the user has not
 	// configured a timezone yet.
-	foodTZName, _ := s.timezone.GetCurrentTimezone()
+	foodTZName, _ := s.timezone.GetCurrent()
 	if foodTZName == "" {
 		foodTZName = r.URL.Query().Get("tz")
 	}
 	foodDate := parseDateInLocation("", foodTZName, r.URL.Query().Get("tz_offset"))
-	foodLogs, err := s.food.GetFoodLogs(ctx, userID, foodDate, 1)
+	foodLogs, err := s.food.ListLogs(ctx, userID, foodDate, 1)
 	if err != nil {
 		slog.Error("bootstrap food logs query failed", "error", err)
 		foodLogs = []store.FoodLog{}
@@ -503,12 +503,12 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	tgUser, _ := r.Context().Value(UserCtxKey).(*TelegramUser)
 	ctx := r.Context()
 
-	tz, err := s.timezone.GetCurrentTimezone()
+	tz, err := s.timezone.GetCurrent()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	weightUnitPreference, err := s.weight.GetWeightUnitPreference(ctx)
+	weightUnitPreference, err := s.weight.GetUnitPreference(ctx)
 	if err != nil {
 		slog.Error("get settings weight unit preference failed", "error", err)
 		weightUnitPreference = "kg"
@@ -520,7 +520,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		features = map[string]bool{}
 	}
 
-	foodTargets, err := s.food.GetFoodTargets(ctx)
+	foodTargets, err := s.food.GetTargets(ctx)
 	if err != nil {
 		slog.Error("get settings food targets failed", "error", err)
 		foodTargets = store.FoodTargets{}
@@ -529,12 +529,12 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	var bpReminderStatus *store.BPReminderState
 	var weightReminderStatus *store.WeightReminderState
 	if tgUser != nil {
-		bpReminderStatus, err = s.bp.GetBPReminderState(tgUser.ID)
+		bpReminderStatus, err = s.bp.GetReminderState(tgUser.ID)
 		if err != nil {
 			slog.Error("get settings bp reminder state failed", "error", err)
 			bpReminderStatus = nil
 		}
-		weightReminderStatus, err = s.weight.GetWeightReminderState(tgUser.ID)
+		weightReminderStatus, err = s.weight.GetReminderState(tgUser.ID)
 		if err != nil {
 			slog.Error("get settings weight reminder state failed", "error", err)
 			weightReminderStatus = nil
@@ -687,7 +687,7 @@ func (s *Server) handleSetWeightUnitPreference(w http.ResponseWriter, r *http.Re
 		http.Error(w, "unit must be 'kg' or 'lb'", http.StatusBadRequest)
 		return
 	}
-	if err := s.weight.SetWeightUnitPreference(r.Context(), req.Unit); err != nil {
+	if err := s.weight.SetUnitPreference(r.Context(), req.Unit); err != nil {
 		slog.Error("set weight unit preference failed", "error", err, "unit", req.Unit)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -741,9 +741,9 @@ func (s *Server) handleTZSuggestionDismiss(w http.ResponseWriter, r *http.Reques
 func (s *Server) handleGetCurrentTZPlan(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	plan, err := s.tzPlanStore.GetLatestActiveOrPendingTZTransitionPlan()
+	plan, err := s.tzPlanStore.GetLatestActiveOrPendingTransitionPlan()
 	if err != nil {
-		slog.Error("handleGetCurrentTZPlan: GetLatestActiveOrPendingTZTransitionPlan failed", "error", err)
+		slog.Error("handleGetCurrentTZPlan: GetLatestActiveOrPendingTransitionPlan failed", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -813,7 +813,7 @@ func parsePlanStepsForUI(stepsJSON string) []uiTZPlanStep {
 //
 // Routes through tzreschedule.LifecycleService per CLAUDE.md rule #1; cmd/bot
 // wires the service via SetTZLifecycle. Without it the handler returns 503 —
-// the legacy bare SetTZTransitionPlanApproved is no longer acceptable because
+// the legacy bare SetTransitionPlanApproved is no longer acceptable because
 // it would skip the pre-materialize step.
 func (s *Server) handleTZPlanApprove(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
@@ -850,9 +850,9 @@ func (s *Server) handleTZPlanReject(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid plan id", http.StatusBadRequest)
 		return
 	}
-	updated, err := s.tzPlanStore.RejectTZTransitionPlanAndRevertTimezone(planID)
+	updated, err := s.tzPlanStore.RejectTransitionPlanAndRevertTimezone(planID)
 	if err != nil {
-		slog.Error("handleTZPlanReject: RejectTZTransitionPlanAndRevertTimezone failed", "plan_id", planID, "error", err)
+		slog.Error("handleTZPlanReject: RejectTransitionPlanAndRevertTimezone failed", "plan_id", planID, "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}

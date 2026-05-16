@@ -15,12 +15,12 @@ func TestExerciseCallback_DoneAndSkip_NoParseMode(t *testing.T) {
 	userID := int64(123456)
 
 	// Create test data
-	g, _ := env.s.Workout.CreateWorkoutGroup("G", "desc", false, userID, "[0]", "09:00", 15)
+	g, _ := env.s.Workout.CreateGroup("G", "desc", false, userID, "[0]", "09:00", 15)
 	order := 0
-	v, _ := env.s.Workout.CreateWorkoutVariant(g.ID, "V", &order, "")
-	ex, _ := env.s.Workout.AddExerciseToVariant(v.ID, "Test Exercise", 3, 10, nil, nil, 1)
+	v, _ := env.s.Workout.CreateVariant(g.ID, "V", &order, "")
+	ex, _ := env.s.Workout.CreateExerciseInVariant(v.ID, "Test Exercise", 3, 10, nil, nil, 1)
 
-	session, _ := env.s.Workout.CreateWorkoutSession(g.ID, v.ID, userID, time.Now(), "09:00")
+	session, _ := env.s.Workout.CreateSession(g.ID, v.ID, userID, time.Now(), "09:00")
 	env.b.workoutSvc.StartSession(session.ID)
 
 	cb1 := &tgbotapi.CallbackQuery{

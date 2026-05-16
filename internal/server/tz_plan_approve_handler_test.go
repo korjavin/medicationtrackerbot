@@ -13,7 +13,7 @@ import (
 func itoa64(v int64) string { return strconv.FormatInt(v, 10) }
 
 // TestHandleTZPlanApprove_RoutesThroughLifecycle pins Track D Task 10's
-// CLAUDE.md-rule-#1 fix: the HTTP handler must NOT call SetTZTransitionPlanApproved
+// CLAUDE.md-rule-#1 fix: the HTTP handler must NOT call SetTransitionPlanApproved
 // directly. It must route through tzreschedule.LifecycleService so the plan
 // transition and the pre-materialize step inserts share one transaction.
 //
@@ -26,9 +26,9 @@ func TestHandleTZPlanApprove_RoutesThroughLifecycle(t *testing.T) {
 	srv.SetTZLifecycle(tzreschedule.NewLifecycleService(db, 123456))
 
 	// Seed: one medication, one PENDING_APPROVAL plan with one unconsumed step.
-	medID, err := db.Medication.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	medID, err := db.Medication.Create("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 	// steps_json mirrors the PascalCase shape produced by
 	// json.Marshal([]tzreschedule.TransitionStep); MaterializePlanStepsAsIntakesTx
@@ -76,7 +76,7 @@ func TestHandleTZPlanApprove_RoutesThroughLifecycle(t *testing.T) {
 }
 
 // TestHandleTZPlanApprove_NoLifecycleReturns503 asserts the handler refuses
-// to fall back to the bare SetTZTransitionPlanApproved primitive when the
+// to fall back to the bare SetTransitionPlanApproved primitive when the
 // lifecycle service hasn't been wired. Falling back would skip the
 // materialize step and silently lose the plan's scheduling.
 func TestHandleTZPlanApprove_NoLifecycleReturns503(t *testing.T) {

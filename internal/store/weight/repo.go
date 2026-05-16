@@ -63,8 +63,8 @@ func CalculateWeightTrend(currentWeight float64, previousTrend *float64) float64
 	return alpha*currentWeight + (1-alpha)**previousTrend
 }
 
-// CreateWeightLog inserts a single weight measurement.
-func (r *Repo) CreateWeightLog(ctx context.Context, w *WeightLog) (int64, error) {
+// CreateLog inserts a single weight measurement.
+func (r *Repo) CreateLog(ctx context.Context, w *WeightLog) (int64, error) {
 	res, err := r.db.ExecContext(ctx,
 		"INSERT INTO weight_logs (user_id, measured_at, weight, weight_trend, body_fat, body_fat_trend, muscle_mass, muscle_mass_trend, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		w.UserID, w.MeasuredAt, w.Weight, w.WeightTrend, w.BodyFat, w.BodyFatTrend, w.MuscleMass, w.MuscleMassTrend, w.Notes)
@@ -74,9 +74,9 @@ func (r *Repo) CreateWeightLog(ctx context.Context, w *WeightLog) (int64, error)
 	return res.LastInsertId()
 }
 
-// GetWeightLogs returns the user's logs since the given instant in descending
+// ListLogs returns the user's logs since the given instant in descending
 // measured_at order. A zero `since` returns all.
-func (r *Repo) GetWeightLogs(ctx context.Context, userID int64, since time.Time) ([]WeightLog, error) {
+func (r *Repo) ListLogs(ctx context.Context, userID int64, since time.Time) ([]WeightLog, error) {
 	query := "SELECT id, user_id, measured_at, weight, weight_trend, body_fat, body_fat_trend, muscle_mass, muscle_mass_trend, notes FROM weight_logs WHERE user_id = ?"
 	args := []interface{}{userID}
 
@@ -127,11 +127,11 @@ func (r *Repo) GetWeightLogs(ctx context.Context, userID int64, since time.Time)
 	return logs, nil
 }
 
-// DeleteWeightLog deletes the log with the given id, but only when it belongs
+// DeleteLog deletes the log with the given id, but only when it belongs
 // to the supplied userID — prevents one user from deleting another user's data
 // even if they guess the id. Returns sql.ErrNoRows when the row does not exist
 // or belongs to a different user.
-func (r *Repo) DeleteWeightLog(ctx context.Context, id, userID int64) error {
+func (r *Repo) DeleteLog(ctx context.Context, id, userID int64) error {
 	res, err := r.db.ExecContext(ctx, "DELETE FROM weight_logs WHERE id = ? AND user_id = ?", id, userID)
 	if err != nil {
 		return err
@@ -143,16 +143,16 @@ func (r *Repo) DeleteWeightLog(ctx context.Context, id, userID int64) error {
 	return nil
 }
 
-// GetLastWeightLog returns the user's most recent weight log, or nil if none.
-func (r *Repo) GetLastWeightLog(ctx context.Context, userID int64) (*WeightLog, error) {
-	return r.GetLastWeightLogExcluding(ctx, userID, 0)
+// GetLastLog returns the user's most recent weight log, or nil if none.
+func (r *Repo) GetLastLog(ctx context.Context, userID int64) (*WeightLog, error) {
+	return r.GetLastLogExcluding(ctx, userID, 0)
 }
 
-// GetLastWeightLogExcluding returns the most recent weight log for the user,
+// GetLastLogExcluding returns the most recent weight log for the user,
 // optionally excluding a row by ID. Pass excludeID = 0 to disable exclusion.
 // Used by the POST /api/weight edit path so the EMA trend baseline skips the
 // soon-to-be-deleted original log.
-func (r *Repo) GetLastWeightLogExcluding(ctx context.Context, userID, excludeID int64) (*WeightLog, error) {
+func (r *Repo) GetLastLogExcluding(ctx context.Context, userID, excludeID int64) (*WeightLog, error) {
 	var w WeightLog
 	var weightTrend, bodyFat, bodyFatTrend, muscleMass, muscleMassTrend sql.NullFloat64
 	var notes sql.NullString
@@ -198,9 +198,9 @@ func (r *Repo) GetLastWeightLogExcluding(ctx context.Context, userID, excludeID 
 	return &w, nil
 }
 
-// GetHighestWeightRecord returns the user's heaviest recorded weight, or nil
+// GetHighestLog returns the user's heaviest recorded weight, or nil
 // when there are no logs.
-func (r *Repo) GetHighestWeightRecord(ctx context.Context, userID int64) (*WeightLog, error) {
+func (r *Repo) GetHighestLog(ctx context.Context, userID int64) (*WeightLog, error) {
 	var w WeightLog
 	var weightTrend, bodyFat, bodyFatTrend, muscleMass, muscleMassTrend sql.NullFloat64
 	var notes sql.NullString
@@ -238,8 +238,8 @@ func (r *Repo) GetHighestWeightRecord(ctx context.Context, userID int64) (*Weigh
 	return &w, nil
 }
 
-// BatchGetLastWeightLogs fetches the last weight log for multiple users.
-func (r *Repo) BatchGetLastWeightLogs(ctx context.Context, userIDs []int64) (map[int64]*WeightLog, error) {
+// BatchGetLastLogs fetches the last weight log for multiple users.
+func (r *Repo) BatchGetLastLogs(ctx context.Context, userIDs []int64) (map[int64]*WeightLog, error) {
 	result := make(map[int64]*WeightLog)
 	if len(userIDs) == 0 {
 		return result, nil
@@ -319,9 +319,9 @@ func (r *Repo) BatchGetLastWeightLogs(ctx context.Context, userIDs []int64) (map
 	return result, nil
 }
 
-// GetWeightGoal returns the user's weight target. Returns a zero-valued goal
+// GetGoal returns the user's weight target. Returns a zero-valued goal
 // (both fields nil) when no goal has been set.
-func (r *Repo) GetWeightGoal() (*WeightGoal, error) {
+func (r *Repo) GetGoal() (*WeightGoal, error) {
 	var goal sql.NullFloat64
 	var goalDateStr sql.NullString
 
@@ -346,17 +346,17 @@ func (r *Repo) GetWeightGoal() (*WeightGoal, error) {
 	return result, nil
 }
 
-// SetWeightGoal records a new weight target on the singleton settings row.
-func (r *Repo) SetWeightGoal(weight float64, targetDate time.Time) error {
+// SetGoal records a new weight target on the singleton settings row.
+func (r *Repo) SetGoal(weight float64, targetDate time.Time) error {
 	dateStr := targetDate.Format("2006-01-02")
 	_, err := r.db.Exec("UPDATE settings SET weight_goal = ?, weight_goal_date = ? WHERE id = 1", weight, dateStr)
 	return err
 }
 
-// GetWeightUnitPreference returns the user's preferred weight unit ("kg" or
+// GetUnitPreference returns the user's preferred weight unit ("kg" or
 // "lb"). Defaults to "kg" when no preference has been set or the stored value
 // is invalid.
-func (r *Repo) GetWeightUnitPreference(ctx context.Context) (string, error) {
+func (r *Repo) GetUnitPreference(ctx context.Context) (string, error) {
 	var unit string
 	err := r.db.QueryRowContext(ctx, "SELECT weight_unit_preference FROM settings WHERE id = 1").Scan(&unit)
 	if err == sql.ErrNoRows {
@@ -371,10 +371,10 @@ func (r *Repo) GetWeightUnitPreference(ctx context.Context) (string, error) {
 	return unit, nil
 }
 
-// SetWeightUnitPreference records the user's preferred weight unit. Only "kg"
+// SetUnitPreference records the user's preferred weight unit. Only "kg"
 // and "lb" are accepted — any other value returns an error and leaves the
 // existing preference unchanged.
-func (r *Repo) SetWeightUnitPreference(ctx context.Context, unit string) error {
+func (r *Repo) SetUnitPreference(ctx context.Context, unit string) error {
 	if unit != "kg" && unit != "lb" {
 		return fmt.Errorf("invalid weight unit %q: must be 'kg' or 'lb'", unit)
 	}

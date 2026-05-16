@@ -22,14 +22,14 @@ import (
 // See Track D Task 10 in
 // docs/plans/20260508-simplify-medication-scheduling-utc-and-pre-materialized-steps.md.
 type TZPlanNotifierStore interface {
-	GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error)
+	GetLatestActiveOrPendingTransitionPlan() (*store.TZTransitionPlan, error)
 	// MarkPlanNotified atomically transitions the plan from PENDING_APPROVAL to NOTIFIED.
 	// Returns true if this process won the CAS (notification should be sent).
 	MarkPlanNotified(id int64) (bool, error)
 	// ResetPlanToPending reverts a NOTIFIED plan to PENDING_APPROVAL when notification delivery fails.
 	ResetPlanToPending(id int64) error
-	// UpdateTZTransitionPlanStatus transitions a plan to a new status.
-	UpdateTZTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error
+	// UpdateTransitionPlanStatus transitions a plan to a new status.
+	UpdateTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error
 }
 
 // TZPlanNotifier checks for pending timezone transition plans and sends a
@@ -69,7 +69,7 @@ const pendingApprovalExpiryDuration = 72 * time.Hour
 // duplicate sends when two scheduler runs overlap. It also auto-approves stale
 // NOTIFIED plans that the user never acted on.
 func (n *TZPlanNotifier) Check(ctx context.Context) error {
-	plan, err := n.store.GetLatestActiveOrPendingTZTransitionPlan()
+	plan, err := n.store.GetLatestActiveOrPendingTransitionPlan()
 	if err != nil {
 		return fmt.Errorf("tz_plan_notifier: GetLatestActive: %w", err)
 	}
@@ -128,7 +128,7 @@ func (n *TZPlanNotifier) Check(ctx context.Context) error {
 		// Guard the transition on PENDING_APPROVAL so a concurrent web-banner
 		// approve/reject (settings_handlers.go) that wins the race isn't
 		// clobbered by CANCELLED.
-		if cancelErr := n.store.UpdateTZTransitionPlanStatus(plan.ID, "CANCELLED", "no-notifiers-configured", "PENDING_APPROVAL"); cancelErr != nil {
+		if cancelErr := n.store.UpdateTransitionPlanStatus(plan.ID, "CANCELLED", "no-notifiers-configured", "PENDING_APPROVAL"); cancelErr != nil {
 			slog.Error("tz_plan_notifier: failed to cancel plan with no notifiers configured",
 				"plan_id", plan.ID, "error", cancelErr)
 		}
@@ -181,9 +181,9 @@ func (n *TZPlanNotifier) Check(ctx context.Context) error {
 			slog.Warn("tz_plan_notifier: no delivery channel, cancelling plan so new timezone takes effect immediately",
 				"plan_id", plan.ID)
 			// MarkPlanNotified above transitioned the plan to NOTIFIED, so guard
-			// on that — SetTZTransitionPlanApproved accepts NOTIFIED, so a
+			// on that — SetTransitionPlanApproved accepts NOTIFIED, so a
 			// concurrent web-banner approval could otherwise race us.
-			if cancelErr := n.store.UpdateTZTransitionPlanStatus(plan.ID, "CANCELLED", "no-delivery-channel", "NOTIFIED"); cancelErr != nil {
+			if cancelErr := n.store.UpdateTransitionPlanStatus(plan.ID, "CANCELLED", "no-delivery-channel", "NOTIFIED"); cancelErr != nil {
 				slog.Error("tz_plan_notifier: failed to cancel undeliverable plan",
 					"plan_id", plan.ID, "error", cancelErr)
 			}

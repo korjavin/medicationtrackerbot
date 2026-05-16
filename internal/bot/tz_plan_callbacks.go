@@ -16,10 +16,10 @@ import (
 // step inserts share one transaction. See tz_plan_callbacks.go's
 // handleTZPlanApprove for the lifecycle-service call site.
 type TZPlanCallbackStore interface {
-	// RejectTZTransitionPlanAndRevertTimezone marks the plan REJECTED and reverts
+	// RejectTransitionPlanAndRevertTimezone marks the plan REJECTED and reverts
 	// the stored timezone back to the plan's OldTZ so the scheduler keeps using the
 	// original schedule instead of immediately switching to the new timezone.
-	RejectTZTransitionPlanAndRevertTimezone(id int64) (bool, error)
+	RejectTransitionPlanAndRevertTimezone(id int64) (bool, error)
 }
 
 // handleTZPlanApprove handles the tz_plan_approve:<id> callback.
@@ -56,7 +56,7 @@ func (b *Bot) handleTZPlanApprove(cb *tgbotapi.CallbackQuery, planID int64) {
 // It transitions the plan to REJECTED, logging that the old schedule is retained.
 // The update is guarded so that stale callbacks on cancelled or superseded plans are silently ignored.
 func (b *Bot) handleTZPlanReject(cb *tgbotapi.CallbackQuery, planID int64) {
-	updated, err := b.tzPlanStore.RejectTZTransitionPlanAndRevertTimezone(planID)
+	updated, err := b.tzPlanStore.RejectTransitionPlanAndRevertTimezone(planID)
 	if err != nil {
 		slog.Error("tz_plan: reject failed", "plan_id", planID, "error", err)
 		b.sendText(cb.Message.Chat.ID, "❌ Could not reject the plan. Please try again.")

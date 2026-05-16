@@ -31,7 +31,7 @@ func BenchmarkDeleteMessagesSequential(b *testing.B) {
 	a := newStoreAdapter(s)
 
 	bot := &Bot{
-		api:           api,
+		api: api,
 		// adapter for bot multi-repo interfaces
 		meds:          a,
 		medSvc:        domain.NewMedicationService(s.Medication),
@@ -81,7 +81,7 @@ func BenchmarkDeleteMessagesParallel(b *testing.B) {
 	a := newStoreAdapter(s)
 
 	bot := &Bot{
-		api:           api,
+		api: api,
 		// adapter for bot multi-repo interfaces
 		meds:          a,
 		medSvc:        domain.NewMedicationService(s.Medication),

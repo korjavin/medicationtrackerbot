@@ -15,26 +15,26 @@ func TestStartExerciseLoop_5Exercises_Sends3_Stores2Pending(t *testing.T) {
 
 	userID := int64(123456)
 
-	g, err := env.s.Workout.CreateWorkoutGroup("G", "desc", false, userID, "[0]", "09:00", 15)
+	g, err := env.s.Workout.CreateGroup("G", "desc", false, userID, "[0]", "09:00", 15)
 	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
+		t.Fatalf("CreateGroup: %v", err)
 	}
 	order := 0
-	v, err := env.s.Workout.CreateWorkoutVariant(g.ID, "V", &order, "")
+	v, err := env.s.Workout.CreateVariant(g.ID, "V", &order, "")
 	if err != nil {
-		t.Fatalf("CreateWorkoutVariant: %v", err)
+		t.Fatalf("CreateVariant: %v", err)
 	}
 
 	for i := 1; i <= 5; i++ {
-		_, err := env.s.Workout.AddExerciseToVariant(v.ID, fmt.Sprintf("Exercise %d", i), 3, 10, nil, nil, i)
+		_, err := env.s.Workout.CreateExerciseInVariant(v.ID, fmt.Sprintf("Exercise %d", i), 3, 10, nil, nil, i)
 		if err != nil {
-			t.Fatalf("AddExerciseToVariant %d: %v", i, err)
+			t.Fatalf("CreateExerciseInVariant %d: %v", i, err)
 		}
 	}
 
-	session, err := env.s.Workout.CreateWorkoutSession(g.ID, v.ID, userID, time.Now(), "09:00")
+	session, err := env.s.Workout.CreateSession(g.ID, v.ID, userID, time.Now(), "09:00")
 	if err != nil {
-		t.Fatalf("CreateWorkoutSession: %v", err)
+		t.Fatalf("CreateSession: %v", err)
 	}
 
 	env.b.startExerciseLoop(session.ID, v.ID, userID)
@@ -84,26 +84,26 @@ func TestStartExerciseLoop_2Exercises_SendsAll_NoPending(t *testing.T) {
 
 	userID := int64(123456)
 
-	g, err := env.s.Workout.CreateWorkoutGroup("G", "desc", false, userID, "[0]", "09:00", 15)
+	g, err := env.s.Workout.CreateGroup("G", "desc", false, userID, "[0]", "09:00", 15)
 	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
+		t.Fatalf("CreateGroup: %v", err)
 	}
 	order := 0
-	v, err := env.s.Workout.CreateWorkoutVariant(g.ID, "V", &order, "")
+	v, err := env.s.Workout.CreateVariant(g.ID, "V", &order, "")
 	if err != nil {
-		t.Fatalf("CreateWorkoutVariant: %v", err)
+		t.Fatalf("CreateVariant: %v", err)
 	}
 
 	for i := 1; i <= 2; i++ {
-		_, err := env.s.Workout.AddExerciseToVariant(v.ID, fmt.Sprintf("Exercise %d", i), 3, 10, nil, nil, i)
+		_, err := env.s.Workout.CreateExerciseInVariant(v.ID, fmt.Sprintf("Exercise %d", i), 3, 10, nil, nil, i)
 		if err != nil {
-			t.Fatalf("AddExerciseToVariant %d: %v", i, err)
+			t.Fatalf("CreateExerciseInVariant %d: %v", i, err)
 		}
 	}
 
-	session, err := env.s.Workout.CreateWorkoutSession(g.ID, v.ID, userID, time.Now(), "09:00")
+	session, err := env.s.Workout.CreateSession(g.ID, v.ID, userID, time.Now(), "09:00")
 	if err != nil {
-		t.Fatalf("CreateWorkoutSession: %v", err)
+		t.Fatalf("CreateSession: %v", err)
 	}
 
 	env.b.startExerciseLoop(session.ID, v.ID, userID)
@@ -153,26 +153,26 @@ func TestExerciseCallback_DoneSendsNextPending(t *testing.T) {
 
 	userID := int64(123456)
 
-	g, err := env.s.Workout.CreateWorkoutGroup("G", "desc", false, userID, "[0]", "09:00", 15)
+	g, err := env.s.Workout.CreateGroup("G", "desc", false, userID, "[0]", "09:00", 15)
 	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
+		t.Fatalf("CreateGroup: %v", err)
 	}
 	order := 0
-	v, err := env.s.Workout.CreateWorkoutVariant(g.ID, "V", &order, "")
+	v, err := env.s.Workout.CreateVariant(g.ID, "V", &order, "")
 	if err != nil {
-		t.Fatalf("CreateWorkoutVariant: %v", err)
+		t.Fatalf("CreateVariant: %v", err)
 	}
 
 	for i := 1; i <= 5; i++ {
-		_, err := env.s.Workout.AddExerciseToVariant(v.ID, fmt.Sprintf("Exercise %d", i), 3, 10, nil, nil, i)
+		_, err := env.s.Workout.CreateExerciseInVariant(v.ID, fmt.Sprintf("Exercise %d", i), 3, 10, nil, nil, i)
 		if err != nil {
-			t.Fatalf("AddExerciseToVariant %d: %v", i, err)
+			t.Fatalf("CreateExerciseInVariant %d: %v", i, err)
 		}
 	}
 
-	session, err := env.s.Workout.CreateWorkoutSession(g.ID, v.ID, userID, time.Now(), "09:00")
+	session, err := env.s.Workout.CreateSession(g.ID, v.ID, userID, time.Now(), "09:00")
 	if err != nil {
-		t.Fatalf("CreateWorkoutSession: %v", err)
+		t.Fatalf("CreateSession: %v", err)
 	}
 	if err := env.b.workoutSvc.StartSession(session.ID); err != nil {
 		t.Fatalf("StartSession: %v", err)
@@ -249,27 +249,27 @@ func TestExerciseCallback_EmptyPendingQueue_NoExtraMessages(t *testing.T) {
 
 	userID := int64(123456)
 
-	g, err := env.s.Workout.CreateWorkoutGroup("G", "desc", false, userID, "[0]", "09:00", 15)
+	g, err := env.s.Workout.CreateGroup("G", "desc", false, userID, "[0]", "09:00", 15)
 	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
+		t.Fatalf("CreateGroup: %v", err)
 	}
 	order := 0
-	v, err := env.s.Workout.CreateWorkoutVariant(g.ID, "V", &order, "")
+	v, err := env.s.Workout.CreateVariant(g.ID, "V", &order, "")
 	if err != nil {
-		t.Fatalf("CreateWorkoutVariant: %v", err)
+		t.Fatalf("CreateVariant: %v", err)
 	}
 
 	// Only 2 exercises - all sent immediately, no pending
 	for i := 1; i <= 2; i++ {
-		_, err := env.s.Workout.AddExerciseToVariant(v.ID, fmt.Sprintf("Exercise %d", i), 3, 10, nil, nil, i)
+		_, err := env.s.Workout.CreateExerciseInVariant(v.ID, fmt.Sprintf("Exercise %d", i), 3, 10, nil, nil, i)
 		if err != nil {
-			t.Fatalf("AddExerciseToVariant %d: %v", i, err)
+			t.Fatalf("CreateExerciseInVariant %d: %v", i, err)
 		}
 	}
 
-	session, err := env.s.Workout.CreateWorkoutSession(g.ID, v.ID, userID, time.Now(), "09:00")
+	session, err := env.s.Workout.CreateSession(g.ID, v.ID, userID, time.Now(), "09:00")
 	if err != nil {
-		t.Fatalf("CreateWorkoutSession: %v", err)
+		t.Fatalf("CreateSession: %v", err)
 	}
 	if err := env.b.workoutSvc.StartSession(session.ID); err != nil {
 		t.Fatalf("StartSession: %v", err)

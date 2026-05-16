@@ -9,7 +9,7 @@ import (
 // medication with a fixed dosage and returns its ID.
 func createTestMedication(t *testing.T, r *Repo, name, schedule string) int64 {
 	t.Helper()
-	id, err := r.CreateMedication(name, "10mg", schedule, nil, nil, "", "", "")
+	id, err := r.Create(name, "10mg", schedule, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("Failed to create medication %s: %v", name, err)
 	}
@@ -28,7 +28,7 @@ func TestDecrementInventory_TrackingEnabled(t *testing.T) {
 		t.Fatalf("DecrementInventory failed: %v", err)
 	}
 
-	med, err := s.GetMedication(id)
+	med, err := s.Get(id)
 	if err != nil {
 		t.Fatalf("GetMedicationByID failed: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestDecrementInventory_TrackingDisabled(t *testing.T) {
 		t.Fatalf("DecrementInventory should not error when tracking disabled: %v", err)
 	}
 
-	med, err := s.GetMedication(id)
+	med, err := s.Get(id)
 	if err != nil {
 		t.Fatalf("GetMedicationByID failed: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestDecrementInventory_MultipleUnits(t *testing.T) {
 		t.Fatalf("DecrementInventory failed: %v", err)
 	}
 
-	med, err := s.GetMedication(id)
+	med, err := s.Get(id)
 	if err != nil {
 		t.Fatalf("GetMedicationByID failed: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestSetInventory_Enable(t *testing.T) {
 		t.Fatalf("SetInventory failed: %v", err)
 	}
 
-	med, err := s.GetMedication(id)
+	med, err := s.Get(id)
 	if err != nil {
 		t.Fatalf("GetMedicationByID failed: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestSetInventory_Disable(t *testing.T) {
 		t.Fatalf("SetInventory (disable) failed: %v", err)
 	}
 
-	med, err := s.GetMedication(id)
+	med, err := s.Get(id)
 	if err != nil {
 		t.Fatalf("GetMedicationByID failed: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestSetInventory_Update(t *testing.T) {
 		t.Fatalf("SetInventory update failed: %v", err)
 	}
 
-	med, err := s.GetMedication(id)
+	med, err := s.Get(id)
 	if err != nil {
 		t.Fatalf("GetMedicationByID failed: %v", err)
 	}
@@ -146,12 +146,12 @@ func TestAddRestock_InitializesNullInventory(t *testing.T) {
 	s := setupMedicationRepo(t)
 	id := createTestMedication(t, s, "Aspirin", `{"type":"daily","times":["09:00"]}`)
 
-	// Inventory is NULL, AddRestock should initialize it
-	if err := s.AddRestock(id, 30, "Initial supply"); err != nil {
-		t.Fatalf("AddRestock failed: %v", err)
+	// Inventory is NULL, CreateRestock should initialize it
+	if err := s.CreateRestock(id, 30, "Initial supply"); err != nil {
+		t.Fatalf("CreateRestock failed: %v", err)
 	}
 
-	med, err := s.GetMedication(id)
+	med, err := s.Get(id)
 	if err != nil {
 		t.Fatalf("GetMedicationByID failed: %v", err)
 	}
@@ -171,11 +171,11 @@ func TestAddRestock_AddsToExisting(t *testing.T) {
 		t.Fatalf("SetInventory failed: %v", err)
 	}
 
-	if err := s.AddRestock(id, 20, "Monthly refill"); err != nil {
-		t.Fatalf("AddRestock failed: %v", err)
+	if err := s.CreateRestock(id, 20, "Monthly refill"); err != nil {
+		t.Fatalf("CreateRestock failed: %v", err)
 	}
 
-	med, err := s.GetMedication(id)
+	med, err := s.Get(id)
 	if err != nil {
 		t.Fatalf("GetMedicationByID failed: %v", err)
 	}
@@ -188,13 +188,13 @@ func TestAddRestock_LogsRestockEvent(t *testing.T) {
 	s := setupMedicationRepo(t)
 	id := createTestMedication(t, s, "Aspirin", `{"type":"daily","times":["09:00"]}`)
 
-	if err := s.AddRestock(id, 30, "Pharmacy pickup"); err != nil {
-		t.Fatalf("AddRestock failed: %v", err)
+	if err := s.CreateRestock(id, 30, "Pharmacy pickup"); err != nil {
+		t.Fatalf("CreateRestock failed: %v", err)
 	}
 
-	history, err := s.GetRestockHistory(id)
+	history, err := s.ListRestocks(id)
 	if err != nil {
-		t.Fatalf("GetRestockHistory failed: %v", err)
+		t.Fatalf("ListRestocks failed: %v", err)
 	}
 	if len(history) != 1 {
 		t.Fatalf("Expected 1 restock entry, got %d", len(history))
@@ -214,19 +214,19 @@ func TestGetRestockHistory_OrderedByDateDesc(t *testing.T) {
 	s := setupMedicationRepo(t)
 	id := createTestMedication(t, s, "Aspirin", `{"type":"daily","times":["09:00"]}`)
 
-	if err := s.AddRestock(id, 10, "First"); err != nil {
-		t.Fatalf("AddRestock 1 failed: %v", err)
+	if err := s.CreateRestock(id, 10, "First"); err != nil {
+		t.Fatalf("CreateRestock 1 failed: %v", err)
 	}
-	if err := s.AddRestock(id, 20, "Second"); err != nil {
-		t.Fatalf("AddRestock 2 failed: %v", err)
+	if err := s.CreateRestock(id, 20, "Second"); err != nil {
+		t.Fatalf("CreateRestock 2 failed: %v", err)
 	}
-	if err := s.AddRestock(id, 30, "Third"); err != nil {
-		t.Fatalf("AddRestock 3 failed: %v", err)
+	if err := s.CreateRestock(id, 30, "Third"); err != nil {
+		t.Fatalf("CreateRestock 3 failed: %v", err)
 	}
 
-	history, err := s.GetRestockHistory(id)
+	history, err := s.ListRestocks(id)
 	if err != nil {
-		t.Fatalf("GetRestockHistory failed: %v", err)
+		t.Fatalf("ListRestocks failed: %v", err)
 	}
 	if len(history) != 3 {
 		t.Fatalf("Expected 3 entries, got %d", len(history))
@@ -248,9 +248,9 @@ func TestGetRestockHistory_Empty(t *testing.T) {
 	s := setupMedicationRepo(t)
 	id := createTestMedication(t, s, "Aspirin", `{"type":"daily","times":["09:00"]}`)
 
-	history, err := s.GetRestockHistory(id)
+	history, err := s.ListRestocks(id)
 	if err != nil {
-		t.Fatalf("GetRestockHistory failed: %v", err)
+		t.Fatalf("ListRestocks failed: %v", err)
 	}
 	if len(history) != 0 {
 		t.Errorf("Expected empty history, got %d entries", len(history))
@@ -267,9 +267,9 @@ func TestGetMedicationsLowOnStock_DailySchedule(t *testing.T) {
 		t.Fatalf("SetInventory failed: %v", err)
 	}
 
-	meds, err := s.GetMedicationsLowOnStock(14)
+	meds, err := s.ListLowOnStock(14)
 	if err != nil {
-		t.Fatalf("GetMedicationsLowOnStock failed: %v", err)
+		t.Fatalf("ListLowOnStock failed: %v", err)
 	}
 
 	found := false
@@ -294,9 +294,9 @@ func TestGetMedicationsLowOnStock_SufficientStock(t *testing.T) {
 		t.Fatalf("SetInventory failed: %v", err)
 	}
 
-	meds, err := s.GetMedicationsLowOnStock(14)
+	meds, err := s.ListLowOnStock(14)
 	if err != nil {
-		t.Fatalf("GetMedicationsLowOnStock failed: %v", err)
+		t.Fatalf("ListLowOnStock failed: %v", err)
 	}
 
 	for _, m := range meds {
@@ -311,9 +311,9 @@ func TestGetMedicationsLowOnStock_NullInventoryExcluded(t *testing.T) {
 	createTestMedication(t, s, "NoTracking", `{"type":"daily","times":["09:00"]}`)
 
 	// Don't set inventory (stays NULL)
-	meds, err := s.GetMedicationsLowOnStock(14)
+	meds, err := s.ListLowOnStock(14)
 	if err != nil {
-		t.Fatalf("GetMedicationsLowOnStock failed: %v", err)
+		t.Fatalf("ListLowOnStock failed: %v", err)
 	}
 
 	for _, m := range meds {
@@ -334,9 +334,9 @@ func TestGetMedicationsLowOnStock_WeeklySchedule(t *testing.T) {
 		t.Fatalf("SetInventory failed: %v", err)
 	}
 
-	meds, err := s.GetMedicationsLowOnStock(14)
+	meds, err := s.ListLowOnStock(14)
 	if err != nil {
-		t.Fatalf("GetMedicationsLowOnStock failed: %v", err)
+		t.Fatalf("ListLowOnStock failed: %v", err)
 	}
 
 	found := false
@@ -527,14 +527,14 @@ func TestAddRestock_MultipleRestocks(t *testing.T) {
 		t.Fatalf("SetInventory failed: %v", err)
 	}
 
-	if err := s.AddRestock(id, 10, "First refill"); err != nil {
-		t.Fatalf("AddRestock 1 failed: %v", err)
+	if err := s.CreateRestock(id, 10, "First refill"); err != nil {
+		t.Fatalf("CreateRestock 1 failed: %v", err)
 	}
-	if err := s.AddRestock(id, 20, "Second refill"); err != nil {
-		t.Fatalf("AddRestock 2 failed: %v", err)
+	if err := s.CreateRestock(id, 20, "Second refill"); err != nil {
+		t.Fatalf("CreateRestock 2 failed: %v", err)
 	}
 
-	med, err := s.GetMedication(id)
+	med, err := s.Get(id)
 	if err != nil {
 		t.Fatalf("GetMedicationByID failed: %v", err)
 	}
@@ -543,9 +543,9 @@ func TestAddRestock_MultipleRestocks(t *testing.T) {
 		t.Errorf("Expected inventory_count=35, got %v", med.InventoryCount)
 	}
 
-	history, err := s.GetRestockHistory(id)
+	history, err := s.ListRestocks(id)
 	if err != nil {
-		t.Fatalf("GetRestockHistory failed: %v", err)
+		t.Fatalf("ListRestocks failed: %v", err)
 	}
 	if len(history) != 2 {
 		t.Errorf("Expected 2 restock entries, got %d", len(history))
@@ -556,13 +556,13 @@ func TestAddRestock_EmptyNote(t *testing.T) {
 	s := setupMedicationRepo(t)
 	id := createTestMedication(t, s, "Aspirin", `{"type":"daily","times":["09:00"]}`)
 
-	if err := s.AddRestock(id, 30, ""); err != nil {
-		t.Fatalf("AddRestock with empty note failed: %v", err)
+	if err := s.CreateRestock(id, 30, ""); err != nil {
+		t.Fatalf("CreateRestock with empty note failed: %v", err)
 	}
 
-	history, err := s.GetRestockHistory(id)
+	history, err := s.ListRestocks(id)
 	if err != nil {
-		t.Fatalf("GetRestockHistory failed: %v", err)
+		t.Fatalf("ListRestocks failed: %v", err)
 	}
 	if len(history) != 1 {
 		t.Fatalf("Expected 1 entry, got %d", len(history))
@@ -577,16 +577,16 @@ func TestGetRestockHistory_IsolatedPerMedication(t *testing.T) {
 	id1 := createTestMedication(t, s, "Med1", `{"type":"daily","times":["09:00"]}`)
 	id2 := createTestMedication(t, s, "Med2", `{"type":"daily","times":["09:00"]}`)
 
-	if err := s.AddRestock(id1, 10, "Med1 restock"); err != nil {
-		t.Fatalf("AddRestock med1 failed: %v", err)
+	if err := s.CreateRestock(id1, 10, "Med1 restock"); err != nil {
+		t.Fatalf("CreateRestock med1 failed: %v", err)
 	}
-	if err := s.AddRestock(id2, 20, "Med2 restock"); err != nil {
-		t.Fatalf("AddRestock med2 failed: %v", err)
+	if err := s.CreateRestock(id2, 20, "Med2 restock"); err != nil {
+		t.Fatalf("CreateRestock med2 failed: %v", err)
 	}
 
-	history1, err := s.GetRestockHistory(id1)
+	history1, err := s.ListRestocks(id1)
 	if err != nil {
-		t.Fatalf("GetRestockHistory med1 failed: %v", err)
+		t.Fatalf("ListRestocks med1 failed: %v", err)
 	}
 	if len(history1) != 1 {
 		t.Fatalf("Expected 1 entry for med1, got %d", len(history1))
@@ -595,9 +595,9 @@ func TestGetRestockHistory_IsolatedPerMedication(t *testing.T) {
 		t.Errorf("Expected 'Med1 restock', got '%s'", history1[0].Note)
 	}
 
-	history2, err := s.GetRestockHistory(id2)
+	history2, err := s.ListRestocks(id2)
 	if err != nil {
-		t.Fatalf("GetRestockHistory med2 failed: %v", err)
+		t.Fatalf("ListRestocks med2 failed: %v", err)
 	}
 	if len(history2) != 1 {
 		t.Fatalf("Expected 1 entry for med2, got %d", len(history2))

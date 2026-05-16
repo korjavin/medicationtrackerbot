@@ -14,7 +14,7 @@ func TestHandleDeleteFutureIntake_Success(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	medID, _ := db.Medication.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, _ := db.Medication.Create("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 
 	future := time.Now().Add(2 * time.Hour)
 	intakeID, err := db.Medication.CreateIntake(medID, userID, future)
@@ -54,7 +54,7 @@ func TestHandleDeleteFutureIntake_PastIntake_Skipped(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	medID, _ := db.Medication.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, _ := db.Medication.Create("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 
 	past := time.Now().Add(-2 * time.Hour)
 	intakeID, _ := db.Medication.CreateIntake(medID, userID, past)
@@ -88,7 +88,7 @@ func TestHandleDeleteFutureIntake_TakenIntake_Skipped(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	medID, _ := db.Medication.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, _ := db.Medication.Create("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 
 	future := time.Now().Add(2 * time.Hour)
 	intakeID, _ := db.Medication.CreateIntake(medID, userID, future)
@@ -126,7 +126,7 @@ func TestHandleDeleteFutureIntake_OtherUserIntake_Skipped(t *testing.T) {
 
 	ownerID := int64(123456)
 	otherID := int64(999999)
-	medID, _ := db.Medication.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, _ := db.Medication.Create("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 
 	future := time.Now().Add(2 * time.Hour)
 	intakeID, _ := db.Medication.CreateIntake(medID, ownerID, future)
@@ -160,7 +160,7 @@ func TestHandleDeleteFutureIntake_DoesNotTouchInventory(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	medID, _ := db.Medication.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, _ := db.Medication.Create("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	count := 10
 	db.Medication.SetInventory(medID, &count)
 
@@ -178,7 +178,7 @@ func TestHandleDeleteFutureIntake_DoesNotTouchInventory(t *testing.T) {
 		t.Fatalf("Expected 200, got %d", w.Code)
 	}
 
-	med, _ := db.Medication.GetMedication(medID)
+	med, _ := db.Medication.Get(medID)
 	if med == nil || med.InventoryCount == nil {
 		t.Fatalf("Expected inventory to remain set")
 	}

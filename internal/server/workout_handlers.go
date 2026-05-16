@@ -23,7 +23,7 @@ func (s *Server) handleListWorkoutGroups(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	groups, err := s.workouts.ListWorkoutGroups(userID, false)
+	groups, err := s.workouts.ListGroups(userID, false)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -57,7 +57,7 @@ func (s *Server) handleCreateWorkoutGroup(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	group, err := s.workouts.CreateWorkoutGroup(
+	group, err := s.workouts.CreateGroup(
 		req.Name,
 		req.Description,
 		req.IsRotating,
@@ -109,7 +109,7 @@ func (s *Server) handleUpdateWorkoutGroup(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	err = s.workouts.UpdateWorkoutGroup(
+	err = s.workouts.UpdateGroup(
 		id,
 		req.Name,
 		req.Description,
@@ -150,7 +150,7 @@ func (s *Server) handleSkipWorkoutSessionCompat(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	session, err := s.workouts.GetWorkoutSession(req.SessionID)
+	session, err := s.workouts.GetSession(req.SessionID)
 	if err != nil || session == nil {
 		http.Error(w, "Session not found", http.StatusNotFound)
 		return
@@ -197,7 +197,7 @@ func (s *Server) handleSnoozeWorkoutSessionCompat(w http.ResponseWriter, r *http
 		return
 	}
 
-	session, err := s.workouts.GetWorkoutSession(req.SessionID)
+	session, err := s.workouts.GetSession(req.SessionID)
 	if err != nil || session == nil {
 		http.Error(w, "Session not found", http.StatusNotFound)
 		return
@@ -232,7 +232,7 @@ func (s *Server) handleDeleteWorkoutGroup(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	err = s.workouts.DeleteWorkoutGroup(id)
+	err = s.workouts.DeleteGroup(id)
 	if err != nil {
 		// Return precondition errors as 409 Conflict so the frontend can show them
 		if strings.Contains(err.Error(), "cannot delete group") {
@@ -282,7 +282,7 @@ func (s *Server) handleCreateWorkoutVariant(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	variant, err := s.workouts.CreateWorkoutVariant(
+	variant, err := s.workouts.CreateVariant(
 		req.GroupID,
 		req.Name,
 		req.RotationOrder,
@@ -320,7 +320,7 @@ func (s *Server) handleUpdateWorkoutVariant(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	err = s.workouts.UpdateWorkoutVariant(id, req.Name, req.RotationOrder, req.Description)
+	err = s.workouts.UpdateVariant(id, req.Name, req.RotationOrder, req.Description)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -337,7 +337,7 @@ func (s *Server) handleDeleteWorkoutVariant(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	err = s.workouts.DeleteWorkoutVariant(id)
+	err = s.workouts.DeleteVariant(id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -385,7 +385,7 @@ func (s *Server) handleCreateExercise(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	exercise, err := s.workouts.AddExerciseToVariant(
+	exercise, err := s.workouts.CreateExerciseInVariant(
 		req.VariantID,
 		req.ExerciseName,
 		req.TargetSets,
@@ -429,7 +429,7 @@ func (s *Server) handleUpdateExercise(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = s.workouts.UpdateWorkoutExercise(
+	err = s.workouts.UpdateExercise(
 		id,
 		req.ExerciseName,
 		req.TargetSets,
@@ -454,7 +454,7 @@ func (s *Server) handleDeleteExercise(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = s.workouts.DeleteWorkoutExercise(id)
+	err = s.workouts.DeleteExercise(id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -480,7 +480,7 @@ func (s *Server) handleListWorkoutSessions(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	sessions, err := s.workouts.GetWorkoutHistory(userID, limit)
+	sessions, err := s.workouts.ListHistory(userID, limit)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -498,9 +498,9 @@ func (s *Server) handleListWorkoutSessions(w http.ResponseWriter, r *http.Reques
 
 	enriched := make([]EnrichedSession, 0, len(sessions))
 	for _, session := range sessions {
-		group, _ := s.workouts.GetWorkoutGroup(session.GroupID)
-		variant, _ := s.workouts.GetWorkoutVariant(session.VariantID)
-		logs, _ := s.workouts.GetExerciseLogs(session.ID)
+		group, _ := s.workouts.GetGroup(session.GroupID)
+		variant, _ := s.workouts.GetVariant(session.VariantID)
+		logs, _ := s.workouts.ListExerciseLogs(session.ID)
 		exercises, _ := s.workouts.ListExercisesByVariant(session.VariantID)
 
 		groupName := "Unknown"
@@ -576,13 +576,13 @@ func (s *Server) handleGetSessionDetails(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	session, err := s.workouts.GetWorkoutSession(id)
+	session, err := s.workouts.GetSession(id)
 	if err != nil || session == nil {
 		http.Error(w, "Session not found", http.StatusNotFound)
 		return
 	}
 
-	logs, err := s.workouts.GetExerciseLogs(id)
+	logs, err := s.workouts.ListExerciseLogs(id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -612,7 +612,7 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	// Apply user timezone if set, so date boundaries are computed in the user's local time.
 	if s.timezone != nil {
-		if tzStr, tzErr := s.timezone.GetCurrentTimezone(); tzErr == nil && tzStr != "" {
+		if tzStr, tzErr := s.timezone.GetCurrent(); tzErr == nil && tzStr != "" {
 			if loc, locErr := time.LoadLocation(tzStr); locErr == nil {
 				now = now.In(loc)
 			}
@@ -623,13 +623,13 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 	// This ensures that workouts that have been notified but not yet started/completed
 	// are still visible in the UI even if their scheduled time has passed
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	activeSessions, err := s.workouts.GetActiveSessions(userID, today)
+	activeSessions, err := s.workouts.ListActiveSessions(userID, today)
 	if err == nil && len(activeSessions) > 0 {
 		// Return the earliest active session
 		session := &activeSessions[0] // Already ordered by scheduled_time ASC
 
-		group, _ := s.workouts.GetWorkoutGroup(session.GroupID)
-		variant, _ := s.workouts.GetWorkoutVariant(session.VariantID)
+		group, _ := s.workouts.GetGroup(session.GroupID)
+		variant, _ := s.workouts.GetVariant(session.VariantID)
 		exercises, _ := s.workouts.ListExercisesByVariant(session.VariantID)
 
 		groupName := "Unknown"
@@ -645,7 +645,7 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 		// workout_exercise_logs instead of empty ListExercisesByVariant(-1).
 		exerciseCount := len(exercises)
 		if session.GroupID == -1 {
-			logs, _ := s.workouts.GetExerciseLogs(session.ID)
+			logs, _ := s.workouts.ListExerciseLogs(session.ID)
 			exerciseCount = len(logs)
 		}
 
@@ -684,7 +684,7 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// FIRST: Check for snoozed sessions that are ready to start
-	snoozedSessions, err := s.workouts.GetSnoozedSessions(userID)
+	snoozedSessions, err := s.workouts.ListSnoozedSessions(userID)
 	if err == nil && len(snoozedSessions) > 0 {
 		// Find the earliest snoozed session
 		var earliestSnoozed *store.WorkoutSession
@@ -699,8 +699,8 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 
 		// If we found a snoozed session, return it as the next workout
 		if earliestSnoozed != nil {
-			group, _ := s.workouts.GetWorkoutGroup(earliestSnoozed.GroupID)
-			variant, _ := s.workouts.GetWorkoutVariant(earliestSnoozed.VariantID)
+			group, _ := s.workouts.GetGroup(earliestSnoozed.GroupID)
+			variant, _ := s.workouts.GetVariant(earliestSnoozed.VariantID)
 			exercises, _ := s.workouts.ListExercisesByVariant(earliestSnoozed.VariantID)
 
 			groupName := "Unknown"
@@ -716,7 +716,7 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 			// workout_exercise_logs instead of empty ListExercisesByVariant(-1).
 			exerciseCount := len(exercises)
 			if earliestSnoozed.GroupID == -1 {
-				logs, _ := s.workouts.GetExerciseLogs(earliestSnoozed.ID)
+				logs, _ := s.workouts.ListExerciseLogs(earliestSnoozed.ID)
 				exerciseCount = len(logs)
 			}
 
@@ -757,7 +757,7 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 
 	// SECOND: Fall back to scheduled workouts
 	// Get all active workout groups
-	groups, err := s.workouts.ListWorkoutGroups(userID, true)
+	groups, err := s.workouts.ListGroups(userID, true)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -831,7 +831,7 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 
-				variant, _ := s.workouts.GetWorkoutVariant(variantID)
+				variant, _ := s.workouts.GetVariant(variantID)
 				if variant == nil {
 					continue
 				}
@@ -895,13 +895,13 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 	// This ensures the frontend has a valid ID to call /start on
 	if nextWorkout.SessionID == 0 {
 		// Need to strip time component from ScheduledDate for consistency with how it was checked
-		// Actually CreateWorkoutSession takes time.Time for date, which we have (scheduledDateTime)
+		// Actually CreateSession takes time.Time for date, which we have (scheduledDateTime)
 		// but we typically store just the date part for ScheduledDate in DB?
-		// Let's check CreateWorkoutSession impl. It stores what we pass.
+		// Let's check CreateSession impl. It stores what we pass.
 		// Standardize on using the date part for the Date field
 		dateOnly := time.Date(nextWorkout.ScheduledDate.Year(), nextWorkout.ScheduledDate.Month(), nextWorkout.ScheduledDate.Day(), 0, 0, 0, 0, nextWorkout.ScheduledDate.Location())
 
-		newSession, err := s.workouts.CreateWorkoutSession(
+		newSession, err := s.workouts.CreateSession(
 			nextWorkout.GroupID,
 			nextWorkout.VariantID,
 			userID,
@@ -970,7 +970,7 @@ func (s *Server) handleGetWorkoutStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch enough sessions for streak + 30-day stats
-	sessions, err := s.workouts.GetWorkoutHistory(userID, 500)
+	sessions, err := s.workouts.ListHistory(userID, 500)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1044,7 +1044,7 @@ func (s *Server) handleGetWorkoutStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Exercise stats from DB
-	exerciseStats, _ := s.workouts.GetExerciseStats(userID)
+	exerciseStats, _ := s.workouts.ListExerciseStats(userID)
 
 	completionRate := 0.0
 	if totalSessions > 0 {
@@ -1262,7 +1262,7 @@ func (s *Server) handleGetUniqueExercises(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	exercises, err := s.workouts.GetAllUniqueExercises(userID)
+	exercises, err := s.workouts.ListAllUniqueExercises(userID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1311,7 +1311,7 @@ func (s *Server) handleAddExerciseToSession(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Verify session ownership
-	session, err := s.workouts.GetWorkoutSession(req.SessionID)
+	session, err := s.workouts.GetSession(req.SessionID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1396,7 +1396,7 @@ func (s *Server) handleSnoozeWorkoutSession(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	session, err := s.workouts.GetWorkoutSession(id)
+	session, err := s.workouts.GetSession(id)
 	if err != nil {
 		http.Error(w, "Session not found", http.StatusNotFound)
 		return
@@ -1450,7 +1450,7 @@ func (s *Server) handlePreSkipWorkoutSession(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	session, err := s.workouts.GetWorkoutSession(id)
+	session, err := s.workouts.GetSession(id)
 	if err != nil || session == nil {
 		http.Error(w, "Session not found", http.StatusNotFound)
 		return
@@ -1482,7 +1482,7 @@ func (s *Server) handleCancelPreSkipWorkoutSession(w http.ResponseWriter, r *htt
 		return
 	}
 
-	session, err := s.workouts.GetWorkoutSession(id)
+	session, err := s.workouts.GetSession(id)
 	if err != nil || session == nil {
 		http.Error(w, "Session not found", http.StatusNotFound)
 		return
@@ -1514,7 +1514,7 @@ func (s *Server) handleNextVariantWorkoutSession(w http.ResponseWriter, r *http.
 		return
 	}
 
-	session, err := s.workouts.GetWorkoutSession(id)
+	session, err := s.workouts.GetSession(id)
 	if err != nil || session == nil {
 		http.Error(w, "Session not found", http.StatusNotFound)
 		return
@@ -1528,7 +1528,7 @@ func (s *Server) handleNextVariantWorkoutSession(w http.ResponseWriter, r *http.
 		return
 	}
 
-	group, err := s.workouts.GetWorkoutGroup(session.GroupID)
+	group, err := s.workouts.GetGroup(session.GroupID)
 	if err != nil || group == nil {
 		http.Error(w, "Workout group not found", http.StatusNotFound)
 		return
@@ -1565,7 +1565,7 @@ func (s *Server) handleSkipWorkoutSession(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	session, err := s.workouts.GetWorkoutSession(id)
+	session, err := s.workouts.GetSession(id)
 	if err != nil {
 		http.Error(w, "Session not found", http.StatusNotFound)
 		return
@@ -1616,13 +1616,13 @@ func (s *Server) handleStartWorkoutSession(w http.ResponseWriter, r *http.Reques
 	// Update Telegram notification
 	if s.workout != nil {
 		go func() {
-			session, err := s.workouts.GetWorkoutSession(id)
+			session, err := s.workouts.GetSession(id)
 			if err != nil || session == nil {
 				return
 			}
 
-			group, _ := s.workouts.GetWorkoutGroup(session.GroupID)
-			variant, _ := s.workouts.GetWorkoutVariant(session.VariantID)
+			group, _ := s.workouts.GetGroup(session.GroupID)
+			variant, _ := s.workouts.GetVariant(session.VariantID)
 
 			text := "✅ **Workout started**"
 			if group != nil && variant != nil {
@@ -1679,7 +1679,7 @@ func (s *Server) handleUpdateSessionStatus(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Get session to check for notification message
-	session, err := s.workouts.GetWorkoutSession(id)
+	session, err := s.workouts.GetSession(id)
 	if err != nil {
 		http.Error(w, "Session not found", http.StatusNotFound)
 		return

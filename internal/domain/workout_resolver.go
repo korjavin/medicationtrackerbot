@@ -11,7 +11,7 @@ import (
 
 // WorkoutResolverStore is the narrow store interface required by the resolver.
 type WorkoutResolverStore interface {
-	GetDistinctExerciseNamesForUser(ctx context.Context, userID int64) ([]string, error)
+	ListDistinctExerciseNamesForUser(ctx context.Context, userID int64) ([]string, error)
 	ListRecentExerciseLogsByName(ctx context.Context, userID int64, exerciseName string, limit int) ([]store.WorkoutExerciseLog, error)
 }
 
@@ -126,7 +126,7 @@ func (r *workoutResolver) ResolveExercise(ctx context.Context, userID int64, inp
 	}
 
 	// Step 1: resolve the name against the user's catalog.
-	catalog, err := r.store.GetDistinctExerciseNamesForUser(ctx, userID)
+	catalog, err := r.store.ListDistinctExerciseNamesForUser(ctx, userID)
 	if err != nil {
 		return plan, fmt.Errorf("load exercise catalog: %w", err)
 	}

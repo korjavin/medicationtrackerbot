@@ -14,11 +14,11 @@
 //   - Medication CRUD (Create / Get / List / Update / Delete plus supplement
 //     and creation-time tweaks).
 //   - Inventory + restock (DecrementInventory / IncrementInventory /
-//     SetInventory / AddRestock / GetRestockHistory plus low-stock policy).
+//     SetInventory / CreateRestock / ListRestocks plus low-stock policy).
 //   - Intake log (CreateIntake / CreateManualIntake / ConfirmIntake / Skip /
 //     Snooze / Update / Delete / various Get readers / BatchGet /
 //     ConfirmIntakesBySchedule).
-//   - Intake reminders (AddIntakeReminder, GetIntakeReminders, batch reader).
+//   - Intake reminders (CreateIntakeReminder, ListIntakeReminders, batch reader).
 //
 // Dose-time columns convention (mirrors the top-of-store.go comment): the
 // intake_log columns scheduled_at_unix, taken_at_unix, snoozed_until_unix are
@@ -143,7 +143,7 @@ func New(d *storedb.DB) *Repo {
 
 // -- Medications CRUD --
 
-func (r *Repo) CreateMedication(name, dosage, schedule string, startDate, endDate *time.Time, rxcui, normalizedName string, tzShiftPolicy string) (int64, error) {
+func (r *Repo) Create(name, dosage, schedule string, startDate, endDate *time.Time, rxcui, normalizedName string, tzShiftPolicy string) (int64, error) {
 	if tzShiftPolicy == "" {
 		tzShiftPolicy = "flexible"
 	}
@@ -155,7 +155,7 @@ func (r *Repo) CreateMedication(name, dosage, schedule string, startDate, endDat
 	return res.LastInsertId()
 }
 
-func (r *Repo) ListMedications(showArchived bool) ([]Medication, error) {
+func (r *Repo) List(showArchived bool) ([]Medication, error) {
 	query := `
 		SELECT
 			m.id, m.name, m.dosage, m.schedule, m.archived, m.supplement, m.start_date, m.end_date, m.created_at, m.rxcui, m.normalized_name, m.inventory_count, m.tz_shift_policy,
@@ -206,7 +206,7 @@ func (r *Repo) ListMedications(showArchived bool) ([]Medication, error) {
 	return meds, nil
 }
 
-func (r *Repo) GetMedication(id int64) (*Medication, error) {
+func (r *Repo) Get(id int64) (*Medication, error) {
 	var m Medication
 	var rxcui, normalizedName sql.NullString
 	var inventoryCount sql.NullInt64
@@ -234,7 +234,7 @@ func (r *Repo) GetMedication(id int64) (*Medication, error) {
 	return &m, nil
 }
 
-func (r *Repo) UpdateMedication(id int64, name, dosage, schedule string, archived bool, startDate, endDate *time.Time, rxcui, normalizedName string, inventoryCount *int, tzShiftPolicy string) error {
+func (r *Repo) Update(id int64, name, dosage, schedule string, archived bool, startDate, endDate *time.Time, rxcui, normalizedName string, inventoryCount *int, tzShiftPolicy string) error {
 	if tzShiftPolicy == "" {
 		tzShiftPolicy = "flexible"
 	}
@@ -243,12 +243,12 @@ func (r *Repo) UpdateMedication(id int64, name, dosage, schedule string, archive
 	return err
 }
 
-func (r *Repo) DeleteMedication(id int64) error {
+func (r *Repo) Delete(id int64) error {
 	_, err := r.db.Exec("DELETE FROM medications WHERE id = ?", id)
 	return err
 }
 
-func (r *Repo) CanDeleteMedication(id int64) (bool, error) {
+func (r *Repo) CanDelete(id int64) (bool, error) {
 	var count int
 	err := r.db.QueryRow("SELECT COUNT(*) FROM intake_log WHERE medication_id = ?", id).Scan(&count)
 	if err != nil {
@@ -257,12 +257,12 @@ func (r *Repo) CanDeleteMedication(id int64) (bool, error) {
 	return count == 0, nil
 }
 
-func (r *Repo) SetMedicationSupplement(id int64, supplement bool) error {
+func (r *Repo) SetSupplement(id int64, supplement bool) error {
 	_, err := r.db.Exec("UPDATE medications SET supplement = ? WHERE id = ?", supplement, id)
 	return err
 }
 
-func (r *Repo) UpdateMedicationCreatedAt(id int64, createdAt time.Time) error {
+func (r *Repo) UpdateCreatedAt(id int64, createdAt time.Time) error {
 	_, err := r.db.Exec("UPDATE medications SET created_at = ? WHERE id = ?", createdAt, id)
 	if err != nil {
 		return err
@@ -292,8 +292,8 @@ func (r *Repo) SetInventory(medID int64, count *int) error {
 	return err
 }
 
-// AddRestock adds inventory and logs the restock event.
-func (r *Repo) AddRestock(medID int64, qty int, note string) error {
+// CreateRestock adds inventory and logs the restock event.
+func (r *Repo) CreateRestock(medID int64, qty int, note string) error {
 	tx, err := r.db.Begin()
 	if err != nil {
 		return err
@@ -316,8 +316,8 @@ func (r *Repo) AddRestock(medID int64, qty int, note string) error {
 	return tx.Commit()
 }
 
-// GetRestockHistory returns restock events for a medication.
-func (r *Repo) GetRestockHistory(medID int64) ([]Restock, error) {
+// ListRestocks returns restock events for a medication.
+func (r *Repo) ListRestocks(medID int64) ([]Restock, error) {
 	rows, err := r.db.Query("SELECT id, medication_id, quantity, note, restocked_at FROM medication_restocks WHERE medication_id = ? ORDER BY restocked_at DESC", medID)
 	if err != nil {
 		return nil, err
@@ -339,10 +339,10 @@ func (r *Repo) GetRestockHistory(medID int64) ([]Restock, error) {
 	return restocks, nil
 }
 
-// GetMedicationsLowOnStock returns medications with inventory tracking that
+// ListLowOnStock returns medications with inventory tracking that
 // are low on stock. daysThreshold: warn if stock lasts fewer than this many days.
-func (r *Repo) GetMedicationsLowOnStock(daysThreshold int) ([]Medication, error) {
-	meds, err := r.ListMedications(false)
+func (r *Repo) ListLowOnStock(daysThreshold int) ([]Medication, error) {
+	meds, err := r.List(false)
 	if err != nil {
 		return nil, err
 	}
@@ -654,7 +654,7 @@ func (r *Repo) SnoozeIntake(id int64, snoozeUntil time.Time) error {
 	return nil
 }
 
-// GetPendingIntakes returns all PENDING intake_log rows that are
+// ListPendingIntakes returns all PENDING intake_log rows that are
 // user-actionable. The tzStepPlanStatusGate makes orphan source='tz_step'
 // rows from cancelled/rejected plans invisible to every caller that flows
 // through this reader (MedicationReminderChecker, ConfirmMedicationByMedID,
@@ -668,7 +668,7 @@ func (r *Repo) SnoozeIntake(id int64, snoozeUntil time.Time) error {
 // confirms the tz_step row — re-fired by MedicationReminderChecker and
 // confirmable via confirm_intake / confirm:<medID> for a second inventory
 // decrement on a single dose.
-func (r *Repo) GetPendingIntakes() ([]IntakeLog, error) {
+func (r *Repo) ListPendingIntakes() ([]IntakeLog, error) {
 	rows, err := r.db.Query(`
 		SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until_unix, source, tz_plan_id, tz_step_number
 		FROM intake_log
@@ -707,7 +707,7 @@ func (r *Repo) GetPendingIntakes() ([]IntakeLog, error) {
 	return logs, nil
 }
 
-func (r *Repo) GetTakenIntakesBySchedule(userID int64, scheduledAt time.Time) ([]IntakeLog, error) {
+func (r *Repo) ListTakenIntakesBySchedule(userID int64, scheduledAt time.Time) ([]IntakeLog, error) {
 	rows, err := r.db.Query("SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until_unix, source, tz_plan_id, tz_step_number FROM intake_log WHERE user_id = ? AND scheduled_at_unix = ? AND status = 'TAKEN'", userID, scheduledAt.UTC().Unix())
 	if err != nil {
 		return nil, err
@@ -740,7 +740,7 @@ func (r *Repo) GetTakenIntakesBySchedule(userID int64, scheduledAt time.Time) ([
 	return logs, nil
 }
 
-func (r *Repo) GetIntakeHistory(medID int, days int) ([]IntakeLog, error) {
+func (r *Repo) ListIntakeHistory(medID int, days int) ([]IntakeLog, error) {
 	query := "SELECT id, medication_id, user_id, scheduled_at_unix, taken_at_unix, status, snoozed_until_unix, source, tz_plan_id, tz_step_number FROM intake_log WHERE 1=1"
 	args := []interface{}{}
 
@@ -974,7 +974,7 @@ func (r *Repo) BatchGetIntakesBySchedule(schedules []MedicationSchedule) (map[Me
 // The comparison is on the INTEGER scheduled_at_unix column, so it is
 // independent of the caller's time.Location.
 func (r *Repo) ConfirmIntakesBySchedule(userID int64, scheduledAt time.Time, takenAt time.Time) ([]int64, error) {
-	candidates, err := r.GetPendingIntakesBySchedule(userID, scheduledAt)
+	candidates, err := r.ListPendingIntakesBySchedule(userID, scheduledAt)
 	if err != nil {
 		return nil, err
 	}
@@ -995,12 +995,12 @@ func (r *Repo) ConfirmIntakesBySchedule(userID int64, scheduledAt time.Time, tak
 	return ids, nil
 }
 
-func (r *Repo) AddIntakeReminder(intakeID int64, messageID int) error {
+func (r *Repo) CreateIntakeReminder(intakeID int64, messageID int) error {
 	_, err := r.db.Exec("INSERT INTO intake_reminders (intake_id, message_id) VALUES (?, ?)", intakeID, messageID)
 	return err
 }
 
-func (r *Repo) GetIntakeReminders(intakeID int64) ([]int, error) {
+func (r *Repo) ListIntakeReminders(intakeID int64) ([]int, error) {
 	rows, err := r.db.Query("SELECT message_id FROM intake_reminders WHERE intake_id = ?", intakeID)
 	if err != nil {
 		return nil, err
@@ -1017,7 +1017,7 @@ func (r *Repo) GetIntakeReminders(intakeID int64) ([]int, error) {
 	return ids, nil
 }
 
-func (r *Repo) GetBatchIntakeReminders(intakeIDs []int64) (map[int64][]int, error) {
+func (r *Repo) BatchGetIntakeReminders(intakeIDs []int64) (map[int64][]int, error) {
 	if len(intakeIDs) == 0 {
 		return make(map[int64][]int), nil
 	}
@@ -1065,7 +1065,7 @@ func (r *Repo) GetBatchIntakeReminders(intakeIDs []int64) (map[int64][]int, erro
 	return result, nil
 }
 
-// GetPendingIntakesBySchedule returns every PENDING intake for the user whose
+// ListPendingIntakesBySchedule returns every PENDING intake for the user whose
 // scheduled_at_unix matches the supplied target instant. The match is on the
 // INTEGER unix-seconds column, so it is independent of the caller's
 // time.Location. Applies tzStepPlanStatusGate so the confirm_schedule:<unix>
@@ -1076,7 +1076,7 @@ func (r *Repo) GetBatchIntakeReminders(intakeIDs []int64) (map[int64][]int, erro
 // without it, ConfirmIntakesBySchedule would confirm both rows of a dual-row
 // collision and ConfirmScheduleWithCleanup would decrement inventory twice for
 // the single dose those rows represent.
-func (r *Repo) GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time) ([]IntakeLog, error) {
+func (r *Repo) ListPendingIntakesBySchedule(userID int64, scheduledAt time.Time) ([]IntakeLog, error) {
 	rows, err := r.db.Query(
 		`SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until_unix, source, tz_plan_id, tz_step_number
 		 FROM intake_log
@@ -1121,7 +1121,7 @@ func (r *Repo) GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time) 
 	return logs, nil
 }
 
-func (r *Repo) GetPendingIntakesForMedication(medID int64) ([]IntakeLog, error) {
+func (r *Repo) ListPendingIntakesForMedication(medID int64) ([]IntakeLog, error) {
 	rows, err := r.db.Query("SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until_unix, source, tz_plan_id, tz_step_number FROM intake_log WHERE medication_id = ? AND status = 'PENDING'", medID)
 	if err != nil {
 		return nil, err
@@ -1159,10 +1159,10 @@ func (r *Repo) DeleteIntake(id int64) error {
 	return err
 }
 
-// GetIntakesSince returns every intake_log row (joined with its parent
+// ListIntakesSince returns every intake_log row (joined with its parent
 // medication's name + dosage) whose scheduled_at_unix is >= the supplied
 // instant. Used by the download / export endpoints.
-func (r *Repo) GetIntakesSince(since time.Time) ([]IntakeWithMedication, error) {
+func (r *Repo) ListIntakesSince(since time.Time) ([]IntakeWithMedication, error) {
 	query := `
 		SELECT
 			il.id, il.medication_id, il.user_id, il.scheduled_at_unix, il.taken_at_unix, il.status, il.snoozed_until_unix,

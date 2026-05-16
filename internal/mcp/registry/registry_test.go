@@ -354,6 +354,114 @@ func TestMarshalForHelp_Shape(t *testing.T) {
 	}
 }
 
+func TestWorkoutOperations(t *testing.T) {
+	r := New()
+	ops := WorkoutOperations()
+	if len(ops) == 0 {
+		t.Fatal("WorkoutOperations returned empty slice")
+	}
+	if err := r.Register(ops...); err != nil {
+		t.Fatalf("register workout operations: %v", err)
+	}
+
+	// All should be in workouts topic
+	byTopic := r.ByTopic("workouts")
+	if len(byTopic) != len(ops) {
+		t.Errorf("expected %d workout ops, got %d", len(ops), len(byTopic))
+	}
+
+	// Spot-check required operations are present
+	required := []string{
+		"workouts.groups.list",
+		"workouts.variants.list",
+		"workouts.exercises.list",
+		"workouts.sessions.list",
+		"workouts.stats.read",
+		// Plan mutation ops added in Task 12
+		"workouts.groups.create",
+		"workouts.groups.update",
+		"workouts.variants.create",
+		"workouts.variants.update",
+		"workouts.exercises.create",
+		"workouts.exercises.delete",
+	}
+	for _, id := range required {
+		if r.Get(id) == nil {
+			t.Errorf("missing required workout operation: %s", id)
+		}
+	}
+
+	// All read ops carry RiskRead; the write ops carry RiskWrite. The set of
+	// expected write ops is enumerated explicitly so a future regression
+	// (e.g. a typo flipping a read op to write) trips the test.
+	writeOps := map[string]bool{
+		"workouts.exercises.update":        true,
+		"workouts.groups.create":           true,
+		"workouts.groups.update":           true,
+		"workouts.groups.delete":           true,
+		"workouts.variants.create":         true,
+		"workouts.variants.update":         true,
+		"workouts.variants.delete":         true,
+		"workouts.exercises.create":        true,
+		"workouts.exercises.delete":        true,
+		"workouts.exercise_library.create": true,
+		"workouts.exercise_library.update": true,
+		"workouts.exercise_library.delete": true,
+		"workouts.miband.update":           true,
+		"workouts.miband.delete":           true,
+		"workouts.rotation.initialize":     true,
+		"workouts.sessions.adhoc":          true,
+		"workouts.sessions.schedule":       true,
+		"workouts.sessions.delete":         true,
+		"workouts.sessions.snooze":         true,
+		"workouts.sessions.skip":           true,
+		"workouts.sessions.preskip":        true,
+		"workouts.sessions.cancel_preskip": true,
+		"workouts.sessions.next_variant":   true,
+		"workouts.sessions.start":          true,
+		"workouts.sessions.logs.create":    true,
+		"workouts.sessions.logs.update":    true,
+		"workouts.sessions.logs.delete":    true,
+		"workouts.sessions.status":         true,
+	}
+	for _, op := range ops {
+		wantWrite := writeOps[op.ID]
+		if wantWrite && op.Risk != RiskWrite {
+			t.Errorf("workout op %s should be write, got %s", op.ID, op.Risk)
+		}
+		if !wantWrite && op.Risk != RiskRead {
+			t.Errorf("workout op %s should be read-only, got %s", op.ID, op.Risk)
+		}
+	}
+
+	// The original write op must carry a body schema so callers know what
+	// payload the backend expects. The registry validation enforces
+	// method/path presence; this is a content check.
+	updateOp := r.Get("workouts.exercises.update")
+	if updateOp == nil {
+		t.Fatal("missing workouts.exercises.update")
+	}
+	if updateOp.BodySchema == nil {
+		t.Error("workouts.exercises.update should have a BodySchema")
+	}
+	if updateOp.ParamsSchema == nil {
+		t.Error("workouts.exercises.update should have a ParamsSchema (id query param)")
+	}
+
+	// MarshalForHelp should produce valid JSON for workout ops
+	entries := MarshalForHelp(ops)
+	if len(entries) != len(ops) {
+		t.Errorf("MarshalForHelp: expected %d entries, got %d", len(ops), len(entries))
+	}
+	raw, err := json.Marshal(entries)
+	if err != nil {
+		t.Errorf("JSON marshal failed: %v", err)
+	}
+	if len(raw) == 0 {
+		t.Error("JSON output empty")
+	}
+}
+
 // schemasParse asserts that every ParamsSchema/BodySchema value on the given
 // ops parses as valid JSON. Catches typos before they reach mcp_help callers.
 func schemasParse(t *testing.T, ops []*Operation) {

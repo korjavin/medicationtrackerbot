@@ -3,8 +3,8 @@ package domain
 // ReminderStore is the subset of store operations needed for reminder operations.
 type ReminderStore interface {
 	// Blood pressure reminder operations
-	SnoozeBPReminder(userID int64) error
-	DontBugMeBPReminder(userID int64) error
+	SnoozeReminder(userID int64) error
+	DontBugMeReminder(userID int64) error
 
 	// Weight reminder operations
 	SnoozeWeightReminder(userID int64) error
@@ -33,12 +33,12 @@ func NewReminderService(s ReminderStore) ReminderService {
 
 // SnoozeBPReminder snoozes BP reminders for 2 hours.
 func (s *reminderService) SnoozeBPReminder(userID int64) error {
-	return s.store.SnoozeBPReminder(userID)
+	return s.store.SnoozeReminder(userID)
 }
 
 // BlockBPReminders disables BP reminders for 24 hours.
 func (s *reminderService) BlockBPReminders(userID int64) error {
-	return s.store.DontBugMeBPReminder(userID)
+	return s.store.DontBugMeReminder(userID)
 }
 
 // SnoozeWeightReminder snoozes weight reminders for 2 hours.

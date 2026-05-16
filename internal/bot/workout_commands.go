@@ -21,7 +21,7 @@ func (b *Bot) userLocation() *time.Location {
 	if b.timezone == nil {
 		return time.Local
 	}
-	tz, err := b.timezone.GetCurrentTimezone()
+	tz, err := b.timezone.GetCurrent()
 	if err != nil || tz == "" {
 		return time.Local
 	}
@@ -40,7 +40,7 @@ func (b *Bot) handleStartNextCommand(msgConfig *tgbotapi.MessageConfig) {
 	todayStart := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, today.Location())
 
 	// Get all active groups
-	groups, err := b.workouts.ListWorkoutGroups(b.allowedUserID, true)
+	groups, err := b.workouts.ListGroups(b.allowedUserID, true)
 	if err != nil {
 		slog.Error("Error listing workout groups", "error", err)
 		msgConfig.Text = "❌ Error retrieving workout groups."
@@ -68,7 +68,7 @@ func (b *Bot) handleStartNextCommand(msgConfig *tgbotapi.MessageConfig) {
 
 		if session != nil && (session.Status == "pending" || session.Status == "notified") {
 			// Get variant name
-			variant, err := b.workouts.GetWorkoutVariant(session.VariantID)
+			variant, err := b.workouts.GetVariant(session.VariantID)
 			if err != nil || variant == nil {
 				continue
 			}
@@ -120,7 +120,7 @@ func (b *Bot) handleWorkoutStatusCommand(msgConfig *tgbotapi.MessageConfig) {
 	todayStart := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, today.Location())
 
 	// Get all active groups
-	groups, err := b.workouts.ListWorkoutGroups(b.allowedUserID, true)
+	groups, err := b.workouts.ListGroups(b.allowedUserID, true)
 	if err != nil {
 		slog.Error("Error listing workout groups", "error", err)
 		msgConfig.Text = "❌ Error retrieving workout status."
@@ -148,7 +148,7 @@ func (b *Bot) handleWorkoutStatusCommand(msgConfig *tgbotapi.MessageConfig) {
 		}
 
 		if session != nil {
-			variant, _ := b.workouts.GetWorkoutVariant(session.VariantID)
+			variant, _ := b.workouts.GetVariant(session.VariantID)
 			variantName := "Unknown"
 			if variant != nil {
 				variantName = variant.Name
@@ -175,7 +175,7 @@ func (b *Bot) handleWorkoutStatusCommand(msgConfig *tgbotapi.MessageConfig) {
 
 			// Show exercise completion if in progress or completed
 			if session.Status == "in_progress" || session.Status == "completed" {
-				logs, err := b.workouts.GetExerciseLogs(session.ID)
+				logs, err := b.workouts.ListExerciseLogs(session.ID)
 				if err == nil && len(logs) > 0 {
 					exercises, _ := b.workouts.ListExercisesByVariant(session.VariantID)
 					completedEx := 0
@@ -212,14 +212,14 @@ type historyItem struct {
 func (b *Bot) handleWorkoutHistoryCommand(msgConfig *tgbotapi.MessageConfig) {
 	// Fetch more than needed from each source so the merged+truncated list is correct.
 	const limit = 10
-	sessions, err := b.workouts.GetWorkoutHistory(b.allowedUserID, limit*2)
+	sessions, err := b.workouts.ListHistory(b.allowedUserID, limit*2)
 	if err != nil {
 		slog.Error("Error getting workout history", "error", err)
 		msgConfig.Text = "❌ Error retrieving workout history."
 		return
 	}
 
-	miband, err := b.imports.ListMiBandWorkouts(context.Background(), b.allowedUserID, limit*2)
+	miband, err := b.imports.ListMiBand(context.Background(), b.allowedUserID, limit*2)
 	if err != nil {
 		slog.Warn("handleWorkoutHistory: failed to fetch manual activities", "error", err)
 	}
@@ -263,8 +263,8 @@ func (b *Bot) handleWorkoutHistoryCommand(msgConfig *tgbotapi.MessageConfig) {
 		if item.session != nil {
 			session := item.session
 			// Get group and variant names
-			group, _ := b.workouts.GetWorkoutGroup(session.GroupID)
-			variant, _ := b.workouts.GetWorkoutVariant(session.VariantID)
+			group, _ := b.workouts.GetGroup(session.GroupID)
+			variant, _ := b.workouts.GetVariant(session.VariantID)
 
 			groupName := "Unknown"
 			variantName := "Unknown"
@@ -291,7 +291,7 @@ func (b *Bot) handleWorkoutHistoryCommand(msgConfig *tgbotapi.MessageConfig) {
 			fmt.Fprintf(&sb, "%s %s — %s - %s", statusEmoji, dateStr, groupName, variantName)
 
 			if session.Status == "completed" {
-				logs, err := b.workouts.GetExerciseLogs(session.ID)
+				logs, err := b.workouts.ListExerciseLogs(session.ID)
 				if err == nil {
 					completedCount := 0
 					for _, log := range logs {
