@@ -445,6 +445,98 @@ func (r *Repo) IsLowOnStock(m *Medication, daysThreshold int) bool {
 
 // -- Intake Log --
 
+// tzStepPlanStatusGate is the SQL predicate that limits action on
+// source='tz_step' intake_log rows to those whose owning tz_transition_plan
+// is in APPROVED or COMPLETED status. Centralized here so every read/write
+// path that touches PENDING intakes applies the same gate.
+//
+// Why: DeletePendingPreMaterializedIntakesForPlan (the plan-cancel cleanup)
+// is best-effort — if it fails after the plan-status UPDATE succeeds, the
+// orphan PENDING tz_step rows would otherwise still fire reminders, be
+// confirmed by stale Telegram/WebPush actions (decrementing inventory for a
+// cancelled plan step), or appear in forecast / Take-next surfaces. The plan
+// join makes all of that impossible by construction. Non-tz_step rows
+// (source='schedule' and any future sources) bypass this gate.
+//
+// The predicate references the bare column `tz_plan_id` so it works in both
+// SELECT WHERE and UPDATE WHERE clauses on intake_log (SQLite resolves
+// unqualified columns to the target table).
+const tzStepPlanStatusGate = `(
+		source != 'tz_step'
+		OR (
+			tz_plan_id IS NOT NULL
+			AND EXISTS (
+				SELECT 1 FROM tz_transition_plans p
+				WHERE p.id = intake_log.tz_plan_id
+				  AND p.status IN ('APPROVED', 'COMPLETED')
+			)
+		)
+	)`
+
+// tzStepPlanStatusGateForDedup is a status-aware variant of
+// tzStepPlanStatusGate used by the scheduler's dedup readers
+// (BatchGetIntakesBySchedule, HasIntakeNearScheduledTime). It hides ONLY
+// orphan PENDING source='tz_step' rows whose owning plan is not
+// APPROVED/COMPLETED. Real TAKEN step rows survive plan cancel (see
+// DeletePendingPreMaterializedIntakesForPlan — only PENDING rows are
+// deleted) and represent doses the user actually consumed, so they must
+// still suppress legitimate normal-schedule reminders for the same slot.
+//
+// Without this gate a best-effort delete failure on plan cancel would let
+// an orphan PENDING tz_step row indefinitely hide the legitimate normal
+// reminder for that slot. Without the status='TAKEN' exception we would
+// double-fire normal reminders after the user took a step and then
+// cancelled the plan.
+const tzStepPlanStatusGateForDedup = `(
+		source != 'tz_step'
+		OR status != 'PENDING'
+		OR (
+			tz_plan_id IS NOT NULL
+			AND EXISTS (
+				SELECT 1 FROM tz_transition_plans p
+				WHERE p.id = intake_log.tz_plan_id
+				  AND p.status IN ('APPROVED', 'COMPLETED')
+			)
+		)
+	)`
+
+// scheduleNotShadowedByTZStepGate hides a PENDING source='schedule' row when a
+// logically-active source='tz_step' sibling exists at the same
+// (medication_id, scheduled_at_unix). The two rows represent the same logical
+// dose (the scheduler fired the normal slot at T right before the user
+// approved a plan whose snap-to-clock step also landed at T); without this
+// gate the schedule row keeps firing MedicationReminderChecker reminders and
+// is independently confirmable via confirm_intake / confirm_schedule, letting
+// one dose decrement inventory twice and survive in history as a phantom.
+//
+// "Logically-active" mirrors tzStepPlanStatusGateForDedup applied to the
+// sibling: a TAKEN/SKIPPED tz_step row, or a PENDING tz_step row whose plan is
+// APPROVED/COMPLETED, suppresses the schedule row. Orphan PENDING tz_step
+// rows from cancelled plans do NOT suppress — the schedule row is then the
+// only actionable thing at that slot.
+//
+// Only applied to readers that drive user actions on PENDING rows
+// (GetPendingIntakes, GetPendingIntakesBySchedule). History/forecast readers
+// keep showing both rows so the user can still see what happened; the
+// tz_step row wins their tie-break via ORDER BY.
+const scheduleNotShadowedByTZStepGate = `(
+		source != 'schedule'
+		OR NOT EXISTS (
+			SELECT 1 FROM intake_log step
+			WHERE step.medication_id = intake_log.medication_id
+			  AND step.scheduled_at_unix = intake_log.scheduled_at_unix
+			  AND step.source = 'tz_step'
+			  AND (
+				step.status != 'PENDING'
+				OR EXISTS (
+					SELECT 1 FROM tz_transition_plans p
+					WHERE p.id = step.tz_plan_id
+					  AND p.status IN ('APPROVED', 'COMPLETED')
+				)
+			  )
+		)
+	)`
+
 func (r *Repo) CreateIntake(medID, userID int64, scheduledAt time.Time) (int64, error) {
 	res, err := r.db.Exec("INSERT INTO intake_log (medication_id, user_id, scheduled_at_unix, status) VALUES (?, ?, ?, 'PENDING')",
 		medID, userID, scheduledAt.UTC().Unix())
@@ -465,8 +557,16 @@ func (r *Repo) CreateManualIntake(medID, userID int64, takenAt time.Time) (int64
 	return res.LastInsertId()
 }
 
+// ConfirmIntake marks a PENDING intake_log row as TAKEN. Defense in depth:
+// tzStepPlanStatusGate hides orphan source='tz_step' rows whose owning plan
+// was cancelled/rejected so a stale Telegram/WebPush callback cannot decrement
+// inventory for a step the user already dismissed via the plan banner.
+// Callers that hit the gate see sql.ErrNoRows just like a concurrent confirm,
+// which the domain layer maps to ErrNotPending.
 func (r *Repo) ConfirmIntake(id int64, takenAt time.Time) error {
-	res, err := r.db.Exec("UPDATE intake_log SET status = 'TAKEN', taken_at_unix = ? WHERE id = ? AND status = 'PENDING'",
+	res, err := r.db.Exec(`
+		UPDATE intake_log SET status = 'TAKEN', taken_at_unix = ?
+		WHERE id = ? AND status = 'PENDING' AND `+tzStepPlanStatusGate,
 		takenAt.UTC().Unix(), id)
 	if err != nil {
 		return err
@@ -481,8 +581,12 @@ func (r *Repo) ConfirmIntake(id int64, takenAt time.Time) error {
 	return nil
 }
 
+// SkipIntake marks a PENDING intake_log row as SKIPPED. Same orphan-tz_step
+// gate as ConfirmIntake — see tzStepPlanStatusGate.
 func (r *Repo) SkipIntake(id int64) error {
-	res, err := r.db.Exec("UPDATE intake_log SET status = 'SKIPPED', taken_at_unix = NULL WHERE id = ? AND status = 'PENDING'", id)
+	res, err := r.db.Exec(`
+		UPDATE intake_log SET status = 'SKIPPED', taken_at_unix = NULL
+		WHERE id = ? AND status = 'PENDING' AND `+tzStepPlanStatusGate, id)
 	if err != nil {
 		return err
 	}
@@ -496,6 +600,21 @@ func (r *Repo) SkipIntake(id int64) error {
 	return nil
 }
 
+// UpdateIntake mutates an intake_log row's status (and taken_at_unix when
+// status='TAKEN'). The /api/intakes/update bulk handler verifies ownership
+// then calls this — so an orphan PENDING source='tz_step' row from a
+// CANCELLED plan surfaced through /api/history could otherwise be marked
+// TAKEN here, bypassing the ConfirmIntake gate and decrementing inventory
+// for a step the user already dismissed at the plan banner.
+//
+// The status-aware tzStepPlanStatusGateForDedup variant blocks ONLY orphan
+// PENDING tz_step rows: a TAKEN tz_step row that survived plan cancellation
+// (DeletePendingPreMaterializedIntakesForPlan only deletes PENDING rows) is
+// still a real dose the user consumed, so /api/history corrections —
+// revert to PENDING, retime the taken_at, switch to SKIPPED — must remain
+// possible. Returns sql.ErrNoRows when the gate blocks the update; the
+// handler observes that to skip the inventory adjustment that would
+// otherwise run off the stale pre-read row state.
 func (r *Repo) UpdateIntake(id int64, takenAt time.Time, status string) error {
 	var takenAtUnixVal interface{}
 	if status == "TAKEN" {
@@ -503,8 +622,20 @@ func (r *Repo) UpdateIntake(id int64, takenAt time.Time, status string) error {
 	} else {
 		takenAtUnixVal = nil
 	}
-	_, err := r.db.Exec("UPDATE intake_log SET status = ?, taken_at_unix = ? WHERE id = ?", status, takenAtUnixVal, id)
-	return err
+	res, err := r.db.Exec(
+		"UPDATE intake_log SET status = ?, taken_at_unix = ? WHERE id = ? AND "+tzStepPlanStatusGateForDedup,
+		status, takenAtUnixVal, id)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (r *Repo) SnoozeIntake(id int64, snoozeUntil time.Time) error {
@@ -523,8 +654,27 @@ func (r *Repo) SnoozeIntake(id int64, snoozeUntil time.Time) error {
 	return nil
 }
 
+// GetPendingIntakes returns all PENDING intake_log rows that are
+// user-actionable. The tzStepPlanStatusGate makes orphan source='tz_step'
+// rows from cancelled/rejected plans invisible to every caller that flows
+// through this reader (MedicationReminderChecker, ConfirmMedicationByMedID,
+// etc.); see that constant for the threat model.
+//
+// scheduleNotShadowedByTZStepGate additionally hides a PENDING source='schedule'
+// row when a logically-active source='tz_step' sibling exists at the same
+// (medication_id, scheduled_at_unix). Without it, the normal scheduler firing
+// the slot at T just before the user approves a plan whose snap-to-clock final
+// step also lands at T would leave the schedule row PENDING after the user
+// confirms the tz_step row — re-fired by MedicationReminderChecker and
+// confirmable via confirm_intake / confirm:<medID> for a second inventory
+// decrement on a single dose.
 func (r *Repo) GetPendingIntakes() ([]IntakeLog, error) {
-	rows, err := r.db.Query("SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until_unix, source, tz_plan_id, tz_step_number FROM intake_log WHERE status = 'PENDING'")
+	rows, err := r.db.Query(`
+		SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until_unix, source, tz_plan_id, tz_step_number
+		FROM intake_log
+		WHERE status = 'PENDING'
+		  AND ` + tzStepPlanStatusGate + `
+		  AND ` + scheduleNotShadowedByTZStepGate)
 	if err != nil {
 		return nil, err
 	}
@@ -680,13 +830,36 @@ func (r *Repo) GetIntake(id int64) (*IntakeLog, error) {
 	return &l, nil
 }
 
+// GetIntakeBySchedule returns the intake_log row at (medID, scheduledAt) that
+// is logically active. Orphan PENDING source='tz_step' rows whose owning plan
+// is not APPROVED/COMPLETED are hidden via tzStepPlanStatusGateForDedup so
+// callers that act on the result (Take-next, confirm-schedule, /next) don't
+// pick up a zombie row that ConfirmIntake will then reject — when an orphan
+// shares (medication_id, scheduled_at_unix) with a legitimate normal target
+// the handler would otherwise see the orphan, fail to confirm it, and skip
+// the slot entirely. TAKEN tz_step rows from any plan, and PENDING tz_step
+// rows from APPROVED/COMPLETED plans, still pass through. Tests that need
+// to introspect physical persistence of an orphan row must query intake_log
+// directly.
+//
+// When a (medID, scheduledAt) slot has BOTH a source='schedule' row and a
+// source='tz_step' row (e.g. the normal scheduler fired at T just before the
+// user approved a plan whose final snap-to-clock step also landed at T), the
+// tz_step row wins via the ORDER BY tiebreaker. Confirming the schedule row
+// instead would leave the pre-materialized step PENDING — visible to the
+// scheduler's fire path on the next tick — so prefer the plan-owned row.
 func (r *Repo) GetIntakeBySchedule(medID int64, scheduledAt time.Time) (*IntakeLog, error) {
 	var l IntakeLog
 	var schedUnix int64
 	var takenUnix sql.NullInt64
 	var snoozeUnix sql.NullInt64
 	var tzPlanID, tzStepNumber sql.NullInt64
-	err := r.db.QueryRow("SELECT id, medication_id, user_id, scheduled_at_unix, taken_at_unix, status, snoozed_until_unix, source, tz_plan_id, tz_step_number FROM intake_log WHERE medication_id = ? AND scheduled_at_unix = ?", medID, scheduledAt.UTC().Unix()).Scan(
+	err := r.db.QueryRow(`SELECT id, medication_id, user_id, scheduled_at_unix, taken_at_unix, status, snoozed_until_unix, source, tz_plan_id, tz_step_number
+		FROM intake_log
+		WHERE medication_id = ? AND scheduled_at_unix = ?
+		  AND `+tzStepPlanStatusGateForDedup+`
+		ORDER BY CASE WHEN source = 'tz_step' THEN 0 ELSE 1 END, id
+		LIMIT 1`, medID, scheduledAt.UTC().Unix()).Scan(
 		&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &takenUnix, &l.Status, &snoozeUnix, &l.Source, &tzPlanID, &tzStepNumber,
 	)
 	if err == sql.ErrNoRows {
@@ -743,8 +916,9 @@ func (r *Repo) BatchGetIntakesBySchedule(schedules []MedicationSchedule) (map[Me
 		}
 
 		query := fmt.Sprintf(
-			"SELECT id, medication_id, user_id, scheduled_at_unix, taken_at_unix, status, snoozed_until_unix, source, tz_plan_id, tz_step_number FROM intake_log WHERE (medication_id, scheduled_at_unix) IN (%s)",
+			"SELECT id, medication_id, user_id, scheduled_at_unix, taken_at_unix, status, snoozed_until_unix, source, tz_plan_id, tz_step_number FROM intake_log WHERE (medication_id, scheduled_at_unix) IN (%s) AND %s",
 			strings.Join(placeholders, ", "),
+			tzStepPlanStatusGateForDedup,
 		)
 
 		rows, err := r.db.Query(query, args...)
@@ -894,14 +1068,23 @@ func (r *Repo) GetBatchIntakeReminders(intakeIDs []int64) (map[int64][]int, erro
 // GetPendingIntakesBySchedule returns every PENDING intake for the user whose
 // scheduled_at_unix matches the supplied target instant. The match is on the
 // INTEGER unix-seconds column, so it is independent of the caller's
-// time.Location.
+// time.Location. Applies tzStepPlanStatusGate so the confirm_schedule:<unix>
+// batch path cannot resurrect orphan tz_step rows from a cancelled plan.
+//
+// scheduleNotShadowedByTZStepGate additionally hides a PENDING source='schedule'
+// row that has a logically-active source='tz_step' sibling at the same slot —
+// without it, ConfirmIntakesBySchedule would confirm both rows of a dual-row
+// collision and ConfirmScheduleWithCleanup would decrement inventory twice for
+// the single dose those rows represent.
 func (r *Repo) GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time) ([]IntakeLog, error) {
 	rows, err := r.db.Query(
 		`SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until_unix, source, tz_plan_id, tz_step_number
 		 FROM intake_log
 		 WHERE user_id = ? AND status = 'PENDING'
 		   AND scheduled_at_unix = ?
-		   AND medication_id IN (SELECT id FROM medications WHERE archived = 0)`,
+		   AND medication_id IN (SELECT id FROM medications WHERE archived = 0)
+		   AND `+tzStepPlanStatusGate+`
+		   AND `+scheduleNotShadowedByTZStepGate,
 		userID, scheduledAt.UTC().Unix(),
 	)
 	if err != nil {
@@ -1120,6 +1303,16 @@ func (r *Repo) DeletePendingPreMaterializedIntakesForPlan(planID int64) error {
 // so they need a separate gate. After the first fire AddIntakeReminder
 // writes an intake_reminders row; subsequent ticks skip the intake here and
 // MedicationReminderChecker takes over re-reminders via its snooze loop.
+//
+// Defense in depth: this also requires the owning tz_transition_plan to be
+// in APPROVED or COMPLETED status. The plan-cancel path
+// (DeletePendingPreMaterializedIntakesForPlan) is best-effort — if its
+// DELETE fails after the plan-status UPDATE succeeds, leftover tz_step rows
+// would otherwise fire here even though the plan was cancelled. The plan
+// join makes that impossible by construction. COMPLETED is included because
+// the scheduler may flip an APPROVED plan to COMPLETED earlier in the same
+// tick (when no future PENDING steps remain) and we still want any
+// past-but-unfired step rows to fire on this tick.
 func (r *Repo) GetDueTZStepIntakes(asOf time.Time) ([]IntakeLog, error) {
 	rows, err := r.db.Query(`
 		SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until_unix,
@@ -1127,6 +1320,12 @@ func (r *Repo) GetDueTZStepIntakes(asOf time.Time) ([]IntakeLog, error) {
 		FROM intake_log
 		WHERE status = 'PENDING' AND source = 'tz_step'
 		  AND scheduled_at_unix <= ?
+		  AND tz_plan_id IS NOT NULL
+		  AND EXISTS (
+		    SELECT 1 FROM tz_transition_plans p
+		    WHERE p.id = intake_log.tz_plan_id
+		      AND p.status IN ('APPROVED', 'COMPLETED')
+		  )
 		  AND NOT EXISTS (
 		    SELECT 1 FROM intake_reminders r WHERE r.intake_id = intake_log.id
 		  )`, asOf.UTC().Unix())
@@ -1176,6 +1375,37 @@ func (r *Repo) CountFuturePendingTZStepIntakesForPlan(planID int64, asOf time.Ti
 	return n, err
 }
 
+// MedsWithFuturePendingTZStepsForPlan returns the distinct medication IDs
+// that still have at least one PENDING source='tz_step' row in intake_log
+// with scheduled_at_unix > asOf for the given plan. The medication scheduler
+// uses this to skip normal-schedule emission for those meds while an
+// APPROVED plan still has steps to fire, restoring the pre-Track-D
+// "plan owns this med while steps remain" suppression. Without it the
+// symmetric ±minInterval dedup (HasIntakeNearScheduledTime) only covers
+// targets within minInterval of an existing step row; a normal slot that
+// falls in a gap > 2*minInterval between consecutive steps would otherwise
+// fire mid-transition.
+func (r *Repo) MedsWithFuturePendingTZStepsForPlan(planID int64, asOf time.Time) ([]int64, error) {
+	rows, err := r.db.Query(`
+		SELECT DISTINCT medication_id FROM intake_log
+		WHERE tz_plan_id = ? AND source = 'tz_step'
+		  AND status = 'PENDING'
+		  AND scheduled_at_unix > ?`, planID, asOf.UTC().Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 // HasIntakeNearScheduledTime reports whether an intake_log row for the given
 // medication exists within ±window of target, with status in
 // ('PENDING', 'TAKEN'). The scheduler uses this as the symmetric
@@ -1193,6 +1423,7 @@ func (r *Repo) HasIntakeNearScheduledTime(medID int64, target time.Time, window 
 		WHERE medication_id = ?
 		  AND status IN ('PENDING', 'TAKEN')
 		  AND scheduled_at_unix BETWEEN ? AND ?
+		  AND `+tzStepPlanStatusGateForDedup+`
 		LIMIT 1`, medID, targetUnix-windowSec, targetUnix+windowSec).Scan(&n)
 	if err != nil {
 		return false, err
@@ -1207,13 +1438,38 @@ func (r *Repo) HasIntakeNearScheduledTime(medID int64, target time.Time, window 
 // docs/plans/20260508-simplify-medication-scheduling-utc-and-pre-materialized-steps.md.
 // The window matches medplan's forecast-mode predicate so the two sources
 // dedup cleanly on (medication_id, scheduled_at_unix).
+//
+// Defense in depth: source='tz_step' rows are only returned when their owning
+// tz_transition_plan is in APPROVED or COMPLETED status — mirroring the gate
+// in GetDueTZStepIntakes. The plan-cancel path
+// (DeletePendingPreMaterializedIntakesForPlan) is best-effort, so a leftover
+// PENDING tz_step row could otherwise appear in the forecast / Take-next
+// surfaces (via suppressNormalsCoveredByStep it would also hide the normal
+// target for that med) even after the user dismissed the plan. Non-tz_step
+// rows (source='schedule' and any future sources) bypass this gate and are
+// always returned when PENDING.
+//
+// Rows are ordered so that source='tz_step' rows appear first at any
+// (medication_id, scheduled_at_unix). The forecast/Take-next dedup
+// (medication_handlers.go / settings_handlers.go) keeps the first row it sees
+// at each key, then suppressNormalsCoveredByStep drops any remaining
+// SourceNormalSchedule entry for plan-owned meds. Without the ordering a
+// pre-existing source='schedule' row at the same instant as a materialized
+// step would win the dedup, get marked SourceNormalSchedule, and then be
+// dropped by the plan-owned suppression — silently hiding the dose. The
+// schedule row can co-exist if the normal scheduler fired at T just before
+// the user approved a plan whose snap-to-clock final step also landed at T.
 func (r *Repo) GetPendingIntakesInWindow(start, end time.Time) ([]IntakeLog, error) {
 	rows, err := r.db.Query(`
 		SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until_unix,
 		       source, tz_plan_id, tz_step_number
 		FROM intake_log
 		WHERE status = 'PENDING'
-		  AND scheduled_at_unix > ? AND scheduled_at_unix <= ?`,
+		  AND scheduled_at_unix > ? AND scheduled_at_unix <= ?
+		  AND `+tzStepPlanStatusGate+`
+		ORDER BY scheduled_at_unix, medication_id,
+		         CASE WHEN source = 'tz_step' THEN 0 ELSE 1 END,
+		         id`,
 		start.UTC().Unix(), end.UTC().Unix())
 	if err != nil {
 		return nil, err

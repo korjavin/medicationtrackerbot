@@ -288,4 +288,3 @@ func TestMigration065_RoundTrip(t *testing.T) {
 		t.Errorf("after re-up: approved_at_unix=%v want %d", a2, approved)
 	}
 }
-

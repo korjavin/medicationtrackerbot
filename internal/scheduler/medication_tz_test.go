@@ -768,6 +768,188 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 			t.Errorf("expected intake at step time %v, got none", stepTime)
 		}
 	})
+
+	t.Run("cancelled plan: leftover tz_step row does not fire", func(t *testing.T) {
+		// Defense in depth: the planner cancels a plan and then deletes its
+		// PENDING tz_step rows in two separate calls (CancelActivePlan →
+		// DeletePendingPreMaterializedIntakesForPlan). If the second call
+		// fails after the first commits, the plan is CANCELLED but its
+		// step rows are still in intake_log. GetDueTZStepIntakes must
+		// refuse to fire them — the plan-status join filters by
+		// APPROVED/COMPLETED only.
+		db := mustNewDB(t)
+		db.Settings.SetMedicationEnabled(context.Background(), true) //nolint:errcheck
+		if err := db.TZ.RecordTimezone("UTC"); err != nil {
+			t.Fatalf("RecordTimezone: %v", err)
+		}
+
+		medID, err := db.Medication.CreateMedication("Warfarin", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+		if err != nil {
+			t.Fatalf("CreateMedication: %v", err)
+		}
+		nowTime := time.Date(2024, 3, 15, 11, 5, 0, 0, time.UTC)
+		if err := db.Medication.UpdateMedicationCreatedAt(medID, nowTime.Add(-48*time.Hour)); err != nil {
+			t.Fatalf("UpdateMedicationCreatedAt: %v", err)
+		}
+
+		planID, err := db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
+			OldTZ:      "UTC",
+			NewTZ:      "Europe/Berlin",
+			Status:     "PENDING_APPROVAL",
+			StepsJSON:  "[]",
+			InputsJSON: "{}",
+			PlanHash:   "testhash-cancelled-leak",
+		})
+		if err != nil {
+			t.Fatalf("CreateTZTransitionPlan: %v", err)
+		}
+		stepTime := time.Date(2024, 3, 15, 11, 0, 0, 0, time.UTC)
+		setPlanSteps(t, db, planID, []planStepFixture{
+			{MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "step 1"},
+		})
+		if _, err := db.ApproveAndMaterialize(context.Background(), planID, 123456, nowTime.Add(-10*time.Minute)); err != nil {
+			t.Fatalf("ApproveAndMaterialize: %v", err)
+		}
+
+		// Simulate the cancel-then-delete-fails scenario: the plan is
+		// flipped CANCELLED but the tz_step intake_log row remains.
+		if err := db.TZ.UpdateTZTransitionPlanStatus(planID, "CANCELLED", "test", "APPROVED"); err != nil {
+			t.Fatalf("UpdateTZTransitionPlanStatus: %v", err)
+		}
+
+		mock := &MockNotifier{}
+		sched := New(db, 123456, []notifier.Notifier{mock})
+		sched.MedicationChecker.now = func() time.Time { return nowTime }
+
+		if err := sched.MedicationChecker.Check(context.Background()); err != nil {
+			t.Fatalf("Check: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+
+		// The leftover tz_step row must NOT have been fired — no
+		// intake_reminders row should have been written against it,
+		// and it must remain PENDING. Query directly because
+		// GetIntakeBySchedule hides orphan PENDING tz_step rows via
+		// tzStepPlanStatusGateForDedup; we need the raw row here to
+		// verify physical persistence.
+		var stepIntakeID int64
+		var stepIntakeStatus string
+		if err := db.DB().QueryRow(`
+			SELECT id, status FROM intake_log
+			WHERE medication_id = ? AND scheduled_at_unix = ? AND source = 'tz_step'`,
+			medID, stepTime.UTC().Unix()).Scan(&stepIntakeID, &stepIntakeStatus); err != nil {
+			t.Fatalf("orphan tz_step row missing: %v", err)
+		}
+		if stepIntakeStatus != "PENDING" {
+			t.Errorf("expected leftover tz_step row to remain PENDING (it was never fired), got %q", stepIntakeStatus)
+		}
+		stepReminders, err := db.Medication.GetIntakeReminders(stepIntakeID)
+		if err != nil {
+			t.Fatalf("GetIntakeReminders(step): %v", err)
+		}
+		if len(stepReminders) != 0 {
+			t.Errorf("expected 0 reminder rows against leftover tz_step intake, got %d", len(stepReminders))
+		}
+		// Defense in depth: the orphan row must also NOT suppress the
+		// legitimate normal-schedule target for this med — without the
+		// dedup gate, BatchGetIntakesBySchedule / HasIntakeNearScheduledTime
+		// would see the orphan and skip the real 09:00 reminder for the
+		// rest of the day. The 09:00 UTC target for today is due at 11:05
+		// (fire mode includes any at-or-before-now slot from the user-local
+		// day), so a notification for the normal target is expected.
+		normalAt := time.Date(2024, 3, 15, 9, 0, 0, 0, time.UTC)
+		normalIntake, err := db.Medication.GetIntakeBySchedule(medID, normalAt)
+		if err != nil {
+			t.Fatalf("GetIntakeBySchedule(normal): %v", err)
+		}
+		if normalIntake == nil {
+			t.Errorf("expected scheduler to create a normal-schedule intake at %v; orphan tz_step row must not block legitimate dedup", normalAt)
+		}
+		if got := len(mock.Notifications); got != 1 {
+			t.Errorf("expected exactly 1 notification (the legitimate 09:00 normal target), got %d", got)
+		}
+	})
+
+	t.Run("approved plan: pending future steps suppress normal targets for that med", func(t *testing.T) {
+		// Restores the pre-Track-D "plan owns this med while steps remain"
+		// behaviour. An APPROVED plan has two pending FUTURE steps for med A
+		// — at 03:00 and 19:00 UTC tomorrow (16h apart, > 2*minInterval
+		// for a 2x/day flexible med). The current scheduler tick is at
+		// 12:00 UTC today. Normal-schedule slots for med A at 08:00 and
+		// 20:00 UTC today fall:
+		//   * 08:00 UTC today vs 03:00 UTC tomorrow (+19h) → outside any
+		//     step's ±7.2h window. Pre-fix this would have fired as a
+		//     stray normal target during the active transition.
+		// With the plan-owns-med suppression, no normal target for med A
+		// fires while the plan still has pending future steps.
+		db := mustNewDB(t)
+		db.Settings.SetMedicationEnabled(context.Background(), true) //nolint:errcheck
+		if err := db.TZ.RecordTimezone("UTC"); err != nil {
+			t.Fatalf("RecordTimezone: %v", err)
+		}
+
+		medID, err := db.Medication.CreateMedication("Metformin", "1000mg",
+			`{"type":"daily","times":["08:00","20:00"]}`, nil, nil, "", "", "")
+		if err != nil {
+			t.Fatalf("CreateMedication: %v", err)
+		}
+		// now = today 12:00 UTC — past 08:00 UTC today's normal slot.
+		nowTime := time.Date(2024, 3, 15, 12, 0, 0, 0, time.UTC)
+		if err := db.Medication.UpdateMedicationCreatedAt(medID, nowTime.Add(-30*24*time.Hour)); err != nil {
+			t.Fatalf("UpdateMedicationCreatedAt: %v", err)
+		}
+
+		planID, err := db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
+			OldTZ:      "UTC",
+			NewTZ:      "Asia/Tokyo",
+			Status:     "PENDING_APPROVAL",
+			StepsJSON:  "[]",
+			InputsJSON: "{}",
+			PlanHash:   "testhash-plan-owns-med",
+		})
+		if err != nil {
+			t.Fatalf("CreateTZTransitionPlan: %v", err)
+		}
+		// Two future PENDING steps far in the future so neither one's
+		// ±minInterval (7h12m for flexible 12h interval) covers today's
+		// 08:00 UTC normal slot.
+		step1Time := time.Date(2024, 3, 16, 3, 0, 0, 0, time.UTC)
+		step2Time := time.Date(2024, 3, 16, 19, 0, 0, 0, time.UTC)
+		setPlanSteps(t, db, planID, []planStepFixture{
+			{MedicationID: medID, StepNumber: 1, ScheduledAt: step1Time, Note: "step 1"},
+			{MedicationID: medID, StepNumber: 2, ScheduledAt: step2Time, Note: "step 2"},
+		})
+		if _, err := db.ApproveAndMaterialize(context.Background(), planID, 123456, nowTime.Add(-1*time.Hour)); err != nil {
+			t.Fatalf("ApproveAndMaterialize: %v", err)
+		}
+
+		mock := &MockNotifier{}
+		sched := New(db, 123456, []notifier.Notifier{mock})
+		sched.MedicationChecker.now = func() time.Time { return nowTime }
+
+		if err := sched.MedicationChecker.Check(context.Background()); err != nil {
+			t.Fatalf("Check: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+
+		// No new PENDING normal-schedule intake_log row at 08:00 UTC today.
+		// Plan owns this med, so its 08:00 normal slot must NOT fire.
+		todayMorning := time.Date(2024, 3, 15, 8, 0, 0, 0, time.UTC)
+		if got, _ := db.Medication.GetIntakeBySchedule(medID, todayMorning); got != nil {
+			t.Errorf("expected no normal-schedule intake at %v while plan has pending future steps, got %+v", todayMorning, got)
+		}
+		// Two materialized step rows still PENDING.
+		hist, err := db.Medication.GetIntakeHistory(int(medID), 0)
+		if err != nil {
+			t.Fatalf("GetIntakeHistory: %v", err)
+		}
+		if len(hist) != 2 {
+			for _, h := range hist {
+				t.Logf("intake row: id=%d scheduled=%v source=%s status=%s", h.ID, h.ScheduledAt, h.Source, h.Status)
+			}
+			t.Errorf("expected exactly 2 intake_log rows (the two materialized steps), got %d", len(hist))
+		}
+	})
 }
 
 // TestMedicationCheckerCompletedPlanOverlapGuard pins the regression behind

@@ -442,4 +442,3 @@ func (r *Repo) GetPlanByHash(hash string) (*TZTransitionPlan, error) {
 	}
 	return p, nil
 }
-
