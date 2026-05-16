@@ -122,6 +122,9 @@ func (r *Repo) RecordTimezone(tz string) error {
 // -- TZ Transition Plans --
 
 // CreateTZTransitionPlan saves a new timezone transition plan and returns its ID.
+// created_at_unix is stamped at the SQL layer via the column default
+// (strftime('%s','now')), matching the prior CURRENT_TIMESTAMP behaviour for
+// the legacy DATETIME column.
 func (r *Repo) CreateTZTransitionPlan(plan *TZTransitionPlan) (int64, error) {
 	res, err := r.db.Exec(
 		`INSERT INTO tz_transition_plans (old_tz, new_tz, status, steps_json, inputs_json, plan_hash)
@@ -134,6 +137,30 @@ func (r *Repo) CreateTZTransitionPlan(plan *TZTransitionPlan) (int64, error) {
 	return res.LastInsertId()
 }
 
+// scanPlan scans the standard column list — id, old_tz, new_tz, created_at_unix,
+// status, steps_json, inputs_json, plan_hash, notified_at_unix, approved_at_unix,
+// user_action — into a TZTransitionPlan. Reads convert INTEGER unix-seconds-UTC
+// to time.Time via storedb.UnixToTime so the public field shape (time.Time)
+// stays the same.
+func scanPlan(scan func(...interface{}) error) (*TZTransitionPlan, error) {
+	var p TZTransitionPlan
+	var createdAtUnix int64
+	var notifiedAtUnix, approvedAtUnix sql.NullInt64
+	var userAction sql.NullString
+	if err := scan(&p.ID, &p.OldTZ, &p.NewTZ, &createdAtUnix, &p.Status, &p.StepsJSON, &p.InputsJSON, &p.PlanHash, &notifiedAtUnix, &approvedAtUnix, &userAction); err != nil {
+		return nil, err
+	}
+	p.CreatedAt = storedb.UnixToTime(createdAtUnix)
+	p.NotifiedAt = storedb.NullableUnixToTimePtr(notifiedAtUnix)
+	p.ApprovedAt = storedb.NullableUnixToTimePtr(approvedAtUnix)
+	if userAction.Valid {
+		p.UserAction = userAction.String
+	}
+	return &p, nil
+}
+
+const planSelectCols = `id, old_tz, new_tz, created_at_unix, status, steps_json, inputs_json, plan_hash, notified_at_unix, approved_at_unix, user_action`
+
 // GetLatestCompletedTZTransitionPlan returns the most recent plan in
 // COMPLETED status, or nil if none exists. The medication scheduler uses this
 // as a fallback for the overlap-guard data once a plan transitions out of
@@ -142,61 +169,39 @@ func (r *Repo) CreateTZTransitionPlan(plan *TZTransitionPlan) (int64, error) {
 // GetLatestActiveOrPendingTZTransitionPlan and would otherwise lose the
 // consumed-step times that suppress the just-superseded normal-schedule slots.
 func (r *Repo) GetLatestCompletedTZTransitionPlan() (*TZTransitionPlan, error) {
-	var p TZTransitionPlan
-	var notifiedAt, approvedAt sql.NullTime
-	var userAction sql.NullString
-	err := r.db.QueryRow(
-		`SELECT id, old_tz, new_tz, created_at, status, steps_json, inputs_json, plan_hash, notified_at, approved_at, user_action
+	row := r.db.QueryRow(
+		`SELECT ` + planSelectCols + `
 		 FROM tz_transition_plans
 		 WHERE status = 'COMPLETED'
-		 ORDER BY created_at DESC, id DESC LIMIT 1`,
-	).Scan(&p.ID, &p.OldTZ, &p.NewTZ, &p.CreatedAt, &p.Status, &p.StepsJSON, &p.InputsJSON, &p.PlanHash, &notifiedAt, &approvedAt, &userAction)
+		 ORDER BY created_at_unix DESC, id DESC LIMIT 1`,
+	)
+	p, err := scanPlan(row.Scan)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	if notifiedAt.Valid {
-		p.NotifiedAt = &notifiedAt.Time
-	}
-	if approvedAt.Valid {
-		p.ApprovedAt = &approvedAt.Time
-	}
-	if userAction.Valid {
-		p.UserAction = userAction.String
-	}
-	return &p, nil
+	return p, nil
 }
 
 // GetLatestActiveOrPendingTZTransitionPlan returns the most recent plan in
 // PENDING_APPROVAL, NOTIFIED, or APPROVED status, or nil if none exists.
 func (r *Repo) GetLatestActiveOrPendingTZTransitionPlan() (*TZTransitionPlan, error) {
-	var p TZTransitionPlan
-	var notifiedAt, approvedAt sql.NullTime
-	var userAction sql.NullString
-	err := r.db.QueryRow(
-		`SELECT id, old_tz, new_tz, created_at, status, steps_json, inputs_json, plan_hash, notified_at, approved_at, user_action
+	row := r.db.QueryRow(
+		`SELECT ` + planSelectCols + `
 		 FROM tz_transition_plans
 		 WHERE status IN ('PENDING_APPROVAL','NOTIFIED','APPROVED')
-		 ORDER BY created_at DESC, id DESC LIMIT 1`,
-	).Scan(&p.ID, &p.OldTZ, &p.NewTZ, &p.CreatedAt, &p.Status, &p.StepsJSON, &p.InputsJSON, &p.PlanHash, &notifiedAt, &approvedAt, &userAction)
+		 ORDER BY created_at_unix DESC, id DESC LIMIT 1`,
+	)
+	p, err := scanPlan(row.Scan)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	if notifiedAt.Valid {
-		p.NotifiedAt = &notifiedAt.Time
-	}
-	if approvedAt.Valid {
-		p.ApprovedAt = &approvedAt.Time
-	}
-	if userAction.Valid {
-		p.UserAction = userAction.String
-	}
-	return &p, nil
+	return p, nil
 }
 
 // UpdateTZTransitionPlanStatus atomically transitions a plan's status.
@@ -230,9 +235,9 @@ func (r *Repo) UpdateTZTransitionPlanStatus(id int64, newStatus, userAction, exp
 // status, preventing stale Telegram callbacks from resurrecting superseded or cancelled plans.
 func (r *Repo) SetTZTransitionPlanApproved(id int64, approvedAt time.Time) (bool, error) {
 	res, err := r.db.Exec(
-		`UPDATE tz_transition_plans SET status = 'APPROVED', approved_at = ?, user_action = 'approved'
+		`UPDATE tz_transition_plans SET status = 'APPROVED', approved_at_unix = ?, user_action = 'approved'
 		 WHERE id = ? AND status IN ('PENDING_APPROVAL', 'NOTIFIED')`,
-		approvedAt, id,
+		storedb.TimeToUnix(approvedAt), id,
 	)
 	if err != nil {
 		return false, err
@@ -312,7 +317,7 @@ func (r *Repo) RejectTZTransitionPlanAndRevertTimezone(id int64) (bool, error) {
 // plan was already in a different state (duplicate protection for concurrent schedulers).
 func (r *Repo) MarkPlanNotified(id int64) (bool, error) {
 	res, err := r.db.Exec(
-		`UPDATE tz_transition_plans SET status = 'NOTIFIED', notified_at = CURRENT_TIMESTAMP
+		`UPDATE tz_transition_plans SET status = 'NOTIFIED', notified_at_unix = CAST(strftime('%s','now') AS INTEGER)
 		 WHERE id = ? AND status = 'PENDING_APPROVAL'`,
 		id,
 	)
@@ -327,7 +332,7 @@ func (r *Repo) MarkPlanNotified(id int64) (bool, error) {
 // Used when the notification send fails so the plan can be retried on the next scheduler tick.
 func (r *Repo) ResetPlanToPending(id int64) error {
 	_, err := r.db.Exec(
-		`UPDATE tz_transition_plans SET status = 'PENDING_APPROVAL', notified_at = NULL
+		`UPDATE tz_transition_plans SET status = 'PENDING_APPROVAL', notified_at_unix = NULL
 		 WHERE id = ? AND status = 'NOTIFIED'`,
 		id,
 	)
@@ -394,31 +399,20 @@ func (r *Repo) CreateTZTransitionPlanWithSteps(plan *TZTransitionPlan, steps []T
 
 // GetPlanByHash looks up a plan by its inputs hash to enable deduplication.
 func (r *Repo) GetPlanByHash(hash string) (*TZTransitionPlan, error) {
-	var p TZTransitionPlan
-	var notifiedAt, approvedAt sql.NullTime
-	var userAction sql.NullString
-	err := r.db.QueryRow(
-		`SELECT id, old_tz, new_tz, created_at, status, steps_json, inputs_json, plan_hash, notified_at, approved_at, user_action
+	row := r.db.QueryRow(
+		`SELECT `+planSelectCols+`
 		 FROM tz_transition_plans WHERE plan_hash = ?
-		 ORDER BY created_at DESC, id DESC LIMIT 1`,
+		 ORDER BY created_at_unix DESC, id DESC LIMIT 1`,
 		hash,
-	).Scan(&p.ID, &p.OldTZ, &p.NewTZ, &p.CreatedAt, &p.Status, &p.StepsJSON, &p.InputsJSON, &p.PlanHash, &notifiedAt, &approvedAt, &userAction)
+	)
+	p, err := scanPlan(row.Scan)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	if notifiedAt.Valid {
-		p.NotifiedAt = &notifiedAt.Time
-	}
-	if approvedAt.Valid {
-		p.ApprovedAt = &approvedAt.Time
-	}
-	if userAction.Valid {
-		p.UserAction = userAction.String
-	}
-	return &p, nil
+	return p, nil
 }
 
 // CreateTZTransitionSteps bulk-inserts transition steps for a plan.
