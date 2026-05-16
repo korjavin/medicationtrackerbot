@@ -20,7 +20,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
@@ -51,22 +50,24 @@ type DoseTarget struct {
 
 // Inputs bundles everything PlanDoses needs. The caller must:
 //   - resolve UserLoc (honouring any pending-plan old-TZ override);
-//   - hand in PendingSteps for the active plan only (or nil);
-//   - hand in ConsumedStepTimeByMed populated from the same plan whose steps
-//     it just consumed (this is what suppresses overlapping normal doses
-//     after a westbound flexible-policy transition).
+//   - hand in PendingSteps for the active plan only (or nil).
 //
 // Mode is encoded by Window:
 //
 //	Window == 0  → fire mode: include only targets at-or-before Now.
 //	Window  > 0  → forecast mode: include only targets in (Now, Now+Window].
+//
+// The legacy ConsumedStepTimeByMed overlap guard lived here until Task 11 of
+// the medication scheduling simplification plan; it has moved to the
+// scheduler as a symmetric ±minInterval dedup against intake_log rows (see
+// internal/scheduler/medication.go). The forecast endpoint now unions
+// medplan's normal-schedule targets with PENDING intake_log rows directly.
 type Inputs struct {
-	Medications           []store.Medication
-	PendingSteps          []store.TZTransitionStep
-	ConsumedStepTimeByMed map[int64]time.Time
-	UserLoc               *time.Location
-	Now                   time.Time
-	Window                time.Duration
+	Medications  []store.Medication
+	PendingSteps []store.TZTransitionStep
+	UserLoc      *time.Location
+	Now          time.Time
+	Window       time.Duration
 }
 
 // PlanDoses returns dose targets sorted by ScheduledAt that the caller
@@ -126,10 +127,6 @@ func PlanDoses(in Inputs) []DoseTarget {
 			continue
 		}
 
-		nominalHours := tzreschedule.NominalIntervalHours(cfg)
-		policy := tzreschedule.NormalizePolicy(med.TZShiftPolicy)
-		minIntv := tzreschedule.MinDoseInterval(nominalHours, policy)
-
 		for _, target := range candidateNormalTargets(cfg, loc, in.Now, in.Window) {
 			if med.StartDate != nil && target.Before(*med.StartDate) {
 				continue
@@ -139,19 +136,6 @@ func PlanDoses(in Inputs) []DoseTarget {
 			}
 			if target.Before(med.CreatedAt) {
 				continue
-			}
-			// Overlap guard: a transition step the user already consumed
-			// invalidates two surrounding normal targets — the same-day
-			// pre-step slot (which lived in the old timezone) and the
-			// next slot inside one minInterval (which would prompt the
-			// user to re-take the dose they completed as a step).
-			if stepAt, ok := in.ConsumedStepTimeByMed[med.ID]; ok {
-				if !target.After(stepAt) {
-					continue
-				}
-				if target.Sub(stepAt) <= minIntv {
-					continue
-				}
 			}
 			out = append(out, DoseTarget{
 				MedicationID: med.ID,

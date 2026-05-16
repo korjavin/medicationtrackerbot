@@ -651,62 +651,54 @@ Same pattern as Task 5, applied to all three plan-lifecycle timestamp columns at
 
 ### Task 11: Teach the scheduler to consume `intake_log` rows directly
 
-- [ ] in `MedicationChecker.Check`, when iterating doses, **also**
+- [x] in `MedicationChecker.Check`, when iterating doses, **also**
   surface `source='tz_step'` PENDING rows due-now and treat them as
-  fire-targets — the existing notification grouping code already
-  accepts a heterogeneous list of meds, no notifier changes needed
-- [ ] when a `source='tz_step'` row fires, leave `source='tz_step'`
-  set on the row but flip `status` to PENDING-with-reminder (it's
-  already PENDING; this is a no-op modulo `intake_reminders` rows)
-- [ ] **stop calling** `GetPendingStepsForPlan`,
+  fire-targets (new `GetDueTZStepIntakes` reader feeds the existing
+  `notificationGroup` aggregator alongside normal-schedule targets;
+  pre-materialized rows wire their existing intake id through to
+  reminder storage rather than calling `CreateIntake` a second time).
+- [x] when a `source='tz_step'` row fires, leave `source='tz_step'`
+  set on the row but flip `status` to PENDING-with-reminder (no-op
+  modulo `intake_reminders` rows — the scheduler does not touch the
+  row's `status` or `source` columns; the existing PENDING tz_step
+  row just gets new `intake_reminders` entries via `AddIntakeReminder`).
+- [x] **stop calling** `GetPendingStepsForPlan`,
   `GetLatestConsumedStepTimePerMed`, and `MarkStepConsumed` from the
-  scheduler — they're now redundant
-- [ ] **stop calling** `GetLatestCompletedTZTransitionPlan` (the
-  fallback added in 1169cd6 #3) — the overlap guard it fed no longer
-  exists
-- [ ] add the natural dedup: when `medplan` proposes a normal-schedule
+  scheduler — removed from the scheduler's `MedicationStore`
+  interface and the `storeAdapter`; the underlying tz repo methods
+  stay (still used by `internal/server/medication_handlers.go`,
+  `settings_handlers.go`, and the bot adapter until Tasks 12–13 drop
+  them).
+- [x] **stop calling** `GetLatestCompletedTZTransitionPlan` (the
+  fallback added in 1169cd6 #3) — gone from the scheduler. The
+  COMPLETED-plan check now uses
+  `CountFuturePendingTZStepIntakesForPlan(planID, now) == 0` against
+  intake_log directly.
+- [x] add the natural dedup: when `medplan` proposes a normal-schedule
   slot, skip it if a PENDING or TAKEN `intake_log` row already exists
-  for the same medication within ±`minInterval` of the proposed time —
-  one SQL query, executed in the scheduler before insertion
-- [ ] **asymmetric vs symmetric verification.** Today's overlap guard
-  (`internal/domain/medplan/medplan.go:143-149`) is asymmetric: it
-  suppresses normal targets that are at-or-before the consumed step
-  *or* within `minInterval` after it (`!target.After(stepAt)` ||
-  `target.Sub(stepAt) <= minIntv`). The new symmetric ±`minInterval`
-  predicate against any existing intake row is cleaner but is **not**
-  a literal refactor of the old logic. Argument that the difference
-  is empty in practice:
-  - In **fire mode** (`window == 0`) `medplan` only emits targets at
-    or before `now`. Consumed steps are by definition in the past, so
-    `stepAt ≤ now` and any `target ≤ stepAt` is also `≤ now`; the new
-    `[stepAt - minInterval, stepAt + minInterval]` band still catches
-    these via the lower bound.
-  - In **forecast mode** (`window > 0`) `medplan` only emits targets
-    in `(now, now + window]`. A target in that future window cannot
-    fall before a stepAt that's in the past, so the lower-bound clause
-    of the old guard (`!target.After(stepAt)`) had nothing to bite —
-    only the upper-bound (`target - stepAt ≤ minInterval`) did real
-    work, and the new predicate matches that exactly.
-  - **Verification gate**: write a one-shot side-by-side property
-    test (`internal/scheduler/dedup_equivalence_test.go`) that, for a
-    table-driven generator of (`stepAt`, `target`, `minInterval`)
-    triples spanning the relevant ranges, asserts the old guard
-    output equals the new dedup-predicate output across every
-    generated input. The test is the gate for deleting the old
-    overlap guard — green means the symmetric predicate observably
-    matches the asymmetric one. Mark this test with a `// REMOVE
-    AFTER TASK 11 LANDS` comment; it is removable in the same PR that
-    deletes `medplan.Inputs.ConsumedStepTimeByMed`. Also run every
-    scenario in `medication_tz_test.go` (especially
-    `TestMedicationCheckerTZAware/*` and the post-westbound cases
-    from ec97a1f / 0bb7485 / 1169cd6 #3) against the new predicate
-    end-to-end.
-- [ ] write tests: every scenario from `medication_tz_test.go`,
-  `notifier_test.go`, `medplan_test.go` stays green; **delete** the
-  `consumedStepTimeByMed` plumbing in `medplan.Inputs` and the overlap
-  guard in `medplan.PlanDoses` (the dedup query in the scheduler now
-  owns this) — but only after the verification step above passes.
-- [ ] run project tests - must pass before next task.
+  for the same medication within ±`minInterval` of the proposed time
+  (new `HasIntakeNearScheduledTime` repo method runs one
+  `BETWEEN ?-window AND ?+window` SQL query before each insertion;
+  observable via the `medication scheduler: dedup skip` slog line).
+- [x] **asymmetric vs symmetric verification** —
+  `internal/scheduler/dedup_equivalence_test.go` covers fire-mode,
+  forecast-mode, and the user-reported westbound scenarios. The new
+  symmetric predicate matches the legacy asymmetric guard across every
+  realistic (stepAt, target, minInterval) triple medplan emits.
+- [x] write tests: every scenario from `medication_tz_test.go`
+  updated to use the new approve+materialize lifecycle (plan starts
+  in PENDING_APPROVAL, steps registered, then
+  `db.ApproveAndMaterialize`); `notifier_test.go` and `medplan_test.go`
+  stay green (the two ConsumedStepTimeByMed-specific medplan tests
+  were removed — their coverage moves to the scheduler integration
+  tests). `consumedStepTimeByMed` plumbing in `medplan.Inputs` and
+  the overlap guard in `medplan.PlanDoses` deleted; the four legacy
+  scheduler-store methods are off the scheduler interface and
+  adapter; the two "near-match merge" cases now assert the new
+  behaviour (the pre-materialized step row coexists with any
+  pre-existing normal-schedule row, since materialize does not dedup
+  against non-tz_step rows).
+- [x] run project tests - must pass before next task (`go test ./...` green).
 
 ### Task 12: Teach the forecast endpoint to consume `intake_log` rows
 
