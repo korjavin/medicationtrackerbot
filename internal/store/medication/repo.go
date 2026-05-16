@@ -1092,3 +1092,85 @@ func (r *Repo) DeletePendingPreMaterializedIntakesForPlan(planID int64) error {
 		WHERE tz_plan_id = ? AND status = 'PENDING' AND source = 'tz_step'`, planID)
 	return err
 }
+
+// GetDueTZStepIntakes returns every PENDING intake_log row with
+// source='tz_step' whose scheduled_at_unix is at-or-before asOf. Used by
+// MedicationChecker.Check to surface pre-materialized transition-plan step
+// rows as fire-targets — see Task 11 of the scheduling-simplification plan
+// (docs/plans/20260508-simplify-medication-scheduling-utc-and-pre-materialized-steps.md).
+func (r *Repo) GetDueTZStepIntakes(asOf time.Time) ([]IntakeLog, error) {
+	rows, err := r.db.Query(`
+		SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until_unix,
+		       source, tz_plan_id, tz_step_number
+		FROM intake_log
+		WHERE status = 'PENDING' AND source = 'tz_step'
+		  AND scheduled_at_unix <= ?`, asOf.UTC().Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var logs []IntakeLog
+	for rows.Next() {
+		var l IntakeLog
+		var schedUnix int64
+		var snoozeUnix sql.NullInt64
+		var tzPlanID, tzStepNumber sql.NullInt64
+		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &l.Status, &snoozeUnix, &l.Source, &tzPlanID, &tzStepNumber); err != nil {
+			return nil, err
+		}
+		l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
+		if snoozeUnix.Valid {
+			t := time.Unix(snoozeUnix.Int64, 0).UTC()
+			l.SnoozedUntil = &t
+		}
+		if tzPlanID.Valid {
+			v := tzPlanID.Int64
+			l.TZPlanID = &v
+		}
+		if tzStepNumber.Valid {
+			v := tzStepNumber.Int64
+			l.TZStepNumber = &v
+		}
+		logs = append(logs, l)
+	}
+	return logs, rows.Err()
+}
+
+// CountFuturePendingTZStepIntakesForPlan returns the number of PENDING
+// intake_log rows for the given plan whose scheduled_at_unix is strictly
+// after asOf. The medication scheduler uses this to mark an APPROVED plan
+// COMPLETED once all of its pre-materialized step times have arrived (the
+// pre-Track-D equivalent was "no remaining unconsumed tz_transition_steps").
+func (r *Repo) CountFuturePendingTZStepIntakesForPlan(planID int64, asOf time.Time) (int, error) {
+	var n int
+	err := r.db.QueryRow(`
+		SELECT COUNT(*) FROM intake_log
+		WHERE tz_plan_id = ? AND source = 'tz_step'
+		  AND status = 'PENDING'
+		  AND scheduled_at_unix > ?`, planID, asOf.UTC().Unix()).Scan(&n)
+	return n, err
+}
+
+// HasIntakeNearScheduledTime reports whether an intake_log row for the given
+// medication exists within ±window of target, with status in
+// ('PENDING', 'TAKEN'). The scheduler uses this as the symmetric
+// ±minInterval dedup replacement for medplan's removed consumed-step
+// overlap guard — see Task 11 of the scheduling-simplification plan.
+func (r *Repo) HasIntakeNearScheduledTime(medID int64, target time.Time, window time.Duration) (bool, error) {
+	if window < 0 {
+		window = -window
+	}
+	targetUnix := target.UTC().Unix()
+	windowSec := int64(window / time.Second)
+	var n int
+	err := r.db.QueryRow(`
+		SELECT COUNT(*) FROM intake_log
+		WHERE medication_id = ?
+		  AND status IN ('PENDING', 'TAKEN')
+		  AND scheduled_at_unix BETWEEN ? AND ?
+		LIMIT 1`, medID, targetUnix-windowSec, targetUnix+windowSec).Scan(&n)
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}

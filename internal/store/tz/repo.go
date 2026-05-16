@@ -185,6 +185,27 @@ func (r *Repo) GetLatestCompletedTZTransitionPlan() (*TZTransitionPlan, error) {
 	return p, nil
 }
 
+// GetTZTransitionPlan returns the plan with the supplied id, or nil if none
+// exists. Used by tests (and any caller that already knows the plan id) to
+// inspect the plan's current state regardless of its status. The repo's
+// other getters are status-filtered, so this is the simplest way to verify
+// the lifecycle without depending on the plan being the latest of its kind.
+func (r *Repo) GetTZTransitionPlan(id int64) (*TZTransitionPlan, error) {
+	row := r.db.QueryRow(
+		`SELECT `+planSelectCols+`
+		 FROM tz_transition_plans WHERE id = ?`,
+		id,
+	)
+	p, err := scanPlan(row.Scan)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
 // GetLatestActiveOrPendingTZTransitionPlan returns the most recent plan in
 // PENDING_APPROVAL, NOTIFIED, or APPROVED status, or nil if none exists.
 func (r *Repo) GetLatestActiveOrPendingTZTransitionPlan() (*TZTransitionPlan, error) {

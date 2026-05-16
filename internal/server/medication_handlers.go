@@ -496,9 +496,11 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Plan inputs: identical to the forecast endpoint so the same cluster
-	// of doses surfaces here.
+	// of doses surfaces here. The consumed-step overlap guard moved out of
+	// medplan in Task 11 of the scheduling simplification plan; the
+	// forecast endpoint's union with intake_log (Task 12) covers the same
+	// scenarios.
 	var pendingSteps []store.TZTransitionStep
-	consumedStepTimeByMed := make(map[int64]time.Time)
 	if s.tzPlanStore != nil {
 		if plan, err := s.tzPlanStore.GetLatestActiveOrPendingTZTransitionPlan(); err == nil && plan != nil {
 			if plan.Status == "APPROVED" {
@@ -506,19 +508,15 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 					pendingSteps = steps
 				}
 			}
-			if m, err := s.tzPlanStore.GetLatestConsumedStepTimePerMed(plan.ID); err == nil {
-				consumedStepTimeByMed = m
-			}
 		}
 	}
 
 	targets := medplan.PlanDoses(medplan.Inputs{
-		Medications:           meds,
-		PendingSteps:          pendingSteps,
-		ConsumedStepTimeByMed: consumedStepTimeByMed,
-		UserLoc:               userLoc,
-		Now:                   now,
-		Window:                12 * time.Hour,
+		Medications:  meds,
+		PendingSteps: pendingSteps,
+		UserLoc:      userLoc,
+		Now:          now,
+		Window:       12 * time.Hour,
 	})
 
 	medByID := make(map[int64]store.Medication, len(meds))
