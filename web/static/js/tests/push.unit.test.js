@@ -44,7 +44,9 @@ describe('push.js PushManager', () => {
       expect(ok).toBe(true);
       expect(window.MedTrackerPush.vapidPublicKey).toBe('BEl6nA');
       expect(window.MedTrackerPush.subscription).toBe(existingSub);
-      expect(window.fetch).toHaveBeenCalledWith('/api/webpush/vapid-public-key');
+      expect(window.fetch).toHaveBeenCalledWith('/api/webpush/vapid-public-key', expect.objectContaining({
+        headers: expect.any(Object)
+      }));
       expect(getSubSpy).toHaveBeenCalledTimes(1);
     } finally {
       cleanup();
@@ -191,6 +193,93 @@ describe('push.js PushManager', () => {
     } finally {
       cleanup();
     }
+  });
+
+  describe('auth-header routing (auth-header consolidation plan)', () => {
+    it('initialize sends X-Telegram-Init-Data via makeAuthHeaders on the VAPID fetch', async () => {
+      const { window, cleanup } = loadPushEnv();
+
+      try {
+        window.userInitData = 'init=stub';
+        window.fetch = vi.fn().mockResolvedValue({
+          ok: true,
+          async json() { return { public_key: 'BEl6nA' }; }
+        });
+
+        await window.MedTrackerPush.initialize();
+
+        const [, init] = window.fetch.mock.calls[0];
+        expect(init).toBeDefined();
+        expect(init.headers).toBeDefined();
+        expect(init.headers['X-Telegram-Init-Data']).toBe('init=stub');
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('subscribe sends X-Telegram-Init-Data via makeAuthHeaders on POST /subscribe', async () => {
+      const { window, registration, makeSubscription, cleanup } = loadPushEnv();
+
+      try {
+        window.userInitData = 'init=stub';
+        const sub = makeSubscription();
+        registration.pushManager.subscribe = vi.fn().mockResolvedValue(sub);
+        window.MedTrackerPush.vapidPublicKey = 'BEl6nA';
+        window.Notification.requestPermission = vi.fn().mockResolvedValue('granted');
+        window.fetch = vi.fn().mockResolvedValue({ ok: true });
+
+        await window.MedTrackerPush.subscribe();
+
+        const [url, init] = window.fetch.mock.calls[0];
+        expect(url).toBe('/api/webpush/subscribe');
+        expect(init.headers['X-Telegram-Init-Data']).toBe('init=stub');
+        expect(init.headers['Content-Type']).toBe('application/json');
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('unsubscribe sends X-Telegram-Init-Data via makeAuthHeaders on POST /unsubscribe', async () => {
+      const { window, makeSubscription, cleanup } = loadPushEnv();
+
+      try {
+        window.userInitData = 'init=stub';
+        const sub = makeSubscription();
+        vi.spyOn(sub, 'unsubscribe').mockResolvedValue(true);
+        window.MedTrackerPush.subscription = sub;
+        window.fetch = vi.fn().mockResolvedValue({ ok: true });
+
+        await window.MedTrackerPush.unsubscribe();
+
+        const [url, init] = window.fetch.mock.calls[0];
+        expect(url).toBe('/api/webpush/unsubscribe');
+        expect(init.headers['X-Telegram-Init-Data']).toBe('init=stub');
+        expect(init.headers['Content-Type']).toBe('application/json');
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('omits X-Telegram-Init-Data when userInitData is absent (cookie-auth path)', async () => {
+      const { window, registration, makeSubscription, cleanup } = loadPushEnv();
+
+      try {
+        delete window.userInitData;
+        const sub = makeSubscription();
+        registration.pushManager.subscribe = vi.fn().mockResolvedValue(sub);
+        window.MedTrackerPush.vapidPublicKey = 'BEl6nA';
+        window.Notification.requestPermission = vi.fn().mockResolvedValue('granted');
+        window.fetch = vi.fn().mockResolvedValue({ ok: true });
+
+        await window.MedTrackerPush.subscribe();
+
+        const [, init] = window.fetch.mock.calls[0];
+        expect(init.headers['X-Telegram-Init-Data']).toBeUndefined();
+        expect(init.headers['Content-Type']).toBe('application/json');
+      } finally {
+        cleanup();
+      }
+    });
   });
 
   it('urlBase64ToUint8Array and arrayBufferToBase64 convert payloads consistently', () => {

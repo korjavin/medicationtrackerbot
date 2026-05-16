@@ -59,7 +59,7 @@ func TestCheckSchedule_AsNeededMedicationSkipped(t *testing.T) {
 
 	pending, err := db.Medication.ListPendingIntakes()
 	if err != nil {
-		t.Fatalf("GetPendingIntakes: %v", err)
+		t.Fatalf("ListPendingIntakes: %v", err)
 	}
 	if len(pending) != 0 {
 		t.Errorf("Expected 0 pending intakes for as_needed med, got %d", len(pending))
@@ -86,7 +86,7 @@ func TestCheckSchedule_WeeklyNotToday(t *testing.T) {
 
 	pending, err := db.Medication.ListPendingIntakes()
 	if err != nil {
-		t.Fatalf("GetPendingIntakes: %v", err)
+		t.Fatalf("ListPendingIntakes: %v", err)
 	}
 	if len(pending) != 0 {
 		t.Errorf("Expected 0 pending intakes on wrong day, got %d", len(pending))
@@ -115,7 +115,7 @@ func TestCheckSchedule_FutureTimeSkipped(t *testing.T) {
 
 	pending, err := db.Medication.ListPendingIntakes()
 	if err != nil {
-		t.Fatalf("GetPendingIntakes: %v", err)
+		t.Fatalf("ListPendingIntakes: %v", err)
 	}
 	if len(pending) != 0 {
 		t.Errorf("Expected 0 pending intakes for future time, got %d", len(pending))
@@ -145,7 +145,7 @@ func TestCheckSchedule_StartDateNotYetActive(t *testing.T) {
 
 	pending, err := db.Medication.ListPendingIntakes()
 	if err != nil {
-		t.Fatalf("GetPendingIntakes: %v", err)
+		t.Fatalf("ListPendingIntakes: %v", err)
 	}
 	if len(pending) != 0 {
 		t.Errorf("Expected 0 pending intakes before start date, got %d", len(pending))
@@ -175,7 +175,7 @@ func TestCheckSchedule_EndDatePassed(t *testing.T) {
 
 	pending, err := db.Medication.ListPendingIntakes()
 	if err != nil {
-		t.Fatalf("GetPendingIntakes: %v", err)
+		t.Fatalf("ListPendingIntakes: %v", err)
 	}
 	if len(pending) != 0 {
 		t.Errorf("Expected 0 pending intakes after end date, got %d", len(pending))

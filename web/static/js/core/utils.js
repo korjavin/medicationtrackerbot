@@ -1,22 +1,38 @@
 // Shared utility functions.
-// Loaded early (before app.js) — no dependencies on other app files.
+// Loaded early (before app.js) — no dependencies on other app files except
+// window.MessengerAdapter (core/messenger-adapter.js loads immediately after
+// this file, but every method here resolves the adapter lazily at call time
+// so utils.js can still be evaluated standalone in isolated tests).
 
 function safeAlert(msg) {
-    const tg = window.Telegram && window.Telegram.WebApp;
-    if (tg && tg.showAlert) {
+    const adapter = window.MessengerAdapter;
+    if (adapter && typeof adapter.alert === 'function') {
         try {
-            tg.showAlert(msg);
+            adapter.alert(msg);
+            return;
         } catch (e) {
-            alert(msg);
+            // fall through to native alert
         }
-    } else {
-        alert(msg);
     }
+    alert(msg);
 }
 
 function safeConfirm(msg, callback) {
-    const tg = window.Telegram && window.Telegram.WebApp;
-    const hasTelegramContext = !!(tg && (window.userInitData || tg.initData));
+    const adapter = window.MessengerAdapter;
+    // Use the messenger-native popup only when an adapter that represents a
+    // real messenger host is present AND we have an identity token — only
+    // then are messenger-side popups guaranteed to render. Otherwise the
+    // in-page modal is the better UX (browser, jsdom, mini-app pre-auth).
+    const hasMessengerPopup = !!(
+        adapter
+        && typeof adapter.isPresent === 'function'
+        && adapter.isPresent()
+        && (
+            window.userInitData
+            || (typeof adapter.identityToken === 'function' && adapter.identityToken())
+        )
+    );
+
     const invokeCallback = (ok) => {
         if (typeof callback !== 'function') return ok;
         return callback(ok);
@@ -27,13 +43,15 @@ function safeConfirm(msg, callback) {
             Promise.resolve(invokeCallback(ok)).then(resolve).catch(reject);
         };
 
-        if (hasTelegramContext && tg.showConfirm) {
+        if (hasMessengerPopup) {
             try {
-                tg.showConfirm(msg, handleResult);
+                Promise.resolve(adapter.confirm(msg)).then(handleResult, () => {
+                    _mountConfirmModal(msg, handleResult);
+                });
                 return;
             } catch (e) {
-                // fall through to in-page modal — never to native confirm(),
-                // which is synchronous-modal and freezes first paint.
+                // synchronous throw from adapter.confirm — fall through to
+                // in-page modal so the user still has a path to resolve.
             }
         }
 
@@ -42,9 +60,10 @@ function safeConfirm(msg, callback) {
 }
 
 // In-page replacement for the synchronous native confirm() dialog. The
-// Telegram-native path (tg.showConfirm) is preferred when available because
-// it renders non-blockingly over the WebView; this is the fallback for
-// regular browsers and for any Telegram environment where showConfirm fails.
+// messenger-native path (adapter.confirm) is preferred when available
+// because it renders non-blockingly over the host WebView; this is the
+// fallback for regular browsers and for any messenger environment where
+// the host SDK's confirm rejects.
 function _mountConfirmModal(msg, onResult) {
     const doc = document;
     const backdrop = doc.createElement('div');

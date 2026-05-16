@@ -9,6 +9,7 @@ const REPO_ROOT = path.resolve(__dirname, '../../../../..');
 
 const INDEX_HTML = path.join(REPO_ROOT, 'web/static/index.html');
 const UTILS_JS = path.join(REPO_ROOT, 'web/static/js/core/utils.js');
+const MESSENGER_ADAPTER_JS = path.join(REPO_ROOT, 'web/static/js/core/messenger-adapter.js');
 const TIME_FORMAT_JS = path.join(REPO_ROOT, 'web/static/js/core/time-format.js');
 const MT_ELEMENTS_JS = path.join(REPO_ROOT, 'web/static/js/components/mt-elements.js');
 const EMPTY_STATE_JS = path.join(REPO_ROOT, 'web/static/js/components/empty-state.js');
@@ -191,6 +192,12 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
 
   // Core infrastructure files (loaded before data-store.js and app.js)
   evalFileCached(window, UTILS_JS);
+  // messenger-adapter.js selects TelegramAdapter (since this harness always
+  // primes window.Telegram.WebApp above) and exposes window.MessengerAdapter.
+  // Must load before app.js (which reads identityToken()) and any feature
+  // module that calls into the adapter (back-button, modal-history,
+  // deeplink-router, utils' safeAlert/safeConfirm).
+  evalFileCached(window, MESSENGER_ADAPTER_JS);
   // time-format.js owns Settings timezone/server-clock render helpers; loads
   // right after utils.js since app.js delegates renderSettingsTimeInfo to it.
   evalFileCached(window, TIME_FORMAT_JS);

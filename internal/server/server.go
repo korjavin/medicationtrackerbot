@@ -21,6 +21,7 @@ import (
 
 	"github.com/VictoriaMetrics/fastcache"
 	"github.com/korjavin/medicationtrackerbot/internal/domain"
+	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzsuggestion"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzupdate"
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
@@ -81,6 +82,7 @@ type Server struct {
 	tzUpdater           tzupdate.Service
 	tzSuggester         tzsuggestion.Service
 	tzPlanStore         TZPlanStore
+	tzLifecycle         tzreschedule.LifecycleService
 	nonces              NonceStore
 	mcpRegistry         MCPRegistry
 	internalMux         http.Handler
@@ -336,6 +338,15 @@ func (s *Server) SetTZSuggester(svc tzsuggestion.Service) {
 	s.tzSuggester = svc
 }
 
+// SetTZLifecycle wires the cross-transport tz-plan lifecycle service so the
+// HTTP approve handler routes through the same atomic
+// approve+pre-materialize-steps path as the bot and scheduler. When unset,
+// the approve handler returns 503 — production wiring lives in
+// cmd/bot/main.go.
+func (s *Server) SetTZLifecycle(svc tzreschedule.LifecycleService) {
+	s.tzLifecycle = svc
+}
+
 // deleteNotification deletes a previously sent notification from all notifiers.
 func (s *Server) deleteNotification(ctx context.Context, msgID int) {
 	if msgID == 0 {
@@ -490,7 +501,9 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 		// blob:/data: in script-src and worker-src are required by the SDK's
 		// AudioWorklet processors (rawAudioProcessor, audioConcatProcessor) —
 		// Chrome falls back worklet-src → worker-src → script-src.
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://telegram.org https://esm.sh blob: data:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https://telegram.org https://api.us.elevenlabs.io https://api.elevenlabs.io wss://api.us.elevenlabs.io wss://api.elevenlabs.io; font-src 'self' https://fonts.gstatic.com; frame-src 'self' https://oauth.telegram.org; base-uri 'self'; frame-ancestors 'self'")
+		// esm.sh is also allowed in connect-src so DevTools can fetch the
+		// SDK's .mjs.map source maps (fetched via the connect-src channel).
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://telegram.org https://esm.sh blob: data:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https://telegram.org https://esm.sh https://api.us.elevenlabs.io https://api.elevenlabs.io wss://api.us.elevenlabs.io wss://api.elevenlabs.io; font-src 'self' https://fonts.gstatic.com; frame-src 'self' https://oauth.telegram.org; base-uri 'self'; frame-ancestors 'self'")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -542,8 +555,8 @@ func (s *Server) Routes() http.Handler {
 
 	// API
 	apiMux := newRecordingMux(&s.routesRecorded)
-	apiMux.HandleFunc("GET /api/medications", s.handleListMedications)
-	apiMux.HandleFunc("POST /api/medications", s.handleCreateMedication)
+	apiMux.HandleFunc("GET /api/medications", s.handleList)
+	apiMux.HandleFunc("POST /api/medications", s.handleCreate)
 	apiMux.HandleFunc("POST /api/medications/{id}", s.handleUpdateMedication)
 	apiMux.HandleFunc("DELETE /api/medications/{id}", s.handleDeleteMedication)
 	apiMux.HandleFunc("GET /api/history", s.handleListHistory)
@@ -586,7 +599,7 @@ func (s *Server) Routes() http.Handler {
 
 	// Inventory endpoints
 	apiMux.HandleFunc("POST /api/medications/{id}/restock", s.handleRestock)
-	apiMux.HandleFunc("GET /api/medications/{id}/restocks", s.handleGetRestockHistory)
+	apiMux.HandleFunc("GET /api/medications/{id}/restocks", s.handleListRestocks)
 	apiMux.HandleFunc("GET /api/inventory/low", s.handleGetLowStock)
 
 	// Workout endpoints
@@ -788,7 +801,7 @@ func (s *Server) handleRestock(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handleGetRestockHistory(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleListRestocks(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {

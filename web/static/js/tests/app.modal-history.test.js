@@ -31,6 +31,25 @@ describe('app.js modal history and back behavior', () => {
     }
   });
 
+  it('BP modal Cancel button click closes the modal', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      window.showBPRecordModal();
+      await flushMutations();
+
+      const modal = document.getElementById('bp-modal');
+      expect(modal.classList.contains('hidden')).toBe(false);
+
+      document.getElementById('bp-modal-cancel-btn').click();
+      await flushMutations();
+
+      expect(modal.classList.contains('hidden')).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('popstate closes topmost modal when modal history is active', async () => {
     const { window, document, backButtonState, cleanup } = loadFrontendEnv();
 
@@ -111,6 +130,30 @@ describe('app.js modal history and back behavior', () => {
 
       expect(document.getElementById('med-modal').classList.contains('hidden')).toBe(true);
       expect(document.getElementById('modal-overlay').classList.contains('hidden')).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  // Regression for Task 3 of the messenger-adapter plan: modal-history.js used
+  // to read window.Telegram.WebApp.BackButton directly to show/hide on overlay
+  // transitions. After migration, all back-button toggling goes through
+  // window.MessengerAdapter. Spy on the adapter to lock in that the
+  // overlay-driven show/hide chain delegates through the adapter, not the
+  // raw Telegram SDK.
+  it('drives BackButton via window.MessengerAdapter when the overlay toggles', async () => {
+    const { window, cleanup } = loadFrontendEnv();
+    try {
+      const showSpy = vi.spyOn(window.MessengerAdapter, 'showBack');
+      const hideSpy = vi.spyOn(window.MessengerAdapter, 'hideBack');
+
+      window.showBPRecordModal();
+      await flushMutations();
+      expect(showSpy).toHaveBeenCalled();
+
+      window.closeBPRecordModal();
+      await flushMutations();
+      expect(hideSpy).toHaveBeenCalled();
     } finally {
       cleanup();
     }

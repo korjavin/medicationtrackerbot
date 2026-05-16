@@ -80,13 +80,14 @@ function handleDeepLinks() {
 }
 window.handleDeepLinks = handleDeepLinks;
 
-// Check for Telegram start_param deep link (e.g. from bot button).
+// Check for a messenger start-param deep link (Telegram start_param, or the
+// URL ?start= / #start= fallback in BrowserAdapter).
 // This runs before bootstrap.js populates featureSettings, so we must
 // wait for featureSettingsLoaded too — otherwise isDeepLinkFeatureEnabled
 // returns default-on and can open BP even when the user disabled it.
 // Falls back to default-on behavior after ~5s if bootstrap never completes,
 // matching the URL-path deep-link guard.
-if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.start_param === 'bp_add') {
+if (window.MessengerAdapter && window.MessengerAdapter.startParam() === 'bp_add') {
     const startedAt = Date.now();
     const checkInterval = setInterval(() => {
         const modalReady = typeof showBPRecordModal === 'function';

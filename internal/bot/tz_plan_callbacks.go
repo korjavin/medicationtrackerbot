@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"time"
@@ -9,8 +10,12 @@ import (
 )
 
 // TZPlanCallbackStore is the subset of store operations needed for timezone plan callbacks.
+//
+// Approval is intentionally not on this interface: it must go through the
+// shared tzreschedule.LifecycleService so the plan-approve and pre-materialize
+// step inserts share one transaction. See tz_plan_callbacks.go's
+// handleTZPlanApprove for the lifecycle-service call site.
 type TZPlanCallbackStore interface {
-	SetTransitionPlanApproved(id int64, approvedAt time.Time) (bool, error)
 	// RejectTransitionPlanAndRevertTimezone marks the plan REJECTED and reverts
 	// the stored timezone back to the plan's OldTZ so the scheduler keeps using the
 	// original schedule instead of immediately switching to the new timezone.
@@ -18,10 +23,17 @@ type TZPlanCallbackStore interface {
 }
 
 // handleTZPlanApprove handles the tz_plan_approve:<id> callback.
-// It transitions the plan to APPROVED and replies with a brief confirmation.
+// It routes through the shared tzreschedule.LifecycleService so the plan
+// transition to APPROVED and the pre-materialize step inserts share one
+// transaction (per CLAUDE.md rule #1 / Track D Task 10).
 func (b *Bot) handleTZPlanApprove(cb *tgbotapi.CallbackQuery, planID int64) {
 	now := time.Now()
-	updated, err := b.tzPlanStore.SetTransitionPlanApproved(planID, now)
+	if b.tzLifecycle == nil {
+		slog.Error("tz_plan: approve: lifecycle service not configured", "plan_id", planID)
+		b.sendText(cb.Message.Chat.ID, "❌ Could not approve the plan. Please try again.")
+		return
+	}
+	updated, err := b.tzLifecycle.Approve(context.Background(), planID, now)
 	if err != nil {
 		slog.Error("tz_plan: approve failed", "plan_id", planID, "error", err)
 		b.sendText(cb.Message.Chat.ID, "❌ Could not approve the plan. Please try again.")

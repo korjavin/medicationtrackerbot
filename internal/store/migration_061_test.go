@@ -333,11 +333,11 @@ func TestSnoozeIntake_WritesSnoozedUntilUnixUTC(t *testing.T) {
 		t.Errorf("Phoenix: snoozed_until_unix=%v want %d (must match LA — same instant)", uPhx, wantUnix)
 	}
 
-	// Round-trip via GetPendingIntakes: the *time.Time read back is UTC,
+	// Round-trip via ListPendingIntakes: the *time.Time read back is UTC,
 	// matches the original instant, and has no monotonic residue.
 	pendings, err := db.Medication.ListPendingIntakes()
 	if err != nil {
-		t.Fatalf("GetPendingIntakes: %v", err)
+		t.Fatalf("ListPendingIntakes: %v", err)
 	}
 	var found *IntakeLog
 	for i := range pendings {

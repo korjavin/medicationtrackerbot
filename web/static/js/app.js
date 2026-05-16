@@ -1,15 +1,13 @@
-// Expose as window property so feature scripts (bp.js, weight.js, etc.)
-// loaded in later <script> tags can use `const tg = window.tg` without
-// triggering "SyntaxError: Identifier 'tg' has already been declared"
-// (which would happen if multiple scripts all tried `const tg = ...`).
-window.tg = window.Telegram ? window.Telegram.WebApp : null;
-if (window.tg) {
-    window.tg.ready();
-    window.tg.expand();
-}
+// Bootstrap the messenger host (Telegram WebApp ready/expand, or no-op in a
+// plain browser). MessengerAdapter is set synchronously at the top of
+// core/messenger-adapter.js so this never null-checks. init() resolves once
+// the host is ready; its side-effects (ready/expand for Telegram) run
+// synchronously inside the executor so subsequent reads see the live state.
+window.MessengerAdapter.init();
 
-// Config
-const userInitData = window.tg ? window.tg.initData : null;
+// Config — identityToken() returns the Telegram initData string in a Mini App,
+// null in a plain browser (cookie-only auth path).
+const userInitData = window.MessengerAdapter.identityToken() || null;
 window.userInitData = userInitData;
 var initialAuthLoad = false;
 
@@ -2483,7 +2481,7 @@ async function sendTestMedicationNotification() {
     try {
         const res = await fetch('/api/webpush/test-medication', {
             method: 'POST',
-            headers: { 'X-Telegram-Init-Data': userInitData }
+            headers: window.makeAuthHeaders()
         });
 
         const text = await res.text();

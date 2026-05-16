@@ -172,15 +172,9 @@
         const form = new FormData();
         form.append('file', file, (file && file.name) || 'photo.jpg');
         const url = `/api/elevenlabs/upload-file?conversation_id=${encodeURIComponent(conversationId)}`;
-        const headers = {};
-        // Mirror the auth pattern used by /api/food/log/from-photo: pass the
-        // Telegram init data so the apiMux AuthMiddleware accepts the call.
-        // FormData bodies set their own Content-Type with boundary, so we
-        // don't add Content-Type here.
-        if (typeof window !== 'undefined' && window.userInitData) {
-            headers['X-Telegram-Init-Data'] = window.userInitData;
-        }
-        const resp = await fetch(url, { method: 'POST', headers, body: form });
+        // FormData bodies set their own Content-Type with boundary, so the
+        // helper's plain auth-only headers form applies here.
+        const resp = await fetch(url, { method: 'POST', headers: window.makeAuthHeaders(), body: form });
         if (!resp.ok) {
             const text = await resp.text().catch(() => '');
             const err = new Error(`Upload failed (${resp.status})${text ? `: ${text}` : ''}`);
