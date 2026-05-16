@@ -1078,11 +1078,11 @@ func (r *Repo) ListExerciseLogs(sessionID int64) ([]WorkoutExerciseLog, error) {
 }
 
 // UpdateExerciseLog updates a log's sets/reps/weight/notes. When the row is
-// still a placeholder (status=''), it also bumps logged_at to the current
-// time so a scheduled placeholder finished days later records the completion
-// time, not the schedule-creation time. Once status is non-empty, logged_at
-// is preserved so subsequent edits don't rewrite the original completion
-// timestamp.
+// still a placeholder (status is the empty string), it also bumps logged_at
+// to the current time so a scheduled placeholder finished days later records
+// the completion time, not the schedule-creation time. Once status is
+// non-empty, logged_at is preserved so subsequent edits don't rewrite the
+// original completion timestamp.
 func (r *Repo) UpdateExerciseLog(id int64, setsCompleted, repsCompleted *int, weightKg *float64, notes string) error {
 	_, err := r.db.Exec(`
 		UPDATE workout_exercise_logs
@@ -1094,9 +1094,9 @@ func (r *Repo) UpdateExerciseLog(id int64, setsCompleted, repsCompleted *int, we
 }
 
 // UpdateExerciseLogStatus updates the status of a log. When the row is still
-// a placeholder (status=''), it also bumps logged_at to the current time so a
-// placeholder promoted to completed/skipped records the actual transition
-// time, not the schedule-creation time.
+// a placeholder (status is the empty string), it also bumps logged_at to the
+// current time so a placeholder promoted to completed/skipped records the
+// actual transition time, not the schedule-creation time.
 func (r *Repo) UpdateExerciseLogStatus(id int64, status string) error {
 	_, err := r.db.Exec(`
 		UPDATE workout_exercise_logs
@@ -1657,4 +1657,3 @@ func scanExerciseLog(rows *sql.Rows) (WorkoutExerciseLog, error) {
 
 	return log, nil
 }
-

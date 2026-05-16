@@ -4,12 +4,12 @@ import (
 	"context"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
-	"crypto/tls"
 	"math/big"
 	"net"
 	"net/http"
@@ -49,9 +49,9 @@ type OAuthHandler struct {
 	tokens     APITokenStore
 
 	// Replay protection
-	seenJTIs   map[string]time.Time
-	jtiMutex   sync.RWMutex
-	cleanupCtx context.Context
+	seenJTIs      map[string]time.Time
+	jtiMutex      sync.RWMutex
+	cleanupCtx    context.Context
 	cleanupCancel context.CancelFunc
 }
 

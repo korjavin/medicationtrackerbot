@@ -195,11 +195,15 @@ func (a *storeAdapter) ListExerciseLogs(sessionID int64) ([]store.WorkoutExercis
 func (a *storeAdapter) GetSession(id int64) (*store.WorkoutSession, error) {
 	return a.workout.GetSession(id)
 }
-func (a *storeAdapter) StartSession(id int64) error                                { return a.workout.StartSession(id) }
-func (a *storeAdapter) SnoozeSession(id int64, dur time.Duration) error            { return a.workout.SnoozeSession(id, dur) }
-func (a *storeAdapter) SkipSession(id int64) error                                 { return a.workout.SkipSession(id) }
-func (a *storeAdapter) CompleteSession(id int64) error                             { return a.workout.CompleteSession(id) }
-func (a *storeAdapter) AdvanceRotation(groupID int64) error                        { return a.workout.AdvanceRotation(groupID) }
+func (a *storeAdapter) StartSession(id int64) error { return a.workout.StartSession(id) }
+func (a *storeAdapter) SnoozeSession(id int64, dur time.Duration) error {
+	return a.workout.SnoozeSession(id, dur)
+}
+func (a *storeAdapter) SkipSession(id int64) error     { return a.workout.SkipSession(id) }
+func (a *storeAdapter) CompleteSession(id int64) error { return a.workout.CompleteSession(id) }
+func (a *storeAdapter) AdvanceRotation(groupID int64) error {
+	return a.workout.AdvanceRotation(groupID)
+}
 func (a *storeAdapter) CreateAdHocSession(userID int64, d time.Time, t string) (*store.WorkoutSession, error) {
 	return a.workout.CreateAdHocSession(userID, d, t)
 }
