@@ -32,21 +32,21 @@ func TestHandleUpdateSessionStatus(t *testing.T) {
 	userID := int64(123456)
 
 	// Create workout group
-	group, err := db.Workout.CreateWorkoutGroup("Test Group", "Test", false, userID, "[1,2,3,4,5]", "09:00", 15)
+	group, err := db.Workout.CreateGroup("Test Group", "Test", false, userID, "[1,2,3,4,5]", "09:00", 15)
 	if err != nil {
 		t.Fatalf("Failed to create workout group: %v", err)
 	}
 
 	// Create variant
 	rotationOrder := 0
-	variant, err := db.Workout.CreateWorkoutVariant(group.ID, "Test Variant", &rotationOrder, "")
+	variant, err := db.Workout.CreateVariant(group.ID, "Test Variant", &rotationOrder, "")
 	if err != nil {
 		t.Fatalf("Failed to create workout variant: %v", err)
 	}
 
 	// Create a workout session
 	scheduledDate := time.Now()
-	session, err := db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, scheduledDate, "09:00")
+	session, err := db.Workout.CreateSession(group.ID, variant.ID, userID, scheduledDate, "09:00")
 	if err != nil {
 		t.Fatalf("Failed to create workout session: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestHandleUpdateSessionStatus(t *testing.T) {
 
 			// Verify final status if test should succeed
 			if tt.expectedStatus == http.StatusOK && tt.finalStatus != "" {
-				updatedSession, err := db.Workout.GetWorkoutSession(session.ID)
+				updatedSession, err := db.Workout.GetSession(session.ID)
 				if err != nil {
 					t.Fatalf("Failed to get updated session: %v", err)
 				}
@@ -181,15 +181,15 @@ func TestHandleUpdateSessionStatus_CleansUpWorkoutChatOnTerminalState(t *testing
 	}
 
 	userID := int64(123456)
-	group, err := db.Workout.CreateWorkoutGroup("Test Group", "Test", false, userID, "[1,2,3,4,5]", "09:00", 15)
+	group, err := db.Workout.CreateGroup("Test Group", "Test", false, userID, "[1,2,3,4,5]", "09:00", 15)
 	if err != nil {
 		t.Fatalf("Failed to create workout group: %v", err)
 	}
-	variant, err := db.Workout.CreateWorkoutVariant(group.ID, "Test Variant", nil, "")
+	variant, err := db.Workout.CreateVariant(group.ID, "Test Variant", nil, "")
 	if err != nil {
 		t.Fatalf("Failed to create workout variant: %v", err)
 	}
-	session, err := db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	session, err := db.Workout.CreateSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 	if err != nil {
 		t.Fatalf("Failed to create workout session: %v", err)
 	}
@@ -227,9 +227,9 @@ func TestHandleSnoozeWorkoutSessionCompat(t *testing.T) {
 	}
 
 	userID := int64(123456)
-	group, _ := db.Workout.CreateWorkoutGroup("Test", "Test", false, userID, "[1,2,3,4,5]", "09:00", 15)
-	variant, _ := db.Workout.CreateWorkoutVariant(group.ID, "A", nil, "")
-	session, _ := db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	group, _ := db.Workout.CreateGroup("Test", "Test", false, userID, "[1,2,3,4,5]", "09:00", 15)
+	variant, _ := db.Workout.CreateVariant(group.ID, "A", nil, "")
+	session, _ := db.Workout.CreateSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 
 	reqBody := map[string]interface{}{
 		"session_id":     session.ID,
@@ -247,7 +247,7 @@ func TestHandleSnoozeWorkoutSessionCompat(t *testing.T) {
 		t.Errorf("Expected status 200, got %d. Body: %s", w.Code, w.Body.String())
 	}
 
-	updated, _ := db.Workout.GetWorkoutSession(session.ID)
+	updated, _ := db.Workout.GetSession(session.ID)
 	if updated.SnoozedUntil == nil {
 		t.Errorf("Expected session to be snoozed")
 	}
@@ -269,9 +269,9 @@ func TestHandleSkipWorkoutSessionCompat(t *testing.T) {
 		allowedUserID: userID,
 	}
 
-	group, _ := db.Workout.CreateWorkoutGroup("Test", "Test", false, userID, "[1,2,3,4,5]", "09:00", 15)
-	variant, _ := db.Workout.CreateWorkoutVariant(group.ID, "A", nil, "")
-	session, _ := db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	group, _ := db.Workout.CreateGroup("Test", "Test", false, userID, "[1,2,3,4,5]", "09:00", 15)
+	variant, _ := db.Workout.CreateVariant(group.ID, "A", nil, "")
+	session, _ := db.Workout.CreateSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 
 	reqBody := map[string]interface{}{
 		"session_id": session.ID,
@@ -288,7 +288,7 @@ func TestHandleSkipWorkoutSessionCompat(t *testing.T) {
 		t.Errorf("Expected status 200, got %d. Body: %s", w.Code, w.Body.String())
 	}
 
-	updated, _ := db.Workout.GetWorkoutSession(session.ID)
+	updated, _ := db.Workout.GetSession(session.ID)
 	if updated.Status != "skipped" {
 		t.Errorf("Expected session status to be 'skipped', got %s", updated.Status)
 	}
@@ -317,9 +317,9 @@ func TestHandleSkipWorkoutSession_ClearsPendingExercises(t *testing.T) {
 		allowedUserID: userID,
 	}
 
-	group, _ := db.Workout.CreateWorkoutGroup("Test", "Test", false, userID, "[1,2,3,4,5]", "09:00", 15)
-	variant, _ := db.Workout.CreateWorkoutVariant(group.ID, "A", nil, "")
-	session, _ := db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	group, _ := db.Workout.CreateGroup("Test", "Test", false, userID, "[1,2,3,4,5]", "09:00", 15)
+	variant, _ := db.Workout.CreateVariant(group.ID, "A", nil, "")
+	session, _ := db.Workout.CreateSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 
 	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/workout/sessions/%d/skip", session.ID), nil)
 	req.SetPathValue("id", fmt.Sprintf("%d", session.ID))
@@ -358,20 +358,20 @@ func TestHandleGetNextWorkout_LazyCreation(t *testing.T) {
 	// Create workout group active every day at 23:59 (to ensure it's in future for today, or definitely tomorrow)
 	// We want to test that it picks up *some* future workout.
 	// We'll use tomorrow to be safe from "time passed today" logic.
-	group, err := db.Workout.CreateWorkoutGroup("Everyday Group", "Test", false, userID, "[0,1,2,3,4,5,6]", "23:59", 15)
+	group, err := db.Workout.CreateGroup("Everyday Group", "Test", false, userID, "[0,1,2,3,4,5,6]", "23:59", 15)
 	if err != nil {
 		t.Fatalf("Failed to create workout group: %v", err)
 	}
 
 	// Create variant
 	rotationOrder := 0
-	_, err = db.Workout.CreateWorkoutVariant(group.ID, "Variant A", &rotationOrder, "")
+	_, err = db.Workout.CreateVariant(group.ID, "Variant A", &rotationOrder, "")
 	if err != nil {
 		t.Fatalf("Failed to create workout variant: %v", err)
 	}
 
 	// Verify NO sessions exist initially
-	sessions, err := db.Workout.GetWorkoutHistory(userID, 100)
+	sessions, err := db.Workout.ListHistory(userID, 100)
 	if err != nil {
 		t.Fatalf("Failed to get history: %v", err)
 	}
@@ -410,7 +410,7 @@ func TestHandleGetNextWorkout_LazyCreation(t *testing.T) {
 
 	// Verify session was created in DB
 	// Check history again
-	sessions, err = db.Workout.GetWorkoutHistory(userID, 100)
+	sessions, err = db.Workout.ListHistory(userID, 100)
 	if err != nil {
 		t.Fatalf("Failed to get history: %v", err)
 	}
@@ -446,25 +446,25 @@ func TestHandleUpdateExerciseLog_PropagatesWeightToSchedule(t *testing.T) {
 	}
 
 	// Create group → variant → exercise → session → log
-	group, err := db.Workout.CreateWorkoutGroup("Push", "Push day", false, userID, "[1,2,3,4,5]", "09:00", 15)
+	group, err := db.Workout.CreateGroup("Push", "Push day", false, userID, "[1,2,3,4,5]", "09:00", 15)
 	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
+		t.Fatalf("CreateGroup: %v", err)
 	}
 	rotOrder := 0
-	variant, err := db.Workout.CreateWorkoutVariant(group.ID, "Day A", &rotOrder, "")
+	variant, err := db.Workout.CreateVariant(group.ID, "Day A", &rotOrder, "")
 	if err != nil {
-		t.Fatalf("CreateWorkoutVariant: %v", err)
+		t.Fatalf("CreateVariant: %v", err)
 	}
 	weightKg := 60.0
-	exercise, err := db.Workout.AddExerciseToVariant(variant.ID, "Bench Press", 3, 8, nil, &weightKg, 0)
+	exercise, err := db.Workout.CreateExerciseInVariant(variant.ID, "Bench Press", 3, 8, nil, &weightKg, 0)
 	if err != nil {
-		t.Fatalf("AddExerciseToVariant: %v", err)
+		t.Fatalf("CreateExerciseInVariant: %v", err)
 	}
 
 	// Create a pending session
-	session, err := db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	session, err := db.Workout.CreateSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 	if err != nil {
-		t.Fatalf("CreateWorkoutSession: %v", err)
+		t.Fatalf("CreateSession: %v", err)
 	}
 
 	// Log exercise
@@ -630,24 +630,24 @@ func TestHandleUpdateExerciseLog_NoPropagate_CompletedSession(t *testing.T) {
 		allowedUserID: userID,
 	}
 
-	group, err := db.Workout.CreateWorkoutGroup("Push", "Push day", false, userID, "[1,2,3,4,5]", "09:00", 15)
+	group, err := db.Workout.CreateGroup("Push", "Push day", false, userID, "[1,2,3,4,5]", "09:00", 15)
 	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
+		t.Fatalf("CreateGroup: %v", err)
 	}
 	rotOrder := 0
-	variant, err := db.Workout.CreateWorkoutVariant(group.ID, "Day A", &rotOrder, "")
+	variant, err := db.Workout.CreateVariant(group.ID, "Day A", &rotOrder, "")
 	if err != nil {
-		t.Fatalf("CreateWorkoutVariant: %v", err)
+		t.Fatalf("CreateVariant: %v", err)
 	}
 	weightKg := 60.0
-	exercise, err := db.Workout.AddExerciseToVariant(variant.ID, "Bench Press", 3, 8, nil, &weightKg, 0)
+	exercise, err := db.Workout.CreateExerciseInVariant(variant.ID, "Bench Press", 3, 8, nil, &weightKg, 0)
 	if err != nil {
-		t.Fatalf("AddExerciseToVariant: %v", err)
+		t.Fatalf("CreateExerciseInVariant: %v", err)
 	}
 
-	session, err := db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	session, err := db.Workout.CreateSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 	if err != nil {
-		t.Fatalf("CreateWorkoutSession: %v", err)
+		t.Fatalf("CreateSession: %v", err)
 	}
 	if err := db.Workout.UpdateSessionStatus(session.ID, "completed"); err != nil {
 		t.Fatalf("UpdateSessionStatus: %v", err)
@@ -705,25 +705,25 @@ func TestHandleAddExerciseToSession_Propagates_ScheduledExercise(t *testing.T) {
 		allowedUserID: userID,
 	}
 
-	group, err := db.Workout.CreateWorkoutGroup("Push", "Push day", false, userID, "[1,2,3,4,5]", "09:00", 15)
+	group, err := db.Workout.CreateGroup("Push", "Push day", false, userID, "[1,2,3,4,5]", "09:00", 15)
 	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
+		t.Fatalf("CreateGroup: %v", err)
 	}
 	rotOrder := 0
-	variant, err := db.Workout.CreateWorkoutVariant(group.ID, "Day A", &rotOrder, "")
+	variant, err := db.Workout.CreateVariant(group.ID, "Day A", &rotOrder, "")
 	if err != nil {
-		t.Fatalf("CreateWorkoutVariant: %v", err)
+		t.Fatalf("CreateVariant: %v", err)
 	}
 	origWeight := 50.0
-	exercise, err := db.Workout.AddExerciseToVariant(variant.ID, "OHP", 3, 5, nil, &origWeight, 0)
+	exercise, err := db.Workout.CreateExerciseInVariant(variant.ID, "OHP", 3, 5, nil, &origWeight, 0)
 	if err != nil {
-		t.Fatalf("AddExerciseToVariant: %v", err)
+		t.Fatalf("CreateExerciseInVariant: %v", err)
 	}
 
 	// In-progress session
-	session, err := db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	session, err := db.Workout.CreateSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 	if err != nil {
-		t.Fatalf("CreateWorkoutSession: %v", err)
+		t.Fatalf("CreateSession: %v", err)
 	}
 	if err := db.Workout.StartSession(session.ID); err != nil {
 		t.Fatalf("StartSession: %v", err)
@@ -783,24 +783,24 @@ func TestHandleAddExerciseToSession_NoPropagate_LibrarySource(t *testing.T) {
 		allowedUserID: userID,
 	}
 
-	group, err := db.Workout.CreateWorkoutGroup("Push", "Push day", false, userID, "[1,2,3,4,5]", "09:00", 15)
+	group, err := db.Workout.CreateGroup("Push", "Push day", false, userID, "[1,2,3,4,5]", "09:00", 15)
 	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
+		t.Fatalf("CreateGroup: %v", err)
 	}
 	rotOrder := 0
-	variant, err := db.Workout.CreateWorkoutVariant(group.ID, "Day A", &rotOrder, "")
+	variant, err := db.Workout.CreateVariant(group.ID, "Day A", &rotOrder, "")
 	if err != nil {
-		t.Fatalf("CreateWorkoutVariant: %v", err)
+		t.Fatalf("CreateVariant: %v", err)
 	}
 	origWeight := 50.0
-	exercise, err := db.Workout.AddExerciseToVariant(variant.ID, "OHP", 3, 5, nil, &origWeight, 0)
+	exercise, err := db.Workout.CreateExerciseInVariant(variant.ID, "OHP", 3, 5, nil, &origWeight, 0)
 	if err != nil {
-		t.Fatalf("AddExerciseToVariant: %v", err)
+		t.Fatalf("CreateExerciseInVariant: %v", err)
 	}
 
-	session, err := db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	session, err := db.Workout.CreateSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 	if err != nil {
-		t.Fatalf("CreateWorkoutSession: %v", err)
+		t.Fatalf("CreateSession: %v", err)
 	}
 	if err := db.Workout.StartSession(session.ID); err != nil {
 		t.Fatalf("StartSession: %v", err)
@@ -859,25 +859,25 @@ func TestHandleAddExerciseToSession_NoPropagate_UserAddedExercise(t *testing.T) 
 		allowedUserID: userID,
 	}
 
-	group, err := db.Workout.CreateWorkoutGroup("Push", "Push day", false, userID, "[1,2,3,4,5]", "09:00", 15)
+	group, err := db.Workout.CreateGroup("Push", "Push day", false, userID, "[1,2,3,4,5]", "09:00", 15)
 	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
+		t.Fatalf("CreateGroup: %v", err)
 	}
 	rotOrder := 0
-	variant, err := db.Workout.CreateWorkoutVariant(group.ID, "Day A", &rotOrder, "")
+	variant, err := db.Workout.CreateVariant(group.ID, "Day A", &rotOrder, "")
 	if err != nil {
-		t.Fatalf("CreateWorkoutVariant: %v", err)
+		t.Fatalf("CreateVariant: %v", err)
 	}
 	origWeight := 50.0
-	exercise, err := db.Workout.AddExerciseToVariant(variant.ID, "Bench Press", 3, 8, nil, &origWeight, 0)
+	exercise, err := db.Workout.CreateExerciseInVariant(variant.ID, "Bench Press", 3, 8, nil, &origWeight, 0)
 	if err != nil {
-		t.Fatalf("AddExerciseToVariant: %v", err)
+		t.Fatalf("CreateExerciseInVariant: %v", err)
 	}
 
 	// In-progress session
-	session, err := db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	session, err := db.Workout.CreateSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 	if err != nil {
-		t.Fatalf("CreateWorkoutSession: %v", err)
+		t.Fatalf("CreateSession: %v", err)
 	}
 	if err := db.Workout.StartSession(session.ID); err != nil {
 		t.Fatalf("StartSession: %v", err)
@@ -930,23 +930,23 @@ func TestHandleAddExerciseToSession_RejectsInvalidSource(t *testing.T) {
 	userID := int64(123456)
 	srv := &Server{workouts: db.Workout, allowedUserID: userID}
 
-	group, err := db.Workout.CreateWorkoutGroup("Push", "Push day", false, userID, "[1,2,3,4,5]", "09:00", 15)
+	group, err := db.Workout.CreateGroup("Push", "Push day", false, userID, "[1,2,3,4,5]", "09:00", 15)
 	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
+		t.Fatalf("CreateGroup: %v", err)
 	}
 	rotOrder := 0
-	variant, err := db.Workout.CreateWorkoutVariant(group.ID, "Day A", &rotOrder, "")
+	variant, err := db.Workout.CreateVariant(group.ID, "Day A", &rotOrder, "")
 	if err != nil {
-		t.Fatalf("CreateWorkoutVariant: %v", err)
+		t.Fatalf("CreateVariant: %v", err)
 	}
-	exercise, err := db.Workout.AddExerciseToVariant(variant.ID, "Squat", 3, 8, nil, nil, 0)
+	exercise, err := db.Workout.CreateExerciseInVariant(variant.ID, "Squat", 3, 8, nil, nil, 0)
 	if err != nil {
-		t.Fatalf("AddExerciseToVariant: %v", err)
+		t.Fatalf("CreateExerciseInVariant: %v", err)
 	}
 
-	session, err := db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	session, err := db.Workout.CreateSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 	if err != nil {
-		t.Fatalf("CreateWorkoutSession: %v", err)
+		t.Fatalf("CreateSession: %v", err)
 	}
 	if err := db.Workout.StartSession(session.ID); err != nil {
 		t.Fatalf("StartSession: %v", err)
@@ -993,24 +993,24 @@ func TestHandleUpdateExerciseLog_NoPropagate_CollidingLibraryID(t *testing.T) {
 		allowedUserID: userID,
 	}
 
-	group, err := db.Workout.CreateWorkoutGroup("Push", "Push day", false, userID, "[1,2,3,4,5]", "09:00", 15)
+	group, err := db.Workout.CreateGroup("Push", "Push day", false, userID, "[1,2,3,4,5]", "09:00", 15)
 	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
+		t.Fatalf("CreateGroup: %v", err)
 	}
 	rotOrder := 0
-	variant, err := db.Workout.CreateWorkoutVariant(group.ID, "Day A", &rotOrder, "")
+	variant, err := db.Workout.CreateVariant(group.ID, "Day A", &rotOrder, "")
 	if err != nil {
-		t.Fatalf("CreateWorkoutVariant: %v", err)
+		t.Fatalf("CreateVariant: %v", err)
 	}
 	origWeight := 60.0
-	scheduledEx, err := db.Workout.AddExerciseToVariant(variant.ID, "Bench Press", 3, 8, nil, &origWeight, 0)
+	scheduledEx, err := db.Workout.CreateExerciseInVariant(variant.ID, "Bench Press", 3, 8, nil, &origWeight, 0)
 	if err != nil {
-		t.Fatalf("AddExerciseToVariant: %v", err)
+		t.Fatalf("CreateExerciseInVariant: %v", err)
 	}
 
-	session, err := db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	session, err := db.Workout.CreateSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 	if err != nil {
-		t.Fatalf("CreateWorkoutSession: %v", err)
+		t.Fatalf("CreateSession: %v", err)
 	}
 
 	// Use the SAME numeric ID as the scheduled exercise (simulating a colliding
@@ -1076,24 +1076,24 @@ func TestHandleUpdateExerciseLog_NoPropagate_SameNameCollidingLibraryID(t *testi
 		allowedUserID: userID,
 	}
 
-	group, err := db.Workout.CreateWorkoutGroup("Push", "Push day", false, userID, "[1,2,3,4,5]", "09:00", 15)
+	group, err := db.Workout.CreateGroup("Push", "Push day", false, userID, "[1,2,3,4,5]", "09:00", 15)
 	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
+		t.Fatalf("CreateGroup: %v", err)
 	}
 	rotOrder := 0
-	variant, err := db.Workout.CreateWorkoutVariant(group.ID, "Day A", &rotOrder, "")
+	variant, err := db.Workout.CreateVariant(group.ID, "Day A", &rotOrder, "")
 	if err != nil {
-		t.Fatalf("CreateWorkoutVariant: %v", err)
+		t.Fatalf("CreateVariant: %v", err)
 	}
 	origWeight := 60.0
-	scheduledEx, err := db.Workout.AddExerciseToVariant(variant.ID, "Bench Press", 3, 8, nil, &origWeight, 0)
+	scheduledEx, err := db.Workout.CreateExerciseInVariant(variant.ID, "Bench Press", 3, 8, nil, &origWeight, 0)
 	if err != nil {
-		t.Fatalf("AddExerciseToVariant: %v", err)
+		t.Fatalf("CreateExerciseInVariant: %v", err)
 	}
 
-	session, err := db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	session, err := db.Workout.CreateSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 	if err != nil {
-		t.Fatalf("CreateWorkoutSession: %v", err)
+		t.Fatalf("CreateSession: %v", err)
 	}
 
 	// Use the SAME numeric ID as the scheduled exercise AND the SAME name.
@@ -1162,12 +1162,12 @@ func TestGetWorkoutStats(t *testing.T) {
 	// Create test user implicitly by adding group
 	userID := int64(123)
 
-	group, err := db.Workout.CreateWorkoutGroup("Test Group", "Desc", false, userID, "[1,3,5]", "09:00", 15)
+	group, err := db.Workout.CreateGroup("Test Group", "Desc", false, userID, "[1,3,5]", "09:00", 15)
 	if err != nil {
 		t.Fatalf("Failed to create group: %v", err)
 	}
 
-	variant, err := db.Workout.CreateWorkoutVariant(group.ID, "Main", nil, "")
+	variant, err := db.Workout.CreateVariant(group.ID, "Main", nil, "")
 	if err != nil {
 		t.Fatalf("Failed to create variant: %v", err)
 	}
@@ -1176,7 +1176,7 @@ func TestGetWorkoutStats(t *testing.T) {
 	// Create sessions that reflect some activity
 	for i := 0; i < 3; i++ {
 		date := now.AddDate(0, 0, -i*7) // weekly sessions
-		session, err := db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, date, "09:00")
+		session, err := db.Workout.CreateSession(group.ID, variant.ID, userID, date, "09:00")
 		if err != nil {
 			t.Fatalf("Failed to create session: %v", err)
 		}

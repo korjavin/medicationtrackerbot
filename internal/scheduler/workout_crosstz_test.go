@@ -29,13 +29,13 @@ func TestWorkoutChecker_CrossTZCooldownPreventsDuplicateSession(t *testing.T) {
 	}
 
 	// Group fires every weekday at 12:00.
-	group, err := db.Workout.CreateWorkoutGroup("CrossTZ", "", false, 123456, "[0,1,2,3,4,5,6]", "12:00", 15)
+	group, err := db.Workout.CreateGroup("CrossTZ", "", false, 123456, "[0,1,2,3,4,5,6]", "12:00", 15)
 	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
+		t.Fatalf("CreateGroup: %v", err)
 	}
 	one := 1
-	if _, err := db.Workout.CreateWorkoutVariant(group.ID, "Default", &one, ""); err != nil {
-		t.Fatalf("CreateWorkoutVariant: %v", err)
+	if _, err := db.Workout.CreateVariant(group.ID, "Default", &one, ""); err != nil {
+		t.Fatalf("CreateVariant: %v", err)
 	}
 
 	tokyo, _ := time.LoadLocation("Asia/Tokyo")
@@ -58,9 +58,9 @@ func TestWorkoutChecker_CrossTZCooldownPreventsDuplicateSession(t *testing.T) {
 	}
 
 	// Confirm exactly one session got created on the Tokyo "today" date.
-	first, err := db.Workout.GetWorkoutHistory(123456, 10)
+	first, err := db.Workout.ListHistory(123456, 10)
 	if err != nil {
-		t.Fatalf("GetWorkoutHistory: %v", err)
+		t.Fatalf("ListHistory: %v", err)
 	}
 	if len(first) != 1 {
 		t.Fatalf("after Tokyo tick, want 1 session, got %d", len(first))
@@ -85,9 +85,9 @@ func TestWorkoutChecker_CrossTZCooldownPreventsDuplicateSession(t *testing.T) {
 		t.Fatalf("Berlin Check: %v", err)
 	}
 
-	second, err := db.Workout.GetWorkoutHistory(123456, 10)
+	second, err := db.Workout.ListHistory(123456, 10)
 	if err != nil {
-		t.Fatalf("GetWorkoutHistory after Berlin: %v", err)
+		t.Fatalf("ListHistory after Berlin: %v", err)
 	}
 	if len(second) != 1 {
 		for _, s := range second {
@@ -114,13 +114,13 @@ func TestWorkoutChecker_ConsecutiveDaysAllowed(t *testing.T) {
 		t.Fatalf("RecordTimezone: %v", err)
 	}
 
-	group, err := db.Workout.CreateWorkoutGroup("Daily", "", false, 123456, "[0,1,2,3,4,5,6]", "09:00", 15)
+	group, err := db.Workout.CreateGroup("Daily", "", false, 123456, "[0,1,2,3,4,5,6]", "09:00", 15)
 	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
+		t.Fatalf("CreateGroup: %v", err)
 	}
 	one := 1
-	if _, err := db.Workout.CreateWorkoutVariant(group.ID, "Default", &one, ""); err != nil {
-		t.Fatalf("CreateWorkoutVariant: %v", err)
+	if _, err := db.Workout.CreateVariant(group.ID, "Default", &one, ""); err != nil {
+		t.Fatalf("CreateVariant: %v", err)
 	}
 
 	mockNotifier := &MockNotifier{}
@@ -142,9 +142,9 @@ func TestWorkoutChecker_ConsecutiveDaysAllowed(t *testing.T) {
 		t.Fatalf("day2 Check: %v", err)
 	}
 
-	sessions, err := db.Workout.GetWorkoutHistory(123456, 10)
+	sessions, err := db.Workout.ListHistory(123456, 10)
 	if err != nil {
-		t.Fatalf("GetWorkoutHistory: %v", err)
+		t.Fatalf("ListHistory: %v", err)
 	}
 	if len(sessions) != 2 {
 		for _, s := range sessions {

@@ -52,17 +52,17 @@ type WeightStore interface {
 // Compound mutations (start, skip, complete, snooze, create ad-hoc) go through WorkoutService.
 type WorkoutStore interface {
 	GetWorkoutEnabled(ctx context.Context) (bool, error)
-	GetWorkoutSession(id int64) (*store.WorkoutSession, error)
-	GetWorkoutGroup(groupID int64) (*store.WorkoutGroup, error)
-	GetWorkoutVariant(variantID int64) (*store.WorkoutVariant, error)
-	ListWorkoutGroups(userID int64, activeOnly bool) ([]store.WorkoutGroup, error)
+	GetSession(id int64) (*store.WorkoutSession, error)
+	GetGroup(groupID int64) (*store.WorkoutGroup, error)
+	GetVariant(variantID int64) (*store.WorkoutVariant, error)
+	ListGroups(userID int64, activeOnly bool) ([]store.WorkoutGroup, error)
 	GetSessionByGroupAndDate(groupID int64, scheduledDate time.Time) (*store.WorkoutSession, error)
-	GetWorkoutHistory(userID int64, limit int) ([]store.WorkoutSession, error)
+	ListHistory(userID int64, limit int) ([]store.WorkoutSession, error)
 	ListExercisesByVariant(variantID int64) ([]store.WorkoutExercise, error)
-	GetWorkoutExercise(id int64) (*store.WorkoutExercise, error)
+	GetExercise(id int64) (*store.WorkoutExercise, error)
 	GetExerciseLibraryItem(id int64) (*store.ExerciseLibraryItem, error)
-	GetExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error)
-	GetAllUniqueExercises(userID int64) ([]store.WorkoutExercise, error)
+	ListExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error)
+	ListAllUniqueExercises(userID int64) ([]store.WorkoutExercise, error)
 }
 
 // FoodStore is the subset of store operations needed for food bot commands.
@@ -77,8 +77,8 @@ type ImportStore interface {
 	ImportSleepLogs(ctx context.Context, userID int64, logs []store.SleepLog) (int, int, error)
 	ImportVitals(ctx context.Context, userID int64, heartLogs []store.VitalsHeartLog, spo2Logs []store.VitalsSpO2Log, stressLogs []store.VitalsStressLog) (int, int, error)
 	ImportDayStats(ctx context.Context, userID int64, stats []store.DayStat) (int, int, error)
-	ImportMiBandWorkouts(ctx context.Context, workouts []store.MiBandWorkout, gpsTracks map[int64][]store.MiBandGPSPoint) (int, int, error)
-	ListMiBandWorkouts(ctx context.Context, userID int64, limit int) ([]store.MiBandWorkout, error)
+	ImportMiBand(ctx context.Context, workouts []store.MiBandWorkout, gpsTracks map[int64][]store.MiBandGPSPoint) (int, int, error)
+	ListMiBand(ctx context.Context, userID int64, limit int) ([]store.MiBandWorkout, error)
 }
 
 // ActivityLogStore is the subset of store operations needed for ad-hoc activity logging.

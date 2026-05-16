@@ -197,38 +197,38 @@ func (a *storeAdapter) DeleteFoodLog(ctx context.Context, id, userID int64) erro
 
 // --- Workout ---
 
-func (a *storeAdapter) GetWorkoutSession(id int64) (*store.WorkoutSession, error) {
-	return a.workout.GetWorkoutSession(id)
+func (a *storeAdapter) GetSession(id int64) (*store.WorkoutSession, error) {
+	return a.workout.GetSession(id)
 }
-func (a *storeAdapter) GetWorkoutGroup(groupID int64) (*store.WorkoutGroup, error) {
-	return a.workout.GetWorkoutGroup(groupID)
+func (a *storeAdapter) GetGroup(groupID int64) (*store.WorkoutGroup, error) {
+	return a.workout.GetGroup(groupID)
 }
-func (a *storeAdapter) GetWorkoutVariant(variantID int64) (*store.WorkoutVariant, error) {
-	return a.workout.GetWorkoutVariant(variantID)
+func (a *storeAdapter) GetVariant(variantID int64) (*store.WorkoutVariant, error) {
+	return a.workout.GetVariant(variantID)
 }
-func (a *storeAdapter) ListWorkoutGroups(userID int64, activeOnly bool) ([]store.WorkoutGroup, error) {
-	return a.workout.ListWorkoutGroups(userID, activeOnly)
+func (a *storeAdapter) ListGroups(userID int64, activeOnly bool) ([]store.WorkoutGroup, error) {
+	return a.workout.ListGroups(userID, activeOnly)
 }
 func (a *storeAdapter) GetSessionByGroupAndDate(groupID int64, scheduledDate time.Time) (*store.WorkoutSession, error) {
 	return a.workout.GetSessionByGroupAndDate(groupID, scheduledDate)
 }
-func (a *storeAdapter) GetWorkoutHistory(userID int64, limit int) ([]store.WorkoutSession, error) {
-	return a.workout.GetWorkoutHistory(userID, limit)
+func (a *storeAdapter) ListHistory(userID int64, limit int) ([]store.WorkoutSession, error) {
+	return a.workout.ListHistory(userID, limit)
 }
 func (a *storeAdapter) ListExercisesByVariant(variantID int64) ([]store.WorkoutExercise, error) {
 	return a.workout.ListExercisesByVariant(variantID)
 }
-func (a *storeAdapter) GetWorkoutExercise(id int64) (*store.WorkoutExercise, error) {
-	return a.workout.GetWorkoutExercise(id)
+func (a *storeAdapter) GetExercise(id int64) (*store.WorkoutExercise, error) {
+	return a.workout.GetExercise(id)
 }
 func (a *storeAdapter) GetExerciseLibraryItem(id int64) (*store.ExerciseLibraryItem, error) {
 	return a.workout.GetExerciseLibraryItem(id)
 }
-func (a *storeAdapter) GetExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error) {
-	return a.workout.GetExerciseLogs(sessionID)
+func (a *storeAdapter) ListExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error) {
+	return a.workout.ListExerciseLogs(sessionID)
 }
-func (a *storeAdapter) GetAllUniqueExercises(userID int64) ([]store.WorkoutExercise, error) {
-	return a.workout.GetAllUniqueExercises(userID)
+func (a *storeAdapter) ListAllUniqueExercises(userID int64) ([]store.WorkoutExercise, error) {
+	return a.workout.ListAllUniqueExercises(userID)
 }
 func (a *storeAdapter) LogExercise(sessionID, exerciseID int64, name string, sets, reps *int, weightKg *float64, status, notes string) (int64, error) {
 	return a.workout.LogExercise(sessionID, exerciseID, name, sets, reps, weightKg, status, notes)
@@ -256,8 +256,8 @@ func (a *storeAdapter) SnoozeSession(id int64, dur time.Duration) error         
 func (a *storeAdapter) SkipSession(id int64) error                                 { return a.workout.SkipSession(id) }
 func (a *storeAdapter) CompleteSession(id int64) error                             { return a.workout.CompleteSession(id) }
 func (a *storeAdapter) AdvanceRotation(groupID int64) error                        { return a.workout.AdvanceRotation(groupID) }
-func (a *storeAdapter) CreateAdHocWorkoutSession(userID int64, d time.Time, t string) (*store.WorkoutSession, error) {
-	return a.workout.CreateAdHocWorkoutSession(userID, d, t)
+func (a *storeAdapter) CreateAdHocSession(userID int64, d time.Time, t string) (*store.WorkoutSession, error) {
+	return a.workout.CreateAdHocSession(userID, d, t)
 }
 func (a *storeAdapter) CreatePlannedAdHocSession(userID int64, d time.Time, t string) (*store.WorkoutSession, error) {
 	return a.workout.CreatePlannedAdHocSession(userID, d, t)
@@ -275,11 +275,11 @@ func (a *storeAdapter) ImportVitals(ctx context.Context, userID int64, heart []s
 func (a *storeAdapter) ImportDayStats(ctx context.Context, userID int64, stats []store.DayStat) (int, int, error) {
 	return a.vitals.ImportDayStats(ctx, userID, stats)
 }
-func (a *storeAdapter) ImportMiBandWorkouts(ctx context.Context, workouts []store.MiBandWorkout, gpsTracks map[int64][]store.MiBandGPSPoint) (int, int, error) {
-	return a.workout.ImportMiBandWorkouts(ctx, workouts, gpsTracks)
+func (a *storeAdapter) ImportMiBand(ctx context.Context, workouts []store.MiBandWorkout, gpsTracks map[int64][]store.MiBandGPSPoint) (int, int, error) {
+	return a.workout.ImportMiBand(ctx, workouts, gpsTracks)
 }
-func (a *storeAdapter) ListMiBandWorkouts(ctx context.Context, userID int64, limit int) ([]store.MiBandWorkout, error) {
-	return a.workout.ListMiBandWorkouts(ctx, userID, limit)
+func (a *storeAdapter) ListMiBand(ctx context.Context, userID int64, limit int) ([]store.MiBandWorkout, error) {
+	return a.workout.ListMiBand(ctx, userID, limit)
 }
 
 // --- TZ ---

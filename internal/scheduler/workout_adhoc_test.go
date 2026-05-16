@@ -57,13 +57,13 @@ func TestWorkoutChecker_AdHocFuture_NotNotified(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	if got := len(mock.Notifications); got != 0 {
+	if got := len(mock.snapshotNotifications()); got != 0 {
 		t.Errorf("expected 0 notifications for a future ad-hoc, got %d", got)
 	}
 
-	updated, err := db.Workout.GetWorkoutSession(session.ID)
+	updated, err := db.Workout.GetSession(session.ID)
 	if err != nil {
-		t.Fatalf("GetWorkoutSession: %v", err)
+		t.Fatalf("GetSession: %v", err)
 	}
 	if updated.Status != "pending" {
 		t.Errorf("status = %q, want pending (untouched)", updated.Status)
@@ -100,23 +100,24 @@ func TestWorkoutChecker_AdHocDue_NotifiedAndFlipped(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	if got := len(mock.Notifications); got != 1 {
+	notes := mock.snapshotNotifications()
+	if got := len(notes); got != 1 {
 		t.Fatalf("expected 1 notification, got %d", got)
 	}
-	body := mock.Notifications[0].Text
+	body := notes[0].Text
 	if !strings.Contains(body, "Goblet Squat") {
 		t.Errorf("notification body should list Goblet Squat, got: %s", body)
 	}
 	if !strings.Contains(body, "Push-up") {
 		t.Errorf("notification body should list Push-up, got: %s", body)
 	}
-	if got := mock.Notifications[0].Metadata["ad_hoc"]; got != true {
+	if got := notes[0].Metadata["ad_hoc"]; got != true {
 		t.Errorf("metadata ad_hoc = %v, want true", got)
 	}
 
-	updated, err := db.Workout.GetWorkoutSession(session.ID)
+	updated, err := db.Workout.GetSession(session.ID)
 	if err != nil {
-		t.Fatalf("GetWorkoutSession: %v", err)
+		t.Fatalf("GetSession: %v", err)
 	}
 	if updated.Status != "notified" {
 		t.Errorf("status = %q, want notified", updated.Status)
@@ -186,10 +187,11 @@ func TestWorkoutChecker_AdHocDue_EscapesMarkdownInExerciseNames(t *testing.T) {
 	}
 	time.Sleep(50 * time.Millisecond)
 
-	if got := len(mock.Notifications); got != 1 {
+	notes := mock.snapshotNotifications()
+	if got := len(notes); got != 1 {
 		t.Fatalf("expected 1 notification, got %d", got)
 	}
-	body := mock.Notifications[0].Text
+	body := notes[0].Text
 	if !strings.Contains(body, `pull\_up`) {
 		t.Errorf("expected escaped underscore in body, got: %s", body)
 	}
@@ -220,10 +222,11 @@ func TestWorkoutChecker_AdHocDue_NoExercises_GenericMessage(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	if got := len(mock.Notifications); got != 1 {
+	notes := mock.snapshotNotifications()
+	if got := len(notes); got != 1 {
 		t.Fatalf("expected 1 notification, got %d", got)
 	}
-	body := mock.Notifications[0].Text
+	body := notes[0].Text
 	if !strings.Contains(body, "Workout starting now") {
 		t.Errorf("notification body should mention workout starting, got: %s", body)
 	}
@@ -231,9 +234,9 @@ func TestWorkoutChecker_AdHocDue_NoExercises_GenericMessage(t *testing.T) {
 		t.Errorf("expected generic-message marker, got: %s", body)
 	}
 
-	updated, err := db.Workout.GetWorkoutSession(session.ID)
+	updated, err := db.Workout.GetSession(session.ID)
 	if err != nil {
-		t.Fatalf("GetWorkoutSession: %v", err)
+		t.Fatalf("GetSession: %v", err)
 	}
 	if updated.Status != "notified" {
 		t.Errorf("status = %q, want notified", updated.Status)

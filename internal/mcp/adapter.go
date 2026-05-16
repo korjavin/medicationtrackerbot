@@ -42,17 +42,17 @@ func (a *storeAdapter) GetWeightLogs(ctx context.Context, userID int64, since ti
 func (a *storeAdapter) ListIntakesSince(since time.Time) ([]store.IntakeWithMedication, error) {
 	return a.s.Medication.ListIntakesSince(since)
 }
-func (a *storeAdapter) GetWorkoutHistory(userID int64, limit int) ([]store.WorkoutSession, error) {
-	return a.s.Workout.GetWorkoutHistory(userID, limit)
+func (a *storeAdapter) ListHistory(userID int64, limit int) ([]store.WorkoutSession, error) {
+	return a.s.Workout.ListHistory(userID, limit)
 }
-func (a *storeAdapter) GetWorkoutGroup(groupID int64) (*store.WorkoutGroup, error) {
-	return a.s.Workout.GetWorkoutGroup(groupID)
+func (a *storeAdapter) GetGroup(groupID int64) (*store.WorkoutGroup, error) {
+	return a.s.Workout.GetGroup(groupID)
 }
-func (a *storeAdapter) GetWorkoutVariant(variantID int64) (*store.WorkoutVariant, error) {
-	return a.s.Workout.GetWorkoutVariant(variantID)
+func (a *storeAdapter) GetVariant(variantID int64) (*store.WorkoutVariant, error) {
+	return a.s.Workout.GetVariant(variantID)
 }
-func (a *storeAdapter) GetExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error) {
-	return a.s.Workout.GetExerciseLogs(sessionID)
+func (a *storeAdapter) ListExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error) {
+	return a.s.Workout.ListExerciseLogs(sessionID)
 }
 func (a *storeAdapter) GetSleepLogs(ctx context.Context, userID int64, since time.Time) ([]store.SleepLog, error) {
 	return a.s.Vitals.GetSleepLogs(ctx, userID, since)
@@ -75,8 +75,8 @@ func (a *storeAdapter) GetVitalsSpO2(ctx context.Context, userID int64, start, e
 func (a *storeAdapter) GetVitalsStress(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsStressLog, error) {
 	return a.s.Vitals.GetVitalsStress(ctx, userID, start, end)
 }
-func (a *storeAdapter) ListMiBandWorkouts(ctx context.Context, userID int64, limit int) ([]store.MiBandWorkout, error) {
-	return a.s.Workout.ListMiBandWorkouts(ctx, userID, limit)
+func (a *storeAdapter) ListMiBand(ctx context.Context, userID int64, limit int) ([]store.MiBandWorkout, error) {
+	return a.s.Workout.ListMiBand(ctx, userID, limit)
 }
 func (a *storeAdapter) ListDiaryNotes(ctx context.Context, userID int64, since, until time.Time, limit int, beforeID int64) ([]store.DiaryNote, error) {
 	return a.s.Diary.List(ctx, userID, since, until, limit, beforeID)

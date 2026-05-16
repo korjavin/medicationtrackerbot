@@ -25,7 +25,7 @@ func (s *Server) handleListMiBandWorkouts(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	workouts, err := s.miband.ListMiBandWorkouts(r.Context(), userID, limit)
+	workouts, err := s.miband.ListMiBand(r.Context(), userID, limit)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -96,7 +96,7 @@ func (s *Server) handleGetMiBandWorkoutGPS(w http.ResponseWriter, r *http.Reques
 
 	// Verify the workout exists and belongs to this user
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
-	wo, err := s.miband.GetMiBandWorkout(r.Context(), id)
+	wo, err := s.miband.GetMiBand(r.Context(), id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -106,7 +106,7 @@ func (s *Server) handleGetMiBandWorkoutGPS(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	pts, err := s.miband.GetMiBandWorkoutGPS(r.Context(), id)
+	pts, err := s.miband.GetMiBandGPS(r.Context(), id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -136,7 +136,7 @@ func (s *Server) handleDeleteMiBandWorkout(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	err = s.miband.DeleteMiBandWorkout(r.Context(), id, userID)
+	err = s.miband.DeleteMiBand(r.Context(), id, userID)
 	if errors.Is(err, sql.ErrNoRows) {
 		http.Error(w, "Workout not found", http.StatusNotFound)
 		return
@@ -171,7 +171,7 @@ func (s *Server) handleUpdateMiBandWorkout(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	err = s.miband.UpdateMiBandWorkout(r.Context(), id, userID, fields)
+	err = s.miband.UpdateMiBand(r.Context(), id, userID, fields)
 	if errors.Is(err, sql.ErrNoRows) {
 		http.Error(w, "Workout not found", http.StatusNotFound)
 		return

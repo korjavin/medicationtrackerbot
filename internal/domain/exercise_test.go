@@ -52,7 +52,7 @@ func (m *mockExerciseStore) addSession(id int64, variantID int64, status string)
 	m.sessions[id] = &store.WorkoutSession{ID: id, VariantID: variantID, Status: status}
 }
 
-func (m *mockExerciseStore) GetWorkoutSession(id int64) (*store.WorkoutSession, error) {
+func (m *mockExerciseStore) GetSession(id int64) (*store.WorkoutSession, error) {
 	s, ok := m.sessions[id]
 	if !ok {
 		// Default: return an in_progress session with VariantID=1 (matching addExercise default).
@@ -101,7 +101,7 @@ func (m *mockExerciseStore) addLogWithSource(sessionID, exerciseID int64, status
 	return id
 }
 
-func (m *mockExerciseStore) GetWorkoutExercise(id int64) (*store.WorkoutExercise, error) {
+func (m *mockExerciseStore) GetExercise(id int64) (*store.WorkoutExercise, error) {
 	return m.exercises[id], nil
 }
 
@@ -171,7 +171,7 @@ func (m *mockExerciseStore) ListExercisesByVariant(variantID int64) ([]store.Wor
 	return result, nil
 }
 
-func (m *mockExerciseStore) GetExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error) {
+func (m *mockExerciseStore) ListExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error) {
 	var result []store.WorkoutExerciseLog
 	for _, logID := range m.sessionLogs[sessionID] {
 		if l, ok := m.logs[logID]; ok {
@@ -195,18 +195,18 @@ type errExerciseStore struct {
 	errUpdateExerciseStatus bool
 }
 
-func (e *errExerciseStore) GetWorkoutSession(id int64) (*store.WorkoutSession, error) {
+func (e *errExerciseStore) GetSession(id int64) (*store.WorkoutSession, error) {
 	if e.errGetSession {
 		return nil, errors.New("store error")
 	}
-	return e.mockExerciseStore.GetWorkoutSession(id)
+	return e.mockExerciseStore.GetSession(id)
 }
 
-func (e *errExerciseStore) GetWorkoutExercise(id int64) (*store.WorkoutExercise, error) {
+func (e *errExerciseStore) GetExercise(id int64) (*store.WorkoutExercise, error) {
 	if e.errGetExercise {
 		return nil, errors.New("store error")
 	}
-	return e.mockExerciseStore.GetWorkoutExercise(id)
+	return e.mockExerciseStore.GetExercise(id)
 }
 
 func (e *errExerciseStore) GetExerciseLibraryItem(id int64) (*store.ExerciseLibraryItem, error) {
@@ -237,11 +237,11 @@ func (e *errExerciseStore) ListExercisesByVariant(variantID int64) ([]store.Work
 	return e.mockExerciseStore.ListExercisesByVariant(variantID)
 }
 
-func (e *errExerciseStore) GetExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error) {
+func (e *errExerciseStore) ListExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error) {
 	if e.errGetLogs {
 		return nil, errors.New("store error")
 	}
-	return e.mockExerciseStore.GetExerciseLogs(sessionID)
+	return e.mockExerciseStore.ListExerciseLogs(sessionID)
 }
 
 func (e *errExerciseStore) LogExercise(sessionID, exerciseID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes string) (int64, error) {
@@ -531,7 +531,7 @@ func TestLogExercise_GetSessionError(t *testing.T) {
 
 	_, err := svc.LogExercise(1, 10, "completed", false)
 	if err == nil {
-		t.Fatal("expected error when GetWorkoutSession fails")
+		t.Fatal("expected error when GetSession fails")
 	}
 }
 
@@ -616,7 +616,7 @@ func TestCheckSessionCompletion_GetLogsError(t *testing.T) {
 
 	_, _, _, err := svc.CheckSessionCompletion(100, 1)
 	if err == nil {
-		t.Fatal("expected error when GetExerciseLogs fails")
+		t.Fatal("expected error when ListExerciseLogs fails")
 	}
 }
 

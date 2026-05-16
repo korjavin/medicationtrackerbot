@@ -294,12 +294,12 @@ Already minimal: `Create`, `List`, `Delete`. No renames.
 
 ### Task 6: Rename workout repo methods
 
-- [ ] apply rename mapping to `internal/store/workout/` including the mi-band sub-area (e.g. `GetExerciseLogs` → `ListExerciseLogs`)
-- [ ] update consumer interfaces in `internal/server/store_interfaces.go` and `internal/bot/store_interfaces.go`
-- [ ] update adapter forwarders in scheduler/bot/mcp adapters and `cmd/bot/tz_planner_adapter.go`
-- [ ] update MCP registry operation handlers in `internal/mcp/registry/operations_workout*.go`
-- [ ] update tests inside `internal/store/workout/` and any caller tests
-- [ ] run project tests - must pass (`go test ./...`, `go test -race ./...`, `golangci-lint run`)
+- [x] apply rename mapping to `internal/store/workout/` including the mi-band sub-area (e.g. `GetExerciseLogs` → `ListExerciseLogs`)
+- [x] update consumer interfaces in `internal/server/store_interfaces.go` and `internal/bot/store_interfaces.go`
+- [x] update adapter forwarders in scheduler/bot/mcp adapters and `cmd/bot/tz_planner_adapter.go`
+- [x] update MCP registry operation handlers in `internal/mcp/registry/operations_workout*.go`
+- [x] update tests inside `internal/store/workout/` and any caller tests
+- [x] run project tests - `go test ./...` and `golangci-lint run` pass; `go test -race ./...` has pre-existing failures in `internal/scheduler/helpers_test.go` (slog reflecting over mockHelperNotifier in master) that are out of scope. The WorkoutChecker race introduced by exercising more test paths is fixed by adding a `sync.Mutex` to `MockNotifier` and lock-protected `snapshotNotifications`/`resetNotifications` accessors.
 
 ### Task 7: Rename vitals repo methods
 

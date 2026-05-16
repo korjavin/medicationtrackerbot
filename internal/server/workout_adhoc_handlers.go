@@ -21,7 +21,7 @@ func (s *Server) handleCreateAdHocWorkoutSession(w http.ResponseWriter, r *http.
 	scheduledTime := now.Format("15:04")
 
 	// Create ad-hoc workout session
-	session, err := s.workouts.CreateAdHocWorkoutSession(userID, now, scheduledTime)
+	session, err := s.workouts.CreateAdHocSession(userID, now, scheduledTime)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

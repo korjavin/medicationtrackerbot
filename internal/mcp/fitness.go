@@ -163,7 +163,7 @@ func (s *Server) handleAnalyzeFitness(ctx context.Context, req *sdkmcp.CallToolR
 }
 
 func (s *Server) fetchWorkoutsSection(ctx context.Context, userID int64, startDate, endDate time.Time) (*WorkoutsSection, error) {
-	sessions, err := s.data.GetWorkoutHistory(userID, 1000)
+	sessions, err := s.data.ListHistory(userID, 1000)
 	if err != nil {
 		slog.Warn("[MCP] FitnessAnalysis: failed to fetch workouts", "error", err)
 		return nil, err
@@ -181,8 +181,8 @@ func (s *Server) fetchWorkoutsSection(ctx context.Context, userID int64, startDa
 			completedSessions++
 		}
 
-		group, _ := s.data.GetWorkoutGroup(session.GroupID)
-		variant, _ := s.data.GetWorkoutVariant(session.VariantID)
+		group, _ := s.data.GetGroup(session.GroupID)
+		variant, _ := s.data.GetVariant(session.VariantID)
 
 		groupName := ""
 		variantName := ""
@@ -215,7 +215,7 @@ func (s *Server) fetchWorkoutsSection(ctx context.Context, userID int64, startDa
 	}
 
 	// Include MiBand workouts
-	mibandWorkouts, err := s.data.ListMiBandWorkouts(ctx, userID, 1000)
+	mibandWorkouts, err := s.data.ListMiBand(ctx, userID, 1000)
 	if err != nil {
 		slog.Warn("[MCP] FitnessAnalysis: failed to fetch MiBand workouts", "error", err)
 		return nil, fmt.Errorf("fetch MiBand workouts: %w", err)

@@ -771,26 +771,26 @@ func TestSendWorkoutNotification_BuildsCorrectNotification(t *testing.T) {
 	daysOfWeek := "[" + intToStr(todayIdx) + "]"
 	pastTime := now.Add(-30 * time.Minute).Format("15:04")
 
-	group, err := db.Workout.CreateWorkoutGroup("Push Day", "desc", false, 123456, daysOfWeek, pastTime, 15)
+	group, err := db.Workout.CreateGroup("Push Day", "desc", false, 123456, daysOfWeek, pastTime, 15)
 	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
+		t.Fatalf("CreateGroup: %v", err)
 	}
 
 	order := 0
-	variant, err := db.Workout.CreateWorkoutVariant(group.ID, "Heavy", &order, "")
+	variant, err := db.Workout.CreateVariant(group.ID, "Heavy", &order, "")
 	if err != nil {
-		t.Fatalf("CreateWorkoutVariant: %v", err)
+		t.Fatalf("CreateVariant: %v", err)
 	}
 
-	_, err = db.Workout.AddExerciseToVariant(variant.ID, "Bench Press", 4, 8, intPtr(10), floatPtr(80.0), 0)
+	_, err = db.Workout.CreateExerciseInVariant(variant.ID, "Bench Press", 4, 8, intPtr(10), floatPtr(80.0), 0)
 	if err != nil {
 		t.Fatalf("CreateWorkoutExercise: %v", err)
 	}
 
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	session, err := db.Workout.CreateWorkoutSession(group.ID, variant.ID, 123456, today, pastTime)
+	session, err := db.Workout.CreateSession(group.ID, variant.ID, 123456, today, pastTime)
 	if err != nil {
-		t.Fatalf("CreateWorkoutSession: %v", err)
+		t.Fatalf("CreateSession: %v", err)
 	}
 
 	err = sched.WorkoutChecker.sendWorkoutNotification(session, group, variant.ID)
@@ -851,29 +851,29 @@ func TestSendWorkoutNotification_DeletesPreviousNotification(t *testing.T) {
 	daysOfWeek := "[" + intToStr(todayIdx) + "]"
 	pastTime := now.Add(-30 * time.Minute).Format("15:04")
 
-	group, err := db.Workout.CreateWorkoutGroup("Leg Day", "desc", false, 123456, daysOfWeek, pastTime, 15)
+	group, err := db.Workout.CreateGroup("Leg Day", "desc", false, 123456, daysOfWeek, pastTime, 15)
 	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
+		t.Fatalf("CreateGroup: %v", err)
 	}
 
 	order := 0
-	variant, err := db.Workout.CreateWorkoutVariant(group.ID, "A", &order, "")
+	variant, err := db.Workout.CreateVariant(group.ID, "A", &order, "")
 	if err != nil {
-		t.Fatalf("CreateWorkoutVariant: %v", err)
+		t.Fatalf("CreateVariant: %v", err)
 	}
 
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	session, err := db.Workout.CreateWorkoutSession(group.ID, variant.ID, 123456, today, pastTime)
+	session, err := db.Workout.CreateSession(group.ID, variant.ID, 123456, today, pastTime)
 	if err != nil {
-		t.Fatalf("CreateWorkoutSession: %v", err)
+		t.Fatalf("CreateSession: %v", err)
 	}
 
 	if err := db.Workout.SetSessionNotificationMessageID(session.ID, 555); err != nil {
 		t.Fatalf("SetSessionNotificationMessageID: %v", err)
 	}
-	session, err = db.Workout.GetWorkoutSession(session.ID)
+	session, err = db.Workout.GetSession(session.ID)
 	if err != nil {
-		t.Fatalf("GetWorkoutSession: %v", err)
+		t.Fatalf("GetSession: %v", err)
 	}
 
 	err = sched.WorkoutChecker.sendWorkoutNotification(session, group, variant.ID)
@@ -903,21 +903,21 @@ func TestSendWorkoutNotification_StoresMessageID(t *testing.T) {
 	daysOfWeek := "[" + intToStr(todayIdx) + "]"
 	pastTime := now.Add(-30 * time.Minute).Format("15:04")
 
-	group, err := db.Workout.CreateWorkoutGroup("Arms", "desc", false, 123456, daysOfWeek, pastTime, 15)
+	group, err := db.Workout.CreateGroup("Arms", "desc", false, 123456, daysOfWeek, pastTime, 15)
 	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
+		t.Fatalf("CreateGroup: %v", err)
 	}
 
 	order := 0
-	variant, err := db.Workout.CreateWorkoutVariant(group.ID, "A", &order, "")
+	variant, err := db.Workout.CreateVariant(group.ID, "A", &order, "")
 	if err != nil {
-		t.Fatalf("CreateWorkoutVariant: %v", err)
+		t.Fatalf("CreateVariant: %v", err)
 	}
 
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	session, err := db.Workout.CreateWorkoutSession(group.ID, variant.ID, 123456, today, pastTime)
+	session, err := db.Workout.CreateSession(group.ID, variant.ID, 123456, today, pastTime)
 	if err != nil {
-		t.Fatalf("CreateWorkoutSession: %v", err)
+		t.Fatalf("CreateSession: %v", err)
 	}
 
 	err = sched.WorkoutChecker.sendWorkoutNotification(session, group, variant.ID)
@@ -930,9 +930,9 @@ func TestSendWorkoutNotification_StoresMessageID(t *testing.T) {
 	}
 	time.Sleep(50 * time.Millisecond)
 
-	updated, err := db.Workout.GetWorkoutSession(session.ID)
+	updated, err := db.Workout.GetSession(session.ID)
 	if err != nil {
-		t.Fatalf("GetWorkoutSession: %v", err)
+		t.Fatalf("GetSession: %v", err)
 	}
 	if updated.NotificationMessageID == nil {
 		t.Error("expected notification message ID to be stored")

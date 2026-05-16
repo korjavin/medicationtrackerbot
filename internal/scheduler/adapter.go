@@ -129,11 +129,11 @@ func (a *storeAdapter) SetTZTransitionPlanApproved(id int64, approvedAt time.Tim
 
 // --- Workout (workout.Repo) ---
 
-func (a *storeAdapter) GetWorkoutHistory(userID int64, limit int) ([]store.WorkoutSession, error) {
-	return a.workout.GetWorkoutHistory(userID, limit)
+func (a *storeAdapter) ListHistory(userID int64, limit int) ([]store.WorkoutSession, error) {
+	return a.workout.ListHistory(userID, limit)
 }
-func (a *storeAdapter) ListWorkoutGroups(userID int64, activeOnly bool) ([]store.WorkoutGroup, error) {
-	return a.workout.ListWorkoutGroups(userID, activeOnly)
+func (a *storeAdapter) ListGroups(userID int64, activeOnly bool) ([]store.WorkoutGroup, error) {
+	return a.workout.ListGroups(userID, activeOnly)
 }
 func (a *storeAdapter) GetRotationState(groupID int64) (*store.WorkoutRotationState, error) {
 	return a.workout.GetRotationState(groupID)
@@ -147,23 +147,23 @@ func (a *storeAdapter) InitializeRotation(groupID, variantID int64) error {
 func (a *storeAdapter) GetSessionByGroupAndDate(groupID int64, date time.Time) (*store.WorkoutSession, error) {
 	return a.workout.GetSessionByGroupAndDate(groupID, date)
 }
-func (a *storeAdapter) CreateWorkoutSession(groupID, variantID, userID int64, date time.Time, scheduledTime string) (*store.WorkoutSession, error) {
-	return a.workout.CreateWorkoutSession(groupID, variantID, userID, date, scheduledTime)
+func (a *storeAdapter) CreateSession(groupID, variantID, userID int64, date time.Time, scheduledTime string) (*store.WorkoutSession, error) {
+	return a.workout.CreateSession(groupID, variantID, userID, date, scheduledTime)
 }
-func (a *storeAdapter) GetWorkoutGroup(groupID int64) (*store.WorkoutGroup, error) {
-	return a.workout.GetWorkoutGroup(groupID)
+func (a *storeAdapter) GetGroup(groupID int64) (*store.WorkoutGroup, error) {
+	return a.workout.GetGroup(groupID)
 }
 func (a *storeAdapter) UpdateSessionStatus(sessionID int64, status string) error {
 	return a.workout.UpdateSessionStatus(sessionID, status)
 }
-func (a *storeAdapter) UpdateWorkoutSessionNotes(sessionID int64, notes string) error {
-	return a.workout.UpdateWorkoutSessionNotes(sessionID, notes)
+func (a *storeAdapter) UpdateSessionNotes(sessionID int64, notes string) error {
+	return a.workout.UpdateSessionNotes(sessionID, notes)
 }
 func (a *storeAdapter) ClearSnooze(sessionID int64) error {
 	return a.workout.ClearSnooze(sessionID)
 }
-func (a *storeAdapter) GetWorkoutVariant(variantID int64) (*store.WorkoutVariant, error) {
-	return a.workout.GetWorkoutVariant(variantID)
+func (a *storeAdapter) GetVariant(variantID int64) (*store.WorkoutVariant, error) {
+	return a.workout.GetVariant(variantID)
 }
 func (a *storeAdapter) ListExercisesByVariant(variantID int64) ([]store.WorkoutExercise, error) {
 	return a.workout.ListExercisesByVariant(variantID)
@@ -183,8 +183,8 @@ func (a *storeAdapter) ListPendingAdHocSessions(userID int64, before time.Time) 
 func (a *storeAdapter) ListNotifiedAdHocSessions(userID int64) ([]store.WorkoutSession, error) {
 	return a.workout.ListNotifiedAdHocSessions(userID)
 }
-func (a *storeAdapter) GetExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error) {
-	return a.workout.GetExerciseLogs(sessionID)
+func (a *storeAdapter) ListExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error) {
+	return a.workout.ListExerciseLogs(sessionID)
 }
 
 // --- workoutsvc.WorkoutStore extra methods (used by workout svc inside checker) ---
@@ -192,16 +192,16 @@ func (a *storeAdapter) GetExerciseLogs(sessionID int64) ([]store.WorkoutExercise
 // workoutsvc.New now also requires a workoutsvc.TZStore. We satisfy both
 // interfaces from this adapter.
 
-func (a *storeAdapter) GetWorkoutSession(id int64) (*store.WorkoutSession, error) {
-	return a.workout.GetWorkoutSession(id)
+func (a *storeAdapter) GetSession(id int64) (*store.WorkoutSession, error) {
+	return a.workout.GetSession(id)
 }
 func (a *storeAdapter) StartSession(id int64) error                                { return a.workout.StartSession(id) }
 func (a *storeAdapter) SnoozeSession(id int64, dur time.Duration) error            { return a.workout.SnoozeSession(id, dur) }
 func (a *storeAdapter) SkipSession(id int64) error                                 { return a.workout.SkipSession(id) }
 func (a *storeAdapter) CompleteSession(id int64) error                             { return a.workout.CompleteSession(id) }
 func (a *storeAdapter) AdvanceRotation(groupID int64) error                        { return a.workout.AdvanceRotation(groupID) }
-func (a *storeAdapter) CreateAdHocWorkoutSession(userID int64, d time.Time, t string) (*store.WorkoutSession, error) {
-	return a.workout.CreateAdHocWorkoutSession(userID, d, t)
+func (a *storeAdapter) CreateAdHocSession(userID int64, d time.Time, t string) (*store.WorkoutSession, error) {
+	return a.workout.CreateAdHocSession(userID, d, t)
 }
 func (a *storeAdapter) CreatePlannedAdHocSession(userID int64, d time.Time, t string) (*store.WorkoutSession, error) {
 	return a.workout.CreatePlannedAdHocSession(userID, d, t)

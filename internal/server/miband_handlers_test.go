@@ -62,9 +62,9 @@ func TestHandleListMiBandWorkouts_WithData(t *testing.T) {
 		},
 	}
 
-	imported, _, err := db.Workout.ImportMiBandWorkouts(ctx, workouts, nil)
+	imported, _, err := db.Workout.ImportMiBand(ctx, workouts, nil)
 	if err != nil {
-		t.Fatalf("ImportMiBandWorkouts: %v", err)
+		t.Fatalf("ImportMiBand: %v", err)
 	}
 	if imported != 1 {
 		t.Fatalf("Expected 1 imported, got %d", imported)
@@ -122,7 +122,7 @@ func TestHandleListMiBandWorkouts_LimitParam(t *testing.T) {
 		{UserID: userID, SourceStartMs: now.Add(-4 * time.Hour).UnixMilli(), SourceEndMs: now.Add(-3 * time.Hour).UnixMilli(), ActivityName: "run2"},
 		{UserID: userID, SourceStartMs: now.Add(-2 * time.Hour).UnixMilli(), SourceEndMs: now.Add(-1 * time.Hour).UnixMilli(), ActivityName: "run3"},
 	}
-	db.Workout.ImportMiBandWorkouts(ctx, workouts, nil)
+	db.Workout.ImportMiBand(ctx, workouts, nil)
 
 	req := httptest.NewRequest("GET", "/api/health/miband/workouts?limit=2", nil)
 	req = withUser(req, userID)
@@ -191,10 +191,10 @@ func TestHandleGetMiBandWorkoutGPS_EmptyGPS(t *testing.T) {
 			ActivityName:  "cycling",
 		},
 	}
-	db.Workout.ImportMiBandWorkouts(ctx, workouts, nil)
+	db.Workout.ImportMiBand(ctx, workouts, nil)
 
 	// Get the workout ID
-	imported, _ := db.Workout.ListMiBandWorkouts(ctx, userID, 10)
+	imported, _ := db.Workout.ListMiBand(ctx, userID, 10)
 	if len(imported) == 0 {
 		t.Fatal("Expected at least 1 imported workout")
 	}
@@ -231,12 +231,12 @@ func TestDeleteMiBandWorkoutHandler(t *testing.T) {
 			ActivityType: 1, ActivityName: "test", DurationSec: 1, DistanceM: 10,
 		},
 	}
-	_, _, err := db.Workout.ImportMiBandWorkouts(context.Background(), workouts, nil)
+	_, _, err := db.Workout.ImportMiBand(context.Background(), workouts, nil)
 	if err != nil {
 		t.Fatalf("import: %v", err)
 	}
 
-	result, _ := db.Workout.ListMiBandWorkouts(context.Background(), userID, 1)
+	result, _ := db.Workout.ListMiBand(context.Background(), userID, 1)
 	if len(result) != 1 {
 		t.Fatalf("expected 1 workout")
 	}
@@ -261,7 +261,7 @@ func TestDeleteMiBandWorkoutHandler(t *testing.T) {
 	}
 
 	// Verify it's gone
-	w2, _ := db.Workout.GetMiBandWorkout(context.Background(), workoutID)
+	w2, _ := db.Workout.GetMiBand(context.Background(), workoutID)
 	if w2 != nil {
 		t.Errorf("expected workout to be deleted")
 	}
@@ -281,12 +281,12 @@ func TestUpdateMiBandWorkoutHandler(t *testing.T) {
 			Steps: 0, Calories: 0,
 		},
 	}
-	_, _, err := db.Workout.ImportMiBandWorkouts(context.Background(), workouts, nil)
+	_, _, err := db.Workout.ImportMiBand(context.Background(), workouts, nil)
 	if err != nil {
 		t.Fatalf("import: %v", err)
 	}
 
-	result, _ := db.Workout.ListMiBandWorkouts(context.Background(), userID, 1)
+	result, _ := db.Workout.ListMiBand(context.Background(), userID, 1)
 	if len(result) != 1 {
 		t.Fatalf("expected 1 workout")
 	}
@@ -311,7 +311,7 @@ func TestUpdateMiBandWorkoutHandler(t *testing.T) {
 	}
 
 	// Verify changes
-	updated, _ := db.Workout.GetMiBandWorkout(context.Background(), workoutID)
+	updated, _ := db.Workout.GetMiBand(context.Background(), workoutID)
 	if updated.Steps != newSteps {
 		t.Errorf("expected %d steps, got %d", newSteps, updated.Steps)
 	}

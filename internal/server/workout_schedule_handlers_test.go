@@ -60,9 +60,9 @@ func TestHandleScheduleAdHocWorkoutSession_HappyPath(t *testing.T) {
 		t.Errorf("Expected planned=2, got %d", resp.Planned)
 	}
 
-	logs, err := db.Workout.GetExerciseLogs(resp.Session.ID)
+	logs, err := db.Workout.ListExerciseLogs(resp.Session.ID)
 	if err != nil {
-		t.Fatalf("GetExerciseLogs: %v", err)
+		t.Fatalf("ListExerciseLogs: %v", err)
 	}
 	if len(logs) != 2 {
 		t.Fatalf("Expected 2 exercise log placeholders, got %d", len(logs))
@@ -342,9 +342,9 @@ func TestHandleScheduleAdHocWorkoutSession_LibraryIDFillsName(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("Decode error: %v", err)
 	}
-	logs, err := db.Workout.GetExerciseLogs(resp.Session.ID)
+	logs, err := db.Workout.ListExerciseLogs(resp.Session.ID)
 	if err != nil {
-		t.Fatalf("GetExerciseLogs: %v", err)
+		t.Fatalf("ListExerciseLogs: %v", err)
 	}
 	if len(logs) != 1 {
 		t.Fatalf("Expected 1 placeholder log, got %d", len(logs))
@@ -493,9 +493,9 @@ func TestHandleScheduleAdHocWorkoutSession_TrimsExerciseName(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("Decode error: %v", err)
 	}
-	logs, err := db.Workout.GetExerciseLogs(resp.Session.ID)
+	logs, err := db.Workout.ListExerciseLogs(resp.Session.ID)
 	if err != nil {
-		t.Fatalf("GetExerciseLogs: %v", err)
+		t.Fatalf("ListExerciseLogs: %v", err)
 	}
 	if len(logs) != 1 {
 		t.Fatalf("Expected 1 placeholder log, got %d", len(logs))

@@ -487,9 +487,9 @@ func TestCheckWorkoutNotifications_WrongDay(t *testing.T) {
 	otherDay := (todayIdx + 1) % 7
 
 	daysOfWeek := "[" + intToStr(otherDay) + "]"
-	_, err := db.Workout.CreateWorkoutGroup("TestGroup", "desc", false, 123456, daysOfWeek, "09:00", 15)
+	_, err := db.Workout.CreateGroup("TestGroup", "desc", false, 123456, daysOfWeek, "09:00", 15)
 	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
+		t.Fatalf("CreateGroup: %v", err)
 	}
 
 	err = sched.WorkoutChecker.Check(context.Background())
@@ -511,15 +511,15 @@ func TestCheckWorkoutNotifications_SessionCreatedOnScheduledDay(t *testing.T) {
 
 	futureTime := futureTimeObj.Format("15:04")
 
-	group, err := db.Workout.CreateWorkoutGroup("TodayGroup", "desc", false, 123456, daysOfWeek, futureTime, 15)
+	group, err := db.Workout.CreateGroup("TodayGroup", "desc", false, 123456, daysOfWeek, futureTime, 15)
 	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
+		t.Fatalf("CreateGroup: %v", err)
 	}
 
 	order := 0
-	_, err = db.Workout.CreateWorkoutVariant(group.ID, "Variant A", &order, "")
+	_, err = db.Workout.CreateVariant(group.ID, "Variant A", &order, "")
 	if err != nil {
-		t.Fatalf("CreateWorkoutVariant: %v", err)
+		t.Fatalf("CreateVariant: %v", err)
 	}
 
 	err = sched.WorkoutChecker.Check(context.Background())
@@ -552,21 +552,21 @@ func TestCheckWorkoutNotifications_PreSkippedSession(t *testing.T) {
 
 	pastTime := pastTimeObj.Format("15:04")
 
-	group, err := db.Workout.CreateWorkoutGroup("SkipGroup", "desc", false, 123456, daysOfWeek, pastTime, 15)
+	group, err := db.Workout.CreateGroup("SkipGroup", "desc", false, 123456, daysOfWeek, pastTime, 15)
 	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
+		t.Fatalf("CreateGroup: %v", err)
 	}
 
 	order := 0
-	variant, err := db.Workout.CreateWorkoutVariant(group.ID, "Variant A", &order, "")
+	variant, err := db.Workout.CreateVariant(group.ID, "Variant A", &order, "")
 	if err != nil {
-		t.Fatalf("CreateWorkoutVariant: %v", err)
+		t.Fatalf("CreateVariant: %v", err)
 	}
 
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	session, err := db.Workout.CreateWorkoutSession(group.ID, variant.ID, 123456, today, pastTime)
+	session, err := db.Workout.CreateSession(group.ID, variant.ID, 123456, today, pastTime)
 	if err != nil {
-		t.Fatalf("CreateWorkoutSession: %v", err)
+		t.Fatalf("CreateSession: %v", err)
 	}
 	if err := db.Workout.PreSkipSession(session.ID); err != nil {
 		t.Fatalf("PreSkipSession: %v", err)
@@ -577,9 +577,9 @@ func TestCheckWorkoutNotifications_PreSkippedSession(t *testing.T) {
 		t.Errorf("Check: %v", err)
 	}
 
-	updated, err := db.Workout.GetWorkoutSession(session.ID)
+	updated, err := db.Workout.GetSession(session.ID)
 	if err != nil {
-		t.Fatalf("GetWorkoutSession: %v", err)
+		t.Fatalf("GetSession: %v", err)
 	}
 	if updated.Status != "skipped" {
 		t.Errorf("Expected pre_skipped session to become 'skipped', got %q", updated.Status)
@@ -608,21 +608,21 @@ func TestCheckWorkout_SessionVariantUpdatedWhenRotationChanges(t *testing.T) {
 	pastTime := pastTimeObj.Format("15:04")
 
 	// Step 1: Create group as non-rotating with only "Swings" variant
-	group, err := db.Workout.CreateWorkoutGroup("Morning Workouts", "desc", false, 123456, daysOfWeek, pastTime, 15)
+	group, err := db.Workout.CreateGroup("Morning Workouts", "desc", false, 123456, daysOfWeek, pastTime, 15)
 	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
+		t.Fatalf("CreateGroup: %v", err)
 	}
 
-	swingsVariant, err := db.Workout.CreateWorkoutVariant(group.ID, "Swings", nil, "")
+	swingsVariant, err := db.Workout.CreateVariant(group.ID, "Swings", nil, "")
 	if err != nil {
-		t.Fatalf("CreateWorkoutVariant Swings: %v", err)
+		t.Fatalf("CreateVariant Swings: %v", err)
 	}
 
 	// Step 2: Session was already created for today with the old variant (Swings)
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	session, err := db.Workout.CreateWorkoutSession(group.ID, swingsVariant.ID, 123456, today, pastTime)
+	session, err := db.Workout.CreateSession(group.ID, swingsVariant.ID, 123456, today, pastTime)
 	if err != nil {
-		t.Fatalf("CreateWorkoutSession: %v", err)
+		t.Fatalf("CreateSession: %v", err)
 	}
 
 	// Verify initial state: session points to Swings
@@ -631,15 +631,15 @@ func TestCheckWorkout_SessionVariantUpdatedWhenRotationChanges(t *testing.T) {
 	}
 
 	// Step 3: User makes the group rotating and adds "Bodyweight" variant
-	err = db.Workout.UpdateWorkoutGroup(group.ID, "Morning Workouts", "desc", true, daysOfWeek, pastTime, 15, true)
+	err = db.Workout.UpdateGroup(group.ID, "Morning Workouts", "desc", true, daysOfWeek, pastTime, 15, true)
 	if err != nil {
-		t.Fatalf("UpdateWorkoutGroup (make rotating): %v", err)
+		t.Fatalf("UpdateGroup (make rotating): %v", err)
 	}
 
 	order := 1
-	bodyweightVariant, err := db.Workout.CreateWorkoutVariant(group.ID, "Bodyweight", &order, "")
+	bodyweightVariant, err := db.Workout.CreateVariant(group.ID, "Bodyweight", &order, "")
 	if err != nil {
-		t.Fatalf("CreateWorkoutVariant Bodyweight: %v", err)
+		t.Fatalf("CreateVariant Bodyweight: %v", err)
 	}
 
 	// Initialize rotation to Bodyweight (what the user does in the UI)
@@ -654,9 +654,9 @@ func TestCheckWorkout_SessionVariantUpdatedWhenRotationChanges(t *testing.T) {
 	}
 
 	// Step 5: Verify the session's variant_id was updated to Bodyweight
-	updated, err := db.Workout.GetWorkoutSession(session.ID)
+	updated, err := db.Workout.GetSession(session.ID)
 	if err != nil {
-		t.Fatalf("GetWorkoutSession: %v", err)
+		t.Fatalf("GetSession: %v", err)
 	}
 	if updated.VariantID != bodyweightVariant.ID {
 		t.Errorf("BUG: session variant was not updated — got variant_id=%d (Swings), want %d (Bodyweight)",

@@ -82,7 +82,7 @@ Examples:
 		Source:        "manual",
 	}
 
-	imported, _, err := b.imports.ImportMiBandWorkouts(ctx, []store.MiBandWorkout{workout}, nil)
+	imported, _, err := b.imports.ImportMiBand(ctx, []store.MiBandWorkout{workout}, nil)
 	if err != nil {
 		slog.Error("activity command: failed to save workout", "chat_id", msg.Chat.ID, "error", err)
 		msgConfig.Text = "❌ Error saving activity."

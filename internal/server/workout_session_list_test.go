@@ -17,25 +17,25 @@ func TestHandleListWorkoutSessions_AdHocNames(t *testing.T) {
 	userID := int64(123456)
 
 	// Create a regular (non-ad-hoc) session for comparison
-	group, err := db.Workout.CreateWorkoutGroup("Legs", "Leg day", false, userID, "[1,2,3]", "10:00", 15)
+	group, err := db.Workout.CreateGroup("Legs", "Leg day", false, userID, "[1,2,3]", "10:00", 15)
 	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
+		t.Fatalf("CreateGroup: %v", err)
 	}
 	rotOrder := 0
-	variant, err := db.Workout.CreateWorkoutVariant(group.ID, "Heavy", &rotOrder, "")
+	variant, err := db.Workout.CreateVariant(group.ID, "Heavy", &rotOrder, "")
 	if err != nil {
-		t.Fatalf("CreateWorkoutVariant: %v", err)
+		t.Fatalf("CreateVariant: %v", err)
 	}
-	regularSession, err := db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "10:00")
+	regularSession, err := db.Workout.CreateSession(group.ID, variant.ID, userID, time.Now(), "10:00")
 	if err != nil {
-		t.Fatalf("CreateWorkoutSession: %v", err)
+		t.Fatalf("CreateSession: %v", err)
 	}
 	_ = regularSession
 
 	// Create an ad-hoc session with two exercises; Squats has bigger volume
-	adHocSession, err := db.Workout.CreateAdHocWorkoutSession(userID, time.Now(), "11:00")
+	adHocSession, err := db.Workout.CreateAdHocSession(userID, time.Now(), "11:00")
 	if err != nil {
-		t.Fatalf("CreateAdHocWorkoutSession: %v", err)
+		t.Fatalf("CreateAdHocSession: %v", err)
 	}
 	sets1 := 3
 	reps1 := 10
@@ -53,9 +53,9 @@ func TestHandleListWorkoutSessions_AdHocNames(t *testing.T) {
 	}
 
 	// Create an ad-hoc session with no logged exercises
-	emptyAdHocSession, err := db.Workout.CreateAdHocWorkoutSession(userID, time.Now(), "12:00")
+	emptyAdHocSession, err := db.Workout.CreateAdHocSession(userID, time.Now(), "12:00")
 	if err != nil {
-		t.Fatalf("CreateAdHocWorkoutSession empty: %v", err)
+		t.Fatalf("CreateAdHocSession empty: %v", err)
 	}
 	_ = emptyAdHocSession
 
