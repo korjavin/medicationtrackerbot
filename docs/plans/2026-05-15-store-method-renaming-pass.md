@@ -339,13 +339,13 @@ Already minimal: `Create`, `List`, `Delete`. No renames.
 
 ### Task 11: Verify acceptance criteria
 
-- [ ] grep the codebase for any remaining `Add`, `Fetch`, `Find` prefixed exported methods on `internal/store/**/Repo` — should be zero
-- [ ] grep for redundant domain suffixes (`CreateMedication`, `GetBloodPressureReadings`, etc.) — should be zero where the package name already provides the domain
-- [ ] verify `store.Store = store.Repos` alias is untouched
-- [ ] verify `internal/store/migrations/` SQL files are untouched
-- [ ] verify type aliases (`store.Medication = medication.Medication`) are untouched
-- [ ] run full project test suite: `go test ./...` and `go test -race ./...`
-- [ ] run project linter: `golangci-lint run` - all issues must be fixed
+- [x] grep the codebase for any remaining `Add`, `Fetch`, `Find` prefixed exported methods on `internal/store/**/Repo` — zero matches (`^func \([a-z] \*Repo\) (Add|Fetch|Find)[A-Z]` across `internal/store/`).
+- [x] grep for redundant domain suffixes (`CreateMedication`, `GetBloodPressureReadings`, etc.) — none remain where the package name already provides the domain. Inventory of all `^func (r *Repo) [A-Z]\w+` methods across the eleven repo packages confirms the rename rules were applied consistently. Workout retains entity discriminators (`CreateGroup`, `CreateVariant`, `CreateSession`, `CreateExerciseInVariant`, `*MiBand`, etc.) because the package owns multiple sibling entities; vitals retains the `Vitals` infix only on the aggregate `ImportVitals` per the plan KEEP list; tz retains `TransitionPlan`/`TransitionSteps` as the entity discriminator alongside the package-level `Record`/`GetCurrent` for timezone history; settings retains feature-flag column-name suffixes per the plan KEEP list.
+- [x] verify `store.Store = store.Repos` alias is untouched — `internal/store/store.go:55` still reads `type Store = Repos`.
+- [x] verify `internal/store/migrations/` SQL files are untouched — `git log master..HEAD -- internal/store/migrations/` returns no commits on this branch.
+- [x] verify type aliases (`store.Medication = medication.Medication`) are untouched — `internal/store/store.go:64-123` still re-exports all per-domain types under their legacy `store.*` names (Medication, Restock, IntakeLog, BloodPressure, WeightLog, SleepLog, DayStat, FoodLog, FoodProduct, DiaryNote, PushSubscription, APIToken, TZTransitionPlan, WorkoutGroup, etc.).
+- [x] run full project test suite: `go test ./...` passes; `go test -race ./...` has the same pre-existing `TestNotifyHelper_Dispatch` race (slog reflecting over the notifier mock's sync.Mutex) that Tasks 6/7/8/9/10 documented — reproduces identically on master at `c9bd1f72` against the equivalent subtests (`notify with send error does not call storeMsgID` and `notify calls all notifiers and stores msgID from first`) and is out of scope for this renaming pass.
+- [x] run project linter: `golangci-lint run` reports `0 issues.`
 
 ## Post-Completion
 
