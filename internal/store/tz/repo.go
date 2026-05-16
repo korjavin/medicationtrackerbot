@@ -61,7 +61,7 @@ func New(d *storedb.DB) *Repo {
 func (r *Repo) GetCurrentTimezone() (string, error) {
 	var tz string
 	err := r.db.QueryRow(`SELECT timezone FROM timezone_history ORDER BY recorded_at DESC, id DESC LIMIT 1`).Scan(&tz)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
 	if err != nil {
@@ -160,7 +160,7 @@ func (r *Repo) GetLatestCompletedTZTransitionPlan() (*TZTransitionPlan, error) {
 		 ORDER BY created_at_unix DESC, id DESC LIMIT 1`,
 	)
 	p, err := scanPlan(row.Scan)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -181,7 +181,7 @@ func (r *Repo) GetTZTransitionPlan(id int64) (*TZTransitionPlan, error) {
 		id,
 	)
 	p, err := scanPlan(row.Scan)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -200,7 +200,7 @@ func (r *Repo) GetLatestActiveOrPendingTZTransitionPlan() (*TZTransitionPlan, er
 		 ORDER BY created_at_unix DESC, id DESC LIMIT 1`,
 	)
 	p, err := scanPlan(row.Scan)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -434,7 +434,7 @@ func (r *Repo) GetPlanByHash(hash string) (*TZTransitionPlan, error) {
 		hash,
 	)
 	p, err := scanPlan(row.Scan)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {

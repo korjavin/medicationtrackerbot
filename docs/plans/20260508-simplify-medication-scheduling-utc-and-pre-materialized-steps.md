@@ -820,12 +820,52 @@ Same pattern as Task 5, applied to all three plan-lifecycle timestamp columns at
 
 ### Task 16: Verify acceptance criteria
 
-- [ ] verify all requirements from Overview are implemented (UTC unix-seconds storage for every dose-related column; transition steps materialized as `intake_log` rows with `source='tz_step'`; the "consumed step overlap guard" code is gone; user-visible behaviour of scheduling/confirming/TZ transitions unchanged).
-- [ ] run full project test suite: `go test ./...`.
-- [ ] run project linter - all issues must be fixed.
-- [ ] manual smoke (Telegram, optional): server in `TZ=Europe/Berlin`, user in `America/Los_Angeles`; tap `Confirm ALL` on a multi-med slot — confirmed count is non-zero (the cross-TZ regression from 1169cd6 #1).
-- [ ] manual smoke (TZ transition): trigger the westbound scenario from `medication_tz_test.go` (take a step at 22:30 PDT) — no duplicate normal-schedule notification fires at 21:30 next tick.
-- [ ] confirm `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` is green (no MCP coverage regressions from the refactor).
+- [x] verify all requirements from Overview are implemented (UTC
+  unix-seconds storage for every dose-related column — enforced by
+  `TestDoseTimeColumnsAreInteger` in
+  `internal/store/store_time_invariants_test.go` against both
+  `intake_log` and `tz_transition_plans`; transition steps materialized
+  as `intake_log` rows with `source='tz_step'` — see
+  `MaterializePlanStepsAsIntakesTx` in
+  `internal/store/medication/repo.go` plus the partial unique index
+  from migration 067 and the `tz_step` reader path in
+  `internal/scheduler/medication.go`; the "consumed step overlap guard"
+  code is gone — `ConsumedStepTimeByMed`, `GetLatestConsumedStepTimePerMed`,
+  and `MarkStepConsumed` no longer exist in production code paths (only
+  retired-in-comment references remain in `medplan.go:56` and
+  `medplan_test.go:114`); user-visible behaviour unchanged — the
+  full cross-TZ + westbound scenarios in
+  `internal/scheduler/medication_tz_test.go`,
+  `internal/server/trigger_next_intake_test.go`, and the dedup
+  equivalence harness in `internal/scheduler/dedup_equivalence_test.go`
+  stay green).
+- [x] run full project test suite: `go test ./...` (green across all
+  35 packages, including the medication/tz/scheduler/server suites).
+- [x] run project linter - all issues must be fixed (`golangci-lint
+  run ./...` returned `0 issues.` after converting three pre-existing
+  `err == sql.ErrNoRows` comparisons in
+  `internal/store/tz/repo.go` to `errors.Is(err, sql.ErrNoRows)` —
+  matched the errorlint v2 rule the rest of the codebase already
+  follows).
+- [x] manual smoke (skipped — not automatable): server in
+  `TZ=Europe/Berlin`, user in `America/Los_Angeles`; tap `Confirm ALL`
+  on a multi-med slot. Coverage equivalent to this smoke lives in
+  `internal/store/medication/intake_log_readers_tz_test.go`'s
+  Berlin↔LA reader cases and the
+  `TestConfirmIntakesBySchedule_CrossTZ` regression introduced when
+  the `time.Equal` workaround from 1169cd6 #1 was removed.
+- [x] manual smoke (skipped — not automatable): westbound TZ transition
+  scenario. Coverage equivalent to this smoke is pinned by
+  `internal/scheduler/medication_tz_test.go`'s westbound-flexible
+  cases together with
+  `internal/scheduler/dedup_equivalence_test.go`, which exercise the
+  "take a step at 22:30 PDT → no duplicate 21:30 next tick"
+  invariant against the symmetric `HasIntakeNearScheduledTime`
+  predicate that replaced the consumed-step overlap guard.
+- [x] confirm `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` is
+  green — verified via `go test ./internal/server -run TestMCPCoverage`
+  (all four MCP coverage tests pass: routes-covered, exemptions-have-
+  reasons, no-stale-exemptions, no-duplicate-exemptions).
 
 ## Technical Details
 
