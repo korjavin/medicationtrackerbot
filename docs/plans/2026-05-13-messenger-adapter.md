@@ -121,10 +121,10 @@ and recommended-priority item #8.
 
 ### Task 1: Define the adapter interface and Telegram implementation
 
-- [ ] create `web/static/js/core/messenger-adapter.js` with the
+- [x] create `web/static/js/core/messenger-adapter.js` with the
   interface contract documented at the top of the file (one comment
   block enumerating every method below)
-- [ ] implement `TelegramAdapter` with the following surface:
+- [x] implement `TelegramAdapter` with the following surface:
   - `init()` — calls `Telegram.WebApp.ready()`, `expand()`; returns
     `Promise<void>`
   - `identityToken()` → `Telegram.WebApp.initData` (string or empty)
@@ -141,18 +141,18 @@ and recommended-priority item #8.
   - `showBack()` / `hideBack()` → `Telegram.WebApp.BackButton.show()` /
     `.hide()`
   - `isPresent()` → `true`
-- [ ] implement adapter selection: `window.MessengerAdapter` is set
+- [x] implement adapter selection: `window.MessengerAdapter` is set
   to either `TelegramAdapter` or `BrowserAdapter` (Task 2) at the
   *very* top of the bootstrap chain, before any other module reads
   it
-- [ ] add `core/messenger-adapter.js` to `index.html` (immediately
+- [x] add `core/messenger-adapter.js` to `index.html` (immediately
   after `core/utils.js`) and to `web/static/sw.js` `STATIC_ASSETS`
-- [ ] add `window.MessengerAdapter` to
+- [x] add `window.MessengerAdapter` to
   `architecture.globals.test.js` allowlist
-- [ ] write tests in `web/static/js/tests/core.messenger-adapter.telegram.test.js`
+- [x] write tests in `web/static/js/tests/core.messenger-adapter.telegram.test.js`
   using a mock `window.Telegram.WebApp` object: each method forwards
   to the SDK; missing SDK methods fall through to native fallbacks
-- [ ] run `pnpm test core.messenger-adapter.telegram` — must pass
+- [x] run `pnpm test core.messenger-adapter.telegram` — must pass
   before next task
 
 ### Task 2: Browser fallback implementation
