@@ -200,19 +200,10 @@ Every numbered point above was the source of one of the recent bugs.
 
 ### Task 1: Document the convention; no helper package — SUPERSEDED by 2026-05-10 plan
 
-- [ ] **No new `internal/util/unixsec` package.** `t.Unix()` and
-  `time.Unix(n, 0).UTC()` are already the entire implementation; wrapping
-  them invents a top-level `internal/util` convention this repo doesn't
-  use, for one-line sugar. Conversions live inline at the store boundary.
-- [ ] add a single comment block at the top of `internal/store/store.go`
-  listing every dose-related column that's INTEGER (unix seconds, UTC)
-  and the Go-type expected on the read path. This is the audit anchor —
-  future readers grep one place to know which columns are unix-seconds.
-- [ ] write tests: add a table-driven test in `store_time_invariants_test.go` that,
-  for `t` constructed in `Europe/Berlin`, `America/Los_Angeles`, and
-  `UTC`, asserts `time.Unix(t.Unix(), 0).UTC().Equal(t)` — the
-  invariant the comment block is documenting.
-- [ ] run project tests - must pass before next task.
+- [x] **No new `internal/util/unixsec` package.** (satisfied by 2026-05-10 plan — no `internal/util/unixsec` exists; conversions live inline at the store boundary as designed)
+- [x] add a single comment block at the top of `internal/store/store.go` (satisfied by 2026-05-10 plan — package comment at `internal/store/store.go:1-27` lists every dose-related INTEGER unix-seconds column and references `TestDoseTimeColumnsAreInteger` as the audit anchor)
+- [x] write tests: table-driven `time.Unix(t.Unix(), 0).UTC().Equal(t)` invariant (satisfied by 2026-05-10 plan — `TestTimeUnixUTCRoundTrip` in `internal/store/store_time_invariants_test.go` covers UTC, Europe/Berlin (CEST + CET), America/Los_Angeles (PDT + PST), America/Phoenix)
+- [x] run project tests (satisfied by 2026-05-10 plan — Task 7/8 already required and verified `go test ./...` green; nothing to re-run for an already-shipped task)
 
 ### Task 2: Migration — add `scheduled_at_unix` column to `intake_log`, backfill, dual-write — SUPERSEDED by 2026-05-10 plan
 
