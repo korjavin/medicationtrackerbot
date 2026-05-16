@@ -114,10 +114,10 @@ func TestWorkoutFinish_StateUpdate(t *testing.T) {
 
 	// Setup data
 	userID := int64(123456)
-	group, _ := s.Workout.CreateWorkoutGroup("G", "", false, userID, "[1]", "09:00", 15)
-	variant, _ := s.Workout.CreateWorkoutVariant(group.ID, "V", nil, "")
-	s.Workout.AddExerciseToVariant(variant.ID, "Ex1", 3, 10, nil, nil, 0)
-	session, _ := s.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	group, _ := s.Workout.CreateGroup("G", "", false, userID, "[1]", "09:00", 15)
+	variant, _ := s.Workout.CreateVariant(group.ID, "V", nil, "")
+	s.Workout.CreateExerciseInVariant(variant.ID, "Ex1", 3, 10, nil, nil, 0)
+	session, _ := s.Workout.CreateSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 	s.Workout.StartSession(session.ID)
 
 	// Simulate "workout_finish_ID" callback
@@ -133,7 +133,7 @@ func TestWorkoutFinish_StateUpdate(t *testing.T) {
 	b.handleWorkoutCallback(cb, cb.Data)
 
 	// Verify session status
-	updatedSession, _ := s.Workout.GetWorkoutSession(session.ID)
+	updatedSession, _ := s.Workout.GetSession(session.ID)
 	if updatedSession.Status != "completed" {
 		t.Errorf("Expected session status 'completed', got '%s'", updatedSession.Status)
 	}
@@ -197,18 +197,18 @@ func TestCheckWorkoutCompletion_PostCompletionAddition(t *testing.T) {
 	// 4. Setup Data with ROTATION
 	userID := int64(123456)
 	// Create ROTATING group
-	group, err := s.Workout.CreateWorkoutGroup("Test Group", "", true, userID, "[1]", "09:00", 15)
+	group, err := s.Workout.CreateGroup("Test Group", "", true, userID, "[1]", "09:00", 15)
 	if err != nil {
 		t.Fatalf("CreateGroup: %v", err)
 	}
 
-	variant1, err := s.Workout.CreateWorkoutVariant(group.ID, "Variant 1", nil, "")
+	variant1, err := s.Workout.CreateVariant(group.ID, "Variant 1", nil, "")
 	if err != nil {
 		t.Fatalf("CreateVariant1: %v", err)
 	}
 
 	zero := 0
-	_, err = s.Workout.CreateWorkoutVariant(group.ID, "Variant 2", &zero, "")
+	_, err = s.Workout.CreateVariant(group.ID, "Variant 2", &zero, "")
 	if err != nil {
 		t.Fatalf("CreateVariant2: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestCheckWorkoutCompletion_PostCompletionAddition(t *testing.T) {
 	}
 
 	// Add exercise to Variant 1
-	ex1, err := s.Workout.AddExerciseToVariant(variant1.ID, "Pushups", 3, 10, nil, nil, 0)
+	ex1, err := s.Workout.CreateExerciseInVariant(variant1.ID, "Pushups", 3, 10, nil, nil, 0)
 	if err != nil {
 		t.Fatalf("AddExercise1: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestCheckWorkoutCompletion_PostCompletionAddition(t *testing.T) {
 	}
 
 	// Create session for Variant 1
-	session, err := s.Workout.CreateWorkoutSession(group.ID, variant1.ID, userID, time.Now(), "09:00")
+	session, err := s.Workout.CreateSession(group.ID, variant1.ID, userID, time.Now(), "09:00")
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
@@ -351,12 +351,12 @@ func TestPrematureCompletion_DuplicateLogs(t *testing.T) {
 	b := &Bot{api: api, meds: a, bp: a, weight: a, workouts: a, workoutSvc: workoutsvc.New(s.Workout, s.TZ), exerciseSvc: domain.NewExerciseService(s.Workout), medSvc: domain.NewMedicationService(s.Medication), food: a, imports: a, allowedUserID: 1}
 
 	// Create group/variant with 2 exercises
-	group, _ := s.Workout.CreateWorkoutGroup("G", "", false, 1, "[1]", "09:00", 15)
-	variant, _ := s.Workout.CreateWorkoutVariant(group.ID, "V", nil, "")
-	ex1, _ := s.Workout.AddExerciseToVariant(variant.ID, "Ex1", 3, 10, nil, nil, 0)
-	ex2, _ := s.Workout.AddExerciseToVariant(variant.ID, "Ex2", 3, 10, nil, nil, 1)
+	group, _ := s.Workout.CreateGroup("G", "", false, 1, "[1]", "09:00", 15)
+	variant, _ := s.Workout.CreateVariant(group.ID, "V", nil, "")
+	ex1, _ := s.Workout.CreateExerciseInVariant(variant.ID, "Ex1", 3, 10, nil, nil, 0)
+	ex2, _ := s.Workout.CreateExerciseInVariant(variant.ID, "Ex2", 3, 10, nil, nil, 1)
 
-	session, _ := s.Workout.CreateWorkoutSession(group.ID, variant.ID, 1, time.Now(), "09:00")
+	session, _ := s.Workout.CreateSession(group.ID, variant.ID, 1, time.Now(), "09:00")
 	s.Workout.StartSession(session.ID)
 
 	// Log Ex1 TWICE (simulate double click)
@@ -380,7 +380,7 @@ func TestPrematureCompletion_DuplicateLogs(t *testing.T) {
 	}
 
 	// Verify status
-	session, err = s.Workout.GetWorkoutSession(session.ID)
+	session, err = s.Workout.GetSession(session.ID)
 	if err != nil {
 		t.Fatalf("Failed to get session: %v", err)
 	}
@@ -404,7 +404,7 @@ func TestPrematureCompletion_DuplicateLogs(t *testing.T) {
 		t.Fatal("Timeout waiting for completion message")
 	}
 
-	session, err = s.Workout.GetWorkoutSession(session.ID)
+	session, err = s.Workout.GetSession(session.ID)
 	if err != nil {
 		t.Fatalf("Failed to get session: %v", err)
 	}

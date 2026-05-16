@@ -1014,7 +1014,7 @@ func TestHandleWorkoutGroupCRUD(t *testing.T) {
 	}
 
 	// Verify update
-	group, _ := db.Workout.GetWorkoutGroup(groupID)
+	group, _ := db.Workout.GetGroup(groupID)
 	if group.Name != "Updated PPL" {
 		t.Errorf("Expected 'Updated PPL', got %q", group.Name)
 	}
@@ -1025,7 +1025,7 @@ func TestHandleWorkoutVariantCRUD(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	group, _ := db.Workout.CreateWorkoutGroup("Test", "desc", false, userID, "[1,3,5]", "09:00", 15)
+	group, _ := db.Workout.CreateGroup("Test", "desc", false, userID, "[1,3,5]", "09:00", 15)
 
 	// Create variant
 	reqBody := map[string]interface{}{
@@ -1097,9 +1097,9 @@ func TestHandleWorkoutExerciseCRUD(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	group, _ := db.Workout.CreateWorkoutGroup("Test", "desc", false, userID, "[1,3,5]", "09:00", 15)
+	group, _ := db.Workout.CreateGroup("Test", "desc", false, userID, "[1,3,5]", "09:00", 15)
 	order := 0
-	variant, _ := db.Workout.CreateWorkoutVariant(group.ID, "Variant A", &order, "")
+	variant, _ := db.Workout.CreateVariant(group.ID, "Variant A", &order, "")
 
 	// Create exercise
 	reqBody := map[string]interface{}{
@@ -1160,10 +1160,10 @@ func TestHandleStartWorkoutSession(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	group, _ := db.Workout.CreateWorkoutGroup("Test", "desc", false, userID, "[1,3,5]", "09:00", 15)
+	group, _ := db.Workout.CreateGroup("Test", "desc", false, userID, "[1,3,5]", "09:00", 15)
 	order := 0
-	variant, _ := db.Workout.CreateWorkoutVariant(group.ID, "A", &order, "")
-	session, _ := db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	variant, _ := db.Workout.CreateVariant(group.ID, "A", &order, "")
+	session, _ := db.Workout.CreateSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 
 	req := httptest.NewRequest("POST", fmt.Sprintf("/api/workout/sessions/%d/start", session.ID), nil)
 	req.SetPathValue("id", fmt.Sprintf("%d", session.ID))
@@ -1175,7 +1175,7 @@ func TestHandleStartWorkoutSession(t *testing.T) {
 		t.Fatalf("Expected 200, got %d. Body: %s", w.Code, w.Body.String())
 	}
 
-	s, _ := db.Workout.GetWorkoutSession(session.ID)
+	s, _ := db.Workout.GetSession(session.ID)
 	if s.Status != "in_progress" {
 		t.Errorf("Expected status 'in_progress', got %q", s.Status)
 	}
@@ -1186,10 +1186,10 @@ func TestHandleSkipWorkoutSession(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	group, _ := db.Workout.CreateWorkoutGroup("Test", "desc", false, userID, "[1,3,5]", "09:00", 15)
+	group, _ := db.Workout.CreateGroup("Test", "desc", false, userID, "[1,3,5]", "09:00", 15)
 	order := 0
-	variant, _ := db.Workout.CreateWorkoutVariant(group.ID, "A", &order, "")
-	session, _ := db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	variant, _ := db.Workout.CreateVariant(group.ID, "A", &order, "")
+	session, _ := db.Workout.CreateSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 
 	req := httptest.NewRequest("POST", fmt.Sprintf("/api/workout/sessions/%d/skip", session.ID), nil)
 	req.SetPathValue("id", fmt.Sprintf("%d", session.ID))
@@ -1201,7 +1201,7 @@ func TestHandleSkipWorkoutSession(t *testing.T) {
 		t.Fatalf("Expected 200, got %d. Body: %s", w.Code, w.Body.String())
 	}
 
-	s, _ := db.Workout.GetWorkoutSession(session.ID)
+	s, _ := db.Workout.GetSession(session.ID)
 	if s.Status != "skipped" {
 		t.Errorf("Expected status 'skipped', got %q", s.Status)
 	}
@@ -1212,10 +1212,10 @@ func TestHandleGetWorkoutStats(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	group, _ := db.Workout.CreateWorkoutGroup("Test", "desc", false, userID, "[1,3,5]", "09:00", 15)
+	group, _ := db.Workout.CreateGroup("Test", "desc", false, userID, "[1,3,5]", "09:00", 15)
 	order := 0
-	variant, _ := db.Workout.CreateWorkoutVariant(group.ID, "A", &order, "")
-	session, _ := db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	variant, _ := db.Workout.CreateVariant(group.ID, "A", &order, "")
+	session, _ := db.Workout.CreateSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 	db.Workout.CompleteSession(session.ID)
 
 	req := httptest.NewRequest("GET", "/api/workout/stats", nil)
@@ -1240,10 +1240,10 @@ func TestHandleListWorkoutSessions(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	group, _ := db.Workout.CreateWorkoutGroup("Test", "desc", false, userID, "[1,3,5]", "09:00", 15)
+	group, _ := db.Workout.CreateGroup("Test", "desc", false, userID, "[1,3,5]", "09:00", 15)
 	order := 0
-	variant, _ := db.Workout.CreateWorkoutVariant(group.ID, "A", &order, "")
-	db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	variant, _ := db.Workout.CreateVariant(group.ID, "A", &order, "")
+	db.Workout.CreateSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 
 	req := httptest.NewRequest("GET", "/api/workout/sessions?limit=30", nil)
 	req = withUser(req, userID)
@@ -1260,10 +1260,10 @@ func TestHandleGetSessionDetails(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	group, _ := db.Workout.CreateWorkoutGroup("Test", "desc", false, userID, "[1,3,5]", "09:00", 15)
+	group, _ := db.Workout.CreateGroup("Test", "desc", false, userID, "[1,3,5]", "09:00", 15)
 	order := 0
-	variant, _ := db.Workout.CreateWorkoutVariant(group.ID, "A", &order, "")
-	session, _ := db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	variant, _ := db.Workout.CreateVariant(group.ID, "A", &order, "")
+	session, _ := db.Workout.CreateSession(group.ID, variant.ID, userID, time.Now(), "09:00")
 
 	req := httptest.NewRequest("GET", fmt.Sprintf("/api/workout/sessions/details?id=%d", session.ID), nil)
 	req = withUser(req, userID)
@@ -1280,9 +1280,9 @@ func TestHandleGetRotationState(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	group, _ := db.Workout.CreateWorkoutGroup("Test", "desc", true, userID, "[1,3,5]", "09:00", 15)
+	group, _ := db.Workout.CreateGroup("Test", "desc", true, userID, "[1,3,5]", "09:00", 15)
 	order := 0
-	variant, _ := db.Workout.CreateWorkoutVariant(group.ID, "A", &order, "")
+	variant, _ := db.Workout.CreateVariant(group.ID, "A", &order, "")
 	db.Workout.InitializeRotation(group.ID, variant.ID)
 
 	req := httptest.NewRequest("GET", fmt.Sprintf("/api/workout/rotation/state?group_id=%d", group.ID), nil)

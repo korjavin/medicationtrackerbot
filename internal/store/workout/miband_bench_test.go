@@ -26,7 +26,7 @@ func setupBenchRepo(tb testing.TB) *Repo {
 	return New(d)
 }
 
-func BenchmarkImportMiBandWorkouts(b *testing.B) {
+func BenchmarkImportMiBand(b *testing.B) {
 	ctx := context.Background()
 	db := setupBenchRepo(b)
 
@@ -76,7 +76,7 @@ func BenchmarkImportMiBandWorkouts(b *testing.B) {
 			iterGpsTracks[iterWorkouts[j].SourceStartMs] = ptsCopy
 		}
 
-		imported, _, err := db.ImportMiBandWorkouts(ctx, iterWorkouts, iterGpsTracks)
+		imported, _, err := db.ImportMiBand(ctx, iterWorkouts, iterGpsTracks)
 		if err != nil {
 			b.Fatalf("failed to import: %v", err)
 		}

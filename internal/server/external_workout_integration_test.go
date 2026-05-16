@@ -24,7 +24,7 @@ func TestExternalWorkoutIntegration_FuzzyDedup(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Import a workout with exact ms precision (simulating a backup import)
-	// Use a recent timestamp to bypass the 90-day cutoff filter in ListMiBandWorkouts
+	// Use a recent timestamp to bypass the 90-day cutoff filter in ListMiBand
 	importTime := time.Now().Unix()
 	backupStartMs := importTime*1000 + 123
 
@@ -39,9 +39,9 @@ func TestExternalWorkoutIntegration_FuzzyDedup(t *testing.T) {
 			DistanceM:     5000,
 		},
 	}
-	imported, _, err := db.Workout.ImportMiBandWorkouts(ctx, workouts, nil)
+	imported, _, err := db.Workout.ImportMiBand(ctx, workouts, nil)
 	if err != nil {
-		t.Fatalf("ImportMiBandWorkouts: %v", err)
+		t.Fatalf("ImportMiBand: %v", err)
 	}
 	if imported != 1 {
 		t.Fatalf("expected 1 imported, got %d", imported)
@@ -83,9 +83,9 @@ func TestExternalWorkoutIntegration_FuzzyDedup(t *testing.T) {
 	}
 
 	// 3. Verify no second row was created
-	result, err := db.Workout.ListMiBandWorkouts(ctx, userID, 10)
+	result, err := db.Workout.ListMiBand(ctx, userID, 10)
 	if err != nil {
-		t.Fatalf("ListMiBandWorkouts: %v", err)
+		t.Fatalf("ListMiBand: %v", err)
 	}
 	if len(result) != 1 {
 		t.Fatalf("expected exactly 1 workout, got %d", len(result))

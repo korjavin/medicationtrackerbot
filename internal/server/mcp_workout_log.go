@@ -219,7 +219,7 @@ func (s *Server) mcpWorkoutLog(w http.ResponseWriter, r *http.Request, req *MCPW
 					resp.Results = append(resp.Results, result)
 					continue
 				}
-				sess, err := s.workouts.CreateAdHocWorkoutSession(s.allowedUserID, occurredAt, occurredAt.Format("15:04"))
+				sess, err := s.workouts.CreateAdHocSession(s.allowedUserID, occurredAt, occurredAt.Format("15:04"))
 				if err != nil {
 					slog.Error("[Server] MCP create ad-hoc session failed", "error", err)
 					result.Status = "error"
@@ -382,7 +382,7 @@ func (s *Server) mcpWorkoutGet(w http.ResponseWriter, _ *http.Request, req *MCPW
 		limit = 10
 	}
 
-	sessions, err := s.workouts.GetWorkoutHistory(s.allowedUserID, limit)
+	sessions, err := s.workouts.ListHistory(s.allowedUserID, limit)
 	if err != nil {
 		slog.Error("[Server] MCP workout get history failed", "error", err)
 		http.Error(w, "failed to load workout history", http.StatusInternalServerError)
@@ -391,7 +391,7 @@ func (s *Server) mcpWorkoutGet(w http.ResponseWriter, _ *http.Request, req *MCPW
 
 	resp := MCPWorkoutGetResponse{Sessions: make([]MCPWorkoutGetSession, 0, len(sessions))}
 	for _, sess := range sessions {
-		logs, err := s.workouts.GetExerciseLogs(sess.ID)
+		logs, err := s.workouts.ListExerciseLogs(sess.ID)
 		if err != nil {
 			// Fail the whole request rather than silently omitting the session —
 			// the agent's caller would see fewer sessions than expected with no
@@ -425,7 +425,7 @@ func (s *Server) mcpWorkoutDelete(w http.ResponseWriter, r *http.Request, req *M
 		return
 	}
 
-	sess, err := s.workouts.GetWorkoutSession(req.SessionID)
+	sess, err := s.workouts.GetSession(req.SessionID)
 	if err != nil {
 		slog.Error("[Server] MCP workout delete: get session failed", "session", req.SessionID, "error", err)
 		http.Error(w, "failed to load session", http.StatusInternalServerError)
@@ -436,7 +436,7 @@ func (s *Server) mcpWorkoutDelete(w http.ResponseWriter, r *http.Request, req *M
 		return
 	}
 
-	logs, err := s.workouts.GetExerciseLogs(req.SessionID)
+	logs, err := s.workouts.ListExerciseLogs(req.SessionID)
 	if err != nil {
 		slog.Error("[Server] MCP workout delete: get logs failed", "session", req.SessionID, "error", err)
 		http.Error(w, "failed to load session logs", http.StatusInternalServerError)
@@ -480,7 +480,7 @@ func (s *Server) mcpWorkoutDelete(w http.ResponseWriter, r *http.Request, req *M
 // user's calendar day.
 func (s *Server) lookupSessionForLog(req *MCPWorkoutLogRequest, occurredAt time.Time, loc *time.Location) (*store.WorkoutSession, bool, error) {
 	if req.SessionID > 0 {
-		sess, err := s.workouts.GetWorkoutSession(req.SessionID)
+		sess, err := s.workouts.GetSession(req.SessionID)
 		if err != nil {
 			return nil, false, fmt.Errorf("load session: %w", err)
 		}
@@ -517,7 +517,7 @@ func (s *Server) lookupSessionForLog(req *MCPWorkoutLogRequest, occurredAt time.
 // stored ScheduledDate (possibly UTC after driver round-trip) compared at the
 // boundary midnight does not silently miss the matching session.
 func (s *Server) lookupSessionByRef(ref string, refDate time.Time, loc *time.Location) (*store.WorkoutSession, error) {
-	sessions, err := s.workouts.GetWorkoutHistory(s.allowedUserID, 30)
+	sessions, err := s.workouts.ListHistory(s.allowedUserID, 30)
 	if err != nil {
 		return nil, fmt.Errorf("load history: %w", err)
 	}

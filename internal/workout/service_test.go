@@ -27,14 +27,14 @@ type mockWorkoutStore struct {
 	advanceCalled  bool
 }
 
-func (m *mockWorkoutStore) GetWorkoutSession(id int64) (*store.WorkoutSession, error) {
+func (m *mockWorkoutStore) GetSession(id int64) (*store.WorkoutSession, error) {
 	if m.getSessionErr != nil {
 		return nil, m.getSessionErr
 	}
 	return m.session, nil
 }
 
-func (m *mockWorkoutStore) GetWorkoutGroup(groupID int64) (*store.WorkoutGroup, error) {
+func (m *mockWorkoutStore) GetGroup(groupID int64) (*store.WorkoutGroup, error) {
 	if m.getGroupErr != nil {
 		return nil, m.getGroupErr
 	}
@@ -68,7 +68,7 @@ func (m *mockWorkoutStore) AdvanceRotation(groupID int64) error {
 	return m.advanceErr
 }
 
-func (m *mockWorkoutStore) CreateAdHocWorkoutSession(userID int64, scheduledDate time.Time, scheduledTime string) (*store.WorkoutSession, error) {
+func (m *mockWorkoutStore) CreateAdHocSession(userID int64, scheduledDate time.Time, scheduledTime string) (*store.WorkoutSession, error) {
 	if m.createErr != nil {
 		return nil, m.createErr
 	}
@@ -222,9 +222,9 @@ func TestSchedulePlannedAdHocSession_HappyPath(t *testing.T) {
 		t.Errorf("expected scheduled_time 07:30, got %q", sess.ScheduledTime)
 	}
 
-	logs, err := db.Workout.GetExerciseLogs(sess.ID)
+	logs, err := db.Workout.ListExerciseLogs(sess.ID)
 	if err != nil {
-		t.Fatalf("GetExerciseLogs: %v", err)
+		t.Fatalf("ListExerciseLogs: %v", err)
 	}
 	if len(logs) != 2 {
 		t.Fatalf("expected 2 placeholder logs, got %d", len(logs))
@@ -349,9 +349,9 @@ func TestSchedulePlannedAdHocSession_NoExercises(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected success with no exercises, got %v", err)
 	}
-	logs, err := db.Workout.GetExerciseLogs(sess.ID)
+	logs, err := db.Workout.ListExerciseLogs(sess.ID)
 	if err != nil {
-		t.Fatalf("GetExerciseLogs: %v", err)
+		t.Fatalf("ListExerciseLogs: %v", err)
 	}
 	if len(logs) != 0 {
 		t.Errorf("expected 0 logs, got %d", len(logs))
@@ -388,9 +388,9 @@ func TestSchedulePlannedAdHocSession_RollsBackOnPlaceholderFailure(t *testing.T)
 	}
 
 	// No orphan session should remain.
-	history, err := db.Workout.GetWorkoutHistory(123, 50)
+	history, err := db.Workout.ListHistory(123, 50)
 	if err != nil {
-		t.Fatalf("GetWorkoutHistory: %v", err)
+		t.Fatalf("ListHistory: %v", err)
 	}
 	for _, sess := range history {
 		if sess.GroupID == -1 {

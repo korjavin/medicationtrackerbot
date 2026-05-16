@@ -16,7 +16,7 @@ type fakeWorkoutResolverStore struct {
 	recentLogs map[string][]store.WorkoutExerciseLog
 }
 
-func (f *fakeWorkoutResolverStore) GetDistinctExerciseNamesForUser(ctx context.Context, userID int64) ([]string, error) {
+func (f *fakeWorkoutResolverStore) ListDistinctExerciseNamesForUser(ctx context.Context, userID int64) ([]string, error) {
 	out := make([]string, len(f.catalog))
 	copy(out, f.catalog)
 	return out, nil

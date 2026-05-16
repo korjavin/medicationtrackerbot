@@ -18,14 +18,14 @@ type mockMiBandStore struct {
 	checkFunc  func(ctx context.Context, userID int64, startMsMin, startMsMax int64) (bool, error)
 }
 
-func (m *mockMiBandStore) InsertMiBandWorkout(ctx context.Context, w *store.MiBandWorkout) (bool, error) {
+func (m *mockMiBandStore) InsertMiBand(ctx context.Context, w *store.MiBandWorkout) (bool, error) {
 	if m.insertFunc != nil {
 		return m.insertFunc(ctx, w)
 	}
 	return true, nil
 }
 
-func (m *mockMiBandStore) CheckDuplicateMiBandWorkout(ctx context.Context, userID int64, startMsMin, startMsMax int64) (bool, error) {
+func (m *mockMiBandStore) CheckDuplicateMiBand(ctx context.Context, userID int64, startMsMin, startMsMax int64) (bool, error) {
 	if m.checkFunc != nil {
 		return m.checkFunc(ctx, userID, startMsMin, startMsMax)
 	}

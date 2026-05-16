@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,14 +14,34 @@ import (
 )
 
 type MockNotifier struct {
+	mu            sync.Mutex
 	Notifications []notifier.Notification
 }
 
 func (m *MockNotifier) Send(ctx context.Context, userID int64, n notifier.Notification) (int, error) {
 	if n.Metadata["type"] != "medication_batch" {
+		m.mu.Lock()
 		m.Notifications = append(m.Notifications, n)
+		m.mu.Unlock()
 	}
 	return 1, nil
+}
+
+// snapshotNotifications returns a copy of m.Notifications under lock so test
+// readers don't race with the async Notify goroutine.
+func (m *MockNotifier) snapshotNotifications() []notifier.Notification {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]notifier.Notification, len(m.Notifications))
+	copy(out, m.Notifications)
+	return out
+}
+
+// resetNotifications clears m.Notifications under lock.
+func (m *MockNotifier) resetNotifications() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Notifications = nil
 }
 
 func (m *MockNotifier) Delete(ctx context.Context, userID int64, msgID int) error {
@@ -156,7 +177,7 @@ func TestMedicationCheckerScenarios(t *testing.T) {
 		}
 
 		actual := medicationScenarioExpected{
-			Notifications:  len(mockNotifier.Notifications),
+			Notifications:  len(mockNotifier.snapshotNotifications()),
 			PendingIntakes: len(pending),
 		}
 

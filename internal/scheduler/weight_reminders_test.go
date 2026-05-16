@@ -130,7 +130,7 @@ func TestWeightReminderCheckerScenarios(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 
 		actual := weightScenarioExpected{
-			Notifications: len(mockNotifier.Notifications),
+			Notifications: len(mockNotifier.snapshotNotifications()),
 		}
 
 		testharness.CompareJSON(t, expected, actual)

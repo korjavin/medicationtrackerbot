@@ -523,7 +523,7 @@ func (s *Server) handleGetWorkoutHistory(ctx context.Context, req *mcp.CallToolR
 
 	// Get workout history - the store method returns recent sessions with limit
 	// We'll need to filter by date range
-	sessions, err := s.data.GetWorkoutHistory(userID, 1000) // Get plenty, then filter
+	sessions, err := s.data.ListHistory(userID, 1000) // Get plenty, then filter
 	if err != nil {
 		return nil, WorkoutHistoryResponse{}, err
 	}
@@ -536,8 +536,8 @@ func (s *Server) handleGetWorkoutHistory(ctx context.Context, req *mcp.CallToolR
 		}
 
 		// Get group and variant names
-		group, _ := s.data.GetWorkoutGroup(session.GroupID)
-		variant, _ := s.data.GetWorkoutVariant(session.VariantID)
+		group, _ := s.data.GetGroup(session.GroupID)
+		variant, _ := s.data.GetVariant(session.VariantID)
 
 		groupName := ""
 		variantName := ""
@@ -568,7 +568,7 @@ func (s *Server) handleGetWorkoutHistory(ctx context.Context, req *mcp.CallToolR
 
 		// Include exercises if requested
 		if input.IncludeExercises {
-			logs, err := s.data.GetExerciseLogs(session.ID)
+			logs, err := s.data.ListExerciseLogs(session.ID)
 			if err == nil {
 				var totalVolume float64
 				for _, log := range logs {
@@ -597,7 +597,7 @@ func (s *Server) handleGetWorkoutHistory(ctx context.Context, req *mcp.CallToolR
 	}
 
 	// Fetch Mi Band workouts
-	mibandWorkouts, err := s.data.ListMiBandWorkouts(ctx, userID, 1000)
+	mibandWorkouts, err := s.data.ListMiBand(ctx, userID, 1000)
 	if err == nil {
 		for _, wo := range mibandWorkouts {
 			startTime := time.UnixMilli(wo.SourceStartMs).UTC()

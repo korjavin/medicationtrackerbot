@@ -252,7 +252,7 @@ func (b *Bot) importSleepFile(filePath string) (int, int, error) {
 			}
 			storeGPS[startMs] = storePts
 		}
-		wImported, wSkipped, err = b.imports.ImportMiBandWorkouts(ctx, storeWorkouts, storeGPS)
+		wImported, wSkipped, err = b.imports.ImportMiBand(ctx, storeWorkouts, storeGPS)
 		if err != nil {
 			slog.Error("Failed to import Mi Band workouts", "error", err)
 		} else {

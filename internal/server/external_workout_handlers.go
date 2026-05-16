@@ -107,7 +107,7 @@ func (s *Server) handleExternalWorkout(w http.ResponseWriter, r *http.Request) {
 
 	// Perform fuzzy deduplication if the timestamp was in seconds
 	if isSecondsPrecision {
-		isDuplicate, err := s.miband.CheckDuplicateMiBandWorkout(r.Context(), s.allowedUserID, startMs, startMs+999)
+		isDuplicate, err := s.miband.CheckDuplicateMiBand(r.Context(), s.allowedUserID, startMs, startMs+999)
 		if err != nil {
 			slog.Error("[external-workout] db error checking duplicate", "error", err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -142,7 +142,7 @@ func (s *Server) handleExternalWorkout(w http.ResponseWriter, r *http.Request) {
 		HeartRateAvg:  payload.HeartRate,
 	}
 
-	inserted, err := s.miband.InsertMiBandWorkout(r.Context(), workout)
+	inserted, err := s.miband.InsertMiBand(r.Context(), workout)
 	if err != nil {
 		slog.Error("[external-workout] db insert error", "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)

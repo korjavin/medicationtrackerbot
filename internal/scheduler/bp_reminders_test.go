@@ -122,7 +122,7 @@ func TestBPReminderCheckerScenarios(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 
 		actual := bpScenarioExpected{
-			Notifications: len(mockNotifier.Notifications),
+			Notifications: len(mockNotifier.snapshotNotifications()),
 		}
 
 		testharness.CompareJSON(t, expected, actual)

@@ -78,31 +78,31 @@ type WeightStore interface {
 
 // WorkoutStore is the subset of store operations needed for workout handlers.
 type WorkoutStore interface {
-	ListWorkoutGroups(userID int64, activeOnly bool) ([]store.WorkoutGroup, error)
-	CreateWorkoutGroup(name, description string, isRotating bool, userID int64, daysOfWeek string, scheduledTime string, notificationAdvance int) (*store.WorkoutGroup, error)
-	UpdateWorkoutGroup(id int64, name, description string, isRotating bool, daysOfWeek string, scheduledTime string, notificationAdvance int, active bool) error
-	DeleteWorkoutGroup(id int64) error
+	ListGroups(userID int64, activeOnly bool) ([]store.WorkoutGroup, error)
+	CreateGroup(name, description string, isRotating bool, userID int64, daysOfWeek string, scheduledTime string, notificationAdvance int) (*store.WorkoutGroup, error)
+	UpdateGroup(id int64, name, description string, isRotating bool, daysOfWeek string, scheduledTime string, notificationAdvance int, active bool) error
+	DeleteGroup(id int64) error
 	CreateGroupSnapshot(groupID int64, snapshotData, changeReason string) error
 	ListVariantsByGroup(groupID int64) ([]store.WorkoutVariant, error)
-	CreateWorkoutVariant(groupID int64, name string, rotationOrder *int, description string) (*store.WorkoutVariant, error)
-	UpdateWorkoutVariant(id int64, name string, rotationOrder *int, description string) error
-	DeleteWorkoutVariant(id int64) error
+	CreateVariant(groupID int64, name string, rotationOrder *int, description string) (*store.WorkoutVariant, error)
+	UpdateVariant(id int64, name string, rotationOrder *int, description string) error
+	DeleteVariant(id int64) error
 	ListExercisesByVariant(variantID int64) ([]store.WorkoutExercise, error)
-	AddExerciseToVariant(variantID int64, exerciseName string, targetSets, targetRepsMin int, targetRepsMax *int, targetWeightKg *float64, orderIndex int) (*store.WorkoutExercise, error)
-	UpdateWorkoutExercise(id int64, exerciseName string, targetSets, targetRepsMin int, targetRepsMax *int, targetWeightKg *float64, orderIndex int) error
-	DeleteWorkoutExercise(id int64) error
-	GetWorkoutHistory(userID int64, limit int) ([]store.WorkoutSession, error)
-	GetWorkoutGroup(groupID int64) (*store.WorkoutGroup, error)
-	GetWorkoutVariant(variantID int64) (*store.WorkoutVariant, error)
-	GetExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error)
-	GetWorkoutSession(id int64) (*store.WorkoutSession, error)
-	GetActiveSessions(userID int64, date time.Time) ([]store.WorkoutSession, error)
-	GetSnoozedSessions(userID int64) ([]store.WorkoutSession, error)
+	CreateExerciseInVariant(variantID int64, exerciseName string, targetSets, targetRepsMin int, targetRepsMax *int, targetWeightKg *float64, orderIndex int) (*store.WorkoutExercise, error)
+	UpdateExercise(id int64, exerciseName string, targetSets, targetRepsMin int, targetRepsMax *int, targetWeightKg *float64, orderIndex int) error
+	DeleteExercise(id int64) error
+	ListHistory(userID int64, limit int) ([]store.WorkoutSession, error)
+	GetGroup(groupID int64) (*store.WorkoutGroup, error)
+	GetVariant(variantID int64) (*store.WorkoutVariant, error)
+	ListExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error)
+	GetSession(id int64) (*store.WorkoutSession, error)
+	ListActiveSessions(userID int64, date time.Time) ([]store.WorkoutSession, error)
+	ListSnoozedSessions(userID int64) ([]store.WorkoutSession, error)
 	GetRotationState(groupID int64) (*store.WorkoutRotationState, error)
 	InitializeRotation(groupID, startingVariantID int64) error
 	AdvanceRotation(groupID int64) error
-	CreateWorkoutSession(groupID, variantID, userID int64, scheduledDate time.Time, scheduledTime string) (*store.WorkoutSession, error)
-	CreateAdHocWorkoutSession(userID int64, scheduledDate time.Time, scheduledTime string) (*store.WorkoutSession, error)
+	CreateSession(groupID, variantID, userID int64, scheduledDate time.Time, scheduledTime string) (*store.WorkoutSession, error)
+	CreateAdHocSession(userID int64, scheduledDate time.Time, scheduledTime string) (*store.WorkoutSession, error)
 	GetSessionByGroupAndDate(groupID int64, scheduledDate time.Time) (*store.WorkoutSession, error)
 	UpdateSessionStatus(id int64, status string) error
 	StartSession(id int64) error
@@ -117,8 +117,8 @@ type WorkoutStore interface {
 	UpdateExerciseLog(id int64, setsCompleted, repsCompleted *int, weightKg *float64, notes string) error
 	UpdateExerciseLogStatus(id int64, status string) error
 	DeleteExerciseLog(id int64) error
-	GetExerciseStats(userID int64) ([]store.ExerciseStat, error)
-	GetAllUniqueExercises(userID int64) ([]store.WorkoutExercise, error)
+	ListExerciseStats(userID int64) ([]store.ExerciseStat, error)
+	ListAllUniqueExercises(userID int64) ([]store.WorkoutExercise, error)
 	ListExerciseLibrary(userID int64) ([]store.ExerciseLibraryItem, error)
 	GetExerciseLibraryItem(id int64) (*store.ExerciseLibraryItem, error)
 	CreateExerciseLibraryItem(userID int64, name string, sets, repsMin int, repsMax *int, weightKg *float64, notes string) (*store.ExerciseLibraryItem, error)
@@ -128,7 +128,7 @@ type WorkoutStore interface {
 	SetExerciseLogSource(id int64, source string) error
 	PropagateExerciseToSchedule(sessionID int64, exerciseID int64, exerciseName string, sets *int, reps *int, weight *float64) error
 	UpsertExerciseLogByName(ctx context.Context, sessionID, exerciseID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes, source string, loggedAt time.Time) (int64, bool, error)
-	GetDistinctExerciseNamesForUser(ctx context.Context, userID int64) ([]string, error)
+	ListDistinctExerciseNamesForUser(ctx context.Context, userID int64) ([]string, error)
 	ListRecentExerciseLogsByName(ctx context.Context, userID int64, exerciseName string, limit int) ([]store.WorkoutExerciseLog, error)
 }
 
@@ -202,13 +202,13 @@ type PushStore interface {
 
 // MiBandStore is the subset of store operations needed for Mi Band workout history.
 type MiBandStore interface {
-	ListMiBandWorkouts(ctx context.Context, userID int64, limit int) ([]store.MiBandWorkout, error)
-	GetMiBandWorkout(ctx context.Context, id int64) (*store.MiBandWorkout, error)
-	GetMiBandWorkoutGPS(ctx context.Context, workoutID int64) ([]store.MiBandGPSPoint, error)
-	DeleteMiBandWorkout(ctx context.Context, id, userID int64) error
-	UpdateMiBandWorkout(ctx context.Context, id, userID int64, fields store.UpdateMiBandWorkoutFields) error
-	InsertMiBandWorkout(ctx context.Context, w *store.MiBandWorkout) (bool, error)
-	CheckDuplicateMiBandWorkout(ctx context.Context, userID int64, startMsMin, startMsMax int64) (bool, error)
+	ListMiBand(ctx context.Context, userID int64, limit int) ([]store.MiBandWorkout, error)
+	GetMiBand(ctx context.Context, id int64) (*store.MiBandWorkout, error)
+	GetMiBandGPS(ctx context.Context, workoutID int64) ([]store.MiBandGPSPoint, error)
+	DeleteMiBand(ctx context.Context, id, userID int64) error
+	UpdateMiBand(ctx context.Context, id, userID int64, fields store.UpdateMiBandWorkoutFields) error
+	InsertMiBand(ctx context.Context, w *store.MiBandWorkout) (bool, error)
+	CheckDuplicateMiBand(ctx context.Context, userID int64, startMsMin, startMsMax int64) (bool, error)
 }
 
 // TZPlanStore is the subset of store operations needed for timezone plan approval/rejection.

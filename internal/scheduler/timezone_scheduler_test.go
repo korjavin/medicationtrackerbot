@@ -213,15 +213,15 @@ func TestWorkoutChecker_UsesUserTimezoneForWeekday(t *testing.T) {
 
 	// Schedule a group on the New York weekday only.
 	daysOfWeek := "[" + intToStr(nyWeekday) + "]"
-	group, err := db.Workout.CreateWorkoutGroup("TZGroup", "desc", false, 123456, daysOfWeek, "20:00", 15)
+	group, err := db.Workout.CreateGroup("TZGroup", "desc", false, 123456, daysOfWeek, "20:00", 15)
 	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
+		t.Fatalf("CreateGroup: %v", err)
 	}
 
 	order := 0
-	_, err = db.Workout.CreateWorkoutVariant(group.ID, "Variant A", &order, "")
+	_, err = db.Workout.CreateVariant(group.ID, "Variant A", &order, "")
 	if err != nil {
-		t.Fatalf("CreateWorkoutVariant: %v", err)
+		t.Fatalf("CreateVariant: %v", err)
 	}
 
 	mock := &mockNotifier{sendMsgID: 1}

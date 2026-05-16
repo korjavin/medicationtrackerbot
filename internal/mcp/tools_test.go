@@ -500,20 +500,20 @@ func TestHandleGetWorkoutHistory_WithData(t *testing.T) {
 		t.Fatalf("SetWorkoutEnabled: %v", err)
 	}
 
-	group, err := st.Workout.CreateWorkoutGroup("Push Day", "chest/shoulders/triceps", false, 123456, "[1]", "08:00", 15)
+	group, err := st.Workout.CreateGroup("Push Day", "chest/shoulders/triceps", false, 123456, "[1]", "08:00", 15)
 	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
+		t.Fatalf("CreateGroup: %v", err)
 	}
 	order := 0
-	variant, err := st.Workout.CreateWorkoutVariant(group.ID, "Heavy", &order, "")
+	variant, err := st.Workout.CreateVariant(group.ID, "Heavy", &order, "")
 	if err != nil {
-		t.Fatalf("CreateWorkoutVariant: %v", err)
+		t.Fatalf("CreateVariant: %v", err)
 	}
 
 	scheduledDate := time.Date(2026, 2, 18, 0, 0, 0, 0, time.UTC)
-	session, err := st.Workout.CreateWorkoutSession(group.ID, variant.ID, 123456, scheduledDate, "08:00")
+	session, err := st.Workout.CreateSession(group.ID, variant.ID, 123456, scheduledDate, "08:00")
 	if err != nil {
-		t.Fatalf("CreateWorkoutSession: %v", err)
+		t.Fatalf("CreateSession: %v", err)
 	}
 	if err := st.Workout.CompleteSession(session.ID); err != nil {
 		t.Fatalf("CompleteSession: %v", err)
