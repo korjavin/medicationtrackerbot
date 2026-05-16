@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -17,7 +18,11 @@ type mockTZPlanCallbackStore struct {
 	rejectErr  error
 }
 
-func (m *mockTZPlanCallbackStore) SetTZTransitionPlanApproved(id int64, at time.Time) (bool, error) {
+// Approve adapts the mock to tzreschedule.LifecycleService for the bot's
+// tz_plan_approve callback. The Track D Task 10 refactor moved approve out
+// of TZPlanCallbackStore and onto the lifecycle service so the plan
+// transition and the pre-materialize step inserts share one transaction.
+func (m *mockTZPlanCallbackStore) Approve(_ context.Context, id int64, at time.Time) (bool, error) {
 	m.updatedID = id
 	m.approvedAt = &at
 	return m.approveErr == nil, m.approveErr
@@ -46,6 +51,7 @@ func TestHandleTZPlanApprove_Success(t *testing.T) {
 
 	ms := &mockTZPlanCallbackStore{}
 	env.b.tzPlanStore = ms
+	env.b.tzLifecycle = ms
 
 	cb := makeTZPlanCallbackQuery("tz_plan_approve", "7")
 	env.b.handleTZPlanApprove(cb, 7)
@@ -99,6 +105,7 @@ func TestHandleCallback_TZPlanApprove_Routing(t *testing.T) {
 
 	ms := &mockTZPlanCallbackStore{}
 	env.b.tzPlanStore = ms
+	env.b.tzLifecycle = ms
 
 	cb := &tgbotapi.CallbackQuery{
 		ID:   "cb2",
@@ -140,7 +147,9 @@ func TestHandleCallback_TZPlanReject_Routing(t *testing.T) {
 // mockTZPlanCallbackStoreNoRows simulates store methods that affect 0 rows (stale callback).
 type mockTZPlanCallbackStoreNoRows struct{}
 
-func (m *mockTZPlanCallbackStoreNoRows) SetTZTransitionPlanApproved(id int64, at time.Time) (bool, error) {
+// Approve is the lifecycle-service method used by the bot's approve
+// callback after the Track D Task 10 refactor.
+func (m *mockTZPlanCallbackStoreNoRows) Approve(_ context.Context, id int64, at time.Time) (bool, error) {
 	return false, nil
 }
 
@@ -152,7 +161,9 @@ func TestHandleTZPlanApprove_StaleCallback(t *testing.T) {
 	env := setupBotTest(t)
 	defer env.teardown()
 
-	env.b.tzPlanStore = &mockTZPlanCallbackStoreNoRows{}
+	stale := &mockTZPlanCallbackStoreNoRows{}
+	env.b.tzPlanStore = stale
+	env.b.tzLifecycle = stale
 
 	cb := makeTZPlanCallbackQuery("tz_plan_approve", "99")
 	env.b.handleTZPlanApprove(cb, 99)

@@ -9,11 +9,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
 // TZPlanNotifierStore is the subset of store operations needed by TZPlanNotifier.
+//
+// Auto-approve is deliberately not on this interface: it routes through the
+// shared tzreschedule.LifecycleService (Approve), which wraps the plan
+// transition and the pre-materialize step inserts in a single transaction.
+// See Track D Task 10 in
+// docs/plans/20260508-simplify-medication-scheduling-utc-and-pre-materialized-steps.md.
 type TZPlanNotifierStore interface {
 	GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error)
 	// MarkPlanNotified atomically transitions the plan from PENDING_APPROVAL to NOTIFIED.
@@ -23,15 +30,14 @@ type TZPlanNotifierStore interface {
 	ResetPlanToPending(id int64) error
 	// UpdateTZTransitionPlanStatus transitions a plan to a new status.
 	UpdateTZTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error
-	// SetTZTransitionPlanApproved marks a plan as APPROVED with an approval timestamp.
-	SetTZTransitionPlanApproved(id int64, approvedAt time.Time) (bool, error)
 }
 
 // TZPlanNotifier checks for pending timezone transition plans and sends a
 // Telegram notification with approve/reject buttons.
 type TZPlanNotifier struct {
 	NotifyHelper
-	store TZPlanNotifierStore
+	store     TZPlanNotifierStore
+	lifecycle tzreschedule.LifecycleService
 }
 
 // planStep is used only for parsing the StepsJSON blob stored in the plan.
@@ -77,7 +83,10 @@ func (n *TZPlanNotifier) Check(ctx context.Context) error {
 	if plan.Status == "PENDING_APPROVAL" && time.Since(plan.CreatedAt) > pendingApprovalExpiryDuration {
 		slog.Warn("tz_plan_notifier: PENDING_APPROVAL plan expired, auto-approving",
 			"plan_id", plan.ID, "created_at", plan.CreatedAt, "age", time.Since(plan.CreatedAt).String())
-		if ok, approveErr := n.store.SetTZTransitionPlanApproved(plan.ID, time.Now()); approveErr != nil {
+		if n.lifecycle == nil {
+			return errors.New("tz_plan_notifier: lifecycle service not configured; cannot auto-approve")
+		}
+		if ok, approveErr := n.lifecycle.Approve(ctx, plan.ID, time.Now()); approveErr != nil {
 			return fmt.Errorf("tz_plan_notifier: auto-approve stuck pending plan: %w", approveErr)
 		} else if ok {
 			slog.Info("tz_plan_notifier: stuck PENDING_APPROVAL plan auto-approved", "plan_id", plan.ID)
@@ -93,7 +102,10 @@ func (n *TZPlanNotifier) Check(ctx context.Context) error {
 	if plan.Status == "NOTIFIED" && plan.NotifiedAt != nil && time.Since(*plan.NotifiedAt) > notifiedPlanExpiryDuration {
 		slog.Warn("tz_plan_notifier: NOTIFIED plan expired, auto-approving",
 			"plan_id", plan.ID, "notified_at", plan.NotifiedAt, "age", time.Since(*plan.NotifiedAt).String())
-		if ok, approveErr := n.store.SetTZTransitionPlanApproved(plan.ID, time.Now()); approveErr != nil {
+		if n.lifecycle == nil {
+			return errors.New("tz_plan_notifier: lifecycle service not configured; cannot auto-approve")
+		}
+		if ok, approveErr := n.lifecycle.Approve(ctx, plan.ID, time.Now()); approveErr != nil {
 			return fmt.Errorf("tz_plan_notifier: auto-approve expired plan: %w", approveErr)
 		} else if ok {
 			slog.Info("tz_plan_notifier: stale NOTIFIED plan auto-approved", "plan_id", plan.ID)

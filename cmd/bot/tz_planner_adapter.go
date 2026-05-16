@@ -1,12 +1,15 @@
 package main
 
 import (
+	"time"
+
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
 // tzPlannerStore adapts *store.Repos to tzreschedule.PlannerStore. The
-// interface spans medication.Repo (ListMedications, GetIntakeHistory) and
-// tz.Repo (plan CRUD) so we need a small aggregator at the composition root.
+// interface spans medication.Repo (ListMedications, GetIntakeHistory,
+// CountFuturePendingTZStepIntakesForPlan) and tz.Repo (plan CRUD) so we need
+// a small aggregator at the composition root.
 type tzPlannerStore struct {
 	s *store.Repos
 }
@@ -28,9 +31,12 @@ func (a *tzPlannerStore) GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTr
 func (a *tzPlannerStore) UpdateTZTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error {
 	return a.s.TZ.UpdateTZTransitionPlanStatus(id, newStatus, userAction, expectedStatus)
 }
-func (a *tzPlannerStore) GetPendingStepsForPlan(planID int64) ([]store.TZTransitionStep, error) {
-	return a.s.TZ.GetPendingStepsForPlan(planID)
+func (a *tzPlannerStore) CountFuturePendingTZStepIntakesForPlan(planID int64, asOf time.Time) (int, error) {
+	return a.s.Medication.CountFuturePendingTZStepIntakesForPlan(planID, asOf)
 }
-func (a *tzPlannerStore) CreateTZTransitionPlanWithSteps(plan *store.TZTransitionPlan, steps []store.TZTransitionStep) (int64, error) {
-	return a.s.TZ.CreateTZTransitionPlanWithSteps(plan, steps)
+func (a *tzPlannerStore) CreateTZTransitionPlanWithSteps(plan *store.TZTransitionPlan) (int64, error) {
+	return a.s.TZ.CreateTZTransitionPlanWithSteps(plan)
+}
+func (a *tzPlannerStore) DeletePendingPreMaterializedIntakesForPlan(planID int64) error {
+	return a.s.Medication.DeletePendingPreMaterializedIntakesForPlan(planID)
 }

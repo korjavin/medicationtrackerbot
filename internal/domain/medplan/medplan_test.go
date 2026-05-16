@@ -111,110 +111,18 @@ func TestPlanDoses_ForecastMode_DropsOutsideWindow(t *testing.T) {
 	}
 }
 
-func TestPlanDoses_PendingStepsSuppressNormalSchedule(t *testing.T) {
-	// Med has pending plan step; normal schedule is suppressed for this med
-	// even when normal targets fall in the same window.
-	now := time.Date(2024, 3, 15, 11, 5, 0, 0, time.UTC)
-	stepTime := time.Date(2024, 3, 15, 11, 0, 0, 0, time.UTC)
-	out := medplan.PlanDoses(medplan.Inputs{
-		Medications: []store.Medication{med(1, "Warfarin", dailySchedule("09:00"), "flexible")},
-		PendingSteps: []store.TZTransitionStep{
-			{ID: 100, PlanID: 1, MedicationID: 1, StepNumber: 1, ScheduledAt: stepTime, Note: "step"},
-		},
-		UserLoc: time.UTC,
-		Now:     now,
-	})
-	if len(out) != 1 {
-		t.Fatalf("want 1 step target, got %d: %+v", len(out), out)
-	}
-	if out[0].Source != medplan.SourceTransitionStep {
-		t.Errorf("source = %v, want SourceTransitionStep", out[0].Source)
-	}
-	if out[0].StepID != 100 {
-		t.Errorf("step id = %d, want 100", out[0].StepID)
-	}
-	if !out[0].ScheduledAt.Equal(stepTime) {
-		t.Errorf("step time = %v, want %v", out[0].ScheduledAt, stepTime)
-	}
-}
-
-func TestPlanDoses_FuturePendingStepStillSuppressesNormal(t *testing.T) {
-	// A pending step exists but is not yet due; normal schedule still must
-	// be suppressed for this med so the user is not pinged for a dose the
-	// plan is going to override later.
-	now := time.Date(2024, 3, 15, 9, 5, 0, 0, time.UTC)
-	out := medplan.PlanDoses(medplan.Inputs{
-		Medications: []store.Medication{med(1, "Warfarin", dailySchedule("09:00"), "flexible")},
-		PendingSteps: []store.TZTransitionStep{
-			{ID: 100, PlanID: 1, MedicationID: 1, StepNumber: 1,
-				ScheduledAt: time.Date(2024, 3, 15, 14, 0, 0, 0, time.UTC), Note: "step"},
-		},
-		UserLoc: time.UTC,
-		Now:     now,
-	})
-	if len(out) != 0 {
-		t.Errorf("normal schedule must be suppressed while plan steps remain, got %+v", out)
-	}
-}
-
-func TestPlanDoses_ConsumedStepSuppressesOverlappingNormalDoses(t *testing.T) {
-	// Reproduces the user-reported scenario: flexible-policy single-step
-	// plan was consumed for Metformin at 14:18 PDT; the same-day
-	// 08:20 PDT slot (before the step) and 21:30 PDT slot (within
-	// minInterval after the step) must both be suppressed.
-	la, _ := time.LoadLocation("America/Los_Angeles")
-	stepAt := time.Date(2024, 3, 15, 14, 18, 0, 0, la)
-	now := time.Date(2024, 3, 15, 21, 35, 0, 0, la) // past both today's 08:20 and 21:30
-
-	out := medplan.PlanDoses(medplan.Inputs{
-		Medications: []store.Medication{
-			func() store.Medication {
-				m := med(9, "Metformin", dailySchedule("08:20", "21:30"), "flexible")
-				m.CreatedAt = now.Add(-30 * 24 * time.Hour)
-				return m
-			}(),
-		},
-		ConsumedStepTimeByMed: map[int64]time.Time{9: stepAt},
-		UserLoc:               la,
-		Now:                   now,
-	})
-	for _, t0 := range out {
-		t.Logf("emitted: med=%d at %v", t0.MedicationID, t0.ScheduledAt)
-	}
-	if len(out) != 0 {
-		t.Errorf("both today targets must be suppressed by overlap guard, got %d", len(out))
-	}
-}
-
-func TestPlanDoses_ConsumedStepLetsTomorrowMorningThrough(t *testing.T) {
-	// Same setup as above but in forecast mode looking ahead 12h: the
-	// suppression window must NOT swallow tomorrow morning's 08:20 PDT
-	// slot, which is well outside minInterval (~7.2h for flexible / 12h).
-	la, _ := time.LoadLocation("America/Los_Angeles")
-	stepAt := time.Date(2024, 3, 15, 14, 18, 0, 0, la)
-	now := time.Date(2024, 3, 15, 21, 35, 0, 0, la)
-
-	out := medplan.PlanDoses(medplan.Inputs{
-		Medications: []store.Medication{
-			func() store.Medication {
-				m := med(9, "Metformin", dailySchedule("08:20", "21:30"), "flexible")
-				m.CreatedAt = now.Add(-30 * 24 * time.Hour)
-				return m
-			}(),
-		},
-		ConsumedStepTimeByMed: map[int64]time.Time{9: stepAt},
-		UserLoc:               la,
-		Now:                   now,
-		Window:                12 * time.Hour,
-	})
-	if len(out) != 1 {
-		t.Fatalf("want tomorrow 08:20 PDT slot, got %d: %+v", len(out), out)
-	}
-	wantTime := time.Date(2024, 3, 16, 8, 20, 0, 0, la)
-	if !out[0].ScheduledAt.Equal(wantTime) {
-		t.Errorf("target = %v, want %v (tomorrow 08:20 PDT)", out[0].ScheduledAt, wantTime)
-	}
-}
+// The legacy ConsumedStepTimeByMed overlap-guard tests were removed in Task
+// 11 of the medication-scheduling simplification plan. The overlap guard
+// itself moved out of medplan and into the medication scheduler, where it
+// is now a symmetric ±minInterval dedup against intake_log rows. The
+// integration tests in internal/scheduler/medication_tz_test.go (the
+// "westbound" and "completed plan overlap guard" cases) pin that behaviour
+// end-to-end through the scheduler tick rather than the pure planner.
+//
+// Track D Task 13 also removed the PendingSteps input. Pre-materialized
+// step rows live as PENDING source='tz_step' intake_log rows and are
+// unioned in at the scheduler and forecast layers — medplan is now purely
+// normal-schedule.
 
 func TestPlanDoses_FinishedCourseSkipped(t *testing.T) {
 	now := time.Date(2024, 3, 15, 9, 5, 0, 0, time.UTC)

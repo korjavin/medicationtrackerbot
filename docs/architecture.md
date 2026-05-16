@@ -49,8 +49,8 @@ SQLite with 47+ goose migrations tracking schema evolution:
 - `change_events` — server-side change tracking for frontend cache invalidation
 - `diary_notes` — free-text personal diary notes with timestamps
 - `timezone_history` — per-user timezone history (most recent row is the active timezone). Overrides `TZ` env var for all schedulers including medications. When no timezone is recorded, falls back to `time.Local`.
-- `tz_transition_plans` — timezone transition plans (status: PENDING_APPROVAL / NOTIFIED / APPROVED / REJECTED / CANCELLED / EXPIRED). Generated when the stored timezone changes. Must be approved via Telegram before taking effect. Stores a SHA-256 `plan_hash` for idempotency and full `inputs_json` for reproducibility.
-- `tz_transition_steps` — individual dose steps within a transition plan. Each row has `scheduled_at` and `consumed_at` (NULL until triggered). The scheduler uses pending steps instead of normal schedule times while an APPROVED plan exists.
+- `tz_transition_plans` — timezone transition plans (status: PENDING_APPROVAL / NOTIFIED / APPROVED / REJECTED / CANCELLED / EXPIRED). Generated when the stored timezone changes. Must be approved via Telegram before taking effect. Stores a SHA-256 `plan_hash` for idempotency, full `inputs_json` for reproducibility, and `steps_json` (the planner's serialized `[]tzreschedule.TransitionStep`) which is both the approve-banner audit blob and the input to step materialization. See [Pre-materialized TZ transition steps](#pre-materialized-tz-transition-steps).
+- (Historical: a sibling `tz_transition_steps` table held one row per dose step. Migration 069 dropped it after Track D of `docs/plans/20260508-simplify-medication-scheduling-utc-and-pre-materialized-steps.md` collapsed the parallel state machine into `intake_log` rows with `source='tz_step'`.)
 
 ### Migrations
 
@@ -59,17 +59,38 @@ SQLite with 47+ goose migrations tracking schema evolution:
 - Migrations auto-run on store initialization
 - Never modify existing migrations; create new ones
 
+#### Go migrations
+
+Goose supports `.go` migrations alongside `.sql`. The project was SQL-only until **migration 068** (`068_backfill_pre_materialized_tz_steps.go`, Track D Task 10), which needed to read `ALLOWED_USER_ID` from the environment at migration time — something SQL migrations cannot do — to attribute pre-materialized `intake_log` rows to the operator's Telegram ID.
+
+Pattern for future Go migrations:
+
+1. Place the file in `internal/store/migrations/0NN_<name>.go` with `package migrations`. Goose extracts the version from the filename's numeric prefix.
+2. Register from `init()` via `goose.AddMigrationContext(upXxx, downXxx)`. Goose merges the registered Go migrations with the SQL migrations from the embedded FS by version number.
+3. Make the migration **safe on empty schemas** — short-circuit the env-var check (or any other side input) when there's nothing to migrate. Otherwise per-domain test fixtures that don't set the env var will fail.
+4. The `Up` body receives `(context.Context, *sql.Tx)`; the surrounding tx is committed by goose on a nil return.
+5. Production picks up the registered Go migration because `internal/store/store.go` carries a blank import of `internal/store/migrations` for side effects (the SQL migrations are still embedded directly via `//go:embed migrations/*.sql`; the blank import is solely to ensure the Go-migration `init()` runs).
+
 ### Time storage
 
-**Rule:** dose-time columns on `intake_log` are stored as `INTEGER` unix-seconds-UTC, not as SQLite `DATETIME` text. Specifically: `intake_log.scheduled_at_unix`, `intake_log.taken_at_unix`, `intake_log.snoozed_until_unix`. The architecture test `internal/store/medication/time_columns_test.go` parses `PRAGMA table_info(intake_log)` and fails CI if any of these columns regresses to a text-typed column, or if a legacy `scheduled_at` / `taken_at` / `snoozed_until` text column reappears.
+**Rule:** dose-related time columns are stored as `INTEGER` unix-seconds-UTC, not as SQLite `DATETIME` text. The full audit-anchor allowlist (also documented in the package comment at the top of `internal/store/store.go`):
+
+- `intake_log.scheduled_at_unix` (NOT NULL)
+- `intake_log.taken_at_unix` (nullable)
+- `intake_log.snoozed_until_unix` (nullable)
+- `tz_transition_plans.created_at_unix` (NOT NULL, defaulted to `strftime('%s','now')`)
+- `tz_transition_plans.notified_at_unix` (nullable)
+- `tz_transition_plans.approved_at_unix` (nullable)
+
+The architecture test `TestDoseTimeColumnsAreInteger` in `internal/store/store_time_invariants_test.go` parses `PRAGMA table_info(<table>)` for each table above and fails CI if any allowlisted column regresses to a text-typed column, or if a legacy `scheduled_at` / `taken_at` / `snoozed_until` / `created_at` / `notified_at` / `approved_at` text column reappears. A per-table check for `intake_log` also lives in `internal/store/medication/time_columns_test.go` (kept for the dose-time invariant the medication package owns). Non-dose `DATETIME` columns (workouts, BP, weight, sleep) are deliberately untouched — the test has no opinion about them.
 
 **Why:** `modernc.org/sqlite` serializes `time.Time` via `t.String()`, which embeds the timezone *name* (e.g. `"2026-05-10 08:20:00 -0700 PDT"`). SQL text-equality (`WHERE scheduled_at = ?`) on such strings depends on the caller's `time.Location` and breaks whenever the user (or the scheduler) compares the same UTC instant across a TZ-name change — even when the *offset* is unchanged (PDT→MST). On 2026-05-10 this produced a duplicate set of pending intakes after a California→Phoenix flight and an hourly reminder storm. Storing unix seconds normalizes the value at the write boundary; SQL equality on `INTEGER` is then unambiguous regardless of caller `time.Location`.
 
-**Write path:** every writer normalizes via `t.UTC().Unix()`. `.UTC()` also strips Go's monotonic-clock residue, which has previously leaked through `t.String()` into other tables.
+**Write path:** every writer normalizes via `t.UTC().Unix()` (or `storedb.TimeToUnix`). `.UTC()` also strips Go's monotonic-clock residue, which has previously leaked through `t.String()` into other tables.
 
-**Read path:** `Scan(&n int64)` then `time.Unix(n, 0).UTC()`. Nullable columns scan into `sql.NullInt64` and populate `*time.Time` pointer fields only when valid.
+**Read path:** `Scan(&n int64)` then `time.Unix(n, 0).UTC()` (or `storedb.UnixToTime`). Nullable columns scan into `sql.NullInt64` and use `storedb.NullableUnixToTimePtr` to populate `*time.Time` pointer fields only when valid.
 
-**Design history:** see `docs/plans/2026-05-10-intake-log-utc-unix-fix.md` (this implementation) and `docs/plans/20260508-simplify-medication-scheduling-utc-and-pre-materialized-steps.md` (Track A of the broader scheduler-simplification proposal).
+**Design history:** see `docs/plans/2026-05-10-intake-log-utc-unix-fix.md` (the `intake_log` rollout shipped after a production incident) and `docs/plans/20260508-simplify-medication-scheduling-utc-and-pre-materialized-steps.md` (Track A — extended the convention to `tz_transition_plans` lifecycle timestamps in Task 7).
 
 ## Store layer
 
@@ -89,7 +110,9 @@ internal/store/
 ├── workout/       workout groups/variants/exercises/sessions/logs + mi-band.
 ├── vitals/        sleep_logs + day_stats + heart/spo2/stress vitals.
 ├── diary/         diary_notes.
-├── tz/            timezone_history + tz_transition_plans + tz_transition_steps.
+├── tz/            timezone_history + tz_transition_plans (steps live as
+│                  intake_log rows with source='tz_step' since Track D,
+│                  migration 069).
 ├── settings/      per-feature toggles + tab order + change_events stream
 │                  + download cursor.
 ├── auth/          api_tokens + used_login_hashes.
@@ -118,7 +141,14 @@ Consumers (server handlers, bot callbacks, scheduler checkers, MCP tools, domain
 
 ### Cross-repo transactions
 
-When a write needs to atomically touch tables owned by two different packages, callers use the shared `db.WithTx` helper plus the `db.TX` interface (satisfied by both `*sql.DB` and `*sql.Tx`). Each repo can expose `…Tx` variants of methods that participate in caller-owned transactions; in practice this is rare — the canonical case (timezone-plan rejection touching `intake_log`) turned out to be sequential best-effort calls rather than a single atomic operation, so no `…Tx` variants exist today. The `db.WithTx` pattern is reserved for future cross-repo writes that genuinely need atomicity.
+When a write needs to atomically touch tables owned by two different packages, callers use the shared `db.WithTx` helper plus the `db.TX` interface (satisfied by both `*sql.DB` and `*sql.Tx`). Each repo can expose `…Tx` variants of methods that participate in caller-owned transactions.
+
+The first production user of this pattern is **`store.Repos.ApproveAndMaterialize`** (Track D Task 10): flipping a `tz_transition_plans` row to APPROVED and pre-materializing its remaining steps as PENDING `intake_log` rows must happen under one transaction so a crash between the two writes cannot leave the plan APPROVED with no rows to fire. The composition is:
+
+- `tz.SetTZTransitionPlanApprovedTx(tx, planID, approvedAt)` — guarded UPDATE on `tz_transition_plans`.
+- `medication.MaterializePlanStepsAsIntakesTx(tx, planID, allowedUserID)` — parses the plan's `steps_json` blob and `INSERT OR IGNORE`s one PENDING `source='tz_step'` row per step into `intake_log`, deduped via the partial unique index `idx_intake_log_tz_plan_step_unique` (migration 067). The `tz_transition_steps` sibling table is gone (migration 069); `steps_json` is the single input.
+
+Both are called inside one `db.WithTx` opened by `Repos.ApproveAndMaterialize`. Every transport that approves a plan (HTTP `/api/tz-plan/{id}/approve`, the bot's `tz_plan_approve` callback, the scheduler's auto-approve safety net) routes through `tzreschedule.LifecycleService.Approve`, which wraps this single helper. That keeps CLAUDE.md rule #1 satisfied — no transport calls the bare `SetTZTransitionPlanApproved` primitive that misses the materialize step.
 
 ### Adding a new feature
 
@@ -175,35 +205,56 @@ Bot struct fields: `medSvc domain.MedicationService`, `exerciseSvc domain.Exerci
 - Snooze logic: checks `snooze_until` timestamp
 - Rotation advancement: happens on workout completion or skip
 
-### TZ-transition plan-step dedup (near-match window)
+### Pre-materialized TZ transition steps
 
-While an APPROVED `tz_transition_plan` exists for a user, the medication
-scheduler materialises pending `tz_transition_steps` into `intake_log` rows
-instead of using the normal schedule. The dedup rule when materialising a
-step is:
+Track D of `docs/plans/20260508-simplify-medication-scheduling-utc-and-pre-materialized-steps.md`
+collapsed the parallel `tz_transition_steps` table into `intake_log` rows.
+When a `tz_transition_plan` is approved, the same transaction that flips
+its `status` to APPROVED also pre-materializes every step from the plan's
+`steps_json` blob as a PENDING `intake_log` row with `source='tz_step'`,
+`tz_plan_id=plan.ID`, and `tz_step_number=step.StepNumber`. The plan-state
+flip and the step inserts are atomic via `Repos.ApproveAndMaterialize` —
+a crash between them cannot leave an APPROVED plan without rows to fire.
 
-1. Exact match first: if an `intake_log` row already exists for this med at
-   exactly the step's `scheduled_at`, mark the step consumed against it and
-   do not create a new intake.
-2. Near-match fallback: if the exact lookup misses, search pending intakes
-   for this med and pick the closest one whose `|scheduled_at - step.ScheduledAt|`
-   is `≤ minInterval`, where `minInterval = NominalIntervalHours(schedule) *
-   policy_factor` (e.g. `15.6h` for a daily med with `medium` TZ-shift
-   policy). If found, mark the step consumed against that pre-existing
-   intake and do not create a new one.
-3. Otherwise, create a new intake at the step's `scheduled_at`.
+The scheduler then has **one input table**. On each tick `MedicationChecker.Check`:
 
-The near-match window absorbs second-level anchor drift: tz-plan steps
-are anchored on real `taken_at` timestamps, which carry the user's actual
-intake timing rather than the scheduled slot, so step times routinely drift
-seconds-to-minutes from the matching normal-schedule slot. Without this
-fallback, both rows survived in production (2026-05-14 Chicago → Berlin
-plan) and the user got duplicate reminders for hours. Implementation:
-`internal/scheduler/medication.go` plan-step branch; regression tests in
-`internal/scheduler/medication_tz_test.go` (subtests "approved plan: past
-step merges into pre-existing normal intake" and siblings). Forecast-side
-parity is documented at `internal/domain/medplan/medplan.go` near
-`pendingByMed[med.ID]`.
+1. Reads pre-materialized `source='tz_step'` rows due-now via
+   `GetDueTZStepIntakes(asOf)` and merges them into the same per-target
+   notification grouping the normal schedule populates — the pre-existing
+   row's id is wired through to `intake_reminders` rather than creating a
+   second intake.
+2. Reads pending normal-schedule slots via the existing
+   `BatchGetIntakesBySchedule` path, but before inserting a new
+   `source='schedule'` row at instant T for med M asserts
+   `HasIntakeNearScheduledTime(medID, T, minInterval)` is false. That
+   symmetric `BETWEEN T-window AND T+window` predicate replaces the
+   asymmetric "consumed step overlap guard" the legacy two-table
+   implementation needed in `medplan.PlanDoses` and absorbs the
+   second-level anchor drift between tz-plan steps (anchored on real
+   `taken_at` timestamps) and the matching normal-schedule slot.
+3. Marks the plan COMPLETED when `CountFuturePendingTZStepIntakesForPlan(planID, asOf) == 0`.
+
+The forecast endpoint follows the same union shape:
+`handleTriggerNextIntake` and `computeNextIntakeData` both union the
+medplan-emitted targets with PENDING `intake_log` rows in the same 12h
+window (`GetPendingIntakesInWindow`) and dedupe by
+`(medication_id, scheduled_at_unix)` so a pre-materialized `tz_step` row
+surfaces in the Today UI's next-intake preview even before the scheduler
+tick that would fire it.
+
+On plan cancel, `tzreschedule.CancelActivePlan` deletes the still-PENDING
+`source='tz_step'` rows for the cancelled plan via
+`medication.Repo.DeletePendingPreMaterializedIntakesForPlan` so the
+scheduler doesn't keep firing them. Implementation:
+`internal/scheduler/medication.go`, `internal/store/medication/repo.go`
+(`MaterializePlanStepsAsIntakesTx`, `GetDueTZStepIntakes`,
+`HasIntakeNearScheduledTime`, `CountFuturePendingTZStepIntakesForPlan`,
+`DeletePendingPreMaterializedIntakesForPlan`), and
+`internal/store/store.go` (`ApproveAndMaterialize`). Regression coverage
+in `internal/scheduler/medication_tz_test.go`,
+`internal/scheduler/dedup_equivalence_test.go`,
+`internal/server/trigger_next_intake_test.go`, and
+`internal/store/approve_and_materialize_test.go`.
 
 ### TZ suggestion cross-client dismissal
 

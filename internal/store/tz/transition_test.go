@@ -221,89 +221,146 @@ func TestSetTZTransitionPlanApproved(t *testing.T) {
 	}
 }
 
-func TestCreateAndGetTZTransitionSteps(t *testing.T) {
+// TestTZTransitionPlan_LifecycleTimestamps_UnixUTC pins Task 7's invariant:
+// every plan-lifecycle timestamp setter (Create / MarkPlanNotified /
+// SetTZTransitionPlanApproved / ResetPlanToPending) round-trips through
+// unix-seconds-UTC storage so SQL equality is safe across server/user TZs.
+// The struct's public time.Time fields stay UTC after read.
+func TestTZTransitionPlan_LifecycleTimestamps_UnixUTC(t *testing.T) {
 	r := setupTZRepo(t)
 
-	plan := &TZTransitionPlan{
-		OldTZ:      "UTC",
-		NewTZ:      "Asia/Shanghai",
-		Status:     "APPROVED",
+	la, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		t.Fatalf("load LA: %v", err)
+	}
+
+	before := time.Now().UTC().Truncate(time.Second).Add(-time.Second)
+	id, err := r.CreateTZTransitionPlan(&TZTransitionPlan{
+		OldTZ:      "America/Los_Angeles",
+		NewTZ:      "Europe/Berlin",
+		Status:     "PENDING_APPROVAL",
 		StepsJSON:  `[]`,
 		InputsJSON: `{}`,
-		PlanHash:   "hash4",
-	}
-	planID, err := r.CreateTZTransitionPlan(plan)
+		PlanHash:   "lifecycle-hash",
+	})
 	if err != nil {
 		t.Fatalf("CreateTZTransitionPlan: %v", err)
 	}
+	after := time.Now().UTC().Truncate(time.Second).Add(time.Second)
 
-	now := time.Now().UTC().Truncate(time.Second)
-	steps := []TZTransitionStep{
-		{PlanID: planID, MedicationID: 1, StepNumber: 1, ScheduledAt: now.Add(2 * time.Hour), Note: "step 1"},
-		{PlanID: planID, MedicationID: 1, StepNumber: 2, ScheduledAt: now.Add(5 * time.Hour), Note: "step 2"},
-		{PlanID: planID, MedicationID: 2, StepNumber: 1, ScheduledAt: now.Add(3 * time.Hour), Note: "med2 step 1"},
-	}
-	if err := r.CreateTZTransitionSteps(steps); err != nil {
-		t.Fatalf("CreateTZTransitionSteps: %v", err)
-	}
-
-	pending, err := r.GetPendingStepsForPlan(planID)
+	// Create stamps created_at_unix via column default. Read back and verify
+	// the time.Time is UTC and within the [before, after] window.
+	got, err := r.GetPlanByHash("lifecycle-hash")
 	if err != nil {
-		t.Fatalf("GetPendingStepsForPlan: %v", err)
+		t.Fatalf("GetPlanByHash: %v", err)
 	}
-	if len(pending) != 3 {
-		t.Fatalf("expected 3 pending steps, got %d", len(pending))
+	if got == nil {
+		t.Fatal("plan not found")
 	}
-	// Ordered by step_number ASC
-	if pending[0].StepNumber != 1 {
-		t.Errorf("first step has StepNumber %d, want 1", pending[0].StepNumber)
+	if got.CreatedAt.Location() != time.UTC {
+		t.Errorf("CreatedAt.Location()=%v, want UTC", got.CreatedAt.Location())
+	}
+	if got.CreatedAt.Before(before) || got.CreatedAt.After(after) {
+		t.Errorf("CreatedAt=%s outside expected window [%s, %s]",
+			got.CreatedAt.Format(time.RFC3339),
+			before.Format(time.RFC3339), after.Format(time.RFC3339))
+	}
+	if got.NotifiedAt != nil {
+		t.Errorf("NotifiedAt should be nil before MarkPlanNotified, got %v", got.NotifiedAt)
+	}
+	if got.ApprovedAt != nil {
+		t.Errorf("ApprovedAt should be nil before SetTZTransitionPlanApproved, got %v", got.ApprovedAt)
+	}
+
+	// MarkPlanNotified stamps notified_at_unix.
+	beforeN := time.Now().UTC().Truncate(time.Second).Add(-time.Second)
+	won, err := r.MarkPlanNotified(id)
+	if err != nil {
+		t.Fatalf("MarkPlanNotified: %v", err)
+	}
+	if !won {
+		t.Fatal("expected MarkPlanNotified to win the CAS on a fresh PENDING_APPROVAL plan")
+	}
+	afterN := time.Now().UTC().Truncate(time.Second).Add(time.Second)
+
+	got, err = r.GetPlanByHash("lifecycle-hash")
+	if err != nil {
+		t.Fatalf("GetPlanByHash post-notify: %v", err)
+	}
+	if got.Status != "NOTIFIED" {
+		t.Errorf("Status: got %q want NOTIFIED", got.Status)
+	}
+	if got.NotifiedAt == nil {
+		t.Fatal("NotifiedAt should be populated after MarkPlanNotified")
+	}
+	if got.NotifiedAt.Location() != time.UTC {
+		t.Errorf("NotifiedAt.Location()=%v, want UTC", got.NotifiedAt.Location())
+	}
+	if got.NotifiedAt.Before(beforeN) || got.NotifiedAt.After(afterN) {
+		t.Errorf("NotifiedAt=%s outside expected window [%s, %s]",
+			got.NotifiedAt.Format(time.RFC3339),
+			beforeN.Format(time.RFC3339), afterN.Format(time.RFC3339))
+	}
+
+	// ResetPlanToPending clears notified_at_unix.
+	if err := r.ResetPlanToPending(id); err != nil {
+		t.Fatalf("ResetPlanToPending: %v", err)
+	}
+	got, err = r.GetPlanByHash("lifecycle-hash")
+	if err != nil {
+		t.Fatalf("GetPlanByHash post-reset: %v", err)
+	}
+	if got.Status != "PENDING_APPROVAL" {
+		t.Errorf("Status: got %q want PENDING_APPROVAL", got.Status)
+	}
+	if got.NotifiedAt != nil {
+		t.Errorf("NotifiedAt should be nil after ResetPlanToPending, got %v", got.NotifiedAt)
+	}
+
+	// Mark notified again so SetTZTransitionPlanApproved can transition NOTIFIED→APPROVED.
+	if _, err := r.MarkPlanNotified(id); err != nil {
+		t.Fatalf("MarkPlanNotified (second time): %v", err)
+	}
+
+	// Approve with a time.Time in a non-UTC location — the writer must
+	// normalize to UTC unix seconds and the reader must return UTC.
+	approveLA := time.Date(2026, 5, 10, 8, 35, 0, 0, la)
+	wantApproveUnix := approveLA.UTC().Unix()
+	ok, err := r.SetTZTransitionPlanApproved(id, approveLA)
+	if err != nil {
+		t.Fatalf("SetTZTransitionPlanApproved: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected SetTZTransitionPlanApproved to apply on NOTIFIED plan")
+	}
+
+	got, err = r.GetPlanByHash("lifecycle-hash")
+	if err != nil {
+		t.Fatalf("GetPlanByHash post-approve: %v", err)
+	}
+	if got.Status != "APPROVED" {
+		t.Errorf("Status: got %q want APPROVED", got.Status)
+	}
+	if got.ApprovedAt == nil {
+		t.Fatal("ApprovedAt should be populated after SetTZTransitionPlanApproved")
+	}
+	if got.ApprovedAt.Location() != time.UTC {
+		t.Errorf("ApprovedAt.Location()=%v, want UTC", got.ApprovedAt.Location())
+	}
+	if got.ApprovedAt.Unix() != wantApproveUnix {
+		t.Errorf("ApprovedAt.Unix()=%d want %d", got.ApprovedAt.Unix(), wantApproveUnix)
+	}
+	// Same instant in a different TZ name must compare equal as time.Time.
+	if !got.ApprovedAt.Equal(approveLA) {
+		t.Errorf("ApprovedAt=%s should be equal to input %s", got.ApprovedAt.Format(time.RFC3339), approveLA.Format(time.RFC3339))
 	}
 }
 
-func TestMarkStepConsumed(t *testing.T) {
-	r := setupTZRepo(t)
-
-	plan := &TZTransitionPlan{
-		OldTZ:      "UTC",
-		NewTZ:      "Asia/Shanghai",
-		Status:     "APPROVED",
-		StepsJSON:  `[]`,
-		InputsJSON: `{}`,
-		PlanHash:   "hash5",
-	}
-	planID, err := r.CreateTZTransitionPlan(plan)
-	if err != nil {
-		t.Fatalf("CreateTZTransitionPlan: %v", err)
-	}
-
-	now := time.Now().UTC().Truncate(time.Second)
-	steps := []TZTransitionStep{
-		{PlanID: planID, MedicationID: 1, StepNumber: 1, ScheduledAt: now.Add(time.Hour), Note: "step 1"},
-		{PlanID: planID, MedicationID: 1, StepNumber: 2, ScheduledAt: now.Add(3 * time.Hour), Note: "step 2"},
-	}
-	if err := r.CreateTZTransitionSteps(steps); err != nil {
-		t.Fatalf("CreateTZTransitionSteps: %v", err)
-	}
-
-	pending, err := r.GetPendingStepsForPlan(planID)
-	if err != nil || len(pending) != 2 {
-		t.Fatalf("expected 2 pending steps: err=%v len=%d", err, len(pending))
-	}
-
-	// Consume step 1
-	if err := r.MarkStepConsumed(pending[0].ID, now); err != nil {
-		t.Fatalf("MarkStepConsumed: %v", err)
-	}
-
-	// Now only 1 pending step remains
-	remaining, err := r.GetPendingStepsForPlan(planID)
-	if err != nil {
-		t.Fatalf("GetPendingStepsForPlan after consume: %v", err)
-	}
-	if len(remaining) != 1 {
-		t.Fatalf("expected 1 remaining step, got %d", len(remaining))
-	}
-	if remaining[0].StepNumber != 2 {
-		t.Errorf("remaining step has StepNumber %d, want 2", remaining[0].StepNumber)
-	}
-}
+// TestCreateAndGetTZTransitionSteps and TestMarkStepConsumed lived here
+// pre-Task-13 to pin the dedicated step-table lifecycle (bulk-insert,
+// list-pending, mark-consumed). Track D Task 13 dropped the
+// tz_transition_steps table; step data now lives entirely in
+// tz_transition_plans.steps_json (audit blob) and intake_log rows with
+// source='tz_step' (execution state). The Materialize path is covered by
+// TestMaterializePlanStepsAsIntakesTx in internal/store/medication/, and the
+// cancel-cleanup path by TestDeletePendingPreMaterializedIntakesForPlan there.

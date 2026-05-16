@@ -20,7 +20,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
@@ -44,29 +43,28 @@ type DoseTarget struct {
 	MedName      string
 	ScheduledAt  time.Time
 	Source       Source
-	// StepID is the underlying tz_transition_steps row id when
-	// Source == SourceTransitionStep, zero otherwise.
-	StepID int64
 }
 
 // Inputs bundles everything PlanDoses needs. The caller must:
-//   - resolve UserLoc (honouring any pending-plan old-TZ override);
-//   - hand in PendingSteps for the active plan only (or nil);
-//   - hand in ConsumedStepTimeByMed populated from the same plan whose steps
-//     it just consumed (this is what suppresses overlapping normal doses
-//     after a westbound flexible-policy transition).
+//   - resolve UserLoc (honouring any pending-plan old-TZ override).
 //
 // Mode is encoded by Window:
 //
 //	Window == 0  → fire mode: include only targets at-or-before Now.
 //	Window  > 0  → forecast mode: include only targets in (Now, Now+Window].
+//
+// The legacy ConsumedStepTimeByMed overlap guard lived here until Task 11 of
+// the medication scheduling simplification plan; it has moved to the
+// scheduler as a symmetric ±minInterval dedup against intake_log rows (see
+// internal/scheduler/medication.go). Track D Task 13 dropped the
+// PendingSteps input alongside the tz_transition_steps table — pre-materialized
+// step rows live in intake_log now, and both the scheduler and the forecast
+// endpoint union them in directly without round-tripping through medplan.
 type Inputs struct {
-	Medications           []store.Medication
-	PendingSteps          []store.TZTransitionStep
-	ConsumedStepTimeByMed map[int64]time.Time
-	UserLoc               *time.Location
-	Now                   time.Time
-	Window                time.Duration
+	Medications []store.Medication
+	UserLoc     *time.Location
+	Now         time.Time
+	Window      time.Duration
 }
 
 // PlanDoses returns dose targets sorted by ScheduledAt that the caller
@@ -80,34 +78,10 @@ func PlanDoses(in Inputs) []DoseTarget {
 		loc = time.UTC
 	}
 
-	pendingByMed := groupPendingSteps(in.PendingSteps)
 	out := make([]DoseTarget, 0, len(in.Medications))
 
 	for _, med := range in.Medications {
 		if med.Archived {
-			continue
-		}
-		// Plan owns the schedule for this med while any step is unconsumed.
-		// Mirrors the scheduler's existing branch and prevents normal-schedule
-		// targets from racing with planned transition steps.
-		// Note: dedup against an already-materialised pending intake (a normal
-		// dose that beat plan approval into intake_log) lives at the
-		// materialisation site — see MedicationChecker.Check's plan-step
-		// branch in internal/scheduler/medication.go. The forecast path is
-		// pure and never creates intakes, so it does not need that lookup.
-		if steps, has := pendingByMed[med.ID]; has {
-			for _, step := range steps {
-				if !targetInWindow(step.ScheduledAt, in.Now, in.Window) {
-					continue
-				}
-				out = append(out, DoseTarget{
-					MedicationID: med.ID,
-					MedName:      med.Name,
-					ScheduledAt:  step.ScheduledAt,
-					Source:       SourceTransitionStep,
-					StepID:       step.ID,
-				})
-			}
 			continue
 		}
 
@@ -126,10 +100,6 @@ func PlanDoses(in Inputs) []DoseTarget {
 			continue
 		}
 
-		nominalHours := tzreschedule.NominalIntervalHours(cfg)
-		policy := tzreschedule.NormalizePolicy(med.TZShiftPolicy)
-		minIntv := tzreschedule.MinDoseInterval(nominalHours, policy)
-
 		for _, target := range candidateNormalTargets(cfg, loc, in.Now, in.Window) {
 			if med.StartDate != nil && target.Before(*med.StartDate) {
 				continue
@@ -139,19 +109,6 @@ func PlanDoses(in Inputs) []DoseTarget {
 			}
 			if target.Before(med.CreatedAt) {
 				continue
-			}
-			// Overlap guard: a transition step the user already consumed
-			// invalidates two surrounding normal targets — the same-day
-			// pre-step slot (which lived in the old timezone) and the
-			// next slot inside one minInterval (which would prompt the
-			// user to re-take the dose they completed as a step).
-			if stepAt, ok := in.ConsumedStepTimeByMed[med.ID]; ok {
-				if !target.After(stepAt) {
-					continue
-				}
-				if target.Sub(stepAt) <= minIntv {
-					continue
-				}
 			}
 			out = append(out, DoseTarget{
 				MedicationID: med.ID,
@@ -226,17 +183,6 @@ func weekdayAllowed(weekday int, days []int) bool {
 		}
 	}
 	return false
-}
-
-func groupPendingSteps(steps []store.TZTransitionStep) map[int64][]store.TZTransitionStep {
-	if len(steps) == 0 {
-		return nil
-	}
-	out := make(map[int64][]store.TZTransitionStep, len(steps))
-	for _, s := range steps {
-		out[s.MedicationID] = append(out[s.MedicationID], s)
-	}
-	return out
 }
 
 // targetInWindow encodes the fire-vs-forecast distinction:
