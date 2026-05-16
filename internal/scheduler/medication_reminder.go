@@ -36,7 +36,7 @@ func (c *MedicationReminderChecker) Check(ctx context.Context) error {
 	// hence the "21:18 instead of 14:18 PDT" mismatch the user reported
 	// for unconfirmed transition-step intakes.
 	userLoc := time.Local
-	if tz, tzErr := c.store.GetCurrentTimezone(); tzErr != nil {
+	if tz, tzErr := c.store.GetCurrent(); tzErr != nil {
 		slog.Warn("medication reminder: failed to load timezone, formatting in system TZ", "error", tzErr)
 	} else if tz != "" {
 		if loc, locErr := time.LoadLocation(tz); locErr != nil {

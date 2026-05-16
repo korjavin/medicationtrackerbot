@@ -27,7 +27,7 @@ var ErrInvalidTimezone = errors.New("invalid timezone")
 
 // SettingsStore is the minimal slice of settings persistence the service needs.
 type SettingsStore interface {
-	GetCurrentTimezone() (string, error)
+	GetCurrent() (string, error)
 	GetDismissedTZSuggestion(ctx context.Context) (string, error)
 	SetDismissedTZSuggestion(ctx context.Context, tz string) error
 }
@@ -36,7 +36,7 @@ type SettingsStore interface {
 // avoid prompting when a plan whose new_tz matches the detected TZ is already
 // pending the user's approval — the tz_plan_notifier owns that conversation.
 type PlanBaselineStore interface {
-	GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error)
+	GetLatestActiveOrPendingTransitionPlan() (*store.TZTransitionPlan, error)
 }
 
 // Service is the transport-neutral TZ-suggestion decision API.
@@ -74,7 +74,7 @@ func (s *service) ShouldPrompt(ctx context.Context, detectedTZ string) (bool, st
 		return false, "", errors.Join(ErrInvalidTimezone, fmt.Errorf("%q: %w", detectedTZ, err))
 	}
 
-	currentTZ, err := s.settings.GetCurrentTimezone()
+	currentTZ, err := s.settings.GetCurrent()
 	if err != nil {
 		return false, "", fmt.Errorf("read current timezone: %w", err)
 	}
@@ -91,7 +91,7 @@ func (s *service) ShouldPrompt(ctx context.Context, detectedTZ string) (bool, st
 	}
 
 	if s.planBaseline != nil {
-		plan, err := s.planBaseline.GetLatestActiveOrPendingTZTransitionPlan()
+		plan, err := s.planBaseline.GetLatestActiveOrPendingTransitionPlan()
 		if err != nil {
 			return false, "", fmt.Errorf("read active tz transition plan: %w", err)
 		}

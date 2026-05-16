@@ -21,8 +21,8 @@ func TestHandleCallback_ConfirmScheduleAcrossTimezones(t *testing.T) {
 	defer env.teardown()
 	env.b.timezone = env.s.TZ
 
-	if err := env.s.TZ.RecordTimezone("America/Los_Angeles"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := env.s.TZ.Record("America/Los_Angeles"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 
 	medID, err := env.s.Medication.Create("Candecor", "16mg",

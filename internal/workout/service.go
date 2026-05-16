@@ -36,7 +36,7 @@ type WorkoutStore interface {
 
 // TZStore is the timezone lookup the workout service needs.
 type TZStore interface {
-	GetCurrentTimezone() (string, error)
+	GetCurrent() (string, error)
 }
 
 // PlannedExercise describes one item in a scheduled ad-hoc workout. Targets
@@ -142,7 +142,7 @@ func (s *Service) SchedulePlannedAdHocSession(userID int64, scheduledDate time.T
 
 	loc := time.UTC
 	if s.tz != nil {
-		if tz, tzErr := s.tz.GetCurrentTimezone(); tzErr != nil {
+		if tz, tzErr := s.tz.GetCurrent(); tzErr != nil {
 			slog.Warn("workout service: failed to load user timezone, falling back to UTC", "error", tzErr)
 		} else if tz != "" {
 			if l, locErr := time.LoadLocation(tz); locErr != nil {

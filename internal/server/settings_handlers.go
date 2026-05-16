@@ -98,7 +98,7 @@ func (s *Server) computeNextIntakeData(now time.Time) (time.Time, []int64, []str
 	// Use the user's stored timezone so that schedule times are interpreted
 	// correctly regardless of the server's local timezone.
 	userLoc := now.Location()
-	if tz, tzErr := s.timezone.GetCurrentTimezone(); tzErr == nil && tz != "" {
+	if tz, tzErr := s.timezone.GetCurrent(); tzErr == nil && tz != "" {
 		if loc, locErr := time.LoadLocation(tz); locErr == nil {
 			userLoc = loc
 		}
@@ -110,9 +110,9 @@ func (s *Server) computeNextIntakeData(now time.Time) (time.Time, []int64, []str
 	var pendingSteps []store.TZTransitionStep
 	consumedStepTimeByMed := make(map[int64]time.Time)
 	if s.tzPlanStore != nil {
-		if plan, err := s.tzPlanStore.GetLatestActiveOrPendingTZTransitionPlan(); err == nil && plan != nil {
+		if plan, err := s.tzPlanStore.GetLatestActiveOrPendingTransitionPlan(); err == nil && plan != nil {
 			if plan.Status == "APPROVED" {
-				if steps, err := s.tzPlanStore.GetPendingStepsForPlan(plan.ID); err == nil {
+				if steps, err := s.tzPlanStore.ListPendingStepsForPlan(plan.ID); err == nil {
 					pendingSteps = steps
 				}
 			}
@@ -318,7 +318,7 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	currentTimezone, err := s.timezone.GetCurrentTimezone()
+	currentTimezone, err := s.timezone.GetCurrent()
 	if err != nil {
 		slog.Error("bootstrap timezone query failed", "error", err)
 	}
@@ -345,7 +345,7 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	//       calendar day.
 	// The query-string `tz` is kept as a fallback for when the user has not
 	// configured a timezone yet.
-	foodTZName, _ := s.timezone.GetCurrentTimezone()
+	foodTZName, _ := s.timezone.GetCurrent()
 	if foodTZName == "" {
 		foodTZName = r.URL.Query().Get("tz")
 	}
@@ -466,7 +466,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	tgUser, _ := r.Context().Value(UserCtxKey).(*TelegramUser)
 	ctx := r.Context()
 
-	tz, err := s.timezone.GetCurrentTimezone()
+	tz, err := s.timezone.GetCurrent()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -698,9 +698,9 @@ func (s *Server) handleTZSuggestionDismiss(w http.ResponseWriter, r *http.Reques
 func (s *Server) handleGetCurrentTZPlan(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	plan, err := s.tzPlanStore.GetLatestActiveOrPendingTZTransitionPlan()
+	plan, err := s.tzPlanStore.GetLatestActiveOrPendingTransitionPlan()
 	if err != nil {
-		slog.Error("handleGetCurrentTZPlan: GetLatestActiveOrPendingTZTransitionPlan failed", "error", err)
+		slog.Error("handleGetCurrentTZPlan: GetLatestActiveOrPendingTransitionPlan failed", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -709,9 +709,9 @@ func (s *Server) handleGetCurrentTZPlan(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	steps, err := s.tzPlanStore.GetPendingStepsForPlan(plan.ID)
+	steps, err := s.tzPlanStore.ListPendingStepsForPlan(plan.ID)
 	if err != nil {
-		slog.Error("handleGetCurrentTZPlan: GetPendingStepsForPlan failed", "plan_id", plan.ID, "error", err)
+		slog.Error("handleGetCurrentTZPlan: ListPendingStepsForPlan failed", "plan_id", plan.ID, "error", err)
 		// Fall through with empty steps — surface the plan so the user can still
 		// approve or reject it; the banner will just not list per-dose detail.
 		steps = nil
@@ -732,9 +732,9 @@ func (s *Server) handleTZPlanApprove(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid plan id", http.StatusBadRequest)
 		return
 	}
-	updated, err := s.tzPlanStore.SetTZTransitionPlanApproved(planID, time.Now())
+	updated, err := s.tzPlanStore.SetTransitionPlanApproved(planID, time.Now())
 	if err != nil {
-		slog.Error("handleTZPlanApprove: SetTZTransitionPlanApproved failed", "plan_id", planID, "error", err)
+		slog.Error("handleTZPlanApprove: SetTransitionPlanApproved failed", "plan_id", planID, "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -755,9 +755,9 @@ func (s *Server) handleTZPlanReject(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid plan id", http.StatusBadRequest)
 		return
 	}
-	updated, err := s.tzPlanStore.RejectTZTransitionPlanAndRevertTimezone(planID)
+	updated, err := s.tzPlanStore.RejectTransitionPlanAndRevertTimezone(planID)
 	if err != nil {
-		slog.Error("handleTZPlanReject: RejectTZTransitionPlanAndRevertTimezone failed", "plan_id", planID, "error", err)
+		slog.Error("handleTZPlanReject: RejectTransitionPlanAndRevertTimezone failed", "plan_id", planID, "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}

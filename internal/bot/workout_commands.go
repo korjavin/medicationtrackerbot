@@ -21,7 +21,7 @@ func (b *Bot) userLocation() *time.Location {
 	if b.timezone == nil {
 		return time.Local
 	}
-	tz, err := b.timezone.GetCurrentTimezone()
+	tz, err := b.timezone.GetCurrent()
 	if err != nil || tz == "" {
 		return time.Local
 	}

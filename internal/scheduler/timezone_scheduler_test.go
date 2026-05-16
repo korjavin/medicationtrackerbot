@@ -33,8 +33,8 @@ func TestBPReminderChecker_UsesUserTimezone(t *testing.T) {
 	}
 
 	// Record a user timezone of America/New_York (UTC-5).
-	if err := db.TZ.RecordTimezone("America/New_York"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := db.TZ.Record("America/New_York"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 
 	// 2024-01-15T21:30:00Z = 2024-01-15T16:30:00-05:00 in New York.
@@ -93,8 +93,8 @@ func TestBPReminderChecker_NoNotificationInWrongUserTZHour(t *testing.T) {
 		t.Fatalf("SetReminderEnabled: %v", err)
 	}
 
-	if err := db.TZ.RecordTimezone("America/New_York"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := db.TZ.Record("America/New_York"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 
 	nowTime := time.Date(2024, 1, 15, 21, 30, 0, 0, time.UTC)
@@ -146,8 +146,8 @@ func TestWeightReminderChecker_UsesUserTimezone(t *testing.T) {
 		t.Fatalf("SetWeightReminderEnabled: %v", err)
 	}
 
-	if err := db.TZ.RecordTimezone("America/New_York"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := db.TZ.Record("America/New_York"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 
 	// 2024-01-15T14:00:00Z = 2024-01-15T09:00:00-05:00 in New York.
@@ -196,8 +196,8 @@ func TestWorkoutChecker_UsesUserTimezoneForWeekday(t *testing.T) {
 		t.Fatalf("SetWorkoutEnabled: %v", err)
 	}
 
-	if err := db.TZ.RecordTimezone("America/New_York"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := db.TZ.Record("America/New_York"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 
 	// 2024-01-16T02:00:00Z = 2024-01-15T21:00:00-05:00 in New York.
@@ -256,8 +256,8 @@ func TestBPReminderChecker_FallsBackToSystemTZOnInvalidTimezone(t *testing.T) {
 		t.Fatalf("SetBloodPressureEnabled: %v", err)
 	}
 
-	if err := db.TZ.RecordTimezone("Not/A/Real/Timezone"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := db.TZ.Record("Not/A/Real/Timezone"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 
 	sched := New(db, 123456, nil)

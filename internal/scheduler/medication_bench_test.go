@@ -13,11 +13,11 @@ type mockMedStoreBench struct {
 }
 
 func (m *mockMedStoreBench) GetMedicationEnabled(ctx context.Context) (bool, error) { return true, nil }
-func (m *mockMedStoreBench) GetCurrentTimezone() (string, error)                    { return "UTC", nil }
-func (m *mockMedStoreBench) GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error) {
+func (m *mockMedStoreBench) GetCurrent() (string, error)                    { return "UTC", nil }
+func (m *mockMedStoreBench) GetLatestActiveOrPendingTransitionPlan() (*store.TZTransitionPlan, error) {
 	return nil, nil
 }
-func (m *mockMedStoreBench) GetLatestCompletedTZTransitionPlan() (*store.TZTransitionPlan, error) {
+func (m *mockMedStoreBench) GetLatestCompletedTransitionPlan() (*store.TZTransitionPlan, error) {
 	return nil, nil
 }
 
@@ -47,14 +47,14 @@ func (m *mockMedStoreBench) CreateIntake(medID, userID int64, scheduledAt time.T
 	return int64(medID), nil
 }
 
-func (m *mockMedStoreBench) GetPendingStepsForPlan(planID int64) ([]store.TZTransitionStep, error) {
+func (m *mockMedStoreBench) ListPendingStepsForPlan(planID int64) ([]store.TZTransitionStep, error) {
 	return nil, nil
 }
 func (m *mockMedStoreBench) GetLatestConsumedStepTimePerMed(planID int64) (map[int64]time.Time, error) {
 	return nil, nil
 }
 func (m *mockMedStoreBench) MarkStepConsumed(stepID int64, consumedAt time.Time) error { return nil }
-func (m *mockMedStoreBench) UpdateTZTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error {
+func (m *mockMedStoreBench) UpdateTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error {
 	return nil
 }
 func (m *mockMedStoreBench) CreateIntakeReminder(intakeID int64, msgID int) error { return nil }

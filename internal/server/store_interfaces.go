@@ -173,8 +173,8 @@ type SettingsStore interface {
 
 // TimezoneStore is the subset of timezone operations needed by handlers.
 type TimezoneStore interface {
-	GetCurrentTimezone() (string, error)
-	RecordTimezone(tz string) error
+	GetCurrent() (string, error)
+	Record(tz string) error
 }
 
 // HealthStore is the subset of store operations needed for health/vitals handlers.
@@ -213,10 +213,10 @@ type MiBandStore interface {
 
 // TZPlanStore is the subset of store operations needed for timezone plan approval/rejection.
 type TZPlanStore interface {
-	SetTZTransitionPlanApproved(id int64, approvedAt time.Time) (bool, error)
-	RejectTZTransitionPlanAndRevertTimezone(id int64) (bool, error)
-	GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error)
-	GetPendingStepsForPlan(planID int64) ([]store.TZTransitionStep, error)
+	SetTransitionPlanApproved(id int64, approvedAt time.Time) (bool, error)
+	RejectTransitionPlanAndRevertTimezone(id int64) (bool, error)
+	GetLatestActiveOrPendingTransitionPlan() (*store.TZTransitionPlan, error)
+	ListPendingStepsForPlan(planID int64) ([]store.TZTransitionStep, error)
 	GetLatestConsumedStepTimePerMed(planID int64) (map[int64]time.Time, error)
 	MarkStepConsumed(stepID int64, consumedAt time.Time) error
 }

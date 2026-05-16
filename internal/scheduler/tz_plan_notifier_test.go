@@ -21,18 +21,18 @@ type mockTZPlanNotifierStore struct {
 	markNotifiedErr   error
 	resetToPendingID  int64
 	resetToPendingErr error
-	// Captures calls to UpdateTZTransitionPlanStatus.
+	// Captures calls to UpdateTransitionPlanStatus.
 	updatedPlanID        int64
 	updatedStatus        string
 	updatedUserAction    string
 	updatedExpectedState string
-	// Captures calls to SetTZTransitionPlanApproved.
+	// Captures calls to SetTransitionPlanApproved.
 	approvedPlanID int64
 	approvedOK     bool
 	approvedErr    error
 }
 
-func (m *mockTZPlanNotifierStore) GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error) {
+func (m *mockTZPlanNotifierStore) GetLatestActiveOrPendingTransitionPlan() (*store.TZTransitionPlan, error) {
 	return m.plan, m.getPlanErr
 }
 
@@ -46,7 +46,7 @@ func (m *mockTZPlanNotifierStore) ResetPlanToPending(id int64) error {
 	return m.resetToPendingErr
 }
 
-func (m *mockTZPlanNotifierStore) UpdateTZTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error {
+func (m *mockTZPlanNotifierStore) UpdateTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error {
 	m.updatedPlanID = id
 	m.updatedStatus = newStatus
 	m.updatedUserAction = userAction
@@ -54,7 +54,7 @@ func (m *mockTZPlanNotifierStore) UpdateTZTransitionPlanStatus(id int64, newStat
 	return nil
 }
 
-func (m *mockTZPlanNotifierStore) SetTZTransitionPlanApproved(id int64, _ time.Time) (bool, error) {
+func (m *mockTZPlanNotifierStore) SetTransitionPlanApproved(id int64, _ time.Time) (bool, error) {
 	m.approvedPlanID = id
 	return m.approvedOK, m.approvedErr
 }
@@ -469,7 +469,7 @@ func TestTZPlanNotifier_NoNotifiersConfigured_CancelsPlan(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if ms.updatedPlanID != 8 {
-		t.Errorf("expected UpdateTZTransitionPlanStatus called with plan ID 8, got %d", ms.updatedPlanID)
+		t.Errorf("expected UpdateTransitionPlanStatus called with plan ID 8, got %d", ms.updatedPlanID)
 	}
 	if ms.updatedStatus != "CANCELLED" {
 		t.Errorf("expected plan to be CANCELLED, got %q", ms.updatedStatus)
@@ -516,7 +516,7 @@ func TestTZPlanNotifier_NoDeliveryChannel_CancelsPlan(t *testing.T) {
 		t.Errorf("ErrNoDeliveryChannel should not propagate as error, got: %v", err)
 	}
 	if ms.updatedPlanID != 6 {
-		t.Errorf("expected UpdateTZTransitionPlanStatus called with plan ID 6, got %d", ms.updatedPlanID)
+		t.Errorf("expected UpdateTransitionPlanStatus called with plan ID 6, got %d", ms.updatedPlanID)
 	}
 	if ms.updatedStatus != "CANCELLED" {
 		t.Errorf("expected plan to be CANCELLED, got %q", ms.updatedStatus)

@@ -14,7 +14,7 @@ import (
 // stubTZ implements TimezoneLookup for tests that need a non-UTC timezone.
 type stubTZ struct{ tz string }
 
-func (s stubTZ) GetCurrentTimezone() (string, error) { return s.tz, nil }
+func (s stubTZ) GetCurrent() (string, error) { return s.tz, nil }
 
 // setupBPRepo creates an in-memory DB with all migrations and a BP repo
 // bound to UTC (the tz lookup returns the empty string, so

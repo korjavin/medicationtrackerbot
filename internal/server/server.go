@@ -252,7 +252,7 @@ func New(s *store.Store, botToken, sessionSecret string, allowedUserID int64, oi
 		slog.Warn("EXTERNAL_WORKOUT_API_KEY is not set. The external workout endpoint will reject all requests.")
 	}
 
-	// Default tzUpdater: bare RecordTimezone with no planner. SetTZPlanner /
+	// Default tzUpdater: bare Record with no planner. SetTZPlanner /
 	// SetTZUpdater swap in a planner-aware service after construction.
 	srv.tzUpdater = tzupdate.NewService(srv.timezone, srv.tzPlanStore, nil, nil, nil)
 
@@ -275,7 +275,7 @@ type tzSuggestionSettings struct {
 		SetDismissedTZSuggestion(ctx context.Context, tz string) error
 	}
 	tz interface {
-		GetCurrentTimezone() (string, error)
+		GetCurrent() (string, error)
 	}
 }
 
@@ -283,13 +283,13 @@ func newTZSuggestionSettings(settings interface {
 	GetDismissedTZSuggestion(ctx context.Context) (string, error)
 	SetDismissedTZSuggestion(ctx context.Context, tz string) error
 }, tz interface {
-	GetCurrentTimezone() (string, error)
+	GetCurrent() (string, error)
 }) *tzSuggestionSettings {
 	return &tzSuggestionSettings{settings: settings, tz: tz}
 }
 
-func (a *tzSuggestionSettings) GetCurrentTimezone() (string, error) {
-	return a.tz.GetCurrentTimezone()
+func (a *tzSuggestionSettings) GetCurrent() (string, error) {
+	return a.tz.GetCurrent()
 }
 
 func (a *tzSuggestionSettings) GetDismissedTZSuggestion(ctx context.Context) (string, error) {

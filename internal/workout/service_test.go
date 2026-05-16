@@ -90,7 +90,7 @@ func (m *mockWorkoutStore) DeleteSession(id int64) error {
 	return nil
 }
 
-func (m *mockWorkoutStore) GetCurrentTimezone() (string, error) {
+func (m *mockWorkoutStore) GetCurrent() (string, error) {
 	return "", nil
 }
 
@@ -187,8 +187,8 @@ func TestSchedulePlannedAdHocSession_HappyPath(t *testing.T) {
 	}
 	defer db.Close() //nolint:errcheck
 
-	if err := db.TZ.RecordTimezone("UTC"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := db.TZ.Record("UTC"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 
 	svc := New(db.Workout, db.TZ)
@@ -290,8 +290,8 @@ func TestSchedulePlannedAdHocSession_RespectsUserTimezone(t *testing.T) {
 	defer db.Close() //nolint:errcheck
 
 	// User is in Tokyo (+09:00). 07:00 Tokyo == 22:00 UTC the previous day.
-	if err := db.TZ.RecordTimezone("Asia/Tokyo"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := db.TZ.Record("Asia/Tokyo"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 
 	svc := New(db.Workout, db.TZ)

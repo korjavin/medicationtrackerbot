@@ -61,7 +61,7 @@ type BPStats struct {
 // current timezone for day-boundary calculations in GetDailyWeightedStats.
 // Satisfied by *tz.Repo (which owns the timezone_history table).
 type TimezoneLookup interface {
-	GetCurrentTimezone() (string, error)
+	GetCurrent() (string, error)
 }
 
 // Repo is the blood-pressure repository. Construct with New; share one *Repo
@@ -325,7 +325,7 @@ func (r *Repo) GetDailyWeightedStats(ctx context.Context, userID int64) (*BPStat
 	// if no timezone is stored or the stored value is invalid.
 	loc := time.UTC
 	if r.tz != nil {
-		if tzStr, err := r.tz.GetCurrentTimezone(); err == nil && tzStr != "" {
+		if tzStr, err := r.tz.GetCurrent(); err == nil && tzStr != "" {
 			if parsed, err := time.LoadLocation(tzStr); err == nil {
 				loc = parsed
 			}

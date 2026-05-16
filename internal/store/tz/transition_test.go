@@ -16,17 +16,17 @@ func TestCreateAndGetTZTransitionPlan(t *testing.T) {
 		InputsJSON: `{"meds":[]}`,
 		PlanHash:   "abc123",
 	}
-	id, err := r.CreateTZTransitionPlan(plan)
+	id, err := r.CreateTransitionPlan(plan)
 	if err != nil {
-		t.Fatalf("CreateTZTransitionPlan: %v", err)
+		t.Fatalf("CreateTransitionPlan: %v", err)
 	}
 	if id <= 0 {
 		t.Errorf("expected positive ID, got %d", id)
 	}
 
-	got, err := r.GetLatestActiveOrPendingTZTransitionPlan()
+	got, err := r.GetLatestActiveOrPendingTransitionPlan()
 	if err != nil {
-		t.Fatalf("GetLatestActiveOrPendingTZTransitionPlan: %v", err)
+		t.Fatalf("GetLatestActiveOrPendingTransitionPlan: %v", err)
 	}
 	if got == nil {
 		t.Fatal("expected plan, got nil")
@@ -48,9 +48,9 @@ func TestCreateAndGetTZTransitionPlan(t *testing.T) {
 func TestGetLatestActiveOrPendingTZTransitionPlan_NoneExists(t *testing.T) {
 	r := setupTZRepo(t)
 
-	got, err := r.GetLatestActiveOrPendingTZTransitionPlan()
+	got, err := r.GetLatestActiveOrPendingTransitionPlan()
 	if err != nil {
-		t.Fatalf("GetLatestActiveOrPendingTZTransitionPlan: %v", err)
+		t.Fatalf("GetLatestActiveOrPendingTransitionPlan: %v", err)
 	}
 	if got != nil {
 		t.Errorf("expected nil plan on empty table, got %+v", got)
@@ -69,14 +69,14 @@ func TestGetLatestActiveOrPendingTZTransitionPlan_IgnoresTerminalStatus(t *testi
 			InputsJSON: `{}`,
 			PlanHash:   "hash-" + status,
 		}
-		if _, err := r.CreateTZTransitionPlan(plan); err != nil {
-			t.Fatalf("CreateTZTransitionPlan status=%s: %v", status, err)
+		if _, err := r.CreateTransitionPlan(plan); err != nil {
+			t.Fatalf("CreateTransitionPlan status=%s: %v", status, err)
 		}
 	}
 
-	got, err := r.GetLatestActiveOrPendingTZTransitionPlan()
+	got, err := r.GetLatestActiveOrPendingTransitionPlan()
 	if err != nil {
-		t.Fatalf("GetLatestActiveOrPendingTZTransitionPlan: %v", err)
+		t.Fatalf("GetLatestActiveOrPendingTransitionPlan: %v", err)
 	}
 	if got != nil {
 		t.Errorf("expected nil for terminal-status plans, got status=%s", got.Status)
@@ -94,19 +94,19 @@ func TestUpdateTZTransitionPlanStatus(t *testing.T) {
 		InputsJSON: `{}`,
 		PlanHash:   "hash1",
 	}
-	id, err := r.CreateTZTransitionPlan(plan)
+	id, err := r.CreateTransitionPlan(plan)
 	if err != nil {
-		t.Fatalf("CreateTZTransitionPlan: %v", err)
+		t.Fatalf("CreateTransitionPlan: %v", err)
 	}
 
 	// Transition PENDING_APPROVAL → NOTIFIED with guard
-	if err := r.UpdateTZTransitionPlanStatus(id, "NOTIFIED", "", "PENDING_APPROVAL"); err != nil {
-		t.Fatalf("UpdateTZTransitionPlanStatus: %v", err)
+	if err := r.UpdateTransitionPlanStatus(id, "NOTIFIED", "", "PENDING_APPROVAL"); err != nil {
+		t.Fatalf("UpdateTransitionPlanStatus: %v", err)
 	}
 
-	got, err := r.GetLatestActiveOrPendingTZTransitionPlan()
+	got, err := r.GetLatestActiveOrPendingTransitionPlan()
 	if err != nil {
-		t.Fatalf("GetLatestActiveOrPendingTZTransitionPlan: %v", err)
+		t.Fatalf("GetLatestActiveOrPendingTransitionPlan: %v", err)
 	}
 	if got == nil {
 		t.Fatal("expected plan after NOTIFIED transition")
@@ -127,20 +127,20 @@ func TestUpdateTZTransitionPlanStatus_GuardPreventsDoubleTransition(t *testing.T
 		InputsJSON: `{}`,
 		PlanHash:   "hash2",
 	}
-	id, err := r.CreateTZTransitionPlan(plan)
+	id, err := r.CreateTransitionPlan(plan)
 	if err != nil {
-		t.Fatalf("CreateTZTransitionPlan: %v", err)
+		t.Fatalf("CreateTransitionPlan: %v", err)
 	}
 
 	// Guard: expected status is PENDING_APPROVAL, but actual is NOTIFIED → no-op
-	if err := r.UpdateTZTransitionPlanStatus(id, "NOTIFIED", "", "PENDING_APPROVAL"); err != nil {
-		t.Fatalf("UpdateTZTransitionPlanStatus with wrong guard: %v", err)
+	if err := r.UpdateTransitionPlanStatus(id, "NOTIFIED", "", "PENDING_APPROVAL"); err != nil {
+		t.Fatalf("UpdateTransitionPlanStatus with wrong guard: %v", err)
 	}
 
 	// Status should remain NOTIFIED
-	got, err := r.GetLatestActiveOrPendingTZTransitionPlan()
+	got, err := r.GetLatestActiveOrPendingTransitionPlan()
 	if err != nil {
-		t.Fatalf("GetLatestActiveOrPendingTZTransitionPlan: %v", err)
+		t.Fatalf("GetLatestActiveOrPendingTransitionPlan: %v", err)
 	}
 	if got == nil {
 		t.Fatal("expected plan")
@@ -161,8 +161,8 @@ func TestGetPlanByHash(t *testing.T) {
 		InputsJSON: `{"x":1}`,
 		PlanHash:   "myhash",
 	}
-	if _, err := r.CreateTZTransitionPlan(plan); err != nil {
-		t.Fatalf("CreateTZTransitionPlan: %v", err)
+	if _, err := r.CreateTransitionPlan(plan); err != nil {
+		t.Fatalf("CreateTransitionPlan: %v", err)
 	}
 
 	got, err := r.GetPlanByHash("myhash")
@@ -196,19 +196,19 @@ func TestSetTZTransitionPlanApproved(t *testing.T) {
 		InputsJSON: `{}`,
 		PlanHash:   "hash3",
 	}
-	id, err := r.CreateTZTransitionPlan(plan)
+	id, err := r.CreateTransitionPlan(plan)
 	if err != nil {
-		t.Fatalf("CreateTZTransitionPlan: %v", err)
+		t.Fatalf("CreateTransitionPlan: %v", err)
 	}
 
 	approvedAt := time.Now().UTC().Truncate(time.Second)
-	if _, err := r.SetTZTransitionPlanApproved(id, approvedAt); err != nil {
-		t.Fatalf("SetTZTransitionPlanApproved: %v", err)
+	if _, err := r.SetTransitionPlanApproved(id, approvedAt); err != nil {
+		t.Fatalf("SetTransitionPlanApproved: %v", err)
 	}
 
-	got, err := r.GetLatestActiveOrPendingTZTransitionPlan()
+	got, err := r.GetLatestActiveOrPendingTransitionPlan()
 	if err != nil {
-		t.Fatalf("GetLatestActiveOrPendingTZTransitionPlan: %v", err)
+		t.Fatalf("GetLatestActiveOrPendingTransitionPlan: %v", err)
 	}
 	if got == nil {
 		t.Fatal("expected APPROVED plan")
@@ -232,9 +232,9 @@ func TestCreateAndGetTZTransitionSteps(t *testing.T) {
 		InputsJSON: `{}`,
 		PlanHash:   "hash4",
 	}
-	planID, err := r.CreateTZTransitionPlan(plan)
+	planID, err := r.CreateTransitionPlan(plan)
 	if err != nil {
-		t.Fatalf("CreateTZTransitionPlan: %v", err)
+		t.Fatalf("CreateTransitionPlan: %v", err)
 	}
 
 	now := time.Now().UTC().Truncate(time.Second)
@@ -243,13 +243,13 @@ func TestCreateAndGetTZTransitionSteps(t *testing.T) {
 		{PlanID: planID, MedicationID: 1, StepNumber: 2, ScheduledAt: now.Add(5 * time.Hour), Note: "step 2"},
 		{PlanID: planID, MedicationID: 2, StepNumber: 1, ScheduledAt: now.Add(3 * time.Hour), Note: "med2 step 1"},
 	}
-	if err := r.CreateTZTransitionSteps(steps); err != nil {
-		t.Fatalf("CreateTZTransitionSteps: %v", err)
+	if err := r.CreateTransitionSteps(steps); err != nil {
+		t.Fatalf("CreateTransitionSteps: %v", err)
 	}
 
-	pending, err := r.GetPendingStepsForPlan(planID)
+	pending, err := r.ListPendingStepsForPlan(planID)
 	if err != nil {
-		t.Fatalf("GetPendingStepsForPlan: %v", err)
+		t.Fatalf("ListPendingStepsForPlan: %v", err)
 	}
 	if len(pending) != 3 {
 		t.Fatalf("expected 3 pending steps, got %d", len(pending))
@@ -271,9 +271,9 @@ func TestMarkStepConsumed(t *testing.T) {
 		InputsJSON: `{}`,
 		PlanHash:   "hash5",
 	}
-	planID, err := r.CreateTZTransitionPlan(plan)
+	planID, err := r.CreateTransitionPlan(plan)
 	if err != nil {
-		t.Fatalf("CreateTZTransitionPlan: %v", err)
+		t.Fatalf("CreateTransitionPlan: %v", err)
 	}
 
 	now := time.Now().UTC().Truncate(time.Second)
@@ -281,11 +281,11 @@ func TestMarkStepConsumed(t *testing.T) {
 		{PlanID: planID, MedicationID: 1, StepNumber: 1, ScheduledAt: now.Add(time.Hour), Note: "step 1"},
 		{PlanID: planID, MedicationID: 1, StepNumber: 2, ScheduledAt: now.Add(3 * time.Hour), Note: "step 2"},
 	}
-	if err := r.CreateTZTransitionSteps(steps); err != nil {
-		t.Fatalf("CreateTZTransitionSteps: %v", err)
+	if err := r.CreateTransitionSteps(steps); err != nil {
+		t.Fatalf("CreateTransitionSteps: %v", err)
 	}
 
-	pending, err := r.GetPendingStepsForPlan(planID)
+	pending, err := r.ListPendingStepsForPlan(planID)
 	if err != nil || len(pending) != 2 {
 		t.Fatalf("expected 2 pending steps: err=%v len=%d", err, len(pending))
 	}
@@ -296,9 +296,9 @@ func TestMarkStepConsumed(t *testing.T) {
 	}
 
 	// Now only 1 pending step remains
-	remaining, err := r.GetPendingStepsForPlan(planID)
+	remaining, err := r.ListPendingStepsForPlan(planID)
 	if err != nil {
-		t.Fatalf("GetPendingStepsForPlan after consume: %v", err)
+		t.Fatalf("ListPendingStepsForPlan after consume: %v", err)
 	}
 	if len(remaining) != 1 {
 		t.Fatalf("expected 1 remaining step, got %d", len(remaining))
