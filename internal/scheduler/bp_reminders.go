@@ -22,7 +22,7 @@ type BPReminderStore interface {
 	UpdatePreferredReminderHour(userID int64, hour int) error
 	GetDominantCategory(ctx context.Context, userID int64) (string, error)
 	UpdateReminderNotificationSent(userID int64, messageID *int) error
-	GetCurrentTimezone() (string, error)
+	GetCurrent() (string, error)
 }
 
 // BPReminderChecker checks if any users need BP reminder notifications.
@@ -48,7 +48,7 @@ func (c *BPReminderChecker) Check(ctx context.Context) error {
 
 	// Load user timezone. Only apply if explicitly set — leave time as-is otherwise.
 	var userLoc *time.Location
-	if tz, err := c.store.GetCurrentTimezone(); err != nil {
+	if tz, err := c.store.GetCurrent(); err != nil {
 		slog.Warn("Failed to get user timezone, falling back to system TZ", "error", err)
 	} else if tz != "" {
 		if loc, err := time.LoadLocation(tz); err != nil {

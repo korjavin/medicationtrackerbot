@@ -312,12 +312,12 @@ Already minimal: `Create`, `List`, `Delete`. No renames.
 
 ### Task 8: Rename tz repo methods
 
-- [ ] apply rename mapping to `internal/store/tz/` (timezone history + transition plans/steps)
-- [ ] update consumer interfaces in `internal/server/store_interfaces.go` and `internal/bot/store_interfaces.go`
-- [ ] update adapter forwarders especially `cmd/bot/tz_planner_adapter.go`
-- [ ] update MCP registry operation handlers in `internal/mcp/registry/operations_tz*.go` if any
-- [ ] update tests inside `internal/store/tz/` and any caller tests
-- [ ] run project tests - must pass (`go test ./...`, `go test -race ./...`, `golangci-lint run`)
+- [x] apply rename mapping to `internal/store/tz/` (timezone history + transition plans/steps)
+- [x] update consumer interfaces in `internal/server/store_interfaces.go` and `internal/bot/store_interfaces.go`
+- [x] update adapter forwarders especially `cmd/bot/tz_planner_adapter.go`
+- [x] update MCP registry operation handlers in `internal/mcp/registry/operations_tz*.go` if any (no tz MCP operations exist; only one prose comment in `operations_medications.go` mentions "TZ transition plan" generically — no method-name references)
+- [x] update tests inside `internal/store/tz/` and any caller tests
+- [x] run project tests - `go test ./...` and `golangci-lint run` pass; `go test -race ./...` has the same pre-existing failures in `internal/scheduler/notifier_test.go` and `helpers_test.go` (slog reflecting over the notifier mock's sync.Mutex) that Task 6 and Task 7 documented — they reproduce identically on master without my changes and are out of scope for this renaming pass.
 
 ### Task 9: Rename settings repo methods
 

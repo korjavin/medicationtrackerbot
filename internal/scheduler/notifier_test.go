@@ -490,8 +490,8 @@ func TestCheckReminders_SendsReminderForOldPending(t *testing.T) {
 func TestCheckReminders_FormatsScheduledAtInUserTimezone(t *testing.T) {
 	sched, db, mock := setupTestSchedulerWithMock(t)
 
-	if err := db.TZ.RecordTimezone("America/Los_Angeles"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := db.TZ.Record("America/Los_Angeles"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 	la, _ := time.LoadLocation("America/Los_Angeles")
 

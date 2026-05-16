@@ -18,8 +18,8 @@ func newTZSuggestionSettings(s *store.Repos) *tzSuggestionSettings {
 	return &tzSuggestionSettings{s: s}
 }
 
-func (a *tzSuggestionSettings) GetCurrentTimezone() (string, error) {
-	return a.s.TZ.GetCurrentTimezone()
+func (a *tzSuggestionSettings) GetCurrent() (string, error) {
+	return a.s.TZ.GetCurrent()
 }
 
 func (a *tzSuggestionSettings) GetDismissedTZSuggestion(ctx context.Context) (string, error) {

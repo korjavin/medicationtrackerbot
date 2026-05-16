@@ -284,21 +284,21 @@ func (a *storeAdapter) ListMiBand(ctx context.Context, userID int64, limit int) 
 
 // --- TZ ---
 
-func (a *storeAdapter) GetCurrentTimezone() (string, error) { return a.tz.GetCurrentTimezone() }
-func (a *storeAdapter) RecordTimezone(tz string) error      { return a.tz.RecordTimezone(tz) }
+func (a *storeAdapter) GetCurrent() (string, error) { return a.tz.GetCurrent() }
+func (a *storeAdapter) Record(tz string) error      { return a.tz.Record(tz) }
 
 // TZPlanCallbackStore needs:
-func (a *storeAdapter) SetTZTransitionPlanApproved(id int64, approvedAt time.Time) (bool, error) {
-	return a.tz.SetTZTransitionPlanApproved(id, approvedAt)
+func (a *storeAdapter) SetTransitionPlanApproved(id int64, approvedAt time.Time) (bool, error) {
+	return a.tz.SetTransitionPlanApproved(id, approvedAt)
 }
-func (a *storeAdapter) RejectTZTransitionPlanAndRevertTimezone(id int64) (bool, error) {
-	return a.tz.RejectTZTransitionPlanAndRevertTimezone(id)
+func (a *storeAdapter) RejectTransitionPlanAndRevertTimezone(id int64) (bool, error) {
+	return a.tz.RejectTransitionPlanAndRevertTimezone(id)
 }
-func (a *storeAdapter) GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error) {
-	return a.tz.GetLatestActiveOrPendingTZTransitionPlan()
+func (a *storeAdapter) GetLatestActiveOrPendingTransitionPlan() (*store.TZTransitionPlan, error) {
+	return a.tz.GetLatestActiveOrPendingTransitionPlan()
 }
-func (a *storeAdapter) GetPendingStepsForPlan(planID int64) ([]store.TZTransitionStep, error) {
-	return a.tz.GetPendingStepsForPlan(planID)
+func (a *storeAdapter) ListPendingStepsForPlan(planID int64) ([]store.TZTransitionStep, error) {
+	return a.tz.ListPendingStepsForPlan(planID)
 }
 func (a *storeAdapter) GetLatestConsumedStepTimePerMed(planID int64) (map[int64]time.Time, error) {
 	return a.tz.GetLatestConsumedStepTimePerMed(planID)

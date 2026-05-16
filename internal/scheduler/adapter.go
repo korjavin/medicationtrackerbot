@@ -96,17 +96,17 @@ func (a *storeAdapter) GetWeightEnabled(ctx context.Context) (bool, error) {
 
 // --- TZ (tz.Repo) ---
 
-func (a *storeAdapter) GetCurrentTimezone() (string, error) {
-	return a.tz.GetCurrentTimezone()
+func (a *storeAdapter) GetCurrent() (string, error) {
+	return a.tz.GetCurrent()
 }
-func (a *storeAdapter) GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error) {
-	return a.tz.GetLatestActiveOrPendingTZTransitionPlan()
+func (a *storeAdapter) GetLatestActiveOrPendingTransitionPlan() (*store.TZTransitionPlan, error) {
+	return a.tz.GetLatestActiveOrPendingTransitionPlan()
 }
-func (a *storeAdapter) GetLatestCompletedTZTransitionPlan() (*store.TZTransitionPlan, error) {
-	return a.tz.GetLatestCompletedTZTransitionPlan()
+func (a *storeAdapter) GetLatestCompletedTransitionPlan() (*store.TZTransitionPlan, error) {
+	return a.tz.GetLatestCompletedTransitionPlan()
 }
-func (a *storeAdapter) GetPendingStepsForPlan(planID int64) ([]store.TZTransitionStep, error) {
-	return a.tz.GetPendingStepsForPlan(planID)
+func (a *storeAdapter) ListPendingStepsForPlan(planID int64) ([]store.TZTransitionStep, error) {
+	return a.tz.ListPendingStepsForPlan(planID)
 }
 func (a *storeAdapter) GetLatestConsumedStepTimePerMed(planID int64) (map[int64]time.Time, error) {
 	return a.tz.GetLatestConsumedStepTimePerMed(planID)
@@ -114,8 +114,8 @@ func (a *storeAdapter) GetLatestConsumedStepTimePerMed(planID int64) (map[int64]
 func (a *storeAdapter) MarkStepConsumed(stepID int64, consumedAt time.Time) error {
 	return a.tz.MarkStepConsumed(stepID, consumedAt)
 }
-func (a *storeAdapter) UpdateTZTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error {
-	return a.tz.UpdateTZTransitionPlanStatus(id, newStatus, userAction, expectedStatus)
+func (a *storeAdapter) UpdateTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error {
+	return a.tz.UpdateTransitionPlanStatus(id, newStatus, userAction, expectedStatus)
 }
 func (a *storeAdapter) MarkPlanNotified(id int64) (bool, error) {
 	return a.tz.MarkPlanNotified(id)
@@ -123,8 +123,8 @@ func (a *storeAdapter) MarkPlanNotified(id int64) (bool, error) {
 func (a *storeAdapter) ResetPlanToPending(id int64) error {
 	return a.tz.ResetPlanToPending(id)
 }
-func (a *storeAdapter) SetTZTransitionPlanApproved(id int64, approvedAt time.Time) (bool, error) {
-	return a.tz.SetTZTransitionPlanApproved(id, approvedAt)
+func (a *storeAdapter) SetTransitionPlanApproved(id int64, approvedAt time.Time) (bool, error) {
+	return a.tz.SetTransitionPlanApproved(id, approvedAt)
 }
 
 // --- Workout (workout.Repo) ---

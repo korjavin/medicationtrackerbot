@@ -47,8 +47,8 @@ func TestWorkoutChecker_CrossTZCooldownPreventsDuplicateSession(t *testing.T) {
 	sched.WorkoutChecker.daysCache = make(map[string][]int)
 
 	// Tick 1: Tokyo. Wed 2026-05-04 12:30 JST = 2026-05-04 03:30 UTC.
-	if err := db.TZ.RecordTimezone("Asia/Tokyo"); err != nil {
-		t.Fatalf("RecordTimezone Tokyo: %v", err)
+	if err := db.TZ.Record("Asia/Tokyo"); err != nil {
+		t.Fatalf("Record Tokyo: %v", err)
 	}
 	tokyoTick := time.Date(2026, 5, 4, 12, 30, 0, 0, tokyo)
 	sched.WorkoutChecker.now = func() time.Time { return tokyoTick }
@@ -75,8 +75,8 @@ func TestWorkoutChecker_CrossTZCooldownPreventsDuplicateSession(t *testing.T) {
 	// "today" is computed against Berlin midnight (a different UTC instant
 	// from Tokyo midnight), so without the cooldown the session lookup
 	// could miss the existing row.
-	if err := db.TZ.RecordTimezone("Europe/Berlin"); err != nil {
-		t.Fatalf("RecordTimezone Berlin: %v", err)
+	if err := db.TZ.Record("Europe/Berlin"); err != nil {
+		t.Fatalf("Record Berlin: %v", err)
 	}
 	berlinTick := time.Date(2026, 5, 4, 12, 30, 0, 0, berlin) // ~9h later UTC
 	sched.WorkoutChecker.now = func() time.Time { return berlinTick }
@@ -110,8 +110,8 @@ func TestWorkoutChecker_ConsecutiveDaysAllowed(t *testing.T) {
 	if err := db.Settings.SetWorkoutEnabled(context.Background(), true); err != nil {
 		t.Fatalf("SetWorkoutEnabled: %v", err)
 	}
-	if err := db.TZ.RecordTimezone("UTC"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := db.TZ.Record("UTC"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 
 	group, err := db.Workout.CreateGroup("Daily", "", false, 123456, "[0,1,2,3,4,5,6]", "09:00", 15)

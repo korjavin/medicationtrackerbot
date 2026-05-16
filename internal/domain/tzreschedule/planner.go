@@ -16,11 +16,11 @@ type PlannerStore interface {
 	List(showArchived bool) ([]store.Medication, error)
 	ListIntakeHistory(medID int, days int) ([]store.IntakeLog, error)
 	GetPlanByHash(hash string) (*store.TZTransitionPlan, error)
-	GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error)
-	UpdateTZTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error
-	GetPendingStepsForPlan(planID int64) ([]store.TZTransitionStep, error)
-	// CreateTZTransitionPlanWithSteps atomically creates a plan and its steps in one transaction.
-	CreateTZTransitionPlanWithSteps(plan *store.TZTransitionPlan, steps []store.TZTransitionStep) (int64, error)
+	GetLatestActiveOrPendingTransitionPlan() (*store.TZTransitionPlan, error)
+	UpdateTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error
+	ListPendingStepsForPlan(planID int64) ([]store.TZTransitionStep, error)
+	// CreateTransitionPlanWithSteps atomically creates a plan and its steps in one transaction.
+	CreateTransitionPlanWithSteps(plan *store.TZTransitionPlan, steps []store.TZTransitionStep) (int64, error)
 }
 
 // PlannerService manages idempotent generation and lifecycle of timezone transition plans.
@@ -80,7 +80,7 @@ func (p *plannerService) GenerateIfChanged(oldTZ, newTZ string, now time.Time) (
 	// from the original starting point. For APPROVED plans this is conservative
 	// (the schedule may be partially shifted toward NewTZ already) but ensures no
 	// dose shift is under-counted.
-	activePlan, err := p.store.GetLatestActiveOrPendingTZTransitionPlan()
+	activePlan, err := p.store.GetLatestActiveOrPendingTransitionPlan()
 	if err != nil {
 		return false, err
 	}
@@ -89,7 +89,7 @@ func (p *plannerService) GenerateIfChanged(oldTZ, newTZ string, now time.Time) (
 		// complete. Mark it as such and ignore it for baseline purposes — the
 		// scheduler has already moved to the plan's NewTZ.
 		if activePlan.Status == "APPROVED" {
-			pendingSteps, stepErr := p.store.GetPendingStepsForPlan(activePlan.ID)
+			pendingSteps, stepErr := p.store.ListPendingStepsForPlan(activePlan.ID)
 			if stepErr != nil {
 				slog.Warn("tzplanner: failed to check pending steps for APPROVED plan, ignoring it",
 					"plan_id", activePlan.ID, "error", stepErr)
@@ -97,7 +97,7 @@ func (p *plannerService) GenerateIfChanged(oldTZ, newTZ string, now time.Time) (
 			} else if len(pendingSteps) == 0 {
 				slog.Info("tzplanner: APPROVED plan has no pending steps, marking COMPLETED",
 					"plan_id", activePlan.ID)
-				if err := p.store.UpdateTZTransitionPlanStatus(activePlan.ID, "COMPLETED", "all-steps-consumed", "APPROVED"); err != nil {
+				if err := p.store.UpdateTransitionPlanStatus(activePlan.ID, "COMPLETED", "all-steps-consumed", "APPROVED"); err != nil {
 					slog.Warn("tzplanner: failed to mark plan COMPLETED", "plan_id", activePlan.ID, "error", err)
 				}
 				activePlan = nil
@@ -182,7 +182,7 @@ func (p *plannerService) GenerateIfChanged(oldTZ, newTZ string, now time.Time) (
 		}
 	}
 
-	// Active plans are cancelled atomically inside CreateTZTransitionPlanWithSteps
+	// Active plans are cancelled atomically inside CreateTransitionPlanWithSteps
 	// to avoid a TOCTOU gap where the scheduler sees no active plan between the
 	// cancel and insert.
 
@@ -211,7 +211,7 @@ func (p *plannerService) GenerateIfChanged(oldTZ, newTZ string, now time.Time) (
 		PlanHash:   planHash,
 	}
 
-	// Build store steps (PlanID will be filled in by CreateTZTransitionPlanWithSteps).
+	// Build store steps (PlanID will be filled in by CreateTransitionPlanWithSteps).
 	storeSteps := make([]store.TZTransitionStep, 0, len(steps))
 	for _, s := range steps {
 		storeSteps = append(storeSteps, store.TZTransitionStep{
@@ -224,7 +224,7 @@ func (p *plannerService) GenerateIfChanged(oldTZ, newTZ string, now time.Time) (
 
 	// Atomically persist plan and steps in a single transaction so that an orphaned
 	// PENDING_APPROVAL plan (with no executable steps) can never be created.
-	planID, err := p.store.CreateTZTransitionPlanWithSteps(plan, storeSteps)
+	planID, err := p.store.CreateTransitionPlanWithSteps(plan, storeSteps)
 	if err != nil {
 		// The partial unique index on plan_hash catches concurrent identical inserts.
 		// Treat this as idempotent success: an identical plan already exists.
@@ -259,14 +259,14 @@ func isUniqueConstraintError(err error) bool {
 // if two concurrent timezone changes race and both create a plan.
 func (p *plannerService) CancelActivePlan(reason string) error {
 	for {
-		active, err := p.store.GetLatestActiveOrPendingTZTransitionPlan()
+		active, err := p.store.GetLatestActiveOrPendingTransitionPlan()
 		if err != nil {
 			return err
 		}
 		if active == nil {
 			return nil
 		}
-		if err := p.store.UpdateTZTransitionPlanStatus(active.ID, "CANCELLED", reason, active.Status); err != nil {
+		if err := p.store.UpdateTransitionPlanStatus(active.ID, "CANCELLED", reason, active.Status); err != nil {
 			return err
 		}
 	}

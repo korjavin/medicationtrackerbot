@@ -489,7 +489,7 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 		now = s.now()
 	}
 	userLoc := now.Location()
-	if tz, tzErr := s.timezone.GetCurrentTimezone(); tzErr == nil && tz != "" {
+	if tz, tzErr := s.timezone.GetCurrent(); tzErr == nil && tz != "" {
 		if loc, locErr := time.LoadLocation(tz); locErr == nil {
 			userLoc = loc
 		}
@@ -500,9 +500,9 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 	var pendingSteps []store.TZTransitionStep
 	consumedStepTimeByMed := make(map[int64]time.Time)
 	if s.tzPlanStore != nil {
-		if plan, err := s.tzPlanStore.GetLatestActiveOrPendingTZTransitionPlan(); err == nil && plan != nil {
+		if plan, err := s.tzPlanStore.GetLatestActiveOrPendingTransitionPlan(); err == nil && plan != nil {
 			if plan.Status == "APPROVED" {
-				if steps, err := s.tzPlanStore.GetPendingStepsForPlan(plan.ID); err == nil {
+				if steps, err := s.tzPlanStore.ListPendingStepsForPlan(plan.ID); err == nil {
 					pendingSteps = steps
 				}
 			}

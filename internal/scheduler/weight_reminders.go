@@ -21,7 +21,7 @@ type WeightReminderStore interface {
 	CalculatePreferredWeightReminderHour(ctx context.Context, userID int64) (int, error)
 	UpdatePreferredWeightReminderHour(userID int64, hour int) error
 	UpdateWeightReminderNotificationSent(userID int64, messageID *int) error
-	GetCurrentTimezone() (string, error)
+	GetCurrent() (string, error)
 }
 
 // WeightReminderChecker checks if any users need weight reminder notifications.
@@ -47,7 +47,7 @@ func (c *WeightReminderChecker) Check(ctx context.Context) error {
 
 	// Load user timezone. Only apply if explicitly set — leave time as-is otherwise.
 	var userLoc *time.Location
-	if tz, err := c.store.GetCurrentTimezone(); err != nil {
+	if tz, err := c.store.GetCurrent(); err != nil {
 		slog.Warn("Failed to get user timezone, falling back to system TZ", "error", err)
 	} else if tz != "" {
 		if loc, err := time.LoadLocation(tz); err != nil {

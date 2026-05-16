@@ -29,13 +29,13 @@ type MedicationStore interface {
 	GetDaysOfStockRemaining(med *store.Medication) *float64
 	SnoozeIntake(id int64, snoozeUntil time.Time) error
 	// TZ-aware scheduling
-	GetCurrentTimezone() (string, error)
-	GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error)
-	GetLatestCompletedTZTransitionPlan() (*store.TZTransitionPlan, error)
-	GetPendingStepsForPlan(planID int64) ([]store.TZTransitionStep, error)
+	GetCurrent() (string, error)
+	GetLatestActiveOrPendingTransitionPlan() (*store.TZTransitionPlan, error)
+	GetLatestCompletedTransitionPlan() (*store.TZTransitionPlan, error)
+	ListPendingStepsForPlan(planID int64) ([]store.TZTransitionStep, error)
 	GetLatestConsumedStepTimePerMed(planID int64) (map[int64]time.Time, error)
 	MarkStepConsumed(stepID int64, consumedAt time.Time) error
-	UpdateTZTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error
+	UpdateTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error
 }
 
 // MedicationChecker checks for due medications and sends notifications.
@@ -130,7 +130,7 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 
 	// Load user timezone; fall back to time.Local if not set or invalid.
 	userLoc := time.Local
-	if tz, tzErr := c.store.GetCurrentTimezone(); tzErr != nil {
+	if tz, tzErr := c.store.GetCurrent(); tzErr != nil {
 		slog.Warn("medication scheduler: failed to get user timezone, using system TZ", "error", tzErr)
 	} else if tz != "" {
 		if loc, locErr := time.LoadLocation(tz); locErr != nil {
@@ -141,7 +141,7 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 	}
 
 	// Load the latest active transition plan.
-	activePlan, err := c.store.GetLatestActiveOrPendingTZTransitionPlan()
+	activePlan, err := c.store.GetLatestActiveOrPendingTransitionPlan()
 	if err != nil {
 		slog.Warn("medication scheduler: failed to load transition plan, proceeding without it", "error", err)
 		activePlan = nil
@@ -180,17 +180,17 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 		// suppressing the normal-schedule slots the just-consumed steps
 		// superseded — otherwise a westbound landing produces a duplicate
 		// "21:30" reminder right after the user took the final transition
-		// step at 22:30. GetLatestActiveOrPendingTZTransitionPlan deliberately
+		// step at 22:30. GetLatestActiveOrPendingTransitionPlan deliberately
 		// excludes COMPLETED rows so this fallback is the only path that
 		// surfaces the plan id again.
-		if completed, err := c.store.GetLatestCompletedTZTransitionPlan(); err == nil && completed != nil {
+		if completed, err := c.store.GetLatestCompletedTransitionPlan(); err == nil && completed != nil {
 			lastConsumedPlanID = completed.ID
 		} else if err != nil {
 			slog.Warn("medication scheduler: failed to load completed plan for overlap guard", "error", err)
 		}
 	}
 	if activePlan != nil && activePlan.Status == "APPROVED" {
-		steps, err := c.store.GetPendingStepsForPlan(activePlan.ID)
+		steps, err := c.store.ListPendingStepsForPlan(activePlan.ID)
 		if err != nil {
 			// Transient step-load failure: fall back to the plan's old timezone
 			// so medications continue on the pre-transition schedule rather
@@ -206,7 +206,7 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 		} else if len(steps) == 0 {
 			// Transition complete — mark the plan COMPLETED so it stops
 			// shadowing the medication schedule next tick.
-			if err := c.store.UpdateTZTransitionPlanStatus(activePlan.ID, "COMPLETED", "all-steps-consumed", "APPROVED"); err != nil {
+			if err := c.store.UpdateTransitionPlanStatus(activePlan.ID, "COMPLETED", "all-steps-consumed", "APPROVED"); err != nil {
 				slog.Warn("medication scheduler: failed to mark completed plan", "plan_id", activePlan.ID, "error", err)
 			} else {
 				slog.Info("medication scheduler: transition plan completed, all steps consumed",

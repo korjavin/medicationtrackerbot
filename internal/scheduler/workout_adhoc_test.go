@@ -25,8 +25,8 @@ func adhocSetup(t *testing.T) (*Scheduler, *store.Store, *MockNotifier) {
 	if err := db.Settings.SetWorkoutEnabled(context.Background(), true); err != nil {
 		t.Fatalf("SetWorkoutEnabled: %v", err)
 	}
-	if err := db.TZ.RecordTimezone("UTC"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := db.TZ.Record("UTC"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 
 	mock := &MockNotifier{}

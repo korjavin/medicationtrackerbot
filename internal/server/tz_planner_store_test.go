@@ -20,15 +20,15 @@ func (a *testTZPlannerStore) ListIntakeHistory(medID int, days int) ([]store.Int
 func (a *testTZPlannerStore) GetPlanByHash(hash string) (*store.TZTransitionPlan, error) {
 	return a.s.TZ.GetPlanByHash(hash)
 }
-func (a *testTZPlannerStore) GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error) {
-	return a.s.TZ.GetLatestActiveOrPendingTZTransitionPlan()
+func (a *testTZPlannerStore) GetLatestActiveOrPendingTransitionPlan() (*store.TZTransitionPlan, error) {
+	return a.s.TZ.GetLatestActiveOrPendingTransitionPlan()
 }
-func (a *testTZPlannerStore) UpdateTZTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error {
-	return a.s.TZ.UpdateTZTransitionPlanStatus(id, newStatus, userAction, expectedStatus)
+func (a *testTZPlannerStore) UpdateTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error {
+	return a.s.TZ.UpdateTransitionPlanStatus(id, newStatus, userAction, expectedStatus)
 }
-func (a *testTZPlannerStore) GetPendingStepsForPlan(planID int64) ([]store.TZTransitionStep, error) {
-	return a.s.TZ.GetPendingStepsForPlan(planID)
+func (a *testTZPlannerStore) ListPendingStepsForPlan(planID int64) ([]store.TZTransitionStep, error) {
+	return a.s.TZ.ListPendingStepsForPlan(planID)
 }
-func (a *testTZPlannerStore) CreateTZTransitionPlanWithSteps(plan *store.TZTransitionPlan, steps []store.TZTransitionStep) (int64, error) {
-	return a.s.TZ.CreateTZTransitionPlanWithSteps(plan, steps)
+func (a *testTZPlannerStore) CreateTransitionPlanWithSteps(plan *store.TZTransitionPlan, steps []store.TZTransitionStep) (int64, error) {
+	return a.s.TZ.CreateTransitionPlanWithSteps(plan, steps)
 }

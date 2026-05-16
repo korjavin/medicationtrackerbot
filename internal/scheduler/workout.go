@@ -32,7 +32,7 @@ type WorkoutStore interface {
 	ListExercisesByVariant(variantID int64) ([]store.WorkoutExercise, error)
 	SetSessionNotificationMessageID(sessionID int64, msgID int) error
 	UpdateSessionVariant(sessionID int64, variantID int64) error
-	GetCurrentTimezone() (string, error)
+	GetCurrent() (string, error)
 	GetLatestSessionScheduledDate(groupID, userID int64) (time.Time, bool, error)
 	ListPendingAdHocSessions(userID int64, before time.Time) ([]store.WorkoutSession, error)
 	ListNotifiedAdHocSessions(userID int64) ([]store.WorkoutSession, error)
@@ -72,7 +72,7 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 
 	// Load user timezone. Only apply if explicitly set — leave time as-is otherwise.
 	var userLoc *time.Location
-	if tz, err := c.store.GetCurrentTimezone(); err != nil {
+	if tz, err := c.store.GetCurrent(); err != nil {
 		slog.Warn("Failed to get user timezone, falling back to system TZ", "error", err)
 	} else if tz != "" {
 		if loc, err := time.LoadLocation(tz); err != nil {

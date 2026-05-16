@@ -17,13 +17,13 @@ type mockTZPlanCallbackStore struct {
 	rejectErr  error
 }
 
-func (m *mockTZPlanCallbackStore) SetTZTransitionPlanApproved(id int64, at time.Time) (bool, error) {
+func (m *mockTZPlanCallbackStore) SetTransitionPlanApproved(id int64, at time.Time) (bool, error) {
 	m.updatedID = id
 	m.approvedAt = &at
 	return m.approveErr == nil, m.approveErr
 }
 
-func (m *mockTZPlanCallbackStore) RejectTZTransitionPlanAndRevertTimezone(id int64) (bool, error) {
+func (m *mockTZPlanCallbackStore) RejectTransitionPlanAndRevertTimezone(id int64) (bool, error) {
 	m.updatedID = id
 	m.rejectedID = id
 	return m.rejectErr == nil, m.rejectErr
@@ -140,11 +140,11 @@ func TestHandleCallback_TZPlanReject_Routing(t *testing.T) {
 // mockTZPlanCallbackStoreNoRows simulates store methods that affect 0 rows (stale callback).
 type mockTZPlanCallbackStoreNoRows struct{}
 
-func (m *mockTZPlanCallbackStoreNoRows) SetTZTransitionPlanApproved(id int64, at time.Time) (bool, error) {
+func (m *mockTZPlanCallbackStoreNoRows) SetTransitionPlanApproved(id int64, at time.Time) (bool, error) {
 	return false, nil
 }
 
-func (m *mockTZPlanCallbackStoreNoRows) RejectTZTransitionPlanAndRevertTimezone(id int64) (bool, error) {
+func (m *mockTZPlanCallbackStoreNoRows) RejectTransitionPlanAndRevertTimezone(id int64) (bool, error) {
 	return false, nil
 }
 

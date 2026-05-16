@@ -12,7 +12,7 @@ import (
 )
 
 // mockLowStockStore counts ListLowOnStock invocations and lets
-// tests configure the timezone returned by GetCurrentTimezone, plus an
+// tests configure the timezone returned by GetCurrent, plus an
 // optional fixed result set for the low-stock query.
 type mockLowStockStore struct {
 	MedicationStore
@@ -22,7 +22,7 @@ type mockLowStockStore struct {
 	lowCalls int32
 }
 
-func (m *mockLowStockStore) GetCurrentTimezone() (string, error) {
+func (m *mockLowStockStore) GetCurrent() (string, error) {
 	return m.tz, m.tzErr
 }
 
@@ -147,7 +147,7 @@ func TestLowStockChecker_InvalidTZFallsBack(t *testing.T) {
 	}
 }
 
-// store-level GetCurrentTimezone error must also fall back to server TZ
+// store-level GetCurrent error must also fall back to server TZ
 // rather than aborting Check.
 func TestLowStockChecker_TZErrorFallsBack(t *testing.T) {
 	mock := &mockLowStockStore{tzErr: errFakeTZ}

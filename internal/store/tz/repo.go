@@ -10,11 +10,11 @@
 //
 // The 17 methods here form three sibling groups that share the same
 // transactional context, which is why they sit in one package:
-//   - GetCurrentTimezone / RecordTimezone for the active timezone.
+//   - GetCurrent / Record for the active timezone.
 //   - The transition-plan lifecycle (create, status transitions, lookup).
 //   - The transition-step lifecycle (bulk create, list pending, mark consumed).
 //
-// RejectTZTransitionPlanAndRevertTimezone and CreateTZTransitionPlanWithSteps
+// RejectTransitionPlanAndRevertTimezone and CreateTransitionPlanWithSteps
 // are intra-package transactions: rejection writes timezone_history under the
 // same tx as the plan update, and plan-with-steps writes both tables under one
 // tx. No tz method writes intake_log inside a transaction — the scheduler
@@ -72,9 +72,9 @@ func New(d *storedb.DB) *Repo {
 	return &Repo{db: d}
 }
 
-// GetCurrentTimezone returns the most recently recorded timezone, or "" if
+// GetCurrent returns the most recently recorded timezone, or "" if
 // the table is empty.
-func (r *Repo) GetCurrentTimezone() (string, error) {
+func (r *Repo) GetCurrent() (string, error) {
 	var tz string
 	err := r.db.QueryRow(`SELECT timezone FROM timezone_history ORDER BY recorded_at DESC, id DESC LIMIT 1`).Scan(&tz)
 	if err == sql.ErrNoRows {
@@ -86,7 +86,7 @@ func (r *Repo) GetCurrentTimezone() (string, error) {
 	return tz, nil
 }
 
-// RecordTimezone appends the new timezone to timezone_history only if it differs
+// Record appends the new timezone to timezone_history only if it differs
 // from the current active timezone. This prevents unbounded table growth when the
 // frontend calls the endpoint on every startup.
 //
@@ -94,7 +94,7 @@ func (r *Repo) GetCurrentTimezone() (string, error) {
 // singleton settings row is cleared in the same transaction so a future
 // detection that *also* differs from this new stored TZ prompts again
 // (the dismissal is for a specific detected TZ, not a permanent silence).
-func (r *Repo) RecordTimezone(tz string) error {
+func (r *Repo) Record(tz string) error {
 	tx, err := r.db.Begin()
 	if err != nil {
 		return err
@@ -121,8 +121,8 @@ func (r *Repo) RecordTimezone(tz string) error {
 
 // -- TZ Transition Plans --
 
-// CreateTZTransitionPlan saves a new timezone transition plan and returns its ID.
-func (r *Repo) CreateTZTransitionPlan(plan *TZTransitionPlan) (int64, error) {
+// CreateTransitionPlan saves a new timezone transition plan and returns its ID.
+func (r *Repo) CreateTransitionPlan(plan *TZTransitionPlan) (int64, error) {
 	res, err := r.db.Exec(
 		`INSERT INTO tz_transition_plans (old_tz, new_tz, status, steps_json, inputs_json, plan_hash)
 		 VALUES (?, ?, ?, ?, ?, ?)`,
@@ -134,14 +134,14 @@ func (r *Repo) CreateTZTransitionPlan(plan *TZTransitionPlan) (int64, error) {
 	return res.LastInsertId()
 }
 
-// GetLatestCompletedTZTransitionPlan returns the most recent plan in
+// GetLatestCompletedTransitionPlan returns the most recent plan in
 // COMPLETED status, or nil if none exists. The medication scheduler uses this
 // as a fallback for the overlap-guard data once a plan transitions out of
 // APPROVED — the previous tick that consumed the final step also flipped the
 // status, so the next tick can no longer see the plan via
-// GetLatestActiveOrPendingTZTransitionPlan and would otherwise lose the
+// GetLatestActiveOrPendingTransitionPlan and would otherwise lose the
 // consumed-step times that suppress the just-superseded normal-schedule slots.
-func (r *Repo) GetLatestCompletedTZTransitionPlan() (*TZTransitionPlan, error) {
+func (r *Repo) GetLatestCompletedTransitionPlan() (*TZTransitionPlan, error) {
 	var p TZTransitionPlan
 	var notifiedAt, approvedAt sql.NullTime
 	var userAction sql.NullString
@@ -169,9 +169,9 @@ func (r *Repo) GetLatestCompletedTZTransitionPlan() (*TZTransitionPlan, error) {
 	return &p, nil
 }
 
-// GetLatestActiveOrPendingTZTransitionPlan returns the most recent plan in
+// GetLatestActiveOrPendingTransitionPlan returns the most recent plan in
 // PENDING_APPROVAL, NOTIFIED, or APPROVED status, or nil if none exists.
-func (r *Repo) GetLatestActiveOrPendingTZTransitionPlan() (*TZTransitionPlan, error) {
+func (r *Repo) GetLatestActiveOrPendingTransitionPlan() (*TZTransitionPlan, error) {
 	var p TZTransitionPlan
 	var notifiedAt, approvedAt sql.NullTime
 	var userAction sql.NullString
@@ -199,9 +199,9 @@ func (r *Repo) GetLatestActiveOrPendingTZTransitionPlan() (*TZTransitionPlan, er
 	return &p, nil
 }
 
-// UpdateTZTransitionPlanStatus atomically transitions a plan's status.
+// UpdateTransitionPlanStatus atomically transitions a plan's status.
 // If expectedStatus is non-empty, the update only applies when the current status matches.
-func (r *Repo) UpdateTZTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error {
+func (r *Repo) UpdateTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error {
 	var err error
 	if expectedStatus != "" {
 		var res sql.Result
@@ -225,10 +225,10 @@ func (r *Repo) UpdateTZTransitionPlanStatus(id int64, newStatus, userAction, exp
 	return err
 }
 
-// SetTZTransitionPlanApproved marks a plan as APPROVED and records the approval time.
+// SetTransitionPlanApproved marks a plan as APPROVED and records the approval time.
 // The update is guarded to only apply when the plan is in PENDING_APPROVAL or NOTIFIED
 // status, preventing stale Telegram callbacks from resurrecting superseded or cancelled plans.
-func (r *Repo) SetTZTransitionPlanApproved(id int64, approvedAt time.Time) (bool, error) {
+func (r *Repo) SetTransitionPlanApproved(id int64, approvedAt time.Time) (bool, error) {
 	res, err := r.db.Exec(
 		`UPDATE tz_transition_plans SET status = 'APPROVED', approved_at = ?, user_action = 'approved'
 		 WHERE id = ? AND status IN ('PENDING_APPROVAL', 'NOTIFIED')`,
@@ -241,10 +241,10 @@ func (r *Repo) SetTZTransitionPlanApproved(id int64, approvedAt time.Time) (bool
 	return n > 0, nil
 }
 
-// SetTZTransitionPlanRejected marks a plan as REJECTED.
+// SetTransitionPlanRejected marks a plan as REJECTED.
 // The update is guarded to only apply when the plan is in PENDING_APPROVAL or NOTIFIED
 // status, preventing stale Telegram callbacks from affecting cancelled or superseded plans.
-func (r *Repo) SetTZTransitionPlanRejected(id int64) (bool, error) {
+func (r *Repo) SetTransitionPlanRejected(id int64) (bool, error) {
 	res, err := r.db.Exec(
 		`UPDATE tz_transition_plans SET status = 'REJECTED', user_action = 'rejected'
 		 WHERE id = ? AND status IN ('PENDING_APPROVAL', 'NOTIFIED')`,
@@ -257,11 +257,11 @@ func (r *Repo) SetTZTransitionPlanRejected(id int64) (bool, error) {
 	return n > 0, nil
 }
 
-// RejectTZTransitionPlanAndRevertTimezone atomically marks a plan as REJECTED and
+// RejectTransitionPlanAndRevertTimezone atomically marks a plan as REJECTED and
 // reverts the stored timezone back to the plan's OldTZ. This ensures that after
 // rejection the scheduler continues to use the original timezone rather than the
 // newly-stored one. Returns true if the plan was found and updated.
-func (r *Repo) RejectTZTransitionPlanAndRevertTimezone(id int64) (bool, error) {
+func (r *Repo) RejectTransitionPlanAndRevertTimezone(id int64) (bool, error) {
 	tx, err := r.db.Begin()
 	if err != nil {
 		return false, err
@@ -334,10 +334,10 @@ func (r *Repo) ResetPlanToPending(id int64) error {
 	return err
 }
 
-// CreateTZTransitionPlanWithSteps atomically cancels any active plans and saves
+// CreateTransitionPlanWithSteps atomically cancels any active plans and saves
 // a new timezone transition plan together with its steps in a single transaction.
 // This prevents concurrent timezone updates from leaving multiple active plans.
-func (r *Repo) CreateTZTransitionPlanWithSteps(plan *TZTransitionPlan, steps []TZTransitionStep) (int64, error) {
+func (r *Repo) CreateTransitionPlanWithSteps(plan *TZTransitionPlan, steps []TZTransitionStep) (int64, error) {
 	tx, err := r.db.Begin()
 	if err != nil {
 		return 0, err
@@ -421,8 +421,8 @@ func (r *Repo) GetPlanByHash(hash string) (*TZTransitionPlan, error) {
 	return &p, nil
 }
 
-// CreateTZTransitionSteps bulk-inserts transition steps for a plan.
-func (r *Repo) CreateTZTransitionSteps(steps []TZTransitionStep) error {
+// CreateTransitionSteps bulk-inserts transition steps for a plan.
+func (r *Repo) CreateTransitionSteps(steps []TZTransitionStep) error {
 	tx, err := r.db.Begin()
 	if err != nil {
 		return err
@@ -448,8 +448,8 @@ func (r *Repo) CreateTZTransitionSteps(steps []TZTransitionStep) error {
 	return tx.Commit()
 }
 
-// GetPendingStepsForPlan returns all unconsumed steps for a given plan, ordered by step_number.
-func (r *Repo) GetPendingStepsForPlan(planID int64) ([]TZTransitionStep, error) {
+// ListPendingStepsForPlan returns all unconsumed steps for a given plan, ordered by step_number.
+func (r *Repo) ListPendingStepsForPlan(planID int64) ([]TZTransitionStep, error) {
 	rows, err := r.db.Query(
 		`SELECT id, plan_id, medication_id, step_number, scheduled_at, note
 		 FROM tz_transition_steps

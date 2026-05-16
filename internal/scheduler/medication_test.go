@@ -98,8 +98,8 @@ func TestMedicationCheckerScenarios(t *testing.T) {
 		}
 
 		if input.UserTimezone != "" {
-			if err := db.TZ.RecordTimezone(input.UserTimezone); err != nil {
-				t.Fatalf("RecordTimezone failed: %v", err)
+			if err := db.TZ.Record(input.UserTimezone); err != nil {
+				t.Fatalf("Record failed: %v", err)
 			}
 		}
 

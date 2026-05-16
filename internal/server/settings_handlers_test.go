@@ -452,8 +452,8 @@ func TestHandleGetSettings_Timezone(t *testing.T) {
 	}
 
 	// Record a timezone and verify it is returned
-	if err := db.TZ.RecordTimezone("America/New_York"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := db.TZ.Record("America/New_York"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 
 	req2 := httptest.NewRequest("GET", "/api/settings", nil)
@@ -492,9 +492,9 @@ func TestHandleUpdateSettings_ValidTimezone(t *testing.T) {
 		t.Fatalf("Expected status 200, got %d", w.Code)
 	}
 
-	tz, err := db.TZ.GetCurrentTimezone()
+	tz, err := db.TZ.GetCurrent()
 	if err != nil {
-		t.Fatalf("GetCurrentTimezone: %v", err)
+		t.Fatalf("GetCurrent: %v", err)
 	}
 	if tz != "Asia/Tokyo" {
 		t.Fatalf("Expected Asia/Tokyo, got %q", tz)
@@ -531,8 +531,8 @@ func TestHandleUpdateSettings_GeneratesTransitionPlan(t *testing.T) {
 	srv, db := createBPTestServer(t)
 	defer db.Close()
 
-	if err := db.TZ.RecordTimezone("America/New_York"); err != nil {
-		t.Fatalf("seed RecordTimezone: %v", err)
+	if err := db.TZ.Record("America/New_York"); err != nil {
+		t.Fatalf("seed Record: %v", err)
 	}
 	if _, err := db.Medication.Create("Daily Med", "5mg", `{"type":"daily","times":["08:00","20:00"]}`, nil, nil, "", "", "medium"); err != nil {
 		t.Fatalf("Create: %v", err)
@@ -549,17 +549,17 @@ func TestHandleUpdateSettings_GeneratesTransitionPlan(t *testing.T) {
 		t.Fatalf("Expected status 200, got %d", w.Code)
 	}
 
-	tz, err := db.TZ.GetCurrentTimezone()
+	tz, err := db.TZ.GetCurrent()
 	if err != nil {
-		t.Fatalf("GetCurrentTimezone: %v", err)
+		t.Fatalf("GetCurrent: %v", err)
 	}
 	if tz != "Asia/Tokyo" {
 		t.Fatalf("Expected stored timezone Asia/Tokyo, got %q", tz)
 	}
 
-	plan, err := db.TZ.GetLatestActiveOrPendingTZTransitionPlan()
+	plan, err := db.TZ.GetLatestActiveOrPendingTransitionPlan()
 	if err != nil {
-		t.Fatalf("GetLatestActiveOrPendingTZTransitionPlan: %v", err)
+		t.Fatalf("GetLatestActiveOrPendingTransitionPlan: %v", err)
 	}
 	if plan == nil {
 		t.Fatalf("Expected a PENDING_APPROVAL plan after timezone change, got nil")
@@ -577,8 +577,8 @@ func TestHandleBootstrap_IncludesTimezone(t *testing.T) {
 	srv, db := createBPTestServer(t)
 	defer db.Close()
 
-	if err := db.TZ.RecordTimezone("Europe/Berlin"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := db.TZ.Record("Europe/Berlin"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 
 	req := httptest.NewRequest("GET", "/api/bootstrap", nil)
@@ -619,8 +619,8 @@ func TestHandleGetSettings_FullBundle(t *testing.T) {
 	// Seed every slice of the bundle so each sub-case has a non-default value
 	// to assert against. Defaults would still produce a 200, but they don't
 	// distinguish "field was wired up" from "field was dropped silently".
-	if err := db.TZ.RecordTimezone("Europe/Berlin"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := db.TZ.Record("Europe/Berlin"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 	if err := db.Weight.SetUnitPreference(ctx, "lb"); err != nil {
 		t.Fatalf("SetWeightUnitPreference: %v", err)
@@ -911,8 +911,8 @@ func TestTZSuggestionDismiss_BundleRoundTrip(t *testing.T) {
 	defer db.Close()
 	const userID = int64(123456)
 
-	if err := db.TZ.RecordTimezone("America/New_York"); err != nil {
-		t.Fatalf("seed RecordTimezone: %v", err)
+	if err := db.TZ.Record("America/New_York"); err != nil {
+		t.Fatalf("seed Record: %v", err)
 	}
 
 	// Dismiss the detected TZ via the new endpoint.
@@ -942,7 +942,7 @@ func TestTZSuggestionDismiss_BundleRoundTrip(t *testing.T) {
 	}
 
 	// Wire the tz updater with a planner so POST /api/settings exercises the
-	// full RecordTimezone path (which clears the dismissed flag in the same
+	// full Record path (which clears the dismissed flag in the same
 	// transaction).
 	srv.SetTZUpdater(tzupdate.NewService(db.TZ, db.TZ, tzreschedule.NewPlannerService(&testTZPlannerStore{db}), nil, nil))
 
@@ -968,7 +968,7 @@ func TestTZSuggestionDismiss_BundleRoundTrip(t *testing.T) {
 		t.Fatalf("decode settings after update: %v", err)
 	}
 	if got, _ := resp2["dismissed_tz_suggestion"].(string); got != "" {
-		t.Fatalf("expected dismissed_tz_suggestion cleared after RecordTimezone, got %q", got)
+		t.Fatalf("expected dismissed_tz_suggestion cleared after Record, got %q", got)
 	}
 }
 
@@ -999,8 +999,8 @@ func TestHandleUpdateSettings_NotifiesOnTimezoneChange(t *testing.T) {
 	srv, db := createBPTestServer(t)
 	defer db.Close()
 
-	if err := db.TZ.RecordTimezone("America/New_York"); err != nil {
-		t.Fatalf("seed RecordTimezone: %v", err)
+	if err := db.TZ.Record("America/New_York"); err != nil {
+		t.Fatalf("seed Record: %v", err)
 	}
 	// Use the default tzUpdater (no planner) — we want to assert the
 	// notification fires whenever the stored TZ changes, regardless of

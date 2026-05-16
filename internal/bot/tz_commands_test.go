@@ -14,7 +14,7 @@ type mockTimezoneStore struct {
 	currentErr error
 }
 
-func (m *mockTimezoneStore) GetCurrentTimezone() (string, error) {
+func (m *mockTimezoneStore) GetCurrent() (string, error) {
 	return m.currentTZ, m.currentErr
 }
 
