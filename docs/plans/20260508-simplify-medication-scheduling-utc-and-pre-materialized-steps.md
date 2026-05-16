@@ -380,7 +380,7 @@ Same pattern as Task 5, applied to all three plan-lifecycle timestamp columns at
 
 ### Task 9: Add `source`, `tz_plan_id`, `tz_step_number` to `intake_log`
 
-- [ ] migration `0XX_add_intake_log_source.sql`:
+- [x] migration `0XX_add_intake_log_source.sql`:
   `ALTER TABLE intake_log ADD COLUMN source TEXT NOT NULL DEFAULT 'schedule';`
   + `ADD COLUMN tz_plan_id INTEGER;`
   + `ADD COLUMN tz_step_number INTEGER;`
@@ -399,16 +399,35 @@ Same pattern as Task 5, applied to all three plan-lifecycle timestamp columns at
     schema, or (b) doing an explicit `UPDATE intake_log SET tz_plan_id
     = NULL WHERE tz_plan_id = ?` in the deletion code path.
     Document the current state in `docs/architecture.md` "Time storage"
-    subsection.
+    subsection. (migration `066_add_intake_log_source.sql` adds all
+    three columns and the index; the FK clause is declared on the
+    column for documentation and verified by the schema test that
+    enables `PRAGMA foreign_keys=ON` locally and observes `SET NULL`
+    behavior)
   + index `idx_intake_log_tz_plan_id` for the planner's "delete pending
     rows on plan cancel" query
-- [ ] update `IntakeLog` struct + `Scan` calls to expose the new columns
-- [ ] no behaviour change yet — `source` is always `'schedule'` in
-  practice; this task only opens the slot
-- [ ] write tests: existing intake suite green; one new test asserts the
+- [x] update `IntakeLog` struct + `Scan` calls to expose the new columns
+  (`Source string`, `TZPlanID *int64`, `TZStepNumber *int64` added to
+  `medication.IntakeLog` in `internal/store/medication/repo.go`; every
+  reader — `GetPendingIntakes`, `GetTakenIntakesBySchedule`,
+  `GetIntakeHistory`, `GetIntake`, `GetIntakeBySchedule`,
+  `BatchGetIntakesBySchedule`, `GetPendingIntakesBySchedule`,
+  `GetPendingIntakesForMedication`, `GetIntakesSince` — selects the
+  three new columns and populates the struct fields)
+- [x] no behaviour change yet — `source` is always `'schedule'` in
+  practice; this task only opens the slot (writers stayed at the
+  pre-Task-9 SQL; the migration's `DEFAULT 'schedule'` populates the
+  column at insert time and pre-existing rows backfill via the same
+  default)
+- [x] write tests: existing intake suite green; one new test asserts the
   default `source = 'schedule'`; one new test deletes a plan row and
-  asserts associated intakes survive with `tz_plan_id = NULL`.
-- [ ] run project tests - must pass before next task.
+  asserts associated intakes survive with `tz_plan_id = NULL`
+  (`TestIntakeLog_DefaultSourceIsSchedule` + `TestIntakeLog_TZPlanIDSetNullOnPlanDelete`
+  in `internal/store/medication/intake_log_source_test.go`;
+  `TestMigration066_AddsSourceAndTZPlanColumns` +
+  `TestMigration066_RoundTrip` in `internal/store/migration_066_test.go`
+  pin the migration shape).
+- [x] run project tests - must pass before next task. (`go test ./...` green)
 
 ### Task 10: When a plan is approved, materialize steps as PENDING intakes
 
