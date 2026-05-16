@@ -120,19 +120,25 @@ func (s *Server) computeNextIntakeData(now time.Time) (time.Time, []int64, []str
 	// inside the same forward window. Dedup by (medication_id,
 	// scheduled_at_unix) so a normal target with an already-materialized
 	// intake row appears once.
+	//
+	// Seed the dedup from intake_log rows first so a pre-materialized
+	// tz_step row wins on exact-time collisions with a normal-schedule
+	// slot — otherwise plannedOwnedMeds suppression would drop the normal
+	// target (because the plan still owns the med) AND the colliding step
+	// target would never be added, hiding the dose entirely. (Pre-Task-13
+	// the seeding order was reversed so the medplan target carried StepID
+	// for MarkStepConsumed; that path is gone.)
 	type dedupKey struct {
 		medID     int64
 		schedUnix int64
-	}
-	seen := make(map[dedupKey]bool, len(targets))
-	for _, t := range targets {
-		seen[dedupKey{t.MedicationID, t.ScheduledAt.UTC().Unix()}] = true
 	}
 	pendingRows, err := s.meds.GetPendingIntakesInWindow(now, now.Add(forecastWindow))
 	if err != nil {
 		slog.Warn("next-intake forecast: failed to load pending intakes in window, falling back to planner targets only",
 			"error", err)
 	}
+	seen := make(map[dedupKey]bool, len(pendingRows)+len(targets))
+	intakeTargets := make([]medplan.DoseTarget, 0, len(pendingRows))
 	for _, row := range pendingRows {
 		k := dedupKey{row.MedicationID, row.ScheduledAt.UTC().Unix()}
 		if seen[k] {
@@ -143,13 +149,23 @@ func (s *Server) computeNextIntakeData(now time.Time) (time.Time, []int64, []str
 		if row.Source == "tz_step" {
 			src = medplan.SourceTransitionStep
 		}
-		targets = append(targets, medplan.DoseTarget{
+		intakeTargets = append(intakeTargets, medplan.DoseTarget{
 			MedicationID: row.MedicationID,
 			ScheduledAt:  row.ScheduledAt,
 			Source:       src,
 		})
 	}
-	targets = suppressNormalsCoveredByStep(targets)
+	deduped := targets[:0]
+	for _, t := range targets {
+		k := dedupKey{t.MedicationID, t.ScheduledAt.UTC().Unix()}
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		deduped = append(deduped, t)
+	}
+	targets = append(deduped, intakeTargets...)
+	targets = suppressNormalsCoveredByStep(targets, s.plannedOwnedMeds(now))
 	sortTargetsByScheduledAt(targets)
 
 	medByID := make(map[int64]store.Medication, len(meds))

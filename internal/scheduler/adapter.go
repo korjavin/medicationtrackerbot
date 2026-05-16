@@ -123,6 +123,9 @@ func (a *storeAdapter) GetDueTZStepIntakes(asOf time.Time) ([]store.IntakeLog, e
 func (a *storeAdapter) CountFuturePendingTZStepIntakesForPlan(planID int64, asOf time.Time) (int, error) {
 	return a.med.CountFuturePendingTZStepIntakesForPlan(planID, asOf)
 }
+func (a *storeAdapter) MedsWithFuturePendingTZStepsForPlan(planID int64, asOf time.Time) ([]int64, error) {
+	return a.med.MedsWithFuturePendingTZStepsForPlan(planID, asOf)
+}
 func (a *storeAdapter) HasIntakeNearScheduledTime(medID int64, target time.Time, window time.Duration) (bool, error) {
 	return a.med.HasIntakeNearScheduledTime(medID, target, window)
 }

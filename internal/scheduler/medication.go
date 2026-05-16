@@ -34,6 +34,7 @@ type MedicationStore interface {
 	// Pre-materialized transition-step intakes + symmetric dedup.
 	GetDueTZStepIntakes(asOf time.Time) ([]store.IntakeLog, error)
 	CountFuturePendingTZStepIntakesForPlan(planID int64, asOf time.Time) (int, error)
+	MedsWithFuturePendingTZStepsForPlan(planID int64, asOf time.Time) ([]int64, error)
 	HasIntakeNearScheduledTime(medID int64, target time.Time, window time.Duration) (bool, error)
 	// TZ-aware scheduling.
 	GetCurrentTimezone() (string, error)
@@ -205,6 +206,25 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 			"scheduledAt", row.ScheduledAt)
 	}
 
+	// "Plan owns this med" suppression: while an APPROVED plan still has
+	// future PENDING tz_step rows for a medication, the plan is the
+	// authoritative dosing schedule for it — every dose during the transition
+	// window is materialised as a tz_step row, and normal-schedule slots that
+	// fall in a gap > 2*minInterval between consecutive steps would otherwise
+	// slip past the ±minInterval dedup below. This restores the pre-Track-D
+	// "plan owns this medication while steps remain" behaviour.
+	ownedByPlan := map[int64]bool{}
+	if activePlan != nil && activePlan.Status == "APPROVED" {
+		owned, err := c.store.MedsWithFuturePendingTZStepsForPlan(activePlan.ID, now)
+		if err != nil {
+			slog.Warn("medication scheduler: failed to load meds with future pending tz_step rows, falling back to ±minInterval dedup only",
+				"plan_id", activePlan.ID, "error", err)
+		}
+		for _, id := range owned {
+			ownedByPlan[id] = true
+		}
+	}
+
 	// 2) Evaluate normal-schedule targets. Skip any whose exact slot is
 	//    already in intake_log (BatchGet) and any whose ±minInterval band
 	//    overlaps an existing PENDING/TAKEN intake row (new symmetric
@@ -212,6 +232,13 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 	for _, t := range targets {
 		med, ok := medByID[t.MedicationID]
 		if !ok {
+			continue
+		}
+
+		// Plan-owns-med suppression (see comment above the loop).
+		if ownedByPlan[t.MedicationID] {
+			slog.Info("medication scheduler: skipping normal target — plan owns this med",
+				"medID", t.MedicationID, "scheduledAt", t.ScheduledAt, "plan_id", activePlan.ID)
 			continue
 		}
 

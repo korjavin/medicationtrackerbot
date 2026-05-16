@@ -32,16 +32,26 @@ func sortTargetsByScheduledAt(targets []medplan.DoseTarget) {
 }
 
 // suppressNormalsCoveredByStep drops normal-schedule targets for any med that
-// already has a SourceTransitionStep target in the same list. Track D Task 13
-// removed medplan's PendingSteps suppression — once tz_transition_steps was
-// gone, medplan no longer knew which meds had pre-materialized step rows. The
-// scheduler picked the slack up via HasIntakeNearScheduledTime; the forecast
-// surfaces (trigger-next-intake and the Today next-intake card) apply this
-// per-med filter instead, which matches the pre-Task-13 user-visible behaviour
-// (a med whose schedule is replaced by a plan never shows the bare clock slot
-// alongside the step time).
-func suppressNormalsCoveredByStep(targets []medplan.DoseTarget) []medplan.DoseTarget {
-	hasStep := make(map[int64]bool)
+// already has a SourceTransitionStep target in the same list OR is in
+// ownedByPlan. Track D Task 13 removed medplan's PendingSteps suppression —
+// once tz_transition_steps was gone, medplan no longer knew which meds had
+// pre-materialized step rows. The scheduler picked the slack up via
+// HasIntakeNearScheduledTime; the forecast surfaces (trigger-next-intake and
+// the Today next-intake card) apply this per-med filter instead, which matches
+// the pre-Task-13 user-visible behaviour (a med whose schedule is replaced by
+// a plan never shows the bare clock slot alongside the step time).
+//
+// ownedByPlan extends the suppression to meds whose APPROVED plan still has
+// future PENDING tz_step rows that fall outside the 12h forecast window: the
+// scheduler's MedsWithFuturePendingTZStepsForPlan-driven "plan owns this med
+// while steps remain" rule otherwise wouldn't apply on Today / Take-next, and
+// a normal slot whose nearest step is >12h away would surface here even
+// though the scheduler will refuse to fire it.
+func suppressNormalsCoveredByStep(targets []medplan.DoseTarget, ownedByPlan map[int64]bool) []medplan.DoseTarget {
+	hasStep := make(map[int64]bool, len(ownedByPlan))
+	for id := range ownedByPlan {
+		hasStep[id] = true
+	}
 	for _, t := range targets {
 		if t.Source == medplan.SourceTransitionStep {
 			hasStep[t.MedicationID] = true
@@ -58,6 +68,34 @@ func suppressNormalsCoveredByStep(targets []medplan.DoseTarget) []medplan.DoseTa
 		out = append(out, t)
 	}
 	return out
+}
+
+// plannedOwnedMeds mirrors the scheduler's "plan owns this med while steps
+// remain" suppression for the forecast surfaces. Returns the set of medication
+// IDs whose APPROVED transition plan still has future PENDING tz_step rows as
+// of now. An empty map is returned on any error or when no APPROVED plan is
+// active, so the caller's regular in-window dedup still applies as a floor.
+func (s *Server) plannedOwnedMeds(now time.Time) map[int64]bool {
+	owned := map[int64]bool{}
+	plan, err := s.tzPlanStore.GetLatestActiveOrPendingTZTransitionPlan()
+	if err != nil {
+		slog.Warn("forecast: failed to load active plan for plan-owned suppression, falling back to in-window-only suppression",
+			"error", err)
+		return owned
+	}
+	if plan == nil || plan.Status != "APPROVED" {
+		return owned
+	}
+	medIDs, err := s.meds.MedsWithFuturePendingTZStepsForPlan(plan.ID, now)
+	if err != nil {
+		slog.Warn("forecast: failed to load plan-owned meds, falling back to in-window-only suppression",
+			"plan_id", plan.ID, "error", err)
+		return owned
+	}
+	for _, id := range medIDs {
+		owned[id] = true
+	}
+	return owned
 }
 
 func (s *Server) handleSnoozeMedication(w http.ResponseWriter, r *http.Request) {
@@ -457,9 +495,19 @@ func (s *Server) handleUpdateIntake(w http.ResponseWriter, r *http.Request) {
 			takenAt = time.Now()
 		}
 
-		// First update the intake status, then adjust inventory
+		// First update the intake status, then adjust inventory.
+		// sql.ErrNoRows means the row did not match the tzStepPlanStatusGate
+		// (orphan tz_step from a cancelled plan) or was already in the
+		// requested status — either way the row was NOT mutated, so the
+		// inventory adjustment below would double-count off the stale
+		// pre-read intake.Status and must be skipped.
 		if err := s.meds.UpdateIntake(up.ID, takenAt, up.Status); err != nil {
-			slog.Error("Error updating intake", "intakeID", up.ID, "error", err)
+			if errors.Is(err, sql.ErrNoRows) {
+				slog.Info("UpdateIntake skipped (no row matched — orphan tz_step or no-op)",
+					"intakeID", up.ID, "status", up.Status)
+			} else {
+				slog.Error("Error updating intake", "intakeID", up.ID, "error", err)
+			}
 			continue
 		}
 
@@ -553,19 +601,25 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 	// Union medplan's targets with any PENDING intake_log rows inside the
 	// same forward window. Dedup by (medication_id, scheduled_at_unix) so a
 	// normal target with an already-materialized intake row appears once.
+	//
+	// Seed the dedup from intake_log rows first so a pre-materialized
+	// tz_step row wins on exact-time collisions with a normal-schedule
+	// slot — otherwise plannedOwnedMeds suppression would drop the normal
+	// target (because the plan still owns the med) AND the colliding step
+	// target would never be added, hiding the dose entirely. (Pre-Task-13
+	// the seeding order was reversed so the medplan target carried StepID
+	// for MarkStepConsumed; that path is gone.)
 	type dedupKey struct {
 		medID     int64
 		schedUnix int64
-	}
-	seen := make(map[dedupKey]bool, len(targets))
-	for _, t := range targets {
-		seen[dedupKey{t.MedicationID, t.ScheduledAt.UTC().Unix()}] = true
 	}
 	pendingRows, err := s.meds.GetPendingIntakesInWindow(now, now.Add(triggerWindow))
 	if err != nil {
 		slog.Warn("trigger-next-intake: failed to load pending intakes in window, falling back to planner targets only",
 			"error", err)
 	}
+	seen := make(map[dedupKey]bool, len(pendingRows)+len(targets))
+	intakeTargets := make([]medplan.DoseTarget, 0, len(pendingRows))
 	for _, row := range pendingRows {
 		k := dedupKey{row.MedicationID, row.ScheduledAt.UTC().Unix()}
 		if seen[k] {
@@ -576,13 +630,23 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 		if row.Source == "tz_step" {
 			src = medplan.SourceTransitionStep
 		}
-		targets = append(targets, medplan.DoseTarget{
+		intakeTargets = append(intakeTargets, medplan.DoseTarget{
 			MedicationID: row.MedicationID,
 			ScheduledAt:  row.ScheduledAt,
 			Source:       src,
 		})
 	}
-	targets = suppressNormalsCoveredByStep(targets)
+	deduped := targets[:0]
+	for _, t := range targets {
+		k := dedupKey{t.MedicationID, t.ScheduledAt.UTC().Unix()}
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		deduped = append(deduped, t)
+	}
+	targets = append(deduped, intakeTargets...)
+	targets = suppressNormalsCoveredByStep(targets, s.plannedOwnedMeds(now))
 	sortTargetsByScheduledAt(targets)
 
 	medByID := make(map[int64]store.Medication, len(meds))

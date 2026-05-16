@@ -38,6 +38,7 @@ type MedicationStore interface {
 	GetTakenIntakesBySchedule(userID int64, scheduledAt time.Time) ([]store.IntakeLog, error)
 	GetPendingIntakes() ([]store.IntakeLog, error)
 	GetPendingIntakesInWindow(start, end time.Time) ([]store.IntakeLog, error)
+	MedsWithFuturePendingTZStepsForPlan(planID int64, asOf time.Time) ([]int64, error)
 	SnoozeIntake(id int64, snoozeUntil time.Time) error
 	SkipIntake(id int64) error
 }
