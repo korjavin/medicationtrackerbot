@@ -104,29 +104,16 @@ func (s *Server) computeNextIntakeData(now time.Time) (time.Time, []int64, []str
 		}
 	}
 
-	// Plan inputs for the planner: pending steps for any APPROVED plan.
-	// The consumed-step overlap guard moved out of medplan in Task 11 of
-	// the scheduling simplification plan; the union with intake_log below
-	// (Task 12) is what surfaces pre-materialized tz_step rows once Task 13
-	// drops tz_transition_steps.
-	var pendingSteps []store.TZTransitionStep
-	if s.tzPlanStore != nil {
-		if plan, err := s.tzPlanStore.GetLatestActiveOrPendingTZTransitionPlan(); err == nil && plan != nil {
-			if plan.Status == "APPROVED" {
-				if steps, err := s.tzPlanStore.GetPendingStepsForPlan(plan.ID); err == nil {
-					pendingSteps = steps
-				}
-			}
-		}
-	}
-
+	// Normal-schedule targets only. Pre-materialized tz_step rows surface via
+	// the intake_log union below — the legacy GetPendingStepsForPlan (against
+	// tz_transition_steps) was retired alongside the table in Task 13 of the
+	// scheduling-simplification plan.
 	const forecastWindow = 12 * time.Hour
 	targets := medplan.PlanDoses(medplan.Inputs{
-		Medications:  meds,
-		PendingSteps: pendingSteps,
-		UserLoc:      userLoc,
-		Now:          now,
-		Window:       forecastWindow,
+		Medications: meds,
+		UserLoc:     userLoc,
+		Now:         now,
+		Window:      forecastWindow,
 	})
 
 	// Task 12: union medplan's targets with any PENDING intake_log rows
@@ -162,6 +149,7 @@ func (s *Server) computeNextIntakeData(now time.Time) (time.Time, []int64, []str
 			Source:       src,
 		})
 	}
+	targets = suppressNormalsCoveredByStep(targets)
 	sortTargetsByScheduledAt(targets)
 
 	medByID := make(map[int64]store.Medication, len(meds))
@@ -728,6 +716,12 @@ func (s *Server) handleTZSuggestionDismiss(w http.ResponseWriter, r *http.Reques
 // steps as JSON, or `{"plan": null}` when there is nothing in flight. The UI uses
 // this to decide whether to render the timezone-transition banner; if no plan
 // exists, the response is small and the banner stays hidden.
+//
+// Track D Task 13 dropped tz_transition_steps. Steps for display now come from
+// plan.StepsJSON (the audit blob produced by tzreschedule.GeneratePlan at plan
+// creation time). The banner only renders for actionable statuses
+// (PENDING_APPROVAL / NOTIFIED), so the entire serialized list is "remaining"
+// from the user's perspective — no per-step consumption tracking is needed.
 func (s *Server) handleGetCurrentTZPlan(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -742,18 +736,57 @@ func (s *Server) handleGetCurrentTZPlan(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	steps, err := s.tzPlanStore.GetPendingStepsForPlan(plan.ID)
-	if err != nil {
-		slog.Error("handleGetCurrentTZPlan: GetPendingStepsForPlan failed", "plan_id", plan.ID, "error", err)
-		// Fall through with empty steps — surface the plan so the user can still
-		// approve or reject it; the banner will just not list per-dose detail.
-		steps = nil
-	}
+	steps := parsePlanStepsForUI(plan.StepsJSON)
 
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"plan":  plan,
 		"steps": steps,
 	})
+}
+
+// uiTZPlanStep is the wire-shape the tz-plan banner expects: snake_case keys
+// matching the legacy `store.TZTransitionStep` JSON tags so the frontend's
+// `s.medication_id` / `s.step_number` / `s.scheduled_at` / `s.note` reads keep
+// working. Built from `tz_transition_plans.steps_json`, which planner.go
+// serializes with the PascalCase shape of `tzreschedule.TransitionStep`.
+type uiTZPlanStep struct {
+	PlanID       int64     `json:"plan_id"`
+	MedicationID int64     `json:"medication_id"`
+	StepNumber   int       `json:"step_number"`
+	ScheduledAt  time.Time `json:"scheduled_at"`
+	Note         string    `json:"note"`
+}
+
+// parsePlanStepsForUI converts the plan's StepsJSON audit blob into the
+// snake-case shape the tz-plan banner consumes. The input is the output of
+// `json.Marshal([]tzreschedule.TransitionStep)`, so keys are PascalCase.
+func parsePlanStepsForUI(stepsJSON string) []uiTZPlanStep {
+	if stepsJSON == "" {
+		return nil
+	}
+	var raw []struct {
+		PlanID       int64     `json:"PlanID"`
+		MedicationID int64     `json:"MedicationID"`
+		StepNumber   int       `json:"StepNumber"`
+		ScheduledAt  time.Time `json:"ScheduledAt"`
+		Note         string    `json:"Note"`
+	}
+	if err := json.Unmarshal([]byte(stepsJSON), &raw); err != nil {
+		slog.Warn("handleGetCurrentTZPlan: failed to parse steps_json; banner will render without per-step detail",
+			"error", err)
+		return nil
+	}
+	out := make([]uiTZPlanStep, 0, len(raw))
+	for _, r := range raw {
+		out = append(out, uiTZPlanStep{
+			PlanID:       r.PlanID,
+			MedicationID: r.MedicationID,
+			StepNumber:   r.StepNumber,
+			ScheduledAt:  r.ScheduledAt,
+			Note:         r.Note,
+		})
+	}
+	return out
 }
 
 // handleTZPlanApprove handles POST /api/tz-plan/{id}/approve.

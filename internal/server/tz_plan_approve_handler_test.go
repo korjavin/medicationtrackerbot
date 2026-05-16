@@ -3,11 +3,14 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
 )
+
+func itoa64(v int64) string { return strconv.FormatInt(v, 10) }
 
 // TestHandleTZPlanApprove_RoutesThroughLifecycle pins Track D Task 10's
 // CLAUDE.md-rule-#1 fix: the HTTP handler must NOT call SetTZTransitionPlanApproved
@@ -27,21 +30,20 @@ func TestHandleTZPlanApprove_RoutesThroughLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
 	}
+	// steps_json mirrors the PascalCase shape produced by
+	// json.Marshal([]tzreschedule.TransitionStep); MaterializePlanStepsAsIntakesTx
+	// reads from it post-Task-13 (the tz_transition_steps table is gone).
+	stepsJSON := `[{"MedicationID":` + itoa64(medID) + `,"StepNumber":1,"ScheduledAt":"` +
+		time.Date(2026, 5, 16, 7, 0, 0, 0, time.UTC).Format(time.RFC3339) + `","Note":"task10 step"}]`
 	res, err := db.DB().Exec(
 		`INSERT INTO tz_transition_plans (old_tz, new_tz, status, steps_json, inputs_json, plan_hash)
-		 VALUES ('UTC', 'Europe/Berlin', 'PENDING_APPROVAL', '[]', '{}', 'task10-handler')`,
+		 VALUES ('UTC', 'Europe/Berlin', 'PENDING_APPROVAL', ?, '{}', 'task10-handler')`,
+		stepsJSON,
 	)
 	if err != nil {
 		t.Fatalf("insert plan: %v", err)
 	}
 	planID, _ := res.LastInsertId()
-	if _, err := db.DB().Exec(
-		`INSERT INTO tz_transition_steps (plan_id, medication_id, step_number, scheduled_at, note)
-		 VALUES (?, ?, 1, ?, 'task10 step')`,
-		planID, medID, time.Date(2026, 5, 16, 7, 0, 0, 0, time.UTC),
-	); err != nil {
-		t.Fatalf("insert step: %v", err)
-	}
 
 	req := httptest.NewRequest("POST", "/api/tz-plan/0/approve", nil)
 	req.SetPathValue("id", "1") // Plan ID 1 (first inserted).

@@ -221,45 +221,6 @@ func TestSetTZTransitionPlanApproved(t *testing.T) {
 	}
 }
 
-func TestCreateAndGetTZTransitionSteps(t *testing.T) {
-	r := setupTZRepo(t)
-
-	plan := &TZTransitionPlan{
-		OldTZ:      "UTC",
-		NewTZ:      "Asia/Shanghai",
-		Status:     "APPROVED",
-		StepsJSON:  `[]`,
-		InputsJSON: `{}`,
-		PlanHash:   "hash4",
-	}
-	planID, err := r.CreateTZTransitionPlan(plan)
-	if err != nil {
-		t.Fatalf("CreateTZTransitionPlan: %v", err)
-	}
-
-	now := time.Now().UTC().Truncate(time.Second)
-	steps := []TZTransitionStep{
-		{PlanID: planID, MedicationID: 1, StepNumber: 1, ScheduledAt: now.Add(2 * time.Hour), Note: "step 1"},
-		{PlanID: planID, MedicationID: 1, StepNumber: 2, ScheduledAt: now.Add(5 * time.Hour), Note: "step 2"},
-		{PlanID: planID, MedicationID: 2, StepNumber: 1, ScheduledAt: now.Add(3 * time.Hour), Note: "med2 step 1"},
-	}
-	if err := r.CreateTZTransitionSteps(steps); err != nil {
-		t.Fatalf("CreateTZTransitionSteps: %v", err)
-	}
-
-	pending, err := r.GetPendingStepsForPlan(planID)
-	if err != nil {
-		t.Fatalf("GetPendingStepsForPlan: %v", err)
-	}
-	if len(pending) != 3 {
-		t.Fatalf("expected 3 pending steps, got %d", len(pending))
-	}
-	// Ordered by step_number ASC
-	if pending[0].StepNumber != 1 {
-		t.Errorf("first step has StepNumber %d, want 1", pending[0].StepNumber)
-	}
-}
-
 // TestTZTransitionPlan_LifecycleTimestamps_UnixUTC pins Task 7's invariant:
 // every plan-lifecycle timestamp setter (Create / MarkPlanNotified /
 // SetTZTransitionPlanApproved / ResetPlanToPending) round-trips through
@@ -395,50 +356,11 @@ func TestTZTransitionPlan_LifecycleTimestamps_UnixUTC(t *testing.T) {
 	}
 }
 
-func TestMarkStepConsumed(t *testing.T) {
-	r := setupTZRepo(t)
-
-	plan := &TZTransitionPlan{
-		OldTZ:      "UTC",
-		NewTZ:      "Asia/Shanghai",
-		Status:     "APPROVED",
-		StepsJSON:  `[]`,
-		InputsJSON: `{}`,
-		PlanHash:   "hash5",
-	}
-	planID, err := r.CreateTZTransitionPlan(plan)
-	if err != nil {
-		t.Fatalf("CreateTZTransitionPlan: %v", err)
-	}
-
-	now := time.Now().UTC().Truncate(time.Second)
-	steps := []TZTransitionStep{
-		{PlanID: planID, MedicationID: 1, StepNumber: 1, ScheduledAt: now.Add(time.Hour), Note: "step 1"},
-		{PlanID: planID, MedicationID: 1, StepNumber: 2, ScheduledAt: now.Add(3 * time.Hour), Note: "step 2"},
-	}
-	if err := r.CreateTZTransitionSteps(steps); err != nil {
-		t.Fatalf("CreateTZTransitionSteps: %v", err)
-	}
-
-	pending, err := r.GetPendingStepsForPlan(planID)
-	if err != nil || len(pending) != 2 {
-		t.Fatalf("expected 2 pending steps: err=%v len=%d", err, len(pending))
-	}
-
-	// Consume step 1
-	if err := r.MarkStepConsumed(pending[0].ID, now); err != nil {
-		t.Fatalf("MarkStepConsumed: %v", err)
-	}
-
-	// Now only 1 pending step remains
-	remaining, err := r.GetPendingStepsForPlan(planID)
-	if err != nil {
-		t.Fatalf("GetPendingStepsForPlan after consume: %v", err)
-	}
-	if len(remaining) != 1 {
-		t.Fatalf("expected 1 remaining step, got %d", len(remaining))
-	}
-	if remaining[0].StepNumber != 2 {
-		t.Errorf("remaining step has StepNumber %d, want 2", remaining[0].StepNumber)
-	}
-}
+// TestCreateAndGetTZTransitionSteps and TestMarkStepConsumed lived here
+// pre-Task-13 to pin the dedicated step-table lifecycle (bulk-insert,
+// list-pending, mark-consumed). Track D Task 13 dropped the
+// tz_transition_steps table; step data now lives entirely in
+// tz_transition_plans.steps_json (audit blob) and intake_log rows with
+// source='tz_step' (execution state). The Materialize path is covered by
+// TestMaterializePlanStepsAsIntakesTx in internal/store/medication/, and the
+// cancel-cleanup path by TestDeletePendingPreMaterializedIntakesForPlan there.

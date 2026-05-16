@@ -1,6 +1,7 @@
 package tzreschedule
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -9,17 +10,18 @@ import (
 
 // mockPlannerStore is a simple in-memory mock of PlannerStore for unit tests.
 type mockPlannerStore struct {
-	medications      []store.Medication
-	intakes          map[int64][]store.IntakeLog // medID → intake history
-	plans            []*store.TZTransitionPlan
-	steps            []store.TZTransitionStep
-	nextPlanID       int64
-	deletedPlanIDs   []int64 // planIDs passed to DeletePendingPreMaterializedIntakesForPlan
+	medications    []store.Medication
+	intakes        map[int64][]store.IntakeLog // medID → intake history
+	plans          []*store.TZTransitionPlan
+	stepCounts     map[int64]int // planID → remaining future tz_step intake count
+	nextPlanID     int64
+	deletedPlanIDs []int64 // planIDs passed to DeletePendingPreMaterializedIntakesForPlan
 }
 
 func newMockPlannerStore() *mockPlannerStore {
 	return &mockPlannerStore{
 		intakes:    make(map[int64][]store.IntakeLog),
+		stepCounts: make(map[int64]int),
 		nextPlanID: 1,
 	}
 }
@@ -74,14 +76,8 @@ func (m *mockPlannerStore) UpdateTZTransitionPlanStatus(id int64, newStatus, use
 	return nil
 }
 
-func (m *mockPlannerStore) GetPendingStepsForPlan(planID int64) ([]store.TZTransitionStep, error) {
-	var pending []store.TZTransitionStep
-	for _, s := range m.steps {
-		if s.PlanID == planID && s.ConsumedAt == nil {
-			pending = append(pending, s)
-		}
-	}
-	return pending, nil
+func (m *mockPlannerStore) CountFuturePendingTZStepIntakesForPlan(planID int64, asOf time.Time) (int, error) {
+	return m.stepCounts[planID], nil
 }
 
 func (m *mockPlannerStore) DeletePendingPreMaterializedIntakesForPlan(planID int64) error {
@@ -91,7 +87,7 @@ func (m *mockPlannerStore) DeletePendingPreMaterializedIntakesForPlan(planID int
 	return nil
 }
 
-func (m *mockPlannerStore) CreateTZTransitionPlanWithSteps(plan *store.TZTransitionPlan, steps []store.TZTransitionStep) (int64, error) {
+func (m *mockPlannerStore) CreateTZTransitionPlanWithSteps(plan *store.TZTransitionPlan) (int64, error) {
 	// Mirror the real store: cancel all active plans within the transaction.
 	for _, p := range m.plans {
 		switch p.Status {
@@ -104,11 +100,6 @@ func (m *mockPlannerStore) CreateTZTransitionPlanWithSteps(plan *store.TZTransit
 	plan.CreatedAt = time.Now()
 	m.nextPlanID++
 	m.plans = append(m.plans, plan)
-	// Set the PlanID on each step (mirrors the store's transaction behaviour).
-	for i := range steps {
-		steps[i].PlanID = plan.ID
-	}
-	m.steps = append(m.steps, steps...)
 	return plan.ID, nil
 }
 
@@ -187,8 +178,8 @@ func TestGenerateIfChanged_CreatesPlan(t *testing.T) {
 	if s.plans[0].Status != "PENDING_APPROVAL" {
 		t.Fatalf("expected PENDING_APPROVAL, got %q", s.plans[0].Status)
 	}
-	if len(s.steps) == 0 {
-		t.Fatalf("expected steps to be saved")
+	if s.plans[0].StepsJSON == "" || s.plans[0].StepsJSON == "[]" {
+		t.Fatalf("expected steps_json to be populated on the plan, got %q", s.plans[0].StepsJSON)
 	}
 }
 
@@ -318,7 +309,11 @@ func TestGenerateIfChanged_LastIntakeLoadedIntoInputs(t *testing.T) {
 	}
 
 	// All steps should be anchored after the last intake time (anchor = 19:00 UTC).
-	for _, step := range s.steps {
+	var stored []TransitionStep
+	if err := json.Unmarshal([]byte(s.plans[0].StepsJSON), &stored); err != nil {
+		t.Fatalf("unmarshal steps_json: %v", err)
+	}
+	for _, step := range stored {
 		if step.ScheduledAt.Before(anchor) {
 			t.Fatalf("step ScheduledAt %v is before anchor %v", step.ScheduledAt, anchor)
 		}

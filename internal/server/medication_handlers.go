@@ -31,6 +31,35 @@ func sortTargetsByScheduledAt(targets []medplan.DoseTarget) {
 	})
 }
 
+// suppressNormalsCoveredByStep drops normal-schedule targets for any med that
+// already has a SourceTransitionStep target in the same list. Track D Task 13
+// removed medplan's PendingSteps suppression — once tz_transition_steps was
+// gone, medplan no longer knew which meds had pre-materialized step rows. The
+// scheduler picked the slack up via HasIntakeNearScheduledTime; the forecast
+// surfaces (trigger-next-intake and the Today next-intake card) apply this
+// per-med filter instead, which matches the pre-Task-13 user-visible behaviour
+// (a med whose schedule is replaced by a plan never shows the bare clock slot
+// alongside the step time).
+func suppressNormalsCoveredByStep(targets []medplan.DoseTarget) []medplan.DoseTarget {
+	hasStep := make(map[int64]bool)
+	for _, t := range targets {
+		if t.Source == medplan.SourceTransitionStep {
+			hasStep[t.MedicationID] = true
+		}
+	}
+	if len(hasStep) == 0 {
+		return targets
+	}
+	out := targets[:0]
+	for _, t := range targets {
+		if t.Source == medplan.SourceNormalSchedule && hasStep[t.MedicationID] {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
 func (s *Server) handleSnoozeMedication(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
@@ -509,37 +538,21 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	// Plan inputs: identical to the forecast endpoint so the same cluster
-	// of doses surfaces here. The consumed-step overlap guard moved out of
-	// medplan in Task 11 of the scheduling simplification plan; the union
-	// with intake_log below (Task 12) is what surfaces pre-materialized
-	// tz_step rows once Task 13 drops tz_transition_steps.
-	var pendingSteps []store.TZTransitionStep
-	if s.tzPlanStore != nil {
-		if plan, err := s.tzPlanStore.GetLatestActiveOrPendingTZTransitionPlan(); err == nil && plan != nil {
-			if plan.Status == "APPROVED" {
-				if steps, err := s.tzPlanStore.GetPendingStepsForPlan(plan.ID); err == nil {
-					pendingSteps = steps
-				}
-			}
-		}
-	}
-
+	// Normal-schedule targets only. Pre-materialized tz_step rows are
+	// unioned in from intake_log below — the legacy GetPendingStepsForPlan
+	// (against tz_transition_steps) was retired alongside the table in
+	// Task 13 of the scheduling-simplification plan.
 	const triggerWindow = 12 * time.Hour
 	targets := medplan.PlanDoses(medplan.Inputs{
-		Medications:  meds,
-		PendingSteps: pendingSteps,
-		UserLoc:      userLoc,
-		Now:          now,
-		Window:       triggerWindow,
+		Medications: meds,
+		UserLoc:     userLoc,
+		Now:         now,
+		Window:      triggerWindow,
 	})
 
-	// Task 12: union medplan's targets with any PENDING intake_log rows
-	// inside the same forward window. Dedup by (medication_id,
-	// scheduled_at_unix) so a normal target with an already-materialized
-	// intake row appears once; PlanDoses entries win on overlap so the
-	// transition-step StepID (used below for MarkStepConsumed) is
-	// preserved while we still ship alongside tz_transition_steps.
+	// Union medplan's targets with any PENDING intake_log rows inside the
+	// same forward window. Dedup by (medication_id, scheduled_at_unix) so a
+	// normal target with an already-materialized intake row appears once.
 	type dedupKey struct {
 		medID     int64
 		schedUnix int64
@@ -569,6 +582,7 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 			Source:       src,
 		})
 	}
+	targets = suppressNormalsCoveredByStep(targets)
 	sortTargetsByScheduledAt(targets)
 
 	medByID := make(map[int64]store.Medication, len(meds))
@@ -581,12 +595,8 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 	// the scheduler/forecast would compute, so a later cancel reverts the
 	// row to the right point on the timeline rather than collapsing the
 	// whole cluster onto a single bucket.
-	type clusterMember struct {
-		target  medplan.DoseTarget
-		isStep  bool
-	}
 	var clusterEarliest time.Time
-	var cluster []clusterMember
+	var cluster []medplan.DoseTarget
 	for _, t := range targets {
 		// Skip if the user already acted on this dose.
 		intake, _ := s.meds.GetIntakeBySchedule(t.MedicationID, t.ScheduledAt)
@@ -596,9 +606,9 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 		switch {
 		case clusterEarliest.IsZero() || t.ScheduledAt.Before(clusterEarliest):
 			clusterEarliest = t.ScheduledAt
-			cluster = []clusterMember{{target: t, isStep: t.Source == medplan.SourceTransitionStep}}
+			cluster = []medplan.DoseTarget{t}
 		case absDuration(t.ScheduledAt.Sub(clusterEarliest)) <= triggerNextIntakeClusterWindow:
-			cluster = append(cluster, clusterMember{target: t, isStep: t.Source == medplan.SourceTransitionStep})
+			cluster = append(cluster, t)
 		}
 	}
 
@@ -616,10 +626,9 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 	// label in the early-confirm Telegram notification.
 	nextTime := clusterEarliest
 
-	for _, member := range cluster {
-		medID := member.target.MedicationID
-		stepID := member.target.StepID
-		scheduledAt := member.target.ScheduledAt
+	for _, target := range cluster {
+		medID := target.MedicationID
+		scheduledAt := target.ScheduledAt
 
 		med, _ := s.meds.GetMedication(medID)
 		if med != nil {
@@ -695,16 +704,12 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 			confirmedCount++
 		}
 		// If intake exists but is already taken, skip it.
-
-		// If this dose came from a transition plan step, mark the step
-		// consumed so the medication scheduler does not re-fire it later.
-		// Best-effort: the user-visible flow has already succeeded.
-		if member.isStep && stepID != 0 && s.tzPlanStore != nil {
-			if err := s.tzPlanStore.MarkStepConsumed(stepID, now); err != nil {
-				slog.Warn("Failed to mark step consumed after early-take",
-					"stepID", stepID, "medID", medID, "error", err)
-			}
-		}
+		//
+		// Pre-Task-13 we also called MarkStepConsumed on tz_transition_steps
+		// for transition-plan step targets. That table is gone; the cluster
+		// member's pre-materialized intake row already carries source='tz_step'
+		// and the ConfirmIntake call above flips it to TAKEN, so the scheduler's
+		// dedup against intake_log handles the rest.
 	}
 
 	// Send early intake confirmation notification via all channels

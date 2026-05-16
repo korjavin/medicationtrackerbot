@@ -1028,54 +1028,67 @@ func (r *Repo) GetIntakesSince(since time.Time) ([]IntakeWithMedication, error) 
 	return logs, nil
 }
 
-// MaterializePlanStepsAsIntakesTx reads every unconsumed step from
-// tz_transition_steps for the given plan and inserts a corresponding PENDING
-// row into intake_log with source='tz_step'. The insert uses INSERT OR IGNORE
-// against the partial unique index added by migration 067, so re-running the
-// materialize on the same plan (e.g. after a tx commit failure or a backfill
-// running alongside a freshly approved plan) is a no-op rather than a
+// materializedStep is the minimal projection of tzreschedule.TransitionStep
+// that MaterializePlanStepsAsIntakesTx needs in order to insert intake_log
+// rows. The JSON keys mirror the PascalCase shape produced by
+// `json.Marshal([]tzreschedule.TransitionStep)` in planner.go, so the same
+// blob stored in tz_transition_plans.steps_json round-trips cleanly here.
+type materializedStep struct {
+	MedicationID int64     `json:"MedicationID"`
+	StepNumber   int       `json:"StepNumber"`
+	ScheduledAt  time.Time `json:"ScheduledAt"`
+}
+
+// MaterializePlanStepsAsIntakesTx reads the plan's steps_json blob and
+// inserts one PENDING source='tz_step' row into intake_log per step. The
+// insert uses INSERT OR IGNORE against the partial unique index added by
+// migration 067, so re-running the materialize on the same plan (e.g. after a
+// tx commit failure or a benign re-approve) is a no-op rather than a
 // duplicate-key error.
 //
-// Track A skipped tz_transition_steps's time columns — Task 13 will drop the
-// table — so step.scheduled_at is still DATETIME. modernc.org/sqlite stores
-// time.Time as "YYYY-MM-DD HH:MM:SS ±HHMM ZZZ" (Go's t.String() format) and
-// SQLite's strftime cannot parse the trailing zone name; we apply the same
-// COALESCE/substr trick migration 057 introduced for intake_log.scheduled_at
-// to extract the wall clock + reformatted offset.
+// Track D Task 13 dropped the tz_transition_steps table; steps_json is now the
+// single source of truth for "what doses does this plan introduce". The
+// planner already serializes []tzreschedule.TransitionStep into that column at
+// plan-create time, so this method does not need to touch any other table.
 //
 // Returns the number of rows actually inserted (zero on a re-run). Caller is
 // responsible for the surrounding transaction (typically Repos.ApproveAndMaterialize).
 func (r *Repo) MaterializePlanStepsAsIntakesTx(tx storedb.TX, planID, allowedUserID int64) (int64, error) {
-	res, err := tx.Exec(`
-		INSERT OR IGNORE INTO intake_log
-		  (medication_id, user_id, scheduled_at_unix, status,
-		   source, tz_plan_id, tz_step_number)
-		SELECT
-		  s.medication_id,
-		  ?,
-		  CAST(
-		    COALESCE(
-		      strftime('%s', s.scheduled_at),
-		      strftime('%s',
-		        substr(s.scheduled_at, 1, 19) || ' ' ||
-		        substr(s.scheduled_at, 20 + instr(substr(s.scheduled_at, 20), ' '), 3) || ':' ||
-		        substr(s.scheduled_at, 20 + instr(substr(s.scheduled_at, 20), ' ') + 3, 2)
-		      )
-		    ) AS INTEGER
-		  ),
-		  'PENDING',
-		  'tz_step',
-		  s.plan_id,
-		  s.step_number
-		FROM tz_transition_steps s
-		JOIN medications m ON m.id = s.medication_id
-		WHERE s.plan_id = ?
-		  AND s.consumed_at IS NULL`, allowedUserID, planID)
-	if err != nil {
-		return 0, fmt.Errorf("materialize plan %d: %w", planID, err)
+	var stepsJSON string
+	if err := tx.QueryRow(`SELECT steps_json FROM tz_transition_plans WHERE id = ?`, planID).Scan(&stepsJSON); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("materialize plan %d: load steps_json: %w", planID, err)
 	}
-	n, _ := res.RowsAffected()
-	return n, nil
+	if stepsJSON == "" {
+		return 0, nil
+	}
+	var steps []materializedStep
+	if err := json.Unmarshal([]byte(stepsJSON), &steps); err != nil {
+		return 0, fmt.Errorf("materialize plan %d: parse steps_json: %w", planID, err)
+	}
+	if len(steps) == 0 {
+		return 0, nil
+	}
+	var total int64
+	for _, s := range steps {
+		if s.MedicationID == 0 || s.StepNumber == 0 {
+			continue
+		}
+		res, err := tx.Exec(`
+			INSERT OR IGNORE INTO intake_log
+			  (medication_id, user_id, scheduled_at_unix, status,
+			   source, tz_plan_id, tz_step_number)
+			VALUES (?, ?, ?, 'PENDING', 'tz_step', ?, ?)`,
+			s.MedicationID, allowedUserID, s.ScheduledAt.UTC().Unix(), planID, s.StepNumber)
+		if err != nil {
+			return total, fmt.Errorf("materialize plan %d step %d: %w", planID, s.StepNumber, err)
+		}
+		n, _ := res.RowsAffected()
+		total += n
+	}
+	return total, nil
 }
 
 // DeletePendingPreMaterializedIntakesForPlan removes every PENDING intake_log

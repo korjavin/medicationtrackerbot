@@ -13,6 +13,31 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
+// planStepFixture mirrors the PascalCase JSON shape of
+// tzreschedule.TransitionStep — the same blob the planner writes into
+// tz_transition_plans.steps_json. Approve-time materialise reads from this
+// column post-Task-13.
+type planStepFixture struct {
+	MedicationID int64
+	StepNumber   int
+	ScheduledAt  time.Time
+	Note         string
+}
+
+// setPlanSteps overwrites tz_transition_plans.steps_json on the given plan
+// with the serialised list of steps. Replaces the pre-Task-13 pattern of
+// inserting rows into tz_transition_steps before calling ApproveAndMaterialize.
+func setPlanSteps(t *testing.T, db *store.Store, planID int64, steps []planStepFixture) {
+	t.Helper()
+	blob, err := json.Marshal(steps)
+	if err != nil {
+		t.Fatalf("marshal steps: %v", err)
+	}
+	if _, err := db.DB().Exec(`UPDATE tz_transition_plans SET steps_json = ? WHERE id = ?`, string(blob), planID); err != nil {
+		t.Fatalf("update steps_json: %v", err)
+	}
+}
+
 // triggerHelpers wraps the busywork around handleTriggerNextIntake into one
 // place: parsing the response, fixing the clock the handler reads, and
 // fetching the resulting intake state. Each subtest uses it so the tests
@@ -144,19 +169,17 @@ func TestHandleTriggerNextIntake_PendingPlanStepUsedNotClockTime(t *testing.T) {
 
 	planID, err := c.db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
 		OldTZ: "Europe/Copenhagen", NewTZ: "America/Los_Angeles",
-		Status: "APPROVED", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "h",
+		Status: "PENDING_APPROVAL", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "h",
 	})
 	if err != nil {
 		t.Fatalf("CreateTZTransitionPlan: %v", err)
 	}
-	if _, err := c.db.TZ.SetTZTransitionPlanApproved(planID, c.now.Add(-time.Hour)); err != nil {
-		t.Fatalf("SetTZTransitionPlanApproved: %v", err)
-	}
 	stepTime := time.Date(2026, 5, 4, 14, 18, 0, 0, la)
-	if err := c.db.TZ.CreateTZTransitionSteps([]store.TZTransitionStep{
-		{PlanID: planID, MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "step"},
-	}); err != nil {
-		t.Fatalf("CreateTZTransitionSteps: %v", err)
+	setPlanSteps(t, c.db, planID, []planStepFixture{
+		{MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "step"},
+	})
+	if _, err := c.db.ApproveAndMaterialize(context.Background(), planID, 123456, c.now.Add(-time.Hour)); err != nil {
+		t.Fatalf("ApproveAndMaterialize: %v", err)
 	}
 
 	resp, code := c.callTrigger(123456)
@@ -175,17 +198,14 @@ func TestHandleTriggerNextIntake_PendingPlanStepUsedNotClockTime(t *testing.T) {
 	if intake.Status != "TAKEN" {
 		t.Errorf("expected status TAKEN, got %s", intake.Status)
 	}
+	if intake.Source != "tz_step" {
+		t.Errorf("expected source=tz_step preserved on the pre-materialized row, got %q", intake.Source)
+	}
 
 	// And there must be NO intake at the bare 21:30 PDT clock target.
 	bogus := time.Date(2026, 5, 4, 21, 30, 0, 0, la)
 	if got, _ := c.db.Medication.GetIntakeBySchedule(medID, bogus); got != nil {
 		t.Errorf("did not expect a clock-time 21:30 PDT intake, but found %+v", got)
-	}
-
-	// And the step must be marked consumed.
-	pending, _ := c.db.TZ.GetPendingStepsForPlan(planID)
-	if len(pending) != 0 {
-		t.Errorf("expected step marked consumed, got %d still pending", len(pending))
 	}
 }
 
@@ -209,21 +229,21 @@ func TestHandleTriggerNextIntake_ClusterMixesStepAndNormal(t *testing.T) {
 
 	planID, err := c.db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
 		OldTZ: "Europe/Copenhagen", NewTZ: "America/Los_Angeles",
-		Status: "APPROVED", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "hcluster",
+		Status: "PENDING_APPROVAL", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "hcluster",
 	})
 	if err != nil {
 		t.Fatalf("CreateTZTransitionPlan: %v", err)
 	}
-	if _, err := c.db.TZ.SetTZTransitionPlanApproved(planID, c.now.Add(-time.Hour)); err != nil {
-		t.Fatalf("SetTZTransitionPlanApproved: %v", err)
-	}
 	driftedStep := time.Date(2026, 5, 4, 8, 22, 6, 0, la) // 2 m 6 s drift
-	if err := c.db.TZ.CreateTZTransitionSteps([]store.TZTransitionStep{
-		{PlanID: planID, MedicationID: allopurinol, StepNumber: 1, ScheduledAt: driftedStep, Note: "step a"},
-		{PlanID: planID, MedicationID: bisoprolol, StepNumber: 1, ScheduledAt: driftedStep, Note: "step b"},
-		{PlanID: planID, MedicationID: candecorComp, StepNumber: 1, ScheduledAt: driftedStep, Note: "step c"},
-	}); err != nil {
-		t.Fatalf("CreateTZTransitionSteps: %v", err)
+	// Three meds share a single step_number=1; pre-materialize one row per med
+	// so the unique index (tz_plan_id, tz_step_number) doesn't collide.
+	setPlanSteps(t, c.db, planID, []planStepFixture{
+		{MedicationID: allopurinol, StepNumber: 1, ScheduledAt: driftedStep, Note: "step a"},
+		{MedicationID: bisoprolol, StepNumber: 2, ScheduledAt: driftedStep, Note: "step b"},
+		{MedicationID: candecorComp, StepNumber: 3, ScheduledAt: driftedStep, Note: "step c"},
+	})
+	if _, err := c.db.ApproveAndMaterialize(context.Background(), planID, 123456, c.now.Add(-time.Hour)); err != nil {
+		t.Fatalf("ApproveAndMaterialize: %v", err)
 	}
 
 	resp, code := c.callTrigger(123456)
@@ -265,19 +285,17 @@ func TestHandleTriggerNextIntake_CancelRevertsToCorrectScheduledAt(t *testing.T)
 
 	planID, err := c.db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
 		OldTZ: "Europe/Copenhagen", NewTZ: "America/Los_Angeles",
-		Status: "APPROVED", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "hcancel",
+		Status: "PENDING_APPROVAL", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "hcancel",
 	})
 	if err != nil {
 		t.Fatalf("CreateTZTransitionPlan: %v", err)
 	}
-	if _, err := c.db.TZ.SetTZTransitionPlanApproved(planID, c.now.Add(-time.Hour)); err != nil {
-		t.Fatalf("SetTZTransitionPlanApproved: %v", err)
-	}
 	stepTime := time.Date(2026, 5, 4, 14, 18, 0, 0, la)
-	if err := c.db.TZ.CreateTZTransitionSteps([]store.TZTransitionStep{
-		{PlanID: planID, MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "step"},
-	}); err != nil {
-		t.Fatalf("CreateTZTransitionSteps: %v", err)
+	setPlanSteps(t, c.db, planID, []planStepFixture{
+		{MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "step"},
+	})
+	if _, err := c.db.ApproveAndMaterialize(context.Background(), planID, 123456, c.now.Add(-time.Hour)); err != nil {
+		t.Fatalf("ApproveAndMaterialize: %v", err)
 	}
 
 	resp, code := c.callTrigger(123456)
@@ -341,21 +359,19 @@ func TestHandleTriggerNextIntake_EarlyNotifFormatsInUserTZ(t *testing.T) {
 
 	planID, err := c.db.TZ.CreateTZTransitionPlan(&store.TZTransitionPlan{
 		OldTZ: "Europe/Copenhagen", NewTZ: "America/Los_Angeles",
-		Status: "APPROVED", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "h-tz-fmt",
+		Status: "PENDING_APPROVAL", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "h-tz-fmt",
 	})
 	if err != nil {
 		t.Fatalf("CreateTZTransitionPlan: %v", err)
 	}
-	if _, err := c.db.TZ.SetTZTransitionPlanApproved(planID, c.now.Add(-time.Hour)); err != nil {
-		t.Fatalf("SetTZTransitionPlanApproved: %v", err)
-	}
 	// 22:30 PDT == 05:30 UTC the next day — exactly the value persisted on
 	// the production row that produced the bad notification.
 	stepUTC := time.Date(2026, 5, 6, 5, 30, 0, 0, time.UTC)
-	if err := c.db.TZ.CreateTZTransitionSteps([]store.TZTransitionStep{
-		{PlanID: planID, MedicationID: medID, StepNumber: 1, ScheduledAt: stepUTC, Note: "step"},
-	}); err != nil {
-		t.Fatalf("CreateTZTransitionSteps: %v", err)
+	setPlanSteps(t, c.db, planID, []planStepFixture{
+		{MedicationID: medID, StepNumber: 1, ScheduledAt: stepUTC, Note: "step"},
+	})
+	if _, err := c.db.ApproveAndMaterialize(context.Background(), planID, 123456, c.now.Add(-time.Hour)); err != nil {
+		t.Fatalf("ApproveAndMaterialize: %v", err)
 	}
 
 	resp, code := c.callTrigger(123456)

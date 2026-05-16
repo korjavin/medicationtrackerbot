@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -113,11 +114,9 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 			t.Fatalf("CreateTZTransitionPlan: %v", err)
 		}
 		stepTime := time.Date(2024, 3, 15, 11, 0, 0, 0, time.UTC)
-		if err := db.TZ.CreateTZTransitionSteps([]store.TZTransitionStep{
-			{PlanID: planID, MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "step 1"},
-		}); err != nil {
-			t.Fatalf("CreateTZTransitionSteps: %v", err)
-		}
+		setPlanSteps(t, db, planID, []planStepFixture{
+			{MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "step 1"},
+		})
 		if _, err := db.ApproveAndMaterialize(context.Background(), planID, 123456, nowTime.Add(-5*time.Minute)); err != nil {
 			t.Fatalf("ApproveAndMaterialize: %v", err)
 		}
@@ -184,11 +183,9 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 			t.Fatalf("CreateTZTransitionPlan: %v", err)
 		}
 		futureStepTime := time.Date(2024, 3, 15, 14, 0, 0, 0, time.UTC)
-		if err := db.TZ.CreateTZTransitionSteps([]store.TZTransitionStep{
-			{PlanID: planID, MedicationID: medID, StepNumber: 1, ScheduledAt: futureStepTime, Note: "future step"},
-		}); err != nil {
-			t.Fatalf("CreateTZTransitionSteps: %v", err)
-		}
+		setPlanSteps(t, db, planID, []planStepFixture{
+			{MedicationID: medID, StepNumber: 1, ScheduledAt: futureStepTime, Note: "future step"},
+		})
 		if _, err := db.ApproveAndMaterialize(context.Background(), planID, 123456, nowTime.Add(-5*time.Minute)); err != nil {
 			t.Fatalf("ApproveAndMaterialize: %v", err)
 		}
@@ -249,12 +246,10 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		}
 		step1Time := time.Date(2024, 3, 15, 11, 0, 0, 0, time.UTC)
 		step2Time := time.Date(2024, 3, 15, 14, 0, 0, 0, time.UTC)
-		if err := db.TZ.CreateTZTransitionSteps([]store.TZTransitionStep{
-			{PlanID: planID, MedicationID: medID, StepNumber: 1, ScheduledAt: step1Time, Note: "step 1"},
-			{PlanID: planID, MedicationID: medID, StepNumber: 2, ScheduledAt: step2Time, Note: "step 2"},
-		}); err != nil {
-			t.Fatalf("CreateTZTransitionSteps: %v", err)
-		}
+		setPlanSteps(t, db, planID, []planStepFixture{
+			{MedicationID: medID, StepNumber: 1, ScheduledAt: step1Time, Note: "step 1"},
+			{MedicationID: medID, StepNumber: 2, ScheduledAt: step2Time, Note: "step 2"},
+		})
 		if _, err := db.ApproveAndMaterialize(context.Background(), planID, 123456, nowTime.Add(-6*time.Hour)); err != nil {
 			t.Fatalf("ApproveAndMaterialize: %v", err)
 		}
@@ -433,11 +428,9 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 			t.Fatalf("CreateTZTransitionPlan: %v", err)
 		}
 		stepTime := time.Date(2024, 3, 15, 11, 0, 0, 0, time.UTC)
-		if err := db.TZ.CreateTZTransitionSteps([]store.TZTransitionStep{
-			{PlanID: planID, MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "step 1"},
-		}); err != nil {
-			t.Fatalf("CreateTZTransitionSteps: %v", err)
-		}
+		setPlanSteps(t, db, planID, []planStepFixture{
+			{MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "step 1"},
+		})
 		if _, err := db.ApproveAndMaterialize(context.Background(), planID, 123456, nowTime.Add(-10*time.Minute)); err != nil {
 			t.Fatalf("ApproveAndMaterialize: %v", err)
 		}
@@ -515,11 +508,9 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		}
 		// Single transition step at 14:18 PDT (the user-reported scenario).
 		stepTime := time.Date(2024, 3, 15, 14, 18, 0, 0, la)
-		if err := db.TZ.CreateTZTransitionSteps([]store.TZTransitionStep{
-			{PlanID: planID, MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "step 1"},
-		}); err != nil {
-			t.Fatalf("CreateTZTransitionSteps: %v", err)
-		}
+		setPlanSteps(t, db, planID, []planStepFixture{
+			{MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "step 1"},
+		})
 		if _, err := db.ApproveAndMaterialize(context.Background(), planID, 123456, nowTime.Add(-8*time.Hour)); err != nil {
 			t.Fatalf("ApproveAndMaterialize: %v", err)
 		}
@@ -598,11 +589,9 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 			t.Fatalf("CreateTZTransitionPlan: %v", err)
 		}
 		stepTime := time.Date(2026, 5, 14, 2, 28, 24, 0, time.UTC)
-		if err := db.TZ.CreateTZTransitionSteps([]store.TZTransitionStep{
-			{PlanID: planID, MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "step 1"},
-		}); err != nil {
-			t.Fatalf("CreateTZTransitionSteps: %v", err)
-		}
+		setPlanSteps(t, db, planID, []planStepFixture{
+			{MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "step 1"},
+		})
 		if _, err := db.ApproveAndMaterialize(context.Background(), planID, 123456, nowTime.Add(-10*time.Minute)); err != nil {
 			t.Fatalf("ApproveAndMaterialize: %v", err)
 		}
@@ -675,11 +664,9 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 			t.Fatalf("CreateTZTransitionPlan: %v", err)
 		}
 		stepTime := time.Date(2026, 5, 14, 20, 30, 0, 0, time.UTC) // 18h after 02:30
-		if err := db.TZ.CreateTZTransitionSteps([]store.TZTransitionStep{
-			{PlanID: planID, MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "step 1"},
-		}); err != nil {
-			t.Fatalf("CreateTZTransitionSteps: %v", err)
-		}
+		setPlanSteps(t, db, planID, []planStepFixture{
+			{MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "step 1"},
+		})
 		if _, err := db.ApproveAndMaterialize(context.Background(), planID, 123456, nowTime.Add(-10*time.Minute)); err != nil {
 			t.Fatalf("ApproveAndMaterialize: %v", err)
 		}
@@ -752,11 +739,9 @@ func TestMedicationCheckerCompletedPlanOverlapGuard(t *testing.T) {
 	}
 
 	stepTime := time.Date(2026, 5, 5, 22, 30, 0, 0, la)
-	if err := db.TZ.CreateTZTransitionSteps([]store.TZTransitionStep{
-		{PlanID: planID, MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "final"},
-	}); err != nil {
-		t.Fatalf("CreateTZTransitionSteps: %v", err)
-	}
+	setPlanSteps(t, db, planID, []planStepFixture{
+		{MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "final"},
+	})
 	if _, err := db.ApproveAndMaterialize(context.Background(), planID, 123456, nowTime.Add(-8*time.Hour)); err != nil {
 		t.Fatalf("ApproveAndMaterialize: %v", err)
 	}
@@ -924,4 +909,30 @@ func mustNewDB(t *testing.T) *store.Store {
 	}
 	t.Cleanup(func() { db.Close() }) //nolint:errcheck
 	return db
+}
+
+// planStepFixture mirrors the PascalCase JSON shape of
+// tzreschedule.TransitionStep — the same blob the planner writes into
+// tz_transition_plans.steps_json. The medication-repo's MaterializePlanStepsAsIntakesTx
+// parses these keys at approve time.
+type planStepFixture struct {
+	MedicationID int64
+	StepNumber   int
+	ScheduledAt  time.Time
+	Note         string
+}
+
+// setPlanSteps overwrites tz_transition_plans.steps_json for the given plan
+// with the serialised list of steps. Used in scheduler tests that previously
+// inserted rows into the now-dropped tz_transition_steps table — Track D
+// Task 13 made steps_json the single source of truth for materialisation.
+func setPlanSteps(t *testing.T, db *store.Store, planID int64, steps []planStepFixture) {
+	t.Helper()
+	blob, err := json.Marshal(steps)
+	if err != nil {
+		t.Fatalf("marshal steps: %v", err)
+	}
+	if _, err := db.DB().Exec(`UPDATE tz_transition_plans SET steps_json = ? WHERE id = ?`, string(blob), planID); err != nil {
+		t.Fatalf("update steps_json: %v", err)
+	}
 }

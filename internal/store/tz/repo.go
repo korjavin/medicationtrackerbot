@@ -1,32 +1,27 @@
-// Package tz owns the timezone_history, tz_transition_plans, and
-// tz_transition_steps tables: the user's stored timezone (with history),
-// pending/approved/rejected DST-style transition plans (created when the user
-// changes timezones), and the per-medication dose-shift steps generated for
-// each plan.
+// Package tz owns the timezone_history and tz_transition_plans tables: the
+// user's stored timezone (with history) and pending/approved/rejected
+// DST-style transition plans (created when the user changes timezones).
 //
 // Repo is the per-domain repository. Construct via store.New / store.NewWithDB
 // and reach it as r.TZ; new code should depend on *tz.Repo (or a narrow
 // interface satisfied by it) directly.
 //
-// The 17 methods here form three sibling groups that share the same
-// transactional context, which is why they sit in one package:
-//   - GetCurrentTimezone / RecordTimezone for the active timezone.
-//   - The transition-plan lifecycle (create, status transitions, lookup).
-//   - The transition-step lifecycle (bulk create, list pending, mark consumed).
+// Track D Task 13 dropped the tz_transition_steps table; the per-medication
+// dose-shift steps for each plan now live as PENDING source='tz_step' rows in
+// intake_log (pre-materialized at approve time via
+// medication.MaterializePlanStepsAsIntakesTx, which reads from
+// tz_transition_plans.steps_json — the audit blob of the original step list).
 //
 // RejectTZTransitionPlanAndRevertTimezone and CreateTZTransitionPlanWithSteps
 // are intra-package transactions: rejection writes timezone_history under the
-// same tx as the plan update, and plan-with-steps writes both tables under one
-// tx. No tz method writes intake_log inside a transaction — the scheduler
-// (internal/scheduler/medication.go) calls CreateIntake and MarkStepConsumed
-// sequentially as best-effort follow-ups, not as one atomic operation, so this
-// package does not need cross-repo Tx variants today.
+// same tx as the plan update, and plan-with-steps cancels any active plan plus
+// inserts the new one (and deletes orphaned pre-materialized intake rows) in
+// one tx.
 package tz
 
 import (
 	"database/sql"
 	"errors"
-	"fmt"
 	"time"
 
 	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
@@ -45,17 +40,6 @@ type TZTransitionPlan struct {
 	NotifiedAt *time.Time `json:"notified_at,omitempty"`
 	ApprovedAt *time.Time `json:"approved_at,omitempty"`
 	UserAction string     `json:"user_action,omitempty"`
-}
-
-// TZTransitionStep represents a single dose step in a timezone transition plan.
-type TZTransitionStep struct {
-	ID           int64      `json:"id"`
-	PlanID       int64      `json:"plan_id"`
-	MedicationID int64      `json:"medication_id"`
-	StepNumber   int        `json:"step_number"`
-	ScheduledAt  time.Time  `json:"scheduled_at"`
-	Note         string     `json:"note"`
-	ConsumedAt   *time.Time `json:"consumed_at,omitempty"`
 }
 
 // Repo is the timezone-and-transition-plan repository. Construct with New;
@@ -375,9 +359,9 @@ func (r *Repo) ResetPlanToPending(id int64) error {
 	return err
 }
 
-// CreateTZTransitionPlanWithSteps atomically cancels any active plans and saves
-// a new timezone transition plan together with its steps in a single transaction.
-// This prevents concurrent timezone updates from leaving multiple active plans.
+// CreateTZTransitionPlanWithSteps atomically cancels any active plans and
+// saves a new timezone transition plan in a single transaction. This prevents
+// concurrent timezone updates from leaving multiple active plans.
 //
 // As part of the cancel-all step we also delete every PENDING source='tz_step'
 // row in intake_log whose tz_plan_id is no longer attached to an APPROVED
@@ -385,7 +369,14 @@ func (r *Repo) ResetPlanToPending(id int64) error {
 // DeletePendingPreMaterializedIntakesForPlan call, executed inside this tx so
 // a freshly-cancelled APPROVED plan cannot leak unfired step rows once the
 // new plan has been created.
-func (r *Repo) CreateTZTransitionPlanWithSteps(plan *TZTransitionPlan, steps []TZTransitionStep) (int64, error) {
+//
+// The plan's steps live entirely inside plan.StepsJSON: the planner serializes
+// the generated []tzreschedule.TransitionStep into that column at call time,
+// and medication.MaterializePlanStepsAsIntakesTx reads from it again at
+// approve time to insert the PENDING source='tz_step' intake_log rows. Track D
+// Task 13 dropped the separate tz_transition_steps table, so this method no
+// longer touches a second table.
+func (r *Repo) CreateTZTransitionPlanWithSteps(plan *TZTransitionPlan) (int64, error) {
 	tx, err := r.db.Begin()
 	if err != nil {
 		return 0, err
@@ -431,24 +422,6 @@ func (r *Repo) CreateTZTransitionPlanWithSteps(plan *TZTransitionPlan, steps []T
 		return 0, err
 	}
 
-	if len(steps) > 0 {
-		stmt, stmtErr := tx.Prepare(
-			`INSERT INTO tz_transition_steps (plan_id, medication_id, step_number, scheduled_at, note)
-			 VALUES (?, ?, ?, ?, ?)`,
-		)
-		if stmtErr != nil {
-			err = stmtErr
-			return 0, err
-		}
-		defer stmt.Close()
-		for _, step := range steps {
-			if _, stepErr := stmt.Exec(planID, step.MedicationID, step.StepNumber, step.ScheduledAt, step.Note); stepErr != nil {
-				err = stepErr
-				return 0, err
-			}
-		}
-	}
-
 	return planID, tx.Commit()
 }
 
@@ -470,105 +443,3 @@ func (r *Repo) GetPlanByHash(hash string) (*TZTransitionPlan, error) {
 	return p, nil
 }
 
-// CreateTZTransitionSteps bulk-inserts transition steps for a plan.
-func (r *Repo) CreateTZTransitionSteps(steps []TZTransitionStep) error {
-	tx, err := r.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err != nil {
-			tx.Rollback() //nolint:errcheck
-		}
-	}()
-	stmt, err := tx.Prepare(
-		`INSERT INTO tz_transition_steps (plan_id, medication_id, step_number, scheduled_at, note)
-		 VALUES (?, ?, ?, ?, ?)`,
-	)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-	for _, step := range steps {
-		if _, err = stmt.Exec(step.PlanID, step.MedicationID, step.StepNumber, step.ScheduledAt, step.Note); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
-}
-
-// GetPendingStepsForPlan returns all unconsumed steps for a given plan, ordered by step_number.
-func (r *Repo) GetPendingStepsForPlan(planID int64) ([]TZTransitionStep, error) {
-	rows, err := r.db.Query(
-		`SELECT id, plan_id, medication_id, step_number, scheduled_at, note
-		 FROM tz_transition_steps
-		 WHERE plan_id = ? AND consumed_at IS NULL
-		 ORDER BY step_number ASC`,
-		planID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var steps []TZTransitionStep
-	for rows.Next() {
-		var step TZTransitionStep
-		if err := rows.Scan(&step.ID, &step.PlanID, &step.MedicationID, &step.StepNumber, &step.ScheduledAt, &step.Note); err != nil {
-			return nil, err
-		}
-		steps = append(steps, step)
-	}
-	return steps, nil
-}
-
-// GetLatestConsumedStepTimePerMed returns, for each medication that has at
-// least one consumed step under the given plan, the latest scheduled-at time
-// among those consumed steps. The medication scheduler uses this to suppress
-// normal-schedule doses that overlap with a transition step the user has
-// already taken: targets earlier than the consumed step belong to the old
-// timezone, and targets within minInterval after it would fire a duplicate
-// dose right on top of the just-completed transition.
-//
-// The query scans the column as a string and parses it manually because
-// SQLite's aggregate result loses the DATETIME affinity and the driver then
-// refuses to bind the resulting TEXT into time.Time directly. The values were
-// originally written by Go's time formatter and round-trip cleanly.
-func (r *Repo) GetLatestConsumedStepTimePerMed(planID int64) (map[int64]time.Time, error) {
-	rows, err := r.db.Query(
-		`SELECT medication_id, MAX(scheduled_at)
-		 FROM tz_transition_steps
-		 WHERE plan_id = ? AND consumed_at IS NOT NULL
-		 GROUP BY medication_id`,
-		planID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := make(map[int64]time.Time)
-	for rows.Next() {
-		var medID int64
-		var scheduledAtStr sql.NullString
-		if err := rows.Scan(&medID, &scheduledAtStr); err != nil {
-			return nil, err
-		}
-		if !scheduledAtStr.Valid {
-			continue
-		}
-		t, parseErr := storedb.ParseSQLiteDateTime(scheduledAtStr.String)
-		if parseErr != nil {
-			return nil, fmt.Errorf("parse scheduled_at %q for med %d: %w", scheduledAtStr.String, medID, parseErr)
-		}
-		out[medID] = t
-	}
-	return out, nil
-}
-
-// MarkStepConsumed records the consumption time for a transition step.
-func (r *Repo) MarkStepConsumed(stepID int64, consumedAt time.Time) error {
-	_, err := r.db.Exec(
-		`UPDATE tz_transition_steps SET consumed_at = ? WHERE id = ?`,
-		consumedAt, stepID,
-	)
-	return err
-}

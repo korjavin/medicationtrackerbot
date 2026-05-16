@@ -141,7 +141,6 @@ type APIToken = auth.APIToken
 
 // TZ-domain types.
 type TZTransitionPlan = storetz.TZTransitionPlan
-type TZTransitionStep = storetz.TZTransitionStep
 
 // Workout-domain types.
 type WorkoutGroup = workout.WorkoutGroup

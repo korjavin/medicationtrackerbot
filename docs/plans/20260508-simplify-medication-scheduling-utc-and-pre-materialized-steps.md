@@ -734,25 +734,44 @@ Same pattern as Task 5, applied to all three plan-lifecycle timestamp columns at
 
 ### Task 13: Drop the `tz_transition_steps` table
 
-- [ ] migration `0XX_drop_tz_transition_steps.sql` — full `DROP TABLE
-  tz_transition_steps` (no rebuild needed since the entire table
-  goes); the table was only read by the scheduler and the planner,
-  both of which now use `intake_log`. **Forward-only checkpoint**:
-  the down-step `CREATE TABLE … LIKE the old shape` recreates the
-  schema but cannot recover the row data — pre-Task-13 plans relied on
-  this table for their step lifecycle, but post-Task-13 those plans live
-  entirely as `intake_log` rows. Document in the migration's
-  down-section that production rollback past Task 13 should restore from
-  a DB backup.
-- [ ] delete `Store.GetPendingStepsForPlan`, `MarkStepConsumed`,
-  `GetLatestConsumedStepTimePerMed`, `CreateTZTransitionSteps`,
-  `CreateTZTransitionPlanWithSteps`'s step-bulk-insert (it now stores
-  `intake_log` rows directly via `MaterializePlanStepsAsIntakes`)
-- [ ] keep `tz_transition_plans.steps_json` — it's still the audit blob
-  used by `tz_plan_notifier.formatTZPlanMessage` to render the
-  approval message
-- [ ] write tests: extend the migration round-trip suite to cover the table drop on a fixture seeded with pre-materialized intake rows.
-- [ ] run project tests - must pass before next task (`go test ./...`).
+- [x] migration `069_drop_tz_transition_steps.sql` — full
+  `DROP TABLE tz_transition_steps` (the down-step recreates the empty
+  schema for round-trip testing but cannot recover row data; the
+  in-file comment flags the forward-only checkpoint and points
+  operators at Litestream / snapshot restore for any production
+  rollback past this point).
+- [x] delete `Store.GetPendingStepsForPlan`, `MarkStepConsumed`,
+  `GetLatestConsumedStepTimePerMed`, `CreateTZTransitionSteps` from
+  `internal/store/tz/repo.go`; drop `CreateTZTransitionPlanWithSteps`'s
+  step-bulk-insert (now takes a single `plan` arg and the new SQL
+  `intake_log` materialisation runs at approve time);
+  `MaterializePlanStepsAsIntakesTx` now reads steps from
+  `tz_transition_plans.steps_json` (the planner's existing audit blob)
+  instead of the dropped sibling table; the scheduler / forecast /
+  trigger handlers no longer touch the per-step lookups; the
+  `TZTransitionStep` data type and `medplan.Inputs.PendingSteps` are
+  retired alongside.
+- [x] keep `tz_transition_plans.steps_json` — still the audit blob the
+  notifier renders into the approve message and the new source of
+  truth for materialise (`handleGetCurrentTZPlan` also derives the
+  banner's step list from it via the new `parsePlanStepsForUI`
+  helper).
+- [x] write tests: migration 069 round-trip
+  (`TestMigration069_DropsTZTransitionStepsTable`,
+  `TestMigration069_RoundTrip` in
+  `internal/store/migration_069_test.go`) cover the drop on a fixture
+  with a pre-materialised intake row and exercise up → down → up. The
+  refreshed `internal/scheduler/medication_tz_test.go`,
+  `internal/server/trigger_next_intake_test.go`,
+  `internal/store/medication/intake_log_materialize_test.go`, and
+  `internal/store/approve_and_materialize_test.go` all build the
+  per-plan steps via `setPlanSteps`-style helpers that write
+  `steps_json` directly — no callers reach for the dropped table any
+  more. `internal/seeddemo/wipe.go` no longer issues
+  `DELETE FROM tz_transition_steps`.
+- [x] run project tests - must pass before next task (`go test ./...`
+  green across all 35 packages; `npm test` also green at 2120
+  passes / 29 skipped).
 
 **Documentation + cleanup.** Tasks 14 and 15 capture the doc sweep and the follow-up plan stub.
 
