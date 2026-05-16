@@ -120,6 +120,74 @@ func TestMigration068_BackfillSeedFixture(t *testing.T) {
 	}
 }
 
+// TestMigration068_BackfillMultiMedicationPlan covers the regression caught in
+// code review: tzreschedule.GeneratePlan numbers steps per-medication starting
+// at 1, so a plan touching two medications produces step_number=1 for each of
+// them. With migration 067's unique index keyed on (tz_plan_id, medication_id,
+// tz_step_number), INSERT OR IGNORE in the backfill must keep both medications'
+// rows. An index that omitted medication_id would silently drop med B's rows
+// and lose doses.
+func TestMigration068_BackfillMultiMedicationPlan(t *testing.T) {
+	t.Setenv("ALLOWED_USER_ID", "42")
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	if err := goose.SetDialect("sqlite3"); err != nil {
+		t.Fatalf("set dialect: %v", err)
+	}
+	goose.SetBaseFS(embedMigrations)
+	goose.SetLogger(goose.NopLogger())
+
+	ctx := context.Background()
+
+	if err := goose.UpToContext(ctx, db, "migrations", 67); err != nil {
+		t.Fatalf("goose up to 67: %v", err)
+	}
+
+	if _, err := db.Exec(`INSERT INTO medications (id, name, dosage, schedule) VALUES (1, 'MedA', '100mg', '08:00')`); err != nil {
+		t.Fatalf("insert med A: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO medications (id, name, dosage, schedule) VALUES (2, 'MedB', '200mg', '09:00')`); err != nil {
+		t.Fatalf("insert med B: %v", err)
+	}
+
+	// One APPROVED plan, two meds, two steps each — mirrors what
+	// tzreschedule.GeneratePlan emits for a TZ change touching multiple meds.
+	insertPlan068(t, db, 1, "APPROVED", "h-multi")
+	insertStep068(t, db, 1, 1, 1, time.Date(2026, 5, 16, 6, 0, 0, 0, time.UTC), false)
+	insertStep068(t, db, 1, 1, 2, time.Date(2026, 5, 16, 7, 0, 0, 0, time.UTC), false)
+	insertStep068(t, db, 1, 2, 1, time.Date(2026, 5, 16, 6, 5, 0, 0, time.UTC), false)
+	insertStep068(t, db, 1, 2, 2, time.Date(2026, 5, 16, 7, 5, 0, 0, time.UTC), false)
+
+	if err := goose.UpToContext(ctx, db, "migrations", 68); err != nil {
+		t.Fatalf("goose up to 68: %v", err)
+	}
+
+	var total, aCount, bCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM intake_log WHERE source='tz_step'`).Scan(&total); err != nil {
+		t.Fatalf("count total: %v", err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM intake_log WHERE source='tz_step' AND medication_id=1`).Scan(&aCount); err != nil {
+		t.Fatalf("count A: %v", err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM intake_log WHERE source='tz_step' AND medication_id=2`).Scan(&bCount); err != nil {
+		t.Fatalf("count B: %v", err)
+	}
+	if total != 4 {
+		t.Errorf("total tz_step rows=%d want 4 (would be 2 if the unique index omitted medication_id)", total)
+	}
+	if aCount != 2 {
+		t.Errorf("medA rows=%d want 2", aCount)
+	}
+	if bCount != 2 {
+		t.Errorf("medB rows=%d want 2 (would be 0 if the unique index omitted medication_id)", bCount)
+	}
+}
+
 // TestMigration068_NoApprovedPlansSkipsEnvCheck pins the early-exit behaviour
 // that lets the migration run on test fixtures without ALLOWED_USER_ID set.
 // The migration only fails loudly when there's actual data to attribute.
