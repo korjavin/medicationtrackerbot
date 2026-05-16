@@ -303,12 +303,12 @@ Already minimal: `Create`, `List`, `Delete`. No renames.
 
 ### Task 7: Rename vitals repo methods
 
-- [ ] apply rename mapping to `internal/store/vitals/` (sleep + day stats; rename slice-returning readers like `GetIntakesSince` → `ListIntakesSince` if applicable)
-- [ ] update consumer interfaces in `internal/server/store_interfaces.go` and `internal/bot/store_interfaces.go`
-- [ ] update adapter forwarders in scheduler/bot/mcp adapters and `cmd/bot/tz_planner_adapter.go`
-- [ ] update MCP registry operation handlers in `internal/mcp/registry/operations_vitals*.go`
-- [ ] update tests inside `internal/store/vitals/` and any caller tests
-- [ ] run project tests - must pass (`go test ./...`, `go test -race ./...`, `golangci-lint run`)
+- [x] apply rename mapping to `internal/store/vitals/` (sleep + day stats; rename slice-returning readers like `GetIntakesSince` → `ListIntakesSince` if applicable)
+- [x] update consumer interfaces in `internal/server/store_interfaces.go` and `internal/bot/store_interfaces.go`
+- [x] update adapter forwarders in scheduler/bot/mcp adapters and `cmd/bot/tz_planner_adapter.go`
+- [x] update MCP registry operation handlers in `internal/mcp/registry/operations_vitals*.go`
+- [x] update tests inside `internal/store/vitals/` and any caller tests
+- [x] run project tests - `go test ./...` and `golangci-lint run` pass; `go test -race ./...` has a pre-existing failure in `internal/scheduler/notifier_test.go::TestNotify_SendError_DoesNotCallStoreMsgID` (slog reflecting over `mockNotifier`'s sync.Mutex, same shape as the Task 6 helpers_test race) that reproduces on master without my changes and is out of scope.
 
 ### Task 8: Rename tz repo methods
 

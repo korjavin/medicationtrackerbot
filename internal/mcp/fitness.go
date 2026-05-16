@@ -290,7 +290,7 @@ func (s *Server) fetchWorkoutsSection(ctx context.Context, userID int64, startDa
 }
 
 func (s *Server) fetchStepsSection(ctx context.Context, userID int64, startDate, endDate time.Time) (*StepsSection, error) {
-	stats, err := s.data.GetDayStats(ctx, userID, startDate)
+	stats, err := s.data.ListDayStats(ctx, userID, startDate)
 	if err != nil {
 		slog.Warn("[MCP] FitnessAnalysis: failed to fetch steps", "error", err)
 		return nil, err

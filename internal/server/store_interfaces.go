@@ -179,11 +179,11 @@ type TimezoneStore interface {
 
 // HealthStore is the subset of store operations needed for health/vitals handlers.
 type HealthStore interface {
-	GetVitalsHeart(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsHeartLog, error)
-	GetVitalsSpO2(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsSpO2Log, error)
-	GetVitalsStress(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsStressLog, error)
-	GetSleepLogs(ctx context.Context, userID int64, since time.Time) ([]store.SleepLog, error)
-	GetDayStats(ctx context.Context, userID int64, since time.Time) ([]store.DayStat, error)
+	ListHeart(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsHeartLog, error)
+	ListSpO2(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsSpO2Log, error)
+	ListStress(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsStressLog, error)
+	ListSleepLogs(ctx context.Context, userID int64, since time.Time) ([]store.SleepLog, error)
+	ListDayStats(ctx context.Context, userID int64, since time.Time) ([]store.DayStat, error)
 }
 
 // ChangeStore is the subset of store operations needed for change event streaming.

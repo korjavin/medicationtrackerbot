@@ -753,7 +753,7 @@ func (s *Server) handleGetSleepLogs(ctx context.Context, req *mcp.CallToolReques
 	slog.Info("[MCP] Fetching Sleep Logs for date range", "start", startDate, "end", endDate)
 
 	userID := s.config.UserID
-	logs, err := s.data.GetSleepLogs(ctx, userID, startDate)
+	logs, err := s.data.ListSleepLogs(ctx, userID, startDate)
 	if err != nil {
 		slog.Error("[MCP] Failed to fetch sleep logs", "error", err)
 		return nil, SleepLogResponse{}, err
@@ -1087,7 +1087,7 @@ func (s *Server) handleGetStepHistory(ctx context.Context, req *mcp.CallToolRequ
 	slog.Info("[MCP] Fetching Step History for date range", "start", startDate, "end", endDate)
 
 	userID := s.config.UserID
-	logs, err := s.data.GetDayStats(ctx, userID, startDate)
+	logs, err := s.data.ListDayStats(ctx, userID, startDate)
 	if err != nil {
 		slog.Error("[MCP] Failed to fetch step history", "error", err)
 		return nil, StepHistoryResponse{}, err
