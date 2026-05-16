@@ -49,8 +49,8 @@ func TestBPReminderCheckerScenarios(t *testing.T) {
 		}
 
 		userID := int64(123456)
-		if err := db.BP.SetBPReminderEnabled(userID, true); err != nil {
-			t.Fatalf("SetBPReminderEnabled failed: %v", err)
+		if err := db.BP.SetReminderEnabled(userID, true); err != nil {
+			t.Fatalf("SetReminderEnabled failed: %v", err)
 		}
 
 		nowTime, err := time.Parse(time.RFC3339, input.TimeNow)
@@ -60,46 +60,46 @@ func TestBPReminderCheckerScenarios(t *testing.T) {
 
 		// Configure state
 		if input.Snoozed {
-			if err := db.BP.SnoozeBPReminder(userID); err != nil {
-				t.Fatalf("SnoozeBPReminder failed: %v", err)
+			if err := db.BP.SnoozeReminder(userID); err != nil {
+				t.Fatalf("SnoozeReminder failed: %v", err)
 			}
 		}
 
 		if input.DontBugMe {
-			if err := db.BP.DontBugMeBPReminder(userID); err != nil {
-				t.Fatalf("DontBugMeBPReminder failed: %v", err)
+			if err := db.BP.DontBugMeReminder(userID); err != nil {
+				t.Fatalf("DontBugMeReminder failed: %v", err)
 			}
 		}
 
 		if input.NotifiedToday {
 			msgID := 123
-			if err := db.BP.UpdateBPReminderNotificationSent(userID, &msgID); err != nil {
-				t.Fatalf("UpdateBPReminderNotificationSent failed: %v", err)
+			if err := db.BP.UpdateReminderNotificationSent(userID, &msgID); err != nil {
+				t.Fatalf("UpdateReminderNotificationSent failed: %v", err)
 			}
 		}
 
 		if input.ReadingsToday > 0 {
 			for i := 0; i < input.ReadingsToday; i++ {
-				_, err := db.BP.CreateBloodPressureReading(context.Background(), &store.BloodPressure{
+				_, err := db.BP.CreateReading(context.Background(), &store.BloodPressure{
 					UserID:     userID,
 					Systolic:   120,
 					Diastolic:  80,
 					MeasuredAt: nowTime.Add(-1 * time.Hour), // Ensure it's considered "today"
 				})
 				if err != nil {
-					t.Fatalf("CreateBloodPressureReading failed: %v", err)
+					t.Fatalf("CreateReading failed: %v", err)
 				}
 			}
 		} else {
 			// Older reading to ensure category severity logic can run
-			_, err := db.BP.CreateBloodPressureReading(context.Background(), &store.BloodPressure{
+			_, err := db.BP.CreateReading(context.Background(), &store.BloodPressure{
 				UserID:     userID,
 				Systolic:   120,
 				Diastolic:  80,
 				MeasuredAt: nowTime.Add(-24 * time.Hour),
 			})
 			if err != nil {
-				t.Fatalf("CreateBloodPressureReading failed: %v", err)
+				t.Fatalf("CreateReading failed: %v", err)
 			}
 		}
 
@@ -122,7 +122,7 @@ func TestBPReminderCheckerScenarios(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 
 		actual := bpScenarioExpected{
-			Notifications: len(mockNotifier.Notifications),
+			Notifications: len(mockNotifier.snapshotNotifications()),
 		}
 
 		testharness.CompareJSON(t, expected, actual)

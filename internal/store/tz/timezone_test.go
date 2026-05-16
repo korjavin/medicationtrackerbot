@@ -24,9 +24,9 @@ func setupTZRepo(t *testing.T) *Repo {
 func TestGetCurrentTimezone_EmptyTable(t *testing.T) {
 	r := setupTZRepo(t)
 
-	tz, err := r.GetCurrentTimezone()
+	tz, err := r.GetCurrent()
 	if err != nil {
-		t.Fatalf("GetCurrentTimezone: %v", err)
+		t.Fatalf("GetCurrent: %v", err)
 	}
 	if tz != "" {
 		t.Errorf("expected empty string on empty table, got %q", tz)
@@ -36,13 +36,13 @@ func TestGetCurrentTimezone_EmptyTable(t *testing.T) {
 func TestRecordTimezone_InsertAndRetrieve(t *testing.T) {
 	r := setupTZRepo(t)
 
-	if err := r.RecordTimezone("Europe/Berlin"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := r.Record("Europe/Berlin"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 
-	tz, err := r.GetCurrentTimezone()
+	tz, err := r.GetCurrent()
 	if err != nil {
-		t.Fatalf("GetCurrentTimezone: %v", err)
+		t.Fatalf("GetCurrent: %v", err)
 	}
 	if tz != "Europe/Berlin" {
 		t.Errorf("expected Europe/Berlin, got %q", tz)
@@ -52,19 +52,19 @@ func TestRecordTimezone_InsertAndRetrieve(t *testing.T) {
 func TestGetCurrentTimezone_MostRecentReturned(t *testing.T) {
 	r := setupTZRepo(t)
 
-	if err := r.RecordTimezone("America/New_York"); err != nil {
+	if err := r.Record("America/New_York"); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.RecordTimezone("Asia/Tokyo"); err != nil {
+	if err := r.Record("Asia/Tokyo"); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.RecordTimezone("Europe/Berlin"); err != nil {
+	if err := r.Record("Europe/Berlin"); err != nil {
 		t.Fatal(err)
 	}
 
-	tz, err := r.GetCurrentTimezone()
+	tz, err := r.GetCurrent()
 	if err != nil {
-		t.Fatalf("GetCurrentTimezone: %v", err)
+		t.Fatalf("GetCurrent: %v", err)
 	}
 	if tz != "Europe/Berlin" {
 		t.Errorf("expected most recent Europe/Berlin, got %q", tz)

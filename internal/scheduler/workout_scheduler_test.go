@@ -85,15 +85,15 @@ func TestWorkoutCheckerScenarios(t *testing.T) {
 			scheduleTimeString = "12:00"
 		}
 
-		group, err := db.Workout.CreateWorkoutGroup("TestGroup", "desc", input.RotationState != "normal", 123456, daysOfWeek, scheduleTimeString, 15)
+		group, err := db.Workout.CreateGroup("TestGroup", "desc", input.RotationState != "normal", 123456, daysOfWeek, scheduleTimeString, 15)
 		if err != nil {
-			t.Fatalf("CreateWorkoutGroup: %v", err)
+			t.Fatalf("CreateGroup: %v", err)
 		}
 
 		order := 0
-		variant, err := db.Workout.CreateWorkoutVariant(group.ID, "Variant A", &order, "")
+		variant, err := db.Workout.CreateVariant(group.ID, "Variant A", &order, "")
 		if err != nil {
-			t.Fatalf("CreateWorkoutVariant: %v", err)
+			t.Fatalf("CreateVariant: %v", err)
 		}
 
 		if input.AlreadyNotified || input.InProgress {
@@ -108,9 +108,9 @@ func TestWorkoutCheckerScenarios(t *testing.T) {
 				today = time.Date(checkerBase.Year(), checkerBase.Month(), checkerBase.Day(), 0, 0, 0, 0, checkerBase.Location())
 			}
 
-			session, err := db.Workout.CreateWorkoutSession(group.ID, variant.ID, 123456, today, scheduleTimeString)
+			session, err := db.Workout.CreateSession(group.ID, variant.ID, 123456, today, scheduleTimeString)
 			if err != nil {
-				t.Fatalf("CreateWorkoutSession: %v", err)
+				t.Fatalf("CreateSession: %v", err)
 			}
 
 			if input.InProgress {
@@ -134,8 +134,8 @@ func TestWorkoutCheckerScenarios(t *testing.T) {
 				}
 				if input.TimeNow == "2023-10-27T15:05:00Z" && input.AlreadyNotified {
 					// For 6h auto skip, it must have already been resent
-					if err := db.Workout.UpdateWorkoutSessionNotes(session.ID, "resent_3h"); err != nil {
-						t.Fatalf("UpdateWorkoutSessionNotes: %v", err)
+					if err := db.Workout.UpdateSessionNotes(session.ID, "resent_3h"); err != nil {
+						t.Fatalf("UpdateSessionNotes: %v", err)
 					}
 				}
 				if input.SnoozeDurationHours > 0 {
@@ -147,9 +147,9 @@ func TestWorkoutCheckerScenarios(t *testing.T) {
 			}
 		} else if input.ScheduleTime == "09:00" && input.StaleDurationHours == -1 {
 			today := time.Date(nowTime.Year(), nowTime.Month(), nowTime.Day(), 0, 0, 0, 0, nowTime.Location())
-			session, err := db.Workout.CreateWorkoutSession(group.ID, variant.ID, 123456, today, input.ScheduleTime)
+			session, err := db.Workout.CreateSession(group.ID, variant.ID, 123456, today, input.ScheduleTime)
 			if err != nil {
-				t.Fatalf("CreateWorkoutSession: %v", err)
+				t.Fatalf("CreateSession: %v", err)
 			}
 			if err := db.Workout.PreSkipSession(session.ID); err != nil {
 				t.Fatalf("PreSkipSession: %v", err)
@@ -182,7 +182,7 @@ func TestWorkoutCheckerScenarios(t *testing.T) {
 			return nowTime
 		}
 
-		mockNotifier.Notifications = nil
+		mockNotifier.resetNotifications()
 
 		err = sched.WorkoutChecker.Check(context.Background())
 		if err != nil {
@@ -196,7 +196,7 @@ func TestWorkoutCheckerScenarios(t *testing.T) {
 		}
 
 		actual := workoutScenarioExpected{
-			Notifications: len(mockNotifier.Notifications),
+			Notifications: len(mockNotifier.snapshotNotifications()),
 		}
 
 		testharness.CompareJSON(t, expected, actual)

@@ -74,17 +74,17 @@ func (a *storeAdapter) UpdateLastDownload(t time.Time) error {
 
 // --- Medication ---
 
-func (a *storeAdapter) ListMedications(showArchived bool) ([]store.Medication, error) {
-	return a.med.ListMedications(showArchived)
+func (a *storeAdapter) List(showArchived bool) ([]store.Medication, error) {
+	return a.med.List(showArchived)
 }
-func (a *storeAdapter) GetMedication(id int64) (*store.Medication, error) {
-	return a.med.GetMedication(id)
+func (a *storeAdapter) Get(id int64) (*store.Medication, error) {
+	return a.med.Get(id)
 }
 func (a *storeAdapter) CreateIntake(medID, userID int64, scheduledAt time.Time) (int64, error) {
 	return a.med.CreateIntake(medID, userID, scheduledAt)
 }
-func (a *storeAdapter) AddIntakeReminder(intakeID int64, msgID int) error {
-	return a.med.AddIntakeReminder(intakeID, msgID)
+func (a *storeAdapter) CreateIntakeReminder(intakeID int64, msgID int) error {
+	return a.med.CreateIntakeReminder(intakeID, msgID)
 }
 func (a *storeAdapter) GetIntake(id int64) (*store.IntakeLog, error) {
 	return a.med.GetIntake(id)
@@ -92,29 +92,29 @@ func (a *storeAdapter) GetIntake(id int64) (*store.IntakeLog, error) {
 func (a *storeAdapter) GetIntakeBySchedule(medID int64, scheduledAt time.Time) (*store.IntakeLog, error) {
 	return a.med.GetIntakeBySchedule(medID, scheduledAt)
 }
-func (a *storeAdapter) GetMedicationsLowOnStock(daysThreshold int) ([]store.Medication, error) {
-	return a.med.GetMedicationsLowOnStock(daysThreshold)
+func (a *storeAdapter) ListLowOnStock(daysThreshold int) ([]store.Medication, error) {
+	return a.med.ListLowOnStock(daysThreshold)
 }
 func (a *storeAdapter) GetDaysOfStockRemaining(m *store.Medication) *float64 {
 	return a.med.GetDaysOfStockRemaining(m)
 }
-func (a *storeAdapter) GetIntakesSince(since time.Time) ([]store.IntakeWithMedication, error) {
-	return a.med.GetIntakesSince(since)
+func (a *storeAdapter) ListIntakesSince(since time.Time) ([]store.IntakeWithMedication, error) {
+	return a.med.ListIntakesSince(since)
 }
 
 // Also satisfies domain.MedicationService's MedicationStore.
 
-func (a *storeAdapter) GetIntakeReminders(intakeID int64) ([]int, error) {
-	return a.med.GetIntakeReminders(intakeID)
+func (a *storeAdapter) ListIntakeReminders(intakeID int64) ([]int, error) {
+	return a.med.ListIntakeReminders(intakeID)
 }
-func (a *storeAdapter) GetBatchIntakeReminders(intakeIDs []int64) (map[int64][]int, error) {
-	return a.med.GetBatchIntakeReminders(intakeIDs)
+func (a *storeAdapter) BatchGetIntakeReminders(intakeIDs []int64) (map[int64][]int, error) {
+	return a.med.BatchGetIntakeReminders(intakeIDs)
 }
-func (a *storeAdapter) GetPendingIntakes() ([]store.IntakeLog, error) {
-	return a.med.GetPendingIntakes()
+func (a *storeAdapter) ListPendingIntakes() ([]store.IntakeLog, error) {
+	return a.med.ListPendingIntakes()
 }
-func (a *storeAdapter) GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time) ([]store.IntakeLog, error) {
-	return a.med.GetPendingIntakesBySchedule(userID, scheduledAt)
+func (a *storeAdapter) ListPendingIntakesBySchedule(userID int64, scheduledAt time.Time) ([]store.IntakeLog, error) {
+	return a.med.ListPendingIntakesBySchedule(userID, scheduledAt)
 }
 func (a *storeAdapter) ConfirmIntake(id int64, takenAt time.Time) error {
 	return a.med.ConfirmIntake(id, takenAt)
@@ -122,8 +122,8 @@ func (a *storeAdapter) ConfirmIntake(id int64, takenAt time.Time) error {
 func (a *storeAdapter) ConfirmIntakesBySchedule(userID int64, scheduledAt time.Time, takenAt time.Time) ([]int64, error) {
 	return a.med.ConfirmIntakesBySchedule(userID, scheduledAt, takenAt)
 }
-func (a *storeAdapter) SkipIntake(id int64) error                  { return a.med.SkipIntake(id) }
-func (a *storeAdapter) SnoozeIntake(id int64, t time.Time) error    { return a.med.SnoozeIntake(id, t) }
+func (a *storeAdapter) SkipIntake(id int64) error                { return a.med.SkipIntake(id) }
+func (a *storeAdapter) SnoozeIntake(id int64, t time.Time) error { return a.med.SnoozeIntake(id, t) }
 func (a *storeAdapter) CreateManualIntake(medID, userID int64, takenAt time.Time) (int64, error) {
 	return a.med.CreateManualIntake(medID, userID, takenAt)
 }
@@ -137,88 +137,98 @@ func (a *storeAdapter) DeleteIntake(id int64) error { return a.med.DeleteIntake(
 
 // --- BP ---
 
-func (a *storeAdapter) CreateBloodPressureReading(ctx context.Context, b *store.BloodPressure) (int64, error) {
-	return a.bp.CreateBloodPressureReading(ctx, b)
+func (a *storeAdapter) CreateReading(ctx context.Context, b *store.BloodPressure) (int64, error) {
+	return a.bp.CreateReading(ctx, b)
 }
-func (a *storeAdapter) GetBloodPressureReadings(ctx context.Context, userID int64, since time.Time) ([]store.BloodPressure, error) {
-	return a.bp.GetBloodPressureReadings(ctx, userID, since)
+func (a *storeAdapter) ListReadings(ctx context.Context, userID int64, since time.Time) ([]store.BloodPressure, error) {
+	return a.bp.ListReadings(ctx, userID, since)
 }
-func (a *storeAdapter) GetBPGoal() (*store.BPGoal, error)                   { return a.bp.GetBPGoal() }
-func (a *storeAdapter) SetBPGoal(s, d int) error                            { return a.bp.SetBPGoal(s, d) }
-func (a *storeAdapter) SnoozeBPReminder(userID int64) error                 { return a.bp.SnoozeBPReminder(userID) }
-func (a *storeAdapter) DontBugMeBPReminder(userID int64) error              { return a.bp.DontBugMeBPReminder(userID) }
+func (a *storeAdapter) GetGoal() (*store.BPGoal, error)      { return a.bp.GetGoal() }
+func (a *storeAdapter) SetGoal(s, d int) error               { return a.bp.SetGoal(s, d) }
+func (a *storeAdapter) SnoozeReminder(userID int64) error    { return a.bp.SnoozeReminder(userID) }
+func (a *storeAdapter) DontBugMeReminder(userID int64) error { return a.bp.DontBugMeReminder(userID) }
 
 // --- Weight ---
+//
+// Adapter method names keep the "Weight" disambiguator so the bot's narrow
+// interfaces (WeightStore, ReminderStore) can coexist with the BP-side methods
+// of the same shape (GetGoal, SnoozeReminder, …) on this single struct. Each
+// method bridges to the renamed weight.Repo method.
 
 func (a *storeAdapter) GetLastWeightLog(ctx context.Context, userID int64) (*store.WeightLog, error) {
-	return a.weight.GetLastWeightLog(ctx, userID)
+	return a.weight.GetLastLog(ctx, userID)
 }
 func (a *storeAdapter) CreateWeightLog(ctx context.Context, w *store.WeightLog) (int64, error) {
-	return a.weight.CreateWeightLog(ctx, w)
+	return a.weight.CreateLog(ctx, w)
 }
 func (a *storeAdapter) GetWeightLogs(ctx context.Context, userID int64, since time.Time) ([]store.WeightLog, error) {
-	return a.weight.GetWeightLogs(ctx, userID, since)
+	return a.weight.ListLogs(ctx, userID, since)
 }
-func (a *storeAdapter) GetWeightGoal() (*store.WeightGoal, error) { return a.weight.GetWeightGoal() }
+func (a *storeAdapter) GetWeightGoal() (*store.WeightGoal, error) { return a.weight.GetGoal() }
 func (a *storeAdapter) SetWeightGoal(w float64, td time.Time) error {
-	return a.weight.SetWeightGoal(w, td)
+	return a.weight.SetGoal(w, td)
 }
 func (a *storeAdapter) SnoozeWeightReminder(userID int64) error {
-	return a.weight.SnoozeWeightReminder(userID)
+	return a.weight.SnoozeReminder(userID)
 }
 func (a *storeAdapter) DontBugMeWeightReminder(userID int64) error {
-	return a.weight.DontBugMeWeightReminder(userID)
+	return a.weight.DontBugMeReminder(userID)
 }
 func (a *storeAdapter) GetWeightUnitPreference(ctx context.Context) (string, error) {
-	return a.weight.GetWeightUnitPreference(ctx)
+	return a.weight.GetUnitPreference(ctx)
 }
 func (a *storeAdapter) SetWeightUnitPreference(ctx context.Context, unit string) error {
-	return a.weight.SetWeightUnitPreference(ctx, unit)
+	return a.weight.SetUnitPreference(ctx, unit)
 }
 
 // --- Food ---
+//
+// Adapter method names keep the "Food" disambiguator so the bot's narrow
+// interface (FoodStore) can coexist with the weight-side Log methods of the
+// same shape on this single struct. Each method bridges to the renamed
+// food.Repo method.
 
 func (a *storeAdapter) CreateFoodLog(ctx context.Context, f *store.FoodLog) (int64, error) {
-	return a.food.CreateFoodLog(ctx, f)
+	return a.food.CreateLog(ctx, f)
 }
 func (a *storeAdapter) DeleteFoodLog(ctx context.Context, id, userID int64) error {
-	return a.food.DeleteFoodLog(ctx, id, userID)
+	return a.food.DeleteLog(ctx, id, userID)
 }
 
 // --- Workout ---
 
-func (a *storeAdapter) GetWorkoutSession(id int64) (*store.WorkoutSession, error) {
-	return a.workout.GetWorkoutSession(id)
+func (a *storeAdapter) GetSession(id int64) (*store.WorkoutSession, error) {
+	return a.workout.GetSession(id)
 }
-func (a *storeAdapter) GetWorkoutGroup(groupID int64) (*store.WorkoutGroup, error) {
-	return a.workout.GetWorkoutGroup(groupID)
+func (a *storeAdapter) GetGroup(groupID int64) (*store.WorkoutGroup, error) {
+	return a.workout.GetGroup(groupID)
 }
-func (a *storeAdapter) GetWorkoutVariant(variantID int64) (*store.WorkoutVariant, error) {
-	return a.workout.GetWorkoutVariant(variantID)
+func (a *storeAdapter) GetVariant(variantID int64) (*store.WorkoutVariant, error) {
+	return a.workout.GetVariant(variantID)
 }
-func (a *storeAdapter) ListWorkoutGroups(userID int64, activeOnly bool) ([]store.WorkoutGroup, error) {
-	return a.workout.ListWorkoutGroups(userID, activeOnly)
+func (a *storeAdapter) ListGroups(userID int64, activeOnly bool) ([]store.WorkoutGroup, error) {
+	return a.workout.ListGroups(userID, activeOnly)
 }
 func (a *storeAdapter) GetSessionByGroupAndDate(groupID int64, scheduledDate time.Time) (*store.WorkoutSession, error) {
 	return a.workout.GetSessionByGroupAndDate(groupID, scheduledDate)
 }
-func (a *storeAdapter) GetWorkoutHistory(userID int64, limit int) ([]store.WorkoutSession, error) {
-	return a.workout.GetWorkoutHistory(userID, limit)
+func (a *storeAdapter) ListHistory(userID int64, limit int) ([]store.WorkoutSession, error) {
+	return a.workout.ListHistory(userID, limit)
 }
 func (a *storeAdapter) ListExercisesByVariant(variantID int64) ([]store.WorkoutExercise, error) {
 	return a.workout.ListExercisesByVariant(variantID)
 }
-func (a *storeAdapter) GetWorkoutExercise(id int64) (*store.WorkoutExercise, error) {
-	return a.workout.GetWorkoutExercise(id)
+func (a *storeAdapter) GetExercise(id int64) (*store.WorkoutExercise, error) {
+	return a.workout.GetExercise(id)
 }
 func (a *storeAdapter) GetExerciseLibraryItem(id int64) (*store.ExerciseLibraryItem, error) {
 	return a.workout.GetExerciseLibraryItem(id)
 }
-func (a *storeAdapter) GetExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error) {
-	return a.workout.GetExerciseLogs(sessionID)
+func (a *storeAdapter) ListExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error) {
+	return a.workout.ListExerciseLogs(sessionID)
 }
-func (a *storeAdapter) GetAllUniqueExercises(userID int64) ([]store.WorkoutExercise, error) {
-	return a.workout.GetAllUniqueExercises(userID)
+func (a *storeAdapter) ListAllUniqueExercises(userID int64) ([]store.WorkoutExercise, error) {
+	return a.workout.ListAllUniqueExercises(userID)
 }
 func (a *storeAdapter) LogExercise(sessionID, exerciseID int64, name string, sets, reps *int, weightKg *float64, status, notes string) (int64, error) {
 	return a.workout.LogExercise(sessionID, exerciseID, name, sets, reps, weightKg, status, notes)
@@ -240,14 +250,18 @@ func (a *storeAdapter) UpdateExerciseLogStatus(id int64, status string) error {
 }
 
 // workoutsvc.WorkoutStore extras
-func (a *storeAdapter) StartSession(id int64) error                                { return a.workout.StartSession(id) }
-func (a *storeAdapter) ClearSnooze(id int64) error                                 { return a.workout.ClearSnooze(id) }
-func (a *storeAdapter) SnoozeSession(id int64, dur time.Duration) error            { return a.workout.SnoozeSession(id, dur) }
-func (a *storeAdapter) SkipSession(id int64) error                                 { return a.workout.SkipSession(id) }
-func (a *storeAdapter) CompleteSession(id int64) error                             { return a.workout.CompleteSession(id) }
-func (a *storeAdapter) AdvanceRotation(groupID int64) error                        { return a.workout.AdvanceRotation(groupID) }
-func (a *storeAdapter) CreateAdHocWorkoutSession(userID int64, d time.Time, t string) (*store.WorkoutSession, error) {
-	return a.workout.CreateAdHocWorkoutSession(userID, d, t)
+func (a *storeAdapter) StartSession(id int64) error { return a.workout.StartSession(id) }
+func (a *storeAdapter) ClearSnooze(id int64) error  { return a.workout.ClearSnooze(id) }
+func (a *storeAdapter) SnoozeSession(id int64, dur time.Duration) error {
+	return a.workout.SnoozeSession(id, dur)
+}
+func (a *storeAdapter) SkipSession(id int64) error     { return a.workout.SkipSession(id) }
+func (a *storeAdapter) CompleteSession(id int64) error { return a.workout.CompleteSession(id) }
+func (a *storeAdapter) AdvanceRotation(groupID int64) error {
+	return a.workout.AdvanceRotation(groupID)
+}
+func (a *storeAdapter) CreateAdHocSession(userID int64, d time.Time, t string) (*store.WorkoutSession, error) {
+	return a.workout.CreateAdHocSession(userID, d, t)
 }
 func (a *storeAdapter) CreatePlannedAdHocSession(userID int64, d time.Time, t string) (*store.WorkoutSession, error) {
 	return a.workout.CreatePlannedAdHocSession(userID, d, t)
@@ -265,25 +279,25 @@ func (a *storeAdapter) ImportVitals(ctx context.Context, userID int64, heart []s
 func (a *storeAdapter) ImportDayStats(ctx context.Context, userID int64, stats []store.DayStat) (int, int, error) {
 	return a.vitals.ImportDayStats(ctx, userID, stats)
 }
-func (a *storeAdapter) ImportMiBandWorkouts(ctx context.Context, workouts []store.MiBandWorkout, gpsTracks map[int64][]store.MiBandGPSPoint) (int, int, error) {
-	return a.workout.ImportMiBandWorkouts(ctx, workouts, gpsTracks)
+func (a *storeAdapter) ImportMiBand(ctx context.Context, workouts []store.MiBandWorkout, gpsTracks map[int64][]store.MiBandGPSPoint) (int, int, error) {
+	return a.workout.ImportMiBand(ctx, workouts, gpsTracks)
 }
-func (a *storeAdapter) ListMiBandWorkouts(ctx context.Context, userID int64, limit int) ([]store.MiBandWorkout, error) {
-	return a.workout.ListMiBandWorkouts(ctx, userID, limit)
+func (a *storeAdapter) ListMiBand(ctx context.Context, userID int64, limit int) ([]store.MiBandWorkout, error) {
+	return a.workout.ListMiBand(ctx, userID, limit)
 }
 
 // --- TZ ---
 
-func (a *storeAdapter) GetCurrentTimezone() (string, error) { return a.tz.GetCurrentTimezone() }
-func (a *storeAdapter) RecordTimezone(tz string) error      { return a.tz.RecordTimezone(tz) }
+func (a *storeAdapter) GetCurrent() (string, error) { return a.tz.GetCurrent() }
+func (a *storeAdapter) Record(tz string) error      { return a.tz.Record(tz) }
 
 // TZPlanCallbackStore needs:
-func (a *storeAdapter) SetTZTransitionPlanApproved(id int64, approvedAt time.Time) (bool, error) {
-	return a.tz.SetTZTransitionPlanApproved(id, approvedAt)
+func (a *storeAdapter) SetTransitionPlanApproved(id int64, approvedAt time.Time) (bool, error) {
+	return a.tz.SetTransitionPlanApproved(id, approvedAt)
 }
-func (a *storeAdapter) RejectTZTransitionPlanAndRevertTimezone(id int64) (bool, error) {
-	return a.tz.RejectTZTransitionPlanAndRevertTimezone(id)
+func (a *storeAdapter) RejectTransitionPlanAndRevertTimezone(id int64) (bool, error) {
+	return a.tz.RejectTransitionPlanAndRevertTimezone(id)
 }
-func (a *storeAdapter) GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error) {
-	return a.tz.GetLatestActiveOrPendingTZTransitionPlan()
+func (a *storeAdapter) GetLatestActiveOrPendingTransitionPlan() (*store.TZTransitionPlan, error) {
+	return a.tz.GetLatestActiveOrPendingTransitionPlan()
 }

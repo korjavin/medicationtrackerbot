@@ -14,11 +14,11 @@ import (
 // stubTZ implements TimezoneLookup for tests that need a non-UTC timezone.
 type stubTZ struct{ tz string }
 
-func (s stubTZ) GetCurrentTimezone() (string, error) { return s.tz, nil }
+func (s stubTZ) GetCurrent() (string, error) { return s.tz, nil }
 
 // setupBPRepo creates an in-memory DB with all migrations and a BP repo
 // bound to UTC (the tz lookup returns the empty string, so
-// GetBPDailyWeightedStats falls back to time.UTC).
+// GetDailyWeightedStats falls back to time.UTC).
 func setupBPRepo(t *testing.T) *Repo {
 	t.Helper()
 	d, err := storedb.Open(":memory:")
@@ -70,7 +70,7 @@ func TestCalculateBPCategory(t *testing.T) {
 	}
 }
 
-func TestCreateBloodPressureReading(t *testing.T) {
+func TestCreateReading(t *testing.T) {
 	r := setupBPRepo(t)
 	ctx := context.Background()
 
@@ -82,17 +82,17 @@ func TestCreateBloodPressureReading(t *testing.T) {
 			Diastolic:  85,
 			Pulse:      intPtr(72),
 		}
-		id, err := r.CreateBloodPressureReading(ctx, reading)
+		id, err := r.CreateReading(ctx, reading)
 		if err != nil {
-			t.Fatalf("CreateBloodPressureReading() error = %v", err)
+			t.Fatalf("CreateReading() error = %v", err)
 		}
 		if id == 0 {
 			t.Fatal("expected non-zero ID")
 		}
 
-		readings, err := r.GetBloodPressureReadings(ctx, 123, time.Time{})
+		readings, err := r.ListReadings(ctx, 123, time.Time{})
 		if err != nil {
-			t.Fatalf("GetBloodPressureReadings() error = %v", err)
+			t.Fatalf("ListReadings() error = %v", err)
 		}
 		if len(readings) != 1 {
 			t.Fatalf("expected 1 reading, got %d", len(readings))
@@ -110,9 +110,9 @@ func TestCreateBloodPressureReading(t *testing.T) {
 			Diastolic:  95,
 			IgnoreCalc: true,
 		}
-		_, err := r.CreateBloodPressureReading(ctx, reading)
+		_, err := r.CreateReading(ctx, reading)
 		if err != nil {
-			t.Fatalf("CreateBloodPressureReading() error = %v", err)
+			t.Fatalf("CreateReading() error = %v", err)
 		}
 		if reading.Category != "" {
 			t.Errorf("expected empty category with IgnoreCalc, got %q", reading.Category)
@@ -127,14 +127,14 @@ func TestCreateBloodPressureReading(t *testing.T) {
 			Diastolic:  75,
 			Category:   "Custom Category",
 		}
-		_, err := r.CreateBloodPressureReading(ctx, reading)
+		_, err := r.CreateReading(ctx, reading)
 		if err != nil {
-			t.Fatalf("CreateBloodPressureReading() error = %v", err)
+			t.Fatalf("CreateReading() error = %v", err)
 		}
 
-		readings, err := r.GetBloodPressureReadings(ctx, 123, time.Time{})
+		readings, err := r.ListReadings(ctx, 123, time.Time{})
 		if err != nil {
-			t.Fatalf("GetBloodPressureReadings() error = %v", err)
+			t.Fatalf("ListReadings() error = %v", err)
 		}
 
 		var found bool
@@ -150,7 +150,7 @@ func TestCreateBloodPressureReading(t *testing.T) {
 	})
 }
 
-func TestGetBloodPressureReadings(t *testing.T) {
+func TestListReadings(t *testing.T) {
 	r := setupBPRepo(t)
 	ctx := context.Background()
 	userID := int64(456)
@@ -163,16 +163,16 @@ func TestGetBloodPressureReadings(t *testing.T) {
 	}
 
 	for i := range readings {
-		_, err := r.CreateBloodPressureReading(ctx, &readings[i])
+		_, err := r.CreateReading(ctx, &readings[i])
 		if err != nil {
 			t.Fatalf("failed to create reading %d: %v", i, err)
 		}
 	}
 
 	t.Run("get all readings with zero time", func(t *testing.T) {
-		result, err := r.GetBloodPressureReadings(ctx, userID, time.Time{})
+		result, err := r.ListReadings(ctx, userID, time.Time{})
 		if err != nil {
-			t.Fatalf("GetBloodPressureReadings() error = %v", err)
+			t.Fatalf("ListReadings() error = %v", err)
 		}
 		if len(result) != 3 {
 			t.Fatalf("expected 3 readings, got %d", len(result))
@@ -187,9 +187,9 @@ func TestGetBloodPressureReadings(t *testing.T) {
 
 	t.Run("get readings with since filter", func(t *testing.T) {
 		since := now.Add(-90 * time.Minute)
-		result, err := r.GetBloodPressureReadings(ctx, userID, since)
+		result, err := r.ListReadings(ctx, userID, since)
 		if err != nil {
-			t.Fatalf("GetBloodPressureReadings() error = %v", err)
+			t.Fatalf("ListReadings() error = %v", err)
 		}
 		if len(result) != 1 {
 			t.Fatalf("expected 1 reading since %v, got %d", since, len(result))
@@ -200,9 +200,9 @@ func TestGetBloodPressureReadings(t *testing.T) {
 	})
 
 	t.Run("get readings for different user returns empty", func(t *testing.T) {
-		result, err := r.GetBloodPressureReadings(ctx, 999, time.Time{})
+		result, err := r.ListReadings(ctx, 999, time.Time{})
 		if err != nil {
-			t.Fatalf("GetBloodPressureReadings() error = %v", err)
+			t.Fatalf("ListReadings() error = %v", err)
 		}
 		if len(result) != 0 {
 			t.Errorf("expected 0 readings for non-existent user, got %d", len(result))
@@ -210,7 +210,7 @@ func TestGetBloodPressureReadings(t *testing.T) {
 	})
 }
 
-func TestDeleteBloodPressureReading(t *testing.T) {
+func TestDeleteReading(t *testing.T) {
 	r := setupBPRepo(t)
 	ctx := context.Background()
 	userID := int64(789)
@@ -221,20 +221,20 @@ func TestDeleteBloodPressureReading(t *testing.T) {
 		Systolic:   120,
 		Diastolic:  80,
 	}
-	id, err := r.CreateBloodPressureReading(ctx, reading)
+	id, err := r.CreateReading(ctx, reading)
 	if err != nil {
 		t.Fatalf("failed to create reading: %v", err)
 	}
 
 	t.Run("delete with correct user succeeds", func(t *testing.T) {
-		err := r.DeleteBloodPressureReading(ctx, id, userID)
+		err := r.DeleteReading(ctx, id, userID)
 		if err != nil {
-			t.Fatalf("DeleteBloodPressureReading() error = %v", err)
+			t.Fatalf("DeleteReading() error = %v", err)
 		}
 
-		readings, err := r.GetBloodPressureReadings(ctx, userID, time.Time{})
+		readings, err := r.ListReadings(ctx, userID, time.Time{})
 		if err != nil {
-			t.Fatalf("GetBloodPressureReadings() error = %v", err)
+			t.Fatalf("ListReadings() error = %v", err)
 		}
 		if len(readings) != 0 {
 			t.Errorf("expected 0 readings after delete, got %d", len(readings))
@@ -248,26 +248,26 @@ func TestDeleteBloodPressureReading(t *testing.T) {
 			Systolic:   130,
 			Diastolic:  85,
 		}
-		id2, err := r.CreateBloodPressureReading(ctx, reading2)
+		id2, err := r.CreateReading(ctx, reading2)
 		if err != nil {
 			t.Fatalf("failed to create reading: %v", err)
 		}
 
-		err = r.DeleteBloodPressureReading(ctx, id2, 999)
+		err = r.DeleteReading(ctx, id2, 999)
 		if !errors.Is(err, sql.ErrNoRows) {
 			t.Errorf("expected sql.ErrNoRows for wrong user, got %v", err)
 		}
 	})
 
 	t.Run("delete non-existent reading returns ErrNoRows", func(t *testing.T) {
-		err := r.DeleteBloodPressureReading(ctx, 99999, userID)
+		err := r.DeleteReading(ctx, 99999, userID)
 		if !errors.Is(err, sql.ErrNoRows) {
 			t.Errorf("expected sql.ErrNoRows for non-existent reading, got %v", err)
 		}
 	})
 }
 
-func TestImportBloodPressureReadings(t *testing.T) {
+func TestImportReadings(t *testing.T) {
 	r := setupBPRepo(t)
 	ctx := context.Background()
 	userID := int64(321)
@@ -280,14 +280,14 @@ func TestImportBloodPressureReadings(t *testing.T) {
 			{Systolic: 145, Diastolic: 92, MeasuredAt: now.Add(-1 * time.Hour), Category: "High BP Stage 2"},
 		}
 
-		err := r.ImportBloodPressureReadings(ctx, userID, readings)
+		err := r.ImportReadings(ctx, userID, readings)
 		if err != nil {
-			t.Fatalf("ImportBloodPressureReadings() error = %v", err)
+			t.Fatalf("ImportReadings() error = %v", err)
 		}
 
-		result, err := r.GetBloodPressureReadings(ctx, userID, time.Time{})
+		result, err := r.ListReadings(ctx, userID, time.Time{})
 		if err != nil {
-			t.Fatalf("GetBloodPressureReadings() error = %v", err)
+			t.Fatalf("ListReadings() error = %v", err)
 		}
 		if len(result) != 3 {
 			t.Fatalf("expected 3 imported readings, got %d", len(result))
@@ -295,9 +295,9 @@ func TestImportBloodPressureReadings(t *testing.T) {
 	})
 
 	t.Run("import empty slice succeeds", func(t *testing.T) {
-		err := r.ImportBloodPressureReadings(ctx, userID, []BloodPressure{})
+		err := r.ImportReadings(ctx, userID, []BloodPressure{})
 		if err != nil {
-			t.Fatalf("ImportBloodPressureReadings() with empty slice error = %v", err)
+			t.Fatalf("ImportReadings() with empty slice error = %v", err)
 		}
 	})
 }
@@ -306,9 +306,9 @@ func TestBPGoal(t *testing.T) {
 	r := setupBPRepo(t)
 
 	t.Run("get goal returns empty when not set", func(t *testing.T) {
-		goal, err := r.GetBPGoal()
+		goal, err := r.GetGoal()
 		if err != nil {
-			t.Fatalf("GetBPGoal() error = %v", err)
+			t.Fatalf("GetGoal() error = %v", err)
 		}
 		if goal.TargetSystolic != nil || goal.TargetDiastolic != nil {
 			t.Errorf("expected empty BPGoal, got systolic=%v diastolic=%v", goal.TargetSystolic, goal.TargetDiastolic)
@@ -316,14 +316,14 @@ func TestBPGoal(t *testing.T) {
 	})
 
 	t.Run("set and get goal", func(t *testing.T) {
-		err := r.SetBPGoal(125, 80)
+		err := r.SetGoal(125, 80)
 		if err != nil {
-			t.Fatalf("SetBPGoal() error = %v", err)
+			t.Fatalf("SetGoal() error = %v", err)
 		}
 
-		goal, err := r.GetBPGoal()
+		goal, err := r.GetGoal()
 		if err != nil {
-			t.Fatalf("GetBPGoal() error = %v", err)
+			t.Fatalf("GetGoal() error = %v", err)
 		}
 		if goal.TargetSystolic == nil || *goal.TargetSystolic != 125 {
 			t.Errorf("expected target systolic 125, got %v", goal.TargetSystolic)
@@ -334,14 +334,14 @@ func TestBPGoal(t *testing.T) {
 	})
 
 	t.Run("set goal overwrites previous", func(t *testing.T) {
-		err := r.SetBPGoal(130, 85)
+		err := r.SetGoal(130, 85)
 		if err != nil {
-			t.Fatalf("SetBPGoal() error = %v", err)
+			t.Fatalf("SetGoal() error = %v", err)
 		}
 
-		goal, err := r.GetBPGoal()
+		goal, err := r.GetGoal()
 		if err != nil {
-			t.Fatalf("GetBPGoal() error = %v", err)
+			t.Fatalf("GetGoal() error = %v", err)
 		}
 		if goal.TargetSystolic == nil || *goal.TargetSystolic != 130 {
 			t.Errorf("expected target systolic 130, got %v", goal.TargetSystolic)

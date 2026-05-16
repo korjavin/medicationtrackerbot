@@ -21,9 +21,9 @@ import (
 // single input.
 func TestMaterializePlanStepsAsIntakesTx(t *testing.T) {
 	r := setupMedicationRepo(t)
-	medID, err := r.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	medID, err := r.Create("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	planID := insertTestPlan(t, r.db, "APPROVED", []materializeFixtureStep{
@@ -116,9 +116,9 @@ func TestMaterializePlanStepsAsIntakesTx(t *testing.T) {
 // rows the user has already confirmed (status='TAKEN') survive.
 func TestDeletePendingPreMaterializedIntakesForPlan(t *testing.T) {
 	r := setupMedicationRepo(t)
-	medID, err := r.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	medID, err := r.Create("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	planID := insertTestPlan(t, r.db, "APPROVED", nil)
@@ -168,7 +168,7 @@ func TestDeletePendingPreMaterializedIntakesForPlan(t *testing.T) {
 }
 
 // TestGetPendingIntakes_ExcludesOrphanTZStepFromCancelledPlan pins the
-// defense-in-depth gate added to GetPendingIntakes after Codex flagged that
+// defense-in-depth gate added to ListPendingIntakes after Codex flagged that
 // MedicationReminderChecker (the >1h-overdue re-reminder loop) and
 // domain.medicationService.ConfirmMedicationByMedID both read pending intakes
 // through this function. DeletePendingPreMaterializedIntakesForPlan is
@@ -181,9 +181,9 @@ func TestDeletePendingPreMaterializedIntakesForPlan(t *testing.T) {
 // owning plan is APPROVED/COMPLETED must still be returned.
 func TestGetPendingIntakes_ExcludesOrphanTZStepFromCancelledPlan(t *testing.T) {
 	r := setupMedicationRepo(t)
-	medID, err := r.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	medID, err := r.Create("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	approvedPlanID := insertTestPlan(t, r.db, "APPROVED", nil)
@@ -203,9 +203,9 @@ func TestGetPendingIntakes_ExcludesOrphanTZStepFromCancelledPlan(t *testing.T) {
 	insertTestIntakeRow(t, r.db, medID, rejectedStepAt, "PENDING", "tz_step", &rejectedPlanID, ptrInt64(1))
 	insertTestIntakeRow(t, r.db, medID, normalAt, "PENDING", "schedule", nil, nil)
 
-	pending, err := r.GetPendingIntakes()
+	pending, err := r.ListPendingIntakes()
 	if err != nil {
-		t.Fatalf("GetPendingIntakes: %v", err)
+		t.Fatalf("ListPendingIntakes: %v", err)
 	}
 
 	gotByUnix := map[int64]IntakeLog{}
@@ -223,10 +223,10 @@ func TestGetPendingIntakes_ExcludesOrphanTZStepFromCancelledPlan(t *testing.T) {
 		t.Errorf("source='schedule' row missing — gate only filters source='tz_step'")
 	}
 	if _, ok := gotByUnix[cancelledStepAt.Unix()]; ok {
-		t.Errorf("orphan tz_step row from CANCELLED plan must be hidden from GetPendingIntakes — otherwise MedicationReminderChecker can fire reminders and ConfirmIntake will decrement inventory for it")
+		t.Errorf("orphan tz_step row from CANCELLED plan must be hidden from ListPendingIntakes — otherwise MedicationReminderChecker can fire reminders and ConfirmIntake will decrement inventory for it")
 	}
 	if _, ok := gotByUnix[rejectedStepAt.Unix()]; ok {
-		t.Errorf("orphan tz_step row from REJECTED plan must be hidden from GetPendingIntakes")
+		t.Errorf("orphan tz_step row from REJECTED plan must be hidden from ListPendingIntakes")
 	}
 	if len(pending) != 3 {
 		t.Errorf("got %d pending intakes, want 3 (APPROVED + COMPLETED tz_step + schedule row)", len(pending))
@@ -244,9 +244,9 @@ func TestGetPendingIntakes_ExcludesOrphanTZStepFromCancelledPlan(t *testing.T) {
 // APPROVED/COMPLETED must still succeed.
 func TestConfirmAndSkip_RejectOrphanTZStep_FromCancelledPlan(t *testing.T) {
 	r := setupMedicationRepo(t)
-	medID, err := r.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	medID, err := r.Create("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	approvedPlanID := insertTestPlan(t, r.db, "APPROVED", nil)
@@ -306,13 +306,13 @@ func TestConfirmAndSkip_RejectOrphanTZStep_FromCancelledPlan(t *testing.T) {
 // inventory for the cancelled step.
 func TestGetPendingIntakesBySchedule_ExcludesOrphanTZStep(t *testing.T) {
 	r := setupMedicationRepo(t)
-	medID, err := r.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	medID, err := r.Create("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
-	medID2, err := r.CreateMedication("Vitamin D", "1000IU", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	medID2, err := r.Create("Vitamin D", "1000IU", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication 2: %v", err)
+		t.Fatalf("Create 2: %v", err)
 	}
 
 	cancelledPlanID := insertTestPlan(t, r.db, "CANCELLED", nil)
@@ -321,9 +321,9 @@ func TestGetPendingIntakesBySchedule_ExcludesOrphanTZStep(t *testing.T) {
 	insertTestIntakeRow(t, r.db, medID, scheduledAt, "PENDING", "schedule", nil, nil)
 	insertTestIntakeRow(t, r.db, medID2, scheduledAt, "PENDING", "tz_step", &cancelledPlanID, ptrInt64(1))
 
-	got, err := r.GetPendingIntakesBySchedule(42, scheduledAt)
+	got, err := r.ListPendingIntakesBySchedule(42, scheduledAt)
 	if err != nil {
-		t.Fatalf("GetPendingIntakesBySchedule: %v", err)
+		t.Fatalf("ListPendingIntakesBySchedule: %v", err)
 	}
 	if len(got) != 1 {
 		t.Fatalf("got %d intakes, want 1 (orphan tz_step row must be hidden)", len(got))
@@ -343,17 +343,17 @@ func TestGetPendingIntakesBySchedule_ExcludesOrphanTZStep(t *testing.T) {
 // they must continue to suppress a duplicate normal-schedule reminder.
 func TestBatchGetIntakesBySchedule_ExcludesOrphanPendingTZStep(t *testing.T) {
 	r := setupMedicationRepo(t)
-	medID, err := r.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	medID, err := r.Create("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
-	medID2, err := r.CreateMedication("Vitamin D", "1000IU", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	medID2, err := r.Create("Vitamin D", "1000IU", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication 2: %v", err)
+		t.Fatalf("Create 2: %v", err)
 	}
-	medID3, err := r.CreateMedication("Warfarin", "5mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	medID3, err := r.Create("Warfarin", "5mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication 3: %v", err)
+		t.Fatalf("Create 3: %v", err)
 	}
 
 	approvedPlanID := insertTestPlan(t, r.db, "APPROVED", nil)
@@ -395,9 +395,9 @@ func TestBatchGetIntakesBySchedule_ExcludesOrphanPendingTZStep(t *testing.T) {
 // legitimate target would suppress that reminder forever.
 func TestHasIntakeNearScheduledTime_ExcludesOrphanPendingTZStep(t *testing.T) {
 	r := setupMedicationRepo(t)
-	medID, err := r.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	medID, err := r.Create("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	cancelledPlanID := insertTestPlan(t, r.db, "CANCELLED", nil)
@@ -445,9 +445,9 @@ func TestHasIntakeNearScheduledTime_ExcludesOrphanPendingTZStep(t *testing.T) {
 // plan banner (bypassing the ConfirmIntake gate).
 func TestUpdateIntake_RejectsOrphanTZStep(t *testing.T) {
 	r := setupMedicationRepo(t)
-	medID, err := r.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	medID, err := r.Create("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	cancelledPlanID := insertTestPlan(t, r.db, "CANCELLED", nil)
@@ -512,7 +512,7 @@ func TestUpdateIntake_RejectsOrphanTZStep(t *testing.T) {
 // slot at T just before the user approves a plan whose snap-to-clock final
 // step also lands at T.
 //
-// Without the gate MedicationReminderChecker (which scans GetPendingIntakes
+// Without the gate MedicationReminderChecker (which scans ListPendingIntakes
 // every minute) would keep firing reminders for the shadowed schedule row
 // after the user confirmed the tz_step row — and a click on
 // confirm_intake:<scheduleID> would silently decrement inventory a second
@@ -525,9 +525,9 @@ func TestUpdateIntake_RejectsOrphanTZStep(t *testing.T) {
 // hiding the schedule row would leave the slot with no actionable row at all.
 func TestGetPendingIntakes_HidesScheduleRowShadowedByTZStep(t *testing.T) {
 	r := setupMedicationRepo(t)
-	medID, err := r.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	medID, err := r.Create("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	approvedPlanID := insertTestPlan(t, r.db, "APPROVED", nil)
@@ -564,9 +564,9 @@ func TestGetPendingIntakes_HidesScheduleRowShadowedByTZStep(t *testing.T) {
 	loneSlot := time.Date(2026, 5, 16, 10, 0, 0, 0, time.UTC)
 	insertTestIntakeRow(t, r.db, medID, loneSlot, "PENDING", "schedule", nil, nil)
 
-	pending, err := r.GetPendingIntakes()
+	pending, err := r.ListPendingIntakes()
 	if err != nil {
-		t.Fatalf("GetPendingIntakes: %v", err)
+		t.Fatalf("ListPendingIntakes: %v", err)
 	}
 
 	bySlot := map[int64][]IntakeLog{}
@@ -615,9 +615,9 @@ func TestGetPendingIntakes_HidesScheduleRowShadowedByTZStep(t *testing.T) {
 // call DecrementInventory twice for a single logical dose.
 func TestGetPendingIntakesBySchedule_HidesScheduleRowShadowedByTZStep(t *testing.T) {
 	r := setupMedicationRepo(t)
-	medID, err := r.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	medID, err := r.Create("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	approvedPlanID := insertTestPlan(t, r.db, "APPROVED", nil)
@@ -627,9 +627,9 @@ func TestGetPendingIntakesBySchedule_HidesScheduleRowShadowedByTZStep(t *testing
 	insertTestIntakeRow(t, r.db, medID, shadowedSlot, "PENDING", "schedule", nil, nil)
 	insertTestIntakeRow(t, r.db, medID, shadowedSlot, "PENDING", "tz_step", &approvedPlanID, ptrInt64(1))
 
-	got, err := r.GetPendingIntakesBySchedule(42, shadowedSlot)
+	got, err := r.ListPendingIntakesBySchedule(42, shadowedSlot)
 	if err != nil {
-		t.Fatalf("GetPendingIntakesBySchedule (shadowed slot): %v", err)
+		t.Fatalf("ListPendingIntakesBySchedule (shadowed slot): %v", err)
 	}
 	if len(got) != 1 {
 		t.Fatalf("got %d rows at shadowed slot, want 1 (only the tz_step row should survive — otherwise confirm_schedule:<unix> double-confirms)", len(got))
@@ -644,9 +644,9 @@ func TestGetPendingIntakesBySchedule_HidesScheduleRowShadowedByTZStep(t *testing
 	insertTestIntakeRow(t, r.db, medID, orphanSlot, "PENDING", "schedule", nil, nil)
 	insertTestIntakeRow(t, r.db, medID, orphanSlot, "PENDING", "tz_step", &cancelledPlanID, ptrInt64(1))
 
-	got, err = r.GetPendingIntakesBySchedule(42, orphanSlot)
+	got, err = r.ListPendingIntakesBySchedule(42, orphanSlot)
 	if err != nil {
-		t.Fatalf("GetPendingIntakesBySchedule (orphan slot): %v", err)
+		t.Fatalf("ListPendingIntakesBySchedule (orphan slot): %v", err)
 	}
 	if len(got) != 1 {
 		t.Fatalf("got %d rows at orphan slot, want 1 (only the schedule row should survive — the orphan tz_step is itself hidden by tzStepPlanStatusGate)", len(got))
@@ -665,9 +665,9 @@ func TestGetPendingIntakesBySchedule_HidesScheduleRowShadowedByTZStep(t *testing
 // since-cancelled plan becomes permanently uncorrectable.
 func TestUpdateIntake_AllowsTakenTZStepFromCancelledPlan(t *testing.T) {
 	r := setupMedicationRepo(t)
-	medID, err := r.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	medID, err := r.Create("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 	cancelledPlanID := insertTestPlan(t, r.db, "CANCELLED", nil)
 
@@ -757,7 +757,7 @@ func ptrInt64(v int64) *int64 {
 // what every transport calls in production.
 func TestApproveAndMaterialize_PlanGuard(t *testing.T) {
 	// This test lives in the medication package because it needs the
-	// medication.Repo helpers (CreateMedication, etc.). For the cross-repo
+	// medication.Repo helpers (Create, etc.). For the cross-repo
 	// store.Repos.ApproveAndMaterialize end-to-end we use the dedicated
 	// store-level test (intentionally deferred to internal/store/ to avoid
 	// adding store as a dependency here). The medication-repo tests above

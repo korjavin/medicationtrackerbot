@@ -22,10 +22,10 @@ func TestHandleDeleteExerciseLog(t *testing.T) {
 	userID := int64(123456)
 
 	// Setup
-	group, _ := db.Workout.CreateWorkoutGroup("Group", "Desc", false, userID, "[]", "10:00", 15)
-	variant, _ := db.Workout.CreateWorkoutVariant(group.ID, "Variant", nil, "")
-	ex, _ := db.Workout.AddExerciseToVariant(variant.ID, "Pushups", 3, 10, nil, nil, 0)
-	session, _ := db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "10:00")
+	group, _ := db.Workout.CreateGroup("Group", "Desc", false, userID, "[]", "10:00", 15)
+	variant, _ := db.Workout.CreateVariant(group.ID, "Variant", nil, "")
+	ex, _ := db.Workout.CreateExerciseInVariant(variant.ID, "Pushups", 3, 10, nil, nil, 0)
+	session, _ := db.Workout.CreateSession(group.ID, variant.ID, userID, time.Now(), "10:00")
 
 	// Create a log
 	sets := 3
@@ -33,7 +33,7 @@ func TestHandleDeleteExerciseLog(t *testing.T) {
 	logID, _ := db.Workout.LogExercise(session.ID, ex.ID, "Pushups", &sets, &reps, nil, "completed", "")
 
 	// Verify log exists
-	logs, _ := db.Workout.GetExerciseLogs(session.ID)
+	logs, _ := db.Workout.ListExerciseLogs(session.ID)
 	if len(logs) != 1 {
 		t.Fatalf("Expected 1 log, got %d", len(logs))
 	}
@@ -48,7 +48,7 @@ func TestHandleDeleteExerciseLog(t *testing.T) {
 	}
 
 	// Verify log is gone
-	logs, _ = db.Workout.GetExerciseLogs(session.ID)
+	logs, _ = db.Workout.ListExerciseLogs(session.ID)
 	if len(logs) != 0 {
 		t.Fatalf("Expected 0 logs after delete, got %d", len(logs))
 	}
@@ -73,7 +73,7 @@ func TestHandleDeleteExerciseLog(t *testing.T) {
 func TestDirtyFlagPreventsPhantomLogs(t *testing.T) {
 	// This test verifies the store-level behavior that supports the _dirty flag fix:
 	// When the web UI pre-fills exercises but doesn't save them (because _dirty=false),
-	// only explicitly logged exercises should appear in GetExerciseLogs.
+	// only explicitly logged exercises should appear in ListExerciseLogs.
 	db, err := store.New(":memory:")
 	if err != nil {
 		t.Fatalf("Failed to create test store: %v", err)
@@ -81,12 +81,12 @@ func TestDirtyFlagPreventsPhantomLogs(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	group, _ := db.Workout.CreateWorkoutGroup("Group", "Desc", false, userID, "[]", "10:00", 15)
-	variant, _ := db.Workout.CreateWorkoutVariant(group.ID, "Variant", nil, "")
-	ex1, _ := db.Workout.AddExerciseToVariant(variant.ID, "Dead Bug", 2, 10, nil, nil, 0)
-	ex2, _ := db.Workout.AddExerciseToVariant(variant.ID, "Overhead Press", 4, 6, nil, nil, 1)
-	ex3, _ := db.Workout.AddExerciseToVariant(variant.ID, "Push-ups", 3, 10, nil, nil, 2)
-	session, _ := db.Workout.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "10:00")
+	group, _ := db.Workout.CreateGroup("Group", "Desc", false, userID, "[]", "10:00", 15)
+	variant, _ := db.Workout.CreateVariant(group.ID, "Variant", nil, "")
+	ex1, _ := db.Workout.CreateExerciseInVariant(variant.ID, "Dead Bug", 2, 10, nil, nil, 0)
+	ex2, _ := db.Workout.CreateExerciseInVariant(variant.ID, "Overhead Press", 4, 6, nil, nil, 1)
+	ex3, _ := db.Workout.CreateExerciseInVariant(variant.ID, "Push-ups", 3, 10, nil, nil, 2)
+	session, _ := db.Workout.CreateSession(group.ID, variant.ID, userID, time.Now(), "10:00")
 	_ = db.Workout.StartSession(session.ID)
 
 	// Simulate: TG bot logs exercise 1 (Done)
@@ -100,7 +100,7 @@ func TestDirtyFlagPreventsPhantomLogs(t *testing.T) {
 	_, _ = db.Workout.LogExercise(session.ID, ex2.ID, "Overhead Press", &sets2, &reps2, &weight2, "completed", "")
 
 	// Verify: Only 2 logs exist (not 3) — exercise 3 was NOT saved
-	logs, _ := db.Workout.GetExerciseLogs(session.ID)
+	logs, _ := db.Workout.ListExerciseLogs(session.ID)
 	if len(logs) != 2 {
 		t.Fatalf("Expected 2 logs (only explicitly saved), got %d", len(logs))
 	}
@@ -121,7 +121,7 @@ func TestDirtyFlagPreventsPhantomLogs(t *testing.T) {
 	_ = db.Workout.UpdateExerciseLog(existing.ID, &sets2, &reps2, &weight2, "")
 
 	// Still only 2 logs
-	logs, _ = db.Workout.GetExerciseLogs(session.ID)
+	logs, _ = db.Workout.ListExerciseLogs(session.ID)
 	if len(logs) != 2 {
 		t.Fatalf("Expected still 2 logs (no duplicate from TG bot), got %d", len(logs))
 	}
@@ -135,7 +135,7 @@ func TestDirtyFlagPreventsPhantomLogs(t *testing.T) {
 	_, _ = db.Workout.LogExercise(session.ID, ex3.ID, "Push-ups", &sets3, &reps3, nil, "completed", "")
 
 	// Now 3 logs — all exercises completed
-	logs, _ = db.Workout.GetExerciseLogs(session.ID)
+	logs, _ = db.Workout.ListExerciseLogs(session.ID)
 	if len(logs) != 3 {
 		t.Fatalf("Expected 3 logs (all exercises done), got %d", len(logs))
 	}

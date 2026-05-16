@@ -69,9 +69,9 @@ func TestHandleCreateAdHocWorkoutSession_PersistsInDB(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&resp)
 
 	// Verify session exists in DB
-	sessionInDB, err := db.Workout.GetWorkoutSession(resp.Session.ID)
+	sessionInDB, err := db.Workout.GetSession(resp.Session.ID)
 	if err != nil {
-		t.Fatalf("GetWorkoutSession: %v", err)
+		t.Fatalf("GetSession: %v", err)
 	}
 	if sessionInDB == nil {
 		t.Fatal("Session not found in DB")

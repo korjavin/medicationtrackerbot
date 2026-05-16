@@ -14,14 +14,34 @@ import (
 )
 
 type MockNotifier struct {
+	mu            sync.Mutex
 	Notifications []notifier.Notification
 }
 
 func (m *MockNotifier) Send(ctx context.Context, userID int64, n notifier.Notification) (int, error) {
 	if n.Metadata["type"] != "medication_batch" {
+		m.mu.Lock()
 		m.Notifications = append(m.Notifications, n)
+		m.mu.Unlock()
 	}
 	return 1, nil
+}
+
+// snapshotNotifications returns a copy of m.Notifications under lock so test
+// readers don't race with the async Notify goroutine.
+func (m *MockNotifier) snapshotNotifications() []notifier.Notification {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]notifier.Notification, len(m.Notifications))
+	copy(out, m.Notifications)
+	return out
+}
+
+// resetNotifications clears m.Notifications under lock.
+func (m *MockNotifier) resetNotifications() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Notifications = nil
 }
 
 func (m *MockNotifier) Delete(ctx context.Context, userID int64, msgID int) error {
@@ -104,8 +124,8 @@ func TestMedicationCheckerScenarios(t *testing.T) {
 		}
 
 		if input.UserTimezone != "" {
-			if err := db.TZ.RecordTimezone(input.UserTimezone); err != nil {
-				t.Fatalf("RecordTimezone failed: %v", err)
+			if err := db.TZ.Record(input.UserTimezone); err != nil {
+				t.Fatalf("Record failed: %v", err)
 			}
 		}
 
@@ -131,15 +151,15 @@ func TestMedicationCheckerScenarios(t *testing.T) {
 				}
 			}
 
-			id, err := db.Medication.CreateMedication(m.Name, m.Dosage, m.Schedule, sd, ed, "", "", "")
+			id, err := db.Medication.Create(m.Name, m.Dosage, m.Schedule, sd, ed, "", "", "")
 			if err != nil {
-				t.Fatalf("CreateMedication failed: %v", err)
+				t.Fatalf("Create failed: %v", err)
 			}
 
 			// Adjust the created_at to be before the scheduled time in the tests
 			// so that it behaves correctly and triggers notifications as before.
-			if err := db.Medication.UpdateMedicationCreatedAt(id, nowTime.Add(-24*time.Hour)); err != nil {
-				t.Fatalf("UpdateMedicationCreatedAt failed: %v", err)
+			if err := db.Medication.UpdateCreatedAt(id, nowTime.Add(-24*time.Hour)); err != nil {
+				t.Fatalf("UpdateCreatedAt failed: %v", err)
 			}
 
 			medNameMap[m.Name] = id
@@ -177,13 +197,13 @@ func TestMedicationCheckerScenarios(t *testing.T) {
 		// Wait briefly for fire-and-forget notifications to be processed
 		time.Sleep(10 * time.Millisecond)
 
-		pending, err := db.Medication.GetPendingIntakes()
+		pending, err := db.Medication.ListPendingIntakes()
 		if err != nil {
-			t.Fatalf("GetPendingIntakes failed: %v", err)
+			t.Fatalf("ListPendingIntakes failed: %v", err)
 		}
 
 		actual := medicationScenarioExpected{
-			Notifications:  len(mockNotifier.Notifications),
+			Notifications:  len(mockNotifier.snapshotNotifications()),
 			PendingIntakes: len(pending),
 		}
 

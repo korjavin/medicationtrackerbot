@@ -170,9 +170,9 @@ func TestRunWipesPreExistingData(t *testing.T) {
 		Systolic:   199,
 		Diastolic:  111,
 	}
-	id, err := s.BP.CreateBloodPressureReading(ctx, preExisting)
+	id, err := s.BP.CreateReading(ctx, preExisting)
 	if err != nil {
-		t.Fatalf("CreateBloodPressureReading: %v", err)
+		t.Fatalf("CreateReading: %v", err)
 	}
 	if id == 0 {
 		t.Fatal("expected non-zero id for pre-existing BP row")

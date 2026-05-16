@@ -65,7 +65,7 @@ func (s *Server) handleCreateFoodLog(w http.ResponseWriter, r *http.Request) {
 	var productForUsage *store.FoodProduct
 
 	if req.ProductID != nil {
-		product, err := s.food.GetFoodProductByID(ctx, userID, *req.ProductID)
+		product, err := s.food.GetProductByID(ctx, userID, *req.ProductID)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				http.Error(w, "invalid product_id: product does not exist or belongs to another user", http.StatusInternalServerError)
@@ -104,9 +104,9 @@ func (s *Server) handleCreateFoodLog(w http.ResponseWriter, r *http.Request) {
 			EnergyKcal100g: k100,
 		}
 		// Ignore error as this is a background optimization.
-		_ = s.food.UpsertFoodProduct(ctx, p)
+		_ = s.food.UpsertProduct(ctx, p)
 
-		if got, err := s.food.GetFoodProductByName(ctx, userID, req.Name); err == nil && got != nil {
+		if got, err := s.food.GetProductByName(ctx, userID, req.Name); err == nil && got != nil {
 			gotID := got.ID
 			resolvedProductID = &gotID
 		}
@@ -124,14 +124,14 @@ func (s *Server) handleCreateFoodLog(w http.ResponseWriter, r *http.Request) {
 		ProductID: resolvedProductID,
 	}
 
-	id, err := s.food.CreateFoodLog(ctx, foodLog)
+	id, err := s.food.CreateLog(ctx, foodLog)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	if productForUsage != nil {
-		_ = s.food.UpsertFoodProduct(ctx, &store.FoodProduct{
+		_ = s.food.UpsertProduct(ctx, &store.FoodProduct{
 			UserID: userID,
 			Name:   productForUsage.Name,
 		})
@@ -251,7 +251,7 @@ func (s *Server) handleCreateFoodLogFromPhoto(w http.ResponseWriter, r *http.Req
 			Calories: item.Calories,
 			Name:     item.Name,
 		}
-		id, err := s.food.CreateFoodLog(saveCtx, entry)
+		id, err := s.food.CreateLog(saveCtx, entry)
 		if err != nil {
 			slog.Error("food photo: save failed", "user_id", userID, "name", item.Name, "error", err)
 			failed++
@@ -307,7 +307,7 @@ func (s *Server) handleGetFoodLogs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	logs, err := s.food.GetFoodLogs(context.Background(), userID, date, days)
+	logs, err := s.food.ListLogs(context.Background(), userID, date, days)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -331,7 +331,7 @@ func (s *Server) handleDeleteFoodLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.food.DeleteFoodLog(context.Background(), id, userID); err != nil {
+	if err := s.food.DeleteLog(context.Background(), id, userID); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -399,7 +399,7 @@ func (s *Server) handleUpdateFoodLog(w http.ResponseWriter, r *http.Request) {
 		ProductID: req.ProductID,
 	}
 
-	if err := s.food.UpdateFoodLog(context.Background(), foodLog); err != nil {
+	if err := s.food.UpdateLog(context.Background(), foodLog); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.Error(w, "Not found", http.StatusNotFound)
 			return
@@ -432,7 +432,7 @@ func (s *Server) handleUpdateFoodLog(w http.ResponseWriter, r *http.Request) {
 			Fat100g:        f100,
 			EnergyKcal100g: k100,
 		}
-		_ = s.food.UpsertFoodProduct(context.Background(), p)
+		_ = s.food.UpsertProduct(context.Background(), p)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -595,7 +595,7 @@ func (s *Server) handleGetFoodStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	stats, err := s.food.GetFoodStats(context.Background(), userID, date, days)
+	stats, err := s.food.GetStats(context.Background(), userID, date, days)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -636,7 +636,7 @@ func (s *Server) handleSetFoodIntakeEnabled(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) handleGetFoodTargets(w http.ResponseWriter, r *http.Request) {
-	targets, err := s.food.GetFoodTargets(context.Background())
+	targets, err := s.food.GetTargets(context.Background())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -659,7 +659,7 @@ func (s *Server) handleSetFoodTargets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.food.SetFoodTargets(context.Background(), req); err != nil {
+	if err := s.food.SetTargets(context.Background(), req); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -719,7 +719,7 @@ func (s *Server) handleUpdateFoodProduct(w http.ResponseWriter, r *http.Request)
 		TotalWeightG:   req.TotalWeightG,
 	}
 
-	if err := s.food.UpdateFoodProduct(context.Background(), p); err != nil {
+	if err := s.food.UpdateProduct(context.Background(), p); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -742,7 +742,7 @@ func (s *Server) handleDeleteFoodProduct(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := s.food.DeleteFoodProduct(context.Background(), id, userID); err != nil {
+	if err := s.food.DeleteProduct(context.Background(), id, userID); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -785,7 +785,7 @@ func (s *Server) handleGetFoodProducts(w http.ResponseWriter, r *http.Request) {
 		Sort:   query.Get("sort"),
 	}
 
-	products, total, err := s.food.GetFoodProducts(context.Background(), userID, filter)
+	products, total, err := s.food.ListProducts(context.Background(), userID, filter)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -840,7 +840,7 @@ func (s *Server) handleSearchFoodProducts(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	products, err := s.food.SearchFoodProducts(context.Background(), userID, query)
+	products, err := s.food.SearchProducts(context.Background(), userID, query)
 	if err != nil {
 		slog.Debug("Local food search failed", "query", query, "error", err)
 		products = []store.FoodProduct{}
@@ -869,7 +869,7 @@ func (s *Server) handleSearchFoodProducts(w http.ResponseWriter, r *http.Request
 	ctx, cancel := context.WithTimeout(r.Context(), fallbackTimeout)
 	defer cancel()
 
-	apiProducts, err := s.food.SearchRemoteFoodAPI(ctx, query)
+	apiProducts, err := s.food.SearchRemoteAPI(ctx, query)
 	if err != nil {
 		slog.Debug("Remote food API fallback failed", "query", query, "error", err)
 		return // Just stop streaming if remote fetch fails

@@ -254,7 +254,7 @@ func New(s *store.Store, botToken, sessionSecret string, allowedUserID int64, oi
 		slog.Warn("EXTERNAL_WORKOUT_API_KEY is not set. The external workout endpoint will reject all requests.")
 	}
 
-	// Default tzUpdater: bare RecordTimezone with no planner. SetTZPlanner /
+	// Default tzUpdater: bare Record with no planner. SetTZPlanner /
 	// SetTZUpdater swap in a planner-aware service after construction.
 	srv.tzUpdater = tzupdate.NewService(srv.timezone, srv.tzPlanStore, nil, nil, nil)
 
@@ -277,7 +277,7 @@ type tzSuggestionSettings struct {
 		SetDismissedTZSuggestion(ctx context.Context, tz string) error
 	}
 	tz interface {
-		GetCurrentTimezone() (string, error)
+		GetCurrent() (string, error)
 	}
 }
 
@@ -285,13 +285,13 @@ func newTZSuggestionSettings(settings interface {
 	GetDismissedTZSuggestion(ctx context.Context) (string, error)
 	SetDismissedTZSuggestion(ctx context.Context, tz string) error
 }, tz interface {
-	GetCurrentTimezone() (string, error)
+	GetCurrent() (string, error)
 }) *tzSuggestionSettings {
 	return &tzSuggestionSettings{settings: settings, tz: tz}
 }
 
-func (a *tzSuggestionSettings) GetCurrentTimezone() (string, error) {
-	return a.tz.GetCurrentTimezone()
+func (a *tzSuggestionSettings) GetCurrent() (string, error) {
+	return a.tz.GetCurrent()
 }
 
 func (a *tzSuggestionSettings) GetDismissedTZSuggestion(ctx context.Context) (string, error) {
@@ -555,8 +555,8 @@ func (s *Server) Routes() http.Handler {
 
 	// API
 	apiMux := newRecordingMux(&s.routesRecorded)
-	apiMux.HandleFunc("GET /api/medications", s.handleListMedications)
-	apiMux.HandleFunc("POST /api/medications", s.handleCreateMedication)
+	apiMux.HandleFunc("GET /api/medications", s.handleList)
+	apiMux.HandleFunc("POST /api/medications", s.handleCreate)
 	apiMux.HandleFunc("POST /api/medications/{id}", s.handleUpdateMedication)
 	apiMux.HandleFunc("DELETE /api/medications/{id}", s.handleDeleteMedication)
 	apiMux.HandleFunc("GET /api/history", s.handleListHistory)
@@ -599,7 +599,7 @@ func (s *Server) Routes() http.Handler {
 
 	// Inventory endpoints
 	apiMux.HandleFunc("POST /api/medications/{id}/restock", s.handleRestock)
-	apiMux.HandleFunc("GET /api/medications/{id}/restocks", s.handleGetRestockHistory)
+	apiMux.HandleFunc("GET /api/medications/{id}/restocks", s.handleListRestocks)
 	apiMux.HandleFunc("GET /api/inventory/low", s.handleGetLowStock)
 
 	// Workout endpoints
@@ -738,7 +738,7 @@ func (s *Server) handleListHistory(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	logs, err := s.meds.GetIntakeHistory(medID, days)
+	logs, err := s.meds.ListIntakeHistory(medID, days)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -779,13 +779,13 @@ func (s *Server) handleRestock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.meds.AddRestock(id, req.Quantity, req.Note); err != nil {
+	if err := s.meds.CreateRestock(id, req.Quantity, req.Note); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	// Get updated medication to return new count
-	med, err := s.meds.GetMedication(id)
+	med, err := s.meds.Get(id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -801,7 +801,7 @@ func (s *Server) handleRestock(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handleGetRestockHistory(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleListRestocks(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
@@ -809,7 +809,7 @@ func (s *Server) handleGetRestockHistory(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	restocks, err := s.meds.GetRestockHistory(id)
+	restocks, err := s.meds.ListRestocks(id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -830,7 +830,7 @@ func (s *Server) handleGetLowStock(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	meds, err := s.meds.GetMedicationsLowOnStock(days)
+	meds, err := s.meds.ListLowOnStock(days)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1202,7 +1202,7 @@ func (s *Server) handleConfirmSchedule(w http.ResponseWriter, r *http.Request) {
 
 			if intake.Status == "PENDING" {
 				// Delete notification messages
-				reminders, _ := s.meds.GetIntakeReminders(id)
+				reminders, _ := s.meds.ListIntakeReminders(id)
 				for _, msgID := range reminders {
 					s.deleteNotification(r.Context(), msgID)
 				}
@@ -1248,7 +1248,7 @@ func (s *Server) handleConfirmSchedule(w http.ResponseWriter, r *http.Request) {
 
 		if intake != nil && intake.UserID == userID && intake.Status == "PENDING" {
 			// Delete notification messages
-			reminders, _ := s.meds.GetIntakeReminders(intake.ID)
+			reminders, _ := s.meds.ListIntakeReminders(intake.ID)
 			for _, msgID := range reminders {
 				s.deleteNotification(r.Context(), msgID)
 			}
@@ -1280,7 +1280,7 @@ func (s *Server) handleConfirmSchedule(w http.ResponseWriter, r *http.Request) {
 		medSet[id] = true
 	}
 
-	takenIntakes, err := s.meds.GetTakenIntakesBySchedule(userID, parsedTime)
+	takenIntakes, err := s.meds.ListTakenIntakesBySchedule(userID, parsedTime)
 	if err != nil {
 		slog.Error("Error getting taken intakes for schedule", "scheduledAt", req.ScheduledAt, "error", err)
 	} else {
@@ -1308,7 +1308,7 @@ func (s *Server) handleSendTestMedicationNotification(w http.ResponseWriter, r *
 		return
 	}
 
-	meds, err := s.meds.ListMedications(false)
+	meds, err := s.meds.List(false)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

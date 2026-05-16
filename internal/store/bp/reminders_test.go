@@ -6,10 +6,10 @@ import (
 	"time"
 )
 
-func TestGetBPReminderState_NewUser(t *testing.T) {
+func TestGetReminderState_NewUser(t *testing.T) {
 	r := setupBPRepo(t)
 
-	state, err := r.GetBPReminderState(12345)
+	state, err := r.GetReminderState(12345)
 	if err != nil {
 		t.Fatalf("Failed to get BP reminder state: %v", err)
 	}
@@ -31,15 +31,15 @@ func TestGetBPReminderState_NewUser(t *testing.T) {
 	}
 }
 
-func TestSetBPReminderEnabled(t *testing.T) {
+func TestSetReminderEnabled(t *testing.T) {
 	r := setupBPRepo(t)
 	userID := int64(12345)
 
-	if err := r.SetBPReminderEnabled(userID, false); err != nil {
+	if err := r.SetReminderEnabled(userID, false); err != nil {
 		t.Fatalf("Failed to disable BP reminders: %v", err)
 	}
 
-	state, err := r.GetBPReminderState(userID)
+	state, err := r.GetReminderState(userID)
 	if err != nil {
 		t.Fatalf("Failed to get state: %v", err)
 	}
@@ -47,11 +47,11 @@ func TestSetBPReminderEnabled(t *testing.T) {
 		t.Errorf("Expected enabled to be false, got true")
 	}
 
-	if err := r.SetBPReminderEnabled(userID, true); err != nil {
+	if err := r.SetReminderEnabled(userID, true); err != nil {
 		t.Fatalf("Failed to enable BP reminders: %v", err)
 	}
 
-	state, err = r.GetBPReminderState(userID)
+	state, err = r.GetReminderState(userID)
 	if err != nil {
 		t.Fatalf("Failed to get state: %v", err)
 	}
@@ -60,20 +60,20 @@ func TestSetBPReminderEnabled(t *testing.T) {
 	}
 }
 
-func TestSnoozeBPReminder(t *testing.T) {
+func TestSnoozeReminder(t *testing.T) {
 	r := setupBPRepo(t)
 	userID := int64(12345)
 
-	if _, err := r.GetBPReminderState(userID); err != nil {
+	if _, err := r.GetReminderState(userID); err != nil {
 		t.Fatalf("Failed to initialize state: %v", err)
 	}
 
 	beforeSnooze := time.Now()
-	if err := r.SnoozeBPReminder(userID); err != nil {
+	if err := r.SnoozeReminder(userID); err != nil {
 		t.Fatalf("Failed to snooze BP reminder: %v", err)
 	}
 
-	state, err := r.GetBPReminderState(userID)
+	state, err := r.GetReminderState(userID)
 	if err != nil {
 		t.Fatalf("Failed to get state: %v", err)
 	}
@@ -89,20 +89,20 @@ func TestSnoozeBPReminder(t *testing.T) {
 	}
 }
 
-func TestDontBugMeBPReminder(t *testing.T) {
+func TestDontBugMeReminder(t *testing.T) {
 	r := setupBPRepo(t)
 	userID := int64(12345)
 
-	if _, err := r.GetBPReminderState(userID); err != nil {
+	if _, err := r.GetReminderState(userID); err != nil {
 		t.Fatalf("Failed to initialize state: %v", err)
 	}
 
 	beforeBlock := time.Now()
-	if err := r.DontBugMeBPReminder(userID); err != nil {
+	if err := r.DontBugMeReminder(userID); err != nil {
 		t.Fatalf("Failed to set don't bug me: %v", err)
 	}
 
-	state, err := r.GetBPReminderState(userID)
+	state, err := r.GetReminderState(userID)
 	if err != nil {
 		t.Fatalf("Failed to get state: %v", err)
 	}
@@ -118,12 +118,12 @@ func TestDontBugMeBPReminder(t *testing.T) {
 	}
 }
 
-func TestGetLastBPReading(t *testing.T) {
+func TestGetLastReading(t *testing.T) {
 	r := setupBPRepo(t)
 	ctx := context.Background()
 	userID := int64(12345)
 
-	reading, err := r.GetLastBPReading(ctx, userID)
+	reading, err := r.GetLastReading(ctx, userID)
 	if err != nil {
 		t.Fatalf("Failed to get last BP reading: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestGetLastBPReading(t *testing.T) {
 	}
 
 	now := time.Now()
-	_, err = r.CreateBloodPressureReading(ctx, &BloodPressure{
+	_, err = r.CreateReading(ctx, &BloodPressure{
 		UserID:     userID,
 		MeasuredAt: now.Add(-2 * time.Hour),
 		Systolic:   120,
@@ -142,7 +142,7 @@ func TestGetLastBPReading(t *testing.T) {
 		t.Fatalf("Failed to create BP reading: %v", err)
 	}
 
-	_, err = r.CreateBloodPressureReading(ctx, &BloodPressure{
+	_, err = r.CreateReading(ctx, &BloodPressure{
 		UserID:     userID,
 		MeasuredAt: now.Add(-1 * time.Hour),
 		Systolic:   130,
@@ -152,7 +152,7 @@ func TestGetLastBPReading(t *testing.T) {
 		t.Fatalf("Failed to create BP reading: %v", err)
 	}
 
-	reading, err = r.GetLastBPReading(ctx, userID)
+	reading, err = r.GetLastReading(ctx, userID)
 	if err != nil {
 		t.Fatalf("Failed to get last BP reading: %v", err)
 	}
@@ -166,12 +166,12 @@ func TestGetLastBPReading(t *testing.T) {
 	}
 }
 
-func TestGetDominantBPCategory(t *testing.T) {
+func TestGetDominantCategory(t *testing.T) {
 	r := setupBPRepo(t)
 	ctx := context.Background()
 	userID := int64(12345)
 
-	category, err := r.GetDominantBPCategory(ctx, userID)
+	category, err := r.GetDominantCategory(ctx, userID)
 	if err != nil {
 		t.Fatalf("Failed to get dominant category: %v", err)
 	}
@@ -193,7 +193,7 @@ func TestGetDominantBPCategory(t *testing.T) {
 	}
 
 	for i, rd := range readings {
-		_, err = r.CreateBloodPressureReading(ctx, &BloodPressure{
+		_, err = r.CreateReading(ctx, &BloodPressure{
 			UserID:     userID,
 			MeasuredAt: now.Add(-time.Duration(len(readings)-i) * time.Hour),
 			Systolic:   rd.systolic,
@@ -204,7 +204,7 @@ func TestGetDominantBPCategory(t *testing.T) {
 		}
 	}
 
-	category, err = r.GetDominantBPCategory(ctx, userID)
+	category, err = r.GetDominantCategory(ctx, userID)
 	if err != nil {
 		t.Fatalf("Failed to get dominant category: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestCalculatePreferredReminderHour(t *testing.T) {
 
 	for i, h := range hours {
 		measuredAt := time.Date(now.Year(), now.Month(), now.Day()-i, h, 0, 0, 0, now.Location())
-		_, err = r.CreateBloodPressureReading(ctx, &BloodPressure{
+		_, err = r.CreateReading(ctx, &BloodPressure{
 			UserID:     userID,
 			MeasuredAt: measuredAt,
 			Systolic:   120,
@@ -255,7 +255,7 @@ func TestCalculatePreferredReminderHour(t *testing.T) {
 
 	r2 := setupBPRepo(t)
 	userID2 := int64(54321)
-	_, err = r2.CreateBloodPressureReading(ctx, &BloodPressure{
+	_, err = r2.CreateReading(ctx, &BloodPressure{
 		UserID:     userID2,
 		MeasuredAt: now,
 		Systolic:   120,
@@ -302,7 +302,7 @@ func TestUpdatePreferredReminderHour(t *testing.T) {
 	r := setupBPRepo(t)
 	userID := int64(12345)
 
-	if _, err := r.GetBPReminderState(userID); err != nil {
+	if _, err := r.GetReminderState(userID); err != nil {
 		t.Fatalf("Failed to initialize state: %v", err)
 	}
 
@@ -310,7 +310,7 @@ func TestUpdatePreferredReminderHour(t *testing.T) {
 		t.Fatalf("Failed to update preferred hour: %v", err)
 	}
 
-	state, err := r.GetBPReminderState(userID)
+	state, err := r.GetReminderState(userID)
 	if err != nil {
 		t.Fatalf("Failed to get state: %v", err)
 	}
@@ -320,7 +320,7 @@ func TestUpdatePreferredReminderHour(t *testing.T) {
 	}
 }
 
-func TestGetUsersForBPReminders(t *testing.T) {
+func TestListUsersForReminders(t *testing.T) {
 	r := setupBPRepo(t)
 
 	users := []struct {
@@ -333,12 +333,12 @@ func TestGetUsersForBPReminders(t *testing.T) {
 	}
 
 	for _, u := range users {
-		if err := r.SetBPReminderEnabled(u.id, u.enabled); err != nil {
+		if err := r.SetReminderEnabled(u.id, u.enabled); err != nil {
 			t.Fatalf("Failed to set enabled for user %d: %v", u.id, err)
 		}
 	}
 
-	userIDs, err := r.GetUsersForBPReminders()
+	userIDs, err := r.ListUsersForReminders()
 	if err != nil {
 		t.Fatalf("Failed to get users: %v", err)
 	}
@@ -369,20 +369,20 @@ func TestGetUsersForBPReminders(t *testing.T) {
 	}
 }
 
-func TestUpdateBPReminderNotificationSent(t *testing.T) {
+func TestUpdateReminderNotificationSent(t *testing.T) {
 	r := setupBPRepo(t)
 	userID := int64(12345)
 
-	if _, err := r.GetBPReminderState(userID); err != nil {
+	if _, err := r.GetReminderState(userID); err != nil {
 		t.Fatalf("Failed to initialize state: %v", err)
 	}
 
 	messageID := 98765
-	if err := r.UpdateBPReminderNotificationSent(userID, &messageID); err != nil {
+	if err := r.UpdateReminderNotificationSent(userID, &messageID); err != nil {
 		t.Fatalf("Failed to update notification sent: %v", err)
 	}
 
-	state, err := r.GetBPReminderState(userID)
+	state, err := r.GetReminderState(userID)
 	if err != nil {
 		t.Fatalf("Failed to get state: %v", err)
 	}
@@ -403,7 +403,7 @@ func TestUpdateBPReminderNotificationSent(t *testing.T) {
 	}
 }
 
-func TestGetBloodPressureReadings_Sorting(t *testing.T) {
+func TestListReadings_Sorting(t *testing.T) {
 	r := setupBPRepo(t)
 	ctx := context.Background()
 	userID := int64(12345)
@@ -415,7 +415,7 @@ func TestGetBloodPressureReadings_Sorting(t *testing.T) {
 	// Later reading: 22:14
 	time2 := today.Add(22*time.Hour + 14*time.Minute)
 
-	_, err := r.CreateBloodPressureReading(ctx, &BloodPressure{
+	_, err := r.CreateReading(ctx, &BloodPressure{
 		UserID:     userID,
 		MeasuredAt: time1,
 		Systolic:   120,
@@ -425,7 +425,7 @@ func TestGetBloodPressureReadings_Sorting(t *testing.T) {
 		t.Fatalf("Failed to create first BP reading: %v", err)
 	}
 
-	_, err = r.CreateBloodPressureReading(ctx, &BloodPressure{
+	_, err = r.CreateReading(ctx, &BloodPressure{
 		UserID:     userID,
 		MeasuredAt: time2,
 		Systolic:   130,
@@ -435,7 +435,7 @@ func TestGetBloodPressureReadings_Sorting(t *testing.T) {
 		t.Fatalf("Failed to create second BP reading: %v", err)
 	}
 
-	readings, err := r.GetBloodPressureReadings(ctx, userID, time.Time{})
+	readings, err := r.ListReadings(ctx, userID, time.Time{})
 	if err != nil {
 		t.Fatalf("Failed to get BP readings: %v", err)
 	}

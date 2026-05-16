@@ -142,7 +142,7 @@ func New(d *storedb.DB) *Repo {
 
 // -- Workout Group Methods --
 
-func (r *Repo) CreateWorkoutGroup(name, description string, isRotating bool, userID int64, daysOfWeek string, scheduledTime string, notificationAdvance int) (*WorkoutGroup, error) {
+func (r *Repo) CreateGroup(name, description string, isRotating bool, userID int64, daysOfWeek string, scheduledTime string, notificationAdvance int) (*WorkoutGroup, error) {
 	res, err := r.db.Exec(`
 		INSERT INTO workout_groups (name, description, is_rotating, user_id, days_of_week, scheduled_time, notification_advance_minutes)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -156,10 +156,10 @@ func (r *Repo) CreateWorkoutGroup(name, description string, isRotating bool, use
 		return nil, err
 	}
 
-	return r.GetWorkoutGroup(id)
+	return r.GetGroup(id)
 }
 
-func (r *Repo) ListWorkoutGroups(userID int64, activeOnly bool) ([]WorkoutGroup, error) {
+func (r *Repo) ListGroups(userID int64, activeOnly bool) ([]WorkoutGroup, error) {
 	query := "SELECT id, name, description, is_rotating, user_id, days_of_week, scheduled_time, notification_advance_minutes, active, created_at, updated_at FROM workout_groups WHERE user_id = ?"
 	args := []interface{}{userID}
 
@@ -190,7 +190,7 @@ func (r *Repo) ListWorkoutGroups(userID int64, activeOnly bool) ([]WorkoutGroup,
 	return groups, nil
 }
 
-func (r *Repo) GetWorkoutGroup(id int64) (*WorkoutGroup, error) {
+func (r *Repo) GetGroup(id int64) (*WorkoutGroup, error) {
 	var g WorkoutGroup
 	var desc sql.NullString
 	err := r.db.QueryRow(`
@@ -210,7 +210,7 @@ func (r *Repo) GetWorkoutGroup(id int64) (*WorkoutGroup, error) {
 	return &g, nil
 }
 
-func (r *Repo) UpdateWorkoutGroup(id int64, name, description string, isRotating bool, daysOfWeek string, scheduledTime string, notificationAdvance int, active bool) error {
+func (r *Repo) UpdateGroup(id int64, name, description string, isRotating bool, daysOfWeek string, scheduledTime string, notificationAdvance int, active bool) error {
 	_, err := r.db.Exec(`
 		UPDATE workout_groups
 		SET name = ?, description = ?, is_rotating = ?, days_of_week = ?, scheduled_time = ?, notification_advance_minutes = ?, active = ?, updated_at = CURRENT_TIMESTAMP
@@ -219,7 +219,7 @@ func (r *Repo) UpdateWorkoutGroup(id int64, name, description string, isRotating
 	return err
 }
 
-func (r *Repo) DeleteWorkoutGroup(id int64) error {
+func (r *Repo) DeleteGroup(id int64) error {
 	var exerciseCount, activeSessionCount int
 
 	// Use single query to fetch both exercise count and active session count
@@ -261,7 +261,7 @@ func (r *Repo) DeleteWorkoutGroup(id int64) error {
 
 // -- Workout Variant Methods --
 
-func (r *Repo) CreateWorkoutVariant(groupID int64, name string, rotationOrder *int, description string) (*WorkoutVariant, error) {
+func (r *Repo) CreateVariant(groupID int64, name string, rotationOrder *int, description string) (*WorkoutVariant, error) {
 	res, err := r.db.Exec(`
 		INSERT INTO workout_variants (group_id, name, rotation_order, description)
 		VALUES (?, ?, ?, ?)`,
@@ -275,7 +275,7 @@ func (r *Repo) CreateWorkoutVariant(groupID int64, name string, rotationOrder *i
 		return nil, err
 	}
 
-	return r.GetWorkoutVariant(id)
+	return r.GetVariant(id)
 }
 
 func (r *Repo) ListVariantsByGroup(groupID int64) ([]WorkoutVariant, error) {
@@ -309,7 +309,7 @@ func (r *Repo) ListVariantsByGroup(groupID int64) ([]WorkoutVariant, error) {
 	return variants, nil
 }
 
-func (r *Repo) GetWorkoutVariant(id int64) (*WorkoutVariant, error) {
+func (r *Repo) GetVariant(id int64) (*WorkoutVariant, error) {
 	var v WorkoutVariant
 	var rotationOrder sql.NullInt64
 	var desc sql.NullString
@@ -334,7 +334,7 @@ func (r *Repo) GetWorkoutVariant(id int64) (*WorkoutVariant, error) {
 	return &v, nil
 }
 
-func (r *Repo) UpdateWorkoutVariant(id int64, name string, rotationOrder *int, description string) error {
+func (r *Repo) UpdateVariant(id int64, name string, rotationOrder *int, description string) error {
 	_, err := r.db.Exec(`
 		UPDATE workout_variants
 		SET name = ?, rotation_order = ?, description = ?
@@ -343,7 +343,7 @@ func (r *Repo) UpdateWorkoutVariant(id int64, name string, rotationOrder *int, d
 	return err
 }
 
-func (r *Repo) DeleteWorkoutVariant(id int64) error {
+func (r *Repo) DeleteVariant(id int64) error {
 	// Delete all exercises in this variant first
 	_, err := r.db.Exec("DELETE FROM workout_exercises WHERE variant_id = ?", id)
 	if err != nil {
@@ -356,7 +356,7 @@ func (r *Repo) DeleteWorkoutVariant(id int64) error {
 
 // -- Exercise Methods --
 
-func (r *Repo) AddExerciseToVariant(variantID int64, exerciseName string, targetSets, targetRepsMin int, targetRepsMax *int, targetWeightKg *float64, orderIndex int) (*WorkoutExercise, error) {
+func (r *Repo) CreateExerciseInVariant(variantID int64, exerciseName string, targetSets, targetRepsMin int, targetRepsMax *int, targetWeightKg *float64, orderIndex int) (*WorkoutExercise, error) {
 	res, err := r.db.Exec(`
 		INSERT INTO workout_exercises (variant_id, exercise_name, target_sets, target_reps_min, target_reps_max, target_weight_kg, order_index)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -370,7 +370,7 @@ func (r *Repo) AddExerciseToVariant(variantID int64, exerciseName string, target
 		return nil, err
 	}
 
-	return r.GetWorkoutExercise(id)
+	return r.GetExercise(id)
 }
 
 func (r *Repo) ListExercisesByVariant(variantID int64) ([]WorkoutExercise, error) {
@@ -404,7 +404,7 @@ func (r *Repo) ListExercisesByVariant(variantID int64) ([]WorkoutExercise, error
 	return exercises, nil
 }
 
-func (r *Repo) GetWorkoutExercise(id int64) (*WorkoutExercise, error) {
+func (r *Repo) GetExercise(id int64) (*WorkoutExercise, error) {
 	var e WorkoutExercise
 	var repsMax sql.NullInt64
 	var weightKg sql.NullFloat64
@@ -429,7 +429,7 @@ func (r *Repo) GetWorkoutExercise(id int64) (*WorkoutExercise, error) {
 	return &e, nil
 }
 
-func (r *Repo) UpdateWorkoutExercise(id int64, exerciseName string, targetSets, targetRepsMin int, targetRepsMax *int, targetWeightKg *float64, orderIndex int) error {
+func (r *Repo) UpdateExercise(id int64, exerciseName string, targetSets, targetRepsMin int, targetRepsMax *int, targetWeightKg *float64, orderIndex int) error {
 	_, err := r.db.Exec(`
 		UPDATE workout_exercises
 		SET exercise_name = ?, target_sets = ?, target_reps_min = ?, target_reps_max = ?, target_weight_kg = ?, order_index = ?
@@ -438,14 +438,14 @@ func (r *Repo) UpdateWorkoutExercise(id int64, exerciseName string, targetSets, 
 	return err
 }
 
-func (r *Repo) DeleteWorkoutExercise(id int64) error {
+func (r *Repo) DeleteExercise(id int64) error {
 	_, err := r.db.Exec("DELETE FROM workout_exercises WHERE id = ?", id)
 	return err
 }
 
-// GetAllUniqueExercises returns exercises from the exercise library for a user, sorted alphabetically.
+// ListAllUniqueExercises returns exercises from the exercise library for a user, sorted alphabetically.
 // Falls back to deduplicating workout_exercises if the library is empty.
-func (r *Repo) GetAllUniqueExercises(userID int64) ([]WorkoutExercise, error) {
+func (r *Repo) ListAllUniqueExercises(userID int64) ([]WorkoutExercise, error) {
 	// Try exercise library first
 	libItems, err := r.ListExerciseLibrary(userID)
 	if err != nil {
@@ -699,7 +699,7 @@ func (r *Repo) AdvanceRotation(groupID int64) error {
 
 // -- Session Methods --
 
-func (r *Repo) CreateWorkoutSession(groupID, variantID, userID int64, scheduledDate time.Time, scheduledTime string) (*WorkoutSession, error) {
+func (r *Repo) CreateSession(groupID, variantID, userID int64, scheduledDate time.Time, scheduledTime string) (*WorkoutSession, error) {
 	res, err := r.db.Exec(`
 		INSERT INTO workout_sessions (group_id, variant_id, user_id, scheduled_date, scheduled_time, status)
 		VALUES (?, ?, ?, ?, ?, 'pending')`,
@@ -713,12 +713,12 @@ func (r *Repo) CreateWorkoutSession(groupID, variantID, userID int64, scheduledD
 		return nil, err
 	}
 
-	return r.GetWorkoutSession(id)
+	return r.GetSession(id)
 }
 
-// CreateAdHocWorkoutSession creates an unscheduled workout session.
+// CreateAdHocSession creates an unscheduled workout session.
 // Uses -1 as sentinel values for group_id and variant_id.
-func (r *Repo) CreateAdHocWorkoutSession(userID int64, scheduledDate time.Time, scheduledTime string) (*WorkoutSession, error) {
+func (r *Repo) CreateAdHocSession(userID int64, scheduledDate time.Time, scheduledTime string) (*WorkoutSession, error) {
 	res, err := r.db.Exec(`
 		INSERT INTO workout_sessions (group_id, variant_id, user_id, scheduled_date, scheduled_time, status, started_at)
 		VALUES (-1, -1, ?, ?, ?, 'in_progress', CURRENT_TIMESTAMP)`,
@@ -732,11 +732,11 @@ func (r *Repo) CreateAdHocWorkoutSession(userID int64, scheduledDate time.Time, 
 		return nil, err
 	}
 
-	return r.GetWorkoutSession(id)
+	return r.GetSession(id)
 }
 
 // CreatePlannedAdHocSession creates a future ad-hoc workout in 'pending' state.
-// Mirrors CreateAdHocWorkoutSession but leaves started_at NULL and status='pending'
+// Mirrors CreateAdHocSession but leaves started_at NULL and status='pending'
 // so the scheduler can later notify the user at scheduledDate+scheduledTime.
 func (r *Repo) CreatePlannedAdHocSession(userID int64, scheduledDate time.Time, scheduledTime string) (*WorkoutSession, error) {
 	res, err := r.db.Exec(`
@@ -752,13 +752,13 @@ func (r *Repo) CreatePlannedAdHocSession(userID int64, scheduledDate time.Time, 
 		return nil, err
 	}
 
-	return r.GetWorkoutSession(id)
+	return r.GetSession(id)
 }
 
 // ListNotifiedAdHocSessions returns every ad-hoc session (group_id = -1)
 // for the user whose status is 'notified'. The scheduler iterates these to
 // run the snooze wake-up, 3h re-notify, and 6h auto-skip handlers without
-// being bounded by GetWorkoutHistory's row limit — an active user can easily
+// being bounded by ListHistory's row limit — an active user can easily
 // accumulate >50 recent sessions, which would otherwise let an old notified
 // ad-hoc fall outside the window and stay stuck in 'notified' forever.
 func (r *Repo) ListNotifiedAdHocSessions(userID int64) ([]WorkoutSession, error) {
@@ -827,7 +827,7 @@ func (r *Repo) ListPendingAdHocSessions(userID int64, before time.Time) ([]Worko
 	return sessions, nil
 }
 
-func (r *Repo) GetWorkoutSession(id int64) (*WorkoutSession, error) {
+func (r *Repo) GetSession(id int64) (*WorkoutSession, error) {
 	var ws WorkoutSession
 	var startedAt, completedAt, snoozedUntil sql.NullTime
 	var notificationMsgID sql.NullInt64
@@ -955,7 +955,7 @@ func (r *Repo) UpdateSessionStatus(id int64, status string) error {
 	return err
 }
 
-func (r *Repo) UpdateWorkoutSessionNotes(id int64, notes string) error {
+func (r *Repo) UpdateSessionNotes(id int64, notes string) error {
 	_, err := r.db.Exec("UPDATE workout_sessions SET notes = ? WHERE id = ?", notes, id)
 	return err
 }
@@ -1055,7 +1055,7 @@ func (r *Repo) LogExerciseWithSource(sessionID, exerciseID int64, exerciseName s
 	return res.LastInsertId()
 }
 
-func (r *Repo) GetExerciseLogs(sessionID int64) ([]WorkoutExerciseLog, error) {
+func (r *Repo) ListExerciseLogs(sessionID int64) ([]WorkoutExerciseLog, error) {
 	rows, err := r.db.Query(`
 		SELECT id, session_id, exercise_id, exercise_name, sets_completed, reps_completed, weight_kg, status, notes, logged_at, source
 		FROM workout_exercise_logs
@@ -1078,11 +1078,11 @@ func (r *Repo) GetExerciseLogs(sessionID int64) ([]WorkoutExerciseLog, error) {
 }
 
 // UpdateExerciseLog updates a log's sets/reps/weight/notes. When the row is
-// still a placeholder (status=''), it also bumps logged_at to the current
-// time so a scheduled placeholder finished days later records the completion
-// time, not the schedule-creation time. Once status is non-empty, logged_at
-// is preserved so subsequent edits don't rewrite the original completion
-// timestamp.
+// still a placeholder (status is the empty string), it also bumps logged_at
+// to the current time so a scheduled placeholder finished days later records
+// the completion time, not the schedule-creation time. Once status is
+// non-empty, logged_at is preserved so subsequent edits don't rewrite the
+// original completion timestamp.
 func (r *Repo) UpdateExerciseLog(id int64, setsCompleted, repsCompleted *int, weightKg *float64, notes string) error {
 	_, err := r.db.Exec(`
 		UPDATE workout_exercise_logs
@@ -1094,9 +1094,9 @@ func (r *Repo) UpdateExerciseLog(id int64, setsCompleted, repsCompleted *int, we
 }
 
 // UpdateExerciseLogStatus updates the status of a log. When the row is still
-// a placeholder (status=''), it also bumps logged_at to the current time so a
-// placeholder promoted to completed/skipped records the actual transition
-// time, not the schedule-creation time.
+// a placeholder (status is the empty string), it also bumps logged_at to the
+// current time so a placeholder promoted to completed/skipped records the
+// actual transition time, not the schedule-creation time.
 func (r *Repo) UpdateExerciseLogStatus(id int64, status string) error {
 	_, err := r.db.Exec(`
 		UPDATE workout_exercise_logs
@@ -1372,7 +1372,7 @@ func (r *Repo) CreateGroupSnapshot(groupID int64, snapshotData, changeReason str
 	return err
 }
 
-func (r *Repo) GetGroupSnapshots(groupID int64) ([]WorkoutScheduleSnapshot, error) {
+func (r *Repo) ListGroupSnapshots(groupID int64) ([]WorkoutScheduleSnapshot, error) {
 	rows, err := r.db.Query(`
 		SELECT id, group_id, snapshot_data, change_reason, created_at
 		FROM workout_schedule_snapshots
@@ -1400,7 +1400,7 @@ func (r *Repo) GetGroupSnapshots(groupID int64) ([]WorkoutScheduleSnapshot, erro
 
 // -- History & Stats Methods --
 
-func (r *Repo) GetWorkoutHistory(userID int64, limit int) ([]WorkoutSession, error) {
+func (r *Repo) ListHistory(userID int64, limit int) ([]WorkoutSession, error) {
 	query := `
 		SELECT id, group_id, variant_id, user_id, scheduled_date, scheduled_time, status, started_at, completed_at, snoozed_until, snooze_count, notification_message_id, notes
 		FROM workout_sessions
@@ -1425,7 +1425,7 @@ func (r *Repo) GetWorkoutHistory(userID int64, limit int) ([]WorkoutSession, err
 	return sessions, nil
 }
 
-func (r *Repo) GetSnoozedSessions(userID int64) ([]WorkoutSession, error) {
+func (r *Repo) ListSnoozedSessions(userID int64) ([]WorkoutSession, error) {
 	query := `
 		SELECT id, group_id, variant_id, user_id, scheduled_date, scheduled_time, status, started_at, completed_at, snoozed_until, snooze_count, notification_message_id, notes
 		FROM workout_sessions
@@ -1450,9 +1450,9 @@ func (r *Repo) GetSnoozedSessions(userID int64) ([]WorkoutSession, error) {
 	return sessions, nil
 }
 
-// GetExerciseStats returns aggregated volume and max weight per exercise for a user.
+// ListExerciseStats returns aggregated volume and max weight per exercise for a user.
 // Only considers completed exercise logs that have weight data.
-func (r *Repo) GetExerciseStats(userID int64) ([]ExerciseStat, error) {
+func (r *Repo) ListExerciseStats(userID int64) ([]ExerciseStat, error) {
 	rows, err := r.db.Query(`
 		SELECT
 			wel.exercise_name,
@@ -1487,9 +1487,9 @@ func (r *Repo) GetExerciseStats(userID int64) ([]ExerciseStat, error) {
 	return stats, nil
 }
 
-// GetActiveSessions returns all sessions for a given date that are in 'notified' or 'in_progress' status.
+// ListActiveSessions returns all sessions for a given date that are in 'notified' or 'in_progress' status.
 // This is used to display workouts that have been notified but not yet started/completed, even if their scheduled time has passed.
-func (r *Repo) GetActiveSessions(userID int64, date time.Time) ([]WorkoutSession, error) {
+func (r *Repo) ListActiveSessions(userID int64, date time.Time) ([]WorkoutSession, error) {
 	// Format date as YYYY-MM-DD for comparison
 	dateStr := date.Format("2006-01-02")
 
@@ -1554,13 +1554,13 @@ func (r *Repo) ListRecentExerciseLogsByName(ctx context.Context, userID int64, e
 	return logs, nil
 }
 
-// GetDistinctExerciseNamesForUser returns the union of distinct exercise names
+// ListDistinctExerciseNamesForUser returns the union of distinct exercise names
 // the user has access to: their exercise_library entries, names from their
 // workout_exercise_logs history, and names from currently-scheduled
 // workout_exercises (so a freshly-planned exercise with no log yet is still
 // in the resolver catalog). Names are deduplicated case-insensitively and
 // returned in alphabetical order.
-func (r *Repo) GetDistinctExerciseNamesForUser(ctx context.Context, userID int64) ([]string, error) {
+func (r *Repo) ListDistinctExerciseNamesForUser(ctx context.Context, userID int64) ([]string, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT name FROM exercise_library WHERE user_id = ?
 		UNION
@@ -1657,4 +1657,3 @@ func scanExerciseLog(rows *sql.Rows) (WorkoutExerciseLog, error) {
 
 	return log, nil
 }
-

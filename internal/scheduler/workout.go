@@ -17,26 +17,26 @@ import (
 // WorkoutStore is the subset needed for workout scheduling and notifications.
 type WorkoutStore interface {
 	GetWorkoutEnabled(ctx context.Context) (bool, error)
-	GetWorkoutHistory(userID int64, limit int) ([]store.WorkoutSession, error)
-	ListWorkoutGroups(userID int64, activeOnly bool) ([]store.WorkoutGroup, error)
+	ListHistory(userID int64, limit int) ([]store.WorkoutSession, error)
+	ListGroups(userID int64, activeOnly bool) ([]store.WorkoutGroup, error)
 	GetRotationState(groupID int64) (*store.WorkoutRotationState, error)
 	ListVariantsByGroup(groupID int64) ([]store.WorkoutVariant, error)
 	InitializeRotation(groupID, variantID int64) error
 	GetSessionByGroupAndDate(groupID int64, date time.Time) (*store.WorkoutSession, error)
-	CreateWorkoutSession(groupID, variantID, userID int64, date time.Time, scheduledTime string) (*store.WorkoutSession, error)
-	GetWorkoutGroup(groupID int64) (*store.WorkoutGroup, error)
+	CreateSession(groupID, variantID, userID int64, date time.Time, scheduledTime string) (*store.WorkoutSession, error)
+	GetGroup(groupID int64) (*store.WorkoutGroup, error)
 	UpdateSessionStatus(sessionID int64, status string) error
-	UpdateWorkoutSessionNotes(sessionID int64, notes string) error
+	UpdateSessionNotes(sessionID int64, notes string) error
 	ClearSnooze(sessionID int64) error
-	GetWorkoutVariant(variantID int64) (*store.WorkoutVariant, error)
+	GetVariant(variantID int64) (*store.WorkoutVariant, error)
 	ListExercisesByVariant(variantID int64) ([]store.WorkoutExercise, error)
 	SetSessionNotificationMessageID(sessionID int64, msgID int) error
 	UpdateSessionVariant(sessionID int64, variantID int64) error
-	GetCurrentTimezone() (string, error)
+	GetCurrent() (string, error)
 	GetLatestSessionScheduledDate(groupID, userID int64) (time.Time, bool, error)
 	ListPendingAdHocSessions(userID int64, before time.Time) ([]store.WorkoutSession, error)
 	ListNotifiedAdHocSessions(userID int64) ([]store.WorkoutSession, error)
-	GetExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error)
+	ListExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error)
 }
 
 // crossTZSessionCooldown is the minimum gap between two scheduled_dates for
@@ -72,7 +72,7 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 
 	// Load user timezone. Only apply if explicitly set — leave time as-is otherwise.
 	var userLoc *time.Location
-	if tz, err := c.store.GetCurrentTimezone(); err != nil {
+	if tz, err := c.store.GetCurrent(); err != nil {
 		slog.Warn("Failed to get user timezone, falling back to system TZ", "error", err)
 	} else if tz != "" {
 		if loc, err := time.LoadLocation(tz); err != nil {
@@ -91,7 +91,7 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 	}
 
 	// 1. Get history to check for InProgress and Stale sessions
-	history, err := c.store.GetWorkoutHistory(c.allowedUserID, 20)
+	history, err := c.store.ListHistory(c.allowedUserID, 20)
 	if err != nil {
 		return fmt.Errorf("failed to get workout history: %w", err)
 	}
@@ -121,7 +121,7 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 				},
 			}
 			c.Notify(ctx, n, nil)
-			if err := c.store.UpdateWorkoutSessionNotes(activeSession.ID, activeSession.Notes+" stale_reminded"); err != nil {
+			if err := c.store.UpdateSessionNotes(activeSession.ID, activeSession.Notes+" stale_reminded"); err != nil {
 				slog.Error("Failed to update session notes", "error", err)
 			}
 		}
@@ -140,7 +140,7 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 	}
 
 	// 3. Get all active workout groups for the user
-	groups, err := c.store.ListWorkoutGroups(c.allowedUserID, true)
+	groups, err := c.store.ListGroups(c.allowedUserID, true)
 	if err != nil {
 		return fmt.Errorf("failed to list workout groups: %w", err)
 	}
@@ -241,7 +241,7 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 				}
 			}
 
-			session, err := c.store.CreateWorkoutSession(group.ID, variantID, c.allowedUserID, today, group.ScheduledTime)
+			session, err := c.store.CreateSession(group.ID, variantID, c.allowedUserID, today, group.ScheduledTime)
 			if err != nil {
 				slog.Error("Failed to create workout session", "error", err)
 				continue
@@ -304,7 +304,7 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 					// waking from a snooze gives the user another full cycle before it auto-skips.
 					if strings.Contains(existing.Notes, "resent_3h") {
 						newNotes := strings.TrimSpace(strings.ReplaceAll(existing.Notes, "resent_3h", ""))
-						if err := c.store.UpdateWorkoutSessionNotes(existing.ID, newNotes); err != nil {
+						if err := c.store.UpdateSessionNotes(existing.ID, newNotes); err != nil {
 							slog.Error("Failed to update session notes", "error", err)
 						}
 						existing.Notes = newNotes // ensure subsequent checks see updated notes
@@ -323,7 +323,7 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 						if err := c.sendWorkoutNotification(existing, &group, variantID); err != nil {
 							slog.Error("Failed to re-send 3h notification", "error", err)
 						}
-						if err := c.store.UpdateWorkoutSessionNotes(existing.ID, existing.Notes+" resent_3h"); err != nil {
+						if err := c.store.UpdateSessionNotes(existing.ID, existing.Notes+" resent_3h"); err != nil {
 							slog.Error("Failed to update session notes", "error", err)
 						}
 						continue
@@ -416,7 +416,7 @@ func (c *WorkoutChecker) checkNotifiedAdHocSessions(ctx context.Context, now tim
 			}
 			if strings.Contains(sess.Notes, "resent_3h") {
 				newNotes := strings.TrimSpace(strings.ReplaceAll(sess.Notes, "resent_3h", ""))
-				if err := c.store.UpdateWorkoutSessionNotes(sess.ID, newNotes); err != nil {
+				if err := c.store.UpdateSessionNotes(sess.ID, newNotes); err != nil {
 					slog.Error("Failed to update ad-hoc session notes", "session", sess.ID, "error", err)
 				}
 			}
@@ -432,7 +432,7 @@ func (c *WorkoutChecker) checkNotifiedAdHocSessions(ctx context.Context, now tim
 					if err := c.sendAdHocWorkoutNotification(sess); err != nil {
 						slog.Error("Failed to re-send 3h ad-hoc notification", "session", sess.ID, "error", err)
 					}
-					if err := c.store.UpdateWorkoutSessionNotes(sess.ID, sess.Notes+" resent_3h"); err != nil {
+					if err := c.store.UpdateSessionNotes(sess.ID, sess.Notes+" resent_3h"); err != nil {
 						slog.Error("Failed to update ad-hoc session notes", "session", sess.ID, "error", err)
 					}
 				}
@@ -475,7 +475,7 @@ func adHocScheduledMoment(sess *store.WorkoutSession, loc *time.Location) time.T
 // and falls back to a generic message when the user scheduled the session
 // without any exercises.
 func (c *WorkoutChecker) sendAdHocWorkoutNotification(session *store.WorkoutSession) error {
-	logs, err := c.store.GetExerciseLogs(session.ID)
+	logs, err := c.store.ListExerciseLogs(session.ID)
 	if err != nil {
 		return fmt.Errorf("failed to list planned exercise logs: %w", err)
 	}
@@ -525,7 +525,7 @@ func (c *WorkoutChecker) sendAdHocWorkoutNotification(session *store.WorkoutSess
 
 // sendWorkoutNotification sends a workout notification via all notifiers.
 func (c *WorkoutChecker) sendWorkoutNotification(session *store.WorkoutSession, group *store.WorkoutGroup, variantID int64) error {
-	variant, err := c.store.GetWorkoutVariant(variantID)
+	variant, err := c.store.GetVariant(variantID)
 	if err != nil || variant == nil {
 		return fmt.Errorf("variant not found: %w", err)
 	}

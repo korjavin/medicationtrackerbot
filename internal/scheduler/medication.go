@@ -20,15 +20,15 @@ import (
 // pre-materialized transition-step intakes from intake_log directly.
 type MedicationStore interface {
 	GetMedicationEnabled(ctx context.Context) (bool, error)
-	ListMedications(archived bool) ([]store.Medication, error)
+	List(archived bool) ([]store.Medication, error)
 	GetIntakeBySchedule(medID int64, scheduledAt time.Time) (*store.IntakeLog, error)
 	BatchGetIntakesBySchedule(schedules []store.MedicationSchedule) (map[store.MedicationSchedule]*store.IntakeLog, error)
 	CreateIntake(medID, userID int64, scheduledAt time.Time) (int64, error)
-	AddIntakeReminder(intakeID int64, msgID int) error
-	GetPendingIntakes() ([]store.IntakeLog, error)
-	GetPendingIntakesForMedication(medID int64) ([]store.IntakeLog, error)
-	GetMedication(id int64) (*store.Medication, error)
-	GetMedicationsLowOnStock(days int) ([]store.Medication, error)
+	CreateIntakeReminder(intakeID int64, msgID int) error
+	ListPendingIntakes() ([]store.IntakeLog, error)
+	ListPendingIntakesForMedication(medID int64) ([]store.IntakeLog, error)
+	Get(id int64) (*store.Medication, error)
+	ListLowOnStock(days int) ([]store.Medication, error)
 	GetDaysOfStockRemaining(med *store.Medication) *float64
 	SnoozeIntake(id int64, snoozeUntil time.Time) error
 	// Pre-materialized transition-step intakes + symmetric dedup.
@@ -37,9 +37,9 @@ type MedicationStore interface {
 	MedsWithFuturePendingTZStepsForPlan(planID int64, asOf time.Time) ([]int64, error)
 	HasIntakeNearScheduledTime(medID int64, target time.Time, window time.Duration) (bool, error)
 	// TZ-aware scheduling.
-	GetCurrentTimezone() (string, error)
-	GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error)
-	UpdateTZTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error
+	GetCurrent() (string, error)
+	GetLatestActiveOrPendingTransitionPlan() (*store.TZTransitionPlan, error)
+	UpdateTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error
 }
 
 // MedicationChecker checks for due medications and sends notifications.
@@ -72,7 +72,7 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 
 	// Load user timezone; fall back to time.Local if not set or invalid.
 	userLoc := time.Local
-	if tz, tzErr := c.store.GetCurrentTimezone(); tzErr != nil {
+	if tz, tzErr := c.store.GetCurrent(); tzErr != nil {
 		slog.Warn("medication scheduler: failed to get user timezone, using system TZ", "error", tzErr)
 	} else if tz != "" {
 		if loc, locErr := time.LoadLocation(tz); locErr != nil {
@@ -83,7 +83,7 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 	}
 
 	// Load the latest active transition plan.
-	activePlan, err := c.store.GetLatestActiveOrPendingTZTransitionPlan()
+	activePlan, err := c.store.GetLatestActiveOrPendingTransitionPlan()
 	if err != nil {
 		slog.Warn("medication scheduler: failed to load transition plan, proceeding without it", "error", err)
 		activePlan = nil
@@ -120,7 +120,7 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 			slog.Warn("medication scheduler: failed to count pending tz_step intakes, leaving plan APPROVED",
 				"plan_id", activePlan.ID, "error", err)
 		} else if remaining == 0 {
-			if err := c.store.UpdateTZTransitionPlanStatus(activePlan.ID, "COMPLETED", "all-steps-consumed", "APPROVED"); err != nil {
+			if err := c.store.UpdateTransitionPlanStatus(activePlan.ID, "COMPLETED", "all-steps-consumed", "APPROVED"); err != nil {
 				slog.Warn("medication scheduler: failed to mark completed plan",
 					"plan_id", activePlan.ID, "error", err)
 			} else {
@@ -131,7 +131,7 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 		}
 	}
 
-	meds, err := c.store.ListMedications(false)
+	meds, err := c.store.List(false)
 	if err != nil {
 		return err
 	}
@@ -330,7 +330,7 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 		// Normal-schedule rows don't need this — their dedup is the
 		// intake_log row created by CreateIntake above.
 		for _, iID := range preMatStepIDs {
-			if err := c.store.AddIntakeReminder(iID, 0); err != nil {
+			if err := c.store.CreateIntakeReminder(iID, 0); err != nil {
 				slog.Error("Failed to set tz_step fire gate", "intakeID", iID, "error", err)
 			}
 		}
@@ -396,7 +396,7 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 		iIDs := intakeIDs
 		c.Notify(ctx, n, func(msgID int) {
 			for _, iID := range iIDs {
-				if err := c.store.AddIntakeReminder(iID, msgID); err != nil {
+				if err := c.store.CreateIntakeReminder(iID, msgID); err != nil {
 					slog.Error("Failed to add intake reminder", "intakeID", iID, "msgID", msgID, "error", err)
 				}
 			}

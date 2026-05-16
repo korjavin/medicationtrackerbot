@@ -18,13 +18,13 @@ func TestGetLatestChangeCursorEmpty(t *testing.T) {
 	}
 }
 
-func TestGetChangedTagsSinceEmpty(t *testing.T) {
+func TestListChangedTagsSinceEmpty(t *testing.T) {
 	r := setupSettingsRepo(t)
 	ctx := context.Background()
 
-	cursor, tags, err := r.GetChangedTagsSince(ctx, 0)
+	cursor, tags, err := r.ListChangedTagsSince(ctx, 0)
 	if err != nil {
-		t.Fatalf("GetChangedTagsSince: %v", err)
+		t.Fatalf("ListChangedTagsSince: %v", err)
 	}
 	if cursor != 0 {
 		t.Errorf("Expected cursor 0, got %d", cursor)
@@ -62,9 +62,9 @@ func TestChangeEventsWithData(t *testing.T) {
 	}
 
 	// Get all tags since 0
-	cursor, tags, err := r.GetChangedTagsSince(ctx, 0)
+	cursor, tags, err := r.ListChangedTagsSince(ctx, 0)
 	if err != nil {
-		t.Fatalf("GetChangedTagsSince(0): %v", err)
+		t.Fatalf("ListChangedTagsSince(0): %v", err)
 	}
 	if cursor != 3 {
 		t.Errorf("Expected cursor 3, got %d", cursor)
@@ -78,18 +78,18 @@ func TestChangeEventsWithData(t *testing.T) {
 	}
 
 	// Get tags since cursor 1 (should still include both)
-	_, tags, err = r.GetChangedTagsSince(ctx, 1)
+	_, tags, err = r.ListChangedTagsSince(ctx, 1)
 	if err != nil {
-		t.Fatalf("GetChangedTagsSince(1): %v", err)
+		t.Fatalf("ListChangedTagsSince(1): %v", err)
 	}
 	if len(tags) != 2 {
 		t.Errorf("Expected 2 tags since cursor 1, got %d", len(tags))
 	}
 
 	// Get tags since cursor 2 (only bp at id=3)
-	_, tags, err = r.GetChangedTagsSince(ctx, 2)
+	_, tags, err = r.ListChangedTagsSince(ctx, 2)
 	if err != nil {
-		t.Fatalf("GetChangedTagsSince(2): %v", err)
+		t.Fatalf("ListChangedTagsSince(2): %v", err)
 	}
 	if len(tags) != 1 {
 		t.Fatalf("Expected 1 tag since cursor 2, got %d", len(tags))
@@ -99,9 +99,9 @@ func TestChangeEventsWithData(t *testing.T) {
 	}
 
 	// Get tags since cursor 3 (nothing new)
-	_, tags, err = r.GetChangedTagsSince(ctx, 3)
+	_, tags, err = r.ListChangedTagsSince(ctx, 3)
 	if err != nil {
-		t.Fatalf("GetChangedTagsSince(3): %v", err)
+		t.Fatalf("ListChangedTagsSince(3): %v", err)
 	}
 	if len(tags) != 0 {
 		t.Errorf("Expected 0 tags since cursor 3, got %d", len(tags))

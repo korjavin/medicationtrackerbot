@@ -47,9 +47,9 @@ func TestCheckSchedule_NoMedications(t *testing.T) {
 func TestCheckSchedule_AsNeededMedicationSkipped(t *testing.T) {
 	sched, db := setupTestScheduler(t)
 
-	_, err := db.Medication.CreateMedication("Ibuprofen", "400mg", `{"type":"as_needed"}`, nil, nil, "", "", "")
+	_, err := db.Medication.Create("Ibuprofen", "400mg", `{"type":"as_needed"}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	err = sched.MedicationChecker.Check(context.Background())
@@ -57,9 +57,9 @@ func TestCheckSchedule_AsNeededMedicationSkipped(t *testing.T) {
 		t.Errorf("Check: %v", err)
 	}
 
-	pending, err := db.Medication.GetPendingIntakes()
+	pending, err := db.Medication.ListPendingIntakes()
 	if err != nil {
-		t.Fatalf("GetPendingIntakes: %v", err)
+		t.Fatalf("ListPendingIntakes: %v", err)
 	}
 	if len(pending) != 0 {
 		t.Errorf("Expected 0 pending intakes for as_needed med, got %d", len(pending))
@@ -74,9 +74,9 @@ func TestCheckSchedule_WeeklyNotToday(t *testing.T) {
 	otherDay := (todayIdx + 1) % 7
 
 	schedule := `{"type":"weekly","days":[` + intToStr(otherDay) + `],"times":["` + now.Format("15:04") + `"]}`
-	_, err := db.Medication.CreateMedication("WeeklyMed", "10mg", schedule, nil, nil, "", "", "")
+	_, err := db.Medication.Create("WeeklyMed", "10mg", schedule, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	err = sched.MedicationChecker.Check(context.Background())
@@ -84,9 +84,9 @@ func TestCheckSchedule_WeeklyNotToday(t *testing.T) {
 		t.Errorf("Check: %v", err)
 	}
 
-	pending, err := db.Medication.GetPendingIntakes()
+	pending, err := db.Medication.ListPendingIntakes()
 	if err != nil {
-		t.Fatalf("GetPendingIntakes: %v", err)
+		t.Fatalf("ListPendingIntakes: %v", err)
 	}
 	if len(pending) != 0 {
 		t.Errorf("Expected 0 pending intakes on wrong day, got %d", len(pending))
@@ -103,9 +103,9 @@ func TestCheckSchedule_FutureTimeSkipped(t *testing.T) {
 	}
 	futureTime := futureTimeObj.Format("15:04")
 	schedule := `{"type":"daily","times":["` + futureTime + `"]}`
-	_, err := db.Medication.CreateMedication("FutureMed", "5mg", schedule, nil, nil, "", "", "")
+	_, err := db.Medication.Create("FutureMed", "5mg", schedule, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	err = sched.MedicationChecker.Check(context.Background())
@@ -113,9 +113,9 @@ func TestCheckSchedule_FutureTimeSkipped(t *testing.T) {
 		t.Errorf("Check: %v", err)
 	}
 
-	pending, err := db.Medication.GetPendingIntakes()
+	pending, err := db.Medication.ListPendingIntakes()
 	if err != nil {
-		t.Fatalf("GetPendingIntakes: %v", err)
+		t.Fatalf("ListPendingIntakes: %v", err)
 	}
 	if len(pending) != 0 {
 		t.Errorf("Expected 0 pending intakes for future time, got %d", len(pending))
@@ -133,9 +133,9 @@ func TestCheckSchedule_StartDateNotYetActive(t *testing.T) {
 	pastTime := pastTimeObj.Format("15:04")
 	futureStart := now.Add(24 * time.Hour)
 	schedule := `{"type":"daily","times":["` + pastTime + `"]}`
-	_, err := db.Medication.CreateMedication("FutureStartMed", "5mg", schedule, &futureStart, nil, "", "", "")
+	_, err := db.Medication.Create("FutureStartMed", "5mg", schedule, &futureStart, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	err = sched.MedicationChecker.Check(context.Background())
@@ -143,9 +143,9 @@ func TestCheckSchedule_StartDateNotYetActive(t *testing.T) {
 		t.Errorf("Check: %v", err)
 	}
 
-	pending, err := db.Medication.GetPendingIntakes()
+	pending, err := db.Medication.ListPendingIntakes()
 	if err != nil {
-		t.Fatalf("GetPendingIntakes: %v", err)
+		t.Fatalf("ListPendingIntakes: %v", err)
 	}
 	if len(pending) != 0 {
 		t.Errorf("Expected 0 pending intakes before start date, got %d", len(pending))
@@ -163,9 +163,9 @@ func TestCheckSchedule_EndDatePassed(t *testing.T) {
 	pastTime := pastTimeObj.Format("15:04")
 	pastEnd := now.Add(-24 * time.Hour)
 	schedule := `{"type":"daily","times":["` + pastTime + `"]}`
-	_, err := db.Medication.CreateMedication("EndedMed", "5mg", schedule, nil, &pastEnd, "", "", "")
+	_, err := db.Medication.Create("EndedMed", "5mg", schedule, nil, &pastEnd, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	err = sched.MedicationChecker.Check(context.Background())
@@ -173,9 +173,9 @@ func TestCheckSchedule_EndDatePassed(t *testing.T) {
 		t.Errorf("Check: %v", err)
 	}
 
-	pending, err := db.Medication.GetPendingIntakes()
+	pending, err := db.Medication.ListPendingIntakes()
 	if err != nil {
-		t.Fatalf("GetPendingIntakes: %v", err)
+		t.Fatalf("ListPendingIntakes: %v", err)
 	}
 	if len(pending) != 0 {
 		t.Errorf("Expected 0 pending intakes after end date, got %d", len(pending))
@@ -192,9 +192,9 @@ func TestCheckSchedule_ExistingIntakeNotDuplicated(t *testing.T) {
 	}
 	timeStr := pastTime.Format("15:04")
 	schedule := `{"type":"daily","times":["` + timeStr + `"]}`
-	medID, err := db.Medication.CreateMedication("DailyMed", "5mg", schedule, nil, nil, "", "", "")
+	medID, err := db.Medication.Create("DailyMed", "5mg", schedule, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	target := time.Date(now.Year(), now.Month(), now.Day(),
@@ -221,20 +221,20 @@ func TestCheckSchedule_MultipleMedicationsCreatesMultipleNotifications(t *testin
 	timeStr := pastTime.Format("15:04")
 	schedule := `{"type":"daily","times":["` + timeStr + `"]}`
 
-	id1, err := db.Medication.CreateMedication("Med1", "5mg", schedule, nil, nil, "", "", "")
+	id1, err := db.Medication.Create("Med1", "5mg", schedule, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
-	if err := db.Medication.UpdateMedicationCreatedAt(id1, pastTime.Add(-24*time.Hour)); err != nil {
-		t.Fatalf("UpdateMedicationCreatedAt Med1: %v", err)
+	if err := db.Medication.UpdateCreatedAt(id1, pastTime.Add(-24*time.Hour)); err != nil {
+		t.Fatalf("UpdateCreatedAt Med1: %v", err)
 	}
 
-	id2, err := db.Medication.CreateMedication("Med2", "10mg", schedule, nil, nil, "", "", "")
+	id2, err := db.Medication.Create("Med2", "10mg", schedule, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
-	if err := db.Medication.UpdateMedicationCreatedAt(id2, pastTime.Add(-24*time.Hour)); err != nil {
-		t.Fatalf("UpdateMedicationCreatedAt Med2: %v", err)
+	if err := db.Medication.UpdateCreatedAt(id2, pastTime.Add(-24*time.Hour)); err != nil {
+		t.Fatalf("UpdateCreatedAt Med2: %v", err)
 	}
 
 	err = sched.MedicationChecker.Check(context.Background())
@@ -314,12 +314,12 @@ func TestCheckBPReminders_UserSnoozed(t *testing.T) {
 	sched, db := setupTestScheduler(t)
 	userID := int64(123456)
 
-	if err := db.BP.SetBPReminderEnabled(userID, true); err != nil {
-		t.Fatalf("SetBPReminderEnabled: %v", err)
+	if err := db.BP.SetReminderEnabled(userID, true); err != nil {
+		t.Fatalf("SetReminderEnabled: %v", err)
 	}
 
-	if err := db.BP.SnoozeBPReminder(userID); err != nil {
-		t.Fatalf("SnoozeBPReminder: %v", err)
+	if err := db.BP.SnoozeReminder(userID); err != nil {
+		t.Fatalf("SnoozeReminder: %v", err)
 	}
 
 	err := sched.BPReminderChecker.Check(context.Background())
@@ -332,19 +332,19 @@ func TestCheckBPReminders_AlreadyMeasuredToday(t *testing.T) {
 	sched, db := setupTestScheduler(t)
 	userID := int64(123456)
 
-	if err := db.BP.SetBPReminderEnabled(userID, true); err != nil {
-		t.Fatalf("SetBPReminderEnabled: %v", err)
+	if err := db.BP.SetReminderEnabled(userID, true); err != nil {
+		t.Fatalf("SetReminderEnabled: %v", err)
 	}
 
 	ctx := context.Background()
-	_, err := db.BP.CreateBloodPressureReading(ctx, &store.BloodPressure{
+	_, err := db.BP.CreateReading(ctx, &store.BloodPressure{
 		UserID:     userID,
 		Systolic:   120,
 		Diastolic:  80,
 		MeasuredAt: time.Now(),
 	})
 	if err != nil {
-		t.Fatalf("CreateBloodPressureReading: %v", err)
+		t.Fatalf("CreateReading: %v", err)
 	}
 
 	err = sched.BPReminderChecker.Check(context.Background())
@@ -357,12 +357,12 @@ func TestCheckBPReminders_DontRemindUntilActive(t *testing.T) {
 	sched, db := setupTestScheduler(t)
 	userID := int64(123456)
 
-	if err := db.BP.SetBPReminderEnabled(userID, true); err != nil {
-		t.Fatalf("SetBPReminderEnabled: %v", err)
+	if err := db.BP.SetReminderEnabled(userID, true); err != nil {
+		t.Fatalf("SetReminderEnabled: %v", err)
 	}
 
-	if err := db.BP.DontBugMeBPReminder(userID); err != nil {
-		t.Fatalf("DontBugMeBPReminder: %v", err)
+	if err := db.BP.DontBugMeReminder(userID); err != nil {
+		t.Fatalf("DontBugMeReminder: %v", err)
 	}
 
 	err := sched.BPReminderChecker.Check(context.Background())
@@ -399,11 +399,11 @@ func TestCheckWeightReminders_UserSnoozed(t *testing.T) {
 	sched, db := setupTestScheduler(t)
 	userID := int64(123456)
 
-	if err := db.Weight.SetWeightReminderEnabled(userID, true); err != nil {
+	if err := db.Weight.SetReminderEnabled(userID, true); err != nil {
 		t.Fatalf("SetWeightReminderEnabled: %v", err)
 	}
 
-	if err := db.Weight.SnoozeWeightReminder(userID); err != nil {
+	if err := db.Weight.SnoozeReminder(userID); err != nil {
 		t.Fatalf("SnoozeWeightReminder: %v", err)
 	}
 
@@ -417,12 +417,12 @@ func TestCheckWeightReminders_RecentMeasurement(t *testing.T) {
 	sched, db := setupTestScheduler(t)
 	userID := int64(123456)
 
-	if err := db.Weight.SetWeightReminderEnabled(userID, true); err != nil {
+	if err := db.Weight.SetReminderEnabled(userID, true); err != nil {
 		t.Fatalf("SetWeightReminderEnabled: %v", err)
 	}
 
 	ctx := context.Background()
-	_, err := db.Weight.CreateWeightLog(ctx, &store.WeightLog{
+	_, err := db.Weight.CreateLog(ctx, &store.WeightLog{
 		UserID:     userID,
 		Weight:     75.0,
 		MeasuredAt: time.Now(),
@@ -441,11 +441,11 @@ func TestCheckWeightReminders_DontRemindUntilActive(t *testing.T) {
 	sched, db := setupTestScheduler(t)
 	userID := int64(123456)
 
-	if err := db.Weight.SetWeightReminderEnabled(userID, true); err != nil {
+	if err := db.Weight.SetReminderEnabled(userID, true); err != nil {
 		t.Fatalf("SetWeightReminderEnabled: %v", err)
 	}
 
-	if err := db.Weight.DontBugMeWeightReminder(userID); err != nil {
+	if err := db.Weight.DontBugMeReminder(userID); err != nil {
 		t.Fatalf("DontBugMeWeightReminder: %v", err)
 	}
 
@@ -487,9 +487,9 @@ func TestCheckWorkoutNotifications_WrongDay(t *testing.T) {
 	otherDay := (todayIdx + 1) % 7
 
 	daysOfWeek := "[" + intToStr(otherDay) + "]"
-	_, err := db.Workout.CreateWorkoutGroup("TestGroup", "desc", false, 123456, daysOfWeek, "09:00", 15)
+	_, err := db.Workout.CreateGroup("TestGroup", "desc", false, 123456, daysOfWeek, "09:00", 15)
 	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
+		t.Fatalf("CreateGroup: %v", err)
 	}
 
 	err = sched.WorkoutChecker.Check(context.Background())
@@ -511,15 +511,15 @@ func TestCheckWorkoutNotifications_SessionCreatedOnScheduledDay(t *testing.T) {
 
 	futureTime := futureTimeObj.Format("15:04")
 
-	group, err := db.Workout.CreateWorkoutGroup("TodayGroup", "desc", false, 123456, daysOfWeek, futureTime, 15)
+	group, err := db.Workout.CreateGroup("TodayGroup", "desc", false, 123456, daysOfWeek, futureTime, 15)
 	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
+		t.Fatalf("CreateGroup: %v", err)
 	}
 
 	order := 0
-	_, err = db.Workout.CreateWorkoutVariant(group.ID, "Variant A", &order, "")
+	_, err = db.Workout.CreateVariant(group.ID, "Variant A", &order, "")
 	if err != nil {
-		t.Fatalf("CreateWorkoutVariant: %v", err)
+		t.Fatalf("CreateVariant: %v", err)
 	}
 
 	err = sched.WorkoutChecker.Check(context.Background())
@@ -552,21 +552,21 @@ func TestCheckWorkoutNotifications_PreSkippedSession(t *testing.T) {
 
 	pastTime := pastTimeObj.Format("15:04")
 
-	group, err := db.Workout.CreateWorkoutGroup("SkipGroup", "desc", false, 123456, daysOfWeek, pastTime, 15)
+	group, err := db.Workout.CreateGroup("SkipGroup", "desc", false, 123456, daysOfWeek, pastTime, 15)
 	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
+		t.Fatalf("CreateGroup: %v", err)
 	}
 
 	order := 0
-	variant, err := db.Workout.CreateWorkoutVariant(group.ID, "Variant A", &order, "")
+	variant, err := db.Workout.CreateVariant(group.ID, "Variant A", &order, "")
 	if err != nil {
-		t.Fatalf("CreateWorkoutVariant: %v", err)
+		t.Fatalf("CreateVariant: %v", err)
 	}
 
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	session, err := db.Workout.CreateWorkoutSession(group.ID, variant.ID, 123456, today, pastTime)
+	session, err := db.Workout.CreateSession(group.ID, variant.ID, 123456, today, pastTime)
 	if err != nil {
-		t.Fatalf("CreateWorkoutSession: %v", err)
+		t.Fatalf("CreateSession: %v", err)
 	}
 	if err := db.Workout.PreSkipSession(session.ID); err != nil {
 		t.Fatalf("PreSkipSession: %v", err)
@@ -577,9 +577,9 @@ func TestCheckWorkoutNotifications_PreSkippedSession(t *testing.T) {
 		t.Errorf("Check: %v", err)
 	}
 
-	updated, err := db.Workout.GetWorkoutSession(session.ID)
+	updated, err := db.Workout.GetSession(session.ID)
 	if err != nil {
-		t.Fatalf("GetWorkoutSession: %v", err)
+		t.Fatalf("GetSession: %v", err)
 	}
 	if updated.Status != "skipped" {
 		t.Errorf("Expected pre_skipped session to become 'skipped', got %q", updated.Status)
@@ -608,21 +608,21 @@ func TestCheckWorkout_SessionVariantUpdatedWhenRotationChanges(t *testing.T) {
 	pastTime := pastTimeObj.Format("15:04")
 
 	// Step 1: Create group as non-rotating with only "Swings" variant
-	group, err := db.Workout.CreateWorkoutGroup("Morning Workouts", "desc", false, 123456, daysOfWeek, pastTime, 15)
+	group, err := db.Workout.CreateGroup("Morning Workouts", "desc", false, 123456, daysOfWeek, pastTime, 15)
 	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
+		t.Fatalf("CreateGroup: %v", err)
 	}
 
-	swingsVariant, err := db.Workout.CreateWorkoutVariant(group.ID, "Swings", nil, "")
+	swingsVariant, err := db.Workout.CreateVariant(group.ID, "Swings", nil, "")
 	if err != nil {
-		t.Fatalf("CreateWorkoutVariant Swings: %v", err)
+		t.Fatalf("CreateVariant Swings: %v", err)
 	}
 
 	// Step 2: Session was already created for today with the old variant (Swings)
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	session, err := db.Workout.CreateWorkoutSession(group.ID, swingsVariant.ID, 123456, today, pastTime)
+	session, err := db.Workout.CreateSession(group.ID, swingsVariant.ID, 123456, today, pastTime)
 	if err != nil {
-		t.Fatalf("CreateWorkoutSession: %v", err)
+		t.Fatalf("CreateSession: %v", err)
 	}
 
 	// Verify initial state: session points to Swings
@@ -631,15 +631,15 @@ func TestCheckWorkout_SessionVariantUpdatedWhenRotationChanges(t *testing.T) {
 	}
 
 	// Step 3: User makes the group rotating and adds "Bodyweight" variant
-	err = db.Workout.UpdateWorkoutGroup(group.ID, "Morning Workouts", "desc", true, daysOfWeek, pastTime, 15, true)
+	err = db.Workout.UpdateGroup(group.ID, "Morning Workouts", "desc", true, daysOfWeek, pastTime, 15, true)
 	if err != nil {
-		t.Fatalf("UpdateWorkoutGroup (make rotating): %v", err)
+		t.Fatalf("UpdateGroup (make rotating): %v", err)
 	}
 
 	order := 1
-	bodyweightVariant, err := db.Workout.CreateWorkoutVariant(group.ID, "Bodyweight", &order, "")
+	bodyweightVariant, err := db.Workout.CreateVariant(group.ID, "Bodyweight", &order, "")
 	if err != nil {
-		t.Fatalf("CreateWorkoutVariant Bodyweight: %v", err)
+		t.Fatalf("CreateVariant Bodyweight: %v", err)
 	}
 
 	// Initialize rotation to Bodyweight (what the user does in the UI)
@@ -654,9 +654,9 @@ func TestCheckWorkout_SessionVariantUpdatedWhenRotationChanges(t *testing.T) {
 	}
 
 	// Step 5: Verify the session's variant_id was updated to Bodyweight
-	updated, err := db.Workout.GetWorkoutSession(session.ID)
+	updated, err := db.Workout.GetSession(session.ID)
 	if err != nil {
-		t.Fatalf("GetWorkoutSession: %v", err)
+		t.Fatalf("GetSession: %v", err)
 	}
 	if updated.VariantID != bodyweightVariant.ID {
 		t.Errorf("BUG: session variant was not updated — got variant_id=%d (Swings), want %d (Bodyweight)",

@@ -145,12 +145,12 @@ func setupMedAtNoon(t *testing.T, name, dosage string) (*Scheduler, *store.Store
 	fakeNow := time.Date(now.Year(), now.Month(), now.Day(), 12, 0, 0, 0, now.Location())
 	sched.MedicationChecker.now = func() time.Time { return fakeNow }
 	sched.MedicationReminderChecker.now = func() time.Time { return fakeNow }
-	id, err := db.Medication.CreateMedication(name, dosage, `{"type":"daily","times":["10:00"]}`, nil, nil, "", "", "")
+	id, err := db.Medication.Create(name, dosage, `{"type":"daily","times":["10:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
-	if err := db.Medication.UpdateMedicationCreatedAt(id, fakeNow.Add(-24*time.Hour)); err != nil {
-		t.Fatalf("UpdateMedicationCreatedAt: %v", err)
+	if err := db.Medication.UpdateCreatedAt(id, fakeNow.Add(-24*time.Hour)); err != nil {
+		t.Fatalf("UpdateCreatedAt: %v", err)
 	}
 	return sched, db, mock, id, fakeNow
 }
@@ -162,17 +162,17 @@ func setupWorkoutSession(t *testing.T, groupName, variantName string) (*Schedule
 	now := time.Now()
 	daysOfWeek := "[" + intToStr(int(now.Weekday())) + "]"
 	pastTime := now.Add(-30 * time.Minute).Format("15:04")
-	group, err := db.Workout.CreateWorkoutGroup(groupName, "desc", false, 123456, daysOfWeek, pastTime, 15)
+	group, err := db.Workout.CreateGroup(groupName, "desc", false, 123456, daysOfWeek, pastTime, 15)
 	if err != nil {
 		t.Fatalf("CreateWorkoutGroup: %v", err)
 	}
 	order := 0
-	variant, err := db.Workout.CreateWorkoutVariant(group.ID, variantName, &order, "")
+	variant, err := db.Workout.CreateVariant(group.ID, variantName, &order, "")
 	if err != nil {
 		t.Fatalf("CreateWorkoutVariant: %v", err)
 	}
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	session, err := db.Workout.CreateWorkoutSession(group.ID, variant.ID, 123456, today, pastTime)
+	session, err := db.Workout.CreateSession(group.ID, variant.ID, 123456, today, pastTime)
 	if err != nil {
 		t.Fatalf("CreateWorkoutSession: %v", err)
 	}
@@ -296,16 +296,16 @@ func TestMedicationChecker_Check(t *testing.T) {
 
 		// Allow the async StoreIntakeReminderMsgID goroutine to complete.
 		time.Sleep(100 * time.Millisecond)
-		pending, err := db.Medication.GetPendingIntakes()
+		pending, err := db.Medication.ListPendingIntakes()
 		if err != nil {
-			t.Fatalf("GetPendingIntakes: %v", err)
+			t.Fatalf("ListPendingIntakes: %v", err)
 		}
 		if len(pending) != 1 {
 			t.Fatalf("expected 1 pending intake, got %d", len(pending))
 		}
-		reminders, err := db.Medication.GetIntakeReminders(pending[0].ID)
+		reminders, err := db.Medication.ListIntakeReminders(pending[0].ID)
 		if err != nil {
-			t.Fatalf("GetIntakeReminders: %v", err)
+			t.Fatalf("ListIntakeReminders: %v", err)
 		}
 		if len(reminders) == 0 {
 			t.Error("expected intake to have reminder message ID stored")
@@ -314,12 +314,12 @@ func TestMedicationChecker_Check(t *testing.T) {
 
 	t.Run("multiple meds are grouped in batched notification", func(t *testing.T) {
 		sched, db, mock, _, fakeNow := setupMedAtNoon(t, "MedA", "5mg")
-		idB, err := db.Medication.CreateMedication("MedB", "20mg", `{"type":"daily","times":["10:00"]}`, nil, nil, "", "", "")
+		idB, err := db.Medication.Create("MedB", "20mg", `{"type":"daily","times":["10:00"]}`, nil, nil, "", "", "")
 		if err != nil {
-			t.Fatalf("CreateMedication B: %v", err)
+			t.Fatalf("Create B: %v", err)
 		}
-		if err := db.Medication.UpdateMedicationCreatedAt(idB, fakeNow.Add(-24*time.Hour)); err != nil {
-			t.Fatalf("UpdateMedicationCreatedAt B: %v", err)
+		if err := db.Medication.UpdateCreatedAt(idB, fakeNow.Add(-24*time.Hour)); err != nil {
+			t.Fatalf("UpdateCreatedAt B: %v", err)
 		}
 
 		if err := sched.MedicationChecker.Check(context.Background()); err != nil {
@@ -344,8 +344,8 @@ func TestMedicationChecker_Check(t *testing.T) {
 
 	t.Run("supplement med adds skip action", func(t *testing.T) {
 		sched, db, mock, medID, _ := setupMedAtNoon(t, "Magnesium", "200mg")
-		if err := db.Medication.SetMedicationSupplement(medID, true); err != nil {
-			t.Fatalf("SetMedicationSupplement: %v", err)
+		if err := db.Medication.SetSupplement(medID, true); err != nil {
+			t.Fatalf("SetSupplement: %v", err)
 		}
 
 		if err := sched.MedicationChecker.Check(context.Background()); err != nil {
@@ -398,18 +398,18 @@ func TestMedicationReminderChecker_Check(t *testing.T) {
 	// in UTC but must be rendered in the user's stored timezone.
 	t.Run("formats scheduled_at in user timezone", func(t *testing.T) {
 		sched, db, mock := setupTestSchedulerWithMock(t)
-		if err := db.TZ.RecordTimezone("America/Los_Angeles"); err != nil {
-			t.Fatalf("RecordTimezone: %v", err)
+		if err := db.TZ.Record("America/Los_Angeles"); err != nil {
+			t.Fatalf("Record: %v", err)
 		}
 		la, _ := time.LoadLocation("America/Los_Angeles")
 		scheduled := time.Date(2026, 5, 4, 21, 18, 0, 0, time.UTC) // 14:18 PDT
 		fakeNow := scheduled.Add(2 * time.Hour)
 		sched.MedicationReminderChecker.now = func() time.Time { return fakeNow }
 
-		medID, err := db.Medication.CreateMedication("Lercanidipin", "10mg",
+		medID, err := db.Medication.Create("Lercanidipin", "10mg",
 			`{"type":"daily","times":["08:20","21:30"]}`, nil, nil, "", "", "medium")
 		if err != nil {
-			t.Fatalf("CreateMedication: %v", err)
+			t.Fatalf("Create: %v", err)
 		}
 		if _, err := db.Medication.CreateIntake(medID, 123456, scheduled); err != nil {
 			t.Fatalf("CreateIntake: %v", err)
@@ -433,8 +433,8 @@ func TestMedicationReminderChecker_Check(t *testing.T) {
 
 	t.Run("supplement reminder includes skip action", func(t *testing.T) {
 		sched, db, mock, medID, fakeNow := setupMedAtNoon(t, "Vitamin D", "1000IU")
-		if err := db.Medication.SetMedicationSupplement(medID, true); err != nil {
-			t.Fatalf("SetMedicationSupplement: %v", err)
+		if err := db.Medication.SetSupplement(medID, true); err != nil {
+			t.Fatalf("SetSupplement: %v", err)
 		}
 		target := time.Date(fakeNow.Year(), fakeNow.Month(), fakeNow.Day(), 9, 0, 0, 0, fakeNow.Location())
 		if _, err := db.Medication.CreateIntake(medID, 123456, target); err != nil {
@@ -514,14 +514,14 @@ func TestBPReminderChecker_SendBPReminder(t *testing.T) {
 	t.Run("updates LastNotificationSentAt", func(t *testing.T) {
 		sched, db, mock := setupTestSchedulerWithMock(t)
 		mock.sendMsgID = 777
-		if err := db.BP.SetBPReminderEnabled(123456, true); err != nil {
+		if err := db.BP.SetReminderEnabled(123456, true); err != nil {
 			t.Fatalf("SetBPReminderEnabled: %v", err)
 		}
 
 		if err := sched.BPReminderChecker.sendBPReminder(context.Background(), 123456, false); err != nil {
 			t.Fatalf("sendBPReminder: %v", err)
 		}
-		state, err := db.BP.GetBPReminderState(123456)
+		state, err := db.BP.GetReminderState(123456)
 		if err != nil {
 			t.Fatalf("GetBPReminderState: %v", err)
 		}
@@ -564,14 +564,14 @@ func TestWeightReminderChecker_SendWeightReminder(t *testing.T) {
 	t.Run("updates LastNotificationSentAt", func(t *testing.T) {
 		sched, db, mock := setupTestSchedulerWithMock(t)
 		mock.sendMsgID = 888
-		if err := db.Weight.SetWeightReminderEnabled(123456, true); err != nil {
+		if err := db.Weight.SetReminderEnabled(123456, true); err != nil {
 			t.Fatalf("SetWeightReminderEnabled: %v", err)
 		}
 
 		if err := sched.WeightReminderChecker.sendWeightReminder(context.Background(), 123456); err != nil {
 			t.Fatalf("sendWeightReminder: %v", err)
 		}
-		state, err := db.Weight.GetWeightReminderState(123456)
+		state, err := db.Weight.GetReminderState(123456)
 		if err != nil {
 			t.Fatalf("GetWeightReminderState: %v", err)
 		}
@@ -584,7 +584,7 @@ func TestWeightReminderChecker_SendWeightReminder(t *testing.T) {
 func TestWorkoutChecker_SendWorkoutNotification(t *testing.T) {
 	t.Run("builds notification with text, actions, tag, and metadata", func(t *testing.T) {
 		sched, db, mock, group, variant, session := setupWorkoutSession(t, "Push Day", "Heavy")
-		if _, err := db.Workout.AddExerciseToVariant(variant.ID, "Bench Press", 4, 8, intPtr(10), floatPtr(80.0), 0); err != nil {
+		if _, err := db.Workout.CreateExerciseInVariant(variant.ID, "Bench Press", 4, 8, intPtr(10), floatPtr(80.0), 0); err != nil {
 			t.Fatalf("AddExerciseToVariant: %v", err)
 		}
 
@@ -628,7 +628,7 @@ func TestWorkoutChecker_SendWorkoutNotification(t *testing.T) {
 		if err := db.Workout.SetSessionNotificationMessageID(session.ID, 555); err != nil {
 			t.Fatalf("SetSessionNotificationMessageID: %v", err)
 		}
-		reloaded, err := db.Workout.GetWorkoutSession(session.ID)
+		reloaded, err := db.Workout.GetSession(session.ID)
 		if err != nil {
 			t.Fatalf("GetWorkoutSession: %v", err)
 		}
@@ -660,7 +660,7 @@ func TestWorkoutChecker_SendWorkoutNotification(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 
-		updated, err := db.Workout.GetWorkoutSession(session.ID)
+		updated, err := db.Workout.GetSession(session.ID)
 		if err != nil {
 			t.Fatalf("GetWorkoutSession: %v", err)
 		}
@@ -675,7 +675,7 @@ func TestWorkoutChecker_SendWorkoutNotification(t *testing.T) {
 func TestMultipleNotifiers(t *testing.T) {
 	enableWeight := func(t *testing.T, db *store.Store) {
 		t.Helper()
-		if err := db.Weight.SetWeightReminderEnabled(123456, true); err != nil {
+		if err := db.Weight.SetReminderEnabled(123456, true); err != nil {
 			t.Fatalf("SetWeightReminderEnabled: %v", err)
 		}
 	}
@@ -715,9 +715,9 @@ func TestLowStockChecker_Check(t *testing.T) {
 	runAt11AM := func(t *testing.T, name string, count int) (*Scheduler, *mockNotifier) {
 		t.Helper()
 		sched, db, mock := setupTestSchedulerWithMock(t)
-		medID, err := db.Medication.CreateMedication(name, "10mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+		medID, err := db.Medication.Create(name, "10mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 		if err != nil {
-			t.Fatalf("CreateMedication: %v", err)
+			t.Fatalf("Create: %v", err)
 		}
 		c := count
 		if err := db.Medication.SetInventory(medID, &c); err != nil {
@@ -766,9 +766,9 @@ func TestLowStockChecker_Check(t *testing.T) {
 
 	t.Run("lastCheck is updated after Check (pre/post zero check)", func(t *testing.T) {
 		sched, db, mock := setupTestSchedulerWithMock(t)
-		medID, err := db.Medication.CreateMedication("LowMed", "10mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+		medID, err := db.Medication.Create("LowMed", "10mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 		if err != nil {
-			t.Fatalf("CreateMedication: %v", err)
+			t.Fatalf("Create: %v", err)
 		}
 		count := 3
 		if err := db.Medication.SetInventory(medID, &count); err != nil {

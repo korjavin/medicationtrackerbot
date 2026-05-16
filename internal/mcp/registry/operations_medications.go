@@ -12,7 +12,7 @@ import "encoding/json"
 //     Tests in mcp_bridge_test.go verify this.
 //  2. Write audit behavior is preserved: writes flow through the existing HTTP
 //     handlers and domain services (MedicationService.LogMedicationAt,
-//     MedicationStore.AddRestock), which already populate change events
+//     MedicationStore.CreateRestock), which already populate change events
 //     and audit fields.
 //
 // Path-templated IDs (e.g. POST /api/medications/{id}) are supported by the
@@ -69,12 +69,12 @@ output(result)`,
 output(result)`,
 		},
 		{
-			ID:     "medications.restocks.list",
-			Topic:  "medications",
-			Method: "GET",
-			Path:   "/api/medications/{id}/restocks",
-			Risk:   RiskRead,
-			PathParams: []string{"id"},
+			ID:              "medications.restocks.list",
+			Topic:           "medications",
+			Method:          "GET",
+			Path:            "/api/medications/{id}/restocks",
+			Risk:            RiskRead,
+			PathParams:      []string{"id"},
 			Description:     "List restock events for a medication, newest first.",
 			ResponseSummary: "JSON array of Restock rows with id, medication_id, quantity, note, restocked_at.",
 			Example: `result = api.call(
@@ -139,11 +139,11 @@ result = api.call(
 output(result)`,
 		},
 		{
-			ID:     "medications.update",
-			Topic:  "medications",
-			Method: "POST",
-			Path:   "/api/medications/{id}",
-			Risk:   RiskWrite,
+			ID:         "medications.update",
+			Topic:      "medications",
+			Method:     "POST",
+			Path:       "/api/medications/{id}",
+			Risk:       RiskWrite,
 			PathParams: []string{"id"},
 			BodySchema: json.RawMessage(`{
   "type": "object",
@@ -184,12 +184,12 @@ api.call(
 output({"archived": target["id"]})`,
 		},
 		{
-			ID:         "medications.delete",
-			Topic:      "medications",
-			Method:     "DELETE",
-			Path:       "/api/medications/{id}",
-			PathParams: []string{"id"},
-			Risk:       RiskWrite,
+			ID:              "medications.delete",
+			Topic:           "medications",
+			Method:          "DELETE",
+			Path:            "/api/medications/{id}",
+			PathParams:      []string{"id"},
+			Risk:            RiskWrite,
 			Description:     "Permanently delete a medication. Only allowed when the medication is already archived AND has no intake history; otherwise the handler returns 409 (use medications.update with archived=true first, and accept that medications with logged intakes can only be archived).",
 			ResponseSummary: "Empty body on success (HTTP 200); 409 with reason when the medication is active or has history.",
 			Example: `api.call("medications.delete", path_params={"id": 7})
@@ -378,35 +378,35 @@ else:
     output({"plan": None})`,
 		},
 		{
-			ID:         "medications.tz_plan.approve",
-			Topic:      "medications",
-			Method:     "POST",
-			Path:       "/api/tz-plan/{id}/approve",
-			PathParams: []string{"id"},
-			Risk:       RiskWrite,
+			ID:              "medications.tz_plan.approve",
+			Topic:           "medications",
+			Method:          "POST",
+			Path:            "/api/tz-plan/{id}/approve",
+			PathParams:      []string{"id"},
+			Risk:            RiskWrite,
 			Description:     "Approve a pending timezone transition plan, letting the medication scheduler execute the reconciliation. PREREQUISITE: only call when medications.tz_plan.current returns a plan whose status is 'PENDING_APPROVAL' or 'NOTIFIED' — pass that plan's id. Returns 409 if the plan is no longer pending.",
 			ResponseSummary: "Empty body on success (HTTP 200).",
 			Example: `api.call("medications.tz_plan.approve", path_params={"id": 12})
 output({"approved": 12})`,
 		},
 		{
-			ID:         "medications.tz_plan.reject",
-			Topic:      "medications",
-			Method:     "POST",
-			Path:       "/api/tz-plan/{id}/reject",
-			PathParams: []string{"id"},
-			Risk:       RiskWrite,
+			ID:              "medications.tz_plan.reject",
+			Topic:           "medications",
+			Method:          "POST",
+			Path:            "/api/tz-plan/{id}/reject",
+			PathParams:      []string{"id"},
+			Risk:            RiskWrite,
 			Description:     "Reject a pending timezone transition plan; the stored timezone is reverted to the previous value. PREREQUISITE: only call when medications.tz_plan.current returns a plan whose status is 'PENDING_APPROVAL' or 'NOTIFIED' — pass that plan's id. Returns 409 if the plan is no longer pending.",
 			ResponseSummary: "Empty body on success (HTTP 200).",
 			Example: `api.call("medications.tz_plan.reject", path_params={"id": 12})
 output({"rejected": 12})`,
 		},
 		{
-			ID:     "medications.restock",
-			Topic:  "medications",
-			Method: "POST",
-			Path:   "/api/medications/{id}/restock",
-			Risk:   RiskWrite,
+			ID:         "medications.restock",
+			Topic:      "medications",
+			Method:     "POST",
+			Path:       "/api/medications/{id}/restock",
+			Risk:       RiskWrite,
 			PathParams: []string{"id"},
 			BodySchema: json.RawMessage(`{
   "type": "object",

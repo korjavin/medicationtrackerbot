@@ -33,9 +33,9 @@ func crossTZTimes(t *testing.T) (storedLA, queryBerlin time.Time) {
 func TestGetIntakeBySchedule_CrossTZ(t *testing.T) {
 	db := setupMedicationRepo(t)
 
-	medID, err := db.CreateMedication("Med", "5mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
+	medID, err := db.Create("Med", "5mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	storedLA, queryBerlin := crossTZTimes(t)
@@ -58,9 +58,9 @@ func TestGetIntakeBySchedule_CrossTZ(t *testing.T) {
 func TestGetTakenIntakesBySchedule_CrossTZ(t *testing.T) {
 	db := setupMedicationRepo(t)
 
-	medID, err := db.CreateMedication("Med", "5mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
+	medID, err := db.Create("Med", "5mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	storedLA, queryBerlin := crossTZTimes(t)
@@ -72,9 +72,9 @@ func TestGetTakenIntakesBySchedule_CrossTZ(t *testing.T) {
 		t.Fatalf("ConfirmIntake: %v", err)
 	}
 
-	taken, err := db.GetTakenIntakesBySchedule(12345, queryBerlin)
+	taken, err := db.ListTakenIntakesBySchedule(12345, queryBerlin)
 	if err != nil {
-		t.Fatalf("GetTakenIntakesBySchedule: %v", err)
+		t.Fatalf("ListTakenIntakesBySchedule: %v", err)
 	}
 	if len(taken) != 1 {
 		t.Fatalf("expected 1 taken row matched across TZ, got %d", len(taken))
@@ -87,9 +87,9 @@ func TestGetTakenIntakesBySchedule_CrossTZ(t *testing.T) {
 func TestGetIntake_ScanIntoUTC(t *testing.T) {
 	db := setupMedicationRepo(t)
 
-	medID, err := db.CreateMedication("Med", "5mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
+	medID, err := db.Create("Med", "5mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	storedLA, _ := crossTZTimes(t)
@@ -117,9 +117,9 @@ func TestGetIntake_ScanIntoUTC(t *testing.T) {
 func TestGetIntakeHistory_CrossTZSince(t *testing.T) {
 	db := setupMedicationRepo(t)
 
-	medID, err := db.CreateMedication("Med", "5mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
+	medID, err := db.Create("Med", "5mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	la, _ := time.LoadLocation("America/Los_Angeles")
@@ -135,11 +135,11 @@ func TestGetIntakeHistory_CrossTZSince(t *testing.T) {
 		t.Fatalf("CreateManualIntake old: %v", err)
 	}
 
-	// The GetIntakeHistory `days` parameter is interpreted as the lookback
+	// The ListIntakeHistory `days` parameter is interpreted as the lookback
 	// window; with `days=7` only the 3-day-old row should be returned.
-	hist, err := db.GetIntakeHistory(int(medID), 7)
+	hist, err := db.ListIntakeHistory(int(medID), 7)
 	if err != nil {
-		t.Fatalf("GetIntakeHistory: %v", err)
+		t.Fatalf("ListIntakeHistory: %v", err)
 	}
 	if len(hist) != 1 {
 		t.Fatalf("expected 1 row in 7-day window across TZ, got %d", len(hist))
@@ -152,9 +152,9 @@ func TestGetIntakeHistory_CrossTZSince(t *testing.T) {
 func TestGetPendingIntakesForMedication_ScanIntoUTC(t *testing.T) {
 	db := setupMedicationRepo(t)
 
-	medID, err := db.CreateMedication("Med", "5mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
+	medID, err := db.Create("Med", "5mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	storedLA, _ := crossTZTimes(t)
@@ -162,9 +162,9 @@ func TestGetPendingIntakesForMedication_ScanIntoUTC(t *testing.T) {
 		t.Fatalf("CreateIntake: %v", err)
 	}
 
-	pending, err := db.GetPendingIntakesForMedication(medID)
+	pending, err := db.ListPendingIntakesForMedication(medID)
 	if err != nil {
-		t.Fatalf("GetPendingIntakesForMedication: %v", err)
+		t.Fatalf("ListPendingIntakesForMedication: %v", err)
 	}
 	if len(pending) != 1 {
 		t.Fatalf("expected 1 pending row, got %d", len(pending))
@@ -180,9 +180,9 @@ func TestGetPendingIntakesForMedication_ScanIntoUTC(t *testing.T) {
 func TestGetIntakeHistory_TakenAtCrossTZ(t *testing.T) {
 	db := setupMedicationRepo(t)
 
-	medID, err := db.CreateMedication("Med", "5mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
+	medID, err := db.Create("Med", "5mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	la, _ := time.LoadLocation("America/Los_Angeles")
@@ -199,9 +199,9 @@ func TestGetIntakeHistory_TakenAtCrossTZ(t *testing.T) {
 		t.Fatalf("ConfirmIntake: %v", err)
 	}
 
-	hist, err := db.GetIntakeHistory(int(medID), 7)
+	hist, err := db.ListIntakeHistory(int(medID), 7)
 	if err != nil {
-		t.Fatalf("GetIntakeHistory: %v", err)
+		t.Fatalf("ListIntakeHistory: %v", err)
 	}
 	if len(hist) != 1 {
 		t.Fatalf("expected 1 history row, got %d", len(hist))
@@ -223,9 +223,9 @@ func TestGetIntakeHistory_TakenAtCrossTZ(t *testing.T) {
 func TestGetIntake_TakenAtCrossTZ(t *testing.T) {
 	db := setupMedicationRepo(t)
 
-	medID, err := db.CreateMedication("Med", "5mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
+	medID, err := db.Create("Med", "5mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	la, _ := time.LoadLocation("America/Los_Angeles")
@@ -255,9 +255,9 @@ func TestGetIntake_TakenAtCrossTZ(t *testing.T) {
 func TestGetIntakesSince_CrossTZ(t *testing.T) {
 	db := setupMedicationRepo(t)
 
-	medID, err := db.CreateMedication("Med", "5mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
+	medID, err := db.Create("Med", "5mg", `{"type":"daily","times":["08:20"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	la, _ := time.LoadLocation("America/Los_Angeles")
@@ -277,9 +277,9 @@ func TestGetIntakesSince_CrossTZ(t *testing.T) {
 
 	// Query with the cutoff expressed in Berlin's TZ — same absolute instant.
 	cutoffBerlin := cutoffLA.In(berlin)
-	rows, err := db.GetIntakesSince(cutoffBerlin)
+	rows, err := db.ListIntakesSince(cutoffBerlin)
 	if err != nil {
-		t.Fatalf("GetIntakesSince: %v", err)
+		t.Fatalf("ListIntakesSince: %v", err)
 	}
 	if len(rows) != 1 {
 		t.Fatalf("expected 1 row >= cutoff across TZ, got %d", len(rows))

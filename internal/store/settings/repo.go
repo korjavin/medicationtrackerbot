@@ -209,7 +209,7 @@ func (r *Repo) UpdateLastDownload(t time.Time) error {
 
 // GetLatestChangeCursor returns the highest change_events.id, or 0 when the
 // stream is empty. Callers use this as the cursor they pass back to
-// GetChangedTagsSince on the next poll.
+// ListChangedTagsSince on the next poll.
 func (r *Repo) GetLatestChangeCursor(ctx context.Context) (int64, error) {
 	var cursor int64
 	if err := r.db.QueryRowContext(ctx, "SELECT COALESCE(MAX(id), 0) FROM change_events").Scan(&cursor); err != nil {
@@ -218,11 +218,11 @@ func (r *Repo) GetLatestChangeCursor(ctx context.Context) (int64, error) {
 	return cursor, nil
 }
 
-// GetChangedTagsSince returns the new cursor and the distinct tags whose
+// ListChangedTagsSince returns the new cursor and the distinct tags whose
 // change_events have ids strictly greater than `since`. Tags are returned in
 // ascending order. The cursor is the latest id at the moment of the call —
 // callers should treat it as opaque and pass it back on the next call.
-func (r *Repo) GetChangedTagsSince(ctx context.Context, since int64) (int64, []string, error) {
+func (r *Repo) ListChangedTagsSince(ctx context.Context, since int64) (int64, []string, error) {
 	cursor, err := r.GetLatestChangeCursor(ctx)
 	if err != nil {
 		return 0, nil, err

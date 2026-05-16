@@ -40,12 +40,12 @@ func TestDeleteFutureIntake_RegeneratedByScheduler(t *testing.T) {
 	target := realNow.Add(2 * time.Hour).Round(time.Minute).In(time.Local)
 	schedule := fmt.Sprintf(`{"type":"daily","times":["%02d:%02d"]}`, target.Hour(), target.Minute())
 
-	medID, err := db.Medication.CreateMedication("Aspirin", "100mg", schedule, nil, nil, "", "", "")
+	medID, err := db.Medication.Create("Aspirin", "100mg", schedule, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
-	if err := db.Medication.UpdateMedicationCreatedAt(medID, realNow.Add(-24*time.Hour)); err != nil {
-		t.Fatalf("UpdateMedicationCreatedAt: %v", err)
+	if err := db.Medication.UpdateCreatedAt(medID, realNow.Add(-24*time.Hour)); err != nil {
+		t.Fatalf("UpdateCreatedAt: %v", err)
 	}
 
 	// Step 1: an agent mistakenly creates a future intake at the scheduled slot.
@@ -87,9 +87,9 @@ func TestDeleteFutureIntake_RegeneratedByScheduler(t *testing.T) {
 	// Step 4: a fresh PENDING intake must exist — the user is "bugged" again
 	// and has to explicitly take or skip. The deleted future intake did NOT
 	// cause the dose to be silently swallowed.
-	pending, err := db.Medication.GetPendingIntakes()
+	pending, err := db.Medication.ListPendingIntakes()
 	if err != nil {
-		t.Fatalf("GetPendingIntakes: %v", err)
+		t.Fatalf("ListPendingIntakes: %v", err)
 	}
 
 	var fresh *store.IntakeLog
@@ -126,10 +126,10 @@ func TestDeleteFutureIntake_RejectedAfterScheduledTimePassed(t *testing.T) {
 	defer db.Close() // #nosec G104
 
 	userID := int64(123456)
-	medID, err := db.Medication.CreateMedication("Aspirin", "100mg",
+	medID, err := db.Medication.Create("Aspirin", "100mg",
 		`{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	// Simulate "was-future-when-created, now-past" by inserting a row whose
@@ -218,10 +218,10 @@ func TestDeleteFutureIntake_RejectedForPastIntakes(t *testing.T) {
 			defer db.Close() // #nosec G104
 
 			userID := int64(123456)
-			medID, err := db.Medication.CreateMedication("Aspirin", "100mg",
+			medID, err := db.Medication.Create("Aspirin", "100mg",
 				`{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 			if err != nil {
-				t.Fatalf("CreateMedication: %v", err)
+				t.Fatalf("Create: %v", err)
 			}
 
 			intakeID, wantStatus := tc.prep(db, medID, userID)

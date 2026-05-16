@@ -16,17 +16,17 @@ func TestCreateAndGetTZTransitionPlan(t *testing.T) {
 		InputsJSON: `{"meds":[]}`,
 		PlanHash:   "abc123",
 	}
-	id, err := r.CreateTZTransitionPlan(plan)
+	id, err := r.CreateTransitionPlan(plan)
 	if err != nil {
-		t.Fatalf("CreateTZTransitionPlan: %v", err)
+		t.Fatalf("CreateTransitionPlan: %v", err)
 	}
 	if id <= 0 {
 		t.Errorf("expected positive ID, got %d", id)
 	}
 
-	got, err := r.GetLatestActiveOrPendingTZTransitionPlan()
+	got, err := r.GetLatestActiveOrPendingTransitionPlan()
 	if err != nil {
-		t.Fatalf("GetLatestActiveOrPendingTZTransitionPlan: %v", err)
+		t.Fatalf("GetLatestActiveOrPendingTransitionPlan: %v", err)
 	}
 	if got == nil {
 		t.Fatal("expected plan, got nil")
@@ -48,9 +48,9 @@ func TestCreateAndGetTZTransitionPlan(t *testing.T) {
 func TestGetLatestActiveOrPendingTZTransitionPlan_NoneExists(t *testing.T) {
 	r := setupTZRepo(t)
 
-	got, err := r.GetLatestActiveOrPendingTZTransitionPlan()
+	got, err := r.GetLatestActiveOrPendingTransitionPlan()
 	if err != nil {
-		t.Fatalf("GetLatestActiveOrPendingTZTransitionPlan: %v", err)
+		t.Fatalf("GetLatestActiveOrPendingTransitionPlan: %v", err)
 	}
 	if got != nil {
 		t.Errorf("expected nil plan on empty table, got %+v", got)
@@ -69,21 +69,21 @@ func TestGetLatestActiveOrPendingTZTransitionPlan_IgnoresTerminalStatus(t *testi
 			InputsJSON: `{}`,
 			PlanHash:   "hash-" + status,
 		}
-		if _, err := r.CreateTZTransitionPlan(plan); err != nil {
-			t.Fatalf("CreateTZTransitionPlan status=%s: %v", status, err)
+		if _, err := r.CreateTransitionPlan(plan); err != nil {
+			t.Fatalf("CreateTransitionPlan status=%s: %v", status, err)
 		}
 	}
 
-	got, err := r.GetLatestActiveOrPendingTZTransitionPlan()
+	got, err := r.GetLatestActiveOrPendingTransitionPlan()
 	if err != nil {
-		t.Fatalf("GetLatestActiveOrPendingTZTransitionPlan: %v", err)
+		t.Fatalf("GetLatestActiveOrPendingTransitionPlan: %v", err)
 	}
 	if got != nil {
 		t.Errorf("expected nil for terminal-status plans, got status=%s", got.Status)
 	}
 }
 
-func TestUpdateTZTransitionPlanStatus(t *testing.T) {
+func TestUpdateTransitionPlanStatus(t *testing.T) {
 	r := setupTZRepo(t)
 
 	plan := &TZTransitionPlan{
@@ -94,19 +94,19 @@ func TestUpdateTZTransitionPlanStatus(t *testing.T) {
 		InputsJSON: `{}`,
 		PlanHash:   "hash1",
 	}
-	id, err := r.CreateTZTransitionPlan(plan)
+	id, err := r.CreateTransitionPlan(plan)
 	if err != nil {
-		t.Fatalf("CreateTZTransitionPlan: %v", err)
+		t.Fatalf("CreateTransitionPlan: %v", err)
 	}
 
 	// Transition PENDING_APPROVAL → NOTIFIED with guard
-	if err := r.UpdateTZTransitionPlanStatus(id, "NOTIFIED", "", "PENDING_APPROVAL"); err != nil {
-		t.Fatalf("UpdateTZTransitionPlanStatus: %v", err)
+	if err := r.UpdateTransitionPlanStatus(id, "NOTIFIED", "", "PENDING_APPROVAL"); err != nil {
+		t.Fatalf("UpdateTransitionPlanStatus: %v", err)
 	}
 
-	got, err := r.GetLatestActiveOrPendingTZTransitionPlan()
+	got, err := r.GetLatestActiveOrPendingTransitionPlan()
 	if err != nil {
-		t.Fatalf("GetLatestActiveOrPendingTZTransitionPlan: %v", err)
+		t.Fatalf("GetLatestActiveOrPendingTransitionPlan: %v", err)
 	}
 	if got == nil {
 		t.Fatal("expected plan after NOTIFIED transition")
@@ -127,20 +127,20 @@ func TestUpdateTZTransitionPlanStatus_GuardPreventsDoubleTransition(t *testing.T
 		InputsJSON: `{}`,
 		PlanHash:   "hash2",
 	}
-	id, err := r.CreateTZTransitionPlan(plan)
+	id, err := r.CreateTransitionPlan(plan)
 	if err != nil {
-		t.Fatalf("CreateTZTransitionPlan: %v", err)
+		t.Fatalf("CreateTransitionPlan: %v", err)
 	}
 
 	// Guard: expected status is PENDING_APPROVAL, but actual is NOTIFIED → no-op
-	if err := r.UpdateTZTransitionPlanStatus(id, "NOTIFIED", "", "PENDING_APPROVAL"); err != nil {
-		t.Fatalf("UpdateTZTransitionPlanStatus with wrong guard: %v", err)
+	if err := r.UpdateTransitionPlanStatus(id, "NOTIFIED", "", "PENDING_APPROVAL"); err != nil {
+		t.Fatalf("UpdateTransitionPlanStatus with wrong guard: %v", err)
 	}
 
 	// Status should remain NOTIFIED
-	got, err := r.GetLatestActiveOrPendingTZTransitionPlan()
+	got, err := r.GetLatestActiveOrPendingTransitionPlan()
 	if err != nil {
-		t.Fatalf("GetLatestActiveOrPendingTZTransitionPlan: %v", err)
+		t.Fatalf("GetLatestActiveOrPendingTransitionPlan: %v", err)
 	}
 	if got == nil {
 		t.Fatal("expected plan")
@@ -161,8 +161,8 @@ func TestGetPlanByHash(t *testing.T) {
 		InputsJSON: `{"x":1}`,
 		PlanHash:   "myhash",
 	}
-	if _, err := r.CreateTZTransitionPlan(plan); err != nil {
-		t.Fatalf("CreateTZTransitionPlan: %v", err)
+	if _, err := r.CreateTransitionPlan(plan); err != nil {
+		t.Fatalf("CreateTransitionPlan: %v", err)
 	}
 
 	got, err := r.GetPlanByHash("myhash")
@@ -185,7 +185,7 @@ func TestGetPlanByHash(t *testing.T) {
 	}
 }
 
-func TestSetTZTransitionPlanApproved(t *testing.T) {
+func TestSetTransitionPlanApproved(t *testing.T) {
 	r := setupTZRepo(t)
 
 	plan := &TZTransitionPlan{
@@ -196,19 +196,19 @@ func TestSetTZTransitionPlanApproved(t *testing.T) {
 		InputsJSON: `{}`,
 		PlanHash:   "hash3",
 	}
-	id, err := r.CreateTZTransitionPlan(plan)
+	id, err := r.CreateTransitionPlan(plan)
 	if err != nil {
-		t.Fatalf("CreateTZTransitionPlan: %v", err)
+		t.Fatalf("CreateTransitionPlan: %v", err)
 	}
 
 	approvedAt := time.Now().UTC().Truncate(time.Second)
-	if _, err := r.SetTZTransitionPlanApproved(id, approvedAt); err != nil {
-		t.Fatalf("SetTZTransitionPlanApproved: %v", err)
+	if _, err := r.SetTransitionPlanApproved(id, approvedAt); err != nil {
+		t.Fatalf("SetTransitionPlanApproved: %v", err)
 	}
 
-	got, err := r.GetLatestActiveOrPendingTZTransitionPlan()
+	got, err := r.GetLatestActiveOrPendingTransitionPlan()
 	if err != nil {
-		t.Fatalf("GetLatestActiveOrPendingTZTransitionPlan: %v", err)
+		t.Fatalf("GetLatestActiveOrPendingTransitionPlan: %v", err)
 	}
 	if got == nil {
 		t.Fatal("expected APPROVED plan")
@@ -223,7 +223,7 @@ func TestSetTZTransitionPlanApproved(t *testing.T) {
 
 // TestTZTransitionPlan_LifecycleTimestamps_UnixUTC pins Task 7's invariant:
 // every plan-lifecycle timestamp setter (Create / MarkPlanNotified /
-// SetTZTransitionPlanApproved / ResetPlanToPending) round-trips through
+// SetTransitionPlanApproved / ResetPlanToPending) round-trips through
 // unix-seconds-UTC storage so SQL equality is safe across server/user TZs.
 // The struct's public time.Time fields stay UTC after read.
 func TestTZTransitionPlan_LifecycleTimestamps_UnixUTC(t *testing.T) {
@@ -235,7 +235,7 @@ func TestTZTransitionPlan_LifecycleTimestamps_UnixUTC(t *testing.T) {
 	}
 
 	before := time.Now().UTC().Truncate(time.Second).Add(-time.Second)
-	id, err := r.CreateTZTransitionPlan(&TZTransitionPlan{
+	id, err := r.CreateTransitionPlan(&TZTransitionPlan{
 		OldTZ:      "America/Los_Angeles",
 		NewTZ:      "Europe/Berlin",
 		Status:     "PENDING_APPROVAL",
@@ -244,7 +244,7 @@ func TestTZTransitionPlan_LifecycleTimestamps_UnixUTC(t *testing.T) {
 		PlanHash:   "lifecycle-hash",
 	})
 	if err != nil {
-		t.Fatalf("CreateTZTransitionPlan: %v", err)
+		t.Fatalf("CreateTransitionPlan: %v", err)
 	}
 	after := time.Now().UTC().Truncate(time.Second).Add(time.Second)
 
@@ -269,7 +269,7 @@ func TestTZTransitionPlan_LifecycleTimestamps_UnixUTC(t *testing.T) {
 		t.Errorf("NotifiedAt should be nil before MarkPlanNotified, got %v", got.NotifiedAt)
 	}
 	if got.ApprovedAt != nil {
-		t.Errorf("ApprovedAt should be nil before SetTZTransitionPlanApproved, got %v", got.ApprovedAt)
+		t.Errorf("ApprovedAt should be nil before SetTransitionPlanApproved, got %v", got.ApprovedAt)
 	}
 
 	// MarkPlanNotified stamps notified_at_unix.
@@ -317,7 +317,7 @@ func TestTZTransitionPlan_LifecycleTimestamps_UnixUTC(t *testing.T) {
 		t.Errorf("NotifiedAt should be nil after ResetPlanToPending, got %v", got.NotifiedAt)
 	}
 
-	// Mark notified again so SetTZTransitionPlanApproved can transition NOTIFIED→APPROVED.
+	// Mark notified again so SetTransitionPlanApproved can transition NOTIFIED→APPROVED.
 	if _, err := r.MarkPlanNotified(id); err != nil {
 		t.Fatalf("MarkPlanNotified (second time): %v", err)
 	}
@@ -326,12 +326,12 @@ func TestTZTransitionPlan_LifecycleTimestamps_UnixUTC(t *testing.T) {
 	// normalize to UTC unix seconds and the reader must return UTC.
 	approveLA := time.Date(2026, 5, 10, 8, 35, 0, 0, la)
 	wantApproveUnix := approveLA.UTC().Unix()
-	ok, err := r.SetTZTransitionPlanApproved(id, approveLA)
+	ok, err := r.SetTransitionPlanApproved(id, approveLA)
 	if err != nil {
-		t.Fatalf("SetTZTransitionPlanApproved: %v", err)
+		t.Fatalf("SetTransitionPlanApproved: %v", err)
 	}
 	if !ok {
-		t.Fatal("expected SetTZTransitionPlanApproved to apply on NOTIFIED plan")
+		t.Fatal("expected SetTransitionPlanApproved to apply on NOTIFIED plan")
 	}
 
 	got, err = r.GetPlanByHash("lifecycle-hash")
@@ -342,7 +342,7 @@ func TestTZTransitionPlan_LifecycleTimestamps_UnixUTC(t *testing.T) {
 		t.Errorf("Status: got %q want APPROVED", got.Status)
 	}
 	if got.ApprovedAt == nil {
-		t.Fatal("ApprovedAt should be populated after SetTZTransitionPlanApproved")
+		t.Fatal("ApprovedAt should be populated after SetTransitionPlanApproved")
 	}
 	if got.ApprovedAt.Location() != time.UTC {
 		t.Errorf("ApprovedAt.Location()=%v, want UTC", got.ApprovedAt.Location())

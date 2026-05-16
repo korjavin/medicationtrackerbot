@@ -28,27 +28,27 @@ func TestBPReminderChecker_UsesUserTimezone(t *testing.T) {
 	}
 
 	userID := int64(123456)
-	if err := db.BP.SetBPReminderEnabled(userID, true); err != nil {
-		t.Fatalf("SetBPReminderEnabled: %v", err)
+	if err := db.BP.SetReminderEnabled(userID, true); err != nil {
+		t.Fatalf("SetReminderEnabled: %v", err)
 	}
 
 	// Record a user timezone of America/New_York (UTC-5).
-	if err := db.TZ.RecordTimezone("America/New_York"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := db.TZ.Record("America/New_York"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 
 	// 2024-01-15T21:30:00Z = 2024-01-15T16:30:00-05:00 in New York.
 	nowTime := time.Date(2024, 1, 15, 21, 30, 0, 0, time.UTC)
 
 	// Add an old BP reading (yesterday) so the "already measured today" guard does not block.
-	_, err = db.BP.CreateBloodPressureReading(context.Background(), &store.BloodPressure{
+	_, err = db.BP.CreateReading(context.Background(), &store.BloodPressure{
 		UserID:     userID,
 		Systolic:   120,
 		Diastolic:  80,
 		MeasuredAt: nowTime.Add(-24 * time.Hour),
 	})
 	if err != nil {
-		t.Fatalf("CreateBloodPressureReading: %v", err)
+		t.Fatalf("CreateReading: %v", err)
 	}
 
 	// Set preferred hour to 16 (matches New York hour, not UTC hour 21).
@@ -89,24 +89,24 @@ func TestBPReminderChecker_NoNotificationInWrongUserTZHour(t *testing.T) {
 	}
 
 	userID := int64(123456)
-	if err := db.BP.SetBPReminderEnabled(userID, true); err != nil {
-		t.Fatalf("SetBPReminderEnabled: %v", err)
+	if err := db.BP.SetReminderEnabled(userID, true); err != nil {
+		t.Fatalf("SetReminderEnabled: %v", err)
 	}
 
-	if err := db.TZ.RecordTimezone("America/New_York"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := db.TZ.Record("America/New_York"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 
 	nowTime := time.Date(2024, 1, 15, 21, 30, 0, 0, time.UTC)
 
-	_, err = db.BP.CreateBloodPressureReading(context.Background(), &store.BloodPressure{
+	_, err = db.BP.CreateReading(context.Background(), &store.BloodPressure{
 		UserID:     userID,
 		Systolic:   120,
 		Diastolic:  80,
 		MeasuredAt: nowTime.Add(-24 * time.Hour),
 	})
 	if err != nil {
-		t.Fatalf("CreateBloodPressureReading: %v", err)
+		t.Fatalf("CreateReading: %v", err)
 	}
 
 	// Preferred hour = 21 (UTC hour), but in New York it's 16 — does not match.
@@ -142,19 +142,19 @@ func TestWeightReminderChecker_UsesUserTimezone(t *testing.T) {
 	}
 
 	userID := int64(123456)
-	if err := db.Weight.SetWeightReminderEnabled(userID, true); err != nil {
+	if err := db.Weight.SetReminderEnabled(userID, true); err != nil {
 		t.Fatalf("SetWeightReminderEnabled: %v", err)
 	}
 
-	if err := db.TZ.RecordTimezone("America/New_York"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := db.TZ.Record("America/New_York"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 
 	// 2024-01-15T14:00:00Z = 2024-01-15T09:00:00-05:00 in New York.
 	nowTime := time.Date(2024, 1, 15, 14, 0, 0, 0, time.UTC)
 
 	// Old weight log (>7 days ago) so reminder fires.
-	_, err = db.Weight.CreateWeightLog(context.Background(), &store.WeightLog{
+	_, err = db.Weight.CreateLog(context.Background(), &store.WeightLog{
 		UserID:     userID,
 		Weight:     75.0,
 		MeasuredAt: nowTime.Add(-8 * 24 * time.Hour),
@@ -164,7 +164,7 @@ func TestWeightReminderChecker_UsesUserTimezone(t *testing.T) {
 	}
 
 	// Preferred hour = 9 (matches New York hour, not UTC hour 14).
-	if err := db.Weight.UpdatePreferredWeightReminderHour(userID, 9); err != nil {
+	if err := db.Weight.UpdatePreferredReminderHour(userID, 9); err != nil {
 		t.Fatalf("UpdatePreferredWeightReminderHour: %v", err)
 	}
 
@@ -196,8 +196,8 @@ func TestWorkoutChecker_UsesUserTimezoneForWeekday(t *testing.T) {
 		t.Fatalf("SetWorkoutEnabled: %v", err)
 	}
 
-	if err := db.TZ.RecordTimezone("America/New_York"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := db.TZ.Record("America/New_York"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 
 	// 2024-01-16T02:00:00Z = 2024-01-15T21:00:00-05:00 in New York.
@@ -213,15 +213,15 @@ func TestWorkoutChecker_UsesUserTimezoneForWeekday(t *testing.T) {
 
 	// Schedule a group on the New York weekday only.
 	daysOfWeek := "[" + intToStr(nyWeekday) + "]"
-	group, err := db.Workout.CreateWorkoutGroup("TZGroup", "desc", false, 123456, daysOfWeek, "20:00", 15)
+	group, err := db.Workout.CreateGroup("TZGroup", "desc", false, 123456, daysOfWeek, "20:00", 15)
 	if err != nil {
-		t.Fatalf("CreateWorkoutGroup: %v", err)
+		t.Fatalf("CreateGroup: %v", err)
 	}
 
 	order := 0
-	_, err = db.Workout.CreateWorkoutVariant(group.ID, "Variant A", &order, "")
+	_, err = db.Workout.CreateVariant(group.ID, "Variant A", &order, "")
 	if err != nil {
-		t.Fatalf("CreateWorkoutVariant: %v", err)
+		t.Fatalf("CreateVariant: %v", err)
 	}
 
 	mock := &mockNotifier{sendMsgID: 1}
@@ -256,8 +256,8 @@ func TestBPReminderChecker_FallsBackToSystemTZOnInvalidTimezone(t *testing.T) {
 		t.Fatalf("SetBloodPressureEnabled: %v", err)
 	}
 
-	if err := db.TZ.RecordTimezone("Not/A/Real/Timezone"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := db.TZ.Record("Not/A/Real/Timezone"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 
 	sched := New(db, 123456, nil)

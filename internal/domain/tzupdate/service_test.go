@@ -23,7 +23,7 @@ func newMockSettings(initial string) *mockSettings {
 	return &mockSettings{current: initial, recordErrs: map[string]error{}}
 }
 
-func (m *mockSettings) GetCurrentTimezone() (string, error) {
+func (m *mockSettings) GetCurrent() (string, error) {
 	if m.beforeGetCurrentTZ != nil {
 		m.beforeGetCurrentTZ()
 	}
@@ -35,7 +35,7 @@ func (m *mockSettings) GetCurrentTimezone() (string, error) {
 	return m.current, nil
 }
 
-func (m *mockSettings) RecordTimezone(tz string) error {
+func (m *mockSettings) Record(tz string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.recordCalls = append(m.recordCalls, tz)
@@ -59,7 +59,7 @@ type mockPlanBaseline struct {
 	err  error
 }
 
-func (m *mockPlanBaseline) GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error) {
+func (m *mockPlanBaseline) GetLatestActiveOrPendingTransitionPlan() (*store.TZTransitionPlan, error) {
 	return m.plan, m.err
 }
 
@@ -140,7 +140,7 @@ func TestService_HappyPath_PlanCreated(t *testing.T) {
 	}
 	rec := settings.recordedCalls()
 	if len(rec) != 1 || rec[0] != "Europe/Berlin" {
-		t.Errorf("RecordTimezone calls = %v, want [Europe/Berlin]", rec)
+		t.Errorf("Record calls = %v, want [Europe/Berlin]", rec)
 	}
 }
 
@@ -163,7 +163,7 @@ func TestService_NoOp_SameTZ(t *testing.T) {
 		t.Errorf("planner should not be called for no-op, got %v", calls)
 	}
 	if rec := settings.recordedCalls(); len(rec) != 0 {
-		t.Errorf("RecordTimezone should not be called for no-op, got %v", rec)
+		t.Errorf("Record should not be called for no-op, got %v", rec)
 	}
 }
 
@@ -190,7 +190,7 @@ func TestService_PlannerSkipped_RecordStillCalled(t *testing.T) {
 	}
 	rec := settings.recordedCalls()
 	if len(rec) != 1 || rec[0] != "America/Detroit" {
-		t.Errorf("expected RecordTimezone(America/Detroit), got %v", rec)
+		t.Errorf("expected Record(America/Detroit), got %v", rec)
 	}
 }
 
@@ -214,14 +214,14 @@ func TestService_PlannerError_DoesNotRecord(t *testing.T) {
 		t.Errorf("expected PlanCreated=false on planner error")
 	}
 	if rec := settings.recordedCalls(); len(rec) != 0 {
-		t.Errorf("RecordTimezone must NOT be called on planner error, got %v", rec)
+		t.Errorf("Record must NOT be called on planner error, got %v", rec)
 	}
 }
 
 func TestService_RecordError_AfterPlanCreated_RevertsBaseline(t *testing.T) {
 	// Scenario: there's already an active plan whose OldTZ = "Europe/Lisbon" (the
 	// baseline the scheduler is honouring). The user attempts a TZ change to a new
-	// value. Planner creates a new plan, but RecordTimezone fails. We must cancel
+	// value. Planner creates a new plan, but Record fails. We must cancel
 	// the new plan AND revert the stored timezone to the superseded baseline so
 	// the scheduler doesn't permanently run on an unapproved intermediate value.
 	settings := newMockSettings("Europe/Madrid")
@@ -241,7 +241,7 @@ func TestService_RecordError_AfterPlanCreated_RevertsBaseline(t *testing.T) {
 
 	result, err := svc.UpdateTimezone(context.Background(), "Asia/Tokyo")
 	if err == nil {
-		t.Fatalf("expected RecordTimezone error")
+		t.Fatalf("expected Record error")
 	}
 	if !errors.Is(err, recordErr) {
 		t.Errorf("error chain should wrap recordErr, got %v", err)
@@ -263,7 +263,7 @@ func TestService_RecordError_AfterPlanCreated_RevertsBaseline(t *testing.T) {
 
 	rec := settings.recordedCalls()
 	if len(rec) != 2 {
-		t.Fatalf("expected 2 RecordTimezone calls (forward + revert), got %v", rec)
+		t.Fatalf("expected 2 Record calls (forward + revert), got %v", rec)
 	}
 	if rec[0] != "Asia/Tokyo" {
 		t.Errorf("first record call = %q, want Asia/Tokyo", rec[0])
@@ -276,7 +276,7 @@ func TestService_RecordError_AfterPlanCreated_RevertsBaseline(t *testing.T) {
 func TestService_BaselineReadError_WithPlanner_DoesNotMutate(t *testing.T) {
 	// When a planner is configured, a transient baseline-read failure must abort
 	// the update before GenerateIfChanged cancels the active plan. Otherwise a
-	// subsequent RecordTimezone failure would have no captured baseline to
+	// subsequent Record failure would have no captured baseline to
 	// revert to, leaving the scheduler with no active plan and the stored
 	// timezone pinned to an unapproved intermediate value.
 	settings := newMockSettings("America/New_York")
@@ -301,7 +301,7 @@ func TestService_BaselineReadError_WithPlanner_DoesNotMutate(t *testing.T) {
 		t.Errorf("planner.CancelActivePlan must not run when baseline read fails: %v", cancels)
 	}
 	if rec := settings.recordedCalls(); len(rec) != 0 {
-		t.Errorf("RecordTimezone must not run when baseline read fails: %v", rec)
+		t.Errorf("Record must not run when baseline read fails: %v", rec)
 	}
 }
 
@@ -324,12 +324,12 @@ func TestService_BaselineReadError_NoPlanner_StillRecords(t *testing.T) {
 	}
 	rec := settings.recordedCalls()
 	if len(rec) != 1 || rec[0] != "Europe/Berlin" {
-		t.Errorf("RecordTimezone calls = %v, want [Europe/Berlin]", rec)
+		t.Errorf("Record calls = %v, want [Europe/Berlin]", rec)
 	}
 }
 
 func TestService_RecordError_NoActivePlanBaseline_NoRevert(t *testing.T) {
-	// When there's no superseded baseline to revert to, RecordTimezone failure
+	// When there's no superseded baseline to revert to, Record failure
 	// still triggers plan cancellation but no revert call.
 	settings := newMockSettings("America/New_York")
 	recordErr := errors.New("io error")
@@ -357,7 +357,7 @@ func TestService_ConcurrentUpdates_Serialize(t *testing.T) {
 	aRelease := make(chan struct{})
 
 	settings := newMockSettings("")
-	// Block the FIRST GetCurrentTimezone call inside the service mutex so the
+	// Block the FIRST GetCurrent call inside the service mutex so the
 	// second goroutine has to wait for the lock.
 	var firstCall sync.Once
 	settings.beforeGetCurrentTZ = func() {
@@ -420,7 +420,7 @@ func TestService_ConcurrentUpdates_Serialize(t *testing.T) {
 	rec := settings.recordedCalls()
 	want := []string{"Europe/Berlin", "Asia/Tokyo"}
 	if len(rec) != len(want) || rec[0] != want[0] || rec[1] != want[1] {
-		t.Errorf("RecordTimezone calls = %v, want %v", rec, want)
+		t.Errorf("Record calls = %v, want %v", rec, want)
 	}
 }
 
@@ -488,7 +488,7 @@ func TestService_ConcurrentSameTarget_OneChange(t *testing.T) {
 	}
 
 	if rec := settings.recordedCalls(); len(rec) != 1 || rec[0] != "Europe/Berlin" {
-		t.Errorf("RecordTimezone must run exactly once for concurrent same-target updates, got %v", rec)
+		t.Errorf("Record must run exactly once for concurrent same-target updates, got %v", rec)
 	}
 	if calls := planner.calls(); len(calls) != 1 {
 		t.Errorf("planner must run exactly once for concurrent same-target updates, got %v", calls)
@@ -523,7 +523,7 @@ func TestService_NoNotifiers_SkipsPlanCreation(t *testing.T) {
 	}
 	rec := settings.recordedCalls()
 	if len(rec) != 1 || rec[0] != "Europe/Berlin" {
-		t.Errorf("RecordTimezone calls = %v, want [Europe/Berlin]", rec)
+		t.Errorf("Record calls = %v, want [Europe/Berlin]", rec)
 	}
 }
 
@@ -550,7 +550,7 @@ func TestService_HasNotifiers_PlanStillCreated(t *testing.T) {
 }
 
 func TestService_NoNotifiers_RecordError_Propagated(t *testing.T) {
-	// When the gate skips plan creation but RecordTimezone fails, the error
+	// When the gate skips plan creation but Record fails, the error
 	// must propagate. There's no plan to cancel (none was created) and no
 	// baseline to revert to (the planner-cancellation path that captures it
 	// was bypassed).
@@ -563,13 +563,13 @@ func TestService_NoNotifiers_RecordError_Propagated(t *testing.T) {
 
 	result, err := svc.UpdateTimezone(context.Background(), "Europe/Berlin")
 	if err == nil {
-		t.Fatalf("expected RecordTimezone error to propagate")
+		t.Fatalf("expected Record error to propagate")
 	}
 	if !errors.Is(err, recordErr) {
 		t.Errorf("error chain should wrap recordErr, got %v", err)
 	}
 	if result.Changed {
-		t.Errorf("Changed must be false on RecordTimezone failure")
+		t.Errorf("Changed must be false on Record failure")
 	}
 	if result.PlanCreated {
 		t.Errorf("PlanCreated must be false")
@@ -603,6 +603,6 @@ func TestService_GetCurrentTimezoneError_Propagated(t *testing.T) {
 		t.Errorf("planner must not be invoked when oldTZ read fails: %v", calls)
 	}
 	if rec := settings.recordedCalls(); len(rec) != 0 {
-		t.Errorf("RecordTimezone must not be invoked when oldTZ read fails: %v", rec)
+		t.Errorf("Record must not be invoked when oldTZ read fails: %v", rec)
 	}
 }

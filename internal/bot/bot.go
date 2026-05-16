@@ -302,7 +302,7 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 			break
 		}
 		// Fetch active medications
-		meds, err := b.meds.ListMedications(false)
+		meds, err := b.meds.List(false)
 		if err != nil {
 			msgConfig.Text = "Error fetching medications."
 			break
@@ -665,7 +665,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		}
 
 		// Fetch med name for confirmation (display only).
-		med, _ := b.meds.GetMedication(medID)
+		med, _ := b.meds.Get(medID)
 		medName := "Medication"
 		if med != nil {
 			medName = med.Name
@@ -1051,7 +1051,7 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 	}
 
 	// Get medication intakes
-	intakes, err := b.meds.GetIntakesSince(since)
+	intakes, err := b.meds.ListIntakesSince(since)
 	if err != nil {
 		slog.Error("Error getting intakes", "error", err)
 		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error retrieving intake data.")); err != nil {
@@ -1061,7 +1061,7 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 	}
 
 	// Get blood pressure readings
-	bpReadings, err := b.bp.GetBloodPressureReadings(context.Background(), b.allowedUserID, since)
+	bpReadings, err := b.bp.ListReadings(context.Background(), b.allowedUserID, since)
 	if err != nil {
 		slog.Error("Error getting BP readings", "error", err)
 		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error retrieving blood pressure data.")); err != nil {
@@ -1255,7 +1255,7 @@ Pulse: heart rate (optional)`
 		bp.Pulse = &pulse
 	}
 
-	_, err = b.bp.CreateBloodPressureReading(context.Background(), bp)
+	_, err = b.bp.CreateReading(context.Background(), bp)
 	if err != nil {
 		slog.Error("Error creating BP reading", "error", err)
 		msgConfig.Text = "❌ Error saving blood pressure reading."
@@ -1271,7 +1271,7 @@ Pulse: heart rate (optional)`
 
 func (b *Bot) handleBPHistoryCommand(msgConfig *tgbotapi.MessageConfig) {
 	since := time.Now().AddDate(0, 0, -30)
-	readings, err := b.bp.GetBloodPressureReadings(context.Background(), b.allowedUserID, since)
+	readings, err := b.bp.ListReadings(context.Background(), b.allowedUserID, since)
 	if err != nil {
 		slog.Error("Error getting BP readings", "error", err)
 		msgConfig.Text = "❌ Error retrieving blood pressure history."
@@ -1309,7 +1309,7 @@ func (b *Bot) handleBPHistoryCommand(msgConfig *tgbotapi.MessageConfig) {
 
 func (b *Bot) handleBPStatsCommand(msgConfig *tgbotapi.MessageConfig) {
 	since := time.Now().AddDate(0, 0, -30)
-	readings, err := b.bp.GetBloodPressureReadings(context.Background(), b.allowedUserID, since)
+	readings, err := b.bp.ListReadings(context.Background(), b.allowedUserID, since)
 	if err != nil {
 		slog.Error("Error getting BP readings", "error", err)
 		msgConfig.Text = "❌ Error retrieving blood pressure statistics."
@@ -1534,7 +1534,7 @@ func (b *Bot) handleBPGoalCommand(msg *tgbotapi.Message, msgConfig *tgbotapi.Mes
 	args := msg.CommandArguments()
 	if args == "" {
 		// Show current goal
-		goal, err := b.bp.GetBPGoal()
+		goal, err := b.bp.GetGoal()
 		if err != nil {
 			slog.Error("Error getting BP goal", "error", err)
 			msgConfig.Text = "❌ Error retrieving BP goal."
@@ -1577,7 +1577,7 @@ Example: /bpgoal 120 70`
 		return
 	}
 
-	err = b.bp.SetBPGoal(systolic, diastolic)
+	err = b.bp.SetGoal(systolic, diastolic)
 	if err != nil {
 		slog.Error("Error setting BP goal", "error", err)
 		msgConfig.Text = "❌ Error saving BP goal."
@@ -1590,7 +1590,7 @@ Example: /bpgoal 120 70`
 // -- Inventory Command --
 
 func (b *Bot) handleStockCommand(msgConfig *tgbotapi.MessageConfig) {
-	meds, err := b.meds.ListMedications(false)
+	meds, err := b.meds.List(false)
 	if err != nil {
 		slog.Error("Error getting medications", "error", err)
 		msgConfig.Text = "❌ Error retrieving medications."
@@ -1615,7 +1615,7 @@ func (b *Bot) handleStockCommand(msgConfig *tgbotapi.MessageConfig) {
 	sb.WriteString("📦 **Medication Inventory**\n\n")
 
 	// Check for low stock (< 7 days)
-	lowStockMeds, _ := b.meds.GetMedicationsLowOnStock(7)
+	lowStockMeds, _ := b.meds.ListLowOnStock(7)
 	lowStockIDs := make(map[int64]bool)
 	for _, m := range lowStockMeds {
 		lowStockIDs[m.ID] = true
@@ -1648,7 +1648,7 @@ func (b *Bot) handleStockCommand(msgConfig *tgbotapi.MessageConfig) {
 // handleNextIntakeCommand sends a notification for the next scheduled medication with confirm/cancel buttons
 func (b *Bot) handleNextIntakeCommand(msgConfig *tgbotapi.MessageConfig) {
 	// Get all active medications
-	meds, err := b.meds.ListMedications(false)
+	meds, err := b.meds.List(false)
 	if err != nil {
 		msgConfig.Text = "❌ Error fetching medications."
 		return
@@ -1792,8 +1792,8 @@ func (b *Bot) handleNextIntakeCommand(msgConfig *tgbotapi.MessageConfig) {
 		slog.Error("send failed", "error", err)
 	} else {
 		for _, intakeID := range intakeByMedication {
-			if err := b.meds.AddIntakeReminder(intakeID, sent.MessageID); err != nil {
-				slog.Error("AddIntakeReminder error", "intakeID", intakeID, "error", err)
+			if err := b.meds.CreateIntakeReminder(intakeID, sent.MessageID); err != nil {
+				slog.Error("CreateIntakeReminder error", "intakeID", intakeID, "error", err)
 			}
 		}
 	}

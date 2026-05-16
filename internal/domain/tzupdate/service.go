@@ -23,14 +23,14 @@ import (
 
 // SettingsStore is the minimal slice of settings persistence the service needs.
 type SettingsStore interface {
-	GetCurrentTimezone() (string, error)
-	RecordTimezone(tz string) error
+	GetCurrent() (string, error)
+	Record(tz string) error
 }
 
 // PlanBaselineStore exposes the active transition plan's baseline so the service
 // can revert to it if the forward TZ write fails after a plan was created.
 type PlanBaselineStore interface {
-	GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error)
+	GetLatestActiveOrPendingTransitionPlan() (*store.TZTransitionPlan, error)
 }
 
 // UpdateResult reports what an UpdateTimezone call did inside the serialized
@@ -57,7 +57,7 @@ type Service interface {
 	// returned UpdateResult reports whether this call actually changed the
 	// stored TZ and whether a plan was created — both decided inside the
 	// service's mutex so concurrent callers don't double-fire confirmation
-	// side effects. On RecordTimezone failure the service cancels any orphan
+	// side effects. On Record failure the service cancels any orphan
 	// plan and reverts the stored timezone to the superseded plan's baseline.
 	UpdateTimezone(ctx context.Context, newTZ string) (UpdateResult, error)
 }
@@ -72,7 +72,7 @@ type service struct {
 }
 
 // NewService constructs a Service. `planBaseline` may be nil — in that case
-// the service skips the baseline-revert path on RecordTimezone failure.
+// the service skips the baseline-revert path on Record failure.
 // `now` may be nil — defaults to time.Now. `hasNotifiers` may be nil — when
 // nil the service always asks the planner to generate a plan; when set and
 // returning false the service skips plan generation and just records the new
@@ -101,7 +101,7 @@ func (s *service) UpdateTimezone(_ context.Context, newTZ string) (UpdateResult,
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	oldTZ, err := s.settings.GetCurrentTimezone()
+	oldTZ, err := s.settings.GetCurrent()
 	if err != nil {
 		return UpdateResult{}, fmt.Errorf("read current timezone: %w", err)
 	}
@@ -117,24 +117,24 @@ func (s *service) UpdateTimezone(_ context.Context, newTZ string) (UpdateResult,
 	// old timezone wall-clock. Skipping creation up-front matches the previous
 	// web-handler behaviour and eliminates the race.
 	if s.planner != nil && s.hasNotifiers != nil && !s.hasNotifiers() {
-		if err := s.settings.RecordTimezone(newTZ); err != nil {
+		if err := s.settings.Record(newTZ); err != nil {
 			return UpdateResult{}, fmt.Errorf("record timezone: %w", err)
 		}
 		return UpdateResult{Changed: true}, nil
 	}
 
 	// Capture the active plan's baseline before GenerateIfChanged cancels it.
-	// If RecordTimezone later fails we revert to this baseline so the scheduler
+	// If Record later fails we revert to this baseline so the scheduler
 	// doesn't continue on an unapproved intermediate timezone.
 	//
 	// When the planner is configured we MUST have the baseline before mutating
 	// state: GenerateIfChanged will cancel the current active plan, and a
-	// subsequent RecordTimezone failure with no captured baseline would leave
+	// subsequent Record failure with no captured baseline would leave
 	// no active plan while the stored timezone is still the unapproved
 	// intermediate value the scheduler must not honour.
 	var supersededBaseline string
 	if s.planBaseline != nil {
-		activePlan, planErr := s.planBaseline.GetLatestActiveOrPendingTZTransitionPlan()
+		activePlan, planErr := s.planBaseline.GetLatestActiveOrPendingTransitionPlan()
 		if planErr != nil {
 			if s.planner != nil {
 				return UpdateResult{}, fmt.Errorf("read superseded plan baseline: %w", planErr)
@@ -155,14 +155,14 @@ func (s *service) UpdateTimezone(_ context.Context, newTZ string) (UpdateResult,
 		planCreated = created
 	}
 
-	if err := s.settings.RecordTimezone(newTZ); err != nil {
+	if err := s.settings.Record(newTZ); err != nil {
 		if planCreated && s.planner != nil {
 			if cancelErr := s.planner.CancelActivePlan("record-timezone-failed"); cancelErr != nil {
-				slog.Error("tzupdate: failed to cancel plan after RecordTimezone failure", "error", cancelErr)
+				slog.Error("tzupdate: failed to cancel plan after Record failure", "error", cancelErr)
 			}
 		}
 		if supersededBaseline != "" && supersededBaseline != oldTZ {
-			if revertErr := s.settings.RecordTimezone(supersededBaseline); revertErr != nil {
+			if revertErr := s.settings.Record(supersededBaseline); revertErr != nil {
 				slog.Error("tzupdate: failed to revert timezone to superseded baseline",
 					"baseline", supersededBaseline, "error", revertErr)
 			} else {

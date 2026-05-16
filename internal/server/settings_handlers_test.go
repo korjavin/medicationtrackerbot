@@ -65,8 +65,8 @@ func TestHandleBootstrap(t *testing.T) {
 	srv, db := createBPTestServer(t)
 	defer db.Close()
 
-	if _, err := db.Medication.CreateMedication("Bootstrap Med", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", ""); err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+	if _, err := db.Medication.Create("Bootstrap Med", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", ""); err != nil {
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	req := httptest.NewRequest("GET", "/api/bootstrap", nil)
@@ -138,7 +138,7 @@ func TestHandleBootstrap_IncludesTodayFood(t *testing.T) {
 	// Pre-existing food row eaten today in UTC (avoid near-midnight flakiness).
 	nowUTC := time.Now().UTC()
 	eatenAt := time.Date(nowUTC.Year(), nowUTC.Month(), nowUTC.Day(), 12, 0, 0, 0, time.UTC)
-	if _, err := db.Food.CreateFoodLog(context.Background(), &store.FoodLog{
+	if _, err := db.Food.CreateLog(context.Background(), &store.FoodLog{
 		UserID:   123456,
 		EatenAt:  eatenAt,
 		Weight:   100,
@@ -202,11 +202,11 @@ func TestHandleBootstrap_IncludesMedications(t *testing.T) {
 		{
 			name: "user with active meds",
 			seed: func(t *testing.T, db *store.Store) {
-				if _, err := db.Medication.CreateMedication("Active A", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", ""); err != nil {
-					t.Fatalf("CreateMedication: %v", err)
+				if _, err := db.Medication.Create("Active A", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", ""); err != nil {
+					t.Fatalf("Create: %v", err)
 				}
-				if _, err := db.Medication.CreateMedication("Active B", "10mg", `{"type":"daily","times":["21:00"]}`, nil, nil, "", "", ""); err != nil {
-					t.Fatalf("CreateMedication: %v", err)
+				if _, err := db.Medication.Create("Active B", "10mg", `{"type":"daily","times":["21:00"]}`, nil, nil, "", "", ""); err != nil {
+					t.Fatalf("Create: %v", err)
 				}
 			},
 			wantNames:    []string{"Active A", "Active B"},
@@ -215,15 +215,15 @@ func TestHandleBootstrap_IncludesMedications(t *testing.T) {
 		{
 			name: "user with archived meds — bootstrap mirrors /api/medications?archived=true",
 			seed: func(t *testing.T, db *store.Store) {
-				if _, err := db.Medication.CreateMedication("Active Med", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", ""); err != nil {
-					t.Fatalf("CreateMedication: %v", err)
+				if _, err := db.Medication.Create("Active Med", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", ""); err != nil {
+					t.Fatalf("Create: %v", err)
 				}
-				archivedID, err := db.Medication.CreateMedication("Archived Med", "20mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+				archivedID, err := db.Medication.Create("Archived Med", "20mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 				if err != nil {
-					t.Fatalf("CreateMedication: %v", err)
+					t.Fatalf("Create: %v", err)
 				}
-				if err := db.Medication.UpdateMedication(archivedID, "Archived Med", "20mg", `{"type":"daily","times":["08:00"]}`, true, nil, nil, "", "", nil, ""); err != nil {
-					t.Fatalf("UpdateMedication archive: %v", err)
+				if err := db.Medication.Update(archivedID, "Archived Med", "20mg", `{"type":"daily","times":["08:00"]}`, true, nil, nil, "", "", nil, ""); err != nil {
+					t.Fatalf("Update archive: %v", err)
 				}
 			},
 			wantNames:    []string{"Active Med", "Archived Med"},
@@ -303,15 +303,15 @@ func TestHandleBootstrap_MedicationsMatchesArchivedListEndpoint(t *testing.T) {
 	srv, db := createBPTestServer(t)
 	defer db.Close()
 
-	if _, err := db.Medication.CreateMedication("Active Med", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", ""); err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+	if _, err := db.Medication.Create("Active Med", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", ""); err != nil {
+		t.Fatalf("Create: %v", err)
 	}
-	archivedID, err := db.Medication.CreateMedication("Archived Med", "20mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	archivedID, err := db.Medication.Create("Archived Med", "20mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
-	if err := db.Medication.UpdateMedication(archivedID, "Archived Med", "20mg", `{"type":"daily","times":["08:00"]}`, true, nil, nil, "", "", nil, ""); err != nil {
-		t.Fatalf("UpdateMedication archive: %v", err)
+	if err := db.Medication.Update(archivedID, "Archived Med", "20mg", `{"type":"daily","times":["08:00"]}`, true, nil, nil, "", "", nil, ""); err != nil {
+		t.Fatalf("Update archive: %v", err)
 	}
 
 	bootReq := httptest.NewRequest("GET", "/api/bootstrap", nil)
@@ -331,7 +331,7 @@ func TestHandleBootstrap_MedicationsMatchesArchivedListEndpoint(t *testing.T) {
 	listReq := httptest.NewRequest("GET", "/api/medications?archived=true", nil)
 	listReq = withUser(listReq, 123456)
 	listW := httptest.NewRecorder()
-	srv.handleListMedications(listW, listReq)
+	srv.handleList(listW, listReq)
 	if listW.Code != http.StatusOK {
 		t.Fatalf("list: expected 200, got %d", listW.Code)
 	}
@@ -375,13 +375,13 @@ func TestHandleChanges(t *testing.T) {
 	}
 
 	// Simulate a write-side mutation in DB, should be captured by change_events trigger.
-	if _, err := db.BP.CreateBloodPressureReading(ctxWithUser(123456), &store.BloodPressure{
+	if _, err := db.BP.CreateReading(ctxWithUser(123456), &store.BloodPressure{
 		UserID:     123456,
 		MeasuredAt: time.Now(),
 		Systolic:   120,
 		Diastolic:  80,
 	}); err != nil {
-		t.Fatalf("CreateBloodPressureReading failed: %v", err)
+		t.Fatalf("CreateReading failed: %v", err)
 	}
 
 	reqDelta := httptest.NewRequest("GET", "/api/changes?since="+strconv.FormatUint(uint64(cursor), 10), nil)
@@ -452,8 +452,8 @@ func TestHandleGetSettings_Timezone(t *testing.T) {
 	}
 
 	// Record a timezone and verify it is returned
-	if err := db.TZ.RecordTimezone("America/New_York"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := db.TZ.Record("America/New_York"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 
 	req2 := httptest.NewRequest("GET", "/api/settings", nil)
@@ -492,9 +492,9 @@ func TestHandleUpdateSettings_ValidTimezone(t *testing.T) {
 		t.Fatalf("Expected status 200, got %d", w.Code)
 	}
 
-	tz, err := db.TZ.GetCurrentTimezone()
+	tz, err := db.TZ.GetCurrent()
 	if err != nil {
-		t.Fatalf("GetCurrentTimezone: %v", err)
+		t.Fatalf("GetCurrent: %v", err)
 	}
 	if tz != "Asia/Tokyo" {
 		t.Fatalf("Expected Asia/Tokyo, got %q", tz)
@@ -531,11 +531,11 @@ func TestHandleUpdateSettings_GeneratesTransitionPlan(t *testing.T) {
 	srv, db := createBPTestServer(t)
 	defer db.Close()
 
-	if err := db.TZ.RecordTimezone("America/New_York"); err != nil {
-		t.Fatalf("seed RecordTimezone: %v", err)
+	if err := db.TZ.Record("America/New_York"); err != nil {
+		t.Fatalf("seed Record: %v", err)
 	}
-	if _, err := db.Medication.CreateMedication("Daily Med", "5mg", `{"type":"daily","times":["08:00","20:00"]}`, nil, nil, "", "", "medium"); err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+	if _, err := db.Medication.Create("Daily Med", "5mg", `{"type":"daily","times":["08:00","20:00"]}`, nil, nil, "", "", "medium"); err != nil {
+		t.Fatalf("Create: %v", err)
 	}
 	srv.SetTZUpdater(tzupdate.NewService(db.TZ, db.TZ, tzreschedule.NewPlannerService(&testTZPlannerStore{db}), nil, nil))
 
@@ -549,17 +549,17 @@ func TestHandleUpdateSettings_GeneratesTransitionPlan(t *testing.T) {
 		t.Fatalf("Expected status 200, got %d", w.Code)
 	}
 
-	tz, err := db.TZ.GetCurrentTimezone()
+	tz, err := db.TZ.GetCurrent()
 	if err != nil {
-		t.Fatalf("GetCurrentTimezone: %v", err)
+		t.Fatalf("GetCurrent: %v", err)
 	}
 	if tz != "Asia/Tokyo" {
 		t.Fatalf("Expected stored timezone Asia/Tokyo, got %q", tz)
 	}
 
-	plan, err := db.TZ.GetLatestActiveOrPendingTZTransitionPlan()
+	plan, err := db.TZ.GetLatestActiveOrPendingTransitionPlan()
 	if err != nil {
-		t.Fatalf("GetLatestActiveOrPendingTZTransitionPlan: %v", err)
+		t.Fatalf("GetLatestActiveOrPendingTransitionPlan: %v", err)
 	}
 	if plan == nil {
 		t.Fatalf("Expected a PENDING_APPROVAL plan after timezone change, got nil")
@@ -577,8 +577,8 @@ func TestHandleBootstrap_IncludesTimezone(t *testing.T) {
 	srv, db := createBPTestServer(t)
 	defer db.Close()
 
-	if err := db.TZ.RecordTimezone("Europe/Berlin"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := db.TZ.Record("Europe/Berlin"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 
 	req := httptest.NewRequest("GET", "/api/bootstrap", nil)
@@ -619,25 +619,25 @@ func TestHandleGetSettings_FullBundle(t *testing.T) {
 	// Seed every slice of the bundle so each sub-case has a non-default value
 	// to assert against. Defaults would still produce a 200, but they don't
 	// distinguish "field was wired up" from "field was dropped silently".
-	if err := db.TZ.RecordTimezone("Europe/Berlin"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := db.TZ.Record("Europe/Berlin"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
-	if err := db.Weight.SetWeightUnitPreference(ctx, "lb"); err != nil {
+	if err := db.Weight.SetUnitPreference(ctx, "lb"); err != nil {
 		t.Fatalf("SetWeightUnitPreference: %v", err)
 	}
 	if err := db.Settings.SetBloodPressureEnabled(ctx, false); err != nil {
 		t.Fatalf("SetBloodPressureEnabled: %v", err)
 	}
-	if err := db.Food.SetFoodTargets(ctx, store.FoodTargets{Calories: 2000, Carbs: 200, Protein: 150, Fat: 70}); err != nil {
+	if err := db.Food.SetTargets(ctx, store.FoodTargets{Calories: 2000, Carbs: 200, Protein: 150, Fat: 70}); err != nil {
 		t.Fatalf("SetFoodTargets: %v", err)
 	}
-	if _, err := db.BP.GetBPReminderState(userID); err != nil { // creates default row
-		t.Fatalf("seed GetBPReminderState: %v", err)
+	if _, err := db.BP.GetReminderState(userID); err != nil { // creates default row
+		t.Fatalf("seed GetReminderState: %v", err)
 	}
-	if err := db.BP.SetBPReminderEnabled(userID, false); err != nil {
-		t.Fatalf("SetBPReminderEnabled: %v", err)
+	if err := db.BP.SetReminderEnabled(userID, false); err != nil {
+		t.Fatalf("SetReminderEnabled: %v", err)
 	}
-	if _, err := db.Weight.GetWeightReminderState(userID); err != nil { // creates default row
+	if _, err := db.Weight.GetReminderState(userID); err != nil { // creates default row
 		t.Fatalf("seed GetWeightReminderState: %v", err)
 	}
 	if err := db.Settings.SetTabOrder(ctx, `["food","bp","weight"]`); err != nil {
@@ -911,8 +911,8 @@ func TestTZSuggestionDismiss_BundleRoundTrip(t *testing.T) {
 	defer db.Close()
 	const userID = int64(123456)
 
-	if err := db.TZ.RecordTimezone("America/New_York"); err != nil {
-		t.Fatalf("seed RecordTimezone: %v", err)
+	if err := db.TZ.Record("America/New_York"); err != nil {
+		t.Fatalf("seed Record: %v", err)
 	}
 
 	// Dismiss the detected TZ via the new endpoint.
@@ -942,7 +942,7 @@ func TestTZSuggestionDismiss_BundleRoundTrip(t *testing.T) {
 	}
 
 	// Wire the tz updater with a planner so POST /api/settings exercises the
-	// full RecordTimezone path (which clears the dismissed flag in the same
+	// full Record path (which clears the dismissed flag in the same
 	// transaction).
 	srv.SetTZUpdater(tzupdate.NewService(db.TZ, db.TZ, tzreschedule.NewPlannerService(&testTZPlannerStore{db}), nil, nil))
 
@@ -968,7 +968,7 @@ func TestTZSuggestionDismiss_BundleRoundTrip(t *testing.T) {
 		t.Fatalf("decode settings after update: %v", err)
 	}
 	if got, _ := resp2["dismissed_tz_suggestion"].(string); got != "" {
-		t.Fatalf("expected dismissed_tz_suggestion cleared after RecordTimezone, got %q", got)
+		t.Fatalf("expected dismissed_tz_suggestion cleared after Record, got %q", got)
 	}
 }
 
@@ -999,8 +999,8 @@ func TestHandleUpdateSettings_NotifiesOnTimezoneChange(t *testing.T) {
 	srv, db := createBPTestServer(t)
 	defer db.Close()
 
-	if err := db.TZ.RecordTimezone("America/New_York"); err != nil {
-		t.Fatalf("seed RecordTimezone: %v", err)
+	if err := db.TZ.Record("America/New_York"); err != nil {
+		t.Fatalf("seed Record: %v", err)
 	}
 	// Use the default tzUpdater (no planner) — we want to assert the
 	// notification fires whenever the stored TZ changes, regardless of

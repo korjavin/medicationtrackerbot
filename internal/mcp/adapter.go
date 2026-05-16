@@ -33,54 +33,54 @@ func (a *storeAdapter) GetWorkoutEnabled(ctx context.Context) (bool, error) {
 func (a *storeAdapter) GetFoodIntakeEnabled(ctx context.Context) (bool, error) {
 	return a.s.Settings.GetFoodIntakeEnabled(ctx)
 }
-func (a *storeAdapter) GetBloodPressureReadings(ctx context.Context, userID int64, since time.Time) ([]store.BloodPressure, error) {
-	return a.s.BP.GetBloodPressureReadings(ctx, userID, since)
+func (a *storeAdapter) ListReadings(ctx context.Context, userID int64, since time.Time) ([]store.BloodPressure, error) {
+	return a.s.BP.ListReadings(ctx, userID, since)
 }
 func (a *storeAdapter) GetWeightLogs(ctx context.Context, userID int64, since time.Time) ([]store.WeightLog, error) {
-	return a.s.Weight.GetWeightLogs(ctx, userID, since)
+	return a.s.Weight.ListLogs(ctx, userID, since)
 }
-func (a *storeAdapter) GetIntakesSince(since time.Time) ([]store.IntakeWithMedication, error) {
-	return a.s.Medication.GetIntakesSince(since)
+func (a *storeAdapter) ListIntakesSince(since time.Time) ([]store.IntakeWithMedication, error) {
+	return a.s.Medication.ListIntakesSince(since)
 }
-func (a *storeAdapter) GetWorkoutHistory(userID int64, limit int) ([]store.WorkoutSession, error) {
-	return a.s.Workout.GetWorkoutHistory(userID, limit)
+func (a *storeAdapter) ListHistory(userID int64, limit int) ([]store.WorkoutSession, error) {
+	return a.s.Workout.ListHistory(userID, limit)
 }
-func (a *storeAdapter) GetWorkoutGroup(groupID int64) (*store.WorkoutGroup, error) {
-	return a.s.Workout.GetWorkoutGroup(groupID)
+func (a *storeAdapter) GetGroup(groupID int64) (*store.WorkoutGroup, error) {
+	return a.s.Workout.GetGroup(groupID)
 }
-func (a *storeAdapter) GetWorkoutVariant(variantID int64) (*store.WorkoutVariant, error) {
-	return a.s.Workout.GetWorkoutVariant(variantID)
+func (a *storeAdapter) GetVariant(variantID int64) (*store.WorkoutVariant, error) {
+	return a.s.Workout.GetVariant(variantID)
 }
-func (a *storeAdapter) GetExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error) {
-	return a.s.Workout.GetExerciseLogs(sessionID)
+func (a *storeAdapter) ListExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error) {
+	return a.s.Workout.ListExerciseLogs(sessionID)
 }
-func (a *storeAdapter) GetSleepLogs(ctx context.Context, userID int64, since time.Time) ([]store.SleepLog, error) {
-	return a.s.Vitals.GetSleepLogs(ctx, userID, since)
+func (a *storeAdapter) ListSleepLogs(ctx context.Context, userID int64, since time.Time) ([]store.SleepLog, error) {
+	return a.s.Vitals.ListSleepLogs(ctx, userID, since)
 }
 func (a *storeAdapter) GetFoodLogs(ctx context.Context, userID int64, date time.Time, days int) ([]store.FoodLog, error) {
-	return a.s.Food.GetFoodLogs(ctx, userID, date, days)
+	return a.s.Food.ListLogs(ctx, userID, date, days)
 }
 func (a *storeAdapter) GetFoodTargets(ctx context.Context) (store.FoodTargets, error) {
-	return a.s.Food.GetFoodTargets(ctx)
+	return a.s.Food.GetTargets(ctx)
 }
-func (a *storeAdapter) GetDayStats(ctx context.Context, userID int64, since time.Time) ([]store.DayStat, error) {
-	return a.s.Vitals.GetDayStats(ctx, userID, since)
+func (a *storeAdapter) ListDayStats(ctx context.Context, userID int64, since time.Time) ([]store.DayStat, error) {
+	return a.s.Vitals.ListDayStats(ctx, userID, since)
 }
-func (a *storeAdapter) GetVitalsHeart(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsHeartLog, error) {
-	return a.s.Vitals.GetVitalsHeart(ctx, userID, start, end)
+func (a *storeAdapter) ListHeart(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsHeartLog, error) {
+	return a.s.Vitals.ListHeart(ctx, userID, start, end)
 }
-func (a *storeAdapter) GetVitalsSpO2(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsSpO2Log, error) {
-	return a.s.Vitals.GetVitalsSpO2(ctx, userID, start, end)
+func (a *storeAdapter) ListSpO2(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsSpO2Log, error) {
+	return a.s.Vitals.ListSpO2(ctx, userID, start, end)
 }
-func (a *storeAdapter) GetVitalsStress(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsStressLog, error) {
-	return a.s.Vitals.GetVitalsStress(ctx, userID, start, end)
+func (a *storeAdapter) ListStress(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsStressLog, error) {
+	return a.s.Vitals.ListStress(ctx, userID, start, end)
 }
-func (a *storeAdapter) ListMiBandWorkouts(ctx context.Context, userID int64, limit int) ([]store.MiBandWorkout, error) {
-	return a.s.Workout.ListMiBandWorkouts(ctx, userID, limit)
+func (a *storeAdapter) ListMiBand(ctx context.Context, userID int64, limit int) ([]store.MiBandWorkout, error) {
+	return a.s.Workout.ListMiBand(ctx, userID, limit)
 }
 func (a *storeAdapter) ListDiaryNotes(ctx context.Context, userID int64, since, until time.Time, limit int, beforeID int64) ([]store.DiaryNote, error) {
 	return a.s.Diary.List(ctx, userID, since, until, limit, beforeID)
 }
-func (a *storeAdapter) ListMedications(showArchived bool) ([]store.Medication, error) {
-	return a.s.Medication.ListMedications(showArchived)
+func (a *storeAdapter) List(showArchived bool) ([]store.Medication, error) {
+	return a.s.Medication.List(showArchived)
 }

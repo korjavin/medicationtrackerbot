@@ -26,7 +26,7 @@ func newMockPlannerStore() *mockPlannerStore {
 	}
 }
 
-func (m *mockPlannerStore) ListMedications(showArchived bool) ([]store.Medication, error) {
+func (m *mockPlannerStore) List(showArchived bool) ([]store.Medication, error) {
 	if showArchived {
 		return m.medications, nil
 	}
@@ -39,7 +39,7 @@ func (m *mockPlannerStore) ListMedications(showArchived bool) ([]store.Medicatio
 	return active, nil
 }
 
-func (m *mockPlannerStore) GetIntakeHistory(medID int, days int) ([]store.IntakeLog, error) {
+func (m *mockPlannerStore) ListIntakeHistory(medID int, days int) ([]store.IntakeLog, error) {
 	return m.intakes[int64(medID)], nil
 }
 
@@ -52,7 +52,7 @@ func (m *mockPlannerStore) GetPlanByHash(hash string) (*store.TZTransitionPlan, 
 	return nil, nil
 }
 
-func (m *mockPlannerStore) GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error) {
+func (m *mockPlannerStore) GetLatestActiveOrPendingTransitionPlan() (*store.TZTransitionPlan, error) {
 	for i := len(m.plans) - 1; i >= 0; i-- {
 		p := m.plans[i]
 		if p.Status == "PENDING_APPROVAL" || p.Status == "NOTIFIED" || p.Status == "APPROVED" {
@@ -62,7 +62,7 @@ func (m *mockPlannerStore) GetLatestActiveOrPendingTZTransitionPlan() (*store.TZ
 	return nil, nil
 }
 
-func (m *mockPlannerStore) UpdateTZTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error {
+func (m *mockPlannerStore) UpdateTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error {
 	for _, p := range m.plans {
 		if p.ID == id {
 			if expectedStatus != "" && p.Status != expectedStatus {
@@ -87,7 +87,7 @@ func (m *mockPlannerStore) DeletePendingPreMaterializedIntakesForPlan(planID int
 	return nil
 }
 
-func (m *mockPlannerStore) CreateTZTransitionPlanWithSteps(plan *store.TZTransitionPlan) (int64, error) {
+func (m *mockPlannerStore) CreateTransitionPlanWithSteps(plan *store.TZTransitionPlan) (int64, error) {
 	// Mirror the real store: cancel all active plans within the transaction.
 	for _, p := range m.plans {
 		switch p.Status {

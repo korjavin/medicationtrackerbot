@@ -12,7 +12,7 @@ import (
 //
 // CLAUDE.md rule #1: every bot callback and HTTP handler that needs to flip a
 // plan to APPROVED must call Approve through this interface, not the bare
-// store.SetTZTransitionPlanApproved primitive — that primitive misses the
+// store.SetTransitionPlanApproved primitive — that primitive misses the
 // materialize step and would silently lose scheduling for the plan.
 type LifecycleService interface {
 	// Approve flips the plan to APPROVED and pre-materializes every

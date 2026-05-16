@@ -33,9 +33,9 @@ func TestDeleteMessageUsesRequest(t *testing.T) {
 	defer env.teardown()
 
 	// Set up: create medication + intake + reminder record
-	medID, err := env.s.Medication.CreateMedication("Candecor", "16mg", `{"type":"daily","times":["21:30"]}`, nil, nil, "", "", "")
+	medID, err := env.s.Medication.Create("Candecor", "16mg", `{"type":"daily","times":["21:30"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	scheduledAt := time.Date(2026, 3, 11, 21, 30, 0, 0, time.UTC)
@@ -46,8 +46,8 @@ func TestDeleteMessageUsesRequest(t *testing.T) {
 
 	// Simulate: a reminder message was sent (msgID=500) and stored in DB
 	reminderMsgID := 500
-	if err := env.s.Medication.AddIntakeReminder(intakeID, reminderMsgID); err != nil {
-		t.Fatalf("AddIntakeReminder failed: %v", err)
+	if err := env.s.Medication.CreateIntakeReminder(intakeID, reminderMsgID); err != nil {
+		t.Fatalf("CreateIntakeReminder failed: %v", err)
 	}
 
 	// Trigger confirm_intake callback from message 501 (different from reminder 500)

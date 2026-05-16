@@ -21,14 +21,14 @@ func TestHandleCallback_ConfirmScheduleAcrossTimezones(t *testing.T) {
 	defer env.teardown()
 	env.b.timezone = env.s.TZ
 
-	if err := env.s.TZ.RecordTimezone("America/Los_Angeles"); err != nil {
-		t.Fatalf("RecordTimezone: %v", err)
+	if err := env.s.TZ.Record("America/Los_Angeles"); err != nil {
+		t.Fatalf("Record: %v", err)
 	}
 
-	medID, err := env.s.Medication.CreateMedication("Candecor", "16mg",
+	medID, err := env.s.Medication.Create("Candecor", "16mg",
 		`{"type":"daily","times":["21:30"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	la, err := time.LoadLocation("America/Los_Angeles")
@@ -73,12 +73,12 @@ func TestHandleCallback_SkipIntake(t *testing.T) {
 	env := setupBotTest(t)
 	defer env.teardown()
 
-	medID, err := env.s.Medication.CreateMedication("Magnesium", "200mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, err := env.s.Medication.Create("Magnesium", "200mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
-	if err := env.s.Medication.SetMedicationSupplement(medID, true); err != nil {
-		t.Fatalf("SetMedicationSupplement failed: %v", err)
+	if err := env.s.Medication.SetSupplement(medID, true); err != nil {
+		t.Fatalf("SetSupplement failed: %v", err)
 	}
 
 	scheduledAt := time.Now().Add(-2 * time.Hour).Truncate(time.Minute)
@@ -124,9 +124,9 @@ func TestHandleCallback_CancelIntake(t *testing.T) {
 	env := setupBotTest(t)
 	defer env.teardown()
 
-	medID, err := env.s.Medication.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, err := env.s.Medication.Create("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	scheduledAt := time.Now().Add(-2 * time.Hour).Truncate(time.Minute)
@@ -174,9 +174,9 @@ func TestHandleCallback_CancelIntake_AlreadyPending(t *testing.T) {
 	env := setupBotTest(t)
 	defer env.teardown()
 
-	medID, err := env.s.Medication.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, err := env.s.Medication.Create("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	scheduledAt := time.Now().Add(-2 * time.Hour).Truncate(time.Minute)
@@ -214,9 +214,9 @@ func TestHandleCallback_SkipIntake_NonSupplement(t *testing.T) {
 	defer env.teardown()
 
 	// Non-supplement medication: skip must work since the supplement restriction was removed
-	medID, err := env.s.Medication.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID, err := env.s.Medication.Create("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
-		t.Fatalf("CreateMedication failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	scheduledAt := time.Now().Add(-1 * time.Hour).Truncate(time.Minute)

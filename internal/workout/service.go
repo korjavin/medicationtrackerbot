@@ -20,15 +20,15 @@ var ErrScheduleBadTime = errors.New("scheduled_time must be HH:MM (24h)")
 
 // WorkoutStore is the narrow interface needed for compound workout operations.
 type WorkoutStore interface {
-	GetWorkoutSession(id int64) (*store.WorkoutSession, error)
-	GetWorkoutGroup(groupID int64) (*store.WorkoutGroup, error)
+	GetSession(id int64) (*store.WorkoutSession, error)
+	GetGroup(groupID int64) (*store.WorkoutGroup, error)
 	StartSession(id int64) error
 	ClearSnooze(id int64) error
 	SnoozeSession(id int64, duration time.Duration) error
 	SkipSession(id int64) error
 	CompleteSession(id int64) error
 	AdvanceRotation(groupID int64) error
-	CreateAdHocWorkoutSession(userID int64, scheduledDate time.Time, scheduledTime string) (*store.WorkoutSession, error)
+	CreateAdHocSession(userID int64, scheduledDate time.Time, scheduledTime string) (*store.WorkoutSession, error)
 	CreatePlannedAdHocSession(userID int64, scheduledDate time.Time, scheduledTime string) (*store.WorkoutSession, error)
 	LogExerciseWithSource(sessionID, exerciseID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes, source string) (int64, error)
 	DeleteSession(id int64) error
@@ -36,7 +36,7 @@ type WorkoutStore interface {
 
 // TZStore is the timezone lookup the workout service needs.
 type TZStore interface {
-	GetCurrentTimezone() (string, error)
+	GetCurrent() (string, error)
 }
 
 // PlannedExercise describes one item in a scheduled ad-hoc workout. Targets
@@ -99,7 +99,7 @@ func (s *Service) SnoozeSession(sessionID int64, duration time.Duration) error {
 
 // SkipSession marks a session as skipped and advances the rotation for rotating groups.
 func (s *Service) SkipSession(sessionID int64) error {
-	session, err := s.store.GetWorkoutSession(sessionID)
+	session, err := s.store.GetSession(sessionID)
 	if err != nil {
 		return err
 	}
@@ -112,7 +112,7 @@ func (s *Service) SkipSession(sessionID int64) error {
 
 // CompleteSession marks a session as completed and advances the rotation for rotating groups.
 func (s *Service) CompleteSession(sessionID int64) error {
-	session, err := s.store.GetWorkoutSession(sessionID)
+	session, err := s.store.GetSession(sessionID)
 	if err != nil {
 		return err
 	}
@@ -125,7 +125,7 @@ func (s *Service) CompleteSession(sessionID int64) error {
 
 // CreateAdHocSession creates a new ad-hoc (unscheduled) workout session already in progress.
 func (s *Service) CreateAdHocSession(userID int64, now time.Time, scheduledTime string) (*store.WorkoutSession, error) {
-	return s.store.CreateAdHocWorkoutSession(userID, now, scheduledTime)
+	return s.store.CreateAdHocSession(userID, now, scheduledTime)
 }
 
 // SchedulePlannedAdHocSession creates a future ad-hoc workout session and pre-creates
@@ -142,7 +142,7 @@ func (s *Service) SchedulePlannedAdHocSession(userID int64, scheduledDate time.T
 
 	loc := time.UTC
 	if s.tz != nil {
-		if tz, tzErr := s.tz.GetCurrentTimezone(); tzErr != nil {
+		if tz, tzErr := s.tz.GetCurrent(); tzErr != nil {
 			slog.Warn("workout service: failed to load user timezone, falling back to UTC", "error", tzErr)
 		} else if tz != "" {
 			if l, locErr := time.LoadLocation(tz); locErr != nil {
@@ -204,7 +204,7 @@ func (s *Service) tryAdvanceRotation(session *store.WorkoutSession) {
 		return
 	}
 
-	group, err := s.store.GetWorkoutGroup(session.GroupID)
+	group, err := s.store.GetGroup(session.GroupID)
 	if err != nil {
 		slog.Error("workout service: failed to load group for session", "groupID", session.GroupID, "sessionID", session.ID, "error", err)
 		return
