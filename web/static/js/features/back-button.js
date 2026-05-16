@@ -8,8 +8,8 @@
 // AppBackButton.refresh() so the button re-appears on non-Today sections.
 //
 // All BackButton interactions go through window.MessengerAdapter so the same
-// code path serves Telegram Mini App (forwards to Telegram.WebApp.BackButton)
-// and the browser PWA (in-app chevron + popstate).
+// code path serves the Telegram Mini App (forwards to the Telegram SDK
+// BackButton) and the browser PWA (in-app chevron + popstate).
 //
 // Loaded after app.js and modal-history.js.  bootstrap.js calls
 // AppBackButton.setup() once, after the initial tab is activated.

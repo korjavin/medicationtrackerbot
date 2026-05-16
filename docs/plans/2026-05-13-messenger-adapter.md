@@ -223,12 +223,12 @@ and recommended-priority item #8.
 
 ### Task 4: Architecture test prevents recurrence
 
-- [ ] add `web/static/js/tests/architecture.no-direct-telegram.test.js`
+- [x] add `web/static/js/tests/architecture.no-direct-telegram.test.js`
   that scans every file under `web/static/js/` (excluding
   `core/messenger-adapter.js`, `tests/`, and `vendor/`) for the
   literal strings `window.Telegram`, `Telegram.WebApp` (case-
   sensitive); assert zero matches; on failure, point at the adapter
-- [ ] run `pnpm test architecture.no-direct-telegram` — must pass
+- [x] run `pnpm test architecture.no-direct-telegram` — must pass
 
 ### Task 5: Verify acceptance
 
