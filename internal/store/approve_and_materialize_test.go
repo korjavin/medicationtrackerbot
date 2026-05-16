@@ -78,6 +78,63 @@ func TestApproveAndMaterialize_FlipsAndMaterializes(t *testing.T) {
 	}
 }
 
+// TestApproveAndMaterialize_MultiMedicationPlan covers the regression caught
+// in code review: tzreschedule.GeneratePlan numbers steps per-medication
+// starting at 1, so a plan touching N medications emits step_number=1 for
+// each of them. The pre-fix unique index keyed on (tz_plan_id,
+// tz_step_number) collided across meds, INSERT OR IGNORE silently dropped
+// every med after the first, and the user lost doses. After migration 070
+// the index includes medication_id, so every step lands.
+func TestApproveAndMaterialize_MultiMedicationPlan(t *testing.T) {
+	r := setupRepos(t)
+
+	medA, err := r.Medication.CreateMedication("MedA", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	if err != nil {
+		t.Fatalf("CreateMedication A: %v", err)
+	}
+	medB, err := r.Medication.CreateMedication("MedB", "200mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	if err != nil {
+		t.Fatalf("CreateMedication B: %v", err)
+	}
+
+	// Mirror tzreschedule.GeneratePlan: each med independently numbered 1..K.
+	planID := insertPlanWithSteps(t, r, "PENDING_APPROVAL", []seedStep{
+		{medID: medA, stepNum: 1, scheduledAt: time.Date(2026, 5, 16, 6, 0, 0, 0, time.UTC)},
+		{medID: medA, stepNum: 2, scheduledAt: time.Date(2026, 5, 16, 7, 0, 0, 0, time.UTC)},
+		{medID: medB, stepNum: 1, scheduledAt: time.Date(2026, 5, 16, 6, 5, 0, 0, time.UTC)},
+		{medID: medB, stepNum: 2, scheduledAt: time.Date(2026, 5, 16, 7, 5, 0, 0, time.UTC)},
+	})
+
+	if _, err := r.ApproveAndMaterialize(context.Background(), planID, 42, time.Date(2026, 5, 16, 5, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("ApproveAndMaterialize: %v", err)
+	}
+
+	var count int
+	if err := r.DB().QueryRow(
+		`SELECT COUNT(*) FROM intake_log WHERE tz_plan_id = ? AND source = 'tz_step' AND status = 'PENDING'`,
+		planID,
+	).Scan(&count); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 4 {
+		t.Errorf("multi-med materialize lost rows: got %d want 4 (2 meds × 2 steps each)", count)
+	}
+
+	var aCount, bCount int
+	if err := r.DB().QueryRow(`SELECT COUNT(*) FROM intake_log WHERE tz_plan_id = ? AND medication_id = ?`, planID, medA).Scan(&aCount); err != nil {
+		t.Fatalf("count medA: %v", err)
+	}
+	if err := r.DB().QueryRow(`SELECT COUNT(*) FROM intake_log WHERE tz_plan_id = ? AND medication_id = ?`, planID, medB).Scan(&bCount); err != nil {
+		t.Fatalf("count medB: %v", err)
+	}
+	if aCount != 2 {
+		t.Errorf("medA rows=%d want 2", aCount)
+	}
+	if bCount != 2 {
+		t.Errorf("medB rows=%d want 2 (would be 0 before migration 070)", bCount)
+	}
+}
+
 // TestApproveAndMaterialize_RejectedPlanIsNoOp asserts that a plan that has
 // already moved out of PENDING_APPROVAL/NOTIFIED (e.g. user rejected via the
 // banner before the bot's auto-approve ran) is left alone — no status
