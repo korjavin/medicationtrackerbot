@@ -228,21 +228,34 @@ Every numbered point above was the source of one of the recent bugs.
 
 ### Task 3: Switch every reader to `scheduled_at_unix` — SUPERSEDED by 2026-05-10 plan
 
-- [ ] change `Store.GetIntakeBySchedule`, `BatchGetIntakesBySchedule`,
+- [x] change `Store.GetIntakeBySchedule`, `BatchGetIntakesBySchedule`,
   `GetPendingIntakesBySchedule`, `ConfirmIntakesBySchedule`,
   `GetIntake`, `GetIntakeHistory`, `GetPendingIntakes` to read the unix
   column and `Scan` into `int64`, then convert via `time.Unix(n, 0).UTC()`
-  before returning the struct field
-- [ ] **delete the in-memory `time.Equal` filter** in
+  before returning the struct field (satisfied by 2026-05-10 plan — every
+  named reader in `internal/store/medication/repo.go` now selects
+  `scheduled_at_unix` (and where relevant `taken_at_unix`,
+  `snoozed_until_unix`) and converts via `storedb.UnixToTime` /
+  `NullableUnixToTimePtr` before populating `IntakeLog`)
+- [x] **delete the in-memory `time.Equal` filter** in
   `GetPendingIntakesBySchedule` and `ConfirmIntakesBySchedule` — replace
-  with a real `WHERE scheduled_at_unix = ?` predicate
-- [ ] keep the `time.Time` field in the public `IntakeLog` struct — only
-  the wire format changes
-- [ ] write tests: add cross-TZ regression test that builds an intake whose
+  with a real `WHERE scheduled_at_unix = ?` predicate (satisfied by
+  2026-05-10 plan — `time.Equal` no longer appears in
+  `internal/store/medication/repo.go`; `GetPendingIntakesBySchedule` now
+  uses `WHERE … AND scheduled_at_unix = ?` and `ConfirmIntakesBySchedule`
+  delegates to it)
+- [x] keep the `time.Time` field in the public `IntakeLog` struct — only
+  the wire format changes (satisfied by 2026-05-10 plan — `IntakeLog`
+  still exposes `ScheduledAt time.Time` /
+  `TakenAt *time.Time` / `SnoozedUntil *time.Time`; only the SQL column
+  shape changed)
+- [x] write tests: add cross-TZ regression test that builds an intake whose
   `scheduled_at` was originally produced in `Europe/Berlin`, queries it
   from a server pretending to be in `America/Los_Angeles`, asserts the
-  query matches.
-- [ ] run project tests - must pass before next task (`go test ./...`); the existing 1169cd6 cross-TZ tests stay green using the new SQL equality path.
+  query matches. (satisfied by 2026-05-10 plan —
+  `internal/store/medication/intake_log_readers_tz_test.go` covers every
+  reader with the Berlin↔LA scenario)
+- [x] run project tests - must pass before next task (`go test ./...`); the existing 1169cd6 cross-TZ tests stay green using the new SQL equality path. (satisfied by 2026-05-10 plan — `go test ./...` was required green at every task boundary of that plan; nothing to re-run for an already-shipped task)
 
 ### Task 4: Drop the legacy `scheduled_at` text column from `intake_log` — SUPERSEDED by 2026-05-10 plan
 
