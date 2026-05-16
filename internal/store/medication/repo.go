@@ -1107,17 +1107,29 @@ func (r *Repo) DeletePendingPreMaterializedIntakesForPlan(planID int64) error {
 }
 
 // GetDueTZStepIntakes returns every PENDING intake_log row with
-// source='tz_step' whose scheduled_at_unix is at-or-before asOf. Used by
-// MedicationChecker.Check to surface pre-materialized transition-plan step
-// rows as fire-targets — see Task 11 of the scheduling-simplification plan
-// (docs/plans/20260508-simplify-medication-scheduling-utc-and-pre-materialized-steps.md).
+// source='tz_step' whose scheduled_at_unix is at-or-before asOf and which
+// has not yet been notified (no intake_reminders row references it). Used
+// by MedicationChecker.Check to surface pre-materialized transition-plan
+// step rows as fire-targets — see Task 11 of the scheduling-simplification
+// plan (docs/plans/20260508-simplify-medication-scheduling-utc-and-pre-materialized-steps.md).
+//
+// The intake_reminders gate is what stops the medication scheduler from
+// re-firing the same tz_step row on every 1-minute tick. Normal-schedule
+// rows are deduped via "row already exists in intake_log" (BatchGet skips
+// them after the first fire); tz_step rows already exist at approve time,
+// so they need a separate gate. After the first fire AddIntakeReminder
+// writes an intake_reminders row; subsequent ticks skip the intake here and
+// MedicationReminderChecker takes over re-reminders via its snooze loop.
 func (r *Repo) GetDueTZStepIntakes(asOf time.Time) ([]IntakeLog, error) {
 	rows, err := r.db.Query(`
 		SELECT id, medication_id, user_id, scheduled_at_unix, status, snoozed_until_unix,
 		       source, tz_plan_id, tz_step_number
 		FROM intake_log
 		WHERE status = 'PENDING' AND source = 'tz_step'
-		  AND scheduled_at_unix <= ?`, asOf.UTC().Unix())
+		  AND scheduled_at_unix <= ?
+		  AND NOT EXISTS (
+		    SELECT 1 FROM intake_reminders r WHERE r.intake_id = intake_log.id
+		  )`, asOf.UTC().Unix())
 	if err != nil {
 		return nil, err
 	}

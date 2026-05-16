@@ -81,10 +81,10 @@ func TestApproveAndMaterialize_FlipsAndMaterializes(t *testing.T) {
 // TestApproveAndMaterialize_MultiMedicationPlan covers the regression caught
 // in code review: tzreschedule.GeneratePlan numbers steps per-medication
 // starting at 1, so a plan touching N medications emits step_number=1 for
-// each of them. The pre-fix unique index keyed on (tz_plan_id,
-// tz_step_number) collided across meds, INSERT OR IGNORE silently dropped
-// every med after the first, and the user lost doses. After migration 070
-// the index includes medication_id, so every step lands.
+// each of them. An index keyed on only (tz_plan_id, tz_step_number) would
+// collide across meds and let INSERT OR IGNORE silently drop every med
+// after the first. Migration 067's unique index includes medication_id so
+// every step lands.
 func TestApproveAndMaterialize_MultiMedicationPlan(t *testing.T) {
 	r := setupRepos(t)
 
@@ -131,7 +131,7 @@ func TestApproveAndMaterialize_MultiMedicationPlan(t *testing.T) {
 		t.Errorf("medA rows=%d want 2", aCount)
 	}
 	if bCount != 2 {
-		t.Errorf("medB rows=%d want 2 (would be 0 before migration 070)", bCount)
+		t.Errorf("medB rows=%d want 2 (would be 0 if the unique index omitted medication_id)", bCount)
 	}
 }
 

@@ -6,13 +6,19 @@
 -- (operator clicks twice, server crash between insert and tx commit, etc.)
 -- and the backfill running alongside a freshly approved plan must not
 -- duplicate the per-step row. The unique index lets both paths use
--- INSERT OR IGNORE against (tz_plan_id, tz_step_number).
+-- INSERT OR IGNORE against (tz_plan_id, medication_id, tz_step_number).
+--
+-- medication_id MUST be part of the key because tzreschedule.GeneratePlan
+-- (internal/domain/tzreschedule/engine.go) numbers steps per-medication
+-- starting at 1. A plan touching N medications produces step pairs
+-- (1,1)..(1,K) for each med — without medication_id in the key, INSERT OR
+-- IGNORE silently drops every med beyond the first.
 --
 -- Partial WHERE-clause: source='schedule' rows always have tz_plan_id NULL,
 -- so the index covers only the materialized step rows and never blocks a
 -- normal intake.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_intake_log_tz_plan_step_unique
-    ON intake_log(tz_plan_id, tz_step_number)
+    ON intake_log(tz_plan_id, medication_id, tz_step_number)
     WHERE tz_plan_id IS NOT NULL;
 
 -- +goose Down

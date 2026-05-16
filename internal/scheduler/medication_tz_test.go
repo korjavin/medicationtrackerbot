@@ -464,6 +464,17 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 				t.Errorf("intake source = %q, want tz_step", hist[0].Source)
 			}
 		}
+
+		// Notifications must fire exactly once across the two ticks. Without
+		// the intake_reminders gate in GetDueTZStepIntakes, every scheduler
+		// tick (1 minute) would re-emit the per-medication WebPush
+		// notification because the tz_step row stays PENDING until the user
+		// confirms/skips. Mock filters batched Telegram notifications, so
+		// what's left here is the individual WebPush per medication —
+		// expected: 1 (one tick fired, second tick saw existing reminder).
+		if got := len(mock.Notifications); got != 1 {
+			t.Errorf("expected 1 notification across 2 ticks (single fire), got %d", got)
+		}
 	})
 
 	t.Run("approved plan: consumed step suppresses overlapping normal doses", func(t *testing.T) {
