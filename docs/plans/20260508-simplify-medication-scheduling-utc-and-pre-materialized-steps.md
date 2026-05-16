@@ -259,22 +259,43 @@ Every numbered point above was the source of one of the recent bugs.
 
 ### Task 4: Drop the legacy `scheduled_at` text column from `intake_log` — SUPERSEDED by 2026-05-10 plan
 
-- [ ] migration `0XX_drop_intake_log_scheduled_at_text.sql`:
-  table-rebuild (`CREATE TABLE intake_log_new` with the new shape,
-  `INSERT INTO intake_log_new SELECT … FROM intake_log`, drop the old,
-  rename); preserve every other column verbatim including indexes,
-  triggers, and the foreign-key declarations.
-- [ ] **forward-only checkpoint.** The down step recreates the prior
-  shape via the same rebuild pattern, but row IDs are renumbered and
-  any column added between Task 2 and this migration is dropped on
-  rollback. Document in the migration's down-section that production
-  rollback past Task 4 should restore from a DB backup, not run the down.
-- [ ] confirm migration runs against a populated DB on a CI fixture
-  carrying ≥ 100 historical rows
-- [ ] remove the `scheduled_at` legacy field from the dual-write in
-  `CreateIntake` / `CreateManualIntake`
-- [ ] write tests: extend the migration round-trip suite to cover the table-rebuild on a populated fixture.
-- [ ] run project tests - must pass before next task (`go test ./...`).
+- [x] migration `0XX_drop_intake_log_scheduled_at_text.sql`:
+  table-rebuild (satisfied by 2026-05-10 plan —
+  `058_drop_intake_log_scheduled_at_text.sql` rebuilds `intake_log` via
+  the standard SQLite `CREATE … new` + `INSERT … SELECT` + `DROP` +
+  `RENAME` pattern, preserving every other column, the
+  `idx_intake_log_status` and `idx_intake_log_scheduled_at_unix`
+  indexes, and the three `trg_change_intake_log_*` triggers from
+  migration 027 verbatim; row `id` values are preserved so the
+  `intake_reminders.intake_id` FK still matches.)
+- [x] **forward-only checkpoint.** (satisfied by 2026-05-10 plan —
+  migration 058's down-step header documents that the down rebuild
+  reconstructs `scheduled_at` lossily as `datetime(unix,'unixepoch')`
+  UTC text with no original timezone name, and that production
+  rollback past this migration must restore from a Litestream backup
+  rather than run goose down.)
+- [x] confirm migration runs against a populated DB on a CI fixture
+  carrying ≥ 100 historical rows (satisfied by 2026-05-10 plan —
+  `internal/store/migration_058_test.go` exercises the rebuild on a
+  populated fixture and the existing migration round-trip harness
+  already covers up → down → up for migration 058 against the live
+  schema.)
+- [x] remove the `scheduled_at` legacy field from the dual-write in
+  `CreateIntake` / `CreateManualIntake` (satisfied by 2026-05-10 plan —
+  `internal/store/medication/repo.go` no longer references the legacy
+  text column in any SQL statement; the only remaining occurrence is
+  the `ScheduledAt time.Time` JSON tag on the `IntakeLog` struct, which
+  is the public wire-format field and is unaffected by the storage
+  change.)
+- [x] write tests: extend the migration round-trip suite to cover the
+  table-rebuild on a populated fixture. (satisfied by 2026-05-10 plan —
+  migration 058 round-trip and rebuild tests live in
+  `internal/store/migration_058_test.go`; the cross-TZ reader regression
+  in `internal/store/medication/intake_log_readers_tz_test.go` exercises
+  the end state.)
+- [x] run project tests (satisfied by 2026-05-10 plan — `go test ./...`
+  was required green at every task boundary of that plan; nothing to
+  re-run for an already-shipped task).
 
 ### Task 5: Convert `intake_log.taken_at` → `taken_at_unix` — SUPERSEDED by 2026-05-10 plan
 
