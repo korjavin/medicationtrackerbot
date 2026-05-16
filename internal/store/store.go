@@ -27,9 +27,11 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"fmt"
+	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store/auth"
 	"github.com/korjavin/medicationtrackerbot/internal/store/bp"
@@ -37,6 +39,13 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/store/diary"
 	"github.com/korjavin/medicationtrackerbot/internal/store/food"
 	"github.com/korjavin/medicationtrackerbot/internal/store/medication"
+	// Blank import: migrations/068_backfill_pre_materialized_tz_steps.go
+	// registers the project's first goose Go migration in its init(). The SQL
+	// migrations are still embedded directly via //go:embed migrations/*.sql
+	// below, so this import is purely for side effects — without it the Go
+	// migration would only register when a per-domain test imports the
+	// migrations package, and production deploys would skip it.
+	_ "github.com/korjavin/medicationtrackerbot/internal/store/migrations"
 	"github.com/korjavin/medicationtrackerbot/internal/store/push"
 	"github.com/korjavin/medicationtrackerbot/internal/store/settings"
 	storetz "github.com/korjavin/medicationtrackerbot/internal/store/tz"
@@ -208,6 +217,44 @@ func NewWithDB(d *storedb.DB) (*Repos, error) {
 // Close releases the underlying *db.DB connection pool.
 func (r *Repos) Close() error {
 	return r.db.Close()
+}
+
+// ApproveAndMaterialize is the cross-repo helper that flips a tz transition
+// plan to APPROVED and pre-materializes every unconsumed step into intake_log
+// under one transaction. See tzreschedule.LifecycleService for the runtime
+// entry point — both the HTTP handler (handleTZPlanApprove) and the auto-
+// approve path in tz_plan_notifier route through the lifecycle service, which
+// wraps this call.
+//
+// Bool semantics: (true, nil) when this call performed the approval (the plan
+// was PENDING_APPROVAL or NOTIFIED at tx start, is now APPROVED with steps
+// materialized); (false, nil) when the plan was already past pending and this
+// call is a benign no-op (e.g. another caller approved first). Any error
+// short-circuits the tx via the deferred Rollback and returns (false, err).
+//
+// Approve→crash→restart cannot leave a plan APPROVED with no materialized
+// intakes, because both writes share one tx.
+func (r *Repos) ApproveAndMaterialize(ctx context.Context, planID, allowedUserID int64, approvedAt time.Time) (bool, error) {
+	var approved bool
+	err := r.db.WithTx(ctx, func(tx storedb.TX) error {
+		ok, err := storetz.SetTZTransitionPlanApprovedTx(tx, planID, approvedAt)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			approved = false
+			return nil
+		}
+		if _, err := r.Medication.MaterializePlanStepsAsIntakesTx(tx, planID, allowedUserID); err != nil {
+			return err
+		}
+		approved = true
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return approved, nil
 }
 
 // DB exposes the underlying *sql.DB for internal tooling (importers, the demo

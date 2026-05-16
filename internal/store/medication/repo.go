@@ -1,8 +1,8 @@
 // Package medication owns the medications, intake_log, intake_reminders, and
 // medication_restocks tables: the user's medication list (CRUD, archival,
 // supplements, inventory tracking), scheduled and manual intake events
-// (pending / taken / skipped / snoozed), reminder message-id tracking, and the
-// restock event log.
+// (pending / taken / skipped / snoozed / tz_step pre-materialized), reminder
+// message-id tracking, and the restock event log.
 //
 // Repo is the per-domain repository. Construct via store.New / store.NewWithDB
 // and reach it as r.Medication; new code should depend on *medication.Repo (or
@@ -1026,4 +1026,69 @@ func (r *Repo) GetIntakesSince(since time.Time) ([]IntakeWithMedication, error) 
 		logs = append(logs, l)
 	}
 	return logs, nil
+}
+
+// MaterializePlanStepsAsIntakesTx reads every unconsumed step from
+// tz_transition_steps for the given plan and inserts a corresponding PENDING
+// row into intake_log with source='tz_step'. The insert uses INSERT OR IGNORE
+// against the partial unique index added by migration 067, so re-running the
+// materialize on the same plan (e.g. after a tx commit failure or a backfill
+// running alongside a freshly approved plan) is a no-op rather than a
+// duplicate-key error.
+//
+// Track A skipped tz_transition_steps's time columns — Task 13 will drop the
+// table — so step.scheduled_at is still DATETIME. modernc.org/sqlite stores
+// time.Time as "YYYY-MM-DD HH:MM:SS ±HHMM ZZZ" (Go's t.String() format) and
+// SQLite's strftime cannot parse the trailing zone name; we apply the same
+// COALESCE/substr trick migration 057 introduced for intake_log.scheduled_at
+// to extract the wall clock + reformatted offset.
+//
+// Returns the number of rows actually inserted (zero on a re-run). Caller is
+// responsible for the surrounding transaction (typically Repos.ApproveAndMaterialize).
+func (r *Repo) MaterializePlanStepsAsIntakesTx(tx storedb.TX, planID, allowedUserID int64) (int64, error) {
+	res, err := tx.Exec(`
+		INSERT OR IGNORE INTO intake_log
+		  (medication_id, user_id, scheduled_at_unix, status,
+		   source, tz_plan_id, tz_step_number)
+		SELECT
+		  s.medication_id,
+		  ?,
+		  CAST(
+		    COALESCE(
+		      strftime('%s', s.scheduled_at),
+		      strftime('%s',
+		        substr(s.scheduled_at, 1, 19) || ' ' ||
+		        substr(s.scheduled_at, 20 + instr(substr(s.scheduled_at, 20), ' '), 3) || ':' ||
+		        substr(s.scheduled_at, 20 + instr(substr(s.scheduled_at, 20), ' ') + 3, 2)
+		      )
+		    ) AS INTEGER
+		  ),
+		  'PENDING',
+		  'tz_step',
+		  s.plan_id,
+		  s.step_number
+		FROM tz_transition_steps s
+		JOIN medications m ON m.id = s.medication_id
+		WHERE s.plan_id = ?
+		  AND s.consumed_at IS NULL`, allowedUserID, planID)
+	if err != nil {
+		return 0, fmt.Errorf("materialize plan %d: %w", planID, err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
+// DeletePendingPreMaterializedIntakesForPlan removes every PENDING intake_log
+// row that was pre-materialized for the given plan (source='tz_step',
+// tz_plan_id=planID). Rows the user has already confirmed (status='TAKEN')
+// belong to the user even after a plan cancel, so they survive.
+//
+// Used by the planner's cancel path: when a plan is cancelled (superseded by a
+// new tz change, rejected via the banner, etc.) the unfired step rows must be
+// removed so the medication scheduler does not keep firing them.
+func (r *Repo) DeletePendingPreMaterializedIntakesForPlan(planID int64) error {
+	_, err := r.db.Exec(`
+		DELETE FROM intake_log
+		WHERE tz_plan_id = ? AND status = 'PENDING' AND source = 'tz_step'`, planID)
+	return err
 }

@@ -233,8 +233,23 @@ func (r *Repo) UpdateTZTransitionPlanStatus(id int64, newStatus, userAction, exp
 // SetTZTransitionPlanApproved marks a plan as APPROVED and records the approval time.
 // The update is guarded to only apply when the plan is in PENDING_APPROVAL or NOTIFIED
 // status, preventing stale Telegram callbacks from resurrecting superseded or cancelled plans.
+//
+// Most callers should go through tzreschedule.LifecycleService.Approve, which
+// wraps this update + the pre-materialize step insert in a single transaction
+// so a crash between them cannot leave the plan APPROVED with no intake rows
+// to fire. This bare receiver is kept for legacy paths that don't yet route
+// through the lifecycle service.
 func (r *Repo) SetTZTransitionPlanApproved(id int64, approvedAt time.Time) (bool, error) {
-	res, err := r.db.Exec(
+	return SetTZTransitionPlanApprovedTx(r.db, id, approvedAt)
+}
+
+// SetTZTransitionPlanApprovedTx is the tx-aware variant: the same UPDATE
+// against any storedb.TX (free *sql.DB or an active *sql.Tx). Used by
+// store.Repos.ApproveAndMaterialize to share one transaction with the
+// medication.MaterializePlanStepsAsIntakesTx call so the two writes are
+// atomic. See tzreschedule.LifecycleService for the runtime entry point.
+func SetTZTransitionPlanApprovedTx(tx storedb.TX, id int64, approvedAt time.Time) (bool, error) {
+	res, err := tx.Exec(
 		`UPDATE tz_transition_plans SET status = 'APPROVED', approved_at_unix = ?, user_action = 'approved'
 		 WHERE id = ? AND status IN ('PENDING_APPROVAL', 'NOTIFIED')`,
 		storedb.TimeToUnix(approvedAt), id,
@@ -342,6 +357,13 @@ func (r *Repo) ResetPlanToPending(id int64) error {
 // CreateTZTransitionPlanWithSteps atomically cancels any active plans and saves
 // a new timezone transition plan together with its steps in a single transaction.
 // This prevents concurrent timezone updates from leaving multiple active plans.
+//
+// As part of the cancel-all step we also delete every PENDING source='tz_step'
+// row in intake_log whose tz_plan_id is no longer attached to an APPROVED
+// plan. This is the same janitor pattern as the planner's
+// DeletePendingPreMaterializedIntakesForPlan call, executed inside this tx so
+// a freshly-cancelled APPROVED plan cannot leak unfired step rows once the
+// new plan has been created.
 func (r *Repo) CreateTZTransitionPlanWithSteps(plan *TZTransitionPlan, steps []TZTransitionStep) (int64, error) {
 	tx, err := r.db.Begin()
 	if err != nil {
@@ -358,6 +380,18 @@ func (r *Repo) CreateTZTransitionPlanWithSteps(plan *TZTransitionPlan, steps []T
 	_, err = tx.Exec(
 		`UPDATE tz_transition_plans SET status = 'CANCELLED', user_action = 'superseded'
 		 WHERE status IN ('PENDING_APPROVAL', 'NOTIFIED', 'APPROVED')`,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	// Delete unfired pre-materialized step rows for any plan that is no
+	// longer APPROVED. After the UPDATE above no APPROVED plan exists, so
+	// every PENDING source='tz_step' row is now orphaned and must go.
+	_, err = tx.Exec(
+		`DELETE FROM intake_log
+		 WHERE status = 'PENDING' AND source = 'tz_step'
+		   AND tz_plan_id IS NOT NULL`,
 	)
 	if err != nil {
 		return 0, err

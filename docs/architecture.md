@@ -59,6 +59,18 @@ SQLite with 47+ goose migrations tracking schema evolution:
 - Migrations auto-run on store initialization
 - Never modify existing migrations; create new ones
 
+#### Go migrations
+
+Goose supports `.go` migrations alongside `.sql`. The project was SQL-only until **migration 068** (`068_backfill_pre_materialized_tz_steps.go`, Track D Task 10), which needed to read `ALLOWED_USER_ID` from the environment at migration time — something SQL migrations cannot do — to attribute pre-materialized `intake_log` rows to the operator's Telegram ID.
+
+Pattern for future Go migrations:
+
+1. Place the file in `internal/store/migrations/0NN_<name>.go` with `package migrations`. Goose extracts the version from the filename's numeric prefix.
+2. Register from `init()` via `goose.AddMigrationContext(upXxx, downXxx)`. Goose merges the registered Go migrations with the SQL migrations from the embedded FS by version number.
+3. Make the migration **safe on empty schemas** — short-circuit the env-var check (or any other side input) when there's nothing to migrate. Otherwise per-domain test fixtures that don't set the env var will fail.
+4. The `Up` body receives `(context.Context, *sql.Tx)`; the surrounding tx is committed by goose on a nil return.
+5. Production picks up the registered Go migration because `internal/store/store.go` carries a blank import of `internal/store/migrations` for side effects (the SQL migrations are still embedded directly via `//go:embed migrations/*.sql`; the blank import is solely to ensure the Go-migration `init()` runs).
+
 ### Time storage
 
 **Rule:** dose-related time columns are stored as `INTEGER` unix-seconds-UTC, not as SQLite `DATETIME` text. The full audit-anchor allowlist (also documented in the package comment at the top of `internal/store/store.go`):
@@ -127,7 +139,14 @@ Consumers (server handlers, bot callbacks, scheduler checkers, MCP tools, domain
 
 ### Cross-repo transactions
 
-When a write needs to atomically touch tables owned by two different packages, callers use the shared `db.WithTx` helper plus the `db.TX` interface (satisfied by both `*sql.DB` and `*sql.Tx`). Each repo can expose `…Tx` variants of methods that participate in caller-owned transactions; in practice this is rare — the canonical case (timezone-plan rejection touching `intake_log`) turned out to be sequential best-effort calls rather than a single atomic operation, so no `…Tx` variants exist today. The `db.WithTx` pattern is reserved for future cross-repo writes that genuinely need atomicity.
+When a write needs to atomically touch tables owned by two different packages, callers use the shared `db.WithTx` helper plus the `db.TX` interface (satisfied by both `*sql.DB` and `*sql.Tx`). Each repo can expose `…Tx` variants of methods that participate in caller-owned transactions.
+
+The first production user of this pattern is **`store.Repos.ApproveAndMaterialize`** (Track D Task 10): flipping a `tz_transition_plans` row to APPROVED and pre-materializing its remaining steps as PENDING `intake_log` rows must happen under one transaction so a crash between the two writes cannot leave the plan APPROVED with no rows to fire. The composition is:
+
+- `tz.SetTZTransitionPlanApprovedTx(tx, planID, approvedAt)` — guarded UPDATE on `tz_transition_plans`.
+- `medication.MaterializePlanStepsAsIntakesTx(tx, planID, allowedUserID)` — INSERT … SELECT from `tz_transition_steps` into `intake_log` with `INSERT OR IGNORE` against the partial unique index `idx_intake_log_tz_plan_step_unique`.
+
+Both are called inside one `db.WithTx` opened by `Repos.ApproveAndMaterialize`. Every transport that approves a plan (HTTP `/api/tz-plan/{id}/approve`, the bot's `tz_plan_approve` callback, the scheduler's auto-approve safety net) routes through `tzreschedule.LifecycleService.Approve`, which wraps this single helper. That keeps CLAUDE.md rule #1 satisfied — no transport calls the bare `SetTZTransitionPlanApproved` primitive that misses the materialize step.
 
 ### Adding a new feature
 
