@@ -805,11 +805,18 @@ Same pattern as Task 5, applied to all three plan-lifecycle timestamp columns at
 
 ### Task 15: Note follow-up work
 
-- [ ] write `docs/plans/2026-XX-XX-collapse-tz-plan-lifecycle.md`
+- [x] write `docs/plans/2026-XX-XX-collapse-tz-plan-lifecycle.md`
   (recommendations C + E from the analysis) but leave the body as a
-  stub — actual work is out of scope for this plan
-- [ ] write tests: not applicable — stub plan only.
-- [ ] run project tests - must pass before next task.
+  stub — actual work is out of scope for this plan (created
+  `docs/plans/2026-05-16-collapse-tz-plan-lifecycle.md` as a stub
+  capturing recommendation C — collapse `status` into `applied_at` /
+  `acknowledged_at` timestamps — and recommendation E — auto-apply with
+  undo affordance — including goals, out-of-scope, sketch approach,
+  risks, estimate, and open questions; mirrors the stub format of
+  `docs/plans/2026-05-14-store-method-renaming-pass.md`).
+- [x] write tests: not applicable — stub plan only.
+- [x] run project tests - must pass before next task (`go test ./...`
+  green; no Go code changed in this task).
 
 ### Task 16: Verify acceptance criteria
 
