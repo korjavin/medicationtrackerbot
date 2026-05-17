@@ -121,10 +121,10 @@ Findings audit and cross-cutting recommendation came from the parent conversatio
 - [x] run `pnpm test` — must pass before next task
 
 ### Task 7: Convert diary notes
-- [ ] convert `features/health.js:1084 addNote` to prepend the note (with `local_*` id) into the rendered list + cached `diary_notes` payload before await; replace id on resolve
-- [ ] convert `:1110 deleteNote` and `:1199` edit-note
-- [ ] write tests in the diary feature suite for add/edit/delete optimistic + rollback
-- [ ] run `pnpm test` — must pass before next task
+- [x] convert `features/health.js:1084 addNote` to prepend the note (with `local_*` id) into the rendered list + cached `diary_notes` payload before await; replace id on resolve
+- [x] convert `:1110 deleteNote` and `:1199` edit-note
+- [x] write tests in the diary feature suite for add/edit/delete optimistic + rollback
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 8: Verify acceptance criteria
 - [ ] grep `web/static/js/features` for `invalidateTags` followed by an immediate `loadX()` — every remaining instance is justified (read-only refresh, not a write handler)

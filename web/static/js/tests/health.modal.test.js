@@ -210,7 +210,10 @@ describe('Edit-note modal (Phase 8, Task 8)', () => {
 
             expect(apiCallSpy).toHaveBeenCalledTimes(1);
             expect(apiCallSpy.mock.calls[0][1]).toBe('POST');
-            expect(invalidateSpy).not.toHaveBeenCalled();
+            // No success-path invalidateTags(['health-notes']) call. The
+            // optimistic rollback path may issue its own invalidateTags(tags)
+            // as a refresh signal, but the success-path tag set must not fire.
+            expect(invalidateSpy).not.toHaveBeenCalledWith(['health-notes']);
             expect(loadNotesSpy).not.toHaveBeenCalled();
             // Modal stays open so the user can retry.
             expect(document.getElementById('note-modal').classList.contains('hidden')).toBe(false);
