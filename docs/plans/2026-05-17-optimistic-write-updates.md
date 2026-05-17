@@ -92,10 +92,10 @@ Findings audit and cross-cutting recommendation came from the parent conversatio
 - [x] run `pnpm test` — must pass before next task
 
 ### Task 3: Convert ad-hoc workout actions
-- [ ] convert `features/workout/sessions.js:560 startAdHocWorkout`, `:602 completeWorkoutSession`, `:619 preSkipWorkoutSession`, `:635 cancelPreSkipWorkoutSession`
-- [ ] convert `app.js:2438 snoozeWorkout`, `:2456 skipWorkout`
-- [ ] write tests in `features.workouts.*` covering each action's optimistic + rollback path
-- [ ] run `pnpm test` — must pass before next task
+- [x] convert `features/workout/sessions.js:560 startAdHocWorkout`, `:602 completeWorkoutSession`, `:619 preSkipWorkoutSession`, `:635 cancelPreSkipWorkoutSession`
+- [x] convert `app.js:2438 snoozeWorkout`, `:2456 skipWorkout`
+- [x] write tests in `features.workouts.*` covering each action's optimistic + rollback path
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 4: Convert food log
 - [ ] convert `features/food/log.js:381 saveFoodLog` to write into `food_<date>_v2`, `todayFoodKey` (with updated totals) before await

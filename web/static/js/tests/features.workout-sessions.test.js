@@ -354,6 +354,352 @@ describe('features/workout/sessions.js — split-file integration', () => {
     await handlerDone;
   });
 
+  // ===========================================================================
+  // Optimistic write conversion (Plan 2026-05-17 Task 3) — ad-hoc lifecycle
+  //
+  // completeWorkoutSession / preSkipWorkoutSession / cancelPreSkipWorkoutSession
+  // / startAdHocWorkout / snoozeWorkout / skipWorkout flip the cached
+  // workout_next + workout_history payloads BEFORE the network round-trip
+  // resolves so the next-card swap is instant.
+  // ===========================================================================
+
+  it('completeWorkoutSession flips workout_history.status and clears workout_next optimistically', async () => {
+    const { window } = env;
+    const cache = installApiCache(window, {
+      workout_next: { session: { id: 50, status: 'in_progress' } },
+      workout_history: {
+        sessions: [{ session: { id: 50, status: 'in_progress' }, group_name: 'Push' }],
+        miband: []
+      }
+    });
+    window.safeConfirm = (_msg, cb) => Promise.resolve(cb(true));
+    window.loadNextWorkout = vi.fn();
+    window.loadWorkoutHistoryTab = vi.fn();
+
+    let apiCallSignal;
+    const apiCalled = new Promise((r) => { apiCallSignal = r; });
+    const pending = deferred();
+    window.apiCall = vi.fn(async (endpoint) => {
+      if (endpoint.startsWith('/api/workout/sessions/status')) {
+        apiCallSignal();
+        return pending.promise;
+      }
+      return true;
+    });
+
+    const handlerDone = window.completeWorkoutSession(50);
+    await apiCalled;
+
+    expect(cache.get('workout_next')).toEqual({ session: null });
+    expect(cache.get('workout_history').sessions[0].session.status).toBe('completed');
+
+    pending.resolve({ ok: true });
+    await handlerDone;
+  });
+
+  it('completeWorkoutSession rolls back workout_next + workout_history on POST failure', async () => {
+    const { window } = env;
+    const cache = installApiCache(window, {
+      workout_next: { session: { id: 50, status: 'in_progress' } },
+      workout_history: {
+        sessions: [{ session: { id: 50, status: 'in_progress' }, group_name: 'Push' }],
+        miband: []
+      }
+    });
+    window.safeConfirm = (_msg, cb) => Promise.resolve(cb(true));
+    window.loadNextWorkout = vi.fn();
+    window.loadWorkoutHistoryTab = vi.fn();
+
+    window.apiCall = vi.fn(async (endpoint) => {
+      if (endpoint.startsWith('/api/workout/sessions/status')) return null;
+      return true;
+    });
+
+    await window.completeWorkoutSession(50);
+
+    // After rollback prior state is restored (or invalidated). The contract
+    // the test guards against is the optimistic null/completed values
+    // surviving the failure.
+    const nextCached = cache.get('workout_next');
+    if (nextCached) expect(nextCached.session.status).toBe('in_progress');
+    const histCached = cache.get('workout_history');
+    if (histCached) expect(histCached.sessions[0].session.status).toBe('in_progress');
+  });
+
+  it('preSkipWorkoutSession flips workout_next.session.status to pre_skipped optimistically', async () => {
+    const { window } = env;
+    const cache = installApiCache(window, {
+      workout_next: { session: { id: 60, status: 'pending' } }
+    });
+    window.safeConfirm = (_msg, cb) => Promise.resolve(cb(true));
+    window.loadNextWorkout = vi.fn();
+
+    let apiCallSignal;
+    const apiCalled = new Promise((r) => { apiCallSignal = r; });
+    const pending = deferred();
+    window.apiCall = vi.fn(async (endpoint) => {
+      if (endpoint.endsWith('/preskip')) {
+        apiCallSignal();
+        return pending.promise;
+      }
+      return true;
+    });
+
+    const handlerDone = window.preSkipWorkoutSession(60);
+    await apiCalled;
+
+    expect(cache.get('workout_next').session.status).toBe('pre_skipped');
+
+    pending.resolve({ ok: true });
+    await handlerDone;
+  });
+
+  it('preSkipWorkoutSession rolls back workout_next.session.status on POST failure', async () => {
+    const { window } = env;
+    const cache = installApiCache(window, {
+      workout_next: { session: { id: 60, status: 'pending' } }
+    });
+    window.safeConfirm = (_msg, cb) => Promise.resolve(cb(true));
+    window.loadNextWorkout = vi.fn();
+
+    window.apiCall = vi.fn(async (endpoint) => {
+      if (endpoint.endsWith('/preskip')) return null;
+      return true;
+    });
+
+    await window.preSkipWorkoutSession(60);
+
+    const cached = cache.get('workout_next');
+    if (cached) expect(cached.session.status).toBe('pending');
+  });
+
+  it('cancelPreSkipWorkoutSession flips workout_next.session.status back to pending optimistically', async () => {
+    const { window } = env;
+    const cache = installApiCache(window, {
+      workout_next: { session: { id: 61, status: 'pre_skipped' } }
+    });
+    window.loadNextWorkout = vi.fn();
+
+    let apiCallSignal;
+    const apiCalled = new Promise((r) => { apiCallSignal = r; });
+    const pending = deferred();
+    window.apiCall = vi.fn(async (endpoint) => {
+      if (endpoint.endsWith('/cancel-preskip')) {
+        apiCallSignal();
+        return pending.promise;
+      }
+      return true;
+    });
+
+    const handlerDone = window.cancelPreSkipWorkoutSession(61);
+    await apiCalled;
+
+    expect(cache.get('workout_next').session.status).toBe('pending');
+
+    pending.resolve({ ok: true });
+    await handlerDone;
+  });
+
+  it('cancelPreSkipWorkoutSession rolls back workout_next.session.status on POST failure', async () => {
+    const { window } = env;
+    const cache = installApiCache(window, {
+      workout_next: { session: { id: 61, status: 'pre_skipped' } }
+    });
+    window.loadNextWorkout = vi.fn();
+
+    window.apiCall = vi.fn(async (endpoint) => {
+      if (endpoint.endsWith('/cancel-preskip')) return null;
+      return true;
+    });
+
+    await window.cancelPreSkipWorkoutSession(61);
+
+    const cached = cache.get('workout_next');
+    if (cached) expect(cached.session.status).toBe('pre_skipped');
+  });
+
+  it('startAdHocWorkout clears workout_next optimistically and commits the new session on success', async () => {
+    const { window } = env;
+    const cache = installApiCache(window, {
+      workout_next: { session: null }
+    });
+    window.showWorkoutSessionModal = vi.fn();
+    window.loadNextWorkout = vi.fn();
+
+    let apiCallSignal;
+    const apiCalled = new Promise((r) => { apiCallSignal = r; });
+    const pending = deferred();
+    window.apiCall = vi.fn(async (endpoint) => {
+      if (endpoint === '/api/workout/sessions/adhoc') {
+        apiCallSignal();
+        return pending.promise;
+      }
+      return true;
+    });
+
+    const handlerDone = window.startAdHocWorkout();
+    await apiCalled;
+
+    // While the POST is in flight, workout_next is the placeholder.
+    expect(cache.get('workout_next')).toEqual({ session: null });
+
+    pending.resolve({ session: { id: 777, status: 'in_progress' } });
+    await handlerDone;
+
+    // After commit() the cache briefly holds the server session, then the
+    // success path's invalidateWorkoutCache clears the entry so the next read
+    // fetches authoritatively. We can't assert the post-commit cache state
+    // directly; the success contract is encoded in the modal-open call.
+    expect(window.showWorkoutSessionModal).toHaveBeenCalledWith(777);
+  });
+
+  it('startAdHocWorkout rolls back workout_next on POST failure', async () => {
+    const { window } = env;
+    const cache = installApiCache(window, {
+      workout_next: { session: { id: 1, status: 'pending' } }
+    });
+    window.showWorkoutSessionModal = vi.fn();
+    window.loadNextWorkout = vi.fn();
+    window.safeAlert = vi.fn();
+
+    window.apiCall = vi.fn(async (endpoint) => {
+      if (endpoint === '/api/workout/sessions/adhoc') return null;
+      return true;
+    });
+
+    await window.startAdHocWorkout();
+
+    // Prior workout_next is restored from snapshot (rollback also invalidates
+    // the tag, so a downstream read goes to network).
+    const cached = cache.get('workout_next');
+    if (cached) {
+      expect(cached.session.id).toBe(1);
+      expect(cached.session.status).toBe('pending');
+    }
+  });
+
+  it('snoozeWorkout stamps snoozed_until on workout_next.session optimistically', async () => {
+    const { window } = env;
+    const cache = installApiCache(window, {
+      workout_next: { session: { id: 80, status: 'pending' } }
+    });
+    window.PushModalState = {
+      ...(window.PushModalState || {}),
+      getWorkoutSessionId: () => 80
+    };
+    window.safeAlert = vi.fn();
+    window.closeWorkoutStartModal = vi.fn();
+
+    let apiCallSignal;
+    const apiCalled = new Promise((r) => { apiCallSignal = r; });
+    const pending = deferred();
+    window.apiCall = vi.fn(async (endpoint) => {
+      if (endpoint.endsWith('/snooze')) {
+        apiCallSignal();
+        return pending.promise;
+      }
+      return true;
+    });
+
+    const handlerDone = window.snoozeWorkout(30);
+    await apiCalled;
+
+    const optimistic = cache.get('workout_next').session;
+    expect(optimistic.is_snoozed).toBe(true);
+    expect(typeof optimistic.snoozed_until).toBe('string');
+
+    pending.resolve({ ok: true });
+    await handlerDone;
+  });
+
+  it('snoozeWorkout rolls back workout_next.session on POST failure', async () => {
+    const { window } = env;
+    const cache = installApiCache(window, {
+      workout_next: { session: { id: 80, status: 'pending' } }
+    });
+    window.PushModalState = {
+      ...(window.PushModalState || {}),
+      getWorkoutSessionId: () => 80
+    };
+    window.safeAlert = vi.fn();
+    window.closeWorkoutStartModal = vi.fn();
+
+    window.apiCall = vi.fn(async (endpoint) => {
+      if (endpoint.endsWith('/snooze')) return null;
+      return true;
+    });
+
+    await window.snoozeWorkout(30);
+
+    const cached = cache.get('workout_next');
+    if (cached) {
+      expect(cached.session.is_snoozed).toBeFalsy();
+      expect(cached.session.snoozed_until).toBeFalsy();
+    }
+  });
+
+  it('skipWorkout nulls workout_next.session optimistically', async () => {
+    const { window } = env;
+    const cache = installApiCache(window, {
+      workout_next: { session: { id: 90, status: 'pending' } }
+    });
+    window.PushModalState = {
+      ...(window.PushModalState || {}),
+      getWorkoutSessionId: () => 90
+    };
+    window.safeAlert = vi.fn();
+    window.closeWorkoutStartModal = vi.fn();
+    window.loadWorkouts = vi.fn();
+    window.safeConfirm = (_msg, cb) => Promise.resolve(cb(true));
+
+    let apiCallSignal;
+    const apiCalled = new Promise((r) => { apiCallSignal = r; });
+    const pending = deferred();
+    window.apiCall = vi.fn(async (endpoint) => {
+      if (endpoint.endsWith('/skip')) {
+        apiCallSignal();
+        return pending.promise;
+      }
+      return true;
+    });
+
+    const handlerDone = window.skipWorkout();
+    await apiCalled;
+
+    expect(cache.get('workout_next')).toEqual({ session: null });
+
+    pending.resolve({ ok: true });
+    await handlerDone;
+  });
+
+  it('skipWorkout rolls back workout_next on POST failure', async () => {
+    const { window } = env;
+    const cache = installApiCache(window, {
+      workout_next: { session: { id: 90, status: 'pending' } }
+    });
+    window.PushModalState = {
+      ...(window.PushModalState || {}),
+      getWorkoutSessionId: () => 90
+    };
+    window.safeAlert = vi.fn();
+    window.closeWorkoutStartModal = vi.fn();
+    window.loadWorkouts = vi.fn();
+    window.safeConfirm = (_msg, cb) => Promise.resolve(cb(true));
+
+    window.apiCall = vi.fn(async (endpoint) => {
+      if (endpoint.endsWith('/skip')) return null;
+      return true;
+    });
+
+    await window.skipWorkout();
+
+    const cached = cache.get('workout_next');
+    if (cached) {
+      expect(cached.session.id).toBe(90);
+      expect(cached.session.status).toBe('pending');
+    }
+  });
+
   it('saveWorkoutSessionDetails rolls back optimistic workout_history on POST failure', async () => {
     const { window, document } = env;
     const cache = installApiCache(window, {

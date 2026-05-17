@@ -2447,14 +2447,39 @@ async function snoozeWorkout(minutes) {
     if (!sessionId) return;
     const btn = document.getElementById(`workout-start-snooze-${minutes}-btn`);
     await withSubmit(btn, async () => {
-        const res = await apiCall(`/api/workout/sessions/${sessionId}/snooze`, 'POST', { minutes: minutes });
-        if (res) {
-            if (typeof invalidateWorkoutCache === 'function') {
-                await invalidateWorkoutCache();
-            } else if (window.DataStore?.invalidateTags) {
-                await window.DataStore.invalidateTags(['workout']);
+        // Optimistic: stamp snoozed_until on the cached workout_next.session so
+        // the next-card hides the "Start" CTA while we wait on the POST.
+        const snoozeUntilIso = new Date(Date.now() + minutes * 60 * 1000).toISOString();
+        const handle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+            ? await window.DataStore.applyOptimistic('workout_next', (prev) => {
+                if (!prev || !prev.session || prev.session.id !== sessionId) return prev;
+                return {
+                    ...prev,
+                    session: {
+                        ...prev.session,
+                        snoozed_until: snoozeUntilIso,
+                        is_snoozed: true
+                    }
+                };
+            }, ['workout'])
+            : null;
+
+        try {
+            const res = await apiCall(`/api/workout/sessions/${sessionId}/snooze`, 'POST', { minutes: minutes });
+            if (res) {
+                if (handle) await handle.commit(null);
+                if (typeof invalidateWorkoutCache === 'function') {
+                    await invalidateWorkoutCache();
+                } else if (window.DataStore?.invalidateTags) {
+                    await window.DataStore.invalidateTags(['workout']);
+                }
+                safeAlert(`Snoozed for ${minutes} minutes`);
+            } else if (handle) {
+                await handle.rollback();
             }
-            safeAlert(`Snoozed for ${minutes} minutes`);
+        } catch (error) {
+            if (handle) await handle.rollback();
+            throw error;
         }
         closeWorkoutStartModal();
     });
@@ -2466,15 +2491,31 @@ async function skipWorkout() {
     await safeConfirm("Are you sure you want to skip this workout?", async (ok) => {
         if (!ok) return;
 
-        const res = await apiCall(`/api/workout/sessions/${sessionId}/skip`, 'POST');
-        if (res) {
-            if (typeof invalidateWorkoutCache === 'function') {
-                await invalidateWorkoutCache();
-            } else if (window.DataStore?.invalidateTags) {
-                await window.DataStore.invalidateTags(['workout']);
+        // Optimistic: null workout_next so the home card vanishes immediately.
+        const handle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+            ? await window.DataStore.applyOptimistic('workout_next', (prev) => {
+                if (prev?.session?.id === sessionId) return { session: null };
+                return prev;
+            }, ['workout'])
+            : null;
+
+        try {
+            const res = await apiCall(`/api/workout/sessions/${sessionId}/skip`, 'POST');
+            if (res) {
+                if (handle) await handle.commit(null);
+                if (typeof invalidateWorkoutCache === 'function') {
+                    await invalidateWorkoutCache();
+                } else if (window.DataStore?.invalidateTags) {
+                    await window.DataStore.invalidateTags(['workout']);
+                }
+                safeAlert("Workout skipped");
+                loadWorkouts();
+            } else if (handle) {
+                await handle.rollback();
             }
-            safeAlert("Workout skipped");
-            loadWorkouts();
+        } catch (error) {
+            if (handle) await handle.rollback();
+            throw error;
         }
         closeWorkoutStartModal();
     });
