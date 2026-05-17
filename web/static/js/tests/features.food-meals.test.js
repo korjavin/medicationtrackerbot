@@ -166,6 +166,35 @@ describe('features/food/meals.js — split-file integration', () => {
         await handlerDone;
     });
 
+    it('confirmSaveMeal rolls back when apiCall returns null (offline/5xx) and suppresses the success toast', async () => {
+        const { window, document } = env;
+        const cache = installApiCache(window, {
+            food_products_cache: [{ id: 1, name: 'Existing', is_meal: false }]
+        });
+        window.FoodProducts.cache = [{ id: 1, name: 'Existing', is_meal: false }];
+
+        document.getElementById('food-save-meal-name').value = 'Bowl';
+        window.initFoodProductsCache = vi.fn().mockResolvedValue(undefined);
+        window.toggleFoodSelectMode = vi.fn();
+        window.loadMyMeals = vi.fn();
+        const showToast = vi.fn();
+        window.SyncManager = { ...(window.SyncManager || {}), showToast };
+
+        // apiCall returns null (not throws) on offline/5xx for write ops; the
+        // handler must still roll back rather than treat it as success.
+        window.apiCall = vi.fn(async () => null);
+
+        await window.confirmSaveMeal();
+
+        expect(window.FoodProducts.cache.length).toBe(1);
+        expect(window.FoodProducts.cache[0].id).toBe(1);
+        const cached = cache.get('food_products_cache');
+        if (cached) {
+            expect(cached.some((p) => p && p.isLocal)).toBe(false);
+        }
+        expect(showToast).not.toHaveBeenCalled();
+    });
+
     it('confirmSaveMeal rolls back the optimistic placeholder when the POST rejects', async () => {
         const { window, document } = env;
         const cache = installApiCache(window, {
@@ -248,5 +277,58 @@ describe('features/food/meals.js — split-file integration', () => {
 
         // Keep the DELETE pending; resolving it would trigger the success
         // path's re-render after the test cleanup runs.
+    });
+
+    it('My Meals delete restores the meal when apiCall returns null (offline/5xx)', async () => {
+        const { window, document } = env;
+        const cache = installApiCache(window, {
+            food_products_cache: [
+                { id: 1, name: 'Bread', is_meal: false },
+                { id: 7, name: 'Bowl', is_meal: true, total_weight_g: 0, energy_kcal_100g: 0, carbs_100g: 0, protein_100g: 0, fat_100g: 0 }
+            ]
+        });
+        window.FoodProducts.cache = [
+            { id: 1, name: 'Bread', is_meal: false },
+            { id: 7, name: 'Bowl', is_meal: true, total_weight_g: 0, energy_kcal_100g: 0, carbs_100g: 0, protein_100g: 0, fat_100g: 0 }
+        ];
+        window.initFoodProductsCache = vi.fn().mockResolvedValue(undefined);
+        window.safeAlert = vi.fn();
+
+        // apiCall returns null (not throws) on offline/5xx for write ops.
+        // Use a deferred so the test can wait until the handler reaches the
+        // rollback branch before asserting.
+        const apiDone = deferred();
+        window.apiCall = vi.fn(async (endpoint, method) => {
+            if (endpoint === '/api/food/products/7' && method === 'DELETE') {
+                queueMicrotask(() => apiDone.resolve());
+                return null;
+            }
+            return null;
+        });
+
+        let confirmResolve;
+        const confirmDone = new Promise((r) => { confirmResolve = r; });
+        window.safeConfirm = async (_msg, cb) => {
+            await cb(true);
+            confirmResolve();
+        };
+
+        await window.loadMyMeals();
+        window.loadMyMeals = vi.fn();
+        const list = document.getElementById('food-meals-list');
+        const delBtn = list.querySelector('button.icon-action-btn.delete');
+        expect(delBtn).toBeTruthy();
+
+        delBtn.click();
+        await apiDone.promise;
+        await confirmDone;
+
+        // The deleted meal must be restored to both the in-memory cache and
+        // the persisted ApiCache snapshot (if any survives).
+        expect(window.FoodProducts.cache.some((p) => p.id === 7)).toBe(true);
+        const cachedAfter = cache.get('food_products_cache');
+        if (cachedAfter) {
+            expect(cachedAfter.some((p) => p && p.id === 7)).toBe(true);
+        }
     });
 });
