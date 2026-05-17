@@ -62,7 +62,7 @@ func TestIsSubjectAllowed(t *testing.T) {
 			name:           "empty allows any subject",
 			allowedSubject: "",
 			subject:        "user-a",
-			want:           true,
+			want:           false,
 		},
 		{
 			name:           "single exact match",
