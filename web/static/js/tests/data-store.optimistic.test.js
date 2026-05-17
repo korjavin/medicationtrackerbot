@@ -126,7 +126,7 @@ describe('DataStore.applyOptimistic', () => {
     }
   });
 
-  it('rollback restores the prior cache and invalidates tags', async () => {
+  it('rollback restores the prior cache so the screen can repaint pre-write state', async () => {
     const original = { rows: [{ id: 1 }] };
     const { window, cacheMap, cleanup } = loadDataStoreEnv({
       initialCache: { list: original }
@@ -149,8 +149,10 @@ describe('DataStore.applyOptimistic', () => {
 
       await handle.rollback();
 
-      // invalidateTags clears the cache entry so the next read goes to network.
-      expect(cacheMap.has('list')).toBe(false);
+      // Prior snapshot is restored so reloadCurrentTab → loadSWR can render
+      // the pre-optimistic state. The next fetchFresh will reconcile against
+      // the authoritative server state.
+      expect(cacheMap.get('list')).toEqual({ rows: [{ id: 1 }] });
 
       const rollbackEvt = events.find((e) => e.source === 'optimistic-rollback');
       expect(rollbackEvt).toBeDefined();
@@ -159,7 +161,7 @@ describe('DataStore.applyOptimistic', () => {
     }
   });
 
-  it('rollback restores a cold-start clear when no prior cache existed', async () => {
+  it('rollback clears the cache when no prior cache existed (cold start)', async () => {
     const { window, cacheMap, cleanup } = loadDataStoreEnv();
 
     try {
@@ -173,7 +175,8 @@ describe('DataStore.applyOptimistic', () => {
 
       await handle.rollback();
 
-      // Cold cache: rollback clears and invalidates — the entry must not survive.
+      // Cold cache: no prior snapshot to restore, so the optimistic entry is
+      // cleared. The next read will fetchFresh and seed from the server.
       expect(cacheMap.has('list')).toBe(false);
     } finally {
       cleanup();
@@ -214,8 +217,9 @@ describe('DataStore.applyOptimistic', () => {
         (w) => Array.isArray(w.data?.rows) && w.data.rows.length === 1 && w.data.rows[0].id === 1
       );
       expect(restoredSnapshot).toBeDefined();
-      // invalidateTags then clears the entry so the next read goes to network.
-      expect(cacheMap.has('list')).toBe(false);
+      // The restored prior snapshot survives — next read will fetchFresh and
+      // reconcile against the authoritative server state.
+      expect(cacheMap.get('list')).toEqual({ rows: [{ id: 1, value: 'A' }] });
     } finally {
       cleanup();
     }
@@ -238,6 +242,196 @@ describe('DataStore.applyOptimistic', () => {
       await handle.rollback();
 
       expect(cacheMap.get('bp')).toEqual([{ id: 99 }]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('loadSWR with allowNullFresh skips onFresh while an optimistic write is pending', async () => {
+    // Regression: applyOptimistic flips pendingOptimistic[key] before
+    // dispatching the optimistic event that triggers reloadCurrentTab. The
+    // ensuing loadSWR call must NOT call onFresh(null) under allowNullFresh —
+    // doing so wipes the optimistic render (e.g. medication history) back to
+    // the empty state until the POST resolves.
+    const optimisticPayload = [
+      { id: 1, medication_id: 7, status: 'TAKEN', _optimistic: true }
+    ];
+    const { window, cleanup } = loadDataStoreEnv({
+      initialCache: { history_7_0: optimisticPayload }
+    });
+
+    try {
+      // Simulate the pending-optimistic state by calling applyOptimistic and
+      // leaving the handle un-settled. loadSWR then runs with the same key.
+      const handle = await window.DataStore.applyOptimistic(
+        'history_7_0',
+        (prev) => prev,
+        ['history']
+      );
+
+      // Concurrent fetcher returns null (e.g. backend hasn't yet seen the
+      // caller's POST). Without the pendingOptimistic guard in loadSWR, this
+      // would call onFresh(null) and the renderer would wipe the list.
+      const fetcher = vi.fn().mockResolvedValue(null);
+      const onFresh = vi.fn();
+      const onCached = vi.fn();
+
+      await window.DataStore.loadSWR({
+        key: 'history_7_0',
+        tags: ['history'],
+        fetcher,
+        onCached,
+        onFresh,
+        allowNullFresh: true
+      });
+
+      expect(onCached).toHaveBeenCalledWith(optimisticPayload);
+      expect(onFresh).not.toHaveBeenCalled();
+
+      // Once the optimistic handle settles, the next loadSWR works normally.
+      await handle.commit(null);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('decrements pendingOptimistic when the cache write throws so future fetches are not permanently short-circuited', async () => {
+    // Regression: if setCachedWithTags/clearCached throws (IndexedDB quota,
+    // disk corruption, etc.), the increment-before-write order would leave
+    // pendingOptimistic[key] > 0 forever, permanently short-circuiting every
+    // future fetchFresh for that key (returns null without hitting the
+    // network).
+    const { window, cleanup } = loadDataStoreEnv({
+      initialCache: { bp: [{ id: 1, sys: 120 }] }
+    });
+
+    try {
+      // Replace setCachedWithTags with a throwing stub for the optimistic
+      // write only, so the failure path is exercised.
+      const orig = window.DataStore.setCachedWithTags.bind(window.DataStore);
+      let callCount = 0;
+      window.DataStore.setCachedWithTags = async (key, data, tags) => {
+        callCount += 1;
+        if (callCount === 1) throw new Error('quota exceeded');
+        return orig(key, data, tags);
+      };
+
+      await expect(
+        window.DataStore.applyOptimistic(
+          'bp',
+          (prev) => [{ id: 'local', sys: 130 }, ...(prev || [])],
+          ['bp']
+        )
+      ).rejects.toThrow('quota exceeded');
+
+      // Pending counter must have been decremented despite the throw, so
+      // subsequent fetchFresh calls reach the network. Without the cleanup,
+      // pendingOptimistic stays at 1 and fetchFresh short-circuits to null.
+      expect(window.DataStore.hasPendingOptimistic('bp')).toBe(false);
+
+      const fetcher = vi.fn().mockResolvedValue([{ id: 2, sys: 140 }]);
+      const result = await window.DataStore.fetchFresh('bp', fetcher, ['bp']);
+      expect(fetcher).toHaveBeenCalled();
+      expect(result).toEqual([{ id: 2, sys: 140 }]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('decrements pendingOptimistic when commit cache write throws so future fetches are not permanently short-circuited', async () => {
+    // Regression: commit() set settled=true before awaiting setCachedWithTags
+    // and only ran decrementPending() after the write succeeded. If the
+    // cache write threw (IndexedDB quota etc.), pendingOptimistic[key] would
+    // stay > 0 forever, permanently short-circuiting every future fetchFresh
+    // for that key.
+    const { window, cleanup } = loadDataStoreEnv({
+      initialCache: { bp: [{ id: 1, sys: 120 }] }
+    });
+
+    try {
+      const handle = await window.DataStore.applyOptimistic(
+        'bp',
+        (prev) => [{ id: 'local', sys: 130 }, ...(prev || [])],
+        ['bp']
+      );
+
+      // Replace setCachedWithTags to throw only on the commit call.
+      const orig = window.DataStore.setCachedWithTags.bind(window.DataStore);
+      window.DataStore.setCachedWithTags = async () => {
+        throw new Error('quota exceeded on commit');
+      };
+
+      await expect(handle.commit([{ id: 7, sys: 130 }])).rejects.toThrow('quota exceeded on commit');
+
+      // Restore so fetchFresh can write normally.
+      window.DataStore.setCachedWithTags = orig;
+
+      expect(window.DataStore.hasPendingOptimistic('bp')).toBe(false);
+
+      const fetcher = vi.fn().mockResolvedValue([{ id: 2, sys: 140 }]);
+      const result = await window.DataStore.fetchFresh('bp', fetcher, ['bp']);
+      expect(fetcher).toHaveBeenCalled();
+      expect(result).toEqual([{ id: 2, sys: 140 }]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('decrements pendingOptimistic when rollback cache write throws so future fetches are not permanently short-circuited', async () => {
+    // Regression: same shape as the commit-throws case but for rollback().
+    const { window, cleanup } = loadDataStoreEnv({
+      initialCache: { bp: [{ id: 1, sys: 120 }] }
+    });
+
+    try {
+      const handle = await window.DataStore.applyOptimistic(
+        'bp',
+        (prev) => [{ id: 'local', sys: 130 }, ...(prev || [])],
+        ['bp']
+      );
+
+      const orig = window.DataStore.setCachedWithTags.bind(window.DataStore);
+      window.DataStore.setCachedWithTags = async () => {
+        throw new Error('quota exceeded on rollback');
+      };
+
+      await expect(handle.rollback()).rejects.toThrow('quota exceeded on rollback');
+
+      window.DataStore.setCachedWithTags = orig;
+
+      expect(window.DataStore.hasPendingOptimistic('bp')).toBe(false);
+
+      const fetcher = vi.fn().mockResolvedValue([{ id: 2, sys: 140 }]);
+      const result = await window.DataStore.fetchFresh('bp', fetcher, ['bp']);
+      expect(fetcher).toHaveBeenCalled();
+      expect(result).toEqual([{ id: 2, sys: 140 }]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('decrements pendingOptimistic when rollback clearCached throws (cold-cache path)', async () => {
+    // Regression: rollback's cold-cache branch awaits clearCached. If that
+    // throws, decrementPending must still run.
+    const { window, cleanup } = loadDataStoreEnv();
+
+    try {
+      const handle = await window.DataStore.applyOptimistic(
+        'list',
+        () => ({ rows: [{ id: 1 }] }),
+        ['list']
+      );
+
+      const origClear = window.DataStore.clearCached.bind(window.DataStore);
+      window.DataStore.clearCached = async () => {
+        throw new Error('clear failed');
+      };
+
+      await expect(handle.rollback()).rejects.toThrow('clear failed');
+
+      window.DataStore.clearCached = origClear;
+
+      expect(window.DataStore.hasPendingOptimistic('list')).toBe(false);
     } finally {
       cleanup();
     }

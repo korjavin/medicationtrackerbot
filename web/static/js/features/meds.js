@@ -1245,6 +1245,7 @@ async function deleteMed(id) {
 function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', intakeIds = []) {
     window.PushModalState.openMedConfirm({
         ids,
+        names,
         scheduled: scheduledAt,
         mode,
         intakeIds,
