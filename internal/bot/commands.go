@@ -129,7 +129,16 @@ func enabledSpecs(flags featureFlags) []commandSpec {
 // the "settings" change tag fires on reminder state and tab order updates
 // (see migration 027) so unfiltered polling would re-POST on every cycle.
 func (b *Bot) registerCommands(ctx context.Context) error {
-	flags := b.getFeatureFlags(ctx)
+	// Fail loudly if any flag read errors. getFeatureFlags' silent
+	// fall-back to hardcoded defaults is fine for /help (a stale help text
+	// beats no response) but corrupts setMyCommands: a defaults-built list
+	// can disagree with the actual settings, then the watcher advances
+	// past the settings event and the menu stays wrong until the next
+	// unrelated change.
+	flags, err := b.loadFeatureFlags(ctx)
+	if err != nil {
+		return fmt.Errorf("load feature flags: %w", err)
+	}
 	specs := enabledSpecs(flags)
 	cmds := make([]tgbotapi.BotCommand, 0, len(specs))
 	for _, s := range specs {
@@ -193,13 +202,19 @@ func (b *Bot) pollSettingsChanges(ctx context.Context, interval time.Duration, c
 				slog.Warn("settings watcher: list changes failed", "error", err)
 				continue
 			}
-			cursor = newCursor
 			if !containsSettingsTag(tags) {
+				cursor = newCursor
 				continue
 			}
+			// Hold the cursor at its current value until registerCommands
+			// succeeds. If Telegram returns a transient error the next tick
+			// will see the same settings event again and retry; otherwise the
+			// menu could stay stale until the next unrelated settings change.
 			if err := b.registerCommands(ctx); err != nil {
 				slog.Warn("settings watcher: re-register commands failed", "error", err)
+				continue
 			}
+			cursor = newCursor
 		}
 	}
 }
