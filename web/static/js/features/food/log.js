@@ -475,10 +475,33 @@ function setFoodParseAIMode(on) {
     }
 
     if (enabled) {
+        // A pending name- or barcode-search debounce scheduled before the
+        // toggle would still fire ~800ms later and either render stale
+        // autocomplete suggestions or autofill the form (barcode path calls
+        // autofillFoodProduct, which sets #food-log-product-id). Cancel any
+        // in-flight search so the AI mode entry is clean.
+        if (typeof cancelInFlightFoodSearch === 'function') {
+            cancelInFlightFoodSearch();
+        }
         ['food-weight', 'food-barcode', 'food-carbs', 'food-protein', 'food-fat', 'food-calories'].forEach((id) => {
             const el = document.getElementById(id);
             if (el) el.value = '';
         });
+        // A prior autocomplete selection may have left product_id/is_meal set
+        // and the link chip visible. AI mode discards that linkage entirely —
+        // the resulting logs are free-form parsed items, not bound to the
+        // previously selected product. Without this clear, a user who picks
+        // a product, toggles AI on, edits the description, then toggles back
+        // off would silently submit the stale product_id with the new name.
+        const pidEl = document.getElementById('food-log-product-id');
+        if (pidEl) pidEl.value = '';
+        const isMealEl = document.getElementById('food-log-is-meal');
+        if (isMealEl) isMealEl.value = '';
+        const linkContainer = document.getElementById('food-product-link-container');
+        if (linkContainer) {
+            linkContainer.replaceChildren();
+            linkContainer.classList.add('hidden');
+        }
         const list = document.getElementById('food-autocomplete-list');
         if (list) list.classList.add('hidden');
         const status = document.getElementById('food-search-status');

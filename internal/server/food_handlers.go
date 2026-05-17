@@ -208,6 +208,9 @@ func (s *Server) handleCreateFoodLogFromPhoto(w http.ResponseWriter, r *http.Req
 			eatenAt = parsed
 		} else if parsed, err := time.Parse("2006-01-02T15:04", raw); err == nil {
 			eatenAt = parsed
+		} else {
+			http.Error(w, "Invalid eaten_at: expected RFC3339 or 2006-01-02T15:04", http.StatusBadRequest)
+			return
 		}
 	}
 
@@ -324,6 +327,9 @@ func (s *Server) handleCreateFoodLogFromDescription(w http.ResponseWriter, r *ht
 			eatenAt = parsed
 		} else if parsed, err := time.Parse("2006-01-02T15:04", raw); err == nil {
 			eatenAt = parsed
+		} else {
+			http.Error(w, "Invalid eaten_at: expected RFC3339 or 2006-01-02T15:04", http.StatusBadRequest)
+			return
 		}
 	}
 
