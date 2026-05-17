@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"math"
 	"net/http"
@@ -192,7 +193,7 @@ func main() {
 	}
 
 	if tgBot != nil {
-		go tgBot.Start()
+		go tgBot.Start(context.Background())
 		slog.Info("Bot started")
 	}
 

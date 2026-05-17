@@ -73,6 +73,28 @@ type Bot struct {
 	photoDownloader func(ctx context.Context, fileID string) ([]byte, string, error)
 
 	httpClient *http.Client
+
+	// settingsChanges feeds the background watcher that re-registers the
+	// Telegram slash-command menu when a feature flag toggle lands in
+	// change_events. Tests inject the same adapter the production wiring
+	// uses; the field stays on the Bot struct so the watcher can be a plain
+	// method without dragging the entire store through its signature.
+	settingsChanges SettingsChangeStore
+
+	// commandsPollInterval is the cadence at which the settings watcher
+	// asks the change_events stream for new "settings" tags. Production
+	// defaults to 5s (see bot.New); tests override directly via the field
+	// for fast assertions.
+	commandsPollInterval time.Duration
+
+	// lastRegisteredCommands caches the BotCommand list most recently
+	// pushed to Telegram's setMyCommands so registerCommands can skip the
+	// API call when nothing changed. The "settings" change tag is also
+	// inserted on reminder state, tab order, and similar non-flag updates
+	// (see migration 027), so without the cache the watcher would re-POST
+	// on every reminder cycle.
+	lastRegisteredMu       sync.Mutex
+	lastRegisteredCommands []tgbotapi.BotCommand
 }
 
 type featureFlags struct {
@@ -81,6 +103,14 @@ type featureFlags struct {
 	Weight     bool
 	Workout    bool
 	Food       bool
+
+	// HasActivityAI and HasFoodAI reflect whether the optional OpenAI-backed
+	// services are configured. /activity and /food rely on these, so the
+	// commandSpecs gate on them in addition to the user-toggleable section
+	// flags — surfacing a command that only ever replies "not configured"
+	// would be a worse UX than hiding it.
+	HasActivityAI bool
+	HasFoodAI     bool
 }
 
 func New(token string, allowedUserID int64, s *store.Repos, foodAI domain.FoodAIService, activityAI domain.ActivityAIService, tzUpdater tzupdate.Service) (*Bot, error) {
@@ -103,30 +133,32 @@ func New(token string, allowedUserID int64, s *store.Repos, foodAI domain.FoodAI
 	a := newStoreAdapter(s)
 
 	return &Bot{
-		api:              api,
-		meds:             a,
-		medSvc:           domain.NewMedicationService(a),
-		bp:               a,
-		weight:           a,
-		workouts:         a,
-		workoutSvc:       workoutsvc.New(s.Workout, s.TZ),
-		exerciseSvc:      domain.NewExerciseService(a),
-		reminderSvc:      domain.NewReminderService(a),
-		food:             a,
-		foodAI:           foodAI,
-		activityAI:       activityAI,
-		activityLog:      a,
-		imports:          a,
-		notesSvc:         domain.NewNotesService(s.Diary),
-		timezone:         a,
-		tzUpdater:        tzUpdater,
-		tzPlanStore:      a,
-		allowedUserID:    allowedUserID,
-		appDomain:        appDomain,
-		httpClient:       &http.Client{Timeout: 30 * time.Second},
-		pendingExercises: make(map[int64][]pendingExercise),
-		pendingPhotos:    newPendingPhotoStore(),
-		undoBatches:      newUndoBatchStore(),
+		api:                  api,
+		meds:                 a,
+		medSvc:               domain.NewMedicationService(a),
+		bp:                   a,
+		weight:               a,
+		workouts:             a,
+		workoutSvc:           workoutsvc.New(s.Workout, s.TZ),
+		exerciseSvc:          domain.NewExerciseService(a),
+		reminderSvc:          domain.NewReminderService(a),
+		food:                 a,
+		foodAI:               foodAI,
+		activityAI:           activityAI,
+		activityLog:          a,
+		imports:              a,
+		notesSvc:             domain.NewNotesService(s.Diary),
+		timezone:             a,
+		tzUpdater:            tzUpdater,
+		tzPlanStore:          a,
+		allowedUserID:        allowedUserID,
+		appDomain:            appDomain,
+		httpClient:           &http.Client{Timeout: 30 * time.Second},
+		pendingExercises:     make(map[int64][]pendingExercise),
+		pendingPhotos:        newPendingPhotoStore(),
+		undoBatches:          newUndoBatchStore(),
+		settingsChanges:      a,
+		commandsPollInterval: 5 * time.Second,
 	}, nil
 }
 
@@ -143,13 +175,22 @@ func (b *Bot) SetTZLifecycle(svc tzreschedule.LifecycleService) {
 	b.tzLifecycle = svc
 }
 
+// getFeatureFlags returns a best-effort snapshot of section flags for
+// message routing and /help. A transient read failure on one flag must
+// not affect the others: a stale default on the failing flag beats
+// silently zero-ing every flag read after it (which would mis-route or
+// hide unrelated commands). Callers whose correctness depends on an
+// accurate full snapshot (registerCommands, which updates Telegram's
+// persistent menu and a watcher cursor) use loadFeatureFlags instead.
 func (b *Bot) getFeatureFlags(ctx context.Context) featureFlags {
 	flags := featureFlags{
-		Medication: true,
-		BP:         true,
-		Weight:     true,
-		Workout:    true,
-		Food:       false,
+		Medication:    true,
+		BP:            true,
+		Weight:        true,
+		Workout:       true,
+		Food:          false,
+		HasActivityAI: b.activityAI != nil,
+		HasFoodAI:     b.foodAI != nil,
 	}
 
 	if v, err := b.meds.GetMedicationEnabled(ctx); err == nil {
@@ -171,61 +212,80 @@ func (b *Bot) getFeatureFlags(ctx context.Context) featureFlags {
 	return flags
 }
 
+// loadFeatureFlags reads every section flag from the settings repo and
+// surfaces the first error encountered. registerCommands uses this to
+// bail without advancing the watcher cursor when a flag is unreadable,
+// so the next tick retries instead of locking in a defaults-built menu.
+func (b *Bot) loadFeatureFlags(ctx context.Context) (featureFlags, error) {
+	flags := featureFlags{
+		Medication:    true,
+		BP:            true,
+		Weight:        true,
+		Workout:       true,
+		Food:          false,
+		HasActivityAI: b.activityAI != nil,
+		HasFoodAI:     b.foodAI != nil,
+	}
+
+	v, err := b.meds.GetMedicationEnabled(ctx)
+	if err != nil {
+		return flags, fmt.Errorf("read medication flag: %w", err)
+	}
+	flags.Medication = v
+	v, err = b.bp.GetBloodPressureEnabled(ctx)
+	if err != nil {
+		return flags, fmt.Errorf("read bp flag: %w", err)
+	}
+	flags.BP = v
+	v, err = b.weight.GetWeightEnabled(ctx)
+	if err != nil {
+		return flags, fmt.Errorf("read weight flag: %w", err)
+	}
+	flags.Weight = v
+	v, err = b.workouts.GetWorkoutEnabled(ctx)
+	if err != nil {
+		return flags, fmt.Errorf("read workout flag: %w", err)
+	}
+	flags.Workout = v
+	v, err = b.food.GetFoodIntakeEnabled(ctx)
+	if err != nil {
+		return flags, fmt.Errorf("read food flag: %w", err)
+	}
+	flags.Food = v
+
+	return flags, nil
+}
+
 func (b *Bot) buildHelpText(flags featureFlags) string {
 	var sections []string
 	sections = append(sections, "**Medication Tracker Bot** - configurable tracker for meds, blood pressure, weight, workouts, and food.")
 
-	if flags.Medication {
-		sections = append(sections, `**Medication Commands:**
-/log - Manually log a dose for any medication
-/next - Trigger notification for next scheduled medication (with cancel option)
-/stock - View medication inventory status
-/download - Export medication, blood pressure, and weight history to CSV`)
+	bySection := map[string][]commandSpec{}
+	for _, s := range enabledSpecs(flags) {
+		bySection[s.Section] = append(bySection[s.Section], s)
 	}
 
-	if flags.BP || flags.Weight {
+	for _, name := range commandSections {
+		specs := bySection[name]
+		if len(specs) == 0 {
+			continue
+		}
 		var block strings.Builder
-		block.WriteString("**Blood Pressure & Weight:**\n")
-		if flags.BP {
-			block.WriteString("/bp <systolic> <diastolic> [pulse] - Log blood pressure reading\n")
-			block.WriteString("  Example: /bp 130 80 72\n")
-			block.WriteString("/bphistory - View recent blood pressure history (last 10 readings)\n")
-			block.WriteString("/bpstats - View blood pressure statistics (30-day averages)\n")
-			block.WriteString("/bpgoal <systolic> <diastolic> - Set blood pressure goal\n")
+		block.WriteString("**")
+		block.WriteString(name)
+		block.WriteString(":**")
+		for _, sp := range specs {
+			block.WriteString("\n/")
+			block.WriteString(sp.Name)
+			block.WriteString(" - ")
+			block.WriteString(sp.Description)
+			if sp.Example != "" {
+				block.WriteString("\n  Example: ")
+				block.WriteString(sp.Example)
+			}
 		}
-		if flags.Weight {
-			block.WriteString("/weight <kg> - Log weight in kilograms\n")
-			block.WriteString("  Example: /weight 75.5\n")
-			block.WriteString("/weighthistory - View recent weight history (last 10 entries)\n")
-			block.WriteString("/goal <weight> <date> - Set weight goal\n")
-			block.WriteString("  Example: /goal 110 2026-06-01\n")
-		}
-		sections = append(sections, strings.TrimSpace(block.String()))
+		sections = append(sections, block.String())
 	}
-
-	if flags.Workout {
-		workoutSection := `**Workout Commands:**
-/workout - Start an ad-hoc (unscheduled) workout
-/startnext - Manually start next scheduled workout
-/workoutstatus - View today's workout status
-/workouthistory - View recent workouts and your streak 🔥`
-		if b.activityAI != nil {
-			workoutSection += "\n/activity <description> - Log any activity in natural language\n  Example: /activity 30min morning run"
-		}
-		sections = append(sections, workoutSection)
-	}
-
-	if flags.Food {
-		foodSection := "**Food Command:**\n/intake <carbs> <protein> <fat> <weight> [name] - Log food intake"
-		if b.foodAI != nil {
-			foodSection += "\n/food <description> - Log food using natural language\n  Example: /food 200g chicken breast with rice"
-		}
-		sections = append(sections, foodSection)
-	}
-
-	sections = append(sections, "**Notes:**\n/note <text> - Save a personal diary note\n  Example: /note Feeling tired today")
-
-	sections = append(sections, "**Timezone:**\n/tz - Set your timezone by sharing your location (affects workout, BP, and weight reminders)")
 
 	sections = append(sections, `**How to use:**
 1. Click the "Menu" button to open the App
@@ -236,7 +296,30 @@ func (b *Bot) buildHelpText(flags featureFlags) string {
 	return strings.Join(sections, "\n\n")
 }
 
-func (b *Bot) Start() {
+func (b *Bot) Start(ctx context.Context) {
+	// Sample the change_events cursor BEFORE registerCommands so a toggle
+	// that lands in between is picked up by the watcher on the first tick
+	// instead of being silently dropped (its id would be <= a
+	// post-register cursor). Duplicate-detection in registerCommands keeps
+	// any spurious re-register cheap.
+	var cursor int64
+	if b.settingsChanges != nil {
+		c, err := b.settingsChanges.GetLatestChangeCursor(ctx)
+		if err != nil {
+			slog.Warn("settings watcher: failed to read initial cursor", "error", err)
+		} else {
+			cursor = c
+		}
+	}
+
+	if err := b.registerCommands(ctx); err != nil {
+		slog.Warn("failed to register bot commands", "error", err)
+	}
+
+	if b.settingsChanges != nil && b.commandsPollInterval > 0 {
+		go b.pollSettingsChanges(ctx, b.commandsPollInterval, cursor)
+	}
+
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
 
@@ -293,7 +376,7 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 	msgConfig := tgbotapi.NewMessage(msg.Chat.ID, "")
 	flags := b.getFeatureFlags(context.Background())
 	switch msg.Command() {
-	case "help":
+	case "start", "help":
 		msgConfig.Text = b.buildHelpText(flags)
 		msgConfig.ParseMode = "Markdown"
 	case "log":
