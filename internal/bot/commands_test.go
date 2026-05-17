@@ -150,6 +150,105 @@ func sortedKeys(m map[string]bool) []string {
 	return out
 }
 
+func TestBuildHelpText_RendersFromCommandSpecs(t *testing.T) {
+	b := &Bot{}
+	all := featureFlags{Medication: true, BP: true, Weight: true, Workout: true, Food: true}
+	text := b.buildHelpText(all)
+
+	// Header line preserved.
+	if !strings.Contains(text, "**Medication Tracker Bot**") {
+		t.Errorf("expected header line in help text, got: %s", text)
+	}
+
+	// Footer preserved.
+	if !strings.Contains(text, "**How to use:**") {
+		t.Errorf("expected how-to-use footer in help text, got: %s", text)
+	}
+
+	// Every enabled command must appear as a `/<name> - <description>` line.
+	for _, sp := range enabledSpecs(all) {
+		line := "/" + sp.Name + " - " + sp.Description
+		if !strings.Contains(text, line) {
+			t.Errorf("expected line %q in help text, got: %s", line, text)
+		}
+	}
+
+	// Section headers must appear for any section that has enabled specs and
+	// must follow commandSections ordering.
+	bySection := map[string][]commandSpec{}
+	for _, sp := range enabledSpecs(all) {
+		bySection[sp.Section] = append(bySection[sp.Section], sp)
+	}
+	lastIdx := -1
+	for _, name := range commandSections {
+		if len(bySection[name]) == 0 {
+			continue
+		}
+		header := "**" + name + ":**"
+		idx := strings.Index(text, header)
+		if idx < 0 {
+			t.Errorf("expected section header %q in help text", header)
+			continue
+		}
+		if idx < lastIdx {
+			t.Errorf("section %q appears out of order in help text", header)
+		}
+		lastIdx = idx
+	}
+}
+
+func TestBuildHelpText_OmitsDisabledSections(t *testing.T) {
+	b := &Bot{}
+
+	cases := []struct {
+		name              string
+		flags             featureFlags
+		wantHeaderAbsent  []string
+		wantCommandAbsent []string
+	}{
+		{
+			name:              "workout off omits workout section and commands",
+			flags:             featureFlags{Medication: true, BP: true, Weight: true, Food: true},
+			wantHeaderAbsent:  []string{"**Workout Commands:**"},
+			wantCommandAbsent: []string{"/workout ", "/startnext ", "/workoutstatus ", "/workouthistory ", "/activity "},
+		},
+		{
+			name:              "BP and Weight off omits combined section header",
+			flags:             featureFlags{Medication: true, Workout: true, Food: true},
+			wantHeaderAbsent:  []string{"**Blood Pressure & Weight:**"},
+			wantCommandAbsent: []string{"/bp ", "/bphistory ", "/bpstats ", "/bpgoal ", "/weight ", "/weighthistory ", "/goal "},
+		},
+		{
+			name:              "food off omits food section and commands",
+			flags:             featureFlags{Medication: true, BP: true, Weight: true, Workout: true},
+			wantHeaderAbsent:  []string{"**Food Commands:**"},
+			wantCommandAbsent: []string{"/intake ", "/food "},
+		},
+		{
+			name:              "medication off omits medication section and commands",
+			flags:             featureFlags{BP: true, Weight: true, Workout: true, Food: true},
+			wantHeaderAbsent:  []string{"**Medication Commands:**"},
+			wantCommandAbsent: []string{"/log ", "/next ", "/stock ", "/download "},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			text := b.buildHelpText(tc.flags)
+			for _, h := range tc.wantHeaderAbsent {
+				if strings.Contains(text, h) {
+					t.Errorf("expected header %q absent, got: %s", h, text)
+				}
+			}
+			for _, c := range tc.wantCommandAbsent {
+				if strings.Contains(text, c) {
+					t.Errorf("expected command line %q absent, got: %s", c, text)
+				}
+			}
+		})
+	}
+}
+
 func TestHandleBPCommand(t *testing.T) {
 	env := setupBotTest(t)
 	defer env.teardown()

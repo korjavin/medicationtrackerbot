@@ -122,20 +122,20 @@ Single-user system, default scope only, no per-language variants.
 - [x] `go test ./internal/bot/...` — must pass.
 
 ### Task 2: Refactor `buildHelpText` to render from `commandSpecs`
-- [ ] in `internal/bot/bot.go:174`, rewrite `buildHelpText` to:
+- [x] in `internal/bot/bot.go:174`, rewrite `buildHelpText` to:
       group `enabledSpecs(flags)` by `Section`, preserve section order
       (define an ordered list of sections at the top of `commands.go`),
       and render each line as `/<Name> - <Description>`.
-- [ ] preserve the existing header line ("**Medication Tracker Bot** -
+- [x] preserve the existing header line ("**Medication Tracker Bot** -
       configurable tracker…") and any non-command text (footer notes if
       any).
-- [ ] run existing `TestHelpCommand_*` tests — fix any output drift by
+- [x] run existing `TestHelpCommand_*` tests — fix any output drift by
       tweaking descriptions in `commandSpecs` until the tests pass
       verbatim (they are the contract for /help formatting).
-- [ ] add `TestBuildHelpText_OmitsDisabledSections` if not already
+- [x] add `TestBuildHelpText_OmitsDisabledSections` if not already
       covered — explicit case: workout flag off → no "Workout" section
       header, no workout commands.
-- [ ] `go test ./internal/bot/...` — must pass.
+- [x] `go test ./internal/bot/...` — must pass.
 
 ### Task 3: Add `registerCommands` and call on startup
 - [ ] in `internal/bot/commands.go`, add

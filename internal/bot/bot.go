@@ -175,57 +175,28 @@ func (b *Bot) buildHelpText(flags featureFlags) string {
 	var sections []string
 	sections = append(sections, "**Medication Tracker Bot** - configurable tracker for meds, blood pressure, weight, workouts, and food.")
 
-	if flags.Medication {
-		sections = append(sections, `**Medication Commands:**
-/log - Manually log a dose for any medication
-/next - Trigger notification for next scheduled medication (with cancel option)
-/stock - View medication inventory status
-/download - Export medication, blood pressure, and weight history to CSV`)
+	bySection := map[string][]commandSpec{}
+	for _, s := range enabledSpecs(flags) {
+		bySection[s.Section] = append(bySection[s.Section], s)
 	}
 
-	if flags.BP || flags.Weight {
+	for _, name := range commandSections {
+		specs := bySection[name]
+		if len(specs) == 0 {
+			continue
+		}
 		var block strings.Builder
-		block.WriteString("**Blood Pressure & Weight:**\n")
-		if flags.BP {
-			block.WriteString("/bp <systolic> <diastolic> [pulse] - Log blood pressure reading\n")
-			block.WriteString("  Example: /bp 130 80 72\n")
-			block.WriteString("/bphistory - View recent blood pressure history (last 10 readings)\n")
-			block.WriteString("/bpstats - View blood pressure statistics (30-day averages)\n")
-			block.WriteString("/bpgoal <systolic> <diastolic> - Set blood pressure goal\n")
+		block.WriteString("**")
+		block.WriteString(name)
+		block.WriteString(":**")
+		for _, sp := range specs {
+			block.WriteString("\n/")
+			block.WriteString(sp.Name)
+			block.WriteString(" - ")
+			block.WriteString(sp.Description)
 		}
-		if flags.Weight {
-			block.WriteString("/weight <kg> - Log weight in kilograms\n")
-			block.WriteString("  Example: /weight 75.5\n")
-			block.WriteString("/weighthistory - View recent weight history (last 10 entries)\n")
-			block.WriteString("/goal <weight> <date> - Set weight goal\n")
-			block.WriteString("  Example: /goal 110 2026-06-01\n")
-		}
-		sections = append(sections, strings.TrimSpace(block.String()))
+		sections = append(sections, block.String())
 	}
-
-	if flags.Workout {
-		workoutSection := `**Workout Commands:**
-/workout - Start an ad-hoc (unscheduled) workout
-/startnext - Manually start next scheduled workout
-/workoutstatus - View today's workout status
-/workouthistory - View recent workouts and your streak 🔥`
-		if b.activityAI != nil {
-			workoutSection += "\n/activity <description> - Log any activity in natural language\n  Example: /activity 30min morning run"
-		}
-		sections = append(sections, workoutSection)
-	}
-
-	if flags.Food {
-		foodSection := "**Food Command:**\n/intake <carbs> <protein> <fat> <weight> [name] - Log food intake"
-		if b.foodAI != nil {
-			foodSection += "\n/food <description> - Log food using natural language\n  Example: /food 200g chicken breast with rice"
-		}
-		sections = append(sections, foodSection)
-	}
-
-	sections = append(sections, "**Notes:**\n/note <text> - Save a personal diary note\n  Example: /note Feeling tired today")
-
-	sections = append(sections, "**Timezone:**\n/tz - Set your timezone by sharing your location (affects workout, BP, and weight reminders)")
 
 	sections = append(sections, `**How to use:**
 1. Click the "Menu" button to open the App
