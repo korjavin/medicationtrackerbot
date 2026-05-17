@@ -84,12 +84,12 @@ Findings audit and cross-cutting recommendation came from the parent conversatio
 - [x] run `pnpm test` — must pass before next task
 
 ### Task 2: Convert workout finish + session save
-- [ ] convert `features/workout/sessions.js:392 finishWorkoutSession` to `applyOptimistic` on `workout_next` (synthesise null/completed state) and the sessions history cache key
-- [ ] convert `:444 saveWorkoutSessionDetails` to optimistically flip `status` on the cached session entry
-- [ ] convert `:734 saveNewSessionExercise` to push the new log into `WorkoutSessionsState.logs` and the cached payload before await
-- [ ] convert `:347 deleteExerciseLog` to splice locally before await
-- [ ] add cases to `features.workouts.*` integration suite for finish, save-details, add-log, delete-log — each asserting the rendered DOM updates before the network mock resolves, plus a rollback case on POST error
-- [ ] run `pnpm test` — must pass before next task
+- [x] convert `features/workout/sessions.js:392 finishWorkoutSession` to `applyOptimistic` on `workout_next` (synthesise null/completed state) and the sessions history cache key
+- [x] convert `:444 saveWorkoutSessionDetails` to optimistically flip `status` on the cached session entry
+- [x] convert `:734 saveNewSessionExercise` to push the new log into `WorkoutSessionsState.logs` and the cached payload before await
+- [x] convert `:347 deleteExerciseLog` to splice locally before await
+- [x] add cases to `features.workouts.*` integration suite for finish, save-details, add-log, delete-log — each asserting the rendered DOM updates before the network mock resolves, plus a rollback case on POST error
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 3: Convert ad-hoc workout actions
 - [ ] convert `features/workout/sessions.js:560 startAdHocWorkout`, `:602 completeWorkoutSession`, `:619 preSkipWorkoutSession`, `:635 cancelPreSkipWorkoutSession`

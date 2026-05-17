@@ -1685,6 +1685,13 @@ function applyPendingTabRefresh() {
 
 function requestTabRefresh(meta = {}) {
     const source = meta?.source || 'changes';
+    // Optimistic / commit / rollback paths originate from the caller's own
+    // write flow — they already repainted directly via cache writes and the
+    // `datastore:changed` listener. The deferred-banner UX exists for
+    // cross-device polling updates and isn't appropriate here.
+    if (typeof source === 'string' && source.startsWith('optimistic')) {
+        return;
+    }
     if (!isSafeToAutoRefresh()) {
         console.log('[refresh] deferred: source=%s modal=%s editing=%s hidden=%s tags=%o',
             source, hasOpenModal(), isEditingNow(), document.hidden,
