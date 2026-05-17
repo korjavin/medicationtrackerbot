@@ -126,6 +126,10 @@ const ALLOWLIST = [
         reason: 'My Meals section — renders from the shared window.FoodProducts cache, only DELETE / POST mutations of its own',
     },
     {
+        file: 'food/ai-undo.js',
+        reason: 'shared undo helper for the food-photo + food-description AI flows; issues DELETE /api/food/log/:id mutations (cache is invalidated via DataStore.invalidateTags after a successful round) and surfaces card success/error state — no section-landing reads',
+    },
+    {
         file: 'food/photo.js',
         reason: 'food photo capture entry point — image encoding + upload coordinator with food-photo-summary.js, no API reads',
     },

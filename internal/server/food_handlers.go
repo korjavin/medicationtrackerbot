@@ -152,6 +152,13 @@ func (s *Server) handleCreateFoodLog(w http.ResponseWriter, r *http.Request) {
 // rejected before the multipart parser consumes the body.
 const maxFoodPhotoBytes = 8 << 20
 
+// maxFoodDescriptionLength caps the natural-language meal description sent to
+// the AI parser. A meal sentence is typically under 500 characters; 4 KiB is
+// more than enough for verbose descriptions and stops a single authenticated
+// caller from burning provider credit (or hitting upstream context limits) by
+// POSTing arbitrarily large strings.
+const maxFoodDescriptionLength = 4096
+
 func (s *Server) handleCreateFoodLogFromPhoto(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
@@ -208,6 +215,9 @@ func (s *Server) handleCreateFoodLogFromPhoto(w http.ResponseWriter, r *http.Req
 			eatenAt = parsed
 		} else if parsed, err := time.Parse("2006-01-02T15:04", raw); err == nil {
 			eatenAt = parsed
+		} else {
+			http.Error(w, "Invalid eaten_at: expected RFC3339 or 2006-01-02T15:04", http.StatusBadRequest)
+			return
 		}
 	}
 
@@ -254,6 +264,129 @@ func (s *Server) handleCreateFoodLogFromPhoto(w http.ResponseWriter, r *http.Req
 		id, err := s.food.CreateLog(saveCtx, entry)
 		if err != nil {
 			slog.Error("food photo: save failed", "user_id", userID, "name", item.Name, "error", err)
+			failed++
+			continue
+		}
+		saved = append(saved, savedItem{
+			ID:       id,
+			Name:     item.Name,
+			Weight:   item.Weight,
+			Carbs:    item.Carbs,
+			Protein:  item.Protein,
+			Fat:      item.Fat,
+			Calories: item.Calories,
+		})
+	}
+
+	if len(saved) == 0 {
+		http.Error(w, "Failed to save any food items", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]any{
+		"status": "created",
+		"items":  saved,
+		"failed": failed,
+	}); err != nil {
+		slog.Error("encode response", "error", err)
+	}
+}
+
+func (s *Server) handleCreateFoodLogFromDescription(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+
+	enabled, err := s.settings.GetFoodIntakeEnabled(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !enabled {
+		http.Error(w, "Food intake tracking is disabled", http.StatusForbidden)
+		return
+	}
+
+	if s.foodAI == nil {
+		http.Error(w, "AI food logging is not configured on this server", http.StatusServiceUnavailable)
+		return
+	}
+
+	var req struct {
+		Description string `json:"description"`
+		EatenAt     string `json:"eaten_at"`
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	description := strings.TrimSpace(req.Description)
+	if description == "" {
+		http.Error(w, "Description is required", http.StatusBadRequest)
+		return
+	}
+	if len(description) > maxFoodDescriptionLength {
+		http.Error(w, fmt.Sprintf("Description too long: %d bytes (max %d)", len(description), maxFoodDescriptionLength), http.StatusBadRequest)
+		return
+	}
+
+	eatenAt := time.Now()
+	if raw := strings.TrimSpace(req.EatenAt); raw != "" {
+		if parsed, err := time.Parse(time.RFC3339, raw); err == nil {
+			eatenAt = parsed
+		} else if parsed, err := time.Parse("2006-01-02T15:04", raw); err == nil {
+			eatenAt = parsed
+		} else {
+			http.Error(w, "Invalid eaten_at: expected RFC3339 or 2006-01-02T15:04", http.StatusBadRequest)
+			return
+		}
+	}
+
+	parseCtx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+
+	parsedLogs, err := s.foodAI.ParseMealDescription(parseCtx, description)
+	if err != nil {
+		slog.Error("food description: AI parse failed", "user_id", userID, "error", err)
+		http.Error(w, "Failed to parse meal description: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	if len(parsedLogs) == 0 {
+		http.Error(w, "No food items detected in description", http.StatusUnprocessableEntity)
+		return
+	}
+
+	saveCtx, saveCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer saveCancel()
+
+	type savedItem struct {
+		ID       int64  `json:"id"`
+		Name     string `json:"name"`
+		Weight   int    `json:"weight"`
+		Carbs    int    `json:"carbs"`
+		Protein  int    `json:"protein"`
+		Fat      int    `json:"fat"`
+		Calories int    `json:"calories"`
+	}
+
+	saved := make([]savedItem, 0, len(parsedLogs))
+	var failed int
+	for _, item := range parsedLogs {
+		entry := &store.FoodLog{
+			UserID:   userID,
+			EatenAt:  eatenAt,
+			Weight:   item.Weight,
+			Carbs:    item.Carbs,
+			Protein:  item.Protein,
+			Fat:      item.Fat,
+			Calories: item.Calories,
+			Name:     item.Name,
+		}
+		id, err := s.food.CreateLog(saveCtx, entry)
+		if err != nil {
+			slog.Error("food description: save failed", "user_id", userID, "name", item.Name, "error", err)
 			failed++
 			continue
 		}
