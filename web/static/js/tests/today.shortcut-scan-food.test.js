@@ -1,6 +1,6 @@
-// Task 6: Today screen exposes a "Photo meal" shortcut tile that opens the
-// food-photo picker via window.FoodActions.triggerPhotoPicker without first
-// navigating to the Food section.
+// Today screen exposes a "Scan food" shortcut tile that opens the Add Food
+// modal and immediately launches the barcode scanner overlay, collapsing the
+// 3-tap food-by-barcode flow to a single tap.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -59,71 +59,90 @@ function baseState(now) {
     };
 }
 
-describe('Today shortcut row — Photo meal tile', () => {
+function findTile(root, label) {
+    return Array.from(root.querySelectorAll('.wg-shortcut-tile'))
+        .find((t) => t.querySelector('.wg-shortcut-tile__label').textContent === label);
+}
+
+describe('Today shortcut row — Scan food tile', () => {
     let env;
-    const now = new Date('2026-05-09T09:00:00Z');
+    const now = new Date('2026-05-17T09:00:00Z');
 
     beforeEach(() => { env = loadEnv(); });
     afterEach(() => { env?.cleanup(); env = null; });
 
-    it('renders a Photo meal tile when food is enabled', () => {
+    it('renders a Scan food tile when food is enabled', () => {
         const root = env.document.getElementById('today-content');
         env.render(baseState(now), root, { now });
-        const tiles = root.querySelectorAll('.wg-shortcut-tile');
-        const labels = Array.from(tiles).map((t) => t.querySelector('.wg-shortcut-tile__label').textContent);
-        expect(labels).toContain('Photo meal');
+        const labels = Array.from(root.querySelectorAll('.wg-shortcut-tile'))
+            .map((t) => t.querySelector('.wg-shortcut-tile__label').textContent);
+        expect(labels).toContain('Scan food');
     });
 
-    it('Photo meal tile renders after Log food in the shortcut row', () => {
+    it('Scan food tile sits between Log food and Photo meal', () => {
         const root = env.document.getElementById('today-content');
         env.render(baseState(now), root, { now });
-        const tiles = Array.from(root.querySelectorAll('.wg-shortcut-tile'));
-        const labels = tiles.map((t) => t.querySelector('.wg-shortcut-tile__label').textContent);
+        const labels = Array.from(root.querySelectorAll('.wg-shortcut-tile'))
+            .map((t) => t.querySelector('.wg-shortcut-tile__label').textContent);
         const logFoodIdx = labels.indexOf('Log food');
+        const scanIdx = labels.indexOf('Scan food');
         const photoIdx = labels.indexOf('Photo meal');
         expect(logFoodIdx).toBeGreaterThanOrEqual(0);
-        expect(photoIdx).toBeGreaterThan(logFoodIdx);
+        expect(scanIdx).toBe(logFoodIdx + 1);
+        expect(photoIdx).toBe(scanIdx + 1);
     });
 
-    it('Photo meal tile renders the camera icon', () => {
+    it('Scan food tile renders the barcode icon', () => {
         const root = env.document.getElementById('today-content');
         env.render(baseState(now), root, { now });
-        const photoTile = Array.from(root.querySelectorAll('.wg-shortcut-tile'))
-            .find((t) => t.querySelector('.wg-shortcut-tile__label').textContent === 'Photo meal');
-        expect(photoTile).toBeDefined();
-        const icon = photoTile.querySelector('.wg-shortcut-tile__icon svg');
+        const tile = findTile(root, 'Scan food');
+        expect(tile).toBeDefined();
+        const icon = tile.querySelector('.wg-shortcut-tile__icon svg');
         expect(icon).not.toBeNull();
-        expect(icon.getAttribute('data-wg-icon')).toBe('camera');
+        expect(icon.getAttribute('data-wg-icon')).toBe('barcode');
     });
 
-    it('clicking Photo meal invokes the onPhotoMeal handler when provided', () => {
+    it('clicking Scan food invokes the onScanFood handler when provided', () => {
         const root = env.document.getElementById('today-content');
-        const onPhotoMeal = vi.fn();
-        env.render(baseState(now), root, { now, onPhotoMeal });
-        const photoTile = Array.from(root.querySelectorAll('.wg-shortcut-tile'))
-            .find((t) => t.querySelector('.wg-shortcut-tile__label').textContent === 'Photo meal');
-        photoTile.click();
-        expect(onPhotoMeal).toHaveBeenCalledTimes(1);
+        const onScanFood = vi.fn();
+        env.render(baseState(now), root, { now, onScanFood });
+        findTile(root, 'Scan food').click();
+        expect(onScanFood).toHaveBeenCalledTimes(1);
     });
 
-    it('clicking Photo meal falls back to window.FoodActions.triggerPhotoPicker when no handler given', () => {
+    it('default handler opens Add Food modal then launches FoodScanner', () => {
         const root = env.document.getElementById('today-content');
-        env.window.FoodActions = { triggerPhotoPicker: vi.fn() };
+        env.window.FoodLog = { openAdd: vi.fn() };
+        env.window.FoodScanner = { openFoodScannerModal: vi.fn() };
         env.render(baseState(now), root, { now });
-        const photoTile = Array.from(root.querySelectorAll('.wg-shortcut-tile'))
-            .find((t) => t.querySelector('.wg-shortcut-tile__label').textContent === 'Photo meal');
-        photoTile.click();
-        expect(env.window.FoodActions.triggerPhotoPicker).toHaveBeenCalledTimes(1);
+        findTile(root, 'Scan food').click();
+        expect(env.window.FoodLog.openAdd).toHaveBeenCalledTimes(1);
+        expect(env.window.FoodScanner.openFoodScannerModal).toHaveBeenCalledTimes(1);
     });
 
-    it('omits both Log food and Photo meal when the food feature is disabled', () => {
+    it('default handler falls back to ModalManager.foodScanner.open when FoodScanner is missing', () => {
+        const root = env.document.getElementById('today-content');
+        env.window.FoodLog = { openAdd: vi.fn() };
+        env.window.ModalManager = { foodScanner: { open: vi.fn() } };
+        env.render(baseState(now), root, { now });
+        findTile(root, 'Scan food').click();
+        expect(env.window.FoodLog.openAdd).toHaveBeenCalledTimes(1);
+        expect(env.window.ModalManager.foodScanner.open).toHaveBeenCalledTimes(1);
+    });
+
+    it('default handler is a safe no-op when food globals are not loaded', () => {
+        const root = env.document.getElementById('today-content');
+        env.render(baseState(now), root, { now });
+        expect(() => findTile(root, 'Scan food').click()).not.toThrow();
+    });
+
+    it('omits Scan food when the food feature is disabled', () => {
         const root = env.document.getElementById('today-content');
         const state = baseState(now);
         state.caloriesTarget.status = 'disabled';
         env.render(state, root, { now });
         const labels = Array.from(root.querySelectorAll('.wg-shortcut-tile'))
             .map((t) => t.querySelector('.wg-shortcut-tile__label').textContent);
-        expect(labels).not.toContain('Log food');
-        expect(labels).not.toContain('Photo meal');
+        expect(labels).not.toContain('Scan food');
     });
 });
