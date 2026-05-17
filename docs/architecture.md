@@ -256,6 +256,45 @@ in `internal/scheduler/medication_tz_test.go`,
 `internal/server/trigger_next_intake_test.go`, and
 `internal/store/approve_and_materialize_test.go`.
 
+### Cross-client change broadcast (SSE + polling fallback)
+
+Writes that mutate one client's view of the DB need to surface on every other
+connected client (other tabs, other devices, MCP-driven writes). The
+mechanism is a process-wide `ChangeBroker`
+(`internal/server/changes_broker.go`) plus an SSE handler at
+`GET /api/changes/stream`:
+
+1. `notifyOnWriteMiddleware` wraps the API mux. On every 2xx non-GET
+   response it reads the latest `change_events` cursor from
+   `store.Settings.GetLatestChangeCursor` and calls
+   `changesBroker.Notify(cursor)` — single tap point, no per-handler
+   instrumentation. Bridge writes (the MCP executor's
+   `/internal/mcp/bridge` path) are inside the wrapped mux, so MCP-driven
+   mutations fan out the same way as direct API writes.
+2. `handleChangesStream` (`internal/server/changes_handlers.go`)
+   `Subscribe(ctx)`s to the broker and `select`s on the subscription
+   channel, a 15s keepalive ticker, the 10-min
+   `changeStreamMaxSessionAge` recycle, and `r.Context().Done()`. On each
+   broker wake it queries `ListChangedTagsSince(lastCursor)` and emits a
+   single `data: …\n\n` frame. Capacity is bounded by a 40-slot
+   process-wide semaphore and a per-channel buffer of 1 — missed wakes
+   are harmless because each handler reconciles via the cursor.
+3. `Server.Shutdown` calls `changesBroker.CloseAll()` before the HTTP
+   listener closes. Subscribed handlers see their channels close and
+   return cleanly, so the only `RST_STREAM` a client observes is one per
+   deploy. EventSource auto-reconnects on the next backoff tick.
+
+The legacy `GET /api/changes?since=<cursor>` polling endpoint is
+unchanged and remains the fallback when the browser lacks
+`EventSource` or the stream sees 3 consecutive `onerror` events within
+30s (proxy / captive-portal failures). See
+[technical-decisions.md → Why SSE is primary](technical-decisions.md)
+for the rationale and [sse-traefik.md](sse-traefik.md) for the required
+reverse-proxy configuration. Client-side wiring lives in
+`web/static/js/data-store.js` (`startChangeStream`,
+`startChangePolling`) and is documented in
+[frontend.md → Change Detection](frontend.md#change-detection).
+
 ### TZ suggestion cross-client dismissal
 
 TZ suggestion dismissal is persisted in the singleton `settings` table's

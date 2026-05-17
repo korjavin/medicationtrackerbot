@@ -137,7 +137,7 @@ try {
 
 ### Change Detection
 
-Polls `/api/changes?since=` every 30s (SSE disabled due to HTTP/2 proxy issues — see [technical-decisions.md](technical-decisions.md)). When the poll reports invalidated tags, `data-store.js` both calls `window.requestTabRefresh({ changedTags, source })` (debounced 500ms, reloads the active tab) **and** dispatches a `datastore:changed` CustomEvent on `window` with `detail = { changedTags, source }`. Features that need to react without owning the active tab (e.g. the Today dashboard's live-update subscriber) listen on the CustomEvent.
+SSE-first: `data-store.js` opens an EventSource against `/api/changes/stream` (auth via `?initData=…` query param) and falls back to 30s polling of `/api/changes?since=` only when `EventSource` is undefined or after 3 consecutive `onerror` events within 30s — once tripped, polling sticks for the rest of the session. SSE messages and poll responses share the same `applyChangesPayload` apply path. When invalidated tags arrive, `data-store.js` both calls `window.requestTabRefresh({ changedTags, source })` (debounced 500ms, reloads the active tab) **and** dispatches a `datastore:changed` CustomEvent on `window` with `detail = { changedTags, source }`. Features that need to react without owning the active tab (e.g. the Today dashboard's live-update subscriber) listen on the CustomEvent. See [technical-decisions.md → Why SSE is primary](technical-decisions.md) and [architecture.md → Cross-client change broadcast](architecture.md#cross-client-change-broadcast-sse--polling-fallback) for the server-side fan-out, and [sse-traefik.md](sse-traefik.md) for the reverse-proxy configuration.
 
 ### Cross-section Auto-refresh Invariant
 
@@ -270,6 +270,8 @@ The app uses the Wandergeek **bottom nav** as the canonical navigation surface, 
 - **Deep-link router** (`features/deeplink-router.js`, `window.handleDeepLinks`): URL hash and `tgWebAppStartParam` still route to any section by name (including `health`, which renders under the "Vitals" nav label). Deep links land directly on the section with the bottom nav highlighting it and the Telegram BackButton visible, bypassing Today.
 
 ## Data Flow
+
+Cross-client invalidation is SSE-first: `data-store.js` opens an EventSource against `/api/changes/stream` and falls back to 30s `/api/changes?since=` polling only after 3 consecutive `onerror` events within 30s (or when `EventSource` is undefined). See [Change Detection](#change-detection) above.
 
 ### Write path
 
