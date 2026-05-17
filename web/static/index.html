@@ -1002,8 +1002,13 @@
         <input type="hidden" id="food-log-is-meal">
 
         <div class="wg-food-modal__body">
+            <label class="wg-food-modal__parse-ai">
+                <input type="checkbox" id="food-parse-ai">
+                <span>Parse my meal from a description</span>
+            </label>
+
             <!-- Weight + Barcode above name so autocomplete doesn't cover them -->
-            <div class="wg-food-modal__row wg-food-modal__row--quick">
+            <div class="wg-food-modal__row wg-food-modal__row--quick wg-food-modal__manual-only">
                 <div class="wg-food-modal__field wg-food-modal__field--weight">
                     <label for="food-weight" class="wg-food-modal__label">Weight (g)</label>
                     <div class="wg-gloss--inset wg-food-modal__input-wrap">
@@ -1025,11 +1030,14 @@
             </div>
 
             <div class="wg-food-modal__field wg-food-modal__field--name">
-                <label for="food-name" class="wg-food-modal__label">Food name</label>
+                <label for="food-name" class="wg-food-modal__label wg-food-modal__label--manual">Food name</label>
+                <label for="food-name" class="wg-food-modal__label wg-food-modal__label--ai">Describe your meal</label>
                 <p id="food-search-status" class="food-search-status wg-food-modal__status hidden"
                     aria-live="polite"></p>
                 <div class="wg-gloss--inset wg-food-modal__input-wrap wg-food-modal__name-wrap">
-                    <input type="text" id="food-name" class="wg-food-modal__input" placeholder="e.g. wagyu kebab"
+                    <input type="text" id="food-name" class="wg-food-modal__input"
+                        placeholder="e.g. wagyu kebab"
+                        data-ai-placeholder="200g grilled chicken with a cup of rice"
                         autocomplete="off">
                     <div id="food-autocomplete-list" class="autocomplete-items hidden"></div>
                 </div>
@@ -1037,8 +1045,8 @@
 
             <div id="food-product-link-container" class="wg-food-modal__product-link hidden"></div>
 
-            <div class="wg-food-modal__section-label wg-section-label">Macros · per 100g</div>
-            <div class="wg-food-modal__row wg-food-modal__row--macros">
+            <div class="wg-food-modal__section-label wg-section-label wg-food-modal__manual-only">Macros · per 100g</div>
+            <div class="wg-food-modal__row wg-food-modal__row--macros wg-food-modal__manual-only">
                 <div class="wg-food-modal__field">
                     <label for="food-carbs" class="wg-food-modal__label">Carbs</label>
                     <div class="wg-gloss--inset wg-food-modal__input-wrap">
@@ -1061,12 +1069,12 @@
                     </div>
                 </div>
             </div>
-            <label class="wg-food-modal__per100g">
+            <label class="wg-food-modal__per100g wg-food-modal__manual-only">
                 <input type="checkbox" id="food-per-100g" checked tabindex="-1">
                 <span>Values are per 100g</span>
             </label>
 
-            <div class="wg-food-modal__field">
+            <div class="wg-food-modal__field wg-food-modal__manual-only">
                 <label for="food-calories" class="wg-food-modal__label">Total calories</label>
                 <div class="wg-gloss--inset wg-food-modal__input-wrap">
                     <input type="number" id="food-calories"

@@ -9509,6 +9509,52 @@ textarea.wg-input {
     margin: 0;
 }
 
+/* "Parse with AI" mode (Plan 2026-05-17). The checkbox at the top of the
+   modal body toggles the modal root into AI mode, which hides the
+   weight/barcode/macros/per-100g/calories blocks and swaps the food-name
+   label to "Describe your meal". Visual values come from existing
+   --wg-food-modal-* + --space-* tokens; no inline styles, no hardcoded
+   colors. */
+.wg-food-modal__parse-ai {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-2);
+    font-weight: var(--font-weight-normal);
+    cursor: pointer;
+}
+
+.wg-food-modal__parse-ai input {
+    margin: 0;
+}
+
+.wg-food-modal__label--ai {
+    display: none;
+}
+
+.wg-food-modal--ai-mode .wg-food-modal__manual-only {
+    display: none;
+}
+
+.wg-food-modal--ai-mode .wg-food-modal__label--manual {
+    display: none;
+}
+
+.wg-food-modal--ai-mode .wg-food-modal__label--ai {
+    display: block;
+}
+
+.wg-food-modal--ai-mode .wg-food-modal__input-wrap.wg-food-modal__name-wrap {
+    min-height: calc(var(--wg-food-modal-input-pad-y) * 2 + var(--font-size-md) * 3);
+    align-items: flex-start;
+}
+
+.wg-food-modal--ai-mode #food-name {
+    min-height: calc(var(--font-size-md) * 3);
+    line-height: 1.4;
+}
+
 .wg-food-modal__header-actions {
     display: flex;
     gap: var(--space-xs);
