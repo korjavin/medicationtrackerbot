@@ -552,7 +552,6 @@ async function saveWorkoutSessionDetails() {
             });
             if (statusResult === null) {
                 await rollbackOptimistic();
-                if (anyMutationSucceeded) await invalidateWorkoutCache();
                 return;
             }
             anyMutationSucceeded = true;
