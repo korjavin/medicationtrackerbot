@@ -134,8 +134,8 @@ Findings audit and cross-cutting recommendation came from the parent conversatio
 - [x] verify the `pnpm test` test coverage for converted handlers includes both success and rollback paths — confirmed via `it('rolls back ...')` assertions across `features.bp.test.js`, `features.weight.test.js`, `features.meds.test.js` (confirm/skip/log-past/delete-future/saveMedication/deleteMed), `features.diary.test.js` (add/edit/delete), `features.food-log.test.js`, `features.food-meals.test.js`, `features.food-products.test.js`, `features.workout-sessions.test.js` (26 optimistic/rollback assertions); `features.food-photo.test.js` exercises the cache-shape mutator (`appendPhotoItemsToFoodCache`) directly and leans on the integration coverage of the upload flow.
 
 ### Task 9: [Final] Update documentation
-- [ ] add a short subsection in `docs/frontend.md` documenting the optimistic-update pattern + `applyOptimistic` helper (placement: near "Local-First Read Resilience")
-- [ ] document the design rule: write handlers MUST use `applyOptimistic`, never `invalidateTags + loadX` (cross-link from CLAUDE.md "Critical Rules" section)
+- [x] add a short subsection in `docs/frontend.md` documenting the optimistic-update pattern + `applyOptimistic` helper (placement: near "Local-First Read Resilience")
+- [x] document the design rule: write handlers MUST use `applyOptimistic`, never `invalidateTags + loadX` (cross-link from CLAUDE.md "Critical Rules" section)
 
 ## Technical Details
 

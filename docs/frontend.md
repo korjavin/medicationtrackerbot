@@ -87,16 +87,64 @@ Each consumer mounts a `WGStaleBadge.mountFromKey({ slot, key: <same key> })` ch
 
 **How to add an allowlist entry** — open `architecture.offline-coverage.test.js`, append to the `ALLOWLIST` const an object of the form `{ file: 'your-file.js', reason: '<one-line justification>' }`, then re-run `pnpm test -- architecture.offline-coverage`. The justification must explain why the file does not need an offline-aware read primitive — current acceptable categories are pure UI helpers (e.g. `auth-flow.js`), event-driven indicators (`call-indicator.js`), pure routing (`deeplink-router.js`), transient one-shot fetches whose failure mode is "the widget simply doesn't appear" (`tz-plan-banner.js`, `elevenlabs-call.js`), DOM observers (`modal-history.js`), and aggregation/render contracts that consume caches seeded elsewhere (`today.js`). If your file does not fit one of those shapes, adopt a primitive instead.
 
+### Optimistic Write Updates
+
+Every online write handler in `web/static/js/features/*.js` paints the post-mutation state **before** the network round-trip resolves, so the user's own action feels instant. The mechanism is `DataStore.applyOptimistic(key, mutator, tags)` (`web/static/js/data-store.js`).
+
+**`applyOptimistic(key, mutator, tags)`** — read the current cached payload, apply `mutator(prev) → next`, write the projected state back via `setCachedWithTags`, and dispatch `datastore:changed` with `{ source: 'optimistic', changedTags: tags }` so `requestTabRefresh` subscribers (Today tiles, list views) repaint synchronously. Returns a handle:
+
+```
+const handle = await DataStore.applyOptimistic('bp', prev => ({
+    ...prev,
+    readings: [newReading, ...(prev?.readings ?? [])],
+}), ['bp']);
+
+try {
+    const serverPayload = await offlineAwareApiCall('/api/bp', { method: 'POST', body });
+    await handle.commit(serverPayload);   // overwrite with authoritative state (pass null to keep optimistic state)
+} catch (err) {
+    await handle.rollback();              // restore prior snapshot + invalidateTags so next read goes to network
+    throw err;
+}
+```
+
+`commit` / `rollback` are idempotent — calling either a second time is a no-op, so the handle can be threaded through try/catch without double-settle risk. A `null` / `undefined` payload from the mutator clears the cache entry (used by `workout_next` after the current session finishes).
+
+**Why writes use this, not `invalidateTags + loadX`**: `invalidateTags` clears caches but does *not* dispatch `datastore:changed` (only the 30s poll's `applyChangesPayload` does). Handlers that cleared the cache and called `loadX()` therefore missed the cache they just emptied, went to network, and held the UI through the round-trip — a same-device latency regression the user perceives as "save lag". The optimistic helper writes the projected state and dispatches the event up-front; the server response reconciles via `commit`.
+
+**Per-surface mutator shapes** — the canonical mutator for each write surface (what gets prepended / flipped / spliced):
+
+| Surface | Cache key(s) | Mutator |
+|---------|--------------|---------|
+| BP save / delete | `bp` | prepend / filter the reading row |
+| Weight save / delete | `weight` | prepend / filter the log row |
+| Food save / delete | `food_<YYYY-MM-DD>_v2`, `todayFoodKey(date)` | append / filter the entry, recompute totals |
+| Food photo upload | `food_<date>_day` | append returned items into the cached day payload |
+| Meals save / delete | meals cache | append / filter the meal definition |
+| Products save | products cache | append the new product |
+| Medication confirm / skip / log-past / edit-history / delete-future | `medications`, `next_intake`, `history` | flip the matched `intake_log` row's `status`, recompute next via `MedicationUtils.getNextScheduledDate` |
+| Medication add / edit / delete / archive | `medications` | upsert / filter the medication row |
+| Workout finish | `workout_next`, sessions history cache | null out `workout_next`; flip session status in history |
+| Workout add / delete exercise log | session details cache + `WorkoutSessionsState.logs` | push / splice the log (new logs use `local_*` ids, replaced on commit) |
+| Workout ad-hoc start / complete / pre-skip / cancel / snooze / skip | `workout_next` | synthesise the post-action session/state |
+| Diary add / edit / delete | `diary_notes` | prepend (with `local_*` id, replaced on commit) / patch / filter the note |
+
+**Rollback semantics** — on POST rejection: restore the captured snapshot (or clear the entry if the cache was cold), call `invalidateTags(tags)` so the next read goes to network and authoritatively resyncs, and surface a toast via the existing offline-write error UI where applicable.
+
+**Relationship to the poll path** — `applyChangesPayload` (the 30s `/api/changes` poll) remains the canonical source of truth for cross-device sync. Optimistic state is layered on top: a remote change reconciles via `applyChangesPayload`'s own `invalidateTags + dispatch` flow, which the screen's normal `loadX()` listener picks up on the next refresh.
+
+**Design rule** — write handlers MUST use `applyOptimistic`, never `invalidateTags + loadX`. The latter is reserved for read-only refreshes (e.g. the `invalidateWorkoutCache` helper) and for the rollback path inside `applyOptimistic` itself.
+
 ### Change Detection
 
 Polls `/api/changes?since=` every 30s (SSE disabled due to HTTP/2 proxy issues — see [technical-decisions.md](technical-decisions.md)). When the poll reports invalidated tags, `data-store.js` both calls `window.requestTabRefresh({ changedTags, source })` (debounced 500ms, reloads the active tab) **and** dispatches a `datastore:changed` CustomEvent on `window` with `detail = { changedTags, source }`. Features that need to react without owning the active tab (e.g. the Today dashboard's live-update subscriber) listen on the CustomEvent.
 
 ### Cross-section Auto-refresh Invariant
 
-After any local create/update/delete, the originating screen must do **both**:
+After any local create/update/delete, the originating screen does **both** in one step via `applyOptimistic(key, mutator, tags)` (see [Optimistic Write Updates](#optimistic-write-updates) above):
 
-1. Call its own loader to repaint in place (e.g. `loadBPReadings()`, `loadNotes()`).
-2. Call `window.DataStore.invalidateTags([tag])` so Today tiles and other listeners refresh without a tab switch.
+1. The mutator writes the projected post-mutation state into the cache, so the originating screen's loader (and any other consumer of the same key) repaints immediately on the dispatched `datastore:changed` event.
+2. The dispatched event carries `changedTags: tags` so Today tiles and other listeners refresh without a tab switch. On rollback the handle calls `invalidateTags(tags)` so the next read goes to network.
 
 Tag vocabulary: `bp`, `weight`, `medications`, `history`, `food`, `workouts`, `health-notes`. Tags are also emitted server-side by SQLite triggers (migration 027+) and surface through the change-polling path above, so remote edits propagate by the same route.
 
