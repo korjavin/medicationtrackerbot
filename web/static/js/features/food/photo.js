@@ -217,6 +217,25 @@ async function uploadFoodPhoto(input) {
             const data = await res.json().catch(() => null);
             const items = (data && Array.isArray(data.items)) ? data.items : [];
 
+            // Optimistic projection: append the server-returned items into the
+            // day's cached payload before triggering the re-renders. This keeps
+            // the macros card + list in sync without waiting on a refetch round
+            // trip; the subsequent invalidateTags + reloads reconcile against
+            // authoritative server-grouped data.
+            if (items.length && window.DataStore && typeof window.DataStore.applyOptimistic === 'function') {
+                const localDay = toISODateLocalForPhoto(eatenAt);
+                const v2Key = `food_${localDay}_v2`;
+                const dayKey = typeof todayFoodKey === 'function'
+                    ? todayFoodKey(eatenAt)
+                    : `food_${localDay}_day`;
+                const appendMutator = (prev) => appendPhotoItemsToFoodCache(prev, items);
+                const handles = [
+                    await window.DataStore.applyOptimistic(v2Key, appendMutator, ['food']),
+                    await window.DataStore.applyOptimistic(dayKey, appendMutator, ['food'])
+                ];
+                for (const h of handles) { try { await h.commit(null); } catch (_) { /* best-effort */ } }
+            }
+
             await window.DataStore.invalidateTags(['food']);
             if (typeof todayFoodKey === 'function' && window.DataStore.clearCached) {
                 await window.DataStore.clearCached(todayFoodKey(new Date()));
@@ -306,6 +325,64 @@ async function undoFoodPhotoLog(items, summary, originalCount) {
     if (summary && typeof summary.showRemoved === 'function') {
         summary.showRemoved(total);
     }
+}
+
+// toISODateLocalForPhoto mirrors features/food/log.js's toISODateLocal but is
+// duplicated here to keep photo.js callable without a hard dependency on
+// log.js load order. Returns YYYY-MM-DD in the user's local timezone.
+function toISODateLocalForPhoto(d) {
+    const date = d instanceof Date ? d : new Date(d);
+    if (Number.isNaN(date.getTime())) {
+        const now = new Date();
+        return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    }
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+// appendPhotoItemsToFoodCache returns the post-mutation `{ groups, weekStats? }`
+// payload after appending server-returned photo log items as a fresh single-row
+// group. The renderer + Today aggregator only consume `groups[*].{calories,
+// carbs, protein, fat, logs}`; we don't try to merge into an existing group.
+function appendPhotoItemsToFoodCache(prev, items) {
+    if (!Array.isArray(items) || items.length === 0) return prev;
+    const groups = Array.isArray(prev?.groups) ? prev.groups.map((g) => ({
+        ...g,
+        logs: Array.isArray(g.logs) ? g.logs.slice() : []
+    })) : [];
+
+    const newGroup = {
+        name: items[0]?.name || 'Snack',
+        time: '',
+        logs: items.map((it) => ({
+            id: it.id,
+            name: it.name || '',
+            weight: it.weight || 0,
+            carbs: it.carbs || 0,
+            protein: it.protein || 0,
+            fat: it.fat || 0,
+            calories: it.calories || 0,
+            eaten_at: it.eaten_at || null,
+            product_id: it.product_id || null
+        }))
+    };
+    let cals = 0, carbs = 0, protein = 0, fat = 0;
+    for (const l of newGroup.logs) {
+        if (Number.isFinite(l.calories)) cals += l.calories;
+        if (Number.isFinite(l.carbs)) carbs += l.carbs;
+        if (Number.isFinite(l.protein)) protein += l.protein;
+        if (Number.isFinite(l.fat)) fat += l.fat;
+    }
+    newGroup.calories = cals;
+    newGroup.carbs = carbs;
+    newGroup.protein = protein;
+    newGroup.fat = fat;
+    groups.push(newGroup);
+
+    const out = { groups };
+    if (prev && Object.prototype.hasOwnProperty.call(prev, 'weekStats')) {
+        out.weekStats = prev.weekStats;
+    }
+    return out;
 }
 
 window.FoodPhoto = window.FoodPhoto || {};
