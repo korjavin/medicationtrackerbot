@@ -586,8 +586,20 @@ async function saveWorkoutSessionDetails() {
                 });
             }
             if (attempted && logResult === null) {
-                if (!anyMutationSucceeded) await rollbackOptimistic();
-                if (anyMutationSucceeded) await invalidateWorkoutCache();
+                if (!anyMutationSucceeded) {
+                    await rollbackOptimistic();
+                } else {
+                    // Status PUT succeeded but a later log update failed. The
+                    // optimistic status flip reflects authoritative server
+                    // state; settle the handles so pendingOptimistic clears
+                    // and future fetchFresh calls aren't permanently
+                    // short-circuited, then invalidate so the next read pulls
+                    // a clean reconciled payload.
+                    for (const h of optimisticHandles) {
+                        try { await h.commit(null); } catch (_) { /* best-effort */ }
+                    }
+                    await invalidateWorkoutCache();
+                }
                 return;
             }
             if (attempted) anyMutationSucceeded = true;

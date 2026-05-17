@@ -742,4 +742,52 @@ describe('features/workout/sessions.js — split-file integration', () => {
       expect(cache.has('workout_history')).toBe(false);
     }
   });
+
+  it('saveWorkoutSessionDetails settles optimistic handles on partial failure (status ok, log update fails)', async () => {
+    const { window, document } = env;
+    installApiCache(window, {
+      workout_history: {
+        sessions: [{
+          session: { id: 42, status: 'in_progress' },
+          group_name: 'Push',
+          exercises_count: 1,
+          exercises_completed: 1
+        }],
+        miband: []
+      }
+    });
+    window.loadWorkoutHistoryTab = vi.fn();
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.originalStatus = 'in_progress';
+    window.WorkoutSessionsState.logs = [{
+      id: 7,
+      exercise_name: 'Bench',
+      sets_completed: 3,
+      reps_completed: 8,
+      weight_kg: 80,
+      notes: ''
+    }];
+
+    window.renderWorkoutSessionInfo(document.getElementById('workout-session-info'), {
+      id: 42, status: 'in_progress', scheduled_date: '2026-04-22', scheduled_time: '09:00', variant_name: 'Push'
+    });
+    document.getElementById('session-status-select').value = 'completed';
+
+    // Status PUT succeeds, but the subsequent log update returns null
+    // (offline / 5xx). Without the partial-success commit, the optimistic
+    // handles never settle and pendingOptimistic stays >0 forever — every
+    // future fetchFresh for workout_history / workout_next would short-circuit.
+    window.apiCall = vi.fn(async (endpoint) => {
+      if (endpoint.startsWith('/api/workout/sessions/status')) return { ok: true };
+      if (endpoint.startsWith('/api/workout/sessions/logs/update')) return null;
+      return [];
+    });
+
+    await window.saveWorkoutSessionDetails();
+
+    // Both optimistic keys must be free of a pending handle so future reads
+    // can refresh. This is the property whose violation caused the bug.
+    expect(window.DataStore.hasPendingOptimistic('workout_history')).toBe(false);
+    expect(window.DataStore.hasPendingOptimistic('workout_next')).toBe(false);
+  });
 });
