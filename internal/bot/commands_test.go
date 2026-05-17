@@ -2,6 +2,8 @@ package bot
 
 import (
 	"context"
+	"encoding/json"
+	"net/url"
 	"sort"
 	"strings"
 	"testing"
@@ -246,6 +248,156 @@ func TestBuildHelpText_OmitsDisabledSections(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// drainSetMyCommands consumes requestChan until a setMyCommands entry is
+// observed (or the timeout fires) and returns the JSON-decoded command list
+// from the request body. Other intercepted requests are skipped.
+func drainSetMyCommands(t *testing.T, ch <-chan string, timeout time.Duration) []tgbotapi.BotCommand {
+	t.Helper()
+	deadline := time.After(timeout)
+	for {
+		select {
+		case entry := <-ch:
+			parts := strings.SplitN(entry, "|", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			path, body := parts[0], parts[1]
+			if !strings.Contains(path, "setMyCommands") {
+				continue
+			}
+			// requestChan stores a URL-unescaped form body. Parsing as
+			// query values restores `commands=<json>` so the JSON payload
+			// can be decoded without manual splitting.
+			vals, err := url.ParseQuery(body)
+			if err != nil {
+				t.Fatalf("failed to parse setMyCommands body %q: %v", body, err)
+			}
+			raw := vals.Get("commands")
+			if raw == "" {
+				t.Fatalf("setMyCommands body missing commands key: %s", body)
+			}
+			var cmds []tgbotapi.BotCommand
+			if err := json.Unmarshal([]byte(raw), &cmds); err != nil {
+				t.Fatalf("failed to decode commands JSON %q: %v", raw, err)
+			}
+			return cmds
+		case <-deadline:
+			t.Fatalf("timed out waiting for setMyCommands request")
+			return nil
+		}
+	}
+}
+
+func TestBot_RegisterCommands_PostsEnabledCommands(t *testing.T) {
+	env := setupBotTest(t)
+	defer env.teardown()
+
+	// Food intake defaults to disabled in the settings table; enable it so
+	// the all-flags-on assertion covers every routed command.
+	if err := env.s.Settings.SetFoodIntakeEnabled(context.Background(), true); err != nil {
+		t.Fatalf("enable food intake: %v", err)
+	}
+	if err := env.b.registerCommands(context.Background()); err != nil {
+		t.Fatalf("registerCommands with all flags on: %v", err)
+	}
+
+	cmds := drainSetMyCommands(t, env.requestChan, time.Second)
+	got := map[string]string{}
+	for _, c := range cmds {
+		got[c.Command] = c.Description
+	}
+	// All-flags-on body must contain every spec entry (every routed command,
+	// since defaults in the settings repo are all enabled).
+	for _, sp := range commandSpecs {
+		desc, ok := got[sp.Name]
+		if !ok {
+			t.Errorf("expected setMyCommands body to include %q, got keys: %v", sp.Name, sortedKeys(boolMap(got)))
+		}
+		if desc != sp.Description {
+			t.Errorf("setMyCommands description for %q = %q, want %q", sp.Name, desc, sp.Description)
+		}
+	}
+
+	// Toggle BP off via the underlying settings repo and re-register. The
+	// new body must omit BP commands but keep weight commands so the test
+	// proves the filter is per-flag rather than all-or-nothing.
+	if err := env.s.Settings.SetBloodPressureEnabled(context.Background(), false); err != nil {
+		t.Fatalf("disable BP: %v", err)
+	}
+	if err := env.b.registerCommands(context.Background()); err != nil {
+		t.Fatalf("registerCommands with BP off: %v", err)
+	}
+	cmds = drainSetMyCommands(t, env.requestChan, time.Second)
+	got = map[string]string{}
+	for _, c := range cmds {
+		got[c.Command] = c.Description
+	}
+	for _, name := range []string{"bp", "bphistory", "bpstats", "bpgoal"} {
+		if _, ok := got[name]; ok {
+			t.Errorf("expected %q absent from setMyCommands body with BP disabled", name)
+		}
+	}
+	for _, name := range []string{"weight", "weighthistory", "goal", "start", "help"} {
+		if _, ok := got[name]; !ok {
+			t.Errorf("expected %q present in setMyCommands body with BP disabled", name)
+		}
+	}
+}
+
+func boolMap(m map[string]string) map[string]bool {
+	out := make(map[string]bool, len(m))
+	for k := range m {
+		out[k] = true
+	}
+	return out
+}
+
+func TestBot_RegisterCommands_FailureDoesNotBlockPolling(t *testing.T) {
+	env := setupBotTestCustom(t, func(path, body string) string {
+		if strings.Contains(path, "setMyCommands") {
+			// Mirror Telegram's not-ok shape so MakeRequest returns an
+			// error to registerCommands. Start() must swallow that error
+			// and continue to message routing.
+			return `{"ok":false, "error_code":500, "description":"internal server error"}`
+		}
+		return `{"ok":true, "result": {"message_id": 123, "chat": {"id": 123}}}`
+	})
+	defer env.teardown()
+
+	err := env.b.registerCommands(context.Background())
+	if err == nil {
+		t.Fatalf("expected registerCommands to surface the setMyCommands failure")
+	}
+
+	// Drain the failed setMyCommands request from the channel so subsequent
+	// message-routing assertions don't see it.
+	select {
+	case <-env.requestChan:
+	case <-time.After(time.Second):
+		t.Fatalf("expected captured setMyCommands request")
+	}
+
+	// /help must still route normally — the failure path in registerCommands
+	// is logged and swallowed (see Start), so the bot keeps serving commands.
+	msg := &tgbotapi.Message{
+		Chat: &tgbotapi.Chat{ID: 123},
+		Text: "/help",
+		From: &tgbotapi.User{ID: 123456},
+		Entities: []tgbotapi.MessageEntity{
+			{Type: "bot_command", Offset: 0, Length: 5},
+		},
+	}
+	env.b.handleMessage(msg)
+	select {
+	case body := <-env.messageChan:
+		if !strings.Contains(body, "Medication Tracker Bot") {
+			t.Errorf("expected /help response after setMyCommands failure, got: %s", body)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for /help response after setMyCommands failure")
 	}
 }
 

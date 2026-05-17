@@ -138,24 +138,24 @@ Single-user system, default scope only, no per-language variants.
 - [x] `go test ./internal/bot/...` — must pass.
 
 ### Task 3: Add `registerCommands` and call on startup
-- [ ] in `internal/bot/commands.go`, add
+- [x] in `internal/bot/commands.go`, add
       `func (b *Bot) registerCommands(ctx context.Context) error`:
       load flags via `b.getFeatureFlags(ctx)`, map
       `enabledSpecs(flags)` to `[]tgbotapi.BotCommand`, build
       `tgbotapi.NewSetMyCommands(cmds...)`, call `b.api.Request(cfg)`.
-- [ ] in `internal/bot/bot.go` `Start()` (~line 239), call
+- [x] in `internal/bot/bot.go` `Start()` (~line 239), call
       `b.registerCommands(ctx)` **before** `GetUpdatesChan`. On error,
       `slog.Warn("failed to register bot commands", "error", err)` and
       continue — do not abort startup.
-- [ ] write `TestBot_RegisterCommands_PostsEnabledCommands` —
+- [x] write `TestBot_RegisterCommands_PostsEnabledCommands` —
       extend the httptest mock in `common_test.go` to capture
       `/bot<token>/setMyCommands` request bodies; assert with all flags
       on, body matches `commandSpecs`; assert with BP off, BP commands
       are absent.
-- [ ] write `TestBot_RegisterCommands_FailureDoesNotBlockPolling` —
+- [x] write `TestBot_RegisterCommands_FailureDoesNotBlockPolling` —
       mock returns HTTP 500 for `setMyCommands` but `{"ok":true}` for
       `getUpdates`; assert the bot still handles a subsequent `/help`.
-- [ ] `go test ./internal/bot/...` — must pass.
+- [x] `go test ./internal/bot/...` — must pass.
 
 ### Task 4: Poll `change_events` for settings changes
 - [ ] add `(b *Bot) watchSettingsChanges(ctx context.Context, interval time.Duration)`:
