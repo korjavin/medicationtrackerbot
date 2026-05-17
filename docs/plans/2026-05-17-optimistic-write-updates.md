@@ -127,11 +127,11 @@ Findings audit and cross-cutting recommendation came from the parent conversatio
 - [x] run `pnpm test` — must pass before next task
 
 ### Task 8: Verify acceptance criteria
-- [ ] grep `web/static/js/features` for `invalidateTags` followed by an immediate `loadX()` — every remaining instance is justified (read-only refresh, not a write handler)
-- [ ] run full frontend test suite: `pnpm test`
-- [ ] run Go test suite: `go test ./...` (no Go changes expected, but confirm no API contract drift)
-- [ ] run architecture tests — confirm no new `window.*` globals introduced (`tests/architecture.globals.test.js`) and no inline `.style.` assignments added (frontend rule 3)
-- [ ] verify the `pnpm test` test coverage for converted handlers includes both success and rollback paths
+- [x] grep `web/static/js/features` for `invalidateTags` followed by an immediate `loadX()` — every remaining instance is justified (read-only refresh, not a write handler). Remaining invocations fall in three justified buckets: (a) the `invalidateWorkoutCache` helper in `features/workout/index.js`; (b) post-`handle.commit(null)` reconciliations that fetch authoritative server state after the optimistic write (the canonical pattern documented in `features/food/log.js:459` and applied uniformly across BP / Weight / Food / Meds / Diary handlers); (c) non-write paths outside this plan's scope — the inventory restock click handler (`features/meds.js:808`, narrow in-memory update with re-render), the food-targets settings save (`features/food/log.js:1198`), and the photo upload retry/fallback branch (`features/food/photo.js:300`).
+- [x] run full frontend test suite: `pnpm test` — 2249 passed, 29 skipped. One pre-existing failure (`health.dexie-hydration.test.js` TZ-mismatch fallback) reproduces identically on master and is environment-dependent (machine TZ == sentinel `Europe/Berlin`); not in scope for this plan.
+- [x] run Go test suite: `go test ./...` — all packages pass, no API contract drift.
+- [x] run architecture tests — `architecture.globals.test.js`, `architecture.inline-styles.test.js`, `architecture.design-tokens.test.js`, `architecture.no-inline-handlers.test.js`, `architecture.wg-primitives.test.js` all pass; no new `window.*` globals introduced and no inline `.style.` assignments added.
+- [x] verify the `pnpm test` test coverage for converted handlers includes both success and rollback paths — confirmed via `it('rolls back ...')` assertions across `features.bp.test.js`, `features.weight.test.js`, `features.meds.test.js` (confirm/skip/log-past/delete-future/saveMedication/deleteMed), `features.diary.test.js` (add/edit/delete), `features.food-log.test.js`, `features.food-meals.test.js`, `features.food-products.test.js`, `features.workout-sessions.test.js` (26 optimistic/rollback assertions); `features.food-photo.test.js` exercises the cache-shape mutator (`appendPhotoItemsToFoodCache`) directly and leans on the integration coverage of the upload flow.
 
 ### Task 9: [Final] Update documentation
 - [ ] add a short subsection in `docs/frontend.md` documenting the optimistic-update pattern + `applyOptimistic` helper (placement: near "Local-First Read Resilience")
