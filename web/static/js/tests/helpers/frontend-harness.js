@@ -52,6 +52,7 @@ const FOOD_PHOTO_SUMMARY_JS = path.join(REPO_ROOT, 'web/static/js/features/food-
 // db.js (My Meals + Food DB browse), and finally index.js (orchestrator).
 const FOOD_PRODUCTS_JS = path.join(REPO_ROOT, 'web/static/js/features/food/products.js');
 const FOOD_SCANNER_JS = path.join(REPO_ROOT, 'web/static/js/features/food/scanner.js');
+const FOOD_AI_UNDO_JS = path.join(REPO_ROOT, 'web/static/js/features/food/ai-undo.js');
 const FOOD_PHOTO_JS = path.join(REPO_ROOT, 'web/static/js/features/food/photo.js');
 const FOOD_LOG_JS = path.join(REPO_ROOT, 'web/static/js/features/food/log.js');
 const FOOD_MEALS_JS = path.join(REPO_ROOT, 'web/static/js/features/food/meals.js');
@@ -286,6 +287,7 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   // wires handlers that live in those siblings.
   evalFileCached(window, FOOD_PRODUCTS_JS);
   evalFileCached(window, FOOD_SCANNER_JS);
+  evalFileCached(window, FOOD_AI_UNDO_JS);
   evalFileCached(window, FOOD_PHOTO_JS);
   evalFileCached(window, FOOD_LOG_JS);
   evalFileCached(window, FOOD_MEALS_JS);
