@@ -84,13 +84,13 @@ After a write completes on the server (regardless of which client or which trans
 - [x] run `go test ./internal/server/...` — must pass before next task
 
 ### Task 3: Rewrite `handleChangesStream` to use the broker
-- [ ] replace 5s ticker + `ListChangedTagsSince` polling loop in `internal/server/changes_handlers.go:98` with `select` on `hub.Subscribe(ctx)`, `time.After(15*time.Second)` keepalive, `r.Context().Done()`
-- [ ] preserve initial-state send after subscribing (avoid missing events between subscribe and first query)
-- [ ] preserve 10-min `changeStreamMaxSessionAge` forced recycle (lets aggressive Traefik idle timeouts coexist)
-- [ ] preserve 40-slot semaphore
-- [ ] preserve `X-Accel-Buffering: no`, no `Content-Length`, no `Connection: keep-alive` hop-by-hop header
-- [ ] add `TestHandleChangesStreamFanout`, `TestHandleChangesStreamShutdown`, `TestHandleChangesStreamUnauthorized` in `changes_handlers_test.go`
-- [ ] run `go test ./internal/server/...` — must pass before next task
+- [x] replace 5s ticker + `ListChangedTagsSince` polling loop in `internal/server/changes_handlers.go:98` with `select` on `hub.Subscribe(ctx)`, `time.After(15*time.Second)` keepalive, `r.Context().Done()`
+- [x] preserve initial-state send after subscribing (avoid missing events between subscribe and first query)
+- [x] preserve 10-min `changeStreamMaxSessionAge` forced recycle (lets aggressive Traefik idle timeouts coexist)
+- [x] preserve 40-slot semaphore
+- [x] preserve `X-Accel-Buffering: no`, no `Content-Length`, no `Connection: keep-alive` hop-by-hop header
+- [x] add `TestHandleChangesStreamFanout`, `TestHandleChangesStreamShutdown`, `TestHandleChangesStreamUnauthorized` in `changes_handlers_test.go`
+- [x] run `go test ./internal/server/...` — must pass before next task
 
 ### Task 4: Flip client default to SSE-first
 - [ ] modify `web/static/js/data-store.js:596 startChangePolling()`: call `startChangeStream()` first; only fall through to `startChangePollInterval()` on immediate failure or when `EventSource === undefined`
