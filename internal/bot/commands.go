@@ -15,13 +15,16 @@ import (
 //
 // Name is the command without the leading slash. Description must fit within
 // Telegram's 256-char limit and is shown verbatim in the autocomplete menu.
-// Section is the /help grouping header. EnabledIf returns whether the command
-// should be exposed given a featureFlags snapshot; a nil EnabledIf means the
-// command is always enabled.
+// Section is the /help grouping header. Example is an optional usage hint
+// appended to the /help line (Telegram's setMyCommands has a 256-char
+// description limit so examples are /help-only). EnabledIf returns whether
+// the command should be exposed given a featureFlags snapshot; a nil
+// EnabledIf means the command is always enabled.
 type commandSpec struct {
 	Name        string
 	Description string
 	Section     string
+	Example     string
 	EnabledIf   func(featureFlags) bool
 }
 
@@ -60,6 +63,7 @@ var commandSpecs = []commandSpec{
 
 	// Blood Pressure & Weight.
 	{Name: "bp", Description: "Log blood pressure (systolic diastolic [pulse])", Section: "Blood Pressure & Weight",
+		Example:   "/bp 130 80 72",
 		EnabledIf: func(f featureFlags) bool { return f.BP }},
 	{Name: "bphistory", Description: "View recent blood pressure history (last 10 readings)", Section: "Blood Pressure & Weight",
 		EnabledIf: func(f featureFlags) bool { return f.BP }},
@@ -68,10 +72,12 @@ var commandSpecs = []commandSpec{
 	{Name: "bpgoal", Description: "Set blood pressure goal (systolic diastolic)", Section: "Blood Pressure & Weight",
 		EnabledIf: func(f featureFlags) bool { return f.BP }},
 	{Name: "weight", Description: "Log weight in kilograms", Section: "Blood Pressure & Weight",
+		Example:   "/weight 75.5",
 		EnabledIf: func(f featureFlags) bool { return f.Weight }},
 	{Name: "weighthistory", Description: "View recent weight history (last 10 entries)", Section: "Blood Pressure & Weight",
 		EnabledIf: func(f featureFlags) bool { return f.Weight }},
 	{Name: "goal", Description: "Set weight goal (weight date)", Section: "Blood Pressure & Weight",
+		Example:   "/goal 110 2026-06-01",
 		EnabledIf: func(f featureFlags) bool { return f.Weight }},
 
 	// Workout.
@@ -84,16 +90,19 @@ var commandSpecs = []commandSpec{
 	{Name: "workouthistory", Description: "View recent workouts and your streak", Section: "Workout Commands",
 		EnabledIf: func(f featureFlags) bool { return f.Workout }},
 	{Name: "activity", Description: "Log any activity in natural language", Section: "Workout Commands",
-		EnabledIf: func(f featureFlags) bool { return f.Workout }},
+		Example:   "/activity 30min morning run",
+		EnabledIf: func(f featureFlags) bool { return f.Workout && f.HasActivityAI }},
 
 	// Food.
 	{Name: "intake", Description: "Log food intake (carbs protein fat weight [name])", Section: "Food Commands",
 		EnabledIf: func(f featureFlags) bool { return f.Food }},
 	{Name: "food", Description: "Log food using natural language", Section: "Food Commands",
-		EnabledIf: func(f featureFlags) bool { return f.Food }},
+		Example:   "/food 200g chicken breast with rice",
+		EnabledIf: func(f featureFlags) bool { return f.Food && f.HasFoodAI }},
 
 	// Notes.
-	{Name: "note", Description: "Save a personal diary note", Section: "Notes"},
+	{Name: "note", Description: "Save a personal diary note", Section: "Notes",
+		Example: "/note Feeling tired today"},
 
 	// Timezone.
 	{Name: "tz", Description: "Set your timezone by sharing your location", Section: "Timezone"},
@@ -115,7 +124,10 @@ func enabledSpecs(flags featureFlags) []commandSpec {
 // registerCommands pushes the current feature-flag-filtered command list to
 // Telegram's setMyCommands endpoint so the slash-command autocomplete menu
 // mirrors what /help shows. Telegram replaces the full list on each call, so
-// repeated invocations are safe and idempotent.
+// repeated invocations are safe and idempotent. The Bot caches the last
+// successfully posted list and skips the API call when nothing changed —
+// the "settings" change tag fires on reminder state and tab order updates
+// (see migration 027) so unfiltered polling would re-POST on every cycle.
 func (b *Bot) registerCommands(ctx context.Context) error {
 	flags := b.getFeatureFlags(ctx)
 	specs := enabledSpecs(flags)
@@ -126,6 +138,14 @@ func (b *Bot) registerCommands(ctx context.Context) error {
 			Description: s.Description,
 		})
 	}
+
+	b.lastRegisteredMu.Lock()
+	unchanged := commandListsEqual(b.lastRegisteredCommands, cmds)
+	b.lastRegisteredMu.Unlock()
+	if unchanged {
+		return nil
+	}
+
 	cfg := tgbotapi.NewSetMyCommands(cmds...)
 	resp, err := b.api.Request(cfg)
 	if err != nil {
@@ -134,30 +154,29 @@ func (b *Bot) registerCommands(ctx context.Context) error {
 	if !resp.Ok {
 		return fmt.Errorf("setMyCommands returned not-ok: %s", resp.Description)
 	}
+
+	b.lastRegisteredMu.Lock()
+	b.lastRegisteredCommands = cmds
+	b.lastRegisteredMu.Unlock()
 	return nil
 }
 
-// watchSettingsChanges polls the settings change_events stream and re-registers
-// the Telegram slash-command menu whenever a "settings" tag appears, so the
-// menu stays in sync with feature-flag toggles done in the web UI. Initial
-// register happens in Start() before this watcher starts, so the cursor is
-// seeded with "now" — events older than startup are ignored.
-//
-// Errors are logged and swallowed: a single failed tick must not stop the
-// watcher (or the bot) from picking up the next event. Returns when ctx is
-// cancelled.
-func (b *Bot) watchSettingsChanges(ctx context.Context, interval time.Duration) {
-	cursor, err := b.settingsChanges.GetLatestChangeCursor(ctx)
-	if err != nil {
-		slog.Warn("settings watcher: failed to read initial cursor", "error", err)
-		cursor = 0
+func commandListsEqual(a, b []tgbotapi.BotCommand) bool {
+	if len(a) != len(b) {
+		return false
 	}
-	b.pollSettingsChanges(ctx, interval, cursor)
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // pollSettingsChanges runs the watcher's polling loop starting from the given
-// cursor. Separated from watchSettingsChanges so tests can seed the cursor
-// synchronously and then race-free toggle a setting before the loop reads.
+// cursor. Start() samples the cursor synchronously before the initial
+// registerCommands so toggles landing in the race window are picked up on the
+// first tick instead of being silently dropped.
 func (b *Bot) pollSettingsChanges(ctx context.Context, interval time.Duration, cursor int64) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()

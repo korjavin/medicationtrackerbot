@@ -65,7 +65,10 @@ func TestCommandSpecs_CoversEveryRoutedCommand(t *testing.T) {
 }
 
 func TestEnabledSpecs_FiltersByFlag(t *testing.T) {
-	all := featureFlags{Medication: true, BP: true, Weight: true, Workout: true, Food: true}
+	// All section flags on AND AI presence flags on, so the "all enabled"
+	// case exposes every routed command. AI gating is exercised in its own
+	// case below.
+	all := featureFlags{Medication: true, BP: true, Weight: true, Workout: true, Food: true, HasActivityAI: true, HasFoodAI: true}
 
 	cases := []struct {
 		name        string
@@ -80,33 +83,39 @@ func TestEnabledSpecs_FiltersByFlag(t *testing.T) {
 		},
 		{
 			name:        "Medication off hides medication commands",
-			flags:       featureFlags{BP: true, Weight: true, Workout: true, Food: true},
+			flags:       featureFlags{BP: true, Weight: true, Workout: true, Food: true, HasActivityAI: true, HasFoodAI: true},
 			wantAbsent:  []string{"log", "next", "stock", "download"},
 			wantPresent: []string{"start", "help", "bp", "weight", "workout", "intake", "note", "tz"},
 		},
 		{
 			name:        "BP off hides BP commands but keeps weight",
-			flags:       featureFlags{Medication: true, Weight: true, Workout: true, Food: true},
+			flags:       featureFlags{Medication: true, Weight: true, Workout: true, Food: true, HasActivityAI: true, HasFoodAI: true},
 			wantAbsent:  []string{"bp", "bphistory", "bpstats", "bpgoal"},
 			wantPresent: []string{"weight", "weighthistory", "goal", "log", "workout"},
 		},
 		{
 			name:        "Weight off hides weight commands but keeps BP",
-			flags:       featureFlags{Medication: true, BP: true, Workout: true, Food: true},
+			flags:       featureFlags{Medication: true, BP: true, Workout: true, Food: true, HasActivityAI: true, HasFoodAI: true},
 			wantAbsent:  []string{"weight", "weighthistory", "goal"},
 			wantPresent: []string{"bp", "bphistory", "bpstats", "bpgoal", "log"},
 		},
 		{
 			name:        "Workout off hides workout commands including activity",
-			flags:       featureFlags{Medication: true, BP: true, Weight: true, Food: true},
+			flags:       featureFlags{Medication: true, BP: true, Weight: true, Food: true, HasActivityAI: true, HasFoodAI: true},
 			wantAbsent:  []string{"workout", "startnext", "workoutstatus", "workouthistory", "activity"},
 			wantPresent: []string{"log", "bp", "weight", "intake", "food"},
 		},
 		{
 			name:        "Food off hides food commands",
-			flags:       featureFlags{Medication: true, BP: true, Weight: true, Workout: true},
+			flags:       featureFlags{Medication: true, BP: true, Weight: true, Workout: true, HasActivityAI: true, HasFoodAI: true},
 			wantAbsent:  []string{"intake", "food"},
 			wantPresent: []string{"log", "bp", "weight", "workout", "note", "tz"},
+		},
+		{
+			name:        "AI services absent hide /activity and /food even with sections on",
+			flags:       featureFlags{Medication: true, BP: true, Weight: true, Workout: true, Food: true},
+			wantAbsent:  []string{"activity", "food"},
+			wantPresent: []string{"workout", "intake", "log", "bp", "weight"},
 		},
 		{
 			name:        "all flags off keeps only always-enabled commands",
@@ -154,7 +163,7 @@ func sortedKeys(m map[string]bool) []string {
 
 func TestBuildHelpText_RendersFromCommandSpecs(t *testing.T) {
 	b := &Bot{}
-	all := featureFlags{Medication: true, BP: true, Weight: true, Workout: true, Food: true}
+	all := featureFlags{Medication: true, BP: true, Weight: true, Workout: true, Food: true, HasActivityAI: true, HasFoodAI: true}
 	text := b.buildHelpText(all)
 
 	// Header line preserved.
@@ -210,27 +219,32 @@ func TestBuildHelpText_OmitsDisabledSections(t *testing.T) {
 	}{
 		{
 			name:              "workout off omits workout section and commands",
-			flags:             featureFlags{Medication: true, BP: true, Weight: true, Food: true},
+			flags:             featureFlags{Medication: true, BP: true, Weight: true, Food: true, HasActivityAI: true, HasFoodAI: true},
 			wantHeaderAbsent:  []string{"**Workout Commands:**"},
 			wantCommandAbsent: []string{"/workout ", "/startnext ", "/workoutstatus ", "/workouthistory ", "/activity "},
 		},
 		{
 			name:              "BP and Weight off omits combined section header",
-			flags:             featureFlags{Medication: true, Workout: true, Food: true},
+			flags:             featureFlags{Medication: true, Workout: true, Food: true, HasActivityAI: true, HasFoodAI: true},
 			wantHeaderAbsent:  []string{"**Blood Pressure & Weight:**"},
 			wantCommandAbsent: []string{"/bp ", "/bphistory ", "/bpstats ", "/bpgoal ", "/weight ", "/weighthistory ", "/goal "},
 		},
 		{
 			name:              "food off omits food section and commands",
-			flags:             featureFlags{Medication: true, BP: true, Weight: true, Workout: true},
+			flags:             featureFlags{Medication: true, BP: true, Weight: true, Workout: true, HasActivityAI: true, HasFoodAI: true},
 			wantHeaderAbsent:  []string{"**Food Commands:**"},
 			wantCommandAbsent: []string{"/intake ", "/food "},
 		},
 		{
 			name:              "medication off omits medication section and commands",
-			flags:             featureFlags{BP: true, Weight: true, Workout: true, Food: true},
+			flags:             featureFlags{BP: true, Weight: true, Workout: true, Food: true, HasActivityAI: true, HasFoodAI: true},
 			wantHeaderAbsent:  []string{"**Medication Commands:**"},
 			wantCommandAbsent: []string{"/log ", "/next ", "/stock ", "/download "},
+		},
+		{
+			name:              "AI off hides /food and /activity even when sections on",
+			flags:             featureFlags{Medication: true, BP: true, Weight: true, Workout: true, Food: true},
+			wantCommandAbsent: []string{"/activity ", "/food "},
 		},
 	}
 
@@ -518,11 +532,9 @@ func TestBot_WatchSettingsChanges_ReregistersOnFlagToggle(t *testing.T) {
 	defer cancel()
 
 	// Sample the cursor *before* spawning the watcher goroutine so the
-	// subsequent flag toggle is guaranteed to land after the cursor — the
-	// production wiring achieves this same ordering by calling
-	// GetLatestChangeCursor synchronously inside watchSettingsChanges before
-	// the ticker starts. We bypass that wrapper here to avoid the goroutine
-	// scheduling race with the toggle below.
+	// subsequent flag toggle is guaranteed to land after the cursor —
+	// production Start() achieves this same ordering by sampling the
+	// cursor synchronously before kicking off the polling goroutine.
 	startCursor, err := env.s.Settings.GetLatestChangeCursor(ctx)
 	if err != nil {
 		t.Fatalf("read start cursor: %v", err)

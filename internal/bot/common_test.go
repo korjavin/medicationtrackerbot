@@ -1,6 +1,8 @@
 package bot
 
 import (
+	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +16,15 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/workout"
 )
+
+// stubActivityAI is a no-op ActivityAIService used by integration tests that
+// don't exercise /activity directly but need a non-nil service so the
+// commandSpecs AI gate exposes /activity in the registered command list.
+type stubActivityAI struct{}
+
+func (stubActivityAI) ParseActivityDescription(ctx context.Context, description string) (*domain.ActivityLog, error) {
+	return nil, errors.New("stubActivityAI: not implemented")
+}
 
 type botTestEnv struct {
 	b           *Bot
@@ -80,6 +91,8 @@ func setupBotTestCustom(t *testing.T, handler func(path, body string) string) *b
 		exerciseSvc:     domain.NewExerciseService(s.Workout),
 		reminderSvc:     domain.NewReminderService(a),
 		food:            a,
+		foodAI:          &mockFoodAI{},
+		activityAI:      stubActivityAI{},
 		imports:         a,
 		tzUpdater:       &mockTZUpdater{},
 		allowedUserID:   123456,

@@ -81,11 +81,20 @@ type Bot struct {
 	// method without dragging the entire store through its signature.
 	settingsChanges SettingsChangeStore
 
-	// commandsPollInterval is the cadence at which watchSettingsChanges
-	// asks the settings change_events stream for new "settings" tags.
-	// Production defaults to 5s (see bot.New); tests override directly via
-	// the field for fast assertions.
+	// commandsPollInterval is the cadence at which the settings watcher
+	// asks the change_events stream for new "settings" tags. Production
+	// defaults to 5s (see bot.New); tests override directly via the field
+	// for fast assertions.
 	commandsPollInterval time.Duration
+
+	// lastRegisteredCommands caches the BotCommand list most recently
+	// pushed to Telegram's setMyCommands so registerCommands can skip the
+	// API call when nothing changed. The "settings" change tag is also
+	// inserted on reminder state, tab order, and similar non-flag updates
+	// (see migration 027), so without the cache the watcher would re-POST
+	// on every reminder cycle.
+	lastRegisteredMu       sync.Mutex
+	lastRegisteredCommands []tgbotapi.BotCommand
 }
 
 type featureFlags struct {
@@ -94,6 +103,14 @@ type featureFlags struct {
 	Weight     bool
 	Workout    bool
 	Food       bool
+
+	// HasActivityAI and HasFoodAI reflect whether the optional OpenAI-backed
+	// services are configured. /activity and /food rely on these, so the
+	// commandSpecs gate on them in addition to the user-toggleable section
+	// flags — surfacing a command that only ever replies "not configured"
+	// would be a worse UX than hiding it.
+	HasActivityAI bool
+	HasFoodAI     bool
 }
 
 func New(token string, allowedUserID int64, s *store.Repos, foodAI domain.FoodAIService, activityAI domain.ActivityAIService, tzUpdater tzupdate.Service) (*Bot, error) {
@@ -160,11 +177,13 @@ func (b *Bot) SetTZLifecycle(svc tzreschedule.LifecycleService) {
 
 func (b *Bot) getFeatureFlags(ctx context.Context) featureFlags {
 	flags := featureFlags{
-		Medication: true,
-		BP:         true,
-		Weight:     true,
-		Workout:    true,
-		Food:       false,
+		Medication:    true,
+		BP:            true,
+		Weight:        true,
+		Workout:       true,
+		Food:          false,
+		HasActivityAI: b.activityAI != nil,
+		HasFoodAI:     b.foodAI != nil,
 	}
 
 	if v, err := b.meds.GetMedicationEnabled(ctx); err == nil {
@@ -209,6 +228,10 @@ func (b *Bot) buildHelpText(flags featureFlags) string {
 			block.WriteString(sp.Name)
 			block.WriteString(" - ")
 			block.WriteString(sp.Description)
+			if sp.Example != "" {
+				block.WriteString("\n  Example: ")
+				block.WriteString(sp.Example)
+			}
 		}
 		sections = append(sections, block.String())
 	}
@@ -223,12 +246,27 @@ func (b *Bot) buildHelpText(flags featureFlags) string {
 }
 
 func (b *Bot) Start(ctx context.Context) {
+	// Sample the change_events cursor BEFORE registerCommands so a toggle
+	// that lands in between is picked up by the watcher on the first tick
+	// instead of being silently dropped (its id would be <= a
+	// post-register cursor). Duplicate-detection in registerCommands keeps
+	// any spurious re-register cheap.
+	var cursor int64
+	if b.settingsChanges != nil {
+		c, err := b.settingsChanges.GetLatestChangeCursor(ctx)
+		if err != nil {
+			slog.Warn("settings watcher: failed to read initial cursor", "error", err)
+		} else {
+			cursor = c
+		}
+	}
+
 	if err := b.registerCommands(ctx); err != nil {
 		slog.Warn("failed to register bot commands", "error", err)
 	}
 
 	if b.settingsChanges != nil && b.commandsPollInterval > 0 {
-		go b.watchSettingsChanges(ctx, b.commandsPollInterval)
+		go b.pollSettingsChanges(ctx, b.commandsPollInterval, cursor)
 	}
 
 	u := tgbotapi.NewUpdate(0)
@@ -287,7 +325,7 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 	msgConfig := tgbotapi.NewMessage(msg.Chat.ID, "")
 	flags := b.getFeatureFlags(context.Background())
 	switch msg.Command() {
-	case "help":
+	case "start", "help":
 		msgConfig.Text = b.buildHelpText(flags)
 		msgConfig.ParseMode = "Markdown"
 	case "log":
