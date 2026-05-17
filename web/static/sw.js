@@ -4,10 +4,20 @@ const CACHE_VERSION = 'CACHE_VERSION_PLACEHOLDER'; // Auto-updated by CI/CD
 // Manual bump knob: increment when shipping a UI change clients must pick up
 // even if the deploy timestamp alone fails to invalidate (e.g. mid-cycle
 // hotfix, or to force re-fetch of today.js for the Photo meal shortcut tile).
-const BUILD_REVISION = '5';
+const BUILD_REVISION = '6';
 const STATIC_CACHE = `medtracker-static-${CACHE_VERSION}-r${BUILD_REVISION}`;
 const DYNAMIC_CACHE = `medtracker-dynamic-${CACHE_VERSION}-r${BUILD_REVISION}`;
 const APP_SHELL_CACHE_KEY = '/__app_shell__';
+
+// Standalone HTML pages served by their own server routes — NOT the SPA shell.
+// Navigations to these paths must bypass the app-shell handler, otherwise:
+//   1. the cached SPA shell is shown instead of the requested page, and
+//   2. the background fetch overwrites APP_SHELL_CACHE_KEY with the
+//      standalone page, poisoning the shell cache for every other client.
+const NON_SPA_NAVIGATION_PATHS = new Set([
+    '/oidc-setup',
+    '/pitch',
+]);
 
 // Static assets to cache on install
 const STATIC_ASSETS = [
@@ -264,6 +274,18 @@ self.addEventListener('fetch', (event) => {
 
     // HTML navigations - return cached shell immediately and refresh in background.
     if (event.request.mode === 'navigate') {
+        // Standalone non-SPA pages (e.g. /oidc-setup, /pitch) must skip the
+        // shell handler so their response is neither replaced by the cached
+        // SPA shell nor written into APP_SHELL_CACHE_KEY.
+        if (NON_SPA_NAVIGATION_PATHS.has(url.pathname)) {
+            event.respondWith(
+                fetch(event.request).catch(() => new Response(
+                    'Offline',
+                    { status: 503, headers: { 'Content-Type': 'text/plain' } }
+                ))
+            );
+            return;
+        }
         event.respondWith(
             caches.open(STATIC_CACHE)
                 .then((cache) => {
