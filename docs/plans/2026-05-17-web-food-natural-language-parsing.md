@@ -70,11 +70,11 @@ Dependencies: `OPENAI_API_KEY` (existing env; no new config needed — same `Foo
 
 ### Task 3: Extract shared undo helper
 
-- [ ] Move `undoFoodPhotoLog` from `web/static/js/features/food/photo.js:259` into a new shared module (e.g. `web/static/js/features/food/ai-undo.js`) and rename it `undoFoodAIItems`. Keep the existing `window.FoodPhoto.undo` symbol as a thin re-export so photo.js callers and existing tests stay green.
-- [ ] Add a script-tag entry for the new module in `web/static/index.html` loaded before `photo.js` (the load-order doc lives in `docs/frontend.md` — keep it consistent).
-- [ ] Unit-test the extracted helper directly: success path (all DELETEs OK → summary marked undone, cache invalidated), partial failure (some DELETEs fail → retry summary shown with remaining items), all DELETEs fail (error toast). Reuse fixtures from `web/static/js/tests/food.upload-photo.test.js`.
-- [ ] Run existing `food.upload-photo.test.js` and `food-photo-summary.test.js` — must stay green (regression guard for the rename).
-- [ ] `pnpm test` — must pass before task 4.
+- [x] Move `undoFoodPhotoLog` from `web/static/js/features/food/photo.js:259` into a new shared module (e.g. `web/static/js/features/food/ai-undo.js`) and rename it `undoFoodAIItems`. Keep the existing `window.FoodPhoto.undo` symbol as a thin re-export so photo.js callers and existing tests stay green.
+- [x] Add a script-tag entry for the new module in `web/static/index.html` loaded before `photo.js` (the load-order doc lives in `docs/frontend.md` — keep it consistent).
+- [x] Unit-test the extracted helper directly: success path (all DELETEs OK → summary marked undone, cache invalidated), partial failure (some DELETEs fail → retry summary shown with remaining items), all DELETEs fail (error toast). Reuse fixtures from `web/static/js/tests/food.upload-photo.test.js`.
+- [x] Run existing `food.upload-photo.test.js` and `food-photo-summary.test.js` — must stay green (regression guard for the rename).
+- [x] `pnpm test` — must pass before task 4. (Only pre-existing TZ-environment-dependent failure in `health.dexie-hydration.test.js` remains; confirmed via `git stash` that it fails identically on the unmodified branch.)
 
 ### Task 4: Frontend modal — "Parse with AI" mode
 
