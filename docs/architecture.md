@@ -273,12 +273,16 @@ mechanism is a process-wide `ChangeBroker`
    mutations fan out the same way as direct API writes.
 2. `handleChangesStream` (`internal/server/changes_handlers.go`)
    `Subscribe(ctx)`s to the broker and `select`s on the subscription
-   channel, a 15s keepalive ticker, the 10-min
-   `changeStreamMaxSessionAge` recycle, and `r.Context().Done()`. On each
-   broker wake it queries `ListChangedTagsSince(lastCursor)` and emits a
-   single `data: …\n\n` frame. Capacity is bounded by a 40-slot
-   process-wide semaphore and a per-channel buffer of 1 — missed wakes
-   are harmless because each handler reconciles via the cursor.
+   channel, a 15s keepalive ticker, a 30s `cursorCheck` backstop
+   ticker (catches writes from non-HTTP paths like Telegram bot
+   callbacks and scheduler intake materialization that bypass
+   `notifyOnWriteMiddleware`), the 10-min `changeStreamMaxSessionAge`
+   recycle, and `r.Context().Done()`. On each broker wake or
+   cursor-check tick it queries `ListChangedTagsSince(lastCursor)` and
+   emits a single `data: …\n\n` frame. Capacity is bounded by a
+   40-slot process-wide semaphore and a per-channel buffer of 1 —
+   missed wakes are harmless because each handler reconciles via the
+   cursor.
 3. `Server.Shutdown` calls `changesBroker.CloseAll()` before the HTTP
    listener closes. Subscribed handlers see their channels close and
    return cleanly, so the only `RST_STREAM` a client observes is one per
