@@ -297,6 +297,8 @@ function showAddFoodModal() {
     document.getElementById('food-calories').value = '';
     document.getElementById('food-per-100g').checked = true;
     setFoodParseAIMode(false);
+    const aiCheckboxAdd = document.getElementById('food-parse-ai');
+    if (aiCheckboxAdd) aiCheckboxAdd.disabled = false;
     document.getElementById('food-weight').focus();
 
     const cache = window.FoodProducts && window.FoodProducts.cache;
@@ -316,6 +318,8 @@ function editFoodLog(id) {
     // Edits always run through the manual path — the AI parse endpoint
     // only creates new rows, so AI mode would be a dead-end for edits.
     setFoodParseAIMode(false);
+    const aiCheckbox = document.getElementById('food-parse-ai');
+    if (aiCheckbox) aiCheckbox.disabled = true;
 
     document.getElementById('food-id').value = log.id;
     const pidEl = document.getElementById('food-log-product-id');
@@ -372,8 +376,12 @@ function closeFoodModal() {
 }
 
 async function saveFoodLog() {
+    const id = document.getElementById('food-id').value;
     const aiCheckbox = document.getElementById('food-parse-ai');
-    if (aiCheckbox && aiCheckbox.checked) {
+    // AI mode only creates new rows, so it's only valid for "add" — never for
+    // edits. Editing an existing row falls through to the manual update path
+    // regardless of checkbox state.
+    if (!id && aiCheckbox && aiCheckbox.checked) {
         return saveFoodLogFromDescription();
     }
 
@@ -406,8 +414,6 @@ async function saveFoodLog() {
     if (pidEl && pidEl.value) {
         payload.product_id = parseInt(pidEl.value, 10);
     }
-
-    const id = document.getElementById('food-id').value;
 
     const btn = document.getElementById('food-modal-save-btn');
     await withSubmit(btn, async () => {
@@ -534,7 +540,7 @@ async function saveFoodLogFromDescription() {
 
         let data = null;
         try { data = await res.json(); } catch (_) { data = null; }
-        const items = (data && Array.isArray(data.logs)) ? data.logs : [];
+        const items = (data && Array.isArray(data.items)) ? data.items : [];
 
         await window.DataStore.invalidateTags(['food']);
         if (typeof todayFoodKey === 'function' && window.DataStore.clearCached) {
@@ -553,6 +559,7 @@ async function saveFoodLogFromDescription() {
             let summaryHandle;
             summaryHandle = showFoodPhotoSummary({
                 items,
+                source: 'description',
                 onUndo: () => undoFoodAIItems(items, summaryHandle),
             });
         } else if (items.length) {

@@ -815,13 +815,12 @@ func TestHandleCreateFoodLogFromDescription_HappyPath(t *testing.T) {
 
 	var resp struct {
 		Status string `json:"status"`
-		Count  int    `json:"count"`
-		Logs   []struct {
+		Items  []struct {
 			ID       int64  `json:"id"`
 			Name     string `json:"name"`
 			Weight   int    `json:"weight"`
 			Calories int    `json:"calories"`
-		} `json:"logs"`
+		} `json:"items"`
 		Failed int `json:"failed"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
@@ -831,14 +830,11 @@ func TestHandleCreateFoodLogFromDescription_HappyPath(t *testing.T) {
 	if resp.Status != "created" {
 		t.Errorf("expected status 'created', got %q", resp.Status)
 	}
-	if resp.Count != 2 {
-		t.Errorf("expected count=2, got %d", resp.Count)
-	}
 	if resp.Failed != 0 {
 		t.Errorf("expected failed=0, got %d", resp.Failed)
 	}
-	if len(resp.Logs) != 2 {
-		t.Fatalf("expected 2 logs in response, got %d", len(resp.Logs))
+	if len(resp.Items) != 2 {
+		t.Fatalf("expected 2 items in response, got %d", len(resp.Items))
 	}
 
 	if stub.lastDescription != "200g grilled chicken with a cup of rice" {
@@ -846,7 +842,7 @@ func TestHandleCreateFoodLogFromDescription_HappyPath(t *testing.T) {
 	}
 
 	seen := map[int64]bool{}
-	for i, item := range resp.Logs {
+	for i, item := range resp.Items {
 		if item.ID == 0 {
 			t.Errorf("item %d (%q): expected non-zero id, got 0", i, item.Name)
 		}

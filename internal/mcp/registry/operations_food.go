@@ -164,13 +164,13 @@ output(result)`,
     "eaten_at":    {"type": "string", "description": "ISO8601 timestamp (RFC3339 preferred); defaults to now if omitted. All parsed items share this timestamp."}
   }
 }`),
-			Description:     "Log one or more food intake entries from a natural-language meal description. Uses the same AI parser as the bot's /food command — pass the user's words verbatim. Prefer food.log.create with a product_id when the user is logging a single known food, because this endpoint upserts food_products by name on each call and the AI may pick a slightly different canonical name than an existing row. Returns the created logs so they can be displayed or undone.",
-			ResponseSummary: "{status, count, logs:[{id, name, weight, carbs, protein, fat, calories}], failed}.",
+			Description:     "Log one or more food intake entries from a natural-language meal description. Uses the same AI parser as the bot's /food command — pass the user's words verbatim. Unlike food.log.create, this endpoint does NOT upsert into food_products; AI-parsed items are stored as standalone FoodLog rows without joining the user's product catalog. Prefer food.log.create with a product_id when the user is logging a single known food and you want the entry to roll up under an existing product. Returns the created logs so they can be displayed or undone.",
+			ResponseSummary: "{status, items:[{id, name, weight, carbs, protein, fat, calories}], failed}.",
 			Example: `result = api.call(
     "food.log.from_description",
     body={"description": "200g grilled chicken with a cup of rice"},
 )
-output({"count": result["count"], "logs": result["logs"]})`,
+output({"items": result["items"]})`,
 		},
 		{
 			ID:         "food.log.update",

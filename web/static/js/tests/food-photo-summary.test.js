@@ -102,6 +102,14 @@ describe('showFoodPhotoSummary (friendly food-photo flow, Task 3)', () => {
         expect(title.textContent).toBe('Logged 3 items from photo');
     });
 
+    it('header text uses "from description" when source=description', () => {
+        const { document, window } = env;
+
+        window.showFoodPhotoSummary({ items: SAMPLE_ITEMS, source: 'description', autoDismissMs: 0 });
+        const title = document.querySelector('.wg-food-photo-summary__title');
+        expect(title.textContent).toBe('Logged 3 items from description');
+    });
+
     it('Undo button fires onUndo exactly once even on rapid double-click', async () => {
         const { document, window } = env;
         const onUndo = vi.fn().mockResolvedValue(undefined);

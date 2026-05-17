@@ -115,8 +115,8 @@ describe('Food modal — "Parse with AI" mode (Plan 2026-05-17, Task 5)', () => 
         const fetchSpy = vi.fn().mockResolvedValue({
             ok: true,
             status: 200,
-            async json() { return { count: SAMPLE_ITEMS.length, logs: SAMPLE_ITEMS }; },
-            async text() { return JSON.stringify({ count: SAMPLE_ITEMS.length, logs: SAMPLE_ITEMS }); },
+            async json() { return { items: SAMPLE_ITEMS }; },
+            async text() { return JSON.stringify({ items: SAMPLE_ITEMS }); },
         });
         window.fetch = fetchSpy;
 
@@ -151,8 +151,8 @@ describe('Food modal — "Parse with AI" mode (Plan 2026-05-17, Task 5)', () => 
         window.fetch = vi.fn().mockResolvedValue({
             ok: true,
             status: 200,
-            async json() { return { count: SAMPLE_ITEMS.length, logs: SAMPLE_ITEMS }; },
-            async text() { return JSON.stringify({ count: SAMPLE_ITEMS.length, logs: SAMPLE_ITEMS }); },
+            async json() { return { items: SAMPLE_ITEMS }; },
+            async text() { return JSON.stringify({ items: SAMPLE_ITEMS }); },
         });
 
         document.getElementById('food-modal-save-btn').click();
@@ -184,8 +184,8 @@ describe('Food modal — "Parse with AI" mode (Plan 2026-05-17, Task 5)', () => 
                 return Promise.resolve({
                     ok: true,
                     status: 200,
-                    async json() { return { count: SAMPLE_ITEMS.length, logs: SAMPLE_ITEMS }; },
-                    async text() { return JSON.stringify({ count: SAMPLE_ITEMS.length, logs: SAMPLE_ITEMS }); },
+                    async json() { return { items: SAMPLE_ITEMS }; },
+                    async text() { return JSON.stringify({ items: SAMPLE_ITEMS }); },
                 });
             }
             return Promise.resolve({
@@ -245,8 +245,8 @@ describe('Food modal — "Parse with AI" mode (Plan 2026-05-17, Task 5)', () => 
                 return Promise.resolve({
                     ok: true,
                     status: 200,
-                    async json() { return { count: SAMPLE_ITEMS.length, logs: SAMPLE_ITEMS }; },
-                    async text() { return JSON.stringify({ count: SAMPLE_ITEMS.length, logs: SAMPLE_ITEMS }); },
+                    async json() { return { items: SAMPLE_ITEMS }; },
+                    async text() { return JSON.stringify({ items: SAMPLE_ITEMS }); },
                 });
             }
             if (opts && opts.method === 'DELETE' && url === '/api/food/log/22') {
@@ -312,5 +312,56 @@ describe('Food modal — "Parse with AI" mode (Plan 2026-05-17, Task 5)', () => 
         checkbox.checked = false;
         checkbox.dispatchEvent(new window.Event('change'));
         expect(modal.classList.contains('wg-food-modal--ai-mode')).toBe(false);
+    });
+
+    it('Edit mode disables the AI checkbox and routes Save through the manual update path even if the box is force-checked', async () => {
+        const { document, window } = env;
+
+        window.FoodLog.setLog(99, {
+            id: 99,
+            name: 'Apple',
+            weight: 150,
+            carbs: 20,
+            protein: 1,
+            fat: 0,
+            calories: 80,
+            eaten_at: '2026-05-17T12:00:00Z',
+        });
+
+        window.editFoodLog(99);
+
+        const checkbox = document.getElementById('food-parse-ai');
+        expect(checkbox.disabled).toBe(true);
+
+        // Force the checkbox to "checked" to simulate a stale UI state; the
+        // saveFoodLog guard must still take the manual PUT path because an
+        // edit has a non-empty #food-id.
+        checkbox.disabled = false;
+        checkbox.checked = true;
+
+        const fetchSpy = vi.fn();
+        window.fetch = fetchSpy;
+        const apiSpy = vi.fn().mockResolvedValue({ status: 'updated' });
+        window.apiCall = apiSpy;
+
+        document.getElementById('food-modal-save-btn').click();
+        await flushPromises();
+        await flushPromises();
+
+        expect(fetchSpy).not.toHaveBeenCalled();
+        expect(apiSpy).toHaveBeenCalledWith('/api/food/log/99', 'PUT', expect.anything());
+    });
+
+    it('Add modal resets the AI checkbox to enabled', () => {
+        const { document, window } = env;
+
+        // Open in edit mode first — that disables the checkbox.
+        window.FoodLog.setLog(100, { id: 100, name: 'Pear', weight: 100, carbs: 15, protein: 0, fat: 0, calories: 60, eaten_at: '2026-05-17T12:00:00Z' });
+        window.editFoodLog(100);
+        expect(document.getElementById('food-parse-ai').disabled).toBe(true);
+
+        // Now open the Add modal — the checkbox must be re-enabled.
+        window.showAddFoodModal();
+        expect(document.getElementById('food-parse-ai').disabled).toBe(false);
     });
 });
