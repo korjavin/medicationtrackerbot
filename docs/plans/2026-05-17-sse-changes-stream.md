@@ -93,12 +93,12 @@ After a write completes on the server (regardless of which client or which trans
 - [x] run `go test ./internal/server/...` — must pass before next task
 
 ### Task 4: Flip client default to SSE-first
-- [ ] modify `web/static/js/data-store.js:596 startChangePolling()`: call `startChangeStream()` first; only fall through to `startChangePollInterval()` on immediate failure or when `EventSource === undefined`
-- [ ] remove the misleading "SSE is broken" comment block citing the old rationale
-- [ ] add `changeStreamGaveUp` flag: after 3 consecutive `onerror` within 30s (use existing `CHANGE_STREAM_AUTH_PROBE_ERRORS = 3` at line 24), set the flag, switch to polling for the rest of the session
-- [ ] add an `if (changeStream) return;` early-exit at the top of `startChangePollInterval`'s tick callback to handle the race where polling fires between `startChangeStream` and `onopen`
-- [ ] write `web/static/js/tests/data-store.sse-fallback.test.js` covering SSE-first preference, fallback after 3 errors, no-EventSource fallback, applyChangesPayload runs on SSE message
-- [ ] run `pnpm test` — must pass before next task
+- [x] modify `web/static/js/data-store.js:596 startChangePolling()`: call `startChangeStream()` first; only fall through to `startChangePollInterval()` on immediate failure or when `EventSource === undefined`
+- [x] remove the misleading "SSE is broken" comment block citing the old rationale
+- [x] add `changeStreamGaveUp` flag: after 3 consecutive `onerror` within 30s (use existing `CHANGE_STREAM_AUTH_PROBE_ERRORS = 3` at line 24), set the flag, switch to polling for the rest of the session
+- [x] add an `if (changeStream) return;` early-exit at the top of `startChangePollInterval`'s tick callback to handle the race where polling fires between `startChangeStream` and `onopen`
+- [x] write `web/static/js/tests/data-store.sse-fallback.test.js` covering SSE-first preference, fallback after 3 errors, no-EventSource fallback, applyChangesPayload runs on SSE message
+- [x] run `pnpm test` — must pass before next task (only pre-existing TZ-flake `health.dexie-hydration.test.js > TZ-mismatch fallback` failed; verified it also fails on master)
 
 ### Task 5: Verify acceptance criteria
 - [ ] verify `go test ./...` is green

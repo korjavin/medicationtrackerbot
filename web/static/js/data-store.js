@@ -29,6 +29,7 @@
     const CHANGE_STREAM_RETRY_MS = 5000;
     const CHANGE_STREAM_MAX_RETRY_MS = 30000;
     const CHANGE_STREAM_AUTH_PROBE_ERRORS = 3;
+    const CHANGE_STREAM_ERROR_WINDOW_MS = 30000;
     const CACHE_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
     const CACHE_MAX_AGE_DEFAULT_MS = 14 * 24 * 60 * 60 * 1000;
     const CACHE_MAX_AGE_HISTORY_MS = 7 * 24 * 60 * 60 * 1000;
@@ -41,6 +42,12 @@
     let changeStreamRetryDelayMs = CHANGE_STREAM_RETRY_MS;
     let changeAuthProbeInFlight = false;
     let changeUnauthorized = false;
+    // SSE → polling fallback state. Set once 3+ onerror events fire within
+    // CHANGE_STREAM_ERROR_WINDOW_MS; from then on this session stays on the
+    // polling channel and stops retrying SSE.
+    let changeStreamGaveUp = false;
+    let changeStreamErrorsInWindow = 0;
+    let changeStreamErrorWindowStart = 0;
 
     const hasValue = (value) => value !== null && value !== undefined;
 
@@ -676,6 +683,10 @@
         startChangePollInterval() {
             if (changePollTimer) return;
             changePollTimer = setInterval(() => {
+                // Races between startChangeStream() and its onopen callback can
+                // leave the poll timer scheduled while SSE is already open;
+                // skip the tick in that case so we don't double up on /api/changes.
+                if (changeStream) return;
                 if (navigator.onLine) {
                     this.pollChangesOnce();
                 }
@@ -698,6 +709,7 @@
         },
 
         startChangeStream() {
+            if (changeStreamGaveUp) return false;
             if (changeStream || typeof EventSource === 'undefined' || !navigator.onLine) {
                 return false;
             }
@@ -728,10 +740,30 @@
                         changeStream = null;
                     }
                     changeStreamErrorCount += 1;
+
+                    const now = Date.now();
+                    if (now - changeStreamErrorWindowStart > CHANGE_STREAM_ERROR_WINDOW_MS) {
+                        changeStreamErrorWindowStart = now;
+                        changeStreamErrorsInWindow = 0;
+                    }
+                    changeStreamErrorsInWindow += 1;
+
                     this.startChangePollInterval();
                     if (changeStreamErrorCount >= CHANGE_STREAM_AUTH_PROBE_ERRORS) {
                         this.verifyAuthSession();
                     }
+
+                    if (changeStreamErrorsInWindow >= CHANGE_STREAM_AUTH_PROBE_ERRORS) {
+                        // Three consecutive errors inside the window — give up on
+                        // SSE for the rest of the session and stay on polling.
+                        changeStreamGaveUp = true;
+                        if (changeStreamRetryTimer) {
+                            clearTimeout(changeStreamRetryTimer);
+                            changeStreamRetryTimer = null;
+                        }
+                        return;
+                    }
+
                     if (!changeStreamRetryTimer) {
                         changeStreamRetryTimer = setTimeout(() => {
                             changeStreamRetryTimer = null;
@@ -758,11 +790,14 @@
             if (changeStream || changePollTimer) return;
             this.pruneStaleClientCache();
 
-            // SSE (EventSource) over HTTP/2 behind reverse proxies (Traefik, nginx)
-            // is fundamentally broken: every server-side stream close sends RST_STREAM
-            // which surfaces as ERR_HTTP2_PROTOCOL_ERROR in the browser console.
-            // Polling at 30s is lightweight and reliable — use it exclusively.
-            this.startChangePollInterval();
+            // SSE is the primary channel — process-wide ChangeBroker fans out
+            // writes within ~50ms instead of waiting for the next 30s tick.
+            // Polling is reserved for: older browsers without EventSource,
+            // sessions that gave up on SSE after 3 errors in 30s, and the
+            // transient window between an SSE error and the next reconnect.
+            if (!this.startChangeStream()) {
+                this.startChangePollInterval();
+            }
         },
 
         stopChangePolling() {
