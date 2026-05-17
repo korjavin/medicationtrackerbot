@@ -205,6 +205,47 @@ describe('Service Worker (sw.js) Fetch and Cache Strategies', () => {
         expect(mockCacheInstance.put).toHaveBeenCalledWith('/__app_shell__', expect.any(Response));
     });
 
+    it('bypasses the SPA shell handler for standalone HTML pages (/oidc-setup, /pitch)', async () => {
+        const fetchHandler = global.self.addEventListener.mock.calls.find(c => c[0] === 'fetch')[1];
+
+        const standalonePaths = ['/oidc-setup', '/pitch'];
+        for (const pathname of standalonePaths) {
+            mockCacheInstance.put.mockClear();
+            mockCacheInstance.match.mockClear();
+            mockCaches.open.mockClear();
+            global.fetch.mockClear();
+
+            const fakeRequest = {
+                url: `https://test.com${pathname}`,
+                method: 'GET',
+                mode: 'navigate',
+                clone: () => fakeRequest
+            };
+            const event = { request: fakeRequest, respondWith: vi.fn(), waitUntil: vi.fn() };
+
+            // Even if a cached shell exists, it must NOT be returned for these paths.
+            const cachedShellResponse = new Response('<html>Cached SPA Shell</html>');
+            mockCacheInstance.match.mockImplementation((key) => {
+                if (key === '/__app_shell__') return Promise.resolve(cachedShellResponse);
+                return Promise.resolve(null);
+            });
+
+            const pageResponse = new Response(`<html>${pathname} page</html>`);
+            global.fetch.mockResolvedValueOnce(pageResponse);
+
+            fetchHandler(event);
+            const resolved = await event.respondWith.mock.calls[0][0];
+
+            // Must serve the real page, not the SPA shell.
+            expect(resolved).toBe(pageResponse);
+            // Must hit the network for the requested path.
+            expect(global.fetch).toHaveBeenCalledWith(fakeRequest);
+            // Must never read or pollute APP_SHELL_CACHE_KEY for these paths.
+            expect(mockCacheInstance.put).not.toHaveBeenCalledWith('/__app_shell__', expect.any(Response));
+            expect(mockCacheInstance.match).not.toHaveBeenCalledWith('/__app_shell__');
+        }
+    });
+
     it('falls back to network then old cache if APP_SHELL_CACHE_KEY is missing currently', async () => {
         const fetchHandler = global.self.addEventListener.mock.calls.find(c => c[0] === 'fetch')[1];
 
