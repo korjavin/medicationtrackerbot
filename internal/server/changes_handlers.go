@@ -16,10 +16,19 @@ const (
 	changeStreamKeepaliveInterval = 15 * time.Second
 	changeStreamQueryTimeout      = 2 * time.Second
 	changeStreamMaxSessionAge     = 10 * time.Minute
+	// changeStreamCursorCheckInterval bounds the lag for writes that bypass
+	// notifyOnWriteMiddleware (bot callbacks, scheduler intake materialization,
+	// external API-key endpoints registered on the outer mux). The middleware
+	// gives ~50ms latency for HTTP writes; this ticker is a cheap backstop so
+	// non-HTTP writes are caught within this interval even if no other write
+	// ever notifies the broker.
+	changeStreamCursorCheckInterval = 30 * time.Second
 )
 
 func (s *Server) currentChangeCursor() uint64 {
-	cursor, err := s.changes.GetLatestChangeCursor(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), changeStreamQueryTimeout)
+	defer cancel()
+	cursor, err := s.changes.GetLatestChangeCursor(ctx)
 	if err != nil {
 		return 0
 	}
@@ -115,20 +124,19 @@ func (s *Server) handleChangesStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Clear the per-connection write deadline that http.Server.WriteTimeout
+	// would otherwise impose (~45s in production). SSE sessions are bounded
+	// by changeStreamMaxSessionAge (10 min) instead, and reverse proxies are
+	// kept alive via the 15s keepalive comment.
+	rc := http.NewResponseController(w)
+	_ = rc.SetWriteDeadline(time.Time{})
+
 	var since int64
 	if sinceStr := r.URL.Query().Get("since"); sinceStr != "" {
 		if parsed, err := strconv.ParseInt(sinceStr, 10, 64); err == nil && parsed >= 0 {
 			since = parsed
 		}
 	}
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("X-Accel-Buffering", "no")
-	// Note: Do NOT set "Connection: keep-alive" — it's a hop-by-hop header
-	// forbidden in HTTP/2 and causes ERR_HTTP2_PROTOCOL_ERROR behind reverse proxies.
-	_, _ = fmt.Fprint(w, "retry: 5000\n\n")
-	flusher.Flush()
 
 	// Subscribe BEFORE the initial state read so a write that happens between
 	// the read and entering the select loop still wakes us up.
@@ -140,9 +148,20 @@ func (s *Server) handleChangesStream(w http.ResponseWriter, r *http.Request) {
 	cursor, tags, err := s.changes.ListChangedTagsSince(queryCtx, since)
 	cancel()
 	if err != nil {
+		// The response is still in "headers not yet sent" state — a real HTTP
+		// error response is safe here.
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	// Note: Do NOT set "Connection: keep-alive" — it's a hop-by-hop header
+	// forbidden in HTTP/2 and causes ERR_HTTP2_PROTOCOL_ERROR behind reverse proxies.
+	_, _ = fmt.Fprint(w, "retry: 5000\n\n")
+	flusher.Flush()
+
 	s.maybePruneChangeEvents(cursor)
 	if err := writeSSE(w, map[string]any{
 		"cursor":       cursor,
@@ -157,6 +176,37 @@ func (s *Server) handleChangesStream(w http.ResponseWriter, r *http.Request) {
 	defer keepalive.Stop()
 	maxAgeTimer := time.NewTimer(changeStreamMaxSessionAge)
 	defer maxAgeTimer.Stop()
+	// Backstop ticker for writes that bypass notifyOnWriteMiddleware
+	// (Telegram bot callbacks, scheduler materialization, external API-key
+	// endpoints registered on the outer mux). The cursor-check is a single
+	// indexed integer SELECT.
+	cursorCheck := time.NewTicker(changeStreamCursorCheckInterval)
+	defer cursorCheck.Stop()
+
+	emit := func() bool {
+		qCtx, qCancel := context.WithTimeout(r.Context(), changeStreamQueryTimeout)
+		cursor, tags, err := s.changes.ListChangedTagsSince(qCtx, since)
+		qCancel()
+		if err != nil {
+			return false
+		}
+		s.maybePruneChangeEvents(cursor)
+		// Always advance `since` to the latest observed cursor, even when no
+		// tags are returned, so a subsequent spurious wake doesn't re-scan
+		// the same empty range.
+		since = cursor
+		if len(tags) == 0 {
+			return true
+		}
+		if err := writeSSE(w, map[string]any{
+			"cursor":       cursor,
+			"changed_tags": tags,
+		}); err != nil {
+			return false
+		}
+		flusher.Flush()
+		return true
+	}
 
 	for {
 		select {
@@ -170,26 +220,13 @@ func (s *Server) handleChangesStream(w http.ResponseWriter, r *http.Request) {
 				// client sees onerror and reconnects after restart.
 				return
 			}
-			queryCtx, cancel := context.WithTimeout(r.Context(), changeStreamQueryTimeout)
-			cursor, tags, err := s.changes.ListChangedTagsSince(queryCtx, since)
-			cancel()
-			if err != nil {
+			if !emit() {
 				return
 			}
-			s.maybePruneChangeEvents(cursor)
-			if len(tags) == 0 {
-				// Spurious wake (cursor unchanged from this subscriber's
-				// perspective). Skip emitting a frame.
-				continue
-			}
-			if err := writeSSE(w, map[string]any{
-				"cursor":       cursor,
-				"changed_tags": tags,
-			}); err != nil {
+		case <-cursorCheck.C:
+			if !emit() {
 				return
 			}
-			flusher.Flush()
-			since = cursor
 		case <-keepalive.C:
 			if _, err := fmt.Fprint(w, ": keepalive\n\n"); err != nil {
 				return

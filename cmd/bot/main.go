@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"math"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/ai"
@@ -309,11 +312,41 @@ func main() {
 	serverAddr := ":" + port
 	slog.Info("Server starting", "addr", serverAddr)
 	srvHandler := srv.Routes()
-	server := newHTTPServer(serverAddr, srvHandler)
+	httpServer := newHTTPServer(serverAddr, srvHandler)
 
-	if err := server.ListenAndServe(); err != nil {
-		slog.Error("Server failed", "error", err)
-		os.Exit(1)
+	// Trap SIGINT / SIGTERM so we can close broker subscribers (SSE handlers
+	// see ch close and exit cleanly) BEFORE the listener stops accepting. This
+	// is what keeps the deploy-time RST_STREAM noise bounded to a single clean
+	// onerror per client instead of a hard TCP reset.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	listenErr := make(chan error, 1)
+	go func() {
+		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			listenErr <- err
+		}
+		close(listenErr)
+	}()
+
+	select {
+	case err, ok := <-listenErr:
+		if ok && err != nil {
+			slog.Error("Server failed", "error", err)
+			os.Exit(1)
+		}
+	case <-ctx.Done():
+		slog.Info("Shutdown signal received, draining connections")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		// Close broker subs first so SSE handlers exit cleanly while the
+		// listener is still up to drain non-streaming requests.
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			slog.Warn("Server.Shutdown returned error", "error", err)
+		}
+		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+			slog.Warn("httpServer.Shutdown returned error", "error", err)
+		}
 	}
 }
 

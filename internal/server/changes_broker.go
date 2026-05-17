@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
+	"time"
 )
 
 // ChangeBroker is a process-wide pub/sub for change-events cursor updates.
@@ -95,8 +96,8 @@ func (b *ChangeBroker) CloseAll() {
 
 // changeStatusRecorder is a tiny ResponseWriter wrapper that lets the
 // notifyOnWriteMiddleware see the final response status without consuming
-// the body. It defaults to 200 because net/http auto-writes that status when
-// a handler writes a body without calling WriteHeader explicitly.
+// the body. The status defaults to 200 because net/http auto-writes that
+// status when a handler writes a body without calling WriteHeader explicitly.
 type changeStatusRecorder struct {
 	http.ResponseWriter
 	status int
@@ -120,6 +121,9 @@ func (r *changeStatusRecorder) Flush() {
 	}
 }
 
+// Unwrap lets http.NewResponseController reach the underlying ResponseWriter
+// for streaming-aware operations (e.g. clearing the write deadline on the SSE
+// handler so that http.Server.WriteTimeout doesn't kill long-lived streams).
 func (r *changeStatusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
 
 // notifyOnWriteMiddleware fans out a broker notification on every successful
@@ -130,7 +134,11 @@ func (r *changeStatusRecorder) Unwrap() http.ResponseWriter { return r.ResponseW
 // same handler's transaction).
 //
 // Notification is best-effort: lookup failures are logged and swallowed so
-// they never affect the user-facing response.
+// they never affect the user-facing response. The cursor lookup uses a fresh
+// short-deadline context (not r.Context()) so that a client disconnecting
+// between the handler completing and the lookup running doesn't drop the
+// notify — the write already succeeded server-side; other subscribers must
+// still be woken.
 func (s *Server) notifyOnWriteMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rec := &changeStatusRecorder{ResponseWriter: w}
@@ -142,15 +150,13 @@ func (s *Server) notifyOnWriteMiddleware(next http.Handler) http.Handler {
 		if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
 			return
 		}
-		status := rec.status
-		if status == 0 {
-			status = http.StatusOK
-		}
-		if status < 200 || status >= 300 {
+		if rec.status < 200 || rec.status >= 300 {
 			return
 		}
 
-		cursor, err := s.changes.GetLatestChangeCursor(r.Context())
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		cursor, err := s.changes.GetLatestChangeCursor(ctx)
 		if err != nil {
 			slog.Debug("changes notify: cursor lookup failed", "error", err, "path", r.URL.Path)
 			return
