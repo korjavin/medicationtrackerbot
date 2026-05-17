@@ -381,8 +381,9 @@ async function saveFoodLog() {
         return;
     }
 
+    const eatenAtIso = new Date(dateStr).toISOString();
     const payload = {
-        eaten_at: new Date(dateStr).toISOString(),
+        eaten_at: eatenAtIso,
         weight: totals.weight,
         carbs: totals.carbs,
         protein: totals.protein,
@@ -399,28 +400,70 @@ async function saveFoodLog() {
     }
 
     const id = document.getElementById('food-id').value;
+    const isUpdate = !!id;
 
     const btn = document.getElementById('food-modal-save-btn');
     await withSubmit(btn, async () => {
-        let res;
-        if (id) {
-            res = await apiCall(`/api/food/log/${id}`, 'PUT', payload);
-        } else {
-            res = await apiCall('/api/food/log', 'POST', payload);
+        // Optimistic projection on the day caches so the row + Today's
+        // macros tile update before the network round-trip resolves. The
+        // log's eaten_at decides which day caches are affected; we keep
+        // both `food_<date>_v2` (loadFoodLogs's cache) and `food_<date>_day`
+        // (Today's per-day key) in sync because they share the same shape.
+        const localDay = toISODateLocal(new Date(dateStr));
+        const v2Key = `food_${localDay}_v2`;
+        const dayKey = typeof todayFoodKey === 'function'
+            ? todayFoodKey(new Date(dateStr))
+            : `food_${localDay}_day`;
+        const editingId = isUpdate ? parseInt(id, 10) : null;
+        const localId = `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const optimisticLog = {
+            id: editingId || localId,
+            name: payload.name,
+            barcode: payload.barcode,
+            weight: payload.weight,
+            carbs: payload.carbs,
+            protein: payload.protein,
+            fat: payload.fat,
+            calories: payload.calories,
+            eaten_at: payload.eaten_at,
+            product_id: payload.product_id || null,
+            isLocal: !isUpdate,
+            pending: true
+        };
+
+        const handles = [];
+        if (window.DataStore && typeof window.DataStore.applyOptimistic === 'function') {
+            const v2Mutator = (prev) => buildOptimisticFoodCache(prev, optimisticLog, editingId, { includeWeekStats: true });
+            const dayMutator = (prev) => buildOptimisticFoodCache(prev, optimisticLog, editingId, { includeWeekStats: false });
+            handles.push(await window.DataStore.applyOptimistic(v2Key, v2Mutator, ['food']));
+            handles.push(await window.DataStore.applyOptimistic(dayKey, dayMutator, ['food']));
         }
-        if (!res) return;
-        // Invalidate the `food` tag so Today's per-day food cache
-        // (`food_<date>_day`) is evicted. Without this, loadToday()'s
-        // presence check sees the stale cache and skips the refetch,
-        // leaving the macros card out of date. loadFoodLogs() writes its
-        // own `food_<date>_v2` cache and doesn't touch the Today key.
+
+        let res;
+        try {
+            if (isUpdate) {
+                res = await apiCall(`/api/food/log/${id}`, 'PUT', payload);
+            } else {
+                res = await apiCall('/api/food/log', 'POST', payload);
+            }
+        } catch (e) {
+            for (const h of handles) { try { await h.rollback(); } catch (_) { /* best-effort */ } }
+            throw e;
+        }
+
+        if (!res) {
+            for (const h of handles) { try { await h.rollback(); } catch (_) { /* best-effort */ } }
+            return;
+        }
+
+        // POST succeeded — invalidate the `food` tag so the next read fetches
+        // authoritative server data layered on top of the optimistic state.
+        // Use invalidateTags rather than handle.commit because the server
+        // returns only `{ status, id }` for creates, not the full payload.
+        for (const h of handles) {
+            try { await h.commit(null); } catch (_) { /* best-effort */ }
+        }
         await window.DataStore.invalidateTags(['food']);
-        // Belt-and-suspenders: the per-day food key is a dynamic-family
-        // entry, so it's evicted by the food family-tag registration from
-        // CacheKeys.registerAll. Clearing the key directly guarantees the
-        // current-day row is gone even if a future refactor reshapes the
-        // family prefix — Today's presence check would otherwise see the
-        // stale {groups: []} row and skip the refetch.
         if (typeof todayFoodKey === 'function' && window.DataStore.clearCached) {
             await window.DataStore.clearCached(todayFoodKey(new Date()));
         }
@@ -431,6 +474,77 @@ async function saveFoodLog() {
             window.loadToday();
         }
     });
+}
+
+// buildOptimisticFoodCache produces the post-mutation `{ groups, weekStats? }`
+// cache payload for saveFoodLog. Add/edit branches share this code path:
+//   - editingId != null: find the existing log in `groups`, replace its
+//     fields, and recompute that group's totals.
+//   - editingId == null: append a synthetic single-entry group so the row
+//     renders + the Today aggregator picks up the new calories.
+//
+// The renderer + aggregator only care about `groups[*].{calories, carbs,
+// protein, fat, logs}`; weekStats is left untouched and reconciled on the
+// next loadFoodLogs() read.
+function buildOptimisticFoodCache(prev, log, editingId, opts = {}) {
+    const groups = Array.isArray(prev?.groups) ? prev.groups.map((g) => ({
+        ...g,
+        logs: Array.isArray(g.logs) ? g.logs.slice() : []
+    })) : [];
+
+    if (editingId != null) {
+        let found = false;
+        for (const g of groups) {
+            const idx = g.logs.findIndex((l) => l && l.id === editingId);
+            if (idx === -1) continue;
+            g.logs[idx] = { ...g.logs[idx], ...log };
+            recomputeFoodGroupTotals(g);
+            found = true;
+            break;
+        }
+        if (!found) {
+            groups.push(makeOptimisticFoodGroup(log));
+        }
+    } else {
+        groups.push(makeOptimisticFoodGroup(log));
+    }
+
+    const next = { groups };
+    if (opts.includeWeekStats) {
+        next.weekStats = prev && prev.weekStats != null ? prev.weekStats : null;
+    }
+    return next;
+}
+
+function makeOptimisticFoodGroup(log) {
+    let timeLabel = '';
+    try {
+        const d = new Date(log.eaten_at);
+        if (!Number.isNaN(d.getTime())) {
+            timeLabel = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        }
+    } catch (_) { /* best-effort */ }
+    const group = {
+        name: log.name || 'Snack',
+        time: timeLabel,
+        logs: [log]
+    };
+    recomputeFoodGroupTotals(group);
+    return group;
+}
+
+function recomputeFoodGroupTotals(group) {
+    let cals = 0, carbs = 0, protein = 0, fat = 0;
+    for (const l of group.logs) {
+        if (Number.isFinite(l.calories)) cals += l.calories;
+        if (Number.isFinite(l.carbs)) carbs += l.carbs;
+        if (Number.isFinite(l.protein)) protein += l.protein;
+        if (Number.isFinite(l.fat)) fat += l.fat;
+    }
+    group.calories = cals;
+    group.carbs = carbs;
+    group.protein = protein;
+    group.fat = fat;
 }
 
 function setFoodStatsPeriod(period) {
@@ -1096,11 +1210,70 @@ async function saveFoodTargets() {
 
 async function deleteFoodLog(id) {
     await safeConfirm("Delete this entry?", async (ok) => {
-        if (ok) {
-            const res = await apiCall(`/api/food/log/${id}`, 'DELETE');
-            if (res) loadFoodLogs();
+        if (!ok) return;
+
+        // Optimistic: drop the row from both day caches (v2 + Today's per-day
+        // key) before awaiting the DELETE so the list + Today macros tile
+        // update immediately. Rollback restores the prior snapshot on failure.
+        const dateFilter = document.getElementById('food-date-filter');
+        const filterDate = dateFilter && dateFilter.value ? dateFilter.value : toISODateLocal(new Date());
+        const candidateDays = new Set([filterDate, toISODateLocal(new Date())]);
+
+        const handles = [];
+        if (window.DataStore && typeof window.DataStore.applyOptimistic === 'function') {
+            for (const dayStr of candidateDays) {
+                const v2Key = `food_${dayStr}_v2`;
+                const dayKey = typeof todayFoodKey === 'function'
+                    ? todayFoodKey(new Date(`${dayStr}T00:00:00`))
+                    : `food_${dayStr}_day`;
+                const mutator = (prev) => removeOptimisticFoodLog(prev, id);
+                handles.push(await window.DataStore.applyOptimistic(v2Key, mutator, ['food']));
+                handles.push(await window.DataStore.applyOptimistic(dayKey, mutator, ['food']));
+            }
         }
+
+        let res;
+        try {
+            res = await apiCall(`/api/food/log/${id}`, 'DELETE');
+        } catch (e) {
+            for (const h of handles) { try { await h.rollback(); } catch (_) { /* best-effort */ } }
+            throw e;
+        }
+
+        if (!res) {
+            for (const h of handles) { try { await h.rollback(); } catch (_) { /* best-effort */ } }
+            return;
+        }
+
+        for (const h of handles) { try { await h.commit(null); } catch (_) { /* best-effort */ } }
+        await window.DataStore.invalidateTags(['food']);
+        loadFoodLogs();
     });
+}
+
+// Filter a single log id out of a cached `{ groups }` payload and recompute
+// affected group totals. Groups that empty out are dropped so the renderer
+// doesn't show a header with no rows.
+function removeOptimisticFoodLog(prev, logId) {
+    if (!prev || !Array.isArray(prev.groups)) return prev;
+    const numericId = typeof logId === 'string' ? parseInt(logId, 10) : logId;
+    const groups = [];
+    for (const g of prev.groups) {
+        const filtered = (g.logs || []).filter((l) => l && l.id !== numericId && l.id !== logId);
+        if (filtered.length === (g.logs || []).length) {
+            groups.push(g);
+            continue;
+        }
+        if (filtered.length === 0) continue;
+        const next = { ...g, logs: filtered };
+        recomputeFoodGroupTotals(next);
+        groups.push(next);
+    }
+    const out = { groups };
+    if (Object.prototype.hasOwnProperty.call(prev, 'weekStats')) {
+        out.weekStats = prev.weekStats;
+    }
+    return out;
 }
 
 window.FoodLog.load = loadFoodLogs;

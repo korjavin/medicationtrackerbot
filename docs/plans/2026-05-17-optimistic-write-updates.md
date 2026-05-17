@@ -98,12 +98,12 @@ Findings audit and cross-cutting recommendation came from the parent conversatio
 - [x] run `pnpm test` — must pass before next task
 
 ### Task 4: Convert food log
-- [ ] convert `features/food/log.js:381 saveFoodLog` to write into `food_<date>_v2`, `todayFoodKey` (with updated totals) before await
-- [ ] convert `:1097 deleteFoodLog` to filter locally first
-- [ ] convert `features/food/photo.js:206` to append returned items into the cached `food_<date>_day` payload instead of re-fetching
-- [ ] convert `features/food/meals.js:65`, `:142` (meal save/delete) and `features/food/products.js:853` (product save)
-- [ ] write tests in `features.food.*` covering save (incl. totals update), delete, photo, meal save, product save — optimistic + rollback for each
-- [ ] run `pnpm test` — must pass before next task
+- [x] convert `features/food/log.js:381 saveFoodLog` to write into `food_<date>_v2`, `todayFoodKey` (with updated totals) before await
+- [x] convert `:1097 deleteFoodLog` to filter locally first
+- [x] convert `features/food/photo.js:206` to append returned items into the cached `food_<date>_day` payload instead of re-fetching
+- [x] convert `features/food/meals.js:65`, `:142` (meal save/delete) and `features/food/products.js:853` (product save)
+- [x] write tests in `features.food.*` covering save (incl. totals update), delete, photo, meal save, product save — optimistic + rollback for each
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 5: Convert BP + Weight
 - [ ] convert `features/bp.js:88 saveBP` to prepend the new reading into the cached `bp` payload + re-render before await
