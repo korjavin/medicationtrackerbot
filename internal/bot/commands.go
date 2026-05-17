@@ -139,10 +139,14 @@ func (b *Bot) registerCommands(ctx context.Context) error {
 		})
 	}
 
+	// Hold the lock across the entire check/POST/write sequence so concurrent
+	// callers cannot both observe an "unchanged" miss, both POST, and race to
+	// publish stale cache state. Only the watcher goroutine and the initial
+	// Start() invocation call this today (and they're serialized), but the
+	// lock makes future call sites safe by construction.
 	b.lastRegisteredMu.Lock()
-	unchanged := commandListsEqual(b.lastRegisteredCommands, cmds)
-	b.lastRegisteredMu.Unlock()
-	if unchanged {
+	defer b.lastRegisteredMu.Unlock()
+	if commandListsEqual(b.lastRegisteredCommands, cmds) {
 		return nil
 	}
 
@@ -155,9 +159,7 @@ func (b *Bot) registerCommands(ctx context.Context) error {
 		return fmt.Errorf("setMyCommands returned not-ok: %s", resp.Description)
 	}
 
-	b.lastRegisteredMu.Lock()
 	b.lastRegisteredCommands = cmds
-	b.lastRegisteredMu.Unlock()
 	return nil
 }
 
