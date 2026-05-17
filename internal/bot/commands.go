@@ -1,5 +1,12 @@
 package bot
 
+import (
+	"context"
+	"fmt"
+
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+)
+
 // commandSpec is the canonical metadata for a single slash command. The same
 // spec drives /help rendering and the Telegram setMyCommands menu so the two
 // surfaces never drift apart.
@@ -101,4 +108,29 @@ func enabledSpecs(flags featureFlags) []commandSpec {
 		}
 	}
 	return out
+}
+
+// registerCommands pushes the current feature-flag-filtered command list to
+// Telegram's setMyCommands endpoint so the slash-command autocomplete menu
+// mirrors what /help shows. Telegram replaces the full list on each call, so
+// repeated invocations are safe and idempotent.
+func (b *Bot) registerCommands(ctx context.Context) error {
+	flags := b.getFeatureFlags(ctx)
+	specs := enabledSpecs(flags)
+	cmds := make([]tgbotapi.BotCommand, 0, len(specs))
+	for _, s := range specs {
+		cmds = append(cmds, tgbotapi.BotCommand{
+			Command:     s.Name,
+			Description: s.Description,
+		})
+	}
+	cfg := tgbotapi.NewSetMyCommands(cmds...)
+	resp, err := b.api.Request(cfg)
+	if err != nil {
+		return err
+	}
+	if !resp.Ok {
+		return fmt.Errorf("setMyCommands returned not-ok: %s", resp.Description)
+	}
+	return nil
 }

@@ -207,7 +207,11 @@ func (b *Bot) buildHelpText(flags featureFlags) string {
 	return strings.Join(sections, "\n\n")
 }
 
-func (b *Bot) Start() {
+func (b *Bot) Start(ctx context.Context) {
+	if err := b.registerCommands(ctx); err != nil {
+		slog.Warn("failed to register bot commands", "error", err)
+	}
+
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
 
