@@ -17,15 +17,23 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
-// stubFoodAI is a minimal FoodAIService used to drive the photo upload handler
-// in tests without depending on a real OpenAI-compatible vision provider.
+// stubFoodAI is a minimal FoodAIService used to drive the photo upload and
+// natural-language description handlers in tests without depending on a real
+// OpenAI-compatible provider.
 type stubFoodAI struct {
-	photoLogs []domain.FoodLog
-	photoErr  error
+	photoLogs       []domain.FoodLog
+	photoErr        error
+	descLogs        []domain.FoodLog
+	descErr         error
+	lastDescription string
 }
 
 func (s *stubFoodAI) ParseMealDescription(ctx context.Context, description string) ([]domain.FoodLog, error) {
-	return nil, fmt.Errorf("not implemented")
+	s.lastDescription = description
+	if s.descErr != nil {
+		return nil, s.descErr
+	}
+	return s.descLogs, nil
 }
 
 func (s *stubFoodAI) ParseMealPhoto(ctx context.Context, imageBytes []byte, mimeType string) ([]domain.FoodLog, error) {
@@ -768,5 +776,328 @@ func TestHandleCreateFoodLogFromPhoto_ReturnsItemIDs(t *testing.T) {
 		if !seen[log.ID] {
 			t.Errorf("persisted log id %d not present in response items", log.ID)
 		}
+	}
+}
+
+// TestHandleCreateFoodLogFromDescription_HappyPath verifies that the
+// description endpoint parses a natural-language meal, persists the parsed
+// items via the food store, and returns each with a non-zero ID.
+func TestHandleCreateFoodLogFromDescription_HappyPath(t *testing.T) {
+	srv, db := createFoodTestServer(t)
+	defer db.Close()
+
+	if err := db.Settings.SetFoodIntakeEnabled(context.Background(), true); err != nil {
+		t.Fatalf("SetFoodIntakeEnabled: %v", err)
+	}
+
+	stub := &stubFoodAI{
+		descLogs: []domain.FoodLog{
+			{Name: "Grilled chicken", Weight: 200, Carbs: 0, Protein: 60, Fat: 8, Calories: 320},
+			{Name: "White rice (cooked)", Weight: 158, Carbs: 44, Protein: 4, Fat: 0, Calories: 200},
+		},
+	}
+	srv.SetFoodAIService(stub)
+
+	body := map[string]string{
+		"description": "200g grilled chicken with a cup of rice",
+	}
+	bodyJSON, _ := json.Marshal(body)
+
+	req := httptest.NewRequest("POST", "/api/food/log/from-description", bytes.NewReader(bodyJSON))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleCreateFoodLogFromDescription(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Status string `json:"status"`
+		Items  []struct {
+			ID       int64  `json:"id"`
+			Name     string `json:"name"`
+			Weight   int    `json:"weight"`
+			Calories int    `json:"calories"`
+		} `json:"items"`
+		Failed int `json:"failed"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if resp.Status != "created" {
+		t.Errorf("expected status 'created', got %q", resp.Status)
+	}
+	if resp.Failed != 0 {
+		t.Errorf("expected failed=0, got %d", resp.Failed)
+	}
+	if len(resp.Items) != 2 {
+		t.Fatalf("expected 2 items in response, got %d", len(resp.Items))
+	}
+
+	if stub.lastDescription != "200g grilled chicken with a cup of rice" {
+		t.Errorf("expected description forwarded to AI service, got %q", stub.lastDescription)
+	}
+
+	seen := map[int64]bool{}
+	for i, item := range resp.Items {
+		if item.ID == 0 {
+			t.Errorf("item %d (%q): expected non-zero id, got 0", i, item.Name)
+		}
+		if seen[item.ID] {
+			t.Errorf("item %d (%q): duplicate id %d in response", i, item.Name, item.ID)
+		}
+		seen[item.ID] = true
+	}
+
+	logs, err := db.Food.ListLogs(context.Background(), 123456, time.Now(), 1)
+	if err != nil {
+		t.Fatalf("ListLogs: %v", err)
+	}
+	if len(logs) != 2 {
+		t.Fatalf("expected 2 persisted logs, got %d", len(logs))
+	}
+}
+
+// TestHandleCreateFoodLogFromDescription_NoAIService verifies the handler
+// returns 503 when the AI service is not configured.
+func TestHandleCreateFoodLogFromDescription_NoAIService(t *testing.T) {
+	srv, db := createFoodTestServer(t)
+	defer db.Close()
+
+	if err := db.Settings.SetFoodIntakeEnabled(context.Background(), true); err != nil {
+		t.Fatalf("SetFoodIntakeEnabled: %v", err)
+	}
+
+	body, _ := json.Marshal(map[string]string{"description": "an apple"})
+	req := httptest.NewRequest("POST", "/api/food/log/from-description", bytes.NewReader(body))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleCreateFoodLogFromDescription(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("Expected 503, got %d. Body: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestHandleCreateFoodLogFromDescription_AIError verifies that an AI parse
+// error is surfaced as 502 Bad Gateway, mirroring the photo handler.
+func TestHandleCreateFoodLogFromDescription_AIError(t *testing.T) {
+	srv, db := createFoodTestServer(t)
+	defer db.Close()
+
+	if err := db.Settings.SetFoodIntakeEnabled(context.Background(), true); err != nil {
+		t.Fatalf("SetFoodIntakeEnabled: %v", err)
+	}
+
+	srv.SetFoodAIService(&stubFoodAI{descErr: fmt.Errorf("AI unreachable")})
+
+	body, _ := json.Marshal(map[string]string{"description": "an apple"})
+	req := httptest.NewRequest("POST", "/api/food/log/from-description", bytes.NewReader(body))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleCreateFoodLogFromDescription(w, req)
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("Expected 502, got %d. Body: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestHandleCreateFoodLogFromDescription_EmptyResult verifies the handler
+// returns 422 when the AI returns no parsed items.
+func TestHandleCreateFoodLogFromDescription_EmptyResult(t *testing.T) {
+	srv, db := createFoodTestServer(t)
+	defer db.Close()
+
+	if err := db.Settings.SetFoodIntakeEnabled(context.Background(), true); err != nil {
+		t.Fatalf("SetFoodIntakeEnabled: %v", err)
+	}
+
+	srv.SetFoodAIService(&stubFoodAI{descLogs: nil})
+
+	body, _ := json.Marshal(map[string]string{"description": "asdfqwer"})
+	req := httptest.NewRequest("POST", "/api/food/log/from-description", bytes.NewReader(body))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleCreateFoodLogFromDescription(w, req)
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("Expected 422, got %d. Body: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestHandleCreateFoodLogFromDescription_MalformedJSON verifies the handler
+// rejects malformed JSON bodies with 400.
+func TestHandleCreateFoodLogFromDescription_MalformedJSON(t *testing.T) {
+	srv, db := createFoodTestServer(t)
+	defer db.Close()
+
+	if err := db.Settings.SetFoodIntakeEnabled(context.Background(), true); err != nil {
+		t.Fatalf("SetFoodIntakeEnabled: %v", err)
+	}
+
+	srv.SetFoodAIService(&stubFoodAI{})
+
+	req := httptest.NewRequest("POST", "/api/food/log/from-description", strings.NewReader("not json"))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleCreateFoodLogFromDescription(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Expected 400, got %d. Body: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestHandleCreateFoodLogFromDescription_InvalidEatenAt verifies the handler
+// rejects a non-empty but unparseable eaten_at with 400 rather than silently
+// falling back to time.Now(). MCP/API callers that send a malformed timestamp
+// should get a clear error, not a meal logged at the wrong time.
+func TestHandleCreateFoodLogFromDescription_InvalidEatenAt(t *testing.T) {
+	srv, db := createFoodTestServer(t)
+	defer db.Close()
+
+	if err := db.Settings.SetFoodIntakeEnabled(context.Background(), true); err != nil {
+		t.Fatalf("SetFoodIntakeEnabled: %v", err)
+	}
+
+	srv.SetFoodAIService(&stubFoodAI{descLogs: []domain.FoodLog{{Name: "X", Weight: 1}}})
+
+	body, _ := json.Marshal(map[string]string{
+		"description": "an apple",
+		"eaten_at":    "not-a-real-timestamp",
+	})
+	req := httptest.NewRequest("POST", "/api/food/log/from-description", bytes.NewReader(body))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleCreateFoodLogFromDescription(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Expected 400, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	// Nothing should have been persisted.
+	logs, err := db.Food.ListLogs(context.Background(), 123456, time.Now(), 1)
+	if err != nil {
+		t.Fatalf("ListLogs: %v", err)
+	}
+	if len(logs) != 0 {
+		t.Errorf("expected no persisted logs on validation failure, got %d", len(logs))
+	}
+}
+
+// TestHandleCreateFoodLogFromPhoto_InvalidEatenAt mirrors the description-handler
+// test above: a non-empty unparseable eaten_at must return 400 rather than
+// silently substituting time.Now().
+func TestHandleCreateFoodLogFromPhoto_InvalidEatenAt(t *testing.T) {
+	srv, db := createFoodTestServer(t)
+	defer db.Close()
+
+	if err := db.Settings.SetFoodIntakeEnabled(context.Background(), true); err != nil {
+		t.Fatalf("SetFoodIntakeEnabled: %v", err)
+	}
+
+	srv.SetFoodAIService(&stubFoodAI{
+		photoLogs: []domain.FoodLog{{Name: "Apple", Weight: 150}},
+	})
+
+	body := &bytes.Buffer{}
+	mw := multipart.NewWriter(body)
+	hdr := make(textproto.MIMEHeader)
+	hdr.Set("Content-Disposition", `form-data; name="image"; filename="meal.jpg"`)
+	hdr.Set("Content-Type", "image/jpeg")
+	part, err := mw.CreatePart(hdr)
+	if err != nil {
+		t.Fatalf("CreatePart: %v", err)
+	}
+	if _, err := part.Write([]byte("fake-jpeg-bytes")); err != nil {
+		t.Fatalf("write part: %v", err)
+	}
+	if err := mw.WriteField("eaten_at", "not-a-real-timestamp"); err != nil {
+		t.Fatalf("WriteField: %v", err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
+
+	req := httptest.NewRequest("POST", "/api/food/log/from-photo", body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleCreateFoodLogFromPhoto(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Expected 400, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	logs, err := db.Food.ListLogs(context.Background(), 123456, time.Now(), 1)
+	if err != nil {
+		t.Fatalf("ListLogs: %v", err)
+	}
+	if len(logs) != 0 {
+		t.Errorf("expected no persisted logs on validation failure, got %d", len(logs))
+	}
+}
+
+// TestHandleCreateFoodLogFromDescription_TooLong verifies the handler caps
+// the description payload and never forwards an oversized prompt to the AI
+// service. Without this cap an authenticated caller can burn provider credit
+// by POSTing arbitrarily large strings.
+func TestHandleCreateFoodLogFromDescription_TooLong(t *testing.T) {
+	srv, db := createFoodTestServer(t)
+	defer db.Close()
+
+	if err := db.Settings.SetFoodIntakeEnabled(context.Background(), true); err != nil {
+		t.Fatalf("SetFoodIntakeEnabled: %v", err)
+	}
+
+	stub := &stubFoodAI{descLogs: []domain.FoodLog{{Name: "X", Weight: 1}}}
+	srv.SetFoodAIService(stub)
+
+	body, _ := json.Marshal(map[string]string{
+		"description": strings.Repeat("a", 4097),
+	})
+	req := httptest.NewRequest("POST", "/api/food/log/from-description", bytes.NewReader(body))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleCreateFoodLogFromDescription(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Expected 400, got %d. Body: %s", w.Code, w.Body.String())
+	}
+	if stub.lastDescription != "" {
+		t.Errorf("AI service must not be invoked for oversized descriptions; got %q", stub.lastDescription)
+	}
+}
+
+// TestHandleCreateFoodLogFromDescription_MissingDescription verifies the
+// handler rejects an empty/whitespace-only description with 400.
+func TestHandleCreateFoodLogFromDescription_MissingDescription(t *testing.T) {
+	srv, db := createFoodTestServer(t)
+	defer db.Close()
+
+	if err := db.Settings.SetFoodIntakeEnabled(context.Background(), true); err != nil {
+		t.Fatalf("SetFoodIntakeEnabled: %v", err)
+	}
+
+	srv.SetFoodAIService(&stubFoodAI{})
+
+	body, _ := json.Marshal(map[string]string{"description": "   "})
+	req := httptest.NewRequest("POST", "/api/food/log/from-description", bytes.NewReader(body))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleCreateFoodLogFromDescription(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Expected 400, got %d. Body: %s", w.Code, w.Body.String())
 	}
 }

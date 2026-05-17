@@ -71,6 +71,12 @@ func (a *storeAdapter) GetLastDownload() (time.Time, error) {
 func (a *storeAdapter) UpdateLastDownload(t time.Time) error {
 	return a.settings.UpdateLastDownload(t)
 }
+func (a *storeAdapter) GetLatestChangeCursor(ctx context.Context) (int64, error) {
+	return a.settings.GetLatestChangeCursor(ctx)
+}
+func (a *storeAdapter) ListChangedTagsSince(ctx context.Context, since int64) (int64, []string, error) {
+	return a.settings.ListChangedTagsSince(ctx, since)
+}
 
 // --- Medication ---
 

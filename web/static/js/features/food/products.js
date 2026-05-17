@@ -128,6 +128,18 @@ async function initFoodProductsCache() {
 }
 
 async function onFoodNameChange() {
+    // "Parse with AI" mode (Plan 2026-05-17): the food-name input is being
+    // used as a meal description, so suppress the product search entirely —
+    // sending a long description through /api/food/products/search would
+    // pollute the cache and surface no useful matches.
+    const modal = document.getElementById('food-modal');
+    if (modal && modal.classList.contains('wg-food-modal--ai-mode')) {
+        cancelInFlightFoodSearch();
+        const list = document.getElementById('food-autocomplete-list');
+        if (list) list.classList.add('hidden');
+        return;
+    }
+
     const foodNameInput = document.getElementById('food-name');
     const query = foodNameInput.value;
     const normalizedQuery = normalizeFoodSearchQuery(query);
@@ -731,6 +743,8 @@ function renderFoodAutocomplete(products, showLoadMore = false, loadMoreCallback
 }
 
 function onFoodNameFocus() {
+    const modal = document.getElementById('food-modal');
+    if (modal && modal.classList.contains('wg-food-modal--ai-mode')) return;
     const list = document.getElementById('food-autocomplete-list');
     if (!list) return;
     if (window.FoodProducts.suggestions.length > 0) {
