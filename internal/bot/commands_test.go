@@ -2,12 +2,153 @@ package bot
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"testing"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
+
+// routedCommands is the canonical list of slash commands the bot dispatches
+// in handleMessage (bot.go switch on msg.Command) plus the implicit /start
+// command Telegram clients send on first chat. Keep in sync with bot.go and
+// with commandSpecs.
+var routedCommands = []string{
+	"start", "help",
+	"log", "download", "bp", "bphistory", "bpstats",
+	"weight", "weighthistory", "goal", "bpgoal", "stock",
+	"workout", "startnext", "workoutstatus", "workouthistory",
+	"next", "intake", "food", "activity", "note", "tz",
+}
+
+func TestCommandSpecs_CoversEveryRoutedCommand(t *testing.T) {
+	specByName := map[string]commandSpec{}
+	for _, s := range commandSpecs {
+		if _, dup := specByName[s.Name]; dup {
+			t.Errorf("duplicate commandSpec for %q", s.Name)
+		}
+		specByName[s.Name] = s
+	}
+
+	expected := map[string]bool{}
+	for _, n := range routedCommands {
+		expected[n] = true
+		if _, ok := specByName[n]; !ok {
+			t.Errorf("commandSpecs missing %q (routed in bot.go but no spec entry)", n)
+		}
+	}
+
+	for _, s := range commandSpecs {
+		if !expected[s.Name] {
+			t.Errorf("commandSpecs contains %q but no router case exists for it in bot.go", s.Name)
+		}
+	}
+
+	// Sanity: every spec must list a section, and the section must appear in
+	// commandSections so /help ordering is deterministic.
+	knownSection := map[string]bool{}
+	for _, sec := range commandSections {
+		knownSection[sec] = true
+	}
+	for _, s := range commandSpecs {
+		if s.Section == "" {
+			t.Errorf("commandSpec %q has empty Section", s.Name)
+			continue
+		}
+		if !knownSection[s.Section] {
+			t.Errorf("commandSpec %q has Section %q not declared in commandSections", s.Name, s.Section)
+		}
+	}
+}
+
+func TestEnabledSpecs_FiltersByFlag(t *testing.T) {
+	all := featureFlags{Medication: true, BP: true, Weight: true, Workout: true, Food: true}
+
+	cases := []struct {
+		name        string
+		flags       featureFlags
+		wantPresent []string
+		wantAbsent  []string
+	}{
+		{
+			name:        "all flags enabled exposes every command",
+			flags:       all,
+			wantPresent: routedCommands,
+		},
+		{
+			name:        "Medication off hides medication commands",
+			flags:       featureFlags{BP: true, Weight: true, Workout: true, Food: true},
+			wantAbsent:  []string{"log", "next", "stock", "download"},
+			wantPresent: []string{"start", "help", "bp", "weight", "workout", "intake", "note", "tz"},
+		},
+		{
+			name:        "BP off hides BP commands but keeps weight",
+			flags:       featureFlags{Medication: true, Weight: true, Workout: true, Food: true},
+			wantAbsent:  []string{"bp", "bphistory", "bpstats", "bpgoal"},
+			wantPresent: []string{"weight", "weighthistory", "goal", "log", "workout"},
+		},
+		{
+			name:        "Weight off hides weight commands but keeps BP",
+			flags:       featureFlags{Medication: true, BP: true, Workout: true, Food: true},
+			wantAbsent:  []string{"weight", "weighthistory", "goal"},
+			wantPresent: []string{"bp", "bphistory", "bpstats", "bpgoal", "log"},
+		},
+		{
+			name:        "Workout off hides workout commands including activity",
+			flags:       featureFlags{Medication: true, BP: true, Weight: true, Food: true},
+			wantAbsent:  []string{"workout", "startnext", "workoutstatus", "workouthistory", "activity"},
+			wantPresent: []string{"log", "bp", "weight", "intake", "food"},
+		},
+		{
+			name:        "Food off hides food commands",
+			flags:       featureFlags{Medication: true, BP: true, Weight: true, Workout: true},
+			wantAbsent:  []string{"intake", "food"},
+			wantPresent: []string{"log", "bp", "weight", "workout", "note", "tz"},
+		},
+		{
+			name:        "all flags off keeps only always-enabled commands",
+			flags:       featureFlags{},
+			wantPresent: []string{"start", "help", "note", "tz"},
+			wantAbsent: []string{
+				"log", "next", "stock", "download",
+				"bp", "bphistory", "bpstats", "bpgoal",
+				"weight", "weighthistory", "goal",
+				"workout", "startnext", "workoutstatus", "workouthistory", "activity",
+				"intake", "food",
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := enabledSpecs(tc.flags)
+			names := map[string]bool{}
+			for _, s := range got {
+				names[s.Name] = true
+			}
+			for _, w := range tc.wantPresent {
+				if !names[w] {
+					t.Errorf("expected %q in enabled specs, got: %v", w, sortedKeys(names))
+				}
+			}
+			for _, w := range tc.wantAbsent {
+				if names[w] {
+					t.Errorf("expected %q absent from enabled specs, got: %v", w, sortedKeys(names))
+				}
+			}
+		})
+	}
+}
+
+func sortedKeys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
 
 func TestHandleBPCommand(t *testing.T) {
 	env := setupBotTest(t)
