@@ -131,13 +131,13 @@ try {
 
 **Rollback semantics** — on POST rejection: restore the captured snapshot (or clear the entry if the cache was cold), call `invalidateTags(tags)` so the next read goes to network and authoritatively resyncs, and surface a toast via the existing offline-write error UI where applicable.
 
-**Relationship to the poll path** — `applyChangesPayload` (the 30s `/api/changes` poll) remains the canonical source of truth for cross-device sync. Optimistic state is layered on top: a remote change reconciles via `applyChangesPayload`'s own `invalidateTags + dispatch` flow, which the screen's normal `loadX()` listener picks up on the next refresh.
+**Relationship to the reconcile path** — `applyChangesPayload` remains the canonical reconciliation entry point for cross-device sync, fed by either the SSE `/api/changes/stream` channel (primary, ~50ms latency) or the 30s `/api/changes` polling fallback when SSE is unavailable. Optimistic state is layered on top: a remote change reconciles via `applyChangesPayload`'s own `invalidateTags + dispatch` flow, which the screen's normal `loadX()` listener picks up on the next refresh.
 
 **Design rule** — write handlers MUST use `applyOptimistic`, never `invalidateTags + loadX`. The latter is reserved for read-only refreshes (e.g. the `invalidateWorkoutCache` helper) and for the rollback path inside `applyOptimistic` itself.
 
 ### Change Detection
 
-Polls `/api/changes?since=` every 30s (SSE disabled due to HTTP/2 proxy issues — see [technical-decisions.md](technical-decisions.md)). When the poll reports invalidated tags, `data-store.js` both calls `window.requestTabRefresh({ changedTags, source })` (debounced 500ms, reloads the active tab) **and** dispatches a `datastore:changed` CustomEvent on `window` with `detail = { changedTags, source }`. Features that need to react without owning the active tab (e.g. the Today dashboard's live-update subscriber) listen on the CustomEvent.
+SSE-first: `data-store.js` opens an EventSource against `/api/changes/stream` (auth via `?initData=…` query param) and falls back to 30s polling of `/api/changes?since=` only when `EventSource` is undefined or after 3 consecutive `onerror` events within 30s — once tripped, polling sticks for the rest of the session. SSE messages and poll responses share the same `applyChangesPayload` apply path. When invalidated tags arrive, `data-store.js` both calls `window.requestTabRefresh({ changedTags, source })` (debounced 500ms, reloads the active tab) **and** dispatches a `datastore:changed` CustomEvent on `window` with `detail = { changedTags, source }`. Features that need to react without owning the active tab (e.g. the Today dashboard's live-update subscriber) listen on the CustomEvent. See [technical-decisions.md → Why SSE is primary](technical-decisions.md) and [architecture.md → Cross-client change broadcast](architecture.md#cross-client-change-broadcast-sse--polling-fallback) for the server-side fan-out, and [sse-traefik.md](sse-traefik.md) for the reverse-proxy configuration.
 
 ### Cross-section Auto-refresh Invariant
 
@@ -270,6 +270,8 @@ The app uses the Wandergeek **bottom nav** as the canonical navigation surface, 
 - **Deep-link router** (`features/deeplink-router.js`, `window.handleDeepLinks`): URL hash and `tgWebAppStartParam` still route to any section by name (including `health`, which renders under the "Vitals" nav label). Deep links land directly on the section with the bottom nav highlighting it and the Telegram BackButton visible, bypassing Today.
 
 ## Data Flow
+
+Cross-client invalidation is SSE-first: `data-store.js` opens an EventSource against `/api/changes/stream` and falls back to 30s `/api/changes?since=` polling only after 3 consecutive `onerror` events within 30s (or when `EventSource` is undefined). See [Change Detection](#change-detection) above.
 
 ### Write path
 

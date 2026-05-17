@@ -1,8 +1,35 @@
 # Technical Decisions
 
-## Why polling instead of SSE for change detection
+## Why SSE is primary and polling is the fallback
 
-SSE (Server-Sent Events) over HTTP/2 behind reverse proxies like Traefik and nginx is unreliable. When the server closes the stream it sends an HTTP/2 `RST_STREAM` frame that browsers surface as `ERR_HTTP2_PROTOCOL_ERROR`, causing spurious reconnection loops and error noise. Polling every 30 seconds with a cursor-based `GET /api/changes?since=` is lightweight (empty responses are ~50 bytes) and works reliably through any proxy stack.
+`/api/changes/stream` is a Server-Sent Events endpoint backed by a process-wide
+`ChangeBroker` (`internal/server/changes_broker.go`). HTTP-level write traffic
+is tapped by `notifyOnWriteMiddleware`: on a successful (2xx) non-GET response
+it reads the latest cursor from the `change_events` table and fans it out to
+every subscribed SSE handler within ~50ms. Connected clients on other devices
+see the write almost immediately instead of waiting up to 30s for the next
+poll tick.
+
+The original rejection of SSE — `RST_STREAM` noise on HTTP/2 reverse proxies
+surfacing as `ERR_HTTP2_PROTOCOL_ERROR` and triggering spurious reconnect
+loops — turned out to be a deploy-time only artifact, not a steady-state
+problem. `Server.Shutdown` now calls `changesBroker.CloseAll()` before the
+HTTP listener closes, so handlers exit cleanly and the only `RST_STREAM` a
+client sees is a single one per deploy, after which EventSource silently
+reconnects. Steady-state streaming is quiet.
+
+Polling is kept as a fallback for two cases the client detects automatically:
+
+1. The browser lacks `EventSource` (very old WebView).
+2. The SSE channel produces 3 consecutive `onerror` events within 30s (proxy
+   misconfiguration, network captive portal, etc.) — once this trips, the
+   client switches to `GET /api/changes?since=` polling for the rest of the
+   session and does not retry SSE.
+
+The cursor-based polling endpoint and its 30s tick are unchanged so the
+fallback path is exactly the same code the client used before. See
+[sse-traefik.md](sse-traefik.md) for the required Traefik labels and the
+residual `initData`-in-access-log caveat.
 
 ## Why only three endpoints support offline writes
 
