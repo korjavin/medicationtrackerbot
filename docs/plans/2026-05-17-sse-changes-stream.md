@@ -76,12 +76,12 @@ After a write completes on the server (regardless of which client or which trans
 - [x] run `go test ./internal/server/...` — must pass before next task
 
 ### Task 2: Wire broker into `Server` + write-notify middleware
-- [ ] add `changes *ChangeBroker` field to `Server` struct in `internal/server/server.go`; construct in `New(...)`
-- [ ] add `notifyOnWriteMiddleware` that wraps the API mux: on successful (2xx) non-GET response, call `s.changes.Notify(latestCursor)` where `latestCursor` comes from `s.store.Settings.GetLatestChangeCursor` (or whatever the existing accessor is — confirm during implementation)
-- [ ] wire middleware around `apiMux` after auth in `server.go:676-…`
-- [ ] add `s.changes.CloseAll()` to `Server.Shutdown` BEFORE the listener closes, with a small grace window so in-flight handlers exit cleanly
-- [ ] write test in `changes_handlers_test.go`: POST a write through the test server, assert a subscriber receives the cursor within 200ms
-- [ ] run `go test ./internal/server/...` — must pass before next task
+- [x] add `changes *ChangeBroker` field to `Server` struct in `internal/server/server.go`; construct in `New(...)` (named `changesBroker` to avoid collision with the existing `changes` ChangeStore field)
+- [x] add `notifyOnWriteMiddleware` that wraps the API mux: on successful (2xx) non-GET response, call `s.changesBroker.Notify(latestCursor)` where `latestCursor` comes from `s.changes.GetLatestChangeCursor`
+- [x] wire middleware around `apiMux` (wrapping the apiMux before storing in `s.internalMux`, so bridge writes also notify); auth middleware then wraps the notify-wrapped handler
+- [x] add `s.changesBroker.CloseAll()` to `Server.Shutdown` so in-flight handlers exit cleanly (caller in `cmd/bot/main.go` is responsible for invoking `Server.Shutdown` before `http.Server.Shutdown`)
+- [x] write test in `changes_handlers_test.go`: POST a write through the test server, assert a subscriber receives the cursor within 200ms (also added GET-skip and Shutdown-closes-subscribers tests)
+- [x] run `go test ./internal/server/...` — must pass before next task
 
 ### Task 3: Rewrite `handleChangesStream` to use the broker
 - [ ] replace 5s ticker + `ListChangedTagsSince` polling loop in `internal/server/changes_handlers.go:98` with `select` on `hub.Subscribe(ctx)`, `time.After(15*time.Second)` keepalive, `r.Context().Done()`

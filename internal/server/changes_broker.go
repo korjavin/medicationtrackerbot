@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"log/slog"
+	"net/http"
 	"sync"
 )
 
@@ -89,4 +91,82 @@ func (b *ChangeBroker) CloseAll() {
 		delete(b.subs, ch)
 		close(ch)
 	}
+}
+
+// changeStatusRecorder is a tiny ResponseWriter wrapper that lets the
+// notifyOnWriteMiddleware see the final response status without consuming
+// the body. It defaults to 200 because net/http auto-writes that status when
+// a handler writes a body without calling WriteHeader explicitly.
+type changeStatusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *changeStatusRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
+}
+
+func (r *changeStatusRecorder) Write(b []byte) (int, error) {
+	if r.status == 0 {
+		r.status = http.StatusOK
+	}
+	return r.ResponseWriter.Write(b)
+}
+
+func (r *changeStatusRecorder) Flush() {
+	if f, ok := r.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (r *changeStatusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
+
+// notifyOnWriteMiddleware fans out a broker notification on every successful
+// non-GET API response, so SSE subscribers wake up immediately instead of
+// waiting for the next poll tick. The cursor is read from the ChangeStore
+// after the handler returns, so the value is guaranteed to include the write
+// that just happened (assuming the SQL triggers on change_events ran in the
+// same handler's transaction).
+//
+// Notification is best-effort: lookup failures are logged and swallowed so
+// they never affect the user-facing response.
+func (s *Server) notifyOnWriteMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec := &changeStatusRecorder{ResponseWriter: w}
+		next.ServeHTTP(rec, r)
+
+		if s.changesBroker == nil || s.changes == nil {
+			return
+		}
+		if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
+			return
+		}
+		status := rec.status
+		if status == 0 {
+			status = http.StatusOK
+		}
+		if status < 200 || status >= 300 {
+			return
+		}
+
+		cursor, err := s.changes.GetLatestChangeCursor(r.Context())
+		if err != nil {
+			slog.Debug("changes notify: cursor lookup failed", "error", err, "path", r.URL.Path)
+			return
+		}
+		s.changesBroker.Notify(cursor)
+	})
+}
+
+// Shutdown releases broker subscribers so in-flight SSE handlers can return
+// cleanly before the HTTP listener is torn down. Safe to call multiple times.
+// The ctx argument is accepted for future symmetry with http.Server.Shutdown;
+// currently the broker close is synchronous and bounded.
+func (s *Server) Shutdown(ctx context.Context) error {
+	if s == nil || s.changesBroker == nil {
+		return nil
+	}
+	s.changesBroker.CloseAll()
+	return nil
 }

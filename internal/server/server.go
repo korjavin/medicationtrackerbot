@@ -57,6 +57,7 @@ type Server struct {
 	timezone            TimezoneStore
 	health              HealthStore
 	changes             ChangeStore
+	changesBroker       *ChangeBroker
 	push                PushStore
 	miband              MiBandStore
 	notesSvc            domain.NotesService
@@ -232,6 +233,7 @@ func New(s *store.Store, botToken, sessionSecret string, allowedUserID int64, oi
 		timezone:        s.TZ,
 		health:          s.Vitals,
 		changes:         s.Settings,
+		changesBroker:   NewChangeBroker(),
 		push:            s.Push,
 		miband:          s.Workout,
 		notesSvc:        domain.NewNotesService(s.Diary),
@@ -701,8 +703,11 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/notes", s.handleCreateNote)
 	apiMux.HandleFunc("DELETE /api/notes/{id}", s.handleDeleteNote)
 
-	// Store the raw apiMux for internal bridge calls (no auth required there).
-	s.internalMux = apiMux
+	// Wrap apiMux with the broker-notify middleware so every successful
+	// non-GET write wakes up SSE subscribers. Bridge calls share this wrapped
+	// handler (s.internalMux) so MCP-initiated writes also notify.
+	apiHandler := s.notifyOnWriteMiddleware(apiMux)
+	s.internalMux = apiHandler
 
 	// External routes (bypass AuthMiddleware)
 	mux.HandleFunc("POST /api/workout/external", s.externalAPIKeyMiddleware(s.handleExternalWorkout))
@@ -713,7 +718,7 @@ func (s *Server) Routes() http.Handler {
 
 	// Apply Middleware to API
 	authMW := AuthMiddleware(s.botToken, s.sessionSecret, s.allowedUserID)
-	mux.Handle("/api/", authMW(apiMux))
+	mux.Handle("/api/", authMW(apiHandler))
 
 	return panicRecover(securityHeadersMiddleware(mux))
 }
