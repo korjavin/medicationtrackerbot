@@ -80,7 +80,16 @@ async function loadMyMeals() {
                     : null;
 
                 try {
-                    await apiCall(`/api/food/products/${meal.id}`, 'DELETE');
+                    const res = await apiCall(`/api/food/products/${meal.id}`, 'DELETE');
+                    if (res === null) {
+                        // apiCall surfaces offline/5xx as a null return (with its
+                        // own safeAlert), so the throw branch never fires. Roll
+                        // back the optimistic delete so the row reappears.
+                        window.FoodProducts.cache = cacheBefore;
+                        if (handle) await handle.rollback();
+                        if (typeof loadMyMeals === 'function') loadMyMeals();
+                        return;
+                    }
                     if (handle) await handle.commit(null);
                     if (window.MedTrackerDB) {
                         await window.MedTrackerDB.FoodProductsStore.clearCache();
@@ -190,7 +199,17 @@ async function confirmSaveMeal() {
         if (typeof loadMyMeals === 'function') loadMyMeals();
 
         try {
-            await apiCall('/api/food/products/from-logs', 'POST', payload);
+            const res = await apiCall('/api/food/products/from-logs', 'POST', payload);
+            if (res === null) {
+                // apiCall returns null (and shows its own error alert) on
+                // offline/5xx without throwing, so the catch branch never
+                // fires for those. Roll back the optimistic placeholder and
+                // suppress the success toast.
+                window.FoodProducts.cache = cacheBefore;
+                if (handle) await handle.rollback();
+                if (typeof loadMyMeals === 'function') loadMyMeals();
+                return;
+            }
             if (window.SyncManager && window.SyncManager.showToast) {
                 window.SyncManager.showToast('Meal saved successfully!', 'success');
             }
