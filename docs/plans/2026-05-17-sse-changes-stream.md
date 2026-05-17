@@ -101,12 +101,12 @@ After a write completes on the server (regardless of which client or which trans
 - [x] run `pnpm test` — must pass before next task (only pre-existing TZ-flake `health.dexie-hydration.test.js > TZ-mismatch fallback` failed; verified it also fails on master)
 
 ### Task 5: Verify acceptance criteria
-- [ ] verify `go test ./...` is green
-- [ ] verify `pnpm test` is green
-- [ ] verify architecture tests (no new `window.*` globals, no inline styles) — `pnpm test` covers these
-- [ ] verify `internal/server/changes_handlers.go` no longer has the per-stream 5s polling loop
-- [ ] verify `data-store.js` no longer cites the obsolete RST_STREAM rationale
-- [ ] verify graceful shutdown: integration test or manual run of the server with an open stream, `kill -TERM` the process, confirm no panic in logs
+- [x] verify `go test ./...` is green (all 36 packages pass)
+- [x] verify `pnpm test` is green (212/213 files pass; the one failure is the known pre-existing `health.dexie-hydration.test.js > TZ-mismatch fallback` flake documented in Task 4 — also fails on master, unrelated to SSE work)
+- [x] verify architecture tests (no new `window.*` globals, no inline styles) — `pnpm test` covers these (all `architecture.*.test.js` files passed)
+- [x] verify `internal/server/changes_handlers.go` no longer has the per-stream 5s polling loop — handler now uses `s.changesBroker.Subscribe(subCtx)` (`changes_handlers.go:137`), keepalive is `15s` (`changes_handlers.go:16`), and the for/select branches are broker channel + 15s keepalive + 10min recycle + request context
+- [x] verify `data-store.js` no longer cites the obsolete RST_STREAM rationale — grep for `RST_STREAM|technical-decisions|SSE is broken|protocol error|ERR_HTTP2` returns zero matches
+- [x] verify graceful shutdown — `TestServerShutdown_ClosesBrokerSubscribers` (`changes_handlers_test.go:213`) exercises `Server.Shutdown` → `changesBroker.CloseAll()` end-to-end; broker tests cover `CloseAll` closes all channels, is idempotent, and post-close subscribers get a pre-closed channel; the SSE handler's `_, ok := <-sub` branch returns cleanly on close (no panic path). Manual `kill -TERM` is intentionally non-automatable per CLAUDE.md and is in Post-Completion.
 
 ### Task 6: Document Traefik configuration in repo
 - [ ] add a new `docs/sse-traefik.md` (or extend `docs/environment.md` if a clear section exists) with the exact Traefik labels needed for `/api/changes/stream`: `sse-nobuffer` middleware (`buffering.maxResponseBodyBytes=0`, `memResponseBodyBytes=0`), router rule `PathPrefix(\`/api/changes/stream\`)` with `middlewares=sse-nobuffer@docker` and `priority=100`, entry-point `respondingTimeouts.readTimeout=0` and `idleTimeout=0` in `traefik.yml`
