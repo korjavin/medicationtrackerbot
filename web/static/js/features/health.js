@@ -1097,19 +1097,56 @@ async function addNote() {
     const body = { content };
     if (_notesCompose.selectedTag) body.tag = _notesCompose.selectedTag;
 
-    const res = await apiCall('/api/notes', 'POST', body);
-    if (res) {
-        textarea.value = '';
-        setNotesComposerTag(null);
-        syncNotesComposerCount();
-        await window.DataStore.invalidateTags(['health-notes']);
-        loadNotes();
+    // Optimistic: prepend a synthesised note into the cached `diary_notes`
+    // payload so the Notes list repaints with the new row before the POST
+    // resolves. The post-commit loadNotes() refetch overwrites this with
+    // authoritative server data (real id, server-assigned created_at).
+    const optimisticNote = {
+        id: `local_optimistic_${Date.now()}`,
+        content,
+        tag: body.tag || null,
+        created_at: new Date().toISOString(),
+        _optimistic: true
+    };
+    const handle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+        ? await window.DataStore.applyOptimistic('diary_notes', (prev) => {
+            const base = Array.isArray(prev) ? prev : [];
+            return [optimisticNote, ...base];
+        }, ['notes', 'health-notes'])
+        : null;
+
+    let res;
+    try {
+        res = await apiCall('/api/notes', 'POST', body);
+    } catch (e) {
+        if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+        throw e;
     }
+    if (!res) {
+        if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+        return;
+    }
+
+    if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
+    textarea.value = '';
+    setNotesComposerTag(null);
+    syncNotesComposerCount();
+    await window.DataStore.invalidateTags(['health-notes']);
+    loadNotes();
 }
 
 async function deleteNote(id) {
     await safeConfirm('Delete this note?', async (ok) => {
         if (!ok) return;
+
+        // Optimistic: drop the matching row from the cached diary_notes list
+        // so it vanishes from the Notes list before DELETE resolves.
+        const handle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+            ? await window.DataStore.applyOptimistic('diary_notes', (prev) => {
+                if (!Array.isArray(prev)) return prev;
+                return prev.filter((n) => !(n && n.id === id));
+            }, ['notes', 'health-notes'])
+            : null;
 
         // Local/rejected rows carry `local_<n>` ids synthesized by the
         // offline read path. The server DELETE handler only accepts numeric
@@ -1130,15 +1167,25 @@ async function deleteNote(id) {
                     console.error('Failed to purge local note delete:', e);
                 }
             }
+            if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
             await window.DataStore.invalidateTags(['health-notes']);
             loadNotes();
             return;
         }
 
-        const res = await apiCall(`/api/notes/${id}`, 'DELETE');
+        let res;
+        try {
+            res = await apiCall(`/api/notes/${id}`, 'DELETE');
+        } catch (e) {
+            if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+            throw e;
+        }
         if (res !== null) {
+            if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
             await window.DataStore.invalidateTags(['health-notes']);
             loadNotes();
+        } else {
+            if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
         }
     });
 }
@@ -1196,8 +1243,32 @@ async function handleEditNoteSubmit(event) {
     if (typeof original.tag === 'string' && original.tag) {
         postBody.tag = original.tag;
     }
-    const postRes = await apiCall('/api/notes', 'POST', postBody);
-    if (!postRes) return;
+
+    // Optimistic: rewrite the original row's content in the cached
+    // diary_notes payload so the Notes list reflects the edit before the
+    // POST resolves. loadNotes() later reconciles with server truth (the
+    // new note carries an authoritative id; the original is deleted).
+    const handle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+        ? await window.DataStore.applyOptimistic('diary_notes', (prev) => {
+            if (!Array.isArray(prev)) return prev;
+            return prev.map((n) => {
+                if (!n || n.id !== original.id) return n;
+                return { ...n, content, _optimistic: true };
+            });
+        }, ['notes', 'health-notes'])
+        : null;
+
+    let postRes;
+    try {
+        postRes = await apiCall('/api/notes', 'POST', postBody);
+    } catch (e) {
+        if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+        throw e;
+    }
+    if (!postRes) {
+        if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+        return;
+    }
 
     const isLocalId = typeof original.id === 'string' && original.id.startsWith('local_');
     if (isLocalId) {
@@ -1218,6 +1289,7 @@ async function handleEditNoteSubmit(event) {
         await apiCall(`/api/notes/${original.id}`, 'DELETE');
     }
 
+    if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
     await window.DataStore.invalidateTags(['health-notes']);
     closeEditNoteModal();
     loadNotes();
