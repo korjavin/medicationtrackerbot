@@ -70,20 +70,21 @@ func setupBotTestCustom(t *testing.T, handler func(path, body string) string) *b
 	a := newStoreAdapter(s)
 
 	b := &Bot{
-		api:           api,
-		meds:          a,
-		medSvc:        domain.NewMedicationService(s.Medication),
-		bp:            a,
-		weight:        a,
-		workouts:      a,
-		workoutSvc:    workoutsvc.New(s.Workout, s.TZ),
-		exerciseSvc:   domain.NewExerciseService(s.Workout),
-		reminderSvc:   domain.NewReminderService(a),
-		food:          a,
-		imports:       a,
-		tzUpdater:     &mockTZUpdater{},
-		allowedUserID: 123456,
-		httpClient:    &http.Client{Timeout: 30 * time.Second},
+		api:             api,
+		meds:            a,
+		medSvc:          domain.NewMedicationService(s.Medication),
+		bp:              a,
+		weight:          a,
+		workouts:        a,
+		workoutSvc:      workoutsvc.New(s.Workout, s.TZ),
+		exerciseSvc:     domain.NewExerciseService(s.Workout),
+		reminderSvc:     domain.NewReminderService(a),
+		food:            a,
+		imports:         a,
+		tzUpdater:       &mockTZUpdater{},
+		allowedUserID:   123456,
+		httpClient:      &http.Client{Timeout: 30 * time.Second},
+		settingsChanges: a,
 	}
 
 	return &botTestEnv{

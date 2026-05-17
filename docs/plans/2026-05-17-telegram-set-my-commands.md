@@ -158,27 +158,27 @@ Single-user system, default scope only, no per-language variants.
 - [x] `go test ./internal/bot/...` — must pass.
 
 ### Task 4: Poll `change_events` for settings changes
-- [ ] add `(b *Bot) watchSettingsChanges(ctx context.Context, interval time.Duration)`:
+- [x] add `(b *Bot) watchSettingsChanges(ctx context.Context, interval time.Duration)`:
       track an in-memory `cursor` (start at "now" — initial register
       already happened in Task 3); on each tick, ask the settings repo
       for `ListChangedTagsSince(cursor)`; if `settings` appears,
       call `b.registerCommands(ctx)` (log + swallow errors) and advance
       the cursor.
-- [ ] in `Bot` struct, add a `commandsPollInterval time.Duration` field
+- [x] in `Bot` struct, add a `commandsPollInterval time.Duration` field
       defaulting to `5 * time.Second`; allow tests to override via a
       constructor option (e.g. `func WithCommandsPollInterval(d time.Duration) Option`)
       or via direct field write inside the test package.
-- [ ] in `Start()`, after the initial `registerCommands`, spawn
+- [x] in `Start()`, after the initial `registerCommands`, spawn
       `go b.watchSettingsChanges(ctx, b.commandsPollInterval)`. Goroutine
       exits when `ctx.Done()`.
-- [ ] write `TestBot_WatchSettingsChanges_ReregistersOnFlagToggle` —
+- [x] write `TestBot_WatchSettingsChanges_ReregistersOnFlagToggle` —
       use a 20 ms poll interval; start the bot; via the store, call
       `SetBloodPressureEnabled(ctx, false)`; assert a second
       `setMyCommands` POST arrives within ~100 ms with BP commands
       absent.
-- [ ] write `TestBot_WatchSettingsChanges_ExitsOnContextCancel` —
+- [x] write `TestBot_WatchSettingsChanges_ExitsOnContextCancel` —
       assert no further posts after `cancel()`.
-- [ ] `go test ./internal/bot/...` — must pass.
+- [x] `go test ./internal/bot/...` — must pass.
 
 ### Task 5: Verify acceptance criteria
 - [ ] diff `commandSpecs` against the `bot.go:295-453` switch by hand;
