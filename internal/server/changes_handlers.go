@@ -11,11 +11,11 @@ import (
 )
 
 const (
-	changeEventsKeepLast      = 20000
-	changeEventsMaxAge        = 14 // days
-	changeStreamPollInterval  = 5 * time.Second
-	changeStreamQueryTimeout  = 2 * time.Second
-	changeStreamMaxSessionAge = 10 * time.Minute
+	changeEventsKeepLast          = 20000
+	changeEventsMaxAge            = 14 // days
+	changeStreamKeepaliveInterval = 15 * time.Second
+	changeStreamQueryTimeout      = 2 * time.Second
+	changeStreamMaxSessionAge     = 10 * time.Minute
 )
 
 func (s *Server) currentChangeCursor() uint64 {
@@ -95,6 +95,12 @@ func writeSSE(w http.ResponseWriter, payload map[string]any) error {
 }
 
 // handleChangesStream provides server-sent events with cursor/tag updates.
+//
+// Wake-ups come from the process-wide ChangeBroker (notified by
+// notifyOnWriteMiddleware on every successful write). A 15s keepalive comment
+// is emitted between events to keep idle connections from being closed by
+// reverse proxies. A 10-minute forced recycle bounds session lifetime so
+// long-lived connections rotate through Traefik's keepalive accounting.
 func (s *Server) handleChangesStream(w http.ResponseWriter, r *http.Request) {
 	if !s.tryAcquireChangeStreamSlot() {
 		w.Header().Set("Retry-After", "10")
@@ -124,6 +130,12 @@ func (s *Server) handleChangesStream(w http.ResponseWriter, r *http.Request) {
 	_, _ = fmt.Fprint(w, "retry: 5000\n\n")
 	flusher.Flush()
 
+	// Subscribe BEFORE the initial state read so a write that happens between
+	// the read and entering the select loop still wakes us up.
+	subCtx, cancelSub := context.WithCancel(r.Context())
+	defer cancelSub()
+	sub := s.changesBroker.Subscribe(subCtx)
+
 	queryCtx, cancel := context.WithTimeout(r.Context(), changeStreamQueryTimeout)
 	cursor, tags, err := s.changes.ListChangedTagsSince(queryCtx, since)
 	cancel()
@@ -141,8 +153,8 @@ func (s *Server) handleChangesStream(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 	since = cursor
 
-	ticker := time.NewTicker(changeStreamPollInterval)
-	defer ticker.Stop()
+	keepalive := time.NewTicker(changeStreamKeepaliveInterval)
+	defer keepalive.Stop()
 	maxAgeTimer := time.NewTimer(changeStreamMaxSessionAge)
 	defer maxAgeTimer.Stop()
 
@@ -152,7 +164,12 @@ func (s *Server) handleChangesStream(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-maxAgeTimer.C:
 			return
-		case <-ticker.C:
+		case _, ok := <-sub:
+			if !ok {
+				// Broker closed (graceful shutdown). Exit cleanly so the
+				// client sees onerror and reconnects after restart.
+				return
+			}
 			queryCtx, cancel := context.WithTimeout(r.Context(), changeStreamQueryTimeout)
 			cursor, tags, err := s.changes.ListChangedTagsSince(queryCtx, since)
 			cancel()
@@ -161,8 +178,8 @@ func (s *Server) handleChangesStream(w http.ResponseWriter, r *http.Request) {
 			}
 			s.maybePruneChangeEvents(cursor)
 			if len(tags) == 0 {
-				_, _ = fmt.Fprint(w, ": keepalive\n\n")
-				flusher.Flush()
+				// Spurious wake (cursor unchanged from this subscriber's
+				// perspective). Skip emitting a frame.
 				continue
 			}
 			if err := writeSSE(w, map[string]any{
@@ -173,6 +190,11 @@ func (s *Server) handleChangesStream(w http.ResponseWriter, r *http.Request) {
 			}
 			flusher.Flush()
 			since = cursor
+		case <-keepalive.C:
+			if _, err := fmt.Fprint(w, ": keepalive\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
 		}
 	}
 }
