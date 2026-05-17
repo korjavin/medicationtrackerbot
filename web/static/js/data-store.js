@@ -37,6 +37,17 @@
 
     const hasValue = (value) => value !== null && value !== undefined;
 
+    // Deep-clone a cache payload for the optimistic-rollback snapshot. Prefer
+    // structuredClone when available (handles Date / Map / Set / TypedArrays),
+    // fall back to JSON round-trip otherwise. Cache payloads are JSON-shaped in
+    // practice so the fallback is safe.
+    function deepCloneSnapshot(value) {
+        if (typeof structuredClone === 'function') {
+            try { return structuredClone(value); } catch (_) { /* fall through */ }
+        }
+        try { return JSON.parse(JSON.stringify(value)); } catch (_) { return value; }
+    }
+
     function registerKeyTags(key, tags = []) {
         if (!key) return;
 
@@ -103,6 +114,82 @@
                 inFlight.delete(key);
             }
             await this.setCached(key, data);
+        },
+
+        // Optimistic write helper: synthesise the post-mutation cache state
+        // BEFORE the network round-trip resolves, so the caller's screen can
+        // repaint without waiting on the POST.
+        //
+        // Contract:
+        //   - `key`: the cache key carrying the affected payload (e.g. `bp`,
+        //     `food_<date>_v2`).
+        //   - `mutator(prev) → next`: pure function. Receives the current
+        //     cached payload (or `null` on cold cache). Returns the projected
+        //     post-mutation payload. Returning `null`/`undefined` clears the
+        //     cache entry (e.g. `workout_next` after the current session
+        //     finishes).
+        //   - `tags`: SWR tags the dispatched `datastore:changed` event carries.
+        //     Drives existing `requestTabRefresh` subscribers.
+        //
+        // Returns `{ commit(serverPayload), rollback() }`:
+        //   - `commit` overwrites the cache with the authoritative server
+        //     payload and re-dispatches `datastore:changed`. Use after the
+        //     POST resolves. If `serverPayload` is null/undefined the cache
+        //     is left in the optimistic state (server returned no body to
+        //     reconcile against).
+        //   - `rollback` restores the prior cache snapshot (or clears it if
+        //     cold) and invalidates `tags` so the next read goes to network.
+        //     Use on POST failure.
+        //
+        // Both `commit` and `rollback` are no-ops after the first call to
+        // either, so callers can pass the handle through try/catch without
+        // worrying about double-settle.
+        async applyOptimistic(key, mutator, tags = []) {
+            if (!key || typeof mutator !== 'function') {
+                return { commit: async () => {}, rollback: async () => {} };
+            }
+
+            let prior = null;
+            try {
+                prior = await this.getCached(key);
+            } catch (_e) { /* tolerate read failures — treat as cold cache */ }
+
+            const priorSnapshot = hasValue(prior) ? deepCloneSnapshot(prior) : prior;
+
+            const next = mutator(prior);
+
+            if (hasValue(next)) {
+                await this.setCachedWithTags(key, next, tags);
+            } else {
+                await this.clearCached(key);
+                registerKeyTags(key, tags);
+            }
+
+            this.requestTabRefresh(tags, 'optimistic');
+
+            const self = this;
+            let settled = false;
+            return {
+                async commit(serverPayload) {
+                    if (settled) return;
+                    settled = true;
+                    if (hasValue(serverPayload)) {
+                        await self.setCachedWithTags(key, serverPayload, tags);
+                    }
+                    self.requestTabRefresh(tags, 'optimistic-commit');
+                },
+                async rollback() {
+                    if (settled) return;
+                    settled = true;
+                    if (hasValue(priorSnapshot)) {
+                        await self.setCachedWithTags(key, priorSnapshot, tags);
+                    } else {
+                        await self.clearCached(key);
+                    }
+                    await self.invalidateTags(tags);
+                    self.requestTabRefresh(tags, 'optimistic-rollback');
+                }
+            };
         },
 
         // Cold-start primer: read a long-lived Dexie record and seed
@@ -395,14 +482,14 @@
             this.setChangeCursor(res.cursor);
         },
 
-        requestTabRefresh(changedTags = []) {
+        requestTabRefresh(changedTags = [], source = 'changes') {
             if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
                 try {
-                    window.dispatchEvent(new CustomEvent('datastore:changed', { detail: { changedTags, source: 'changes' } }));
+                    window.dispatchEvent(new CustomEvent('datastore:changed', { detail: { changedTags, source } }));
                 } catch (_) { /* dispatch is best-effort */ }
             }
             if (typeof window.requestTabRefresh === 'function') {
-                window.requestTabRefresh({ changedTags, source: 'changes' });
+                window.requestTabRefresh({ changedTags, source });
                 return;
             }
             if (window.reloadCurrentTab) {
