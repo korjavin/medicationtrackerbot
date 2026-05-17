@@ -108,8 +108,8 @@ Dependencies: `OPENAI_API_KEY` (existing env; no new config needed — same `Foo
 
 ### Task 7: Documentation
 
-- [ ] Add a short line in `docs/features.md` under the Food section noting the new "Parse with AI" web option mirrors the bot `/food` command.
-- [ ] No changes to `docs/api.md` if the project's convention is for MCP registry entries to be the source of truth for new endpoints; otherwise add the route there.
+- [x] Add a short line in `docs/features.md` under the Food section noting the new "Parse with AI" web option mirrors the bot `/food` command.
+- [x] No changes to `docs/api.md` if the project's convention is for MCP registry entries to be the source of truth for new endpoints; otherwise add the route there. (confirmed: existing `POST /api/food/log/from-photo` is not in `docs/api.md`, so the new sibling route follows the same convention — MCP registry is the source of truth.)
 
 ## Technical Details
 
