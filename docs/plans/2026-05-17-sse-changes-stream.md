@@ -109,10 +109,10 @@ After a write completes on the server (regardless of which client or which trans
 - [x] verify graceful shutdown — `TestServerShutdown_ClosesBrokerSubscribers` (`changes_handlers_test.go:213`) exercises `Server.Shutdown` → `changesBroker.CloseAll()` end-to-end; broker tests cover `CloseAll` closes all channels, is idempotent, and post-close subscribers get a pre-closed channel; the SSE handler's `_, ok := <-sub` branch returns cleanly on close (no panic path). Manual `kill -TERM` is intentionally non-automatable per CLAUDE.md and is in Post-Completion.
 
 ### Task 6: Document Traefik configuration in repo
-- [ ] add a new `docs/sse-traefik.md` (or extend `docs/environment.md` if a clear section exists) with the exact Traefik labels needed for `/api/changes/stream`: `sse-nobuffer` middleware (`buffering.maxResponseBodyBytes=0`, `memResponseBodyBytes=0`), router rule `PathPrefix(\`/api/changes/stream\`)` with `middlewares=sse-nobuffer@docker` and `priority=100`, entry-point `respondingTimeouts.readTimeout=0` and `idleTimeout=0` in `traefik.yml`
-- [ ] note residual risk in the doc: deploy-time SIGTERM emits one `RST_STREAM` per active client; EventSource auto-reconnects silently
-- [ ] note `initData` access-log exposure: bounded by Telegram's HMAC freshness window (~24h); recommend disabling URL query logging for `/api/changes/stream` or a Traefik log-redaction middleware
-- [ ] revise `docs/technical-decisions.md:3` ("Why polling instead of SSE…") to reflect the new stance: SSE is primary, polling is fallback; the original RST_STREAM concern is mitigated by the broker-based clean-shutdown path
+- [x] add a new `docs/sse-traefik.md` (or extend `docs/environment.md` if a clear section exists) with the exact Traefik labels needed for `/api/changes/stream`: `sse-nobuffer` middleware (`buffering.maxResponseBodyBytes=0`, `memResponseBodyBytes=0`), router rule `PathPrefix(\`/api/changes/stream\`)` with `middlewares=sse-nobuffer@docker` and `priority=100`, entry-point `respondingTimeouts.readTimeout=0` and `idleTimeout=0` in `traefik.yml`
+- [x] note residual risk in the doc: deploy-time SIGTERM emits one `RST_STREAM` per active client; EventSource auto-reconnects silently
+- [x] note `initData` access-log exposure: bounded by Telegram's HMAC freshness window (~24h); recommend disabling URL query logging for `/api/changes/stream` or a Traefik log-redaction middleware
+- [x] revise `docs/technical-decisions.md:3` ("Why polling instead of SSE…") to reflect the new stance: SSE is primary, polling is fallback; the original RST_STREAM concern is mitigated by the broker-based clean-shutdown path
 
 ### Task 7: [Final] Update CLAUDE.md + architecture docs
 - [ ] update `CLAUDE.md` or `docs/architecture.md` "scheduler / sync" section to describe the broker + SSE-first model
