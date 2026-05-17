@@ -392,8 +392,7 @@ func (s *Server) handleCreateFoodLogFromDescription(w http.ResponseWriter, r *ht
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]any{
 		"status": "created",
-		"count":  len(saved),
-		"logs":   saved,
+		"items":  saved,
 		"failed": failed,
 	}); err != nil {
 		slog.Error("encode response", "error", err)

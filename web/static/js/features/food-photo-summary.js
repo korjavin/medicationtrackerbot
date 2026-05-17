@@ -87,7 +87,11 @@ function fpsBuildTotalsRow(totals) {
  * card state.
  *
  * @param {object} opts
- * @param {Array<object>} opts.items     - Items returned by /api/food/log/from-photo.
+ * @param {Array<object>} opts.items     - Items returned by /api/food/log/from-photo
+ *                                         or /api/food/log/from-description.
+ * @param {'photo'|'description'} [opts.source='photo'] - Drives the title suffix
+ *   ("from photo" vs "from description") so the description AI flow doesn't
+ *   advertise items as logged "from photo".
  * @param {function():(void|Promise<void>)} [opts.onUndo] - Called once when Undo is clicked.
  * @param {HTMLElement} [opts.mountPoint=document.body]   - Where to attach the card.
  * @param {number} [opts.autoDismissMs]                   - Override auto-dismiss delay.
@@ -100,6 +104,7 @@ function showFoodPhotoSummary(opts) {
     const autoDismissMs = (opts && typeof opts.autoDismissMs === 'number')
         ? opts.autoDismissMs
         : FOOD_PHOTO_SUMMARY_AUTO_DISMISS_MS;
+    const sourceLabel = (opts && opts.source === 'description') ? 'from description' : 'from photo';
 
     // Tear down any prior card so a second photo upload doesn't stack toasts.
     const stale = document.querySelectorAll('.wg-food-photo-summary');
@@ -115,8 +120,8 @@ function showFoodPhotoSummary(opts) {
     const title = document.createElement('span');
     title.className = 'wg-food-photo-summary__title';
     title.textContent = items.length
-        ? `Logged ${items.length} item${items.length === 1 ? '' : 's'} from photo`
-        : 'Logged from photo';
+        ? `Logged ${items.length} item${items.length === 1 ? '' : 's'} ${sourceLabel}`
+        : `Logged ${sourceLabel}`;
     header.appendChild(title);
 
     const closeBtn = document.createElement('button');
