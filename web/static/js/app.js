@@ -2229,6 +2229,90 @@ function closeMedicationConfirmModal() {
     window.ModalManager.medConfirm.close();
 }
 
+// Apply `mutator(log) → log|null` against every cached `history_*` payload so
+// intake-status mutations (confirm/skip/edit/log-past/delete-future) repaint
+// the meds History list synchronously before the POST resolves. Returns an
+// array of applyOptimistic handles the caller settles on success/failure.
+// Returning `null` from the mutator drops the log (used by deleteFutureIntakes).
+async function _applyOptimisticHistoryFlip(mutator) {
+    const handles = [];
+    if (!window.DataStore || typeof window.DataStore.applyOptimistic !== 'function') {
+        return handles;
+    }
+    const apiCache = window.MedTrackerDB && window.MedTrackerDB.ApiCache;
+    if (!apiCache || typeof apiCache.keys !== 'function') return handles;
+
+    let keys = [];
+    try { keys = await apiCache.keys('history_'); } catch (_) { keys = []; }
+    if (!Array.isArray(keys) || keys.length === 0) return handles;
+
+    for (const key of keys) {
+        const handle = await window.DataStore.applyOptimistic(key, (prev) => {
+            if (!Array.isArray(prev)) return prev;
+            const next = [];
+            for (const log of prev) {
+                const mapped = mutator(log);
+                if (mapped) next.push(mapped);
+            }
+            return next;
+        }, ['history']);
+        handles.push(handle);
+    }
+    return handles;
+}
+
+// Clear `next_intake` cache when the just-confirmed/skipped scheduled time
+// matches the cached "next" tile so Today's next-intake card vanishes before
+// the round-trip. Returns a handle (no-op handle if nothing cached or mismatch).
+async function _applyOptimisticNextIntakeClear(scheduledAt) {
+    if (!window.DataStore || typeof window.DataStore.applyOptimistic !== 'function') {
+        return { commit: async () => {}, rollback: async () => {} };
+    }
+    return window.DataStore.applyOptimistic('next_intake', (prev) => {
+        if (!prev || typeof prev !== 'object') return prev;
+        if (!scheduledAt || prev.scheduled_at !== scheduledAt) return prev;
+        return { scheduled_at: null, medication_names: [] };
+    }, ['medications', 'history']);
+}
+
+// Prepend a freshly-synthesised log into every cached `history_*` payload
+// whose filter (range + medId) would include it. Used by confirmLogPast where
+// no prior log row exists. `medId` matches the per-med filter; the "0" / "all"
+// medId always matches. Range filter is not strictly enforced — the next
+// loadHistory() refetch reconciles against authoritative server data.
+async function _applyOptimisticHistoryAdd(log, medId) {
+    const handles = [];
+    if (!window.DataStore || typeof window.DataStore.applyOptimistic !== 'function') {
+        return handles;
+    }
+    const apiCache = window.MedTrackerDB && window.MedTrackerDB.ApiCache;
+    if (!apiCache || typeof apiCache.keys !== 'function') return handles;
+
+    let keys = [];
+    try { keys = await apiCache.keys('history_'); } catch (_) { keys = []; }
+    if (!Array.isArray(keys) || keys.length === 0) return handles;
+
+    for (const key of keys) {
+        const parts = key.split('_');
+        const keyMedId = parts[2] === undefined || parts[2] === '' ? 0 : Number(parts[2]);
+        if (keyMedId !== 0 && keyMedId !== medId) continue;
+        const handle = await window.DataStore.applyOptimistic(key, (prev) => {
+            const base = Array.isArray(prev) ? prev : [];
+            return [log, ...base];
+        }, ['history']);
+        handles.push(handle);
+    }
+    return handles;
+}
+
+async function _commitOptimistic(handles) {
+    for (const h of handles) { try { await h.commit(null); } catch (_) { /* best-effort */ } }
+}
+
+async function _rollbackOptimistic(handles) {
+    for (const h of handles) { try { await h.rollback(); } catch (_) { /* best-effort */ } }
+}
+
 async function confirmSelectedMedications() {
     const checks = document.querySelectorAll('.med-confirm-check:checked');
     const selectedIndices = Array.from(checks).map(c => parseInt(c.value, 10));
@@ -2248,11 +2332,40 @@ async function confirmSelectedMedications() {
         if (selectedIntakeIds.length > 0) {
             body.intake_ids = selectedIntakeIds;
         }
-        const res = await apiCall('/api/medications/confirm-schedule', 'POST', body);
+
+        // Optimistic: flip the matched intake_log entries to TAKEN in every
+        // cached `history_*` payload and clear `next_intake` so the meds
+        // History list + Today's next-intake tile repaint before the POST
+        // resolves. Mutator runs against each enumerated cache key so users
+        // see the green check immediately instead of after the round-trip.
+        const takenAt = new Date().toISOString();
+        const handles = await _applyOptimisticHistoryFlip((log) => {
+            if (!log || typeof log !== 'object') return log;
+            const isSelectedIntake = selectedIntakeIds.indexOf(log.id) !== -1;
+            const isSelectedMed = selectedIds.indexOf(log.medication_id) !== -1
+                && log.status === 'PENDING'
+                && log.scheduled_at === body.scheduled_at;
+            if (isSelectedIntake || isSelectedMed) {
+                return { ...log, status: 'TAKEN', taken_at: takenAt, _optimistic: true };
+            }
+            return log;
+        });
+        handles.push(await _applyOptimisticNextIntakeClear(body.scheduled_at));
+
+        let res;
+        try {
+            res = await apiCall('/api/medications/confirm-schedule', 'POST', body);
+        } catch (e) {
+            await _rollbackOptimistic(handles);
+            throw e;
+        }
 
         if (res) {
+            await _commitOptimistic(handles);
             safeAlert("Confirmed!");
             refreshMedsAfterMutation();
+        } else {
+            await _rollbackOptimistic(handles);
         }
 
         closeMedicationConfirmModal();
@@ -2274,20 +2387,24 @@ async function skipSelectedMedications() {
         const ids = window.PushModalState.getMedConfirmIds();
         const intakeIds = window.PushModalState.getMedConfirmIntakeIds();
         const scheduled = window.PushModalState.getMedConfirmScheduled();
+
+        // Resolve intake_ids up-front (from PushModalState or via /api/history
+        // fallback for push-notification entries) so we can apply the optimistic
+        // SKIPPED flip in one pass before issuing the skip POSTs.
+        const resolvedIntakeIds = [];
+        const skipRequests = [];
         for (const idx of selectedIndices) {
             const medId = Number(ids[idx]);
             let intakeId = intakeIds[idx];
 
             if (!intakeId) {
-                // If opened from a push notification where intakeIds weren't passed directly,
-                // fetch pending intakes for the scheduled time to find the correct intake ID
                 const pendingLogs = await apiCall(`/api/history?days=1`);
                 if (pendingLogs && pendingLogs.length > 0) {
                     const scheduledTime = new Date(scheduled).getTime();
                     const log = pendingLogs.find(l =>
                         l.medication_id === medId &&
                         l.status === 'PENDING' &&
-                        Math.abs(new Date(l.scheduled_at).getTime() - scheduledTime) < 60000 // Within 1 min
+                        Math.abs(new Date(l.scheduled_at).getTime() - scheduledTime) < 60000
                     );
                     if (log) {
                         intakeId = log.id;
@@ -2296,13 +2413,38 @@ async function skipSelectedMedications() {
             }
 
             if (intakeId) {
+                resolvedIntakeIds.push(intakeId);
+                skipRequests.push(intakeId);
+            } else {
+                hasErrors = true;
+            }
+        }
+
+        const handles = await _applyOptimisticHistoryFlip((log) => {
+            if (!log || typeof log !== 'object') return log;
+            if (resolvedIntakeIds.indexOf(log.id) !== -1) {
+                return { ...log, status: 'SKIPPED', _optimistic: true };
+            }
+            return log;
+        });
+        handles.push(await _applyOptimisticNextIntakeClear(scheduled));
+
+        try {
+            for (const intakeId of skipRequests) {
                 const res = await apiCall('/api/medications/skip', 'POST', { intake_id: intakeId });
                 if (!res) {
                     hasErrors = true;
                 }
-            } else {
-                hasErrors = true;
             }
+        } catch (e) {
+            await _rollbackOptimistic(handles);
+            throw e;
+        }
+
+        if (hasErrors) {
+            await _rollbackOptimistic(handles);
+        } else {
+            await _commitOptimistic(handles);
         }
 
         refreshMedsAfterMutation();
@@ -2364,10 +2506,37 @@ async function updateIntakeHistory() {
 
     const btn = document.getElementById('med-confirm-action-btn');
     await withSubmit(btn, async () => {
-        const res = await apiCall('/api/intakes/update', 'POST', { updates });
+        // Optimistic: apply each TAKEN/PENDING flip across cached history payloads
+        // so the History list reflects the user's choice before the round-trip.
+        const updatesById = new Map();
+        for (const u of updates) updatesById.set(u.id, u);
+        const handles = await _applyOptimisticHistoryFlip((log) => {
+            if (!log || typeof log !== 'object') return log;
+            const upd = updatesById.get(log.id);
+            if (!upd) return log;
+            const next = { ...log, status: upd.status, _optimistic: true };
+            if (upd.status === 'TAKEN') {
+                next.taken_at = upd.taken_at;
+            } else {
+                next.taken_at = null;
+            }
+            return next;
+        });
+
+        let res;
+        try {
+            res = await apiCall('/api/intakes/update', 'POST', { updates });
+        } catch (e) {
+            await _rollbackOptimistic(handles);
+            throw e;
+        }
+
         if (res) { // status 200 assumed
+            await _commitOptimistic(handles);
             safeAlert("Updated!");
             refreshMedsAfterMutation();
+        } else {
+            await _rollbackOptimistic(handles);
         }
         closeMedicationConfirmModal();
     });
@@ -2382,10 +2551,37 @@ async function confirmLogPast() {
 
     const btn = document.getElementById('med-confirm-action-btn');
     await withSubmit(btn, async () => {
-        const res = await apiCall('/api/medications/log-past', 'POST', {
-            medication_id: medId,
-            taken_at: takenAt
-        });
+        // Optimistic: prepend a synthesised TAKEN log into every cached
+        // `history_<range>_<medId>` payload that should contain it (the
+        // "all meds" filter and the per-med filter for this medId) so the
+        // user sees the new entry before /log-past resolves.
+        const optimisticLog = {
+            id: `local_optimistic_${Date.now()}`,
+            medication_id: Number(medId),
+            scheduled_at: takenAt,
+            taken_at: takenAt,
+            status: 'TAKEN',
+            _optimistic: true
+        };
+        const handles = await _applyOptimisticHistoryAdd(optimisticLog, Number(medId));
+
+        let res;
+        try {
+            res = await apiCall('/api/medications/log-past', 'POST', {
+                medication_id: medId,
+                taken_at: takenAt
+            });
+        } catch (e) {
+            await _rollbackOptimistic(handles);
+            throw e;
+        }
+
+        if (!res) {
+            await _rollbackOptimistic(handles);
+            closeMedicationConfirmModal();
+            return;
+        }
+        await _commitOptimistic(handles);
 
         if (res) {
             safeAlert("Intake logged!");

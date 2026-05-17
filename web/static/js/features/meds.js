@@ -538,10 +538,34 @@ async function deleteFutureIntakes(intakeIds) {
     const msg = intakeIds.length === 1
         ? 'Delete this scheduled intake? It will be recreated on the regular schedule.'
         : `Delete ${intakeIds.length} scheduled intakes? They will be recreated on the regular schedule.`;
+    const idSet = new Set(intakeIds);
     await safeConfirm(msg, async (ok) => {
         if (!ok) return;
-        const res = await apiCall('/api/medications/delete-intake', 'POST', { intake_ids: intakeIds });
-        if (res === null) return;
+
+        // Optimistic: drop the to-be-deleted intake rows from every cached
+        // `history_*` payload so the row disappears from the list before the
+        // POST resolves. _applyOptimisticHistoryFlip is defined in app.js;
+        // mutator returns null/undefined to filter.
+        const handles = typeof _applyOptimisticHistoryFlip === 'function'
+            ? await _applyOptimisticHistoryFlip((log) => {
+                if (!log || typeof log !== 'object') return log;
+                if (idSet.has(log.id)) return null;
+                return log;
+            })
+            : [];
+
+        let res;
+        try {
+            res = await apiCall('/api/medications/delete-intake', 'POST', { intake_ids: intakeIds });
+        } catch (e) {
+            if (typeof _rollbackOptimistic === 'function') await _rollbackOptimistic(handles);
+            throw e;
+        }
+        if (res === null) {
+            if (typeof _rollbackOptimistic === 'function') await _rollbackOptimistic(handles);
+            return;
+        }
+        if (typeof _commitOptimistic === 'function') await _commitOptimistic(handles);
         if (window.DataStore) {
             await window.DataStore.invalidateByTag('history');
             await window.DataStore.invalidateByTag('medications');
@@ -1076,6 +1100,36 @@ async function saveMedication() {
 
     const btn = document.getElementById('med-modal-save-btn');
     await withSubmit(btn, async () => {
+        // Optimistic: project the new/edited medication into the cached
+        // `medications` array so the Meds Schedule list repaints before the
+        // POST resolves. Edit replaces the matching row; create appends a
+        // synthetic row with a `local_*` id (reconciled by the post-commit
+        // loadMeds() refetch which writes authoritative server data).
+        const editingId = editingMedId;
+        const localId = `local_optimistic_${Date.now()}`;
+        const projected = {
+            id: editingId || localId,
+            name: payload.name,
+            dosage: payload.dosage,
+            schedule: payload.schedule,
+            archived: !!payload.archived,
+            supplement: !!payload.supplement,
+            start_date: payload.start_date,
+            end_date: payload.end_date,
+            inventory_count: payload.inventory_count,
+            tz_shift_policy: payload.tz_shift_policy,
+            _optimistic: true
+        };
+        const handle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+            ? await window.DataStore.applyOptimistic('medications', (prev) => {
+                const base = Array.isArray(prev) ? prev : [];
+                if (editingId) {
+                    return base.map((m) => (m && m.id === editingId ? { ...m, ...projected, id: editingId } : m));
+                }
+                return [...base, projected];
+            }, ['medications'])
+            : null;
+
         let res;
         try {
             if (editingMedId) {
@@ -1084,6 +1138,7 @@ async function saveMedication() {
                 res = await apiCallDirect('/api/medications', 'POST', payload);
             }
         } catch (e) {
+            if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
             if (e.status === 409) {
                 safeAlert("A medication with this name and dosage already exists. Please use a different name or dosage.");
             } else {
@@ -1092,11 +1147,16 @@ async function saveMedication() {
             return;
         }
 
-        if (res === null) return; // offline or error — apiCall already showed alert
+        if (res === null) {
+            if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+            return;
+        }
 
         if (res.warning) {
             safeAlert("⚠️ " + res.warning);
         }
+
+        if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
 
         await window.DataStore.invalidateTags(['medications', 'history']);
         await window.DataStore.invalidateKey('next_intake');
@@ -1113,40 +1173,71 @@ async function deleteMed(id) {
     if (med.archived) {
         const confirmMsg = "Delete this medication permanently?";
         await safeConfirm(confirmMsg, async (ok) => {
-            if (ok) {
-                const res = await apiCall(`/api/medications/${id}`, 'DELETE');
-                if (res !== null) { // Success
-                    await window.DataStore.invalidateTags(['medications', 'history']);
-                    await window.DataStore.invalidateKey('next_intake');
-                    loadMeds();
-                } else {
-                    // It returns null on error and safeAlert is already handled by apiCall
-                    // However, we can add a specific catch-all just in case, or trust apiCall.
-                    // Let's trust apiCall since it already alerts the error message.
-                }
+            if (!ok) return;
+            // Optimistic: drop the medication from the cached list so the
+            // Schedule row vanishes before DELETE resolves.
+            const handle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+                ? await window.DataStore.applyOptimistic('medications', (prev) => {
+                    if (!Array.isArray(prev)) return prev;
+                    return prev.filter((m) => !(m && m.id === id));
+                }, ['medications'])
+                : null;
+
+            let res;
+            try {
+                res = await apiCall(`/api/medications/${id}`, 'DELETE');
+            } catch (e) {
+                if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+                throw e;
             }
+            if (res === null) {
+                if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+                return;
+            }
+            if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
+            await window.DataStore.invalidateTags(['medications', 'history']);
+            await window.DataStore.invalidateKey('next_intake');
+            loadMeds();
         });
     } else {
         const confirmMsg = "Archive this medication?";
         await safeConfirm(confirmMsg, async (ok) => {
-            if (ok) {
-                const payload = {
-                    name: med.name,
-                    dosage: med.dosage,
-                    schedule: med.schedule,
-                    supplement: !!med.supplement,
-                    archived: true
-                };
+            if (!ok) return;
+            const payload = {
+                name: med.name,
+                dosage: med.dosage,
+                schedule: med.schedule,
+                supplement: !!med.supplement,
+                archived: true
+            };
 
-                const res = await apiCall(`/api/medications/${id}`, 'POST', payload);
-                if (res === null) return;
-                if (res && res.warning) {
-                    safeAlert("⚠️ " + res.warning);
-                }
-                await window.DataStore.invalidateTags(['medications', 'history']);
-                await window.DataStore.invalidateKey('next_intake');
-                loadMeds();
+            // Optimistic: flip archived=true on the cached row so the Schedule
+            // tab moves the med into the archived bucket before POST resolves.
+            const handle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+                ? await window.DataStore.applyOptimistic('medications', (prev) => {
+                    if (!Array.isArray(prev)) return prev;
+                    return prev.map((m) => (m && m.id === id ? { ...m, archived: true, _optimistic: true } : m));
+                }, ['medications'])
+                : null;
+
+            let res;
+            try {
+                res = await apiCall(`/api/medications/${id}`, 'POST', payload);
+            } catch (e) {
+                if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+                throw e;
             }
+            if (res === null) {
+                if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+                return;
+            }
+            if (res && res.warning) {
+                safeAlert("⚠️ " + res.warning);
+            }
+            if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
+            await window.DataStore.invalidateTags(['medications', 'history']);
+            await window.DataStore.invalidateKey('next_intake');
+            loadMeds();
         });
     }
 }

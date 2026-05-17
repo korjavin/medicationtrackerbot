@@ -114,11 +114,11 @@ Findings audit and cross-cutting recommendation came from the parent conversatio
 - [x] run `pnpm test` — must pass before next task
 
 ### Task 6: Convert medications
-- [ ] convert `app.js:2225 confirmSelectedMedications` to flip the matched `intake_log` entry's status in the cached `medications`/`history` payload and patch `next_intake` (recompute via `MedicationUtils.getNextScheduledDate`)
-- [ ] convert `:2255 skipSelectedMedications`, `:2311 updateIntakeHistory`, `:2369 confirmLogPast` with the same shape
-- [ ] convert `features/meds.js:536 deleteFutureIntakes` and the add/edit/delete/archive handlers at `:1097–1141`
-- [ ] write tests in `features.meds.*` for confirm, skip, edit-history, log-past, delete-future, add/edit/delete/archive — each with optimistic + rollback
-- [ ] run `pnpm test` — must pass before next task
+- [x] convert `app.js:2225 confirmSelectedMedications` to flip the matched `intake_log` entry's status in the cached `medications`/`history` payload and patch `next_intake` (recompute via `MedicationUtils.getNextScheduledDate`)
+- [x] convert `:2255 skipSelectedMedications`, `:2311 updateIntakeHistory`, `:2369 confirmLogPast` with the same shape
+- [x] convert `features/meds.js:536 deleteFutureIntakes` and the add/edit/delete/archive handlers at `:1097–1141`
+- [x] write tests in `features.meds.*` for confirm, skip, edit-history, log-past, delete-future, add/edit/delete/archive — each with optimistic + rollback
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 7: Convert diary notes
 - [ ] convert `features/health.js:1084 addNote` to prepend the note (with `local_*` id) into the rendered list + cached `diary_notes` payload before await; replace id on resolve
