@@ -94,12 +94,18 @@ describe('Today render — Task 3 canonical structure', () => {
         const sections = Array.from(root.querySelectorAll('[data-section]'))
             .map((el) => el.getAttribute('data-section'));
 
-        const idxShortcut = sections.indexOf('shortcuts');
+        const idxShortcut = sections.indexOf('shortcuts-food');
+        const idxShortcutVitals = sections.indexOf('shortcuts-vitals');
         const idxFuel = sections.indexOf('fuel');
         const idxWorkout = sections.indexOf('workout');
         const idxNext = sections.indexOf('next-action');
         expect(idxShortcut).toBe(0);
-        expect(idxFuel).toBeGreaterThan(idxShortcut);
+        // The vitals shortcut row follows the food row; tiles inside the food
+        // row carry their own data-section="shortcut" so they sit between the
+        // two row containers in the [data-section] sweep — strict ordering,
+        // not strict adjacency.
+        expect(idxShortcutVitals).toBeGreaterThan(idxShortcut);
+        expect(idxFuel).toBeGreaterThan(idxShortcutVitals);
         expect(idxWorkout).toBeGreaterThan(idxFuel);
         expect(idxNext).toBeGreaterThan(idxWorkout);
 

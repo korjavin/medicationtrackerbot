@@ -705,41 +705,46 @@
 
     function renderShortcutRow(state, handlers) {
         const d = doc();
-        const row = d.createElement('div');
-        row.className = 'wg-today-shortcuts';
-        row.setAttribute('data-section', 'shortcuts');
+        const rows = [];
 
-        let added = 0;
+        const foodRow = d.createElement('div');
+        foodRow.className = 'wg-today-shortcuts wg-today-shortcuts--food';
+        foodRow.setAttribute('data-section', 'shortcuts-food');
         const foodCell = state && state.caloriesTarget;
         if (foodCell && foodCell.status !== 'disabled') {
-            row.appendChild(renderShortcutTile('apple', 'Log food', () => {
+            foodRow.appendChild(renderShortcutTile('apple', 'Log food', () => {
                 if (typeof handlers.onLogFood === 'function') handlers.onLogFood();
             }));
-            added += 1;
-            row.appendChild(renderShortcutTile('barcode', 'Scan food', () => {
+            foodRow.appendChild(renderShortcutTile('barcode', 'Scan food', () => {
                 if (typeof handlers.onScanFood === 'function') handlers.onScanFood();
             }));
-            added += 1;
-            row.appendChild(renderShortcutTile('camera', 'Photo meal', () => {
+            foodRow.appendChild(renderShortcutTile('camera', 'Photo meal', () => {
                 if (typeof handlers.onPhotoMeal === 'function') handlers.onPhotoMeal();
             }));
-            added += 1;
+            rows.push(foodRow);
         }
+
+        const vitalsRow = d.createElement('div');
+        vitalsRow.className = 'wg-today-shortcuts wg-today-shortcuts--vitals';
+        vitalsRow.setAttribute('data-section', 'shortcuts-vitals');
+        let vitalsAdded = 0;
         const bpCell = state && state.bpLatest;
         if (bpCell && bpCell.status !== 'disabled') {
-            row.appendChild(renderShortcutTile('heart', 'Add BP', () => {
+            vitalsRow.appendChild(renderShortcutTile('heart', 'Add BP', () => {
                 if (typeof handlers.onAddBp === 'function') handlers.onAddBp();
             }));
-            added += 1;
+            vitalsAdded += 1;
         }
         const weightCell = state && state.weightLatest;
         if (weightCell && weightCell.status !== 'disabled') {
-            row.appendChild(renderShortcutTile('scale', 'Add weight', () => {
+            vitalsRow.appendChild(renderShortcutTile('scale', 'Add weight', () => {
                 if (typeof handlers.onAddWeight === 'function') handlers.onAddWeight();
             }));
-            added += 1;
+            vitalsAdded += 1;
         }
-        return added > 0 ? row : null;
+        if (vitalsAdded > 0) rows.push(vitalsRow);
+
+        return rows.length > 0 ? rows : null;
     }
 
     function renderBpTile(latest, trend, onDeeplink, nowMs) {
@@ -1070,10 +1075,13 @@
             rendered += 1;
         }
 
-        const shortcuts = renderShortcutRow(state, {
+        const shortcutRows = renderShortcutRow(state, {
             onLogFood, onScanFood, onPhotoMeal, onAddBp, onAddWeight
         });
-        if (shortcuts) { root.appendChild(shortcuts); rendered += 1; }
+        if (shortcutRows) {
+            shortcutRows.forEach((r) => root.appendChild(r));
+            rendered += shortcutRows.length;
+        }
 
         const bpTile = renderBpTile(state && state.bpLatest, state && state.bpTrend7d, onDeeplink, nowMs);
         const weightTile = renderWeightTile(state && state.weightLatest, state && state.weightTrend7d, onDeeplink, nowMs);

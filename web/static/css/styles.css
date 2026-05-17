@@ -4446,17 +4446,25 @@ textarea.wg-input {
     color: var(--wg-fg-3);
 }
 
-/* Today shortcut row — quick-log tiles that open the existing food / BP /
-   weight modals directly. Uses the same material vocabulary as
-   `.wg-metric-tile` so the shortcuts visually belong to the Today card
+/* Today shortcut rows — quick-log tiles that open the existing food / BP /
+   weight modals directly. Split into two rows so the food group (3 tiles)
+   and the vitals group (2 tiles) each get full-width tiles instead of being
+   crammed into a single 5-column strip. Uses the same material vocabulary
+   as `.wg-metric-tile` so the shortcuts visually belong to the Today card
    stack. */
 .wg-today-shortcuts {
     display: grid;
-    /* Up to 5 tiles (Log food, Scan food, Photo meal, Add BP, Add weight).
-       Fewer tiles leave trailing cells empty — every visible tile keeps
-       the same width so the row stays balanced. */
-    grid-template-columns: repeat(5, 1fr);
     gap: var(--space-sm);
+}
+
+.wg-today-shortcuts--food {
+    /* Log food · Scan food · Photo meal */
+    grid-template-columns: repeat(3, 1fr);
+}
+
+.wg-today-shortcuts--vitals {
+    /* Add BP · Add weight */
+    grid-template-columns: repeat(2, 1fr);
 }
 
 .wg-shortcut-tile {
