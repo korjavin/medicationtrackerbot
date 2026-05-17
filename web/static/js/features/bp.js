@@ -101,29 +101,65 @@ async function handleBPSubmit(event) {
     const saveBtn = document.querySelector('#bp-modal button[form="bp-form"]');
     if (saveBtn) saveBtn.disabled = true;
     try {
-        const res = await apiCall('/api/bp', 'POST', payload);
+        // Optimistic: prepend the new reading to the cached `bp` payload so
+        // the History list + Today's tile repaint before the POST resolves.
+        // The cache value is `{ readingsRes, goalRes, statsRes }`; only the
+        // readings array changes locally — goal + stats are reconciled by
+        // the post-commit loadBPReadings() refetch.
+        const optimisticReading = {
+            id: `local_optimistic_${Date.now()}`,
+            measured_at: payload.measured_at,
+            systolic: payload.systolic,
+            diastolic: payload.diastolic,
+            pulse: payload.pulse,
+            site: payload.site,
+            position: payload.position,
+            notes: payload.notes,
+            _optimistic: true
+        };
+        let handle = null;
+        if (window.DataStore && typeof window.DataStore.applyOptimistic === 'function') {
+            handle = await window.DataStore.applyOptimistic('bp', (prev) => {
+                const base = prev && typeof prev === 'object' ? prev : {};
+                const prevReadings = Array.isArray(base.readingsRes) ? base.readingsRes : [];
+                return {
+                    readingsRes: [optimisticReading, ...prevReadings],
+                    goalRes: base.goalRes || null,
+                    statsRes: base.statsRes || null
+                };
+            }, ['bp']);
+        }
 
-        if (res) {
-            await window.DataStore.invalidateTags(['bp']);
-            // Belt-and-suspenders: CacheKeys.registerAll wires the 'bp'
-            // key→tag mapping at boot, so invalidateTags(['bp']) above
-            // already covers the eviction. Clearing the key directly is
-            // a redundant safety net for any future code path that might
-            // bypass the registry — Today's presence check would otherwise
-            // see the stale IndexedDB snapshot and skip the refetch.
-            if (window.DataStore.clearCached) {
-                await window.DataStore.clearCached('bp');
-            }
-            await loadBPReadings();
-            closeBPRecordModal();
-            // Today shortcut path: the visible tab is 'today' while the BP
-            // modal is open, and loadBPReadings() only updates the hidden BP
-            // screen. Refresh Today so the dashboard tile reflects the new
-            // reading without waiting for a future cross-device change poll.
-            if (window.AppStore && window.AppStore.get('currentTab') === 'today'
-                && typeof window.loadToday === 'function') {
-                window.loadToday();
-            }
+        let res;
+        try {
+            res = await apiCall('/api/bp', 'POST', payload);
+        } catch (e) {
+            if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+            throw e;
+        }
+
+        if (!res) {
+            if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+            return;
+        }
+
+        if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
+        // Invalidate so the next read fetches authoritative server data
+        // (server-side id + stats/goal recompute layered on top of the
+        // optimistic state).
+        await window.DataStore.invalidateTags(['bp']);
+        if (window.DataStore.clearCached) {
+            await window.DataStore.clearCached('bp');
+        }
+        await loadBPReadings();
+        closeBPRecordModal();
+        // Today shortcut path: the visible tab is 'today' while the BP
+        // modal is open, and loadBPReadings() only updates the hidden BP
+        // screen. Refresh Today so the dashboard tile reflects the new
+        // reading without waiting for a future cross-device change poll.
+        if (window.AppStore && window.AppStore.get('currentTab') === 'today'
+            && typeof window.loadToday === 'function') {
+            window.loadToday();
         }
     } finally {
         bpSubmitInFlight = false;
@@ -648,28 +684,58 @@ async function _deleteBPApi(id) {
         return;
     }
 
-    const res = await apiCall(`/api/bp/${id}`, 'DELETE');
-    if (res) {
-        await window.DataStore.invalidateTags(['bp']);
-        if (window.DataStore.clearCached) {
-            await window.DataStore.clearCached('bp');
-        }
-        // Also remove from local IndexedDB if it exists there
-        if (window.MedTrackerDB) {
-            try {
-                // Find and delete the local record with this serverId
-                const allReadings = await window.MedTrackerDB.BPStore.getAll();
-                const localRecord = allReadings.find(r => r.serverId === parseInt(id, 10));
-                if (localRecord && localRecord.localId) {
-                    await window.MedTrackerDB.BPStore.confirmDelete(localRecord.localId);
-                    if (window.SyncManager) window.SyncManager.updateStatus();
-                }
-            } catch (e) {
-                console.error('Failed to delete from local DB:', e);
-            }
-        }
-        await loadBPReadings();
+    // Optimistic: drop the reading from the cached `bp` payload before
+    // awaiting the DELETE so the list + Today tile update immediately. The
+    // mutator preserves `goalRes`/`statsRes` (those are recomputed by the
+    // post-commit loadBPReadings refetch).
+    const numericId = parseInt(id, 10);
+    let handle = null;
+    if (window.DataStore && typeof window.DataStore.applyOptimistic === 'function') {
+        handle = await window.DataStore.applyOptimistic('bp', (prev) => {
+            if (!prev || typeof prev !== 'object') return prev;
+            const prevReadings = Array.isArray(prev.readingsRes) ? prev.readingsRes : [];
+            const filtered = prevReadings.filter((r) => r && r.id !== numericId && r.id !== id);
+            return {
+                readingsRes: filtered,
+                goalRes: prev.goalRes || null,
+                statsRes: prev.statsRes || null
+            };
+        }, ['bp']);
     }
+
+    let res;
+    try {
+        res = await apiCall(`/api/bp/${id}`, 'DELETE');
+    } catch (e) {
+        if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+        throw e;
+    }
+
+    if (!res) {
+        if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+        return;
+    }
+
+    if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
+    await window.DataStore.invalidateTags(['bp']);
+    if (window.DataStore.clearCached) {
+        await window.DataStore.clearCached('bp');
+    }
+    // Also remove from local IndexedDB if it exists there
+    if (window.MedTrackerDB) {
+        try {
+            // Find and delete the local record with this serverId
+            const allReadings = await window.MedTrackerDB.BPStore.getAll();
+            const localRecord = allReadings.find(r => r.serverId === parseInt(id, 10));
+            if (localRecord && localRecord.localId) {
+                await window.MedTrackerDB.BPStore.confirmDelete(localRecord.localId);
+                if (window.SyncManager) window.SyncManager.updateStatus();
+            }
+        } catch (e) {
+            console.error('Failed to delete from local DB:', e);
+        }
+    }
+    await loadBPReadings();
 }
 
 // Export BP data to CSV

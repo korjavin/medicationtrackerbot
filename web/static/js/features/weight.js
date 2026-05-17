@@ -326,8 +326,48 @@ async function handleWeightSubmit(event) {
     if (editing && editing.id != null && !(typeof editing.id === 'string' && editing.id.startsWith('local_'))) {
         postUrl = `/api/weight?replaces=${encodeURIComponent(editing.id)}`;
     }
-    const res = await apiCall(postUrl, 'POST', payload);
-    if (!res) return;
+
+    // Optimistic: prepend the new log into the cached `weight` payload so the
+    // History list + Today's tile repaint before the POST resolves. The cache
+    // value is `{ logsRes, goalRes }`. On edit, also strip the prior entry so
+    // the visible row count stays correct ahead of the trailing DELETE.
+    const optimisticLog = {
+        id: `local_optimistic_${Date.now()}`,
+        measured_at: payload.measured_at,
+        weight: payload.weight,
+        notes: payload.notes,
+        _optimistic: true
+    };
+    const editingId = editing && editing.id != null ? editing.id : null;
+    let handle = null;
+    if (window.DataStore && typeof window.DataStore.applyOptimistic === 'function') {
+        handle = await window.DataStore.applyOptimistic('weight', (prev) => {
+            const base = prev && typeof prev === 'object' ? prev : {};
+            const prevLogs = Array.isArray(base.logsRes) ? base.logsRes : [];
+            const filtered = editingId == null
+                ? prevLogs
+                : prevLogs.filter((l) => l && l.id !== editingId
+                    && l.id !== parseInt(editingId, 10));
+            return {
+                logsRes: [optimisticLog, ...filtered],
+                goalRes: base.goalRes || null
+            };
+        }, ['weight']);
+    }
+
+    let res;
+    try {
+        res = await apiCall(postUrl, 'POST', payload);
+    } catch (e) {
+        if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+        throw e;
+    }
+    if (!res) {
+        if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+        return;
+    }
+
+    if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
 
     if (editing && editing.id != null) {
         if (typeof editing.id === 'string' && editing.id.startsWith('local_')) {
@@ -1130,28 +1170,57 @@ async function _deleteWeightApi(id) {
         return;
     }
 
-    const res = await apiCall(`/api/weight/${id}`, 'DELETE');
-    if (res) {
-        await window.DataStore.invalidateTags(['weight']);
-        if (window.DataStore.clearCached) {
-            await window.DataStore.clearCached('weight');
-        }
-        // Also remove from local IndexedDB if it exists there
-        if (window.MedTrackerDB) {
-            try {
-                // Find and delete the local record with this serverId
-                const allLogs = await window.MedTrackerDB.WeightStore.getAll();
-                const localRecord = allLogs.find(l => l.serverId === parseInt(id, 10));
-                if (localRecord && localRecord.localId) {
-                    await window.MedTrackerDB.WeightStore.confirmDelete(localRecord.localId);
-                    if (window.SyncManager) window.SyncManager.updateStatus();
-                }
-            } catch (e) {
-                console.error('Failed to delete from local DB:', e);
-            }
-        }
-        loadWeightLogs();
+    // Optimistic: filter the log out of the cached `weight` payload before
+    // awaiting the DELETE so the list + Today tile update immediately. The
+    // mutator preserves `goalRes` (recomputed by the post-commit loadWeightLogs
+    // refetch).
+    const numericId = parseInt(id, 10);
+    let handle = null;
+    if (window.DataStore && typeof window.DataStore.applyOptimistic === 'function') {
+        handle = await window.DataStore.applyOptimistic('weight', (prev) => {
+            if (!prev || typeof prev !== 'object') return prev;
+            const prevLogs = Array.isArray(prev.logsRes) ? prev.logsRes : [];
+            const filtered = prevLogs.filter((l) => l && l.id !== numericId && l.id !== id);
+            return {
+                logsRes: filtered,
+                goalRes: prev.goalRes || null
+            };
+        }, ['weight']);
     }
+
+    let res;
+    try {
+        res = await apiCall(`/api/weight/${id}`, 'DELETE');
+    } catch (e) {
+        if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+        throw e;
+    }
+
+    if (!res) {
+        if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+        return;
+    }
+
+    if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
+    await window.DataStore.invalidateTags(['weight']);
+    if (window.DataStore.clearCached) {
+        await window.DataStore.clearCached('weight');
+    }
+    // Also remove from local IndexedDB if it exists there
+    if (window.MedTrackerDB) {
+        try {
+            // Find and delete the local record with this serverId
+            const allLogs = await window.MedTrackerDB.WeightStore.getAll();
+            const localRecord = allLogs.find(l => l.serverId === parseInt(id, 10));
+            if (localRecord && localRecord.localId) {
+                await window.MedTrackerDB.WeightStore.confirmDelete(localRecord.localId);
+                if (window.SyncManager) window.SyncManager.updateStatus();
+            }
+        } catch (e) {
+            console.error('Failed to delete from local DB:', e);
+        }
+    }
+    loadWeightLogs();
 }
 
 async function exportWeightCSV() {
