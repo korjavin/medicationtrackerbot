@@ -57,6 +57,7 @@ type Server struct {
 	timezone            TimezoneStore
 	health              HealthStore
 	changes             ChangeStore
+	changesBroker       *ChangeBroker
 	push                PushStore
 	miband              MiBandStore
 	notesSvc            domain.NotesService
@@ -232,6 +233,7 @@ func New(s *store.Store, botToken, sessionSecret string, allowedUserID int64, oi
 		timezone:        s.TZ,
 		health:          s.Vitals,
 		changes:         s.Settings,
+		changesBroker:   NewChangeBroker(),
 		push:            s.Push,
 		miband:          s.Workout,
 		notesSvc:        domain.NewNotesService(s.Diary),
@@ -701,19 +703,28 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/notes", s.handleCreateNote)
 	apiMux.HandleFunc("DELETE /api/notes/{id}", s.handleDeleteNote)
 
-	// Store the raw apiMux for internal bridge calls (no auth required there).
-	s.internalMux = apiMux
+	// Wrap apiMux with the broker-notify middleware so every successful
+	// non-GET write wakes up SSE subscribers. Bridge calls share this wrapped
+	// handler (s.internalMux) so MCP-initiated writes also notify.
+	apiHandler := s.notifyOnWriteMiddleware(apiMux)
+	s.internalMux = apiHandler
 
-	// External routes (bypass AuthMiddleware)
-	mux.HandleFunc("POST /api/workout/external", s.externalAPIKeyMiddleware(s.handleExternalWorkout))
+	// External routes (bypass AuthMiddleware). The HMAC-signed agent ingress
+	// paths and the API-key external workout endpoint write to the same tables
+	// that drive the SSE change stream, so they still need to notify the
+	// broker on success — otherwise their writes show up to subscribers only
+	// via the 30s cursor backstop. The bridge endpoint already proxies through
+	// internalMux (which is wrapped) so its writes notify from the inner call.
+	notifyOnWrite := s.notifyOnWriteMiddleware
+	mux.Handle("POST /api/workout/external", notifyOnWrite(http.HandlerFunc(s.externalAPIKeyMiddleware(s.handleExternalWorkout))))
 	mux.HandleFunc("POST /api/mcp-audit", s.handleMCPAudit)
-	mux.HandleFunc("POST /api/mcp-food-log", s.handleMCPFoodLog)
-	mux.HandleFunc("POST /api/mcp-workout-log", s.handleMCPWorkoutLog)
+	mux.Handle("POST /api/mcp-food-log", notifyOnWrite(http.HandlerFunc(s.handleMCPFoodLog)))
+	mux.Handle("POST /api/mcp-workout-log", notifyOnWrite(http.HandlerFunc(s.handleMCPWorkoutLog)))
 	mux.HandleFunc("POST /internal/mcp/bridge", s.handleMCPBridge)
 
 	// Apply Middleware to API
 	authMW := AuthMiddleware(s.botToken, s.sessionSecret, s.allowedUserID)
-	mux.Handle("/api/", authMW(apiMux))
+	mux.Handle("/api/", authMW(apiHandler))
 
 	return panicRecover(securityHeadersMiddleware(mux))
 }
