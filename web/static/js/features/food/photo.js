@@ -1,5 +1,5 @@
 // ====================================
-// FOOD PHOTO — capture, AI summary, undo
+// FOOD PHOTO — capture, AI summary
 // ====================================
 //
 // Owns the "+ Photo" flow on the Food screen:
@@ -8,7 +8,9 @@
 //   - POST /api/food/log/from-photo upload + cache invalidation
 //   - the friendly summary card handoff (food-photo-summary.js owns the
 //     UI; this file owns the network + cache-invalidation side)
-//   - per-item undo (DELETE /api/food/log/:id) with partial-failure retry
+//
+// Per-item undo (DELETE /api/food/log/:id) is shared with the food-description
+// AI flow and lives in ai-undo.js (function `undoFoodAIItems`).
 //
 // `triggerFoodPhotoPicker` is also surfaced on window.FoodActions so the
 // Today shortcut tile can open the picker without first navigating to the
@@ -232,7 +234,7 @@ async function uploadFoodPhoto(input) {
                 let summaryHandle;
                 summaryHandle = showFoodPhotoSummary({
                     items,
-                    onUndo: () => undoFoodPhotoLog(items, summaryHandle),
+                    onUndo: () => undoFoodAIItems(items, summaryHandle),
                 });
             } else {
                 safeAlert(items.length
@@ -249,67 +251,10 @@ async function uploadFoodPhoto(input) {
     });
 }
 
-// Undo handler for the friendly food-photo summary card. Issues a parallel
-// DELETE for every just-logged item, refreshes the food list + Today, then
-// transitions the card to a "Removed N items" success state. On partial
-// failure the card flips to its retry-able error state, and Retry only
-// re-attempts the items that haven't already been deleted — otherwise the
-// store's "no rows" 500 for already-deleted ids would lock the user in
-// permanent error after a single successful round.
-async function undoFoodPhotoLog(items, summary, originalCount) {
-    if (!Array.isArray(items) || items.length === 0) return;
-    const total = (typeof originalCount === 'number') ? originalCount : items.length;
-
-    const results = await Promise.all(items.map(async (it) => {
-        if (!it || !it.id) return { item: it, ok: false };
-        try {
-            const res = await fetch(`/api/food/log/${it.id}`, {
-                method: 'DELETE',
-                headers: window.makeAuthHeaders(),
-            });
-            return { item: it, ok: !!(res && res.ok) };
-        } catch (_) {
-            return { item: it, ok: false };
-        }
-    }));
-
-    const allOk = results.every(r => r.ok);
-    const anyOk = results.some(r => r.ok);
-
-    if (anyOk) {
-        try {
-            await window.DataStore.invalidateTags(['food']);
-            if (typeof todayFoodKey === 'function' && window.DataStore.clearCached) {
-                await window.DataStore.clearCached(todayFoodKey(new Date()));
-            }
-            if (window.DataStore?.advanceCursorSilently) {
-                window.DataStore.advanceCursorSilently();
-            }
-        } catch (e) {
-            console.error('Food photo undo cache invalidation failed:', e);
-        }
-        loadFoodLogs();
-        if (typeof loadToday === 'function') loadToday();
-    }
-
-    if (!allOk) {
-        const remaining = results.filter(r => !r.ok).map(r => r.item);
-        if (summary && typeof summary.showError === 'function') {
-            summary.showError(
-                'Could not undo all items. Tap retry to try again.',
-                () => undoFoodPhotoLog(remaining, summary, total),
-            );
-        }
-        return;
-    }
-
-    if (summary && typeof summary.showRemoved === 'function') {
-        summary.showRemoved(total);
-    }
-}
-
 window.FoodPhoto = window.FoodPhoto || {};
 window.FoodPhoto.triggerPicker = triggerFoodPhotoPicker;
 window.FoodPhoto.upload = uploadFoodPhoto;
-window.FoodPhoto.undo = undoFoodPhotoLog;
+// Re-export the shared AI-undo helper under its legacy name so existing
+// callers and tests that look up `window.FoodPhoto.undo` keep working.
+window.FoodPhoto.undo = undoFoodAIItems;
 window.FoodPhoto.resolveEatenAt = resolveFoodPhotoEatenAt;
