@@ -547,7 +547,16 @@
         setChangeCursor(cursor) {
             const parsed = Number(cursor);
             if (!Number.isFinite(parsed) || parsed < 0) return;
-            localStorage.setItem(CHANGE_CURSOR_KEY, String(Math.floor(parsed)));
+            const floored = Math.floor(parsed);
+            // Monotonic: refuse to lower the cursor. Two concurrent
+            // applyChangesPayload calls (SSE burst delivers frame B with
+            // cursor=15 while frame A with cursor=10 is mid-await on
+            // invalidateTags) can otherwise interleave such that the later
+            // call writes the smaller cursor last, defeating delta optimisation
+            // and causing redundant re-fetches.
+            const current = this.getChangeCursor();
+            if (floored < current) return;
+            localStorage.setItem(CHANGE_CURSOR_KEY, String(floored));
         },
 
         async applyChangesPayload(res) {
@@ -822,6 +831,12 @@
             }
             changeStreamErrorCount = 0;
             changeStreamRetryDelayMs = CHANGE_STREAM_RETRY_MS;
+            // Reset the SSE-error window state too so a subsequent
+            // startChangePolling (e.g. logout → re-auth) can re-attempt SSE
+            // instead of being stuck in the give-up path from a prior session.
+            changeStreamGaveUp = false;
+            changeStreamErrorsInWindow = 0;
+            changeStreamErrorWindowStart = 0;
         }
     };
 

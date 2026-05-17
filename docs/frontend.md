@@ -131,7 +131,7 @@ try {
 
 **Rollback semantics** — on POST rejection: restore the captured snapshot (or clear the entry if the cache was cold), call `invalidateTags(tags)` so the next read goes to network and authoritatively resyncs, and surface a toast via the existing offline-write error UI where applicable.
 
-**Relationship to the poll path** — `applyChangesPayload` (the 30s `/api/changes` poll) remains the canonical source of truth for cross-device sync. Optimistic state is layered on top: a remote change reconciles via `applyChangesPayload`'s own `invalidateTags + dispatch` flow, which the screen's normal `loadX()` listener picks up on the next refresh.
+**Relationship to the reconcile path** — `applyChangesPayload` remains the canonical reconciliation entry point for cross-device sync, fed by either the SSE `/api/changes/stream` channel (primary, ~50ms latency) or the 30s `/api/changes` polling fallback when SSE is unavailable. Optimistic state is layered on top: a remote change reconciles via `applyChangesPayload`'s own `invalidateTags + dispatch` flow, which the screen's normal `loadX()` listener picks up on the next refresh.
 
 **Design rule** — write handlers MUST use `applyOptimistic`, never `invalidateTags + loadX`. The latter is reserved for read-only refreshes (e.g. the `invalidateWorkoutCache` helper) and for the rollback path inside `applyOptimistic` itself.
 
