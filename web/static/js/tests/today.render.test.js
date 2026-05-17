@@ -355,7 +355,9 @@ describe('TodayDashboard.renderToday', () => {
         env.render(allPresentState(now), root, { now });
         const secondCount = root.querySelectorAll('.wg-metric-tile').length;
         expect(firstCount).toBe(secondCount);
-        expect(root.querySelectorAll('.wg-today-shortcuts').length).toBe(1);
+        expect(root.querySelectorAll('.wg-today-shortcuts').length).toBe(2);
+        expect(root.querySelectorAll('.wg-today-shortcuts--food').length).toBe(1);
+        expect(root.querySelectorAll('.wg-today-shortcuts--vitals').length).toBe(1);
         expect(root.querySelectorAll('.wg-today-meds').length).toBe(1);
     });
 
