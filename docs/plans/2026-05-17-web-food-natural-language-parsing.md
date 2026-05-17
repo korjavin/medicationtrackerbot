@@ -64,9 +64,9 @@ Dependencies: `OPENAI_API_KEY` (existing env; no new config needed — same `Foo
 
 ### Task 2: MCP registry entry
 
-- [ ] Add a new `Operation` in `internal/mcp/registry/operations_food.go` for `food.log.from_description` (POST `/api/food/log/from-description`), with description and input schema matching the handler body. Keep parity with how `food.log.from_photo` (or the existing food.log entries) is described.
-- [ ] Run `go test ./internal/server/... -run TestMCPCoverage` to confirm the coverage guard is satisfied without adding to `mcp_coverage_exempt.go`.
-- [ ] Run `go test ./internal/mcp/...` — must pass before task 3.
+- [x] Add a new `Operation` in `internal/mcp/registry/operations_food.go` for `food.log.from_description` (POST `/api/food/log/from-description`), with description and input schema matching the handler body. Keep parity with how `food.log.from_photo` (or the existing food.log entries) is described.
+- [x] Run `go test ./internal/server/... -run TestMCPCoverage` to confirm the coverage guard is satisfied without adding to `mcp_coverage_exempt.go`.
+- [x] Run `go test ./internal/mcp/...` — must pass before task 3.
 
 ### Task 3: Extract shared undo helper
 
