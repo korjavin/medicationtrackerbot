@@ -9,6 +9,13 @@
     // invalidated so that an abandoned in-flight request from before the
     // invalidation cannot re-cache stale data once it eventually resolves.
     const fetchGeneration = new Map();
+    // Per-key count of outstanding applyOptimistic handles that have not yet
+    // settled (commit/rollback). While > 0, the caller's own POST is in flight
+    // and the optimistic state represents the post-mutation truth. fetchFresh
+    // SHORT-CIRCUITS during this window so a concurrent GET (kicked off by a
+    // post-optimistic reloadCurrentTab) cannot overwrite the optimistic cache
+    // with the pre-write server state.
+    const pendingOptimistic = new Map();
     const keyToTags = new Map();
     const tagToKeys = new Map();
     // tag → Set<prefix>. Lets `invalidateByTag(tag)` evict every concrete
@@ -138,8 +145,9 @@
         //     is left in the optimistic state (server returned no body to
         //     reconcile against).
         //   - `rollback` restores the prior cache snapshot (or clears it if
-        //     cold) and invalidates `tags` so the next read goes to network.
-        //     Use on POST failure.
+        //     cold) so the screen can repaint to the pre-optimistic state.
+        //     Use on POST failure. The next loadSWR call will fetchFresh
+        //     normally and reconcile against the authoritative server state.
         //
         // Both `commit` and `rollback` are no-ops after the first call to
         // either, so callers can pass the handle through try/catch without
@@ -158,11 +166,34 @@
 
             const next = mutator(prior);
 
-            if (hasValue(next)) {
-                await this.setCachedWithTags(key, next, tags);
-            } else {
-                await this.clearCached(key);
-                registerKeyTags(key, tags);
+            // Mark this key as having a pending optimistic write before the
+            // dispatch fires reloadCurrentTab → loadSWR. Without this, the
+            // concurrent fetchFresh would resolve with pre-write server state
+            // (the caller's POST hasn't reached the server yet) and write
+            // stale data into the cache, flickering the screen between
+            // optimistic → stale → real.
+            pendingOptimistic.set(key, (pendingOptimistic.get(key) || 0) + 1);
+
+            const decrementPending = () => {
+                const c = (pendingOptimistic.get(key) || 0) - 1;
+                if (c <= 0) pendingOptimistic.delete(key);
+                else pendingOptimistic.set(key, c);
+            };
+
+            try {
+                if (hasValue(next)) {
+                    await this.setCachedWithTags(key, next, tags);
+                } else {
+                    await this.clearCached(key);
+                    registerKeyTags(key, tags);
+                }
+            } catch (e) {
+                // The cache write failed (IndexedDB quota, corruption, etc.)
+                // so no optimistic state was actually committed. Roll back
+                // the pending counter so future fetchFresh calls don't stay
+                // permanently short-circuited, then surface the error.
+                decrementPending();
+                throw e;
             }
 
             this.requestTabRefresh(tags, 'optimistic');
@@ -173,20 +204,30 @@
                 async commit(serverPayload) {
                     if (settled) return;
                     settled = true;
-                    if (hasValue(serverPayload)) {
-                        await self.setCachedWithTags(key, serverPayload, tags);
+                    // try/finally so a cache-write failure (IndexedDB quota,
+                    // corruption) still decrements the pending counter —
+                    // otherwise fetchFresh would short-circuit forever.
+                    try {
+                        if (hasValue(serverPayload)) {
+                            await self.setCachedWithTags(key, serverPayload, tags);
+                        }
+                    } finally {
+                        decrementPending();
                     }
                     self.requestTabRefresh(tags, 'optimistic-commit');
                 },
                 async rollback() {
                     if (settled) return;
                     settled = true;
-                    if (hasValue(priorSnapshot)) {
-                        await self.setCachedWithTags(key, priorSnapshot, tags);
-                    } else {
-                        await self.clearCached(key);
+                    try {
+                        if (hasValue(priorSnapshot)) {
+                            await self.setCachedWithTags(key, priorSnapshot, tags);
+                        } else {
+                            await self.clearCached(key);
+                        }
+                    } finally {
+                        decrementPending();
                     }
-                    await self.invalidateTags(tags);
                     self.requestTabRefresh(tags, 'optimistic-rollback');
                 }
             };
@@ -310,9 +351,30 @@
             return fetchGeneration.get(key) || 0;
         },
 
+        // Read-only peek at the pending-optimistic counter for a key. Used by
+        // cachedFetch to suppress background revalidation writes during the
+        // optimistic window — the caller's POST hasn't reached the server yet,
+        // so a concurrent GET would resolve with pre-write state and overwrite
+        // the optimistic cache.
+        hasPendingOptimistic(key) {
+            return (pendingOptimistic.get(key) || 0) > 0;
+        },
+
         async fetchFresh(key, fetcher, tags = []) {
             registerKeyTags(key, tags);
             if (inFlight.has(key)) return await inFlight.get(key);
+
+            // While an optimistic write is pending for this key, the caller's
+            // own POST has not yet reached the server. A GET issued now would
+            // return the pre-write state and overwrite the optimistic cache.
+            // Skip the network call and return null — loadSWR's `wasSuperseded`
+            // detection treats null + bumped generation as a no-render signal.
+            // Bump generation explicitly so that detection still fires (the
+            // caller may have already snapshotted genBefore expecting a bump).
+            if ((pendingOptimistic.get(key) || 0) > 0) {
+                fetchGeneration.set(key, (fetchGeneration.get(key) || 0) + 1);
+                return null;
+            }
 
             // Capture the current generation for this key so that a cancelled
             // in-flight (evicted by invalidateByTag) cannot overwrite the cache
@@ -377,7 +439,18 @@
                 const expectedBump = reusedInFlight ? 0 : 1;
                 const fresh = await this.fetchFresh(key, fetcher, tags);
                 const genAfter = fetchGeneration.get(key) || 0;
-                const wasSuperseded = fresh === null && genAfter > genBefore + expectedBump;
+                // fetchFresh returns null in three cases:
+                //   (a) the fetcher genuinely produced no data,
+                //   (b) the request was superseded by an invalidation that
+                //       bumped generation past `genBefore + expectedBump`,
+                //   (c) a pending optimistic write short-circuited the GET so
+                //       the optimistic cache stays authoritative until commit.
+                // (a) is the only case where onFresh(null) should fire under
+                // allowNullFresh — (b) and (c) would wipe rendered UI back to
+                // an empty/stale state.
+                const pendingOptimisticActive = (pendingOptimistic.get(key) || 0) > 0;
+                const wasSuperseded = fresh === null
+                    && (genAfter > genBefore + expectedBump || pendingOptimisticActive);
                 if (!wasSuperseded && (allowNullFresh || hasValue(fresh)) && onFresh) {
                     await onFresh(fresh, cached);
                 }

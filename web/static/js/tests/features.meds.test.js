@@ -97,6 +97,52 @@ describe('features/meds.js + app.js — optimistic write conversion', () => {
         await handlerDone;
     });
 
+    it('confirmSelectedMedications removes only the confirmed medication from next_intake when two meds share a name', async () => {
+        // Regression: the next_intake mutator must filter by medication_id, not
+        // name. Same-name + different-dosage meds (e.g. "Aspirin 100mg" and
+        // "Aspirin 500mg") both appear as "Aspirin" in medication_names.
+        // Filtering by name would over-evict both even when only one is confirmed.
+        const { window, document } = env;
+        const cache = installApiCache(window, {
+            next_intake: {
+                scheduled_at: '2026-05-17T08:00:00.000Z',
+                medication_ids: [1, 2],
+                medication_names: ['Aspirin', 'Aspirin']
+            }
+        });
+
+        window.showMedicationConfirmModal([1, 2], ['Aspirin', 'Aspirin'], '2026-05-17T08:00:00.000Z', 'confirm', [101, 102]);
+        const checks = document.querySelectorAll('.med-confirm-check');
+        checks[0].checked = true;   // confirm id=1 only
+        checks[1].checked = false;
+
+        window.loadMeds = vi.fn();
+        window.loadHistory = vi.fn();
+        window.safeAlert = vi.fn();
+
+        let postCalledSignal;
+        const postCalled = new Promise((r) => { postCalledSignal = r; });
+        const pending = deferred();
+        window.apiCall = vi.fn(async (url, method) => {
+            if (method === 'POST' && url === '/api/medications/confirm-schedule') {
+                postCalledSignal();
+                return pending.promise;
+            }
+            return null;
+        });
+
+        const handlerDone = window.confirmSelectedMedications();
+        await postCalled;
+
+        const next = cache.get('next_intake');
+        expect(next.scheduled_at).toBe('2026-05-17T08:00:00.000Z');
+        expect(next.medication_ids).toEqual([2]);
+        expect(next.medication_names).toEqual(['Aspirin']);
+
+        pending.resolve({ status: 'ok' });
+        await handlerDone;
+    });
+
     it('confirmSelectedMedications rolls back the optimistic flip when the POST returns null', async () => {
         const { window } = env;
         const cache = installApiCache(window, {

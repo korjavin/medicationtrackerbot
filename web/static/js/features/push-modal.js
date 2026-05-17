@@ -15,10 +15,11 @@
 // previous modal's data.
 //
 // Public surface:
-//   - PushModalState.openMedConfirm({ ids, scheduled, mode, intakeIds })
+//   - PushModalState.openMedConfirm({ ids, names, scheduled, mode, intakeIds })
 //   - PushModalState.openWorkoutStart({ sessionId })
 //   - PushModalState.clear()
 //   - PushModalState.getMedConfirmIds()
+//   - PushModalState.getMedConfirmNames()
 //   - PushModalState.getMedConfirmScheduled()
 //   - PushModalState.getMedConfirmMode()
 //   - PushModalState.getMedConfirmIntakeIds()
@@ -27,18 +28,20 @@
 window.PushModalState = (function () {
     let _state = {
         medConfirmIds: [],
+        medConfirmNames: [],
         medConfirmScheduled: null,
         medConfirmMode: 'confirm',
         medConfirmIntakeIds: [],
         workoutSessionId: null,
     }; // module-state: push-modal coordination; invariants documented above
 
-    function openMedConfirm({ ids, scheduled, mode, intakeIds } = {}) {
+    function openMedConfirm({ ids, names, scheduled, mode, intakeIds } = {}) {
         // Opening the med modal clears any prior workout pending — the two
         // share the same modal slot in production (ModalManager.workoutStart
         // closes when ModalManager.medConfirm opens), so a stale workout
         // sessionId is never the right target for a follow-up snooze/skip.
         _state.medConfirmIds = Array.isArray(ids) ? ids.slice() : [];
+        _state.medConfirmNames = Array.isArray(names) ? names.slice() : [];
         _state.medConfirmScheduled = scheduled == null ? null : scheduled;
         _state.medConfirmMode = mode || 'confirm';
         _state.medConfirmIntakeIds = Array.isArray(intakeIds) ? intakeIds.slice() : [];
@@ -48,6 +51,7 @@ window.PushModalState = (function () {
     function openWorkoutStart({ sessionId } = {}) {
         _state.workoutSessionId = sessionId == null ? null : sessionId;
         _state.medConfirmIds = [];
+        _state.medConfirmNames = [];
         _state.medConfirmScheduled = null;
         _state.medConfirmMode = 'confirm';
         _state.medConfirmIntakeIds = [];
@@ -55,6 +59,7 @@ window.PushModalState = (function () {
 
     function clear() {
         _state.medConfirmIds = [];
+        _state.medConfirmNames = [];
         _state.medConfirmScheduled = null;
         _state.medConfirmMode = 'confirm';
         _state.medConfirmIntakeIds = [];
@@ -62,6 +67,7 @@ window.PushModalState = (function () {
     }
 
     function getMedConfirmIds() { return _state.medConfirmIds; }
+    function getMedConfirmNames() { return _state.medConfirmNames; }
     function getMedConfirmScheduled() { return _state.medConfirmScheduled; }
     function getMedConfirmMode() { return _state.medConfirmMode; }
     function getMedConfirmIntakeIds() { return _state.medConfirmIntakeIds; }
@@ -69,6 +75,7 @@ window.PushModalState = (function () {
 
     function _resetForTesting() {
         _state.medConfirmIds = [];
+        _state.medConfirmNames = [];
         _state.medConfirmScheduled = null;
         _state.medConfirmMode = 'confirm';
         _state.medConfirmIntakeIds = [];
@@ -80,6 +87,7 @@ window.PushModalState = (function () {
         openWorkoutStart,
         clear,
         getMedConfirmIds,
+        getMedConfirmNames,
         getMedConfirmScheduled,
         getMedConfirmMode,
         getMedConfirmIntakeIds,

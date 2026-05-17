@@ -1686,10 +1686,13 @@ function applyPendingTabRefresh() {
 function requestTabRefresh(meta = {}) {
     const source = meta?.source || 'changes';
     // Optimistic / commit / rollback paths originate from the caller's own
-    // write flow — they already repainted directly via cache writes and the
-    // `datastore:changed` listener. The deferred-banner UX exists for
-    // cross-device polling updates and isn't appropriate here.
+    // write flow. The user is actively engaged with the app — no deferred
+    // banner. Re-render the current tab immediately from the freshly-written
+    // optimistic cache. fetchFresh suppresses concurrent GETs during the
+    // optimistic window (see DataStore.fetchFresh's pendingOptimistic check)
+    // so the user sees only optimistic → real, no stale flash.
     if (typeof source === 'string' && source.startsWith('optimistic')) {
+        reloadCurrentTab();
         return;
     }
     if (!isSafeToAutoRefresh()) {
@@ -2210,7 +2213,11 @@ function handlePushAction(action, params) {
             showMedicationConfirmModal(ids, names, scheduled, 'confirm', intakeIds);
         }, 500);
     } else if (action === 'workout_start') {
-        const sessionId = params.get('session_id');
+        // Coerce to Number — cached workout_next.session.id is numeric, and
+        // the optimistic snooze/skip mutators compare via strict equality.
+        const raw = params.get('session_id');
+        const parsed = Number(raw);
+        const sessionId = Number.isFinite(parsed) ? parsed : raw;
         setTimeout(() => {
             showWorkoutStartModal(sessionId);
         }, 500);
@@ -2261,17 +2268,47 @@ async function _applyOptimisticHistoryFlip(mutator) {
     return handles;
 }
 
-// Clear `next_intake` cache when the just-confirmed/skipped scheduled time
-// matches the cached "next" tile so Today's next-intake card vanishes before
-// the round-trip. Returns a handle (no-op handle if nothing cached or mismatch).
-async function _applyOptimisticNextIntakeClear(scheduledAt) {
+// Patch `next_intake` cache when the just-confirmed/skipped scheduled time
+// matches the cached "next" tile. Removes the selected medications from the
+// grouped tile by ID — filtering by name would over-evict when two meds share
+// the same display name but have different dosages (the backend allows
+// duplicate names with distinct dosages and surfaces both in `medication_ids`
+// + `medication_names`). If no meds remain at that scheduled time, the tile
+// clears entirely (scheduled_at -> null). Without this selectivity, a partial
+// confirm of a grouped dose would hide the remaining meds the user still owes.
+// Returns a handle (no-op handle if nothing cached or mismatch).
+async function _applyOptimisticNextIntakeClear(scheduledAt, selectedIds = []) {
     if (!window.DataStore || typeof window.DataStore.applyOptimistic !== 'function') {
         return { commit: async () => {}, rollback: async () => {} };
     }
+    const selectedIdSet = new Set(
+        (Array.isArray(selectedIds) ? selectedIds : [])
+            .map((id) => Number(id))
+            .filter((id) => Number.isFinite(id))
+    );
     return window.DataStore.applyOptimistic('next_intake', (prev) => {
         if (!prev || typeof prev !== 'object') return prev;
         if (!scheduledAt || prev.scheduled_at !== scheduledAt) return prev;
-        return { scheduled_at: null, medication_names: [] };
+        const allIds = Array.isArray(prev.medication_ids) ? prev.medication_ids : [];
+        const allNames = Array.isArray(prev.medication_names) ? prev.medication_names : [];
+        // No ID list to filter (legacy payload missing medication_ids) — fall
+        // back to the wholesale clear so the tile doesn't pin a now-actioned
+        // dose. Same fallback when the caller didn't supply selectedIds.
+        if (allIds.length === 0 || selectedIdSet.size === 0) {
+            return { scheduled_at: null, medication_ids: [], medication_names: [] };
+        }
+        const remainingIds = [];
+        const remainingNames = [];
+        for (let i = 0; i < allIds.length; i++) {
+            const id = Number(allIds[i]);
+            if (selectedIdSet.has(id)) continue;
+            remainingIds.push(allIds[i]);
+            if (i < allNames.length) remainingNames.push(allNames[i]);
+        }
+        if (remainingIds.length === 0) {
+            return { scheduled_at: null, medication_ids: [], medication_names: [] };
+        }
+        return { ...prev, medication_ids: remainingIds, medication_names: remainingNames };
     }, ['medications', 'history']);
 }
 
@@ -2350,7 +2387,7 @@ async function confirmSelectedMedications() {
             }
             return log;
         });
-        handles.push(await _applyOptimisticNextIntakeClear(body.scheduled_at));
+        handles.push(await _applyOptimisticNextIntakeClear(body.scheduled_at, selectedIds));
 
         let res;
         try {
@@ -2387,6 +2424,9 @@ async function skipSelectedMedications() {
         const ids = window.PushModalState.getMedConfirmIds();
         const intakeIds = window.PushModalState.getMedConfirmIntakeIds();
         const scheduled = window.PushModalState.getMedConfirmScheduled();
+        const selectedMedIds = selectedIndices
+            .map(idx => Number(ids[idx]))
+            .filter(id => Number.isFinite(id));
 
         // Resolve intake_ids up-front (from PushModalState or via /api/history
         // fallback for push-notification entries) so we can apply the optimistic
@@ -2427,7 +2467,7 @@ async function skipSelectedMedications() {
             }
             return log;
         });
-        handles.push(await _applyOptimisticNextIntakeClear(scheduled));
+        handles.push(await _applyOptimisticNextIntakeClear(scheduled, selectedMedIds));
 
         try {
             for (const intakeId of skipRequests) {
