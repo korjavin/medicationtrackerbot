@@ -106,12 +106,12 @@ Findings audit and cross-cutting recommendation came from the parent conversatio
 - [x] run `pnpm test` — must pass before next task
 
 ### Task 5: Convert BP + Weight
-- [ ] convert `features/bp.js:88 saveBP` to prepend the new reading into the cached `bp` payload + re-render before await
-- [ ] convert `features/bp.js:651 deleteBP` to filter locally first
-- [ ] convert `features/weight.js:329 saveWeight` (same shape as BP)
-- [ ] convert `features/weight.js:344` / `:1133` delete handlers
-- [ ] write tests in `features.bp.*` and `features.weight.*` for save/delete optimistic + rollback (including Today's tile freshness via the integration harness)
-- [ ] run `pnpm test` — must pass before next task
+- [x] convert `features/bp.js:88 saveBP` to prepend the new reading into the cached `bp` payload + re-render before await
+- [x] convert `features/bp.js:651 deleteBP` to filter locally first
+- [x] convert `features/weight.js:329 saveWeight` (same shape as BP)
+- [x] convert `features/weight.js:344` / `:1133` delete handlers
+- [x] write tests in `features.bp.*` and `features.weight.*` for save/delete optimistic + rollback (including Today's tile freshness via the integration harness)
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 6: Convert medications
 - [ ] convert `app.js:2225 confirmSelectedMedications` to flip the matched `intake_log` entry's status in the cached `medications`/`history` payload and patch `next_intake` (recompute via `MedicationUtils.getNextScheduledDate`)
