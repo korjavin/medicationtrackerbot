@@ -93,3 +93,13 @@ type ReminderStore interface {
 	SnoozeWeightReminder(userID int64) error
 	DontBugMeWeightReminder(userID int64) error
 }
+
+// SettingsChangeStore is the subset of settings operations needed by the
+// background watcher that re-registers Telegram slash commands when feature
+// flags toggle. The watcher polls ListChangedTagsSince so the bot can mirror
+// /help into Telegram's setMyCommands menu without a direct callback wired
+// from the HTTP transport.
+type SettingsChangeStore interface {
+	GetLatestChangeCursor(ctx context.Context) (int64, error)
+	ListChangedTagsSince(ctx context.Context, since int64) (int64, []string, error)
+}

@@ -510,6 +510,91 @@ func TestHandleStockCommand(t *testing.T) {
 	}
 }
 
+func TestBot_WatchSettingsChanges_ReregistersOnFlagToggle(t *testing.T) {
+	env := setupBotTest(t)
+	defer env.teardown()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Sample the cursor *before* spawning the watcher goroutine so the
+	// subsequent flag toggle is guaranteed to land after the cursor — the
+	// production wiring achieves this same ordering by calling
+	// GetLatestChangeCursor synchronously inside watchSettingsChanges before
+	// the ticker starts. We bypass that wrapper here to avoid the goroutine
+	// scheduling race with the toggle below.
+	startCursor, err := env.s.Settings.GetLatestChangeCursor(ctx)
+	if err != nil {
+		t.Fatalf("read start cursor: %v", err)
+	}
+	go env.b.pollSettingsChanges(ctx, 20*time.Millisecond, startCursor)
+
+	if err := env.s.Settings.SetBloodPressureEnabled(ctx, false); err != nil {
+		t.Fatalf("disable BP: %v", err)
+	}
+
+	cmds := drainSetMyCommands(t, env.requestChan, time.Second)
+	got := map[string]string{}
+	for _, c := range cmds {
+		got[c.Command] = c.Description
+	}
+	for _, name := range []string{"bp", "bphistory", "bpstats", "bpgoal"} {
+		if _, ok := got[name]; ok {
+			t.Errorf("expected %q absent from setMyCommands body after BP toggle off, got: %v", name, sortedKeys(boolMap(got)))
+		}
+	}
+	for _, name := range []string{"weight", "weighthistory", "goal", "start", "help"} {
+		if _, ok := got[name]; !ok {
+			t.Errorf("expected %q present in setMyCommands body after BP toggle off, got: %v", name, sortedKeys(boolMap(got)))
+		}
+	}
+}
+
+func TestBot_WatchSettingsChanges_ExitsOnContextCancel(t *testing.T) {
+	env := setupBotTest(t)
+	defer env.teardown()
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	startCursor, err := env.s.Settings.GetLatestChangeCursor(ctx)
+	if err != nil {
+		t.Fatalf("read start cursor: %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		env.b.pollSettingsChanges(ctx, 20*time.Millisecond, startCursor)
+		close(done)
+	}()
+
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("pollSettingsChanges did not exit after context cancel")
+	}
+
+	// After cancel + exit, a subsequent flag toggle MUST NOT produce a
+	// setMyCommands POST. Toggle and then assert the request channel stays
+	// quiet for a generous multiple of the poll interval.
+	if err := env.s.Settings.SetBloodPressureEnabled(context.Background(), false); err != nil {
+		t.Fatalf("toggle after cancel: %v", err)
+	}
+
+	deadline := time.After(150 * time.Millisecond)
+	for {
+		select {
+		case entry := <-env.requestChan:
+			if strings.Contains(entry, "setMyCommands") {
+				t.Fatalf("unexpected setMyCommands POST after context cancel: %s", entry)
+			}
+		case <-deadline:
+			return
+		}
+	}
+}
+
 func TestHandleLogCommandWithDosage(t *testing.T) {
 	env := setupBotTest(t)
 	defer env.teardown()

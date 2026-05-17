@@ -73,6 +73,19 @@ type Bot struct {
 	photoDownloader func(ctx context.Context, fileID string) ([]byte, string, error)
 
 	httpClient *http.Client
+
+	// settingsChanges feeds the background watcher that re-registers the
+	// Telegram slash-command menu when a feature flag toggle lands in
+	// change_events. Tests inject the same adapter the production wiring
+	// uses; the field stays on the Bot struct so the watcher can be a plain
+	// method without dragging the entire store through its signature.
+	settingsChanges SettingsChangeStore
+
+	// commandsPollInterval is the cadence at which watchSettingsChanges
+	// asks the settings change_events stream for new "settings" tags.
+	// Production defaults to 5s (see bot.New); tests override directly via
+	// the field for fast assertions.
+	commandsPollInterval time.Duration
 }
 
 type featureFlags struct {
@@ -103,30 +116,32 @@ func New(token string, allowedUserID int64, s *store.Repos, foodAI domain.FoodAI
 	a := newStoreAdapter(s)
 
 	return &Bot{
-		api:              api,
-		meds:             a,
-		medSvc:           domain.NewMedicationService(a),
-		bp:               a,
-		weight:           a,
-		workouts:         a,
-		workoutSvc:       workoutsvc.New(s.Workout, s.TZ),
-		exerciseSvc:      domain.NewExerciseService(a),
-		reminderSvc:      domain.NewReminderService(a),
-		food:             a,
-		foodAI:           foodAI,
-		activityAI:       activityAI,
-		activityLog:      a,
-		imports:          a,
-		notesSvc:         domain.NewNotesService(s.Diary),
-		timezone:         a,
-		tzUpdater:        tzUpdater,
-		tzPlanStore:      a,
-		allowedUserID:    allowedUserID,
-		appDomain:        appDomain,
-		httpClient:       &http.Client{Timeout: 30 * time.Second},
-		pendingExercises: make(map[int64][]pendingExercise),
-		pendingPhotos:    newPendingPhotoStore(),
-		undoBatches:      newUndoBatchStore(),
+		api:                  api,
+		meds:                 a,
+		medSvc:               domain.NewMedicationService(a),
+		bp:                   a,
+		weight:               a,
+		workouts:             a,
+		workoutSvc:           workoutsvc.New(s.Workout, s.TZ),
+		exerciseSvc:          domain.NewExerciseService(a),
+		reminderSvc:          domain.NewReminderService(a),
+		food:                 a,
+		foodAI:               foodAI,
+		activityAI:           activityAI,
+		activityLog:          a,
+		imports:              a,
+		notesSvc:             domain.NewNotesService(s.Diary),
+		timezone:             a,
+		tzUpdater:            tzUpdater,
+		tzPlanStore:          a,
+		allowedUserID:        allowedUserID,
+		appDomain:            appDomain,
+		httpClient:           &http.Client{Timeout: 30 * time.Second},
+		pendingExercises:     make(map[int64][]pendingExercise),
+		pendingPhotos:        newPendingPhotoStore(),
+		undoBatches:          newUndoBatchStore(),
+		settingsChanges:      a,
+		commandsPollInterval: 5 * time.Second,
 	}, nil
 }
 
@@ -210,6 +225,10 @@ func (b *Bot) buildHelpText(flags featureFlags) string {
 func (b *Bot) Start(ctx context.Context) {
 	if err := b.registerCommands(ctx); err != nil {
 		slog.Warn("failed to register bot commands", "error", err)
+	}
+
+	if b.settingsChanges != nil && b.commandsPollInterval > 0 {
+		go b.watchSettingsChanges(ctx, b.commandsPollInterval)
 	}
 
 	u := tgbotapi.NewUpdate(0)

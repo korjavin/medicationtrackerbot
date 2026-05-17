@@ -3,6 +3,8 @@ package bot
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -133,4 +135,59 @@ func (b *Bot) registerCommands(ctx context.Context) error {
 		return fmt.Errorf("setMyCommands returned not-ok: %s", resp.Description)
 	}
 	return nil
+}
+
+// watchSettingsChanges polls the settings change_events stream and re-registers
+// the Telegram slash-command menu whenever a "settings" tag appears, so the
+// menu stays in sync with feature-flag toggles done in the web UI. Initial
+// register happens in Start() before this watcher starts, so the cursor is
+// seeded with "now" — events older than startup are ignored.
+//
+// Errors are logged and swallowed: a single failed tick must not stop the
+// watcher (or the bot) from picking up the next event. Returns when ctx is
+// cancelled.
+func (b *Bot) watchSettingsChanges(ctx context.Context, interval time.Duration) {
+	cursor, err := b.settingsChanges.GetLatestChangeCursor(ctx)
+	if err != nil {
+		slog.Warn("settings watcher: failed to read initial cursor", "error", err)
+		cursor = 0
+	}
+	b.pollSettingsChanges(ctx, interval, cursor)
+}
+
+// pollSettingsChanges runs the watcher's polling loop starting from the given
+// cursor. Separated from watchSettingsChanges so tests can seed the cursor
+// synchronously and then race-free toggle a setting before the loop reads.
+func (b *Bot) pollSettingsChanges(ctx context.Context, interval time.Duration, cursor int64) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			newCursor, tags, err := b.settingsChanges.ListChangedTagsSince(ctx, cursor)
+			if err != nil {
+				slog.Warn("settings watcher: list changes failed", "error", err)
+				continue
+			}
+			cursor = newCursor
+			if !containsSettingsTag(tags) {
+				continue
+			}
+			if err := b.registerCommands(ctx); err != nil {
+				slog.Warn("settings watcher: re-register commands failed", "error", err)
+			}
+		}
+	}
+}
+
+func containsSettingsTag(tags []string) bool {
+	for _, t := range tags {
+		if t == "settings" {
+			return true
+		}
+	}
+	return false
 }
