@@ -181,13 +181,13 @@ Single-user system, default scope only, no per-language variants.
 - [x] `go test ./internal/bot/...` — must pass.
 
 ### Task 5: Verify acceptance criteria
-- [ ] diff `commandSpecs` against the `bot.go:295-453` switch by hand;
+- [x] diff `commandSpecs` against the `bot.go:295-453` switch by hand;
       confirm every routed command has a spec entry and every spec entry
       has a router case.
-- [ ] run `go test ./...` — full suite must pass.
-- [ ] run `go vet ./...`; if `golangci-lint` is configured for the
+- [x] run `go test ./...` — full suite must pass.
+- [x] run `go vet ./...`; if `golangci-lint` is configured for the
       project, run it and fix issues.
-- [ ] update `docs/architecture.md` or `docs/features.md` with a one-line
+- [x] update `docs/architecture.md` or `docs/features.md` with a one-line
       note: "Bot slash-command menu is registered via setMyCommands on
       startup and re-synced when feature flags change (poll-based)."
 
