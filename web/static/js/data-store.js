@@ -37,6 +37,10 @@
     let changePollTimer = null;
     let changePollInFlight = false;
     let changeStream = null;
+    // True only after EventSource.onopen has fired. A freshly-constructed
+    // EventSource that is still in CONNECTING is `changeStream` truthy but not
+    // yet open — polling must keep running until SSE actually opens.
+    let changeStreamOpen = false;
     let changeStreamRetryTimer = null;
     let changeStreamErrorCount = 0;
     let changeStreamRetryDelayMs = CHANGE_STREAM_RETRY_MS;
@@ -683,10 +687,10 @@
         startChangePollInterval() {
             if (changePollTimer) return;
             changePollTimer = setInterval(() => {
-                // Races between startChangeStream() and its onopen callback can
-                // leave the poll timer scheduled while SSE is already open;
-                // skip the tick in that case so we don't double up on /api/changes.
-                if (changeStream) return;
+                // Skip only when SSE is actually OPEN (post-onopen), not while
+                // an EventSource is sitting in CONNECTING — otherwise a hung
+                // reconnect leaves the page with no live update channel at all.
+                if (changeStream && changeStreamOpen) return;
                 if (navigator.onLine) {
                     this.pollChangesOnce();
                 }
@@ -719,6 +723,7 @@
                 changeStream = source;
 
                 source.onopen = () => {
+                    changeStreamOpen = true;
                     changeStreamErrorCount = 0;
                     changeStreamRetryDelayMs = CHANGE_STREAM_RETRY_MS;
                     this.stopChangePollInterval();
@@ -735,6 +740,7 @@
                 };
 
                 source.onerror = () => {
+                    changeStreamOpen = false;
                     if (changeStream) {
                         changeStream.close();
                         changeStream = null;
@@ -767,9 +773,11 @@
                     if (!changeStreamRetryTimer) {
                         changeStreamRetryTimer = setTimeout(() => {
                             changeStreamRetryTimer = null;
-                            if (this.startChangeStream()) {
-                                this.stopChangePollInterval();
-                            }
+                            // Don't stop polling here — let onopen do that once
+                            // the new EventSource actually reaches OPEN. Stopping
+                            // polling while still in CONNECTING would silently
+                            // disable updates if the reconnect hangs.
+                            this.startChangeStream();
                         }, changeStreamRetryDelayMs);
                         changeStreamRetryDelayMs = Math.min(changeStreamRetryDelayMs * 2, CHANGE_STREAM_MAX_RETRY_MS);
                     }
@@ -777,6 +785,7 @@
 
                 return true;
             } catch (_e) {
+                changeStreamOpen = false;
                 if (changeStream) {
                     changeStream.close();
                     changeStream = null;
@@ -802,6 +811,7 @@
 
         stopChangePolling() {
             this.stopChangePollInterval();
+            changeStreamOpen = false;
             if (changeStream) {
                 changeStream.close();
                 changeStream = null;

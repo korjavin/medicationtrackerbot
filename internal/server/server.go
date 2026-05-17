@@ -709,11 +709,17 @@ func (s *Server) Routes() http.Handler {
 	apiHandler := s.notifyOnWriteMiddleware(apiMux)
 	s.internalMux = apiHandler
 
-	// External routes (bypass AuthMiddleware)
-	mux.HandleFunc("POST /api/workout/external", s.externalAPIKeyMiddleware(s.handleExternalWorkout))
+	// External routes (bypass AuthMiddleware). The HMAC-signed agent ingress
+	// paths and the API-key external workout endpoint write to the same tables
+	// that drive the SSE change stream, so they still need to notify the
+	// broker on success — otherwise their writes show up to subscribers only
+	// via the 30s cursor backstop. The bridge endpoint already proxies through
+	// internalMux (which is wrapped) so its writes notify from the inner call.
+	notifyOnWrite := s.notifyOnWriteMiddleware
+	mux.Handle("POST /api/workout/external", notifyOnWrite(http.HandlerFunc(s.externalAPIKeyMiddleware(s.handleExternalWorkout))))
 	mux.HandleFunc("POST /api/mcp-audit", s.handleMCPAudit)
-	mux.HandleFunc("POST /api/mcp-food-log", s.handleMCPFoodLog)
-	mux.HandleFunc("POST /api/mcp-workout-log", s.handleMCPWorkoutLog)
+	mux.Handle("POST /api/mcp-food-log", notifyOnWrite(http.HandlerFunc(s.handleMCPFoodLog)))
+	mux.Handle("POST /api/mcp-workout-log", notifyOnWrite(http.HandlerFunc(s.handleMCPWorkoutLog)))
 	mux.HandleFunc("POST /internal/mcp/bridge", s.handleMCPBridge)
 
 	// Apply Middleware to API

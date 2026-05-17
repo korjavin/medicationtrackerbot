@@ -17,11 +17,11 @@ const (
 	changeStreamQueryTimeout      = 2 * time.Second
 	changeStreamMaxSessionAge     = 10 * time.Minute
 	// changeStreamCursorCheckInterval bounds the lag for writes that bypass
-	// notifyOnWriteMiddleware (bot callbacks, scheduler intake materialization,
-	// external API-key endpoints registered on the outer mux). The middleware
-	// gives ~50ms latency for HTTP writes; this ticker is a cheap backstop so
-	// non-HTTP writes are caught within this interval even if no other write
-	// ever notifies the broker.
+	// notifyOnWriteMiddleware — primarily non-HTTP paths like Telegram bot
+	// callbacks and scheduler intake materialization. All HTTP write routes
+	// (apiMux + external/HMAC ingress on the outer mux) flow through the
+	// middleware and notify within ~50ms; this ticker is a cheap backstop so
+	// non-HTTP writes are still picked up within this interval.
 	changeStreamCursorCheckInterval = 30 * time.Second
 )
 
@@ -177,9 +177,8 @@ func (s *Server) handleChangesStream(w http.ResponseWriter, r *http.Request) {
 	maxAgeTimer := time.NewTimer(changeStreamMaxSessionAge)
 	defer maxAgeTimer.Stop()
 	// Backstop ticker for writes that bypass notifyOnWriteMiddleware
-	// (Telegram bot callbacks, scheduler materialization, external API-key
-	// endpoints registered on the outer mux). The cursor-check is a single
-	// indexed integer SELECT.
+	// (Telegram bot callbacks, scheduler materialization). The cursor-check
+	// is a single indexed integer SELECT.
 	cursorCheck := time.NewTicker(changeStreamCursorCheckInterval)
 	defer cursorCheck.Stop()
 
