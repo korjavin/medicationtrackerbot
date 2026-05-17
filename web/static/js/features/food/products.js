@@ -846,8 +846,40 @@ async function saveFoodProduct() {
 
     const btn = document.getElementById('food-product-save-btn');
     await withSubmit(btn, async () => {
-        const res = await apiCall(`/api/food/products/${id}`, 'PUT', payload);
-        if (!res) return;
+        // Optimistic: patch the matching product in the in-memory cache + the
+        // `food_products_cache` payload so the row reflects the edit before
+        // the PUT resolves. Snapshot for rollback on failure.
+        const numericId = parseInt(id, 10);
+        const cacheBefore = Array.isArray(window.FoodProducts.cache)
+            ? window.FoodProducts.cache.slice()
+            : [];
+        window.FoodProducts.cache = cacheBefore.map((p) => {
+            if (!p || p.id !== numericId) return p;
+            return { ...p, ...payload };
+        });
+
+        const handle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+            ? await window.DataStore.applyOptimistic('food_products_cache', (prev) => {
+                if (!Array.isArray(prev)) return prev;
+                return prev.map((p) => (p && p.id === numericId) ? { ...p, ...payload } : p);
+            }, ['food'])
+            : null;
+
+        let res;
+        try {
+            res = await apiCall(`/api/food/products/${id}`, 'PUT', payload);
+        } catch (e) {
+            window.FoodProducts.cache = cacheBefore;
+            if (handle) await handle.rollback();
+            throw e;
+        }
+
+        if (!res) {
+            window.FoodProducts.cache = cacheBefore;
+            if (handle) await handle.rollback();
+            return;
+        }
+        if (handle) await handle.commit(null);
         closeFoodProductModal();
         window.FoodProducts.cache = [];
         if (window.MedTrackerDB) {

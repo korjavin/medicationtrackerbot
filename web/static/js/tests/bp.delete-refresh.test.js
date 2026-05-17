@@ -108,7 +108,10 @@ describe('_deleteBPApi awaits loadBPReadings before resolving', () => {
         await window._deleteBPApi(42);
 
         expect(window.apiCall).toHaveBeenCalledWith('/api/bp/42', 'DELETE');
-        expect(window.DataStore.invalidateTags).not.toHaveBeenCalled();
+        // The rollback path now invokes invalidateTags(['bp']) so the next
+        // read re-fetches authoritative data after discarding the optimistic
+        // filter (Plan 2026-05-17 Task 5). The contract worth pinning is that
+        // loadBPReadings stays untouched on POST/DELETE failure.
         expect(loadBPSpy).not.toHaveBeenCalled();
     });
 });

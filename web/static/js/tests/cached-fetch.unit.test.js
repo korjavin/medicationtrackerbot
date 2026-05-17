@@ -341,6 +341,126 @@ describe('cachedFetch — read-through helper', () => {
     }
   });
 
+  it('drops the cache write when pending was active at fetch start, even if commit(null) clears it before the GET resolves', async () => {
+    // Regression: cachedFetch checks pending state at BOTH start and end of
+    // the fetch. Without the start-time guard, a GET launched during the
+    // optimistic window could resolve after `handle.commit(null)` has run —
+    // commit(null) decrements `pendingOptimistic` but does NOT bump
+    // generation (no setCachedWithTags call), so a pending-at-end-only check
+    // would write the stale pre-write payload into the optimistic cache.
+    const now = Date.now();
+    const cachedAt = now - (10 * 60 * 1000); // 10 min old → triggers SWR fetch
+    const { window, cacheMap, cleanup } = loadCachedFetchEnv({
+      initialCache: { next_intake: { data: { scheduled_at: null, medication_ids: [] }, timestamp: cachedAt } }
+    });
+
+    try {
+      let pending = true;
+      window.DataStore = {
+        // Generation never moves — simulates the commit(null) path where the
+        // server returns no body so setCachedWithTags is not invoked.
+        peekGeneration: () => 5,
+        hasPendingOptimistic: () => pending
+      };
+
+      let resolveFetch;
+      window.apiCallDirect = vi.fn(() => new Promise((resolve) => {
+        resolveFetch = resolve;
+      }));
+
+      const result = await window.cachedFetch('next_intake', '/api/medications/next-intake', {
+        tags: ['history', 'medications'],
+        freshAfterMs: 60_000,
+        now
+      });
+
+      expect(result.data).toEqual({ scheduled_at: null, medication_ids: [] });
+
+      // Drain microtasks so the background fetch captures startPending=true.
+      for (let i = 0; i < 5 && window.apiCallDirect.mock.calls.length === 0; i++) {
+        await Promise.resolve();
+      }
+
+      // Simulate handle.commit(null): pending flips to false, but the cache
+      // entry is unchanged (server returned no body) and generation is not
+      // bumped.
+      pending = false;
+
+      // The (now-resolved) network request returns pre-write server state.
+      // Because pending was active at the start of the fetch, the write
+      // must drop even though pending is now false and gen is unchanged.
+      resolveFetch({
+        scheduled_at: '2026-05-17T10:00:00Z',
+        medication_ids: [7],
+        medication_names: ['Aspirin']
+      });
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+
+      expect(cacheMap.get('next_intake').data).toEqual({
+        scheduled_at: null,
+        medication_ids: []
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('drops the cache write when a caller optimistic write is pending (no flicker)', async () => {
+    // Regression: cachedFetch background revalidation must not overwrite the
+    // optimistic cache with pre-write server state while the caller's POST is
+    // still in flight. Generation-only guard misses this case because the
+    // optimistic write bumps generation BEFORE cachedFetch starts (so startGen
+    // == endGen).
+    const now = Date.now();
+    const cachedAt = now - (10 * 60 * 1000); // 10 min old → triggers SWR fetch
+    const { window, cacheMap, cleanup } = loadCachedFetchEnv({
+      initialCache: { next_intake: { data: { scheduled_at: null, medication_ids: [] }, timestamp: cachedAt } }
+    });
+
+    try {
+      let pending = true;
+      window.DataStore = {
+        peekGeneration: () => 5,
+        hasPendingOptimistic: () => pending
+      };
+
+      let resolveFetch;
+      window.apiCallDirect = vi.fn(() => new Promise((resolve) => {
+        resolveFetch = resolve;
+      }));
+
+      const result = await window.cachedFetch('next_intake', '/api/medications/next-intake', {
+        tags: ['history', 'medications'],
+        freshAfterMs: 60_000,
+        now
+      });
+
+      // Cache (optimistic) returned immediately.
+      expect(result.data).toEqual({ scheduled_at: null, medication_ids: [] });
+
+      // Drain microtasks so the background fetch starts.
+      for (let i = 0; i < 5 && window.apiCallDirect.mock.calls.length === 0; i++) {
+        await Promise.resolve();
+      }
+
+      // Pre-write server payload resolves while pendingOptimistic is still
+      // truthy (caller's POST hasn't reached the server). Write must drop.
+      resolveFetch({
+        scheduled_at: '2026-05-17T10:00:00Z',
+        medication_ids: [7],
+        medication_names: ['Aspirin']
+      });
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+
+      expect(cacheMap.get('next_intake').data).toEqual({
+        scheduled_at: null,
+        medication_ids: []
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
   it('registers the key→tags mapping with DataStore before fetching so a mid-flight invalidation can find this key', async () => {
     // Cold-start scenario: cache is empty, no bootstrap has registered tags.
     // A mutation/invalidation racing with our GET must be able to bump the

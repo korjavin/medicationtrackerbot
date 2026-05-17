@@ -293,7 +293,10 @@ describe('app.js form submissions and push modal behavior', () => {
       await window.handleBPSubmit({ preventDefault() {} });
 
       expect(apiCallSpy).toHaveBeenCalledTimes(1);
-      expect(invalidateSpy).not.toHaveBeenCalled();
+      // Modal stays open + the list is not refreshed on a failed POST. The
+      // rollback path DOES call invalidateTags(['bp']) so the next read goes
+      // to network after the optimistic state is discarded — we no longer
+      // assert it's untouched (Plan 2026-05-17 Task 5 optimistic conversion).
       expect(loadBPSpy).not.toHaveBeenCalled();
       expect(document.getElementById('bp-modal').classList.contains('hidden')).toBe(false);
     } finally {
@@ -354,7 +357,10 @@ describe('app.js form submissions and push modal behavior', () => {
 
       await window.handleBPSubmit({ preventDefault() {} });
 
-      expect(loadTodaySpy).toHaveBeenCalledTimes(1);
+      // Optimistic dispatch + commit dispatch + explicit post-POST refresh
+      // may each trigger a reload-via-loadToday. The contract is "Today is
+      // refreshed", not an exact call count.
+      expect(loadTodaySpy).toHaveBeenCalled();
     } finally {
       cleanup();
     }
@@ -401,7 +407,10 @@ describe('app.js form submissions and push modal behavior', () => {
 
       await window.handleWeightSubmit({ preventDefault() {} });
 
-      expect(loadTodaySpy).toHaveBeenCalledTimes(1);
+      // Optimistic dispatch + commit dispatch + explicit post-POST refresh
+      // may each trigger a reload-via-loadToday. The contract is "Today is
+      // refreshed", not an exact call count.
+      expect(loadTodaySpy).toHaveBeenCalled();
     } finally {
       cleanup();
     }
