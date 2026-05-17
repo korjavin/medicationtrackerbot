@@ -129,6 +129,14 @@
         return null;
     }
 
+    function hasPendingOptimistic(key) {
+        const ds = (typeof window !== 'undefined') ? window.DataStore : null;
+        if (ds && typeof ds.hasPendingOptimistic === 'function') {
+            try { return ds.hasPendingOptimistic(key); } catch (_) { /* fall through */ }
+        }
+        return false;
+    }
+
     // Defense-in-depth registration. `CacheKeys.registerAll` runs at boot, so
     // every registered key/family already has its tag mapping wired before
     // any cachedFetch call. This call is kept for one-off keys passed inline
@@ -155,11 +163,23 @@
 
     // Performs the network round-trip and writes the result to the cache,
     // dropping the write when DataStore's generation counter advanced
-    // mid-flight (mutation/invalidation occurred). Returns the fetched value
-    // when the write happened, or null when the write was dropped or the
-    // backend returned no value.
+    // mid-flight (mutation/invalidation occurred) OR when a caller's
+    // optimistic write was pending at any point during the fetch — the GET
+    // would have resolved with pre-write server state and overwriting the
+    // optimistic cache would flicker the screen back to a now-stale value.
+    // Returns the fetched value when the write happened, or null when the
+    // write was dropped or the backend returned no value.
+    //
+    // Pending-state guard: must check pending at BOTH the start and the end
+    // of the fetch. Checking only at resolution misses the race where the
+    // caller's POST resolves with `commit(null)` (server returned no body to
+    // reconcile against) — that path decrements `pendingOptimistic` but does
+    // NOT bump generation, so a background GET issued during the optimistic
+    // window would otherwise see `pending=false` + unchanged generation and
+    // overwrite the optimistic cache with the pre-write payload.
     async function performAndCacheFetch(key, url, fetchOpts, transform, tags) {
         const startGen = peekGen(key);
+        const startPending = hasPendingOptimistic(key);
         const fresh = await performFetch(url, fetchOpts, transform);
         if (fresh == null) return null;
         const endGen = peekGen(key);
@@ -167,6 +187,14 @@
             // Superseded by a mutation/invalidation while in flight — the
             // cache now holds the authoritative value (or has been cleared);
             // writing this stale payload back would resurrect it.
+            return null;
+        }
+        if (startPending || hasPendingOptimistic(key)) {
+            // Either pending was active when we captured the network request
+            // (so this GET resolved with pre-write server state), or it is
+            // still active now. Either way, the optimistic cache is the
+            // truth — drop this payload. The next read after commit/rollback
+            // will reconcile against authoritative state.
             return null;
         }
         await writeCache(key, fresh, tags);

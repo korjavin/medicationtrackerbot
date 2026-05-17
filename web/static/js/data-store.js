@@ -9,6 +9,13 @@
     // invalidated so that an abandoned in-flight request from before the
     // invalidation cannot re-cache stale data once it eventually resolves.
     const fetchGeneration = new Map();
+    // Per-key count of outstanding applyOptimistic handles that have not yet
+    // settled (commit/rollback). While > 0, the caller's own POST is in flight
+    // and the optimistic state represents the post-mutation truth. fetchFresh
+    // SHORT-CIRCUITS during this window so a concurrent GET (kicked off by a
+    // post-optimistic reloadCurrentTab) cannot overwrite the optimistic cache
+    // with the pre-write server state.
+    const pendingOptimistic = new Map();
     const keyToTags = new Map();
     const tagToKeys = new Map();
     // tag → Set<prefix>. Lets `invalidateByTag(tag)` evict every concrete
@@ -36,6 +43,17 @@
     let changeUnauthorized = false;
 
     const hasValue = (value) => value !== null && value !== undefined;
+
+    // Deep-clone a cache payload for the optimistic-rollback snapshot. Prefer
+    // structuredClone when available (handles Date / Map / Set / TypedArrays),
+    // fall back to JSON round-trip otherwise. Cache payloads are JSON-shaped in
+    // practice so the fallback is safe.
+    function deepCloneSnapshot(value) {
+        if (typeof structuredClone === 'function') {
+            try { return structuredClone(value); } catch (_) { /* fall through */ }
+        }
+        try { return JSON.parse(JSON.stringify(value)); } catch (_) { return value; }
+    }
 
     function registerKeyTags(key, tags = []) {
         if (!key) return;
@@ -103,6 +121,116 @@
                 inFlight.delete(key);
             }
             await this.setCached(key, data);
+        },
+
+        // Optimistic write helper: synthesise the post-mutation cache state
+        // BEFORE the network round-trip resolves, so the caller's screen can
+        // repaint without waiting on the POST.
+        //
+        // Contract:
+        //   - `key`: the cache key carrying the affected payload (e.g. `bp`,
+        //     `food_<date>_v2`).
+        //   - `mutator(prev) → next`: pure function. Receives the current
+        //     cached payload (or `null` on cold cache). Returns the projected
+        //     post-mutation payload. Returning `null`/`undefined` clears the
+        //     cache entry (e.g. `workout_next` after the current session
+        //     finishes).
+        //   - `tags`: SWR tags the dispatched `datastore:changed` event carries.
+        //     Drives existing `requestTabRefresh` subscribers.
+        //
+        // Returns `{ commit(serverPayload), rollback() }`:
+        //   - `commit` overwrites the cache with the authoritative server
+        //     payload and re-dispatches `datastore:changed`. Use after the
+        //     POST resolves. If `serverPayload` is null/undefined the cache
+        //     is left in the optimistic state (server returned no body to
+        //     reconcile against).
+        //   - `rollback` restores the prior cache snapshot (or clears it if
+        //     cold) so the screen can repaint to the pre-optimistic state.
+        //     Use on POST failure. The next loadSWR call will fetchFresh
+        //     normally and reconcile against the authoritative server state.
+        //
+        // Both `commit` and `rollback` are no-ops after the first call to
+        // either, so callers can pass the handle through try/catch without
+        // worrying about double-settle.
+        async applyOptimistic(key, mutator, tags = []) {
+            if (!key || typeof mutator !== 'function') {
+                return { commit: async () => {}, rollback: async () => {} };
+            }
+
+            let prior = null;
+            try {
+                prior = await this.getCached(key);
+            } catch (_e) { /* tolerate read failures — treat as cold cache */ }
+
+            const priorSnapshot = hasValue(prior) ? deepCloneSnapshot(prior) : prior;
+
+            const next = mutator(prior);
+
+            // Mark this key as having a pending optimistic write before the
+            // dispatch fires reloadCurrentTab → loadSWR. Without this, the
+            // concurrent fetchFresh would resolve with pre-write server state
+            // (the caller's POST hasn't reached the server yet) and write
+            // stale data into the cache, flickering the screen between
+            // optimistic → stale → real.
+            pendingOptimistic.set(key, (pendingOptimistic.get(key) || 0) + 1);
+
+            const decrementPending = () => {
+                const c = (pendingOptimistic.get(key) || 0) - 1;
+                if (c <= 0) pendingOptimistic.delete(key);
+                else pendingOptimistic.set(key, c);
+            };
+
+            try {
+                if (hasValue(next)) {
+                    await this.setCachedWithTags(key, next, tags);
+                } else {
+                    await this.clearCached(key);
+                    registerKeyTags(key, tags);
+                }
+            } catch (e) {
+                // The cache write failed (IndexedDB quota, corruption, etc.)
+                // so no optimistic state was actually committed. Roll back
+                // the pending counter so future fetchFresh calls don't stay
+                // permanently short-circuited, then surface the error.
+                decrementPending();
+                throw e;
+            }
+
+            this.requestTabRefresh(tags, 'optimistic');
+
+            const self = this;
+            let settled = false;
+            return {
+                async commit(serverPayload) {
+                    if (settled) return;
+                    settled = true;
+                    // try/finally so a cache-write failure (IndexedDB quota,
+                    // corruption) still decrements the pending counter —
+                    // otherwise fetchFresh would short-circuit forever.
+                    try {
+                        if (hasValue(serverPayload)) {
+                            await self.setCachedWithTags(key, serverPayload, tags);
+                        }
+                    } finally {
+                        decrementPending();
+                    }
+                    self.requestTabRefresh(tags, 'optimistic-commit');
+                },
+                async rollback() {
+                    if (settled) return;
+                    settled = true;
+                    try {
+                        if (hasValue(priorSnapshot)) {
+                            await self.setCachedWithTags(key, priorSnapshot, tags);
+                        } else {
+                            await self.clearCached(key);
+                        }
+                    } finally {
+                        decrementPending();
+                    }
+                    self.requestTabRefresh(tags, 'optimistic-rollback');
+                }
+            };
         },
 
         // Cold-start primer: read a long-lived Dexie record and seed
@@ -223,9 +351,30 @@
             return fetchGeneration.get(key) || 0;
         },
 
+        // Read-only peek at the pending-optimistic counter for a key. Used by
+        // cachedFetch to suppress background revalidation writes during the
+        // optimistic window — the caller's POST hasn't reached the server yet,
+        // so a concurrent GET would resolve with pre-write state and overwrite
+        // the optimistic cache.
+        hasPendingOptimistic(key) {
+            return (pendingOptimistic.get(key) || 0) > 0;
+        },
+
         async fetchFresh(key, fetcher, tags = []) {
             registerKeyTags(key, tags);
             if (inFlight.has(key)) return await inFlight.get(key);
+
+            // While an optimistic write is pending for this key, the caller's
+            // own POST has not yet reached the server. A GET issued now would
+            // return the pre-write state and overwrite the optimistic cache.
+            // Skip the network call and return null — loadSWR's `wasSuperseded`
+            // detection treats null + bumped generation as a no-render signal.
+            // Bump generation explicitly so that detection still fires (the
+            // caller may have already snapshotted genBefore expecting a bump).
+            if ((pendingOptimistic.get(key) || 0) > 0) {
+                fetchGeneration.set(key, (fetchGeneration.get(key) || 0) + 1);
+                return null;
+            }
 
             // Capture the current generation for this key so that a cancelled
             // in-flight (evicted by invalidateByTag) cannot overwrite the cache
@@ -290,7 +439,18 @@
                 const expectedBump = reusedInFlight ? 0 : 1;
                 const fresh = await this.fetchFresh(key, fetcher, tags);
                 const genAfter = fetchGeneration.get(key) || 0;
-                const wasSuperseded = fresh === null && genAfter > genBefore + expectedBump;
+                // fetchFresh returns null in three cases:
+                //   (a) the fetcher genuinely produced no data,
+                //   (b) the request was superseded by an invalidation that
+                //       bumped generation past `genBefore + expectedBump`,
+                //   (c) a pending optimistic write short-circuited the GET so
+                //       the optimistic cache stays authoritative until commit.
+                // (a) is the only case where onFresh(null) should fire under
+                // allowNullFresh — (b) and (c) would wipe rendered UI back to
+                // an empty/stale state.
+                const pendingOptimisticActive = (pendingOptimistic.get(key) || 0) > 0;
+                const wasSuperseded = fresh === null
+                    && (genAfter > genBefore + expectedBump || pendingOptimisticActive);
                 if (!wasSuperseded && (allowNullFresh || hasValue(fresh)) && onFresh) {
                     await onFresh(fresh, cached);
                 }
@@ -395,14 +555,14 @@
             this.setChangeCursor(res.cursor);
         },
 
-        requestTabRefresh(changedTags = []) {
+        requestTabRefresh(changedTags = [], source = 'changes') {
             if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
                 try {
-                    window.dispatchEvent(new CustomEvent('datastore:changed', { detail: { changedTags, source: 'changes' } }));
+                    window.dispatchEvent(new CustomEvent('datastore:changed', { detail: { changedTags, source } }));
                 } catch (_) { /* dispatch is best-effort */ }
             }
             if (typeof window.requestTabRefresh === 'function') {
-                window.requestTabRefresh({ changedTags, source: 'changes' });
+                window.requestTabRefresh({ changedTags, source });
                 return;
             }
             if (window.reloadCurrentTab) {

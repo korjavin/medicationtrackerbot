@@ -60,18 +60,47 @@ async function loadMyMeals() {
         const deleteBtn = createDeleteButton(async () => {
             const displayName = decodeFoodDisplayText(meal.name);
             await safeConfirm(`Delete the meal "${displayName}"?`, async (ok) => {
-                if (ok) {
-                    try {
-                        await apiCall(`/api/food/products/${meal.id}`, 'DELETE');
-                        window.FoodProducts.cache = [];
-                        if (window.MedTrackerDB) {
-                            await window.MedTrackerDB.FoodProductsStore.clearCache();
-                        }
-                        await initFoodProductsCache();
+                if (!ok) return;
+
+                // Optimistic: drop the meal from window.FoodProducts.cache and
+                // the cached `food_products_cache` payload + re-render the list
+                // BEFORE the DELETE round-trip resolves so the row disappears
+                // instantly. Snapshot for rollback on POST failure.
+                const cacheBefore = Array.isArray(window.FoodProducts.cache)
+                    ? window.FoodProducts.cache.slice()
+                    : [];
+                window.FoodProducts.cache = cacheBefore.filter((p) => p && p.id !== meal.id);
+                if (typeof loadMyMeals === 'function') loadMyMeals();
+
+                const handle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+                    ? await window.DataStore.applyOptimistic('food_products_cache', (prev) => {
+                        if (!Array.isArray(prev)) return prev;
+                        return prev.filter((p) => p && p.id !== meal.id);
+                    }, ['food'])
+                    : null;
+
+                try {
+                    const res = await apiCall(`/api/food/products/${meal.id}`, 'DELETE');
+                    if (res === null) {
+                        // apiCall surfaces offline/5xx as a null return (with its
+                        // own safeAlert), so the throw branch never fires. Roll
+                        // back the optimistic delete so the row reappears.
+                        window.FoodProducts.cache = cacheBefore;
+                        if (handle) await handle.rollback();
                         if (typeof loadMyMeals === 'function') loadMyMeals();
-                    } catch (e) {
-                        safeAlert('Failed to delete meal');
+                        return;
                     }
+                    if (handle) await handle.commit(null);
+                    if (window.MedTrackerDB) {
+                        await window.MedTrackerDB.FoodProductsStore.clearCache();
+                    }
+                    await initFoodProductsCache();
+                    if (typeof loadMyMeals === 'function') loadMyMeals();
+                } catch (e) {
+                    window.FoodProducts.cache = cacheBefore;
+                    if (handle) await handle.rollback();
+                    if (typeof loadMyMeals === 'function') loadMyMeals();
+                    safeAlert('Failed to delete meal');
                 }
             });
         });
@@ -138,11 +167,53 @@ async function confirmSaveMeal() {
 
     const btn = document.getElementById('food-save-meal-confirm-btn');
     await withSubmit(btn, async () => {
+        // Optimistic: append a placeholder meal product into the cache so the
+        // My Meals list renders the new row before the POST resolves. The
+        // server response replaces the placeholder with authoritative data
+        // via initFoodProductsCache + loadMyMeals on success.
+        const localId = `local_${Date.now()}`;
+        const placeholder = {
+            id: localId,
+            name: name,
+            is_meal: true,
+            total_weight_g: 0,
+            energy_kcal_100g: 0,
+            carbs_100g: 0,
+            protein_100g: 0,
+            fat_100g: 0,
+            isLocal: true
+        };
+        const cacheBefore = Array.isArray(window.FoodProducts.cache)
+            ? window.FoodProducts.cache.slice()
+            : [];
+        window.FoodProducts.cache = [...cacheBefore, placeholder];
+
+        const handle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+            ? await window.DataStore.applyOptimistic('food_products_cache', (prev) => {
+                const arr = Array.isArray(prev) ? prev.slice() : [];
+                arr.push(placeholder);
+                return arr;
+            }, ['food'])
+            : null;
+
+        if (typeof loadMyMeals === 'function') loadMyMeals();
+
         try {
-            await apiCall('/api/food/products/from-logs', 'POST', payload);
+            const res = await apiCall('/api/food/products/from-logs', 'POST', payload);
+            if (res === null) {
+                // apiCall returns null (and shows its own error alert) on
+                // offline/5xx without throwing, so the catch branch never
+                // fires for those. Roll back the optimistic placeholder and
+                // suppress the success toast.
+                window.FoodProducts.cache = cacheBefore;
+                if (handle) await handle.rollback();
+                if (typeof loadMyMeals === 'function') loadMyMeals();
+                return;
+            }
             if (window.SyncManager && window.SyncManager.showToast) {
                 window.SyncManager.showToast('Meal saved successfully!', 'success');
             }
+            if (handle) await handle.commit(null);
             closeFoodSaveMealModal();
             toggleFoodSelectMode();
 
@@ -153,6 +224,9 @@ async function confirmSaveMeal() {
             await initFoodProductsCache();
             if (typeof loadMyMeals === 'function') loadMyMeals();
         } catch (e) {
+            window.FoodProducts.cache = cacheBefore;
+            if (handle) await handle.rollback();
+            if (typeof loadMyMeals === 'function') loadMyMeals();
             console.error('Failed to save meal:', e);
             safeAlert('Failed to save meal.');
         }

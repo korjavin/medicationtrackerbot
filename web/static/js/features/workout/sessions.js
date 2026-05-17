@@ -352,25 +352,56 @@ async function deleteExerciseLog(index) {
     await safeConfirm(`Remove ${log.exercise_name} from this workout?`, async (ok) => {
         if (!ok) return;
 
-        // If it has an ID (already saved in DB), delete from backend
-        if (log.id && log.id > 0) {
-            try {
-                // apiCall returns null on failure (network/5xx) without throwing,
-                // so check the result before invalidating cache or splicing local state.
-                const result = await apiCall(`/api/workout/sessions/logs/delete?id=${log.id}`, 'DELETE');
-                if (result === null) return;
-                await invalidateWorkoutCache();
-            } catch (error) {
-                console.error('Error deleting exercise log:', error);
-                safeAlert('Failed to delete exercise log');
+        const logsContainer = document.getElementById('workout-session-logs');
+
+        // Optimistic: splice locally and re-render BEFORE awaiting the network
+        // call so the row disappears instantly. Snapshot the removed entry so
+        // we can restore on POST failure.
+        const removed = logs.splice(index, 1)[0];
+        if (logsContainer) renderWorkoutSessionLogs(logsContainer);
+
+        // Unsaved entries (no id) have no backend state to mutate — the local
+        // splice above is the whole operation.
+        if (!log.id || log.id <= 0) return;
+
+        // Optimistic cache: drop the matching saved row from `workout_history`'s
+        // session counts so the History sub-tab repaints with the new exercise
+        // count before the DELETE round-trip resolves.
+        const historyHandle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+            ? await window.DataStore.applyOptimistic('workout_history', (prev) => {
+                if (!prev || !Array.isArray(prev.sessions)) return prev;
+                const sessionId = window.WorkoutSessionsState?.data?.id;
+                if (!sessionId) return prev;
+                const next = { ...prev };
+                next.sessions = prev.sessions.map((s) => {
+                    if (s?.session?.id !== sessionId) return s;
+                    const done = Math.max(0, (s.exercises_completed || 0) - 1);
+                    const total = Math.max(done, (s.exercises_count || 0) - 1);
+                    return { ...s, exercises_completed: done, exercises_count: total };
+                });
+                return next;
+            }, ['workout'])
+            : null;
+
+        try {
+            const result = await apiCall(`/api/workout/sessions/logs/delete?id=${log.id}`, 'DELETE');
+            if (result === null) {
+                // Network/5xx: restore the local row + cached count.
+                logs.splice(index, 0, removed);
+                if (logsContainer) renderWorkoutSessionLogs(logsContainer);
+                if (historyHandle) await historyHandle.rollback();
                 return;
             }
+            if (historyHandle) await historyHandle.commit(null);
+            await invalidateWorkoutCache();
+        } catch (error) {
+            // Hard failure: restore the local row + cached count, then surface.
+            logs.splice(index, 0, removed);
+            if (logsContainer) renderWorkoutSessionLogs(logsContainer);
+            if (historyHandle) await historyHandle.rollback();
+            console.error('Error deleting exercise log:', error);
+            safeAlert('Failed to delete exercise log');
         }
-
-        // Remove from local array and re-render
-        logs.splice(index, 1);
-        const logsContainer = document.getElementById('workout-session-logs');
-        renderWorkoutSessionLogs(logsContainer);
     });
 }
 
@@ -453,6 +484,13 @@ async function saveWorkoutSessionDetails() {
     if (!feedbackBtn) return;
     const originalText = feedbackBtn.textContent;
 
+    const optimisticHandles = [];
+    async function rollbackOptimistic() {
+        for (const h of optimisticHandles) {
+            try { await h.rollback(); } catch (_) { /* best-effort */ }
+        }
+    }
+
     try {
         busyTargets.forEach((btn) => {
             btn.disabled = true;
@@ -476,6 +514,30 @@ async function saveWorkoutSessionDetails() {
             }
         }
 
+        // Optimistic cache projection (BEFORE network round-trip): flip the
+        // cached session.status in workout_history so the list repaints
+        // immediately, and when finishing a workout, null out workout_next so
+        // the Today / Workouts subtab card disappears the moment the user
+        // taps Finish.
+        const sessionData = window.WorkoutSessionsState.data;
+        if (statusChanged && sessionData && window.DataStore && typeof window.DataStore.applyOptimistic === 'function') {
+            optimisticHandles.push(await window.DataStore.applyOptimistic('workout_history', (prev) => {
+                if (!prev || !Array.isArray(prev.sessions)) return prev;
+                const next = { ...prev };
+                next.sessions = prev.sessions.map((s) => {
+                    if (s?.session?.id !== sessionData.id) return s;
+                    return { ...s, session: { ...s.session, status: newStatus } };
+                });
+                return next;
+            }, ['workout']));
+            if (newStatus === 'completed' || newStatus === 'skipped') {
+                optimisticHandles.push(await window.DataStore.applyOptimistic('workout_next', (prev) => {
+                    if (prev?.session?.id === sessionData.id) return { session: null };
+                    return prev;
+                }, ['workout']));
+            }
+        }
+
         // Track whether any mutation succeeded so we can invalidate the
         // workout-tagged caches before any early return — otherwise a
         // partial failure (status saved, later log update returns null)
@@ -484,13 +546,12 @@ async function saveWorkoutSessionDetails() {
         let anyMutationSucceeded = false;
 
         // Save status if changed
-        const sessionData = window.WorkoutSessionsState.data;
         if (statusChanged && sessionData) {
             const statusResult = await apiCall(`/api/workout/sessions/status?id=${sessionData.id}`, 'PUT', {
                 status: newStatus
             });
             if (statusResult === null) {
-                if (anyMutationSucceeded) await invalidateWorkoutCache();
+                await rollbackOptimistic();
                 return;
             }
             anyMutationSucceeded = true;
@@ -525,20 +586,38 @@ async function saveWorkoutSessionDetails() {
                 });
             }
             if (attempted && logResult === null) {
-                if (anyMutationSucceeded) await invalidateWorkoutCache();
+                if (!anyMutationSucceeded) {
+                    await rollbackOptimistic();
+                } else {
+                    // Status PUT succeeded but a later log update failed. The
+                    // optimistic status flip reflects authoritative server
+                    // state; settle the handles so pendingOptimistic clears
+                    // and future fetchFresh calls aren't permanently
+                    // short-circuited, then invalidate so the next read pulls
+                    // a clean reconciled payload.
+                    for (const h of optimisticHandles) {
+                        try { await h.commit(null); } catch (_) { /* best-effort */ }
+                    }
+                    await invalidateWorkoutCache();
+                }
                 return;
             }
             if (attempted) anyMutationSucceeded = true;
             // Skip: id===0 && !_dirty — pre-filled but untouched, don't save
         }
 
-        if (anyMutationSucceeded) {
+        // All requested mutations succeeded — commit the optimistic state
+        // (leave it in cache) then invalidate so the next read fetches
+        // authoritative server data layered on top.
+        for (const h of optimisticHandles) await h.commit(null);
+        if (anyMutationSucceeded || optimisticHandles.length > 0) {
             await invalidateWorkoutCache();
         }
 
         closeWorkoutSessionModal();
         loadWorkoutHistoryTab();
     } catch (error) {
+        await rollbackOptimistic();
         console.error('Error saving workout details:', error);
         const message = error.message || 'Error saving workout details. Please try again.';
         safeAlert('❌ ' + message);
@@ -558,6 +637,13 @@ async function saveWorkoutSessionDetails() {
 // ====================================
 
 async function startAdHocWorkout() {
+    // Optimistic cache projection: clear `workout_next` so the rest-day card
+    // doesn't keep rendering "Start ad-hoc" while the POST is in flight; the
+    // server response replaces the cache with the actual new session.
+    const nextHandle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+        ? await window.DataStore.applyOptimistic('workout_next', () => ({ session: null }), ['workout'])
+        : null;
+
     try {
         // Create ad-hoc workout session via API
         const result = await apiCall('/api/workout/sessions/adhoc', 'POST');
@@ -566,13 +652,15 @@ async function startAdHocWorkout() {
             // Immediately open the session modal to start logging exercises
             await showWorkoutSessionModal(result.session.id);
 
-            // Refresh the next workout card
+            if (nextHandle) await nextHandle.commit({ session: result.session });
             await invalidateWorkoutCache();
             await loadNextWorkout();
         } else {
+            if (nextHandle) await nextHandle.rollback();
             safeAlert('Failed to start ad-hoc workout');
         }
     } catch (error) {
+        if (nextHandle) await nextHandle.rollback();
         console.error('Error starting ad-hoc workout:', error);
         safeAlert('Error starting ad-hoc workout: ' + error.message);
     }
@@ -601,17 +689,43 @@ async function startWorkoutSession(sessionId) {
 
 async function completeWorkoutSession(sessionId) {
     await safeConfirm('Finish this workout now? It will be marked as completed.', async (ok) => {
-        if (ok) {
-            try {
-                const result = await apiCall(`/api/workout/sessions/status?id=${sessionId}`, 'PUT', { status: 'completed' });
-                if (result === null) return;
-                await invalidateWorkoutCache();
-                loadNextWorkout();
-                loadWorkoutHistoryTab(); // Refresh history if visible
-            } catch (e) {
-                console.error(e);
-                safeAlert('Failed to finish workout');
+        if (!ok) return;
+
+        // Optimistic cache projection: flip the cached session.status in
+        // workout_history so the list repaints immediately, and null out
+        // workout_next so the Today / Workouts subtab card disappears as soon
+        // as the user confirms.
+        const handles = [];
+        if (window.DataStore && typeof window.DataStore.applyOptimistic === 'function') {
+            handles.push(await window.DataStore.applyOptimistic('workout_history', (prev) => {
+                if (!prev || !Array.isArray(prev.sessions)) return prev;
+                const next = { ...prev };
+                next.sessions = prev.sessions.map((s) => {
+                    if (s?.session?.id !== sessionId) return s;
+                    return { ...s, session: { ...s.session, status: 'completed' } };
+                });
+                return next;
+            }, ['workout']));
+            handles.push(await window.DataStore.applyOptimistic('workout_next', (prev) => {
+                if (prev?.session?.id === sessionId) return { session: null };
+                return prev;
+            }, ['workout']));
+        }
+
+        try {
+            const result = await apiCall(`/api/workout/sessions/status?id=${sessionId}`, 'PUT', { status: 'completed' });
+            if (result === null) {
+                for (const h of handles) { try { await h.rollback(); } catch (_) { /* best-effort */ } }
+                return;
             }
+            for (const h of handles) await h.commit(null);
+            await invalidateWorkoutCache();
+            loadNextWorkout();
+            loadWorkoutHistoryTab(); // Refresh history if visible
+        } catch (e) {
+            for (const h of handles) { try { await h.rollback(); } catch (_) { /* best-effort */ } }
+            console.error(e);
+            safeAlert('Failed to finish workout');
         }
     });
 }
@@ -620,12 +734,26 @@ async function preSkipWorkoutSession(sessionId) {
     await safeConfirm('Mark this workout as to-be-skipped? No notification will be sent and it will be automatically skipped at the scheduled time.', async (ok) => {
         if (!ok) return;
 
+        // Optimistic: flip workout_next.session.status to 'pre_skipped' so the
+        // next-card swaps Start/Skip → Cancel Skip without waiting on the POST.
+        const handle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+            ? await window.DataStore.applyOptimistic('workout_next', (prev) => {
+                if (!prev || !prev.session || prev.session.id !== sessionId) return prev;
+                return { ...prev, session: { ...prev.session, status: 'pre_skipped' } };
+            }, ['workout'])
+            : null;
+
         try {
             const result = await apiCall(`/api/workout/sessions/${sessionId}/preskip`, 'POST');
-            if (result === null) return;
+            if (result === null) {
+                if (handle) await handle.rollback();
+                return;
+            }
+            if (handle) await handle.commit(null);
             await invalidateWorkoutCache();
             loadNextWorkout();
         } catch (error) {
+            if (handle) await handle.rollback();
             console.error('Error pre-skipping workout:', error);
             safeAlert('❌ Failed to mark workout as skipped. Please try again.');
         }
@@ -633,12 +761,26 @@ async function preSkipWorkoutSession(sessionId) {
 }
 
 async function cancelPreSkipWorkoutSession(sessionId) {
+    // Optimistic: flip workout_next.session.status back to 'pending' so the
+    // card swaps Cancel Skip → Start/Skip without waiting on the POST.
+    const handle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+        ? await window.DataStore.applyOptimistic('workout_next', (prev) => {
+            if (!prev || !prev.session || prev.session.id !== sessionId) return prev;
+            return { ...prev, session: { ...prev.session, status: 'pending' } };
+        }, ['workout'])
+        : null;
+
     try {
         const result = await apiCall(`/api/workout/sessions/${sessionId}/cancel-preskip`, 'POST');
-        if (result === null) return;
+        if (result === null) {
+            if (handle) await handle.rollback();
+            return;
+        }
+        if (handle) await handle.commit(null);
         await invalidateWorkoutCache();
         loadNextWorkout();
     } catch (error) {
+        if (handle) await handle.rollback();
         console.error('Error cancelling pre-skip:', error);
         safeAlert('❌ Failed to cancel skip. Please try again.');
     }
@@ -760,6 +902,51 @@ async function saveNewSessionExercise() {
         }
     }
 
+    // Optimistic: push the new log into the session modal's logs array and
+    // re-render BEFORE awaiting the network call, so the row appears
+    // instantly. Carries `_optimistic: true` so we can splice it out on
+    // POST failure without removing user-edited rows by accident.
+    const optimisticLog = {
+        id: 0,
+        exercise_id: parseInt(exerciseId),
+        exercise_name: name,
+        sets_completed: sets,
+        reps_completed: reps,
+        weight_kg: weight == null ? 0 : weight,
+        notes: notes,
+        status: 'completed',
+        _dirty: true,
+        _optimistic: true
+    };
+    const prevLogs = window.WorkoutSessionsState.logs;
+    window.WorkoutSessionsState.logs = [...prevLogs, optimisticLog];
+    const logsContainer = document.getElementById('workout-session-logs');
+    if (logsContainer) renderWorkoutSessionLogs(logsContainer);
+    closeAddExerciseToSessionModal();
+
+    // Optimistic cache: bump the affected session's exercise count in the
+    // cached workout_history payload so the History sub-tab repaints with
+    // the new total before the POST resolves.
+    const historyHandle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+        ? await window.DataStore.applyOptimistic('workout_history', (prev) => {
+            if (!prev || !Array.isArray(prev.sessions)) return prev;
+            const next = { ...prev };
+            next.sessions = prev.sessions.map((s) => {
+                if (s?.session?.id !== sessionData.id) return s;
+                const done = (s.exercises_completed || 0) + 1;
+                const total = Math.max(done, (s.exercises_count || 0) + 1);
+                return { ...s, exercises_completed: done, exercises_count: total };
+            });
+            return next;
+        }, ['workout'])
+        : null;
+
+    function restoreOptimistic() {
+        const current = window.WorkoutSessionsState.logs;
+        window.WorkoutSessionsState.logs = current.filter((l) => l !== optimisticLog);
+        if (logsContainer) renderWorkoutSessionLogs(logsContainer);
+    }
+
     try {
         const result = await apiCall('/api/workout/sessions/logs/create', 'POST', {
             session_id: sessionData.id,
@@ -772,13 +959,21 @@ async function saveNewSessionExercise() {
             notes: notes,
             source: 'library'
         });
-        if (result === null) return;
+        if (result === null) {
+            restoreOptimistic();
+            if (historyHandle) await historyHandle.rollback();
+            return;
+        }
 
+        if (historyHandle) await historyHandle.commit(null);
         await invalidateWorkoutCache();
-        closeAddExerciseToSessionModal();
-        // Refresh session modal
+        // Refresh session modal so the local optimistic entry is replaced
+        // with the authoritative server payload (real id, server-stamped
+        // timestamps, any AI-derived fields).
         showWorkoutSessionModal(sessionData.id);
     } catch (error) {
+        restoreOptimistic();
+        if (historyHandle) await historyHandle.rollback();
         console.error(error);
         safeAlert('Failed to add exercise');
     }

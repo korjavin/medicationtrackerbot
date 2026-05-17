@@ -1685,6 +1685,16 @@ function applyPendingTabRefresh() {
 
 function requestTabRefresh(meta = {}) {
     const source = meta?.source || 'changes';
+    // Optimistic / commit / rollback paths originate from the caller's own
+    // write flow. The user is actively engaged with the app — no deferred
+    // banner. Re-render the current tab immediately from the freshly-written
+    // optimistic cache. fetchFresh suppresses concurrent GETs during the
+    // optimistic window (see DataStore.fetchFresh's pendingOptimistic check)
+    // so the user sees only optimistic → real, no stale flash.
+    if (typeof source === 'string' && source.startsWith('optimistic')) {
+        reloadCurrentTab();
+        return;
+    }
     if (!isSafeToAutoRefresh()) {
         console.log('[refresh] deferred: source=%s modal=%s editing=%s hidden=%s tags=%o',
             source, hasOpenModal(), isEditingNow(), document.hidden,
@@ -2203,7 +2213,11 @@ function handlePushAction(action, params) {
             showMedicationConfirmModal(ids, names, scheduled, 'confirm', intakeIds);
         }, 500);
     } else if (action === 'workout_start') {
-        const sessionId = params.get('session_id');
+        // Coerce to Number — cached workout_next.session.id is numeric, and
+        // the optimistic snooze/skip mutators compare via strict equality.
+        const raw = params.get('session_id');
+        const parsed = Number(raw);
+        const sessionId = Number.isFinite(parsed) ? parsed : raw;
         setTimeout(() => {
             showWorkoutStartModal(sessionId);
         }, 500);
@@ -2220,6 +2234,120 @@ function handlePushAction(action, params) {
 
 function closeMedicationConfirmModal() {
     window.ModalManager.medConfirm.close();
+}
+
+// Apply `mutator(log) → log|null` against every cached `history_*` payload so
+// intake-status mutations (confirm/skip/edit/log-past/delete-future) repaint
+// the meds History list synchronously before the POST resolves. Returns an
+// array of applyOptimistic handles the caller settles on success/failure.
+// Returning `null` from the mutator drops the log (used by deleteFutureIntakes).
+async function _applyOptimisticHistoryFlip(mutator) {
+    const handles = [];
+    if (!window.DataStore || typeof window.DataStore.applyOptimistic !== 'function') {
+        return handles;
+    }
+    const apiCache = window.MedTrackerDB && window.MedTrackerDB.ApiCache;
+    if (!apiCache || typeof apiCache.keys !== 'function') return handles;
+
+    let keys = [];
+    try { keys = await apiCache.keys('history_'); } catch (_) { keys = []; }
+    if (!Array.isArray(keys) || keys.length === 0) return handles;
+
+    for (const key of keys) {
+        const handle = await window.DataStore.applyOptimistic(key, (prev) => {
+            if (!Array.isArray(prev)) return prev;
+            const next = [];
+            for (const log of prev) {
+                const mapped = mutator(log);
+                if (mapped) next.push(mapped);
+            }
+            return next;
+        }, ['history']);
+        handles.push(handle);
+    }
+    return handles;
+}
+
+// Patch `next_intake` cache when the just-confirmed/skipped scheduled time
+// matches the cached "next" tile. Removes the selected medications from the
+// grouped tile by ID — filtering by name would over-evict when two meds share
+// the same display name but have different dosages (the backend allows
+// duplicate names with distinct dosages and surfaces both in `medication_ids`
+// + `medication_names`). If no meds remain at that scheduled time, the tile
+// clears entirely (scheduled_at -> null). Without this selectivity, a partial
+// confirm of a grouped dose would hide the remaining meds the user still owes.
+// Returns a handle (no-op handle if nothing cached or mismatch).
+async function _applyOptimisticNextIntakeClear(scheduledAt, selectedIds = []) {
+    if (!window.DataStore || typeof window.DataStore.applyOptimistic !== 'function') {
+        return { commit: async () => {}, rollback: async () => {} };
+    }
+    const selectedIdSet = new Set(
+        (Array.isArray(selectedIds) ? selectedIds : [])
+            .map((id) => Number(id))
+            .filter((id) => Number.isFinite(id))
+    );
+    return window.DataStore.applyOptimistic('next_intake', (prev) => {
+        if (!prev || typeof prev !== 'object') return prev;
+        if (!scheduledAt || prev.scheduled_at !== scheduledAt) return prev;
+        const allIds = Array.isArray(prev.medication_ids) ? prev.medication_ids : [];
+        const allNames = Array.isArray(prev.medication_names) ? prev.medication_names : [];
+        // No ID list to filter (legacy payload missing medication_ids) — fall
+        // back to the wholesale clear so the tile doesn't pin a now-actioned
+        // dose. Same fallback when the caller didn't supply selectedIds.
+        if (allIds.length === 0 || selectedIdSet.size === 0) {
+            return { scheduled_at: null, medication_ids: [], medication_names: [] };
+        }
+        const remainingIds = [];
+        const remainingNames = [];
+        for (let i = 0; i < allIds.length; i++) {
+            const id = Number(allIds[i]);
+            if (selectedIdSet.has(id)) continue;
+            remainingIds.push(allIds[i]);
+            if (i < allNames.length) remainingNames.push(allNames[i]);
+        }
+        if (remainingIds.length === 0) {
+            return { scheduled_at: null, medication_ids: [], medication_names: [] };
+        }
+        return { ...prev, medication_ids: remainingIds, medication_names: remainingNames };
+    }, ['medications', 'history']);
+}
+
+// Prepend a freshly-synthesised log into every cached `history_*` payload
+// whose filter (range + medId) would include it. Used by confirmLogPast where
+// no prior log row exists. `medId` matches the per-med filter; the "0" / "all"
+// medId always matches. Range filter is not strictly enforced — the next
+// loadHistory() refetch reconciles against authoritative server data.
+async function _applyOptimisticHistoryAdd(log, medId) {
+    const handles = [];
+    if (!window.DataStore || typeof window.DataStore.applyOptimistic !== 'function') {
+        return handles;
+    }
+    const apiCache = window.MedTrackerDB && window.MedTrackerDB.ApiCache;
+    if (!apiCache || typeof apiCache.keys !== 'function') return handles;
+
+    let keys = [];
+    try { keys = await apiCache.keys('history_'); } catch (_) { keys = []; }
+    if (!Array.isArray(keys) || keys.length === 0) return handles;
+
+    for (const key of keys) {
+        const parts = key.split('_');
+        const keyMedId = parts[2] === undefined || parts[2] === '' ? 0 : Number(parts[2]);
+        if (keyMedId !== 0 && keyMedId !== medId) continue;
+        const handle = await window.DataStore.applyOptimistic(key, (prev) => {
+            const base = Array.isArray(prev) ? prev : [];
+            return [log, ...base];
+        }, ['history']);
+        handles.push(handle);
+    }
+    return handles;
+}
+
+async function _commitOptimistic(handles) {
+    for (const h of handles) { try { await h.commit(null); } catch (_) { /* best-effort */ } }
+}
+
+async function _rollbackOptimistic(handles) {
+    for (const h of handles) { try { await h.rollback(); } catch (_) { /* best-effort */ } }
 }
 
 async function confirmSelectedMedications() {
@@ -2241,11 +2369,40 @@ async function confirmSelectedMedications() {
         if (selectedIntakeIds.length > 0) {
             body.intake_ids = selectedIntakeIds;
         }
-        const res = await apiCall('/api/medications/confirm-schedule', 'POST', body);
+
+        // Optimistic: flip the matched intake_log entries to TAKEN in every
+        // cached `history_*` payload and clear `next_intake` so the meds
+        // History list + Today's next-intake tile repaint before the POST
+        // resolves. Mutator runs against each enumerated cache key so users
+        // see the green check immediately instead of after the round-trip.
+        const takenAt = new Date().toISOString();
+        const handles = await _applyOptimisticHistoryFlip((log) => {
+            if (!log || typeof log !== 'object') return log;
+            const isSelectedIntake = selectedIntakeIds.indexOf(log.id) !== -1;
+            const isSelectedMed = selectedIds.indexOf(log.medication_id) !== -1
+                && log.status === 'PENDING'
+                && log.scheduled_at === body.scheduled_at;
+            if (isSelectedIntake || isSelectedMed) {
+                return { ...log, status: 'TAKEN', taken_at: takenAt, _optimistic: true };
+            }
+            return log;
+        });
+        handles.push(await _applyOptimisticNextIntakeClear(body.scheduled_at, selectedIds));
+
+        let res;
+        try {
+            res = await apiCall('/api/medications/confirm-schedule', 'POST', body);
+        } catch (e) {
+            await _rollbackOptimistic(handles);
+            throw e;
+        }
 
         if (res) {
+            await _commitOptimistic(handles);
             safeAlert("Confirmed!");
             refreshMedsAfterMutation();
+        } else {
+            await _rollbackOptimistic(handles);
         }
 
         closeMedicationConfirmModal();
@@ -2267,20 +2424,27 @@ async function skipSelectedMedications() {
         const ids = window.PushModalState.getMedConfirmIds();
         const intakeIds = window.PushModalState.getMedConfirmIntakeIds();
         const scheduled = window.PushModalState.getMedConfirmScheduled();
+        const selectedMedIds = selectedIndices
+            .map(idx => Number(ids[idx]))
+            .filter(id => Number.isFinite(id));
+
+        // Resolve intake_ids up-front (from PushModalState or via /api/history
+        // fallback for push-notification entries) so we can apply the optimistic
+        // SKIPPED flip in one pass before issuing the skip POSTs.
+        const resolvedIntakeIds = [];
+        const skipRequests = [];
         for (const idx of selectedIndices) {
             const medId = Number(ids[idx]);
             let intakeId = intakeIds[idx];
 
             if (!intakeId) {
-                // If opened from a push notification where intakeIds weren't passed directly,
-                // fetch pending intakes for the scheduled time to find the correct intake ID
                 const pendingLogs = await apiCall(`/api/history?days=1`);
                 if (pendingLogs && pendingLogs.length > 0) {
                     const scheduledTime = new Date(scheduled).getTime();
                     const log = pendingLogs.find(l =>
                         l.medication_id === medId &&
                         l.status === 'PENDING' &&
-                        Math.abs(new Date(l.scheduled_at).getTime() - scheduledTime) < 60000 // Within 1 min
+                        Math.abs(new Date(l.scheduled_at).getTime() - scheduledTime) < 60000
                     );
                     if (log) {
                         intakeId = log.id;
@@ -2289,13 +2453,38 @@ async function skipSelectedMedications() {
             }
 
             if (intakeId) {
+                resolvedIntakeIds.push(intakeId);
+                skipRequests.push(intakeId);
+            } else {
+                hasErrors = true;
+            }
+        }
+
+        const handles = await _applyOptimisticHistoryFlip((log) => {
+            if (!log || typeof log !== 'object') return log;
+            if (resolvedIntakeIds.indexOf(log.id) !== -1) {
+                return { ...log, status: 'SKIPPED', _optimistic: true };
+            }
+            return log;
+        });
+        handles.push(await _applyOptimisticNextIntakeClear(scheduled, selectedMedIds));
+
+        try {
+            for (const intakeId of skipRequests) {
                 const res = await apiCall('/api/medications/skip', 'POST', { intake_id: intakeId });
                 if (!res) {
                     hasErrors = true;
                 }
-            } else {
-                hasErrors = true;
             }
+        } catch (e) {
+            await _rollbackOptimistic(handles);
+            throw e;
+        }
+
+        if (hasErrors) {
+            await _rollbackOptimistic(handles);
+        } else {
+            await _commitOptimistic(handles);
         }
 
         refreshMedsAfterMutation();
@@ -2357,10 +2546,37 @@ async function updateIntakeHistory() {
 
     const btn = document.getElementById('med-confirm-action-btn');
     await withSubmit(btn, async () => {
-        const res = await apiCall('/api/intakes/update', 'POST', { updates });
+        // Optimistic: apply each TAKEN/PENDING flip across cached history payloads
+        // so the History list reflects the user's choice before the round-trip.
+        const updatesById = new Map();
+        for (const u of updates) updatesById.set(u.id, u);
+        const handles = await _applyOptimisticHistoryFlip((log) => {
+            if (!log || typeof log !== 'object') return log;
+            const upd = updatesById.get(log.id);
+            if (!upd) return log;
+            const next = { ...log, status: upd.status, _optimistic: true };
+            if (upd.status === 'TAKEN') {
+                next.taken_at = upd.taken_at;
+            } else {
+                next.taken_at = null;
+            }
+            return next;
+        });
+
+        let res;
+        try {
+            res = await apiCall('/api/intakes/update', 'POST', { updates });
+        } catch (e) {
+            await _rollbackOptimistic(handles);
+            throw e;
+        }
+
         if (res) { // status 200 assumed
+            await _commitOptimistic(handles);
             safeAlert("Updated!");
             refreshMedsAfterMutation();
+        } else {
+            await _rollbackOptimistic(handles);
         }
         closeMedicationConfirmModal();
     });
@@ -2375,10 +2591,37 @@ async function confirmLogPast() {
 
     const btn = document.getElementById('med-confirm-action-btn');
     await withSubmit(btn, async () => {
-        const res = await apiCall('/api/medications/log-past', 'POST', {
-            medication_id: medId,
-            taken_at: takenAt
-        });
+        // Optimistic: prepend a synthesised TAKEN log into every cached
+        // `history_<range>_<medId>` payload that should contain it (the
+        // "all meds" filter and the per-med filter for this medId) so the
+        // user sees the new entry before /log-past resolves.
+        const optimisticLog = {
+            id: `local_optimistic_${Date.now()}`,
+            medication_id: Number(medId),
+            scheduled_at: takenAt,
+            taken_at: takenAt,
+            status: 'TAKEN',
+            _optimistic: true
+        };
+        const handles = await _applyOptimisticHistoryAdd(optimisticLog, Number(medId));
+
+        let res;
+        try {
+            res = await apiCall('/api/medications/log-past', 'POST', {
+                medication_id: medId,
+                taken_at: takenAt
+            });
+        } catch (e) {
+            await _rollbackOptimistic(handles);
+            throw e;
+        }
+
+        if (!res) {
+            await _rollbackOptimistic(handles);
+            closeMedicationConfirmModal();
+            return;
+        }
+        await _commitOptimistic(handles);
 
         if (res) {
             safeAlert("Intake logged!");
@@ -2440,14 +2683,39 @@ async function snoozeWorkout(minutes) {
     if (!sessionId) return;
     const btn = document.getElementById(`workout-start-snooze-${minutes}-btn`);
     await withSubmit(btn, async () => {
-        const res = await apiCall(`/api/workout/sessions/${sessionId}/snooze`, 'POST', { minutes: minutes });
-        if (res) {
-            if (typeof invalidateWorkoutCache === 'function') {
-                await invalidateWorkoutCache();
-            } else if (window.DataStore?.invalidateTags) {
-                await window.DataStore.invalidateTags(['workout']);
+        // Optimistic: stamp snoozed_until on the cached workout_next.session so
+        // the next-card hides the "Start" CTA while we wait on the POST.
+        const snoozeUntilIso = new Date(Date.now() + minutes * 60 * 1000).toISOString();
+        const handle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+            ? await window.DataStore.applyOptimistic('workout_next', (prev) => {
+                if (!prev || !prev.session || prev.session.id !== sessionId) return prev;
+                return {
+                    ...prev,
+                    session: {
+                        ...prev.session,
+                        snoozed_until: snoozeUntilIso,
+                        is_snoozed: true
+                    }
+                };
+            }, ['workout'])
+            : null;
+
+        try {
+            const res = await apiCall(`/api/workout/sessions/${sessionId}/snooze`, 'POST', { minutes: minutes });
+            if (res) {
+                if (handle) await handle.commit(null);
+                if (typeof invalidateWorkoutCache === 'function') {
+                    await invalidateWorkoutCache();
+                } else if (window.DataStore?.invalidateTags) {
+                    await window.DataStore.invalidateTags(['workout']);
+                }
+                safeAlert(`Snoozed for ${minutes} minutes`);
+            } else if (handle) {
+                await handle.rollback();
             }
-            safeAlert(`Snoozed for ${minutes} minutes`);
+        } catch (error) {
+            if (handle) await handle.rollback();
+            throw error;
         }
         closeWorkoutStartModal();
     });
@@ -2459,15 +2727,31 @@ async function skipWorkout() {
     await safeConfirm("Are you sure you want to skip this workout?", async (ok) => {
         if (!ok) return;
 
-        const res = await apiCall(`/api/workout/sessions/${sessionId}/skip`, 'POST');
-        if (res) {
-            if (typeof invalidateWorkoutCache === 'function') {
-                await invalidateWorkoutCache();
-            } else if (window.DataStore?.invalidateTags) {
-                await window.DataStore.invalidateTags(['workout']);
+        // Optimistic: null workout_next so the home card vanishes immediately.
+        const handle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+            ? await window.DataStore.applyOptimistic('workout_next', (prev) => {
+                if (prev?.session?.id === sessionId) return { session: null };
+                return prev;
+            }, ['workout'])
+            : null;
+
+        try {
+            const res = await apiCall(`/api/workout/sessions/${sessionId}/skip`, 'POST');
+            if (res) {
+                if (handle) await handle.commit(null);
+                if (typeof invalidateWorkoutCache === 'function') {
+                    await invalidateWorkoutCache();
+                } else if (window.DataStore?.invalidateTags) {
+                    await window.DataStore.invalidateTags(['workout']);
+                }
+                safeAlert("Workout skipped");
+                loadWorkouts();
+            } else if (handle) {
+                await handle.rollback();
             }
-            safeAlert("Workout skipped");
-            loadWorkouts();
+        } catch (error) {
+            if (handle) await handle.rollback();
+            throw error;
         }
         closeWorkoutStartModal();
     });
