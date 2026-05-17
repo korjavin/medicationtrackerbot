@@ -278,6 +278,8 @@ Callback data format is crucial for routing:
 
 See `internal/bot/handlers.go` and `internal/bot/workout_callbacks.go`.
 
+The bot's slash-command menu is registered via `setMyCommands` on startup and re-synced when feature flags change (poll-based, ~5 s lag). The canonical command list lives in `internal/bot/commands.go` (`commandSpecs`) and drives both `/help` output and the Telegram autocomplete menu.
+
 ## Logging
 
 - Use `log/slog`. Configure default in entry points: `slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))`
