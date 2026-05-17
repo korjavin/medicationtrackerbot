@@ -296,6 +296,9 @@ function showAddFoodModal() {
     document.getElementById('food-fat').value = '';
     document.getElementById('food-calories').value = '';
     document.getElementById('food-per-100g').checked = true;
+    setFoodParseAIMode(false);
+    const aiCheckboxAdd = document.getElementById('food-parse-ai');
+    if (aiCheckboxAdd) aiCheckboxAdd.disabled = false;
     document.getElementById('food-weight').focus();
 
     const cache = window.FoodProducts && window.FoodProducts.cache;
@@ -312,6 +315,11 @@ function editFoodLog(id) {
 
     window.ModalManager.food.open();
     document.getElementById('food-modal-title').innerText = 'Edit entry';
+    // Edits always run through the manual path — the AI parse endpoint
+    // only creates new rows, so AI mode would be a dead-end for edits.
+    setFoodParseAIMode(false);
+    const aiCheckbox = document.getElementById('food-parse-ai');
+    if (aiCheckbox) aiCheckbox.disabled = true;
 
     document.getElementById('food-id').value = log.id;
     const pidEl = document.getElementById('food-log-product-id');
@@ -368,6 +376,15 @@ function closeFoodModal() {
 }
 
 async function saveFoodLog() {
+    const id = document.getElementById('food-id').value;
+    const aiCheckbox = document.getElementById('food-parse-ai');
+    // AI mode only creates new rows, so it's only valid for "add" — never for
+    // edits. Editing an existing row falls through to the manual update path
+    // regardless of checkbox state.
+    if (!id && aiCheckbox && aiCheckbox.checked) {
+        return saveFoodLogFromDescription();
+    }
+
     const name = document.getElementById('food-name').value;
     const dateStr = document.getElementById('food-datetime').value;
 
@@ -398,8 +415,6 @@ async function saveFoodLog() {
         payload.product_id = parseInt(pidEl.value, 10);
     }
 
-    const id = document.getElementById('food-id').value;
-
     const btn = document.getElementById('food-modal-save-btn');
     await withSubmit(btn, async () => {
         let res;
@@ -429,6 +444,152 @@ async function saveFoodLog() {
         if (window.AppStore && window.AppStore.get('currentTab') === 'today'
             && typeof window.loadToday === 'function') {
             window.loadToday();
+        }
+    });
+}
+
+// AI-mode toggle (Plan 2026-05-17, Task 4). The checkbox at the top of the
+// food modal swaps the body into "describe your meal" mode: macros / weight /
+// barcode / per-100g / calories fields are CSS-hidden via the
+// `wg-food-modal--ai-mode` class on the modal root, the food-name label
+// reads "Describe your meal", and Save POSTs to /api/food/log/from-description
+// instead of /api/food/log. The shared autocomplete handler short-circuits
+// when the modal is in AI mode so a long meal description doesn't hit
+// /api/food/products/search.
+function setFoodParseAIMode(on) {
+    const modal = document.getElementById('food-modal');
+    const checkbox = document.getElementById('food-parse-ai');
+    if (!modal) return;
+    const enabled = !!on;
+    modal.classList.toggle('wg-food-modal--ai-mode', enabled);
+    if (checkbox) checkbox.checked = enabled;
+
+    const nameInput = document.getElementById('food-name');
+    if (nameInput && nameInput.dataset.aiPlaceholder !== undefined) {
+        if (!nameInput.dataset.manualPlaceholder) {
+            nameInput.dataset.manualPlaceholder = nameInput.placeholder || '';
+        }
+        nameInput.placeholder = enabled
+            ? nameInput.dataset.aiPlaceholder
+            : nameInput.dataset.manualPlaceholder;
+    }
+
+    if (enabled) {
+        // A pending name- or barcode-search debounce scheduled before the
+        // toggle would still fire ~800ms later and either render stale
+        // autocomplete suggestions or autofill the form (barcode path calls
+        // autofillFoodProduct, which sets #food-log-product-id). Cancel any
+        // in-flight search so the AI mode entry is clean.
+        if (typeof cancelInFlightFoodSearch === 'function') {
+            cancelInFlightFoodSearch();
+        }
+        ['food-weight', 'food-barcode', 'food-carbs', 'food-protein', 'food-fat', 'food-calories'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.value = '';
+        });
+        // A prior autocomplete selection may have left product_id/is_meal set
+        // and the link chip visible. AI mode discards that linkage entirely —
+        // the resulting logs are free-form parsed items, not bound to the
+        // previously selected product. Without this clear, a user who picks
+        // a product, toggles AI on, edits the description, then toggles back
+        // off would silently submit the stale product_id with the new name.
+        const pidEl = document.getElementById('food-log-product-id');
+        if (pidEl) pidEl.value = '';
+        const isMealEl = document.getElementById('food-log-is-meal');
+        if (isMealEl) isMealEl.value = '';
+        const linkContainer = document.getElementById('food-product-link-container');
+        if (linkContainer) {
+            linkContainer.replaceChildren();
+            linkContainer.classList.add('hidden');
+        }
+        const list = document.getElementById('food-autocomplete-list');
+        if (list) list.classList.add('hidden');
+        const status = document.getElementById('food-search-status');
+        if (status) {
+            status.classList.add('hidden');
+            status.textContent = '';
+        }
+    }
+}
+
+function bindFoodParseAIToggle() {
+    const checkbox = document.getElementById('food-parse-ai');
+    if (!checkbox || checkbox.dataset.bound === '1') return;
+    checkbox.addEventListener('change', () => {
+        setFoodParseAIMode(checkbox.checked);
+    });
+    checkbox.dataset.bound = '1';
+}
+
+async function saveFoodLogFromDescription() {
+    const description = (document.getElementById('food-name').value || '').trim();
+    const dateStr = document.getElementById('food-datetime').value;
+
+    if (!description) {
+        safeAlert('Please describe your meal.');
+        return;
+    }
+    if (!dateStr) {
+        safeAlert('Please enter date.');
+        return;
+    }
+
+    const payload = {
+        description,
+        eaten_at: new Date(dateStr).toISOString(),
+    };
+
+    const btn = document.getElementById('food-modal-save-btn');
+    await withSubmit(btn, async () => {
+        let res;
+        try {
+            res = await fetch('/api/food/log/from-description', {
+                method: 'POST',
+                headers: window.makeAuthHeaders({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify(payload),
+            });
+        } catch (e) {
+            console.error('Food AI parse network error:', e);
+            safeAlert('Failed to parse meal: ' + (e && e.message ? e.message : e));
+            return;
+        }
+
+        if (!res.ok) {
+            let msg = `HTTP ${res.status}`;
+            try { msg = (await res.text()) || msg; } catch (_) { /* keep status fallback */ }
+            safeAlert('Failed to parse meal: ' + msg);
+            return;
+        }
+
+        let data = null;
+        try { data = await res.json(); } catch (_) { data = null; }
+        const items = (data && Array.isArray(data.items)) ? data.items : [];
+        const failed = Math.max(0, Math.trunc(Number(data && data.failed) || 0));
+
+        await window.DataStore.invalidateTags(['food']);
+        if (typeof todayFoodKey === 'function' && window.DataStore.clearCached) {
+            await window.DataStore.clearCached(todayFoodKey(new Date()));
+        }
+        if (window.DataStore?.advanceCursorSilently) {
+            window.DataStore.advanceCursorSilently();
+        }
+
+        closeFoodModal();
+        loadFoodLogs();
+        if (typeof loadToday === 'function') loadToday();
+
+        if (items.length && typeof showFoodPhotoSummary === 'function'
+            && typeof undoFoodAIItems === 'function') {
+            let summaryHandle;
+            summaryHandle = showFoodPhotoSummary({
+                items,
+                failed,
+                source: 'description',
+                onUndo: () => undoFoodAIItems(items, summaryHandle),
+            });
+        } else if (items.length) {
+            const suffix = failed > 0 ? ` (${failed} failed)` : '';
+            safeAlert(`Logged ${items.length} item${items.length === 1 ? '' : 's'}${suffix}.`);
         }
     });
 }

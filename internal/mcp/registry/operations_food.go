@@ -151,6 +151,28 @@ for p in result["products"]:
 output(result)`,
 		},
 		{
+			ID:     "food.log.from_description",
+			Topic:  "food",
+			Method: "POST",
+			Path:   "/api/food/log/from-description",
+			Risk:   RiskWrite,
+			BodySchema: json.RawMessage(`{
+  "type": "object",
+  "required": ["description"],
+  "properties": {
+    "description": {"type": "string", "maxLength": 4096, "description": "Free-text meal description (e.g. \"200g grilled chicken with a cup of rice\"). The server's AI parser splits this into individual food items, estimates weights and macros, and logs each as a separate FoodLog entry. Capped at 4096 characters server-side."},
+    "eaten_at":    {"type": "string", "description": "ISO8601 timestamp (RFC3339 preferred); defaults to now if omitted. All parsed items share this timestamp."}
+  }
+}`),
+			Description:     "Log one or more food intake entries from a natural-language meal description. Uses the same AI parser as the bot's /food command — pass the user's words verbatim. Unlike food.log.create, this endpoint does NOT upsert into food_products; AI-parsed items are stored as standalone FoodLog rows without joining the user's product catalog. Prefer food.log.create with a product_id when the user is logging a single known food and you want the entry to roll up under an existing product. Returns the created logs so they can be displayed or undone.",
+			ResponseSummary: "{status, items:[{id, name, weight, carbs, protein, fat, calories}], failed}.",
+			Example: `result = api.call(
+    "food.log.from_description",
+    body={"description": "200g grilled chicken with a cup of rice"},
+)
+output({"items": result["items"]})`,
+		},
+		{
 			ID:         "food.log.update",
 			Topic:      "food",
 			Method:     "PUT",

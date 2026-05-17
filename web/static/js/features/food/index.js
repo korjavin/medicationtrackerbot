@@ -174,6 +174,10 @@ function toggleFoodLibraryView() {
         bindChange('food-per-100g', () => onFoodPer100gChange());
         bindFocus('food-calories', () => onFoodCaloriesFocus());
 
+        if (typeof bindFoodParseAIToggle === 'function') {
+            bindFoodParseAIToggle();
+        }
+
         bindClick('food-scanner-use-photo-btn', () => openPhotoPickerAndDecode());
         bindClick('food-scanner-close-btn', () => closeFoodScannerModal());
         bindClick('food-product-cancel-btn', () => closeFoodProductModal());
