@@ -115,9 +115,9 @@ After a write completes on the server (regardless of which client or which trans
 - [x] revise `docs/technical-decisions.md:3` ("Why polling instead of SSE…") to reflect the new stance: SSE is primary, polling is fallback; the original RST_STREAM concern is mitigated by the broker-based clean-shutdown path
 
 ### Task 7: [Final] Update CLAUDE.md + architecture docs
-- [ ] update `CLAUDE.md` or `docs/architecture.md` "scheduler / sync" section to describe the broker + SSE-first model
-- [ ] cross-link from `docs/api.md` if `/api/changes/stream` is documented there
-- [ ] add a one-line note in `docs/frontend.md` "data flow" section pointing to the SSE-first behaviour and the polling fallback trigger
+- [x] update `CLAUDE.md` or `docs/architecture.md` "scheduler / sync" section to describe the broker + SSE-first model — added new "Cross-client change broadcast (SSE + polling fallback)" subsection in `docs/architecture.md` covering the broker, `notifyOnWriteMiddleware` tap point, handler lifecycle, graceful shutdown, and cross-links to `technical-decisions.md` / `sse-traefik.md` / `frontend.md`
+- [x] cross-link from `docs/api.md` if `/api/changes/stream` is documented there — added the `/api/changes/stream` row to the System table with cross-links to architecture / technical-decisions / sse-traefik; updated the `/api/changes` row to describe it as the polling fallback
+- [x] add a one-line note in `docs/frontend.md` "data flow" section pointing to the SSE-first behaviour and the polling fallback trigger — added the one-liner at the top of `## Data Flow`, and revised the stale "SSE disabled" note in `### Change Detection` to describe the SSE-first wiring + 3-error fallback threshold
 
 ## Technical Details
 
