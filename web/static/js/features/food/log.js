@@ -564,6 +564,7 @@ async function saveFoodLogFromDescription() {
         let data = null;
         try { data = await res.json(); } catch (_) { data = null; }
         const items = (data && Array.isArray(data.items)) ? data.items : [];
+        const failed = Math.max(0, Math.trunc(Number(data && data.failed) || 0));
 
         await window.DataStore.invalidateTags(['food']);
         if (typeof todayFoodKey === 'function' && window.DataStore.clearCached) {
@@ -582,11 +583,13 @@ async function saveFoodLogFromDescription() {
             let summaryHandle;
             summaryHandle = showFoodPhotoSummary({
                 items,
+                failed,
                 source: 'description',
                 onUndo: () => undoFoodAIItems(items, summaryHandle),
             });
         } else if (items.length) {
-            safeAlert(`Logged ${items.length} item${items.length === 1 ? '' : 's'}.`);
+            const suffix = failed > 0 ? ` (${failed} failed)` : '';
+            safeAlert(`Logged ${items.length} item${items.length === 1 ? '' : 's'}${suffix}.`);
         }
     });
 }

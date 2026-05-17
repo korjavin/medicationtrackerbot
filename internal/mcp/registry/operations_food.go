@@ -160,7 +160,7 @@ output(result)`,
   "type": "object",
   "required": ["description"],
   "properties": {
-    "description": {"type": "string", "description": "Free-text meal description (e.g. \"200g grilled chicken with a cup of rice\"). The server's AI parser splits this into individual food items, estimates weights and macros, and logs each as a separate FoodLog entry."},
+    "description": {"type": "string", "maxLength": 4096, "description": "Free-text meal description (e.g. \"200g grilled chicken with a cup of rice\"). The server's AI parser splits this into individual food items, estimates weights and macros, and logs each as a separate FoodLog entry. Capped at 4096 characters server-side."},
     "eaten_at":    {"type": "string", "description": "ISO8601 timestamp (RFC3339 preferred); defaults to now if omitted. All parsed items share this timestamp."}
   }
 }`),

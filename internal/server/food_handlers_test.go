@@ -1046,6 +1046,38 @@ func TestHandleCreateFoodLogFromPhoto_InvalidEatenAt(t *testing.T) {
 	}
 }
 
+// TestHandleCreateFoodLogFromDescription_TooLong verifies the handler caps
+// the description payload and never forwards an oversized prompt to the AI
+// service. Without this cap an authenticated caller can burn provider credit
+// by POSTing arbitrarily large strings.
+func TestHandleCreateFoodLogFromDescription_TooLong(t *testing.T) {
+	srv, db := createFoodTestServer(t)
+	defer db.Close()
+
+	if err := db.Settings.SetFoodIntakeEnabled(context.Background(), true); err != nil {
+		t.Fatalf("SetFoodIntakeEnabled: %v", err)
+	}
+
+	stub := &stubFoodAI{descLogs: []domain.FoodLog{{Name: "X", Weight: 1}}}
+	srv.SetFoodAIService(stub)
+
+	body, _ := json.Marshal(map[string]string{
+		"description": strings.Repeat("a", 4097),
+	})
+	req := httptest.NewRequest("POST", "/api/food/log/from-description", bytes.NewReader(body))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleCreateFoodLogFromDescription(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Expected 400, got %d. Body: %s", w.Code, w.Body.String())
+	}
+	if stub.lastDescription != "" {
+		t.Errorf("AI service must not be invoked for oversized descriptions; got %q", stub.lastDescription)
+	}
+}
+
 // TestHandleCreateFoodLogFromDescription_MissingDescription verifies the
 // handler rejects an empty/whitespace-only description with 400.
 func TestHandleCreateFoodLogFromDescription_MissingDescription(t *testing.T) {
