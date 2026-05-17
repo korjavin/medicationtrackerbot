@@ -89,12 +89,12 @@ Dependencies: `OPENAI_API_KEY` (existing env; no new config needed — same `Foo
 
 ### Task 5: Frontend tests
 
-- [ ] Vitest: extend the food modal integration suite (the existing `web/static/js/tests/food.*.test.js` that covers the modal — pick the closest feature file rather than creating a new `*-branches` file, per CLAUDE.md rule 8). Cover: checkbox off → POSTs to `/api/food/log` (current behavior, regression guard); checkbox on → POSTs to `/api/food/log/from-description` with the description body; multi-item response causes the expected number of UI rows / cache writes; checkbox toggle clears stale macro/weight values.
-- [ ] Vitest: after a successful AI parse, the summary card appears with the parsed items (assert via `showFoodPhotoSummary` test seam — fixture pattern in `food-photo-summary.test.js`).
-- [ ] Vitest: clicking Undo on that card triggers `undoFoodAIItems`, which fires the expected DELETE `/api/food/log/:id` calls per item and dismisses the summary on success.
-- [ ] Vitest: partial undo failure surfaces the retry affordance (mirror the photo undo retry test).
-- [ ] Vitest: assert the AI-mode wrapper toggles a CSS class (no inline `.style.` checks).
-- [ ] Run `pnpm test` — must pass before task 6.
+- [x] Vitest: extend the food modal integration suite (the existing `web/static/js/tests/food.*.test.js` that covers the modal — pick the closest feature file rather than creating a new `*-branches` file, per CLAUDE.md rule 8). Cover: checkbox off → POSTs to `/api/food/log` (current behavior, regression guard); checkbox on → POSTs to `/api/food/log/from-description` with the description body; multi-item response causes the expected number of UI rows / cache writes; checkbox toggle clears stale macro/weight values.
+- [x] Vitest: after a successful AI parse, the summary card appears with the parsed items (assert via `showFoodPhotoSummary` test seam — fixture pattern in `food-photo-summary.test.js`).
+- [x] Vitest: clicking Undo on that card triggers `undoFoodAIItems`, which fires the expected DELETE `/api/food/log/:id` calls per item and dismisses the summary on success.
+- [x] Vitest: partial undo failure surfaces the retry affordance (mirror the photo undo retry test).
+- [x] Vitest: assert the AI-mode wrapper toggles a CSS class (no inline `.style.` checks).
+- [x] Run `pnpm test` — must pass before task 6. (Only the pre-existing TZ-environment-dependent failure in `health.dexie-hydration.test.js` remains; same failure observed before any Task 5 changes, see Task 3 / Task 4 progress notes.)
 
 ### Task 6: Verify acceptance criteria
 
