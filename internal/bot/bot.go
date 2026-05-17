@@ -175,6 +175,13 @@ func (b *Bot) SetTZLifecycle(svc tzreschedule.LifecycleService) {
 	b.tzLifecycle = svc
 }
 
+// getFeatureFlags returns a best-effort snapshot of section flags for
+// message routing and /help. A transient read failure on one flag must
+// not affect the others: a stale default on the failing flag beats
+// silently zero-ing every flag read after it (which would mis-route or
+// hide unrelated commands). Callers whose correctness depends on an
+// accurate full snapshot (registerCommands, which updates Telegram's
+// persistent menu and a watcher cursor) use loadFeatureFlags instead.
 func (b *Bot) getFeatureFlags(ctx context.Context) featureFlags {
 	flags := featureFlags{
 		Medication:    true,
@@ -203,6 +210,50 @@ func (b *Bot) getFeatureFlags(ctx context.Context) featureFlags {
 	}
 
 	return flags
+}
+
+// loadFeatureFlags reads every section flag from the settings repo and
+// surfaces the first error encountered. registerCommands uses this to
+// bail without advancing the watcher cursor when a flag is unreadable,
+// so the next tick retries instead of locking in a defaults-built menu.
+func (b *Bot) loadFeatureFlags(ctx context.Context) (featureFlags, error) {
+	flags := featureFlags{
+		Medication:    true,
+		BP:            true,
+		Weight:        true,
+		Workout:       true,
+		Food:          false,
+		HasActivityAI: b.activityAI != nil,
+		HasFoodAI:     b.foodAI != nil,
+	}
+
+	v, err := b.meds.GetMedicationEnabled(ctx)
+	if err != nil {
+		return flags, fmt.Errorf("read medication flag: %w", err)
+	}
+	flags.Medication = v
+	v, err = b.bp.GetBloodPressureEnabled(ctx)
+	if err != nil {
+		return flags, fmt.Errorf("read bp flag: %w", err)
+	}
+	flags.BP = v
+	v, err = b.weight.GetWeightEnabled(ctx)
+	if err != nil {
+		return flags, fmt.Errorf("read weight flag: %w", err)
+	}
+	flags.Weight = v
+	v, err = b.workouts.GetWorkoutEnabled(ctx)
+	if err != nil {
+		return flags, fmt.Errorf("read workout flag: %w", err)
+	}
+	flags.Workout = v
+	v, err = b.food.GetFoodIntakeEnabled(ctx)
+	if err != nil {
+		return flags, fmt.Errorf("read food flag: %w", err)
+	}
+	flags.Food = v
+
+	return flags, nil
 }
 
 func (b *Bot) buildHelpText(flags featureFlags) string {

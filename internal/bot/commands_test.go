@@ -3,9 +3,11 @@ package bot
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/url"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -560,6 +562,110 @@ func TestBot_WatchSettingsChanges_ReregistersOnFlagToggle(t *testing.T) {
 			t.Errorf("expected %q present in setMyCommands body after BP toggle off, got: %v", name, sortedKeys(boolMap(got)))
 		}
 	}
+}
+
+func TestBot_WatchSettingsChanges_RetriesAfterTransientFailure(t *testing.T) {
+	// First setMyCommands POST returns Telegram's not-ok shape; subsequent
+	// calls succeed. The watcher MUST retry on the next tick rather than
+	// silently dropping the settings event when registerCommands fails —
+	// otherwise the menu can stay stale until another unrelated change.
+	var setMyCommandsCalls atomic.Int32
+	env := setupBotTestCustom(t, func(path, body string) string {
+		if strings.Contains(path, "setMyCommands") {
+			if setMyCommandsCalls.Add(1) == 1 {
+				return `{"ok":false, "error_code":500, "description":"transient"}`
+			}
+			return `{"ok":true, "result":true}`
+		}
+		return `{"ok":true, "result": {"message_id": 123, "chat": {"id": 123}}}`
+	})
+	defer env.teardown()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	startCursor, err := env.s.Settings.GetLatestChangeCursor(ctx)
+	if err != nil {
+		t.Fatalf("read start cursor: %v", err)
+	}
+	go env.b.pollSettingsChanges(ctx, 20*time.Millisecond, startCursor)
+
+	if err := env.s.Settings.SetBloodPressureEnabled(ctx, false); err != nil {
+		t.Fatalf("disable BP: %v", err)
+	}
+
+	// Drain the failed POST, then assert the watcher retries with the same
+	// filtered list — proves cursor was not advanced past the settings event.
+	first := drainSetMyCommands(t, env.requestChan, time.Second)
+	if _, ok := commandMap(first)["bp"]; ok {
+		t.Errorf("expected BP absent from first setMyCommands body, got: %v", sortedKeys(boolMap(commandMap(first))))
+	}
+	second := drainSetMyCommands(t, env.requestChan, time.Second)
+	if _, ok := commandMap(second)["bp"]; ok {
+		t.Errorf("expected BP absent from retry setMyCommands body, got: %v", sortedKeys(boolMap(commandMap(second))))
+	}
+	if got := setMyCommandsCalls.Load(); got < 2 {
+		t.Errorf("expected at least 2 setMyCommands calls (initial + retry), got %d", got)
+	}
+}
+
+// failingBPStore wraps a BloodPressureStore and forces GetBloodPressureEnabled
+// to return an error for the first N reads. The watcher must treat that as a
+// reason to hold the change_events cursor — a defaults-built command list would
+// otherwise be POSTed and the next tick would miss the (still pending) settings
+// event entirely.
+type failingBPStore struct {
+	BloodPressureStore
+	failures atomic.Int32
+}
+
+func (f *failingBPStore) GetBloodPressureEnabled(ctx context.Context) (bool, error) {
+	if f.failures.Add(-1) >= 0 {
+		return false, errors.New("transient")
+	}
+	return f.BloodPressureStore.GetBloodPressureEnabled(ctx)
+}
+
+func TestBot_RegisterCommands_HoldsCursorOnFlagReadError(t *testing.T) {
+	// Simulate a transient settings-read failure: the first attempt fails, so
+	// registerCommands must return an error. pollSettingsChanges then keeps
+	// the cursor at the settings event and retries on the next tick. Once
+	// the underlying read recovers, the menu reaches the correct state.
+	env := setupBotTest(t)
+	defer env.teardown()
+
+	bp := &failingBPStore{BloodPressureStore: env.b.bp}
+	bp.failures.Store(1)
+	env.b.bp = bp
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	startCursor, err := env.s.Settings.GetLatestChangeCursor(ctx)
+	if err != nil {
+		t.Fatalf("read start cursor: %v", err)
+	}
+	go env.b.pollSettingsChanges(ctx, 20*time.Millisecond, startCursor)
+
+	if err := env.s.Settings.SetBloodPressureEnabled(ctx, false); err != nil {
+		t.Fatalf("disable BP: %v", err)
+	}
+
+	cmds := drainSetMyCommands(t, env.requestChan, time.Second)
+	if _, ok := commandMap(cmds)["bp"]; ok {
+		t.Errorf("expected BP absent from setMyCommands body after retry, got: %v", sortedKeys(boolMap(commandMap(cmds))))
+	}
+	if bp.failures.Load() != -1 {
+		t.Errorf("expected exactly one failed flag read, got remaining counter %d", bp.failures.Load())
+	}
+}
+
+func commandMap(cmds []tgbotapi.BotCommand) map[string]string {
+	out := make(map[string]string, len(cmds))
+	for _, c := range cmds {
+		out[c.Command] = c.Description
+	}
+	return out
 }
 
 func TestBot_WatchSettingsChanges_ExitsOnContextCancel(t *testing.T) {
