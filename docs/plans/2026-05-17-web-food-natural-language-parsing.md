@@ -78,14 +78,14 @@ Dependencies: `OPENAI_API_KEY` (existing env; no new config needed — same `Foo
 
 ### Task 4: Frontend modal — "Parse with AI" mode
 
-- [ ] In `web/static/index.html` `#food-modal` (around line 987-1080): add a checkbox `<input type="checkbox" id="food-parse-ai">` with label "Parse my meal from a description" near the top of the body, plus a wrapper class (e.g. `wg-food-modal--ai-mode`) toggled on the modal root.
-- [ ] In `web/static/css/` food-modal stylesheet, add `.wg-food-modal--ai-mode` rules that: hide weight/barcode/macros/per-100g rows, change the `#food-name` label to read "Describe your meal" (use a `data-ai-label` attribute or a sibling label element rather than DOM swapping), and expand the input to a multi-line affordance (textarea-like sizing). No inline styles.
-- [ ] In `web/static/js/features/food/log.js` `saveFoodLog()` (line ~370): branch on `#food-parse-ai.checked`. If checked: POST `{description: nameField.value, eaten_at}` to `/api/food/log/from-description`; on success, call `showFoodPhotoSummary({ items: response.logs, onUndo: () => undoFoodAIItems(response.logs, summaryHandle) })` mirroring the photo flow at `photo.js:231-251`. If unchecked: existing behavior unchanged.
-- [ ] Invalidate the same caches the photo flow does (`cachedFetch` keys for food log / today summary) after a successful AI parse — copy the invalidation lines from `photo.js` rather than re-deriving them.
-- [ ] Wire checkbox change handler to toggle the wrapper class and clear/reset macro/weight values when entering AI mode so they aren't persisted from a prior open.
-- [ ] Ensure the existing autocomplete on `#food-name` is suppressed when AI mode is active (do not call the search endpoint with a long meal description).
-- [ ] No new `window.*` globals (per CLAUDE.md rule 4).
-- [ ] Run `pnpm test` — must pass before task 5.
+- [x] In `web/static/index.html` `#food-modal` (around line 987-1080): add a checkbox `<input type="checkbox" id="food-parse-ai">` with label "Parse my meal from a description" near the top of the body, plus a wrapper class (e.g. `wg-food-modal--ai-mode`) toggled on the modal root.
+- [x] In `web/static/css/` food-modal stylesheet, add `.wg-food-modal--ai-mode` rules that: hide weight/barcode/macros/per-100g rows, change the `#food-name` label to read "Describe your meal" (use a `data-ai-label` attribute or a sibling label element rather than DOM swapping), and expand the input to a multi-line affordance (textarea-like sizing). No inline styles.
+- [x] In `web/static/js/features/food/log.js` `saveFoodLog()` (line ~370): branch on `#food-parse-ai.checked`. If checked: POST `{description: nameField.value, eaten_at}` to `/api/food/log/from-description`; on success, call `showFoodPhotoSummary({ items: response.logs, onUndo: () => undoFoodAIItems(response.logs, summaryHandle) })` mirroring the photo flow at `photo.js:231-251`. If unchecked: existing behavior unchanged.
+- [x] Invalidate the same caches the photo flow does (`cachedFetch` keys for food log / today summary) after a successful AI parse — copy the invalidation lines from `photo.js` rather than re-deriving them.
+- [x] Wire checkbox change handler to toggle the wrapper class and clear/reset macro/weight values when entering AI mode so they aren't persisted from a prior open.
+- [x] Ensure the existing autocomplete on `#food-name` is suppressed when AI mode is active (do not call the search endpoint with a long meal description).
+- [x] No new `window.*` globals (per CLAUDE.md rule 4).
+- [x] Run `pnpm test` — must pass before task 5. (Only the pre-existing TZ-environment-dependent failure in `health.dexie-hydration.test.js` remains; same failure observed before any Task 4 changes, see Task 3 progress note.)
 
 ### Task 5: Frontend tests
 
