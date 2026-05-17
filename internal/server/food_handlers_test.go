@@ -954,6 +954,98 @@ func TestHandleCreateFoodLogFromDescription_MalformedJSON(t *testing.T) {
 	}
 }
 
+// TestHandleCreateFoodLogFromDescription_InvalidEatenAt verifies the handler
+// rejects a non-empty but unparseable eaten_at with 400 rather than silently
+// falling back to time.Now(). MCP/API callers that send a malformed timestamp
+// should get a clear error, not a meal logged at the wrong time.
+func TestHandleCreateFoodLogFromDescription_InvalidEatenAt(t *testing.T) {
+	srv, db := createFoodTestServer(t)
+	defer db.Close()
+
+	if err := db.Settings.SetFoodIntakeEnabled(context.Background(), true); err != nil {
+		t.Fatalf("SetFoodIntakeEnabled: %v", err)
+	}
+
+	srv.SetFoodAIService(&stubFoodAI{descLogs: []domain.FoodLog{{Name: "X", Weight: 1}}})
+
+	body, _ := json.Marshal(map[string]string{
+		"description": "an apple",
+		"eaten_at":    "not-a-real-timestamp",
+	})
+	req := httptest.NewRequest("POST", "/api/food/log/from-description", bytes.NewReader(body))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleCreateFoodLogFromDescription(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Expected 400, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	// Nothing should have been persisted.
+	logs, err := db.Food.ListLogs(context.Background(), 123456, time.Now(), 1)
+	if err != nil {
+		t.Fatalf("ListLogs: %v", err)
+	}
+	if len(logs) != 0 {
+		t.Errorf("expected no persisted logs on validation failure, got %d", len(logs))
+	}
+}
+
+// TestHandleCreateFoodLogFromPhoto_InvalidEatenAt mirrors the description-handler
+// test above: a non-empty unparseable eaten_at must return 400 rather than
+// silently substituting time.Now().
+func TestHandleCreateFoodLogFromPhoto_InvalidEatenAt(t *testing.T) {
+	srv, db := createFoodTestServer(t)
+	defer db.Close()
+
+	if err := db.Settings.SetFoodIntakeEnabled(context.Background(), true); err != nil {
+		t.Fatalf("SetFoodIntakeEnabled: %v", err)
+	}
+
+	srv.SetFoodAIService(&stubFoodAI{
+		photoLogs: []domain.FoodLog{{Name: "Apple", Weight: 150}},
+	})
+
+	body := &bytes.Buffer{}
+	mw := multipart.NewWriter(body)
+	hdr := make(textproto.MIMEHeader)
+	hdr.Set("Content-Disposition", `form-data; name="image"; filename="meal.jpg"`)
+	hdr.Set("Content-Type", "image/jpeg")
+	part, err := mw.CreatePart(hdr)
+	if err != nil {
+		t.Fatalf("CreatePart: %v", err)
+	}
+	if _, err := part.Write([]byte("fake-jpeg-bytes")); err != nil {
+		t.Fatalf("write part: %v", err)
+	}
+	if err := mw.WriteField("eaten_at", "not-a-real-timestamp"); err != nil {
+		t.Fatalf("WriteField: %v", err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
+
+	req := httptest.NewRequest("POST", "/api/food/log/from-photo", body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleCreateFoodLogFromPhoto(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Expected 400, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	logs, err := db.Food.ListLogs(context.Background(), 123456, time.Now(), 1)
+	if err != nil {
+		t.Fatalf("ListLogs: %v", err)
+	}
+	if len(logs) != 0 {
+		t.Errorf("expected no persisted logs on validation failure, got %d", len(logs))
+	}
+}
+
 // TestHandleCreateFoodLogFromDescription_MissingDescription verifies the
 // handler rejects an empty/whitespace-only description with 400.
 func TestHandleCreateFoodLogFromDescription_MissingDescription(t *testing.T) {

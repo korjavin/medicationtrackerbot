@@ -47,12 +47,12 @@ const ALLOWED = new Map([
         "style.setProperty on a neutral CSS custom property (--fill-pct) — CSS class reads it via width: var(--fill-pct, 0%); no hardcoded visual value lives in JS",
     ],
     [
-        'web/static/js/features/food/log.js:1168',
-        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS. Line shifted by the Plan 2026-05-17 AI-mode helpers added above it.",
+        'web/static/js/features/food/log.js:1191',
+        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS. Line shifted by the codex round-3 fix cancelling in-flight food searches when entering AI mode.",
     ],
     [
-        'web/static/js/features/food/log.js:1169',
-        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS. Line shifted by the Plan 2026-05-17 AI-mode helpers added above it.",
+        'web/static/js/features/food/log.js:1192',
+        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS. Line shifted by the codex round-3 fix cancelling in-flight food searches when entering AI mode.",
     ],
     [
         'web/static/js/features/meds.js:83',
