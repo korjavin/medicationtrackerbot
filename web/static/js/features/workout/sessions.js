@@ -626,6 +626,13 @@ async function saveWorkoutSessionDetails() {
 // ====================================
 
 async function startAdHocWorkout() {
+    // Optimistic cache projection: clear `workout_next` so the rest-day card
+    // doesn't keep rendering "Start ad-hoc" while the POST is in flight; the
+    // server response replaces the cache with the actual new session.
+    const nextHandle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+        ? await window.DataStore.applyOptimistic('workout_next', () => ({ session: null }), ['workout'])
+        : null;
+
     try {
         // Create ad-hoc workout session via API
         const result = await apiCall('/api/workout/sessions/adhoc', 'POST');
@@ -634,13 +641,15 @@ async function startAdHocWorkout() {
             // Immediately open the session modal to start logging exercises
             await showWorkoutSessionModal(result.session.id);
 
-            // Refresh the next workout card
+            if (nextHandle) await nextHandle.commit({ session: result.session });
             await invalidateWorkoutCache();
             await loadNextWorkout();
         } else {
+            if (nextHandle) await nextHandle.rollback();
             safeAlert('Failed to start ad-hoc workout');
         }
     } catch (error) {
+        if (nextHandle) await nextHandle.rollback();
         console.error('Error starting ad-hoc workout:', error);
         safeAlert('Error starting ad-hoc workout: ' + error.message);
     }
@@ -669,17 +678,43 @@ async function startWorkoutSession(sessionId) {
 
 async function completeWorkoutSession(sessionId) {
     await safeConfirm('Finish this workout now? It will be marked as completed.', async (ok) => {
-        if (ok) {
-            try {
-                const result = await apiCall(`/api/workout/sessions/status?id=${sessionId}`, 'PUT', { status: 'completed' });
-                if (result === null) return;
-                await invalidateWorkoutCache();
-                loadNextWorkout();
-                loadWorkoutHistoryTab(); // Refresh history if visible
-            } catch (e) {
-                console.error(e);
-                safeAlert('Failed to finish workout');
+        if (!ok) return;
+
+        // Optimistic cache projection: flip the cached session.status in
+        // workout_history so the list repaints immediately, and null out
+        // workout_next so the Today / Workouts subtab card disappears as soon
+        // as the user confirms.
+        const handles = [];
+        if (window.DataStore && typeof window.DataStore.applyOptimistic === 'function') {
+            handles.push(await window.DataStore.applyOptimistic('workout_history', (prev) => {
+                if (!prev || !Array.isArray(prev.sessions)) return prev;
+                const next = { ...prev };
+                next.sessions = prev.sessions.map((s) => {
+                    if (s?.session?.id !== sessionId) return s;
+                    return { ...s, session: { ...s.session, status: 'completed' } };
+                });
+                return next;
+            }, ['workout']));
+            handles.push(await window.DataStore.applyOptimistic('workout_next', (prev) => {
+                if (prev?.session?.id === sessionId) return { session: null };
+                return prev;
+            }, ['workout']));
+        }
+
+        try {
+            const result = await apiCall(`/api/workout/sessions/status?id=${sessionId}`, 'PUT', { status: 'completed' });
+            if (result === null) {
+                for (const h of handles) { try { await h.rollback(); } catch (_) { /* best-effort */ } }
+                return;
             }
+            for (const h of handles) await h.commit(null);
+            await invalidateWorkoutCache();
+            loadNextWorkout();
+            loadWorkoutHistoryTab(); // Refresh history if visible
+        } catch (e) {
+            for (const h of handles) { try { await h.rollback(); } catch (_) { /* best-effort */ } }
+            console.error(e);
+            safeAlert('Failed to finish workout');
         }
     });
 }
@@ -688,12 +723,26 @@ async function preSkipWorkoutSession(sessionId) {
     await safeConfirm('Mark this workout as to-be-skipped? No notification will be sent and it will be automatically skipped at the scheduled time.', async (ok) => {
         if (!ok) return;
 
+        // Optimistic: flip workout_next.session.status to 'pre_skipped' so the
+        // next-card swaps Start/Skip → Cancel Skip without waiting on the POST.
+        const handle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+            ? await window.DataStore.applyOptimistic('workout_next', (prev) => {
+                if (!prev || !prev.session || prev.session.id !== sessionId) return prev;
+                return { ...prev, session: { ...prev.session, status: 'pre_skipped' } };
+            }, ['workout'])
+            : null;
+
         try {
             const result = await apiCall(`/api/workout/sessions/${sessionId}/preskip`, 'POST');
-            if (result === null) return;
+            if (result === null) {
+                if (handle) await handle.rollback();
+                return;
+            }
+            if (handle) await handle.commit(null);
             await invalidateWorkoutCache();
             loadNextWorkout();
         } catch (error) {
+            if (handle) await handle.rollback();
             console.error('Error pre-skipping workout:', error);
             safeAlert('❌ Failed to mark workout as skipped. Please try again.');
         }
@@ -701,12 +750,26 @@ async function preSkipWorkoutSession(sessionId) {
 }
 
 async function cancelPreSkipWorkoutSession(sessionId) {
+    // Optimistic: flip workout_next.session.status back to 'pending' so the
+    // card swaps Cancel Skip → Start/Skip without waiting on the POST.
+    const handle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+        ? await window.DataStore.applyOptimistic('workout_next', (prev) => {
+            if (!prev || !prev.session || prev.session.id !== sessionId) return prev;
+            return { ...prev, session: { ...prev.session, status: 'pending' } };
+        }, ['workout'])
+        : null;
+
     try {
         const result = await apiCall(`/api/workout/sessions/${sessionId}/cancel-preskip`, 'POST');
-        if (result === null) return;
+        if (result === null) {
+            if (handle) await handle.rollback();
+            return;
+        }
+        if (handle) await handle.commit(null);
         await invalidateWorkoutCache();
         loadNextWorkout();
     } catch (error) {
+        if (handle) await handle.rollback();
         console.error('Error cancelling pre-skip:', error);
         safeAlert('❌ Failed to cancel skip. Please try again.');
     }
