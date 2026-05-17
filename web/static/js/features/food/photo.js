@@ -218,6 +218,7 @@ async function uploadFoodPhoto(input) {
 
             const data = await res.json().catch(() => null);
             const items = (data && Array.isArray(data.items)) ? data.items : [];
+            const failed = Math.max(0, Math.trunc(Number(data && data.failed) || 0));
 
             await window.DataStore.invalidateTags(['food']);
             if (typeof todayFoodKey === 'function' && window.DataStore.clearCached) {
@@ -234,11 +235,13 @@ async function uploadFoodPhoto(input) {
                 let summaryHandle;
                 summaryHandle = showFoodPhotoSummary({
                     items,
+                    failed,
                     onUndo: () => undoFoodAIItems(items, summaryHandle),
                 });
             } else {
+                const suffix = failed > 0 ? ` (${failed} failed)` : '';
                 safeAlert(items.length
-                    ? `Logged ${items.length} item${items.length === 1 ? '' : 's'}.`
+                    ? `Logged ${items.length} item${items.length === 1 ? '' : 's'}${suffix}.`
                     : 'Photo logged.');
             }
         } catch (e) {

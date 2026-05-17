@@ -152,6 +152,13 @@ func (s *Server) handleCreateFoodLog(w http.ResponseWriter, r *http.Request) {
 // rejected before the multipart parser consumes the body.
 const maxFoodPhotoBytes = 8 << 20
 
+// maxFoodDescriptionLength caps the natural-language meal description sent to
+// the AI parser. A meal sentence is typically under 500 characters; 4 KiB is
+// more than enough for verbose descriptions and stops a single authenticated
+// caller from burning provider credit (or hitting upstream context limits) by
+// POSTing arbitrarily large strings.
+const maxFoodDescriptionLength = 4096
+
 func (s *Server) handleCreateFoodLogFromPhoto(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
@@ -318,6 +325,10 @@ func (s *Server) handleCreateFoodLogFromDescription(w http.ResponseWriter, r *ht
 	description := strings.TrimSpace(req.Description)
 	if description == "" {
 		http.Error(w, "Description is required", http.StatusBadRequest)
+		return
+	}
+	if len(description) > maxFoodDescriptionLength {
+		http.Error(w, fmt.Sprintf("Description too long: %d bytes (max %d)", len(description), maxFoodDescriptionLength), http.StatusBadRequest)
 		return
 	}
 

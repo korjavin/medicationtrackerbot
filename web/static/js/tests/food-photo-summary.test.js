@@ -110,6 +110,36 @@ describe('showFoodPhotoSummary (friendly food-photo flow, Task 3)', () => {
         expect(title.textContent).toBe('Logged 3 items from description');
     });
 
+    it('header text surfaces failed count when the server saved fewer items than it parsed', () => {
+        // Server returns {items: [2 saved], failed: 1}. The card title must
+        // tell the user that one parsed item silently dropped — otherwise
+        // a partial-save looks identical to a clean save.
+        const { document, window } = env;
+
+        window.showFoodPhotoSummary({
+            items: [SAMPLE_ITEMS[0], SAMPLE_ITEMS[1]],
+            failed: 1,
+            source: 'description',
+            autoDismissMs: 0,
+        });
+
+        const title = document.querySelector('.wg-food-photo-summary__title');
+        expect(title.textContent).toBe('Logged 2 items from description (1 failed)');
+    });
+
+    it('failed=0 does not append a "(0 failed)" suffix', () => {
+        const { document, window } = env;
+
+        window.showFoodPhotoSummary({
+            items: [SAMPLE_ITEMS[0]],
+            failed: 0,
+            autoDismissMs: 0,
+        });
+
+        const title = document.querySelector('.wg-food-photo-summary__title');
+        expect(title.textContent).toBe('Logged 1 item from photo');
+    });
+
     it('Undo button fires onUndo exactly once even on rapid double-click', async () => {
         const { document, window } = env;
         const onUndo = vi.fn().mockResolvedValue(undefined);
