@@ -716,6 +716,10 @@
                 if (typeof handlers.onLogFood === 'function') handlers.onLogFood();
             }));
             added += 1;
+            row.appendChild(renderShortcutTile('barcode', 'Scan food', () => {
+                if (typeof handlers.onScanFood === 'function') handlers.onScanFood();
+            }));
+            added += 1;
             row.appendChild(renderShortcutTile('camera', 'Photo meal', () => {
                 if (typeof handlers.onPhotoMeal === 'function') handlers.onPhotoMeal();
             }));
@@ -997,6 +1001,19 @@
                 window.FoodActions.triggerPhotoPicker();
             }
         });
+        const onScanFood = opts.onScanFood || (() => {
+            if (typeof window === 'undefined') return;
+            if (window.FoodLog && typeof window.FoodLog.openAdd === 'function') {
+                window.FoodLog.openAdd();
+            }
+            if (window.FoodScanner && typeof window.FoodScanner.openFoodScannerModal === 'function') {
+                window.FoodScanner.openFoodScannerModal();
+            } else if (window.ModalManager
+                && window.ModalManager.foodScanner
+                && typeof window.ModalManager.foodScanner.open === 'function') {
+                window.ModalManager.foodScanner.open();
+            }
+        });
 
         root.innerHTML = '';
         root.classList.add('wg-today');
@@ -1054,7 +1071,7 @@
         }
 
         const shortcuts = renderShortcutRow(state, {
-            onLogFood, onPhotoMeal, onAddBp, onAddWeight
+            onLogFood, onScanFood, onPhotoMeal, onAddBp, onAddWeight
         });
         if (shortcuts) { root.appendChild(shortcuts); rendered += 1; }
 
