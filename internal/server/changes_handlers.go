@@ -16,13 +16,15 @@ const (
 	changeStreamKeepaliveInterval = 15 * time.Second
 	changeStreamQueryTimeout      = 2 * time.Second
 	changeStreamMaxSessionAge     = 10 * time.Minute
-	// changeStreamCursorCheckInterval bounds the lag for writes that bypass
-	// notifyOnWriteMiddleware — primarily non-HTTP paths like Telegram bot
-	// callbacks and scheduler intake materialization. All HTTP write routes
-	// (apiMux + external/HMAC ingress on the outer mux) flow through the
-	// middleware and notify within ~50ms; this ticker is a cheap backstop so
-	// non-HTTP writes are still picked up within this interval.
-	changeStreamCursorCheckInterval = 30 * time.Second
+	// changeStreamCursorCheckInterval is a defense-in-depth ticker on each open
+	// SSE stream. The primary mechanism for catching writes that bypass
+	// notifyOnWriteMiddleware (Telegram bot callbacks, scheduler intake
+	// materialization) is now the process-wide tailer goroutine started in
+	// Server.New, which polls change_events every ~200ms and fans out via the
+	// broker. This per-stream backstop only kicks in if the tailer ever stalls
+	// (goroutine deadlock or runtime issue), so 5 minutes is plenty — the cost
+	// is one indexed SELECT per stream per 5 min.
+	changeStreamCursorCheckInterval = 5 * time.Minute
 )
 
 func (s *Server) currentChangeCursor() uint64 {

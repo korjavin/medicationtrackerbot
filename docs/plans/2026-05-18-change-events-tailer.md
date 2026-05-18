@@ -82,10 +82,10 @@ Idempotency: when both the HTTP middleware and the tailer fire `Notify` for the 
 - [x] run `go test ./internal/server/...` — must pass before next task
 
 ### Task 3: Reduce the per-stream backstop ticker
-- [ ] change `changeStreamCursorCheckInterval` in `internal/server/changes_handlers.go:25` from `30 * time.Second` to `5 * time.Minute` (defense-in-depth in case the tailer goroutine ever crashes silently; the comment on that constant should be updated to reflect its new role as a defense-in-depth check, not the primary latency bound)
-- [ ] update the constant's doc comment to mention the tailer is the primary mechanism now
-- [ ] update any existing test that asserts the 30s value (search: `grep -rn "30 \* time.Second" internal/server/`) to reflect the new value or assert behaviorally instead
-- [ ] run `go test ./internal/server/...` — must pass before next task
+- [x] change `changeStreamCursorCheckInterval` in `internal/server/changes_handlers.go:25` from `30 * time.Second` to `5 * time.Minute` (defense-in-depth in case the tailer goroutine ever crashes silently; the comment on that constant should be updated to reflect its new role as a defense-in-depth check, not the primary latency bound)
+- [x] update the constant's doc comment to mention the tailer is the primary mechanism now
+- [x] update any existing test that asserts the 30s value (search: `grep -rn "30 \* time.Second" internal/server/`) to reflect the new value or assert behaviorally instead
+- [x] run `go test ./internal/server/...` — must pass before next task
 
 ### Task 4: Verify acceptance criteria
 - [ ] grep `internal/server/` for any other place that mentions the 30s cursor-check rationale and update the comment
