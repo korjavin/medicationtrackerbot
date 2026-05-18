@@ -21,6 +21,7 @@ func createTestServer(t *testing.T) (*Server, *store.Store) {
 	}
 
 	srv := New(db, "test-token", "test-secret", 123456, OIDCConfig{}, "test-bot", "")
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
 	return srv, db
 }
 

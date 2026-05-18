@@ -58,6 +58,8 @@ type Server struct {
 	health              HealthStore
 	changes             ChangeStore
 	changesBroker       *ChangeBroker
+	tailerCancel        context.CancelFunc
+	tailerDone          chan struct{}
 	push                PushStore
 	miband              MiBandStore
 	notesSvc            domain.NotesService
@@ -267,6 +269,19 @@ func New(s *store.Store, botToken, sessionSecret string, allowedUserID int64, oi
 	srv.tzSuggester = tzsuggestion.NewService(newTZSuggestionSettings(s.Settings, s.TZ), srv.tzPlanStore)
 
 	srv.initOAUTH()
+
+	// Start the process-wide change-events tailer so writes that bypass
+	// notifyOnWriteMiddleware (Telegram bot callbacks, scheduler intake
+	// materialization, any in-process domain-service call) still wake SSE
+	// subscribers within ~200ms instead of the per-stream backstop interval.
+	tailerCtx, cancel := context.WithCancel(context.Background())
+	srv.tailerCancel = cancel
+	srv.tailerDone = make(chan struct{})
+	go func() {
+		defer close(srv.tailerDone)
+		srv.runChangeTailer(tailerCtx)
+	}()
+
 	return srv
 }
 
@@ -712,9 +727,10 @@ func (s *Server) Routes() http.Handler {
 	// External routes (bypass AuthMiddleware). The HMAC-signed agent ingress
 	// paths and the API-key external workout endpoint write to the same tables
 	// that drive the SSE change stream, so they still need to notify the
-	// broker on success — otherwise their writes show up to subscribers only
-	// via the 30s cursor backstop. The bridge endpoint already proxies through
-	// internalMux (which is wrapped) so its writes notify from the inner call.
+	// broker on success — otherwise their writes would only reach subscribers
+	// via the tailer's ~200ms catch-all path instead of within ~50ms. The
+	// bridge endpoint already proxies through internalMux (which is wrapped)
+	// so its writes notify from the inner call.
 	notifyOnWrite := s.notifyOnWriteMiddleware
 	mux.Handle("POST /api/workout/external", notifyOnWrite(http.HandlerFunc(s.externalAPIKeyMiddleware(s.handleExternalWorkout))))
 	mux.HandleFunc("POST /api/mcp-audit", s.handleMCPAudit)

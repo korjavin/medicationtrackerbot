@@ -10,6 +10,18 @@ every subscribed SSE handler within ~50ms. Connected clients on other devices
 see the write almost immediately instead of waiting up to 30s for the next
 poll tick.
 
+Writes that bypass HTTP entirely — Telegram bot callbacks calling domain
+services in-process, scheduler intake materialization, importer runs — are
+caught by a process-wide tailer goroutine (`runChangeTailer`) that polls
+`SELECT MAX(id) FROM change_events` every 200ms and fires
+`changesBroker.Notify(cursor)` whenever the cursor advances. Because the SQL
+triggers from migration 027 populate `change_events` on every watched-table
+mutation regardless of caller, the tailer is the single catch-all path for
+non-HTTP writes — no per-call-site instrumentation needed. The per-stream
+cursor-check ticker remains as a 5-minute defense-in-depth backstop in case
+the tailer goroutine ever stalls; it is no longer the primary latency bound
+for bot/scheduler writes.
+
 The original rejection of SSE — `RST_STREAM` noise on HTTP/2 reverse proxies
 surfacing as `ERR_HTTP2_PROTOCOL_ERROR` and triggering spurious reconnect
 loops — turned out to be a deploy-time only artifact, not a steady-state
