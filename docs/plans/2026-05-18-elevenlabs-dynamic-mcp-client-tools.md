@@ -91,17 +91,17 @@ The end state is a single voice agent code path: the user deletes the ElevenLabs
 - [x] run `go test ./...` — must pass before Task 3.
 
 ### Task 3: Add CORS to MCP server for `APP_DOMAIN` origin
-- [ ] in `internal/mcp/mcp.go` (or a new `internal/mcp/cors.go`), add a small CORS middleware that wraps the `/mcp` and `/sse` handlers. Allowed origin = `APP_DOMAIN` env var (or `MCP_CORS_ORIGIN` override if you want it independent; keep it minimal and reuse `APP_DOMAIN`). Allowed methods: `GET, POST, OPTIONS`. Allowed headers: `Authorization, Content-Type, Mcp-Session-Id` (and any other headers the MCP protocol uses — check Streamable HTTP spec). Max-age 600. Credentials: false (token in Authorization header, not cookies).
-- [ ] handle OPTIONS preflight in the new middleware — short-circuit with 204 + headers, do not pass to OAuth middleware.
-- [ ] wire the CORS middleware in front of `oauth.Middleware` for both `/mcp` and `/sse` routes.
-- [ ] update `docs/environment.md` to note `APP_DOMAIN` is now also read by the MCP server for CORS.
-- [ ] write tests for the CORS middleware:
+- [x] in `internal/mcp/mcp.go` (or a new `internal/mcp/cors.go`), add a small CORS middleware that wraps the `/mcp` and `/sse` handlers. Allowed origin = `APP_DOMAIN` env var (or `MCP_CORS_ORIGIN` override if you want it independent; keep it minimal and reuse `APP_DOMAIN`). Allowed methods: `GET, POST, OPTIONS`. Allowed headers: `Authorization, Content-Type, Mcp-Session-Id` (and any other headers the MCP protocol uses — check Streamable HTTP spec). Max-age 600. Credentials: false (token in Authorization header, not cookies).
+- [x] handle OPTIONS preflight in the new middleware — short-circuit with 204 + headers, do not pass to OAuth middleware.
+- [x] wire the CORS middleware in front of `oauth.Middleware` for both `/mcp` and `/sse` routes.
+- [x] update `docs/environment.md` to note `APP_DOMAIN` is now also read by the MCP server for CORS.
+- [x] write tests for the CORS middleware:
   - OPTIONS preflight with allowed origin → 204 + correct headers
   - OPTIONS preflight with disallowed origin → 403 or no allow headers
   - actual POST with allowed origin → headers present on response
   - empty `APP_DOMAIN` → CORS disabled (no allow headers, preflight passes through to handler 404 or method-not-allowed)
-- [ ] write an integration test that hits `/mcp` with a real Bearer token (using `httptest`) and confirms both CORS headers and OAuth validation are in effect on the same response.
-- [ ] run `go test ./...` — must pass before Task 4.
+- [x] write an integration test that hits `/mcp` with a real Bearer token (using `httptest`) and confirms both CORS headers and OAuth validation are in effect on the same response.
+- [x] run `go test ./...` — must pass before Task 4.
 
 ### Task 4: Frontend — register `mcp_help` + `mcp_execute` client tools at call start
 - [ ] in `web/static/js/features/elevenlabs-call.js`, before the existing `startSession` call, fetch the new session token: `await apiCall('/api/elevenlabs/mcp-session-token', { method: 'POST' })`. Store `{token, mcp_server_url}` in the conversation context.

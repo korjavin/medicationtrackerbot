@@ -73,6 +73,10 @@ type Config struct {
 	ExecutorRunnerScript  string // Absolute path to python/runner/runner.py
 	ExecutorRunnerCwd     string // Working dir passed to python (typically the python/ directory)
 	ExecutorMaxConcurrent int    // Max concurrent runs (default 4)
+	// AppDomain is the origin allowed to call /mcp and /sse from a browser. When
+	// empty, CORS is disabled and cross-origin browser callers are blocked by the
+	// browser's same-origin policy as before. Read from APP_DOMAIN.
+	AppDomain string
 }
 
 // LoadConfigFromEnv loads configuration from environment variables
@@ -138,6 +142,7 @@ func LoadConfigFromEnv() (*Config, error) {
 		ExecutorRunnerCwd:     strings.TrimSpace(os.Getenv("MCP_EXECUTOR_RUNNER_CWD")),
 		ExecutorMaxConcurrent: maxExecConcurrent,
 		NoLegacyMCP:           noLegacyMCP,
+		AppDomain:             strings.TrimSpace(os.Getenv("APP_DOMAIN")),
 	}
 
 	if cfg.AdminPort > 0 && cfg.AdminPort == cfg.Port {
@@ -727,8 +732,13 @@ func (s *Server) Run(ctx context.Context) error {
 		mcpHandler.ServeHTTP(w, r)
 	})
 
-	mux.Handle("/mcp", maxBytesMiddleware)
-	mux.Handle("/mcp/{$}", maxBytesMiddleware)
+	// CORS wraps the OAuth + max-bytes stack so OPTIONS preflights — which
+	// carry no Authorization header — short-circuit without being rejected as
+	// unauthenticated. Allowed origin = AppDomain (APP_DOMAIN env var); empty
+	// disables CORS entirely.
+	mcpCORS := CORSMiddleware(s.config.AppDomain, maxBytesMiddleware)
+	mux.Handle("/mcp", mcpCORS)
+	mux.Handle("/mcp/{$}", mcpCORS)
 
 	// Legacy SSE transport (2024-11-05 spec) at /sse, for clients like
 	// ElevenLabs that haven't moved to Streamable HTTP yet.
@@ -742,8 +752,9 @@ func (s *Server) Run(ctx context.Context) error {
 		sseAuthHandler.ServeHTTP(w, r)
 	})
 
-	mux.Handle("/sse", sseMaxBytes)
-	mux.Handle("/sse/{$}", sseMaxBytes)
+	sseCORS := CORSMiddleware(s.config.AppDomain, sseMaxBytes)
+	mux.Handle("/sse", sseCORS)
+	mux.Handle("/sse/{$}", sseCORS)
 
 	// Health check
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {

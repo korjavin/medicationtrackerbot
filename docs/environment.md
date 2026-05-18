@@ -56,6 +56,7 @@ MCP_MAX_QUERY_DAYS=90
 MCP_AUDIT_ENDPOINT=http://medtracker:8080/api/mcp-audit
 MCP_AUDIT_SECRET=secure-shared-secret
 MCP_ADMIN_PORT=8082             # Admin API for long-lived API tokens; bound to 127.0.0.1 only. 0 disables. Default 8082.
+APP_DOMAIN=https://app.example.com  # Optional. When set, /mcp and /sse return CORS headers for this origin so the browser-side voice agent can register dynamic client tools. Empty disables CORS (default).
 ```
 
 ### Python executor (`mcp_execute` / `mcp_help`)
