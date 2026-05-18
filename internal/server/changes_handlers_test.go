@@ -370,6 +370,91 @@ func TestHandleChangesStreamFanout(t *testing.T) {
 	}
 }
 
+// TestStreamReceivesTelegramLikeWrite covers the tailer-driven catch-all path:
+// a write goes straight to the store (simulating a domain-service call from
+// a Telegram bot callback that bypasses notifyOnWriteMiddleware) without any
+// explicit broker.Notify, and the open SSE stream must still receive the
+// change within a few tailer ticks — NOT the per-stream backstop interval.
+func TestStreamReceivesTelegramLikeWrite(t *testing.T) {
+	srv, db := createGenericTestServer(t)
+	defer db.Close()
+
+	ts, cleanup := streamingTestServer(t, srv, 123456)
+	defer cleanup()
+
+	resp, err := http.Get(ts.URL + "/api/changes/stream?since=0")
+	if err != nil {
+		t.Fatalf("GET stream: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("Expected 200, got %d", resp.StatusCode)
+	}
+
+	reader := bufio.NewReader(resp.Body)
+
+	// Consume the initial frame so we know we're inside the broker-wait loop.
+	if _, err := readSSEFrame(t, reader); err != nil {
+		t.Fatalf("initial frame: %v", err)
+	}
+
+	// Simulate a Telegram-bot-style write that bypasses the HTTP middleware:
+	// call the store directly with no manual broker.Notify. Only the tailer
+	// goroutine started in New() can wake the SSE handler now.
+	ctx := context.Background()
+	bp := &store.BloodPressure{
+		UserID:     123456,
+		MeasuredAt: time.Now(),
+		Systolic:   120,
+		Diastolic:  80,
+	}
+	if _, err := db.BP.CreateReading(ctx, bp); err != nil {
+		t.Fatalf("CreateReading: %v", err)
+	}
+
+	type frameResult struct {
+		frame map[string]any
+		err   error
+	}
+	done := make(chan frameResult, 1)
+	go func() {
+		f, err := readSSEFrame(t, reader)
+		done <- frameResult{frame: f, err: err}
+	}()
+
+	// Tailer ticks at changeTailerInterval (200ms). Give it generous slack
+	// for ticker jitter + scheduler delay, but well below the per-stream
+	// backstop so this test fails fast if the tailer isn't wired in.
+	waitFor := 10 * changeTailerInterval
+	select {
+	case res := <-done:
+		if res.err != nil {
+			t.Fatalf("read tailer frame: %v", res.err)
+		}
+		gotCursor, ok := res.frame["cursor"].(float64)
+		if !ok || int64(gotCursor) <= 0 {
+			t.Errorf("Expected cursor > 0, got %v", res.frame["cursor"])
+		}
+		tags, ok := res.frame["changed_tags"].([]any)
+		if !ok {
+			t.Fatalf("Expected changed_tags array, got %T", res.frame["changed_tags"])
+		}
+		found := false
+		for _, tag := range tags {
+			if tag == "bp" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected 'bp' in changed_tags, got %v", tags)
+		}
+	case <-time.After(waitFor):
+		t.Fatalf("tailer did not deliver SSE frame within %v of a direct-to-store write", waitFor)
+	}
+}
+
 // TestHandleChangesStreamShutdown exercises graceful shutdown: an open stream
 // must exit cleanly when the broker's subscriber channel is closed.
 func TestHandleChangesStreamShutdown(t *testing.T) {

@@ -135,6 +135,7 @@ func TestHandleGetVAPIDPublicKey_Configured(t *testing.T) {
 	defer db.Close()
 
 	srv := New(db, "test-token", "test-secret", 123456, OIDCConfig{}, "test-bot", "BFakeVAPIDPublicKey123")
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
 
 	req := httptest.NewRequest("GET", "/api/webpush/vapid-public-key", nil)
 	req = withUser(req, 123456)
