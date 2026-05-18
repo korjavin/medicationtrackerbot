@@ -18,6 +18,10 @@
 (function () {
     const SDK_URL = 'https://esm.sh/@elevenlabs/client';
 
+    // spike: mcp_help only until production validation;
+    // see docs/plans/2026-05-18-elevenlabs-mcp-help-only-spike.md
+    const MCP_VOICE_ENABLE_EXECUTE = false;
+
     let sdkPromise = null;
     function loadSDK() {
         if (!sdkPromise) {
@@ -187,7 +191,7 @@
     // shared source) — if they drift, the agent will see a different
     // surface than what the server actually accepts.
     function buildClientTools() {
-        return {
+        const tools = {
             mcp_help: {
                 description: "List available backend operations for use in mcp_execute scripts. Filter by topic (one of: 'workouts', 'medications', 'food', 'health'; omit or pass 'all' for the full catalog) or pass operation_id (e.g. 'workouts.groups.list') for a single-entry lookup. operation_id takes precedence over topic when both are passed. Each entry includes params/body schema, return shape, and a Python example. Read-only and safe to call before any write.",
                 parameters: {
@@ -205,7 +209,9 @@
                 },
                 handler: async (args) => invokeMCPTool('mcp_help', args),
             },
-            mcp_execute: {
+        };
+        if (MCP_VOICE_ENABLE_EXECUTE) {
+            tools.mcp_execute = {
                 description: "Run a sandboxed Python script against backend APIs. The script MUST call output(value) exactly once — calling it zero times or more than once aborts the run. Discover operations via mcp_help BEFORE writing the script. For writes, pass mode='write' AND a non-empty intent (a one-sentence human-readable summary of what the script will change, e.g. 'Archive medication Lisinopril'). topic_allowlist (optional) restricts which operation topics the script may access; an empty list means all topics are allowed. Timestamps inside scripts use the user's stored timezone unless an operation accepts an explicit tz/tz_offset. Returns {status, result, error, api_calls, stdout, stderr}.",
                 parameters: {
                     type: 'object',
@@ -240,8 +246,9 @@
                     },
                 },
                 handler: async (args) => invokeMCPTool('mcp_execute', args),
-            },
-        };
+            };
+        }
+        return tools;
     }
 
     let activeConversation = null;
