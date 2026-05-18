@@ -58,6 +58,8 @@ type Server struct {
 	health              HealthStore
 	changes             ChangeStore
 	changesBroker       *ChangeBroker
+	tailerCancel        context.CancelFunc
+	tailerDone          chan struct{}
 	push                PushStore
 	miband              MiBandStore
 	notesSvc            domain.NotesService
@@ -267,6 +269,19 @@ func New(s *store.Store, botToken, sessionSecret string, allowedUserID int64, oi
 	srv.tzSuggester = tzsuggestion.NewService(newTZSuggestionSettings(s.Settings, s.TZ), srv.tzPlanStore)
 
 	srv.initOAUTH()
+
+	// Start the process-wide change-events tailer so writes that bypass
+	// notifyOnWriteMiddleware (Telegram bot callbacks, scheduler intake
+	// materialization, any in-process domain-service call) still wake SSE
+	// subscribers within ~200ms instead of the per-stream backstop interval.
+	tailerCtx, cancel := context.WithCancel(context.Background())
+	srv.tailerCancel = cancel
+	srv.tailerDone = make(chan struct{})
+	go func() {
+		defer close(srv.tailerDone)
+		srv.runChangeTailer(tailerCtx)
+	}()
+
 	return srv
 }
 

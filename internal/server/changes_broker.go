@@ -177,8 +177,26 @@ func (s *Server) notifyOnWriteMiddleware(next http.Handler) http.Handler {
 // cleanly before the HTTP listener is torn down. Safe to call multiple times.
 // The ctx argument is accepted for future symmetry with http.Server.Shutdown;
 // currently the broker close is synchronous and bounded.
+//
+// Shutdown first cancels the change tailer and waits for its goroutine to
+// exit (with a short timeout) so the tailer doesn't race against broker
+// shutdown by issuing a Notify into a closing subscriber map.
 func (s *Server) Shutdown(ctx context.Context) error {
-	if s == nil || s.changesBroker == nil {
+	if s == nil {
+		return nil
+	}
+	if s.tailerCancel != nil {
+		s.tailerCancel()
+		s.tailerCancel = nil
+		if s.tailerDone != nil {
+			select {
+			case <-s.tailerDone:
+			case <-time.After(2 * time.Second):
+				slog.Warn("change tailer did not exit within shutdown timeout")
+			}
+		}
+	}
+	if s.changesBroker == nil {
 		return nil
 	}
 	s.changesBroker.CloseAll()

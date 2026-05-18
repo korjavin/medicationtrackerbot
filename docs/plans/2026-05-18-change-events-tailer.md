@@ -75,11 +75,11 @@ Idempotency: when both the HTTP middleware and the tailer fire `Notify` for the 
 - [x] run `go test ./internal/server/...` — must pass before next task
 
 ### Task 2: Wire tailer into `Server` lifecycle
-- [ ] add `tailerCancel context.CancelFunc` and `tailerDone chan struct{}` fields to `Server` struct in `internal/server/server.go`
-- [ ] in `Server.New` (around line 236, after `changesBroker:   NewChangeBroker(),`), construct a `context.WithCancel(context.Background())`, store the cancel func on `s.tailerCancel`, and `go s.runChangeTailer(ctx)` with a deferred close of `s.tailerDone` inside the goroutine wrapper
-- [ ] in `Server.Shutdown`, call `s.tailerCancel()` BEFORE `s.changesBroker.CloseAll()` and wait on `<-s.tailerDone` (with a short timeout) so the tailer doesn't race against broker shutdown
-- [ ] add an integration test in `changes_handlers_test.go`: write directly to the store, assert an open SSE recorder receives the change within ~600ms (3× the interval) — NOT the 30s backstop
-- [ ] run `go test ./internal/server/...` — must pass before next task
+- [x] add `tailerCancel context.CancelFunc` and `tailerDone chan struct{}` fields to `Server` struct in `internal/server/server.go`
+- [x] in `Server.New` (around line 236, after `changesBroker:   NewChangeBroker(),`), construct a `context.WithCancel(context.Background())`, store the cancel func on `s.tailerCancel`, and `go s.runChangeTailer(ctx)` with a deferred close of `s.tailerDone` inside the goroutine wrapper
+- [x] in `Server.Shutdown`, call `s.tailerCancel()` BEFORE `s.changesBroker.CloseAll()` and wait on `<-s.tailerDone` (with a short timeout) so the tailer doesn't race against broker shutdown
+- [x] add an integration test in `changes_handlers_test.go`: write directly to the store, assert an open SSE recorder receives the change within ~600ms (3× the interval) — NOT the 30s backstop
+- [x] run `go test ./internal/server/...` — must pass before next task
 
 ### Task 3: Reduce the per-stream backstop ticker
 - [ ] change `changeStreamCursorCheckInterval` in `internal/server/changes_handlers.go:25` from `30 * time.Second` to `5 * time.Minute` (defense-in-depth in case the tailer goroutine ever crashes silently; the comment on that constant should be updated to reflect its new role as a defense-in-depth check, not the primary latency bound)
