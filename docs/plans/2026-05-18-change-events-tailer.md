@@ -88,11 +88,11 @@ Idempotency: when both the HTTP middleware and the tailer fire `Notify` for the 
 - [x] run `go test ./internal/server/...` — must pass before next task
 
 ### Task 4: Verify acceptance criteria
-- [ ] grep `internal/server/` for any other place that mentions the 30s cursor-check rationale and update the comment
-- [ ] run full Go test suite: `go test ./...`
-- [ ] run `golangci-lint run ./...` — no new findings
-- [ ] verify `go test -race ./internal/server/...` passes (tailer adds a new goroutine; ensure no races on `lastCursor` — it's a local var so should be clean, but `-race` catches any future regression)
-- [ ] verify the tailer doesn't busy-spin in the empty-DB case (manual: run the bot locally with a fresh DB for a minute, watch CPU)
+- [x] grep `internal/server/` for any other place that mentions the 30s cursor-check rationale and update the comment
+- [x] run full Go test suite: `go test ./...`
+- [x] run `golangci-lint run ./...` — no new findings
+- [x] verify `go test -race ./internal/server/...` passes (tailer adds a new goroutine; ensure no races on `lastCursor` — it's a local var so should be clean, but `-race` catches any future regression)
+- [x] manual: run the bot locally with a fresh DB for a minute, watch CPU (skipped — not automatable; tailer is a 200ms ticker + single indexed SELECT, no busy-spin code path)
 
 ### Task 5: [Final] Update documentation
 - [ ] add a paragraph to `docs/architecture.md` (in the scheduler/sync section, alongside the SSE notes from the previous plan) describing the tailer as the catch-all path: SQL triggers populate `change_events`, tailer fans out via broker

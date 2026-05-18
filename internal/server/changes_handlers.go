@@ -178,9 +178,11 @@ func (s *Server) handleChangesStream(w http.ResponseWriter, r *http.Request) {
 	defer keepalive.Stop()
 	maxAgeTimer := time.NewTimer(changeStreamMaxSessionAge)
 	defer maxAgeTimer.Stop()
-	// Backstop ticker for writes that bypass notifyOnWriteMiddleware
-	// (Telegram bot callbacks, scheduler materialization). The cursor-check
-	// is a single indexed integer SELECT.
+	// Defense-in-depth ticker in case the process-wide change tailer ever
+	// stalls. The tailer (Server.runChangeTailer) is the primary catch for
+	// writes that bypass notifyOnWriteMiddleware (Telegram bot callbacks,
+	// scheduler materialization) and fires on a 200ms cadence; this 5-minute
+	// per-stream check is just a single indexed integer SELECT as insurance.
 	cursorCheck := time.NewTicker(changeStreamCursorCheckInterval)
 	defer cursorCheck.Stop()
 
