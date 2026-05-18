@@ -89,6 +89,8 @@ Pre-loaded at startup, not lazy-resolved per request. Settings changes require r
 
 The request-time env readers (`internal/server/elevenlabs_handlers.go:35-36,102`, `internal/store/food/openfoodfacts_api.go:29-43`) are migrated to read from the injected `*Config` in Phase 1 Task 1 — they're the only handlers that read env at request time rather than startup, and that asymmetry is worth eliminating regardless of mobile.
 
+**ElevenLabs voice agent in mobile mode.** Server mode now wires the agent to the MCP server through **dynamic client tools** registered by the browser at `startSession` time (see [mcp-deployment.md → Voice agent integration](mcp-deployment.md#voice-agent-integration)). That model carries over to mobile-mode unchanged: the same `web/static/js/features/elevenlabs-call.js` runs inside the Capacitor WebView, fetches a short-lived MCP session token from the embedded localhost bot, and registers `mcp_help` + `mcp_execute` as `clientTools`. No native bridge work needed for the tool surface — the SDK and the tool handlers stay browser-side. The mobile MCP target is whatever `mcp_server_url` the mint endpoint returns, which on mobile points at the same localhost bot that minted the token.
+
 ### Scheduler sink interface
 
 `internal/scheduler.ReminderSink` is the seam. Server build's `WebPushSink` continues current behavior. Mobile build's `LocalNotificationSink` is a stub that **does not push** — instead it writes upcoming reminders to a queue, and a new endpoint `GET /api/reminders/upcoming` returns the next N to the frontend, which hands them to `@capacitor/local-notifications`. iOS/Android then fire the notification regardless of app state.

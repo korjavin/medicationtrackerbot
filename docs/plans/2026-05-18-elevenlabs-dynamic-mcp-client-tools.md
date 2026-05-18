@@ -144,11 +144,11 @@ The end state is a single voice agent code path: the user deletes the ElevenLabs
 - [x] verify the long-lived token path still works (regression check) — existing tokens with `expires_at IS NULL` validate normally (`GetTokenByHash` uses `AND (expires_at IS NULL OR expires_at > ?)`; `TestGetTokenByHash*` suite passes).
 
 ### Task 6: [Final] Update documentation
-- [ ] update `docs/environment.md` with a note that `APP_DOMAIN` is now also consumed by the MCP server for CORS allowance.
-- [ ] update `docs/mcp-deployment.md` with a "Voice agent integration" subsection explaining the dynamic client-tools model, the new `/api/elevenlabs/mcp-session-token` endpoint, and the deprecation of the dashboard MCP server config.
-- [ ] add a brief note in `docs/local-mode.md` under the ElevenLabs preservation discussion: confirm the dynamic client-tools approach is now implemented for server mode, and that it carries over to mobile-mode unchanged once the Capacitor wrapper is in place.
-- [ ] update `docs/technical-decisions.md` with the choice of dynamic client tools over the dashboard MCP server config (no shared API token with ElevenLabs, code-as-source-of-truth, per-session scoping).
-- [ ] no test changes.
+- [x] update `docs/environment.md` with a note that `APP_DOMAIN` is now also consumed by the MCP server for CORS allowance.
+- [x] update `docs/mcp-deployment.md` with a "Voice agent integration" subsection explaining the dynamic client-tools model, the new `/api/elevenlabs/mcp-session-token` endpoint, and the deprecation of the dashboard MCP server config.
+- [x] add a brief note in `docs/local-mode.md` under the ElevenLabs preservation discussion: confirm the dynamic client-tools approach is now implemented for server mode, and that it carries over to mobile-mode unchanged once the Capacitor wrapper is in place.
+- [x] update `docs/technical-decisions.md` with the choice of dynamic client tools over the dashboard MCP server config (no shared API token with ElevenLabs, code-as-source-of-truth, per-session scoping).
+- [x] no test changes.
 
 *Note: ralphex automatically moves completed plans to `docs/plans/completed/`*
 

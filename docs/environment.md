@@ -40,8 +40,13 @@ VAPID_SUBJECT=mailto:you@example.com
 
 # ElevenLabs voice agent (optional) — drives the "Call agent" card on Today.
 # Both must be set for the card's call action to succeed; otherwise
-# /api/elevenlabs/signed-url returns 503 and the card surfaces
-# "Voice agent is not configured on this server.".
+# /api/elevenlabs/signed-url and /api/elevenlabs/mcp-session-token return
+# 503 and the card surfaces "Voice agent is not configured on this server.".
+# The mcp-session-token endpoint mints a short-lived (15min) MCP bearer
+# token the browser uses to register dynamic client tools (mcp_help,
+# mcp_execute) at call start — no long-lived token in the ElevenLabs
+# dashboard MCP server config. See docs/mcp-deployment.md "Voice agent
+# integration" for the full flow.
 ELEVENLABS_API_KEY=...
 ELEVENLABS_AGENT_ID=agent_...
 ```

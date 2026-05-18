@@ -57,6 +57,23 @@ The frontend read-resilience helper `cachedFetch` (`web/static/js/cached-fetch.j
 
 After successful sync, records are deleted from IndexedDB rather than kept as "synced" copies. This keeps the local store small and avoids the complexity of bidirectional sync and conflict resolution. The SW cache and `api_cache` in IndexedDB already provide read-only offline access to previously fetched data.
 
+## Why dynamic client tools (not the dashboard MCP server config) for the voice agent
+
+ElevenLabs' SDK offers two ways for an agent to call tools:
+
+1. **Static MCP server config** in the agent's dashboard. The cloud agent holds a long-lived `Authorization: Bearer mcp_…` token and connects directly to `https://mcp.yourdomain.com/mcp`. Tool discovery happens once at dashboard-save time; tool changes require a manual sync between code and dashboard.
+2. **Dynamic client tools** passed in the SDK's `clientTools` option at `startSession`. Tool definitions arrive in the per-call init payload; the SDK invokes them via JS callbacks on the user's device, which forward to whatever backend they like.
+
+We picked option 2 (`internal/server/elevenlabs_handlers.go` mint endpoint + `web/static/js/features/elevenlabs-call.js` registration). Three reasons:
+
+- **No long-lived API token shared with ElevenLabs' cloud.** The browser mints a 15-minute `expires_at`-scoped token per call (`api_tokens.expires_at`, migration 070) and discards it when the call ends. ElevenLabs' systems never see a token that outlives the call — a leak in their config storage exposes nothing reusable.
+- **Code is the source of truth.** Tool descriptions/schemas live in `internal/mcp/mcp.go` (server) and `web/static/js/features/elevenlabs-call.js` (client `buildClientTools`). Adding/changing a tool ships as a single PR — no "remember to update the agent dashboard" failure mode.
+- **Per-session scoping.** The expiry plus the per-session token means tool authority is naturally bounded by call duration. A static config token has no such bound.
+
+Trade-off: token refresh introduces a ~one-RTT latency hit on the 15-minute boundary for marathon calls (frontend retries the failing tool call with a freshly-minted token on 401). Acceptable given the security wins.
+
+The granular tools (`get_blood_pressure`, `workout_log`, …) are not registered as client tools — only `mcp_help` and `mcp_execute` are. Composite agent workflows go through `mcp_execute` and the operation registry. This keeps the SDK-side schema stable: two tools, both with frozen shapes; no enumeration of the registry at runtime.
+
 ## Why vanilla JS instead of a framework
 
 The app is single-user, self-hosted, and runs primarily inside Telegram's WebView. A framework would add bundle size and build complexity for little benefit. The four-layer local-first architecture (SW → IndexedDB → SyncManager → SWR DataStore) is straightforward to implement with vanilla JS and Dexie.js.

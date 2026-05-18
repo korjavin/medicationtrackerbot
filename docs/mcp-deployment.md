@@ -63,6 +63,22 @@ Add a service to your `docker-compose.yml`:
 
 Clients that still use the 2024-11-05 SSE transport (e.g. ElevenLabs) can connect at `https://mcp.yourdomain.com/sse` instead. Same OAuth/api-token auth as `/mcp`. New integrations should prefer Streamable HTTP at `/mcp`.
 
+### Voice agent integration
+
+The Today screen's "Call agent" card uses ElevenLabs' `@elevenlabs/client` SDK with **dynamic client tools** registered at call start, not the dashboard's MCP server config. The flow:
+
+1. User taps "Call agent" → frontend POSTs to `/api/elevenlabs/mcp-session-token` on the bot.
+2. Bot mints an `mcp_<random>` token, hashes it, persists with `name='elevenlabs-voice-session'` and `expires_at = now + 15min` (via `api_tokens.expires_at`).
+3. Frontend receives `{ token, mcp_server_url, expires_at }` and registers `mcp_help` + `mcp_execute` as SDK client tools (`clientTools` option on `startSession`).
+4. The cloud agent invokes those tools by name; the SDK calls the JS handlers on the user's device, which POST JSON-RPC `tools/call` to `${MCP_SERVER_URL}/mcp` with `Authorization: Bearer mcp_<session>`.
+5. The MCP server's OAuth middleware honors `expires_at`, so the token stops working once the call ends (or after 15 min). The frontend refreshes the token on 401 for marathon calls.
+
+For this to work the MCP server returns CORS headers for the browser origin — set `APP_DOMAIN` on the `mcp-server` service to your bot's public URL. Empty `APP_DOMAIN` keeps CORS disabled (default; same-origin-only callers).
+
+The ElevenLabs dashboard MCP server configuration is **no longer needed** after this code lands — delete it from the agent so the only MCP path is the dynamic client tools registered at session start. The long-lived `mcp_*` token you may have created for the dashboard config can be revoked via the admin API. Tool changes now flow through code only; no dashboard sync required.
+
+The only static tools on the agent surface are `mcp_help` and `mcp_execute`. Granular tools (`get_blood_pressure`, `workout_log`, etc.) remain reachable from `mcp_execute` scripts via the operation registry — they are not registered as separate client tools to keep the SDK schema stable.
+
 ### Alternative: local Stdio run
 
 You can also run the binary locally against a local DB copy:
