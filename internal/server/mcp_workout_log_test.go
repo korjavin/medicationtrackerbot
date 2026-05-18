@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -22,6 +23,7 @@ func createMCPWorkoutLogTestServer(t *testing.T, secret string) (*Server, *store
 	}
 	srv := New(db, "test-token", "test-session-secret", 123456, OIDCConfig{}, "test-bot", "")
 	srv.mcpAuditSecret = secret
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
 	return srv, db
 }
 

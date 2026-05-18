@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"os"
 	"testing"
 	"time"
@@ -29,6 +30,7 @@ func TestNew(t *testing.T) {
 	vapidPublicKey := "test-vapid"
 
 	srv := New(db, botToken, sessionSecret, allowedUserID, oidc, botUsername, vapidPublicKey)
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
 
 	if srv == nil {
 		t.Fatal("New returned nil")
@@ -125,6 +127,7 @@ func TestNew_MissingExternalAPIKey(t *testing.T) {
 	os.Unsetenv("EXTERNAL_WORKOUT_API_KEY")
 
 	srv := New(db, "test-bot-token", "test-session-secret", 123456, OIDCConfig{}, "test_bot", "test-vapid")
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
 
 	if srv == nil {
 		t.Fatal("New returned nil")
@@ -148,6 +151,7 @@ func TestNew_CustomEnvVars(t *testing.T) {
 	defer os.Unsetenv("CHANGES_STREAM_MAX_CONN")
 
 	srv := New(db, "test-bot-token", "test-session-secret", 123456, OIDCConfig{}, "test_bot", "test-vapid")
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
 
 	if srv == nil {
 		t.Fatal("New returned nil")
