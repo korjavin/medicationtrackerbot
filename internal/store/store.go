@@ -18,6 +18,10 @@
 //	tz_transition_plans.created_at_unix   (NOT NULL, defaulted to strftime('%s','now'))
 //	tz_transition_plans.notified_at_unix  (nullable)
 //	tz_transition_plans.approved_at_unix  (nullable)
+//	api_tokens.expires_at                 (nullable; NULL = no expiry,
+//	                                       used by the OAuth middleware's
+//	                                       SQL inequality filter so it must
+//	                                       be INTEGER not DATETIME)
 //
 // TestDoseTimeColumnsAreInteger (store_time_invariants_test.go) enforces
 // INTEGER on every name above via PRAGMA table_info, and rejects the legacy

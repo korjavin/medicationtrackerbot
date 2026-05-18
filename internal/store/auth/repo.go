@@ -20,11 +20,15 @@ import (
 // API-token authentication path. The plaintext token is never stored — only
 // its sha256 hash. The plaintext is returned to the caller exactly once when
 // the token is created.
+//
+// ExpiresAt is unix seconds UTC; nil means the token has no expiry (legacy
+// long-lived tokens minted before the elevenlabs voice-session work).
 type APIToken struct {
-	ID         int64        `json:"id"`
-	Name       string       `json:"name"`
-	CreatedAt  time.Time    `json:"created_at"`
-	LastUsedAt sql.NullTime `json:"last_used_at"`
+	ID         int64         `json:"id"`
+	Name       string        `json:"name"`
+	CreatedAt  time.Time     `json:"created_at"`
+	LastUsedAt sql.NullTime  `json:"last_used_at"`
+	ExpiresAt  sql.NullInt64 `json:"expires_at,omitempty"`
 }
 
 // Repo is the api_tokens + used_login_hashes repository. Construct with New;
@@ -49,12 +53,34 @@ func (r *Repo) SetClock(now func() time.Time) {
 	r.now = now
 }
 
-// CreateToken inserts a new token row and returns its id.
+// CreateToken inserts a new token row with no expiry and returns its id.
+// Thin wrapper over CreateTokenWithExpiry for back-compat with the long-lived
+// token path; new callers that need an expiry should use CreateTokenWithExpiry
+// directly.
 func (r *Repo) CreateToken(ctx context.Context, name, tokenHash string) (int64, error) {
+	return r.CreateTokenWithExpiry(ctx, name, tokenHash, nil)
+}
+
+// CreateTokenWithExpiry inserts a new token row with an optional expiry and
+// returns its id. expiresAt is interpreted as a wall-clock instant; the row
+// is persisted as unix seconds UTC (see the dose-time-columns convention in
+// internal/store/store.go). Pass nil for no expiry (the long-lived token path).
+//
+// Sweeps expired rows opportunistically before insert, mirroring the
+// used_login_hashes pattern at repo.go:143. The sweep error is intentionally
+// ignored: it's a best-effort hygiene step, not a correctness invariant —
+// the GetTokenByHash filter is what makes expired tokens unusable.
+func (r *Repo) CreateTokenWithExpiry(ctx context.Context, name, tokenHash string, expiresAt *time.Time) (int64, error) {
+	_, _ = r.db.ExecContext(ctx, `DELETE FROM api_tokens WHERE expires_at IS NOT NULL AND expires_at < ?`, r.now().Unix())
+
+	var expiresAtUnix sql.NullInt64
+	if expiresAt != nil {
+		expiresAtUnix = sql.NullInt64{Int64: expiresAt.UTC().Unix(), Valid: true}
+	}
 	res, err := r.db.ExecContext(
 		ctx,
-		`INSERT INTO api_tokens (name, token_hash) VALUES (?, ?)`,
-		name, tokenHash,
+		`INSERT INTO api_tokens (name, token_hash, expires_at) VALUES (?, ?, ?)`,
+		name, tokenHash, expiresAtUnix,
 	)
 	if err != nil {
 		return 0, err
@@ -62,12 +88,27 @@ func (r *Repo) CreateToken(ctx context.Context, name, tokenHash string) (int64, 
 	return res.LastInsertId()
 }
 
+// DeleteExpiredTokens removes all api_tokens rows whose expires_at is in the
+// past. Returns the number of rows deleted. Safe to call periodically — the
+// sweep is a no-op when nothing is stale.
+func (r *Repo) DeleteExpiredTokens(ctx context.Context) (int64, error) {
+	res, err := r.db.ExecContext(
+		ctx,
+		`DELETE FROM api_tokens WHERE expires_at IS NOT NULL AND expires_at < ?`,
+		r.now().Unix(),
+	)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // ListTokens returns all tokens ordered by id (oldest first). The
 // plaintext token and hash are never included.
 func (r *Repo) ListTokens(ctx context.Context) ([]APIToken, error) {
 	rows, err := r.db.QueryContext(
 		ctx,
-		`SELECT id, name, created_at, last_used_at FROM api_tokens ORDER BY id`,
+		`SELECT id, name, created_at, last_used_at, expires_at FROM api_tokens ORDER BY id`,
 	)
 	if err != nil {
 		return nil, err
@@ -77,7 +118,7 @@ func (r *Repo) ListTokens(ctx context.Context) ([]APIToken, error) {
 	var tokens []APIToken
 	for rows.Next() {
 		var t APIToken
-		if err := rows.Scan(&t.ID, &t.Name, &t.CreatedAt, &t.LastUsedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.Name, &t.CreatedAt, &t.LastUsedAt, &t.ExpiresAt); err != nil {
 			return nil, err
 		}
 		tokens = append(tokens, t)
@@ -105,15 +146,20 @@ func (r *Repo) DeleteToken(ctx context.Context, id int64) error {
 	return nil
 }
 
-// GetTokenByHash looks up a token by its sha256 hash. Returns (nil, nil)
-// when no row matches so the OAuth middleware can cleanly fall through.
+// GetTokenByHash looks up a token by its sha256 hash. Returns (nil, nil) when
+// no row matches OR when the row's expires_at is in the past — the caller
+// (OAuth middleware) treats both as "no valid token" and falls through. The
+// expiry filter is what makes short-lived voice-session tokens stop working
+// at their 15-minute boundary without needing an explicit revoke step.
 func (r *Repo) GetTokenByHash(ctx context.Context, hash string) (*APIToken, error) {
 	var t APIToken
 	err := r.db.QueryRowContext(
 		ctx,
-		`SELECT id, name, created_at, last_used_at FROM api_tokens WHERE token_hash = ?`,
-		hash,
-	).Scan(&t.ID, &t.Name, &t.CreatedAt, &t.LastUsedAt)
+		`SELECT id, name, created_at, last_used_at, expires_at FROM api_tokens
+		 WHERE token_hash = ?
+		   AND (expires_at IS NULL OR expires_at > ?)`,
+		hash, r.now().Unix(),
+	).Scan(&t.ID, &t.Name, &t.CreatedAt, &t.LastUsedAt, &t.ExpiresAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

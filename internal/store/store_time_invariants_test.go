@@ -167,6 +167,17 @@ func TestDoseTimeColumnsAreInteger(t *testing.T) {
 				"approved_at",
 			},
 		},
+		{
+			// api_tokens.expires_at participates in a SQL inequality filter
+			// (GetTokenByHash). Per the dose-time-columns convention, it must
+			// be declared INTEGER unix-seconds-UTC even though the column is
+			// named without the _unix suffix (keeping the used_login_hashes
+			// naming style for the related auth table).
+			table: "api_tokens",
+			required: []string{
+				"expires_at",
+			},
+		},
 	}
 
 	for _, spec := range specs {

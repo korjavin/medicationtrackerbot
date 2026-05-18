@@ -64,14 +64,14 @@ The end state is a single voice agent code path: the user deletes the ElevenLabs
 ## Implementation Steps
 
 ### Task 1: Add `expires_at` to `api_tokens` and teach the auth path to honor it
-- [ ] add goose migration in `internal/store/migrations/` introducing `expires_at INTEGER` column on `api_tokens` (unix seconds UTC, NULL = unlimited). Per CLAUDE.md, this is a timestamp column that participates in equality comparisons, so it must be `INTEGER` unix-seconds-UTC per the dose-time-columns convention — append to the allowlist in `internal/store/store_time_invariants_test.go` and to the package comment in `internal/store/store.go`.
-- [ ] add `CreateTokenWithExpiry(ctx, name, tokenHash, expiresAt *time.Time) (int64, error)` to `internal/store/auth/repo.go`. Keep the existing `CreateToken` as a thin wrapper passing `nil` for expiry (back-compat).
-- [ ] update `GetTokenByHash` in `internal/store/auth/repo.go:114` to filter out expired tokens: add `AND (expires_at IS NULL OR expires_at > ?)` with the current unix timestamp.
-- [ ] add a periodic-sweep helper `DeleteExpiredTokens(ctx) (int64, error)` for hygiene. Wire into the existing periodic job runner if there is one, or call opportunistically from `CreateTokenWithExpiry` (mirror the `used_login_hashes` pattern at `repo.go:143`).
-- [ ] write tests for `CreateTokenWithExpiry`: unlimited (nil expiry), future expiry (valid), past expiry (rejected by GetTokenByHash even though row exists).
-- [ ] write tests for `GetTokenByHash`: with expiry past → not found, with expiry future → found, with expiry NULL → found.
-- [ ] write a test for `DeleteExpiredTokens`: inserts mixed expired/unexpired/null rows, asserts only expired ones are removed.
-- [ ] run `go test ./...` — must pass before Task 2.
+- [x] add goose migration in `internal/store/migrations/` introducing `expires_at INTEGER` column on `api_tokens` (unix seconds UTC, NULL = unlimited). Per CLAUDE.md, this is a timestamp column that participates in equality comparisons, so it must be `INTEGER` unix-seconds-UTC per the dose-time-columns convention — append to the allowlist in `internal/store/store_time_invariants_test.go` and to the package comment in `internal/store/store.go`.
+- [x] add `CreateTokenWithExpiry(ctx, name, tokenHash, expiresAt *time.Time) (int64, error)` to `internal/store/auth/repo.go`. Keep the existing `CreateToken` as a thin wrapper passing `nil` for expiry (back-compat).
+- [x] update `GetTokenByHash` in `internal/store/auth/repo.go:114` to filter out expired tokens: add `AND (expires_at IS NULL OR expires_at > ?)` with the current unix timestamp.
+- [x] add a periodic-sweep helper `DeleteExpiredTokens(ctx) (int64, error)` for hygiene. Wire into the existing periodic job runner if there is one, or call opportunistically from `CreateTokenWithExpiry` (mirror the `used_login_hashes` pattern at `repo.go:143`).
+- [x] write tests for `CreateTokenWithExpiry`: unlimited (nil expiry), future expiry (valid), past expiry (rejected by GetTokenByHash even though row exists).
+- [x] write tests for `GetTokenByHash`: with expiry past → not found, with expiry future → found, with expiry NULL → found.
+- [x] write a test for `DeleteExpiredTokens`: inserts mixed expired/unexpired/null rows, asserts only expired ones are removed.
+- [x] run `go test ./...` — must pass before Task 2.
 
 ### Task 2: Add `POST /api/elevenlabs/mcp-session-token` mint endpoint
 - [ ] add handler `handleElevenLabsMCPSessionToken` in `internal/server/elevenlabs_handlers.go`. Behavior:

@@ -204,6 +204,184 @@ func TestGetTokenByHash_MultiRow(t *testing.T) {
 	}
 }
 
+func TestCreateTokenWithExpiry_NilExpiry(t *testing.T) {
+	ctx := context.Background()
+	r := setupAuthRepo(t)
+
+	id, err := r.CreateTokenWithExpiry(ctx, "no-expiry", "h-no-exp", nil)
+	if err != nil {
+		t.Fatalf("CreateTokenWithExpiry: %v", err)
+	}
+	if id <= 0 {
+		t.Fatalf("expected positive id, got %d", id)
+	}
+
+	tok, err := r.GetTokenByHash(ctx, "h-no-exp")
+	if err != nil {
+		t.Fatalf("GetTokenByHash: %v", err)
+	}
+	if tok == nil {
+		t.Fatalf("expected token to be found, got nil")
+	}
+	if tok.ExpiresAt.Valid {
+		t.Errorf("expected ExpiresAt NULL for nil-expiry token, got %d", tok.ExpiresAt.Int64)
+	}
+}
+
+func TestCreateTokenWithExpiry_FutureExpiry(t *testing.T) {
+	ctx := context.Background()
+	r := setupAuthRepo(t)
+
+	expiry := time.Now().Add(15 * time.Minute)
+	id, err := r.CreateTokenWithExpiry(ctx, "future", "h-future", &expiry)
+	if err != nil {
+		t.Fatalf("CreateTokenWithExpiry: %v", err)
+	}
+
+	tok, err := r.GetTokenByHash(ctx, "h-future")
+	if err != nil {
+		t.Fatalf("GetTokenByHash: %v", err)
+	}
+	if tok == nil {
+		t.Fatalf("expected token with future expiry to be found")
+	}
+	if tok.ID != id {
+		t.Errorf("got id=%d, want %d", tok.ID, id)
+	}
+	if !tok.ExpiresAt.Valid {
+		t.Fatalf("expected ExpiresAt populated, got NULL")
+	}
+	if tok.ExpiresAt.Int64 != expiry.UTC().Unix() {
+		t.Errorf("ExpiresAt: got %d, want %d", tok.ExpiresAt.Int64, expiry.UTC().Unix())
+	}
+}
+
+func TestCreateTokenWithExpiry_PastExpiryRejected(t *testing.T) {
+	ctx := context.Background()
+	r := setupAuthRepo(t)
+	// Pin the repo clock so the lazy-sweep in CreateTokenWithExpiry does not
+	// delete the row we are about to insert before GetTokenByHash runs.
+	frozen := time.Now()
+	r.SetClock(func() time.Time { return frozen })
+
+	expiry := frozen.Add(-1 * time.Hour)
+	_, err := r.CreateTokenWithExpiry(ctx, "past", "h-past", &expiry)
+	if err != nil {
+		t.Fatalf("CreateTokenWithExpiry: %v", err)
+	}
+
+	tok, err := r.GetTokenByHash(ctx, "h-past")
+	if err != nil {
+		t.Fatalf("GetTokenByHash: %v", err)
+	}
+	if tok != nil {
+		t.Fatalf("expected nil for past-expiry token, got %+v", tok)
+	}
+}
+
+func TestGetTokenByHash_ExpiryBoundary(t *testing.T) {
+	ctx := context.Background()
+	r := setupAuthRepo(t)
+	frozen := time.Unix(1_700_000_000, 0).UTC()
+	r.SetClock(func() time.Time { return frozen })
+
+	past := frozen.Add(-1 * time.Second)
+	future := frozen.Add(1 * time.Second)
+
+	if _, err := r.CreateTokenWithExpiry(ctx, "past", "h-past-b", &past); err != nil {
+		t.Fatalf("create past: %v", err)
+	}
+	if _, err := r.CreateTokenWithExpiry(ctx, "future", "h-future-b", &future); err != nil {
+		t.Fatalf("create future: %v", err)
+	}
+	if _, err := r.CreateTokenWithExpiry(ctx, "no-expiry", "h-null-b", nil); err != nil {
+		t.Fatalf("create null: %v", err)
+	}
+
+	pastTok, err := r.GetTokenByHash(ctx, "h-past-b")
+	if err != nil {
+		t.Fatalf("get past: %v", err)
+	}
+	if pastTok != nil {
+		t.Errorf("past-expiry token must be filtered out, got %+v", pastTok)
+	}
+
+	futTok, err := r.GetTokenByHash(ctx, "h-future-b")
+	if err != nil {
+		t.Fatalf("get future: %v", err)
+	}
+	if futTok == nil {
+		t.Errorf("future-expiry token must be returned")
+	}
+
+	nullTok, err := r.GetTokenByHash(ctx, "h-null-b")
+	if err != nil {
+		t.Fatalf("get null: %v", err)
+	}
+	if nullTok == nil {
+		t.Errorf("null-expiry token must be returned")
+	}
+}
+
+func TestDeleteExpiredTokens(t *testing.T) {
+	ctx := context.Background()
+	r := setupAuthRepo(t)
+	// Pin the clock in the past while inserting so the lazy sweep in
+	// CreateTokenWithExpiry treats every row as still-fresh; then advance the
+	// clock and exercise the explicit DeleteExpiredTokens path.
+	t0 := time.Unix(1_700_000_000, 0).UTC()
+	r.SetClock(func() time.Time { return t0 })
+
+	soon := t0.Add(1 * time.Minute)
+	later := t0.Add(2 * time.Hour)
+	if _, err := r.CreateTokenWithExpiry(ctx, "soon-1", "h-soon-1", &soon); err != nil {
+		t.Fatalf("create soon-1: %v", err)
+	}
+	if _, err := r.CreateTokenWithExpiry(ctx, "soon-2", "h-soon-2", &soon); err != nil {
+		t.Fatalf("create soon-2: %v", err)
+	}
+	if _, err := r.CreateTokenWithExpiry(ctx, "later", "h-later", &later); err != nil {
+		t.Fatalf("create later: %v", err)
+	}
+	if _, err := r.CreateTokenWithExpiry(ctx, "no-expiry", "h-null-d", nil); err != nil {
+		t.Fatalf("create null: %v", err)
+	}
+
+	// Advance clock past `soon` but before `later`. Now soon-1 and soon-2 are
+	// stale; later and no-expiry must survive.
+	r.SetClock(func() time.Time { return t0.Add(10 * time.Minute) })
+
+	deleted, err := r.DeleteExpiredTokens(ctx)
+	if err != nil {
+		t.Fatalf("DeleteExpiredTokens: %v", err)
+	}
+	if deleted != 2 {
+		t.Errorf("expected 2 rows deleted (soon-1, soon-2), got %d", deleted)
+	}
+
+	remaining, err := r.ListTokens(ctx)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(remaining) != 2 {
+		t.Fatalf("expected 2 tokens remaining, got %d (%+v)", len(remaining), remaining)
+	}
+	for _, tok := range remaining {
+		if tok.Name == "soon-1" || tok.Name == "soon-2" {
+			t.Errorf("expired token %q must have been deleted", tok.Name)
+		}
+	}
+
+	// Second call with nothing newly stale must be a no-op.
+	deleted, err = r.DeleteExpiredTokens(ctx)
+	if err != nil {
+		t.Fatalf("DeleteExpiredTokens second call: %v", err)
+	}
+	if deleted != 0 {
+		t.Errorf("expected 0 rows on second call, got %d", deleted)
+	}
+}
+
 func TestTouchTokenLastUsed(t *testing.T) {
 	ctx := context.Background()
 	r := setupAuthRepo(t)
