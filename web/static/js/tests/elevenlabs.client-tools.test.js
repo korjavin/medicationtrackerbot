@@ -80,9 +80,18 @@ function bootEnv({ apiStub, fetchStub } = {}) {
     window.fetch = fetchStub || makeMCPFetchStub().stub;
 
     const raw = fs.readFileSync(ELEVENLABS_JS, 'utf8');
-    const patched = raw.replace(
-        /sdkPromise = import\(SDK_URL\)\.catch\(\(err\) => \{[\s\S]*?\}\);/,
-        `sdkPromise = Promise.resolve({
+    // Exercise the full tool surface (mcp_help + mcp_execute). The production
+    // default is false during the help-only spike; flipping it here keeps the
+    // schema/handler/POST-shape tests valid as regression coverage for when
+    // the flag flips back on. See docs/plans/2026-05-18-elevenlabs-mcp-help-only-spike.md.
+    const patched = raw
+        .replace(
+            /const MCP_VOICE_ENABLE_EXECUTE = false;/,
+            'const MCP_VOICE_ENABLE_EXECUTE = true;'
+        )
+        .replace(
+            /sdkPromise = import\(SDK_URL\)\.catch\(\(err\) => \{[\s\S]*?\}\);/,
+            `sdkPromise = Promise.resolve({
             Conversation: {
                 startSession: async (opts) => {
                     window.__TEST_CONVERSATION_OPTS__ = opts;
@@ -95,7 +104,7 @@ function bootEnv({ apiStub, fetchStub } = {}) {
                 },
             },
         });`
-    );
+        );
     window.eval(patched);
 
     return {

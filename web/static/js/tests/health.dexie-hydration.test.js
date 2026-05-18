@@ -220,11 +220,12 @@ describe('Health cold-start Dexie hydration (Task 4)', () => {
         setAuthCache(window);
         const currentTzKey = window.healthOverviewCacheKey();
         // Two stale TZ-qualified rows that don't match the current TZ. The
-        // newer one (Europe/Berlin) is what hydration should fall back to.
-        // We pick keys that are guaranteed not to collide with the harness's
-        // current TZ by prefixing with sentinel TZ names.
-        const olderKey = 'health_overview_America/Los_Angeles';
-        const newerKey = 'health_overview_Europe/Berlin';
+        // newer one is what hydration should fall back to. We use Etc/GMT
+        // pseudo-zones because no real developer locale resolves to them, so
+        // these keys are guaranteed not to collide with the harness's current
+        // TZ regardless of the host machine's timezone.
+        const olderKey = 'health_overview_Etc/GMT+12';
+        const newerKey = 'health_overview_Etc/GMT-12';
         // Sanity: harness TZ should not coincide with our sentinel keys.
         expect(currentTzKey).not.toBe(olderKey);
         expect(currentTzKey).not.toBe(newerKey);
