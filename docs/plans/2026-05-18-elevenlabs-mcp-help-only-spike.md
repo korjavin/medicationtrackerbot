@@ -69,8 +69,8 @@ If the spike succeeds, `mcp_execute` is unblocked: re-enable it via the feature 
 - [x] no tests written (spike posture).
 
 ### Task 2: Update documentation to reflect the spike scope
-- [ ] add a short subsection to `docs/local-mode.md` (or `docs/mcp-deployment.md`, wherever the parent plan's "Voice agent integration" doc lives) noting that `mcp_execute` is feature-flagged off pending the production validation spike. Reference this plan file.
-- [ ] no test changes.
+- [x] add a short subsection to `docs/local-mode.md` (or `docs/mcp-deployment.md`, wherever the parent plan's "Voice agent integration" doc lives) noting that `mcp_execute` is feature-flagged off pending the production validation spike. Reference this plan file.
+- [x] no test changes.
 
 *Note: ralphex automatically moves completed plans to `docs/plans/completed/`*
 

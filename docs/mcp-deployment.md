@@ -79,6 +79,16 @@ The ElevenLabs dashboard MCP server configuration is **no longer needed** after 
 
 The only static tools on the agent surface are `mcp_help` and `mcp_execute`. Granular tools (`get_blood_pressure`, `workout_log`, etc.) remain reachable from `mcp_execute` scripts via the operation registry — they are not registered as separate client tools to keep the SDK schema stable.
 
+#### Production validation spike (`mcp_execute` gated off)
+
+`mcp_execute` is currently feature-flagged off in the frontend pending a production validation spike of the dynamic client-tools approach. The flag lives at the top of `web/static/js/features/elevenlabs-call.js`:
+
+```js
+const MCP_VOICE_ENABLE_EXECUTE = false;
+```
+
+While the flag is `false`, `buildClientTools` registers only `mcp_help` with the SDK. The `mcp_execute` handler code remains in place so flipping the flag to `true` re-enables it without further changes. The spike scope and go/no-go criteria are tracked in [`docs/plans/2026-05-18-elevenlabs-mcp-help-only-spike.md`](plans/2026-05-18-elevenlabs-mcp-help-only-spike.md) — once the read-only `mcp_help` path is verified end-to-end in production, `mcp_execute` is unblocked.
+
 ### Alternative: local Stdio run
 
 You can also run the binary locally against a local DB copy:
