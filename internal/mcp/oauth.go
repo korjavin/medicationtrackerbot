@@ -3,9 +3,7 @@ package mcp
 import (
 	"context"
 	"crypto/rsa"
-	"crypto/sha256"
 	"crypto/tls"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -170,8 +168,7 @@ func (h *OAuthHandler) Middleware(next http.Handler) http.Handler {
 				h.sendUnauthorized(w, "invalid token")
 				return
 			}
-			sum := sha256.Sum256([]byte(tokenString))
-			hash := hex.EncodeToString(sum[:])
+			hash := auth.HashToken(tokenString)
 			tok, err := h.tokens.GetTokenByHash(r.Context(), hash)
 			if err != nil {
 				slog.Error("[MCP/OAuth] API token lookup failed", "error", err)
