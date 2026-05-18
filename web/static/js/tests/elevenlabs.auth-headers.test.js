@@ -67,7 +67,12 @@ function bootConversationEnv({ initData = 'init=stub' } = {}) {
     // overwrite that with a stub afterwards so the signed-URL fetch in
     // startCall() does not try to reach an upload-only fetch stub.
     window.eval(fs.readFileSync(CORE_API_JS, 'utf8'));
-    window.apiCallDirect = vi.fn(async () => ({ signed_url: 'wss://stub.example/' }));
+    window.apiCallDirect = vi.fn(async (url) => {
+        if (url === '/api/elevenlabs/mcp-session-token') {
+            return { token: 'mcp_stub', mcp_server_url: 'https://mcp.stub.example', expires_at: Math.floor(Date.now() / 1000) + 900 };
+        }
+        return { signed_url: 'wss://stub.example/' };
+    });
 
     // Replace the dynamic SDK import with a resolved fake (same trick the
     // surrounding features.elevenlabs-call test uses) so startCall()

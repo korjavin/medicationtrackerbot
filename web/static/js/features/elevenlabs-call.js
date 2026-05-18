@@ -51,6 +51,199 @@
         return data.signed_url;
     }
 
+    // Live MCP session state for dynamic client-tool callbacks. The mint
+    // endpoint hands back a short-lived (15-min) Bearer token; if any tool
+    // call returns 401 mid-conversation we refresh once before failing.
+    let mcpSession = null;
+    let toolCallCounter = 0;
+
+    async function fetchMCPSessionToken() {
+        const apiCall = (typeof window.offlineAwareApiCall === 'function')
+            ? window.offlineAwareApiCall
+            : (typeof window.apiCallDirect === 'function' ? window.apiCallDirect : null);
+        if (apiCall) {
+            const data = await apiCall('/api/elevenlabs/mcp-session-token', 'POST');
+            if (!data || !data.token || !data.mcp_server_url) {
+                throw new Error('Response missing token or mcp_server_url');
+            }
+            return data;
+        }
+        const headers = (typeof window.makeAuthHeaders === 'function')
+            ? window.makeAuthHeaders()
+            : undefined;
+        const resp = await fetch('/api/elevenlabs/mcp-session-token', { method: 'POST', headers });
+        if (!resp.ok) {
+            const err = new Error(`Failed to mint MCP session token (${resp.status})`);
+            err.status = resp.status;
+            throw err;
+        }
+        const data = await resp.json();
+        if (!data || !data.token || !data.mcp_server_url) {
+            throw new Error('Response missing token or mcp_server_url');
+        }
+        return data;
+    }
+
+    async function refreshMCPSession() {
+        const data = await fetchMCPSessionToken();
+        mcpSession = {
+            token: data.token,
+            mcpServerUrl: String(data.mcp_server_url || '').replace(/\/$/, ''),
+            expiresAt: typeof data.expires_at === 'number' ? data.expires_at : null,
+        };
+        return mcpSession;
+    }
+
+    // Parse an MCP /mcp response body. The Streamable HTTP transport can
+    // respond with either application/json (a single JSON-RPC envelope) or
+    // text/event-stream (one or more SSE frames, the last `data:` line being
+    // the JSON-RPC envelope). Both are accepted.
+    function parseMCPResponseBody(text) {
+        const trimmed = String(text || '').trim();
+        if (!trimmed) {
+            throw new Error('Empty MCP response');
+        }
+        if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+            return JSON.parse(trimmed);
+        }
+        const dataLines = trimmed.split(/\r?\n/).filter((l) => l.startsWith('data:'));
+        if (dataLines.length === 0) {
+            throw new Error('MCP response missing JSON-RPC envelope');
+        }
+        const last = dataLines[dataLines.length - 1].slice(5).trim();
+        return JSON.parse(last);
+    }
+
+    // POST a JSON-RPC tools/call to the MCP server with the current session
+    // token. On 401, refreshes the token and retries exactly once. Returns
+    // result.content[0].text when the tool returns text content, or the raw
+    // result object otherwise. Throws on JSON-RPC error or HTTP failure.
+    async function callMCPTool(name, args, opts) {
+        const allowRetry = !opts || opts.allowRetry !== false;
+        if (!mcpSession) {
+            throw new Error('MCP session not initialised');
+        }
+        toolCallCounter += 1;
+        const body = {
+            jsonrpc: '2.0',
+            id: toolCallCounter,
+            method: 'tools/call',
+            params: { name, arguments: args || {} },
+        };
+        const resp = await fetch(`${mcpSession.mcpServerUrl}/mcp`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${mcpSession.token}`,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json, text/event-stream',
+            },
+            body: JSON.stringify(body),
+        });
+        if (resp.status === 401 && allowRetry) {
+            await refreshMCPSession();
+            return callMCPTool(name, args, { allowRetry: false });
+        }
+        if (!resp.ok) {
+            const text = await resp.text().catch(() => '');
+            const err = new Error(`MCP tool call failed (${resp.status})${text ? `: ${text}` : ''}`);
+            err.status = resp.status;
+            throw err;
+        }
+        const text = await resp.text();
+        const payload = parseMCPResponseBody(text);
+        if (payload && payload.error) {
+            const err = new Error((payload.error && payload.error.message) || 'MCP tool call error');
+            err.code = payload.error && payload.error.code;
+            throw err;
+        }
+        const result = payload && payload.result;
+        if (result && Array.isArray(result.content) && result.content.length > 0) {
+            const first = result.content[0];
+            if (first && typeof first.text === 'string') {
+                return first.text;
+            }
+        }
+        return result;
+    }
+
+    // Top-level handler invoked by the ElevenLabs SDK. Catches a final 401 (a
+    // refresh-then-retry that also failed) and ends the call gracefully so
+    // the user isn't stranded in a session whose tools no longer work. Other
+    // errors propagate so the agent receives a tool-error response.
+    async function invokeMCPTool(name, args) {
+        try {
+            return await callMCPTool(name, args);
+        } catch (err) {
+            if (err && err.status === 401) {
+                setState('error', 'Voice session expired');
+                endCall().catch(() => { /* ignore */ });
+            }
+            throw err;
+        }
+    }
+
+    // Descriptions and schemas mirror the MCP server's tool registration in
+    // internal/mcp/mcp.go:236-296. Keep them in sync (or migrate to a
+    // shared source) — if they drift, the agent will see a different
+    // surface than what the server actually accepts.
+    function buildClientTools() {
+        return {
+            mcp_help: {
+                description: "List available backend operations for use in mcp_execute scripts. Filter by topic (one of: 'workouts', 'medications', 'food', 'health'; omit or pass 'all' for the full catalog) or pass operation_id (e.g. 'workouts.groups.list') for a single-entry lookup. operation_id takes precedence over topic when both are passed. Each entry includes params/body schema, return shape, and a Python example. Read-only and safe to call before any write.",
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        topic: {
+                            type: 'string',
+                            description: "Domain to filter by (e.g. 'workouts', 'food', 'health'). Omit or pass 'all' for the full catalog.",
+                        },
+                        operation_id: {
+                            type: 'string',
+                            description: "Exact operation ID for a single-entry lookup (e.g. 'workouts.groups.list'). Takes precedence over topic.",
+                        },
+                    },
+                },
+                handler: async (args) => invokeMCPTool('mcp_help', args),
+            },
+            mcp_execute: {
+                description: "Run a sandboxed Python script against backend APIs. The script MUST call output(value) exactly once — calling it zero times or more than once aborts the run. Discover operations via mcp_help BEFORE writing the script. For writes, pass mode='write' AND a non-empty intent (a one-sentence human-readable summary of what the script will change, e.g. 'Archive medication Lisinopril'). topic_allowlist (optional) restricts which operation topics the script may access; an empty list means all topics are allowed. Timestamps inside scripts use the user's stored timezone unless an operation accepts an explicit tz/tz_offset. Returns {status, result, error, api_calls, stdout, stderr}.",
+                parameters: {
+                    type: 'object',
+                    required: ['script'],
+                    properties: {
+                        script: {
+                            type: 'string',
+                            description: 'Python script to execute. Must call output(value) exactly once to record the result.',
+                        },
+                        mode: {
+                            type: 'string',
+                            enum: ['read_only', 'write'],
+                            description: "Execution mode. Defaults to 'read_only'. Write operations require mode='write' and a non-empty intent.",
+                        },
+                        intent: {
+                            type: 'string',
+                            description: "Required when mode='write'. One short human-readable sentence describing the change (e.g. 'Archive medication Lisinopril', 'Log 200kcal lunch'). Recorded in the audit trail.",
+                        },
+                        timeout_ms: {
+                            type: 'integer',
+                            description: 'Wall-clock timeout in milliseconds. Capped by server config (default 30000).',
+                        },
+                        max_api_calls: {
+                            type: 'integer',
+                            description: 'Maximum number of API calls the script may make. Capped by server config (default 100).',
+                        },
+                        topic_allowlist: {
+                            type: 'array',
+                            items: { type: 'string' },
+                            description: "Optional list of topics the script may access (e.g. ['workouts']). Empty means all topics allowed.",
+                        },
+                    },
+                },
+                handler: async (args) => invokeMCPTool('mcp_execute', args),
+            },
+        };
+    }
+
     let activeConversation = null;
     // Live call state tracked outside the DOM so we can restore the correct
     // button text / status when the Today screen re-renders mid-call (sync
@@ -246,6 +439,7 @@
     async function endCall() {
         const conv = activeConversation;
         activeConversation = null;
+        mcpSession = null;
         if (conv && typeof conv.endSession === 'function') {
             try { await conv.endSession(); } catch (_) { /* ignore */ }
         }
@@ -265,15 +459,30 @@
             if (!Conversation || typeof Conversation.startSession !== 'function') {
                 throw new Error('ElevenLabs SDK missing Conversation.startSession');
             }
-            activeConversation = await Conversation.startSession({
+            // Mint a short-lived MCP token + register dynamic client tools
+            // for the agent. Failure is non-fatal: the call still proceeds
+            // (the agent simply won't have mcp_help / mcp_execute as
+            // dynamic tools), so a misconfigured MCP server cannot block
+            // voice calls entirely.
+            let clientTools = null;
+            try {
+                await refreshMCPSession();
+                clientTools = buildClientTools();
+            } catch (err) {
+                console.warn('MCP client tools unavailable:', err && err.message);
+                mcpSession = null;
+            }
+            const sessionOpts = {
                 signedUrl,
                 onConnect: () => setState('in_call', 'Connected'),
                 onDisconnect: () => {
                     activeConversation = null;
+                    mcpSession = null;
                     setState('idle', '');
                 },
                 onError: (err) => {
                     activeConversation = null;
+                    mcpSession = null;
                     const msg = (err && (err.message || err.error)) || 'Call error';
                     setState('error', msg);
                 },
@@ -282,9 +491,14 @@
                     if (mode === 'speaking') setState('in_call', 'Agent speaking…');
                     else if (mode === 'listening') setState('in_call', 'Listening…');
                 },
-            });
+            };
+            if (clientTools) {
+                sessionOpts.clientTools = clientTools;
+            }
+            activeConversation = await Conversation.startSession(sessionOpts);
         } catch (err) {
             activeConversation = null;
+            mcpSession = null;
             const msg = err && err.status === 503
                 ? 'Voice agent is not configured on this server.'
                 : (err && err.message) || 'Failed to start call';
@@ -407,5 +621,10 @@
         toggleMute,
         setMute,
         sendPhoto,
+        // Exposed for unit tests — drives the dynamic MCP client tools.
+        fetchMCPSessionToken,
+        buildClientTools,
+        _getMCPSession: () => mcpSession,
+        _setMCPSession: (s) => { mcpSession = s; },
     };
 })();

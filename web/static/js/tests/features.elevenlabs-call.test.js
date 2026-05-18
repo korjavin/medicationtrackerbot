@@ -36,7 +36,12 @@ function createEnv() {
 
     // The script under test calls fetch() unless window.offlineAwareApiCall
     // or window.apiCallDirect is provided. Provide a stubbable apiCallDirect.
-    window.apiCallDirect = vi.fn(async () => ({ signed_url: 'wss://stub.example/' }));
+    window.apiCallDirect = vi.fn(async (url) => {
+        if (url === '/api/elevenlabs/mcp-session-token') {
+            return { token: 'mcp_stub', mcp_server_url: 'https://mcp.stub.example', expires_at: Math.floor(Date.now() / 1000) + 900 };
+        }
+        return { signed_url: 'wss://stub.example/' };
+    });
 
     window.eval(fs.readFileSync(ELEVENLABS_JS, 'utf8'));
 
@@ -160,7 +165,12 @@ function createConversationEnv({ conv } = {}) {
     // stub so the signed-URL fetch in startCall() does not hit the
     // upload-only fetch stub.
     window.eval(fs.readFileSync(CORE_API_JS, 'utf8'));
-    window.apiCallDirect = vi.fn(async () => ({ signed_url: 'wss://stub.example/' }));
+    window.apiCallDirect = vi.fn(async (url) => {
+        if (url === '/api/elevenlabs/mcp-session-token') {
+            return { token: 'mcp_stub', mcp_server_url: 'https://mcp.stub.example', expires_at: Math.floor(Date.now() / 1000) + 900 };
+        }
+        return { signed_url: 'wss://stub.example/' };
+    });
 
     // Replace import(SDK_URL) with a resolved promise to a fake SDK whose
     // Conversation.startSession returns our injected conversation and

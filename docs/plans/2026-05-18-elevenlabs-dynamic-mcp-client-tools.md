@@ -104,8 +104,8 @@ The end state is a single voice agent code path: the user deletes the ElevenLabs
 - [x] run `go test ./...` — must pass before Task 4.
 
 ### Task 4: Frontend — register `mcp_help` + `mcp_execute` client tools at call start
-- [ ] in `web/static/js/features/elevenlabs-call.js`, before the existing `startSession` call, fetch the new session token: `await apiCall('/api/elevenlabs/mcp-session-token', { method: 'POST' })`. Store `{token, mcp_server_url}` in the conversation context.
-- [ ] define a `buildClientTools({token, mcpServerUrl})` helper (same file, or `web/static/js/features/elevenlabs-mcp-tools.js` if it crowds the file). Returns an object shaped for the SDK:
+- [x] in `web/static/js/features/elevenlabs-call.js`, before the existing `startSession` call, fetch the new session token: `await apiCall('/api/elevenlabs/mcp-session-token', { method: 'POST' })`. Store `{token, mcp_server_url}` in the conversation context.
+- [x] define a `buildClientTools({token, mcpServerUrl})` helper (same file, or `web/static/js/features/elevenlabs-mcp-tools.js` if it crowds the file). Returns an object shaped for the SDK:
   ```js
   {
     mcp_help: {
@@ -122,16 +122,16 @@ The end state is a single voice agent code path: the user deletes the ElevenLabs
     mcp_execute: { /* same shape with code/mode/intent/topic_allowlist */ }
   }
   ```
-- [ ] in each handler, build the JSON-RPC tools/call body: `{ jsonrpc: '2.0', id: <counter>, method: 'tools/call', params: { name: 'mcp_help', arguments: args } }`. POST to `${mcpServerUrl}/mcp` with `Authorization: Bearer <token>` and `Content-Type: application/json`. Parse the JSON-RPC response and return the `result` field (or throw on `error`). The ElevenLabs SDK expects a JSON-serializable return.
-- [ ] pass `clientTools: buildClientTools({...})` into the `startSession` options. Verify by reading the `@elevenlabs/client` ESM build (the SDK already loaded) — option name is `clientTools` on the conversation init.
-- [ ] handle token-expired errors during a long call: if a client-tool POST returns 401, refresh the session token via the mint endpoint and retry once. If still failing, surface a toast and end the call gracefully.
-- [ ] write tests in `web/static/js/tests/elevenlabs.client-tools.test.js`:
+- [x] in each handler, build the JSON-RPC tools/call body: `{ jsonrpc: '2.0', id: <counter>, method: 'tools/call', params: { name: 'mcp_help', arguments: args } }`. POST to `${mcpServerUrl}/mcp` with `Authorization: Bearer <token>` and `Content-Type: application/json`. Parse the JSON-RPC response and return the `result` field (or throw on `error`). The ElevenLabs SDK expects a JSON-serializable return.
+- [x] pass `clientTools: buildClientTools({...})` into the `startSession` options. Verify by reading the `@elevenlabs/client` ESM build (the SDK already loaded) — option name is `clientTools` on the conversation init.
+- [x] handle token-expired errors during a long call: if a client-tool POST returns 401, refresh the session token via the mint endpoint and retry once. If still failing, surface a toast and end the call gracefully.
+- [x] write tests in `web/static/js/tests/elevenlabs.client-tools.test.js`:
   - mock the SDK's `Conversation.startSession`; assert it receives a `clientTools` object with `mcp_help` and `mcp_execute` keys
   - mock fetch; invoke each handler manually with sample args; assert the POST body shape and Authorization header
   - simulate a 401 response → assert one retry happens with a freshly-fetched token
   - simulate a JSON-RPC error response → assert the handler rejects
   - assert no inline `.style.` and no hardcoded colors are added to the UI (architecture test already enforces this, but if any UI is added in this task, it must comply)
-- [ ] run `pnpm test` — must pass before Task 5.
+- [x] run `pnpm test` — must pass before Task 5.
 
 ### Task 5: Verify acceptance criteria
 - [ ] verify `go test ./...` passes (covers Tasks 1–3).
