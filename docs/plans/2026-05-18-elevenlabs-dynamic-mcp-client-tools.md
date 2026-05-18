@@ -134,14 +134,14 @@ The end state is a single voice agent code path: the user deletes the ElevenLabs
 - [x] run `pnpm test` — must pass before Task 5.
 
 ### Task 5: Verify acceptance criteria
-- [ ] verify `go test ./...` passes (covers Tasks 1–3).
-- [ ] verify `pnpm test` passes (covers Task 4).
-- [ ] verify the MCP coverage guard test passes (`TestMCPCoverage_AllRoutesEitherRegisteredOrExempt`) — new endpoint exempt entry is correct.
-- [ ] verify the dose-time-columns invariant test passes — new `api_tokens.expires_at_unix` column (or `expires_at` if we keep the existing naming style of the table) appears in the allowlist.
-- [ ] verify `golangci-lint run ./...` is clean.
-- [ ] verify no inline styles or hardcoded colors in `web/static/js/features/elevenlabs-call.js` or any new frontend file (`tests/architecture.globals.test.js` and the design-token enforcement covers this).
-- [ ] verify CORS preflight + actual POST flow end-to-end via the integration test from Task 3.
-- [ ] verify the long-lived token path still works (regression check) — existing tokens with `expires_at IS NULL` validate normally.
+- [x] verify `go test ./...` passes (covers Tasks 1–3).
+- [x] verify `pnpm test` passes (covers Task 4). Note: one TZ-sentinel test in `health.dexie-hydration.test.js` is host-TZ-flaky (asserts harness TZ ≠ `Europe/Berlin`); confirmed pre-existing and unrelated by re-running with `TZ=UTC` → 214/214 files, 2297 tests pass.
+- [x] verify the MCP coverage guard test passes (`TestMCPCoverage_AllRoutesEitherRegisteredOrExempt`) — new endpoint exempt entry is correct.
+- [x] verify the dose-time-columns invariant test passes — new `api_tokens.expires_at` column appears in the allowlist (subtest `TestDoseTimeColumnsAreInteger/api_tokens` passes).
+- [x] verify `golangci-lint run ./...` is clean.
+- [x] verify no inline styles or hardcoded colors in `web/static/js/features/elevenlabs-call.js` or any new frontend file (`tests/architecture.globals.test.js` passes; no `.style.` assignments present).
+- [x] verify CORS preflight + actual POST flow end-to-end via the integration test from Task 3 (covered by `internal/mcp` tests, all passing).
+- [x] verify the long-lived token path still works (regression check) — existing tokens with `expires_at IS NULL` validate normally (`GetTokenByHash` uses `AND (expires_at IS NULL OR expires_at > ?)`; `TestGetTokenByHash*` suite passes).
 
 ### Task 6: [Final] Update documentation
 - [ ] update `docs/environment.md` with a note that `APP_DOMAIN` is now also consumed by the MCP server for CORS allowance.
