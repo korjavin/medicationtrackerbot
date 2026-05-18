@@ -20,19 +20,13 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
+	"github.com/korjavin/medicationtrackerbot/internal/store/auth"
 )
 
 // ctxKey is a context key type for user info
 type ctxKey string
 
-const (
-	UserSubjectCtxKey ctxKey = "user_subject"
-
-	// APITokenPrefix marks long-lived static API tokens. Bearer values that
-	// begin with this prefix are looked up in the api_tokens table instead of
-	// being parsed as JWTs.
-	APITokenPrefix = "mcp_"
-)
+const UserSubjectCtxKey ctxKey = "user_subject"
 
 // APITokenStore is the subset of the store needed by the OAuth middleware to
 // support long-lived API tokens. Both *store.Store and test fakes implement it.
@@ -170,7 +164,7 @@ func (h *OAuthHandler) Middleware(next http.Handler) http.Handler {
 
 		// API token bypass: a Bearer value with the mcp_ prefix is looked up
 		// in the api_tokens table rather than parsed as a JWT.
-		if strings.HasPrefix(tokenString, APITokenPrefix) {
+		if strings.HasPrefix(tokenString, auth.TokenPrefix) {
 			if h.tokens == nil {
 				slog.Warn("[MCP/OAuth] API token presented but token store is not configured")
 				h.sendUnauthorized(w, "invalid token")

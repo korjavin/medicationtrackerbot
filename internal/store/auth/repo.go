@@ -88,21 +88,6 @@ func (r *Repo) CreateTokenWithExpiry(ctx context.Context, name, tokenHash string
 	return res.LastInsertId()
 }
 
-// DeleteExpiredTokens removes all api_tokens rows whose expires_at is in the
-// past. Returns the number of rows deleted. Safe to call periodically — the
-// sweep is a no-op when nothing is stale.
-func (r *Repo) DeleteExpiredTokens(ctx context.Context) (int64, error) {
-	res, err := r.db.ExecContext(
-		ctx,
-		`DELETE FROM api_tokens WHERE expires_at IS NOT NULL AND expires_at < ?`,
-		r.now().Unix(),
-	)
-	if err != nil {
-		return 0, err
-	}
-	return res.RowsAffected()
-}
-
 // ListTokens returns all tokens ordered by id (oldest first). The
 // plaintext token and hash are never included.
 func (r *Repo) ListTokens(ctx context.Context) ([]APIToken, error) {

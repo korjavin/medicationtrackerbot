@@ -134,12 +134,12 @@ func TestAdminHandler_CreateToken(t *testing.T) {
 	if resp.Name != "ci-bot" {
 		t.Errorf("name = %q, want %q", resp.Name, "ci-bot")
 	}
-	if !strings.HasPrefix(resp.Token, APITokenPrefix) {
-		t.Errorf("token %q lacks prefix %q", resp.Token, APITokenPrefix)
+	if !strings.HasPrefix(resp.Token, auth.TokenPrefix) {
+		t.Errorf("token %q lacks prefix %q", resp.Token, auth.TokenPrefix)
 	}
 	// "mcp_" + 64 hex chars (32 bytes) = 68 chars
 	const tokenRandBytes = 32
-	if want := len(APITokenPrefix) + tokenRandBytes*2; len(resp.Token) != want {
+	if want := len(auth.TokenPrefix) + tokenRandBytes*2; len(resp.Token) != want {
 		t.Errorf("token length = %d, want %d", len(resp.Token), want)
 	}
 
@@ -351,9 +351,9 @@ func TestAdminHandler_ListTokens_NeverIncludesPlaintext(t *testing.T) {
 	if strings.Contains(body, created.Token) {
 		t.Fatalf("list response leaked plaintext token: %s", body)
 	}
-	if strings.Contains(body, APITokenPrefix) {
+	if strings.Contains(body, auth.TokenPrefix) {
 		t.Fatalf("list response contains %q prefix — plaintext leak suspected: %s",
-			APITokenPrefix, body)
+			auth.TokenPrefix, body)
 	}
 }
 

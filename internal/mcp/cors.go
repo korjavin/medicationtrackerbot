@@ -27,8 +27,11 @@ const corsMaxAge = "600"
 // The middleware sits in front of the OAuth middleware so OPTIONS preflights
 // — which carry no Authorization header — short-circuit with 204 instead of
 // being rejected as unauthenticated.
+//
+// A trailing slash on allowedOrigin is stripped so APP_DOMAIN=https://app/
+// matches the browser's Origin header (which never carries a trailing slash).
 func CORSMiddleware(allowedOrigin string, next http.Handler) http.Handler {
-	allowedOrigin = strings.TrimSpace(allowedOrigin)
+	allowedOrigin = strings.TrimRight(strings.TrimSpace(allowedOrigin), "/")
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if allowedOrigin == "" {

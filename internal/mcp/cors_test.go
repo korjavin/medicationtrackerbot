@@ -140,6 +140,25 @@ func TestCORSMiddleware_EmptyAllowedOriginDisablesCORS(t *testing.T) {
 	}
 }
 
+func TestCORSMiddleware_AllowedOriginTrailingSlashNormalized(t *testing.T) {
+	// APP_DOMAIN configured with a trailing slash must still match the
+	// browser's Origin header (which never carries one).
+	next := &fakeNext{body: "ok"}
+	h := CORSMiddleware("https://app.example.com/", next)
+
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{}`))
+	req.Header.Set("Origin", "https://app.example.com")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if !next.called {
+		t.Fatal("trailing-slash origin must still match and pass through")
+	}
+	if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "https://app.example.com" {
+		t.Errorf("Allow-Origin = %q, want https://app.example.com (no trailing slash)", got)
+	}
+}
+
 func TestCORSMiddleware_NoOriginHeader(t *testing.T) {
 	next := &fakeNext{body: "ok"}
 	h := CORSMiddleware("https://app.example.com", next)

@@ -2,9 +2,7 @@ package mcp
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -80,14 +78,13 @@ func (h *AdminHandler) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	plaintext, err := generateAPIToken()
+	plaintext, err := auth.GeneratePlaintextToken()
 	if err != nil {
 		slog.Error("[MCP/Admin] generate token", "error", err)
 		writeJSONError(w, http.StatusInternalServerError, "failed to generate token")
 		return
 	}
-	sum := sha256.Sum256([]byte(plaintext))
-	hash := hex.EncodeToString(sum[:])
+	hash := auth.HashToken(plaintext)
 
 	id, err := h.store.CreateToken(r.Context(), name, hash)
 	if err != nil {
@@ -171,14 +168,6 @@ func isValidAPITokenName(s string) bool {
 		}
 	}
 	return true
-}
-
-// generateAPIToken returns a fresh plaintext token of the form
-// "mcp_" + 32 random bytes hex-encoded (68 chars total). Wraps the shared
-// auth.GeneratePlaintextToken helper so the elevenlabs voice-session mint
-// endpoint and the loopback admin endpoint produce identically-shaped tokens.
-func generateAPIToken() (string, error) {
-	return auth.GeneratePlaintextToken()
 }
 
 func writeJSON(w http.ResponseWriter, status int, body interface{}) {

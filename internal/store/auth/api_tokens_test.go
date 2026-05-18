@@ -323,65 +323,6 @@ func TestGetTokenByHash_ExpiryBoundary(t *testing.T) {
 	}
 }
 
-func TestDeleteExpiredTokens(t *testing.T) {
-	ctx := context.Background()
-	r := setupAuthRepo(t)
-	// Pin the clock in the past while inserting so the lazy sweep in
-	// CreateTokenWithExpiry treats every row as still-fresh; then advance the
-	// clock and exercise the explicit DeleteExpiredTokens path.
-	t0 := time.Unix(1_700_000_000, 0).UTC()
-	r.SetClock(func() time.Time { return t0 })
-
-	soon := t0.Add(1 * time.Minute)
-	later := t0.Add(2 * time.Hour)
-	if _, err := r.CreateTokenWithExpiry(ctx, "soon-1", "h-soon-1", &soon); err != nil {
-		t.Fatalf("create soon-1: %v", err)
-	}
-	if _, err := r.CreateTokenWithExpiry(ctx, "soon-2", "h-soon-2", &soon); err != nil {
-		t.Fatalf("create soon-2: %v", err)
-	}
-	if _, err := r.CreateTokenWithExpiry(ctx, "later", "h-later", &later); err != nil {
-		t.Fatalf("create later: %v", err)
-	}
-	if _, err := r.CreateTokenWithExpiry(ctx, "no-expiry", "h-null-d", nil); err != nil {
-		t.Fatalf("create null: %v", err)
-	}
-
-	// Advance clock past `soon` but before `later`. Now soon-1 and soon-2 are
-	// stale; later and no-expiry must survive.
-	r.SetClock(func() time.Time { return t0.Add(10 * time.Minute) })
-
-	deleted, err := r.DeleteExpiredTokens(ctx)
-	if err != nil {
-		t.Fatalf("DeleteExpiredTokens: %v", err)
-	}
-	if deleted != 2 {
-		t.Errorf("expected 2 rows deleted (soon-1, soon-2), got %d", deleted)
-	}
-
-	remaining, err := r.ListTokens(ctx)
-	if err != nil {
-		t.Fatalf("list: %v", err)
-	}
-	if len(remaining) != 2 {
-		t.Fatalf("expected 2 tokens remaining, got %d (%+v)", len(remaining), remaining)
-	}
-	for _, tok := range remaining {
-		if tok.Name == "soon-1" || tok.Name == "soon-2" {
-			t.Errorf("expired token %q must have been deleted", tok.Name)
-		}
-	}
-
-	// Second call with nothing newly stale must be a no-op.
-	deleted, err = r.DeleteExpiredTokens(ctx)
-	if err != nil {
-		t.Fatalf("DeleteExpiredTokens second call: %v", err)
-	}
-	if deleted != 0 {
-		t.Errorf("expected 0 rows on second call, got %d", deleted)
-	}
-}
-
 func TestTouchTokenLastUsed(t *testing.T) {
 	ctx := context.Background()
 	r := setupAuthRepo(t)

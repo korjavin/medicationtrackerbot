@@ -443,7 +443,12 @@
         if (conv && typeof conv.endSession === 'function') {
             try { await conv.endSession(); } catch (_) { /* ignore */ }
         }
-        setState('idle', '');
+        // Preserve an error state set immediately before teardown (e.g. the
+        // final-401 path in invokeMCPTool) so the failure message remains
+        // visible after the SDK cleanly disconnects.
+        if (activeState !== 'error') {
+            setState('idle', '');
+        }
     }
 
     async function startCall(card) {
@@ -478,7 +483,12 @@
                 onDisconnect: () => {
                     activeConversation = null;
                     mcpSession = null;
-                    setState('idle', '');
+                    // Preserve an error state set just before disconnect (the
+                    // final-401 path in invokeMCPTool) so the SDK's clean
+                    // teardown doesn't bury the failure message.
+                    if (activeState !== 'error') {
+                        setState('idle', '');
+                    }
                 },
                 onError: (err) => {
                     activeConversation = null;
@@ -621,10 +631,5 @@
         toggleMute,
         setMute,
         sendPhoto,
-        // Exposed for unit tests — drives the dynamic MCP client tools.
-        fetchMCPSessionToken,
-        buildClientTools,
-        _getMCPSession: () => mcpSession,
-        _setMCPSession: (s) => { mcpSession = s; },
     };
 })();
