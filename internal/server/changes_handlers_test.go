@@ -374,7 +374,7 @@ func TestHandleChangesStreamFanout(t *testing.T) {
 // a write goes straight to the store (simulating a domain-service call from
 // a Telegram bot callback that bypasses notifyOnWriteMiddleware) without any
 // explicit broker.Notify, and the open SSE stream must still receive the
-// change within a few tailer ticks — NOT the 30s per-stream backstop.
+// change within a few tailer ticks — NOT the per-stream backstop interval.
 func TestStreamReceivesTelegramLikeWrite(t *testing.T) {
 	srv, db := createGenericTestServer(t)
 	defer db.Close()
@@ -424,8 +424,8 @@ func TestStreamReceivesTelegramLikeWrite(t *testing.T) {
 	}()
 
 	// Tailer ticks at changeTailerInterval (200ms). Give it generous slack
-	// for ticker jitter + scheduler delay, but well below the 30s backstop
-	// so this test fails fast if the tailer isn't wired in.
+	// for ticker jitter + scheduler delay, but well below the per-stream
+	// backstop so this test fails fast if the tailer isn't wired in.
 	waitFor := 10 * changeTailerInterval
 	select {
 	case res := <-done:
