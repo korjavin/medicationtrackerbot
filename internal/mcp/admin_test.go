@@ -138,7 +138,8 @@ func TestAdminHandler_CreateToken(t *testing.T) {
 		t.Errorf("token %q lacks prefix %q", resp.Token, APITokenPrefix)
 	}
 	// "mcp_" + 64 hex chars (32 bytes) = 68 chars
-	if want := len(APITokenPrefix) + apiTokenRandBytes*2; len(resp.Token) != want {
+	const tokenRandBytes = 32
+	if want := len(APITokenPrefix) + tokenRandBytes*2; len(resp.Token) != want {
 		t.Errorf("token length = %d, want %d", len(resp.Token), want)
 	}
 

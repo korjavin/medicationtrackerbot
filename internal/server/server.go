@@ -87,6 +87,7 @@ type Server struct {
 	tzPlanStore         TZPlanStore
 	tzLifecycle         tzreschedule.LifecycleService
 	nonces              NonceStore
+	apiTokens           APITokenStore
 	mcpRegistry         MCPRegistry
 	internalMux         http.Handler
 	// now is the injectable clock used by handlers that schedule against
@@ -252,6 +253,7 @@ func New(s *store.Store, botToken, sessionSecret string, allowedUserID int64, oi
 		changeStreamSem: make(chan struct{}, changeStreamMaxConn),
 		externalAPIKey:  os.Getenv("EXTERNAL_WORKOUT_API_KEY"),
 		nonces:          s.Auth,
+		apiTokens:       s.Auth,
 	}
 
 	if srv.externalAPIKey == "" {
@@ -713,6 +715,7 @@ func (s *Server) Routes() http.Handler {
 	// ElevenLabs conversational agent
 	apiMux.HandleFunc("GET /api/elevenlabs/signed-url", s.handleElevenLabsSignedURL)
 	apiMux.HandleFunc("POST /api/elevenlabs/upload-file", s.handleElevenLabsUploadFile)
+	apiMux.HandleFunc("POST /api/elevenlabs/mcp-session-token", s.handleElevenLabsMCPSessionToken)
 
 	apiMux.HandleFunc("GET /api/notes", s.handleListNotes)
 	apiMux.HandleFunc("POST /api/notes", s.handleCreateNote)

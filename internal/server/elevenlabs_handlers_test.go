@@ -9,6 +9,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/korjavin/medicationtrackerbot/internal/store/auth"
 )
 
 func TestHandleElevenLabsSignedURL_NotConfigured(t *testing.T) {
@@ -246,6 +249,175 @@ func TestHandleElevenLabsUploadFile_UpstreamError(t *testing.T) {
 
 	if w.Code != http.StatusBadGateway {
 		t.Fatalf("expected 502, got %d", w.Code)
+	}
+}
+
+func TestHandleElevenLabsMCPSessionToken_NotConfigured(t *testing.T) {
+	cases := []struct {
+		name      string
+		apiKey    string
+		agentID   string
+		mcpURL    string
+		wantCode  int
+		wantInMsg string
+	}{
+		{name: "missing api key", apiKey: "", agentID: "agent_test", mcpURL: "https://mcp.example.com", wantCode: http.StatusServiceUnavailable, wantInMsg: "ElevenLabs"},
+		{name: "missing agent id", apiKey: "test-key", agentID: "", mcpURL: "https://mcp.example.com", wantCode: http.StatusServiceUnavailable, wantInMsg: "ElevenLabs"},
+		{name: "missing both eleven envs", apiKey: "", agentID: "", mcpURL: "https://mcp.example.com", wantCode: http.StatusServiceUnavailable, wantInMsg: "ElevenLabs"},
+		{name: "missing mcp url", apiKey: "test-key", agentID: "agent_test", mcpURL: "", wantCode: http.StatusServiceUnavailable, wantInMsg: "MCP"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, db := createHealthTestServer(t)
+			defer db.Close()
+
+			t.Setenv("ELEVENLABS_API_KEY", tc.apiKey)
+			t.Setenv("ELEVENLABS_AGENT_ID", tc.agentID)
+			t.Setenv("MCP_SERVER_URL", tc.mcpURL)
+
+			req := httptest.NewRequest("POST", "/api/elevenlabs/mcp-session-token", nil)
+			req = withUser(req, 123456)
+			w := httptest.NewRecorder()
+			srv.handleElevenLabsMCPSessionToken(w, req)
+
+			if w.Code != tc.wantCode {
+				t.Fatalf("expected %d, got %d. Body: %s", tc.wantCode, w.Code, w.Body.String())
+			}
+			if !strings.Contains(w.Body.String(), tc.wantInMsg) {
+				t.Errorf("expected body to contain %q, got %q", tc.wantInMsg, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestHandleElevenLabsMCPSessionToken_Unauthenticated(t *testing.T) {
+	srv, db := createHealthTestServer(t)
+	defer db.Close()
+
+	t.Setenv("ELEVENLABS_API_KEY", "test-key")
+	t.Setenv("ELEVENLABS_AGENT_ID", "agent_test")
+	t.Setenv("MCP_SERVER_URL", "https://mcp.example.com")
+
+	// No withUser() — context has no UserCtxKey, mirroring the path a request
+	// would take if AuthMiddleware fell through (defense in depth).
+	req := httptest.NewRequest("POST", "/api/elevenlabs/mcp-session-token", nil)
+	w := httptest.NewRecorder()
+	srv.handleElevenLabsMCPSessionToken(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d. Body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleElevenLabsMCPSessionToken_OK(t *testing.T) {
+	srv, db := createHealthTestServer(t)
+	defer db.Close()
+
+	t.Setenv("ELEVENLABS_API_KEY", "test-key")
+	t.Setenv("ELEVENLABS_AGENT_ID", "agent_test")
+	t.Setenv("MCP_SERVER_URL", "https://mcp.example.com/")
+
+	before := time.Now().UTC()
+
+	req := httptest.NewRequest("POST", "/api/elevenlabs/mcp-session-token", nil)
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+	srv.handleElevenLabsMCPSessionToken(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+	if cc := w.Header().Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("expected Cache-Control: no-store, got %q", cc)
+	}
+
+	var body struct {
+		Token        string `json:"token"`
+		MCPServerURL string `json:"mcp_server_url"`
+		ExpiresAt    int64  `json:"expires_at"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !strings.HasPrefix(body.Token, "mcp_") {
+		t.Errorf("expected token to start with mcp_, got %q", body.Token)
+	}
+	// "mcp_" + 64 hex chars
+	if got := len(body.Token); got != 4+64 {
+		t.Errorf("expected token length 68, got %d", got)
+	}
+	// Trailing slash on MCP_SERVER_URL must be trimmed so the frontend can
+	// safely concatenate "/mcp".
+	if body.MCPServerURL != "https://mcp.example.com" {
+		t.Errorf("expected mcp_server_url trimmed of trailing slash, got %q", body.MCPServerURL)
+	}
+
+	// expires_at lands within ~16 minutes of the call (15 min TTL plus a
+	// generous skew buffer for slow CI runners).
+	wantMin := before.Add(14 * time.Minute).Unix()
+	wantMax := before.Add(16 * time.Minute).Unix()
+	if body.ExpiresAt < wantMin || body.ExpiresAt > wantMax {
+		t.Errorf("expires_at %d outside [%d, %d]", body.ExpiresAt, wantMin, wantMax)
+	}
+
+	// DB row exists with the expected name + expiry, and its hash matches.
+	tokens, err := db.Auth.ListTokens(req.Context())
+	if err != nil {
+		t.Fatalf("ListTokens: %v", err)
+	}
+	if len(tokens) != 1 {
+		t.Fatalf("expected 1 token row, got %d", len(tokens))
+	}
+	tok := tokens[0]
+	if tok.Name != "elevenlabs-voice-session" {
+		t.Errorf("expected name=elevenlabs-voice-session, got %q", tok.Name)
+	}
+	if !tok.ExpiresAt.Valid {
+		t.Fatal("expected ExpiresAt to be set, got NULL")
+	}
+	if tok.ExpiresAt.Int64 != body.ExpiresAt {
+		t.Errorf("DB expires_at=%d, response=%d", tok.ExpiresAt.Int64, body.ExpiresAt)
+	}
+
+	// The stored hash must look up correctly through the same path the OAuth
+	// middleware uses, proving the mint endpoint hashes consistently.
+	got, err := db.Auth.GetTokenByHash(req.Context(), auth.HashToken(body.Token))
+	if err != nil {
+		t.Fatalf("GetTokenByHash: %v", err)
+	}
+	if got == nil || got.ID != tok.ID {
+		t.Errorf("GetTokenByHash returned %+v, want id=%d", got, tok.ID)
+	}
+}
+
+func TestHandleElevenLabsMCPSessionToken_DistinctTokensPerCall(t *testing.T) {
+	srv, db := createHealthTestServer(t)
+	defer db.Close()
+
+	t.Setenv("ELEVENLABS_API_KEY", "test-key")
+	t.Setenv("ELEVENLABS_AGENT_ID", "agent_test")
+	t.Setenv("MCP_SERVER_URL", "https://mcp.example.com")
+
+	mint := func() string {
+		req := httptest.NewRequest("POST", "/api/elevenlabs/mcp-session-token", nil)
+		req = withUser(req, 123456)
+		w := httptest.NewRecorder()
+		srv.handleElevenLabsMCPSessionToken(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d. Body: %s", w.Code, w.Body.String())
+		}
+		var body struct {
+			Token string `json:"token"`
+		}
+		if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		return body.Token
+	}
+
+	a, b := mint(), mint()
+	if a == b {
+		t.Fatalf("expected distinct tokens per call, got duplicates: %q", a)
 	}
 }
 

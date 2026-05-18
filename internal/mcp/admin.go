@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -15,11 +14,11 @@ import (
 	"strings"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store"
+	"github.com/korjavin/medicationtrackerbot/internal/store/auth"
 )
 
 const (
 	maxAPITokenNameLen = 100
-	apiTokenRandBytes  = 32
 )
 
 // AdminStore is the subset of the store needed by the admin API to manage
@@ -175,13 +174,11 @@ func isValidAPITokenName(s string) bool {
 }
 
 // generateAPIToken returns a fresh plaintext token of the form
-// "mcp_" + 32 random bytes hex-encoded (68 chars total).
+// "mcp_" + 32 random bytes hex-encoded (68 chars total). Wraps the shared
+// auth.GeneratePlaintextToken helper so the elevenlabs voice-session mint
+// endpoint and the loopback admin endpoint produce identically-shaped tokens.
 func generateAPIToken() (string, error) {
-	buf := make([]byte, apiTokenRandBytes)
-	if _, err := rand.Read(buf); err != nil {
-		return "", err
-	}
-	return APITokenPrefix + hex.EncodeToString(buf), nil
+	return auth.GeneratePlaintextToken()
 }
 
 func writeJSON(w http.ResponseWriter, status int, body interface{}) {

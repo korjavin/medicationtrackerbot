@@ -228,3 +228,12 @@ type TZPlanStore interface {
 type NonceStore interface {
 	TryUseLoginHash(hash string, expiresAt time.Time) (bool, error)
 }
+
+// APITokenStore is the subset of store operations needed by the ElevenLabs
+// voice-session mint endpoint. Backed by *auth.Repo in production; tests use
+// a small in-memory fake. Tokens persisted here are short-lived (15-min
+// expiry) and are validated by the same OAuth middleware path as long-lived
+// admin-minted tokens.
+type APITokenStore interface {
+	CreateTokenWithExpiry(ctx context.Context, name, tokenHash string, expiresAt *time.Time) (int64, error)
+}

@@ -12,7 +12,16 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/korjavin/medicationtrackerbot/internal/store/auth"
 )
+
+// elevenLabsMCPSessionTokenTTL bounds how long a single voice call can use a
+// minted MCP token before the OAuth middleware's expiry filter starts
+// rejecting it. The frontend handles the boundary by refreshing on 401 and
+// retrying once — see web/static/js/features/elevenlabs-call.js. Trade-off:
+// brief tool-call latency hit on the boundary for marathon calls (>15 min).
+const elevenLabsMCPSessionTokenTTL = 15 * time.Minute
 
 // elevenLabsSignedURLBase is overridable in tests.
 var elevenLabsSignedURLBase = "https://api.elevenlabs.io/v1/convai/conversation/get_signed_url"
@@ -206,6 +215,64 @@ func (s *Server) handleElevenLabsUploadFile(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	if err := json.NewEncoder(w).Encode(map[string]string{"file_id": payload.FileID}); err != nil {
+		slog.Error("encode response", "error", err)
+	}
+}
+
+// handleElevenLabsMCPSessionToken mints a short-lived MCP API token for the
+// browser to use as the Authorization Bearer when the ElevenLabs SDK calls
+// the dynamic `mcp_help` / `mcp_execute` client tools registered at
+// startSession. The plaintext is returned exactly once; only its sha256 hash
+// is persisted in api_tokens with a 15-minute expiry. The OAuth middleware's
+// expires_at filter is what makes the token stop working at the boundary —
+// no explicit revoke is needed.
+//
+// Authentication is enforced by AuthMiddleware mounted in front of /api/ in
+// Routes(); the defensive UserCtxKey nil-check below is a backstop for tests
+// that invoke the handler directly without the middleware chain.
+func (s *Server) handleElevenLabsMCPSessionToken(w http.ResponseWriter, r *http.Request) {
+	apiKey := os.Getenv("ELEVENLABS_API_KEY")
+	agentID := os.Getenv("ELEVENLABS_AGENT_ID")
+	if apiKey == "" || agentID == "" {
+		http.Error(w, "ElevenLabs agent is not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	mcpServerURL := strings.TrimRight(os.Getenv("MCP_SERVER_URL"), "/")
+	if mcpServerURL == "" {
+		http.Error(w, "MCP server is not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	user, _ := r.Context().Value(UserCtxKey).(*TelegramUser)
+	if user == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	plaintext, err := auth.GeneratePlaintextToken()
+	if err != nil {
+		slog.Error("elevenlabs mcp-session-token: generate", "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	hash := auth.HashToken(plaintext)
+	expiresAt := time.Now().Add(elevenLabsMCPSessionTokenTTL).UTC()
+
+	if _, err := s.apiTokens.CreateTokenWithExpiry(r.Context(), "elevenlabs-voice-session", hash, &expiresAt); err != nil {
+		slog.Error("elevenlabs mcp-session-token: persist", "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	resp := map[string]any{
+		"token":          plaintext,
+		"mcp_server_url": mcpServerURL,
+		"expires_at":     expiresAt.Unix(),
+	}
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		slog.Error("encode response", "error", err)
 	}
 }

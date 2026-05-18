@@ -74,21 +74,21 @@ The end state is a single voice agent code path: the user deletes the ElevenLabs
 - [x] run `go test ./...` — must pass before Task 2.
 
 ### Task 2: Add `POST /api/elevenlabs/mcp-session-token` mint endpoint
-- [ ] add handler `handleElevenLabsMCPSessionToken` in `internal/server/elevenlabs_handlers.go`. Behavior:
+- [x] add handler `handleElevenLabsMCPSessionToken` in `internal/server/elevenlabs_handlers.go`. Behavior:
   - require an authenticated user session (use the same auth check the other `/api/...` routes use)
   - return 503 if `ELEVENLABS_API_KEY`/`ELEVENLABS_AGENT_ID` are unset (consistent with `handleElevenLabsSignedURL`)
   - generate a plaintext token via the same generator as `internal/mcp/admin.go:179` (extract to a shared helper in `internal/store/auth/` if not already exposed — `auth.GeneratePlaintextToken()` is a reasonable home)
   - hash, persist with `name = "elevenlabs-voice-session"` and `expires_at = now() + 15min`
   - return JSON `{ "token": "<plaintext>", "mcp_server_url": "<MCP_SERVER_URL>", "expires_at": <unix_seconds> }`
-- [ ] register the route on the bot's `apiMux`. Add an entry to `internal/server/mcp_coverage_exempt.go` with `Reason: "voice session bootstrap; mints short-lived MCP token for SDK client tool callbacks"` — this is exempt because it's transport/auth plumbing, not a domain action.
-- [ ] no inline `os.Getenv` reads — use the same env-config pattern the existing ElevenLabs handlers use (will be `*Config`-injected once the local-mode-foundation plan's Task 1 lands; for now match the existing handler's pattern).
-- [ ] write tests in `internal/server/elevenlabs_handlers_test.go` (create if absent):
+- [x] register the route on the bot's `apiMux`. Add an entry to `internal/server/mcp_coverage_exempt.go` with `Reason: "voice session bootstrap; mints short-lived MCP token for SDK client tool callbacks"` — this is exempt because it's transport/auth plumbing, not a domain action.
+- [x] no inline `os.Getenv` reads — use the same env-config pattern the existing ElevenLabs handlers use (will be `*Config`-injected once the local-mode-foundation plan's Task 1 lands; for now match the existing handler's pattern).
+- [x] write tests in `internal/server/elevenlabs_handlers_test.go` (create if absent):
   - 503 when env unset (table-driven: missing API key, missing agent ID, missing both)
   - 401/403 when unauthenticated
   - 200 with expected JSON shape when authenticated and configured
   - token created in DB has correct name and expires_at within ~16 minutes
   - two successive calls produce different tokens (no caching)
-- [ ] run `go test ./...` — must pass before Task 3.
+- [x] run `go test ./...` — must pass before Task 3.
 
 ### Task 3: Add CORS to MCP server for `APP_DOMAIN` origin
 - [ ] in `internal/mcp/mcp.go` (or a new `internal/mcp/cors.go`), add a small CORS middleware that wraps the `/mcp` and `/sse` handlers. Allowed origin = `APP_DOMAIN` env var (or `MCP_CORS_ORIGIN` override if you want it independent; keep it minimal and reuse `APP_DOMAIN`). Allowed methods: `GET, POST, OPTIONS`. Allowed headers: `Authorization, Content-Type, Mcp-Session-Id` (and any other headers the MCP protocol uses — check Streamable HTTP spec). Max-age 600. Credentials: false (token in Authorization header, not cookies).
