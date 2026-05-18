@@ -95,9 +95,9 @@ Idempotency: when both the HTTP middleware and the tailer fire `Notify` for the 
 - [x] manual: run the bot locally with a fresh DB for a minute, watch CPU (skipped — not automatable; tailer is a 200ms ticker + single indexed SELECT, no busy-spin code path)
 
 ### Task 5: [Final] Update documentation
-- [ ] add a paragraph to `docs/architecture.md` (in the scheduler/sync section, alongside the SSE notes from the previous plan) describing the tailer as the catch-all path: SQL triggers populate `change_events`, tailer fans out via broker
-- [ ] update `docs/technical-decisions.md` — the post-SSE rationale section should now note: "writes that bypass HTTP (bot callbacks, scheduler materialisation) are caught by a 200ms tailer on `change_events`, not the per-stream 30s backstop"
-- [ ] no CLAUDE.md change needed — this is a server-internal optimisation; doesn't affect the domain-service-pattern rule or any other contributor-facing convention
+- [x] add a paragraph to `docs/architecture.md` (in the scheduler/sync section, alongside the SSE notes from the previous plan) describing the tailer as the catch-all path: SQL triggers populate `change_events`, tailer fans out via broker
+- [x] update `docs/technical-decisions.md` — the post-SSE rationale section should now note: "writes that bypass HTTP (bot callbacks, scheduler materialisation) are caught by a 200ms tailer on `change_events`, not the per-stream 30s backstop"
+- [x] no CLAUDE.md change needed — this is a server-internal optimisation; doesn't affect the domain-service-pattern rule or any other contributor-facing convention
 
 ## Technical Details
 

@@ -271,22 +271,36 @@ mechanism is a process-wide `ChangeBroker`
    instrumentation. Bridge writes (the MCP executor's
    `/internal/mcp/bridge` path) are inside the wrapped mux, so MCP-driven
    mutations fan out the same way as direct API writes.
-2. `handleChangesStream` (`internal/server/changes_handlers.go`)
+2. A process-wide tailer (`runChangeTailer` in
+   `internal/server/changes_broker.go`) polls
+   `GetLatestChangeCursor` every `changeTailerInterval` (200ms) and
+   fires `changesBroker.Notify(cursor)` whenever the cursor advances.
+   This is the catch-all path for writes that bypass the HTTP
+   middleware — Telegram bot callbacks calling domain services
+   in-process, scheduler intake materialization, importer runs, etc.
+   The SQL triggers from migration 027 populate `change_events` on
+   every watched-table mutation regardless of caller, so the tailer
+   reading that single source of truth covers all writes uniformly
+   without per-call-site instrumentation. Idempotent with the HTTP
+   middleware: when both fire `Notify` for the same cursor, subscribers
+   wake once (per-channel buffer of 1) and reconcile via cursor, so
+   duplicate wakes are harmless.
+3. `handleChangesStream` (`internal/server/changes_handlers.go`)
    `Subscribe(ctx)`s to the broker and `select`s on the subscription
-   channel, a 15s keepalive ticker, a 30s `cursorCheck` backstop
-   ticker (catches writes from non-HTTP paths like Telegram bot
-   callbacks and scheduler intake materialization that bypass
-   `notifyOnWriteMiddleware`), the 10-min `changeStreamMaxSessionAge`
-   recycle, and `r.Context().Done()`. On each broker wake or
-   cursor-check tick it queries `ListChangedTagsSince(lastCursor)` and
-   emits a single `data: …\n\n` frame. Capacity is bounded by a
-   40-slot process-wide semaphore and a per-channel buffer of 1 —
-   missed wakes are harmless because each handler reconciles via the
-   cursor.
-3. `Server.Shutdown` calls `changesBroker.CloseAll()` before the HTTP
-   listener closes. Subscribed handlers see their channels close and
-   return cleanly, so the only `RST_STREAM` a client observes is one per
-   deploy. EventSource auto-reconnects on the next backoff tick.
+   channel, a 15s keepalive ticker, a 5-min `cursorCheck`
+   defense-in-depth backstop ticker (insurance in case the tailer
+   goroutine ever stalls; the tailer is the primary catch-all now),
+   the 10-min `changeStreamMaxSessionAge` recycle, and
+   `r.Context().Done()`. On each broker wake or cursor-check tick it
+   queries `ListChangedTagsSince(lastCursor)` and emits a single
+   `data: …\n\n` frame. Capacity is bounded by a 40-slot process-wide
+   semaphore and a per-channel buffer of 1 — missed wakes are
+   harmless because each handler reconciles via the cursor.
+4. `Server.Shutdown` cancels the tailer context and waits on
+   `tailerDone` before calling `changesBroker.CloseAll()` and closing
+   the HTTP listener. Subscribed handlers see their channels close and
+   return cleanly, so the only `RST_STREAM` a client observes is one
+   per deploy. EventSource auto-reconnects on the next backoff tick.
 
 The legacy `GET /api/changes?since=<cursor>` polling endpoint is
 unchanged and remains the fallback when the browser lacks
