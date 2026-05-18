@@ -8,6 +8,14 @@ import (
 	"time"
 )
 
+// changeTailerInterval is the cadence at which the process-wide tailer polls
+// change_events.MAX(id) to fan out broker notifications for writes that bypass
+// notifyOnWriteMiddleware (Telegram bot callbacks, scheduler materialization,
+// any in-process domain-service call). Lower values shrink Telegram-write
+// latency at the cost of more idle SELECTs; 200ms is well below the "feels
+// instant" threshold and adds ~5 indexed queries/second on an idle DB.
+const changeTailerInterval = 200 * time.Millisecond
+
 // ChangeBroker is a process-wide pub/sub for change-events cursor updates.
 //
 // It lets the SSE /api/changes/stream handler receive immediate wake-ups when
@@ -175,4 +183,53 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 	s.changesBroker.CloseAll()
 	return nil
+}
+
+// runChangeTailer polls change_events.MAX(id) on a fixed interval and fans
+// out broker notifications whenever the cursor advances. It is the catch-all
+// path for writes that don't traverse notifyOnWriteMiddleware: Telegram bot
+// callbacks call domain services in-process, and the scheduler materializes
+// intake rows on its own goroutine — neither flows through the HTTP wrapper,
+// but every write that hits a watched table populates change_events via the
+// SQL triggers in migration 027.
+//
+// The tailer never kills its own goroutine on cursor-read errors so a
+// transient SQLite hiccup doesn't permanently silence the path; the next
+// tick retries. The goroutine returns only when ctx is cancelled.
+func (s *Server) runChangeTailer(ctx context.Context) {
+	if s == nil || s.changes == nil || s.changesBroker == nil {
+		return
+	}
+
+	// Seed lastCursor from a pre-loop read so the first tick doesn't fire a
+	// spurious notify for rows that already existed at startup.
+	initCtx, initCancel := context.WithTimeout(ctx, 2*time.Second)
+	lastCursor, err := s.changes.GetLatestChangeCursor(initCtx)
+	initCancel()
+	if err != nil {
+		slog.Warn("change tailer: initial cursor read failed", "error", err)
+		lastCursor = 0
+	}
+
+	ticker := time.NewTicker(changeTailerInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			qctx, qcancel := context.WithTimeout(ctx, 2*time.Second)
+			cursor, err := s.changes.GetLatestChangeCursor(qctx)
+			qcancel()
+			if err != nil {
+				slog.Warn("change tailer: cursor read failed", "error", err)
+				continue
+			}
+			if cursor > lastCursor {
+				s.changesBroker.Notify(cursor)
+				lastCursor = cursor
+			}
+		}
+	}
 }
