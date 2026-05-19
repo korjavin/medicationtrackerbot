@@ -53,6 +53,17 @@
     let changeStreamErrorsInWindow = 0;
     let changeStreamErrorWindowStart = 0;
 
+    // Timestamp of the most recent successful own-write (any non-GET API call,
+    // or an applyOptimistic write). SSE delivers an echo of the same write
+    // back to the client typically <500ms later; if a modal is open or an
+    // input is focused at that moment, the default refresh path would surface
+    // a "New data is available" banner for the user's own action. Treat any
+    // change-stream payload arriving inside this window as a self-echo and
+    // skip the banner — the optimistic-commit path already painted the
+    // authoritative state.
+    let lastOwnWriteAt = 0;
+    const SELF_ECHO_WINDOW_MS = 5000;
+
     const hasValue = (value) => value !== null && value !== undefined;
 
     // Deep-clone a cache payload for the optimistic-rollback snapshot. Prefer
@@ -207,6 +218,7 @@
                 throw e;
             }
 
+            this.recordOwnWrite();
             this.requestTabRefresh(tags, 'optimistic');
 
             const self = this;
@@ -239,6 +251,12 @@
                     } finally {
                         decrementPending();
                     }
+                    // The optimistic recordOwnWrite() stamped a marker before
+                    // the HTTP mutation was known to succeed. On rollback no
+                    // own-echo will arrive, so clear the marker now —
+                    // otherwise a real cross-source update inside the
+                    // remaining 5s window would be mis-tagged self-echo.
+                    lastOwnWriteAt = 0;
                     self.requestTabRefresh(tags, 'optimistic-rollback');
                 }
             };
@@ -559,15 +577,34 @@
             localStorage.setItem(CHANGE_CURSOR_KEY, String(floored));
         },
 
+        // Record a successful own-write so that an imminent change-stream
+        // echo of the same write can be recognised and de-bannered.
+        recordOwnWrite() {
+            lastOwnWriteAt = Date.now();
+        },
+
         async applyChangesPayload(res) {
             if (!res || typeof res.cursor !== 'number') return;
 
             const changedTags = Array.isArray(res.changed_tags) ? res.changed_tags : [];
             const prevCursor = this.getChangeCursor();
             if (changedTags.length > 0) {
-                console.log('[changes] tags=%o cursor=%d→%d', changedTags, prevCursor, res.cursor);
+                // The marker is held for the full window (not consumed on
+                // the first event) so multi-write own actions (e.g. edit-note
+                // POST+DELETE, user-tapping-fast bursts) classify every echo
+                // as `self-echo`. Tradeoff: a real cross-source update from
+                // another tab / the Telegram bot / the scheduler arriving
+                // inside the 5s window is silently suppressed. For a
+                // single-user self-hosted app this is rare and recoverable
+                // (next loadX fetches fresh); the multi-write banner flicker
+                // it prevents is the originally-reported user-visible bug.
+                const isSelfEcho = lastOwnWriteAt > 0
+                    && (Date.now() - lastOwnWriteAt) < SELF_ECHO_WINDOW_MS;
+                const source = isSelfEcho ? 'self-echo' : 'changes';
+                console.log('[changes] tags=%o cursor=%d→%d source=%s',
+                    changedTags, prevCursor, res.cursor, source);
                 await this.invalidateTags(changedTags);
-                this.requestTabRefresh(changedTags);
+                this.requestTabRefresh(changedTags, source);
             } else {
                 console.debug('[changes] no changes, cursor=%d→%d', prevCursor, res.cursor);
             }
