@@ -132,6 +132,132 @@ describe('data-store.js unit tests', () => {
     }
   });
 
+  it('applyChangesPayload tags refresh as self-echo when within own-write window', async () => {
+    // Regression: SSE delivers an echo of the user's own write back to the
+    // same client within ~500ms. If a modal is open or an input is focused,
+    // the default `changes` source surfaces a "New data is available" banner
+    // for the user's own action. recordOwnWrite() must mark a short window
+    // during which the echo is recognised and re-tagged as `self-echo`.
+    const { window, cleanup } = loadDataStoreEnv();
+
+    try {
+      vi.spyOn(window.DataStore, 'invalidateTags').mockResolvedValue(undefined);
+      const requestTabRefreshSpy = vi.fn();
+      window.requestTabRefresh = requestTabRefreshSpy;
+
+      window.DataStore.recordOwnWrite();
+
+      await window.DataStore.applyChangesPayload({
+        cursor: 200,
+        changed_tags: ['bp']
+      });
+
+      expect(requestTabRefreshSpy).toHaveBeenCalledWith({
+        changedTags: ['bp'],
+        source: 'self-echo'
+      });
+      expect(window.DataStore.getChangeCursor()).toBe(200);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('applyChangesPayload holds the self-echo marker for multi-write own actions', async () => {
+    // Regression: multi-write user actions (e.g. note edit POST+DELETE,
+    // user tapping fast) produce TWO broker notifications inside the same
+    // 5s window. If the marker were consumed after the first event, the
+    // second echo would surface a "New data is available" banner for the
+    // user's own action — the originally-reported bug. The marker must
+    // persist for the full SELF_ECHO_WINDOW_MS so every echo within it
+    // classifies as self-echo.
+    const { window, cleanup } = loadDataStoreEnv();
+
+    try {
+      vi.spyOn(window.DataStore, 'invalidateTags').mockResolvedValue(undefined);
+      const requestTabRefreshSpy = vi.fn();
+      window.requestTabRefresh = requestTabRefreshSpy;
+
+      window.DataStore.recordOwnWrite();
+
+      await window.DataStore.applyChangesPayload({
+        cursor: 400,
+        changed_tags: ['notes']
+      });
+      await window.DataStore.applyChangesPayload({
+        cursor: 401,
+        changed_tags: ['notes']
+      });
+
+      expect(requestTabRefreshSpy).toHaveBeenNthCalledWith(1, {
+        changedTags: ['notes'],
+        source: 'self-echo'
+      });
+      expect(requestTabRefreshSpy).toHaveBeenNthCalledWith(2, {
+        changedTags: ['notes'],
+        source: 'self-echo'
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('optimistic rollback clears the self-echo marker', async () => {
+    // Regression: applyOptimistic stamps the marker speculatively before
+    // the HTTP mutation is known to succeed. On rollback no own-echo will
+    // arrive, so the marker must be cleared — otherwise a real cross-source
+    // update inside the remaining window would be mis-tagged self-echo.
+    const { window, cleanup } = loadDataStoreEnv();
+
+    try {
+      vi.spyOn(window.DataStore, 'invalidateTags').mockResolvedValue(undefined);
+      const requestTabRefreshSpy = vi.fn();
+      window.requestTabRefresh = requestTabRefreshSpy;
+
+      const handle = await window.DataStore.applyOptimistic(
+        'bp', () => ({ readings: [{ id: 1 }] }), ['bp']
+      );
+      await handle.rollback();
+
+      await window.DataStore.applyChangesPayload({
+        cursor: 500,
+        changed_tags: ['weight']
+      });
+
+      const lastCall = requestTabRefreshSpy.mock.calls[requestTabRefreshSpy.mock.calls.length - 1];
+      expect(lastCall[0]).toEqual({
+        changedTags: ['weight'],
+        source: 'changes'
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('applyChangesPayload tags refresh as changes when no recent own write', async () => {
+    // Complement to the self-echo regression above: a payload arriving
+    // without a recent recordOwnWrite() must surface as `changes` so the
+    // banner-defer logic can run for cross-device updates.
+    const { window, cleanup } = loadDataStoreEnv();
+
+    try {
+      vi.spyOn(window.DataStore, 'invalidateTags').mockResolvedValue(undefined);
+      const requestTabRefreshSpy = vi.fn();
+      window.requestTabRefresh = requestTabRefreshSpy;
+
+      await window.DataStore.applyChangesPayload({
+        cursor: 300,
+        changed_tags: ['weight']
+      });
+
+      expect(requestTabRefreshSpy).toHaveBeenCalledWith({
+        changedTags: ['weight'],
+        source: 'changes'
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
   it('advanceCursorSilently advances cursor but does NOT invalidate tags', async () => {
     // Regression: advanceCursorSilently runs fire-and-forget from
     // apiCallDirect after every successful write. If it invalidates the

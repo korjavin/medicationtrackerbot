@@ -75,6 +75,32 @@ describe('app.js refresh dispatch behavior', () => {
     }
   });
 
+  it('requestTabRefresh source=self-echo never surfaces the banner, even with a modal open', () => {
+    // Regression: when the SSE/poll handler tags a change-stream payload as
+    // an echo of one of our own recent writes (DataStore.applyChangesPayload
+    // with recordOwnWrite in flight), the banner must NOT appear — the user
+    // already saw their action take effect via the optimistic commit. A
+    // modal-open or focused-input state should silently skip the reload,
+    // not surface a "New data is available" prompt.
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      const reloadSpy = vi.fn();
+      window.reloadCurrentTab = reloadSpy;
+
+      window.showBPRecordModal();
+      window.requestTabRefresh({ changedTags: ['bp'], source: 'self-echo' });
+
+      const banner = document.getElementById('data-refresh-banner');
+      expect(banner == null || banner.classList.contains('hidden')).toBe(true);
+      expect(reloadSpy).toHaveBeenCalledTimes(0);
+
+      window.closeBPRecordModal();
+    } finally {
+      cleanup();
+    }
+  });
+
   it('requestTabRefresh defers while modal is open until pending refresh is applied', async () => {
     const { window, document, cleanup } = loadFrontendEnv();
 
