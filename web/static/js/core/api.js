@@ -98,8 +98,16 @@ async function apiCallDirect(endpoint, method = "GET", body = null, opts = {}) {
 
         // After a successful write, advance the change cursor so that the
         // next poll does not show a refresh banner for our own mutations.
-        if (method !== 'GET' && window.DataStore?.advanceCursorSilently) {
-            window.DataStore.advanceCursorSilently(); // fire-and-forget
+        // Also stamp lastOwnWriteAt so the SSE echo of this same write
+        // (which usually races ahead of advanceCursorSilently's response)
+        // is recognised as a self-echo and doesn't surface a banner.
+        if (method !== 'GET' && window.DataStore) {
+            if (typeof window.DataStore.recordOwnWrite === 'function') {
+                window.DataStore.recordOwnWrite();
+            }
+            if (typeof window.DataStore.advanceCursorSilently === 'function') {
+                window.DataStore.advanceCursorSilently(); // fire-and-forget
+            }
         }
 
         return result;
