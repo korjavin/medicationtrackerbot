@@ -1325,6 +1325,56 @@ func TestSecurityHeadersMiddleware(t *testing.T) {
 	}
 }
 
+func TestSecurityHeadersMiddleware_MCPOriginInCSP(t *testing.T) {
+	cases := []struct {
+		name           string
+		mcpServerURL   string
+		appDomain      string
+		wantInCSP      string
+		notWantSubstr  string
+	}{
+		{
+			name:         "cross-origin MCP server appended to connect-src",
+			mcpServerURL: "https://mcp.example.com",
+			appDomain:    "app.example.com",
+			wantInCSP:    "https://mcp.example.com",
+		},
+		{
+			name:          "same-host MCP path-prefix is covered by 'self'",
+			mcpServerURL:  "https://app.example.com/mcp",
+			appDomain:     "app.example.com",
+			notWantSubstr: "https://app.example.com",
+		},
+		{
+			name:          "MCP_SERVER_URL unset leaves CSP unchanged",
+			mcpServerURL:  "",
+			appDomain:     "app.example.com",
+			notWantSubstr: "https://mcp.",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("MCP_SERVER_URL", tc.mcpServerURL)
+			t.Setenv("APP_DOMAIN", tc.appDomain)
+
+			srv, db := createGenericTestServer(t)
+			defer db.Close()
+
+			req := httptest.NewRequest("GET", "/", nil)
+			w := httptest.NewRecorder()
+			srv.Routes().ServeHTTP(w, req)
+
+			csp := w.Header().Get("Content-Security-Policy")
+			if tc.wantInCSP != "" && !strings.Contains(csp, tc.wantInCSP) {
+				t.Errorf("expected CSP to contain %q, got: %s", tc.wantInCSP, csp)
+			}
+			if tc.notWantSubstr != "" && strings.Contains(csp, tc.notWantSubstr) {
+				t.Errorf("expected CSP not to contain %q, got: %s", tc.notWantSubstr, csp)
+			}
+		})
+	}
+}
+
 func TestAuthStatus(t *testing.T) {
 	srv, db := createGenericTestServer(t)
 	defer db.Close()

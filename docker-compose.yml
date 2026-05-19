@@ -84,6 +84,11 @@ services:
       - MCP_MAX_QUERY_DAYS=${MCP_MAX_QUERY_DAYS:-90}
       - MCP_SERVER_URL=${MCP_SERVER_URL}
       - MCP_ALLOWED_SUBJECT=${MCP_ALLOWED_SUBJECT}
+      # APP_DOMAIN is the bot's public origin (with scheme); the MCP server uses
+      # it as the CORS Allow-Origin and the trusted origin for the SDK's CSRF
+      # protection. Must match the browser's Origin header exactly. Required for
+      # the browser-side ElevenLabs client-tool callback path.
+      - APP_DOMAIN=https://${DOMAIN}
       - ALLOWED_USER_ID=${ALLOWED_USER_ID}
       - MCP_AUDIT_ENDPOINT=${MCP_AUDIT_ENDPOINT:-http://medtracker:8080/api/mcp-audit}
       - MCP_AUDIT_SECRET=${MCP_AUDIT_SECRET}

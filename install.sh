@@ -1050,6 +1050,10 @@ say "Created ${ENV_FILE} with mode 600 (owner read/write only)."
     printf "      - POCKET_ID_JWKS_JSON=\${POCKET_ID_JWKS_JSON}\n"
     printf "      - SKIP_PERMS_FIX=true\n"
     printf "      - TZ=\${TZ}\n"
+    # APP_DOMAIN (with scheme) is the bot's public origin; the MCP server uses
+    # it as the CORS Allow-Origin and the trusted origin for the SDK's CSRF
+    # protection. Required for the browser-side ElevenLabs client-tool path.
+    printf "      - APP_DOMAIN=https://\${DOMAIN}\n"
     if $USE_TRAEFIK; then
       printf "    networks:\n"
       printf "      - proxy\n"

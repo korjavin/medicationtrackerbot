@@ -716,12 +716,33 @@ func (s *Server) Run(ctx context.Context) error {
 	// OAuth endpoints
 	mux.HandleFunc("GET /.well-known/oauth-protected-resource", s.oauth.HandleProtectedResourceMetadata)
 
-	// MCP endpoint — Streamable HTTP transport (2025-03-26 spec) at /mcp
+	// MCP endpoint — Streamable HTTP transport (2025-03-26 spec) at /mcp.
+	//
+	// Stateless: true allows browser-side ElevenLabs client tools to POST
+	// `tools/call` directly without first running an initialize/initialized
+	// handshake. The SDK pre-initializes the session state per request in
+	// stateless mode, so a bare `tools/call` is accepted. The legacy /sse
+	// transport remains stateful for clients that do the full handshake.
+	//
+	// CrossOriginProtection: the SDK auto-enables CSRF protection that rejects
+	// cross-origin POSTs whose Origin doesn't match Host. The browser-origin
+	// path is APP_DOMAIN → MCP_DOMAIN (different hosts), so AppDomain must be
+	// explicitly trusted. When AppDomain is empty (e.g. local dev or
+	// non-browser clients only) the SDK default config still rejects mismatched
+	// browser Origins, which is the conservative behavior.
+	mcpCORP := http.NewCrossOriginProtection()
+	if s.config.AppDomain != "" {
+		if err := mcpCORP.AddTrustedOrigin(strings.TrimRight(s.config.AppDomain, "/")); err != nil {
+			return fmt.Errorf("CrossOriginProtection.AddTrustedOrigin: %w", err)
+		}
+	}
 	streamableHandler := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
 		return s.mcpServer
 	}, &mcp.StreamableHTTPOptions{
-		SessionTimeout: 30 * time.Minute,
-		Logger:         slog.Default(),
+		SessionTimeout:        30 * time.Minute,
+		Logger:                slog.Default(),
+		Stateless:             true,
+		CrossOriginProtection: mcpCORP,
 	})
 
 	mcpHandler := s.oauth.Middleware(streamableHandler)

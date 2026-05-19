@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"runtime/debug"
 	"strconv"
@@ -504,8 +505,17 @@ func panicRecover(next http.Handler) http.Handler {
 	})
 }
 
-// securityHeadersMiddleware adds headers to improve application security
-func securityHeadersMiddleware(next http.Handler) http.Handler {
+// securityHeadersMiddleware adds headers to improve application security.
+// mcpOrigin, when non-empty, is appended to connect-src so the ElevenLabs
+// client-tool callback can POST to a cross-origin MCP server (APP_DOMAIN →
+// MCP_DOMAIN). Empty disables the splice — same-host deployments are covered
+// by 'self'.
+func securityHeadersMiddleware(mcpOrigin string, next http.Handler) http.Handler {
+	connectSrc := "'self' https://telegram.org https://esm.sh https://api.us.elevenlabs.io https://api.elevenlabs.io wss://api.us.elevenlabs.io wss://api.elevenlabs.io"
+	if mcpOrigin != "" {
+		connectSrc += " " + mcpOrigin
+	}
+	csp := "default-src 'self'; script-src 'self' https://telegram.org https://esm.sh blob: data:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; media-src 'self' blob:; connect-src " + connectSrc + "; font-src 'self' https://fonts.gstatic.com; frame-src 'self' https://oauth.telegram.org; base-uri 'self'; frame-ancestors 'self'"
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
@@ -522,9 +532,29 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 		// Chrome falls back worklet-src → worker-src → script-src.
 		// esm.sh is also allowed in connect-src so DevTools can fetch the
 		// SDK's .mjs.map source maps (fetched via the connect-src channel).
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://telegram.org https://esm.sh blob: data:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https://telegram.org https://esm.sh https://api.us.elevenlabs.io https://api.elevenlabs.io wss://api.us.elevenlabs.io wss://api.elevenlabs.io; font-src 'self' https://fonts.gstatic.com; frame-src 'self' https://oauth.telegram.org; base-uri 'self'; frame-ancestors 'self'")
+		w.Header().Set("Content-Security-Policy", csp)
 		next.ServeHTTP(w, r)
 	})
+}
+
+// mcpOriginForCSP returns the scheme://host origin of MCP_SERVER_URL, suitable
+// for splicing into a CSP connect-src directive. Empty when unset, when the
+// MCP server is path-prefixed on APP_DOMAIN (covered by 'self'), or when the
+// URL is unparseable.
+func mcpOriginForCSP() string {
+	raw := strings.TrimSpace(os.Getenv("MCP_SERVER_URL"))
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return ""
+	}
+	appDomain := strings.TrimSpace(os.Getenv("APP_DOMAIN"))
+	if appDomain != "" && u.Host == appDomain {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host
 }
 
 func (s *Server) Routes() http.Handler {
@@ -745,7 +775,7 @@ func (s *Server) Routes() http.Handler {
 	authMW := AuthMiddleware(s.botToken, s.sessionSecret, s.allowedUserID)
 	mux.Handle("/api/", authMW(apiHandler))
 
-	return panicRecover(securityHeadersMiddleware(mux))
+	return panicRecover(securityHeadersMiddleware(mcpOriginForCSP(), mux))
 }
 
 func (s *Server) handleListHistory(w http.ResponseWriter, r *http.Request) {
