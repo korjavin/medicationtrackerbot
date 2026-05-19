@@ -19,6 +19,11 @@ services:
       - AUTH_TRUST_PROXY=${AUTH_TRUST_PROXY}
       - APP_DOMAIN=${DOMAIN}
       - MCP_DOMAIN=${MCP_DOMAIN}
+      # MCP_SERVER_URL is the public URL the browser uses to reach the MCP
+      # server. The bot uses it to mint ElevenLabs voice MCP session tokens
+      # (POST /api/elevenlabs/mcp-session-token); without it that endpoint
+      # returns 503 and the voice client tools degrade silently.
+      - MCP_SERVER_URL=${MCP_SERVER_URL}
       - POCKET_ID_DOMAIN=${POCKET_ID_DOMAIN}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}

@@ -86,6 +86,10 @@ func GenerateEnv(cfg *Config, secrets *Secrets, pid *PocketIDState) string {
 	if cfg.Features.MCP {
 		writeln(&b, "# MCP Server")
 		writeln(&b, "MCP_DOMAIN=%s", cfg.MCP.Domain)
+		// MCP_SERVER_URL is read by the bot to mint ElevenLabs voice MCP
+		// session tokens; without it /api/elevenlabs/mcp-session-token
+		// returns 503.
+		writeln(&b, "MCP_SERVER_URL=https://%s", cfg.MCP.Domain)
 		writeln(&b, "")
 	}
 

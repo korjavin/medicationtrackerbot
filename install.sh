@@ -982,6 +982,10 @@ say "Created ${ENV_FILE} with mode 600 (owner read/write only)."
   printf "      - AUTH_TRUST_PROXY=\${AUTH_TRUST_PROXY}\n"
   printf "      - APP_DOMAIN=\${DOMAIN}\n"
   printf "      - MCP_DOMAIN=\${MCP_DOMAIN}\n"
+  # MCP_SERVER_URL is read by the bot to mint ElevenLabs voice MCP session
+  # tokens (POST /api/elevenlabs/mcp-session-token). Without it the endpoint
+  # returns 503 and the voice client tools silently degrade.
+  printf "      - MCP_SERVER_URL=\${MCP_SERVER_URL}\n"
   printf "      - POCKET_ID_DOMAIN=\${POCKET_ID_DOMAIN}\n"
   printf "      - GOOGLE_CLIENT_ID=\${GOOGLE_CLIENT_ID}\n"
   printf "      - GOOGLE_CLIENT_SECRET=\${GOOGLE_CLIENT_SECRET}\n"
