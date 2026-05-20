@@ -124,6 +124,60 @@ func TestNewDefaultResolver_DemoOffRequiresAuth(t *testing.T) {
 	}
 }
 
+func TestHandleAuthStatus_DemoModeReportsAuthenticated(t *testing.T) {
+	// With DEMO_MODE on, /auth/status must report authenticated=true even with
+	// no session cookie — otherwise the frontend checkAuth() flow falls through
+	// to the Telegram/OIDC login screen and a public demo visitor never reaches
+	// /api/bootstrap.
+	srv := &Server{demoMode: true}
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/status", nil)
+	w := httptest.NewRecorder()
+	srv.handleAuthStatus(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var got struct {
+		Authenticated bool   `json:"authenticated"`
+		Method        string `json:"method"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !got.Authenticated {
+		t.Errorf("demo on: expected authenticated=true, got false")
+	}
+	if got.Method != "demo" {
+		t.Errorf("demo on: expected method=demo, got %q", got.Method)
+	}
+}
+
+func TestHandleAuthStatus_DemoModeOffNoCookieReportsUnauthenticated(t *testing.T) {
+	// With DEMO_MODE off and no cookie, /auth/status reports authenticated=false
+	// — the existing production contract that gates the login screen.
+	srv := &Server{demoMode: false, sessionSecret: "test-session-sec"} // #nosec G101
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/status", nil)
+	w := httptest.NewRecorder()
+	srv.handleAuthStatus(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+	var got struct {
+		Authenticated bool   `json:"authenticated"`
+		Method        string `json:"method"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.Authenticated {
+		t.Errorf("demo off, no cookie: expected authenticated=false, got true")
+	}
+}
+
 func TestAuthMiddleware_ResolverErrors(t *testing.T) {
 	tests := []struct {
 		name string
