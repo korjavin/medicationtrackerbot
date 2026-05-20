@@ -220,11 +220,14 @@ describe('Health cold-start Dexie hydration (Task 4)', () => {
         setAuthCache(window);
         const currentTzKey = window.healthOverviewCacheKey();
         // Two stale TZ-qualified rows that don't match the current TZ. The
-        // newer one (Europe/Berlin) is what hydration should fall back to.
-        // We pick keys that are guaranteed not to collide with the harness's
-        // current TZ by prefixing with sentinel TZ names.
-        const olderKey = 'health_overview_America/Los_Angeles';
-        const newerKey = 'health_overview_Europe/Berlin';
+        // newer one is what hydration should fall back to. The sentinels use
+        // a deliberately non-IANA shape (leading/trailing double underscores)
+        // so they are guaranteed disjoint from whatever
+        // `Intl.DateTimeFormat().resolvedOptions().timeZone` returns in the
+        // harness — real IANA names never use that pattern. Without this the
+        // suite flakes when TZ=Europe/Berlin or TZ=America/Los_Angeles.
+        const olderKey = 'health_overview___TEST_FALLBACK_OLDER__';
+        const newerKey = 'health_overview___TEST_FALLBACK_NEWER__';
         // Sanity: harness TZ should not coincide with our sentinel keys.
         expect(currentTzKey).not.toBe(olderKey);
         expect(currentTzKey).not.toBe(newerKey);
@@ -254,7 +257,11 @@ describe('Health cold-start Dexie hydration (Task 4)', () => {
     it('TZ fallback renders with offline stale chip when surfaced by loadHealthOverview', async () => {
         const { window, document } = env;
         setAuthCache(window);
-        const fallbackKey = 'health_overview_Europe/Berlin';
+        const currentTzKey = window.healthOverviewCacheKey();
+        // Non-IANA sentinel so this is guaranteed disjoint from the harness TZ
+        // and actually exercises the prefix-scan fallback (not a direct hit).
+        const fallbackKey = 'health_overview___TEST_FALLBACK_BERLIN__';
+        expect(currentTzKey).not.toBe(fallbackKey);
         const fallbackTs = Date.now() - 2 * 60 * 60 * 1000; // 2h ago
         const fallbackData = makeOverview({ average_sleep_hours_7d: 8.1 });
         installApiCacheMap(window, {
