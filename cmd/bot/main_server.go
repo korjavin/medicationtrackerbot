@@ -266,6 +266,12 @@ func main() {
 	if cfg.DemoMode {
 		slog.Warn("DEMO_MODE is enabled — auth is disabled and AI endpoints are rate-limited per IP")
 		srv.SetDemoMode(true)
+		srv.SetDemoConfig(server.DemoConfig{
+			AgentCallsPerDay:        cfg.Demo.AgentCallsPerDay,
+			FoodLogsPerHour:         cfg.Demo.FoodLogsPerHour,
+			FoodPhotosPerHour:       cfg.Demo.FoodPhotosPerHour,
+			FoodDescriptionsPerHour: cfg.Demo.FoodDescriptionsPerHour,
+		})
 	}
 
 	// Inject ElevenLabs creds so the Voice Agent handlers stop calling

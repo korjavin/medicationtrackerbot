@@ -438,6 +438,21 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	if nextIntakeOK {
 		response["next_intake"] = nextIntake
 	}
+	// Surface the demo flag + the limits the operator configured so the
+	// frontend can mount its "Demo version" banner and quote accurate numbers
+	// in the 429 popup. Only emit when demo mode is on — production callers
+	// should not see the key at all (feature-detect on bootstrap.demo?.enabled).
+	if s.demoMode {
+		response["demo"] = map[string]any{
+			"enabled": true,
+			"limits": map[string]int{
+				"agent_calls_per_day":        s.demoCfg.AgentCallsPerDay,
+				"food_logs_per_hour":         s.demoCfg.FoodLogsPerHour,
+				"food_photos_per_hour":       s.demoCfg.FoodPhotosPerHour,
+				"food_descriptions_per_hour": s.demoCfg.FoodDescriptionsPerHour,
+			},
+		}
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {

@@ -131,6 +131,84 @@ func TestHandleBootstrap(t *testing.T) {
 	}
 }
 
+func TestHandleBootstrap_DemoModeOff_OmitsDemoKey(t *testing.T) {
+	srv, db := createBPTestServer(t)
+	defer db.Close()
+
+	req := httptest.NewRequest("GET", "/api/bootstrap", nil)
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+	srv.handleBootstrap(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d", w.Code)
+	}
+
+	var payload map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&payload); err != nil {
+		t.Fatalf("Decode failed: %v", err)
+	}
+
+	if _, exists := payload["demo"]; exists {
+		t.Fatalf("Expected demo key to be absent when demo mode is off, got %v", payload["demo"])
+	}
+}
+
+func TestHandleBootstrap_DemoModeOn_SurfacesLimits(t *testing.T) {
+	srv, db := createBPTestServer(t)
+	defer db.Close()
+
+	srv.SetDemoMode(true)
+	srv.SetDemoConfig(DemoConfig{
+		AgentCallsPerDay:        2,
+		FoodLogsPerHour:         3,
+		FoodPhotosPerHour:       4,
+		FoodDescriptionsPerHour: 5,
+	})
+
+	req := httptest.NewRequest("GET", "/api/bootstrap", nil)
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+	srv.handleBootstrap(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d", w.Code)
+	}
+
+	var payload map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&payload); err != nil {
+		t.Fatalf("Decode failed: %v", err)
+	}
+
+	demo, ok := payload["demo"].(map[string]any)
+	if !ok {
+		t.Fatalf("Expected demo object in bootstrap payload, got %T (%v)", payload["demo"], payload["demo"])
+	}
+	enabled, ok := demo["enabled"].(bool)
+	if !ok || !enabled {
+		t.Fatalf("Expected demo.enabled=true, got %v", demo["enabled"])
+	}
+	limits, ok := demo["limits"].(map[string]any)
+	if !ok {
+		t.Fatalf("Expected demo.limits object, got %T (%v)", demo["limits"], demo["limits"])
+	}
+	expected := map[string]float64{
+		"agent_calls_per_day":        2,
+		"food_logs_per_hour":         3,
+		"food_photos_per_hour":       4,
+		"food_descriptions_per_hour": 5,
+	}
+	for key, want := range expected {
+		got, ok := limits[key].(float64)
+		if !ok {
+			t.Fatalf("Expected demo.limits.%s to be a number, got %T (%v)", key, limits[key], limits[key])
+		}
+		if got != want {
+			t.Errorf("demo.limits.%s = %v, want %v", key, got, want)
+		}
+	}
+}
+
 func TestHandleBootstrap_IncludesTodayFood(t *testing.T) {
 	srv, db := createBPTestServer(t)
 	defer db.Close()
