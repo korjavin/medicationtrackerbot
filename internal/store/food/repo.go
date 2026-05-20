@@ -90,7 +90,18 @@ type FoodProductsFilter struct {
 // Repo is the food repository. Construct with New; share one *Repo per
 // process — the underlying *db.DB owns its own connection pool.
 type Repo struct {
-	db *storedb.DB
+	db        *storedb.DB
+	remoteCfg RemoteConfig
+}
+
+// RemoteConfig configures the third-party food-DB lookup that SearchRemoteAPI
+// targets. It is injected via SetRemoteConfig at startup so the repo no longer
+// reads FOOD_API_URL / FOOD_DOMAIN / FOOD_API_KEY directly from the process
+// environment. Either URL or Domain must be set for remote search to work.
+type RemoteConfig struct {
+	APIKey string
+	URL    string
+	Domain string
 }
 
 // New returns a Repo bound to the shared *db.DB. The composition root passes
@@ -98,6 +109,13 @@ type Repo struct {
 // one connection pool.
 func New(d *storedb.DB) *Repo {
 	return &Repo{db: d}
+}
+
+// SetRemoteConfig swaps in the remote-search configuration. Safe to call at
+// startup before any request handlers reach SearchRemoteAPI; the field is
+// not protected by a mutex because configuration is one-shot.
+func (r *Repo) SetRemoteConfig(cfg RemoteConfig) {
+	r.remoteCfg = cfg
 }
 
 // UpsertProduct inserts a product or, on (user_id, name) conflict,

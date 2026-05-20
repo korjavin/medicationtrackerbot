@@ -79,6 +79,7 @@ type Server struct {
 	changeStreamSem     chan struct{}
 	changePruning       atomic.Bool
 	externalAPIKey      string
+	elevenLabs          ElevenLabsConfig
 	mcpAuditSecret      string
 	lastMCPNotification time.Time
 	mcpAuditMutex       sync.Mutex

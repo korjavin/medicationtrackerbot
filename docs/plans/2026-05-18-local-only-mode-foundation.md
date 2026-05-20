@@ -69,13 +69,13 @@ Out of scope: embedding the Go binary inside Capacitor (deferred until the spike
 ## Implementation Steps
 
 ### Task 1: Extract `internal/config` package with `Config` struct
-- [ ] create `internal/config/config.go` with a `Config` struct holding all current env-derived values: `DBPath`, `Port`, `SessionSecret`, `TelegramBotToken`, `AllowedUserID`, `OpenAI` (sub-struct: `APIKey`, `URL`, `Model`, `VisionAPIKey`, `VisionURL`, `VisionModel`), `Food` (sub-struct: `APIKey`, `URL`, `Domain`), `ElevenLabs` (sub-struct: `APIKey`, `AgentID`), `VAPID` (sub-struct), `OIDC` (sub-struct), `MCP` (sub-struct), `ExternalWorkoutAPIKey`, `AppDomain`.
-- [ ] add `LoadFromEnv() (*Config, error)` that performs the same env reads currently in `cmd/bot/main.go:35-263` (preserve exact semantics — including `TELEGRAM_API_ENDPOINT`, `POCKET_ID_*` fallback paths, `DOMAIN`/`APP_DOMAIN` ordering).
-- [ ] refactor `cmd/bot/main.go` to call `LoadFromEnv()` once and pass `Config` (or relevant sub-structs) into wiring functions — no behavioral change.
-- [ ] migrate `internal/server/elevenlabs_handlers.go:35-36,102` to read `ElevenLabs` from an injected `*Config` (or a narrower `ElevenLabsConfig`-style interface) instead of `os.Getenv`. Same for `internal/store/food/openfoodfacts_api.go:29-43`.
-- [ ] write tests in `internal/config/config_test.go` for `LoadFromEnv` — table-driven cases covering all env vars, fallback paths (`OIDC_*` falling back to `POCKET_ID_*`), and missing/empty handling.
-- [ ] write tests for the elevenlabs and food handlers verifying they use the injected config (table-driven: configured vs unconfigured).
-- [ ] run `go test ./...` — must pass before Task 2.
+- [x] create `internal/config/config.go` with a `Config` struct holding all current env-derived values: `DBPath`, `Port`, `SessionSecret`, `TelegramBotToken`, `AllowedUserID`, `OpenAI` (sub-struct: `APIKey`, `URL`, `Model`, `VisionAPIKey`, `VisionURL`, `VisionModel`), `Food` (sub-struct: `APIKey`, `URL`, `Domain`), `ElevenLabs` (sub-struct: `APIKey`, `AgentID`), `VAPID` (sub-struct), `OIDC` (sub-struct), `MCP` (sub-struct), `ExternalWorkoutAPIKey`, `AppDomain`.
+- [x] add `LoadFromEnv() (*Config, error)` that performs the same env reads currently in `cmd/bot/main.go:35-263` (preserve exact semantics — including `TELEGRAM_API_ENDPOINT`, `POCKET_ID_*` fallback paths, `DOMAIN`/`APP_DOMAIN` ordering).
+- [x] refactor `cmd/bot/main.go` to call `LoadFromEnv()` once and pass `Config` (or relevant sub-structs) into wiring functions — no behavioral change.
+- [x] migrate `internal/server/elevenlabs_handlers.go:35-36,102` to read `ElevenLabs` from an injected `*Config` (or a narrower `ElevenLabsConfig`-style interface) instead of `os.Getenv`. Same for `internal/store/food/openfoodfacts_api.go:29-43`.
+- [x] write tests in `internal/config/config_test.go` for `LoadFromEnv` — table-driven cases covering all env vars, fallback paths (`OIDC_*` falling back to `POCKET_ID_*`), and missing/empty handling.
+- [x] write tests for the elevenlabs and food handlers verifying they use the injected config (table-driven: configured vs unconfigured).
+- [x] run `go test ./...` — must pass before Task 2.
 
 ### Task 2: Add user-configurable keys to `settings` repo + env-or-settings merge
 - [ ] add migration in `internal/store/migrations/` introducing config rows in the singleton settings table for: `openai_api_key`, `openai_url`, `openai_model`, `openai_vision_api_key`, `openai_vision_url`, `openai_vision_model`, `food_api_key`, `food_url`, `food_domain`, `elevenlabs_api_key`, `elevenlabs_agent_id`. Default all to NULL/empty.
