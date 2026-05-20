@@ -106,13 +106,13 @@ Out of scope: embedding the Go binary inside Capacitor (deferred until the spike
 - [x] run `go test ./...` — must pass before Task 5.
 
 ### Task 5: Define `UserResolver` abstraction for auth
-- [ ] identify the current "who is the current user?" call sites (likely `internal/server/server.go` middleware around `initData` parsing and session/OIDC lookup). Document them inline in a comment in the new file.
-- [ ] create `internal/server/auth/resolver.go` with `type UserResolver interface { Resolve(r *http.Request) (UserID, error) }` (or similar minimal contract — fit it to the existing auth middleware shape, don't invent new ceremony).
-- [ ] refactor the existing auth middleware into a `TelegramOIDCResolver` implementing `UserResolver`. Keep it tag-free; Task 6 adds the `!mobile` tag.
-- [ ] inject the resolver into the auth middleware via the existing server constructor.
-- [ ] write tests for `TelegramOIDCResolver` covering each existing auth path (initData, session cookie, OIDC).
-- [ ] write a fake `UserResolver` for handler tests if not already trivially constructable.
-- [ ] run `go test ./...` — must pass before Task 6.
+- [x] identify the current "who is the current user?" call sites (likely `internal/server/server.go` middleware around `initData` parsing and session/OIDC lookup). Document them inline in a comment in the new file.
+- [x] create `internal/server/auth/resolver.go` with `type UserResolver interface { Resolve(r *http.Request) (UserID, error) }` (or similar minimal contract — fit it to the existing auth middleware shape, don't invent new ceremony).
+- [x] refactor the existing auth middleware into a `TelegramOIDCResolver` implementing `UserResolver`. Keep it tag-free; Task 6 adds the `!mobile` tag.
+- [x] inject the resolver into the auth middleware via the existing server constructor.
+- [x] write tests for `TelegramOIDCResolver` covering each existing auth path (initData, session cookie, OIDC).
+- [x] write a fake `UserResolver` for handler tests if not already trivially constructable.
+- [x] run `go test ./...` — must pass before Task 6.
 
 ### Task 6: Add `//go:build mobile` paired files
 - [ ] split `cmd/bot/main.go` into `main_server.go` (`//go:build !mobile`, current wiring) and `main_mobile.go` (`//go:build mobile`, skips bot init, MCP init, web-push init, OIDC init, ElevenLabs handlers if undesired on mobile). Mobile main constructs `LocalNotificationSink` (stub for now — exposes upcoming reminders via a new HTTP endpoint `GET /api/reminders/upcoming` for the JS bridge in Phase 2) and `LocalUserResolver` (fixed user ID 1 or read from a `--user-id` argv flag).

@@ -15,7 +15,81 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/korjavin/medicationtrackerbot/internal/server/auth"
 )
+
+// fakeResolver is a controllable auth.UserResolver implementation for
+// AuthMiddleware tests. Set User to a non-nil value to simulate a resolved
+// user, or set Err to one of the auth.Err* sentinels to simulate a failure.
+type fakeResolver struct {
+	User *auth.User
+	Err  error
+}
+
+func (f *fakeResolver) Resolve(r *http.Request) (*auth.User, error) {
+	if f.Err != nil {
+		return nil, f.Err
+	}
+	return f.User, nil
+}
+
+func TestAuthMiddleware_ResolverSuccess(t *testing.T) {
+	resolver := &fakeResolver{User: &auth.User{ID: 42, FirstName: "Test"}}
+	mw := AuthMiddleware(resolver)
+
+	var seen *TelegramUser
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if u, ok := r.Context().Value(UserCtxKey).(*TelegramUser); ok {
+			seen = u
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/x", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if seen == nil || seen.ID != 42 {
+		t.Fatalf("expected user in ctx with ID=42, got %+v", seen)
+	}
+}
+
+func TestAuthMiddleware_ResolverErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{name: "no auth → 401", err: auth.ErrNoAuth, want: http.StatusUnauthorized},
+		{name: "invalid auth → 403", err: auth.ErrInvalidAuth, want: http.StatusForbidden},
+		{name: "user not allowed → 403", err: auth.ErrUserNotAllowed, want: http.StatusForbidden},
+		{name: "unknown error → 403", err: fmt.Errorf("boom"), want: http.StatusForbidden},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mw := AuthMiddleware(&fakeResolver{Err: tt.err})
+			called := false
+			handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				called = true
+			}))
+
+			req := httptest.NewRequest(http.MethodGet, "/api/x", nil)
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, req)
+
+			if called {
+				t.Error("expected inner handler NOT to be called when resolver returns error")
+			}
+			if w.Code != tt.want {
+				t.Errorf("expected %d, got %d", tt.want, w.Code)
+			}
+		})
+	}
+}
 
 // mockNonceStore implements NonceStore for tests using an in-memory map.
 type mockNonceStore struct {

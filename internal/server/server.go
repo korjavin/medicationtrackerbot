@@ -26,6 +26,7 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzupdate"
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/rxnorm"
+	"github.com/korjavin/medicationtrackerbot/internal/server/auth"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/workout"
 	"golang.org/x/oauth2"
@@ -742,7 +743,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /internal/mcp/bridge", s.handleMCPBridge)
 
 	// Apply Middleware to API
-	authMW := AuthMiddleware(s.botToken, s.sessionSecret, s.allowedUserID)
+	resolver := auth.NewTelegramOIDCResolver(s.botToken, s.sessionSecret, s.allowedUserID, ValidateWebAppData, verifySessionToken)
+	authMW := AuthMiddleware(resolver)
 	mux.Handle("/api/", authMW(apiHandler))
 
 	return panicRecover(securityHeadersMiddleware(mux))
