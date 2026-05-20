@@ -1747,6 +1747,39 @@ svg.chart-svg {
     font-weight: var(--font-weight-medium);
 }
 
+/* Demo Banner — surfaced from /api/bootstrap when DEMO_MODE=1. Sits
+   directly under #offline-banner and uses Wandergeek sun tokens to set
+   it apart from the red offline strip. Inline-flex layout puts the
+   dismiss `×` button at the trailing edge. */
+.wg-demo-banner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-sm);
+    background: var(--wg-sun);
+    color: var(--wg-teal-stage);
+    border-bottom: 1px solid var(--wg-sun-deep);
+    text-align: center;
+    padding: var(--space-xs) var(--space-md);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+}
+
+.wg-demo-banner__text {
+    flex: 1 1 auto;
+}
+
+.wg-demo-banner__dismiss {
+    flex: 0 0 auto;
+    background: transparent;
+    color: var(--wg-teal-stage);
+    border: none;
+    font-size: var(--font-size-lg);
+    line-height: 1;
+    padding: 0 var(--space-xs);
+    cursor: pointer;
+}
+
 /* TZ Transition Plan Card — Wandergeek card surfaced on Today directly above
    the medications card when a timezone-change plan is awaiting the user's
    decision. Composes with .wg-next-action-card.--plain for the surface and

@@ -272,6 +272,15 @@ window.AuthBootstrap = (function () {
         }
         await cacheApiSnapshot('settings_bundle', settingsBundle, ['settings', 'food_targets', 'feature_settings']);
 
+        // Demo-mode banner mount. Bootstrap is the only place the server tells
+        // the client about DEMO_MODE; mounting here keeps the banner state in
+        // lockstep with the rate-limit metadata the same payload carries.
+        // The mount is a no-op when res.demo is absent or .enabled is false,
+        // so production callers see no behaviour change.
+        if (window.DemoBanner && typeof window.DemoBanner.mount === 'function') {
+            window.DemoBanner.mount(res.demo);
+        }
+
         return true;
     }
 

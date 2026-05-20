@@ -62,6 +62,24 @@ async function apiCallDirect(endpoint, method = "GET", body = null, opts = {}) {
             throw err;
         }
 
+        if (res.status === 429) {
+            const txt = await res.text();
+            let parsed = null;
+            try { parsed = JSON.parse(txt); } catch (_) { /* not JSON */ }
+            if (parsed && parsed.error === 'demo_rate_limit') {
+                if (window.DemoBanner && typeof window.DemoBanner.showDemoLimitAlert === 'function') {
+                    window.DemoBanner.showDemoLimitAlert(parsed);
+                }
+                const err = new Error('Demo rate limit reached');
+                err.status = 429;
+                err.demoLimit = parsed;
+                throw err;
+            }
+            const err = new Error(txt || 'Too Many Requests');
+            err.status = 429;
+            throw err;
+        }
+
         if (!res.ok) {
             const txt = await res.text();
             // Check if this is a service worker offline response (503 with {error:'offline'})

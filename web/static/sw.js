@@ -28,6 +28,7 @@ const STATIC_ASSETS = [
     '/static/js/core/messenger-adapter.js',
     '/static/js/core/time-format.js',
     '/static/js/core/api.js',
+    '/static/js/core/demo-banner.js',
     '/static/js/core/app-kernel.js',
     '/static/js/core/store.js',
     '/static/js/core/modal-manager.js',
