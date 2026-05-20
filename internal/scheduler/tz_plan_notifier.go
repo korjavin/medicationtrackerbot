@@ -35,7 +35,7 @@ type TZPlanNotifierStore interface {
 // TZPlanNotifier checks for pending timezone transition plans and sends a
 // Telegram notification with approve/reject buttons.
 type TZPlanNotifier struct {
-	NotifyHelper
+	sink      ReminderSink
 	store     TZPlanNotifierStore
 	lifecycle tzreschedule.LifecycleService
 }
@@ -122,7 +122,7 @@ func (n *TZPlanNotifier) Check(ctx context.Context) error {
 	// medication scheduler picks up the new timezone immediately rather than
 	// pinning to OldTZ for the 72h PENDING_APPROVAL safety-net window. Notifiers
 	// are wired once at process start, so waiting for one to appear isn't useful.
-	if len(n.notifiers) == 0 {
+	if !n.sink.HasChannel() {
 		slog.Warn("tz_plan_notifier: no notifiers configured, cancelling plan so new timezone takes effect immediately",
 			"plan_id", plan.ID)
 		// Guard the transition on PENDING_APPROVAL so a concurrent web-banner
@@ -171,7 +171,7 @@ func (n *TZPlanNotifier) Check(ctx context.Context) error {
 		},
 	}
 
-	if err := n.NotifySync(ctx, notification, nil); err != nil {
+	if err := n.sink.NotifySync(ctx, notification, nil); err != nil {
 		if errors.Is(err, notifier.ErrNoDeliveryChannel) {
 			// No delivery channel available (e.g. WebPush configured but no active
 			// subscriptions). Cancel the plan so the medication scheduler uses the

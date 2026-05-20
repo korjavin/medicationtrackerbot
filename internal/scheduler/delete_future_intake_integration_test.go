@@ -74,7 +74,7 @@ func TestDeleteFutureIntake_RegeneratedByScheduler(t *testing.T) {
 	// Step 3: time advances to the scheduled moment; the scheduler tick runs
 	// against the same database. The scheduler clock is anchored to `target`
 	// so its "today" computation matches our schedule HH:MM.
-	sched := New(db, userID, []notifier.Notifier{&MockNotifier{}})
+	sched := NewWithNotifiers(db, userID, []notifier.Notifier{&MockNotifier{}})
 	sched.MedicationChecker.now = func() time.Time { return target }
 	if err := sched.MedicationChecker.Check(ctx); err != nil {
 		t.Fatalf("MedicationChecker.Check: %v", err)

@@ -30,7 +30,7 @@ func adhocSetup(t *testing.T) (*Scheduler, *store.Store, *MockNotifier) {
 	}
 
 	mock := &MockNotifier{}
-	sched := New(db, 123456, []notifier.Notifier{mock})
+	sched := NewWithNotifiers(db, 123456, []notifier.Notifier{mock})
 	sched.WorkoutChecker.workoutSvc = workoutsvc.New(db.Workout, db.TZ)
 	sched.WorkoutChecker.daysCache = make(map[string][]int)
 	return sched, db, mock

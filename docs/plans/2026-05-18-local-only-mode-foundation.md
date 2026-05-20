@@ -98,12 +98,12 @@ Out of scope: embedding the Go binary inside Capacitor (deferred until the spike
 - [x] run `go test ./...` and `pnpm test` — must pass before Task 4.
 
 ### Task 4: Define `scheduler.ReminderSink` interface
-- [ ] create `internal/scheduler/sink.go` with `type ReminderSink interface { Schedule(ctx, Reminder) error; Cancel(ctx, id string) error; ... }` — derive the method set from the existing web-push call sites in `internal/scheduler/`.
-- [ ] refactor the existing web-push scheduling code into `internal/scheduler/sink_webpush.go` implementing `ReminderSink`. Keep it tag-free for now — Task 6 adds the `!mobile` tag.
-- [ ] change scheduler constructors to take a `ReminderSink` parameter; `cmd/bot/main.go` constructs the `WebPushSink` and passes it in.
-- [ ] write tests for `WebPushSink` (it's now isolatable) — table-driven covering schedule success, cancel, error propagation.
-- [ ] write a fake `ReminderSink` in `internal/scheduler/sink_test.go` for use by scheduler tests; assert the scheduler calls `Schedule`/`Cancel` at the right points.
-- [ ] run `go test ./...` — must pass before Task 5.
+- [x] create `internal/scheduler/sink.go` with `type ReminderSink interface { Schedule(ctx, Reminder) error; Cancel(ctx, id string) error; ... }` — derive the method set from the existing web-push call sites in `internal/scheduler/`.
+- [x] refactor the existing web-push scheduling code into `internal/scheduler/sink_webpush.go` implementing `ReminderSink`. Keep it tag-free for now — Task 6 adds the `!mobile` tag.
+- [x] change scheduler constructors to take a `ReminderSink` parameter; `cmd/bot/main.go` constructs the `WebPushSink` and passes it in.
+- [x] write tests for `WebPushSink` (it's now isolatable) — table-driven covering schedule success, cancel, error propagation.
+- [x] write a fake `ReminderSink` in `internal/scheduler/sink_test.go` for use by scheduler tests; assert the scheduler calls `Schedule`/`Cancel` at the right points.
+- [x] run `go test ./...` — must pass before Task 5.
 
 ### Task 5: Define `UserResolver` abstraction for auth
 - [ ] identify the current "who is the current user?" call sites (likely `internal/server/server.go` middleware around `initData` parsing and session/OIDC lookup). Document them inline in a comment in the new file.

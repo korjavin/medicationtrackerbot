@@ -13,7 +13,7 @@ import (
 
 // LowStockChecker sends daily low-stock warnings around 11 AM.
 type LowStockChecker struct {
-	NotifyHelper
+	sink      ReminderSink
 	store     MedicationStore
 	mu        sync.Mutex
 	lastCheck time.Time
@@ -93,7 +93,7 @@ func (c *LowStockChecker) Check(_ context.Context) error {
 		},
 	}
 
-	c.Notify(context.Background(), n, nil)
+	c.sink.Notify(context.Background(), n, nil)
 
 	c.lastCheck = now
 	return nil
