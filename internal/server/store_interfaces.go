@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store"
+	"github.com/korjavin/medicationtrackerbot/internal/store/settings"
 )
 
 // MedicationStore is the subset of store operations needed for medication handlers.
@@ -171,6 +172,12 @@ type SettingsStore interface {
 	GetTabOrder(ctx context.Context) (string, error)
 	SetTabOrder(ctx context.Context, order string) error
 	GetDismissedTZSuggestion(ctx context.Context) (string, error)
+	GetIntegrationOpenAI(ctx context.Context) (settings.IntegrationOpenAI, error)
+	SetIntegrationOpenAI(ctx context.Context, v settings.IntegrationOpenAI) error
+	GetIntegrationFood(ctx context.Context) (settings.IntegrationFood, error)
+	SetIntegrationFood(ctx context.Context, v settings.IntegrationFood) error
+	GetIntegrationElevenLabs(ctx context.Context) (settings.IntegrationElevenLabs, error)
+	SetIntegrationElevenLabs(ctx context.Context, v settings.IntegrationElevenLabs) error
 }
 
 // TimezoneStore is the subset of timezone operations needed by handlers.

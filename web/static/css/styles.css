@@ -10400,6 +10400,90 @@ textarea.wg-input {
     cursor: pointer;
 }
 
+/* Integrations section (local-only mode foundation, Task 3). Three
+   provider groups (OpenAI / Food / ElevenLabs) stacked inside one card.
+   Each group has a mono uppercase title and a stacked sequence of
+   label + .wg-gloss--inset input fields, identical visual rhythm to
+   the rest of the Settings screen. No hardcoded colours / spacing —
+   every value flows from a --wg-* token. */
+.wg-settings-integrations__group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-md);
+}
+
+.wg-settings-integrations__group-title {
+    font-size: var(--font-size-sm);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wg-fg-2);
+    margin: 0 0 var(--space-xs) 0;
+}
+
+.wg-settings-integrations__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-settings-integrations__label {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-settings-number-field-label-size);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wg-fg-3);
+    font-weight: var(--font-weight-bold);
+}
+
+.wg-settings-integrations__input-wrap {
+    display: flex;
+    align-items: center;
+    min-height: var(--wg-settings-number-field-height);
+    padding: 0 var(--wg-settings-number-field-pad-x);
+    min-width: 0;
+}
+
+.wg-settings-integrations__input {
+    flex: 1 1 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    box-shadow: none;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-1);
+    min-width: 0;
+}
+
+.wg-settings-integrations__input::placeholder {
+    color: var(--wg-fg-4);
+}
+
+.wg-settings-integrations__details {
+    margin-top: var(--space-xs);
+}
+
+.wg-settings-integrations__summary {
+    cursor: pointer;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wg-fg-3);
+    padding: var(--space-xs) 0;
+}
+
+.wg-settings-integrations__note {
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-3);
+    margin: 0 0 var(--space-sm) 0;
+}
+
 /* Version footer (Phase 9, Task 7) — mono eyebrow + short-hash value
    centered below the last settings section. Sits outside any card so it
    reads as metadata, not content. Value text is the `VERSION_PLACEHOLDER`

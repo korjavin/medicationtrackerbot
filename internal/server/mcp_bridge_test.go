@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	opregistry "github.com/korjavin/medicationtrackerbot/internal/mcp/registry"
+	"github.com/korjavin/medicationtrackerbot/internal/store/settings"
 )
 
 // mockRegistryByID lets tests set up ops by operation ID.
@@ -373,6 +374,24 @@ func (f *fakeSettings) GetWeightUnitPreference(ctx context.Context) (string, err
 	return "kg", nil
 }
 func (f *fakeSettings) SetWeightUnitPreference(ctx context.Context, unit string) error { return nil }
+func (f *fakeSettings) GetIntegrationOpenAI(ctx context.Context) (settings.IntegrationOpenAI, error) {
+	return settings.IntegrationOpenAI{}, nil
+}
+func (f *fakeSettings) SetIntegrationOpenAI(ctx context.Context, v settings.IntegrationOpenAI) error {
+	return nil
+}
+func (f *fakeSettings) GetIntegrationFood(ctx context.Context) (settings.IntegrationFood, error) {
+	return settings.IntegrationFood{}, nil
+}
+func (f *fakeSettings) SetIntegrationFood(ctx context.Context, v settings.IntegrationFood) error {
+	return nil
+}
+func (f *fakeSettings) GetIntegrationElevenLabs(ctx context.Context) (settings.IntegrationElevenLabs, error) {
+	return settings.IntegrationElevenLabs{}, nil
+}
+func (f *fakeSettings) SetIntegrationElevenLabs(ctx context.Context, v settings.IntegrationElevenLabs) error {
+	return nil
+}
 
 func TestBridge_FeatureDisabledBlocksOperation(t *testing.T) {
 	internalCalled := false
