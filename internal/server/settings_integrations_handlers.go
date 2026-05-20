@@ -84,6 +84,16 @@ type elevenLabsIntegrationPatch struct {
 // fields are masked when set so a screenshot or browser-DevTools network log
 // never leaks the underlying API keys.
 func (s *Server) handleGetIntegrations(w http.ResponseWriter, r *http.Request) {
+	// In demo mode every visitor resolves to the same demo user, so exposing
+	// operator-specific URLs / agent IDs (and giving anonymous visitors a
+	// surface to discover what's configured) is not appropriate. Both reads
+	// and writes are blocked here; the frontend hides the section based on
+	// bootstrap.demo.enabled but we enforce server-side too.
+	if s.demoMode {
+		http.Error(w, "integrations management is disabled in demo mode", http.StatusForbidden)
+		return
+	}
+
 	ctx := r.Context()
 
 	openAI, err := s.settings.GetIntegrationOpenAI(ctx)
@@ -141,6 +151,15 @@ func (s *Server) handleGetIntegrations(w http.ResponseWriter, r *http.Request) {
 // held by the Server (ElevenLabsConfig), the food repo (RemoteConfig), and
 // the AI client are wired at startup and are not hot-reloaded.
 func (s *Server) handleUpdateIntegrations(w http.ResponseWriter, r *http.Request) {
+	// Demo mode resolves every request to the same fixed user, so an
+	// anonymous visitor could otherwise PATCH the shared OpenAI / Food /
+	// ElevenLabs credentials — wiping the operator's keys or pointing them
+	// at an attacker-controlled URL. Block writes outright.
+	if s.demoMode {
+		http.Error(w, "integrations management is disabled in demo mode", http.StatusForbidden)
+		return
+	}
+
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req integrationsPatchRequest
 	dec := json.NewDecoder(r.Body)

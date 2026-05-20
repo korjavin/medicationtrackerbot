@@ -264,6 +264,16 @@ func main() {
 	// deployment would silently disable auth, so the operator should see this
 	// as the first thing in the container log.
 	if cfg.DemoMode {
+		// The demo resolver returns auth.User{ID: allowedUserID, ...} on every
+		// request — if ALLOWED_USER_ID is unset the resolver hands handlers
+		// user id 0, which no cmd/seeddemo invocation maps to, and the app
+		// silently renders empty data. Fail fast so the misconfiguration is
+		// obvious at boot, mirroring the strict check in
+		// internal/mcp/mcp.LoadConfigFromEnv for the MCP entrypoint.
+		if cfg.AllowedUserID == 0 {
+			slog.Error("DEMO_MODE=1 requires ALLOWED_USER_ID to be set (must match the user passed to cmd/seeddemo)")
+			os.Exit(1)
+		}
 		slog.Warn("DEMO_MODE is enabled — auth is disabled and AI endpoints are rate-limited per IP")
 		srv.SetDemoMode(true)
 		srv.SetDemoConfig(server.DemoConfig{
