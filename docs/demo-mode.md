@@ -21,7 +21,7 @@ Demo mode is a runtime flag, not a build tag — single binary supports both pro
 | Var | Default | Meaning |
 |-----|---------|---------|
 | `DEMO_MODE` | `0` | Master switch. Set to `1` to enable. |
-| `DEMO_AGENT_CALLS_PER_DAY` | `1` | Combined per-IP limit for `GET /api/elevenlabs/signed-url` + `POST /api/elevenlabs/upload-file` (both routes share one daily budget — each visitor gets one full "talk to the voice agent" interaction per day). |
+| `DEMO_AGENT_CALLS_PER_DAY` | `1` | Per-IP daily limit on `GET /api/elevenlabs/signed-url` — gates how many voice-agent conversations a visitor can start per day. `POST /api/elevenlabs/upload-file` is NOT counted so a single authorized conversation can attach multiple photos without each upload burning a slot. |
 | `DEMO_FOOD_LOGS_PER_HOUR` | `1` | Per-IP limit for `POST /api/food/log` (manual entry, no AI). |
 | `DEMO_FOOD_PHOTOS_PER_HOUR` | `1` | Per-IP limit for `POST /api/food/log/from-photo` (vision). |
 | `DEMO_FOOD_DESCRIPTIONS_PER_HOUR` | `1` | Per-IP limit for `POST /api/food/log/from-description` (text completion). |

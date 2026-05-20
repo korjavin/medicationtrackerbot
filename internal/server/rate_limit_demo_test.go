@@ -145,14 +145,15 @@ func TestDemoRateLimit_ElevenLabsSignedURL(t *testing.T) {
 	)
 }
 
-func TestDemoRateLimit_ElevenLabsUploadFile_SharesAgentBudget(t *testing.T) {
-	// Both ElevenLabs routes draw from the same per-IP daily budget because
-	// they are two halves of one "talk to the agent" interaction. With a
-	// budget of 2, hitting signed-url twice and then upload-file once must
-	// 429 — proving the two routes share the limiter and not two independent
-	// counters.
+func TestDemoRateLimit_ElevenLabsUploadFile_NotLimited(t *testing.T) {
+	// signed-url is the per-conversation gate that consumes an agent-calls
+	// slot. upload-file is intentionally NOT rate-limited so that an
+	// authorized conversation can attach multiple photos without each upload
+	// burning a separate slot. This test exhausts the agent-calls budget on
+	// signed-url and then verifies upload-file still answers (with whatever
+	// the handler-level status is — definitely not a demo 429).
 	handler, cleanup := newDemoTestServer(t, DemoConfig{
-		AgentCallsPerDay:        2,
+		AgentCallsPerDay:        1,
 		FoodLogsPerHour:         2,
 		FoodPhotosPerHour:       2,
 		FoodDescriptionsPerHour: 2,
@@ -174,22 +175,24 @@ func TestDemoRateLimit_ElevenLabsUploadFile_SharesAgentBudget(t *testing.T) {
 		return w
 	}
 
+	// Burn the agent-calls slot.
 	if w := doSignedURL(); w.Code == http.StatusTooManyRequests {
 		t.Fatalf("signed-url #1: unexpected 429")
 	}
-	if w := doSignedURL(); w.Code == http.StatusTooManyRequests {
-		t.Fatalf("signed-url #2: unexpected 429")
+	// Next signed-url must hit the demo limit.
+	if w := doSignedURL(); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("signed-url #2: expected 429, got %d", w.Code)
 	}
-	w := doUpload()
-	if w.Code != http.StatusTooManyRequests {
-		t.Fatalf("upload-file #3: expected 429 after agent budget exhausted, got %d", w.Code)
-	}
-	var parsed map[string]any
-	if err := json.NewDecoder(w.Body).Decode(&parsed); err != nil {
-		t.Fatalf("429 body is not JSON: %v", err)
-	}
-	if parsed["limit"] != "agent_calls" {
-		t.Errorf("expected limit=agent_calls, got %v", parsed["limit"])
+	// upload-file must NOT return a demo rate-limit 429 — uploads within an
+	// authorized conversation are free.
+	for i := 0; i < 3; i++ {
+		w := doUpload()
+		if w.Code == http.StatusTooManyRequests {
+			var parsed map[string]any
+			if err := json.NewDecoder(w.Body).Decode(&parsed); err == nil && parsed["error"] == "demo_rate_limit" {
+				t.Fatalf("upload-file #%d: unexpected demo 429 (uploads should be unmetered): %v", i+1, parsed)
+			}
+		}
 	}
 }
 

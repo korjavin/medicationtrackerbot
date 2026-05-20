@@ -274,6 +274,14 @@ func main() {
 			slog.Error("DEMO_MODE=1 requires ALLOWED_USER_ID to be set (must match the user passed to cmd/seeddemo)")
 			os.Exit(1)
 		}
+		// Per-IP rate limiters key on clientIP(r, trustProxy). Behind a
+		// reverse proxy without AUTH_TRUST_PROXY=1, every visitor presents
+		// the proxy's IP and the limiters become a single shared bucket —
+		// one visitor exhausts the daily budget for everyone. Warn loudly
+		// so a typical Traefik-fronted deploy doesn't ship in this state.
+		if os.Getenv("AUTH_TRUST_PROXY") != "1" {
+			slog.Warn("DEMO_MODE=1 without AUTH_TRUST_PROXY=1: per-IP rate limiters will see the reverse-proxy IP for every visitor and become a single shared bucket. Set AUTH_TRUST_PROXY=1 if you run behind Traefik/Nginx/Caddy.")
+		}
 		slog.Warn("DEMO_MODE is enabled — auth is disabled and AI endpoints are rate-limited per IP")
 		srv.SetDemoMode(true)
 		srv.SetDemoConfig(server.DemoConfig{

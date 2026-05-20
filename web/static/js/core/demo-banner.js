@@ -83,17 +83,45 @@
         slot.replaceChildren();
     }
 
+    // Sections that depend on auth-protected, operator-scoped functionality
+    // (Integrations panel writes shared API keys to the singleton settings
+    // row — backend correctly returns 403 in demo mode, so the UI must not
+    // pretend the form is interactive). Each entry is an element id whose
+    // section is removed from the DOM when demo.enabled=true.
+    const DEMO_HIDDEN_SECTION_IDS = ['settings-integrations'];
+
+    function applyDemoSectionVisibility(enabled) {
+        if (typeof document === 'undefined') return;
+        for (const id of DEMO_HIDDEN_SECTION_IDS) {
+            const el = document.getElementById(id);
+            if (!el) continue;
+            if (enabled) {
+                el.setAttribute('hidden', '');
+                el.classList.add('hidden');
+            } else {
+                el.removeAttribute('hidden');
+                el.classList.remove('hidden');
+            }
+        }
+    }
+
     function mount(demo) {
         const slot = (typeof document !== 'undefined')
             ? document.getElementById('demo-banner')
             : null;
-        if (!slot || typeof slot.replaceChildren !== 'function') return false;
+        if (!slot || typeof slot.replaceChildren !== 'function') {
+            applyDemoSectionVisibility(!!(demo && demo.enabled));
+            return false;
+        }
 
         if (!demo || !demo.enabled) {
             cachedLimits = null;
             hideBanner(slot);
+            applyDemoSectionVisibility(false);
             return false;
         }
+
+        applyDemoSectionVisibility(true);
 
         const limits = (demo.limits && typeof demo.limits === 'object') ? demo.limits : {};
         cachedLimits = limits;
@@ -141,10 +169,27 @@
         return message;
     }
 
+    // Inspects a Response that may be a 429 demo_rate_limit. If so, surfaces
+    // the formatted popup and returns the parsed body so callers can throw
+    // a typed error. Returns null when the response is not a demo limit hit.
+    // Used by bare-fetch call sites (multipart uploads, FormData posts) that
+    // cannot go through apiCallDirect's 429 branch.
+    async function tryHandleResponse(res) {
+        if (!res || res.status !== 429) return null;
+        let txt;
+        try { txt = await res.text(); } catch (_) { return null; }
+        let parsed = null;
+        try { parsed = JSON.parse(txt); } catch (_) { return null; }
+        if (!parsed || parsed.error !== 'demo_rate_limit') return null;
+        showDemoLimitAlert(parsed);
+        return parsed;
+    }
+
     window.DemoBanner = {
         mount,
         showDemoLimitAlert,
         formatLimitMessage,
         limitsHash,
+        tryHandleResponse,
     };
 })();
