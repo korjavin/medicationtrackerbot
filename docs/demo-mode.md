@@ -103,6 +103,7 @@ No new build tags. The demo wiring lives in:
 - `internal/config/config.go` — `DemoMode bool` + `Demo DemoConfig` sub-struct.
 - `internal/server/auth/resolver_demo.go` — `DemoUserResolver` (tag-free; only the server build wires it).
 - `internal/server/auth_resolver_server.go` — `newDefaultResolver` branches on `s.demoMode`.
+- `internal/server/auth.go` — `handleAuthStatus` reports `{authenticated:true, method:"demo"}` when `s.demoMode` so the frontend `checkAuth()` flow skips the login screen and proceeds to `/api/bootstrap`.
 - `internal/server/server.go` — `demoMode` + `demoCfg` fields, `SetDemoMode` / `SetDemoConfig` setters, conditional rate-limiter construction in `Routes()`, `demoRateLimitMiddleware` helper.
 - `internal/mcp/mcp.go` — `Config.DemoMode`, conditional `OAuthHandler` construction, `buildPublicMux` skips OAuth when `s.oauth == nil`.
 - `cmd/bot/main_server.go` — `srv.SetDemoMode(cfg.DemoMode)` + `srv.SetDemoConfig(...)` + startup warn.
