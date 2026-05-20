@@ -176,6 +176,15 @@
         // helper's plain auth-only headers form applies here.
         const resp = await fetch(url, { method: 'POST', headers: window.makeAuthHeaders(), body: form });
         if (!resp.ok) {
+            if (resp.status === 429 && window.DemoBanner && typeof window.DemoBanner.tryHandleResponse === 'function') {
+                const demoParsed = await window.DemoBanner.tryHandleResponse(resp);
+                if (demoParsed) {
+                    const demoErr = new Error('Demo rate limit reached');
+                    demoErr.status = 429;
+                    demoErr.demoLimit = demoParsed;
+                    throw demoErr;
+                }
+            }
             const text = await resp.text().catch(() => '');
             const err = new Error(`Upload failed (${resp.status})${text ? `: ${text}` : ''}`);
             err.status = resp.status;

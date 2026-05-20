@@ -153,7 +153,9 @@ async function apiCall(endpoint, method = "GET", body = null, opts = {}) {
             console.error(e);
             // Only show alerts for write operations that fail
             // GET requests failing is expected when offline - UI will handle empty state
-            if (method !== 'GET') {
+            // Suppress generic alert when DemoBanner has already surfaced a
+            // formatted demo-restriction popup (apiCallDirect sets e.demoLimit).
+            if (method !== 'GET' && !(e && e.demoLimit)) {
                 safeAlert("Error: " + e.message);
             }
             return null;
@@ -167,7 +169,7 @@ async function apiCall(endpoint, method = "GET", body = null, opts = {}) {
         if (e && e.aborted) throw e;
         console.error(e);
         // Only show alerts for write operations that fail
-        if (method !== 'GET') {
+        if (method !== 'GET' && !(e && e.demoLimit)) {
             safeAlert("Error: " + e.message);
         }
         return null;

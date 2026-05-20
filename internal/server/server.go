@@ -811,11 +811,12 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/tz-plan/{id}/reject", s.handleTZPlanReject)
 	apiMux.HandleFunc("POST /api/tz-suggestion/dismiss", s.handleTZSuggestionDismiss)
 	apiMux.HandleFunc("GET /api/health/overview", s.handleGetHealthOverview)
-	// ElevenLabs conversational agent. Both routes share the same per-IP
-	// daily budget because they're two halves of one "call the agent"
-	// interaction. In non-demo mode the limiter is a no-op.
+	// ElevenLabs conversational agent. The per-IP daily budget gates conversation
+	// starts (signed-url) — uploads within an authorized conversation are not
+	// limited so a single demo session can include multiple photo attachments
+	// without burning extra slots. In non-demo mode the limiter is a no-op.
 	apiMux.Handle("GET /api/elevenlabs/signed-url", agentLimit(http.HandlerFunc(s.handleElevenLabsSignedURL)))
-	apiMux.Handle("POST /api/elevenlabs/upload-file", agentLimit(http.HandlerFunc(s.handleElevenLabsUploadFile)))
+	apiMux.HandleFunc("POST /api/elevenlabs/upload-file", s.handleElevenLabsUploadFile)
 
 	apiMux.HandleFunc("GET /api/notes", s.handleListNotes)
 	apiMux.HandleFunc("POST /api/notes", s.handleCreateNote)

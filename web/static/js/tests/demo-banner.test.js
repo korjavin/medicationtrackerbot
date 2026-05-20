@@ -17,6 +17,7 @@ function loadEnv() {
     const dom = new JSDOM(
         '<!doctype html><html><body>'
         + '<div id="demo-banner" class="wg-demo-banner hidden" hidden></div>'
+        + '<section id="settings-integrations"></section>'
         + '</body></html>',
         { url: 'https://example.test/', runScripts: 'outside-only', pretendToBeVisual: true }
     );
@@ -114,6 +115,59 @@ describe('DemoBanner.mount', () => {
         env.document.getElementById('demo-banner').remove();
         const ok = env.api.mount({ enabled: true, limits: DEFAULT_LIMITS });
         expect(ok).toBe(false);
+    });
+
+    it('hides #settings-integrations when demo.enabled=true', () => {
+        const section = env.document.getElementById('settings-integrations');
+        expect(section.hasAttribute('hidden')).toBe(false);
+        env.api.mount({ enabled: true, limits: DEFAULT_LIMITS });
+        expect(section.hasAttribute('hidden')).toBe(true);
+    });
+
+    it('leaves #settings-integrations visible when demo is off', () => {
+        const section = env.document.getElementById('settings-integrations');
+        section.setAttribute('hidden', '');
+        section.classList.add('hidden');
+        env.api.mount({ enabled: false });
+        expect(section.hasAttribute('hidden')).toBe(false);
+        expect(section.classList.contains('hidden')).toBe(false);
+    });
+});
+
+describe('DemoBanner.tryHandleResponse', () => {
+    let env;
+    beforeEach(() => { env = loadEnv(); });
+    afterEach(() => { env.cleanup(); });
+
+    function makeRes(status, body) {
+        return {
+            status,
+            text: async () => (typeof body === 'string' ? body : JSON.stringify(body)),
+        };
+    }
+
+    it('surfaces the popup and returns parsed body on a demo_rate_limit 429', async () => {
+        env.api.mount({ enabled: true, limits: DEFAULT_LIMITS });
+        const spy = vi.fn();
+        env.window.safeAlert = spy;
+        const parsed = await env.api.tryHandleResponse(makeRes(429, {
+            error: 'demo_rate_limit',
+            limit: 'food_log_from_photo',
+            retry_after_seconds: 3600,
+        }));
+        expect(parsed).toMatchObject({ error: 'demo_rate_limit', limit: 'food_log_from_photo' });
+        expect(spy).toHaveBeenCalledTimes(1);
+        expect(spy.mock.calls[0][0]).toContain('food-from-photo');
+    });
+
+    it('returns null on a non-429 response', async () => {
+        const result = await env.api.tryHandleResponse(makeRes(500, 'oops'));
+        expect(result).toBeNull();
+    });
+
+    it('returns null on a 429 that is not a demo_rate_limit body', async () => {
+        const result = await env.api.tryHandleResponse(makeRes(429, 'plain too many requests'));
+        expect(result).toBeNull();
     });
 });
 

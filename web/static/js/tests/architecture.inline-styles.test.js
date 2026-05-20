@@ -47,12 +47,12 @@ const ALLOWED = new Map([
         "style.setProperty on a neutral CSS custom property (--fill-pct) — CSS class reads it via width: var(--fill-pct, 0%); no hardcoded visual value lives in JS",
     ],
     [
-        'web/static/js/features/food/log.js:1309',
-        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS. Line shifted by merge of optimistic-update conversion (Plan 2026-05-17 Task 4) with AI-parse summary changes.",
+        'web/static/js/features/food/log.js:1315',
+        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS. Line shifted by addition of demo_rate_limit branch in log.js (Plan 2026-05-21 Task 6 follow-up).",
     ],
     [
-        'web/static/js/features/food/log.js:1310',
-        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS. Line shifted by merge of optimistic-update conversion (Plan 2026-05-17 Task 4) with AI-parse summary changes.",
+        'web/static/js/features/food/log.js:1316',
+        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS. Line shifted by addition of demo_rate_limit branch in log.js (Plan 2026-05-21 Task 6 follow-up).",
     ],
     [
         'web/static/js/features/meds.js:83',
