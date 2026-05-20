@@ -19,9 +19,12 @@ func TestLoadConfigFromEnv_DemoMode(t *testing.T) {
 	}
 	// Deliberately leave POCKET_ID_URL and MCP_SERVER_URL unset — in demo
 	// mode the loader must accept that, because the operator only flips
-	// DEMO_MODE and ships no OAuth env.
+	// DEMO_MODE and ships no OAuth env. Also clear MCP_EXECUTOR_BRIDGE_URL
+	// so a developer/CI environment that exports it doesn't trip the demo-
+	// mode executor guard (see TestLoadConfigFromEnv_DemoMode_RejectsExecutor).
 	t.Setenv("POCKET_ID_URL", "")
 	t.Setenv("MCP_SERVER_URL", "")
+	t.Setenv("MCP_EXECUTOR_BRIDGE_URL", "")
 	t.Setenv("DEMO_MODE", "1")
 
 	cfg, err := LoadConfigFromEnv()
@@ -34,6 +37,31 @@ func TestLoadConfigFromEnv_DemoMode(t *testing.T) {
 	if cfg.PocketIDURL != "" || cfg.MCPServerURL != "" {
 		t.Errorf("expected empty Pocket-ID config, got PocketIDURL=%q MCPServerURL=%q",
 			cfg.PocketIDURL, cfg.MCPServerURL)
+	}
+}
+
+func TestLoadConfigFromEnv_DemoMode_RejectsExecutor(t *testing.T) {
+	// In demo mode /mcp accepts all callers. Allowing the Python executor in
+	// that state would expose arbitrary code execution to anonymous traffic,
+	// so the loader must fail fast when both are set.
+	required := map[string]string{
+		"ALLOWED_USER_ID":   "1",
+		"MCP_DATABASE_PATH": "/tmp/x.db",
+	}
+	for k, v := range required {
+		t.Setenv(k, v)
+	}
+	t.Setenv("POCKET_ID_URL", "")
+	t.Setenv("MCP_SERVER_URL", "")
+	t.Setenv("DEMO_MODE", "1")
+	t.Setenv("MCP_EXECUTOR_BRIDGE_URL", "http://medtracker:8080/internal/mcp/bridge")
+
+	_, err := LoadConfigFromEnv()
+	if err == nil {
+		t.Fatal("expected error when DEMO_MODE=1 and MCP_EXECUTOR_BRIDGE_URL is set, got nil")
+	}
+	if !strings.Contains(err.Error(), "MCP_EXECUTOR_BRIDGE_URL") {
+		t.Errorf("expected error to mention MCP_EXECUTOR_BRIDGE_URL, got: %v", err)
 	}
 }
 

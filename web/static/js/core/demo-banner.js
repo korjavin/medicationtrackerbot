@@ -32,6 +32,7 @@
         if (!limits || typeof limits !== 'object') return '';
         return JSON.stringify({
             a: Number(limits.agent_calls_per_day) || 0,
+            au: Number(limits.agent_uploads_per_day) || 0,
             fl: Number(limits.food_logs_per_hour) || 0,
             fp: Number(limits.food_photos_per_hour) || 0,
             fd: Number(limits.food_descriptions_per_hour) || 0,
@@ -42,6 +43,7 @@
         if (!cachedLimits || typeof cachedLimits !== 'object') return null;
         switch (label) {
             case 'agent_calls': return Number(cachedLimits.agent_calls_per_day) || null;
+            case 'agent_uploads': return Number(cachedLimits.agent_uploads_per_day) || null;
             case 'food_log': return Number(cachedLimits.food_logs_per_hour) || null;
             case 'food_log_from_photo': return Number(cachedLimits.food_photos_per_hour) || null;
             case 'food_log_from_description': return Number(cachedLimits.food_descriptions_per_hour) || null;
@@ -53,6 +55,7 @@
         const plural = count !== 1;
         switch (label) {
             case 'agent_calls': return plural ? 'voice agent calls' : 'voice agent call';
+            case 'agent_uploads': return plural ? 'voice agent photo uploads' : 'voice agent photo upload';
             case 'food_log': return plural ? 'manual food logs' : 'manual food log';
             case 'food_log_from_photo': return plural ? 'food-from-photo entries' : 'food-from-photo entry';
             case 'food_log_from_description': return plural ? 'food-from-text entries' : 'food-from-text entry';

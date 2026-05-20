@@ -4,6 +4,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"log/slog"
 	"math"
@@ -62,6 +64,21 @@ func main() {
 	}
 
 	sessionSecret := cfg.SessionSecret
+	// In demo mode the auth flow never reads a session cookie (DemoUserResolver
+	// short-circuits before /auth/* handlers can sign one), so a SESSION_SECRET
+	// from the operator is not required. The runbook in docs/demo-mode.md
+	// deliberately omits it. Auto-generate a strong random secret so the
+	// auth/oidc/telegram handlers (still registered on the mux) won't panic
+	// or sign with a known value if a curious visitor pokes them.
+	if cfg.DemoMode && sessionSecret == "" {
+		buf := make([]byte, 32)
+		if _, err := rand.Read(buf); err != nil {
+			slog.Error("DEMO_MODE: failed to generate ephemeral SESSION_SECRET", "error", err)
+			os.Exit(1)
+		}
+		sessionSecret = base64.RawURLEncoding.EncodeToString(buf)
+		slog.Warn("DEMO_MODE: SESSION_SECRET not set; generated an ephemeral random secret (session cookies will not survive restarts, which is fine because demo mode resolves every request via DemoUserResolver and ignores cookies)")
+	}
 	if sessionSecret == "" || len(sessionSecret) < 32 {
 		slog.Error("SESSION_SECRET is required and must be at least 32 characters long. Generate one with: openssl rand -base64 32")
 		os.Exit(1)
@@ -301,6 +318,7 @@ func main() {
 		srv.SetDemoMode(true)
 		srv.SetDemoConfig(server.DemoConfig{
 			AgentCallsPerDay:        cfg.Demo.AgentCallsPerDay,
+			AgentUploadsPerDay:      cfg.Demo.AgentUploadsPerDay,
 			FoodLogsPerHour:         cfg.Demo.FoodLogsPerHour,
 			FoodPhotosPerHour:       cfg.Demo.FoodPhotosPerHour,
 			FoodDescriptionsPerHour: cfg.Demo.FoodDescriptionsPerHour,

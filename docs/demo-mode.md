@@ -21,12 +21,14 @@ Demo mode is a runtime flag, not a build tag — single binary supports both pro
 | Var | Default | Meaning |
 |-----|---------|---------|
 | `DEMO_MODE` | `0` | Master switch. Set to `1` to enable. |
-| `DEMO_AGENT_CALLS_PER_DAY` | `1` | Per-IP daily limit on `GET /api/elevenlabs/signed-url` — gates how many voice-agent conversations a visitor can start per day. `POST /api/elevenlabs/upload-file` is NOT counted so a single authorized conversation can attach multiple photos without each upload burning a slot. |
+| `DEMO_AGENT_CALLS_PER_DAY` | `1` | Per-IP daily limit on `GET /api/elevenlabs/signed-url` — gates how many voice-agent conversations a visitor can start per day. |
+| `DEMO_AGENT_UPLOADS_PER_DAY` | `20` | Per-IP daily limit on `POST /api/elevenlabs/upload-file`. Looser than the conversation cap so a single authorized session can attach multiple photos, but bounded to stop an attacker from spamming unlimited 10 MiB uploads through the server's ElevenLabs API key. |
 | `DEMO_FOOD_LOGS_PER_HOUR` | `1` | Per-IP limit for `POST /api/food/log` (manual entry, no AI). |
 | `DEMO_FOOD_PHOTOS_PER_HOUR` | `1` | Per-IP limit for `POST /api/food/log/from-photo` (vision). |
 | `DEMO_FOOD_DESCRIPTIONS_PER_HOUR` | `1` | Per-IP limit for `POST /api/food/log/from-description` (text completion). |
 | `AUTH_TRUST_PROXY` | `0` | **Must be `1` for the demo deployment.** The rate limiters key on `clientIP`, which only honors `X-Forwarded-For` when this is set. Without it, every visitor behind Traefik shares one IP and the limits become global. |
 | `ALLOWED_USER_ID` | — | The user ID the demo resolver returns. Must match the user you targeted with `cmd/seeddemo`. |
+| `SESSION_SECRET` | — | Not required in demo mode. If unset, the server auto-generates an ephemeral random secret at boot — the demo resolver bypasses session cookies, so the secret is only used by the (registered but unreachable) `/auth/*` handlers. If you do set it, the strict length/entropy validation still applies. |
 
 All `DEMO_*` overrides accept integers; malformed values fall back to the default (see `internal/config/config_test.go`).
 
@@ -37,6 +39,7 @@ Demo mode is intended to run alone. The startup is permissive — nothing crashe
 - If `TELEGRAM_BOT_TOKEN` is set alongside `DEMO_MODE=1`, the bot still starts and sends notifications to the configured chat. Don't do this for a public demo.
 - If `OIDC_*` env vars are set, they are ignored by the server build's resolver (the demo branch in `newDefaultResolver` short-circuits before OIDC), but the configuration ambiguity is confusing. Strip them from the demo container.
 - The MCP binary requires `POCKET_ID_URL` and `MCP_SERVER_URL` *unless* `DEMO_MODE=1`, in which case both checks are skipped.
+- The MCP binary **refuses to start** when `DEMO_MODE=1` and `MCP_EXECUTOR_BRIDGE_URL` is set. Demo mode disables OAuth on `/mcp`, so leaving the Python executor wired would expose arbitrary code execution to anonymous callers. Strip `MCP_EXECUTOR_BRIDGE_URL` from the demo MCP container.
 
 A startup `slog.Warn` fires when `DEMO_MODE=1` (server: "DEMO_MODE is enabled — auth is disabled and AI endpoints are rate-limited per IP"; MCP: "[MCP] DEMO_MODE: OAuth disabled, /mcp and /sse accept all callers") so the demo state is obvious in the logs.
 
@@ -52,7 +55,7 @@ The user ID must match `ALLOWED_USER_ID` in the demo container's env. Generator 
 
 ## Rate-limit response shape
 
-The four demo-rate-limited routes (`GET /api/elevenlabs/signed-url`, `POST /api/food/log`, `POST /api/food/log/from-photo`, `POST /api/food/log/from-description`) return 429 with:
+The five demo-rate-limited routes (`GET /api/elevenlabs/signed-url`, `POST /api/elevenlabs/upload-file`, `POST /api/food/log`, `POST /api/food/log/from-photo`, `POST /api/food/log/from-description`) return 429 with:
 
 ```http
 HTTP/1.1 429 Too Many Requests
@@ -62,7 +65,7 @@ Retry-After: 3600
 {"error":"demo_rate_limit","limit":"food_log","retry_after_seconds":3600}
 ```
 
-The `limit` field is one of `agent_calls`, `food_log`, `food_log_from_photo`, `food_log_from_description`. The frontend's `apiCall` helper (`web/static/js/core/api.js`) detects this body shape and surfaces a dedicated popup via `window.DemoBanner.showDemoLimitAlert(...)` instead of the generic offline-style error.
+The `limit` field is one of `agent_calls`, `agent_uploads`, `food_log`, `food_log_from_photo`, `food_log_from_description`. The frontend's `apiCall` helper (`web/static/js/core/api.js`) detects this body shape and surfaces a dedicated popup via `window.DemoBanner.showDemoLimitAlert(...)` instead of the generic offline-style error.
 
 Non-demo 429s (e.g. the auth limiter) keep the existing plain-text body — the demo branch is keyed on the `error: "demo_rate_limit"` discriminator.
 
@@ -76,6 +79,7 @@ When `DEMO_MODE=1`, `/api/bootstrap` adds:
     "enabled": true,
     "limits": {
       "agent_calls_per_day": 1,
+      "agent_uploads_per_day": 20,
       "food_logs_per_hour": 1,
       "food_photos_per_hour": 1,
       "food_descriptions_per_hour": 1
@@ -125,7 +129,7 @@ OPENAI_API_KEY=…
 OPENAI_URL=…
 ELEVENLABS_API_KEY=…
 ELEVENLABS_AGENT_ID=…
-# No TELEGRAM_BOT_TOKEN, no OIDC_*, no POCKET_ID_*
+# No TELEGRAM_BOT_TOKEN, no OIDC_*, no POCKET_ID_*, no MCP_EXECUTOR_BRIDGE_URL, no SESSION_SECRET (auto-generated)
 ```
 
 Before serving traffic:
