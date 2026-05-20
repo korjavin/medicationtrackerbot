@@ -80,15 +80,12 @@ function bootEnv({ apiStub, fetchStub } = {}) {
     window.fetch = fetchStub || makeMCPFetchStub().stub;
 
     const raw = fs.readFileSync(ELEVENLABS_JS, 'utf8');
-    // Exercise the full tool surface (mcp_help + mcp_execute). The production
-    // default is false during the help-only spike; flipping it here keeps the
-    // schema/handler/POST-shape tests valid as regression coverage for when
-    // the flag flips back on. See docs/plans/2026-05-18-elevenlabs-mcp-help-only-spike.md.
+    // Keep MCP_VOICE_ENABLE_EXECUTE at its production-default value (false)
+    // during the help-only spike — tests exercise only mcp_help. When the
+    // flag flips back on, the harness will pick up the new value and the
+    // gated-off assertion in the "plain handler function" test will need
+    // updating. See docs/plans/2026-05-18-elevenlabs-mcp-help-only-spike.md.
     const patched = raw
-        .replace(
-            /const MCP_VOICE_ENABLE_EXECUTE = false;/,
-            'const MCP_VOICE_ENABLE_EXECUTE = true;'
-        )
         .replace(
             /sdkPromise = import\(SDK_URL\)\.catch\(\(err\) => \{[\s\S]*?\}\);/,
             `sdkPromise = Promise.resolve({
@@ -135,37 +132,17 @@ describe('elevenlabs dynamic MCP client tools — registration', () => {
         expect(mintCall.method).toBe('POST');
     });
 
-    it('passes clientTools with mcp_help and mcp_execute keys to startSession', async () => {
+    it('passes clientTools with mcp_help as a plain handler function (mcp_execute gated off)', async () => {
+        // ElevenLabs SDK ClientToolsConfig is Record<string, (args) => result>.
+        // Tool metadata (description, parameter schema, sound effect) lives in
+        // the agent dashboard, not in this code. mcp_execute is gated behind
+        // MCP_VOICE_ENABLE_EXECUTE; default-off for the spike.
         env = bootEnv();
         const opts = await startCall(env.window);
         expect(opts).toBeDefined();
         expect(opts.clientTools).toBeDefined();
-        expect(opts.clientTools.mcp_help).toBeDefined();
-        expect(opts.clientTools.mcp_execute).toBeDefined();
-        expect(typeof opts.clientTools.mcp_help.handler).toBe('function');
-        expect(typeof opts.clientTools.mcp_execute.handler).toBe('function');
-    });
-
-    it('client tool schemas mirror the MCP server tool definitions', async () => {
-        env = bootEnv();
-        const opts = await startCall(env.window);
-        const help = opts.clientTools.mcp_help;
-        const execute = opts.clientTools.mcp_execute;
-
-        // mcp_help: object schema with topic + operation_id properties.
-        expect(help.description).toMatch(/list available backend operations/i);
-        expect(help.parameters.type).toBe('object');
-        expect(help.parameters.properties.topic.type).toBe('string');
-        expect(help.parameters.properties.operation_id.type).toBe('string');
-
-        // mcp_execute: object schema with script required + write-mode intent docs.
-        expect(execute.description).toMatch(/sandboxed Python script/i);
-        expect(execute.parameters.type).toBe('object');
-        expect(execute.parameters.required).toContain('script');
-        expect(execute.parameters.properties.script.type).toBe('string');
-        expect(execute.parameters.properties.mode.enum).toEqual(['read_only', 'write']);
-        expect(execute.parameters.properties.intent.type).toBe('string');
-        expect(execute.parameters.properties.topic_allowlist.type).toBe('array');
+        expect(typeof opts.clientTools.mcp_help).toBe('function');
+        expect(opts.clientTools.mcp_execute).toBeUndefined();
     });
 
     it('startSession still proceeds with clientTools omitted when mint fails', async () => {
@@ -195,7 +172,7 @@ describe('elevenlabs dynamic MCP client tools — handler POST shape', () => {
         const { stub: fetchStub, calls: fetchCalls } = makeMCPFetchStub();
         env = bootEnv({ fetchStub });
         const opts = await startCall(env.window);
-        const result = await opts.clientTools.mcp_help.handler({ topic: 'workouts' });
+        const result = await opts.clientTools.mcp_help({ topic: 'workouts' });
 
         // Exactly one MCP POST.
         expect(fetchCalls.length).toBe(1);
@@ -217,27 +194,16 @@ describe('elevenlabs dynamic MCP client tools — handler POST shape', () => {
         expect(result).toBe('{"ok":true}');
     });
 
-    it('mcp_execute handler forwards arguments verbatim', async () => {
-        const { stub: fetchStub, calls: fetchCalls } = makeMCPFetchStub();
-        env = bootEnv({ fetchStub });
-        const opts = await startCall(env.window);
-        const args = {
-            script: 'output(42)',
-            mode: 'read_only',
-            topic_allowlist: ['workouts'],
-        };
-        await opts.clientTools.mcp_execute.handler(args);
-        const body = JSON.parse(fetchCalls[0].init.body);
-        expect(body.params.name).toBe('mcp_execute');
-        expect(body.params.arguments).toEqual(args);
-    });
+    // mcp_execute is gated off (MCP_VOICE_ENABLE_EXECUTE=false) for the spike.
+    // When the flag flips back on, restore an arguments-verbatim handler test
+    // using the same shape as the mcp_help test above.
 
     it('increments JSON-RPC id across successive calls', async () => {
         const { stub: fetchStub, calls: fetchCalls } = makeMCPFetchStub();
         env = bootEnv({ fetchStub });
         const opts = await startCall(env.window);
-        await opts.clientTools.mcp_help.handler({});
-        await opts.clientTools.mcp_help.handler({});
+        await opts.clientTools.mcp_help({});
+        await opts.clientTools.mcp_help({});
         const ids = fetchCalls.map((c) => JSON.parse(c.init.body).id);
         expect(new Set(ids).size).toBe(ids.length);
     });
@@ -255,7 +221,7 @@ describe('elevenlabs dynamic MCP client tools — handler POST shape', () => {
         }));
         env = bootEnv({ fetchStub });
         const opts = await startCall(env.window);
-        const result = await opts.clientTools.mcp_help.handler({});
+        const result = await opts.clientTools.mcp_help({});
         expect(result).toBe('sse-ok');
     });
 });
@@ -309,7 +275,7 @@ describe('elevenlabs dynamic MCP client tools — 401 refresh-and-retry', () => 
 
         env = bootEnv({ apiStub, fetchStub });
         const opts = await startCall(env.window);
-        const result = await opts.clientTools.mcp_help.handler({});
+        const result = await opts.clientTools.mcp_help({});
         // First mint at startCall, second mint after the 401.
         expect(mintCount).toBe(2);
         expect(postCount).toBe(2);
@@ -329,7 +295,7 @@ describe('elevenlabs dynamic MCP client tools — 401 refresh-and-retry', () => 
         }));
         env = bootEnv({ apiStub, fetchStub });
         const opts = await startCall(env.window);
-        await expect(opts.clientTools.mcp_help.handler({})).rejects.toThrow();
+        await expect(opts.clientTools.mcp_help({})).rejects.toThrow();
         // Initial mint + one refresh; one initial POST + one retry POST.
         expect(fetchStub).toHaveBeenCalledTimes(2);
     });
@@ -346,7 +312,7 @@ describe('elevenlabs dynamic MCP client tools — error propagation', () => {
         });
         env = bootEnv({ fetchStub });
         const opts = await startCall(env.window);
-        await expect(opts.clientTools.mcp_help.handler({})).rejects.toThrow(/execution blocked/);
+        await expect(opts.clientTools.mcp_help({})).rejects.toThrow(/execution blocked/);
     });
 
     it('rejects on non-2xx HTTP responses that are not 401', async () => {
@@ -357,6 +323,6 @@ describe('elevenlabs dynamic MCP client tools — error propagation', () => {
         }));
         env = bootEnv({ fetchStub });
         const opts = await startCall(env.window);
-        await expect(opts.clientTools.mcp_help.handler({})).rejects.toThrow(/500/);
+        await expect(opts.clientTools.mcp_help({})).rejects.toThrow(/500/);
     });
 });

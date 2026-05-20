@@ -186,67 +186,18 @@
         }
     }
 
-    // Descriptions and schemas mirror the MCP server's tool registration in
-    // internal/mcp/mcp.go:236-296. Keep them in sync (or migrate to a
-    // shared source) — if they drift, the agent will see a different
-    // surface than what the server actually accepts.
+    // The SDK's clientTools option is Record<string, (args) => result> — the
+    // dashboard owns descriptions, parameter schemas, and sound effects; we
+    // only supply the runtime handler. Each tool MUST be registered in the
+    // ElevenLabs agent dashboard with Type=Client and a matching name; tool
+    // names are case-sensitive. See docs/mcp-deployment.md → Voice agent
+    // integration for the dashboard checklist (including Typing sound effect).
     function buildClientTools() {
         const tools = {
-            mcp_help: {
-                description: "List available backend operations for use in mcp_execute scripts. Filter by topic (one of: 'workouts', 'medications', 'food', 'health'; omit or pass 'all' for the full catalog) or pass operation_id (e.g. 'workouts.groups.list') for a single-entry lookup. operation_id takes precedence over topic when both are passed. Each entry includes params/body schema, return shape, and a Python example. Read-only and safe to call before any write.",
-                parameters: {
-                    type: 'object',
-                    properties: {
-                        topic: {
-                            type: 'string',
-                            description: "Domain to filter by (e.g. 'workouts', 'food', 'health'). Omit or pass 'all' for the full catalog.",
-                        },
-                        operation_id: {
-                            type: 'string',
-                            description: "Exact operation ID for a single-entry lookup (e.g. 'workouts.groups.list'). Takes precedence over topic.",
-                        },
-                    },
-                },
-                handler: async (args) => invokeMCPTool('mcp_help', args),
-            },
+            mcp_help: async (args) => invokeMCPTool('mcp_help', args),
         };
         if (MCP_VOICE_ENABLE_EXECUTE) {
-            tools.mcp_execute = {
-                description: "Run a sandboxed Python script against backend APIs. The script MUST call output(value) exactly once — calling it zero times or more than once aborts the run. Discover operations via mcp_help BEFORE writing the script. For writes, pass mode='write' AND a non-empty intent (a one-sentence human-readable summary of what the script will change, e.g. 'Archive medication Lisinopril'). topic_allowlist (optional) restricts which operation topics the script may access; an empty list means all topics are allowed. Timestamps inside scripts use the user's stored timezone unless an operation accepts an explicit tz/tz_offset. Returns {status, result, error, api_calls, stdout, stderr}.",
-                parameters: {
-                    type: 'object',
-                    required: ['script'],
-                    properties: {
-                        script: {
-                            type: 'string',
-                            description: 'Python script to execute. Must call output(value) exactly once to record the result.',
-                        },
-                        mode: {
-                            type: 'string',
-                            enum: ['read_only', 'write'],
-                            description: "Execution mode. Defaults to 'read_only'. Write operations require mode='write' and a non-empty intent.",
-                        },
-                        intent: {
-                            type: 'string',
-                            description: "Required when mode='write'. One short human-readable sentence describing the change (e.g. 'Archive medication Lisinopril', 'Log 200kcal lunch'). Recorded in the audit trail.",
-                        },
-                        timeout_ms: {
-                            type: 'integer',
-                            description: 'Wall-clock timeout in milliseconds. Capped by server config (default 30000).',
-                        },
-                        max_api_calls: {
-                            type: 'integer',
-                            description: 'Maximum number of API calls the script may make. Capped by server config (default 100).',
-                        },
-                        topic_allowlist: {
-                            type: 'array',
-                            items: { type: 'string' },
-                            description: "Optional list of topics the script may access (e.g. ['workouts']). Empty means all topics allowed.",
-                        },
-                    },
-                },
-                handler: async (args) => invokeMCPTool('mcp_execute', args),
-            };
+            tools.mcp_execute = async (args) => invokeMCPTool('mcp_execute', args);
         }
         return tools;
     }
