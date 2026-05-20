@@ -51,6 +51,8 @@ type Config struct {
 	MCP                   MCPConfig
 	ExternalWorkoutAPIKey string
 	AppDomain             string
+	DemoMode              bool
+	Demo                  DemoConfig
 }
 
 // OpenAIConfig groups the OpenAI-compatible client settings, including the
@@ -117,6 +119,18 @@ type MCPConfig struct {
 	AuditSecret string
 }
 
+// DemoConfig groups the per-IP rate-limit thresholds applied to AI / cost-
+// sensitive endpoints when DemoMode is on. Each field is a count per the
+// window implied by its name (per day or per hour). Values default to 1 when
+// DemoMode is enabled and the override env var is unset or malformed; the
+// fields are ignored when DemoMode is off.
+type DemoConfig struct {
+	AgentCallsPerDay        int
+	FoodLogsPerHour         int
+	FoodPhotosPerHour       int
+	FoodDescriptionsPerHour int
+}
+
 // LoadFromEnv reads the process environment and returns a populated Config.
 // It performs exactly the env reads that lived in cmd/bot/main.go before this
 // package existed: AppDomain falls back from APP_DOMAIN to DOMAIN, the OIDC
@@ -172,7 +186,41 @@ func LoadFromEnv() (*Config, error) {
 			cfg.AllowedUserID = parsed
 		}
 	}
+	cfg.DemoMode = parseBoolEnv("DEMO_MODE", false)
+	if cfg.DemoMode {
+		cfg.Demo = DemoConfig{
+			AgentCallsPerDay:        parsePositiveIntEnv("DEMO_AGENT_CALLS_PER_DAY", 1),
+			FoodLogsPerHour:         parsePositiveIntEnv("DEMO_FOOD_LOGS_PER_HOUR", 1),
+			FoodPhotosPerHour:       parsePositiveIntEnv("DEMO_FOOD_PHOTOS_PER_HOUR", 1),
+			FoodDescriptionsPerHour: parsePositiveIntEnv("DEMO_FOOD_DESCRIPTIONS_PER_HOUR", 1),
+		}
+	}
 	return cfg, nil
+}
+
+// parseBoolEnv mirrors the helper in internal/server/server.go. Duplicated
+// here to avoid an import cycle between config and server.
+func parseBoolEnv(key string, defaultValue bool) bool {
+	val := strings.TrimSpace(strings.ToLower(os.Getenv(key)))
+	if val == "" {
+		return defaultValue
+	}
+	return val == "1" || val == "true" || val == "yes" || val == "y"
+}
+
+// parsePositiveIntEnv reads a positive integer env var; on missing, empty,
+// non-integer, zero, or negative input it returns defaultValue. Demo limits
+// must be > 0 to make sense, so zero is treated as malformed.
+func parsePositiveIntEnv(key string, defaultValue int) int {
+	val := strings.TrimSpace(os.Getenv(key))
+	if val == "" {
+		return defaultValue
+	}
+	parsed, err := strconv.Atoi(val)
+	if err != nil || parsed <= 0 {
+		return defaultValue
+	}
+	return parsed
 }
 
 // resolveVAPIDDomain mirrors the DOMAIN-then-APP_DOMAIN ordering the bot main

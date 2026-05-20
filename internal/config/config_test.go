@@ -476,7 +476,121 @@ func clearEnv(t *testing.T) {
 		"POCKET_ID_CLIENT_ID", "POCKET_ID_CLIENT_SECRET", "POCKET_ID_DOMAIN",
 		"GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REDIRECT_URL",
 		"MCP_AUDIT_SECRET", "EXTERNAL_WORKOUT_API_KEY",
+		"DEMO_MODE", "DEMO_AGENT_CALLS_PER_DAY", "DEMO_FOOD_LOGS_PER_HOUR",
+		"DEMO_FOOD_PHOTOS_PER_HOUR", "DEMO_FOOD_DESCRIPTIONS_PER_HOUR",
 	} {
 		t.Setenv(k, "")
+	}
+}
+
+func TestLoadFromEnv_DemoMode(t *testing.T) {
+	defaults := DemoConfig{
+		AgentCallsPerDay:        1,
+		FoodLogsPerHour:         1,
+		FoodPhotosPerHour:       1,
+		FoodDescriptionsPerHour: 1,
+	}
+
+	tests := []struct {
+		name     string
+		envVars  map[string]string
+		wantOn   bool
+		wantDemo DemoConfig
+	}{
+		{
+			name:     "demo_mode_unset",
+			envVars:  map[string]string{},
+			wantOn:   false,
+			wantDemo: DemoConfig{},
+		},
+		{
+			name:     "demo_mode_zero",
+			envVars:  map[string]string{"DEMO_MODE": "0"},
+			wantOn:   false,
+			wantDemo: DemoConfig{},
+		},
+		{
+			name:     "demo_mode_one_defaults",
+			envVars:  map[string]string{"DEMO_MODE": "1"},
+			wantOn:   true,
+			wantDemo: defaults,
+		},
+		{
+			name:     "demo_mode_true_defaults",
+			envVars:  map[string]string{"DEMO_MODE": "true"},
+			wantOn:   true,
+			wantDemo: defaults,
+		},
+		{
+			name: "all_overrides_set",
+			envVars: map[string]string{
+				"DEMO_MODE":                       "1",
+				"DEMO_AGENT_CALLS_PER_DAY":        "5",
+				"DEMO_FOOD_LOGS_PER_HOUR":         "10",
+				"DEMO_FOOD_PHOTOS_PER_HOUR":       "3",
+				"DEMO_FOOD_DESCRIPTIONS_PER_HOUR": "7",
+			},
+			wantOn: true,
+			wantDemo: DemoConfig{
+				AgentCallsPerDay:        5,
+				FoodLogsPerHour:         10,
+				FoodPhotosPerHour:       3,
+				FoodDescriptionsPerHour: 7,
+			},
+		},
+		{
+			name: "partial_overrides_fall_back_to_defaults",
+			envVars: map[string]string{
+				"DEMO_MODE":                "1",
+				"DEMO_AGENT_CALLS_PER_DAY": "12",
+			},
+			wantOn: true,
+			wantDemo: DemoConfig{
+				AgentCallsPerDay:        12,
+				FoodLogsPerHour:         1,
+				FoodPhotosPerHour:       1,
+				FoodDescriptionsPerHour: 1,
+			},
+		},
+		{
+			name: "malformed_integers_fall_back_to_defaults",
+			envVars: map[string]string{
+				"DEMO_MODE":                       "1",
+				"DEMO_AGENT_CALLS_PER_DAY":        "not-a-number",
+				"DEMO_FOOD_LOGS_PER_HOUR":         "",
+				"DEMO_FOOD_PHOTOS_PER_HOUR":       "0",
+				"DEMO_FOOD_DESCRIPTIONS_PER_HOUR": "-5",
+			},
+			wantOn:   true,
+			wantDemo: defaults,
+		},
+		{
+			name: "overrides_ignored_when_demo_off",
+			envVars: map[string]string{
+				"DEMO_AGENT_CALLS_PER_DAY": "99",
+				"DEMO_FOOD_LOGS_PER_HOUR":  "99",
+			},
+			wantOn:   false,
+			wantDemo: DemoConfig{},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			clearEnv(t)
+			for k, v := range tc.envVars {
+				t.Setenv(k, v)
+			}
+			cfg, err := LoadFromEnv()
+			if err != nil {
+				t.Fatalf("LoadFromEnv: %v", err)
+			}
+			if cfg.DemoMode != tc.wantOn {
+				t.Errorf("DemoMode = %v want %v", cfg.DemoMode, tc.wantOn)
+			}
+			if cfg.Demo != tc.wantDemo {
+				t.Errorf("Demo = %+v\nwant %+v", cfg.Demo, tc.wantDemo)
+			}
+		})
 	}
 }
