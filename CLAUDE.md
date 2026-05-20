@@ -20,6 +20,17 @@ A self-hosted Telegram Mini App for comprehensive health tracking (medications, 
 8. **Frontend tests are integration-first.** New behavior is added to the owning feature suite (`features.*` or `<feature>.<aspect>.test.js`) through `tests/helpers/frontend-harness.js`. Do not add coverage-driven `*-branches` / `*-edges` / `*-characterization` files, and do not create standalone `pin-defect-N` or `task-N` files — extend the feature's existing `describe` block instead. Pure-unit tests are reserved for layers without an integration entry point (web components, DB, SW, sync, cached-fetch). See [docs/frontend.md → Testing posture](docs/frontend.md#testing-posture).
 9. **Frontend write handlers MUST use `DataStore.applyOptimistic`**, never `invalidateTags + loadX()`. Optimistic state repaints the UI before the POST resolves; `commit(serverPayload)` reconciles on success, `rollback()` restores prior cache and invalidates tags on failure. The `invalidateTags + loadX()` pattern is reserved for read-only refreshes (e.g. `invalidateWorkoutCache`) and the rollback path itself. See [docs/frontend.md → Optimistic Write Updates](docs/frontend.md#optimistic-write-updates).
 
+## Build Modes
+
+The codebase compiles in two modes via the `//go:build mobile` build tag:
+
+- **Server build (default)** — `go build ./...` — wires the Telegram bot, MCP server, web-push, OIDC, and ElevenLabs handlers. This is the production deployment.
+- **Mobile build** — `go build -tags mobile ./...` — strips bot/MCP/web-push/OIDC at compile time, substitutes `LocalUserResolver` (single user) for the auth resolver, and uses `LocalNotificationSink` (queue + `GET /api/reminders/upcoming`) instead of `WebPushSink`. Targets the Capacitor wrapper. See [docs/local-mode.md](docs/local-mode.md).
+
+Configuration layering: env var → settings table → built-in default. The `internal/config` package owns `LoadFromEnv` + `LoadFromSettings` + `Merge`. User-editable provider keys (OpenAI, Food DB, ElevenLabs) live in the singleton settings row and are reachable via the Settings UI's Integrations section.
+
+Tagged files are limited to wiring seams: `cmd/bot/main_{server,mobile}.go`, `internal/scheduler/sink_{webpush,localnotifications}.go`, `internal/server/auth/resolver_{telegram,local}.go`. Domain services, the store, HTTP handlers, and the frontend are tag-free.
+
 ## Development Commands
 
 ```bash
@@ -86,6 +97,7 @@ go run ./cmd/seeddemo -user <telegram_user_id> -db meds.db -days 90 -wipe -seed 
 | Topic | File |
 |-------|------|
 | Architecture, code structure, DB schema, auth, domain services, scheduler, logging, testing | [docs/architecture.md](docs/architecture.md) |
+| Local-only (Capacitor mobile) build, `//go:build mobile` boundary, env→settings layering, Phase 2 roadmap | [docs/local-mode.md](docs/local-mode.md) |
 | Feature behaviors (Today dashboard, meds, BP, weight, food, workouts, MCP) | [docs/features.md](docs/features.md) |
 | API endpoints | [docs/api.md](docs/api.md) |
 | Environment variables | [docs/environment.md](docs/environment.md) |

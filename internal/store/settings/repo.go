@@ -12,6 +12,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
@@ -184,6 +185,236 @@ func (r *Repo) GetDismissedTZSuggestion(ctx context.Context) (string, error) {
 func (r *Repo) SetDismissedTZSuggestion(ctx context.Context, tz string) error {
 	_, err := r.db.ExecContext(ctx, "UPDATE settings SET dismissed_tz_suggestion = ? WHERE id = 1", tz)
 	return err
+}
+
+// IntegrationOpenAI is the settings-table-backed view of the OpenAI provider
+// configuration. The settings repo intentionally defines its own DTOs (rather
+// than reusing internal/config types) so internal/config can depend on
+// internal/store/settings via LoadFromSettings without a cyclic import.
+type IntegrationOpenAI struct {
+	APIKey       string
+	URL          string
+	Model        string
+	VisionAPIKey string
+	VisionURL    string
+	VisionModel  string
+}
+
+// IntegrationFood is the settings-table-backed view of the remote food-DB
+// lookup credentials.
+type IntegrationFood struct {
+	APIKey string
+	URL    string
+	Domain string
+}
+
+// IntegrationElevenLabs is the settings-table-backed view of the Voice Agent
+// proxy credentials.
+type IntegrationElevenLabs struct {
+	APIKey  string
+	AgentID string
+}
+
+// GetIntegrationOpenAI reads the OpenAI provider config columns from the
+// singleton settings row.
+func (r *Repo) GetIntegrationOpenAI(ctx context.Context) (IntegrationOpenAI, error) {
+	var v IntegrationOpenAI
+	err := r.db.QueryRowContext(ctx, `SELECT
+		openai_api_key, openai_url, openai_model,
+		openai_vision_api_key, openai_vision_url, openai_vision_model
+		FROM settings WHERE id = 1`).Scan(
+		&v.APIKey, &v.URL, &v.Model,
+		&v.VisionAPIKey, &v.VisionURL, &v.VisionModel,
+	)
+	if err == sql.ErrNoRows {
+		return IntegrationOpenAI{}, nil
+	}
+	return v, err
+}
+
+// SetIntegrationOpenAI writes all OpenAI provider config columns in one
+// statement. Empty strings clear the column (a "" override is the explicit way
+// to unset a previously-saved value).
+func (r *Repo) SetIntegrationOpenAI(ctx context.Context, v IntegrationOpenAI) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE settings SET
+		openai_api_key = ?, openai_url = ?, openai_model = ?,
+		openai_vision_api_key = ?, openai_vision_url = ?, openai_vision_model = ?
+		WHERE id = 1`,
+		v.APIKey, v.URL, v.Model,
+		v.VisionAPIKey, v.VisionURL, v.VisionModel,
+	)
+	return err
+}
+
+// GetIntegrationFood reads the remote food-DB lookup columns from the
+// singleton settings row.
+func (r *Repo) GetIntegrationFood(ctx context.Context) (IntegrationFood, error) {
+	var v IntegrationFood
+	err := r.db.QueryRowContext(ctx, `SELECT food_api_key, food_url, food_domain
+		FROM settings WHERE id = 1`).Scan(&v.APIKey, &v.URL, &v.Domain)
+	if err == sql.ErrNoRows {
+		return IntegrationFood{}, nil
+	}
+	return v, err
+}
+
+// SetIntegrationFood writes all remote food-DB lookup columns in one statement.
+func (r *Repo) SetIntegrationFood(ctx context.Context, v IntegrationFood) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE settings SET
+		food_api_key = ?, food_url = ?, food_domain = ?
+		WHERE id = 1`, v.APIKey, v.URL, v.Domain)
+	return err
+}
+
+// GetIntegrationElevenLabs reads the Voice Agent proxy credentials from the
+// singleton settings row.
+func (r *Repo) GetIntegrationElevenLabs(ctx context.Context) (IntegrationElevenLabs, error) {
+	var v IntegrationElevenLabs
+	err := r.db.QueryRowContext(ctx, `SELECT elevenlabs_api_key, elevenlabs_agent_id
+		FROM settings WHERE id = 1`).Scan(&v.APIKey, &v.AgentID)
+	if err == sql.ErrNoRows {
+		return IntegrationElevenLabs{}, nil
+	}
+	return v, err
+}
+
+// SetIntegrationElevenLabs writes the Voice Agent proxy credentials.
+func (r *Repo) SetIntegrationElevenLabs(ctx context.Context, v IntegrationElevenLabs) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE settings SET
+		elevenlabs_api_key = ?, elevenlabs_agent_id = ? WHERE id = 1`,
+		v.APIKey, v.AgentID)
+	return err
+}
+
+// IntegrationOpenAIPatch is a partial update for the OpenAI integration row.
+// nil field = leave the column unchanged; non-nil = overwrite with *value
+// (including empty string, which explicitly clears the column).
+type IntegrationOpenAIPatch struct {
+	APIKey       *string
+	URL          *string
+	Model        *string
+	VisionAPIKey *string
+	VisionURL    *string
+	VisionModel  *string
+}
+
+// IntegrationFoodPatch is the partial-update counterpart of IntegrationFood.
+type IntegrationFoodPatch struct {
+	APIKey *string
+	URL    *string
+	Domain *string
+}
+
+// IntegrationElevenLabsPatch is the partial-update counterpart of
+// IntegrationElevenLabs.
+type IntegrationElevenLabsPatch struct {
+	APIKey  *string
+	AgentID *string
+}
+
+// PatchIntegrations applies partial updates to the OpenAI / Food / ElevenLabs
+// integration columns atomically. Each patch pointer is nil to skip the group;
+// within a group, each field is nil to leave its column unchanged. Only
+// explicitly-set columns are written, so concurrent partial patches that touch
+// disjoint fields cannot clobber each other and a stale read can never resurrect
+// a column another patch just cleared.
+func (r *Repo) PatchIntegrations(ctx context.Context, openAI *IntegrationOpenAIPatch, food *IntegrationFoodPatch, el *IntegrationElevenLabsPatch) error {
+	return r.db.WithTx(ctx, func(tx storedb.TX) error {
+		if openAI != nil {
+			sets, args := openAI.sqlSet()
+			if err := execPatch(ctx, tx, sets, args); err != nil {
+				return err
+			}
+		}
+		if food != nil {
+			sets, args := food.sqlSet()
+			if err := execPatch(ctx, tx, sets, args); err != nil {
+				return err
+			}
+		}
+		if el != nil {
+			sets, args := el.sqlSet()
+			if err := execPatch(ctx, tx, sets, args); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// execPatch runs a singleton-row UPDATE against the settings table, skipping
+// the call entirely when no columns are being set. Column names come from
+// hardcoded literals in the sqlSet helpers, never user input, so concatenation
+// here is safe.
+func execPatch(ctx context.Context, tx storedb.TX, sets []string, args []any) error {
+	if len(sets) == 0 {
+		return nil
+	}
+	query := "UPDATE settings SET " + strings.Join(sets, ", ") + " WHERE id = 1" // #nosec G201 -- column names are hardcoded literals
+	_, err := tx.ExecContext(ctx, query, args...)
+	return err
+}
+
+func (p *IntegrationOpenAIPatch) sqlSet() ([]string, []any) {
+	sets := make([]string, 0, 6)
+	args := make([]any, 0, 6)
+	if p.APIKey != nil {
+		sets = append(sets, "openai_api_key = ?")
+		args = append(args, *p.APIKey)
+	}
+	if p.URL != nil {
+		sets = append(sets, "openai_url = ?")
+		args = append(args, *p.URL)
+	}
+	if p.Model != nil {
+		sets = append(sets, "openai_model = ?")
+		args = append(args, *p.Model)
+	}
+	if p.VisionAPIKey != nil {
+		sets = append(sets, "openai_vision_api_key = ?")
+		args = append(args, *p.VisionAPIKey)
+	}
+	if p.VisionURL != nil {
+		sets = append(sets, "openai_vision_url = ?")
+		args = append(args, *p.VisionURL)
+	}
+	if p.VisionModel != nil {
+		sets = append(sets, "openai_vision_model = ?")
+		args = append(args, *p.VisionModel)
+	}
+	return sets, args
+}
+
+func (p *IntegrationFoodPatch) sqlSet() ([]string, []any) {
+	sets := make([]string, 0, 3)
+	args := make([]any, 0, 3)
+	if p.APIKey != nil {
+		sets = append(sets, "food_api_key = ?")
+		args = append(args, *p.APIKey)
+	}
+	if p.URL != nil {
+		sets = append(sets, "food_url = ?")
+		args = append(args, *p.URL)
+	}
+	if p.Domain != nil {
+		sets = append(sets, "food_domain = ?")
+		args = append(args, *p.Domain)
+	}
+	return sets, args
+}
+
+func (p *IntegrationElevenLabsPatch) sqlSet() ([]string, []any) {
+	sets := make([]string, 0, 2)
+	args := make([]any, 0, 2)
+	if p.APIKey != nil {
+		sets = append(sets, "elevenlabs_api_key = ?")
+		args = append(args, *p.APIKey)
+	}
+	if p.AgentID != nil {
+		sets = append(sets, "elevenlabs_agent_id = ?")
+		args = append(args, *p.AgentID)
+	}
+	return sets, args
 }
 
 // GetLastDownload returns the timestamp of the last drug-database download,

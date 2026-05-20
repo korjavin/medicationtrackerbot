@@ -27,9 +27,9 @@ type BPReminderStore interface {
 
 // BPReminderChecker checks if any users need BP reminder notifications.
 type BPReminderChecker struct {
-	store     BPReminderStore
-	notifiers []notifier.Notifier
-	now       func() time.Time // injectable clock; defaults to time.Now
+	store BPReminderStore
+	sink  ReminderSink
+	now   func() time.Time // injectable clock; defaults to time.Now
 }
 
 func (c *BPReminderChecker) Check(ctx context.Context) error {
@@ -181,23 +181,9 @@ func (c *BPReminderChecker) sendBPReminder(ctx context.Context, userID int64, en
 		},
 	}
 
-	anySuccess := false
-	var firstMsgID int
-
-	for _, nr := range c.notifiers {
-		msgID, err := nr.Send(ctx, userID, n)
-		if err != nil {
-			slog.Error("Failed to send BP reminder", "notifier", nr, "error", err)
-			continue
-		}
-		anySuccess = true
-		if msgID != 0 && firstMsgID == 0 {
-			firstMsgID = msgID
-		}
-	}
-
-	if !anySuccess {
-		return fmt.Errorf("failed to send BP reminder via any channel")
+	firstMsgID, err := c.sink.NotifySyncToUser(ctx, userID, n)
+	if err != nil {
+		return fmt.Errorf("failed to send BP reminder via any channel: %w", err)
 	}
 
 	var messageID *int

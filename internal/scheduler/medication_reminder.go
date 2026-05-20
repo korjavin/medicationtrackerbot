@@ -12,7 +12,7 @@ import (
 
 // MedicationReminderChecker re-sends reminders for unconfirmed intakes.
 type MedicationReminderChecker struct {
-	NotifyHelper
+	sink  ReminderSink
 	store MedicationStore
 	now   func() time.Time // injectable clock; defaults to time.Now
 }
@@ -124,7 +124,7 @@ func (c *MedicationReminderChecker) Check(ctx context.Context) error {
 				},
 			}
 
-			c.Notify(ctx, n, func(msgID int) {
+			c.sink.Notify(ctx, n, func(msgID int) {
 				if err := c.store.CreateIntakeReminder(intakeID, msgID); err != nil {
 					slog.Error("Failed to store intake reminder", "error", err)
 				}

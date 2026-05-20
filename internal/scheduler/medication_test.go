@@ -1,3 +1,7 @@
+//go:build !mobile
+
+// Tests that exercise WebPushSink delivery semantics via mock notifiers.
+
 package scheduler
 
 import (
@@ -182,7 +186,7 @@ func TestMedicationCheckerScenarios(t *testing.T) {
 
 		mockNotifier := &MockNotifier{}
 
-		sched := New(db, 123456, []notifier.Notifier{mockNotifier})
+		sched := NewWithNotifiers(db, 123456, []notifier.Notifier{mockNotifier})
 
 		// Override current time for test
 		sched.MedicationChecker.now = func() time.Time {

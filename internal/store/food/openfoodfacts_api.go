@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 )
@@ -26,11 +25,11 @@ type fastFoodProduct struct {
 // SearchRemoteAPI performs a live, resilient search against the FastFoodDB API.
 // It maps the response safely to our local FoodProduct struct.
 func (r *Repo) SearchRemoteAPI(ctx context.Context, query string) ([]FoodProduct, error) {
-	baseURL := os.Getenv("FOOD_API_URL")
+	baseURL := r.remoteCfg.URL
 	if baseURL == "" {
-		domain := os.Getenv("FOOD_DOMAIN")
+		domain := r.remoteCfg.Domain
 		if domain == "" {
-			return nil, fmt.Errorf("FOOD_DOMAIN or FOOD_API_URL environment variable is required")
+			return nil, fmt.Errorf("food remote search is not configured: set FoodConfig.URL or FoodConfig.Domain")
 		}
 		if strings.HasPrefix(domain, "http://") || strings.HasPrefix(domain, "https://") {
 			baseURL = domain
@@ -40,7 +39,7 @@ func (r *Repo) SearchRemoteAPI(ctx context.Context, query string) ([]FoodProduct
 	}
 	baseURL = strings.TrimRight(baseURL, "/")
 
-	apiKey := os.Getenv("FOOD_API_KEY")
+	apiKey := r.remoteCfg.APIKey
 
 	var targetURL string
 

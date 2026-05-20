@@ -553,6 +553,95 @@
                     class="wg-gloss wg-gloss--sun wg-settings-save-btn">Save Targets</button>
             </section>
 
+            <section id="settings-integrations" class="wg-card wg-settings-section wg-settings-integrations">
+                <h3 class="wg-settings-section__title">Integrations</h3>
+                <p class="wg-settings-section__desc">Provider credentials for AI, food database, and voice agent. Stored locally; existing keys appear as <span class="wg-mono-display">***</span> and stay unchanged unless you re-enter them. Empty a field to clear a saved value.</p>
+
+                <div class="wg-settings-integrations__group">
+                    <h4 class="wg-settings-integrations__group-title wg-mono-display">OpenAI</h4>
+                    <div class="wg-settings-integrations__field">
+                        <label for="integrations-openai-api-key" class="wg-settings-integrations__label">API Key</label>
+                        <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
+                            <input type="password" id="integrations-openai-api-key" class="wg-settings-integrations__input" autocomplete="off" placeholder="sk-...">
+                        </div>
+                    </div>
+                    <div class="wg-settings-integrations__field">
+                        <label for="integrations-openai-url" class="wg-settings-integrations__label">API URL</label>
+                        <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
+                            <input type="text" id="integrations-openai-url" class="wg-settings-integrations__input" placeholder="https://api.openai.com/v1">
+                        </div>
+                    </div>
+                    <div class="wg-settings-integrations__field">
+                        <label for="integrations-openai-model" class="wg-settings-integrations__label">Model</label>
+                        <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
+                            <input type="text" id="integrations-openai-model" class="wg-settings-integrations__input" placeholder="gpt-4o-mini">
+                        </div>
+                    </div>
+                    <details class="wg-settings-integrations__details">
+                        <summary class="wg-settings-integrations__summary">Vision overrides (optional)</summary>
+                        <div class="wg-settings-integrations__field">
+                            <label for="integrations-openai-vision-api-key" class="wg-settings-integrations__label">Vision API Key</label>
+                            <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
+                                <input type="password" id="integrations-openai-vision-api-key" class="wg-settings-integrations__input" autocomplete="off">
+                            </div>
+                        </div>
+                        <div class="wg-settings-integrations__field">
+                            <label for="integrations-openai-vision-url" class="wg-settings-integrations__label">Vision URL</label>
+                            <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
+                                <input type="text" id="integrations-openai-vision-url" class="wg-settings-integrations__input">
+                            </div>
+                        </div>
+                        <div class="wg-settings-integrations__field">
+                            <label for="integrations-openai-vision-model" class="wg-settings-integrations__label">Vision Model</label>
+                            <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
+                                <input type="text" id="integrations-openai-vision-model" class="wg-settings-integrations__input">
+                            </div>
+                        </div>
+                    </details>
+                </div>
+
+                <div class="wg-settings-integrations__group">
+                    <h4 class="wg-settings-integrations__group-title wg-mono-display">Food Database</h4>
+                    <div class="wg-settings-integrations__field">
+                        <label for="integrations-food-api-key" class="wg-settings-integrations__label">API Key</label>
+                        <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
+                            <input type="password" id="integrations-food-api-key" class="wg-settings-integrations__input" autocomplete="off">
+                        </div>
+                    </div>
+                    <div class="wg-settings-integrations__field">
+                        <label for="integrations-food-url" class="wg-settings-integrations__label">API URL</label>
+                        <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
+                            <input type="text" id="integrations-food-url" class="wg-settings-integrations__input">
+                        </div>
+                    </div>
+                    <div class="wg-settings-integrations__field">
+                        <label for="integrations-food-domain" class="wg-settings-integrations__label">Domain</label>
+                        <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
+                            <input type="text" id="integrations-food-domain" class="wg-settings-integrations__input">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="wg-settings-integrations__group">
+                    <h4 class="wg-settings-integrations__group-title wg-mono-display">ElevenLabs Voice Agent</h4>
+                    <div class="wg-settings-integrations__field">
+                        <label for="integrations-elevenlabs-api-key" class="wg-settings-integrations__label">API Key</label>
+                        <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
+                            <input type="password" id="integrations-elevenlabs-api-key" class="wg-settings-integrations__input" autocomplete="off">
+                        </div>
+                    </div>
+                    <div class="wg-settings-integrations__field">
+                        <label for="integrations-elevenlabs-agent-id" class="wg-settings-integrations__label">Agent ID</label>
+                        <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
+                            <input type="text" id="integrations-elevenlabs-agent-id" class="wg-settings-integrations__input">
+                        </div>
+                    </div>
+                </div>
+
+                <p id="integrations-restart-note" class="wg-settings-integrations__note">Changes take effect after the server restarts.</p>
+                <button id="save-integrations-btn" type="button" class="wg-gloss wg-gloss--sun wg-settings-save-btn">Save Integrations</button>
+            </section>
+
             <div class="wg-settings-version">
                 <span class="wg-settings-version__label">Version</span>
                 <span class="wg-settings-version__value">VERSION_PLACEHOLDER</span>
@@ -1593,6 +1682,7 @@
     <script src="/static/js/features/deeplink-router.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/elevenlabs-call.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/call-indicator.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="/static/js/features/settings/integrations.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/today.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/tz-plan-banner.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/workout/next-card.js?v=TIMESTAMP_PLACEHOLDER"></script>

@@ -44,9 +44,10 @@ type MedicationStore interface {
 
 // MedicationChecker checks for due medications and sends notifications.
 type MedicationChecker struct {
-	NotifyHelper
-	store MedicationStore
-	now   func() time.Time // injectable clock; defaults to time.Now
+	sink          ReminderSink
+	allowedUserID int64
+	store         MedicationStore
+	now           func() time.Time // injectable clock; defaults to time.Now
 }
 
 // notificationGroup accumulates medications that share a notification target time.
@@ -394,7 +395,7 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 		}
 
 		iIDs := intakeIDs
-		c.Notify(ctx, n, func(msgID int) {
+		c.sink.Notify(ctx, n, func(msgID int) {
 			for _, iID := range iIDs {
 				if err := c.store.CreateIntakeReminder(iID, msgID); err != nil {
 					slog.Error("Failed to add intake reminder", "intakeID", iID, "msgID", msgID, "error", err)
@@ -423,7 +424,7 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 				},
 			}
 			// Notify but we don't care about msgIDs for these individual ones since they are webpush specific
-			c.Notify(ctx, indivN, func(msgID int) {})
+			c.sink.Notify(ctx, indivN, func(msgID int) {})
 		}
 	}
 

@@ -1,3 +1,7 @@
+//go:build !mobile
+
+// Tests that exercise WebPushSink delivery semantics via mock notifiers.
+
 package scheduler
 
 import (
@@ -33,7 +37,7 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		}
 
 		mock := &MockNotifier{}
-		sched := New(db, 123456, []notifier.Notifier{mock})
+		sched := NewWithNotifiers(db, 123456, []notifier.Notifier{mock})
 		sched.MedicationChecker.now = func() time.Time { return nowTime }
 
 		if err := sched.MedicationChecker.Check(context.Background()); err != nil {
@@ -68,7 +72,7 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		}
 
 		mock := &MockNotifier{}
-		sched := New(db, 123456, []notifier.Notifier{mock})
+		sched := NewWithNotifiers(db, 123456, []notifier.Notifier{mock})
 		sched.MedicationChecker.now = func() time.Time { return nowTime }
 
 		if err := sched.MedicationChecker.Check(context.Background()); err != nil {
@@ -122,7 +126,7 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		}
 
 		mock := &MockNotifier{}
-		sched := New(db, 123456, []notifier.Notifier{mock})
+		sched := NewWithNotifiers(db, 123456, []notifier.Notifier{mock})
 		sched.MedicationChecker.now = func() time.Time { return nowTime }
 
 		if err := sched.MedicationChecker.Check(context.Background()); err != nil {
@@ -191,7 +195,7 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		}
 
 		mock := &MockNotifier{}
-		sched := New(db, 123456, []notifier.Notifier{mock})
+		sched := NewWithNotifiers(db, 123456, []notifier.Notifier{mock})
 		sched.MedicationChecker.now = func() time.Time { return nowTime }
 
 		if err := sched.MedicationChecker.Check(context.Background()); err != nil {
@@ -265,7 +269,7 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		}
 
 		mock := &MockNotifier{}
-		sched := New(db, 123456, []notifier.Notifier{mock})
+		sched := NewWithNotifiers(db, 123456, []notifier.Notifier{mock})
 		sched.MedicationChecker.now = func() time.Time { return nowTime }
 
 		if err := sched.MedicationChecker.Check(context.Background()); err != nil {
@@ -326,7 +330,7 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		_ = planID // plan exists but not approved
 
 		mock := &MockNotifier{}
-		sched := New(db, 123456, []notifier.Notifier{mock})
+		sched := NewWithNotifiers(db, 123456, []notifier.Notifier{mock})
 		sched.MedicationChecker.now = func() time.Time { return nowTime }
 
 		if err := sched.MedicationChecker.Check(context.Background()); err != nil {
@@ -385,7 +389,7 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		}
 
 		mock := &MockNotifier{}
-		sched := New(db, 123456, []notifier.Notifier{mock})
+		sched := NewWithNotifiers(db, 123456, []notifier.Notifier{mock})
 		sched.MedicationChecker.now = func() time.Time { return nowTime }
 
 		if err := sched.MedicationChecker.Check(context.Background()); err != nil {
@@ -436,7 +440,7 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		}
 
 		mock := &MockNotifier{}
-		sched := New(db, 123456, []notifier.Notifier{mock})
+		sched := NewWithNotifiers(db, 123456, []notifier.Notifier{mock})
 		sched.MedicationChecker.now = func() time.Time { return nowTime }
 
 		// Two ticks in a row.
@@ -518,7 +522,7 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		}
 
 		zn := &zeroMsgIDNotifier{}
-		sched := New(db, 123456, []notifier.Notifier{zn})
+		sched := NewWithNotifiers(db, 123456, []notifier.Notifier{zn})
 		sched.MedicationChecker.now = func() time.Time { return nowTime }
 
 		if err := sched.MedicationChecker.Check(context.Background()); err != nil {
@@ -598,7 +602,7 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		}
 
 		mock := &MockNotifier{}
-		sched := New(db, 123456, []notifier.Notifier{mock})
+		sched := NewWithNotifiers(db, 123456, []notifier.Notifier{mock})
 		sched.MedicationChecker.now = func() time.Time { return nowTime }
 
 		if err := sched.MedicationChecker.Check(context.Background()); err != nil {
@@ -670,7 +674,7 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		}
 
 		mock := &MockNotifier{}
-		sched := New(db, 123456, []notifier.Notifier{mock})
+		sched := NewWithNotifiers(db, 123456, []notifier.Notifier{mock})
 		sched.MedicationChecker.now = func() time.Time { return nowTime }
 
 		if err := sched.MedicationChecker.Check(context.Background()); err != nil {
@@ -745,7 +749,7 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		}
 
 		mock := &MockNotifier{}
-		sched := New(db, 123456, []notifier.Notifier{mock})
+		sched := NewWithNotifiers(db, 123456, []notifier.Notifier{mock})
 		sched.MedicationChecker.now = func() time.Time { return nowTime }
 
 		if err := sched.MedicationChecker.Check(context.Background()); err != nil {
@@ -818,7 +822,7 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		}
 
 		mock := &MockNotifier{}
-		sched := New(db, 123456, []notifier.Notifier{mock})
+		sched := NewWithNotifiers(db, 123456, []notifier.Notifier{mock})
 		sched.MedicationChecker.now = func() time.Time { return nowTime }
 
 		if err := sched.MedicationChecker.Check(context.Background()); err != nil {
@@ -924,7 +928,7 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 		}
 
 		mock := &MockNotifier{}
-		sched := New(db, 123456, []notifier.Notifier{mock})
+		sched := NewWithNotifiers(db, 123456, []notifier.Notifier{mock})
 		sched.MedicationChecker.now = func() time.Time { return nowTime }
 
 		if err := sched.MedicationChecker.Check(context.Background()); err != nil {
@@ -1015,7 +1019,7 @@ func TestMedicationCheckerCompletedPlanOverlapGuard(t *testing.T) {
 	}
 
 	mock := &MockNotifier{}
-	sched := New(db, 123456, []notifier.Notifier{mock})
+	sched := NewWithNotifiers(db, 123456, []notifier.Notifier{mock})
 	sched.MedicationChecker.now = func() time.Time { return nowTime }
 
 	if err := sched.MedicationChecker.Check(context.Background()); err != nil {
@@ -1096,7 +1100,7 @@ func TestScheduler_NoDuplicateIntakeAfterTZNameChangeSameOffset(t *testing.T) {
 	// must find the existing row (15:20 UTC) by integer equality.
 	nowTime := time.Date(2026, 5, 10, 9, 0, 0, 0, phx)
 	mock := &MockNotifier{}
-	sched := New(db, 123456, []notifier.Notifier{mock})
+	sched := NewWithNotifiers(db, 123456, []notifier.Notifier{mock})
 	sched.MedicationChecker.now = func() time.Time { return nowTime }
 
 	if err := sched.MedicationChecker.Check(context.Background()); err != nil {

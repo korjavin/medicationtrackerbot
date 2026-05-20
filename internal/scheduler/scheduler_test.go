@@ -1,3 +1,5 @@
+//go:build !mobile
+
 package scheduler
 
 import (
@@ -16,7 +18,7 @@ func setupTestScheduler(t *testing.T) (*Scheduler, *store.Store) {
 	}
 	t.Cleanup(func() { _ = db.Close() }) // #nosec G104
 
-	sched := New(db, 123456, nil)
+	sched := NewWithNotifiers(db, 123456, nil)
 	return sched, db
 }
 

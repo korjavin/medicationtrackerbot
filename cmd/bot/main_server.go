@@ -1,3 +1,5 @@
+//go:build !mobile
+
 package main
 
 import (
@@ -8,13 +10,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/ai"
 	"github.com/korjavin/medicationtrackerbot/internal/bot"
+	"github.com/korjavin/medicationtrackerbot/internal/config"
 	"github.com/korjavin/medicationtrackerbot/internal/domain"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzsuggestion"
@@ -25,6 +26,7 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/server"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
+	"github.com/korjavin/medicationtrackerbot/internal/store/food"
 	"github.com/korjavin/medicationtrackerbot/internal/webpush"
 )
 
@@ -32,17 +34,23 @@ func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 
 	// 1. Config
-	dbPath := os.Getenv("DB_PATH")
+	cfg, err := config.LoadFromEnv()
+	if err != nil {
+		slog.Error("Failed to load config", "error", err)
+		os.Exit(1)
+	}
+
+	dbPath := cfg.DBPath
 	if dbPath == "" {
 		dbPath = "meds.db"
 	}
 
-	botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
+	botToken := cfg.TelegramBotToken
 	if botToken == "" {
 		slog.Info("TELEGRAM_BOT_TOKEN not set. Running in web-only mode.")
 	}
 
-	sessionSecret := os.Getenv("SESSION_SECRET")
+	sessionSecret := cfg.SessionSecret
 	if sessionSecret == "" || len(sessionSecret) < 32 {
 		slog.Error("SESSION_SECRET is required and must be at least 32 characters long. Generate one with: openssl rand -base64 32")
 		os.Exit(1)
@@ -66,13 +74,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	userIDStr := os.Getenv("ALLOWED_USER_ID")
-	if userIDStr == "" {
+	if os.Getenv("ALLOWED_USER_ID") == "" {
 		slog.Info("ALLOWED_USER_ID is required for notifications.")
 	}
-	allowedUserID, _ := strconv.ParseInt(userIDStr, 10, 64)
+	allowedUserID := cfg.AllowedUserID
 
-	port := os.Getenv("PORT")
+	port := cfg.Port
 	if port == "" {
 		port = "8080"
 	}
@@ -93,18 +100,38 @@ func main() {
 	}
 	slog.Info("Database initialized", "path", dbPath)
 
+	// Merge the settings-table view of the user-configurable subset (OpenAI,
+	// Food, ElevenLabs) into the env-derived config. Env wins per-field; for
+	// keys an operator left unset, the settings table value is used. On a
+	// fresh DB every settings column defaults to '' so this is a no-op for
+	// server installs that already set everything in env.
+	settingsCfg, err := config.LoadFromSettings(context.Background(), s.Settings)
+	if err != nil {
+		slog.Error("Failed to load settings-table config", "error", err)
+		os.Exit(1)
+	}
+	cfg = config.Merge(cfg, settingsCfg)
+
+	// Wire the remote food-DB config into the food repo so SearchRemoteAPI
+	// no longer reads os.Getenv at request time.
+	s.Food.SetRemoteConfig(food.RemoteConfig{
+		APIKey: cfg.Food.APIKey,
+		URL:    cfg.Food.URL,
+		Domain: cfg.Food.Domain,
+	})
+
 	// 2.5 OpenAI Client
-	openAIApiKey := os.Getenv("OPENAI_API_KEY")
-	openAIURL := os.Getenv("OPENAI_URL")
-	openAIModel := os.Getenv("OPENAI_MODEL")
+	openAIApiKey := cfg.OpenAI.APIKey
+	openAIURL := cfg.OpenAI.URL
+	openAIModel := cfg.OpenAI.Model
 
 	// Optional split-provider configuration for vision (food photo parsing).
 	// When the primary provider is text-only (e.g. DeepSeek), set these to
 	// route ParseMealFromImage to a vision-capable model. Each var falls back
 	// to its OPENAI_* counterpart when unset.
-	visionApiKey := os.Getenv("OPENAI_VISION_API_KEY")
-	visionURL := os.Getenv("OPENAI_VISION_URL")
-	visionModel := os.Getenv("OPENAI_VISION_MODEL")
+	visionApiKey := cfg.OpenAI.VisionAPIKey
+	visionURL := cfg.OpenAI.VisionURL
+	visionModel := cfg.OpenAI.VisionModel
 	visionConfigured := visionApiKey != "" || visionURL != "" || visionModel != ""
 	if visionApiKey == "" {
 		visionApiKey = openAIApiKey
@@ -136,14 +163,11 @@ func main() {
 	// 3. VAPID config for Web Push (built before the bot so the notifier set
 	// is finalised before the Telegram listener starts processing messages —
 	// see the notifier-presence gate in tzupdate.Service.)
-	vapidPublicKey := os.Getenv("VAPID_PUBLIC_KEY")
-	vapidPrivateKey := os.Getenv("VAPID_PRIVATE_KEY")
-	vapidSubject := os.Getenv("VAPID_SUBJECT")
-	vapidAdminEmail := os.Getenv("ADMIN_EMAIL")
-	vapidDomain := os.Getenv("DOMAIN")
-	if vapidDomain == "" {
-		vapidDomain = os.Getenv("APP_DOMAIN")
-	}
+	vapidPublicKey := cfg.VAPID.PublicKey
+	vapidPrivateKey := cfg.VAPID.PrivateKey
+	vapidSubject := cfg.VAPID.Subject
+	vapidAdminEmail := cfg.VAPID.AdminEmail
+	vapidDomain := cfg.VAPID.Domain
 
 	var wpService *webpush.Service
 	if vapidPublicKey != "" && vapidPrivateKey != "" {
@@ -201,50 +225,29 @@ func main() {
 	}
 
 	// 5. Server
-	oidcConfig := server.OIDCConfig{}
-	if os.Getenv("OIDC_ISSUER_URL") != "" || os.Getenv("OIDC_CLIENT_ID") != "" {
-		// Use POCKET_ID credentials as fallback if OIDC credentials not set
-		clientID := os.Getenv("OIDC_CLIENT_ID")
-		clientSecret := os.Getenv("OIDC_CLIENT_SECRET")
-		if clientID == "" && os.Getenv("POCKET_ID_CLIENT_ID") != "" {
-			clientID = os.Getenv("POCKET_ID_CLIENT_ID")
-			clientSecret = os.Getenv("POCKET_ID_CLIENT_SECRET")
+	if cfg.OIDC.Provider == "oidc" {
+		if os.Getenv("OIDC_CLIENT_ID") == "" && os.Getenv("POCKET_ID_CLIENT_ID") != "" {
 			slog.Info("Using POCKET_ID credentials for OIDC web login")
 		}
-
-		issuerURL := os.Getenv("OIDC_ISSUER_URL")
-		// If POCKET_ID_DOMAIN is set and issuer matches, use internal container URL for discovery
-		if pocketDomain := os.Getenv("POCKET_ID_DOMAIN"); pocketDomain != "" && strings.Contains(issuerURL, pocketDomain) {
-			// Use internal container URL for OIDC discovery to avoid Traefik/DNS issues
-			issuerURL = "http://medtracker-pocket-id:1411"
-			slog.Info("Using internal Pocket-ID URL for OIDC discovery", "issuerURL", issuerURL)
+		if pocketDomain := os.Getenv("POCKET_ID_DOMAIN"); pocketDomain != "" && cfg.OIDC.IssuerURL == "http://medtracker-pocket-id:1411" {
+			slog.Info("Using internal Pocket-ID URL for OIDC discovery", "issuerURL", cfg.OIDC.IssuerURL)
 		}
-
-		oidcConfig = server.OIDCConfig{
-			Provider:       "oidc",
-			IssuerURL:      issuerURL,
-			AuthURL:        os.Getenv("OIDC_AUTH_URL"),
-			TokenURL:       os.Getenv("OIDC_TOKEN_URL"),
-			UserInfoURL:    os.Getenv("OIDC_USERINFO_URL"),
-			ClientID:       clientID,
-			ClientSecret:   clientSecret,
-			RedirectURL:    os.Getenv("OIDC_REDIRECT_URL"),
-			AdminEmail:     os.Getenv("OIDC_ADMIN_EMAIL"),
-			AllowedSubject: os.Getenv("OIDC_ALLOWED_SUBJECT"),
-			ButtonLabel:    os.Getenv("OIDC_BUTTON_LABEL"),
-			ButtonColor:    os.Getenv("OIDC_BUTTON_COLOR"),
-			ButtonText:     os.Getenv("OIDC_BUTTON_TEXT_COLOR"),
-			Scopes:         parseOIDCScopes(os.Getenv("OIDC_SCOPES")),
-		}
-	} else if os.Getenv("GOOGLE_CLIENT_ID") != "" {
-		// Only configure Google OAuth if credentials are actually provided
-		oidcConfig = server.OIDCConfig{
-			Provider:     "google",
-			ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
-			ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
-			RedirectURL:  os.Getenv("GOOGLE_REDIRECT_URL"),
-			AdminEmail:   os.Getenv("ADMIN_EMAIL"),
-		}
+	}
+	oidcConfig := server.OIDCConfig{
+		Provider:       cfg.OIDC.Provider,
+		IssuerURL:      cfg.OIDC.IssuerURL,
+		AuthURL:        cfg.OIDC.AuthURL,
+		TokenURL:       cfg.OIDC.TokenURL,
+		UserInfoURL:    cfg.OIDC.UserInfoURL,
+		ClientID:       cfg.OIDC.ClientID,
+		ClientSecret:   cfg.OIDC.ClientSecret,
+		RedirectURL:    cfg.OIDC.RedirectURL,
+		AdminEmail:     cfg.OIDC.AdminEmail,
+		AllowedSubject: cfg.OIDC.AllowedSubject,
+		ButtonLabel:    cfg.OIDC.ButtonLabel,
+		ButtonColor:    cfg.OIDC.ButtonColor,
+		ButtonText:     cfg.OIDC.ButtonText,
+		Scopes:         cfg.OIDC.Scopes,
 	}
 
 	// Get bot username for Telegram Login Widget
@@ -256,11 +259,27 @@ func main() {
 
 	srv := server.New(s, botToken, sessionSecret, allowedUserID, oidcConfig, botUsername, vapidPublicKey)
 
+	// Inject ElevenLabs creds so the Voice Agent handlers stop calling
+	// os.Getenv at request time — they now read the same struct that the
+	// mobile build will populate from the settings table.
+	srv.SetElevenLabsConfig(server.ElevenLabsConfig{
+		APIKey:  cfg.ElevenLabs.APIKey,
+		AgentID: cfg.ElevenLabs.AgentID,
+	})
+
+	// External-workout webhook key flows through the typed config just like
+	// the other integration credentials. server.New() still reads the env var
+	// as a backward-compatible default so existing tests and any caller that
+	// skips this setter keep working.
+	if cfg.ExternalWorkoutAPIKey != "" {
+		srv.SetExternalAPIKey(cfg.ExternalWorkoutAPIKey)
+	}
+
 	if foodAI != nil {
 		srv.SetFoodAIService(foodAI)
 	}
 
-	if mcpAuditSecret := os.Getenv("MCP_AUDIT_SECRET"); mcpAuditSecret != "" {
+	if mcpAuditSecret := cfg.MCP.AuditSecret; mcpAuditSecret != "" {
 		srv.SetMCPAuditSecret(mcpAuditSecret)
 
 		// The /internal/mcp/bridge endpoint that the Python executor proxies
@@ -300,7 +319,7 @@ func main() {
 	srv.SetNotifiers(notifiers)
 
 	// Always start scheduler (works with web push even without bot)
-	sch := scheduler.New(s, allowedUserID, notifiers)
+	sch := scheduler.NewWithNotifiers(s, allowedUserID, notifiers)
 	sch.Start()
 	if tgBot != nil {
 		slog.Info("Scheduler started")
@@ -350,30 +369,4 @@ func main() {
 	}
 }
 
-func newHTTPServer(addr string, handler http.Handler) *http.Server {
-	return &http.Server{
-		Addr:              addr,
-		Handler:           handler,
-		ReadTimeout:       15 * time.Second,
-		ReadHeaderTimeout: 10 * time.Second,
-		WriteTimeout:      45 * time.Second, // Increased to support 30s OpenFoodFacts search
-		MaxHeaderBytes:    1 << 20,          // 1MB max header bytes
-	}
-}
 
-func parseOIDCScopes(raw string) []string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil
-	}
-	fields := strings.FieldsFunc(raw, func(r rune) bool {
-		return r == ',' || r == ' ' || r == '\n' || r == '\t'
-	})
-	var scopes []string
-	for _, s := range fields {
-		if s != "" {
-			scopes = append(scopes, s)
-		}
-	}
-	return scopes
-}

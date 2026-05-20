@@ -52,9 +52,10 @@ const crossTZSessionCooldown = 18 * time.Hour
 
 // WorkoutChecker checks for scheduled workouts and sends notifications.
 type WorkoutChecker struct {
-	NotifyHelper
-	store      WorkoutStore
-	workoutSvc workoutsvc.WorkoutService
+	sink          ReminderSink
+	allowedUserID int64
+	store         WorkoutStore
+	workoutSvc    workoutsvc.WorkoutService
 
 	daysCache   map[string][]int
 	daysCacheMu sync.RWMutex
@@ -120,7 +121,7 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 					"session_id": activeSession.ID,
 				},
 			}
-			c.Notify(ctx, n, nil)
+			c.sink.Notify(ctx, n, nil)
 			if err := c.store.UpdateSessionNotes(activeSession.ID, activeSession.Notes+" stale_reminded"); err != nil {
 				slog.Error("Failed to update session notes", "error", err)
 			}
@@ -132,7 +133,7 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 				slog.Error("Failed to skip stale session", "error", err)
 			} else {
 				if activeSession.NotificationMessageID != nil {
-					c.DeleteNotification(ctx, *activeSession.NotificationMessageID)
+					c.sink.DeleteNotification(ctx, *activeSession.NotificationMessageID)
 				}
 				activeSession = nil
 			}
@@ -334,7 +335,7 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 						slog.Error("Failed to skip session", "error", err)
 					}
 					if existing.NotificationMessageID != nil {
-						c.DeleteNotification(ctx, *existing.NotificationMessageID)
+						c.sink.DeleteNotification(ctx, *existing.NotificationMessageID)
 					}
 					continue
 				}
@@ -441,7 +442,7 @@ func (c *WorkoutChecker) checkNotifiedAdHocSessions(ctx context.Context, now tim
 					slog.Error("Failed to skip ad-hoc session", "session", sess.ID, "error", err)
 				}
 				if sess.NotificationMessageID != nil {
-					c.DeleteNotification(ctx, *sess.NotificationMessageID)
+					c.sink.DeleteNotification(ctx, *sess.NotificationMessageID)
 				}
 			}
 		}
@@ -495,7 +496,7 @@ func (c *WorkoutChecker) sendAdHocWorkoutNotification(session *store.WorkoutSess
 	}
 
 	if session.NotificationMessageID != nil {
-		c.DeleteNotification(context.Background(), *session.NotificationMessageID)
+		c.sink.DeleteNotification(context.Background(), *session.NotificationMessageID)
 	}
 
 	n := notifier.Notification{
@@ -515,7 +516,7 @@ func (c *WorkoutChecker) sendAdHocWorkoutNotification(session *store.WorkoutSess
 	}
 
 	sessionID := session.ID
-	c.Notify(context.Background(), n, func(msgID int) {
+	c.sink.Notify(context.Background(), n, func(msgID int) {
 		if err := c.store.SetSessionNotificationMessageID(sessionID, msgID); err != nil {
 			slog.Error("Failed to store ad-hoc notification message ID", "error", err)
 		}
@@ -557,7 +558,7 @@ func (c *WorkoutChecker) sendWorkoutNotification(session *store.WorkoutSession, 
 
 	// Delete previous notification if exists
 	if session.NotificationMessageID != nil {
-		c.DeleteNotification(context.Background(), *session.NotificationMessageID)
+		c.sink.DeleteNotification(context.Background(), *session.NotificationMessageID)
 	}
 
 	n := notifier.Notification{
@@ -578,7 +579,7 @@ func (c *WorkoutChecker) sendWorkoutNotification(session *store.WorkoutSession, 
 	}
 
 	sessionID := session.ID
-	c.Notify(context.Background(), n, func(msgID int) {
+	c.sink.Notify(context.Background(), n, func(msgID int) {
 		if err := c.store.SetSessionNotificationMessageID(sessionID, msgID); err != nil {
 			slog.Error("Failed to store notification message ID", "error", err)
 		}

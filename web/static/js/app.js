@@ -1541,6 +1541,13 @@ async function loadSettings() {
     // row AND fetcher returns null) — mountFromKey gracefully no-ops if
     // there's nothing to surface.
     await mountStaleBadge();
+    // The Integrations section is loaded lazily from its own endpoint so
+    // the settings_bundle SWR fetch stays focused on the feature-flags +
+    // food-targets + reminders + weight-unit slice that bootstrap also
+    // returns. Best-effort: never blocks the rest of Settings.
+    if (window.SettingsIntegrations && typeof window.SettingsIntegrations.load === 'function') {
+        try { await window.SettingsIntegrations.load(); } catch (_) { /* no-op */ }
+    }
 }
 
 // Mounts the wg-stale-badge into the Settings section header from the
