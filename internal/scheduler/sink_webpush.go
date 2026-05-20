@@ -1,3 +1,5 @@
+//go:build !mobile
+
 package scheduler
 
 import (
@@ -25,6 +27,12 @@ type WebPushSink struct {
 // nowhere to be delivered.
 func NewWebPushSink(notifiers []notifier.Notifier, allowedUserID int64) *WebPushSink {
 	return &WebPushSink{notifiers: notifiers, allowedUserID: allowedUserID}
+}
+
+// defaultSink is the server-build tag-aware sink factory. The mobile-build
+// equivalent lives in sink_localnotifications.go.
+func defaultSink(notifiers []notifier.Notifier, allowedUserID int64) ReminderSink {
+	return NewWebPushSink(notifiers, allowedUserID)
 }
 
 // HasChannel reports whether any notifier is configured.

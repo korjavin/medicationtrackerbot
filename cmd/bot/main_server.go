@@ -1,3 +1,5 @@
+//go:build !mobile
+
 package main
 
 import (
@@ -359,14 +361,4 @@ func main() {
 	}
 }
 
-func newHTTPServer(addr string, handler http.Handler) *http.Server {
-	return &http.Server{
-		Addr:              addr,
-		Handler:           handler,
-		ReadTimeout:       15 * time.Second,
-		ReadHeaderTimeout: 10 * time.Second,
-		WriteTimeout:      45 * time.Second, // Increased to support 30s OpenFoodFacts search
-		MaxHeaderBytes:    1 << 20,          // 1MB max header bytes
-	}
-}
 

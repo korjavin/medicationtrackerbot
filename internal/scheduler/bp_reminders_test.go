@@ -1,3 +1,9 @@
+//go:build !mobile
+
+// Tests that exercise WebPushSink delivery semantics via mock notifiers.
+// The mobile build's LocalNotificationSink ignores the notifier slice, so
+// these tests' assertions on Send calls do not apply.
+
 package scheduler
 
 import (

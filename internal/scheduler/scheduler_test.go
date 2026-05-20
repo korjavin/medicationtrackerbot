@@ -1,3 +1,5 @@
+//go:build !mobile
+
 package scheduler
 
 import (

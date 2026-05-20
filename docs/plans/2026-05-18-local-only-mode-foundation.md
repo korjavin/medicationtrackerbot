@@ -115,15 +115,15 @@ Out of scope: embedding the Go binary inside Capacitor (deferred until the spike
 - [x] run `go test ./...` — must pass before Task 6.
 
 ### Task 6: Add `//go:build mobile` paired files
-- [ ] split `cmd/bot/main.go` into `main_server.go` (`//go:build !mobile`, current wiring) and `main_mobile.go` (`//go:build mobile`, skips bot init, MCP init, web-push init, OIDC init, ElevenLabs handlers if undesired on mobile). Mobile main constructs `LocalNotificationSink` (stub for now — exposes upcoming reminders via a new HTTP endpoint `GET /api/reminders/upcoming` for the JS bridge in Phase 2) and `LocalUserResolver` (fixed user ID 1 or read from a `--user-id` argv flag).
-- [ ] create `internal/scheduler/sink_webpush.go` with `//go:build !mobile` (move existing impl) and `internal/scheduler/sink_localnotifications.go` with `//go:build mobile` (stub: returns upcoming reminders for HTTP retrieval rather than pushing).
-- [ ] create `internal/server/auth/resolver_telegram.go` with `//go:build !mobile` (move existing `TelegramOIDCResolver`) and `internal/server/auth/resolver_local.go` with `//go:build mobile` (single-user resolver).
-- [ ] tag any tests that depend on bot/MCP/web-push internals with `//go:build !mobile` to keep mobile test builds compiling (`go test -tags mobile ./...` should not fail on missing types).
-- [ ] add `GET /api/reminders/upcoming` handler returning the next N reminders for the local-notifications JS bridge; register in MCP coverage (registry or exempt).
-- [ ] verify locally: `go build ./...` (server) and `go build -tags mobile ./...` (mobile) both succeed.
-- [ ] write tests for `LocalUserResolver` and the upcoming-reminders endpoint.
-- [ ] write a mobile-tag test (`//go:build mobile`) asserting the mobile main's wiring is correct (or at minimum that the build compiles, which the build itself proves).
-- [ ] run `go test ./...` and `go test -tags mobile ./...` — both must pass before Task 7.
+- [x] split `cmd/bot/main.go` into `main_server.go` (`//go:build !mobile`, current wiring) and `main_mobile.go` (`//go:build mobile`, skips bot init, MCP init, web-push init, OIDC init, ElevenLabs handlers if undesired on mobile). Mobile main constructs `LocalNotificationSink` (stub for now — exposes upcoming reminders via a new HTTP endpoint `GET /api/reminders/upcoming` for the JS bridge in Phase 2) and `LocalUserResolver` (fixed user ID 1 or read from a `--user-id` argv flag).
+- [x] create `internal/scheduler/sink_webpush.go` with `//go:build !mobile` (move existing impl) and `internal/scheduler/sink_localnotifications.go` with `//go:build mobile` (stub: returns upcoming reminders for HTTP retrieval rather than pushing).
+- [x] create `internal/server/auth/resolver_telegram.go` with `//go:build !mobile` (move existing `TelegramOIDCResolver`) and `internal/server/auth/resolver_local.go` with `//go:build mobile` (single-user resolver).
+- [x] tag any tests that depend on bot/MCP/web-push internals with `//go:build !mobile` to keep mobile test builds compiling (`go test -tags mobile ./...` should not fail on missing types).
+- [x] add `GET /api/reminders/upcoming` handler returning the next N reminders for the local-notifications JS bridge; register in MCP coverage (registry or exempt).
+- [x] verify locally: `go build ./...` (server) and `go build -tags mobile ./...` (mobile) both succeed.
+- [x] write tests for `LocalUserResolver` and the upcoming-reminders endpoint.
+- [x] write a mobile-tag test (`//go:build mobile`) asserting the mobile main's wiring is correct (or at minimum that the build compiles, which the build itself proves).
+- [x] run `go test ./...` and `go test -tags mobile ./...` — both must pass before Task 7.
 
 ### Task 7: CI matrix entry for `-tags mobile`
 - [ ] add a matrix entry to `.github/workflows/golangci-lint.yml` (or a new `.github/workflows/go-mobile-build.yml` if cleaner) that runs `go build -tags mobile ./...` and `go test -tags mobile ./...`.

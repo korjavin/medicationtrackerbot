@@ -85,11 +85,16 @@ func New(s *store.Repos, allowedUserID int64, sink ReminderSink) *Scheduler {
 }
 
 // NewWithNotifiers is a convenience wrapper for callers that have a notifier
-// slice handy (the server build's typical case): it constructs a WebPushSink
-// internally and delegates to New. Kept so cmd/bot/main.go's wiring stays a
-// one-liner.
+// slice handy. The actual sink it constructs depends on the build:
+//   - server builds (default): WebPushSink, which fans the notifiers out;
+//   - mobile builds (//go:build mobile): LocalNotificationSink, which ignores
+//     the notifiers (mobile delivery happens via the @capacitor/local-notifications
+//     JS bridge pulling reminders from /api/reminders/upcoming).
+//
+// defaultSink is the tag-aware selector — see sink_webpush.go (!mobile) and
+// sink_localnotifications.go (mobile).
 func NewWithNotifiers(s *store.Repos, allowedUserID int64, notifiers []notifier.Notifier) *Scheduler {
-	return New(s, allowedUserID, NewWebPushSink(notifiers, allowedUserID))
+	return New(s, allowedUserID, defaultSink(notifiers, allowedUserID))
 }
 
 func (s *Scheduler) Start() {

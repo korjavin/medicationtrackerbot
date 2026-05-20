@@ -1,3 +1,9 @@
+//go:build !mobile
+
+// These tests construct a WebPushSink directly and assert on notifier
+// delivery semantics — both server-only concerns. The mobile build uses
+// LocalNotificationSink and has its own delivery model.
+
 package scheduler
 
 import (
