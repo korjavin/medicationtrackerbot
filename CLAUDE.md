@@ -27,6 +27,8 @@ The codebase compiles in two modes via the `//go:build mobile` build tag:
 - **Server build (default)** — `go build ./...` — wires the Telegram bot, MCP server, web-push, OIDC, and ElevenLabs handlers. This is the production deployment.
 - **Mobile build** — `go build -tags mobile ./...` — strips bot/MCP/web-push/OIDC at compile time, substitutes `LocalUserResolver` (single user) for the auth resolver, and uses `LocalNotificationSink` (queue + `GET /api/reminders/upcoming`) instead of `WebPushSink`. Targets the Capacitor wrapper. See [docs/local-mode.md](docs/local-mode.md).
 
+The server build also supports a runtime **demo mode** (`DEMO_MODE=1`) that disables web + MCP auth, resolves every request to a fixed seeded user, and applies restrictive per-IP rate limits to AI / cost-sensitive endpoints. It's a runtime flag, not a build tag — the same binary serves both production and demo deployments. See [docs/demo-mode.md](docs/demo-mode.md).
+
 Configuration layering: env var → settings table → built-in default. The `internal/config` package owns `LoadFromEnv` + `LoadFromSettings` + `Merge`. User-editable provider keys (OpenAI, Food DB, ElevenLabs) live in the singleton settings row and are reachable via the Settings UI's Integrations section.
 
 Tagged files are limited to wiring seams: `cmd/bot/main_{server,mobile}.go`, `internal/scheduler/sink_{webpush,localnotifications}.go`, `internal/server/auth/resolver_{telegram,local}.go`. Domain services, the store, HTTP handlers, and the frontend are tag-free.
@@ -98,6 +100,7 @@ go run ./cmd/seeddemo -user <telegram_user_id> -db meds.db -days 90 -wipe -seed 
 |-------|------|
 | Architecture, code structure, DB schema, auth, domain services, scheduler, logging, testing | [docs/architecture.md](docs/architecture.md) |
 | Local-only (Capacitor mobile) build, `//go:build mobile` boundary, env→settings layering, Phase 2 roadmap | [docs/local-mode.md](docs/local-mode.md) |
+| Demo mode (`DEMO_MODE=1`): public auth-less deployment, per-IP AI rate limits, seeded demo DB, MCP without OAuth | [docs/demo-mode.md](docs/demo-mode.md) |
 | Feature behaviors (Today dashboard, meds, BP, weight, food, workouts, MCP) | [docs/features.md](docs/features.md) |
 | API endpoints | [docs/api.md](docs/api.md) |
 | Environment variables | [docs/environment.md](docs/environment.md) |
