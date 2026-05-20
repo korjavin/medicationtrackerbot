@@ -350,7 +350,6 @@ type fakeSink struct {
 	notifySyncToUserErr error
 	notifySyncToUserMsg int
 	hasChannel          bool
-	storedMsgIDs        []int
 	notifyMsgID         int
 }
 
