@@ -60,3 +60,14 @@ After successful sync, records are deleted from IndexedDB rather than kept as "s
 ## Why vanilla JS instead of a framework
 
 The app is single-user, self-hosted, and runs primarily inside Telegram's WebView. A framework would add bundle size and build complexity for little benefit. The four-layer local-first architecture (SW → IndexedDB → SyncManager → SWR DataStore) is straightforward to implement with vanilla JS and Dexie.js.
+
+## Why a build tag for the mobile / local-only variant, not a runtime flag
+
+The local-only (Capacitor) variant is selected at compile time via `//go:build mobile`, not via a `--mode=local` argv flag or env var. The choice:
+
+- **Dead-path elimination.** The mobile build never compiles Telegram bot code, MCP server code, web-push, or OIDC. A stale config or misrouted call cannot accidentally wake the Telegram client inside the iOS sandbox — those packages aren't in the binary. Runtime flags would keep all that code in the binary and rely on `if cfg.Mobile { ... }` discipline to keep it dormant, which drifts.
+- **Smaller binary.** Stripping bot/MCP/web-push/OIDC trims tens of MB before stripping symbols. App-store bundle size matters for mobile distribution.
+- **Compile-time guarantee against drift.** If `internal/bot` accidentally references a mobile-only symbol (or vice versa), the build fails immediately. CI runs both `go build ./...` and `go build -tags mobile ./...`, so a PR that breaks either build fails before merge — the paired-files pattern (`foo_server.go` // `foo_mobile.go`) keeps the touch surface visible.
+- **Tag surface stays small.** Only wiring seams are tagged: `cmd/bot/main_{server,mobile}.go`, `internal/scheduler/sink_{webpush,localnotifications}.go`, `internal/server/auth/resolver_{telegram,local}.go`. `internal/domain/*`, `internal/store/*`, HTTP handlers, and the frontend are tag-free and shared by both builds — the architectural property that "all transports share the domain service" extends naturally to mobile as a third transport.
+
+See [local-mode.md](local-mode.md) for the full reasoning, the env-var categorization across the two builds, and the env→settings→default config-merge layering that lets mobile install with zero env vars while server deployments keep their current operator workflow.

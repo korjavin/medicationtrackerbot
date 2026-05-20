@@ -150,12 +150,12 @@ Out of scope: embedding the Go binary inside Capacitor (deferred until the spike
 - [x] verify the Capacitor spike loads the PWA in iOS Simulator pointing at `localhost:8080`. (Manual check — skipped, not automatable from this environment. Spike config and known limitations documented in `capacitor/README.md`.)
 
 ### Task 10: [Final] Update documentation
-- [ ] update `CLAUDE.md` with a brief mention of the `//go:build mobile` boundary and the env-or-settings config layering (one bullet each under "Critical Rules" or a new "Build modes" subsection), and link to `docs/local-mode.md`.
-- [ ] update `docs/environment.md` to note that user-configurable keys (OpenAI, Food, ElevenLabs) now also read from the settings table as a fallback.
-- [ ] update `docs/architecture.md` with a short subsection on the mobile build boundary and where the tagged files live; link to `docs/local-mode.md` for rationale.
-- [ ] update `docs/local-mode.md` (already created with design rationale + Phase 2 hooks): flip the status banner from "Phase 1 in progress" to "Phase 1 complete", add concrete build/run commands for the mobile binary and the Capacitor spike, and update any sections where Phase 1 implementation revealed corrections to the original design notes.
-- [ ] update `docs/technical-decisions.md` with the choice of build tags over runtime flags (compile-time guarantee, smaller binary, dead-path elimination), linking to `docs/local-mode.md` for the full reasoning.
-- [ ] no test changes.
+- [x] update `CLAUDE.md` with a brief mention of the `//go:build mobile` boundary and the env-or-settings config layering (one bullet each under "Critical Rules" or a new "Build modes" subsection), and link to `docs/local-mode.md`.
+- [x] update `docs/environment.md` to note that user-configurable keys (OpenAI, Food, ElevenLabs) now also read from the settings table as a fallback.
+- [x] update `docs/architecture.md` with a short subsection on the mobile build boundary and where the tagged files live; link to `docs/local-mode.md` for rationale.
+- [x] update `docs/local-mode.md` (already created with design rationale + Phase 2 hooks): flip the status banner from "Phase 1 in progress" to "Phase 1 complete", add concrete build/run commands for the mobile binary and the Capacitor spike, and update any sections where Phase 1 implementation revealed corrections to the original design notes.
+- [x] update `docs/technical-decisions.md` with the choice of build tags over runtime flags (compile-time guarantee, smaller binary, dead-path elimination), linking to `docs/local-mode.md` for the full reasoning.
+- [x] no test changes.
 
 *Note: ralphex automatically moves completed plans to `docs/plans/completed/`*
 
