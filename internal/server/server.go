@@ -104,6 +104,21 @@ type Server struct {
 	// main_server.go sets this via SetDemoMode after construction. The mobile
 	// build never reads this — it has its own resolver via the build tag.
 	demoMode bool
+	// demoCfg holds the per-IP rate-limit thresholds applied to AI /
+	// cost-sensitive endpoints when demoMode is on. Ignored when demoMode is
+	// off. Populated by SetDemoConfig.
+	demoCfg DemoConfig
+}
+
+// DemoConfig groups the per-IP rate-limit thresholds applied to AI /
+// cost-sensitive endpoints when demo mode is on. The values mirror
+// config.DemoConfig; defined here so the server package does not depend on
+// internal/config (cmd/bot/main_server.go translates between the two).
+type DemoConfig struct {
+	AgentCallsPerDay        int
+	FoodLogsPerHour         int
+	FoodPhotosPerHour       int
+	FoodDescriptionsPerHour int
 }
 
 type rateLimiter struct {
@@ -199,6 +214,31 @@ func rateLimitMiddleware(limiter *rateLimiter, trustProxy bool) func(http.Handle
 			ip := clientIP(r, trustProxy)
 			if !limiter.Allow(ip) {
 				http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// demoRateLimitMiddleware is the public-demo counterpart of rateLimitMiddleware.
+// On reject it emits a JSON body shaped so the frontend can recognise the demo
+// restriction and show a dedicated popup instead of the generic offline error.
+// The label identifies which bucket was exceeded (e.g. "food_log",
+// "agent_calls") and retryAfterSeconds is the window length in seconds.
+func demoRateLimitMiddleware(limiter *rateLimiter, label string, retryAfterSeconds int, trustProxy bool) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ip := clientIP(r, trustProxy)
+			if !limiter.Allow(ip) {
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("Retry-After", strconv.Itoa(retryAfterSeconds))
+				w.WriteHeader(http.StatusTooManyRequests)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"error":               "demo_rate_limit",
+					"limit":               label,
+					"retry_after_seconds": retryAfterSeconds,
+				})
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -343,6 +383,14 @@ func (s *Server) SetMCPAuditSecret(secret string) {
 // is constructed. Defaults to false on a fresh Server.
 func (s *Server) SetDemoMode(enabled bool) {
 	s.demoMode = enabled
+}
+
+// SetDemoConfig provides the per-IP rate-limit thresholds used when
+// demoMode is on. Must be called before Routes() so the limiters are
+// constructed with the right counts; otherwise zero-valued thresholds
+// would reject every request. Has no effect when demo mode is off.
+func (s *Server) SetDemoConfig(cfg DemoConfig) {
+	s.demoCfg = cfg
 }
 
 // SetExternalAPIKey overrides the pre-shared key used by the
@@ -599,6 +647,25 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/auth/google/callback", s.handleOIDCCallback)
 	mux.Handle("/auth/telegram/callback", authLimit(http.HandlerFunc(s.handleTelegramCallback)))
 
+	// Demo-mode per-IP rate limiters for AI / cost-sensitive endpoints. The
+	// cleanup goroutines are only started when demoMode is on so production
+	// deployments never pay the per-window tick.
+	noopMW := func(h http.Handler) http.Handler { return h }
+	agentLimit := noopMW
+	foodLogLimit := noopMW
+	foodPhotoLimit := noopMW
+	foodDescLimit := noopMW
+	if s.demoMode {
+		agentLimiter := newRateLimiter(s.demoCfg.AgentCallsPerDay, 24*time.Hour)
+		foodLogLimiter := newRateLimiter(s.demoCfg.FoodLogsPerHour, time.Hour)
+		foodPhotoLimiter := newRateLimiter(s.demoCfg.FoodPhotosPerHour, time.Hour)
+		foodDescLimiter := newRateLimiter(s.demoCfg.FoodDescriptionsPerHour, time.Hour)
+		agentLimit = demoRateLimitMiddleware(agentLimiter, "agent_calls", int((24 * time.Hour).Seconds()), trustProxy)
+		foodLogLimit = demoRateLimitMiddleware(foodLogLimiter, "food_log", int(time.Hour.Seconds()), trustProxy)
+		foodPhotoLimit = demoRateLimitMiddleware(foodPhotoLimiter, "food_log_from_photo", int(time.Hour.Seconds()), trustProxy)
+		foodDescLimit = demoRateLimitMiddleware(foodDescLimiter, "food_log_from_description", int(time.Hour.Seconds()), trustProxy)
+	}
+
 	// API
 	apiMux := newRecordingMux(&s.routesRecorded)
 	apiMux.HandleFunc("GET /api/medications", s.handleList)
@@ -704,10 +771,12 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/medications/confirm-schedule", s.handleConfirmSchedule)
 	apiMux.HandleFunc("POST /api/intakes/update", s.handleUpdateIntake)
 
-	// Food Intake endpoints
-	apiMux.HandleFunc("POST /api/food/log", s.handleCreateFoodLog)
-	apiMux.HandleFunc("POST /api/food/log/from-photo", s.handleCreateFoodLogFromPhoto)
-	apiMux.HandleFunc("POST /api/food/log/from-description", s.handleCreateFoodLogFromDescription)
+	// Food Intake endpoints. The three POSTs hit AI providers (or, for the
+	// manual log, share the user's daily food budget) so demo mode wraps each
+	// with its own per-IP limiter. When demo is off the wrappers are no-ops.
+	apiMux.Handle("POST /api/food/log", foodLogLimit(http.HandlerFunc(s.handleCreateFoodLog)))
+	apiMux.Handle("POST /api/food/log/from-photo", foodPhotoLimit(http.HandlerFunc(s.handleCreateFoodLogFromPhoto)))
+	apiMux.Handle("POST /api/food/log/from-description", foodDescLimit(http.HandlerFunc(s.handleCreateFoodLogFromDescription)))
 	apiMux.HandleFunc("PUT /api/food/log/{id}", s.handleUpdateFoodLog)
 	apiMux.HandleFunc("GET /api/food/log", s.handleGetFoodLogs)
 	apiMux.HandleFunc("GET /api/food/stats", s.handleGetFoodStats)
@@ -742,9 +811,11 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/tz-plan/{id}/reject", s.handleTZPlanReject)
 	apiMux.HandleFunc("POST /api/tz-suggestion/dismiss", s.handleTZSuggestionDismiss)
 	apiMux.HandleFunc("GET /api/health/overview", s.handleGetHealthOverview)
-	// ElevenLabs conversational agent
-	apiMux.HandleFunc("GET /api/elevenlabs/signed-url", s.handleElevenLabsSignedURL)
-	apiMux.HandleFunc("POST /api/elevenlabs/upload-file", s.handleElevenLabsUploadFile)
+	// ElevenLabs conversational agent. Both routes share the same per-IP
+	// daily budget because they're two halves of one "call the agent"
+	// interaction. In non-demo mode the limiter is a no-op.
+	apiMux.Handle("GET /api/elevenlabs/signed-url", agentLimit(http.HandlerFunc(s.handleElevenLabsSignedURL)))
+	apiMux.Handle("POST /api/elevenlabs/upload-file", agentLimit(http.HandlerFunc(s.handleElevenLabsUploadFile)))
 
 	apiMux.HandleFunc("GET /api/notes", s.handleListNotes)
 	apiMux.HandleFunc("POST /api/notes", s.handleCreateNote)
