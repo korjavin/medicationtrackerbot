@@ -1,8 +1,12 @@
 package config
 
 import (
+	"context"
+	"errors"
 	"reflect"
 	"testing"
+
+	"github.com/korjavin/medicationtrackerbot/internal/store/settings"
 )
 
 func TestLoadFromEnv_AllFieldsPopulated(t *testing.T) {
@@ -249,6 +253,203 @@ func TestParseOIDCScopes(t *testing.T) {
 				t.Errorf("parseOIDCScopes(%q) = %v, want %v", tc.in, got, tc.want)
 			}
 		})
+	}
+}
+
+// fakeSettingsReader is a hand-rolled SettingsReader for the Merge /
+// LoadFromSettings tests. Avoiding a real *settings.Repo keeps the config
+// package's tests dependency-free of SQLite migration setup.
+type fakeSettingsReader struct {
+	openAI    settings.IntegrationOpenAI
+	food      settings.IntegrationFood
+	el        settings.IntegrationElevenLabs
+	openAIErr error
+	foodErr   error
+	elErr     error
+}
+
+func (f *fakeSettingsReader) GetIntegrationOpenAI(_ context.Context) (settings.IntegrationOpenAI, error) {
+	return f.openAI, f.openAIErr
+}
+func (f *fakeSettingsReader) GetIntegrationFood(_ context.Context) (settings.IntegrationFood, error) {
+	return f.food, f.foodErr
+}
+func (f *fakeSettingsReader) GetIntegrationElevenLabs(_ context.Context) (settings.IntegrationElevenLabs, error) {
+	return f.el, f.elErr
+}
+
+func TestLoadFromSettings_AllFieldsPopulated(t *testing.T) {
+	r := &fakeSettingsReader{
+		openAI: settings.IntegrationOpenAI{
+			APIKey: "sk-from-db", URL: "https://db.example/v1", Model: "db-model",
+			VisionAPIKey: "sk-vision-db", VisionURL: "https://v.db/v1", VisionModel: "v-db",
+		},
+		food: settings.IntegrationFood{APIKey: "food-db", URL: "https://food.db/v1", Domain: "food.db"},
+		el:   settings.IntegrationElevenLabs{APIKey: "el-db", AgentID: "el-agent-db"},
+	}
+	cfg, err := LoadFromSettings(context.Background(), r)
+	if err != nil {
+		t.Fatalf("LoadFromSettings: %v", err)
+	}
+	want := OpenAIConfig{
+		APIKey: "sk-from-db", URL: "https://db.example/v1", Model: "db-model",
+		VisionAPIKey: "sk-vision-db", VisionURL: "https://v.db/v1", VisionModel: "v-db",
+	}
+	if cfg.OpenAI != want {
+		t.Errorf("OpenAI = %+v want %+v", cfg.OpenAI, want)
+	}
+	if cfg.Food != (FoodConfig{APIKey: "food-db", URL: "https://food.db/v1", Domain: "food.db"}) {
+		t.Errorf("Food = %+v", cfg.Food)
+	}
+	if cfg.ElevenLabs != (ElevenLabsConfig{APIKey: "el-db", AgentID: "el-agent-db"}) {
+		t.Errorf("ElevenLabs = %+v", cfg.ElevenLabs)
+	}
+	// Non-settings fields stay zero.
+	if cfg.DBPath != "" || cfg.SessionSecret != "" || cfg.TelegramBotToken != "" {
+		t.Errorf("expected non-settings fields zero; got %+v", cfg)
+	}
+}
+
+func TestLoadFromSettings_PropagatesErrors(t *testing.T) {
+	wantErr := errors.New("db blew up")
+	r := &fakeSettingsReader{openAIErr: wantErr}
+	if _, err := LoadFromSettings(context.Background(), r); !errors.Is(err, wantErr) {
+		t.Errorf("expected wrapped %v, got %v", wantErr, err)
+	}
+	r = &fakeSettingsReader{foodErr: wantErr}
+	if _, err := LoadFromSettings(context.Background(), r); !errors.Is(err, wantErr) {
+		t.Errorf("expected wrapped %v, got %v", wantErr, err)
+	}
+	r = &fakeSettingsReader{elErr: wantErr}
+	if _, err := LoadFromSettings(context.Background(), r); !errors.Is(err, wantErr) {
+		t.Errorf("expected wrapped %v, got %v", wantErr, err)
+	}
+}
+
+func TestMerge(t *testing.T) {
+	envFull := &Config{
+		DBPath:           "/env/meds.db",
+		Port:             "9000",
+		SessionSecret:    "env-session-secret-very-long-aaaaa",
+		TelegramBotToken: "env-bot",
+		OpenAI: OpenAIConfig{
+			APIKey: "sk-env", URL: "https://env.example/v1", Model: "env-model",
+			VisionAPIKey: "sk-vision-env", VisionURL: "https://v.env/v1", VisionModel: "v-env",
+		},
+		Food:       FoodConfig{APIKey: "food-env", URL: "https://food.env/v1", Domain: "food.env"},
+		ElevenLabs: ElevenLabsConfig{APIKey: "el-env", AgentID: "el-env-agent"},
+	}
+	settingsFull := &Config{
+		OpenAI: OpenAIConfig{
+			APIKey: "sk-db", URL: "https://db.example/v1", Model: "db-model",
+			VisionAPIKey: "sk-vision-db", VisionURL: "https://v.db/v1", VisionModel: "v-db",
+		},
+		Food:       FoodConfig{APIKey: "food-db", URL: "https://food.db/v1", Domain: "food.db"},
+		ElevenLabs: ElevenLabsConfig{APIKey: "el-db", AgentID: "el-db-agent"},
+	}
+
+	tests := []struct {
+		name        string
+		env         *Config
+		fromDB      *Config
+		wantOpenAI  OpenAIConfig
+		wantFood    FoodConfig
+		wantEL      ElevenLabsConfig
+		wantNilResp bool
+		wantDBPath  string
+	}{
+		{
+			name:       "env_only",
+			env:        envFull,
+			fromDB:     nil,
+			wantOpenAI: envFull.OpenAI,
+			wantFood:   envFull.Food,
+			wantEL:     envFull.ElevenLabs,
+			wantDBPath: "/env/meds.db",
+		},
+		{
+			name:       "settings_only",
+			env:        nil,
+			fromDB:     settingsFull,
+			wantOpenAI: settingsFull.OpenAI,
+			wantFood:   settingsFull.Food,
+			wantEL:     settingsFull.ElevenLabs,
+			wantDBPath: "",
+		},
+		{
+			name:       "env_wins_when_both_present",
+			env:        envFull,
+			fromDB:     settingsFull,
+			wantOpenAI: envFull.OpenAI,
+			wantFood:   envFull.Food,
+			wantEL:     envFull.ElevenLabs,
+			wantDBPath: "/env/meds.db",
+		},
+		{
+			name: "per_field_fallback",
+			env: &Config{
+				DBPath: "/env/meds.db",
+				OpenAI: OpenAIConfig{APIKey: "sk-env"}, // URL/Model unset in env
+			},
+			fromDB: &Config{
+				OpenAI: OpenAIConfig{
+					APIKey: "sk-db-shadowed", URL: "https://db.example/v1", Model: "db-model",
+				},
+				Food: FoodConfig{APIKey: "food-db"},
+			},
+			wantOpenAI: OpenAIConfig{
+				APIKey: "sk-env",                 // env wins
+				URL:    "https://db.example/v1", // settings fills gap
+				Model:  "db-model",              // settings fills gap
+			},
+			wantFood:   FoodConfig{APIKey: "food-db"},
+			wantEL:     ElevenLabsConfig{},
+			wantDBPath: "/env/meds.db",
+		},
+		{
+			name:        "both_nil",
+			env:         nil,
+			fromDB:      nil,
+			wantNilResp: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Merge(tc.env, tc.fromDB)
+			if tc.wantNilResp {
+				if got != nil {
+					t.Errorf("expected nil, got %+v", got)
+				}
+				return
+			}
+			if got == nil {
+				t.Fatalf("expected non-nil")
+			}
+			if got.OpenAI != tc.wantOpenAI {
+				t.Errorf("OpenAI = %+v\nwant %+v", got.OpenAI, tc.wantOpenAI)
+			}
+			if got.Food != tc.wantFood {
+				t.Errorf("Food = %+v\nwant %+v", got.Food, tc.wantFood)
+			}
+			if got.ElevenLabs != tc.wantEL {
+				t.Errorf("ElevenLabs = %+v\nwant %+v", got.ElevenLabs, tc.wantEL)
+			}
+			if got.DBPath != tc.wantDBPath {
+				t.Errorf("DBPath = %q want %q", got.DBPath, tc.wantDBPath)
+			}
+		})
+	}
+}
+
+func TestMerge_DoesNotMutateInputs(t *testing.T) {
+	env := &Config{OpenAI: OpenAIConfig{APIKey: "sk-env"}}
+	fromDB := &Config{OpenAI: OpenAIConfig{URL: "https://db/v1"}}
+	_ = Merge(env, fromDB)
+	if env.OpenAI.URL != "" {
+		t.Errorf("Merge mutated env.OpenAI.URL: %q", env.OpenAI.URL)
+	}
+	if fromDB.OpenAI.APIKey != "" {
+		t.Errorf("Merge mutated fromDB.OpenAI.APIKey: %q", fromDB.OpenAI.APIKey)
 	}
 }
 

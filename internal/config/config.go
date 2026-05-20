@@ -8,12 +8,30 @@
 // this extraction — including OIDC fallback to POCKET_ID_*, DOMAIN/APP_DOMAIN
 // ordering for VAPID, and OPENAI_VISION_* falling back to OPENAI_* — so the
 // server build is byte-for-byte equivalent.
+//
+// LoadFromSettings reads the user-configurable subset (OpenAI / Food /
+// ElevenLabs) from the singleton settings table. Merge combines an env-derived
+// Config with a settings-derived Config using the precedence:
+//
+//  1. Env var (the server-mode operator's source of truth)
+//  2. Settings table (user-edited via the Settings UI; the mobile build's only
+//     source because the mobile binary's environment is the OS launcher's env,
+//     not a docker-compose file)
+//  3. Built-in default (e.g. https://api.openai.com/v1 for OpenAI URL — defaults
+//     are still applied by individual call sites, not here)
+//
+// Field-level precedence means a partially-set env still wins per-field: e.g.
+// setting only OPENAI_API_KEY in env and the rest in settings produces a
+// Config where APIKey is from env and URL/Model are from settings.
 package config
 
 import (
+	"context"
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/korjavin/medicationtrackerbot/internal/store/settings"
 )
 
 // Config is the typed view of process-level configuration. Each sub-struct
@@ -205,6 +223,103 @@ func loadOIDCFromEnv() OIDCConfig {
 		}
 	}
 	return OIDCConfig{}
+}
+
+// SettingsReader is the narrow interface LoadFromSettings depends on. It is
+// satisfied by *settings.Repo; defining it here keeps tests from having to
+// stand up a full SQLite DB to exercise the load path.
+type SettingsReader interface {
+	GetIntegrationOpenAI(ctx context.Context) (settings.IntegrationOpenAI, error)
+	GetIntegrationFood(ctx context.Context) (settings.IntegrationFood, error)
+	GetIntegrationElevenLabs(ctx context.Context) (settings.IntegrationElevenLabs, error)
+}
+
+// LoadFromSettings reads the user-configurable subset (OpenAI, Food,
+// ElevenLabs) from the settings table and returns a Config with just those
+// fields populated. Fields not represented in the settings table (DBPath,
+// SessionSecret, VAPID, OIDC, MCP, TelegramBotToken, etc.) are left zero —
+// those still come from env in server mode and from build-time defaults in
+// mobile mode.
+func LoadFromSettings(ctx context.Context, r SettingsReader) (*Config, error) {
+	openAI, err := r.GetIntegrationOpenAI(ctx)
+	if err != nil {
+		return nil, err
+	}
+	food, err := r.GetIntegrationFood(ctx)
+	if err != nil {
+		return nil, err
+	}
+	el, err := r.GetIntegrationElevenLabs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &Config{
+		OpenAI: OpenAIConfig{
+			APIKey:       openAI.APIKey,
+			URL:          openAI.URL,
+			Model:        openAI.Model,
+			VisionAPIKey: openAI.VisionAPIKey,
+			VisionURL:    openAI.VisionURL,
+			VisionModel:  openAI.VisionModel,
+		},
+		Food: FoodConfig{
+			APIKey: food.APIKey,
+			URL:    food.URL,
+			Domain: food.Domain,
+		},
+		ElevenLabs: ElevenLabsConfig{
+			APIKey:  el.APIKey,
+			AgentID: el.AgentID,
+		},
+	}, nil
+}
+
+// Merge returns a new *Config that takes each user-configurable field from env
+// when set, else from settings, else zero. Server-mode fields (DBPath, Port,
+// SessionSecret, TelegramBotToken, AllowedUserID, VAPID, OIDC, MCP,
+// ExternalWorkoutAPIKey, AppDomain) are passed through from env unchanged —
+// they do not have a settings-table counterpart.
+//
+// Passing a nil settingsCfg returns envCfg unchanged. Passing a nil envCfg
+// returns settingsCfg unchanged. Both nil returns nil.
+func Merge(envCfg, settingsCfg *Config) *Config {
+	if envCfg == nil && settingsCfg == nil {
+		return nil
+	}
+	if envCfg == nil {
+		out := *settingsCfg
+		return &out
+	}
+	if settingsCfg == nil {
+		out := *envCfg
+		return &out
+	}
+	out := *envCfg
+	out.OpenAI = OpenAIConfig{
+		APIKey:       firstNonEmpty(envCfg.OpenAI.APIKey, settingsCfg.OpenAI.APIKey),
+		URL:          firstNonEmpty(envCfg.OpenAI.URL, settingsCfg.OpenAI.URL),
+		Model:        firstNonEmpty(envCfg.OpenAI.Model, settingsCfg.OpenAI.Model),
+		VisionAPIKey: firstNonEmpty(envCfg.OpenAI.VisionAPIKey, settingsCfg.OpenAI.VisionAPIKey),
+		VisionURL:    firstNonEmpty(envCfg.OpenAI.VisionURL, settingsCfg.OpenAI.VisionURL),
+		VisionModel:  firstNonEmpty(envCfg.OpenAI.VisionModel, settingsCfg.OpenAI.VisionModel),
+	}
+	out.Food = FoodConfig{
+		APIKey: firstNonEmpty(envCfg.Food.APIKey, settingsCfg.Food.APIKey),
+		URL:    firstNonEmpty(envCfg.Food.URL, settingsCfg.Food.URL),
+		Domain: firstNonEmpty(envCfg.Food.Domain, settingsCfg.Food.Domain),
+	}
+	out.ElevenLabs = ElevenLabsConfig{
+		APIKey:  firstNonEmpty(envCfg.ElevenLabs.APIKey, settingsCfg.ElevenLabs.APIKey),
+		AgentID: firstNonEmpty(envCfg.ElevenLabs.AgentID, settingsCfg.ElevenLabs.AgentID),
+	}
+	return &out
+}
+
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }
 
 // parseOIDCScopes splits OIDC_SCOPES on any of comma / space / newline / tab.

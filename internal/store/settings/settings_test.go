@@ -186,6 +186,105 @@ func TestLastDownload(t *testing.T) {
 	}
 }
 
+func TestIntegrationOpenAI(t *testing.T) {
+	r := setupSettingsRepo(t)
+	ctx := context.Background()
+
+	got, err := r.GetIntegrationOpenAI(ctx)
+	if err != nil {
+		t.Fatalf("GetIntegrationOpenAI initial: %v", err)
+	}
+	if got != (IntegrationOpenAI{}) {
+		t.Errorf("expected zero IntegrationOpenAI on fresh DB, got %+v", got)
+	}
+
+	in := IntegrationOpenAI{
+		APIKey:       "sk-text",
+		URL:          "https://api.example.test/v1",
+		Model:        "model-x",
+		VisionAPIKey: "sk-vision",
+		VisionURL:    "https://vision.example.test/v1",
+		VisionModel:  "model-vision",
+	}
+	if err := r.SetIntegrationOpenAI(ctx, in); err != nil {
+		t.Fatalf("SetIntegrationOpenAI: %v", err)
+	}
+
+	got, err = r.GetIntegrationOpenAI(ctx)
+	if err != nil {
+		t.Fatalf("GetIntegrationOpenAI after set: %v", err)
+	}
+	if got != in {
+		t.Errorf("round-trip mismatch:\n got %+v\nwant %+v", got, in)
+	}
+
+	// Empty string clears (overrides previously-saved value).
+	if err := r.SetIntegrationOpenAI(ctx, IntegrationOpenAI{}); err != nil {
+		t.Fatalf("SetIntegrationOpenAI clear: %v", err)
+	}
+	got, err = r.GetIntegrationOpenAI(ctx)
+	if err != nil {
+		t.Fatalf("GetIntegrationOpenAI after clear: %v", err)
+	}
+	if got != (IntegrationOpenAI{}) {
+		t.Errorf("expected zero after clear, got %+v", got)
+	}
+}
+
+func TestIntegrationFood(t *testing.T) {
+	r := setupSettingsRepo(t)
+	ctx := context.Background()
+
+	got, err := r.GetIntegrationFood(ctx)
+	if err != nil {
+		t.Fatalf("GetIntegrationFood initial: %v", err)
+	}
+	if got != (IntegrationFood{}) {
+		t.Errorf("expected zero on fresh DB, got %+v", got)
+	}
+
+	in := IntegrationFood{
+		APIKey: "food-key",
+		URL:    "https://food.example.test/v1",
+		Domain: "food.example.test",
+	}
+	if err := r.SetIntegrationFood(ctx, in); err != nil {
+		t.Fatalf("SetIntegrationFood: %v", err)
+	}
+	got, err = r.GetIntegrationFood(ctx)
+	if err != nil {
+		t.Fatalf("GetIntegrationFood after set: %v", err)
+	}
+	if got != in {
+		t.Errorf("round-trip mismatch:\n got %+v\nwant %+v", got, in)
+	}
+}
+
+func TestIntegrationElevenLabs(t *testing.T) {
+	r := setupSettingsRepo(t)
+	ctx := context.Background()
+
+	got, err := r.GetIntegrationElevenLabs(ctx)
+	if err != nil {
+		t.Fatalf("GetIntegrationElevenLabs initial: %v", err)
+	}
+	if got != (IntegrationElevenLabs{}) {
+		t.Errorf("expected zero on fresh DB, got %+v", got)
+	}
+
+	in := IntegrationElevenLabs{APIKey: "el-key", AgentID: "el-agent"}
+	if err := r.SetIntegrationElevenLabs(ctx, in); err != nil {
+		t.Fatalf("SetIntegrationElevenLabs: %v", err)
+	}
+	got, err = r.GetIntegrationElevenLabs(ctx)
+	if err != nil {
+		t.Fatalf("GetIntegrationElevenLabs after set: %v", err)
+	}
+	if got != in {
+		t.Errorf("round-trip mismatch:\n got %+v\nwant %+v", got, in)
+	}
+}
+
 func TestTabOrder(t *testing.T) {
 	r := setupSettingsRepo(t)
 	ctx := context.Background()
