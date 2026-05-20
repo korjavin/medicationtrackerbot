@@ -174,10 +174,16 @@
     // a typed error. Returns null when the response is not a demo limit hit.
     // Used by bare-fetch call sites (multipart uploads, FormData posts) that
     // cannot go through apiCallDirect's 429 branch.
+    //
+    // Reads the body on a cloned response so callers can still call
+    // `res.text()` themselves on a non-demo 429 (e.g. proxy-injected) without
+    // getting an empty string — Response bodies are one-shot streams and
+    // consuming the original here would silently strip diagnostic detail.
     async function tryHandleResponse(res) {
         if (!res || res.status !== 429) return null;
+        const probe = (typeof res.clone === 'function') ? res.clone() : res;
         let txt;
-        try { txt = await res.text(); } catch (_) { return null; }
+        try { txt = await probe.text(); } catch (_) { return null; }
         let parsed = null;
         try { parsed = JSON.parse(txt); } catch (_) { return null; }
         if (!parsed || parsed.error !== 'demo_rate_limit') return null;

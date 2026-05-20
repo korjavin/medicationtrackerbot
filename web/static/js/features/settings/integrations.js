@@ -76,6 +76,17 @@
 
     async function loadIntegrations() {
         if (typeof apiCall !== 'function') return null;
+        // Demo mode hides #settings-integrations via DemoBanner.mount because
+        // the backend returns 403 on GET/PATCH to keep visitors from rotating
+        // operator-owned provider keys. Skip the fetch when the section is
+        // hidden so the demo deployment doesn't log a 403 for every Settings
+        // visit and doesn't advertise the endpoint in DevTools network noise.
+        const section = (typeof document !== 'undefined')
+            ? document.getElementById('settings-integrations')
+            : null;
+        if (section && (section.hasAttribute('hidden') || section.classList.contains('hidden'))) {
+            return null;
+        }
         try {
             const payload = await apiCall('/api/settings/integrations', 'GET');
             if (!payload) return null;
