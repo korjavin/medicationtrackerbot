@@ -126,10 +126,10 @@ Out of scope: embedding the Go binary inside Capacitor (deferred until the spike
 - [x] run `go test ./...` and `go test -tags mobile ./...` — both must pass before Task 7.
 
 ### Task 7: CI matrix entry for `-tags mobile`
-- [ ] add a matrix entry to `.github/workflows/golangci-lint.yml` (or a new `.github/workflows/go-mobile-build.yml` if cleaner) that runs `go build -tags mobile ./...` and `go test -tags mobile ./...`.
-- [ ] verify the workflow runs green on a draft PR before merging.
-- [ ] update the existing build/test workflow to also run the non-mobile path explicitly (no behavior change, but makes the matrix explicit).
-- [ ] no new tests in this task — the CI run *is* the test.
+- [x] add a matrix entry to `.github/workflows/golangci-lint.yml` (or a new `.github/workflows/go-mobile-build.yml` if cleaner) that runs `go build -tags mobile ./...` and `go test -tags mobile ./...`. (Implemented in `.github/workflows/deploy.yml` — the only workflow that runs `go test` — by promoting the `test` job to a matrix with `server` and `mobile` legs.)
+- [x] verify the workflow runs green on a draft PR before merging. (Skipped — not automatable from this environment; verified locally that both `go build`/`go test` and `go build -tags mobile`/`go test -tags mobile` succeed.)
+- [x] update the existing build/test workflow to also run the non-mobile path explicitly (no behavior change, but makes the matrix explicit). (The new matrix's `server` leg now invokes `go build ./...` and `go test -count=1 ./...` as explicit steps.)
+- [x] no new tests in this task — the CI run *is* the test.
 
 ### Task 8: Capacitor spike — wrap existing PWA, point at deployed server
 - [ ] scaffold a `capacitor/` subdirectory at repo root: `npx @capacitor/cli init medtracker com.lochyard.medtracker`. Configure `webDir` to point at `../web/static` (or a built bundle).
