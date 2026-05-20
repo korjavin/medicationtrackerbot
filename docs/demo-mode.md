@@ -62,7 +62,7 @@ Retry-After: 3600
 {"error":"demo_rate_limit","limit":"food_log","retry_after_seconds":3600}
 ```
 
-The `limit` field is one of `agent_calls`, `food_log`, `food_photo`, `food_description`. The frontend's `apiCall` helper (`web/static/js/core/api.js`) detects this body shape and surfaces a dedicated popup via `window.DemoBanner.showDemoLimitAlert(...)` instead of the generic offline-style error.
+The `limit` field is one of `agent_calls`, `food_log`, `food_log_from_photo`, `food_log_from_description`. The frontend's `apiCall` helper (`web/static/js/core/api.js`) detects this body shape and surfaces a dedicated popup via `window.DemoBanner.showDemoLimitAlert(...)` instead of the generic offline-style error.
 
 Non-demo 429s (e.g. the auth limiter) keep the existing plain-text body — the demo branch is keyed on the `error: "demo_rate_limit"` discriminator.
 

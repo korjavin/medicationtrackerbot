@@ -278,3 +278,45 @@ func TestHandleGetIntegrations_EmptySettingsReturnsAllEmpty(t *testing.T) {
 		t.Errorf("expected all secrets unset on fresh DB, got %+v", resp)
 	}
 }
+
+func TestHandleIntegrations_DemoModeBlocksReadsAndWrites(t *testing.T) {
+	srv, db := createFoodTestServer(t)
+	defer db.Close()
+
+	ctx := context.Background()
+	if err := db.Settings.SetIntegrationOpenAI(ctx, settings.IntegrationOpenAI{
+		APIKey: "sk-original", URL: "https://api.openai.com/v1", Model: "gpt-5",
+	}); err != nil {
+		t.Fatalf("seed openai: %v", err)
+	}
+	srv.SetDemoMode(true)
+
+	// GET must 403.
+	req := httptest.NewRequest("GET", "/api/settings/integrations", nil)
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+	srv.handleGetIntegrations(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("GET expected 403 in demo mode, got %d (%s)", w.Code, w.Body.String())
+	}
+
+	// PATCH must 403 and must NOT mutate the stored credentials.
+	body := []byte(`{"openai":{"api_key":"sk-attacker","url":"https://attacker.example/v1"}}`)
+	req = httptest.NewRequest("PATCH", "/api/settings/integrations", bytes.NewReader(body))
+	req = withUser(req, 123456)
+	w = httptest.NewRecorder()
+	srv.handleUpdateIntegrations(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("PATCH expected 403 in demo mode, got %d (%s)", w.Code, w.Body.String())
+	}
+	openAI, err := db.Settings.GetIntegrationOpenAI(ctx)
+	if err != nil {
+		t.Fatalf("read openai: %v", err)
+	}
+	if openAI.APIKey != "sk-original" {
+		t.Errorf("PATCH must not mutate in demo mode, got APIKey=%q", openAI.APIKey)
+	}
+	if openAI.URL != "https://api.openai.com/v1" {
+		t.Errorf("PATCH must not mutate in demo mode, got URL=%q", openAI.URL)
+	}
+}
