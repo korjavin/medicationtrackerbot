@@ -447,6 +447,7 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 			"enabled": true,
 			"limits": map[string]int{
 				"agent_calls_per_day":        s.demoCfg.AgentCallsPerDay,
+				"agent_uploads_per_day":      s.demoCfg.AgentUploadsPerDay,
 				"food_logs_per_hour":         s.demoCfg.FoodLogsPerHour,
 				"food_photos_per_hour":       s.demoCfg.FoodPhotosPerHour,
 				"food_descriptions_per_hour": s.demoCfg.FoodDescriptionsPerHour,

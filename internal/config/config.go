@@ -121,11 +121,14 @@ type MCPConfig struct {
 
 // DemoConfig groups the per-IP rate-limit thresholds applied to AI / cost-
 // sensitive endpoints when DemoMode is on. Each field is a count per the
-// window implied by its name (per day or per hour). Values default to 1 when
-// DemoMode is enabled and the override env var is unset or malformed; the
-// fields are ignored when DemoMode is off.
+// window implied by its name (per day or per hour). When DemoMode is enabled
+// and the override env var is unset or malformed, values default to 1 except
+// AgentUploadsPerDay which defaults to 20 — uploads share a single agent
+// conversation, so one signed-url slot may attach multiple photos. The fields
+// are ignored when DemoMode is off.
 type DemoConfig struct {
 	AgentCallsPerDay        int
+	AgentUploadsPerDay      int
 	FoodLogsPerHour         int
 	FoodPhotosPerHour       int
 	FoodDescriptionsPerHour int
@@ -190,6 +193,7 @@ func LoadFromEnv() (*Config, error) {
 	if cfg.DemoMode {
 		cfg.Demo = DemoConfig{
 			AgentCallsPerDay:        parsePositiveIntEnv("DEMO_AGENT_CALLS_PER_DAY", 1),
+			AgentUploadsPerDay:      parsePositiveIntEnv("DEMO_AGENT_UPLOADS_PER_DAY", 20),
 			FoodLogsPerHour:         parsePositiveIntEnv("DEMO_FOOD_LOGS_PER_HOUR", 1),
 			FoodPhotosPerHour:       parsePositiveIntEnv("DEMO_FOOD_PHOTOS_PER_HOUR", 1),
 			FoodDescriptionsPerHour: parsePositiveIntEnv("DEMO_FOOD_DESCRIPTIONS_PER_HOUR", 1),

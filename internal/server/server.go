@@ -116,6 +116,7 @@ type Server struct {
 // internal/config (cmd/bot/main_server.go translates between the two).
 type DemoConfig struct {
 	AgentCallsPerDay        int
+	AgentUploadsPerDay      int
 	FoodLogsPerHour         int
 	FoodPhotosPerHour       int
 	FoodDescriptionsPerHour int
@@ -652,15 +653,23 @@ func (s *Server) Routes() http.Handler {
 	// deployments never pay the per-window tick.
 	noopMW := func(h http.Handler) http.Handler { return h }
 	agentLimit := noopMW
+	agentUploadLimit := noopMW
 	foodLogLimit := noopMW
 	foodPhotoLimit := noopMW
 	foodDescLimit := noopMW
 	if s.demoMode {
 		agentLimiter := newRateLimiter(s.demoCfg.AgentCallsPerDay, 24*time.Hour)
+		// upload-file shares the daily window but has its own (looser) cap so a
+		// single demo conversation can attach multiple photos while still
+		// bounding the worst-case per-IP volume to ElevenLabs. Without this an
+		// attacker who obtains one signed-url (or even guesses a conversation
+		// id) could spam unlimited 10 MiB uploads through our API key.
+		agentUploadLimiter := newRateLimiter(s.demoCfg.AgentUploadsPerDay, 24*time.Hour)
 		foodLogLimiter := newRateLimiter(s.demoCfg.FoodLogsPerHour, time.Hour)
 		foodPhotoLimiter := newRateLimiter(s.demoCfg.FoodPhotosPerHour, time.Hour)
 		foodDescLimiter := newRateLimiter(s.demoCfg.FoodDescriptionsPerHour, time.Hour)
 		agentLimit = demoRateLimitMiddleware(agentLimiter, "agent_calls", int((24 * time.Hour).Seconds()), trustProxy)
+		agentUploadLimit = demoRateLimitMiddleware(agentUploadLimiter, "agent_uploads", int((24 * time.Hour).Seconds()), trustProxy)
 		foodLogLimit = demoRateLimitMiddleware(foodLogLimiter, "food_log", int(time.Hour.Seconds()), trustProxy)
 		foodPhotoLimit = demoRateLimitMiddleware(foodPhotoLimiter, "food_log_from_photo", int(time.Hour.Seconds()), trustProxy)
 		foodDescLimit = demoRateLimitMiddleware(foodDescLimiter, "food_log_from_description", int(time.Hour.Seconds()), trustProxy)
@@ -812,11 +821,12 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/tz-suggestion/dismiss", s.handleTZSuggestionDismiss)
 	apiMux.HandleFunc("GET /api/health/overview", s.handleGetHealthOverview)
 	// ElevenLabs conversational agent. The per-IP daily budget gates conversation
-	// starts (signed-url) — uploads within an authorized conversation are not
-	// limited so a single demo session can include multiple photo attachments
-	// without burning extra slots. In non-demo mode the limiter is a no-op.
+	// starts (signed-url); uploads have their own looser per-IP daily cap
+	// (AgentUploadsPerDay) so a single demo session can attach multiple photos
+	// without burning extra signed-url slots, while still bounding worst-case
+	// per-IP upload volume to ElevenLabs. In non-demo mode both limiters are no-ops.
 	apiMux.Handle("GET /api/elevenlabs/signed-url", agentLimit(http.HandlerFunc(s.handleElevenLabsSignedURL)))
-	apiMux.HandleFunc("POST /api/elevenlabs/upload-file", s.handleElevenLabsUploadFile)
+	apiMux.Handle("POST /api/elevenlabs/upload-file", agentUploadLimit(http.HandlerFunc(s.handleElevenLabsUploadFile)))
 
 	apiMux.HandleFunc("GET /api/notes", s.handleListNotes)
 	apiMux.HandleFunc("POST /api/notes", s.handleCreateNote)

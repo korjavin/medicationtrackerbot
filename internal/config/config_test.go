@@ -476,7 +476,8 @@ func clearEnv(t *testing.T) {
 		"POCKET_ID_CLIENT_ID", "POCKET_ID_CLIENT_SECRET", "POCKET_ID_DOMAIN",
 		"GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REDIRECT_URL",
 		"MCP_AUDIT_SECRET", "EXTERNAL_WORKOUT_API_KEY",
-		"DEMO_MODE", "DEMO_AGENT_CALLS_PER_DAY", "DEMO_FOOD_LOGS_PER_HOUR",
+		"DEMO_MODE", "DEMO_AGENT_CALLS_PER_DAY", "DEMO_AGENT_UPLOADS_PER_DAY",
+		"DEMO_FOOD_LOGS_PER_HOUR",
 		"DEMO_FOOD_PHOTOS_PER_HOUR", "DEMO_FOOD_DESCRIPTIONS_PER_HOUR",
 	} {
 		t.Setenv(k, "")
@@ -486,6 +487,7 @@ func clearEnv(t *testing.T) {
 func TestLoadFromEnv_DemoMode(t *testing.T) {
 	defaults := DemoConfig{
 		AgentCallsPerDay:        1,
+		AgentUploadsPerDay:      20,
 		FoodLogsPerHour:         1,
 		FoodPhotosPerHour:       1,
 		FoodDescriptionsPerHour: 1,
@@ -526,6 +528,7 @@ func TestLoadFromEnv_DemoMode(t *testing.T) {
 			envVars: map[string]string{
 				"DEMO_MODE":                       "1",
 				"DEMO_AGENT_CALLS_PER_DAY":        "5",
+				"DEMO_AGENT_UPLOADS_PER_DAY":      "30",
 				"DEMO_FOOD_LOGS_PER_HOUR":         "10",
 				"DEMO_FOOD_PHOTOS_PER_HOUR":       "3",
 				"DEMO_FOOD_DESCRIPTIONS_PER_HOUR": "7",
@@ -533,6 +536,7 @@ func TestLoadFromEnv_DemoMode(t *testing.T) {
 			wantOn: true,
 			wantDemo: DemoConfig{
 				AgentCallsPerDay:        5,
+				AgentUploadsPerDay:      30,
 				FoodLogsPerHour:         10,
 				FoodPhotosPerHour:       3,
 				FoodDescriptionsPerHour: 7,
@@ -547,6 +551,7 @@ func TestLoadFromEnv_DemoMode(t *testing.T) {
 			wantOn: true,
 			wantDemo: DemoConfig{
 				AgentCallsPerDay:        12,
+				AgentUploadsPerDay:      20,
 				FoodLogsPerHour:         1,
 				FoodPhotosPerHour:       1,
 				FoodDescriptionsPerHour: 1,

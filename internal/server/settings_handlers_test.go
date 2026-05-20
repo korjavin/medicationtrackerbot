@@ -161,6 +161,7 @@ func TestHandleBootstrap_DemoModeOn_SurfacesLimits(t *testing.T) {
 	srv.SetDemoMode(true)
 	srv.SetDemoConfig(DemoConfig{
 		AgentCallsPerDay:        2,
+		AgentUploadsPerDay:      7,
 		FoodLogsPerHour:         3,
 		FoodPhotosPerHour:       4,
 		FoodDescriptionsPerHour: 5,
@@ -194,6 +195,7 @@ func TestHandleBootstrap_DemoModeOn_SurfacesLimits(t *testing.T) {
 	}
 	expected := map[string]float64{
 		"agent_calls_per_day":        2,
+		"agent_uploads_per_day":      7,
 		"food_logs_per_hour":         3,
 		"food_photos_per_hour":       4,
 		"food_descriptions_per_hour": 5,

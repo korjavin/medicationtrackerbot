@@ -76,6 +76,7 @@ func fireUntilLimit(t *testing.T, handler http.Handler, method, path string, bod
 func TestDemoRateLimit_FoodLog(t *testing.T) {
 	handler, cleanup := newDemoTestServer(t, DemoConfig{
 		AgentCallsPerDay:        2,
+		AgentUploadsPerDay:      20,
 		FoodLogsPerHour:         2,
 		FoodPhotosPerHour:       2,
 		FoodDescriptionsPerHour: 2,
@@ -94,6 +95,7 @@ func TestDemoRateLimit_FoodLog(t *testing.T) {
 func TestDemoRateLimit_FoodLogFromPhoto(t *testing.T) {
 	handler, cleanup := newDemoTestServer(t, DemoConfig{
 		AgentCallsPerDay:        2,
+		AgentUploadsPerDay:      20,
 		FoodLogsPerHour:         2,
 		FoodPhotosPerHour:       2,
 		FoodDescriptionsPerHour: 2,
@@ -112,6 +114,7 @@ func TestDemoRateLimit_FoodLogFromPhoto(t *testing.T) {
 func TestDemoRateLimit_FoodLogFromDescription(t *testing.T) {
 	handler, cleanup := newDemoTestServer(t, DemoConfig{
 		AgentCallsPerDay:        2,
+		AgentUploadsPerDay:      20,
 		FoodLogsPerHour:         2,
 		FoodPhotosPerHour:       2,
 		FoodDescriptionsPerHour: 2,
@@ -130,6 +133,7 @@ func TestDemoRateLimit_FoodLogFromDescription(t *testing.T) {
 func TestDemoRateLimit_ElevenLabsSignedURL(t *testing.T) {
 	handler, cleanup := newDemoTestServer(t, DemoConfig{
 		AgentCallsPerDay:        2,
+		AgentUploadsPerDay:      20,
 		FoodLogsPerHour:         2,
 		FoodPhotosPerHour:       2,
 		FoodDescriptionsPerHour: 2,
@@ -145,15 +149,36 @@ func TestDemoRateLimit_ElevenLabsSignedURL(t *testing.T) {
 	)
 }
 
-func TestDemoRateLimit_ElevenLabsUploadFile_NotLimited(t *testing.T) {
-	// signed-url is the per-conversation gate that consumes an agent-calls
-	// slot. upload-file is intentionally NOT rate-limited so that an
-	// authorized conversation can attach multiple photos without each upload
-	// burning a separate slot. This test exhausts the agent-calls budget on
-	// signed-url and then verifies upload-file still answers (with whatever
-	// the handler-level status is — definitely not a demo 429).
+func TestDemoRateLimit_ElevenLabsUploadFile_LooseLimit(t *testing.T) {
+	// signed-url is the per-conversation gate (tight cap). upload-file has its
+	// own, looser per-day cap so a single authorized conversation can attach
+	// multiple photos but an attacker cannot spam unlimited 10 MiB uploads
+	// through our API key. Tight test value (3) so the test is fast; the
+	// production default is 20.
+	handler, cleanup := newDemoTestServer(t, DemoConfig{
+		AgentCallsPerDay:        2,
+		AgentUploadsPerDay:      3,
+		FoodLogsPerHour:         2,
+		FoodPhotosPerHour:       2,
+		FoodDescriptionsPerHour: 2,
+	})
+	defer cleanup()
+
+	fireUntilLimit(t, handler,
+		"POST", "/api/elevenlabs/upload-file?conversation_id=abc",
+		"",
+		3,
+		"agent_uploads",
+		86400,
+	)
+}
+
+func TestDemoRateLimit_ElevenLabsUploadFile_IndependentFromSignedURL(t *testing.T) {
+	// upload-file must NOT share the agent_calls bucket. Burning signed-url
+	// uploads should still leave the upload bucket intact.
 	handler, cleanup := newDemoTestServer(t, DemoConfig{
 		AgentCallsPerDay:        1,
+		AgentUploadsPerDay:      5,
 		FoodLogsPerHour:         2,
 		FoodPhotosPerHour:       2,
 		FoodDescriptionsPerHour: 2,
@@ -183,15 +208,14 @@ func TestDemoRateLimit_ElevenLabsUploadFile_NotLimited(t *testing.T) {
 	if w := doSignedURL(); w.Code != http.StatusTooManyRequests {
 		t.Fatalf("signed-url #2: expected 429, got %d", w.Code)
 	}
-	// upload-file must NOT return a demo rate-limit 429 — uploads within an
-	// authorized conversation are free.
-	for i := 0; i < 3; i++ {
-		w := doUpload()
-		if w.Code == http.StatusTooManyRequests {
-			var parsed map[string]any
-			if err := json.NewDecoder(w.Body).Decode(&parsed); err == nil && parsed["error"] == "demo_rate_limit" {
-				t.Fatalf("upload-file #%d: unexpected demo 429 (uploads should be unmetered): %v", i+1, parsed)
-			}
+	// upload-file has its own 5/day budget — at least the first call must NOT
+	// be a demo rate-limit 429 even though signed-url is exhausted. Asserts
+	// the two buckets are independent.
+	w := doUpload()
+	if w.Code == http.StatusTooManyRequests {
+		var parsed map[string]any
+		if err := json.NewDecoder(w.Body).Decode(&parsed); err == nil && parsed["error"] == "demo_rate_limit" {
+			t.Fatalf("upload-file #1: unexpected demo 429 — should have its own bucket, not share agent_calls: %v", parsed)
 		}
 	}
 }
@@ -202,6 +226,7 @@ func TestDemoRateLimit_PerIP(t *testing.T) {
 	// still goes through — confirming the limiter keys on clientIP.
 	handler, cleanup := newDemoTestServer(t, DemoConfig{
 		AgentCallsPerDay:        1,
+		AgentUploadsPerDay:      1,
 		FoodLogsPerHour:         1,
 		FoodPhotosPerHour:       1,
 		FoodDescriptionsPerHour: 1,

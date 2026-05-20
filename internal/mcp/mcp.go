@@ -163,6 +163,16 @@ func LoadConfigFromEnv() (*Config, error) {
 			return nil, fmt.Errorf("MCP_SERVER_URL is required")
 		}
 	}
+	// Refuse to wire the Python executor in demo mode: /mcp accepts all
+	// callers without OAuth, so leaving mcp_execute reachable would expose
+	// sandboxed-but-still-arbitrary Python execution + the proxy's API
+	// surface to anonymous internet traffic. The deployment runbook in
+	// docs/demo-mode.md does not list MCP_EXECUTOR_BRIDGE_URL; this fail-
+	// fast catches an operator who copies an existing config and adds
+	// DEMO_MODE=1 without stripping the executor env.
+	if cfg.DemoMode && cfg.ExecutorBridgeURL != "" {
+		return nil, fmt.Errorf("MCP_EXECUTOR_BRIDGE_URL must not be set when DEMO_MODE=1 (demo mode disables OAuth on /mcp; allowing the Python executor in that state would expose arbitrary code execution to anonymous callers)")
+	}
 
 	return cfg, nil
 }

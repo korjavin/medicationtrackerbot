@@ -32,6 +32,7 @@ function loadEnv() {
 
 const DEFAULT_LIMITS = {
     agent_calls_per_day: 1,
+    agent_uploads_per_day: 20,
     food_logs_per_hour: 1,
     food_photos_per_hour: 1,
     food_descriptions_per_hour: 1,
@@ -194,6 +195,16 @@ describe('DemoBanner.formatLimitMessage', () => {
             .toBe('Demo restriction: only 1 food-from-photo entry per minute. Try again later.');
         expect(env.api.formatLimitMessage({ limit: 'food_log_from_description', retry_after_seconds: 30 }))
             .toBe('Demo restriction: only 1 food-from-text entry per second. Try again later.');
+    });
+
+    it('quotes count + unit + window for the agent_uploads bucket', () => {
+        env.api.mount({ enabled: true, limits: DEFAULT_LIMITS });
+        const msg = env.api.formatLimitMessage({
+            error: 'demo_rate_limit',
+            limit: 'agent_uploads',
+            retry_after_seconds: 86400,
+        });
+        expect(msg).toBe('Demo restriction: only 20 voice agent photo uploads per day. Try again later.');
     });
 
     it('falls back to count=1 when no limits have been mounted yet', () => {
