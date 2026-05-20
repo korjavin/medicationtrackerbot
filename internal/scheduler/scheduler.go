@@ -38,23 +38,22 @@ type Scheduler struct {
 	TZPlanNotifier            *TZPlanNotifier
 }
 
-func New(s *store.Repos, allowedUserID int64, notifiers []notifier.Notifier) *Scheduler {
-	helper := NotifyHelper{
-		notifiers:     notifiers,
-		allowedUserID: allowedUserID,
-	}
-
+// New constructs a Scheduler wired against the supplied ReminderSink. The
+// server build constructs a WebPushSink (notifier.Notifier fan-out); the
+// mobile build (Task 6 of the local-only-mode plan) substitutes a queue-based
+// sink that retains reminders for the Capacitor app to retrieve.
+func New(s *store.Repos, allowedUserID int64, sink ReminderSink) *Scheduler {
 	a := newStoreAdapter(s)
 
-	medChecker := &MedicationChecker{NotifyHelper: helper, store: a}
-	medReminderChecker := &MedicationReminderChecker{NotifyHelper: helper, store: a}
-	lowStockChecker := &LowStockChecker{NotifyHelper: helper, store: a}
-	workoutChecker := &WorkoutChecker{NotifyHelper: helper, store: a, workoutSvc: workoutsvc.New(s.Workout, s.TZ), daysCache: make(map[string][]int)}
-	bpChecker := &BPReminderChecker{store: a, notifiers: notifiers}
-	weightChecker := &WeightReminderChecker{store: a, notifiers: notifiers}
+	medChecker := &MedicationChecker{sink: sink, allowedUserID: allowedUserID, store: a}
+	medReminderChecker := &MedicationReminderChecker{sink: sink, store: a}
+	lowStockChecker := &LowStockChecker{sink: sink, store: a}
+	workoutChecker := &WorkoutChecker{sink: sink, allowedUserID: allowedUserID, store: a, workoutSvc: workoutsvc.New(s.Workout, s.TZ), daysCache: make(map[string][]int)}
+	bpChecker := &BPReminderChecker{store: a, sink: sink}
+	weightChecker := &WeightReminderChecker{store: a, sink: sink}
 	tzPlanNotifier := &TZPlanNotifier{
-		NotifyHelper: helper,
-		store:        a,
+		sink:  sink,
+		store: a,
 		// Lifecycle service is the auto-approve path. Constructed at the
 		// composition root (cmd/bot/main.go) and shared with the HTTP and bot
 		// approve handlers so all three routes write through one
@@ -83,6 +82,14 @@ func New(s *store.Repos, allowedUserID int64, notifiers []notifier.Notifier) *Sc
 	}
 
 	return sched
+}
+
+// NewWithNotifiers is a convenience wrapper for callers that have a notifier
+// slice handy (the server build's typical case): it constructs a WebPushSink
+// internally and delegates to New. Kept so cmd/bot/main.go's wiring stays a
+// one-liner.
+func NewWithNotifiers(s *store.Repos, allowedUserID int64, notifiers []notifier.Notifier) *Scheduler {
+	return New(s, allowedUserID, NewWebPushSink(notifiers, allowedUserID))
 }
 
 func (s *Scheduler) Start() {

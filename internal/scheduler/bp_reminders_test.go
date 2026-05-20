@@ -104,7 +104,7 @@ func TestBPReminderCheckerScenarios(t *testing.T) {
 		}
 
 		mockNotifier := &MockNotifier{}
-		sched := New(db, 123456, []notifier.Notifier{mockNotifier})
+		sched := NewWithNotifiers(db, 123456, []notifier.Notifier{mockNotifier})
 
 		sched.BPReminderChecker.now = func() time.Time {
 			return nowTime

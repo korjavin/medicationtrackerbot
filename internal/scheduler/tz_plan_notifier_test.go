@@ -82,10 +82,7 @@ func (c *capturingNotifier) CloseNotification(_ context.Context, _ int64, _ stri
 
 func newTZPlanNotifierWithMocks(ms *mockTZPlanNotifierStore, cn *capturingNotifier) *TZPlanNotifier {
 	return &TZPlanNotifier{
-		NotifyHelper: NotifyHelper{
-			notifiers:     []notifier.Notifier{cn},
-			allowedUserID: 42,
-		},
+		sink:      NewWebPushSink([]notifier.Notifier{cn}, 42),
 		store:     ms,
 		lifecycle: ms, // Same mock satisfies the LifecycleService.Approve method.
 	}
@@ -431,10 +428,7 @@ func TestTZPlanNotifier_SendFailure_ResetsToPending(t *testing.T) {
 	}
 	fn := &failingNotifier{}
 	notif := &TZPlanNotifier{
-		NotifyHelper: NotifyHelper{
-			notifiers:     []notifier.Notifier{fn},
-			allowedUserID: 42,
-		},
+		sink:  NewWebPushSink([]notifier.Notifier{fn}, 42),
 		store: ms,
 	}
 
@@ -462,10 +456,7 @@ func TestTZPlanNotifier_NoNotifiersConfigured_CancelsPlan(t *testing.T) {
 		},
 	}
 	notif := &TZPlanNotifier{
-		NotifyHelper: NotifyHelper{
-			notifiers:     nil,
-			allowedUserID: 42,
-		},
+		sink:  NewWebPushSink(nil, 42),
 		store: ms,
 	}
 
@@ -508,10 +499,7 @@ func TestTZPlanNotifier_NoDeliveryChannel_CancelsPlan(t *testing.T) {
 	}
 	nc := &noChannelNotifier{}
 	notif := &TZPlanNotifier{
-		NotifyHelper: NotifyHelper{
-			notifiers:     []notifier.Notifier{nc},
-			allowedUserID: 42,
-		},
+		sink:  NewWebPushSink([]notifier.Notifier{nc}, 42),
 		store: ms,
 	}
 

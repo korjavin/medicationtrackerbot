@@ -159,7 +159,7 @@ func TestWorkoutCheckerScenarios(t *testing.T) {
 		mockNotifier := &MockNotifier{}
 
 		// Setup WorkoutChecker properly with proper svc and cache
-		sched := New(db, 123456, []notifier.Notifier{mockNotifier})
+		sched := NewWithNotifiers(db, 123456, []notifier.Notifier{mockNotifier})
 
 		// Use the correct embedded svc
 		sched.WorkoutChecker.workoutSvc = workoutsvc.New(db.Workout, db.TZ)

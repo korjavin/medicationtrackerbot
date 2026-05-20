@@ -98,7 +98,7 @@ func newSchedWithNotifiers(t *testing.T, notifiers ...notifier.Notifier) (*Sched
 		t.Fatalf("store.New: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() }) // #nosec G104
-	return New(db, 123456, notifiers), db
+	return NewWithNotifiers(db, 123456, notifiers), db
 }
 
 // findBatchedNotification returns the first send call with Metadata["type"]
@@ -179,78 +179,10 @@ func setupWorkoutSession(t *testing.T, groupName, variantName string) (*Schedule
 	return sched, db, mock, group, variant, session
 }
 
-// TestNotifyHelper_Dispatch covers async Notify / DeleteNotification fan-out.
-// The sync NotifySync code path is covered in helpers_test.go.
-func TestNotifyHelper_Dispatch(t *testing.T) {
-	t.Run("notify calls all notifiers and stores msgID from first", func(t *testing.T) {
-		m1 := &mockNotifier{sendMsgID: 10}
-		m2 := &mockNotifier{sendMsgID: 0}
-		helper := NotifyHelper{notifiers: []notifier.Notifier{m1, m2}, allowedUserID: 42}
-		var storedID int
-		helper.Notify(context.Background(), notifier.Notification{Text: "test", Tag: "t"}, func(id int) { storedID = id })
-
-		m1.waitForSendCalls(1, time.Second)
-		m2.waitForSendCalls(1, time.Second)
-
-		if c := m1.getSendCalls(); len(c) != 1 || c[0].UserID != 42 {
-			t.Errorf("m1: want 1 call to UserID=42, got %v", c)
-		}
-		if c := m2.getSendCalls(); len(c) != 1 {
-			t.Errorf("m2: want 1 call, got %d", len(c))
-		}
-		time.Sleep(50 * time.Millisecond)
-		if storedID != 10 {
-			t.Errorf("storedID = %d, want 10", storedID)
-		}
-	})
-
-	t.Run("notify with no notifiers does not panic", func(t *testing.T) {
-		helper := NotifyHelper{notifiers: nil, allowedUserID: 42}
-		helper.Notify(context.Background(), notifier.Notification{Text: "test"}, nil)
-	})
-
-	t.Run("notify with send error does not call storeMsgID", func(t *testing.T) {
-		m := &mockNotifier{sendErr: fmt.Errorf("network error")}
-		helper := NotifyHelper{notifiers: []notifier.Notifier{m}, allowedUserID: 42}
-		called := false
-		helper.Notify(context.Background(), notifier.Notification{Text: "test"}, func(_ int) { called = true })
-
-		m.waitForSendCalls(1, time.Second)
-		time.Sleep(50 * time.Millisecond)
-		if called {
-			t.Error("storeMsgID should not have been called on send error")
-		}
-	})
-
-	t.Run("delete propagates to all notifiers with correct args", func(t *testing.T) {
-		m1 := &mockNotifier{}
-		m2 := &mockNotifier{}
-		helper := NotifyHelper{notifiers: []notifier.Notifier{m1, m2}, allowedUserID: 42}
-		type ctxKey struct{}
-		ctx := context.WithValue(context.Background(), ctxKey{}, "test")
-
-		helper.DeleteNotification(ctx, 99)
-		m1.waitForDeleteCalls(1, time.Second)
-		m2.waitForDeleteCalls(1, time.Second)
-
-		for i, m := range []*mockNotifier{m1, m2} {
-			c := m.getDeleteCalls()
-			if len(c) != 1 || c[0].MsgID != 99 || c[0].UserID != 42 || c[0].Ctx != ctx {
-				t.Errorf("notifier[%d]: want delete(99) with ctx and UserID=42, got %v", i, c)
-			}
-		}
-	})
-
-	t.Run("delete with msgID 0 is a noop", func(t *testing.T) {
-		m := &mockNotifier{}
-		helper := NotifyHelper{notifiers: []notifier.Notifier{m}, allowedUserID: 42}
-		helper.DeleteNotification(context.Background(), 0)
-		time.Sleep(50 * time.Millisecond)
-		if len(m.getDeleteCalls()) != 0 {
-			t.Error("expected no delete calls for msgID=0")
-		}
-	})
-}
+// Async Notify / DeleteNotification fan-out is covered by the
+// TestWebPushSink_* tests in sink_webpush_test.go (which exercise the same
+// code paths via the public constructor); the integration-level checker tests
+// below verify that the scheduler wires the sink through to each checker.
 
 func TestMedicationChecker_Check(t *testing.T) {
 	// Combined check of: batched notification structure (text, actions, tag,

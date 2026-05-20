@@ -42,7 +42,7 @@ func TestWorkoutChecker_CrossTZCooldownPreventsDuplicateSession(t *testing.T) {
 	berlin, _ := time.LoadLocation("Europe/Berlin")
 
 	mockNotifier := &MockNotifier{}
-	sched := New(db, 123456, []notifier.Notifier{mockNotifier})
+	sched := NewWithNotifiers(db, 123456, []notifier.Notifier{mockNotifier})
 	sched.WorkoutChecker.workoutSvc = workoutsvc.New(db.Workout, db.TZ)
 	sched.WorkoutChecker.daysCache = make(map[string][]int)
 
@@ -124,7 +124,7 @@ func TestWorkoutChecker_ConsecutiveDaysAllowed(t *testing.T) {
 	}
 
 	mockNotifier := &MockNotifier{}
-	sched := New(db, 123456, []notifier.Notifier{mockNotifier})
+	sched := NewWithNotifiers(db, 123456, []notifier.Notifier{mockNotifier})
 	sched.WorkoutChecker.workoutSvc = workoutsvc.New(db.Workout, db.TZ)
 	sched.WorkoutChecker.daysCache = make(map[string][]int)
 

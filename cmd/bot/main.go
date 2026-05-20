@@ -309,7 +309,7 @@ func main() {
 	srv.SetNotifiers(notifiers)
 
 	// Always start scheduler (works with web push even without bot)
-	sch := scheduler.New(s, allowedUserID, notifiers)
+	sch := scheduler.NewWithNotifiers(s, allowedUserID, notifiers)
 	sch.Start()
 	if tgBot != nil {
 		slog.Info("Scheduler started")
