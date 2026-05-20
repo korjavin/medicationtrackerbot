@@ -186,6 +186,105 @@ func (r *Repo) SetDismissedTZSuggestion(ctx context.Context, tz string) error {
 	return err
 }
 
+// IntegrationOpenAI is the settings-table-backed view of the OpenAI provider
+// configuration. The settings repo intentionally defines its own DTOs (rather
+// than reusing internal/config types) so internal/config can depend on
+// internal/store/settings via LoadFromSettings without a cyclic import.
+type IntegrationOpenAI struct {
+	APIKey       string
+	URL          string
+	Model        string
+	VisionAPIKey string
+	VisionURL    string
+	VisionModel  string
+}
+
+// IntegrationFood is the settings-table-backed view of the remote food-DB
+// lookup credentials.
+type IntegrationFood struct {
+	APIKey string
+	URL    string
+	Domain string
+}
+
+// IntegrationElevenLabs is the settings-table-backed view of the Voice Agent
+// proxy credentials.
+type IntegrationElevenLabs struct {
+	APIKey  string
+	AgentID string
+}
+
+// GetIntegrationOpenAI reads the OpenAI provider config columns from the
+// singleton settings row.
+func (r *Repo) GetIntegrationOpenAI(ctx context.Context) (IntegrationOpenAI, error) {
+	var v IntegrationOpenAI
+	err := r.db.QueryRowContext(ctx, `SELECT
+		openai_api_key, openai_url, openai_model,
+		openai_vision_api_key, openai_vision_url, openai_vision_model
+		FROM settings WHERE id = 1`).Scan(
+		&v.APIKey, &v.URL, &v.Model,
+		&v.VisionAPIKey, &v.VisionURL, &v.VisionModel,
+	)
+	if err == sql.ErrNoRows {
+		return IntegrationOpenAI{}, nil
+	}
+	return v, err
+}
+
+// SetIntegrationOpenAI writes all OpenAI provider config columns in one
+// statement. Empty strings clear the column (a "" override is the explicit way
+// to unset a previously-saved value).
+func (r *Repo) SetIntegrationOpenAI(ctx context.Context, v IntegrationOpenAI) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE settings SET
+		openai_api_key = ?, openai_url = ?, openai_model = ?,
+		openai_vision_api_key = ?, openai_vision_url = ?, openai_vision_model = ?
+		WHERE id = 1`,
+		v.APIKey, v.URL, v.Model,
+		v.VisionAPIKey, v.VisionURL, v.VisionModel,
+	)
+	return err
+}
+
+// GetIntegrationFood reads the remote food-DB lookup columns from the
+// singleton settings row.
+func (r *Repo) GetIntegrationFood(ctx context.Context) (IntegrationFood, error) {
+	var v IntegrationFood
+	err := r.db.QueryRowContext(ctx, `SELECT food_api_key, food_url, food_domain
+		FROM settings WHERE id = 1`).Scan(&v.APIKey, &v.URL, &v.Domain)
+	if err == sql.ErrNoRows {
+		return IntegrationFood{}, nil
+	}
+	return v, err
+}
+
+// SetIntegrationFood writes all remote food-DB lookup columns in one statement.
+func (r *Repo) SetIntegrationFood(ctx context.Context, v IntegrationFood) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE settings SET
+		food_api_key = ?, food_url = ?, food_domain = ?
+		WHERE id = 1`, v.APIKey, v.URL, v.Domain)
+	return err
+}
+
+// GetIntegrationElevenLabs reads the Voice Agent proxy credentials from the
+// singleton settings row.
+func (r *Repo) GetIntegrationElevenLabs(ctx context.Context) (IntegrationElevenLabs, error) {
+	var v IntegrationElevenLabs
+	err := r.db.QueryRowContext(ctx, `SELECT elevenlabs_api_key, elevenlabs_agent_id
+		FROM settings WHERE id = 1`).Scan(&v.APIKey, &v.AgentID)
+	if err == sql.ErrNoRows {
+		return IntegrationElevenLabs{}, nil
+	}
+	return v, err
+}
+
+// SetIntegrationElevenLabs writes the Voice Agent proxy credentials.
+func (r *Repo) SetIntegrationElevenLabs(ctx context.Context, v IntegrationElevenLabs) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE settings SET
+		elevenlabs_api_key = ?, elevenlabs_agent_id = ? WHERE id = 1`,
+		v.APIKey, v.AgentID)
+	return err
+}
+
 // GetLastDownload returns the timestamp of the last drug-database download,
 // or the zero time if nothing has ever been downloaded.
 func (r *Repo) GetLastDownload() (time.Time, error) {

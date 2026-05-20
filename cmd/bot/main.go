@@ -98,6 +98,18 @@ func main() {
 	}
 	slog.Info("Database initialized", "path", dbPath)
 
+	// Merge the settings-table view of the user-configurable subset (OpenAI,
+	// Food, ElevenLabs) into the env-derived config. Env wins per-field; for
+	// keys an operator left unset, the settings table value is used. On a
+	// fresh DB every settings column defaults to '' so this is a no-op for
+	// server installs that already set everything in env.
+	settingsCfg, err := config.LoadFromSettings(context.Background(), s.Settings)
+	if err != nil {
+		slog.Error("Failed to load settings-table config", "error", err)
+		os.Exit(1)
+	}
+	cfg = config.Merge(cfg, settingsCfg)
+
 	// Wire the remote food-DB config into the food repo so SearchRemoteAPI
 	// no longer reads os.Getenv at request time.
 	s.Food.SetRemoteConfig(food.RemoteConfig{

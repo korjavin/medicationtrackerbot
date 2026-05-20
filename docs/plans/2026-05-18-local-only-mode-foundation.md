@@ -78,14 +78,14 @@ Out of scope: embedding the Go binary inside Capacitor (deferred until the spike
 - [x] run `go test ./...` — must pass before Task 2.
 
 ### Task 2: Add user-configurable keys to `settings` repo + env-or-settings merge
-- [ ] add migration in `internal/store/migrations/` introducing config rows in the singleton settings table for: `openai_api_key`, `openai_url`, `openai_model`, `openai_vision_api_key`, `openai_vision_url`, `openai_vision_model`, `food_api_key`, `food_url`, `food_domain`, `elevenlabs_api_key`, `elevenlabs_agent_id`. Default all to NULL/empty.
-- [ ] add Getter/Setter methods on `internal/store/settings/repo.go` for each key group (e.g. `GetOpenAIConfig(ctx) (OpenAIConfig, error)`, `SetOpenAIConfig(ctx, OpenAIConfig) error`). Keep types defined in `internal/config` to avoid an import cycle — settings repo returns plain strings, `Config` does the assembly.
-- [ ] add `internal/config.LoadFromSettings(ctx, settingsRepo) (*Config, error)` that reads the user-configurable subset from settings.
-- [ ] add `internal/config.Merge(env *Config, fromSettings *Config) *Config` — env wins when set, else settings, else zero-value. Document the precedence in a package comment.
-- [ ] wire the merge into `cmd/bot/main.go` after settings repo is constructed: `cfg = config.Merge(envCfg, settingsCfg)`.
-- [ ] write tests for the new settings methods (round-trip, empty handling).
-- [ ] write tests for `Merge` — table-driven covering env-only, settings-only, both-present (env wins), neither.
-- [ ] run `go test ./...` — must pass before Task 3.
+- [x] add migration in `internal/store/migrations/` introducing config rows in the singleton settings table for: `openai_api_key`, `openai_url`, `openai_model`, `openai_vision_api_key`, `openai_vision_url`, `openai_vision_model`, `food_api_key`, `food_url`, `food_domain`, `elevenlabs_api_key`, `elevenlabs_agent_id`. Default all to NULL/empty.
+- [x] add Getter/Setter methods on `internal/store/settings/repo.go` for each key group (e.g. `GetOpenAIConfig(ctx) (OpenAIConfig, error)`, `SetOpenAIConfig(ctx, OpenAIConfig) error`). Keep types defined in `internal/config` to avoid an import cycle — settings repo returns plain strings, `Config` does the assembly.
+- [x] add `internal/config.LoadFromSettings(ctx, settingsRepo) (*Config, error)` that reads the user-configurable subset from settings.
+- [x] add `internal/config.Merge(env *Config, fromSettings *Config) *Config` — env wins when set, else settings, else zero-value. Document the precedence in a package comment.
+- [x] wire the merge into `cmd/bot/main.go` after settings repo is constructed: `cfg = config.Merge(envCfg, settingsCfg)`.
+- [x] write tests for the new settings methods (round-trip, empty handling).
+- [x] write tests for `Merge` — table-driven covering env-only, settings-only, both-present (env wins), neither.
+- [x] run `go test ./...` — must pass before Task 3.
 
 ### Task 3: Settings UI for AI / Food / Voice Agent providers
 - [ ] add `GET /api/settings/integrations` and `PATCH /api/settings/integrations` handlers in `internal/server/` returning/accepting the OpenAI, Food, ElevenLabs config groups. Mask secret values on GET (return `***` for set, empty for unset).
