@@ -61,9 +61,9 @@ The fix is to use sentinel TZ strings that *cannot* be valid IANA zone names —
 
 ### Task 2: Verify acceptance criteria
 
-- [ ] Confirm both affected tests (lines 218 and 254) exercise the prefix-scan fallback path (not the direct current-TZ lookup) under every TZ checked above. A quick way: assert that `currentTzKey` is *not* in the seeded `installApiCacheMap` initial map.
-- [ ] Run the full frontend suite (`pnpm test`) — no regressions in unrelated specs.
-- [ ] Run with one additional TZ that mirrors common CI (`TZ=America/New_York pnpm test web/static/js/tests/health.dexie-hydration.test.js`) — must pass.
+- [x] Confirm both affected tests (lines 218 and 254) exercise the prefix-scan fallback path (not the direct current-TZ lookup) under every TZ checked above. A quick way: assert that `currentTzKey` is *not* in the seeded `installApiCacheMap` initial map. (Both tests already assert `currentTzKey` ≠ every seeded key; since the seeded map only contains the sentinel keys, this implies currentTzKey is not in the map, forcing the prefix-scan fallback. Verified across TZ=default, Berlin, LA, UTC, NY.)
+- [x] Run the full frontend suite (`pnpm test`) — no regressions in unrelated specs. (214 test files, 2295 passing, 29 skipped — clean.)
+- [x] Run with one additional TZ that mirrors common CI (`TZ=America/New_York pnpm test web/static/js/tests/health.dexie-hydration.test.js`) — must pass. (10/10 passed.)
 
 ## Technical Details
 
