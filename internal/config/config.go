@@ -27,6 +27,7 @@ package config
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -160,7 +161,16 @@ func LoadFromEnv() (*Config, error) {
 		AppDomain:             resolveAppDomain(),
 	}
 	if userIDStr := os.Getenv("ALLOWED_USER_ID"); userIDStr != "" {
-		cfg.AllowedUserID, _ = strconv.ParseInt(userIDStr, 10, 64)
+		parsed, err := strconv.ParseInt(userIDStr, 10, 64)
+		if err != nil {
+			// Don't return an error — server-mode tests construct a Config
+			// without ALLOWED_USER_ID set and rely on this returning a usable
+			// Config. But surface the malformed value so an operator typo
+			// isn't undiagnosable.
+			slog.Warn("ALLOWED_USER_ID is set but not a valid int64; treating as zero", "value", userIDStr, "error", err)
+		} else {
+			cfg.AllowedUserID = parsed
+		}
 	}
 	return cfg, nil
 }

@@ -128,6 +128,17 @@ func (s *Server) handleUpdateIntegrations(w http.ResponseWriter, r *http.Request
 
 	ctx := r.Context()
 
+	// Resolve each requested group against its existing row first so the
+	// secret-mask sentinel is replaced by the previously-stored value before
+	// the write fans out. The reads are outside the transaction (no harm: any
+	// concurrent writer would race the optimistic UI anyway), the writes are
+	// inside.
+	var (
+		openAINext *settings.IntegrationOpenAI
+		foodNext   *settings.IntegrationFood
+		elNext     *settings.IntegrationElevenLabs
+	)
+
 	if req.OpenAI != nil {
 		existing, err := s.settings.GetIntegrationOpenAI(ctx)
 		if err != nil {
@@ -135,18 +146,13 @@ func (s *Server) handleUpdateIntegrations(w http.ResponseWriter, r *http.Request
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		next := settings.IntegrationOpenAI{
+		openAINext = &settings.IntegrationOpenAI{
 			APIKey:       mergeSecretField(req.OpenAI.APIKey, existing.APIKey),
 			URL:          req.OpenAI.URL,
 			Model:        req.OpenAI.Model,
 			VisionAPIKey: mergeSecretField(req.OpenAI.VisionAPIKey, existing.VisionAPIKey),
 			VisionURL:    req.OpenAI.VisionURL,
 			VisionModel:  req.OpenAI.VisionModel,
-		}
-		if err := s.settings.SetIntegrationOpenAI(ctx, next); err != nil {
-			slog.Error("set integration openai failed", "error", err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
 		}
 	}
 
@@ -157,15 +163,10 @@ func (s *Server) handleUpdateIntegrations(w http.ResponseWriter, r *http.Request
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		next := settings.IntegrationFood{
+		foodNext = &settings.IntegrationFood{
 			APIKey: mergeSecretField(req.Food.APIKey, existing.APIKey),
 			URL:    req.Food.URL,
 			Domain: req.Food.Domain,
-		}
-		if err := s.settings.SetIntegrationFood(ctx, next); err != nil {
-			slog.Error("set integration food failed", "error", err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
 		}
 	}
 
@@ -176,15 +177,21 @@ func (s *Server) handleUpdateIntegrations(w http.ResponseWriter, r *http.Request
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		next := settings.IntegrationElevenLabs{
+		elNext = &settings.IntegrationElevenLabs{
 			APIKey:  mergeSecretField(req.ElevenLabs.APIKey, existing.APIKey),
 			AgentID: req.ElevenLabs.AgentID,
 		}
-		if err := s.settings.SetIntegrationElevenLabs(ctx, next); err != nil {
-			slog.Error("set integration elevenlabs failed", "error", err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
+	}
+
+	if openAINext == nil && foodNext == nil && elNext == nil {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if err := s.settings.SetIntegrations(ctx, openAINext, foodNext, elNext); err != nil {
+		slog.Error("set integrations atomic failed", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
 	}
 
 	w.WriteHeader(http.StatusOK)

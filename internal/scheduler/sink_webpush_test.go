@@ -335,6 +335,32 @@ func TestWebPushSink_NotifySyncToUser(t *testing.T) {
 			t.Error("expected error with no notifiers")
 		}
 	})
+
+	t.Run("all notifiers report ErrNoDeliveryChannel: sentinel preserved", func(t *testing.T) {
+		m1 := &mockHelperNotifier{sendErr: notifier.ErrNoDeliveryChannel}
+		m2 := &mockHelperNotifier{sendErr: notifier.ErrNoDeliveryChannel}
+		s := NewWebPushSink([]notifier.Notifier{m1, m2}, 0)
+
+		_, err := s.NotifySyncToUser(context.Background(), 1, notifier.Notification{})
+		if !errors.Is(err, notifier.ErrNoDeliveryChannel) {
+			t.Errorf("expected ErrNoDeliveryChannel, got %v", err)
+		}
+	})
+
+	t.Run("mix of ErrNoDeliveryChannel and transient: returns transient", func(t *testing.T) {
+		transient := errors.New("provider down")
+		m1 := &mockHelperNotifier{sendErr: notifier.ErrNoDeliveryChannel}
+		m2 := &mockHelperNotifier{sendErr: transient}
+		s := NewWebPushSink([]notifier.Notifier{m1, m2}, 0)
+
+		_, err := s.NotifySyncToUser(context.Background(), 1, notifier.Notification{})
+		if errors.Is(err, notifier.ErrNoDeliveryChannel) {
+			t.Errorf("expected non-sentinel transient error, got ErrNoDeliveryChannel")
+		}
+		if !errors.Is(err, transient) {
+			t.Errorf("expected wrapped transient error, got %v", err)
+		}
+	})
 }
 
 // fakeSink is a minimal ReminderSink used by scheduler tests that need to

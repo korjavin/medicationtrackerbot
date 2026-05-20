@@ -330,6 +330,19 @@ func (s *Server) SetMCPAuditSecret(secret string) {
 	s.mcpAuditSecret = secret
 }
 
+// SetExternalAPIKey overrides the pre-shared key used by the
+// POST /api/workout/external endpoint (Mi Notify webhook). New() seeds the
+// field from EXTERNAL_WORKOUT_API_KEY as a backward-compatible default; this
+// setter lets the server-mode entry point pass the value through the typed
+// config struct alongside ElevenLabs / OpenAI / Food. The mobile build never
+// calls this — that endpoint has no remote ingress on a Capacitor install.
+func (s *Server) SetExternalAPIKey(key string) {
+	s.externalAPIKey = key
+	if key == "" {
+		slog.Warn("EXTERNAL_WORKOUT_API_KEY is empty after SetExternalAPIKey; external workout endpoint will reject all requests")
+	}
+}
+
 // SetFoodAIService wires the AI-backed food parser used by the photo upload
 // endpoint. When unset, /api/food/log/from-photo returns 503.
 func (s *Server) SetFoodAIService(svc domain.FoodAIService) {
