@@ -162,6 +162,9 @@ const ALLOWED_GLOBALS = new Set([
     'window.FoodPhoto',                 // features/food/photo.js — food photo capture + EXIF + undo public API
     'window.FoodMeals',                 // features/food/meals.js — My Meals list + save-as-meal flow public API
     'window.FoodDB',                    // features/food/db.js — Food DB browse + paginate public API
+
+    // Settings → Integrations section (local-only mode foundation, Task 3).
+    'window.SettingsIntegrations',      // features/settings/integrations.js — load + save handlers for the Integrations card (OpenAI / Food / ElevenLabs credentials); routes the save through DataStore.applyOptimistic so the masked GET view repaints immediately on commit and rolls back on failure.
 ]);
 
 /**

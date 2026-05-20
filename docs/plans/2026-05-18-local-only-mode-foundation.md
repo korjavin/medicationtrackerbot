@@ -88,14 +88,14 @@ Out of scope: embedding the Go binary inside Capacitor (deferred until the spike
 - [x] run `go test ./...` — must pass before Task 3.
 
 ### Task 3: Settings UI for AI / Food / Voice Agent providers
-- [ ] add `GET /api/settings/integrations` and `PATCH /api/settings/integrations` handlers in `internal/server/` returning/accepting the OpenAI, Food, ElevenLabs config groups. Mask secret values on GET (return `***` for set, empty for unset).
-- [ ] register the new routes in the MCP operation registry under `internal/mcp/registry/operations_settings.go` (or add to `mcp_coverage_exempt.go` with a `Reason: "user-editable integration settings, not a domain action"`).
-- [ ] add a "Providers" or "Integrations" section to the frontend Settings screen (`web/static/js/features/settings/` — locate the existing settings entry point and follow its pattern). Fields: OpenAI API key / URL / model, Vision overrides (collapsible), Food DB API key / URL / domain, ElevenLabs API key / Agent ID.
-- [ ] use `DataStore.applyOptimistic` for the save handler per CLAUDE.md rule 9.
-- [ ] no inline `.style.` assignments, no hardcoded colors — use `--wg-*` tokens per CLAUDE.md rule 3.
-- [ ] write Go handler tests in `internal/server/` (table-driven: GET masks secrets, PATCH persists, PATCH with invalid body returns 4xx).
-- [ ] write Vitest integration test extending the existing settings feature suite (assert section renders, fields populate from API, save calls applyOptimistic).
-- [ ] run `go test ./...` and `pnpm test` — must pass before Task 4.
+- [x] add `GET /api/settings/integrations` and `PATCH /api/settings/integrations` handlers in `internal/server/` returning/accepting the OpenAI, Food, ElevenLabs config groups. Mask secret values on GET (return `***` for set, empty for unset).
+- [x] register the new routes in the MCP operation registry under `internal/mcp/registry/operations_settings.go` (or add to `mcp_coverage_exempt.go` with a `Reason: "user-editable integration settings, not a domain action"`).
+- [x] add a "Providers" or "Integrations" section to the frontend Settings screen (`web/static/js/features/settings/` — locate the existing settings entry point and follow its pattern). Fields: OpenAI API key / URL / model, Vision overrides (collapsible), Food DB API key / URL / domain, ElevenLabs API key / Agent ID.
+- [x] use `DataStore.applyOptimistic` for the save handler per CLAUDE.md rule 9.
+- [x] no inline `.style.` assignments, no hardcoded colors — use `--wg-*` tokens per CLAUDE.md rule 3.
+- [x] write Go handler tests in `internal/server/` (table-driven: GET masks secrets, PATCH persists, PATCH with invalid body returns 4xx).
+- [x] write Vitest integration test extending the existing settings feature suite (assert section renders, fields populate from API, save calls applyOptimistic).
+- [x] run `go test ./...` and `pnpm test` — must pass before Task 4.
 
 ### Task 4: Define `scheduler.ReminderSink` interface
 - [ ] create `internal/scheduler/sink.go` with `type ReminderSink interface { Schedule(ctx, Reminder) error; Cancel(ctx, id string) error; ... }` — derive the method set from the existing web-push call sites in `internal/scheduler/`.

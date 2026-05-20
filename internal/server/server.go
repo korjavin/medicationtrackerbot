@@ -706,6 +706,8 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/settings/features/{feature}", s.handleSetFeatureEnabled)
 	apiMux.HandleFunc("POST /api/settings/tab-order", s.handleSetTabOrder)
 	apiMux.HandleFunc("PATCH /api/settings/weight-unit", s.handleSetWeightUnitPreference)
+	apiMux.HandleFunc("GET /api/settings/integrations", s.handleGetIntegrations)
+	apiMux.HandleFunc("PATCH /api/settings/integrations", s.handleUpdateIntegrations)
 	apiMux.HandleFunc("GET /api/tz-plan/current", s.handleGetCurrentTZPlan)
 	apiMux.HandleFunc("POST /api/tz-plan/{id}/approve", s.handleTZPlanApprove)
 	apiMux.HandleFunc("POST /api/tz-plan/{id}/reject", s.handleTZPlanReject)

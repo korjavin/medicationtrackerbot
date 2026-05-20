@@ -81,6 +81,7 @@ const WORKOUT_MIBAND_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/m
 const WORKOUT_SESSIONS_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/sessions.js');
 const WORKOUT_STATS_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/stats.js');
 const WORKOUT_INDEX_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/index.js');
+const SETTINGS_INTEGRATIONS_JS = path.join(REPO_ROOT, 'web/static/js/features/settings/integrations.js');
 
 const _sourceCache = new Map();
 function readCached(filePath) {
@@ -296,6 +297,12 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   evalFileCached(window, BP_JS);
   evalFileCached(window, WEIGHT_JS);
   evalFileCached(window, HEALTH_JS);
+
+  // settings/integrations.js — Settings → Integrations section (Task 3 of
+  // the local-only mode foundation). Loaded after the feature modules so
+  // its DOMContentLoaded bind sees the same DOM tree the rest of the
+  // harness uses.
+  evalFileCached(window, SETTINGS_INTEGRATIONS_JS);
 
   // auth-flow.js: provides saveAuthState / getCachedAuthState / clearAuthState.
   evalFileCached(window, AUTH_FLOW_JS);
