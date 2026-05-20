@@ -15,8 +15,8 @@ func TestHandleElevenLabsSignedURL_NotConfigured(t *testing.T) {
 	srv, db := createHealthTestServer(t)
 	defer db.Close()
 
-	t.Setenv("ELEVENLABS_API_KEY", "")
-	t.Setenv("ELEVENLABS_AGENT_ID", "")
+	// Leaving ElevenLabsConfig zero-valued must surface as Service Unavailable.
+	srv.SetElevenLabsConfig(ElevenLabsConfig{})
 
 	req := httptest.NewRequest("GET", "/api/elevenlabs/signed-url", nil)
 	req = withUser(req, 123456)
@@ -49,8 +49,7 @@ func TestHandleElevenLabsSignedURL_OK(t *testing.T) {
 	elevenLabsSignedURLBase = upstream.URL
 	defer func() { elevenLabsSignedURLBase = prev }()
 
-	t.Setenv("ELEVENLABS_API_KEY", "test-key")
-	t.Setenv("ELEVENLABS_AGENT_ID", "agent_test")
+	srv.SetElevenLabsConfig(ElevenLabsConfig{APIKey: "test-key", AgentID: "agent_test"})
 
 	req := httptest.NewRequest("GET", "/api/elevenlabs/signed-url", nil)
 	req = withUser(req, 123456)
@@ -105,7 +104,7 @@ func TestHandleElevenLabsUploadFile_NotConfigured(t *testing.T) {
 	srv, db := createHealthTestServer(t)
 	defer db.Close()
 
-	t.Setenv("ELEVENLABS_API_KEY", "")
+	srv.SetElevenLabsConfig(ElevenLabsConfig{})
 
 	req := newUploadRequest(t, "conv_1", "image/jpeg", []byte("fake-bytes"))
 	w := httptest.NewRecorder()
@@ -120,7 +119,7 @@ func TestHandleElevenLabsUploadFile_MissingConversationID(t *testing.T) {
 	srv, db := createHealthTestServer(t)
 	defer db.Close()
 
-	t.Setenv("ELEVENLABS_API_KEY", "test-key")
+	srv.SetElevenLabsConfig(ElevenLabsConfig{APIKey: "test-key"})
 
 	req := newUploadRequest(t, "", "image/jpeg", []byte("fake-bytes"))
 	w := httptest.NewRecorder()
@@ -135,7 +134,7 @@ func TestHandleElevenLabsUploadFile_RejectsNonImage(t *testing.T) {
 	srv, db := createHealthTestServer(t)
 	defer db.Close()
 
-	t.Setenv("ELEVENLABS_API_KEY", "test-key")
+	srv.SetElevenLabsConfig(ElevenLabsConfig{APIKey: "test-key"})
 
 	req := newUploadRequest(t, "conv_1", "text/plain", []byte("hello"))
 	w := httptest.NewRecorder()
@@ -150,7 +149,7 @@ func TestHandleElevenLabsUploadFile_RejectsConversationIDWithSlash(t *testing.T)
 	srv, db := createHealthTestServer(t)
 	defer db.Close()
 
-	t.Setenv("ELEVENLABS_API_KEY", "test-key")
+	srv.SetElevenLabsConfig(ElevenLabsConfig{APIKey: "test-key"})
 
 	// Path traversal attempt — conversation_id must not contain URL path
 	// metacharacters or our forwarded URL could be redirected.
@@ -204,7 +203,7 @@ func TestHandleElevenLabsUploadFile_OK(t *testing.T) {
 	elevenLabsConversationsBase = upstream.URL
 	defer func() { elevenLabsConversationsBase = prev }()
 
-	t.Setenv("ELEVENLABS_API_KEY", "test-key")
+	srv.SetElevenLabsConfig(ElevenLabsConfig{APIKey: "test-key"})
 
 	req := newUploadRequest(t, "conv_xyz", "image/jpeg", []byte("fake-bytes"))
 	w := httptest.NewRecorder()
@@ -238,7 +237,7 @@ func TestHandleElevenLabsUploadFile_UpstreamError(t *testing.T) {
 	elevenLabsConversationsBase = upstream.URL
 	defer func() { elevenLabsConversationsBase = prev }()
 
-	t.Setenv("ELEVENLABS_API_KEY", "test-key")
+	srv.SetElevenLabsConfig(ElevenLabsConfig{APIKey: "test-key"})
 
 	req := newUploadRequest(t, "conv_xyz", "image/jpeg", []byte("fake-bytes"))
 	w := httptest.NewRecorder()
@@ -262,8 +261,7 @@ func TestHandleElevenLabsSignedURL_UpstreamError(t *testing.T) {
 	elevenLabsSignedURLBase = upstream.URL
 	defer func() { elevenLabsSignedURLBase = prev }()
 
-	t.Setenv("ELEVENLABS_API_KEY", "test-key")
-	t.Setenv("ELEVENLABS_AGENT_ID", "agent_test")
+	srv.SetElevenLabsConfig(ElevenLabsConfig{APIKey: "test-key", AgentID: "agent_test"})
 
 	req := httptest.NewRequest("GET", "/api/elevenlabs/signed-url", nil)
 	req = withUser(req, 123456)

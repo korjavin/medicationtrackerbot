@@ -9,10 +9,25 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 )
+
+// ElevenLabsConfig is the per-Server view of ElevenLabs Voice Agent
+// credentials. cmd/bot/main.go assembles it from internal/config and injects
+// it via SetElevenLabsConfig so the handlers stop reading os.Getenv at
+// request time — that read pattern made local-only / mobile builds (which
+// have no environment to read from) impossible without this hook.
+type ElevenLabsConfig struct {
+	APIKey  string
+	AgentID string
+}
+
+// SetElevenLabsConfig is the wiring point for the Voice Agent proxy. Safe
+// to call once at startup before the listener accepts requests.
+func (s *Server) SetElevenLabsConfig(cfg ElevenLabsConfig) {
+	s.elevenLabs = cfg
+}
 
 // elevenLabsSignedURLBase is overridable in tests.
 var elevenLabsSignedURLBase = "https://api.elevenlabs.io/v1/convai/conversation/get_signed_url"
@@ -32,8 +47,8 @@ const elevenLabsMaxUploadBytes = 10 << 20
 // API key never reaches the browser. The frontend hands the returned URL to
 // the <elevenlabs-convai> widget.
 func (s *Server) handleElevenLabsSignedURL(w http.ResponseWriter, r *http.Request) {
-	apiKey := os.Getenv("ELEVENLABS_API_KEY")
-	agentID := os.Getenv("ELEVENLABS_AGENT_ID")
+	apiKey := s.elevenLabs.APIKey
+	agentID := s.elevenLabs.AgentID
 	if apiKey == "" || agentID == "" {
 		http.Error(w, "ElevenLabs agent is not configured", http.StatusServiceUnavailable)
 		return
@@ -99,7 +114,7 @@ func (s *Server) handleElevenLabsSignedURL(w http.ResponseWriter, r *http.Reques
 // (`{file_id: ...}`) is returned verbatim so the browser can hand the id to
 // `conversation.sendMultimodalMessage({ fileId })`.
 func (s *Server) handleElevenLabsUploadFile(w http.ResponseWriter, r *http.Request) {
-	apiKey := os.Getenv("ELEVENLABS_API_KEY")
+	apiKey := s.elevenLabs.APIKey
 	if apiKey == "" {
 		http.Error(w, "ElevenLabs agent is not configured", http.StatusServiceUnavailable)
 		return
