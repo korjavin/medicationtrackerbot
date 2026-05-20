@@ -45,6 +45,13 @@ func main() {
 	)
 	flag.Parse()
 
+	// Guard against typos like -user-id 0 or -user-id -1 that would otherwise
+	// silently write data with user_id=0, polluting the singleton DB.
+	if *userID <= 0 {
+		slog.Error("invalid -user-id; must be a positive int64", "user-id", *userID)
+		os.Exit(1)
+	}
+
 	// Open the DB so migrations run, then load config purely from the
 	// settings table. There is no env-var precedence on mobile.
 	sharedDB, err := storedb.Open(*dbPath)
@@ -91,9 +98,10 @@ func main() {
 	}
 
 	// Shared TZ services. Plan-generation safety net is unchanged; on mobile
-	// the notifier-presence gate is always false (no notifier set), but the
-	// LocalNotificationSink is the delivery channel — the scheduler still
-	// runs and writes intakes.
+	// the notifier-presence gate always reports true because the
+	// LocalNotificationSink is the delivery channel (no notifier.Notifier
+	// slice is wired here). Plan generation runs unconditionally and the
+	// scheduler materializes intakes regardless of any web-push wiring.
 	tzPlannerStore := newTZPlannerStore(s)
 	tzPlanner := tzreschedule.NewPlannerService(tzPlannerStore)
 	tzLifecycle := tzreschedule.NewLifecycleService(s, *userID)

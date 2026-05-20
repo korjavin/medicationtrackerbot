@@ -285,6 +285,48 @@ func (r *Repo) SetIntegrationElevenLabs(ctx context.Context, v IntegrationEleven
 	return err
 }
 
+// SetIntegrations writes the OpenAI / Food / ElevenLabs integration columns
+// atomically. A nil pointer for any group skips that group's update so the
+// HTTP PATCH handler can apply a partial patch without losing transactional
+// guarantees. Callers should prefer this over invoking the three Set methods
+// in sequence — the single-row settings table makes a partial-failure window
+// rare in practice, but a transient SQLite "database is locked" error in the
+// middle of a multi-statement write would otherwise leave the credentials
+// half-updated.
+func (r *Repo) SetIntegrations(ctx context.Context, openAI *IntegrationOpenAI, food *IntegrationFood, el *IntegrationElevenLabs) error {
+	return r.db.WithTx(ctx, func(tx storedb.TX) error {
+		if openAI != nil {
+			if _, err := tx.ExecContext(ctx, `UPDATE settings SET
+				openai_api_key = ?, openai_url = ?, openai_model = ?,
+				openai_vision_api_key = ?, openai_vision_url = ?, openai_vision_model = ?
+				WHERE id = 1`,
+				openAI.APIKey, openAI.URL, openAI.Model,
+				openAI.VisionAPIKey, openAI.VisionURL, openAI.VisionModel,
+			); err != nil {
+				return err
+			}
+		}
+		if food != nil {
+			if _, err := tx.ExecContext(ctx, `UPDATE settings SET
+				food_api_key = ?, food_url = ?, food_domain = ?
+				WHERE id = 1`,
+				food.APIKey, food.URL, food.Domain,
+			); err != nil {
+				return err
+			}
+		}
+		if el != nil {
+			if _, err := tx.ExecContext(ctx, `UPDATE settings SET
+				elevenlabs_api_key = ?, elevenlabs_agent_id = ? WHERE id = 1`,
+				el.APIKey, el.AgentID,
+			); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 // GetLastDownload returns the timestamp of the last drug-database download,
 // or the zero time if nothing has ever been downloaded.
 func (r *Repo) GetLastDownload() (time.Time, error) {

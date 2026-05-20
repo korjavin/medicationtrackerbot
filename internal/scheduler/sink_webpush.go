@@ -93,14 +93,23 @@ func (s *WebPushSink) NotifySync(ctx context.Context, n notifier.Notification, s
 
 // NotifySyncToUser sends a notification synchronously to a specific user ID.
 // Returns the first non-zero message ID from a successful channel (0 if none
-// reported one) and an error if every channel failed.
+// reported one) and an error if every channel failed. The error preserves
+// notifier.ErrNoDeliveryChannel when every notifier reported "no channel" so
+// callers can tell "user has no push subscription" apart from "transient
+// provider failure".
 func (s *WebPushSink) NotifySyncToUser(ctx context.Context, userID int64, n notifier.Notification) (int, error) {
 	anySuccess := false
+	allNoChannel := true
 	var firstMsgID int
+	var lastTransientErr error
 	for _, nr := range s.notifiers {
 		msgID, err := nr.Send(ctx, userID, n)
 		if err != nil {
 			slog.Error("Notification send failed", "notifier", nr, "error", err)
+			if !errors.Is(err, notifier.ErrNoDeliveryChannel) {
+				allNoChannel = false
+				lastTransientErr = err
+			}
 			continue
 		}
 		anySuccess = true
@@ -109,6 +118,12 @@ func (s *WebPushSink) NotifySyncToUser(ctx context.Context, userID int64, n noti
 		}
 	}
 	if !anySuccess {
+		if len(s.notifiers) > 0 && allNoChannel {
+			return 0, notifier.ErrNoDeliveryChannel
+		}
+		if lastTransientErr != nil {
+			return 0, lastTransientErr
+		}
 		return 0, fmt.Errorf("failed to send notification via any channel")
 	}
 	return firstMsgID, nil

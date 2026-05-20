@@ -267,6 +267,14 @@ func main() {
 		AgentID: cfg.ElevenLabs.AgentID,
 	})
 
+	// External-workout webhook key flows through the typed config just like
+	// the other integration credentials. server.New() still reads the env var
+	// as a backward-compatible default so existing tests and any caller that
+	// skips this setter keep working.
+	if cfg.ExternalWorkoutAPIKey != "" {
+		srv.SetExternalAPIKey(cfg.ExternalWorkoutAPIKey)
+	}
+
 	if foodAI != nil {
 		srv.SetFoodAIService(foodAI)
 	}

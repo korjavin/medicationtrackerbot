@@ -138,6 +138,55 @@ func TestHandleGetUpcomingReminders_SortedByScheduledAtAscending(t *testing.T) {
 	}
 }
 
+func TestHandleGetUpcomingReminders_RejectsUnauthenticated(t *testing.T) {
+	srv, db := createTestServer(t)
+	defer db.Close()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/reminders/upcoming", nil)
+	// No UserCtxKey set in the request context.
+	w := httptest.NewRecorder()
+	srv.handleGetUpcomingReminders(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestHandleGetUpcomingReminders_FiltersOtherUsers(t *testing.T) {
+	srv, db := createTestServer(t)
+	defer db.Close()
+
+	caller := int64(123456)
+	other := int64(999999)
+
+	medA, _ := db.Medication.Create("Mine", "10mg", "Wait", nil, nil, "", "", "")
+	medB, _ := db.Medication.Create("Theirs", "20mg", "Wait", nil, nil, "", "", "")
+
+	now := time.Now()
+	mineID, _ := db.Medication.CreateIntake(medA, caller, now.Add(1*time.Hour))
+	_, _ = db.Medication.CreateIntake(medB, other, now.Add(2*time.Hour))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/reminders/upcoming", nil)
+	req = req.WithContext(context.WithValue(req.Context(), UserCtxKey, &TelegramUser{ID: caller}))
+
+	w := httptest.NewRecorder()
+	srv.handleGetUpcomingReminders(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (%s)", w.Code, w.Body.String())
+	}
+	var out []upcomingReminder
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("expected 1 reminder (caller's only), got %d: %+v", len(out), out)
+	}
+	if out[0].IntakeID != mineID {
+		t.Errorf("expected caller intake %d, got %d", mineID, out[0].IntakeID)
+	}
+}
+
 func TestHandleGetUpcomingReminders_InvalidHoursParamFallsBackToDefault(t *testing.T) {
 	srv, db := createTestServer(t)
 	defer db.Close()

@@ -27,6 +27,12 @@ type upcomingReminder struct {
 // In server mode the endpoint is still useful for diagnostics and for any
 // alternative client that wants to schedule its own notifications.
 func (s *Server) handleGetUpcomingReminders(w http.ResponseWriter, r *http.Request) {
+	userID, err := getUserID(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	hours := 24
 	if h := r.URL.Query().Get("hours"); h != "" {
 		if n, err := strconv.Atoi(h); err == nil && n > 0 && n <= 168 {
@@ -44,8 +50,20 @@ func (s *Server) handleGetUpcomingReminders(w http.ResponseWriter, r *http.Reque
 	now := time.Now()
 	cutoff := now.Add(time.Duration(hours) * time.Hour)
 
+	// Pre-resolve medication names in a single pass so we don't issue one Get
+	// per intake. The set is typically small (a handful of meds per user),
+	// and intakes within the lookahead window share most of those IDs.
+	medNames := make(map[int64]string)
+
 	out := make([]upcomingReminder, 0, len(intakes))
 	for _, in := range intakes {
+		// Defense in depth: the auth boundary already restricts the request to
+		// allowedUserID in server mode and the single local user on mobile,
+		// but we still filter here so the endpoint never returns intakes
+		// belonging to a different user even if the store contract changes.
+		if in.UserID != userID {
+			continue
+		}
 		// Anchor on snoozed_until when set so a snoozed reminder shows up at
 		// its rescheduled wake time rather than its original scheduled time.
 		when := in.ScheduledAt
@@ -55,9 +73,14 @@ func (s *Server) handleGetUpcomingReminders(w http.ResponseWriter, r *http.Reque
 		if when.Before(now) || when.After(cutoff) {
 			continue
 		}
-		name := ""
-		if med, err := s.meds.Get(in.MedicationID); err == nil && med != nil {
-			name = med.Name
+		name, ok := medNames[in.MedicationID]
+		if !ok {
+			if med, gerr := s.meds.Get(in.MedicationID); gerr != nil {
+				slog.Warn("upcoming reminders: medication lookup failed", "medication_id", in.MedicationID, "error", gerr)
+			} else if med != nil {
+				name = med.Name
+			}
+			medNames[in.MedicationID] = name
 		}
 		out = append(out, upcomingReminder{
 			IntakeID:       in.ID,

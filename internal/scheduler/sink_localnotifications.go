@@ -113,7 +113,13 @@ func (s *LocalNotificationSink) record(userID int64, n notifier.Notification) in
 	msgID := s.nextID
 	s.recent = append(s.recent, recordedNotification{MsgID: msgID, UserID: userID, N: n})
 	if len(s.recent) > s.maxLen {
-		s.recent = s.recent[len(s.recent)-s.maxLen:]
+		// Copy into a fresh slice rather than re-slicing, so the trimmed
+		// prefix is released to GC. A plain re-slice keeps the original
+		// backing array alive and grows it unboundedly over a long-running
+		// mobile process.
+		trimmed := make([]recordedNotification, s.maxLen)
+		copy(trimmed, s.recent[len(s.recent)-s.maxLen:])
+		s.recent = trimmed
 	}
 	return msgID
 }
