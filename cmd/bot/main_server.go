@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -29,6 +30,16 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/store/food"
 	"github.com/korjavin/medicationtrackerbot/internal/webpush"
 )
+
+// isTruthyEnv mirrors the accepted-value set of the server's parseBoolEnv
+// (1/true/yes/y, case-insensitive). Duplicated here so the boot-time
+// AUTH_TRUST_PROXY warning treats "AUTH_TRUST_PROXY=true" the same way the
+// rate-limit middleware does — otherwise an operator who sets the truthy
+// string would get a warning that contradicts the actual proxy-trust state.
+func isTruthyEnv(key string) bool {
+	val := strings.TrimSpace(strings.ToLower(os.Getenv(key)))
+	return val == "1" || val == "true" || val == "yes" || val == "y"
+}
 
 func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
@@ -279,7 +290,11 @@ func main() {
 		// the proxy's IP and the limiters become a single shared bucket —
 		// one visitor exhausts the daily budget for everyone. Warn loudly
 		// so a typical Traefik-fronted deploy doesn't ship in this state.
-		if os.Getenv("AUTH_TRUST_PROXY") != "1" {
+		// Mirror the same accepted-value set as the server's parseBoolEnv
+		// (1/true/yes/y, case-insensitive) so an operator who sets
+		// AUTH_TRUST_PROXY=true doesn't get a contradictory warning while
+		// the limiter is actually trusting the proxy.
+		if !isTruthyEnv("AUTH_TRUST_PROXY") {
 			slog.Warn("DEMO_MODE=1 without AUTH_TRUST_PROXY=1: per-IP rate limiters will see the reverse-proxy IP for every visitor and become a single shared bucket. Set AUTH_TRUST_PROXY=1 if you run behind Traefik/Nginx/Caddy.")
 		}
 		slog.Warn("DEMO_MODE is enabled — auth is disabled and AI endpoints are rate-limited per IP")

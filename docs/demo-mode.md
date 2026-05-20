@@ -52,7 +52,7 @@ The user ID must match `ALLOWED_USER_ID` in the demo container's env. Generator 
 
 ## Rate-limit response shape
 
-The four (effectively five — ElevenLabs is two routes sharing one bucket) demo-rate-limited routes return 429 with:
+The four demo-rate-limited routes (`GET /api/elevenlabs/signed-url`, `POST /api/food/log`, `POST /api/food/log/from-photo`, `POST /api/food/log/from-description`) return 429 with:
 
 ```http
 HTTP/1.1 429 Too Many Requests
