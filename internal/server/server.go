@@ -98,6 +98,12 @@ type Server struct {
 	// recordingMux wrapper, so the MCP coverage guard test can assert that
 	// every route is either covered by a registry op or in mcpCoverageExempt.
 	routesRecorded []RouteSpec
+	// demoMode flips the server into public-demo behavior: newDefaultResolver
+	// returns a DemoUserResolver that bypasses Telegram + OIDC, and the AI /
+	// cost-sensitive routes are wrapped in per-IP rate limiters. cmd/bot/
+	// main_server.go sets this via SetDemoMode after construction. The mobile
+	// build never reads this — it has its own resolver via the build tag.
+	demoMode bool
 }
 
 type rateLimiter struct {
@@ -328,6 +334,15 @@ func (s *Server) SetWorkoutInteractor(w WorkoutInteractor) {
 // SetMCPAuditSecret sets the secret used to authenticate MCP audit payloads.
 func (s *Server) SetMCPAuditSecret(secret string) {
 	s.mcpAuditSecret = secret
+}
+
+// SetDemoMode toggles the public-demo behavior. When true, newDefaultResolver
+// returns a DemoUserResolver (no Telegram / OIDC checks) and the AI /
+// cost-sensitive routes get per-IP rate limiters. Must be called before
+// Routes() so the resolver swap is in effect by the time AuthMiddleware
+// is constructed. Defaults to false on a fresh Server.
+func (s *Server) SetDemoMode(enabled bool) {
+	s.demoMode = enabled
 }
 
 // SetExternalAPIKey overrides the pre-shared key used by the

@@ -259,6 +259,15 @@ func main() {
 
 	srv := server.New(s, botToken, sessionSecret, allowedUserID, oidcConfig, botUsername, vapidPublicKey)
 
+	// Flip demo mode before Routes() so AuthMiddleware sees the demo resolver
+	// at construction time. Warn loudly — a misconfigured DEMO_MODE on a real
+	// deployment would silently disable auth, so the operator should see this
+	// as the first thing in the container log.
+	if cfg.DemoMode {
+		slog.Warn("DEMO_MODE is enabled — auth is disabled and AI endpoints are rate-limited per IP")
+		srv.SetDemoMode(true)
+	}
+
 	// Inject ElevenLabs creds so the Voice Agent handlers stop calling
 	// os.Getenv at request time — they now read the same struct that the
 	// mobile build will populate from the settings table.
