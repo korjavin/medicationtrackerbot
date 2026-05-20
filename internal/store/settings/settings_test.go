@@ -285,6 +285,114 @@ func TestIntegrationElevenLabs(t *testing.T) {
 	}
 }
 
+// strPtr is a tiny helper for the patch tests below.
+func strPtr(s string) *string { return &s }
+
+// TestPatchIntegrations_OnlyWritesSetFields exercises the core invariant of
+// PatchIntegrations: a nil pointer means "leave the column untouched," a non-nil
+// pointer (including one pointing at "") means "write this value." Without this
+// guarantee the partial PATCH handler would have to read-modify-write, opening
+// a race window where a stale read can resurrect a column another patch just
+// cleared.
+func TestPatchIntegrations_OnlyWritesSetFields(t *testing.T) {
+	r := setupSettingsRepo(t)
+	ctx := context.Background()
+
+	seed := IntegrationOpenAI{
+		APIKey: "sk-existing", URL: "https://api.openai.com/v1", Model: "gpt-5",
+		VisionAPIKey: "vk-existing", VisionURL: "https://vision.example.com", VisionModel: "gpt-4o-vision",
+	}
+	if err := r.SetIntegrationOpenAI(ctx, seed); err != nil {
+		t.Fatalf("seed openai: %v", err)
+	}
+
+	// Patch only the model field; everything else must be preserved.
+	if err := r.PatchIntegrations(ctx, &IntegrationOpenAIPatch{Model: strPtr("gpt-5-new")}, nil, nil); err != nil {
+		t.Fatalf("patch model: %v", err)
+	}
+	got, err := r.GetIntegrationOpenAI(ctx)
+	if err != nil {
+		t.Fatalf("read openai: %v", err)
+	}
+	want := seed
+	want.Model = "gpt-5-new"
+	if got != want {
+		t.Errorf("after model-only patch:\n got %+v\nwant %+v", got, want)
+	}
+
+	// Patch an explicit empty string (clear) for the API key.
+	if err := r.PatchIntegrations(ctx, &IntegrationOpenAIPatch{APIKey: strPtr("")}, nil, nil); err != nil {
+		t.Fatalf("patch apikey clear: %v", err)
+	}
+	got, err = r.GetIntegrationOpenAI(ctx)
+	if err != nil {
+		t.Fatalf("read openai after clear: %v", err)
+	}
+	if got.APIKey != "" {
+		t.Errorf("APIKey should be cleared, got %q", got.APIKey)
+	}
+	if got.URL != seed.URL || got.VisionAPIKey != "vk-existing" {
+		t.Errorf("other fields should be preserved after apikey clear, got %+v", got)
+	}
+
+	// All-nil patch is a no-op.
+	if err := r.PatchIntegrations(ctx, &IntegrationOpenAIPatch{}, nil, nil); err != nil {
+		t.Fatalf("patch noop: %v", err)
+	}
+}
+
+// TestPatchIntegrations_ConcurrentDisjointFieldsDoNotClobber is the regression
+// test for the read-modify-write race the previous SetIntegrations
+// implementation had: a concurrent patch that cleared APIKey could be reverted
+// by a sibling patch that read the pre-clear value before the clear committed
+// and then wrote the whole group back. PatchIntegrations sidesteps this by only
+// writing the explicitly-set columns, so two partial patches to disjoint fields
+// must both stick.
+func TestPatchIntegrations_ConcurrentDisjointFieldsDoNotClobber(t *testing.T) {
+	r := setupSettingsRepo(t)
+	ctx := context.Background()
+
+	if err := r.SetIntegrationOpenAI(ctx, IntegrationOpenAI{
+		APIKey: "sk-existing", URL: "https://api.openai.com/v1", Model: "gpt-5",
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// Maximize the chance the two patches overlap by gating both goroutines on a
+	// channel barrier.
+	start := make(chan struct{})
+	done := make(chan error, 2)
+
+	go func() {
+		<-start
+		done <- r.PatchIntegrations(ctx, &IntegrationOpenAIPatch{APIKey: strPtr("")}, nil, nil)
+	}()
+	go func() {
+		<-start
+		done <- r.PatchIntegrations(ctx, &IntegrationOpenAIPatch{URL: strPtr("https://proxy.example.com/v1")}, nil, nil)
+	}()
+	close(start)
+	for i := 0; i < 2; i++ {
+		if err := <-done; err != nil {
+			t.Fatalf("concurrent patch: %v", err)
+		}
+	}
+
+	got, err := r.GetIntegrationOpenAI(ctx)
+	if err != nil {
+		t.Fatalf("read openai: %v", err)
+	}
+	if got.APIKey != "" {
+		t.Errorf("APIKey clear must stick across concurrent patches, got %q", got.APIKey)
+	}
+	if got.URL != "https://proxy.example.com/v1" {
+		t.Errorf("URL update must stick across concurrent patches, got %q", got.URL)
+	}
+	if got.Model != "gpt-5" {
+		t.Errorf("Model must be untouched (no patch touched it), got %q", got.Model)
+	}
+}
+
 func TestTabOrder(t *testing.T) {
 	r := setupSettingsRepo(t)
 	ctx := context.Background()

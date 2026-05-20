@@ -178,7 +178,7 @@ type SettingsStore interface {
 	SetIntegrationFood(ctx context.Context, v settings.IntegrationFood) error
 	GetIntegrationElevenLabs(ctx context.Context) (settings.IntegrationElevenLabs, error)
 	SetIntegrationElevenLabs(ctx context.Context, v settings.IntegrationElevenLabs) error
-	SetIntegrations(ctx context.Context, openAI *settings.IntegrationOpenAI, food *settings.IntegrationFood, el *settings.IntegrationElevenLabs) error
+	PatchIntegrations(ctx context.Context, openAI *settings.IntegrationOpenAIPatch, food *settings.IntegrationFoodPatch, el *settings.IntegrationElevenLabsPatch) error
 }
 
 // TimezoneStore is the subset of timezone operations needed by handlers.

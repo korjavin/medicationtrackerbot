@@ -46,13 +46,37 @@ type elevenLabsIntegrationDTO struct {
 }
 
 // integrationsPatchRequest mirrors the GET shape with all fields optional so
-// the client can submit a partial update. A field set to the secretMask
-// sentinel ("***") leaves the existing value untouched; an empty string
-// clears the stored value; any other string overwrites it.
+// the client can submit a partial update. Group pointers are nil when omitted
+// from the request body; within a provided group, each field is itself a
+// pointer so the handler can distinguish "field absent (leave as-is)" from
+// "field present and empty (clear it)". A field set to the secretMask
+// sentinel ("***") also leaves the existing value untouched — that path is
+// kept so the frontend can round-trip a GET response (masked secrets) back
+// into a PATCH without re-prompting the user for their API keys.
 type integrationsPatchRequest struct {
-	OpenAI     *openAIIntegrationDTO     `json:"openai,omitempty"`
-	Food       *foodIntegrationDTO       `json:"food,omitempty"`
-	ElevenLabs *elevenLabsIntegrationDTO `json:"elevenlabs,omitempty"`
+	OpenAI     *openAIIntegrationPatch     `json:"openai,omitempty"`
+	Food       *foodIntegrationPatch       `json:"food,omitempty"`
+	ElevenLabs *elevenLabsIntegrationPatch `json:"elevenlabs,omitempty"`
+}
+
+type openAIIntegrationPatch struct {
+	APIKey       *string `json:"api_key,omitempty"`
+	URL          *string `json:"url,omitempty"`
+	Model        *string `json:"model,omitempty"`
+	VisionAPIKey *string `json:"vision_api_key,omitempty"`
+	VisionURL    *string `json:"vision_url,omitempty"`
+	VisionModel  *string `json:"vision_model,omitempty"`
+}
+
+type foodIntegrationPatch struct {
+	APIKey *string `json:"api_key,omitempty"`
+	URL    *string `json:"url,omitempty"`
+	Domain *string `json:"domain,omitempty"`
+}
+
+type elevenLabsIntegrationPatch struct {
+	APIKey  *string `json:"api_key,omitempty"`
+	AgentID *string `json:"agent_id,omitempty"`
 }
 
 // handleGetIntegrations returns the OpenAI / Food / ElevenLabs integration
@@ -128,57 +152,40 @@ func (s *Server) handleUpdateIntegrations(w http.ResponseWriter, r *http.Request
 
 	ctx := r.Context()
 
-	// Resolve each requested group against its existing row first so the
-	// secret-mask sentinel is replaced by the previously-stored value before
-	// the write fans out. The reads are outside the transaction (no harm: any
-	// concurrent writer would race the optimistic UI anyway), the writes are
-	// inside.
+	// Translate each provided group into a settings.*Patch with pointer-typed
+	// fields: nil = column unchanged, non-nil = overwrite with *value. The
+	// secretMask sentinel ("***") collapses to nil here so the repo never needs
+	// to read existing values to "preserve" a masked secret — which avoids the
+	// read-modify-write race where two concurrent patches could resurrect a
+	// secret another patch just cleared.
 	var (
-		openAINext *settings.IntegrationOpenAI
-		foodNext   *settings.IntegrationFood
-		elNext     *settings.IntegrationElevenLabs
+		openAINext *settings.IntegrationOpenAIPatch
+		foodNext   *settings.IntegrationFoodPatch
+		elNext     *settings.IntegrationElevenLabsPatch
 	)
 
 	if req.OpenAI != nil {
-		existing, err := s.settings.GetIntegrationOpenAI(ctx)
-		if err != nil {
-			slog.Error("get integration openai for patch failed", "error", err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-		openAINext = &settings.IntegrationOpenAI{
-			APIKey:       mergeSecretField(req.OpenAI.APIKey, existing.APIKey),
+		openAINext = &settings.IntegrationOpenAIPatch{
+			APIKey:       resolveSecretPatch(req.OpenAI.APIKey),
 			URL:          req.OpenAI.URL,
 			Model:        req.OpenAI.Model,
-			VisionAPIKey: mergeSecretField(req.OpenAI.VisionAPIKey, existing.VisionAPIKey),
+			VisionAPIKey: resolveSecretPatch(req.OpenAI.VisionAPIKey),
 			VisionURL:    req.OpenAI.VisionURL,
 			VisionModel:  req.OpenAI.VisionModel,
 		}
 	}
 
 	if req.Food != nil {
-		existing, err := s.settings.GetIntegrationFood(ctx)
-		if err != nil {
-			slog.Error("get integration food for patch failed", "error", err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-		foodNext = &settings.IntegrationFood{
-			APIKey: mergeSecretField(req.Food.APIKey, existing.APIKey),
+		foodNext = &settings.IntegrationFoodPatch{
+			APIKey: resolveSecretPatch(req.Food.APIKey),
 			URL:    req.Food.URL,
 			Domain: req.Food.Domain,
 		}
 	}
 
 	if req.ElevenLabs != nil {
-		existing, err := s.settings.GetIntegrationElevenLabs(ctx)
-		if err != nil {
-			slog.Error("get integration elevenlabs for patch failed", "error", err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-		elNext = &settings.IntegrationElevenLabs{
-			APIKey:  mergeSecretField(req.ElevenLabs.APIKey, existing.APIKey),
+		elNext = &settings.IntegrationElevenLabsPatch{
+			APIKey:  resolveSecretPatch(req.ElevenLabs.APIKey),
 			AgentID: req.ElevenLabs.AgentID,
 		}
 	}
@@ -188,8 +195,8 @@ func (s *Server) handleUpdateIntegrations(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := s.settings.SetIntegrations(ctx, openAINext, foodNext, elNext); err != nil {
-		slog.Error("set integrations atomic failed", "error", err)
+	if err := s.settings.PatchIntegrations(ctx, openAINext, foodNext, elNext); err != nil {
+		slog.Error("patch integrations failed", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -207,13 +214,17 @@ func maskSecret(value string) string {
 	return secretMask
 }
 
-// mergeSecretField is the inverse of maskSecret on the PATCH side: when the
-// incoming string is the mask sentinel, the existing value is retained
-// (the client did not re-enter the secret). Empty strings explicitly clear
-// the stored secret; any other value overwrites it.
-func mergeSecretField(incoming, existing string) string {
-	if incoming == secretMask {
-		return existing
+// resolveSecretPatch collapses the secretMask sentinel ("***") to nil so the
+// repo treats a masked secret the same as an absent field — i.e. "leave the
+// stored column untouched." Absence (nil) passes through as nil; an explicit
+// empty string passes through as a non-nil pointer to "" (explicit clear); any
+// other string passes through unchanged.
+func resolveSecretPatch(incoming *string) *string {
+	if incoming == nil {
+		return nil
+	}
+	if *incoming == secretMask {
+		return nil
 	}
 	return incoming
 }

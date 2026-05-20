@@ -42,6 +42,11 @@ func main() {
 		dbPath = flag.String("db", "meds.db", "path to the SQLite database file")
 		userID = flag.Int64("user-id", 1, "local user ID (single-user mobile install)")
 		port   = flag.String("port", "8080", "HTTP listen port")
+		// Default to loopback so the LAN can't reach an API that trusts every
+		// request as the local user. Override to "0.0.0.0" (or a specific
+		// interface) only for on-device Capacitor spike testing where the
+		// device WebView talks to a dev machine on the same network.
+		host = flag.String("host", "127.0.0.1", "HTTP listen host (loopback by default; override only for spike testing)")
 	)
 	flag.Parse()
 
@@ -84,12 +89,28 @@ func main() {
 	})
 
 	// AI clients: same wiring as server build but driven by settings rows.
+	// Each Vision* field falls back to its OpenAI* counterpart when unset, so
+	// a partial override (e.g. only vision_model) doesn't strand the vision
+	// client with an empty API key / URL.
 	var foodAI domain.FoodAIService
 	if cfg.OpenAI.APIKey != "" || cfg.OpenAI.URL != "" || cfg.OpenAI.Model != "" {
 		aiClient := ai.NewClient(cfg.OpenAI.APIKey, cfg.OpenAI.URL, cfg.OpenAI.Model)
 		visionClient := aiClient
-		if cfg.OpenAI.VisionAPIKey != "" || cfg.OpenAI.VisionURL != "" || cfg.OpenAI.VisionModel != "" {
-			visionClient = ai.NewClient(cfg.OpenAI.VisionAPIKey, cfg.OpenAI.VisionURL, cfg.OpenAI.VisionModel)
+		visionConfigured := cfg.OpenAI.VisionAPIKey != "" || cfg.OpenAI.VisionURL != "" || cfg.OpenAI.VisionModel != ""
+		if visionConfigured {
+			visionAPIKey := cfg.OpenAI.VisionAPIKey
+			if visionAPIKey == "" {
+				visionAPIKey = cfg.OpenAI.APIKey
+			}
+			visionURL := cfg.OpenAI.VisionURL
+			if visionURL == "" {
+				visionURL = cfg.OpenAI.URL
+			}
+			visionModel := cfg.OpenAI.VisionModel
+			if visionModel == "" {
+				visionModel = cfg.OpenAI.Model
+			}
+			visionClient = ai.NewClient(visionAPIKey, visionURL, visionModel)
 		}
 		foodAI = domain.NewFoodAIServiceWithVision(aiClient, visionClient)
 		slog.Info("AI food logging enabled")
@@ -130,7 +151,7 @@ func main() {
 	sch.Start()
 	slog.Info("Scheduler started (mobile build, local-notifications sink)")
 
-	addr := ":" + *port
+	addr := *host + ":" + *port
 	slog.Info("Mobile-mode server starting", "addr", addr, "user_id", *userID)
 	httpServer := newHTTPServer(addr, srv.Routes())
 

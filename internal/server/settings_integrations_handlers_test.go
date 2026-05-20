@@ -205,6 +205,59 @@ func TestHandlePatchIntegrations_InvalidBodyReturns400(t *testing.T) {
 	}
 }
 
+// TestHandlePatchIntegrations_OmittedFieldsPreserveExistingValues asserts the
+// PATCH semantic: fields absent from the JSON body are left untouched, even
+// when the enclosing group is present. A field set to "" still clears the
+// stored value (per TestHandlePatchIntegrations_EmptyStringClearsSecret);
+// only field-absent means "leave as-is."
+func TestHandlePatchIntegrations_OmittedFieldsPreserveExistingValues(t *testing.T) {
+	srv, db := createFoodTestServer(t)
+	defer db.Close()
+
+	ctx := context.Background()
+	if err := db.Settings.SetIntegrationOpenAI(ctx, settings.IntegrationOpenAI{
+		APIKey: "sk-existing", URL: "https://api.openai.com/v1", Model: "gpt-5",
+		VisionAPIKey: "vk-existing", VisionURL: "https://vision.example.com", VisionModel: "gpt-4o-vision",
+	}); err != nil {
+		t.Fatalf("seed openai: %v", err)
+	}
+
+	// Submit only the model — all other fields are absent. The handler must
+	// leave URL, both vision fields, and the masked API key untouched rather
+	// than treating "missing" as "empty".
+	body := []byte(`{"openai": {"model": "gpt-5-new"}}`)
+	req := httptest.NewRequest("PATCH", "/api/settings/integrations", bytes.NewReader(body))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+	srv.handleUpdateIntegrations(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (%s)", w.Code, w.Body.String())
+	}
+
+	openAI, err := db.Settings.GetIntegrationOpenAI(ctx)
+	if err != nil {
+		t.Fatalf("read openai: %v", err)
+	}
+	if openAI.APIKey != "sk-existing" {
+		t.Errorf("APIKey should be preserved when omitted, got %q", openAI.APIKey)
+	}
+	if openAI.URL != "https://api.openai.com/v1" {
+		t.Errorf("URL should be preserved when omitted, got %q", openAI.URL)
+	}
+	if openAI.Model != "gpt-5-new" {
+		t.Errorf("Model should be updated to new value, got %q", openAI.Model)
+	}
+	if openAI.VisionAPIKey != "vk-existing" {
+		t.Errorf("VisionAPIKey should be preserved when omitted, got %q", openAI.VisionAPIKey)
+	}
+	if openAI.VisionURL != "https://vision.example.com" {
+		t.Errorf("VisionURL should be preserved when omitted, got %q", openAI.VisionURL)
+	}
+	if openAI.VisionModel != "gpt-4o-vision" {
+		t.Errorf("VisionModel should be preserved when omitted, got %q", openAI.VisionModel)
+	}
+}
+
 func TestHandleGetIntegrations_EmptySettingsReturnsAllEmpty(t *testing.T) {
 	srv, db := createFoodTestServer(t)
 	defer db.Close()
