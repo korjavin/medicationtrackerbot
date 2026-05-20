@@ -1,0 +1,21 @@
+{
+  "name": "medtracker-capacitor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Capacitor wrapper spike for the medtracker PWA (Phase 1: wraps the existing PWA, points the webview at a deployed/dev server; Phase 2 will embed the Go binary).",
+  "scripts": {
+    "sync": "cap sync",
+    "open:ios": "cap open ios",
+    "open:android": "cap open android",
+    "add:ios": "cap add ios",
+    "add:android": "cap add android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/ios": "^6.1.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.1.2"
+  }
+}

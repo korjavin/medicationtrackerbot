@@ -6,14 +6,16 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/korjavin/medicationtrackerbot/internal/server/auth"
 )
 
 type ctxKey string
@@ -22,12 +24,10 @@ const (
 	UserCtxKey ctxKey = "user"
 )
 
-type TelegramUser struct {
-	ID        int64  `json:"id"`
-	FirstName string `json:"first_name"`
-	LastName  string `json:"last_name"`
-	Username  string `json:"username"`
-}
+// TelegramUser is the user identity carried in request context after
+// authentication. It is an alias for auth.User so the resolver package can
+// produce values handlers read back via (*TelegramUser).ID without any conversion.
+type TelegramUser = auth.User
 
 func getUserID(r *http.Request) (int64, error) {
 	user, ok := r.Context().Value(UserCtxKey).(*TelegramUser)
@@ -185,51 +185,22 @@ func ValidateTelegramLoginWidget(token string, data TelegramLoginData) (bool, *T
 	return true, user, nil
 }
 
-func AuthMiddleware(botToken string, sessionSecret string, allowedUserID int64) func(http.Handler) http.Handler {
+// AuthMiddleware delegates user identification to the supplied UserResolver and
+// maps its sentinel errors to HTTP responses. The resolver is the only place
+// auth credentials are interpreted; the middleware just enforces the result.
+func AuthMiddleware(resolver auth.UserResolver) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// 1. Check for OIDC Session Cookie
-			cookie, err := r.Cookie("auth_session")
-			if err == nil {
-				if email, ok := verifySessionToken(cookie.Value, sessionSecret); ok {
-					// Create a dummy user from session
-					user := &TelegramUser{
-						ID:        allowedUserID, // Map admin email to allowed user ID for DB consistency
-						FirstName: "Admin",
-						LastName:  "(OIDC)",
-						Username:  email,
-					}
-					ctx := context.WithValue(r.Context(), UserCtxKey, user)
-					next.ServeHTTP(w, r.WithContext(ctx))
-					return
+			user, err := resolver.Resolve(r)
+			if err != nil {
+				switch {
+				case errors.Is(err, auth.ErrNoAuth):
+					http.Error(w, "Unauthorized: No init data", http.StatusUnauthorized)
+				case errors.Is(err, auth.ErrUserNotAllowed):
+					http.Error(w, "Forbidden: User not allowed", http.StatusForbidden)
+				default:
+					http.Error(w, "Unauthorized: Invalid hash", http.StatusForbidden)
 				}
-				slog.Warn("AUTH Invalid session cookie", "remoteAddr", r.RemoteAddr, "cookieLen", len(cookie.Value))
-			} else {
-				slog.Debug("AUTH No auth_session cookie", "remoteAddr", r.RemoteAddr, "error", err)
-			}
-
-			// 2. Check for Telegram InitData (Authorization header or query param)
-			initData := r.Header.Get("X-Telegram-Init-Data")
-			if initData == "" {
-				initData = r.URL.Query().Get("initData")
-			}
-
-			if initData == "" {
-				slog.Warn("AUTH No auth data", "remoteAddr", r.RemoteAddr, "method", r.Method, "path", r.URL.Path)
-				http.Error(w, "Unauthorized: No init data", http.StatusUnauthorized)
-				return
-			}
-
-			valid, user, err := ValidateWebAppData(botToken, initData)
-			if !valid || err != nil {
-				slog.Warn("AUTH Invalid WebApp hash", "remoteAddr", r.RemoteAddr, "error", err)
-				http.Error(w, "Unauthorized: Invalid hash", http.StatusForbidden)
-				return
-			}
-
-			if user.ID != allowedUserID {
-				slog.Warn("AUTH Unauthorized user", "userID", user.ID, "username", user.Username, "remoteAddr", r.RemoteAddr)
-				http.Error(w, "Forbidden: User not allowed", http.StatusForbidden)
 				return
 			}
 

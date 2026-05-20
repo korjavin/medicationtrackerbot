@@ -1,5 +1,15 @@
 # Environment Variables
 
+## Precedence: env → settings table → built-in default
+
+The provider-credential vars (`OPENAI_*`, `OPENAI_VISION_*`, `FOOD_*`, `ELEVENLABS_*`) are also persisted in the singleton `settings` table and editable via the Settings UI's Integrations section. The `internal/config` package merges in this order:
+
+1. **Environment variable** — wins when set. Server operators continue to manage these via `docker-compose.yml` / systemd unit, no behavioral change.
+2. **Settings table** — fallback when the env var is empty. This is the only source on mobile builds (`-tags mobile`), where no env vars are read at runtime.
+3. **Built-in default** — last resort (e.g. `https://api.openai.com/v1` for `OPENAI_URL`).
+
+Bootstrap vars (`DB_PATH`, `PORT`, `TZ`, `SESSION_SECRET`) and transport-restricted vars (`TELEGRAM_BOT_TOKEN`, `ALLOWED_USER_ID`, `MCP_*`, `POCKET_ID_*`, `OIDC_*`, `GOOGLE_*`, `VAPID_*`, `EXTERNAL_WORKOUT_API_KEY`, `MCP_AUDIT_SECRET`) are env-only — they have no settings-table counterpart and are not compiled into the mobile build. See [local-mode.md → Config layering](local-mode.md#config-layering-env--settings--default).
+
 ## Main bot (`cmd/bot`)
 
 ```bash

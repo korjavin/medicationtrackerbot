@@ -26,9 +26,9 @@ type WeightReminderStore interface {
 
 // WeightReminderChecker checks if any users need weight reminder notifications.
 type WeightReminderChecker struct {
-	store     WeightReminderStore
-	notifiers []notifier.Notifier
-	now       func() time.Time
+	store WeightReminderStore
+	sink  ReminderSink
+	now   func() time.Time
 }
 
 func (c *WeightReminderChecker) Check(ctx context.Context) error {
@@ -157,23 +157,9 @@ func (c *WeightReminderChecker) sendWeightReminder(ctx context.Context, userID i
 		},
 	}
 
-	anySuccess := false
-	var firstMsgID int
-
-	for _, nr := range c.notifiers {
-		msgID, err := nr.Send(ctx, userID, n)
-		if err != nil {
-			slog.Error("Failed to send weight reminder", "notifier", nr, "error", err)
-			continue
-		}
-		anySuccess = true
-		if msgID != 0 && firstMsgID == 0 {
-			firstMsgID = msgID
-		}
-	}
-
-	if !anySuccess {
-		return fmt.Errorf("failed to send weight reminder via any channel")
+	firstMsgID, err := c.sink.NotifySyncToUser(ctx, userID, n)
+	if err != nil {
+		return fmt.Errorf("failed to send weight reminder via any channel: %w", err)
 	}
 
 	var messageID *int

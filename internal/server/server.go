@@ -79,6 +79,7 @@ type Server struct {
 	changeStreamSem     chan struct{}
 	changePruning       atomic.Bool
 	externalAPIKey      string
+	elevenLabs          ElevenLabsConfig
 	mcpAuditSecret      string
 	lastMCPNotification time.Time
 	mcpAuditMutex       sync.Mutex
@@ -327,6 +328,19 @@ func (s *Server) SetWorkoutInteractor(w WorkoutInteractor) {
 // SetMCPAuditSecret sets the secret used to authenticate MCP audit payloads.
 func (s *Server) SetMCPAuditSecret(secret string) {
 	s.mcpAuditSecret = secret
+}
+
+// SetExternalAPIKey overrides the pre-shared key used by the
+// POST /api/workout/external endpoint (Mi Notify webhook). New() seeds the
+// field from EXTERNAL_WORKOUT_API_KEY as a backward-compatible default; this
+// setter lets the server-mode entry point pass the value through the typed
+// config struct alongside ElevenLabs / OpenAI / Food. The mobile build never
+// calls this — that endpoint has no remote ingress on a Capacitor install.
+func (s *Server) SetExternalAPIKey(key string) {
+	s.externalAPIKey = key
+	if key == "" {
+		slog.Warn("EXTERNAL_WORKOUT_API_KEY is empty after SetExternalAPIKey; external workout endpoint will reject all requests")
+	}
 }
 
 // SetFoodAIService wires the AI-backed food parser used by the photo upload
@@ -579,6 +593,7 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("GET /api/history", s.handleListHistory)
 	apiMux.HandleFunc("POST /api/medications/trigger-next-intake", s.handleTriggerNextIntake)
 	apiMux.HandleFunc("GET /api/medications/next-intake", s.handleGetNextIntake)
+	apiMux.HandleFunc("GET /api/reminders/upcoming", s.handleGetUpcomingReminders)
 	apiMux.HandleFunc("POST /api/medications/log-past", s.handleLogPastIntake)
 	apiMux.HandleFunc("POST /api/medications/cancel-intake", s.handleCancelIntake)
 	apiMux.HandleFunc("POST /api/medications/delete-intake", s.handleDeleteFutureIntake)
@@ -705,6 +720,8 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/settings/features/{feature}", s.handleSetFeatureEnabled)
 	apiMux.HandleFunc("POST /api/settings/tab-order", s.handleSetTabOrder)
 	apiMux.HandleFunc("PATCH /api/settings/weight-unit", s.handleSetWeightUnitPreference)
+	apiMux.HandleFunc("GET /api/settings/integrations", s.handleGetIntegrations)
+	apiMux.HandleFunc("PATCH /api/settings/integrations", s.handleUpdateIntegrations)
 	apiMux.HandleFunc("GET /api/tz-plan/current", s.handleGetCurrentTZPlan)
 	apiMux.HandleFunc("POST /api/tz-plan/{id}/approve", s.handleTZPlanApprove)
 	apiMux.HandleFunc("POST /api/tz-plan/{id}/reject", s.handleTZPlanReject)
@@ -738,8 +755,10 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /api/mcp-workout-log", notifyOnWrite(http.HandlerFunc(s.handleMCPWorkoutLog)))
 	mux.HandleFunc("POST /internal/mcp/bridge", s.handleMCPBridge)
 
-	// Apply Middleware to API
-	authMW := AuthMiddleware(s.botToken, s.sessionSecret, s.allowedUserID)
+	// Apply Middleware to API. The resolver is build-tag-selected: server
+	// builds get the Telegram+OIDC resolver, mobile builds get a single-user
+	// resolver. See auth_resolver_server.go / auth_resolver_mobile.go.
+	authMW := AuthMiddleware(newDefaultResolver(s))
 	mux.Handle("/api/", authMW(apiHandler))
 
 	return panicRecover(securityHeadersMiddleware(mux))

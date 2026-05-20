@@ -337,6 +337,28 @@ See `internal/bot/handlers.go` and `internal/bot/workout_callbacks.go`.
 
 The bot's slash-command menu is registered via `setMyCommands` on startup and re-synced when feature flags change (poll-based, ~5 s lag). The canonical command list lives in `internal/bot/commands.go` (`commandSpecs`) and drives both `/help` output and the Telegram autocomplete menu.
 
+## Mobile Build Boundary
+
+The codebase has a compile-time boundary at the `//go:build mobile` tag. The server build (default, no tag) wires the full deployment: Telegram bot, MCP server, web-push, OIDC. The mobile build (`go build -tags mobile ./...`) strips those subsystems and substitutes mobile-appropriate seams for Capacitor wrapping. Both builds reuse `internal/domain/*`, `internal/store/*`, HTTP handlers, and the frontend unchanged — the mobile binary becomes a third "transport" (localhost HTTP) sitting next to web and Telegram.
+
+Tagged files (the only files that differ between the two builds):
+
+| Path | `!mobile` (server) | `mobile` |
+|---|---|---|
+| `cmd/bot/main_server.go` / `main_mobile.go` | Wires bot + MCP + web-push + OIDC | Skips them; constructs `LocalNotificationSink` + `LocalUserResolver` |
+| `internal/scheduler/sink_webpush.go` / `sink_localnotifications.go` | `WebPushSink` (current behavior) | `LocalNotificationSink` (queue + `GET /api/reminders/upcoming` for JS bridge) |
+| `internal/server/auth/resolver_telegram.go` / `resolver_local.go` | `TelegramOIDCResolver` (initData + OIDC + session) | `LocalUserResolver` (single fixed user) |
+
+Tag-free seams that both builds share:
+
+- `internal/scheduler.ReminderSink` interface — `sink.go` declares the contract.
+- `internal/server/auth.UserResolver` interface — `resolver.go` declares the contract.
+- `internal/config.Config` struct + `LoadFromEnv` / `LoadFromSettings` / `Merge` — config layering described in [environment.md](environment.md#precedence-env--settings-table--built-in-default).
+
+CI runs both `go build ./...` / `go test ./...` and `go build -tags mobile ./...` / `go test -tags mobile ./...` in the matrix; PRs that drift the mobile build fail in CI.
+
+See [local-mode.md](local-mode.md) for the design rationale (why a build tag rather than a runtime flag), the categorization of env vars across the two builds, and the Phase 2 roadmap (Go binary embedding, native plugin JS abstractions, iOS background-execution strategy).
+
 ## Logging
 
 - Use `log/slog`. Configure default in entry points: `slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))`

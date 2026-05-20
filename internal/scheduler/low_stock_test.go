@@ -1,3 +1,9 @@
+//go:build !mobile
+
+// These tests construct a WebPushSink directly and assert on notifier
+// delivery semantics — both server-only concerns. The mobile build uses
+// LocalNotificationSink and has its own delivery model.
+
 package scheduler
 
 import (
@@ -51,7 +57,7 @@ func TestLowStockChecker_FiresAt11AMInUserTZ(t *testing.T) {
 			{ID: 1, Name: "Aspirin", InventoryCount: &count},
 		},
 	}
-	checker := &LowStockChecker{store: mock}
+	checker := &LowStockChecker{store: mock, sink: NewWebPushSink(nil, 0)}
 	// 18:00 UTC on 2026-05-14 = 11:00 PDT (PDT = UTC-7).
 	checker.now = func() time.Time {
 		return time.Date(2026, 5, 14, 18, 0, 0, 0, time.UTC)
@@ -69,7 +75,7 @@ func TestLowStockChecker_FiresAt11AMInUserTZ(t *testing.T) {
 // direction): server in UTC at 18:00 = 10:00 PT — must not fire.
 func TestLowStockChecker_SkipsOutside11AMUserTZ(t *testing.T) {
 	mock := &mockLowStockStore{tz: "America/Los_Angeles"}
-	checker := &LowStockChecker{store: mock}
+	checker := &LowStockChecker{store: mock, sink: NewWebPushSink(nil, 0)}
 	checker.now = func() time.Time {
 		return time.Date(2026, 5, 14, 17, 0, 0, 0, time.UTC) // 10:00 PDT
 	}
@@ -86,7 +92,7 @@ func TestLowStockChecker_SkipsOutside11AMUserTZ(t *testing.T) {
 // skip — and the date guard must operate in the user's TZ.
 func TestLowStockChecker_SkipsWhenAlreadyCheckedToday(t *testing.T) {
 	mock := &mockLowStockStore{tz: "America/Los_Angeles"}
-	checker := &LowStockChecker{store: mock}
+	checker := &LowStockChecker{store: mock, sink: NewWebPushSink(nil, 0)}
 	checker.now = func() time.Time {
 		return time.Date(2026, 5, 14, 18, 0, 0, 0, time.UTC) // 11:00 PDT
 	}
@@ -107,7 +113,7 @@ func TestLowStockChecker_SkipsWhenAlreadyCheckedToday(t *testing.T) {
 // (preserves the existing behavior so we don't re-poll every minute).
 func TestLowStockChecker_EmptyMedsStillUpdatesLastCheck(t *testing.T) {
 	mock := &mockLowStockStore{tz: "America/Los_Angeles" /* meds is nil */}
-	checker := &LowStockChecker{store: mock}
+	checker := &LowStockChecker{store: mock, sink: NewWebPushSink(nil, 0)}
 	checker.now = func() time.Time {
 		return time.Date(2026, 5, 14, 18, 0, 0, 0, time.UTC) // 11:00 PDT
 	}
@@ -133,7 +139,7 @@ func TestLowStockChecker_EmptyMedsStillUpdatesLastCheck(t *testing.T) {
 // 11 AM in the SERVER timezone — the call should proceed.
 func TestLowStockChecker_InvalidTZFallsBack(t *testing.T) {
 	mock := &mockLowStockStore{tz: "Not/A_Real_Zone"}
-	checker := &LowStockChecker{store: mock}
+	checker := &LowStockChecker{store: mock, sink: NewWebPushSink(nil, 0)}
 	// Compute "11 AM today in time.Local" so we exercise the fallback.
 	now := time.Now()
 	elevenAMLocal := time.Date(now.Year(), now.Month(), now.Day(), 11, 0, 0, 0, time.Local)
@@ -151,7 +157,7 @@ func TestLowStockChecker_InvalidTZFallsBack(t *testing.T) {
 // rather than aborting Check.
 func TestLowStockChecker_TZErrorFallsBack(t *testing.T) {
 	mock := &mockLowStockStore{tzErr: errFakeTZ}
-	checker := &LowStockChecker{store: mock}
+	checker := &LowStockChecker{store: mock, sink: NewWebPushSink(nil, 0)}
 	now := time.Now()
 	elevenAMLocal := time.Date(now.Year(), now.Month(), now.Day(), 11, 0, 0, 0, time.Local)
 	checker.now = func() time.Time { return elevenAMLocal }
@@ -170,7 +176,7 @@ func TestLowStockChecker_TZErrorFallsBack(t *testing.T) {
 // detector must not fire.
 func TestLowStockChecker_ConcurrentChecksDoNotDoubleFire(t *testing.T) {
 	mock := &mockLowStockStore{tz: "America/Los_Angeles"}
-	checker := &LowStockChecker{store: mock}
+	checker := &LowStockChecker{store: mock, sink: NewWebPushSink(nil, 0)}
 	checker.now = func() time.Time {
 		return time.Date(2026, 5, 14, 18, 0, 0, 0, time.UTC) // 11:00 PDT
 	}

@@ -2,7 +2,39 @@
 
 Design context for the ongoing effort to compile this codebase into a mobile app via Capacitor. This doc captures the *why* behind decisions made during planning so future phases can be planned from a warm start, not by re-deriving from first principles. Living doc — update as Phase 2 lands.
 
-Status: **Phase 1 in progress** (Go-side foundation + Capacitor spike) — see `docs/plans/2026-05-18-local-only-mode-foundation.md`.
+Status: **Phase 1 complete** (Go-side foundation + Capacitor spike landed). Plan: `docs/plans/completed/2026-05-18-local-only-mode-foundation.md`. Phase 2 (Go binary embedding + native plugin abstractions) is not started — see [Phase 2 below](#phase-2-mobile-shell--native-integration-future-plan).
+
+## Build & run
+
+Server build (current production, unchanged):
+
+```bash
+go build ./...
+go run ./cmd/bot                 # bot + web server + scheduler
+go test ./...
+```
+
+Mobile build (strips bot + MCP + web-push + OIDC):
+
+```bash
+go build -tags mobile ./...
+go test  -tags mobile ./...
+go run   -tags mobile ./cmd/bot  # LocalUserResolver + LocalNotificationSink wired
+```
+
+Capacitor spike (wraps the PWA, points at a running dev server):
+
+```bash
+cd capacitor
+npm install
+npx cap add ios                  # one-time, generates ios/ — gitignored
+npx cap add android              # one-time, generates android/ — gitignored
+npx cap sync
+npx cap open ios                 # opens Xcode; build & run in Simulator
+npx cap open android             # opens Android Studio
+```
+
+The spike's `capacitor.config.ts` sets `server.url` to `http://localhost:8080` so the WebView loads from a running `go run ./cmd/bot`. Embedding the Go binary inside the app bundle is Phase 2; for now the spike validates that the wrapper builds, the PWA loads, and the SW/Dexie/optimistic-write plumbing survives the Capacitor environment. See `capacitor/README.md` for known spike limitations (Telegram `initData` auth does not flow inside the WebView).
 
 ## What local-only mode is
 

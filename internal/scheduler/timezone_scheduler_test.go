@@ -1,3 +1,5 @@
+//go:build !mobile
+
 package scheduler
 
 import (
@@ -57,7 +59,7 @@ func TestBPReminderChecker_UsesUserTimezone(t *testing.T) {
 	}
 
 	mock := &mockNotifier{sendMsgID: 1}
-	sched := New(db, 123456, []notifier.Notifier{mock})
+	sched := NewWithNotifiers(db, 123456, []notifier.Notifier{mock})
 	sched.BPReminderChecker.now = func() time.Time { return nowTime }
 
 	if err := sched.BPReminderChecker.Check(context.Background()); err != nil {
@@ -115,7 +117,7 @@ func TestBPReminderChecker_NoNotificationInWrongUserTZHour(t *testing.T) {
 	}
 
 	mock := &mockNotifier{sendMsgID: 1}
-	sched := New(db, 123456, []notifier.Notifier{mock})
+	sched := NewWithNotifiers(db, 123456, []notifier.Notifier{mock})
 	sched.BPReminderChecker.now = func() time.Time { return nowTime }
 
 	if err := sched.BPReminderChecker.Check(context.Background()); err != nil {
@@ -169,7 +171,7 @@ func TestWeightReminderChecker_UsesUserTimezone(t *testing.T) {
 	}
 
 	mock := &mockNotifier{sendMsgID: 1}
-	sched := New(db, 123456, []notifier.Notifier{mock})
+	sched := NewWithNotifiers(db, 123456, []notifier.Notifier{mock})
 	sched.WeightReminderChecker.now = func() time.Time { return nowTime }
 
 	if err := sched.WeightReminderChecker.Check(context.Background()); err != nil {
@@ -225,7 +227,7 @@ func TestWorkoutChecker_UsesUserTimezoneForWeekday(t *testing.T) {
 	}
 
 	mock := &mockNotifier{sendMsgID: 1}
-	sched := New(db, 123456, []notifier.Notifier{mock})
+	sched := NewWithNotifiers(db, 123456, []notifier.Notifier{mock})
 	sched.WorkoutChecker.now = func() time.Time { return nowTime }
 
 	if err := sched.WorkoutChecker.Check(context.Background()); err != nil {
@@ -260,7 +262,7 @@ func TestBPReminderChecker_FallsBackToSystemTZOnInvalidTimezone(t *testing.T) {
 		t.Fatalf("Record: %v", err)
 	}
 
-	sched := New(db, 123456, nil)
+	sched := NewWithNotifiers(db, 123456, nil)
 	// Should not panic or return an error — just logs a warning and uses system TZ.
 	if err := sched.BPReminderChecker.Check(context.Background()); err != nil {
 		t.Fatalf("Check returned unexpected error: %v", err)
