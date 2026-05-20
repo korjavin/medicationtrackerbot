@@ -73,6 +73,11 @@ type Config struct {
 	ExecutorRunnerScript  string // Absolute path to python/runner/runner.py
 	ExecutorRunnerCwd     string // Working dir passed to python (typically the python/ directory)
 	ExecutorMaxConcurrent int    // Max concurrent runs (default 4)
+
+	// DemoMode disables OAuth on /mcp and /sse — every caller is accepted.
+	// Used for the public demo deployment; mirrors the server-build DEMO_MODE
+	// flag in internal/config so the same env var controls both binaries.
+	DemoMode bool
 }
 
 // LoadConfigFromEnv loads configuration from environment variables
@@ -109,6 +114,8 @@ func LoadConfigFromEnv() (*Config, error) {
 	maxExecConcurrent, _ := strconv.Atoi(os.Getenv("MCP_EXECUTOR_MAX_CONCURRENT"))
 	noLegacyMCP := strings.TrimSpace(os.Getenv("NO_LEGACY_MCP")) != ""
 
+	demoMode := parseBoolEnv("DEMO_MODE", false)
+
 	// MCP_EXECUTOR_BRIDGE_URL is the explicit opt-in for the in-process Python
 	// executor. We deliberately do NOT derive this from MCP_AUDIT_ENDPOINT:
 	// upgrading deployments that already wired audit notifications would
@@ -138,6 +145,7 @@ func LoadConfigFromEnv() (*Config, error) {
 		ExecutorRunnerCwd:     strings.TrimSpace(os.Getenv("MCP_EXECUTOR_RUNNER_CWD")),
 		ExecutorMaxConcurrent: maxExecConcurrent,
 		NoLegacyMCP:           noLegacyMCP,
+		DemoMode:              demoMode,
 	}
 
 	if cfg.AdminPort > 0 && cfg.AdminPort == cfg.Port {
@@ -147,14 +155,26 @@ func LoadConfigFromEnv() (*Config, error) {
 	if cfg.DatabasePath == "" {
 		return nil, fmt.Errorf("MCP_DATABASE_PATH is required")
 	}
-	if cfg.PocketIDURL == "" {
-		return nil, fmt.Errorf("POCKET_ID_URL is required")
-	}
-	if cfg.MCPServerURL == "" {
-		return nil, fmt.Errorf("MCP_SERVER_URL is required")
+	if !cfg.DemoMode {
+		if cfg.PocketIDURL == "" {
+			return nil, fmt.Errorf("POCKET_ID_URL is required")
+		}
+		if cfg.MCPServerURL == "" {
+			return nil, fmt.Errorf("MCP_SERVER_URL is required")
+		}
 	}
 
 	return cfg, nil
+}
+
+// parseBoolEnv recognizes the same truthy values as internal/config and
+// internal/server. Duplicated here to keep mcp free of cross-package imports.
+func parseBoolEnv(key string, defaultValue bool) bool {
+	val := strings.TrimSpace(strings.ToLower(os.Getenv(key)))
+	if val == "" {
+		return defaultValue
+	}
+	return val == "1" || val == "true" || val == "yes" || val == "y"
 }
 
 // Server represents the MCP server
@@ -203,8 +223,14 @@ func NewServer(cfg *Config, st *store.Repos, audit *AuditBuffer) (*Server, error
 	s.reg = reg
 
 	// Create OAuth handler. The auth repo satisfies APITokenStore so long-lived
-	// API tokens can be validated alongside JWTs.
-	s.oauth = NewOAuthHandler(cfg, st.Auth)
+	// API tokens can be validated alongside JWTs. In demo mode we deliberately
+	// leave s.oauth nil so /mcp and /sse accept all callers and the OAuth
+	// discovery endpoint isn't advertised — see Run().
+	if cfg.DemoMode {
+		slog.Warn("[MCP] DEMO_MODE: OAuth disabled, /mcp and /sse accept all callers")
+	} else {
+		s.oauth = NewOAuthHandler(cfg, st.Auth)
+	}
 
 	// Wire food + workout writers using the audit endpoint base URL.
 	if cfg.AuditEndpoint != "" && cfg.AuditSecret != "" {
@@ -704,12 +730,18 @@ func appendWarnings(parts ...string) string {
 	return strings.Join(filtered, " ")
 }
 
-// Run starts the HTTP server and blocks until shutdown
-func (s *Server) Run(ctx context.Context) error {
+// buildPublicMux wires /mcp, /sse, the OAuth discovery endpoint (when OAuth
+// is enabled), and /health onto a fresh ServeMux. Extracted from Run so demo-
+// mode tests can drive the same handler chain without spinning up a real
+// listener.
+func (s *Server) buildPublicMux() *http.ServeMux {
 	mux := http.NewServeMux()
 
-	// OAuth endpoints
-	mux.HandleFunc("GET /.well-known/oauth-protected-resource", s.oauth.HandleProtectedResourceMetadata)
+	// OAuth endpoints — only advertised when OAuth is wired. In demo mode the
+	// discovery endpoint is omitted because the OAuth flow is disabled.
+	if s.oauth != nil {
+		mux.HandleFunc("GET /.well-known/oauth-protected-resource", s.oauth.HandleProtectedResourceMetadata)
+	}
 
 	// MCP endpoint — Streamable HTTP transport (2025-03-26 spec) at /mcp
 	streamableHandler := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
@@ -719,7 +751,10 @@ func (s *Server) Run(ctx context.Context) error {
 		Logger:         slog.Default(),
 	})
 
-	mcpHandler := s.oauth.Middleware(streamableHandler)
+	var mcpHandler http.Handler = streamableHandler
+	if s.oauth != nil {
+		mcpHandler = s.oauth.Middleware(streamableHandler)
+	}
 
 	// Limit request body size to 1MB to prevent memory exhaustion
 	maxBytesMiddleware := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -736,7 +771,10 @@ func (s *Server) Run(ctx context.Context) error {
 		return s.mcpServer
 	}, nil)
 
-	sseAuthHandler := s.oauth.Middleware(sseHandler)
+	var sseAuthHandler http.Handler = sseHandler
+	if s.oauth != nil {
+		sseAuthHandler = s.oauth.Middleware(sseHandler)
+	}
 	sseMaxBytes := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		sseAuthHandler.ServeHTTP(w, r)
@@ -752,6 +790,13 @@ func (s *Server) Run(ctx context.Context) error {
 			slog.Error("health write", "error", err)
 		}
 	})
+
+	return mux
+}
+
+// Run starts the HTTP server and blocks until shutdown
+func (s *Server) Run(ctx context.Context) error {
+	mux := s.buildPublicMux()
 
 	addr := fmt.Sprintf(":%d", s.config.Port)
 	server := &http.Server{
