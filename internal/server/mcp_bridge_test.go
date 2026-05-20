@@ -392,7 +392,7 @@ func (f *fakeSettings) GetIntegrationElevenLabs(ctx context.Context) (settings.I
 func (f *fakeSettings) SetIntegrationElevenLabs(ctx context.Context, v settings.IntegrationElevenLabs) error {
 	return nil
 }
-func (f *fakeSettings) SetIntegrations(ctx context.Context, openAI *settings.IntegrationOpenAI, food *settings.IntegrationFood, el *settings.IntegrationElevenLabs) error {
+func (f *fakeSettings) PatchIntegrations(ctx context.Context, openAI *settings.IntegrationOpenAIPatch, food *settings.IntegrationFoodPatch, el *settings.IntegrationElevenLabsPatch) error {
 	return nil
 }
 
