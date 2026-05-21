@@ -189,13 +189,21 @@ func LoadConfigFromEnv() (*Config, error) {
 			return nil, fmt.Errorf("MCP_SERVER_URL is required")
 		}
 	}
-	// In demo mode /mcp accepts every caller, so the Python executor would be
-	// exposed to anonymous internet traffic. Instead of refusing to start, we
-	// rely on a per-IP rate limit on mcp_execute plus shrunk per-script caps
+	// In demo mode /mcp accepts every caller, so the Python executor is exposed
+	// to anonymous internet traffic. Instead of refusing to start, we rely on a
+	// per-IP rate limit on mcp_execute plus shrunk per-script caps
 	// (DemoExecutorMaxAPICalls / DemoExecutorMaxTimeoutMS) to bound the blast
-	// radius. The metered posture is documented in docs/demo-mode.md.
+	// radius. Important caveat: the in-process executor MVP shares the parent
+	// network namespace (see docs/mcp-deployment.md § MVP in-process isolation
+	// tradeoff), so per-script proxy caps bound only cooperative scripts. A
+	// hostile script can hit bot /api/* directly with a spoofed X-Forwarded-For
+	// (AUTH_TRUST_PROXY=1 is required for demo) and bypass both the proxy cap
+	// and the per-IP rate limiters. Operators MUST isolate the MCP container's
+	// network egress to the bridge URL only — or scope X-Forwarded-For trust to
+	// Traefik — for the advertised ceiling to hold. Documented in
+	// docs/demo-mode.md § In-process executor cost amplification.
 	if cfg.DemoMode && cfg.ExecutorBridgeURL != "" {
-		slog.Warn("[MCP] DEMO_MODE: MCP_EXECUTOR_BRIDGE_URL is set; mcp_execute is exposed without OAuth. Per-IP rate limit and per-script caps apply.",
+		slog.Warn("[MCP] DEMO_MODE: MCP_EXECUTOR_BRIDGE_URL is set; mcp_execute is exposed without OAuth. Per-IP rate limit and per-script proxy caps apply ONLY to cooperative scripts — the MVP in-process executor shares the parent network namespace, so a hostile script can bypass these caps via direct HTTP to bot /api/* with spoofed X-Forwarded-For. Isolate the MCP container's egress to the bridge URL only, or scope X-Forwarded-For trust to Traefik. See docs/mcp-deployment.md § MVP in-process isolation tradeoff and docs/demo-mode.md § In-process executor cost amplification.",
 			"per_hour", cfg.DemoExecuteCallsPerHour,
 			"max_api_calls", cfg.DemoExecutorMaxAPICalls,
 			"max_timeout_ms", cfg.DemoExecutorMaxTimeoutMS,

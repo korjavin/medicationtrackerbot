@@ -42,7 +42,28 @@ Demo mode is intended to run alone. The startup is permissive — nothing crashe
 - If `TELEGRAM_BOT_TOKEN` is set alongside `DEMO_MODE=1`, the bot still starts and sends notifications to the configured chat. Don't do this for a public demo.
 - If `OIDC_*` env vars are set, they are ignored by the server build's resolver (the demo branch in `newDefaultResolver` short-circuits before OIDC), but the configuration ambiguity is confusing. Strip them from the demo container.
 - The MCP binary requires `POCKET_ID_URL` and `MCP_SERVER_URL` *unless* `DEMO_MODE=1`, in which case both checks are skipped.
-- `MCP_EXECUTOR_BRIDGE_URL` is **allowed** alongside `DEMO_MODE=1`. The MCP binary used to refuse this combination outright; that hard refusal is gone because the voice agent needs `mcp_execute` to answer any data question in the demo. Instead, the executor is metered: a per-IP rate limit (`DEMO_MCP_EXECUTE_PER_HOUR`, default 5/hour) gates the tool, and per-script caps (`DEMO_MCP_EXECUTOR_MAX_API_CALLS`, `DEMO_MCP_EXECUTOR_MAX_TIMEOUT_MS`) bound the cost of each allowed call. A `slog.Warn` line still fires at MCP startup so operators see that the bridge is wired in demo mode.
+- `MCP_EXECUTOR_BRIDGE_URL` is **allowed** alongside `DEMO_MODE=1`. The MCP binary used to refuse this combination outright; that hard refusal is gone because the voice agent needs `mcp_execute` to answer any data question in the demo. Instead, the executor is metered: a per-IP rate limit (`DEMO_MCP_EXECUTE_PER_HOUR`, default 5/hour) gates the tool, and per-script caps (`DEMO_MCP_EXECUTOR_MAX_API_CALLS`, `DEMO_MCP_EXECUTOR_MAX_TIMEOUT_MS`) bound the cost of each allowed call. A `slog.Warn` line still fires at MCP startup so operators see that the bridge is wired in demo mode. The advertised cost ceiling (≤ `DEMO_MCP_EXECUTE_PER_HOUR` × `DEMO_MCP_EXECUTOR_MAX_API_CALLS` backend calls per IP per hour) only holds for cooperative scripts — see § *In-process executor cost amplification* below for the hostile-script path and the required operational mitigation.
+
+## In-process executor cost amplification
+
+The MVP wires the Python executor **in-process** inside `mcp-server` (see [docs/mcp-deployment.md § MVP in-process isolation tradeoff](mcp-deployment.md)). The executor child shares the parent's network namespace, so a script can `import urllib` and call any HTTP endpoint reachable from the MCP container. Production accepts this gap because `mcp_execute` is OIDC-gated and the principal is already authorized through other tools.
+
+**Demo mode removes that auth boundary.** Any anonymous caller can submit a `mcp_execute` script. Combined with the network-namespace sharing, a hostile script can:
+
+1. Resolve the bot via the same hostname the bridge uses (e.g. `medtracker-`), reach `/api/*` directly on the bot's port, and skip the local API proxy entirely — bypassing `DEMO_MCP_EXECUTOR_MAX_API_CALLS` (which is enforced only by the proxy's call counter).
+2. Set `X-Forwarded-For: <random>` on each request. Because demo deployments need `AUTH_TRUST_PROXY=1` for legitimate visitors, the bot honors any client-supplied `X-Forwarded-For` and treats each request as a different IP, bypassing `DEMO_AGENT_CALLS_PER_DAY`, `DEMO_FOOD_PHOTOS_PER_HOUR`, etc.
+3. Sustain direct hits to AI-cost endpoints (`/api/elevenlabs/signed-url`, `/api/food/log/from-photo`, `/api/food/log/from-description`, `/api/elevenlabs/upload-file`) for the duration of the script's wall-clock budget (`DEMO_MCP_EXECUTOR_MAX_TIMEOUT_MS`, default 10s).
+
+The result: the rate limits and per-script caps bound only scripts that play by the rules. A hostile script's actual ceiling is "as many requests as one Python process can issue in 10 seconds", which is **orders of magnitude** above the advertised 50 calls/hour.
+
+**The shipped `docker-compose.yml` does NOT implement this isolation by default.** The `mcp-server` and `medtracker` services share the `default` bridge network, so `mcp-server` can reach `medtracker:8080/api/*` directly. The compose file ships in this shape because the runbook's bridge URL (`http://medtracker-:8080/internal/mcp/bridge`) lives on the same listener as `/api/*` — there is no separate bridge-only listener. Operators must adjust the deployment before exposing the demo publicly; the code paths cannot enforce the ceiling on their own.
+
+**Operational mitigation (required for demo deployments to honor the advertised ceiling):**
+
+- **Network isolation.** Put the MCP container on a network whose only outbound rule allows the bridge URL (e.g. `http://medtracker-:8080/internal/mcp/bridge`). In docker-compose terms: give the MCP container its own bridge network, do **not** attach it to the network where the bot listens on `/api/*`, and reach the bridge through an explicit reverse-proxy or a separate listener that only exposes `/internal/mcp/bridge`. Alternatively, expose the bot's `/api/*` on a different listener that is only routable from Traefik, and keep the `/internal/*` listener on the docker network.
+- **Scope `AUTH_TRUST_PROXY` to Traefik.** The current `clientIP` implementation honors `X-Forwarded-For` from any source when `AUTH_TRUST_PROXY=1`. If you cannot fully isolate the network, restrict trust to Traefik's source IP/CIDR at the load-balancer layer (e.g. reset `X-Forwarded-For` on traffic that does not come from Traefik). A native CIDR-scoped trust is on the roadmap but not yet in code.
+
+Without one of these mitigations, the demo deployment's effective cost ceiling is **the operator's cloud bill**, not the values printed in `/api/bootstrap`. Treat the MVP in-process executor + demo + co-located bot as a known cost-amplification surface until the dedicated `mcp-runner` side container (with `internal: true` network) ships.
 
 A startup `slog.Warn` fires when `DEMO_MODE=1` (server: "DEMO_MODE is enabled — auth is disabled and AI endpoints are rate-limited per IP"; MCP: "[MCP] DEMO_MODE: OAuth disabled, /mcp and /sse accept all callers") so the demo state is obvious in the logs.
 
@@ -150,6 +171,8 @@ MCP_EXECUTOR_BRIDGE_URL=http://medtracker-:8080/internal/mcp/bridge
 MCP_AUDIT_SECRET=…
 # No TELEGRAM_BOT_TOKEN, no OIDC_*, no POCKET_ID_*, no SESSION_SECRET (auto-generated)
 ```
+
+**Before exposing the demo to the public internet**, isolate the MCP container's outbound network so scripts can reach **only** the bridge URL above — not `/api/*` on the bot. See § *In-process executor cost amplification* for why this is mandatory in demo mode and the docker-compose recipe. Skipping this step means the per-script `DEMO_MCP_EXECUTOR_MAX_API_CALLS` cap and the per-IP rate limits on AI endpoints are bypassable from a hostile `mcp_execute` script, and the demo's cost ceiling becomes the operator's cloud bill.
 
 Before serving traffic:
 
