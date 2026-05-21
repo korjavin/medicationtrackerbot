@@ -10,6 +10,7 @@ package bp
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"math"
 	"time"
 
@@ -238,6 +239,28 @@ func (r *Repo) ListReadings(ctx context.Context, userID int64, since time.Time) 
 		readings = append(readings, bp)
 	}
 	return readings, nil
+}
+
+// LatestReading returns the most-recent measured_at for a user's BP readings
+// (zero time + found=false when the user has no readings). Used by the demo
+// top-up loop to resume seeding BP from the last known reading forward.
+//
+// Scans through a string buffer because SQLite's MAX() strips the DATETIME
+// column's affinity (same workaround as workout.GetLatestSessionScheduledDate).
+func (r *Repo) LatestReading(ctx context.Context, userID int64) (time.Time, bool, error) {
+	var measuredStr sql.NullString
+	if err := r.db.QueryRowContext(ctx,
+		"SELECT MAX(measured_at) FROM blood_pressure_readings WHERE user_id = ?", userID).Scan(&measuredStr); err != nil {
+		return time.Time{}, false, err
+	}
+	if !measuredStr.Valid {
+		return time.Time{}, false, nil
+	}
+	t, err := storedb.ParseSQLiteDateTime(measuredStr.String)
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("parse blood_pressure_readings.measured_at %q: %w", measuredStr.String, err)
+	}
+	return t.UTC(), true, nil
 }
 
 // DeleteReading deletes the reading with the given id, but only

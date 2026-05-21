@@ -10,6 +10,7 @@ package diary
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 
 	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
@@ -113,6 +114,29 @@ func (r *Repo) List(ctx context.Context, userID int64, since, until time.Time, l
 		notes = append(notes, n)
 	}
 	return notes, rows.Err()
+}
+
+// LatestNote returns the most-recent created_at for a user's diary notes
+// (zero time + found=false when the user has no notes). Used by the demo
+// top-up loop to decide whether enough time has passed since the last note
+// to emit a new probabilistic one.
+//
+// Scans through a string buffer because SQLite's MAX() strips the DATETIME
+// column's affinity (same workaround as workout.GetLatestSessionScheduledDate).
+func (r *Repo) LatestNote(ctx context.Context, userID int64) (time.Time, bool, error) {
+	var createdStr sql.NullString
+	if err := r.db.QueryRowContext(ctx,
+		`SELECT MAX(created_at) FROM diary_notes WHERE user_id = ?`, userID).Scan(&createdStr); err != nil {
+		return time.Time{}, false, err
+	}
+	if !createdStr.Valid {
+		return time.Time{}, false, nil
+	}
+	t, err := storedb.ParseSQLiteDateTime(createdStr.String)
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("parse diary_notes.created_at %q: %w", createdStr.String, err)
+	}
+	return t.UTC(), true, nil
 }
 
 // Delete removes a diary note by ID, scoped to the user. Returns sql.ErrNoRows
