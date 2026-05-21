@@ -3,6 +3,7 @@ package seeddemo
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"testing"
 	"time"
 
@@ -620,6 +621,67 @@ func TestTopUpEmitsAllSameDayDosesAfterLatest(t *testing.T) {
 		t.Errorf("idempotent top-up duplicated 20:00 dose: count=%d (want 1)", idem)
 	}
 	_ = ctx
+}
+
+// TestTopUpDoesNotDuplicateDiaryAcrossCalendarDays guards the regression where
+// generateDiary, when invoked from TopUp on successive calendar days,
+// re-emits the closest-to-anchor catalog entry (i=11, "Stomach felt off after
+// dinner — likely the spicy sauce.") at a moving date. Each tick's anchor
+// slides clk.start forward by one real day, so for the fixed-index entry at
+// off = (count-1)*step = 77, clk.at(77, ...) advances exactly one calendar
+// day per real day. With latestNote.day also advancing one day per tick, the
+// day-after snap leaves a gap big enough for the next tick to insert another
+// duplicate. After 3 daily ticks the diary timeline shows 3 extra copies of
+// the same canned note.
+//
+// Fix: diary is treated as one-time scatter (full-seed only); TopUp doesn't
+// re-emit it. This test simulates 3 daily ticks and asserts no diary content
+// appears more than once.
+func TestTopUpDoesNotDuplicateDiaryAcrossCalendarDays(t *testing.T) {
+	s := newTestStore(t)
+	seedNow := fixedNow
+	runSeeder(t, s, Options{
+		UserID: 12345,
+		Days:   90,
+		Wipe:   true,
+		Seed:   42,
+		Now:    seedNow,
+	})
+
+	preCount := countRows(t, s.DB(), "diary_notes")
+	if preCount != len(demoDiaryEntries) {
+		t.Fatalf("pre-condition: full-seed should emit %d diary notes, got %d",
+			len(demoDiaryEntries), preCount)
+	}
+
+	for day := 1; day <= 3; day++ {
+		runTopUp(t, s, TopUpOptions{
+			UserID: 12345,
+			Now:    seedNow.Add(time.Duration(day*24) * time.Hour),
+			Seed:   42,
+		})
+	}
+
+	// No content should appear more than once in diary_notes.
+	rows, err := s.DB().Query(
+		`SELECT content, COUNT(*) FROM diary_notes WHERE user_id = ? GROUP BY content HAVING COUNT(*) > 1`,
+		12345)
+	if err != nil {
+		t.Fatalf("query diary duplicates: %v", err)
+	}
+	defer rows.Close()
+	var dupes []string
+	for rows.Next() {
+		var content string
+		var n int
+		if err := rows.Scan(&content, &n); err != nil {
+			t.Fatalf("scan dupe row: %v", err)
+		}
+		dupes = append(dupes, fmt.Sprintf("%q x%d", content, n))
+	}
+	if len(dupes) > 0 {
+		t.Errorf("diary content duplicated across daily top-ups: %v", dupes)
+	}
 }
 
 // silence the unused-imports check when the store import is otherwise idle.
