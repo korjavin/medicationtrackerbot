@@ -13,7 +13,7 @@ import (
 )
 
 // generateVitals produces blood pressure, weight, sleep, and continuous
-// heart / SpO2 / stress samples across the synthetic window. It calls store
+// heart / SpO2 / stress samples across the supplied window. It calls store
 // methods directly because every row must be backdated; domain services here
 // would refuse non-current timestamps.
 //
@@ -21,14 +21,18 @@ import (
 // opts.Seed so they do not perturb the shared rng state seen by downstream
 // generators (food, workouts, misc). That keeps existing determinism tests
 // stable while adding three new streams.
-func generateVitals(ctx context.Context, s *store.Store, opts Options, clk *clock, rng *rand.Rand, summary *Summary) error {
-	if err := generateBP(ctx, s, opts, clk, rng, summary); err != nil {
+//
+// The (from, to) window bounds emission. For the full-seed path this is
+// (clk.start, clk.anchor) — top-up callers pass narrower windows but expect
+// the same generator code path to honor them.
+func generateVitals(ctx context.Context, s *store.Store, opts Options, clk *clock, rng *rand.Rand, from, to time.Time, summary *Summary) error {
+	if err := generateBP(ctx, s, opts, clk, rng, from, to, summary); err != nil {
 		return fmt.Errorf("bp: %w", err)
 	}
-	if err := generateWeight(ctx, s, opts, clk, rng, summary); err != nil {
+	if err := generateWeight(ctx, s, opts, clk, rng, from, to, summary); err != nil {
 		return fmt.Errorf("weight: %w", err)
 	}
-	sleeps, err := generateSleep(ctx, s, opts, clk, rng, summary)
+	sleeps, err := generateSleep(ctx, s, opts, clk, rng, from, to, summary)
 	if err != nil {
 		return fmt.Errorf("sleep: %w", err)
 	}
@@ -38,8 +42,6 @@ func generateVitals(ctx context.Context, s *store.Store, opts Options, clk *cloc
 		workouts: computeWorkoutWindows(opts, clk),
 	}
 	tsRng := rand.New(rand.NewPCG(uint64(opts.Seed)^0xA5A5A5A5A5A5A5A5, uint64(opts.Seed)^0x5A5A5A5A5A5A5A5A))
-	from := clk.start
-	to := clk.anchor
 
 	heart, err := generateHeartSamples(ctx, s, opts, vc, tsRng, from, to)
 	if err != nil {
@@ -85,16 +87,27 @@ var bpSites = []string{"left_arm", "right_arm", "wrist"}
 var bpPositions = []string{"sitting", "sitting", "standing"}
 var bpTags = []string{"", "morning", "evening", "after-coffee", "post-walk", ""}
 
-func generateBP(ctx context.Context, s *store.Store, opts Options, clk *clock, rng *rand.Rand, summary *Summary) error {
-	// Pick ~70 of opts.Days days deterministically.
-	target := opts.Days * 70 / 90 // ≈70 when days=90
-	if target > opts.Days {
-		target = opts.Days
+func generateBP(ctx context.Context, s *store.Store, opts Options, clk *clock, rng *rand.Rand, from, to time.Time, summary *Summary) error {
+	// Pick ~70 out of every 90 days in the window. windowDays equals
+	// opts.Days for full-seed; for top-up windows it shrinks proportionally
+	// so the generator emits fewer rows without changing the cadence.
+	windowStart := startOfDayUTC(from)
+	windowDays := daysInWindow(windowStart, to)
+	if windowDays <= 0 {
+		return nil
 	}
-	dayIdx := pickDays(rng, opts.Days, target)
+	target := windowDays * 70 / 90
+	if target > windowDays {
+		target = windowDays
+	}
+	dayIdx := pickDays(rng, windowDays, target)
+	startOff := windowStartOffsetFromClock(clk, windowStart)
 
-	for _, off := range dayIdx {
-		// off==0 means oldest day; off==opts.Days-1 is the day before anchor.
+	for _, idx := range dayIdx {
+		// idx is window-relative; off is catalog-scale so trend math agrees
+		// with the full-seed timeline whether we cover the full window or
+		// only a partial top-up gap.
+		off := startOff + idx
 		daysFromAnchor := opts.Days - off
 		regime := bpRegimeFor(daysFromAnchor, opts.Days)
 
@@ -124,22 +137,31 @@ func generateBP(ctx context.Context, s *store.Store, opts Options, clk *clock, r
 	return nil
 }
 
-func generateWeight(ctx context.Context, s *store.Store, opts Options, clk *clock, rng *rand.Rand, summary *Summary) error {
+func generateWeight(ctx context.Context, s *store.Store, opts Options, clk *clock, rng *rand.Rand, from, to time.Time, summary *Summary) error {
 	if err := s.Weight.SetUnitPreference(ctx, "kg"); err != nil {
 		return fmt.Errorf("set weight unit: %w", err)
 	}
 
+	windowStart := startOfDayUTC(from)
+	windowDays := daysInWindow(windowStart, to)
+	if windowDays <= 0 {
+		return nil
+	}
+	startOff := windowStartOffsetFromClock(clk, windowStart)
+
 	startWeight := 84.0
 	endWeight := 79.5
-	// Roughly weekly entries: every 7 days.
+	// Roughly weekly entries: every 7 days within the window.
 	var trend *float64
 	denom := opts.Days - 1
 	if denom < 1 {
 		denom = 1
 	}
-	for off := 0; off < opts.Days; off += 7 {
-		// Linear glide from startWeight at off=0 to endWeight at off=days-1,
-		// plus deterministic gaussian noise so the chart looks human.
+	for idx := 0; idx < windowDays; idx += 7 {
+		off := startOff + idx
+		// Linear glide from startWeight at off=0 to endWeight at off=days-1
+		// of the catalog timeline (not the window), plus deterministic
+		// gaussian noise so the chart looks human.
 		progress := float64(off) / float64(denom)
 		base := startWeight + (endWeight-startWeight)*progress
 		w := base + gaussian(rng, 0, 0.35)
@@ -165,17 +187,24 @@ func generateWeight(ctx context.Context, s *store.Store, opts Options, clk *cloc
 	return nil
 }
 
-func generateSleep(ctx context.Context, s *store.Store, opts Options, clk *clock, rng *rand.Rand, summary *Summary) ([]sleepWindow, error) {
-	// Pick ~75 of opts.Days nights.
-	target := opts.Days * 75 / 90
-	if target > opts.Days {
-		target = opts.Days
+func generateSleep(ctx context.Context, s *store.Store, opts Options, clk *clock, rng *rand.Rand, from, to time.Time, summary *Summary) ([]sleepWindow, error) {
+	windowStart := startOfDayUTC(from)
+	windowDays := daysInWindow(windowStart, to)
+	if windowDays <= 0 {
+		return nil, nil
 	}
-	nightIdx := pickDays(rng, opts.Days, target)
+	// Pick ~75 of every 90 nights — scales with window size.
+	target := windowDays * 75 / 90
+	if target > windowDays {
+		target = windowDays
+	}
+	nightIdx := pickDays(rng, windowDays, target)
+	startOff := windowStartOffsetFromClock(clk, windowStart)
 
 	logs := make([]store.SleepLog, 0, len(nightIdx))
 	windows := make([]sleepWindow, 0, len(nightIdx))
-	for _, off := range nightIdx {
+	for _, idx := range nightIdx {
+		off := startOff + idx
 		// Each "night" is anchored to day `off`: bedtime falls on `off-1`
 		// in the late evening and wake on `off` in the morning. Skip off==0
 		// because we'd have nothing the night before to anchor to.

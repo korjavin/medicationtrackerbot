@@ -67,20 +67,25 @@ func Run(ctx context.Context, s *store.Store, opts Options) (*Summary, error) {
 	rng := rand.New(rand.NewPCG(uint64(opts.Seed), uint64(opts.Seed)^0x9E3779B97F4A7C15))
 	clk := newClock(opts.Now, opts.Days)
 	summary := &Summary{}
+	// Full-seed window: from clk.start (anchor - days) to clk.anchor. Each
+	// generator interprets this as the data emission window; for byte-for-byte
+	// compatibility the lower bound is treated as day-aligned internally.
+	from := clk.start
+	to := clk.anchor
 
-	if err := generateMeds(ctx, s, opts, clk, rng, summary); err != nil {
+	if err := generateMeds(ctx, s, opts, clk, rng, from, to, summary); err != nil {
 		return nil, fmt.Errorf("generate meds: %w", err)
 	}
-	if err := generateVitals(ctx, s, opts, clk, rng, summary); err != nil {
+	if err := generateVitals(ctx, s, opts, clk, rng, from, to, summary); err != nil {
 		return nil, fmt.Errorf("generate vitals: %w", err)
 	}
-	if err := generateFood(ctx, s, opts, clk, rng, summary); err != nil {
+	if err := generateFood(ctx, s, opts, clk, rng, from, to, summary); err != nil {
 		return nil, fmt.Errorf("generate food: %w", err)
 	}
-	if err := generateWorkouts(ctx, s, opts, clk, rng, summary); err != nil {
+	if err := generateWorkouts(ctx, s, opts, clk, rng, from, to, summary); err != nil {
 		return nil, fmt.Errorf("generate workouts: %w", err)
 	}
-	if err := generateMisc(ctx, s, opts, clk, rng, summary); err != nil {
+	if err := generateMisc(ctx, s, opts, clk, rng, from, to, summary); err != nil {
 		return nil, fmt.Errorf("generate misc: %w", err)
 	}
 
