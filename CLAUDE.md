@@ -69,8 +69,14 @@ go run cmd/genvapid/main.go                                   # VAPID keys for w
 
 `cmd/seeddemo` wipes a target user's data and seeds N days (default 90) of synthetic, varied health-tracking data so the app can be demoed: medications with overlapping courses, BP/weight/sleep time series with visible trends, food logs hitting and missing targets, planned + ad-hoc workouts, diary notes, and a mid-period timezone change. Deterministic by default (seedable RNG) so re-running with the same seed produces an identical dataset. Generator code lives in `internal/seeddemo/`.
 
+The same binary also supports `-topup`, an incremental mode that appends new rows since each stream's last logged timestamp without wiping. Top-up is idempotent within a calendar day (re-running with the same `-now` is a no-op) and is what the demo bot's background loop calls on a ticker to keep the deployed dataset fresh.
+
 ```bash
+# Full seed (wipes target user first):
 go run ./cmd/seeddemo -user <telegram_user_id> -db meds.db -days 90 -wipe -seed 42
+
+# Incremental top-up (no wipe; appends rows from each stream's last sample to now):
+go run ./cmd/seeddemo -user <telegram_user_id> -db meds.db -topup -seed 42
 ```
 
 ## Code Layout

@@ -113,12 +113,12 @@ Out of scope (intentional, per planning conversation):
 
 ### Task 5: Wire `-topup` flag into `cmd/seeddemo/main.go`
 
-- [ ] add `-topup` boolean flag (mutually exclusive with `-wipe`; if both set, error out with a clear message).
-- [ ] add `-now` flag (RFC3339 string, default empty → `time.Now()`) for deterministic testing.
-- [ ] when `-topup` set, skip `WipeUser` and call `seeddemo.TopUp` instead of `seeddemo.Seed`.
-- [ ] update help text and the existing `cmd/seeddemo`-related comment block in `CLAUDE.md`.
-- [ ] write a `cmd/seeddemo` integration test (or `internal/seeddemo/topup_cli_test.go`) that runs the binary against a tempdb with `-topup`, asserts non-zero rows added, then runs it again and asserts ≤1 net new row per stream.
-- [ ] run `go test ./cmd/seeddemo/... ./internal/seeddemo/...` — must pass before task 6.
+- [x] add `-topup` boolean flag (mutually exclusive with `-wipe`; if both set, error out with a clear message). The check uses `fs.Visit` to detect operator-explicit `-wipe` so the default `wipe=true` doesn't accidentally trip the guard when only `-topup` is passed; in that case `-wipe` is force-cleared so the uniform downstream code path doesn't drop the data we're appending to.
+- [x] add `-now` flag (RFC3339 string, default empty → `time.Now()`) for deterministic testing.
+- [x] when `-topup` set, skip `WipeUser` and call `seeddemo.TopUp` instead of `seeddemo.Seed`. (`main` now dispatches to `seeddemo.TopUp` vs `seeddemo.Run` based on the `-topup` flag; `seeddemo.Run` already gates wipe behind `opts.Wipe` so the same Options.Wipe=false also works.)
+- [x] update help text and the existing `cmd/seeddemo`-related comment block in `CLAUDE.md`. Both the package doc comment and CLAUDE.md's `cmd/seeddemo` block now show full-seed + top-up invocations.
+- [x] write a `cmd/seeddemo` integration test (or `internal/seeddemo/topup_cli_test.go`) that runs the binary against a tempdb with `-topup`, asserts non-zero rows added, then runs it again and asserts ≤1 net new row per stream. Implemented as `cmd/seeddemo/main_test.go` driving the extracted `run([]string, io.Writer) int` directly (no subprocess), with cases for missing `-user`, mutually-exclusive `-topup`+`-wipe`, invalid `-now`, and the empty-DB add-then-idempotent flow.
+- [x] run `go test ./cmd/seeddemo/... ./internal/seeddemo/...` — passes in ~3s.
 
 ### Task 6: Add demo-mode background top-up loop in the bot
 
