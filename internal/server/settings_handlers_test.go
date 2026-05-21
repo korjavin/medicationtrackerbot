@@ -165,6 +165,7 @@ func TestHandleBootstrap_DemoModeOn_SurfacesLimits(t *testing.T) {
 		FoodLogsPerHour:         3,
 		FoodPhotosPerHour:       4,
 		FoodDescriptionsPerHour: 5,
+		MCPExecutePerHour:       6,
 	})
 
 	req := httptest.NewRequest("GET", "/api/bootstrap", nil)
@@ -199,6 +200,7 @@ func TestHandleBootstrap_DemoModeOn_SurfacesLimits(t *testing.T) {
 		"food_logs_per_hour":         3,
 		"food_photos_per_hour":       4,
 		"food_descriptions_per_hour": 5,
+		"mcp_execute_per_hour":       6,
 	}
 	for key, want := range expected {
 		got, ok := limits[key].(float64)

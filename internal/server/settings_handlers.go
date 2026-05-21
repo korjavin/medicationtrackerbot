@@ -451,6 +451,7 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 				"food_logs_per_hour":         s.demoCfg.FoodLogsPerHour,
 				"food_photos_per_hour":       s.demoCfg.FoodPhotosPerHour,
 				"food_descriptions_per_hour": s.demoCfg.FoodDescriptionsPerHour,
+				"mcp_execute_per_hour":       s.demoCfg.MCPExecutePerHour,
 			},
 		}
 	}
