@@ -39,3 +39,27 @@ func (c *clock) at(offset, hour, minute int) time.Time {
 func (c *clock) daysFromAnchor(n int) time.Time {
 	return c.anchor.AddDate(0, 0, -n)
 }
+
+// daysInWindow returns the integer number of 24h periods in [from, to).
+// For the full-seed path called with (startOfDayUTC(clk.start), clk.anchor),
+// this equals opts.Days exactly. Returns 0 when the window is empty or
+// inverted.
+func daysInWindow(from, to time.Time) int {
+	if !from.Before(to) {
+		return 0
+	}
+	return int(to.Sub(from) / (24 * time.Hour))
+}
+
+// windowStartOffsetFromClock translates a window-start instant (assumed
+// already day-aligned via startOfDayUTC) into a clk.dayOffset index. For
+// the full-seed path (windowStart == startOfDayUTC(clk.start)), this is 0.
+// Top-up paths use it to map a partial-window day back to the catalog-scale
+// offset that drives trend/regime math.
+func windowStartOffsetFromClock(clk *clock, windowStart time.Time) int {
+	base := startOfDayUTC(clk.start)
+	if !base.Before(windowStart) && !base.After(windowStart) {
+		return 0
+	}
+	return int(windowStart.Sub(base) / (24 * time.Hour))
+}

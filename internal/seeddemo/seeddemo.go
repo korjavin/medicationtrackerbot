@@ -34,6 +34,9 @@ type Summary struct {
 	BPReadings      int
 	WeightLogs      int
 	SleepLogs       int
+	HeartSamples    int
+	SpO2Samples     int
+	StressSamples   int
 	FoodProducts    int
 	FoodLogs        int
 	WorkoutSessions int
@@ -64,20 +67,34 @@ func Run(ctx context.Context, s *store.Store, opts Options) (*Summary, error) {
 	rng := rand.New(rand.NewPCG(uint64(opts.Seed), uint64(opts.Seed)^0x9E3779B97F4A7C15))
 	clk := newClock(opts.Now, opts.Days)
 	summary := &Summary{}
+	// Full-seed window: from clk.start (anchor - days) to clk.anchor. Each
+	// generator interprets this as the data emission window; for byte-for-byte
+	// compatibility the lower bound is treated as day-aligned internally.
+	from := clk.start
+	to := clk.anchor
 
-	if err := generateMeds(ctx, s, opts, clk, rng, summary); err != nil {
+	if err := generateMeds(ctx, s, opts, clk, rng, from, to, summary); err != nil {
 		return nil, fmt.Errorf("generate meds: %w", err)
 	}
-	if err := generateVitals(ctx, s, opts, clk, rng, summary); err != nil {
+	// One-time per-user setup that TopUp must NOT re-run: the weight unit
+	// preference and food targets are user-editable; the food catalog UPSERT
+	// bumps usage_count on every call. Keep these on the full-seed path.
+	if err := s.Weight.SetUnitPreference(ctx, "kg"); err != nil {
+		return nil, fmt.Errorf("set weight unit: %w", err)
+	}
+	if err := generateVitals(ctx, s, opts, clk, rng, from, to, summary); err != nil {
 		return nil, fmt.Errorf("generate vitals: %w", err)
 	}
-	if err := generateFood(ctx, s, opts, clk, rng, summary); err != nil {
+	if err := ensureFoodCatalog(ctx, s, opts, summary); err != nil {
+		return nil, fmt.Errorf("ensure food catalog: %w", err)
+	}
+	if err := generateFood(ctx, s, opts, clk, rng, from, to, summary); err != nil {
 		return nil, fmt.Errorf("generate food: %w", err)
 	}
-	if err := generateWorkouts(ctx, s, opts, clk, rng, summary); err != nil {
+	if err := generateWorkouts(ctx, s, opts, clk, rng, from, to, summary); err != nil {
 		return nil, fmt.Errorf("generate workouts: %w", err)
 	}
-	if err := generateMisc(ctx, s, opts, clk, rng, summary); err != nil {
+	if err := generateMisc(ctx, s, opts, clk, rng, from, to, summary); err != nil {
 		return nil, fmt.Errorf("generate misc: %w", err)
 	}
 
@@ -89,6 +106,9 @@ func Run(ctx context.Context, s *store.Store, opts Options) (*Summary, error) {
 		"bp_readings", summary.BPReadings,
 		"weight_logs", summary.WeightLogs,
 		"sleep_logs", summary.SleepLogs,
+		"heart_samples", summary.HeartSamples,
+		"spo2_samples", summary.SpO2Samples,
+		"stress_samples", summary.StressSamples,
 		"food_products", summary.FoodProducts,
 		"food_logs", summary.FoodLogs,
 		"workout_sessions", summary.WorkoutSessions,
