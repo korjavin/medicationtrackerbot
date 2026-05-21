@@ -71,6 +71,13 @@ go run cmd/genvapid/main.go                                   # VAPID keys for w
 
 The same binary also supports `-topup`, an incremental mode that appends new rows since each stream's last logged timestamp without wiping. Top-up is idempotent within a calendar day (re-running with the same `-now` is a no-op) and is what the demo bot's background top-up loop (`internal/demotopup`, started automatically when `DEMO_MODE=1`, configurable via `DEMO_TOPUP_INTERVAL`) calls on a ticker to keep the deployed dataset fresh. See [docs/demo-mode.md](docs/demo-mode.md#automatic-top-up).
 
+Non-obvious patterns in the top-up path:
+- **Per-tick RNG seed** is derived as `pcg(uint64(opts.Seed) XOR uint64(opts.Now.Unix()/86400))` so two ticks on the same calendar day produce the same candidate samples — idempotency holds on retry without consulting the DB.
+- **Time-series cadence is anchored to 00:00 UTC** (15 min for HR/SpO2, 30 min for stress) so consecutive top-ups land on the same grid regardless of when each tick fires; UNIQUE PK `(user_id, date_time)` then makes `INSERT OR IGNORE` a free dedupe.
+- **`demotopup.Run` fires its first tick immediately on startup** (not after one interval) so a fresh deploy isn't stale until the first hour elapses.
+- **Daily streams snap forward to "day after latest sample"** (`dailyTopUpFrom`), which means weight — on a weekly cadence — can add one row per tick. This is deliberate "near no-op within one sample interval" tolerance, not a bug.
+- **`-topup` and explicit `-wipe` together is an error**, but the default `wipe=true` is force-cleared when `-topup` is passed alone — checked via `fs.Visit` so only operator-set `-wipe` trips the mutex guard.
+
 ```bash
 # Full seed (wipes target user first):
 go run ./cmd/seeddemo -user <telegram_user_id> -db meds.db -days 90 -wipe -seed 42

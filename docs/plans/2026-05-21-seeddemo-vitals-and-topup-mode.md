@@ -147,7 +147,7 @@ Out of scope (intentional, per planning conversation):
 
 ### Task 9: [Final] Update project knowledge
 
-- [ ] if a non-obvious pattern emerged (e.g., a clever per-tick seed derivation, a non-obvious "first tick on startup" decision), add a brief note under the seeddemo section of `CLAUDE.md`.
+- [x] if a non-obvious pattern emerged (e.g., a clever per-tick seed derivation, a non-obvious "first tick on startup" decision), add a brief note under the seeddemo section of `CLAUDE.md`. Added a "Non-obvious patterns in the top-up path" bullet list under the demo data seeder block in CLAUDE.md covering: per-tick RNG seed `pcg(seed XOR now/86400)`, time-series cadence anchored to 00:00 UTC, `demotopup.Run` first-tick-fires-immediately, daily-stream snap-to-day-after (weight's "one row per tick" tolerance), and the `fs.Visit`-based `-topup`/`-wipe` mutex guard.
 
 ## Technical Details
 
