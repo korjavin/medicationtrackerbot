@@ -126,6 +126,11 @@ type MCPConfig struct {
 // AgentUploadsPerDay which defaults to 20 — uploads share a single agent
 // conversation, so one signed-url slot may attach multiple photos. The fields
 // are ignored when DemoMode is off.
+//
+// MCPExecuteCallsPerHour is surfaced in /api/bootstrap; the per-script caps
+// (DEMO_MCP_EXECUTOR_MAX_API_CALLS / DEMO_MCP_EXECUTOR_MAX_TIMEOUT_MS) are
+// read directly by the MCP binary in internal/mcp.LoadConfigFromEnv and don't
+// belong on the bot's Config — they would be dead fields here.
 type DemoConfig struct {
 	AgentCallsPerDay        int
 	AgentUploadsPerDay      int
@@ -133,8 +138,6 @@ type DemoConfig struct {
 	FoodPhotosPerHour       int
 	FoodDescriptionsPerHour int
 	MCPExecuteCallsPerHour  int
-	MCPExecutorMaxAPICalls  int
-	MCPExecutorMaxTimeoutMS int
 }
 
 // LoadFromEnv reads the process environment and returns a populated Config.
@@ -201,8 +204,6 @@ func LoadFromEnv() (*Config, error) {
 			FoodPhotosPerHour:       parsePositiveIntEnv("DEMO_FOOD_PHOTOS_PER_HOUR", 1),
 			FoodDescriptionsPerHour: parsePositiveIntEnv("DEMO_FOOD_DESCRIPTIONS_PER_HOUR", 1),
 			MCPExecuteCallsPerHour:  parsePositiveIntEnv("DEMO_MCP_EXECUTE_PER_HOUR", 5),
-			MCPExecutorMaxAPICalls:  parsePositiveIntEnv("DEMO_MCP_EXECUTOR_MAX_API_CALLS", 10),
-			MCPExecutorMaxTimeoutMS: parsePositiveIntEnv("DEMO_MCP_EXECUTOR_MAX_TIMEOUT_MS", 10000),
 		}
 	}
 	return cfg, nil

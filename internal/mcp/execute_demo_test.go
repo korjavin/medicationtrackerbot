@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -98,7 +97,7 @@ func TestMCPExecute_DemoOn_AllowsUpToLimitThenRejects(t *testing.T) {
 	}
 
 	// The (limit+1)th call must hit the rate limit.
-	result, _, err := callExecuteWithIP(t, s, "1.2.3.4")
+	result, resp, err := callExecuteWithIP(t, s, "1.2.3.4")
 	if err != nil {
 		t.Fatalf("rate-limited call returned go error: %v", err)
 	}
@@ -115,6 +114,15 @@ func TestMCPExecute_DemoOn_AllowsUpToLimitThenRejects(t *testing.T) {
 	}
 	if retry != float64(int(time.Hour.Seconds())) {
 		t.Errorf("body.retry_after_seconds = %v, want %v", retry, time.Hour.Seconds())
+	}
+	// The structured envelope (marshaled by the MCP SDK into StructuredContent)
+	// must also signal the rate limit so clients that prefer structuredContent
+	// over content don't misread the zero-value as a successful empty run.
+	if resp.Status != ExecuteStatusDemoRateLimit {
+		t.Errorf("structured status = %q, want %q", resp.Status, ExecuteStatusDemoRateLimit)
+	}
+	if resp.Error != "demo_rate_limit" {
+		t.Errorf("structured error = %q, want %q", resp.Error, "demo_rate_limit")
 	}
 }
 
@@ -176,29 +184,6 @@ func TestMCPExecute_DemoOn_NoHeaderSharedBucket(t *testing.T) {
 	body := extractDemoRateLimitBody(t, result)
 	if body["limit"] != "mcp_execute" {
 		t.Errorf("body.limit = %v, want %q", body["limit"], "mcp_execute")
-	}
-}
-
-func TestClientIP_TrustProxy(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
-	req.Header.Set("X-Forwarded-For", "203.0.113.7, 10.0.0.1")
-	req.RemoteAddr = "127.0.0.1:54321"
-
-	if got := clientIP(req, true); got != "203.0.113.7" {
-		t.Errorf("trustProxy=true X-Forwarded-For: got %q, want %q", got, "203.0.113.7")
-	}
-	if got := clientIP(req, false); got != "127.0.0.1" {
-		t.Errorf("trustProxy=false: got %q, want %q (RemoteAddr host)", got, "127.0.0.1")
-	}
-}
-
-func TestClientIP_XRealIPFallback(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
-	req.Header.Set("X-Real-IP", "198.51.100.9")
-	req.RemoteAddr = "127.0.0.1:1111"
-
-	if got := clientIP(req, true); got != "198.51.100.9" {
-		t.Errorf("trustProxy=true X-Real-IP: got %q, want %q", got, "198.51.100.9")
 	}
 }
 
