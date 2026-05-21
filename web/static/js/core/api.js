@@ -62,6 +62,24 @@ async function apiCallDirect(endpoint, method = "GET", body = null, opts = {}) {
             throw err;
         }
 
+        if (res.status === 429) {
+            const txt = await res.text();
+            let parsed = null;
+            try { parsed = JSON.parse(txt); } catch (_) { /* not JSON */ }
+            if (parsed && parsed.error === 'demo_rate_limit') {
+                if (window.DemoBanner && typeof window.DemoBanner.showDemoLimitAlert === 'function') {
+                    window.DemoBanner.showDemoLimitAlert(parsed);
+                }
+                const err = new Error('Demo rate limit reached');
+                err.status = 429;
+                err.demoLimit = parsed;
+                throw err;
+            }
+            const err = new Error(txt || 'Too Many Requests');
+            err.status = 429;
+            throw err;
+        }
+
         if (!res.ok) {
             const txt = await res.text();
             // Check if this is a service worker offline response (503 with {error:'offline'})
@@ -135,7 +153,9 @@ async function apiCall(endpoint, method = "GET", body = null, opts = {}) {
             console.error(e);
             // Only show alerts for write operations that fail
             // GET requests failing is expected when offline - UI will handle empty state
-            if (method !== 'GET') {
+            // Suppress generic alert when DemoBanner has already surfaced a
+            // formatted demo-restriction popup (apiCallDirect sets e.demoLimit).
+            if (method !== 'GET' && !(e && e.demoLimit)) {
                 safeAlert("Error: " + e.message);
             }
             return null;
@@ -149,7 +169,7 @@ async function apiCall(endpoint, method = "GET", body = null, opts = {}) {
         if (e && e.aborted) throw e;
         console.error(e);
         // Only show alerts for write operations that fail
-        if (method !== 'GET') {
+        if (method !== 'GET' && !(e && e.demoLimit)) {
             safeAlert("Error: " + e.message);
         }
         return null;

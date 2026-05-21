@@ -223,7 +223,15 @@ func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 		Authenticated: false,
 	}
 
-	if cookie, err := r.Cookie("auth_session"); err == nil {
+	// In demo mode every request is resolved to the seeded user by
+	// DemoUserResolver, so the frontend's first-visit checkAuth() probe
+	// must see authenticated=true even with no session cookie; otherwise
+	// app.js falls through to the Telegram/OIDC login screen and the
+	// public demo never reaches /api/bootstrap.
+	if s.demoMode {
+		response.Authenticated = true
+		response.Method = "demo"
+	} else if cookie, err := r.Cookie("auth_session"); err == nil {
 		if _, ok := verifySessionToken(cookie.Value, s.sessionSecret); ok {
 			response.Authenticated = true
 			response.Method = "cookie"
