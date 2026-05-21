@@ -258,10 +258,10 @@ func TestTopUpMedIntakesAppendsButDoesNotDuplicateCatalog(t *testing.T) {
 	}
 }
 
-// TestTopUpMillisecondSeedAvoidsCollision verifies the time-series ts-from
-// helper offsets by exactly 1ms past the last sample so that subsequent
-// generator calls land on the NEXT interval boundary, not the same one.
-func TestTopUpMillisecondSeedAvoidsCollision(t *testing.T) {
+// TestTimeseriesTopUpFromAdvancesPastLastTs verifies the time-series ts-from
+// helper offsets past the last sample so that subsequent generator calls land
+// on the NEXT interval boundary, not the same one.
+func TestTimeseriesTopUpFromAdvancesPastLastTs(t *testing.T) {
 	now := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)
 	last := time.Date(2026, 5, 5, 11, 30, 0, 0, time.UTC) // exactly on a 15-min boundary
 	got := timeseriesTopUpFrom(last, true, now)
@@ -364,6 +364,179 @@ func captureLatestState(t *testing.T, db *sql.DB, userID int64) latestState {
 	}
 
 	return st
+}
+
+// TestTopUpDoesNotInflateFoodProductUsageCount guards the regression where
+// generateFood used to call UpsertProduct on every tick — UpsertProduct bumps
+// usage_count on conflict, so the demo's "most used products" ordering drifted
+// at the cadence of the top-up loop. After fix, the catalog setup lives in
+// ensureFoodCatalog (full-seed only); top-up loads IDs read-only.
+func TestTopUpDoesNotInflateFoodProductUsageCount(t *testing.T) {
+	s := newTestStore(t)
+	seedNow := fixedNow
+	runSeeder(t, s, Options{
+		UserID: 12345,
+		Days:   30,
+		Wipe:   true,
+		Seed:   42,
+		Now:    seedNow,
+	})
+
+	pre := map[string]int{}
+	rows, err := s.DB().Query(`SELECT name, usage_count FROM food_products WHERE user_id = ?`, 12345)
+	if err != nil {
+		t.Fatalf("query food_products: %v", err)
+	}
+	for rows.Next() {
+		var name string
+		var uc int
+		if err := rows.Scan(&name, &uc); err != nil {
+			rows.Close()
+			t.Fatalf("scan: %v", err)
+		}
+		pre[name] = uc
+	}
+	rows.Close()
+
+	// Two top-up ticks. Neither should touch usage_count for rows whose
+	// food_log inserts didn't happen (i.e. nearly all catalog rows on a
+	// short top-up window).
+	for i := 0; i < 2; i++ {
+		runTopUp(t, s, TopUpOptions{
+			UserID: 12345,
+			Now:    seedNow.Add(time.Duration(i+1) * time.Hour),
+			Seed:   42,
+		})
+	}
+
+	rows, err = s.DB().Query(`SELECT name, usage_count FROM food_products WHERE user_id = ?`, 12345)
+	if err != nil {
+		t.Fatalf("query food_products: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		var uc int
+		if err := rows.Scan(&name, &uc); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		if pre[name] != uc {
+			t.Errorf("food_product %q usage_count changed across top-up ticks: pre=%d post=%d", name, pre[name], uc)
+		}
+	}
+}
+
+// TestTopUpPreservesUserPreferences guards the regression where generateWeight
+// and generateFood reset the unit preference and macro targets on every tick.
+// After fix, those one-time setups run only from the full-seed orchestrator.
+func TestTopUpPreservesUserPreferences(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	seedNow := fixedNow
+	runSeeder(t, s, Options{
+		UserID: 12345,
+		Days:   30,
+		Wipe:   true,
+		Seed:   42,
+		Now:    seedNow,
+	})
+
+	// Simulate a demo viewer changing both preferences via the UI.
+	if err := s.Weight.SetUnitPreference(ctx, "lb"); err != nil {
+		t.Fatalf("SetUnitPreference: %v", err)
+	}
+	customTargets := store.FoodTargets{Calories: 1800, Carbs: 200, Protein: 130, Fat: 60}
+	if err := s.Food.SetTargets(ctx, customTargets); err != nil {
+		t.Fatalf("SetTargets: %v", err)
+	}
+
+	runTopUp(t, s, TopUpOptions{
+		UserID: 12345,
+		Now:    seedNow.Add(2 * time.Hour),
+		Seed:   42,
+	})
+
+	unit, err := s.Weight.GetUnitPreference(ctx)
+	if err != nil {
+		t.Fatalf("GetUnitPreference: %v", err)
+	}
+	if unit != "lb" {
+		t.Errorf("top-up overwrote weight unit preference: want lbs, got %s", unit)
+	}
+	got, err := s.Food.GetTargets(ctx)
+	if err != nil {
+		t.Fatalf("GetTargets: %v", err)
+	}
+	if got != customTargets {
+		t.Errorf("top-up overwrote food targets: want %+v, got %+v", customTargets, got)
+	}
+}
+
+// TestTopUpResumesWorkoutRotationFromState guards the regression where
+// generateScheduledSessions reset rotationIdx to 0 on every top-up tick,
+// so the next strength session always picked variant[0] (Push) regardless
+// of where the seed's rotation pointer left off.
+func TestTopUpResumesWorkoutRotationFromState(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	seedNow := fixedNow
+	runSeeder(t, s, Options{
+		UserID: 12345,
+		Days:   30,
+		Wipe:   true,
+		Seed:   42,
+		Now:    seedNow,
+	})
+
+	// Find the strength group and force the rotation pointer to point at
+	// "Pull" (index 1). The bug would cause top-up to insert a Push session
+	// next regardless.
+	var groupID int64
+	if err := s.DB().QueryRow(
+		`SELECT id FROM workout_groups WHERE user_id = ? AND name = 'Strength'`,
+		12345).Scan(&groupID); err != nil {
+		t.Fatalf("lookup strength group: %v", err)
+	}
+	var pullVariantID int64
+	if err := s.DB().QueryRow(
+		`SELECT id FROM workout_variants WHERE group_id = ? AND name = 'Pull'`,
+		groupID).Scan(&pullVariantID); err != nil {
+		t.Fatalf("lookup Pull variant: %v", err)
+	}
+	if err := s.Workout.InitializeRotation(groupID, pullVariantID); err != nil {
+		t.Fatalf("InitializeRotation: %v", err)
+	}
+
+	// Capture session IDs already present so we can filter to "newly added".
+	preMaxID := int64(0)
+	if err := s.DB().QueryRow(
+		`SELECT COALESCE(MAX(id), 0) FROM workout_sessions WHERE user_id = ? AND group_id = ?`,
+		12345, groupID).Scan(&preMaxID); err != nil {
+		t.Fatalf("max session id: %v", err)
+	}
+
+	// Advance time enough to land on the next Mon/Wed/Fri strength day.
+	runTopUp(t, s, TopUpOptions{
+		UserID: 12345,
+		Now:    seedNow.Add(7 * 24 * time.Hour),
+		Seed:   42,
+	})
+
+	// Read the first new session's variant_id and confirm it matches Pull.
+	var firstNewVariantID int64
+	err := s.DB().QueryRow(
+		`SELECT variant_id FROM workout_sessions
+		  WHERE user_id = ? AND group_id = ? AND id > ?
+		  ORDER BY scheduled_date ASC, id ASC LIMIT 1`,
+		12345, groupID, preMaxID).Scan(&firstNewVariantID)
+	if err != nil {
+		t.Fatalf("query first new session: %v", err)
+	}
+	if firstNewVariantID != pullVariantID {
+		t.Errorf("top-up reset rotation: want first new session to use Pull (id=%d), got variant id=%d",
+			pullVariantID, firstNewVariantID)
+	}
+	_ = ctx
 }
 
 // silence the unused-imports check when the store import is otherwise idle.

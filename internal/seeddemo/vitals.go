@@ -138,10 +138,6 @@ func generateBP(ctx context.Context, s *store.Store, opts Options, clk *clock, r
 }
 
 func generateWeight(ctx context.Context, s *store.Store, opts Options, clk *clock, rng *rand.Rand, from, to time.Time, summary *Summary) error {
-	if err := s.Weight.SetUnitPreference(ctx, "kg"); err != nil {
-		return fmt.Errorf("set weight unit: %w", err)
-	}
-
 	windowStart := startOfDayUTC(from)
 	windowDays := daysInWindow(windowStart, to)
 	if windowDays <= 0 {
