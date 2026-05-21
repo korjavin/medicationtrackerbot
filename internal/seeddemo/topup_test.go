@@ -539,5 +539,88 @@ func TestTopUpResumesWorkoutRotationFromState(t *testing.T) {
 	_ = ctx
 }
 
+// TestTopUpEmitsAllSameDayDosesAfterLatest guards the regression where
+// topUpMedIntakes snapped windowStart to the day AFTER the latest dose,
+// which permanently skipped later-same-day doses on multi-dose schedules
+// (e.g. Metformin 08:00/20:00): a tick that ran between the two doses
+// advanced the cursor past 08:00, and the next tick's day-after snap then
+// jumped to tomorrow, dropping today's 20:00.
+func TestTopUpEmitsAllSameDayDosesAfterLatest(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	seedNow := fixedNow
+
+	// Full seed at noon: full-seed itself walks the active window through
+	// `clk.anchor` (= noon), so today's 08:00 dose is created but today's
+	// 20:00 dose is in the future and skipped. Top-up at 22:00 must emit
+	// today's 20:00 dose.
+	runSeeder(t, s, Options{
+		UserID: 12345,
+		Days:   30,
+		Wipe:   true,
+		Seed:   42,
+		Now:    seedNow,
+	})
+
+	// Find Metformin's id (multi-dose schedule "08:00,20:00"). The medications
+	// table itself has no user_id column; ownership is tracked via intake_log.
+	var metforminID int64
+	if err := s.DB().QueryRow(
+		`SELECT DISTINCT m.id FROM medications m
+		   JOIN intake_log i ON i.medication_id = m.id
+		  WHERE i.user_id = ? AND m.name = 'Metformin'`,
+		12345).Scan(&metforminID); err != nil {
+		t.Fatalf("lookup Metformin: %v", err)
+	}
+
+	// Confirm today's 20:00 is NOT yet present (full-seed at noon stopped at anchor).
+	twentyHundredToday := time.Date(seedNow.Year(), seedNow.Month(), seedNow.Day(), 20, 0, 0, 0, time.UTC)
+	var existing int
+	if err := s.DB().QueryRow(
+		`SELECT COUNT(*) FROM intake_log WHERE medication_id = ? AND scheduled_at_unix = ?`,
+		metforminID, twentyHundredToday.Unix()).Scan(&existing); err != nil {
+		t.Fatalf("pre-check 20:00 intake: %v", err)
+	}
+	if existing != 0 {
+		t.Fatalf("pre-condition violated: full-seed already emitted today's 20:00 dose; can't test top-up gap")
+	}
+
+	// Advance to 22:00 same day and run top-up. Expectation: today's 20:00
+	// dose gets emitted.
+	runTopUp(t, s, TopUpOptions{
+		UserID: 12345,
+		Now:    seedNow.Add(10 * time.Hour), // 12:00 + 10h = 22:00
+		Seed:   42,
+	})
+
+	var after int
+	if err := s.DB().QueryRow(
+		`SELECT COUNT(*) FROM intake_log WHERE medication_id = ? AND scheduled_at_unix = ?`,
+		metforminID, twentyHundredToday.Unix()).Scan(&after); err != nil {
+		t.Fatalf("post-check 20:00 intake: %v", err)
+	}
+	if after != 1 {
+		t.Errorf("expected today's 20:00 Metformin dose after top-up; got count=%d", after)
+	}
+
+	// Re-run same tick — must remain idempotent (the dedupe guard is now
+	// scheduledAt.After(latest) without a day-after snap).
+	runTopUp(t, s, TopUpOptions{
+		UserID: 12345,
+		Now:    seedNow.Add(10 * time.Hour),
+		Seed:   42,
+	})
+	var idem int
+	if err := s.DB().QueryRow(
+		`SELECT COUNT(*) FROM intake_log WHERE medication_id = ? AND scheduled_at_unix = ?`,
+		metforminID, twentyHundredToday.Unix()).Scan(&idem); err != nil {
+		t.Fatalf("idempotency check: %v", err)
+	}
+	if idem != 1 {
+		t.Errorf("idempotent top-up duplicated 20:00 dose: count=%d (want 1)", idem)
+	}
+	_ = ctx
+}
+
 // silence the unused-imports check when the store import is otherwise idle.
 var _ = (*store.Store)(nil)
