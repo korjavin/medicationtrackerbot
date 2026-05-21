@@ -113,10 +113,10 @@ Dependencies identified:
 
 ### Task 6: Update docs/demo-mode.md
 
-- [ ] add `DEMO_MCP_EXECUTE_PER_HOUR`, `DEMO_MCP_EXECUTOR_MAX_API_CALLS`, `DEMO_MCP_EXECUTOR_MAX_TIMEOUT_MS` rows to the environment-variable table with their defaults and meaning
-- [ ] update the "Mutual exclusivity" section: the MCP no longer refuses to start with the bridge URL in demo mode; instead it warns + rate-limits
-- [ ] update the "Bootstrap payload" example to include `mcp_execute_per_hour`
-- [ ] update the "Rate-limit response shape" section: the `limit` field now includes `mcp_execute` as a possible value
+- [x] add `DEMO_MCP_EXECUTE_PER_HOUR`, `DEMO_MCP_EXECUTOR_MAX_API_CALLS`, `DEMO_MCP_EXECUTOR_MAX_TIMEOUT_MS` rows to the environment-variable table with their defaults and meaning
+- [x] update the "Mutual exclusivity" section: the MCP no longer refuses to start with the bridge URL in demo mode; instead it warns + rate-limits
+- [x] update the "Bootstrap payload" example to include `mcp_execute_per_hour`
+- [x] update the "Rate-limit response shape" section: the `limit` field now includes `mcp_execute` as a possible value
 
 *Note: ralphex automatically moves completed plans to `docs/plans/completed/`*
 
