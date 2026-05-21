@@ -531,6 +531,71 @@ func (r *Repo) ListSpO2(ctx context.Context, userID int64, start, end time.Time)
 	return logs, nil
 }
 
+// LatestHeartSample returns the most-recent vitals_heart sample timestamp for a
+// user. The bool reports whether a row exists at all (no row → zero time,
+// found=false). Used by the demo top-up loop to resume continuous-vitals
+// generation from where the last seed (or prior top-up) left off.
+func (r *Repo) LatestHeartSample(ctx context.Context, userID int64) (time.Time, bool, error) {
+	return r.latestVitalsSample(ctx, "vitals_heart", userID)
+}
+
+// LatestSpO2Sample returns the most-recent vitals_spo2 sample timestamp for a
+// user. See LatestHeartSample for the semantics.
+func (r *Repo) LatestSpO2Sample(ctx context.Context, userID int64) (time.Time, bool, error) {
+	return r.latestVitalsSample(ctx, "vitals_spo2", userID)
+}
+
+// LatestStressSample returns the most-recent vitals_stress sample timestamp
+// for a user. See LatestHeartSample for the semantics.
+func (r *Repo) LatestStressSample(ctx context.Context, userID int64) (time.Time, bool, error) {
+	return r.latestVitalsSample(ctx, "vitals_stress", userID)
+}
+
+// latestVitalsSample is the common implementation for the three time-series
+// tables that share the (user_id, date_time) primary key with date_time stored
+// as INTEGER UNIX milliseconds. The table name is a fixed allowlist of three
+// constants so SQL injection is not a concern.
+func (r *Repo) latestVitalsSample(ctx context.Context, table string, userID int64) (time.Time, bool, error) {
+	switch table {
+	case "vitals_heart", "vitals_spo2", "vitals_stress":
+	default:
+		return time.Time{}, false, fmt.Errorf("vitals: unknown table %q", table)
+	}
+	var ms sql.NullInt64
+	if err := r.db.QueryRowContext(ctx, "SELECT MAX(date_time) FROM "+table+" WHERE user_id = ?", userID).Scan(&ms); err != nil {
+		return time.Time{}, false, err
+	}
+	if !ms.Valid {
+		return time.Time{}, false, nil
+	}
+	return time.UnixMilli(ms.Int64).UTC(), true, nil
+}
+
+// LatestSleepEnd returns the most-recent sleep_logs.end_time for a user. The
+// top-up loop uses this to decide whether a new overnight sleep block should
+// be generated for "tonight" — if end_time is more than ~12h before "now",
+// emit a new block; otherwise skip until tomorrow.
+//
+// Scans the aggregate result through a string buffer because SQLite's MAX()
+// strips the DATETIME column's affinity and the driver then refuses to bind
+// the resulting TEXT directly into time.Time (same workaround as the workout
+// repo's GetLatestSessionScheduledDate).
+func (r *Repo) LatestSleepEnd(ctx context.Context, userID int64) (time.Time, bool, error) {
+	var endStr sql.NullString
+	if err := r.db.QueryRowContext(ctx,
+		"SELECT MAX(end_time) FROM sleep_logs WHERE user_id = ?", userID).Scan(&endStr); err != nil {
+		return time.Time{}, false, err
+	}
+	if !endStr.Valid {
+		return time.Time{}, false, nil
+	}
+	t, err := storedb.ParseSQLiteDateTime(endStr.String)
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("parse sleep_logs.end_time %q: %w", endStr.String, err)
+	}
+	return t.UTC(), true, nil
+}
+
 // ListStress returns stress samples in [start, end] (inclusive bounds in
 // millisecond UNIX time), ordered by date_time ASC. Info may be empty when
 // the underlying row has a NULL label.

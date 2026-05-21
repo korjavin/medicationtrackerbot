@@ -909,6 +909,30 @@ func (r *Repo) GetLatestSessionScheduledDate(groupID, userID int64) (time.Time, 
 	return t, true, nil
 }
 
+// LatestSessionForUser returns the most-recent scheduled_date across ALL of
+// the user's workout sessions, irrespective of group. Used by the demo top-up
+// loop as a global "last workout" marker so it can pick up generating new
+// planned sessions from that point forward. Returns ok=false when the user
+// has no sessions yet.
+//
+// Same TEXT-via-MAX driver workaround as GetLatestSessionScheduledDate.
+func (r *Repo) LatestSessionForUser(ctx context.Context, userID int64) (time.Time, bool, error) {
+	var latestStr sql.NullString
+	if err := r.db.QueryRowContext(ctx,
+		`SELECT MAX(scheduled_date) FROM workout_sessions WHERE user_id = ?`, userID,
+	).Scan(&latestStr); err != nil {
+		return time.Time{}, false, err
+	}
+	if !latestStr.Valid {
+		return time.Time{}, false, nil
+	}
+	t, err := storedb.ParseSQLiteDateTime(latestStr.String)
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("parse scheduled_date %q: %w", latestStr.String, err)
+	}
+	return t, true, nil
+}
+
 func (r *Repo) GetSessionByGroupAndDate(groupID int64, scheduledDate time.Time) (*WorkoutSession, error) {
 	var ws WorkoutSession
 	var startedAt, completedAt, snoozedUntil sql.NullTime
