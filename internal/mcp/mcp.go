@@ -78,6 +78,23 @@ type Config struct {
 	// Used for the public demo deployment; mirrors the server-build DEMO_MODE
 	// flag in internal/config so the same env var controls both binaries.
 	DemoMode bool
+
+	// DemoExecuteCallsPerHour is the per-IP cap on mcp_execute tool calls when
+	// DemoMode is on. The handler returns a demo_rate_limit body when exceeded.
+	DemoExecuteCallsPerHour int
+	// DemoExecutorMaxAPICalls overrides MaxExecutorAPICalls when DemoMode is on,
+	// shrinking the per-script API-call budget so a single allowed run cannot
+	// burn a large number of backend / AI calls.
+	DemoExecutorMaxAPICalls int
+	// DemoExecutorMaxTimeoutMS overrides MaxExecutorTimeoutMS when DemoMode is
+	// on, shortening the wall-clock budget per script for the same reason.
+	DemoExecutorMaxTimeoutMS int64
+
+	// TrustProxy controls whether the rate-limiter middleware honors
+	// X-Forwarded-For / X-Real-IP when deriving the client IP. Mirrors the
+	// server build's AUTH_TRUST_PROXY env var so the demo deploy behind
+	// Traefik can attribute traffic to the real client.
+	TrustProxy bool
 }
 
 // LoadConfigFromEnv loads configuration from environment variables
@@ -115,6 +132,7 @@ func LoadConfigFromEnv() (*Config, error) {
 	noLegacyMCP := strings.TrimSpace(os.Getenv("NO_LEGACY_MCP")) != ""
 
 	demoMode := parseBoolEnv("DEMO_MODE", false)
+	trustProxy := parseBoolEnv("AUTH_TRUST_PROXY", false)
 
 	// MCP_EXECUTOR_BRIDGE_URL is the explicit opt-in for the in-process Python
 	// executor. We deliberately do NOT derive this from MCP_AUDIT_ENDPOINT:
@@ -123,29 +141,37 @@ func LoadConfigFromEnv() (*Config, error) {
 	// behavior and the MVP isolation gap warning in docs/mcp-deployment.md.
 	executorBridgeURL := strings.TrimSpace(os.Getenv("MCP_EXECUTOR_BRIDGE_URL"))
 
+	demoExecutePerHour := parsePositiveIntEnv("DEMO_MCP_EXECUTE_PER_HOUR", 5)
+	demoExecutorMaxAPICalls := parsePositiveIntEnv("DEMO_MCP_EXECUTOR_MAX_API_CALLS", 10)
+	demoExecutorMaxTimeoutMS := int64(parsePositiveIntEnv("DEMO_MCP_EXECUTOR_MAX_TIMEOUT_MS", 10000))
+
 	cfg := &Config{
-		Port:                  port,
-		DatabasePath:          os.Getenv("MCP_DATABASE_PATH"),
-		PocketIDURL:           os.Getenv("POCKET_ID_URL"),
-		ClientID:              os.Getenv("POCKET_ID_CLIENT_ID"),
-		ClientSecret:          os.Getenv("POCKET_ID_CLIENT_SECRET"),
-		AllowedSubject:        os.Getenv("MCP_ALLOWED_SUBJECT"),
-		MaxQueryDays:          maxQueryDays,
-		MCPServerURL:          os.Getenv("MCP_SERVER_URL"),
-		JWKSJSON:              os.Getenv("POCKET_ID_JWKS_JSON"),
-		UserID:                userID,
-		AuditEndpoint:         os.Getenv("MCP_AUDIT_ENDPOINT"),
-		AuditSecret:           os.Getenv("MCP_AUDIT_SECRET"),
-		AdminPort:             adminPort,
-		MaxExecutorTimeoutMS:  maxExecTimeoutMS,
-		MaxExecutorAPICalls:   maxExecAPICalls,
-		ExecutorBridgeURL:     executorBridgeURL,
-		ExecutorProxyURL:      strings.TrimSpace(os.Getenv("MCP_EXECUTOR_PROXY_URL")),
-		ExecutorRunnerScript:  strings.TrimSpace(os.Getenv("MCP_EXECUTOR_RUNNER_SCRIPT")),
-		ExecutorRunnerCwd:     strings.TrimSpace(os.Getenv("MCP_EXECUTOR_RUNNER_CWD")),
-		ExecutorMaxConcurrent: maxExecConcurrent,
-		NoLegacyMCP:           noLegacyMCP,
-		DemoMode:              demoMode,
+		Port:                     port,
+		DatabasePath:             os.Getenv("MCP_DATABASE_PATH"),
+		PocketIDURL:              os.Getenv("POCKET_ID_URL"),
+		ClientID:                 os.Getenv("POCKET_ID_CLIENT_ID"),
+		ClientSecret:             os.Getenv("POCKET_ID_CLIENT_SECRET"),
+		AllowedSubject:           os.Getenv("MCP_ALLOWED_SUBJECT"),
+		MaxQueryDays:             maxQueryDays,
+		MCPServerURL:             os.Getenv("MCP_SERVER_URL"),
+		JWKSJSON:                 os.Getenv("POCKET_ID_JWKS_JSON"),
+		UserID:                   userID,
+		AuditEndpoint:            os.Getenv("MCP_AUDIT_ENDPOINT"),
+		AuditSecret:              os.Getenv("MCP_AUDIT_SECRET"),
+		AdminPort:                adminPort,
+		MaxExecutorTimeoutMS:     maxExecTimeoutMS,
+		MaxExecutorAPICalls:      maxExecAPICalls,
+		ExecutorBridgeURL:        executorBridgeURL,
+		ExecutorProxyURL:         strings.TrimSpace(os.Getenv("MCP_EXECUTOR_PROXY_URL")),
+		ExecutorRunnerScript:     strings.TrimSpace(os.Getenv("MCP_EXECUTOR_RUNNER_SCRIPT")),
+		ExecutorRunnerCwd:        strings.TrimSpace(os.Getenv("MCP_EXECUTOR_RUNNER_CWD")),
+		ExecutorMaxConcurrent:    maxExecConcurrent,
+		NoLegacyMCP:              noLegacyMCP,
+		DemoMode:                 demoMode,
+		DemoExecuteCallsPerHour:  demoExecutePerHour,
+		DemoExecutorMaxAPICalls:  demoExecutorMaxAPICalls,
+		DemoExecutorMaxTimeoutMS: demoExecutorMaxTimeoutMS,
+		TrustProxy:               trustProxy,
 	}
 
 	if cfg.AdminPort > 0 && cfg.AdminPort == cfg.Port {
@@ -163,18 +189,61 @@ func LoadConfigFromEnv() (*Config, error) {
 			return nil, fmt.Errorf("MCP_SERVER_URL is required")
 		}
 	}
-	// Refuse to wire the Python executor in demo mode: /mcp accepts all
-	// callers without OAuth, so leaving mcp_execute reachable would expose
-	// sandboxed-but-still-arbitrary Python execution + the proxy's API
-	// surface to anonymous internet traffic. The deployment runbook in
-	// docs/demo-mode.md does not list MCP_EXECUTOR_BRIDGE_URL; this fail-
-	// fast catches an operator who copies an existing config and adds
-	// DEMO_MODE=1 without stripping the executor env.
+	// In demo mode /mcp accepts every caller, so the Python executor is exposed
+	// to anonymous internet traffic. Instead of refusing to start, we rely on a
+	// per-IP rate limit on mcp_execute plus shrunk per-script caps
+	// (DemoExecutorMaxAPICalls / DemoExecutorMaxTimeoutMS) to bound the blast
+	// radius. Important caveat: the in-process executor MVP shares the parent
+	// network namespace (see docs/mcp-deployment.md § MVP in-process isolation
+	// tradeoff), so per-script proxy caps bound only cooperative scripts. A
+	// hostile script can hit bot /api/* directly with a spoofed X-Forwarded-For
+	// (AUTH_TRUST_PROXY=1 is required for demo) and bypass both the proxy cap
+	// and the per-IP rate limiters. Operators MUST isolate the MCP container's
+	// network egress to the bridge URL only — or scope X-Forwarded-For trust to
+	// Traefik — for the advertised ceiling to hold. Documented in
+	// docs/demo-mode.md § In-process executor cost amplification.
 	if cfg.DemoMode && cfg.ExecutorBridgeURL != "" {
-		return nil, fmt.Errorf("MCP_EXECUTOR_BRIDGE_URL must not be set when DEMO_MODE=1 (demo mode disables OAuth on /mcp; allowing the Python executor in that state would expose arbitrary code execution to anonymous callers)")
+		slog.Warn("[MCP] DEMO_MODE: MCP_EXECUTOR_BRIDGE_URL is set; mcp_execute is exposed without OAuth. Per-IP rate limit and per-script proxy caps apply ONLY to cooperative scripts — the MVP in-process executor shares the parent network namespace, so a hostile script can bypass these caps via direct HTTP to bot /api/* with spoofed X-Forwarded-For. Isolate the MCP container's egress to the bridge URL only, or scope X-Forwarded-For trust to Traefik. See docs/mcp-deployment.md § MVP in-process isolation tradeoff and docs/demo-mode.md § In-process executor cost amplification.",
+			"per_hour", cfg.DemoExecuteCallsPerHour,
+			"max_api_calls", cfg.DemoExecutorMaxAPICalls,
+			"max_timeout_ms", cfg.DemoExecutorMaxTimeoutMS,
+		)
 	}
 
 	return cfg, nil
+}
+
+// parsePositiveIntEnv reads a positive integer env var; on missing, empty,
+// non-integer, zero, or negative input it returns defaultValue. Mirrors the
+// helper in internal/config so demo caps follow the same fall-back-to-default
+// rule the other DEMO_* knobs use.
+func parsePositiveIntEnv(key string, defaultValue int) int {
+	val := strings.TrimSpace(os.Getenv(key))
+	if val == "" {
+		return defaultValue
+	}
+	parsed, err := strconv.Atoi(val)
+	if err != nil || parsed <= 0 {
+		return defaultValue
+	}
+	return parsed
+}
+
+// ApplyDemoExecutorCaps swaps the production executor caps for the demo caps
+// when DemoMode is on. It's a no-op when DemoMode is off, so cmd/mcptool/main
+// can call it unconditionally. Mutates cfg in place to keep the call site in
+// main short; exposed at package scope so the demo override is testable
+// without spinning up the main binary.
+func ApplyDemoExecutorCaps(cfg *Config) {
+	if cfg == nil || !cfg.DemoMode {
+		return
+	}
+	if cfg.DemoExecutorMaxAPICalls > 0 {
+		cfg.MaxExecutorAPICalls = cfg.DemoExecutorMaxAPICalls
+	}
+	if cfg.DemoExecutorMaxTimeoutMS > 0 {
+		cfg.MaxExecutorTimeoutMS = cfg.DemoExecutorMaxTimeoutMS
+	}
 }
 
 // parseBoolEnv recognizes the same truthy values as internal/config and
@@ -199,6 +268,11 @@ type Server struct {
 	admin         AdminStore
 	reg           *registry.Registry
 	executor      ExecutionService
+
+	// demoLimiter caps mcp_execute calls per client IP when DemoMode is on. nil
+	// outside demo mode (so production has no overhead and no behavioral
+	// difference). Constructed in NewServer.
+	demoLimiter *rateLimiter
 }
 
 // AuditBuffer returns the audit buffer used by granular tools. The executor
@@ -240,6 +314,14 @@ func NewServer(cfg *Config, st *store.Repos, audit *AuditBuffer) (*Server, error
 		slog.Warn("[MCP] DEMO_MODE: OAuth disabled, /mcp and /sse accept all callers")
 	} else {
 		s.oauth = NewOAuthHandler(cfg, st.Auth)
+	}
+
+	// In demo mode the only defence against anonymous mcp_execute traffic is a
+	// per-IP rate limit (plus the shrunk per-script caps applied in main).
+	// Outside demo mode the OAuth gate keeps the executor private and the
+	// limiter stays nil.
+	if cfg.DemoMode && cfg.DemoExecuteCallsPerHour > 0 {
+		s.demoLimiter = newRateLimiter(cfg.DemoExecuteCallsPerHour, time.Hour)
 	}
 
 	// Wire food + workout writers using the audit endpoint base URL.

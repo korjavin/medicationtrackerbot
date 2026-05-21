@@ -120,6 +120,7 @@ type DemoConfig struct {
 	FoodLogsPerHour         int
 	FoodPhotosPerHour       int
 	FoodDescriptionsPerHour int
+	MCPExecutePerHour       int
 }
 
 type rateLimiter struct {

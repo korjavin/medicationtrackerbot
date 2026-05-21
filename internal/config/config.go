@@ -127,12 +127,18 @@ type MCPConfig struct {
 // AgentUploadsPerDay which defaults to 20 — uploads share a single agent
 // conversation, so one signed-url slot may attach multiple photos. The fields
 // are ignored when DemoMode is off.
+//
+// MCPExecuteCallsPerHour is surfaced in /api/bootstrap; the per-script caps
+// (DEMO_MCP_EXECUTOR_MAX_API_CALLS / DEMO_MCP_EXECUTOR_MAX_TIMEOUT_MS) are
+// read directly by the MCP binary in internal/mcp.LoadConfigFromEnv and don't
+// belong on the bot's Config — they would be dead fields here.
 type DemoConfig struct {
 	AgentCallsPerDay        int
 	AgentUploadsPerDay      int
 	FoodLogsPerHour         int
 	FoodPhotosPerHour       int
 	FoodDescriptionsPerHour int
+	MCPExecuteCallsPerHour  int
 	// TopUpInterval is the cadence at which the in-process demo top-up
 	// goroutine calls seeddemo.TopUp. Defaults to 1h. Set lower (e.g. 1m)
 	// for a "live" demo, higher for a quieter one. Ignored when DemoMode
@@ -208,6 +214,7 @@ func LoadFromEnv() (*Config, error) {
 			FoodLogsPerHour:         parsePositiveIntEnv("DEMO_FOOD_LOGS_PER_HOUR", 1),
 			FoodPhotosPerHour:       parsePositiveIntEnv("DEMO_FOOD_PHOTOS_PER_HOUR", 1),
 			FoodDescriptionsPerHour: parsePositiveIntEnv("DEMO_FOOD_DESCRIPTIONS_PER_HOUR", 1),
+			MCPExecuteCallsPerHour:  parsePositiveIntEnv("DEMO_MCP_EXECUTE_PER_HOUR", 5),
 			TopUpInterval:           parsePositiveDurationEnv("DEMO_TOPUP_INTERVAL", time.Hour),
 			TopUpSeed:               parseInt64Env("DEMO_TOPUP_SEED", 0),
 		}

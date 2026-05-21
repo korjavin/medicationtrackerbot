@@ -27,6 +27,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	// In demo mode, shrink the per-script executor caps so even an allowed
+	// mcp_execute run can't burn a large API-call / timeout budget. The
+	// rate limit inside handleMCPExecute caps the number of allowed runs;
+	// these knobs cap the work each run can do.
+	mcp.ApplyDemoExecutorCaps(cfg)
+
 	slog.Info("[MCP] Configuration loaded:",
 		"port", cfg.Port,
 		"database", cfg.DatabasePath,

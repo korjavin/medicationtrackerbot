@@ -480,6 +480,7 @@ func clearEnv(t *testing.T) {
 		"DEMO_MODE", "DEMO_AGENT_CALLS_PER_DAY", "DEMO_AGENT_UPLOADS_PER_DAY",
 		"DEMO_FOOD_LOGS_PER_HOUR",
 		"DEMO_FOOD_PHOTOS_PER_HOUR", "DEMO_FOOD_DESCRIPTIONS_PER_HOUR",
+		"DEMO_MCP_EXECUTE_PER_HOUR",
 		"DEMO_TOPUP_INTERVAL", "DEMO_TOPUP_SEED",
 	} {
 		t.Setenv(k, "")
@@ -493,6 +494,7 @@ func TestLoadFromEnv_DemoMode(t *testing.T) {
 		FoodLogsPerHour:         1,
 		FoodPhotosPerHour:       1,
 		FoodDescriptionsPerHour: 1,
+		MCPExecuteCallsPerHour:  5,
 		TopUpInterval:           time.Hour,
 	}
 
@@ -535,6 +537,7 @@ func TestLoadFromEnv_DemoMode(t *testing.T) {
 				"DEMO_FOOD_LOGS_PER_HOUR":         "10",
 				"DEMO_FOOD_PHOTOS_PER_HOUR":       "3",
 				"DEMO_FOOD_DESCRIPTIONS_PER_HOUR": "7",
+				"DEMO_MCP_EXECUTE_PER_HOUR":       "11",
 			},
 			wantOn: true,
 			wantDemo: DemoConfig{
@@ -543,14 +546,16 @@ func TestLoadFromEnv_DemoMode(t *testing.T) {
 				FoodLogsPerHour:         10,
 				FoodPhotosPerHour:       3,
 				FoodDescriptionsPerHour: 7,
+				MCPExecuteCallsPerHour:  11,
 				TopUpInterval:           time.Hour,
 			},
 		},
 		{
 			name: "partial_overrides_fall_back_to_defaults",
 			envVars: map[string]string{
-				"DEMO_MODE":                "1",
-				"DEMO_AGENT_CALLS_PER_DAY": "12",
+				"DEMO_MODE":                 "1",
+				"DEMO_AGENT_CALLS_PER_DAY":  "12",
+				"DEMO_MCP_EXECUTE_PER_HOUR": "17",
 			},
 			wantOn: true,
 			wantDemo: DemoConfig{
@@ -559,6 +564,7 @@ func TestLoadFromEnv_DemoMode(t *testing.T) {
 				FoodLogsPerHour:         1,
 				FoodPhotosPerHour:       1,
 				FoodDescriptionsPerHour: 1,
+				MCPExecuteCallsPerHour:  17,
 				TopUpInterval:           time.Hour,
 			},
 		},
@@ -570,6 +576,7 @@ func TestLoadFromEnv_DemoMode(t *testing.T) {
 				"DEMO_FOOD_LOGS_PER_HOUR":         "",
 				"DEMO_FOOD_PHOTOS_PER_HOUR":       "0",
 				"DEMO_FOOD_DESCRIPTIONS_PER_HOUR": "-5",
+				"DEMO_MCP_EXECUTE_PER_HOUR":       "nope",
 			},
 			wantOn:   true,
 			wantDemo: defaults,
@@ -577,8 +584,9 @@ func TestLoadFromEnv_DemoMode(t *testing.T) {
 		{
 			name: "overrides_ignored_when_demo_off",
 			envVars: map[string]string{
-				"DEMO_AGENT_CALLS_PER_DAY": "99",
-				"DEMO_FOOD_LOGS_PER_HOUR":  "99",
+				"DEMO_AGENT_CALLS_PER_DAY":  "99",
+				"DEMO_FOOD_LOGS_PER_HOUR":   "99",
+				"DEMO_MCP_EXECUTE_PER_HOUR": "99",
 			},
 			wantOn:   false,
 			wantDemo: DemoConfig{},
@@ -590,9 +598,9 @@ func TestLoadFromEnv_DemoMode(t *testing.T) {
 			// defaults (1h / 0) when unset or malformed.
 			name: "topup_overrides_set",
 			envVars: map[string]string{
-				"DEMO_MODE":             "1",
-				"DEMO_TOPUP_INTERVAL":   "5m",
-				"DEMO_TOPUP_SEED":       "12345",
+				"DEMO_MODE":           "1",
+				"DEMO_TOPUP_INTERVAL": "5m",
+				"DEMO_TOPUP_SEED":     "12345",
 			},
 			wantOn: true,
 			wantDemo: DemoConfig{
@@ -601,6 +609,7 @@ func TestLoadFromEnv_DemoMode(t *testing.T) {
 				FoodLogsPerHour:         1,
 				FoodPhotosPerHour:       1,
 				FoodDescriptionsPerHour: 1,
+				MCPExecuteCallsPerHour:  5,
 				TopUpInterval:           5 * time.Minute,
 				TopUpSeed:               12345,
 			},

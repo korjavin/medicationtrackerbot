@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/mcp/proxy"
 	"github.com/korjavin/medicationtrackerbot/internal/mcp/registry"
@@ -24,6 +25,7 @@ const (
 	ExecuteStatusProxyDenied           = "proxy_denied"
 	ExecuteStatusBackendAppError       = "backend_application_error"
 	ExecuteStatusBackendTransportError = "backend_transport_error"
+	ExecuteStatusDemoRateLimit         = "demo_rate_limit"
 
 	// ExecuteErr* are stable error code strings embedded in the Error field of
 	// the response envelope. They are used as a prefix so callers (including
@@ -97,9 +99,37 @@ type ExecuteResponse struct {
 
 func (s *Server) handleMCPExecute(
 	ctx context.Context,
-	_ *sdkmcp.CallToolRequest,
+	request *sdkmcp.CallToolRequest,
 	input ExecuteInput,
 ) (*sdkmcp.CallToolResult, ExecuteResponse, error) {
+	// Demo-mode per-IP rate limit. The MCP SDK owns tool dispatch and the ctx
+	// passed to this handler is the connection-level ctx captured at session-
+	// init time — it does NOT change between POSTs in the same session. The
+	// streamable HTTP transport (the /mcp endpoint) propagates per-POST headers
+	// on request.Extra.Header, so the IP is read from there. The legacy SSE
+	// transport (the /sse endpoint, used by clients like ElevenLabs that have
+	// not moved to streamable HTTP) does NOT set Extra at all — every POST
+	// arrives with request.Extra == nil, so all SSE callers collapse into the
+	// empty-string bucket. The demo runbook documents this asymmetry.
+	if s.demoLimiter != nil {
+		var extra *sdkmcp.RequestExtra
+		if request != nil {
+			extra = request.Extra
+		}
+		ip := clientIPFromExtra(extra, s.config.TrustProxy)
+		if !s.demoLimiter.Allow(ip) {
+			// The structured envelope must also signal the rate-limit because
+			// the MCP SDK marshals the ExecuteResponse zero-value into
+			// res.StructuredContent regardless of what we set on res — clients
+			// that prefer structuredContent over content would otherwise see
+			// {"status":"","api_calls":0} (looks like a successful empty run).
+			return demoRateLimitResult(int(time.Hour.Seconds())), ExecuteResponse{
+				Status: ExecuteStatusDemoRateLimit,
+				Error:  "demo_rate_limit",
+			}, nil
+		}
+	}
+
 	if strings.TrimSpace(input.Script) == "" {
 		return nil, ExecuteResponse{}, fmt.Errorf("script is required and must be non-empty")
 	}
@@ -197,4 +227,24 @@ func (s *Server) executorMaxAPICalls() int {
 		return s.config.MaxExecutorAPICalls
 	}
 	return defaultExecutorMaxAPICalls
+}
+
+// demoRateLimitResult builds the MCP tool response served when an mcp_execute
+// caller exceeds the per-IP demo limit. The JSON body shape
+// ({"error":"demo_rate_limit","limit":"mcp_execute","retry_after_seconds":N})
+// matches the HTTP demoRateLimitMiddleware response so the voice agent /
+// frontend can recognise either flavour.
+func demoRateLimitResult(retryAfterSeconds int) *sdkmcp.CallToolResult {
+	body, err := json.Marshal(map[string]any{
+		"error":               "demo_rate_limit",
+		"limit":               "mcp_execute",
+		"retry_after_seconds": retryAfterSeconds,
+	})
+	if err != nil {
+		body = []byte(`{"error":"demo_rate_limit","limit":"mcp_execute"}`)
+	}
+	return &sdkmcp.CallToolResult{
+		IsError: true,
+		Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: string(body)}},
+	}
 }

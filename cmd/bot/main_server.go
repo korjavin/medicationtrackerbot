@@ -323,6 +323,7 @@ func main() {
 			FoodLogsPerHour:         cfg.Demo.FoodLogsPerHour,
 			FoodPhotosPerHour:       cfg.Demo.FoodPhotosPerHour,
 			FoodDescriptionsPerHour: cfg.Demo.FoodDescriptionsPerHour,
+			MCPExecutePerHour:       cfg.Demo.MCPExecuteCallsPerHour,
 		})
 	}
 
