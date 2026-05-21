@@ -13,7 +13,8 @@ COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=linux go build -o bot ./cmd/bot && \
-    CGO_ENABLED=0 GOOS=linux go build -o mcptool ./cmd/mcptool
+    CGO_ENABLED=0 GOOS=linux go build -o mcptool ./cmd/mcptool && \
+    CGO_ENABLED=0 GOOS=linux go build -o seeddemo ./cmd/seeddemo
 
 FROM alpine:latest
 WORKDIR /app
@@ -26,6 +27,7 @@ RUN apk add --no-cache tzdata ca-certificates su-exec python3
 
 COPY --from=builder /app/bot .
 COPY --from=builder /app/mcptool .
+COPY --from=builder /app/seeddemo .
 COPY --from=builder /app/web ./web
 # Vendor the Python helper + runner so the executor can spawn it in-process.
 # The helper has no third-party deps (urllib + json from stdlib), which is
