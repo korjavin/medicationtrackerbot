@@ -40,10 +40,12 @@ func TestLoadConfigFromEnv_DemoMode(t *testing.T) {
 	}
 }
 
-func TestLoadConfigFromEnv_DemoMode_RejectsExecutor(t *testing.T) {
-	// In demo mode /mcp accepts all callers. Allowing the Python executor in
-	// that state would expose arbitrary code execution to anonymous traffic,
-	// so the loader must fail fast when both are set.
+func TestLoadConfigFromEnv_DemoMode_AllowsExecutorWithCaps(t *testing.T) {
+	// In demo mode /mcp accepts all callers, so we used to refuse to wire the
+	// Python executor. The metered posture replaces that fail-fast with a
+	// warn + per-IP rate limit + shrunk per-script caps; the loader must now
+	// succeed even when MCP_EXECUTOR_BRIDGE_URL is set, and surface the demo
+	// caps on the returned *Config.
 	required := map[string]string{
 		"ALLOWED_USER_ID":   "1",
 		"MCP_DATABASE_PATH": "/tmp/x.db",
@@ -56,12 +58,120 @@ func TestLoadConfigFromEnv_DemoMode_RejectsExecutor(t *testing.T) {
 	t.Setenv("DEMO_MODE", "1")
 	t.Setenv("MCP_EXECUTOR_BRIDGE_URL", "http://medtracker:8080/internal/mcp/bridge")
 
-	_, err := LoadConfigFromEnv()
-	if err == nil {
-		t.Fatal("expected error when DEMO_MODE=1 and MCP_EXECUTOR_BRIDGE_URL is set, got nil")
+	cfg, err := LoadConfigFromEnv()
+	if err != nil {
+		t.Fatalf("LoadConfigFromEnv with DEMO_MODE=1 + bridge URL returned error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "MCP_EXECUTOR_BRIDGE_URL") {
-		t.Errorf("expected error to mention MCP_EXECUTOR_BRIDGE_URL, got: %v", err)
+	if !cfg.DemoMode {
+		t.Fatalf("DemoMode = false, want true")
+	}
+	if cfg.ExecutorBridgeURL == "" {
+		t.Errorf("ExecutorBridgeURL was cleared by loader; want preserved")
+	}
+	if cfg.DemoExecuteCallsPerHour != 5 {
+		t.Errorf("DemoExecuteCallsPerHour = %d, want default 5", cfg.DemoExecuteCallsPerHour)
+	}
+	if cfg.DemoExecutorMaxAPICalls != 10 {
+		t.Errorf("DemoExecutorMaxAPICalls = %d, want default 10", cfg.DemoExecutorMaxAPICalls)
+	}
+	if cfg.DemoExecutorMaxTimeoutMS != 10000 {
+		t.Errorf("DemoExecutorMaxTimeoutMS = %d, want default 10000", cfg.DemoExecutorMaxTimeoutMS)
+	}
+}
+
+func TestLoadConfigFromEnv_DemoMode_CapsOverridable(t *testing.T) {
+	required := map[string]string{
+		"ALLOWED_USER_ID":   "1",
+		"MCP_DATABASE_PATH": "/tmp/x.db",
+	}
+	for k, v := range required {
+		t.Setenv(k, v)
+	}
+	t.Setenv("POCKET_ID_URL", "")
+	t.Setenv("MCP_SERVER_URL", "")
+	t.Setenv("MCP_EXECUTOR_BRIDGE_URL", "")
+	t.Setenv("DEMO_MODE", "1")
+	t.Setenv("DEMO_MCP_EXECUTE_PER_HOUR", "12")
+	t.Setenv("DEMO_MCP_EXECUTOR_MAX_API_CALLS", "25")
+	t.Setenv("DEMO_MCP_EXECUTOR_MAX_TIMEOUT_MS", "20000")
+
+	cfg, err := LoadConfigFromEnv()
+	if err != nil {
+		t.Fatalf("LoadConfigFromEnv returned error: %v", err)
+	}
+	if cfg.DemoExecuteCallsPerHour != 12 {
+		t.Errorf("DemoExecuteCallsPerHour = %d, want 12", cfg.DemoExecuteCallsPerHour)
+	}
+	if cfg.DemoExecutorMaxAPICalls != 25 {
+		t.Errorf("DemoExecutorMaxAPICalls = %d, want 25", cfg.DemoExecutorMaxAPICalls)
+	}
+	if cfg.DemoExecutorMaxTimeoutMS != 20000 {
+		t.Errorf("DemoExecutorMaxTimeoutMS = %d, want 20000", cfg.DemoExecutorMaxTimeoutMS)
+	}
+}
+
+func TestLoadConfigFromEnv_DemoMode_MalformedCapsFallBack(t *testing.T) {
+	required := map[string]string{
+		"ALLOWED_USER_ID":   "1",
+		"MCP_DATABASE_PATH": "/tmp/x.db",
+	}
+	for k, v := range required {
+		t.Setenv(k, v)
+	}
+	t.Setenv("POCKET_ID_URL", "")
+	t.Setenv("MCP_SERVER_URL", "")
+	t.Setenv("MCP_EXECUTOR_BRIDGE_URL", "")
+	t.Setenv("DEMO_MODE", "1")
+	t.Setenv("DEMO_MCP_EXECUTE_PER_HOUR", "not-an-int")
+	t.Setenv("DEMO_MCP_EXECUTOR_MAX_API_CALLS", "0")
+	t.Setenv("DEMO_MCP_EXECUTOR_MAX_TIMEOUT_MS", "-1")
+
+	cfg, err := LoadConfigFromEnv()
+	if err != nil {
+		t.Fatalf("LoadConfigFromEnv returned error: %v", err)
+	}
+	if cfg.DemoExecuteCallsPerHour != 5 {
+		t.Errorf("DemoExecuteCallsPerHour = %d, want default 5", cfg.DemoExecuteCallsPerHour)
+	}
+	if cfg.DemoExecutorMaxAPICalls != 10 {
+		t.Errorf("DemoExecutorMaxAPICalls = %d, want default 10", cfg.DemoExecutorMaxAPICalls)
+	}
+	if cfg.DemoExecutorMaxTimeoutMS != 10000 {
+		t.Errorf("DemoExecutorMaxTimeoutMS = %d, want default 10000", cfg.DemoExecutorMaxTimeoutMS)
+	}
+}
+
+func TestApplyDemoExecutorCaps_DemoOn(t *testing.T) {
+	cfg := &Config{
+		DemoMode:                 true,
+		MaxExecutorAPICalls:      200,
+		MaxExecutorTimeoutMS:     45_000,
+		DemoExecutorMaxAPICalls:  10,
+		DemoExecutorMaxTimeoutMS: 8_000,
+	}
+	ApplyDemoExecutorCaps(cfg)
+	if cfg.MaxExecutorAPICalls != 10 {
+		t.Errorf("MaxExecutorAPICalls = %d, want 10 (overridden by demo)", cfg.MaxExecutorAPICalls)
+	}
+	if cfg.MaxExecutorTimeoutMS != 8_000 {
+		t.Errorf("MaxExecutorTimeoutMS = %d, want 8000 (overridden by demo)", cfg.MaxExecutorTimeoutMS)
+	}
+}
+
+func TestApplyDemoExecutorCaps_DemoOff(t *testing.T) {
+	cfg := &Config{
+		DemoMode:                 false,
+		MaxExecutorAPICalls:      200,
+		MaxExecutorTimeoutMS:     45_000,
+		DemoExecutorMaxAPICalls:  10,
+		DemoExecutorMaxTimeoutMS: 8_000,
+	}
+	ApplyDemoExecutorCaps(cfg)
+	if cfg.MaxExecutorAPICalls != 200 {
+		t.Errorf("MaxExecutorAPICalls = %d, want 200 unchanged (demo off)", cfg.MaxExecutorAPICalls)
+	}
+	if cfg.MaxExecutorTimeoutMS != 45_000 {
+		t.Errorf("MaxExecutorTimeoutMS = %d, want 45000 unchanged (demo off)", cfg.MaxExecutorTimeoutMS)
 	}
 }
 
