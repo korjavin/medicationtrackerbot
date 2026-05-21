@@ -89,6 +89,12 @@ type Config struct {
 	// DemoExecutorMaxTimeoutMS overrides MaxExecutorTimeoutMS when DemoMode is
 	// on, shortening the wall-clock budget per script for the same reason.
 	DemoExecutorMaxTimeoutMS int64
+
+	// TrustProxy controls whether the rate-limiter middleware honors
+	// X-Forwarded-For / X-Real-IP when deriving the client IP. Mirrors the
+	// server build's AUTH_TRUST_PROXY env var so the demo deploy behind
+	// Traefik can attribute traffic to the real client.
+	TrustProxy bool
 }
 
 // LoadConfigFromEnv loads configuration from environment variables
@@ -126,6 +132,7 @@ func LoadConfigFromEnv() (*Config, error) {
 	noLegacyMCP := strings.TrimSpace(os.Getenv("NO_LEGACY_MCP")) != ""
 
 	demoMode := parseBoolEnv("DEMO_MODE", false)
+	trustProxy := parseBoolEnv("AUTH_TRUST_PROXY", false)
 
 	// MCP_EXECUTOR_BRIDGE_URL is the explicit opt-in for the in-process Python
 	// executor. We deliberately do NOT derive this from MCP_AUDIT_ENDPOINT:
@@ -164,6 +171,7 @@ func LoadConfigFromEnv() (*Config, error) {
 		DemoExecuteCallsPerHour:  demoExecutePerHour,
 		DemoExecutorMaxAPICalls:  demoExecutorMaxAPICalls,
 		DemoExecutorMaxTimeoutMS: demoExecutorMaxTimeoutMS,
+		TrustProxy:               trustProxy,
 	}
 
 	if cfg.AdminPort > 0 && cfg.AdminPort == cfg.Port {
@@ -252,6 +260,11 @@ type Server struct {
 	admin         AdminStore
 	reg           *registry.Registry
 	executor      ExecutionService
+
+	// demoLimiter caps mcp_execute calls per client IP when DemoMode is on. nil
+	// outside demo mode (so production has no overhead and no behavioral
+	// difference). Constructed in NewServer.
+	demoLimiter *rateLimiter
 }
 
 // AuditBuffer returns the audit buffer used by granular tools. The executor
@@ -293,6 +306,14 @@ func NewServer(cfg *Config, st *store.Repos, audit *AuditBuffer) (*Server, error
 		slog.Warn("[MCP] DEMO_MODE: OAuth disabled, /mcp and /sse accept all callers")
 	} else {
 		s.oauth = NewOAuthHandler(cfg, st.Auth)
+	}
+
+	// In demo mode the only defence against anonymous mcp_execute traffic is a
+	// per-IP rate limit (plus the shrunk per-script caps applied in main).
+	// Outside demo mode the OAuth gate keeps the executor private and the
+	// limiter stays nil.
+	if cfg.DemoMode && cfg.DemoExecuteCallsPerHour > 0 {
+		s.demoLimiter = newRateLimiter(cfg.DemoExecuteCallsPerHour, time.Hour)
 	}
 
 	// Wire food + workout writers using the audit endpoint base URL.
@@ -818,6 +839,12 @@ func (s *Server) buildPublicMux() *http.ServeMux {
 	if s.oauth != nil {
 		mcpHandler = s.oauth.Middleware(streamableHandler)
 	}
+	// In demo mode the per-IP rate limit lives inside handleMCPExecute, but it
+	// needs the client IP — inject it through the request context here so the
+	// tool handler can read it via clientIPFromCtx.
+	if s.demoLimiter != nil {
+		mcpHandler = clientIPMiddleware(s.config.TrustProxy)(mcpHandler)
+	}
 
 	// Limit request body size to 1MB to prevent memory exhaustion
 	maxBytesMiddleware := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -837,6 +864,11 @@ func (s *Server) buildPublicMux() *http.ServeMux {
 	var sseAuthHandler http.Handler = sseHandler
 	if s.oauth != nil {
 		sseAuthHandler = s.oauth.Middleware(sseHandler)
+	}
+	// Same IP-injection for the legacy SSE transport — the voice agent uses
+	// /sse, so the rate limit must apply there too.
+	if s.demoLimiter != nil {
+		sseAuthHandler = clientIPMiddleware(s.config.TrustProxy)(sseAuthHandler)
 	}
 	sseMaxBytes := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)

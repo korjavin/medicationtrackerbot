@@ -89,12 +89,12 @@ Dependencies identified:
 
 ### Task 3: Per-IP rate limit inside handleMCPExecute
 
-- [ ] in `internal/mcp/`, add a `clientIP(r *http.Request, trustProxy bool) string` helper mirroring `internal/server/server.go`'s (small dup is fine; we already duplicate `parseBoolEnv` here)
-- [ ] add an HTTP middleware on `/mcp` in `internal/mcp/mcp.go`'s `buildPublicMux` that, when `cfg.DemoMode` is true, injects the client IP into the request context using a typed key (e.g. `mcpClientIPKey`)
-- [ ] add a `*rateLimiter` field to the MCP `Server` struct that's constructed only when `cfg.DemoMode` is true, using `cfg.DemoExecuteCallsPerHour` and `time.Hour`. Mirror the constructor pattern from `internal/server/server.go`'s `newRateLimiter`
-- [ ] at the top of `handleMCPExecute` (`internal/mcp/execute.go`), if `s.demoLimiter != nil`, read the client IP from ctx and call `Allow(ip)`. On reject, return an `mcp.ToolResponse` whose JSON content is `{"error":"demo_rate_limit","limit":"mcp_execute","retry_after_seconds":3600}` so callers see the same shape as the other demo-rate-limited routes
-- [ ] add `internal/mcp/execute_demo_test.go` covering: (a) demo off → no limit, (b) demo on, 5 calls succeed, 6th returns demo_rate_limit body, (c) per-IP keying (IP A's bucket doesn't affect IP B), (d) ctx without IP → caller treated as a single shared bucket (defensive)
-- [ ] run `go test ./internal/mcp/...` — must pass before next task
+- [x] in `internal/mcp/`, add a `clientIP(r *http.Request, trustProxy bool) string` helper mirroring `internal/server/server.go`'s (small dup is fine; we already duplicate `parseBoolEnv` here)
+- [x] add an HTTP middleware on `/mcp` in `internal/mcp/mcp.go`'s `buildPublicMux` that, when `cfg.DemoMode` is true, injects the client IP into the request context using a typed key (e.g. `mcpClientIPKey`)
+- [x] add a `*rateLimiter` field to the MCP `Server` struct that's constructed only when `cfg.DemoMode` is true, using `cfg.DemoExecuteCallsPerHour` and `time.Hour`. Mirror the constructor pattern from `internal/server/server.go`'s `newRateLimiter`
+- [x] at the top of `handleMCPExecute` (`internal/mcp/execute.go`), if `s.demoLimiter != nil`, read the client IP from ctx and call `Allow(ip)`. On reject, return an `mcp.ToolResponse` whose JSON content is `{"error":"demo_rate_limit","limit":"mcp_execute","retry_after_seconds":3600}` so callers see the same shape as the other demo-rate-limited routes
+- [x] add `internal/mcp/execute_demo_test.go` covering: (a) demo off → no limit, (b) demo on, 5 calls succeed, 6th returns demo_rate_limit body, (c) per-IP keying (IP A's bucket doesn't affect IP B), (d) ctx without IP → caller treated as a single shared bucket (defensive)
+- [x] run `go test ./internal/mcp/...` — must pass before next task
 
 ### Task 4: Surface mcp_execute_per_hour in /api/bootstrap
 

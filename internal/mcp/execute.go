@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/mcp/proxy"
 	"github.com/korjavin/medicationtrackerbot/internal/mcp/registry"
@@ -100,6 +101,18 @@ func (s *Server) handleMCPExecute(
 	_ *sdkmcp.CallToolRequest,
 	input ExecuteInput,
 ) (*sdkmcp.CallToolResult, ExecuteResponse, error) {
+	// Demo-mode per-IP rate limit. The MCP SDK owns tool dispatch (so we can't
+	// intercept at the HTTP layer cleanly), and the limit is per tool — only
+	// mcp_execute is metered. The IP is injected by clientIPMiddleware in
+	// buildPublicMux when DemoMode is on; if the context lacks one (defensive
+	// path, e.g. direct unit tests) all callers share the empty-string bucket.
+	if s.demoLimiter != nil {
+		ip := clientIPFromCtx(ctx)
+		if !s.demoLimiter.Allow(ip) {
+			return demoRateLimitResult(int(time.Hour.Seconds())), ExecuteResponse{}, nil
+		}
+	}
+
 	if strings.TrimSpace(input.Script) == "" {
 		return nil, ExecuteResponse{}, fmt.Errorf("script is required and must be non-empty")
 	}
@@ -197,4 +210,24 @@ func (s *Server) executorMaxAPICalls() int {
 		return s.config.MaxExecutorAPICalls
 	}
 	return defaultExecutorMaxAPICalls
+}
+
+// demoRateLimitResult builds the MCP tool response served when an mcp_execute
+// caller exceeds the per-IP demo limit. The JSON body shape
+// ({"error":"demo_rate_limit","limit":"mcp_execute","retry_after_seconds":N})
+// matches the HTTP demoRateLimitMiddleware response so the voice agent /
+// frontend can recognise either flavour.
+func demoRateLimitResult(retryAfterSeconds int) *sdkmcp.CallToolResult {
+	body, err := json.Marshal(map[string]any{
+		"error":               "demo_rate_limit",
+		"limit":               "mcp_execute",
+		"retry_after_seconds": retryAfterSeconds,
+	})
+	if err != nil {
+		body = []byte(`{"error":"demo_rate_limit","limit":"mcp_execute"}`)
+	}
+	return &sdkmcp.CallToolResult{
+		IsError: true,
+		Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: string(body)}},
+	}
 }
