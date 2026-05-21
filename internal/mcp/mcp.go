@@ -162,6 +162,9 @@ func LoadConfigFromEnv() (*Config, error) {
 		if cfg.MCPServerURL == "" {
 			return nil, fmt.Errorf("MCP_SERVER_URL is required")
 		}
+		if strings.TrimSpace(cfg.AllowedSubject) == "" {
+			return nil, fmt.Errorf("MCP_ALLOWED_SUBJECT is required")
+		}
 	}
 	// Refuse to wire the Python executor in demo mode: /mcp accepts all
 	// callers without OAuth, so leaving mcp_execute reachable would expose
