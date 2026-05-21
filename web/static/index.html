@@ -33,10 +33,13 @@
 </head>
 
 <body>
-    <div id="app">
-        <div id="offline-banner" class="offline-banner hidden" aria-live="polite">Offline — showing cached data</div>
-        <div id="demo-banner" class="wg-demo-banner hidden" hidden aria-live="polite"></div>
+    <!-- Banners sit OUTSIDE #app so the negative top margin used by views
+         like .wg-today (to bleed the teal stage past #app's padding) can't
+         pull view content underneath them. -->
+    <div id="offline-banner" class="offline-banner hidden" aria-live="polite">Offline — showing cached data</div>
+    <div id="demo-banner" class="wg-demo-banner hidden" hidden aria-live="polite"></div>
 
+    <div id="app">
         <div id="today-view" class="view active">
             <div id="today-content"></div>
         </div>
