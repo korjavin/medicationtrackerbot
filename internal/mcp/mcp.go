@@ -839,12 +839,6 @@ func (s *Server) buildPublicMux() *http.ServeMux {
 	if s.oauth != nil {
 		mcpHandler = s.oauth.Middleware(streamableHandler)
 	}
-	// In demo mode the per-IP rate limit lives inside handleMCPExecute, but it
-	// needs the client IP — inject it through the request context here so the
-	// tool handler can read it via clientIPFromCtx.
-	if s.demoLimiter != nil {
-		mcpHandler = clientIPMiddleware(s.config.TrustProxy)(mcpHandler)
-	}
 
 	// Limit request body size to 1MB to prevent memory exhaustion
 	maxBytesMiddleware := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -864,11 +858,6 @@ func (s *Server) buildPublicMux() *http.ServeMux {
 	var sseAuthHandler http.Handler = sseHandler
 	if s.oauth != nil {
 		sseAuthHandler = s.oauth.Middleware(sseHandler)
-	}
-	// Same IP-injection for the legacy SSE transport — the voice agent uses
-	// /sse, so the rate limit must apply there too.
-	if s.demoLimiter != nil {
-		sseAuthHandler = clientIPMiddleware(s.config.TrustProxy)(sseAuthHandler)
 	}
 	sseMaxBytes := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
