@@ -122,12 +122,12 @@ Out of scope (intentional, per planning conversation):
 
 ### Task 6: Add demo-mode background top-up loop in the bot
 
-- [ ] confirm how `DEMO_MODE=1` is read in `cmd/bot/main.go` (server build). Probably `os.Getenv("DEMO_MODE") == "1"`; verify location.
-- [ ] add `DEMO_TOPUP_INTERVAL` env var (default `1h`, parsed with `time.ParseDuration`) and `DEMO_USER_ID` (already present as `ALLOWED_USER_ID` per docs/demo-mode.md — reuse it).
-- [ ] in `cmd/bot/main_server.go` (or wherever demo wiring lives), after store init and before HTTP/Telegram start: if `DEMO_MODE=1`, launch `go demotopup.Run(ctx, store, userID, interval, seed)`.
-- [ ] new package `internal/demotopup/` with `Run(ctx, ...)`: ticker that calls `seeddemo.TopUp` every interval, logs result via `slog.Info("demo top-up tick", "added_rows", n, "duration", d)`, swallows errors with `slog.Error`. First tick fires immediately on startup so a freshly-deployed demo gets data right away.
-- [ ] write tests for `demotopup.Run`: uses a fake clock + a stub `TopUpFunc`, asserts the function is called on tick boundaries and on context cancel the loop exits. Don't try to exercise the full `seeddemo.TopUp` here — that's covered in task 4.
-- [ ] run `go test ./internal/demotopup/... ./cmd/bot/...` — must pass before task 7.
+- [x] confirm how `DEMO_MODE=1` is read in `cmd/bot/main.go` (server build). It is read in `internal/config/config.go` via `parseBoolEnv("DEMO_MODE", false)` into `cfg.DemoMode`, and the server-build composition root `cmd/bot/main_server.go` consults `cfg.DemoMode` (it also fails-fast if `ALLOWED_USER_ID` is unset alongside `DEMO_MODE=1`).
+- [x] add `DEMO_TOPUP_INTERVAL` env var (default `1h`, parsed with `time.ParseDuration`) and `DEMO_USER_ID` (reused `ALLOWED_USER_ID` per docs/demo-mode.md). Added `DemoConfig.TopUpInterval` (with `parsePositiveDurationEnv` helper that rejects ≤0 durations and malformed strings, falling back to 1h with a slog.Warn). Also added optional `DEMO_TOPUP_SEED → DemoConfig.TopUpSeed` (default 0) so operators can override the deterministic per-tick seed without rebuilding.
+- [x] in `cmd/bot/main_server.go`, after store init and before HTTP listener starts: when `cfg.DemoMode` is true, launch `go demotopup.Run(ctx, demotopup.Config{...})` using the signal-tied `ctx` so SIGINT/SIGTERM cancels the loop alongside HTTP shutdown.
+- [x] new package `internal/demotopup/` (`runner.go`) with `Run(ctx, Config)`: ticker calls `seeddemo.TopUp` every interval. First tick fires immediately on startup. Errors are swallowed with `slog.Error`; success logs `demotopup: tick completed` with `added_rows` (sum of every per-stream count on the Summary) and `duration`. The Config indirects the topup call through a `TopUpFunc` and the wall clock through a `func() time.Time` so tests don't have to stand up a real SQLite database.
+- [x] write tests for `demotopup.Run` in `internal/demotopup/runner_test.go`: bail-out arms (zero user id, zero/negative interval, nil store), first-tick-fires-immediately, ticks-at-interval, context-cancel-exits-the-loop, errors-are-swallowed-and-loop-keeps-ticking. All five tests use a stub `TopUpFunc` and a sentinel `&store.Store{}` pointer (the stub never dereferences it).
+- [x] run `go test ./internal/demotopup/... ./cmd/bot/...` — passes. Also re-ran `go test ./internal/config/...` and `go test ./...` — full suite green; `go vet ./...` clean.
 
 ### Task 7: Documentation
 
