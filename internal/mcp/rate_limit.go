@@ -1,8 +1,6 @@
 package mcp
 
 import (
-	"net"
-	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -84,42 +82,25 @@ func (r *rateLimiter) Allow(key string) bool {
 	return true
 }
 
-// clientIP returns the best-guess client IP. When trustProxy is true the
-// X-Forwarded-For / X-Real-IP headers are honored (the demo deploy sits
-// behind Traefik). Otherwise the raw RemoteAddr host is used.
-func clientIP(r *http.Request, trustProxy bool) string {
-	if trustProxy {
-		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			parts := strings.Split(xff, ",")
-			if len(parts) > 0 {
-				return strings.TrimSpace(parts[0])
-			}
-		}
-		if xrip := r.Header.Get("X-Real-IP"); xrip != "" {
-			return xrip
-		}
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err == nil && host != "" {
-		return host
-	}
-	return r.RemoteAddr
-}
-
 // clientIPFromExtra returns the client IP from a tool-call request's per-POST
-// headers. The MCP SDK attaches the original request headers to jreq.Extra
-// at dispatch time (streamable.go's servePOST stamps them on every POST), so
-// this is the only reliable per-POST IP signal available inside a tool
-// handler — the ctx passed to the handler is the connection-level ctx
-// captured at session-init time and is identical across every POST in the
-// session, so a context-injection middleware would attribute every call in
-// a session to the IP that initiated the session.
+// headers. The MCP SDK's streamable HTTP transport attaches the original
+// request headers to jreq.Extra at dispatch time (streamable.go's servePOST
+// stamps them on every POST), so this is the only reliable per-POST IP signal
+// available inside a tool handler — the ctx passed to the handler is the
+// connection-level ctx captured at session-init time and is identical across
+// every POST in the session, so a context-injection middleware would
+// attribute every call in a session to the IP that initiated the session.
+//
+// The legacy SSE transport (clients like ElevenLabs) never sets jreq.Extra,
+// so extra is nil for SSE callers and they all share the empty-string bucket.
+// Operators relying on per-IP attribution must steer clients to the
+// streamable HTTP /mcp endpoint.
 //
 // When trustProxy is true, X-Forwarded-For (first hop) and X-Real-IP are
-// honored, mirroring the server-side clientIP helper. When trustProxy is
-// false there is no RemoteAddr in Extra; the function returns "" and the
-// limiter falls back to a single shared bucket for all callers. The demo
-// runbook documents AUTH_TRUST_PROXY=1 as required for this reason.
+// honored. When trustProxy is false there is no RemoteAddr in Extra; the
+// function returns "" and the limiter falls back to a single shared bucket
+// for all callers. The demo runbook documents AUTH_TRUST_PROXY=1 as required
+// for this reason.
 func clientIPFromExtra(extra *sdkmcp.RequestExtra, trustProxy bool) string {
 	if extra == nil || extra.Header == nil || !trustProxy {
 		return ""

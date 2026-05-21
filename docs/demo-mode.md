@@ -110,6 +110,10 @@ Dismiss persists `demoBannerDismissed=<hash>` in `localStorage`, where the hash 
 
 The per-IP rate limiters key on `clientIP(r, trustProxy)`. The Traefik-fronted demo deployment must set `AUTH_TRUST_PROXY=1` so `X-Forwarded-For` is honored. Without it, every visitor presents the same upstream IP (the Traefik container) and the limits become global — the first visitor of the hour drains everyone's budget. This is the single most common deployment mistake; check it first if the demo "shares" rate-limit hits across IPs.
 
+### MCP SSE transport caveat
+
+`mcp_execute` per-IP attribution relies on the SDK's streamable HTTP transport stamping the original request headers onto each per-POST `RequestExtra.Header`. The legacy SSE transport (the `/sse` endpoint, used by clients like ElevenLabs that have not moved to streamable HTTP) does not propagate per-POST headers — every SSE tool call arrives at the handler with `request.Extra == nil`, so all SSE callers collapse into a single shared bucket regardless of source IP. Streamable HTTP clients on `/mcp` get true per-IP attribution. Treat `DEMO_MCP_EXECUTE_PER_HOUR` as the global ceiling for SSE traffic.
+
 ## Build seam
 
 No new build tags. The demo wiring lives in:

@@ -479,8 +479,7 @@ func clearEnv(t *testing.T) {
 		"DEMO_MODE", "DEMO_AGENT_CALLS_PER_DAY", "DEMO_AGENT_UPLOADS_PER_DAY",
 		"DEMO_FOOD_LOGS_PER_HOUR",
 		"DEMO_FOOD_PHOTOS_PER_HOUR", "DEMO_FOOD_DESCRIPTIONS_PER_HOUR",
-		"DEMO_MCP_EXECUTE_PER_HOUR", "DEMO_MCP_EXECUTOR_MAX_API_CALLS",
-		"DEMO_MCP_EXECUTOR_MAX_TIMEOUT_MS",
+		"DEMO_MCP_EXECUTE_PER_HOUR",
 	} {
 		t.Setenv(k, "")
 	}
@@ -494,8 +493,6 @@ func TestLoadFromEnv_DemoMode(t *testing.T) {
 		FoodPhotosPerHour:       1,
 		FoodDescriptionsPerHour: 1,
 		MCPExecuteCallsPerHour:  5,
-		MCPExecutorMaxAPICalls:  10,
-		MCPExecutorMaxTimeoutMS: 10000,
 	}
 
 	tests := []struct {
@@ -531,15 +528,13 @@ func TestLoadFromEnv_DemoMode(t *testing.T) {
 		{
 			name: "all_overrides_set",
 			envVars: map[string]string{
-				"DEMO_MODE":                        "1",
-				"DEMO_AGENT_CALLS_PER_DAY":         "5",
-				"DEMO_AGENT_UPLOADS_PER_DAY":       "30",
-				"DEMO_FOOD_LOGS_PER_HOUR":          "10",
-				"DEMO_FOOD_PHOTOS_PER_HOUR":        "3",
-				"DEMO_FOOD_DESCRIPTIONS_PER_HOUR":  "7",
-				"DEMO_MCP_EXECUTE_PER_HOUR":        "11",
-				"DEMO_MCP_EXECUTOR_MAX_API_CALLS":  "25",
-				"DEMO_MCP_EXECUTOR_MAX_TIMEOUT_MS": "15000",
+				"DEMO_MODE":                       "1",
+				"DEMO_AGENT_CALLS_PER_DAY":        "5",
+				"DEMO_AGENT_UPLOADS_PER_DAY":      "30",
+				"DEMO_FOOD_LOGS_PER_HOUR":         "10",
+				"DEMO_FOOD_PHOTOS_PER_HOUR":       "3",
+				"DEMO_FOOD_DESCRIPTIONS_PER_HOUR": "7",
+				"DEMO_MCP_EXECUTE_PER_HOUR":       "11",
 			},
 			wantOn: true,
 			wantDemo: DemoConfig{
@@ -549,8 +544,6 @@ func TestLoadFromEnv_DemoMode(t *testing.T) {
 				FoodPhotosPerHour:       3,
 				FoodDescriptionsPerHour: 7,
 				MCPExecuteCallsPerHour:  11,
-				MCPExecutorMaxAPICalls:  25,
-				MCPExecutorMaxTimeoutMS: 15000,
 			},
 		},
 		{
@@ -568,21 +561,17 @@ func TestLoadFromEnv_DemoMode(t *testing.T) {
 				FoodPhotosPerHour:       1,
 				FoodDescriptionsPerHour: 1,
 				MCPExecuteCallsPerHour:  17,
-				MCPExecutorMaxAPICalls:  10,
-				MCPExecutorMaxTimeoutMS: 10000,
 			},
 		},
 		{
 			name: "malformed_integers_fall_back_to_defaults",
 			envVars: map[string]string{
-				"DEMO_MODE":                        "1",
-				"DEMO_AGENT_CALLS_PER_DAY":         "not-a-number",
-				"DEMO_FOOD_LOGS_PER_HOUR":          "",
-				"DEMO_FOOD_PHOTOS_PER_HOUR":        "0",
-				"DEMO_FOOD_DESCRIPTIONS_PER_HOUR":  "-5",
-				"DEMO_MCP_EXECUTE_PER_HOUR":        "nope",
-				"DEMO_MCP_EXECUTOR_MAX_API_CALLS":  "0",
-				"DEMO_MCP_EXECUTOR_MAX_TIMEOUT_MS": "-1",
+				"DEMO_MODE":                       "1",
+				"DEMO_AGENT_CALLS_PER_DAY":        "not-a-number",
+				"DEMO_FOOD_LOGS_PER_HOUR":         "",
+				"DEMO_FOOD_PHOTOS_PER_HOUR":       "0",
+				"DEMO_FOOD_DESCRIPTIONS_PER_HOUR": "-5",
+				"DEMO_MCP_EXECUTE_PER_HOUR":       "nope",
 			},
 			wantOn:   true,
 			wantDemo: defaults,
@@ -590,11 +579,9 @@ func TestLoadFromEnv_DemoMode(t *testing.T) {
 		{
 			name: "overrides_ignored_when_demo_off",
 			envVars: map[string]string{
-				"DEMO_AGENT_CALLS_PER_DAY":         "99",
-				"DEMO_FOOD_LOGS_PER_HOUR":          "99",
-				"DEMO_MCP_EXECUTE_PER_HOUR":        "99",
-				"DEMO_MCP_EXECUTOR_MAX_API_CALLS":  "99",
-				"DEMO_MCP_EXECUTOR_MAX_TIMEOUT_MS": "99",
+				"DEMO_AGENT_CALLS_PER_DAY":  "99",
+				"DEMO_FOOD_LOGS_PER_HOUR":   "99",
+				"DEMO_MCP_EXECUTE_PER_HOUR": "99",
 			},
 			wantOn:   false,
 			wantDemo: DemoConfig{},

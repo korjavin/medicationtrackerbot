@@ -25,6 +25,7 @@ const (
 	ExecuteStatusProxyDenied           = "proxy_denied"
 	ExecuteStatusBackendAppError       = "backend_application_error"
 	ExecuteStatusBackendTransportError = "backend_transport_error"
+	ExecuteStatusDemoRateLimit         = "demo_rate_limit"
 
 	// ExecuteErr* are stable error code strings embedded in the Error field of
 	// the response envelope. They are used as a prefix so callers (including
@@ -104,11 +105,12 @@ func (s *Server) handleMCPExecute(
 	// Demo-mode per-IP rate limit. The MCP SDK owns tool dispatch and the ctx
 	// passed to this handler is the connection-level ctx captured at session-
 	// init time — it does NOT change between POSTs in the same session. The
-	// per-POST headers (and thus the real client IP) are propagated by the SDK
-	// on request.Extra.Header, so the IP is read from there. When the headers
-	// are unavailable (direct unit-test calls with a nil request, or
-	// trust_proxy=false) all callers share the empty-string bucket; the demo
-	// runbook documents AUTH_TRUST_PROXY=1 as required behind Traefik.
+	// streamable HTTP transport (the /mcp endpoint) propagates per-POST headers
+	// on request.Extra.Header, so the IP is read from there. The legacy SSE
+	// transport (the /sse endpoint, used by clients like ElevenLabs that have
+	// not moved to streamable HTTP) does NOT set Extra at all — every POST
+	// arrives with request.Extra == nil, so all SSE callers collapse into the
+	// empty-string bucket. The demo runbook documents this asymmetry.
 	if s.demoLimiter != nil {
 		var extra *sdkmcp.RequestExtra
 		if request != nil {
@@ -116,7 +118,15 @@ func (s *Server) handleMCPExecute(
 		}
 		ip := clientIPFromExtra(extra, s.config.TrustProxy)
 		if !s.demoLimiter.Allow(ip) {
-			return demoRateLimitResult(int(time.Hour.Seconds())), ExecuteResponse{}, nil
+			// The structured envelope must also signal the rate-limit because
+			// the MCP SDK marshals the ExecuteResponse zero-value into
+			// res.StructuredContent regardless of what we set on res — clients
+			// that prefer structuredContent over content would otherwise see
+			// {"status":"","api_calls":0} (looks like a successful empty run).
+			return demoRateLimitResult(int(time.Hour.Seconds())), ExecuteResponse{
+				Status: ExecuteStatusDemoRateLimit,
+				Error:  "demo_rate_limit",
+			}, nil
 		}
 	}
 
