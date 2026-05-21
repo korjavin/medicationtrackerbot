@@ -131,9 +131,9 @@ Out of scope (intentional, per planning conversation):
 
 ### Task 7: Documentation
 
-- [ ] update `docs/demo-mode.md`: new section "Automatic top-up" explaining the in-process goroutine, `DEMO_TOPUP_INTERVAL`, and that a manual `seeddemo -topup` run is still supported for ops.
-- [ ] update `CLAUDE.md` `cmd/seeddemo` example block to show the new flag.
-- [ ] no test changes for doc-only tasks.
+- [x] update `docs/demo-mode.md`: new section "Automatic top-up" explaining the in-process goroutine, `DEMO_TOPUP_INTERVAL`, and that a manual `seeddemo -topup` run is still supported for ops. Also added `DEMO_TOPUP_INTERVAL` + `DEMO_TOPUP_SEED` rows to the env-var table, a `internal/demotopup/runner.go` line to the build seam, a top-up smoke-test bullet, and rewrote the operator runbook's "schedule a nightly re-seed cron" line to note that the in-process loop now handles freshness.
+- [x] update `CLAUDE.md` `cmd/seeddemo` example block to show the new flag. The block already showed `-topup`; expanded to mention continuous HR/SpO2/stress samples in the seeded data list and to point at the new `internal/demotopup` package + the docs/demo-mode.md anchor.
+- [x] no test changes for doc-only tasks.
 
 ### Task 8: Verify acceptance criteria
 
