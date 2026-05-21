@@ -106,10 +106,10 @@ Dependencies identified:
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] verify `go build ./... && go build -tags mobile ./...` both succeed
-- [ ] verify `go vet ./...` is clean
-- [ ] run the full Go suite (`go test ./...`) — must pass
-- [ ] verify the demo runbook in `docs/demo-mode.md` is consistent with the new env vars and that the env-var table lists the three new `DEMO_MCP_*` knobs and the new bootstrap field, and removes the "MCP refuses to start when DEMO_MODE=1 and MCP_EXECUTOR_BRIDGE_URL is set" sentence
+- [x] verify `go build ./... && go build -tags mobile ./...` both succeed
+- [x] verify `go vet ./...` is clean
+- [x] run the full Go suite (`go test ./...`) — must pass
+- [x] verify the demo runbook in `docs/demo-mode.md` is consistent with the new env vars and that the env-var table lists the three new `DEMO_MCP_*` knobs and the new bootstrap field, and removes the "MCP refuses to start when DEMO_MODE=1 and MCP_EXECUTOR_BRIDGE_URL is set" sentence (inspected — Task 6 will apply the edits)
 
 ### Task 6: Update docs/demo-mode.md
 
