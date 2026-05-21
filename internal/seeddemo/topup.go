@@ -76,19 +76,16 @@ func TopUp(ctx context.Context, s *store.Store, opts TopUpOptions) (*Summary, er
 	clk := newClock(opts.Now, opts.Days)
 
 	// --- Sleep ---
-	// Pull last sleep end first because the time-series generators want the
-	// freshly-added sleep windows in their vitalsContext so HR dips on the new
-	// night.
+	// Sleep is emitted before time-series so loadRecentSleepWindows below picks
+	// up any new sleep blocks for HR/SpO2/stress correlation.
 	sleepEnd, hasSleep, err := s.Vitals.LatestSleepEnd(ctx, opts.UserID)
 	if err != nil {
 		return nil, fmt.Errorf("latest sleep: %w", err)
 	}
-	var newSleeps []sleepWindow
 	if shouldEmitSleep(sleepEnd, hasSleep, opts.Now) {
 		from := dailyTopUpFrom(sleepEnd, hasSleep, opts.Now)
 		if from.Before(opts.Now) {
-			newSleeps, err = generateSleep(ctx, s, optsLike, clk, rng, from, opts.Now, summary)
-			if err != nil {
+			if _, err := generateSleep(ctx, s, optsLike, clk, rng, from, opts.Now, summary); err != nil {
 				return nil, fmt.Errorf("top-up sleep: %w", err)
 			}
 		}
@@ -153,17 +150,16 @@ func TopUp(ctx context.Context, s *store.Store, opts TopUpOptions) (*Summary, er
 	}
 
 	// --- Time-series vitals (HR / SpO2 / stress) ---
-	// vitalsContext carries the (freshly-added) sleep windows plus the static
-	// workout schedule so HR samples dip during sleep and spike during workouts
-	// exactly like the full-seed path. We mix in any pre-existing sleep windows
-	// from the recent past so an in-flight sleep block (last 24h) still anchors
-	// HR samples even if no new sleep was emitted this tick.
-	prevSleeps, err := loadRecentSleepWindows(ctx, s, opts.UserID, opts.Now.AddDate(0, 0, -2), opts.Now)
+	// vitalsContext carries the recent sleep windows plus the static workout
+	// schedule so HR samples dip during sleep and spike during workouts exactly
+	// like the full-seed path. loadRecentSleepWindows runs AFTER generateSleep,
+	// so the returned set already includes any sleep blocks just inserted.
+	recentSleeps, err := loadRecentSleepWindows(ctx, s, opts.UserID, opts.Now.AddDate(0, 0, -2), opts.Now)
 	if err != nil {
 		return nil, fmt.Errorf("load recent sleep windows: %w", err)
 	}
 	vc := &vitalsContext{
-		sleeps:   append(prevSleeps, newSleeps...),
+		sleeps:   recentSleeps,
 		workouts: computeWorkoutWindows(optsLike, clk),
 	}
 	tsRng := rand.New(rand.NewPCG(rngSeed^0xA5A5A5A5A5A5A5A5, rngSeed^0x5A5A5A5A5A5A5A5A))
@@ -348,10 +344,11 @@ func topUpMedIntakes(ctx context.Context, s *store.Store, userID int64, now time
 		windowStart := startOfDayUTC(windowEnd.AddDate(0, 0, -1))
 		if hasLatest {
 			// Walk forward from the day AFTER the latest dose so we don't
-			// re-emit it. intake_log has UNIQUE(medication_id, scheduled_at_unix)
-			// so a same-second collision would be rejected anyway, but this
-			// keeps the schema constraint as a backstop rather than the
-			// primary gate.
+			// re-emit it. intake_log has no UNIQUE(medication_id,
+			// scheduled_at_unix) constraint (only tz_step rows have a unique
+			// index per migration 067), so dedupe relies entirely on this
+			// day-after snap plus the strict scheduledAt.After(latest) guard
+			// below — there is no schema-level backstop.
 			windowStart = startOfDayUTC(latest).AddDate(0, 0, 1)
 		}
 		if m.StartDate != nil && m.StartDate.After(windowStart) {
