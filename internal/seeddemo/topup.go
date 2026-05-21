@@ -35,11 +35,13 @@ type TopUpOptions struct {
 //   - sleep_logs: emitted only when (now - lastSleepEnd) > 12h; from snaps to
 //     the day after the last sleep ended so subsequent nights don't collide
 //     with the prior night's row.
-//   - bp / weight / food / workouts / diary: from snaps to the day AFTER the
-//     latest sample's calendar day. The day-after snap means top-up emits only
-//     on whole past days, so a sample written by a previous tick never gets
+//   - bp / weight / food / workouts: from snaps to the day AFTER the latest
+//     sample's calendar day. The day-after snap means top-up emits only on
+//     whole past days, so a sample written by a previous tick never gets
 //     overwritten — and an hourly tick that fires three times before midnight
 //     emits the same set of rows the first time and a no-op the next two.
+//   - diary: NOT topped up (one-time scatter from the full-seed path; see the
+//     comment in the diary section below for the rationale).
 //   - intake_log: per-medication LatestScheduledIntake advances the cursor;
 //     the schedule's HH:MM doses are walked forward until now or end_date.
 //
@@ -133,16 +135,15 @@ func TopUp(ctx context.Context, s *store.Store, opts TopUpOptions) (*Summary, er
 		return nil, fmt.Errorf("top-up workouts: %w", err)
 	}
 
-	// --- Diary ---
-	diaryLast, hasDiary, err := s.Diary.LatestNote(ctx, opts.UserID)
-	if err != nil {
-		return nil, fmt.Errorf("latest diary: %w", err)
-	}
-	if from := dailyTopUpFrom(diaryLast, hasDiary, opts.Now); from.Before(opts.Now) {
-		if err := generateDiary(ctx, s, optsLike, clk, rng, from, opts.Now, summary); err != nil {
-			return nil, fmt.Errorf("top-up diary: %w", err)
-		}
-	}
+	// Diary is intentionally NOT topped up. The catalog is a fixed set of 12
+	// entries scattered across the full-seed's 90-day window at evenly-spaced
+	// step=opts.Days/count offsets relative to clk.start (= anchor-90d). On
+	// TopUp the anchor moves with real time, so each entry's computed
+	// createdAt slides forward at the same rate. diary_notes has no UNIQUE
+	// constraint on content, so re-emitting the catalog would insert a
+	// duplicate of the most-recent canned entry every time the anchor crosses
+	// a calendar boundary. Diary is one-time scatter from the full-seed path,
+	// same shape as food_products and timezone_history.
 
 	// --- Meds ---
 	if err := topUpMedIntakes(ctx, s, opts.UserID, opts.Now, rng, summary); err != nil {
