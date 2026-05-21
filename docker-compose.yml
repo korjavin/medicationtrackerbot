@@ -57,6 +57,15 @@ services:
       - EXTERNAL_WORKOUT_API_KEY=${EXTERNAL_WORKOUT_API_KEY}
       - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
       - ELEVENLABS_AGENT_ID=${ELEVENLABS_AGENT_ID}
+      # Demo mode (public, auth-less, AI-rate-limited). Set DEMO_MODE=1 in the
+      # stack env to enable; production deployments leave it unset and see zero
+      # behavior change. See docs/demo-mode.md.
+      - DEMO_MODE=${DEMO_MODE:-}
+      - DEMO_AGENT_CALLS_PER_DAY=${DEMO_AGENT_CALLS_PER_DAY:-}
+      - DEMO_AGENT_UPLOADS_PER_DAY=${DEMO_AGENT_UPLOADS_PER_DAY:-}
+      - DEMO_FOOD_LOGS_PER_HOUR=${DEMO_FOOD_LOGS_PER_HOUR:-}
+      - DEMO_FOOD_PHOTOS_PER_HOUR=${DEMO_FOOD_PHOTOS_PER_HOUR:-}
+      - DEMO_FOOD_DESCRIPTIONS_PER_HOUR=${DEMO_FOOD_DESCRIPTIONS_PER_HOUR:-}
     networks:
       - default
       - traefik_net
@@ -110,6 +119,9 @@ services:
       - POCKET_ID_JWKS_JSON=${POCKET_ID_JWKS_JSON}
       - SKIP_PERMS_FIX=true
       - TZ=${TZ:-Europe/Berlin}
+      # Demo mode disables OAuth on /mcp and /sse and relaxes the Pocket-ID
+      # validation. Set DEMO_MODE=1 in the stack env to enable.
+      - DEMO_MODE=${DEMO_MODE:-}
     # Memory and CPU caps mirror the per-run sandbox limits (1 GB / 1 CPU).
     # The MCP container itself stays small; per-run isolation is enforced by
     # the executor service.
@@ -175,26 +187,37 @@ services:
       - runner_net
 
   # Local Telegram Bot API Server - removes 20MB file download limit
+  # Skipped via clean exit when TELEGRAM_API_ID / TELEGRAM_API_HASH are not set
+  # (e.g. on demo deployments). Combined with restart: on-failure, a clean
+  # exit stays exited instead of looping.
   telegram-bot-api:
     image: ghcr.io/korjavin/telegram-bot-api:2026-02-28
     pull_policy: if_not_present
     container_name: medtracker-telegram-api-${INSTANCE}
-    restart: unless-stopped
+    restart: on-failure
     user: "0:0"
     # Default entrypoint forces user 101. We override it to run our own setup.
     entrypoint: /bin/sh
     command:
       - -c
       - |
+        # If the operator hasn't provisioned Telegram Bot API credentials,
+        # exit cleanly so the container doesn't crash-loop. Combined with
+        # restart: on-failure, this leaves the service inactive instead.
+        if [ -z "$${TELEGRAM_API_ID}" ] || [ -z "$${TELEGRAM_API_HASH}" ]; then
+          echo "[telegram-bot-api] TELEGRAM_API_ID / TELEGRAM_API_HASH not set, skipping"
+          exit 0
+        fi
+
         # Create appuser (1000) manually by modifying /etc/passwd if not exists
         # This avoids dependency on adduser/useradd which are missing in minimal images
         grep -q :1000: /etc/group || echo "appgroup:x:1000:" >> /etc/group
         grep -q :1000: /etc/passwd || echo "appuser:x:1000:1000:appuser:/var/lib/telegram-bot-api:/bin/sh" >> /etc/passwd
-        
+
         # Fix permissions so appuser can write
         mkdir -p /var/lib/telegram-bot-api/data
         chown -R 1000:1000 /var/lib/telegram-bot-api
-        
+
         # Run server, telling it to switch to our new user
         # We start as root, let the binary drop privileges to appuser (1000)
         exec telegram-bot-api --local \
@@ -219,15 +242,22 @@ services:
       - traefik_net
 
   # Litestream - SQLite replication to Cloudflare R2
+  # Skipped via clean exit when R2_BUCKET / LITESTREAM_ACCESS_KEY_ID are not
+  # set (e.g. on demo deployments). Combined with restart: on-failure, a clean
+  # exit stays exited instead of looping.
   litestream:
     image: ghcr.io/korjavin/litestream:0.3.13
     pull_policy: if_not_present
     container_name: medtracker-litestream-${INSTANCE}
-    restart: unless-stopped
+    restart: on-failure
     entrypoint: /bin/sh
     command:
       - -c
       - |
+        if [ -z "$${R2_BUCKET}" ] || [ -z "$${LITESTREAM_ACCESS_KEY_ID}" ]; then
+          echo "[litestream] R2_BUCKET / LITESTREAM_ACCESS_KEY_ID not set, skipping"
+          exit 0
+        fi
         cat << EOF > /tmp/litestream.yml
         retention:
           enabled: $${LITESTREAM_RETENTION_ENABLED:-false}
