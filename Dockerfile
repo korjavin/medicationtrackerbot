@@ -2,16 +2,19 @@ FROM golang:1.26.1-alpine AS builder
 
 WORKDIR /app
 
-# Download modules in their own layer so it only re-runs when go.mod/go.sum change.
+# Download modules into the layer filesystem (no cache mount) so a layer-cache
+# hit on this step — go.mod/go.sum unchanged — also carries the modules along.
+# A cache-mount here would write modules to a separate BuildKit volume that the
+# GHA layer-cache import does not restore, leaving /go/pkg/mod empty for the
+# build step and forcing a full re-download on every CI run.
 COPY go.mod go.sum ./
-RUN --mount=type=cache,target=/go/pkg/mod \
-    go mod download
+RUN go mod download
 
 COPY . .
 # CGO_ENABLED=0 for static binary, works with Checkpoint/ModernC SQLite.
-# Cache mounts persist the module + build caches across CI runs (via cache-to: type=gha).
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
+# Only mount the go-build cache here; mounting /go/pkg/mod would shadow the
+# modules baked into the previous layer.
+RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=linux go build -o bot ./cmd/bot && \
     CGO_ENABLED=0 GOOS=linux go build -o mcptool ./cmd/mcptool && \
     CGO_ENABLED=0 GOOS=linux go build -o seeddemo ./cmd/seeddemo
