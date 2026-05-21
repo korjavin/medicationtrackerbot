@@ -55,10 +55,14 @@ type mealSpec struct {
 }
 
 // generateFood seeds the daily nutrition target, the catalogue of food
-// products, and 90 days of food_log entries with realistic over/on/under
-// target patterns. On a small subset of days it also rolls those logs into
-// an aggregated meal product so the meal-template UI has data.
-func generateFood(ctx context.Context, s *store.Store, opts Options, clk *clock, rng *rand.Rand, summary *Summary) error {
+// products, and per-day food_log entries with realistic over/on/under
+// target patterns within the supplied window. On a small subset of days it
+// also rolls those logs into an aggregated meal product so the meal-template
+// UI has data.
+//
+// (from, to) bounds emission. For full-seed the window covers all opts.Days;
+// top-up callers pass narrower windows.
+func generateFood(ctx context.Context, s *store.Store, opts Options, clk *clock, rng *rand.Rand, from, to time.Time, summary *Summary) error {
 	if err := s.Food.SetTargets(ctx, store.FoodTargets{
 		Calories: 2200,
 		Carbs:    250,
@@ -82,12 +86,32 @@ func generateFood(ctx context.Context, s *store.Store, opts Options, clk *clock,
 	dinnerOptions := []string{"Vegetable Stir Fry (AI estimate)", "Chicken Breast", "Whole Wheat Bread"}
 	snackOptions := []string{"Roasted Almonds", "Greek Yogurt 0%"}
 
+	windowStart := startOfDayUTC(from)
+	windowDays := daysInWindow(windowStart, to)
+	if windowDays <= 0 {
+		return nil
+	}
+	startOff := windowStartOffsetFromClock(clk, windowStart)
+
 	aggregateDays := make(map[int]struct{}, 5)
-	for _, d := range pickDays(rng, opts.Days, 5) {
+	// Scale the aggregate-day pick count with the window so partial windows
+	// don't try to pick more days than exist.
+	aggregateTarget := windowDays * 5 / 90
+	if aggregateTarget < 1 && windowDays > 0 {
+		aggregateTarget = 1
+	}
+	if windowDays >= 90 {
+		aggregateTarget = 5
+	}
+	if aggregateTarget > windowDays {
+		aggregateTarget = windowDays
+	}
+	for _, d := range pickDays(rng, windowDays, aggregateTarget) {
 		aggregateDays[d] = struct{}{}
 	}
 
-	for off := 0; off < opts.Days; off++ {
+	for idx := 0; idx < windowDays; idx++ {
+		off := startOff + idx
 		factor := pickDailyFoodFactor(rng)
 		meals := []mealSpec{
 			{product: breakfastOptions[off%len(breakfastOptions)], targetKcal: 500, hour: 8, minute: 0},
@@ -138,7 +162,7 @@ func generateFood(ctx context.Context, s *store.Store, opts Options, clk *clock,
 			summary.FoodLogs++
 		}
 
-		if _, ok := aggregateDays[off]; ok && len(dayLogIDs) > 0 {
+		if _, ok := aggregateDays[idx]; ok && len(dayLogIDs) > 0 {
 			mealName := fmt.Sprintf("Demo Meal — Day %d", off+1)
 			if _, err := s.Food.CreateMealFromLogs(ctx, opts.UserID, mealName, dayLogIDs); err != nil {
 				return fmt.Errorf("create meal from logs day %d: %w", off, err)

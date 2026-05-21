@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand/v2"
+	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
@@ -55,27 +56,35 @@ var demoTZHistory = []tzHistoryEntry{
 
 // generateMisc seeds diary notes and timezone_history rows. Both go in via
 // raw INSERTs because the public store methods stamp `created_at`/`recorded_at`
-// from the wall clock and would refuse backdated timestamps.
-func generateMisc(ctx context.Context, s *store.Store, opts Options, clk *clock, rng *rand.Rand, summary *Summary) error {
-	if err := generateDiary(ctx, s, opts, clk, rng, summary); err != nil {
+// from the wall clock and would refuse backdated timestamps. (from, to)
+// scopes emission for top-up callers; the full-seed window covers every
+// catalog entry.
+func generateMisc(ctx context.Context, s *store.Store, opts Options, clk *clock, rng *rand.Rand, from, to time.Time, summary *Summary) error {
+	if err := generateDiary(ctx, s, opts, clk, rng, from, to, summary); err != nil {
 		return fmt.Errorf("diary: %w", err)
 	}
-	if err := generateTimezoneHistory(ctx, s, opts, clk, summary); err != nil {
+	if err := generateTimezoneHistory(ctx, s, opts, clk, from, to, summary); err != nil {
 		return fmt.Errorf("timezone history: %w", err)
 	}
 	return nil
 }
 
-func generateDiary(ctx context.Context, s *store.Store, opts Options, clk *clock, rng *rand.Rand, summary *Summary) error {
+func generateDiary(ctx context.Context, s *store.Store, opts Options, clk *clock, rng *rand.Rand, from, to time.Time, summary *Summary) error {
 	count := len(demoDiaryEntries)
 	if count == 0 {
 		return nil
 	}
-	// Spread notes evenly across the window so the diary timeline isn't bunched.
+	// Spread notes evenly across the catalog timeline so the diary chart
+	// stays consistent across full-seed runs of the same opts.Days. The
+	// (from, to) window then filters which of those evenly-spaced entries
+	// actually land in the gap. Lower bound is day-aligned so morning
+	// entries on the first day of a full-seed (which lands at noon UTC,
+	// matching opts.Now) are still emitted.
 	step := opts.Days / count
 	if step <= 0 {
 		step = 1
 	}
+	emitFrom := startOfDayUTC(from)
 
 	for i, entry := range demoDiaryEntries {
 		off := i * step
@@ -85,6 +94,9 @@ func generateDiary(ctx context.Context, s *store.Store, opts Options, clk *clock
 		hour := 7 + rng.IntN(15) // 07..21
 		minute := rng.IntN(60)
 		createdAt := clk.at(off, hour, minute)
+		if createdAt.Before(emitFrom) || !createdAt.Before(to) {
+			continue
+		}
 
 		var tagArg interface{}
 		if entry.tag != nil {
@@ -101,9 +113,12 @@ func generateDiary(ctx context.Context, s *store.Store, opts Options, clk *clock
 	return nil
 }
 
-func generateTimezoneHistory(ctx context.Context, s *store.Store, _ Options, clk *clock, summary *Summary) error {
+func generateTimezoneHistory(ctx context.Context, s *store.Store, _ Options, clk *clock, from, to time.Time, summary *Summary) error {
 	for _, entry := range demoTZHistory {
 		recordedAt := clk.daysFromAnchor(entry.daysFromAnchor)
+		if recordedAt.Before(from) || !recordedAt.Before(to) {
+			continue
+		}
 		if _, err := s.DB().ExecContext(ctx,
 			`INSERT INTO timezone_history (timezone, recorded_at) VALUES (?, ?)`,
 			entry.timezone, recordedAt,

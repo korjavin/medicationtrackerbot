@@ -96,10 +96,10 @@ Out of scope (intentional, per planning conversation):
 
 ### Task 3: Refactor `seeddemo.Seed` to expose per-stream window functions
 
-- [ ] in `internal/seeddemo/seeddemo.go`, extract each per-stream generator's "window of interest" into a function signature `generateXxx(ctx, s, clock, userID, rng, from, to time.Time) (count int, err error)`. The full-seed path keeps calling them with `(anchor.AddDate(0,0,-days), anchor)`; top-up will call them with `(lastTs+ε, now)`.
-- [ ] keep existing public `Seed(ctx, opts) (Summary, error)` signature unchanged.
-- [ ] no test changes expected — existing seed tests should still pass byte-for-byte (same seed, same window, same output).
-- [ ] run `go test ./internal/seeddemo/... ./cmd/seeddemo/...` — must pass before task 4.
+- [x] in `internal/seeddemo/seeddemo.go`, extract each per-stream generator's "window of interest" into a function signature `generateXxx(ctx, s, clock, userID, rng, from, to time.Time) (count int, err error)`. Each per-stream generator (`generateBP`, `generateWeight`, `generateSleep`, `generateMeds`, `generateFood`, `generateWorkouts`, `generateScheduledSessions`, `generateAdHocSessions`, `generateMisc`, `generateDiary`, `generateTimezoneHistory`, and the orchestrator `generateVitals`) now takes `from, to time.Time`. Internally each computes `windowDays = daysInWindow(startOfDayUTC(from), to)` and `startOff = windowStartOffsetFromClock(clk, windowStart)` so iteration covers only the in-window days while catalog-scale trend math still uses `opts.Days`. Helpers `daysInWindow` and `windowStartOffsetFromClock` live in `internal/seeddemo/clock.go`.
+- [x] keep existing public `Seed(ctx, opts) (Summary, error)` signature unchanged. (`Run(ctx, s, opts) (*Summary, error)` — the actual public entrypoint — is untouched.)
+- [x] no test changes expected — existing seed tests should still pass byte-for-byte (same seed, same window, same output). `TestRunSeedsAllDomains`, `TestRunIsDeterministic`, `TestRunWipesPreExistingData`, plus the full vitals-timeseries suite all pass with identical row counts.
+- [x] run `go test ./internal/seeddemo/... ./cmd/seeddemo/...` — must pass before task 4. (cmd/seeddemo has no tests yet — Task 5 adds them.)
 
 ### Task 4: Implement `TopUp` orchestration in `internal/seeddemo/topup.go`
 
