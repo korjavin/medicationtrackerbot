@@ -4,12 +4,15 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"log/slog"
 	"math"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -29,6 +32,16 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/store/food"
 	"github.com/korjavin/medicationtrackerbot/internal/webpush"
 )
+
+// isTruthyEnv mirrors the accepted-value set of the server's parseBoolEnv
+// (1/true/yes/y, case-insensitive). Duplicated here so the boot-time
+// AUTH_TRUST_PROXY warning treats "AUTH_TRUST_PROXY=true" the same way the
+// rate-limit middleware does — otherwise an operator who sets the truthy
+// string would get a warning that contradicts the actual proxy-trust state.
+func isTruthyEnv(key string) bool {
+	val := strings.TrimSpace(strings.ToLower(os.Getenv(key)))
+	return val == "1" || val == "true" || val == "yes" || val == "y"
+}
 
 func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
@@ -51,6 +64,21 @@ func main() {
 	}
 
 	sessionSecret := cfg.SessionSecret
+	// In demo mode the auth flow never reads a session cookie (DemoUserResolver
+	// short-circuits before /auth/* handlers can sign one), so a SESSION_SECRET
+	// from the operator is not required. The runbook in docs/demo-mode.md
+	// deliberately omits it. Auto-generate a strong random secret so the
+	// auth/oidc/telegram handlers (still registered on the mux) won't panic
+	// or sign with a known value if a curious visitor pokes them.
+	if cfg.DemoMode && sessionSecret == "" {
+		buf := make([]byte, 32)
+		if _, err := rand.Read(buf); err != nil {
+			slog.Error("DEMO_MODE: failed to generate ephemeral SESSION_SECRET", "error", err)
+			os.Exit(1)
+		}
+		sessionSecret = base64.RawURLEncoding.EncodeToString(buf)
+		slog.Warn("DEMO_MODE: SESSION_SECRET not set; generated an ephemeral random secret (session cookies will not survive restarts, which is fine because demo mode resolves every request via DemoUserResolver and ignores cookies)")
+	}
 	if sessionSecret == "" || len(sessionSecret) < 32 {
 		slog.Error("SESSION_SECRET is required and must be at least 32 characters long. Generate one with: openssl rand -base64 32")
 		os.Exit(1)
@@ -258,6 +286,44 @@ func main() {
 	}
 
 	srv := server.New(s, botToken, sessionSecret, allowedUserID, oidcConfig, botUsername, vapidPublicKey)
+
+	// Flip demo mode before Routes() so AuthMiddleware sees the demo resolver
+	// at construction time. Warn loudly — a misconfigured DEMO_MODE on a real
+	// deployment would silently disable auth, so the operator should see this
+	// as the first thing in the container log.
+	if cfg.DemoMode {
+		// The demo resolver returns auth.User{ID: allowedUserID, ...} on every
+		// request — if ALLOWED_USER_ID is unset the resolver hands handlers
+		// user id 0, which no cmd/seeddemo invocation maps to, and the app
+		// silently renders empty data. Fail fast so the misconfiguration is
+		// obvious at boot, mirroring the strict check in
+		// internal/mcp/mcp.LoadConfigFromEnv for the MCP entrypoint.
+		if cfg.AllowedUserID == 0 {
+			slog.Error("DEMO_MODE=1 requires ALLOWED_USER_ID to be set (must match the user passed to cmd/seeddemo)")
+			os.Exit(1)
+		}
+		// Per-IP rate limiters key on clientIP(r, trustProxy). Behind a
+		// reverse proxy without AUTH_TRUST_PROXY=1, every visitor presents
+		// the proxy's IP and the limiters become a single shared bucket —
+		// one visitor exhausts the daily budget for everyone. Warn loudly
+		// so a typical Traefik-fronted deploy doesn't ship in this state.
+		// Mirror the same accepted-value set as the server's parseBoolEnv
+		// (1/true/yes/y, case-insensitive) so an operator who sets
+		// AUTH_TRUST_PROXY=true doesn't get a contradictory warning while
+		// the limiter is actually trusting the proxy.
+		if !isTruthyEnv("AUTH_TRUST_PROXY") {
+			slog.Warn("DEMO_MODE=1 without AUTH_TRUST_PROXY=1: per-IP rate limiters will see the reverse-proxy IP for every visitor and become a single shared bucket. Set AUTH_TRUST_PROXY=1 if you run behind Traefik/Nginx/Caddy.")
+		}
+		slog.Warn("DEMO_MODE is enabled — auth is disabled and AI endpoints are rate-limited per IP")
+		srv.SetDemoMode(true)
+		srv.SetDemoConfig(server.DemoConfig{
+			AgentCallsPerDay:        cfg.Demo.AgentCallsPerDay,
+			AgentUploadsPerDay:      cfg.Demo.AgentUploadsPerDay,
+			FoodLogsPerHour:         cfg.Demo.FoodLogsPerHour,
+			FoodPhotosPerHour:       cfg.Demo.FoodPhotosPerHour,
+			FoodDescriptionsPerHour: cfg.Demo.FoodDescriptionsPerHour,
+		})
+	}
 
 	// Inject ElevenLabs creds so the Voice Agent handlers stop calling
 	// os.Getenv at request time — they now read the same struct that the

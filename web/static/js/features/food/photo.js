@@ -212,6 +212,15 @@ async function uploadFoodPhoto(input) {
             });
 
             if (!res.ok) {
+                if (res.status === 429 && window.DemoBanner && typeof window.DemoBanner.tryHandleResponse === 'function') {
+                    const demoParsed = await window.DemoBanner.tryHandleResponse(res);
+                    if (demoParsed) {
+                        const demoErr = new Error('Demo rate limit reached');
+                        demoErr.status = 429;
+                        demoErr.demoLimit = demoParsed;
+                        throw demoErr;
+                    }
+                }
                 const txt = await res.text();
                 throw new Error(txt || `HTTP ${res.status}`);
             }
@@ -265,7 +274,9 @@ async function uploadFoodPhoto(input) {
             }
         } catch (e) {
             console.error('Food photo upload failed:', e);
-            safeAlert('Failed to log food from photo: ' + (e.message || e));
+            if (!(e && e.demoLimit)) {
+                safeAlert('Failed to log food from photo: ' + (e.message || e));
+            }
         } finally {
             if (originalLabel) originalLabel.textContent = restoreLabel;
             input.value = '';

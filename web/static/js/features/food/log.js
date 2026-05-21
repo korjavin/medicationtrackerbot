@@ -670,6 +670,12 @@ async function saveFoodLogFromDescription() {
         }
 
         if (!res.ok) {
+            if (res.status === 429 && window.DemoBanner && typeof window.DemoBanner.tryHandleResponse === 'function') {
+                const demoParsed = await window.DemoBanner.tryHandleResponse(res);
+                if (demoParsed) {
+                    return;
+                }
+            }
             let msg = `HTTP ${res.status}`;
             try { msg = (await res.text()) || msg; } catch (_) { /* keep status fallback */ }
             safeAlert('Failed to parse meal: ' + msg);
