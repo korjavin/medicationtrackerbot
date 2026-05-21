@@ -684,5 +684,147 @@ func TestTopUpDoesNotDuplicateDiaryAcrossCalendarDays(t *testing.T) {
 	}
 }
 
+// TestTopUpLongCatchUpPreservesSleepCorrelation guards the regression where
+// loadRecentSleepWindows was hard-capped at opts.Now - 2d, so a multi-day HR
+// catch-up (bot offline for a week, then top-up) only saw sleep dips on the
+// last two nights and left the older catch-up days with flat HR values. The
+// fix expands the sleep load range to span every time-series stream's
+// backfill start, so all regenerated samples correlate with their nightly
+// sleep block.
+func TestTopUpLongCatchUpPreservesSleepCorrelation(t *testing.T) {
+	s := newTestStore(t)
+	seedNow := fixedNow
+	runSeeder(t, s, Options{
+		UserID: 12345,
+		Days:   30,
+		Wipe:   true,
+		Seed:   42,
+		Now:    seedNow,
+	})
+
+	// Simulate a 7-day gap: delete every HR/SpO2/stress sample written by the
+	// seeder in the last 7 days. Sleep blocks for those nights stay in place
+	// so the top-up's sleep correlation logic has data to read.
+	gapStart := seedNow.AddDate(0, 0, -7)
+	for _, tbl := range []string{"vitals_heart", "vitals_spo2", "vitals_stress"} {
+		// #nosec G202 -- table name is from a fixed in-test list.
+		if _, err := s.DB().Exec("DELETE FROM "+tbl+" WHERE user_id = ? AND date_time >= ?",
+			12345, gapStart.UnixMilli()); err != nil {
+			t.Fatalf("clear %s gap: %v", tbl, err)
+		}
+	}
+
+	runTopUp(t, s, TopUpOptions{UserID: 12345, Now: seedNow, Seed: 42})
+
+	// For the 7-day catch-up window, partition HR samples by whether they
+	// fall inside a recorded sleep_logs window. The sleep dip is ~12 bpm in
+	// the generator, so sleep median should be visibly below waking median
+	// across hundreds of samples.
+	sleepWindows := []sleepWindow{}
+	rows, err := s.DB().Query(
+		`SELECT start_time, end_time FROM sleep_logs WHERE user_id = ? AND start_time >= ? AND start_time <= ?`,
+		12345, gapStart, seedNow)
+	if err != nil {
+		t.Fatalf("query sleep_logs: %v", err)
+	}
+	for rows.Next() {
+		var w sleepWindow
+		if err := rows.Scan(&w.start, &w.end); err != nil {
+			rows.Close()
+			t.Fatalf("scan sleep_logs: %v", err)
+		}
+		sleepWindows = append(sleepWindows, sleepWindow{start: w.start.UTC(), end: w.end.UTC()})
+	}
+	rows.Close()
+	if len(sleepWindows) < 3 {
+		t.Fatalf("expected ≥ 3 sleep blocks in the 7-day gap, got %d", len(sleepWindows))
+	}
+
+	// Restrict to samples that sit at least 2 days back, since the pre-fix
+	// behavior was correct for the last 2 days; the regression only affected
+	// older catch-up days. Without this filter the test would pass even on
+	// the buggy build.
+	older := seedNow.AddDate(0, 0, -2)
+	hrRows, err := s.DB().Query(
+		`SELECT date_time, value FROM vitals_heart WHERE user_id = ? AND date_time >= ? AND date_time < ?`,
+		12345, gapStart.UnixMilli(), older.UnixMilli())
+	if err != nil {
+		t.Fatalf("query vitals_heart: %v", err)
+	}
+	defer hrRows.Close()
+
+	inAny := func(t time.Time) bool {
+		for _, w := range sleepWindows {
+			if !t.Before(w.start) && t.Before(w.end) {
+				return true
+			}
+		}
+		return false
+	}
+	var sleepHR, wakingHR []int
+	for hrRows.Next() {
+		var dtMs int64
+		var value int
+		if err := hrRows.Scan(&dtMs, &value); err != nil {
+			t.Fatalf("scan vitals_heart: %v", err)
+		}
+		dt := time.UnixMilli(dtMs).UTC()
+		if inAny(dt) {
+			sleepHR = append(sleepHR, value)
+		} else {
+			wakingHR = append(wakingHR, value)
+		}
+	}
+	if len(sleepHR) < 20 || len(wakingHR) < 20 {
+		t.Fatalf("not enough HR samples in older catch-up range: sleep=%d waking=%d", len(sleepHR), len(wakingHR))
+	}
+	if med(sleepHR) >= med(wakingHR) {
+		t.Errorf("HR catch-up lost sleep correlation in days [-7,-2]: sleep median=%d, waking median=%d",
+			med(sleepHR), med(wakingHR))
+	}
+}
+
+// TestLoadRecentSleepWindowsIncludesOverlapAtWindowStart guards the regression
+// where loadRecentSleepWindows used `start_time >= from` containment. When a
+// long catch-up's lower bound landed inside an overnight sleep block (e.g.
+// last logged HR sample at 23:30 mid-sleep; sleep block 22:45→06:30 next day),
+// that block's start_time (22:45) was earlier than `from` (23:30:01) and the
+// block was excluded — every regenerated HR sample inside that night that sat
+// past `from` then missed the sleep dip. The fix uses overlap semantics
+// (end_time >= from AND start_time <= to) so any block whose wake-time lies
+// inside the catch-up range is loaded regardless of when bedtime fell.
+func TestLoadRecentSleepWindowsIncludesOverlapAtWindowStart(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	userID := int64(12345)
+
+	bedtime := time.Date(2026, 5, 10, 22, 45, 0, 0, time.UTC)
+	wake := time.Date(2026, 5, 11, 6, 30, 0, 0, time.UTC)
+	day := time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC)
+	if _, err := s.DB().ExecContext(ctx,
+		`INSERT INTO sleep_logs (user_id, start_time, end_time, timezone_offset, day, deep_minutes, rem_minutes, light_minutes, awake_minutes, total_minutes)
+		 VALUES (?, ?, ?, 0, ?, 90, 100, 230, 30, 450)`,
+		userID, bedtime, wake, day); err != nil {
+		t.Fatalf("seed sleep_logs: %v", err)
+	}
+
+	// from lands AFTER bedtime but BEFORE wake — exactly the long-catch-up
+	// scenario where the last HR sample was at 23:30 mid-sleep.
+	from := time.Date(2026, 5, 10, 23, 30, 1, 0, time.UTC)
+	to := time.Date(2026, 5, 11, 12, 0, 0, 0, time.UTC)
+
+	got, err := loadRecentSleepWindows(ctx, s, userID, from, to)
+	if err != nil {
+		t.Fatalf("loadRecentSleepWindows: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected the overlapping sleep block to be loaded; got %d windows", len(got))
+	}
+	if !got[0].start.Equal(bedtime.UTC()) || !got[0].end.Equal(wake.UTC()) {
+		t.Errorf("loaded window mismatch: got start=%v end=%v; want start=%v end=%v",
+			got[0].start, got[0].end, bedtime.UTC(), wake.UTC())
+	}
+}
+
 // silence the unused-imports check when the store import is otherwise idle.
 var _ = (*store.Store)(nil)

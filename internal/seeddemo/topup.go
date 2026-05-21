@@ -151,11 +151,42 @@ func TopUp(ctx context.Context, s *store.Store, opts TopUpOptions) (*Summary, er
 	}
 
 	// --- Time-series vitals (HR / SpO2 / stress) ---
+	// Resolve per-stream backfill starts up-front so the sleep-window load
+	// range below covers the full catch-up span. A stale DB (bot offline for
+	// days, or operator -topup against an aged copy) makes HR/SpO2/stress
+	// backfill many days at once; without expanding the sleep load, only
+	// nights inside the last 2d would dip HR / lift stress and the older
+	// catch-up samples would look flat.
+	heartLast, hasHeart, err := s.Vitals.LatestHeartSample(ctx, opts.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("latest heart: %w", err)
+	}
+	spo2Last, hasSpO2, err := s.Vitals.LatestSpO2Sample(ctx, opts.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("latest spo2: %w", err)
+	}
+	stressLast, hasStress, err := s.Vitals.LatestStressSample(ctx, opts.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("latest stress: %w", err)
+	}
+	heartFrom := timeseriesTopUpFrom(heartLast, hasHeart, opts.Now)
+	spo2From := timeseriesTopUpFrom(spo2Last, hasSpO2, opts.Now)
+	stressFrom := timeseriesTopUpFrom(stressLast, hasStress, opts.Now)
+
 	// vitalsContext carries the recent sleep windows plus the static workout
 	// schedule so HR samples dip during sleep and spike during workouts exactly
 	// like the full-seed path. loadRecentSleepWindows runs AFTER generateSleep,
 	// so the returned set already includes any sleep blocks just inserted.
-	recentSleeps, err := loadRecentSleepWindows(ctx, s, opts.UserID, opts.Now.AddDate(0, 0, -2), opts.Now)
+	// Floor is -2d (steady-state ticks need a small ±1d buffer for crossover),
+	// but for catch-up the lower bound stretches back to the earliest stream's
+	// backfill start.
+	sleepLoadFrom := opts.Now.AddDate(0, 0, -2)
+	for _, f := range [...]time.Time{heartFrom, spo2From, stressFrom} {
+		if f.Before(sleepLoadFrom) {
+			sleepLoadFrom = f
+		}
+	}
+	recentSleeps, err := loadRecentSleepWindows(ctx, s, opts.UserID, sleepLoadFrom, opts.Now)
 	if err != nil {
 		return nil, fmt.Errorf("load recent sleep windows: %w", err)
 	}
@@ -165,36 +196,24 @@ func TopUp(ctx context.Context, s *store.Store, opts TopUpOptions) (*Summary, er
 	}
 	tsRng := rand.New(rand.NewPCG(rngSeed^0xA5A5A5A5A5A5A5A5, rngSeed^0x5A5A5A5A5A5A5A5A))
 
-	heartLast, hasHeart, err := s.Vitals.LatestHeartSample(ctx, opts.UserID)
-	if err != nil {
-		return nil, fmt.Errorf("latest heart: %w", err)
-	}
-	if from := timeseriesTopUpFrom(heartLast, hasHeart, opts.Now); from.Before(opts.Now) {
-		n, err := generateHeartSamples(ctx, s, optsLike, vc, tsRng, from, opts.Now)
+	if heartFrom.Before(opts.Now) {
+		n, err := generateHeartSamples(ctx, s, optsLike, vc, tsRng, heartFrom, opts.Now)
 		if err != nil {
 			return nil, fmt.Errorf("top-up heart: %w", err)
 		}
 		summary.HeartSamples += n
 	}
 
-	spo2Last, hasSpO2, err := s.Vitals.LatestSpO2Sample(ctx, opts.UserID)
-	if err != nil {
-		return nil, fmt.Errorf("latest spo2: %w", err)
-	}
-	if from := timeseriesTopUpFrom(spo2Last, hasSpO2, opts.Now); from.Before(opts.Now) {
-		n, err := generateSpO2Samples(ctx, s, optsLike, vc, tsRng, from, opts.Now)
+	if spo2From.Before(opts.Now) {
+		n, err := generateSpO2Samples(ctx, s, optsLike, vc, tsRng, spo2From, opts.Now)
 		if err != nil {
 			return nil, fmt.Errorf("top-up spo2: %w", err)
 		}
 		summary.SpO2Samples += n
 	}
 
-	stressLast, hasStress, err := s.Vitals.LatestStressSample(ctx, opts.UserID)
-	if err != nil {
-		return nil, fmt.Errorf("latest stress: %w", err)
-	}
-	if from := timeseriesTopUpFrom(stressLast, hasStress, opts.Now); from.Before(opts.Now) {
-		n, err := generateStressSamples(ctx, s, optsLike, vc, tsRng, from, opts.Now)
+	if stressFrom.Before(opts.Now) {
+		n, err := generateStressSamples(ctx, s, optsLike, vc, tsRng, stressFrom, opts.Now)
 		if err != nil {
 			return nil, fmt.Errorf("top-up stress: %w", err)
 		}
@@ -275,16 +294,26 @@ func latestWeightAt(ctx context.Context, s *store.Store, userID int64) (time.Tim
 	return last.MeasuredAt.UTC(), true, nil
 }
 
-// loadRecentSleepWindows reads sleep_logs rows whose start_time falls inside
-// [from, to] so the HR/SpO2/stress generators can correlate top-up samples
-// with sleep blocks the previous full-seed (or earlier top-up tick) inserted.
+// loadRecentSleepWindows reads sleep_logs rows that OVERLAP [from, to] so the
+// HR/SpO2/stress generators can correlate top-up samples with sleep blocks the
+// previous full-seed (or earlier top-up tick) inserted.
 //
-// The window is intentionally narrow (≤ 2 days) so the SELECT stays cheap and
-// the vitalsContext doesn't drag in months of prior nights it can't influence.
+// The predicate uses overlap semantics (`end_time >= from AND start_time <=
+// to`), not `start_time` containment, so a sleep block whose bedtime falls
+// before `from` but whose wake-time lies inside the catch-up range is still
+// loaded. This matters for long catch-ups whose first sample lands mid-sleep:
+// without the overlap predicate, the night that contained the last logged HR
+// sample would be excluded and the tail end of that night's regenerated
+// samples (post-heartFrom but still pre-wake) would miss the sleep dip.
+//
+// The caller picks `from` to span every time-series stream's backfill range
+// (floor at -2d for steady-state ticks, stretched back when catch-up requires
+// it). Sleep is topped up before this query runs, so even a multi-day gap
+// already has its sleep blocks materialized when the load fires.
 func loadRecentSleepWindows(ctx context.Context, s *store.Store, userID int64, from, to time.Time) ([]sleepWindow, error) {
 	rows, err := s.DB().QueryContext(ctx,
 		`SELECT start_time, end_time FROM sleep_logs
-		  WHERE user_id = ? AND start_time >= ? AND start_time <= ?
+		  WHERE user_id = ? AND end_time >= ? AND start_time <= ?
 		  ORDER BY start_time ASC`,
 		userID, from.UTC(), to.UTC())
 	if err != nil {
