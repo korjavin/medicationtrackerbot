@@ -98,11 +98,11 @@ Dependencies identified:
 
 ### Task 4: Surface mcp_execute_per_hour in /api/bootstrap
 
-- [ ] add `MCPExecutePerHour int` to `server.DemoConfig` in `internal/server/server.go`
-- [ ] in `cmd/bot/main_server.go`, populate it from `cfg.Demo.MCPExecuteCallsPerHour` when calling `SetDemoConfig`
-- [ ] in `handleBootstrap` (`internal/server/settings_handlers.go`), add `"mcp_execute_per_hour": s.demoCfg.MCPExecutePerHour` to the `demo.limits` map
-- [ ] extend the existing demo-on / demo-off cases in `internal/server/settings_handlers_test.go` to assert the new key
-- [ ] run `go test ./internal/server/...` — must pass before next task
+- [x] add `MCPExecutePerHour int` to `server.DemoConfig` in `internal/server/server.go`
+- [x] in `cmd/bot/main_server.go`, populate it from `cfg.Demo.MCPExecuteCallsPerHour` when calling `SetDemoConfig`
+- [x] in `handleBootstrap` (`internal/server/settings_handlers.go`), add `"mcp_execute_per_hour": s.demoCfg.MCPExecutePerHour` to the `demo.limits` map
+- [x] extend the existing demo-on / demo-off cases in `internal/server/settings_handlers_test.go` to assert the new key
+- [x] run `go test ./internal/server/...` — must pass before next task
 
 ### Task 5: Verify acceptance criteria
 
