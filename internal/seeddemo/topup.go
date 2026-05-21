@@ -343,13 +343,15 @@ func topUpMedIntakes(ctx context.Context, s *store.Store, userID int64, now time
 		}
 		windowStart := startOfDayUTC(windowEnd.AddDate(0, 0, -1))
 		if hasLatest {
-			// Walk forward from the day AFTER the latest dose so we don't
-			// re-emit it. intake_log has no UNIQUE(medication_id,
+			// Walk forward from the START of the latest dose's day, not the
+			// next day. Snapping to "day after" loses later-same-day doses on
+			// multi-dose schedules: if the cursor is parked at today_08:00 for
+			// a Metformin 08:00/20:00 med, today_20:00 would be permanently
+			// skipped. intake_log has no UNIQUE(medication_id,
 			// scheduled_at_unix) constraint (only tz_step rows have a unique
-			// index per migration 067), so dedupe relies entirely on this
-			// day-after snap plus the strict scheduledAt.After(latest) guard
-			// below — there is no schema-level backstop.
-			windowStart = startOfDayUTC(latest).AddDate(0, 0, 1)
+			// index per migration 067), so dedupe relies on the strict
+			// scheduledAt.After(latest) guard below.
+			windowStart = startOfDayUTC(latest)
 		}
 		if m.StartDate != nil && m.StartDate.After(windowStart) {
 			windowStart = startOfDayUTC(*m.StartDate)
