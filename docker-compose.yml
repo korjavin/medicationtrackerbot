@@ -74,7 +74,7 @@ services:
       - "traefik.docker.network=${NETWORK_NAME}"
       - "traefik.http.routers.medtracker-${INSTANCE}.rule=Host(`${DOMAIN}`)"
       - "traefik.http.routers.medtracker-${INSTANCE}.entrypoints=websecure"
-      - "traefik.http.routers.medtracker-${INSTANCE}.tls.certresolver=myresolver"
+      - "traefik.http.routers.medtracker-${INSTANCE}.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}"
       - "traefik.http.services.medtracker-${INSTANCE}.loadbalancer.server.port=${PORT:-8080}"
 
   mcp-server:
@@ -138,7 +138,7 @@ services:
       - "traefik.docker.network=${NETWORK_NAME}"
       - "traefik.http.routers.medtracker-mcp-${INSTANCE}.rule=Host(`${MCP_DOMAIN}`)"
       - "traefik.http.routers.medtracker-mcp-${INSTANCE}.entrypoints=websecure"
-      - "traefik.http.routers.medtracker-mcp-${INSTANCE}.tls.certresolver=myresolver"
+      - "traefik.http.routers.medtracker-mcp-${INSTANCE}.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}"
       - "traefik.http.services.medtracker-mcp-${INSTANCE}.loadbalancer.server.port=${MCP_PORT:-8081}"
 
   # Side container that hosts the Python sandbox runtime. The MCP server's
