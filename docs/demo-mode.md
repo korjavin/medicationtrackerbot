@@ -26,8 +26,10 @@ Demo mode is a runtime flag, not a build tag — single binary supports both pro
 | `DEMO_FOOD_LOGS_PER_HOUR` | `1` | Per-IP limit for `POST /api/food/log` (manual entry, no AI). |
 | `DEMO_FOOD_PHOTOS_PER_HOUR` | `1` | Per-IP limit for `POST /api/food/log/from-photo` (vision). |
 | `DEMO_FOOD_DESCRIPTIONS_PER_HOUR` | `1` | Per-IP limit for `POST /api/food/log/from-description` (text completion). |
+| `DEMO_TOPUP_INTERVAL` | `1h` | Cadence at which the in-process background top-up goroutine calls `seeddemo.TopUp`. Parsed via `time.ParseDuration` (`30s`, `5m`, `2h`, …). Malformed or non-positive values fall back to `1h` with a `slog.Warn`. Set lower (e.g. `1m`) for a "live" demo, higher for a quieter one. |
+| `DEMO_TOPUP_SEED` | `0` | Deterministic seed forwarded to `seeddemo.TopUp` on every tick. `TopUp` XORs this with the current calendar day so per-day sample shapes are stable across restarts. Operators rarely need to change this; override only when you want a visibly different sample shape than the canonical demo. |
 | `AUTH_TRUST_PROXY` | `0` | **Must be `1` for the demo deployment.** The rate limiters key on `clientIP`, which only honors `X-Forwarded-For` when this is set. Without it, every visitor behind Traefik shares one IP and the limits become global. |
-| `ALLOWED_USER_ID` | — | The user ID the demo resolver returns. Must match the user you targeted with `cmd/seeddemo`. |
+| `ALLOWED_USER_ID` | — | The user ID the demo resolver returns. Must match the user you targeted with `cmd/seeddemo`. Also reused by the background top-up loop as the user whose streams get refreshed. |
 | `SESSION_SECRET` | — | Not required in demo mode. If unset, the server auto-generates an ephemeral random secret at boot — the demo resolver bypasses session cookies, so the secret is only used by the (registered but unreachable) `/auth/*` handlers. If you do set it, the strict length/entropy validation still applies. |
 
 All `DEMO_*` overrides accept integers; malformed values fall back to the default (see `internal/config/config_test.go`).
@@ -45,13 +47,46 @@ A startup `slog.Warn` fires when `DEMO_MODE=1` (server: "DEMO_MODE is enabled �
 
 ## Seeding the demo database
 
-`cmd/seeddemo` wipes a target user's data and seeds a deterministic 90-day dataset (medications, BP/weight/sleep series, food logs, workouts, diary notes, a mid-period timezone change). The same `-seed` produces an identical dataset on every run, so re-seeding nightly resets the demo to a known state.
+`cmd/seeddemo` wipes a target user's data and seeds a deterministic 90-day dataset (medications, BP/weight/sleep series, HR/SpO2/stress time-series, food logs, workouts, diary notes, a mid-period timezone change). The same `-seed` produces an identical dataset on every run, so re-seeding from scratch resets the demo to a known state.
 
 ```bash
+# Full seed (wipes target user first):
 go run ./cmd/seeddemo -user 1 -db /data/demo.db -days 90 -wipe -seed 42
+
+# Incremental top-up (no wipe; appends rows since each stream's last logged sample):
+go run ./cmd/seeddemo -user 1 -db /data/demo.db -topup -seed 42
 ```
 
+`-topup` and `-wipe` are mutually exclusive — passing both errors out. Top-up is idempotent on the same calendar day: re-running it (e.g. via retry) produces no net new rows because the per-tick RNG is seeded from `seed XOR (now.Unix() / 86400)` and time-series streams have unique-PK constraints that swallow same-second collisions.
+
 The user ID must match `ALLOWED_USER_ID` in the demo container's env. Generator code lives in `internal/seeddemo/`.
+
+## Automatic top-up
+
+When `DEMO_MODE=1` and `ALLOWED_USER_ID` is non-zero, the server build launches an in-process background goroutine (`internal/demotopup.Run`) that calls `seeddemo.TopUp` on a ticker. This keeps the demo dataset's "latest" timestamps tracking wall-clock time without an external cron job — visitors arriving any day after deployment still see HR/SpO2/stress samples up to "today", a recent BP/weight reading, and so on.
+
+Lifecycle:
+
+- The loop is wired in `cmd/bot/main_server.go` (server build only — mobile build is unaffected).
+- The first tick fires immediately on startup so a freshly-deployed demo has fresh data before the first interval elapses.
+- Subsequent ticks fire every `DEMO_TOPUP_INTERVAL` (default `1h`).
+- The loop binds to the same root context as the HTTP server, so SIGINT/SIGTERM cancels it alongside graceful shutdown.
+- Errors from `seeddemo.TopUp` are logged via `slog.Error` and swallowed — a failed top-up tick must never crash the demo bot.
+- Each successful tick logs `demotopup: tick completed added_rows=N duration=…`. `added_rows` is the sum across every stream on the `Summary` (intakes + BP + weight + sleep + HR + SpO2 + stress + food + workouts + diary).
+
+Bail-out conditions (the loop logs a warning and returns without starting):
+
+- `UserID` is zero (no `ALLOWED_USER_ID` set).
+- `Interval` is zero or negative (malformed `DEMO_TOPUP_INTERVAL` already coerces to `1h` upstream, so this is defense-in-depth).
+- `Store` is nil.
+
+The manual `seeddemo -topup` CLI is still supported for ops use — e.g. one-shot backfill after a config change, debugging on a copy of the prod DB, or kicking the dataset forward without restarting the bot. The CLI and the background goroutine both call the same `seeddemo.TopUp` function, so their behavior is interchangeable.
+
+Tuning guidance:
+
+- `DEMO_TOPUP_INTERVAL=1m` — "live" feel; new HR/SpO2/stress samples every minute. Useful for screen-recording the demo.
+- `DEMO_TOPUP_INTERVAL=1h` (default) — balanced; one tick per hour is enough to keep the Vitals charts looking current without churning the DB.
+- `DEMO_TOPUP_INTERVAL=24h` — quiet; one tick per day. Use when DB write volume matters more than freshness.
 
 ## Rate-limit response shape
 
@@ -110,8 +145,9 @@ No new build tags. The demo wiring lives in:
 - `internal/server/auth.go` — `handleAuthStatus` reports `{authenticated:true, method:"demo"}` when `s.demoMode` so the frontend `checkAuth()` flow skips the login screen and proceeds to `/api/bootstrap`.
 - `internal/server/server.go` — `demoMode` + `demoCfg` fields, `SetDemoMode` / `SetDemoConfig` setters, conditional rate-limiter construction in `Routes()`, `demoRateLimitMiddleware` helper.
 - `internal/mcp/mcp.go` — `Config.DemoMode`, conditional `OAuthHandler` construction, `buildPublicMux` skips OAuth when `s.oauth == nil`.
-- `cmd/bot/main_server.go` — `srv.SetDemoMode(cfg.DemoMode)` + `srv.SetDemoConfig(...)` + startup warn.
+- `cmd/bot/main_server.go` — `srv.SetDemoMode(cfg.DemoMode)` + `srv.SetDemoConfig(...)` + startup warn + `go demotopup.Run(ctx, …)` when `DemoMode` is on.
 - `cmd/mcptool/main.go` — no code change; `LoadConfigFromEnv` reads `DEMO_MODE` and the rest threads through.
+- `internal/demotopup/runner.go` — `Run(ctx, Config)` background top-up loop. Tag-free; only the server build wires it (mobile build's `cmd/bot/main_mobile.go` doesn't reference it).
 - `web/static/js/core/demo-banner.js` + `web/static/js/core/api.js` (429 branch) + `web/static/index.html` (banner div + script tag) + `web/static/css/styles.css` (`.wg-demo-banner`).
 
 The MCP coverage guard (`internal/server/mcp_coverage_exempt.go`) is unaffected — rate-limited routes are already in the registry; wrapping them in middleware doesn't change registration.
@@ -132,13 +168,13 @@ ELEVENLABS_AGENT_ID=…
 # No TELEGRAM_BOT_TOKEN, no OIDC_*, no POCKET_ID_*, no MCP_EXECUTOR_BRIDGE_URL, no SESSION_SECRET (auto-generated)
 ```
 
-Before serving traffic:
+Before serving traffic, perform a one-time full seed:
 
 ```bash
 go run ./cmd/seeddemo -user 1 -db /data/demo.db -days 90 -wipe -seed 42
 ```
 
-Optionally schedule a cron / Portainer task to re-seed nightly so the demo resets to a known state.
+Once the bot is running with `DEMO_MODE=1`, the in-process background top-up loop keeps the dataset fresh — no external cron required. Optionally tune `DEMO_TOPUP_INTERVAL` (default `1h`) for a more or less "live" demo. A nightly full re-seed Portainer task is now optional, only useful if you want to keep the DB size bounded by periodically resetting to the known 90-day shape.
 
 ## Smoke test (manual)
 
@@ -150,8 +186,9 @@ After deployment, in a private/incognito window:
 - Hit `/api/food/log/from-photo` twice in a row → same outcome.
 - Connect Claude (or another MCP client) to `/mcp` with no auth → tools list works.
 - From a different IP (or via a VPN), confirm rate limits are per-IP, not global.
+- Tail the bot's logs and confirm `demotopup: starting top-up loop` appears on startup, followed by `demotopup: tick completed added_rows=N duration=…` at the configured interval. Open the Vitals tab and confirm HR/SpO2/stress samples extend up to "now".
 
 ## Follow-ups (not in scope)
 
-- If the demo grows to multiple replicas, the in-memory rate limiter becomes per-process — visitors could re-roll the dice by hitting different replicas. Solve with a distributed counter (Redis) when that bites.
+- If the demo grows to multiple replicas, the in-memory rate limiter becomes per-process — visitors could re-roll the dice by hitting different replicas. Solve with a distributed counter (Redis) when that bites. The same caveat applies to the top-up loop: each replica would tick independently, but the per-tick RNG (seeded from calendar day) plus the streams' unique-PK dedupe means duplicate work is silently swallowed rather than producing inconsistent data.
 - The deployment glue (docker-compose, Portainer webhook, nightly re-seed cron) is out of scope for the code change. See `docs/plans/2026-05-21-demo-mode.md` Post-Completion section for the deployment checklist.
