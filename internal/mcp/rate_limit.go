@@ -1,12 +1,13 @@
 package mcp
 
 import (
-	"context"
 	"net"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
+
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // rateLimiter is a small sliding-window per-key rate limiter. Mirrors the
@@ -21,10 +22,41 @@ type rateLimiter struct {
 }
 
 func newRateLimiter(max int, window time.Duration) *rateLimiter {
-	return &rateLimiter{
+	rl := &rateLimiter{
 		window: window,
 		max:    max,
 		hits:   make(map[string][]time.Time),
+	}
+	rl.startCleanup()
+	return rl
+}
+
+// startCleanup runs a background goroutine that periodically evicts expired
+// IP buckets from r.hits. Without this the map grows unbounded on a
+// public-facing demo: every distinct IP that ever called mcp_execute adds a
+// permanent entry. Mirrors the server-side rateLimiter.startCleanup.
+func (r *rateLimiter) startCleanup() {
+	ticker := time.NewTicker(r.window)
+	go func() {
+		for range ticker.C {
+			r.cleanup()
+		}
+	}()
+}
+
+func (r *rateLimiter) cleanup() {
+	now := time.Now()
+	cutoff := now.Add(-r.window)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for key, hits := range r.hits {
+		if len(hits) == 0 {
+			delete(r.hits, key)
+			continue
+		}
+		if hits[len(hits)-1].Before(cutoff) {
+			delete(r.hits, key)
+		}
 	}
 }
 
@@ -74,37 +106,32 @@ func clientIP(r *http.Request, trustProxy bool) string {
 	return r.RemoteAddr
 }
 
-// mcpClientIPKeyType is the unexported context-key type for the per-request
-// client IP. Using a typed empty struct avoids collisions with other context
-// keys (the standard linter rule against string keys).
-type mcpClientIPKeyType struct{}
-
-var mcpClientIPKey mcpClientIPKeyType
-
-func withClientIP(ctx context.Context, ip string) context.Context {
-	return context.WithValue(ctx, mcpClientIPKey, ip)
-}
-
-// clientIPFromCtx returns the client IP previously injected by
-// clientIPMiddleware, or "" when no middleware ran (e.g. unit tests bypassing
-// buildPublicMux).
-func clientIPFromCtx(ctx context.Context) string {
-	if v, ok := ctx.Value(mcpClientIPKey).(string); ok {
-		return v
+// clientIPFromExtra returns the client IP from a tool-call request's per-POST
+// headers. The MCP SDK attaches the original request headers to jreq.Extra
+// at dispatch time (streamable.go's servePOST stamps them on every POST), so
+// this is the only reliable per-POST IP signal available inside a tool
+// handler — the ctx passed to the handler is the connection-level ctx
+// captured at session-init time and is identical across every POST in the
+// session, so a context-injection middleware would attribute every call in
+// a session to the IP that initiated the session.
+//
+// When trustProxy is true, X-Forwarded-For (first hop) and X-Real-IP are
+// honored, mirroring the server-side clientIP helper. When trustProxy is
+// false there is no RemoteAddr in Extra; the function returns "" and the
+// limiter falls back to a single shared bucket for all callers. The demo
+// runbook documents AUTH_TRUST_PROXY=1 as required for this reason.
+func clientIPFromExtra(extra *sdkmcp.RequestExtra, trustProxy bool) string {
+	if extra == nil || extra.Header == nil || !trustProxy {
+		return ""
+	}
+	if xff := extra.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		if len(parts) > 0 {
+			return strings.TrimSpace(parts[0])
+		}
+	}
+	if xrip := extra.Header.Get("X-Real-IP"); xrip != "" {
+		return xrip
 	}
 	return ""
-}
-
-// clientIPMiddleware extracts the client IP from the request (honoring XFF
-// when trustProxy is true) and injects it into the request context so MCP
-// tool handlers reached through the SDK can look it up via clientIPFromCtx.
-// The MCP SDK owns the tool dispatch, so per-IP rate limiting cannot live in
-// the HTTP middleware itself — this seam is the bridge.
-func clientIPMiddleware(trustProxy bool) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ip := clientIP(r, trustProxy)
-			next.ServeHTTP(w, r.WithContext(withClientIP(r.Context(), ip)))
-		})
-	}
 }

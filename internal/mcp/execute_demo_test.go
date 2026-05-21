@@ -14,20 +14,28 @@ import (
 // demoExecuteServer wires a Server with an OK executor and an active demo
 // rate limiter capped at maxPerHour. Mirrors serverWithExecutor's shape but
 // adds the demoLimiter the production code constructs in NewServer.
+// TrustProxy is on so clientIPFromExtra honors X-Forwarded-For — this matches
+// the demo runbook's documented AUTH_TRUST_PROXY=1 requirement.
 func demoExecuteServer(maxPerHour int) *Server {
 	s := serverWithExecutor(fakeOKExecutor(json.RawMessage(`null`)), 30_000, 100)
 	s.config.DemoMode = true
 	s.config.DemoExecuteCallsPerHour = maxPerHour
+	s.config.TrustProxy = true
 	s.demoLimiter = newRateLimiter(maxPerHour, time.Hour)
 	return s
 }
 
-// callExecuteWithIP invokes handleMCPExecute with an explicit client IP in the
-// context, matching what clientIPMiddleware would inject in production.
+// callExecuteWithIP invokes handleMCPExecute with an explicit client IP on the
+// per-request Extra.Header, matching what the MCP SDK's StreamableServerTransport
+// does for every POST (jreq.Extra = &RequestExtra{Header: req.Header}).
 func callExecuteWithIP(t *testing.T, s *Server, ip string) (*sdkmcp.CallToolResult, ExecuteResponse, error) {
 	t.Helper()
-	ctx := withClientIP(context.Background(), ip)
-	return s.handleMCPExecute(ctx, nil, ExecuteInput{Script: "output(1)"})
+	req := &sdkmcp.CallToolRequest{
+		Extra: &sdkmcp.RequestExtra{
+			Header: http.Header{"X-Forwarded-For": []string{ip}},
+		},
+	}
+	return s.handleMCPExecute(context.Background(), req, ExecuteInput{Script: "output(1)"})
 }
 
 // extractDemoRateLimitBody pulls the JSON body out of a CallToolResult emitted
@@ -142,12 +150,14 @@ func TestMCPExecute_DemoOn_PerIPBucket(t *testing.T) {
 	}
 }
 
-func TestMCPExecute_DemoOn_NoIPInCtx_SharedBucket(t *testing.T) {
+func TestMCPExecute_DemoOn_NoHeaderSharedBucket(t *testing.T) {
 	const limit = 3
 	s := demoExecuteServer(limit)
 
-	// Calls without a context-injected IP all share the empty-string key.
-	// They should hit the limit just like a single attributed IP would.
+	// Calls with a nil request (no per-POST Extra.Header) all share the
+	// empty-string key. They should hit the limit just like a single
+	// attributed IP would. Trust-proxy-false would have the same effect
+	// even if headers were attached.
 	for i := 0; i < limit; i++ {
 		result, _, err := s.handleMCPExecute(context.Background(), nil, ExecuteInput{Script: "output(1)"})
 		if err != nil {
@@ -192,6 +202,29 @@ func TestClientIP_XRealIPFallback(t *testing.T) {
 	}
 }
 
+func TestClientIPFromExtra_TrustProxy(t *testing.T) {
+	extra := &sdkmcp.RequestExtra{
+		Header: http.Header{
+			"X-Forwarded-For": []string{"203.0.113.7, 10.0.0.1"},
+		},
+	}
+	if got := clientIPFromExtra(extra, true); got != "203.0.113.7" {
+		t.Errorf("trustProxy=true X-Forwarded-For: got %q, want %q", got, "203.0.113.7")
+	}
+	if got := clientIPFromExtra(extra, false); got != "" {
+		t.Errorf("trustProxy=false: got %q, want \"\" (no RemoteAddr fallback in Extra)", got)
+	}
+}
+
+func TestClientIPFromExtra_NilSafe(t *testing.T) {
+	if got := clientIPFromExtra(nil, true); got != "" {
+		t.Errorf("nil extra: got %q, want empty", got)
+	}
+	if got := clientIPFromExtra(&sdkmcp.RequestExtra{}, true); got != "" {
+		t.Errorf("nil Header: got %q, want empty", got)
+	}
+}
+
 func TestRateLimiter_AllowsThenBlocks(t *testing.T) {
 	rl := newRateLimiter(3, time.Hour)
 	for i := 0; i < 3; i++ {
@@ -204,22 +237,5 @@ func TestRateLimiter_AllowsThenBlocks(t *testing.T) {
 	}
 	if !rl.Allow("other-key") {
 		t.Error("Allow on fresh key = false, want true (independent bucket)")
-	}
-}
-
-func TestClientIPMiddleware_InjectsIPIntoContext(t *testing.T) {
-	var seen string
-	next := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		seen = clientIPFromCtx(r.Context())
-	})
-	h := clientIPMiddleware(true)(next)
-
-	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
-	req.Header.Set("X-Forwarded-For", "203.0.113.42")
-	req.RemoteAddr = "127.0.0.1:1111"
-	h.ServeHTTP(httptest.NewRecorder(), req)
-
-	if seen != "203.0.113.42" {
-		t.Errorf("ctx IP = %q, want %q", seen, "203.0.113.42")
 	}
 }

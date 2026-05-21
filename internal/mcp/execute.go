@@ -98,16 +98,23 @@ type ExecuteResponse struct {
 
 func (s *Server) handleMCPExecute(
 	ctx context.Context,
-	_ *sdkmcp.CallToolRequest,
+	request *sdkmcp.CallToolRequest,
 	input ExecuteInput,
 ) (*sdkmcp.CallToolResult, ExecuteResponse, error) {
-	// Demo-mode per-IP rate limit. The MCP SDK owns tool dispatch (so we can't
-	// intercept at the HTTP layer cleanly), and the limit is per tool — only
-	// mcp_execute is metered. The IP is injected by clientIPMiddleware in
-	// buildPublicMux when DemoMode is on; if the context lacks one (defensive
-	// path, e.g. direct unit tests) all callers share the empty-string bucket.
+	// Demo-mode per-IP rate limit. The MCP SDK owns tool dispatch and the ctx
+	// passed to this handler is the connection-level ctx captured at session-
+	// init time — it does NOT change between POSTs in the same session. The
+	// per-POST headers (and thus the real client IP) are propagated by the SDK
+	// on request.Extra.Header, so the IP is read from there. When the headers
+	// are unavailable (direct unit-test calls with a nil request, or
+	// trust_proxy=false) all callers share the empty-string bucket; the demo
+	// runbook documents AUTH_TRUST_PROXY=1 as required behind Traefik.
 	if s.demoLimiter != nil {
-		ip := clientIPFromCtx(ctx)
+		var extra *sdkmcp.RequestExtra
+		if request != nil {
+			extra = request.Extra
+		}
+		ip := clientIPFromExtra(extra, s.config.TrustProxy)
 		if !s.demoLimiter.Allow(ip) {
 			return demoRateLimitResult(int(time.Hour.Seconds())), ExecuteResponse{}, nil
 		}
