@@ -34,6 +34,9 @@ type Summary struct {
 	BPReadings      int
 	WeightLogs      int
 	SleepLogs       int
+	HeartSamples    int
+	SpO2Samples     int
+	StressSamples   int
 	FoodProducts    int
 	FoodLogs        int
 	WorkoutSessions int
@@ -89,6 +92,9 @@ func Run(ctx context.Context, s *store.Store, opts Options) (*Summary, error) {
 		"bp_readings", summary.BPReadings,
 		"weight_logs", summary.WeightLogs,
 		"sleep_logs", summary.SleepLogs,
+		"heart_samples", summary.HeartSamples,
+		"spo2_samples", summary.SpO2Samples,
+		"stress_samples", summary.StressSamples,
 		"food_products", summary.FoodProducts,
 		"food_logs", summary.FoodLogs,
 		"workout_sessions", summary.WorkoutSessions,

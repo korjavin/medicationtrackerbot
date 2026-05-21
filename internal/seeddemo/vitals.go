@@ -12,9 +12,15 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
-// generateVitals produces blood pressure, weight, and sleep rows across the
-// synthetic window. It calls store methods directly because every row must
-// be backdated; domain services here would refuse non-current timestamps.
+// generateVitals produces blood pressure, weight, sleep, and continuous
+// heart / SpO2 / stress samples across the synthetic window. It calls store
+// methods directly because every row must be backdated; domain services here
+// would refuse non-current timestamps.
+//
+// The continuous time-series generators run with a sub-rng derived from
+// opts.Seed so they do not perturb the shared rng state seen by downstream
+// generators (food, workouts, misc). That keeps existing determinism tests
+// stable while adding three new streams.
 func generateVitals(ctx context.Context, s *store.Store, opts Options, clk *clock, rng *rand.Rand, summary *Summary) error {
 	if err := generateBP(ctx, s, opts, clk, rng, summary); err != nil {
 		return fmt.Errorf("bp: %w", err)
@@ -22,9 +28,37 @@ func generateVitals(ctx context.Context, s *store.Store, opts Options, clk *cloc
 	if err := generateWeight(ctx, s, opts, clk, rng, summary); err != nil {
 		return fmt.Errorf("weight: %w", err)
 	}
-	if err := generateSleep(ctx, s, opts, clk, rng, summary); err != nil {
+	sleeps, err := generateSleep(ctx, s, opts, clk, rng, summary)
+	if err != nil {
 		return fmt.Errorf("sleep: %w", err)
 	}
+
+	vc := &vitalsContext{
+		sleeps:   sleeps,
+		workouts: computeWorkoutWindows(opts, clk),
+	}
+	tsRng := rand.New(rand.NewPCG(uint64(opts.Seed)^0xA5A5A5A5A5A5A5A5, uint64(opts.Seed)^0x5A5A5A5A5A5A5A5A))
+	from := clk.start
+	to := clk.anchor
+
+	heart, err := generateHeartSamples(ctx, s, opts, vc, tsRng, from, to)
+	if err != nil {
+		return fmt.Errorf("heart samples: %w", err)
+	}
+	summary.HeartSamples += heart
+
+	spo2, err := generateSpO2Samples(ctx, s, opts, vc, tsRng, from, to)
+	if err != nil {
+		return fmt.Errorf("spo2 samples: %w", err)
+	}
+	summary.SpO2Samples += spo2
+
+	stress, err := generateStressSamples(ctx, s, opts, vc, tsRng, from, to)
+	if err != nil {
+		return fmt.Errorf("stress samples: %w", err)
+	}
+	summary.StressSamples += stress
+
 	return nil
 }
 
@@ -131,7 +165,7 @@ func generateWeight(ctx context.Context, s *store.Store, opts Options, clk *cloc
 	return nil
 }
 
-func generateSleep(ctx context.Context, s *store.Store, opts Options, clk *clock, rng *rand.Rand, summary *Summary) error {
+func generateSleep(ctx context.Context, s *store.Store, opts Options, clk *clock, rng *rand.Rand, summary *Summary) ([]sleepWindow, error) {
 	// Pick ~75 of opts.Days nights.
 	target := opts.Days * 75 / 90
 	if target > opts.Days {
@@ -140,6 +174,7 @@ func generateSleep(ctx context.Context, s *store.Store, opts Options, clk *clock
 	nightIdx := pickDays(rng, opts.Days, target)
 
 	logs := make([]store.SleepLog, 0, len(nightIdx))
+	windows := make([]sleepWindow, 0, len(nightIdx))
 	for _, off := range nightIdx {
 		// Each "night" is anchored to day `off`: bedtime falls on `off-1`
 		// in the late evening and wake on `off` in the morning. Skip off==0
@@ -198,16 +233,17 @@ func generateSleep(ctx context.Context, s *store.Store, opts Options, clk *clock
 			SpO2Avg:        &spo2,
 			Notes:          fmt.Sprintf("quality:%d", quality),
 		})
+		windows = append(windows, sleepWindow{start: start, end: end})
 	}
 	if len(logs) == 0 {
-		return nil
+		return windows, nil
 	}
 	imported, _, err := s.Vitals.ImportSleepLogs(ctx, opts.UserID, logs)
 	if err != nil {
-		return fmt.Errorf("import sleep: %w", err)
+		return nil, fmt.Errorf("import sleep: %w", err)
 	}
 	summary.SleepLogs += imported
-	return nil
+	return windows, nil
 }
 
 // pickDays returns `count` distinct day offsets in [0, totalDays) chosen
