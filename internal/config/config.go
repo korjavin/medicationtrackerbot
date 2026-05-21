@@ -31,6 +31,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store/settings"
 )
@@ -138,6 +139,16 @@ type DemoConfig struct {
 	FoodPhotosPerHour       int
 	FoodDescriptionsPerHour int
 	MCPExecuteCallsPerHour  int
+	// TopUpInterval is the cadence at which the in-process demo top-up
+	// goroutine calls seeddemo.TopUp. Defaults to 1h. Set lower (e.g. 1m)
+	// for a "live" demo, higher for a quieter one. Ignored when DemoMode
+	// is off.
+	TopUpInterval time.Duration
+	// TopUpSeed is the deterministic seed passed to seeddemo.TopUp on each
+	// tick. Combined with the calendar-day XOR inside TopUp this yields
+	// stable per-day sample shapes even across restarts. Defaults to 0
+	// when DEMO_TOPUP_SEED is unset.
+	TopUpSeed int64
 }
 
 // LoadFromEnv reads the process environment and returns a populated Config.
@@ -204,6 +215,8 @@ func LoadFromEnv() (*Config, error) {
 			FoodPhotosPerHour:       parsePositiveIntEnv("DEMO_FOOD_PHOTOS_PER_HOUR", 1),
 			FoodDescriptionsPerHour: parsePositiveIntEnv("DEMO_FOOD_DESCRIPTIONS_PER_HOUR", 1),
 			MCPExecuteCallsPerHour:  parsePositiveIntEnv("DEMO_MCP_EXECUTE_PER_HOUR", 5),
+			TopUpInterval:           parsePositiveDurationEnv("DEMO_TOPUP_INTERVAL", time.Hour),
+			TopUpSeed:               parseInt64Env("DEMO_TOPUP_SEED", 0),
 		}
 	}
 	return cfg, nil
@@ -229,6 +242,39 @@ func parsePositiveIntEnv(key string, defaultValue int) int {
 	}
 	parsed, err := strconv.Atoi(val)
 	if err != nil || parsed <= 0 {
+		return defaultValue
+	}
+	return parsed
+}
+
+// parsePositiveDurationEnv reads a time.ParseDuration-formatted env var; on
+// missing, empty, malformed, or non-positive input it returns defaultValue.
+// A zero or negative interval would either hot-loop the ticker or never fire,
+// so both are rejected.
+func parsePositiveDurationEnv(key string, defaultValue time.Duration) time.Duration {
+	val := strings.TrimSpace(os.Getenv(key))
+	if val == "" {
+		return defaultValue
+	}
+	parsed, err := time.ParseDuration(val)
+	if err != nil || parsed <= 0 {
+		slog.Warn("config: invalid duration env var; using default", "key", key, "value", val, "default", defaultValue)
+		return defaultValue
+	}
+	return parsed
+}
+
+// parseInt64Env reads a signed int64 env var; on missing, empty, or malformed
+// input it returns defaultValue. Used for seeds where zero and negative values
+// are legitimate inputs to a PCG RNG.
+func parseInt64Env(key string, defaultValue int64) int64 {
+	val := strings.TrimSpace(os.Getenv(key))
+	if val == "" {
+		return defaultValue
+	}
+	parsed, err := strconv.ParseInt(val, 10, 64)
+	if err != nil {
+		slog.Warn("config: invalid int64 env var; using default", "key", key, "value", val, "default", defaultValue)
 		return defaultValue
 	}
 	return parsed

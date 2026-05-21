@@ -19,6 +19,7 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/ai"
 	"github.com/korjavin/medicationtrackerbot/internal/bot"
 	"github.com/korjavin/medicationtrackerbot/internal/config"
+	"github.com/korjavin/medicationtrackerbot/internal/demotopup"
 	"github.com/korjavin/medicationtrackerbot/internal/domain"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzsuggestion"
@@ -406,6 +407,21 @@ func main() {
 	// onerror per client instead of a hard TCP reset.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// In demo mode, launch the background top-up loop that keeps the seeded
+	// dataset fresh (HR/SpO2/stress samples, new BP/food/sleep rows, etc.)
+	// without an external cron. The loop owns its own ticker and exits when
+	// the same shutdown signal cancels ctx. We start it AFTER ctx is created
+	// so cancellation flows in; AllowedUserID was already validated as
+	// non-zero in the DEMO_MODE branch above.
+	if cfg.DemoMode {
+		go demotopup.Run(ctx, demotopup.Config{
+			Store:    s,
+			UserID:   allowedUserID,
+			Interval: cfg.Demo.TopUpInterval,
+			Seed:     cfg.Demo.TopUpSeed,
+		})
+	}
 
 	listenErr := make(chan error, 1)
 	go func() {

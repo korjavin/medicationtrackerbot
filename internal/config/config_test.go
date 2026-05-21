@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store/settings"
 )
@@ -480,6 +481,7 @@ func clearEnv(t *testing.T) {
 		"DEMO_FOOD_LOGS_PER_HOUR",
 		"DEMO_FOOD_PHOTOS_PER_HOUR", "DEMO_FOOD_DESCRIPTIONS_PER_HOUR",
 		"DEMO_MCP_EXECUTE_PER_HOUR",
+		"DEMO_TOPUP_INTERVAL", "DEMO_TOPUP_SEED",
 	} {
 		t.Setenv(k, "")
 	}
@@ -493,6 +495,7 @@ func TestLoadFromEnv_DemoMode(t *testing.T) {
 		FoodPhotosPerHour:       1,
 		FoodDescriptionsPerHour: 1,
 		MCPExecuteCallsPerHour:  5,
+		TopUpInterval:           time.Hour,
 	}
 
 	tests := []struct {
@@ -544,6 +547,7 @@ func TestLoadFromEnv_DemoMode(t *testing.T) {
 				FoodPhotosPerHour:       3,
 				FoodDescriptionsPerHour: 7,
 				MCPExecuteCallsPerHour:  11,
+				TopUpInterval:           time.Hour,
 			},
 		},
 		{
@@ -561,6 +565,7 @@ func TestLoadFromEnv_DemoMode(t *testing.T) {
 				FoodPhotosPerHour:       1,
 				FoodDescriptionsPerHour: 1,
 				MCPExecuteCallsPerHour:  17,
+				TopUpInterval:           time.Hour,
 			},
 		},
 		{
@@ -585,6 +590,48 @@ func TestLoadFromEnv_DemoMode(t *testing.T) {
 			},
 			wantOn:   false,
 			wantDemo: DemoConfig{},
+		},
+		{
+			// Top-up interval and seed are read from their own env vars
+			// when DEMO_MODE is on. Interval accepts a Go duration string;
+			// seed is a signed int64. Both fall back to the documented
+			// defaults (1h / 0) when unset or malformed.
+			name: "topup_overrides_set",
+			envVars: map[string]string{
+				"DEMO_MODE":           "1",
+				"DEMO_TOPUP_INTERVAL": "5m",
+				"DEMO_TOPUP_SEED":     "12345",
+			},
+			wantOn: true,
+			wantDemo: DemoConfig{
+				AgentCallsPerDay:        1,
+				AgentUploadsPerDay:      20,
+				FoodLogsPerHour:         1,
+				FoodPhotosPerHour:       1,
+				FoodDescriptionsPerHour: 1,
+				MCPExecuteCallsPerHour:  5,
+				TopUpInterval:           5 * time.Minute,
+				TopUpSeed:               12345,
+			},
+		},
+		{
+			name: "topup_malformed_falls_back",
+			envVars: map[string]string{
+				"DEMO_MODE":           "1",
+				"DEMO_TOPUP_INTERVAL": "not-a-duration",
+				"DEMO_TOPUP_SEED":     "not-a-number",
+			},
+			wantOn:   true,
+			wantDemo: defaults,
+		},
+		{
+			name: "topup_zero_interval_falls_back",
+			envVars: map[string]string{
+				"DEMO_MODE":           "1",
+				"DEMO_TOPUP_INTERVAL": "0s",
+			},
+			wantOn:   true,
+			wantDemo: defaults,
 		},
 	}
 

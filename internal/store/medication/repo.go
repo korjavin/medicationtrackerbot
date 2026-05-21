@@ -30,6 +30,7 @@
 package medication
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -544,6 +545,24 @@ func (r *Repo) CreateIntake(medID, userID int64, scheduledAt time.Time) (int64, 
 		return 0, err
 	}
 	return res.LastInsertId()
+}
+
+// LatestScheduledIntake returns the most-recent scheduled_at_unix for the
+// given medication (zero time + found=false when the medication has no
+// intake_log rows yet). Used by the demo top-up loop to resume per-medication
+// dose generation from the last scheduled dose forward. intake_log has no
+// UNIQUE constraint on (medication_id, scheduled_at_unix); the seeddemo
+// top-up path enforces dedupe via a strict scheduledAt > latest guard.
+func (r *Repo) LatestScheduledIntake(ctx context.Context, medID int64) (time.Time, bool, error) {
+	var scheduledUnix sql.NullInt64
+	if err := r.db.QueryRowContext(ctx,
+		"SELECT MAX(scheduled_at_unix) FROM intake_log WHERE medication_id = ?", medID).Scan(&scheduledUnix); err != nil {
+		return time.Time{}, false, err
+	}
+	if !scheduledUnix.Valid {
+		return time.Time{}, false, nil
+	}
+	return time.Unix(scheduledUnix.Int64, 0).UTC(), true, nil
 }
 
 func (r *Repo) CreateManualIntake(medID, userID int64, takenAt time.Time) (int64, error) {

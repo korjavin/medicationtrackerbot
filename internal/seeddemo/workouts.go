@@ -138,10 +138,14 @@ var demoAdHocSessions = []adHocSessionSpec{
 }
 
 // generateWorkouts seeds the workout schedule (groups + variants + exercises),
-// walks the synthetic 90-day window producing scheduled sessions with a
-// realistic completed/skipped/in-progress/pending mix, and adds a handful
-// of ad-hoc library-sourced sessions.
-func generateWorkouts(ctx context.Context, s *store.Store, opts Options, clk *clock, rng *rand.Rand, summary *Summary) error {
+// walks the supplied window producing scheduled sessions with a realistic
+// completed/skipped/in-progress/pending mix, and adds the ad-hoc sessions
+// that fall in window.
+//
+// (from, to) bounds session emission; the catalog itself is always created.
+// For full-seed the window covers all opts.Days; top-up callers pass
+// narrower windows.
+func generateWorkouts(ctx context.Context, s *store.Store, opts Options, clk *clock, rng *rand.Rand, from, to time.Time, summary *Summary) error {
 	pendingCutoff := clk.daysFromAnchor(2)
 
 	strengthGroup, strengthVariants, err := seedWorkoutGroup(s, opts.UserID, demoStrengthGroup)
@@ -153,13 +157,13 @@ func generateWorkouts(ctx context.Context, s *store.Store, opts Options, clk *cl
 		return fmt.Errorf("seed cardio group: %w", err)
 	}
 
-	if err := generateScheduledSessions(ctx, s, opts, clk, rng, summary, strengthGroup, strengthVariants, demoStrengthGroup, pendingCutoff); err != nil {
+	if err := generateScheduledSessions(ctx, s, opts, clk, rng, from, to, summary, strengthGroup, strengthVariants, demoStrengthGroup, pendingCutoff, 0); err != nil {
 		return fmt.Errorf("scheduled strength sessions: %w", err)
 	}
-	if err := generateScheduledSessions(ctx, s, opts, clk, rng, summary, cardioGroup, cardioVariants, demoCardioGroup, pendingCutoff); err != nil {
+	if err := generateScheduledSessions(ctx, s, opts, clk, rng, from, to, summary, cardioGroup, cardioVariants, demoCardioGroup, pendingCutoff, 0); err != nil {
 		return fmt.Errorf("scheduled cardio sessions: %w", err)
 	}
-	if err := generateAdHocSessions(ctx, s, opts, clk, summary); err != nil {
+	if err := generateAdHocSessions(ctx, s, opts, clk, from, to, summary); err != nil {
 		return fmt.Errorf("ad-hoc sessions: %w", err)
 	}
 	return nil
@@ -222,10 +226,18 @@ type storeExerciseID struct {
 	spec exerciseSpec
 }
 
-// generateScheduledSessions iterates every day in the window, and on days
+// generateScheduledSessions iterates every day in [from, to), and on days
 // matching the group's days_of_week creates a session row with status,
-// timestamps and (for completed sessions) backdated exercise logs.
-func generateScheduledSessions(ctx context.Context, s *store.Store, opts Options, clk *clock, rng *rand.Rand, summary *Summary, group *store.WorkoutGroup, variants []variantWithExercises, spec groupSpec, pendingCutoff time.Time) error {
+// timestamps and (for completed sessions) backdated exercise logs. Rotation
+// state is advanced relative to the catalog-scale offset (opts.Days) so
+// trend / progression math agrees with the full-seed timeline whether the
+// caller covers the full catalog or only a partial top-up gap.
+//
+// rotationStartIdx is the position the rotation pointer should resume from.
+// Full-seed callers pass 0; the top-up path passes the index of the
+// rotation_state's current_variant_id so a partial window's first session
+// uses the variant that follows the seed's last completed session.
+func generateScheduledSessions(ctx context.Context, s *store.Store, opts Options, clk *clock, rng *rand.Rand, from, to time.Time, summary *Summary, group *store.WorkoutGroup, variants []variantWithExercises, spec groupSpec, pendingCutoff time.Time, rotationStartIdx int) error {
 	if len(variants) == 0 {
 		return nil
 	}
@@ -234,10 +246,21 @@ func generateScheduledSessions(ctx context.Context, s *store.Store, opts Options
 		dowSet[d] = true
 	}
 
-	rotationIdx := 0
+	windowStart := startOfDayUTC(from)
+	windowDays := daysInWindow(windowStart, to)
+	if windowDays <= 0 {
+		return nil
+	}
+	startOff := windowStartOffsetFromClock(clk, windowStart)
+
+	rotationIdx := rotationStartIdx
+	if rotationIdx < 0 {
+		rotationIdx = 0
+	}
 	totalDays := opts.Days
 	var lastAdvanceDay *time.Time
-	for off := 0; off < totalDays; off++ {
+	for idx := 0; idx < windowDays; idx++ {
+		off := startOff + idx
 		day := clk.dayOffset(off)
 		if !dowSet[int(day.Weekday())] {
 			continue
@@ -389,8 +412,10 @@ func insertExerciseLog(ctx context.Context, s *store.Store, sessionID int64, ex 
 
 // generateAdHocSessions inserts unscheduled completed sessions whose
 // exercise logs use source="library" — exercising the path where the user
-// records a workout outside any planned group.
-func generateAdHocSessions(ctx context.Context, s *store.Store, opts Options, clk *clock, summary *Summary) error {
+// records a workout outside any planned group. Sessions whose start day
+// falls outside [from, to) are skipped.
+func generateAdHocSessions(ctx context.Context, s *store.Store, opts Options, clk *clock, from, to time.Time, summary *Summary) error {
+	windowStart := startOfDayUTC(from)
 	for _, ah := range demoAdHocSessions {
 		if ah.dayOffset >= opts.Days {
 			continue
@@ -400,7 +425,13 @@ func generateAdHocSessions(ctx context.Context, s *store.Store, opts Options, cl
 			continue
 		}
 		day := clk.dayOffset(off)
+		if day.Before(windowStart) {
+			continue
+		}
 		startedAt := time.Date(day.Year(), day.Month(), day.Day(), ah.hour, ah.minute, 0, 0, time.UTC)
+		if startedAt.Before(from) || !startedAt.Before(to) {
+			continue
+		}
 		completedAt := startedAt.Add(40 * time.Minute)
 		scheduledTime := fmt.Sprintf("%02d:%02d", ah.hour, ah.minute)
 

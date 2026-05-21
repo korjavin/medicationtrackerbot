@@ -550,6 +550,28 @@ func (r *Repo) DeleteLog(ctx context.Context, id, userID int64) error {
 	return nil
 }
 
+// LatestLog returns the most-recent eaten_at for a user's food_log rows
+// (zero time + found=false when the user has no logs). Used by the demo
+// top-up loop to resume meal generation from the last known meal forward.
+//
+// Scans through a string buffer because SQLite's MAX() strips the DATETIME
+// column's affinity (same workaround as workout.GetLatestSessionScheduledDate).
+func (r *Repo) LatestLog(ctx context.Context, userID int64) (time.Time, bool, error) {
+	var eatenStr sql.NullString
+	if err := r.db.QueryRowContext(ctx,
+		"SELECT MAX(eaten_at) FROM food_log WHERE user_id = ?", userID).Scan(&eatenStr); err != nil {
+		return time.Time{}, false, err
+	}
+	if !eatenStr.Valid {
+		return time.Time{}, false, nil
+	}
+	t, err := storedb.ParseSQLiteDateTime(eatenStr.String)
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("parse food_log.eaten_at %q: %w", eatenStr.String, err)
+	}
+	return t.UTC(), true, nil
+}
+
 // GetStats sums calories/carbs/protein/fat across the user's food_log
 // rows for [endDate - (days-1), endDate] (calendar midnights in endDate's
 // location, DST-safe).

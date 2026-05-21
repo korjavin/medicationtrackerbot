@@ -63,11 +63,17 @@ var demoMeds = []medSpec{
 }
 
 // generateMeds creates the catalogue medications and backdates their
-// intake_log rows across the synthetic window. Statuses are distributed
+// intake_log rows across the supplied window. Statuses are distributed
 // 80% TAKEN / 10% SKIPPED / 5% MISSED / 5% PENDING, except intakes within
 // the last 2 days from the anchor which are always PENDING.
-func generateMeds(ctx context.Context, s *store.Store, opts Options, clk *clock, rng *rand.Rand, summary *Summary) error {
+//
+// (from, to) bounds the intake emission window; the catalog itself is
+// always created. For the full-seed path the window covers the medication's
+// full active range; top-up callers pass narrower windows to append intakes
+// only inside the gap.
+func generateMeds(ctx context.Context, s *store.Store, opts Options, clk *clock, rng *rand.Rand, from, to time.Time, summary *Summary) error {
 	pendingCutoff := clk.daysFromAnchor(2)
+	emitFrom := startOfDayUTC(from)
 
 	for _, spec := range demoMeds {
 		// Resolve "full window" for the always-on meds (activeFromDays==0).
@@ -134,6 +140,19 @@ func generateMeds(ctx context.Context, s *store.Store, opts Options, clk *clock,
 		windowEnd := clk.anchor
 		if endDatePtr != nil {
 			windowEnd = endOfDayUTC(*endDatePtr)
+		}
+		// Clamp the med's active window to the caller-supplied (from, to)
+		// emission window. For full-seed this is a no-op (the caller window
+		// is wider than every medication's active range). For top-up it
+		// limits emission to scheduled doses inside the gap.
+		if emitFrom.After(windowStart) {
+			windowStart = emitFrom
+		}
+		if to.Before(windowEnd) {
+			windowEnd = to
+		}
+		if !windowStart.Before(windowEnd) {
+			continue
 		}
 		for day := windowStart; !day.After(windowEnd); day = day.AddDate(0, 0, 1) {
 			for _, hhmm := range spec.times {
