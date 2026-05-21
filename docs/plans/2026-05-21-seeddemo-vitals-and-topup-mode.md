@@ -86,13 +86,13 @@ Out of scope (intentional, per planning conversation):
 
 ### Task 2: Add vitals time-series generators to `internal/seeddemo/`
 
-- [ ] create `internal/seeddemo/vitals_timeseries.go` exporting `generateHeartSamples(ctx, s, clock, userID, rng, from, to)`, `generateSpO2Samples(...)`, `generateStressSamples(...)`.
-- [ ] design HR generator: baseline drift 55–75 bpm, +20–40 bpm bursts during seeded workout windows, dip during sleep windows (correlate by reading from existing seeded sleep / workout sets passed in via a small `Context` struct). Sample interval 15 min waking, 30 min sleep.
-- [ ] design SpO2 generator: 95–99 baseline with rare 92–94 dips at altitude/sleep (purely cosmetic variation); 15 min interval.
-- [ ] design stress generator: 0–100 score, low (20–40) at sleep, mid (30–55) baseline, spikes (60–80) at meal/workout boundaries; 30 min interval.
-- [ ] call generators from existing `generateVitals` (full-seed path) so a full seed now also populates the three time-series tables.
-- [ ] write tests in `vitals_timeseries_test.go`: determinism (same seed → identical samples), value-range assertions (no NaN, no out-of-spec), sample density matches expected (samples-per-day within tolerance), correlation smoke (sleep windows have lower median HR than waking windows).
-- [ ] run `go test ./internal/seeddemo/...` — must pass before task 3.
+- [x] create `internal/seeddemo/vitals_timeseries.go` exporting `generateHeartSamples(ctx, s, clock, userID, rng, from, to)`, `generateSpO2Samples(...)`, `generateStressSamples(...)`.
+- [x] design HR generator: baseline drift 55–75 bpm, +20–40 bpm bursts during seeded workout windows, dip during sleep windows (correlate by reading from existing seeded sleep / workout sets passed in via a small `Context` struct). Sample interval 15 min waking, 30 min sleep.
+- [x] design SpO2 generator: 95–99 baseline with rare 92–94 dips at altitude/sleep (purely cosmetic variation); 15 min interval.
+- [x] design stress generator: 0–100 score, low (20–40) at sleep, mid (30–55) baseline, spikes (60–80) at meal/workout boundaries; 30 min interval.
+- [x] call generators from existing `generateVitals` (full-seed path) so a full seed now also populates the three time-series tables.
+- [x] write tests in `vitals_timeseries_test.go`: determinism (same seed → identical samples), value-range assertions (no NaN, no out-of-spec), sample density matches expected (samples-per-day within tolerance), correlation smoke (sleep windows have lower median HR than waking windows).
+- [x] run `go test ./internal/seeddemo/...` — must pass before task 3.
 
 ### Task 3: Refactor `seeddemo.Seed` to expose per-stream window functions
 
