@@ -132,6 +132,9 @@ type DemoConfig struct {
 	FoodLogsPerHour         int
 	FoodPhotosPerHour       int
 	FoodDescriptionsPerHour int
+	MCPExecuteCallsPerHour  int
+	MCPExecutorMaxAPICalls  int
+	MCPExecutorMaxTimeoutMS int
 }
 
 // LoadFromEnv reads the process environment and returns a populated Config.
@@ -197,6 +200,9 @@ func LoadFromEnv() (*Config, error) {
 			FoodLogsPerHour:         parsePositiveIntEnv("DEMO_FOOD_LOGS_PER_HOUR", 1),
 			FoodPhotosPerHour:       parsePositiveIntEnv("DEMO_FOOD_PHOTOS_PER_HOUR", 1),
 			FoodDescriptionsPerHour: parsePositiveIntEnv("DEMO_FOOD_DESCRIPTIONS_PER_HOUR", 1),
+			MCPExecuteCallsPerHour:  parsePositiveIntEnv("DEMO_MCP_EXECUTE_PER_HOUR", 5),
+			MCPExecutorMaxAPICalls:  parsePositiveIntEnv("DEMO_MCP_EXECUTOR_MAX_API_CALLS", 10),
+			MCPExecutorMaxTimeoutMS: parsePositiveIntEnv("DEMO_MCP_EXECUTOR_MAX_TIMEOUT_MS", 10000),
 		}
 	}
 	return cfg, nil
