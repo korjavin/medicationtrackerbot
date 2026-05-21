@@ -80,12 +80,12 @@ Dependencies identified:
 
 ### Task 2: Remove the demo-mode fail-fast and apply caps in MCP
 
-- [ ] in `internal/mcp/mcp.go`, replace the `MCP_EXECUTOR_BRIDGE_URL must not be set when DEMO_MODE=1` error with a `slog.Warn` line and a comment pointing at the rate limiter as the replacement defence
-- [ ] thread the three new caps (`DemoExecuteCallsPerHour`, `DemoExecutorMaxAPICalls`, `DemoExecutorMaxTimeoutMS`) into the MCP `Config` struct so the executor wiring can read them
-- [ ] in `LoadConfigFromEnv`, populate the new caps from env vars (same names as Task 1), defaults wired identically
-- [ ] when `cfg.DemoMode` is true, override the executor's `MaxAPICalls` and `MaxTimeoutMS` with the demo values before constructing the executor service in `cmd/mcptool/main.go`
-- [ ] extend `internal/mcp/mcp_demo_test.go` with: (a) demo + bridge URL set → no error, warning logged, (b) caps applied when demo=on, (c) caps untouched when demo=off
-- [ ] run `go test ./internal/mcp/...` and `go build ./... && go build -tags mobile ./...` — all must pass before next task
+- [x] in `internal/mcp/mcp.go`, replace the `MCP_EXECUTOR_BRIDGE_URL must not be set when DEMO_MODE=1` error with a `slog.Warn` line and a comment pointing at the rate limiter as the replacement defence
+- [x] thread the three new caps (`DemoExecuteCallsPerHour`, `DemoExecutorMaxAPICalls`, `DemoExecutorMaxTimeoutMS`) into the MCP `Config` struct so the executor wiring can read them
+- [x] in `LoadConfigFromEnv`, populate the new caps from env vars (same names as Task 1), defaults wired identically
+- [x] when `cfg.DemoMode` is true, override the executor's `MaxAPICalls` and `MaxTimeoutMS` with the demo values before constructing the executor service in `cmd/mcptool/main.go`
+- [x] extend `internal/mcp/mcp_demo_test.go` with: (a) demo + bridge URL set → no error, warning logged, (b) caps applied when demo=on, (c) caps untouched when demo=off
+- [x] run `go test ./internal/mcp/...` and `go build ./... && go build -tags mobile ./...` — all must pass before next task
 
 ### Task 3: Per-IP rate limit inside handleMCPExecute
 
