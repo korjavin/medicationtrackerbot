@@ -157,10 +157,10 @@ func generateWorkouts(ctx context.Context, s *store.Store, opts Options, clk *cl
 		return fmt.Errorf("seed cardio group: %w", err)
 	}
 
-	if err := generateScheduledSessions(ctx, s, opts, clk, rng, from, to, summary, strengthGroup, strengthVariants, demoStrengthGroup, pendingCutoff); err != nil {
+	if err := generateScheduledSessions(ctx, s, opts, clk, rng, from, to, summary, strengthGroup, strengthVariants, demoStrengthGroup, pendingCutoff, 0); err != nil {
 		return fmt.Errorf("scheduled strength sessions: %w", err)
 	}
-	if err := generateScheduledSessions(ctx, s, opts, clk, rng, from, to, summary, cardioGroup, cardioVariants, demoCardioGroup, pendingCutoff); err != nil {
+	if err := generateScheduledSessions(ctx, s, opts, clk, rng, from, to, summary, cardioGroup, cardioVariants, demoCardioGroup, pendingCutoff, 0); err != nil {
 		return fmt.Errorf("scheduled cardio sessions: %w", err)
 	}
 	if err := generateAdHocSessions(ctx, s, opts, clk, from, to, summary); err != nil {
@@ -232,7 +232,12 @@ type storeExerciseID struct {
 // state is advanced relative to the catalog-scale offset (opts.Days) so
 // trend / progression math agrees with the full-seed timeline whether the
 // caller covers the full catalog or only a partial top-up gap.
-func generateScheduledSessions(ctx context.Context, s *store.Store, opts Options, clk *clock, rng *rand.Rand, from, to time.Time, summary *Summary, group *store.WorkoutGroup, variants []variantWithExercises, spec groupSpec, pendingCutoff time.Time) error {
+//
+// rotationStartIdx is the position the rotation pointer should resume from.
+// Full-seed callers pass 0; the top-up path passes the index of the
+// rotation_state's current_variant_id so a partial window's first session
+// uses the variant that follows the seed's last completed session.
+func generateScheduledSessions(ctx context.Context, s *store.Store, opts Options, clk *clock, rng *rand.Rand, from, to time.Time, summary *Summary, group *store.WorkoutGroup, variants []variantWithExercises, spec groupSpec, pendingCutoff time.Time, rotationStartIdx int) error {
 	if len(variants) == 0 {
 		return nil
 	}
@@ -248,7 +253,10 @@ func generateScheduledSessions(ctx context.Context, s *store.Store, opts Options
 	}
 	startOff := windowStartOffsetFromClock(clk, windowStart)
 
-	rotationIdx := 0
+	rotationIdx := rotationStartIdx
+	if rotationIdx < 0 {
+		rotationIdx = 0
+	}
 	totalDays := opts.Days
 	var lastAdvanceDay *time.Time
 	for idx := 0; idx < windowDays; idx++ {

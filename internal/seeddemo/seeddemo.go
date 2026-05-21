@@ -76,8 +76,17 @@ func Run(ctx context.Context, s *store.Store, opts Options) (*Summary, error) {
 	if err := generateMeds(ctx, s, opts, clk, rng, from, to, summary); err != nil {
 		return nil, fmt.Errorf("generate meds: %w", err)
 	}
+	// One-time per-user setup that TopUp must NOT re-run: the weight unit
+	// preference and food targets are user-editable; the food catalog UPSERT
+	// bumps usage_count on every call. Keep these on the full-seed path.
+	if err := s.Weight.SetUnitPreference(ctx, "kg"); err != nil {
+		return nil, fmt.Errorf("set weight unit: %w", err)
+	}
 	if err := generateVitals(ctx, s, opts, clk, rng, from, to, summary); err != nil {
 		return nil, fmt.Errorf("generate vitals: %w", err)
+	}
+	if err := ensureFoodCatalog(ctx, s, opts, summary); err != nil {
+		return nil, fmt.Errorf("ensure food catalog: %w", err)
 	}
 	if err := generateFood(ctx, s, opts, clk, rng, from, to, summary); err != nil {
 		return nil, fmt.Errorf("generate food: %w", err)

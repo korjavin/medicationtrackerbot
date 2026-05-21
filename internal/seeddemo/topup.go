@@ -245,7 +245,7 @@ func dailyTopUpFrom(latest time.Time, found bool, now time.Time) time.Time {
 //
 // PK on (user_id, date_time) + INSERT OR IGNORE is the backstop for the
 // rare retry / clock-skew case where two samples might race onto the same
-// millisecond.
+// second.
 func timeseriesTopUpFrom(latest time.Time, found bool, now time.Time) time.Time {
 	if !found {
 		return now.AddDate(0, 0, -1)
@@ -426,7 +426,11 @@ func topUpWorkouts(ctx context.Context, s *store.Store, opts Options, clk *clock
 	pendingCutoff := now.AddDate(0, 0, -2)
 	for _, lg := range groups {
 		spec := lg.spec
-		if err := generateScheduledSessions(ctx, s, opts, clk, rng, from, now, summary, lg.group, lg.variants, spec, pendingCutoff); err != nil {
+		rotationStartIdx, err := rotationStartIndex(ctx, s, lg)
+		if err != nil {
+			return fmt.Errorf("rotation start for %s: %w", spec.name, err)
+		}
+		if err := generateScheduledSessions(ctx, s, opts, clk, rng, from, now, summary, lg.group, lg.variants, spec, pendingCutoff, rotationStartIdx); err != nil {
 			return fmt.Errorf("scheduled %s sessions: %w", spec.name, err)
 		}
 	}
@@ -434,6 +438,31 @@ func topUpWorkouts(ctx context.Context, s *store.Store, opts Options, clk *clock
 		return fmt.Errorf("ad-hoc sessions: %w", err)
 	}
 	return nil
+}
+
+// rotationStartIndex returns the index of the rotation_state's current
+// variant in lg.variants so generateScheduledSessions resumes the rotation
+// where the seed left off rather than restarting at variant[0] on every
+// top-up tick. Non-rotating groups (or groups with no stored state) start
+// at 0.
+func rotationStartIndex(ctx context.Context, s *store.Store, lg loadedGroup) (int, error) {
+	_ = ctx
+	if !lg.spec.isRotating || len(lg.variants) == 0 {
+		return 0, nil
+	}
+	state, err := s.Workout.GetRotationState(lg.group.ID)
+	if err != nil {
+		return 0, err
+	}
+	if state == nil {
+		return 0, nil
+	}
+	for i, v := range lg.variants {
+		if v.variant.ID == state.CurrentVariantID {
+			return i, nil
+		}
+	}
+	return 0, nil
 }
 
 // loadedGroup pairs a stored group with its variants (resolved through their

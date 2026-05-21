@@ -2,6 +2,7 @@ package seeddemo
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"math/rand/v2"
 	"time"
@@ -54,27 +55,23 @@ type mealSpec struct {
 	minute     int
 }
 
-// generateFood seeds the daily nutrition target, the catalogue of food
-// products, and per-day food_log entries with realistic over/on/under
+// generateFood emits per-day food_log entries with realistic over/on/under
 // target patterns within the supplied window. On a small subset of days it
 // also rolls those logs into an aggregated meal product so the meal-template
 // UI has data.
 //
+// The catalog (food_products rows) and the daily nutrition target are
+// one-time setup owned by ensureFoodCatalog, called from the full-seed
+// orchestrator. TopUp loads the catalog IDs read-only via loadFoodProductIDs
+// so it does not bump food_products.usage_count on every tick or overwrite
+// a target the demo viewer may have changed via the UI.
+//
 // (from, to) bounds emission. For full-seed the window covers all opts.Days;
 // top-up callers pass narrower windows.
 func generateFood(ctx context.Context, s *store.Store, opts Options, clk *clock, rng *rand.Rand, from, to time.Time, summary *Summary) error {
-	if err := s.Food.SetTargets(ctx, store.FoodTargets{
-		Calories: 2200,
-		Carbs:    250,
-		Protein:  110,
-		Fat:      75,
-	}); err != nil {
-		return fmt.Errorf("set food targets: %w", err)
-	}
-
-	productIDs, err := seedFoodProducts(ctx, s, opts, summary)
+	productIDs, err := loadFoodProductIDs(ctx, s, opts.UserID)
 	if err != nil {
-		return err
+		return fmt.Errorf("load food product ids: %w", err)
 	}
 	productByName := make(map[string]productSpec, len(demoFoodProducts))
 	for _, p := range demoFoodProducts {
@@ -142,7 +139,11 @@ func generateFood(ctx context.Context, s *store.Store, opts Options, clk *clock,
 			carbs, protein, fat, calories := domain.CalculateMacros(spec.carbs100, spec.protein100, spec.fat100, float64(grams))
 			jitterMin := rng.IntN(31) - 15
 			eatenAt := clk.at(off, m.hour, m.minute).Add(time.Duration(jitterMin) * time.Minute)
-			pid := productIDs[m.product]
+			var productIDPtr *int64
+			if pid, ok := productIDs[m.product]; ok {
+				p := pid
+				productIDPtr = &p
+			}
 
 			id, err := s.Food.CreateLog(ctx, &store.FoodLog{
 				UserID:    opts.UserID,
@@ -153,7 +154,7 @@ func generateFood(ctx context.Context, s *store.Store, opts Options, clk *clock,
 				Fat:       fat,
 				Calories:  calories,
 				Name:      m.product,
-				ProductID: &pid,
+				ProductID: productIDPtr,
 			})
 			if err != nil {
 				return fmt.Errorf("create food log day %d: %w", off, err)
@@ -174,10 +175,19 @@ func generateFood(ctx context.Context, s *store.Store, opts Options, clk *clock,
 	return nil
 }
 
-// seedFoodProducts inserts the catalogue and returns a name→ID map so
-// food_log rows can reference the products by ID.
-func seedFoodProducts(ctx context.Context, s *store.Store, opts Options, summary *Summary) (map[string]int64, error) {
-	ids := make(map[string]int64, len(demoFoodProducts))
+// ensureFoodCatalog plants the daily nutrition target and the demo
+// food_products catalogue. Called once from the full-seed orchestrator;
+// not called from TopUp, which only ever loads existing IDs (so a demo
+// viewer's manual edits to targets or products survive incremental ticks).
+func ensureFoodCatalog(ctx context.Context, s *store.Store, opts Options, summary *Summary) error {
+	if err := s.Food.SetTargets(ctx, store.FoodTargets{
+		Calories: 2200,
+		Carbs:    250,
+		Protein:  110,
+		Fat:      75,
+	}); err != nil {
+		return fmt.Errorf("set food targets: %w", err)
+	}
 	for _, p := range demoFoodProducts {
 		prod := &store.FoodProduct{
 			UserID:         opts.UserID,
@@ -192,17 +202,32 @@ func seedFoodProducts(ctx context.Context, s *store.Store, opts Options, summary
 			prod.Barcode = &b
 		}
 		if err := s.Food.UpsertProduct(ctx, prod); err != nil {
-			return nil, fmt.Errorf("upsert product %s: %w", p.name, err)
+			return fmt.Errorf("upsert product %s: %w", p.name, err)
 		}
+		summary.FoodProducts++
+	}
+	return nil
+}
+
+// loadFoodProductIDs returns the (name → ID) map for the demo catalogue
+// without touching usage_count or last_used_at. Used by generateFood so
+// repeat TopUp calls don't keep bumping the "most used products" counter
+// on rows that the tick didn't actually consume.
+func loadFoodProductIDs(ctx context.Context, s *store.Store, userID int64) (map[string]int64, error) {
+	ids := make(map[string]int64, len(demoFoodProducts))
+	for _, p := range demoFoodProducts {
 		var id int64
-		if err := s.DB().QueryRowContext(ctx,
+		err := s.DB().QueryRowContext(ctx,
 			"SELECT id FROM food_products WHERE user_id = ? AND name = ?",
-			opts.UserID, p.name,
-		).Scan(&id); err != nil {
+			userID, p.name,
+		).Scan(&id)
+		if err == sql.ErrNoRows {
+			continue
+		}
+		if err != nil {
 			return nil, fmt.Errorf("lookup product id %s: %w", p.name, err)
 		}
 		ids[p.name] = id
-		summary.FoodProducts++
 	}
 	return ids, nil
 }
