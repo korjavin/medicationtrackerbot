@@ -202,6 +202,19 @@ describe('native/capacitor/geolocation.js — Capacitor impl', () => {
         expect(plugin).toHaveBeenCalledTimes(1);
     });
 
+    it('bypasses the cache when the caller passes maximumAgeMs: 0', async () => {
+        const plugin = vi.fn().mockResolvedValue({
+            coords: { latitude: 1, longitude: 2, accuracy: 3 },
+            timestamp: 1700000000000,
+        });
+        env = loadEnv({ capacitor: makeCapacitor({ getCurrentPosition: plugin }) });
+        await env.window.Geolocation.getCurrentPosition();
+        // maximumAgeMs: 0 is the W3C "force a fresh fix" signal — must not
+        // return the cached value even if it's only milliseconds old.
+        await env.window.Geolocation.getCurrentPosition({ maximumAgeMs: 0 });
+        expect(plugin).toHaveBeenCalledTimes(2);
+    });
+
     it('re-invokes the plugin after the 1h cache TTL expires', async () => {
         const plugin = vi.fn().mockResolvedValue({
             coords: { latitude: 1, longitude: 2, accuracy: 3 },

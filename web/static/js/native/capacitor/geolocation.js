@@ -72,7 +72,16 @@
     function getCurrentPosition(opts) {
         opts = opts || {};
         var now = nowMs();
-        if (cached && (now - cachedAt) < CACHE_TTL_MS) {
+        // Honor the caller's maximumAgeMs if specified — matches W3C semantics
+        // where maximumAgeMs=0 means "force a fresh fix". Without this check
+        // the 1h CACHE_TTL_MS would silently return stale coordinates even
+        // when the caller explicitly asks for fresh data.
+        var age = now - cachedAt;
+        var ttl = CACHE_TTL_MS;
+        if (typeof opts.maximumAgeMs === 'number' && opts.maximumAgeMs < ttl) {
+            ttl = opts.maximumAgeMs;
+        }
+        if (cached && age < ttl) {
             return Promise.resolve(cached);
         }
         return Promise.resolve()

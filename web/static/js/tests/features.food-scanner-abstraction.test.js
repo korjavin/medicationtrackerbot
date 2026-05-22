@@ -149,6 +149,45 @@ describe('features/food/scanner.js — Phase 2b abstraction seam (Task 7)', () =
         expect(onChangeSpy).toHaveBeenCalledTimes(1);
     });
 
+    it('scanFrameLoop does not write to the form if the scanner was stopped while the decode was in flight', async () => {
+        const { window, document } = env;
+
+        const video = document.getElementById('food-scanner-video');
+        Object.defineProperty(video, 'readyState', { configurable: true, value: 4 });
+
+        // Pin a known sentinel value so we can prove the loop did not overwrite
+        // the field after the user dismissed the modal.
+        const barcodeField = document.getElementById('food-barcode');
+        barcodeField.value = 'PRE-EXISTING';
+
+        // The mocked decode resolves with a barcode AFTER the test flips
+        // _setRunning(false) — simulating the user closing the modal between
+        // when scanFrameLoop kicked off Barcode.scan and when the decode
+        // resolved.
+        const scanSpy = vi.fn().mockImplementation(() => {
+            window.FoodScanner._setRunning(false);
+            return Promise.resolve({ format: 'ean_13', rawValue: '9999999999999' });
+        });
+        window.Barcode = { scan: scanSpy };
+
+        const onChangeSpy = vi.fn();
+        window.onFoodBarcodeChange = onChangeSpy;
+
+        window.openFoodScannerModal();
+        window.FoodScanner._setRunning(true);
+        await window.scanFrameLoop();
+
+        expect(scanSpy).toHaveBeenCalledTimes(1);
+        // Form field untouched, onFoodBarcodeChange not invoked — the late
+        // decode result was dropped because the scanner had already been
+        // stopped while the await was in flight.
+        expect(barcodeField.value).toBe('PRE-EXISTING');
+        expect(onChangeSpy).not.toHaveBeenCalled();
+        // The loop also did not schedule a follow-up tick once it saw the
+        // running flag was cleared.
+        expect(window.FoodScanner._getLoopTimer()).toBeNull();
+    });
+
     it('scanFrameLoop swallows Barcode.scan errors and re-arms the next tick', async () => {
         const { window, document } = env;
 

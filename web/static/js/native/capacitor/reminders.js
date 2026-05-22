@@ -67,13 +67,19 @@
     // payload shape. The id MUST be a positive 32-bit integer per the plugin
     // contract; intake_id is the natural stable identifier, and is bounded by
     // the SQLite autoincrement so it fits in int32 for any realistic deployment.
+    // Skip the row entirely (rather than passing NaN / a string / a value
+    // beyond int32) so one bad row doesn't make the plugin reject the whole
+    // schedule batch and strand the rest of the user's reminders.
+    var MAX_INT32 = 2147483647;
     function reminderToNotification(r) {
         if (!r || r.intake_id == null) return null;
+        var id = Number(r.intake_id);
+        if (!Number.isInteger(id) || id <= 0 || id > MAX_INT32) return null;
         var scheduledAt = r.scheduled_at ? new Date(r.scheduled_at) : null;
         if (!scheduledAt || isNaN(scheduledAt.getTime())) return null;
         var name = r.medication_name ? String(r.medication_name) : 'Medication';
         return {
-            id: Number(r.intake_id),
+            id: id,
             title: name,
             body: 'Time to take ' + name,
             // allowWhileIdle=true so Android Doze doesn't defer medication
