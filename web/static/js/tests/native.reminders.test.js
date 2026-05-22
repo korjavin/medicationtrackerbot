@@ -246,6 +246,27 @@ describe('native/capacitor/reminders.js — Capacitor impl', () => {
         expect(call.notifications[0].id).toBe(3);
     });
 
+    it('schedule() drops entries with non-integer or out-of-int32-range intake_id', async () => {
+        const getPending = vi.fn().mockResolvedValue({ notifications: [] });
+        const schedule = vi.fn().mockResolvedValue({});
+        env = loadEnv({ capacitor: makeCapacitor({ schedule, getPending }) });
+
+        // The Capacitor LocalNotifications plugin requires a positive 32-bit
+        // integer id. A NaN / string / out-of-range value would reject the
+        // entire batch and strand every reminder; we must drop the bad rows
+        // and schedule the rest.
+        await env.window.Reminders.schedule([
+            { intake_id: 'abc', medication_id: 1, medication_name: 'A', scheduled_at: '2026-05-23T08:00:00Z' },
+            { intake_id: 2147483648, medication_id: 1, medication_name: 'B', scheduled_at: '2026-05-23T08:00:00Z' },
+            { intake_id: -1, medication_id: 1, medication_name: 'C', scheduled_at: '2026-05-23T08:00:00Z' },
+            { intake_id: 1.5, medication_id: 1, medication_name: 'D', scheduled_at: '2026-05-23T08:00:00Z' },
+            { intake_id: 42, medication_id: 1, medication_name: 'OK', scheduled_at: '2026-05-23T09:00:00Z' },
+        ]);
+        const call = schedule.mock.calls[0][0];
+        expect(call.notifications).toHaveLength(1);
+        expect(call.notifications[0].id).toBe(42);
+    });
+
     it('schedule() falls back to "Medication" body when medication_name is empty', async () => {
         const getPending = vi.fn().mockResolvedValue({ notifications: [] });
         const schedule = vi.fn().mockResolvedValue({});

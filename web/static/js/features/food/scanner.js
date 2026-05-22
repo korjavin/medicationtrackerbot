@@ -82,11 +82,17 @@ async function scanFrameLoop() {
 
     try {
         const result = await window.Barcode.scan({ source: video, formats: FOOD_BARCODE_FORMATS });
+        // Re-check after await: stopFoodScanner() may have run while the
+        // decode was in flight (modal closed, pagehide, beforeunload). Without
+        // this guard a late-resolving decode would still write to #food-barcode
+        // / trigger onFoodBarcodeChange against a UI the user already dismissed.
+        if (!window.FoodScanner._isRunning()) return;
         if (result && result.rawValue && handleDecodedValue(result.rawValue)) return;
     } catch (e) {
         console.error('Food scanner frame decode failed:', e);
     }
 
+    if (!window.FoodScanner._isRunning()) return;
     window.FoodScanner._setLoopTimer(setTimeout(scanFrameLoop, FOOD_SCAN_THROTTLE_MS));
 }
 
