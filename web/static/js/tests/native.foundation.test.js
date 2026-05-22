@@ -17,6 +17,16 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const NATIVE_INDEX_JS = path.join(REPO_ROOT, 'web/static/js/native/index.js');
+const NATIVE_IMPL_FILES = [
+    'web/static/js/native/web/geolocation.js',
+    'web/static/js/native/capacitor/geolocation.js',
+    'web/static/js/native/web/media-capture.js',
+    'web/static/js/native/capacitor/media-capture.js',
+    'web/static/js/native/web/barcode.js',
+    'web/static/js/native/capacitor/barcode.js',
+    'web/static/js/native/web/reminders.js',
+    'web/static/js/native/capacitor/reminders.js',
+].map((rel) => path.join(REPO_ROOT, rel));
 
 function loadFoundation({ capacitor } = {}) {
     const dom = new JSDOM('<!doctype html><html><body></body></html>', {
@@ -30,6 +40,23 @@ function loadFoundation({ capacitor } = {}) {
     }
     const source = fs.readFileSync(NATIVE_INDEX_JS, 'utf8');
     window.eval(`${source}\n//# sourceURL=file://${NATIVE_INDEX_JS}`);
+    return { window, cleanup: () => dom.window.close() };
+}
+
+function loadFullStack({ capacitor } = {}) {
+    const dom = new JSDOM('<!doctype html><html><body></body></html>', {
+        url: 'http://app.example.test/',
+        runScripts: 'outside-only',
+        pretendToBeVisual: true,
+    });
+    const { window } = dom;
+    if (capacitor !== undefined) window.Capacitor = capacitor;
+    const evalFile = (file) => {
+        const src = fs.readFileSync(file, 'utf8');
+        window.eval(`${src}\n//# sourceURL=file://${file}`);
+    };
+    evalFile(NATIVE_INDEX_JS);
+    for (const file of NATIVE_IMPL_FILES) evalFile(file);
     return { window, cleanup: () => dom.window.close() };
 }
 
@@ -108,5 +135,80 @@ describe('native/index.js — Phase 2b foundation', () => {
         expect(a).toBe(b);
         expect(a).toBe(c);
         expect(a).toBe(d);
+    });
+});
+
+describe('native/index.js — full module load wires real impls (Phase 2b Task 6)', () => {
+    // After loading every web/*.js + capacitor/*.js sibling, the four window
+    // globals MUST be replaced with the real per-platform impls — none of
+    // their methods should still throw NotImplementedError. This is the
+    // contract Task 7's refactored callers depend on: at script load time
+    // window.MediaCapture.takePhoto / window.Barcode.scan / etc. are real
+    // promises, not stubs.
+    let env;
+    afterEach(() => { if (env) env.cleanup(); env = null; });
+
+    // Invoke a method and consume any returned promise so the test runner
+    // doesn't flag a benign rejection (e.g. "Plugin not available" when the
+    // Capacitor impl runs without a real Plugins.* in jsdom) as an unhandled
+    // rejection. We only care that the call did NOT throw NotImplementedError
+    // — the stub is replaced by the real impl in this load order.
+    function callAndSwallow(surface, method) {
+        let caught;
+        let returned;
+        try {
+            returned = surface[method]();
+        } catch (e) { caught = e; }
+        if (returned && typeof returned.then === 'function') {
+            returned.catch(() => {});
+        }
+        return caught;
+    }
+
+    it('selects web impls when Capacitor is absent — every method is functional, not a stub', () => {
+        env = loadFullStack();
+        const checks = [
+            ['MediaCapture', 'takePhoto'],
+            ['MediaCapture', 'pickPhoto'],
+            ['Geolocation', 'getCurrentPosition'],
+            ['Barcode', 'scan'],
+            ['Reminders', 'schedule'],
+            ['Reminders', 'cancelAll'],
+        ];
+        for (const [capability, method] of checks) {
+            const surface = env.window[capability];
+            expect(typeof surface[method]).toBe('function');
+            const caught = callAndSwallow(surface, method);
+            if (caught) {
+                expect(caught.name, `${capability}.${method} still threw NotImplementedError`)
+                    .not.toBe('NotImplementedError');
+            }
+        }
+    });
+
+    it('selects Capacitor impls when isNativePlatform() returns true — every method is functional, not a stub', () => {
+        env = loadFullStack({ capacitor: { isNativePlatform: () => true, Plugins: {} } });
+        const checks = [
+            ['MediaCapture', 'takePhoto'],
+            ['MediaCapture', 'pickPhoto'],
+            ['Geolocation', 'getCurrentPosition'],
+            ['Barcode', 'scan'],
+            ['Reminders', 'schedule'],
+            ['Reminders', 'cancelAll'],
+        ];
+        for (const [capability, method] of checks) {
+            const surface = env.window[capability];
+            expect(typeof surface[method]).toBe('function');
+            const caught = callAndSwallow(surface, method);
+            if (caught) {
+                expect(caught.name, `${capability}.${method} still threw NotImplementedError`)
+                    .not.toBe('NotImplementedError');
+            }
+        }
+    });
+
+    it('Reminders Capacitor impl exposes startPreScheduleLoop after full load', () => {
+        env = loadFullStack({ capacitor: { isNativePlatform: () => true, Plugins: {} } });
+        expect(typeof env.window.Reminders.startPreScheduleLoop).toBe('function');
     });
 });

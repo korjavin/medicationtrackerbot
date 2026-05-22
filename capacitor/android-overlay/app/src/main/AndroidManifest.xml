@@ -23,7 +23,21 @@
       foregroundServiceType="dataSync" — Android 14+ requires every
       startForegroundService caller to declare a service type.
     - FOREGROUND_SERVICE + FOREGROUND_SERVICE_DATA_SYNC permissions.
-    - POST_NOTIFICATIONS for the persistent service notification on API 33+.
+    - POST_NOTIFICATIONS for the persistent service notification on API 33+
+      AND for the @capacitor/local-notifications reminder firings (Phase 2b).
+    - CAMERA + <uses-feature camera required="false"> for @capacitor/camera
+      and @capacitor-mlkit/barcode-scanning (Phase 2b). camera=required=false
+      so the app still installs on cameraless devices; the food-photo and
+      barcode-scan features just fail at runtime there.
+    - ACCESS_COARSE_LOCATION for @capacitor/geolocation (Phase 2b). Coarse
+      is enough for the future travel-aware tz correction use case; fine
+      location is intentionally not requested.
+    - SCHEDULE_EXACT_ALARM for @capacitor/local-notifications on API 31+ so
+      reminder times fire at the actual scheduled minute under Doze instead
+      of getting batched to the next maintenance window.
+    - <meta-data com.google.mlkit.vision.DEPENDENCIES value="barcode"> so
+      MLKit barcode scanning model downloads at install time rather than
+      on first scan (per @capacitor-mlkit/barcode-scanning README).
 
   Capacitor regenerates the manifest under capacitor/android/app/src/main/
   whenever `npx cap add android` runs; apply-overlay.sh copies this file back
@@ -70,10 +84,25 @@
             android:name="com.korjavin.medtracker.GoServerService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <!-- @capacitor-mlkit/barcode-scanning: bundle the MLKit barcode model
+             at install time so the first scan doesn't trigger a Play Services
+             model download (which can fail offline or behind locked-down
+             networks). -->
+        <meta-data
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
+            android:value="barcode" />
     </application>
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
 </manifest>
