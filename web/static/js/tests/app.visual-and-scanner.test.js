@@ -49,25 +49,18 @@ describe('app.js charts, scanner and visualization helpers', () => {
     allowConsoleNoise();
   });
 
-  it('scanner helpers sanitize/route decoded values and handle detector fallbacks', () => {
+  it('scanner helpers sanitize/route decoded values (post-abstraction refactor)', () => {
+    // Phase 2b Task 7 removed createFoodBarcodeDetector / _setDetector /
+    // decodeBarcodeFromImageFallback — the detector instance is now owned by
+    // the window.Barcode abstraction in web/static/js/native/web/barcode.js,
+    // not by scanner.js. The BarcodeDetector constructor-retry-when-formats-
+    // unsupported behavior is covered by native.barcode.test.js. What stays
+    // here: the sanitizeScannedValue + handleDecodedValue helpers that still
+    // live in scanner.js and route a decoded barcode/QR text into the food
+    // form fields.
     const { window, document, cleanup } = loadFrontendEnv();
 
     try {
-      let ctorCalls = 0;
-      window.BarcodeDetector = class BarcodeDetectorMock {
-        constructor(options) {
-          ctorCalls += 1;
-          if (options && options.formats) {
-            throw new Error('formats unsupported');
-          }
-        }
-      };
-
-      const detector = window.createFoodBarcodeDetector();
-      expect(detector).toBeTruthy();
-      expect(ctorCalls).toBe(2);
-      expect(window.createFoodBarcodeDetector()).toBe(detector);
-
       const barcodeChangeSpy = vi.fn();
       const closeScannerSpy = vi.fn();
       window.onFoodBarcodeChange = barcodeChangeSpy;

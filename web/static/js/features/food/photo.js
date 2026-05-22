@@ -3,7 +3,9 @@
 // ====================================
 //
 // Owns the "+ Photo" flow on the Food screen:
-//   - hidden <input type=file> picker triggered from the day-nav toolbar
+//   - window.MediaCapture.pickPhoto() opens the native picker (Phase 2b
+//     Task 7 — the abstraction picks <input type=file> on web or
+//     @capacitor/camera under the Android shell)
 //   - EXIF + lastModified parsing to pick the right eaten_at timestamp
 //   - POST /api/food/log/from-photo upload + cache invalidation
 //   - the friendly summary card handoff (food-photo-summary.js owns the
@@ -15,12 +17,31 @@
 // `triggerFoodPhotoPicker` is also surfaced on window.FoodActions so the
 // Today shortcut tile can open the picker without first navigating to the
 // Food section.
+//
+// The static #food-photo-input element remains in the DOM as a fallback
+// surface: its `change` handler is still wired by features/food/index.js so
+// that any code path that programmatically dispatches a change event (e.g.
+// older browser quirks, integration tests that simulate file selection) can
+// still feed a file into uploadFoodPhoto without going through MediaCapture.
 
-function triggerFoodPhotoPicker() {
-    const input = document.getElementById('food-photo-input');
-    if (!input) return;
-    input.value = '';
-    input.click();
+async function triggerFoodPhotoPicker() {
+    const capture = window.MediaCapture;
+    if (!capture || typeof capture.pickPhoto !== 'function') {
+        return;
+    }
+    let file;
+    try {
+        // capture: false — the food picker must allow both camera and gallery
+        // (preserving the legacy behavior of the static #food-photo-input which
+        // doesn't carry a capture attribute). Otherwise mobile browsers force
+        // the camera and the user can't pick an existing photo from library.
+        file = await capture.pickPhoto({ capture: false });
+    } catch (e) {
+        console.error('Food photo picker failed:', e);
+        return;
+    }
+    if (!file) return;
+    await uploadFoodPhotoFile(file);
 }
 
 window.FoodActions = window.FoodActions || {};
@@ -185,6 +206,15 @@ async function resolveFoodPhotoEatenAt(file, now = new Date()) {
 async function uploadFoodPhoto(input) {
     const file = input && input.files && input.files[0];
     if (!file) return;
+    try {
+        await uploadFoodPhotoFile(file);
+    } finally {
+        if (input) input.value = '';
+    }
+}
+
+async function uploadFoodPhotoFile(file) {
+    if (!file) return;
 
     if (!file.type || !file.type.startsWith('image/')) {
         safeAlert('Please choose an image file.');
@@ -279,7 +309,6 @@ async function uploadFoodPhoto(input) {
             }
         } finally {
             if (originalLabel) originalLabel.textContent = restoreLabel;
-            input.value = '';
         }
     });
 }
