@@ -223,6 +223,30 @@ class GoServerServiceTest {
         assertTrue("respawn should yield a different pid; old=$originalPid new=$newPid", originalPid != newPid)
     }
 
+    // (Task 5) The unified log ring captures both stdout and stderr from the
+    // spawned binary. By the time /healthz responds, the LISTENING line is in
+    // the ring and the chronological merge of subsequent output is observable
+    // by NativeBridge.getBackendLogs(). We assert the ring is non-empty and
+    // contains the LISTENING line we know the binary always emits.
+    @Test
+    fun backendLogRingCapturesListeningLine() {
+        val binder = bindAndStartService()
+        val port = binder.awaitListening(15_000L)
+        assertNotNull("expected LISTENING port", port)
+
+        // Give the stdout reader a brief moment after handoff to drain the
+        // pipe; on emulator hardware this is sub-50ms but a generous wait
+        // keeps the test non-flaky.
+        Thread.sleep(200L)
+
+        val tail = binder.recentLogTail()
+        assertTrue("log tail should be non-empty after healthy boot, got=\"$tail\"", tail.isNotEmpty())
+        assertTrue(
+            "log tail should contain the LISTENING line, got=\"$tail\"",
+            tail.contains("LISTENING 127.0.0.1:$port"),
+        )
+    }
+
     // requestRespawn must be a no-op when the current process is alive. Guards
     // against accidentally killing a healthy backend on a redundant onStart
     // signal (e.g. config-change Activity recreate that fires onStart twice

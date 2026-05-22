@@ -87,6 +87,7 @@ const STATIC_ASSETS = [
     '/static/js/features/back-button.js',
     '/static/js/features/deeplink-router.js',
     '/static/js/features/settings/integrations.js',
+    '/static/js/features/backend-logs.js',
     '/static/js/features/today.js',
     '/static/js/features/tz-plan-banner.js',
     '/static/js/features/elevenlabs-call.js',

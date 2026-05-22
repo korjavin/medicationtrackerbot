@@ -53,6 +53,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.DemoBanner',                // core/demo-banner.js — demo-mode banner mount + 429 `demo_rate_limit` popup helper; mounted by auth-bootstrap.js when /api/bootstrap returns demo.enabled=true, invoked by core/api.js on 429 responses with a {error:'demo_rate_limit'} body
     'window.apiCallDirect',             // core/api.js — low-level fetch used by data-store.js
     'window.makeAuthHeaders',           // core/api.js — auth header construction shared by direct-fetch callers (streaming food product search, multipart food-photo upload, ElevenLabs URL fetch, BP/weight CSV exports) that cannot route through apiCallDirect
+    'window.resolveApiUrl',             // core/api.js — prefixes endpoint paths with window.__MEDTRACKER_BOOTSTRAP__.apiBase when injected by the Capacitor shell (Phase 2a, Task 5); falls back to same-origin in browser PWA + server-mode builds
     'window.AppKernel',                 // core/app-kernel.js — module registry
     'window.ChartUtils',               // core/chart-utils.js — shared SVG chart utilities
     'window.escapeHtml',               // core/utils.js — canonical HTML entity escaper; consumed by sync.js debug panel + app.js medication schedule renderer
@@ -166,6 +167,9 @@ const ALLOWED_GLOBALS = new Set([
 
     // Settings → Integrations section (local-only mode foundation, Task 3).
     'window.SettingsIntegrations',      // features/settings/integrations.js — load + save handlers for the Integrations card (OpenAI / Food / ElevenLabs credentials); routes the save through DataStore.applyOptimistic so the masked GET view repaints immediately on commit and rolls back on failure.
+
+    // Backend logs diagnostics — embedded-Go shell (mobile Phase 2a, Task 5).
+    'window.BackendLogs',               // features/backend-logs.js — Settings → About → "Backend logs" debug screen. Detects window.MedtrackerNative (Capacitor shell's addJavascriptInterface bridge); reveals a "View logs" row that opens a modal showing the last 200 stdout+stderr lines from the embedded Go binary. No-op in browser PWA + server-mode where MedtrackerNative is absent.
 ]);
 
 /**
