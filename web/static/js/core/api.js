@@ -44,6 +44,19 @@ async function apiCallDirect(endpoint, method = "GET", body = null, opts = {}) {
     const { timeoutMs = 60_000, signal: callerSignal } = opts;
     const headers = makeAuthHeaders(body ? { "Content-Type": "application/json" } : null);
 
+    // Tag non-GET writes with the per-browser stable client id so the
+    // backend can echo it back on the SSE payload (source_client_id),
+    // letting us classify our own writes as self-echoes deterministically
+    // instead of relying on the 5s lastOwnWriteAt timing window.
+    if (method !== 'GET' && window.DataStore && typeof window.DataStore.getClientId === 'function') {
+        try {
+            const clientId = window.DataStore.getClientId();
+            if (typeof clientId === 'string' && clientId.length > 0) {
+                headers['X-Client-ID'] = clientId;
+            }
+        } catch (_e) { /* defensive: getClientId must never block a write */ }
+    }
+
     const signal = composeAbortSignal(timeoutMs, callerSignal);
 
     // The try/catch spans the body-read too — a timeout firing after headers
