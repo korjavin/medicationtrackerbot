@@ -19,13 +19,35 @@ class NativeBridgeTest {
 
     @Test
     fun apiBaseRoundTripsThroughTheBridge() {
-        val bridge = NativeBridge(apiBase = "http://127.0.0.1:54321", binderProvider = { null })
+        val bridge = NativeBridge(
+            apiBase = "http://127.0.0.1:54321",
+            binderProvider = { null },
+            debuggable = true,
+        )
         assertEquals("http://127.0.0.1:54321", bridge.apiBase())
     }
 
     @Test
     fun getBackendLogsReturnsEmptyWhenBinderUnavailable() {
-        val bridge = NativeBridge(apiBase = "http://127.0.0.1:54321", binderProvider = { null })
+        val bridge = NativeBridge(
+            apiBase = "http://127.0.0.1:54321",
+            binderProvider = { null },
+            debuggable = true,
+        )
+        assertEquals("", bridge.getBackendLogs())
+    }
+
+    // Release builds (debuggable=false) must withhold backend logs even when
+    // a live binder is available, because third-party scripts loaded into the
+    // WebView (telegram-web-app.js, fonts) share the JS context with our own
+    // bootstrap shim and would otherwise be able to call getBackendLogs().
+    @Test
+    fun getBackendLogsReturnsEmptyInReleaseBuildsEvenWithLogs() {
+        val bridge = NativeBridge(
+            apiBase = "http://127.0.0.1:54321",
+            binderProvider = { error("binder should not be consulted in release builds") },
+            debuggable = false,
+        )
         assertEquals("", bridge.getBackendLogs())
     }
 

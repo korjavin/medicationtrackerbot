@@ -3,6 +3,14 @@
   Overlay-owned manifest for the medtracker Android shell.
 
   Differences from the Capacitor-generated default:
+    - android:allowBackup="false" because the app stores plaintext health
+      data in the SQLite DB under filesDir and a per-install session secret
+      in EncryptedSharedPreferences (backed by a Keystore master key).
+      Android Auto Backup would upload the DB to Google Drive in cleartext;
+      and even if it didn't, the restored EncryptedSharedPreferences would
+      be undecryptable on the new device because the Keystore master key is
+      hardware-bound and is NOT included in the backup. Disabling backup is
+      the safest default for a self-hosted health tracker.
     - android:extractNativeLibs="true" on <application> so the packager unpacks
       libmedtracker.so out of the APK at install time. Without this, the binary
       stays mmap'd inside the APK on Android 6+ and we can't Runtime.exec() it.
@@ -26,7 +34,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:extractNativeLibs="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"

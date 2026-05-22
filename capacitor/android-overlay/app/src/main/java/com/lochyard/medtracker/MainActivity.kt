@@ -5,6 +5,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.content.pm.ApplicationInfo
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
@@ -39,17 +40,53 @@ class MainActivity : BridgeActivity() {
     private var hasBootstrapped: Boolean = false
     private var reconnectDialog: AlertDialog? = null
     private var devServerMode: Boolean = false
+    // Tracks the onStart/onStop boundary. The unexpected-exit listener
+    // observes this so a backend crash during the post-onStop grace window
+    // doesn't drive a respawn + WebView reload + dialog show against a
+    // backgrounded activity. The next onStart already handles that path
+    // (it sees a dead process and calls triggerRespawnAndReload itself).
+    private var isStarted: Boolean = false
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             val binder = service as? GoServerService.LocalBinder ?: return
             serviceBinder = binder
+            // Listener fires from the GoProcessReaper thread when the Go
+            // binary exits without an Activity- or grace-timer-initiated
+            // destroy. Without this, a crash while the activity is
+            // foregrounded would leave a dead backend until the user
+            // backgrounds + foregrounds the app.
+            binder.setUnexpectedExitListener {
+                runOnUiThread { onBackendUnexpectedlyExited() }
+            }
             beginBootstrap(binder)
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
             serviceBinder = null
         }
+    }
+
+    // onBackendUnexpectedlyExited is the foregrounded-crash recovery hook.
+    // The unexpected-exit listener registered above invokes it on the main
+    // thread when the Go binary dies on its own (crash, panic, OS SIGKILL
+    // while the activity is visible). We delegate to the same respawn path
+    // the onStart-after-background uses so the user sees the same
+    // "Reconnecting…" splash and then the fresh WebView.
+    private fun onBackendUnexpectedlyExited() {
+        if (devServerMode) return
+        if (isFinishing || isDestroyed) return
+        // Only respawn while the activity is between onStart and onStop. If
+        // the backend dies during the post-onStop grace window (crash before
+        // the grace SIGTERM fires), let the next onStart do the respawn —
+        // showing a "Reconnecting…" dialog and loading the WebView from a
+        // backgrounded activity is wasted work and against the user's
+        // intent in backgrounding.
+        if (!isStarted) return
+        val binder = serviceBinder ?: return
+        if (binder.isProcessAlive()) return
+        Log.w(TAG, "Backend exited unexpectedly while activity was foregrounded; respawning")
+        triggerRespawnAndReload(binder)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -126,7 +163,8 @@ class MainActivity : BridgeActivity() {
         // frontend protocol stays unchanged. Re-registering on respawn
         // replaces the prior binding (Android keeps the latest reference for
         // a given name).
-        val nativeBridge = NativeBridge(base) { serviceBinder }
+        val debuggable = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        val nativeBridge = NativeBridge(base, { serviceBinder }, debuggable)
         webView.addJavascriptInterface(nativeBridge, NativeBridge.JS_NAME)
         webView.loadUrl(base)
     }
@@ -197,6 +235,7 @@ class MainActivity : BridgeActivity() {
     // respawn + WebView reload.
     override fun onStart() {
         super.onStart()
+        isStarted = true
         if (devServerMode) return
         val binder = serviceBinder ?: return // initial launch: bind in progress; onServiceConnected handles it
         binder.cancelStopRequest()
@@ -211,6 +250,7 @@ class MainActivity : BridgeActivity() {
     // bound + foreground so the next onStart can respawn quickly.
     override fun onStop() {
         super.onStop()
+        isStarted = false
         if (devServerMode) return
         serviceBinder?.requestStop(STOP_GRACE_MS)
     }
@@ -286,6 +326,10 @@ class MainActivity : BridgeActivity() {
         super.onDestroy()
         dismissReconnectDialog()
         if (devServerMode) return
+        // Clear the listener BEFORE unbinding so a death racing the unbind
+        // can't dispatch into a finishing activity (the runOnUiThread
+        // callback would post to a stopped Looper and silently drop).
+        serviceBinder?.setUnexpectedExitListener(null)
         try {
             unbindService(serviceConnection)
         } catch (_: IllegalArgumentException) {
