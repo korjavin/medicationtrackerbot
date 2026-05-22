@@ -37,6 +37,7 @@ class MainActivity : BridgeActivity() {
 
     private var serviceBinder: GoServerService.LocalBinder? = null
     private var hasBootstrapped: Boolean = false
+    private var reconnectDialog: AlertDialog? = null
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -146,8 +147,96 @@ class MainActivity : BridgeActivity() {
         return secret
     }
 
+    // onStart fires on initial launch (after onCreate) and on every
+    // return-to-foreground. We cancel any pending grace-period stop the
+    // service may have scheduled in onStop, and — if the process died while
+    // we were backgrounded (grace expired or OS killed it) — trigger a
+    // respawn + WebView reload.
+    override fun onStart() {
+        super.onStart()
+        val binder = serviceBinder ?: return // initial launch: bind in progress; onServiceConnected handles it
+        binder.cancelStopRequest()
+        if (binder.isProcessAlive()) return
+        triggerRespawnAndReload(binder)
+    }
+
+    // onStop fires when the activity stops being visible (user backgrounded
+    // the app or moved on to another task). We schedule a SIGTERM to the Go
+    // process after STOP_GRACE_MS so brief task-switches stay warm but
+    // sustained backgrounding releases the process. The service itself stays
+    // bound + foreground so the next onStart can respawn quickly.
+    override fun onStop() {
+        super.onStop()
+        serviceBinder?.requestStop(STOP_GRACE_MS)
+    }
+
+    // triggerRespawnAndReload is the "process died, bring it back" path.
+    // Spawns the binary off the main thread (Dispatchers.IO), polls /healthz,
+    // then returns to Dispatchers.Main for the WebView load. A non-cancelable
+    // "Reconnecting…" dialog blocks user interaction until the new backend is
+    // healthy.
+    private fun triggerRespawnAndReload(binder: GoServerService.LocalBinder) {
+        val secret = obtainOrGenerateSessionSecret()
+        val dbPath = "${filesDir.absolutePath}/medtracker.db"
+        showReconnectingDialog()
+        lifecycleScope.launch {
+            val respawned = withContext(Dispatchers.IO) {
+                binder.requestRespawn(dbPath, secret)
+            }
+            if (!respawned) {
+                // Process became alive between the alive-check and the respawn
+                // call — nothing to do. Dismiss the splash and trust the
+                // previously-loaded WebView.
+                dismissReconnectDialog()
+                return@launch
+            }
+            val port = withContext(Dispatchers.IO) {
+                binder.awaitListening(LISTENING_DEADLINE_MS)
+            }
+            if (port == null) {
+                dismissReconnectDialog()
+                showStartupErrorDialog(binder.recentStderr())
+                return@launch
+            }
+            val base = "http://127.0.0.1:$port"
+            val healthy = withContext(Dispatchers.IO) {
+                pollHealthz(base, HEALTHZ_DEADLINE_MS)
+            }
+            if (!healthy) {
+                dismissReconnectDialog()
+                showStartupErrorDialog(
+                    "Backend on $base never responded to /healthz within " +
+                        "${HEALTHZ_DEADLINE_MS}ms.\n\n" + binder.recentStderr()
+                )
+                return@launch
+            }
+            injectBootstrapAndLoad(base)
+            dismissReconnectDialog()
+        }
+    }
+
+    private fun showReconnectingDialog() {
+        if (reconnectDialog?.isShowing == true) return
+        reconnectDialog = AlertDialog.Builder(this)
+            .setTitle("Reconnecting…")
+            .setMessage("Restarting the local backend.")
+            .setCancelable(false)
+            .create()
+            .also { it.show() }
+    }
+
+    private fun dismissReconnectDialog() {
+        try {
+            reconnectDialog?.dismiss()
+        } catch (_: Exception) {
+            // Activity may be finishing; best-effort dismiss.
+        }
+        reconnectDialog = null
+    }
+
     override fun onDestroy() {
         super.onDestroy()
+        dismissReconnectDialog()
         try {
             unbindService(serviceConnection)
         } catch (_: IllegalArgumentException) {
@@ -160,6 +249,13 @@ class MainActivity : BridgeActivity() {
         private const val KEY_SESSION_SECRET = "session_secret_v1"
         private const val LISTENING_DEADLINE_MS: Long = 10_000L
         private const val HEALTHZ_DEADLINE_MS: Long = 10_000L
+
+        // Grace window between the activity going into the background and the
+        // embedded backend being SIGTERM'd. Long enough that a brief
+        // task-switch (recent-apps swipe, opening a notification) doesn't tear
+        // the backend down; short enough that a phone left idle releases the
+        // resources. 60s matches the default in GoServerService.
+        private const val STOP_GRACE_MS: Long = GoServerService.DEFAULT_STOP_GRACE_MS
 
         private val healthzClient: OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(500, TimeUnit.MILLISECONDS)

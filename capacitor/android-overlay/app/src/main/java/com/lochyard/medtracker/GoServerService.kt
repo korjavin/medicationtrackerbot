@@ -4,12 +4,21 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
@@ -49,6 +58,74 @@ class GoServerService : Service() {
         fun port(): Int? = portRef.get()
         fun isProcessAlive(): Boolean = process?.isAlive == true
         fun recentStderr(): String = stderrLines.toList().joinToString("\n")
+
+        // pid returns the embedded process's OS PID, or null if no process is
+        // running. java.lang.Process.pid() is API 26+; on older devices we
+        // return null rather than crash.
+        fun pid(): Long? {
+            val p = process ?: return null
+            if (!p.isAlive) return null
+            return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) p.pid() else null
+        }
+
+        // requestStop schedules a SIGTERM to the embedded Go process after
+        // graceMs. If cancelStopRequest is called before the grace expires the
+        // process keeps running. Activity backgrounding wires onStop here so
+        // brief task-switches don't tear down the backend — only sustained
+        // backgrounding does. The service itself stays in foreground state so
+        // a follow-up requestRespawn can re-launch the binary quickly.
+        fun requestStop(graceMs: Long = DEFAULT_STOP_GRACE_MS) {
+            cancelStopRequest()
+            stopJob = serviceScope.launch {
+                delay(graceMs)
+                val p = process
+                if (p != null && p.isAlive) {
+                    Log.i(TAG, "Grace expired; SIGTERM'ing Go process pid=${runCatching { p.pid() }.getOrNull()}")
+                    try {
+                        p.destroy()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "process.destroy() threw: ${e.message}")
+                    }
+                }
+                stopJob = null
+            }
+        }
+
+        // cancelStopRequest cancels a pending grace timer scheduled by
+        // requestStop. No-op if no timer is pending.
+        fun cancelStopRequest() {
+            stopJob?.cancel()
+            stopJob = null
+        }
+
+        // requestRespawn re-launches the embedded Go binary if the current
+        // process is dead. Returns true if a respawn was started, false if the
+        // process is already alive. Callers should follow with awaitListening
+        // to discover the new port. Safe to call from any thread; the actual
+        // ProcessBuilder.start() happens synchronously on the caller's thread
+        // (Activity uses Dispatchers.IO).
+        fun requestRespawn(dbPath: String, sessionSecret: String): Boolean {
+            if (process?.isAlive == true) return false
+            // Reset the port handoff state so awaitListening sees the next
+            // LISTENING line, not the stale value from the dead process.
+            portRef.set(null)
+            launchProcess(dbPath, sessionSecret)
+            return true
+        }
+
+        // killForTest forcibly terminates the embedded process to simulate an
+        // external SIGKILL (e.g. OS low-memory kill). Tests only.
+        internal fun killForTest() {
+            val p = process ?: return
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    p.destroyForcibly()
+                } else {
+                    p.destroy()
+                }
+            } catch (_: Throwable) {
+            }
+        }
     }
 
     private val binder = LocalBinder()
@@ -61,6 +138,16 @@ class GoServerService : Service() {
     // BlockingQueue) so a late `poll` doesn't strand the value.
     private val portHandoff = SynchronousQueue<Int>()
     private val stderrLines = LinkedBlockingDeque<String>(STDERR_RING_SIZE)
+
+    // SupervisorJob so a failing child coroutine (e.g. the stop-grace timer)
+    // doesn't cascade-cancel siblings. Cancelled in onDestroy.
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    @Volatile private var stopJob: Job? = null
+
+    private val runtimePrefs: SharedPreferences by lazy {
+        getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
+    }
 
     override fun onBind(intent: Intent?): IBinder = binder
 
@@ -102,13 +189,27 @@ class GoServerService : Service() {
         try {
             val started = pb.start()
             process = started
+            val newPid = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) started.pid() else -1L
+            persistRuntimeState(port = null, pid = newPid)
             startStdoutReader(started)
             startStderrReader(started)
-            Log.i(TAG, "Spawned Go binary, pid=${started.pid()}")
+            Log.i(TAG, "Spawned Go binary, pid=$newPid")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start Go binary", e)
             stderrLines.offer("spawn failed: ${e.message}")
         }
+    }
+
+    // persistRuntimeState writes the last-known port + pid to plain
+    // SharedPreferences (not Encrypted — these are diagnostic and not secret).
+    // OS-assigned ports usually mean the saved port is stale on the next
+    // respawn, but the values are still useful in logcat when triaging a bug
+    // report. Pass null for either field to leave it unchanged.
+    private fun persistRuntimeState(port: Int?, pid: Long?) {
+        val editor = runtimePrefs.edit()
+        if (port != null) editor.putInt(KEY_LAST_PORT, port)
+        if (pid != null) editor.putLong(KEY_LAST_PID, pid)
+        editor.apply()
     }
 
     private fun startStdoutReader(p: Process) {
@@ -121,6 +222,7 @@ class GoServerService : Service() {
                             if (matcher.matches()) {
                                 val parsed = matcher.group(1)!!.toInt()
                                 portRef.set(parsed)
+                                persistRuntimeState(port = parsed, pid = null)
                                 // Non-blocking offer first so a fast reader
                                 // wakes immediately; if no one is polling yet,
                                 // the AtomicReference covers later callers.
@@ -181,6 +283,10 @@ class GoServerService : Service() {
 
     override fun onDestroy() {
         try {
+            serviceScope.cancel()
+        } catch (_: Exception) {
+        }
+        try {
             process?.destroy()
         } catch (_: Exception) {
         }
@@ -202,6 +308,18 @@ class GoServerService : Service() {
 
         private const val TAG = "GoServerService"
         private const val LOGCAT_TAG = "MedtrackerGo"
+
+        // Default backgrounding grace window. Quick app-switches stay under
+        // this and reuse the warm process; sustained backgrounding releases
+        // it. Tests pass a shorter value to keep instrumentation runtimes
+        // bounded.
+        const val DEFAULT_STOP_GRACE_MS: Long = 60_000L
+
+        // Plain (un-encrypted) SharedPreferences for diagnostic runtime state.
+        // EncryptedSharedPreferences is reserved for the session secret.
+        private const val RUNTIME_PREFS = "medtracker_runtime"
+        private const val KEY_LAST_PORT = "last_port"
+        private const val KEY_LAST_PID = "last_pid"
 
         // The contract main_mobile.go documents on stdout:
         //   LISTENING 127.0.0.1:<port>\n

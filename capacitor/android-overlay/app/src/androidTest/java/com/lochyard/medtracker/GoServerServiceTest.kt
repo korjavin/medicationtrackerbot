@@ -10,6 +10,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -130,17 +131,131 @@ class GoServerServiceTest {
         assertTrue("libmedtracker.so should be executable", binary.canExecute())
     }
 
+    // (Task 4 / a) Backgrounding then immediately foregrounding within the
+    // grace window must reuse the same Go process. We simulate this by
+    // calling requestStop with a long grace, immediately cancelling it, and
+    // asserting the PID is unchanged and the process is still alive.
+    @Test
+    fun backgroundThenImmediateForegroundReusesProcess() {
+        val binder = bindAndStartService()
+        val originalPort = binder.awaitListening(15_000L)
+        assertNotNull("expected initial LISTENING port", originalPort)
+        val originalPid = binder.pid()
+        assertNotNull("expected pid for live process", originalPid)
+
+        binder.requestStop(60_000L) // long grace; we'll cancel right away
+        binder.cancelStopRequest()
+
+        // Sleep briefly to let any racing destroy() land — if cancelStopRequest
+        // worked, this is a no-op. 500ms is generous.
+        Thread.sleep(500L)
+
+        assertTrue("process should still be alive after cancelStopRequest", binder.isProcessAlive())
+        assertEquals("pid should be unchanged after cancelled stop", originalPid, binder.pid())
+        assertEquals("port should be unchanged after cancelled stop", originalPort, binder.port())
+    }
+
+    // (Task 4 / b) Backgrounding then waiting past the grace window must
+    // SIGTERM the Go process. A subsequent respawn replaces it with a fresh
+    // pid + port. The test uses a 200ms grace so it completes in ~5s instead
+    // of the production 60s.
+    @Test
+    fun backgroundThenWaitForGraceWindowRespawns() {
+        val dbPath = File(context.cacheDir, "instrumentation-${System.nanoTime()}.db").absolutePath
+        val secret = randomSessionSecret()
+        val binder = bindAndStartService(dbPath = dbPath, sessionSecret = secret)
+        val originalPort = binder.awaitListening(15_000L)
+        assertNotNull("expected initial LISTENING port", originalPort)
+        val originalPid = binder.pid()
+        assertNotNull("expected pid for live process", originalPid)
+
+        binder.requestStop(graceMs = 200L)
+
+        // Wait up to 5s for the grace to expire and the OS to mark the process
+        // as not-alive. The Go binary handles SIGTERM cleanly and exits within
+        // a fraction of a second.
+        val deadline = System.currentTimeMillis() + 5_000L
+        while (System.currentTimeMillis() < deadline && binder.isProcessAlive()) {
+            Thread.sleep(50L)
+        }
+        assertFalse("process should be dead after grace expired", binder.isProcessAlive())
+
+        // Respawn: new process, new port (most likely — OS-assigned).
+        val respawned = binder.requestRespawn(dbPath, secret)
+        assertTrue("requestRespawn should return true when process is dead", respawned)
+        val newPort = binder.awaitListening(15_000L)
+        assertNotNull("expected new LISTENING port after respawn", newPort)
+        assertTrue("process should be alive after respawn", binder.isProcessAlive())
+
+        val newPid = binder.pid()
+        assertNotNull("expected pid for respawned process", newPid)
+        assertTrue("respawn should yield a different pid; old=$originalPid new=$newPid", originalPid != newPid)
+    }
+
+    // (Task 4 / c) An external SIGKILL (simulated via destroyForcibly) must
+    // leave the service in a state where a follow-up requestRespawn brings a
+    // fresh process up. This is the OS-low-memory-kill recovery path.
+    @Test
+    fun killProcessThenRespawnYieldsNewPid() {
+        val dbPath = File(context.cacheDir, "instrumentation-${System.nanoTime()}.db").absolutePath
+        val secret = randomSessionSecret()
+        val binder = bindAndStartService(dbPath = dbPath, sessionSecret = secret)
+        val originalPort = binder.awaitListening(15_000L)
+        assertNotNull("expected initial LISTENING port", originalPort)
+        val originalPid = binder.pid()
+        assertNotNull("expected pid for live process", originalPid)
+
+        binder.killForTest()
+
+        val deadline = System.currentTimeMillis() + 5_000L
+        while (System.currentTimeMillis() < deadline && binder.isProcessAlive()) {
+            Thread.sleep(50L)
+        }
+        assertFalse("process should be dead after killForTest", binder.isProcessAlive())
+
+        val respawned = binder.requestRespawn(dbPath, secret)
+        assertTrue("requestRespawn should return true when process is dead", respawned)
+        val newPort = binder.awaitListening(15_000L)
+        assertNotNull("expected new LISTENING port after respawn-from-kill", newPort)
+
+        val newPid = binder.pid()
+        assertNotNull("expected pid for respawned process", newPid)
+        assertTrue("respawn should yield a different pid; old=$originalPid new=$newPid", originalPid != newPid)
+    }
+
+    // requestRespawn must be a no-op when the current process is alive. Guards
+    // against accidentally killing a healthy backend on a redundant onStart
+    // signal (e.g. config-change Activity recreate that fires onStart twice
+    // back-to-back with no onStop in between).
+    @Test
+    fun requestRespawnOnAliveProcessIsNoOp() {
+        val binder = bindAndStartService()
+        val originalPort = binder.awaitListening(15_000L)
+        assertNotNull("expected initial LISTENING port", originalPort)
+        val originalPid = binder.pid()
+
+        val respawned = binder.requestRespawn(
+            File(context.cacheDir, "noop-${System.nanoTime()}.db").absolutePath,
+            randomSessionSecret(),
+        )
+        assertFalse("requestRespawn must return false when process is alive", respawned)
+        assertEquals("pid should be unchanged after no-op respawn", originalPid, binder.pid())
+        assertEquals("port should be unchanged after no-op respawn", originalPort, binder.port())
+    }
+
     private fun bindAndStartService(includeSessionSecret: Boolean = true): GoServerService.LocalBinder {
         val dbPath = File(context.cacheDir, "instrumentation-${System.nanoTime()}.db").absolutePath
+        val secret = if (includeSessionSecret) randomSessionSecret() else null
+        return bindAndStartService(dbPath = dbPath, sessionSecret = secret)
+    }
+
+    // Overload used by the lifecycle / respawn tests, which need to reuse the
+    // same dbPath + secret across spawns so the on-disk schema is shared.
+    private fun bindAndStartService(dbPath: String, sessionSecret: String?): GoServerService.LocalBinder {
         val intent = Intent(context, GoServerService::class.java).apply {
             putExtra(GoServerService.EXTRA_DB_PATH, dbPath)
-            if (includeSessionSecret) {
-                val bytes = ByteArray(32)
-                SecureRandom().nextBytes(bytes)
-                putExtra(
-                    GoServerService.EXTRA_SESSION_SECRET,
-                    Base64.getUrlEncoder().withoutPadding().encodeToString(bytes),
-                )
+            if (sessionSecret != null) {
+                putExtra(GoServerService.EXTRA_SESSION_SECRET, sessionSecret)
             }
         }
         context.startForegroundService(intent)
@@ -159,5 +274,11 @@ class GoServerServiceTest {
         assertTrue("bindService returned false; the service component is not declared correctly", ok)
         assertTrue("service did not bind within 5s", latch.await(5, TimeUnit.SECONDS))
         return bound.get() ?: error("LocalBinder was null after bind")
+    }
+
+    private fun randomSessionSecret(): String {
+        val bytes = ByteArray(32)
+        SecureRandom().nextBytes(bytes)
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
     }
 }
