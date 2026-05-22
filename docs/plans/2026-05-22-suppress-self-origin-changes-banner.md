@@ -96,12 +96,12 @@ This plan plumbs a per-client identifier end-to-end so the frontend can determin
 - [x] Run `go test ./...` — must pass before next task.
 
 ### Task 4: Pass `clientId` from SSE subscribers and include `source_client_id` in the SSE payload
-- [ ] In `web/static/js/data-store.js` `buildChangesStreamURL`, add `params.set('clientId', this.getClientId())` (alongside the existing `initData` param).
-- [ ] In `internal/server/changes_handlers.go` `handleChangesStream`, read `clientId := r.URL.Query().Get("clientId")` at the top of the handler (sanitise as in Task 3).
-- [ ] When emitting the **initial flush** (after the initial `ListChangedTagsSince`), emit `{cursor, changed_tags}` without `source_client_id` (the initial flush has no broker notification driving it).
-- [ ] In the live broker-driven loop, when a `ChangeEvent{Cursor, SourceClientID}` arrives, query `ListChangedTagsSince` for the changed tags and emit `{cursor, changed_tags, source_client_id: <SourceClientID from event>}`. If `SourceClientID == ""`, omit the field (`omitempty` JSON tag) so older frontends parse cleanly.
-- [ ] Write tests in `internal/server/changes_handlers_test.go`: a single write with `X-Client-ID=foo` produces an SSE frame whose JSON parses to `{cursor, changed_tags: [...], source_client_id: "foo"}`; a write without the header omits the field; the initial flush omits the field.
-- [ ] Run `go test ./...` — must pass before next task.
+- [x] In `web/static/js/data-store.js` `buildChangesStreamURL`, add `params.set('clientId', this.getClientId())` (alongside the existing `initData` param).
+- [x] In `internal/server/changes_handlers.go` `handleChangesStream`, read `clientId := r.URL.Query().Get("clientId")` at the top of the handler (sanitise as in Task 3).
+- [x] When emitting the **initial flush** (after the initial `ListChangedTagsSince`), emit `{cursor, changed_tags}` without `source_client_id` (the initial flush has no broker notification driving it).
+- [x] In the live broker-driven loop, when a `ChangeEvent{Cursor, SourceClientID}` arrives, query `ListChangedTagsSince` for the changed tags and emit `{cursor, changed_tags, source_client_id: <SourceClientID from event>}`. If `SourceClientID == ""`, omit the field (`omitempty` JSON tag) so older frontends parse cleanly.
+- [x] Write tests in `internal/server/changes_handlers_test.go`: a single write with `X-Client-ID=foo` produces an SSE frame whose JSON parses to `{cursor, changed_tags: [...], source_client_id: "foo"}`; a write without the header omits the field; the initial flush omits the field.
+- [x] Run `go test ./...` — must pass before next task.
 
 ### Task 5: Use `source_client_id` to classify self-echo in `applyChangesPayload`
 - [ ] In `web/static/js/data-store.js` `applyChangesPayload`, when `res.source_client_id` is a non-empty string, classify the source as `'self-echo'` iff `res.source_client_id === this.getClientId()`, else `'changes'`.
