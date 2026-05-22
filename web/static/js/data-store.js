@@ -646,6 +646,23 @@
             lastOwnWriteAt = Date.now();
         },
 
+        // Pre-stamp the timing-window for a non-GET request that hasn't yet
+        // committed server-side, returning a rollback callback that callers
+        // invoke on network/HTTP failure to avoid suppressing unrelated
+        // cross-source banners for the rest of the window. The rollback is
+        // CAS-guarded: it restores only when our stamp is still the latest,
+        // so a sibling write that stamped after us keeps its grace window.
+        recordOwnWriteWithRollback() {
+            const prior = lastOwnWriteAt;
+            lastOwnWriteAt = Date.now();
+            const ourStamp = lastOwnWriteAt;
+            return () => {
+                if (lastOwnWriteAt === ourStamp) {
+                    lastOwnWriteAt = prior;
+                }
+            };
+        },
+
         async applyChangesPayload(res) {
             if (!res || typeof res.cursor !== 'number') return;
 
@@ -653,28 +670,36 @@
             const prevCursor = this.getChangeCursor();
             if (changedTags.length > 0) {
                 // Source classification precedence:
-                //   1. `source_client_id` (SSE-only): the backend echoes the
-                //      X-Client-ID header from the originating write back on
-                //      the SSE payload. When present and equal to our own
-                //      getClientId(), the event is deterministically a
-                //      self-echo regardless of timing. This is the primary
-                //      mechanism and is robust to SSE delivery latency.
-                //   2. `lastOwnWriteAt` 5s window (fallback): used when
-                //      `source_client_id` is missing — i.e. the polling path
-                //      (`GET /api/changes`), the initial SSE flush, or older
-                //      server builds that pre-date source attribution. The
-                //      window is held for the full SELF_ECHO_WINDOW_MS so
-                //      multi-write own actions (edit-note POST+DELETE) all
-                //      classify as `self-echo`.
+                //   1. `source_client_id` matches own → `self-echo` (deterministic).
+                //      The backend echoes the X-Client-ID header from the
+                //      originating write back on the SSE payload. When present
+                //      and equal to our own getClientId(), the event is our
+                //      own echo regardless of SSE delivery latency.
+                //   2. `lastOwnWriteAt` 5s window (fallback). Used when:
+                //      a. `source_client_id` is missing — polling path,
+                //         initial SSE flush, tailer-driven event, older server.
+                //      b. `source_client_id` is present but does NOT match own.
+                //         The middleware's attribution can be racy: it reads
+                //         the global MAX(change_events.id) AFTER the handler
+                //         returns, so a foreign write that committed between
+                //         this handler's commit and the cursor lookup will be
+                //         lumped into the same broker frame and tagged with
+                //         the foreign source. Without this fallback our own
+                //         write — which IS in the frame — would surface a
+                //         banner. The timing window catches that case at the
+                //         cost of occasionally suppressing a legitimate
+                //         cross-source banner that lands within 5s of our own
+                //         write (data still refreshes via tag invalidation;
+                //         only the banner is skipped).
                 const ownId = (typeof this.getClientId === 'function') ? this.getClientId() : '';
                 const incomingSource = typeof res.source_client_id === 'string' ? res.source_client_id : '';
+                const recentOwnWrite = lastOwnWriteAt > 0
+                    && (Date.now() - lastOwnWriteAt) < SELF_ECHO_WINDOW_MS;
                 let source;
-                if (incomingSource.length > 0) {
-                    source = (incomingSource === ownId) ? 'self-echo' : 'changes';
+                if (incomingSource.length > 0 && incomingSource === ownId) {
+                    source = 'self-echo';
                 } else {
-                    const isSelfEcho = lastOwnWriteAt > 0
-                        && (Date.now() - lastOwnWriteAt) < SELF_ECHO_WINDOW_MS;
-                    source = isSelfEcho ? 'self-echo' : 'changes';
+                    source = recentOwnWrite ? 'self-echo' : 'changes';
                 }
                 console.log('[changes] tags=%o cursor=%d→%d source=%s',
                     changedTags, prevCursor, res.cursor, source);

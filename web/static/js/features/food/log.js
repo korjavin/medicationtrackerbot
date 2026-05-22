@@ -657,13 +657,26 @@ async function saveFoodLogFromDescription() {
     const btn = document.getElementById('food-modal-save-btn');
     await withSubmit(btn, async () => {
         let res;
+        // Pre-stamp the timing-window fallback before the fetch — see
+        // photo.js for the rationale (AI parse can take several seconds,
+        // long enough for the broker tailer's empty-source Notify to race
+        // ahead of the middleware's source-tagged Notify). The rollback
+        // restores the prior stamp on failure so a 5s false-suppress window
+        // doesn't hide unrelated cross-source banners.
+        let rollbackOwnWriteStamp = null;
+        if (window.DataStore && typeof window.DataStore.recordOwnWriteWithRollback === 'function') {
+            rollbackOwnWriteStamp = window.DataStore.recordOwnWriteWithRollback();
+        } else if (window.DataStore && typeof window.DataStore.recordOwnWrite === 'function') {
+            window.DataStore.recordOwnWrite();
+        }
         try {
             res = await fetch('/api/food/log/from-description', {
                 method: 'POST',
-                headers: window.makeAuthHeaders({ 'Content-Type': 'application/json' }),
+                headers: window.makeWriteHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify(payload),
             });
         } catch (e) {
+            if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
             console.error('Food AI parse network error:', e);
             safeAlert('Failed to parse meal: ' + (e && e.message ? e.message : e));
             return;
@@ -673,11 +686,13 @@ async function saveFoodLogFromDescription() {
             if (res.status === 429 && window.DemoBanner && typeof window.DemoBanner.tryHandleResponse === 'function') {
                 const demoParsed = await window.DemoBanner.tryHandleResponse(res);
                 if (demoParsed) {
+                    if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
                     return;
                 }
             }
             let msg = `HTTP ${res.status}`;
             try { msg = (await res.text()) || msg; } catch (_) { /* keep status fallback */ }
+            if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
             safeAlert('Failed to parse meal: ' + msg);
             return;
         }
@@ -686,6 +701,16 @@ async function saveFoodLogFromDescription() {
         try { data = await res.json(); } catch (_) { data = null; }
         const items = (data && Array.isArray(data.items)) ? data.items : [];
         const failed = Math.max(0, Math.trunc(Number(data && data.failed) || 0));
+
+        // Refresh the timing-window stamp now that the response has landed —
+        // the pre-fetch stamp may have aged past SELF_ECHO_WINDOW_MS during a
+        // long AI parse (several seconds), so without this refresh the SSE
+        // echo of this very write would fall outside the 5s window and
+        // surface a foreign-banner if the tailer's empty-source Notify raced
+        // ahead of the middleware's source-tagged Notify.
+        if (window.DataStore && typeof window.DataStore.recordOwnWrite === 'function') {
+            window.DataStore.recordOwnWrite();
+        }
 
         await window.DataStore.invalidateTags(['food']);
         if (typeof todayFoodKey === 'function' && window.DataStore.clearCached) {

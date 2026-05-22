@@ -205,16 +205,37 @@ async function uploadFoodPhoto(input) {
             form.append('image', file, file.name || 'food.jpg');
             form.append('eaten_at', eatenAt.toISOString());
 
-            const res = await fetch('/api/food/log/from-photo', {
-                method: 'POST',
-                headers: window.makeAuthHeaders(),
-                body: form,
-            });
+            // Stamp the timing-window fallback before the fetch fires so an
+            // SSE event delivered while the request is still in flight (long
+            // AI analysis can run multiple seconds; the change_events row is
+            // inserted at the very end of the handler) is still recognised
+            // as a self-echo even if the broker source-attribution path
+            // raced with the tailer's empty-source Notify. The rollback
+            // restores the prior stamp on failure so a 5s false-suppress
+            // window doesn't hide unrelated cross-source banners.
+            let rollbackOwnWriteStamp = null;
+            if (window.DataStore && typeof window.DataStore.recordOwnWriteWithRollback === 'function') {
+                rollbackOwnWriteStamp = window.DataStore.recordOwnWriteWithRollback();
+            } else if (window.DataStore && typeof window.DataStore.recordOwnWrite === 'function') {
+                window.DataStore.recordOwnWrite();
+            }
+            let res;
+            try {
+                res = await fetch('/api/food/log/from-photo', {
+                    method: 'POST',
+                    headers: window.makeWriteHeaders(),
+                    body: form,
+                });
+            } catch (netErr) {
+                if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
+                throw netErr;
+            }
 
             if (!res.ok) {
                 if (res.status === 429 && window.DemoBanner && typeof window.DemoBanner.tryHandleResponse === 'function') {
                     const demoParsed = await window.DemoBanner.tryHandleResponse(res);
                     if (demoParsed) {
+                        if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
                         const demoErr = new Error('Demo rate limit reached');
                         demoErr.status = 429;
                         demoErr.demoLimit = demoParsed;
@@ -222,12 +243,24 @@ async function uploadFoodPhoto(input) {
                     }
                 }
                 const txt = await res.text();
+                if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
                 throw new Error(txt || `HTTP ${res.status}`);
             }
 
             const data = await res.json().catch(() => null);
             const items = (data && Array.isArray(data.items)) ? data.items : [];
             const failed = Math.max(0, Math.trunc(Number(data && data.failed) || 0));
+
+            // Refresh the timing-window stamp now that the response has
+            // landed. The pre-fetch stamp may have aged past SELF_ECHO_WINDOW_MS
+            // during a long AI analysis (up to 60s), so without this refresh
+            // the SSE echo of this very write — arriving milliseconds after
+            // res.json() resolves — would fall outside the 5s window and surface
+            // a foreign-banner whenever the broker's source-attribution path
+            // raced with the tailer's empty-source Notify.
+            if (window.DataStore && typeof window.DataStore.recordOwnWrite === 'function') {
+                window.DataStore.recordOwnWrite();
+            }
 
             // Optimistic projection: append the server-returned items into the
             // day's cached payload before triggering the re-renders. This keeps

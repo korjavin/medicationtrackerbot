@@ -336,13 +336,18 @@ describe('data-store.js unit tests', () => {
     }
   });
 
-  it('applyChangesPayload classifies as changes when source_client_id is a different client', async () => {
-    // A cross-source write (other tab, another device, Telegram bot) carries
-    // a source_client_id that does not match this client's getClientId().
-    // The banner-defer logic must surface as `changes` so cross-source
-    // updates are visible — even if a recent own-write put us inside the
-    // SELF_ECHO_WINDOW_MS fallback window. The clientId check takes
-    // precedence over the timing window when source_client_id is present.
+  it('applyChangesPayload falls back to timing window when source_client_id is foreign but own write is recent', async () => {
+    // The middleware's source attribution is racy: it reads MAX(change_events)
+    // AFTER the handler returns, so a foreign write committing between this
+    // handler's commit and the cursor lookup gets lumped into the same broker
+    // frame and tagged with the foreign source. Our own write — also in the
+    // frame — would then mis-classify as a foreign banner.
+    //
+    // The timing-window fallback recovers this case: a recent recordOwnWrite()
+    // forces `self-echo` even when source_client_id is present-but-mismatched.
+    // The cost is rare false-suppress on a legitimate cross-source banner
+    // within the 5s window, but tag invalidation still refreshes data —
+    // only the banner is skipped.
     const { window, cleanup } = loadDataStoreEnv();
 
     try {
@@ -354,6 +359,32 @@ describe('data-store.js unit tests', () => {
 
       await window.DataStore.applyChangesPayload({
         cursor: 800,
+        changed_tags: ['food'],
+        source_client_id: 'a-different-client-id-uuid'
+      });
+
+      expect(requestTabRefreshSpy).toHaveBeenCalledWith({
+        changedTags: ['food'],
+        source: 'self-echo'
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('applyChangesPayload classifies as changes when source_client_id is foreign and no recent own write', async () => {
+    // The legitimate cross-source case: another browser / Telegram bot / MCP
+    // commits a change, and we have NOT written in the last 5s. The mismatch
+    // surfaces as `changes` so the banner can show.
+    const { window, cleanup } = loadDataStoreEnv();
+
+    try {
+      vi.spyOn(window.DataStore, 'invalidateTags').mockResolvedValue(undefined);
+      const requestTabRefreshSpy = vi.fn();
+      window.requestTabRefresh = requestTabRefreshSpy;
+
+      await window.DataStore.applyChangesPayload({
+        cursor: 850,
         changed_tags: ['food'],
         source_client_id: 'a-different-client-id-uuid'
       });

@@ -53,6 +53,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.DemoBanner',                // core/demo-banner.js — demo-mode banner mount + 429 `demo_rate_limit` popup helper; mounted by auth-bootstrap.js when /api/bootstrap returns demo.enabled=true, invoked by core/api.js on 429 responses with a {error:'demo_rate_limit'} body
     'window.apiCallDirect',             // core/api.js — low-level fetch used by data-store.js
     'window.makeAuthHeaders',           // core/api.js — auth header construction shared by direct-fetch callers (streaming food product search, multipart food-photo upload, ElevenLabs URL fetch, BP/weight CSV exports) that cannot route through apiCallDirect
+    'window.makeWriteHeaders',          // core/api.js — makeAuthHeaders + X-Client-ID for direct-fetch *write* sites (food photo POST, food description POST, food log DELETE) so the backend's notifyOnWriteMiddleware can echo the originating clientId back via source_client_id on the SSE payload — preventing self-origin banner regressions on long-running AI flows that exceed the 5s timing-window fallback
     'window.AppKernel',                 // core/app-kernel.js — module registry
     'window.ChartUtils',               // core/chart-utils.js — shared SVG chart utilities
     'window.escapeHtml',               // core/utils.js — canonical HTML entity escaper; consumed by sync.js debug panel + app.js medication schedule renderer

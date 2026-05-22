@@ -9,7 +9,7 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const CORE_API_JS = path.join(REPO_ROOT, 'web/static/js/core/api.js');
 
-function loadApiEnv({ initData } = {}) {
+function loadApiEnv({ initData, clientId } = {}) {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', {
     url: 'https://example.test/',
     runScripts: 'outside-only',
@@ -18,6 +18,9 @@ function loadApiEnv({ initData } = {}) {
   const { window } = dom;
   if (typeof initData !== 'undefined') {
     window.userInitData = initData;
+  }
+  if (typeof clientId !== 'undefined') {
+    window.DataStore = { getClientId: () => clientId };
   }
   const source = fs.readFileSync(CORE_API_JS, 'utf8');
   window.eval(`${source}\n//# sourceURL=file://${CORE_API_JS}`);
@@ -162,6 +165,55 @@ describe('makeAuthHeaders', () => {
       await window.apiCallDirect('/api/foo');
       expect(seenHeaders['X-Telegram-Init-Data']).toBe('apidirect-token');
       expect('Content-Type' in seenHeaders).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe('makeWriteHeaders', () => {
+  it('combines the auth header and X-Client-ID for direct-fetch write sites', () => {
+    const { window, cleanup } = loadApiEnv({ initData: 'tg-token', clientId: 'client-uuid-1' });
+    try {
+      const headers = window.makeWriteHeaders({ 'Content-Type': 'application/json' });
+      expect(headers).toEqual({
+        'Content-Type': 'application/json',
+        'X-Telegram-Init-Data': 'tg-token',
+        'X-Client-ID': 'client-uuid-1',
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('omits X-Client-ID when DataStore is not loaded (legacy / test isolation)', () => {
+    const { window, cleanup } = loadApiEnv({ initData: 'tg-token' });
+    try {
+      const headers = window.makeWriteHeaders();
+      expect(headers['X-Telegram-Init-Data']).toBe('tg-token');
+      expect('X-Client-ID' in headers).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('omits X-Client-ID when getClientId returns an empty string', () => {
+    const { window, cleanup } = loadApiEnv({ initData: 'tg-token', clientId: '' });
+    try {
+      const headers = window.makeWriteHeaders();
+      expect('X-Client-ID' in headers).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('survives a throwing getClientId without losing the auth header', () => {
+    const { window, cleanup } = loadApiEnv({ initData: 'tg-token' });
+    try {
+      window.DataStore = { getClientId: () => { throw new Error('boom'); } };
+      const headers = window.makeWriteHeaders();
+      expect(headers['X-Telegram-Init-Data']).toBe('tg-token');
+      expect('X-Client-ID' in headers).toBe(false);
     } finally {
       cleanup();
     }

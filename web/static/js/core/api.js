@@ -28,6 +28,31 @@ function makeAuthHeaders(extra) {
 }
 window.makeAuthHeaders = makeAuthHeaders;
 
+// makeWriteHeaders builds the headers for a non-GET request that must travel
+// outside apiCallDirect (multipart/form-data uploads and other direct fetch
+// sites). It returns makeAuthHeaders(extra) augmented with X-Client-ID when
+// DataStore.getClientId() is available, so the backend's
+// notifyOnWriteMiddleware can attribute the resulting change_events to this
+// browser and the SSE subscribers can recognise their own echo via
+// source_client_id instead of relying on the 5s timing-window fallback.
+//
+// GET callers should keep using makeAuthHeaders directly — emitting
+// X-Client-ID on reads is wasteful and would let the value appear in
+// access-log query strings on routes that have no need for it.
+function makeWriteHeaders(extra) {
+    const headers = makeAuthHeaders(extra);
+    try {
+        if (window.DataStore && typeof window.DataStore.getClientId === 'function') {
+            const cid = window.DataStore.getClientId();
+            if (typeof cid === 'string' && cid.length > 0) {
+                headers['X-Client-ID'] = cid;
+            }
+        }
+    } catch (_e) { /* defensive: getClientId must never block a write */ }
+    return headers;
+}
+window.makeWriteHeaders = makeWriteHeaders;
+
 // Composes an AbortSignal from an optional timeout and an optional caller
 // signal. Returns undefined when neither is supplied so fetch() runs unguarded.
 function composeAbortSignal(timeoutMs, callerSignal) {
