@@ -2,7 +2,7 @@
 
 Design context for the ongoing effort to compile this codebase into a mobile app via Capacitor. This doc captures the *why* behind decisions made during planning so future phases can be planned from a warm start, not by re-deriving from first principles. Living doc — update as Phase 2 lands.
 
-Status: **Phase 1 complete** (Go-side foundation + Capacitor spike landed). Plan: `docs/plans/completed/2026-05-18-local-only-mode-foundation.md`. Phase 2 (Go binary embedding + native plugin abstractions) is not started — see [Phase 2 below](#phase-2-mobile-shell--native-integration-future-plan).
+Status: **Phase 2a in progress** on Android (embedded Go binary). Phase 1 (Go-side foundation + Capacitor dev-server spike) shipped — plan: `docs/plans/completed/2026-05-18-local-only-mode-foundation.md`. Phase 2a plan: `docs/plans/2026-05-22-mobile-phase2a-android-go-embedding.md`. Phase 2b (native plugin abstractions) and Phase 2c (first-run setup + secrets storage) are not started — see [Phase 2 below](#phase-2-mobile-shell--native-integration-future-plan).
 
 ## Build & run
 
@@ -166,19 +166,25 @@ Server has multiple auth paths (Telegram `initData`, OIDC, session cookie). Mobi
 
 Phase 1's Task 8 wraps `web/static/` and points the WebView at a running dev server (or the deployed production server). It does *not* embed the Go binary. Decision deferred to Phase 2 (see below). The spike proves the scaffolding works before we invest in plugin work or background-execution gymnastics.
 
-## Phase 2: Mobile shell + native integration (future plan)
+## Phase 2: Mobile shell + native integration
 
-Not planned yet. This section captures what's known about it so the Phase 2 plan can be created without re-deriving.
+Phase 2 is split into three plans, landing in order:
 
-### Go binary embedding: open decision
+- **Phase 2a — Android Go-binary embedding** (in progress). Plan: `docs/plans/2026-05-22-mobile-phase2a-android-go-embedding.md`. Spawns the mobile-build binary inside the Capacitor Android shell, parses `LISTENING 127.0.0.1:<port>` from stdout, loads the WebView from that port. iOS deferred to a follow-up. See "Phase 2a build pipeline" above and "Go binary embedding: settled decision" below.
+- **Phase 2b — Native plugin abstractions** (not started). Camera, geolocation, barcode, local notifications shims selected at runtime via `Capacitor.isNativePlatform()`. See "Native plugin JS abstractions" below.
+- **Phase 2c — First-run setup + secrets storage** (not started). Guided onboarding screen for OpenAI / ElevenLabs / Food DB keys; revisit `EncryptedSharedPreferences` vs Keychain for secrets defence-in-depth. See "First-run Settings flow" + "Secrets storage" + "First-run user provisioning" below.
+
+This section captures what's known about each sub-phase so the remaining plans can be written without re-deriving.
+
+### Go binary embedding: settled decision
 
 Two ways to get the Go binary running inside Capacitor:
 
-**Option 2a: `gomobile bind`.** Compile Go as a static library (`.aar` for Android, `.framework` for iOS), call exported Go functions from native code via a bridge. Pros: cleaner integration, no port management, no HTTP overhead. Cons: every Go API needs a native bridge wrapper; the existing HTTP handler architecture would need to be re-exposed as Go function calls; iOS/Android native bridge code becomes part of the surface area.
+**Option 2a-i: `gomobile bind`.** Compile Go as a static library (`.aar` for Android, `.framework` for iOS), call exported Go functions from native code via a bridge. Pros: cleaner integration, no port management, no HTTP overhead. Cons: every Go API needs a native bridge wrapper; the existing HTTP handler architecture would need to be re-exposed as Go function calls; iOS/Android native bridge code becomes part of the surface area.
 
-**Option 2b: Embedded localhost HTTP server.** Compile Go as a binary, ship it as a resource in the app bundle, spawn it on app launch, WebView talks to `http://127.0.0.1:<port>` exactly like the dev environment. Pros: zero changes to the existing HTTP/handler architecture; frontend code is identical to the deployed server case. Cons: native shell needs to manage the Go process lifecycle (start, stop on backgrounding, restart on foreground); port collisions need handling; minor battery cost from a running process.
+**Option 2a-ii: Embedded localhost HTTP server (chosen).** Compile Go as a binary, ship it as a resource in the app bundle, spawn it on app launch, WebView talks to `http://127.0.0.1:<port>` exactly like the dev environment. Pros: zero changes to the existing HTTP/handler architecture; frontend code is identical to the deployed server case. Cons: native shell needs to manage the Go process lifecycle (start, stop on backgrounding, restart on foreground); port collisions need handling; minor battery cost from a running process.
 
-Lean: **Option 2b** because it preserves the "third transport is just localhost HTTP" framing that motivated Option B in the first place. Option 2a starts forking the API surface again. But this is a real decision worth re-examining when Phase 2 starts, especially for Android battery behavior.
+**Phase 2a picked 2a-ii** on the structural grounds that embedded HTTP preserves the "transports share domain services" invariant (`gomobile bind` would force every endpoint to be duplicated in Kotlin/Swift glue), and that the cross-compile toolchain already works for `android/arm64` without an NDK. Full decision memo lives in the Phase 2a plan under "Spike outcome". The transport invariant is the load-bearing constraint — if a future Android policy change forces a switch to `gomobile bind`, the plan is to extract the HTTP contract into a generated client (OpenAPI or similar) first, so the two-places-to-update problem is solved at the contract layer rather than at the call sites.
 
 ### Native plugin JS abstractions
 
@@ -216,14 +222,15 @@ Android is more permissive but the same approach works there too — no platform
 
 **Phase 1 punt**: OpenAI API keys live in the SQLite settings table as plaintext. Acceptable MVP — user's device, user's data, no network exposure.
 
-**Phase 2 decision**: revisit moving secrets to Keychain (iOS) / Keystore (Android) via `@capacitor-community/secure-storage` or `@capacitor/preferences` with encryption. The trade-off is: Keychain is the right answer for defense-in-depth (e.g. backup leaks, device-loss scenarios), but it means the Go binary doesn't see the key directly — the frontend would need to fetch the secret on session start and pass it to Go via an init endpoint. That re-introduces a small native↔Go ceremony. Decide based on real threat model when Phase 2 starts.
+**Phase 2a partial**: `SESSION_SECRET` is generated on first launch (32 random bytes via `SecureRandom`) and persisted via `androidx.security:security-crypto` `EncryptedSharedPreferences` under key `session_secret_v1`. This is the only secret the shell owns directly; provider API keys still live in the SQLite settings table.
+
+**Phase 2c decision**: revisit moving provider API keys to Keychain (iOS) / Keystore (Android) via `@capacitor-community/secure-storage` or `@capacitor/preferences` with encryption. The trade-off is: Keychain is the right answer for defense-in-depth (e.g. backup leaks, device-loss scenarios), but it means the Go binary doesn't see the key directly — the frontend would need to fetch the secret on session start and pass it to Go via an init endpoint. That re-introduces a small native↔Go ceremony. Decide based on real threat model when Phase 2c starts.
 
 ### First-run user provisioning
 
-`LocalUserResolver` returns a fixed user ID in Phase 1. In Phase 2 we need to:
+`LocalUserResolver` returns a fixed user ID in Phase 1. Phase 2a's `SESSION_SECRET` generation + persistence on first launch is already handled in `MainActivity.kt` (see "Secrets storage" above). Phase 2c still needs to:
 - Provision the local user row on first launch (or ensure migration 1 seeds it).
 - Decide whether mobile supports multiple local profiles (probably no — single-user device, no need).
-- Handle the SESSION_SECRET generation/persistence on first launch.
 
 ## Constraints we're betting on
 
@@ -231,6 +238,8 @@ These are load-bearing assumptions. If any change, the design needs revisiting.
 
 - **`modernc.org/sqlite` stays CGO-free.** Already in `go.mod` (`v1.42.2`). Mobile cross-compile depends on this. If anyone considers switching to `mattn/go-sqlite3` for any reason, that's a blocker.
 - **Only `android/arm64` cross-compiles without an NDK.** Even with `modernc.org/sqlite` CGO-free, `GOARCH=arm` and `GOARCH=amd64` on `GOOS=android` still demand `CGO_ENABLED=1` (the Go runtime's `runtime/cgo` package needs external linking on those targets). v1 of the mobile build ships arm64-only; armv7 + x86_64 are best-effort builds gated on `ANDROID_NDK_HOME` in `scripts/build-android-binaries.sh`. If a future Go version drops this asymmetry, drop the NDK gating.
+- **Android extracts `lib*.so` from `jniLibs/<abi>/` into a read-only-but-executable `nativeLibraryDir` at install time, regardless of whether the file is an actual shared library.** Phase 2a leans on this: the Go binary is named `libmedtracker.so` and placed under `jniLibs/<abi>/`, the Android packager extracts it to `applicationInfo.nativeLibraryDir`, and the shell spawns it via `ProcessBuilder` with no assets-copy / chmod dance at launch. If Google ever tightens what's allowed under `jniLibs` (e.g. ELF-shape checks beyond magic-byte sniffing, or strips the executable bit), Phase 2b/2c would need to fall back to copying the binary from `assets/` into `getFilesDir()` and `chmod +x`ing it at first launch.
+- **Capacitor WebView navigations destroy the JS context, so the native↔JS bridge must survive across `loadUrl`.** Phase 2a uses `addJavascriptInterface(NativeBridge, "MedtrackerNative")` (sticky across navigations) plus a tiny inline shim in `web/static/index.html` that copies `MedtrackerNative.apiBase()` into `window.__MEDTRACKER_BOOTSTRAP__.apiBase`. The earlier `evaluateJavascript`-then-`loadUrl` approach silently broke because the injected global lived on the *previous* document and was wiped by the navigation. Future native↔JS surfaces must follow the same `@JavascriptInterface` + inline-shim pattern; do not rely on `evaluateJavascript` for state that must persist across page loads.
 - **Domain service pattern stays enforced.** The "transports share the domain service" rule is what makes the mobile transport free. If bot or HTTP handlers start calling stores directly, the mobile build will silently work but the architectural property dies.
 - **Frontend stays offline-first.** SW precache, Dexie cache, `cachedFetch`, optimistic writes — these are why the mobile build needs almost zero frontend changes. New screens that bypass these patterns would make local-only mode degrade.
 - **Settings repo stays singleton-row.** Per-user settings would require deciding "which user" on mobile, which is moot for single-user devices but would complicate the env-or-settings merge. If a future feature needs per-user settings, keep the integration config keys in the singleton table separately.
