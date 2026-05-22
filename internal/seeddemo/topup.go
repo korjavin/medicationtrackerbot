@@ -220,6 +220,25 @@ func TopUp(ctx context.Context, s *store.Store, opts TopUpOptions) (*Summary, er
 		summary.StressSamples += n
 	}
 
+	// --- Day stats (steps/calories/distance) ---
+	// Daily aggregates use the same dailyTopUpFrom snap as BP/weight/food: emit
+	// only whole past days, so an hourly tick fires once per UTC day rollover
+	// and is a no-op otherwise. Re-emitting the same calendar day is also safe
+	// — ImportDayStats's UPSERT only updates when incoming values are larger
+	// than stored, and the per-day sub-rng in buildDayStats makes the values
+	// stable across ticks.
+	dayStatLast, hasDayStat, err := s.Vitals.LatestDayStat(ctx, opts.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("latest day_stat: %w", err)
+	}
+	if from := dailyTopUpFrom(dayStatLast, hasDayStat, opts.Now); from.Before(opts.Now) {
+		n, err := generateDayStats(ctx, s, optsLike, vc, tsRng, from, opts.Now)
+		if err != nil {
+			return nil, fmt.Errorf("top-up day_stats: %w", err)
+		}
+		summary.DayStats += n
+	}
+
 	slog.Info("seeddemo: top-up completed",
 		"user_id", opts.UserID,
 		"now", opts.Now,
@@ -230,6 +249,7 @@ func TopUp(ctx context.Context, s *store.Store, opts TopUpOptions) (*Summary, er
 		"heart_samples", summary.HeartSamples,
 		"spo2_samples", summary.SpO2Samples,
 		"stress_samples", summary.StressSamples,
+		"day_stats", summary.DayStats,
 		"food_logs", summary.FoodLogs,
 		"workout_sessions", summary.WorkoutSessions,
 		"diary_notes", summary.DiaryNotes,

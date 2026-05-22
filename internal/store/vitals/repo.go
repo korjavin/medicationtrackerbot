@@ -596,6 +596,27 @@ func (r *Repo) LatestSleepEnd(ctx context.Context, userID int64) (time.Time, boo
 	return t.UTC(), true, nil
 }
 
+// LatestDayStat returns the most-recent day_stats.day for a user, parsed back
+// into a UTC time at 00:00 on that calendar day. The bool reports whether any
+// row exists (no row → zero time, found=false). Used by the demo top-up loop
+// to resume daily step/calorie/distance generation from the day after the
+// latest stored row.
+func (r *Repo) LatestDayStat(ctx context.Context, userID int64) (time.Time, bool, error) {
+	var dayStr sql.NullString
+	if err := r.db.QueryRowContext(ctx,
+		"SELECT MAX(day) FROM day_stats WHERE user_id = ?", userID).Scan(&dayStr); err != nil {
+		return time.Time{}, false, err
+	}
+	if !dayStr.Valid || dayStr.String == "" {
+		return time.Time{}, false, nil
+	}
+	t, err := time.Parse("2006-01-02", dayStr.String)
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("parse day_stats.day %q: %w", dayStr.String, err)
+	}
+	return t.UTC(), true, nil
+}
+
 // ListStress returns stress samples in [start, end] (inclusive bounds in
 // millisecond UNIX time), ordered by date_time ASC. Info may be empty when
 // the underlying row has a NULL label.
