@@ -39,13 +39,26 @@
         if (!modal || !out) return;
         const text = fetchLogs();
         out.textContent = text || '(no log lines captured yet)';
-        modal.classList.remove('hidden');
+        // Prefer the <mt-modal>.open() custom-element method so the
+        // `inert` attribute set by its connectedCallback is cleared —
+        // otherwise the Close button can't take focus from keyboard
+        // users. Fall back to a plain classList toggle for tests that
+        // mount a <div> shell without the custom element registered.
+        if (typeof modal.open === 'function') {
+            modal.open();
+        } else {
+            modal.classList.remove('hidden');
+        }
     }
 
     function closeModal() {
         const modal = document.getElementById(MODAL_ID);
         if (!modal) return;
-        modal.classList.add('hidden');
+        if (typeof modal.close === 'function') {
+            modal.close();
+        } else {
+            modal.classList.add('hidden');
+        }
     }
 
     function mount() {
