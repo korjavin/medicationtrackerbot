@@ -168,7 +168,7 @@ func TestTopUpIsIdempotentForDailyStreams(t *testing.T) {
 	advancedNow := seedNow.Add(72 * time.Hour)
 	runTopUp(t, s, TopUpOptions{UserID: 12345, Now: advancedNow, Seed: 42})
 
-	tables := []string{"food_log", "blood_pressure_readings", "weight_logs", "diary_notes", "workout_sessions"}
+	tables := []string{"food_log", "blood_pressure_readings", "weight_logs", "diary_notes", "workout_sessions", "day_stats"}
 	pre := make(map[string]int, len(tables))
 	for _, tbl := range tables {
 		pre[tbl] = countRows(t, s.DB(), tbl)

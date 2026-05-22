@@ -61,6 +61,12 @@ func generateVitals(ctx context.Context, s *store.Store, opts Options, clk *cloc
 	}
 	summary.StressSamples += stress
 
+	dayStats, err := generateDayStats(ctx, s, opts, vc, tsRng, from, to)
+	if err != nil {
+		return fmt.Errorf("day stats: %w", err)
+	}
+	summary.DayStats += dayStats
+
 	return nil
 }
 

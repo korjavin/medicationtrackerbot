@@ -123,6 +123,42 @@ func TestLatestStressSample(t *testing.T) {
 	}
 }
 
+func TestLatestDayStat(t *testing.T) {
+	r := setupVitalsRepo(t)
+	ctx := context.Background()
+	userID := int64(13)
+
+	if _, ok, err := r.LatestDayStat(ctx, userID); err != nil || ok {
+		t.Fatalf("empty: ok=%v err=%v", ok, err)
+	}
+
+	stats := []DayStat{
+		{Day: "2026-01-10", Steps: 8000, Calories: 500, Distance: 6200},
+		{Day: "2026-01-12", Steps: 12000, Calories: 700, Distance: 9300},
+		{Day: "2026-01-11", Steps: 9000, Calories: 550, Distance: 7000},
+	}
+	if _, _, err := r.ImportDayStats(ctx, userID, stats); err != nil {
+		t.Fatalf("ImportDayStats: %v", err)
+	}
+
+	ts, ok, err := r.LatestDayStat(ctx, userID)
+	if err != nil {
+		t.Fatalf("LatestDayStat: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected found=true after import")
+	}
+	want := time.Date(2026, 1, 12, 0, 0, 0, 0, time.UTC)
+	if !ts.Equal(want) {
+		t.Errorf("expected %v, got %v", want, ts)
+	}
+
+	// Other user should not see this user's max.
+	if _, ok, err := r.LatestDayStat(ctx, 9999); err != nil || ok {
+		t.Errorf("isolation: ok=%v err=%v", ok, err)
+	}
+}
+
 func TestLatestSleepEnd(t *testing.T) {
 	r := setupVitalsRepo(t)
 	ctx := context.Background()

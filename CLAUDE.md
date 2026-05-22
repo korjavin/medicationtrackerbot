@@ -67,7 +67,7 @@ go run cmd/genvapid/main.go                                   # VAPID keys for w
 
 #### Demo data seeder
 
-`cmd/seeddemo` wipes a target user's data and seeds N days (default 90) of synthetic, varied health-tracking data so the app can be demoed: medications with overlapping courses, BP/weight/sleep time series with visible trends, continuous HR/SpO2/stress samples (Mi Band-style), food logs hitting and missing targets, planned + ad-hoc workouts, diary notes, and a mid-period timezone change. Deterministic by default (seedable RNG) so re-running with the same seed produces an identical dataset. Generator code lives in `internal/seeddemo/`.
+`cmd/seeddemo` wipes a target user's data and seeds N days (default 90) of synthetic, varied health-tracking data so the app can be demoed: medications with overlapping courses, BP/weight/sleep time series with visible trends, continuous HR/SpO2/stress samples (Mi Band-style), daily step/calorie/distance aggregates correlated with workout days, food logs hitting and missing targets, planned + ad-hoc workouts, diary notes, and a mid-period timezone change. Deterministic by default (seedable RNG) so re-running with the same seed produces an identical dataset. Generator code lives in `internal/seeddemo/`.
 
 The same binary also supports `-topup`, an incremental mode that appends new rows since each stream's last logged timestamp without wiping. Top-up is idempotent within a calendar day (re-running with the same `-now` is a no-op) and is what the demo bot's background top-up loop (`internal/demotopup`, started automatically when `DEMO_MODE=1`, configurable via `DEMO_TOPUP_INTERVAL`) calls on a ticker to keep the deployed dataset fresh. See [docs/demo-mode.md](docs/demo-mode.md#automatic-top-up).
 
