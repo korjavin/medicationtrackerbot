@@ -134,14 +134,14 @@ iOS is out of scope. Phase 2a is Android-only and Phase 2b inherits that constra
 
 ### Task 8: Verify acceptance criteria
 
-- [ ] verify all four abstractions present in `web/static/js/native/index.js` and exposed as `window.*` globals.
-- [ ] verify all four globals listed in `tests/architecture.globals.test.js` with justification comments.
-- [ ] verify existing food-scanner and food-photo flows continue to work in the browser (web impls) — `pnpm test` covers this.
-- [ ] verify `go build -tags mobile ./...` and `go test ./...` still pass (backend unchanged, but confirm no drift).
-- [ ] run full `pnpm test` — all tests including the new `native.*.test.js` files green.
-- [ ] run frontend lint / formatting check if the project has one (`pnpm lint` or equivalent — skip if no script).
-- [ ] verify no `*-branches` / `*-edges` / `*-characterization` test files were created (CLAUDE.md rule #8).
-- [ ] verify each new `window.*` global has exactly one allowlist entry (no duplicates, no stale entries from earlier iterations).
+- [x] verify all four abstractions present in `web/static/js/native/index.js` and exposed as `window.*` globals. (Confirmed at `web/static/js/native/index.js:91-94` — `window.MediaCapture`, `window.Geolocation`, `window.Barcode`, `window.Reminders` are all initialized; impl files register via `registerImpl` and the foundation assigns the matching impl based on `isNativePlatform()`.)
+- [x] verify all four globals listed in `tests/architecture.globals.test.js` with justification comments. (Confirmed at `tests/architecture.globals.test.js:183-186` — each entry has a one-line justification naming `native/index.js` as the owner and describing the web vs Capacitor impl split.)
+- [x] verify existing food-scanner and food-photo flows continue to work in the browser (web impls) — `pnpm test` covers this. (Confirmed: 225 test files / 2444 tests pass, including `features.food-photo-abstraction.test.js`, `features.food-scanner-abstraction.test.js`, `features.food-photo.test.js`, and the existing food integration suites.)
+- [x] verify `go build -tags mobile ./...` and `go test ./...` still pass (backend unchanged, but confirm no drift). (Confirmed: mobile build is clean and the full Go test suite passes — all `ok`, no failures.)
+- [x] run full `pnpm test` — all tests including the new `native.*.test.js` files green. (Confirmed: `Test Files  225 passed (225)`, `Tests  2444 passed | 29 skipped (2473)`.)
+- [x] run frontend lint / formatting check if the project has one (`pnpm lint` or equivalent — skip if no script). (Skipped: no `lint` or `format` script in `package.json`.)
+- [x] verify no `*-branches` / `*-edges` / `*-characterization` test files were created (CLAUDE.md rule #8). (Confirmed: glob `web/static/js/tests/**/*-{branches,edges,characterization}*.test.js` returns no matches.)
+- [x] verify each new `window.*` global has exactly one allowlist entry (no duplicates, no stale entries from earlier iterations). (Confirmed via grep: each of `'window.MediaCapture'`, `'window.Geolocation'`, `'window.Barcode'`, `'window.Reminders'` appears exactly once in `architecture.globals.test.js`.)
 
 ### Task 9: Update documentation
 
