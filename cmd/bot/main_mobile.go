@@ -69,6 +69,12 @@ func runMobile(ctx context.Context, args []string, stdout io.Writer) error {
 	// interface) only for on-device Capacitor spike testing where the
 	// device WebView talks to a dev machine on the same network.
 	host := fs.String("host", "127.0.0.1", "HTTP listen host (loopback by default; override only for spike testing)")
+	// Per-install session secret. The local resolver ignores cookies so this
+	// is not security-meaningful, but server.New still validates len>=32.
+	// Falls back to a fixed constant when not supplied (e.g. from the test
+	// suite). The Android shell generates 32 random bytes on first launch
+	// and persists them via EncryptedSharedPreferences.
+	sessionSecret := fs.String("session-secret", "mobile-build-local-session-secret-32+", "session secret (>=32 chars); the Android shell injects a per-install random value")
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("parse flags: %w", err)
 	}
@@ -147,12 +153,11 @@ func runMobile(ctx context.Context, args []string, stdout io.Writer) error {
 	tzLifecycle := tzreschedule.NewLifecycleService(s, *userID)
 	tzUpdater := tzupdate.NewService(s.TZ, s.TZ, tzPlanner, nil, func() bool { return true })
 
-	// Session secret: not security-meaningful on mobile (the local resolver
-	// ignores cookies), but server.New validates len>=32. Use a deterministic
-	// per-install token derived from the DB path; not used for any verification.
-	const mobileSessionSecret = "mobile-build-local-session-secret-32+"
+	if len(*sessionSecret) < 32 {
+		return fmt.Errorf("session-secret must be at least 32 chars, got %d", len(*sessionSecret))
+	}
 
-	srv := server.New(s, "", mobileSessionSecret, *userID, server.OIDCConfig{}, "", "")
+	srv := server.New(s, "", *sessionSecret, *userID, server.OIDCConfig{}, "", "")
 	if foodAI != nil {
 		srv.SetFoodAIService(foodAI)
 	}

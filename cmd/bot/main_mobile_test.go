@@ -53,6 +53,69 @@ func TestRunMobile_OSAssignedPort(t *testing.T) {
 	assertHealthz(t, port)
 }
 
+// TestRunMobile_ListeningLineExactFormat asserts the LISTENING startup line
+// matches the regex the Android shell relies on: exactly one line, the literal
+// prefix "LISTENING 127.0.0.1:", then a decimal port, then a single newline.
+// The shell's stdout reader grabs the first line via bufio.ReadLine; if this
+// format ever drifts the shell will hang on its 10s healthz wait without ever
+// knowing which port to try. Capturing the exact format here makes that
+// contract a unit-level invariant rather than a runtime surprise.
+func TestRunMobile_ListeningLineExactFormat(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	pr, pw := io.Pipe()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = runMobile(ctx, []string{"-db", dbPath, "-port", "0"}, pw)
+		_ = pw.Close()
+	}()
+
+	br := bufio.NewReader(pr)
+	line, err := br.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read first line: %v", err)
+	}
+	if !strings.HasSuffix(line, "\n") {
+		t.Fatalf("LISTENING line missing trailing newline: %q", line)
+	}
+	trimmed := strings.TrimSuffix(line, "\n")
+	if !listenLinePattern.MatchString(trimmed) {
+		t.Fatalf("LISTENING line %q does not match %s", trimmed, listenLinePattern)
+	}
+	// Drain the pipe so runMobile's stdout writes don't block while we shut down.
+	go func() { _, _ = io.Copy(io.Discard, br) }()
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("runMobile did not return within 15s after cancel")
+	}
+}
+
+// TestRunMobile_SessionSecretRejectsShort asserts that a too-short session
+// secret is rejected at argv-parse time rather than panicking deep inside
+// server.New. The Android shell generates 32 random bytes so it can't trip
+// this path under normal use, but a misconfigured argv (or a future caller
+// passing through a truncated value) would otherwise fail with a confusing
+// trace.
+func TestRunMobile_SessionSecretRejectsShort(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := runMobile(ctx, []string{"-db", dbPath, "-port", "0", "-session-secret", "tooshort"}, io.Discard)
+	if err == nil {
+		t.Fatal("expected runMobile to reject a short session-secret, got nil")
+	}
+	if !strings.Contains(err.Error(), "session-secret") {
+		t.Fatalf("error %q should mention 'session-secret'", err)
+	}
+}
+
 // TestRunMobile_FixedPort exercises the `-port <fixed>` argv path. Used by
 // developer workflows that want a stable URL across reboots.
 func TestRunMobile_FixedPort(t *testing.T) {

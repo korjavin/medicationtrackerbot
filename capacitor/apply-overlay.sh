@@ -71,3 +71,19 @@ if [ "$copied" -eq 0 ]; then
 fi
 
 printf '\nApplied %d file(s) from android-overlay/ to android/.\n' "$copied"
+
+# build.gradle reminder. medtracker.build.gradle ships in the overlay so it gets
+# copied into android/app/, but Capacitor's app/build.gradle won't `apply from`
+# it until we add a one-line stanza. Detect-and-warn rather than auto-edit:
+# touching the generated build.gradle would surprise future `cap add` runs.
+APP_BUILD_GRADLE="${ANDROID_DIR}/app/build.gradle"
+APPLY_LINE="apply from: 'medtracker.build.gradle'"
+if [ -f "$APP_BUILD_GRADLE" ]; then
+  if ! grep -qF "$APPLY_LINE" "$APP_BUILD_GRADLE"; then
+    printf '\nReminder: append the following line to %s\n' "$APP_BUILD_GRADLE"
+    printf '         (one-time edit; survives subsequent overlay runs):\n\n'
+    printf '    %s\n\n' "$APPLY_LINE"
+    printf 'This pulls in androidx.security:security-crypto + okhttp + coroutines\n'
+    printf 'required by MainActivity.kt and GoServerService.kt.\n'
+  fi
+fi
