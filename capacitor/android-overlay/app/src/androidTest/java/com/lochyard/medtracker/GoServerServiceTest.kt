@@ -295,6 +295,240 @@ class GoServerServiceTest {
         assertEquals("port should be unchanged after no-op respawn", originalPort, binder.port())
     }
 
+    // (Finding 2) Foregrounded-crash recovery: the unexpected-exit listener
+    // must fire when the binary dies without an Activity-initiated destroy.
+    // We simulate the crash with killForTest() (destroyForcibly), which is
+    // the same OS-level SIGKILL signal the low-memory killer would deliver.
+    @Test
+    fun unexpectedExitFiresRegisteredListener() {
+        val binder = bindAndStartService()
+        val port = binder.awaitListening(15_000L)
+        assertNotNull("expected initial LISTENING port", port)
+        assertTrue("process should be alive before kill", binder.isProcessAlive())
+
+        val fired = CountDownLatch(1)
+        binder.setUnexpectedExitListener { fired.countDown() }
+
+        binder.killForTest()
+
+        assertTrue(
+            "unexpected-exit listener should fire within 5s of process death",
+            fired.await(5, TimeUnit.SECONDS),
+        )
+        assertFalse("process should be dead", binder.isProcessAlive())
+    }
+
+    // (Finding 2) Planned destroys (requestStop → SIGTERM after grace) must
+    // NOT fire the unexpected-exit listener; otherwise the activity would
+    // try to respawn the backend exactly when the user intended to release
+    // it. We assert no listener invocation within 2s of the grace expiry.
+    @Test
+    fun expectedExitDoesNotFireListener() {
+        val binder = bindAndStartService()
+        val port = binder.awaitListening(15_000L)
+        assertNotNull("expected initial LISTENING port", port)
+
+        val fired = CountDownLatch(1)
+        binder.setUnexpectedExitListener { fired.countDown() }
+
+        binder.requestStop(graceMs = 200L)
+
+        // Wait past the grace + a safety margin. The listener must NOT fire
+        // because the destroy was planned.
+        val firedDuringGrace = fired.await(2, TimeUnit.SECONDS)
+        assertFalse("listener must not fire for planned destroys", firedDuringGrace)
+    }
+
+    // (Finding 1) onStartCommand path: if the service stays alive after the
+    // grace timer killed the process, a follow-up startForegroundService (e.g.
+    // Android destroying + recreating the Activity) must clear portRef so the
+    // new spawn's LISTENING line is parsed. Without the launchProcess-level
+    // reset, the stdout reader (gated on portRef == null) would ignore the
+    // new port and awaitListening would return the stale value from the dead
+    // process.
+    @Test
+    fun startCommandRespawnAfterDeathPicksUpNewPort() {
+        val dbPath = File(context.cacheDir, "instrumentation-${System.nanoTime()}.db").absolutePath
+        val secret = randomSessionSecret()
+        val binder = bindAndStartService(dbPath = dbPath, sessionSecret = secret)
+        val originalPort = binder.awaitListening(15_000L)
+        assertNotNull("expected initial LISTENING port", originalPort)
+
+        // Kill the process out from under the service to simulate either a
+        // grace-timer SIGTERM or an OS-low-memory SIGKILL. portRef now holds
+        // the dead process's port.
+        binder.killForTest()
+        val deadline = System.currentTimeMillis() + 5_000L
+        while (System.currentTimeMillis() < deadline && binder.isProcessAlive()) {
+            Thread.sleep(50L)
+        }
+        assertFalse("process should be dead after killForTest", binder.isProcessAlive())
+
+        // Re-deliver startForegroundService with the same db + secret. This
+        // exercises GoServerService.onStartCommand's launchProcess branch —
+        // the path that previously did not clear portRef.
+        val intent = Intent(context, GoServerService::class.java).apply {
+            putExtra(GoServerService.EXTRA_DB_PATH, dbPath)
+            putExtra(GoServerService.EXTRA_SESSION_SECRET, secret)
+        }
+        context.startForegroundService(intent)
+
+        // Spin awaitListening until the port changes — the new process should
+        // publish its LISTENING line and the stdout reader should update
+        // portRef. If the bug regresses, awaitListening returns the stale
+        // originalPort immediately.
+        val pollDeadline = System.currentTimeMillis() + 15_000L
+        var observedPort: Int? = binder.port()
+        while (System.currentTimeMillis() < pollDeadline && observedPort == originalPort) {
+            Thread.sleep(100L)
+            observedPort = binder.port()
+        }
+        assertNotNull("expected new LISTENING port after startForegroundService re-entry", observedPort)
+        assertTrue(
+            "startForegroundService re-entry must surface the new process's port; old=$originalPort new=$observedPort",
+            observedPort != originalPort,
+        )
+        assertTrue("process should be alive after re-entry", binder.isProcessAlive())
+    }
+
+    // (Finding 3) forceRelaunch on an alive process must not fire the
+    // unexpected-exit listener. The old reaper races with launchProcess's
+    // expectedExit reset; without the process-generation guard, the reaper
+    // could observe `p === process` (process not yet swapped) AND the
+    // freshly-opened expectedExit gate and dispatch the listener — which
+    // the Activity would interpret as a foregrounded crash and drive a
+    // duplicate triggerRespawnAndReload() concurrent with the in-progress
+    // forceRelaunch spawn.
+    @Test
+    fun forceRelaunchDoesNotFireUnexpectedExitListener() {
+        val dbPath = File(context.cacheDir, "instrumentation-${System.nanoTime()}.db").absolutePath
+        val secret = randomSessionSecret()
+        val binder = bindAndStartService(dbPath = dbPath, sessionSecret = secret)
+        assertNotNull("expected initial LISTENING port", binder.awaitListening(15_000L))
+
+        val fired = java.util.concurrent.atomic.AtomicInteger(0)
+        binder.setUnexpectedExitListener { fired.incrementAndGet() }
+
+        // Run a few rapid forceRelaunch cycles to widen the chance of
+        // hitting the race window. With the gen fix the count stays at 0
+        // across all iterations.
+        repeat(3) {
+            binder.forceRelaunch(dbPath, secret)
+            assertNotNull("expected LISTENING port after forceRelaunch", binder.awaitListening(15_000L))
+        }
+        // Let any stale reaper that was about to dispatch settle.
+        Thread.sleep(1_000L)
+
+        assertEquals(
+            "forceRelaunch must not trigger the unexpected-exit listener; fired=${fired.get()}",
+            0,
+            fired.get(),
+        )
+    }
+
+    // (Finding 4) Race regression: cancelStopRequest called near the grace
+    // boundary must serialize with the coroutine's destroy decision. Pre-fix,
+    // the grace coroutine resuming from delay() and a foreground-driven
+    // cancelStopRequest could both "succeed" — cancel returned cleanly while
+    // the resumed coroutine destroyed the process as a planned exit. The
+    // foregrounded Activity would observe isProcessAlive=true between cancel
+    // and destroy, return without scheduling a respawn, then the destroy
+    // would fire with expectedExit=true and suppress the unexpected-exit
+    // listener — leaving the WebView on a dead backend with no recovery
+    // path. The synchronized(stopLock) block makes the destroy-vs-cancel
+    // decision atomic: whichever side acquires the lock first wins.
+    //
+    // We stress the boundary by scheduling a short grace then cancelling
+    // close to (or past) its expiry across several iterations. The
+    // assertion is the invariant that holds with the fix: the unexpected-
+    // exit listener must never fire — every destroy that happens is a
+    // planned one, set under the lock. (A regressed implementation that
+    // sets expectedExit AFTER the cancel-vs-destroy race could leak a
+    // listener invocation; the lock prevents that.)
+    @Test
+    fun cancelStopRequestAtGraceBoundaryIsRaceFree() {
+        val dbPath = File(context.cacheDir, "instrumentation-${System.nanoTime()}.db").absolutePath
+        val secret = randomSessionSecret()
+        val binder = bindAndStartService(dbPath = dbPath, sessionSecret = secret)
+        binder.awaitListening(15_000L)
+
+        val unexpectedFired = java.util.concurrent.atomic.AtomicInteger(0)
+        binder.setUnexpectedExitListener { unexpectedFired.incrementAndGet() }
+
+        repeat(5) {
+            if (!binder.isProcessAlive()) {
+                binder.forceRelaunch(dbPath, secret)
+                assertNotNull("expected respawn LISTENING", binder.awaitListening(15_000L))
+            }
+            binder.requestStop(graceMs = 50L)
+            // Sleep approximately at the boundary so the cancel races the
+            // coroutine's resume-from-delay path.
+            Thread.sleep(50L)
+            binder.cancelStopRequest()
+            // Let any racing destroy + reaper settle.
+            Thread.sleep(200L)
+        }
+
+        assertEquals(
+            "unexpected-exit listener must not fire for grace-boundary cancel/destroy races; fired=${unexpectedFired.get()}",
+            0,
+            unexpectedFired.get(),
+        )
+    }
+
+    // (Finding 5) Once the grace coroutine has fired the destroy, a follow-up
+    // cancelStopRequest must observe a fully-dead process by the time it
+    // returns — not merely a destroy-initiated-but-still-alive one. Pre-fix,
+    // p.destroy() was asynchronous and the grace coroutine released stopLock
+    // immediately after the call; cancelStopRequest serialized correctly with
+    // respect to the destroy call but not with respect to the process
+    // actually exiting, so the foreground activity's isProcessAlive() check
+    // could see true and bail, leaving the WebView attached to a dying
+    // backend with no recovery (the reaper's expectedExit gate already
+    // committed). The fix waits for the process to exit inside the lock.
+    @Test
+    fun cancelStopRequestObservesDeadProcessAfterGrace() {
+        val dbPath = File(context.cacheDir, "instrumentation-${System.nanoTime()}.db").absolutePath
+        val secret = randomSessionSecret()
+        val binder = bindAndStartService(dbPath = dbPath, sessionSecret = secret)
+        assertNotNull("expected initial LISTENING port", binder.awaitListening(15_000L))
+
+        binder.requestStop(graceMs = 50L)
+        // Sleep past the grace expiry so the destroy block has started.
+        // Margin is generous (4x graceMs) so the coroutine reliably gets past
+        // delay() before we call cancel — without that margin, cancel could
+        // win the race against delay-resume and the test would exercise the
+        // "cancel before destroy" path instead of the post-destroy invariant
+        // it's meant to assert.
+        Thread.sleep(200L)
+
+        binder.cancelStopRequest()
+        assertFalse(
+            "after cancelStopRequest serialized with the grace-timer destroy under stopLock, isProcessAlive must reflect post-destroy state",
+            binder.isProcessAlive(),
+        )
+    }
+
+    // (Finding 2) The listener must be invoked at most once per spawn — a
+    // re-register inside the listener (the activity's respawn path) must not
+    // trigger a second dispatch from the same exit event.
+    @Test
+    fun listenerCanBeClearedAfterDispatch() {
+        val binder = bindAndStartService()
+        binder.awaitListening(15_000L)
+
+        val firedCount = java.util.concurrent.atomic.AtomicInteger(0)
+        binder.setUnexpectedExitListener {
+            firedCount.incrementAndGet()
+            binder.setUnexpectedExitListener(null) // clear during dispatch
+        }
+
+        binder.killForTest()
+        // Give the reaper + listener a generous window to settle.
+        Thread.sleep(2_000L)
+        assertEquals(1, firedCount.get())
+    }
+
     private fun bindAndStartService(includeSessionSecret: Boolean = true): GoServerService.LocalBinder {
         val dbPath = File(context.cacheDir, "instrumentation-${System.nanoTime()}.db").absolutePath
         val secret = if (includeSessionSecret) randomSessionSecret() else null
