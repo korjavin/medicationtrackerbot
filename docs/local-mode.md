@@ -36,6 +36,37 @@ npx cap open android             # opens Android Studio
 
 The spike's `capacitor.config.ts` sets `server.url` to `http://localhost:8080` so the WebView loads from a running `go run ./cmd/bot`. Embedding the Go binary inside the app bundle is Phase 2; for now the spike validates that the wrapper builds, the PWA loads, and the SW/Dexie/optimistic-write plumbing survives the Capacitor environment. See `capacitor/README.md` for known spike limitations (Telegram `initData` auth does not flow inside the WebView).
 
+## Phase 2a build pipeline (Android only, in progress)
+
+Phase 2a (`docs/plans/2026-05-22-mobile-phase2a-android-go-embedding.md`) wires a real cross-compile pipeline that drops Android-native binaries into a committed overlay tree. The overlay survives `npx cap add android` regeneration:
+
+```bash
+cd capacitor
+npx cap add android                        # creates capacitor/android/ (gitignored)
+../scripts/build-android-binaries.sh       # populates android-overlay/.../jniLibs
+./apply-overlay.sh                         # copies overlay into android/
+```
+
+`scripts/build-android-binaries.sh` writes `libmedtracker.so` to `capacitor/android-overlay/app/src/main/jniLibs/<abi>/` for each ABI it can produce. The `lib*.so` naming + `jniLibs/<abi>/` placement is what triggers Android's automatic native-library extraction at install time — the binary ends up in `nativeLibraryDir` (read-only but executable) so the shell can `Runtime.exec()` it without an assets-copy dance.
+
+**ABI coverage (current):**
+
+| ABI | Status | Requirement |
+|---|---|---|
+| `arm64-v8a` | always built | CGO-free, no NDK needed |
+| `armeabi-v7a` | NDK-gated | `ANDROID_NDK_HOME` must point at an NDK with the `armv7a-linux-androideabi*-clang` wrapper |
+| `x86_64` | NDK-gated | same — emulator-only target |
+
+This asymmetry comes from the Task 1 spike: `modernc.org/sqlite` is CGO-free but the Go runtime's `runtime/cgo` package still requires external linking on `android/arm` and `android/amd64` builds. Only `android/arm64` works with `CGO_ENABLED=0`. Modern devices are all arm64, so v1 of the mobile build ships arm64-only; the other two ABIs are best-effort and produced only when the operator installs the NDK and exports `ANDROID_NDK_HOME`.
+
+A guarded smoke test in `cmd/bot/cross_compile_test.go` (build tag `cross_compile_smoke`) shells out to the build script and asserts an ELF arm64 binary lands in the expected path:
+
+```bash
+go test -tags cross_compile_smoke ./cmd/bot
+```
+
+It's gated so the default `go test ./...` doesn't pay the ~1s cross-compile cost on every push. CI / release jobs that care about the mobile pipeline opt in.
+
 ## What local-only mode is
 
 A build of this app that runs entirely on-device — no MCP server, no Telegram bot, no web push, no OIDC. It's the same Go binary, same SQLite schema, same domain services, same vanilla-JS frontend, wrapped in Capacitor and pointed at a localhost HTTP server bundled inside the app.
@@ -199,6 +230,7 @@ Android is more permissive but the same approach works there too — no platform
 These are load-bearing assumptions. If any change, the design needs revisiting.
 
 - **`modernc.org/sqlite` stays CGO-free.** Already in `go.mod` (`v1.42.2`). Mobile cross-compile depends on this. If anyone considers switching to `mattn/go-sqlite3` for any reason, that's a blocker.
+- **Only `android/arm64` cross-compiles without an NDK.** Even with `modernc.org/sqlite` CGO-free, `GOARCH=arm` and `GOARCH=amd64` on `GOOS=android` still demand `CGO_ENABLED=1` (the Go runtime's `runtime/cgo` package needs external linking on those targets). v1 of the mobile build ships arm64-only; armv7 + x86_64 are best-effort builds gated on `ANDROID_NDK_HOME` in `scripts/build-android-binaries.sh`. If a future Go version drops this asymmetry, drop the NDK gating.
 - **Domain service pattern stays enforced.** The "transports share the domain service" rule is what makes the mobile transport free. If bot or HTTP handlers start calling stores directly, the mobile build will silently work but the architectural property dies.
 - **Frontend stays offline-first.** SW precache, Dexie cache, `cachedFetch`, optimistic writes — these are why the mobile build needs almost zero frontend changes. New screens that bypass these patterns would make local-only mode degrade.
 - **Settings repo stays singleton-row.** Per-user settings would require deciding "which user" on mobile, which is moot for single-user devices but would complicate the env-or-settings merge. If a future feature needs per-user settings, keep the integration config keys in the singleton table separately.
