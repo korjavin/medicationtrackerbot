@@ -76,7 +76,15 @@
             id: Number(r.intake_id),
             title: name,
             body: 'Time to take ' + name,
-            schedule: { at: scheduledAt },
+            // allowWhileIdle=true so Android Doze doesn't defer medication
+            // reminders to the next maintenance window. Per the
+            // @capacitor/local-notifications Schedule interface, this maps to
+            // AlarmManager.setExactAndAllowWhileIdle on Android; the
+            // SCHEDULE_EXACT_ALARM permission requested in AndroidManifest is
+            // what authorizes it. Without this flag a backgrounded device can
+            // hold a dose reminder for up to ~15 minutes — unacceptable for
+            // time-critical meds.
+            schedule: { at: scheduledAt, allowWhileIdle: true },
             extra: {
                 intake_id: r.intake_id,
                 medication_id: r.medication_id,
@@ -116,25 +124,48 @@
             .catch(function (e) { throw normalizeError(e); });
     }
 
+    // schedule is fail-safe: we schedule the new batch BEFORE canceling
+    // anything, so a plugin-level rejection (POST_NOTIFICATIONS denied on
+    // Android 13+, SCHEDULE_EXACT_ALARM disabled, invalid payload) doesn't
+    // wipe the pre-scheduled queue and silently strand the user without
+    // medication reminders for the next 24h. Existing pending IDs that also
+    // appear in the new batch are replaced in place by schedule() (the plugin
+    // contract uses notification id as the upsert key); pending IDs that
+    // dropped out of the batch are canceled after the schedule succeeds.
+    //
+    // Empty input is treated as "cancel everything": no schedule call, every
+    // pending id becomes stale, so the cancel branch handles wipe-on-empty
+    // without a special case.
     function schedule(reminders) {
         var payload = buildPayload(reminders);
+        var newIds = {};
+        for (var j = 0; j < payload.notifications.length; j++) {
+            newIds[payload.notifications[j].id] = true;
+        }
         return Promise.resolve()
             .then(function () { return getLocalNotifications(); })
             .then(function (plugin) {
                 return plugin.getPending()
                     .then(function (pending) {
-                        var ids = (pending && Array.isArray(pending.notifications))
-                            ? pending.notifications.map(function (n) { return { id: n.id }; })
+                        var pendingIds = (pending && Array.isArray(pending.notifications))
+                            ? pending.notifications.map(function (n) { return n.id; })
                             : [];
-                        if (!ids.length) return null;
-                        return plugin.cancel({ notifications: ids });
-                    })
-                    .then(function () {
-                        if (!payload.notifications.length) {
-                            return { scheduled: 0, platform: 'capacitor' };
-                        }
-                        return plugin.schedule(payload).then(function () {
-                            return { scheduled: payload.notifications.length, platform: 'capacitor' };
+                        var doSchedule = payload.notifications.length
+                            ? plugin.schedule(payload)
+                            : Promise.resolve(null);
+                        return doSchedule.then(function () {
+                            var staleIds = [];
+                            for (var i = 0; i < pendingIds.length; i++) {
+                                if (!newIds[pendingIds[i]]) {
+                                    staleIds.push({ id: pendingIds[i] });
+                                }
+                            }
+                            if (!staleIds.length) {
+                                return { scheduled: payload.notifications.length, platform: 'capacitor' };
+                            }
+                            return plugin.cancel({ notifications: staleIds }).then(function () {
+                                return { scheduled: payload.notifications.length, platform: 'capacitor' };
+                            });
                         });
                     });
             })

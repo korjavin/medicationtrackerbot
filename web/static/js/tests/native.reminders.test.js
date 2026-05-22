@@ -135,10 +135,20 @@ describe('native/capacitor/reminders.js — Capacitor impl', () => {
         // duck-typed check (its toISOString round-trip) rather than instanceof.
         expect(typeof call.notifications[0].schedule.at.toISOString).toBe('function');
         expect(call.notifications[0].schedule.at.toISOString()).toBe(isoNow);
+        // allowWhileIdle pins setExactAndAllowWhileIdle so Android Doze can't
+        // defer a dose reminder into the next maintenance window. Asserting
+        // here so a future refactor can't silently drop the flag from the
+        // payload and reintroduce Doze-deferred missed doses.
+        expect(call.notifications[0].schedule.allowWhileIdle).toBe(true);
         expect(call.notifications[1].id).toBe(124);
+        expect(call.notifications[1].schedule.allowWhileIdle).toBe(true);
     });
 
-    it('schedule() cancels every pending notification before scheduling the new batch (replace-all)', async () => {
+    it('schedule() schedules the new batch BEFORE canceling stale pending (fail-safe replace-all)', async () => {
+        // Order matters: schedule first so a plugin-level failure (permission
+        // denied, exact alarm disabled, invalid payload) doesn't wipe the
+        // pre-scheduled queue and strand the user. Pending IDs that aren't
+        // in the new batch are canceled after schedule succeeds.
         const callOrder = [];
         const getPending = vi.fn().mockImplementation(() => {
             callOrder.push('getPending');
@@ -152,8 +162,48 @@ describe('native/capacitor/reminders.js — Capacitor impl', () => {
             { intake_id: 1, medication_id: 10, medication_name: 'Med', scheduled_at: '2026-05-23T08:00:00Z' },
         ]);
 
-        expect(callOrder).toEqual(['getPending', 'cancel', 'schedule']);
+        expect(callOrder).toEqual(['getPending', 'schedule', 'cancel']);
+        // All three were stale (none of {7,8,9} are in the new batch {1}) and
+        // therefore get canceled — same wipe outcome as the old order, but
+        // only after the new schedule landed.
         expect(cancel).toHaveBeenCalledWith({ notifications: [{ id: 7 }, { id: 8 }, { id: 9 }] });
+    });
+
+    it('schedule() leaves the pending queue intact when plugin.schedule() rejects', async () => {
+        // Failure path: POST_NOTIFICATIONS denied / exact alarm disabled /
+        // invalid payload. Old code canceled before scheduling, so the same
+        // failure stranded the user with zero notifications until the next
+        // successful refresh. Fail-safe order means cancel is never reached.
+        const getPending = vi.fn().mockResolvedValue({ notifications: [{ id: 7 }, { id: 8 }] });
+        const schedule = vi.fn().mockRejectedValue(new Error('User has not granted permission'));
+        const cancel = vi.fn();
+        env = loadEnv({ capacitor: makeCapacitor({ schedule, cancel, getPending }) });
+
+        let caught;
+        try {
+            await env.window.Reminders.schedule([
+                { intake_id: 1, medication_id: 10, medication_name: 'Med', scheduled_at: '2026-05-23T08:00:00Z' },
+            ]);
+        } catch (e) { caught = e; }
+        expect(caught).toBeDefined();
+        expect(caught.name).toBe('RemindersError');
+        expect(caught.code).toBe('PERMISSION_DENIED');
+        expect(schedule).toHaveBeenCalledTimes(1);
+        expect(cancel).not.toHaveBeenCalled();
+    });
+
+    it('schedule() preserves pending IDs that also appear in the new batch (no redundant cancel)', async () => {
+        // ID 7 is in both pending and the new batch — schedule() upserts it,
+        // so we must not cancel it. Only the orphans (8, 9) get canceled.
+        const getPending = vi.fn().mockResolvedValue({ notifications: [{ id: 7 }, { id: 8 }, { id: 9 }] });
+        const schedule = vi.fn().mockResolvedValue({});
+        const cancel = vi.fn().mockResolvedValue({});
+        env = loadEnv({ capacitor: makeCapacitor({ schedule, cancel, getPending }) });
+
+        await env.window.Reminders.schedule([
+            { intake_id: 7, medication_id: 10, medication_name: 'Med', scheduled_at: '2026-05-23T08:00:00Z' },
+        ]);
+        expect(cancel).toHaveBeenCalledWith({ notifications: [{ id: 8 }, { id: 9 }] });
     });
 
     it('schedule() skips the cancel call when no pending notifications exist', async () => {
