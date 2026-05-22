@@ -4,9 +4,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
-import android.content.Context
 import android.content.Intent
-import android.content.SharedPreferences
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
@@ -48,11 +46,17 @@ class GoServerService : Service() {
         // until the deadline expires. Returns null on timeout.
         fun awaitListening(timeoutMs: Long): Int? {
             portRef.get()?.let { return it }
-            return try {
+            val polled = try {
                 portHandoff.poll(timeoutMs, TimeUnit.MILLISECONDS)
             } catch (_: InterruptedException) {
                 null
             }
+            // The stdout reader publishes via `portRef.set(...)` THEN a
+            // non-blocking `portHandoff.offer(...)`. If the reader fires
+            // between our portRef.get() above and our poll() registering as a
+            // taker, the offer drops on the floor and we'd timeout despite the
+            // value already being in portRef. Re-check on the way out.
+            return polled ?: portRef.get()
         }
 
         fun port(): Int? = portRef.get()
@@ -117,6 +121,14 @@ class GoServerService : Service() {
             // Reset the port handoff state so awaitListening sees the next
             // LISTENING line, not the stale value from the dead process.
             portRef.set(null)
+            // Clear stderr + log ring so a startup-failure dialog on the
+            // respawned process doesn't show lines from the prior dead
+            // process. Both buffers are owner-thread-safe but a brief window
+            // exists where a still-draining reader thread for the dead process
+            // can push a final line after the clear — acceptable for diagnostic
+            // output and easier to read than a mixed buffer would be.
+            stderrLines.clear()
+            logRing.clear()
             launchProcess(dbPath, sessionSecret)
             return true
         }
@@ -159,10 +171,6 @@ class GoServerService : Service() {
 
     @Volatile private var stopJob: Job? = null
 
-    private val runtimePrefs: SharedPreferences by lazy {
-        getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
-    }
-
     override fun onBind(intent: Intent?): IBinder = binder
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -174,6 +182,17 @@ class GoServerService : Service() {
             if (secret.isNullOrBlank()) {
                 Log.e(TAG, "session-secret extra missing; refusing to launch")
                 stderrLines.offer("session-secret extra missing in startService intent")
+                // Tear down the foreground notification + service we just put
+                // up so the user isn't left staring at "Medtracker running" for
+                // a service that did nothing. The activity's awaitListening
+                // will time out and surface the error dialog separately.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                } else {
+                    @Suppress("DEPRECATION")
+                    stopForeground(true)
+                }
+                stopSelf()
                 return START_NOT_STICKY
             }
             launchProcess(dbPath, secret)
@@ -204,7 +223,6 @@ class GoServerService : Service() {
             val started = pb.start()
             process = started
             val newPid = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) started.pid() else -1L
-            persistRuntimeState(port = null, pid = newPid)
             startStdoutReader(started)
             startStderrReader(started)
             Log.i(TAG, "Spawned Go binary, pid=$newPid")
@@ -212,18 +230,6 @@ class GoServerService : Service() {
             Log.e(TAG, "Failed to start Go binary", e)
             stderrLines.offer("spawn failed: ${e.message}")
         }
-    }
-
-    // persistRuntimeState writes the last-known port + pid to plain
-    // SharedPreferences (not Encrypted — these are diagnostic and not secret).
-    // OS-assigned ports usually mean the saved port is stale on the next
-    // respawn, but the values are still useful in logcat when triaging a bug
-    // report. Pass null for either field to leave it unchanged.
-    private fun persistRuntimeState(port: Int?, pid: Long?) {
-        val editor = runtimePrefs.edit()
-        if (port != null) editor.putInt(KEY_LAST_PORT, port)
-        if (pid != null) editor.putLong(KEY_LAST_PID, pid)
-        editor.apply()
     }
 
     private fun startStdoutReader(p: Process) {
@@ -236,10 +242,9 @@ class GoServerService : Service() {
                             if (matcher.matches()) {
                                 val parsed = matcher.group(1)!!.toInt()
                                 portRef.set(parsed)
-                                persistRuntimeState(port = parsed, pid = null)
                                 // Non-blocking offer first so a fast reader
                                 // wakes immediately; if no one is polling yet,
-                                // the AtomicReference covers later callers.
+                                // awaitListening's re-check of portRef covers it.
                                 portHandoff.offer(parsed)
                             }
                         }
@@ -341,12 +346,6 @@ class GoServerService : Service() {
         // it. Tests pass a shorter value to keep instrumentation runtimes
         // bounded.
         const val DEFAULT_STOP_GRACE_MS: Long = 60_000L
-
-        // Plain (un-encrypted) SharedPreferences for diagnostic runtime state.
-        // EncryptedSharedPreferences is reserved for the session secret.
-        private const val RUNTIME_PREFS = "medtracker_runtime"
-        private const val KEY_LAST_PORT = "last_port"
-        private const val KEY_LAST_PID = "last_pid"
 
         // The contract main_mobile.go documents on stdout:
         //   LISTENING 127.0.0.1:<port>\n

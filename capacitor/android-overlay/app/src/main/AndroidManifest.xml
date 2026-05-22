@@ -6,6 +6,11 @@
     - android:extractNativeLibs="true" on <application> so the packager unpacks
       libmedtracker.so out of the APK at install time. Without this, the binary
       stays mmap'd inside the APK on Android 6+ and we can't Runtime.exec() it.
+    - android:usesCleartextTraffic="true" so the WebView can load
+      http://127.0.0.1:<port> on Android 9+ (API 28). The Capacitor-generated
+      manifest sets this when capacitor.config.ts has cleartext:true, but we
+      overwrite the whole manifest so we must restate it. Loopback is NOT
+      exempt from cleartext-blocking by default.
     - <service android:name=".GoServerService"> declared with
       foregroundServiceType="dataSync" — Android 14+ requires every
       startForegroundService caller to declare a service type.
@@ -27,7 +32,8 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/AppTheme">
+        android:theme="@style/AppTheme"
+        android:usesCleartextTraffic="true">
 
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"

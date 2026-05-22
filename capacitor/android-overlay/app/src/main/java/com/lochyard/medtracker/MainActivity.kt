@@ -133,6 +133,10 @@ class MainActivity : BridgeActivity() {
 
     private fun showStartupErrorDialog(stderr: String) {
         runOnUiThread {
+            // lifecycleScope.launch can fire after the activity is stopped or
+            // finishing; AlertDialog.show() against a dead window token throws
+            // BadTokenException. Best-effort: skip the dialog rather than crash.
+            if (isFinishing || isDestroyed) return@runOnUiThread
             AlertDialog.Builder(this)
                 .setTitle("Backend startup failed")
                 .setMessage(stderr.ifBlank { "The embedded backend did not respond within the startup deadline." })
@@ -236,6 +240,9 @@ class MainActivity : BridgeActivity() {
 
     private fun showReconnectingDialog() {
         if (reconnectDialog?.isShowing == true) return
+        // Same window-token concern as showStartupErrorDialog — bail before
+        // touching AlertDialog.show() if the activity is on its way out.
+        if (isFinishing || isDestroyed) return
         reconnectDialog = AlertDialog.Builder(this)
             .setTitle("Reconnecting…")
             .setMessage("Restarting the local backend.")
