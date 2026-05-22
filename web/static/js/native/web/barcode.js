@@ -47,16 +47,16 @@
 
     function pickFirst(results) {
         if (!results || !results.length) return null;
-        var first = null;
         for (var i = 0; i < results.length; i++) {
-            if (results[i] && results[i].rawValue) { first = results[i]; break; }
+            var r = results[i];
+            if (r && r.rawValue) {
+                return {
+                    format: r.format ? String(r.format) : 'unknown',
+                    rawValue: String(r.rawValue),
+                };
+            }
         }
-        if (!first) first = results[0];
-        if (!first || !first.rawValue) return null;
-        return {
-            format: first.format ? String(first.format) : 'unknown',
-            rawValue: String(first.rawValue),
-        };
+        return null;
     }
 
     function tryBarcodeDetector(source, formats) {
@@ -84,7 +84,13 @@
         return !!(s && s.tagName && String(s.tagName).toUpperCase() === 'CANVAS');
     }
     function isBlob(s) {
-        return !!(s && (s instanceof window.Blob || (typeof s.arrayBuffer === 'function' && typeof s.type === 'string')));
+        if (!s) return false;
+        if (window.Blob && s instanceof window.Blob) return true;
+        // JSDOM/test environments occasionally lack a shared Blob constructor
+        // across realms; fall back to a constructor-name check that excludes
+        // Response (which also exposes arrayBuffer()+type).
+        var ctor = s.constructor && s.constructor.name;
+        return ctor === 'Blob' || ctor === 'File';
     }
 
     function blobToImage(blob) {
@@ -93,20 +99,35 @@
             try { url = window.URL.createObjectURL(blob); }
             catch (e) { return reject(e); }
             var img = new window.Image();
-            var done = false;
-            function cleanup() {
-                if (done) return;
-                done = true;
+            var settled = false;
+            function revoke() {
                 try { window.URL.revokeObjectURL(url); } catch (_) { /* ignore */ }
             }
-            img.onload = function () { resolve(img); };
-            img.onerror = function (e) { cleanup(); reject(e || new Error('image load failed')); };
-            img.src = url;
-            if (typeof img.decode === 'function') {
-                img.decode().then(function () { resolve(img); }).catch(function () { /* fall through to onload */ });
+            function settleOk() {
+                if (settled) return;
+                settled = true;
+                // BarcodeDetector / ZXing will read pixels synchronously off
+                // the image element; once they finish the caller has no more
+                // need for the underlying blob URL, so revoke immediately to
+                // avoid leaking it for the page lifetime.
+                resolve(img);
+                revoke();
             }
-            // Defer URL revocation — caller may still hold the image; tests
-            // don't care because the GC will collect the URL on cleanup().
+            function settleErr(e) {
+                if (settled) return;
+                settled = true;
+                reject(e || new Error('image load failed'));
+                revoke();
+            }
+            img.onload = settleOk;
+            img.onerror = settleErr;
+            img.src = url;
+            // img.decode() is preferred when available (signals decode
+            // completion, not just load) but several JSDOM versions don't
+            // expose it — fall through to onload in that case.
+            if (typeof img.decode === 'function') {
+                img.decode().then(settleOk).catch(function () { /* onload still pending */ });
+            }
         });
     }
 

@@ -90,7 +90,38 @@ async function scanFrameLoop() {
     window.FoodScanner._setLoopTimer(setTimeout(scanFrameLoop, FOOD_SCAN_THROTTLE_MS));
 }
 
+function isNativeShell() {
+    try {
+        var cap = window.Capacitor;
+        return !!(cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform());
+    } catch (_) { return false; }
+}
+
+// On the Capacitor shell the Barcode abstraction's capacitor impl drives the
+// full-screen MLKit scanner UI itself — no in-app modal, no live video frame
+// loop. Route straight through window.Barcode.scan() and hand the decoded
+// value to the existing handleDecodedValue() path so the food modal stays
+// closed and the barcode lands in #food-barcode the same way it would have
+// from the web flow.
+async function scanWithNativeBarcode() {
+    try {
+        const result = await window.Barcode.scan({ formats: FOOD_BARCODE_FORMATS });
+        const decoded = result && result.rawValue ? result.rawValue : '';
+        if (decoded) {
+            handleDecodedValue(decoded);
+        }
+    } catch (e) {
+        console.error('Native barcode scan failed:', e);
+        safeAlert('Barcode scanning failed: ' + (e && e.message ? e.message : 'unknown error'));
+    }
+}
+
 async function startFoodScanner() {
+    if (isNativeShell() && window.Barcode && typeof window.Barcode.scan === 'function') {
+        await scanWithNativeBarcode();
+        return;
+    }
+
     const modal = document.getElementById('food-scanner-modal');
     if (!modal) return;
 
@@ -164,7 +195,11 @@ function closeFoodScannerModal() {
 async function openPhotoPickerAndDecode() {
     let file = null;
     try {
-        file = await window.MediaCapture.pickPhoto();
+        // capture: false so the web impl does not force the rear camera —
+        // users picking a photo of a barcode often have the image already in
+        // the gallery (matches the legacy <input type=file accept=image/*>
+        // behavior which had no capture attribute).
+        file = await window.MediaCapture.pickPhoto({ capture: false });
     } catch (e) {
         console.error('Failed to open photo picker:', e);
         setFoodScannerStatus('Failed to open photo picker. Try again or use manual entry.');

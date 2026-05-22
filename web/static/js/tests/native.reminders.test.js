@@ -257,6 +257,8 @@ describe('native/capacitor/reminders.js — Capacitor impl', () => {
         const sample = [
             { intake_id: 11, medication_id: 22, medication_name: 'A', scheduled_at: '2026-05-23T08:00:00Z' },
         ];
+        // Raw window.fetch fallback returns a Response — the impl reads .json()
+        // on it when neither offlineAwareApiCall nor apiCallDirect is present.
         const fetchImpl = vi.fn().mockResolvedValue({
             ok: true,
             json: () => Promise.resolve(sample),
@@ -280,12 +282,13 @@ describe('native/capacitor/reminders.js — Capacitor impl', () => {
     });
 
     it('_refreshFromServer() prefers window.offlineAwareApiCall when available', async () => {
-        const offlineAwareApiCall = vi.fn().mockResolvedValue({
-            ok: true,
-            json: () => Promise.resolve([
-                { intake_id: 1, medication_id: 1, medication_name: 'X', scheduled_at: '2026-05-23T08:00:00Z' },
-            ]),
-        });
+        // offlineAwareApiCall has signature (endpoint, method, body, opts) and
+        // returns the parsed JSON body directly — match the real contract from
+        // sync.js so the impl can't drift back to treating it like fetch().
+        const upcoming = [
+            { intake_id: 1, medication_id: 1, medication_name: 'X', scheduled_at: '2026-05-23T08:00:00Z' },
+        ];
+        const offlineAwareApiCall = vi.fn().mockResolvedValue(upcoming);
         const schedule = vi.fn().mockResolvedValue({});
         env = loadEnv({
             capacitor: makeCapacitor({ schedule }),
@@ -293,7 +296,9 @@ describe('native/capacitor/reminders.js — Capacitor impl', () => {
         });
         const cap = env.window.Reminders.__native.getImpl('Reminders', 'capacitor');
         await cap._refreshFromServer();
-        expect(offlineAwareApiCall).toHaveBeenCalledWith('/api/reminders/upcoming?hours=24', expect.any(Object));
+        expect(offlineAwareApiCall).toHaveBeenCalledWith('/api/reminders/upcoming?hours=24', 'GET');
+        expect(schedule).toHaveBeenCalledTimes(1);
+        expect(schedule.mock.calls[0][0].notifications[0].id).toBe(1);
     });
 
     it('_refreshFromServer() swallows fetch errors (best-effort loop)', async () => {
