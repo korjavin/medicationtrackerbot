@@ -169,12 +169,12 @@ func TestNotifyOnWriteMiddleware_FanoutOnPOST(t *testing.T) {
 	}
 
 	select {
-	case cursor, ok := <-sub:
+	case ev, ok := <-sub:
 		if !ok {
 			t.Fatal("subscription channel closed before fanout")
 		}
-		if cursor <= 0 {
-			t.Errorf("Expected cursor > 0, got %d", cursor)
+		if ev.Cursor <= 0 {
+			t.Errorf("Expected cursor > 0, got %d", ev.Cursor)
 		}
 	case <-time.After(200 * time.Millisecond):
 		t.Fatal("subscriber did not receive fanout within 200ms")
@@ -329,7 +329,7 @@ func TestHandleChangesStreamFanout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetLatestChangeCursor: %v", err)
 	}
-	srv.changesBroker.Notify(cursor)
+	srv.changesBroker.Notify(cursor, "")
 
 	// Expect a frame carrying the new cursor and the 'bp' tag.
 	type frameResult struct {

@@ -87,13 +87,13 @@ This plan plumbs a per-client identifier end-to-end so the frontend can determin
 - [x] Run `pnpm test` — must pass before next task.
 
 ### Task 3: Capture `X-Client-ID` in the write-notify middleware
-- [ ] In `internal/server/changes_broker.go`, change `func (b *ChangeBroker) Notify(cursor int64)` → `Notify(cursor int64, sourceClientID string)`. Update the subscriber channel type from `chan int64` to a small struct `type ChangeEvent struct { Cursor int64; SourceClientID string }` (channel of `chan ChangeEvent`).
-- [ ] Update `Subscribe` return type accordingly; update `CloseAll` and any other broker helpers.
-- [ ] In `notifyOnWriteMiddleware`, read `r.Header.Get("X-Client-ID")` (truncate / sanitise to e.g. 64 chars max; reject non-printable). Pass it to `s.changesBroker.Notify(cursor, clientID)`.
-- [ ] Update every other caller of `Notify` in the codebase (use grep) — most likely a single call site at line ~248 of `changes_broker.go`. Pass `""` when there's no source (e.g., scheduler-driven or internal writes).
-- [ ] Write tests in `internal/server/changes_broker_test.go`: `Notify(N, "abc")` delivers `{Cursor: N, SourceClientID: "abc"}` to subscribers; `Notify(N, "")` delivers an empty source; concurrent notifications preserve per-message attribution.
-- [ ] Write tests for the middleware: a POST with `X-Client-ID: foo` triggers `Notify` with `"foo"`; a POST without the header triggers `Notify` with `""`; oversized / non-printable values are sanitised.
-- [ ] Run `go test ./...` — must pass before next task.
+- [x] In `internal/server/changes_broker.go`, change `func (b *ChangeBroker) Notify(cursor int64)` → `Notify(cursor int64, sourceClientID string)`. Update the subscriber channel type from `chan int64` to a small struct `type ChangeEvent struct { Cursor int64; SourceClientID string }` (channel of `chan ChangeEvent`).
+- [x] Update `Subscribe` return type accordingly; update `CloseAll` and any other broker helpers.
+- [x] In `notifyOnWriteMiddleware`, read `r.Header.Get("X-Client-ID")` (truncate / sanitise to e.g. 64 chars max; reject non-printable). Pass it to `s.changesBroker.Notify(cursor, clientID)`.
+- [x] Update every other caller of `Notify` in the codebase (use grep) — most likely a single call site at line ~248 of `changes_broker.go`. Pass `""` when there's no source (e.g., scheduler-driven or internal writes).
+- [x] Write tests in `internal/server/changes_broker_test.go`: `Notify(N, "abc")` delivers `{Cursor: N, SourceClientID: "abc"}` to subscribers; `Notify(N, "")` delivers an empty source; concurrent notifications preserve per-message attribution.
+- [x] Write tests for the middleware: a POST with `X-Client-ID: foo` triggers `Notify` with `"foo"`; a POST without the header triggers `Notify` with `""`; oversized / non-printable values are sanitised.
+- [x] Run `go test ./...` — must pass before next task.
 
 ### Task 4: Pass `clientId` from SSE subscribers and include `source_client_id` in the SSE payload
 - [ ] In `web/static/js/data-store.js` `buildChangesStreamURL`, add `params.set('clientId', this.getClientId())` (alongside the existing `initData` param).
