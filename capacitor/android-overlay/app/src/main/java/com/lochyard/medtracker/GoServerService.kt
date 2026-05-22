@@ -133,6 +133,33 @@ class GoServerService : Service() {
             return true
         }
 
+        // forceRelaunch kills any current process (alive or dead) and starts
+        // a fresh one. Used by the Retry button when the previous binary
+        // spawned but hung without producing LISTENING — requestRespawn
+        // returns false for an alive process, so a simple "retry" path would
+        // wait on the same hung process and loop the error dialog. This is
+        // the explicit force path.
+        fun forceRelaunch(dbPath: String, sessionSecret: String) {
+            process?.let { p ->
+                if (p.isAlive) {
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            p.destroyForcibly()
+                        } else {
+                            p.destroy()
+                        }
+                        p.waitFor(2, TimeUnit.SECONDS)
+                    } catch (_: Throwable) {
+                        // best-effort; fall through to relaunch regardless
+                    }
+                }
+            }
+            portRef.set(null)
+            stderrLines.clear()
+            logRing.clear()
+            launchProcess(dbPath, sessionSecret)
+        }
+
         // killForTest forcibly terminates the embedded process to simulate an
         // external SIGKILL (e.g. OS low-memory kill). Tests only.
         internal fun killForTest() {

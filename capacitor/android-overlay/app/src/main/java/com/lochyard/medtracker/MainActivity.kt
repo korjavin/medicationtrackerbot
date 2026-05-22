@@ -141,8 +141,30 @@ class MainActivity : BridgeActivity() {
                 .setTitle("Backend startup failed")
                 .setMessage(stderr.ifBlank { "The embedded backend did not respond within the startup deadline." })
                 .setCancelable(false)
-                .setPositiveButton("Retry") { _, _ -> recreate() }
+                .setPositiveButton("Retry") { _, _ -> retryStartup() }
                 .show()
+        }
+    }
+
+    // retryStartup is the "user tapped Retry on the startup-error dialog"
+    // path. The prior binary may be hung-but-alive (spawned, never produced
+    // LISTENING) — recreate() alone would re-bind the same service and skip
+    // launchProcess (process.isAlive == true), leaving the user stuck. Force
+    // a fresh spawn through the binder and re-enter the bootstrap latch.
+    private fun retryStartup() {
+        val binder = serviceBinder
+        if (binder == null) {
+            // No bound service yet — fall back to a full activity recreate so
+            // the bind sequence runs from scratch.
+            recreate()
+            return
+        }
+        val secret = obtainOrGenerateSessionSecret()
+        val dbPath = "${filesDir.absolutePath}/medtracker.db"
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) { binder.forceRelaunch(dbPath, secret) }
+            hasBootstrapped = false
+            beginBootstrap(binder)
         }
     }
 

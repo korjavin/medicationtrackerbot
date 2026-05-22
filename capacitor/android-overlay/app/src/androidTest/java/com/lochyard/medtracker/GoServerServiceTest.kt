@@ -247,6 +247,34 @@ class GoServerServiceTest {
         )
     }
 
+    // (Retry-deadlock guard) forceRelaunch must kill an alive process and
+    // start a fresh one, unlike requestRespawn which no-ops when the process
+    // is alive. This is the Retry-button path when the previous spawn hung
+    // without producing LISTENING.
+    @Test
+    fun forceRelaunchOnAliveProcessYieldsNewPid() {
+        val dbPath = File(context.cacheDir, "instrumentation-${System.nanoTime()}.db").absolutePath
+        val secret = randomSessionSecret()
+        val binder = bindAndStartService(dbPath = dbPath, sessionSecret = secret)
+        val originalPort = binder.awaitListening(15_000L)
+        assertNotNull("expected initial LISTENING port", originalPort)
+        val originalPid = binder.pid()
+        assertNotNull("expected pid for live process", originalPid)
+        assertTrue("process should be alive before forceRelaunch", binder.isProcessAlive())
+
+        binder.forceRelaunch(dbPath, secret)
+
+        val newPort = binder.awaitListening(15_000L)
+        assertNotNull("expected new LISTENING port after forceRelaunch", newPort)
+        assertTrue("process should be alive after forceRelaunch", binder.isProcessAlive())
+        val newPid = binder.pid()
+        assertNotNull("expected pid for relaunched process", newPid)
+        assertTrue(
+            "forceRelaunch on alive process should yield a different pid; old=$originalPid new=$newPid",
+            originalPid != newPid,
+        )
+    }
+
     // requestRespawn must be a no-op when the current process is alive. Guards
     // against accidentally killing a healthy backend on a redundant onStart
     // signal (e.g. config-change Activity recreate that fires onStart twice
