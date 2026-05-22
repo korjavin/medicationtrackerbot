@@ -67,6 +67,8 @@ const STATIC_ASSETS = [
     '/static/js/native/capacitor/geolocation.js',
     '/static/js/native/web/media-capture.js',
     '/static/js/native/capacitor/media-capture.js',
+    '/static/js/native/web/barcode.js',
+    '/static/js/native/capacitor/barcode.js',
     '/static/js/features/tab-controller.js',
     '/static/js/app.js',
     '/static/js/push.js',
