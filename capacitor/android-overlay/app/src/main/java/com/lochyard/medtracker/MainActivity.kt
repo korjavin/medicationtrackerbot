@@ -38,6 +38,7 @@ class MainActivity : BridgeActivity() {
     private var serviceBinder: GoServerService.LocalBinder? = null
     private var hasBootstrapped: Boolean = false
     private var reconnectDialog: AlertDialog? = null
+    private var devServerMode: Boolean = false
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -53,6 +54,20 @@ class MainActivity : BridgeActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Dev-server fallback: when capacitor.config.ts sets server.url to a
+        // remote backend (the Phase 1 spike workflow), skip the embedded-binary
+        // spawn entirely and let Capacitor's BridgeActivity load from
+        // server.url as it did before Phase 2a. The flag is driven by the
+        // Capacitor runtime config so flipping between embedded and dev-server
+        // modes is a single edit to capacitor.config.ts — no overlay code
+        // change required.
+        val configuredServerUrl = bridge?.config?.serverUrl
+        if (!configuredServerUrl.isNullOrEmpty()) {
+            devServerMode = true
+            Log.i(TAG, "server.url=$configuredServerUrl set; skipping embedded-binary spawn (dev-server fallback)")
+            return
+        }
 
         val secret = obtainOrGenerateSessionSecret()
         val dbPath = "${filesDir.absolutePath}/medtracker.db"
@@ -156,6 +171,7 @@ class MainActivity : BridgeActivity() {
     // respawn + WebView reload.
     override fun onStart() {
         super.onStart()
+        if (devServerMode) return
         val binder = serviceBinder ?: return // initial launch: bind in progress; onServiceConnected handles it
         binder.cancelStopRequest()
         if (binder.isProcessAlive()) return
@@ -169,6 +185,7 @@ class MainActivity : BridgeActivity() {
     // bound + foreground so the next onStart can respawn quickly.
     override fun onStop() {
         super.onStop()
+        if (devServerMode) return
         serviceBinder?.requestStop(STOP_GRACE_MS)
     }
 
@@ -239,6 +256,7 @@ class MainActivity : BridgeActivity() {
     override fun onDestroy() {
         super.onDestroy()
         dismissReconnectDialog()
+        if (devServerMode) return
         try {
             unbindService(serviceConnection)
         } catch (_: IllegalArgumentException) {

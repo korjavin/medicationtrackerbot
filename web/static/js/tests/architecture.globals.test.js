@@ -170,6 +170,9 @@ const ALLOWED_GLOBALS = new Set([
 
     // Backend logs diagnostics — embedded-Go shell (mobile Phase 2a, Task 5).
     'window.BackendLogs',               // features/backend-logs.js — Settings → About → "Backend logs" debug screen. Detects window.MedtrackerNative (Capacitor shell's addJavascriptInterface bridge); reveals a "View logs" row that opens a modal showing the last 200 stdout+stderr lines from the embedded Go binary. No-op in browser PWA + server-mode where MedtrackerNative is absent.
+
+    // Capacitor shell bootstrap — embedded-Go shell (mobile Phase 2a, Task 5).
+    'window.__MEDTRACKER_BOOTSTRAP__',  // index.html inline shim — Capacitor shell injects { apiBase: "http://127.0.0.1:<port>" } before WebView load by mirroring window.MedtrackerNative.apiBase(). core/api.js's resolveApiUrl() reads it to prefix relative endpoints. Reserved as the carrier for future shell-injected feature flags. The assignment lives in index.html (not a JS file) so the regex below does not flag it; the allowlist entry exists for documentation and to prevent a future JS-side writer from being silently rejected.
 ]);
 
 /**
