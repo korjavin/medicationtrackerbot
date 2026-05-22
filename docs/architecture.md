@@ -267,14 +267,21 @@ mechanism is a process-wide `ChangeBroker`
 1. `notifyOnWriteMiddleware` wraps the API mux. On every 2xx non-GET
    response it reads the latest `change_events` cursor from
    `store.Settings.GetLatestChangeCursor` and calls
-   `changesBroker.Notify(cursor)` — single tap point, no per-handler
-   instrumentation. Bridge writes (the MCP executor's
+   `changesBroker.Notify(cursor, sourceClientID)` — single tap point, no
+   per-handler instrumentation. The `sourceClientID` is the sanitised
+   `X-Client-ID` header value (printable ASCII, ≤64 chars) so SSE
+   subscribers can recognise echoes of their own writes; see
+   [technical-decisions.md → Source attribution via `X-Client-ID`](technical-decisions.md#source-attribution-via-x-client-id).
+   Bridge writes (the MCP executor's
    `/internal/mcp/bridge` path) are inside the wrapped mux, so MCP-driven
    mutations fan out the same way as direct API writes.
 2. A process-wide tailer (`runChangeTailer` in
    `internal/server/changes_broker.go`) polls
    `GetLatestChangeCursor` every `changeTailerInterval` (200ms) and
-   fires `changesBroker.Notify(cursor)` whenever the cursor advances.
+   fires `changesBroker.Notify(cursor, "")` whenever the cursor advances
+   — tailer-driven notifications have no originating client by
+   definition, so subscribers fall back to the timing-window check for
+   self-echo classification.
    This is the catch-all path for writes that bypass the HTTP
    middleware — Telegram bot callbacks calling domain services
    in-process, scheduler intake materialization, importer runs, etc.

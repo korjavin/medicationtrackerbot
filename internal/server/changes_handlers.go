@@ -187,11 +187,20 @@ func (s *Server) handleChangesStream(w http.ResponseWriter, r *http.Request) {
 	defer cursorCheck.Stop()
 
 	// emit reads the latest changed tags since the last cursor and pushes one
-	// SSE frame. sourceClientID is forwarded from the most recent ChangeEvent
-	// (sanitised by the broker's writer); empty string means "no source"
-	// (initial flush, per-stream backstop, tailer-driven write). Empty values
-	// are omitted from the JSON payload so older frontends parse cleanly.
-	emit := func(sourceClientID string) bool {
+	// SSE frame. The ChangeEvent carries the broker-attributed source
+	// (sanitised by the broker's writer); an empty/zero event means "no
+	// source" (initial flush, per-stream backstop, tailer-driven write).
+	//
+	// Source attribution is intentionally conservative: source_client_id is
+	// only emitted when the SQL-read cursor matches ev.Cursor exactly. If the
+	// cursor advanced beyond the broker event (a later write committed
+	// between the broker fan-out and this SQL query, or the broker dropped a
+	// newer Notify because the buffer was full), the returned tags include
+	// foreign changes too and attributing the event's source to the whole
+	// frame would mis-classify those foreign tags as self-echoes. In that
+	// case the field is omitted so the frontend's timing-window fallback
+	// takes over.
+	emit := func(ev ChangeEvent) bool {
 		qCtx, qCancel := context.WithTimeout(r.Context(), changeStreamQueryTimeout)
 		cursor, tags, err := s.changes.ListChangedTagsSince(qCtx, since)
 		qCancel()
@@ -210,8 +219,8 @@ func (s *Server) handleChangesStream(w http.ResponseWriter, r *http.Request) {
 			"cursor":       cursor,
 			"changed_tags": tags,
 		}
-		if sourceClientID != "" {
-			payload["source_client_id"] = sourceClientID
+		if ev.SourceClientID != "" && cursor == ev.Cursor {
+			payload["source_client_id"] = ev.SourceClientID
 		}
 		if err := writeSSE(w, payload); err != nil {
 			return false
@@ -232,13 +241,13 @@ func (s *Server) handleChangesStream(w http.ResponseWriter, r *http.Request) {
 				// client sees onerror and reconnects after restart.
 				return
 			}
-			if !emit(ev.SourceClientID) {
+			if !emit(ev) {
 				return
 			}
 		case <-cursorCheck.C:
 			// Per-stream defense-in-depth read — no broker event drove it, so
 			// the frame carries no source attribution.
-			if !emit("") {
+			if !emit(ChangeEvent{}) {
 				return
 			}
 		case <-keepalive.C:

@@ -14,7 +14,9 @@ Writes that bypass HTTP entirely — Telegram bot callbacks calling domain
 services in-process, scheduler intake materialization, importer runs — are
 caught by a process-wide tailer goroutine (`runChangeTailer`) that polls
 `SELECT MAX(id) FROM change_events` every 200ms and fires
-`changesBroker.Notify(cursor)` whenever the cursor advances. Because the SQL
+`changesBroker.Notify(cursor, "")` whenever the cursor advances (the empty
+source string is intentional — tailer-driven writes have no originating
+client). Because the SQL
 triggers from migration 027 populate `change_events` on every watched-table
 mutation regardless of caller, the tailer is the single catch-all path for
 non-HTTP writes — no per-call-site instrumentation needed. The per-stream

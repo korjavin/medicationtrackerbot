@@ -41,13 +41,15 @@ type ChangeEvent struct {
 // change_events table every 5 seconds.
 //
 // Fan-out semantics: Notify is non-blocking — if a subscriber's buffered
-// channel is full, the update is dropped. This is safe because the cursor is
-// monotonic and each handler reconciles via ListChangedTagsSince(lastCursor)
-// on every received wake, so a missed wake just means the next one carries
-// the missed work too. (When a drop happens, the next delivered event still
-// carries the latest SourceClientID, so the worst case for self-echo
-// classification is a missed dedupe on the dropped event — the timing-window
-// fallback then catches it.)
+// channel is full, the new update is dropped (the older buffered event is
+// preserved). This is safe for tag delivery because the cursor is monotonic
+// and each handler reconciles via ListChangedTagsSince(lastCursor) on every
+// received wake, so a missed wake just means the next one carries the missed
+// work too. Source-attribution correctness is handled in the SSE handler:
+// emit only attaches source_client_id when its SQL-read cursor exactly
+// matches the broker event's cursor — i.e. no other write slipped in between
+// the broker fan-out and the SQL read. Otherwise the field is omitted and
+// the frontend falls back to its timing-window heuristic.
 type ChangeBroker struct {
 	mu     sync.RWMutex
 	subs   map[chan ChangeEvent]struct{}
