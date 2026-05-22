@@ -155,8 +155,8 @@ This plan plumbs a per-client identifier end-to-end so the frontend can determin
 
 **Manual verification on prod:**
 - Open the web app in one tab, log food via the UI with a modal open mid-save. Confirm no banner.
-- Open the web app in two tabs (same browser/profile). Log food in tab A. Confirm tab B shows the banner (different `clientId`).
-- Log food via the Telegram bot. Confirm the open web app tab shows the banner.
+- Open the web app in two **different browsers** (or one browser + one private window — `localStorage` is per-origin per-profile, so tabs sharing a profile share a `clientId` and won't see each other's writes as cross-source). Log food in browser A. Confirm browser B shows the banner.
+- Log food via the Telegram bot. Confirm the open web app tab shows the banner (bot writes don't carry `X-Client-ID`, so the broker propagates `""` and the SSE frame omits `source_client_id`).
 - Throttle network to 2G via DevTools and repeat the first test — banner must still be suppressed (was the previous timing-window failure mode).
 
 **Release notes / deploy:**

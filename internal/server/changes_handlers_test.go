@@ -509,7 +509,7 @@ func TestHandleChangesStreamInitialFrameOmitsSourceClientID(t *testing.T) {
 	ts, cleanup := streamingTestServer(t, srv, 123456)
 	defer cleanup()
 
-	resp, err := http.Get(ts.URL + "/api/changes/stream?since=0&clientId=foo")
+	resp, err := http.Get(ts.URL + "/api/changes/stream?since=0")
 	if err != nil {
 		t.Fatalf("GET stream: %v", err)
 	}

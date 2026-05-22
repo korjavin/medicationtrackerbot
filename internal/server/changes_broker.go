@@ -16,19 +16,19 @@ import (
 // instant" threshold and adds ~5 indexed queries/second on an idle DB.
 const changeTailerInterval = 200 * time.Millisecond
 
-// maxClientIDLen is the upper bound on the X-Client-ID header / clientId query
-// param value we propagate through the broker. A UUIDv4 is 36 chars; 64 leaves
-// headroom for future formats while bounding memory pressure from a hostile
-// client jamming the broker with megabyte strings.
+// maxClientIDLen is the upper bound on the X-Client-ID header value we
+// propagate through the broker. A UUIDv4 is 36 chars; 64 leaves headroom for
+// future formats while bounding memory pressure from a hostile client jamming
+// the broker with megabyte strings.
 const maxClientIDLen = 64
 
 // ChangeEvent is the value fanned out by ChangeBroker to its subscribers.
 //
 // Cursor is the change_events id at the moment of notification (monotonic).
-// SourceClientID is the X-Client-ID header value (or clientId query param) of
-// the originating request when one is present; empty string when the write
-// originated outside the HTTP path (Telegram bot, scheduler, change-events
-// tailer) or when the client did not send the header.
+// SourceClientID is the X-Client-ID header value of the originating write
+// request when one is present; empty string when the write originated outside
+// the HTTP path (Telegram bot, scheduler, change-events tailer) or when the
+// client did not send the header.
 type ChangeEvent struct {
 	Cursor         int64
 	SourceClientID string
@@ -126,12 +126,13 @@ func (b *ChangeBroker) CloseAll() {
 	}
 }
 
-// sanitizeClientID trims the raw X-Client-ID header / clientId query param to
-// a safe, bounded ASCII string before it travels through the broker. Rules:
+// sanitizeClientID trims the raw X-Client-ID header value to a safe, bounded
+// ASCII string before it travels through the broker. Rules, applied in order:
 //   - empty input → empty output (no-op).
-//   - reject if any byte is outside printable ASCII (0x20–0x7E) — a hostile
-//     client cannot inject control chars or non-UTF-8 bytes downstream.
 //   - clamp to maxClientIDLen bytes.
+//   - reject (return "") if any byte is outside printable ASCII (0x20–0x7E)
+//     so a hostile client cannot inject control chars or non-UTF-8 bytes
+//     downstream.
 func sanitizeClientID(raw string) string {
 	if raw == "" {
 		return ""

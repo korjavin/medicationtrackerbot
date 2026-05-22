@@ -140,13 +140,6 @@ func (s *Server) handleChangesStream(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Per-subscriber clientId (sanitised) is sanity-read here for symmetry with
-	// the header-based extraction in notifyOnWriteMiddleware. The handler does
-	// not use it directly — the broker event carries the originating client's
-	// id via ChangeEvent.SourceClientID, and we forward that to the frontend
-	// as `source_client_id`. The frontend compares against its own clientId.
-	_ = sanitizeClientID(r.URL.Query().Get("clientId"))
-
 	// Subscribe BEFORE the initial state read so a write that happens between
 	// the read and entering the select loop still wakes us up.
 	subCtx, cancelSub := context.WithCancel(r.Context())
