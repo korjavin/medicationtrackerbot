@@ -80,6 +80,12 @@
             extra: {
                 intake_id: r.intake_id,
                 medication_id: r.medication_id,
+                // medication_name + scheduled_at need to round-trip through the
+                // notification so handleNotificationTap can populate the
+                // `names` and `scheduled` deep-link params that
+                // handlePushAction → showMedicationConfirmModal both consume.
+                medication_name: name,
+                scheduled_at: scheduledAt.toISOString(),
             },
         };
     }
@@ -135,6 +141,14 @@
             .catch(function (e) { throw normalizeError(e); });
     }
 
+    // FETCH_FAILED is a sentinel so the caller can distinguish "the server told
+    // us there are no upcoming reminders" (-> wipe queue, schedule nothing)
+    // from "we couldn't reach the server" (-> leave the existing OS queue
+    // alone). Without this distinction a transient 5xx on app resume cancels
+    // every pre-scheduled medication notification, which on Capacitor means
+    // the user silently misses doses for the next 24h.
+    var FETCH_FAILED = { __fetchFailed: true };
+
     function fetchUpcoming() {
         // offlineAwareApiCall and apiCallDirect both have signature
         // (endpoint, method, body, opts) and return the parsed JSON body
@@ -149,17 +163,23 @@
         } else {
             doFetch = window.fetch(REMINDERS_ENDPOINT, { method: 'GET', credentials: 'same-origin' })
                 .then(function (res) {
-                    if (!res || !res.ok) return [];
+                    if (!res || !res.ok) return FETCH_FAILED;
                     return res.json();
                 });
         }
         return doFetch.then(function (data) {
+            if (data === FETCH_FAILED) return FETCH_FAILED;
             return Array.isArray(data) ? data : [];
-        }).catch(function () { return []; });
+        }).catch(function () { return FETCH_FAILED; });
     }
 
     function refreshFromServer() {
         return fetchUpcoming().then(function (reminders) {
+            if (reminders === FETCH_FAILED) {
+                // Leave existing pending OS notifications alone — they remain
+                // the best-effort snapshot until the next successful fetch.
+                return { scheduled: 0, platform: 'capacitor', skipped: 'fetch_failed' };
+            }
             return schedule(reminders);
         }).catch(function (e) {
             // Pre-schedule loop is best-effort; never throw from the listener.
@@ -190,6 +210,12 @@
             params.set('action', 'medication_confirm');
             if (ids) params.set('ids', ids);
             params.set('intake_ids', intakeIds);
+            if (extra.medication_name) {
+                params.set('names', String(extra.medication_name));
+            }
+            if (extra.scheduled_at) {
+                params.set('scheduled', String(extra.scheduled_at));
+            }
             var search = '?' + params.toString();
             if (typeof window.history !== 'undefined' && window.history.replaceState) {
                 window.history.replaceState({}, '', search);
