@@ -32,9 +32,6 @@ class NativeBridge(
         return binder.recentLogTail()
     }
 
-    @JavascriptInterface
-    fun isAvailable(): Boolean = true
-
     companion object {
         // Name attached to the WebView's window. Frontend reads
         // `window.MedtrackerNative.apiBase()` etc.

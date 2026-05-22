@@ -1,7 +1,6 @@
 package com.lochyard.medtracker
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.concurrent.LinkedBlockingDeque
 
@@ -22,7 +21,6 @@ class NativeBridgeTest {
     fun apiBaseRoundTripsThroughTheBridge() {
         val bridge = NativeBridge(apiBase = "http://127.0.0.1:54321", binderProvider = { null })
         assertEquals("http://127.0.0.1:54321", bridge.apiBase())
-        assertTrue(bridge.isAvailable())
     }
 
     @Test
