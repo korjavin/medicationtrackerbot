@@ -55,9 +55,35 @@
         }
     }
 
+    // Per-capability impl registry. Populated by the web/* and capacitor/*
+    // sibling files via registerImpl(); the foundation picks one based on
+    // isNativePlatform() and assigns it to window[capability]. Splitting the
+    // wiring step from the file load lets the impl files run in any order
+    // after index.js, and lets tests reach the non-selected impl by name.
+    var impls = {};
+
+    function registerImpl(capability, platform, impl) {
+        if (platform !== 'web' && platform !== 'capacitor') {
+            throw new Error('registerImpl: platform must be "web" or "capacitor", got ' + platform);
+        }
+        if (!impls[capability]) impls[capability] = {};
+        impls[capability][platform] = impl;
+        var matched = isNativePlatform() ? 'capacitor' : 'web';
+        if (platform === matched) {
+            window[capability] = impl;
+            window[capability].__native = foundation;
+        }
+    }
+
+    function getImpl(capability, platform) {
+        return impls[capability] && impls[capability][platform];
+    }
+
     var foundation = {
         isNativePlatform: isNativePlatform,
         NotImplementedError: NotImplementedError,
+        registerImpl: registerImpl,
+        getImpl: getImpl,
     };
 
     // Stub surface area — kept in sync with the abstractions defined by the

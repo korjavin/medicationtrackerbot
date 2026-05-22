@@ -1702,6 +1702,13 @@
          Must load before feature modules so refactored callers (food
          scanner / food photo) see the globals at module-evaluate time. -->
     <script src="/static/js/native/index.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <!-- Native platform impls (mobile Phase 2b, Tasks 2–5). Each file registers
+         its impl via window.Geolocation.__native.registerImpl; the foundation
+         selects between web and capacitor impls based on isNativePlatform().
+         Both impls are loaded so tests / debugging tools can reach the
+         non-selected one via the registry. -->
+    <script src="/static/js/native/web/geolocation.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="/static/js/native/capacitor/geolocation.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <!-- tab-controller.js must load before app.js because app.js calls
          TabController.bindTabGroup at top level (Plan 2026-05-13, Task 6). -->
     <script src="/static/js/features/tab-controller.js?v=TIMESTAMP_PLACEHOLDER"></script>

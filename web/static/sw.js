@@ -63,6 +63,8 @@ const STATIC_ASSETS = [
     '/static/js/cached-fetch.js',
     // Native platform abstractions (mobile Phase 2b)
     '/static/js/native/index.js',
+    '/static/js/native/web/geolocation.js',
+    '/static/js/native/capacitor/geolocation.js',
     '/static/js/features/tab-controller.js',
     '/static/js/app.js',
     '/static/js/push.js',
