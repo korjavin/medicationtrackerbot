@@ -1696,6 +1696,12 @@
     <script src="/static/js/sync.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/data-store.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/cached-fetch.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <!-- Native platform abstraction foundation (mobile Phase 2b, Task 1).
+         Exposes window.MediaCapture / Geolocation / Barcode / Reminders as
+         stubs that throw NotImplementedError; Tasks 2–5 install real impls.
+         Must load before feature modules so refactored callers (food
+         scanner / food photo) see the globals at module-evaluate time. -->
+    <script src="/static/js/native/index.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <!-- tab-controller.js must load before app.js because app.js calls
          TabController.bindTabGroup at top level (Plan 2026-05-13, Task 6). -->
     <script src="/static/js/features/tab-controller.js?v=TIMESTAMP_PLACEHOLDER"></script>

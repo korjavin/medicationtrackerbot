@@ -61,6 +61,8 @@ const STATIC_ASSETS = [
     '/static/js/sync.js',
     '/static/js/data-store.js',
     '/static/js/cached-fetch.js',
+    // Native platform abstractions (mobile Phase 2b)
+    '/static/js/native/index.js',
     '/static/js/features/tab-controller.js',
     '/static/js/app.js',
     '/static/js/push.js',
