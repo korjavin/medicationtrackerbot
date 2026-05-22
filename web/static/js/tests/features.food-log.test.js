@@ -464,6 +464,23 @@ describe('features/food/log.js — split-file integration', () => {
 
         await window.saveFoodLog();
 
+        // saveFoodLog's optimistic path stamped lastOwnWriteAt. The
+        // applyChangesPayload mismatch branch falls back to the
+        // SELF_ECHO_WINDOW_MS (5s) timing window when source_client_id
+        // doesn't match own — this catches the documented race where
+        // the middleware mis-attributes a foreign write to our clientId.
+        // To exercise the legitimate cross-source banner path, advance
+        // the clock past the timing window so lastOwnWriteAt no longer
+        // applies and the foreign source surfaces as `changes`.
+        //
+        // data-store.js reads `Date.now()` through the JSDOM window's
+        // Date object, NOT the host's. Spy on the window-bound Date.now
+        // so the override reaches the classifier.
+        const realNow = window.Date.now.bind(window.Date);
+        const t0 = realNow();
+        const dateNowSpy = vi.spyOn(window.Date, 'now');
+        dateNowSpy.mockReturnValue(t0 + 6000);
+
         // --- Unsafe branch: a foreign client write while a modal is open
         //     must show the banner. We do not provide source_client_id
         //     matching our own clientId, so this falls into `changes`.
@@ -496,6 +513,9 @@ describe('features/food/log.js — split-file integration', () => {
 
         vi.useFakeTimers();
         try {
+            // Keep the Date.now stub past the self-echo window through
+            // the timer-driven reloadCurrentTab probe too.
+            dateNowSpy.mockReturnValue(t0 + 6000);
             await window.DataStore.applyChangesPayload({
                 cursor: 12347,
                 changed_tags: ['food'],
@@ -511,6 +531,7 @@ describe('features/food/log.js — split-file integration', () => {
             expect(reloadSpy).toHaveBeenCalledTimes(1);
         } finally {
             vi.useRealTimers();
+            dateNowSpy.mockRestore();
         }
     });
 });
