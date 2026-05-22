@@ -81,10 +81,10 @@ This plan plumbs a per-client identifier end-to-end so the frontend can determin
 - [x] Run `pnpm test` — must pass before next task.
 
 ### Task 2: Send `X-Client-ID` on non-GET API requests
-- [ ] In `web/static/js/core/api.js`, add `X-Client-ID: window.DataStore.getClientId()` to the `headers` object built for non-GET requests (placed beside the existing `initData` / auth header logic). Skip if `getClientId()` is unavailable (defensive).
-- [ ] Confirm `apiCallDirect` is the only code path that constructs write requests (verified: `offlineAwareApiCall` delegates to it).
-- [ ] Write unit tests in `web/static/js/tests/core.api.client-id.test.js`: POST/PUT/DELETE include `X-Client-ID`; GET does not include it; header value matches `getClientId()`.
-- [ ] Run `pnpm test` — must pass before next task.
+- [x] In `web/static/js/core/api.js`, add `X-Client-ID: window.DataStore.getClientId()` to the `headers` object built for non-GET requests (placed beside the existing `initData` / auth header logic). Skip if `getClientId()` is unavailable (defensive).
+- [x] Confirm `apiCallDirect` is the only code path that constructs write requests (verified: `offlineAwareApiCall` delegates to it).
+- [x] Write unit tests in `web/static/js/tests/core.api.client-id.test.js`: POST/PUT/DELETE include `X-Client-ID`; GET does not include it; header value matches `getClientId()`.
+- [x] Run `pnpm test` — must pass before next task.
 
 ### Task 3: Capture `X-Client-ID` in the write-notify middleware
 - [ ] In `internal/server/changes_broker.go`, change `func (b *ChangeBroker) Notify(cursor int64)` → `Notify(cursor int64, sourceClientID string)`. Update the subscriber channel type from `chan int64` to a small struct `type ChangeEvent struct { Cursor int64; SourceClientID string }` (channel of `chan ChangeEvent`).
