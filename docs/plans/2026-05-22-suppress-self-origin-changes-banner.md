@@ -126,9 +126,9 @@ This plan plumbs a per-client identifier end-to-end so the frontend can determin
 - [x] Confirm no hardcoded colours / inline `.style.` were introduced (CLAUDE.md §3) — this plan should not touch styling, but the architecture test will catch any drift.
 
 ### Task 8: Update documentation
-- [ ] Update `docs/technical-decisions.md`: add a short note under the SSE-first change stream section describing the `clientId` source-attribution mechanism (one paragraph).
-- [ ] Update `docs/frontend.md`: in the section that discusses optimistic writes / change events, mention `X-Client-ID` and `source_client_id` and the precedence with `lastOwnWriteAt`.
-- [ ] No README changes needed.
+- [x] Update `docs/technical-decisions.md`: add a short note under the SSE-first change stream section describing the `clientId` source-attribution mechanism (one paragraph).
+- [x] Update `docs/frontend.md`: in the section that discusses optimistic writes / change events, mention `X-Client-ID` and `source_client_id` and the precedence with `lastOwnWriteAt`.
+- [x] No README changes needed.
 
 ## Technical Details
 
