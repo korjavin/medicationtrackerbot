@@ -118,12 +118,12 @@ This plan plumbs a per-client identifier end-to-end so the frontend can determin
 - [x] Run `pnpm test` — must pass before next task.
 
 ### Task 7: Verify acceptance criteria
-- [ ] Re-read the Overview and confirm: banner is suppressed for own writes regardless of SSE delivery latency; cross-source writes still surface the banner; older clients (no `X-Client-ID`) still work via the timing fallback.
-- [ ] Run `go test ./...` end-to-end.
-- [ ] Run `pnpm test` end-to-end.
-- [ ] Run `go vet ./...`.
-- [ ] Confirm no new `window.*` global was added without an allowlist entry (CLAUDE.md §4). `DataStore.getClientId` is a method on the existing `window.DataStore` so no new global.
-- [ ] Confirm no hardcoded colours / inline `.style.` were introduced (CLAUDE.md §3) — this plan should not touch styling, but the architecture test will catch any drift.
+- [x] Re-read the Overview and confirm: banner is suppressed for own writes regardless of SSE delivery latency; cross-source writes still surface the banner; older clients (no `X-Client-ID`) still work via the timing fallback.
+- [x] Run `go test ./...` end-to-end.
+- [x] Run `pnpm test` end-to-end.
+- [x] Run `go vet ./...`.
+- [x] Confirm no new `window.*` global was added without an allowlist entry (CLAUDE.md §4). `DataStore.getClientId` is a method on the existing `window.DataStore` so no new global.
+- [x] Confirm no hardcoded colours / inline `.style.` were introduced (CLAUDE.md §3) — this plan should not touch styling, but the architecture test will catch any drift.
 
 ### Task 8: Update documentation
 - [ ] Update `docs/technical-decisions.md`: add a short note under the SSE-first change stream section describing the `clientId` source-attribution mechanism (one paragraph).
