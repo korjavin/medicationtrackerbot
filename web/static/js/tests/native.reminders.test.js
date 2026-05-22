@@ -301,18 +301,61 @@ describe('native/capacitor/reminders.js — Capacitor impl', () => {
         expect(schedule.mock.calls[0][0].notifications[0].id).toBe(1);
     });
 
-    it('_refreshFromServer() swallows fetch errors (best-effort loop)', async () => {
+    it('_refreshFromServer() preserves the existing pending queue when the fetch fails', async () => {
+        // A transient backend 5xx or sub-second WiFi blip on app resume must
+        // not cancel every pre-scheduled medication reminder. Distinguishing
+        // "fetch failed" from "server returned empty list" is what guarantees
+        // we don't silently wipe doses for the next 24h on a flaky network.
         const fetchImpl = vi.fn().mockRejectedValue(new Error('network down'));
         const schedule = vi.fn();
+        const cancel = vi.fn();
+        const getPending = vi.fn().mockResolvedValue({ notifications: [{ id: 1 }] });
         env = loadEnv({
-            capacitor: makeCapacitor({ schedule }),
+            capacitor: makeCapacitor({ schedule, cancel, getPending }),
             fetchImpl,
         });
         const cap = env.window.Reminders.__native.getImpl('Reminders', 'capacitor');
         const result = await cap._refreshFromServer();
-        // Empty list still triggers replace-all flow (getPending→cancel→skip schedule).
         expect(schedule).not.toHaveBeenCalled();
+        expect(cancel).not.toHaveBeenCalled();
+        expect(getPending).not.toHaveBeenCalled();
+        expect(result.skipped).toBe('fetch_failed');
         expect(result.scheduled).toBe(0);
+    });
+
+    it('_refreshFromServer() preserves pending queue when the fetch returns a 5xx response (raw fetch path)', async () => {
+        const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 503, json: () => Promise.resolve(null) });
+        const schedule = vi.fn();
+        const cancel = vi.fn();
+        const getPending = vi.fn().mockResolvedValue({ notifications: [{ id: 1 }] });
+        env = loadEnv({
+            capacitor: makeCapacitor({ schedule, cancel, getPending }),
+            fetchImpl,
+        });
+        const cap = env.window.Reminders.__native.getImpl('Reminders', 'capacitor');
+        const result = await cap._refreshFromServer();
+        expect(schedule).not.toHaveBeenCalled();
+        expect(cancel).not.toHaveBeenCalled();
+        expect(result.skipped).toBe('fetch_failed');
+    });
+
+    it('_refreshFromServer() runs the cancel-all flow when the server returns an empty list (real "no reminders" state)', async () => {
+        // Distinguish from the fetch-failed case above: an empty-but-successful
+        // response means "the server is authoritative — there are no upcoming
+        // reminders". Cancel everything so we don't keep stale OS notifications.
+        const fetchImpl = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve([]) });
+        const schedule = vi.fn();
+        const cancel = vi.fn().mockResolvedValue({});
+        const getPending = vi.fn().mockResolvedValue({ notifications: [{ id: 7 }] });
+        env = loadEnv({
+            capacitor: makeCapacitor({ schedule, cancel, getPending }),
+            fetchImpl,
+        });
+        const cap = env.window.Reminders.__native.getImpl('Reminders', 'capacitor');
+        await cap._refreshFromServer();
+        expect(getPending).toHaveBeenCalled();
+        expect(cancel).toHaveBeenCalledWith({ notifications: [{ id: 7 }] });
+        expect(schedule).not.toHaveBeenCalled();
     });
 
     it('startPreScheduleLoop() fires an initial refresh and registers an appStateChange listener', async () => {
@@ -386,6 +429,43 @@ describe('native/capacitor/reminders.js — Capacitor impl', () => {
         expect(search).toContain('action=medication_confirm');
         expect(search).toContain('intake_ids=555');
         expect(search).toContain('ids=999');
+    });
+
+    it('notification-tap handler emits scheduled + names params when extra carries them (so showMedicationConfirmModal sees the dose time and label)', () => {
+        const handleDeepLinks = vi.fn();
+        env = loadEnv({
+            capacitor: makeCapacitor(),
+            handleDeepLinks,
+        });
+        const cap = env.window.Reminders.__native.getImpl('Reminders', 'capacitor');
+        cap._handleNotificationTap({
+            notification: {
+                extra: {
+                    intake_id: 100,
+                    medication_id: 200,
+                    medication_name: 'Metformin 500mg',
+                    scheduled_at: '2026-05-23T08:00:00.000Z',
+                },
+            },
+        });
+        const params = new env.window.URLSearchParams(env.window.location.search);
+        expect(params.get('action')).toBe('medication_confirm');
+        expect(params.get('intake_ids')).toBe('100');
+        expect(params.get('ids')).toBe('200');
+        expect(params.get('names')).toBe('Metformin 500mg');
+        expect(params.get('scheduled')).toBe('2026-05-23T08:00:00.000Z');
+    });
+
+    it('schedule() round-trips medication_name + scheduled_at into the notification extra payload', async () => {
+        const getPending = vi.fn().mockResolvedValue({ notifications: [] });
+        const schedule = vi.fn().mockResolvedValue({});
+        env = loadEnv({ capacitor: makeCapacitor({ schedule, getPending }) });
+        await env.window.Reminders.schedule([
+            { intake_id: 42, medication_id: 7, medication_name: 'Atorvastatin', scheduled_at: '2026-05-23T20:00:00.000Z' },
+        ]);
+        const extra = schedule.mock.calls[0][0].notifications[0].extra;
+        expect(extra.medication_name).toBe('Atorvastatin');
+        expect(extra.scheduled_at).toBe('2026-05-23T20:00:00.000Z');
     });
 
     it('notification-tap handler is a no-op when the extra payload lacks intake_id', () => {

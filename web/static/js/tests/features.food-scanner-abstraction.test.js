@@ -213,4 +213,45 @@ describe('features/food/scanner.js — Phase 2b abstraction seam (Task 7)', () =
             });
         }
     });
+
+    it('Capacitor scanner closes the empty in-app modal when the user cancels MLKit (returns null)', async () => {
+        // Repro: ModalManager.foodScanner.open() reveals #food-scanner-modal
+        // and then calls startFoodScanner(). On Capacitor the scanner delegates
+        // to MLKit's full-screen overlay, but if the user backs out without
+        // scanning anything the in-app modal must close — otherwise the user
+        // stares at an empty surface they can't visually dismiss.
+        const { window, document } = env;
+
+        window.Capacitor = { isNativePlatform: () => true };
+        const scanSpy = vi.fn().mockResolvedValue(null);
+        window.Barcode = { scan: scanSpy };
+
+        const modal = document.getElementById('food-scanner-modal');
+        modal.classList.remove('hidden');
+
+        await window.startFoodScanner();
+
+        expect(scanSpy).toHaveBeenCalledTimes(1);
+        expect(modal.classList.contains('hidden')).toBe(true);
+    });
+
+    it('Capacitor scanner closes the in-app modal when MLKit throws (permission denied, etc.)', async () => {
+        const { window, document } = env;
+
+        window.Capacitor = { isNativePlatform: () => true };
+        const scanSpy = vi.fn().mockRejectedValue(new Error('permission denied'));
+        window.Barcode = { scan: scanSpy };
+        const origAlert = window.alert;
+        window.alert = vi.fn();
+
+        const modal = document.getElementById('food-scanner-modal');
+        modal.classList.remove('hidden');
+
+        try {
+            await window.startFoodScanner();
+            expect(modal.classList.contains('hidden')).toBe(true);
+        } finally {
+            window.alert = origAlert;
+        }
+    });
 });

@@ -59,15 +59,33 @@
         return null;
     }
 
-    function tryBarcodeDetector(source, formats) {
-        if (!window.BarcodeDetector) return Promise.resolve(null);
-        var detector;
+    // Cache BarcodeDetector instances keyed by the sorted formats list. The
+    // live food-scanner loop calls scan() 5x/sec on the same { source: video,
+    // formats: [...] } shape; allocating a new BarcodeDetector per call is a
+    // measurable perf regression vs. the pre-Phase-2b code which held one
+    // detector for the lifetime of the scanner modal. A null entry in the
+    // cache means "this formats list constructed-but-no-args fallback".
+    var detectorCache = Object.create(null);
+    var DETECTOR_FALLBACK_KEY = '__default__';
+
+    function getDetector(formats) {
+        var key = (formats && formats.length) ? formats.slice().sort().join(',') : DETECTOR_FALLBACK_KEY;
+        if (detectorCache[key] !== undefined) return detectorCache[key];
+        var detector = null;
         try {
             detector = new window.BarcodeDetector({ formats: formats });
         } catch (_) {
             try { detector = new window.BarcodeDetector(); }
-            catch (_e2) { return Promise.resolve(null); }
+            catch (_e2) { detector = null; }
         }
+        detectorCache[key] = detector;
+        return detector;
+    }
+
+    function tryBarcodeDetector(source, formats) {
+        if (!window.BarcodeDetector) return Promise.resolve(null);
+        var detector = getDetector(formats);
+        if (!detector) return Promise.resolve(null);
         return Promise.resolve()
             .then(function () { return detector.detect(source); })
             .then(pickFirst)

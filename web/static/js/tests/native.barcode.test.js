@@ -169,6 +169,35 @@ describe('native/web/barcode.js — web impl', () => {
         expect(caught.name).toBe('BarcodeError');
     });
 
+    it('caches the BarcodeDetector instance across scan() calls with the same formats (perf regression guard)', async () => {
+        // The live food-scanner loop calls scan() ~5x/sec on the same video
+        // source and same formats list. Allocating a new BarcodeDetector per
+        // call (the pre-Phase-2b code path) measurably regresses CPU on
+        // lower-end Android, so the abstraction must hold one detector per
+        // unique formats key for the page lifetime.
+        const detect = vi.fn().mockResolvedValue([{ rawValue: '0000', format: 'ean_13' }]);
+        const ctor = vi.fn(function () { this.detect = detect; });
+        env = loadEnv({ barcodeDetector: ctor });
+        const video = makeFakeVideo(env.window);
+        const formats = ['qr_code', 'ean_13', 'upc_a'];
+        await env.window.Barcode.scan({ source: video, formats });
+        await env.window.Barcode.scan({ source: video, formats });
+        await env.window.Barcode.scan({ source: video, formats });
+        expect(ctor).toHaveBeenCalledTimes(1);
+        expect(detect).toHaveBeenCalledTimes(3);
+    });
+
+    it('uses a separate cached detector for a different formats list', async () => {
+        const detect = vi.fn().mockResolvedValue([{ rawValue: '1234', format: 'qr_code' }]);
+        const ctor = vi.fn(function () { this.detect = detect; });
+        env = loadEnv({ barcodeDetector: ctor });
+        const video = makeFakeVideo(env.window);
+        await env.window.Barcode.scan({ source: video, formats: ['qr_code'] });
+        await env.window.Barcode.scan({ source: video, formats: ['ean_13', 'upc_a'] });
+        await env.window.Barcode.scan({ source: video, formats: ['qr_code'] });
+        expect(ctor).toHaveBeenCalledTimes(2);
+    });
+
     it('handles BarcodeDetector constructors that throw with formats (default fallback)', async () => {
         const detect = vi.fn().mockResolvedValue([
             { rawValue: '999', format: 'qr_code' },

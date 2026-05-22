@@ -103,6 +103,14 @@ function isNativeShell() {
 // value to the existing handleDecodedValue() path so the food modal stays
 // closed and the barcode lands in #food-barcode the same way it would have
 // from the web flow.
+//
+// Always close the in-app food-scanner modal on completion: ModalManager
+// opened it as part of the standard open() flow, but the MLKit overlay owns
+// the actual scanner UI on Capacitor. Leaving the empty in-app modal visible
+// on cancel/error strands the user staring at an empty surface they can't
+// dismiss visually. handleDecodedValue() also closes the modal on success,
+// but calling closeFoodScannerModal() unconditionally here covers all three
+// exit paths (cancel/null, error, success).
 async function scanWithNativeBarcode() {
     try {
         const result = await window.Barcode.scan({ formats: FOOD_BARCODE_FORMATS });
@@ -113,6 +121,8 @@ async function scanWithNativeBarcode() {
     } catch (e) {
         console.error('Native barcode scan failed:', e);
         safeAlert('Barcode scanning failed: ' + (e && e.message ? e.message : 'unknown error'));
+    } finally {
+        try { closeFoodScannerModal(); } catch (_) { /* ignore */ }
     }
 }
 
