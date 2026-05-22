@@ -267,17 +267,27 @@ describe('native/capacitor/media-capture.js — Capacitor impl', () => {
         expect(blob.size).toBe(5); // 'hello' is 5 bytes
     });
 
-    it('pickPhoto calls Camera.getPhoto with source PHOTOS', async () => {
+    it('pickPhoto() with no opts forces CAMERA (matches web impl default where input.capture=environment)', async () => {
         const getPhoto = vi.fn().mockResolvedValue({
             base64String: 'aGVsbG8=', format: 'png',
         });
         env = loadEnv({ capacitor: makeCapacitor({ getPhoto }) });
         const blob = await env.window.MediaCapture.pickPhoto();
         expect(getPhoto).toHaveBeenCalledWith(expect.objectContaining({
-            source: 'PHOTOS',
+            source: 'CAMERA',
             resultType: 'base64',
         }));
         expect(blob.type).toBe('image/png');
+    });
+
+    it('pickPhoto({ capture: false }) omits source so the plugin shows the gallery+camera chooser', async () => {
+        const getPhoto = vi.fn().mockResolvedValue({
+            base64String: 'aGVsbG8=', format: 'png',
+        });
+        env = loadEnv({ capacitor: makeCapacitor({ getPhoto }) });
+        await env.window.MediaCapture.pickPhoto({ capture: false });
+        const opts = getPhoto.mock.calls[0][0];
+        expect(opts.source).toBeUndefined();
     });
 
     it('resolves to null when the plugin throws a "User cancelled" error', async () => {

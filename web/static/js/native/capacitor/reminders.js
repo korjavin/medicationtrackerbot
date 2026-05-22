@@ -78,6 +78,15 @@
         var scheduledAt = r.scheduled_at ? new Date(r.scheduled_at) : null;
         if (!scheduledAt || isNaN(scheduledAt.getTime())) return null;
         var name = r.medication_name ? String(r.medication_name) : 'Medication';
+        // medication_id is optional in the API payload; coerce + validate the
+        // same way as intake_id and drop the field entirely (rather than
+        // storing a non-integer / out-of-range value) so the tap handler can
+        // trust that extra.medication_id, if present, is always a safe int.
+        var medId = null;
+        if (r.medication_id != null) {
+            var mid = Number(r.medication_id);
+            if (Number.isInteger(mid) && mid > 0 && mid <= MAX_INT32) medId = mid;
+        }
         return {
             id: id,
             title: name,
@@ -92,8 +101,11 @@
             // time-critical meds.
             schedule: { at: scheduledAt, allowWhileIdle: true },
             extra: {
-                intake_id: r.intake_id,
-                medication_id: r.medication_id,
+                // Store the validated integer (not the raw payload value) so the
+                // type round-trips through the LocalNotifications plugin's JSON
+                // serialization without diverging from `notification.id`.
+                intake_id: id,
+                medication_id: medId,
                 // medication_name + scheduled_at need to round-trip through the
                 // notification so handleNotificationTap can populate the
                 // `names` and `scheduled` deep-link params that
@@ -239,9 +251,19 @@
     function handleNotificationTap(event) {
         var extra = event && event.notification && event.notification.extra;
         if (!extra || extra.intake_id == null) return;
+        // Re-validate intake_id at the trust boundary: OS-supplied data may
+        // be corrupted (queue persisted across upgrades) or carry the wrong
+        // type if a future plugin version changes serialization. A bad value
+        // would otherwise reach handlePushAction as NaN and open an empty
+        // medication-confirm modal.
+        var intakeId = Number(extra.intake_id);
+        if (!Number.isInteger(intakeId) || intakeId <= 0 || intakeId > MAX_INT32) return;
+        var medicationId = null;
+        if (extra.medication_id != null) {
+            var mid = Number(extra.medication_id);
+            if (Number.isInteger(mid) && mid > 0 && mid <= MAX_INT32) medicationId = mid;
+        }
         try {
-            var ids = String(extra.medication_id != null ? extra.medication_id : '');
-            var intakeIds = String(extra.intake_id);
             // Merge into the existing query string rather than replacing it,
             // so unrelated state (e.g. ?section=workouts) isn't lost when the
             // user taps a notification.
@@ -251,9 +273,18 @@
             } catch (_) {
                 params = new window.URLSearchParams();
             }
+            // Clear any stale params that this handler owns so a leftover
+            // value from a previous tap can't leak into the current one
+            // (e.g. an old ?intake_ids=42&names=Foo bleeding through when the
+            // new notification only carries a medication_id).
+            params.delete('action');
+            params.delete('ids');
+            params.delete('intake_ids');
+            params.delete('names');
+            params.delete('scheduled');
             params.set('action', 'medication_confirm');
-            if (ids) params.set('ids', ids);
-            params.set('intake_ids', intakeIds);
+            if (medicationId !== null) params.set('ids', String(medicationId));
+            params.set('intake_ids', String(intakeId));
             if (extra.medication_name) {
                 params.set('names', String(extra.medication_name));
             }

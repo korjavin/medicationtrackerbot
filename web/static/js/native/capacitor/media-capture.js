@@ -78,13 +78,18 @@
         return Promise.resolve()
             .then(function () { return getPlugin(); })
             .then(function (plugin) {
-                return plugin.getPhoto({
-                    source: source,
+                var opts = {
                     resultType: 'base64',
                     quality: 90,
                     allowEditing: false,
                     correctOrientation: true,
-                });
+                };
+                // 'PROMPT' is the @capacitor/camera default — when omitted,
+                // the plugin shows an OS dialog letting the user pick camera
+                // or gallery. Pass through CAMERA / PHOTOS only when the
+                // caller explicitly asked for one source.
+                if (source) opts.source = source;
+                return plugin.getPhoto(opts);
             })
             .then(function (result) { return pluginResultToBlob(result); });
     }
@@ -96,8 +101,16 @@
         });
     }
 
-    function pickPhoto() {
-        return callCamera('PHOTOS').catch(function (e) {
+    // pickPhoto honors the same `capture` flag as the web impl:
+    //   capture === false → let the user pick camera OR gallery (default
+    //     CameraSource.Prompt — matches the web impl's input element with
+    //     no `capture` attribute, which on mobile browsers offers both).
+    //   capture !== false → force the camera (CameraSource.Camera). The web
+    //     impl mirrors this by setting input.capture='environment'.
+    function pickPhoto(opts) {
+        opts = opts || {};
+        var source = opts.capture === false ? null : 'CAMERA';
+        return callCamera(source).catch(function (e) {
             if (isCancel(e)) return null;
             throw normalizeError(e);
         });
