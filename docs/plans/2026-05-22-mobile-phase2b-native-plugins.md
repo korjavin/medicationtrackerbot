@@ -81,12 +81,12 @@ iOS is out of scope. Phase 2a is Android-only and Phase 2b inherits that constra
 
 ### Task 2: Geolocation abstraction
 
-- [ ] create `web/static/js/native/web/geolocation.js` exporting `getCurrentPosition({ timeoutMs, maximumAgeMs })` wrapping `navigator.geolocation.getCurrentPosition` as a promise. Maps the `PositionError.code` values to a stable `{ code: 'PERMISSION_DENIED'|'POSITION_UNAVAILABLE'|'TIMEOUT', message }` shape so consumers don't see platform-specific errors.
-- [ ] create `web/static/js/native/capacitor/geolocation.js` calling `@capacitor/geolocation`'s `Geolocation.getCurrentPosition` and normalizing to the same shape. Implements last-known-position caching with a 1h TTL (in-memory only; cleared on app restart) — resolves the stub's open question.
-- [ ] update `web/static/js/native/index.js` to wire `window.Geolocation = isNativePlatform() ? capacitorImpl : webImpl` at script load.
-- [ ] write `web/static/js/tests/native.geolocation.test.js`: web impl success (mock `navigator.geolocation`), web impl permission-denied error normalization, web impl timeout normalization, Capacitor impl success with `vi.mock('@capacitor/geolocation')`, Capacitor impl cache hit (second call within 1h returns cached without invoking the plugin), Capacitor impl cache miss after 1h.
-- [ ] no caller refactor in this task — `bootstrap.js` continues using `Intl.DateTimeFormat` for tz string (Intl is the right answer for *which timezone*; geolocation is for *where on earth*, a future capability not currently exercised).
-- [ ] run `pnpm test` — must pass before Task 3.
+- [x] create `web/static/js/native/web/geolocation.js` exporting `getCurrentPosition({ timeoutMs, maximumAgeMs })` wrapping `navigator.geolocation.getCurrentPosition` as a promise. Maps the `PositionError.code` values to a stable `{ code: 'PERMISSION_DENIED'|'POSITION_UNAVAILABLE'|'TIMEOUT', message }` shape so consumers don't see platform-specific errors.
+- [x] create `web/static/js/native/capacitor/geolocation.js` calling `@capacitor/geolocation`'s `Geolocation.getCurrentPosition` and normalizing to the same shape. Implements last-known-position caching with a 1h TTL (in-memory only; cleared on app restart) — resolves the stub's open question. (Reads plugin via `window.Capacitor.Plugins.Geolocation` rather than ES-module `import`, so no JS bundler is required.)
+- [x] update `web/static/js/native/index.js` to wire `window.Geolocation = isNativePlatform() ? capacitorImpl : webImpl` at script load. (Added `registerImpl(capability, platform, impl)` + `getImpl(capability, platform)` on the foundation; impl files register themselves and the foundation assigns the matching one to the global.)
+- [x] write `web/static/js/tests/native.geolocation.test.js`: web impl success (mock `navigator.geolocation`), web impl permission-denied error normalization, web impl timeout normalization, Capacitor impl success with `vi.mock('@capacitor/geolocation')`, Capacitor impl cache hit (second call within 1h returns cached without invoking the plugin), Capacitor impl cache miss after 1h.
+- [x] no caller refactor in this task — `bootstrap.js` continues using `Intl.DateTimeFormat` for tz string (Intl is the right answer for *which timezone*; geolocation is for *where on earth*, a future capability not currently exercised).
+- [x] run `pnpm test` — must pass before Task 3.
 
 ### Task 3: MediaCapture abstraction (camera + photo picker)
 
