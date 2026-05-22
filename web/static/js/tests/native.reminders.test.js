@@ -575,6 +575,61 @@ describe('native/capacitor/reminders.js — Capacitor impl', () => {
         cap._handleNotificationTap(null);
         expect(handleDeepLinks).not.toHaveBeenCalled();
     });
+
+    it('notification-tap handler rejects non-integer / out-of-range intake_id at the trust boundary', () => {
+        const handleDeepLinks = vi.fn();
+        env = loadEnv({
+            capacitor: makeCapacitor(),
+            handleDeepLinks,
+        });
+        const cap = env.window.Reminders.__native.getImpl('Reminders', 'capacitor');
+        cap._handleNotificationTap({ notification: { extra: { intake_id: 'abc' } } });
+        cap._handleNotificationTap({ notification: { extra: { intake_id: 1.5 } } });
+        cap._handleNotificationTap({ notification: { extra: { intake_id: 0 } } });
+        cap._handleNotificationTap({ notification: { extra: { intake_id: -5 } } });
+        cap._handleNotificationTap({ notification: { extra: { intake_id: 2147483648 } } });
+        expect(handleDeepLinks).not.toHaveBeenCalled();
+    });
+
+    it('notification-tap handler clears stale ids/intake_ids/names/scheduled from a prior deep-link', () => {
+        const handleDeepLinks = vi.fn();
+        env = loadEnv({
+            capacitor: makeCapacitor(),
+            handleDeepLinks,
+        });
+        // Seed the URL with a stale deep-link payload from a previous tap (or
+        // any other code path that wrote these params).
+        env.window.history.replaceState({}, '', '/?intake_ids=999&names=Old&scheduled=2026-01-01T00:00:00Z&section=workouts');
+        const cap = env.window.Reminders.__native.getImpl('Reminders', 'capacitor');
+        cap._handleNotificationTap({
+            notification: { extra: { intake_id: 7, medication_id: 3 } },
+        });
+        const params = new env.window.URLSearchParams(env.window.location.search);
+        expect(params.get('action')).toBe('medication_confirm');
+        expect(params.get('intake_ids')).toBe('7');
+        expect(params.get('ids')).toBe('3');
+        // Stale handler-owned params are gone:
+        expect(params.get('names')).toBeNull();
+        expect(params.get('scheduled')).toBeNull();
+        // Unrelated params are preserved:
+        expect(params.get('section')).toBe('workouts');
+    });
+
+    it('schedule() stores the validated integer (not the raw payload value) in extra.intake_id', async () => {
+        const getPending = vi.fn().mockResolvedValue({ notifications: [] });
+        const schedule = vi.fn().mockResolvedValue({});
+        env = loadEnv({ capacitor: makeCapacitor({ schedule, getPending }) });
+        // Server payload widens intake_id to a string — the abstraction must
+        // coerce to int and store the int in `extra` so notification.id and
+        // extra.intake_id stay consistent through plugin serialization.
+        await env.window.Reminders.schedule([
+            { intake_id: '42', medication_id: '7', medication_name: 'A', scheduled_at: '2026-05-23T08:00:00Z' },
+        ]);
+        const n = schedule.mock.calls[0][0].notifications[0];
+        expect(n.id).toBe(42);
+        expect(n.extra.intake_id).toBe(42);
+        expect(n.extra.medication_id).toBe(7);
+    });
 });
 
 describe('native/index.js — runtime selector after Task 5', () => {
