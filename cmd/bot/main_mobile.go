@@ -6,7 +6,10 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -23,6 +26,7 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
 	"github.com/korjavin/medicationtrackerbot/internal/store/food"
+	"github.com/korjavin/medicationtrackerbot/web"
 )
 
 // main is the mobile-build entry point. It runs the same HTTP server as the
@@ -35,48 +39,70 @@ import (
 // for the mobile build. The first-run experience (settings populated via the
 // Settings UI) is Phase 2 work; Phase 1 expects the DB to be pre-seeded or for
 // the user to walk through the in-app Settings screen after first launch.
+//
+// On startup the binary prints exactly one line to stdout in the form
+// "LISTENING 127.0.0.1:<port>\n" once the TCP listener is bound. The Android
+// shell parses this line to discover the OS-assigned port when invoked with
+// `-port 0`. All other logging continues to go to stderr via slog.
 func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 
-	var (
-		dbPath = flag.String("db", "meds.db", "path to the SQLite database file")
-		userID = flag.Int64("user-id", 1, "local user ID (single-user mobile install)")
-		port   = flag.String("port", "8080", "HTTP listen port")
-		// Default to loopback so the LAN can't reach an API that trusts every
-		// request as the local user. Override to "0.0.0.0" (or a specific
-		// interface) only for on-device Capacitor spike testing where the
-		// device WebView talks to a dev machine on the same network.
-		host = flag.String("host", "127.0.0.1", "HTTP listen host (loopback by default; override only for spike testing)")
-	)
-	flag.Parse()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	if err := runMobile(ctx, os.Args[1:], os.Stdout); err != nil {
+		slog.Error("mobile run failed", "error", err)
+		os.Exit(1)
+	}
+}
+
+// runMobile is the testable body of main(): it parses argv from a caller-owned
+// slice, prints the LISTENING line to the supplied writer, and serves HTTP
+// until ctx is cancelled. Splitting it out lets the integration test drive a
+// real listener + a real HTTP roundtrip without forking a subprocess.
+func runMobile(ctx context.Context, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("medtracker-mobile", flag.ContinueOnError)
+	dbPath := fs.String("db", "meds.db", "path to the SQLite database file")
+	userID := fs.Int64("user-id", 1, "local user ID (single-user mobile install)")
+	port := fs.String("port", "8080", "HTTP listen port; pass 0 to let the OS assign one")
+	// Default to loopback so the LAN can't reach an API that trusts every
+	// request as the local user. Override to "0.0.0.0" (or a specific
+	// interface) only for on-device Capacitor spike testing where the
+	// device WebView talks to a dev machine on the same network.
+	host := fs.String("host", "127.0.0.1", "HTTP listen host (loopback by default; override only for spike testing)")
+	// Per-install session secret. The local resolver ignores cookies so this
+	// is not security-meaningful, but server.New still validates len>=32.
+	// Falls back to a fixed constant when not supplied (e.g. from the test
+	// suite). The Android shell generates 32 random bytes on first launch
+	// and persists them via EncryptedSharedPreferences.
+	sessionSecret := fs.String("session-secret", "mobile-build-local-session-secret-32+", "session secret (>=32 chars); the Android shell injects a per-install random value")
+	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("parse flags: %w", err)
+	}
 
 	// Guard against typos like -user-id 0 or -user-id -1 that would otherwise
 	// silently write data with user_id=0, polluting the singleton DB.
 	if *userID <= 0 {
-		slog.Error("invalid -user-id; must be a positive int64", "user-id", *userID)
-		os.Exit(1)
+		return fmt.Errorf("invalid -user-id %d; must be a positive int64", *userID)
 	}
 
 	// Open the DB so migrations run, then load config purely from the
 	// settings table. There is no env-var precedence on mobile.
 	sharedDB, err := storedb.Open(*dbPath)
 	if err != nil {
-		slog.Error("Failed to open database", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("open database: %w", err)
 	}
 	defer sharedDB.Close()
 
 	s, err := store.NewWithDB(sharedDB)
 	if err != nil {
-		slog.Error("Failed to initialize store", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("initialize store: %w", err)
 	}
 	slog.Info("Database initialized", "path", *dbPath)
 
 	settingsCfg, err := config.LoadFromSettings(context.Background(), s.Settings)
 	if err != nil {
-		slog.Error("Failed to load settings-table config", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("load settings-table config: %w", err)
 	}
 	cfg := settingsCfg
 
@@ -128,12 +154,17 @@ func main() {
 	tzLifecycle := tzreschedule.NewLifecycleService(s, *userID)
 	tzUpdater := tzupdate.NewService(s.TZ, s.TZ, tzPlanner, nil, func() bool { return true })
 
-	// Session secret: not security-meaningful on mobile (the local resolver
-	// ignores cookies), but server.New validates len>=32. Use a deterministic
-	// per-install token derived from the DB path; not used for any verification.
-	const mobileSessionSecret = "mobile-build-local-session-secret-32+"
+	if len(*sessionSecret) < 32 {
+		return fmt.Errorf("session-secret must be at least 32 chars, got %d", len(*sessionSecret))
+	}
 
-	srv := server.New(s, "", mobileSessionSecret, *userID, server.OIDCConfig{}, "", "")
+	srv := server.New(s, "", *sessionSecret, *userID, server.OIDCConfig{}, "", "")
+	// On Android the binary runs from a read-only nativeLibraryDir with no
+	// co-located "./web/static" directory, so the disk-relative paths in
+	// internal/server would 500 every request to /, /static/*, /favicon.ico,
+	// and the service worker. Wire the embedded FS so those handlers read
+	// from the binary itself.
+	srv.SetStaticFS(web.StaticFS())
 	if foodAI != nil {
 		srv.SetFoodAIService(foodAI)
 	}
@@ -151,16 +182,45 @@ func main() {
 	sch.Start()
 	slog.Info("Scheduler started (mobile build, local-notifications sink)")
 
-	addr := *host + ":" + *port
-	slog.Info("Mobile-mode server starting", "addr", addr, "user_id", *userID)
-	httpServer := newHTTPServer(addr, srv.Routes())
+	// Wrap the server's mux with a tiny outer mux that adds the unauthenticated
+	// /healthz liveness probe. The Android shell polls this endpoint after
+	// spawning the binary to decide when to load the WebView URL. /healthz is
+	// mobile-only — adding it to the shared server.Routes would force a new
+	// entry in mcpCoverageExempt for the server build too.
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+	mux.Handle("/", srv.Routes())
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
+	addr := *host + ":" + *port
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("listen on %s: %w", addr, err)
+	}
+	actualAddr, ok := ln.Addr().(*net.TCPAddr)
+	if !ok {
+		_ = ln.Close()
+		return fmt.Errorf("unexpected listener address type %T", ln.Addr())
+	}
+	// Print the LISTENING line to stdout (NOT stderr) on its own line so the
+	// Android shell can grep stdout's first line for the actual port without
+	// being tripped up by slog records. The hostname is intentionally
+	// hardcoded to 127.0.0.1 even when *host differs — the parser only cares
+	// about the port, and quoting the dial-target keeps the line stable.
+	if _, err := fmt.Fprintf(stdout, "LISTENING 127.0.0.1:%d\n", actualAddr.Port); err != nil {
+		_ = ln.Close()
+		return fmt.Errorf("write LISTENING line: %w", err)
+	}
+	slog.Info("Mobile-mode server starting", "addr", ln.Addr().String(), "user_id", *userID)
+
+	httpServer := newHTTPServer(addr, mux)
 
 	listenErr := make(chan error, 1)
 	go func() {
-		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := httpServer.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			listenErr <- err
 		}
 		close(listenErr)
@@ -169,9 +229,9 @@ func main() {
 	select {
 	case err, ok := <-listenErr:
 		if ok && err != nil {
-			slog.Error("Server failed", "error", err)
-			os.Exit(1)
+			return fmt.Errorf("server serve: %w", err)
 		}
+		return nil
 	case <-ctx.Done():
 		slog.Info("Shutdown signal received")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -182,5 +242,6 @@ func main() {
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {
 			slog.Warn("httpServer.Shutdown returned error", "error", err)
 		}
+		return nil
 	}
 }
