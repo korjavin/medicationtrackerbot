@@ -25,6 +25,7 @@
     const tagFamilies = new Map();
     const CHANGE_CURSOR_KEY = 'medtracker_changes_cursor';
     const CACHE_PRUNE_AT_KEY = 'medtracker_cache_pruned_at';
+    const CLIENT_ID_KEY = 'wg.clientId';
     const CHANGE_POLL_INTERVAL_MS = 30000;
     const CHANGE_STREAM_RETRY_MS = 5000;
     const CHANGE_STREAM_MAX_RETRY_MS = 30000;
@@ -63,6 +64,34 @@
     // authoritative state.
     let lastOwnWriteAt = 0;
     const SELF_ECHO_WINDOW_MS = 5000;
+
+    // Per-browser stable client identifier. Minted on first use, persisted
+    // to localStorage so it survives reloads, and sent on every non-GET
+    // request via X-Client-ID. The backend echoes it back on the SSE
+    // payload (source_client_id) so the frontend can deterministically
+    // recognise echoes of its own writes — replacing the brittle 5s
+    // lastOwnWriteAt timing window for the SSE path.
+    let cachedClientId = null;
+
+    function generateUUID() {
+        if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+            try { return crypto.randomUUID(); } catch (_) { /* fall through */ }
+        }
+        // RFC 4122 v4 fallback for older WebViews without crypto.randomUUID.
+        const bytes = new Uint8Array(16);
+        if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+            crypto.getRandomValues(bytes);
+        } else {
+            for (let i = 0; i < 16; i += 1) bytes[i] = Math.floor(Math.random() * 256);
+        }
+        bytes[6] = (bytes[6] & 0x0f) | 0x40;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        const hex = [];
+        for (let i = 0; i < 16; i += 1) {
+            hex.push((bytes[i] + 0x100).toString(16).slice(1));
+        }
+        return `${hex.slice(0, 4).join('')}-${hex.slice(4, 6).join('')}-${hex.slice(6, 8).join('')}-${hex.slice(8, 10).join('')}-${hex.slice(10, 16).join('')}`;
+    }
 
     const hasValue = (value) => value !== null && value !== undefined;
 
@@ -554,6 +583,29 @@
 
         async invalidateKey(key) {
             await this.clearCached(key);
+        },
+
+        getClientId() {
+            if (typeof cachedClientId === 'string' && cachedClientId.length > 0) {
+                return cachedClientId;
+            }
+            let stored = null;
+            try {
+                stored = localStorage.getItem(CLIENT_ID_KEY);
+            } catch (_e) { /* localStorage may be unavailable */ }
+            if (typeof stored === 'string' && stored.length > 0) {
+                cachedClientId = stored;
+                return cachedClientId;
+            }
+            const minted = generateUUID();
+            cachedClientId = minted;
+            console.debug('[clientId] minted new client id %s (no prior value in localStorage)', minted);
+            try {
+                localStorage.setItem(CLIENT_ID_KEY, minted);
+            } catch (_e) {
+                console.debug('[clientId] localStorage write failed; using in-memory only');
+            }
+            return cachedClientId;
         },
 
         getChangeCursor() {
