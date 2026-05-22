@@ -104,13 +104,15 @@ class MainActivity : BridgeActivity() {
             Log.w(TAG, "bridge.webView unavailable; cannot inject bootstrap")
             return
         }
-        // The injection must run BEFORE the WebView navigates to the embedded
-        // URL so the frontend's first fetch sees the global. evaluateJavascript
-        // posts to the WebView's JS thread; the subsequent loadUrl is also
-        // posted to the same thread, so order is preserved.
-        val js = "window.__MEDTRACKER_BOOTSTRAP__ = { apiBase: " +
-            jsonString(base) + " };"
-        webView.evaluateJavascript(js, null)
+        // addJavascriptInterface persists across WebView navigations, unlike
+        // evaluateJavascript which only modifies the current document. The
+        // bootstrap shim at the top of index.html mirrors the native
+        // apiBase() into window.__MEDTRACKER_BOOTSTRAP__ so the documented
+        // frontend protocol stays unchanged. Re-registering on respawn
+        // replaces the prior binding (Android keeps the latest reference for
+        // a given name).
+        val nativeBridge = NativeBridge(base) { serviceBinder }
+        webView.addJavascriptInterface(nativeBridge, NativeBridge.JS_NAME)
         webView.loadUrl(base)
     }
 
@@ -278,26 +280,5 @@ class MainActivity : BridgeActivity() {
             return false
         }
 
-        // Escape a string so it can be embedded inside a JSON / JS string
-        // literal without breaking the evaluateJavascript payload. We only
-        // ever embed http://127.0.0.1:<port>, so the surface is tiny — but the
-        // escape keeps the helper safe to reuse for richer bootstrap fields
-        // later.
-        private fun jsonString(s: String): String {
-            val sb = StringBuilder(s.length + 2)
-            sb.append('"')
-            for (c in s) {
-                when (c) {
-                    '"' -> sb.append("\\\"")
-                    '\\' -> sb.append("\\\\")
-                    '\n' -> sb.append("\\n")
-                    '\r' -> sb.append("\\r")
-                    '\t' -> sb.append("\\t")
-                    else -> if (c.code < 0x20) sb.append(String.format("\\u%04x", c.code)) else sb.append(c)
-                }
-            }
-            sb.append('"')
-            return sb.toString()
-        }
     }
 }

@@ -59,6 +59,14 @@ class GoServerService : Service() {
         fun isProcessAlive(): Boolean = process?.isAlive == true
         fun recentStderr(): String = stderrLines.toList().joinToString("\n")
 
+        // recentLogTail returns the unified stdout+stderr ring tail (most
+        // recent BACKEND_LOG_RING_SIZE lines), oldest first. Used by
+        // NativeBridge.getBackendLogs() so the Settings → Backend logs
+        // screen surfaces what's currently in the Go process's output for
+        // bug-report copy/paste. Each line is prefixed with " " or "E " to
+        // mark stderr; the prefix is included in the returned string.
+        fun recentLogTail(): String = logRing.toList().joinToString("\n")
+
         // pid returns the embedded process's OS PID, or null if no process is
         // running. java.lang.Process.pid() is API 26+; on older devices we
         // return null rather than crash.
@@ -138,6 +146,12 @@ class GoServerService : Service() {
     // BlockingQueue) so a late `poll` doesn't strand the value.
     private val portHandoff = SynchronousQueue<Int>()
     private val stderrLines = LinkedBlockingDeque<String>(STDERR_RING_SIZE)
+
+    // Unified stdout + stderr tail used by the in-app "Backend logs" debug
+    // screen (Settings → About → Backend logs). Bounded to the most recent
+    // BACKEND_LOG_RING_SIZE lines; stderr entries are tagged with an "E "
+    // prefix so the surfacing UI can distinguish channels at a glance.
+    private val logRing = LinkedBlockingDeque<String>(BACKEND_LOG_RING_SIZE)
 
     // SupervisorJob so a failing child coroutine (e.g. the stop-grace timer)
     // doesn't cascade-cancel siblings. Cancelled in onDestroy.
@@ -229,6 +243,7 @@ class GoServerService : Service() {
                                 portHandoff.offer(parsed)
                             }
                         }
+                        pushLogLine("  $line")
                         Log.i(LOGCAT_TAG, line)
                     }
                 }
@@ -249,12 +264,23 @@ class GoServerService : Service() {
                         while (!stderrLines.offer(line)) {
                             stderrLines.poll()
                         }
+                        pushLogLine("E $line")
                         Log.w(LOGCAT_TAG, line)
                     }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "stderr reader died: ${e.message}")
             }
+        }
+    }
+
+    // pushLogLine appends to the unified log ring, dropping oldest entries
+    // when full. Both readers funnel through here so the tail is the
+    // chronological merge of stdout + stderr (within reader-scheduling
+    // jitter — close enough for human triage).
+    private fun pushLogLine(prefixed: String) {
+        while (!logRing.offer(prefixed)) {
+            logRing.poll()
         }
     }
 
@@ -305,6 +331,7 @@ class GoServerService : Service() {
         private const val CHANNEL_ID = "medtracker_backend"
         private const val NOTIFICATION_ID = 9001
         private const val STDERR_RING_SIZE = 50
+        internal const val BACKEND_LOG_RING_SIZE = 200
 
         private const val TAG = "GoServerService"
         private const val LOGCAT_TAG = "MedtrackerGo"
