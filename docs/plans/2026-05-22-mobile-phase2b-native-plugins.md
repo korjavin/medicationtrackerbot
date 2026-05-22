@@ -98,11 +98,11 @@ iOS is out of scope. Phase 2a is Android-only and Phase 2b inherits that constra
 
 ### Task 4: Barcode abstraction
 
-- [ ] create `web/static/js/native/web/barcode.js` exporting `scan(formats?)` that uses `window.BarcodeDetector` if available, falls back to `window.ZXing.BrowserMultiFormatReader`. Lifted from `scanner.js:40-64,193`. Returns `{ format, rawValue }` on success or `null` on user cancel. Single-shot only — resolves the stub's open question.
-- [ ] create `web/static/js/native/capacitor/barcode.js` calling `@capacitor-mlkit/barcode-scanning`'s `BarcodeScanner.scan({ formats })`. Maps MLKit formats to the same `{ format, rawValue }` shape. Single-shot.
-- [ ] update `web/static/js/native/index.js` to wire `window.Barcode`.
-- [ ] write `web/static/js/tests/native.barcode.test.js`: web BarcodeDetector path with stubbed `window.BarcodeDetector`, web ZXing fallback when BarcodeDetector is undefined, web cancel returns `null`, Capacitor success with `vi.mock('@capacitor-mlkit/barcode-scanning')`, Capacitor permission-denied normalization, Capacitor cancel returns `null`.
-- [ ] run `pnpm test` — must pass before Task 5.
+- [x] create `web/static/js/native/web/barcode.js` exporting `scan({ source, formats })` that uses `window.BarcodeDetector` if available, falls back to `window.ZXing.BrowserMultiFormatReader` for image/canvas/blob sources. Lifted from `scanner.js:40-64,193`. Returns `{ format, rawValue }` on success or `null` when no barcode was decoded (image had nothing). Single-shot only — resolves the stub's open question. (The API takes a `source` because the existing scanner.js modal still owns the camera UI and frame loop; the abstraction is the decode primitive both `detector.detect(video)` and the photo-fallback path call into. Capacitor's MLKit owns its own UI, so the Capacitor impl ignores `source` — that asymmetry is the point of the abstraction.)
+- [x] create `web/static/js/native/capacitor/barcode.js` calling `@capacitor-mlkit/barcode-scanning`'s `BarcodeScanner.scan({ formats })`. Maps MLKit formats to the same `{ format, rawValue }` shape; uppercases the caller's lowercase formats list so the same `formats=[...]` works across both impls. Single-shot. (Reads the plugin via `window.Capacitor.Plugins.BarcodeScanner` to match the geolocation + media-capture pattern — no JS bundler required.)
+- [x] update `web/static/js/native/index.js` to wire `window.Barcode`. (Wiring is handled by the foundation's `registerImpl` helper that the new impl files call into; index.js itself is unchanged from Task 2.)
+- [x] write `web/static/js/tests/native.barcode.test.js`: web BarcodeDetector path with stubbed `window.BarcodeDetector`, web ZXing fallback when BarcodeDetector is undefined, web cancel returns `null`, Capacitor success with `vi.mock('@capacitor-mlkit/barcode-scanning')`, Capacitor permission-denied normalization, Capacitor cancel returns `null`. Also added: source validation, BarcodeDetector constructor-retry fallback when formats unsupported, MLKit empty-barcodes-array cancel, runtime selector tests.
+- [x] run `pnpm test` — must pass before Task 5.
 
 ### Task 5: Reminders abstraction + pre-schedule loop
 
