@@ -26,6 +26,7 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
 	"github.com/korjavin/medicationtrackerbot/internal/store/food"
+	"github.com/korjavin/medicationtrackerbot/web"
 )
 
 // main is the mobile-build entry point. It runs the same HTTP server as the
@@ -158,6 +159,12 @@ func runMobile(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 
 	srv := server.New(s, "", *sessionSecret, *userID, server.OIDCConfig{}, "", "")
+	// On Android the binary runs from a read-only nativeLibraryDir with no
+	// co-located "./web/static" directory, so the disk-relative paths in
+	// internal/server would 500 every request to /, /static/*, /favicon.ico,
+	// and the service worker. Wire the embedded FS so those handlers read
+	// from the binary itself.
+	srv.SetStaticFS(web.StaticFS())
 	if foodAI != nil {
 		srv.SetFoodAIService(foodAI)
 	}
