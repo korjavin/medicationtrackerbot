@@ -248,6 +248,12 @@
             }
 
             this.recordOwnWrite();
+            // Capture our own stamp so rollback can CAS-clear it without
+            // wiping a more recent stamp belonging to a sibling optimistic
+            // write that is still in flight. Without this, an overlapping
+            // A.fail / B.pending pair would clear B's grace window too,
+            // mis-classifying B's own SSE echo as a foreign change.
+            const stampedAt = lastOwnWriteAt;
             this.requestTabRefresh(tags, 'optimistic');
 
             const self = this;
@@ -285,7 +291,12 @@
                     // own-echo will arrive, so clear the marker now —
                     // otherwise a real cross-source update inside the
                     // remaining 5s window would be mis-tagged self-echo.
-                    lastOwnWriteAt = 0;
+                    // Only clear when our stamp is still the latest, so a
+                    // sibling optimistic write that stamped after us keeps
+                    // its grace window intact.
+                    if (lastOwnWriteAt === stampedAt) {
+                        lastOwnWriteAt = 0;
+                    }
                     self.requestTabRefresh(tags, 'optimistic-rollback');
                 }
             };

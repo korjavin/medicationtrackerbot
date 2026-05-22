@@ -233,6 +233,55 @@ describe('data-store.js unit tests', () => {
     }
   });
 
+  it('optimistic rollback preserves a sibling optimistic write\'s self-echo marker', async () => {
+    // Regression: when two applyOptimistic writes overlap (A then B) and A
+    // rolls back, A's rollback must NOT wipe B's marker — otherwise B's own
+    // SSE echo would be mis-classified as a foreign change. Verified by
+    // asserting that an SSE payload arriving without source_client_id after
+    // A's rollback still classifies as `self-echo` thanks to B's stamp.
+    const { window, cleanup } = loadDataStoreEnv();
+
+    try {
+      vi.spyOn(window.DataStore, 'invalidateTags').mockResolvedValue(undefined);
+      const requestTabRefreshSpy = vi.fn();
+      window.requestTabRefresh = requestTabRefreshSpy;
+
+      const handleA = await window.DataStore.applyOptimistic(
+        'bp', () => ({ readings: [{ id: 1 }] }), ['bp']
+      );
+
+      // Force B's stamp to be strictly greater than A's so the CAS check
+      // distinguishes them. Without this nudge the two recordOwnWrite()
+      // calls can land on the same Date.now() millisecond in jsdom and
+      // the equality check would clear B's stamp anyway.
+      await new Promise((resolve) => setTimeout(resolve, 2));
+
+      const handleB = await window.DataStore.applyOptimistic(
+        'weight', () => ({ entries: [{ id: 2 }] }), ['weight']
+      );
+
+      await handleA.rollback();
+
+      // Now an SSE payload arrives WITHOUT source_client_id (polling path
+      // or older server) and the timing window must still classify it as
+      // self-echo because B's stamp survives A's rollback.
+      await window.DataStore.applyChangesPayload({
+        cursor: 600,
+        changed_tags: ['weight']
+      });
+
+      const lastCall = requestTabRefreshSpy.mock.calls[requestTabRefreshSpy.mock.calls.length - 1];
+      expect(lastCall[0]).toEqual({
+        changedTags: ['weight'],
+        source: 'self-echo'
+      });
+
+      await handleB.commit({ entries: [{ id: 2, committed: true }] });
+    } finally {
+      cleanup();
+    }
+  });
+
   it('applyChangesPayload tags refresh as changes when no recent own write', async () => {
     // Complement to the self-echo regression above: a payload arriving
     // without a recent recordOwnWrite() must surface as `changes` so the

@@ -646,6 +646,86 @@ func TestHandleChangesStreamOmitsSourceClientIDWhenEmpty(t *testing.T) {
 	}
 }
 
+// TestHandleChangesStreamOmitsSourceWhenCursorAdvancedPastEvent simulates the
+// race where a second write commits after a broker event was queued but
+// before the SSE handler's SQL read runs. The handler must NOT attribute the
+// (stale) event's source_client_id to a frame that includes both writes —
+// the foreign tags would otherwise be mis-classified as self-echoes on the
+// frontend.
+func TestHandleChangesStreamOmitsSourceWhenCursorAdvancedPastEvent(t *testing.T) {
+	srv, db := createGenericTestServer(t)
+	defer db.Close()
+
+	ts, cleanup := streamingTestServer(t, srv, 123456)
+	defer cleanup()
+
+	resp, err := http.Get(ts.URL + "/api/changes/stream?since=0")
+	if err != nil {
+		t.Fatalf("GET stream: %v", err)
+	}
+	defer resp.Body.Close()
+	reader := bufio.NewReader(resp.Body)
+	if _, err := readSSEFrame(t, reader); err != nil {
+		t.Fatalf("initial frame: %v", err)
+	}
+
+	ctx := context.Background()
+	// First write — establishes the cursor that the (stale) broker event
+	// will refer to.
+	bp1 := &store.BloodPressure{
+		UserID:     123456,
+		MeasuredAt: time.Now(),
+		Systolic:   120,
+		Diastolic:  80,
+	}
+	if _, err := db.BP.CreateReading(ctx, bp1); err != nil {
+		t.Fatalf("CreateReading 1: %v", err)
+	}
+	staleCursor, err := db.Settings.GetLatestChangeCursor(ctx)
+	if err != nil {
+		t.Fatalf("GetLatestChangeCursor: %v", err)
+	}
+
+	// Second write happens BEFORE we fire the broker — so by the time the
+	// SSE handler's SQL read runs, the latest cursor is already past
+	// staleCursor. This mirrors the production race where a foreign write
+	// slips in between the broker fan-out and the handler's emit query.
+	bp2 := &store.BloodPressure{
+		UserID:     123456,
+		MeasuredAt: time.Now().Add(time.Second),
+		Systolic:   121,
+		Diastolic:  81,
+	}
+	if _, err := db.BP.CreateReading(ctx, bp2); err != nil {
+		t.Fatalf("CreateReading 2: %v", err)
+	}
+
+	// Notify with the STALE cursor + a client ID. emit will read the
+	// newer cursor, see the mismatch, and omit source_client_id.
+	srv.changesBroker.Notify(staleCursor, "client-stale")
+
+	type frameResult struct {
+		frame map[string]any
+		err   error
+	}
+	done := make(chan frameResult, 1)
+	go func() {
+		f, err := readSSEFrame(t, reader)
+		done <- frameResult{frame: f, err: err}
+	}()
+	select {
+	case res := <-done:
+		if res.err != nil {
+			t.Fatalf("read frame: %v", res.err)
+		}
+		if got, present := res.frame["source_client_id"]; present {
+			t.Errorf("Expected source_client_id to be omitted when cursor advanced past event, got %v (frame=%v)", got, res.frame)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("SSE frame did not arrive within 500ms")
+	}
+}
+
 func TestHandleChanges_SinceCurrentCursorReturnsEmpty(t *testing.T) {
 	srv, db := createGenericTestServer(t)
 	defer db.Close()
