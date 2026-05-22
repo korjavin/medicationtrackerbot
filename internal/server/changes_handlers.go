@@ -140,6 +140,13 @@ func (s *Server) handleChangesStream(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Per-subscriber clientId (sanitised) is sanity-read here for symmetry with
+	// the header-based extraction in notifyOnWriteMiddleware. The handler does
+	// not use it directly — the broker event carries the originating client's
+	// id via ChangeEvent.SourceClientID, and we forward that to the frontend
+	// as `source_client_id`. The frontend compares against its own clientId.
+	_ = sanitizeClientID(r.URL.Query().Get("clientId"))
+
 	// Subscribe BEFORE the initial state read so a write that happens between
 	// the read and entering the select loop still wakes us up.
 	subCtx, cancelSub := context.WithCancel(r.Context())
@@ -186,7 +193,12 @@ func (s *Server) handleChangesStream(w http.ResponseWriter, r *http.Request) {
 	cursorCheck := time.NewTicker(changeStreamCursorCheckInterval)
 	defer cursorCheck.Stop()
 
-	emit := func() bool {
+	// emit reads the latest changed tags since the last cursor and pushes one
+	// SSE frame. sourceClientID is forwarded from the most recent ChangeEvent
+	// (sanitised by the broker's writer); empty string means "no source"
+	// (initial flush, per-stream backstop, tailer-driven write). Empty values
+	// are omitted from the JSON payload so older frontends parse cleanly.
+	emit := func(sourceClientID string) bool {
 		qCtx, qCancel := context.WithTimeout(r.Context(), changeStreamQueryTimeout)
 		cursor, tags, err := s.changes.ListChangedTagsSince(qCtx, since)
 		qCancel()
@@ -201,10 +213,14 @@ func (s *Server) handleChangesStream(w http.ResponseWriter, r *http.Request) {
 		if len(tags) == 0 {
 			return true
 		}
-		if err := writeSSE(w, map[string]any{
+		payload := map[string]any{
 			"cursor":       cursor,
 			"changed_tags": tags,
-		}); err != nil {
+		}
+		if sourceClientID != "" {
+			payload["source_client_id"] = sourceClientID
+		}
+		if err := writeSSE(w, payload); err != nil {
 			return false
 		}
 		flusher.Flush()
@@ -217,17 +233,19 @@ func (s *Server) handleChangesStream(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-maxAgeTimer.C:
 			return
-		case _, ok := <-sub:
+		case ev, ok := <-sub:
 			if !ok {
 				// Broker closed (graceful shutdown). Exit cleanly so the
 				// client sees onerror and reconnects after restart.
 				return
 			}
-			if !emit() {
+			if !emit(ev.SourceClientID) {
 				return
 			}
 		case <-cursorCheck.C:
-			if !emit() {
+			// Per-stream defense-in-depth read — no broker event drove it, so
+			// the frame carries no source attribution.
+			if !emit("") {
 				return
 			}
 		case <-keepalive.C:

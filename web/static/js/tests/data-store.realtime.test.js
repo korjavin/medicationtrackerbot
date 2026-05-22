@@ -26,6 +26,22 @@ describe('data-store.js realtime and polling', () => {
     }
   });
 
+  it('buildChangesStreamURL includes clientId param matching getClientId()', () => {
+    const { window, cleanup } = loadDataStoreEnv();
+
+    try {
+      window.DataStore.setChangeCursor(7);
+      const cid = window.DataStore.getClientId();
+      expect(typeof cid).toBe('string');
+      expect(cid.length).toBeGreaterThan(0);
+
+      const url = window.DataStore.buildChangesStreamURL();
+      expect(url).toContain('clientId=' + encodeURIComponent(cid));
+    } finally {
+      cleanup();
+    }
+  });
+
   it('startChangePolling triggers prune and periodic poll when online', async () => {
     const { window, cleanup } = loadDataStoreEnv();
 
