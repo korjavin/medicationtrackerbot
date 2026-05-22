@@ -187,6 +187,55 @@ describe('native/web/barcode.js — web impl', () => {
         expect(ctor).toHaveBeenCalledTimes(2);
         expect(result).toEqual({ format: 'qr_code', rawValue: '999' });
     });
+
+    it('revokes the object URL after decoding a Blob source (no leaked URL on success)', async () => {
+        const detect = vi.fn().mockResolvedValue([{ rawValue: '777', format: 'ean_13' }]);
+        const ctor = vi.fn(function () { this.detect = detect; });
+        env = loadEnv({ barcodeDetector: ctor });
+        const createObjectURL = vi.fn().mockReturnValue('blob:fake/url');
+        const revokeObjectURL = vi.fn();
+        env.window.URL.createObjectURL = createObjectURL;
+        env.window.URL.revokeObjectURL = revokeObjectURL;
+
+        // jsdom's HTMLImageElement does not auto-fire load when src is a fake
+        // blob: URL, so install a small shim that triggers onload synchronously.
+        const origImage = env.window.Image;
+        env.window.Image = function () {
+            const i = new origImage();
+            Object.defineProperty(i, 'src', {
+                set(_v) { if (typeof this.onload === 'function') this.onload(); },
+            });
+            return i;
+        };
+
+        const fakeBlob = new env.window.Blob(['x'], { type: 'image/jpeg' });
+        await env.window.Barcode.scan({ source: fakeBlob });
+        expect(createObjectURL).toHaveBeenCalledTimes(1);
+        // Revoked at least once after the success path settles — the object
+        // URL is not leaked across decodes.
+        expect(revokeObjectURL).toHaveBeenCalled();
+        expect(revokeObjectURL.mock.calls[0][0]).toBe('blob:fake/url');
+    });
+
+    it('rejects a Response object as an unsupported source (not a Blob)', async () => {
+        env = loadEnv();
+        // Fabricate a Response-shaped object: duck-typed arrayBuffer+type but
+        // constructor.name === 'Response'. Before the fix, isBlob() would
+        // accept this and silently fail inside URL.createObjectURL.
+        const fakeResponse = {
+            arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
+            type: 'basic',
+        };
+        Object.defineProperty(fakeResponse, 'constructor', {
+            value: { name: 'Response' },
+        });
+        let caught;
+        try { await env.window.Barcode.scan({ source: fakeResponse }); }
+        catch (e) { caught = e; }
+        expect(caught).toBeDefined();
+        expect(caught.name).toBe('BarcodeError');
+        expect(/unsupported source/i.test(caught.message)).toBe(true);
+    });
 });
 
 describe('native/capacitor/barcode.js — Capacitor impl', () => {

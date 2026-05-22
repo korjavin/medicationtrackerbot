@@ -53,6 +53,9 @@ describe('features/food/scanner.js — Phase 2b abstraction seam (Task 7)', () =
         await window.openPhotoPickerAndDecode();
 
         expect(pickPhotoSpy).toHaveBeenCalledTimes(1);
+        // capture: false so mobile browsers don't force the camera and the
+        // user can pick an existing barcode photo from their gallery.
+        expect(pickPhotoSpy).toHaveBeenCalledWith({ capture: false });
         expect(scanSpy).toHaveBeenCalledTimes(1);
         // Barcode.scan is called with { source: <blob>, formats: [...] }.
         const scanArg = scanSpy.mock.calls[0][0];
@@ -166,5 +169,48 @@ describe('features/food/scanner.js — Phase 2b abstraction seam (Task 7)', () =
         // Loop scheduled a follow-up timer (post-error continuation).
         expect(window.FoodScanner._getLoopTimer()).not.toBeNull();
         window.stopFoodScanner();
+    });
+
+    it('startFoodScanner routes through window.Barcode.scan on the Capacitor shell (no modal, no getUserMedia)', async () => {
+        const { window } = env;
+
+        // Simulate the Capacitor build's runtime: isNativePlatform() returns
+        // true so the scanner should hand control to MLKit instead of opening
+        // the in-app live-camera modal.
+        window.Capacitor = { isNativePlatform: () => true };
+
+        const scanSpy = vi.fn().mockResolvedValue({ format: 'ean_13', rawValue: '1234567890123' });
+        window.Barcode = { scan: scanSpy };
+
+        const onChangeSpy = vi.fn();
+        window.onFoodBarcodeChange = onChangeSpy;
+
+        // If the scanner accidentally falls through to the web modal path it
+        // would call getUserMedia; spy to assert that does NOT happen.
+        const getUserMedia = vi.fn();
+        const origMediaDevices = window.navigator.mediaDevices;
+        Object.defineProperty(window.navigator, 'mediaDevices', {
+            configurable: true,
+            value: { getUserMedia },
+        });
+
+        try {
+            await window.startFoodScanner();
+            expect(scanSpy).toHaveBeenCalledTimes(1);
+            // No source means "let the plugin own the UI" — MLKit on Android.
+            const arg = scanSpy.mock.calls[0][0];
+            expect(arg.source).toBeUndefined();
+            expect(Array.isArray(arg.formats)).toBe(true);
+            // Decoded value lands in #food-barcode through handleDecodedValue.
+            expect(env.document.getElementById('food-barcode').value).toBe('1234567890123');
+            expect(onChangeSpy).toHaveBeenCalledTimes(1);
+            // Web modal path is NOT taken — getUserMedia stays untouched.
+            expect(getUserMedia).not.toHaveBeenCalled();
+        } finally {
+            Object.defineProperty(window.navigator, 'mediaDevices', {
+                configurable: true,
+                value: origMediaDevices,
+            });
+        }
     });
 });

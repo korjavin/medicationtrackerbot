@@ -136,16 +136,25 @@
     }
 
     function fetchUpcoming() {
-        var fetcher = (typeof window.offlineAwareApiCall === 'function')
+        // offlineAwareApiCall and apiCallDirect both have signature
+        // (endpoint, method, body, opts) and return the parsed JSON body
+        // directly (not a Response). Fall back to fetch() only when neither
+        // helper is present, in which case we read the Response ourselves.
+        var apiCall = (typeof window.offlineAwareApiCall === 'function')
             ? window.offlineAwareApiCall
             : (typeof window.apiCallDirect === 'function' ? window.apiCallDirect : null);
-        var doFetch = fetcher
-            ? fetcher(REMINDERS_ENDPOINT, { method: 'GET' })
-            : window.fetch(REMINDERS_ENDPOINT, { method: 'GET', credentials: 'same-origin' });
-        return Promise.resolve(doFetch).then(function (res) {
-            if (!res || typeof res.ok !== 'boolean') return [];
-            if (!res.ok) return [];
-            return res.json();
+        var doFetch;
+        if (apiCall) {
+            doFetch = Promise.resolve(apiCall(REMINDERS_ENDPOINT, 'GET'));
+        } else {
+            doFetch = window.fetch(REMINDERS_ENDPOINT, { method: 'GET', credentials: 'same-origin' })
+                .then(function (res) {
+                    if (!res || !res.ok) return [];
+                    return res.json();
+                });
+        }
+        return doFetch.then(function (data) {
+            return Array.isArray(data) ? data : [];
         }).catch(function () { return []; });
     }
 
@@ -169,7 +178,15 @@
         try {
             var ids = String(extra.medication_id != null ? extra.medication_id : '');
             var intakeIds = String(extra.intake_id);
-            var params = new window.URLSearchParams();
+            // Merge into the existing query string rather than replacing it,
+            // so unrelated state (e.g. ?section=workouts) isn't lost when the
+            // user taps a notification.
+            var params;
+            try {
+                params = new window.URLSearchParams(window.location.search || '');
+            } catch (_) {
+                params = new window.URLSearchParams();
+            }
             params.set('action', 'medication_confirm');
             if (ids) params.set('ids', ids);
             params.set('intake_ids', intakeIds);
@@ -180,7 +197,11 @@
             if (typeof window.handleDeepLinks === 'function') {
                 window.handleDeepLinks();
             }
-        } catch (_) { /* ignore */ }
+        } catch (e) {
+            // Log so a broken tap-handler is debuggable from WebView logs
+            // rather than silently dropping the deep-link.
+            try { console.error('Reminders: notification tap handler failed:', e); } catch (_) { /* ignore */ }
+        }
     }
 
     var loopState = { started: false, removeListeners: [] };
