@@ -819,12 +819,6 @@
             if (window.userInitData) {
                 params.set('initData', window.userInitData);
             }
-            try {
-                const cid = this.getClientId();
-                if (typeof cid === 'string' && cid.length > 0) {
-                    params.set('clientId', cid);
-                }
-            } catch (_e) { /* defensive: never let clientId failure break the stream */ }
             return `/api/changes/stream?${params.toString()}`;
         },
 

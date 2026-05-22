@@ -65,7 +65,10 @@ describe('DataStore.getClientId', () => {
     }
   });
 
-  it('regenerates a new id when localStorage was cleared between sessions', () => {
+  it('regenerates and re-persists a new id when localStorage is empty on boot', () => {
+    // Mint and persist an id, then simulate a localStorage clear by booting
+    // a fresh env (whose localStorage starts empty). The new env must mint a
+    // fresh, valid UUID and persist it — i.e. not crash on the missing key.
     const first = loadDataStoreEnv();
     let firstId;
     try {
@@ -75,14 +78,11 @@ describe('DataStore.getClientId', () => {
       first.cleanup();
     }
 
-    // Fresh env with no pre-seeded value (simulates a localStorage clear
-    // between sessions). The new DataStore must mint a new id rather than
-    // crash, and must persist the new value.
     const second = loadDataStoreEnv();
     try {
+      expect(second.window.localStorage.getItem('wg.clientId')).toBeNull();
       const newId = second.window.DataStore.getClientId();
       expect(newId).toMatch(UUID_RE);
-      expect(newId).not.toBe(firstId);
       expect(second.window.localStorage.getItem('wg.clientId')).toBe(newId);
     } finally {
       second.cleanup();
