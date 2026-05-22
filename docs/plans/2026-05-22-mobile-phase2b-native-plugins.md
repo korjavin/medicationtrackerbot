@@ -90,11 +90,11 @@ iOS is out of scope. Phase 2a is Android-only and Phase 2b inherits that constra
 
 ### Task 3: MediaCapture abstraction (camera + photo picker)
 
-- [ ] create `web/static/js/native/web/media-capture.js` exporting `takePhoto()` (live camera via `getUserMedia` + canvas snapshot, returns a `Blob`) and `pickPhoto()` (hidden `<input type=file accept=image/* capture=environment>`, returns a `Blob`). Lifted from the patterns in `scanner.js:136` and `photo.js:19-24` — no behavior change, just relocated behind the interface.
-- [ ] create `web/static/js/native/capacitor/media-capture.js` calling `@capacitor/camera`'s `Camera.getPhoto({ source: CameraSource.Camera, resultType: ... })` for `takePhoto()` and `Camera.getPhoto({ source: CameraSource.Photos })` for `pickPhoto()`. Returns a `Blob` (decoded from the plugin's base64 or webPath response) so callers see one return type across both impls.
-- [ ] update `web/static/js/native/index.js` to wire `window.MediaCapture`.
-- [ ] write `web/static/js/tests/native.media-capture.test.js`: web `takePhoto` happy path with `navigator.mediaDevices.getUserMedia` mocked, web `takePhoto` permission-denied, web `pickPhoto` with mocked file input change event, Capacitor `takePhoto` with `vi.mock('@capacitor/camera')`, Capacitor `pickPhoto`, Capacitor cancel path (plugin throws `User cancelled photos app`) → resolves to `null` rather than rejecting (resolves it like an empty selection so callers can branch on null).
-- [ ] run `pnpm test` — must pass before Task 4.
+- [x] create `web/static/js/native/web/media-capture.js` exporting `takePhoto()` (live camera via `getUserMedia` + canvas snapshot, returns a `Blob`) and `pickPhoto()` (hidden `<input type=file accept=image/* capture=environment>`, returns a `Blob`). Lifted from the patterns in `scanner.js:136` and `photo.js:19-24` — no behavior change, just relocated behind the interface.
+- [x] create `web/static/js/native/capacitor/media-capture.js` calling `@capacitor/camera`'s `Camera.getPhoto({ source: CameraSource.Camera, resultType: ... })` for `takePhoto()` and `Camera.getPhoto({ source: CameraSource.Photos })` for `pickPhoto()`. Returns a `Blob` (decoded from the plugin's base64 or webPath response) so callers see one return type across both impls. (Reads plugin via `window.Capacitor.Plugins.Camera` to match the geolocation pattern — no JS bundler required.)
+- [x] update `web/static/js/native/index.js` to wire `window.MediaCapture`. (Wiring is handled by the foundation's `registerImpl` helper that the new impl files call into; index.js itself is unchanged from Task 2.)
+- [x] write `web/static/js/tests/native.media-capture.test.js`: web `takePhoto` happy path with `navigator.mediaDevices.getUserMedia` mocked, web `takePhoto` permission-denied, web `pickPhoto` with mocked file input change event, Capacitor `takePhoto` with `vi.mock('@capacitor/camera')`, Capacitor `pickPhoto`, Capacitor cancel path (plugin throws `User cancelled photos app`) → resolves to `null` rather than rejecting (resolves it like an empty selection so callers can branch on null).
+- [x] run `pnpm test` — must pass before Task 4.
 
 ### Task 4: Barcode abstraction
 
