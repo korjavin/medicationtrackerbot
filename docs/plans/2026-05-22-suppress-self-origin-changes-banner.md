@@ -104,13 +104,13 @@ This plan plumbs a per-client identifier end-to-end so the frontend can determin
 - [x] Run `go test ./...` — must pass before next task.
 
 ### Task 5: Use `source_client_id` to classify self-echo in `applyChangesPayload`
-- [ ] In `web/static/js/data-store.js` `applyChangesPayload`, when `res.source_client_id` is a non-empty string, classify the source as `'self-echo'` iff `res.source_client_id === this.getClientId()`, else `'changes'`.
-- [ ] When `res.source_client_id` is absent or empty (older server, initial flush, polling), fall back to the existing `lastOwnWriteAt`-based check.
-- [ ] Document the precedence with a short comment block (one paragraph max) just above the new branch — `clientId`-based check first, timing window second.
-- [ ] Confirm `requestTabRefresh` and `app.js:requestTabRefresh` handle `self-echo` the way they do today — no changes needed there. (Double-check by reading lines 1693-1733.)
-- [ ] Write tests in `data-store.unit.test.js`: payload with `source_client_id == clientId` → invokes `requestTabRefresh` with `source='self-echo'`; payload with mismatched ID → `source='changes'`; payload with empty/missing field but within `lastOwnWriteAt` window → `source='self-echo'`; payload with empty field outside window → `source='changes'`.
-- [ ] Update `web/static/js/tests/app.refresh-dispatch.test.js` if it asserts on the old timing-only behaviour (extend, do not replace, the existing case).
-- [ ] Run `pnpm test` — must pass before next task.
+- [x] In `web/static/js/data-store.js` `applyChangesPayload`, when `res.source_client_id` is a non-empty string, classify the source as `'self-echo'` iff `res.source_client_id === this.getClientId()`, else `'changes'`.
+- [x] When `res.source_client_id` is absent or empty (older server, initial flush, polling), fall back to the existing `lastOwnWriteAt`-based check.
+- [x] Document the precedence with a short comment block (one paragraph max) just above the new branch — `clientId`-based check first, timing window second.
+- [x] Confirm `requestTabRefresh` and `app.js:requestTabRefresh` handle `self-echo` the way they do today — no changes needed there. (Double-check by reading lines 1693-1733.)
+- [x] Write tests in `data-store.unit.test.js`: payload with `source_client_id == clientId` → invokes `requestTabRefresh` with `source='self-echo'`; payload with mismatched ID → `source='changes'`; payload with empty/missing field but within `lastOwnWriteAt` window → `source='self-echo'`; payload with empty field outside window → `source='changes'`.
+- [x] Update `web/static/js/tests/app.refresh-dispatch.test.js` if it asserts on the old timing-only behaviour (extend, do not replace, the existing case). (No update needed: existing self-echo case asserts on the `source='self-echo'` label, which is source-classifier-agnostic.)
+- [x] Run `pnpm test` — must pass before next task.
 
 ### Task 6: Wire end-to-end and verify with an integration-style frontend test
 - [ ] In a feature-level test (extend `web/static/js/tests/food.optimistic-write.test.js` if one exists, else add to the food feature suite per the integration-first rule in CLAUDE.md §8), simulate: user fires `saveFoodLog`; mock server returns a successful POST; mock SSE delivers a `{cursor, changed_tags: ['food'], source_client_id: <ownId>}` payload; assert the banner is **not** shown and `loadFoodLogs` ran exactly once via the optimistic path.

@@ -641,18 +641,30 @@
             const changedTags = Array.isArray(res.changed_tags) ? res.changed_tags : [];
             const prevCursor = this.getChangeCursor();
             if (changedTags.length > 0) {
-                // The marker is held for the full window (not consumed on
-                // the first event) so multi-write own actions (e.g. edit-note
-                // POST+DELETE, user-tapping-fast bursts) classify every echo
-                // as `self-echo`. Tradeoff: a real cross-source update from
-                // another tab / the Telegram bot / the scheduler arriving
-                // inside the 5s window is silently suppressed. For a
-                // single-user self-hosted app this is rare and recoverable
-                // (next loadX fetches fresh); the multi-write banner flicker
-                // it prevents is the originally-reported user-visible bug.
-                const isSelfEcho = lastOwnWriteAt > 0
-                    && (Date.now() - lastOwnWriteAt) < SELF_ECHO_WINDOW_MS;
-                const source = isSelfEcho ? 'self-echo' : 'changes';
+                // Source classification precedence:
+                //   1. `source_client_id` (SSE-only): the backend echoes the
+                //      X-Client-ID header from the originating write back on
+                //      the SSE payload. When present and equal to our own
+                //      getClientId(), the event is deterministically a
+                //      self-echo regardless of timing. This is the primary
+                //      mechanism and is robust to SSE delivery latency.
+                //   2. `lastOwnWriteAt` 5s window (fallback): used when
+                //      `source_client_id` is missing — i.e. the polling path
+                //      (`GET /api/changes`), the initial SSE flush, or older
+                //      server builds that pre-date source attribution. The
+                //      window is held for the full SELF_ECHO_WINDOW_MS so
+                //      multi-write own actions (edit-note POST+DELETE) all
+                //      classify as `self-echo`.
+                const ownId = (typeof this.getClientId === 'function') ? this.getClientId() : '';
+                const incomingSource = typeof res.source_client_id === 'string' ? res.source_client_id : '';
+                let source;
+                if (incomingSource.length > 0) {
+                    source = (incomingSource === ownId) ? 'self-echo' : 'changes';
+                } else {
+                    const isSelfEcho = lastOwnWriteAt > 0
+                        && (Date.now() - lastOwnWriteAt) < SELF_ECHO_WINDOW_MS;
+                    source = isSelfEcho ? 'self-echo' : 'changes';
+                }
                 console.log('[changes] tags=%o cursor=%d→%d source=%s',
                     changedTags, prevCursor, res.cursor, source);
                 await this.invalidateTags(changedTags);

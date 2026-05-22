@@ -258,6 +258,122 @@ describe('data-store.js unit tests', () => {
     }
   });
 
+  it('applyChangesPayload classifies as self-echo when source_client_id matches own clientId', async () => {
+    // Primary mechanism: backend echoes the X-Client-ID from the originating
+    // write back on the SSE payload as source_client_id. When it matches
+    // this client's getClientId(), the event is deterministically a
+    // self-echo regardless of the lastOwnWriteAt timing window.
+    const { window, cleanup } = loadDataStoreEnv();
+
+    try {
+      vi.spyOn(window.DataStore, 'invalidateTags').mockResolvedValue(undefined);
+      const requestTabRefreshSpy = vi.fn();
+      window.requestTabRefresh = requestTabRefreshSpy;
+
+      const ownId = window.DataStore.getClientId();
+
+      await window.DataStore.applyChangesPayload({
+        cursor: 700,
+        changed_tags: ['food'],
+        source_client_id: ownId
+      });
+
+      expect(requestTabRefreshSpy).toHaveBeenCalledWith({
+        changedTags: ['food'],
+        source: 'self-echo'
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('applyChangesPayload classifies as changes when source_client_id is a different client', async () => {
+    // A cross-source write (other tab, another device, Telegram bot) carries
+    // a source_client_id that does not match this client's getClientId().
+    // The banner-defer logic must surface as `changes` so cross-source
+    // updates are visible — even if a recent own-write put us inside the
+    // SELF_ECHO_WINDOW_MS fallback window. The clientId check takes
+    // precedence over the timing window when source_client_id is present.
+    const { window, cleanup } = loadDataStoreEnv();
+
+    try {
+      vi.spyOn(window.DataStore, 'invalidateTags').mockResolvedValue(undefined);
+      const requestTabRefreshSpy = vi.fn();
+      window.requestTabRefresh = requestTabRefreshSpy;
+
+      window.DataStore.recordOwnWrite();
+
+      await window.DataStore.applyChangesPayload({
+        cursor: 800,
+        changed_tags: ['food'],
+        source_client_id: 'a-different-client-id-uuid'
+      });
+
+      expect(requestTabRefreshSpy).toHaveBeenCalledWith({
+        changedTags: ['food'],
+        source: 'changes'
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('applyChangesPayload falls back to timing window when source_client_id is missing', async () => {
+    // Backward compatibility / polling path: older server builds and the
+    // polling channel (`GET /api/changes`) do not carry per-event source
+    // attribution. When source_client_id is absent, the lastOwnWriteAt
+    // 5s window classifies an echo as self-echo (within window) or
+    // changes (outside window).
+    const { window, cleanup } = loadDataStoreEnv();
+
+    try {
+      vi.spyOn(window.DataStore, 'invalidateTags').mockResolvedValue(undefined);
+      const requestTabRefreshSpy = vi.fn();
+      window.requestTabRefresh = requestTabRefreshSpy;
+
+      window.DataStore.recordOwnWrite();
+
+      await window.DataStore.applyChangesPayload({
+        cursor: 900,
+        changed_tags: ['food']
+      });
+
+      expect(requestTabRefreshSpy).toHaveBeenCalledWith({
+        changedTags: ['food'],
+        source: 'self-echo'
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('applyChangesPayload falls back to changes when source_client_id is empty string', async () => {
+    // The SSE handler emits `source_client_id: ""` when there is no
+    // attribution (e.g. scheduler-driven write). An empty string must be
+    // treated the same as the field being absent: fall back to the timing
+    // window. Without a recent own-write, that means `changes`.
+    const { window, cleanup } = loadDataStoreEnv();
+
+    try {
+      vi.spyOn(window.DataStore, 'invalidateTags').mockResolvedValue(undefined);
+      const requestTabRefreshSpy = vi.fn();
+      window.requestTabRefresh = requestTabRefreshSpy;
+
+      await window.DataStore.applyChangesPayload({
+        cursor: 1000,
+        changed_tags: ['weight'],
+        source_client_id: ''
+      });
+
+      expect(requestTabRefreshSpy).toHaveBeenCalledWith({
+        changedTags: ['weight'],
+        source: 'changes'
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
   it('advanceCursorSilently advances cursor but does NOT invalidate tags', async () => {
     // Regression: advanceCursorSilently runs fire-and-forget from
     // apiCallDirect after every successful write. If it invalidates the
