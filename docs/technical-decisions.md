@@ -43,6 +43,25 @@ fallback path is exactly the same code the client used before. See
 [sse-traefik.md](sse-traefik.md) for the required Traefik labels and the
 residual `initData`-in-access-log caveat.
 
+### Source attribution via `X-Client-ID`
+
+Each browser mints a stable `clientId` (UUIDv4, persisted to
+`localStorage['wg.clientId']`) on first load and sends it as `X-Client-ID`
+on every non-GET request. `notifyOnWriteMiddleware` reads the header,
+sanitises it (printable ASCII, ≤64 chars), and passes it through to
+`changesBroker.Notify(cursor, sourceClientID)`. Subscribers fan out a
+`ChangeEvent{Cursor, SourceClientID}` and the SSE handler emits
+`source_client_id` on the live payload (`omitempty` — initial flush and
+tailer-driven notifications without an HTTP source omit the field). The
+frontend's `applyChangesPayload` classifies a change as `self-echo` iff
+`source_client_id === DataStore.getClientId()`, suppressing the "New data
+is available." banner deterministically regardless of SSE delivery
+latency. When `source_client_id` is absent (older server, initial flush,
+polling fallback, scheduler/bot writes) the frontend falls back to the
+existing 5s `lastOwnWriteAt` timing window. The mechanism is purely
+additive: older frontends without `X-Client-ID` and older servers without
+`source_client_id` interoperate cleanly via the timing fallback.
+
 ## Why only three endpoints support offline writes
 
 Adding offline write support requires: IndexedDB schema, optimistic UI rendering, conflict resolution on sync, and error handling for rejected writes. We limit this to the three most time-sensitive health actions (BP readings, weight logs, medication confirmations) where missing a data point is worse than the implementation complexity. Other writes (editing medications, creating workouts) are infrequent and can wait for connectivity.
