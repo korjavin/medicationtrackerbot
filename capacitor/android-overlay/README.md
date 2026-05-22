@@ -19,7 +19,10 @@ Layout
   `LISTENING 127.0.0.1:<port>` line, polls `/healthz`, injects
   `window.__MEDTRACKER_BOOTSTRAP__ = { apiBase: "http://127.0.0.1:<port>" }`,
   then `loadUrl()`s the WebView. Shows a retry dialog if the binary fails to
-  start within 10s.
+  start within 10s. When `capacitor.config.ts` sets `server.url` to a remote
+  dev backend, `MainActivity.onCreate` detects the configured URL via
+  `bridge.config.serverUrl` and skips the spawn + lifecycle hooks entirely so
+  the Phase 1 dev-server workflow keeps working unchanged.
 - `app/src/main/java/com/korjavin/medtracker/GoServerService.kt` — foreground
   service that owns the `Process` handle. Spawns
   `nativeLibraryDir/libmedtracker.so` with argv
