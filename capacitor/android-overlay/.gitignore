@@ -1,0 +1,4 @@
+# Per-ABI Go binaries are build artifacts produced by
+# scripts/build-android-binaries.sh — too big to track in git (~13 MB stripped
+# per ABI), and re-built locally on a fresh checkout anyway.
+app/src/main/jniLibs/**/libmedtracker.so
