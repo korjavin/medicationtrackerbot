@@ -225,10 +225,28 @@ class GoServerService : Service() {
             val newPid = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) started.pid() else -1L
             startStdoutReader(started)
             startStderrReader(started)
+            startProcessReaper(started, newPid)
             Log.i(TAG, "Spawned Go binary, pid=$newPid")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start Go binary", e)
             stderrLines.offer("spawn failed: ${e.message}")
+        }
+    }
+
+    // startProcessReaper drains the child's exit status so it doesn't sit in
+    // /proc as a zombie after it dies. Without a waitFor() call, every
+    // respawn cycle (grace-expired SIGTERM, low-memory SIGKILL, crash) leaks
+    // one zombie into the app process's PCB until the OS reclaims everything
+    // by killing the app. Daemon thread so it doesn't keep the JVM alive past
+    // service teardown.
+    private fun startProcessReaper(p: Process, pid: Long) {
+        thread(start = true, isDaemon = true, name = "GoProcessReaper") {
+            try {
+                val exit = p.waitFor()
+                Log.i(TAG, "Go binary pid=$pid exited, code=$exit")
+            } catch (e: InterruptedException) {
+                Log.w(TAG, "process reaper interrupted, pid=$pid: ${e.message}")
+            }
         }
     }
 

@@ -14,6 +14,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -200,6 +201,65 @@ func startMobileForTest(t *testing.T, args []string) (int, func()) {
 		t.Fatalf("timed out waiting for LISTENING line")
 	}
 	panic("unreachable")
+}
+
+// TestRunMobile_ServesEmbeddedStaticAssets exercises the embed-backed
+// static-file handlers wired via server.SetStaticFS(web.StaticFS()) in
+// main_mobile.go's runMobile. On Android the binary spawns from a read-only
+// nativeLibraryDir with no co-located "./web/static" tree, so without the
+// embed wiring GET / and GET /static/sw.js would 500 — breaking the
+// WebView's loadUrl(base) path the Capacitor shell uses to render the PWA.
+// The test asserts both pages serve from a cwd that does NOT contain
+// "./web/static", matching the on-device condition.
+func TestRunMobile_ServesEmbeddedStaticAssets(t *testing.T) {
+	// chdir to a temp dir that has no "./web/static" subtree. If the embed
+	// wiring regressed, the handlers would fall back to disk and the
+	// resulting 500 would surface immediately on the GET / below.
+	emptyCwd := t.TempDir()
+	prev, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(emptyCwd); err != nil {
+		t.Fatalf("chdir to %s: %v", emptyCwd, err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(prev) })
+
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	port, cleanup := startMobileForTest(t, []string{"-db", dbPath, "-port", "0"})
+	defer cleanup()
+
+	cases := []struct {
+		name     string
+		path     string
+		wantBody string // substring assertion; full content compares are brittle across edits
+	}{
+		{"index.html", "/", "<title>Med Tracker</title>"},
+		{"service worker", "/static/sw.js", "self.addEventListener"},
+		{"app.js", "/static/js/app.js", ""}, // existence-only; bundle is large and frequently edited
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d%s", port, tc.path))
+			if err != nil {
+				t.Fatalf("GET %s: %v", tc.path, err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("GET %s status=%d, want 200", tc.path, resp.StatusCode)
+			}
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatalf("read body: %v", err)
+			}
+			if len(body) == 0 {
+				t.Fatalf("GET %s returned empty body", tc.path)
+			}
+			if tc.wantBody != "" && !strings.Contains(string(body), tc.wantBody) {
+				t.Fatalf("GET %s body missing %q (got first 200 bytes: %q)", tc.path, tc.wantBody, string(body[:min(200, len(body))]))
+			}
+		})
+	}
 }
 
 // assertHealthz polls /healthz with a 5s deadline and asserts a 200 response

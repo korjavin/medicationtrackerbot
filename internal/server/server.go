@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -8,6 +9,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -108,6 +110,14 @@ type Server struct {
 	// cost-sensitive endpoints when demoMode is on. Ignored when demoMode is
 	// off. Populated by SetDemoConfig.
 	demoCfg DemoConfig
+	// staticFS, when non-nil, is read by the static-file handlers
+	// (serveIndexWithBotUsername, serveServiceWorker, serveOIDCSetup, the
+	// /static/ FileServer, /favicon.ico, /pitch) in place of the relative
+	// "./web/static/*" disk paths. The mobile build wires this via
+	// SetStaticFS(web.StaticFS()) because the embedded ELF runs from
+	// Android's read-only nativeLibraryDir with no co-located "./web/static"
+	// directory. Server build leaves it nil and reads from disk.
+	staticFS fs.FS
 }
 
 // DemoConfig groups the per-IP rate-limit thresholds applied to AI /
@@ -443,6 +453,67 @@ func (s *Server) SetTZLifecycle(svc tzreschedule.LifecycleService) {
 	s.tzLifecycle = svc
 }
 
+// SetStaticFS swaps the static-file source from disk (the default
+// "./web/static" relative path) to the supplied fs.FS, which must be rooted
+// so that "index.html", "js/...", "css/...", etc. resolve directly under
+// the root. The mobile build calls this with the embedded FS from
+// internal/web because Android's nativeLibraryDir has no co-located
+// "./web/static" tree. Server build leaves staticFS nil and the existing
+// disk-based handlers fire as before.
+func (s *Server) SetStaticFS(f fs.FS) {
+	s.staticFS = f
+}
+
+// readStaticFile reads a file from the configured static-asset source.
+// When staticFS is set the read goes through the embedded FS; otherwise it
+// falls back to "./web/static/<name>" so the server build keeps working
+// from the developer's CWD with no compile-time assumption about embedding.
+func (s *Server) readStaticFile(name string) ([]byte, error) {
+	if s.staticFS != nil {
+		return fs.ReadFile(s.staticFS, name)
+	}
+	return os.ReadFile("./web/static/" + name)
+}
+
+// serveStaticFile serves a single named asset honoring the same disk-vs-FS
+// switch as readStaticFile. The caller is responsible for any Content-Type
+// or cache-control headers it wants set before calling this — http.ServeContent
+// fills in a Content-Type based on the file extension when one isn't already
+// present.
+func (s *Server) serveStaticFile(w http.ResponseWriter, r *http.Request, name string) {
+	if s.staticFS == nil {
+		http.ServeFile(w, r, "./web/static/"+name)
+		return
+	}
+	f, err := s.staticFS.Open(name)
+	if err != nil {
+		http.Error(w, "Not Found", http.StatusNotFound)
+		return
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	content, err := io.ReadAll(f)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	http.ServeContent(w, r, name, info.ModTime(), bytes.NewReader(content))
+}
+
+// staticFileSystem returns the http.FileSystem the /static/ FileServer
+// reads from. When staticFS is set we adapt it via http.FS; otherwise we
+// keep the existing on-disk path.
+func (s *Server) staticFileSystem() http.FileSystem {
+	if s.staticFS != nil {
+		return http.FS(s.staticFS)
+	}
+	return http.Dir("./web/static")
+}
+
 // deleteNotification deletes a previously sent notification from all notifiers.
 func (s *Server) deleteNotification(ctx context.Context, msgID int) {
 	if msgID == 0 {
@@ -614,16 +685,18 @@ func (s *Server) Routes() http.Handler {
 	// Server-generated config
 	mux.HandleFunc("/static/config.js", s.serveConfigJS)
 
-	// Static Files with no-cache headers
-	fs := http.FileServer(http.Dir("./web/static"))
-	mux.Handle("/static/", noCacheMiddleware(http.StripPrefix("/static/", fs)))
+	// Static Files with no-cache headers. The underlying filesystem is
+	// either disk-backed (server build, "./web/static") or embed-backed
+	// (mobile build, SetStaticFS) depending on what the caller wired.
+	staticFileServer := http.FileServer(s.staticFileSystem())
+	mux.Handle("/static/", noCacheMiddleware(http.StripPrefix("/static/", staticFileServer)))
 	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "./web/static/icons/favicon.ico")
+		s.serveStaticFile(w, r, "icons/favicon.ico")
 	})
 
 	// Pitch Deck Presentation
 	mux.HandleFunc("/pitch", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "web/static/pitch.html")
+		s.serveStaticFile(w, r, "pitch.html")
 	})
 
 	// OIDC Setup Helper
@@ -1007,7 +1080,7 @@ func (s *Server) serveServiceWorker(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/javascript")
 	w.Header().Set("Service-Worker-Allowed", "/")
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-	http.ServeFile(w, r, "./web/static/sw.js")
+	s.serveStaticFile(w, r, "sw.js")
 }
 
 // serveConfigJS serves dynamic configuration variables as a JavaScript file
@@ -1050,15 +1123,9 @@ func (s *Server) serveIndexWithBotUsername(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Expires", "0")
 
-	// Read index.html
-	f, err := os.Open("./web/static/index.html")
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-	defer f.Close()
-
-	content, err := io.ReadAll(f)
+	// Read index.html. Source switches between disk and embedded FS based
+	// on the staticFS field; see SetStaticFS for details.
+	content, err := s.readStaticFile("index.html")
 	if err != nil {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
@@ -1079,14 +1146,7 @@ func (s *Server) serveOIDCSetup(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Expires", "0")
 
-	f, err := os.Open("./web/static/oidc-setup.html")
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-	defer f.Close()
-
-	content, err := io.ReadAll(f)
+	content, err := s.readStaticFile("oidc-setup.html")
 	if err != nil {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
