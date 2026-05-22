@@ -323,6 +323,30 @@ describe('native/capacitor/reminders.js — Capacitor impl', () => {
         expect(result.scheduled).toBe(0);
     });
 
+    it('_refreshFromServer() preserves pending queue when offlineAwareApiCall returns null (transient failure)', async () => {
+        // sync.js:898-905 returns null from offlineAwareApiCall when a GET
+        // request fails AND the endpoint isn't registered for offline reads.
+        // /api/reminders/upcoming is unregistered, so a transient 5xx / WiFi
+        // blip / 429 on app resume surfaces as null — which must NOT be
+        // treated as "server returned empty list", otherwise schedule([])
+        // wipes every pre-scheduled OS notification for the next 24h.
+        const offlineAwareApiCall = vi.fn().mockResolvedValue(null);
+        const schedule = vi.fn();
+        const cancel = vi.fn();
+        const getPending = vi.fn().mockResolvedValue({ notifications: [{ id: 1 }] });
+        env = loadEnv({
+            capacitor: makeCapacitor({ schedule, cancel, getPending }),
+            offlineAwareApiCall,
+        });
+        const cap = env.window.Reminders.__native.getImpl('Reminders', 'capacitor');
+        const result = await cap._refreshFromServer();
+        expect(schedule).not.toHaveBeenCalled();
+        expect(cancel).not.toHaveBeenCalled();
+        expect(getPending).not.toHaveBeenCalled();
+        expect(result.skipped).toBe('fetch_failed');
+        expect(result.scheduled).toBe(0);
+    });
+
     it('_refreshFromServer() preserves pending queue when the fetch returns a 5xx response (raw fetch path)', async () => {
         const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 503, json: () => Promise.resolve(null) });
         const schedule = vi.fn();

@@ -169,7 +169,14 @@
         }
         return doFetch.then(function (data) {
             if (data === FETCH_FAILED) return FETCH_FAILED;
-            return Array.isArray(data) ? data : [];
+            // offlineAwareApiCall returns null on network/5xx errors for
+            // endpoints that aren't registered for offline reads (see
+            // sync.js:898-905). /api/reminders/upcoming is not registered,
+            // so a transient failure surfaces as null — treat it as
+            // FETCH_FAILED rather than as an empty list, otherwise
+            // schedule([]) wipes every pre-scheduled OS notification.
+            if (!Array.isArray(data)) return FETCH_FAILED;
+            return data;
         }).catch(function () { return FETCH_FAILED; });
     }
 
