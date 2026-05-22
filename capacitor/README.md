@@ -67,11 +67,19 @@ Full build flow on a fresh checkout:
 cd capacitor
 npm install
 npx cap add android                 # generates android/ (gitignored)
+# Comment out `server.url` in capacitor.config.ts so the WebView falls back
+# to the embedded-binary spawn path instead of the dev-server fallback.
 ../scripts/build-android-binaries.sh
 ./apply-overlay.sh                  # copies android-overlay/ → android/
 npx cap sync
 npx cap open android
 ```
+
+> The committed `capacitor.config.ts` sets `server.url=http://localhost:8080`
+> so the dev-server iteration loop works out of the box. The overlay's
+> `MainActivity` reads that value and, when non-empty, skips the embedded-
+> binary spawn entirely. Remove or comment out the `url` line before `cap
+> sync` to opt into embedded mode.
 
 `scripts/build-android-binaries.sh` runs `CGO_ENABLED=0 GOOS=android
 GOARCH=arm64 go build -tags mobile ./cmd/bot` and writes the result to the
