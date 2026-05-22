@@ -148,6 +148,27 @@ After any local create/update/delete, the originating screen does **both** in on
 
 Tag vocabulary: `bp`, `weight`, `medications`, `history`, `food`, `workouts`, `health-notes`. Tags are also emitted server-side by SQLite triggers (migration 027+) and surface through the change-polling path above, so remote edits propagate by the same route.
 
+### Native Platform Abstractions
+
+When the frontend runs inside the Capacitor Android shell (Phase 2a/2b), four device-capability surfaces switch from browser APIs to native plugins. The mechanism is a thin abstraction layer at `web/static/js/native/` with two implementations per capability — `web/<capability>.js` (browser APIs, lifted from the existing call sites) and `capacitor/<capability>.js` (calling `@capacitor/*` plugins via `window.Capacitor.Plugins.*`). The foundation module (`web/static/js/native/index.js`) exposes a `registerImpl(capability, platform, impl)` helper; each impl file registers itself at script-load time, and the foundation assigns the platform-matched impl to the global based on `Capacitor.isNativePlatform()`.
+
+| Global | Capability | Web impl | Capacitor impl |
+|---|---|---|---|
+| `window.MediaCapture` | Camera + photo picker | `getUserMedia` + `<input type=file>` | `@capacitor/camera` |
+| `window.Geolocation` | Coarse location | `navigator.geolocation` | `@capacitor/geolocation` (1h in-memory cache) |
+| `window.Barcode` | Barcode scanning | `BarcodeDetector` (Chrome) / ZXing fallback | `@capacitor-mlkit/barcode-scanning` |
+| `window.Reminders` | Local notifications | no-op (Web Push handled by `push.js`) | `@capacitor/local-notifications` + pre-schedule loop |
+
+**Runtime selector** — `web/static/js/native/index.js` is the only file that reads `Capacitor?.isNativePlatform?.()`. Feature code never gates on platform; it calls the global and gets the right impl. The Capacitor plugins are accessed via `window.Capacitor.Plugins.*` (not ES-module `import`) so the load order in `index.html` is sufficient — no JS bundler required. In a pure-browser build where the plugins aren't loaded, the foundation simply never wires the Capacitor impl as the active global.
+
+**Pre-schedule loop (reminders)** — Capacitor's `window.Reminders.startPreScheduleLoop()` polls `GET /api/reminders/upcoming?hours=24`, hands the queue to `@capacitor/local-notifications`, and re-runs on `App.addListener('appStateChange', ...)`. Replace-all semantics: every resume cancels all pending notifications (`getPending()` → `cancel(ids)`) and reschedules the new batch. Notification taps deliver `extra.intake_id`, which the deep-link handler in `capacitor/reminders.js` feeds into `handleDeepLinks()` (same routing surface `push.js` uses on web). The Go-side `LocalNotificationSink` populates the endpoint; this is the JS-side consumer.
+
+**Refactor footprint** — Phase 2b moved barcode + photo callers to the abstractions and left the rest of the frontend untouched. `bootstrap.js`'s `Intl.DateTimeFormat().resolvedOptions().timeZone` for tz detection is unchanged — Intl is the right answer for *which timezone*; geolocation ships as scaffolding for a future caller (e.g. travel-aware tz correction).
+
+**Adding a new device capability** — create `web/<capability>.js` (browser API) and `capacitor/<capability>.js` (plugin), both calling `registerImpl()`. Wire the global in the foundation module's init list. Add one entry to `architecture.globals.test.js` with justification. Add a `tests/native.<capability>.test.js` covering both impls + the runtime selector (pure-unit is the right shape — these sit below the feature-module integration entry point). See the existing `native.*.test.js` files for the pattern. Capacitor plugins also need a `package.json` dependency in `capacitor/` and any required `<uses-permission>` lines in `capacitor/android-overlay/app/src/main/AndroidManifest.xml`.
+
+See `docs/local-mode.md` → "Native plugin JS abstractions" and `docs/plans/2026-05-22-mobile-phase2b-native-plugins.md` for the design rationale and the open questions resolved (replace-all vs diff reminders, single-shot vs continuous barcode, geolocation cache TTL).
+
 ### SW Cache Strategy
 
 - All static assets listed in the `STATIC_ASSETS` array, validated bidirectionally by `architecture.sw-precache.test.js`: every `<script src>` / `<link rel="stylesheet">` in `index.html` must appear in `STATIC_ASSETS` (no offline breakage), and every precached `/static/js/*.js` entry must appear as a `<script src>` in `index.html` or in the test's `SW_SELF_IMPORTS` allowlist (no dead code shipped in the SW cache)
@@ -221,6 +242,10 @@ All explicit `window.*` assignments are tracked in `tests/architecture.globals.t
 | `window.WGStaleBadge` | `components/wg-stale-badge.js` | `features/today.js`, `features/food.js`, `features/bp.js`, `features/weight.js`, `features/meds.js`, `features/workout.js`, `features/health.js` (per-section freshness chip) |
 | `window.cachedFetch` | `cached-fetch.js` | `app.js` (Today next_intake), `features/food.js` (daily log + products) |
 | `window.OfflineNoCacheError` | `cached-fetch.js` | same consumers as `cachedFetch` (catch-and-render-empty-state branch) |
+| `window.MediaCapture` | `native/index.js` (web/capacitor impls register) | `features/food/photo.js`, `features/food/scanner.js` |
+| `window.Geolocation` | `native/index.js` (web/capacitor impls register) | no current caller (scaffolding for future travel-aware tz correction) |
+| `window.Barcode` | `native/index.js` (web/capacitor impls register) | `features/food/scanner.js` |
+| `window.Reminders` | `native/index.js` (web/capacitor impls register) | Capacitor pre-schedule loop (`startPreScheduleLoop`); web impl is a no-op (Web Push handled by `push.js`) |
 
 ## Design Tokens
 

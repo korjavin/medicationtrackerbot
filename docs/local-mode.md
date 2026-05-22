@@ -2,7 +2,7 @@
 
 Design context for the ongoing effort to compile this codebase into a mobile app via Capacitor. This doc captures the *why* behind decisions made during planning so future phases can be planned from a warm start, not by re-deriving from first principles. Living doc — update as Phase 2 lands.
 
-Status: **Phase 2a in progress** on Android (embedded Go binary). Phase 1 (Go-side foundation + Capacitor dev-server spike) shipped — plan: `docs/plans/completed/2026-05-18-local-only-mode-foundation.md`. Phase 2a plan: `docs/plans/2026-05-22-mobile-phase2a-android-go-embedding.md`. Phase 2b (native plugin abstractions) and Phase 2c (first-run setup + secrets storage) are not started — see [Phase 2 below](#phase-2-mobile-shell--native-integration-future-plan).
+Status: **Phase 2a in progress** on Android (embedded Go binary), **Phase 2b shipped** (native plugin JS abstractions). Phase 1 (Go-side foundation + Capacitor dev-server spike) shipped — plan: `docs/plans/completed/2026-05-18-local-only-mode-foundation.md`. Phase 2a plan: `docs/plans/2026-05-22-mobile-phase2a-android-go-embedding.md`. Phase 2b plan: `docs/plans/2026-05-22-mobile-phase2b-native-plugins.md` (real-device verification still pending — see Post-Completion in the plan). Phase 2c (first-run setup + secrets storage) is not started — see [Phase 2 below](#phase-2-mobile-shell--native-integration).
 
 ## Build & run
 
@@ -171,7 +171,7 @@ Phase 1's Task 8 wraps `web/static/` and points the WebView at a running dev ser
 Phase 2 is split into three plans, landing in order:
 
 - **Phase 2a — Android Go-binary embedding** (in progress). Plan: `docs/plans/2026-05-22-mobile-phase2a-android-go-embedding.md`. Spawns the mobile-build binary inside the Capacitor Android shell, parses `LISTENING 127.0.0.1:<port>` from stdout, loads the WebView from that port. iOS deferred to a follow-up. See "Phase 2a build pipeline" above and "Go binary embedding: settled decision" below.
-- **Phase 2b — Native plugin abstractions** (not started). Camera, geolocation, barcode, local notifications shims selected at runtime via `Capacitor.isNativePlatform()`. See "Native plugin JS abstractions" below.
+- **Phase 2b — Native plugin abstractions** (shipped — JS + plugin install + AndroidManifest overlay; real-device verification pending). Plan: `docs/plans/2026-05-22-mobile-phase2b-native-plugins.md`. Camera, geolocation, barcode, local notifications shims selected at runtime via `Capacitor.isNativePlatform()`. See "Native plugin JS abstractions" below.
 - **Phase 2c — First-run setup + secrets storage** (not started). Guided onboarding screen for OpenAI / ElevenLabs / Food DB keys; revisit `EncryptedSharedPreferences` vs Keychain for secrets defence-in-depth. See "First-run Settings flow" + "Secrets storage" + "First-run user provisioning" below.
 
 This section captures what's known about each sub-phase so the remaining plans can be written without re-deriving.
@@ -188,16 +188,25 @@ Two ways to get the Go binary running inside Capacitor:
 
 ### Native plugin JS abstractions
 
-The web stack and Capacitor diverge on three things; each needs a small JS abstraction layer with two implementations selected at runtime:
+The web stack and Capacitor diverge on four capabilities; Phase 2b ships a JS abstraction layer at `web/static/js/native/` with two implementations per capability, selected at runtime via `Capacitor.isNativePlatform()`. Backend handlers (food upload, barcode lookup, reminder endpoint) are identical across both transports.
 
-| Capability | Web impl | Capacitor impl |
-|---|---|---|
-| Geolocation (tz detection) | `navigator.geolocation` | `@capacitor/geolocation` |
-| Camera + photo picker (food photos) | `<input type=file>` / `getUserMedia` | `@capacitor/camera` |
-| Barcode scanning (food log) | `BarcodeDetector` (Chrome only) / ZXing JS | `@capacitor-mlkit/barcode-scanning` (native, fast, all phones) |
-| Local notifications (reminders) | Web Push | `@capacitor/local-notifications` |
+| Capability | Global | Web impl | Capacitor impl |
+|---|---|---|---|
+| Geolocation | `window.Geolocation` | `navigator.geolocation` | `@capacitor/geolocation` (last-known cache, 1h TTL) |
+| Camera + photo picker (food photos) | `window.MediaCapture` | `<input type=file>` / `getUserMedia` | `@capacitor/camera` |
+| Barcode scanning (food log) | `window.Barcode` | `BarcodeDetector` (Chrome only) / ZXing JS | `@capacitor-mlkit/barcode-scanning` |
+| Local notifications (reminders) | `window.Reminders` | no-op shim (Web Push handled by `push.js`) | `@capacitor/local-notifications` |
 
-Suggested shape: a `window.MediaCapture`, `window.Geolocation`, `window.Reminders` abstraction in `web/static/js/native/` with Capacitor and web implementations. Selected at runtime via `Capacitor.isNativePlatform()`. Backend handlers (food upload, barcode lookup, tz endpoint) stay identical.
+**Runtime selector pattern** — each capability has a `web/<capability>.js` and a `capacitor/<capability>.js` module. The foundation module (`web/static/js/native/index.js`) exposes `registerImpl(capability, platform, impl)`; each impl file registers itself, and the foundation assigns the matching one to the global based on `isNativePlatform()`. Capacitor modules read plugins via `window.Capacitor.Plugins.*` rather than ES-module `import`, so no JS bundler is required — the existing script-tag load order in `index.html` is sufficient. In a pure-browser build where the plugins aren't loaded, the foundation simply never wires the Capacitor impl as the active global.
+
+**Reminder pre-schedule loop** — `window.Reminders.startPreScheduleLoop()` (Capacitor only) polls `GET /api/reminders/upcoming?hours=24`, hands the queue to `@capacitor/local-notifications`, and re-runs on `App.addListener('appStateChange', ...)`. Replace-all semantics: every resume cancels all pending notifications via `LocalNotifications.getPending()` + `cancel(ids)` and reschedules the new batch. Simpler than diffing; the sub-second cancel/reschedule window is the cost we accept. Notification taps deliver `extra.intake_id`, which the deep-link handler in `capacitor/reminders.js` feeds into the existing `handleDeepLinks()` routing surface (same path `push.js` uses on web).
+
+**Refactor footprint** — Phase 2b moved barcode + photo callers to the abstractions but left the rest of the frontend untouched:
+- `web/static/js/features/food/scanner.js` calls `window.Barcode.scan({ source, formats })` and `window.MediaCapture.pickPhoto()`.
+- `web/static/js/features/food/photo.js` calls `window.MediaCapture.pickPhoto({ capture: false })`.
+- `web/static/js/features/bootstrap.js` continues to use `Intl.DateTimeFormat().resolvedOptions().timeZone` for tz detection — Intl is the right answer for *which timezone*; geolocation is for *where on earth*, a future capability with no current caller. The Geolocation abstraction ships as scaffolding for travel-aware tz correction or similar future work.
+
+Each global has a one-line justification entry in `web/static/js/tests/architecture.globals.test.js`. Each capability has a dedicated `web/static/js/tests/native.<capability>.test.js` covering both impls plus the runtime selector — pure-unit tests are the right shape here because the abstractions sit below the feature-module integration entry point.
 
 ### First-run Settings flow
 
