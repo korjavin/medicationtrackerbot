@@ -113,9 +113,9 @@ This plan plumbs a per-client identifier end-to-end so the frontend can determin
 - [x] Run `pnpm test` — must pass before next task.
 
 ### Task 6: Wire end-to-end and verify with an integration-style frontend test
-- [ ] In a feature-level test (extend `web/static/js/tests/food.optimistic-write.test.js` if one exists, else add to the food feature suite per the integration-first rule in CLAUDE.md §8), simulate: user fires `saveFoodLog`; mock server returns a successful POST; mock SSE delivers a `{cursor, changed_tags: ['food'], source_client_id: <ownId>}` payload; assert the banner is **not** shown and `loadFoodLogs` ran exactly once via the optimistic path.
-- [ ] Add a negative-case assertion: SSE delivers `{... source_client_id: 'someone-else'}` → with `!isSafeToAutoRefresh()`, the banner IS shown; with `isSafeToAutoRefresh()`, the page silently reloads.
-- [ ] Run `pnpm test` — must pass before next task.
+- [x] In a feature-level test (extend `web/static/js/tests/food.optimistic-write.test.js` if one exists, else add to the food feature suite per the integration-first rule in CLAUDE.md §8), simulate: user fires `saveFoodLog`; mock server returns a successful POST; mock SSE delivers a `{cursor, changed_tags: ['food'], source_client_id: <ownId>}` payload; assert the banner is **not** shown and `loadFoodLogs` ran exactly once via the optimistic path. (Added to `features.food-log.test.js`.)
+- [x] Add a negative-case assertion: SSE delivers `{... source_client_id: 'someone-else'}` → with `!isSafeToAutoRefresh()`, the banner IS shown; with `isSafeToAutoRefresh()`, the page silently reloads.
+- [x] Run `pnpm test` — must pass before next task.
 
 ### Task 7: Verify acceptance criteria
 - [ ] Re-read the Overview and confirm: banner is suppressed for own writes regardless of SSE delivery latency; cross-source writes still surface the banner; older clients (no `X-Client-ID`) still work via the timing fallback.
