@@ -15,6 +15,10 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16x16.png">
     <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+    <!-- Capacitor-shell native bootstrap shim. Must run before core/api.js so
+         resolveApiUrl sees window.__MEDTRACKER_BOOTSTRAP__ on first call.
+         External file because the server's CSP blocks inline scripts. -->
+    <script src="/static/js/core/native-bootstrap.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="/static/vendor/dexie.min.js"></script>
     <script src="/static/vendor/zxing.min.js"></script>
@@ -646,6 +650,22 @@
                 <button id="save-integrations-btn" type="button" class="wg-gloss wg-gloss--sun wg-settings-save-btn">Save Integrations</button>
             </section>
 
+            <section id="settings-about" class="wg-card wg-settings-section wg-settings-about">
+                <h3 class="wg-settings-section__title">About</h3>
+                <p class="wg-settings-section__desc">Diagnostics for the embedded server</p>
+                <div class="wg-settings-row-list">
+                    <div id="backend-logs-row" class="wg-settings-row hidden">
+                        <div class="wg-settings-row__content">
+                            <div class="wg-settings-row__title">Backend logs</div>
+                            <div class="wg-settings-row__desc">Last 200 log lines from the embedded server (debug)</div>
+                        </div>
+                        <div class="wg-settings-row__control">
+                            <button id="backend-logs-open-btn" type="button" class="wg-gloss wg-settings-action-btn">View logs</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <div class="wg-settings-version">
                 <span class="wg-settings-version__label">Version</span>
                 <span class="wg-settings-version__value">VERSION_PLACEHOLDER</span>
@@ -653,6 +673,22 @@
         </div>
     </div>
     </div>
+
+    <mt-modal id="backend-logs-modal" class="hidden wg-modal wg-backend-logs-modal">
+        <div class="wg-backend-logs-modal__header">
+            <div class="wg-backend-logs-modal__heading">
+                <span class="wg-section-label wg-backend-logs-modal__eyebrow">Diagnostics</span>
+                <span class="wg-mono-display wg-backend-logs-modal__title">Backend logs</span>
+            </div>
+            <div class="wg-backend-logs-modal__header-actions">
+                <button type="button" id="backend-logs-close-btn"
+                    class="wg-gloss wg-backend-logs-modal__header-btn">Close</button>
+            </div>
+        </div>
+        <div class="wg-backend-logs-modal__body">
+            <pre id="backend-logs-output" class="wg-mono-display wg-backend-logs-modal__output"></pre>
+        </div>
+    </mt-modal>
 
     <!-- Modal for Adding/Editing Workout Group -->
     <mt-modal id="workout-group-modal" class="hidden wg-modal wg-workouts-group-modal">
@@ -1688,6 +1724,7 @@
     <script src="/static/js/features/elevenlabs-call.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/call-indicator.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/settings/integrations.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="/static/js/features/backend-logs.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/today.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/tz-plan-banner.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/workout/next-card.js?v=TIMESTAMP_PLACEHOLDER"></script>

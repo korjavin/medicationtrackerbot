@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Overlay-owned manifest for the medtracker Android shell.
+
+  Differences from the Capacitor-generated default:
+    - android:allowBackup="false" because the app stores plaintext health
+      data in the SQLite DB under filesDir and a per-install session secret
+      in EncryptedSharedPreferences (backed by a Keystore master key).
+      Android Auto Backup would upload the DB to Google Drive in cleartext;
+      and even if it didn't, the restored EncryptedSharedPreferences would
+      be undecryptable on the new device because the Keystore master key is
+      hardware-bound and is NOT included in the backup. Disabling backup is
+      the safest default for a self-hosted health tracker.
+    - android:extractNativeLibs="true" on <application> so the packager unpacks
+      libmedtracker.so out of the APK at install time. Without this, the binary
+      stays mmap'd inside the APK on Android 6+ and we can't Runtime.exec() it.
+    - android:usesCleartextTraffic="true" so the WebView can load
+      http://127.0.0.1:<port> on Android 9+ (API 28). The Capacitor-generated
+      manifest sets this when capacitor.config.ts has cleartext:true, but we
+      overwrite the whole manifest so we must restate it. Loopback is NOT
+      exempt from cleartext-blocking by default.
+    - <service android:name=".GoServerService"> declared with
+      foregroundServiceType="dataSync" — Android 14+ requires every
+      startForegroundService caller to declare a service type.
+    - FOREGROUND_SERVICE + FOREGROUND_SERVICE_DATA_SYNC permissions.
+    - POST_NOTIFICATIONS for the persistent service notification on API 33+.
+
+  Capacitor regenerates the manifest under capacitor/android/app/src/main/
+  whenever `npx cap add android` runs; apply-overlay.sh copies this file back
+  on top. When bumping Capacitor majors, diff this file against the freshly-
+  generated one and merge any new defaults (e.g. new <provider> entries) into
+  this overlay.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:allowBackup="false"
+        android:extractNativeLibs="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme"
+        android:usesCleartextTraffic="true">
+
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
+            android:name="com.lochyard.medtracker.MainActivity"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:launchMode="singleTask"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <service
+            android:name="com.lochyard.medtracker.GoServerService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+    </application>
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+</manifest>
