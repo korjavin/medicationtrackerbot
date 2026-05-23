@@ -233,6 +233,55 @@ describe('data-store.js unit tests', () => {
     }
   });
 
+  it('optimistic rollback preserves a sibling optimistic write\'s self-echo marker', async () => {
+    // Regression: when two applyOptimistic writes overlap (A then B) and A
+    // rolls back, A's rollback must NOT wipe B's marker — otherwise B's own
+    // SSE echo would be mis-classified as a foreign change. Verified by
+    // asserting that an SSE payload arriving without source_client_id after
+    // A's rollback still classifies as `self-echo` thanks to B's stamp.
+    const { window, cleanup } = loadDataStoreEnv();
+
+    try {
+      vi.spyOn(window.DataStore, 'invalidateTags').mockResolvedValue(undefined);
+      const requestTabRefreshSpy = vi.fn();
+      window.requestTabRefresh = requestTabRefreshSpy;
+
+      const handleA = await window.DataStore.applyOptimistic(
+        'bp', () => ({ readings: [{ id: 1 }] }), ['bp']
+      );
+
+      // Force B's stamp to be strictly greater than A's so the CAS check
+      // distinguishes them. Without this nudge the two recordOwnWrite()
+      // calls can land on the same Date.now() millisecond in jsdom and
+      // the equality check would clear B's stamp anyway.
+      await new Promise((resolve) => setTimeout(resolve, 2));
+
+      const handleB = await window.DataStore.applyOptimistic(
+        'weight', () => ({ entries: [{ id: 2 }] }), ['weight']
+      );
+
+      await handleA.rollback();
+
+      // Now an SSE payload arrives WITHOUT source_client_id (polling path
+      // or older server) and the timing window must still classify it as
+      // self-echo because B's stamp survives A's rollback.
+      await window.DataStore.applyChangesPayload({
+        cursor: 600,
+        changed_tags: ['weight']
+      });
+
+      const lastCall = requestTabRefreshSpy.mock.calls[requestTabRefreshSpy.mock.calls.length - 1];
+      expect(lastCall[0]).toEqual({
+        changedTags: ['weight'],
+        source: 'self-echo'
+      });
+
+      await handleB.commit({ entries: [{ id: 2, committed: true }] });
+    } finally {
+      cleanup();
+    }
+  });
+
   it('applyChangesPayload tags refresh as changes when no recent own write', async () => {
     // Complement to the self-echo regression above: a payload arriving
     // without a recent recordOwnWrite() must surface as `changes` so the
@@ -247,6 +296,153 @@ describe('data-store.js unit tests', () => {
       await window.DataStore.applyChangesPayload({
         cursor: 300,
         changed_tags: ['weight']
+      });
+
+      expect(requestTabRefreshSpy).toHaveBeenCalledWith({
+        changedTags: ['weight'],
+        source: 'changes'
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('applyChangesPayload classifies as self-echo when source_client_id matches own clientId', async () => {
+    // Primary mechanism: backend echoes the X-Client-ID from the originating
+    // write back on the SSE payload as source_client_id. When it matches
+    // this client's getClientId(), the event is deterministically a
+    // self-echo regardless of the lastOwnWriteAt timing window.
+    const { window, cleanup } = loadDataStoreEnv();
+
+    try {
+      vi.spyOn(window.DataStore, 'invalidateTags').mockResolvedValue(undefined);
+      const requestTabRefreshSpy = vi.fn();
+      window.requestTabRefresh = requestTabRefreshSpy;
+
+      const ownId = window.DataStore.getClientId();
+
+      await window.DataStore.applyChangesPayload({
+        cursor: 700,
+        changed_tags: ['food'],
+        source_client_id: ownId
+      });
+
+      expect(requestTabRefreshSpy).toHaveBeenCalledWith({
+        changedTags: ['food'],
+        source: 'self-echo'
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('applyChangesPayload falls back to timing window when source_client_id is foreign but own write is recent', async () => {
+    // The middleware's source attribution is racy: it reads MAX(change_events)
+    // AFTER the handler returns, so a foreign write committing between this
+    // handler's commit and the cursor lookup gets lumped into the same broker
+    // frame and tagged with the foreign source. Our own write — also in the
+    // frame — would then mis-classify as a foreign banner.
+    //
+    // The timing-window fallback recovers this case: a recent recordOwnWrite()
+    // forces `self-echo` even when source_client_id is present-but-mismatched.
+    // The cost is rare false-suppress on a legitimate cross-source banner
+    // within the 5s window, but tag invalidation still refreshes data —
+    // only the banner is skipped.
+    const { window, cleanup } = loadDataStoreEnv();
+
+    try {
+      vi.spyOn(window.DataStore, 'invalidateTags').mockResolvedValue(undefined);
+      const requestTabRefreshSpy = vi.fn();
+      window.requestTabRefresh = requestTabRefreshSpy;
+
+      window.DataStore.recordOwnWrite();
+
+      await window.DataStore.applyChangesPayload({
+        cursor: 800,
+        changed_tags: ['food'],
+        source_client_id: 'a-different-client-id-uuid'
+      });
+
+      expect(requestTabRefreshSpy).toHaveBeenCalledWith({
+        changedTags: ['food'],
+        source: 'self-echo'
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('applyChangesPayload classifies as changes when source_client_id is foreign and no recent own write', async () => {
+    // The legitimate cross-source case: another browser / Telegram bot / MCP
+    // commits a change, and we have NOT written in the last 5s. The mismatch
+    // surfaces as `changes` so the banner can show.
+    const { window, cleanup } = loadDataStoreEnv();
+
+    try {
+      vi.spyOn(window.DataStore, 'invalidateTags').mockResolvedValue(undefined);
+      const requestTabRefreshSpy = vi.fn();
+      window.requestTabRefresh = requestTabRefreshSpy;
+
+      await window.DataStore.applyChangesPayload({
+        cursor: 850,
+        changed_tags: ['food'],
+        source_client_id: 'a-different-client-id-uuid'
+      });
+
+      expect(requestTabRefreshSpy).toHaveBeenCalledWith({
+        changedTags: ['food'],
+        source: 'changes'
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('applyChangesPayload falls back to timing window when source_client_id is missing', async () => {
+    // Backward compatibility / polling path: older server builds and the
+    // polling channel (`GET /api/changes`) do not carry per-event source
+    // attribution. When source_client_id is absent, the lastOwnWriteAt
+    // 5s window classifies an echo as self-echo (within window) or
+    // changes (outside window).
+    const { window, cleanup } = loadDataStoreEnv();
+
+    try {
+      vi.spyOn(window.DataStore, 'invalidateTags').mockResolvedValue(undefined);
+      const requestTabRefreshSpy = vi.fn();
+      window.requestTabRefresh = requestTabRefreshSpy;
+
+      window.DataStore.recordOwnWrite();
+
+      await window.DataStore.applyChangesPayload({
+        cursor: 900,
+        changed_tags: ['food']
+      });
+
+      expect(requestTabRefreshSpy).toHaveBeenCalledWith({
+        changedTags: ['food'],
+        source: 'self-echo'
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('applyChangesPayload falls back to changes when source_client_id is empty string', async () => {
+    // The SSE handler emits `source_client_id: ""` when there is no
+    // attribution (e.g. scheduler-driven write). An empty string must be
+    // treated the same as the field being absent: fall back to the timing
+    // window. Without a recent own-write, that means `changes`.
+    const { window, cleanup } = loadDataStoreEnv();
+
+    try {
+      vi.spyOn(window.DataStore, 'invalidateTags').mockResolvedValue(undefined);
+      const requestTabRefreshSpy = vi.fn();
+      window.requestTabRefresh = requestTabRefreshSpy;
+
+      await window.DataStore.applyChangesPayload({
+        cursor: 1000,
+        changed_tags: ['weight'],
+        source_client_id: ''
       });
 
       expect(requestTabRefreshSpy).toHaveBeenCalledWith({

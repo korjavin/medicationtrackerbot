@@ -26,6 +26,21 @@ describe('data-store.js realtime and polling', () => {
     }
   });
 
+  it('buildChangesStreamURL omits the clientId param (source attribution flows via X-Client-ID header on writes, not the SSE URL)', () => {
+    const { window, cleanup } = loadDataStoreEnv();
+
+    try {
+      window.DataStore.setChangeCursor(7);
+      // Mint the id so the test exercises the same code path as production.
+      window.DataStore.getClientId();
+
+      const url = window.DataStore.buildChangesStreamURL();
+      expect(url).not.toContain('clientId=');
+    } finally {
+      cleanup();
+    }
+  });
+
   it('startChangePolling triggers prune and periodic poll when online', async () => {
     const { window, cleanup } = loadDataStoreEnv();
 

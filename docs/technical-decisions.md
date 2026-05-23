@@ -14,7 +14,9 @@ Writes that bypass HTTP entirely — Telegram bot callbacks calling domain
 services in-process, scheduler intake materialization, importer runs — are
 caught by a process-wide tailer goroutine (`runChangeTailer`) that polls
 `SELECT MAX(id) FROM change_events` every 200ms and fires
-`changesBroker.Notify(cursor)` whenever the cursor advances. Because the SQL
+`changesBroker.Notify(cursor, "")` whenever the cursor advances (the empty
+source string is intentional — tailer-driven writes have no originating
+client). Because the SQL
 triggers from migration 027 populate `change_events` on every watched-table
 mutation regardless of caller, the tailer is the single catch-all path for
 non-HTTP writes — no per-call-site instrumentation needed. The per-stream
@@ -42,6 +44,48 @@ The cursor-based polling endpoint and its 30s tick are unchanged so the
 fallback path is exactly the same code the client used before. See
 [sse-traefik.md](sse-traefik.md) for the required Traefik labels and the
 residual `initData`-in-access-log caveat.
+
+### Source attribution via `X-Client-ID`
+
+Each browser mints a stable `clientId` (UUIDv4, persisted to
+`localStorage['wg.clientId']`) on first load and sends it as `X-Client-ID`
+on every non-GET request. `notifyOnWriteMiddleware` reads the header,
+sanitises it (printable ASCII, ≤64 chars), and passes it through to
+`changesBroker.Notify(cursor, sourceClientID)`. Subscribers fan out a
+`ChangeEvent{Cursor, SourceClientID}` and the SSE handler emits
+`source_client_id` on the live payload (`omitempty` — initial flush and
+tailer-driven notifications without an HTTP source omit the field). The
+frontend's `applyChangesPayload` classifies a change as `self-echo` iff
+`source_client_id === DataStore.getClientId()`, suppressing the "New data
+is available." banner deterministically regardless of SSE delivery
+latency. The frontend falls back to the existing 5s `lastOwnWriteAt`
+timing window when the deterministic match does not apply — either
+`source_client_id` is absent (older server, initial flush, polling
+fallback, scheduler/bot writes) **or** present-but-mismatched. The
+present-but-mismatched fallback exists because the middleware's
+`MAX(change_events.id)` read happens *after* the handler returns, so a
+concurrent foreign commit can be absorbed into the same broker frame and
+tagged with the foreign source; without the fallback our own write inside
+that mixed frame would mis-classify as a foreign banner. The trade-off is
+that a legitimate cross-source banner landing within 5s of our own write
+is occasionally false-suppressed — tag invalidation still refreshes data,
+only the banner is skipped. The symmetric race also remains uncovered:
+when our own middleware "wins" the cursor-lookup race and absorbs a
+concurrent foreign commit, the broker frame is tagged with **our** source
+but its `changed_tags` include the foreign write. The frontend then takes
+the deterministic self-echo branch and suppresses the foreign banner —
+data still refreshes via tag invalidation, but the user is not notified
+of the cross-source change. The SSE-side `cursor == ev.Cursor` guard in
+`changes_handlers.go` only catches the case where a *later* write slipped
+in between broker fan-out and the SQL read; it cannot detect that the
+broker event's cursor already absorbed a foreign commit at middleware
+time. Closing both directions would require per-row source attribution on
+`change_events` (a new column threaded through the migration 027
+triggers); that's deliberately out of scope for the current design.
+
+The mechanism is otherwise purely additive: older frontends without
+`X-Client-ID` and older servers without `source_client_id` interoperate
+cleanly via the timing fallback.
 
 ## Why only three endpoints support offline writes
 

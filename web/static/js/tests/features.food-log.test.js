@@ -5,6 +5,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import { allowConsoleNoise } from './helpers/setup.js';
 
 // Wires a Map-backed ApiCache into the env so DataStore.applyOptimistic
 // reads/writes are observable in tests. Mirrors the helper used by the
@@ -351,6 +352,186 @@ describe('features/food/log.js — split-file integration', () => {
         if (v2) {
             expect(v2.groups[0].logs.length).toBe(1);
             expect(v2.groups[0].logs[0].id).toBe(21);
+        }
+    });
+
+    // ===========================================================================
+    // End-to-end client-ID self-echo classification (Plan 2026-05-22)
+    //
+    // When the SSE channel echoes a write that originated from THIS client,
+    // the payload's `source_client_id` matches DataStore.getClientId() and
+    // applyChangesPayload classifies the event as `self-echo`. The banner
+    // must NOT surface for own writes — the user already saw their action
+    // via the optimistic commit. Cross-source writes (other tab / other
+    // device / Telegram bot) still surface as `changes`: banner when unsafe
+    // to reload, silent reload when safe.
+    // ===========================================================================
+
+    it('saveFoodLog followed by an SSE echo with own source_client_id suppresses the banner', async () => {
+        allowConsoleNoise();
+        const { window, document } = env;
+        const now = new Date();
+        const dateStr = isoDate(now);
+        const v2Key = `food_${dateStr}_v2`;
+        const dayKey = `food_${dateStr}_day`;
+
+        installApiCache(window, {
+            [v2Key]: { groups: [], weekStats: null },
+            [dayKey]: { groups: [] }
+        });
+
+        document.getElementById('food-datetime').value = `${dateStr}T12:30`;
+        document.getElementById('food-name').value = 'Banana';
+        document.getElementById('food-weight').value = '100';
+        document.getElementById('food-carbs').value = '23';
+        document.getElementById('food-protein').value = '1';
+        document.getElementById('food-fat').value = '0';
+        document.getElementById('food-calories').value = '90';
+        document.getElementById('food-per-100g').checked = false;
+        document.getElementById('food-id').value = '';
+
+        window.apiCall = vi.fn(async (endpoint) => {
+            if (endpoint === '/api/food/log') return { status: 'created', id: 777 };
+            return null;
+        });
+        window.loadFoodLogs = vi.fn();
+
+        await window.saveFoodLog();
+
+        // Force an unsafe-to-auto-refresh state so that a `changes`
+        // classification WOULD surface the banner. This isolates the
+        // classifier: if the event is correctly tagged `self-echo`, no
+        // banner appears (and no reload fires) regardless of page state.
+        window.showBPRecordModal();
+
+        // Spy on reloadCurrentTab AFTER saveFoodLog completes so we only
+        // capture the reload triggered by the simulated SSE event below
+        // (saveFoodLog's optimistic-commit chain calls reloadCurrentTab
+        // synchronously through requestTabRefresh with source='optimistic'
+        // / 'optimistic-commit', which is part of the optimistic path, not
+        // the change-stream path under test).
+        const reloadSpy = vi.fn();
+        window.reloadCurrentTab = reloadSpy;
+
+        const ownId = window.DataStore.getClientId();
+        expect(typeof ownId).toBe('string');
+        expect(ownId.length).toBeGreaterThan(0);
+
+        await window.DataStore.applyChangesPayload({
+            cursor: 12345,
+            changed_tags: ['food'],
+            source_client_id: ownId
+        });
+
+        const banner = document.getElementById('data-refresh-banner');
+        expect(banner == null || banner.classList.contains('hidden')).toBe(true);
+        // Save-path called loadFoodLogs exactly once; the self-echo path
+        // silently drops (unsafe page) and never calls reloadCurrentTab.
+        expect(window.loadFoodLogs).toHaveBeenCalledTimes(1);
+        expect(reloadSpy).toHaveBeenCalledTimes(0);
+
+        window.closeBPRecordModal();
+    });
+
+    it('SSE echo from a different source_client_id surfaces the banner when unsafe and silently reloads when safe', async () => {
+        allowConsoleNoise();
+        const { window, document } = env;
+        const now = new Date();
+        const dateStr = isoDate(now);
+        const v2Key = `food_${dateStr}_v2`;
+        const dayKey = `food_${dateStr}_day`;
+
+        installApiCache(window, {
+            [v2Key]: { groups: [], weekStats: null },
+            [dayKey]: { groups: [] }
+        });
+
+        document.getElementById('food-datetime').value = `${dateStr}T13:00`;
+        document.getElementById('food-name').value = 'Apple';
+        document.getElementById('food-weight').value = '150';
+        document.getElementById('food-carbs').value = '20';
+        document.getElementById('food-protein').value = '1';
+        document.getElementById('food-fat').value = '0';
+        document.getElementById('food-calories').value = '80';
+        document.getElementById('food-per-100g').checked = false;
+        document.getElementById('food-id').value = '';
+
+        window.apiCall = vi.fn(async (endpoint) => {
+            if (endpoint === '/api/food/log') return { status: 'created', id: 778 };
+            return null;
+        });
+        window.loadFoodLogs = vi.fn();
+
+        await window.saveFoodLog();
+
+        // saveFoodLog's optimistic path stamped lastOwnWriteAt. The
+        // applyChangesPayload mismatch branch falls back to the
+        // SELF_ECHO_WINDOW_MS (5s) timing window when source_client_id
+        // doesn't match own — this catches the documented race where
+        // the middleware mis-attributes a foreign write to our clientId.
+        // To exercise the legitimate cross-source banner path, advance
+        // the clock past the timing window so lastOwnWriteAt no longer
+        // applies and the foreign source surfaces as `changes`.
+        //
+        // data-store.js reads `Date.now()` through the JSDOM window's
+        // Date object, NOT the host's. Spy on the window-bound Date.now
+        // so the override reaches the classifier.
+        const realNow = window.Date.now.bind(window.Date);
+        const t0 = realNow();
+        const dateNowSpy = vi.spyOn(window.Date, 'now');
+        dateNowSpy.mockReturnValue(t0 + 6000);
+
+        // --- Unsafe branch: a foreign client write while a modal is open
+        //     must show the banner. We do not provide source_client_id
+        //     matching our own clientId, so this falls into `changes`.
+        window.showBPRecordModal();
+
+        await window.DataStore.applyChangesPayload({
+            cursor: 12346,
+            changed_tags: ['food'],
+            source_client_id: 'some-other-client-uuid'
+        });
+
+        const banner = document.getElementById('data-refresh-banner');
+        expect(banner).toBeTruthy();
+        expect(banner.classList.contains('hidden')).toBe(false);
+
+        // --- Safe branch: close the modal so isSafeToAutoRefresh() is true,
+        //     then a foreign-client SSE event must silently reload
+        //     (no banner, reloadCurrentTab scheduled via debounce).
+        window.closeBPRecordModal();
+        // Hide the banner emitted by the unsafe branch so the assertion
+        // below isolates the safe-branch behaviour.
+        banner.classList.add('hidden');
+
+        // Spy on reloadCurrentTab only for the safe-branch probe — by now
+        // saveFoodLog's optimistic-commit calls (which also reload) have
+        // already settled, so a non-zero count here is strictly from the
+        // debounced changes-source path.
+        const reloadSpy = vi.fn();
+        window.reloadCurrentTab = reloadSpy;
+
+        vi.useFakeTimers();
+        try {
+            // Keep the Date.now stub past the self-echo window through
+            // the timer-driven reloadCurrentTab probe too.
+            dateNowSpy.mockReturnValue(t0 + 6000);
+            await window.DataStore.applyChangesPayload({
+                cursor: 12347,
+                changed_tags: ['food'],
+                source_client_id: 'yet-another-client-uuid'
+            });
+
+            // Banner must NOT be shown for safe-state cross-source writes;
+            // the debounced reloadCurrentTab fires after 500ms instead.
+            expect(banner.classList.contains('hidden')).toBe(true);
+            expect(reloadSpy).toHaveBeenCalledTimes(0);
+
+            await vi.advanceTimersByTimeAsync(600);
+            expect(reloadSpy).toHaveBeenCalledTimes(1);
+        } finally {
+            vi.useRealTimers();
+            dateNowSpy.mockRestore();
         }
     });
 });

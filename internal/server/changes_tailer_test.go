@@ -45,17 +45,17 @@ func newTailerHarness() (*Server, *fakeChangeStore) {
 	return srv, fake
 }
 
-// drain waits up to timeout for a notify on sub and returns the cursor and
-// true; on timeout returns (0, false).
-func drainOne(sub <-chan int64, timeout time.Duration) (int64, bool) {
+// drain waits up to timeout for a notify on sub and returns the ChangeEvent
+// and true; on timeout returns (zero, false).
+func drainOne(sub <-chan ChangeEvent, timeout time.Duration) (ChangeEvent, bool) {
 	select {
-	case v, ok := <-sub:
+	case ev, ok := <-sub:
 		if !ok {
-			return 0, false
+			return ChangeEvent{}, false
 		}
-		return v, true
+		return ev, true
 	case <-time.After(timeout):
-		return 0, false
+		return ChangeEvent{}, false
 	}
 }
 
@@ -98,12 +98,16 @@ func TestTailerNotifiesOnCursorAdvance(t *testing.T) {
 	fake.cursor.Store(42)
 
 	// Expect a notify within ~3× the tick interval (with margin for scheduler jitter).
-	cursor, ok := drainOne(sub, 5*changeTailerInterval)
+	ev, ok := drainOne(sub, 5*changeTailerInterval)
 	if !ok {
 		t.Fatalf("tailer did not notify within %v of cursor advance", 5*changeTailerInterval)
 	}
-	if cursor != 42 {
-		t.Fatalf("got cursor %d, want 42", cursor)
+	if ev.Cursor != 42 {
+		t.Fatalf("got cursor %d, want 42", ev.Cursor)
+	}
+	// Tailer-driven notifications have no originating client.
+	if ev.SourceClientID != "" {
+		t.Fatalf("got source %q, want empty (tailer-driven)", ev.SourceClientID)
 	}
 }
 
@@ -165,9 +169,9 @@ func TestTailerCoalescesNotifications(t *testing.T) {
 	recvDone := make(chan struct{})
 	go func() {
 		defer close(recvDone)
-		for v := range sub {
+		for ev := range sub {
 			mu.Lock()
-			received = append(received, v)
+			received = append(received, ev.Cursor)
 			mu.Unlock()
 		}
 	}()

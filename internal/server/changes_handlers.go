@@ -186,7 +186,21 @@ func (s *Server) handleChangesStream(w http.ResponseWriter, r *http.Request) {
 	cursorCheck := time.NewTicker(changeStreamCursorCheckInterval)
 	defer cursorCheck.Stop()
 
-	emit := func() bool {
+	// emit reads the latest changed tags since the last cursor and pushes one
+	// SSE frame. The ChangeEvent carries the broker-attributed source
+	// (sanitised by the broker's writer); an empty/zero event means "no
+	// source" (initial flush, per-stream backstop, tailer-driven write).
+	//
+	// Source attribution is intentionally conservative: source_client_id is
+	// only emitted when the SQL-read cursor matches ev.Cursor exactly. If the
+	// cursor advanced beyond the broker event (a later write committed
+	// between the broker fan-out and this SQL query, or the broker dropped a
+	// newer Notify because the buffer was full), the returned tags include
+	// foreign changes too and attributing the event's source to the whole
+	// frame would mis-classify those foreign tags as self-echoes. In that
+	// case the field is omitted so the frontend's timing-window fallback
+	// takes over.
+	emit := func(ev ChangeEvent) bool {
 		qCtx, qCancel := context.WithTimeout(r.Context(), changeStreamQueryTimeout)
 		cursor, tags, err := s.changes.ListChangedTagsSince(qCtx, since)
 		qCancel()
@@ -201,10 +215,14 @@ func (s *Server) handleChangesStream(w http.ResponseWriter, r *http.Request) {
 		if len(tags) == 0 {
 			return true
 		}
-		if err := writeSSE(w, map[string]any{
+		payload := map[string]any{
 			"cursor":       cursor,
 			"changed_tags": tags,
-		}); err != nil {
+		}
+		if ev.SourceClientID != "" && cursor == ev.Cursor {
+			payload["source_client_id"] = ev.SourceClientID
+		}
+		if err := writeSSE(w, payload); err != nil {
 			return false
 		}
 		flusher.Flush()
@@ -217,17 +235,19 @@ func (s *Server) handleChangesStream(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-maxAgeTimer.C:
 			return
-		case _, ok := <-sub:
+		case ev, ok := <-sub:
 			if !ok {
 				// Broker closed (graceful shutdown). Exit cleanly so the
 				// client sees onerror and reconnects after restart.
 				return
 			}
-			if !emit() {
+			if !emit(ev) {
 				return
 			}
 		case <-cursorCheck.C:
-			if !emit() {
+			// Per-stream defense-in-depth read — no broker event drove it, so
+			// the frame carries no source attribution.
+			if !emit(ChangeEvent{}) {
 				return
 			}
 		case <-keepalive.C:

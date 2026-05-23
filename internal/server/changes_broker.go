@@ -16,6 +16,24 @@ import (
 // instant" threshold and adds ~5 indexed queries/second on an idle DB.
 const changeTailerInterval = 200 * time.Millisecond
 
+// maxClientIDLen is the upper bound on the X-Client-ID header value we
+// propagate through the broker. A UUIDv4 is 36 chars; 64 leaves headroom for
+// future formats while bounding memory pressure from a hostile client jamming
+// the broker with megabyte strings.
+const maxClientIDLen = 64
+
+// ChangeEvent is the value fanned out by ChangeBroker to its subscribers.
+//
+// Cursor is the change_events id at the moment of notification (monotonic).
+// SourceClientID is the X-Client-ID header value of the originating write
+// request when one is present; empty string when the write originated outside
+// the HTTP path (Telegram bot, scheduler, change-events tailer) or when the
+// client did not send the header.
+type ChangeEvent struct {
+	Cursor         int64
+	SourceClientID string
+}
+
 // ChangeBroker is a process-wide pub/sub for change-events cursor updates.
 //
 // It lets the SSE /api/changes/stream handler receive immediate wake-ups when
@@ -23,27 +41,32 @@ const changeTailerInterval = 200 * time.Millisecond
 // change_events table every 5 seconds.
 //
 // Fan-out semantics: Notify is non-blocking — if a subscriber's buffered
-// channel is full, the update is dropped. This is safe because the cursor is
-// monotonic and each handler reconciles via ListChangedTagsSince(lastCursor)
-// on every received wake, so a missed wake just means the next one carries
-// the missed work too.
+// channel is full, the new update is dropped (the older buffered event is
+// preserved). This is safe for tag delivery because the cursor is monotonic
+// and each handler reconciles via ListChangedTagsSince(lastCursor) on every
+// received wake, so a missed wake just means the next one carries the missed
+// work too. Source-attribution correctness is handled in the SSE handler:
+// emit only attaches source_client_id when its SQL-read cursor exactly
+// matches the broker event's cursor — i.e. no other write slipped in between
+// the broker fan-out and the SQL read. Otherwise the field is omitted and
+// the frontend falls back to its timing-window heuristic.
 type ChangeBroker struct {
 	mu     sync.RWMutex
-	subs   map[chan int64]struct{}
+	subs   map[chan ChangeEvent]struct{}
 	closed bool
 }
 
 // NewChangeBroker returns a ready-to-use broker.
 func NewChangeBroker() *ChangeBroker {
-	return &ChangeBroker{subs: make(map[chan int64]struct{})}
+	return &ChangeBroker{subs: make(map[chan ChangeEvent]struct{})}
 }
 
 // Subscribe registers a new subscriber and returns its receive channel.
 // The channel is buffered (size 1) so a single missed-while-busy notify is
 // always retained. The subscription is automatically removed when ctx is
 // cancelled. The returned channel is closed when CloseAll runs.
-func (b *ChangeBroker) Subscribe(ctx context.Context) <-chan int64 {
-	ch := make(chan int64, 1)
+func (b *ChangeBroker) Subscribe(ctx context.Context) <-chan ChangeEvent {
+	ch := make(chan ChangeEvent, 1)
 	b.mu.Lock()
 	if b.closed {
 		b.mu.Unlock()
@@ -63,7 +86,7 @@ func (b *ChangeBroker) Subscribe(ctx context.Context) <-chan int64 {
 
 // Unsubscribe removes ch from the subscriber set and closes it.
 // Safe to call multiple times — subsequent calls are no-ops.
-func (b *ChangeBroker) Unsubscribe(ch chan int64) {
+func (b *ChangeBroker) Unsubscribe(ch chan ChangeEvent) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if _, ok := b.subs[ch]; !ok {
@@ -73,14 +96,17 @@ func (b *ChangeBroker) Unsubscribe(ch chan int64) {
 	close(ch)
 }
 
-// Notify fans out cursor to every subscriber without blocking.
-// A subscriber whose buffer is full silently drops this update.
-func (b *ChangeBroker) Notify(cursor int64) {
+// Notify fans out a ChangeEvent{cursor, sourceClientID} to every subscriber
+// without blocking. A subscriber whose buffer is full silently drops this
+// update. sourceClientID is propagated as-is — callers are responsible for
+// sanitisation (see sanitizeClientID).
+func (b *ChangeBroker) Notify(cursor int64, sourceClientID string) {
+	ev := ChangeEvent{Cursor: cursor, SourceClientID: sourceClientID}
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	for ch := range b.subs {
 		select {
-		case ch <- cursor:
+		case ch <- ev:
 		default:
 		}
 	}
@@ -100,6 +126,29 @@ func (b *ChangeBroker) CloseAll() {
 		delete(b.subs, ch)
 		close(ch)
 	}
+}
+
+// sanitizeClientID trims the raw X-Client-ID header value to a safe, bounded
+// ASCII string before it travels through the broker. Rules, applied in order:
+//   - empty input → empty output (no-op).
+//   - clamp to maxClientIDLen bytes.
+//   - reject (return "") if any byte is outside printable ASCII (0x20–0x7E)
+//     so a hostile client cannot inject control chars or non-UTF-8 bytes
+//     downstream.
+func sanitizeClientID(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	if len(raw) > maxClientIDLen {
+		raw = raw[:maxClientIDLen]
+	}
+	for i := 0; i < len(raw); i++ {
+		c := raw[i]
+		if c < 0x20 || c > 0x7E {
+			return ""
+		}
+	}
+	return raw
 }
 
 // changeStatusRecorder is a tiny ResponseWriter wrapper that lets the
@@ -141,6 +190,11 @@ func (r *changeStatusRecorder) Unwrap() http.ResponseWriter { return r.ResponseW
 // that just happened (assuming the SQL triggers on change_events ran in the
 // same handler's transaction).
 //
+// The X-Client-ID header (if present and sanitises clean) is propagated
+// alongside the cursor so SSE subscribers can recognise their own writes and
+// suppress the "new data available" banner for self-echoes. The header is
+// optional: older clients omit it and the broker just propagates "".
+//
 // Notification is best-effort: lookup failures are logged and swallowed so
 // they never affect the user-facing response. The cursor lookup uses a fresh
 // short-deadline context (not r.Context()) so that a client disconnecting
@@ -162,6 +216,8 @@ func (s *Server) notifyOnWriteMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		clientID := sanitizeClientID(r.Header.Get("X-Client-ID"))
+
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		cursor, err := s.changes.GetLatestChangeCursor(ctx)
@@ -169,7 +225,7 @@ func (s *Server) notifyOnWriteMiddleware(next http.Handler) http.Handler {
 			slog.Debug("changes notify: cursor lookup failed", "error", err, "path", r.URL.Path)
 			return
 		}
-		s.changesBroker.Notify(cursor)
+		s.changesBroker.Notify(cursor, clientID)
 	})
 }
 
@@ -245,7 +301,10 @@ func (s *Server) runChangeTailer(ctx context.Context) {
 				continue
 			}
 			if cursor > lastCursor {
-				s.changesBroker.Notify(cursor)
+				// Tailer-driven notifications have no originating client by
+				// definition — pass "" so SSE subscribers fall back to the
+				// timing-window check for self-echo classification.
+				s.changesBroker.Notify(cursor, "")
 				lastCursor = cursor
 			}
 		}

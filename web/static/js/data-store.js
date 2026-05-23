@@ -25,6 +25,7 @@
     const tagFamilies = new Map();
     const CHANGE_CURSOR_KEY = 'medtracker_changes_cursor';
     const CACHE_PRUNE_AT_KEY = 'medtracker_cache_pruned_at';
+    const CLIENT_ID_KEY = 'wg.clientId';
     const CHANGE_POLL_INTERVAL_MS = 30000;
     const CHANGE_STREAM_RETRY_MS = 5000;
     const CHANGE_STREAM_MAX_RETRY_MS = 30000;
@@ -63,6 +64,34 @@
     // authoritative state.
     let lastOwnWriteAt = 0;
     const SELF_ECHO_WINDOW_MS = 5000;
+
+    // Per-browser stable client identifier. Minted on first use, persisted
+    // to localStorage so it survives reloads, and sent on every non-GET
+    // request via X-Client-ID. The backend echoes it back on the SSE
+    // payload (source_client_id) so the frontend can deterministically
+    // recognise echoes of its own writes — replacing the brittle 5s
+    // lastOwnWriteAt timing window for the SSE path.
+    let cachedClientId = null;
+
+    function generateUUID() {
+        if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+            try { return crypto.randomUUID(); } catch (_) { /* fall through */ }
+        }
+        // RFC 4122 v4 fallback for older WebViews without crypto.randomUUID.
+        const bytes = new Uint8Array(16);
+        if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+            crypto.getRandomValues(bytes);
+        } else {
+            for (let i = 0; i < 16; i += 1) bytes[i] = Math.floor(Math.random() * 256);
+        }
+        bytes[6] = (bytes[6] & 0x0f) | 0x40;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        const hex = [];
+        for (let i = 0; i < 16; i += 1) {
+            hex.push((bytes[i] + 0x100).toString(16).slice(1));
+        }
+        return `${hex.slice(0, 4).join('')}-${hex.slice(4, 6).join('')}-${hex.slice(6, 8).join('')}-${hex.slice(8, 10).join('')}-${hex.slice(10, 16).join('')}`;
+    }
 
     const hasValue = (value) => value !== null && value !== undefined;
 
@@ -219,6 +248,12 @@
             }
 
             this.recordOwnWrite();
+            // Capture our own stamp so rollback can CAS-clear it without
+            // wiping a more recent stamp belonging to a sibling optimistic
+            // write that is still in flight. Without this, an overlapping
+            // A.fail / B.pending pair would clear B's grace window too,
+            // mis-classifying B's own SSE echo as a foreign change.
+            const stampedAt = lastOwnWriteAt;
             this.requestTabRefresh(tags, 'optimistic');
 
             const self = this;
@@ -256,7 +291,12 @@
                     // own-echo will arrive, so clear the marker now —
                     // otherwise a real cross-source update inside the
                     // remaining 5s window would be mis-tagged self-echo.
-                    lastOwnWriteAt = 0;
+                    // Only clear when our stamp is still the latest, so a
+                    // sibling optimistic write that stamped after us keeps
+                    // its grace window intact.
+                    if (lastOwnWriteAt === stampedAt) {
+                        lastOwnWriteAt = 0;
+                    }
                     self.requestTabRefresh(tags, 'optimistic-rollback');
                 }
             };
@@ -556,6 +596,29 @@
             await this.clearCached(key);
         },
 
+        getClientId() {
+            if (typeof cachedClientId === 'string' && cachedClientId.length > 0) {
+                return cachedClientId;
+            }
+            let stored = null;
+            try {
+                stored = localStorage.getItem(CLIENT_ID_KEY);
+            } catch (_e) { /* localStorage may be unavailable */ }
+            if (typeof stored === 'string' && stored.length > 0) {
+                cachedClientId = stored;
+                return cachedClientId;
+            }
+            const minted = generateUUID();
+            cachedClientId = minted;
+            console.debug('[clientId] minted new client id %s (no prior value in localStorage)', minted);
+            try {
+                localStorage.setItem(CLIENT_ID_KEY, minted);
+            } catch (_e) {
+                console.debug('[clientId] localStorage write failed; using in-memory only');
+            }
+            return cachedClientId;
+        },
+
         getChangeCursor() {
             const raw = localStorage.getItem(CHANGE_CURSOR_KEY);
             const parsed = raw ? parseInt(raw, 10) : 0;
@@ -583,24 +646,61 @@
             lastOwnWriteAt = Date.now();
         },
 
+        // Pre-stamp the timing-window for a non-GET request that hasn't yet
+        // committed server-side, returning a rollback callback that callers
+        // invoke on network/HTTP failure to avoid suppressing unrelated
+        // cross-source banners for the rest of the window. The rollback is
+        // CAS-guarded: it restores only when our stamp is still the latest,
+        // so a sibling write that stamped after us keeps its grace window.
+        recordOwnWriteWithRollback() {
+            const prior = lastOwnWriteAt;
+            lastOwnWriteAt = Date.now();
+            const ourStamp = lastOwnWriteAt;
+            return () => {
+                if (lastOwnWriteAt === ourStamp) {
+                    lastOwnWriteAt = prior;
+                }
+            };
+        },
+
         async applyChangesPayload(res) {
             if (!res || typeof res.cursor !== 'number') return;
 
             const changedTags = Array.isArray(res.changed_tags) ? res.changed_tags : [];
             const prevCursor = this.getChangeCursor();
             if (changedTags.length > 0) {
-                // The marker is held for the full window (not consumed on
-                // the first event) so multi-write own actions (e.g. edit-note
-                // POST+DELETE, user-tapping-fast bursts) classify every echo
-                // as `self-echo`. Tradeoff: a real cross-source update from
-                // another tab / the Telegram bot / the scheduler arriving
-                // inside the 5s window is silently suppressed. For a
-                // single-user self-hosted app this is rare and recoverable
-                // (next loadX fetches fresh); the multi-write banner flicker
-                // it prevents is the originally-reported user-visible bug.
-                const isSelfEcho = lastOwnWriteAt > 0
+                // Source classification precedence:
+                //   1. `source_client_id` matches own → `self-echo` (deterministic).
+                //      The backend echoes the X-Client-ID header from the
+                //      originating write back on the SSE payload. When present
+                //      and equal to our own getClientId(), the event is our
+                //      own echo regardless of SSE delivery latency.
+                //   2. `lastOwnWriteAt` 5s window (fallback). Used when:
+                //      a. `source_client_id` is missing — polling path,
+                //         initial SSE flush, tailer-driven event, older server.
+                //      b. `source_client_id` is present but does NOT match own.
+                //         The middleware's attribution can be racy: it reads
+                //         the global MAX(change_events.id) AFTER the handler
+                //         returns, so a foreign write that committed between
+                //         this handler's commit and the cursor lookup will be
+                //         lumped into the same broker frame and tagged with
+                //         the foreign source. Without this fallback our own
+                //         write — which IS in the frame — would surface a
+                //         banner. The timing window catches that case at the
+                //         cost of occasionally suppressing a legitimate
+                //         cross-source banner that lands within 5s of our own
+                //         write (data still refreshes via tag invalidation;
+                //         only the banner is skipped).
+                const ownId = (typeof this.getClientId === 'function') ? this.getClientId() : '';
+                const incomingSource = typeof res.source_client_id === 'string' ? res.source_client_id : '';
+                const recentOwnWrite = lastOwnWriteAt > 0
                     && (Date.now() - lastOwnWriteAt) < SELF_ECHO_WINDOW_MS;
-                const source = isSelfEcho ? 'self-echo' : 'changes';
+                let source;
+                if (incomingSource.length > 0 && incomingSource === ownId) {
+                    source = 'self-echo';
+                } else {
+                    source = recentOwnWrite ? 'self-echo' : 'changes';
+                }
                 console.log('[changes] tags=%o cursor=%d→%d source=%s',
                     changedTags, prevCursor, res.cursor, source);
                 await this.invalidateTags(changedTags);
