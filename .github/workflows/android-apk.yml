@@ -120,6 +120,14 @@ jobs:
           mv "$SRC" "$DST"
           echo "APK_PATH=$DST" >> "$GITHUB_ENV"
 
+      # Structural sanity-check. Asserts the overlay's Kotlin classes
+      # actually compiled into the dex, libmedtracker.so is bundled for
+      # arm64-v8a, and the packaged index.html still has no telegram.org
+      # tag. Complements the unit tests (which verify intent) by checking
+      # the build artifact itself.
+      - name: Verify APK structure
+        run: ./scripts/verify-apk.sh "$APK_PATH"
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
