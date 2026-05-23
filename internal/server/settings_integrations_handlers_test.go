@@ -4,13 +4,19 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store/settings"
 )
+
+var errReloaderTest = errors.New("reloader failed")
 
 func TestHandleGetIntegrations_MasksSecretsAndReportsPlainFields(t *testing.T) {
 	srv, db := createFoodTestServer(t)
@@ -276,6 +282,167 @@ func TestHandleGetIntegrations_EmptySettingsReturnsAllEmpty(t *testing.T) {
 	}
 	if resp.OpenAI.APIKey != "" || resp.Food.APIKey != "" || resp.ElevenLabs.APIKey != "" {
 		t.Errorf("expected all secrets unset on fresh DB, got %+v", resp)
+	}
+}
+
+// TestHandlePatchIntegrations_InvokesReloaderAfterSuccess asserts the hot
+// reload contract the mobile build depends on: after a successful PATCH the
+// registered reloader runs so the freshly-saved OpenAI / Food / ElevenLabs
+// values become live without a process restart. Without this hook the
+// firstrun overlay's "enter key, unlock AI features" promise would fall
+// over — s.foodAI / s.elevenLabs / food.RemoteConfig stay at startup values
+// until restart. A reloader error is logged (best-effort) but does not fail
+// the PATCH response since the row is already persisted.
+func TestHandlePatchIntegrations_InvokesReloaderAfterSuccess(t *testing.T) {
+	srv, db := createFoodTestServer(t)
+	defer db.Close()
+
+	var called int
+	var seenAPIKey string
+	srv.SetIntegrationsReloader(func(ctx context.Context) error {
+		called++
+		openAI, err := db.Settings.GetIntegrationOpenAI(ctx)
+		if err != nil {
+			return err
+		}
+		seenAPIKey = openAI.APIKey
+		return nil
+	})
+
+	body := []byte(`{"openai":{"api_key":"sk-fresh","url":"https://api.openai.com/v1","model":"gpt-4o-mini"}}`)
+	req := httptest.NewRequest("PATCH", "/api/settings/integrations", bytes.NewReader(body))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+	srv.handleUpdateIntegrations(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (%s)", w.Code, w.Body.String())
+	}
+	if called != 1 {
+		t.Errorf("expected reloader to fire once, got %d", called)
+	}
+	if seenAPIKey != "sk-fresh" {
+		t.Errorf("reloader should observe the newly-persisted key, got %q", seenAPIKey)
+	}
+}
+
+// TestHandlePatchIntegrations_ReloaderErrorDoesNotFailRequest asserts the
+// best-effort contract: a reloader failure (e.g. transient settings re-read
+// error) is logged but the PATCH response stays 200 because the row is
+// already written. The user can restart to recover; failing the PATCH would
+// leave them with the values persisted but no signal they were.
+func TestHandlePatchIntegrations_ReloaderErrorDoesNotFailRequest(t *testing.T) {
+	srv, db := createFoodTestServer(t)
+	defer db.Close()
+
+	srv.SetIntegrationsReloader(func(ctx context.Context) error {
+		return errReloaderTest
+	})
+
+	body := []byte(`{"openai":{"api_key":"sk-fresh"}}`)
+	req := httptest.NewRequest("PATCH", "/api/settings/integrations", bytes.NewReader(body))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+	srv.handleUpdateIntegrations(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 despite reloader error, got %d (%s)", w.Code, w.Body.String())
+	}
+	openAI, err := db.Settings.GetIntegrationOpenAI(context.Background())
+	if err != nil {
+		t.Fatalf("read openai: %v", err)
+	}
+	if openAI.APIKey != "sk-fresh" {
+		t.Errorf("row should be persisted even when reloader fails, got %q", openAI.APIKey)
+	}
+}
+
+// TestHandlePatchIntegrations_HotReloadRaceFree asserts the hot-reload path
+// can safely run concurrently with HTTP handlers that read foodAI and
+// elevenLabs. Before the integrationsMu was introduced, a reloader firing
+// while handleElevenLabsSignedURL / handleCreateFoodLogFromPhoto were
+// in-flight would race on the struct + interface writes; this test would
+// trip the -race detector. Now those reads / writes are guarded by the
+// mutex, so a tight write/read loop in parallel goroutines stays clean.
+func TestHandlePatchIntegrations_HotReloadRaceFree(t *testing.T) {
+	srv, db := createFoodTestServer(t)
+	defer db.Close()
+
+	srv.SetIntegrationsReloader(func(ctx context.Context) error {
+		srv.SetElevenLabsConfig(ElevenLabsConfig{APIKey: "el-fresh", AgentID: "agent_fresh"})
+		srv.SetFoodAIService(&stubFoodAI{})
+		return nil
+	})
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 200; i++ {
+			body := []byte(`{"elevenlabs":{"api_key":"el-x","agent_id":"agent_x"}}`)
+			req := httptest.NewRequest("PATCH", "/api/settings/integrations", bytes.NewReader(body))
+			req = withUser(req, 123456)
+			w := httptest.NewRecorder()
+			srv.handleUpdateIntegrations(w, req)
+			if w.Code != http.StatusOK {
+				t.Errorf("patch iter %d: expected 200, got %d", i, w.Code)
+				return
+			}
+		}
+	}()
+
+	// Concurrent reader: tight loop pulling the same fields the live
+	// handlers would read. Snapshot accessors must give a consistent view.
+	for i := 0; i < 200; i++ {
+		cfg := srv.elevenLabsConfig()
+		_ = cfg.APIKey
+		_ = cfg.AgentID
+		_ = srv.foodAIService()
+	}
+	<-done
+}
+
+// TestHandlePatchIntegrations_ReloaderSerializedAcrossConcurrentPatches asserts
+// the full reloader callback (read settings → rebuild clients → apply) runs
+// under a single mutex so two concurrent PATCH handlers cannot interleave an
+// older snapshot's apply after a newer snapshot's apply. Without the reload
+// mutex, the in-memory providers could lag the DB indefinitely until the next
+// PATCH or restart. The reloader here pauses while holding the "active" flag
+// so an unsynchronized implementation would observe overlap; the assertion
+// fires only on overlap, not on serial scheduling that happens to look the
+// same.
+func TestHandlePatchIntegrations_ReloaderSerializedAcrossConcurrentPatches(t *testing.T) {
+	srv, db := createFoodTestServer(t)
+	defer db.Close()
+
+	var active int32
+	var overlap int32
+	srv.SetIntegrationsReloader(func(ctx context.Context) error {
+		if atomic.AddInt32(&active, 1) != 1 {
+			atomic.StoreInt32(&overlap, 1)
+		}
+		// Hold the reload window long enough for a concurrent reloader to
+		// race in if the handler doesn't serialize.
+		time.Sleep(20 * time.Millisecond)
+		atomic.AddInt32(&active, -1)
+		return nil
+	})
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			body := []byte(`{"openai":{"api_key":"sk-iter","model":"gpt-4o-mini"}}`)
+			req := httptest.NewRequest("PATCH", "/api/settings/integrations", bytes.NewReader(body))
+			req = withUser(req, 123456)
+			w := httptest.NewRecorder()
+			srv.handleUpdateIntegrations(w, req)
+			if w.Code != http.StatusOK {
+				t.Errorf("expected 200, got %d (%s)", w.Code, w.Body.String())
+			}
+		}()
+	}
+	wg.Wait()
+	if atomic.LoadInt32(&overlap) != 0 {
+		t.Fatal("reloader callbacks ran concurrently; reloadMu did not serialize them")
 	}
 }
 

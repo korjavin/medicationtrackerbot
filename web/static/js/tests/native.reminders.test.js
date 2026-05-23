@@ -95,6 +95,13 @@ describe('native/web/reminders.js — web no-op shim', () => {
         const ret = env.window.Reminders.startPreScheduleLoop();
         expect(ret).toBeNull();
     });
+
+    it('requestPermissions() reports granted on web (browser prompts inline)', async () => {
+        env = loadEnv();
+        const res = await env.window.Reminders.requestPermissions();
+        expect(res.display).toBe('granted');
+        expect(res.platform).toBe('web');
+    });
 });
 
 describe('native/capacitor/reminders.js — Capacitor impl', () => {
@@ -313,6 +320,38 @@ describe('native/capacitor/reminders.js — Capacitor impl', () => {
         expect(caught).toBeDefined();
         expect(caught.name).toBe('RemindersError');
         expect(caught.code).toBe('PERMISSION_DENIED');
+    });
+
+    it('requestPermissions() short-circuits when plugin already reports granted', async () => {
+        const checkPermissions = vi.fn().mockResolvedValue({ display: 'granted' });
+        const requestPermissions = vi.fn();
+        const capacitor = makeCapacitor();
+        capacitor.Plugins.LocalNotifications.checkPermissions = checkPermissions;
+        capacitor.Plugins.LocalNotifications.requestPermissions = requestPermissions;
+        env = loadEnv({ capacitor });
+        const res = await env.window.Reminders.requestPermissions();
+        expect(checkPermissions).toHaveBeenCalledTimes(1);
+        expect(requestPermissions).not.toHaveBeenCalled();
+        expect(res.display).toBe('granted');
+        expect(res.platform).toBe('capacitor');
+    });
+
+    it('requestPermissions() prompts the user when checkPermissions reports a non-granted state', async () => {
+        // This is the path that actually surfaces the Android 13+
+        // POST_NOTIFICATIONS runtime prompt during the firstrun overlay's
+        // permissions screen. The earlier schedule([]) approach silently
+        // no-opped because the abstraction's empty-payload guard skips
+        // plugin.schedule() — only plugin.requestPermissions() prompts.
+        const checkPermissions = vi.fn().mockResolvedValue({ display: 'prompt' });
+        const requestPermissions = vi.fn().mockResolvedValue({ display: 'granted' });
+        const capacitor = makeCapacitor();
+        capacitor.Plugins.LocalNotifications.checkPermissions = checkPermissions;
+        capacitor.Plugins.LocalNotifications.requestPermissions = requestPermissions;
+        env = loadEnv({ capacitor });
+        const res = await env.window.Reminders.requestPermissions();
+        expect(checkPermissions).toHaveBeenCalledTimes(1);
+        expect(requestPermissions).toHaveBeenCalledTimes(1);
+        expect(res.display).toBe('granted');
     });
 
     it('rejects with UNAVAILABLE when the LocalNotifications plugin is missing', async () => {

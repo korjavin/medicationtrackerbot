@@ -155,9 +155,22 @@
         bindControls();
     }
 
+    // patch is the bare PATCH call extracted for callers that already
+    // hold a fully-formed payload (e.g. the first-run integrations
+    // screen — features/firstrun/screens/integrations.js). It routes
+    // through apiCall so auth headers and the offline-aware error
+    // surface are shared with the Settings UI path; callers do not have
+    // to know about the secret-mask sentinel because they never read
+    // existing secrets back, they only write fresh ones.
+    async function patchIntegrations(payload) {
+        if (typeof apiCall !== 'function') return null;
+        return await apiCall('/api/settings/integrations', 'PATCH', payload);
+    }
+
     window.SettingsIntegrations = {
         load: loadIntegrations,
         save: saveIntegrations,
+        patch: patchIntegrations,
         // Internals exposed for the integration test suite. Not used by app code.
         _applyPayloadToDOM: applyPayloadToDOM,
         _readDOMIntoPayload: readDOMIntoPayload,

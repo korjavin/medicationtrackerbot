@@ -365,6 +365,8 @@ func (f *fakeSettings) GetFoodIntakeEnabled(ctx context.Context) (bool, error)  
 func (f *fakeSettings) SetFoodIntakeEnabled(ctx context.Context, enabled bool) error { return nil }
 func (f *fakeSettings) GetHealthEnabled(ctx context.Context) (bool, error)           { return f.health, nil }
 func (f *fakeSettings) SetHealthEnabled(ctx context.Context, enabled bool) error     { return nil }
+func (f *fakeSettings) GetFirstRunComplete(ctx context.Context) (bool, error)        { return true, nil }
+func (f *fakeSettings) SetFirstRunComplete(ctx context.Context, complete bool) error { return nil }
 func (f *fakeSettings) GetTabOrder(ctx context.Context) (string, error)              { return "", nil }
 func (f *fakeSettings) SetTabOrder(ctx context.Context, order string) error          { return nil }
 func (f *fakeSettings) GetDismissedTZSuggestion(ctx context.Context) (string, error) { return "", nil }

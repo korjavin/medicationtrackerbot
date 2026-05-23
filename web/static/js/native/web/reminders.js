@@ -25,10 +25,20 @@
         return null;
     }
 
+    // Browser path delivers via Web Push; permissions are requested inline
+    // by push.js when the user enables notifications, not up-front. Returning
+    // a granted-shape result keeps the firstrun permissions helper from
+    // surfacing a spurious denial when invoked on web (the screen itself
+    // auto-advances on web, but the helper stays platform-agnostic).
+    function requestPermissions() {
+        return Promise.resolve({ display: 'granted', platform: 'web' });
+    }
+
     var impl = {
         schedule: schedule,
         cancelAll: cancelAll,
         startPreScheduleLoop: startPreScheduleLoop,
+        requestPermissions: requestPermissions,
     };
 
     if (window.Reminders && window.Reminders.__native && typeof window.Reminders.__native.registerImpl === 'function') {

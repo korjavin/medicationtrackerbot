@@ -42,6 +42,7 @@ var allowedBoolColumns = map[string]bool{
 	"medication_enabled":     true,
 	"workout_enabled":        true,
 	"health_enabled":         true,
+	"first_run_complete":     true,
 }
 
 // GetBool reads a boolean settings column. SQLite stores booleans as integers,
@@ -137,6 +138,19 @@ func (r *Repo) GetHealthEnabled(ctx context.Context) (bool, error) {
 // SetHealthEnabled toggles the vitals/health feature.
 func (r *Repo) SetHealthEnabled(ctx context.Context, enabled bool) error {
 	return r.SetBool(ctx, "health_enabled", enabled)
+}
+
+// GetFirstRunComplete reports whether the mobile first-run flow has been
+// dismissed. Server installs are backfilled to true by migration 071 so the
+// flow only fires for fresh mobile databases.
+func (r *Repo) GetFirstRunComplete(ctx context.Context) (bool, error) {
+	return r.GetBool(ctx, "first_run_complete")
+}
+
+// SetFirstRunComplete records that the user has dismissed (or completed) the
+// first-run flow. Idempotent: the firstrun endpoint may call this repeatedly.
+func (r *Repo) SetFirstRunComplete(ctx context.Context, complete bool) error {
+	return r.SetBool(ctx, "first_run_complete", complete)
 }
 
 // GetTabOrder returns the user's preferred tab order as a JSON string. An

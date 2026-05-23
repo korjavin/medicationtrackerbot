@@ -36,9 +36,12 @@ import (
 // configured local user.
 //
 // Configuration comes entirely from the settings table — there are no env vars
-// for the mobile build. The first-run experience (settings populated via the
-// Settings UI) is Phase 2 work; Phase 1 expects the DB to be pre-seeded or for
-// the user to walk through the in-app Settings screen after first launch.
+// for the mobile build. On a fresh install the bootstrap response sets
+// needs_first_run=true and the frontend's web/static/js/features/firstrun/
+// overlay walks the user through welcome → permissions → integrations → done;
+// completion is recorded via POST /api/firstrun/complete (see
+// docs/plans/2026-05-23-mobile-phase2c-firstrun-secrets.md and the "First-run
+// Settings flow" subsection of docs/local-mode.md).
 //
 // On startup the binary prints exactly one line to stdout in the form
 // "LISTENING 127.0.0.1:<port>\n" once the TCP listener is bound. The Android
@@ -106,44 +109,6 @@ func runMobile(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	cfg := settingsCfg
 
-	// Food repo: wire the OpenFoodFacts remote credentials in case the user
-	// configured them via the Settings UI.
-	s.Food.SetRemoteConfig(food.RemoteConfig{
-		APIKey: cfg.Food.APIKey,
-		URL:    cfg.Food.URL,
-		Domain: cfg.Food.Domain,
-	})
-
-	// AI clients: same wiring as server build but driven by settings rows.
-	// Each Vision* field falls back to its OpenAI* counterpart when unset, so
-	// a partial override (e.g. only vision_model) doesn't strand the vision
-	// client with an empty API key / URL.
-	var foodAI domain.FoodAIService
-	if cfg.OpenAI.APIKey != "" || cfg.OpenAI.URL != "" || cfg.OpenAI.Model != "" {
-		aiClient := ai.NewClient(cfg.OpenAI.APIKey, cfg.OpenAI.URL, cfg.OpenAI.Model)
-		visionClient := aiClient
-		visionConfigured := cfg.OpenAI.VisionAPIKey != "" || cfg.OpenAI.VisionURL != "" || cfg.OpenAI.VisionModel != ""
-		if visionConfigured {
-			visionAPIKey := cfg.OpenAI.VisionAPIKey
-			if visionAPIKey == "" {
-				visionAPIKey = cfg.OpenAI.APIKey
-			}
-			visionURL := cfg.OpenAI.VisionURL
-			if visionURL == "" {
-				visionURL = cfg.OpenAI.URL
-			}
-			visionModel := cfg.OpenAI.VisionModel
-			if visionModel == "" {
-				visionModel = cfg.OpenAI.Model
-			}
-			visionClient = ai.NewClient(visionAPIKey, visionURL, visionModel)
-		}
-		foodAI = domain.NewFoodAIServiceWithVision(aiClient, visionClient)
-		slog.Info("AI food logging enabled")
-	} else {
-		slog.Info("AI food logging disabled (no OpenAI config in settings)")
-	}
-
 	// Shared TZ services. Plan-generation safety net is unchanged; on mobile
 	// the notifier-presence gate always reports true because the
 	// LocalNotificationSink is the delivery channel (no notifier.Notifier
@@ -165,14 +130,72 @@ func runMobile(ctx context.Context, args []string, stdout io.Writer) error {
 	// and the service worker. Wire the embedded FS so those handlers read
 	// from the binary itself.
 	srv.SetStaticFS(web.StaticFS())
-	if foodAI != nil {
-		srv.SetFoodAIService(foodAI)
-	}
 	srv.SetTZUpdater(tzUpdater)
 	srv.SetTZLifecycle(tzLifecycle)
-	srv.SetElevenLabsConfig(server.ElevenLabsConfig{
-		APIKey:  cfg.ElevenLabs.APIKey,
-		AgentID: cfg.ElevenLabs.AgentID,
+
+	// applyIntegrations rewires the food remote config, ElevenLabs config,
+	// and AI food client from the supplied config. Called once at startup
+	// and again from the integrations-reload callback after the user PATCHes
+	// /api/settings/integrations through the firstrun overlay (or Settings
+	// UI). Without this hot path the user enters a key, completes firstrun,
+	// and hits 503 on the very next AI request until the app is force-stopped
+	// and relaunched.
+	applyIntegrations := func(c *config.Config) {
+		s.Food.SetRemoteConfig(food.RemoteConfig{
+			APIKey: c.Food.APIKey,
+			URL:    c.Food.URL,
+			Domain: c.Food.Domain,
+		})
+		srv.SetElevenLabsConfig(server.ElevenLabsConfig{
+			APIKey:  c.ElevenLabs.APIKey,
+			AgentID: c.ElevenLabs.AgentID,
+		})
+		// AI clients: each Vision* field falls back to its OpenAI* counterpart
+		// when unset, so a partial override (e.g. only vision_model) doesn't
+		// strand the vision client with an empty API key / URL.
+		var foodAI domain.FoodAIService
+		if c.OpenAI.APIKey != "" || c.OpenAI.URL != "" || c.OpenAI.Model != "" {
+			aiClient := ai.NewClient(c.OpenAI.APIKey, c.OpenAI.URL, c.OpenAI.Model)
+			visionClient := aiClient
+			visionConfigured := c.OpenAI.VisionAPIKey != "" || c.OpenAI.VisionURL != "" || c.OpenAI.VisionModel != ""
+			if visionConfigured {
+				visionAPIKey := c.OpenAI.VisionAPIKey
+				if visionAPIKey == "" {
+					visionAPIKey = c.OpenAI.APIKey
+				}
+				visionURL := c.OpenAI.VisionURL
+				if visionURL == "" {
+					visionURL = c.OpenAI.URL
+				}
+				visionModel := c.OpenAI.VisionModel
+				if visionModel == "" {
+					visionModel = c.OpenAI.Model
+				}
+				visionClient = ai.NewClient(visionAPIKey, visionURL, visionModel)
+			}
+			foodAI = domain.NewFoodAIServiceWithVision(aiClient, visionClient)
+		}
+		srv.SetFoodAIService(foodAI)
+	}
+
+	applyIntegrations(cfg)
+	if cfg.OpenAI.APIKey != "" || cfg.OpenAI.URL != "" || cfg.OpenAI.Model != "" {
+		slog.Info("AI food logging enabled")
+	} else {
+		slog.Info("AI food logging disabled (no OpenAI config in settings)")
+	}
+
+	// Register the hot-reload callback so the firstrun overlay's integrations
+	// PATCH makes the new key live without a restart. Re-reads settings (not
+	// env — mobile has no env precedence) and runs the same wiring.
+	srv.SetIntegrationsReloader(func(ctx context.Context) error {
+		reloaded, err := config.LoadFromSettings(ctx, s.Settings)
+		if err != nil {
+			return fmt.Errorf("reload settings: %w", err)
+		}
+		applyIntegrations(reloaded)
+		slog.Info("integrations hot-reloaded after settings PATCH")
+		return nil
 	})
 
 	// Scheduler with the local-notification sink. The Capacitor app polls

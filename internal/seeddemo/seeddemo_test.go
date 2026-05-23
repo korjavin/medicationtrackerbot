@@ -159,6 +159,39 @@ func captureRunSnapshot(t *testing.T, opts Options) runSnapshot {
 	return runSnapshot{counts: counts, firstBPSystolic: firstSys, lastBPSystolic: lastSys}
 }
 
+func TestRunSetsFirstRunComplete(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	// Fresh DB: migration 071's EXISTS-on-medications backfill skips this
+	// row, so first_run_complete starts at 0 (i.e. needs_first_run=true).
+	pre, err := s.Settings.GetFirstRunComplete(ctx)
+	if err != nil {
+		t.Fatalf("GetFirstRunComplete pre-seed: %v", err)
+	}
+	if pre {
+		t.Fatal("expected first_run_complete=false on a fresh DB before seeding")
+	}
+
+	runSeeder(t, s, Options{
+		UserID: 12345,
+		Days:   30,
+		Wipe:   true,
+		Seed:   42,
+		Now:    fixedNow,
+	})
+
+	// After seed: the demo DB is "already onboarded" — flag must be true
+	// so demo deployments don't surface the Phase 2c first-run overlay.
+	post, err := s.Settings.GetFirstRunComplete(ctx)
+	if err != nil {
+		t.Fatalf("GetFirstRunComplete post-seed: %v", err)
+	}
+	if !post {
+		t.Fatal("expected first_run_complete=true after seeding so demo deploys skip the overlay")
+	}
+}
+
 func TestRunWipesPreExistingData(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

@@ -88,8 +88,13 @@
 
     // Stub surface area — kept in sync with the abstractions defined by the
     // Phase 2b plan. Each global lists the methods Tasks 2–5 will fill in.
-    window.MediaCapture = makeStub('MediaCapture', ['takePhoto', 'pickPhoto']);
-    window.Geolocation = makeStub('Geolocation', ['getCurrentPosition']);
+    // requestPermissions on MediaCapture/Geolocation/Reminders is a Phase 2c
+    // addition — the firstrun overlay surfaces explicit OS permission prompts
+    // here rather than piggy-backing on first-use (which on the Capacitor
+    // Camera plugin opens the picker, and on Geolocation performs a real GPS
+    // fix, both confusing during onboarding).
+    window.MediaCapture = makeStub('MediaCapture', ['takePhoto', 'pickPhoto', 'requestPermissions']);
+    window.Geolocation = makeStub('Geolocation', ['getCurrentPosition', 'requestPermissions']);
     window.Barcode = makeStub('Barcode', ['scan']);
     window.Reminders = makeStub('Reminders', ['schedule', 'cancelAll']);
 

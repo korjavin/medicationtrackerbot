@@ -79,6 +79,7 @@ var mcpCoverageExempt = []routeExemption{
 	{Method: "PATCH", Path: "/api/settings/weight-unit", Reason: "UI-only display preference"},
 	{Method: "GET", Path: "/api/settings/integrations", Reason: "user-editable integration credentials; an agent invoking this would either leak secrets it has no business reading or rewrite the credentials it itself runs against"},
 	{Method: "PATCH", Path: "/api/settings/integrations", Reason: "user-editable integration credentials; an agent invoking this would either leak secrets it has no business reading or rewrite the credentials it itself runs against"},
+	{Method: "POST", Path: "/api/firstrun/complete", Reason: "first-run setup bootstrap; not user-actionable through MCP"},
 	{Method: "POST", Path: "/api/tz-suggestion/dismiss", Reason: "UI/settings — TZ prompt dismissal"},
 	{Method: "GET", Path: "/api/food/settings/status", Reason: "feature flag status; gates MCP itself"},
 	{Method: "POST", Path: "/api/food/settings/toggle", Reason: "feature flag toggle; gates MCP itself"},

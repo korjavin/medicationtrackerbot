@@ -139,9 +139,20 @@
         });
     }
 
+    // requestPermissions on the web has no separate prompt API — browsers
+    // surface the prompt inline at first getUserMedia / file-picker
+    // invocation. Resolve as a granted PermissionState so the firstrun
+    // helper's web fallback path treats web builds as "no prompt needed";
+    // the screen auto-advances on isNativePlatform()==false anyway, so this
+    // is primarily defensive for direct callers.
+    function requestPermissions() {
+        return Promise.resolve({ camera: 'granted', photos: 'granted' });
+    }
+
     var impl = {
         takePhoto: takePhoto,
         pickPhoto: pickPhoto,
+        requestPermissions: requestPermissions,
     };
 
     if (window.MediaCapture && window.MediaCapture.__native && typeof window.MediaCapture.__native.registerImpl === 'function') {
