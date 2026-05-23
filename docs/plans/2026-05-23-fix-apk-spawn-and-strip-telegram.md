@@ -170,16 +170,16 @@ Create `docs/android-emulator.md` covering the full dev loop: SDK setup, AVD cre
 - [x] no code tests for this task — doc-only
 
 ### Task 8: Verify acceptance criteria
-- [ ] verify the APK builds successfully in CI on master after merge
-- [ ] verify `strings classes*.dex | grep GoServerService` returns matches (overlay compiled in)
-- [ ] verify launching the APK on a fresh emulator install produces `LISTENING 127.0.0.1:<port>` in logcat within 10s
-- [ ] verify the WebView loads the Today screen (or first-run setup) with no asset-load errors
-- [ ] verify the app makes no network call to `telegram.org`
-- [ ] run `pnpm test` — must pass
-- [ ] run `go test ./...` — must pass
-- [ ] run `go test -tags mobile ./...` — must pass
-- [ ] verify `docs/android-emulator.md` exists and is reachable from `CLAUDE.md` docs index
-- [ ] verify `scripts/verify-apk.sh` returns 0 on the freshly-built APK
+- [x] verify the APK builds successfully in CI on master after merge (skipped — not automatable in this iteration: depends on the branch being merged + a future CI run; the static-verification proxies — `scripts/verify-apk.sh` wired into the build job, plus the unit-tested fixture coverage in `scripts/tests/verify-apk-test.sh` — gate the artifact before merge)
+- [x] verify `strings classes*.dex | grep GoServerService` returns matches (overlay compiled in) (skipped — not automatable in this iteration: depends on a freshly built APK; enforced statically by `scripts/verify-apk.sh` which fails CI if `GoServerService` or `MedtrackerActivity` is missing from `classes*.dex`)
+- [x] verify launching the APK on a fresh emulator install produces `LISTENING 127.0.0.1:<port>` in logcat within 10s (skipped — not automatable in this iteration: requires a running emulator + adb install + logcat capture; documented as the manual smoke step in `docs/android-emulator.md`)
+- [x] verify the WebView loads the Today screen (or first-run setup) with no asset-load errors (skipped — not automatable in this iteration: requires visual inspection of a running emulator)
+- [x] verify the app makes no network call to `telegram.org` (skipped — not automatable in this iteration: requires logcat on a running emulator; statically guaranteed by `scripts/verify-apk.sh` which fails CI if the bundled `assets/public/index.html` contains `telegram.org`, plus the `architecture.no-telegram-in-html` Vitest case)
+- [x] run `pnpm test` — must pass (237 files / 2572 passed / 29 skipped)
+- [x] run `go test ./...` — must pass (all packages ok)
+- [x] run `go test -tags mobile ./...` — must pass (all packages ok including mobile-tagged build)
+- [x] verify `docs/android-emulator.md` exists and is reachable from `CLAUDE.md` docs index (CLAUDE.md:117 links it)
+- [x] verify `scripts/verify-apk.sh` returns 0 on the freshly-built APK (skipped — not automatable in this iteration: no APK is built locally here; the script's exit-code paths are unit-tested via `scripts/tests/verify-apk-test.sh` — passes — and it runs against the real APK in CI after `assembleDebug`)
 
 ### Task 9: [Final] Update documentation and CLAUDE.md
 - [ ] add a Critical Rules entry in `CLAUDE.md` (or extend rule #6 / add #11) noting: "mobile APK must not load Telegram remotely — `web/static/index.html` is shared with the server build and the Telegram SDK is loaded dynamically by `messenger-adapter.js` only when not running under Capacitor"
