@@ -76,6 +76,39 @@ jobs:
         working-directory: capacitor
         run: npx cap sync android
 
+      # `npx cap sync` may rewrite AndroidManifest.xml (Capacitor reinjects
+      # plugin entries) and re-apply capacitor.build.gradle into
+      # app/build.gradle. Re-run the overlay + wire-in so the build sees
+      # our manifest (GoServerService declaration) and the
+      # `apply from: 'medtracker.build.gradle'` line that pulls in the
+      # Kotlin plugin classpath + deps. Both steps are idempotent.
+      - name: Re-apply android-overlay after sync
+        working-directory: capacitor
+        run: ./apply-overlay.sh
+
+      - name: Re-wire medtracker.build.gradle after sync
+        run: |
+          APP_BUILD=capacitor/android/app/build.gradle
+          LINE="apply from: 'medtracker.build.gradle'"
+          if ! grep -qF "$LINE" "$APP_BUILD"; then
+            printf '\n%s\n' "$LINE" >> "$APP_BUILD"
+            echo "appended apply-from line to $APP_BUILD"
+          fi
+
+      - name: Verify overlay markers before gradle build
+        run: |
+          MANIFEST=capacitor/android/app/src/main/AndroidManifest.xml
+          APP_BUILD=capacitor/android/app/build.gradle
+          if ! grep -qF "GoServerService" "$MANIFEST"; then
+            echo "::error file=$MANIFEST::GoServerService not declared — overlay manifest was lost"
+            exit 1
+          fi
+          if ! grep -qF "apply from: 'medtracker.build.gradle'" "$APP_BUILD"; then
+            echo "::error file=$APP_BUILD::apply-from line missing — Kotlin plugin will not be applied"
+            exit 1
+          fi
+          echo "overlay markers verified (GoServerService + apply-from)"
+
       - name: Build debug APK
         working-directory: capacitor/android
         run: ./gradlew assembleDebug --no-daemon --stacktrace
@@ -86,6 +119,14 @@ jobs:
           DST=capacitor/android/app/build/outputs/apk/debug/medtracker-${GITHUB_SHA::8}-debug.apk
           mv "$SRC" "$DST"
           echo "APK_PATH=$DST" >> "$GITHUB_ENV"
+
+      # Structural sanity-check. Asserts the overlay's Kotlin classes
+      # actually compiled into the dex, libmedtracker.so is bundled for
+      # arm64-v8a, and the packaged index.html still has no telegram.org
+      # tag. Complements the unit tests (which verify intent) by checking
+      # the build artifact itself.
+      - name: Verify APK structure
+        run: ./scripts/verify-apk.sh "$APK_PATH"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

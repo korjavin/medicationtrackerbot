@@ -269,9 +269,89 @@
         };
     })();
 
-    const hasTelegram = (typeof window.Telegram !== 'undefined')
-        && !!window.Telegram
-        && !!window.Telegram.WebApp;
+    // loadTelegramSdk — dynamically injects telegram.org/js/telegram-web-app.js
+    // when running in a real browser without the SDK already present. The
+    // static <script> tag was removed from index.html so the Capacitor mobile
+    // APK never makes a network call to telegram.org; this helper now owns
+    // that load for the web build. Returns a Promise that resolves on the
+    // script's load/error events (or immediately when injection is skipped).
+    //
+    //   native Capacitor          → no injection, resolves immediately
+    //   window.Telegram.WebApp    → no injection, resolves immediately
+    //   prior injection in DOM    → no duplicate, awaits the existing tag
+    //   otherwise                 → injects + resolves on load/error
+    function loadTelegramSdk() {
+        try {
+            const cap = (typeof window !== 'undefined') ? window.Capacitor : null;
+            if (cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform()) {
+                return Promise.resolve();
+            }
+        } catch (e) { /* fall through */ }
 
-    window.MessengerAdapter = hasTelegram ? TelegramAdapter : BrowserAdapter;
+        if (typeof window !== 'undefined' && window.Telegram && window.Telegram.WebApp) {
+            return Promise.resolve();
+        }
+
+        if (typeof document === 'undefined' || typeof document.createElement !== 'function') {
+            return Promise.resolve();
+        }
+
+        const existing = document.querySelector('script[data-medtracker-telegram-sdk]');
+        if (existing) {
+            return new Promise(function (resolve) {
+                existing.addEventListener('load', function () { resolve(); }, { once: true });
+                existing.addEventListener('error', function () { resolve(); }, { once: true });
+            });
+        }
+
+        return new Promise(function (resolve) {
+            const s = document.createElement('script');
+            s.src = 'https://telegram.org/js/telegram-web-app.js';
+            s.async = true;
+            s.setAttribute('data-medtracker-telegram-sdk', 'true');
+            s.addEventListener('load', function () { resolve(); }, { once: true });
+            s.addEventListener('error', function () { resolve(); }, { once: true });
+            (document.head || document.documentElement).appendChild(s);
+        });
+    }
+
+    function pickAdapter() {
+        const hasTelegram = (typeof window.Telegram !== 'undefined')
+            && !!window.Telegram
+            && !!window.Telegram.WebApp;
+        return hasTelegram ? TelegramAdapter : BrowserAdapter;
+    }
+
+    // Sync default selection so window.MessengerAdapter is never undefined
+    // for the rest of the bundle's synchronous boot path (app.js reads
+    // .identityToken() and fires .init() immediately).
+    window.MessengerAdapter = pickAdapter();
+
+    // Async upgrade: once the dynamic SDK load completes on the web build,
+    // re-pick the adapter so Telegram Mini App users still get the
+    // TelegramAdapter even though the static <script> tag in index.html is
+    // gone. On native Capacitor / when Telegram is already present, this
+    // resolves immediately and the re-pick is a no-op. Re-fires init() on
+    // the upgraded adapter so ready()/expand() actually run for late
+    // Telegram arrivals, and refreshes window.userInitData so
+    // makeAuthHeaders() sees the Telegram initData on subsequent requests
+    // (app.js snapshots it synchronously at boot, before this resolves).
+    window.MessengerAdapterReady = loadTelegramSdk().then(function () {
+        const upgraded = pickAdapter();
+        if (upgraded !== window.MessengerAdapter) {
+            window.MessengerAdapter = upgraded;
+            try { upgraded.init(); } catch (e) { /* swallow */ }
+            // Refresh window.userInitData only on a real upgrade. app.js
+            // snapshots userInitData synchronously at boot from whatever the
+            // initial pick returned; if we upgrade BrowserAdapter →
+            // TelegramAdapter mid-boot, makeAuthHeaders() would still see the
+            // stale null. Skipping this when the adapter is unchanged avoids
+            // clobbering manually-injected token values in test harnesses.
+            window.userInitData = upgraded.identityToken() || null;
+            if (window.userInitData && typeof window.sendSwAuthToken === 'function') {
+                try { window.sendSwAuthToken(); } catch (e) { /* swallow */ }
+            }
+        }
+        return window.MessengerAdapter;
+    });
 })();

@@ -22,17 +22,32 @@
     // would fire on top of the in-app modal close and bounce the user to
     // Today. No-op in TelegramAdapter mode (no popstate listener there).
     let swallowNextPopstate = false;
-    const adapter = window.MessengerAdapter;
-    const isBackButtonSupported = !!(adapter
-        && typeof adapter.isBackButtonSupported === 'function'
-        && adapter.isBackButtonSupported());
+    // Resolve the adapter at use time, not at IIFE start. The Telegram SDK
+    // now loads asynchronously (see core/messenger-adapter.js), so the
+    // initial pick on a fresh Telegram Mini App open is BrowserAdapter;
+    // window.MessengerAdapter is swapped to TelegramAdapter once the SDK
+    // resolves. Caching a reference here would permanently route modal
+    // back-button toggling through the in-app chevron instead of Telegram's
+    // native BackButton.
+    function isBackButtonSupported() {
+        const a = window.MessengerAdapter;
+        return !!(a && typeof a.isBackButtonSupported === 'function' && a.isBackButtonSupported());
+    }
+    function adapterShowBack() {
+        const a = window.MessengerAdapter;
+        if (a && typeof a.showBack === 'function') a.showBack();
+    }
+    function adapterHideBack() {
+        const a = window.MessengerAdapter;
+        if (a && typeof a.hideBack === 'function') a.hideBack();
+    }
 
     function reconcileBackButtonVisibility() {
-        if (!isBackButtonSupported) return;
+        if (!isBackButtonSupported()) return;
         if (window.AppBackButton && typeof window.AppBackButton.refresh === 'function') {
             window.AppBackButton.refresh();
         } else {
-            adapter.hideBack();
+            adapterHideBack();
         }
     }
 
@@ -40,7 +55,7 @@
         if (modalPushed) return;
         modalPushed = true;
         history.pushState({ modal: true }, '');
-        if (isBackButtonSupported) adapter.showBack();
+        if (isBackButtonSupported()) adapterShowBack();
     }
 
     function onOverlayClosed() {

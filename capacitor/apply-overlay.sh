@@ -35,6 +35,18 @@ if [ ! -d "$OVERLAY_DIR" ]; then
   exit 1
 fi
 
+# Delete the auto-generated MainActivity.java stub. `npx cap add android`
+# emits a 4-line Java BridgeActivity subclass at the same Java package as
+# our overlay's MainActivity.kt. With the Kotlin Android plugin enabled
+# (medtracker.build.gradle), AGP would fail with
+# "Duplicate class com.korjavin.medtracker.MainActivity". Remove it
+# unconditionally — our MainActivity.kt replaces it.
+STUB_JAVA="${ANDROID_DIR}/app/src/main/java/com/korjavin/medtracker/MainActivity.java"
+if [ -f "$STUB_JAVA" ]; then
+  rm -f "$STUB_JAVA"
+  printf 'removed auto-generated MainActivity.java stub\n'
+fi
+
 # Build a sentinel file list so we can skip the no-op cases cleanly. `find`
 # excludes the overlay's own meta files that we don't want to copy.
 SENTINELS="README.md .gitignore .gitkeep"
@@ -85,5 +97,50 @@ if [ -f "$APP_BUILD_GRADLE" ]; then
     printf '    %s\n\n' "$APPLY_LINE"
     printf 'This pulls in androidx.security:security-crypto + okhttp + coroutines\n'
     printf 'required by MainActivity.kt and GoServerService.kt.\n'
+  fi
+fi
+
+# Kotlin Gradle Plugin classpath injection. Capacitor 6's project-level
+# build.gradle only declares the Android Gradle Plugin on the buildscript
+# classpath, so applying `org.jetbrains.kotlin.android` in the app module
+# fails with "Plugin with id 'org.jetbrains.kotlin.android' not found".
+# Without the plugin, AGP silently drops the overlay's .kt sources and the
+# resulting APK ships a stub MainActivity that never spawns the embedded Go
+# binary. Inject the classpath idempotently — grep-then-sed so re-running is
+# a no-op.
+PROJECT_BUILD_GRADLE="${ANDROID_DIR}/build.gradle"
+KOTLIN_VERSION="1.9.23"
+KOTLIN_CLASSPATH_LINE="classpath \"org.jetbrains.kotlin:kotlin-gradle-plugin:${KOTLIN_VERSION}\""
+if [ -f "$PROJECT_BUILD_GRADLE" ]; then
+  if ! grep -qF "org.jetbrains.kotlin:kotlin-gradle-plugin" "$PROJECT_BUILD_GRADLE"; then
+    # Insert immediately after the AGP classpath line. The template emits
+    # `classpath 'com.android.tools.build:gradle:<ver>'` — we match the
+    # `com.android.tools.build:gradle` substring and append our line right
+    # after, preserving the existing indentation.
+    tmp_file="${PROJECT_BUILD_GRADLE}.tmp.$$"
+    awk -v kline="        ${KOTLIN_CLASSPATH_LINE}" '
+      { print }
+      /com\.android\.tools\.build:gradle/ && !inserted {
+        print kline
+        inserted = 1
+      }
+    ' "$PROJECT_BUILD_GRADLE" > "$tmp_file"
+    mv "$tmp_file" "$PROJECT_BUILD_GRADLE"
+    # Fail loudly if the AGP classpath line wasn't found — silently leaving
+    # the Kotlin plugin off the buildscript path is how the overlay's .kt
+    # sources drop out of the APK without any warning. If a future Capacitor
+    # bump renames the AGP coordinate or switches to a `plugins {}` block,
+    # the pattern needs to be updated here rather than discovered downstream
+    # when the dex misses GoServerService.
+    if ! grep -qF "org.jetbrains.kotlin:kotlin-gradle-plugin" "$PROJECT_BUILD_GRADLE"; then
+      printf 'error: failed to inject Kotlin Gradle Plugin classpath — AGP\n' >&2
+      printf '       pattern "com.android.tools.build:gradle" not found in %s.\n' \
+        "$PROJECT_BUILD_GRADLE" >&2
+      printf '       The Capacitor project template may have changed; update the\n' >&2
+      printf '       awk insertion in capacitor/apply-overlay.sh.\n' >&2
+      exit 1
+    fi
+    printf 'injected Kotlin Gradle Plugin %s classpath into %s\n' \
+      "$KOTLIN_VERSION" "$PROJECT_BUILD_GRADLE"
   fi
 fi

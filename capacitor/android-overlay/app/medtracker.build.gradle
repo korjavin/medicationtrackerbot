@@ -14,6 +14,14 @@
 // one-line `apply from` is the smallest possible patch that survives Capacitor
 // upgrades.
 
+// Apply the Kotlin Android plugin so the overlay's .kt sources
+// (MainActivity.kt, GoServerService.kt, NativeBridge.kt) compile. Without
+// this, AGP silently drops the .kt files and the APK ships a stub
+// MainActivity that never spawns the embedded Go binary. The matching
+// kotlin-gradle-plugin classpath entry is injected into the project-level
+// build.gradle by capacitor/apply-overlay.sh.
+apply plugin: 'org.jetbrains.kotlin.android'
+
 dependencies {
     // EncryptedSharedPreferences for the per-install session secret.
     // The local resolver ignores cookies so this is not security-meaningful,
@@ -28,6 +36,12 @@ dependencies {
 
     // Coroutines for the lifecycleScope + Dispatchers.IO bootstrap path.
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
+
+    // Explicit kotlin-stdlib pinned to match the Kotlin Gradle Plugin version
+    // injected by apply-overlay.sh. Capacitor 6 pulls kotlin-stdlib in
+    // transitively, but pinning it here guarantees the compile- and
+    // runtime-stdlib agree even if a transitive dependency drifts.
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:1.9.23"
 
     // androidTest dependencies for the GoServerService instrumentation suite.
     androidTestImplementation "androidx.test.ext:junit:1.1.5"

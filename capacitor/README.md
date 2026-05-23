@@ -74,8 +74,16 @@ npx cap add android                 # generates android/ (gitignored)
 ../scripts/build-android-binaries.sh
 ./apply-overlay.sh                  # copies android-overlay/ → android/
 npx cap sync
+./apply-overlay.sh                  # re-apply: cap sync may have clobbered manifest / apply-from
+./verify-overlay-applied.sh         # asserts GoServerService manifest entry + apply-from line
 npx cap open android
 ```
+
+The double `apply-overlay.sh` + `verify-overlay-applied.sh` pair is what
+the CI workflow runs and is the supported way to catch a `cap sync`
+regression locally before opening Android Studio. The paragraph
+beginning "`npx cap sync` may rewrite ..." below explains why this is
+necessary.
 
 > The committed `capacitor.config.ts` leaves `server.url` unset, so the
 > overlay's `MainActivity` takes the embedded-binary spawn path by default
@@ -92,6 +100,29 @@ See `docs/local-mode.md` → "Phase 2a build pipeline" for the why.
 
 `apply-overlay.sh` is idempotent. Re-run it any time you regenerate
 `capacitor/android/` via `cap add` or change overlay sources.
+
+`npx cap sync` may rewrite `AndroidManifest.xml` (Capacitor reinjects plugin
+entries) and `app/build.gradle` (re-applies `capacitor.build.gradle`), which
+can drop our overlay's manifest and the `apply from: 'medtracker.build.gradle'`
+wire-in. Re-run `apply-overlay.sh` (and re-append the apply-from line) AFTER
+`cap sync`, then verify with:
+
+```sh
+./verify-overlay-applied.sh   # or: npm run verify:overlay
+```
+
+This greps for `GoServerService` in the manifest and the apply-from line in
+`app/build.gradle`, exiting non-zero if either is missing. CI runs the same
+checks before `gradlew assembleDebug`.
+
+Local emulator testing
+----------------------
+The full dev loop — Android SDK setup, AVD creation, building the APK
+locally, installing on the emulator, logcat tags to watch, and how to
+clear state between runs — is documented in
+[`docs/android-emulator.md`](../docs/android-emulator.md). That doc also
+covers `scripts/verify-apk.sh`, the APK structural verifier CI runs after
+`assembleDebug`.
 
 Pointing at a server (dev-server fallback)
 ------------------------------------------

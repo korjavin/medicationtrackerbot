@@ -63,6 +63,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.AppStore',                  // core/store.js — ephemeral UI state
     'window.CacheKeys',                 // core/cache-keys.js — centralized registry of api_cache keys, tags, and freshness windows; registerAll() is invoked at boot so tag-based invalidation works regardless of which feature loader has executed
     'window.MessengerAdapter',          // core/messenger-adapter.js — the only file allowed to reach into window.Telegram.WebApp; exposes a thin interface (init, identityToken, authHeaderName, alert, confirm, showPopup, startParam, onBack/showBack/hideBack, isPresent) selected to TelegramAdapter or BrowserAdapter at boot so the same client code can serve a Telegram Mini App or a non-Telegram browser PWA
+    'window.MessengerAdapterReady',     // core/messenger-adapter.js — Promise that resolves once loadTelegramSdk() finishes and the adapter has been (re-)picked; consumers that need the upgraded TelegramAdapter (rather than the sync BrowserAdapter default) can await this on the web build
 
     // Features
     'window.handleDeepLinks',           // features/deeplink-router.js — called by bootstrap.js

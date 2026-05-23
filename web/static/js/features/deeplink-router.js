@@ -87,7 +87,14 @@ window.handleDeepLinks = handleDeepLinks;
 // returns default-on and can open BP even when the user disabled it.
 // Falls back to default-on behavior after ~5s if bootstrap never completes,
 // matching the URL-path deep-link guard.
-if (window.MessengerAdapter && window.MessengerAdapter.startParam() === 'bp_add') {
+//
+// MessengerAdapterReady awaits the dynamic Telegram SDK load (see
+// core/messenger-adapter.js). Without that wait the adapter is still
+// BrowserAdapter at this point on a fresh Telegram Mini App open and
+// startParam() returns null (Telegram passes `tgWebAppStartParam` in the
+// URL hash, not `start`), permanently missing the bp_add handshake.
+function maybeRunStartParamDeepLink() {
+    if (!window.MessengerAdapter || window.MessengerAdapter.startParam() !== 'bp_add') return;
     const startedAt = Date.now();
     const checkInterval = setInterval(() => {
         const modalReady = typeof showBPRecordModal === 'function';
@@ -103,4 +110,10 @@ if (window.MessengerAdapter && window.MessengerAdapter.startParam() === 'bp_add'
             setTimeout(showBPRecordModal, 500);
         }
     }, 100);
+}
+
+if (window.MessengerAdapterReady && typeof window.MessengerAdapterReady.then === 'function') {
+    window.MessengerAdapterReady.then(maybeRunStartParamDeepLink);
+} else {
+    maybeRunStartParamDeepLink();
 }
