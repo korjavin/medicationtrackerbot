@@ -88,10 +88,16 @@
         // resolved promise rather than UNAVAILABLE.
         if (typeof rem.requestPermissions === 'function') {
             return Promise.resolve(rem.requestPermissions()).then(function (res) {
-                if (res && res.display && res.display !== 'granted') {
-                    return { granted: false, reason: 'PERMISSION_DENIED', message: 'display=' + res.display };
+                // Strict check: only an explicit display='granted' is a grant.
+                // 'denied' / 'prompt' / 'prompt-with-rationale' / a missing
+                // display field (older plugin versions or stub mocks) all fall
+                // through to PERMISSION_DENIED so the row stays unlocked
+                // rather than silently claiming success.
+                if (res && res.display === 'granted') {
+                    return { granted: true };
                 }
-                return { granted: true };
+                var display = (res && res.display) ? String(res.display) : 'unknown';
+                return { granted: false, reason: 'PERMISSION_DENIED', message: 'display=' + display };
             }).catch(function (e) {
                 return {
                     granted: false,
