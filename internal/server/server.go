@@ -110,6 +110,30 @@ type Server struct {
 	// cost-sensitive endpoints when demoMode is on. Ignored when demoMode is
 	// off. Populated by SetDemoConfig.
 	demoCfg DemoConfig
+	// integrationsReloader is invoked after a successful PATCH
+	// /api/settings/integrations so the embedding binary can rebuild the
+	// AI client, food remote config, and ElevenLabs config from the
+	// updated settings rows without a process restart. The mobile build
+	// wires this; the firstrun overlay's "enter key, unlock AI features"
+	// flow depends on it to make freshly-saved provider keys live before
+	// the user reaches the food / voice features. Server build leaves it
+	// nil — operators have always restarted to pick up env+settings
+	// changes there. Errors from the callback are logged but don't fail
+	// the PATCH response; the row is already persisted.
+	integrationsReloader func(context.Context) error
+	// reloadMu serializes the entire integrationsReloader invocation so
+	// two concurrent PATCH handlers cannot interleave "read settings →
+	// rebuild clients → apply" in a way that lets an older snapshot's
+	// apply land after a newer snapshot's apply. integrationsMu only
+	// guards the field writes themselves; without reloadMu, two callbacks
+	// can race so that an older snapshot read first wins the apply order
+	// last — leaving the in-memory providers behind the database.
+	reloadMu sync.Mutex
+	// integrationsMu guards elevenLabs + foodAI so the hot-reload path
+	// (SetElevenLabsConfig / SetFoodAIService invoked from the mobile
+	// build's integrationsReloader while HTTP handlers are concurrently
+	// reading these fields) cannot tear a struct or interface read.
+	integrationsMu sync.RWMutex
 	// staticFS, when non-nil, is read by the static-file handlers
 	// (serveIndexWithBotUsername, serveServiceWorker, serveOIDCSetup, the
 	// /static/ FileServer, /favicon.ico, /pitch) in place of the relative
@@ -419,9 +443,33 @@ func (s *Server) SetExternalAPIKey(key string) {
 }
 
 // SetFoodAIService wires the AI-backed food parser used by the photo upload
-// endpoint. When unset, /api/food/log/from-photo returns 503.
+// endpoint. When unset, /api/food/log/from-photo returns 503. Safe to call
+// at any time — the mobile build invokes it from the integrations hot-reload
+// path while handlers may be concurrently dispatching on foodAIService().
 func (s *Server) SetFoodAIService(svc domain.FoodAIService) {
+	s.integrationsMu.Lock()
 	s.foodAI = svc
+	s.integrationsMu.Unlock()
+}
+
+// foodAIService returns the currently-wired FoodAIService (or nil). Callers
+// MUST snapshot the result into a local variable and dispatch through it
+// rather than re-reading s.foodAI — the field can be swapped between a nil
+// check and the method call by a concurrent SetFoodAIService.
+func (s *Server) foodAIService() domain.FoodAIService {
+	s.integrationsMu.RLock()
+	defer s.integrationsMu.RUnlock()
+	return s.foodAI
+}
+
+// SetIntegrationsReloader registers a hot-reload callback invoked after a
+// successful PATCH /api/settings/integrations. The mobile build uses it so
+// the first-run integrations screen makes the freshly-saved OpenAI / Food /
+// ElevenLabs values live without a process restart — otherwise the user
+// reaches the food / voice features and hits 503 until they kill and
+// relaunch the app. Server build leaves it unset.
+func (s *Server) SetIntegrationsReloader(fn func(context.Context) error) {
+	s.integrationsReloader = fn
 }
 
 // SetNotifiers configures the notification channels after construction.
