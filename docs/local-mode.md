@@ -2,7 +2,7 @@
 
 Design context for the ongoing effort to compile this codebase into a mobile app via Capacitor. This doc captures the *why* behind decisions made during planning so future phases can be planned from a warm start, not by re-deriving from first principles. Living doc — update as Phase 2 lands.
 
-Status: **Phase 2a in progress** on Android (embedded Go binary), **Phase 2b shipped** (native plugin JS abstractions), **Phase 2c shipped** (first-run overlay + plaintext-SQLite secrets decision; real-device verification still pending). Phase 1 (Go-side foundation + Capacitor dev-server spike) shipped — plan: `docs/plans/completed/2026-05-18-local-only-mode-foundation.md`. Phase 2a plan: `docs/plans/2026-05-22-mobile-phase2a-android-go-embedding.md`. Phase 2b plan: `docs/plans/2026-05-22-mobile-phase2b-native-plugins.md` (real-device verification still pending — see Post-Completion in the plan). Phase 2c plan: `docs/plans/2026-05-23-mobile-phase2c-firstrun-secrets.md` (real-device verification still pending). Phase 2d (Keystore migration for provider secrets) is captured as a stub: `docs/plans/2026-05-23-mobile-phase2d-keystore-secrets.md`. See [Phase 2 below](#phase-2-mobile-shell--native-integration).
+Status: **Phase 2a shipped** on Android (embedded Go binary), **Phase 2b shipped** (native plugin JS abstractions), **Phase 2c shipped** (first-run overlay + plaintext-SQLite secrets decision). Real-device APK verification across 2a/2b/2c still pending. Phase 1 (Go-side foundation + Capacitor dev-server spike) shipped — plan: `docs/plans/completed/2026-05-18-local-only-mode-foundation.md`. Phase 2a plan: `docs/plans/completed/2026-05-22-mobile-phase2a-android-go-embedding.md`. Phase 2b plan: `docs/plans/completed/2026-05-22-mobile-phase2b-native-plugins.md`. Phase 2c plan: `docs/plans/completed/2026-05-23-mobile-phase2c-firstrun-secrets.md`. Phase 2d (Keystore migration for provider secrets) is captured as a stub: `docs/plans/2026-05-23-mobile-phase2d-keystore-secrets.md`. See [Phase 2 below](#phase-2-mobile-shell--native-integration).
 
 ## Build & run
 
@@ -36,9 +36,9 @@ npx cap open android             # opens Android Studio
 
 The spike's `capacitor.config.ts` sets `server.url` to `http://localhost:8080` so the WebView loads from a running `go run ./cmd/bot`. Embedding the Go binary inside the app bundle is Phase 2; for now the spike validates that the wrapper builds, the PWA loads, and the SW/Dexie/optimistic-write plumbing survives the Capacitor environment. See `capacitor/README.md` for known spike limitations (Telegram `initData` auth does not flow inside the WebView).
 
-## Phase 2a build pipeline (Android only, in progress)
+## Phase 2a build pipeline (Android only, shipped)
 
-Phase 2a (`docs/plans/2026-05-22-mobile-phase2a-android-go-embedding.md`) wires a real cross-compile pipeline that drops Android-native binaries into a committed overlay tree. The overlay survives `npx cap add android` regeneration:
+Phase 2a (`docs/plans/completed/2026-05-22-mobile-phase2a-android-go-embedding.md`) wires a real cross-compile pipeline that drops Android-native binaries into a committed overlay tree. The overlay survives `npx cap add android` regeneration:
 
 ```bash
 cd capacitor
@@ -168,11 +168,11 @@ Phase 1's Task 8 wraps `web/static/` and points the WebView at a running dev ser
 
 ## Phase 2: Mobile shell + native integration
 
-Phase 2 is split into three plans, landing in order:
+Phase 2 is split into four plans, landing in order:
 
-- **Phase 2a — Android Go-binary embedding** (in progress). Plan: `docs/plans/2026-05-22-mobile-phase2a-android-go-embedding.md`. Spawns the mobile-build binary inside the Capacitor Android shell, parses `LISTENING 127.0.0.1:<port>` from stdout, loads the WebView from that port. iOS deferred to a follow-up. See "Phase 2a build pipeline" above and "Go binary embedding: settled decision" below.
-- **Phase 2b — Native plugin abstractions** (shipped — JS + plugin install + AndroidManifest overlay; real-device verification pending). Plan: `docs/plans/2026-05-22-mobile-phase2b-native-plugins.md`. Camera, geolocation, barcode, local notifications shims selected at runtime via `Capacitor.isNativePlatform()`. See "Native plugin JS abstractions" below.
-- **Phase 2c — First-run setup + secrets storage** (shipped — overlay + endpoint + SQLite-plaintext decision; real-device APK verification still pending). Plan: `docs/plans/2026-05-23-mobile-phase2c-firstrun-secrets.md`. Four-screen overlay (welcome → permissions → integrations → done), fully skippable, gated on `bootstrap.needs_first_run`. See "First-run Settings flow" + "Secrets storage" + "First-run user provisioning" below.
+- **Phase 2a — Android Go-binary embedding** (shipped). Plan: `docs/plans/completed/2026-05-22-mobile-phase2a-android-go-embedding.md`. Spawns the mobile-build binary inside the Capacitor Android shell, parses `LISTENING 127.0.0.1:<port>` from stdout, loads the WebView from that port. iOS deferred to a follow-up. See "Phase 2a build pipeline" above and "Go binary embedding: settled decision" below.
+- **Phase 2b — Native plugin abstractions** (shipped — JS + plugin install + AndroidManifest overlay; real-device verification pending). Plan: `docs/plans/completed/2026-05-22-mobile-phase2b-native-plugins.md`. Camera, geolocation, barcode, local notifications shims selected at runtime via `Capacitor.isNativePlatform()`. See "Native plugin JS abstractions" below.
+- **Phase 2c — First-run setup + secrets storage** (shipped — overlay + endpoint + SQLite-plaintext decision; real-device APK verification still pending). Plan: `docs/plans/completed/2026-05-23-mobile-phase2c-firstrun-secrets.md`. Four-screen overlay (welcome → permissions → integrations → done), fully skippable, gated on `bootstrap.needs_first_run`. See "First-run Settings flow" + "Secrets storage" + "First-run user provisioning" below.
 - **Phase 2d — Keystore migration for provider secrets** (stub, deferred). Plan: `docs/plans/2026-05-23-mobile-phase2d-keystore-secrets.md`. Moves OpenAI / Food DB / ElevenLabs keys out of the SQLite `settings` table into Android `EncryptedSharedPreferences` (and iOS Keychain when iOS ships); the frontend reads on session start and forwards via headers. Re-evaluated after Phase 2c bakes on a real device for at least a week.
 
 This section captures what's known about each sub-phase so the remaining plans can be written without re-deriving.
