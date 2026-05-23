@@ -106,8 +106,35 @@
         cachedAt = 0;
     }
 
+    // requestPermissions is a Phase 2c addition for the firstrun overlay's
+    // permissions screen. The earlier path of calling getCurrentPosition to
+    // surface the OS prompt also blocks on a real GPS fix (10+ seconds
+    // indoors), and any TIMEOUT after the user granted permission would
+    // surface as a confusing "couldn't request access" error. The plugin
+    // exposes requestPermissions specifically for this case — returns
+    // { location, coarseLocation } PermissionState values; callers translate
+    // to a flat granted/denied bit.
+    function requestPermissions() {
+        return Promise.resolve()
+            .then(function () { return getPlugin(); })
+            .then(function (plugin) {
+                if (typeof plugin.requestPermissions !== 'function') {
+                    var err = new Error('Geolocation.requestPermissions unavailable on this plugin version');
+                    err.name = 'GeolocationError';
+                    err.code = 'POSITION_UNAVAILABLE';
+                    throw err;
+                }
+                return plugin.requestPermissions({ permissions: ['location'] });
+            })
+            .catch(function (e) {
+                if (e && e.name === 'GeolocationError') throw e;
+                throw normalizeError(e);
+            });
+    }
+
     var impl = {
         getCurrentPosition: getCurrentPosition,
+        requestPermissions: requestPermissions,
         _resetCache: _resetCache,
     };
 

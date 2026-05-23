@@ -86,15 +86,22 @@ describe('firstrun permissions screen', () => {
     });
 
     it('on native, Allow buttons call MediaCapture/Reminders/Geolocation and grant updates UI', async () => {
-        const mediaCapture = { pickPhoto: vi.fn().mockResolvedValue(null) };
-        // requestPermissions is what actually surfaces the Android 13+
-        // POST_NOTIFICATIONS prompt; schedule([]) silently no-ops because
-        // the abstraction's empty-payload guard skips plugin.schedule().
+        // requestPermissions is what actually surfaces the OS prompts —
+        // pickPhoto opens the photo picker AND schedule([]) silently no-ops
+        // on POST_NOTIFICATIONS, so legacy paths are the wrong UX shape and
+        // must not be invoked when requestPermissions is available.
+        const mediaCapture = {
+            requestPermissions: vi.fn().mockResolvedValue({ camera: 'granted', photos: 'granted' }),
+            pickPhoto: vi.fn().mockResolvedValue(null),
+        };
         const reminders = {
             requestPermissions: vi.fn().mockResolvedValue({ display: 'granted', platform: 'capacitor' }),
             schedule: vi.fn().mockResolvedValue({ scheduled: 0 }),
         };
-        const geolocation = { getCurrentPosition: vi.fn().mockResolvedValue({ coords: { latitude: 0, longitude: 0 } }) };
+        const geolocation = {
+            requestPermissions: vi.fn().mockResolvedValue({ location: 'granted', coarseLocation: 'granted' }),
+            getCurrentPosition: vi.fn().mockResolvedValue({ coords: { latitude: 0, longitude: 0 } }),
+        };
         const { window, document, cleanup } = loadFlow({
             bootstrap: { needs_first_run: true },
             initialStep: 'permissions',
@@ -110,12 +117,14 @@ describe('firstrun permissions screen', () => {
             // microtasks so the status text + class assignments settle.
             await new Promise(resolve => setTimeout(resolve, 0));
 
-            expect(mediaCapture.pickPhoto).toHaveBeenCalledTimes(1);
+            expect(mediaCapture.requestPermissions).toHaveBeenCalledTimes(1);
+            expect(mediaCapture.pickPhoto).not.toHaveBeenCalled();
             expect(reminders.requestPermissions).toHaveBeenCalledTimes(1);
             // The legacy schedule([]) path must NOT be used — it silently
             // no-ops on the Capacitor impl and never surfaces the prompt.
             expect(reminders.schedule).not.toHaveBeenCalled();
-            expect(geolocation.getCurrentPosition).toHaveBeenCalledTimes(1);
+            expect(geolocation.requestPermissions).toHaveBeenCalledTimes(1);
+            expect(geolocation.getCurrentPosition).not.toHaveBeenCalled();
 
             const cameraStatus = document.querySelector('[data-firstrun-permission-status="camera"]');
             const notifStatus = document.querySelector('[data-firstrun-permission-status="notifications"]');
@@ -135,7 +144,7 @@ describe('firstrun permissions screen', () => {
 
     it('on native, a PERMISSION_DENIED rejection shows a soft warning and lets the user continue', async () => {
         const denied = Object.assign(new Error('Permission denied'), { code: 'PERMISSION_DENIED', name: 'MediaCaptureError' });
-        const mediaCapture = { pickPhoto: vi.fn().mockRejectedValue(denied) };
+        const mediaCapture = { requestPermissions: vi.fn().mockRejectedValue(denied) };
         const { window, document, cleanup } = loadFlow({
             bootstrap: { needs_first_run: true },
             initialStep: 'permissions',
@@ -164,7 +173,7 @@ describe('firstrun permissions screen', () => {
 
     it('on native, a non-permission failure surfaces a generic try-again message', async () => {
         const unavailable = Object.assign(new Error('Capacitor Camera plugin not available'), { code: 'UNAVAILABLE', name: 'MediaCaptureError' });
-        const mediaCapture = { pickPhoto: vi.fn().mockRejectedValue(unavailable) };
+        const mediaCapture = { requestPermissions: vi.fn().mockRejectedValue(unavailable) };
         const { window, document, cleanup } = loadFlow({
             bootstrap: { needs_first_run: true },
             initialStep: 'permissions',
@@ -245,12 +254,16 @@ describe('firstrun permissions screen', () => {
     });
 
     it('"Continue" after granting one permission still advances to integrations', async () => {
-        const mediaCapture = { pickPhoto: vi.fn().mockResolvedValue(null) };
+        const mediaCapture = {
+            requestPermissions: vi.fn().mockResolvedValue({ camera: 'granted', photos: 'granted' }),
+        };
         const reminders = {
             requestPermissions: vi.fn().mockResolvedValue({ display: 'granted', platform: 'capacitor' }),
             schedule: vi.fn().mockResolvedValue({ scheduled: 0 }),
         };
-        const geolocation = { getCurrentPosition: vi.fn().mockResolvedValue({ coords: { latitude: 0, longitude: 0 } }) };
+        const geolocation = {
+            requestPermissions: vi.fn().mockResolvedValue({ location: 'granted', coarseLocation: 'granted' }),
+        };
         const { window, document, cleanup } = loadFlow({
             bootstrap: { needs_first_run: true },
             initialStep: 'permissions',
@@ -263,10 +276,10 @@ describe('firstrun permissions screen', () => {
             await new Promise(resolve => setTimeout(resolve, 0));
             document.querySelector('[data-firstrun-action="continue"]').click();
             expect(window.WGFirstRun.state.getStep()).toBe('integrations');
-            expect(mediaCapture.pickPhoto).toHaveBeenCalledTimes(1);
+            expect(mediaCapture.requestPermissions).toHaveBeenCalledTimes(1);
             expect(reminders.requestPermissions).not.toHaveBeenCalled();
             expect(reminders.schedule).not.toHaveBeenCalled();
-            expect(geolocation.getCurrentPosition).not.toHaveBeenCalled();
+            expect(geolocation.requestPermissions).not.toHaveBeenCalled();
         } finally { cleanup(); }
     });
 
@@ -279,9 +292,9 @@ describe('firstrun permissions screen', () => {
             bootstrap: { needs_first_run: true },
             initialStep: 'permissions',
             capacitor: { isNativePlatform: () => true },
-            mediaCapture: { pickPhoto: vi.fn().mockResolvedValue(null) },
+            mediaCapture: { requestPermissions: vi.fn().mockResolvedValue({ camera: 'granted', photos: 'granted' }) },
             reminders,
-            geolocation: { getCurrentPosition: vi.fn().mockResolvedValue(null) },
+            geolocation: { requestPermissions: vi.fn().mockResolvedValue({ location: 'granted', coarseLocation: 'granted' }) },
         });
         try {
             window.WGFirstRun.mount();
@@ -293,6 +306,93 @@ describe('firstrun permissions screen', () => {
             expect(document.querySelector('[data-firstrun-permission="notifications"]').classList.contains('wg-firstrun-permission--denied')).toBe(true);
             // legacy schedule([]) must not be invoked as a side effect.
             expect(reminders.schedule).not.toHaveBeenCalled();
+        } finally { cleanup(); }
+    });
+
+    it('on native, MediaCapture.requestPermissions returning camera=denied is surfaced as a denial', async () => {
+        // Verifies the new Phase 2c requestPermissions path: when the OS
+        // returns PermissionState='denied' (not 'granted' or 'limited'),
+        // the screen treats this as a denial rather than silently advancing.
+        const mediaCapture = {
+            requestPermissions: vi.fn().mockResolvedValue({ camera: 'denied', photos: 'denied' }),
+            // pickPhoto MUST NOT be called when requestPermissions is present.
+            pickPhoto: vi.fn(),
+        };
+        const { window, document, cleanup } = loadFlow({
+            bootstrap: { needs_first_run: true },
+            initialStep: 'permissions',
+            capacitor: { isNativePlatform: () => true },
+            mediaCapture,
+            reminders: { requestPermissions: vi.fn().mockResolvedValue({ display: 'granted' }) },
+            geolocation: { requestPermissions: vi.fn().mockResolvedValue({ location: 'granted' }) },
+        });
+        try {
+            window.WGFirstRun.mount();
+            document.querySelector('[data-firstrun-action="allow-camera"]').click();
+            await new Promise(resolve => setTimeout(resolve, 0));
+
+            const status = document.querySelector('[data-firstrun-permission-status="camera"]');
+            expect(status.textContent.toLowerCase()).toContain('permission denied');
+            expect(mediaCapture.requestPermissions).toHaveBeenCalledTimes(1);
+            expect(mediaCapture.pickPhoto).not.toHaveBeenCalled();
+        } finally { cleanup(); }
+    });
+
+    it('on native, Geolocation.requestPermissions returning location=denied is surfaced as a denial', async () => {
+        const geolocation = {
+            requestPermissions: vi.fn().mockResolvedValue({ location: 'denied', coarseLocation: 'denied' }),
+            // getCurrentPosition MUST NOT be called when requestPermissions is present.
+            getCurrentPosition: vi.fn(),
+        };
+        const { window, document, cleanup } = loadFlow({
+            bootstrap: { needs_first_run: true },
+            initialStep: 'permissions',
+            capacitor: { isNativePlatform: () => true },
+            mediaCapture: { requestPermissions: vi.fn().mockResolvedValue({ camera: 'granted' }) },
+            reminders: { requestPermissions: vi.fn().mockResolvedValue({ display: 'granted' }) },
+            geolocation,
+        });
+        try {
+            window.WGFirstRun.mount();
+            document.querySelector('[data-firstrun-action="allow-location"]').click();
+            await new Promise(resolve => setTimeout(resolve, 0));
+
+            const status = document.querySelector('[data-firstrun-permission-status="location"]');
+            expect(status.textContent.toLowerCase()).toContain('permission denied');
+            expect(geolocation.requestPermissions).toHaveBeenCalledTimes(1);
+            expect(geolocation.getCurrentPosition).not.toHaveBeenCalled();
+        } finally { cleanup(); }
+    });
+
+    it('legacy fallback: when requestPermissions is absent, falls back to pickPhoto/getCurrentPosition', async () => {
+        // Defensive: a stale test mock or an older plugin version without
+        // requestPermissions still resolves through the legacy path. The
+        // production capacitor impls always expose requestPermissions, so
+        // this branch primarily exists so tests written before Phase 2c
+        // keep passing.
+        const mediaCapture = { pickPhoto: vi.fn().mockResolvedValue(null) };
+        const geolocation = { getCurrentPosition: vi.fn().mockResolvedValue({ coords: { latitude: 0, longitude: 0 } }) };
+        const { window, document, cleanup } = loadFlow({
+            bootstrap: { needs_first_run: true },
+            initialStep: 'permissions',
+            capacitor: { isNativePlatform: () => true },
+            mediaCapture,
+            reminders: { requestPermissions: vi.fn().mockResolvedValue({ display: 'granted' }) },
+            geolocation,
+        });
+        try {
+            window.WGFirstRun.mount();
+            document.querySelector('[data-firstrun-action="allow-camera"]').click();
+            document.querySelector('[data-firstrun-action="allow-location"]').click();
+            await new Promise(resolve => setTimeout(resolve, 0));
+
+            expect(mediaCapture.pickPhoto).toHaveBeenCalledTimes(1);
+            expect(geolocation.getCurrentPosition).toHaveBeenCalledTimes(1);
+
+            const cameraStatus = document.querySelector('[data-firstrun-permission-status="camera"]');
+            const locStatus = document.querySelector('[data-firstrun-permission-status="location"]');
+            expect(cameraStatus.textContent.toLowerCase()).toContain('allowed');
+            expect(locStatus.textContent.toLowerCase()).toContain('allowed');
         } finally { cleanup(); }
     });
 });

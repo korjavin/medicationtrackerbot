@@ -339,6 +339,68 @@ describe('native/capacitor/media-capture.js — Capacitor impl', () => {
         expect(env.window.fetch).toHaveBeenCalledWith('blob:http://app/abc');
         expect(blob).toBe(fetchBlob);
     });
+
+    // requestPermissions seam — Phase 2c addition for the firstrun overlay.
+    // The earlier path of calling pickPhoto({capture:false}) to surface the
+    // OS prompt also opens the photo picker, which is the wrong UX shape for
+    // first-run. requestPermissions wraps Camera.requestPermissions and
+    // returns the plugin's { camera, photos } PermissionState shape unchanged
+    // so callers can branch on partial grants.
+    it('requestPermissions calls Camera.requestPermissions with camera + photos and returns the result', async () => {
+        const requestPermissionsFn = vi.fn().mockResolvedValue({ camera: 'granted', photos: 'granted' });
+        env = loadEnv({
+            capacitor: {
+                isNativePlatform: () => true,
+                Plugins: { Camera: { requestPermissions: requestPermissionsFn, getPhoto: vi.fn() } },
+            },
+        });
+        const result = await env.window.MediaCapture.requestPermissions();
+        expect(requestPermissionsFn).toHaveBeenCalledWith({ permissions: ['camera', 'photos'] });
+        expect(result).toEqual({ camera: 'granted', photos: 'granted' });
+    });
+
+    it('requestPermissions throws MediaCaptureError UNAVAILABLE when the plugin does not expose requestPermissions', async () => {
+        env = loadEnv({
+            capacitor: {
+                isNativePlatform: () => true,
+                Plugins: { Camera: { getPhoto: vi.fn() } }, // no requestPermissions
+            },
+        });
+        let caught;
+        try { await env.window.MediaCapture.requestPermissions(); }
+        catch (e) { caught = e; }
+        expect(caught).toBeDefined();
+        expect(caught.name).toBe('MediaCaptureError');
+        expect(caught.code).toBe('UNAVAILABLE');
+    });
+
+    it('requestPermissions normalizes plugin rejection to MediaCaptureError', async () => {
+        const requestPermissionsFn = vi.fn().mockRejectedValue(new Error('Permission denied by user'));
+        env = loadEnv({
+            capacitor: {
+                isNativePlatform: () => true,
+                Plugins: { Camera: { requestPermissions: requestPermissionsFn, getPhoto: vi.fn() } },
+            },
+        });
+        let caught;
+        try { await env.window.MediaCapture.requestPermissions(); }
+        catch (e) { caught = e; }
+        expect(caught).toBeDefined();
+        expect(caught.name).toBe('MediaCaptureError');
+        expect(caught.code).toBe('PERMISSION_DENIED');
+    });
+});
+
+describe('native/web/media-capture.js — requestPermissions stub', () => {
+    let env;
+    afterEach(() => { if (env) env.cleanup(); env = null; });
+
+    it('resolves as a granted PermissionState (browsers surface prompts inline at first use)', async () => {
+        env = loadEnv();
+        const result = await env.window.MediaCapture.requestPermissions();
+        expect(result.camera).toBe('granted');
+        expect(result.photos).toBe('granted');
+    });
 });
 
 describe('native/index.js — runtime selector after Task 3', () => {
