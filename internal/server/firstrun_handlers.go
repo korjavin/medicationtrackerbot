@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -20,7 +19,7 @@ import (
 // here. If a users table is ever introduced, hook the INSERT OR IGNORE in
 // front of the settings write.
 func (s *Server) handleFirstRunComplete(w http.ResponseWriter, r *http.Request) {
-	ctx := context.Background()
+	ctx := r.Context()
 	if err := s.settings.SetFirstRunComplete(ctx, true); err != nil {
 		slog.Error("handleFirstRunComplete: SetFirstRunComplete failed", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)

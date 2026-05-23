@@ -183,6 +183,35 @@ describe('firstrun integrations screen', () => {
         } finally { cleanup(); }
     });
 
+    it('keeps the user on the integrations step when the helper resolves to null (apiCall swallowed an HTTP failure)', async () => {
+        // The shared SettingsIntegrations.patch wraps apiCall, which catches
+        // non-aborted errors, surfaces a safeAlert and resolves to null
+        // instead of throwing. Without the null-check the screen would
+        // advance to done() with an unsaved key — assert the soft-failure
+        // path fires instead.
+        const helperPatch = vi.fn().mockResolvedValue(null);
+        const fetchMock = vi.fn();
+        const { window, document, cleanup } = loadFlow({
+            bootstrap: { needs_first_run: true },
+            fetchMock,
+            settingsHelper: { patch: helperPatch },
+        });
+        try {
+            window.WGFirstRun.mount();
+            document.getElementById('wg-firstrun-openai-api-key').value = 'sk-null';
+            const save = document.querySelector('[data-firstrun-action="save"]');
+            save.click();
+            await new Promise(resolve => setTimeout(resolve, 0));
+
+            expect(helperPatch).toHaveBeenCalledTimes(1);
+            expect(window.WGFirstRun.state.getStep()).toBe('integrations');
+            const err = document.querySelector('[data-firstrun-form-error="integrations"]');
+            expect(err).not.toBeNull();
+            expect(err.textContent.toLowerCase()).toContain('couldn');
+            expect(save.disabled).toBe(false);
+        } finally { cleanup(); }
+    });
+
     it('routes through window.SettingsIntegrations.patch when the shared helper is present', async () => {
         // Production load order has settings/integrations.js loading
         // before bootstrap-loaded fires, so the firstrun screen prefers

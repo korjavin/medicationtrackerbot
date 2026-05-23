@@ -3,12 +3,11 @@
 //
 // Lifecycle:
 //   1. Server's /api/bootstrap returns a top-level `needs_first_run: bool`
-//      field (Task 2). The Capacitor shell + browser fetch path mirror it
-//      onto window.__MEDTRACKER_BOOTSTRAP__.needs_first_run before the rest
-//      of the app boots; auth-bootstrap.js may also set it directly when
-//      applyBootstrapPayload runs from a fresh network response.
-//   2. mount() reads that field (or accepts a payload arg for tests / the
-//      Capacitor early-boot path), and on `true` attaches a full-screen
+//      field (Task 2). features/auth-bootstrap.js's applyBootstrapPayload
+//      mirrors it onto window.__MEDTRACKER_BOOTSTRAP__.needs_first_run and
+//      calls WGFirstRun.mount({ needs_first_run }) on every fresh bootstrap.
+//   2. mount() accepts that payload arg (or falls back to the bootstrap
+//      mirror for late-loading callers) and on `true` attaches a full-screen
 //      overlay to <body>. The orchestrator dispatches rendering to the
 //      registered screen module for the current step (Task 4+).
 //   3. dismiss() removes the overlay and clears the sessionStorage step
@@ -144,15 +143,30 @@
         // bootstrap once connectivity returns; meanwhile the bootstrap's
         // in-memory needs_first_run is flipped to false so a same-session
         // re-mount no-ops.
+        //
+        // Prefer window.apiCall when it has loaded — it owns Telegram
+        // initData / cookie auth header injection, so the POST authenticates
+        // on every build (mobile LocalUserResolver accepts unauthenticated
+        // requests but the server build's AuthMiddleware would 401 a bare
+        // fetch). The Vitest harness loads only the firstrun modules so
+        // apiCall is absent there; the fetch fallback keeps tests minimal.
         let promise;
-        try {
-            promise = window.fetch(COMPLETE_URL, {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json' },
-            });
-        } catch (_) {
-            promise = Promise.resolve(null);
+        if (typeof window.apiCall === 'function') {
+            try {
+                promise = window.apiCall(COMPLETE_URL, 'POST', null);
+            } catch (_) {
+                promise = Promise.resolve(null);
+            }
+        } else {
+            try {
+                promise = window.fetch(COMPLETE_URL, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                });
+            } catch (_) {
+                promise = Promise.resolve(null);
+            }
         }
         if (!promise || typeof promise.then !== 'function') {
             promise = Promise.resolve(promise);

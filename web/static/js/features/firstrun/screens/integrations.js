@@ -8,11 +8,13 @@
 //
 // PATCH client reuse: when window.SettingsIntegrations.patch is present
 // (production load order: settings/integrations.js loads before the
-// bootstrap-loaded event fires), the screen calls it so auth headers
-// and apiCall's error handling are shared with the Settings UI. When
-// the helper is absent (Vitest harness loads only firstrun modules) the
-// screen falls back to a direct window.fetch — same pattern the
-// orchestrator's _complete() uses, so the test surface stays minimal.
+// auth-bootstrap module calls into WGFirstRun.mount), the screen calls
+// it so auth headers and apiCall's error handling are shared with the
+// Settings UI. apiCall swallows HTTP failures into a null return, so
+// _patch coerces null/undefined into a thrown error before the screen
+// would mistake it for success. When the helper is absent (Vitest
+// harness loads only firstrun modules) the screen falls back to a
+// direct window.fetch with explicit !resp.ok handling.
 //
 // Save semantics:
 //   - Submit posts whatever the user typed, including the pre-filled
@@ -71,12 +73,21 @@
     function _patch(payload) {
         // Prefer the shared helper from features/settings/integrations.js
         // when it has loaded so production callers go through apiCall +
-        // auth headers. The fallback fetch uses credentials: 'same-origin'
-        // so cookie-authenticated browser sessions still reach the server;
-        // mobile builds use LocalUserResolver and need no auth.
+        // auth headers. apiCall (which the helper wraps) swallows HTTP
+        // failures and resolves to null — coerce that into a thrown error
+        // so the save handler's catch branch fires instead of advancing
+        // the user to the "done" screen with an unsaved key. The fallback
+        // window.fetch path is for the Vitest harness only (production
+        // load order guarantees SettingsIntegrations is present by save
+        // time) and uses credentials: 'same-origin'.
         const helper = window.SettingsIntegrations;
         if (helper && typeof helper.patch === 'function') {
-            return Promise.resolve(helper.patch(payload));
+            return Promise.resolve(helper.patch(payload)).then(function (result) {
+                if (result === null || result === undefined) {
+                    throw new Error('integrations PATCH failed');
+                }
+                return result;
+            });
         }
         return window.fetch(PATCH_URL, {
             method: 'PATCH',

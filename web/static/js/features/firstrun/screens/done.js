@@ -25,6 +25,8 @@
         primary.textContent = 'Open app';
         primary.setAttribute('data-firstrun-action', 'open-app');
         primary.addEventListener('click', function () {
+            if (primary.disabled) return;
+            primary.disabled = true;
             helpers.complete();
         });
 
