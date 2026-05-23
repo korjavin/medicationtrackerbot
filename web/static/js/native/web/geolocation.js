@@ -61,8 +61,18 @@
         });
     }
 
+    // requestPermissions on the web has no separate prompt API — the browser
+    // surfaces the prompt inline at first getCurrentPosition. Resolve as a
+    // granted PermissionState so the firstrun helper's web fallback path
+    // treats web builds as "no prompt needed"; the screen auto-advances on
+    // isNativePlatform()==false anyway, so this is primarily defensive.
+    function requestPermissions() {
+        return Promise.resolve({ location: 'granted', coarseLocation: 'granted' });
+    }
+
     var impl = {
         getCurrentPosition: getCurrentPosition,
+        requestPermissions: requestPermissions,
     };
 
     if (window.Geolocation && window.Geolocation.__native && typeof window.Geolocation.__native.registerImpl === 'function') {

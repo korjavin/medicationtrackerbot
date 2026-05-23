@@ -104,3 +104,36 @@ func TestFirstRunComplete_PersistsFlag(t *testing.T) {
 		t.Fatalf("expected first_run_complete=true post-POST, got false")
 	}
 }
+
+// TestFirstRunComplete_DemoModeForbidden confirms that the endpoint refuses
+// to mutate the singleton settings row when demo mode is enabled. In demo
+// deployments every visitor resolves to the same shared user, so an
+// anonymous visitor could otherwise toggle first_run_complete and suppress
+// the overlay for every other visitor — matches the integrations handler's
+// 403 gate (settings_integrations_handlers.go).
+func TestFirstRunComplete_DemoModeForbidden(t *testing.T) {
+	srv, db := createBPTestServer(t)
+	defer db.Close()
+	srv.SetDemoMode(true)
+
+	ctx := context.Background()
+	if err := db.Settings.SetFirstRunComplete(ctx, false); err != nil {
+		t.Fatalf("seed SetFirstRunComplete(false): %v", err)
+	}
+
+	req := httptest.NewRequest("POST", "/api/firstrun/complete", nil)
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+	srv.handleFirstRunComplete(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	got, err := db.Settings.GetFirstRunComplete(ctx)
+	if err != nil {
+		t.Fatalf("GetFirstRunComplete: %v", err)
+	}
+	if got {
+		t.Fatalf("expected first_run_complete to remain false after demo-mode-blocked POST, got true")
+	}
+}

@@ -19,6 +19,16 @@ import (
 // here. If a users table is ever introduced, hook the INSERT OR IGNORE in
 // front of the settings write.
 func (s *Server) handleFirstRunComplete(w http.ResponseWriter, r *http.Request) {
+	// Demo mode resolves every visitor to the same singleton user, so any
+	// anonymous visitor could flip first_run_complete and suppress the
+	// overlay for every other visitor. The seeder sets the flag to true so
+	// the overlay never fires in demo deployments anyway, but match the
+	// integrations handler's defense-in-depth gate (settings_integrations_handlers.go)
+	// so demo state is not mutable from the public Internet.
+	if s.demoMode {
+		http.Error(w, "firstrun completion is disabled in demo mode", http.StatusForbidden)
+		return
+	}
 	ctx := r.Context()
 	if err := s.settings.SetFirstRunComplete(ctx, true); err != nil {
 		slog.Error("handleFirstRunComplete: SetFirstRunComplete failed", "error", err)

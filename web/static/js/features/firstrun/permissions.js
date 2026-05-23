@@ -63,14 +63,41 @@
     function requestCamera() {
         if (!_isNative()) return Promise.resolve({ granted: true, reason: 'WEB_NO_PROMPT' });
         var mc = window.MediaCapture;
-        if (!mc || typeof mc.pickPhoto !== 'function') {
+        if (!mc) {
             return Promise.resolve({ granted: false, reason: 'UNAVAILABLE' });
         }
-        // capture:false on the Capacitor impl maps to CameraSource.Prompt
-        // which lets the user pick camera or gallery — first-run wants the
-        // permission grant, not a specific source, so this is the right
-        // shape.
-        return _resolveGrant(mc.pickPhoto({ capture: false }));
+        // Prefer the dedicated requestPermissions seam (Phase 2c addition).
+        // The legacy pickPhoto fallback exists only so a test mock that
+        // hasn't been updated to expose requestPermissions still resolves;
+        // production calls always land on the requestPermissions path
+        // because both the capacitor and web impls register it. Falling
+        // back to pickPhoto({capture:false}) is wrong for first-run UX —
+        // it opens the camera/photo picker rather than just surfacing the
+        // OS permission prompt — so we only do it if requestPermissions
+        // is genuinely absent.
+        if (typeof mc.requestPermissions === 'function') {
+            return Promise.resolve(mc.requestPermissions()).then(function (res) {
+                // PermissionState values: 'granted' | 'denied' | 'prompt' |
+                // 'prompt-with-rationale' | 'limited'. Treat 'granted' and
+                // 'limited' (iOS partial photos grant) as success; anything
+                // else is a soft denial the user can retry later.
+                var camera = (res && res.camera) ? String(res.camera) : 'unknown';
+                if (camera === 'granted' || camera === 'limited') {
+                    return { granted: true };
+                }
+                return { granted: false, reason: 'PERMISSION_DENIED', message: 'camera=' + camera };
+            }).catch(function (e) {
+                return {
+                    granted: false,
+                    reason: _classifyReason(e),
+                    message: (e && e.message != null) ? String(e.message) : '',
+                };
+            });
+        }
+        if (typeof mc.pickPhoto === 'function') {
+            return _resolveGrant(mc.pickPhoto({ capture: false }));
+        }
+        return Promise.resolve({ granted: false, reason: 'UNAVAILABLE' });
     }
 
     function requestNotifications() {
@@ -115,10 +142,44 @@
     function requestLocation() {
         if (!_isNative()) return Promise.resolve({ granted: true, reason: 'WEB_NO_PROMPT' });
         var geo = window.Geolocation;
-        if (!geo || typeof geo.getCurrentPosition !== 'function') {
+        if (!geo) {
             return Promise.resolve({ granted: false, reason: 'UNAVAILABLE' });
         }
-        return _resolveGrant(geo.getCurrentPosition());
+        // Prefer the dedicated requestPermissions seam (Phase 2c addition).
+        // The legacy getCurrentPosition fallback exists only so a test mock
+        // that hasn't been updated still resolves; production always uses
+        // requestPermissions. getCurrentPosition is the wrong shape for
+        // first-run UX: it performs a real GPS read which can hang for
+        // 10+ seconds indoors and may TIMEOUT after the user granted
+        // permission, surfacing a misleading "couldn't request access"
+        // error.
+        if (typeof geo.requestPermissions === 'function') {
+            return Promise.resolve(geo.requestPermissions()).then(function (res) {
+                var location = (res && res.location) ? String(res.location) : 'unknown';
+                if (location === 'granted') {
+                    return { granted: true };
+                }
+                // Coarse-only grant (no precise fine permission) is still a
+                // permission grant from the user's perspective; treat as
+                // success and let the consuming feature decide if coarse is
+                // good enough.
+                var coarse = (res && res.coarseLocation) ? String(res.coarseLocation) : '';
+                if (coarse === 'granted') {
+                    return { granted: true };
+                }
+                return { granted: false, reason: 'PERMISSION_DENIED', message: 'location=' + location };
+            }).catch(function (e) {
+                return {
+                    granted: false,
+                    reason: _classifyReason(e),
+                    message: (e && e.message != null) ? String(e.message) : '',
+                };
+            });
+        }
+        if (typeof geo.getCurrentPosition === 'function') {
+            return _resolveGrant(geo.getCurrentPosition());
+        }
+        return Promise.resolve({ granted: false, reason: 'UNAVAILABLE' });
     }
 
     window.WGFirstRun = window.WGFirstRun || {};

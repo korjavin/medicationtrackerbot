@@ -298,6 +298,69 @@ describe('native/capacitor/geolocation.js — Capacitor impl', () => {
             maximumAge: 1000,
         }));
     });
+
+    // requestPermissions seam — Phase 2c addition for the firstrun overlay.
+    // The earlier path of calling getCurrentPosition to surface the OS prompt
+    // also performs a real GPS fix (10+ seconds indoors) and any TIMEOUT
+    // after the user granted permission would surface as a misleading
+    // "couldn't request access" error. requestPermissions wraps
+    // Geolocation.requestPermissions and returns the plugin's
+    // { location, coarseLocation } PermissionState shape unchanged.
+    it('requestPermissions calls Geolocation.requestPermissions with location and returns the result', async () => {
+        const requestPermissionsFn = vi.fn().mockResolvedValue({ location: 'granted', coarseLocation: 'granted' });
+        env = loadEnv({
+            capacitor: {
+                isNativePlatform: () => true,
+                Plugins: { Geolocation: { requestPermissions: requestPermissionsFn, getCurrentPosition: vi.fn() } },
+            },
+        });
+        const result = await env.window.Geolocation.requestPermissions();
+        expect(requestPermissionsFn).toHaveBeenCalledWith({ permissions: ['location'] });
+        expect(result).toEqual({ location: 'granted', coarseLocation: 'granted' });
+    });
+
+    it('requestPermissions throws GeolocationError POSITION_UNAVAILABLE when the plugin lacks requestPermissions', async () => {
+        env = loadEnv({
+            capacitor: {
+                isNativePlatform: () => true,
+                Plugins: { Geolocation: { getCurrentPosition: vi.fn() } }, // no requestPermissions
+            },
+        });
+        let caught;
+        try { await env.window.Geolocation.requestPermissions(); }
+        catch (e) { caught = e; }
+        expect(caught).toBeDefined();
+        expect(caught.name).toBe('GeolocationError');
+        expect(caught.code).toBe('POSITION_UNAVAILABLE');
+    });
+
+    it('requestPermissions normalizes plugin rejection to GeolocationError', async () => {
+        const requestPermissionsFn = vi.fn().mockRejectedValue(new Error('Permission denied'));
+        env = loadEnv({
+            capacitor: {
+                isNativePlatform: () => true,
+                Plugins: { Geolocation: { requestPermissions: requestPermissionsFn, getCurrentPosition: vi.fn() } },
+            },
+        });
+        let caught;
+        try { await env.window.Geolocation.requestPermissions(); }
+        catch (e) { caught = e; }
+        expect(caught).toBeDefined();
+        expect(caught.name).toBe('GeolocationError');
+        expect(caught.code).toBe('PERMISSION_DENIED');
+    });
+});
+
+describe('native/web/geolocation.js — requestPermissions stub', () => {
+    let env;
+    afterEach(() => { if (env) env.cleanup(); env = null; });
+
+    it('resolves as a granted PermissionState (browsers surface prompts inline at first use)', async () => {
+        env = loadEnv();
+        const result = await env.window.Geolocation.requestPermissions();
+        expect(result.location).toBe('granted');
+        expect(result.coarseLocation).toBe('granted');
+    });
 });
 
 describe('native/index.js — runtime selector after Task 2', () => {
