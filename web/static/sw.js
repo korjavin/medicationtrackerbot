@@ -74,7 +74,9 @@ const STATIC_ASSETS = [
     '/static/js/native/capacitor/reminders.js',
     // First-run guided setup (mobile Phase 2c)
     '/static/js/features/firstrun/state.js',
+    '/static/js/features/firstrun/permissions.js',
     '/static/js/features/firstrun/screens/welcome.js',
+    '/static/js/features/firstrun/screens/permissions.js',
     '/static/js/features/firstrun/screens/done.js',
     '/static/js/features/firstrun/index.js',
     '/static/js/features/tab-controller.js',
