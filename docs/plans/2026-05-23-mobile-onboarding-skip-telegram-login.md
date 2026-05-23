@@ -133,10 +133,10 @@ A small string-grep test that documents the invariant. Mirrors the existing `arc
 
 The Phase 2c tests at `web/static/js/tests/firstrun.*.test.js` exercise the orchestrator with an injected `window.__MEDTRACKER_BOOTSTRAP__`. After Tasks 1-3, the mobile launch path now reaches `WGFirstRun.mount(...)` with `needs_first_run: true` — which is what the existing tests already assume.
 
-- [ ] read the existing `firstrun.resume.test.js`, `firstrun.permissions.test.js`, `firstrun.integrations.test.js` and confirm they still pass without changes
-- [ ] if any test relied on `apiBase` being unset to short-circuit a check (unlikely), update it to use the new shape
-- [ ] add a single new test `firstrun.mobile-end-to-end.test.js` that wires Task 3's `checkAuth()` embedded-shell branch into the firstrun orchestrator with a mocked `/api/bootstrap` returning `needs_first_run: true`, and asserts the welcome screen renders
-- [ ] run `pnpm test` — must pass before next task
+- [x] read the existing `firstrun.resume.test.js`, `firstrun.permissions.test.js`, `firstrun.integrations.test.js` and confirm they still pass without changes
+- [x] if any test relied on `apiBase` being unset to short-circuit a check (unlikely), update it to use the new shape — none did (grep for `apiBase` returned no matches in any of the three files)
+- [x] add a single new test `firstrun.mobile-end-to-end.test.js` that wires Task 3's `checkAuth()` embedded-shell branch into the firstrun orchestrator with a mocked `/api/bootstrap` returning `needs_first_run: true`, and asserts the welcome screen renders
+- [x] run `pnpm test` — must pass before next task (2580 passed, +1 from new test)
 
 ### Task 6: Update documentation
 
