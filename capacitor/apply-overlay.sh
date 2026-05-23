@@ -87,3 +87,34 @@ if [ -f "$APP_BUILD_GRADLE" ]; then
     printf 'required by MainActivity.kt and GoServerService.kt.\n'
   fi
 fi
+
+# Kotlin Gradle Plugin classpath injection. Capacitor 6's project-level
+# build.gradle only declares the Android Gradle Plugin on the buildscript
+# classpath, so applying `org.jetbrains.kotlin.android` in the app module
+# fails with "Plugin with id 'org.jetbrains.kotlin.android' not found".
+# Without the plugin, AGP silently drops the overlay's .kt sources and the
+# resulting APK ships a stub MainActivity that never spawns the embedded Go
+# binary. Inject the classpath idempotently — grep-then-sed so re-running is
+# a no-op.
+PROJECT_BUILD_GRADLE="${ANDROID_DIR}/build.gradle"
+KOTLIN_VERSION="1.9.23"
+KOTLIN_CLASSPATH_LINE="classpath \"org.jetbrains.kotlin:kotlin-gradle-plugin:${KOTLIN_VERSION}\""
+if [ -f "$PROJECT_BUILD_GRADLE" ]; then
+  if ! grep -qF "org.jetbrains.kotlin:kotlin-gradle-plugin" "$PROJECT_BUILD_GRADLE"; then
+    # Insert immediately after the AGP classpath line. The template emits
+    # `classpath 'com.android.tools.build:gradle:<ver>'` — we match the
+    # `com.android.tools.build:gradle` substring and append our line right
+    # after, preserving the existing indentation.
+    tmp_file="${PROJECT_BUILD_GRADLE}.tmp.$$"
+    awk -v kline="        ${KOTLIN_CLASSPATH_LINE}" '
+      { print }
+      /com\.android\.tools\.build:gradle/ && !inserted {
+        print kline
+        inserted = 1
+      }
+    ' "$PROJECT_BUILD_GRADLE" > "$tmp_file"
+    mv "$tmp_file" "$PROJECT_BUILD_GRADLE"
+    printf 'injected Kotlin Gradle Plugin %s classpath into %s\n' \
+      "$KOTLIN_VERSION" "$PROJECT_BUILD_GRADLE"
+  fi
+fi
