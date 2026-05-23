@@ -159,7 +159,7 @@ The Phase 2c tests at `web/static/js/tests/firstrun.*.test.js` exercise the orch
 
 The plan's success criterion is "fresh APK install → no Telegram UI → firstrun welcome screen visible." This task is the integration gate. Skipped if the agent doesn't have an emulator; the user runs it against the post-merge CI APK using `docs/android-emulator.md`.
 
-- [ ] (agent-skippable, user-runnable) install the CI APK on a clean emulator after merge, observe the firstrun welcome screen on launch, confirm `adb logcat | grep -i telegram` is empty, walk through the firstrun flow, land on Today
+- [x] manual emulator test (skipped - not automatable; requires post-merge CI APK + physical emulator; user runs against the `android-apk.yml` artifact per docs/android-emulator.md)
 
 ## Technical Details
 
