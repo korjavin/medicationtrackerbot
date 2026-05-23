@@ -372,6 +372,20 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		weightUnitPreference = "kg"
 	}
 
+	// needs_first_run drives the mobile first-run overlay (Phase 2c). The flag
+	// defaults to 1 (= completed) for existing settings rows so server installs
+	// and already-onboarded mobile installs never see the flow. A fresh mobile
+	// DB created by migration 071 has first_run_complete = 0, which surfaces
+	// here as needs_first_run = true. A read error degrades to false so a
+	// transient settings hiccup does not punt every authenticated user into
+	// the onboarding overlay.
+	firstRunComplete, err := s.settings.GetFirstRunComplete(ctx)
+	if err != nil {
+		slog.Error("bootstrap first_run_complete query failed", "error", err)
+		firstRunComplete = true
+	}
+	needsFirstRun := !firstRunComplete
+
 	// Today's food log groups, scoped to the user's STORED timezone rather
 	// than whatever the requesting client reports. Two reasons:
 	//   (a) the summary stays stable through a TZ transition while the
@@ -398,6 +412,7 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		"cursor":          bootstrapCursor,
 		"features":        features,
 		"history_default": historyDefault,
+		"needs_first_run": needsFirstRun,
 		"bp": map[string]any{
 			"readings": bpReadings,
 			"goal":     bpGoal,
