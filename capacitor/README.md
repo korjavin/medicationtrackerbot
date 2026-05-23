@@ -107,6 +107,15 @@ This greps for `GoServerService` in the manifest and the apply-from line in
 `app/build.gradle`, exiting non-zero if either is missing. CI runs the same
 checks before `gradlew assembleDebug`.
 
+Local emulator testing
+----------------------
+The full dev loop — Android SDK setup, AVD creation, building the APK
+locally, installing on the emulator, logcat tags to watch, and how to
+clear state between runs — is documented in
+[`docs/android-emulator.md`](../docs/android-emulator.md). That doc also
+covers `scripts/verify-apk.sh`, the APK structural verifier CI runs after
+`assembleDebug`.
+
 Pointing at a server (dev-server fallback)
 ------------------------------------------
 Edit `capacitor.config.ts` and uncomment the `server` block, setting

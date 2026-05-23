@@ -153,7 +153,7 @@ Build the APK locally (or trigger the workflow), install on the emulator we alre
 
 Create `docs/android-emulator.md` covering the full dev loop: SDK setup, AVD creation, launching the emulator, building the APK locally, installing, viewing logs, and clearing state between runs. Link it from `CLAUDE.md`'s docs index and from `capacitor/README.md`.
 
-- [ ] create `docs/android-emulator.md` with sections:
+- [x] create `docs/android-emulator.md` with sections:
   - **Prerequisites**: Android SDK (cmdline-tools, platform-tools, build-tools, platforms;android-34, system-images for the chosen ABI), Java 17, Node 20, Go 1.26+
   - **Creating an AVD**: `sdkmanager` package install + `avdmanager create avd` command (with arm64-v8a default for Apple Silicon, x86_64 for Intel/Linux), example AVD config
   - **Starting the emulator**: `emulator -avd <name> -no-snapshot-load` or via Android Studio; verifying `adb devices` shows it
@@ -165,9 +165,9 @@ Create `docs/android-emulator.md` covering the full dev loop: SDK setup, AVD cre
   - **Common gotchas**: emulator ABI must match `libmedtracker.so` ABIs in the APK; Apple Silicon needs arm64-v8a; cleartext-traffic blocks loopback by default (already handled in our manifest); SELinux blocks `exec()` on jniLibs unless `extractNativeLibs="true"` (already handled)
   - **Verifying a built APK**: how to use `scripts/verify-apk.sh`
   - **Switching to dev-server mode**: pointer to `capacitor/README.md:96-108`
-- [ ] add the new doc to the `CLAUDE.md` docs index table (after the existing `docs/local-mode.md` row)
-- [ ] add a "Local emulator testing" section to `capacitor/README.md` that is one paragraph + a link to `docs/android-emulator.md` (avoids duplication)
-- [ ] no code tests for this task — doc-only
+- [x] add the new doc to the `CLAUDE.md` docs index table (after the existing `docs/local-mode.md` row)
+- [x] add a "Local emulator testing" section to `capacitor/README.md` that is one paragraph + a link to `docs/android-emulator.md` (avoids duplication)
+- [x] no code tests for this task — doc-only
 
 ### Task 8: Verify acceptance criteria
 - [ ] verify the APK builds successfully in CI on master after merge

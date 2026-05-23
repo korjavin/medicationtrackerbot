@@ -114,6 +114,7 @@ go run ./cmd/seeddemo -user <telegram_user_id> -db meds.db -topup -seed 42
 |-------|------|
 | Architecture, code structure, DB schema, auth, domain services, scheduler, logging, testing | [docs/architecture.md](docs/architecture.md) |
 | Local-only (Capacitor mobile) build, `//go:build mobile` boundary, env→settings layering, Phase 2 roadmap | [docs/local-mode.md](docs/local-mode.md) |
+| Android emulator dev loop (SDK setup, AVD, local APK build, install, logcat, gotchas) | [docs/android-emulator.md](docs/android-emulator.md) |
 | Demo mode (`DEMO_MODE=1`): public auth-less deployment, per-IP AI rate limits, seeded demo DB, MCP without OAuth | [docs/demo-mode.md](docs/demo-mode.md) |
 | Feature behaviors (Today dashboard, meds, BP, weight, food, workouts, MCP) | [docs/features.md](docs/features.md) |
 | API endpoints | [docs/api.md](docs/api.md) |
