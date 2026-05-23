@@ -175,6 +175,11 @@ See "Common Tasks → Adding a new health metric" in [CLAUDE.md](../CLAUDE.md). 
 - For browser access outside Telegram
 - Configured via `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `ADMIN_EMAIL`
 
+**Mobile build (`//go:build mobile`)**:
+- No Telegram, no OIDC, no session cookie. `LocalUserResolver` trusts every request as a fixed local user.
+- `/auth/status` is short-circuited by a build-tagged hook (`internal/server/auth_mobile.go`'s `tryMobileAuthOverride`) that returns `{authenticated:true, method:"local"}` ahead of the cookie/demo path. The `!mobile` sibling (`auth_server.go`) is a no-op so the server build is unchanged. This mirrors the existing `resolver_{telegram,local}.go` build-tagged split rather than adding a runtime flag.
+- The frontend `checkAuth()` in `web/static/js/app.js` mirrors the guarantee with defense in depth: when `window.__MEDTRACKER_BOOTSTRAP__?.apiBase` is set (the embedded-shell signal from `MedtrackerNative`), it skips the `/auth/status` probe and the login-screen render entirely, fetching `/api/bootstrap` directly. Architecture test `architecture.mobile-no-telegram-login.test.js` enforces that no Telegram login UI string is reachable from that branch.
+
 ## Domain Service Pattern
 
 The bot (`internal/bot/`) is a thin communication channel — it parses Telegram-specific data and sends/deletes messages. All business decisions live in `internal/domain/`:

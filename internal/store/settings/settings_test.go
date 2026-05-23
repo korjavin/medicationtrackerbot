@@ -119,6 +119,84 @@ func TestFirstRunComplete(t *testing.T) {
 	}
 }
 
+// TestGetFirstRunComplete_LazyInsertsRowOnFreshDB covers the corner case where
+// the singleton settings row is missing at the moment GetFirstRunComplete is
+// called. The accessor must lazy-insert the row (so the bootstrap handler does
+// not fall back to err→firstRunComplete=true and suppress the firstrun overlay
+// on a truly fresh mobile install) and report needs_first_run=true (i.e.
+// first_run_complete=false).
+func TestGetFirstRunComplete_LazyInsertsRowOnFreshDB(t *testing.T) {
+	r := setupSettingsRepo(t)
+	ctx := context.Background()
+
+	// Migration 006 seeds the singleton row by default; delete it here to
+	// simulate the "row went missing" corner case that Task 2 of the mobile
+	// onboarding plan needs to recover from.
+	if _, err := r.db.ExecContext(ctx, "DELETE FROM settings WHERE id = 1"); err != nil {
+		t.Fatalf("delete seed settings row: %v", err)
+	}
+	var count int
+	if err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM settings WHERE id = 1").Scan(&count); err != nil {
+		t.Fatalf("count pre: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("precondition: expected no settings row, got %d", count)
+	}
+
+	val, err := r.GetFirstRunComplete(ctx)
+	if err != nil {
+		t.Fatalf("GetFirstRunComplete on fresh DB: %v", err)
+	}
+	if val {
+		t.Errorf("expected first_run_complete=false on fresh DB with no settings row, got true")
+	}
+
+	// The row must now exist with first_run_complete=0.
+	if err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM settings WHERE id = 1").Scan(&count); err != nil {
+		t.Fatalf("count post: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected lazy-insert to create the singleton row, got %d rows", count)
+	}
+	var firstRun int
+	if err := r.db.QueryRowContext(ctx, "SELECT first_run_complete FROM settings WHERE id = 1").Scan(&firstRun); err != nil {
+		t.Fatalf("scan first_run_complete: %v", err)
+	}
+	if firstRun != 0 {
+		t.Errorf("expected lazy-inserted row to have first_run_complete=0, got %d", firstRun)
+	}
+}
+
+// TestGetFirstRunComplete_HonoursExistingRow guards against the lazy-insert
+// path stomping a row that's already there. A pre-existing row with
+// first_run_complete=1 must read back as true, and the row's value must not
+// be reset by the call.
+func TestGetFirstRunComplete_HonoursExistingRow(t *testing.T) {
+	r := setupSettingsRepo(t)
+	ctx := context.Background()
+
+	if err := r.SetFirstRunComplete(ctx, true); err != nil {
+		t.Fatalf("SetFirstRunComplete(true): %v", err)
+	}
+
+	val, err := r.GetFirstRunComplete(ctx)
+	if err != nil {
+		t.Fatalf("GetFirstRunComplete: %v", err)
+	}
+	if !val {
+		t.Errorf("expected true from pre-existing row, got false")
+	}
+
+	// Sanity: the row value must be untouched.
+	var firstRun int
+	if err := r.db.QueryRowContext(ctx, "SELECT first_run_complete FROM settings WHERE id = 1").Scan(&firstRun); err != nil {
+		t.Fatalf("scan first_run_complete: %v", err)
+	}
+	if firstRun != 1 {
+		t.Errorf("expected existing row to keep first_run_complete=1, got %d", firstRun)
+	}
+}
+
 func TestGetBool_RejectsUnknownColumn(t *testing.T) {
 	r := setupSettingsRepo(t)
 	ctx := context.Background()

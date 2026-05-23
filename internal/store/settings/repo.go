@@ -10,6 +10,7 @@ package settings
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -143,8 +144,23 @@ func (r *Repo) SetHealthEnabled(ctx context.Context, enabled bool) error {
 // GetFirstRunComplete reports whether the mobile first-run flow has been
 // dismissed. Server installs are backfilled to true by migration 071 so the
 // flow only fires for fresh mobile databases.
+//
+// If the singleton settings row is missing (a corner case on truly fresh
+// mobile installs where the bootstrap migrations have run but the seed row
+// was somehow rolled back), this method lazily inserts the row with
+// first_run_complete=0 and returns (false, nil) so the firstrun overlay
+// surfaces on first launch instead of being suppressed by the bootstrap
+// handler's err→true fallback. The INSERT OR IGNORE makes the lazy-insert
+// idempotent under concurrent first-time reads.
 func (r *Repo) GetFirstRunComplete(ctx context.Context) (bool, error) {
-	return r.GetBool(ctx, "first_run_complete")
+	val, err := r.GetBool(ctx, "first_run_complete")
+	if errors.Is(err, sql.ErrNoRows) {
+		if _, insertErr := r.db.ExecContext(ctx, "INSERT OR IGNORE INTO settings (id, first_run_complete) VALUES (1, 0)"); insertErr != nil {
+			return false, insertErr
+		}
+		return false, nil
+	}
+	return val, err
 }
 
 // SetFirstRunComplete records that the user has dismissed (or completed) the

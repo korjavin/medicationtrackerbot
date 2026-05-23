@@ -164,6 +164,12 @@ Phase 1 builds the sink interface and the endpoint. The JS bridge that actually 
 
 Server has multiple auth paths (Telegram `initData`, OIDC, session cookie). Mobile is single-user, no auth ceremony. `UserResolver` interface with `TelegramOIDCResolver` (`!mobile`) and `LocalUserResolver` (`mobile`) — the latter returns a fixed user ID 1 or whatever the argv flag specifies.
 
+#### Auth boundary on the mobile build
+
+On the mobile build the `/auth/status` endpoint never returns `authenticated:false`. The mobile-tagged `tryMobileAuthOverride` hook (`internal/server/auth_mobile.go`) short-circuits `handleAuthStatus` ahead of the cookie/demo path and writes `{authenticated:true, method:"local"}` for every request — there is no cookie to check because `LocalUserResolver` already trusts the request unconditionally at the resolver layer. The `!mobile` sibling (`internal/server/auth_server.go`) is a no-op so the server build keeps its existing cookie/OIDC/demo behavior. The split mirrors the existing `resolver_{telegram,local}.go` pattern and is exercised by build-tagged unit tests (`auth_mobile_test.go` / `auth_server_test.go`).
+
+Frontend defense in depth: `web/static/js/app.js` `checkAuth()` detects the embedded shell via `window.__MEDTRACKER_BOOTSTRAP__?.apiBase` (the same signal `messenger-adapter.js` uses) and skips both the `/auth/status` probe and the login-screen render entirely, going directly to `/api/bootstrap` + `applyBootstrapPayload`. The architecture test `architecture.mobile-no-telegram-login.test.js` asserts the embedded-shell branch returns before any Telegram login UI string is reachable.
+
 ### Capacitor spike scope
 
 Phase 1's Task 8 wraps `web/static/` and points the WebView at a running dev server (or the deployed production server). It does *not* embed the Go binary. Decision deferred to Phase 2 (see below). The spike proves the scaffolding works before we invest in plugin work or background-execution gymnastics.
@@ -222,7 +228,7 @@ A fresh install runs the four-screen overlay implemented in `web/static/js/featu
 
 The overlay is **fully skippable** — every screen has a Skip / Skip-all affordance. The app is functional with zero configuration; features that depend on unconfigured keys (food AI, ElevenLabs voice) keep their existing "configure to enable" contextual empty states. The flow never gates access to the rest of the app.
 
-**Trigger**: the bootstrap endpoint (`/api/bootstrap`, `internal/server/settings_handlers.go`) returns a top-level `needs_first_run: bool` derived from `settings.first_run_complete`. Existing settings rows (server installs past first run) are backfilled to `1` by migration `071_add_first_run_state.sql` so the overlay never fires for them. On a mobile install with no settings singleton yet, the row is created at first `GetFirstRunComplete` call with the default value `0`, and the overlay fires.
+**Trigger**: the bootstrap endpoint (`/api/bootstrap`, `internal/server/settings_handlers.go`) returns a top-level `needs_first_run: bool` derived from `settings.first_run_complete`. Existing settings rows (server installs past first run) are backfilled to `1` by migration `071_add_first_run_state.sql` so the overlay never fires for them. On a fresh mobile install with no settings singleton yet, `settings.GetFirstRunComplete` lazy-inserts the row via `INSERT OR IGNORE INTO settings(id, first_run_complete) VALUES (1, 0)` on the first missing-row read and returns `(false, nil)`; the bootstrap response then carries `needs_first_run: true` and the firstrun welcome screen renders on the first paint. The lazy-insert is idempotent under concurrent first-time reads.
 
 **Endpoint**: `POST /api/firstrun/complete` (`internal/server/firstrun_handlers.go`) is idempotent — it sets the flag to true and returns `{ok: true}`. It is registered in `internal/server/mcp_coverage_exempt.go` with `Reason: "first-run setup bootstrap; not user-actionable through MCP"` (per the MCP coverage policy in `docs/mcp-coverage.md`).
 
