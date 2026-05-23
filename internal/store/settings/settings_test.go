@@ -79,6 +79,45 @@ func TestFeatureFlags(t *testing.T) {
 	}
 }
 
+// TestFirstRunComplete exercises the accessor pair added alongside migration
+// 071. After migrations run on a fresh DB, the singleton row's flag is true
+// (the migration backfills `WHERE id = 1` so server installs never see the
+// flow). The accessor must then round-trip set→get for both polarities.
+func TestFirstRunComplete(t *testing.T) {
+	r := setupSettingsRepo(t)
+	ctx := context.Background()
+
+	val, err := r.GetFirstRunComplete(ctx)
+	if err != nil {
+		t.Fatalf("GetFirstRunComplete initial: %v", err)
+	}
+	if !val {
+		t.Errorf("expected migration 071 to backfill first_run_complete=true on existing settings row, got false")
+	}
+
+	if err := r.SetFirstRunComplete(ctx, false); err != nil {
+		t.Fatalf("SetFirstRunComplete(false): %v", err)
+	}
+	val, err = r.GetFirstRunComplete(ctx)
+	if err != nil {
+		t.Fatalf("GetFirstRunComplete after set false: %v", err)
+	}
+	if val {
+		t.Errorf("expected false after SetFirstRunComplete(false), got true")
+	}
+
+	if err := r.SetFirstRunComplete(ctx, true); err != nil {
+		t.Fatalf("SetFirstRunComplete(true): %v", err)
+	}
+	val, err = r.GetFirstRunComplete(ctx)
+	if err != nil {
+		t.Fatalf("GetFirstRunComplete after set true: %v", err)
+	}
+	if !val {
+		t.Errorf("expected true after SetFirstRunComplete(true), got false")
+	}
+}
+
 func TestGetBool_RejectsUnknownColumn(t *testing.T) {
 	r := setupSettingsRepo(t)
 	ctx := context.Background()
