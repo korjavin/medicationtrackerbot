@@ -140,11 +140,11 @@ The Phase 2c tests at `web/static/js/tests/firstrun.*.test.js` exercise the orch
 
 ### Task 6: Update documentation
 
-- [ ] update `docs/local-mode.md` § "Auth boundary": explicitly state that the mobile build has no `/auth/status` probe failure — it always reports `authenticated:true` because `LocalUserResolver` already trusts the request
-- [ ] update `docs/local-mode.md` § "First-run flow": document that a fresh install lands on the firstrun welcome screen, and that the settings row is lazy-inserted on first `GetFirstRunComplete`
-- [ ] update `docs/architecture.md` § "Authentication": add a one-paragraph note about the build-tagged split + the embedded-shell frontend short-circuit
-- [ ] update `CLAUDE.md` rule #11 to extend the Telegram-free guarantee to the auth UI surface, not just the script tag in `index.html`
-- [ ] run all test suites one more time as a sanity check
+- [x] update `docs/local-mode.md` § "Auth boundary": explicitly state that the mobile build has no `/auth/status` probe failure — it always reports `authenticated:true` because `LocalUserResolver` already trusts the request (added as a new "Auth boundary on the mobile build" subsection under the existing "Auth resolver" heading, since the doc has no top-level "Auth boundary" heading)
+- [x] update `docs/local-mode.md` § "First-run flow": document that a fresh install lands on the firstrun welcome screen, and that the settings row is lazy-inserted on first `GetFirstRunComplete` (updated the existing **Trigger** paragraph in "First-run Settings flow" to spell out the `INSERT OR IGNORE` lazy-insert behaviour)
+- [x] update `docs/architecture.md` § "Authentication": add a one-paragraph note about the build-tagged split + the embedded-shell frontend short-circuit (added a new "Mobile build (`//go:build mobile`)" bullet block in the "Authentication & Security" section)
+- [x] update `CLAUDE.md` rule #11 to extend the Telegram-free guarantee to the auth UI surface, not just the script tag in `index.html` (rewrote the rule to call out the embedded-shell `checkAuth()` short-circuit, the `tryMobileAuthOverride` hook, and the new `architecture.mobile-no-telegram-login.test.js`)
+- [x] run all test suites one more time as a sanity check (2580 frontend tests pass, `go test ./...` passes, `go test -tags mobile ./...` passes)
 
 ### Task 7: Verify acceptance criteria
 - [ ] verify `go test ./...` — passing
