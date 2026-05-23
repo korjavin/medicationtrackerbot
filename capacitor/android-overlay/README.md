@@ -13,7 +13,7 @@ Layout
   declares the `FOREGROUND_SERVICE*` and `POST_NOTIFICATIONS` permissions.
   When bumping Capacitor majors, diff this against the freshly-generated
   manifest and merge any new defaults forward.
-- `app/src/main/java/com/lochyard/medtracker/MainActivity.kt` — overrides
+- `app/src/main/java/com/korjavin/medtracker/MainActivity.kt` — overrides
   Capacitor's default. Generates/loads the per-install session secret from
   `EncryptedSharedPreferences`, starts `GoServerService`, awaits the
   `LISTENING 127.0.0.1:<port>` line, polls `/healthz`, injects
@@ -23,7 +23,7 @@ Layout
   dev backend, `MainActivity.onCreate` detects the configured URL via
   `bridge.config.serverUrl` and skips the spawn + lifecycle hooks entirely so
   the Phase 1 dev-server workflow keeps working unchanged.
-- `app/src/main/java/com/lochyard/medtracker/GoServerService.kt` — foreground
+- `app/src/main/java/com/korjavin/medtracker/GoServerService.kt` — foreground
   service that owns the `Process` handle. Spawns
   `nativeLibraryDir/libmedtracker.so` with argv
   `-db <files>/medtracker.db -port 0 -session-secret <…>`, parses the
@@ -45,10 +45,10 @@ Layout
   executable location to spawn the Go binary from. The name "libmedtracker.so"
   is required by that extraction rule even though the file is a regular ELF
   executable, not a shared library.
-- `app/src/test/java/com/lochyard/medtracker/ListeningPatternTest.kt` —
+- `app/src/test/java/com/korjavin/medtracker/ListeningPatternTest.kt` —
   pure-JVM unit test for the LISTENING line regex; runs under
   `./gradlew test` without an emulator.
-- `app/src/androidTest/java/com/lochyard/medtracker/GoServerServiceTest.kt`
+- `app/src/androidTest/java/com/korjavin/medtracker/GoServerServiceTest.kt`
   — instrumentation test that spawns the binary on an emulator/device and
   verifies the `/healthz` roundtrip + LISTENING parse + missing-secret error
   path; runs under `./gradlew connectedAndroidTest`.

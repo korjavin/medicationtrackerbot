@@ -20,7 +20,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 //   For Android emulator: 'http://10.0.2.2:8080' (emulator host alias)
 //   For a deployed server: e.g. 'https://meds.example.com'
 const config: CapacitorConfig = {
-  appId: 'com.lochyard.medtracker',
+  appId: 'com.korjavin.medtracker',
   appName: 'medtracker',
   webDir: '../web/static',
   // server: {

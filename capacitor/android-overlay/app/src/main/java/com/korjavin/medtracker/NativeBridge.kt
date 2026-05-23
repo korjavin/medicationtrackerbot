@@ -1,4 +1,4 @@
-package com.lochyard.medtracker
+package com.korjavin.medtracker
 
 import android.webkit.JavascriptInterface
 

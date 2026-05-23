@@ -1,4 +1,4 @@
-package com.lochyard.medtracker
+package com.korjavin.medtracker
 
 import android.app.Notification
 import android.app.NotificationChannel

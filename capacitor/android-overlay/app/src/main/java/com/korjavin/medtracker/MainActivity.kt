@@ -1,4 +1,4 @@
-package com.lochyard.medtracker
+package com.korjavin.medtracker
 
 import android.app.AlertDialog
 import android.content.ComponentName

@@ -59,7 +59,7 @@
 
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
-            android:name="com.lochyard.medtracker.MainActivity"
+            android:name="com.korjavin.medtracker.MainActivity"
             android:label="@string/title_activity_main"
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
@@ -81,7 +81,7 @@
         </provider>
 
         <service
-            android:name="com.lochyard.medtracker.GoServerService"
+            android:name="com.korjavin.medtracker.GoServerService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 

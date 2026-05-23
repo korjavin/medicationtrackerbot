@@ -1,4 +1,4 @@
-package com.lochyard.medtracker
+package com.korjavin.medtracker
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
