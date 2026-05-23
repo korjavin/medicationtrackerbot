@@ -66,3 +66,19 @@ After `npx cap add android` (or anytime the overlay changes):
 The overlay copy is idempotent — repeated runs just overwrite. The Go
 binaries are large (~13 MB stripped per ABI), so they are deliberately
 excluded from git and re-built locally.
+
+`apply-overlay.sh` also deletes the auto-generated
+`app/src/main/java/com/korjavin/medtracker/MainActivity.java` stub that
+`npx cap add android` plants. With the Kotlin Android plugin enabled and
+our `MainActivity.kt` at the same Java package, AGP would otherwise fail
+with `Duplicate class com.korjavin.medtracker.MainActivity`.
+
+Tests
+-----
+A shell test guards the stub-removal behavior:
+
+    cd capacitor && npm run test:overlay   # or: sh tests/apply-overlay-test.sh
+
+It stages a fake `capacitor/android/` tree with the Java stub, runs
+`apply-overlay.sh` against it, and asserts the stub is gone, `MainActivity.kt`
+is in place, and the script is idempotent on a second run.

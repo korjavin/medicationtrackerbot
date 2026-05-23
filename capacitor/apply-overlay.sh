@@ -35,6 +35,18 @@ if [ ! -d "$OVERLAY_DIR" ]; then
   exit 1
 fi
 
+# Delete the auto-generated MainActivity.java stub. `npx cap add android`
+# emits a 4-line Java BridgeActivity subclass at the same Java package as
+# our overlay's MainActivity.kt. With the Kotlin Android plugin enabled
+# (medtracker.build.gradle), AGP would fail with
+# "Duplicate class com.korjavin.medtracker.MainActivity". Remove it
+# unconditionally — our MainActivity.kt replaces it.
+STUB_JAVA="${ANDROID_DIR}/app/src/main/java/com/korjavin/medtracker/MainActivity.java"
+if [ -f "$STUB_JAVA" ]; then
+  rm -f "$STUB_JAVA"
+  printf 'removed auto-generated MainActivity.java stub\n'
+fi
+
 # Build a sentinel file list so we can skip the no-op cases cleanly. `find`
 # excludes the overlay's own meta files that we don't want to copy.
 SENTINELS="README.md .gitignore .gitkeep"
