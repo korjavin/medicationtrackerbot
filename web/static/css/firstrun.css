@@ -1,0 +1,61 @@
+/* firstrun.css — full-screen overlay for the post-install guided
+   setup flow (mobile Phase 2c). Mounted by features/firstrun/index.js
+   when /api/bootstrap returns `needs_first_run: true`. The overlay sits
+   above the entire app — including the bottom nav — so the welcome /
+   permissions / integrations / done screens are the only thing the user
+   sees until they advance or skip.
+
+   All visual values resolve through `--wg-*` design tokens (CLAUDE.md
+   rule #3). No hardcoded colours, no inline styles in JS.
+   `--z-modal` is the existing modal-layer token; we sit one step above
+   it so a stale legacy modal can't render through the overlay. */
+
+.wg-firstrun-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: calc(var(--z-modal) + 10);
+    display: flex;
+    align-items: stretch;
+    justify-content: center;
+    background: var(--wg-bg-stage);
+    color: var(--wg-fg-1);
+    font-family: var(--wg-font-ui);
+    overflow-y: auto;
+    animation: wg-firstrun-overlay-enter 0.2s ease;
+}
+
+.wg-firstrun-overlay__panel {
+    flex: 1 1 auto;
+    max-width: 480px;
+    margin: 0 auto;
+    padding: var(--space-xl) var(--space-lg) var(--space-xl);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-lg);
+}
+
+.wg-firstrun-overlay__title {
+    margin: 0;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xl);
+    font-weight: 600;
+    color: var(--wg-fg-1);
+    letter-spacing: 0.01em;
+}
+
+.wg-firstrun-overlay__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-lg);
+}
+
+@keyframes wg-firstrun-overlay-enter {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
