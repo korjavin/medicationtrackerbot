@@ -228,6 +228,58 @@ func TestBootstrap_NeedsFirstRunTrue_OnFreshDB(t *testing.T) {
 	}
 }
 
+// TestBootstrap_SettingsRowMissing_LazyInsertsAndReturns200 guards the ordering
+// invariant in handleBootstrap: GetFirstRunComplete must run before
+// getFeatureMap so the lazy-insert defense added in Task 2 of the mobile
+// onboarding plan is actually reachable from /api/bootstrap. If the singleton
+// settings row is missing (corner case: bootstrap migrations ran but the seed
+// row was rolled back), the handler must NOT 500 — it must lazy-insert the row
+// and surface needs_first_run=true.
+func TestBootstrap_SettingsRowMissing_LazyInsertsAndReturns200(t *testing.T) {
+	srv, db := createBPTestServer(t)
+	defer db.Close()
+
+	// Simulate the corner case: migration 006 seeded the row; remove it.
+	if _, err := db.DB().Exec("DELETE FROM settings WHERE id = 1"); err != nil {
+		t.Fatalf("delete settings row: %v", err)
+	}
+	var count int
+	if err := db.DB().QueryRow("SELECT COUNT(*) FROM settings WHERE id = 1").Scan(&count); err != nil {
+		t.Fatalf("count pre: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("precondition: expected no settings row, got %d", count)
+	}
+
+	req := httptest.NewRequest("GET", "/api/bootstrap", nil)
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+	srv.handleBootstrap(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("bootstrap with missing settings row: expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	var payload map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode bootstrap payload: %v", err)
+	}
+	needs, ok := payload["needs_first_run"].(bool)
+	if !ok {
+		t.Fatalf("expected needs_first_run bool in bootstrap response, got %T (%v)", payload["needs_first_run"], payload["needs_first_run"])
+	}
+	if !needs {
+		t.Fatalf("expected needs_first_run=true when settings row was missing, got false")
+	}
+
+	// Row must now exist (lazy-inserted by GetFirstRunComplete).
+	if err := db.DB().QueryRow("SELECT COUNT(*) FROM settings WHERE id = 1").Scan(&count); err != nil {
+		t.Fatalf("count post: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected lazy-insert to create the singleton row, got %d rows", count)
+	}
+}
+
 func TestHandleBootstrap_DemoModeOff_OmitsDemoKey(t *testing.T) {
 	srv, db := createBPTestServer(t)
 	defer db.Close()
