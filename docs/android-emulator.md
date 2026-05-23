@@ -101,6 +101,33 @@ If `emulator-5554` shows `offline` for more than ~30 seconds, the emulator
 process is hung — kill it (`adb emu kill` or just `kill %1`) and try
 again with `-wipe-data` to reset the AVD state.
 
+## Quick path — `scripts/dev-emulator.sh`
+
+For most iterations, `./scripts/dev-emulator.sh` is the right entry
+point. It runs the full build sequence below (cross-compile → cap
+add/sync → apply-overlay → gradle), then force-stops, uninstalls,
+reinstalls with `--no-streaming`, and launches the app on the first
+emulator listed by `adb devices`. It finishes by probing the WebView
+via the Chrome DevTools protocol and asserts `loginContainer:false`
+and `firstrun:true` so a regression to the Telegram login screen
+(CLAUDE.md rule #11) fails the script with a non-zero exit.
+
+```sh
+./scripts/dev-emulator.sh                  # full rebuild, ~90s
+FAST=1 ./scripts/dev-emulator.sh           # frontend-only edits, ~30s
+SKIP_PROBE=1 ./scripts/dev-emulator.sh     # skip the DOM assertion
+```
+
+The `--no-streaming` flag on `adb install` is load-bearing: Android's
+PackageManager caches extracted native libraries between installs,
+and on a same-size update may keep the previous `libmedtracker.so`
+even after `adb uninstall` + `adb install -r`. `--no-streaming`
+forces a write-to-disk first which invalidates that cache. See the
+"Common gotchas" section below.
+
+The sections that follow document the build steps the script
+automates, for when you need to debug a specific stage.
+
 ## Building the APK locally
 
 The build sequence mirrors `.github/workflows/android-apk.yml`. Run from
