@@ -99,6 +99,16 @@ func Run(ctx context.Context, s *store.Store, opts Options) (*Summary, error) {
 		return nil, fmt.Errorf("generate misc: %w", err)
 	}
 
+	// A seeded DB represents an "already onboarded" install — medications,
+	// food, BP, weight, vitals, and workouts are all populated. Flip the
+	// first-run flag so demo deployments don't surface the Phase 2c
+	// overlay to every visitor before someone hits Skip. Migration 071's
+	// EXISTS-on-medications backfill only runs at migration time; the
+	// seeder runs after migrations, so we have to set it explicitly here.
+	if err := s.Settings.SetFirstRunComplete(ctx, true); err != nil {
+		return nil, fmt.Errorf("set first_run_complete: %w", err)
+	}
+
 	slog.Info("seeddemo: completed",
 		"user_id", opts.UserID,
 		"days", opts.Days,
