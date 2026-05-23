@@ -10,6 +10,7 @@ package settings
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -153,7 +154,7 @@ func (r *Repo) SetHealthEnabled(ctx context.Context, enabled bool) error {
 // idempotent under concurrent first-time reads.
 func (r *Repo) GetFirstRunComplete(ctx context.Context) (bool, error) {
 	val, err := r.GetBool(ctx, "first_run_complete")
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		if _, insertErr := r.db.ExecContext(ctx, "INSERT OR IGNORE INTO settings (id, first_run_complete) VALUES (1, 0)"); insertErr != nil {
 			return false, insertErr
 		}
