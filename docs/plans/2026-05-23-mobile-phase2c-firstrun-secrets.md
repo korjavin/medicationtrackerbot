@@ -96,12 +96,12 @@ iOS is out of scope (inherits Phase 2a's Android-only constraint). The flow uses
 
 ### Task 1: Backend — migration + settings accessor
 
-- [ ] create `internal/store/migrations/071_add_first_run_state.sql`: `+goose Up` adds `first_run_complete INTEGER NOT NULL DEFAULT 0` to `settings`, then `UPDATE settings SET first_run_complete = 1 WHERE id = 1` so any existing row (server install) is opted out. `+goose Down` drops the column.
-- [ ] add `"first_run_complete": true` to `allowedBoolColumns` in `internal/store/settings/repo.go`.
-- [ ] add `GetFirstRunComplete(ctx)` / `SetFirstRunComplete(ctx, bool)` accessors to `internal/store/settings/repo.go` (follow the `GetFoodIntakeEnabled` / `SetFoodIntakeEnabled` pattern, lines 82-90).
-- [ ] write `TestFirstRunComplete_DefaultsFalseAndPersists` in `internal/store/settings/settings_test.go`: open fresh DB (no settings row), expect `GetFirstRunComplete` returns false (default), set true, get true, set false, get false.
-- [ ] write a migration smoke test extension (or extend an existing migrations test) confirming 071 round-trips and the existing-row backfill works (insert a row before migration runs in-test, confirm `first_run_complete=1` after).
-- [ ] run `go test ./internal/store/...` — must pass before Task 2.
+- [x] create `internal/store/migrations/071_add_first_run_state.sql`: `+goose Up` adds `first_run_complete INTEGER NOT NULL DEFAULT 1` to `settings` (default opts existing singleton row out — the `trg_change_settings_upd` trigger would otherwise emit a spurious change_events row on any follow-up `UPDATE`, so the backfill is folded into ADD COLUMN's default). `+goose Down` drops the column. The mobile bootstrap separately gates on user-row existence to detect fresh installs, so the flag is a defensive secondary signal rather than the sole trigger.
+- [x] add `"first_run_complete": true` to `allowedBoolColumns` in `internal/store/settings/repo.go`.
+- [x] add `GetFirstRunComplete(ctx)` / `SetFirstRunComplete(ctx, bool)` accessors to `internal/store/settings/repo.go` (follow the `GetFoodIntakeEnabled` / `SetFoodIntakeEnabled` pattern, lines 82-90).
+- [x] write `TestFirstRunComplete` in `internal/store/settings/settings_test.go`: open fresh DB, expect `GetFirstRunComplete` returns true (column default backfills the existing singleton row), set false, get false, set true, get true. (Renamed from the plan stub's `_DefaultsFalseAndPersists` because the migration backfills to true; the plan stub assumed an UPDATE-based backfill that was dropped to avoid trigger noise.)
+- [x] write a migration smoke test (`internal/store/migration_071_test.go`) confirming the column exists, the singleton row's flag is `1` after up, and the up/down/re-up round-trip is clean.
+- [x] run `go test ./internal/store/...` — must pass before Task 2.
 
 ### Task 2: Backend — bootstrap response + firstrun endpoint
 
