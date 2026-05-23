@@ -87,7 +87,13 @@ describe('firstrun permissions screen', () => {
 
     it('on native, Allow buttons call MediaCapture/Reminders/Geolocation and grant updates UI', async () => {
         const mediaCapture = { pickPhoto: vi.fn().mockResolvedValue(null) };
-        const reminders = { schedule: vi.fn().mockResolvedValue({ scheduled: 0 }) };
+        // requestPermissions is what actually surfaces the Android 13+
+        // POST_NOTIFICATIONS prompt; schedule([]) silently no-ops because
+        // the abstraction's empty-payload guard skips plugin.schedule().
+        const reminders = {
+            requestPermissions: vi.fn().mockResolvedValue({ display: 'granted', platform: 'capacitor' }),
+            schedule: vi.fn().mockResolvedValue({ scheduled: 0 }),
+        };
         const geolocation = { getCurrentPosition: vi.fn().mockResolvedValue({ coords: { latitude: 0, longitude: 0 } }) };
         const { window, document, cleanup } = loadFlow({
             bootstrap: { needs_first_run: true },
@@ -105,8 +111,10 @@ describe('firstrun permissions screen', () => {
             await new Promise(resolve => setTimeout(resolve, 0));
 
             expect(mediaCapture.pickPhoto).toHaveBeenCalledTimes(1);
-            expect(reminders.schedule).toHaveBeenCalledTimes(1);
-            expect(reminders.schedule.mock.calls[0][0]).toEqual([]);
+            expect(reminders.requestPermissions).toHaveBeenCalledTimes(1);
+            // The legacy schedule([]) path must NOT be used — it silently
+            // no-ops on the Capacitor impl and never surfaces the prompt.
+            expect(reminders.schedule).not.toHaveBeenCalled();
             expect(geolocation.getCurrentPosition).toHaveBeenCalledTimes(1);
 
             const cameraStatus = document.querySelector('[data-firstrun-permission-status="camera"]');
@@ -178,7 +186,7 @@ describe('firstrun permissions screen', () => {
 
     it('on web (isNativePlatform=false), screen auto-advances to integrations without rendering rows', () => {
         const mediaCapture = { pickPhoto: vi.fn() };
-        const reminders = { schedule: vi.fn() };
+        const reminders = { requestPermissions: vi.fn(), schedule: vi.fn() };
         const geolocation = { getCurrentPosition: vi.fn() };
         const { window, document, cleanup } = loadFlow({
             bootstrap: { needs_first_run: true },
@@ -198,6 +206,7 @@ describe('firstrun permissions screen', () => {
             expect(document.querySelector('[data-firstrun-permission="location"]')).toBeNull();
             // None of the native abstractions were poked.
             expect(mediaCapture.pickPhoto).not.toHaveBeenCalled();
+            expect(reminders.requestPermissions).not.toHaveBeenCalled();
             expect(reminders.schedule).not.toHaveBeenCalled();
             expect(geolocation.getCurrentPosition).not.toHaveBeenCalled();
         } finally { cleanup(); }
@@ -216,7 +225,7 @@ describe('firstrun permissions screen', () => {
 
     it('"Skip" advances to integrations without triggering any prompts', () => {
         const mediaCapture = { pickPhoto: vi.fn() };
-        const reminders = { schedule: vi.fn() };
+        const reminders = { requestPermissions: vi.fn(), schedule: vi.fn() };
         const geolocation = { getCurrentPosition: vi.fn() };
         const { window, document, cleanup } = loadFlow({
             bootstrap: { needs_first_run: true },
@@ -229,6 +238,7 @@ describe('firstrun permissions screen', () => {
             document.querySelector('[data-firstrun-action="skip"]').click();
             expect(window.WGFirstRun.state.getStep()).toBe('integrations');
             expect(mediaCapture.pickPhoto).not.toHaveBeenCalled();
+            expect(reminders.requestPermissions).not.toHaveBeenCalled();
             expect(reminders.schedule).not.toHaveBeenCalled();
             expect(geolocation.getCurrentPosition).not.toHaveBeenCalled();
         } finally { cleanup(); }
@@ -236,7 +246,10 @@ describe('firstrun permissions screen', () => {
 
     it('"Continue" after granting one permission still advances to integrations', async () => {
         const mediaCapture = { pickPhoto: vi.fn().mockResolvedValue(null) };
-        const reminders = { schedule: vi.fn().mockResolvedValue({ scheduled: 0 }) };
+        const reminders = {
+            requestPermissions: vi.fn().mockResolvedValue({ display: 'granted', platform: 'capacitor' }),
+            schedule: vi.fn().mockResolvedValue({ scheduled: 0 }),
+        };
         const geolocation = { getCurrentPosition: vi.fn().mockResolvedValue({ coords: { latitude: 0, longitude: 0 } }) };
         const { window, document, cleanup } = loadFlow({
             bootstrap: { needs_first_run: true },
@@ -251,8 +264,35 @@ describe('firstrun permissions screen', () => {
             document.querySelector('[data-firstrun-action="continue"]').click();
             expect(window.WGFirstRun.state.getStep()).toBe('integrations');
             expect(mediaCapture.pickPhoto).toHaveBeenCalledTimes(1);
+            expect(reminders.requestPermissions).not.toHaveBeenCalled();
             expect(reminders.schedule).not.toHaveBeenCalled();
             expect(geolocation.getCurrentPosition).not.toHaveBeenCalled();
+        } finally { cleanup(); }
+    });
+
+    it('on native, requestPermissions returning display!=granted is surfaced as a denial', async () => {
+        const reminders = {
+            requestPermissions: vi.fn().mockResolvedValue({ display: 'denied', platform: 'capacitor' }),
+            schedule: vi.fn(),
+        };
+        const { window, document, cleanup } = loadFlow({
+            bootstrap: { needs_first_run: true },
+            initialStep: 'permissions',
+            capacitor: { isNativePlatform: () => true },
+            mediaCapture: { pickPhoto: vi.fn().mockResolvedValue(null) },
+            reminders,
+            geolocation: { getCurrentPosition: vi.fn().mockResolvedValue(null) },
+        });
+        try {
+            window.WGFirstRun.mount();
+            document.querySelector('[data-firstrun-action="allow-notifications"]').click();
+            await new Promise(resolve => setTimeout(resolve, 0));
+
+            const status = document.querySelector('[data-firstrun-permission-status="notifications"]');
+            expect(status.textContent.toLowerCase()).toContain('permission denied');
+            expect(document.querySelector('[data-firstrun-permission="notifications"]').classList.contains('wg-firstrun-permission--denied')).toBe(true);
+            // legacy schedule([]) must not be invoked as a side effect.
+            expect(reminders.schedule).not.toHaveBeenCalled();
         } finally { cleanup(); }
     });
 });
