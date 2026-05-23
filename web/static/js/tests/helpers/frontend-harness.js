@@ -83,6 +83,16 @@ const WORKOUT_STATS_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/st
 const WORKOUT_INDEX_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/index.js');
 const SETTINGS_INTEGRATIONS_JS = path.join(REPO_ROOT, 'web/static/js/features/settings/integrations.js');
 
+// Native platform abstraction layer (Phase 2b). Must load before feature
+// modules that call window.Barcode / window.MediaCapture / window.Geolocation
+// / window.Reminders — food/scanner.js + food/photo.js (Task 7) depend on
+// these globals being present at module-eval time.
+const NATIVE_INDEX_JS = path.join(REPO_ROOT, 'web/static/js/native/index.js');
+const NATIVE_WEB_GEOLOCATION_JS = path.join(REPO_ROOT, 'web/static/js/native/web/geolocation.js');
+const NATIVE_WEB_MEDIA_CAPTURE_JS = path.join(REPO_ROOT, 'web/static/js/native/web/media-capture.js');
+const NATIVE_WEB_BARCODE_JS = path.join(REPO_ROOT, 'web/static/js/native/web/barcode.js');
+const NATIVE_WEB_REMINDERS_JS = path.join(REPO_ROOT, 'web/static/js/native/web/reminders.js');
+
 const _sourceCache = new Map();
 function readCached(filePath) {
   let src = _sourceCache.get(filePath);
@@ -248,6 +258,17 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   // TabController.bindTabGroup at top level for the .health-tabs and
   // .med-tabs groups, and bindOnce for the three *Controls scopes.
   evalFileCached(window, TAB_CONTROLLER_JS);
+
+  // Native abstraction layer (Phase 2b). Loaded before feature modules so
+  // window.Barcode / window.MediaCapture / window.Geolocation / window.Reminders
+  // are present when food/scanner.js + food/photo.js (Task 7 refactored
+  // callers) evaluate. Production index.html loads these between
+  // cached-fetch.js and features/tab-controller.js.
+  evalFileCached(window, NATIVE_INDEX_JS);
+  evalFileCached(window, NATIVE_WEB_GEOLOCATION_JS);
+  evalFileCached(window, NATIVE_WEB_MEDIA_CAPTURE_JS);
+  evalFileCached(window, NATIVE_WEB_BARCODE_JS);
+  evalFileCached(window, NATIVE_WEB_REMINDERS_JS);
 
   const appSource = disableAutoBootstrap(readCached(APP_JS));
   evalWithSourceURL(window, appSource, APP_JS);

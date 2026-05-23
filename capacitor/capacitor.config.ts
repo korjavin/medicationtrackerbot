@@ -26,6 +26,19 @@ const config: CapacitorConfig = {
     url: 'http://localhost:8080',
     cleartext: true,
   },
+  plugins: {
+    // Phase 2b: local-notifications drives reminder firings on the mobile
+    // build. The icon name refers to a drawable resource that ships with the
+    // Android shell (mipmap/ic_launcher is the launcher icon, used as a
+    // fallback until a dedicated white-on-transparent notification icon is
+    // added under res/drawable). smallIcon must match a resource name without
+    // the @drawable/ prefix; the plugin resolves it from the app's resources.
+    LocalNotifications: {
+      smallIcon: 'ic_launcher',
+      iconColor: '#2481cc',
+      sound: undefined,
+    },
+  },
 };
 
 export default config;

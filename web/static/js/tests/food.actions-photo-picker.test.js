@@ -1,19 +1,20 @@
-// Friendly food-photo flow — Task 5: expose the food-photo picker as a
-// callable function on a window namespace so callers outside the Food
-// section (e.g. the Today shortcut tile added in Task 6) can trigger it
+// Friendly food-photo flow — Task 5 + Phase 2b Task 7: expose the food-photo
+// picker as a callable function on a window namespace so callers outside the
+// Food section (e.g. the Today shortcut tile added in Task 6) can trigger it
 // without first navigating to Food.
 //
 // Pins three behaviours:
 //
 //   1. window.FoodActions.triggerPhotoPicker is a function after the
 //      frontend boots — it's not lazily attached on food-section mount.
-//   2. Calling it triggers .click() on the hidden #food-photo-input that
-//      lives in the static index.html markup (so it's in the DOM at
-//      startup, before the user navigates to Food).
-//   3. The change handler that routes the picked file through
-//      uploadFoodPhoto is wired at app startup (DOMContentLoaded), not
-//      gated on a food-section mount — verified by dispatching a synthetic
-//      `change` event on the input and asserting the upload handler runs.
+//   2. Calling it invokes window.MediaCapture.pickPhoto (Phase 2b
+//      abstraction seam) — on web that opens a hidden <input type=file>;
+//      under the Capacitor Android shell it opens @capacitor/camera.
+//   3. The change handler that routes the static #food-photo-input's
+//      file into uploadFoodPhoto remains wired at app startup
+//      (DOMContentLoaded), preserving the legacy fallback surface — the
+//      static input stays in the DOM and continues to forward synthetic
+//      change events into the upload path.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
@@ -36,37 +37,41 @@ describe('window.FoodActions.triggerPhotoPicker (friendly food-photo flow, Task 
         expect(typeof window.FoodActions.triggerPhotoPicker).toBe('function');
     });
 
-    it('clicking via FoodActions.triggerPhotoPicker invokes .click() on the hidden file input', () => {
+    it('calling FoodActions.triggerPhotoPicker invokes window.MediaCapture.pickPhoto', async () => {
         const { document, window } = env;
 
         const input = document.getElementById('food-photo-input');
+        // The static input must remain in the DOM at startup (not lazy on
+        // food-section mount) so the change-handler fallback path works on a
+        // cold session.
         expect(input).not.toBeNull();
-        // The input must be in the DOM at startup (not lazy on food-section
-        // mount) so the Today shortcut works on a cold session.
         expect(input.tagName).toBe('INPUT');
         expect(input.type).toBe('file');
 
-        const clickSpy = vi.spyOn(input, 'click');
+        const pickPhotoSpy = vi.fn().mockResolvedValue(null);
+        window.MediaCapture = { pickPhoto: pickPhotoSpy };
 
-        window.FoodActions.triggerPhotoPicker();
+        await window.FoodActions.triggerPhotoPicker();
 
-        expect(clickSpy).toHaveBeenCalledTimes(1);
+        // The Phase 2b abstraction is now the picker seam.
+        expect(pickPhotoSpy).toHaveBeenCalledTimes(1);
+        // capture: false so the picker offers both camera and gallery.
+        expect(pickPhotoSpy).toHaveBeenCalledWith({ capture: false });
     });
 
-    it('resets the input value before clicking so picking the same file twice still fires `change`', () => {
-        const { document, window } = env;
+    it('returning null from MediaCapture.pickPhoto is a no-op (user cancelled the picker)', async () => {
+        const { window } = env;
 
-        const input = document.getElementById('food-photo-input');
-        // Simulate a stale value from a prior pick.
-        input.value = '';
-        // jsdom won't let us assign a non-empty value to a file input from
-        // outside the user's scope, but the picker function still needs to
-        // call the assignment unconditionally — assert that .click() runs
-        // after the reset (i.e. doesn't bail early).
-        const clickSpy = vi.spyOn(input, 'click');
-        window.FoodActions.triggerPhotoPicker();
-        expect(clickSpy).toHaveBeenCalled();
-        expect(input.value).toBe('');
+        const pickPhotoSpy = vi.fn().mockResolvedValue(null);
+        window.MediaCapture = { pickPhoto: pickPhotoSpy };
+        const fetchSpy = vi.fn();
+        window.fetch = fetchSpy;
+
+        await window.FoodActions.triggerPhotoPicker();
+
+        expect(pickPhotoSpy).toHaveBeenCalledTimes(1);
+        // No file picked => no upload kicked off.
+        expect(fetchSpy).not.toHaveBeenCalled();
     });
 
     it('the change handler that routes picked files into uploadFoodPhoto is bound at startup', () => {
