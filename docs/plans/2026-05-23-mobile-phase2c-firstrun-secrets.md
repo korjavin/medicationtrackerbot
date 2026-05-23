@@ -128,12 +128,12 @@ iOS is out of scope (inherits Phase 2a's Android-only constraint). The flow uses
 
 ### Task 4: Frontend — welcome + done screens
 
-- [ ] create `web/static/js/features/firstrun/screens/welcome.js`: renders a welcome card (app name, tagline, "Get started" primary button, "Skip all" secondary). "Get started" advances to `permissions` step. "Skip all" calls `POST /api/firstrun/complete` and dismisses.
-- [ ] create `web/static/js/features/firstrun/screens/done.js`: renders a "You're all set" confirmation with a single "Open app" button. Calls `POST /api/firstrun/complete` and dismisses.
-- [ ] wire `index.js` to render the current step's screen based on `state.getStep()`. Step transitions re-render the overlay.
-- [ ] write `web/static/js/tests/firstrun.welcome.test.js`: renders welcome text, "Get started" advances state to `permissions`, "Skip all" calls the completion endpoint (mocked fetch) and dismisses the overlay.
-- [ ] write `web/static/js/tests/firstrun.done.test.js`: renders the done state, "Open app" calls the completion endpoint and dismisses, second mount on a subsequent bootstrap (now `needs_first_run: false`) does not re-render.
-- [ ] run `pnpm test` — must pass before Task 5.
+- [x] create `web/static/js/features/firstrun/screens/welcome.js`: renders a welcome card (app name, tagline, "Get started" primary button, "Skip all" secondary). "Get started" advances to `permissions` step. "Skip all" calls `POST /api/firstrun/complete` and dismisses.
+- [x] create `web/static/js/features/firstrun/screens/done.js`: renders a "You're all set" confirmation with a single "Open app" button. Calls `POST /api/firstrun/complete` and dismisses.
+- [x] wire `index.js` to render the current step's screen based on `state.getStep()`. Step transitions re-render the overlay. (Orchestrator now exposes `_renderCurrentStep` that looks up `window.WGFirstRun.screens[step]`, sets the panel title from `screen.title`, clears the body, then calls `screen.render(body, helpers)` with helpers `{ advance, complete, dismiss }`. Missing screens render an empty panel — Tasks 5–6 land permissions + integrations.)
+- [x] write `web/static/js/tests/firstrun.welcome.test.js`: renders welcome text, "Get started" advances state to `permissions`, "Skip all" calls the completion endpoint (mocked fetch) and dismisses the overlay. (Adds two extra cases: panel re-renders after advance even when the next screen is unregistered, and Skip-all is offline-safe — rejected fetch still dismisses.)
+- [x] write `web/static/js/tests/firstrun.done.test.js`: renders the done state, "Open app" calls the completion endpoint and dismisses, second mount on a subsequent bootstrap (now `needs_first_run: false`) does not re-render. (Extra case: offline POST rejection still dismisses.)
+- [x] run `pnpm test` — must pass before Task 5.
 
 ### Task 5: Frontend — permissions screen
 
