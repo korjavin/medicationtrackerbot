@@ -59,3 +59,56 @@
         transform: translateY(0);
     }
 }
+
+/* Screen content — shared across welcome, permissions, integrations,
+   done. Per-screen modules append their content into `.wg-firstrun-
+   overlay__body`; the tagline + actions classes provide consistent
+   typography and layout so the screens feel like one flow rather than
+   four unrelated cards. */
+.wg-firstrun-screen__tagline {
+    margin: 0;
+    color: var(--wg-fg-2);
+    font-size: var(--font-size-md);
+    line-height: 1.5;
+}
+
+.wg-firstrun-actions {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+    margin-top: var(--space-lg);
+}
+
+.wg-firstrun-btn {
+    appearance: none;
+    border: none;
+    border-radius: var(--radius-md);
+    padding: var(--space-md) var(--space-lg);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-md);
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
+    min-height: 48px;
+    line-height: 1.2;
+}
+
+.wg-firstrun-btn:active {
+    transform: scale(0.98);
+}
+
+.wg-firstrun-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.wg-firstrun-btn--primary {
+    background: var(--wg-sun);
+    color: var(--wg-ink);
+}
+
+.wg-firstrun-btn--secondary {
+    background: transparent;
+    color: var(--wg-fg-2);
+    border: 1px solid var(--wg-border-strong);
+}
