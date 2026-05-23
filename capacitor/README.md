@@ -74,8 +74,16 @@ npx cap add android                 # generates android/ (gitignored)
 ../scripts/build-android-binaries.sh
 ./apply-overlay.sh                  # copies android-overlay/ → android/
 npx cap sync
+./apply-overlay.sh                  # re-apply: cap sync may have clobbered manifest / apply-from
+./verify-overlay-applied.sh         # asserts GoServerService manifest entry + apply-from line
 npx cap open android
 ```
+
+The double `apply-overlay.sh` + `verify-overlay-applied.sh` pair is what
+the CI workflow runs and is the supported way to catch a `cap sync`
+regression locally before opening Android Studio. The paragraph
+beginning "`npx cap sync` may rewrite ..." below explains why this is
+necessary.
 
 > The committed `capacitor.config.ts` leaves `server.url` unset, so the
 > overlay's `MainActivity` takes the embedded-binary spawn path by default

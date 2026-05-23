@@ -67,6 +67,8 @@ go test -tags cross_compile_smoke ./cmd/bot
 
 It's gated so the default `go test ./...` doesn't pay the ~1s cross-compile cost on every push. CI / release jobs that care about the mobile pipeline opt in.
 
+For the full local dev loop — Android SDK setup, AVD creation, building the APK locally, installing on the emulator, logcat tags to watch, common gotchas, and how to verify a built APK — see [docs/android-emulator.md](android-emulator.md). That doc is the canonical reference for iterating on overlay / manifest / Kotlin changes without round-tripping through CI.
+
 ## What local-only mode is
 
 A build of this app that runs entirely on-device — no MCP server, no Telegram bot, no web push, no OIDC. It's the same Go binary, same SQLite schema, same domain services, same vanilla-JS frontend, wrapped in Capacitor and pointed at a localhost HTTP server bundled inside the app.

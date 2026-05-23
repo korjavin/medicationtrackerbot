@@ -182,10 +182,10 @@ Create `docs/android-emulator.md` covering the full dev loop: SDK setup, AVD cre
 - [x] verify `scripts/verify-apk.sh` returns 0 on the freshly-built APK (skipped — not automatable in this iteration: no APK is built locally here; the script's exit-code paths are unit-tested via `scripts/tests/verify-apk-test.sh` — passes — and it runs against the real APK in CI after `assembleDebug`)
 
 ### Task 9: [Final] Update documentation and CLAUDE.md
-- [ ] add a Critical Rules entry in `CLAUDE.md` (or extend rule #6 / add #11) noting: "mobile APK must not load Telegram remotely — `web/static/index.html` is shared with the server build and the Telegram SDK is loaded dynamically by `messenger-adapter.js` only when not running under Capacitor"
-- [ ] update `docs/local-mode.md` with a pointer to `docs/android-emulator.md` for the dev loop
-- [ ] update `capacitor/README.md` build instructions to mention the overlay verification step
-- [ ] verify `CLAUDE.md` documentation index lists `docs/android-emulator.md`
+- [x] add a Critical Rules entry in `CLAUDE.md` (or extend rule #6 / add #11) noting: "mobile APK must not load Telegram remotely — `web/static/index.html` is shared with the server build and the Telegram SDK is loaded dynamically by `messenger-adapter.js` only when not running under Capacitor" — added rule #11 with pointers to the architecture test, `scripts/verify-apk.sh`, and `docs/android-emulator.md`
+- [x] update `docs/local-mode.md` with a pointer to `docs/android-emulator.md` for the dev loop — added a paragraph at the end of the "Phase 2a build pipeline" section linking the emulator doc as the canonical local dev-loop reference
+- [x] update `capacitor/README.md` build instructions to mention the overlay verification step — added the second `apply-overlay.sh` + `verify-overlay-applied.sh` pair into the "Full build flow" snippet so a fresh-checkout developer runs the same sequence CI does
+- [x] verify `CLAUDE.md` documentation index lists `docs/android-emulator.md` — already at line 117 (added in Task 7); confirmed present
 
 ## Technical Details
 
