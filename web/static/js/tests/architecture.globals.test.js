@@ -181,6 +181,9 @@ const ALLOWED_GLOBALS = new Set([
     // native/index.js installs stubs that throw NotImplementedError; Tasks
     // 2–5 of the Phase 2b plan replace each stub with a real web vs Capacitor
     // selector.
+    // First-run guided setup overlay — mobile Phase 2c, Task 3.
+    'window.WGFirstRun',                // features/firstrun/index.js exposes the mount/dismiss/isActive surface for the first-run overlay; state.js attaches the sessionStorage step tracker under `.state`. Mounted once at bootstrap when /api/bootstrap returns needs_first_run: true.
+
     'window.MediaCapture',              // native/index.js — camera + photo picker abstraction (takePhoto, pickPhoto); web impl wraps getUserMedia + <input type=file>, Capacitor impl wraps @capacitor/camera
     'window.Geolocation',               // native/index.js — device geolocation abstraction (getCurrentPosition); web impl wraps navigator.geolocation, Capacitor impl wraps @capacitor/geolocation with a 1h in-memory last-known-position cache
     'window.Barcode',                   // native/index.js — barcode scanner abstraction (scan); web impl uses window.BarcodeDetector with a ZXing fallback, Capacitor impl wraps @capacitor-mlkit/barcode-scanning
