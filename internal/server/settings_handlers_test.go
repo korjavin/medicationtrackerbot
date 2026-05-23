@@ -131,6 +131,70 @@ func TestHandleBootstrap(t *testing.T) {
 	}
 }
 
+// TestBootstrap_NeedsFirstRunFlag is the round-trip guard for the mobile
+// first-run overlay (Phase 2c): /api/bootstrap must surface
+// needs_first_run=true when settings.first_run_complete=0, and flip to false
+// once POST /api/firstrun/complete has been called. Server installs are
+// backfilled to first_run_complete=1 by migration 071, so the default test
+// row reports needs_first_run=false too — we toggle the flag explicitly here.
+func TestBootstrap_NeedsFirstRunFlag(t *testing.T) {
+	srv, db := createBPTestServer(t)
+	defer db.Close()
+
+	ctx := context.Background()
+	if err := db.Settings.SetFirstRunComplete(ctx, false); err != nil {
+		t.Fatalf("seed SetFirstRunComplete(false): %v", err)
+	}
+
+	// Fresh-install state: needs_first_run=true.
+	req1 := httptest.NewRequest("GET", "/api/bootstrap", nil)
+	req1 = withUser(req1, 123456)
+	w1 := httptest.NewRecorder()
+	srv.handleBootstrap(w1, req1)
+	if w1.Code != http.StatusOK {
+		t.Fatalf("first bootstrap: expected 200, got %d", w1.Code)
+	}
+	var payload1 map[string]any
+	if err := json.NewDecoder(w1.Body).Decode(&payload1); err != nil {
+		t.Fatalf("decode first payload: %v", err)
+	}
+	needs, ok := payload1["needs_first_run"].(bool)
+	if !ok {
+		t.Fatalf("expected needs_first_run bool in bootstrap response, got %T (%v)", payload1["needs_first_run"], payload1["needs_first_run"])
+	}
+	if !needs {
+		t.Fatalf("expected needs_first_run=true when first_run_complete=false, got false")
+	}
+
+	// Dismiss the flow via the firstrun endpoint, then re-bootstrap.
+	dismissReq := httptest.NewRequest("POST", "/api/firstrun/complete", nil)
+	dismissReq = withUser(dismissReq, 123456)
+	dismissW := httptest.NewRecorder()
+	srv.handleFirstRunComplete(dismissW, dismissReq)
+	if dismissW.Code != http.StatusOK {
+		t.Fatalf("dismiss: expected 200, got %d. Body: %s", dismissW.Code, dismissW.Body.String())
+	}
+
+	req2 := httptest.NewRequest("GET", "/api/bootstrap", nil)
+	req2 = withUser(req2, 123456)
+	w2 := httptest.NewRecorder()
+	srv.handleBootstrap(w2, req2)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("second bootstrap: expected 200, got %d", w2.Code)
+	}
+	var payload2 map[string]any
+	if err := json.NewDecoder(w2.Body).Decode(&payload2); err != nil {
+		t.Fatalf("decode second payload: %v", err)
+	}
+	needs2, ok := payload2["needs_first_run"].(bool)
+	if !ok {
+		t.Fatalf("expected needs_first_run bool in second bootstrap response, got %T (%v)", payload2["needs_first_run"], payload2["needs_first_run"])
+	}
+	if needs2 {
+		t.Fatalf("expected needs_first_run=false after dismissal, got true")
+	}
+}
+
 func TestHandleBootstrap_DemoModeOff_OmitsDemoKey(t *testing.T) {
 	srv, db := createBPTestServer(t)
 	defer db.Close()

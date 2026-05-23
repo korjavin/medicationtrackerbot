@@ -105,15 +105,15 @@ iOS is out of scope (inherits Phase 2a's Android-only constraint). The flow uses
 
 ### Task 2: Backend — bootstrap response + firstrun endpoint
 
-- [ ] extend `handleBootstrap` in `internal/server/settings_handlers.go` to read `first_run_complete` from the settings repo and include `needs_first_run: bool` (true when flag is false) in the response. Add it as a top-level field in the bootstrap JSON shape.
-- [ ] create `internal/server/firstrun_handlers.go` with `handleFirstRunComplete(w, r)`: idempotent `POST /api/firstrun/complete`. Steps: (1) check + create `users` row for the resolved user id if missing (idempotent INSERT OR IGNORE pattern), (2) call `settings.SetFirstRunComplete(ctx, true)`, (3) return `{ok: true}`. JSON content-type.
-- [ ] register the new route in `internal/server/server.go` (`apiMux.HandleFunc("POST /api/firstrun/complete", s.handleFirstRunComplete)`) alongside the other settings routes near line 884-891.
-- [ ] add `/api/firstrun/complete` to `internal/server/mcp_coverage_exempt.go` with `Reason: "first-run setup bootstrap; not user-actionable through MCP"`.
-- [ ] write `TestFirstRunComplete_Idempotent` in `internal/server/firstrun_handlers_test.go`: first POST sets flag + creates user, second POST is a no-op (flag already true, user already exists), both return 200.
-- [ ] write `TestFirstRunComplete_ProvisionsUser` in the same file: fresh DB with no users row, POST creates the row with id matching the resolved user, verify via direct DB query.
-- [ ] write `TestBootstrap_NeedsFirstRunFlag` in `internal/server/settings_handlers_test.go`: fresh DB → `needs_first_run: true`, after POST → `needs_first_run: false`.
-- [ ] write `TestMCPCoverage_FirstRunEndpointExempt` extension or verify the existing guard test `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` is green with the new route present.
-- [ ] run `go test ./internal/server/...` and `go build -tags mobile ./...` — both must pass before Task 3.
+- [x] extend `handleBootstrap` in `internal/server/settings_handlers.go` to read `first_run_complete` from the settings repo and include `needs_first_run: bool` (true when flag is false) in the response. Add it as a top-level field in the bootstrap JSON shape.
+- [x] create `internal/server/firstrun_handlers.go` with `handleFirstRunComplete(w, r)`: idempotent `POST /api/firstrun/complete`. Steps: (1) call `settings.SetFirstRunComplete(ctx, true)`, (2) return `{ok: true}`. JSON content-type. (User-row provisioning is intentionally a no-op: this schema has no `users` table — `user_id` columns are bare integers with no enforced FK, so the plan's INSERT OR IGNORE step has nothing to insert into. Comment in the handler captures this.)
+- [x] register the new route in `internal/server/server.go` (`apiMux.HandleFunc("POST /api/firstrun/complete", s.handleFirstRunComplete)`) alongside the other settings routes near line 884-891.
+- [x] add `/api/firstrun/complete` to `internal/server/mcp_coverage_exempt.go` with `Reason: "first-run setup bootstrap; not user-actionable through MCP"`.
+- [x] write `TestFirstRunComplete_Idempotent` in `internal/server/firstrun_handlers_test.go`: first POST sets flag, second POST is a no-op (flag already true), both return 200.
+- [x] write `TestFirstRunComplete_PersistsFlag` in the same file: fresh-install precondition (flag false), POST flips it to true. (Renamed from the plan stub's `_ProvisionsUser`: see Task 2 note above — no users table exists, so the test asserts the flag transition that is actually load-bearing for the next bootstrap.)
+- [x] write `TestBootstrap_NeedsFirstRunFlag` in `internal/server/settings_handlers_test.go`: flag=false → `needs_first_run: true`, after POST → `needs_first_run: false`.
+- [x] verify the existing guard test `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` is green with the new route present (no extension needed — the exemption entry in `mcp_coverage_exempt.go` makes the guard pass).
+- [x] run `go test ./internal/server/...` and `go build -tags mobile ./...` — both pass.
 
 ### Task 3: Frontend — firstrun orchestrator + state
 
