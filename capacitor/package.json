@@ -9,7 +9,8 @@
     "open:android": "cap open android",
     "add:ios": "cap add ios",
     "add:android": "cap add android",
-    "test:overlay": "sh tests/apply-overlay-test.sh"
+    "test:overlay": "sh tests/apply-overlay-test.sh",
+    "verify:overlay": "sh verify-overlay-applied.sh"
   },
   "dependencies": {
     "@capacitor-mlkit/barcode-scanning": "^6.2.0",

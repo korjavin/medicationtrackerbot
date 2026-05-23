@@ -93,6 +93,20 @@ See `docs/local-mode.md` → "Phase 2a build pipeline" for the why.
 `apply-overlay.sh` is idempotent. Re-run it any time you regenerate
 `capacitor/android/` via `cap add` or change overlay sources.
 
+`npx cap sync` may rewrite `AndroidManifest.xml` (Capacitor reinjects plugin
+entries) and `app/build.gradle` (re-applies `capacitor.build.gradle`), which
+can drop our overlay's manifest and the `apply from: 'medtracker.build.gradle'`
+wire-in. Re-run `apply-overlay.sh` (and re-append the apply-from line) AFTER
+`cap sync`, then verify with:
+
+```sh
+./verify-overlay-applied.sh   # or: npm run verify:overlay
+```
+
+This greps for `GoServerService` in the manifest and the apply-from line in
+`app/build.gradle`, exiting non-zero if either is missing. CI runs the same
+checks before `gradlew assembleDebug`.
+
 Pointing at a server (dev-server fallback)
 ------------------------------------------
 Edit `capacitor.config.ts` and uncomment the `server` block, setting
