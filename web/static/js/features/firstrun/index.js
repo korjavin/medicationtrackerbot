@@ -170,9 +170,24 @@
     function mount(payload) {
         if (_mounted) return;
         const needs = _readNeedsFirstRun(payload);
-        if (!needs) return;
+        if (!needs) {
+            // Defensive cleanup: a stale sessionStorage step entry from
+            // a prior in-flight install can outlive a server-side
+            // completion (POST /api/firstrun/complete succeeded but the
+            // WebView was destroyed before dismiss() fired). Once the
+            // bootstrap reports needs_first_run=false there is no resume
+            // context to honor — clear the key so a re-install on the
+            // same WebView session doesn't resume at a ghost step.
+            const state = window.WGFirstRun && window.WGFirstRun.state;
+            if (state && typeof state.clear === 'function') state.clear();
+            return;
+        }
         _renderOverlayScaffold();
         _mounted = true;
+        // _currentStep() reads state.getStep(), which returns the
+        // persisted sessionStorage value when present. A mid-flow kill
+        // therefore re-mounts directly at the last-visible step rather
+        // than restarting from welcome.
         _renderCurrentStep();
     }
 
