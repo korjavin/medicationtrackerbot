@@ -126,6 +126,20 @@ if [ -f "$PROJECT_BUILD_GRADLE" ]; then
       }
     ' "$PROJECT_BUILD_GRADLE" > "$tmp_file"
     mv "$tmp_file" "$PROJECT_BUILD_GRADLE"
+    # Fail loudly if the AGP classpath line wasn't found — silently leaving
+    # the Kotlin plugin off the buildscript path is how the overlay's .kt
+    # sources drop out of the APK without any warning. If a future Capacitor
+    # bump renames the AGP coordinate or switches to a `plugins {}` block,
+    # the pattern needs to be updated here rather than discovered downstream
+    # when the dex misses GoServerService.
+    if ! grep -qF "org.jetbrains.kotlin:kotlin-gradle-plugin" "$PROJECT_BUILD_GRADLE"; then
+      printf 'error: failed to inject Kotlin Gradle Plugin classpath — AGP\n' >&2
+      printf '       pattern "com.android.tools.build:gradle" not found in %s.\n' \
+        "$PROJECT_BUILD_GRADLE" >&2
+      printf '       The Capacitor project template may have changed; update the\n' >&2
+      printf '       awk insertion in capacitor/apply-overlay.sh.\n' >&2
+      exit 1
+    fi
     printf 'injected Kotlin Gradle Plugin %s classpath into %s\n' \
       "$KOTLIN_VERSION" "$PROJECT_BUILD_GRADLE"
   fi

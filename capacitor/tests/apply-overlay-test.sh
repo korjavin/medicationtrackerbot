@@ -100,6 +100,14 @@ if ! grep -qF "removed auto-generated MainActivity.java stub" "${TMP_ROOT}/run1.
   exit 1
 fi
 
+# Kotlin Gradle Plugin classpath must have been injected after the AGP line.
+# Without this, the overlay's .kt sources silently drop from the APK.
+if ! grep -qF "org.jetbrains.kotlin:kotlin-gradle-plugin" "${FAKE_ANDROID}/build.gradle"; then
+  printf 'fail: Kotlin Gradle Plugin classpath not injected into project build.gradle\n' >&2
+  cat "${FAKE_ANDROID}/build.gradle" >&2
+  exit 1
+fi
+
 # Second run: stub already gone → script must remain idempotent and not
 # emit the removal log line.
 ./apply-overlay.sh > "${TMP_ROOT}/run2.log" 2>&1 || {
@@ -116,6 +124,15 @@ fi
 
 if [ -f "${JAVA_PKG_DIR}/MainActivity.java" ]; then
   printf 'fail: stub somehow reappeared on second run\n' >&2
+  exit 1
+fi
+
+# Idempotency: the Kotlin classpath line must appear exactly once after the
+# second run (the awk insert is guarded by `grep -qF` and must not re-fire).
+kotlin_count=$(grep -cF "org.jetbrains.kotlin:kotlin-gradle-plugin" "${FAKE_ANDROID}/build.gradle" 2>/dev/null || echo 0)
+if [ "$kotlin_count" != "1" ]; then
+  printf 'fail: Kotlin classpath count after second run is %s, expected 1\n' "$kotlin_count" >&2
+  cat "${FAKE_ANDROID}/build.gradle" >&2
   exit 1
 fi
 

@@ -333,12 +333,24 @@
     // gone. On native Capacitor / when Telegram is already present, this
     // resolves immediately and the re-pick is a no-op. Re-fires init() on
     // the upgraded adapter so ready()/expand() actually run for late
-    // Telegram arrivals.
+    // Telegram arrivals, and refreshes window.userInitData so
+    // makeAuthHeaders() sees the Telegram initData on subsequent requests
+    // (app.js snapshots it synchronously at boot, before this resolves).
     window.MessengerAdapterReady = loadTelegramSdk().then(function () {
         const upgraded = pickAdapter();
         if (upgraded !== window.MessengerAdapter) {
             window.MessengerAdapter = upgraded;
             try { upgraded.init(); } catch (e) { /* swallow */ }
+            // Refresh window.userInitData only on a real upgrade. app.js
+            // snapshots userInitData synchronously at boot from whatever the
+            // initial pick returned; if we upgrade BrowserAdapter →
+            // TelegramAdapter mid-boot, makeAuthHeaders() would still see the
+            // stale null. Skipping this when the adapter is unchanged avoids
+            // clobbering manually-injected token values in test harnesses.
+            window.userInitData = upgraded.identityToken() || null;
+            if (window.userInitData && typeof window.sendSwAuthToken === 'function') {
+                try { window.sendSwAuthToken(); } catch (e) { /* swallow */ }
+            }
         }
         return window.MessengerAdapter;
     });

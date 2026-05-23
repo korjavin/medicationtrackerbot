@@ -87,4 +87,30 @@ describe('MessengerAdapter — dynamic Telegram SDK load', () => {
             expect(window.MessengerAdapter.authHeaderName()).toBe('X-Telegram-Init-Data');
         } finally { dom.window.close(); }
     });
+
+    it('upgrades BrowserAdapter → TelegramAdapter and refreshes window.userInitData after the dynamic SDK load resolves', async () => {
+        const dom = makeDom();
+        const { window } = dom;
+        try {
+            expect(window.Telegram).toBeUndefined();
+            evalAdapter(window);
+
+            // Initial sync pick — no Telegram yet, so BrowserAdapter.
+            expect(window.MessengerAdapter.isPresent()).toBe(false);
+            const scripts = findTelegramScripts(window);
+            expect(scripts).toHaveLength(1);
+
+            // Simulate the Telegram SDK loading: it would set window.Telegram.WebApp
+            // and then fire the script's load event. The adapter's .then() block
+            // then re-picks and refreshes window.userInitData.
+            window.Telegram = { WebApp: { initData: 'tg-token-xyz', ready: () => {}, expand: () => {} } };
+            scripts[0].dispatchEvent(new window.Event('load'));
+
+            await window.MessengerAdapterReady;
+
+            expect(window.MessengerAdapter.isPresent()).toBe(true);
+            expect(window.MessengerAdapter.authHeaderName()).toBe('X-Telegram-Init-Data');
+            expect(window.userInitData).toBe('tg-token-xyz');
+        } finally { dom.window.close(); }
+    });
 });

@@ -97,13 +97,23 @@ async function loadInitData() {
 
 // Check Auth Environment
 async function checkAuth() {
+    // The Telegram SDK now loads asynchronously (script tag removed from
+    // index.html), so the `userInitData` const captured at boot may be null
+    // for a Telegram Mini App user opening the web build. Wait for the
+    // adapter-ready promise so the upgrade (BrowserAdapter → TelegramAdapter
+    // + window.userInitData refresh) has completed before the auth-branch
+    // check below reads it.
+    if (window.MessengerAdapterReady) {
+        try { await window.MessengerAdapterReady; } catch (_) { /* fall through */ }
+    }
+
     // Preflight Dexie hydration runs before any bootstrap fetch so a
     // relaunch-while-offline already has the meds list in DataStore by the
     // time the first switchTab() / Today tile / loadMeds() reads it.
     await hydrateMedicationsFromDexie();
     await hydrateSectionsFromDexie();
 
-    if (userInitData) {
+    if (window.userInitData) {
         // We are in Telegram, proceed as normal
         sessionStorage.removeItem('medtracker_auth_reload_in_progress');
         saveAuthState('telegram');
