@@ -2,7 +2,7 @@
 
 Design context for the ongoing effort to compile this codebase into a mobile app via Capacitor. This doc captures the *why* behind decisions made during planning so future phases can be planned from a warm start, not by re-deriving from first principles. Living doc — update as Phase 2 lands.
 
-Status: **Phase 2a in progress** on Android (embedded Go binary), **Phase 2b shipped** (native plugin JS abstractions). Phase 1 (Go-side foundation + Capacitor dev-server spike) shipped — plan: `docs/plans/completed/2026-05-18-local-only-mode-foundation.md`. Phase 2a plan: `docs/plans/2026-05-22-mobile-phase2a-android-go-embedding.md`. Phase 2b plan: `docs/plans/2026-05-22-mobile-phase2b-native-plugins.md` (real-device verification still pending — see Post-Completion in the plan). Phase 2c (first-run setup + secrets storage) is not started — see [Phase 2 below](#phase-2-mobile-shell--native-integration).
+Status: **Phase 2a in progress** on Android (embedded Go binary), **Phase 2b shipped** (native plugin JS abstractions), **Phase 2c shipped** (first-run overlay + plaintext-SQLite secrets decision; real-device verification still pending). Phase 1 (Go-side foundation + Capacitor dev-server spike) shipped — plan: `docs/plans/completed/2026-05-18-local-only-mode-foundation.md`. Phase 2a plan: `docs/plans/2026-05-22-mobile-phase2a-android-go-embedding.md`. Phase 2b plan: `docs/plans/2026-05-22-mobile-phase2b-native-plugins.md` (real-device verification still pending — see Post-Completion in the plan). Phase 2c plan: `docs/plans/2026-05-23-mobile-phase2c-firstrun-secrets.md` (real-device verification still pending). Phase 2d (Keystore migration for provider secrets) is captured as a stub: `docs/plans/2026-05-23-mobile-phase2d-keystore-secrets.md`. See [Phase 2 below](#phase-2-mobile-shell--native-integration).
 
 ## Build & run
 
@@ -172,7 +172,8 @@ Phase 2 is split into three plans, landing in order:
 
 - **Phase 2a — Android Go-binary embedding** (in progress). Plan: `docs/plans/2026-05-22-mobile-phase2a-android-go-embedding.md`. Spawns the mobile-build binary inside the Capacitor Android shell, parses `LISTENING 127.0.0.1:<port>` from stdout, loads the WebView from that port. iOS deferred to a follow-up. See "Phase 2a build pipeline" above and "Go binary embedding: settled decision" below.
 - **Phase 2b — Native plugin abstractions** (shipped — JS + plugin install + AndroidManifest overlay; real-device verification pending). Plan: `docs/plans/2026-05-22-mobile-phase2b-native-plugins.md`. Camera, geolocation, barcode, local notifications shims selected at runtime via `Capacitor.isNativePlatform()`. See "Native plugin JS abstractions" below.
-- **Phase 2c — First-run setup + secrets storage** (not started). Guided onboarding screen for OpenAI / ElevenLabs / Food DB keys; revisit `EncryptedSharedPreferences` vs Keychain for secrets defence-in-depth. See "First-run Settings flow" + "Secrets storage" + "First-run user provisioning" below.
+- **Phase 2c — First-run setup + secrets storage** (shipped — overlay + endpoint + SQLite-plaintext decision; real-device APK verification still pending). Plan: `docs/plans/2026-05-23-mobile-phase2c-firstrun-secrets.md`. Four-screen overlay (welcome → permissions → integrations → done), fully skippable, gated on `bootstrap.needs_first_run`. See "First-run Settings flow" + "Secrets storage" + "First-run user provisioning" below.
+- **Phase 2d — Keystore migration for provider secrets** (stub, deferred). Plan: `docs/plans/2026-05-23-mobile-phase2d-keystore-secrets.md`. Moves OpenAI / Food DB / ElevenLabs keys out of the SQLite `settings` table into Android `EncryptedSharedPreferences` (and iOS Keychain when iOS ships); the frontend reads on session start and forwards via headers. Re-evaluated after Phase 2c bakes on a real device for at least a week.
 
 This section captures what's known about each sub-phase so the remaining plans can be written without re-deriving.
 
@@ -210,11 +211,22 @@ Each global has a one-line justification entry in `web/static/js/tests/architect
 
 ### First-run Settings flow
 
-Mobile install starts with empty settings. The user must configure at least OpenAI keys (or skip and accept the "configure to enable food AI" empty state). A guided first-run setup screen prompts for:
-- OpenAI API key + URL + model (with sane defaults)
-- Optional: Food DB API config, ElevenLabs voice agent
+A fresh install runs the four-screen overlay implemented in `web/static/js/features/firstrun/`:
 
-Don't force completion — the app is fully functional without any of these. Just surface the unconfigured state contextually ("Add OpenAI key in Settings to enable photo meal logging").
+1. **Welcome** — app name, tagline, "Get started" / "Skip all".
+2. **Permissions** (native builds only — hidden on web via `Capacitor.isNativePlatform()`) — camera, notifications, location. Each row's "Allow" calls into the Phase 2b abstractions (`window.MediaCapture.pickPhoto`, `window.Reminders.schedule([])`, `window.Geolocation.getCurrent`) so the Capacitor permission dialog surfaces with the right OS copy. Denials don't block progress.
+3. **Integrations** — OpenAI API key + URL + model with sane defaults pre-filled (`https://api.openai.com/v1` + `gpt-4o-mini`). Submit calls `PATCH /api/settings/integrations` (reused verbatim from the Settings → Integrations screen via `window.SettingsIntegrations.patch`); Skip moves on without writing.
+4. **Done** — "Open app" calls `POST /api/firstrun/complete`, dismisses the overlay, clears the resume-state sessionStorage key.
+
+The overlay is **fully skippable** — every screen has a Skip / Skip-all affordance. The app is functional with zero configuration; features that depend on unconfigured keys (food AI, ElevenLabs voice) keep their existing "configure to enable" contextual empty states. The flow never gates access to the rest of the app.
+
+**Trigger**: the bootstrap endpoint (`/api/bootstrap`, `internal/server/settings_handlers.go`) returns a top-level `needs_first_run: bool` derived from `settings.first_run_complete`. Existing settings rows (server installs past first run) are backfilled to `1` by migration `071_add_first_run_state.sql` so the overlay never fires for them. On a mobile install with no settings singleton yet, the row is created at first `GetFirstRunComplete` call with the default value `0`, and the overlay fires.
+
+**Endpoint**: `POST /api/firstrun/complete` (`internal/server/firstrun_handlers.go`) is idempotent — it sets the flag to true and returns `{ok: true}`. It is registered in `internal/server/mcp_coverage_exempt.go` with `Reason: "first-run setup bootstrap; not user-actionable through MCP"` (per the MCP coverage policy in `docs/mcp-coverage.md`).
+
+**Resume safety**: the current step name is persisted to sessionStorage under `wg-firstrun-step` (`web/static/js/features/firstrun/state.js`). A mid-flow process kill that retains sessionStorage (typical Android WebView behavior within a single device-power cycle) resumes at the persisted step. A device power-cycle wipes sessionStorage; the flow restarts from welcome on next launch — intentional, since `needs_first_run` is still true and re-seeing welcome is a low-cost regression. The orchestrator also defensively clears any stale `wg-firstrun-step` entry when bootstrap reports `needs_first_run: false`, so a corrupted entry never traps the user in the overlay.
+
+**Render-only flag confusion guard**: `today.js` has a separate `__firstRun` flag that is render-only ("no data yet, show empty state"). The new `needs_first_run` bootstrap field is the persistent setup flag — distinct name, distinct purpose. The firstrun module's `index.js` top-of-file comment documents this so future readers don't conflate them.
 
 ### iOS background-execution strategy
 
@@ -233,13 +245,22 @@ Android is more permissive but the same approach works there too — no platform
 
 **Phase 2a partial**: `SESSION_SECRET` is generated on first launch (32 random bytes via `SecureRandom`) and persisted via `androidx.security:security-crypto` `EncryptedSharedPreferences` under key `session_secret_v1`. This is the only secret the shell owns directly; provider API keys still live in the SQLite settings table.
 
-**Phase 2c decision**: revisit moving provider API keys to Keychain (iOS) / Keystore (Android) via `@capacitor-community/secure-storage` or `@capacitor/preferences` with encryption. The trade-off is: Keychain is the right answer for defense-in-depth (e.g. backup leaks, device-loss scenarios), but it means the Go binary doesn't see the key directly — the frontend would need to fetch the secret on session start and pass it to Go via an init endpoint. That re-introduces a small native↔Go ceremony. Decide based on real threat model when Phase 2c starts.
+**Phase 2c decision (shipped)**: provider API keys (OpenAI, Food DB, ElevenLabs) stay in the SQLite `settings` table as plaintext. Plan: `docs/plans/2026-05-23-mobile-phase2c-firstrun-secrets.md`. The threat model that justifies this:
+
+- The `meds.db` file lives in the app's private data directory (`/data/data/<package>/files/` on Android). On a non-rooted device, other apps cannot read it without sharing the same UID.
+- The realistic attack vectors on a single-user device are: (a) physical theft after unlock, (b) Android auto-backup leaking the DB, (c) a malicious app running under the same UID, (d) device root + post-compromise file exfiltration. None of (a)–(d) are mitigated meaningfully by Keystore on a single-user device — once the WebView / app process has the key in memory to forward to the Go server, the key is reachable through the same compromise paths.
+- Backup leakage (vector b) is orthogonal to where the key is stored at rest — it is addressed by setting `android:allowBackup="false"` (or an explicit `<backup-rules>` exclusion of `meds.db`) in `capacitor/android-overlay/app/src/main/AndroidManifest.xml`. Tracked as a follow-up alongside the Phase 2c Post-Completion items; if the manifest does not already set this, it should be filed as a quick PR regardless of whether Phase 2d ever lands.
+- The first-run integrations screen reuses the existing `PATCH /api/settings/integrations` endpoint with its `***` secret-mask convention. The decision to keep keys in SQLite means the firstrun overlay needed no new write surface and no native↔Go init ceremony.
+
+**Phase 2d (deferred)**: defense-in-depth migration to Android `EncryptedSharedPreferences` (and iOS Keychain when iOS ships). Plan stub: `docs/plans/2026-05-23-mobile-phase2d-keystore-secrets.md`. Sketch: the shell owns the key in `EncryptedSharedPreferences`, exposes it via `MedtrackerNative.getProviderSecret("openai_api_key")` (the sticky-across-navigations `@JavascriptInterface` pattern from Phase 2a), the frontend reads on session start and forwards via HTTP headers on AI-bound requests, the Go binary never persists the key to SQLite. Gate: re-evaluate after Phase 2c has baked on a real device for at least one week without first-run regressions.
 
 ### First-run user provisioning
 
-`LocalUserResolver` returns a fixed user ID in Phase 1. Phase 2a's `SESSION_SECRET` generation + persistence on first launch is already handled in `MainActivity.kt` (see "Secrets storage" above). Phase 2c still needs to:
-- Provision the local user row on first launch (or ensure migration 1 seeds it).
-- Decide whether mobile supports multiple local profiles (probably no — single-user device, no need).
+`LocalUserResolver` returns a fixed user ID in Phase 1. Phase 2a's `SESSION_SECRET` generation + persistence on first launch is already handled in `MainActivity.kt` (see "Secrets storage" above).
+
+**Phase 2c discovery**: the schema has no `users` table — `user_id` is a bare `INTEGER` column on each per-feature table with no enforced FK. So the originally-planned `INSERT OR IGNORE INTO users(...)` step in `handleFirstRunComplete` had nothing to insert into. Provisioning is implicit: the first write under `user_id = N` (a medication, a BP entry, etc.) creates that user's data namespace; reads under `user_id = N` against an empty namespace return zero rows. The `handleFirstRunComplete` endpoint comment captures this so future readers know the missing INSERT is intentional, not an oversight.
+
+The bootstrap-side trigger relies on `settings.first_run_complete` rather than user-row existence. Multiple local profiles are still out of scope (single-user device); `LocalUserResolver` continues to return a fixed ID.
 
 ## Constraints we're betting on
 
@@ -260,7 +281,7 @@ These are load-bearing assumptions. If any change, the design needs revisiting.
 When the Phase 2 plan is written, these need explicit decisions:
 
 1. **`gomobile bind` vs embedded localhost HTTP** — current lean is embedded HTTP, but revisit with real iOS/Android lifecycle testing.
-2. **Secrets in SQLite vs Keychain/Keystore** — phase 1 punt; decide based on threat model.
+2. **Secrets in SQLite vs Keychain/Keystore** — resolved by Phase 2c: provider secrets stay in SQLite plaintext, justified by the single-user device threat model (see "Secrets storage" above). Defense-in-depth migration tracked as Phase 2d (`docs/plans/2026-05-23-mobile-phase2d-keystore-secrets.md`).
 3. **Polling vs background fetch for reminder pre-scheduling** — does the frontend re-fetch upcoming reminders only on foreground, or via Capacitor's background fetch API on a schedule?
 4. **Auto-update strategy** — App Store updates only, or in-app PWA-style asset updates for the frontend (with a native Go binary rev requiring a store update)? This affects how `web/static/` is bundled.
 5. **Crash reporting** — Sentry or similar for the mobile build? Server-mode runs unattended on the operator's box; mobile users hit different bugs.
