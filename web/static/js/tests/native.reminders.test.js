@@ -463,10 +463,57 @@ describe('native/capacitor/reminders.js — Capacitor impl', () => {
         });
 
         env.window.Reminders.startPreScheduleLoop();
-        // Initial fetch fires synchronously.
-        expect(fetchImpl).toHaveBeenCalledWith('/api/reminders/upcoming?hours=24', expect.any(Object));
+        // Listener registration is synchronous; the initial refresh is queued
+        // behind ensureNotificationPermission().then() so the fetch lands
+        // after the microtask queue drains.
         expect(addAppListener).toHaveBeenCalledWith('appStateChange', expect.any(Function));
         expect(addLnListener).toHaveBeenCalledWith('localNotificationActionPerformed', expect.any(Function));
+        await new Promise(r => setTimeout(r, 0));
+        expect(fetchImpl).toHaveBeenCalledWith('/api/reminders/upcoming?hours=24', expect.any(Object));
+    });
+
+    it('startPreScheduleLoop() requests notification permission before scheduling so Android 13+ does not silently drop reminders', async () => {
+        const checkPermissions = vi.fn().mockResolvedValue({ display: 'prompt' });
+        const requestPermissions = vi.fn().mockResolvedValue({ display: 'granted' });
+        const schedule = vi.fn().mockResolvedValue({});
+        const getPending = vi.fn().mockResolvedValue({ notifications: [] });
+        const cap = makeCapacitor({ schedule, getPending });
+        cap.Plugins.LocalNotifications.checkPermissions = checkPermissions;
+        cap.Plugins.LocalNotifications.requestPermissions = requestPermissions;
+        const fetchImpl = vi.fn().mockResolvedValue({
+            ok: true,
+            json: () => Promise.resolve([
+                { intake_id: 1, medication_id: 2, medication_name: 'M', scheduled_at: new Date(Date.now() + 60000).toISOString() },
+            ]),
+        });
+        env = loadEnv({ capacitor: cap, fetchImpl });
+
+        env.window.Reminders.startPreScheduleLoop();
+        await new Promise(r => setTimeout(r, 0));
+        await new Promise(r => setTimeout(r, 0));
+        expect(checkPermissions).toHaveBeenCalled();
+        expect(requestPermissions).toHaveBeenCalled();
+        expect(schedule).toHaveBeenCalled();
+        // requestPermissions must precede the first schedule call.
+        const reqOrder = requestPermissions.mock.invocationCallOrder[0];
+        const schedOrder = schedule.mock.invocationCallOrder[0];
+        expect(reqOrder).toBeLessThan(schedOrder);
+    });
+
+    it('startPreScheduleLoop() skips requestPermissions when display is already granted', async () => {
+        const checkPermissions = vi.fn().mockResolvedValue({ display: 'granted' });
+        const requestPermissions = vi.fn().mockResolvedValue({ display: 'granted' });
+        const cap = makeCapacitor();
+        cap.Plugins.LocalNotifications.checkPermissions = checkPermissions;
+        cap.Plugins.LocalNotifications.requestPermissions = requestPermissions;
+        const fetchImpl = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve([]) });
+        env = loadEnv({ capacitor: cap, fetchImpl });
+
+        env.window.Reminders.startPreScheduleLoop();
+        await new Promise(r => setTimeout(r, 0));
+        await new Promise(r => setTimeout(r, 0));
+        expect(checkPermissions).toHaveBeenCalled();
+        expect(requestPermissions).not.toHaveBeenCalled();
     });
 
     it('startPreScheduleLoop() re-refreshes the queue when the appStateChange listener fires with isActive=true', async () => {
@@ -481,6 +528,10 @@ describe('native/capacitor/reminders.js — Capacitor impl', () => {
             fetchImpl,
         });
         env.window.Reminders.startPreScheduleLoop();
+        // Drain the initial permission-then-refresh chain before clearing so
+        // we don't race the initial fetch against the mockClear().
+        await new Promise(r => setTimeout(r, 0));
+        await new Promise(r => setTimeout(r, 0));
         fetchImpl.mockClear();
 
         // Background event (isActive=false) should not refresh.

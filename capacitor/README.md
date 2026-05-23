@@ -148,6 +148,10 @@ Plugins wired (in `package.json`):
   `LocalNotificationSink` populates `GET /api/reminders/upcoming` and the
   Capacitor `reminders.js` impl pre-schedules from that endpoint on app
   resume).
+- `@capacitor/app` — exposes the `appStateChange` event the reminder
+  pre-schedule loop subscribes to. Without it, `window.Capacitor.Plugins.App`
+  is undefined at runtime and the resume re-fetch never registers — the
+  OS-scheduled queue would only refresh on cold launch.
 
 AndroidManifest permissions added (in `android-overlay/`):
 

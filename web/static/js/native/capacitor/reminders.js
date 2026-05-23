@@ -307,13 +307,39 @@
 
     var loopState = { started: false, removeListeners: [] };
 
+    // Android 13+ (API 33) makes POST_NOTIFICATIONS a runtime permission — the
+    // manifest entry alone isn't enough. Without a granted permission,
+    // LocalNotifications.schedule() succeeds but the OS silently drops every
+    // notification, so the user misses every medication reminder with no
+    // signal that anything is wrong. Request once at loop start; the plugin
+    // is a no-op on platforms where this isn't required (older Android, iOS
+    // grant prompt is implicit). Best-effort: if the plugin throws (older
+    // plugin version, sandboxed test env), fall through to the schedule path
+    // and let the existing PERMISSION_DENIED normalization surface the error.
+    function ensureNotificationPermission() {
+        return Promise.resolve()
+            .then(function () { return getLocalNotifications(); })
+            .then(function (plugin) {
+                if (typeof plugin.checkPermissions !== 'function') return null;
+                return plugin.checkPermissions().then(function (res) {
+                    if (res && res.display === 'granted') return res;
+                    if (typeof plugin.requestPermissions !== 'function') return res;
+                    return plugin.requestPermissions();
+                });
+            })
+            .catch(function () { return null; });
+    }
+
     function startPreScheduleLoop() {
         if (loopState.started) return loopState;
         loopState.started = true;
 
         // Initial fire — don't wait for the first resume to fill the queue on
-        // a cold app launch. Best-effort; swallow errors.
-        refreshFromServer();
+        // a cold app launch. Best-effort; swallow errors. Permission request
+        // runs first so the prompt is shown to the user before we try to
+        // schedule (otherwise the schedule path silently no-ops on Android
+        // 13+ until the next launch).
+        ensureNotificationPermission().then(function () { return refreshFromServer(); });
 
         // Re-fire on resume so the queue stays fresh after the user closes,
         // backgrounds, or sleeps the device.
