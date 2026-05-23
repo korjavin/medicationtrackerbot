@@ -79,6 +79,46 @@ func TestFeatureFlags(t *testing.T) {
 	}
 }
 
+// TestFirstRunComplete exercises the accessor pair added alongside migration
+// 071. On a fresh DB with no medications the flag defaults to false (the
+// migration's EXISTS-guarded backfill leaves it at 0 so the bootstrap fires
+// needs_first_run=true on first launch). The accessor must round-trip set→get
+// for both polarities.
+func TestFirstRunComplete(t *testing.T) {
+	r := setupSettingsRepo(t)
+	ctx := context.Background()
+
+	val, err := r.GetFirstRunComplete(ctx)
+	if err != nil {
+		t.Fatalf("GetFirstRunComplete initial: %v", err)
+	}
+	if val {
+		t.Errorf("expected first_run_complete=false on fresh DB with no medications, got true")
+	}
+
+	if err := r.SetFirstRunComplete(ctx, true); err != nil {
+		t.Fatalf("SetFirstRunComplete(true): %v", err)
+	}
+	val, err = r.GetFirstRunComplete(ctx)
+	if err != nil {
+		t.Fatalf("GetFirstRunComplete after set true: %v", err)
+	}
+	if !val {
+		t.Errorf("expected true after SetFirstRunComplete(true), got false")
+	}
+
+	if err := r.SetFirstRunComplete(ctx, false); err != nil {
+		t.Fatalf("SetFirstRunComplete(false): %v", err)
+	}
+	val, err = r.GetFirstRunComplete(ctx)
+	if err != nil {
+		t.Fatalf("GetFirstRunComplete after set false: %v", err)
+	}
+	if val {
+		t.Errorf("expected false after SetFirstRunComplete(false), got true")
+	}
+}
+
 func TestGetBool_RejectsUnknownColumn(t *testing.T) {
 	r := setupSettingsRepo(t)
 	ctx := context.Background()

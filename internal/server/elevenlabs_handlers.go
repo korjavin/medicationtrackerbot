@@ -24,9 +24,22 @@ type ElevenLabsConfig struct {
 }
 
 // SetElevenLabsConfig is the wiring point for the Voice Agent proxy. Safe
-// to call once at startup before the listener accepts requests.
+// to call at any time — the mobile build invokes it from the integrations
+// hot-reload path while handlers concurrently read the snapshot via
+// elevenLabsConfig().
 func (s *Server) SetElevenLabsConfig(cfg ElevenLabsConfig) {
+	s.integrationsMu.Lock()
 	s.elevenLabs = cfg
+	s.integrationsMu.Unlock()
+}
+
+// elevenLabsConfig returns a value copy of the currently-wired ElevenLabs
+// credentials so callers see APIKey + AgentID from the same write even if
+// SetElevenLabsConfig fires mid-call.
+func (s *Server) elevenLabsConfig() ElevenLabsConfig {
+	s.integrationsMu.RLock()
+	defer s.integrationsMu.RUnlock()
+	return s.elevenLabs
 }
 
 // elevenLabsSignedURLBase is overridable in tests.
@@ -47,8 +60,9 @@ const elevenLabsMaxUploadBytes = 10 << 20
 // API key never reaches the browser. The frontend hands the returned URL to
 // the <elevenlabs-convai> widget.
 func (s *Server) handleElevenLabsSignedURL(w http.ResponseWriter, r *http.Request) {
-	apiKey := s.elevenLabs.APIKey
-	agentID := s.elevenLabs.AgentID
+	cfg := s.elevenLabsConfig()
+	apiKey := cfg.APIKey
+	agentID := cfg.AgentID
 	if apiKey == "" || agentID == "" {
 		http.Error(w, "ElevenLabs agent is not configured", http.StatusServiceUnavailable)
 		return
@@ -114,7 +128,7 @@ func (s *Server) handleElevenLabsSignedURL(w http.ResponseWriter, r *http.Reques
 // (`{file_id: ...}`) is returned verbatim so the browser can hand the id to
 // `conversation.sendMultimodalMessage({ fileId })`.
 func (s *Server) handleElevenLabsUploadFile(w http.ResponseWriter, r *http.Request) {
-	apiKey := s.elevenLabs.APIKey
+	apiKey := s.elevenLabsConfig().APIKey
 	if apiKey == "" {
 		http.Error(w, "ElevenLabs agent is not configured", http.StatusServiceUnavailable)
 		return

@@ -281,6 +281,25 @@ window.AuthBootstrap = (function () {
             window.DemoBanner.mount(res.demo);
         }
 
+        // First-run overlay mount (mobile Phase 2c). The server emits a
+        // top-level needs_first_run on /api/bootstrap; mirror it onto
+        // window.__MEDTRACKER_BOOTSTRAP__ so any late-loading orchestrator can
+        // observe the value, then hand the payload directly to mount() which
+        // is a no-op when the flag is false or the overlay is already up.
+        if (typeof res.needs_first_run === 'boolean') {
+            if (typeof window !== 'undefined') {
+                window.__MEDTRACKER_BOOTSTRAP__ = window.__MEDTRACKER_BOOTSTRAP__ || {};
+                window.__MEDTRACKER_BOOTSTRAP__.needs_first_run = res.needs_first_run;
+            }
+            if (window.WGFirstRun && typeof window.WGFirstRun.mount === 'function') {
+                try {
+                    window.WGFirstRun.mount({ needs_first_run: res.needs_first_run });
+                } catch (e) {
+                    console.warn('[FirstRun] mount failed', e);
+                }
+            }
+        }
+
         return true;
     }
 

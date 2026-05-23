@@ -116,9 +116,36 @@
         });
     }
 
+    // requestPermissions is a Phase 2c addition for the firstrun overlay's
+    // permissions screen. The earlier approach of calling pickPhoto({capture:
+    // false}) to surface the OS prompt also opens the camera/photo picker
+    // because the @capacitor/camera plugin bundles permission + capture into
+    // one call (CameraSource.Prompt → user picks camera or photos → real
+    // capture). For first-run we only want the permission grant — defer
+    // capture to the actual food/scanner code path. Returns { camera, photos }
+    // PermissionState values; callers translate to a flat granted/denied bit.
+    function requestPermissions() {
+        return Promise.resolve()
+            .then(function () { return getPlugin(); })
+            .then(function (plugin) {
+                if (typeof plugin.requestPermissions !== 'function') {
+                    var err = new Error('Camera.requestPermissions unavailable on this plugin version');
+                    err.name = 'MediaCaptureError';
+                    err.code = 'UNAVAILABLE';
+                    throw err;
+                }
+                return plugin.requestPermissions({ permissions: ['camera', 'photos'] });
+            })
+            .catch(function (e) {
+                if (e && e.name === 'MediaCaptureError') throw e;
+                throw normalizeError(e);
+            });
+    }
+
     var impl = {
         takePhoto: takePhoto,
         pickPhoto: pickPhoto,
+        requestPermissions: requestPermissions,
     };
 
     if (window.MediaCapture && window.MediaCapture.__native && typeof window.MediaCapture.__native.registerImpl === 'function') {

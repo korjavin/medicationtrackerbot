@@ -388,10 +388,25 @@
         loopState.started = false;
     }
 
+    // Public requestPermissions seam — calls plugin.requestPermissions when
+    // the OS hasn't already granted, otherwise reports the existing grant.
+    // This is what the firstrun permissions screen calls to surface the
+    // Android 13+ POST_NOTIFICATIONS prompt at the right time. schedule([])
+    // does NOT trigger the prompt because the empty-payload guard skips the
+    // schedule call entirely — see schedule() above; only plugin.schedule()
+    // or plugin.requestPermissions() actually surface the OS dialog.
+    function requestPermissions() {
+        return ensureNotificationPermission().then(function (res) {
+            if (res && res.display) return { display: res.display, platform: 'capacitor' };
+            return { display: 'unknown', platform: 'capacitor' };
+        });
+    }
+
     var impl = {
         schedule: schedule,
         cancelAll: cancelAll,
         startPreScheduleLoop: startPreScheduleLoop,
+        requestPermissions: requestPermissions,
         // Test-only seams (underscore-prefixed). _refreshFromServer exercises
         // the fetch+schedule path without booting the resume listener;
         // _handleNotificationTap exercises the deep-link routing in isolation.
