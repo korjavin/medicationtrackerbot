@@ -123,11 +123,11 @@ Defense in depth. Even with the server-side fix from Tasks 1-2, the frontend sho
 
 A small string-grep test that documents the invariant. Mirrors the existing `architecture.no-telegram-in-html.test.js` style.
 
-- [ ] write `web/static/js/tests/architecture.mobile-no-telegram-login.test.js`:
+- [x] write `web/static/js/tests/architecture.mobile-no-telegram-login.test.js`:
   - read `web/static/js/app.js` source
   - confirm the embedded-shell branch added in Task 3 returns BEFORE any line containing `Login to Med Tracker`, `telegram-widget.js`, `login-tg-container`, or `BOT_USERNAME`
   - structural assertion (regex find of the branch + line-number comparison), not behavioural — keeps the rule durable across refactors
-- [ ] run `pnpm test` — must pass before next task
+- [x] run `pnpm test` — must pass before next task (2579 passed)
 
 ### Task 5: Verify the existing firstrun integration tests still cover the mobile mount path
 
