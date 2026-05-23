@@ -86,11 +86,13 @@ class GoServerService : Service() {
 
         // pid returns the embedded process's OS PID, or null if no process is
         // running. java.lang.Process.pid() is API 26+; on older devices we
-        // return null rather than crash.
+        // return null rather than crash. Reflection is used because the
+        // Kotlin/Android compiler stubs for java.lang.* don't expose pid()
+        // even with compileSdk=34, despite the method being in android.jar.
         fun pid(): Long? {
             val p = process ?: return null
             if (!p.isAlive) return null
-            return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) p.pid() else null
+            return processPid(p)
         }
 
         // requestStop schedules a SIGTERM to the embedded Go process after
@@ -141,7 +143,7 @@ class GoServerService : Service() {
                         if (stopJob !== coroutineContext[Job]) return@synchronized
                         val p = process
                         if (p != null && p.isAlive) {
-                            Log.i(TAG, "Grace expired; SIGTERM'ing Go process pid=${runCatching { p.pid() }.getOrNull()}")
+                            Log.i(TAG, "Grace expired; SIGTERM'ing Go process pid=${processPid(p)}")
                             expectedExit.set(true)
                             try {
                                 p.destroy()
@@ -360,7 +362,7 @@ class GoServerService : Service() {
             expectedExit.set(false)
             val started = pb.start()
             process = started
-            val newPid = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) started.pid() else -1L
+            val newPid = processPid(started) ?: -1L
             startStdoutReader(started)
             startStderrReader(started)
             startProcessReaper(started, newPid, gen)
@@ -555,6 +557,24 @@ class GoServerService : Service() {
     }
 
     companion object {
+        // processPid extracts java.lang.Process.pid() via reflection. The
+        // method has been in android.jar since API 26 and is present in
+        // compileSdk=34's android.jar, but the Kotlin/Android compile path
+        // resolves java.lang.* against a stdlib stub that omits Java 9+
+        // additions, so direct `p.pid()` fails to compile with "Unresolved
+        // reference: pid". Reflection sidesteps the stub and falls through
+        // gracefully on pre-O devices or any unexpected NoSuchMethodError.
+        @JvmStatic
+        internal fun processPid(p: Any): Long? {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null
+            return try {
+                val m = p.javaClass.getMethod("pid")
+                (m.invoke(p) as? Long)
+            } catch (_: Throwable) {
+                null
+            }
+        }
+
         const val EXTRA_DB_PATH = "db_path"
         const val EXTRA_SESSION_SECRET = "session_secret"
 

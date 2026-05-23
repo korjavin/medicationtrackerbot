@@ -88,6 +88,33 @@ describe('MessengerAdapter — dynamic Telegram SDK load', () => {
         } finally { dom.window.close(); }
     });
 
+    it('skips injection when the embedded mobile shell exposes window.MedtrackerNative (post-redirect to http://127.0.0.1)', () => {
+        const dom = makeDom();
+        const { window } = dom;
+        try {
+            // Once MainActivity redirects the WebView to the Go server,
+            // window.Capacitor is gone (different origin) but the
+            // addJavascriptInterface binding persists. The adapter must
+            // treat MedtrackerNative as an equally authoritative
+            // "embedded shell" signal and skip the Telegram CDN fetch.
+            window.MedtrackerNative = { apiBase: () => 'http://127.0.0.1:44665' };
+            evalAdapter(window);
+            expect(findTelegramScripts(window)).toHaveLength(0);
+            expect(window.MessengerAdapter.isPresent()).toBe(false);
+        } finally { dom.window.close(); }
+    });
+
+    it('skips injection when window.__MEDTRACKER_BOOTSTRAP__ is set by native-bootstrap.js', () => {
+        const dom = makeDom();
+        const { window } = dom;
+        try {
+            window.__MEDTRACKER_BOOTSTRAP__ = { apiBase: 'http://127.0.0.1:44665' };
+            evalAdapter(window);
+            expect(findTelegramScripts(window)).toHaveLength(0);
+            expect(window.MessengerAdapter.isPresent()).toBe(false);
+        } finally { dom.window.close(); }
+    });
+
     it('upgrades BrowserAdapter → TelegramAdapter and refreshes window.userInitData after the dynamic SDK load resolves', async () => {
         const dom = makeDom();
         const { window } = dom;

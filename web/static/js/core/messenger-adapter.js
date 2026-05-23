@@ -288,6 +288,18 @@
             }
         } catch (e) { /* fall through */ }
 
+        // Embedded-shell signal: once MainActivity redirects the WebView to
+        // http://127.0.0.1:<port>, window.Capacitor is gone (plain HTTP origin,
+        // not the capacitor:// scheme) but the JavaScriptInterface binding
+        // persists across navigations and window.__MEDTRACKER_BOOTSTRAP__ is
+        // re-set by native-bootstrap.js. Either marker means "embedded mobile
+        // shell — never reach out to telegram.org."
+        try {
+            if (typeof window !== 'undefined' && (window.MedtrackerNative || window.__MEDTRACKER_BOOTSTRAP__)) {
+                return Promise.resolve();
+            }
+        } catch (e) { /* fall through */ }
+
         if (typeof window !== 'undefined' && window.Telegram && window.Telegram.WebApp) {
             return Promise.resolve();
         }
