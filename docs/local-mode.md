@@ -34,7 +34,7 @@ npx cap open ios                 # opens Xcode; build & run in Simulator
 npx cap open android             # opens Android Studio
 ```
 
-The spike's `capacitor.config.ts` sets `server.url` to `http://localhost:8080` so the WebView loads from a running `go run ./cmd/bot`. Embedding the Go binary inside the app bundle is Phase 2; for now the spike validates that the wrapper builds, the PWA loads, and the SW/Dexie/optimistic-write plumbing survives the Capacitor environment. See `capacitor/README.md` for known spike limitations (Telegram `initData` auth does not flow inside the WebView).
+The committed `capacitor.config.ts` leaves `server.url` unset, so the Android shell spawns the embedded Go binary by default (Phase 2a default). The dev-server iteration loop — pointing the WebView at a running `go run ./cmd/bot` instead of the embedded binary — is opt-in: uncomment the `server` block in `capacitor.config.ts` locally (do NOT commit). The Phase 1 spike validated that the wrapper builds, the PWA loads, and the SW/Dexie/optimistic-write plumbing survives the Capacitor environment; that validation now stands on top of the embedded-binary path. See `capacitor/README.md` for known limitations (Telegram `initData` auth does not flow inside the WebView).
 
 ## Phase 2a build pipeline (Android only, shipped)
 
