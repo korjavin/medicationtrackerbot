@@ -119,12 +119,12 @@ The current CI workflow runs `apply-overlay.sh` *before* `cap sync`. `cap sync` 
 
 Remove the `<script src="https://telegram.org/js/telegram-web-app.js">` line from `web/static/index.html`. Add a small bootstrap block to `web/static/js/core/messenger-adapter.js` that, when running outside Capacitor (`!window.Capacitor?.isNativePlatform?.()`), dynamically injects the script tag and awaits its load before adapter selection runs. When in Capacitor, the dynamic load is skipped and `BrowserAdapter` is selected immediately. This is platform-detection at the adapter level, which is exactly the pattern `messenger-adapter.js` is already organized around.
 
-- [ ] remove line 22 (`<script src="https://telegram.org/js/telegram-web-app.js">`) from `web/static/index.html`
-- [ ] in `web/static/js/core/messenger-adapter.js`, add a `loadTelegramSdk()` async helper that: returns immediately if `window.Capacitor?.isNativePlatform?.()` is true, returns immediately if `window.Telegram?.WebApp` is already present, otherwise injects a `<script src="https://telegram.org/js/telegram-web-app.js">` into `document.head` and resolves on its `load`/`error` events
-- [ ] wire `loadTelegramSdk()` into the adapter-selection code path so the dynamic load happens *before* the `window.Telegram?.WebApp` check at line 272
-- [ ] write a Vitest unit test in `web/static/js/tests/messenger-adapter.telegram-load.test.js`: case 1 (`window.Capacitor.isNativePlatform → true`) asserts no script tag is injected and `BrowserAdapter` is selected; case 2 (browser, no Telegram) asserts the script tag is injected; case 3 (browser, Telegram already loaded) asserts no duplicate injection
-- [ ] add an architecture test in `tests/architecture.no-telegram-in-html.test.js` that reads `web/static/index.html` and asserts it does NOT contain `telegram.org` (regression guard — also enforces that we own the load via the adapter)
-- [ ] run `pnpm test` — must pass before next task
+- [x] remove line 22 (`<script src="https://telegram.org/js/telegram-web-app.js">`) from `web/static/index.html`
+- [x] in `web/static/js/core/messenger-adapter.js`, add a `loadTelegramSdk()` async helper that: returns immediately if `window.Capacitor?.isNativePlatform?.()` is true, returns immediately if `window.Telegram?.WebApp` is already present, otherwise injects a `<script src="https://telegram.org/js/telegram-web-app.js">` into `document.head` and resolves on its `load`/`error` events
+- [x] wire `loadTelegramSdk()` into the adapter-selection code path so the dynamic load happens *before* the `window.Telegram?.WebApp` check at line 272 — implemented as sync default `window.MessengerAdapter = pickAdapter()` + async upgrade via `window.MessengerAdapterReady = loadTelegramSdk().then(re-pickAdapter)` so callers reading `MessengerAdapter` synchronously keep working while the post-load re-check picks the TelegramAdapter once the dynamic SDK lands; init() is re-fired on the upgraded adapter so ready/expand actually run
+- [x] write a Vitest unit test in `web/static/js/tests/messenger-adapter.telegram-load.test.js`: case 1 (`window.Capacitor.isNativePlatform → true`) asserts no script tag is injected and `BrowserAdapter` is selected; case 2 (browser, no Telegram) asserts the script tag is injected; case 3 (browser, Telegram already loaded) asserts no duplicate injection
+- [x] add an architecture test in `web/static/js/tests/architecture.no-telegram-in-html.test.js` (vitest only scans `web/static/js/tests/`) that reads `web/static/index.html` and asserts it does NOT contain `telegram.org` (regression guard — also enforces that we own the load via the adapter)
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 5: Add APK structural verification script
 

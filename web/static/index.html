@@ -19,7 +19,9 @@
          resolveApiUrl sees window.__MEDTRACKER_BOOTSTRAP__ on first call.
          External file because the server's CSP blocks inline scripts. -->
     <script src="/static/js/core/native-bootstrap.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <!-- The Telegram WebApp SDK is loaded dynamically by
+         core/messenger-adapter.js (only when running outside Capacitor) so
+         the mobile APK never makes an external network call for it. -->
     <script src="/static/vendor/dexie.min.js"></script>
     <script src="/static/vendor/zxing.min.js"></script>
     <script src="/static/config.js"></script>
