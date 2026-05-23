@@ -174,6 +174,17 @@ const ALLOWED_GLOBALS = new Set([
 
     // Capacitor shell bootstrap — embedded-Go shell (mobile Phase 2a, Task 5).
     'window.__MEDTRACKER_BOOTSTRAP__',  // index.html inline shim — Capacitor shell injects { apiBase: "http://127.0.0.1:<port>" } before WebView load by mirroring window.MedtrackerNative.apiBase(). core/api.js's resolveApiUrl() reads it to prefix relative endpoints. Reserved as the carrier for future shell-injected feature flags. The assignment lives in index.html (not a JS file) so the regex below does not flag it; the allowlist entry exists for documentation and to prevent a future JS-side writer from being silently rejected.
+
+    // Native platform abstractions — mobile Phase 2b, Task 1 (foundation).
+    // The four globals below are the seam between feature code and platform
+    // APIs (web/* impls for the PWA, capacitor/* impls for the Android shell).
+    // native/index.js installs stubs that throw NotImplementedError; Tasks
+    // 2–5 of the Phase 2b plan replace each stub with a real web vs Capacitor
+    // selector.
+    'window.MediaCapture',              // native/index.js — camera + photo picker abstraction (takePhoto, pickPhoto); web impl wraps getUserMedia + <input type=file>, Capacitor impl wraps @capacitor/camera
+    'window.Geolocation',               // native/index.js — device geolocation abstraction (getCurrentPosition); web impl wraps navigator.geolocation, Capacitor impl wraps @capacitor/geolocation with a 1h in-memory last-known-position cache
+    'window.Barcode',                   // native/index.js — barcode scanner abstraction (scan); web impl uses window.BarcodeDetector with a ZXing fallback, Capacitor impl wraps @capacitor-mlkit/barcode-scanning
+    'window.Reminders',                 // native/index.js — local-notification reminders abstraction (schedule, cancelAll); web impl is a no-op (Web Push owns the browser path via push.js), Capacitor impl wraps @capacitor/local-notifications with replace-all semantics on every appResume
 ]);
 
 /**

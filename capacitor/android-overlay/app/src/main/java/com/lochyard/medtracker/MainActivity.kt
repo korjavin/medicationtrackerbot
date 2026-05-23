@@ -59,6 +59,22 @@ class MainActivity : BridgeActivity() {
             binder.setUnexpectedExitListener {
                 runOnUiThread { onBackendUnexpectedlyExited() }
             }
+            // Mirror onStart's cancel-pending-stop + alive-or-respawn logic
+            // here too. The race we close: Activity recreate (config change)
+            // while a prior onStop left a grace-timer SIGTERM pending —
+            // onStart already ran with serviceBinder=null and returned at the
+            // "bind in progress" guard, so without canceling here the grace
+            // can fire mid-bootstrap and SIGTERM the backend while the
+            // WebView is being wired up. If the grace already expired before
+            // the bind completed (process dead), drive a respawn instead of
+            // bootstrapping into a corpse.
+            if (!devServerMode && isStarted) {
+                binder.cancelStopRequest()
+                if (!binder.isProcessAlive()) {
+                    triggerRespawnAndReload(binder)
+                    return
+                }
+            }
             beginBootstrap(binder)
         }
 

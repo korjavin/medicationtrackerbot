@@ -34,17 +34,22 @@ describe('features/food/photo.js — split-file integration', () => {
         expect(window.FoodActions.triggerPhotoPicker).toBeTypeOf('function');
     });
 
-    it('triggerFoodPhotoPicker resets the input value and clicks the hidden picker', () => {
-        const { window, document } = env;
-        const input = document.getElementById('food-photo-input');
-        const clickSpy = vi.spyOn(input, 'click').mockImplementation(() => {});
+    it('triggerFoodPhotoPicker routes through window.MediaCapture.pickPhoto (Phase 2b abstraction seam)', async () => {
+        const { window } = env;
+        const pickPhotoSpy = vi.fn().mockResolvedValue(null);
+        window.MediaCapture = { pickPhoto: pickPhotoSpy };
 
-        window.triggerFoodPhotoPicker();
+        await window.triggerFoodPhotoPicker();
 
-        // JSDOM's <input type=file> only accepts empty-string writes; assert
-        // the file-picker click fired without inspecting the (always-empty)
-        // value field.
-        expect(clickSpy).toHaveBeenCalledTimes(1);
+        // The native abstraction is the new picker seam — the static
+        // #food-photo-input is kept in the DOM as a fallback surface (its
+        // change handler still routes into uploadFoodPhoto for direct dispatch)
+        // but the trigger no longer clicks it.
+        expect(pickPhotoSpy).toHaveBeenCalledTimes(1);
+        // capture: false — the food picker must allow gallery selection, not
+        // force the camera (parity with the static input which omits the
+        // `capture` attribute).
+        expect(pickPhotoSpy).toHaveBeenCalledWith({ capture: false });
     });
 
     it('parseFoodPhotoExifDateString rejects malformed input and returns null', () => {

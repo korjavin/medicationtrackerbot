@@ -13,7 +13,8 @@ Status: Phase 2a in progress on Android. The wrapper has two supported modes:
    extraction. See "Building with the embedded Go binary" below.
 
 Native plugin abstractions (camera, geolocation, barcode, local notifications)
-are Phase 2b, separate from this README.
+are Phase 2b — see the "Phase 2b plugins" section below for the plugin set,
+required AndroidManifest permissions, and the post-pull setup steps.
 
 Prerequisites
 -------------
@@ -122,6 +123,72 @@ Phase 2 hooks
   ./...` — it skips bot/MCP/web-push/OIDC and uses a single fixed user.
 - `internal/scheduler/sink_localnotifications.go` is the mobile reminder
   sink; the JS bridge that hands reminders to `@capacitor/local-
-  notifications` lives in front-end work that is not yet wired here.
+  notifications` lives in `web/static/js/native/capacitor/reminders.js`
+  (Phase 2b — see below).
 - `GET /api/reminders/upcoming` returns the next N reminders for the JS
   bridge to schedule natively.
+
+Phase 2b plugins
+----------------
+Phase 2b adds four Capacitor plugins for native device access. The JS-side
+abstraction (`web/static/js/native/`) picks the web or Capacitor impl at
+runtime based on `Capacitor.isNativePlatform()` — see
+`docs/plans/2026-05-22-mobile-phase2b-native-plugins.md` for the design.
+
+Plugins wired (in `package.json`):
+
+- `@capacitor/camera` — native camera UI + photo picker for the food-photo
+  flow. Replaces the WebView `<input type="file" capture="environment">`.
+- `@capacitor/geolocation` — coarse location for future travel-aware tz
+  correction. No current caller; the abstraction is scaffolding.
+- `@capacitor-mlkit/barcode-scanning` — full-screen MLKit barcode scanner.
+  Replaces `BarcodeDetector` + the ZXing fallback in `food/scanner.js`.
+- `@capacitor/local-notifications` — OS-level reminder firings. Replaces
+  Web Push in the Capacitor build (the Go scheduler's
+  `LocalNotificationSink` populates `GET /api/reminders/upcoming` and the
+  Capacitor `reminders.js` impl pre-schedules from that endpoint on app
+  resume).
+- `@capacitor/app` — exposes the `appStateChange` event the reminder
+  pre-schedule loop subscribes to. Without it, `window.Capacitor.Plugins.App`
+  is undefined at runtime and the resume re-fetch never registers — the
+  OS-scheduled queue would only refresh on cold launch.
+
+AndroidManifest permissions added (in `android-overlay/`):
+
+- `CAMERA` — `@capacitor/camera` + `@capacitor-mlkit/barcode-scanning`.
+- `ACCESS_COARSE_LOCATION` — `@capacitor/geolocation`. Fine location is
+  intentionally NOT requested.
+- `POST_NOTIFICATIONS` (already present for the service notification) —
+  also required by `@capacitor/local-notifications` on API 33+.
+- `SCHEDULE_EXACT_ALARM` — so reminders fire at the scheduled minute on
+  API 31+ under Doze, instead of getting batched.
+- `<uses-feature android:name="android.hardware.camera"
+  android:required="false">` — so the app installs on cameraless devices
+  (camera/barcode features then fail at runtime there).
+- `<meta-data android:name="com.google.mlkit.vision.DEPENDENCIES"
+  android:value="barcode">` — bundles the MLKit barcode model at install
+  time so the first scan doesn't trigger a Play Services model download.
+
+Setup after pulling Phase 2b on a fresh checkout:
+
+```sh
+cd capacitor
+npm install                          # picks up the four new plugins
+npx cap add android                  # regenerates capacitor/android/
+../scripts/build-android-binaries.sh # builds libmedtracker.so per ABI
+./apply-overlay.sh                   # copies overlay (incl. new manifest)
+npx cap sync                         # syncs the plugins into android/
+npx cap open android                 # opens Android Studio
+```
+
+Verification checklist on a real device:
+
+- Food photo: tapping the camera button opens the OS camera UI (not the
+  WebView file input), the resulting photo posts to
+  `POST /api/food/log/from-photo`, EXIF parsing works.
+- Barcode scan: tapping the scan button opens the MLKit full-screen
+  scanner, scans a real product barcode, hands the value to the existing
+  food-add flow.
+- Reminders: schedule a medication reminder ~2 minutes out, background
+  the app, confirm the notification fires natively while backgrounded,
+  and tapping it deep-links to the medication confirm view.

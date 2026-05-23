@@ -3,10 +3,12 @@
 // ====================================
 //
 // Owns the #food-scanner-modal flow:
-//   - live MediaDevices camera stream via getUserMedia
-//   - per-frame BarcodeDetector polling loop (throttled)
-//   - "Use Photo" fallback path that decodes a still image via the native
-//     BarcodeDetector first, then ZXing as a graceful fallback
+//   - live MediaDevices camera stream via getUserMedia (web-side; the modal
+//     owns the camera UI on the browser PWA)
+//   - per-frame decode via window.Barcode.scan({ source: video }) (the native
+//     abstraction installed by web/static/js/native/index.js — Phase 2b Task 7)
+//   - "Use Photo" fallback path that opens window.MediaCapture.pickPhoto() to
+//     pick a still image, then decodes it via window.Barcode.scan({ source })
 //
 // Cross-file coupling: a decoded barcode is written into #food-barcode and
 // onFoodBarcodeChange (products.js) is invoked; a decoded QR text falls back
@@ -16,7 +18,6 @@
     let foodScannerStream = null;
     let foodScannerRunning = false;
     let foodScanLoopTimer = null;
-    let foodBarcodeDetector = null;
 
     window.FoodScanner = window.FoodScanner || {};
     window.FoodScanner._getStream = () => foodScannerStream;
@@ -25,42 +26,24 @@
     window.FoodScanner._setRunning = (v) => { foodScannerRunning = !!v; };
     window.FoodScanner._getLoopTimer = () => foodScanLoopTimer;
     window.FoodScanner._setLoopTimer = (v) => { foodScanLoopTimer = v; };
-    window.FoodScanner._getDetector = () => foodBarcodeDetector;
-    window.FoodScanner._setDetector = (v) => { foodBarcodeDetector = v; };
 })();
 
 const FOOD_SCAN_THROTTLE_MS = 200;
 const FOOD_NUMERIC_BARCODE_MIN_LEN = 8;
+const FOOD_BARCODE_FORMATS = [
+    'qr_code',
+    'ean_13',
+    'ean_8',
+    'upc_a',
+    'upc_e',
+    'code_128',
+    'code_39',
+    'itf'
+];
 
 function setFoodScannerStatus(message) {
     const status = document.getElementById('food-scanner-status');
     if (status) status.innerText = message;
-}
-
-function createFoodBarcodeDetector() {
-    if (!window.BarcodeDetector) return null;
-    const existing = window.FoodScanner._getDetector();
-    if (existing) return existing;
-
-    const formats = [
-        'qr_code',
-        'ean_13',
-        'ean_8',
-        'upc_a',
-        'upc_e',
-        'code_128',
-        'code_39',
-        'itf'
-    ];
-    let detector;
-    try {
-        detector = new BarcodeDetector({ formats });
-    } catch (e) {
-        console.error('Failed to create BarcodeDetector with formats, retrying default:', e);
-        detector = new BarcodeDetector();
-    }
-    window.FoodScanner._setDetector(detector);
-    return detector;
 }
 
 function sanitizeScannedValue(rawValue) {
@@ -92,26 +75,69 @@ async function scanFrameLoop() {
     if (!window.FoodScanner._isRunning()) return;
 
     const video = document.getElementById('food-scanner-video');
-    const detector = createFoodBarcodeDetector();
-    if (!video || !detector || video.readyState < 2) {
+    if (!video || !window.Barcode || video.readyState < 2) {
         window.FoodScanner._setLoopTimer(setTimeout(scanFrameLoop, FOOD_SCAN_THROTTLE_MS));
         return;
     }
 
     try {
-        const results = await detector.detect(video);
-        if (results && results.length > 0) {
-            const first = results.find(r => r && r.rawValue) || results[0];
-            if (first && handleDecodedValue(first.rawValue)) return;
-        }
+        const result = await window.Barcode.scan({ source: video, formats: FOOD_BARCODE_FORMATS });
+        // Re-check after await: stopFoodScanner() may have run while the
+        // decode was in flight (modal closed, pagehide, beforeunload). Without
+        // this guard a late-resolving decode would still write to #food-barcode
+        // / trigger onFoodBarcodeChange against a UI the user already dismissed.
+        if (!window.FoodScanner._isRunning()) return;
+        if (result && result.rawValue && handleDecodedValue(result.rawValue)) return;
     } catch (e) {
         console.error('Food scanner frame decode failed:', e);
     }
 
+    if (!window.FoodScanner._isRunning()) return;
     window.FoodScanner._setLoopTimer(setTimeout(scanFrameLoop, FOOD_SCAN_THROTTLE_MS));
 }
 
+function isNativeShell() {
+    try {
+        var cap = window.Capacitor;
+        return !!(cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform());
+    } catch (_) { return false; }
+}
+
+// On the Capacitor shell the Barcode abstraction's capacitor impl drives the
+// full-screen MLKit scanner UI itself — no in-app modal, no live video frame
+// loop. Route straight through window.Barcode.scan() and hand the decoded
+// value to the existing handleDecodedValue() path so the food modal stays
+// closed and the barcode lands in #food-barcode the same way it would have
+// from the web flow.
+//
+// Always close the in-app food-scanner modal on completion: ModalManager
+// opened it as part of the standard open() flow, but the MLKit overlay owns
+// the actual scanner UI on Capacitor. Leaving the empty in-app modal visible
+// on cancel/error strands the user staring at an empty surface they can't
+// dismiss visually. handleDecodedValue() also closes the modal on success,
+// but calling closeFoodScannerModal() unconditionally here covers all three
+// exit paths (cancel/null, error, success).
+async function scanWithNativeBarcode() {
+    try {
+        const result = await window.Barcode.scan({ formats: FOOD_BARCODE_FORMATS });
+        const decoded = result && result.rawValue ? result.rawValue : '';
+        if (decoded) {
+            handleDecodedValue(decoded);
+        }
+    } catch (e) {
+        console.error('Native barcode scan failed:', e);
+        safeAlert('Barcode scanning failed: ' + (e && e.message ? e.message : 'unknown error'));
+    } finally {
+        try { closeFoodScannerModal(); } catch (_) { /* ignore */ }
+    }
+}
+
 async function startFoodScanner() {
+    if (isNativeShell() && window.Barcode && typeof window.Barcode.scan === 'function') {
+        await scanWithNativeBarcode();
+        return;
+    }
+
     const modal = document.getElementById('food-scanner-modal');
     if (!modal) return;
 
@@ -182,77 +208,33 @@ function closeFoodScannerModal() {
     window.ModalManager.foodScanner.close();
 }
 
-function decodeBarcodeFromImageFallback(image) {
-    return new Promise((resolve, reject) => {
-        const ZXingGlobal = window.ZXing;
-        if (!ZXingGlobal || !ZXingGlobal.BrowserMultiFormatReader) {
-            reject(new Error('Fallback decoder is not available.'));
-            return;
-        }
-
-        const reader = new ZXingGlobal.BrowserMultiFormatReader();
-        reader.decodeFromImageElement(image)
-            .then(result => {
-                reader.reset();
-                resolve(result && result.text ? result.text : '');
-            })
-            .catch(err => {
-                reader.reset();
-                reject(err);
-            });
-    });
-}
-
-async function decodeFromImageWithDetector(image) {
-    const detector = createFoodBarcodeDetector();
-    if (!detector) return '';
-
-    const results = await detector.detect(image);
-    if (!results || results.length === 0) return '';
-    const first = results.find(r => r && r.rawValue) || results[0];
-    return first && first.rawValue ? first.rawValue : '';
-}
-
 async function openPhotoPickerAndDecode() {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    input.capture = 'environment';
+    let file = null;
+    try {
+        // capture: false so the web impl does not force the rear camera —
+        // users picking a photo of a barcode often have the image already in
+        // the gallery (matches the legacy <input type=file accept=image/*>
+        // behavior which had no capture attribute).
+        file = await window.MediaCapture.pickPhoto({ capture: false });
+    } catch (e) {
+        console.error('Failed to open photo picker:', e);
+        setFoodScannerStatus('Failed to open photo picker. Try again or use manual entry.');
+        return;
+    }
+    if (!file) return;
 
-    input.onchange = async (event) => {
-        const file = event.target.files && event.target.files[0];
-        if (!file) return;
+    setFoodScannerStatus('Decoding image...');
+    try {
+        const result = await window.Barcode.scan({ source: file, formats: FOOD_BARCODE_FORMATS });
+        const decoded = result && result.rawValue ? result.rawValue : '';
 
-        setFoodScannerStatus('Decoding image...');
-        try {
-            const imageURL = URL.createObjectURL(file);
-            const image = new Image();
-            image.src = imageURL;
-            await image.decode();
-
-            let decoded = '';
-            try {
-                decoded = await decodeFromImageWithDetector(image);
-            } catch (e) {
-                console.log('Native image decode failed, using fallback:', e);
-            }
-
-            if (!decoded) {
-                decoded = await decodeBarcodeFromImageFallback(image);
-            }
-
-            URL.revokeObjectURL(imageURL);
-
-            if (!decoded || !handleDecodedValue(decoded)) {
-                setFoodScannerStatus('No barcode/QR found in photo. Try another image.');
-                safeAlert('No barcode or QR code found in the selected photo.');
-            }
-        } catch (e) {
-            console.error('Failed to decode from photo:', e);
-            setFoodScannerStatus('Failed to decode image. Try another photo or manual entry.');
-            safeAlert('Could not decode barcode/QR from image.');
+        if (!decoded || !handleDecodedValue(decoded)) {
+            setFoodScannerStatus('No barcode/QR found in photo. Try another image.');
+            safeAlert('No barcode or QR code found in the selected photo.');
         }
-    };
-
-    input.click();
+    } catch (e) {
+        console.error('Failed to decode from photo:', e);
+        setFoodScannerStatus('Failed to decode image. Try another photo or manual entry.');
+        safeAlert('Could not decode barcode/QR from image.');
+    }
 }
