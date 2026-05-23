@@ -113,6 +113,33 @@ async function checkAuth() {
     await hydrateMedicationsFromDexie();
     await hydrateSectionsFromDexie();
 
+    // Embedded-shell short-circuit (Capacitor APK / mobile build). The native
+    // bootstrap shim sets window.__MEDTRACKER_BOOTSTRAP__.apiBase before this
+    // script runs (see core/native-bootstrap.js). On the mobile build the Go
+    // binary uses LocalUserResolver — every request is trusted, there is no
+    // cookie, and the Telegram login UI is meaningless. Skip the /auth/status
+    // probe, the cached-cookie logic, and the login fallback; go straight to
+    // /api/bootstrap so the firstrun overlay can mount on a fresh install.
+    if (window.__MEDTRACKER_BOOTSTRAP__ && window.__MEDTRACKER_BOOTSTRAP__.apiBase) {
+        sessionStorage.removeItem('medtracker_auth_reload_in_progress');
+        saveAuthState('local');
+        const bootstrap = await apiCall(bootstrapURL(), 'GET');
+        if (bootstrap) {
+            await applyBootstrapPayload(bootstrap);
+        } else {
+            await loadInitData();
+            if (!window.SettingsState.isLoaded() && window.DataStore) {
+                try {
+                    const cachedBundle = await window.DataStore.getCached('settings_bundle');
+                    if (cachedBundle) {
+                        hydrateFeatureSettingsFromBundle(cachedBundle);
+                    }
+                } catch (_) { /* best-effort cache read */ }
+            }
+        }
+        return true;
+    }
+
     if (window.userInitData) {
         // We are in Telegram, proceed as normal
         sessionStorage.removeItem('medtracker_auth_reload_in_progress');

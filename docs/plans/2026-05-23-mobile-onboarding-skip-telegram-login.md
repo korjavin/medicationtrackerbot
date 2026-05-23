@@ -111,13 +111,13 @@ Steps:
 
 Defense in depth. Even with the server-side fix from Tasks 1-2, the frontend should never render the Telegram-shaped login UI on the embedded shell. Mirror the `messenger-adapter.js:298` pattern.
 
-- [ ] in `web/static/js/app.js` `checkAuth()`, immediately after the `MessengerAdapterReady` await, insert a branch: `if (window.__MEDTRACKER_BOOTSTRAP__?.apiBase) { ... }`. In that branch: skip the `/auth/status` probe, skip cached-cookie logic, fetch `/api/bootstrap` directly, call `applyBootstrapPayload(data)`, save auth state as `'local'`, return `true`.
-- [ ] verify the embedded-shell branch routes correctly through `applyBootstrapPayload` → `WGFirstRun.mount(...)` on a fresh install (the firstrun overlay should appear)
-- [ ] write `web/static/js/tests/app.embedded-shell-bypass.test.js` (new) — three cases:
+- [x] in `web/static/js/app.js` `checkAuth()`, immediately after the `MessengerAdapterReady` await, insert a branch: `if (window.__MEDTRACKER_BOOTSTRAP__?.apiBase) { ... }`. In that branch: skip the `/auth/status` probe, skip cached-cookie logic, fetch `/api/bootstrap` directly, call `applyBootstrapPayload(data)`, save auth state as `'local'`, return `true`.
+- [x] verify the embedded-shell branch routes correctly through `applyBootstrapPayload` → `WGFirstRun.mount(...)` on a fresh install (the firstrun overlay should appear) — covered by case 1 of the new test (mocked `WGFirstRun.mount` is asserted to be called with `{ needs_first_run: true }`)
+- [x] write `web/static/js/tests/app.embedded-shell-bypass.test.js` (new) — three cases:
   - case 1: `window.__MEDTRACKER_BOOTSTRAP__.apiBase` set + bootstrap returns `needs_first_run: true` → `WGFirstRun.mount` called with `{ needs_first_run: true }`, NO login container rendered
   - case 2: `window.__MEDTRACKER_BOOTSTRAP__.apiBase` set + bootstrap returns `needs_first_run: false` → app boots, NO login container rendered, Today is the landing
   - case 3: `window.__MEDTRACKER_BOOTSTRAP__` undefined → existing web/PWA path is unchanged (cached-auth + /auth/status + login fallback)
-- [ ] run `pnpm test` — must pass before next task
+- [x] run `pnpm test` — must pass before next task (2578 passed)
 
 ### Task 4: Architecture guard — no Telegram strings reachable from the embedded-shell branch
 
