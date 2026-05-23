@@ -147,13 +147,13 @@ The Phase 2c tests at `web/static/js/tests/firstrun.*.test.js` exercise the orch
 - [x] run all test suites one more time as a sanity check (2580 frontend tests pass, `go test ./...` passes, `go test -tags mobile ./...` passes)
 
 ### Task 7: Verify acceptance criteria
-- [ ] verify `go test ./...` — passing
-- [ ] verify `go test -tags mobile ./...` — passing
-- [ ] verify `pnpm test` — passing
-- [ ] verify the new architecture test (`architecture.mobile-no-telegram-login.test.js`) is in the passing set
-- [ ] verify the new bootstrap → firstrun integration test (`firstrun.mobile-end-to-end.test.js`) is in the passing set
-- [ ] verify no existing tests regressed
-- [ ] verify all checkboxes in this plan are marked
+- [x] verify `go test ./...` — passing (all packages OK after clearing build cache to free disk space; no test failures)
+- [x] verify `go test -tags mobile ./...` — passing (all packages OK; mobile-tagged auth + settings tests run)
+- [x] verify `pnpm test` — passing (240 test files, 2580 passed, 29 skipped, zero failures)
+- [x] verify the new architecture test (`architecture.mobile-no-telegram-login.test.js`) is in the passing set (1 test passed, visible in full and targeted run)
+- [x] verify the new bootstrap → firstrun integration test (`firstrun.mobile-end-to-end.test.js`) is in the passing set (1 test passed in targeted run)
+- [x] verify no existing tests regressed (no FAIL lines in any of the three suites; counts match the previous task's logged totals)
+- [x] verify all checkboxes in this plan are marked (Tasks 1–6 already complete; Task 7 now complete; Task 8 is the user-runnable emulator gate)
 
 ### Task 8: [Final] Confirm on a freshly-built CI APK
 
