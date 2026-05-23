@@ -169,12 +169,12 @@ func TestNotifyOnWriteMiddleware_FanoutOnPOST(t *testing.T) {
 	}
 
 	select {
-	case cursor, ok := <-sub:
+	case ev, ok := <-sub:
 		if !ok {
 			t.Fatal("subscription channel closed before fanout")
 		}
-		if cursor <= 0 {
-			t.Errorf("Expected cursor > 0, got %d", cursor)
+		if ev.Cursor <= 0 {
+			t.Errorf("Expected cursor > 0, got %d", ev.Cursor)
 		}
 	case <-time.After(200 * time.Millisecond):
 		t.Fatal("subscriber did not receive fanout within 200ms")
@@ -329,7 +329,7 @@ func TestHandleChangesStreamFanout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetLatestChangeCursor: %v", err)
 	}
-	srv.changesBroker.Notify(cursor)
+	srv.changesBroker.Notify(cursor, "")
 
 	// Expect a frame carrying the new cursor and the 'bp' tag.
 	type frameResult struct {
@@ -497,6 +497,232 @@ func TestHandleChangesStreamShutdown(t *testing.T) {
 		}
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("handler did not exit within 500ms of Shutdown")
+	}
+}
+
+// TestHandleChangesStreamInitialFrameOmitsSourceClientID asserts the initial
+// flush never carries source_client_id — no broker event drove it.
+func TestHandleChangesStreamInitialFrameOmitsSourceClientID(t *testing.T) {
+	srv, db := createGenericTestServer(t)
+	defer db.Close()
+
+	ts, cleanup := streamingTestServer(t, srv, 123456)
+	defer cleanup()
+
+	resp, err := http.Get(ts.URL + "/api/changes/stream?since=0")
+	if err != nil {
+		t.Fatalf("GET stream: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("Expected 200, got %d", resp.StatusCode)
+	}
+
+	reader := bufio.NewReader(resp.Body)
+	frame, err := readSSEFrame(t, reader)
+	if err != nil {
+		t.Fatalf("initial frame: %v", err)
+	}
+	if _, present := frame["source_client_id"]; present {
+		t.Errorf("Initial frame must omit source_client_id, got %v", frame["source_client_id"])
+	}
+}
+
+// TestHandleChangesStreamEmitsSourceClientID exercises the broker-driven path:
+// when a write triggers Notify(cursor, "foo"), the SSE frame must carry
+// source_client_id="foo".
+func TestHandleChangesStreamEmitsSourceClientID(t *testing.T) {
+	srv, db := createGenericTestServer(t)
+	defer db.Close()
+
+	ts, cleanup := streamingTestServer(t, srv, 123456)
+	defer cleanup()
+
+	resp, err := http.Get(ts.URL + "/api/changes/stream?since=0")
+	if err != nil {
+		t.Fatalf("GET stream: %v", err)
+	}
+	defer resp.Body.Close()
+	reader := bufio.NewReader(resp.Body)
+
+	if _, err := readSSEFrame(t, reader); err != nil {
+		t.Fatalf("initial frame: %v", err)
+	}
+
+	ctx := context.Background()
+	bp := &store.BloodPressure{
+		UserID:     123456,
+		MeasuredAt: time.Now(),
+		Systolic:   120,
+		Diastolic:  80,
+	}
+	if _, err := db.BP.CreateReading(ctx, bp); err != nil {
+		t.Fatalf("CreateReading: %v", err)
+	}
+	cursor, err := db.Settings.GetLatestChangeCursor(ctx)
+	if err != nil {
+		t.Fatalf("GetLatestChangeCursor: %v", err)
+	}
+	srv.changesBroker.Notify(cursor, "client-abc")
+
+	type frameResult struct {
+		frame map[string]any
+		err   error
+	}
+	done := make(chan frameResult, 1)
+	go func() {
+		f, err := readSSEFrame(t, reader)
+		done <- frameResult{frame: f, err: err}
+	}()
+	select {
+	case res := <-done:
+		if res.err != nil {
+			t.Fatalf("read frame: %v", res.err)
+		}
+		got, ok := res.frame["source_client_id"].(string)
+		if !ok || got != "client-abc" {
+			t.Errorf("Expected source_client_id=%q, got %v (frame=%v)", "client-abc", res.frame["source_client_id"], res.frame)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("SSE frame did not arrive within 500ms")
+	}
+}
+
+// TestHandleChangesStreamOmitsSourceClientIDWhenEmpty asserts a broker
+// notification with empty SourceClientID (Telegram bot, scheduler, tailer)
+// produces a frame WITHOUT the source_client_id field.
+func TestHandleChangesStreamOmitsSourceClientIDWhenEmpty(t *testing.T) {
+	srv, db := createGenericTestServer(t)
+	defer db.Close()
+
+	ts, cleanup := streamingTestServer(t, srv, 123456)
+	defer cleanup()
+
+	resp, err := http.Get(ts.URL + "/api/changes/stream?since=0")
+	if err != nil {
+		t.Fatalf("GET stream: %v", err)
+	}
+	defer resp.Body.Close()
+	reader := bufio.NewReader(resp.Body)
+	if _, err := readSSEFrame(t, reader); err != nil {
+		t.Fatalf("initial frame: %v", err)
+	}
+
+	ctx := context.Background()
+	bp := &store.BloodPressure{
+		UserID:     123456,
+		MeasuredAt: time.Now(),
+		Systolic:   120,
+		Diastolic:  80,
+	}
+	if _, err := db.BP.CreateReading(ctx, bp); err != nil {
+		t.Fatalf("CreateReading: %v", err)
+	}
+	cursor, err := db.Settings.GetLatestChangeCursor(ctx)
+	if err != nil {
+		t.Fatalf("GetLatestChangeCursor: %v", err)
+	}
+	srv.changesBroker.Notify(cursor, "")
+
+	type frameResult struct {
+		frame map[string]any
+		err   error
+	}
+	done := make(chan frameResult, 1)
+	go func() {
+		f, err := readSSEFrame(t, reader)
+		done <- frameResult{frame: f, err: err}
+	}()
+	select {
+	case res := <-done:
+		if res.err != nil {
+			t.Fatalf("read frame: %v", res.err)
+		}
+		if _, present := res.frame["source_client_id"]; present {
+			t.Errorf("Expected source_client_id to be omitted, got %v", res.frame["source_client_id"])
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("SSE frame did not arrive within 500ms")
+	}
+}
+
+// TestHandleChangesStreamOmitsSourceWhenCursorAdvancedPastEvent simulates the
+// race where a second write commits after a broker event was queued but
+// before the SSE handler's SQL read runs. The handler must NOT attribute the
+// (stale) event's source_client_id to a frame that includes both writes —
+// the foreign tags would otherwise be mis-classified as self-echoes on the
+// frontend.
+func TestHandleChangesStreamOmitsSourceWhenCursorAdvancedPastEvent(t *testing.T) {
+	srv, db := createGenericTestServer(t)
+	defer db.Close()
+
+	ts, cleanup := streamingTestServer(t, srv, 123456)
+	defer cleanup()
+
+	resp, err := http.Get(ts.URL + "/api/changes/stream?since=0")
+	if err != nil {
+		t.Fatalf("GET stream: %v", err)
+	}
+	defer resp.Body.Close()
+	reader := bufio.NewReader(resp.Body)
+	if _, err := readSSEFrame(t, reader); err != nil {
+		t.Fatalf("initial frame: %v", err)
+	}
+
+	ctx := context.Background()
+	// First write — establishes the cursor that the (stale) broker event
+	// will refer to.
+	bp1 := &store.BloodPressure{
+		UserID:     123456,
+		MeasuredAt: time.Now(),
+		Systolic:   120,
+		Diastolic:  80,
+	}
+	if _, err := db.BP.CreateReading(ctx, bp1); err != nil {
+		t.Fatalf("CreateReading 1: %v", err)
+	}
+	staleCursor, err := db.Settings.GetLatestChangeCursor(ctx)
+	if err != nil {
+		t.Fatalf("GetLatestChangeCursor: %v", err)
+	}
+
+	// Second write happens BEFORE we fire the broker — so by the time the
+	// SSE handler's SQL read runs, the latest cursor is already past
+	// staleCursor. This mirrors the production race where a foreign write
+	// slips in between the broker fan-out and the handler's emit query.
+	bp2 := &store.BloodPressure{
+		UserID:     123456,
+		MeasuredAt: time.Now().Add(time.Second),
+		Systolic:   121,
+		Diastolic:  81,
+	}
+	if _, err := db.BP.CreateReading(ctx, bp2); err != nil {
+		t.Fatalf("CreateReading 2: %v", err)
+	}
+
+	// Notify with the STALE cursor + a client ID. emit will read the
+	// newer cursor, see the mismatch, and omit source_client_id.
+	srv.changesBroker.Notify(staleCursor, "client-stale")
+
+	type frameResult struct {
+		frame map[string]any
+		err   error
+	}
+	done := make(chan frameResult, 1)
+	go func() {
+		f, err := readSSEFrame(t, reader)
+		done <- frameResult{frame: f, err: err}
+	}()
+	select {
+	case res := <-done:
+		if res.err != nil {
+			t.Fatalf("read frame: %v", res.err)
+		}
+		if got, present := res.frame["source_client_id"]; present {
+			t.Errorf("Expected source_client_id to be omitted when cursor advanced past event, got %v (frame=%v)", got, res.frame)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("SSE frame did not arrive within 500ms")
 	}
 }
 

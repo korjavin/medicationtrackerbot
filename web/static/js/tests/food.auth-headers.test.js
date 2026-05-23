@@ -121,8 +121,17 @@ describe('food direct-fetch call sites route through makeAuthHeaders()', () => {
         expect(opts.headers).toEqual({ 'X-Telegram-Init-Data': 'food-token-abc' });
     });
 
-    it('uploadFoodPhoto POST sends X-Telegram-Init-Data from window.userInitData', async () => {
+    it('uploadFoodPhoto POST sends X-Telegram-Init-Data + X-Client-ID via makeWriteHeaders', async () => {
+        // makeWriteHeaders is the write-only variant of makeAuthHeaders: it
+        // adds X-Client-ID (from DataStore.getClientId()) on top of the auth
+        // header so the backend's notifyOnWriteMiddleware can echo the source
+        // back on the SSE payload. The photo upload is a long-running flow
+        // (AI analysis takes seconds), so source attribution matters more
+        // here than for short writes covered by apiCallDirect.
         const { window, document } = env;
+        const ownClientId = window.DataStore.getClientId();
+        expect(typeof ownClientId).toBe('string');
+        expect(ownClientId.length).toBeGreaterThan(0);
 
         window.fetch = vi.fn().mockResolvedValue({
             ok: true,
@@ -141,11 +150,19 @@ describe('food direct-fetch call sites route through makeAuthHeaders()', () => {
             ([, opts]) => opts && opts.method === 'POST'
         );
         expect(postCall).toBeDefined();
-        expect(postCall[1].headers).toEqual({ 'X-Telegram-Init-Data': 'food-token-abc' });
+        expect(postCall[1].headers).toEqual({
+            'X-Telegram-Init-Data': 'food-token-abc',
+            'X-Client-ID': ownClientId,
+        });
     });
 
-    it('Undo DELETE calls send X-Telegram-Init-Data from window.userInitData', async () => {
+    it('Undo DELETE calls send X-Telegram-Init-Data + X-Client-ID via makeWriteHeaders', async () => {
+        // The undo flow's DELETE fan-out must also carry X-Client-ID — the
+        // SSE event for each DELETE would otherwise echo back without
+        // source attribution and risk a "New data" banner for the user's
+        // own undo action.
         const { window, document } = env;
+        const ownClientId = window.DataStore.getClientId();
 
         const sample = [
             { id: 11, name: 'Oatmeal', weight: 80,  carbs: 50, protein: 10, fat: 5, calories: 280 },
@@ -182,7 +199,10 @@ describe('food direct-fetch call sites route through makeAuthHeaders()', () => {
         );
         expect(deleteCalls.length).toBe(sample.length);
         for (const [, opts] of deleteCalls) {
-            expect(opts.headers).toEqual({ 'X-Telegram-Init-Data': 'food-token-abc' });
+            expect(opts.headers).toEqual({
+                'X-Telegram-Init-Data': 'food-token-abc',
+                'X-Client-ID': ownClientId,
+            });
         }
     });
 

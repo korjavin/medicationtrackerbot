@@ -49,6 +49,31 @@ function makeAuthHeaders(extra) {
 }
 window.makeAuthHeaders = makeAuthHeaders;
 
+// makeWriteHeaders builds the headers for a non-GET request that must travel
+// outside apiCallDirect (multipart/form-data uploads and other direct fetch
+// sites). It returns makeAuthHeaders(extra) augmented with X-Client-ID when
+// DataStore.getClientId() is available, so the backend's
+// notifyOnWriteMiddleware can attribute the resulting change_events to this
+// browser and the SSE subscribers can recognise their own echo via
+// source_client_id instead of relying on the 5s timing-window fallback.
+//
+// GET callers should keep using makeAuthHeaders directly — emitting
+// X-Client-ID on reads is wasteful and would let the value appear in
+// access-log query strings on routes that have no need for it.
+function makeWriteHeaders(extra) {
+    const headers = makeAuthHeaders(extra);
+    try {
+        if (window.DataStore && typeof window.DataStore.getClientId === 'function') {
+            const cid = window.DataStore.getClientId();
+            if (typeof cid === 'string' && cid.length > 0) {
+                headers['X-Client-ID'] = cid;
+            }
+        }
+    } catch (_e) { /* defensive: getClientId must never block a write */ }
+    return headers;
+}
+window.makeWriteHeaders = makeWriteHeaders;
+
 // Composes an AbortSignal from an optional timeout and an optional caller
 // signal. Returns undefined when neither is supplied so fetch() runs unguarded.
 function composeAbortSignal(timeoutMs, callerSignal) {
@@ -64,6 +89,19 @@ function composeAbortSignal(timeoutMs, callerSignal) {
 async function apiCallDirect(endpoint, method = "GET", body = null, opts = {}) {
     const { timeoutMs = 60_000, signal: callerSignal } = opts;
     const headers = makeAuthHeaders(body ? { "Content-Type": "application/json" } : null);
+
+    // Tag non-GET writes with the per-browser stable client id so the
+    // backend can echo it back on the SSE payload (source_client_id),
+    // letting us classify our own writes as self-echoes deterministically
+    // instead of relying on the 5s lastOwnWriteAt timing window.
+    if (method !== 'GET' && window.DataStore && typeof window.DataStore.getClientId === 'function') {
+        try {
+            const clientId = window.DataStore.getClientId();
+            if (typeof clientId === 'string' && clientId.length > 0) {
+                headers['X-Client-ID'] = clientId;
+            }
+        } catch (_e) { /* defensive: getClientId must never block a write */ }
+    }
 
     const signal = composeAbortSignal(timeoutMs, callerSignal);
 
