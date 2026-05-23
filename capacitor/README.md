@@ -1,16 +1,19 @@
 Capacitor spike — wraps the medtracker PWA into iOS / Android shells.
 
-Status: Phase 2a in progress on Android. The wrapper has two supported modes:
+Status: Phase 2a shipped on Android. The wrapper has two supported modes:
 
-1. **Dev-server mode** (Phase 1 spike) — `capacitor.config.ts` sets `server.url`
-   to a running `go run ./cmd/bot`. Fast inner loop, no rebuild between
-   backend changes. Currently the default; preserved as a fallback for
-   iterating on the WebView/frontend without re-cross-compiling the Go binary.
-2. **Embedded-binary mode** (Phase 2a) — Android only. The shell spawns the
-   mobile-build Go binary on a localhost port, waits for `/healthz`, and
-   loads the WebView from that port. The binary lives in the per-app
-   `nativeLibraryDir`, dropped there by Android's automatic `lib*.so`
-   extraction. See "Building with the embedded Go binary" below.
+1. **Embedded-binary mode** (Phase 2a, default) — Android only. The shell
+   spawns the mobile-build Go binary on a localhost port, waits for
+   `/healthz`, and loads the WebView from that port. The binary lives in
+   the per-app `nativeLibraryDir`, dropped there by Android's automatic
+   `lib*.so` extraction. This is what the committed `capacitor.config.ts`
+   produces and what the CI APK build ships. See "Building with the
+   embedded Go binary" below.
+2. **Dev-server mode** (Phase 1 spike, opt-in) — uncomment the `server.url`
+   block in `capacitor.config.ts` to point the WebView at a running
+   `go run ./cmd/bot`. Fast inner loop, no rebuild between backend changes.
+   Preserved for iterating on the WebView/frontend without re-cross-compiling
+   the Go binary; do NOT commit the edit.
 
 Native plugin abstractions (camera, geolocation, barcode, local notifications)
 are Phase 2b — see the "Phase 2b plugins" section below for the plugin set,
@@ -68,19 +71,17 @@ Full build flow on a fresh checkout:
 cd capacitor
 npm install
 npx cap add android                 # generates android/ (gitignored)
-# Comment out `server.url` in capacitor.config.ts so the WebView falls back
-# to the embedded-binary spawn path instead of the dev-server fallback.
 ../scripts/build-android-binaries.sh
 ./apply-overlay.sh                  # copies android-overlay/ → android/
 npx cap sync
 npx cap open android
 ```
 
-> The committed `capacitor.config.ts` sets `server.url=http://localhost:8080`
-> so the dev-server iteration loop works out of the box. The overlay's
-> `MainActivity` reads that value and, when non-empty, skips the embedded-
-> binary spawn entirely. Remove or comment out the `url` line before `cap
-> sync` to opt into embedded mode.
+> The committed `capacitor.config.ts` leaves `server.url` unset, so the
+> overlay's `MainActivity` takes the embedded-binary spawn path by default
+> — the APK is self-sufficient out of the box. Uncomment the `server`
+> block in `capacitor.config.ts` to fall back to the dev-server path
+> instead (see "Pointing at a server" below).
 
 `scripts/build-android-binaries.sh` runs `CGO_ENABLED=0 GOOS=android
 GOARCH=arm64 go build -tags mobile ./cmd/bot` and writes the result to the
@@ -94,7 +95,8 @@ See `docs/local-mode.md` → "Phase 2a build pipeline" for the why.
 
 Pointing at a server (dev-server fallback)
 ------------------------------------------
-Edit `capacitor.config.ts` and set `server.url`:
+Edit `capacitor.config.ts` and uncomment the `server` block, setting
+`server.url`:
 
 - iOS Simulator → host's `localhost` is shared: `http://localhost:8080`
 - Android emulator → use the host alias: `http://10.0.2.2:8080`

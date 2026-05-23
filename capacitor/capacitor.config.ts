@@ -1,31 +1,32 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
-// Phase 1 spike configuration.
+// Embedded-binary configuration (Phase 2a shipped).
 //
 // `webDir` points at the existing PWA bundle at the repo root (`web/static/`)
-// so `npx cap sync` has something to copy into the native projects. In the
-// spike, the webview actually loads the URL from `server.url` below — this
-// proves the Capacitor wrapper works against the deployed/dev server before
-// we commit to embedding the Go binary.
+// so `npx cap sync` has something to copy into the native projects. At
+// runtime the WebView is loaded by `MainActivity.kt` from
+// `http://127.0.0.1:<port>` — the port the embedded Go binary reports via
+// its `LISTENING 127.0.0.1:<port>` stdout line.
 //
-// Phase 2 will:
-//   - drop `server.url`
-//   - either embed a Go binary on a localhost port (and point `server.url`
-//     at it) OR ship the PWA fully offline using `webDir` alone
-//   - add native plugin abstractions (Camera, LocalNotifications,
-//     Geolocation, Barcode) — none of those are wired here.
+// No `server.url` is set: that flag is the dev-server fallback gate in
+// `MainActivity.onCreate` (lines 118-123). When unset, the activity spawns
+// `GoServerService`, waits for `LISTENING`, polls `/healthz`, and only then
+// loads the WebView. The APK is fully self-sufficient — no external server.
+//
+// Local dev-server workflow (point the WebView at a running
+// `go run ./cmd/bot`): uncomment the `server` block below and set the URL
+// for your platform. DO NOT commit that edit.
+//   For iOS Simulator: 'http://localhost:8080'
+//   For Android emulator: 'http://10.0.2.2:8080' (emulator host alias)
+//   For a deployed server: e.g. 'https://meds.example.com'
 const config: CapacitorConfig = {
   appId: 'com.korjavin.medtracker',
   appName: 'medtracker',
   webDir: '../web/static',
-  server: {
-    // Override locally by editing this file (do NOT commit a personal IP).
-    // For iOS Simulator: 'http://localhost:8080' works.
-    // For Android emulator: use 'http://10.0.2.2:8080' (emulator host alias).
-    // For a deployed server: e.g. 'https://meds.example.com'.
-    url: 'http://localhost:8080',
-    cleartext: true,
-  },
+  // server: {
+  //   url: 'http://10.0.2.2:8080',
+  //   cleartext: true,
+  // },
   plugins: {
     // Phase 2b: local-notifications drives reminder firings on the mobile
     // build. The icon name refers to a drawable resource that ships with the
