@@ -11,6 +11,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
@@ -90,7 +91,11 @@ type FoodProductsFilter struct {
 // Repo is the food repository. Construct with New; share one *Repo per
 // process — the underlying *db.DB owns its own connection pool.
 type Repo struct {
-	db        *storedb.DB
+	db *storedb.DB
+	// remoteMu guards remoteCfg so that SetRemoteConfig (now invoked from
+	// the mobile build's integrations hot-reload path while HTTP handlers
+	// concurrently serve SearchRemoteAPI) does not race with readers.
+	remoteMu  sync.RWMutex
 	remoteCfg RemoteConfig
 }
 
@@ -112,10 +117,22 @@ func New(d *storedb.DB) *Repo {
 }
 
 // SetRemoteConfig swaps in the remote-search configuration. Safe to call at
-// startup before any request handlers reach SearchRemoteAPI; the field is
-// not protected by a mutex because configuration is one-shot.
+// any time — the mobile build invokes it from the integrations hot-reload
+// path while HTTP handlers are concurrently reading the snapshot via
+// RemoteConfigSnapshot.
 func (r *Repo) SetRemoteConfig(cfg RemoteConfig) {
+	r.remoteMu.Lock()
 	r.remoteCfg = cfg
+	r.remoteMu.Unlock()
+}
+
+// RemoteConfigSnapshot returns the current remote-search configuration as a
+// value copy so callers see a consistent struct even if SetRemoteConfig
+// fires mid-call.
+func (r *Repo) RemoteConfigSnapshot() RemoteConfig {
+	r.remoteMu.RLock()
+	defer r.remoteMu.RUnlock()
+	return r.remoteCfg
 }
 
 // UpsertProduct inserts a product or, on (user_id, name) conflict,

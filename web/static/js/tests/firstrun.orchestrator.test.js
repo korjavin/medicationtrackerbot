@@ -137,4 +137,26 @@ describe('WGFirstRun orchestrator', () => {
             expect(window.WGFirstRun.isActive()).toBe(true);
         } finally { cleanup(); }
     });
+
+    it('dismisses when re-mount payload flips needs_first_run to false', () => {
+        // Reproduces the SW stale-cache scenario: cached /api/bootstrap
+        // returned `true` and mounted the overlay; a follow-up
+        // BOOTSTRAP_UPDATED with the fresh server state arrives carrying
+        // `false`. Without re-evaluating the new payload the overlay
+        // would outlive completion. mount() now dismisses when already
+        // mounted but the new payload says no longer needed.
+        const { window, document, cleanup } = loadFirstRun({
+            bootstrap: { needs_first_run: true },
+        });
+        try {
+            window.WGFirstRun.mount();
+            expect(document.getElementById('wg-firstrun-overlay')).not.toBeNull();
+            expect(window.WGFirstRun.isActive()).toBe(true);
+
+            window.WGFirstRun.mount({ needs_first_run: false });
+            expect(document.getElementById('wg-firstrun-overlay')).toBeNull();
+            expect(window.WGFirstRun.isActive()).toBe(false);
+            expect(window.sessionStorage.getItem('wg-firstrun-step')).toBeNull();
+        } finally { cleanup(); }
+    });
 });

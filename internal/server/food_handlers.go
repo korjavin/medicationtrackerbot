@@ -172,7 +172,8 @@ func (s *Server) handleCreateFoodLogFromPhoto(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if s.foodAI == nil {
+	foodAI := s.foodAIService()
+	if foodAI == nil {
 		http.Error(w, "AI food logging is not configured on this server", http.StatusServiceUnavailable)
 		return
 	}
@@ -224,7 +225,7 @@ func (s *Server) handleCreateFoodLogFromPhoto(w http.ResponseWriter, r *http.Req
 	parseCtx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 
-	parsedLogs, err := s.foodAI.ParseMealPhoto(parseCtx, imageBytes, mimeType)
+	parsedLogs, err := foodAI.ParseMealPhoto(parseCtx, imageBytes, mimeType)
 	if err != nil {
 		slog.Error("food photo: AI parse failed", "user_id", userID, "error", err)
 		http.Error(w, "Failed to analyze food photo: "+err.Error(), http.StatusBadGateway)
@@ -306,7 +307,8 @@ func (s *Server) handleCreateFoodLogFromDescription(w http.ResponseWriter, r *ht
 		return
 	}
 
-	if s.foodAI == nil {
+	foodAI := s.foodAIService()
+	if foodAI == nil {
 		http.Error(w, "AI food logging is not configured on this server", http.StatusServiceUnavailable)
 		return
 	}
@@ -347,7 +349,7 @@ func (s *Server) handleCreateFoodLogFromDescription(w http.ResponseWriter, r *ht
 	parseCtx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 
-	parsedLogs, err := s.foodAI.ParseMealDescription(parseCtx, description)
+	parsedLogs, err := foodAI.ParseMealDescription(parseCtx, description)
 	if err != nil {
 		slog.Error("food description: AI parse failed", "user_id", userID, "error", err)
 		http.Error(w, "Failed to parse meal description: "+err.Error(), http.StatusBadGateway)

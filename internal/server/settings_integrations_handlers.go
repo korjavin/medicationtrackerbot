@@ -147,9 +147,14 @@ func (s *Server) handleGetIntegrations(w http.ResponseWriter, r *http.Request) {
 // the stored value, and any other string overwrites it. Groups omitted from
 // the request body are left untouched.
 //
-// The new values take effect at next process restart — the in-memory copies
-// held by the Server (ElevenLabsConfig), the food repo (RemoteConfig), and
-// the AI client are wired at startup and are not hot-reloaded.
+// When the embedding binary registered a reloader via SetIntegrationsReloader
+// (mobile build does; server build does not), the new values take effect
+// immediately — the callback re-resolves config from the settings table and
+// rewires the AI client, food remote config, and ElevenLabs config without
+// requiring a process restart. This is what makes the firstrun overlay's
+// "enter key, unlock AI features" promise actually hold on mobile. Without
+// the reloader, the in-memory copies stay at their startup values and a
+// restart is required to pick up the new keys.
 func (s *Server) handleUpdateIntegrations(w http.ResponseWriter, r *http.Request) {
 	// Demo mode resolves every request to the same fixed user, so an
 	// anonymous visitor could otherwise PATCH the shared OpenAI / Food /
@@ -218,6 +223,22 @@ func (s *Server) handleUpdateIntegrations(w http.ResponseWriter, r *http.Request
 		slog.Error("patch integrations failed", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
+	}
+
+	// Best-effort hot-reload: the row is already persisted, so a reloader
+	// failure (settings re-read error, transient stat) shouldn't fail the
+	// PATCH itself — the user can still restart to pick up the change. Log
+	// and continue. reloadMu serializes the entire read→rebuild→apply path
+	// so two concurrent PATCHes cannot have an older callback's snapshot
+	// land after a newer one's, leaving the in-memory providers stale
+	// relative to the DB.
+	if s.integrationsReloader != nil {
+		s.reloadMu.Lock()
+		err := s.integrationsReloader(ctx)
+		s.reloadMu.Unlock()
+		if err != nil {
+			slog.Warn("integrations reloader failed; new values will take effect on restart", "error", err)
+		}
 	}
 
 	w.WriteHeader(http.StatusOK)

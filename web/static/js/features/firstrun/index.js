@@ -182,8 +182,18 @@
     }
 
     function mount(payload) {
-        if (_mounted) return;
         const needs = _readNeedsFirstRun(payload);
+        if (_mounted) {
+            // If a stale cached /api/bootstrap mounted us with `true` and a
+            // fresh BOOTSTRAP_UPDATED later supplies `false`, we must dismiss
+            // — otherwise the overlay outlives the server-side completion.
+            // The same path also covers the "user completed firstrun on
+            // another device" scenario for the browser PWA. When the new
+            // payload still says `true`, re-mounting would just duplicate
+            // the overlay, so we no-op.
+            if (!needs) dismiss();
+            return;
+        }
         if (!needs) {
             // Defensive cleanup: a stale sessionStorage step entry from
             // a prior in-flight install can outlive a server-side
