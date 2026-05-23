@@ -23,10 +23,27 @@ const config: CapacitorConfig = {
   appId: 'com.korjavin.medtracker',
   appName: 'medtracker',
   webDir: '../web/static',
-  // server: {
-  //   url: 'http://10.0.2.2:8080',
-  //   cleartext: true,
-  // },
+  // allowNavigation keeps subsequent in-WebView navigations to the embedded
+  // backend (http://127.0.0.1:<random-port>) inside the WebView. Without
+  // this, Capacitor's BridgeWebViewClient treats the loopback origin as an
+  // external URL on any navigation after the initial loadUrl — most
+  // commonly the SW-triggered location.reload() right after the worker
+  // takes control — and fires an Intent VIEW that opens the system Chrome
+  // browser ("Welcome to Chrome" first-run screen) instead of staying in
+  // the app. cleartext is required to load over http: on Android 9+;
+  // AndroidManifest already declares android:usesCleartextTraffic="true"
+  // but allowNavigation needs cleartext echoed here for the WebView's
+  // mixed-content policy.
+  server: {
+    allowNavigation: ['127.0.0.1'],
+    cleartext: true,
+  },
+  // Local dev-server workflow (point the WebView at a running
+  // `go run ./cmd/bot`): replace `allowNavigation` above with a `url`
+  // entry. DO NOT commit that edit. Examples:
+  //   For iOS Simulator: url: 'http://localhost:8080'
+  //   For Android emulator: url: 'http://10.0.2.2:8080'
+  //   For a deployed server: url: 'https://meds.example.com'
   plugins: {
     // Phase 2b: local-notifications drives reminder firings on the mobile
     // build. The icon name refers to a drawable resource that ships with the
