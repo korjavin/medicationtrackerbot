@@ -36,9 +36,12 @@ import (
 // configured local user.
 //
 // Configuration comes entirely from the settings table — there are no env vars
-// for the mobile build. The first-run experience (settings populated via the
-// Settings UI) is Phase 2 work; Phase 1 expects the DB to be pre-seeded or for
-// the user to walk through the in-app Settings screen after first launch.
+// for the mobile build. On a fresh install the bootstrap response sets
+// needs_first_run=true and the frontend's web/static/js/features/firstrun/
+// overlay walks the user through welcome → permissions → integrations → done;
+// completion is recorded via POST /api/firstrun/complete (see
+// docs/plans/2026-05-23-mobile-phase2c-firstrun-secrets.md and the "First-run
+// Settings flow" subsection of docs/local-mode.md).
 //
 // On startup the binary prints exactly one line to stdout in the form
 // "LISTENING 127.0.0.1:<port>\n" once the TCP listener is bound. The Android
