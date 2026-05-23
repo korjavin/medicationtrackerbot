@@ -195,6 +195,39 @@ func TestBootstrap_NeedsFirstRunFlag(t *testing.T) {
 	}
 }
 
+// TestBootstrap_NeedsFirstRunTrue_OnFreshDB covers the bootstrap-handler side
+// of the fix from Task 2 of the mobile onboarding plan: on a brand-new DB
+// (migration 071 leaves first_run_complete=0 because no user data exists),
+// /api/bootstrap must surface needs_first_run=true without any explicit
+// SetFirstRunComplete seed. Previously TestBootstrap_NeedsFirstRunFlag covered
+// this only via an explicit Set call; this case asserts the migration-default
+// path independently so a regression in the default cannot hide behind the
+// explicit seed.
+func TestBootstrap_NeedsFirstRunTrue_OnFreshDB(t *testing.T) {
+	srv, db := createBPTestServer(t)
+	defer db.Close()
+
+	req := httptest.NewRequest("GET", "/api/bootstrap", nil)
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+	srv.handleBootstrap(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("bootstrap: expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	var payload map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode bootstrap payload: %v", err)
+	}
+	needs, ok := payload["needs_first_run"].(bool)
+	if !ok {
+		t.Fatalf("expected needs_first_run bool in bootstrap response, got %T (%v)", payload["needs_first_run"], payload["needs_first_run"])
+	}
+	if !needs {
+		t.Fatalf("expected needs_first_run=true on fresh DB (migration default), got false")
+	}
+}
+
 func TestHandleBootstrap_DemoModeOff_OmitsDemoKey(t *testing.T) {
 	srv, db := createBPTestServer(t)
 	defer db.Close()

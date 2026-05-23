@@ -101,11 +101,11 @@ Two acceptable options, picking the lower-surface one:
 - **Option B** (rejected — touches the migrations file): add a migration that inserts the singleton settings row on schema apply. More invasive; would also affect server-build deployments and may conflict with existing `INSERT OR IGNORE` semantics in `migrations/071_*.sql`.
 
 Steps:
-- [ ] modify `internal/store/settings/repo.go` `GetFirstRunComplete(ctx)`: when the SELECT returns `sql.ErrNoRows`, issue an `INSERT OR IGNORE INTO settings(id, first_run_complete) VALUES (1, 0)` and return `(false, nil)`
-- [ ] write `internal/store/settings/repo_test.go` case `TestGetFirstRunComplete_LazyInsertsRowOnFreshDB` — fresh DB → first call returns `(false, nil)` AND a settings row now exists with `first_run_complete = 0`
-- [ ] write the symmetric case `TestGetFirstRunComplete_HonoursExistingRow` — pre-existing row with `first_run_complete = 1` → returns `(true, nil)` AND does NOT overwrite
-- [ ] verify the existing `TestBootstrap_NeedsFirstRunFlag` in `internal/server/settings_handlers_test.go` still passes; extend it with a "fresh DB → needs_first_run=true" case if not already covered
-- [ ] run `go test ./...` AND `go test -tags mobile ./...` — both must pass before next task
+- [x] modify `internal/store/settings/repo.go` `GetFirstRunComplete(ctx)`: when the SELECT returns `sql.ErrNoRows`, issue an `INSERT OR IGNORE INTO settings(id, first_run_complete) VALUES (1, 0)` and return `(false, nil)`
+- [x] write `internal/store/settings/repo_test.go` case `TestGetFirstRunComplete_LazyInsertsRowOnFreshDB` — fresh DB → first call returns `(false, nil)` AND a settings row now exists with `first_run_complete = 0` (added to existing `settings_test.go`)
+- [x] write the symmetric case `TestGetFirstRunComplete_HonoursExistingRow` — pre-existing row with `first_run_complete = 1` → returns `(true, nil)` AND does NOT overwrite
+- [x] verify the existing `TestBootstrap_NeedsFirstRunFlag` in `internal/server/settings_handlers_test.go` still passes; added `TestBootstrap_NeedsFirstRunTrue_OnFreshDB` covering the migration-default path (needs_first_run=true on a brand-new DB with no explicit `SetFirstRunComplete` seed)
+- [x] run `go test ./...` AND `go test -tags mobile ./...` — both passing
 
 ### Task 3: Frontend — short-circuit the login screen when running in the embedded shell
 
