@@ -4,11 +4,16 @@
 //
 // Each request* function asks the OS for a single permission via the existing
 // Phase 2b abstractions (window.MediaCapture / window.Reminders /
-// window.Geolocation). The abstractions throw a normalized error with
-// `code === 'PERMISSION_DENIED'` when the user denies; we translate any
-// resolved-or-rejected outcome into a flat `{granted: bool, reason?: string,
-// message?: string}` shape so the screen can render one of three UI states
-// (granted / denied / failed-to-prompt) without poking at native error shapes.
+// window.Geolocation). Notifications go through Reminders.requestPermissions
+// (which wraps LocalNotifications.requestPermissions and is the only call that
+// reliably surfaces the Android 13+ POST_NOTIFICATIONS runtime prompt — the
+// earlier schedule([]) approach silently no-ops because the abstraction's
+// empty-payload guard skips plugin.schedule()). The abstractions throw a
+// normalized error with `code === 'PERMISSION_DENIED'` when the user denies;
+// we translate any resolved-or-rejected outcome into a flat `{granted: bool,
+// reason?: string, message?: string}` shape so the screen can render one of
+// three UI states (granted / denied / failed-to-prompt) without poking at
+// native error shapes.
 //
 // On a web build (Capacitor.isNativePlatform() returns false), the screen
 // itself auto-advances and never calls into these helpers. The helpers still
@@ -71,15 +76,34 @@
     function requestNotifications() {
         if (!_isNative()) return Promise.resolve({ granted: true, reason: 'WEB_NO_PROMPT' });
         var rem = window.Reminders;
-        if (!rem || typeof rem.schedule !== 'function') {
+        if (!rem) {
             return Promise.resolve({ granted: false, reason: 'UNAVAILABLE' });
         }
-        // schedule([]) is a no-op cancel-all on the Capacitor impl, but it
-        // routes through the LocalNotifications plugin which surfaces the
-        // POST_NOTIFICATIONS runtime prompt on Android 13+ before resolving.
-        // The plan picked this call deliberately — no need for a dedicated
-        // requestPermission method on the Reminders surface.
-        return _resolveGrant(rem.schedule([]));
+        // requestPermissions wraps LocalNotifications.requestPermissions and
+        // is what actually surfaces the Android 13+ POST_NOTIFICATIONS
+        // runtime prompt. The earlier schedule([]) approach silently no-ops
+        // because the abstraction's empty-payload guard skips plugin.schedule().
+        // The schedule([]) fallback exists only so a future test mock that
+        // hasn't been updated to provide requestPermissions still gets a
+        // resolved promise rather than UNAVAILABLE.
+        if (typeof rem.requestPermissions === 'function') {
+            return Promise.resolve(rem.requestPermissions()).then(function (res) {
+                if (res && res.display && res.display !== 'granted') {
+                    return { granted: false, reason: 'PERMISSION_DENIED', message: 'display=' + res.display };
+                }
+                return { granted: true };
+            }).catch(function (e) {
+                return {
+                    granted: false,
+                    reason: _classifyReason(e),
+                    message: (e && e.message != null) ? String(e.message) : '',
+                };
+            });
+        }
+        if (typeof rem.schedule === 'function') {
+            return _resolveGrant(rem.schedule([]));
+        }
+        return Promise.resolve({ granted: false, reason: 'UNAVAILABLE' });
     }
 
     function requestLocation() {
