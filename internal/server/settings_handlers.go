@@ -372,13 +372,14 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		weightUnitPreference = "kg"
 	}
 
-	// needs_first_run drives the mobile first-run overlay (Phase 2c). The flag
-	// defaults to 1 (= completed) for existing settings rows so server installs
-	// and already-onboarded mobile installs never see the flow. A fresh mobile
-	// DB created by migration 071 has first_run_complete = 0, which surfaces
-	// here as needs_first_run = true. A read error degrades to false so a
-	// transient settings hiccup does not punt every authenticated user into
-	// the onboarding overlay.
+	// needs_first_run drives the mobile first-run overlay (Phase 2c). The
+	// flag defaults to 0 on a brand-new DB and is backfilled to 1 by
+	// migration 071 only when medications already exist — so server installs
+	// and already-onboarded mobile installs never see the overlay while a
+	// truly fresh install surfaces needs_first_run=true. A read error
+	// degrades to true=complete (i.e. needs_first_run=false) so a transient
+	// settings hiccup does not punt every authenticated user into the
+	// onboarding overlay.
 	firstRunComplete, err := s.settings.GetFirstRunComplete(ctx)
 	if err != nil {
 		slog.Error("bootstrap first_run_complete query failed", "error", err)

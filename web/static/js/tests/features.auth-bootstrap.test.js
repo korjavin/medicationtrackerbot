@@ -228,6 +228,88 @@ describe('features/auth-bootstrap.js — verifyAuthInBackground', () => {
     });
 });
 
+describe('features/auth-bootstrap.js — first-run overlay wiring', () => {
+    let env;
+
+    beforeEach(() => {
+        env = loadFrontendEnv();
+    });
+
+    afterEach(() => {
+        env.cleanup();
+    });
+
+    it('mirrors needs_first_run onto window.__MEDTRACKER_BOOTSTRAP__ and calls WGFirstRun.mount when present', async () => {
+        const { window } = env;
+        const mount = vi.fn();
+        window.WGFirstRun = { mount };
+
+        await window.applyBootstrapPayload({
+            cursor: 1,
+            features: {},
+            settings: {},
+            needs_first_run: true,
+        });
+
+        expect(window.__MEDTRACKER_BOOTSTRAP__).toBeTruthy();
+        expect(window.__MEDTRACKER_BOOTSTRAP__.needs_first_run).toBe(true);
+        expect(mount).toHaveBeenCalledTimes(1);
+        expect(mount.mock.calls[0][0]).toEqual({ needs_first_run: true });
+    });
+
+    it('passes needs_first_run=false through to mount so a same-payload re-apply does not surface the overlay', async () => {
+        const { window } = env;
+        const mount = vi.fn();
+        window.WGFirstRun = { mount };
+
+        await window.applyBootstrapPayload({
+            cursor: 1,
+            features: {},
+            settings: {},
+            needs_first_run: false,
+        });
+
+        expect(window.__MEDTRACKER_BOOTSTRAP__.needs_first_run).toBe(false);
+        expect(mount).toHaveBeenCalledTimes(1);
+        expect(mount.mock.calls[0][0]).toEqual({ needs_first_run: false });
+    });
+
+    it('does not touch the bootstrap mirror or call mount when needs_first_run is absent from the payload', async () => {
+        const { window } = env;
+        const mount = vi.fn();
+        window.WGFirstRun = { mount };
+
+        await window.applyBootstrapPayload({
+            cursor: 1,
+            features: {},
+            settings: {},
+        });
+
+        // No mirror write — applyBootstrapPayload only touches the field
+        // when the server actually emits it.
+        const mirror = window.__MEDTRACKER_BOOTSTRAP__ || {};
+        expect(mirror.needs_first_run).toBeUndefined();
+        expect(mount).not.toHaveBeenCalled();
+    });
+
+    it('survives a missing WGFirstRun global (production order may load auth-bootstrap before the firstrun module)', async () => {
+        const { window } = env;
+        // No window.WGFirstRun assigned — applyBootstrapPayload must not throw.
+        delete window.WGFirstRun;
+
+        await expect(window.applyBootstrapPayload({
+            cursor: 1,
+            features: {},
+            settings: {},
+            needs_first_run: true,
+        })).resolves.toBe(true);
+
+        // The mirror still gets the value so a late-loading orchestrator
+        // can read it once it boots.
+        expect(window.__MEDTRACKER_BOOTSTRAP__.needs_first_run).toBe(true);
+    });
+});
+
 describe('features/auth-bootstrap.js — namespace + backwards-compat shims', () => {
     let env;
 

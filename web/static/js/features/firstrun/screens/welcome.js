@@ -37,6 +37,8 @@
         secondary.textContent = 'Skip all';
         secondary.setAttribute('data-firstrun-action', 'skip-all');
         secondary.addEventListener('click', function () {
+            if (secondary.disabled) return;
+            secondary.disabled = true;
             helpers.complete();
         });
 
