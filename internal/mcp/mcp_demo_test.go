@@ -177,8 +177,9 @@ func TestApplyDemoExecutorCaps_DemoOff(t *testing.T) {
 
 func TestLoadConfigFromEnv_NonDemoStillRequiresPocketID(t *testing.T) {
 	required := map[string]string{
-		"ALLOWED_USER_ID":   "1",
-		"MCP_DATABASE_PATH": "/tmp/x.db",
+		"ALLOWED_USER_ID":     "1",
+		"MCP_DATABASE_PATH":   "/tmp/x.db",
+		"MCP_ALLOWED_SUBJECT": "test-subject",
 	}
 	for k, v := range required {
 		t.Setenv(k, v)

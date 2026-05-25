@@ -10,3 +10,7 @@
 **Vulnerability:** Cross-Site Scripting (XSS) via `r.Host` injected using `strings.ReplaceAll` instead of `html/template`.
 **Learning:** Because the project serves HTML by reading static files and injecting variables (like `r.Host` or environmental overrides) via `strings.ReplaceAll`, it bypasses the automatic context-aware escaping provided by `html/template`. Unsanitized HTTP headers or external inputs injected directly into HTML payloads can lead to XSS.
 **Prevention:** Always explicitly wrap injected variables derived from HTTP requests or external sources with `html.EscapeString()` when using string substitution for templating.
+## 2026-05-25 - Fail-Open Default in MCP Allowed Subject Validation
+**Vulnerability:** OAuth validation bypass via fail-open configuration default (TM-001, TM-008)
+**Learning:** The MCP server's `isSubjectAllowed` logic returned `true` if `MCP_ALLOWED_SUBJECT` was empty or unconfigured. Additionally, `LoadConfigFromEnv` did not require the environment variable to be set in non-demo mode. This fail-open posture allowed any caller with a valid Pocket-ID JWT to access all personal health data exposed by the MCP tools when the allowlist was inadvertently left empty.
+**Prevention:** Always enforce fail-closed authorization configurations. Require security-critical environment variables (like `MCP_ALLOWED_SUBJECT`) at initialization and explicitly default validation checks to `false` when configuration is empty or missing.

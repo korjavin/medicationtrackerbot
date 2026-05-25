@@ -9,10 +9,11 @@ import (
 
 func TestLoadConfigFromEnv_AdminPort(t *testing.T) {
 	required := map[string]string{
-		"ALLOWED_USER_ID":   "1",
-		"MCP_DATABASE_PATH": "/tmp/x.db",
-		"POCKET_ID_URL":     "https://auth.example.com",
-		"MCP_SERVER_URL":    "https://mcp.example.com",
+		"ALLOWED_USER_ID":     "1",
+		"MCP_DATABASE_PATH":   "/tmp/x.db",
+		"POCKET_ID_URL":       "https://auth.example.com",
+		"MCP_SERVER_URL":      "https://mcp.example.com",
+		"MCP_ALLOWED_SUBJECT": "test-subject",
 	}
 	for k, v := range required {
 		t.Setenv(k, v)
@@ -52,10 +53,11 @@ func TestLoadConfigFromEnv_AdminPort(t *testing.T) {
 
 func TestLoadConfigFromEnv_AdminPortEqualsMainPort(t *testing.T) {
 	required := map[string]string{
-		"ALLOWED_USER_ID":   "1",
-		"MCP_DATABASE_PATH": "/tmp/x.db",
-		"POCKET_ID_URL":     "https://auth.example.com",
-		"MCP_SERVER_URL":    "https://mcp.example.com",
+		"ALLOWED_USER_ID":     "1",
+		"MCP_DATABASE_PATH":   "/tmp/x.db",
+		"POCKET_ID_URL":       "https://auth.example.com",
+		"MCP_SERVER_URL":      "https://mcp.example.com",
+		"MCP_ALLOWED_SUBJECT": "test-subject",
 	}
 	for k, v := range required {
 		t.Setenv(k, v)
