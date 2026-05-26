@@ -188,6 +188,9 @@ func LoadConfigFromEnv() (*Config, error) {
 		if cfg.MCPServerURL == "" {
 			return nil, fmt.Errorf("MCP_SERVER_URL is required")
 		}
+		if strings.TrimSpace(cfg.AllowedSubject) == "" {
+			return nil, fmt.Errorf("MCP_ALLOWED_SUBJECT is required")
+		}
 	}
 	// In demo mode /mcp accepts every caller, so the Python executor is exposed
 	// to anonymous internet traffic. Instead of refusing to start, we rely on a
