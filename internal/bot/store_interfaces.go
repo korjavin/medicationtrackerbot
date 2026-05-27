@@ -41,7 +41,7 @@ type WeightStore interface {
 	CreateWeightLog(ctx context.Context, w *store.WeightLog) (int64, error)
 	GetWeightLogs(ctx context.Context, userID int64, since time.Time) ([]store.WeightLog, error)
 	GetWeightGoal(ctx context.Context, userID int64) (*store.WeightGoal, error)
-	SetWeightGoal(weight float64, targetDate time.Time) error
+	SetWeightGoal(ctx context.Context, userID int64, weight float64, targetDate time.Time) error
 	SnoozeWeightReminder(userID int64) error
 	DontBugMeWeightReminder(userID int64) error
 	GetWeightUnitPreference(ctx context.Context) (string, error)

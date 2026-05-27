@@ -446,11 +446,44 @@ func (r *Repo) ListGoals(ctx context.Context, userID int64, limit int) ([]Weight
 	return goals, nil
 }
 
-// SetGoal records a new weight target on the singleton settings row.
-func (r *Repo) SetGoal(weight float64, targetDate time.Time) error {
+// SetGoal records a new weight target as an append-only history row and
+// updates the legacy singleton settings.weight_goal{,_date} columns inside the
+// same transaction. The history row snapshots the user's latest logged weight
+// at the moment of the call into start_weight (NULL when no log exists); the
+// chart uses that snapshot together with (target_date, target_weight) as the
+// trajectory endpoints — see web/static/js/components/wg-weight-chart.js. The
+// legacy settings columns stay as a backward-compat denormalized cache so
+// older clients (and the legacy fallback in GetGoal) continue to read the
+// most recent goal.
+func (r *Repo) SetGoal(ctx context.Context, userID int64, weight float64, targetDate time.Time) error {
+	var startWeight sql.NullFloat64
+	err := r.db.QueryRowContext(ctx,
+		"SELECT weight FROM weight_logs WHERE user_id = ? ORDER BY measured_at DESC LIMIT 1",
+		userID,
+	).Scan(&startWeight)
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+
 	dateStr := targetDate.Format("2006-01-02")
-	_, err := r.db.Exec("UPDATE settings SET weight_goal = ?, weight_goal_date = ? WHERE id = 1", weight, dateStr)
-	return err
+	setAtUnix := time.Now().UTC().Unix()
+
+	return r.db.WithTx(ctx, func(tx storedb.TX) error {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO weight_goals (user_id, set_at_unix, target_weight, target_date, start_weight)
+			 VALUES (?, ?, ?, ?, ?)`,
+			userID, setAtUnix, weight, dateStr, startWeight,
+		); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE settings SET weight_goal = ?, weight_goal_date = ? WHERE id = 1",
+			weight, dateStr,
+		); err != nil {
+			return err
+		}
+		return nil
+	})
 }
 
 // GetUnitPreference returns the user's preferred weight unit ("kg" or

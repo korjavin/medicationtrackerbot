@@ -138,25 +138,26 @@ When either the goal weight OR the goal date changes, both endpoints update (sta
 
 ### Task 3: `SetGoal` → INSERT into history + dual-write to settings
 
-- [ ] change `SetGoal(weight float64, targetDate time.Time)` → `SetGoal(ctx, userID int64, weight float64, targetDate time.Time)`:
+- [x] change `SetGoal(weight float64, targetDate time.Time)` → `SetGoal(ctx, userID int64, weight float64, targetDate time.Time)`:
   - resolve latest weight: `SELECT weight FROM weight_logs WHERE user_id = ? ORDER BY measured_at DESC LIMIT 1`. Use `sql.NullFloat64` (nil if no log).
   - wrap in `db.WithTx` per CLAUDE.md cross-table convention:
     - `INSERT INTO weight_goals (user_id, set_at_unix, target_weight, target_date, start_weight) VALUES (?, ?, ?, ?, ?)` with `time.Now().UTC().Unix()`, the resolved `start_weight`, and `targetDate.Format("2006-01-02")`.
     - `UPDATE settings SET weight_goal = ?, weight_goal_date = ? WHERE id = 1` — preserves the legacy denormalized cache.
-- [ ] update interfaces and callers (signature change is mechanical):
-  - `internal/server/store_interfaces.go:71` — add userID.
-  - `internal/bot/store_interfaces.go:44` — same.
-  - `internal/server/weight_handlers.go` (POST goal handler) — pass userID from `r.Context().Value(UserCtxKey).(*TelegramUser).ID`.
-  - `internal/bot/bot.go:1606` — pass `update.Message.Chat.ID` (or whichever userID the bot already has at this callsite).
-  - `cmd/seeddemo/` — grep for `SetWeightGoal` / `SetGoal` and update if present.
-  - `cmd/importer/` and any other CLI tools — grep + update.
-- [ ] write tests:
-  - `TestSetGoal_InsertsHistoryRow`: assert a row appears in `weight_goals` with set_at_unix close to now, correct target_weight/target_date, start_weight from the latest log.
+- [x] update interfaces and callers (signature change is mechanical):
+  - `internal/server/store_interfaces.go:71` — userID added.
+  - `internal/bot/store_interfaces.go:44` — ctx + userID added.
+  - `internal/server/weight_handlers.go` — no POST goal handler exists in server today; the only setter path is the bot `/goal` command, which has been updated. (Interface signature change is still required so the store satisfies `server.WeightStore`.)
+  - `internal/bot/bot.go:1606` — now passes `context.Background(), b.allowedUserID`.
+  - `internal/bot/adapter.go:176` — bridge updated to forward ctx + userID.
+  - `cmd/seeddemo/`, `cmd/importer/`, other CLI tools — grep confirmed no callers exist; nothing to update.
+- [x] write tests:
+  - `TestSetGoal_InsertsHistoryRow`: row appears in `weight_goals` with set_at_unix close to now, correct target_weight/target_date, start_weight from the latest log.
   - `TestSetGoal_NullStartWeightWhenNoLog`: no log present → row inserted with NULL start_weight; goal still persists.
-  - `TestSetGoal_DualWritesToSettings`: legacy `settings.weight_goal*` columns also reflect the new goal (transition safety).
-  - `TestSetGoal_ResnapshotsOnEverySave`: two saves in a row produce two history rows with distinct set_at_unix; second save's start_weight reflects any log added between saves.
-  - `TestSetGoal_TransactionRollback`: simulate a settings UPDATE failure mid-tx, assert the history row is rolled back (no orphans).
-- [ ] run `go test ./internal/store/... ./internal/server/... ./internal/bot/...` — must pass before next task.
+  - `TestSetGoal_DualWritesToSettings`: legacy `settings.weight_goal*` columns also reflect the new goal.
+  - `TestSetGoal_ResnapshotsOnEverySave`: two saves produce two history rows with distinct set_at_unix; second save's start_weight reflects the log added between saves.
+  - `TestSetGoal_TransactionRollback`: drop `settings` table to force the UPDATE inside the tx to fail; assert the history row is rolled back.
+  - Existing `TestSetAndGetGoal` updated to new signature; `TestGetGoal_FallsBackToSettingsWhenHistoryEmpty` now seeds the legacy goal via direct SQL since `SetGoal` no longer leaves history empty.
+- [x] run `go test ./internal/store/... ./internal/server/... ./internal/bot/...` — all green; server + mobile builds + `go vet` clean.
 
 ### Task 4: API — extend `/api/weight/goal` + add `GET /api/weight/goals/history`
 

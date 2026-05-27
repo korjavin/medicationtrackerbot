@@ -284,7 +284,7 @@ func TestSetAndGetGoal(t *testing.T) {
 	ctx := context.Background()
 
 	targetDate := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
-	err := r.SetGoal(75.0, targetDate)
+	err := r.SetGoal(ctx, 123, 75.0, targetDate)
 	if err != nil {
 		t.Fatalf("SetGoal failed: %v", err)
 	}
@@ -371,9 +371,14 @@ func TestGetGoal_FallsBackToSettingsWhenHistoryEmpty(t *testing.T) {
 	r := setupWeightRepo(t)
 	ctx := context.Background()
 
-	// Write a legacy goal directly via SetGoal (still hits settings).
-	if err := r.SetGoal(70.0, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)); err != nil {
-		t.Fatalf("SetGoal failed: %v", err)
+	// Simulate a pre-history legacy goal by writing directly to settings — we
+	// can't go through SetGoal anymore because it now also inserts into
+	// weight_goals, which would short-circuit the fallback path under test.
+	if _, err := r.db.Exec(
+		"UPDATE settings SET weight_goal = ?, weight_goal_date = ? WHERE id = 1",
+		70.0, "2026-07-01",
+	); err != nil {
+		t.Fatalf("seed legacy settings goal: %v", err)
 	}
 
 	// No row in weight_goals yet → fallback to settings.
@@ -489,6 +494,179 @@ func TestListGoals_OrderAndLimit(t *testing.T) {
 	}
 	if other[0].TargetWeight != 60.0 {
 		t.Errorf("Expected user 2 row target_weight 60.0, got %.1f", other[0].TargetWeight)
+	}
+}
+
+func TestSetGoal_InsertsHistoryRow(t *testing.T) {
+	r := setupWeightRepo(t)
+	ctx := context.Background()
+
+	// A prior weight log so SetGoal can snapshot it into start_weight.
+	if _, err := r.CreateLog(ctx, &WeightLog{
+		UserID:     123,
+		MeasuredAt: time.Date(2026, 5, 1, 8, 0, 0, 0, time.UTC),
+		Weight:     88.4,
+	}); err != nil {
+		t.Fatalf("CreateLog failed: %v", err)
+	}
+
+	before := time.Now().UTC().Unix()
+	targetDate := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	if err := r.SetGoal(ctx, 123, 80.0, targetDate); err != nil {
+		t.Fatalf("SetGoal failed: %v", err)
+	}
+	after := time.Now().UTC().Unix()
+
+	rows, err := r.ListGoals(ctx, 123, 0)
+	if err != nil {
+		t.Fatalf("ListGoals failed: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("Expected 1 history row after SetGoal, got %d", len(rows))
+	}
+	got := rows[0]
+	if got.UserID != 123 {
+		t.Errorf("Expected user_id 123, got %d", got.UserID)
+	}
+	if got.TargetWeight != 80.0 {
+		t.Errorf("Expected target_weight 80.0, got %.1f", got.TargetWeight)
+	}
+	if got.TargetDate != "2026-09-01" {
+		t.Errorf("Expected target_date 2026-09-01, got %q", got.TargetDate)
+	}
+	if got.StartWeight == nil || *got.StartWeight != 88.4 {
+		t.Errorf("Expected start_weight 88.4 from latest log, got %+v", got.StartWeight)
+	}
+	if got.SetAt.Unix() < before || got.SetAt.Unix() > after {
+		t.Errorf("Expected set_at_unix in [%d,%d], got %d", before, after, got.SetAt.Unix())
+	}
+}
+
+func TestSetGoal_NullStartWeightWhenNoLog(t *testing.T) {
+	r := setupWeightRepo(t)
+	ctx := context.Background()
+
+	targetDate := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	if err := r.SetGoal(ctx, 456, 70.0, targetDate); err != nil {
+		t.Fatalf("SetGoal failed: %v", err)
+	}
+
+	rows, err := r.ListGoals(ctx, 456, 0)
+	if err != nil {
+		t.Fatalf("ListGoals failed: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("Expected 1 history row, got %d", len(rows))
+	}
+	if rows[0].StartWeight != nil {
+		t.Errorf("Expected start_weight nil when no log exists, got %v", *rows[0].StartWeight)
+	}
+	// The goal itself still persists.
+	goal, err := r.GetGoal(ctx, 456)
+	if err != nil {
+		t.Fatalf("GetGoal failed: %v", err)
+	}
+	if goal.Goal == nil || *goal.Goal != 70.0 {
+		t.Errorf("Expected goal 70.0, got %+v", goal.Goal)
+	}
+}
+
+func TestSetGoal_DualWritesToSettings(t *testing.T) {
+	r := setupWeightRepo(t)
+	ctx := context.Background()
+
+	targetDate := time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC)
+	if err := r.SetGoal(ctx, 789, 72.5, targetDate); err != nil {
+		t.Fatalf("SetGoal failed: %v", err)
+	}
+
+	var settingsWeight sql.NullFloat64
+	var settingsDate sql.NullString
+	if err := r.db.QueryRow(
+		"SELECT weight_goal, weight_goal_date FROM settings WHERE id = 1",
+	).Scan(&settingsWeight, &settingsDate); err != nil {
+		t.Fatalf("read settings: %v", err)
+	}
+	if !settingsWeight.Valid || settingsWeight.Float64 != 72.5 {
+		t.Errorf("Expected settings.weight_goal 72.5, got %+v", settingsWeight)
+	}
+	if !settingsDate.Valid || settingsDate.String != "2026-08-15" {
+		t.Errorf("Expected settings.weight_goal_date 2026-08-15, got %+v", settingsDate)
+	}
+}
+
+func TestSetGoal_ResnapshotsOnEverySave(t *testing.T) {
+	r := setupWeightRepo(t)
+	ctx := context.Background()
+
+	if _, err := r.CreateLog(ctx, &WeightLog{
+		UserID:     321,
+		MeasuredAt: time.Date(2026, 4, 1, 8, 0, 0, 0, time.UTC),
+		Weight:     90.0,
+	}); err != nil {
+		t.Fatalf("CreateLog 1 failed: %v", err)
+	}
+	if err := r.SetGoal(ctx, 321, 80.0, time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("SetGoal 1 failed: %v", err)
+	}
+
+	// Sleep a touch to guarantee a distinct set_at_unix on the second call —
+	// unix() seconds are coarse but we just need them to differ in this test.
+	time.Sleep(1100 * time.Millisecond)
+
+	if _, err := r.CreateLog(ctx, &WeightLog{
+		UserID:     321,
+		MeasuredAt: time.Date(2026, 4, 15, 8, 0, 0, 0, time.UTC),
+		Weight:     87.6,
+	}); err != nil {
+		t.Fatalf("CreateLog 2 failed: %v", err)
+	}
+	if err := r.SetGoal(ctx, 321, 80.0, time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("SetGoal 2 failed: %v", err)
+	}
+
+	rows, err := r.ListGoals(ctx, 321, 0)
+	if err != nil {
+		t.Fatalf("ListGoals failed: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("Expected 2 history rows, got %d", len(rows))
+	}
+	// Newest first.
+	if rows[0].SetAt.Unix() <= rows[1].SetAt.Unix() {
+		t.Errorf("Expected distinct set_at_unix (newest first), got %d, %d",
+			rows[0].SetAt.Unix(), rows[1].SetAt.Unix())
+	}
+	if rows[0].StartWeight == nil || *rows[0].StartWeight != 87.6 {
+		t.Errorf("Expected second snapshot start_weight 87.6, got %+v", rows[0].StartWeight)
+	}
+	if rows[1].StartWeight == nil || *rows[1].StartWeight != 90.0 {
+		t.Errorf("Expected first snapshot start_weight 90.0, got %+v", rows[1].StartWeight)
+	}
+}
+
+func TestSetGoal_TransactionRollback(t *testing.T) {
+	r := setupWeightRepo(t)
+	ctx := context.Background()
+
+	// Drop the settings table to force the UPDATE inside the tx to fail. The
+	// history INSERT runs first; the failed UPDATE must roll the whole tx back
+	// so no orphan weight_goals row remains.
+	if _, err := r.db.Exec("DROP TABLE settings"); err != nil {
+		t.Fatalf("drop settings: %v", err)
+	}
+
+	err := r.SetGoal(ctx, 999, 75.0, time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC))
+	if err == nil {
+		t.Fatal("Expected SetGoal to fail when settings UPDATE errors out")
+	}
+
+	rows, err := r.ListGoals(ctx, 999, 0)
+	if err != nil {
+		t.Fatalf("ListGoals failed: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("Expected 0 history rows after rollback, got %d", len(rows))
 	}
 }
 

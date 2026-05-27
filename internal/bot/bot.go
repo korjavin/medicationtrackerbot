@@ -1603,7 +1603,7 @@ Example: /goal 110 2026-06-01`
 		return
 	}
 
-	err = b.weight.SetWeightGoal(weight, targetDate)
+	err = b.weight.SetWeightGoal(context.Background(), b.allowedUserID, weight, targetDate)
 	if err != nil {
 		slog.Error("Error setting weight goal", "error", err)
 		msgConfig.Text = "❌ Error saving weight goal."

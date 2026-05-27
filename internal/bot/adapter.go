@@ -173,8 +173,8 @@ func (a *storeAdapter) GetWeightLogs(ctx context.Context, userID int64, since ti
 func (a *storeAdapter) GetWeightGoal(ctx context.Context, userID int64) (*store.WeightGoal, error) {
 	return a.weight.GetGoal(ctx, userID)
 }
-func (a *storeAdapter) SetWeightGoal(w float64, td time.Time) error {
-	return a.weight.SetGoal(w, td)
+func (a *storeAdapter) SetWeightGoal(ctx context.Context, userID int64, w float64, td time.Time) error {
+	return a.weight.SetGoal(ctx, userID, w, td)
 }
 func (a *storeAdapter) SnoozeWeightReminder(userID int64) error {
 	return a.weight.SnoozeReminder(userID)
