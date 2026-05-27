@@ -190,21 +190,19 @@ When either the goal weight OR the goal date changes, both endpoints update (sta
 
 ### Task 6: Chart — consume snapshot fields + correct trajectory geometry
 
-- [ ] in `web/static/js/components/wg-weight-chart.js`:
-  - replace `extractGoal` (or add a sibling) returning `{ value, date, setAt, startWeight }` (all optional, normalized to numbers/Date or null).
-  - accept the existing legacy shapes (`number` or `{goal}` / `{target}`) for backward compatibility — return null snapshot fields.
-  - in the plan-trajectory section (lines 345-359), branch:
-    - **Snapshot path** (both `setAt` AND `startWeight` are present): compute slope `m = (goalValue - startWeight) / (goalDate - setAt)`. For the visible-window X range `[firstTime, lastTime]`, compute `wL = startWeight + m * (firstTime - setAt)` and `wR = startWeight + m * (lastTime - setAt)`. Draw the plan line from `(xOf(firstTime), yOf(wL))` to `(xOf(lastTime), yOf(wR))`. (`yOf` clamps to chart Y bounds; if the line is partly outside, it clips naturally.)
-    - **Fallback path** (snapshot missing): preserve existing geometry — `(data[0].date, data[0].weight)` → `(data.last.date, goalValue)`. Keeps legacy goals rendering.
-  - keep `goalValue` extension into `dataMin`/`dataMax` (lines 292-295) so the Y axis still includes the target.
-- [ ] grep for `extractGoal` outside the chart file — confirm no other consumer depends on its old return shape.
-- [ ] write chart tests (in the chart's existing suite — web components are excepted from the integration-first rule, but place them next to the existing chart tests):
-  - **Bug regression**: same logs + same goal weight + different `goal_date` → different `<line.wg-weight-chart__plan>` `y` coordinates.
-  - **Snapshot honored**: when `setAt`/`startWeight` present, slope at two sampled X values matches `(goalValue - startWeight)/(goalDate - setAt)`.
-  - **Fallback**: when snapshot fields absent, line geometry equals legacy `(first log → goal at last log)`.
-  - **Edge: goal_date in the past**: no crash; line drawn with past-date slope.
-  - **Edge: setAt before all data**: line origin off-screen-left; visible segment uses interpolation at the left edge.
-- [ ] run `pnpm test` (or the project's frontend test command, scoped to `wg-weight-chart`) — must pass before next task.
+- [x] in `web/static/js/components/wg-weight-chart.js`:
+  - `extractGoal` now returns `{ valueKg, dateMs, setAtMs, startWeightKg }` (or null when no finite goal value). Legacy shapes (raw number, `{goal}` / `{target}` without snapshot fields) populate only `valueKg`, leaving snapshot anchors null so the fallback geometry kicks in. Date and timestamp fields parse `Date`, ISO strings, and numbers via a shared `parseTimeMs` helper.
+  - Plan-trajectory branch added: when `setAtMs` + `startWeightKg` + `dateMs` are all present (and `dateMs !== setAtMs`), compute slope `m = (goalValue - startWeight) / (goalDate - setAt)` and draw the visible segment via `wL = wA + m*(firstT - tA)`, `wR = wA + m*(lastT - tA)`. Otherwise preserve legacy `(first log → goal at last log)` geometry. `yOf` clamping handles partial out-of-bounds naturally.
+  - `dataMin`/`dataMax` extension by `goalValue` is preserved so the Y axis still includes the target.
+- [x] grep for `extractGoal` outside the chart file — only references are inside `wg-weight-chart.js` itself and in this plan doc; no external consumer depends on the old return shape.
+- [x] chart tests added in `web/static/js/tests/components.wg-weight-chart.test.js`:
+  - "regression: moving only goal_date changes the plan-line slope" (the user's reported bug).
+  - "honors snapshot anchors: slope matches (goal − startWeight) / (goalDate − setAt)" with 5% tolerance for SVG `toFixed(1)` rounding.
+  - "falls back to legacy geometry when snapshot fields are absent" (raw-number goal).
+  - "falls back when snapshot date is missing but goal_set_at + start_weight are present" (object goal without `goal_date`).
+  - "handles a goal_date already in the past without crashing".
+  - "uses interpolation when setAt sits before all visible data" — verifies the line is drawn inside the plot rect and descends across the visible window.
+- [x] `pnpm exec vitest run web/static/js/tests/components.wg-weight-chart.test.js` → 28/28 passing. Architecture suite (`web/static/js/tests/architecture`) also green (153/153).
 
 ### Task 7: Verify acceptance criteria
 

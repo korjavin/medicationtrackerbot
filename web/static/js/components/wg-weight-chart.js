@@ -78,17 +78,36 @@
         });
     }
 
+    function parseTimeMs(raw) {
+        if (raw == null) return null;
+        const d = raw instanceof Date ? raw : new Date(raw);
+        if (!(d instanceof Date) || Number.isNaN(d.getTime())) return null;
+        return d.getTime();
+    }
+
+    // extractGoal returns the goal weight (kg) along with optional trajectory
+    // snapshot anchors: { valueKg, dateMs, setAtMs, startWeightKg }. Legacy
+    // shapes (raw number, or `{goal}` / `{target}` without snapshot fields)
+    // populate only `valueKg` so the chart can fall back to the old "first
+    // log → goal at last log" geometry. Returns null when no finite goal
+    // value is present.
     function extractGoal(goal) {
         if (goal == null) return null;
         if (typeof goal === 'number') {
-            return Number.isFinite(goal) ? goal : null;
+            return Number.isFinite(goal)
+                ? { valueKg: goal, dateMs: null, setAtMs: null, startWeightKg: null }
+                : null;
         }
-        if (typeof goal === 'object') {
-            const raw = goal.goal != null ? goal.goal : goal.target;
-            const num = Number(raw);
-            return Number.isFinite(num) ? num : null;
-        }
-        return null;
+        if (typeof goal !== 'object') return null;
+        const rawValue = goal.goal != null ? goal.goal : goal.target;
+        const valueNum = Number(rawValue);
+        if (!Number.isFinite(valueNum)) return null;
+        const dateMs = parseTimeMs(goal.goal_date != null ? goal.goal_date : goal.goalDate);
+        const setAtMs = parseTimeMs(goal.goal_set_at != null ? goal.goal_set_at : goal.goalSetAt);
+        const startRaw = goal.goal_start_weight != null ? goal.goal_start_weight : goal.goalStartWeight;
+        const startNum = Number(startRaw);
+        const startWeightKg = Number.isFinite(startNum) ? startNum : null;
+        return { valueKg: valueNum, dateMs, setAtMs, startWeightKg };
     }
 
     function buildSplinePath(points) {
@@ -272,7 +291,8 @@
         const data = downsample(filtered, plotW);
         if (data.length === 0) return makeEmptyCard(range);
 
-        const goalValueKg = extractGoal(options.goal);
+        const goalInfo = extractGoal(options.goal);
+        const goalValueKg = goalInfo ? goalInfo.valueKg : null;
         const goalValue = goalValueKg != null ? toDisplay(goalValueKg) : null;
 
         const firstTime = data[0].date.getTime();
@@ -342,20 +362,55 @@
         }
         svg.dataset.weightTickCount = String(interiorTicks.length);
 
-        // Plan trajectory line: from first actual log → goal (at time of last
-        // data point). Renders underneath the goal line/line so the goal and
-        // actual stay dominant. When no goal is set we skip the plan line.
+        // Plan trajectory line.
+        //
+        // Snapshot path — when /api/weight/goal carries the trajectory anchors
+        // `goal_set_at` + `goal_start_weight` alongside `goal_date`, draw the
+        // visible segment of the line through (setAt, startWeight) → (goalDate,
+        // goal). Slope changes (when the user moves only goal_date or only the
+        // target weight) become visible because both anchors are real
+        // commitments, not just chart-edge endpoints.
+        //
+        // Fallback path — legacy goals without snapshot anchors (raw number,
+        // legacy settings row, or a `{goal}` payload missing snapshot fields)
+        // keep the original `(first log → goal at last log)` geometry so users
+        // who set their goal before this rollout still see a plan line.
+        //
+        // yOf clamps to chart Y bounds, so trajectories whose endpoints fall
+        // outside the visible range clip naturally at the top or bottom edge.
         if (goalValue != null && data.length > 0) {
             const first = data[0];
             const last = data[data.length - 1];
-            svg.appendChild(
-                makePlanLine(
-                    xOf(first.date.getTime()),
-                    yOf(first.weight),
-                    xOf(last.date.getTime()),
-                    yOf(goalValue),
-                ),
-            );
+            const firstT = first.date.getTime();
+            const lastT = last.date.getTime();
+            const hasSnapshot = goalInfo
+                && goalInfo.setAtMs != null
+                && goalInfo.startWeightKg != null
+                && goalInfo.dateMs != null
+                && goalInfo.dateMs !== goalInfo.setAtMs;
+            if (hasSnapshot) {
+                const wA = toDisplay(goalInfo.startWeightKg);
+                const wB = goalValue;
+                const tA = goalInfo.setAtMs;
+                const tB = goalInfo.dateMs;
+                const slope = (wB - wA) / (tB - tA);
+                const wL = wA + slope * (firstT - tA);
+                const wR = wA + slope * (lastT - tA);
+                if (Number.isFinite(wL) && Number.isFinite(wR)) {
+                    svg.appendChild(
+                        makePlanLine(xOf(firstT), yOf(wL), xOf(lastT), yOf(wR)),
+                    );
+                }
+            } else {
+                svg.appendChild(
+                    makePlanLine(
+                        xOf(firstT),
+                        yOf(first.weight),
+                        xOf(lastT),
+                        yOf(goalValue),
+                    ),
+                );
+            }
         }
 
         if (goalValue != null) {
