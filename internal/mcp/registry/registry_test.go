@@ -462,6 +462,40 @@ func TestWorkoutOperations(t *testing.T) {
 	}
 }
 
+// TestHealthOperations_WeightGoalHistory pins the weight_goal_history op shape
+// so the route stays reachable from the MCP registry (and out of
+// mcpCoverageExempt). Paired with the server-side coverage guard test.
+func TestHealthOperations_WeightGoalHistory(t *testing.T) {
+	r := New()
+	if err := r.Register(HealthOperations()...); err != nil {
+		t.Fatalf("register health operations: %v", err)
+	}
+	op := r.Get("health.weight.goal.history.list")
+	if op == nil {
+		t.Fatal("missing health.weight.goal.history.list")
+	}
+	if op.Method != "GET" {
+		t.Errorf("method: want GET, got %s", op.Method)
+	}
+	if op.Path != "/api/weight/goals/history" {
+		t.Errorf("path: want /api/weight/goals/history, got %s", op.Path)
+	}
+	if op.Risk != RiskRead {
+		t.Errorf("risk: want read, got %s", op.Risk)
+	}
+	if len(op.ParamsSchema) == 0 {
+		t.Error("ParamsSchema should declare the optional limit query param")
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(op.ParamsSchema, &schema); err != nil {
+		t.Fatalf("ParamsSchema is not valid JSON: %v", err)
+	}
+	props, _ := schema["properties"].(map[string]any)
+	if _, ok := props["limit"]; !ok {
+		t.Error("ParamsSchema.properties should declare limit")
+	}
+}
+
 // schemasParse asserts that every ParamsSchema/BodySchema value on the given
 // ops parses as valid JSON. Catches typos before they reach mcp_help callers.
 func schemasParse(t *testing.T, ops []*Operation) {

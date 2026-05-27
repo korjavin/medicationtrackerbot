@@ -178,15 +178,15 @@ When either the goal weight OR the goal date changes, both endpoints update (sta
 
 ### Task 5: MCP registry — register `weight_goal_history_list`
 
-- [ ] locate where weight-related operations are registered (grep `internal/mcp/registry/operations_*.go` for "weight" or "/api/weight/").
-- [ ] add an `Operation` entry for `GET /api/weight/goals/history`:
-  - meaningful `Name` (e.g. `weight_goal_history_list`).
-  - description: "List the user's historical weight goals (append-only, sorted newest first). Useful for retrospective analysis of how a user's goals evolved over time."
-  - input schema: `{ limit?: number }`.
-  - output schema: matches the handler's JSON shape (`{ goals: [{ set_at, target_weight, target_date, start_weight }] }`).
-- [ ] confirm `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` still passes — the new route should be reachable through the registry, not via `mcpCoverageExempt`.
-- [ ] write a registry smoke test or rely on the coverage guard test.
-- [ ] run `go test ./internal/mcp/... ./internal/server/...` — must pass before next task.
+- [x] locate where weight-related operations are registered (weight ops live in `internal/mcp/registry/operations_health.go` alongside BP and diary ops — the topic is `health`).
+- [x] add an `Operation` entry for `GET /api/weight/goals/history`:
+  - ID `health.weight.goal.history.list` (dot-separated convention matches the rest of the health topic).
+  - description: "List the user's historical weight goals (append-only, sorted newest first). Useful for retrospective analysis of how a user's goals evolved over time — each row captures the goal weight, target date, and the user's weight at the moment the goal was saved."
+  - input schema: `{ limit?: integer 1..200 }` (matches the handler's `?limit=N` parsing).
+  - response_summary describes the handler's JSON shape `{goals: [{id, user_id, set_at, target_weight, target_date, start_weight}]}`.
+- [x] confirm `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` still passes — temporary exemption for `GET /api/weight/goals/history` removed from `mcp_coverage_exempt.go`; coverage now satisfied by the registry entry.
+- [x] write a registry smoke test (added `TestHealthOperations_WeightGoalHistory` in `internal/mcp/registry/registry_test.go` pinning method, path, risk, and params schema).
+- [x] run `go test ./internal/mcp/... ./internal/server/...` — all green; `go build ./...`, `go build -tags mobile ./...`, and `go vet ./...` clean.
 
 ### Task 6: Chart — consume snapshot fields + correct trajectory geometry
 
