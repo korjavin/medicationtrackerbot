@@ -96,4 +96,10 @@ var mcpCoverageExempt = []routeExemption{
 	// --- Legacy compat shims, superseded ---
 	{Method: "POST", Path: "/api/workout/session/snooze", Reason: "legacy compat shim, superseded by /sessions/{id}/snooze"},
 	{Method: "POST", Path: "/api/workout/session/skip", Reason: "legacy compat shim, superseded by /sessions/{id}/skip"},
+
+	// TEMPORARY: will be moved to the MCP registry in Task 5 of the
+	// weight-goal-trajectory plan (docs/plans/2026-05-27-weight-goal-trajectory-snapshot.md).
+	// The route is user-actionable (history readback for MCP agents) and
+	// must NOT remain exempt — Task 5 registers it as health.weight.goal.history.list.
+	{Method: "GET", Path: "/api/weight/goals/history", Reason: "TEMP: pending MCP registry op in Task 5 of weight-goal-trajectory plan"},
 }
