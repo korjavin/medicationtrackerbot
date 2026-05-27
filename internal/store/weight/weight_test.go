@@ -440,6 +440,37 @@ func TestGetGoal_PerUserIsolation(t *testing.T) {
 	}
 }
 
+func TestGetGoal_NoLeakViaSettingsAfterAnotherUserSetGoal(t *testing.T) {
+	// Regression: SetGoal dual-writes to the singleton settings.weight_goal
+	// row. The legacy fallback in GetGoal must NOT return that singleton to a
+	// different user with no weight_goals row of their own — doing so would
+	// leak user A's health-goal data to user B.
+	r := setupWeightRepo(t)
+	ctx := context.Background()
+
+	// User A saves a goal — this inserts a weight_goals row AND updates the
+	// singleton settings.weight_goal{,_date} columns.
+	if err := r.SetGoal(ctx, 111, 75.0, time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("SetGoal user 111: %v", err)
+	}
+
+	// User B has no weight_goals row. GetGoal must return empty, not leak
+	// user A's goal via the legacy settings fallback.
+	g, err := r.GetGoal(ctx, 222)
+	if err != nil {
+		t.Fatalf("GetGoal user 222: %v", err)
+	}
+	if g == nil {
+		t.Fatal("Expected non-nil empty WeightGoal for user with no history")
+	}
+	if g.Goal != nil {
+		t.Errorf("Expected nil Goal for user 222 (no history), got %v — settings fallback leaked user 111's goal", *g.Goal)
+	}
+	if g.GoalDate != nil {
+		t.Errorf("Expected nil GoalDate for user 222, got %v", g.GoalDate)
+	}
+}
+
 func TestListGoals_OrderAndLimit(t *testing.T) {
 	r := setupWeightRepo(t)
 	ctx := context.Background()

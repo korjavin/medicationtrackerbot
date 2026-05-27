@@ -340,9 +340,14 @@ func (r *Repo) BatchGetLastLogs(ctx context.Context, userIDs []int64) (map[int64
 
 // GetGoal returns the user's weight target. It reads the most recent row from
 // the per-user weight_goals history table; when that table has no row for the
-// user it falls back to the legacy singleton settings.weight_goal{,_date}
-// columns (snapshot fields stay nil in that case). Returns a zero-valued goal
-// (all fields nil) when neither source has a goal.
+// user AND no row for any other user either, it falls back to the legacy
+// singleton settings.weight_goal{,_date} columns (snapshot fields stay nil in
+// that case). The "no row for any user" gate is important: SetGoal dual-writes
+// to the singleton for backwards compat with older clients, so once anyone has
+// saved a goal via the new path the singleton no longer represents pristine
+// legacy data — returning it to a different user would leak the latest
+// writer's goal across users. Returns a zero-valued goal (all fields nil) when
+// neither source has a goal.
 func (r *Repo) GetGoal(ctx context.Context, userID int64) (*WeightGoal, error) {
 	var setAtUnix int64
 	var target float64
@@ -378,18 +383,29 @@ func (r *Repo) GetGoal(ctx context.Context, userID int64) (*WeightGoal, error) {
 		return nil, err
 	}
 
-	// Fallback: legacy singleton settings.
+	// Fallback: legacy singleton settings — only when no history exists for
+	// anyone. As soon as any user has called SetGoal, the singleton reflects
+	// that writer's goal (dual-write) and is no longer safe to return for a
+	// different user. The NOT EXISTS gate runs in the same statement as the
+	// settings read so a concurrent SetGoal from another user cannot
+	// interleave between the gate and the read.
 	return r.getGoalFromSettings(ctx)
 }
 
 // getGoalFromSettings reads the legacy singleton settings.weight_goal{,_date}
 // columns. Used as fallback when the per-user weight_goals history table has
-// no row for the user.
+// no row for the user. The NOT EXISTS clause atomically gates on the absence
+// of any history row across all users — see the comment in GetGoal for why.
 func (r *Repo) getGoalFromSettings(ctx context.Context) (*WeightGoal, error) {
 	var goal sql.NullFloat64
 	var goalDateStr sql.NullString
 
-	err := r.db.QueryRowContext(ctx, "SELECT weight_goal, weight_goal_date FROM settings WHERE id = 1").Scan(&goal, &goalDateStr)
+	err := r.db.QueryRowContext(ctx,
+		`SELECT weight_goal, weight_goal_date
+		   FROM settings
+		  WHERE id = 1
+		    AND NOT EXISTS (SELECT 1 FROM weight_goals)`,
+	).Scan(&goal, &goalDateStr)
 	if err == sql.ErrNoRows {
 		return &WeightGoal{}, nil
 	}
