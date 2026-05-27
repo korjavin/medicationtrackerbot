@@ -195,6 +195,65 @@ func TestBootstrap_NeedsFirstRunFlag(t *testing.T) {
 	}
 }
 
+// TestBootstrap_WeightGoalSnapshotFields covers the cold-open / offline path
+// that the chart uses to render before the fresh /api/weight/goal call
+// resolves: /api/bootstrap.weight.goal must surface goal_set_at +
+// goal_start_weight when the latest goal lives in the per-user weight_goals
+// history table. Without these fields the chart silently falls back to legacy
+// "first log → goal at last log" geometry on every cold open, re-introducing
+// the user-reported bug ("changing only goal_date does nothing visible") on
+// the primary load path.
+func TestBootstrap_WeightGoalSnapshotFields(t *testing.T) {
+	srv, db := createBPTestServer(t)
+	defer db.Close()
+
+	const userID = int64(123456)
+	ctx := context.WithValue(context.Background(), UserCtxKey, &TelegramUser{ID: userID})
+
+	if _, err := db.Weight.CreateLog(ctx, &store.WeightLog{
+		UserID:     userID,
+		MeasuredAt: time.Now().Add(-24 * time.Hour),
+		Weight:     85.0,
+	}); err != nil {
+		t.Fatalf("seed weight log: %v", err)
+	}
+	target := time.Now().Add(60 * 24 * time.Hour)
+	if err := db.Weight.SetGoal(ctx, userID, 75.0, target); err != nil {
+		t.Fatalf("set goal: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/bootstrap", nil)
+	req = withUser(req, userID)
+	w := httptest.NewRecorder()
+	srv.handleBootstrap(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("bootstrap: expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	var payload map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	weight, ok := payload["weight"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected weight object in bootstrap payload, got %v", payload["weight"])
+	}
+	goal, ok := weight["goal"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected weight.goal object, got %v", weight["goal"])
+	}
+	if _, ok := goal["goal_set_at"]; !ok {
+		t.Errorf("expected goal_set_at present in bootstrap weight.goal, got %v", goal)
+	}
+	sw, ok := goal["goal_start_weight"].(float64)
+	if !ok {
+		t.Fatalf("expected goal_start_weight numeric in bootstrap weight.goal, got %T (%v)", goal["goal_start_weight"], goal["goal_start_weight"])
+	}
+	if sw != 85.0 {
+		t.Errorf("goal_start_weight: got %v want 85.0", sw)
+	}
+}
+
 // TestBootstrap_NeedsFirstRunTrue_OnFreshDB covers the bootstrap-handler side
 // of the fix from Task 2 of the mobile onboarding plan: on a brand-new DB
 // (migration 071 leaves first_run_complete=0 because no user data exists),

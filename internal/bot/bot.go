@@ -1555,7 +1555,7 @@ func (b *Bot) handleGoalCommand(msg *tgbotapi.Message, msgConfig *tgbotapi.Messa
 	args := msg.CommandArguments()
 	if args == "" {
 		// Show current goal
-		goal, err := b.weight.GetWeightGoal()
+		goal, err := b.weight.GetWeightGoal(context.Background(), b.allowedUserID)
 		if err != nil {
 			slog.Error("Error getting weight goal", "error", err)
 			msgConfig.Text = "❌ Error retrieving weight goal."
@@ -1603,7 +1603,7 @@ Example: /goal 110 2026-06-01`
 		return
 	}
 
-	err = b.weight.SetWeightGoal(weight, targetDate)
+	err = b.weight.SetWeightGoal(context.Background(), b.allowedUserID, weight, targetDate)
 	if err != nil {
 		slog.Error("Error setting weight goal", "error", err)
 		msgConfig.Text = "❌ Error saving weight goal."

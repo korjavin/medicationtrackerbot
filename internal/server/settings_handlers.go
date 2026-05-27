@@ -73,10 +73,12 @@ func (s *Server) handleInit(w http.ResponseWriter, r *http.Request) {
 }
 
 type weightGoalBootstrapResponse struct {
-	Goal          *float64   `json:"goal,omitempty"`
-	GoalDate      *time.Time `json:"goal_date,omitempty"`
-	HighestWeight *float64   `json:"highest_weight,omitempty"`
-	HighestDate   *time.Time `json:"highest_date,omitempty"`
+	Goal            *float64   `json:"goal,omitempty"`
+	GoalDate        *time.Time `json:"goal_date,omitempty"`
+	GoalSetAt       *time.Time `json:"goal_set_at,omitempty"`
+	GoalStartWeight *float64   `json:"goal_start_weight,omitempty"`
+	HighestWeight   *float64   `json:"highest_weight,omitempty"`
+	HighestDate     *time.Time `json:"highest_date,omitempty"`
 }
 
 // computeNextIntakeData returns the nearest scheduled intake in the next 12h window.
@@ -330,7 +332,7 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		slog.Error("bootstrap weight logs query failed", "error", err)
 		weightLogs = []store.WeightLog{}
 	}
-	weightGoal, err := s.weight.GetGoal()
+	weightGoal, err := s.weight.GetGoal(ctx, userID)
 	if err != nil {
 		slog.Error("bootstrap weight goal query failed", "error", err)
 		weightGoal = nil
@@ -344,6 +346,8 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	if weightGoal != nil {
 		weightGoalResponse.Goal = weightGoal.Goal
 		weightGoalResponse.GoalDate = weightGoal.GoalDate
+		weightGoalResponse.GoalSetAt = weightGoal.GoalSetAt
+		weightGoalResponse.GoalStartWeight = weightGoal.GoalStartWeight
 	}
 	if highestRecord != nil {
 		weightGoalResponse.HighestWeight = &highestRecord.Weight

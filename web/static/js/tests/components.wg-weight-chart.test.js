@@ -316,4 +316,206 @@ describe('WGWeightChart.render', () => {
         expect(label).not.toBeNull();
         expect(label.textContent).toBe('GOAL · 70 kg');
     });
+
+    // --- Plan-trajectory snapshot geometry (Task 6) ---
+    //
+    // The plan line on the weight chart is supposed to draw a real commitment
+    // arc — from (goal_set_at, weight_at_goal_set) → (goal_date, goal_weight).
+    // Older "plan line" implementations ignored both endpoints' time
+    // information, so moving only goal_date produced no visible change. These
+    // tests pin the new snapshot geometry and its fallback to legacy goals.
+
+    function readPlanY(svg) {
+        const plan = svg.querySelector('line.wg-weight-chart__plan');
+        if (!plan) return null;
+        return {
+            x1: parseFloat(plan.getAttribute('x1')),
+            y1: parseFloat(plan.getAttribute('y1')),
+            x2: parseFloat(plan.getAttribute('x2')),
+            y2: parseFloat(plan.getAttribute('y2')),
+        };
+    }
+
+    it('regression: moving only goal_date changes the plan-line slope', () => {
+        const logs = makeLogs({ days: 30, startWeight: 80, step: 0 });
+        // Common anchors: setAt was a month ago, startWeight matches latest log.
+        const setAt = new Date(Date.now() - 30 * 86400000).toISOString();
+        const farDate = new Date(Date.now() + 365 * 86400000).toISOString();
+        const nearDate = new Date(Date.now() + 90 * 86400000).toISOString();
+        const goalCommon = {
+            goal: 70,
+            goal_set_at: setAt,
+            goal_start_weight: 80,
+        };
+        const svgFar = env.api.render({
+            logs,
+            goal: { ...goalCommon, goal_date: farDate },
+        });
+        const svgNear = env.api.render({
+            logs,
+            goal: { ...goalCommon, goal_date: nearDate },
+        });
+        const far = readPlanY(svgFar);
+        const near = readPlanY(svgNear);
+        expect(far).not.toBeNull();
+        expect(near).not.toBeNull();
+        // X coordinates anchor on the visible logs (same in both renders), so
+        // the trajectory shows up exclusively as a y-coordinate change.
+        expect(far.x1).toBeCloseTo(near.x1, 1);
+        expect(far.x2).toBeCloseTo(near.x2, 1);
+        // Tighter target date = steeper descent inside the visible window →
+        // line drops faster, so right-edge y is HIGHER on screen (smaller value
+        // because SVG y grows downward but "lower weight" maps to larger y).
+        // We just assert the two are not equal; direction is asserted by the
+        // separate "snapshot honored" case below.
+        expect(near.y2).not.toBeCloseTo(far.y2, 1);
+    });
+
+    it('honors snapshot anchors: slope matches (goal − startWeight) / (goalDate − setAt)', () => {
+        const logs = makeLogs({ days: 30, startWeight: 80, step: 0 });
+        // setAt = 30 days ago, goal_date = 60 days from now, startWeight 80, goal 70.
+        // Slope = (70 - 80) / (90 days) = -10/90 kg/day ≈ -0.111 kg/day.
+        const setAtMs = Date.now() - 30 * 86400000;
+        const goalDateMs = Date.now() + 60 * 86400000;
+        const svg = env.api.render({
+            logs,
+            goal: {
+                goal: 70,
+                goal_set_at: new Date(setAtMs).toISOString(),
+                goal_start_weight: 80,
+                goal_date: new Date(goalDateMs).toISOString(),
+            },
+        });
+        const plan = svg.querySelector('line.wg-weight-chart__plan');
+        expect(plan).not.toBeNull();
+        // Recover (x, weight) at each endpoint via the chart's Y bounds.
+        const yMin = Number(svg.dataset.weightYMin);
+        const yMax = Number(svg.dataset.weightYMax);
+        // PAD_T=14, PAD_B=26, height=200 → plotH = 160. yOf(v) = 14 + 160*(1 - (v-yMin)/(yMax-yMin)).
+        const plotH = 200 - 14 - 26;
+        const yToWeight = (yPx) => yMin + (1 - (yPx - 14) / plotH) * (yMax - yMin);
+        const y1 = parseFloat(plan.getAttribute('y1'));
+        const y2 = parseFloat(plan.getAttribute('y2'));
+        const w1 = yToWeight(y1);
+        const w2 = yToWeight(y2);
+        // Empirical slope from the two endpoints in weight-per-ms.
+        const x1 = parseFloat(plan.getAttribute('x1'));
+        const x2 = parseFloat(plan.getAttribute('x2'));
+        // Map plot-x back to ms using firstTime/lastTime via the chart's data
+        // bounds — first/last log timestamps from the input.
+        const firstT = new Date(logs[0].measured_at).getTime();
+        const lastT = new Date(logs[logs.length - 1].measured_at).getTime();
+        const PAD_L = 28;
+        const PAD_R = 14;
+        const width = 358;
+        const plotW = width - PAD_L - PAD_R;
+        const xToMs = (xPx) => firstT + ((xPx - PAD_L) / plotW) * (lastT - firstT);
+        const t1 = xToMs(x1);
+        const t2 = xToMs(x2);
+        const empirical = (w2 - w1) / (t2 - t1);
+        const expected = (70 - 80) / (goalDateMs - setAtMs);
+        // 5% tolerance covers SVG attribute toFixed(1) rounding.
+        expect(Math.abs(empirical - expected) / Math.abs(expected)).toBeLessThan(0.05);
+    });
+
+    it('falls back to legacy geometry when snapshot fields are absent', () => {
+        const logs = makeLogs({ days: 14, startWeight: 82, step: -0.1 });
+        // Legacy goal: just a number — no setAt / startWeight / date.
+        const svg = env.api.render({ logs, goal: 72 });
+        const plan = readPlanY(svg);
+        expect(plan).not.toBeNull();
+        // Legacy line: (xOf(firstT), yOf(firstWeight)) → (xOf(lastT), yOf(goal)).
+        // The right-edge y must equal the goal line's y (both at goal=72).
+        const goalLine = svg.querySelector('line.wg-weight-chart__goal');
+        const goalY = parseFloat(goalLine.getAttribute('y1'));
+        expect(plan.y2).toBeCloseTo(goalY, 1);
+    });
+
+    it('falls back when snapshot date is missing but goal_set_at + start_weight are present', () => {
+        // Object-shaped goal that lacks goal_date is treated as legacy.
+        const logs = makeLogs({ days: 14, startWeight: 80, step: 0 });
+        const svg = env.api.render({
+            logs,
+            goal: {
+                goal: 72,
+                goal_set_at: new Date(Date.now() - 30 * 86400000).toISOString(),
+                goal_start_weight: 80,
+            },
+        });
+        const plan = readPlanY(svg);
+        expect(plan).not.toBeNull();
+        const goalLine = svg.querySelector('line.wg-weight-chart__goal');
+        const goalY = parseFloat(goalLine.getAttribute('y1'));
+        // Right endpoint at goal height — legacy geometry kicked in.
+        expect(plan.y2).toBeCloseTo(goalY, 1);
+    });
+
+    it('handles a goal_date already in the past without crashing', () => {
+        const logs = makeLogs({ days: 14, startWeight: 80, step: 0 });
+        // setAt 60 days ago, goal_date 30 days ago (already past), goal 70.
+        const svg = env.api.render({
+            logs,
+            goal: {
+                goal: 70,
+                goal_set_at: new Date(Date.now() - 60 * 86400000).toISOString(),
+                goal_start_weight: 80,
+                goal_date: new Date(Date.now() - 30 * 86400000).toISOString(),
+            },
+        });
+        const plan = svg.querySelector('line.wg-weight-chart__plan');
+        expect(plan).not.toBeNull();
+        // Line still exists; finite coordinates only.
+        expect(Number.isFinite(parseFloat(plan.getAttribute('y1')))).toBe(true);
+        expect(Number.isFinite(parseFloat(plan.getAttribute('y2')))).toBe(true);
+    });
+
+    it('falls back to legacy geometry with a single visible log so the plan line is not zero-length', () => {
+        // One log inside the range collapses firstT === lastT; the snapshot
+        // branch would compute wL and wR at the same X coord, producing an
+        // invisible zero-length line. Gate forces the legacy fallback which
+        // still draws *something* at goal height through the single point.
+        const svg = env.api.render({
+            logs: [{ measured_at: '2026-04-20T12:00:00Z', weight: 75 }],
+            goal: {
+                goal: 70,
+                goal_set_at: new Date(Date.now() - 30 * 86400000).toISOString(),
+                goal_start_weight: 80,
+                goal_date: new Date(Date.now() + 60 * 86400000).toISOString(),
+            },
+        });
+        const plan = svg.querySelector('line.wg-weight-chart__plan');
+        expect(plan).not.toBeNull();
+        // Right endpoint sits at the goal line's y — legacy geometry.
+        const goalLine = svg.querySelector('line.wg-weight-chart__goal');
+        const goalY = parseFloat(goalLine.getAttribute('y1'));
+        expect(parseFloat(plan.getAttribute('y2'))).toBeCloseTo(goalY, 1);
+    });
+
+    it('uses interpolation when setAt sits before all visible data', () => {
+        const logs = makeLogs({ days: 7, startWeight: 78, step: 0 });
+        // setAt is 180 days ago, well before any visible log. startWeight 85,
+        // goal 70, goal_date 60 days from now → the visible window samples the
+        // line at its mid-section, not at the start anchor.
+        const svg = env.api.render({
+            logs,
+            goal: {
+                goal: 70,
+                goal_set_at: new Date(Date.now() - 180 * 86400000).toISOString(),
+                goal_start_weight: 85,
+                goal_date: new Date(Date.now() + 60 * 86400000).toISOString(),
+            },
+        });
+        const plan = svg.querySelector('line.wg-weight-chart__plan');
+        expect(plan).not.toBeNull();
+        const y1 = parseFloat(plan.getAttribute('y1'));
+        const y2 = parseFloat(plan.getAttribute('y2'));
+        // Both endpoints are inside the SVG plot area [14, 174].
+        expect(y1).toBeGreaterThanOrEqual(14);
+        expect(y1).toBeLessThanOrEqual(174);
+        expect(y2).toBeGreaterThanOrEqual(14);
+        expect(y2).toBeLessThanOrEqual(174);
+        // Snapshot path means the line is descending toward the goal: y2 > y1
+        // (lower-on-chart = higher y in SVG; weight decreasing means y rising).
+        expect(y2).toBeGreaterThan(y1);
+    });
 });

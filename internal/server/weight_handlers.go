@@ -215,7 +215,7 @@ func (s *Server) handleExportWeight(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetWeightGoal(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
-	goal, err := s.weight.GetGoal()
+	goal, err := s.weight.GetGoal(r.Context(), userID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -228,17 +228,24 @@ func (s *Server) handleGetWeightGoal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extended response with highest weight metadata
+	// Extended response with highest weight metadata and the trajectory
+	// snapshot fields (goal_set_at, goal_start_weight) populated when the
+	// latest goal comes from the per-user weight_goals history table. The
+	// legacy fallback path leaves both snapshot fields nil.
 	type WeightGoalResponse struct {
-		Goal          *float64   `json:"goal,omitempty"`
-		GoalDate      *time.Time `json:"goal_date,omitempty"`
-		HighestWeight *float64   `json:"highest_weight,omitempty"`
-		HighestDate   *time.Time `json:"highest_date,omitempty"`
+		Goal            *float64   `json:"goal,omitempty"`
+		GoalDate        *time.Time `json:"goal_date,omitempty"`
+		GoalSetAt       *time.Time `json:"goal_set_at,omitempty"`
+		GoalStartWeight *float64   `json:"goal_start_weight,omitempty"`
+		HighestWeight   *float64   `json:"highest_weight,omitempty"`
+		HighestDate     *time.Time `json:"highest_date,omitempty"`
 	}
 
 	response := WeightGoalResponse{
-		Goal:     goal.Goal,
-		GoalDate: goal.GoalDate,
+		Goal:            goal.Goal,
+		GoalDate:        goal.GoalDate,
+		GoalSetAt:       goal.GoalSetAt,
+		GoalStartWeight: goal.GoalStartWeight,
 	}
 
 	if highestRecord != nil {
@@ -248,6 +255,46 @@ func (s *Server) handleGetWeightGoal(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
+		slog.Error("encode response", "error", err)
+	}
+}
+
+// handleListWeightGoals returns the user's weight-goal history as an
+// append-only list, sorted by set_at descending. The endpoint is intended for
+// retrospective analysis (e.g. MCP agents reasoning over goal evolution); the
+// web UI does not consume it today.
+//
+// Query params:
+//
+//	limit — optional, integer 1..200; defaults to 100. Caps how many history
+//	        rows are returned. A value <= 0 or non-numeric falls back to the
+//	        default.
+func (s *Server) handleListWeightGoals(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+
+	limit := 100
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			if n > 200 {
+				n = 200
+			}
+			limit = n
+		}
+	}
+
+	goals, err := s.weight.ListGoals(r.Context(), userID, limit)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if goals == nil {
+		goals = []store.WeightGoalHistory{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
+		"goals": goals,
+	}); err != nil {
 		slog.Error("encode response", "error", err)
 	}
 }

@@ -190,6 +190,23 @@ output(result)`,
 output(result)`,
 		},
 		{
+			ID:     "health.weight.goal.history.list",
+			Topic:  "health",
+			Method: "GET",
+			Path:   "/api/weight/goals/history",
+			Risk:   RiskRead,
+			ParamsSchema: json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "limit": {"type": "integer", "minimum": 1, "maximum": 200, "description": "Cap rows returned (default 100, max 200)"}
+  }
+}`),
+			Description:     "List the user's historical weight goals (append-only, sorted newest first). Useful for retrospective analysis of how a user's goals evolved over time — each row captures the goal weight, target date, and the user's weight at the moment the goal was saved.",
+			ResponseSummary: "Object {goals: [{id, user_id, set_at (RFC3339), target_weight (kg), target_date (YYYY-MM-DD), start_weight (kg, optional)}]}.",
+			Example: `result = api.call("health.weight.goal.history.list", params={"limit": 10})
+output(result)`,
+		},
+		{
 			ID:              "health.weight.delete",
 			Topic:           "health",
 			Method:          "DELETE",
