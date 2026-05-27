@@ -198,4 +198,3 @@ func pragmaColumns(t *testing.T, db *sql.DB, table string) map[string]columnInfo
 	}
 	return out
 }
-
