@@ -25,10 +25,26 @@ CREATE TABLE weight_goals (
     start_weight    REAL
 );
 CREATE INDEX idx_weight_goals_user_set_at ON weight_goals(user_id, set_at_unix DESC);
+-- weight_goals changes propagate under the 'weight' tag so cross-channel
+-- writes (bot, MCP) reach web subscribers through change_events the same way
+-- weight_logs do (see migration 027). The dual-write to settings still fires
+-- the 'settings' trigger, but the chart subscribes to 'weight'.
+CREATE TRIGGER trg_change_weight_goals_ins AFTER INSERT ON weight_goals BEGIN
+    INSERT INTO change_events(tag) VALUES ('weight');
+END;
+CREATE TRIGGER trg_change_weight_goals_upd AFTER UPDATE ON weight_goals BEGIN
+    INSERT INTO change_events(tag) VALUES ('weight');
+END;
+CREATE TRIGGER trg_change_weight_goals_del AFTER DELETE ON weight_goals BEGIN
+    INSERT INTO change_events(tag) VALUES ('weight');
+END;
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
+DROP TRIGGER IF EXISTS trg_change_weight_goals_del;
+DROP TRIGGER IF EXISTS trg_change_weight_goals_upd;
+DROP TRIGGER IF EXISTS trg_change_weight_goals_ins;
 DROP INDEX IF EXISTS idx_weight_goals_user_set_at;
 DROP TABLE IF EXISTS weight_goals;
 -- +goose StatementEnd

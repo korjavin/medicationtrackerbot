@@ -350,10 +350,13 @@ func (r *Repo) GetGoal(ctx context.Context, userID int64) (*WeightGoal, error) {
 	var startWeight sql.NullFloat64
 
 	err := r.db.QueryRowContext(ctx,
+		// id DESC breaks ties when two saves land in the same unix second —
+		// set_at_unix has second granularity and a UI double-tap or MCP burst
+		// can collide. id is AUTOINCREMENT so the latest INSERT always wins.
 		`SELECT set_at_unix, target_weight, target_date, start_weight
 		 FROM weight_goals
 		 WHERE user_id = ?
-		 ORDER BY set_at_unix DESC
+		 ORDER BY set_at_unix DESC, id DESC
 		 LIMIT 1`,
 		userID,
 	).Scan(&setAtUnix, &target, &targetDateStr, &startWeight)
@@ -413,7 +416,7 @@ func (r *Repo) ListGoals(ctx context.Context, userID int64, limit int) ([]Weight
 	query := `SELECT id, user_id, set_at_unix, target_weight, target_date, start_weight
 		 FROM weight_goals
 		 WHERE user_id = ?
-		 ORDER BY set_at_unix DESC`
+		 ORDER BY set_at_unix DESC, id DESC`
 	args := []interface{}{userID}
 	if limit > 0 {
 		query += " LIMIT ?"
@@ -456,19 +459,23 @@ func (r *Repo) ListGoals(ctx context.Context, userID int64, limit int) ([]Weight
 // older clients (and the legacy fallback in GetGoal) continue to read the
 // most recent goal.
 func (r *Repo) SetGoal(ctx context.Context, userID int64, weight float64, targetDate time.Time) error {
-	var startWeight sql.NullFloat64
-	err := r.db.QueryRowContext(ctx,
-		"SELECT weight FROM weight_logs WHERE user_id = ? ORDER BY measured_at DESC LIMIT 1",
-		userID,
-	).Scan(&startWeight)
-	if err != nil && err != sql.ErrNoRows {
-		return err
-	}
-
 	dateStr := targetDate.Format("2006-01-02")
 	setAtUnix := time.Now().UTC().Unix()
 
 	return r.db.WithTx(ctx, func(tx storedb.TX) error {
+		// Snapshot the latest log INSIDE the tx so a concurrent CreateLog
+		// between the SELECT and the INSERT can't silently leave start_weight
+		// pointing at a stale row (see MEMORY.md → "Wrap SELECT+UPSERT in a
+		// transaction to avoid TOCTOU race").
+		var startWeight sql.NullFloat64
+		err := tx.QueryRowContext(ctx,
+			"SELECT weight FROM weight_logs WHERE user_id = ? ORDER BY measured_at DESC LIMIT 1",
+			userID,
+		).Scan(&startWeight)
+		if err != nil && err != sql.ErrNoRows {
+			return err
+		}
+
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO weight_goals (user_id, set_at_unix, target_weight, target_date, start_weight)
 			 VALUES (?, ?, ?, ?, ?)`,

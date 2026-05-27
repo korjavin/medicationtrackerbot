@@ -469,6 +469,28 @@ describe('WGWeightChart.render', () => {
         expect(Number.isFinite(parseFloat(plan.getAttribute('y2')))).toBe(true);
     });
 
+    it('falls back to legacy geometry with a single visible log so the plan line is not zero-length', () => {
+        // One log inside the range collapses firstT === lastT; the snapshot
+        // branch would compute wL and wR at the same X coord, producing an
+        // invisible zero-length line. Gate forces the legacy fallback which
+        // still draws *something* at goal height through the single point.
+        const svg = env.api.render({
+            logs: [{ measured_at: '2026-04-20T12:00:00Z', weight: 75 }],
+            goal: {
+                goal: 70,
+                goal_set_at: new Date(Date.now() - 30 * 86400000).toISOString(),
+                goal_start_weight: 80,
+                goal_date: new Date(Date.now() + 60 * 86400000).toISOString(),
+            },
+        });
+        const plan = svg.querySelector('line.wg-weight-chart__plan');
+        expect(plan).not.toBeNull();
+        // Right endpoint sits at the goal line's y — legacy geometry.
+        const goalLine = svg.querySelector('line.wg-weight-chart__goal');
+        const goalY = parseFloat(goalLine.getAttribute('y1'));
+        expect(parseFloat(plan.getAttribute('y2'))).toBeCloseTo(goalY, 1);
+    });
+
     it('uses interpolation when setAt sits before all visible data', () => {
         const logs = makeLogs({ days: 7, startWeight: 78, step: 0 });
         // setAt is 180 days ago, well before any visible log. startWeight 85,

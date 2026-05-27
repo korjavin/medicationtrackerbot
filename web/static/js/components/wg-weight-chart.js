@@ -383,11 +383,16 @@
             const last = data[data.length - 1];
             const firstT = first.date.getTime();
             const lastT = last.date.getTime();
+            // Skip the snapshot branch when only one log is visible — both
+            // endpoints map to the same X coordinate (xOf(firstT) === xOf(lastT)),
+            // so the plan line would collapse to an invisible zero-length stub.
+            // Fall through to the legacy single-point goal-height geometry.
             const hasSnapshot = goalInfo
                 && goalInfo.setAtMs != null
                 && goalInfo.startWeightKg != null
                 && goalInfo.dateMs != null
-                && goalInfo.dateMs !== goalInfo.setAtMs;
+                && goalInfo.dateMs !== goalInfo.setAtMs
+                && data.length >= 2;
             if (hasSnapshot) {
                 const wA = toDisplay(goalInfo.startWeightKg);
                 const wB = goalValue;
