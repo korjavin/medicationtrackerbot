@@ -67,8 +67,9 @@ type WeightStore interface {
 	GetLastLog(ctx context.Context, userID int64) (*store.WeightLog, error)
 	GetLastLogExcluding(ctx context.Context, userID, excludeID int64) (*store.WeightLog, error)
 	DeleteLog(ctx context.Context, id, userID int64) error
-	GetGoal() (*store.WeightGoal, error)
+	GetGoal(ctx context.Context, userID int64) (*store.WeightGoal, error)
 	SetGoal(weight float64, targetDate time.Time) error
+	ListGoals(ctx context.Context, userID int64, limit int) ([]store.WeightGoalHistory, error)
 	GetHighestLog(ctx context.Context, userID int64) (*store.WeightLog, error)
 	GetReminderState(userID int64) (*store.WeightReminderState, error)
 	SetReminderEnabled(userID int64, enabled bool) error

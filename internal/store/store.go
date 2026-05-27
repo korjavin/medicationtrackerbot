@@ -114,6 +114,7 @@ type BPReminderState = bp.BPReminderState
 type WeightLog = weight.WeightLog
 type WeightReminderState = weight.WeightReminderState
 type WeightGoal = weight.WeightGoal
+type WeightGoalHistory = weight.WeightGoalHistory
 
 // Vitals-domain types.
 type SleepLog = vitals.SleepLog

@@ -281,6 +281,7 @@ func TestGetHighestLogEmpty(t *testing.T) {
 
 func TestSetAndGetGoal(t *testing.T) {
 	r := setupWeightRepo(t)
+	ctx := context.Background()
 
 	targetDate := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 	err := r.SetGoal(75.0, targetDate)
@@ -288,7 +289,7 @@ func TestSetAndGetGoal(t *testing.T) {
 		t.Fatalf("SetGoal failed: %v", err)
 	}
 
-	goal, err := r.GetGoal()
+	goal, err := r.GetGoal(ctx, 123)
 	if err != nil {
 		t.Fatalf("GetGoal failed: %v", err)
 	}
@@ -308,8 +309,9 @@ func TestSetAndGetGoal(t *testing.T) {
 
 func TestGetGoalEmpty(t *testing.T) {
 	r := setupWeightRepo(t)
+	ctx := context.Background()
 
-	goal, err := r.GetGoal()
+	goal, err := r.GetGoal(ctx, 123)
 	if err != nil {
 		t.Fatalf("GetGoal failed: %v", err)
 	}
@@ -319,6 +321,174 @@ func TestGetGoalEmpty(t *testing.T) {
 	// Empty goal should have nil pointers
 	if goal.Goal != nil {
 		t.Errorf("Expected nil Goal for empty store, got %v", *goal.Goal)
+	}
+}
+
+// insertGoalHistory inserts a row directly into weight_goals. Used by the
+// history-aware GetGoal/ListGoals tests so they don't depend on the SetGoal
+// rewrite (Task 3) landing yet.
+func insertGoalHistory(t *testing.T, r *Repo, userID int64, setAtUnix int64, target float64, targetDate string, startWeight *float64) {
+	t.Helper()
+	var sw interface{}
+	if startWeight != nil {
+		sw = *startWeight
+	}
+	if _, err := r.db.Exec(
+		"INSERT INTO weight_goals (user_id, set_at_unix, target_weight, target_date, start_weight) VALUES (?, ?, ?, ?, ?)",
+		userID, setAtUnix, target, targetDate, sw,
+	); err != nil {
+		t.Fatalf("insert weight_goals: %v", err)
+	}
+}
+
+func TestGetGoal_ReadsLatestHistoryRow(t *testing.T) {
+	r := setupWeightRepo(t)
+	ctx := context.Background()
+
+	base := time.Date(2026, 1, 1, 8, 0, 0, 0, time.UTC).Unix()
+	insertGoalHistory(t, r, 123, base, 80.0, "2026-04-01", float64Ptr(90.0))
+	insertGoalHistory(t, r, 123, base+3600, 75.0, "2026-06-01", float64Ptr(88.5))
+
+	goal, err := r.GetGoal(ctx, 123)
+	if err != nil {
+		t.Fatalf("GetGoal failed: %v", err)
+	}
+	if goal.Goal == nil || *goal.Goal != 75.0 {
+		t.Errorf("Expected latest goal 75.0, got %+v", goal.Goal)
+	}
+	if goal.GoalDate == nil || goal.GoalDate.Format("2006-01-02") != "2026-06-01" {
+		t.Errorf("Expected latest GoalDate 2026-06-01, got %+v", goal.GoalDate)
+	}
+	if goal.GoalSetAt == nil || goal.GoalSetAt.Unix() != base+3600 {
+		t.Errorf("Expected GoalSetAt to match latest row, got %+v", goal.GoalSetAt)
+	}
+	if goal.GoalStartWeight == nil || *goal.GoalStartWeight != 88.5 {
+		t.Errorf("Expected GoalStartWeight 88.5, got %+v", goal.GoalStartWeight)
+	}
+}
+
+func TestGetGoal_FallsBackToSettingsWhenHistoryEmpty(t *testing.T) {
+	r := setupWeightRepo(t)
+	ctx := context.Background()
+
+	// Write a legacy goal directly via SetGoal (still hits settings).
+	if err := r.SetGoal(70.0, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("SetGoal failed: %v", err)
+	}
+
+	// No row in weight_goals yet → fallback to settings.
+	goal, err := r.GetGoal(ctx, 123)
+	if err != nil {
+		t.Fatalf("GetGoal failed: %v", err)
+	}
+	if goal.Goal == nil || *goal.Goal != 70.0 {
+		t.Errorf("Expected legacy goal 70.0 via fallback, got %+v", goal.Goal)
+	}
+	if goal.GoalDate == nil {
+		t.Fatal("Expected GoalDate via fallback")
+	}
+	if goal.GoalSetAt != nil || goal.GoalStartWeight != nil {
+		t.Errorf("Expected snapshot fields nil on fallback, got setAt=%v startWeight=%v", goal.GoalSetAt, goal.GoalStartWeight)
+	}
+}
+
+func TestGetGoal_PerUserIsolation(t *testing.T) {
+	r := setupWeightRepo(t)
+	ctx := context.Background()
+
+	now := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC).Unix()
+	insertGoalHistory(t, r, 111, now, 70.0, "2026-08-01", nil)
+	insertGoalHistory(t, r, 222, now+10, 65.0, "2026-09-01", float64Ptr(72.3))
+
+	g1, err := r.GetGoal(ctx, 111)
+	if err != nil {
+		t.Fatalf("GetGoal user 111: %v", err)
+	}
+	if g1.Goal == nil || *g1.Goal != 70.0 {
+		t.Errorf("Expected user 111 goal 70.0, got %+v", g1.Goal)
+	}
+	if g1.GoalStartWeight != nil {
+		t.Errorf("Expected user 111 GoalStartWeight nil, got %v", *g1.GoalStartWeight)
+	}
+
+	g2, err := r.GetGoal(ctx, 222)
+	if err != nil {
+		t.Fatalf("GetGoal user 222: %v", err)
+	}
+	if g2.Goal == nil || *g2.Goal != 65.0 {
+		t.Errorf("Expected user 222 goal 65.0, got %+v", g2.Goal)
+	}
+	if g2.GoalStartWeight == nil || *g2.GoalStartWeight != 72.3 {
+		t.Errorf("Expected user 222 GoalStartWeight 72.3, got %+v", g2.GoalStartWeight)
+	}
+
+	// A third user with no history and no legacy goal returns empty.
+	g3, err := r.GetGoal(ctx, 999)
+	if err != nil {
+		t.Fatalf("GetGoal user 999: %v", err)
+	}
+	if g3 == nil {
+		t.Fatal("Expected non-nil empty WeightGoal for unknown user")
+	}
+	if g3.Goal != nil {
+		t.Errorf("Expected unknown user to have nil Goal, got %v", *g3.Goal)
+	}
+}
+
+func TestListGoals_OrderAndLimit(t *testing.T) {
+	r := setupWeightRepo(t)
+	ctx := context.Background()
+
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC).Unix()
+	// Three rows for user 1 at distinct times, plus one for user 2 to verify scoping.
+	insertGoalHistory(t, r, 1, base, 90.0, "2026-04-01", float64Ptr(95.0))
+	insertGoalHistory(t, r, 1, base+3600, 85.0, "2026-05-01", float64Ptr(92.0))
+	insertGoalHistory(t, r, 1, base+7200, 80.0, "2026-06-01", nil)
+	insertGoalHistory(t, r, 2, base+1, 60.0, "2026-04-15", float64Ptr(65.0))
+
+	all, err := r.ListGoals(ctx, 1, 0)
+	if err != nil {
+		t.Fatalf("ListGoals all: %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("Expected 3 rows for user 1, got %d", len(all))
+	}
+	// Order: descending by set_at_unix.
+	if all[0].SetAt.Unix() <= all[1].SetAt.Unix() || all[1].SetAt.Unix() <= all[2].SetAt.Unix() {
+		t.Errorf("Rows not in DESC order: %v, %v, %v", all[0].SetAt, all[1].SetAt, all[2].SetAt)
+	}
+	if all[0].TargetWeight != 80.0 {
+		t.Errorf("Expected newest row target_weight 80.0, got %.1f", all[0].TargetWeight)
+	}
+	if all[2].StartWeight == nil || *all[2].StartWeight != 95.0 {
+		t.Errorf("Expected oldest row start_weight 95.0, got %+v", all[2].StartWeight)
+	}
+	// Newest row has nullable start_weight populated as nil.
+	if all[0].StartWeight != nil {
+		t.Errorf("Expected newest row start_weight nil, got %v", *all[0].StartWeight)
+	}
+
+	limited, err := r.ListGoals(ctx, 1, 2)
+	if err != nil {
+		t.Fatalf("ListGoals limit=2: %v", err)
+	}
+	if len(limited) != 2 {
+		t.Fatalf("Expected 2 rows with limit=2, got %d", len(limited))
+	}
+	if limited[0].SetAt.Unix() != all[0].SetAt.Unix() {
+		t.Errorf("Expected limit=2 to start at newest row")
+	}
+
+	// Per-user isolation: user 2 sees only their own row.
+	other, err := r.ListGoals(ctx, 2, 0)
+	if err != nil {
+		t.Fatalf("ListGoals user 2: %v", err)
+	}
+	if len(other) != 1 {
+		t.Fatalf("Expected 1 row for user 2, got %d", len(other))
+	}
+	if other[0].TargetWeight != 60.0 {
+		t.Errorf("Expected user 2 row target_weight 60.0, got %.1f", other[0].TargetWeight)
 	}
 }
 

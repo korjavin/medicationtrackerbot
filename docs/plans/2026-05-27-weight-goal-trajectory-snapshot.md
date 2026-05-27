@@ -119,21 +119,22 @@ When either the goal weight OR the goal date changes, both endpoints update (sta
 
 ### Task 2: `WeightGoal` struct + history type + read path
 
-- [ ] in `internal/store/weight/repo.go`, extend `WeightGoal` to surface the snapshot fields:
+- [x] in `internal/store/weight/repo.go`, extend `WeightGoal` to surface the snapshot fields:
   - `GoalSetAt *time.Time \`json:"goal_set_at,omitempty"\``
   - `GoalStartWeight *float64 \`json:"goal_start_weight,omitempty"\``
-- [ ] add new `WeightGoalHistory` type (id, user_id, set_at, target_weight, target_date, start_weight).
-- [ ] change `GetGoal()` → `GetGoal(ctx, userID)`:
+- [x] add new `WeightGoalHistory` type (id, user_id, set_at, target_weight, target_date, start_weight). (Also re-exported via `store.WeightGoalHistory` alias.)
+- [x] change `GetGoal()` → `GetGoal(ctx, userID)`:
   - read most recent row from `weight_goals WHERE user_id = ? ORDER BY set_at_unix DESC LIMIT 1`.
   - if found, populate all four fields (`Goal`, `GoalDate`, `GoalSetAt`, `GoalStartWeight`).
   - if not found, fall back to legacy `SELECT weight_goal, weight_goal_date FROM settings WHERE id = 1` (snapshot fields stay nil).
-- [ ] add `ListGoals(ctx, userID, limit int)` returning `[]WeightGoalHistory` ordered by `set_at_unix DESC`. A `limit <= 0` returns all rows.
-- [ ] write tests:
+  - (Interface signatures and all callers — `server.WeightStore`, `bot.WeightStore`, `storeAdapter`, `weight_handlers.go`, `settings_handlers.go`, `bot.handleGoalCommand` — updated to pass ctx + userID through; mobile build still compiles.)
+- [x] add `ListGoals(ctx, userID, limit int)` returning `[]WeightGoalHistory` ordered by `set_at_unix DESC`. A `limit <= 0` returns all rows.
+- [x] write tests:
   - `TestGetGoal_ReadsLatestHistoryRow`: insert two rows, assert latest wins.
   - `TestGetGoal_FallsBackToSettingsWhenHistoryEmpty`: existing legacy goal still reads.
   - `TestGetGoal_PerUserIsolation`: user A's goal doesn't leak into user B's GetGoal.
   - `TestListGoals_OrderAndLimit`: descending by set_at_unix, limit honored, per-user scoped.
-- [ ] run `go test ./internal/store/weight/...` — must pass before next task.
+- [x] run `go test ./internal/store/weight/...` — must pass before next task. (Green; broader `internal/store/... ./internal/server/... ./internal/bot/...` suite also green.)
 
 ### Task 3: `SetGoal` → INSERT into history + dual-write to settings
 

@@ -215,7 +215,7 @@ func (s *Server) handleExportWeight(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetWeightGoal(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
-	goal, err := s.weight.GetGoal()
+	goal, err := s.weight.GetGoal(r.Context(), userID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

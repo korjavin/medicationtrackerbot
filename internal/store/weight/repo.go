@@ -32,11 +32,30 @@ type WeightLog struct {
 	Notes           string    `json:"notes,omitempty"`
 }
 
-// WeightGoal is the per-user weight target (stored as two nullable columns on
-// the singleton settings row, not its own table).
+// WeightGoal is the per-user weight target. New goals are stored as
+// append-only rows in the weight_goals history table; the legacy
+// settings.weight_goal{,_date} singleton columns remain as a backward-compat
+// cache populated by SetGoal. GoalSetAt / GoalStartWeight are populated only
+// when the latest row comes from the history table — legacy fallback reads
+// leave both nil.
 type WeightGoal struct {
-	Goal     *float64   `json:"goal,omitempty"`
-	GoalDate *time.Time `json:"goal_date,omitempty"`
+	Goal            *float64   `json:"goal,omitempty"`
+	GoalDate        *time.Time `json:"goal_date,omitempty"`
+	GoalSetAt       *time.Time `json:"goal_set_at,omitempty"`
+	GoalStartWeight *float64   `json:"goal_start_weight,omitempty"`
+}
+
+// WeightGoalHistory is one row of the weight_goals history table — a single
+// SetGoal commitment with the snapshot of the user's weight at that moment.
+// StartWeight is nullable: NULL when the user had no prior weight log when
+// they saved the goal.
+type WeightGoalHistory struct {
+	ID           int64     `json:"id"`
+	UserID       int64     `json:"user_id"`
+	SetAt        time.Time `json:"set_at"`
+	TargetWeight float64   `json:"target_weight"`
+	TargetDate   string    `json:"target_date"`
+	StartWeight  *float64  `json:"start_weight,omitempty"`
 }
 
 // Repo is the weight repository. Construct with New; share one *Repo per
@@ -319,13 +338,55 @@ func (r *Repo) BatchGetLastLogs(ctx context.Context, userIDs []int64) (map[int64
 	return result, nil
 }
 
-// GetGoal returns the user's weight target. Returns a zero-valued goal
-// (both fields nil) when no goal has been set.
-func (r *Repo) GetGoal() (*WeightGoal, error) {
+// GetGoal returns the user's weight target. It reads the most recent row from
+// the per-user weight_goals history table; when that table has no row for the
+// user it falls back to the legacy singleton settings.weight_goal{,_date}
+// columns (snapshot fields stay nil in that case). Returns a zero-valued goal
+// (all fields nil) when neither source has a goal.
+func (r *Repo) GetGoal(ctx context.Context, userID int64) (*WeightGoal, error) {
+	var setAtUnix int64
+	var target float64
+	var targetDateStr string
+	var startWeight sql.NullFloat64
+
+	err := r.db.QueryRowContext(ctx,
+		`SELECT set_at_unix, target_weight, target_date, start_weight
+		 FROM weight_goals
+		 WHERE user_id = ?
+		 ORDER BY set_at_unix DESC
+		 LIMIT 1`,
+		userID,
+	).Scan(&setAtUnix, &target, &targetDateStr, &startWeight)
+	if err == nil {
+		result := &WeightGoal{
+			Goal: &target,
+		}
+		if t, perr := time.Parse("2006-01-02", targetDateStr); perr == nil {
+			result.GoalDate = &t
+		}
+		setAt := storedb.UnixToTime(setAtUnix)
+		result.GoalSetAt = &setAt
+		if startWeight.Valid {
+			result.GoalStartWeight = &startWeight.Float64
+		}
+		return result, nil
+	}
+	if err != sql.ErrNoRows {
+		return nil, err
+	}
+
+	// Fallback: legacy singleton settings.
+	return r.getGoalFromSettings(ctx)
+}
+
+// getGoalFromSettings reads the legacy singleton settings.weight_goal{,_date}
+// columns. Used as fallback when the per-user weight_goals history table has
+// no row for the user.
+func (r *Repo) getGoalFromSettings(ctx context.Context) (*WeightGoal, error) {
 	var goal sql.NullFloat64
 	var goalDateStr sql.NullString
 
-	err := r.db.QueryRow("SELECT weight_goal, weight_goal_date FROM settings WHERE id = 1").Scan(&goal, &goalDateStr)
+	err := r.db.QueryRowContext(ctx, "SELECT weight_goal, weight_goal_date FROM settings WHERE id = 1").Scan(&goal, &goalDateStr)
 	if err == sql.ErrNoRows {
 		return &WeightGoal{}, nil
 	}
@@ -344,6 +405,45 @@ func (r *Repo) GetGoal() (*WeightGoal, error) {
 		}
 	}
 	return result, nil
+}
+
+// ListGoals returns the user's weight-goal history in descending set_at order
+// (most recent first). A limit <= 0 returns all rows for the user.
+func (r *Repo) ListGoals(ctx context.Context, userID int64, limit int) ([]WeightGoalHistory, error) {
+	query := `SELECT id, user_id, set_at_unix, target_weight, target_date, start_weight
+		 FROM weight_goals
+		 WHERE user_id = ?
+		 ORDER BY set_at_unix DESC`
+	args := []interface{}{userID}
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var goals []WeightGoalHistory
+	for rows.Next() {
+		var g WeightGoalHistory
+		var setAtUnix int64
+		var startWeight sql.NullFloat64
+		if err := rows.Scan(&g.ID, &g.UserID, &setAtUnix, &g.TargetWeight, &g.TargetDate, &startWeight); err != nil {
+			return nil, err
+		}
+		g.SetAt = storedb.UnixToTime(setAtUnix)
+		if startWeight.Valid {
+			g.StartWeight = &startWeight.Float64
+		}
+		goals = append(goals, g)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return goals, nil
 }
 
 // SetGoal records a new weight target on the singleton settings row.

@@ -330,7 +330,7 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		slog.Error("bootstrap weight logs query failed", "error", err)
 		weightLogs = []store.WeightLog{}
 	}
-	weightGoal, err := s.weight.GetGoal()
+	weightGoal, err := s.weight.GetGoal(ctx, userID)
 	if err != nil {
 		slog.Error("bootstrap weight goal query failed", "error", err)
 		weightGoal = nil
