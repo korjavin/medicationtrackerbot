@@ -227,7 +227,7 @@ func (h *OAuthHandler) Middleware(next http.Handler) http.Handler {
 func (h *OAuthHandler) isSubjectAllowed(subject string) bool {
 	raw := strings.TrimSpace(h.config.AllowedSubject)
 	if raw == "" {
-		return true
+		return false
 	}
 
 	for _, candidate := range strings.Split(raw, ",") {
