@@ -100,10 +100,10 @@ func New() *Registry {
 		operations: make(map[string]*Operation),
 		byTopic:    make(map[string][]*Operation),
 		suggestions: map[string]string{
-			"workouts":    "List the available workout groups to see what you can track. Use mcp_execute with the create/update/delete ops to edit groups, variants, exercises, and exercise libraries.",
-			"food":        "Before logging a meal, call food.products.search (or food.products.frequent) to find a matching saved product and reuse its product_id in food.log.create — this keeps the user's history consistent. Only invent a new name when nothing matches; the server will upsert it into the user's catalog automatically.",
-			"health":      "List vital logs (weight, blood pressure) to see your progress. For device-imported sleep (with light/deep/REM phases), heart rate, SpO2, stress, and steps, call health.overview — that is the source for sleep-recovery and vitals-trend analysis. Use mcp_execute with health.bp.create / health.weight.create to add readings, or health.notes.create for manual sleep / vitals journal notes.",
-			"medications": "List your medication schedule to see what is due or check specific medication details. Use mcp_execute to add new medications (medications.create), update or archive them (medications.update with archived=true), restock, and snooze / skip / confirm intakes.",
+			"workouts":    "List the available workout groups to see what you can track. Run a single create/update/delete op with mcp_call; chain several edits (groups, variants, exercises, exercise libraries) in one mcp_execute script.",
+			"food":        "Before logging a meal, call food.products.search (or food.products.frequent) to find a matching saved product and reuse its product_id in food.log.create — this keeps the user's history consistent. Run a single op with mcp_call, or compose search + log into one mcp_execute script. Only invent a new name when nothing matches; the server will upsert it into the user's catalog automatically.",
+			"health":      "List vital logs (weight, blood pressure) to see your progress. For device-imported sleep (with light/deep/REM phases), heart rate, SpO2, stress, and steps, call health.overview — that is the source for sleep-recovery and vitals-trend analysis. Run a single health.bp.create / health.weight.create / health.notes.create with mcp_call; batch multiple readings or sleep / vitals notes in one mcp_execute script.",
+			"medications": "List your medication schedule to see what is due or check specific medication details. Run a single op with mcp_call — add a medication (medications.create), update or archive one (medications.update with archived=true), restock, or snooze / skip / confirm an intake — and use mcp_execute to chain several of these in one script.",
 		},
 	}
 }
