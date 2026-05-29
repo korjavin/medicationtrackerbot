@@ -10,3 +10,7 @@
 **Vulnerability:** Cross-Site Scripting (XSS) via `r.Host` injected using `strings.ReplaceAll` instead of `html/template`.
 **Learning:** Because the project serves HTML by reading static files and injecting variables (like `r.Host` or environmental overrides) via `strings.ReplaceAll`, it bypasses the automatic context-aware escaping provided by `html/template`. Unsanitized HTTP headers or external inputs injected directly into HTML payloads can lead to XSS.
 **Prevention:** Always explicitly wrap injected variables derived from HTTP requests or external sources with `html.EscapeString()` when using string substitution for templating.
+## 2025-04-19 - Fail-Open Authorization Logic in MCP Server
+**Vulnerability:** Authorization Bypass (Fail-Open)
+**Learning:** The `isSubjectAllowed` logic evaluated to true when `AllowedSubject` configuration was missing, creating a fail-open access control vulnerability. Although demo modes and non-production setups might intentionally omit configuration, security-critical verification checks like authorized access must default to rejecting access (fail-closed) when no explicitly allowed subjects are present.
+**Prevention:** Always design authentication and authorization mechanisms with fail-closed architectures. Critical authorization configurations must be explicitly validated during server initialization, and authorization functions must default to false unless explicitly satisfied.
