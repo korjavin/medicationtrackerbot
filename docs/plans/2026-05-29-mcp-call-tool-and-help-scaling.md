@@ -85,10 +85,10 @@ Key design decisions (confirmed with user):
 
 ### Task 3: Executor — extract shared proxy-result classification
 
-- [ ] In `internal/mcp/executor/service.go`, extract the inline classification in `handleCall` (service.go:813-893) into a pure helper, e.g. `func classifyProxyResult(result *proxy.CallResult, callErr error) callOutcome` where `callOutcome` carries `{status string (mcp.ExecuteStatus*), httpStatus int, body []byte, outcomeHeader string, errMsg string, denialKind string}` covering: proxy `*CallError` → `proxy_denied`; `result.Response == nil` → `backend_transport_error`; `PolicyDenial != ""` → `proxy_denied`; `Truncated` → `backend_transport_error`; upstream status ≥ 400 → `backend_application_error`; else `ok` + body.
-- [ ] Refactor `handleCall` to call `classifyProxyResult` and translate the `callOutcome` into the existing HTTP response + `X-MCP-Outcome` header + per-run outcome counters — **behavior must be byte-for-byte unchanged**.
-- [ ] write tests in `executor/service_test.go` for `classifyProxyResult` covering every branch (proxy denial, transport nil-response, policy denial, truncated, backend 4xx/5xx, ok).
-- [ ] run `go test ./internal/mcp/executor/...` — must pass (existing `handleCall` tests still green) before Task 4
+- [x] In `internal/mcp/executor/service.go`, extract the inline classification in `handleCall` (service.go:813-893) into a pure helper, e.g. `func classifyProxyResult(result *proxy.CallResult, callErr error) callOutcome` where `callOutcome` carries `{status string (mcp.ExecuteStatus*), httpStatus int, body []byte, outcomeHeader string, errMsg string, denialKind string}` covering: proxy `*CallError` → `proxy_denied`; `result.Response == nil` → `backend_transport_error`; `PolicyDenial != ""` → `proxy_denied`; `Truncated` → `backend_transport_error`; upstream status ≥ 400 → `backend_application_error`; else `ok` + body.
+- [x] Refactor `handleCall` to call `classifyProxyResult` and translate the `callOutcome` into the existing HTTP response + `X-MCP-Outcome` header + per-run outcome counters — **behavior must be byte-for-byte unchanged**.
+- [x] write tests in `executor/service_test.go` for `classifyProxyResult` covering every branch (proxy denial, transport nil-response, policy denial, truncated, backend 4xx/5xx, ok).
+- [x] run `go test ./internal/mcp/executor/...` — must pass (existing `handleCall` tests still green) before Task 4
 
 ### Task 4: Executor — `Call()` method + `ExecutionService.Call`
 
