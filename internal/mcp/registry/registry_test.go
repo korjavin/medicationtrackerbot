@@ -354,6 +354,146 @@ func TestMarshalForHelp_Shape(t *testing.T) {
 	}
 }
 
+func TestMarshalForHelpCompact(t *testing.T) {
+	ops := []*Operation{
+		{
+			ID:              "t.read",
+			Topic:           "t",
+			Method:          "GET",
+			Path:            "/t",
+			Risk:            RiskRead,
+			Description:     "read something",
+			ResponseSummary: "list of things",
+			Example:         `api.call("t.read")`,
+			ParamsSchema:    json.RawMessage(`{"type":"object"}`),
+			BodySchema:      json.RawMessage(`{"type":"object"}`),
+		},
+	}
+
+	entries := MarshalForHelpCompact(ops)
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+	e := entries[0]
+	if e.ID != "t.read" {
+		t.Errorf("ID mismatch: %s", e.ID)
+	}
+	if e.Topic != "t" {
+		t.Errorf("Topic mismatch: %s", e.Topic)
+	}
+	if e.Method != "GET" {
+		t.Errorf("Method mismatch: %s", e.Method)
+	}
+	if e.Risk != RiskRead {
+		t.Errorf("Risk mismatch: %s", e.Risk)
+	}
+	if e.Description != "read something" {
+		t.Errorf("Description mismatch: %s", e.Description)
+	}
+
+	// The compact entry must NOT carry schemas, example, path, or
+	// response_summary — verify via the serialized JSON shape so a future
+	// struct change that re-adds those fields trips the test.
+	raw, err := json.Marshal(e)
+	if err != nil {
+		t.Fatalf("marshal compact entry: %v", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatalf("unmarshal compact entry: %v", err)
+	}
+	wantKeys := map[string]bool{"id": true, "topic": true, "method": true, "risk": true, "description": true}
+	for k := range m {
+		if !wantKeys[k] {
+			t.Errorf("compact entry contains unexpected field %q", k)
+		}
+	}
+	for _, absent := range []string{"params_schema", "body_schema", "example", "path", "response_summary"} {
+		if _, ok := m[absent]; ok {
+			t.Errorf("compact entry should not contain %q", absent)
+		}
+	}
+}
+
+func TestSearch(t *testing.T) {
+	r := New()
+	ops := []*Operation{
+		{ID: "health.bp.list", Topic: "health", Method: "GET", Path: "/api/bp", Risk: RiskRead, Description: "List blood pressure readings", ResponseSummary: "list of bp logs"},
+		{ID: "health.weight.list", Topic: "health", Method: "GET", Path: "/api/weight", Risk: RiskRead, Description: "List weight entries", ResponseSummary: "list of weight measurements"},
+		{ID: "food.log.create", Topic: "food", Method: "POST", Path: "/api/food", Risk: RiskWrite, Description: "Log a meal", ResponseSummary: "created food log"},
+	}
+	if err := r.Register(ops...); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	t.Run("match by id", func(t *testing.T) {
+		got := r.Search("weight")
+		if len(got) != 1 || got[0].ID != "health.weight.list" {
+			t.Errorf("expected health.weight.list, got %v", got)
+		}
+	})
+
+	t.Run("match by description substring", func(t *testing.T) {
+		got := r.Search("blood pressure")
+		if len(got) != 1 || got[0].ID != "health.bp.list" {
+			t.Errorf("expected health.bp.list, got %v", got)
+		}
+	})
+
+	t.Run("match by response_summary", func(t *testing.T) {
+		got := r.Search("measurements")
+		if len(got) != 1 || got[0].ID != "health.weight.list" {
+			t.Errorf("expected health.weight.list, got %v", got)
+		}
+	})
+
+	t.Run("match by topic", func(t *testing.T) {
+		got := r.Search("food")
+		if len(got) != 1 || got[0].ID != "food.log.create" {
+			t.Errorf("expected food.log.create, got %v", got)
+		}
+	})
+
+	t.Run("case insensitive", func(t *testing.T) {
+		got := r.Search("BLOOD PRESSURE")
+		if len(got) != 1 || got[0].ID != "health.bp.list" {
+			t.Errorf("expected case-insensitive match, got %v", got)
+		}
+	})
+
+	t.Run("multiple matches sorted by id", func(t *testing.T) {
+		got := r.Search("health")
+		if len(got) != 2 {
+			t.Fatalf("expected 2 matches, got %d", len(got))
+		}
+		want := []string{"health.bp.list", "health.weight.list"}
+		for i, id := range want {
+			if got[i].ID != id {
+				t.Errorf("at index %d: want %s, got %s", i, id, got[i].ID)
+			}
+		}
+	})
+
+	t.Run("no match returns empty", func(t *testing.T) {
+		got := r.Search("nonexistent-keyword")
+		if len(got) != 0 {
+			t.Errorf("expected no matches, got %v", got)
+		}
+	})
+
+	t.Run("empty query returns nil", func(t *testing.T) {
+		if got := r.Search(""); got != nil {
+			t.Errorf("expected nil for empty query, got %v", got)
+		}
+	})
+
+	t.Run("whitespace query returns nil", func(t *testing.T) {
+		if got := r.Search("   "); got != nil {
+			t.Errorf("expected nil for whitespace query, got %v", got)
+		}
+	})
+}
+
 func TestWorkoutOperations(t *testing.T) {
 	r := New()
 	ops := WorkoutOperations()

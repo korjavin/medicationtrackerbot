@@ -73,6 +73,18 @@ type HelpEntry struct {
 	Example         string   `json:"example,omitempty"`
 }
 
+// HelpEntryCompact is the terse catalog representation returned by
+// MarshalForHelpCompact. It carries only the fields needed to scan the full
+// operation catalog cheaply; the agent drills into a topic or operation_id (or
+// uses query search) to obtain the full HelpEntry with schemas + example.
+type HelpEntryCompact struct {
+	ID          string `json:"id"`
+	Topic       string `json:"topic"`
+	Method      string `json:"method"`
+	Risk        Risk   `json:"risk"`
+	Description string `json:"description"`
+}
+
 // Registry holds the complete set of allowed operations.
 type Registry struct {
 	mu          sync.RWMutex
@@ -284,6 +296,50 @@ func MarshalForHelp(ops []*Operation) []HelpEntry {
 		})
 	}
 	return entries
+}
+
+// MarshalForHelpCompact returns a terse catalog entry per operation: only ID,
+// Topic, Method, Risk, and Description — no schemas, no example, no path. It
+// powers the full-catalog and query-search views of mcp_help, keeping those
+// token-light while topic/operation_id drill-ins keep returning full detail
+// via MarshalForHelp.
+func MarshalForHelpCompact(ops []*Operation) []HelpEntryCompact {
+	entries := make([]HelpEntryCompact, 0, len(ops))
+	for _, op := range ops {
+		entries = append(entries, HelpEntryCompact{
+			ID:          op.ID,
+			Topic:       op.Topic,
+			Method:      op.Method,
+			Risk:        op.Risk,
+			Description: op.Description,
+		})
+	}
+	return entries
+}
+
+// Search returns operations whose ID, Description, Topic, or ResponseSummary
+// contains query as a case-insensitive substring, sorted by ID (same ordering
+// as All). An empty or whitespace-only query returns nil.
+func (r *Registry) Search(query string) []*Operation {
+	q := strings.ToLower(strings.TrimSpace(query))
+	if q == "" {
+		return nil
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var result []*Operation
+	for _, op := range r.operations {
+		if strings.Contains(strings.ToLower(op.ID), q) ||
+			strings.Contains(strings.ToLower(op.Description), q) ||
+			strings.Contains(strings.ToLower(op.Topic), q) ||
+			strings.Contains(strings.ToLower(op.ResponseSummary), q) {
+			result = append(result, op)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ID < result[j].ID
+	})
+	return result
 }
 
 // decodeSchema returns the JSON-decoded schema or nil if raw is empty or
