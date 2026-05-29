@@ -58,9 +58,35 @@ type ExecutionResult struct {
 	Warnings []string
 }
 
-// ExecutionService runs sandboxed Python scripts. Implemented by the executor service (Task 9).
+// CallRequest is passed to ExecutionService.Call to run a single registry
+// operation directly (the mcp_call path), with no Python subprocess. It mirrors
+// the bridge's call shape: arbitrary JSON scalars in Params/PathParams are
+// stringified by the executor before reaching the bridge.
+type CallRequest struct {
+	OperationID string
+	Mode        proxy.Mode
+	Intent      string
+	Params      map[string]json.RawMessage
+	PathParams  map[string]json.RawMessage
+	Body        json.RawMessage
+}
+
+// CallResult is returned by ExecutionService.Call. Status is one of the
+// ExecuteStatus* constants (ok / proxy_denied / backend_application_error /
+// backend_transport_error). Result carries the backend body on ok/app-error;
+// Error carries the rejection detail otherwise.
+type CallResult struct {
+	Status   string          // one of ExecuteStatus* constants
+	Result   json.RawMessage // backend body when status is ok / backend_application_error
+	Error    string          // error detail for proxy/transport rejections
+	APICalls int
+}
+
+// ExecutionService runs sandboxed Python scripts (Execute) and single registry
+// operations directly (Call). Implemented by the executor service.
 type ExecutionService interface {
 	Execute(ctx context.Context, req ExecutionRequest) (*ExecutionResult, error)
+	Call(ctx context.Context, req CallRequest) (*CallResult, error)
 }
 
 // SetExecutor wires an execution service into the server. Called from main

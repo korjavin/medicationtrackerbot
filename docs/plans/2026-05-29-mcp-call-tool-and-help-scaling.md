@@ -92,12 +92,12 @@ Key design decisions (confirmed with user):
 
 ### Task 4: Executor — `Call()` method + `ExecutionService.Call`
 
-- [ ] In `internal/mcp/execute.go`, define `CallRequest{OperationID string; Mode proxy.Mode; Intent string; Params, PathParams map[string]json.RawMessage; Body json.RawMessage}` and `CallResult{Status string; Result json.RawMessage; Error string; APICalls int}`.
-- [ ] Add `Call(ctx context.Context, req CallRequest) (*CallResult, error)` to the `ExecutionService` interface.
-- [ ] Implement `func (s *Service) Call(ctx, req mcp.CallRequest) (*mcp.CallResult, error)` in `executor/service.go`: started/stopped guards; build a fresh proxy (`proxy.NewWithHTTPClient(s.opts.Registry, s.opts.BridgeURL, s.opts.HMACSecret, s.opts.HTTPClient)` + `SetMaxQueryDays`); `RunConfig{Mode: req.Mode, MaxAPICalls: 1, TopicAllowlist: nil}`; stringify params via `paramsToStrings`; call `p.Call(...)`; map via `classifyProxyResult`; set `APICalls` from `p.CallCount()`; `fanOutAudit` a `RunSummary` (so writes are audited identically to `mcp_execute`); return `CallResult`.
-- [ ] Update every other `ExecutionService` implementer/fake to satisfy the new method: `fakeExecutionService` in `execute_test.go` (add a `callFn` field + `Call`), and any fakes in `execute_demo_test.go` / `mcp_demo_test.go`. Keep the `var _ mcp.ExecutionService = (*Service)(nil)` assertion compiling.
-- [ ] write tests in `executor/service_test.go` for `Service.Call` against an `httptest` bridge: read OK (returns body, `APICalls==1`), write OK is audited (assert `AuditHook` received a `ModeWrite` summary), unknown op → `proxy_denied`, feature-gate `PolicyDenial` → `proxy_denied`, bridge transport failure → `backend_transport_error`, upstream 4xx → `backend_application_error`.
-- [ ] run `go test ./internal/mcp/...` — must pass before Task 5
+- [x] In `internal/mcp/execute.go`, define `CallRequest{OperationID string; Mode proxy.Mode; Intent string; Params, PathParams map[string]json.RawMessage; Body json.RawMessage}` and `CallResult{Status string; Result json.RawMessage; Error string; APICalls int}`.
+- [x] Add `Call(ctx context.Context, req CallRequest) (*CallResult, error)` to the `ExecutionService` interface.
+- [x] Implement `func (s *Service) Call(ctx, req mcp.CallRequest) (*mcp.CallResult, error)` in `executor/service.go`: started/stopped guards; build a fresh proxy (`proxy.NewWithHTTPClient(s.opts.Registry, s.opts.BridgeURL, s.opts.HMACSecret, s.opts.HTTPClient)` + `SetMaxQueryDays`); `RunConfig{Mode: req.Mode, MaxAPICalls: 1, TopicAllowlist: nil}`; stringify params via `paramsToStrings`; call `p.Call(...)`; map via `classifyProxyResult`; set `APICalls` from `p.CallCount()`; `fanOutAudit` a `RunSummary` (so writes are audited identically to `mcp_execute`); return `CallResult`.
+- [x] Update every other `ExecutionService` implementer/fake to satisfy the new method: `fakeExecutionService` in `execute_test.go` (add a `callFn` field + `Call`), and any fakes in `execute_demo_test.go` / `mcp_demo_test.go`. Keep the `var _ mcp.ExecutionService = (*Service)(nil)` assertion compiling.
+- [x] write tests in `executor/service_test.go` for `Service.Call` against an `httptest` bridge: read OK (returns body, `APICalls==1`), write OK is audited (assert `AuditHook` received a `ModeWrite` summary), unknown op → `proxy_denied`, feature-gate `PolicyDenial` → `proxy_denied`, bridge transport failure → `backend_transport_error`, upstream 4xx → `backend_application_error`.
+- [x] run `go test ./internal/mcp/...` — must pass before Task 5
 
 ### Task 5: `mcp_call` tool — handler + registration
 

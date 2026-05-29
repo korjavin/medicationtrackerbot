@@ -611,6 +611,78 @@ func (s *Service) Execute(ctx context.Context, req mcp.ExecutionRequest) (*mcp.E
 	return result, nil
 }
 
+// Call runs a single registry operation directly — the mcp_call path — without
+// spawning a Python sandbox. It reuses the exact policy enforcement Execute
+// relies on: a fresh per-call proxy.Proxy (so call counters never bleed across
+// invocations) with MaxAPICalls: 1, the same MaxQueryDays clamp, the same
+// param stringification, and the shared classifyProxyResult mapping. Writes are
+// audited identically to mcp_execute via fanOutAudit.
+func (s *Service) Call(ctx context.Context, req mcp.CallRequest) (*mcp.CallResult, error) {
+	if s.stopped.Load() {
+		return nil, errors.New("executor: service stopped")
+	}
+	if !s.started.Load() {
+		return nil, errors.New("executor: service not started")
+	}
+
+	runID := newToken(8)
+
+	p := proxy.NewWithHTTPClient(s.opts.Registry, s.opts.BridgeURL, s.opts.HMACSecret, s.opts.HTTPClient)
+	p.SetMaxQueryDays(s.opts.MaxQueryDays)
+
+	cfg := proxy.RunConfig{
+		Mode:           req.Mode,
+		MaxAPICalls:    1,
+		TopicAllowlist: nil,
+	}
+
+	stringParams := paramsToStrings(req.Params)
+	stringPathParams := paramsToStrings(req.PathParams)
+
+	started := time.Now()
+	result, callErr := p.Call(ctx, cfg, req.OperationID, stringParams, stringPathParams, req.Body)
+	duration := time.Since(started)
+	apiCalls := int(p.CallCount())
+
+	outcome := classifyProxyResult(result, callErr)
+
+	res := &mcp.CallResult{
+		Status:   outcome.status,
+		APICalls: apiCalls,
+	}
+	switch outcome.denialKind {
+	case denialNone, denialBackendApp:
+		res.Result = outcome.body
+	default:
+		res.Error = outcome.errMsg
+	}
+
+	slog.Info("[Executor] call completed",
+		"run_id", runID,
+		"operation_id", req.OperationID,
+		"mode", req.Mode,
+		"duration_ms", duration.Milliseconds(),
+		"api_calls", apiCalls,
+		"status", res.Status,
+		"intent_present", req.Intent != "",
+		"intent", truncateIntent(req.Intent),
+		"error", truncateForLog(res.Error, 256),
+	)
+
+	s.fanOutAudit(ctx, RunSummary{
+		RunID:      runID,
+		Mode:       req.Mode,
+		Intent:     req.Intent,
+		DurationMS: duration.Milliseconds(),
+		APICalls:   apiCalls,
+		Status:     res.Status,
+		ExitReason: "single_call",
+		Error:      truncateForLog(res.Error, 256),
+	})
+
+	return res, nil
+}
+
 // logRunCompletion emits the canonical post-run slog entry. Centralizing this
 // means every exit path produces the same structured fields, which keeps log
 // queries consistent.

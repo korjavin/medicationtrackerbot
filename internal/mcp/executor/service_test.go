@@ -1282,3 +1282,197 @@ func TestClassifyProxyResult(t *testing.T) {
 		})
 	}
 }
+
+// --- Service.Call (single-operation / mcp_call path) ---
+
+func TestServiceCall_ReadOK(t *testing.T) {
+	svc, _ := newTestService(t, &fakeSpawner{})
+	res, err := svc.Call(context.Background(), mcp.CallRequest{
+		OperationID: "workouts.groups.list",
+		Mode:        proxy.ModeReadOnly,
+	})
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if res.Status != mcp.ExecuteStatusOK {
+		t.Errorf("status = %q, want %q", res.Status, mcp.ExecuteStatusOK)
+	}
+	if res.APICalls != 1 {
+		t.Errorf("APICalls = %d, want 1", res.APICalls)
+	}
+	if string(res.Result) != `{"groups":[{"id":1,"name":"a"}]}` {
+		t.Errorf("Result = %q, want forwarded backend body", string(res.Result))
+	}
+	if res.Error != "" {
+		t.Errorf("Error = %q, want empty", res.Error)
+	}
+}
+
+func TestServiceCall_WriteOKAudited(t *testing.T) {
+	var got []RunSummary
+	var mu sync.Mutex
+	audit := AuditHookFunc(func(_ context.Context, summary RunSummary) {
+		mu.Lock()
+		got = append(got, summary)
+		mu.Unlock()
+	})
+	svc, _ := newTestServiceWithBridge(t, &fakeSpawner{}, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(proxy.BridgeResponse{Status: 200, Body: json.RawMessage(`{"id":7}`)})
+	}, func(o *Options) { o.Audit = audit })
+
+	res, err := svc.Call(context.Background(), mcp.CallRequest{
+		OperationID: "workouts.sessions.create",
+		Mode:        proxy.ModeWrite,
+		Intent:      "log my session",
+		Body:        json.RawMessage(`{"name":"x"}`),
+	})
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if res.Status != mcp.ExecuteStatusOK {
+		t.Errorf("status = %q, want %q", res.Status, mcp.ExecuteStatusOK)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got) != 1 {
+		t.Fatalf("audit summaries = %d, want 1", len(got))
+	}
+	if got[0].Mode != proxy.ModeWrite {
+		t.Errorf("audit Mode = %q, want %q", got[0].Mode, proxy.ModeWrite)
+	}
+	if got[0].Intent != "log my session" {
+		t.Errorf("audit Intent = %q, want %q", got[0].Intent, "log my session")
+	}
+	if got[0].Status != mcp.ExecuteStatusOK {
+		t.Errorf("audit Status = %q, want %q", got[0].Status, mcp.ExecuteStatusOK)
+	}
+}
+
+func TestServiceCall_ReadNotAudited(t *testing.T) {
+	var count atomic.Int32
+	audit := AuditHookFunc(func(_ context.Context, _ RunSummary) { count.Add(1) })
+	svc, _ := newTestService(t, &fakeSpawner{}, func(o *Options) { o.Audit = audit })
+
+	if _, err := svc.Call(context.Background(), mcp.CallRequest{
+		OperationID: "workouts.groups.list",
+		Mode:        proxy.ModeReadOnly,
+	}); err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if count.Load() != 0 {
+		t.Errorf("read run was audited %d times, want 0 (AuditAllRuns off)", count.Load())
+	}
+}
+
+func TestServiceCall_UnknownOp(t *testing.T) {
+	svc, _ := newTestService(t, &fakeSpawner{})
+	res, err := svc.Call(context.Background(), mcp.CallRequest{
+		OperationID: "does.not.exist",
+		Mode:        proxy.ModeReadOnly,
+	})
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if res.Status != mcp.ExecuteStatusProxyDenied {
+		t.Errorf("status = %q, want %q", res.Status, mcp.ExecuteStatusProxyDenied)
+	}
+	if res.Error == "" {
+		t.Error("Error = empty, want proxy denial detail")
+	}
+}
+
+func TestServiceCall_WriteBlockedInReadOnly(t *testing.T) {
+	svc, _ := newTestService(t, &fakeSpawner{})
+	res, err := svc.Call(context.Background(), mcp.CallRequest{
+		OperationID: "workouts.sessions.create",
+		Mode:        proxy.ModeReadOnly,
+	})
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if res.Status != mcp.ExecuteStatusProxyDenied {
+		t.Errorf("status = %q, want %q", res.Status, mcp.ExecuteStatusProxyDenied)
+	}
+}
+
+func TestServiceCall_PolicyDenial(t *testing.T) {
+	svc, _ := newTestServiceWithBridge(t, &fakeSpawner{}, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(proxy.BridgeResponse{Status: 200, PolicyDenial: "feature_disabled"})
+	})
+	res, err := svc.Call(context.Background(), mcp.CallRequest{
+		OperationID: "workouts.groups.list",
+		Mode:        proxy.ModeReadOnly,
+	})
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if res.Status != mcp.ExecuteStatusProxyDenied {
+		t.Errorf("status = %q, want %q", res.Status, mcp.ExecuteStatusProxyDenied)
+	}
+	if !strings.Contains(res.Error, "feature_disabled") {
+		t.Errorf("Error = %q, want feature_disabled detail", res.Error)
+	}
+}
+
+func TestServiceCall_BridgeTransportFailure(t *testing.T) {
+	svc, _ := newTestServiceWithBridge(t, &fakeSpawner{}, func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "bridge down", http.StatusBadGateway)
+	})
+	res, err := svc.Call(context.Background(), mcp.CallRequest{
+		OperationID: "workouts.groups.list",
+		Mode:        proxy.ModeReadOnly,
+	})
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if res.Status != mcp.ExecuteStatusBackendTransportError {
+		t.Errorf("status = %q, want %q", res.Status, mcp.ExecuteStatusBackendTransportError)
+	}
+}
+
+func TestServiceCall_UpstreamApplicationError(t *testing.T) {
+	svc, _ := newTestServiceWithBridge(t, &fakeSpawner{}, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(proxy.BridgeResponse{Status: 404, Body: json.RawMessage(`{"error":"not found"}`)})
+	})
+	res, err := svc.Call(context.Background(), mcp.CallRequest{
+		OperationID: "workouts.groups.list",
+		Mode:        proxy.ModeReadOnly,
+	})
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if res.Status != mcp.ExecuteStatusBackendAppError {
+		t.Errorf("status = %q, want %q", res.Status, mcp.ExecuteStatusBackendAppError)
+	}
+	if string(res.Result) != `{"error":"not found"}` {
+		t.Errorf("Result = %q, want forwarded error body", string(res.Result))
+	}
+}
+
+func TestServiceCall_StoppedAndNotStarted(t *testing.T) {
+	svc, err := New(Options{
+		Registry:   buildRegistry(t),
+		BridgeURL:  "http://127.0.0.1:1",
+		HMACSecret: "y",
+		Spawner:    &fakeSpawner{},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if _, err := svc.Call(context.Background(), mcp.CallRequest{OperationID: "workouts.groups.list"}); err == nil {
+		t.Error("expected error when not started")
+	}
+	if err := svc.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := svc.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+	if _, err := svc.Call(context.Background(), mcp.CallRequest{OperationID: "workouts.groups.list"}); err == nil {
+		t.Error("expected error when stopped")
+	}
+}

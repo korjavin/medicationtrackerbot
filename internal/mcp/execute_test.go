@@ -12,11 +12,19 @@ import (
 
 // fakeExecutionService is a test double for ExecutionService.
 type fakeExecutionService struct {
-	fn func(ctx context.Context, req ExecutionRequest) (*ExecutionResult, error)
+	fn     func(ctx context.Context, req ExecutionRequest) (*ExecutionResult, error)
+	callFn func(ctx context.Context, req CallRequest) (*CallResult, error)
 }
 
 func (f *fakeExecutionService) Execute(ctx context.Context, req ExecutionRequest) (*ExecutionResult, error) {
 	return f.fn(ctx, req)
+}
+
+func (f *fakeExecutionService) Call(ctx context.Context, req CallRequest) (*CallResult, error) {
+	if f.callFn == nil {
+		return &CallResult{Status: ExecuteStatusOK}, nil
+	}
+	return f.callFn(ctx, req)
 }
 
 // fakeOKExecutor returns a successful result regardless of input.
