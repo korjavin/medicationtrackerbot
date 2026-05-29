@@ -117,11 +117,11 @@ Key design decisions (confirmed with user):
 
 ### Task 7: Verify acceptance criteria
 
-- [ ] Verify Overview goals: `mcp_call` runs a single op end-to-end through proxy→bridge with identical policy; full catalog is terse; topic/operation_id still full; `query` searches and returns compact matches.
-- [ ] `go build ./...` and `go build -tags mobile ./...` (confirm mobile build still compiles — MCP is stripped, so this guards against accidental cross-package breakage).
-- [ ] run full `go test ./...` — all green.
-- [ ] `gofmt -l` clean on touched files; `go vet ./internal/mcp/...` clean.
-- [ ] Confirm no new HTTP route was added (MCP HTTP-coverage guard `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` unaffected) and it still passes.
+- [x] Verify Overview goals: `mcp_call` runs a single op end-to-end through proxy→bridge with identical policy; full catalog is terse; topic/operation_id still full; `query` searches and returns compact matches. (Confirmed by passing call_test.go / help_test.go / registry_test.go / executor service_test.go suites.)
+- [x] `go build ./...` and `go build -tags mobile ./...` (confirm mobile build still compiles — MCP is stripped, so this guards against accidental cross-package breakage). (Both pass.)
+- [x] run full `go test ./...` — all green.
+- [x] `gofmt -l` clean on touched files; `go vet ./internal/mcp/...` clean. (Touched mcp tree clean; two flagged server files are pre-existing and outside this branch's diff.)
+- [x] Confirm no new HTTP route was added (MCP HTTP-coverage guard `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` unaffected) and it still passes.
 
 ## Technical Details
 
