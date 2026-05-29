@@ -349,17 +349,21 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcpServer,
 		&mcp.Tool{
 			Name:        "mcp_help",
-			Description: "List available backend operations for use in mcp_execute scripts. Filter by topic (one of: 'workouts', 'medications', 'food', 'health'; omit or pass 'all' for the full catalog) or pass operation_id (e.g. 'workouts.groups.list') for a single-entry lookup. operation_id takes precedence over topic when both are passed. Each entry includes params/body schema, return shape, and a Python example. Read-only and safe to call before any write.",
+			Description: "Discover backend operations to run with mcp_call (single op) or mcp_execute (multi-step script). The full catalog (omit all args, or pass 'all') is TERSE: id, topic, method, risk, and a one-line description only. Drill in with topic (one of: 'workouts', 'medications', 'food', 'health') or operation_id (e.g. 'workouts.groups.list') to get full params/body schemas + a runnable Python example. Pass query='blood pressure' to keyword-search across id, description, topic, and response shape (returns terse matches). operation_id > query > topic in precedence. Read-only and safe to call before any write.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
 					"topic": {
 						"type": "string",
-						"description": "Domain to filter by (e.g. 'workouts', 'food', 'health'). Omit or pass 'all' for the full catalog."
+						"description": "Domain to filter by (e.g. 'workouts', 'food', 'health'). Returns full detail for that topic. Omit or pass 'all' for the terse full catalog."
 					},
 					"operation_id": {
 						"type": "string",
-						"description": "Exact operation ID for a single-entry lookup (e.g. 'workouts.groups.list'). Takes precedence over topic."
+						"description": "Exact operation ID for a full single-entry lookup (e.g. 'workouts.groups.list'). Highest precedence."
+					},
+					"query": {
+						"type": "string",
+						"description": "Case-insensitive keyword search across operation id, description, topic, and response summary. Returns terse matches; drill in with operation_id for schemas + example."
 					}
 				}
 			}`),

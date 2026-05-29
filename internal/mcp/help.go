@@ -14,18 +14,20 @@ import (
 type HelpInput struct {
 	Topic       string `json:"topic"`
 	OperationID string `json:"operation_id"`
+	Query       string `json:"query"`
 }
 
 // HelpResponse is returned by mcp_help.
 type HelpResponse struct {
-	Operations   []registry.HelpEntry `json:"operations"`
-	Count        int                  `json:"count"`
-	Topics       []string             `json:"topics,omitempty"`
-	Capabilities []TopicCapability    `json:"capabilities,omitempty"`
-	PythonUsage  string               `json:"python_usage,omitempty"`
-	Note         string               `json:"note,omitempty"`
-	NextStep     string               `json:"next_step,omitempty"`
-	NextTools    []string             `json:"next_tools,omitempty"`
+	Operations        []registry.HelpEntry        `json:"operations,omitempty"`
+	CompactOperations []registry.HelpEntryCompact `json:"compact_operations,omitempty"`
+	Count             int                         `json:"count"`
+	Topics            []string                    `json:"topics,omitempty"`
+	Capabilities      []TopicCapability           `json:"capabilities,omitempty"`
+	PythonUsage       string                      `json:"python_usage,omitempty"`
+	Note              string                      `json:"note,omitempty"`
+	NextStep          string                      `json:"next_step,omitempty"`
+	NextTools         []string                    `json:"next_tools,omitempty"`
 }
 
 // TopicCapability is a per-topic summary the agent can scan before drilling
@@ -42,8 +44,8 @@ type TopicCapability struct {
 }
 
 const (
-	defaultNextStep = "Pick a topic (e.g., 'workouts') or lookup an operation by ID to start building a script."
-	defaultNote     = "The full operation catalog is shown below. Use mcp_execute to run any operation. Pass path_params={\"name\": \"value\"} for routes containing {placeholders} (see each operation's path_params field)."
+	defaultNextStep = "Pick a topic (e.g., 'workouts'), look up an operation by ID, or pass query='blood pressure' to keyword-search."
+	defaultNote     = "The full operation catalog is shown below in terse form (id, topic, method, risk, description). Drill in with topic='workouts' or operation_id='workouts.groups.list' for params/body schemas + a runnable example, or pass query='blood pressure' to keyword-search. Run a single operation with mcp_call; compose multiple in an mcp_execute script. Pass path_params={\"name\": \"value\"} for routes containing {placeholders}."
 )
 
 func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest, input HelpInput) (*sdkmcp.CallToolResult, HelpResponse, error) {
@@ -53,8 +55,9 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 
 	topic := strings.ToLower(strings.TrimSpace(input.Topic))
 	opID := strings.ToLower(strings.TrimSpace(input.OperationID))
+	query := strings.TrimSpace(input.Query)
 
-	slog.Info("[MCP] mcp_help called", "topic", topic, "operation_id", opID)
+	slog.Info("[MCP] mcp_help called", "topic", topic, "operation_id", opID, "query", query)
 
 	nextStep := defaultNextStep
 	if suggestion := s.reg.Suggestion(topic); suggestion != "" {
@@ -77,9 +80,30 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 		return nil, HelpResponse{
 			Operations: entries,
 			Count:      1,
-			Note:       fmt.Sprintf("Showing details for operation %q. Use mcp_execute to run the example script.", opID),
-			NextStep:   "Review the operation details and use mcp_execute to run it.",
+			Note:       fmt.Sprintf("Showing full details for operation %q. Run it once with mcp_call, or compose it into a multi-step script with mcp_execute.", opID),
+			NextStep:   "Review the operation details, then run it with mcp_call (one-shot) or mcp_execute (composite).",
 			NextTools:  []string{"mcp_execute"},
+		}, nil
+	}
+
+	// Keyword search: terse matches across id / description / topic / response_summary.
+	if query != "" {
+		ops := s.reg.Search(query)
+		if len(ops) == 0 {
+			return nil, HelpResponse{
+				Count:     0,
+				Topics:    s.reg.Topics(),
+				Note:      fmt.Sprintf("No operations matched query %q.", query),
+				NextStep:  "No matches. Try a broader keyword, browse a topic from the list below, or omit all filters for the full catalog.",
+				NextTools: []string{"mcp_help"},
+			}, nil
+		}
+		return nil, HelpResponse{
+			CompactOperations: registry.MarshalForHelpCompact(ops),
+			Count:             len(ops),
+			Note:              fmt.Sprintf("Showing %d terse match(es) for query %q. Drill in with operation_id= for schemas + a runnable example.", len(ops), query),
+			NextStep:          "Inspect a match with operation_id=, then run it with mcp_call (one-shot) or mcp_execute (composite).",
+			NextTools:         []string{"mcp_help"},
 		}, nil
 	}
 
@@ -87,13 +111,13 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 	if topic == "" || topic == "all" {
 		ops := s.reg.All()
 		return nil, HelpResponse{
-			Operations:   registry.MarshalForHelp(ops),
-			Count:        len(ops),
-			Topics:       s.reg.Topics(),
-			Capabilities: s.buildCapabilities(),
-			Note:         defaultNote,
-			NextStep:     nextStep,
-			NextTools:    []string{"mcp_execute"},
+			CompactOperations: registry.MarshalForHelpCompact(ops),
+			Count:             len(ops),
+			Topics:            s.reg.Topics(),
+			Capabilities:      s.buildCapabilities(),
+			Note:              defaultNote,
+			NextStep:          nextStep,
+			NextTools:         []string{"mcp_execute"},
 		}, nil
 	}
 
@@ -115,7 +139,7 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 	return nil, HelpResponse{
 		Operations: registry.MarshalForHelp(ops),
 		Count:      len(ops),
-		Note:       fmt.Sprintf("Showing %d operation(s) for topic %q. Use mcp_execute to run any of them; supply path_params for routes that contain {placeholders}.", len(ops), topic),
+		Note:       fmt.Sprintf("Showing %d full operation(s) for topic %q (schemas + example). Run one with mcp_call (one-shot) or mcp_execute (composite); supply path_params for routes that contain {placeholders}.", len(ops), topic),
 		NextStep:   nextStep,
 		NextTools:  []string{"mcp_execute"},
 	}, nil

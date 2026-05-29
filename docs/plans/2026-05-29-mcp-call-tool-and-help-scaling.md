@@ -76,12 +76,12 @@ Key design decisions (confirmed with user):
 
 ### Task 2: `mcp_help` — terse catalog, full drill-in, `query` axis
 
-- [ ] In `internal/mcp/help.go`, add `Query string \`json:"query"\`` to `HelpInput`, and `CompactOperations []registry.HelpEntryCompact \`json:"compact_operations,omitempty"\`` to `HelpResponse`.
-- [ ] Update `handleMCPHelp` branching: `operation_id` lookup → full single entry (unchanged); non-empty `query` → `reg.Search(query)` rendered via `MarshalForHelpCompact` into `CompactOperations` (with `Count`, a query-specific `Note`/`NextStep`, `NextTools`); empty topic+query (full catalog) → `MarshalForHelpCompact(reg.All())` into `CompactOperations` + `Topics` + `Capabilities` (no full `Operations`); topic filter → full `Operations` via `MarshalForHelp` (unchanged behavior).
-- [ ] Update `Note`/`NextStep` copy: catalog note tells the agent to drill in with `topic=` or `operation_id=` for schemas+examples, or use `query=` to search; topic/op notes mention `mcp_call` for one-shot and `mcp_execute` for composite.
-- [ ] In `internal/mcp/mcp.go`, update the `mcp_help` `InputSchema` to document the new `query` property, and update the tool `Description` to mention terse catalog + `query` + the existence of `mcp_call`.
-- [ ] write tests in `help_test.go`: full catalog returns `CompactOperations` (assert no schemas/example present) + `Capabilities`; topic filter returns full `Operations` (schemas + example present); `operation_id` returns full single entry; `query` returns compact matches; `query` no-match returns empty with a helpful `NextStep`.
-- [ ] run `go test ./internal/mcp/...` — must pass before Task 3
+- [x] In `internal/mcp/help.go`, add `Query string \`json:"query"\`` to `HelpInput`, and `CompactOperations []registry.HelpEntryCompact \`json:"compact_operations,omitempty"\`` to `HelpResponse`.
+- [x] Update `handleMCPHelp` branching: `operation_id` lookup → full single entry (unchanged); non-empty `query` → `reg.Search(query)` rendered via `MarshalForHelpCompact` into `CompactOperations` (with `Count`, a query-specific `Note`/`NextStep`, `NextTools`); empty topic+query (full catalog) → `MarshalForHelpCompact(reg.All())` into `CompactOperations` + `Topics` + `Capabilities` (no full `Operations`); topic filter → full `Operations` via `MarshalForHelp` (unchanged behavior).
+- [x] Update `Note`/`NextStep` copy: catalog note tells the agent to drill in with `topic=` or `operation_id=` for schemas+examples, or use `query=` to search; topic/op notes mention `mcp_call` for one-shot and `mcp_execute` for composite.
+- [x] In `internal/mcp/mcp.go`, update the `mcp_help` `InputSchema` to document the new `query` property, and update the tool `Description` to mention terse catalog + `query` + the existence of `mcp_call`.
+- [x] write tests in `help_test.go`: full catalog returns `CompactOperations` (assert no schemas/example present) + `Capabilities`; topic filter returns full `Operations` (schemas + example present); `operation_id` returns full single entry; `query` returns compact matches; `query` no-match returns empty with a helpful `NextStep`.
+- [x] run `go test ./internal/mcp/...` — must pass before Task 3
 
 ### Task 3: Executor — extract shared proxy-result classification
 
