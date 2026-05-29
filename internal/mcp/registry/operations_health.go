@@ -320,6 +320,27 @@ output(result)`,
 # per-night sleep phases for the last 30 days:
 output(result["sleep_stats_30d"])`,
 		},
+		{
+			ID:     "health.sleep.list",
+			Topic:  "health",
+			Method: "GET",
+			Path:   "/api/health/sleep",
+			Risk:   RiskRead,
+			ParamsSchema: json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "days":  {"type": "integer", "minimum": 1, "description": "Look back this many days from now (default 90; ignored when 'from' is set; may be capped by MCP_MAX_QUERY_DAYS)"},
+    "from":  {"type": "string", "description": "Lower bound on session start. RFC3339 timestamp or bare YYYY-MM-DD (UTC). Overrides 'days'."},
+    "to":    {"type": "string", "description": "Upper bound on session start. RFC3339 timestamp or bare YYYY-MM-DD (UTC)."},
+    "limit": {"type": "integer", "minimum": 1, "maximum": 5000, "description": "Cap rows returned (newest first)."}
+  }
+}`),
+			Description:     "List raw device-imported sleep sessions, newest first, each with full phase breakdown (light/deep/REM/awake minutes), total minutes, turn-over count, and HR/SpO2 averages. This is the detailed, range-queryable sleep source — use it (NOT health.notes.*) for sleep-recovery / phase analysis, and prefer it over health.overview when you need a window other than the trailing 7/30 days (e.g. a past trip). Provide an explicit from/to range or a days look-back. This replaces the older get_sleep_logs endpoint.",
+			ResponseSummary: "JSON array of sleep sessions: {id, user_id, start_time, end_time, timezone_offset, day (YYYY-MM-DD), light_minutes, deep_minutes, rem_minutes, awake_minutes, total_minutes, turn_over_count, heart_rate_avg, spo2_avg, user_modified, notes, created_at}. Phase/HR fields are omitted when the device did not report them.",
+			Example: `# Sleep during a trip, by explicit date range:
+result = api.call("health.sleep.list", params={"from": "2026-04-29", "to": "2026-05-13"})
+output(result)`,
+		},
 
 		// --- Diary notes (covers sleep, vitals, steps via tag) ---
 		{

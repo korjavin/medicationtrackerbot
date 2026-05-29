@@ -189,3 +189,65 @@ func TestHandleGetHealthOverview_30dVs7dAverages(t *testing.T) {
 		t.Errorf("Expected 30d avg 70, got %v", resp.AverageHeartRate30d)
 	}
 }
+
+func TestHandleListSleepLogs_RangeAndDefault(t *testing.T) {
+	srv, db := createHealthTestServer(t)
+	defer db.Close()
+
+	ctx := ctxWithUser(123456)
+	userID := int64(123456)
+	now := time.Now().UTC()
+
+	mk := func(daysAgo int, total int) store.SleepLog {
+		start := now.AddDate(0, 0, -daysAgo)
+		return store.SleepLog{
+			StartTime:      start,
+			EndTime:        start.Add(8 * time.Hour),
+			TimezoneOffset: 0,
+			Day:            start.Format("2006-01-02"),
+			TotalMinutes:   &total,
+		}
+	}
+	// One recent night, one ~45 days back (beyond the overview's 30d window).
+	if _, _, err := db.Vitals.ImportSleepLogs(ctx, userID, []store.SleepLog{mk(2, 470), mk(45, 400)}); err != nil {
+		t.Fatalf("ImportSleepLogs: %v", err)
+	}
+
+	get := func(qs string) []store.SleepLog {
+		t.Helper()
+		req := httptest.NewRequest("GET", "/api/health/sleep"+qs, nil)
+		req = withUser(req, userID)
+		w := httptest.NewRecorder()
+		srv.handleListSleepLogs(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("Expected 200, got %d. Body: %s", w.Code, w.Body.String())
+		}
+		var out []store.SleepLog
+		if err := json.NewDecoder(w.Body).Decode(&out); err != nil {
+			t.Fatalf("Decode error: %v", err)
+		}
+		return out
+	}
+
+	// Default (90d) reaches the 45-day-old night that overview would miss.
+	if got := get(""); len(got) != 2 {
+		t.Errorf("default window: expected 2 sleep logs, got %d", len(got))
+	}
+
+	// days=7 should exclude the 45-day-old night.
+	if got := get("?days=7"); len(got) != 1 {
+		t.Errorf("days=7: expected 1 sleep log, got %d", len(got))
+	}
+
+	// Explicit from/to bracketing only the old night.
+	from := now.AddDate(0, 0, -50).Format("2006-01-02")
+	to := now.AddDate(0, 0, -40).Format("2006-01-02")
+	if got := get("?from=" + from + "&to=" + to); len(got) != 1 {
+		t.Errorf("from/to range: expected 1 sleep log, got %d", len(got))
+	}
+
+	// limit caps the result set.
+	if got := get("?limit=1"); len(got) != 1 {
+		t.Errorf("limit=1: expected 1 sleep log, got %d", len(got))
+	}
+}

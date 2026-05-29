@@ -28,8 +28,8 @@
 | GET | `/api/food/search` | Search Open Food Facts |
 | GET | `/api/food/targets` | Nutrition targets |
 | POST | `/api/food/targets` | Set nutrition targets |
-| GET | `/api/sleep` | Sleep logs |
-| POST | `/api/sleep` | Log sleep |
+| GET | `/api/health/overview` | Aggregate 7d/30d dashboard: per-night sleep phases (`sleep_stats_*`), HR/SpO2/stress histories, step aggregates, and averages. Fixed trailing window. (MCP op `health.overview`.) |
+| GET | `/api/health/sleep` | Raw device-imported sleep sessions with phase breakdown (light/deep/REM/awake) + HR/SpO2 averages. Range-queryable via `days` / `from` / `to` / `limit` — use for windows beyond the overview's 30 days. (MCP op `health.sleep.list`.) |
 | GET | `/api/notes` | List diary notes (each row includes `tag` — one of `SLEEP \| STRESS \| HR \| SPO2 \| STEPS \| NOTE`, or omitted when NULL) |
 | POST | `/api/notes` | Create diary note (accepts `{content, tag?}`; invalid tags are sanitized to NULL and returned in the `201` response, not rejected) |
 | DELETE | `/api/notes/{id}` | Delete diary note |

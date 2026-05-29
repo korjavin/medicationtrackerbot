@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store"
@@ -330,4 +331,79 @@ func (s *Server) handleGetHealthOverview(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// parseSleepBound parses an RFC3339 timestamp or a bare YYYY-MM-DD date (interpreted
+// as 00:00 UTC). Returns the zero time and false when the value is empty/unparseable.
+func parseSleepBound(s string) (time.Time, bool) {
+	if s == "" {
+		return time.Time{}, false
+	}
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t.UTC(), true
+	}
+	if t, err := time.Parse("2006-01-02", s); err == nil {
+		return t.UTC(), true
+	}
+	return time.Time{}, false
+}
+
+// handleListSleepLogs returns raw device-imported sleep sessions (with per-night
+// phase breakdowns and HR/SpO2 averages) over an arbitrary window. Unlike
+// health.overview — which is fixed to the trailing 7/30-day dashboard window —
+// this endpoint accepts an explicit from/to range (or a days look-back) so
+// retrospective analysis can reach further back than 30 days.
+func (s *Server) handleListSleepLogs(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+	ctx := r.Context()
+	q := r.URL.Query()
+
+	// Lower bound. Priority: explicit `from`, then `days` look-back, else 90d default.
+	var since time.Time
+	if from, ok := parseSleepBound(q.Get("from")); ok {
+		since = from
+	} else {
+		days := 90
+		if dStr := q.Get("days"); dStr != "" {
+			if d, err := strconv.Atoi(dStr); err == nil && d > 0 {
+				days = d
+			}
+		}
+		since = time.Now().AddDate(0, 0, -days)
+	}
+
+	// Optional upper bound on session start.
+	until, hasUntil := parseSleepBound(q.Get("to"))
+
+	limit := 0
+	if lStr := q.Get("limit"); lStr != "" {
+		if l, err := strconv.Atoi(lStr); err == nil && l > 0 && l <= 5000 {
+			limit = l
+		}
+	}
+
+	logs, err := s.health.ListSleepLogs(ctx, userID, since)
+	if err != nil {
+		slog.Error("list sleep logs", "error", err, "user", userID)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// ListSleepLogs returns newest-first; apply the upper bound and limit here
+	// since the store method only constrains the lower bound.
+	out := make([]store.SleepLog, 0, len(logs))
+	for _, l := range logs {
+		if hasUntil && l.StartTime.After(until) {
+			continue
+		}
+		out = append(out, l)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(out); err != nil {
+		slog.Error("encode sleep logs response", "error", err)
+	}
 }
