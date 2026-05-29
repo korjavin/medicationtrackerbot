@@ -261,13 +261,20 @@ func (s *Server) executorMaxAPICalls() int {
 // matches the HTTP demoRateLimitMiddleware response so the voice agent /
 // frontend can recognise either flavour.
 func demoRateLimitResult(retryAfterSeconds int) *sdkmcp.CallToolResult {
+	return demoRateLimitResultFor("mcp_execute", retryAfterSeconds)
+}
+
+// demoRateLimitResultFor is the limit-name-parameterized form. mcp_call reuses
+// it with limit="mcp_call" so the rate-limit body identifies which tool was
+// throttled while keeping the same shape clients already recognise.
+func demoRateLimitResultFor(limit string, retryAfterSeconds int) *sdkmcp.CallToolResult {
 	body, err := json.Marshal(map[string]any{
 		"error":               "demo_rate_limit",
-		"limit":               "mcp_execute",
+		"limit":               limit,
 		"retry_after_seconds": retryAfterSeconds,
 	})
 	if err != nil {
-		body = []byte(`{"error":"demo_rate_limit","limit":"mcp_execute"}`)
+		body = []byte(`{"error":"demo_rate_limit","limit":"` + limit + `"}`)
 	}
 	return &sdkmcp.CallToolResult{
 		IsError: true,

@@ -82,7 +82,7 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 			Count:      1,
 			Note:       fmt.Sprintf("Showing full details for operation %q. Run it once with mcp_call, or compose it into a multi-step script with mcp_execute.", opID),
 			NextStep:   "Review the operation details, then run it with mcp_call (one-shot) or mcp_execute (composite).",
-			NextTools:  []string{"mcp_execute"},
+			NextTools:  []string{"mcp_call", "mcp_execute"},
 		}, nil
 	}
 
@@ -103,7 +103,7 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 			Count:             len(ops),
 			Note:              fmt.Sprintf("Showing %d terse match(es) for query %q. Drill in with operation_id= for schemas + a runnable example.", len(ops), query),
 			NextStep:          "Inspect a match with operation_id=, then run it with mcp_call (one-shot) or mcp_execute (composite).",
-			NextTools:         []string{"mcp_help"},
+			NextTools:         []string{"mcp_help", "mcp_call"},
 		}, nil
 	}
 
@@ -117,7 +117,7 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 			Capabilities:      s.buildCapabilities(),
 			Note:              defaultNote,
 			NextStep:          nextStep,
-			NextTools:         []string{"mcp_execute"},
+			NextTools:         []string{"mcp_call", "mcp_execute"},
 		}, nil
 	}
 
@@ -141,7 +141,7 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 		Count:      len(ops),
 		Note:       fmt.Sprintf("Showing %d full operation(s) for topic %q (schemas + example). Run one with mcp_call (one-shot) or mcp_execute (composite); supply path_params for routes that contain {placeholders}.", len(ops), topic),
 		NextStep:   nextStep,
-		NextTools:  []string{"mcp_execute"},
+		NextTools:  []string{"mcp_call", "mcp_execute"},
 	}, nil
 }
 

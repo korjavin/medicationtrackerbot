@@ -249,8 +249,8 @@ func TestMCPHelp_GoalOrientedFields(t *testing.T) {
 			if !strings.Contains(resp.NextStep, tc.wantNextStep) {
 				t.Errorf("NextStep mismatch for topic %q:\nwant: %s\ngot:  %s", tc.topic, tc.wantNextStep, resp.NextStep)
 			}
-			if len(resp.NextTools) == 0 || resp.NextTools[0] != "mcp_execute" {
-				t.Errorf("NextTools mismatch for topic %q: expected [mcp_execute], got %v", tc.topic, resp.NextTools)
+			if len(resp.NextTools) == 0 || resp.NextTools[0] != "mcp_call" {
+				t.Errorf("NextTools mismatch for topic %q: expected mcp_call first, got %v", tc.topic, resp.NextTools)
 			}
 		})
 	}

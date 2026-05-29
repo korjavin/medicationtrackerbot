@@ -101,13 +101,13 @@ Key design decisions (confirmed with user):
 
 ### Task 5: `mcp_call` tool — handler + registration
 
-- [ ] Create `internal/mcp/call.go` with `CallInput{OperationID string \`json:"operation_id"\`; Params map[string]json.RawMessage \`json:"params"\`; PathParams map[string]json.RawMessage \`json:"path_params"\`; Body json.RawMessage \`json:"body"\`; Mode string \`json:"mode"\`; Intent string \`json:"intent"\`}` and `CallResponse{Status string; Result any; Error string; APICalls int}`.
-- [ ] Implement `handleMCPCall`: demo per-IP rate limit (reuse `s.demoLimiter` + `clientIPFromExtra`, mirroring `handleMCPExecute`); require non-empty `operation_id`; default `mode` to `read_only` and validate it's `read_only`/`write`; require non-empty `intent` when `mode==write`; error if `s.executor == nil`; log a structured line (`operation_id`, `mode`, `has_intent`, `truncateIntentForAudit`); build `mcp.CallRequest`; call `s.executor.Call(ctx, req)`; unmarshal `Result` JSON into `any`; return `CallResponse`.
-- [ ] In `internal/mcp/mcp.go` `registerTools()`, register `mcp_call` via `mcp.AddTool(...)` with an `InputSchema` (required `operation_id`; optional `params`/`path_params`/`body`/`mode`/`intent`) and a `Description` steering the agent: "Run ONE backend operation directly — use this for single reads/writes; use mcp_execute only for multi-step scripts. Discover operations via mcp_help. Writes need mode='write' + intent."
-- [ ] Update `mcp_help` steering (`NextTools`) and the `mcp_execute` tool `Description` to reference `mcp_call` as the one-shot path.
-- [ ] Update any test asserting the registered tool set (e.g. `tools_test.go` / `mcp_test.go`) to include `mcp_call`.
-- [ ] write tests in new `internal/mcp/call_test.go` (use a `fakeExecutionService` with a `callFn`): read OK, write + intent OK, write missing intent → error, empty `operation_id` → error, `executor == nil` → error, proxy-denied status passthrough, demo rate-limit path returns `demo_rate_limit`.
-- [ ] run `go test ./internal/mcp/...` — must pass before Task 6
+- [x] Create `internal/mcp/call.go` with `CallInput{OperationID string \`json:"operation_id"\`; Params map[string]json.RawMessage \`json:"params"\`; PathParams map[string]json.RawMessage \`json:"path_params"\`; Body json.RawMessage \`json:"body"\`; Mode string \`json:"mode"\`; Intent string \`json:"intent"\`}` and `CallResponse{Status string; Result any; Error string; APICalls int}`.
+- [x] Implement `handleMCPCall`: demo per-IP rate limit (reuse `s.demoLimiter` + `clientIPFromExtra`, mirroring `handleMCPExecute`); require non-empty `operation_id`; default `mode` to `read_only` and validate it's `read_only`/`write`; require non-empty `intent` when `mode==write`; error if `s.executor == nil`; log a structured line (`operation_id`, `mode`, `has_intent`, `truncateIntentForAudit`); build `mcp.CallRequest`; call `s.executor.Call(ctx, req)`; unmarshal `Result` JSON into `any`; return `CallResponse`.
+- [x] In `internal/mcp/mcp.go` `registerTools()`, register `mcp_call` via `mcp.AddTool(...)` with an `InputSchema` (required `operation_id`; optional `params`/`path_params`/`body`/`mode`/`intent`) and a `Description` steering the agent: "Run ONE backend operation directly — use this for single reads/writes; use mcp_execute only for multi-step scripts. Discover operations via mcp_help. Writes need mode='write' + intent."
+- [x] Update `mcp_help` steering (`NextTools`) and the `mcp_execute` tool `Description` to reference `mcp_call` as the one-shot path.
+- [x] Update any test asserting the registered tool set (e.g. `tools_test.go` / `mcp_test.go`) to include `mcp_call`. (No tool-set assertion test exists; updated the `help_test.go` `NextTools` assertion to expect `mcp_call` first.)
+- [x] write tests in new `internal/mcp/call_test.go` (use a `fakeExecutionService` with a `callFn`): read OK, write + intent OK, write missing intent → error, empty `operation_id` → error, `executor == nil` → error, proxy-denied status passthrough, demo rate-limit path returns `demo_rate_limit`.
+- [x] run `go test ./internal/mcp/...` — must pass before Task 6
 
 ### Task 6: Documentation
 
