@@ -4,9 +4,21 @@ import "encoding/json"
 
 // HealthOperations returns BP, weight, and diary-note operations.
 //
-// Sleep, vitals (HR, SPO2), and steps are not separate REST endpoints; they are
-// recorded as diary notes with a tag (SLEEP, HR, SPO2, STEPS, STRESS, NOTE).
-// `health.notes.list` and `health.notes.create` cover all of those paths.
+// Sleep, heart rate, SpO2, stress, and steps come from TWO distinct sources —
+// do not confuse them:
+//
+//   - Device-imported time series (wearable / Mi Band): per-night sleep with
+//     light/deep/REM/awake phases + efficiency, continuous HR/SpO2/stress
+//     samples, and daily step aggregates. These are READ via `health.overview`
+//     (fields sleep_stats_7d/30d, heart_rate_history_*, spo2_history_*,
+//     stress_history_*, step_stats_*, average_*). This is the source for any
+//     "sleep recovery / phase breakdown / vitals trend" analysis.
+//   - Manual diary notes tagged SLEEP/HR/SPO2/STEPS/STRESS/NOTE: free-text
+//     journaling, written/read via `health.notes.create` / `health.notes.list`.
+//     These are NOT the wearable time series and are usually sparse.
+//
+// If you are looking for structured sleep phases or vitals trends, use
+// `health.overview`, NOT `health.notes.list`.
 func HealthOperations() []*Operation {
 	return []*Operation{
 		// --- Blood pressure ---
@@ -302,9 +314,31 @@ output(result)`,
 			Method:          "GET",
 			Path:            "/api/health/overview",
 			Risk:            RiskRead,
-			Description:     "Aggregate dashboard read: recent BP/weight summaries plus medication adherence over a default window. Useful for a single-call \"how am I doing\" snapshot.",
-			ResponseSummary: "Aggregate object with bp summary, weight summary, medication adherence stats.",
+			Description:     "Aggregate dashboard read over a 7d/30d window. THIS IS THE SOURCE FOR DEVICE-IMPORTED SLEEP AND VITALS. Returns per-night sleep with phase breakdown (light/deep/REM/awake minutes + avg heart rate), continuous heart-rate / SpO2 / stress histories, and daily step aggregates — plus their 7d/30d averages. Use this for any sleep-recovery, sleep-phase, or vitals-trend analysis (it replaces the older get_sleep_logs endpoint). For manual sleep journaling instead, see health.notes.*.",
+			ResponseSummary: "Object with sleep_stats_7d/sleep_stats_30d (per-night {date, light_mins, deep_mins, rem_mins, awake_mins, total_mins, heart_rate_avg}), average_sleep_hours_7d/30d, heart_rate_history_7d/30d, spo2_history_7d/30d, stress_history_7d/30d (each [{timestamp, min, max, avg}]), step_stats_7d/30d, and average_heart_rate/spo2/stress/steps_7d/30d.",
 			Example: `result = api.call("health.overview")
+# per-night sleep phases for the last 30 days:
+output(result["sleep_stats_30d"])`,
+		},
+		{
+			ID:     "health.sleep.list",
+			Topic:  "health",
+			Method: "GET",
+			Path:   "/api/health/sleep",
+			Risk:   RiskRead,
+			ParamsSchema: json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "days":  {"type": "integer", "minimum": 1, "description": "Look back this many days from now (default 90; ignored when 'from' is set; may be capped by MCP_MAX_QUERY_DAYS)"},
+    "from":  {"type": "string", "description": "Lower bound on session start. RFC3339 timestamp or bare YYYY-MM-DD (UTC). Overrides 'days'."},
+    "to":    {"type": "string", "description": "Upper bound on session start. RFC3339 timestamp or bare YYYY-MM-DD (UTC)."},
+    "limit": {"type": "integer", "minimum": 1, "maximum": 5000, "description": "Cap rows returned (newest first)."}
+  }
+}`),
+			Description:     "List raw device-imported sleep sessions, newest first, each with full phase breakdown (light/deep/REM/awake minutes), total minutes, turn-over count, and HR/SpO2 averages. This is the detailed, range-queryable sleep source — use it (NOT health.notes.*) for sleep-recovery / phase analysis, and prefer it over health.overview when you need a window other than the trailing 7/30 days (e.g. a past trip). Provide an explicit from/to range or a days look-back. This replaces the older get_sleep_logs endpoint.",
+			ResponseSummary: "JSON array of sleep sessions: {id, user_id, start_time, end_time, timezone_offset, day (YYYY-MM-DD), light_minutes, deep_minutes, rem_minutes, awake_minutes, total_minutes, turn_over_count, heart_rate_avg, spo2_avg, user_modified, notes, created_at}. Phase/HR fields are omitted when the device did not report them.",
+			Example: `# Sleep during a trip, by explicit date range:
+result = api.call("health.sleep.list", params={"from": "2026-04-29", "to": "2026-05-13"})
 output(result)`,
 		},
 
@@ -323,7 +357,7 @@ output(result)`,
     "before_id": {"type": "integer", "description": "Pagination cursor: only notes with id < this value"}
   }
 }`),
-			Description:     "List diary notes (newest first). Each row carries an optional tag identifying its category: SLEEP, STRESS, HR, SPO2, STEPS, NOTE. Use this to read sleep/vitals/steps history.",
+			Description:     "List MANUAL diary notes (newest first). Each row carries an optional tag: SLEEP, STRESS, HR, SPO2, STEPS, NOTE. NOTE: this returns hand-written journal entries only, NOT device-imported data. For structured sleep phases or wearable HR/SpO2/stress/step time series, use health.overview instead.",
 			ResponseSummary: "JSON array of notes with id, content, tag, created_at.",
 			Example: `result = api.call("health.notes.list", params={"limit": 100})
 sleep_notes = [n for n in result if n.get("tag") == "SLEEP"]
@@ -359,7 +393,7 @@ output({"deleted": 11})`,
     }
   }
 }`),
-			Description:     "Create a diary note, optionally tagged. Tag values: SLEEP = sleep log entry; HR / SPO2 = single-sample vitals (heart rate / oxygen saturation, encode the number in content); STEPS = step counts; STRESS = stress / mood entry; NOTE = explicit category for general journaling. Pass null (or omit tag) for an untagged free-form note. Empty/invalid tag values are silently coerced to null.",
+			Description:     "Create a MANUAL diary note, optionally tagged. Tag values: SLEEP = a hand-written sleep journal entry (NOT the device-imported per-night phase data — that lives in health.overview); HR / SPO2 = single-sample vitals (heart rate / oxygen saturation, encode the number in content); STEPS = step counts; STRESS = stress / mood entry; NOTE = explicit category for general journaling. Pass null (or omit tag) for an untagged free-form note. Empty/invalid tag values are silently coerced to null.",
 			ResponseSummary: "DiaryNote object with id, content, tag, created_at (HTTP 201).",
 			Example: `result = api.call(
     "health.notes.create",

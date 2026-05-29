@@ -90,7 +90,7 @@ func New() *Registry {
 		suggestions: map[string]string{
 			"workouts":    "List the available workout groups to see what you can track. Use mcp_execute with the create/update/delete ops to edit groups, variants, exercises, and exercise libraries.",
 			"food":        "Before logging a meal, call food.products.search (or food.products.frequent) to find a matching saved product and reuse its product_id in food.log.create — this keeps the user's history consistent. Only invent a new name when nothing matches; the server will upsert it into the user's catalog automatically.",
-			"health":      "List vital logs (weight, blood pressure) to see your progress. Use mcp_execute with health.bp.create / health.weight.create / health.notes.create to add new readings or sleep / vitals notes.",
+			"health":      "List vital logs (weight, blood pressure) to see your progress. For device-imported sleep (with light/deep/REM phases), heart rate, SpO2, stress, and steps, call health.overview — that is the source for sleep-recovery and vitals-trend analysis. Use mcp_execute with health.bp.create / health.weight.create to add readings, or health.notes.create for manual sleep / vitals journal notes.",
 			"medications": "List your medication schedule to see what is due or check specific medication details. Use mcp_execute to add new medications (medications.create), update or archive them (medications.update with archived=true), restock, and snooze / skip / confirm intakes.",
 		},
 	}

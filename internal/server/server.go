@@ -944,6 +944,7 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/tz-plan/{id}/reject", s.handleTZPlanReject)
 	apiMux.HandleFunc("POST /api/tz-suggestion/dismiss", s.handleTZSuggestionDismiss)
 	apiMux.HandleFunc("GET /api/health/overview", s.handleGetHealthOverview)
+	apiMux.HandleFunc("GET /api/health/sleep", s.handleListSleepLogs)
 	// ElevenLabs conversational agent. The per-IP daily budget gates conversation
 	// starts (signed-url); uploads have their own looser per-IP daily cap
 	// (AgentUploadsPerDay) so a single demo session can attach multiple photos
