@@ -145,7 +145,7 @@ Any new dose-like timestamp column (one that participates in SQL equality — de
 
 ### Adding an MCP tool
 
-For most new backend capabilities, prefer adding an entry to the operation registry (`internal/mcp/registry/`) so it becomes reachable from `mcp_execute` Python scripts via the proxy → bridge path — no new MCP tool registration required. Only add a top-level MCP tool when a granular tool has a clear standalone use case (e.g., `workout_log`'s natural-language inference). See [docs/mcp-deployment.md](docs/mcp-deployment.md#adding-mcp-tools), [docs/mcp-python-executor.md](docs/mcp-python-executor.md), and [docs/mcp-coverage.md](docs/mcp-coverage.md).
+For most new backend capabilities, prefer adding an entry to the operation registry (`internal/mcp/registry/`) so it becomes reachable from the discover-then-run surface — `mcp_help` (discover), `mcp_call` (one-shot single read/write, no script), and `mcp_execute` (multi-step Python scripts) — via the proxy → bridge path, with no new MCP tool registration required. Only add a top-level MCP tool when a granular tool has a clear standalone use case (e.g., `workout_log`'s natural-language inference). See [docs/mcp-deployment.md](docs/mcp-deployment.md#adding-mcp-tools), [docs/mcp-python-executor.md](docs/mcp-python-executor.md), and [docs/mcp-coverage.md](docs/mcp-coverage.md).
 
 ### Adding a new HTTP route
 

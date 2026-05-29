@@ -111,9 +111,9 @@ Key design decisions (confirmed with user):
 
 ### Task 6: Documentation
 
-- [ ] Update `docs/mcp-python-executor.md` (and/or `docs/mcp-deployment.md`) to document `mcp_call` (single-op, no script) and the new `mcp_help` terse-catalog + `query` behavior; show the discover → `mcp_call` / `mcp_execute` decision.
-- [ ] Update the "Adding an MCP tool" section of `CLAUDE.md` only if the tool-count/surface description needs it (the two-tool framing becomes three).
-- [ ] run `go test ./internal/mcp/...` — must pass before Task 7
+- [x] Update `docs/mcp-python-executor.md` (and/or `docs/mcp-deployment.md`) to document `mcp_call` (single-op, no script) and the new `mcp_help` terse-catalog + `query` behavior; show the discover → `mcp_call` / `mcp_execute` decision.
+- [x] Update the "Adding an MCP tool" section of `CLAUDE.md` only if the tool-count/surface description needs it (the two-tool framing becomes three).
+- [x] run `go test ./internal/mcp/...` — must pass before Task 7
 
 ### Task 7: Verify acceptance criteria
 

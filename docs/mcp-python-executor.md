@@ -2,10 +2,13 @@
 
 ## Decision
 
-Add a new MCP execution path based on two small tools:
+Add a new MCP execution path based on three small tools:
 
-- `mcp_help`: returns a compact catalog of allowed backend API operations and usage guidance for the Python helper package.
-- `mcp_execute`: accepts a Python script, runs it in a sandboxed execution environment, and returns the script's structured output.
+- `mcp_help`: discovers allowed backend API operations and returns usage guidance. The full catalog is **terse** (id, topic, method, risk, one-line description); drilling in by `topic` or `operation_id` returns full param/body schemas + a runnable example; a `query` keyword search returns terse matches. See *Scaling `mcp_help`* below.
+- `mcp_call`: runs **one** registry operation directly in Go — no Python subprocess — for the common single-read/single-write case. It reuses the exact same policy enforcement scripts get (mode/risk blocking, topic clamps, feature gates, path substitution, the bridge, audit fan-out). See *Single-operation tool (`mcp_call`)* below.
+- `mcp_execute`: accepts a Python script, runs it in a sandboxed execution environment, and returns the script's structured output. Reserved for **multi-step** work (loops, joining several operations, computed values).
+
+The intended flow is **discover → run**: `mcp_help` to find operations, then `mcp_call` for a one-shot read/write or `mcp_execute` for a composite script.
 
 Python is the orchestration language, but it is not the authority boundary. Scripts must not receive the real user token, session cookie, backend URL, or unrestricted network access. Scripts call the app through a narrow helper:
 
@@ -51,16 +54,24 @@ Rejected for the new execution path. Existing read tools can continue to query S
 
 ```text
 MCP client
-  -> mcp_help(topic?)
-  -> mcp_execute(script, mode, limits)
+  -> mcp_help(topic? | operation_id? | query?)      # discover (terse catalog / full drill-in / search)
+  -> mcp_call(operation_id, params, mode, intent)   # one-shot single op (Go, no subprocess)
        -> MCP server
-            -> execution service
+            -> execution service (Call: fresh proxy, MaxAPICalls=1)
+                 -> local API proxy
+                      -> allowlisted backend operation registry
+                           -> bridge -> main app backend/domain services
+  -> mcp_execute(script, mode, limits)              # multi-step composite
+       -> MCP server
+            -> execution service (Execute)
                  -> Python runner container
                       -> medtracker helper package
                            -> local API proxy
                                 -> allowlisted backend operation registry
                                      -> main app backend/domain services
 ```
+
+`mcp_call` and `mcp_execute` share one execution service, one proxy, one operation registry, one bridge, and one audit fan-out. The only difference is that `mcp_call` builds a fresh proxy with `MaxAPICalls: 1` and runs the single operation in Go, while `mcp_execute` hands the proxy to a sandboxed Python interpreter that may issue many calls. Outcome classification (proxy denial, transport error, policy denial, backend 4xx/5xx, ok) goes through the same shared `classifyProxyResult` helper, so the two paths cannot diverge on status semantics.
 
 ## Non-Negotiable Constraints
 
@@ -153,13 +164,26 @@ Expected behavior:
 
 ## MCP Tool Behavior
 
-`mcp_help` should support:
+`mcp_help` supports three discovery axes (precedence: `operation_id` > `query` > `topic`):
 
-- `topic`: optional domain filter such as `workouts`, `food`, `health`, `medications`, or `all`.
-- `operation_id`: optional exact operation lookup.
-- compact examples showing `from medtracker import api, output`.
+- **Full catalog** (omit all args, or `topic="all"`): returns `compact_operations` — one terse entry per operation (id, topic, method, risk, description), plus `topics` and per-topic `capabilities`. No schemas or examples, so the menu stays cheap as the registry grows.
+- `topic`: domain filter such as `workouts`, `food`, `health`, `medications`. Returns full `operations` (decoded param/body schemas + a runnable example showing `from medtracker import api, output`).
+- `operation_id`: exact operation lookup. Returns the full single entry.
+- `query`: case-insensitive keyword search across operation id, description, topic, and response summary. Returns terse `compact_operations` matches; drill in with `operation_id` for schemas + example.
 
-`mcp_execute` should support:
+Every response carries `note` / `next_step` / `next_tools` steering the agent toward `mcp_call` (one-shot) or `mcp_execute` (composite).
+
+`mcp_call` supports:
+
+- `operation_id`: required; the single registry operation to run.
+- `params` / `path_params`: optional JSON objects. Scalar values are coerced to the bridge's string form via the same `paramsToStrings` path scripts use, so numbers/bools behave identically.
+- `body`: optional raw JSON request body for operations that take one.
+- `mode`: `read_only` by default, `write` for mutations.
+- `intent`: required for `mode: "write"`; recorded in the audit trail and fanned out to the same audit buffer write scripts use.
+
+`mcp_call` returns `{status, result, error, api_calls}`. `status` reuses the executor taxonomy: `ok`, `proxy_denied`, `backend_application_error`, `backend_transport_error`, plus `demo_rate_limit`. It can never return `timeout`, `sandbox_startup_failure`, or `script_error` — there is no script or subprocess.
+
+`mcp_execute` supports:
 
 - `script`: Python source code.
 - `mode`: `read_only` by default, `write` for mutating workflows.
@@ -209,6 +233,8 @@ The first runner implementation should use a long-lived execution service rather
 ## Success Criteria
 
 - A complex workflow that previously needed many MCP calls can be completed with one `mcp_execute` call.
+- A single read or write costs one `mcp_call` — no script authoring, no sandbox spawn, no `output()`-exactly-once footgun — while going through the identical policy + audit path as a script.
+- The full `mcp_help` catalog stays terse as the registry grows; full schemas + examples are one drill-in away, and `query` finds operations by keyword.
 - The script can pass data between API calls without exposing user authority.
 - Backend domain logic remains in the main app.
 - The proxy audit trail is clear enough to debug what the agent did.
