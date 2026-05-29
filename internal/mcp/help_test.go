@@ -28,11 +28,82 @@ func TestMCPHelp_FullCatalog(t *testing.T) {
 	if resp.Count == 0 {
 		t.Error("expected at least one operation")
 	}
-	if len(resp.Operations) != resp.Count {
-		t.Errorf("operations length %d != count %d", len(resp.Operations), resp.Count)
+	// The full catalog is terse: ops are returned via CompactOperations, not the
+	// schema-bearing Operations slice.
+	if len(resp.Operations) != 0 {
+		t.Errorf("full catalog should not return full Operations, got %d", len(resp.Operations))
+	}
+	if len(resp.CompactOperations) != resp.Count {
+		t.Errorf("compact_operations length %d != count %d", len(resp.CompactOperations), resp.Count)
 	}
 	if len(resp.Topics) == 0 {
 		t.Error("expected topics list in full catalog response")
+	}
+}
+
+// TestMCPHelp_FullCatalogIsTerse verifies the terse-catalog contract: compact
+// entries carry the five scan fields and nothing heavier (no schemas, no
+// example, no path), so the landing call stays token-light.
+func TestMCPHelp_FullCatalogIsTerse(t *testing.T) {
+	s := testServerWithRegistry(t)
+	resp, err := callHelp(t, s, HelpInput{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.CompactOperations) == 0 {
+		t.Fatal("expected compact operations in full catalog")
+	}
+	for _, op := range resp.CompactOperations {
+		if op.ID == "" || op.Topic == "" || op.Method == "" || op.Risk == "" {
+			t.Errorf("compact entry missing scan fields: %+v", op)
+		}
+	}
+	if len(resp.Capabilities) == 0 {
+		t.Error("expected capabilities in full catalog response")
+	}
+}
+
+// TestMCPHelp_QuerySearch covers the keyword-search axis: a query returns terse
+// matches (no schemas/example) drawn from the registry's Search.
+func TestMCPHelp_QuerySearch(t *testing.T) {
+	s := testServerWithRegistry(t)
+	resp, err := callHelp(t, s, HelpInput{Query: "blood pressure"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Count == 0 || len(resp.CompactOperations) == 0 {
+		t.Fatal("expected query matches for 'blood pressure'")
+	}
+	if len(resp.Operations) != 0 {
+		t.Errorf("query results should be terse, got %d full operations", len(resp.Operations))
+	}
+	if len(resp.CompactOperations) != resp.Count {
+		t.Errorf("compact_operations length %d != count %d", len(resp.CompactOperations), resp.Count)
+	}
+	// Every match should genuinely relate to blood pressure (bp topic/id).
+	for _, op := range resp.CompactOperations {
+		if !strings.Contains(op.ID, "bp") && !strings.Contains(strings.ToLower(op.Description), "blood pressure") {
+			t.Errorf("unexpected match for 'blood pressure': %s", op.ID)
+		}
+	}
+}
+
+// TestMCPHelp_QueryNoMatch verifies an unmatched query returns an empty,
+// helpful response rather than an error.
+func TestMCPHelp_QueryNoMatch(t *testing.T) {
+	s := testServerWithRegistry(t)
+	resp, err := callHelp(t, s, HelpInput{Query: "zzz-no-such-operation"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Count != 0 {
+		t.Errorf("expected zero matches, got %d", resp.Count)
+	}
+	if len(resp.CompactOperations) != 0 {
+		t.Errorf("expected no compact operations, got %d", len(resp.CompactOperations))
+	}
+	if resp.NextStep == "" {
+		t.Error("expected a helpful NextStep for a no-match query")
 	}
 }
 
@@ -178,8 +249,8 @@ func TestMCPHelp_GoalOrientedFields(t *testing.T) {
 			if !strings.Contains(resp.NextStep, tc.wantNextStep) {
 				t.Errorf("NextStep mismatch for topic %q:\nwant: %s\ngot:  %s", tc.topic, tc.wantNextStep, resp.NextStep)
 			}
-			if len(resp.NextTools) == 0 || resp.NextTools[0] != "mcp_execute" {
-				t.Errorf("NextTools mismatch for topic %q: expected [mcp_execute], got %v", tc.topic, resp.NextTools)
+			if len(resp.NextTools) == 0 || resp.NextTools[0] != "mcp_call" {
+				t.Errorf("NextTools mismatch for topic %q: expected mcp_call first, got %v", tc.topic, resp.NextTools)
 			}
 		})
 	}

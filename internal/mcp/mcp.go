@@ -349,17 +349,21 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcpServer,
 		&mcp.Tool{
 			Name:        "mcp_help",
-			Description: "List available backend operations for use in mcp_execute scripts. Filter by topic (one of: 'workouts', 'medications', 'food', 'health'; omit or pass 'all' for the full catalog) or pass operation_id (e.g. 'workouts.groups.list') for a single-entry lookup. operation_id takes precedence over topic when both are passed. Each entry includes params/body schema, return shape, and a Python example. Read-only and safe to call before any write.",
+			Description: "Discover backend operations to run with mcp_call (single op) or mcp_execute (multi-step script). The full catalog (omit all args, or pass 'all') is TERSE: id, topic, method, risk, and a one-line description only. Drill in with topic (one of: 'workouts', 'medications', 'food', 'health') or operation_id (e.g. 'workouts.groups.list') to get full params/body schemas + a runnable Python example. Pass query='blood pressure' to keyword-search across id, description, topic, and response shape (returns terse matches). operation_id > query > topic in precedence. Read-only and safe to call before any write.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
 					"topic": {
 						"type": "string",
-						"description": "Domain to filter by (e.g. 'workouts', 'food', 'health'). Omit or pass 'all' for the full catalog."
+						"description": "Domain to filter by (e.g. 'workouts', 'food', 'health'). Returns full detail for that topic. Omit or pass 'all' for the terse full catalog."
 					},
 					"operation_id": {
 						"type": "string",
-						"description": "Exact operation ID for a single-entry lookup (e.g. 'workouts.groups.list'). Takes precedence over topic."
+						"description": "Exact operation ID for a full single-entry lookup (e.g. 'workouts.groups.list'). Highest precedence."
+					},
+					"query": {
+						"type": "string",
+						"description": "Case-insensitive keyword search across operation id, description, topic, and response summary. Returns terse matches; drill in with operation_id for schemas + example."
 					}
 				}
 			}`),
@@ -371,7 +375,7 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcpServer,
 		&mcp.Tool{
 			Name:        "mcp_execute",
-			Description: "Run a sandboxed Python script against backend APIs. The script MUST call output(value) exactly once — calling it zero times or more than once aborts the run. Discover operations via mcp_help BEFORE writing the script. For writes, pass mode='write' AND a non-empty intent (a one-sentence human-readable summary of what the script will change, e.g. 'Archive medication Lisinopril'). topic_allowlist (optional) restricts which operation topics the script may access; an empty list means all topics are allowed. Timestamps inside scripts use the user's stored timezone unless an operation accepts an explicit tz/tz_offset. Returns {status, result, error, api_calls, stdout, stderr}.",
+			Description: "Run a sandboxed Python script against backend APIs — use this ONLY for multi-step work (loops, joining several operations, computed values). For a single read or write, prefer mcp_call (no script, no subprocess). The script MUST call output(value) exactly once — calling it zero times or more than once aborts the run. Discover operations via mcp_help BEFORE writing the script. For writes, pass mode='write' AND a non-empty intent (a one-sentence human-readable summary of what the script will change, e.g. 'Archive medication Lisinopril'). topic_allowlist (optional) restricts which operation topics the script may access; an empty list means all topics are allowed. Timestamps inside scripts use the user's stored timezone unless an operation accepts an explicit tz/tz_offset. Returns {status, result, error, api_calls, stdout, stderr}.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"required": ["script"],
@@ -406,6 +410,45 @@ func (s *Server) registerTools() {
 			}`),
 		},
 		s.handleMCPExecute,
+	)
+
+	// mcp_call: run ONE backend operation directly (no Python subprocess)
+	mcp.AddTool(s.mcpServer,
+		&mcp.Tool{
+			Name:        "mcp_call",
+			Description: "Run ONE backend operation directly — use this for single reads/writes (e.g. 'list my blood pressure', 'archive a medication'). Use mcp_execute only when you need a multi-step script (loops, joining several operations, computed values). Discover operations and their schemas via mcp_help first. Pass operation_id plus params/path_params/body as needed. Writes require mode='write' AND a non-empty intent (a one-sentence human-readable summary of the change). Returns {status, result, error, api_calls}; status is one of ok/proxy_denied/backend_application_error/backend_transport_error.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"required": ["operation_id"],
+				"properties": {
+					"operation_id": {
+						"type": "string",
+						"description": "Exact operation ID to run (e.g. 'workouts.groups.list'). Discover IDs via mcp_help."
+					},
+					"params": {
+						"type": "object",
+						"description": "Query/body parameters keyed by name. Values may be any JSON scalar; they are coerced to the bridge's string form."
+					},
+					"path_params": {
+						"type": "object",
+						"description": "Values for {placeholders} in the operation's route (e.g. {\"id\": 42}). Required only for path-templated operations."
+					},
+					"body": {
+						"description": "Raw JSON request body for operations that take one. Omit for simple reads."
+					},
+					"mode": {
+						"type": "string",
+						"enum": ["read_only", "write"],
+						"description": "Execution mode. Defaults to 'read_only'. Write operations require mode='write' and a non-empty intent."
+					},
+					"intent": {
+						"type": "string",
+						"description": "Required when mode='write'. One short human-readable sentence describing the change (e.g. 'Archive medication Lisinopril'). Recorded in the audit trail."
+					}
+				}
+			}`),
+		},
+		s.handleMCPCall,
 	)
 
 	if s.config.NoLegacyMCP {

@@ -611,6 +611,78 @@ func (s *Service) Execute(ctx context.Context, req mcp.ExecutionRequest) (*mcp.E
 	return result, nil
 }
 
+// Call runs a single registry operation directly — the mcp_call path — without
+// spawning a Python sandbox. It reuses the exact policy enforcement Execute
+// relies on: a fresh per-call proxy.Proxy (so call counters never bleed across
+// invocations) with MaxAPICalls: 1, the same MaxQueryDays clamp, the same
+// param stringification, and the shared classifyProxyResult mapping. Writes are
+// audited identically to mcp_execute via fanOutAudit.
+func (s *Service) Call(ctx context.Context, req mcp.CallRequest) (*mcp.CallResult, error) {
+	if s.stopped.Load() {
+		return nil, errors.New("executor: service stopped")
+	}
+	if !s.started.Load() {
+		return nil, errors.New("executor: service not started")
+	}
+
+	runID := newToken(8)
+
+	p := proxy.NewWithHTTPClient(s.opts.Registry, s.opts.BridgeURL, s.opts.HMACSecret, s.opts.HTTPClient)
+	p.SetMaxQueryDays(s.opts.MaxQueryDays)
+
+	cfg := proxy.RunConfig{
+		Mode:           req.Mode,
+		MaxAPICalls:    1,
+		TopicAllowlist: nil,
+	}
+
+	stringParams := paramsToStrings(req.Params)
+	stringPathParams := paramsToStrings(req.PathParams)
+
+	started := time.Now()
+	result, callErr := p.Call(ctx, cfg, req.OperationID, stringParams, stringPathParams, req.Body)
+	duration := time.Since(started)
+	apiCalls := int(p.CallCount())
+
+	outcome := classifyProxyResult(result, callErr)
+
+	res := &mcp.CallResult{
+		Status:   outcome.status,
+		APICalls: apiCalls,
+	}
+	switch outcome.denialKind {
+	case denialNone, denialBackendApp:
+		res.Result = outcome.body
+	default:
+		res.Error = outcome.errMsg
+	}
+
+	slog.Info("[Executor] call completed",
+		"run_id", runID,
+		"operation_id", req.OperationID,
+		"mode", req.Mode,
+		"duration_ms", duration.Milliseconds(),
+		"api_calls", apiCalls,
+		"status", res.Status,
+		"intent_present", req.Intent != "",
+		"intent", truncateIntent(req.Intent),
+		"error", truncateForLog(res.Error, 256),
+	)
+
+	s.fanOutAudit(ctx, RunSummary{
+		RunID:      runID,
+		Mode:       req.Mode,
+		Intent:     req.Intent,
+		DurationMS: duration.Milliseconds(),
+		APICalls:   apiCalls,
+		Status:     res.Status,
+		ExitReason: "single_call",
+		Error:      truncateForLog(res.Error, 256),
+	})
+
+	return res, nil
+}
+
 // logRunCompletion emits the canonical post-run slog entry. Centralizing this
 // means every exit path produces the same structured fields, which keeps log
 // queries consistent.
@@ -811,6 +883,68 @@ func (s *Service) handleCall(w http.ResponseWriter, r *http.Request) {
 	stringPathParams := paramsToStrings(req.PathParams)
 
 	result, callErr := rs.p.Call(r.Context(), rs.cfg, req.OperationID, stringParams, stringPathParams, req.Body)
+	outcome := classifyProxyResult(result, callErr)
+
+	// Bump the per-run outcome counter the classification selected so the
+	// final run status (computed in deriveRunStatus) reflects what actually
+	// happened during the run.
+	switch outcome.denialKind {
+	case denialProxy:
+		rs.proxyDenials.Add(1)
+	case denialBackendTransport:
+		rs.backendTransport.Add(1)
+	case denialBackendApp:
+		rs.backendAppErrors.Add(1)
+	}
+
+	if outcome.outcomeHeader != "" {
+		w.Header().Set("X-MCP-Outcome", outcome.outcomeHeader)
+	}
+
+	switch outcome.denialKind {
+	case denialNone, denialBackendApp:
+		// Success or upstream application error: forward the backend body
+		// verbatim with its (possibly clamped) status so the script-side
+		// helper can classify ok vs BackendError from the HTTP status.
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(outcome.httpStatus)
+		if _, err := w.Write(outcome.body); err != nil {
+			slog.Error("[Executor] write response", "error", err)
+		}
+	default:
+		http.Error(w, outcome.errMsg, outcome.httpStatus)
+	}
+}
+
+// denialKind enumerates the run-counter class a proxy result maps to. It both
+// selects which atomic counter handleCall bumps and lets Service.Call reuse the
+// same classification without depending on a *runState.
+const (
+	denialNone             = ""                          // success (HTTP body forwarded)
+	denialProxy            = "proxy_denied"              // registry/policy rejection
+	denialBackendApp       = "backend_application_error" // upstream returned >= 400
+	denialBackendTransport = "backend_transport_error"   // bridge/transport failure
+)
+
+// callOutcome is the pure classification of a proxy call result: which run
+// counter to bump, the HTTP status + body/error text handleCall should emit,
+// the X-MCP-Outcome header value, and the stable mcp.ExecuteStatus* string the
+// single-op (mcp_call) path returns.
+type callOutcome struct {
+	status        string // mcp.ExecuteStatus*
+	httpStatus    int
+	body          []byte // backend body to forward (denialNone / denialBackendApp only)
+	outcomeHeader string // X-MCP-Outcome value; "" means don't set the header
+	errMsg        string // http.Error text for the non-body (error) paths
+	denialKind    string // one of the denial* constants above
+}
+
+// classifyProxyResult maps a proxy.Call outcome to a callOutcome. It is the
+// single source of truth shared by the script loopback handler (handleCall) and
+// the single-operation path (Service.Call), so the two cannot diverge in how
+// they translate proxy/bridge results into statuses. It is pure: no run state,
+// no I/O.
+func classifyProxyResult(result *proxy.CallResult, callErr error) callOutcome {
 	if callErr != nil {
 		var ce *proxy.CallError
 		if errors.As(callErr, &ce) {
@@ -818,18 +952,24 @@ func (s *Service) handleCall(w http.ResponseWriter, r *http.Request) {
 			// allowed, max calls). The X-MCP-Outcome header marks this as a
 			// proxy denial so the helper can raise ProxyDenied; backend 4xx
 			// responses lack the header and surface as BackendError instead.
-			rs.proxyDenials.Add(1)
-			w.Header().Set("X-MCP-Outcome", "proxy_denied")
-			http.Error(w, ce.Code+": "+ce.Message, http.StatusForbidden)
-			return
+			return callOutcome{
+				status:        mcp.ExecuteStatusProxyDenied,
+				httpStatus:    http.StatusForbidden,
+				outcomeHeader: "proxy_denied",
+				errMsg:        ce.Code + ": " + ce.Message,
+				denialKind:    denialProxy,
+			}
 		}
 		// Transport error talking to the bridge — script-side helper raises
 		// BackendTransportError so callers can distinguish bot/bridge outages
 		// from legitimate upstream 5xx responses.
-		rs.backendTransport.Add(1)
-		w.Header().Set("X-MCP-Outcome", "backend_transport_error")
-		http.Error(w, "bridge transport error: "+callErr.Error(), http.StatusBadGateway)
-		return
+		return callOutcome{
+			status:        mcp.ExecuteStatusBackendTransportError,
+			httpStatus:    http.StatusBadGateway,
+			outcomeHeader: "backend_transport_error",
+			errMsg:        "bridge transport error: " + callErr.Error(),
+			denialKind:    denialBackendTransport,
+		}
 	}
 	if result.Response == nil {
 		// Bridge replied with non-200; preserve the bridge status when it's
@@ -842,10 +982,13 @@ func (s *Service) handleCall(w http.ResponseWriter, r *http.Request) {
 		if statusCode < 400 || statusCode >= 600 {
 			statusCode = http.StatusBadGateway
 		}
-		rs.backendTransport.Add(1)
-		w.Header().Set("X-MCP-Outcome", "backend_transport_error")
-		http.Error(w, result.Trace.Error, statusCode)
-		return
+		return callOutcome{
+			status:        mcp.ExecuteStatusBackendTransportError,
+			httpStatus:    statusCode,
+			outcomeHeader: "backend_transport_error",
+			errMsg:        result.Trace.Error,
+			denialKind:    denialBackendTransport,
+		}
 	}
 
 	// PolicyDenial is set by the bridge when it refuses a call before reaching
@@ -853,10 +996,13 @@ func (s *Service) handleCall(w http.ResponseWriter, r *http.Request) {
 	// rejection so the script-side helper raises ProxyDenied, not BackendError
 	// or BackendTransportError.
 	if result.Response.PolicyDenial != "" {
-		rs.proxyDenials.Add(1)
-		w.Header().Set("X-MCP-Outcome", "proxy_denied")
-		http.Error(w, "policy denied: "+result.Response.PolicyDenial, http.StatusForbidden)
-		return
+		return callOutcome{
+			status:        mcp.ExecuteStatusProxyDenied,
+			httpStatus:    http.StatusForbidden,
+			outcomeHeader: "proxy_denied",
+			errMsg:        "policy denied: " + result.Response.PolicyDenial,
+			denialKind:    denialProxy,
+		}
 	}
 
 	// The bridge truncates upstream bodies that exceed its per-call cap. The
@@ -866,10 +1012,13 @@ func (s *Service) handleCall(w http.ResponseWriter, r *http.Request) {
 	// a dedicated header so the helper raises BackendResponseTruncated and
 	// the script does not act on partial data.
 	if result.Response.Truncated {
-		rs.backendTransport.Add(1)
-		w.Header().Set("X-MCP-Outcome", "backend_response_truncated")
-		http.Error(w, "backend response exceeded the per-call size cap and was truncated", http.StatusBadGateway)
-		return
+		return callOutcome{
+			status:        mcp.ExecuteStatusBackendTransportError,
+			httpStatus:    http.StatusBadGateway,
+			outcomeHeader: "backend_response_truncated",
+			errMsg:        "backend response exceeded the per-call size cap and was truncated",
+			denialKind:    denialBackendTransport,
+		}
 	}
 
 	// Propagate the upstream backend status so the script's helper raises
@@ -884,12 +1033,18 @@ func (s *Service) handleCall(w http.ResponseWriter, r *http.Request) {
 		// medtracker.exceptions.BackendError. Track so the executor can
 		// distinguish a real backend error from a script that fabricates
 		// the same exception class without any backend contact.
-		rs.backendAppErrors.Add(1)
+		return callOutcome{
+			status:     mcp.ExecuteStatusBackendAppError,
+			httpStatus: statusCode,
+			body:       result.Response.Body,
+			denialKind: denialBackendApp,
+		}
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-	if _, err := w.Write(result.Response.Body); err != nil {
-		slog.Error("[Executor] write response", "error", err)
+	return callOutcome{
+		status:     mcp.ExecuteStatusOK,
+		httpStatus: statusCode,
+		body:       result.Response.Body,
+		denialKind: denialNone,
 	}
 }
 

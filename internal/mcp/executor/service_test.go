@@ -1147,3 +1147,332 @@ func TestStart_DisableListener_NoBind(t *testing.T) {
 		t.Errorf("expected healthy with disabled listener, got %v", err)
 	}
 }
+
+// TestClassifyProxyResult covers every branch of the pure classifier shared by
+// the script loopback handler and the single-operation (mcp_call) path. Asserts
+// the stable status string, HTTP status, denial kind (which run counter is
+// bumped), and the X-MCP-Outcome header value per branch.
+func TestClassifyProxyResult(t *testing.T) {
+	tests := []struct {
+		name          string
+		result        *proxy.CallResult
+		callErr       error
+		wantStatus    string
+		wantHTTP      int
+		wantDenial    string
+		wantHeader    string
+		wantBody      string // empty means body must be nil
+		wantErrSubstr string // substring expected in errMsg (error paths)
+	}{
+		{
+			name:          "proxy CallError -> proxy_denied",
+			callErr:       &proxy.CallError{Code: "write_blocked", Message: "writes not allowed"},
+			wantStatus:    mcp.ExecuteStatusProxyDenied,
+			wantHTTP:      http.StatusForbidden,
+			wantDenial:    denialProxy,
+			wantHeader:    "proxy_denied",
+			wantErrSubstr: "write_blocked: writes not allowed",
+		},
+		{
+			name:          "transport error -> backend_transport_error",
+			callErr:       errors.New("dial tcp: connection refused"),
+			wantStatus:    mcp.ExecuteStatusBackendTransportError,
+			wantHTTP:      http.StatusBadGateway,
+			wantDenial:    denialBackendTransport,
+			wantHeader:    "backend_transport_error",
+			wantErrSubstr: "bridge transport error: dial tcp",
+		},
+		{
+			name:          "nil response with usable trace status -> transport, preserve status",
+			result:        &proxy.CallResult{Trace: proxy.CallTrace{Status: 401, Error: "bad hmac"}},
+			wantStatus:    mcp.ExecuteStatusBackendTransportError,
+			wantHTTP:      401,
+			wantDenial:    denialBackendTransport,
+			wantHeader:    "backend_transport_error",
+			wantErrSubstr: "bad hmac",
+		},
+		{
+			name:       "nil response with out-of-range trace status -> 502",
+			result:     &proxy.CallResult{Trace: proxy.CallTrace{Status: 0, Error: "bridge failed"}},
+			wantStatus: mcp.ExecuteStatusBackendTransportError,
+			wantHTTP:   http.StatusBadGateway,
+			wantDenial: denialBackendTransport,
+			wantHeader: "backend_transport_error",
+		},
+		{
+			name:          "policy denial -> proxy_denied",
+			result:        &proxy.CallResult{Response: &proxy.BridgeResponse{PolicyDenial: "feature_disabled"}},
+			wantStatus:    mcp.ExecuteStatusProxyDenied,
+			wantHTTP:      http.StatusForbidden,
+			wantDenial:    denialProxy,
+			wantHeader:    "proxy_denied",
+			wantErrSubstr: "policy denied: feature_disabled",
+		},
+		{
+			name:       "truncated -> backend_transport_error with dedicated header",
+			result:     &proxy.CallResult{Response: &proxy.BridgeResponse{Status: 200, Truncated: true, Body: json.RawMessage(`"partial"`)}},
+			wantStatus: mcp.ExecuteStatusBackendTransportError,
+			wantHTTP:   http.StatusBadGateway,
+			wantDenial: denialBackendTransport,
+			wantHeader: "backend_response_truncated",
+		},
+		{
+			name:       "upstream 4xx -> backend_application_error, forwards body",
+			result:     &proxy.CallResult{Response: &proxy.BridgeResponse{Status: 404, Body: json.RawMessage(`{"error":"not found"}`)}},
+			wantStatus: mcp.ExecuteStatusBackendAppError,
+			wantHTTP:   404,
+			wantDenial: denialBackendApp,
+			wantHeader: "",
+			wantBody:   `{"error":"not found"}`,
+		},
+		{
+			name:       "upstream 5xx -> backend_application_error, forwards body",
+			result:     &proxy.CallResult{Response: &proxy.BridgeResponse{Status: 503, Body: json.RawMessage(`{"error":"down"}`)}},
+			wantStatus: mcp.ExecuteStatusBackendAppError,
+			wantHTTP:   503,
+			wantDenial: denialBackendApp,
+			wantHeader: "",
+			wantBody:   `{"error":"down"}`,
+		},
+		{
+			name:       "ok -> forwards body with status",
+			result:     &proxy.CallResult{Response: &proxy.BridgeResponse{Status: 200, Body: json.RawMessage(`{"ok":true}`)}},
+			wantStatus: mcp.ExecuteStatusOK,
+			wantHTTP:   200,
+			wantDenial: denialNone,
+			wantHeader: "",
+			wantBody:   `{"ok":true}`,
+		},
+		{
+			name:       "ok with out-of-range status clamps to 200",
+			result:     &proxy.CallResult{Response: &proxy.BridgeResponse{Status: 0, Body: json.RawMessage(`[]`)}},
+			wantStatus: mcp.ExecuteStatusOK,
+			wantHTTP:   200,
+			wantDenial: denialNone,
+			wantHeader: "",
+			wantBody:   `[]`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := classifyProxyResult(tc.result, tc.callErr)
+			if got.status != tc.wantStatus {
+				t.Errorf("status = %q, want %q", got.status, tc.wantStatus)
+			}
+			if got.httpStatus != tc.wantHTTP {
+				t.Errorf("httpStatus = %d, want %d", got.httpStatus, tc.wantHTTP)
+			}
+			if got.denialKind != tc.wantDenial {
+				t.Errorf("denialKind = %q, want %q", got.denialKind, tc.wantDenial)
+			}
+			if got.outcomeHeader != tc.wantHeader {
+				t.Errorf("outcomeHeader = %q, want %q", got.outcomeHeader, tc.wantHeader)
+			}
+			if tc.wantBody == "" {
+				if got.body != nil {
+					t.Errorf("body = %q, want nil", string(got.body))
+				}
+			} else if string(got.body) != tc.wantBody {
+				t.Errorf("body = %q, want %q", string(got.body), tc.wantBody)
+			}
+			if tc.wantErrSubstr != "" && !strings.Contains(got.errMsg, tc.wantErrSubstr) {
+				t.Errorf("errMsg = %q, want substring %q", got.errMsg, tc.wantErrSubstr)
+			}
+		})
+	}
+}
+
+// --- Service.Call (single-operation / mcp_call path) ---
+
+func TestServiceCall_ReadOK(t *testing.T) {
+	svc, _ := newTestService(t, &fakeSpawner{})
+	res, err := svc.Call(context.Background(), mcp.CallRequest{
+		OperationID: "workouts.groups.list",
+		Mode:        proxy.ModeReadOnly,
+	})
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if res.Status != mcp.ExecuteStatusOK {
+		t.Errorf("status = %q, want %q", res.Status, mcp.ExecuteStatusOK)
+	}
+	if res.APICalls != 1 {
+		t.Errorf("APICalls = %d, want 1", res.APICalls)
+	}
+	if string(res.Result) != `{"groups":[{"id":1,"name":"a"}]}` {
+		t.Errorf("Result = %q, want forwarded backend body", string(res.Result))
+	}
+	if res.Error != "" {
+		t.Errorf("Error = %q, want empty", res.Error)
+	}
+}
+
+func TestServiceCall_WriteOKAudited(t *testing.T) {
+	var got []RunSummary
+	var mu sync.Mutex
+	audit := AuditHookFunc(func(_ context.Context, summary RunSummary) {
+		mu.Lock()
+		got = append(got, summary)
+		mu.Unlock()
+	})
+	svc, _ := newTestServiceWithBridge(t, &fakeSpawner{}, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(proxy.BridgeResponse{Status: 200, Body: json.RawMessage(`{"id":7}`)})
+	}, func(o *Options) { o.Audit = audit })
+
+	res, err := svc.Call(context.Background(), mcp.CallRequest{
+		OperationID: "workouts.sessions.create",
+		Mode:        proxy.ModeWrite,
+		Intent:      "log my session",
+		Body:        json.RawMessage(`{"name":"x"}`),
+	})
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if res.Status != mcp.ExecuteStatusOK {
+		t.Errorf("status = %q, want %q", res.Status, mcp.ExecuteStatusOK)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got) != 1 {
+		t.Fatalf("audit summaries = %d, want 1", len(got))
+	}
+	if got[0].Mode != proxy.ModeWrite {
+		t.Errorf("audit Mode = %q, want %q", got[0].Mode, proxy.ModeWrite)
+	}
+	if got[0].Intent != "log my session" {
+		t.Errorf("audit Intent = %q, want %q", got[0].Intent, "log my session")
+	}
+	if got[0].Status != mcp.ExecuteStatusOK {
+		t.Errorf("audit Status = %q, want %q", got[0].Status, mcp.ExecuteStatusOK)
+	}
+}
+
+func TestServiceCall_ReadNotAudited(t *testing.T) {
+	var count atomic.Int32
+	audit := AuditHookFunc(func(_ context.Context, _ RunSummary) { count.Add(1) })
+	svc, _ := newTestService(t, &fakeSpawner{}, func(o *Options) { o.Audit = audit })
+
+	if _, err := svc.Call(context.Background(), mcp.CallRequest{
+		OperationID: "workouts.groups.list",
+		Mode:        proxy.ModeReadOnly,
+	}); err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if count.Load() != 0 {
+		t.Errorf("read run was audited %d times, want 0 (AuditAllRuns off)", count.Load())
+	}
+}
+
+func TestServiceCall_UnknownOp(t *testing.T) {
+	svc, _ := newTestService(t, &fakeSpawner{})
+	res, err := svc.Call(context.Background(), mcp.CallRequest{
+		OperationID: "does.not.exist",
+		Mode:        proxy.ModeReadOnly,
+	})
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if res.Status != mcp.ExecuteStatusProxyDenied {
+		t.Errorf("status = %q, want %q", res.Status, mcp.ExecuteStatusProxyDenied)
+	}
+	if res.Error == "" {
+		t.Error("Error = empty, want proxy denial detail")
+	}
+}
+
+func TestServiceCall_WriteBlockedInReadOnly(t *testing.T) {
+	svc, _ := newTestService(t, &fakeSpawner{})
+	res, err := svc.Call(context.Background(), mcp.CallRequest{
+		OperationID: "workouts.sessions.create",
+		Mode:        proxy.ModeReadOnly,
+	})
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if res.Status != mcp.ExecuteStatusProxyDenied {
+		t.Errorf("status = %q, want %q", res.Status, mcp.ExecuteStatusProxyDenied)
+	}
+}
+
+func TestServiceCall_PolicyDenial(t *testing.T) {
+	svc, _ := newTestServiceWithBridge(t, &fakeSpawner{}, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(proxy.BridgeResponse{Status: 200, PolicyDenial: "feature_disabled"})
+	})
+	res, err := svc.Call(context.Background(), mcp.CallRequest{
+		OperationID: "workouts.groups.list",
+		Mode:        proxy.ModeReadOnly,
+	})
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if res.Status != mcp.ExecuteStatusProxyDenied {
+		t.Errorf("status = %q, want %q", res.Status, mcp.ExecuteStatusProxyDenied)
+	}
+	if !strings.Contains(res.Error, "feature_disabled") {
+		t.Errorf("Error = %q, want feature_disabled detail", res.Error)
+	}
+}
+
+func TestServiceCall_BridgeTransportFailure(t *testing.T) {
+	svc, _ := newTestServiceWithBridge(t, &fakeSpawner{}, func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "bridge down", http.StatusBadGateway)
+	})
+	res, err := svc.Call(context.Background(), mcp.CallRequest{
+		OperationID: "workouts.groups.list",
+		Mode:        proxy.ModeReadOnly,
+	})
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if res.Status != mcp.ExecuteStatusBackendTransportError {
+		t.Errorf("status = %q, want %q", res.Status, mcp.ExecuteStatusBackendTransportError)
+	}
+}
+
+func TestServiceCall_UpstreamApplicationError(t *testing.T) {
+	svc, _ := newTestServiceWithBridge(t, &fakeSpawner{}, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(proxy.BridgeResponse{Status: 404, Body: json.RawMessage(`{"error":"not found"}`)})
+	})
+	res, err := svc.Call(context.Background(), mcp.CallRequest{
+		OperationID: "workouts.groups.list",
+		Mode:        proxy.ModeReadOnly,
+	})
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if res.Status != mcp.ExecuteStatusBackendAppError {
+		t.Errorf("status = %q, want %q", res.Status, mcp.ExecuteStatusBackendAppError)
+	}
+	if string(res.Result) != `{"error":"not found"}` {
+		t.Errorf("Result = %q, want forwarded error body", string(res.Result))
+	}
+}
+
+func TestServiceCall_StoppedAndNotStarted(t *testing.T) {
+	svc, err := New(Options{
+		Registry:   buildRegistry(t),
+		BridgeURL:  "http://127.0.0.1:1",
+		HMACSecret: "y",
+		Spawner:    &fakeSpawner{},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if _, err := svc.Call(context.Background(), mcp.CallRequest{OperationID: "workouts.groups.list"}); err == nil {
+		t.Error("expected error when not started")
+	}
+	if err := svc.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := svc.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+	if _, err := svc.Call(context.Background(), mcp.CallRequest{OperationID: "workouts.groups.list"}); err == nil {
+		t.Error("expected error when stopped")
+	}
+}

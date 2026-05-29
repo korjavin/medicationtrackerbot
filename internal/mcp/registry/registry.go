@@ -73,6 +73,18 @@ type HelpEntry struct {
 	Example         string   `json:"example,omitempty"`
 }
 
+// HelpEntryCompact is the terse catalog representation returned by
+// MarshalForHelpCompact. It carries only the fields needed to scan the full
+// operation catalog cheaply; the agent drills into a topic or operation_id (or
+// uses query search) to obtain the full HelpEntry with schemas + example.
+type HelpEntryCompact struct {
+	ID          string `json:"id"`
+	Topic       string `json:"topic"`
+	Method      string `json:"method"`
+	Risk        Risk   `json:"risk"`
+	Description string `json:"description"`
+}
+
 // Registry holds the complete set of allowed operations.
 type Registry struct {
 	mu          sync.RWMutex
@@ -88,10 +100,10 @@ func New() *Registry {
 		operations: make(map[string]*Operation),
 		byTopic:    make(map[string][]*Operation),
 		suggestions: map[string]string{
-			"workouts":    "List the available workout groups to see what you can track. Use mcp_execute with the create/update/delete ops to edit groups, variants, exercises, and exercise libraries.",
-			"food":        "Before logging a meal, call food.products.search (or food.products.frequent) to find a matching saved product and reuse its product_id in food.log.create — this keeps the user's history consistent. Only invent a new name when nothing matches; the server will upsert it into the user's catalog automatically.",
-			"health":      "List vital logs (weight, blood pressure) to see your progress. For device-imported sleep (with light/deep/REM phases), heart rate, SpO2, stress, and steps, call health.overview — that is the source for sleep-recovery and vitals-trend analysis. Use mcp_execute with health.bp.create / health.weight.create to add readings, or health.notes.create for manual sleep / vitals journal notes.",
-			"medications": "List your medication schedule to see what is due or check specific medication details. Use mcp_execute to add new medications (medications.create), update or archive them (medications.update with archived=true), restock, and snooze / skip / confirm intakes.",
+			"workouts":    "List the available workout groups to see what you can track. Run a single create/update/delete op with mcp_call; chain several edits (groups, variants, exercises, exercise libraries) in one mcp_execute script.",
+			"food":        "Before logging a meal, call food.products.search (or food.products.frequent) to find a matching saved product and reuse its product_id in food.log.create — this keeps the user's history consistent. Run a single op with mcp_call, or compose search + log into one mcp_execute script. Only invent a new name when nothing matches; the server will upsert it into the user's catalog automatically.",
+			"health":      "List vital logs (weight, blood pressure) to see your progress. For device-imported sleep (with light/deep/REM phases), heart rate, SpO2, stress, and steps, call health.overview — that is the source for sleep-recovery and vitals-trend analysis. Run a single health.bp.create / health.weight.create / health.notes.create with mcp_call; batch multiple readings or sleep / vitals notes in one mcp_execute script.",
+			"medications": "List your medication schedule to see what is due or check specific medication details. Run a single op with mcp_call — add a medication (medications.create), update or archive one (medications.update with archived=true), restock, or snooze / skip / confirm an intake — and use mcp_execute to chain several of these in one script.",
 		},
 	}
 }
@@ -284,6 +296,50 @@ func MarshalForHelp(ops []*Operation) []HelpEntry {
 		})
 	}
 	return entries
+}
+
+// MarshalForHelpCompact returns a terse catalog entry per operation: only ID,
+// Topic, Method, Risk, and Description — no schemas, no example, no path. It
+// powers the full-catalog and query-search views of mcp_help, keeping those
+// token-light while topic/operation_id drill-ins keep returning full detail
+// via MarshalForHelp.
+func MarshalForHelpCompact(ops []*Operation) []HelpEntryCompact {
+	entries := make([]HelpEntryCompact, 0, len(ops))
+	for _, op := range ops {
+		entries = append(entries, HelpEntryCompact{
+			ID:          op.ID,
+			Topic:       op.Topic,
+			Method:      op.Method,
+			Risk:        op.Risk,
+			Description: op.Description,
+		})
+	}
+	return entries
+}
+
+// Search returns operations whose ID, Description, Topic, or ResponseSummary
+// contains query as a case-insensitive substring, sorted by ID (same ordering
+// as All). An empty or whitespace-only query returns nil.
+func (r *Registry) Search(query string) []*Operation {
+	q := strings.ToLower(strings.TrimSpace(query))
+	if q == "" {
+		return nil
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var result []*Operation
+	for _, op := range r.operations {
+		if strings.Contains(strings.ToLower(op.ID), q) ||
+			strings.Contains(strings.ToLower(op.Description), q) ||
+			strings.Contains(strings.ToLower(op.Topic), q) ||
+			strings.Contains(strings.ToLower(op.ResponseSummary), q) {
+			result = append(result, op)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ID < result[j].ID
+	})
+	return result
 }
 
 // decodeSchema returns the JSON-decoded schema or nil if raw is empty or
