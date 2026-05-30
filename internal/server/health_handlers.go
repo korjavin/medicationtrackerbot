@@ -334,18 +334,20 @@ func (s *Server) handleGetHealthOverview(w http.ResponseWriter, r *http.Request)
 }
 
 // parseSleepBound parses an RFC3339 timestamp or a bare YYYY-MM-DD date (interpreted
-// as 00:00 UTC). Returns the zero time and false when the value is empty/unparseable.
-func parseSleepBound(s string) (time.Time, bool) {
+// as 00:00 UTC). Returns the parsed time, whether the input was a bare date (no time
+// component), and whether parsing succeeded. The dateOnly flag lets callers make a
+// bare-date upper bound inclusive of the whole day.
+func parseSleepBound(s string) (t time.Time, dateOnly, ok bool) {
 	if s == "" {
-		return time.Time{}, false
+		return time.Time{}, false, false
 	}
 	if t, err := time.Parse(time.RFC3339, s); err == nil {
-		return t.UTC(), true
+		return t.UTC(), false, true
 	}
 	if t, err := time.Parse("2006-01-02", s); err == nil {
-		return t.UTC(), true
+		return t.UTC(), true, true
 	}
-	return time.Time{}, false
+	return time.Time{}, false, false
 }
 
 // handleListSleepLogs returns raw device-imported sleep sessions (with per-night
@@ -360,7 +362,7 @@ func (s *Server) handleListSleepLogs(w http.ResponseWriter, r *http.Request) {
 
 	// Lower bound. Priority: explicit `from`, then `days` look-back, else 90d default.
 	var since time.Time
-	if from, ok := parseSleepBound(q.Get("from")); ok {
+	if from, _, ok := parseSleepBound(q.Get("from")); ok {
 		since = from
 	} else {
 		days := 90
@@ -372,8 +374,14 @@ func (s *Server) handleListSleepLogs(w http.ResponseWriter, r *http.Request) {
 		since = time.Now().AddDate(0, 0, -days)
 	}
 
-	// Optional upper bound on session start.
-	until, hasUntil := parseSleepBound(q.Get("to"))
+	// Optional upper bound on session start. A bare-date `to` is made inclusive of
+	// the whole day (advance to the next midnight, compared exclusively) so that
+	// e.g. to=2026-05-13 still includes that night's session, which typically
+	// starts in the evening rather than at 00:00 UTC.
+	until, untilDateOnly, hasUntil := parseSleepBound(q.Get("to"))
+	if hasUntil && untilDateOnly {
+		until = until.AddDate(0, 0, 1)
+	}
 
 	limit := 0
 	if lStr := q.Get("limit"); lStr != "" {
@@ -393,8 +401,16 @@ func (s *Server) handleListSleepLogs(w http.ResponseWriter, r *http.Request) {
 	// since the store method only constrains the lower bound.
 	out := make([]store.SleepLog, 0, len(logs))
 	for _, l := range logs {
-		if hasUntil && l.StartTime.After(until) {
-			continue
+		if hasUntil {
+			// For a bare-date bound `until` is the exclusive next-midnight; for an
+			// RFC3339 bound it is the inclusive instant supplied by the caller.
+			if untilDateOnly {
+				if !l.StartTime.Before(until) {
+					continue
+				}
+			} else if l.StartTime.After(until) {
+				continue
+			}
 		}
 		out = append(out, l)
 		if limit > 0 && len(out) >= limit {

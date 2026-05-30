@@ -250,4 +250,22 @@ func TestHandleListSleepLogs_RangeAndDefault(t *testing.T) {
 	if got := get("?limit=1"); len(got) != 1 {
 		t.Errorf("limit=1: expected 1 sleep log, got %d", len(got))
 	}
+
+	// A bare-date `to` is inclusive of the whole day: a session that started in the
+	// evening of the end date must still be returned even though its StartTime is
+	// after 00:00 UTC of that date.
+	evening := time.Date(2026, 4, 10, 22, 30, 0, 0, time.UTC)
+	eveningTotal := 410
+	if _, _, err := db.Vitals.ImportSleepLogs(ctx, userID, []store.SleepLog{{
+		StartTime:      evening,
+		EndTime:        evening.Add(8 * time.Hour),
+		TimezoneOffset: 0,
+		Day:            evening.Format("2006-01-02"),
+		TotalMinutes:   &eveningTotal,
+	}}); err != nil {
+		t.Fatalf("ImportSleepLogs evening: %v", err)
+	}
+	if got := get("?from=2026-04-10&to=2026-04-10"); len(got) != 1 {
+		t.Errorf("inclusive bare-date to: expected 1 sleep log for 2026-04-10, got %d", len(got))
+	}
 }
