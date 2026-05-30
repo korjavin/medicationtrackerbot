@@ -123,9 +123,9 @@ Key design decisions (confirmed with user):
 
 ### Task 8: Documentation
 
-- [ ] Update `docs/mcp-python-executor.md` and `docs/mcp-deployment.md`: document `response_example`, `operation_ids` batch lookup, query auto-expand, the `usage_protocol` + `mcp://catalog` resource, did-you-mean errors, and warn-only validation warnings.
-- [ ] Update `CLAUDE.md`'s MCP section if the discovery/usage surface description needs it.
-- [ ] run `go test ./internal/mcp/...` — must pass
+- [x] Update `docs/mcp-python-executor.md` and `docs/mcp-deployment.md`: document `response_example`, `operation_ids` batch lookup, query auto-expand, the `usage_protocol` + `mcp://catalog` resource, did-you-mean errors, and warn-only validation warnings. (Both docs updated: help description + MCP Tool Behavior + new "Catalog resource"/"Warn-only schema validation"/"Self-correcting denial messages" sections in the executor doc; Transition Strategy "Loop ergonomics" bullets + recommended-path update in the deployment doc.)
+- [x] Update `CLAUDE.md`'s MCP section if the discovery/usage surface description needs it. (Added a sentence to "Adding an MCP tool" covering `ResponseExample` population, `usage_protocol`, batch/auto-expand discovery, `mcp://catalog`, did-you-mean, and warn-only `registry.ValidateInput`.)
+- [x] run `go test ./internal/mcp/...` — must pass (internal/mcp, executor, registry all ok)
 
 ## Technical Details
 

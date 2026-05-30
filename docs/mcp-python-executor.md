@@ -4,7 +4,7 @@
 
 Add a new MCP execution path based on three small tools:
 
-- `mcp_help`: discovers allowed backend API operations and returns usage guidance. The full catalog is **terse** (id, topic, method, risk, one-line description); drilling in by `topic` or `operation_id` returns full param/body schemas + a runnable example; a `query` keyword search returns terse matches. See *Scaling `mcp_help`* below.
+- `mcp_help`: discovers allowed backend API operations and returns usage guidance. The full catalog is **terse** (id, topic, method, risk, one-line description) and carries a stable `usage_protocol`; drilling in by `topic`, `operation_id`, or `operation_ids` (batch) returns full param/body schemas + a runnable example + a `response_example`; a `query` keyword search returns terse matches, or auto-expands to full detail when ≤3 operations match. See *MCP Tool Behavior* below.
 - `mcp_call`: runs **one** registry operation directly in Go — no Python subprocess — for the common single-read/single-write case. It reuses the exact same policy enforcement scripts get (mode/risk blocking, topic clamps, feature gates, path substitution, the bridge, audit fan-out). See *Single-operation tool (`mcp_call`)* below.
 - `mcp_execute`: accepts a Python script, runs it in a sandboxed execution environment, and returns the script's structured output. Reserved for **multi-step** work (loops, joining several operations, computed values).
 
@@ -164,14 +164,23 @@ Expected behavior:
 
 ## MCP Tool Behavior
 
-`mcp_help` supports three discovery axes (precedence: `operation_id` > `query` > `topic`):
+`mcp_help` supports several discovery axes (precedence: `operation_ids`/`operation_id` > `query` > `topic` > full catalog):
 
-- **Full catalog** (omit all args, or `topic="all"`): returns `compact_operations` — one terse entry per operation (id, topic, method, risk, description), plus `topics` and per-topic `capabilities`. No schemas or examples, so the menu stays cheap as the registry grows.
-- `topic`: domain filter such as `workouts`, `food`, `health`, `medications`. Returns full `operations` (decoded param/body schemas + a runnable example showing `from medtracker import api, output`).
+- **Full catalog** (omit all args, or `topic="all"`): returns `compact_operations` — one terse entry per operation (id, topic, method, risk, description), plus `topics`, per-topic `capabilities`, and a stable `usage_protocol`. No schemas or examples, so the menu stays cheap as the registry grows.
+- `topic`: domain filter such as `workouts`, `food`, `health`, `medications`. Returns full `operations` (decoded param/body schemas + a runnable example showing `from medtracker import api, output` + a `response_example`).
 - `operation_id`: exact operation lookup. Returns the full single entry.
-- `query`: case-insensitive keyword search across operation id, description, topic, and response summary. Returns terse `compact_operations` matches; drill in with `operation_id` for schemas + example.
+- `operation_ids`: **batch lookup** — an array of operation ids returns the full entry for each found id in one read, so an agent that already knows the 2–3 ops it intends to chain fetches all their schemas without separate drill-ins. Ids not found are listed in `note`. `operation_id` and `operation_ids` are merged.
+- `query`: case-insensitive keyword search across operation id, description, topic, and response summary. **Auto-expands**: when ≤3 operations match, returns them as full `operations` (schemas + example + `response_example`) so the agent can go `help(query)` → `mcp_call`/`mcp_execute` with no separate drill-in; >3 matches stay terse in `compact_operations` (drill in with `operation_id`/`operation_ids` for schemas).
+
+**`response_example`** is a small, realistic JSON sample of an operation's output. It is populated for the read/list/get/overview ops that feed chained scripts (write ops are filled incrementally) and is surfaced only on full drill-in (`operations[].response_example`), never in the terse catalog. Showing the output shape up front lets the agent write correct downstream/chained code on the first try instead of guessing an op's response.
+
+**`usage_protocol`** is a stable, self-contained decision rule embedded in the no-arg/full-catalog response: scan/search → drill in → `mcp_call` for one op / `mcp_execute` for multi-step; `output()` exactly once; `params` are the query-string object while `{placeholders}` in a route go in `path_params`; writes need `mode="write"` + a one-sentence intent; timestamps use the user's stored timezone. The same payload (protocol + terse catalog + topics + capabilities) is also exposed as the preloadable `mcp://catalog` MCP resource (see *Catalog resource* below).
 
 Every response carries `note` / `next_step` / `next_tools` steering the agent toward `mcp_call` (one-shot) or `mcp_execute` (composite).
+
+### Catalog resource (`mcp://catalog`)
+
+The MCP server registers a read-only resource at `mcp://catalog` (MIME type `application/json`) so clients that preload resources start already knowing what exists, eliminating the first `mcp_help` scan round-trip. The payload is `{usage_protocol, topics, capabilities, compact_operations}` — the same protocol and terse catalog the no-arg `mcp_help` returns. The redundancy is intentional: the help-embedded `usage_protocol` guarantees reach for tool-only clients (e.g. SSE clients that don't read resources), while the resource is the zero-round-trip bonus for preloading clients. SSE/older clients that ignore resources are unaffected.
 
 `mcp_call` supports:
 
@@ -181,7 +190,24 @@ Every response carries `note` / `next_step` / `next_tools` steering the agent to
 - `mode`: `read_only` by default, `write` for mutations.
 - `intent`: required for `mode: "write"`; recorded in the audit trail and fanned out to the same audit buffer write scripts use.
 
-`mcp_call` returns `{status, result, error, api_calls}`. `status` reuses the executor taxonomy: `ok`, `proxy_denied`, `backend_application_error`, `backend_transport_error`, plus `demo_rate_limit`. It can never return `timeout`, `sandbox_startup_failure`, or `script_error` — there is no script or subprocess.
+`mcp_call` returns `{status, result, error, api_calls, warnings}`. `status` reuses the executor taxonomy: `ok`, `proxy_denied`, `backend_application_error`, `backend_transport_error`, plus `demo_rate_limit`. It can never return `timeout`, `sandbox_startup_failure`, or `script_error` — there is no script or subprocess. `warnings` carries warn-only pre-flight schema feedback (see *Warn-only schema validation* below).
+
+### Warn-only schema validation
+
+Before forwarding a call, `mcp_call` and each `mcp_execute` script call validate the caller's `params`/`body` against the operation's declared JSON Schema and attach field-level **warnings** (e.g. `body.systolic: expected integer, got string`, or `params: missing required field "days"`). Validation is **warn-only — it never blocks**: the call still forwards regardless, so loose or incomplete schemas can't strand a previously-working call. It is also **lenient**: only missing-required fields and wrong types of *declared* fields are reported; unknown/extra fields are ignored (`additionalProperties` is not enforced), and operations without schemas produce no warnings.
+
+Validation runs at the raw-JSON boundary (`handleMCPCall` for `mcp_call`, the executor's loopback `handleCall` for scripts) — *before* params are stringified for the proxy — so typed checks like `{type: integer}` see the real JSON value rather than the proxy's `map[string]string` form. Script-side warnings accumulate per-run and merge into the final `mcp_execute` result's `warnings` alongside the runner-envelope warnings. The shared validator is `registry.ValidateInput(op, params, body)`; compiled schemas are cached per op id (compile-once).
+
+### Self-correcting denial messages
+
+Proxy denials state the fix verbatim so a failure becomes a corrected retry rather than a `mcp_help` detour:
+
+- **Unknown operation** → a *did-you-mean* hint: the message lists up to 3 closest op ids found via `Registry.Search` (falling back to the trailing dot-segment of a typo'd id), e.g. `operation "health.bp.lst" not found. Did you mean: health.bp.list, health.bp.get?`.
+- **Write blocked** → "...retry with `mode='write'` and a one-sentence intent."
+- **Topic not allowed** → names the allowed topics.
+- **Max calls exceeded** → states the cap.
+
+These messages propagate unchanged through `classifyProxyResult` into `CallResponse.Error` / `ExecuteResponse.Error`.
 
 `mcp_execute` supports:
 
@@ -234,7 +260,8 @@ The first runner implementation should use a long-lived execution service rather
 
 - A complex workflow that previously needed many MCP calls can be completed with one `mcp_execute` call.
 - A single read or write costs one `mcp_call` — no script authoring, no sandbox spawn, no `output()`-exactly-once footgun — while going through the identical policy + audit path as a script.
-- The full `mcp_help` catalog stays terse as the registry grows; full schemas + examples are one drill-in away, and `query` finds operations by keyword.
+- The full `mcp_help` catalog stays terse as the registry grows; full schemas + examples + response examples are one drill-in (or batch `operation_ids`, or ≤3-match `query` auto-expand) away, and `query` finds operations by keyword.
+- The discover→execute loop is short: `response_example` + `usage_protocol` + the `mcp://catalog` resource let an agent write a correct chained script first try; did-you-mean errors and warn-only schema warnings turn failures into self-repairing retries instead of `mcp_help` detours.
 - The script can pass data between API calls without exposing user authority.
 - Backend domain logic remains in the main app.
 - The proxy audit trail is clear enough to debug what the agent did.
