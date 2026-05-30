@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/mcp/proxy"
+	"github.com/korjavin/medicationtrackerbot/internal/mcp/registry"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -30,10 +31,11 @@ type CallInput struct {
 // backend_transport_error / demo_rate_limit). It can never be
 // timeout / sandbox_startup_failure / script_error — there is no subprocess.
 type CallResponse struct {
-	Status   string `json:"status"`
-	Result   any    `json:"result,omitempty"`
-	Error    string `json:"error,omitempty"`
-	APICalls int    `json:"api_calls"`
+	Status   string   `json:"status"`
+	Result   any      `json:"result,omitempty"`
+	Error    string   `json:"error,omitempty"`
+	APICalls int      `json:"api_calls"`
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 func (s *Server) handleMCPCall(
@@ -97,6 +99,16 @@ func (s *Server) handleMCPCall(
 		Body:        input.Body,
 	}
 
+	// Warn-only pre-flight schema validation. Runs at this raw-JSON boundary
+	// (before the executor stringifies params) so typed schemas aren't false-
+	// failed by "7" vs {type:integer}. ValidateInput never blocks: a missing or
+	// mistyped field produces a warning but the call still forwards. A miss on
+	// Get yields a nil op, which ValidateInput treats as "no schemas".
+	var warnings []string
+	if s.reg != nil {
+		warnings = registry.ValidateInput(s.reg.Get(input.OperationID), input.Params, input.Body)
+	}
+
 	result, err := s.executor.Call(ctx, callReq)
 	if err != nil {
 		return nil, CallResponse{}, fmt.Errorf("executor: %w", err)
@@ -114,5 +126,6 @@ func (s *Server) handleMCPCall(
 		Result:   resultVal,
 		Error:    result.Error,
 		APICalls: result.APICalls,
+		Warnings: warnings,
 	}, nil
 }

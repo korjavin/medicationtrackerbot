@@ -415,6 +415,82 @@ func TestMarshalForHelpCompact(t *testing.T) {
 	}
 }
 
+// TestMarshalForHelp_ResponseExample asserts that MarshalForHelp surfaces a set
+// ResponseExample on the full HelpEntry, omits it when empty, and that the terse
+// compact marshal never carries it.
+func TestMarshalForHelp_ResponseExample(t *testing.T) {
+	ops := []*Operation{
+		{
+			ID:              "t.read",
+			Topic:           "t",
+			Method:          "GET",
+			Path:            "/t",
+			Risk:            RiskRead,
+			Description:     "read something",
+			ResponseSummary: "list of things",
+			ResponseExample: `[{"id": 1}]`,
+			Example:         `api.call("t.read")`,
+		},
+		{
+			ID:          "t.write",
+			Topic:       "t",
+			Method:      "POST",
+			Path:        "/t",
+			Risk:        RiskWrite,
+			Description: "write something",
+		},
+	}
+
+	entries := MarshalForHelp(ops)
+	if entries[0].ResponseExample != `[{"id": 1}]` {
+		t.Errorf("ResponseExample not copied: %q", entries[0].ResponseExample)
+	}
+	if entries[1].ResponseExample != "" {
+		t.Errorf("ResponseExample should be empty for unset op, got %q", entries[1].ResponseExample)
+	}
+
+	// omitempty: an unset ResponseExample must not appear in the JSON at all.
+	raw, err := json.Marshal(entries[1])
+	if err != nil {
+		t.Fatalf("marshal entry: %v", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatalf("unmarshal entry: %v", err)
+	}
+	if _, ok := m["response_example"]; ok {
+		t.Error("response_example should be omitted when empty")
+	}
+
+	// The terse compact marshal must NEVER carry response_example.
+	compactRaw, err := json.Marshal(MarshalForHelpCompact(ops)[0])
+	if err != nil {
+		t.Fatalf("marshal compact: %v", err)
+	}
+	var cm map[string]any
+	if err := json.Unmarshal(compactRaw, &cm); err != nil {
+		t.Fatalf("unmarshal compact: %v", err)
+	}
+	if _, ok := cm["response_example"]; ok {
+		t.Error("compact entry must not contain response_example")
+	}
+}
+
+// TestResponseExamplesAreValidJSON guards that every populated ResponseExample
+// across the default operation set parses as valid JSON — a malformed sample
+// would mislead agents writing chained scripts.
+func TestResponseExamplesAreValidJSON(t *testing.T) {
+	for _, op := range DefaultOperations() {
+		if op.ResponseExample == "" {
+			continue
+		}
+		var tmp interface{}
+		if err := json.Unmarshal([]byte(op.ResponseExample), &tmp); err != nil {
+			t.Errorf("op %s: ResponseExample is not valid JSON: %v", op.ID, err)
+		}
+	}
+}
+
 func TestSearch(t *testing.T) {
 	r := New()
 	ops := []*Operation{

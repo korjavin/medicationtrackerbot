@@ -349,7 +349,7 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcpServer,
 		&mcp.Tool{
 			Name:        "mcp_help",
-			Description: "Discover backend operations to run with mcp_call (single op) or mcp_execute (multi-step script). The full catalog (omit all args, or pass 'all') is TERSE: id, topic, method, risk, and a one-line description only. Drill in with topic (one of: 'workouts', 'medications', 'food', 'health') or operation_id (e.g. 'workouts.groups.list') to get full params/body schemas + a runnable Python example. Pass query='blood pressure' to keyword-search across id, description, topic, and response shape (returns terse matches). operation_id > query > topic in precedence. Read-only and safe to call before any write.",
+			Description: "Discover backend operations to run with mcp_call (single op) or mcp_execute (multi-step script). The full catalog (omit all args, or pass 'all') is TERSE: id, topic, method, risk, and a one-line description only. Drill in with topic (one of: 'workouts', 'medications', 'food', 'health') or operation_id (e.g. 'workouts.groups.list') to get full params/body schemas + a runnable Python example. Pass operation_ids=[...] to batch-fetch several full entries in one call. Pass query='blood pressure' to keyword-search across id, description, topic, and response shape (a small result set of <=3 auto-expands to full detail; larger sets return terse matches). operation_id(s) > query > topic in precedence. Read-only and safe to call before any write.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -361,9 +361,14 @@ func (s *Server) registerTools() {
 						"type": "string",
 						"description": "Exact operation ID for a full single-entry lookup (e.g. 'workouts.groups.list'). Highest precedence."
 					},
+					"operation_ids": {
+						"type": "array",
+						"items": {"type": "string"},
+						"description": "Batch lookup: list of exact operation IDs to fetch full schema detail for in one call (e.g. ['health.bp.list','health.bp.get']). Merged with operation_id; IDs not found are reported in 'note'. Highest precedence."
+					},
 					"query": {
 						"type": "string",
-						"description": "Case-insensitive keyword search across operation id, description, topic, and response summary. Returns terse matches; drill in with operation_id for schemas + example."
+						"description": "Case-insensitive keyword search across operation id, description, topic, and response summary. When 3 or fewer ops match, results auto-expand to full detail (schemas + example); larger result sets stay terse (drill in with operation_id)."
 					}
 				}
 			}`),
@@ -449,6 +454,21 @@ func (s *Server) registerTools() {
 			}`),
 		},
 		s.handleMCPCall,
+	)
+
+	// mcp://catalog resource: lets preloading clients start already knowing the
+	// usage protocol + terse operation catalog, eliminating the first scan
+	// round-trip. Clients that only call tools (e.g. SSE) ignore it gracefully
+	// and still reach the same content via no-arg mcp_help.
+	s.mcpServer.AddResource(
+		&mcp.Resource{
+			URI:         catalogResourceURI,
+			Name:        "operation-catalog",
+			Title:       "Health Tracker operation catalog",
+			MIMEType:    "application/json",
+			Description: "Usage protocol (the 3-tool decision rule) plus the terse catalog of all backend operations (id, topic, method, risk, description) and per-topic capabilities. Preload to skip the first mcp_help scan; drill into an operation with mcp_help operation_id= for full schemas.",
+		},
+		s.handleCatalogResource,
 	)
 
 	if s.config.NoLegacyMCP {

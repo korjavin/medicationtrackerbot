@@ -83,6 +83,16 @@ func buildRegistry(t *testing.T) *registry.Registry {
 			ResponseSummary: "created session",
 			Description:     "create session",
 		},
+		&registry.Operation{
+			ID:              "workouts.sets.log",
+			Topic:           "workouts",
+			Method:          "POST",
+			Path:            "/api/workout/sets",
+			Risk:            registry.RiskWrite,
+			BodySchema:      json.RawMessage(`{"type":"object","required":["reps"],"properties":{"reps":{"type":"integer"}}}`),
+			ResponseSummary: "logged set",
+			Description:     "log a set with a typed reps field (used by warn-only validation tests)",
+		},
 	); err != nil {
 		t.Fatalf("register: %v", err)
 	}
@@ -395,6 +405,40 @@ func TestExecute_ProxyDeniedMapping(t *testing.T) {
 	}
 	if res.Status != mcp.ExecuteStatusProxyDenied {
 		t.Errorf("expected %q, got %q", mcp.ExecuteStatusProxyDenied, res.Status)
+	}
+}
+
+func TestExecute_WarnOnlyValidationWarningsSurface(t *testing.T) {
+	// A script whose api.call passes a bad-typed body (reps as a string where
+	// the schema declares integer) accumulates a warn-only validation warning.
+	// The call still forwards (the bridge returns 200), the run completes ok,
+	// and the warning is merged into the final result's Warnings.
+	sp := &fakeSpawner{fn: func(ctx context.Context, payload []byte) ([]byte, error) {
+		_, _, _ = loopbackCallStatus(ctx, mustField(payload, "proxy_url"), mustField(payload, "run_token"),
+			"workouts.sets.log", nil, map[string]any{"reps": "ten"})
+		return envelopeOK(`{"ok":true}`), nil
+	}}
+	svc, _ := newTestService(t, sp)
+	res, err := svc.Execute(context.Background(), mcp.ExecutionRequest{
+		Script:    "x",
+		Mode:      proxy.ModeWrite,
+		Intent:    "log a set",
+		TimeoutMS: 1000,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Status != mcp.ExecuteStatusOK {
+		t.Errorf("status = %q, want %q (warnings must not block)", res.Status, mcp.ExecuteStatusOK)
+	}
+	var found bool
+	for _, w := range res.Warnings {
+		if strings.Contains(w, "body.reps") && strings.Contains(w, "expected integer") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("warnings = %v, want one mentioning body.reps expected integer", res.Warnings)
 	}
 }
 
@@ -1474,5 +1518,26 @@ func TestServiceCall_StoppedAndNotStarted(t *testing.T) {
 	}
 	if _, err := svc.Call(context.Background(), mcp.CallRequest{OperationID: "workouts.groups.list"}); err == nil {
 		t.Error("expected error when stopped")
+	}
+}
+
+func TestServiceCall_UnknownOperationSuggestionReachesResult(t *testing.T) {
+	// The proxy's did-you-mean hint for an unknown op must propagate verbatim
+	// through classifyProxyResult into the mcp_call result Error.
+	sp := &fakeSpawner{fn: func(_ context.Context, _ []byte) ([]byte, error) { return envelopeOK(`null`), nil }}
+	svc, _ := newTestService(t, sp)
+
+	res, err := svc.Call(context.Background(), mcp.CallRequest{OperationID: "workouts.groups"})
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if res.Status != mcp.ExecuteStatusProxyDenied {
+		t.Errorf("expected status %q, got %q", mcp.ExecuteStatusProxyDenied, res.Status)
+	}
+	if !strings.Contains(res.Error, "Did you mean") {
+		t.Errorf("expected did-you-mean hint to reach the result, got %q", res.Error)
+	}
+	if !strings.Contains(res.Error, "workouts.groups.list") {
+		t.Errorf("expected suggestion workouts.groups.list in result error, got %q", res.Error)
 	}
 }

@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -12,10 +13,17 @@ import (
 
 // HelpInput is the input for the mcp_help tool.
 type HelpInput struct {
-	Topic       string `json:"topic"`
-	OperationID string `json:"operation_id"`
-	Query       string `json:"query"`
+	Topic        string   `json:"topic"`
+	OperationID  string   `json:"operation_id"`
+	OperationIDs []string `json:"operation_ids"`
+	Query        string   `json:"query"`
 }
+
+// autoExpandThreshold is the maximum number of query matches that mcp_help
+// returns as FULL operation detail (schemas + example) instead of terse compact
+// rows. Small result sets are auto-expanded so an agent can go
+// help(query) -> mcp_call/mcp_execute without a separate operation_id drill-in.
+const autoExpandThreshold = 3
 
 // HelpResponse is returned by mcp_help.
 type HelpResponse struct {
@@ -24,11 +32,18 @@ type HelpResponse struct {
 	Count             int                         `json:"count"`
 	Topics            []string                    `json:"topics,omitempty"`
 	Capabilities      []TopicCapability           `json:"capabilities,omitempty"`
-	PythonUsage       string                      `json:"python_usage,omitempty"`
+	UsageProtocol     string                      `json:"usage_protocol,omitempty"`
 	Note              string                      `json:"note,omitempty"`
 	NextStep          string                      `json:"next_step,omitempty"`
 	NextTools         []string                    `json:"next_tools,omitempty"`
 }
+
+// usageProtocol is the stable, self-contained decision rule the agent should
+// follow on the MCP surface. It is embedded in the no-arg/full-catalog mcp_help
+// response (guaranteed reach for tool-only clients) and mirrored in the
+// mcp://catalog resource (zero round-trip for preloading clients).
+const usageProtocol = "Decision rule: (1) Discover — call mcp_help with no args (or topic=/query=) to scan the catalog, then drill in with operation_id=/operation_ids=[...] for full schemas + a runnable example. (2) Run ONE operation — use mcp_call(operation_id, params, path_params, body). (3) Run MULTIPLE steps (loops, joins, computed values) — write an mcp_execute Python script. " +
+	"Rules: an mcp_execute script MUST call output(value) exactly once (zero or multiple calls abort the run). Params are passed as a query-string object (params={...}); placeholders like {id} in an operation's route go in path_params={...}, not params. Writes require mode='write' AND a one-sentence intent. Timestamps use the user's stored timezone unless an operation accepts an explicit tz/tz_offset."
 
 // TopicCapability is a per-topic summary the agent can scan before drilling
 // into a specific topic. It tells the agent how many read vs write operations
@@ -64,29 +79,54 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 		nextStep = suggestion
 	}
 
-	// Exact operation_id lookup takes precedence.
+	// Batch / single operation lookup takes precedence (ids > query > topic >
+	// catalog): return FULL schema detail for every requested id. operation_id
+	// and operation_ids are merged so an agent can fetch the 2-3 ops it intends
+	// to chain in one read.
+	ids := make([]string, 0, len(input.OperationIDs)+1)
 	if opID != "" {
-		op := s.reg.Get(opID)
-		if op == nil {
+		ids = append(ids, opID)
+	}
+	for _, raw := range input.OperationIDs {
+		if id := strings.ToLower(strings.TrimSpace(raw)); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) > 0 {
+		var ops []*registry.Operation
+		var missing []string
+		for _, id := range ids {
+			if op := s.reg.Get(id); op != nil {
+				ops = append(ops, op)
+			} else {
+				missing = append(missing, id)
+			}
+		}
+		if len(ops) == 0 {
 			return nil, HelpResponse{
 				Count:     0,
 				Topics:    s.reg.Topics(),
-				NextStep:  fmt.Sprintf("Operation %q not found. Pick a topic (e.g., 'workouts') or use a valid operation ID.", opID),
+				NextStep:  fmt.Sprintf("Operation %q not found. Pick a topic (e.g., 'workouts') or use a valid operation ID.", strings.Join(missing, ", ")),
 				NextTools: []string{"mcp_help"},
 			}, nil
 		}
-		entries := registry.MarshalForHelp([]*registry.Operation{op})
-
+		note := fmt.Sprintf("Showing full details for %d operation(s). Run one with mcp_call (one-shot), or compose several in an mcp_execute script.", len(ops))
+		if len(missing) > 0 {
+			note += fmt.Sprintf(" Not found: %s.", strings.Join(missing, ", "))
+		}
 		return nil, HelpResponse{
-			Operations: entries,
-			Count:      1,
-			Note:       fmt.Sprintf("Showing full details for operation %q. Run it once with mcp_call, or compose it into a multi-step script with mcp_execute.", opID),
-			NextStep:   "Review the operation details, then run it with mcp_call (one-shot) or mcp_execute (composite).",
+			Operations: registry.MarshalForHelp(ops),
+			Count:      len(ops),
+			Note:       note,
+			NextStep:   "Review the operation details, then run with mcp_call (one-shot) or mcp_execute (composite).",
 			NextTools:  []string{"mcp_call", "mcp_execute"},
 		}, nil
 	}
 
-	// Keyword search: terse matches across id / description / topic / response_summary.
+	// Keyword search across id / description / topic / response_summary. Small
+	// result sets (<= autoExpandThreshold) auto-expand to FULL detail so the
+	// agent can go help(query) -> mcp_call/mcp_execute without a separate
+	// operation_id drill-in; larger sets stay terse to keep the call token-light.
 	if query != "" {
 		ops := s.reg.Search(query)
 		if len(ops) == 0 {
@@ -96,6 +136,15 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 				Note:      fmt.Sprintf("No operations matched query %q.", query),
 				NextStep:  "No matches. Try a broader keyword, browse a topic from the list below, or omit all filters for the full catalog.",
 				NextTools: []string{"mcp_help"},
+			}, nil
+		}
+		if len(ops) <= autoExpandThreshold {
+			return nil, HelpResponse{
+				Operations: registry.MarshalForHelp(ops),
+				Count:      len(ops),
+				Note:       fmt.Sprintf("Showing %d full match(es) for query %q (auto-expanded to schemas + example). Run one with mcp_call (one-shot) or mcp_execute (composite).", len(ops), query),
+				NextStep:   "Review the operation details, then run with mcp_call (one-shot) or mcp_execute (composite).",
+				NextTools:  []string{"mcp_call", "mcp_execute"},
 			}, nil
 		}
 		return nil, HelpResponse{
@@ -115,6 +164,7 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 			Count:             len(ops),
 			Topics:            s.reg.Topics(),
 			Capabilities:      s.buildCapabilities(),
+			UsageProtocol:     usageProtocol,
 			Note:              defaultNote,
 			NextStep:          nextStep,
 			NextTools:         []string{"mcp_call", "mcp_execute"},
@@ -174,4 +224,48 @@ func (s *Server) buildCapabilities() []TopicCapability {
 		})
 	}
 	return out
+}
+
+// catalogResourceURI is the stable URI of the preloadable operation catalog.
+const catalogResourceURI = "mcp://catalog"
+
+// CatalogResource is the JSON payload served by the mcp://catalog resource (and
+// mirrored by no-arg mcp_help): the usage protocol plus the terse catalog of all
+// operations, the topic list, and per-topic capabilities.
+type CatalogResource struct {
+	UsageProtocol     string                      `json:"usage_protocol"`
+	Topics            []string                    `json:"topics"`
+	Capabilities      []TopicCapability           `json:"capabilities"`
+	CompactOperations []registry.HelpEntryCompact `json:"compact_operations"`
+}
+
+// buildCatalogResource assembles the catalog payload from the registry. Shared
+// by the resource handler and exercised directly in tests.
+func (s *Server) buildCatalogResource() CatalogResource {
+	return CatalogResource{
+		UsageProtocol:     usageProtocol,
+		Topics:            s.reg.Topics(),
+		Capabilities:      s.buildCapabilities(),
+		CompactOperations: registry.MarshalForHelpCompact(s.reg.All()),
+	}
+}
+
+// handleCatalogResource serves the mcp://catalog resource: a JSON document with
+// the usage protocol + terse operation catalog so preloading clients can skip
+// the first mcp_help scan round-trip.
+func (s *Server) handleCatalogResource(ctx context.Context, req *sdkmcp.ReadResourceRequest) (*sdkmcp.ReadResourceResult, error) {
+	if s.reg == nil {
+		return nil, fmt.Errorf("operation registry not initialized")
+	}
+	payload, err := json.Marshal(s.buildCatalogResource())
+	if err != nil {
+		return nil, fmt.Errorf("marshal catalog resource: %w", err)
+	}
+	return &sdkmcp.ReadResourceResult{
+		Contents: []*sdkmcp.ResourceContents{{
+			URI:      catalogResourceURI,
+			MIMEType: "application/json",
+			Text:     string(payload),
+		}},
+	}, nil
 }

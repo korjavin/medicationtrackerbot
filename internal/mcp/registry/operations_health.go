@@ -37,6 +37,10 @@ func HealthOperations() []*Operation {
 }`),
 			Description:     "List blood pressure readings, newest first. Use days/limit to constrain the window.",
 			ResponseSummary: "JSON array of BP readings with id, measured_at, systolic, diastolic, pulse, site, position, notes, tag.",
+			ResponseExample: `[
+  {"id": 412, "measured_at": "2026-04-29T08:00:00Z", "systolic": 122, "diastolic": 78, "pulse": 64, "site": "left_arm", "position": "seated", "notes": "", "tag": "morning"},
+  {"id": 411, "measured_at": "2026-04-28T21:10:00Z", "systolic": 128, "diastolic": 82, "pulse": 71, "site": "", "position": "", "notes": "", "tag": ""}
+]`,
 			Example: `result = api.call("health.bp.list", params={"days": 7})
 output(result)`,
 		},
@@ -48,6 +52,13 @@ output(result)`,
 			Risk:            RiskRead,
 			Description:     "Daily-weighted BP statistics over the user's recent history.",
 			ResponseSummary: "Stats object with arrays of date, mean systolic, mean diastolic, mean pulse, sample counts.",
+			ResponseExample: `{
+  "dates": ["2026-04-27", "2026-04-28", "2026-04-29"],
+  "systolic": [124.0, 127.5, 122.0],
+  "diastolic": [80.0, 81.5, 78.0],
+  "pulse": [68.0, 70.0, 64.0],
+  "counts": [1, 2, 1]
+}`,
 			Example: `result = api.call("health.bp.stats")
 output(result)`,
 		},
@@ -59,6 +70,7 @@ output(result)`,
 			Risk:            RiskRead,
 			Description:     "Get the user's BP goal (target systolic/diastolic).",
 			ResponseSummary: "BPGoal object with target_systolic, target_diastolic and optional updated_at.",
+			ResponseExample: `{"target_systolic": 120, "target_diastolic": 80, "updated_at": "2026-03-15T10:00:00Z"}`,
 			Example: `result = api.call("health.bp.goal.read")
 output(result)`,
 		},
@@ -82,6 +94,7 @@ output({"deleted": 7})`,
 			Risk:            RiskRead,
 			Description:     "Get the BP reminder state: enabled flag, snooze-until timestamp, dontbug-until timestamp, last/next reminder times.",
 			ResponseSummary: "ReminderState object with enabled, snoozed_until, dontbug_until, last_reminded_at, next_reminder_at.",
+			ResponseExample: `{"enabled": true, "snoozed_until": null, "dontbug_until": null, "last_reminded_at": "2026-04-29T09:00:00Z", "next_reminder_at": "2026-04-30T09:00:00Z"}`,
 			Example: `result = api.call("health.bp.reminder.status")
 output(result)`,
 		},
@@ -187,6 +200,10 @@ output(result)`,
 }`),
 			Description:     "List weight log entries, newest first.",
 			ResponseSummary: "JSON array of weight logs with id, measured_at, weight (kg), weight_trend, body_fat, muscle_mass, notes.",
+			ResponseExample: `[
+  {"id": 88, "measured_at": "2026-04-29T07:00:00Z", "weight": 78.4, "weight_trend": 78.6, "body_fat": 18.2, "muscle_mass": 36.1, "notes": ""},
+  {"id": 87, "measured_at": "2026-04-28T07:05:00Z", "weight": 78.7, "weight_trend": 78.7, "body_fat": null, "muscle_mass": null, "notes": ""}
+]`,
 			Example: `result = api.call("health.weight.list", params={"days": 30})
 output(result)`,
 		},
@@ -198,6 +215,7 @@ output(result)`,
 			Risk:            RiskRead,
 			Description:     "Get the user's weight goal (target weight in kg).",
 			ResponseSummary: "WeightGoal object with target_weight (kg) and optional updated_at.",
+			ResponseExample: `{"target_weight": 75.0, "updated_at": "2026-02-01T08:00:00Z"}`,
 			Example: `result = api.call("health.weight.goal.read")
 output(result)`,
 		},
@@ -215,6 +233,12 @@ output(result)`,
 }`),
 			Description:     "List the user's historical weight goals (append-only, sorted newest first). Useful for retrospective analysis of how a user's goals evolved over time — each row captures the goal weight, target date, and the user's weight at the moment the goal was saved.",
 			ResponseSummary: "Object {goals: [{id, user_id, set_at (RFC3339), target_weight (kg), target_date (YYYY-MM-DD), start_weight (kg, optional)}]}.",
+			ResponseExample: `{
+  "goals": [
+    {"id": 3, "user_id": 1, "set_at": "2026-04-01T08:00:00Z", "target_weight": 75.0, "target_date": "2026-07-01", "start_weight": 80.2},
+    {"id": 2, "user_id": 1, "set_at": "2026-01-10T08:00:00Z", "target_weight": 78.0, "target_date": "2026-04-01", "start_weight": 82.5}
+  ]
+}`,
 			Example: `result = api.call("health.weight.goal.history.list", params={"limit": 10})
 output(result)`,
 		},
@@ -238,6 +262,7 @@ output({"deleted": 11})`,
 			Risk:            RiskRead,
 			Description:     "Get the weight reminder state. Reminders are temporarily muted while snoozed_until > now or dontbug_until > now (use this to decide whether to prompt the user). next_reminder_at is when the scheduler will fire the next reminder.",
 			ResponseSummary: "Object {enabled (bool), snoozed_until (RFC3339 or null), dontbug_until (RFC3339 or null), last_reminded_at (RFC3339 or null), next_reminder_at (RFC3339 or null)}.",
+			ResponseExample: `{"enabled": true, "snoozed_until": null, "dontbug_until": null, "last_reminded_at": "2026-04-29T07:00:00Z", "next_reminder_at": "2026-04-30T07:00:00Z"}`,
 			Example: `result = api.call("health.weight.reminder.status")
 output(result)`,
 		},
@@ -316,6 +341,18 @@ output(result)`,
 			Risk:            RiskRead,
 			Description:     "Aggregate dashboard read over a 7d/30d window. THIS IS THE SOURCE FOR DEVICE-IMPORTED SLEEP AND VITALS. Returns per-night sleep with phase breakdown (light/deep/REM/awake minutes + avg heart rate), continuous heart-rate / SpO2 / stress histories, and daily step aggregates — plus their 7d/30d averages. Use this for any sleep-recovery, sleep-phase, or vitals-trend analysis (it replaces the older get_sleep_logs endpoint). For manual sleep journaling instead, see health.notes.*.",
 			ResponseSummary: "Object with sleep_stats_7d/sleep_stats_30d (per-night {date, light_mins, deep_mins, rem_mins, awake_mins, total_mins, heart_rate_avg}), average_sleep_hours_7d/30d, heart_rate_history_7d/30d, spo2_history_7d/30d, stress_history_7d/30d (each [{timestamp, min, max, avg}]), step_stats_7d/30d, and average_heart_rate/spo2/stress/steps_7d/30d.",
+			ResponseExample: `{
+  "sleep_stats_7d": [
+    {"date": "2026-04-29", "light_mins": 240, "deep_mins": 90, "rem_mins": 70, "awake_mins": 20, "total_mins": 420, "heart_rate_avg": 56}
+  ],
+  "average_sleep_hours_7d": 7.1,
+  "average_sleep_hours_30d": 6.8,
+  "heart_rate_history_7d": [{"timestamp": "2026-04-29T03:00:00Z", "min": 52, "max": 61, "avg": 56}],
+  "spo2_history_7d": [{"timestamp": "2026-04-29T03:00:00Z", "min": 95, "max": 99, "avg": 97}],
+  "stress_history_7d": [{"timestamp": "2026-04-29T12:00:00Z", "min": 22, "max": 48, "avg": 33}],
+  "step_stats_7d": [{"date": "2026-04-29", "steps": 8421}],
+  "average_heart_rate_7d": 62, "average_spo2_7d": 97, "average_stress_7d": 34, "average_steps_7d": 7800
+}`,
 			Example: `result = api.call("health.overview")
 # per-night sleep phases for the last 30 days:
 output(result["sleep_stats_30d"])`,
@@ -337,6 +374,9 @@ output(result["sleep_stats_30d"])`,
 }`),
 			Description:     "List raw device-imported sleep sessions, newest first, each with full phase breakdown (light/deep/REM/awake minutes), total minutes, turn-over count, and HR/SpO2 averages. This is the detailed, range-queryable sleep source — use it (NOT health.notes.*) for sleep-recovery / phase analysis, and prefer it over health.overview when you need a window other than the trailing 7/30 days (e.g. a past trip). Provide an explicit from/to range or a days look-back. This replaces the older get_sleep_logs endpoint.",
 			ResponseSummary: "JSON array of sleep sessions: {id, user_id, start_time, end_time, timezone_offset, day (YYYY-MM-DD), light_minutes, deep_minutes, rem_minutes, awake_minutes, total_minutes, turn_over_count, heart_rate_avg, spo2_avg, user_modified, notes, created_at}. Phase/HR fields are omitted when the device did not report them.",
+			ResponseExample: `[
+  {"id": 305, "user_id": 1, "start_time": "2026-04-28T23:10:00Z", "end_time": "2026-04-29T06:30:00Z", "timezone_offset": 0, "day": "2026-04-29", "light_minutes": 240, "deep_minutes": 90, "rem_minutes": 70, "awake_minutes": 20, "total_minutes": 420, "turn_over_count": 14, "heart_rate_avg": 56, "spo2_avg": 97, "user_modified": false, "notes": "", "created_at": "2026-04-29T07:00:00Z"}
+]`,
 			Example: `# Sleep during a trip, by explicit date range:
 result = api.call("health.sleep.list", params={"from": "2026-04-29", "to": "2026-05-13"})
 output(result)`,
@@ -359,6 +399,10 @@ output(result)`,
 }`),
 			Description:     "List MANUAL diary notes (newest first). Each row carries an optional tag: SLEEP, STRESS, HR, SPO2, STEPS, NOTE. NOTE: this returns hand-written journal entries only, NOT device-imported data. For structured sleep phases or wearable HR/SpO2/stress/step time series, use health.overview instead.",
 			ResponseSummary: "JSON array of notes with id, content, tag, created_at.",
+			ResponseExample: `[
+  {"id": 51, "content": "8h, woke once at 4am", "tag": "SLEEP", "created_at": "2026-04-29T06:40:00Z"},
+  {"id": 50, "content": "felt stressed before the meeting", "tag": "STRESS", "created_at": "2026-04-28T14:00:00Z"}
+]`,
 			Example: `result = api.call("health.notes.list", params={"limit": 100})
 sleep_notes = [n for n in result if n.get("tag") == "SLEEP"]
 output(sleep_notes)`,

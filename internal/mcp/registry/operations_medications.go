@@ -36,6 +36,9 @@ func MedicationOperations() []*Operation {
 }`),
 			Description:     "List the user's medications. By default returns only active medications; pass archived=true for the full set. Use this to find an existing medication's id before update/delete/restock.",
 			ResponseSummary: "JSON array of Medication rows with id, name, dosage, schedule, archived, supplement, start_date, end_date, inventory_count, rxcui, normalized_name.",
+			ResponseExample: `[
+  {"id": 1, "name": "Mounjaro", "dosage": "5 mg", "schedule": "{\"type\":\"weekly\",\"days\":[6],\"times\":[\"10:00\"]}", "archived": false, "supplement": false, "start_date": "2026-05-09T00:00:00Z", "end_date": null, "inventory_count": 4, "rxcui": "2601723", "normalized_name": "tirzepatide"}
+]`,
 			Example: `result = api.call("medications.list")
 output(result)`,
 		},
@@ -54,6 +57,10 @@ output(result)`,
 }`),
 			Description:     "List intake log rows over a recent window, filterable by med_id. Each row's status is one of 'PENDING' (not yet due), 'TAKEN' (logged), 'SKIPPED' (user explicitly skipped), or 'MISSED' (passed without action). Use this to find intake_id values for medications.snooze / medications.skip / medications.cancel_intake.",
 			ResponseSummary: "JSON array of IntakeLog rows with id, medication_id, scheduled_at (RFC3339), taken_at (RFC3339 or null), status (PENDING|TAKEN|SKIPPED|MISSED).",
+			ResponseExample: `[
+  {"id": 5012, "medication_id": 1, "scheduled_at": "2026-04-29T10:00:00Z", "taken_at": "2026-04-29T10:05:00Z", "status": "TAKEN"},
+  {"id": 5013, "medication_id": 1, "scheduled_at": "2026-05-06T10:00:00Z", "taken_at": null, "status": "PENDING"}
+]`,
 			Example: `result = api.call("medications.history", params={"days": 7})
 output(result)`,
 		},
@@ -65,6 +72,7 @@ output(result)`,
 			Risk:            RiskRead,
 			Description:     "Compute the next scheduled intake across all active medications, in the user's timezone.",
 			ResponseSummary: "Object with scheduled_at (RFC3339) and medication_ids/names; empty fields when nothing is upcoming.",
+			ResponseExample: `{"scheduled_at": "2026-05-06T10:00:00Z", "medication_ids": [1], "medication_names": ["Mounjaro"]}`,
 			Example: `result = api.call("medications.next_intake")
 output(result)`,
 		},
@@ -77,6 +85,9 @@ output(result)`,
 			PathParams:      []string{"id"},
 			Description:     "List restock events for a medication, newest first.",
 			ResponseSummary: "JSON array of Restock rows with id, medication_id, quantity, note, restocked_at.",
+			ResponseExample: `[
+  {"id": 22, "medication_id": 1, "quantity": 30, "note": "Pharmacy refill", "restocked_at": "2026-04-20T15:00:00Z"}
+]`,
 			Example: `result = api.call(
     "medications.restocks.list",
     path_params={"id": 1},
@@ -97,6 +108,9 @@ output(result)`,
 }`),
 			Description:     "List active medications whose inventory is projected to run out within the given days threshold.",
 			ResponseSummary: "JSON array of medications enriched with days_remaining (float).",
+			ResponseExample: `[
+  {"id": 1, "name": "Mounjaro", "dosage": "5 mg", "inventory_count": 4, "days_remaining": 28.0}
+]`,
 			Example: `result = api.call("medications.inventory.low", params={"days": 14})
 output(result)`,
 		},
@@ -371,6 +385,12 @@ output({"updated": 123})`,
 			Risk:            RiskRead,
 			Description:     "Return the active timezone transition plan (PENDING_APPROVAL/NOTIFIED/APPROVED) and its remaining steps, or {plan: null} when no plan is in flight.",
 			ResponseSummary: "JSON object with `plan` (object or null) and `steps` (array of remaining transition doses).",
+			ResponseExample: `{
+  "plan": {"id": 12, "status": "PENDING_APPROVAL", "from_tz": "America/New_York", "to_tz": "Europe/London"},
+  "steps": [
+    {"medication_id": 1, "old_scheduled_at": "2026-05-06T10:00:00Z", "new_scheduled_at": "2026-05-06T15:00:00Z"}
+  ]
+}`,
 			Example: `result = api.call("medications.tz_plan.current")
 if result["plan"]:
     output({"id": result["plan"]["id"], "status": result["plan"]["status"]})

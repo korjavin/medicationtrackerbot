@@ -88,6 +88,24 @@ func TestClampListParams_HealthNotesList_DaysClampedToMaxQueryDays(t *testing.T)
 	}
 }
 
+func TestClampListParams_HealthSleepList_DaysAndLimitClamped(t *testing.T) {
+	got := clampListParams("health.sleep.list", map[string]string{"days": "999999"}, 90)
+	if got["days"] != "90" {
+		t.Errorf("expected health.sleep.list days clamp to 90, got %q", got["days"])
+	}
+	got = clampListParams("health.sleep.list", map[string]string{}, 90)
+	if got["days"] != "90" {
+		t.Errorf("expected default days=90 when absent, got %q", got["days"])
+	}
+	if got["limit"] != "100" {
+		t.Errorf("expected default limit=100 when absent, got %q", got["limit"])
+	}
+	got = clampListParams("health.sleep.list", map[string]string{"limit": "999999"}, 90)
+	if got["limit"] != "5000" {
+		t.Errorf("expected limit clamp to 5000, got %q", got["limit"])
+	}
+}
+
 func TestClampListParams_FoodLogList_DaysClampedToMaxQueryDays(t *testing.T) {
 	got := clampListParams("food.log.list", map[string]string{"days": "999999"}, 90)
 	if got["days"] != "90" {

@@ -11,6 +11,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sort"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -140,12 +142,18 @@ func (p *Proxy) Call(ctx context.Context, cfg RunConfig, operationID string, par
 	op := p.reg.Get(operationID)
 	if op == nil {
 		slog.Warn("[Proxy] unknown operation", "operation_id", operationID)
-		return nil, &CallError{Code: ErrUnknownOperation, Message: fmt.Sprintf("operation %q not found in registry", operationID)}
+		msg := fmt.Sprintf("operation %q not found in registry", operationID)
+		if sugg := p.suggestOperations(operationID); len(sugg) > 0 {
+			msg += ". Did you mean: " + strings.Join(sugg, ", ") + "? (call mcp_help to scan the catalog)"
+		} else {
+			msg += " (call mcp_help to scan the catalog)"
+		}
+		return nil, &CallError{Code: ErrUnknownOperation, Message: msg}
 	}
 
 	if cfg.Mode == ModeReadOnly && op.Risk == registry.RiskWrite {
 		slog.Warn("[Proxy] write blocked in read-only mode", "operation_id", operationID)
-		return nil, &CallError{Code: ErrWriteBlocked, Message: fmt.Sprintf("operation %q is a write operation; write mode required", operationID)}
+		return nil, &CallError{Code: ErrWriteBlocked, Message: fmt.Sprintf("operation %q is a write operation and writes are disabled for this call. Retry with mode='write' and a one-sentence intent.", operationID)}
 	}
 
 	if cfg.MaxAPICalls > 0 {
@@ -153,7 +161,7 @@ func (p *Proxy) Call(ctx context.Context, cfg RunConfig, operationID string, par
 		if int(count) > cfg.MaxAPICalls {
 			p.callCount.Add(-1)
 			slog.Warn("[Proxy] max API calls exceeded", "operation_id", operationID, "max", cfg.MaxAPICalls, "count", count)
-			return nil, &CallError{Code: ErrMaxCallsExceeded, Message: fmt.Sprintf("max API calls (%d) exceeded", cfg.MaxAPICalls)}
+			return nil, &CallError{Code: ErrMaxCallsExceeded, Message: fmt.Sprintf("call budget exceeded: this run allows at most %d API call(s). Reduce the number of api.call() invocations, or split the work across runs.", cfg.MaxAPICalls)}
 		}
 	}
 
@@ -168,7 +176,7 @@ func (p *Proxy) Call(ctx context.Context, cfg RunConfig, operationID string, par
 		if !allowed {
 			p.callCount.Add(-1) // undo the increment
 			slog.Warn("[Proxy] topic not in allowlist", "operation_id", operationID, "topic", op.Topic)
-			return nil, &CallError{Code: ErrTopicNotAllowed, Message: fmt.Sprintf("topic %q not in allowlist", op.Topic)}
+			return nil, &CallError{Code: ErrTopicNotAllowed, Message: fmt.Sprintf("topic %q not allowed; this run is restricted to topic(s): %s. Retry with an operation under one of those topics.", op.Topic, strings.Join(cfg.TopicAllowlist, ", "))}
 		}
 	}
 
@@ -250,6 +258,113 @@ func (p *Proxy) Call(ctx context.Context, cfg RunConfig, operationID string, par
 	)
 
 	return &CallResult{Trace: trace, Response: &bridgeResp}, nil
+}
+
+// suggestOperations returns up to 3 operation IDs closest to a (mistyped)
+// operation ID, for "did you mean" hints in unknown-operation errors. It first
+// searches the full ID; if that yields nothing, it falls back to the trailing
+// dot-segment (so e.g. "vitals.bp.list" still surfaces ops matching "list").
+// As a final fallback it ranks the whole catalog by edit distance so genuine
+// typos ("health.bp.lst" → "health.bp.list") still surface a correction even
+// though no substring matches.
+func (p *Proxy) suggestOperations(operationID string) []string {
+	matches := p.reg.Search(operationID)
+	if len(matches) == 0 {
+		if idx := strings.LastIndex(operationID, "."); idx >= 0 && idx+1 < len(operationID) {
+			matches = p.reg.Search(operationID[idx+1:])
+		}
+	}
+	out := make([]string, 0, 3)
+	for _, op := range matches {
+		out = append(out, op.ID)
+		if len(out) == 3 {
+			break
+		}
+	}
+	if len(out) > 0 {
+		return out
+	}
+	return p.fuzzySuggest(operationID)
+}
+
+// fuzzySuggest ranks every registered op by Levenshtein distance to the
+// (case-insensitive) query and returns up to 3 IDs whose distance is small
+// enough to plausibly be a typo. Ties break on ID for determinism.
+func (p *Proxy) fuzzySuggest(operationID string) []string {
+	query := strings.ToLower(strings.TrimSpace(operationID))
+	if query == "" {
+		return nil
+	}
+	// Allow roughly one edit per three characters (min 2) so close typos
+	// match while unrelated ids stay out of the hint.
+	threshold := len(query) / 3
+	if threshold < 2 {
+		threshold = 2
+	}
+	type scored struct {
+		id   string
+		dist int
+	}
+	var ranked []scored
+	for _, op := range p.reg.All() {
+		d := levenshtein(query, strings.ToLower(op.ID))
+		if d <= threshold {
+			ranked = append(ranked, scored{id: op.ID, dist: d})
+		}
+	}
+	sort.Slice(ranked, func(i, j int) bool {
+		if ranked[i].dist != ranked[j].dist {
+			return ranked[i].dist < ranked[j].dist
+		}
+		return ranked[i].id < ranked[j].id
+	})
+	out := make([]string, 0, 3)
+	for _, s := range ranked {
+		out = append(out, s.id)
+		if len(out) == 3 {
+			break
+		}
+	}
+	return out
+}
+
+// levenshtein computes the edit distance between two strings using the
+// standard two-row dynamic-programming approach.
+func levenshtein(a, b string) int {
+	ra, rb := []rune(a), []rune(b)
+	if len(ra) == 0 {
+		return len(rb)
+	}
+	if len(rb) == 0 {
+		return len(ra)
+	}
+	prev := make([]int, len(rb)+1)
+	curr := make([]int, len(rb)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(ra); i++ {
+		curr[0] = i
+		for j := 1; j <= len(rb); j++ {
+			cost := 1
+			if ra[i-1] == rb[j-1] {
+				cost = 0
+			}
+			del := prev[j] + 1
+			ins := curr[j-1] + 1
+			sub := prev[j-1] + cost
+			m := del
+			if ins < m {
+				m = ins
+			}
+			if sub < m {
+				m = sub
+			}
+			curr[j] = m
+		}
+		prev, curr = curr, prev
+	}
+	return prev[len(rb)]
 }
 
 // ResetCallCount resets the per-proxy API call counter. Intended for tests.

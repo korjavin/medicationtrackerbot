@@ -362,3 +362,92 @@ func TestProxy_MaxAPICalls_Zero_Unlimited(t *testing.T) {
 		}
 	}
 }
+
+func TestProxy_UnknownOperation_Suggestions(t *testing.T) {
+	reg := buildRegistry(t)
+	srv := successBridge(t)
+
+	p := newProxy(reg, srv.URL)
+	// "workouts.groups" has no exact match; Search surfaces workouts.groups.list.
+	_, err := p.Call(context.Background(), RunConfig{Mode: ModeReadOnly, MaxAPICalls: 10}, "workouts.groups", nil, nil, nil)
+	if err == nil {
+		t.Fatal("expected error for unknown operation")
+	}
+	callErr, ok := err.(*CallError)
+	if !ok {
+		t.Fatalf("expected *CallError, got %T: %v", err, err)
+	}
+	if callErr.Code != ErrUnknownOperation {
+		t.Errorf("expected code %q, got %q", ErrUnknownOperation, callErr.Code)
+	}
+	if !strings.Contains(callErr.Message, "Did you mean") {
+		t.Errorf("expected a did-you-mean hint, got %q", callErr.Message)
+	}
+	if !strings.Contains(callErr.Message, "workouts.groups.list") {
+		t.Errorf("expected suggestion workouts.groups.list, got %q", callErr.Message)
+	}
+}
+
+func TestProxy_UnknownOperation_TypoSuggestion(t *testing.T) {
+	reg := buildRegistry(t)
+	srv := successBridge(t)
+
+	p := newProxy(reg, srv.URL)
+	// "food.logs.lst" is a typo of "food.logs.list": no substring of either the
+	// full id or the trailing segment ("lst") matches, so only the edit-distance
+	// fallback can surface the correction.
+	_, err := p.Call(context.Background(), RunConfig{Mode: ModeReadOnly, MaxAPICalls: 10}, "food.logs.lst", nil, nil, nil)
+	if err == nil {
+		t.Fatal("expected error for unknown operation")
+	}
+	callErr, ok := err.(*CallError)
+	if !ok {
+		t.Fatalf("expected *CallError, got %T: %v", err, err)
+	}
+	if callErr.Code != ErrUnknownOperation {
+		t.Errorf("expected code %q, got %q", ErrUnknownOperation, callErr.Code)
+	}
+	if !strings.Contains(callErr.Message, "Did you mean") {
+		t.Errorf("expected a did-you-mean hint, got %q", callErr.Message)
+	}
+	if !strings.Contains(callErr.Message, "food.logs.list") {
+		t.Errorf("expected suggestion food.logs.list, got %q", callErr.Message)
+	}
+}
+
+func TestProxy_WriteBlocked_ActionableMessage(t *testing.T) {
+	reg := buildRegistry(t)
+	srv := successBridge(t)
+
+	p := newProxy(reg, srv.URL)
+	_, err := p.Call(context.Background(), RunConfig{Mode: ModeReadOnly, MaxAPICalls: 10}, "workouts.sessions.create", nil, nil, nil)
+	if err == nil {
+		t.Fatal("expected error for write in read-only mode")
+	}
+	callErr, ok := err.(*CallError)
+	if !ok {
+		t.Fatalf("expected *CallError, got %T: %v", err, err)
+	}
+	if !strings.Contains(callErr.Message, "mode='write'") {
+		t.Errorf("expected actionable write fix mentioning mode='write', got %q", callErr.Message)
+	}
+}
+
+func TestProxy_TopicNotAllowed_NamesAllowedTopic(t *testing.T) {
+	reg := buildRegistry(t)
+	srv := successBridge(t)
+
+	p := newProxy(reg, srv.URL)
+	cfg := RunConfig{Mode: ModeReadOnly, MaxAPICalls: 10, TopicAllowlist: []string{"workouts"}}
+	_, err := p.Call(context.Background(), cfg, "food.logs.list", nil, nil, nil)
+	if err == nil {
+		t.Fatal("expected error for topic not in allowlist")
+	}
+	callErr, ok := err.(*CallError)
+	if !ok {
+		t.Fatalf("expected *CallError, got %T: %v", err, err)
+	}
+	if !strings.Contains(callErr.Message, "workouts") {
+		t.Errorf("expected the allowed topic named in the message, got %q", callErr.Message)
+	}
+}

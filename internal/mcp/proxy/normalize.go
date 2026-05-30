@@ -34,6 +34,14 @@ var listOpParamBounds = map[string]map[string]paramBound{
 		"days":  {DefaultValue: 30, Min: 1, Max: 0},
 		"limit": {DefaultValue: 50, Min: 1, Max: 200},
 	},
+	"health.sleep.list": {
+		// days mirrors the MaxQueryDays cap like the other list ops; limit
+		// bounds the rowset so even the explicit from/to escape hatch (which
+		// clampListParams cannot touch — it only normalizes integers) can't
+		// return an unbounded number of nights.
+		"days":  {DefaultValue: 90, Min: 1, Max: 0},
+		"limit": {DefaultValue: 100, Min: 1, Max: 5000},
+	},
 	"food.log.list": {
 		"days": {DefaultValue: 1, Min: 1, Max: 0},
 	},
