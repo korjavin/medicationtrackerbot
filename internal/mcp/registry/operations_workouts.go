@@ -13,6 +13,9 @@ func WorkoutOperations() []*Operation {
 			Risk:            RiskRead,
 			Description:     "List all workout groups for the current user. A group is a named collection of workout variants (e.g. 'Gym A' or 'Home Workout').",
 			ResponseSummary: "JSON array of workout group objects with id, name, description, is_rotating, days_of_week, scheduled_time.",
+			ResponseExample: `[
+  {"id": 1, "name": "Home Workout", "description": "Bodyweight rotation", "is_rotating": true, "days_of_week": "[1,3,5]", "scheduled_time": "07:00"}
+]`,
 			Example: `result = api.call("workouts.groups.list")
 output(result)`,
 		},
@@ -31,6 +34,10 @@ output(result)`,
 }`),
 			Description:     "List all variants within a workout group. A variant is one rotation slot (e.g. 'Push Day', 'Pull Day').",
 			ResponseSummary: "JSON array of variant objects with id, name, description, group_id.",
+			ResponseExample: `[
+  {"id": 5, "name": "Push Day", "description": "", "group_id": 1, "rotation_order": 0},
+  {"id": 6, "name": "Pull Day", "description": "", "group_id": 1, "rotation_order": 1}
+]`,
 			Example: `result = api.call("workouts.variants.list", params={"group_id": 1})
 output(result)`,
 		},
@@ -49,6 +56,9 @@ output(result)`,
 }`),
 			Description:     "List all exercises in a workout variant. Returns exercises with their default sets, reps, and weight.",
 			ResponseSummary: "JSON array of exercise objects with id, name, sets, reps, weight_kg, notes, variant_id.",
+			ResponseExample: `[
+  {"id": 42, "name": "Bench Press", "target_sets": 4, "target_reps_min": 6, "target_reps_max": 8, "target_weight_kg": 65.0, "order_index": 0, "variant_id": 2}
+]`,
 			Example: `result = api.call("workouts.exercises.list", params={"variant_id": 2})
 output(result)`,
 		},
@@ -66,6 +76,9 @@ output(result)`,
 }`),
 			Description:     "List recent workout sessions. Sessions represent a scheduled or ad-hoc workout that was completed or skipped. Returned sessions span every group; filter client-side on the returned group_id field if needed.",
 			ResponseSummary: "JSON array of session objects with id, group_id, variant_id, scheduled_date, status, started_at, completed_at.",
+			ResponseExample: `[
+  {"id": 42, "group_id": 1, "variant_id": 5, "scheduled_date": "2026-04-29", "status": "completed", "started_at": "2026-04-29T07:32:00Z", "completed_at": "2026-04-29T08:20:00Z"}
+]`,
 			Example: `result = api.call("workouts.sessions.list", params={"limit": 10})
 output(result)`,
 		},
@@ -84,6 +97,12 @@ output(result)`,
 }`),
 			Description:     "Get detailed information for a specific workout session including all exercise logs.",
 			ResponseSummary: "Session object with exercise_logs array containing sets, reps, weight_kg, status, notes per exercise.",
+			ResponseExample: `{
+  "id": 42, "group_id": 1, "variant_id": 5, "scheduled_date": "2026-04-29", "status": "completed",
+  "exercise_logs": [
+    {"id": 99, "exercise_name": "Bench Press", "target_sets": 4, "target_reps_min": 6, "sets_completed": 4, "reps_completed": 8, "weight_kg": 65.0, "status": "completed", "notes": ""}
+  ]
+}`,
 			Example: `result = api.call("workouts.sessions.details", params={"id": 42})
 output(result)`,
 		},
@@ -95,6 +114,12 @@ output(result)`,
 			Risk:            RiskRead,
 			Description:     "Get aggregated workout statistics including total sessions, completion rate, and per-group summaries.",
 			ResponseSummary: "Stats object with total_sessions, completed_sessions, skipped_sessions, completion_rate, and per-group breakdowns.",
+			ResponseExample: `{
+  "total_sessions": 48, "completed_sessions": 40, "skipped_sessions": 8, "completion_rate": 0.83,
+  "per_group": [
+    {"group_id": 1, "name": "Home Workout", "completed": 40, "skipped": 8}
+  ]
+}`,
 			Example: `result = api.call("workouts.stats.read")
 output(result)`,
 		},
@@ -325,6 +350,7 @@ output({"created": "Pull-ups"})`,
 			Risk:            RiskRead,
 			Description:     "List the distinct exercise names the user has logged historically (deduped union across all variants and sessions). Useful for autocomplete or building rotation suggestions.",
 			ResponseSummary: "JSON array of strings (exercise names).",
+			ResponseExample: `["Bench Press", "Pull-ups", "Squat", "Deadlift"]`,
 			Example: `result = api.call("workouts.exercises.unique")
 output(result)`,
 		},
@@ -344,6 +370,9 @@ output(result)`,
 }`),
 			Description:     "List Mi Band workouts (running, cycling, etc. imported from the wearable).",
 			ResponseSummary: "JSON array of Mi Band workouts with activity_name, source_start_ms, source_end_ms, duration_sec, distance_m, steps, calories, heart_rate_avg.",
+			ResponseExample: `[
+  {"id": 88, "activity_name": "Outdoor Running", "source_start_ms": 1777612200000, "source_end_ms": 1777614600000, "duration_sec": 2400, "distance_m": 5200, "steps": 5400, "calories": 320, "heart_rate_avg": 148}
+]`,
 			Example: `result = api.call("workouts.miband.list", params={"limit": 30})
 output(result)`,
 		},
@@ -356,6 +385,10 @@ output(result)`,
 			Risk:            RiskRead,
 			Description:     "Get GPS track points for a Mi Band workout (when GPS was recorded).",
 			ResponseSummary: "JSON array of GPS points with timestamp, lat, lon, ele.",
+			ResponseExample: `[
+  {"timestamp": "2026-04-29T07:30:00Z", "lat": 40.7128, "lon": -74.006, "ele": 12.0},
+  {"timestamp": "2026-04-29T07:30:05Z", "lat": 40.7129, "lon": -74.0061, "ele": 12.3}
+]`,
 			Example: `result = api.call("workouts.miband.gps", path_params={"id": 88})
 output(result)`,
 		},
@@ -402,6 +435,9 @@ output({"deleted": 88})`,
 			Risk:            RiskRead,
 			Description:     "Read the current rotation state — which variant is queued next for each rotating workout group.",
 			ResponseSummary: "JSON object keyed by group_id with the current rotation slot and pointer.",
+			ResponseExample: `{
+  "1": {"current_variant_id": 5, "current_variant_name": "Push Day", "rotation_index": 0}
+}`,
 			Example: `result = api.call("workouts.rotation.state")
 output(result)`,
 		},
@@ -426,6 +462,9 @@ output({"reset": True})`,
 			Risk:            RiskRead,
 			Description:     "List the user's exercise library — saved exercises with default sets/reps/weight that the UI offers as autocomplete suggestions when building a workout.",
 			ResponseSummary: "JSON array of items with id, name, default_sets, default_reps_min, default_reps_max, default_weight_kg, notes.",
+			ResponseExample: `[
+  {"id": 7, "name": "Pull-ups", "default_sets": 3, "default_reps_min": 8, "default_reps_max": 12, "default_weight_kg": null, "notes": ""}
+]`,
 			Example: `result = api.call("workouts.exercise_library.list")
 output(result)`,
 		},
@@ -517,6 +556,7 @@ output({"deleted": 5})`,
 			Risk:            RiskRead,
 			Description:     "Find the next upcoming or active workout session for the user, in the user's timezone. Includes already-notified sessions for the current day even if the scheduled time has passed.",
 			ResponseSummary: "Session object with id, group_id, variant_id, scheduled_date, status; or HTTP 204 if nothing is upcoming.",
+			ResponseExample: `{"id": 43, "group_id": 1, "variant_id": 6, "scheduled_date": "2026-05-01", "status": "pending"}`,
 			Example: `result = api.call("workouts.sessions.next")
 output(result)`,
 		},

@@ -25,6 +25,15 @@ func FoodOperations() []*Operation {
 }`),
 			Description:     "List food log entries for a date window, grouped into meals. date defaults to today in the user's timezone. tz overrides with an IANA name (e.g. 'America/Los_Angeles'); tz_offset (minutes west of UTC) is a fallback only when the IANA name is unrecognized. The date string is interpreted in whichever timezone resolves first: tz, then tz_offset, then the user's stored timezone.",
 			ResponseSummary: "JSON array of food groups; each group has logs[] with id, eaten_at, weight, carbs, protein, fat, calories, name, product_id.",
+			ResponseExample: `[
+  {
+    "date": "2026-04-29",
+    "logs": [
+      {"id": 901, "eaten_at": "2026-04-29T08:00:00Z", "weight": 200, "carbs": 40, "protein": 8, "fat": 5, "calories": 250, "name": "oatmeal", "product_id": 12},
+      {"id": 902, "eaten_at": "2026-04-29T12:30:00Z", "weight": 150, "carbs": 0, "protein": 31, "fat": 4, "calories": 165, "name": "chicken breast", "product_id": 7}
+    ]
+  }
+]`,
 			Example: `result = api.call("food.log.list", params={"date": "2026-04-29", "days": 1})
 output(result)`,
 		},
@@ -45,6 +54,13 @@ output(result)`,
 }`),
 			Description:     "Aggregated food stats over a date window: totals, daily averages, and breakdowns.",
 			ResponseSummary: "Stats object with calories, carbs, protein, fat totals plus per-day arrays.",
+			ResponseExample: `{
+  "totals": {"calories": 14210, "carbs": 1400, "protein": 700, "fat": 420},
+  "daily_average": {"calories": 2030, "carbs": 200, "protein": 100, "fat": 60},
+  "per_day": [
+    {"date": "2026-04-29", "calories": 2100, "carbs": 210, "protein": 105, "fat": 62}
+  ]
+}`,
 			Example: `result = api.call("food.stats.read", params={"days": 7})
 output(result)`,
 		},
@@ -56,6 +72,7 @@ output(result)`,
 			Risk:            RiskRead,
 			Description:     "Get the user's daily nutrition targets (calories, carbs, protein, fat).",
 			ResponseSummary: "Object with calories, carbs, protein, fat (all integers in their respective units).",
+			ResponseExample: `{"calories": 2200, "carbs": 250, "protein": 140, "fat": 70}`,
 			Example: `result = api.call("food.targets.read")
 output(result)`,
 		},
@@ -73,6 +90,12 @@ output(result)`,
 }`),
 			Description:     "List the user's saved food products (used as templates when logging).",
 			ResponseSummary: "JSON object with 'products' (array of {id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, is_meal}) and 'total' (int).",
+			ResponseExample: `{
+  "products": [
+    {"id": 12, "name": "oatmeal", "barcode": "", "carbs_100g": 60.0, "protein_100g": 12.0, "fat_100g": 7.0, "energy_kcal_100g": 360.0, "is_meal": false}
+  ],
+  "total": 1
+}`,
 			Example: `result = api.call("food.products.list")
 output({"count": result["total"], "products": result["products"]})`,
 		},
@@ -91,6 +114,9 @@ output({"count": result["total"], "products": result["products"]})`,
 }`),
 			Description:     "Search the user's saved food products (and the open_food_facts cache) by name. ALWAYS call this before food.log.create unless you already have a product_id. Logging the same food without a product_id creates a NEW duplicate product row each time, breaking history rollup and statistics. Search with the canonical English term (e.g. \"boiled egg\", not \"вареное яйцо\" or \"boiled eggs breakfast\") so you find existing rows even when the user described the meal in another language or with situational notes.",
 			ResponseSummary: "JSON array of matching products with id, name, barcode, per-100g macros.",
+			ResponseExample: `[
+  {"id": 12, "name": "oatmeal", "barcode": "", "carbs_100g": 60.0, "protein_100g": 12.0, "fat_100g": 7.0, "energy_kcal_100g": 360.0}
+]`,
 			Example: `result = api.call("food.products.search", params={"q": "oatmeal"})
 output(result)`,
 		},
@@ -108,6 +134,12 @@ output(result)`,
 }`),
 			Description:     "Top-N most frequently logged products for this user (highest usage_count first). Use this to discover canonical names the user has logged before, so reused meals share the same food_product entry.",
 			ResponseSummary: "JSON object with 'products' (array of {id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, usage_count, is_meal}) and 'total' (int).",
+			ResponseExample: `{
+  "products": [
+    {"id": 7, "name": "chicken breast", "barcode": "", "carbs_100g": 0.0, "protein_100g": 31.0, "fat_100g": 3.6, "energy_kcal_100g": 165.0, "usage_count": 42, "is_meal": false}
+  ],
+  "total": 1
+}`,
 			Example: `result = api.call("food.products.frequent", params={"limit": 10})
 for p in result["products"]:
     output({"id": p["id"], "name": p["name"]})`,

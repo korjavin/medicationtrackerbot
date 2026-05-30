@@ -50,6 +50,11 @@ type Operation struct {
 	Description string `json:"description"`
 	// Example is a compact Python snippet using medtracker.api.call.
 	Example string `json:"example,omitempty"`
+	// ResponseExample is a small, realistic JSON sample of what the operation
+	// returns. Populated for read/list/get/overview ops that feed chained
+	// scripts so the agent can write correct downstream code on the first try.
+	// Surfaced on drill-in (full HelpEntry) but never in the terse catalog.
+	ResponseExample string `json:"response_example,omitempty"`
 }
 
 // HelpEntry is the compact representation returned by MarshalForHelp.
@@ -71,6 +76,7 @@ type HelpEntry struct {
 	ParamsSchema    any      `json:"params_schema,omitempty"`
 	BodySchema      any      `json:"body_schema,omitempty"`
 	Example         string   `json:"example,omitempty"`
+	ResponseExample string   `json:"response_example,omitempty"`
 }
 
 // HelpEntryCompact is the terse catalog representation returned by
@@ -293,6 +299,7 @@ func MarshalForHelp(ops []*Operation) []HelpEntry {
 			ParamsSchema:    decodeSchema(op.ParamsSchema),
 			BodySchema:      decodeSchema(op.BodySchema),
 			Example:         example,
+			ResponseExample: op.ResponseExample,
 		})
 	}
 	return entries
