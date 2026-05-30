@@ -115,11 +115,11 @@ Key design decisions (confirmed with user):
 
 ### Task 7: Verify acceptance criteria
 
-- [ ] Verify Tier 1: `response_example` present on read ops via drill-in and absent from terse catalog; `operation_ids` batch + ≤3-query auto-expand return full entries; no-arg `mcp_help` carries `usage_protocol`; `mcp://catalog` resource returns the protocol + terse catalog.
-- [ ] Verify Tier 2: unknown-op error suggests close ids; write-blocked error states the fix; a bad-typed param/body yields a warning while the call still proceeds (warn-only).
-- [ ] `go build ./...` and `go build -tags mobile ./...` both pass (MCP stripped from mobile — guards cross-package breakage).
-- [ ] run full `go test ./...` — all green; `gofmt -l` clean on touched files; `go vet ./internal/mcp/...` clean.
-- [ ] Confirm no new HTTP route added — `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` still passes.
+- [x] Verify Tier 1: `response_example` present on read ops via drill-in and absent from terse catalog; `operation_ids` batch + ≤3-query auto-expand return full entries; no-arg `mcp_help` carries `usage_protocol`; `mcp://catalog` resource returns the protocol + terse catalog. (Confirmed present + tested across registry.go/operations_*.go, help.go/help_test.go, mcp.go.)
+- [x] Verify Tier 2: unknown-op error suggests close ids; write-blocked error states the fix; a bad-typed param/body yields a warning while the call still proceeds (warn-only). (Confirmed via `suggestOperations` in proxy.go + `ValidateInput` in validate.go/call.go/executor/service.go, all tested.)
+- [x] `go build ./...` and `go build -tags mobile ./...` both pass (MCP stripped from mobile — guards cross-package breakage). (Both exit 0.)
+- [x] run full `go test ./...` — all green; `gofmt -l` clean on touched files; `go vet ./internal/mcp/...` clean. (37 packages ok, 0 FAIL; gofmt clean on internal/mcp/; vet exit 0.)
+- [x] Confirm no new HTTP route added — `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` still passes. (Green.)
 
 ### Task 8: Documentation
 
