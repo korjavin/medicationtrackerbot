@@ -108,10 +108,10 @@ Key design decisions (confirmed with user):
 
 ### Task 6: Wire validation warnings into `mcp_call` and `mcp_execute` (#6)
 
-- [ ] Add `Warnings []string \`json:"warnings,omitempty"\`` to `CallResponse` in `internal/mcp/call.go`; in `handleMCPCall`, call `registry.ValidateInput(op, input.Params, input.Body)` (look up the op from `s.reg`) and set `CallResponse.Warnings` (merge with any executor warnings). The call still proceeds regardless (warn-only).
-- [ ] For scripts: in the executor's `handleCall` (before `paramsToStrings`), call `ValidateInput(op, req.Params, req.Body)` and append results to a new mutex-guarded `runState.warnings`; in `Execute`, merge `runState.warnings` into the final `ExecutionResult.Warnings` (alongside the runner-envelope warnings).
-- [ ] write tests: `call_test.go` — a type-mismatched `mcp_call` returns `status:"ok"` (or backend result) WITH `warnings` populated; `executor/service_test.go` — a script whose `api.call` passes a bad body surfaces the warning in the final `Execute` result `Warnings`.
-- [ ] run `go test ./internal/mcp/...` — must pass before Task 7
+- [x] Add `Warnings []string \`json:"warnings,omitempty"\`` to `CallResponse` in `internal/mcp/call.go`; in `handleMCPCall`, call `registry.ValidateInput(op, input.Params, input.Body)` (look up the op from `s.reg`) and set `CallResponse.Warnings` (merge with any executor warnings). The call still proceeds regardless (warn-only). (Nil-guarded `s.reg` so handler stays safe when no registry is wired.)
+- [x] For scripts: in the executor's `handleCall` (before `paramsToStrings`), call `ValidateInput(op, req.Params, req.Body)` and append results to a new mutex-guarded `runState.warnings`; in `Execute`, merge `runState.warnings` into the final `ExecutionResult.Warnings` (alongside the runner-envelope warnings).
+- [x] write tests: `call_test.go` — a type-mismatched `mcp_call` returns `status:"ok"` (or backend result) WITH `warnings` populated (+ a no-warnings-on-valid case); `executor/service_test.go` — a script whose `api.call` passes a bad body surfaces the warning in the final `Execute` result `Warnings`.
+- [x] run `go test ./internal/mcp/...` — must pass before Task 7
 
 ### Task 7: Verify acceptance criteria
 

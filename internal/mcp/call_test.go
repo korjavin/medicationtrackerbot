@@ -9,8 +9,20 @@ import (
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/mcp/proxy"
+	"github.com/korjavin/medicationtrackerbot/internal/mcp/registry"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+// defaultRegistry builds a registry populated with the real default operations
+// so warn-only schema validation has concrete schemas to check against.
+func defaultRegistry(t *testing.T) *registry.Registry {
+	t.Helper()
+	reg := registry.New()
+	if err := reg.Register(registry.DefaultOperations()...); err != nil {
+		t.Fatalf("register default ops: %v", err)
+	}
+	return reg
+}
 
 // callCall invokes handleMCPCall directly with a background ctx and nil request.
 func callCall(t *testing.T, s *Server, input CallInput) (CallResponse, error) {
@@ -153,6 +165,72 @@ func TestMCPCall_ProxyDeniedPassthrough(t *testing.T) {
 	}
 	if resp.Error != "unknown operation" {
 		t.Errorf("error = %q, want passthrough", resp.Error)
+	}
+}
+
+// TestMCPCall_SchemaWarningsWarnOnly verifies that a type-mismatched body
+// surfaces warn-only validation warnings while the call still proceeds (the
+// faked executor returns ok). Warnings are advisory; they never block.
+func TestMCPCall_SchemaWarningsWarnOnly(t *testing.T) {
+	exec := &fakeExecutionService{
+		callFn: func(_ context.Context, _ CallRequest) (*CallResult, error) {
+			return &CallResult{Status: ExecuteStatusOK, APICalls: 1}, nil
+		},
+	}
+	s := serverWithExecutor(exec, 0, 0)
+	s.reg = defaultRegistry(t)
+
+	// medications.create declares name/dosage/schedule as strings; pass name as
+	// an integer to trip the type check without omitting any required field.
+	resp, err := callCall(t, s, CallInput{
+		OperationID: "medications.create",
+		Mode:        string(proxy.ModeWrite),
+		Intent:      "create med with bad-typed name",
+		Body:        json.RawMessage(`{"name":123,"dosage":"5 mg","schedule":"08:00"}`),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// The call still proceeds (warn-only).
+	if resp.Status != ExecuteStatusOK {
+		t.Errorf("status = %q, want %q (warnings must not block)", resp.Status, ExecuteStatusOK)
+	}
+	if len(resp.Warnings) == 0 {
+		t.Fatalf("expected schema warnings, got none")
+	}
+	var found bool
+	for _, w := range resp.Warnings {
+		if strings.Contains(w, "body.name") && strings.Contains(w, "expected string") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("warnings = %v, want one mentioning body.name expected string", resp.Warnings)
+	}
+}
+
+// TestMCPCall_NoWarningsOnValidInput verifies a well-typed body yields no
+// warnings field (omitempty keeps the envelope clean).
+func TestMCPCall_NoWarningsOnValidInput(t *testing.T) {
+	exec := &fakeExecutionService{
+		callFn: func(_ context.Context, _ CallRequest) (*CallResult, error) {
+			return &CallResult{Status: ExecuteStatusOK, APICalls: 1}, nil
+		},
+	}
+	s := serverWithExecutor(exec, 0, 0)
+	s.reg = defaultRegistry(t)
+
+	resp, err := callCall(t, s, CallInput{
+		OperationID: "medications.create",
+		Mode:        string(proxy.ModeWrite),
+		Intent:      "create med with valid body",
+		Body:        json.RawMessage(`{"name":"Lisinopril","dosage":"5 mg","schedule":"08:00"}`),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Warnings) != 0 {
+		t.Errorf("warnings = %v, want none for valid input", resp.Warnings)
 	}
 }
 

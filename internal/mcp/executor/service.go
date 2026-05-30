@@ -202,6 +202,13 @@ type runState struct {
 	proxyDenials     atomic.Int64
 	backendAppErrors atomic.Int64
 	backendTransport atomic.Int64
+
+	// warningsMu guards warnings, the accumulated warn-only schema-validation
+	// messages from every api.call the script made during this run. They are
+	// merged into the final ExecutionResult.Warnings alongside the runner
+	// envelope's own warnings.
+	warningsMu sync.Mutex
+	warnings   []string
 }
 
 // Compile-time check that Service satisfies the MCP execution interface.
@@ -588,15 +595,24 @@ func (s *Service) Execute(ctx context.Context, req mcp.ExecutionRequest) (*mcp.E
 	// distinguish a real proxy/backend failure from a script that fabricated
 	// a helper exception class.
 	outcomes := runOutcomes{}
+	var validationWarnings []string
 	s.mu.Lock()
 	if rs, ok := s.runs[runToken]; ok {
 		outcomes.proxyDenials = rs.proxyDenials.Load()
 		outcomes.backendAppErrors = rs.backendAppErrors.Load()
 		outcomes.backendTransport = rs.backendTransport.Load()
+		rs.warningsMu.Lock()
+		validationWarnings = append(validationWarnings, rs.warnings...)
+		rs.warningsMu.Unlock()
 	}
 	s.mu.Unlock()
 
 	result := mapEnvelope(envelope, apiCalls, outcomes)
+	// Surface warn-only schema-validation messages collected from each
+	// api.call alongside the runner envelope's own warnings.
+	if len(validationWarnings) > 0 {
+		result.Warnings = append(result.Warnings, validationWarnings...)
+	}
 	s.logRunCompletion(runID, req, duration.Milliseconds(), apiCalls, result.Status, envelope.ExitReason, result.Error)
 	s.fanOutAudit(ctx, RunSummary{
 		RunID:      runID,
@@ -874,6 +890,16 @@ func (s *Service) handleCall(w http.ResponseWriter, r *http.Request) {
 	if err := json.Unmarshal(body, &req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
+	}
+
+	// Warn-only pre-flight schema validation, on the raw JSON before
+	// stringification (so typed schemas aren't false-failed by "7" vs
+	// {type:integer}). Accumulate per-run; merged into the final result's
+	// Warnings. Never blocks — the call forwards regardless.
+	if w := registry.ValidateInput(s.opts.Registry.Get(req.OperationID), req.Params, req.Body); len(w) > 0 {
+		rs.warningsMu.Lock()
+		rs.warnings = append(rs.warnings, w...)
+		rs.warningsMu.Unlock()
 	}
 
 	// The bridge accepts string-valued query params, but scripts pass any JSON
