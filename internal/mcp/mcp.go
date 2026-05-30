@@ -456,6 +456,21 @@ func (s *Server) registerTools() {
 		s.handleMCPCall,
 	)
 
+	// mcp://catalog resource: lets preloading clients start already knowing the
+	// usage protocol + terse operation catalog, eliminating the first scan
+	// round-trip. Clients that only call tools (e.g. SSE) ignore it gracefully
+	// and still reach the same content via no-arg mcp_help.
+	s.mcpServer.AddResource(
+		&mcp.Resource{
+			URI:         catalogResourceURI,
+			Name:        "operation-catalog",
+			Title:       "Health Tracker operation catalog",
+			MIMEType:    "application/json",
+			Description: "Usage protocol (the 3-tool decision rule) plus the terse catalog of all backend operations (id, topic, method, risk, description) and per-topic capabilities. Preload to skip the first mcp_help scan; drill into an operation with mcp_help operation_id= for full schemas.",
+		},
+		s.handleCatalogResource,
+	)
+
 	if s.config.NoLegacyMCP {
 		return
 	}

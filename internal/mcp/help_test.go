@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -425,4 +426,78 @@ func callHelp(t *testing.T, s *Server, input HelpInput) (HelpResponse, error) {
 	t.Helper()
 	_, resp, err := s.handleMCPHelp(context.Background(), nil, input)
 	return resp, err
+}
+
+// TestMCPHelp_FullCatalogCarriesUsageProtocol verifies the no-arg/full-catalog
+// response embeds the stable usage protocol so tool-only clients always receive
+// the 3-tool decision rule.
+func TestMCPHelp_FullCatalogCarriesUsageProtocol(t *testing.T) {
+	s := testServerWithRegistry(t)
+	resp, err := callHelp(t, s, HelpInput{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.UsageProtocol == "" {
+		t.Fatal("expected usage_protocol in full-catalog response")
+	}
+	for _, want := range []string{"mcp_call", "mcp_execute", "output(", "path_params", "mode='write'"} {
+		if !strings.Contains(resp.UsageProtocol, want) {
+			t.Errorf("usage_protocol missing %q: %s", want, resp.UsageProtocol)
+		}
+	}
+}
+
+// TestMCPHelp_DrillInOmitsUsageProtocol verifies the protocol is only attached
+// to the landing/full-catalog branch, not to every operation_id/topic drill-in
+// (it would just be token bloat once the agent has already scanned).
+func TestMCPHelp_DrillInOmitsUsageProtocol(t *testing.T) {
+	s := testServerWithRegistry(t)
+	resp, err := callHelp(t, s, HelpInput{Topic: "workouts"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.UsageProtocol != "" {
+		t.Errorf("topic drill-in should not carry usage_protocol, got: %s", resp.UsageProtocol)
+	}
+}
+
+// TestCatalogResource_ReturnsProtocolAndTerseCatalog invokes the mcp://catalog
+// resource handler and asserts it returns the usage protocol plus the terse
+// operation catalog as parseable JSON.
+func TestCatalogResource_ReturnsProtocolAndTerseCatalog(t *testing.T) {
+	s := testServerWithRegistry(t)
+	res, err := s.handleCatalogResource(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(res.Contents) != 1 {
+		t.Fatalf("expected exactly one resource content, got %d", len(res.Contents))
+	}
+	c := res.Contents[0]
+	if c.URI != catalogResourceURI {
+		t.Errorf("content URI = %q, want %q", c.URI, catalogResourceURI)
+	}
+	if c.MIMEType != "application/json" {
+		t.Errorf("content MIMEType = %q, want application/json", c.MIMEType)
+	}
+	var payload CatalogResource
+	if err := json.Unmarshal([]byte(c.Text), &payload); err != nil {
+		t.Fatalf("resource text is not valid JSON: %v", err)
+	}
+	if payload.UsageProtocol == "" {
+		t.Error("resource payload missing usage_protocol")
+	}
+	if len(payload.Topics) == 0 {
+		t.Error("resource payload missing topics")
+	}
+	if len(payload.Capabilities) == 0 {
+		t.Error("resource payload missing capabilities")
+	}
+	if len(payload.CompactOperations) == 0 {
+		t.Error("resource payload missing compact_operations")
+	}
+	// Terse catalog stays terse — compact entries carry no schema/example fields.
+	if len(payload.CompactOperations) != len(s.reg.All()) {
+		t.Errorf("compact_operations length %d != registry size %d", len(payload.CompactOperations), len(s.reg.All()))
+	}
 }

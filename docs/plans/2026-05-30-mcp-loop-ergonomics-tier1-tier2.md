@@ -87,10 +87,10 @@ Key design decisions (confirmed with user):
 
 ### Task 3: `mcp_help` usage protocol + `mcp://catalog` MCP resource (#4)
 
-- [ ] Add a stable `usageProtocol` constant (the 3-tool decision rule: scan/search → drill-in → `mcp_call` for one op / `mcp_execute` for multi-step; `output()` exactly once; params are query-string + `path_params` for `{placeholders}`; timestamps in the user's tz). Surface it via `HelpResponse.PythonUsage` (rename JSON tag to `usage_protocol` or add a new field) in the no-arg/full-catalog branch.
-- [ ] In `internal/mcp/mcp.go`, register an `mcp://catalog` resource with `mcp.AddResource(s.mcpServer, &mcp.Resource{URI:"mcp://catalog", Name:..., MimeType:"application/json", Description:...}, handler)`; the handler returns `{usage_protocol, topics, capabilities, compact_operations}` (reuse `MarshalForHelpCompact(reg.All())` + `buildCapabilities`).
-- [ ] write tests: `help_test.go` asserts the full-catalog response carries `usage_protocol`; a new test invokes the resource handler and asserts it returns the protocol + terse catalog JSON.
-- [ ] run `go test ./internal/mcp/...` — must pass before Task 4
+- [x] Add a stable `usageProtocol` constant (the 3-tool decision rule: scan/search → drill-in → `mcp_call` for one op / `mcp_execute` for multi-step; `output()` exactly once; params are query-string + `path_params` for `{placeholders}`; timestamps in the user's tz). Surface it via `HelpResponse.PythonUsage` (rename JSON tag to `usage_protocol` or add a new field) in the no-arg/full-catalog branch. (Renamed field to `UsageProtocol`/`usage_protocol`.)
+- [x] In `internal/mcp/mcp.go`, register an `mcp://catalog` resource with `mcp.AddResource(s.mcpServer, &mcp.Resource{URI:"mcp://catalog", Name:..., MimeType:"application/json", Description:...}, handler)`; the handler returns `{usage_protocol, topics, capabilities, compact_operations}` (reuse `MarshalForHelpCompact(reg.All())` + `buildCapabilities`). (SDK API is `s.mcpServer.AddResource(...)`, field `MIMEType`.)
+- [x] write tests: `help_test.go` asserts the full-catalog response carries `usage_protocol`; a new test invokes the resource handler and asserts it returns the protocol + terse catalog JSON.
+- [x] run `go test ./internal/mcp/...` — must pass before Task 4
 
 ### Task 4: Self-correcting denials — did-you-mean + actionable messages (#5, #7)
 

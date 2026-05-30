@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -31,11 +32,18 @@ type HelpResponse struct {
 	Count             int                         `json:"count"`
 	Topics            []string                    `json:"topics,omitempty"`
 	Capabilities      []TopicCapability           `json:"capabilities,omitempty"`
-	PythonUsage       string                      `json:"python_usage,omitempty"`
+	UsageProtocol     string                      `json:"usage_protocol,omitempty"`
 	Note              string                      `json:"note,omitempty"`
 	NextStep          string                      `json:"next_step,omitempty"`
 	NextTools         []string                    `json:"next_tools,omitempty"`
 }
+
+// usageProtocol is the stable, self-contained decision rule the agent should
+// follow on the MCP surface. It is embedded in the no-arg/full-catalog mcp_help
+// response (guaranteed reach for tool-only clients) and mirrored in the
+// mcp://catalog resource (zero round-trip for preloading clients).
+const usageProtocol = "Decision rule: (1) Discover — call mcp_help with no args (or topic=/query=) to scan the catalog, then drill in with operation_id=/operation_ids=[...] for full schemas + a runnable example. (2) Run ONE operation — use mcp_call(operation_id, params, path_params, body). (3) Run MULTIPLE steps (loops, joins, computed values) — write an mcp_execute Python script. " +
+	"Rules: an mcp_execute script MUST call output(value) exactly once (zero or multiple calls abort the run). Params are passed as a query-string object (params={...}); placeholders like {id} in an operation's route go in path_params={...}, not params. Writes require mode='write' AND a one-sentence intent. Timestamps use the user's stored timezone unless an operation accepts an explicit tz/tz_offset."
 
 // TopicCapability is a per-topic summary the agent can scan before drilling
 // into a specific topic. It tells the agent how many read vs write operations
@@ -156,6 +164,7 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 			Count:             len(ops),
 			Topics:            s.reg.Topics(),
 			Capabilities:      s.buildCapabilities(),
+			UsageProtocol:     usageProtocol,
 			Note:              defaultNote,
 			NextStep:          nextStep,
 			NextTools:         []string{"mcp_call", "mcp_execute"},
@@ -215,4 +224,48 @@ func (s *Server) buildCapabilities() []TopicCapability {
 		})
 	}
 	return out
+}
+
+// catalogResourceURI is the stable URI of the preloadable operation catalog.
+const catalogResourceURI = "mcp://catalog"
+
+// CatalogResource is the JSON payload served by the mcp://catalog resource (and
+// mirrored by no-arg mcp_help): the usage protocol plus the terse catalog of all
+// operations, the topic list, and per-topic capabilities.
+type CatalogResource struct {
+	UsageProtocol     string                      `json:"usage_protocol"`
+	Topics            []string                    `json:"topics"`
+	Capabilities      []TopicCapability           `json:"capabilities"`
+	CompactOperations []registry.HelpEntryCompact `json:"compact_operations"`
+}
+
+// buildCatalogResource assembles the catalog payload from the registry. Shared
+// by the resource handler and exercised directly in tests.
+func (s *Server) buildCatalogResource() CatalogResource {
+	return CatalogResource{
+		UsageProtocol:     usageProtocol,
+		Topics:            s.reg.Topics(),
+		Capabilities:      s.buildCapabilities(),
+		CompactOperations: registry.MarshalForHelpCompact(s.reg.All()),
+	}
+}
+
+// handleCatalogResource serves the mcp://catalog resource: a JSON document with
+// the usage protocol + terse operation catalog so preloading clients can skip
+// the first mcp_help scan round-trip.
+func (s *Server) handleCatalogResource(ctx context.Context, req *sdkmcp.ReadResourceRequest) (*sdkmcp.ReadResourceResult, error) {
+	if s.reg == nil {
+		return nil, fmt.Errorf("operation registry not initialized")
+	}
+	payload, err := json.Marshal(s.buildCatalogResource())
+	if err != nil {
+		return nil, fmt.Errorf("marshal catalog resource: %w", err)
+	}
+	return &sdkmcp.ReadResourceResult{
+		Contents: []*sdkmcp.ResourceContents{{
+			URI:      catalogResourceURI,
+			MIMEType: "application/json",
+			Text:     string(payload),
+		}},
+	}, nil
 }
