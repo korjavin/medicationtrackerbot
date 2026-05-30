@@ -388,6 +388,33 @@ func TestProxy_UnknownOperation_Suggestions(t *testing.T) {
 	}
 }
 
+func TestProxy_UnknownOperation_TypoSuggestion(t *testing.T) {
+	reg := buildRegistry(t)
+	srv := successBridge(t)
+
+	p := newProxy(reg, srv.URL)
+	// "food.logs.lst" is a typo of "food.logs.list": no substring of either the
+	// full id or the trailing segment ("lst") matches, so only the edit-distance
+	// fallback can surface the correction.
+	_, err := p.Call(context.Background(), RunConfig{Mode: ModeReadOnly, MaxAPICalls: 10}, "food.logs.lst", nil, nil, nil)
+	if err == nil {
+		t.Fatal("expected error for unknown operation")
+	}
+	callErr, ok := err.(*CallError)
+	if !ok {
+		t.Fatalf("expected *CallError, got %T: %v", err, err)
+	}
+	if callErr.Code != ErrUnknownOperation {
+		t.Errorf("expected code %q, got %q", ErrUnknownOperation, callErr.Code)
+	}
+	if !strings.Contains(callErr.Message, "Did you mean") {
+		t.Errorf("expected a did-you-mean hint, got %q", callErr.Message)
+	}
+	if !strings.Contains(callErr.Message, "food.logs.list") {
+		t.Errorf("expected suggestion food.logs.list, got %q", callErr.Message)
+	}
+}
+
 func TestProxy_WriteBlocked_ActionableMessage(t *testing.T) {
 	reg := buildRegistry(t)
 	srv := successBridge(t)
