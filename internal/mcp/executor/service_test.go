@@ -1476,3 +1476,24 @@ func TestServiceCall_StoppedAndNotStarted(t *testing.T) {
 		t.Error("expected error when stopped")
 	}
 }
+
+func TestServiceCall_UnknownOperationSuggestionReachesResult(t *testing.T) {
+	// The proxy's did-you-mean hint for an unknown op must propagate verbatim
+	// through classifyProxyResult into the mcp_call result Error.
+	sp := &fakeSpawner{fn: func(_ context.Context, _ []byte) ([]byte, error) { return envelopeOK(`null`), nil }}
+	svc, _ := newTestService(t, sp)
+
+	res, err := svc.Call(context.Background(), mcp.CallRequest{OperationID: "workouts.groups"})
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if res.Status != mcp.ExecuteStatusProxyDenied {
+		t.Errorf("expected status %q, got %q", mcp.ExecuteStatusProxyDenied, res.Status)
+	}
+	if !strings.Contains(res.Error, "Did you mean") {
+		t.Errorf("expected did-you-mean hint to reach the result, got %q", res.Error)
+	}
+	if !strings.Contains(res.Error, "workouts.groups.list") {
+		t.Errorf("expected suggestion workouts.groups.list in result error, got %q", res.Error)
+	}
+}

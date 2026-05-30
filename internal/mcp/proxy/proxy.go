@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -140,12 +141,18 @@ func (p *Proxy) Call(ctx context.Context, cfg RunConfig, operationID string, par
 	op := p.reg.Get(operationID)
 	if op == nil {
 		slog.Warn("[Proxy] unknown operation", "operation_id", operationID)
-		return nil, &CallError{Code: ErrUnknownOperation, Message: fmt.Sprintf("operation %q not found in registry", operationID)}
+		msg := fmt.Sprintf("operation %q not found in registry", operationID)
+		if sugg := p.suggestOperations(operationID); len(sugg) > 0 {
+			msg += ". Did you mean: " + strings.Join(sugg, ", ") + "? (call mcp_help to scan the catalog)"
+		} else {
+			msg += " (call mcp_help to scan the catalog)"
+		}
+		return nil, &CallError{Code: ErrUnknownOperation, Message: msg}
 	}
 
 	if cfg.Mode == ModeReadOnly && op.Risk == registry.RiskWrite {
 		slog.Warn("[Proxy] write blocked in read-only mode", "operation_id", operationID)
-		return nil, &CallError{Code: ErrWriteBlocked, Message: fmt.Sprintf("operation %q is a write operation; write mode required", operationID)}
+		return nil, &CallError{Code: ErrWriteBlocked, Message: fmt.Sprintf("operation %q is a write operation and writes are disabled for this call. Retry with mode='write' and a one-sentence intent.", operationID)}
 	}
 
 	if cfg.MaxAPICalls > 0 {
@@ -153,7 +160,7 @@ func (p *Proxy) Call(ctx context.Context, cfg RunConfig, operationID string, par
 		if int(count) > cfg.MaxAPICalls {
 			p.callCount.Add(-1)
 			slog.Warn("[Proxy] max API calls exceeded", "operation_id", operationID, "max", cfg.MaxAPICalls, "count", count)
-			return nil, &CallError{Code: ErrMaxCallsExceeded, Message: fmt.Sprintf("max API calls (%d) exceeded", cfg.MaxAPICalls)}
+			return nil, &CallError{Code: ErrMaxCallsExceeded, Message: fmt.Sprintf("call budget exceeded: this run allows at most %d API call(s). Reduce the number of api.call() invocations, or split the work across runs.", cfg.MaxAPICalls)}
 		}
 	}
 
@@ -168,7 +175,7 @@ func (p *Proxy) Call(ctx context.Context, cfg RunConfig, operationID string, par
 		if !allowed {
 			p.callCount.Add(-1) // undo the increment
 			slog.Warn("[Proxy] topic not in allowlist", "operation_id", operationID, "topic", op.Topic)
-			return nil, &CallError{Code: ErrTopicNotAllowed, Message: fmt.Sprintf("topic %q not in allowlist", op.Topic)}
+			return nil, &CallError{Code: ErrTopicNotAllowed, Message: fmt.Sprintf("topic %q not allowed; this run is restricted to topic(s): %s. Retry with an operation under one of those topics.", op.Topic, strings.Join(cfg.TopicAllowlist, ", "))}
 		}
 	}
 
@@ -250,6 +257,27 @@ func (p *Proxy) Call(ctx context.Context, cfg RunConfig, operationID string, par
 	)
 
 	return &CallResult{Trace: trace, Response: &bridgeResp}, nil
+}
+
+// suggestOperations returns up to 3 operation IDs closest to a (mistyped)
+// operation ID, for "did you mean" hints in unknown-operation errors. It first
+// searches the full ID; if that yields nothing, it falls back to the trailing
+// dot-segment (so e.g. "vitals.bp.list" still surfaces ops matching "list").
+func (p *Proxy) suggestOperations(operationID string) []string {
+	matches := p.reg.Search(operationID)
+	if len(matches) == 0 {
+		if idx := strings.LastIndex(operationID, "."); idx >= 0 && idx+1 < len(operationID) {
+			matches = p.reg.Search(operationID[idx+1:])
+		}
+	}
+	out := make([]string, 0, 3)
+	for _, op := range matches {
+		out = append(out, op.ID)
+		if len(out) == 3 {
+			break
+		}
+	}
+	return out
 }
 
 // ResetCallCount resets the per-proxy API call counter. Intended for tests.

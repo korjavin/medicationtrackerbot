@@ -94,11 +94,11 @@ Key design decisions (confirmed with user):
 
 ### Task 4: Self-correcting denials — did-you-mean + actionable messages (#5, #7)
 
-- [ ] In `internal/mcp/proxy/proxy.go`, when `Get(operationID)` misses, enrich the `ErrUnknownOperation` `CallError.Message` with up to 3 closest ids from `p.reg.Search(operationID)` (fall back to searching the last dot-segment if the full id yields nothing): e.g. `operation "health.bp.lst" not found. Did you mean: health.bp.list, health.bp.get?`.
-- [ ] Make the other denial messages actionable: `ErrWriteBlocked` → "...retry with mode='write' and a one-sentence intent."; `ErrTopicNotAllowed` → name the allowed topics; `ErrMaxCallsExceeded` → state the cap.
-- [ ] Confirm these messages propagate unchanged through `classifyProxyResult` (`callOutcome.errMsg`) into `CallResponse.Error` / `ExecuteResponse.Error` (no mapping changes needed; add an assertion).
-- [ ] write tests in `proxy/proxy_test.go`: unknown-op message contains suggestions; write-blocked message contains the actionable fix. Add a `service_test.go` case asserting the enriched message reaches the `callOutcome`/result.
-- [ ] run `go test ./internal/mcp/...` — must pass before Task 5
+- [x] In `internal/mcp/proxy/proxy.go`, when `Get(operationID)` misses, enrich the `ErrUnknownOperation` `CallError.Message` with up to 3 closest ids from `p.reg.Search(operationID)` (fall back to searching the last dot-segment if the full id yields nothing): e.g. `operation "health.bp.lst" not found. Did you mean: health.bp.list, health.bp.get?`. (Added `suggestOperations` helper; full-id Search then trailing-segment fallback.)
+- [x] Make the other denial messages actionable: `ErrWriteBlocked` → "...retry with mode='write' and a one-sentence intent."; `ErrTopicNotAllowed` → name the allowed topics; `ErrMaxCallsExceeded` → state the cap. (All four denials live inline in `proxy.Call`; messages reworded.)
+- [x] Confirm these messages propagate unchanged through `classifyProxyResult` (`callOutcome.errMsg`) into `CallResponse.Error` / `ExecuteResponse.Error` (no mapping changes needed; add an assertion). (`classifyProxyResult` copies `ce.Code + ": " + ce.Message` verbatim; `service_test.go` asserts the did-you-mean message reaches `CallResult.Error`.)
+- [x] write tests in `proxy/proxy_test.go`: unknown-op message contains suggestions; write-blocked message contains the actionable fix. Add a `service_test.go` case asserting the enriched message reaches the `callOutcome`/result.
+- [x] run `go test ./internal/mcp/...` — must pass before Task 5
 
 ### Task 5: Shared warn-only schema validator (#6)
 
