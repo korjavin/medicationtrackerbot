@@ -102,9 +102,9 @@ Key design decisions (confirmed with user):
 
 ### Task 5: Shared warn-only schema validator (#6)
 
-- [ ] Add `func ValidateInput(op *Operation, params map[string]json.RawMessage, body json.RawMessage) []string` (new file e.g. `internal/mcp/registry/validate.go`): compile `op.ParamsSchema`/`op.BodySchema` via `github.com/google/jsonschema-go/jsonschema` (cache compiled schemas keyed by op id, compile-once); assemble the params object from the raw map; return field-level warning strings. Lenient: report missing-required and wrong-type of DECLARED fields only; do NOT enforce `additionalProperties`/unknown fields. Returns nil when schemas are absent or input is valid.
-- [ ] write tests in `registry_test.go` (or `validate_test.go`): type-mismatch warns with `field: expected X, got Y`; missing-required warns; extra/unknown field does NOT warn; nil schema → no warnings; valid input → nil.
-- [ ] run `go test ./internal/mcp/registry/...` — must pass before Task 6
+- [x] Add `func ValidateInput(op *Operation, params map[string]json.RawMessage, body json.RawMessage) []string` (new file e.g. `internal/mcp/registry/validate.go`): compile `op.ParamsSchema`/`op.BodySchema` via `github.com/google/jsonschema-go/jsonschema` (cache compiled schemas keyed by op id, compile-once); assemble the params object from the raw map; return field-level warning strings. Lenient: report missing-required and wrong-type of DECLARED fields only; do NOT enforce `additionalProperties`/unknown fields. Returns nil when schemas are absent or input is valid. (jsonschema-go parses each op's schemas into `*jsonschema.Schema` cached in a `sync.Map` keyed by op id; lenient walk over `Properties`/`Required`/`Type`/`Types`; integer satisfies number, fractional fails integer.)
+- [x] write tests in `registry_test.go` (or `validate_test.go`): type-mismatch warns with `field: expected X, got Y`; missing-required warns; extra/unknown field does NOT warn; nil schema → no warnings; valid input → nil. (`validate_test.go` table-driven; also covers nil op + non-object body leniency.)
+- [x] run `go test ./internal/mcp/registry/...` — must pass before Task 6
 
 ### Task 6: Wire validation warnings into `mcp_call` and `mcp_execute` (#6)
 
