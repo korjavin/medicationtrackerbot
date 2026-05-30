@@ -63,28 +63,99 @@ func TestMCPHelp_FullCatalogIsTerse(t *testing.T) {
 	}
 }
 
-// TestMCPHelp_QuerySearch covers the keyword-search axis: a query returns terse
-// matches (no schemas/example) drawn from the registry's Search.
+// TestMCPHelp_QuerySearch covers the keyword-search axis: a query matching MORE
+// than autoExpandThreshold ops returns terse matches (no schemas/example) drawn
+// from the registry's Search. "sleep" matches >3 ops so it stays compact.
 func TestMCPHelp_QuerySearch(t *testing.T) {
 	s := testServerWithRegistry(t)
-	resp, err := callHelp(t, s, HelpInput{Query: "blood pressure"})
+	const q = "sleep"
+	if n := len(s.reg.Search(q)); n <= autoExpandThreshold {
+		t.Fatalf("test precondition: query %q must match >%d ops to stay terse, got %d", q, autoExpandThreshold, n)
+	}
+	resp, err := callHelp(t, s, HelpInput{Query: q})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if resp.Count == 0 || len(resp.CompactOperations) == 0 {
-		t.Fatal("expected query matches for 'blood pressure'")
+		t.Fatalf("expected terse query matches for %q", q)
 	}
 	if len(resp.Operations) != 0 {
-		t.Errorf("query results should be terse, got %d full operations", len(resp.Operations))
+		t.Errorf("large query results should be terse, got %d full operations", len(resp.Operations))
 	}
 	if len(resp.CompactOperations) != resp.Count {
 		t.Errorf("compact_operations length %d != count %d", len(resp.CompactOperations), resp.Count)
 	}
-	// Every match should genuinely relate to blood pressure (bp topic/id).
+	// Terse entries must still carry the five scan fields.
 	for _, op := range resp.CompactOperations {
-		if !strings.Contains(op.ID, "bp") && !strings.Contains(strings.ToLower(op.Description), "blood pressure") {
-			t.Errorf("unexpected match for 'blood pressure': %s", op.ID)
+		if op.ID == "" || op.Topic == "" || op.Method == "" || op.Risk == "" {
+			t.Errorf("compact match missing scan fields: %+v", op)
 		}
+	}
+}
+
+// TestMCPHelp_QueryAutoExpandsSmall covers the Task 2 auto-expand: a query that
+// matches <= autoExpandThreshold ops returns FULL Operations (schemas + example)
+// instead of terse rows, collapsing help(query) -> help(operation_id) -> run.
+func TestMCPHelp_QueryAutoExpandsSmall(t *testing.T) {
+	s := testServerWithRegistry(t)
+	const q = "blood pressure"
+	n := len(s.reg.Search(q))
+	if n == 0 || n > autoExpandThreshold {
+		t.Fatalf("test precondition: query %q must match 1..%d ops, got %d", q, autoExpandThreshold, n)
+	}
+	resp, err := callHelp(t, s, HelpInput{Query: q})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Operations) != n {
+		t.Fatalf("expected %d auto-expanded full operations, got %d", n, len(resp.Operations))
+	}
+	if len(resp.CompactOperations) != 0 {
+		t.Errorf("auto-expanded query must not also return compact rows, got %d", len(resp.CompactOperations))
+	}
+	for _, op := range resp.Operations {
+		if op.Example == "" {
+			t.Errorf("auto-expanded op %s missing example", op.ID)
+		}
+	}
+}
+
+// TestMCPHelp_BatchOperationIDs covers the Task 2 batch lookup: operation_ids
+// returns FULL detail for every found id in a single call.
+func TestMCPHelp_BatchOperationIDs(t *testing.T) {
+	s := testServerWithRegistry(t)
+	resp, err := callHelp(t, s, HelpInput{OperationIDs: []string{"workouts.groups.list", "workouts.variants.list"}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Count != 2 || len(resp.Operations) != 2 {
+		t.Fatalf("expected 2 full operations, got count=%d ops=%d", resp.Count, len(resp.Operations))
+	}
+	seen := map[string]bool{}
+	for _, op := range resp.Operations {
+		seen[op.ID] = true
+	}
+	if !seen["workouts.groups.list"] || !seen["workouts.variants.list"] {
+		t.Errorf("batch lookup missing requested ids, got %v", seen)
+	}
+	if len(resp.CompactOperations) != 0 {
+		t.Error("batch lookup must return full Operations, not compact")
+	}
+}
+
+// TestMCPHelp_BatchOperationIDsMissingNoted verifies a partially-resolving batch
+// returns the found ops and names the missing ids in the note.
+func TestMCPHelp_BatchOperationIDsMissingNoted(t *testing.T) {
+	s := testServerWithRegistry(t)
+	resp, err := callHelp(t, s, HelpInput{OperationIDs: []string{"workouts.groups.list", "does.not.exist"}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Operations) != 1 {
+		t.Fatalf("expected 1 resolved operation, got %d", len(resp.Operations))
+	}
+	if !strings.Contains(resp.Note, "does.not.exist") {
+		t.Errorf("expected missing id noted, got note %q", resp.Note)
 	}
 }
 

@@ -79,11 +79,11 @@ Key design decisions (confirmed with user):
 
 ### Task 2: `mcp_help` — batch `operation_ids` + auto-expand small query results
 
-- [ ] In `internal/mcp/help.go`, add `OperationIDs []string \`json:"operation_ids"\`` to `HelpInput`. In `handleMCPHelp`, when `operation_ids` (and/or `operation_id`) is set, return FULL `Operations` for all found ids (precedence: ids > query > topic > catalog); note any ids not found in `Note`.
-- [ ] Auto-expand: when `query=` matches ≤3 ops, return them as FULL `Operations` (schemas + example + response_example) instead of `CompactOperations`; >3 stays terse. Update the query-branch `Note`/`NextStep` accordingly.
-- [ ] In `internal/mcp/mcp.go`, update the `mcp_help` `InputSchema` to document `operation_ids` and the auto-expand behavior.
-- [ ] write tests in `help_test.go`: batch `operation_ids` returns multiple full entries (+ missing-id note); `query` with ≤3 matches returns full `Operations`; `query` with >3 stays compact.
-- [ ] run `go test ./internal/mcp/...` — must pass before Task 3
+- [x] In `internal/mcp/help.go`, add `OperationIDs []string \`json:"operation_ids"\`` to `HelpInput`. In `handleMCPHelp`, when `operation_ids` (and/or `operation_id`) is set, return FULL `Operations` for all found ids (precedence: ids > query > topic > catalog); note any ids not found in `Note`.
+- [x] Auto-expand: when `query=` matches ≤3 ops, return them as FULL `Operations` (schemas + example + response_example) instead of `CompactOperations`; >3 stays terse. Update the query-branch `Note`/`NextStep` accordingly.
+- [x] In `internal/mcp/mcp.go`, update the `mcp_help` `InputSchema` to document `operation_ids` and the auto-expand behavior.
+- [x] write tests in `help_test.go`: batch `operation_ids` returns multiple full entries (+ missing-id note); `query` with ≤3 matches returns full `Operations`; `query` with >3 stays compact.
+- [x] run `go test ./internal/mcp/...` — must pass before Task 3
 
 ### Task 3: `mcp_help` usage protocol + `mcp://catalog` MCP resource (#4)
 

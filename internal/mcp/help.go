@@ -12,10 +12,17 @@ import (
 
 // HelpInput is the input for the mcp_help tool.
 type HelpInput struct {
-	Topic       string `json:"topic"`
-	OperationID string `json:"operation_id"`
-	Query       string `json:"query"`
+	Topic        string   `json:"topic"`
+	OperationID  string   `json:"operation_id"`
+	OperationIDs []string `json:"operation_ids"`
+	Query        string   `json:"query"`
 }
+
+// autoExpandThreshold is the maximum number of query matches that mcp_help
+// returns as FULL operation detail (schemas + example) instead of terse compact
+// rows. Small result sets are auto-expanded so an agent can go
+// help(query) -> mcp_call/mcp_execute without a separate operation_id drill-in.
+const autoExpandThreshold = 3
 
 // HelpResponse is returned by mcp_help.
 type HelpResponse struct {
@@ -64,29 +71,54 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 		nextStep = suggestion
 	}
 
-	// Exact operation_id lookup takes precedence.
+	// Batch / single operation lookup takes precedence (ids > query > topic >
+	// catalog): return FULL schema detail for every requested id. operation_id
+	// and operation_ids are merged so an agent can fetch the 2-3 ops it intends
+	// to chain in one read.
+	ids := make([]string, 0, len(input.OperationIDs)+1)
 	if opID != "" {
-		op := s.reg.Get(opID)
-		if op == nil {
+		ids = append(ids, opID)
+	}
+	for _, raw := range input.OperationIDs {
+		if id := strings.ToLower(strings.TrimSpace(raw)); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) > 0 {
+		var ops []*registry.Operation
+		var missing []string
+		for _, id := range ids {
+			if op := s.reg.Get(id); op != nil {
+				ops = append(ops, op)
+			} else {
+				missing = append(missing, id)
+			}
+		}
+		if len(ops) == 0 {
 			return nil, HelpResponse{
 				Count:     0,
 				Topics:    s.reg.Topics(),
-				NextStep:  fmt.Sprintf("Operation %q not found. Pick a topic (e.g., 'workouts') or use a valid operation ID.", opID),
+				NextStep:  fmt.Sprintf("Operation %q not found. Pick a topic (e.g., 'workouts') or use a valid operation ID.", strings.Join(missing, ", ")),
 				NextTools: []string{"mcp_help"},
 			}, nil
 		}
-		entries := registry.MarshalForHelp([]*registry.Operation{op})
-
+		note := fmt.Sprintf("Showing full details for %d operation(s). Run one with mcp_call (one-shot), or compose several in an mcp_execute script.", len(ops))
+		if len(missing) > 0 {
+			note += fmt.Sprintf(" Not found: %s.", strings.Join(missing, ", "))
+		}
 		return nil, HelpResponse{
-			Operations: entries,
-			Count:      1,
-			Note:       fmt.Sprintf("Showing full details for operation %q. Run it once with mcp_call, or compose it into a multi-step script with mcp_execute.", opID),
-			NextStep:   "Review the operation details, then run it with mcp_call (one-shot) or mcp_execute (composite).",
+			Operations: registry.MarshalForHelp(ops),
+			Count:      len(ops),
+			Note:       note,
+			NextStep:   "Review the operation details, then run with mcp_call (one-shot) or mcp_execute (composite).",
 			NextTools:  []string{"mcp_call", "mcp_execute"},
 		}, nil
 	}
 
-	// Keyword search: terse matches across id / description / topic / response_summary.
+	// Keyword search across id / description / topic / response_summary. Small
+	// result sets (<= autoExpandThreshold) auto-expand to FULL detail so the
+	// agent can go help(query) -> mcp_call/mcp_execute without a separate
+	// operation_id drill-in; larger sets stay terse to keep the call token-light.
 	if query != "" {
 		ops := s.reg.Search(query)
 		if len(ops) == 0 {
@@ -96,6 +128,15 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 				Note:      fmt.Sprintf("No operations matched query %q.", query),
 				NextStep:  "No matches. Try a broader keyword, browse a topic from the list below, or omit all filters for the full catalog.",
 				NextTools: []string{"mcp_help"},
+			}, nil
+		}
+		if len(ops) <= autoExpandThreshold {
+			return nil, HelpResponse{
+				Operations: registry.MarshalForHelp(ops),
+				Count:      len(ops),
+				Note:       fmt.Sprintf("Showing %d full match(es) for query %q (auto-expanded to schemas + example). Run one with mcp_call (one-shot) or mcp_execute (composite).", len(ops), query),
+				NextStep:   "Review the operation details, then run with mcp_call (one-shot) or mcp_execute (composite).",
+				NextTools:  []string{"mcp_call", "mcp_execute"},
 			}, nil
 		}
 		return nil, HelpResponse{
