@@ -359,8 +359,15 @@ func (s *Server) handleMCPBridge(w http.ResponseWriter, r *http.Request) {
 	}
 	internalURL.RawQuery = q.Encode()
 
-	var bodyReader io.Reader
-	if len(req.Body) > 0 && string(req.Body) != "null" {
+	// Use http.NoBody (not a nil reader) when there's no JSON body: a nil
+	// Request.Body makes downstream handlers that wrap r.Body in
+	// http.MaxBytesReader panic with a nil-pointer dereference on the first
+	// Read (observed when an agent puts a write's fields in params instead of
+	// body). With http.NoBody the decode cleanly returns EOF → 400, not a 500
+	// panic.
+	bodyReader := io.Reader(http.NoBody)
+	hasBody := len(req.Body) > 0 && string(req.Body) != "null"
+	if hasBody {
 		bodyReader = strings.NewReader(string(req.Body))
 	}
 
@@ -370,7 +377,7 @@ func (s *Server) handleMCPBridge(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to build internal request", http.StatusInternalServerError)
 		return
 	}
-	if bodyReader != nil {
+	if hasBody {
 		internalReq.Header.Set("Content-Type", "application/json")
 	}
 

@@ -84,11 +84,17 @@ type HelpEntry struct {
 // operation catalog cheaply; the agent drills into a topic or operation_id (or
 // uses query search) to obtain the full HelpEntry with schemas + example.
 type HelpEntryCompact struct {
-	ID          string `json:"id"`
-	Topic       string `json:"topic"`
-	Method      string `json:"method"`
-	Risk        Risk   `json:"risk"`
-	Description string `json:"description"`
+	ID          string   `json:"id"`
+	Topic       string   `json:"topic"`
+	Method      string   `json:"method"`
+	Risk        Risk     `json:"risk"`
+	Description string   `json:"description"`
+	// Required lists the required input field names (path params + required
+	// params/body fields) for write ops. Surfaced in the terse catalog so an
+	// agent composing a write knows the exact field names without a separate
+	// schema drill-in — weaker models otherwise invent field names (e.g.
+	// "food_name"/"amount" instead of "name"/"weight") and the write 400s.
+	Required []string `json:"required,omitempty"`
 }
 
 // Registry holds the complete set of allowed operations.
@@ -313,15 +319,49 @@ func MarshalForHelp(ops []*Operation) []HelpEntry {
 func MarshalForHelpCompact(ops []*Operation) []HelpEntryCompact {
 	entries := make([]HelpEntryCompact, 0, len(ops))
 	for _, op := range ops {
-		entries = append(entries, HelpEntryCompact{
+		e := HelpEntryCompact{
 			ID:          op.ID,
 			Topic:       op.Topic,
 			Method:      op.Method,
 			Risk:        op.Risk,
 			Description: op.Description,
-		})
+		}
+		if op.Risk == RiskWrite {
+			e.Required = requiredInputFields(op)
+		}
+		entries = append(entries, e)
 	}
 	return entries
+}
+
+// requiredInputFields returns the field names an agent must supply to call op:
+// path placeholders plus the "required" arrays of the params and body schemas,
+// deduplicated in a stable order. Used to advertise write-op inputs in the
+// terse catalog so agents don't have to guess field names.
+func requiredInputFields(op *Operation) []string {
+	var fields []string
+	fields = append(fields, op.PathParams...)
+	for _, raw := range []json.RawMessage{op.ParamsSchema, op.BodySchema} {
+		if len(raw) == 0 {
+			continue
+		}
+		var s struct {
+			Required []string `json:"required"`
+		}
+		if err := json.Unmarshal(raw, &s); err == nil {
+			fields = append(fields, s.Required...)
+		}
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(fields))
+	for _, f := range fields {
+		if f == "" || seen[f] {
+			continue
+		}
+		seen[f] = true
+		out = append(out, f)
+	}
+	return out
 }
 
 // Search returns operations whose ID, Description, Topic, or ResponseSummary
