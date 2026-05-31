@@ -177,8 +177,9 @@ func TestApplyDemoExecutorCaps_DemoOff(t *testing.T) {
 
 func TestLoadConfigFromEnv_NonDemoStillRequiresPocketID(t *testing.T) {
 	required := map[string]string{
-		"ALLOWED_USER_ID":   "1",
-		"MCP_DATABASE_PATH": "/tmp/x.db",
+		"ALLOWED_USER_ID":     "1",
+		"MCP_DATABASE_PATH":   "/tmp/x.db",
+		"MCP_ALLOWED_SUBJECT": "some-subject",
 	}
 	for k, v := range required {
 		t.Setenv(k, v)
@@ -189,6 +190,24 @@ func TestLoadConfigFromEnv_NonDemoStillRequiresPocketID(t *testing.T) {
 
 	if _, err := LoadConfigFromEnv(); err == nil {
 		t.Fatal("expected error when POCKET_ID_URL is unset and DEMO_MODE is off, got nil")
+	}
+}
+
+func TestLoadConfigFromEnv_NonDemoStillRequiresAllowedSubject(t *testing.T) {
+	required := map[string]string{
+		"ALLOWED_USER_ID":   "1",
+		"MCP_DATABASE_PATH": "/tmp/x.db",
+		"POCKET_ID_URL":     "https://auth.example.com",
+		"MCP_SERVER_URL":    "https://mcp.example.com",
+	}
+	for k, v := range required {
+		t.Setenv(k, v)
+	}
+	t.Setenv("MCP_ALLOWED_SUBJECT", "")
+	t.Setenv("DEMO_MODE", "")
+
+	if _, err := LoadConfigFromEnv(); err == nil {
+		t.Fatal("expected error when MCP_ALLOWED_SUBJECT is unset and DEMO_MODE is off, got nil")
 	}
 }
 
