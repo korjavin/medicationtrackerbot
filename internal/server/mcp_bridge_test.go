@@ -145,6 +145,44 @@ func TestBridge_IdentityCannotBeSpoofed(t *testing.T) {
 	}
 }
 
+// TestBridge_EmptyBodyForWriteDoesNotPanic guards the nil-body fix: a POST op
+// invoked with no body must reach the handler with a non-nil (empty) body, so a
+// MaxBytesReader+Decode handler returns a clean 4xx instead of panicking on a
+// nil Request.Body. Regression for the 500 nil-pointer panic an agent triggered
+// by putting a write's fields in params instead of body.
+func TestBridge_EmptyBodyForWriteDoesNotPanic(t *testing.T) {
+	internalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Mirror the real write-handler pattern that panicked on a nil body.
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+
+	reg := newMockRegistryByID(map[string]*MCPOperation{
+		"test.write": {Method: "POST", Path: "/api/test", Risk: "write"},
+	})
+	s := buildBridgeServer(reg, internalHandler)
+
+	// BridgeRequest with no Body field → the bridge must forward http.NoBody,
+	// not a nil reader.
+	body, _ := json.Marshal(BridgeRequest{OperationID: "test.write"})
+	rec := doPost(t, s.handleMCPBridge, body, signBridgeBody(body, testBridgeSecret))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("bridge transport should be 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp BridgeResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid envelope: %v", err)
+	}
+	if resp.Status != http.StatusBadRequest {
+		t.Errorf("expected inner 400 (clean decode error), got %d — nil-body panic regressed?", resp.Status)
+	}
+}
+
 func TestBridge_NormalizedEnvelopeShape(t *testing.T) {
 	internalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

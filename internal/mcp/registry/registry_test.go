@@ -570,6 +570,45 @@ func TestSearch(t *testing.T) {
 	})
 }
 
+// TestSearchTokenFallback covers the multi-word fallback: a natural-language
+// query that matches no field as a whole phrase still surfaces the relevant
+// ops via token OR-matching (ranked), while a garbage multi-word query that
+// only shares one common token with the catalog returns nothing.
+func TestSearchTokenFallback(t *testing.T) {
+	r := New()
+	if err := r.Register(DefaultOperations()...); err != nil {
+		t.Fatalf("register defaults: %v", err)
+	}
+
+	// Whole-phrase finds nothing here, but token-matching should surface the
+	// workout group/variant/exercise listing ops near the top.
+	got := r.Search("first workout group exercises")
+	if len(got) == 0 {
+		t.Fatal("expected token fallback to surface workout ops, got none")
+	}
+	want := map[string]bool{
+		"workouts.groups.list":    false,
+		"workouts.variants.list":  false,
+		"workouts.exercises.list": false,
+	}
+	for _, op := range got {
+		if _, ok := want[op.ID]; ok {
+			want[op.ID] = true
+		}
+	}
+	for id, found := range want {
+		if !found {
+			t.Errorf("token fallback omitted expected op %q (got %d ops)", id, len(got))
+		}
+	}
+
+	// "operation" is a common word in descriptions, but a 3-token garbage query
+	// must hit >=2 distinct tokens on one op — so it stays empty.
+	if got := r.Search("zzz no such operation"); len(got) != 0 {
+		t.Errorf("expected garbage multi-word query to return nothing, got %d ops", len(got))
+	}
+}
+
 func TestWorkoutOperations(t *testing.T) {
 	r := New()
 	ops := WorkoutOperations()
