@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/mcp/registry"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -33,17 +34,31 @@ type HelpResponse struct {
 	Topics            []string                    `json:"topics,omitempty"`
 	Capabilities      []TopicCapability           `json:"capabilities,omitempty"`
 	UsageProtocol     string                      `json:"usage_protocol,omitempty"`
+	CurrentTime       string                      `json:"current_time,omitempty"`
 	Note              string                      `json:"note,omitempty"`
 	NextStep          string                      `json:"next_step,omitempty"`
 	NextTools         []string                    `json:"next_tools,omitempty"`
+}
+
+// currentTimeHint is the real current date/time the agent should use to resolve
+// relative dates ("today", "now", "yesterday", "last N days") instead of
+// guessing the year — a frequent failure mode for tool-only agents that have no
+// other clock. Stamped on every mcp_help response and the mcp://catalog
+// resource. UTC keeps it operation-agnostic; operations re-interpret the
+// calendar day in the user's stored timezone when day-precision matters.
+func currentTimeHint() string {
+	now := time.Now().UTC()
+	return now.Format("2006-01-02T15:04:05Z07:00") + " (" + now.Weekday().String() + ", UTC)"
 }
 
 // usageProtocol is the stable, self-contained decision rule the agent should
 // follow on the MCP surface. It is embedded in the no-arg/full-catalog mcp_help
 // response (guaranteed reach for tool-only clients) and mirrored in the
 // mcp://catalog resource (zero round-trip for preloading clients).
-const usageProtocol = "Decision rule: (1) Discover — call mcp_help with no args (or topic=/query=) to scan the catalog, then drill in with operation_id=/operation_ids=[...] for full schemas + a runnable example. (2) Run ONE operation — use mcp_call(operation_id, params, path_params, body). (3) Run MULTIPLE steps (loops, joins, computed values) — write an mcp_execute Python script. " +
-	"Rules: an mcp_execute script MUST call output(value) exactly once (zero or multiple calls abort the run). Params are passed as a query-string object (params={...}); placeholders like {id} in an operation's route go in path_params={...}, not params. Writes require mode='write' AND a one-sentence intent. Timestamps use the user's stored timezone unless an operation accepts an explicit tz/tz_offset."
+const usageProtocol = "Decision rule: (1) Discover — call mcp_help with no args (or topic=/query=) to scan the catalog, then drill in with operation_id=/operation_ids=[...] for full schemas + a runnable example. (2) Run ONE operation — use mcp_call(operation_id, params, path_params, body). (3) Run MULTIPLE steps (loops, joins, or deriving a value from many rows) — write an mcp_execute Python script. Computing a precise or aggregate value (average, sum, count, min/max, grouping) or joining several operations is ALWAYS step (3): do the math inside the script and output() it — do NOT fetch rows with mcp_call and add them up by hand. " +
+	"Rules: an mcp_execute script MUST call output(value) exactly once (zero or multiple calls abort the run). Params are passed as a query-string object (params={...}); placeholders like {id} in an operation's route go in path_params={...}, not params. Writes require mode='write' AND a one-sentence intent. Timestamps use the user's stored timezone unless an operation accepts an explicit tz/tz_offset; for relative dates ('today', 'now', 'yesterday', 'last N days') use this response's current_time as the real clock — never guess the date or year. " +
+	"Resolving references: when the user names an item by position or recency ('first', 'next', 'last', 'latest', 'most recent', 'Nth', 'top'), it means the element at that index in the order the matching list operation returns — read the list, then act on that exact element. Do NOT re-rank by importance/size or substitute a different one you think is more 'primary'. 'First X' = the first row of X's list; 'most recent X' = the newest row of X's list. " +
+	"Safety & finishing: there is NO bulk-delete or 'wipe/erase everything' operation — destructive ops only delete one record at a time by id. Before any destructive write (delete/archive/overwrite), and ALWAYS before one that would touch many records, STOP and ask the user to confirm, stating exactly what will be changed; do not improvise a long sequence of deletes to fake a bulk wipe. If a request can't be satisfied with the available operations, or is ambiguous (which item? what change?), ask ONE clarifying question instead of guessing. End every turn with a brief plain-text reply to the user (the answer, the confirmation question, or the limitation) — never stop after tool calls without replying."
 
 // TopicCapability is a per-topic summary the agent can scan before drilling
 // into a specific topic. It tells the agent how many read vs write operations
@@ -63,7 +78,19 @@ const (
 	defaultNote     = "The full operation catalog is shown below in terse form (id, topic, method, risk, description). Drill in with topic='workouts' or operation_id='workouts.groups.list' for params/body schemas + a runnable example, or pass query='blood pressure' to keyword-search. Run a single operation with mcp_call; compose multiple in an mcp_execute script. Pass path_params={\"name\": \"value\"} for routes containing {placeholders}."
 )
 
+// handleMCPHelp is the registered tool handler. It delegates to buildHelp and
+// then stamps current_time on every successful response so the agent always has
+// a real clock for resolving relative dates, regardless of which mcp_help
+// variant (catalog / topic / query / operation_id drill-in) it called.
 func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest, input HelpInput) (*sdkmcp.CallToolResult, HelpResponse, error) {
+	res, resp, err := s.buildHelp(ctx, req, input)
+	if err == nil {
+		resp.CurrentTime = currentTimeHint()
+	}
+	return res, resp, err
+}
+
+func (s *Server) buildHelp(ctx context.Context, req *sdkmcp.CallToolRequest, input HelpInput) (*sdkmcp.CallToolResult, HelpResponse, error) {
 	if s.reg == nil {
 		return nil, HelpResponse{}, fmt.Errorf("operation registry not initialized")
 	}
@@ -234,6 +261,7 @@ const catalogResourceURI = "mcp://catalog"
 // operations, the topic list, and per-topic capabilities.
 type CatalogResource struct {
 	UsageProtocol     string                      `json:"usage_protocol"`
+	CurrentTime       string                      `json:"current_time"`
 	Topics            []string                    `json:"topics"`
 	Capabilities      []TopicCapability           `json:"capabilities"`
 	CompactOperations []registry.HelpEntryCompact `json:"compact_operations"`
@@ -244,6 +272,7 @@ type CatalogResource struct {
 func (s *Server) buildCatalogResource() CatalogResource {
 	return CatalogResource{
 		UsageProtocol:     usageProtocol,
+		CurrentTime:       currentTimeHint(),
 		Topics:            s.reg.Topics(),
 		Capabilities:      s.buildCapabilities(),
 		CompactOperations: registry.MarshalForHelpCompact(s.reg.All()),

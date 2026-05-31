@@ -445,7 +445,7 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcpServer,
 		&mcp.Tool{
 			Name:        "mcp_call",
-			Description: "Run ONE backend operation directly — use this for single reads/writes (e.g. 'list my blood pressure', 'archive a medication'). Use mcp_execute only when you need a multi-step script (loops, joining several operations, computed values). Discover operations and their schemas via mcp_help first. Pass operation_id plus params/path_params/body as needed. Writes require mode='write' AND a non-empty intent (a one-sentence human-readable summary of the change). Returns {status, result, error, api_calls}; status is one of ok/proxy_denied/backend_application_error/backend_transport_error.",
+			Description: "Run ONE backend operation directly — use this for single reads/writes (e.g. 'list my blood pressure', 'archive a medication'). Use mcp_execute when you need a multi-step script (loops, joining several operations, computed values). Do NOT fetch a list with mcp_call and then compute an aggregate (average/sum/count/min/max/grouping) by hand — push that math into an mcp_execute script so the result is exact. Discover operations and their schemas via mcp_help first; mcp_help also returns current_time, which you should use for relative dates ('today'/'now') instead of guessing the date or year. Pass operation_id plus params/path_params/body as needed. Writes require mode='write' AND a non-empty intent (a one-sentence human-readable summary of the change). Returns {status, result, error, api_calls}; status is one of ok/proxy_denied/backend_application_error/backend_transport_error.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"required": ["operation_id"],
