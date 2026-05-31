@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -161,6 +162,13 @@ type chatToolCall struct {
 		Name      string `json:"name"`
 		Arguments string `json:"arguments"`
 	} `json:"function"`
+	// ExtraContent is provider-specific tool-call metadata captured verbatim and
+	// echoed back unchanged on the next turn. Gemini 3 (via its OpenAI-compat
+	// layer) returns a reasoning token here as
+	// extra_content.google.thought_signature and REJECTS the follow-up request
+	// (HTTP 400) if the assistant turn's tool calls don't carry it back. Other
+	// providers omit the field, so the omitempty round-trips as a no-op.
+	ExtraContent json.RawMessage `json:"extra_content,omitempty"`
 }
 
 type chatResponse struct {
@@ -178,45 +186,156 @@ type chatResponse struct {
 	} `json:"error"`
 }
 
-// chat issues one Chat Completions request.
+// maxRateLimitRetries bounds how many times chat retries a 429. Free-tier
+// endpoints (e.g. Gemini's generate_content_free_tier_requests, ~5 req/min) hand
+// out 429s readily; without a retry the whole suite fails on quota rather than on
+// agent behavior. Each retry waits the server-advised RetryInfo delay when
+// present, else a capped exponential backoff.
+const maxRateLimitRetries = 5
+
+// chat issues one Chat Completions request, retrying transient 429s.
 func (c *Client) chat(ctx context.Context, req chatRequest) (*chatResponse, error) {
 	reqBytes, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(reqBytes))
-	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	if c.apiKey != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
-	}
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
 
-	raw, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		excerpt := strings.TrimSpace(string(raw))
-		if len(excerpt) > 400 {
-			excerpt = excerpt[:400] + "..."
+	var lastBody string
+	for attempt := 0; ; attempt++ {
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(reqBytes))
+		if err != nil {
+			return nil, fmt.Errorf("build request: %w", err)
 		}
-		return nil, fmt.Errorf("chat API status %d: %s", resp.StatusCode, excerpt)
+		httpReq.Header.Set("Content-Type", "application/json")
+		if c.apiKey != "" {
+			httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+		}
+		resp, err := c.httpClient.Do(httpReq)
+		if err != nil {
+			return nil, fmt.Errorf("request failed: %w", err)
+		}
+		raw, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if resp.StatusCode == http.StatusTooManyRequests && attempt < maxRateLimitRetries && isRetryableQuota(raw) {
+			lastBody = strings.TrimSpace(string(raw))
+			wait := retryAfter(resp.Header, raw, attempt)
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(wait):
+			}
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			excerpt := strings.TrimSpace(string(raw))
+			if len(excerpt) > 400 {
+				excerpt = excerpt[:400] + "..."
+			}
+			if excerpt == "" {
+				excerpt = lastBody
+			}
+			return nil, fmt.Errorf("chat API status %d: %s", resp.StatusCode, excerpt)
+		}
+		var out chatResponse
+		if err := json.Unmarshal(raw, &out); err != nil {
+			return nil, fmt.Errorf("decode response: %w", err)
+		}
+		if out.Error != nil && out.Error.Message != "" {
+			return nil, fmt.Errorf("chat API error: %s", out.Error.Message)
+		}
+		if len(out.Choices) == 0 {
+			return nil, fmt.Errorf("chat API returned no choices")
+		}
+		return &out, nil
 	}
-	var out chatResponse
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+}
+
+// isRetryableQuota reports whether a 429 body is worth retrying. A per-minute /
+// per-request-rate throttle clears on its own, so we wait and retry. A per-DAY
+// project quota (Google quotaId like
+// "GenerateRequestsPerDayPerProjectPerModel-FreeTier", e.g. Gemini free tier =
+// 20 req/day) will NOT clear within a run, so retrying just hangs each remaining
+// scenario through pointless backoff — fail fast instead. Unparseable or
+// non-Google 429s default to retryable (the conservative choice).
+func isRetryableQuota(body []byte) bool {
+	var parsed struct {
+		Error struct {
+			Details []struct {
+				Type       string `json:"@type"`
+				Violations []struct {
+					QuotaID string `json:"quotaId"`
+				} `json:"violations"`
+			} `json:"details"`
+		} `json:"error"`
 	}
-	if out.Error != nil && out.Error.Message != "" {
-		return nil, fmt.Errorf("chat API error: %s", out.Error.Message)
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		var arr []json.RawMessage
+		if json.Unmarshal(body, &arr) == nil && len(arr) > 0 {
+			_ = json.Unmarshal(arr[0], &parsed)
+		}
 	}
-	if len(out.Choices) == 0 {
-		return nil, fmt.Errorf("chat API returned no choices")
+	for _, d := range parsed.Error.Details {
+		if !strings.Contains(d.Type, "QuotaFailure") {
+			continue
+		}
+		for _, v := range d.Violations {
+			if strings.Contains(strings.ToLower(v.QuotaID), "perday") {
+				return false // daily cap — won't clear within this run
+			}
+		}
 	}
-	return &out, nil
+	return true
+}
+
+// retryAfter computes how long to wait before retrying a 429. It prefers the
+// Retry-After header, then the Google RetryInfo.retryDelay embedded in the error
+// body (e.g. "30s"), and falls back to a capped exponential backoff keyed on the
+// attempt number. The result is clamped to [1s, 60s].
+func retryAfter(h http.Header, body []byte, attempt int) time.Duration {
+	if v := strings.TrimSpace(h.Get("Retry-After")); v != "" {
+		if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
+			return clampBackoff(time.Duration(secs) * time.Second)
+		}
+	}
+	// Google embeds {"@type":".../RetryInfo","retryDelay":"30s"} in error.details.
+	var parsed struct {
+		Error struct {
+			Details []struct {
+				Type       string `json:"@type"`
+				RetryDelay string `json:"retryDelay"`
+			} `json:"details"`
+		} `json:"error"`
+	}
+	// The body may be a top-level array of error objects; try both shapes.
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		var arr []json.RawMessage
+		if json.Unmarshal(body, &arr) == nil && len(arr) > 0 {
+			_ = json.Unmarshal(arr[0], &parsed)
+		}
+	}
+	for _, d := range parsed.Error.Details {
+		if strings.Contains(d.Type, "RetryInfo") && d.RetryDelay != "" {
+			if dur, err := time.ParseDuration(d.RetryDelay); err == nil && dur > 0 {
+				return clampBackoff(dur)
+			}
+		}
+	}
+	// Exponential backoff: 2s, 4s, 8s, ...
+	return clampBackoff(time.Duration(2<<attempt) * time.Second)
+}
+
+// clampBackoff bounds a retry wait to a sane [1s, 60s] window.
+func clampBackoff(d time.Duration) time.Duration {
+	const minWait, maxWait = time.Second, 60 * time.Second
+	if d < minWait {
+		return minWait
+	}
+	if d > maxWait {
+		return maxWait
+	}
+	return d
 }
 
 // Run executes the bounded tool-calling loop for one task and returns the full
