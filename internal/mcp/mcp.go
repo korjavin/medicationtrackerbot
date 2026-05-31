@@ -280,6 +280,30 @@ type Server struct {
 // fan out into the same Telegram audit notification path.
 func (s *Server) AuditBuffer() *AuditBuffer { return s.audit }
 
+// ConnectInMemory connects an in-process MCP client to this server over the
+// SDK's in-memory transport and returns the connected client session. It lets
+// the eval harness (internal/mcpeval) and tests drive the real registered tool
+// surface (mcp_help / mcp_call / mcp_execute) exactly as a remote agent would —
+// listing tools and calling them — without binding a network port or running
+// the OAuth-gated HTTP transport in Run().
+//
+// The caller owns the returned session and must Close() it; closing the client
+// session tears down the in-memory pair and ends the server side of the
+// conversation. mcp_execute still requires SetExecutor to have been wired (and
+// a Python runner on the host); mcp_help / mcp_call work without it.
+func (s *Server) ConnectInMemory(ctx context.Context) (*mcp.ClientSession, error) {
+	serverT, clientT := mcp.NewInMemoryTransports()
+	if _, err := s.mcpServer.Connect(ctx, serverT, nil); err != nil {
+		return nil, fmt.Errorf("connect mcp server (in-memory): %w", err)
+	}
+	client := mcp.NewClient(&mcp.Implementation{Name: "mcpeval-client", Version: "v1.0.0"}, nil)
+	cs, err := client.Connect(ctx, clientT, nil)
+	if err != nil {
+		return nil, fmt.Errorf("connect mcp client (in-memory): %w", err)
+	}
+	return cs, nil
+}
+
 // NewServer creates a new MCP server
 func NewServer(cfg *Config, st *store.Repos, audit *AuditBuffer) (*Server, error) {
 	adapter := newStoreAdapter(st)

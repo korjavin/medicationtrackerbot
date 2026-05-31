@@ -122,6 +122,7 @@ go run ./cmd/seeddemo -user <telegram_user_id> -db meds.db -topup -seed 42
 | Environment variables | [docs/environment.md](docs/environment.md) |
 | MCP server deployment (Pocket-ID, Docker, Claude config) | [docs/mcp-deployment.md](docs/mcp-deployment.md) |
 | MCP coverage policy (every route covered by registry op or allowlist) | [docs/mcp-coverage.md](docs/mcp-coverage.md) |
+| MCP agent-usage evals (does a real LLM drive mcp_help/mcp_call/mcp_execute to finish tasks) | [docs/mcp-evals.md](docs/mcp-evals.md) |
 | Frontend architecture, load order, globals, design tokens, data flow | [docs/frontend.md](docs/frontend.md) |
 | Technical decisions (SSE-first change stream + polling fallback, offline writes, 5xx-as-offline, vanilla JS) | [docs/technical-decisions.md](docs/technical-decisions.md) |
 | SSE behind Traefik (labels, timeouts, deploy-time `RST_STREAM`, `initData` access-log caveat) | [docs/sse-traefik.md](docs/sse-traefik.md) |
