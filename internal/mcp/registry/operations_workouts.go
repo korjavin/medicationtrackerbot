@@ -11,7 +11,7 @@ func WorkoutOperations() []*Operation {
 			Method:          "GET",
 			Path:            "/api/workout/groups",
 			Risk:            RiskRead,
-			Description:     "List all workout groups for the current user. A group is a named collection of workout variants (e.g. 'Gym A' or 'Home Workout').",
+			Description:     "List all workout groups for the current user. A group is a named collection of workout variants (e.g. 'Gym A' or 'Home Workout'). Returned ordered alphabetically by name, so the 'first group' is the first element of this array.",
 			ResponseSummary: "JSON array of workout group objects with id, name, description, is_rotating, days_of_week, scheduled_time.",
 			ResponseExample: `[
   {"id": 1, "name": "Home Workout", "description": "Bodyweight rotation", "is_rotating": true, "days_of_week": "[1,3,5]", "scheduled_time": "07:00"}

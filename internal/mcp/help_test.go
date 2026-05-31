@@ -445,6 +445,36 @@ func TestMCPHelp_FullCatalogCarriesUsageProtocol(t *testing.T) {
 			t.Errorf("usage_protocol missing %q: %s", want, resp.UsageProtocol)
 		}
 	}
+	// Guidance clauses added to close mcpeval failure modes (see docs/mcp-evals.md):
+	// aggregate→script (E1), relative-date grounding via current_time (E2),
+	// positional resolution (E3), and destructive/bulk refusal + always-reply (L1).
+	for _, want := range []string{"aggregate", "current_time", "most recent", "bulk-delete", "confirm"} {
+		if !strings.Contains(resp.UsageProtocol, want) {
+			t.Errorf("usage_protocol missing guidance phrase %q: %s", want, resp.UsageProtocol)
+		}
+	}
+}
+
+// TestMCPHelp_AllBranchesCarryCurrentTime verifies every mcp_help response is
+// stamped with current_time, regardless of which discovery variant the agent
+// calls. Tool-only agents have no other clock, and an agent that drills straight
+// into a topic (skipping the no-arg landing) still needs it to resolve "today".
+func TestMCPHelp_AllBranchesCarryCurrentTime(t *testing.T) {
+	s := testServerWithRegistry(t)
+	for _, in := range []HelpInput{
+		{},                               // full catalog / landing
+		{Topic: "food"},                  // topic drill-in
+		{Query: "blood pressure"},        // keyword search
+		{OperationID: "food.log.create"}, // single-op drill-in
+	} {
+		resp, err := callHelp(t, s, in)
+		if err != nil {
+			t.Fatalf("callHelp(%+v): %v", in, err)
+		}
+		if resp.CurrentTime == "" {
+			t.Errorf("callHelp(%+v): missing current_time", in)
+		}
+	}
 }
 
 // TestMCPHelp_DrillInOmitsUsageProtocol verifies the protocol is only attached

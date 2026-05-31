@@ -35,3 +35,7 @@ __pycache__/
 # mcpeval scorecards (per-run output of cmd/mcpeval)
 mcpeval-report.json
 mcpeval-report.md
+
+# Local secrets (API keys / prod endpoints) — e.g. .env.mcpeval for the eval loop
+.env
+.env.*
