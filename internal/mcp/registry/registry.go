@@ -334,6 +334,10 @@ func (r *Registry) Search(query string) []*Operation {
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
+	// Primary: whole-phrase substring match across id/description/topic/summary.
+	// Precise and stable — this is what single-keyword queries hit, and it
+	// preserves the help auto-expand threshold semantics.
 	var result []*Operation
 	for _, op := range r.operations {
 		if strings.Contains(strings.ToLower(op.ID), q) ||
@@ -343,10 +347,81 @@ func (r *Registry) Search(query string) []*Operation {
 			result = append(result, op)
 		}
 	}
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].ID < result[j].ID
+	if len(result) > 0 {
+		sort.Slice(result, func(i, j int) bool {
+			return result[i].ID < result[j].ID
+		})
+		return result
+	}
+
+	// Fallback: only when the phrase matched nothing. Tokenize and OR-match,
+	// ranking by how many distinct query tokens an op hits. This rescues natural
+	// multi-word queries ("first workout group exercises") from a zero-result
+	// dead-end — observed to make weaker agents give up instead of drilling in.
+	// A query with 2+ meaningful tokens must hit at least 2 of them on the same
+	// op, so one common word (e.g. "operation") can't drag in the whole catalog.
+	tokens := searchTokens(q)
+	if len(tokens) == 0 {
+		return nil
+	}
+	minScore := 1
+	if len(tokens) >= 2 {
+		minScore = 2
+	}
+	type scored struct {
+		op    *Operation
+		score int
+	}
+	var ranked []scored
+	for _, op := range r.operations {
+		hay := strings.ToLower(op.ID + " " + op.Topic + " " + op.Description + " " + op.ResponseSummary)
+		score := 0
+		for _, tok := range tokens {
+			if strings.Contains(hay, tok) {
+				score++
+			}
+		}
+		if score >= minScore {
+			ranked = append(ranked, scored{op, score})
+		}
+	}
+	sort.Slice(ranked, func(i, j int) bool {
+		if ranked[i].score != ranked[j].score {
+			return ranked[i].score > ranked[j].score
+		}
+		return ranked[i].op.ID < ranked[j].op.ID
 	})
-	return result
+	out := make([]*Operation, len(ranked))
+	for i, s := range ranked {
+		out[i] = s.op
+	}
+	return out
+}
+
+// searchStopwords are generic filler tokens dropped from the multi-word search
+// fallback so they neither dilute ranking nor match on their own.
+var searchStopwords = map[string]bool{
+	"the": true, "and": true, "for": true, "are": true, "was": true,
+	"what": true, "that": true, "with": true, "your": true, "you": true,
+	"how": true, "can": true, "from": true, "this": true, "all": true,
+	"any": true, "give": true, "show": true, "tell": true, "does": true,
+}
+
+var searchTokenRe = regexp.MustCompile(`[a-z0-9]+`)
+
+// searchTokens lowercases, splits on non-alphanumerics, and drops very short
+// tokens (<3 chars) and stopwords, deduplicating the rest.
+func searchTokens(q string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, tok := range searchTokenRe.FindAllString(strings.ToLower(q), -1) {
+		if len(tok) < 3 || searchStopwords[tok] || seen[tok] {
+			continue
+		}
+		seen[tok] = true
+		out = append(out, tok)
+	}
+	return out
 }
 
 // decodeSchema returns the JSON-decoded schema or nil if raw is empty or
