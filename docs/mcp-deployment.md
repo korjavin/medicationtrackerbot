@@ -141,6 +141,34 @@ Operations:
 
 Idempotency: upsert key is `(session_id, resolved_name)` — re-sending refines state instead of duplicating.
 
+### `mcp_call` input repair (lenient normalization)
+
+Before a one-shot `mcp_call` leaves the MCP layer, `registry.NormalizeCallInput`
+(wired in `internal/mcp/call.go`) repairs two structural mistakes that weaker
+tool-calling models make routinely. It never blocks — every repair is reported
+back in the response `warnings` array so the behavior is observable, and the
+schema-validation warnings are computed against the *repaired* shape:
+
+- **Misplaced body fields.** For a write operation with a body schema, any
+  `params` entry whose key is a declared body property is moved into `body`
+  (without clobbering a value already there). Models frequently put a write's
+  fields in `params` instead of `body`; the bridge forwards `params` as the URL
+  query string, so the handler would otherwise see an empty body and return
+  `400 Invalid JSON`.
+- **Relative-date tokens.** A timestamp/date field (detected from its schema:
+  name ends in `_at` / is `date`/`from`/`to`, or its description names an
+  RFC3339/ISO8601/`YYYY-MM-DD` format) whose value is `now` / `today` /
+  `yesterday` / `tomorrow` is resolved against the server clock — RFC3339 (UTC)
+  for a full-timestamp field, `YYYY-MM-DD` for a date-only field. This mirrors
+  the `current_time` hint stamped on every `mcp_help` response, so a tool-only
+  agent with no clock can pass `"today"` instead of inventing a (frequently
+  wrong) literal date.
+
+The repair only affects the `mcp_call` path (where params are still typed JSON);
+`mcp_execute` scripts build the body explicitly in Python. The strong-model
+trajectory is unchanged (it already places fields in `body` and sends concrete
+dates), so normalization is a no-op for well-formed calls.
+
 ## Python Executor Service
 
 The `mcp_execute` and `mcp_help` tools require a sandboxed Python runner. The runner is invoked from the MCP server as a per-run subprocess (see `internal/mcp/executor/service.go`); the runner image is built from `docker/runner/Dockerfile` and ships with the `medtracker` Python helper baked in. There is no `pip install` at runtime.

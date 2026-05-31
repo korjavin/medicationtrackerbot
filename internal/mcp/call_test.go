@@ -234,6 +234,64 @@ func TestMCPCall_NoWarningsOnValidInput(t *testing.T) {
 	}
 }
 
+// TestMCPCall_NormalizesMisplacedBodyAndRelativeDate verifies the mcp_call path
+// repairs the two common weak-model mistakes before dispatch: write fields put
+// in params instead of body, and a relative-date token ("today") in a timestamp
+// field. The corrected shape must reach the executor, and the repair must be
+// reported as a warning (observable, never silent).
+func TestMCPCall_NormalizesMisplacedBodyAndRelativeDate(t *testing.T) {
+	var captured CallRequest
+	exec := &fakeExecutionService{
+		callFn: func(_ context.Context, req CallRequest) (*CallResult, error) {
+			captured = req
+			return &CallResult{Status: ExecuteStatusOK, APICalls: 1}, nil
+		},
+	}
+	s := serverWithExecutor(exec, 0, 0)
+	s.reg = defaultRegistry(t)
+
+	// Mirror gemma's failing call: all body fields in params, eaten_at="today".
+	resp, err := callCall(t, s, CallInput{
+		OperationID: "food.log.create",
+		Mode:        string(proxy.ModeWrite),
+		Intent:      "Log two boiled eggs",
+		Params: map[string]json.RawMessage{
+			"name":     json.RawMessage(`"boiled egg"`),
+			"eaten_at": json.RawMessage(`"today"`),
+			"weight":   json.RawMessage(`100`),
+			"calories": json.RawMessage(`140`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Status != ExecuteStatusOK {
+		t.Errorf("status = %q, want %q", resp.Status, ExecuteStatusOK)
+	}
+	// Params should have been emptied (all four are body fields).
+	if len(captured.Params) != 0 {
+		t.Errorf("expected params coalesced into body, got leftover params %v", captured.Params)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(captured.Body, &body); err != nil {
+		t.Fatalf("captured body not valid JSON: %v (%s)", err, captured.Body)
+	}
+	for _, k := range []string{"name", "eaten_at", "weight", "calories"} {
+		if _, ok := body[k]; !ok {
+			t.Errorf("coalesced body missing %q: %s", k, captured.Body)
+		}
+	}
+	// "today" must have been resolved to an RFC3339 timestamp, not left literal.
+	if ts, _ := body["eaten_at"].(string); ts == "today" || !strings.Contains(ts, "T") {
+		t.Errorf("eaten_at not resolved to a timestamp: %v", body["eaten_at"])
+	}
+	// The repair is reported as a warning.
+	joined := strings.Join(resp.Warnings, " | ")
+	if !strings.Contains(joined, "into the request body") || !strings.Contains(joined, "resolved relative date") {
+		t.Errorf("expected coalesce + date-resolution warnings, got %v", resp.Warnings)
+	}
+}
+
 // demoCallServer mirrors demoExecuteServer but for the mcp_call path.
 func demoCallServer(maxPerHour int) *Server {
 	exec := &fakeExecutionService{
