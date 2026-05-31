@@ -373,7 +373,7 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcpServer,
 		&mcp.Tool{
 			Name:        "mcp_help",
-			Description: "Discover backend operations to run with mcp_call (single op) or mcp_execute (multi-step script). The full catalog (omit all args, or pass 'all') is TERSE: id, topic, method, risk, and a one-line description only. Drill in with topic (one of: 'workouts', 'medications', 'food', 'health') or operation_id (e.g. 'workouts.groups.list') to get full params/body schemas + a runnable Python example. Pass operation_ids=[...] to batch-fetch several full entries in one call. Pass query='blood pressure' to keyword-search across id, description, topic, and response shape (a small result set of <=3 auto-expands to full detail; larger sets return terse matches). operation_id(s) > query > topic in precedence. Read-only and safe to call before any write.",
+			Description: "Discover backend operations to run with mcp_call (single op) or mcp_execute (multi-step script). The catalog (omit all args, or pass 'all'), a topic ('workouts', 'medications', 'food', 'health'), and query='blood pressure' keyword-search all return a TERSE flat list — id, topic, method, risk, a one-line description, and each write op's required input field names. That flat list is enough to form most calls directly. To get a single operation's FULL params/body schemas + a runnable Python example, drill in with operation_id='workouts.groups.list' (or operation_ids=[...] to batch-fetch several). operation_id(s) > query > topic in precedence. Read-only and safe to call before any write.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {

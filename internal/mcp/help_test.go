@@ -64,14 +64,13 @@ func TestMCPHelp_FullCatalogIsTerse(t *testing.T) {
 	}
 }
 
-// TestMCPHelp_QuerySearch covers the keyword-search axis: a query matching MORE
-// than autoExpandThreshold ops returns terse matches (no schemas/example) drawn
-// from the registry's Search. "sleep" matches >3 ops so it stays compact.
+// TestMCPHelp_QuerySearch covers the keyword-search axis: a query returns terse
+// compact matches (no schemas/example) drawn from the registry's Search.
 func TestMCPHelp_QuerySearch(t *testing.T) {
 	s := testServerWithRegistry(t)
 	const q = "sleep"
-	if n := len(s.reg.Search(q)); n <= autoExpandThreshold {
-		t.Fatalf("test precondition: query %q must match >%d ops to stay terse, got %d", q, autoExpandThreshold, n)
+	if n := len(s.reg.Search(q)); n == 0 {
+		t.Fatalf("test precondition: query %q must match at least one op, got %d", q, n)
 	}
 	resp, err := callHelp(t, s, HelpInput{Query: q})
 	if err != nil {
@@ -94,29 +93,32 @@ func TestMCPHelp_QuerySearch(t *testing.T) {
 	}
 }
 
-// TestMCPHelp_QueryAutoExpandsSmall covers the Task 2 auto-expand: a query that
-// matches <= autoExpandThreshold ops returns FULL Operations (schemas + example)
-// instead of terse rows, collapsing help(query) -> help(operation_id) -> run.
-func TestMCPHelp_QueryAutoExpandsSmall(t *testing.T) {
+// TestMCPHelp_QuerySmallStaysCompact verifies a query matching only a few ops
+// still returns a terse, flat list rather than auto-expanded full schemas:
+// discovery stays compact so weaker reasoning models act on it instead of
+// stalling on nested per-op schemas. Full schemas come from an operation_id
+// drill-in. Each write match must still advertise its Required input fields so a
+// write is formable straight from the listing.
+func TestMCPHelp_QuerySmallStaysCompact(t *testing.T) {
 	s := testServerWithRegistry(t)
 	const q = "blood pressure"
 	n := len(s.reg.Search(q))
-	if n == 0 || n > autoExpandThreshold {
-		t.Fatalf("test precondition: query %q must match 1..%d ops, got %d", q, autoExpandThreshold, n)
+	if n == 0 {
+		t.Fatalf("test precondition: query %q must match at least one op, got %d", q, n)
 	}
 	resp, err := callHelp(t, s, HelpInput{Query: q})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(resp.Operations) != n {
-		t.Fatalf("expected %d auto-expanded full operations, got %d", n, len(resp.Operations))
+	if len(resp.Operations) != 0 {
+		t.Errorf("query results must be terse, got %d full operations", len(resp.Operations))
 	}
-	if len(resp.CompactOperations) != 0 {
-		t.Errorf("auto-expanded query must not also return compact rows, got %d", len(resp.CompactOperations))
+	if len(resp.CompactOperations) != n {
+		t.Fatalf("expected %d compact matches, got %d", n, len(resp.CompactOperations))
 	}
-	for _, op := range resp.Operations {
-		if op.Example == "" {
-			t.Errorf("auto-expanded op %s missing example", op.ID)
+	for _, op := range resp.CompactOperations {
+		if op.Risk == registry.RiskWrite && len(op.Required) == 0 {
+			t.Errorf("write op %s should advertise Required fields in the compact view", op.ID)
 		}
 	}
 }
@@ -203,7 +205,7 @@ func TestMCPHelp_TopicFilter(t *testing.T) {
 	if resp.Count == 0 {
 		t.Error("expected workout operations")
 	}
-	for _, op := range resp.Operations {
+	for _, op := range resp.CompactOperations {
 		if op.Topic != "workouts" {
 			t.Errorf("expected topic 'workouts', got %q for op %s", op.Topic, op.ID)
 		}
@@ -213,15 +215,18 @@ func TestMCPHelp_TopicFilter(t *testing.T) {
 	}
 }
 
-// TestMCPHelp_WorkoutsTopicHasExamples covers the Task 10 contract: the
-// workouts topic response is useful as a starting point for a script —
-// the catalog must include the operations the read-only vertical slice
-// needs and each entry must carry an executable Python example.
-func TestMCPHelp_WorkoutsTopicHasExamples(t *testing.T) {
+// TestMCPHelp_WorkoutsTopicListsOpsAndDrillInHasExample verifies the workouts
+// topic lists the read-vertical operations as terse entries (no nested schemas),
+// and that a runnable Python example is still reachable by drilling into one
+// operation with operation_id.
+func TestMCPHelp_WorkoutsTopicListsOpsAndDrillInHasExample(t *testing.T) {
 	s := testServerWithRegistry(t)
 	resp, err := callHelp(t, s, HelpInput{Topic: "workouts"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Operations) != 0 {
+		t.Errorf("topic listing should be terse, got %d full operations", len(resp.Operations))
 	}
 
 	required := []string{
@@ -232,25 +237,35 @@ func TestMCPHelp_WorkoutsTopicHasExamples(t *testing.T) {
 		"workouts.stats.read",
 	}
 	seen := make(map[string]bool)
-	for _, op := range resp.Operations {
+	for _, op := range resp.CompactOperations {
 		seen[op.ID] = true
-		if op.Example == "" {
-			t.Errorf("op %s missing example snippet", op.ID)
-		}
-		if !strings.Contains(op.Example, "from medtracker import api, output") {
-			t.Errorf("op %s example missing imports, got: %s", op.ID, op.Example)
-		}
-		if !strings.Contains(op.Example, "api.call") {
-			t.Errorf("op %s example should call api.call, got: %s", op.ID, op.Example)
-		}
-		if !strings.Contains(op.Example, "output(") {
-			t.Errorf("op %s example should call output(), got: %s", op.ID, op.Example)
-		}
 	}
 	for _, id := range required {
 		if !seen[id] {
 			t.Errorf("workouts topic missing required op: %s", id)
 		}
+	}
+
+	// The runnable example lives one operation_id drill-in away.
+	drill, err := callHelp(t, s, HelpInput{OperationID: "workouts.groups.list"})
+	if err != nil {
+		t.Fatalf("drill-in error: %v", err)
+	}
+	if len(drill.Operations) != 1 {
+		t.Fatalf("expected 1 full operation from drill-in, got %d", len(drill.Operations))
+	}
+	ex := drill.Operations[0].Example
+	if ex == "" {
+		t.Fatal("operation_id drill-in should carry a runnable example")
+	}
+	if !strings.Contains(ex, "from medtracker import api, output") {
+		t.Errorf("drill-in example missing imports, got: %s", ex)
+	}
+	if !strings.Contains(ex, "api.call") {
+		t.Errorf("drill-in example should call api.call, got: %s", ex)
+	}
+	if !strings.Contains(ex, "output(") {
+		t.Errorf("drill-in example should call output(), got: %s", ex)
 	}
 }
 
@@ -388,7 +403,7 @@ func TestMCPHelp_MedicationsTopicAdvertisesCRUD(t *testing.T) {
 	}
 	required := []string{"medications.create", "medications.update", "medications.delete", "medications.restock"}
 	seen := make(map[string]bool)
-	for _, op := range resp.Operations {
+	for _, op := range resp.CompactOperations {
 		seen[op.ID] = true
 	}
 	for _, id := range required {
