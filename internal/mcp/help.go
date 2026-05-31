@@ -20,12 +20,6 @@ type HelpInput struct {
 	Query        string   `json:"query"`
 }
 
-// autoExpandThreshold is the maximum number of query matches that mcp_help
-// returns as FULL operation detail (schemas + example) instead of terse compact
-// rows. Small result sets are auto-expanded so an agent can go
-// help(query) -> mcp_call/mcp_execute without a separate operation_id drill-in.
-const autoExpandThreshold = 3
-
 // HelpResponse is returned by mcp_help.
 type HelpResponse struct {
 	Operations        []registry.HelpEntry        `json:"operations,omitempty"`
@@ -150,10 +144,10 @@ func (s *Server) buildHelp(ctx context.Context, req *sdkmcp.CallToolRequest, inp
 		}, nil
 	}
 
-	// Keyword search across id / description / topic / response_summary. Small
-	// result sets (<= autoExpandThreshold) auto-expand to FULL detail so the
-	// agent can go help(query) -> mcp_call/mcp_execute without a separate
-	// operation_id drill-in; larger sets stay terse to keep the call token-light.
+	// Keyword search across id / description / topic / response_summary. Matches
+	// are returned as a flat compact list (never auto-expanded to full nested
+	// schemas) so the agent can go help(query) -> mcp_call/mcp_execute; full
+	// schemas + an example come only from an operation_id drill-in.
 	if query != "" {
 		ops := s.reg.Search(query)
 		if len(ops) == 0 {
@@ -165,21 +159,19 @@ func (s *Server) buildHelp(ctx context.Context, req *sdkmcp.CallToolRequest, inp
 				NextTools: []string{"mcp_help"},
 			}, nil
 		}
-		if len(ops) <= autoExpandThreshold {
-			return nil, HelpResponse{
-				Operations: registry.MarshalForHelp(ops),
-				Count:      len(ops),
-				Note:       fmt.Sprintf("Showing %d full match(es) for query %q (auto-expanded to schemas + example). Run one with mcp_call (one-shot) or mcp_execute (composite).", len(ops), query),
-				NextStep:   "Review the operation details, then run with mcp_call (one-shot) or mcp_execute (composite).",
-				NextTools:  []string{"mcp_call", "mcp_execute"},
-			}, nil
-		}
+		// Compact (flat) matches — never auto-expanded to full nested schemas.
+		// Discovery stays a flat list so weaker reasoning models act on it instead
+		// of stalling on nested per-op schemas (measured: qwen3.5-9b emits an empty
+		// turn when a query returns full body_schemas, but calls mcp_call when the
+		// same matches come back compact). Each compact write entry already carries
+		// its Required field names, so a write is formable straight from here; drill
+		// in with operation_id for a single op's full schema + example.
 		return nil, HelpResponse{
 			CompactOperations: registry.MarshalForHelpCompact(ops),
 			Count:             len(ops),
-			Note:              fmt.Sprintf("Showing %d terse match(es) for query %q. These are OPERATIONS you can run, NOT the data itself — re-running the same search returns the same list and makes no progress. To answer the user, call mcp_call now with one of the operation_id values below (drill in with operation_id= first only if you need a field schema).", len(ops), query),
-			NextStep:          fmt.Sprintf("Stop searching and act: call mcp_call(operation_id=%q, ...) — or pick whichever id above matches the request. If the answer needs the newest/Nth item, list first, then act on that element.", ops[0].ID),
-			NextTools:         []string{"mcp_call", "mcp_help"},
+			Note:              fmt.Sprintf("Showing %d match(es) for query %q. These are OPERATIONS you can run, NOT the data itself — re-running the same search makes no progress.", len(ops), query),
+			NextStep:          fmt.Sprintf("ACT NOW — don't search again: call mcp_call(operation_id=%q, …) (or pick whichever id above matches the request) for a single read/write (writes need mode=\"write\" + a one-sentence intent), or mcp_execute for multi-step math. If the answer needs the newest/Nth item, list first, then act on that exact element. Need a field's exact type? Fetch mcp_help(operation_id=…) for the full schema.", ops[0].ID),
+			NextTools:         []string{"mcp_call", "mcp_execute"},
 		}, nil
 	}
 
@@ -210,15 +202,20 @@ func (s *Server) buildHelp(ctx context.Context, req *sdkmcp.CallToolRequest, inp
 
 	// If the topic is valid but we don't have a specific suggestion, use a generic one.
 	if nextStep == defaultNextStep {
-		nextStep = fmt.Sprintf("Explore the available operations for topic %q below.", topic)
+		nextStep = fmt.Sprintf("Explore the available operations for topic %q, then act with mcp_call.", topic)
 	}
 
+	// Compact, not full: a topic can hold dozens of operations, and returning each
+	// as a full nested schema is exactly what stalls weaker reasoning models (a
+	// 40-op workouts topic in full detail made qwen3.5-9b emit an empty turn). The
+	// flat entries carry path_params + required write fields; drill in with
+	// operation_id for one op's full schema + example.
 	return nil, HelpResponse{
-		Operations: registry.MarshalForHelp(ops),
-		Count:      len(ops),
-		Note:       fmt.Sprintf("Showing %d full operation(s) for topic %q (schemas + example). Run one with mcp_call (one-shot) or mcp_execute (composite); supply path_params for routes that contain {placeholders}.", len(ops), topic),
-		NextStep:   nextStep,
-		NextTools:  []string{"mcp_call", "mcp_execute"},
+		CompactOperations: registry.MarshalForHelpCompact(ops),
+		Count:             len(ops),
+		Note:              fmt.Sprintf("Showing %d operation(s) for topic %q (terse: id · method · risk · description, plus required input fields). Drill in with operation_id for full schemas + an example.", len(ops), topic),
+		NextStep:          nextStep,
+		NextTools:         []string{"mcp_call", "mcp_execute"},
 	}, nil
 }
 

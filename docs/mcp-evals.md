@@ -82,6 +82,50 @@ when it isn't:
   for the capability-limit cases (did it decline? ask to clarify?), returning
   `{pass, reason}`.
 
+## Weak-model reality
+
+The eval is also a forcing function for making the surface usable by *weak* local
+models, not just frontier ones. Findings from driving it against LM Studio:
+
+- **`gemma-4-e2b` (2B):** ~6/10, variance-dominated. Remaining failures are a 2B
+  reasoning ceiling (script-based aggregation, 2–3 hop id-threading), not surface
+  gaps. See PR #374 (`mcp_call` input repair: params→body coalescing +
+  relative-date resolution via `NormalizeCallInput`).
+- **`qwen3.5-9b` (a local reasoning model):** **~1/10, NOT yet unblocked.** It
+  stalls before it even acts: after one `mcp_help` it emits an **empty assistant
+  message with no tool call** (the reply is `""`, the agent loop treats that as a
+  finished — empty — answer), failing even the trivial controls (latest BP, med
+  count). Isolated single-shot probes where a compact `mcp_help` result was fed
+  back *did* make qwen call `mcp_call`, which is why discovery was made compact by
+  default (see below) — but that change did **not** carry over to the full
+  multi-round loop, where qwen still goes empty. The real blocker looks like
+  **empty-turn termination** (qwen putting its answer in `reasoning_content` and
+  leaving `content` empty with no tool call), not the discovery payload shape.
+  This is the open frontier for weak local models; a surface-only fix may not be
+  enough (the agent loop in `agent.go` may need to nudge or re-prompt on an empty
+  no-tool-call turn rather than accept it as final).
+
+> **The compact-discovery change shipped anyway as a neutral simplification.**
+> `mcp_help` now returns compact entries for the catalog, `topic=`, AND `query=`
+> views (full schemas + a runnable example only on an `operation_id` /
+> `operation_ids` drill-in); the previous `<=3`-match query auto-expand is gone.
+> This keeps discovery uniform and token-light and is what the isolated qwen
+> probes preferred. **`deepseek-v4-flash` stays 10/10**, so it doesn't regress the
+> strong model — but it is NOT, on its own, sufficient to move qwen in the full
+> loop. Don't read the compact change as "the qwen fix"; it isn't.
+
+**Tuning levers (in priority order):** keep discovery responses flat and compact
+(no nested schemas until an explicit drill-in); advertise write-op `required`
+fields in the terse view so writes are formable without a drill-in; repair common
+input mistakes at the `mcp_call` boundary (`NormalizeCallInput`); steer with a
+sharp action-oriented `next_step`. Tune the *surface* — `usageProtocol`, tool
+descriptions, operation schemas, and the `mcp_help` branches — never
+`systemPromptUnderTest`, which is kept minimal on purpose so the eval measures
+how self-describing the surface is. **Caveat learned the hard way:** an isolated
+single-shot probe (replay one tool result, see if the model acts) can disagree
+with the full multi-round eval — always confirm a weak-model claim with a clean
+`go run ./cmd/mcpeval` against the committed code before reporting a number.
+
 ## Running
 
 Nothing runs without `MCPEVAL_API_KEY`, so `go test ./...` and CI are unaffected.
