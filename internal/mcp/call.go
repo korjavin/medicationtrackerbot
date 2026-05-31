@@ -90,24 +90,35 @@ func (s *Server) handleMCPCall(
 		"intent", truncateIntentForAudit(input.Intent),
 	)
 
+	// Repair two common agent mistakes before the call leaves the MCP layer:
+	// (1) a write's fields placed in params instead of body, and (2) a relative
+	// date token ("today"/"now") sitting in a timestamp field. NormalizeCallInput
+	// returns the corrected params/body plus human-readable notes; it never
+	// blocks. Both repairs target the raw-JSON boundary (params are still typed
+	// here, before the executor stringifies them for the query string).
+	var op *registry.Operation
+	if s.reg != nil {
+		op = s.reg.Get(input.OperationID)
+	}
+	params, body, repairNotes := registry.NormalizeCallInput(op, input.Params, input.Body, time.Now())
+
 	callReq := CallRequest{
 		OperationID: input.OperationID,
 		Mode:        mode,
 		Intent:      input.Intent,
-		Params:      input.Params,
+		Params:      params,
 		PathParams:  input.PathParams,
-		Body:        input.Body,
+		Body:        body,
 	}
 
 	// Warn-only pre-flight schema validation. Runs at this raw-JSON boundary
 	// (before the executor stringifies params) so typed schemas aren't false-
-	// failed by "7" vs {type:integer}. ValidateInput never blocks: a missing or
-	// mistyped field produces a warning but the call still forwards. A miss on
-	// Get yields a nil op, which ValidateInput treats as "no schemas".
-	var warnings []string
-	if s.reg != nil {
-		warnings = registry.ValidateInput(s.reg.Get(input.OperationID), input.Params, input.Body)
-	}
+	// failed by "7" vs {type:integer}. Validate the NORMALIZED params/body so a
+	// field the normalizer just moved into the body isn't reported as missing.
+	// ValidateInput never blocks: a missing or mistyped field produces a warning
+	// but the call still forwards. A nil op (Get miss) yields "no schemas".
+	warnings := append([]string(nil), repairNotes...)
+	warnings = append(warnings, registry.ValidateInput(op, params, body)...)
 
 	result, err := s.executor.Call(ctx, callReq)
 	if err != nil {

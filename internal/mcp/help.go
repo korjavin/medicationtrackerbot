@@ -177,9 +177,9 @@ func (s *Server) buildHelp(ctx context.Context, req *sdkmcp.CallToolRequest, inp
 		return nil, HelpResponse{
 			CompactOperations: registry.MarshalForHelpCompact(ops),
 			Count:             len(ops),
-			Note:              fmt.Sprintf("Showing %d terse match(es) for query %q. Drill in with operation_id= for schemas + a runnable example.", len(ops), query),
-			NextStep:          "Inspect a match with operation_id=, then run it with mcp_call (one-shot) or mcp_execute (composite).",
-			NextTools:         []string{"mcp_help", "mcp_call"},
+			Note:              fmt.Sprintf("Showing %d terse match(es) for query %q. These are OPERATIONS you can run, NOT the data itself — re-running the same search returns the same list and makes no progress. To answer the user, call mcp_call now with one of the operation_id values below (drill in with operation_id= first only if you need a field schema).", len(ops), query),
+			NextStep:          fmt.Sprintf("Stop searching and act: call mcp_call(operation_id=%q, ...) — or pick whichever id above matches the request. If the answer needs the newest/Nth item, list first, then act on that element.", ops[0].ID),
+			NextTools:         []string{"mcp_call", "mcp_help"},
 		}, nil
 	}
 

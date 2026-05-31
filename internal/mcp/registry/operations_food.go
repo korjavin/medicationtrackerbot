@@ -152,15 +152,15 @@ for p in result["products"]:
 			Risk:   RiskWrite,
 			BodySchema: json.RawMessage(`{
   "type": "object",
-  "required": ["eaten_at", "weight", "calories"],
+  "required": ["name", "eaten_at", "weight", "calories"],
   "properties": {
-    "eaten_at":   {"type": "string", "description": "ISO8601 timestamp (RFC3339 preferred)"},
+    "eaten_at":   {"type": "string", "description": "ISO8601 timestamp (RFC3339 preferred). Accepts the relative tokens \"now\"/\"today\" (resolved to the current server time) when the user said \"today\"/\"now\"."},
     "weight":     {"type": "integer", "description": "Grams consumed (>= 0)"},
     "carbs":      {"type": "integer", "description": "Total carbs in grams"},
     "protein":    {"type": "integer", "description": "Total protein in grams"},
     "fat":        {"type": "integer", "description": "Total fat in grams"},
     "calories":   {"type": "integer", "description": "Total kcal"},
-    "name":       {"type": "string", "description": "Canonical English food name in generic form, intended to be reused across many log entries. Prefer a name already present in the user's catalog (food.products.search / food.products.frequent) or the open_food_facts cache. Use the singular, lowercase, ingredient-style form with no situational notes — good: \"boiled egg\", \"oatmeal\", \"chicken breast\". Bad: \"вареное яйцо\" (not English), \"boiled eggs breakfast\" (meal-time note), \"boiled eggs airline\" (context note), \"2 boiled eggs\" (quantity belongs in weight)."},
+    "name":       {"type": "string", "description": "REQUIRED unless you pass a product_id: the food's identity. Canonical English food name in generic form, intended to be reused across many log entries. Prefer a name already present in the user's catalog (food.products.search / food.products.frequent) or the open_food_facts cache. Use the singular, lowercase, ingredient-style form with no situational notes — good: \"boiled egg\", \"oatmeal\", \"chicken breast\". Bad: \"вареное яйцо\" (not English), \"boiled eggs breakfast\" (meal-time note), \"boiled eggs airline\" (context note), \"2 boiled eggs\" (quantity belongs in weight)."},
     "product_id": {"type": ["integer", "null"], "description": "Optional saved product reference"},
     "barcode":    {"type": "string"},
     "per_100g":   {"type": "boolean", "description": "If true, treat the carb/protein/fat/calories as per-100g and let the server scale by weight"}

@@ -154,8 +154,22 @@ Set `NeedsExecute: true` if the case requires `mcp_execute`.
 3. Fix the *specific* failure — usually by improving an operation's
    `Description` / schema / `ResponseExample` in `internal/mcp/registry/`, or the
    `usage_protocol` / tool descriptions in `internal/mcp/mcp.go`, or the lean
-   `systemPromptUnderTest`.
+   `systemPromptUnderTest`. When a *structural* call mistake recurs across models
+   (fields in `params` instead of `body`, a literal `"today"` in a timestamp
+   field), prefer a lenient, warn-only **repair** in `registry.NormalizeCallInput`
+   over more prose — it fixes the call instead of hoping the model reads the
+   guidance. See `docs/mcp-deployment.md` → "`mcp_call` input repair".
 4. Re-run the whole suite to confirm the fix didn't regress other cases.
+
+> **Weak-model reality (gemma-4-e2b / ~2B).** Single-step reads, refusals, and —
+> with the input-repair above — single-step writes are reachable. The remaining
+> edge cases are model-capability ceilings, not surface gaps: a 2B model won't
+> reliably author an `mcp_execute` script for aggregation (E1), thread ids across
+> a 2–3 hop navigation (E3/E4), or even pick the latest row from a list without
+> over-fetching (C1 is variance-flaky). Surface changes broke the worst pathology
+> (a `mcp_help` discovery *loop* where the model re-ran the same search instead of
+> acting), but reliable 10/10 needs a stronger local model (7–14B with good
+> tool-calling). The strong cloud model stays 10/10.
 
 ## Wiring guard (no LLM, no key)
 
