@@ -48,6 +48,7 @@ type Config struct {
 	Seed       int64
 	Days       int
 	MaxRounds  int
+	MaxTokens  int
 }
 
 // ConfigFromEnv reads MCPEVAL_* env vars. ok is false when MCPEVAL_API_KEY is
@@ -65,6 +66,7 @@ func ConfigFromEnv() (cfg Config, ok bool) {
 		Seed:       getenvInt64("MCPEVAL_SEED", 42),
 		Days:       getenvInt("MCPEVAL_DAYS", 90),
 		MaxRounds:  getenvInt("MCPEVAL_MAX_ROUNDS", 8),
+		MaxTokens:  getenvInt("MCPEVAL_MAX_TOKENS", defaultMaxTokens),
 	}
 	if cfg.JudgeModel == "" {
 		cfg.JudgeModel = cfg.Model
@@ -210,10 +212,10 @@ func New(ctx context.Context, cfg Config) (*Harness, error) {
 	}
 
 	// 6. Agent + judge clients.
-	client := NewClient(cfg.APIKey, cfg.BaseURL, cfg.Model)
+	client := NewClient(cfg.APIKey, cfg.BaseURL, cfg.Model, cfg.MaxTokens)
 	h.judge = client
 	if cfg.JudgeModel != "" && cfg.JudgeModel != cfg.Model {
-		h.judge = NewClient(cfg.APIKey, cfg.BaseURL, cfg.JudgeModel)
+		h.judge = NewClient(cfg.APIKey, cfg.BaseURL, cfg.JudgeModel, cfg.MaxTokens)
 	}
 	h.agent = NewAgent(client, cfg.MaxRounds)
 

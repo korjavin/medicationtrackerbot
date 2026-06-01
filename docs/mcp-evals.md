@@ -91,28 +91,40 @@ models, not just frontier ones. Findings from driving it against LM Studio:
   reasoning ceiling (script-based aggregation, 2–3 hop id-threading), not surface
   gaps. See PR #374 (`mcp_call` input repair: params→body coalescing +
   relative-date resolution via `NormalizeCallInput`).
-- **`qwen3.5-9b` (a local reasoning model):** **~1/10, NOT yet unblocked.** It
-  stalls before it even acts: after one `mcp_help` it emits an **empty assistant
-  message with no tool call** (the reply is `""`, the agent loop treats that as a
-  finished — empty — answer), failing even the trivial controls (latest BP, med
-  count). Isolated single-shot probes where a compact `mcp_help` result was fed
-  back *did* make qwen call `mcp_call`, which is why discovery was made compact by
-  default (see below) — but that change did **not** carry over to the full
-  multi-round loop, where qwen still goes empty. The real blocker looks like
-  **empty-turn termination** (qwen putting its answer in `reasoning_content` and
-  leaving `content` empty with no tool call), not the discovery payload shape.
-  This is the open frontier for weak local models; a surface-only fix may not be
-  enough (the agent loop in `agent.go` may need to nudge or re-prompt on an empty
-  no-tool-call turn rather than accept it as final).
+- **`qwen3.5-9b` (a local reasoning model): 10/10** — but only after fixing three
+  *harness* bugs, none of them the MCP surface. It started at ~1/10 with empty
+  replies, and the cause was misdiagnosed twice before the real one was proven by
+  an A/B test (same model, same context, same task; the only variable was the
+  harness):
+  1. **`reasoning_content` was dropped from history (the decisive bug).** A
+     reasoning model emits its chain-of-thought in `reasoning_content` with an
+     often-empty `content`. The harness's typed `chatMessage` didn't capture that
+     field, so each echoed assistant turn lost the model's own prior thinking —
+     and qwen then returned empty `content` and stopped. Round-tripping
+     `reasoning_content` (mirroring the Gemini `thought_signature` fix) flipped
+     every control + edge case from fail to pass.
+  2. **No `max_tokens`** → a reasoning model burns the completion budget thinking
+     and truncates the visible answer mid-word (`finish_reason:"length"`). The
+     harness now sets a generous default (`MCPEVAL_MAX_TOKENS`, default 4096).
+  3. **LM Studio context window too small** (loaded at 4096 tokens) → the prompt
+     itself overflowed on the larger scenarios (`"Context size has been
+     exceeded"`). This is operator config, not code: load the model with ≥16K
+     context. Check via `GET /api/v0/models` → `loaded_context_length`.
 
-> **The compact-discovery change shipped anyway as a neutral simplification.**
-> `mcp_help` now returns compact entries for the catalog, `topic=`, AND `query=`
-> views (full schemas + a runnable example only on an `operation_id` /
-> `operation_ids` drill-in); the previous `<=3`-match query auto-expand is gone.
-> This keeps discovery uniform and token-light and is what the isolated qwen
-> probes preferred. **`deepseek-v4-flash` stays 10/10**, so it doesn't regress the
-> strong model — but it is NOT, on its own, sufficient to move qwen in the full
-> loop. Don't read the compact change as "the qwen fix"; it isn't.
+  Lesson: an isolated single-shot probe (replay one tool result) can disagree
+  with the full multi-round loop, and "empty `content`" from a reasoning model is
+  almost always a dropped-`reasoning_content` or truncation/context problem in the
+  *caller*, not a model-capability limit. Always confirm with a clean full
+  `go run ./cmd/mcpeval` against committed code before concluding.
+
+> **The compact-discovery change (PR #375) shipped as a neutral simplification.**
+> `mcp_help` returns compact entries for the catalog, `topic=`, AND `query=` views
+> (full schemas + a runnable example only on an `operation_id` / `operation_ids`
+> drill-in); the previous `<=3`-match query auto-expand is gone. It keeps discovery
+> uniform and token-light, and **`deepseek-v4-flash` stays 10/10**. It was
+> originally motivated as a qwen fix — it is NOT what fixed qwen (the
+> `reasoning_content` round-trip was), but it's a reasonable simplification on its
+> own.
 
 **Tuning levers (in priority order):** keep discovery responses flat and compact
 (no nested schemas until an explicit drill-in); advertise write-op `required`
@@ -154,6 +166,7 @@ compat layer, Claude via an OpenAI-compatible gateway) with `MCPEVAL_BASE_URL`.
 | `MCPEVAL_SEED` | `42` | Deterministic seed for `seeddemo`. |
 | `MCPEVAL_DAYS` | `90` | Days of synthetic data to seed. |
 | `MCPEVAL_MAX_ROUNDS` | `8` | Max agent tool-call rounds per scenario. |
+| `MCPEVAL_MAX_TOKENS` | `4096` | Per-completion token cap. Keep generous for reasoning models (they spend most of it in `reasoning_content`); too low truncates the answer. |
 
 ### Cost & determinism
 
