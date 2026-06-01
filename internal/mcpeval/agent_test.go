@@ -1,10 +1,56 @@
 package mcpeval
 
 import (
+	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
+
+// TestChatMessage_RoundTripsReasoningContent verifies an assistant message
+// decoded from a reasoning model preserves reasoning_content and re-marshals it,
+// so Agent.Run echoes it back on the next turn. Stripping it makes reasoning
+// models (qwen3.5-9b) return empty content and stop — this guards the fix.
+func TestChatMessage_RoundTripsReasoningContent(t *testing.T) {
+	raw := `{"role":"assistant","content":"\n\n","reasoning_content":"step 1: find the op","tool_calls":[{"id":"c1","type":"function","function":{"name":"mcp_help","arguments":"{}"}}]}`
+	var m chatMessage
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if m.ReasoningContent != "step 1: find the op" {
+		t.Fatalf("reasoning_content not decoded, got %q", m.ReasoningContent)
+	}
+	out, err := json.Marshal(m)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(out), `"reasoning_content":"step 1: find the op"`) {
+		t.Errorf("re-marshaled message dropped reasoning_content: %s", out)
+	}
+
+	// A message without it must stay clean (omitempty) so non-reasoning providers
+	// aren't sent an empty field.
+	plain, _ := json.Marshal(chatMessage{Role: "assistant", Content: "hi"})
+	if strings.Contains(string(plain), "reasoning_content") {
+		t.Errorf("omitempty failed; plain message carries reasoning_content: %s", plain)
+	}
+}
+
+// TestNewClient_MaxTokensDefault verifies maxTokens<=0 falls back to the
+// generous default (so a reasoning model's chain-of-thought + answer both fit),
+// while an explicit value is honored.
+func TestNewClient_MaxTokensDefault(t *testing.T) {
+	if c := NewClient("k", "", "m", 0); c.maxTokens != defaultMaxTokens {
+		t.Errorf("maxTokens=0 should default to %d, got %d", defaultMaxTokens, c.maxTokens)
+	}
+	if c := NewClient("k", "", "m", -5); c.maxTokens != defaultMaxTokens {
+		t.Errorf("negative maxTokens should default to %d, got %d", defaultMaxTokens, c.maxTokens)
+	}
+	if c := NewClient("k", "", "m", 8192); c.maxTokens != 8192 {
+		t.Errorf("explicit maxTokens not honored, got %d", c.maxTokens)
+	}
+}
 
 // TestIsRetryableQuota_PerDayFailsFast verifies a per-DAY Google quota 429 is
 // classified non-retryable (it won't clear within a run), while a per-minute /

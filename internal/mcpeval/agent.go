@@ -91,22 +91,33 @@ type Client struct {
 	apiKey     string
 	baseURL    string
 	model      string
+	maxTokens  int
 	httpClient *http.Client
 }
 
+// defaultMaxTokens is the completion cap when none is configured. Sized to leave
+// room for a reasoning model's chain-of-thought PLUS the final visible answer
+// (qwen3.5-9b alone spends ~550 reasoning tokens on a one-line reply).
+const defaultMaxTokens = 4096
+
 // NewClient builds a chat client. baseURL defaults to OpenAI; model defaults to
-// a small tool-calling model. Both are normally supplied from env.
-func NewClient(apiKey, baseURL, model string) *Client {
+// a small tool-calling model; maxTokens<=0 falls back to defaultMaxTokens. All
+// are normally supplied from env.
+func NewClient(apiKey, baseURL, model string, maxTokens int) *Client {
 	if baseURL == "" {
 		baseURL = "https://api.openai.com/v1"
 	}
 	if model == "" {
 		model = "gpt-4o-mini"
 	}
+	if maxTokens <= 0 {
+		maxTokens = defaultMaxTokens
+	}
 	return &Client{
 		apiKey:     apiKey,
 		baseURL:    strings.TrimRight(baseURL, "/"),
 		model:      model,
+		maxTokens:  maxTokens,
 		httpClient: &http.Client{Timeout: 120 * time.Second},
 	}
 }
@@ -134,6 +145,12 @@ type chatRequest struct {
 	Tools       []chatTool    `json:"tools,omitempty"`
 	ToolChoice  string        `json:"tool_choice,omitempty"`
 	Temperature float64       `json:"temperature"`
+	// MaxTokens caps the completion length. It MUST be generous for reasoning
+	// models: they spend most of the budget in reasoning_content, and a small cap
+	// truncates the visible answer mid-word (finish_reason="length", empty/partial
+	// content) — observed with qwen3.5-9b, which burned ~550 reasoning tokens and
+	// got cut off before finishing "...was 115/68". Omitted (0) → provider default.
+	MaxTokens int `json:"max_tokens,omitempty"`
 }
 
 type chatTool struct {
@@ -153,6 +170,14 @@ type chatMessage struct {
 	ToolCalls  []chatToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string         `json:"tool_call_id,omitempty"`
 	Name       string         `json:"name,omitempty"`
+	// ReasoningContent is the model's chain-of-thought, surfaced by reasoning
+	// models (qwen3.5, DeepSeek-R1, …) alongside an often-empty Content. It MUST
+	// be echoed back verbatim on subsequent turns: with it stripped, qwen3.5-9b
+	// returns empty content and stops without answering (it relies on its own
+	// prior reasoning being in context). omitempty makes it a no-op for models
+	// that don't emit it. Mirrors the Gemini extra_content round-trip on
+	// chatToolCall — same class of "preserve provider state across turns" fix.
+	ReasoningContent string `json:"reasoning_content,omitempty"`
 }
 
 type chatToolCall struct {
@@ -363,6 +388,7 @@ func (a *Agent) Run(ctx context.Context, task string, tools []ToolSpec, runner T
 			Tools:       chatTools,
 			ToolChoice:  "auto",
 			Temperature: 0,
+			MaxTokens:   a.client.maxTokens,
 		})
 		if err != nil {
 			return res, err
@@ -429,6 +455,7 @@ func (c *Client) completeJSON(ctx context.Context, system, user string) (string,
 			{Role: "user", Content: user},
 		},
 		Temperature: 0,
+		MaxTokens:   c.maxTokens,
 	})
 	if err != nil {
 		return "", err
