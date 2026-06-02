@@ -119,7 +119,7 @@ func TestMiddleware_APIToken(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			fakeStore := tt.store()
 			cfg := &Config{
-				AllowedSubject: "",
+				AllowedSubject: "test-user",
 				MCPServerURL:   "https://mcp.example.com",
 				ClientID:       "test-client",
 			}
