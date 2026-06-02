@@ -59,9 +59,21 @@ func TestIsSubjectAllowed(t *testing.T) {
 		want           bool
 	}{
 		{
-			name:           "empty allows any subject",
+			name:           "empty denies any subject (fail-closed)",
 			allowedSubject: "",
 			subject:        "user-a",
+			want:           false,
+		},
+		{
+			name:           "wildcard allows any subject (explicit opt-in)",
+			allowedSubject: "*",
+			subject:        "user-a",
+			want:           true,
+		},
+		{
+			name:           "wildcard with surrounding spaces allows any subject",
+			allowedSubject: " * ",
+			subject:        "anyone",
 			want:           true,
 		},
 		{
