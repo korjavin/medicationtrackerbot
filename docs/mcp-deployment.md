@@ -32,7 +32,7 @@ Add a service to your `docker-compose.yml`:
       - MCP_DATABASE_PATH=/app/data/meds.db
       - MCP_MAX_QUERY_DAYS=90
       - MCP_SERVER_URL=https://mcp.yourdomain.com
-      - MCP_ALLOWED_SUBJECT=your-user-uuid-here    # Optional: comma-separated list of allowed `sub` values; empty = any
+      - MCP_ALLOWED_SUBJECT=your-user-uuid-here    # Comma-separated allowed `sub` values; `*` = allow any authenticated subject (explicit). Empty is DEPRECATED: it normalizes to `*` with a startup warning. Set MCP_REQUIRE_ALLOWED_SUBJECT=1 to refuse startup when unset.
       - POCKET_ID_URL=https://id.yourdomain.com
       - POCKET_ID_CLIENT_ID=your-client-id         # Comma-separated client IDs accepted in token audience
       - POCKET_ID_CLIENT_SECRET=your-client-secret

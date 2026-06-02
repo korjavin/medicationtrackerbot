@@ -82,6 +82,77 @@ func TestLoadConfigFromEnv_AdminPortEqualsMainPort(t *testing.T) {
 	}
 }
 
+// TestLoadConfigFromEnv_AllowedSubject pins the TM-008 posture: the OAuth
+// middleware is fail-closed (empty MCP_ALLOWED_SUBJECT denies every subject),
+// but for backward compatibility an empty value normalizes to the explicit
+// wildcard "*" with a deprecation warning so the existing fleet keeps working.
+// MCP_REQUIRE_ALLOWED_SUBJECT=1 turns the normalization into a hard startup
+// error instead.
+func TestLoadConfigFromEnv_AllowedSubject(t *testing.T) {
+	required := map[string]string{
+		"ALLOWED_USER_ID":   "1",
+		"MCP_DATABASE_PATH": "/tmp/x.db",
+		"POCKET_ID_URL":     "https://auth.example.com",
+		"MCP_SERVER_URL":    "https://mcp.example.com",
+	}
+	setRequired := func(t *testing.T) {
+		for k, v := range required {
+			t.Setenv(k, v)
+		}
+	}
+
+	t.Run("empty normalizes to wildcard (legacy allow-any preserved)", func(t *testing.T) {
+		setRequired(t)
+		t.Setenv("MCP_ALLOWED_SUBJECT", "")
+		t.Setenv("MCP_REQUIRE_ALLOWED_SUBJECT", "")
+		cfg, err := LoadConfigFromEnv()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.AllowedSubject != "*" {
+			t.Fatalf("AllowedSubject = %q, want %q (empty should normalize to wildcard)", cfg.AllowedSubject, "*")
+		}
+	})
+
+	t.Run("explicit subject is preserved", func(t *testing.T) {
+		setRequired(t)
+		t.Setenv("MCP_ALLOWED_SUBJECT", "user-a,user-b")
+		cfg, err := LoadConfigFromEnv()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.AllowedSubject != "user-a,user-b" {
+			t.Fatalf("AllowedSubject = %q, want it preserved verbatim", cfg.AllowedSubject)
+		}
+	})
+
+	t.Run("require flag rejects empty subject", func(t *testing.T) {
+		setRequired(t)
+		t.Setenv("MCP_ALLOWED_SUBJECT", "")
+		t.Setenv("MCP_REQUIRE_ALLOWED_SUBJECT", "1")
+		cfg, err := LoadConfigFromEnv()
+		if err == nil {
+			t.Fatalf("expected error when MCP_REQUIRE_ALLOWED_SUBJECT=1 and subject empty, got cfg=%+v", cfg)
+		}
+		if !strings.Contains(err.Error(), "MCP_ALLOWED_SUBJECT") {
+			t.Errorf("error should mention MCP_ALLOWED_SUBJECT, got: %v", err)
+		}
+	})
+
+	t.Run("require flag accepts wildcard", func(t *testing.T) {
+		setRequired(t)
+		t.Setenv("MCP_ALLOWED_SUBJECT", "*")
+		t.Setenv("MCP_REQUIRE_ALLOWED_SUBJECT", "1")
+		cfg, err := LoadConfigFromEnv()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.AllowedSubject != "*" {
+			t.Fatalf("AllowedSubject = %q, want %q", cfg.AllowedSubject, "*")
+		}
+	})
+}
+
 func testServer(maxDays int) *Server {
 	return &Server{
 		config: &Config{
