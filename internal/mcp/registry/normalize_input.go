@@ -52,6 +52,20 @@ func NormalizeCallInput(op *Operation, params map[string]json.RawMessage, body j
 		outParams[k] = v
 	}
 
+	// 0. Unwrap a double-encoded ("stringified") body. Weaker models routinely
+	//    serialize the WHOLE request body as a JSON string
+	//    (body = "{\"description\":\"...\"}") instead of a JSON object
+	//    (body = {"description":"..."}). The bridge forwards that quoted string
+	//    verbatim and the backend's struct decode fails with an "Invalid JSON"
+	//    400. If the body is a JSON string whose contents are themselves a JSON
+	//    object/array, peel the string layer(s) so the coalescing/date steps
+	//    below — and the backend — see the structured body the agent meant.
+	if unwrapped, ok := unwrapStringBody(body); ok {
+		body = unwrapped
+		notes = append(notes, fmt.Sprintf(
+			"unwrapped a stringified JSON request body for operation %q — pass body as a JSON object (e.g. {\"k\":\"v\"}), not a JSON-encoded string (\"{\\\"k\\\":\\\"v\\\"}\")", op.ID))
+	}
+
 	// Decode the body into an object if it is one. An empty body counts as an
 	// empty object we may fill via coalescing; a non-object body (array/scalar)
 	// is left entirely untouched.
@@ -131,6 +145,35 @@ func NormalizeCallInput(op *Operation, params map[string]json.RawMessage, body j
 		outParams = nil
 	}
 	return outParams, outBody, notes
+}
+
+// unwrapStringBody detects a request body that was double-encoded as a JSON
+// string — a common weak-model mistake where the agent stringifies the whole
+// body ("{\"description\":\"...\"}") instead of passing a JSON object. It peels
+// up to a few string layers and returns the wrapped value when it resolves to a
+// JSON object or array. Returns ok=false (and no value) when the body is not a
+// JSON string, or when the wrapped content is a scalar (so unwrapping wouldn't
+// yield a structured body worth repairing). The peel cap bounds pathological
+// inputs; one layer covers the observed failure, the rest catch the rare
+// double-stringify.
+func unwrapStringBody(body json.RawMessage) (json.RawMessage, bool) {
+	cur := bytes.TrimSpace(body)
+	peeled := 0
+	for peeled < 4 {
+		var s string
+		if err := json.Unmarshal(cur, &s); err != nil {
+			break // not a JSON string at this layer; stop peeling
+		}
+		cur = bytes.TrimSpace([]byte(s))
+		peeled++
+	}
+	if peeled == 0 {
+		return nil, false // body was never a JSON string
+	}
+	if len(cur) > 0 && (cur[0] == '{' || cur[0] == '[') && json.Valid(cur) {
+		return cur, true
+	}
+	return nil, false
 }
 
 // schemaProps decodes the "properties" map of a JSON schema into name -> propInfo.

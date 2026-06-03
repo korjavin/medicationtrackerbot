@@ -132,11 +132,39 @@ func (s *Server) handleMCPCall(
 		}
 	}
 
-	return nil, CallResponse{
+	resp := CallResponse{
 		Status:   result.Status,
 		Result:   resultVal,
 		Error:    result.Error,
 		APICalls: result.APICalls,
 		Warnings: warnings,
-	}, nil
+	}
+
+	// A non-ok outcome (proxy_denied / backend_application_error /
+	// backend_transport_error) must be flagged as an MCP error so the agent's
+	// harness treats it as a failure. Returning a nil CallToolResult lets the SDK
+	// auto-build the envelope with isError=false, which weak agents read as
+	// success — the reported failure mode where a 400 "Invalid JSON" was narrated
+	// back to the user as "logged successfully". The structured envelope (second
+	// return) is still populated by the SDK regardless of the result we return.
+	if result.Status != ExecuteStatusOK {
+		return errorToolResult(resp), resp, nil
+	}
+
+	return nil, resp, nil
+}
+
+// errorToolResult builds a CallToolResult that marks a non-ok mcp_call outcome
+// as an MCP error (IsError=true). Content mirrors the JSON envelope the SDK
+// would otherwise auto-generate from the structured response, so text-only
+// clients still see the status/error detail.
+func errorToolResult(resp CallResponse) *sdkmcp.CallToolResult {
+	body, err := json.Marshal(resp)
+	if err != nil {
+		body = []byte(`{"status":"` + resp.Status + `"}`)
+	}
+	return &sdkmcp.CallToolResult{
+		IsError: true,
+		Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: string(body)}},
+	}
 }

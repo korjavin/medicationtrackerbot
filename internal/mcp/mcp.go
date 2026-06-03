@@ -463,7 +463,8 @@ func (s *Server) registerTools() {
 						"description": "Values for {placeholders} in the operation's route (e.g. {\"id\": 42}). Required only for path-templated operations."
 					},
 					"body": {
-						"description": "Raw JSON request body for operations that take one. Omit for simple reads."
+						"type": "object",
+						"description": "Request body as a JSON object for operations that take one, e.g. {\"description\": \"200g grilled chicken\"}. Pass a JSON object, NOT a JSON-encoded string (\"{\\\"description\\\": ...}\") — a stringified body fails with an 'Invalid JSON' 400. Omit for simple reads."
 					},
 					"mode": {
 						"type": "string",

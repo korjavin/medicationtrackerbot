@@ -218,7 +218,7 @@ func (s *Server) handleMCPExecute(
 		}
 	}
 
-	return nil, ExecuteResponse{
+	resp := ExecuteResponse{
 		Status:   result.Status,
 		Result:   resultVal,
 		Error:    result.Error,
@@ -226,7 +226,31 @@ func (s *Server) handleMCPExecute(
 		Stdout:   result.Stdout,
 		Stderr:   result.Stderr,
 		Warnings: result.Warnings,
-	}, nil
+	}
+
+	// Mirror mcp_call: a non-ok run (script_error / timeout / sandbox failure /
+	// proxy_denied / backend_*_error) is flagged as an MCP error so the agent
+	// can't silently read a failed run as success. The SDK still fills the
+	// structured envelope from the second return value.
+	if result.Status != ExecuteStatusOK {
+		return executeErrorToolResult(resp), resp, nil
+	}
+
+	return nil, resp, nil
+}
+
+// executeErrorToolResult marks a non-ok mcp_execute run as an MCP error
+// (IsError=true), mirroring errorToolResult on the mcp_call path. Content
+// carries the JSON envelope so text-only clients still see status/error/stderr.
+func executeErrorToolResult(resp ExecuteResponse) *sdkmcp.CallToolResult {
+	body, err := json.Marshal(resp)
+	if err != nil {
+		body = []byte(`{"status":"` + resp.Status + `"}`)
+	}
+	return &sdkmcp.CallToolResult{
+		IsError: true,
+		Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: string(body)}},
+	}
 }
 
 // truncateIntentForAudit caps the freeform intent string at a safe length
