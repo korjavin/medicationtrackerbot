@@ -137,6 +137,77 @@ func TestNormalizeCallInput_NilOp(t *testing.T) {
 	}
 }
 
+// foodFromDescriptionOp mirrors food.log.from_description: a write whose body
+// is a single free-text "description" field. This is the operation the reported
+// failure used.
+func foodFromDescriptionOp() *Operation {
+	return &Operation{
+		ID: "food.log.from_description", Topic: "food", Method: "POST", Path: "/api/food/log/from-description", Risk: RiskWrite,
+		BodySchema: json.RawMessage(`{
+  "type": "object",
+  "required": ["description"],
+  "properties": {
+    "description": {"type": "string"},
+    "eaten_at":    {"type": "string", "description": "ISO8601 timestamp (RFC3339 preferred)"}
+  }
+}`),
+	}
+}
+
+func TestNormalizeCallInput_UnwrapsStringifiedBody(t *testing.T) {
+	// The exact reported failure: the agent passed the whole body as a JSON
+	// STRING ("{\"description\":...}") instead of a JSON object, which the
+	// backend rejected with "Invalid JSON".
+	inner := `{"description":"potatoes with boiled sausage for breakfast today"}`
+	encoded, err := json.Marshal(inner) // -> "\"{\\\"description\\\":...}\""
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	_, gotBody, notes := NormalizeCallInput(foodFromDescriptionOp(), nil, json.RawMessage(encoded), fixedNow)
+
+	var body map[string]any
+	if err := json.Unmarshal(gotBody, &body); err != nil {
+		t.Fatalf("body not unwrapped to an object: %v (%s)", err, gotBody)
+	}
+	if body["description"] != "potatoes with boiled sausage for breakfast today" {
+		t.Errorf("description = %v, want the meal text", body["description"])
+	}
+	if !strings.Contains(strings.Join(notes, " "), "unwrapped a stringified JSON request body") {
+		t.Errorf("expected an unwrap note, got %v", notes)
+	}
+}
+
+func TestNormalizeCallInput_UnwrapsDoubleStringifiedBody(t *testing.T) {
+	inner := `{"description":"oatmeal"}`
+	once, _ := json.Marshal(inner)
+	twice, _ := json.Marshal(string(once)) // stringified twice
+	_, gotBody, notes := NormalizeCallInput(foodFromDescriptionOp(), nil, json.RawMessage(twice), fixedNow)
+
+	var body map[string]any
+	if err := json.Unmarshal(gotBody, &body); err != nil {
+		t.Fatalf("double-stringified body not unwrapped: %v (%s)", err, gotBody)
+	}
+	if body["description"] != "oatmeal" {
+		t.Errorf("description = %v, want oatmeal", body["description"])
+	}
+	if len(notes) == 0 {
+		t.Errorf("expected an unwrap note for double-stringified body")
+	}
+}
+
+func TestNormalizeCallInput_ScalarStringBodyUntouched(t *testing.T) {
+	// A body that is a genuine JSON string scalar (not a wrapped object) must be
+	// left untouched — the unwrap is only for stringified objects/arrays.
+	body := json.RawMessage(`"just a string"`)
+	_, gotBody, notes := NormalizeCallInput(foodFromDescriptionOp(), nil, body, fixedNow)
+	if string(gotBody) != string(body) {
+		t.Errorf("scalar string body was modified: %s", gotBody)
+	}
+	if len(notes) != 0 {
+		t.Errorf("expected no notes for a scalar string body, got %v", notes)
+	}
+}
+
 func TestNormalizeCallInput_ReadDoesNotCoalesce(t *testing.T) {
 	// A read op must never move params into a body (it has no body).
 	listOp := &Operation{

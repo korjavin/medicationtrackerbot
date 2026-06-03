@@ -305,6 +305,29 @@ func TestMCPExecute_SuccessEnvelope(t *testing.T) {
 	}
 }
 
+// TestMCPExecute_ErrorStatusFlaggedAsError verifies a non-ok run is returned
+// with IsError=true (mirrors the mcp_call behavior) while a successful run
+// returns a nil CallToolResult (isError=false via the SDK auto-envelope).
+func TestMCPExecute_ErrorStatusFlaggedAsError(t *testing.T) {
+	errResult, _, err := serverWithExecutor(fakeErrorExecutor(ExecuteStatusBackendAppError, "backend returned 400"), 0, 0).
+		handleMCPExecute(context.Background(), nil, ExecuteInput{Script: "output(1)"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if errResult == nil || !errResult.IsError {
+		t.Errorf("expected non-nil result with IsError=true on backend error, got %#v", errResult)
+	}
+
+	okResult, _, err := serverWithExecutor(fakeOKExecutor(json.RawMessage(`1`)), 0, 0).
+		handleMCPExecute(context.Background(), nil, ExecuteInput{Script: "output(1)"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if okResult != nil {
+		t.Errorf("expected nil result on ok run, got %#v", okResult)
+	}
+}
+
 func TestMCPExecute_ScriptErrorEnvelope(t *testing.T) {
 	s := serverWithExecutor(fakeErrorExecutor(ExecuteStatusScriptError, "NameError: name 'x' is not defined"), 0, 0)
 	resp, err := callExecute(t, s, ExecuteInput{Script: "output(x)"})

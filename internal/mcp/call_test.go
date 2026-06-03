@@ -349,3 +349,53 @@ func TestMCPCall_DemoRateLimit(t *testing.T) {
 		t.Errorf("structured error = %q, want %q", resp.Error, "demo_rate_limit")
 	}
 }
+
+// TestMCPCall_BackendErrorIsFlaggedAsError verifies that a backend application
+// error (e.g. the "Invalid JSON" 400 from the reported food-logging failure) is
+// returned with IsError=true so the agent's harness can't read it as success.
+func TestMCPCall_BackendErrorIsFlaggedAsError(t *testing.T) {
+	exec := &fakeExecutionService{
+		callFn: func(_ context.Context, _ CallRequest) (*CallResult, error) {
+			return &CallResult{
+				Status:   ExecuteStatusBackendAppError,
+				Result:   json.RawMessage(`"Invalid JSON\n"`),
+				APICalls: 1,
+			}, nil
+		},
+	}
+	s := serverWithExecutor(exec, 0, 0)
+	result, resp, err := s.handleMCPCall(context.Background(), nil, CallInput{OperationID: "bp.list"})
+	if err != nil {
+		t.Fatalf("unexpected go error: %v", err)
+	}
+	if resp.Status != ExecuteStatusBackendAppError {
+		t.Errorf("status = %q, want %q", resp.Status, ExecuteStatusBackendAppError)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil CallToolResult so IsError can be surfaced")
+	}
+	if !result.IsError {
+		t.Errorf("expected IsError=true on %q", ExecuteStatusBackendAppError)
+	}
+}
+
+// TestMCPCall_OKNotFlaggedAsError verifies the happy path still returns a nil
+// CallToolResult (isError=false via the SDK auto-envelope).
+func TestMCPCall_OKNotFlaggedAsError(t *testing.T) {
+	exec := &fakeExecutionService{
+		callFn: func(_ context.Context, _ CallRequest) (*CallResult, error) {
+			return &CallResult{Status: ExecuteStatusOK, Result: json.RawMessage(`{"id":1}`), APICalls: 1}, nil
+		},
+	}
+	s := serverWithExecutor(exec, 0, 0)
+	result, resp, err := s.handleMCPCall(context.Background(), nil, CallInput{OperationID: "bp.list"})
+	if err != nil {
+		t.Fatalf("unexpected go error: %v", err)
+	}
+	if resp.Status != ExecuteStatusOK {
+		t.Errorf("status = %q, want %q", resp.Status, ExecuteStatusOK)
+	}
+	if result != nil {
+		t.Errorf("expected nil CallToolResult on ok, got %#v", result)
+	}
+}
