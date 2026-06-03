@@ -188,6 +188,21 @@ func LoadConfigFromEnv() (*Config, error) {
 		if cfg.MCPServerURL == "" {
 			return nil, fmt.Errorf("MCP_SERVER_URL is required")
 		}
+
+		// Subject allowlist posture (TM-008). The OAuth middleware is fail-closed:
+		// isSubjectAllowed denies every subject when MCP_ALLOWED_SUBJECT is empty.
+		// To allow any authenticated subject from the validated issuer+audience,
+		// set MCP_ALLOWED_SUBJECT=*. Historically an empty value meant "allow any",
+		// so to avoid locking out the existing fleet we normalize empty -> "*" here
+		// and emit a loud deprecation warning rather than break startup. Operators
+		// who want fail-fast set MCP_REQUIRE_ALLOWED_SUBJECT=1.
+		if strings.TrimSpace(cfg.AllowedSubject) == "" {
+			if parseBoolEnv("MCP_REQUIRE_ALLOWED_SUBJECT", false) {
+				return nil, fmt.Errorf("MCP_ALLOWED_SUBJECT is required when MCP_REQUIRE_ALLOWED_SUBJECT=1: set it to a comma-separated subject allowlist, or to \"*\" to explicitly allow any authenticated subject")
+			}
+			slog.Warn("[MCP] MCP_ALLOWED_SUBJECT is empty; defaulting to allow ANY authenticated subject from the configured Pocket-ID issuer (legacy fail-open, TM-008). This is DEPRECATED. Restrict access by setting MCP_ALLOWED_SUBJECT to a comma-separated subject allowlist, or set it to \"*\" to acknowledge allow-any explicitly. Set MCP_REQUIRE_ALLOWED_SUBJECT=1 to refuse startup instead of defaulting.")
+			cfg.AllowedSubject = "*"
+		}
 	}
 	// In demo mode /mcp accepts every caller, so the Python executor is exposed
 	// to anonymous internet traffic. Instead of refusing to start, we rely on a

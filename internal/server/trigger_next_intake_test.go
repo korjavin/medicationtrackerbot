@@ -77,15 +77,24 @@ func (c *triggerCtx) callTrigger(userID int64) (map[string]any, int) {
 	return resp, w.Code
 }
 
-func mustCreateMed(t *testing.T, db *store.Store, name, dosage, schedule, policy string) int64 {
-	t.Helper()
-	id, err := db.Medication.Create(name, dosage, schedule, nil, nil, "", "", policy)
+func (c *triggerCtx) mustCreateMed(name, dosage, schedule, policy string) int64 {
+	c.t.Helper()
+	id, err := c.db.Medication.Create(name, dosage, schedule, nil, nil, "", "", policy)
 	if err != nil {
-		t.Fatalf("Create %s: %v", name, err)
+		c.t.Fatalf("Create %s: %v", name, err)
 	}
-	// Anchor created_at safely in the past so target.Before(med.CreatedAt) checks pass.
-	if err := db.Medication.UpdateCreatedAt(id, time.Now().AddDate(0, 0, -30)); err != nil {
-		t.Fatalf("UpdateCreatedAt %s: %v", name, err)
+	// Anchor created_at 30 days before the test's (fake) clock so the
+	// target.Before(med.CreatedAt) guard never trips. Anchoring to the real
+	// wall clock made this a date-bomb: created_at = time.Now()-30d eventually
+	// crossed the hardcoded 2026-05-04 scenario date, so the scheduled slot
+	// fell *before* created_at and no intake was generated (404). c.now is set
+	// by setNow before any med is created here; fall back to real now if unset.
+	anchor := c.now
+	if anchor.IsZero() {
+		anchor = time.Now()
+	}
+	if err := c.db.Medication.UpdateCreatedAt(id, anchor.AddDate(0, 0, -30)); err != nil {
+		c.t.Fatalf("UpdateCreatedAt %s: %v", name, err)
 	}
 	return id
 }
@@ -103,10 +112,10 @@ func TestHandleTriggerNextIntake_MorningClusterInWindow(t *testing.T) {
 	c.setNow(time.Date(2026, 5, 4, 6, 0, 0, 0, la)) // 06:00 PDT — 2 h 20 m before 08:20
 
 	// Four meds all with morning 08:20 schedule.
-	mustCreateMed(t, c.db, "Allopurinol AL", "300mg", `{"type":"daily","times":["08:20"]}`, "flexible")
-	mustCreateMed(t, c.db, "Bisoprolol", "2.5mg", `{"type":"daily","times":["08:20"]}`, "flexible")
-	mustCreateMed(t, c.db, "Candecor comp", "16mg", `{"type":"daily","times":["08:20"]}`, "flexible")
-	mustCreateMed(t, c.db, "Metformin", "1000mg", `{"type":"daily","times":["08:20","21:30"]}`, "flexible")
+	c.mustCreateMed("Allopurinol AL", "300mg", `{"type":"daily","times":["08:20"]}`, "flexible")
+	c.mustCreateMed("Bisoprolol", "2.5mg", `{"type":"daily","times":["08:20"]}`, "flexible")
+	c.mustCreateMed("Candecor comp", "16mg", `{"type":"daily","times":["08:20"]}`, "flexible")
+	c.mustCreateMed("Metformin", "1000mg", `{"type":"daily","times":["08:20","21:30"]}`, "flexible")
 
 	resp, code := c.callTrigger(123456)
 	if code != http.StatusOK {
@@ -130,10 +139,10 @@ func TestHandleTriggerNextIntake_MorningPastEveningPicked(t *testing.T) {
 	la, _ := time.LoadLocation("America/Los_Angeles")
 	c.setNow(time.Date(2026, 5, 4, 10, 0, 0, 0, la)) // 10:00 PDT — past 08:20, before 21:30
 
-	mustCreateMed(t, c.db, "Allopurinol AL", "300mg", `{"type":"daily","times":["08:20"]}`, "flexible")    // morning only — no future window today
-	mustCreateMed(t, c.db, "Candecor", "16mg", `{"type":"daily","times":["21:30"]}`, "flexible")           // evening only
-	mustCreateMed(t, c.db, "Lercanidipin", "10mg", `{"type":"daily","times":["08:20","21:30"]}`, "medium") // both
-	mustCreateMed(t, c.db, "Metformin", "1000mg", `{"type":"daily","times":["08:20","21:30"]}`, "flexible")
+	c.mustCreateMed("Allopurinol AL", "300mg", `{"type":"daily","times":["08:20"]}`, "flexible")    // morning only — no future window today
+	c.mustCreateMed("Candecor", "16mg", `{"type":"daily","times":["21:30"]}`, "flexible")           // evening only
+	c.mustCreateMed("Lercanidipin", "10mg", `{"type":"daily","times":["08:20","21:30"]}`, "medium") // both
+	c.mustCreateMed("Metformin", "1000mg", `{"type":"daily","times":["08:20","21:30"]}`, "flexible")
 
 	resp, code := c.callTrigger(123456)
 	if code != http.StatusOK {
@@ -165,7 +174,7 @@ func TestHandleTriggerNextIntake_PendingPlanStepUsedNotClockTime(t *testing.T) {
 	la, _ := time.LoadLocation("America/Los_Angeles")
 	c.setNow(time.Date(2026, 5, 4, 13, 0, 0, 0, la)) // 13:00 PDT, plan step at 14:18 PDT
 
-	medID := mustCreateMed(t, c.db, "Lercanidipin", "10mg", `{"type":"daily","times":["08:20","21:30"]}`, "medium")
+	medID := c.mustCreateMed("Lercanidipin", "10mg", `{"type":"daily","times":["08:20","21:30"]}`, "medium")
 
 	planID, err := c.db.TZ.CreateTransitionPlan(&store.TZTransitionPlan{
 		OldTZ: "Europe/Copenhagen", NewTZ: "America/Los_Angeles",
@@ -222,10 +231,10 @@ func TestHandleTriggerNextIntake_ClusterMixesStepAndNormal(t *testing.T) {
 	la, _ := time.LoadLocation("America/Los_Angeles")
 	c.setNow(time.Date(2026, 5, 4, 6, 0, 0, 0, la))
 
-	allopurinol := mustCreateMed(t, c.db, "Allopurinol AL", "300mg", `{"type":"daily","times":["08:20"]}`, "flexible")
-	bisoprolol := mustCreateMed(t, c.db, "Bisoprolol", "2.5mg", `{"type":"daily","times":["08:20"]}`, "flexible")
-	candecorComp := mustCreateMed(t, c.db, "Candecor comp", "16mg", `{"type":"daily","times":["08:20"]}`, "flexible")
-	metformin := mustCreateMed(t, c.db, "Metformin", "1000mg", `{"type":"daily","times":["08:20","21:30"]}`, "flexible")
+	allopurinol := c.mustCreateMed("Allopurinol AL", "300mg", `{"type":"daily","times":["08:20"]}`, "flexible")
+	bisoprolol := c.mustCreateMed("Bisoprolol", "2.5mg", `{"type":"daily","times":["08:20"]}`, "flexible")
+	candecorComp := c.mustCreateMed("Candecor comp", "16mg", `{"type":"daily","times":["08:20"]}`, "flexible")
+	metformin := c.mustCreateMed("Metformin", "1000mg", `{"type":"daily","times":["08:20","21:30"]}`, "flexible")
 
 	planID, err := c.db.TZ.CreateTransitionPlan(&store.TZTransitionPlan{
 		OldTZ: "Europe/Copenhagen", NewTZ: "America/Los_Angeles",
@@ -281,7 +290,7 @@ func TestHandleTriggerNextIntake_CancelRevertsToCorrectScheduledAt(t *testing.T)
 	la, _ := time.LoadLocation("America/Los_Angeles")
 	c.setNow(time.Date(2026, 5, 4, 13, 0, 0, 0, la))
 
-	medID := mustCreateMed(t, c.db, "Lercanidipin", "10mg", `{"type":"daily","times":["08:20","21:30"]}`, "medium")
+	medID := c.mustCreateMed("Lercanidipin", "10mg", `{"type":"daily","times":["08:20","21:30"]}`, "medium")
 
 	planID, err := c.db.TZ.CreateTransitionPlan(&store.TZTransitionPlan{
 		OldTZ: "Europe/Copenhagen", NewTZ: "America/Los_Angeles",
@@ -355,7 +364,7 @@ func TestHandleTriggerNextIntake_EarlyNotifFormatsInUserTZ(t *testing.T) {
 	mock := &mockNotifier{}
 	c.srv.SetNotifiers([]notifier.Notifier{mock})
 
-	medID := mustCreateMed(t, c.db, "Candecor", "16mg", `{"type":"daily","times":["21:30"]}`, "medium")
+	medID := c.mustCreateMed("Candecor", "16mg", `{"type":"daily","times":["21:30"]}`, "medium")
 
 	planID, err := c.db.TZ.CreateTransitionPlan(&store.TZTransitionPlan{
 		OldTZ: "Europe/Copenhagen", NewTZ: "America/Los_Angeles",
@@ -429,7 +438,7 @@ func TestHandleTriggerNextIntake_PreMaterializedTZStepRowSurfaces(t *testing.T) 
 	// pre-materialized tz_step row sits at 14:18 PDT (closer and earliest).
 	c.setNow(time.Date(2026, 5, 4, 13, 0, 0, 0, la))
 
-	medID := mustCreateMed(t, c.db, "Lercanidipin", "10mg", `{"type":"daily","times":["08:20","21:30"]}`, "medium")
+	medID := c.mustCreateMed("Lercanidipin", "10mg", `{"type":"daily","times":["08:20","21:30"]}`, "medium")
 
 	// Pre-materialize a PENDING tz_step intake_log row at 14:18 PDT without a
 	// matching tz_transition_steps entry — only the Task 12 union path can
@@ -510,7 +519,7 @@ func TestHandleTriggerNextIntake_CancelledPlanLeftoverNotSurfaced(t *testing.T) 
 	// orphan tz_step row at 14:18 PDT must NOT win.
 	c.setNow(time.Date(2026, 5, 4, 13, 0, 0, 0, la))
 
-	medID := mustCreateMed(t, c.db, "Lercanidipin", "10mg", `{"type":"daily","times":["08:20","21:30"]}`, "medium")
+	medID := c.mustCreateMed("Lercanidipin", "10mg", `{"type":"daily","times":["08:20","21:30"]}`, "medium")
 
 	planID, err := c.db.TZ.CreateTransitionPlan(&store.TZTransitionPlan{
 		OldTZ: "Europe/Copenhagen", NewTZ: "America/Los_Angeles",
@@ -581,7 +590,7 @@ func TestHandleTriggerNextIntake_OrphanTZStepSameTimeAsNormalDoesNotBlock(t *tes
 	c.setNow(time.Date(2026, 5, 4, 8, 55, 0, 0, time.UTC))
 	collisionTime := time.Date(2026, 5, 4, 9, 0, 0, 0, time.UTC)
 
-	medID := mustCreateMed(t, c.db, "Aspirin", "100mg",
+	medID := c.mustCreateMed("Aspirin", "100mg",
 		`{"type":"daily","times":["09:00"]}`, "medium")
 	initialStock := 30
 	if err := c.db.Medication.Update(medID, "Aspirin", "100mg",
@@ -673,7 +682,7 @@ func TestHandleTriggerNextIntake_ApprovedTZStepSameTimeAsNormalStillSurfaces(t *
 	// and the bug would not reproduce.
 	futureStep := time.Date(2026, 5, 4, 18, 0, 0, 0, time.UTC)
 
-	medID := mustCreateMed(t, c.db, "Aspirin", "100mg",
+	medID := c.mustCreateMed("Aspirin", "100mg",
 		`{"type":"daily","times":["09:00"]}`, "medium")
 
 	planID, err := c.db.TZ.CreateTransitionPlan(&store.TZTransitionPlan{
@@ -758,7 +767,7 @@ func TestHandleTriggerNextIntake_DualRowCollisionPrefersTZStep(t *testing.T) {
 	collisionTime := time.Date(2026, 5, 4, 9, 0, 0, 0, time.UTC)
 	futureStep := time.Date(2026, 5, 4, 18, 0, 0, 0, time.UTC)
 
-	medID := mustCreateMed(t, c.db, "Aspirin", "100mg",
+	medID := c.mustCreateMed("Aspirin", "100mg",
 		`{"type":"daily","times":["09:00"]}`, "medium")
 
 	planID, err := c.db.TZ.CreateTransitionPlan(&store.TZTransitionPlan{
@@ -881,7 +890,7 @@ func TestHandleTriggerNextIntake_PlanOwnsMedSuppressesDistantWindowNormal(t *tes
 	// window) but the next plan step is 24h away (out of window).
 	c.setNow(time.Date(2026, 5, 4, 12, 0, 0, 0, time.UTC))
 
-	medID := mustCreateMed(t, c.db, "Metformin", "1000mg",
+	medID := c.mustCreateMed("Metformin", "1000mg",
 		`{"type":"daily","times":["20:00"]}`, "flexible")
 
 	planID, err := c.db.TZ.CreateTransitionPlan(&store.TZTransitionPlan{
@@ -920,7 +929,7 @@ func TestHandleTriggerNextIntake_NoneInWindowReturns404(t *testing.T) {
 	}
 	c.setNow(time.Date(2026, 5, 4, 9, 0, 0, 0, time.UTC)) // past 08:00; next slot 24 h away
 
-	mustCreateMed(t, c.db, "Once", "10mg", `{"type":"daily","times":["08:00"]}`, "flexible")
+	c.mustCreateMed("Once", "10mg", `{"type":"daily","times":["08:00"]}`, "flexible")
 
 	_, code := c.callTrigger(123456)
 	if code != http.StatusNotFound {

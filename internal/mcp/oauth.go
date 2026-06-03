@@ -212,8 +212,8 @@ func (h *OAuthHandler) Middleware(next http.Handler) http.Handler {
 			slog.Warn("[MCP/OAuth] Subject not allowed", "subject", subject, "expected", h.config.AllowedSubject) // #nosec G706
 			h.sendForbidden(w, "user not authorized")
 			return
-		} else if strings.TrimSpace(h.config.AllowedSubject) == "" {
-			slog.Info("[MCP/OAuth] Any subject allowed (no restriction configured)", "user", subject) // #nosec G706
+		} else if strings.TrimSpace(h.config.AllowedSubject) == "*" {
+			slog.Info("[MCP/OAuth] Any subject allowed (MCP_ALLOWED_SUBJECT=*)", "user", subject) // #nosec G706
 		} else {
 			slog.Info("[MCP/OAuth] Authorized request", "subject", subject) // #nosec G706
 		}
@@ -226,8 +226,18 @@ func (h *OAuthHandler) Middleware(next http.Handler) http.Handler {
 
 func (h *OAuthHandler) isSubjectAllowed(subject string) bool {
 	raw := strings.TrimSpace(h.config.AllowedSubject)
-	if raw == "" {
+	// "*" is the explicit, operator-acknowledged "allow any authenticated subject
+	// from the validated issuer+audience". It is an intentional configuration
+	// value, not a fail-open default — single-user self-hosted deployments whose
+	// Pocket-ID issuer is private to the operator use it. LoadConfigFromEnv
+	// normalizes a legacy empty MCP_ALLOWED_SUBJECT to "*" (with a loud
+	// deprecation warning) for backward compatibility, so this function itself is
+	// strictly fail-closed: an empty allowlist denies every subject (TM-008).
+	if raw == "*" {
 		return true
+	}
+	if raw == "" {
+		return false
 	}
 
 	for _, candidate := range strings.Split(raw, ",") {
