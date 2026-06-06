@@ -108,7 +108,7 @@ func clientIPFromExtra(extra *sdkmcp.RequestExtra, trustProxy bool) string {
 	if xff := extra.Header.Get("X-Forwarded-For"); xff != "" {
 		parts := strings.Split(xff, ",")
 		if len(parts) > 0 {
-			return strings.TrimSpace(parts[0])
+			return strings.TrimSpace(parts[len(parts)-1])
 		}
 	}
 	if xrip := extra.Header.Get("X-Real-IP"); xrip != "" {

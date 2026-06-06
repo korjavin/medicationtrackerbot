@@ -193,8 +193,8 @@ func TestClientIPFromExtra_TrustProxy(t *testing.T) {
 			"X-Forwarded-For": []string{"203.0.113.7, 10.0.0.1"},
 		},
 	}
-	if got := clientIPFromExtra(extra, true); got != "203.0.113.7" {
-		t.Errorf("trustProxy=true X-Forwarded-For: got %q, want %q", got, "203.0.113.7")
+	if got := clientIPFromExtra(extra, true); got != "10.0.0.1" {
+		t.Errorf("trustProxy=true X-Forwarded-For: got %q, want %q", got, "10.0.0.1")
 	}
 	if got := clientIPFromExtra(extra, false); got != "" {
 		t.Errorf("trustProxy=false: got %q, want \"\" (no RemoteAddr fallback in Extra)", got)
