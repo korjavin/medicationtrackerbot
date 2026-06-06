@@ -255,7 +255,7 @@ func TestClientIP(t *testing.T) {
 			remoteAddr: "192.168.1.1:1234",
 			xff:        "10.0.0.1, 10.0.0.2",
 			trustProxy: true,
-			expected:   "10.0.0.1",
+			expected:   "10.0.0.2",
 		},
 		{
 			name:       "trust proxy, use X-Real-IP",

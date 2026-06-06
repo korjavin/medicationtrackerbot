@@ -10,3 +10,7 @@
 **Vulnerability:** Cross-Site Scripting (XSS) via `r.Host` injected using `strings.ReplaceAll` instead of `html/template`.
 **Learning:** Because the project serves HTML by reading static files and injecting variables (like `r.Host` or environmental overrides) via `strings.ReplaceAll`, it bypasses the automatic context-aware escaping provided by `html/template`. Unsanitized HTTP headers or external inputs injected directly into HTML payloads can lead to XSS.
 **Prevention:** Always explicitly wrap injected variables derived from HTTP requests or external sources with `html.EscapeString()` when using string substitution for templating.
+## 2026-06-25 - Rate Limiting Bypass via IP Spoofing (TM-009)
+**Vulnerability:** IP Spoofing / Rate Limiting Bypass via X-Forwarded-For
+**Learning:** Parsing the `X-Forwarded-For` header for the client IP by taking the leftmost element (`parts[0]`) allows trivial IP spoofing when behind a single trusted reverse proxy (like Traefik). An attacker can supply their own fake `X-Forwarded-For` header; Traefik appends the real IP to the end of the list, meaning the leftmost IP remains the attacker-controlled spoofed value. This breaks per-IP rate limiting by allowing the attacker to cycle through fake IPs.
+**Prevention:** When behind a single trusted reverse proxy that appends the client IP to the `X-Forwarded-For` list, extract the rightmost non-empty element (`parts[len(parts)-1]`) to obtain the true IP that connected to the proxy.
