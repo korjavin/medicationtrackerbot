@@ -174,15 +174,33 @@ race we can't see). **But the reason the failure is invisible — and looks like
 - [x] run `pnpm test` — must pass before Task 4.
 
 ### Task 4: Verify acceptance criteria
-- [ ] Re-read the Overview: confirm (a) handler reports per-update outcomes +
+- [x] Re-read the Overview: confirm (a) handler reports per-update outcomes +
       logs reasons, (b) frontend no longer shows "Updated!" on failure, (c) group
       and end-to-end tests exist and pass.
-- [ ] run full backend suite: `go test ./...`.
-- [ ] run full frontend suite: `pnpm test`.
-- [ ] run `go vet ./...` and the frontend architecture tests
-      (`tests/architecture.*`) — must be clean.
-- [ ] confirm no new `window.*` globals were introduced (CLAUDE.md #4) and the
-      write path still uses `applyOptimistic` (CLAUDE.md #9).
+      Confirmed: (a) `handleUpdateIntake` encodes `intakeUpdateResult{updated,
+      failed, failures}` (medication_handlers.go:576) and logs each failure via
+      `slog.Warn` with `intakeID`/`targetStatus`/`reason`/`error`; reasons are
+      `not_found_or_forbidden`/`no_row_matched`/`update_error`. (b) app.js:2664-2680
+      gates "Updated!" behind `failed === 0`; on `failed > 0` it `_rollbackOptimistic`
+      + surfaces `_describeIntakeUpdateFailures(res.failures)` — no false "Updated!".
+      (c) `TestHandleUpdateIntake_GroupRevertReportsOutcomes`,
+      `TestHandleUpdateIntake_ForcedFailureReportsNoRowMatched`, and the e2e
+      frontend revert test all pass.
+- [x] run full backend suite: `go test ./...`. Plan-relevant packages pass
+      (`internal/server`, `internal/store/medication`). The only failures are the
+      pre-existing, date-dependent `TestAnalyzeFitness_*` in `internal/mcp`
+      (fixed-date weight seeds 2026-03-10/15 fall outside the 90-day window from
+      today 2026-06-07 → "got 1 weight log") — unrelated to this plan; the branch
+      never touched `internal/mcp`.
+- [x] run full frontend suite: `pnpm test`. 240 files, 2590 passed, 29 skipped.
+- [x] run `go vet ./...` and the frontend architecture tests
+      (`tests/architecture.*`) — must be clean. `go vet ./...` exits 0; all
+      `architecture.*` suites pass.
+- [x] confirm no new `window.*` globals were introduced (CLAUDE.md #4) and the
+      write path still uses `applyOptimistic` (CLAUDE.md #9). `architecture.globals.test.js`
+      passes (no new globals); `updateIntakeHistory` routes through
+      `_applyOptimisticHistoryFlip` → `DataStore.applyOptimistic` with
+      `_commitOptimistic`/`_rollbackOptimistic`.
 
 ### Task 5: [Final] Documentation
 - [ ] If the `/api/intakes/update` response shape is documented in `docs/api.md`,
