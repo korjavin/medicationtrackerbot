@@ -533,4 +533,106 @@ describe('app.js medication, history and intake flows', () => {
       cleanup();
     }
   });
+
+  it('un-checking one med in a TAKEN cluster reverts only that row to Pending after the round-trip', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      await seedMedications(window, [
+        { id: 1, name: 'Aspirin' },
+        { id: 2, name: 'Magnesium' }
+      ]);
+
+      const now = new Date();
+      const takenAt = new Date(now.getTime() - (60 * 60 * 1000)).toISOString();
+      const scheduledAt = new Date(now.getTime() - (2 * 60 * 60 * 1000)).toISOString();
+
+      // Authoritative server state: a 2-med TAKEN cluster — Aspirin=intake 100,
+      // Magnesium=intake 101 — both taken at the same instant so they group.
+      const serverLogs = [
+        { id: 100, medication_id: 1, status: 'TAKEN', taken_at: takenAt, scheduled_at: scheduledAt },
+        { id: 101, medication_id: 2, status: 'TAKEN', taken_at: takenAt, scheduled_at: scheduledAt }
+      ];
+
+      // Stateful apiCall: /api/intakes/update mutates serverLogs and reports
+      // per-update outcomes (the new handler contract); /api/history echoes the
+      // current serverLogs so the post-mutation refresh repaints authoritative
+      // state. Everything else (e.g. /api/medications/next-intake) clears.
+      window.apiCall = vi.fn(async (endpoint, _method, body) => {
+        if (endpoint.startsWith('/api/history')) {
+          return serverLogs.map((l) => ({ ...l }));
+        }
+        if (endpoint === '/api/intakes/update') {
+          let updated = 0;
+          const failures = [];
+          for (const u of (body && body.updates) || []) {
+            const row = serverLogs.find((l) => l.id === u.id);
+            if (!row) {
+              failures.push({ id: u.id, reason: 'not_found_or_forbidden' });
+              continue;
+            }
+            row.status = u.status;
+            row.taken_at = u.status === 'TAKEN' ? u.taken_at : null;
+            updated += 1;
+          }
+          return { updated, failed: failures.length, failures };
+        }
+        return null;
+      });
+
+      // Per-key loadSWR: medications resolves to the seeded list; history_* keys
+      // route through options.fetcher() so the real /api/history round-trip drives
+      // the render, exercising the full uncheck → update → re-render path.
+      window.DataStore.loadSWR = vi.fn(async (options) => {
+        if (options.key === 'medications') {
+          await options.onFresh([
+            { id: 1, name: 'Aspirin' },
+            { id: 2, name: 'Magnesium' }
+          ]);
+          return;
+        }
+        if (typeof options.key === 'string' && options.key.startsWith('history_')) {
+          const fresh = await options.fetcher();
+          await options.onFresh(fresh);
+        }
+      });
+
+      // Initial render: one TAKEN cluster covering both meds.
+      await window.loadHistory();
+      const list = document.getElementById('history-list');
+      let groups = Array.from(list.querySelectorAll('.history-group'));
+      expect(groups.length).toBe(1);
+      expect(groups[0].dataset.status).toBe('TAKEN');
+
+      // Open the edit modal via the group click (real cluster → modal wiring).
+      groups[0].click();
+      const checks = document.querySelectorAll('.med-confirm-check');
+      expect(checks.length).toBe(2);
+
+      // Uncheck Magnesium (index 1 → intake 101) and submit the edit.
+      checks[1].checked = false;
+      await window.updateIntakeHistory();
+
+      // refreshMedsAfterMutation() already kicks loadHistory(), but await an
+      // explicit refresh so the assertion runs against settled server state.
+      await window.loadHistory();
+
+      groups = Array.from(document.querySelectorAll('.history-group'));
+      const takenRow = groups.find((g) => g.dataset.status === 'TAKEN');
+      const pendingRow = groups.find((g) => g.dataset.status === 'PENDING');
+
+      // Aspirin stays Taken; only Magnesium reverted to Pending.
+      expect(takenRow).toBeTruthy();
+      expect(takenRow.textContent).toContain('Aspirin');
+      expect(takenRow.textContent).toContain('✅ Taken');
+      expect(takenRow.textContent).not.toContain('Magnesium');
+
+      expect(pendingRow).toBeTruthy();
+      expect(pendingRow.textContent).toContain('Magnesium');
+      expect(pendingRow.textContent).toContain('⏳ Pending');
+      expect(pendingRow.textContent).not.toContain('Aspirin');
+    } finally {
+      cleanup();
+    }
+  });
 });

@@ -160,18 +160,18 @@ race we can't see). **But the reason the failure is invisible — and looks like
 - [x] run `pnpm test` (the meds-history suite) — must pass before Task 3.
 
 ### Task 3: Add the missing end-to-end frontend revert test (happy path)
-- [ ] In `web/static/js/tests/app.medication-history.test.js`, add a case to the
+- [x] In `web/static/js/tests/app.medication-history.test.js`, add a case to the
       existing history `describe` block that drives the **real** flow with a
       per-key `loadSWR` mock: route `key==='medications'`→meds and
       `key.startsWith('history_')`→`options.fetcher()`, and a stateful `apiCall`
       that applies `/api/intakes/update` to an in-memory `serverLogs` and returns
       it for `/api/history`.
-- [ ] Scenario: 2-med TAKEN cluster → open edit modal via group click → uncheck
+- [x] Scenario: 2-med TAKEN cluster → open edit modal via group click → uncheck
       the second med (id 101) → `updateIntakeHistory()` → after refresh assert the
       Magnesium row has `data-status="PENDING"` / renders `⏳ Pending`, and the
       Aspirin row stays `✅ Taken`. (This is the regression guard the codebase
       currently lacks — it is why a future break here would be silent.)
-- [ ] run `pnpm test` — must pass before Task 4.
+- [x] run `pnpm test` — must pass before Task 4.
 
 ### Task 4: Verify acceptance criteria
 - [ ] Re-read the Overview: confirm (a) handler reports per-update outcomes +
