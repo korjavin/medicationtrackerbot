@@ -1404,7 +1404,16 @@ function bindNotificationControls() {
         bindClick('test-bp-notification-btn', () => sendTestBPNotification());
 
         bindClick('med-confirm-dismiss-btn', () => closeMedicationConfirmModal());
-        bindClick('med-confirm-action-btn', () => confirmSelectedMedications());
+        // NOTE: the action button (med-confirm-action-btn) is intentionally NOT
+        // bound here. showMedicationConfirmModal() assigns its handler per mode via
+        // actionBtn.onclick (confirm → confirmSelectedMedications, edit →
+        // updateIntakeHistory, log_past → confirmLogPast). A permanent
+        // addEventListener('click', confirmSelectedMedications) here would double-bind
+        // the button: in edit mode confirmSelectedMedications fired first, disabled the
+        // button via withSubmit, and the per-mode updateIntakeHistory then bailed out of
+        // its own withSubmit guard — so unchecking a taken med POSTed
+        // /api/medications/confirm-schedule ("Confirmed!") instead of /api/intakes/update
+        // and never reverted the dose.
         bindClick('med-confirm-snooze-btn', () => snoozeMedicationConfirm());
         bindClick('med-confirm-skip-btn', () => skipSelectedMedications());
 
