@@ -2553,6 +2553,32 @@ async function skipSelectedMedications() {
     });
 }
 
+// Build a user-facing error message for /api/intakes/update partial failures by
+// mapping each failed intake id back to its medication name via the modal's
+// index-aligned intakeIds/names (PushModalState). Falls back to the raw id when
+// the name is unknown. Used by updateIntakeHistory when the handler reports
+// `failed > 0` so the user sees *which* med could not be reverted instead of a
+// bogus "Updated!".
+function _describeIntakeUpdateFailures(failures) {
+    const list = Array.isArray(failures) ? failures : [];
+    const intakeIds = window.PushModalState.getMedConfirmIntakeIds();
+    const names = window.PushModalState.getMedConfirmNames();
+    const labels = [];
+    for (const f of list) {
+        const id = f && f.id != null ? Number(f.id) : null;
+        let label = null;
+        if (id != null) {
+            const idx = intakeIds.findIndex((iid) => Number(iid) === id);
+            if (idx !== -1 && names[idx]) label = names[idx];
+        }
+        labels.push(label || ('intake ' + (id != null ? id : '?')));
+    }
+    if (labels.length === 0) {
+        return "Couldn't update some medications. Please try again.";
+    }
+    return "Couldn't update: " + labels.join(', ') + ". Please try again.";
+}
+
 async function updateIntakeHistory() {
     const checks = document.querySelectorAll('.med-confirm-check');
     const selectedIndices = [];
@@ -2627,11 +2653,29 @@ async function updateIntakeHistory() {
             throw e;
         }
 
-        if (res) { // status 200 assumed
+        // Interpret the structured response from handleUpdateIntake:
+        // `{ updated, failed, failures:[{id, reason}] }`. A legacy empty-body
+        // 200 (apiCall coerces it to `true` during a rolling deploy) and a body
+        // with `failed === 0` both mean every update persisted. `failed > 0`
+        // means at least one revert/confirm did not stick — we must NOT show
+        // "Updated!" and must roll the optimistic flip back so the affected rows
+        // repaint to their true server status instead of silently lying.
+        const isObjRes = res && typeof res === 'object';
+        const failed = isObjRes ? (Number(res.failed) || 0) : 0;
+        if (res === true || (isObjRes && failed === 0)) {
             await _commitOptimistic(handles);
             safeAlert("Updated!");
             refreshMedsAfterMutation();
+        } else if (isObjRes && failed > 0) {
+            // Partial/total failure: roll back the optimistic flip, name the
+            // medication(s) that did not persist, then refresh from the server
+            // so the list shows authoritative status (not the rolled-back guess).
+            await _rollbackOptimistic(handles);
+            safeAlert(_describeIntakeUpdateFailures(res.failures));
+            refreshMedsAfterMutation();
         } else {
+            // res is falsy (null = apiCall handled an error internally) — roll
+            // back without claiming success.
             await _rollbackOptimistic(handles);
         }
         closeMedicationConfirmModal();

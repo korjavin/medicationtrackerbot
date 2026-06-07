@@ -140,24 +140,24 @@ race we can't see). **But the reason the failure is invisible — and looks like
 - [x] run `go test ./internal/server/...` — must pass before Task 2.
 
 ### Task 2: Frontend surfaces failures instead of always showing "Updated!"
-- [ ] In `web/static/js/app.js` `updateIntakeHistory`, after `apiCall('/api/intakes/update', ...)`,
+- [x] In `web/static/js/app.js` `updateIntakeHistory`, after `apiCall('/api/intakes/update', ...)`,
       interpret the response body: treat `res === true` (legacy empty body) **or**
       `res.failed === 0` as full success; treat `res.failed > 0` as partial/total failure.
-- [ ] Full success: keep current behavior — `_commitOptimistic(handles)`,
+- [x] Full success: keep current behavior — `_commitOptimistic(handles)`,
       `safeAlert("Updated!")`, `refreshMedsAfterMutation()`.
-- [ ] Failure: `_rollbackOptimistic(handles)` (restores prior cache + invalidates
+- [x] Failure: `_rollbackOptimistic(handles)` (restores prior cache + invalidates
       tags per CLAUDE.md #9), do **not** show "Updated!", and show an error naming
       the failed med(s) — map `res.failures[].id` back to med names via the modal's
       `ids`/`names`/`intakeIds`. Still call `refreshMedsAfterMutation()` so the list
       reflects authoritative server state.
-- [ ] Keep the network-error `catch` path (`_rollbackOptimistic` + throw) unchanged.
-- [ ] write Vitest test in `web/static/js/tests/app.medication-history.test.js`:
+- [x] Keep the network-error `catch` path (`_rollbackOptimistic` + throw) unchanged.
+- [x] write Vitest test in `web/static/js/tests/app.medication-history.test.js`:
       handler stub returns `{updated:0, failed:1, failures:[{id:101, reason:'no_row_matched'}]}`
       → assert optimistic rollback happened, an error message was surfaced (spy on
       `safeAlert`/`Telegram.WebApp.showAlert`), and **no** "Updated!" toast.
-- [ ] write Vitest test: handler stub returns `{updated:1, failed:0}` → assert
+- [x] write Vitest test: handler stub returns `{updated:1, failed:0}` → assert
       "Updated!" shown and commit path taken (success regression guard).
-- [ ] run `pnpm test` (the meds-history suite) — must pass before Task 3.
+- [x] run `pnpm test` (the meds-history suite) — must pass before Task 3.
 
 ### Task 3: Add the missing end-to-end frontend revert test (happy path)
 - [ ] In `web/static/js/tests/app.medication-history.test.js`, add a case to the

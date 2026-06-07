@@ -453,4 +453,84 @@ describe('app.js medication, history and intake flows', () => {
       cleanup();
     }
   });
+
+  it('updateIntakeHistory rolls back and surfaces an error when the server reports a failure', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      // Edit modal for a 2-med TAKEN cluster: Aspirin=intake100, Magnesium=intake101.
+      window.showMedicationConfirmModal([1, 2], ['Aspirin', 'Magnesium'], new Date(), 'edit', [100, 101]);
+
+      // Uncheck Magnesium (index 1) → revert intake 101 to PENDING.
+      const checks = document.querySelectorAll('.med-confirm-check');
+      checks[1].checked = false;
+
+      // Server reports the revert did NOT persist.
+      window.apiCall = vi.fn().mockResolvedValue({
+        updated: 0,
+        failed: 1,
+        failures: [{ id: 101, reason: 'no_row_matched' }],
+      });
+
+      const safeAlertSpy = vi.spyOn(window, 'safeAlert').mockImplementation(() => {});
+      const rollbackSpy = vi.spyOn(window, '_rollbackOptimistic');
+      const commitSpy = vi.spyOn(window, '_commitOptimistic');
+      const refreshSpy = vi.spyOn(window, 'refreshMedsAfterMutation').mockImplementation(() => {});
+
+      await window.updateIntakeHistory();
+
+      // POST carried both the TAKEN re-confirm and the PENDING revert.
+      expect(window.apiCall).toHaveBeenCalledWith(
+        '/api/intakes/update',
+        'POST',
+        expect.objectContaining({
+          updates: expect.arrayContaining([
+            expect.objectContaining({ id: 101, status: 'PENDING' }),
+            expect.objectContaining({ id: 100, status: 'TAKEN' }),
+          ]),
+        })
+      );
+
+      // Optimistic flip rolled back, never committed.
+      expect(rollbackSpy).toHaveBeenCalled();
+      expect(commitSpy).not.toHaveBeenCalled();
+
+      // No "Updated!" lie; the error names the failed med.
+      const messages = safeAlertSpy.mock.calls.map((c) => c[0]);
+      expect(messages).not.toContain('Updated!');
+      expect(messages.some((m) => typeof m === 'string' && m.includes('Magnesium'))).toBe(true);
+
+      // Still refreshes so the list shows authoritative server state.
+      expect(refreshSpy).toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('updateIntakeHistory commits and shows "Updated!" when the server reports no failures', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      window.showMedicationConfirmModal([1, 2], ['Aspirin', 'Magnesium'], new Date(), 'edit', [100, 101]);
+      const checks = document.querySelectorAll('.med-confirm-check');
+      checks[1].checked = false;
+
+      window.apiCall = vi.fn().mockResolvedValue({ updated: 1, failed: 0, failures: [] });
+
+      const safeAlertSpy = vi.spyOn(window, 'safeAlert').mockImplementation(() => {});
+      const rollbackSpy = vi.spyOn(window, '_rollbackOptimistic');
+      const commitSpy = vi.spyOn(window, '_commitOptimistic');
+      const refreshSpy = vi.spyOn(window, 'refreshMedsAfterMutation').mockImplementation(() => {});
+
+      await window.updateIntakeHistory();
+
+      expect(commitSpy).toHaveBeenCalled();
+      expect(rollbackSpy).not.toHaveBeenCalled();
+      const messages = safeAlertSpy.mock.calls.map((c) => c[0]);
+      expect(messages).toContain('Updated!');
+      expect(refreshSpy).toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
+  });
 });
