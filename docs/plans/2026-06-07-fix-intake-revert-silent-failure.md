@@ -203,11 +203,20 @@ race we can't see). **But the reason the failure is invisible — and looks like
       `_commitOptimistic`/`_rollbackOptimistic`.
 
 ### Task 5: [Final] Documentation
-- [ ] If the `/api/intakes/update` response shape is documented in `docs/api.md`,
+- [x] If the `/api/intakes/update` response shape is documented in `docs/api.md`,
       update it to describe the new `{updated, failed, failures}` body.
-- [ ] Add a short note to `docs/features.md` (meds/history section) that
+      The endpoint was not previously listed; added a Health Data row for
+      `POST /api/intakes/update` documenting the request body, the always-200
+      `{updated, failed, failures[]}` outcome body, the three failure reasons,
+      the frontend commit-only-when-`failed===0` rule, and the legacy empty-body
+      backward-compat note.
+- [x] Add a short note to `docs/features.md` (meds/history section) that
       un-marking a taken med reverts it to `⏳ Pending`, and that partial failures
       are now surfaced rather than swallowed.
+      Added an "Un-marking a taken med" bullet under Medication Tracking covering
+      the `PENDING` revert → `⏳ Pending` flip, the per-update outcome body, and
+      that failures now roll back + show an error naming the failed med(s) instead
+      of a false "Updated!"; links to the api.md endpoint row.
 
 ## Technical Details
 
