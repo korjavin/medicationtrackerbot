@@ -534,6 +534,46 @@ describe('app.js medication, history and intake flows', () => {
     }
   });
 
+  it('clicking the edit-modal action button reverts via /api/intakes/update, not confirm-schedule', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      // Edit modal for a single TAKEN dose: Lercanidipine = intake 4851.
+      window.showMedicationConfirmModal([7], ['Lercanidipin'], new Date(), 'edit', [4851]);
+
+      // Uncheck it → "Update" must revert that intake to PENDING.
+      const checks = document.querySelectorAll('.med-confirm-check');
+      checks[0].checked = false;
+
+      const endpoints = [];
+      window.apiCall = vi.fn(async (endpoint) => {
+        endpoints.push(endpoint);
+        if (endpoint === '/api/intakes/update') return { updated: 1, failed: 0, failures: [] };
+        return true;
+      });
+      vi.spyOn(window, 'safeAlert').mockImplementation(() => {});
+      vi.spyOn(window, 'refreshMedsAfterMutation').mockImplementation(() => {});
+
+      // Dispatch a REAL click (not a direct updateIntakeHistory() call) so any
+      // stray binding on the action button is exercised. Regression guard for the
+      // double-bind: a permanent addEventListener('click', confirmSelectedMedications)
+      // from init used to fire first in edit mode, disable the button via withSubmit,
+      // and make the per-mode updateIntakeHistory bail out of its own withSubmit guard
+      // — so unchecking a taken med POSTed /api/medications/confirm-schedule
+      // ("Confirmed!") instead of /api/intakes/update and never reverted the dose.
+      const btn = document.getElementById('med-confirm-action-btn');
+      btn.dispatchEvent(new window.Event('click', { bubbles: true }));
+      // Let withSubmit's async handler settle.
+      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(endpoints).toContain('/api/intakes/update');
+      expect(endpoints).not.toContain('/api/medications/confirm-schedule');
+    } finally {
+      cleanup();
+    }
+  });
+
   it('un-checking one med in a TAKEN cluster reverts only that row to Pending after the round-trip', async () => {
     const { window, document, cleanup } = loadFrontendEnv();
 
