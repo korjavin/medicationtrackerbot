@@ -49,17 +49,26 @@ func TestAnalyzeFitness_AllDomains(t *testing.T) {
 		t.Fatalf("SetWeightEnabled: %v", err)
 	}
 
+	// Seed data is anchored to "now" rather than fixed calendar dates:
+	// parseDateRange caps StartDate to EndDate-MaxQueryDays (90), so
+	// hardcoded dates are a time bomb — once today drifts >90 days past
+	// them the window silently excludes the seeds.
+	now := time.Now()
+	older := now.AddDate(0, 0, -40)
+	recent := now.AddDate(0, 0, -30)
+	recentDay := recent.Format("2006-01-02")
+
 	// Add weight logs
 	if _, err := st.Weight.CreateLog(ctx, &store.WeightLog{
 		UserID:     userID,
-		MeasuredAt: time.Date(2026, 3, 10, 8, 0, 0, 0, time.Local),
+		MeasuredAt: older,
 		Weight:     80.0,
 	}); err != nil {
 		t.Fatalf("CreateWeightLog: %v", err)
 	}
 	if _, err := st.Weight.CreateLog(ctx, &store.WeightLog{
 		UserID:     userID,
-		MeasuredAt: time.Date(2026, 3, 15, 8, 0, 0, 0, time.Local),
+		MeasuredAt: recent,
 		Weight:     79.5,
 	}); err != nil {
 		t.Fatalf("CreateWeightLog: %v", err)
@@ -68,7 +77,7 @@ func TestAnalyzeFitness_AllDomains(t *testing.T) {
 	// Add food log
 	if _, err := st.Food.CreateLog(ctx, &store.FoodLog{
 		UserID:   userID,
-		EatenAt:  time.Date(2026, 3, 15, 12, 0, 0, 0, time.Local),
+		EatenAt:  recent,
 		Name:     "Chicken Breast Salad",
 		Weight:   300,
 		Calories: 450,
@@ -81,7 +90,7 @@ func TestAnalyzeFitness_AllDomains(t *testing.T) {
 
 	// Add step data
 	if _, _, err := st.Vitals.ImportDayStats(ctx, userID, []store.DayStat{
-		{Day: "2026-03-15", Steps: 8500, Calories: 350, Distance: 6200},
+		{Day: recentDay, Steps: 8500, Calories: 350, Distance: 6200},
 	}); err != nil {
 		t.Fatalf("ImportDayStats: %v", err)
 	}
@@ -91,10 +100,9 @@ func TestAnalyzeFitness_AllDomains(t *testing.T) {
 		t.Fatalf("CreateDiaryNote: %v", err)
 	}
 
-	now := time.Now()
 	req := &sdkmcp.CallToolRequest{}
 	input := AnalyzeFitnessInput{
-		StartDate: "2026-03-09",
+		StartDate: now.AddDate(0, 0, -50).Format("2006-01-02"),
 		EndDate:   now.AddDate(0, 0, 1).Format("2006-01-02"),
 	}
 
@@ -409,16 +417,19 @@ func TestAnalyzeFitness_WeightUnitPreferenceDoesNotLeak(t *testing.T) {
 		t.Fatalf("SetWeightUnitPreference: %v", err)
 	}
 
+	// Anchor seeds to "now" so the 90-day query window always contains
+	// them (hardcoded dates time-bomb once today drifts >90 days past).
+	now := time.Now()
 	if _, err := st.Weight.CreateLog(ctx, &store.WeightLog{
 		UserID:     userID,
-		MeasuredAt: time.Date(2026, 3, 10, 8, 0, 0, 0, time.Local),
+		MeasuredAt: now.AddDate(0, 0, -40),
 		Weight:     80.0, // stored in kg
 	}); err != nil {
 		t.Fatalf("CreateWeightLog: %v", err)
 	}
 	if _, err := st.Weight.CreateLog(ctx, &store.WeightLog{
 		UserID:     userID,
-		MeasuredAt: time.Date(2026, 3, 15, 8, 0, 0, 0, time.Local),
+		MeasuredAt: now.AddDate(0, 0, -30),
 		Weight:     79.5, // stored in kg
 	}); err != nil {
 		t.Fatalf("CreateWeightLog: %v", err)
@@ -426,8 +437,8 @@ func TestAnalyzeFitness_WeightUnitPreferenceDoesNotLeak(t *testing.T) {
 
 	req := &sdkmcp.CallToolRequest{}
 	input := AnalyzeFitnessInput{
-		StartDate: "2026-03-09",
-		EndDate:   time.Now().AddDate(0, 0, 1).Format("2006-01-02"),
+		StartDate: now.AddDate(0, 0, -50).Format("2006-01-02"),
+		EndDate:   now.AddDate(0, 0, 1).Format("2006-01-02"),
 	}
 
 	_, resp, err := s.handleAnalyzeFitness(ctx, req, input)
