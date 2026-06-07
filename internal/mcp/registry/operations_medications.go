@@ -364,12 +364,13 @@ output({"confirmed": 123})`,
   }
 }`),
 			Description:     "Bulk status update for one or more intakes. Inventory is adjusted automatically when a status transitions to/from TAKEN. Use medications.confirm_schedule for the simpler \"mark taken\" path.",
-			ResponseSummary: "Empty body on success (HTTP 200); per-row failures are silently skipped (check medications.history afterwards).",
-			Example: `api.call(
+			ResponseSummary: "JSON (HTTP 200): `updated` (count persisted), `failed` (count), and `failures` ([{id, reason}] for each row that did NOT persist; reasons: not_found_or_forbidden, no_row_matched, update_error). Check `failed > 0` — failed rows are reported, not silently skipped. A legacy empty body means an older server that always succeeds.",
+			ResponseExample: `{"updated": 1, "failed": 0, "failures": []}`,
+			Example: `result = api.call(
     "medications.intake.update",
     body={"updates": [{"id": 123, "status": "SKIPPED"}]},
 )
-output({"updated": 123})`,
+output({"updated": result["updated"], "failed": result["failed"]})`,
 		},
 		// --- Timezone transition plans ---
 		// When the user changes their timezone in settings, the scheduler creates

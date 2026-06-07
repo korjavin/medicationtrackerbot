@@ -583,3 +583,127 @@ func TestHandleUpdateIntake_OrphanTZStepDoesNotDecrementInventory(t *testing.T) 
 		t.Errorf("inventory must NOT decrement when UpdateIntake gate blocks the mutation, got %+v (initial %d)", med, initialStock)
 	}
 }
+
+// TestHandleUpdateIntake_GroupRevertReportsOutcomes pins the success path of the
+// per-update outcome reporting: a single POST that re-confirms one TAKEN med and
+// reverts another to PENDING returns {updated:2, failed:0} and persists both.
+func TestHandleUpdateIntake_GroupRevertReportsOutcomes(t *testing.T) {
+	srv, db := createTestServer(t)
+	defer db.Close() //nolint:errcheck
+
+	userID := int64(123456)
+	medA, _ := db.Medication.Create("Aspirin", "100mg", "Wait", nil, nil, "", "", "")
+	medB, _ := db.Medication.Create("Magnesium", "200mg", "Wait", nil, nil, "", "", "")
+	sched := time.Now().Add(-1 * time.Hour)
+	intakeA, _ := db.Medication.CreateIntake(medA, userID, sched)
+	intakeB, _ := db.Medication.CreateIntake(medB, userID, sched)
+	// Both already TAKEN (a grouped TAKEN cluster in History).
+	if err := db.Medication.ConfirmIntake(intakeA, time.Now()); err != nil {
+		t.Fatalf("ConfirmIntake A: %v", err)
+	}
+	if err := db.Medication.ConfirmIntake(intakeB, time.Now()); err != nil {
+		t.Fatalf("ConfirmIntake B: %v", err)
+	}
+
+	// One POST: re-confirm A as TAKEN, revert B to PENDING.
+	reqBody := map[string]interface{}{
+		"updates": []map[string]interface{}{
+			{"id": intakeA, "status": "TAKEN", "taken_at": time.Now().Format(time.RFC3339)},
+			{"id": intakeB, "status": "PENDING"},
+		},
+	}
+	body, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest("POST", "/api/intakes/update", bytes.NewReader(body))
+	req = req.WithContext(context.WithValue(req.Context(), UserCtxKey, &TelegramUser{ID: userID}))
+	w := httptest.NewRecorder()
+	srv.handleUpdateIntake(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("expected Content-Type application/json, got %q", ct)
+	}
+	var res intakeUpdateResult
+	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
+		t.Fatalf("decode response: %v (body=%s)", err, w.Body.String())
+	}
+	if res.Updated != 2 || res.Failed != 0 || len(res.Failures) != 0 {
+		t.Errorf("expected updated:2 failed:0 failures:[], got %+v", res)
+	}
+
+	if a, _ := db.Medication.GetIntake(intakeA); a == nil || a.Status != "TAKEN" {
+		t.Errorf("intake A should stay TAKEN, got %+v", a)
+	}
+	if b, _ := db.Medication.GetIntake(intakeB); b == nil || b.Status != "PENDING" {
+		t.Errorf("intake B should revert to PENDING, got %+v", b)
+	}
+}
+
+// TestHandleUpdateIntake_ForcedFailureReportsNoRowMatched pins the failure path:
+// an orphan PENDING tz_step row whose plan is CANCELLED cannot transition to
+// TAKEN (the dedup gate blocks it → sql.ErrNoRows), so the handler reports
+// {updated:0, failed:1} with reason "no_row_matched" and leaves the row PENDING
+// instead of returning a bare 200 that the frontend would read as success.
+func TestHandleUpdateIntake_ForcedFailureReportsNoRowMatched(t *testing.T) {
+	srv, db := createTestServer(t)
+	defer db.Close() //nolint:errcheck
+
+	userID := int64(123456)
+	medID, err := db.Medication.Create("Aspirin", "100mg",
+		`{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	planID, err := db.TZ.CreateTransitionPlan(&store.TZTransitionPlan{
+		OldTZ: "UTC", NewTZ: "Asia/Tokyo",
+		Status: "PENDING_APPROVAL", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "h-orphan-report",
+	})
+	if err != nil {
+		t.Fatalf("CreateTransitionPlan: %v", err)
+	}
+	stepAt := time.Now().Add(1 * time.Hour).UTC()
+	if _, err := db.DB().Exec(`
+		INSERT INTO intake_log (medication_id, user_id, scheduled_at_unix, status, source, tz_plan_id, tz_step_number)
+		VALUES (?, ?, ?, 'PENDING', 'tz_step', ?, 1)`,
+		medID, userID, stepAt.Unix(), planID); err != nil {
+		t.Fatalf("insert orphan step row: %v", err)
+	}
+	var orphanID int64
+	if err := db.DB().QueryRow(`SELECT id FROM intake_log WHERE tz_plan_id = ?`, planID).Scan(&orphanID); err != nil {
+		t.Fatalf("lookup orphan row: %v", err)
+	}
+	// Flip the plan to CANCELLED so the dedup gate blocks UpdateIntake.
+	if err := db.TZ.UpdateTransitionPlanStatus(planID, "CANCELLED", "test", "PENDING_APPROVAL"); err != nil {
+		t.Fatalf("UpdateTransitionPlanStatus: %v", err)
+	}
+
+	reqBody := map[string]interface{}{
+		"updates": []map[string]interface{}{
+			{"id": orphanID, "status": "TAKEN", "taken_at": time.Now().Format(time.RFC3339)},
+		},
+	}
+	body, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest("POST", "/api/intakes/update", bytes.NewReader(body))
+	req = req.WithContext(context.WithValue(req.Context(), UserCtxKey, &TelegramUser{ID: userID}))
+	w := httptest.NewRecorder()
+	srv.handleUpdateIntake(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var res intakeUpdateResult
+	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
+		t.Fatalf("decode response: %v (body=%s)", err, w.Body.String())
+	}
+	if res.Updated != 0 || res.Failed != 1 || len(res.Failures) != 1 {
+		t.Fatalf("expected updated:0 failed:1 with one failure, got %+v", res)
+	}
+	if res.Failures[0].ID != orphanID || res.Failures[0].Reason != "no_row_matched" {
+		t.Errorf("expected failure {id:%d reason:no_row_matched}, got %+v", orphanID, res.Failures[0])
+	}
+	if intake, _ := db.Medication.GetIntake(orphanID); intake == nil || intake.Status != "PENDING" {
+		t.Errorf("orphan row should remain PENDING after blocked UpdateIntake, got %+v", intake)
+	}
+}

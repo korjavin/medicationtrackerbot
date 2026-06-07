@@ -472,14 +472,26 @@ func (s *Server) handleUpdateIntake(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Track each update's outcome so the response can tell the frontend exactly
+	// which intakes persisted. Previously every per-update error was swallowed
+	// with a bare continue and the handler returned 200 + empty body, so the
+	// frontend always showed "Updated!" even when a revert silently failed.
+	updated := 0
+	failures := []intakeUpdateFailure{}
+
 	for _, up := range req.Updates {
 		// Verify ownership
 		intake, err := s.meds.GetIntake(up.ID)
 		if err != nil {
-			slog.Error("Error getting intake", "intakeID", up.ID, "error", err)
+			slog.Warn("UpdateIntake failed (error loading intake)",
+				"intakeID", up.ID, "targetStatus", up.Status, "reason", "update_error", "error", err)
+			failures = append(failures, intakeUpdateFailure{ID: up.ID, Reason: "update_error"})
 			continue
 		}
 		if intake == nil || intake.UserID != userId {
+			slog.Warn("UpdateIntake failed (not found or forbidden)",
+				"intakeID", up.ID, "targetStatus", up.Status, "reason", "not_found_or_forbidden", "userID", userId)
+			failures = append(failures, intakeUpdateFailure{ID: up.ID, Reason: "not_found_or_forbidden"})
 			continue
 		}
 
@@ -502,14 +514,29 @@ func (s *Server) handleUpdateIntake(w http.ResponseWriter, r *http.Request) {
 		// inventory adjustment below would double-count off the stale
 		// pre-read intake.Status and must be skipped.
 		if err := s.meds.UpdateIntake(up.ID, takenAt, up.Status); err != nil {
+			reason := "update_error"
 			if errors.Is(err, sql.ErrNoRows) {
-				slog.Info("UpdateIntake skipped (no row matched — orphan tz_step or no-op)",
-					"intakeID", up.ID, "status", up.Status)
-			} else {
-				slog.Error("Error updating intake", "intakeID", up.ID, "error", err)
+				reason = "no_row_matched"
 			}
+			var tzPlanID int64
+			if intake.TZPlanID != nil {
+				tzPlanID = *intake.TZPlanID
+			}
+			// This is the diagnostic line that reveals the real production
+			// trigger: full per-update context for every failed revert/confirm.
+			slog.Warn("UpdateIntake failed",
+				"intakeID", up.ID,
+				"prevStatus", intake.Status,
+				"targetStatus", up.Status,
+				"source", intake.Source,
+				"tzPlanID", tzPlanID,
+				"reason", reason,
+				"error", err)
+			failures = append(failures, intakeUpdateFailure{ID: up.ID, Reason: reason})
 			continue
 		}
+
+		updated++
 
 		// Adjust inventory after successful update
 		switch up.Status {
@@ -539,7 +566,36 @@ func (s *Server) handleUpdateIntake(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Report per-update outcomes so the frontend only shows "Updated!" + commits
+	// the optimistic flip when every update persisted; on any failure it rolls
+	// back and surfaces the failed med(s). Status stays 200 (the frontend drives
+	// UX off the body), and a legacy empty-body 200 is still treated as success
+	// by older clients during a rolling deploy.
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(intakeUpdateResult{
+		Updated:  updated,
+		Failed:   len(failures),
+		Failures: failures,
+	}); err != nil {
+		slog.Error("Error encoding intake update result", "error", err)
+	}
+}
+
+// intakeUpdateFailure describes a single intake_log row that /api/intakes/update
+// could not persist, with a machine-readable reason the frontend maps back to a
+// medication name. Reasons: "not_found_or_forbidden", "no_row_matched"
+// (gate/no-op), "update_error".
+type intakeUpdateFailure struct {
+	ID     int64  `json:"id"`
+	Reason string `json:"reason"`
+}
+
+// intakeUpdateResult is the POST /api/intakes/update response body.
+type intakeUpdateResult struct {
+	Updated  int                   `json:"updated"`
+	Failed   int                   `json:"failed"`
+	Failures []intakeUpdateFailure `json:"failures"`
 }
 
 // absDuration returns the magnitude of d.

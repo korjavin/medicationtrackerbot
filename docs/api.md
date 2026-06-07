@@ -13,6 +13,7 @@
 | POST | `/api/medications/{id}/restock` | Record a restock (increments `inventory_count`, returns updated medication) |
 | GET | `/api/medications/{id}/restocks` | List restock history for a medication (newest first) |
 | GET | `/api/history` | Intake history (filter by `days`, `med_id`) |
+| POST | `/api/intakes/update` | Batch-update intake statuses (e.g. un-mark a taken med → `PENDING`). Body: `{updates:[{id, status, taken_at}]}`. Always returns `200` with a per-update outcome body `{updated:<n>, failed:<n>, failures:[{id, reason}]}` — `reason` is one of `"not_found_or_forbidden"`, `"no_row_matched"` (gate/no-op), `"update_error"`. The frontend shows "Updated!" + commits the optimistic flip only when `failed === 0`; otherwise it rolls back the affected rows and surfaces the failed med(s). A legacy empty-body `200` is still treated as success by older clients during a rolling deploy. |
 | GET | `/api/medications/next-intake` | Next scheduled dose |
 | GET | `/api/bp` | BP readings |
 | POST | `/api/bp` | Log BP reading |
