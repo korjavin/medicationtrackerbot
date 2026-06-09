@@ -90,6 +90,7 @@ const STATIC_ASSETS = [
     '/static/js/features/push-modal.js',
     '/static/js/features/medication-utils.js',
     '/static/js/features/meds.js',
+    '/static/js/features/meds-history.js',
     '/static/js/features/food-photo-summary.js',
     '/static/js/features/food/products.js',
     '/static/js/features/food/scanner.js',

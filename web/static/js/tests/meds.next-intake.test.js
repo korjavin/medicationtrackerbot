@@ -24,7 +24,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const CSS_PATH = path.join(REPO_ROOT, 'web/static/css/styles.css');
-const APP_JS_PATH = path.join(REPO_ROOT, 'web/static/js/app.js');
+// renderNextIntakeTrigger was extracted from app.js into
+// features/meds-history.js (Plan 2026-06-10 finish-app-js-split, Task 1).
+const MEDS_HISTORY_JS_PATH = path.join(REPO_ROOT, 'web/static/js/features/meds-history.js');
 
 describe('Meds → History next-intake pane (Round-2 Task 8)', () => {
     let consoleLogSpy;
@@ -134,7 +136,7 @@ describe('Meds → History next-intake pane (Round-2 Task 8)', () => {
     });
 
     it('legacy .next-intake-* / btn-pill class assignments are gone from renderNextIntakeTrigger', () => {
-        const source = fs.readFileSync(APP_JS_PATH, 'utf8');
+        const source = fs.readFileSync(MEDS_HISTORY_JS_PATH, 'utf8');
         // Isolate the renderNextIntakeTrigger function body.
         const fnStart = source.indexOf('async function renderNextIntakeTrigger()');
         expect(fnStart).toBeGreaterThan(-1);

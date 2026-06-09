@@ -43,6 +43,7 @@ const AUTH_BOOTSTRAP_JS = path.join(REPO_ROOT, 'web/static/js/features/auth-boot
 const PUSH_MODAL_JS = path.join(REPO_ROOT, 'web/static/js/features/push-modal.js');
 const MEDICATION_UTILS_JS = path.join(REPO_ROOT, 'web/static/js/features/medication-utils.js');
 const MEDS_JS = path.join(REPO_ROOT, 'web/static/js/features/meds.js');
+const MEDS_HISTORY_JS = path.join(REPO_ROOT, 'web/static/js/features/meds-history.js');
 const FOOD_PHOTO_SUMMARY_JS = path.join(REPO_ROOT, 'web/static/js/features/food-photo-summary.js');
 // features/food.js was split into per-concern sub-files under
 // features/food/ (2026-05-13). The harness loads them in dependency order:
@@ -302,6 +303,13 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
 
   // Feature modules extracted from app.js (meds, food, bp, weight, health).
   evalFileCached(window, MEDS_JS);
+  // meds-history.js owns the medication add modal + form helpers, the Meds →
+  // History load + next-intake card, and the medication-confirm modal flow
+  // (Plan 2026-06-10 finish-app-js-split, Task 1). Loaded right after meds.js
+  // because the two cross-reference each other's globals at call time
+  // (meds.js → loadHistory / optimistic helpers; meds-history.js →
+  // renderHistory / showMedicationConfirmModal).
+  evalFileCached(window, MEDS_HISTORY_JS);
   evalFileCached(window, FOOD_PHOTO_SUMMARY_JS);
   // Order matters: products.js defines decodeFoodDisplayText /
   // renderFoodAutocomplete which the other food sub-files reference; the
