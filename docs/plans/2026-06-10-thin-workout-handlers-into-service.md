@@ -119,31 +119,43 @@ MCP registry all depend on them. No new features.
 
 ### Task 2: Extract the next-workout engine into `WorkoutService.GetNext`
 
-- [ ] define a `NextWorkout` response struct in
+- [x] define a `NextWorkout` response struct in
   `internal/domain/workout/next.go` with json tags exactly matching the
   current handler output (session map fields `id`, `scheduled_date`,
   `scheduled_time`, `status`, `is_snoozed`, `snoozed_until`, `is_today`;
   top-level `group_name`, `variant_name`, `exercises_count`,
   `variant_id`, `group_id`, `is_rotating`; plus whatever the snoozed /
   pending priority branches add — read all of
-  `workout_handlers.go:605-953` before coding)
-- [ ] add `GetNext(userID int64) (*NextWorkout, error)` to
+  `workout_handlers.go:605-953` before coding) — note: `Session` is kept
+  as `map[string]interface{}` (not a typed struct) precisely because the
+  three branches differ on whether `snoozed_until` is emitted: active +
+  snoozed always include it (possibly null), pending omits it entirely;
+  a single typed struct with `omitempty` cannot reproduce "present-but-null".
+- [x] add `GetNext(userID int64) (*NextWorkout, error)` to
   `WorkoutService`; move the 3-priority engine (active today → snoozed →
   pending), timezone-aware `now` computation (reuse the service's `tz` +
-  `Now` fields), and the ad-hoc `group_id == -1` placeholder-log counting
-  into it
-- [ ] extend the service's `WorkoutStore` interface with the read methods
-  the engine needs (`ListActiveSessions`, `GetVariant`,
-  `ListExercisesByVariant`, `ListExerciseLogs`, and the snoozed/pending
-  lookups used by the lower-priority branches)
-- [ ] shrink `handleGetNextWorkout` to: getUserID → `s.workoutSvc.GetNext`
-  → encode (preserve the "no workout" response shape exactly)
-- [ ] write table-driven tests in `internal/domain/workout/next_test.go`:
+  `Now` fields via new `localNow()` helper), and the ad-hoc
+  `group_id == -1` placeholder-log counting into it
+- [x] extend the service's `WorkoutStore` interface with the read methods
+  the engine needs (`ListActiveSessions`, `ListSnoozedSessions`,
+  `ListGroups`, `ListVariantsByGroup`, `GetVariant`,
+  `ListExercisesByVariant`, `ListExerciseLogs`, `GetRotationState`,
+  `GetSessionByGroupAndDate`, `CreateSession`)
+- [x] shrink `handleGetNextWorkout` to: getUserID → `s.workoutSvc.GetNext`
+  → encode (preserve the "no workout" response shape exactly — a nil
+  `*NextWorkout` marshals to JSON `null`, matching the legacy
+  `Encode(nil)`). Lazy-create failures surface via a typed
+  `CreateSessionError` so the handler reproduces the legacy
+  "Error creating session: <err>" 500 body without a capitalized error
+  string (staticcheck ST1005); other engine errors map to a plain 500.
+- [x] write table-driven tests in `internal/domain/workout/next_test.go`:
   active-session-today wins over snoozed/pending; snoozed branch;
-  pending branch; no-workout case; ad-hoc exercise count from logs;
-  timezone day-boundary case (user TZ ahead of UTC flips `is_today`);
-  store error propagation
-- [ ] run `go test ./internal/domain/workout ./internal/server` then
+  pending branch (lazy create); no-workout case; ad-hoc exercise count
+  from logs; timezone day-boundary case (user TZ ahead of UTC flips
+  `is_today` and the store date arg); ListGroups error propagation;
+  CreateSession error wrapped as `*CreateSessionError`; active-read error
+  swallowed (falls through to snoozed)
+- [x] run `go test ./internal/domain/workout ./internal/server` then
   `go test ./...` — must pass before task 3
 
 ### Task 3: Extract session listing + details into the service

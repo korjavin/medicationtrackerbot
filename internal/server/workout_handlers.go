@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/domain/workout"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
@@ -609,355 +611,24 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	now := time.Now()
-	// Apply user timezone if set, so date boundaries are computed in the user's local time.
-	if s.timezone != nil {
-		if tzStr, tzErr := s.timezone.GetCurrent(); tzErr == nil && tzStr != "" {
-			if loc, locErr := time.LoadLocation(tzStr); locErr == nil {
-				now = now.In(loc)
-			}
-		}
-	}
-
-	// PRIORITY 0: Check for active sessions today (notified or in_progress)
-	// This ensures that workouts that have been notified but not yet started/completed
-	// are still visible in the UI even if their scheduled time has passed
-	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	activeSessions, err := s.workouts.ListActiveSessions(userID, today)
-	if err == nil && len(activeSessions) > 0 {
-		// Return the earliest active session
-		session := &activeSessions[0] // Already ordered by scheduled_time ASC
-
-		group, _ := s.workouts.GetGroup(session.GroupID)
-		variant, _ := s.workouts.GetVariant(session.VariantID)
-		exercises, _ := s.workouts.ListExercisesByVariant(session.VariantID)
-
-		groupName := "Unknown"
-		variantName := "Unknown"
-		if group != nil {
-			groupName = group.Name
-		}
-		if variant != nil {
-			variantName = variant.Name
-		}
-
-		// Ad-hoc sessions (group_id = -1) have no variant — count placeholder
-		// workout_exercise_logs instead of empty ListExercisesByVariant(-1).
-		exerciseCount := len(exercises)
-		if session.GroupID == -1 {
-			logs, _ := s.workouts.ListExerciseLogs(session.ID)
-			exerciseCount = len(logs)
-		}
-
-		isRotating := group != nil && group.IsRotating
-		response := struct {
-			Session        interface{} `json:"session"`
-			GroupName      string      `json:"group_name"`
-			VariantName    string      `json:"variant_name"`
-			ExercisesCount int         `json:"exercises_count"`
-			VariantID      int64       `json:"variant_id"`
-			GroupID        int64       `json:"group_id"`
-			IsRotating     bool        `json:"is_rotating"`
-		}{
-			Session: map[string]interface{}{
-				"id":             session.ID,
-				"scheduled_date": session.ScheduledDate,
-				"scheduled_time": session.ScheduledTime,
-				"status":         session.Status,
-				"is_snoozed":     session.SnoozedUntil != nil,
-				"snoozed_until":  session.SnoozedUntil,
-				"is_today":       session.ScheduledDate.Format("2006-01-02") == today.Format("2006-01-02"),
-			},
-			GroupName:      groupName,
-			VariantName:    variantName,
-			ExercisesCount: exerciseCount,
-			VariantID:      session.VariantID,
-			GroupID:        session.GroupID,
-			IsRotating:     isRotating,
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(response); err != nil {
-			slog.Error("encode response", "error", err)
-		}
-		return
-	}
-
-	// FIRST: Check for snoozed sessions that are ready to start
-	snoozedSessions, err := s.workouts.ListSnoozedSessions(userID)
-	if err == nil && len(snoozedSessions) > 0 {
-		// Find the earliest snoozed session
-		var earliestSnoozed *store.WorkoutSession
-		for i := range snoozedSessions {
-			session := &snoozedSessions[i]
-			if session.SnoozedUntil != nil && session.SnoozedUntil.Before(now) {
-				if earliestSnoozed == nil || session.SnoozedUntil.Before(*earliestSnoozed.SnoozedUntil) {
-					earliestSnoozed = session
-				}
-			}
-		}
-
-		// If we found a snoozed session, return it as the next workout
-		if earliestSnoozed != nil {
-			group, _ := s.workouts.GetGroup(earliestSnoozed.GroupID)
-			variant, _ := s.workouts.GetVariant(earliestSnoozed.VariantID)
-			exercises, _ := s.workouts.ListExercisesByVariant(earliestSnoozed.VariantID)
-
-			groupName := "Unknown"
-			variantName := "Unknown"
-			if group != nil {
-				groupName = group.Name
-			}
-			if variant != nil {
-				variantName = variant.Name
-			}
-
-			// Ad-hoc sessions (group_id = -1) have no variant — count placeholder
-			// workout_exercise_logs instead of empty ListExercisesByVariant(-1).
-			exerciseCount := len(exercises)
-			if earliestSnoozed.GroupID == -1 {
-				logs, _ := s.workouts.ListExerciseLogs(earliestSnoozed.ID)
-				exerciseCount = len(logs)
-			}
-
-			isRotating := group != nil && group.IsRotating
-			response := struct {
-				Session        interface{} `json:"session"`
-				GroupName      string      `json:"group_name"`
-				VariantName    string      `json:"variant_name"`
-				ExercisesCount int         `json:"exercises_count"`
-				VariantID      int64       `json:"variant_id"`
-				GroupID        int64       `json:"group_id"`
-				IsRotating     bool        `json:"is_rotating"`
-			}{
-				Session: map[string]interface{}{
-					"id":             earliestSnoozed.ID,
-					"scheduled_date": earliestSnoozed.ScheduledDate,
-					"scheduled_time": earliestSnoozed.ScheduledTime,
-					"status":         earliestSnoozed.Status,
-					"snoozed_until":  earliestSnoozed.SnoozedUntil,
-					"is_snoozed":     true,
-					"is_today":       earliestSnoozed.ScheduledDate.Format("2006-01-02") == today.Format("2006-01-02"),
-				},
-				GroupName:      groupName,
-				VariantName:    variantName,
-				ExercisesCount: exerciseCount,
-				VariantID:      earliestSnoozed.VariantID,
-				GroupID:        earliestSnoozed.GroupID,
-				IsRotating:     isRotating,
-			}
-
-			w.Header().Set("Content-Type", "application/json")
-			if err := json.NewEncoder(w).Encode(response); err != nil {
-				slog.Error("encode response", "error", err)
-			}
+	next, err := s.workoutSvc.GetNext(userID)
+	if err != nil {
+		// Preserve the legacy 500 body for a lazy-create failure; every other
+		// engine error maps to a plain 500 carrying the underlying error string.
+		var cse *workoutsvc.CreateSessionError
+		if errors.As(err, &cse) {
+			http.Error(w, fmt.Sprintf("Error creating session: %v", cse.Err), http.StatusInternalServerError)
 			return
 		}
-	}
-
-	// SECOND: Fall back to scheduled workouts
-	// Get all active workout groups
-	groups, err := s.workouts.ListGroups(userID, true)
-	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	var nextWorkout *struct {
-		SessionID      int64
-		GroupID        int64
-		GroupName      string
-		VariantID      int64
-		VariantName    string
-		ScheduledDate  time.Time
-		ScheduledTime  string
-		ExercisesCount int
-		Status         string
-		IsRotating     bool
-	}
-	var earliestTime time.Time
-
-	for _, group := range groups {
-		// Parse days of week
-		var daysOfWeek []int
-		if err := json.Unmarshal([]byte(group.DaysOfWeek), &daysOfWeek); err != nil {
-			continue
-		}
-
-		// Find the next occurrence of this workout
-		for daysAhead := 0; daysAhead < 14; daysAhead++ { // Check next 2 weeks
-			checkDate := now.AddDate(0, 0, daysAhead)
-			dayOfWeek := int(checkDate.Weekday())
-
-			if !contains(daysOfWeek, dayOfWeek) {
-				continue
-			}
-
-			// Parse scheduled time
-			var hour, minute int
-			if _, err := fmt.Sscanf(group.ScheduledTime, "%d:%d", &hour, &minute); err != nil {
-				continue
-			}
-
-			scheduledDateTime := time.Date(checkDate.Year(), checkDate.Month(), checkDate.Day(), hour, minute, 0, 0, now.Location())
-
-			// Skip if this time has already passed
-			if scheduledDateTime.Before(now) {
-				continue
-			}
-
-			// Check if this is earlier than our current candidate
-			if nextWorkout == nil || scheduledDateTime.Before(earliestTime) {
-				// Determine variant
-				var variantID int64
-				if group.IsRotating {
-					rotationState, _ := s.workouts.GetRotationState(group.ID)
-					if rotationState != nil {
-						variantID = rotationState.CurrentVariantID
-					} else {
-						variants, _ := s.workouts.ListVariantsByGroup(group.ID)
-						if len(variants) > 0 {
-							variantID = variants[0].ID
-						}
-					}
-				} else {
-					variants, _ := s.workouts.ListVariantsByGroup(group.ID)
-					if len(variants) > 0 {
-						variantID = variants[0].ID
-					}
-				}
-
-				if variantID == 0 {
-					continue
-				}
-
-				variant, _ := s.workouts.GetVariant(variantID)
-				if variant == nil {
-					continue
-				}
-
-				exercises, _ := s.workouts.ListExercisesByVariant(variantID)
-
-				// Check if there's an existing session for this date
-				sessionDate := time.Date(checkDate.Year(), checkDate.Month(), checkDate.Day(), 0, 0, 0, 0, now.Location())
-				existing, _ := s.workouts.GetSessionByGroupAndDate(group.ID, sessionDate)
-
-				status := "pending"
-				var sessionID int64
-				if existing != nil {
-					// If the session is already completed or skipped, we don't need to show it as upcoming
-					if existing.Status == "completed" || existing.Status == "skipped" {
-						continue
-					}
-					status = existing.Status
-					sessionID = existing.ID
-				}
-
-				nextWorkout = &struct {
-					SessionID      int64
-					GroupID        int64
-					GroupName      string
-					VariantID      int64
-					VariantName    string
-					ScheduledDate  time.Time
-					ScheduledTime  string
-					ExercisesCount int
-					Status         string
-					IsRotating     bool
-				}{
-					SessionID:      sessionID,
-					GroupID:        group.ID,
-					GroupName:      group.Name,
-					VariantID:      variantID,
-					VariantName:    variant.Name,
-					ScheduledDate:  scheduledDateTime,
-					ScheduledTime:  group.ScheduledTime,
-					ExercisesCount: len(exercises),
-					Status:         status,
-					IsRotating:     group.IsRotating,
-				}
-				earliestTime = scheduledDateTime
-			}
-
-			break // Found next occurrence for this group, move to next group
-		}
-	}
-
-	if nextWorkout == nil {
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(nil); err != nil {
-			slog.Error("encode response", "error", err)
-		}
-		return
-	}
-
-	// If the session doesn't exist yet (SessionID is 0), create it now
-	// This ensures the frontend has a valid ID to call /start on
-	if nextWorkout.SessionID == 0 {
-		// Need to strip time component from ScheduledDate for consistency with how it was checked
-		// Actually CreateSession takes time.Time for date, which we have (scheduledDateTime)
-		// but we typically store just the date part for ScheduledDate in DB?
-		// Let's check CreateSession impl. It stores what we pass.
-		// Standardize on using the date part for the Date field
-		dateOnly := time.Date(nextWorkout.ScheduledDate.Year(), nextWorkout.ScheduledDate.Month(), nextWorkout.ScheduledDate.Day(), 0, 0, 0, 0, nextWorkout.ScheduledDate.Location())
-
-		newSession, err := s.workouts.CreateSession(
-			nextWorkout.GroupID,
-			nextWorkout.VariantID,
-			userID,
-			dateOnly,
-			nextWorkout.ScheduledTime,
-		)
-		if err != nil {
-			// Log error but maybe return what we have? Or fail?
-			// If we fail here, the user sees nothing. Better to return the transient object but they can't start it?
-			// No, better to fail so we see the error.
-			http.Error(w, fmt.Sprintf("Error creating session: %v", err), http.StatusInternalServerError)
-			return
-		}
-		nextWorkout.SessionID = newSession.ID
-		nextWorkout.Status = newSession.Status
-	}
-
-	response := struct {
-		Session        interface{} `json:"session"`
-		GroupName      string      `json:"group_name"`
-		VariantName    string      `json:"variant_name"`
-		ExercisesCount int         `json:"exercises_count"`
-		VariantID      int64       `json:"variant_id"`
-		GroupID        int64       `json:"group_id"`
-		IsRotating     bool        `json:"is_rotating"`
-	}{
-		Session: map[string]interface{}{
-			"id":             nextWorkout.SessionID,
-			"scheduled_date": nextWorkout.ScheduledDate,
-			"scheduled_time": nextWorkout.ScheduledTime,
-			"status":         nextWorkout.Status,
-			"is_snoozed":     false,
-			"is_today":       nextWorkout.ScheduledDate.Format("2006-01-02") == today.Format("2006-01-02"),
-		},
-		GroupName:      nextWorkout.GroupName,
-		VariantName:    nextWorkout.VariantName,
-		ExercisesCount: nextWorkout.ExercisesCount,
-		VariantID:      nextWorkout.VariantID,
-		GroupID:        nextWorkout.GroupID,
-		IsRotating:     nextWorkout.IsRotating,
-	}
-
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
+	// A nil *NextWorkout marshals to JSON null, preserving the legacy "no workout" shape.
+	if err := json.NewEncoder(w).Encode(next); err != nil {
 		slog.Error("encode response", "error", err)
 	}
-}
-
-// Helper function
-func contains(slice []int, val int) bool {
-	for _, item := range slice {
-		if item == val {
-			return true
-		}
-	}
-	return false
 }
 
 // -- Stats Handlers --

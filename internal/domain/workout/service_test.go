@@ -90,6 +90,48 @@ func (m *mockWorkoutStore) DeleteSession(id int64) error {
 	return nil
 }
 
+// Read methods added for GetNext — the transition tests above don't exercise
+// them, so the stubs return empty results.
+func (m *mockWorkoutStore) ListActiveSessions(userID int64, date time.Time) ([]store.WorkoutSession, error) {
+	return nil, nil
+}
+
+func (m *mockWorkoutStore) ListSnoozedSessions(userID int64) ([]store.WorkoutSession, error) {
+	return nil, nil
+}
+
+func (m *mockWorkoutStore) ListGroups(userID int64, activeOnly bool) ([]store.WorkoutGroup, error) {
+	return nil, nil
+}
+
+func (m *mockWorkoutStore) ListVariantsByGroup(groupID int64) ([]store.WorkoutVariant, error) {
+	return nil, nil
+}
+
+func (m *mockWorkoutStore) GetVariant(id int64) (*store.WorkoutVariant, error) {
+	return nil, nil
+}
+
+func (m *mockWorkoutStore) ListExercisesByVariant(variantID int64) ([]store.WorkoutExercise, error) {
+	return nil, nil
+}
+
+func (m *mockWorkoutStore) ListExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error) {
+	return nil, nil
+}
+
+func (m *mockWorkoutStore) GetRotationState(groupID int64) (*store.WorkoutRotationState, error) {
+	return nil, nil
+}
+
+func (m *mockWorkoutStore) GetSessionByGroupAndDate(groupID int64, scheduledDate time.Time) (*store.WorkoutSession, error) {
+	return nil, nil
+}
+
+func (m *mockWorkoutStore) CreateSession(groupID, variantID, userID int64, scheduledDate time.Time, scheduledTime string) (*store.WorkoutSession, error) {
+	return nil, nil
+}
+
 func (m *mockWorkoutStore) GetCurrent() (string, error) {
 	return "", nil
 }

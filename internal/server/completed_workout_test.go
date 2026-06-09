@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/domain/workout"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
@@ -22,6 +23,7 @@ func TestHandleGetNextWorkout_CompletedSession(t *testing.T) {
 	userID := int64(123456)
 	srv := &Server{
 		workouts:      db.Workout,
+		workoutSvc:    workoutsvc.New(db.Workout, db.TZ),
 		allowedUserID: userID,
 	}
 
@@ -94,6 +96,7 @@ func TestHandleGetNextWorkout_SnoozedThenCompleted(t *testing.T) {
 	userID := int64(123456)
 	srv := &Server{
 		workouts:      db.Workout,
+		workoutSvc:    workoutsvc.New(db.Workout, db.TZ),
 		allowedUserID: userID,
 	}
 

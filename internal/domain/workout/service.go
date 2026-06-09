@@ -32,6 +32,18 @@ type WorkoutStore interface {
 	CreatePlannedAdHocSession(userID int64, scheduledDate time.Time, scheduledTime string) (*store.WorkoutSession, error)
 	LogExerciseWithSource(sessionID, exerciseID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes, source string) (int64, error)
 	DeleteSession(id int64) error
+
+	// Read methods used by GetNext's scheduling engine.
+	ListActiveSessions(userID int64, date time.Time) ([]store.WorkoutSession, error)
+	ListSnoozedSessions(userID int64) ([]store.WorkoutSession, error)
+	ListGroups(userID int64, activeOnly bool) ([]store.WorkoutGroup, error)
+	ListVariantsByGroup(groupID int64) ([]store.WorkoutVariant, error)
+	GetVariant(id int64) (*store.WorkoutVariant, error)
+	ListExercisesByVariant(variantID int64) ([]store.WorkoutExercise, error)
+	ListExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error)
+	GetRotationState(groupID int64) (*store.WorkoutRotationState, error)
+	GetSessionByGroupAndDate(groupID int64, scheduledDate time.Time) (*store.WorkoutSession, error)
+	CreateSession(groupID, variantID, userID int64, scheduledDate time.Time, scheduledTime string) (*store.WorkoutSession, error)
 }
 
 // TZStore is the timezone lookup the workout service needs.
@@ -68,6 +80,10 @@ type WorkoutService interface {
 	// SchedulePlannedAdHocSession creates a future ad-hoc session in 'pending' state
 	// with one placeholder exercise log row per planned exercise.
 	SchedulePlannedAdHocSession(userID int64, scheduledDate time.Time, scheduledTime string, exercises []PlannedExercise) (*store.WorkoutSession, error)
+	// GetNext resolves the single next workout to surface to the user via the
+	// 3-priority scheduling engine (active-today → snoozed → pending). Returns
+	// (nil, nil) when there is no upcoming workout.
+	GetNext(userID int64) (*NextWorkout, error)
 }
 
 // Service implements WorkoutService using a WorkoutStore.
