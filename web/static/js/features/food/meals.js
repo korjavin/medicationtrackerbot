@@ -126,12 +126,22 @@ async function loadMyMeals() {
 
         const nutritionRow = document.createElement('div');
         nutritionRow.className = 'food-nutrition-row';
-        nutritionRow.innerHTML = `
-            <span><strong>${Math.round(totalCals)}</strong> kcal</span>
-            <span>C: <strong>${totalCarbs}</strong>g</span>
-            <span>P: <strong>${totalProt}</strong>g</span>
-            <span>F: <strong>${totalFat}</strong>g</span>
-        `;
+
+        const createStat = (label, value, unit) => {
+            const span = document.createElement('span');
+            if (label) span.appendChild(document.createTextNode(label));
+            const strong = document.createElement('strong');
+            strong.textContent = value;
+            span.appendChild(strong);
+            if (unit) span.appendChild(document.createTextNode(unit));
+            return span;
+        };
+
+        nutritionRow.appendChild(createStat('', Math.round(totalCals), ' kcal'));
+        nutritionRow.appendChild(createStat('C: ', totalCarbs, 'g'));
+        nutritionRow.appendChild(createStat('P: ', totalProt, 'g'));
+        nutritionRow.appendChild(createStat('F: ', totalFat, 'g'));
+
         card.appendChild(nutritionRow);
 
         list.appendChild(card);
