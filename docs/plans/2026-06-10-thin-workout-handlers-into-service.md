@@ -191,16 +191,45 @@ MCP registry all depend on them. No new features.
 
 ### Task 4: Extract stats + rotation reads into the service
 
-- [ ] add `GetStats(userID int64, …filters) (*Stats, error)` moving the
-  filter + volume / sessions-per-week / percentile computations out of
-  `handleGetWorkoutStats` (965–1079)
-- [ ] add `GetRotationState(groupID int64)` and `InitializeRotation(groupID int64)`
-  moving the merging/init logic out of handlers 1080–1122
-- [ ] shrink the three handlers to thin form
-- [ ] write tests: stats with zero sessions, with mixed statuses, the
-  per-week bucketing across a month boundary; rotation state for
-  non-rotating group; initialize idempotency (match current behavior)
-- [ ] run `go test ./...` — must pass before task 5
+- [x] add `GetStats(userID int64) (*Stats, error)` in
+  `internal/domain/workout/stats.go` moving the 30-day counts, completion
+  rate, 12-week activity heatmap, and top-exercises computation out of
+  `handleGetWorkoutStats`. ⚠️ Scope note: the discovery description listed
+  "filter + volume / sessions-per-week / percentile computations" but the
+  actual handler does none of those — no `?` filters, no percentiles, no
+  per-session volume. It reads up to 500 history rows, buckets the last 12
+  weeks by ISO Monday, counts the last 30 days, and reads `ListExerciseStats`.
+  Implemented exactly that; `GetStats` takes only `userID`. Two nil-vs-empty
+  distinctions are load-bearing and preserved: `weekly_activity` stays nil
+  (marshals to `null`, matching the legacy `var weeklyActivity []WeekActivity`)
+  when no week is in range, and `top_exercises` is the raw `ListExerciseStats`
+  result whose read error is swallowed (legacy `exerciseStats, _ := …`) so a
+  failed read also marshals to `null`. Day-window cutoffs now come from the
+  service's injectable `Now` clock (legacy called `time.Now()` inline twice),
+  making the windows testable.
+- [x] add `GetRotationState(groupID int64) (*store.WorkoutRotationState, error)`
+  and `InitializeRotation(groupID, startingVariantID int64) error` in
+  `internal/domain/workout/rotation.go`. ⚠️ Scope note: the discovery
+  description said "merging/init logic" but the handlers were already
+  near-thin store pass-throughs; moving them in still satisfies the Task 7
+  "no direct `s.workouts.*` outside trivial CRUD" criterion. `GetRotationState`
+  swallows a read error to `(nil, nil)` so the handler keeps its
+  "err != nil || state == nil" → 404 branch; `InitializeRotation` keeps the
+  `startingVariantID` parameter the store requires (the plan's earlier
+  one-arg signature was a typo).
+- [x] shrink the three handlers to thin form (parse → service → encode);
+  removed the now-unused `sort` and `store` imports from `workout_handlers.go`
+- [x] write table-driven tests in `internal/domain/workout/stats_test.go`
+  and `rotation_test.go` (embedding `noopWorkoutStore`): stats zero sessions
+  (asserts nil `weekly_activity`/`top_exercises`); history error propagation;
+  mixed statuses inside the 30-day window (non-terminal `started` ignored,
+  out-of-window row excluded, completion rate); per-week bucketing across the
+  May/June month boundary (two same-week sessions share the Monday key,
+  chronological sort, `active_weeks` excludes skip-only weeks); top-exercises
+  passthrough + read-error swallowed; rotation state found / non-rotating
+  group (nil→nil) / store-error-swallowed; initialize forwards args /
+  idempotent re-init / error propagation
+- [x] run `go test ./...` — must pass before task 5
 
 ### Task 5: Extract session state transitions into the service
 

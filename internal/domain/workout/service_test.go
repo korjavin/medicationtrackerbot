@@ -136,6 +136,14 @@ func (m *mockWorkoutStore) CreateSession(groupID, variantID, userID int64, sched
 	return nil, nil
 }
 
+func (m *mockWorkoutStore) ListExerciseStats(userID int64) ([]store.ExerciseStat, error) {
+	return nil, nil
+}
+
+func (m *mockWorkoutStore) InitializeRotation(groupID, startingVariantID int64) error {
+	return nil
+}
+
 func (m *mockWorkoutStore) GetCurrent() (string, error) {
 	return "", nil
 }

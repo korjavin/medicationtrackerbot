@@ -7,13 +7,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/domain/workout"
-	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
 // -- Workout Group Handlers --
@@ -554,104 +552,10 @@ func (s *Server) handleGetWorkoutStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fetch enough sessions for streak + 30-day stats
-	sessions, err := s.workouts.ListHistory(userID, 500)
+	stats, err := s.workoutSvc.GetStats(userID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
-	}
-
-	since30 := time.Now().AddDate(0, 0, -30)
-
-	// 30-day counts
-	totalSessions := 0
-	completedSessions := 0
-	skippedSessions := 0
-
-	// Weekly activity heatmap (last 12 weeks)
-	type WeekActivity struct {
-		Week      string `json:"week"`
-		Completed int    `json:"completed"`
-		Skipped   int    `json:"skipped"`
-	}
-	weekMap := make(map[string]*WeekActivity)
-	cutoff12w := time.Now().AddDate(0, 0, -84)
-	mondayOf := func(t time.Time) string {
-		d := t
-		for d.Weekday() != time.Monday {
-			d = d.AddDate(0, 0, -1)
-		}
-		return d.Format("2006-01-02")
-	}
-
-	for _, session := range sessions {
-		// 30-day stats
-		if !session.ScheduledDate.Before(since30) {
-			switch session.Status {
-			case "completed":
-				completedSessions++
-				totalSessions++
-			case "skipped":
-				skippedSessions++
-				totalSessions++
-			}
-		}
-
-		// Weekly heatmap
-		if !session.ScheduledDate.Before(cutoff12w) {
-			week := mondayOf(session.ScheduledDate)
-			if _, ok := weekMap[week]; !ok {
-				weekMap[week] = &WeekActivity{Week: week}
-			}
-			switch session.Status {
-			case "completed":
-				weekMap[week].Completed++
-			case "skipped":
-				weekMap[week].Skipped++
-			}
-		}
-	}
-
-	// Sort weekly activity chronologically
-	var weekKeys []string
-	for w := range weekMap {
-		weekKeys = append(weekKeys, w)
-	}
-	sort.Strings(weekKeys)
-	var weeklyActivity []WeekActivity
-	activeWeeks := 0
-	for _, w := range weekKeys {
-		activity := *weekMap[w]
-		weeklyActivity = append(weeklyActivity, activity)
-		if activity.Completed > 0 {
-			activeWeeks++
-		}
-	}
-
-	// Exercise stats from DB
-	exerciseStats, _ := s.workouts.ListExerciseStats(userID)
-
-	completionRate := 0.0
-	if totalSessions > 0 {
-		completionRate = float64(completedSessions) / float64(totalSessions) * 100
-	}
-
-	stats := struct {
-		TotalSessions     int                  `json:"total_sessions"`
-		CompletedSessions int                  `json:"completed_sessions"`
-		SkippedSessions   int                  `json:"skipped_sessions"`
-		CompletionRate    float64              `json:"completion_rate"`
-		ActiveWeeks       int                  `json:"active_weeks"`
-		TopExercises      []store.ExerciseStat `json:"top_exercises"`
-		WeeklyActivity    []WeekActivity       `json:"weekly_activity"`
-	}{
-		TotalSessions:     totalSessions,
-		CompletedSessions: completedSessions,
-		SkippedSessions:   skippedSessions,
-		CompletionRate:    completionRate,
-		ActiveWeeks:       activeWeeks,
-		TopExercises:      exerciseStats,
-		WeeklyActivity:    weeklyActivity,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -670,7 +574,7 @@ func (s *Server) handleGetRotationState(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	state, err := s.workouts.GetRotationState(groupID)
+	state, err := s.workoutSvc.GetRotationState(groupID)
 	if err != nil || state == nil {
 		http.Error(w, "Rotation state not found", http.StatusNotFound)
 		return
@@ -694,7 +598,7 @@ func (s *Server) handleInitializeRotation(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	err := s.workouts.InitializeRotation(req.GroupID, req.StartingVariantID)
+	err := s.workoutSvc.InitializeRotation(req.GroupID, req.StartingVariantID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

@@ -111,6 +111,10 @@ func (f *fakeNextStore) LogExerciseWithSource(sessionID, exerciseID int64, name 
 	return 0, nil
 }
 func (f *fakeNextStore) DeleteSession(id int64) error { return nil }
+func (f *fakeNextStore) ListExerciseStats(userID int64) ([]store.ExerciseStat, error) {
+	return nil, nil
+}
+func (f *fakeNextStore) InitializeRotation(groupID, startingVariantID int64) error { return nil }
 
 // nextClock is the fixed "now" used across the table-driven cases: noon UTC on a
 // Saturday, so a 23:59 same-day workout is always in the future.

@@ -45,6 +45,10 @@ type WorkoutStore interface {
 	GetRotationState(groupID int64) (*store.WorkoutRotationState, error)
 	GetSessionByGroupAndDate(groupID int64, scheduledDate time.Time) (*store.WorkoutSession, error)
 	CreateSession(groupID, variantID, userID int64, scheduledDate time.Time, scheduledTime string) (*store.WorkoutSession, error)
+
+	// Read/write methods used by the stats + rotation read models.
+	ListExerciseStats(userID int64) ([]store.ExerciseStat, error)
+	InitializeRotation(groupID, startingVariantID int64) error
 }
 
 // TZStore is the timezone lookup the workout service needs.
@@ -91,6 +95,14 @@ type WorkoutService interface {
 	// GetSessionDetails returns a single session with its exercise logs. Returns
 	// (nil, nil) when the session does not exist.
 	GetSessionDetails(sessionID int64) (*SessionDetails, error)
+	// GetStats returns the user's 30-day session counts, completion rate, a
+	// 12-week activity heatmap, and top exercises by aggregate volume.
+	GetStats(userID int64) (*Stats, error)
+	// GetRotationState returns a group's rotation state, or (nil, nil) when none
+	// exists / it cannot be read (the handler maps that to 404).
+	GetRotationState(groupID int64) (*store.WorkoutRotationState, error)
+	// InitializeRotation sets a group's rotation to begin at startingVariantID.
+	InitializeRotation(groupID, startingVariantID int64) error
 }
 
 // Service implements WorkoutService using a WorkoutStore.

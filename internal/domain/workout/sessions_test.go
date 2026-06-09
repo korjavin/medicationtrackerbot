@@ -63,6 +63,10 @@ func (noopWorkoutStore) GetSessionByGroupAndDate(groupID int64, scheduledDate ti
 func (noopWorkoutStore) CreateSession(groupID, variantID, userID int64, scheduledDate time.Time, scheduledTime string) (*store.WorkoutSession, error) {
 	return nil, nil
 }
+func (noopWorkoutStore) ListExerciseStats(userID int64) ([]store.ExerciseStat, error) {
+	return nil, nil
+}
+func (noopWorkoutStore) InitializeRotation(groupID, startingVariantID int64) error { return nil }
 
 // fakeSessionStore drives the ListSessions / GetSessionDetails read models.
 type fakeSessionStore struct {
