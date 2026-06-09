@@ -33,7 +33,8 @@ type WorkoutStore interface {
 	LogExerciseWithSource(sessionID, exerciseID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes, source string) (int64, error)
 	DeleteSession(id int64) error
 
-	// Read methods used by GetNext's scheduling engine.
+	// Read methods used by GetNext's scheduling engine and the session read models.
+	ListHistory(userID int64, limit int) ([]store.WorkoutSession, error)
 	ListActiveSessions(userID int64, date time.Time) ([]store.WorkoutSession, error)
 	ListSnoozedSessions(userID int64) ([]store.WorkoutSession, error)
 	ListGroups(userID int64, activeOnly bool) ([]store.WorkoutGroup, error)
@@ -84,6 +85,12 @@ type WorkoutService interface {
 	// 3-priority scheduling engine (active-today → snoozed → pending). Returns
 	// (nil, nil) when there is no upcoming workout.
 	GetNext(userID int64) (*NextWorkout, error)
+	// ListSessions returns the user's recent workout sessions (newest first, up to
+	// limit) enriched with group/variant names and per-session exercise counts.
+	ListSessions(userID int64, limit int) ([]SessionView, error)
+	// GetSessionDetails returns a single session with its exercise logs. Returns
+	// (nil, nil) when the session does not exist.
+	GetSessionDetails(sessionID int64) (*SessionDetails, error)
 }
 
 // Service implements WorkoutService using a WorkoutStore.

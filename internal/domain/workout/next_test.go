@@ -91,6 +91,9 @@ func (f *fakeNextStore) CreateSession(groupID, variantID, userID int64, schedule
 func (f *fakeNextStore) GetCurrent() (string, error) { return f.tz, nil }
 
 // Unused-by-GetNext WorkoutStore methods.
+func (f *fakeNextStore) ListHistory(userID int64, limit int) ([]store.WorkoutSession, error) {
+	return nil, nil
+}
 func (f *fakeNextStore) GetSession(id int64) (*store.WorkoutSession, error) { return nil, nil }
 func (f *fakeNextStore) StartSession(id int64) error                        { return nil }
 func (f *fakeNextStore) ClearSnooze(id int64) error                         { return nil }

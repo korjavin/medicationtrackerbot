@@ -92,6 +92,10 @@ func (m *mockWorkoutStore) DeleteSession(id int64) error {
 
 // Read methods added for GetNext — the transition tests above don't exercise
 // them, so the stubs return empty results.
+func (m *mockWorkoutStore) ListHistory(userID int64, limit int) ([]store.WorkoutSession, error) {
+	return nil, nil
+}
+
 func (m *mockWorkoutStore) ListActiveSessions(userID int64, date time.Time) ([]store.WorkoutSession, error) {
 	return nil, nil
 }

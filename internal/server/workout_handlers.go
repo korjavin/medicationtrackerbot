@@ -482,86 +482,10 @@ func (s *Server) handleListWorkoutSessions(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	sessions, err := s.workouts.ListHistory(userID, limit)
+	enriched, err := s.workoutSvc.ListSessions(userID, limit)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
-	}
-
-	// Enrich sessions with group and variant names
-	type EnrichedSession struct {
-		Session     interface{} `json:"session"`
-		GroupName   string      `json:"group_name"`
-		VariantName string      `json:"variant_name"`
-		Exercises   int         `json:"exercises_count"`
-		Completed   int         `json:"exercises_completed"`
-		TotalVolume float64     `json:"total_volume"` // Total weight lifted (sets * reps * weight)
-	}
-
-	enriched := make([]EnrichedSession, 0, len(sessions))
-	for _, session := range sessions {
-		group, _ := s.workouts.GetGroup(session.GroupID)
-		variant, _ := s.workouts.GetVariant(session.VariantID)
-		logs, _ := s.workouts.ListExerciseLogs(session.ID)
-		exercises, _ := s.workouts.ListExercisesByVariant(session.VariantID)
-
-		groupName := "Unknown"
-		variantName := "Unknown"
-		if session.GroupID == -1 {
-			groupName = "Ad-hoc"
-			// Find the biggest exercise by volume (sets * reps * weight).
-			// For bodyweight exercises (nil WeightKg) use sets*reps as a proxy volume.
-			bestName := ""
-			bestVol := -1.0
-			for _, log := range logs {
-				if log.Status == "completed" {
-					vol := 0.0
-					if log.SetsCompleted != nil && log.RepsCompleted != nil && log.WeightKg != nil {
-						vol = float64(*log.SetsCompleted) * float64(*log.RepsCompleted) * (*log.WeightKg)
-					} else if log.SetsCompleted != nil && log.RepsCompleted != nil {
-						vol = float64(*log.SetsCompleted) * float64(*log.RepsCompleted)
-					}
-					if vol > bestVol {
-						bestVol = vol
-						bestName = log.ExerciseName
-					}
-				}
-			}
-			variantName = bestName
-		} else {
-			if group != nil {
-				groupName = group.Name
-			}
-			if variant != nil {
-				variantName = variant.Name
-			}
-		}
-
-		completedCount := 0
-		totalVolume := 0.0
-		for _, log := range logs {
-			if log.Status == "completed" {
-				completedCount++
-				// Calculate volume: sets * reps * weight
-				if log.SetsCompleted != nil && log.RepsCompleted != nil && log.WeightKg != nil {
-					volume := float64(*log.SetsCompleted) * float64(*log.RepsCompleted) * (*log.WeightKg)
-					totalVolume += volume
-				}
-			}
-		}
-
-		exerciseCount := len(exercises)
-		if session.GroupID == -1 {
-			exerciseCount = len(logs)
-		}
-		enriched = append(enriched, EnrichedSession{
-			Session:     session,
-			GroupName:   groupName,
-			VariantName: variantName,
-			Exercises:   exerciseCount,
-			Completed:   completedCount,
-			TotalVolume: totalVolume,
-		})
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -578,28 +502,18 @@ func (s *Server) handleGetSessionDetails(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	session, err := s.workouts.GetSession(id)
-	if err != nil || session == nil {
-		http.Error(w, "Session not found", http.StatusNotFound)
-		return
-	}
-
-	logs, err := s.workouts.ListExerciseLogs(id)
+	details, err := s.workoutSvc.GetSessionDetails(id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	response := struct {
-		Session interface{} `json:"session"`
-		Logs    interface{} `json:"logs"`
-	}{
-		Session: session,
-		Logs:    logs,
+	if details == nil {
+		http.Error(w, "Session not found", http.StatusNotFound)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
+	if err := json.NewEncoder(w).Encode(details); err != nil {
 		slog.Error("encode response", "error", err)
 	}
 }

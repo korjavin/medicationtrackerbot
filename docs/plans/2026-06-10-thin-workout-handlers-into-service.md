@@ -160,18 +160,34 @@ MCP registry all depend on them. No new features.
 
 ### Task 3: Extract session listing + details into the service
 
-- [ ] add `ListSessions(userID int64, …filters) ([]SessionView, error)`
-  moving the date filtering, status parsing, and group/variant/rotation
-  enrichment out of `handleListWorkoutSessions`
-  (`workout_handlers.go:468-570`); `SessionView` json tags reproduce the
-  current array element shape
-- [ ] add `GetSessionDetails(sessionID int64) (*SessionDetails, error)`
-  moving the enrichment out of `handleGetSessionDetails` (571–604)
-- [ ] shrink both handlers to parse → service → encode
-- [ ] write table-driven tests: date-range filter inclusive bounds,
-  status filter, enrichment when group/variant missing (today's handlers
-  fall back to "Unknown" — preserve), rotation state merging
-- [ ] run `go test ./...` — must pass before task 4
+- [x] add `ListSessions(userID int64, limit int) ([]SessionView, error)`
+  in `internal/domain/workout/sessions.go` moving the group/variant
+  enrichment out of `handleListWorkoutSessions`; `SessionView` json tags
+  reproduce the current array element shape (`session`, `group_name`,
+  `variant_name`, `exercises_count`, `exercises_completed`,
+  `total_volume`). ⚠️ Scope note: the discovery description listed "date
+  filtering, status parsing, rotation enrichment" but the actual handler
+  does none of those — it only reads `?limit` (default 30) then enriches
+  group/variant names + ad-hoc biggest-volume-variant + completed count +
+  total volume. Implemented exactly what the handler does; `ListSessions`
+  takes only `limit`. The empty-history result is a non-nil `[]SessionView{}`
+  so it marshals to `[]`, matching the legacy `make(..., 0, …)`.
+- [x] add `GetSessionDetails(sessionID int64) (*SessionDetails, error)`
+  moving the session+logs load out of `handleGetSessionDetails`. Returns
+  `(nil, nil)` for a missing/unreadable session (handler maps to 404,
+  matching the legacy `err != nil || session == nil` branch); a non-nil
+  error is reserved for a logs-read failure (handler 500).
+- [x] shrink both handlers to parse → service → encode
+- [x] write table-driven tests in `internal/domain/workout/sessions_test.go`
+  (with an embedded `noopWorkoutStore` base + `fakeSessionStore`): empty
+  history → non-nil `[]`; history error propagation; regular enrichment
+  (group/variant names, exercise count from variant, completed count,
+  total volume); group/variant missing → "Unknown" fallback; ad-hoc
+  variant = biggest completed exercise by volume + count from logs;
+  ad-hoc bodyweight uses sets*reps proxy for best-name (total_volume stays
+  0); empty ad-hoc blank variant; GetSessionDetails found / not-found
+  (nil→nil) / GetSession-error-as-not-found / logs-error propagation
+- [x] run `go test ./...` — must pass before task 4
 
 ### Task 4: Extract stats + rotation reads into the service
 
