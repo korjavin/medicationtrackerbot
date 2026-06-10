@@ -47,7 +47,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.reloadCurrentTab',          // app.js — called by data-store.js + sync.js
     'window.renderSettingsTimeInfo',    // app.js — renders read-only timezone/server clock info in settings
     'window.initOIDCSetupBanner',       // features/settings.js — renders the OIDC setup banner inside the Settings card; exposed for test coverage of the enabled path (Plan 2026-06-10 finish-app-js-split, Task 2)
-    'window.healthOverviewCacheKey',    // app.js — timezone-qualified IndexedDB key for health overview; shared with health.js to avoid formula divergence
+    'window.healthOverviewCacheKey',    // features/today-loader.js — timezone-qualified IndexedDB key for health overview; shared with health.js to avoid formula divergence (Plan 2026-06-10 finish-app-js-split, Task 3)
 
     // Core modules
     'window.DemoBanner',                // core/demo-banner.js — demo-mode banner mount + 429 `demo_rate_limit` popup helper; mounted by auth-bootstrap.js when /api/bootstrap returns demo.enabled=true, invoked by core/api.js on 429 responses with a {error:'demo_rate_limit'} body
@@ -68,6 +68,7 @@ const ALLOWED_GLOBALS = new Set([
     // Features
     'window.handleDeepLinks',           // features/deeplink-router.js — called by bootstrap.js
     'window.TodayDashboard',            // features/today.js — aggregation contract consumed by the Today view renderer
+    'window.TodayLoader',               // features/today-loader.js — namespace mirroring the Today view loading orchestration (loadToday, _todayRender, _todayReadCaches, fetchSettingsBundle, todayFetchSpecs, fetchNextIntakePayload, loadNextIntakeCached, todayFoodKey, healthOverviewCacheKey) extracted from app.js (Plan 2026-06-10 finish-app-js-split, Task 3). The bare function names remain the live call path (app.js switchTab/reloadCurrentTab → loadToday; food/*.js + auth-bootstrap.js → todayFoodKey/loadToday; meds-history.js → fetchNextIntakePayload); this object documents the public surface and feeds the pure features/today.js (window.TodayDashboard) renderer.
     'window.WGCallAgent',               // features/elevenlabs-call.js — ElevenLabs conversational agent card on the Today screen; lazy-loads the convai-widget-embed script and mounts <elevenlabs-convai> after fetching a server-signed URL
     'window.WGCallIndicator',           // features/call-indicator.js — persistent floating pill above the bottom nav that surfaces ElevenLabs call state (connecting/in_call/error) across tab switches; subscribes to the wg-call-state window event
     'window.WGPhoneChrome',             // components/wg-phone-chrome.js — Wandergeek decorative iPhone-frame wrapper (status bar, dynamic island, home indicator) around the SPA on desktop; collapses on mobile/PWA

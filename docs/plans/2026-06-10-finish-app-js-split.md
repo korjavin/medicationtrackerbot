@@ -184,7 +184,7 @@ Constraints discovered:
 
 ### Task 3: Extract `features/today-loader.js` (Today orchestration)
 
-- [ ] move the Today cluster from `app.js` (~691–1290) — `loadToday()`,
+- [x] move the Today cluster from `app.js` (~691–1290) — `loadToday()`,
   `_todayRender()`, `_todayReadCaches()`, `fetchNextIntakePayload()`,
   the refresh debouncer + interval timer — into a new
   `web/static/js/features/today-loader.js` exposed as
@@ -192,16 +192,59 @@ Constraints discovered:
   `features/today.js` (`window.TodayDashboard`) and merge into that file
   instead if the cluster is really its loading layer (prefer one owning
   module over two — decide by reading both, note the decision here)
-- [ ] keep `window.requestTabRefresh` / `window.reloadCurrentTab`
+  — **Decision: standalone `features/today-loader.js`, NOT merged into
+  `features/today.js`.** Reading both confirmed `today.js` is an
+  intentionally *pure*, side-effect-free aggregation/render contract with
+  zero module-level state ("Date.now() injected to keep tests
+  deterministic"); the app.js cluster is its *impure* loading shell
+  (IndexedDB reads, `cachedFetch`, `DataStore.fetchFresh`, `apiCall`,
+  subscription). Merging would pollute today.js's purity and break its
+  unit tests, so they stay separate (today-loader feeds today). Moved the
+  full cluster: `todayFoodKey`, `fetchNextIntakePayload`,
+  `NEXT_INTAKE_*` constants, `loadNextIntakeCached`,
+  `healthOverviewCacheKey` (+ its `window.` re-attach), `todayFetchSpecs`,
+  `fetchSettingsBundle`, `_todayReadCaches`, `_todayRender`, `loadToday`.
+  The "refresh debouncer + interval timer" = the Today-specific
+  subscription handle + refetch in-flight guard (`todayUnsubscribe`,
+  `todayRefreshInFlight`); both became the annotated
+  `let _state = { unsubscribe, refreshInFlight }; // module-state: …`.
+  Bare function names stay the live call path; `window.TodayLoader`
+  mirrors the public surface.
+- [x] keep `window.requestTabRefresh` / `window.reloadCurrentTab`
   semantics identical (they are allowlisted globals other features call)
-- [ ] `switchTab()` stays in `app.js` (section lifecycle is the
+  — both stay in `app.js` untouched (section lifecycle + deferred-refresh
+  banner = top-level wiring per the Overview). They call `loadToday()` by
+  bare name, resolved at call time to the today-loader global.
+- [x] `switchTab()` stays in `app.js` (section lifecycle is the
   orchestrator's job)
-- [ ] delete moved code from `app.js`; update `index.html` + `sw.js`;
+  — `switchTab()` and `reloadCurrentTab()` both stay; their
+  `else if (tab === 'today') { loadToday(); }` arms resolve the global.
+- [x] delete moved code from `app.js`; update `index.html` + `sw.js`;
   allowlist any new global
-- [ ] extend the today feature suite: dashboard renders from caches
+  — moved code replaced by one pointer comment; app.js 2910 → 1211 lines.
+  `today-loader.js` added after `meds-history.js` in `index.html`,
+  `sw.js` STATIC_ASSETS, and `frontend-harness.js` (so the bare globals
+  consumed by food/*.js, health.js, meds-history.js, and the
+  app.tab-order / health.dexie-hydration / sections.stale-badge / food.*
+  suites keep resolving). `window.TodayLoader` allowlisted in
+  `architecture.globals.test.js`; the `window.healthOverviewCacheKey`
+  allowlist comment repointed from `app.js` to `features/today-loader.js`.
+  The harness deliberately does not load `today.js`, so `loadToday()`
+  there still early-returns from `_todayRender` — identical pre/post
+  behavior for existing harness tests.
+- [x] extend the today feature suite: dashboard renders from caches
   offline, refresh debouncer coalesces rapid calls, next-intake payload
   fetch error path
-- [ ] run `pnpm test` — must pass before task 4
+  — added `today.loader.test.js` (standalone, loading today.js +
+  today-loader.js + stubbed DataStore/MedTrackerDB/apiCall, mirroring the
+  sibling `today.*.test.js` pattern): offline render paints the meds card
+  + offline stale chip and skips the refetch loop; first-run placeholder
+  when no cache exists; the in-flight guard coalesces two concurrent
+  `loadToday()` calls into one next-intake fetch (and releases for a third
+  visit); next-intake error paths (204→sentinel, `OfflineNoCacheError`→null,
+  generic-error rethrow, cachedFetch-absent fallback).
+- [x] run `pnpm test` — must pass before task 4
+  — 241 files / 2606 passed, 29 skipped, 0 failed.
 
 ### Task 4: Extract workout modal helpers into `features/workout/`
 

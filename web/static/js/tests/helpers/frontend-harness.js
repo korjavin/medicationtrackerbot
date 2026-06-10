@@ -44,6 +44,7 @@ const PUSH_MODAL_JS = path.join(REPO_ROOT, 'web/static/js/features/push-modal.js
 const MEDICATION_UTILS_JS = path.join(REPO_ROOT, 'web/static/js/features/medication-utils.js');
 const MEDS_JS = path.join(REPO_ROOT, 'web/static/js/features/meds.js');
 const MEDS_HISTORY_JS = path.join(REPO_ROOT, 'web/static/js/features/meds-history.js');
+const TODAY_LOADER_JS = path.join(REPO_ROOT, 'web/static/js/features/today-loader.js');
 const FOOD_PHOTO_SUMMARY_JS = path.join(REPO_ROOT, 'web/static/js/features/food-photo-summary.js');
 // features/food.js was split into per-concern sub-files under
 // features/food/ (2026-05-13). The harness loads them in dependency order:
@@ -311,6 +312,16 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   // (meds.js → loadHistory / optimistic helpers; meds-history.js →
   // renderHistory / showMedicationConfirmModal).
   evalFileCached(window, MEDS_HISTORY_JS);
+  // today-loader.js owns the Today view loading orchestration (loadToday /
+  // _todayRender / _todayReadCaches / fetchSettingsBundle / todayFetchSpecs /
+  // fetchNextIntakePayload / todayFoodKey / healthOverviewCacheKey) extracted
+  // from app.js (Plan 2026-06-10 finish-app-js-split, Task 3). Loaded after
+  // app.js so its bare globals (consumed by food/*.js, health.js, meds-history.js,
+  // and app.tab-order / health.dexie-hydration / sections.stale-badge / food.*
+  // suites) replace the ones that previously lived in app.js. The harness does
+  // not load features/today.js (window.TodayDashboard), so loadToday() here
+  // early-returns from _todayRender — identical to the pre-extraction behavior.
+  evalFileCached(window, TODAY_LOADER_JS);
   evalFileCached(window, FOOD_PHOTO_SUMMARY_JS);
   // Order matters: products.js defines decodeFoodDisplayText /
   // renderFoodAutocomplete which the other food sub-files reference; the
