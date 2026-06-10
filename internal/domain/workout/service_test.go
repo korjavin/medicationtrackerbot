@@ -9,6 +9,8 @@ import (
 )
 
 type mockWorkoutStore struct {
+	noopWorkoutStore
+
 	session *store.WorkoutSession
 	group   *store.WorkoutGroup
 
@@ -80,14 +82,6 @@ func (m *mockWorkoutStore) CreatePlannedAdHocSession(userID int64, scheduledDate
 		return nil, m.createErr
 	}
 	return m.session, nil
-}
-
-func (m *mockWorkoutStore) LogExerciseWithSource(sessionID, exerciseID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes, source string) (int64, error) {
-	return 0, nil
-}
-
-func (m *mockWorkoutStore) DeleteSession(id int64) error {
-	return nil
 }
 
 func (m *mockWorkoutStore) GetCurrent() (string, error) {

@@ -27,11 +27,38 @@ type WorkoutStore interface {
 	SnoozeSession(id int64, duration time.Duration) error
 	SkipSession(id int64) error
 	CompleteSession(id int64) error
+	UpdateSessionStatus(id int64, status string) error
+	PreSkipSession(id int64) error
+	CancelPreSkip(id int64) error
 	AdvanceRotation(groupID int64) error
 	CreateAdHocSession(userID int64, scheduledDate time.Time, scheduledTime string) (*store.WorkoutSession, error)
 	CreatePlannedAdHocSession(userID int64, scheduledDate time.Time, scheduledTime string) (*store.WorkoutSession, error)
 	LogExerciseWithSource(sessionID, exerciseID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes, source string) (int64, error)
 	DeleteSession(id int64) error
+
+	// Read methods used by GetNext's scheduling engine and the session read models.
+	ListHistory(userID int64, limit int) ([]store.WorkoutSession, error)
+	ListActiveSessions(userID int64, date time.Time) ([]store.WorkoutSession, error)
+	ListSnoozedSessions(userID int64) ([]store.WorkoutSession, error)
+	ListGroups(userID int64, activeOnly bool) ([]store.WorkoutGroup, error)
+	ListVariantsByGroup(groupID int64) ([]store.WorkoutVariant, error)
+	GetVariant(id int64) (*store.WorkoutVariant, error)
+	ListExercisesByVariant(variantID int64) ([]store.WorkoutExercise, error)
+	ListExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error)
+	GetRotationState(groupID int64) (*store.WorkoutRotationState, error)
+	GetSessionByGroupAndDate(groupID int64, scheduledDate time.Time) (*store.WorkoutSession, error)
+	CreateSession(groupID, variantID, userID int64, scheduledDate time.Time, scheduledTime string) (*store.WorkoutSession, error)
+
+	// Read/write methods used by the stats + rotation read models.
+	ListExerciseStats(userID int64) ([]store.ExerciseStat, error)
+	InitializeRotation(groupID, startingVariantID int64) error
+
+	// Methods used by the exercise-log write models (UpdateExerciseLog /
+	// AddExerciseToSession).
+	UpdateExerciseLog(id int64, setsCompleted, repsCompleted *int, weightKg *float64, notes string) error
+	UpdateExerciseLogStatus(id int64, status string) error
+	GetExerciseLogByID(id int64) (*store.WorkoutExerciseLog, error)
+	PropagateExerciseToSchedule(sessionID, exerciseID int64, exerciseName string, sets, reps *int, weight *float64) error
 }
 
 // TZStore is the timezone lookup the workout service needs.
@@ -68,6 +95,44 @@ type WorkoutService interface {
 	// SchedulePlannedAdHocSession creates a future ad-hoc session in 'pending' state
 	// with one placeholder exercise log row per planned exercise.
 	SchedulePlannedAdHocSession(userID int64, scheduledDate time.Time, scheduledTime string, exercises []PlannedExercise) (*store.WorkoutSession, error)
+	// GetNext resolves the single next workout to surface to the user via the
+	// 3-priority scheduling engine (active-today → snoozed → pending). Returns
+	// (nil, nil) when there is no upcoming workout.
+	GetNext(userID int64) (*NextWorkout, error)
+	// ListSessions returns the user's recent workout sessions (newest first, up to
+	// limit) enriched with group/variant names and per-session exercise counts.
+	ListSessions(userID int64, limit int) ([]SessionView, error)
+	// GetSessionDetails returns a single session with its exercise logs. Returns
+	// (nil, nil) when the session does not exist.
+	GetSessionDetails(sessionID int64) (*SessionDetails, error)
+	// GetStats returns the user's 30-day session counts, completion rate, a
+	// 12-week activity heatmap, and top exercises by aggregate volume.
+	GetStats(userID int64) (*Stats, error)
+	// GetRotationState returns a group's rotation state, or (nil, nil) when none
+	// exists / it cannot be read (the handler maps that to 404).
+	GetRotationState(groupID int64) (*store.WorkoutRotationState, error)
+	// InitializeRotation sets a group's rotation to begin at startingVariantID.
+	InitializeRotation(groupID, startingVariantID int64) error
+	// SetSessionStatus applies a status transition (in_progress / completed /
+	// skipped), advancing the rotation for terminal states on rotating groups.
+	// Returns an Outcome telling the transport whether to run notification
+	// cleanup, or (nil, nil) when the session does not exist.
+	SetSessionStatus(sessionID int64, status string) (*Outcome, error)
+	// PreSkipSession marks a session as pre-skipped (a reversible "about to skip"
+	// state used by the bot reminder flow).
+	PreSkipSession(sessionID int64) error
+	// CancelPreSkipSession reverts a pre-skipped session back to pending.
+	CancelPreSkipSession(sessionID int64) error
+	// NextVariant advances a rotating group's rotation and deletes the current
+	// (not-yet-started) session so the next variant is surfaced.
+	NextVariant(sessionID int64) error
+	// UpdateExerciseLog validates and applies an exercise-log edit, propagating
+	// non-zero values back to the schedule and auto-promoting placeholder logs.
+	UpdateExerciseLog(id int64, setsCompleted, repsCompleted *int, weightKg *float64, notes, status string) error
+	// AddExerciseToSession logs a new exercise against a session (ownership is
+	// verified by the transport layer) and propagates non-library targets back
+	// to the schedule, returning the new log id.
+	AddExerciseToSession(sessionID, exerciseID int64, exerciseName string, targetSets, targetRepsMin int, targetWeightKg *float64, status, notes, source string) (int64, error)
 }
 
 // Service implements WorkoutService using a WorkoutStore.

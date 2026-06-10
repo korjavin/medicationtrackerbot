@@ -11,7 +11,7 @@ import (
 
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
-	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/workout"
+	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/domain/workout"
 )
 
 // WorkoutStore is the subset needed for workout scheduling and notifications.

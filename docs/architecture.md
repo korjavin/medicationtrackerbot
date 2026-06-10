@@ -188,8 +188,9 @@ The bot (`internal/bot/`) is a thin communication channel — it parses Telegram
 - `domain/exercise.go` — `ExerciseService`: idempotent exercise log upsert, session completion check
 - `domain/reminder.go` — `ReminderService`: snooze/block BP and weight reminders
 - `domain/food.go` — food intake argument parsing and macro calculation
+- `domain/workout/` — `WorkoutService`: the reference implementation. Beyond session lifecycle (start/snooze/skip/complete/ad-hoc-create) it owns the workout read models — `GetNext` (the 3-priority next-workout engine), `GetStats`, `ListSessions`/`GetSessionDetails`, rotation state, and exercise-log read/writes — all extracted out of `internal/server/workout_handlers.go` so the HTTP handlers stay thin (parse → service → encode).
 
-Each service follows the pattern from `internal/workout/service.go`:
+Each service follows the pattern from `internal/domain/workout/service.go`:
 
 ```go
 type FooStore interface { /* minimal store methods needed */ }

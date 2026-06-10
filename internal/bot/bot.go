@@ -17,7 +17,7 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzupdate"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
-	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/workout"
+	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/domain/workout"
 )
 
 // pendingExercise holds the metadata needed to send a deferred exercise prompt.

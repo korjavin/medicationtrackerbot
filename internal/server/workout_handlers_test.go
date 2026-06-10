@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store"
-	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/workout"
+	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/domain/workout"
 )
 
 func TestHandleUpdateSessionStatus(t *testing.T) {
@@ -352,6 +352,7 @@ func TestHandleGetNextWorkout_LazyCreation(t *testing.T) {
 	userID := int64(123456)
 	srv := &Server{
 		workouts:      db.Workout,
+		workoutSvc:    workoutsvc.New(db.Workout, db.TZ),
 		allowedUserID: userID,
 	}
 
@@ -1244,6 +1245,7 @@ func TestHandleGetNextWorkout_AdHocCountsPlaceholderLogs(t *testing.T) {
 	userID := int64(123456)
 	srv := &Server{
 		workouts:      db.Workout,
+		workoutSvc:    workoutsvc.New(db.Workout, db.TZ),
 		allowedUserID: userID,
 	}
 

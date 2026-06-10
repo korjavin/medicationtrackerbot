@@ -29,7 +29,7 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/rxnorm"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
-	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/workout"
+	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/domain/workout"
 	"golang.org/x/oauth2"
 )
 
