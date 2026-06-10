@@ -100,6 +100,9 @@ func (f *fakeNextStore) ClearSnooze(id int64) error                         { re
 func (f *fakeNextStore) SnoozeSession(id int64, d time.Duration) error      { return nil }
 func (f *fakeNextStore) SkipSession(id int64) error                         { return nil }
 func (f *fakeNextStore) CompleteSession(id int64) error                     { return nil }
+func (f *fakeNextStore) UpdateSessionStatus(id int64, status string) error  { return nil }
+func (f *fakeNextStore) PreSkipSession(id int64) error                      { return nil }
+func (f *fakeNextStore) CancelPreSkip(id int64) error                       { return nil }
 func (f *fakeNextStore) AdvanceRotation(groupID int64) error                { return nil }
 func (f *fakeNextStore) CreateAdHocSession(userID int64, d time.Time, t string) (*store.WorkoutSession, error) {
 	return nil, nil

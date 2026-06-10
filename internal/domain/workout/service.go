@@ -27,6 +27,9 @@ type WorkoutStore interface {
 	SnoozeSession(id int64, duration time.Duration) error
 	SkipSession(id int64) error
 	CompleteSession(id int64) error
+	UpdateSessionStatus(id int64, status string) error
+	PreSkipSession(id int64) error
+	CancelPreSkip(id int64) error
 	AdvanceRotation(groupID int64) error
 	CreateAdHocSession(userID int64, scheduledDate time.Time, scheduledTime string) (*store.WorkoutSession, error)
 	CreatePlannedAdHocSession(userID int64, scheduledDate time.Time, scheduledTime string) (*store.WorkoutSession, error)
@@ -103,6 +106,19 @@ type WorkoutService interface {
 	GetRotationState(groupID int64) (*store.WorkoutRotationState, error)
 	// InitializeRotation sets a group's rotation to begin at startingVariantID.
 	InitializeRotation(groupID, startingVariantID int64) error
+	// SetSessionStatus applies a status transition (in_progress / completed /
+	// skipped), advancing the rotation for terminal states on rotating groups.
+	// Returns an Outcome telling the transport whether to run notification
+	// cleanup, or (nil, nil) when the session does not exist.
+	SetSessionStatus(sessionID int64, status string) (*Outcome, error)
+	// PreSkipSession marks a session as pre-skipped (a reversible "about to skip"
+	// state used by the bot reminder flow).
+	PreSkipSession(sessionID int64) error
+	// CancelPreSkipSession reverts a pre-skipped session back to pending.
+	CancelPreSkipSession(sessionID int64) error
+	// NextVariant advances a rotating group's rotation and deletes the current
+	// (not-yet-started) session so the next variant is surfaced.
+	NextVariant(sessionID int64) error
 }
 
 // Service implements WorkoutService using a WorkoutStore.

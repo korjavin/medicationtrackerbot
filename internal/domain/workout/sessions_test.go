@@ -21,6 +21,9 @@ func (noopWorkoutStore) ClearSnooze(id int64) error                    { return 
 func (noopWorkoutStore) SnoozeSession(id int64, d time.Duration) error { return nil }
 func (noopWorkoutStore) SkipSession(id int64) error                    { return nil }
 func (noopWorkoutStore) CompleteSession(id int64) error                { return nil }
+func (noopWorkoutStore) UpdateSessionStatus(id int64, status string) error { return nil }
+func (noopWorkoutStore) PreSkipSession(id int64) error                 { return nil }
+func (noopWorkoutStore) CancelPreSkip(id int64) error                  { return nil }
 func (noopWorkoutStore) AdvanceRotation(groupID int64) error           { return nil }
 func (noopWorkoutStore) CreateAdHocSession(userID int64, d time.Time, t string) (*store.WorkoutSession, error) {
 	return nil, nil

@@ -233,24 +233,54 @@ MCP registry all depend on them. No new features.
 
 ### Task 5: Extract session state transitions into the service
 
-- [ ] add `SetSessionStatus(sessionID int64, status string) (Outcome, error)`
+All new code lives in `internal/domain/workout/transitions.go` (+
+`transitions_test.go`); the `WorkoutStore` interface grew by 3 already-present
+store methods (`UpdateSessionStatus`, `PreSkipSession`, `CancelPreSkip`) and the
+`WorkoutService` interface by 4 methods. ⚠️ Signature note: `SetSessionStatus`
+returns `(*Outcome, error)` (pointer), not the value `(Outcome, error)` the
+plan sketched — a nil `*Outcome` with a nil error is the "session not found"
+signal (handler → 404), mirroring the `(nil, nil)` convention `GetSessionDetails`
+already uses. `Outcome` carries the pre-transition `Session` (for the
+notification message id) and a `Terminal` bool (skipped/completed → run cleanup).
+
+- [x] add `SetSessionStatus(sessionID int64, status string) (*Outcome, error)`
   moving the transition rules + rotation advancement out of
-  `handleUpdateSessionStatus` (1653–1732); the returned `Outcome` tells
+  `handleUpdateSessionStatus`; the returned `Outcome` tells
   the handler whether to fire the completion notification — notification
-  dispatch itself stays in the handler
-- [ ] move pre-skip state management out of `handlePreSkipWorkoutSession`
-  / `handleCancelPreSkipWorkoutSession` (1439–1502) into
-  `PreSkipSession` / `CancelPreSkipSession`
-- [ ] move variant-selection logic out of `handleNextVariantWorkoutSession`
-  (1503–1553) into `NextVariant(sessionID int64)`
-- [ ] move the residual state logic in `handleSnoozeWorkoutSession`
-  (1385–1438) and `handleStartWorkoutSession` (1602–1652) into the
-  existing `SnoozeSession` / `StartSession` service methods (duration
-  parsing stays in the handler — it's transport)
-- [ ] write tests: each transition's happy path + invalid-status error +
-  rotation advancement only for rotating groups (extend the existing
-  `tryAdvanceRotation` test pattern); pre-skip then cancel restores state
-- [ ] run `go test ./...` — must pass before task 6
+  dispatch itself stays in the handler. Invalid status → sentinel
+  `ErrInvalidSessionStatus` (handler 400); missing session → `(nil, nil)`
+  (handler 404). Reuses `SkipSession`/`CompleteSession` for the terminal
+  branches (so rotation advances) and a plain `UpdateSessionStatus` for
+  `in_progress`, matching the pre-extraction handler. `handleUpdateSessionStatus`
+  has no ownership check (it never did), so `SetSessionStatus` takes no userID.
+- [x] move pre-skip state management out of `handlePreSkipWorkoutSession`
+  / `handleCancelPreSkipWorkoutSession` into `PreSkipSession` /
+  `CancelPreSkipSession`. Per the file's existing Snooze convention the
+  ownership/existence `GetSession` stays in the handler (now annotated as an
+  auth guard for Task 7's grep); the state transition routes through the service.
+- [x] move variant-selection logic out of `handleNextVariantWorkoutSession`
+  into `NextVariant(sessionID int64)` — status/group/rotation checks return
+  sentinel errors (`ErrSessionNotFound`, `ErrVariantChangeNotAllowed`,
+  `ErrGroupNotFound`, `ErrGroupNotRotating`) the handler maps to the exact
+  400/404 responses the old handler produced. Ownership `GetSession` stays in
+  the handler (auth guard); `NextVariant` re-reads the row for its
+  status/group checks (a harmless second idempotent read — behavior-preserving).
+- [x] residual state logic in `handleSnoozeWorkoutSession` /
+  `handleStartWorkoutSession`: nothing left to move — both already route their
+  only state mutation through the existing `SnoozeSession` / `StartSession`
+  service methods (`StartSession` also does the `ClearSnooze`). Their remaining
+  `s.workouts.*` calls are read-only (ownership guard / notification-text reads),
+  not state mutations. No change needed.
+- [x] write tests in `transitions_test.go` (fake embeds `noopWorkoutStore`):
+  SetSessionStatus invalid-status / not-found (missing + read-error) /
+  in_progress plain update / skipped-advances-rotation / completed-non-rotating /
+  skip-error propagation; PreSkip + CancelPreSkip forward + error propagation;
+  NextVariant happy path + each rejection sentinel + advance/delete error
+  propagation. Existing `internal/server` handler tests
+  (`TestHandleUpdateSessionStatus`, `…_CleansUpWorkoutChatOnTerminalState`) pass
+  unmodified.
+- [x] run `go test ./...` — passes (exit 0, 38 packages); both build modes
+  (`go build ./...`, `go build -tags mobile ./...`) and `go vet` clean.
 
 ### Task 6: Extract exercise-log writes into the service
 

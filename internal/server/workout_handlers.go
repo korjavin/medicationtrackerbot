@@ -939,6 +939,8 @@ func (s *Server) handlePreSkipWorkoutSession(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// GetSession here is the ownership/existence guard for this auth-scoped
+	// route; the pre-skip state transition itself routes through the service.
 	session, err := s.workouts.GetSession(id)
 	if err != nil || session == nil {
 		http.Error(w, "Session not found", http.StatusNotFound)
@@ -949,7 +951,7 @@ func (s *Server) handlePreSkipWorkoutSession(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if err := s.workouts.PreSkipSession(id); err != nil {
+	if err := s.workoutSvc.PreSkipSession(id); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -971,6 +973,8 @@ func (s *Server) handleCancelPreSkipWorkoutSession(w http.ResponseWriter, r *htt
 		return
 	}
 
+	// GetSession here is the ownership/existence guard for this auth-scoped
+	// route; the cancel-pre-skip transition itself routes through the service.
 	session, err := s.workouts.GetSession(id)
 	if err != nil || session == nil {
 		http.Error(w, "Session not found", http.StatusNotFound)
@@ -981,7 +985,7 @@ func (s *Server) handleCancelPreSkipWorkoutSession(w http.ResponseWriter, r *htt
 		return
 	}
 
-	if err := s.workouts.CancelPreSkip(id); err != nil {
+	if err := s.workoutSvc.CancelPreSkipSession(id); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1003,6 +1007,8 @@ func (s *Server) handleNextVariantWorkoutSession(w http.ResponseWriter, r *http.
 		return
 	}
 
+	// GetSession here is the ownership/existence guard for this auth-scoped
+	// route; the variant-selection logic itself routes through the service.
 	session, err := s.workouts.GetSession(id)
 	if err != nil || session == nil {
 		http.Error(w, "Session not found", http.StatusNotFound)
@@ -1012,27 +1018,23 @@ func (s *Server) handleNextVariantWorkoutSession(w http.ResponseWriter, r *http.
 		http.Error(w, "Unauthorized", http.StatusForbidden)
 		return
 	}
-	if session.Status == "in_progress" || session.Status == "completed" || session.Status == "skipped" {
+
+	switch err := s.workoutSvc.NextVariant(id); {
+	case err == nil:
+		// proceed
+	case errors.Is(err, workoutsvc.ErrSessionNotFound):
+		http.Error(w, "Session not found", http.StatusNotFound)
+		return
+	case errors.Is(err, workoutsvc.ErrVariantChangeNotAllowed):
 		http.Error(w, "Cannot change variant for an active or completed session", http.StatusBadRequest)
 		return
-	}
-
-	group, err := s.workouts.GetGroup(session.GroupID)
-	if err != nil || group == nil {
+	case errors.Is(err, workoutsvc.ErrGroupNotFound):
 		http.Error(w, "Workout group not found", http.StatusNotFound)
 		return
-	}
-	if !group.IsRotating {
+	case errors.Is(err, workoutsvc.ErrGroupNotRotating):
 		http.Error(w, "Workout group does not use rotation", http.StatusBadRequest)
 		return
-	}
-
-	if err := s.workouts.AdvanceRotation(group.ID); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	if err := s.workouts.DeleteSession(id); err != nil {
+	default:
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1156,60 +1158,31 @@ func (s *Server) handleUpdateSessionStatus(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Validate status - only allow final states
-	validStatuses := map[string]bool{
-		"in_progress": true,
-		"completed":   true,
-		"skipped":     true,
-	}
-	if !validStatuses[req.Status] {
+	outcome, err := s.workoutSvc.SetSessionStatus(id, req.Status)
+	if errors.Is(err, workoutsvc.ErrInvalidSessionStatus) {
 		http.Error(w, "Invalid status. Allowed values: in_progress, completed, skipped", http.StatusBadRequest)
 		return
 	}
-
-	// Get session to check for notification message
-	session, err := s.workouts.GetSession(id)
 	if err != nil {
-		http.Error(w, "Session not found", http.StatusNotFound)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if session == nil {
+	if outcome == nil {
 		http.Error(w, "Session not found", http.StatusNotFound)
 		return
 	}
 
-	// Route to the appropriate service method for compound operations
-	switch req.Status {
-	case "skipped":
-		// Service handles skip + rotation advancement for rotating groups
-		if err := s.workoutSvc.SkipSession(id); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-	case "completed":
-		// Service handles complete + rotation advancement for rotating groups
-		if err := s.workoutSvc.CompleteSession(id); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-	default:
-		// in_progress: simple status update, no compound logic
-		if err := s.workouts.UpdateSessionStatus(id, req.Status); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-	}
-
-	// If skipped or completed, clean up bot state and try to delete the notification message
-	if req.Status == "skipped" || req.Status == "completed" {
+	// For terminal states, clean up bot state and close the notification.
+	// Notification dispatch stays in the transport layer.
+	if outcome.Terminal {
 		if s.workout != nil {
 			s.workout.ClearPendingExercises(id)
 			if err := s.workout.CleanupWorkoutSessionMessages(id); err != nil {
 				slog.Error("Failed to cleanup workout messages for session", "sessionID", id, "error", err)
 			}
 		}
-		if session.NotificationMessageID != nil {
-			s.deleteNotification(r.Context(), *session.NotificationMessageID)
+		if outcome.Session.NotificationMessageID != nil {
+			s.deleteNotification(r.Context(), *outcome.Session.NotificationMessageID)
 		}
 		s.closeNotification(r.Context(), fmt.Sprintf("workout-%d", id))
 	}

@@ -63,6 +63,12 @@ func (m *mockWorkoutStore) CompleteSession(id int64) error {
 	return m.completeErr
 }
 
+func (m *mockWorkoutStore) UpdateSessionStatus(id int64, status string) error { return nil }
+
+func (m *mockWorkoutStore) PreSkipSession(id int64) error { return nil }
+
+func (m *mockWorkoutStore) CancelPreSkip(id int64) error { return nil }
+
 func (m *mockWorkoutStore) AdvanceRotation(groupID int64) error {
 	m.advanceCalled = true
 	return m.advanceErr
