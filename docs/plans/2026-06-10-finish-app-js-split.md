@@ -138,20 +138,49 @@ Constraints discovered:
 
 ### Task 2: Extract `features/settings.js` (Settings view)
 
-- [ ] create `web/static/js/features/settings.js` with `loadSettings()`,
+- [x] create `web/static/js/features/settings.js` with `loadSettings()`,
   `toggleFeatureSetting()`, `renderSettingsStaleBadge()`, the timezone
   info rendering glue, and Integrations section logic from `app.js`
   (~1459–1700+); expose as `window.SettingsView` and keep
   `window.renderSettingsTimeInfo` / `window.initOIDCSetupBanner`
   attached to the same names
-- [ ] feature-toggle writes must keep their current data-flow contract
+  — extracted as a plain global script (matching `features/meds-history.js`,
+  Task 1). Discovery found the timezone glue (`window.renderSettingsTimeInfo`)
+  already lives in `core/time-format.js` and the Integrations section already
+  lives in `features/settings/integrations.js`; `loadSettings()` delegates to
+  both, so only the still-in-app.js Settings view cluster moved:
+  `loadSettings`, `renderSettingsStaleBadge`, `updateFeatureToggles`,
+  `updateFoodTargetsVisibility`, `toggleFeatureSetting`,
+  `updateFeatureTabVisibility`, and `initOIDCSetupBanner`. Bare function names
+  stay the live call path; `window.SettingsView` mirrors the public surface;
+  `window.initOIDCSetupBanner` re-attached.
+- [x] feature-toggle writes must keep their current data-flow contract
   (CLAUDE.md rule 9 — if the current code uses `applyOptimistic`, keep
   it; do not "fix" patterns mid-move)
-- [ ] delete moved code from `app.js`; update `index.html` + `sw.js`
-- [ ] allowlist `window.SettingsView` in `architecture.globals.test.js`
-- [ ] extend the settings/sections feature suite: settings render from
+  — `toggleFeatureSetting` moved verbatim (apiCall → SettingsState.setFeature →
+  rebuildCanonicalBottomNav → invalidateTags → updateFeatureTabVisibility); no
+  pattern changes.
+- [x] delete moved code from `app.js`; update `index.html` + `sw.js`
+  — moved code replaced by two pointer comments; the weight-unit comment block
+  was relocated next to its `bindWeightUnitSegmented` binding. `settings.js`
+  added after `settings/integrations.js` in `index.html` and `sw.js`
+  STATIC_ASSETS, and loaded after app.js in `frontend-harness.js`.
+  app.js 2005 → 1748 lines.
+- [x] allowlist `window.SettingsView` in `architecture.globals.test.js`
+  — added with justification; updated the now-stale `// app.js` comments on
+  `window.loadSettings` / `window.toggleFeatureSetting` /
+  `window.initOIDCSetupBanner` to point at `features/settings.js`.
+- [x] extend the settings/sections feature suite: settings render from
   warm cache, feature toggle flips nav visibility, stale badge mounts
-- [ ] run `pnpm test` — must pass before task 3
+  — added a `Settings view extraction → features/settings.js` describe to
+  `settings.toggles.test.js`: warm-cache DOM render (toggles + macros + offline
+  stale chip), active-section toggle bounces to Today + re-mounts nav,
+  non-active toggle re-mounts nav without bouncing, and failure (apiCall null)
+  reverts the checkbox + skips write side-effects. Existing
+  `settings.refresh-on-mount.test.js` / `settings.dexie-hydration.test.js` now
+  exercise the extracted module through the harness.
+- [x] run `pnpm test` — must pass before task 3
+  — 240 files / 2600 passed, 29 skipped, 0 failed.
 
 ### Task 3: Extract `features/today-loader.js` (Today orchestration)
 

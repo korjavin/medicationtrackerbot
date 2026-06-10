@@ -82,6 +82,7 @@ const WORKOUT_MIBAND_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/m
 const WORKOUT_SESSIONS_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/sessions.js');
 const WORKOUT_STATS_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/stats.js');
 const WORKOUT_INDEX_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/index.js');
+const SETTINGS_JS = path.join(REPO_ROOT, 'web/static/js/features/settings.js');
 const SETTINGS_INTEGRATIONS_JS = path.join(REPO_ROOT, 'web/static/js/features/settings/integrations.js');
 
 // Native platform abstraction layer (Phase 2b). Must load before feature
@@ -326,6 +327,14 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   evalFileCached(window, BP_JS);
   evalFileCached(window, WEIGHT_JS);
   evalFileCached(window, HEALTH_JS);
+
+  // settings.js — the Settings tab view (loadSettings / toggleFeatureSetting /
+  // updateFeatureToggles / updateFoodTargetsVisibility / updateFeatureTabVisibility
+  // / renderSettingsStaleBadge / initOIDCSetupBanner) extracted from app.js
+  // (Plan 2026-06-10 finish-app-js-split, Task 2). Loaded after app.js because
+  // it cross-references app.js globals (readPersistedTabOrder, switchTab) at call
+  // time and app.js's feature-toggle handlers reach toggleFeatureSetting here.
+  evalFileCached(window, SETTINGS_JS);
 
   // settings/integrations.js — Settings → Integrations section (Task 3 of
   // the local-only mode foundation). Loaded after the feature modules so

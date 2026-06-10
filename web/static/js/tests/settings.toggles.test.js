@@ -378,3 +378,169 @@ describe('Settings toggle disabled-state (Phase 9, Task 5)', () => {
         }
     });
 });
+
+// ----------------------------------------------------------------------------
+// Settings view extraction → features/settings.js (Plan 2026-06-10
+// finish-app-js-split, Task 2). These exercise the moved code path through the
+// frontend harness (which now loads features/settings.js after app.js):
+//   • warm-cache render — applyBundle paints toggles + macros + the stale chip
+//   • feature-toggle flips nav visibility — rebuildCanonicalBottomNav re-mount
+//     + updateFeatureTabVisibility bounce to Today when the active section's
+//     feature is turned off
+//   • error/revert — apiCall null restores the toggle, skips the write side
+// (warm-cache + stale-badge are also pinned in settings.refresh-on-mount.test.js;
+//  here we assert the DOM-level outcome of the extracted applyBundle.)
+// ----------------------------------------------------------------------------
+
+function installSettingsBundleCache(window, bundle, timestamp) {
+    const map = new Map([['settings_bundle', { id: 'settings_bundle', data: bundle, timestamp }]]);
+    window.MedTrackerDB = window.MedTrackerDB || {};
+    window.MedTrackerDB.ApiCache = {
+        async get(key) { const e = map.get(key); return e ? e.data : null; },
+        async getWithMeta(key) { const e = map.get(key); return e ? { data: e.data, timestamp: e.timestamp } : null; },
+        async set(key, data) { map.set(key, { id: key, timestamp: Date.now(), data }); },
+        async setWithMeta(key, data, ts) { map.set(key, { id: key, timestamp: ts, data }); },
+        async clear(key) { if (key) map.delete(key); else map.clear(); }
+    };
+    return map;
+}
+
+function setOnline(window, online) {
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => online });
+}
+
+describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Task 2)', () => {
+    it('loadSettings renders feature toggles, food macros, and the stale chip from a warm cache (offline)', async () => {
+        allowConsoleNoise();
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            const bundle = {
+                featureSettings: { medication: true, workout: false, food: true, bp: true, weight: false, health: true },
+                tabOrder: null,
+                timezone: 'Europe/Berlin',
+                serverTime: new Date().toISOString(),
+                serverTimezone: 'UTC',
+                weightUnitPreference: 'kg',
+                foodTargets: { calories: 1850, carbs: 190, protein: 125, fat: 62 },
+                bpReminderStatus: { enabled: true },
+                weightReminderStatus: { enabled: false }
+            };
+            installSettingsBundleCache(window, bundle, Date.now() - 90 * 60 * 1000); // 90 min old
+            await window.hydrateSectionsFromDexie();
+
+            // Offline: the fetcher throws so onCached (and the onError fallback)
+            // paint the cached bundle without the network advancing anything.
+            setOnline(window, false);
+            window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+
+            await window.loadSettings();
+
+            // Feature toggle checkboxes mirror the cached flags.
+            expect(document.getElementById('medication-feature-toggle').checked).toBe(true);
+            expect(document.getElementById('workout-feature-toggle').checked).toBe(false);
+            expect(document.getElementById('food-intake-toggle').checked).toBe(true);
+            expect(document.getElementById('weight-feature-toggle').checked).toBe(false);
+            // Food macro inputs reflect the cached targets.
+            expect(document.getElementById('food-target-calories').value).toBe('1850');
+            expect(document.getElementById('food-target-protein').value).toBe('125');
+            // Reminder toggles mirror the cached statuses.
+            expect(document.getElementById('bp-reminders-toggle').checked).toBe(true);
+            expect(document.getElementById('weight-reminders-toggle').checked).toBe(false);
+            // Stale chip mounted from the 90-min-old cache row, offline tone.
+            const badge = document.getElementById('settings-stale-badge').querySelector('.wg-stale-badge');
+            expect(badge).not.toBeNull();
+            expect(badge.classList.contains('wg-stale-badge--offline')).toBe(true);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('toggling the active section\'s feature OFF re-mounts the canonical nav and bounces to Today', async () => {
+        allowConsoleNoise();
+        const { window, cleanup } = loadFrontendEnv();
+        try {
+            window.SettingsState.applyBootstrapFeatures({
+                medication: true, workout: true, food: true, bp: true, weight: true, health: true
+            });
+            window.AppStore.set('currentTab', 'workouts');
+
+            window.apiCall = vi.fn().mockResolvedValue({ ok: true });
+            window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
+            const rebuildSpy = vi.fn();
+            window.rebuildCanonicalBottomNav = rebuildSpy;
+            const switchTabSpy = vi.fn();
+            window.switchTab = switchTabSpy;
+
+            await window.toggleFeatureSetting('workout', false);
+
+            // The write succeeded → state flips, nav re-mounts with new flags.
+            expect(window.featureSettings.workout).toBe(false);
+            expect(rebuildSpy).toHaveBeenCalledTimes(1);
+            // updateFeatureTabVisibility saw the active 'workouts' tab map to the
+            // now-disabled 'workout' feature and bounced to Today.
+            expect(switchTabSpy).toHaveBeenCalledWith('today');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('toggling a NON-active feature OFF re-mounts the nav but does not bounce away from the current tab', async () => {
+        allowConsoleNoise();
+        const { window, cleanup } = loadFrontendEnv();
+        try {
+            window.SettingsState.applyBootstrapFeatures({
+                medication: true, workout: true, food: true, bp: true, weight: true, health: true
+            });
+            window.AppStore.set('currentTab', 'today');
+
+            window.apiCall = vi.fn().mockResolvedValue({ ok: true });
+            window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
+            window.rebuildCanonicalBottomNav = vi.fn();
+            const switchTabSpy = vi.fn();
+            window.switchTab = switchTabSpy;
+
+            await window.toggleFeatureSetting('weight', false);
+
+            expect(window.featureSettings.weight).toBe(false);
+            expect(window.rebuildCanonicalBottomNav).toHaveBeenCalledTimes(1);
+            // Active tab is Today (no feature) → no bounce.
+            expect(switchTabSpy).not.toHaveBeenCalled();
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('a failed feature toggle (apiCall null) reverts the checkbox and skips the write side-effects', async () => {
+        allowConsoleNoise();
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            // Authoritative state: food is OFF.
+            window.SettingsState.applyBootstrapFeatures({
+                medication: true, workout: true, food: false, bp: true, weight: true, health: true
+            });
+            // Simulate the user flipping the checkbox ON in the DOM before the
+            // POST that is about to fail.
+            const foodToggle = document.getElementById('food-intake-toggle');
+            foodToggle.checked = true;
+
+            window.apiCall = vi.fn().mockResolvedValue(null); // failure
+            const setFeatureSpy = vi.spyOn(window.SettingsState, 'setFeature');
+            const invalidateSpy = vi.fn().mockResolvedValue(undefined);
+            window.DataStore.invalidateTags = invalidateSpy;
+            window.rebuildCanonicalBottomNav = vi.fn();
+
+            await window.toggleFeatureSetting('food', true);
+
+            // updateFeatureToggles re-synced the checkbox back to the (still OFF)
+            // authoritative state so the UI doesn't lie.
+            expect(foodToggle.checked).toBe(false);
+            // The write side-effects never ran on the failure path.
+            expect(setFeatureSpy).not.toHaveBeenCalled();
+            expect(invalidateSpy).not.toHaveBeenCalled();
+            expect(window.rebuildCanonicalBottomNav).not.toHaveBeenCalled();
+            expect(window.featureSettings.food).toBe(false);
+        } finally {
+            cleanup();
+        }
+    });
+});

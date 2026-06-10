@@ -46,7 +46,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.requestTabRefresh',         // app.js — called by data-store.js on change event
     'window.reloadCurrentTab',          // app.js — called by data-store.js + sync.js
     'window.renderSettingsTimeInfo',    // app.js — renders read-only timezone/server clock info in settings
-    'window.initOIDCSetupBanner',       // app.js — renders the OIDC setup banner inside the Settings card; exposed for test coverage of the enabled path
+    'window.initOIDCSetupBanner',       // features/settings.js — renders the OIDC setup banner inside the Settings card; exposed for test coverage of the enabled path (Plan 2026-06-10 finish-app-js-split, Task 2)
     'window.healthOverviewCacheKey',    // app.js — timezone-qualified IndexedDB key for health overview; shared with health.js to avoid formula divergence
 
     // Core modules
@@ -102,8 +102,8 @@ const ALLOWED_GLOBALS = new Set([
     'window.saveFoodTargets',           // features/food/log.js — POSTs updated food targets to backend
     'window.safeAlert',                 // core/utils.js — wrapped alert used after save actions
     'window.loadFoodLogs',              // features/food/log.js — triggers food log reload after target save
-    'window.toggleFeatureSetting',      // app.js — toggles a single feature flag via API
-    'window.loadSettings',              // app.js — loads all settings subsections in parallel
+    'window.toggleFeatureSetting',      // features/settings.js — toggles a single feature flag via API (Plan 2026-06-10 finish-app-js-split, Task 2)
+    'window.loadSettings',              // features/settings.js — loads all settings subsections in parallel (Plan 2026-06-10 finish-app-js-split, Task 2)
     'window.weightUnitPreference',      // app.js / features/weight.js — user's preferred weight display unit ('kg' or 'lb'); hydrated from /api/bootstrap, read synchronously by the weight modal on open, written back via PATCH /api/settings/weight-unit when the user submits in a different unit
     'window.WeightUnitState',           // features/weight-unit-state.js — kg/lb preference state machine extracted from app.js (Plan 2026-05-13, Task 2). Owns the closure-private serial PATCH queue, intent counter, rollback baseline, pending-PATCH count, and locally-mutated flag. Public: commitAuthoritative, applySegmentedState, applyAuthoritative, reconcile, setPreference.
     'window.commitAuthoritativeWeightUnit', // features/weight-unit-state.js — backwards-compat shim around WeightUnitState.commitAuthoritative; called by features/weight.js after an out-of-band modal-side PATCH succeeds so a later Settings PATCH failure doesn't revert UI to a stale unit
@@ -167,6 +167,9 @@ const ALLOWED_GLOBALS = new Set([
     'window.FoodPhoto',                 // features/food/photo.js — food photo capture + EXIF + undo public API
     'window.FoodMeals',                 // features/food/meals.js — My Meals list + save-as-meal flow public API
     'window.FoodDB',                    // features/food/db.js — Food DB browse + paginate public API
+
+    // Settings view — extracted from app.js (Plan 2026-06-10 finish-app-js-split, Task 2).
+    'window.SettingsView',              // features/settings.js — namespace mirroring the Settings tab view (loadSettings, renderSettingsStaleBadge, updateFeatureToggles, updateFoodTargetsVisibility, toggleFeatureSetting, updateFeatureTabVisibility, initOIDCSetupBanner). The bare function names remain the live call path (app.js switchTab/reloadCurrentTab → loadSettings; feature-toggle change handlers → toggleFeatureSetting; loadInitData/auth-bootstrap.js → updateFeatureTabVisibility); this object documents the public surface.
 
     // Settings → Integrations section (local-only mode foundation, Task 3).
     'window.SettingsIntegrations',      // features/settings/integrations.js — load + save handlers for the Integrations card (OpenAI / Food / ElevenLabs credentials); routes the save through DataStore.applyOptimistic so the masked GET view repaints immediately on commit and rolls back on failure.

@@ -107,6 +107,7 @@ const STATIC_ASSETS = [
     '/static/js/features/modal-history.js',
     '/static/js/features/back-button.js',
     '/static/js/features/deeplink-router.js',
+    '/static/js/features/settings.js',
     '/static/js/features/settings/integrations.js',
     '/static/js/features/backend-logs.js',
     '/static/js/features/today.js',
