@@ -64,14 +64,15 @@ describe('Settings sync + timezone cards (Phase 9, Task 3)', () => {
         try {
             const settingsView = dom.window.document.getElementById('settings-view');
             const cards = settingsView.querySelectorAll('.wg-settings-section');
+            const cardMap = new Map();
             const titles = Array.from(cards).map((c) => {
                 const t = c.querySelector('.wg-settings-section__title');
-                return t ? t.textContent.trim() : '';
+                const title = t ? t.textContent.trim() : '';
+                cardMap.set(title, c);
+                return title;
             });
             expect(titles).toContain('Time & Timezone');
-            const tzCard = Array.from(cards).find((c) =>
-                c.querySelector('.wg-settings-section__title')?.textContent?.trim() === 'Time & Timezone'
-            );
+            const tzCard = cardMap.get('Time & Timezone');
             expect(tzCard).toBeDefined();
             const desc = tzCard.querySelector('.wg-settings-section__desc');
             expect(desc).not.toBeNull();
