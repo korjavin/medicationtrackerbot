@@ -46,8 +46,8 @@ const ALLOWED_GLOBALS = new Set([
     'window.requestTabRefresh',         // app.js — called by data-store.js on change event
     'window.reloadCurrentTab',          // app.js — called by data-store.js + sync.js
     'window.renderSettingsTimeInfo',    // app.js — renders read-only timezone/server clock info in settings
-    'window.initOIDCSetupBanner',       // app.js — renders the OIDC setup banner inside the Settings card; exposed for test coverage of the enabled path
-    'window.healthOverviewCacheKey',    // app.js — timezone-qualified IndexedDB key for health overview; shared with health.js to avoid formula divergence
+    'window.initOIDCSetupBanner',       // features/settings.js — renders the OIDC setup banner inside the Settings card; exposed for test coverage of the enabled path (Plan 2026-06-10 finish-app-js-split, Task 2)
+    'window.healthOverviewCacheKey',    // features/today-loader.js — timezone-qualified IndexedDB key for health overview; shared with health.js to avoid formula divergence (Plan 2026-06-10 finish-app-js-split, Task 3)
 
     // Core modules
     'window.DemoBanner',                // core/demo-banner.js — demo-mode banner mount + 429 `demo_rate_limit` popup helper; mounted by auth-bootstrap.js when /api/bootstrap returns demo.enabled=true, invoked by core/api.js on 429 responses with a {error:'demo_rate_limit'} body
@@ -68,6 +68,7 @@ const ALLOWED_GLOBALS = new Set([
     // Features
     'window.handleDeepLinks',           // features/deeplink-router.js — called by bootstrap.js
     'window.TodayDashboard',            // features/today.js — aggregation contract consumed by the Today view renderer
+    'window.TodayLoader',               // features/today-loader.js — namespace mirroring the Today view loading orchestration (loadToday, _todayRender, _todayReadCaches, fetchSettingsBundle, todayFetchSpecs, fetchNextIntakePayload, loadNextIntakeCached, todayFoodKey, healthOverviewCacheKey) extracted from app.js (Plan 2026-06-10 finish-app-js-split, Task 3). The bare function names remain the live call path (app.js switchTab/reloadCurrentTab → loadToday; food/*.js + auth-bootstrap.js → todayFoodKey/loadToday; meds-history.js → fetchNextIntakePayload); this object documents the public surface and feeds the pure features/today.js (window.TodayDashboard) renderer.
     'window.WGCallAgent',               // features/elevenlabs-call.js — ElevenLabs conversational agent card on the Today screen; lazy-loads the convai-widget-embed script and mounts <elevenlabs-convai> after fetching a server-signed URL
     'window.WGCallIndicator',           // features/call-indicator.js — persistent floating pill above the bottom nav that surfaces ElevenLabs call state (connecting/in_call/error) across tab switches; subscribes to the wg-call-state window event
     'window.WGPhoneChrome',             // components/wg-phone-chrome.js — Wandergeek decorative iPhone-frame wrapper (status bar, dynamic island, home indicator) around the SPA on desktop; collapses on mobile/PWA
@@ -102,8 +103,8 @@ const ALLOWED_GLOBALS = new Set([
     'window.saveFoodTargets',           // features/food/log.js — POSTs updated food targets to backend
     'window.safeAlert',                 // core/utils.js — wrapped alert used after save actions
     'window.loadFoodLogs',              // features/food/log.js — triggers food log reload after target save
-    'window.toggleFeatureSetting',      // app.js — toggles a single feature flag via API
-    'window.loadSettings',              // app.js — loads all settings subsections in parallel
+    'window.toggleFeatureSetting',      // features/settings.js — toggles a single feature flag via API (Plan 2026-06-10 finish-app-js-split, Task 2)
+    'window.loadSettings',              // features/settings.js — loads all settings subsections in parallel (Plan 2026-06-10 finish-app-js-split, Task 2)
     'window.weightUnitPreference',      // app.js / features/weight.js — user's preferred weight display unit ('kg' or 'lb'); hydrated from /api/bootstrap, read synchronously by the weight modal on open, written back via PATCH /api/settings/weight-unit when the user submits in a different unit
     'window.WeightUnitState',           // features/weight-unit-state.js — kg/lb preference state machine extracted from app.js (Plan 2026-05-13, Task 2). Owns the closure-private serial PATCH queue, intent counter, rollback baseline, pending-PATCH count, and locally-mutated flag. Public: commitAuthoritative, applySegmentedState, applyAuthoritative, reconcile, setPreference.
     'window.commitAuthoritativeWeightUnit', // features/weight-unit-state.js — backwards-compat shim around WeightUnitState.commitAuthoritative; called by features/weight.js after an out-of-band modal-side PATCH succeeds so a later Settings PATCH failure doesn't revert UI to a stale unit
@@ -132,6 +133,7 @@ const ALLOWED_GLOBALS = new Set([
 
     // Medication scheduling utilities — extracted from app.js (Plan 2026-05-13, Task 5).
     'window.MedicationUtils',               // features/medication-utils.js — namespace exposing parseMedicationSchedule, getNextScheduledDate, getMedicationScheduleText, getLastTakenTimeMs. Consumed by features/meds.js (row renderer + bucket sort) and app.js's _todayRender helper-hand-off so today.js can compute a fallback next-dose from bootstrap.medications.
+    'window.MedsHistory',                   // features/meds-history.js — namespace mirroring the medication add modal + form helpers, the Meds → History load + next-intake card, and the medication-confirm modal flow (confirm/skip/edit/log-past) extracted from app.js (Plan 2026-06-10 finish-app-js-split, Task 1). The bare function names remain the live call path (app.js bindMedicationControls/bindNotificationControls arrow wrappers, features/meds.js typeof-guarded optimistic helpers); this object documents the public surface.
     'window.parseMedicationSchedule',       // features/medication-utils.js — backwards-compat shim; today.js helper fallback path (features/today.js:163) looks it up by name when the aggregator opts arg omits helpers.
     'window.getNextScheduledDate',          // features/medication-utils.js — backwards-compat shim; today.js helper fallback path (features/today.js:165) looks it up by name when the aggregator opts arg omits helpers.
     'window.getMedicationScheduleText',     // features/medication-utils.js — backwards-compat shim; not currently called by name elsewhere but preserved alongside its siblings so external consumers (push deeplink, future feature files) keep resolving.
@@ -154,6 +156,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.WorkoutSessionsState',      // features/workout/sessions.js — closure-private session-modal state (logs / data / originalStatus) exposed via getter/setter
     'window.WorkoutStats',              // features/workout/stats.js — stats sub-tab public API
     'window.WorkoutNextCard',           // features/workout/next-card.js — next-workout card public API
+    'window.WorkoutModals',             // features/workout/modals.js — namespace mirroring the workout-start push-notification modal flow (showWorkoutStartModal, closeWorkoutStartModal, startWorkoutFromModal, snoozeWorkout, skipWorkout, skipWorkoutFromModal) extracted from app.js (Plan 2026-06-10 finish-app-js-split, Task 4). The bare function names remain the live call path (app.js bindNotificationControls arrow wrappers + handlePushAction); this object documents the public surface.
 
     // Food split (2026-05-13: features/food.js → features/food/*.js).
     // Each split file exposes a single public-API namespace on window; the
@@ -166,6 +169,9 @@ const ALLOWED_GLOBALS = new Set([
     'window.FoodPhoto',                 // features/food/photo.js — food photo capture + EXIF + undo public API
     'window.FoodMeals',                 // features/food/meals.js — My Meals list + save-as-meal flow public API
     'window.FoodDB',                    // features/food/db.js — Food DB browse + paginate public API
+
+    // Settings view — extracted from app.js (Plan 2026-06-10 finish-app-js-split, Task 2).
+    'window.SettingsView',              // features/settings.js — namespace mirroring the Settings tab view (loadSettings, renderSettingsStaleBadge, updateFeatureToggles, updateFoodTargetsVisibility, toggleFeatureSetting, updateFeatureTabVisibility, initOIDCSetupBanner). The bare function names remain the live call path (app.js switchTab/reloadCurrentTab → loadSettings; feature-toggle change handlers → toggleFeatureSetting; loadInitData/auth-bootstrap.js → updateFeatureTabVisibility); this object documents the public surface.
 
     // Settings → Integrations section (local-only mode foundation, Task 3).
     'window.SettingsIntegrations',      // features/settings/integrations.js — load + save handlers for the Integrations card (OpenAI / Food / ElevenLabs credentials); routes the save through DataStore.applyOptimistic so the masked GET view repaints immediately on commit and rolls back on failure.

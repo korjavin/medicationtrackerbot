@@ -791,3 +791,151 @@ describe('features/workout/sessions.js — split-file integration', () => {
     expect(window.DataStore.hasPendingOptimistic('workout_next')).toBe(false);
   });
 });
+
+// ===========================================================================
+// Workout start modal extraction (Plan 2026-06-10 finish-app-js-split, Task 4)
+//
+// showWorkoutStartModal / closeWorkoutStartModal / startWorkoutFromModal /
+// snoozeWorkout / skipWorkout / skipWorkoutFromModal moved from app.js into
+// features/workout/modals.js. These tests pin the extracted module's public
+// surface and the success-path side effects (commit + invalidate + alert +
+// loadWorkouts + modal close) that the optimistic-stage tests above stop
+// short of asserting.
+// ===========================================================================
+describe('features/workout/modals.js — workout start modal flow', () => {
+  let env;
+  let consoleErrorSpy;
+
+  beforeEach(() => {
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    env = loadFrontendEnv({ withWorkout: true });
+  });
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore();
+    try { env.window.localStorage.clear(); } catch (_) { /* ignore */ }
+    env.cleanup();
+    env = null;
+  });
+
+  it('exposes the WorkoutModals public-API namespace', () => {
+    const { window } = env;
+    expect(window.WorkoutModals).toBeTypeOf('object');
+    expect(window.WorkoutModals.show).toBe(window.showWorkoutStartModal);
+    expect(window.WorkoutModals.close).toBe(window.closeWorkoutStartModal);
+    expect(window.WorkoutModals.start).toBe(window.startWorkoutFromModal);
+    expect(window.WorkoutModals.snooze).toBe(window.snoozeWorkout);
+    expect(window.WorkoutModals.skip).toBe(window.skipWorkout);
+    expect(window.WorkoutModals.skipFromModal).toBe(window.skipWorkoutFromModal);
+  });
+
+  it('showWorkoutStartModal stores the session on PushModalState and opens the modal', () => {
+    const { window, document } = env;
+    window.showWorkoutStartModal(77);
+    expect(window.PushModalState.getWorkoutSessionId()).toBe(77);
+    expect(document.getElementById('workout-start-modal').classList.contains('hidden')).toBe(false);
+  });
+
+  it('startWorkoutFromModal closes the modal and switches to the workouts tab', () => {
+    const { window, document } = env;
+    window.switchTab = vi.fn();
+    window.showWorkoutStartModal(77);
+    window.startWorkoutFromModal();
+    expect(window.switchTab).toHaveBeenCalledWith('workouts');
+    expect(document.getElementById('workout-start-modal').classList.contains('hidden')).toBe(true);
+  });
+
+  it('snoozeWorkout posts to the snooze endpoint, commits, invalidates, alerts and closes', async () => {
+    const { window, document } = env;
+    installApiCache(window, { workout_next: { session: { id: 80, status: 'pending' } } });
+    window.PushModalState.openWorkoutStart({ sessionId: 80 });
+    window.safeAlert = vi.fn();
+    window.apiCall = vi.fn().mockResolvedValue({ ok: true });
+    const invalidateSpy = vi.spyOn(window.DataStore, 'invalidateTags').mockResolvedValue(undefined);
+
+    window.ModalManager.workoutStart.open();
+    await window.snoozeWorkout(60);
+
+    expect(window.apiCall).toHaveBeenCalledWith('/api/workout/sessions/80/snooze', 'POST', { minutes: 60 });
+    expect(window.safeAlert).toHaveBeenCalledWith('Snoozed for 60 minutes');
+    expect(invalidateSpy).toHaveBeenCalledWith(['workout']);
+    expect(document.getElementById('workout-start-modal').classList.contains('hidden')).toBe(true);
+  });
+
+  it('snoozeWorkout is a no-op when no session is pending', async () => {
+    const { window } = env;
+    window.PushModalState.openWorkoutStart({ sessionId: null });
+    window.apiCall = vi.fn().mockResolvedValue({ ok: true });
+    await window.snoozeWorkout(60);
+    expect(window.apiCall).not.toHaveBeenCalled();
+  });
+
+  it('snoozeWorkout rolls back the optimistic stamp on POST failure', async () => {
+    const { window } = env;
+    const cache = installApiCache(window, { workout_next: { session: { id: 80, status: 'pending' } } });
+    window.PushModalState.openWorkoutStart({ sessionId: 80 });
+    window.safeAlert = vi.fn();
+    window.apiCall = vi.fn().mockResolvedValue(null);
+
+    await window.snoozeWorkout(60);
+
+    expect(window.safeAlert).not.toHaveBeenCalled();
+    const cached = cache.get('workout_next');
+    if (cached) {
+      expect(cached.session.is_snoozed).toBeFalsy();
+      expect(cached.session.snoozed_until).toBeFalsy();
+    }
+  });
+
+  it('skipWorkout posts to the skip endpoint, commits, alerts, reloads and closes', async () => {
+    const { window, document } = env;
+    installApiCache(window, { workout_next: { session: { id: 90, status: 'pending' } } });
+    window.PushModalState.openWorkoutStart({ sessionId: 90 });
+    window.safeAlert = vi.fn();
+    window.loadWorkouts = vi.fn();
+    window.safeConfirm = (_msg, cb) => Promise.resolve(cb(true));
+    window.apiCall = vi.fn().mockResolvedValue({ ok: true });
+
+    window.ModalManager.workoutStart.open();
+    await window.skipWorkoutFromModal();
+
+    expect(window.apiCall).toHaveBeenCalledWith('/api/workout/sessions/90/skip', 'POST');
+    expect(window.safeAlert).toHaveBeenCalledWith('Workout skipped');
+    expect(window.loadWorkouts).toHaveBeenCalled();
+    expect(document.getElementById('workout-start-modal').classList.contains('hidden')).toBe(true);
+  });
+
+  it('skipWorkout does not call the API when the confirm is declined', async () => {
+    const { window } = env;
+    installApiCache(window, { workout_next: { session: { id: 90, status: 'pending' } } });
+    window.PushModalState.openWorkoutStart({ sessionId: 90 });
+    window.loadWorkouts = vi.fn();
+    window.safeConfirm = (_msg, cb) => Promise.resolve(cb(false));
+    window.apiCall = vi.fn().mockResolvedValue({ ok: true });
+
+    await window.skipWorkout();
+
+    expect(window.apiCall).not.toHaveBeenCalled();
+    expect(window.loadWorkouts).not.toHaveBeenCalled();
+  });
+
+  it('skipWorkout rolls back workout_next on POST failure', async () => {
+    const { window } = env;
+    const cache = installApiCache(window, { workout_next: { session: { id: 90, status: 'pending' } } });
+    window.PushModalState.openWorkoutStart({ sessionId: 90 });
+    window.safeAlert = vi.fn();
+    window.loadWorkouts = vi.fn();
+    window.safeConfirm = (_msg, cb) => Promise.resolve(cb(true));
+    window.apiCall = vi.fn().mockResolvedValue(null);
+
+    await window.skipWorkout();
+
+    expect(window.safeAlert).not.toHaveBeenCalled();
+    expect(window.loadWorkouts).not.toHaveBeenCalled();
+    const cached = cache.get('workout_next');
+    if (cached) {
+      expect(cached.session.id).toBe(90);
+      expect(cached.session.status).toBe('pending');
+    }
+  });
+});

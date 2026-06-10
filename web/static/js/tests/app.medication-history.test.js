@@ -676,3 +676,160 @@ describe('app.js medication, history and intake flows', () => {
     }
   });
 });
+
+// Confirm/skip flows extracted from app.js into features/meds-history.js
+// (Plan 2026-06-10 finish-app-js-split, Task 1). These pin the
+// medication-confirm modal's two primary mutations end-to-end through the
+// harness so the extraction stays behavior-preserving.
+describe('meds-history confirm/skip flows (extracted module)', () => {
+  let consoleLogSpy;
+  let consoleErrorSpy;
+
+  beforeEach(() => {
+    consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    consoleLogSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('confirmSelectedMedications POSTs confirm-schedule, commits and shows "Confirmed!"', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      const scheduled = new Date().toISOString();
+      window.showMedicationConfirmModal([1, 2], ['Aspirin', 'Magnesium'], scheduled, 'confirm', [100, 101]);
+      // Both rows are checked by default → both meds confirmed.
+      expect(document.querySelectorAll('.med-confirm-check:checked').length).toBe(2);
+
+      window.apiCall = vi.fn().mockResolvedValue({ status: 'ok' });
+      const safeAlertSpy = vi.spyOn(window, 'safeAlert').mockImplementation(() => {});
+      const commitSpy = vi.spyOn(window, '_commitOptimistic');
+      const rollbackSpy = vi.spyOn(window, '_rollbackOptimistic');
+      const refreshSpy = vi.spyOn(window, 'refreshMedsAfterMutation').mockImplementation(() => {});
+      const closeSpy = vi.spyOn(window, 'closeMedicationConfirmModal');
+
+      await window.confirmSelectedMedications();
+
+      expect(window.apiCall).toHaveBeenCalledWith(
+        '/api/medications/confirm-schedule',
+        'POST',
+        expect.objectContaining({
+          scheduled_at: scheduled,
+          medication_ids: [1, 2],
+          intake_ids: [100, 101]
+        })
+      );
+      expect(commitSpy).toHaveBeenCalled();
+      expect(rollbackSpy).not.toHaveBeenCalled();
+      expect(safeAlertSpy.mock.calls.map((c) => c[0])).toContain('Confirmed!');
+      expect(refreshSpy).toHaveBeenCalled();
+      expect(closeSpy).toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('confirmSelectedMedications rolls back and never claims success when the POST throws', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      window.showMedicationConfirmModal([1], ['Aspirin'], new Date().toISOString(), 'confirm', [100]);
+      expect(document.querySelectorAll('.med-confirm-check:checked').length).toBe(1);
+
+      window.apiCall = vi.fn().mockRejectedValue(new Error('network down'));
+      const safeAlertSpy = vi.spyOn(window, 'safeAlert').mockImplementation(() => {});
+      const commitSpy = vi.spyOn(window, '_commitOptimistic');
+      const rollbackSpy = vi.spyOn(window, '_rollbackOptimistic');
+      const closeSpy = vi.spyOn(window, 'closeMedicationConfirmModal');
+
+      await expect(window.confirmSelectedMedications()).rejects.toThrow('network down');
+
+      expect(rollbackSpy).toHaveBeenCalled();
+      expect(commitSpy).not.toHaveBeenCalled();
+      // No optimistic "Confirmed!" lie, and the modal stays open for a retry.
+      expect(safeAlertSpy.mock.calls.map((c) => c[0])).not.toContain('Confirmed!');
+      expect(closeSpy).not.toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('confirmSelectedMedications rolls back without success when the POST resolves falsy', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      window.showMedicationConfirmModal([1], ['Aspirin'], new Date().toISOString(), 'confirm', [100]);
+
+      window.apiCall = vi.fn().mockResolvedValue(null); // apiCall handled the error internally
+      const safeAlertSpy = vi.spyOn(window, 'safeAlert').mockImplementation(() => {});
+      const commitSpy = vi.spyOn(window, '_commitOptimistic');
+      const rollbackSpy = vi.spyOn(window, '_rollbackOptimistic');
+      const closeSpy = vi.spyOn(window, 'closeMedicationConfirmModal');
+
+      await window.confirmSelectedMedications();
+
+      expect(rollbackSpy).toHaveBeenCalled();
+      expect(commitSpy).not.toHaveBeenCalled();
+      expect(safeAlertSpy.mock.calls.map((c) => c[0])).not.toContain('Confirmed!');
+      // Falsy resolution still closes the modal (the catch path is the one that keeps it open).
+      expect(closeSpy).toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('skipSelectedMedications POSTs /api/medications/skip per intake and shows "Skipped!"', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      window.showMedicationConfirmModal([1, 2], ['Aspirin', 'Magnesium'], new Date().toISOString(), 'confirm', [100, 101]);
+
+      const endpoints = [];
+      window.apiCall = vi.fn(async (endpoint, _method, body) => {
+        endpoints.push([endpoint, body]);
+        return { ok: true };
+      });
+      const safeAlertSpy = vi.spyOn(window, 'safeAlert').mockImplementation(() => {});
+      const commitSpy = vi.spyOn(window, '_commitOptimistic');
+      const refreshSpy = vi.spyOn(window, 'refreshMedsAfterMutation').mockImplementation(() => {});
+
+      await window.skipSelectedMedications();
+
+      const skipCalls = endpoints.filter(([e]) => e === '/api/medications/skip');
+      expect(skipCalls.map(([, b]) => b.intake_id).sort()).toEqual([100, 101]);
+      expect(commitSpy).toHaveBeenCalled();
+      expect(safeAlertSpy.mock.calls.map((c) => c[0])).toContain('Skipped!');
+      expect(refreshSpy).toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('skipSelectedMedications rolls back and reports an error when a skip POST fails', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      window.showMedicationConfirmModal([1], ['Aspirin'], new Date().toISOString(), 'confirm', [100]);
+
+      window.apiCall = vi.fn(async (endpoint) => {
+        if (endpoint === '/api/medications/skip') return null; // server rejected the skip
+        return [];
+      });
+      const safeAlertSpy = vi.spyOn(window, 'safeAlert').mockImplementation(() => {});
+      const commitSpy = vi.spyOn(window, '_commitOptimistic');
+      const rollbackSpy = vi.spyOn(window, '_rollbackOptimistic');
+      // skipSelectedMedications refreshes the meds view even on error; stub it
+      // so the fire-and-forget loadMeds()/loadHistory() don't reject unhandled
+      // against an unseeded DOM.
+      vi.spyOn(window, 'refreshMedsAfterMutation').mockImplementation(() => {});
+
+      await window.skipSelectedMedications();
+
+      expect(rollbackSpy).toHaveBeenCalled();
+      expect(commitSpy).not.toHaveBeenCalled();
+      const messages = safeAlertSpy.mock.calls.map((c) => c[0]);
+      expect(messages).toContain('Error skipping some medications.');
+      expect(messages).not.toContain('Skipped!');
+    } finally {
+      cleanup();
+    }
+  });
+});

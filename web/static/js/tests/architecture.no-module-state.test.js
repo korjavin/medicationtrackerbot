@@ -14,10 +14,20 @@
  *   - web/static/js/features/food/         (every *.js)
  *
  * Allowed exceptions (the orchestrator escape hatch):
- *   - A single `let _state = ...` declaration is permitted if the same line
+ *   - A single `let _<name> = ...` declaration is permitted if the same line
  *     also carries the comment `// module-state: <reason>`. This is the
  *     documented form referenced in docs/plans/2026-05-13-split-app-js.md
  *     (Task 7) and 2026-05-13-split-workout-food-features.md (Task 3).
+ *   - The declared name MUST be unique across all scanned files. These files
+ *     load as plain (classic, non-module) `<script>` tags, so a top-level
+ *     `let`/`const` lives in the page's single shared global lexical scope —
+ *     two files both declaring top-level `let _state` is a redeclaration that
+ *     throws `SyntaxError: Identifier '_state' has already been declared`,
+ *     killing the second script entirely. Closure-private `_state` inside an
+ *     IIFE (indented, see `core/time-format.js`) is unaffected because it
+ *     never reaches the global scope; only column-zero declarations collide.
+ *     Give each plain-global-script module a distinct state name
+ *     (e.g. `_todayLoaderState`, `_medsHistoryState`).
  *
  * Grandfathered files:
  *   - A small set of legacy files still hold top-level `let`/`var` from before
@@ -28,8 +38,10 @@
  * Adding a new file:
  *   - Wrap your mutable state in an IIFE that exposes the public API on
  *     `window.X`. See `today.js` for the reference shape.
- *   - If you genuinely need one annotated module-level `_state`, write it as:
- *       let _state = { ... }; // module-state: <one-line reason>
+ *   - If you genuinely need one annotated module-level reducer, write it as:
+ *       let _<uniqueName> = { ... }; // module-state: <one-line reason>
+ *     The name must be unique across scanned files (see the shared-global-scope
+ *     note above).
  *   - Anything else fails this test by design.
  *
  * `const` declarations at module scope are fine — those are compile-time
@@ -90,10 +102,12 @@ const GRANDFATHERED = new Set([
 // block and therefore not module-level state.
 const TOP_LEVEL_LET_VAR_RE = /^(let|var)\s+/;
 
-// The annotated escape hatch: `let _state = ...; // module-state: <reason>`.
+// The annotated escape hatch: `let _<name> = ...; // module-state: <reason>`.
 // The comment must appear on the same line as the declaration so a code review
-// surfaces both at once.
-const ANNOTATED_STATE_RE = /^let\s+_state\s*=.*\/\/\s*module-state:\s*\S+/;
+// surfaces both at once. The name is captured so the cross-file uniqueness
+// check below can guard against two plain-global-script modules colliding in
+// the shared global lexical scope.
+const ANNOTATED_STATE_RE = /^let\s+(_\w+)\s*=.*\/\/\s*module-state:\s*\S+/;
 
 function listJsFiles(absDir) {
     if (!fs.existsSync(absDir)) return [];
@@ -114,6 +128,20 @@ function findModuleStateOffenders(absFile) {
         offenders.push({ line: i + 1, text: line });
     }
     return offenders;
+}
+
+// Names declared via the annotated escape hatch at column zero — i.e. in the
+// shared global lexical scope of the classic-script bundle. Returns
+// `[{ name, line }]`. IIFE-private `_state` (indented) is excluded by the
+// column-zero matcher and so never collides.
+function findAnnotatedStateNames(absFile) {
+    const lines = fs.readFileSync(absFile, 'utf8').split('\n');
+    const names = [];
+    for (let i = 0; i < lines.length; i++) {
+        const m = lines[i].match(ANNOTATED_STATE_RE);
+        if (m) names.push({ name: m[1], line: i + 1 });
+    }
+    return names;
 }
 
 describe('Architecture – no module-level mutable state in split files', () => {
@@ -156,12 +184,47 @@ describe('Architecture – no module-level mutable state in split files', () => 
         }
     });
 
+    it('every annotated module-state name is unique across scanned files', () => {
+        // These files load as classic (non-module) <script> tags, so a
+        // column-zero `let` shares one global lexical scope page-wide. Two
+        // files both declaring `let _state` redeclare in that scope →
+        // SyntaxError at load, killing the second script. The per-file tests
+        // above can't catch this (each file is individually valid); only a
+        // cross-file name check does. Regression guard for the round-2 app.js
+        // split, where meds-history.js + today-loader.js both used `_state`.
+        const byName = new Map(); // name -> [`relFile:line`, ...]
+        for (const { rel } of SCAN_DIRS) {
+            const absDir = path.join(REPO_ROOT, rel);
+            for (const absFile of listJsFiles(absDir)) {
+                const relFile = path.relative(REPO_ROOT, absFile);
+                for (const { name, line } of findAnnotatedStateNames(absFile)) {
+                    if (!byName.has(name)) byName.set(name, []);
+                    byName.get(name).push(`${relFile}:${line}`);
+                }
+            }
+        }
+        const collisions = [...byName.entries()].filter(([, sites]) => sites.length > 1);
+        if (collisions.length > 0) {
+            throw new Error(
+                'Duplicate top-level module-state names across classic-script files.\n' +
+                'These share one global lexical scope, so the second `let <name>` to\n' +
+                'load throws `SyntaxError: Identifier already declared` and its script\n' +
+                'never runs. Give each module a distinct state name.\n\n' +
+                collisions.map(([name, sites]) => `  • ${name}: ${sites.join(', ')}`).join('\n')
+            );
+        }
+    });
+
     it('the annotated-state escape hatch is parseable', () => {
         expect(ANNOTATED_STATE_RE.test('let _state = { x: 1 }; // module-state: weight-unit reducer')).toBe(true);
         expect(ANNOTATED_STATE_RE.test('let _state = {}; // module-state: x')).toBe(true);
+        expect(ANNOTATED_STATE_RE.test('let _todayLoaderState = {}; // module-state: x')).toBe(true);
         expect(ANNOTATED_STATE_RE.test('let _state = {}; // module-state:')).toBe(false);
         expect(ANNOTATED_STATE_RE.test('let _state = {};')).toBe(false);
+        // Must be `_`-prefixed: a bare name is not the documented form.
         expect(ANNOTATED_STATE_RE.test('let foo = {}; // module-state: x')).toBe(false);
+        // The captured name is the identifier.
+        expect('let _todayLoaderState = {}; // module-state: x'.match(ANNOTATED_STATE_RE)[1]).toBe('_todayLoaderState');
     });
 
     it('the top-level let/var matcher rejects indented declarations', () => {

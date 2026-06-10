@@ -1,0 +1,308 @@
+// ==================== Settings view ====================
+// Extracted from app.js (Plan 2026-06-10 "finish-app-js-split", Task 2).
+//
+// This file owns the Settings tab's view orchestration: the SWR settings-bundle
+// load (loadSettings), the feature-toggle write path (toggleFeatureSetting), the
+// feature-toggle / food-targets / nav-visibility DOM sync helpers, the Settings
+// stale badge mount, and the OIDC setup banner renderer. These functions remain
+// global (script-tag loading) and rely on app.js + sibling globals at call time:
+// apiCall, safeAlert, readPersistedTabOrder, switchTab, window.featureSettings,
+// window.AuthBootstrap, window.SettingsState, window.WeightUnitState,
+// window.FoodLog, window.TimeFormat, window.DataStore, window.WGStaleBadge,
+// window.SettingsIntegrations, window.AppStore, window.rebuildCanonicalBottomNav,
+// window.OIDC_CONFIG.
+//
+// The timezone info renderer (window.renderSettingsTimeInfo) lives in
+// core/time-format.js and the Integrations card lives in
+// features/settings/integrations.js — both already extracted; loadSettings()
+// delegates to them. The weight-unit (kg/lb) state machine lives in
+// features/weight-unit-state.js.
+//
+// Public surface is mirrored on window.SettingsView for discoverability; the
+// bare function names are the live call path used by app.js bindings
+// (switchTab/reloadCurrentTab → loadSettings; the feature-toggle change handlers
+// → toggleFeatureSetting; loadInitData / auth-bootstrap.js →
+// updateFeatureTabVisibility) and by tests.
+
+function initOIDCSetupBanner() {
+    const container = document.getElementById('oidc-setup-container');
+    if (!container) return;
+
+    const oidcConfig = window.OIDC_CONFIG || { enabled: false };
+    if (!oidcConfig.enabled) {
+        container.replaceChildren();
+        return;
+    }
+
+    const title = document.createElement('h3');
+    title.className = 'wg-settings-section__title';
+    title.textContent = 'OIDC Setup';
+
+    const desc = document.createElement('p');
+    desc.className = 'wg-settings-section__desc';
+    desc.textContent = 'Copy redirect URIs for Pocket-ID / OIDC clients.';
+
+    const rowList = document.createElement('div');
+    rowList.className = 'wg-settings-row-list';
+
+    const row = document.createElement('div');
+    row.className = 'wg-settings-row';
+
+    const rowContent = document.createElement('div');
+    rowContent.className = 'wg-settings-row__content';
+    const rowTitle = document.createElement('div');
+    rowTitle.className = 'wg-settings-row__title wg-mono-display';
+    rowTitle.textContent = 'Redirect URIs';
+    const rowDesc = document.createElement('div');
+    rowDesc.className = 'wg-settings-row__desc';
+    rowDesc.textContent = 'Opens the setup page (new tab) to copy redirect URIs and client credentials into your Pocket-ID / OIDC clients.';
+    rowContent.appendChild(rowTitle);
+    rowContent.appendChild(rowDesc);
+
+    const rowControl = document.createElement('div');
+    rowControl.className = 'wg-settings-row__control';
+    // Opens in a new tab so the mini-app URL isn't clobbered — returning via
+    // browser-back otherwise re-runs handleDeepLinks() with no matching path
+    // and switchTab('today') fires as a fallback.
+    const actionLink = document.createElement('a');
+    actionLink.className = 'wg-gloss wg-settings-action-btn';
+    actionLink.textContent = 'Open';
+    actionLink.href = '/oidc-setup';
+    actionLink.target = '_blank';
+    actionLink.rel = 'noopener noreferrer';
+    actionLink.setAttribute('aria-label', 'Open OIDC setup page in a new tab');
+    rowControl.appendChild(actionLink);
+
+    row.appendChild(rowContent);
+    row.appendChild(rowControl);
+    rowList.appendChild(row);
+
+    container.replaceChildren();
+    container.appendChild(title);
+    container.appendChild(desc);
+    container.appendChild(rowList);
+}
+
+// Load settings (BP reminders status, etc.)
+async function loadSettings() {
+    const applyBundle = async (rawBundle) => {
+        const bundle = window.AuthBootstrap.normalizeSettingsBundle(rawBundle);
+        window.SettingsState.applyBootstrapFeatures(bundle.featureSettings);
+        window.WeightUnitState.applyAuthoritative(bundle.weightUnitPreference);
+        updateFeatureToggles();
+        updateFeatureTabVisibility();
+
+        window.FoodLog.targets = { ...bundle.foodTargets };
+        const targets = window.FoodLog.targets;
+        const calsInput = document.getElementById('food-target-calories');
+        const carbsInput = document.getElementById('food-target-carbs');
+        const protInput = document.getElementById('food-target-protein');
+        const fatInput = document.getElementById('food-target-fat');
+        if (calsInput) calsInput.value = targets.calories || '';
+        if (carbsInput) carbsInput.value = targets.carbs || '';
+        if (protInput) protInput.value = targets.protein || '';
+        if (fatInput) fatInput.value = targets.fat || '';
+
+        document.getElementById('bp-reminders-toggle').checked = !!bundle.bpReminderStatus.enabled;
+        document.getElementById('weight-reminders-toggle').checked = !!bundle.weightReminderStatus.enabled;
+        window.TimeFormat.render(bundle);
+        window.TimeFormat.ensureTimer();
+    };
+
+    const fetchBundle = async () => {
+        const [featureSettingsRes, foodTargetsRes, bpReminderStatus, weightReminderStatus, settingsRes] = await Promise.all([
+            apiCall('/api/settings/features', 'GET'),
+            apiCall('/api/food/settings/targets', 'GET'),
+            apiCall('/api/bp/reminder/status', 'GET'),
+            apiCall('/api/weight/reminder/status', 'GET'),
+            apiCall('/api/settings', 'GET')
+        ]);
+        // /api/settings now returns the same slices the four legacy endpoints
+        // return (features, food_targets, bp_reminder_status,
+        // weight_reminder_status). Treat it as a fallback for any legacy slice
+        // that came back null, so a partial outage of one legacy endpoint
+        // doesn't make us skip onFresh and leave Settings stale.
+        const features = featureSettingsRes !== null
+            ? featureSettingsRes
+            : (settingsRes && settingsRes.features !== undefined ? settingsRes.features : null);
+        const foodTargetsData = foodTargetsRes !== null
+            ? foodTargetsRes
+            : (settingsRes && settingsRes.food_targets !== undefined ? settingsRes.food_targets : null);
+        const bpReminder = bpReminderStatus !== null
+            ? bpReminderStatus
+            : (settingsRes && settingsRes.bp_reminder_status !== undefined ? settingsRes.bp_reminder_status : null);
+        const weightReminder = weightReminderStatus !== null
+            ? weightReminderStatus
+            : (settingsRes && settingsRes.weight_reminder_status !== undefined ? settingsRes.weight_reminder_status : null);
+        // apiCall returns null silently on offline / 5xx. Defaulting null
+        // slices to {} / 0 / {enabled:false} here would produce a non-null
+        // bundle that fetchFresh would then write to ApiCache, blanking the
+        // good cached bundle and the rendered UI (toggles off, macros 0,
+        // weight unit back to kg). Surface the failure to loadSWR by
+        // returning null — it skips onFresh and the cached row + onCached
+        // already-painted UI stay intact.
+        if (
+            settingsRes === null
+            || features === null
+            || foodTargetsData === null
+            || bpReminder === null
+            || weightReminder === null
+        ) {
+            return null;
+        }
+        // tab_order: /api/settings includes it (when set) but for compat with
+        // clients that haven't migrated to consuming it from here, prefer the
+        // existing cache, then fall back to localStorage, then to the /api/settings
+        // response. This preserves the user's saved Today card order across SWR
+        // re-writes and invalidations of settings_bundle.
+        let tabOrder = null;
+        try {
+            const existing = await window.DataStore.getCached('settings_bundle');
+            if (existing && Array.isArray(existing.tabOrder)) tabOrder = existing.tabOrder;
+        } catch (_) { /* no cache available — leave tabOrder null */ }
+        if (!tabOrder) tabOrder = readPersistedTabOrder();
+        if (!tabOrder && Array.isArray(settingsRes?.tab_order)) tabOrder = settingsRes.tab_order;
+        return {
+            featureSettings: features || {},
+            tabOrder,
+            timezone: settingsRes?.timezone || '',
+            serverTime: settingsRes?.server_time || '',
+            serverTimezone: settingsRes?.server_timezone || '',
+            dismissedTzSuggestion: settingsRes?.dismissed_tz_suggestion || '',
+            weightUnitPreference: settingsRes?.weight_unit_preference || window.weightUnitPreference || 'kg',
+            foodTargets: {
+                calories: foodTargetsData?.calories || 0,
+                carbs: foodTargetsData?.carbs || 0,
+                protein: foodTargetsData?.protein || 0,
+                fat: foodTargetsData?.fat || 0
+            },
+            bpReminderStatus: bpReminder || { enabled: false },
+            weightReminderStatus: weightReminder || { enabled: false }
+        };
+    };
+
+    // Mount the stale badge from the bootstrap-warmed settings_bundle row so
+    // the user can see "Offline · 2h old" when Settings is opened on a cold
+    // start without network — and "Updated just now" after the SWR fetch
+    // lands a fresh bundle. Best-effort: never blocks Settings render.
+    const mountStaleBadge = async () => {
+        try { await renderSettingsStaleBadge(); } catch (_) { /* no-op */ }
+    };
+
+    try {
+        await window.DataStore.loadSWR({
+            key: 'settings_bundle',
+            tags: ['settings', 'food_targets', 'feature_settings'],
+            fetcher: fetchBundle,
+            onCached: async (cached) => {
+                await applyBundle(cached);
+                await mountStaleBadge();
+            },
+            onFresh: async (fresh) => {
+                await applyBundle(fresh);
+                await mountStaleBadge();
+            },
+            onError: async (error, cached) => {
+                console.error('Failed to load settings:', error);
+                if (cached) applyBundle(cached);
+                await mountStaleBadge();
+            }
+        });
+    } catch (error) {
+        console.error('Failed to load settings:', error);
+    }
+    // Safety-net mount for the case where no callback fires (e.g., no cached
+    // row AND fetcher returns null) — mountFromKey gracefully no-ops if
+    // there's nothing to surface.
+    await mountStaleBadge();
+    // The Integrations section is loaded lazily from its own endpoint so
+    // the settings_bundle SWR fetch stays focused on the feature-flags +
+    // food-targets + reminders + weight-unit slice that bootstrap also
+    // returns. Best-effort: never blocks the rest of Settings.
+    if (window.SettingsIntegrations && typeof window.SettingsIntegrations.load === 'function') {
+        try { await window.SettingsIntegrations.load(); } catch (_) { /* no-op */ }
+    }
+}
+
+// Mounts the wg-stale-badge into the Settings section header from the
+// `settings_bundle` api_cache row (warmed by /api/bootstrap and refreshed by
+// loadSettings()'s SWR fetcher). Mirrors the BP/Weight/Workout/Health pattern.
+async function renderSettingsStaleBadge() {
+    const slot = document.getElementById('settings-stale-badge');
+    if (!slot) return;
+    const api = (typeof window !== 'undefined') ? window.WGStaleBadge : null;
+    if (!api || typeof api.mountFromKey !== 'function') {
+        slot.replaceChildren();
+        slot.classList.add('hidden');
+        return;
+    }
+    await api.mountFromKey({ slot, key: 'settings_bundle' });
+}
+
+function updateFeatureToggles() {
+    const flags = window.featureSettings || {};
+    document.getElementById('food-intake-toggle').checked = !!flags.food;
+    document.getElementById('bp-feature-toggle').checked = !!flags.bp;
+    document.getElementById('weight-feature-toggle').checked = !!flags.weight;
+    document.getElementById('health-feature-toggle').checked = !!flags.health;
+    document.getElementById('medication-feature-toggle').checked = !!flags.medication;
+    document.getElementById('workout-feature-toggle').checked = !!flags.workout;
+}
+
+function updateFoodTargetsVisibility() {
+    const settingsBlock = document.getElementById('food-target-settings');
+    if (!settingsBlock) return;
+    settingsBlock.style.display = window.featureSettings.food ? 'flex' : 'none';
+}
+
+async function toggleFeatureSetting(feature, enabled) {
+    const result = await apiCall(`/api/settings/features/${feature}`, 'POST', { enabled });
+    if (!result) {
+        // apiCall returns null on failure and has already surfaced the error.
+        // Revert the DOM toggle to the last-known state so the UI doesn't lie.
+        updateFeatureToggles();
+        return;
+    }
+    window.SettingsState.setFeature(feature, enabled);
+    if (typeof window.rebuildCanonicalBottomNav === 'function') {
+        window.rebuildCanonicalBottomNav();
+    }
+    try {
+        await window.DataStore.invalidateTags(['settings', 'feature_settings']);
+    } catch (e) {
+        console.warn(`Failed to invalidate settings cache after toggling ${feature}:`, e);
+    }
+    updateFeatureTabVisibility();
+}
+
+function updateFeatureTabVisibility() {
+    const tabToFeature = {
+        food: 'food',
+        health: 'health',
+        bp: 'bp',
+        weight: 'weight',
+        meds: 'medication',
+        workouts: 'workout'
+    };
+
+    const currentTab = window.AppStore && window.AppStore.get('currentTab');
+    const currentFeature = tabToFeature[currentTab];
+    if (currentFeature && !window.featureSettings[currentFeature]) {
+        switchTab('today');
+    }
+    updateFoodTargetsVisibility();
+}
+
+window.initOIDCSetupBanner = initOIDCSetupBanner;
+
+// Public surface mirror — bare names above are the live call path; this object
+// documents the module's API and satisfies the globals allowlist.
+window.SettingsView = {
+    initOIDCSetupBanner,
+    loadSettings,
+    renderSettingsStaleBadge,
+    updateFeatureToggles,
+    updateFoodTargetsVisibility,
+    toggleFeatureSetting,
+    updateFeatureTabVisibility
+};
