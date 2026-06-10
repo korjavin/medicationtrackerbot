@@ -85,6 +85,7 @@ const WORKOUT_STATS_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/st
 const WORKOUT_INDEX_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/index.js');
 const SETTINGS_JS = path.join(REPO_ROOT, 'web/static/js/features/settings.js');
 const SETTINGS_INTEGRATIONS_JS = path.join(REPO_ROOT, 'web/static/js/features/settings/integrations.js');
+const WORKOUT_MODALS_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/modals.js');
 
 // Native platform abstraction layer (Phase 2b). Must load before feature
 // modules that call window.Barcode / window.MediaCapture / window.Geolocation
@@ -352,6 +353,18 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   // its DOMContentLoaded bind sees the same DOM tree the rest of the
   // harness uses.
   evalFileCached(window, SETTINGS_INTEGRATIONS_JS);
+
+  // workout/modals.js — the workout-start push-notification modal flow
+  // (showWorkoutStartModal / closeWorkoutStartModal / startWorkoutFromModal /
+  // snoozeWorkout / skipWorkout / skipWorkoutFromModal) extracted from app.js
+  // (Plan 2026-06-10 finish-app-js-split, Task 4). Loaded here in the
+  // always-on section (NOT the withWorkout block below) because these bare
+  // globals previously lived in always-loaded app.js, and suites that don't
+  // pull in the full workout sub-tree still exercise them (app.weight-ruler-
+  // and-workout-start, features.push-modal). The functions resolve
+  // loadWorkouts / invalidateWorkoutCache / switchTab at call time, so they
+  // work whether or not the withWorkout sub-files are present.
+  evalFileCached(window, WORKOUT_MODALS_JS);
 
   // auth-flow.js: provides saveAuthState / getCachedAuthState / clearAuthState.
   evalFileCached(window, AUTH_FLOW_JS);

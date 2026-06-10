@@ -115,6 +115,7 @@ const STATIC_ASSETS = [
     '/static/js/features/tz-plan-banner.js',
     '/static/js/features/elevenlabs-call.js',
     '/static/js/features/call-indicator.js',
+    '/static/js/features/workout/modals.js',
     '/static/js/features/workout/next-card.js',
     '/static/js/features/workout/groups.js',
     '/static/js/features/workout/variants.js',

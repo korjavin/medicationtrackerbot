@@ -116,6 +116,10 @@ const ALLOWLIST = [
         file: 'workout/sessions.js',
         reason: 'workout session modal + ad-hoc start/skip/snooze flows; apiCall reads load session details when opening an edit modal — not a section-landing read. Mutations bypass the cache and are invalidated via the workout tag',
     },
+    {
+        file: 'workout/modals.js',
+        reason: 'workout-start push-notification modal — snooze/skip flows only; apiCall is POST-only (no section-landing reads). Mutations apply optimistically and are invalidated via the workout tag',
+    },
     // ---- Food split sub-files (orchestrator + mutation-only / non-API helpers) ----
     {
         file: 'food/index.js',

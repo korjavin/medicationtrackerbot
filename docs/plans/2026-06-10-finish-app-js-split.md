@@ -248,16 +248,49 @@ Constraints discovered:
 
 ### Task 4: Extract workout modal helpers into `features/workout/`
 
-- [ ] move `showWorkoutStartModal()`, `startWorkoutFromModal()`,
+- [x] move `showWorkoutStartModal()`, `startWorkoutFromModal()`,
   `snoozeWorkout()`, `skipWorkout()` (~2776–2870) into the existing
   `web/static/js/features/workout/` directory (new `modals.js` or the
   most fitting existing file — `sessions.js` if cohesive); re-attach
   the same global names used by push-modal / inline handlers
-- [ ] delete moved code from `app.js`; update `index.html` + `sw.js` if
+  — created `features/workout/modals.js` as a new file (not folded into
+  `sessions.js`: that file is IIFE-wrapped exposing only
+  `window.WorkoutSessions`, whereas these six functions must stay bare
+  window globals — tests call `window.showWorkoutStartModal` etc. directly
+  and app.js binds them via call-time arrow wrappers). Moved all six
+  cohesive functions: `showWorkoutStartModal`, `closeWorkoutStartModal`
+  (called by the dismiss bindClick + every action), `startWorkoutFromModal`,
+  `snoozeWorkout`, `skipWorkout`, `skipWorkoutFromModal`. Plain global
+  script (bare function declarations stay the live call path, matching
+  `index.js`/`next-card.js` and the Task 1-3 recipe); `window.WorkoutModals`
+  mirrors the public surface. No module-level state (pending session id
+  lives on `window.PushModalState`), so `no-module-state` passes untouched.
+- [x] delete moved code from `app.js`; update `index.html` + `sw.js` if
   a new file was created; allowlist any new namespace global
-- [ ] extend the workout feature suite: start-from-modal calls the right
+  — moved code replaced by one pointer comment; the bindClick wrappers
+  (832–836) + `handlePushAction` (1056) stay in app.js and resolve the
+  moved globals at call time. app.js 1211 → 1121 lines. `modals.js` added
+  before `next-card.js` in `index.html` + `sw.js` STATIC_ASSETS, and in
+  `frontend-harness.js` in the **always-on** section (NOT the `withWorkout`
+  block) because two suites that don't pull the full workout sub-tree —
+  `app.weight-ruler-and-workout-start`, `features.push-modal` — still
+  exercise these globals (they previously lived in always-loaded app.js).
+  `window.WorkoutModals` allowlisted in `architecture.globals.test.js`;
+  `workout/modals.js` added to the `architecture.offline-coverage.test.js`
+  ALLOWLIST (POST-only modal, no section-landing reads).
+- [x] extend the workout feature suite: start-from-modal calls the right
   endpoint optimistically, snooze and skip paths, failure rollback
-- [ ] run `pnpm test` — must pass before task 5
+  — added a `features/workout/modals.js — workout start modal flow` describe
+  to `features.workout-sessions.test.js`: namespace surface, modal open +
+  PushModalState write, start→switchTab('workouts')+close, snooze happy
+  (endpoint + commit + invalidate + alert + close), snooze no-session no-op,
+  snooze rollback, skip happy (endpoint + commit + alert + loadWorkouts +
+  close), skip confirm-declined no-op, skip rollback. The existing
+  snooze/skip optimistic + rollback tests in this suite now exercise the
+  extracted module through the harness.
+- [x] run `pnpm test` — must pass before task 5
+  — 241 files / 2615 passed, 29 skipped, 0 failed (one unrelated flaky
+  async-modal test, `bootstrap.tz-prompt-nonblocking`, passed on re-run).
 
 ### Task 5: Verify acceptance criteria
 
