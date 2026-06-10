@@ -338,7 +338,7 @@ async function renderMedsHistoryStaleBadge(cacheKey) {
 
 // module-state: holds the next-intake countdown setInterval handle so a
 // re-render clears the prior timer before starting a new one.
-let _state = { nextIntakeTimer: null }; // module-state: next-intake countdown interval handle
+let _medsHistoryState = { nextIntakeTimer: null }; // module-state: next-intake countdown interval handle
 
 function _formatCountdown(ms) {
     if (ms <= 0) return '0:00';
@@ -352,9 +352,9 @@ async function renderNextIntakeTrigger() {
     const container = document.getElementById('next-intake-trigger');
     if (!container) return;
 
-    if (_state.nextIntakeTimer) {
-        clearInterval(_state.nextIntakeTimer);
-        _state.nextIntakeTimer = null;
+    if (_medsHistoryState.nextIntakeTimer) {
+        clearInterval(_medsHistoryState.nextIntakeTimer);
+        _medsHistoryState.nextIntakeTimer = null;
     }
 
     try {
@@ -408,7 +408,7 @@ async function renderNextIntakeTrigger() {
             countdown.textContent = _formatCountdown(nextTime - Date.now());
         }
         updateCountdown();
-        _state.nextIntakeTimer = setInterval(updateCountdown, 30000);
+        _medsHistoryState.nextIntakeTimer = setInterval(updateCountdown, 30000);
 
         const details = document.createElement('div');
         details.className = 'wg-meds-next-intake-card__meta';

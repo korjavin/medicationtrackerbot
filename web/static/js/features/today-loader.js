@@ -25,7 +25,7 @@
 
 // module-state: the Today subscription handle (unsubscribe) and the refetch
 // in-flight guard (refreshInFlight) that coalesces concurrent loadToday() runs.
-let _state = { unsubscribe: null, refreshInFlight: false }; // module-state: Today subscription handle + refetch in-flight guard
+let _todayLoaderState = { unsubscribe: null, refreshInFlight: false }; // module-state: Today subscription handle + refetch in-flight guard
 
 function todayFoodKey(nowDate) {
     const d = nowDate || new Date();
@@ -463,8 +463,8 @@ async function loadToday() {
     const ctx = await _todayRender(foodKey);
     if (!ctx.rendered) return;
 
-    if (!_state.unsubscribe && typeof window.TodayDashboard.subscribe === 'function') {
-        _state.unsubscribe = window.TodayDashboard.subscribe({
+    if (!_todayLoaderState.unsubscribe && typeof window.TodayDashboard.subscribe === 'function') {
+        _todayLoaderState.unsubscribe = window.TodayDashboard.subscribe({
             onRefresh: (payload) => {
                 // 'bootstrap' and 'datastore' sources already trigger reloadCurrentTab
                 // via the app-level BOOTSTRAP_UPDATED handler and DataStore's
@@ -485,9 +485,9 @@ async function loadToday() {
     // Without this, a local mutation that clears next_intake would leave Today
     // showing "missing" until the user navigates away and back. fetchFresh
     // also registers tags so future invalidations work correctly.
-    if (!ctx.online || _state.refreshInFlight || !window.DataStore) return;
+    if (!ctx.online || _todayLoaderState.refreshInFlight || !window.DataStore) return;
     const specs = todayFetchSpecs(foodKey);
-    _state.refreshInFlight = true;
+    _todayLoaderState.refreshInFlight = true;
     let bootstrap = ctx.bootstrap;
     let swrCaches = ctx.swrCaches;
     try {
@@ -567,7 +567,7 @@ async function loadToday() {
             : Promise.resolve([]);
         await Promise.all([nextIntakePromise, otherFetches]);
     } finally {
-        _state.refreshInFlight = false;
+        _todayLoaderState.refreshInFlight = false;
     }
     if (window.AppStore && window.AppStore.get('currentTab') === 'today') {
         await _todayRender(foodKey);
