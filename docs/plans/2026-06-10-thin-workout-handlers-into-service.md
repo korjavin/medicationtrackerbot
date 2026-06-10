@@ -383,12 +383,23 @@ both moved into the service.
 
 ### Task 8: [Final] Update documentation
 
-- [ ] update CLAUDE.md: Code Layout entry for `internal/workout` →
-  `internal/domain/workout`; "Modifying workout rotation" section paths
-- [ ] update `docs/architecture.md` domain-service-pattern section: the
-  reference service path, and note that workout read models
-  (GetNext/Stats/ListSessions) live in the service
-- [ ] grep docs/ for `internal/workout` and fix remaining references
+- [x] update CLAUDE.md: Code Layout entry for `internal/workout` →
+  `internal/domain/workout` (now nested as the `workout/` sub-bullet under
+  `internal/domain`, noting the extracted read/write models); the
+  "Modifying workout rotation" section needed no change — it references
+  `internal/store/workout`, `internal/scheduler/workout.go`, and
+  `internal/bot/workout_callbacks.go`, none of which moved.
+- [x] update `docs/architecture.md` domain-service-pattern section: changed
+  the reference service path to `internal/domain/workout/service.go` and
+  added a `domain/workout/` bullet noting the read models (GetNext / GetStats
+  / ListSessions / GetSessionDetails / rotation / exercise-log read+writes)
+  now live in the service.
+- [x] grep docs/ for `internal/workout` and fix remaining references — the
+  two living docs (CLAUDE.md, docs/architecture.md) are now clean. The only
+  remaining hits are in point-in-time artifacts that correctly record the
+  pre-move world and must NOT be rewritten: this plan's own Overview/Context
+  (which narrate the move), the dated `docs/2026-05-13-go-code-review.md`
+  report, and the `docs/plans/completed/*` archive.
 
 ## Technical Details
 

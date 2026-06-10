@@ -100,7 +100,7 @@ go run ./cmd/seeddemo -user <telegram_user_id> -db meds.db -topup -seed 42
 - `internal/server` — HTTP handlers
 - `internal/bot` — Telegram bot — **thin channel layer only**
 - `internal/domain` — business logic services (medication, exercise, reminder, food, food_ai)
-- `internal/workout` — workout session service (reference service pattern)
+  - `workout/` — workout session service (reference service pattern): session lifecycle (start/snooze/skip/complete/ad-hoc) plus the next-workout engine, stats, session listing/details, rotation, and exercise-log read/write models extracted from the HTTP handlers
 - `internal/scheduler` — notification scheduler
 - `internal/mcp` — MCP server. Sub-packages: `registry/` (allowlisted operation catalog), `proxy/` (in-process API proxy used by the executor), `executor/` (Python runner orchestration). The bridge endpoint that the proxy talks to lives in `internal/server/mcp_bridge.go`.
 - `internal/rxnorm` — drug interaction checks
