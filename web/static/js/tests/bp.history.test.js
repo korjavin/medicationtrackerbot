@@ -108,8 +108,9 @@ describe('renderBPReadings (Phase 3, Task 5)', () => {
         const rows = document.querySelectorAll('#bp-list .wg-bp-reading-row');
         const pulseTags = Array.from(rows).map((r) => r.querySelector('.wg-bp-reading-row__pulse'));
         // Exactly one row has a pulse tag.
-        expect(pulseTags.filter((t) => t !== null).length).toBe(1);
-        const present = pulseTags.find((t) => t !== null);
+        const presentTags = pulseTags.filter((t) => t !== null);
+        expect(presentTags.length).toBe(1);
+        const present = presentTags[0];
         expect(present.classList.contains('wg-tag')).toBe(true);
         expect(present.classList.contains('wg-tag--mono')).toBe(true);
         expect(present.textContent).toBe('68 bpm');
