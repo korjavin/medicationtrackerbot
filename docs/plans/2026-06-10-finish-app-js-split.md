@@ -335,11 +335,30 @@ Constraints discovered:
 
 ### Task 6: [Final] Update documentation
 
-- [ ] update `docs/frontend.md` load-order / module list for the new files
-- [ ] note in `docs/plans/completed/2026-05-13-split-app-js.md`'s
+- [x] update `docs/frontend.md` load-order / module list for the new files
+  — Script Load Order item 14 now names the four round-2 modules
+  (`meds-history.js` / `today-loader.js` / `settings.js` / `workout/modals.js`)
+  with their namespaces and load band; added `window.TodayLoader` /
+  `MedsHistory` / `SettingsView` / `WorkoutModals` rows to the Global
+  Namespace Policy table; and repointed the now-stale `app.js` attributions
+  for the moved code: the Settings Dexie-hydration consumer (`loadSettings()`
+  → `features/settings.js`), the `OfflineNoCacheError` next-intake consumer
+  and `cachedFetch` Today consumer (→ `features/today-loader.js`), and the
+  `TodayDashboard` consumer (→ `features/today-loader.js` `_todayRender()`).
+- [x] note in `docs/plans/completed/2026-05-13-split-app-js.md`'s
   "follow-up" framing is now superseded by this plan (one-line pointer)
-- [ ] update CLAUDE.md only if a rule-level statement changed (likely
+  — added a `> Superseded (2026-06-10):` blockquote right after the
+  "A follow-up plan can split `checkAuth` and the Today refresh logic"
+  sentence, naming the four extracted modules and noting `checkAuth()`
+  intentionally stays in `app.js`.
+- [x] update CLAUDE.md only if a rule-level statement changed (likely
   nothing — verify)
+  — verified: nothing changed. The two CLAUDE.md `app.js` references
+  (rule 11's Telegram login screen + `checkAuth()` short-circuit; the
+  local-first-read recipe's "bootstrap apply path in `app.js`") both stay
+  accurate because `checkAuth()`, the login UI, and `applyBootstrapPayload`
+  all intentionally remained in `app.js`. The detailed frontend module list
+  lives in `docs/frontend.md` (updated above), not CLAUDE.md.
 
 ## Technical Details
 

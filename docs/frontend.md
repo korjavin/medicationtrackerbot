@@ -41,7 +41,7 @@ When the app is offline (or the backend returns 5xx behind Traefik) every priori
 
 Options: `tags` (forwarded to `cacheApiSnapshot`), `freshAfterMs` (default 60s — background revalidate after this), `staleAfterMs` (default 24h — flip the badge tone past this), `transform` (raw → cached value), `fetchOpts.method/body`. The 5xx-as-offline check reuses `window.isServerError` from `sync.js` when available, with an inline fallback so the helper works in isolation.
 
-**`OfflineNoCacheError`** — typed error (`window.OfflineNoCacheError`) raised only when no cache *and* network is unavailable. Every consumer must catch it and render a friendly empty state. Current consumers: `app.js` (Today's Next Medication tile), `features/food.js` (daily food log + products cache).
+**`OfflineNoCacheError`** — typed error (`window.OfflineNoCacheError`) raised only when no cache *and* network is unavailable. Every consumer must catch it and render a friendly empty state. Current consumers: `features/today-loader.js` (Today's Next Medication tile), `features/food.js` (daily food log + products cache).
 
 **`<wg-stale-badge>`** — `web/static/js/components/wg-stale-badge.js`, exposes `window.WGStaleBadge`. Two entry points:
 - `WGStaleBadge.render({ fetchedAt, isOffline, staleAfterMs, now })` — returns an HTMLElement chip
@@ -77,7 +77,7 @@ The "rolling-out" sections (BP, Weight, Meds, Workouts, Vitals) keep their exist
 | Vitals — Overview | `health_overview_<tz>` (TZ-qualified; with a most-recent-`health_overview_*` fallback when the current TZ has no row) | `ApiCache.getWithMeta(healthOverviewCacheKey())` + `ApiCache.findMostRecentByPrefix('health_overview_')` | `loadHealthOverview()` in `features/health.js` |
 | Vitals — Notes | `diary_notes` | `ApiCache.getWithMeta('diary_notes')` | `loadNotes()` in `features/health.js` |
 | Food — Today | `food_<YYYY-MM-DD>_day` (via `todayFoodKey(new Date())`) | `ApiCache.getWithMeta(todayFoodKey)` | `loadFoodLogs()` in `features/food.js` (via `cachedFetch`) + Today's food summary tile |
-| Settings | `settings_bundle` | `ApiCache.getWithMeta('settings_bundle')` | `loadSettings()` in `app.js` |
+| Settings | `settings_bundle` | `ApiCache.getWithMeta('settings_bundle')` | `loadSettings()` in `features/settings.js` |
 
 Each consumer mounts a `WGStaleBadge.mountFromKey({ slot, key: <same key> })` chip so the freshness of the hydrated row is visible on the cold-start render. Sections that read via `apiCall` (silent null on offline) — BP, Weight, Workouts Exercises, Vitals Notes — additionally use a `renderedSomething` post-`loadSWR` fallback to paint an explicit empty state when neither `onCached` / `onFresh` / `onError` fires (mirrors the meds pattern).
 
@@ -199,7 +199,7 @@ Loading order matters — there is no bundler; cross-file communication happens 
 11. `sync.js` — `offlineAwareApiCall`, `SyncManager`
 12. `data-store.js` — uses `window.MedTrackerDB` for cache, `window.apiCallDirect` for change polling
 13. `app.js` — domain UI and `checkAuth`
-14. `features/food.js`, `features/bp.js`, `features/weight.js`, `features/meds.js`, `features/workout.js`, `features/health.js` — extracted feature modules
+14. `features/food.js`, `features/bp.js`, `features/weight.js`, `features/meds.js`, `features/workout.js`, `features/health.js` — extracted feature modules. Round 2 of the `app.js` split (plan `docs/plans/2026-06-10-finish-app-js-split.md`) carved four view-orchestrator modules out of `app.js` that also load in this band (after `app.js`, before `features/bootstrap.js`): `features/meds-history.js` (`window.MedsHistory` — medication add modal, Meds → History load, confirm/skip modal flow), `features/today-loader.js` (`window.TodayLoader` — the impure Today loading shell: `loadToday` / `_todayRender` / `_todayReadCaches` / `fetchNextIntakePayload`, feeding the pure `features/today.js` renderer), `features/settings.js` (`window.SettingsView` — `loadSettings`, feature toggles, stale badge), and `features/workout/modals.js` (`window.WorkoutModals` — the workout-start push-notification modal flow). Each keeps its bare function names as the live call path; the `window.*` namespace only mirrors the public surface.
 15. `features/auth-flow.js` — auth-cache helpers used by `checkAuth()`
 16. `features/modal-history.js` — MutationObserver setup
 17. `features/deeplink-router.js` — `window.handleDeepLinks`
@@ -231,7 +231,11 @@ All explicit `window.*` assignments are tracked in `tests/architecture.globals.t
 | `window.MedTrackerPush` | `push.js` | app.js |
 | `window.initServiceWorker` | `app-shell.js` | index.html inline |
 | `window.showUpdateToast` | `app-shell.js` | service worker message |
-| `window.TodayDashboard` | `features/today.js` | app.js `loadToday()` |
+| `window.TodayDashboard` | `features/today.js` | `features/today-loader.js` `_todayRender()` |
+| `window.TodayLoader` | `features/today-loader.js` | app.js `switchTab()` / `reloadCurrentTab()` (`loadToday`), `features/meds-history.js` (`fetchNextIntakePayload`), `features/food/*.js` + `features/auth-bootstrap.js` (`todayFoodKey`) |
+| `window.MedsHistory` | `features/meds-history.js` | app.js medication/notification bindings (arrow wrappers), `features/meds.js` (`typeof`-guarded optimistic helpers) |
+| `window.SettingsView` | `features/settings.js` | app.js `switchTab()` / `reloadCurrentTab()` (`loadSettings`), feature-toggle change handlers, `features/auth-bootstrap.js` (`updateFeatureTabVisibility`) |
+| `window.WorkoutModals` | `features/workout/modals.js` | app.js notification bindings (arrow wrappers) + `handlePushAction` (workout-start modal flow) |
 | `window.AppBackButton` | `features/back-button.js` | features/bootstrap.js |
 | `window.WGIcons` | `components/wg-icons.js` | `wg-bottom-nav.js`, `features/today.js` (tile icons) |
 | `window.WGBottomNav` | `components/wg-bottom-nav.js` | `features/bootstrap.js` (`mountCanonicalBottomNav`) |
@@ -244,7 +248,7 @@ All explicit `window.*` assignments are tracked in `tests/architecture.globals.t
 | `window.WGStepsChart` | `components/wg-steps-chart.js` | `features/health.js` (Overview sub-tab steps bar card) |
 | `window.WGVitalsChart` | `components/wg-vitals-chart.js` | `features/health.js` (Overview sub-tab HR / SpO2 / Stress area+line cards, parameterised by `vital`) |
 | `window.WGStaleBadge` | `components/wg-stale-badge.js` | `features/today.js`, `features/food.js`, `features/bp.js`, `features/weight.js`, `features/meds.js`, `features/workout.js`, `features/health.js` (per-section freshness chip) |
-| `window.cachedFetch` | `cached-fetch.js` | `app.js` (Today next_intake), `features/food.js` (daily log + products) |
+| `window.cachedFetch` | `cached-fetch.js` | `features/today-loader.js` (Today next_intake), `features/food.js` (daily log + products) |
 | `window.OfflineNoCacheError` | `cached-fetch.js` | same consumers as `cachedFetch` (catch-and-render-empty-state branch) |
 | `window.MediaCapture` | `native/index.js` (web/capacitor impls register) | `features/food/photo.js`, `features/food/scanner.js` |
 | `window.Geolocation` | `native/index.js` (web/capacitor impls register) | no current caller (scaffolding for future travel-aware tz correction) |

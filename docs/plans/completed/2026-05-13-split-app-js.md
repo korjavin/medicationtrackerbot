@@ -311,6 +311,13 @@ extracts everything at once would be unreviewable.
 A follow-up plan can split `checkAuth` and the Today refresh logic
 once the extracted modules are battle-tested.
 
+> **Superseded (2026-06-10):** this follow-up framing landed as
+> `docs/plans/2026-06-10-finish-app-js-split.md`, which extracted the Today
+> loader (`features/today-loader.js`), Settings view (`features/settings.js`),
+> the medication modal/history (`features/meds-history.js`), and the workout
+> modals (`features/workout/modals.js`), bringing `app.js` to ~1,150 lines.
+> `checkAuth()` itself intentionally stays in `app.js`.
+
 ## Post-Completion
 
 **Manual verification** (recommended after each task):
