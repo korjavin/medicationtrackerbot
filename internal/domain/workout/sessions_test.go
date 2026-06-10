@@ -70,6 +70,16 @@ func (noopWorkoutStore) ListExerciseStats(userID int64) ([]store.ExerciseStat, e
 	return nil, nil
 }
 func (noopWorkoutStore) InitializeRotation(groupID, startingVariantID int64) error { return nil }
+func (noopWorkoutStore) UpdateExerciseLog(id int64, sets, reps *int, weight *float64, notes string) error {
+	return nil
+}
+func (noopWorkoutStore) UpdateExerciseLogStatus(id int64, status string) error { return nil }
+func (noopWorkoutStore) GetExerciseLogByID(id int64) (*store.WorkoutExerciseLog, error) {
+	return nil, nil
+}
+func (noopWorkoutStore) PropagateExerciseToSchedule(sessionID, exerciseID int64, name string, sets, reps *int, weight *float64) error {
+	return nil
+}
 
 // fakeSessionStore drives the ListSessions / GetSessionDetails read models.
 type fakeSessionStore struct {

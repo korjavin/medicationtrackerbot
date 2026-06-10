@@ -118,6 +118,16 @@ func (f *fakeNextStore) ListExerciseStats(userID int64) ([]store.ExerciseStat, e
 	return nil, nil
 }
 func (f *fakeNextStore) InitializeRotation(groupID, startingVariantID int64) error { return nil }
+func (f *fakeNextStore) UpdateExerciseLog(id int64, sets, reps *int, weight *float64, notes string) error {
+	return nil
+}
+func (f *fakeNextStore) UpdateExerciseLogStatus(id int64, status string) error { return nil }
+func (f *fakeNextStore) GetExerciseLogByID(id int64) (*store.WorkoutExerciseLog, error) {
+	return nil, nil
+}
+func (f *fakeNextStore) PropagateExerciseToSchedule(sessionID, exerciseID int64, name string, sets, reps *int, weight *float64) error {
+	return nil
+}
 
 // nextClock is the fixed "now" used across the table-driven cases: noon UTC on a
 // Saturday, so a 23:59 same-day workout is always in the future.

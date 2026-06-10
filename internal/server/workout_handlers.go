@@ -607,21 +607,6 @@ func (s *Server) handleInitializeRotation(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusOK)
 }
 
-// validateExerciseValues checks that sets, reps, and weight are within
-// reasonable bounds. Nil values are allowed (means "don't change").
-func validateExerciseValues(sets, reps *int, weight *float64) error {
-	if sets != nil && *sets < 0 {
-		return fmt.Errorf("sets must be non-negative")
-	}
-	if reps != nil && *reps < 0 {
-		return fmt.Errorf("reps must be non-negative")
-	}
-	if weight != nil && *weight < 0 {
-		return fmt.Errorf("weight must be non-negative")
-	}
-	return nil
-}
-
 func (s *Server) handleUpdateExerciseLog(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ID            int64    `json:"id"`
@@ -638,72 +623,17 @@ func (s *Server) handleUpdateExerciseLog(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := validateExerciseValues(req.SetsCompleted, req.RepsCompleted, req.WeightKg); err != nil {
+	err := s.workoutSvc.UpdateExerciseLog(req.ID, req.SetsCompleted, req.RepsCompleted, req.WeightKg, req.Notes, req.Status)
+	switch {
+	case errors.Is(err, workoutsvc.ErrNegativeSets),
+		errors.Is(err, workoutsvc.ErrNegativeReps),
+		errors.Is(err, workoutsvc.ErrNegativeWeight),
+		errors.Is(err, workoutsvc.ErrInvalidExerciseLogStatus):
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
-	}
-
-	switch req.Status {
-	case "", "completed", "skipped":
-		// allowed
-	default:
-		http.Error(w, "status must be one of \"\", \"completed\", \"skipped\"", http.StatusBadRequest)
-		return
-	}
-
-	err := s.workouts.UpdateExerciseLog(req.ID, req.SetsCompleted, req.RepsCompleted, req.WeightKg, req.Notes)
-	if err != nil {
+	case err != nil:
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
-	}
-
-	// Best-effort propagation of weight/reps/sets to workout schedule.
-	// Only propagate non-zero values to avoid overwriting schedule with defaults.
-	propagateSets := req.SetsCompleted
-	propagateReps := req.RepsCompleted
-	if propagateSets != nil && *propagateSets == 0 {
-		propagateSets = nil
-	}
-	if propagateReps != nil && *propagateReps == 0 {
-		propagateReps = nil
-	}
-	logEntry, logErr := s.workouts.GetExerciseLogByID(req.ID)
-	switch {
-	case logErr != nil:
-		slog.Error("propagate: fetch exercise log", "error", logErr, "log_id", req.ID)
-	case logEntry == nil:
-		slog.Error("propagate: exercise log not found after update", "log_id", req.ID)
-	case logEntry.Source == "library":
-		// Skip propagation for library-sourced logs: their exercise_id is from
-		// exercise_library, not workout_exercises. Without this check, ID collisions
-		// between the two tables could corrupt scheduled exercise definitions.
-		slog.Info("propagate: skipping library-sourced exercise log", "log_id", req.ID, "exercise_name", logEntry.ExerciseName)
-	default:
-		if err := s.workouts.PropagateExerciseToSchedule(
-			logEntry.SessionID, logEntry.ExerciseID, logEntry.ExerciseName,
-			propagateSets, propagateReps, req.WeightKg,
-		); err != nil {
-			slog.Error("propagate: update schedule", "error", err, "session_id", logEntry.SessionID, "exercise_id", logEntry.ExerciseID)
-		}
-	}
-
-	// Promote status when needed: explicit caller-supplied status wins; otherwise
-	// auto-promote a placeholder log (status=="") to "completed" once the caller
-	// records sets_completed >= 1, since the scheduled-ad-hoc design relies on
-	// this endpoint to flip placeholders into the completed state that
-	// stats/history queries filter on. Skip the update entirely when we
-	// could not load the row — promoting status without a confirmed pre-state
-	// risks overwriting an unrelated row if the id was wrong or already gone.
-	newStatus := req.Status
-	if newStatus == "" && logEntry != nil && logEntry.Status == "" &&
-		req.SetsCompleted != nil && *req.SetsCompleted >= 1 {
-		newStatus = "completed"
-	}
-	if newStatus != "" && logEntry != nil && logEntry.Status != newStatus {
-		if err := s.workouts.UpdateExerciseLogStatus(req.ID, newStatus); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -794,12 +724,13 @@ func (s *Server) handleAddExerciseToSession(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if err := validateExerciseValues(&req.TargetSets, &req.TargetRepsMin, req.TargetWeightKg); err != nil {
+	if err := workoutsvc.ValidateExerciseValues(&req.TargetSets, &req.TargetRepsMin, req.TargetWeightKg); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// Verify session ownership
+	// GetSession here is the ownership/existence guard for this auth-scoped
+	// route; the log write + schedule propagation route through the service.
 	session, err := s.workouts.GetSession(req.SessionID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -814,13 +745,6 @@ func (s *Server) handleAddExerciseToSession(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	sets := req.TargetSets
-	reps := req.TargetRepsMin
-	weight := req.TargetWeightKg
-
-	// Use the correct source from the start so the insert is atomic —
-	// no two-step insert-then-retag that can collide with an existing
-	// scheduled log sharing the same (session_id, exercise_id).
 	source := req.Source
 	if source == "" {
 		source = "schedule"
@@ -830,38 +754,14 @@ func (s *Server) handleAddExerciseToSession(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	id, err := s.workouts.LogExerciseWithSource(
-		req.SessionID,
-		req.ExerciseID,
-		req.ExerciseName,
-		&sets,
-		&reps,
-		weight,
-		req.Status,
-		req.Notes,
-		source,
+	id, err := s.workoutSvc.AddExerciseToSession(
+		req.SessionID, req.ExerciseID, req.ExerciseName,
+		req.TargetSets, req.TargetRepsMin, req.TargetWeightKg,
+		req.Status, req.Notes, source,
 	)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
-	}
-
-	if source != "library" {
-		// Best-effort propagation for scheduled exercises.
-		propagateSets := &sets
-		propagateReps := &reps
-		if sets == 0 {
-			propagateSets = nil
-		}
-		if reps == 0 {
-			propagateReps = nil
-		}
-		if err := s.workouts.PropagateExerciseToSchedule(
-			req.SessionID, req.ExerciseID, req.ExerciseName,
-			propagateSets, propagateReps, weight,
-		); err != nil {
-			slog.Error("propagate: update schedule", "error", err, "session_id", req.SessionID, "exercise_id", req.ExerciseID)
-		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/domain/workout"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
@@ -44,7 +45,7 @@ func TestHandleAddExerciseToSession(t *testing.T) {
 	}
 	defer db.Close()
 
-	srv := &Server{workouts: db.Workout, allowedUserID: 123456}
+	srv := &Server{workouts: db.Workout, workoutSvc: workoutsvc.New(db.Workout, db.TZ), allowedUserID: 123456}
 	userID := int64(123456)
 	otherUserID := int64(999999)
 

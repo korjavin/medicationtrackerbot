@@ -52,6 +52,13 @@ type WorkoutStore interface {
 	// Read/write methods used by the stats + rotation read models.
 	ListExerciseStats(userID int64) ([]store.ExerciseStat, error)
 	InitializeRotation(groupID, startingVariantID int64) error
+
+	// Methods used by the exercise-log write models (UpdateExerciseLog /
+	// AddExerciseToSession).
+	UpdateExerciseLog(id int64, setsCompleted, repsCompleted *int, weightKg *float64, notes string) error
+	UpdateExerciseLogStatus(id int64, status string) error
+	GetExerciseLogByID(id int64) (*store.WorkoutExerciseLog, error)
+	PropagateExerciseToSchedule(sessionID, exerciseID int64, exerciseName string, sets, reps *int, weight *float64) error
 }
 
 // TZStore is the timezone lookup the workout service needs.
@@ -119,6 +126,13 @@ type WorkoutService interface {
 	// NextVariant advances a rotating group's rotation and deletes the current
 	// (not-yet-started) session so the next variant is surfaced.
 	NextVariant(sessionID int64) error
+	// UpdateExerciseLog validates and applies an exercise-log edit, propagating
+	// non-zero values back to the schedule and auto-promoting placeholder logs.
+	UpdateExerciseLog(id int64, setsCompleted, repsCompleted *int, weightKg *float64, notes, status string) error
+	// AddExerciseToSession logs a new exercise against a session (ownership is
+	// verified by the transport layer) and propagates non-library targets back
+	// to the schedule, returning the new log id.
+	AddExerciseToSession(sessionID, exerciseID int64, exerciseName string, targetSets, targetRepsMin int, targetWeightKg *float64, status, notes, source string) (int64, error)
 }
 
 // Service implements WorkoutService using a WorkoutStore.

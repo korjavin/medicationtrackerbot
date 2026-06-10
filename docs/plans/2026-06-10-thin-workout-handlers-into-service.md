@@ -284,18 +284,58 @@ notification message id) and a `Terminal` bool (skipped/completed → run cleanu
 
 ### Task 6: Extract exercise-log writes into the service
 
-- [ ] move validation + schedule-field merging out of
-  `handleAddExerciseToSession` (1277–1384) into
-  `AddExerciseToSession(sessionID int64, …) (…, error)`
-- [ ] move validation, state transitions, and timestamp handling out of
-  `handleUpdateExerciseLog` (1136–1222) into `UpdateExerciseLog(…)`
-- [ ] map service validation errors to the same HTTP status codes the
-  handlers return today (follow the existing `ErrScheduleInPast` →
-  400 pattern with sentinel errors)
-- [ ] write tests: add-to-session with library vs ad-hoc exercise,
-  invalid input rejection, update-log status transitions, timestamp
-  normalization
-- [ ] run `go test ./...` — must pass before task 7
+All new code lives in `internal/domain/workout/exercise_logs.go` (+
+`exercise_logs_test.go`); the `WorkoutStore` interface grew by 4 already-present
+store methods (`UpdateExerciseLog`, `UpdateExerciseLogStatus`, `GetExerciseLogByID`,
+`PropagateExerciseToSchedule`) and the `WorkoutService` interface by 2 methods.
+⚠️ Scope note: the discovery description listed "timestamp handling/normalization"
+but neither handler does any time math — there is nothing to move. The "state
+transitions" in `handleUpdateExerciseLog` are the placeholder-→-completed
+auto-promotion + explicit-status-wins rules, and the "schedule-field merging" in
+`handleAddExerciseToSession` is the best-effort `PropagateExerciseToSchedule` call;
+both moved into the service.
+
+- [x] move validation + schedule-field merging out of
+  `handleAddExerciseToSession` into
+  `AddExerciseToSession(sessionID, exerciseID int64, exerciseName string, targetSets, targetRepsMin int, targetWeightKg *float64, status, notes, source string) (int64, error)`.
+  ⚠️ The log write (`LogExerciseWithSource`) + propagation move to the service;
+  the ownership `GetSession` stays in the handler (auth guard, per the Task 5
+  convention). Two validations also stay in the handler on purpose: the
+  `SessionID/ExerciseID == 0` required-fields check (must precede the ownership
+  read to keep its 400-before-404 ordering) and the `source` default+validation
+  — the latter specifically so the `source must be 'schedule' or 'library'` 400
+  short-circuits *before* any service call, keeping the existing
+  `TestHandleAddExerciseToSession_RejectsInvalidSource` (which constructs a
+  `Server` with no `workoutSvc`) green and panic-free. `validateExerciseValues`
+  moved to a package-level `workoutsvc.ValidateExerciseValues` free function so
+  both this handler (called directly) and `UpdateExerciseLog` (called internally)
+  share one source of truth without a nil-service dependency.
+- [x] move validation, state transitions, and timestamp handling out of
+  `handleUpdateExerciseLog` into
+  `UpdateExerciseLog(id int64, setsCompleted, repsCompleted *int, weightKg *float64, notes, status string) error`
+  — value validation, status validation, the store update, best-effort schedule
+  propagation, and the placeholder auto-promotion all moved (no timestamp logic
+  exists). All callers of this handler already wire `workoutSvc`, so the whole
+  body routes through the service.
+- [x] map service validation errors to the same HTTP status codes the
+  handlers return today: sentinel errors `ErrNegativeSets` / `ErrNegativeReps`
+  / `ErrNegativeWeight` (reproducing the prior `fmt.Errorf` message text
+  byte-for-byte) and `ErrInvalidExerciseLogStatus` → 400 via `errors.Is`
+  (the `ErrScheduleInPast` pattern); store/promotion errors → 500.
+- [x] write tests in `exercise_logs_test.go` (fake embeds `noopWorkoutStore`):
+  validation rejection table (negative sets/reps/weight, bad status);
+  blank/completed/skipped accepted; store-update error propagation;
+  non-zero propagation + zero-sets/reps→nil; library-source skips propagation;
+  missing-log skips propagation + promotion; auto-promote placeholder;
+  no-promote when sets=0; explicit-status-wins; no-status-write-when-unchanged;
+  status-promotion error propagation; propagation best-effort (swallowed).
+  Add-to-session: schedule propagates, library skips, zero→nil, log-error
+  propagates (id 0), propagation best-effort. One existing handler test
+  (`TestHandleAddExerciseToSession`) gained the standard
+  `workoutSvc: workoutsvc.New(db.Workout, db.TZ)` wiring its sibling tests
+  already use — a mechanical change; expectations (201 / 403) unchanged.
+- [x] run `go test ./...` — passes (exit 0); both build modes
+  (`go build ./...`, `go build -tags mobile ./...`) and `go vet ./...` clean.
 
 ### Task 7: Verify acceptance criteria
 
