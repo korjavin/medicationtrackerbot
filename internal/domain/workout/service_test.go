@@ -9,6 +9,8 @@ import (
 )
 
 type mockWorkoutStore struct {
+	noopWorkoutStore
+
 	session *store.WorkoutSession
 	group   *store.WorkoutGroup
 
@@ -63,12 +65,6 @@ func (m *mockWorkoutStore) CompleteSession(id int64) error {
 	return m.completeErr
 }
 
-func (m *mockWorkoutStore) UpdateSessionStatus(id int64, status string) error { return nil }
-
-func (m *mockWorkoutStore) PreSkipSession(id int64) error { return nil }
-
-func (m *mockWorkoutStore) CancelPreSkip(id int64) error { return nil }
-
 func (m *mockWorkoutStore) AdvanceRotation(groupID int64) error {
 	m.advanceCalled = true
 	return m.advanceErr
@@ -86,84 +82,6 @@ func (m *mockWorkoutStore) CreatePlannedAdHocSession(userID int64, scheduledDate
 		return nil, m.createErr
 	}
 	return m.session, nil
-}
-
-func (m *mockWorkoutStore) LogExerciseWithSource(sessionID, exerciseID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes, source string) (int64, error) {
-	return 0, nil
-}
-
-func (m *mockWorkoutStore) DeleteSession(id int64) error {
-	return nil
-}
-
-// Read methods added for GetNext — the transition tests above don't exercise
-// them, so the stubs return empty results.
-func (m *mockWorkoutStore) ListHistory(userID int64, limit int) ([]store.WorkoutSession, error) {
-	return nil, nil
-}
-
-func (m *mockWorkoutStore) ListActiveSessions(userID int64, date time.Time) ([]store.WorkoutSession, error) {
-	return nil, nil
-}
-
-func (m *mockWorkoutStore) ListSnoozedSessions(userID int64) ([]store.WorkoutSession, error) {
-	return nil, nil
-}
-
-func (m *mockWorkoutStore) ListGroups(userID int64, activeOnly bool) ([]store.WorkoutGroup, error) {
-	return nil, nil
-}
-
-func (m *mockWorkoutStore) ListVariantsByGroup(groupID int64) ([]store.WorkoutVariant, error) {
-	return nil, nil
-}
-
-func (m *mockWorkoutStore) GetVariant(id int64) (*store.WorkoutVariant, error) {
-	return nil, nil
-}
-
-func (m *mockWorkoutStore) ListExercisesByVariant(variantID int64) ([]store.WorkoutExercise, error) {
-	return nil, nil
-}
-
-func (m *mockWorkoutStore) ListExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error) {
-	return nil, nil
-}
-
-func (m *mockWorkoutStore) GetRotationState(groupID int64) (*store.WorkoutRotationState, error) {
-	return nil, nil
-}
-
-func (m *mockWorkoutStore) GetSessionByGroupAndDate(groupID int64, scheduledDate time.Time) (*store.WorkoutSession, error) {
-	return nil, nil
-}
-
-func (m *mockWorkoutStore) CreateSession(groupID, variantID, userID int64, scheduledDate time.Time, scheduledTime string) (*store.WorkoutSession, error) {
-	return nil, nil
-}
-
-func (m *mockWorkoutStore) ListExerciseStats(userID int64) ([]store.ExerciseStat, error) {
-	return nil, nil
-}
-
-func (m *mockWorkoutStore) InitializeRotation(groupID, startingVariantID int64) error {
-	return nil
-}
-
-func (m *mockWorkoutStore) UpdateExerciseLog(id int64, sets, reps *int, weight *float64, notes string) error {
-	return nil
-}
-
-func (m *mockWorkoutStore) UpdateExerciseLogStatus(id int64, status string) error {
-	return nil
-}
-
-func (m *mockWorkoutStore) GetExerciseLogByID(id int64) (*store.WorkoutExerciseLog, error) {
-	return nil, nil
-}
-
-func (m *mockWorkoutStore) PropagateExerciseToSchedule(sessionID, exerciseID int64, name string, sets, reps *int, weight *float64) error {
-	return nil
 }
 
 func (m *mockWorkoutStore) GetCurrent() (string, error) {

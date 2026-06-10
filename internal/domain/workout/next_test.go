@@ -10,8 +10,10 @@ import (
 
 // fakeNextStore is a controllable WorkoutStore + TZStore for GetNext tests. Only
 // the read methods the scheduling engine touches carry behavior; everything else
-// returns zero values.
+// is inherited from the embedded noopWorkoutStore.
 type fakeNextStore struct {
+	noopWorkoutStore
+
 	activeSessions []store.WorkoutSession
 	activeErr      error
 	activeDateArg  time.Time
@@ -89,45 +91,6 @@ func (f *fakeNextStore) CreateSession(groupID, variantID, userID int64, schedule
 }
 
 func (f *fakeNextStore) GetCurrent() (string, error) { return f.tz, nil }
-
-// Unused-by-GetNext WorkoutStore methods.
-func (f *fakeNextStore) ListHistory(userID int64, limit int) ([]store.WorkoutSession, error) {
-	return nil, nil
-}
-func (f *fakeNextStore) GetSession(id int64) (*store.WorkoutSession, error) { return nil, nil }
-func (f *fakeNextStore) StartSession(id int64) error                        { return nil }
-func (f *fakeNextStore) ClearSnooze(id int64) error                         { return nil }
-func (f *fakeNextStore) SnoozeSession(id int64, d time.Duration) error      { return nil }
-func (f *fakeNextStore) SkipSession(id int64) error                         { return nil }
-func (f *fakeNextStore) CompleteSession(id int64) error                     { return nil }
-func (f *fakeNextStore) UpdateSessionStatus(id int64, status string) error  { return nil }
-func (f *fakeNextStore) PreSkipSession(id int64) error                      { return nil }
-func (f *fakeNextStore) CancelPreSkip(id int64) error                       { return nil }
-func (f *fakeNextStore) AdvanceRotation(groupID int64) error                { return nil }
-func (f *fakeNextStore) CreateAdHocSession(userID int64, d time.Time, t string) (*store.WorkoutSession, error) {
-	return nil, nil
-}
-func (f *fakeNextStore) CreatePlannedAdHocSession(userID int64, d time.Time, t string) (*store.WorkoutSession, error) {
-	return nil, nil
-}
-func (f *fakeNextStore) LogExerciseWithSource(sessionID, exerciseID int64, name string, sets, reps *int, weight *float64, status, notes, source string) (int64, error) {
-	return 0, nil
-}
-func (f *fakeNextStore) DeleteSession(id int64) error { return nil }
-func (f *fakeNextStore) ListExerciseStats(userID int64) ([]store.ExerciseStat, error) {
-	return nil, nil
-}
-func (f *fakeNextStore) InitializeRotation(groupID, startingVariantID int64) error { return nil }
-func (f *fakeNextStore) UpdateExerciseLog(id int64, sets, reps *int, weight *float64, notes string) error {
-	return nil
-}
-func (f *fakeNextStore) UpdateExerciseLogStatus(id int64, status string) error { return nil }
-func (f *fakeNextStore) GetExerciseLogByID(id int64) (*store.WorkoutExerciseLog, error) {
-	return nil, nil
-}
-func (f *fakeNextStore) PropagateExerciseToSchedule(sessionID, exerciseID int64, name string, sets, reps *int, weight *float64) error {
-	return nil
-}
 
 // nextClock is the fixed "now" used across the table-driven cases: noon UTC on a
 // Saturday, so a 23:59 same-day workout is always in the future.
