@@ -1,3 +1,34 @@
+// app.js — top-level orchestrator (post-split, 2026-06-10).
+//
+// After the two-round app.js split (2026-05-13 utilities/state machines,
+// 2026-06-10 view orchestrators), this file holds ONLY the top-level glue
+// that has no natural feature home:
+//   • Messenger bootstrap — host ready/expand + the early SW auth-token post.
+//   • checkAuth() / loadInitData() — the auth-orchestration entry point. Must
+//     stay here: architecture.mobile-no-telegram-login.test.js pins the
+//     embedded-shell branch ordering inside checkAuth().
+//   • switchTab() / switchHealthTab() / switchMedTab() — section lifecycle.
+//   • The deferred-refresh banner cluster (requestTabRefresh / reloadCurrentTab
+//     / isSafeToAutoRefresh) — cross-section refresh coordination.
+//   • Top-level wiring — control bindings (bindMedicationControls etc.),
+//     handlePushAction routing, tab-order persistence, and the webpush
+//     self-test helpers (sendTest{BP,Medication}Notification).
+//
+// View orchestrators now live in their own feature modules:
+//   features/today-loader.js  (window.TodayLoader)   — Today view loading.
+//   features/settings.js      (window.SettingsView)  — Settings view.
+//   features/meds-history.js  (window.MedsHistory)   — med modal + history.
+//   features/workout/modals.js(window.WorkoutModals) — workout start/snooze/skip.
+//
+// Justified leftovers (documented per Task 5 of the split plan): the shared
+// cross-feature module globals `medications`, `editingMedId`, and `formatDate`
+// (declared near the "// State" marker below) stay here as their single
+// declaration site. Several feature files read/write them by bare name —
+// auth-bootstrap.js mirrors window.medications, meds.js / meds-history.js
+// mutate editingMedId, and bp.js / weight.js / meds.js call formatDate — so
+// moving them into any one feature module would make them private and break
+// the others. They are owned here until a dedicated shared-state pass.
+//
 // Bootstrap the messenger host (Telegram WebApp ready/expand, or no-op in a
 // plain browser). MessengerAdapter is set synchronously at the top of
 // core/messenger-adapter.js so this never null-checks. init() resolves once

@@ -294,20 +294,44 @@ Constraints discovered:
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] `wc -l web/static/js/app.js` < 1,200 lines
-- [ ] `awk '/^(let|var) [a-zA-Z_]+/{print NR}' web/static/js/app.js | wc -l`
+- [x] `wc -l web/static/js/app.js` < 1,200 lines
+  — 1,152 lines (was 2,910 at plan start; 1,121 after Task 4, +31 for the
+  new file-header comment added in this task).
+- [x] `awk '/^(let|var) [a-zA-Z_]+/{print NR}' web/static/js/app.js | wc -l`
   did not grow (was 9 after round 1)
-- [ ] what remains in `app.js` is only: messenger bootstrap,
+  — now 6 (`initialAuthLoad`, `medications`, `editingMedId`, `formatDate`,
+  `pendingRefreshReason`, `refreshDebounceTimer`); shrank, never grew.
+- [x] what remains in `app.js` is only: messenger bootstrap,
   `checkAuth()`, `switchTab()` / section lifecycle, top-level wiring —
   document any justified leftovers in a header comment
-- [ ] `architecture.mobile-no-telegram-login.test.js` passes unmodified
+  — added a file-header block to `app.js` documenting the four retained
+  responsibility buckets, pointing at the extracted feature modules
+  (`TodayLoader` / `SettingsView` / `MedsHistory` / `WorkoutModals`), and
+  naming the justified leftovers: the shared cross-feature globals
+  `medications`, `editingMedId`, `formatDate` stay as their single
+  declaration site because auth-bootstrap/meds/meds-history/bp/weight all
+  read or mutate them by bare name; moving them into one feature module
+  would privatize them and break the others.
+- [x] `architecture.mobile-no-telegram-login.test.js` passes unmodified
   (checkAuth untouched)
-- [ ] `architecture.no-module-state.test.js` passes; grandfather list
+  — passes; the new header avoids all four forbidden Telegram-login tokens
+  and `checkAuth()` body is byte-for-byte unchanged.
+- [x] `architecture.no-module-state.test.js` passes; grandfather list
   shrank or stayed equal (never grew)
-- [ ] every new file is in both `index.html` and `sw.js` `STATIC_ASSETS`
+  — passes (5 tests); GRANDFATHERED still has its 4 entries
+  (bootstrap/bp/health/weight); none of the extracted files were added.
+- [x] every new file is in both `index.html` and `sw.js` `STATIC_ASSETS`
   (grep-compare the two lists)
-- [ ] full `pnpm test` clean; `go test ./...` untouched and green
-- [ ] run linter if configured — all issues fixed
+  — grep-compared the full JS asset lists: identical except `sw-api-helper.js`
+  (SW-only, correctly absent from the page). All four new files
+  (`meds-history.js`, `today-loader.js`, `features/settings.js`,
+  `workout/modals.js`) appear in both.
+- [x] full `pnpm test` clean; `go test ./...` untouched and green
+  — `pnpm test`: 241 files / 2,615 passed, 29 skipped, 0 failed.
+  `go test ./...`: all packages `ok`, untouched.
+- [x] run linter if configured — all issues fixed
+  — no JS linter configured (no eslint/prettier; `pnpm test` is the only
+  gate). Nothing to run.
 
 ### Task 6: [Final] Update documentation
 
