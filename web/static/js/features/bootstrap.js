@@ -116,10 +116,18 @@ function filterNavItemsByFeatures(items, features) {
         return !feature || features[feature];
     });
 }
+// Restore the saved section only if the user was last active within this
+// window; after a longer absence we reopen Today. The timestamp is written by
+// switchTab (app.js) on every navigation.
+const ACTIVE_TAB_TTL_MS = 30 * 60 * 1000;
 function readSavedActiveTab() {
     try {
         const saved = window.localStorage.getItem('mt-active-tab');
         if (!saved) return 'today';
+        const savedAt = Number(window.localStorage.getItem('mt-active-tab-at'));
+        if (!Number.isFinite(savedAt) || (Date.now() - savedAt) > ACTIVE_TAB_TTL_MS) {
+            return 'today';
+        }
         const items = window.WGBottomNav
             ? filterNavItemsByFeatures(window.WGBottomNav.DEFAULT_ITEMS, window.featureSettings)
             : [];

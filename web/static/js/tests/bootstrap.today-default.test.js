@@ -56,6 +56,7 @@ describe('bootstrap.js initial-section restore', () => {
             });
             window.featureSettings = { bp: true, weight: true, medication: true };
             window.localStorage.setItem('mt-active-tab', 'bp');
+            window.localStorage.setItem('mt-active-tab-at', String(Date.now()));
 
             const switchTabSpy = vi.fn();
             stubBootstrapGlobals(window, switchTabSpy);
@@ -71,6 +72,59 @@ describe('bootstrap.js initial-section restore', () => {
         }
     });
 
+    it('falls back to switchTab("today") when the saved section is older than 30 min', async () => {
+        allowConsoleNoise();
+        const { window, cleanup } = loadFrontendEnv();
+        try {
+            stubFetch(window, {
+                features: { bp: true, weight: true, medication: true }
+            });
+            window.featureSettings = { bp: true, weight: true, medication: true };
+            window.localStorage.setItem('mt-active-tab', 'bp');
+            // Last activity 31 minutes ago — past the 30-min restore window.
+            window.localStorage.setItem('mt-active-tab-at', String(Date.now() - 31 * 60 * 1000));
+
+            const switchTabSpy = vi.fn();
+            stubBootstrapGlobals(window, switchTabSpy);
+
+            const bootstrapSource = fs.readFileSync(BOOTSTRAP_JS, 'utf8');
+            window.eval(bootstrapSource);
+
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            expect(switchTabSpy).toHaveBeenCalledWith('today');
+            expect(switchTabSpy).not.toHaveBeenCalledWith('bp');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('falls back to switchTab("today") when the saved section has no activity timestamp', async () => {
+        allowConsoleNoise();
+        const { window, cleanup } = loadFrontendEnv();
+        try {
+            stubFetch(window, {
+                features: { bp: true, weight: true, medication: true }
+            });
+            window.featureSettings = { bp: true, weight: true, medication: true };
+            // Legacy state: section saved before timestamps were introduced.
+            window.localStorage.setItem('mt-active-tab', 'bp');
+
+            const switchTabSpy = vi.fn();
+            stubBootstrapGlobals(window, switchTabSpy);
+
+            const bootstrapSource = fs.readFileSync(BOOTSTRAP_JS, 'utf8');
+            window.eval(bootstrapSource);
+
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            expect(switchTabSpy).toHaveBeenCalledWith('today');
+            expect(switchTabSpy).not.toHaveBeenCalledWith('bp');
+        } finally {
+            cleanup();
+        }
+    });
+
     it('falls back to switchTab("today") when mt-active-tab points to a disabled feature', async () => {
         allowConsoleNoise();
         const { window, cleanup } = loadFrontendEnv();
@@ -80,6 +134,7 @@ describe('bootstrap.js initial-section restore', () => {
             });
             window.featureSettings = { bp: false, weight: true, medication: true };
             window.localStorage.setItem('mt-active-tab', 'bp');
+            window.localStorage.setItem('mt-active-tab-at', String(Date.now()));
 
             const switchTabSpy = vi.fn();
             stubBootstrapGlobals(window, switchTabSpy);
@@ -105,6 +160,7 @@ describe('bootstrap.js initial-section restore', () => {
             });
             window.featureSettings = { bp: true, weight: true, medication: true };
             window.localStorage.setItem('mt-active-tab', 'unknown-id');
+            window.localStorage.setItem('mt-active-tab-at', String(Date.now()));
 
             const switchTabSpy = vi.fn();
             stubBootstrapGlobals(window, switchTabSpy);

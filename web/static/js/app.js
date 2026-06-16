@@ -691,7 +691,13 @@ function switchTab(tab) {
     if (!activated) return;
 
     window.AppStore && window.AppStore.set('currentTab', tab);
-    try { window.localStorage.setItem('mt-active-tab', tab); } catch (_) {}
+    // Persist the active section plus a "last activity" timestamp. bootstrap.js
+    // only restores the saved section if the user returns within 30 min;
+    // otherwise it opens Today (see readSavedActiveTab).
+    try {
+        window.localStorage.setItem('mt-active-tab', tab);
+        window.localStorage.setItem('mt-active-tab-at', String(Date.now()));
+    } catch (_) {}
     if (window.AppKernel && typeof window.AppKernel.onTabSwitch === 'function') {
         window.AppKernel.onTabSwitch(tab);
     }
