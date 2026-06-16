@@ -37,6 +37,17 @@ func TestAnalyzeCardiovascular_AllDomains(t *testing.T) {
 	ctx := context.Background()
 	userID := int64(123456)
 
+	// Anchor all fixtures to the current date instead of a hardcoded calendar
+	// day. The query below spans up to "now", and parseDateRange clamps the
+	// start to end-MaxQueryDays (90). With fixed March-2026 fixtures the test
+	// silently broke once wall-clock time advanced >90 days past them (the rows
+	// fell outside the clamped window and every section returned 0). Relative
+	// dates keep the fixtures permanently inside the window.
+	anchor := time.Now().AddDate(0, 0, -10) // ~10 days ago, comfortably < 90
+	ay, am, ad := anchor.Date()
+	prevDay := anchor.AddDate(0, 0, -1) // sleep starts the evening before
+	py, pm, pd := prevDay.Date()
+
 	// Enable features
 	if err := st.Settings.SetBloodPressureEnabled(ctx, true); err != nil {
 		t.Fatalf("SetBloodPressureEnabled: %v", err)
@@ -50,7 +61,7 @@ func TestAnalyzeCardiovascular_AllDomains(t *testing.T) {
 		UserID:     userID,
 		Systolic:   120,
 		Diastolic:  80,
-		MeasuredAt: time.Date(2026, 3, 15, 9, 0, 0, 0, time.Local),
+		MeasuredAt: time.Date(ay, am, ad, 9, 0, 0, 0, time.Local),
 		Category:   "Normal",
 	}); err != nil {
 		t.Fatalf("CreateReading: %v", err)
@@ -66,8 +77,8 @@ func TestAnalyzeCardiovascular_AllDomains(t *testing.T) {
 	deepMin := 90
 	sleepLogs := []store.SleepLog{{
 		UserID:       userID,
-		StartTime:    time.Date(2026, 3, 14, 23, 0, 0, 0, time.Local),
-		EndTime:      time.Date(2026, 3, 15, 6, 0, 0, 0, time.Local),
+		StartTime:    time.Date(py, pm, pd, 23, 0, 0, 0, time.Local),
+		EndTime:      time.Date(ay, am, ad, 6, 0, 0, 0, time.Local),
 		TotalMinutes: &totalMin,
 		DeepMinutes:  &deepMin,
 	}}
@@ -77,12 +88,12 @@ func TestAnalyzeCardiovascular_AllDomains(t *testing.T) {
 
 	// Add heart rate data
 	heartLogs := []store.VitalsHeartLog{
-		{UserID: userID, DateTime: time.Date(2026, 3, 15, 8, 0, 0, 0, time.UTC), Value: 65, Type: 1},
-		{UserID: userID, DateTime: time.Date(2026, 3, 15, 12, 0, 0, 0, time.UTC), Value: 85, Type: 1},
+		{UserID: userID, DateTime: time.Date(ay, am, ad, 8, 0, 0, 0, time.UTC), Value: 65, Type: 1},
+		{UserID: userID, DateTime: time.Date(ay, am, ad, 12, 0, 0, 0, time.UTC), Value: 85, Type: 1},
 	}
 	spo2Logs := []store.VitalsSpO2Log{
-		{UserID: userID, DateTime: time.Date(2026, 3, 15, 8, 0, 0, 0, time.UTC), Value: 97, Type: 1},
-		{UserID: userID, DateTime: time.Date(2026, 3, 15, 12, 0, 0, 0, time.UTC), Value: 99, Type: 1},
+		{UserID: userID, DateTime: time.Date(ay, am, ad, 8, 0, 0, 0, time.UTC), Value: 97, Type: 1},
+		{UserID: userID, DateTime: time.Date(ay, am, ad, 12, 0, 0, 0, time.UTC), Value: 99, Type: 1},
 	}
 	if _, _, err := st.Vitals.ImportVitals(ctx, userID, heartLogs, spo2Logs, nil); err != nil {
 		t.Fatalf("ImportVitals: %v", err)
@@ -96,7 +107,9 @@ func TestAnalyzeCardiovascular_AllDomains(t *testing.T) {
 	now := time.Now()
 	req := &sdkmcp.CallToolRequest{}
 	input := AnalyzeCardiovascularInput{
-		StartDate: "2026-03-14",
+		// Start a couple of days before the earliest fixture (prevDay) and end
+		// tomorrow — a ~14-day window that stays well under MaxQueryDays (90).
+		StartDate: now.AddDate(0, 0, -13).Format("2006-01-02"),
 		EndDate:   now.AddDate(0, 0, 1).Format("2006-01-02"),
 	}
 
