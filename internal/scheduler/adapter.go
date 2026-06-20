@@ -275,6 +275,9 @@ func (a *storeAdapter) BatchGetLastWeightLogs(ctx context.Context, userIDs []int
 func (a *storeAdapter) CalculatePreferredWeightReminderHour(ctx context.Context, userID int64) (int, error) {
 	return a.weight.CalculatePreferredReminderHour(ctx, userID)
 }
+func (a *storeAdapter) BatchCalculatePreferredWeightReminderHour(ctx context.Context, userIDs []int64) (map[int64]int, error) {
+	return a.weight.BatchCalculatePreferredReminderHour(ctx, userIDs)
+}
 func (a *storeAdapter) UpdatePreferredWeightReminderHour(userID int64, hour int) error {
 	return a.weight.UpdatePreferredReminderHour(userID, hour)
 }

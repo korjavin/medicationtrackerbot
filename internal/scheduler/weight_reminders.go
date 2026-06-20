@@ -19,6 +19,7 @@ type WeightReminderStore interface {
 	GetLastWeightLog(ctx context.Context, userID int64) (*store.WeightLog, error)
 	BatchGetLastWeightLogs(ctx context.Context, userIDs []int64) (map[int64]*store.WeightLog, error)
 	CalculatePreferredWeightReminderHour(ctx context.Context, userID int64) (int, error)
+	BatchCalculatePreferredWeightReminderHour(ctx context.Context, userIDs []int64) (map[int64]int, error)
 	UpdatePreferredWeightReminderHour(userID int64, hour int) error
 	UpdateWeightReminderNotificationSent(userID int64, messageID *int) error
 	GetCurrent() (string, error)
@@ -93,6 +94,21 @@ func (c *WeightReminderChecker) Check(ctx context.Context) error {
 		return err
 	}
 
+	var usersNeedingCalc []int64
+	for _, userID := range activeUserIDs {
+		if states[userID].PreferredReminderHour == 0 {
+			usersNeedingCalc = append(usersNeedingCalc, userID)
+		}
+	}
+
+	var calculatedHours map[int64]int
+	if len(usersNeedingCalc) > 0 {
+		calculatedHours, err = c.store.BatchCalculatePreferredWeightReminderHour(ctx, usersNeedingCalc)
+		if err != nil {
+			slog.Warn("Error batch calculating preferred hours", "error", err)
+		}
+	}
+
 	for _, userID := range activeUserIDs {
 		state := states[userID]
 		lastLog := lastLogs[userID]
@@ -103,9 +119,9 @@ func (c *WeightReminderChecker) Check(ctx context.Context) error {
 
 		preferredHour := state.PreferredReminderHour
 		if preferredHour == 0 {
-			preferredHour, err = c.store.CalculatePreferredWeightReminderHour(ctx, userID)
-			if err != nil {
-				slog.Warn("Error calculating preferred hour", "userID", userID, "error", err)
+			var ok bool
+			preferredHour, ok = calculatedHours[userID]
+			if !ok {
 				preferredHour = 9
 			}
 
