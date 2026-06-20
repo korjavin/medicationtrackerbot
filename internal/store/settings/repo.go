@@ -32,29 +32,31 @@ func New(d *storedb.DB) *Repo {
 	return &Repo{db: d}
 }
 
-// allowedBoolColumns is the allowlist of valid boolean column names in the
-// settings table. Any column referenced by GetBool / SetBool must appear here;
-// the SQL string is built with fmt.Sprintf, so this allowlist is the SQL
-// injection guard.
-var allowedBoolColumns = map[string]bool{
-	"food_intake_enabled":    true,
-	"blood_pressure_enabled": true,
-	"weight_enabled":         true,
-	"medication_enabled":     true,
-	"workout_enabled":        true,
-	"health_enabled":         true,
-	"first_run_complete":     true,
-}
-
 // GetBool reads a boolean settings column. SQLite stores booleans as integers,
 // blobs, or actual bool depending on driver pathways, so this normalizes all
 // three.
 func (r *Repo) GetBool(ctx context.Context, column string) (bool, error) {
-	if !allowedBoolColumns[column] {
+	var query string
+	switch column {
+	case "food_intake_enabled":
+		query = "SELECT food_intake_enabled FROM settings WHERE id = 1"
+	case "blood_pressure_enabled":
+		query = "SELECT blood_pressure_enabled FROM settings WHERE id = 1"
+	case "weight_enabled":
+		query = "SELECT weight_enabled FROM settings WHERE id = 1"
+	case "medication_enabled":
+		query = "SELECT medication_enabled FROM settings WHERE id = 1"
+	case "workout_enabled":
+		query = "SELECT workout_enabled FROM settings WHERE id = 1"
+	case "health_enabled":
+		query = "SELECT health_enabled FROM settings WHERE id = 1"
+	case "first_run_complete":
+		query = "SELECT first_run_complete FROM settings WHERE id = 1"
+	default:
 		return false, fmt.Errorf("unknown settings column: %s", column)
 	}
+
 	var val interface{}
-	query := fmt.Sprintf("SELECT %s FROM settings WHERE id = 1", column) // #nosec G201 -- column validated against allowlist above
 	if err := r.db.QueryRowContext(ctx, query).Scan(&val); err != nil {
 		return false, err
 	}
@@ -73,10 +75,26 @@ func (r *Repo) GetBool(ctx context.Context, column string) (bool, error) {
 
 // SetBool writes a boolean settings column.
 func (r *Repo) SetBool(ctx context.Context, column string, enabled bool) error {
-	if !allowedBoolColumns[column] {
+	var query string
+	switch column {
+	case "food_intake_enabled":
+		query = "UPDATE settings SET food_intake_enabled = ? WHERE id = 1"
+	case "blood_pressure_enabled":
+		query = "UPDATE settings SET blood_pressure_enabled = ? WHERE id = 1"
+	case "weight_enabled":
+		query = "UPDATE settings SET weight_enabled = ? WHERE id = 1"
+	case "medication_enabled":
+		query = "UPDATE settings SET medication_enabled = ? WHERE id = 1"
+	case "workout_enabled":
+		query = "UPDATE settings SET workout_enabled = ? WHERE id = 1"
+	case "health_enabled":
+		query = "UPDATE settings SET health_enabled = ? WHERE id = 1"
+	case "first_run_complete":
+		query = "UPDATE settings SET first_run_complete = ? WHERE id = 1"
+	default:
 		return fmt.Errorf("unknown settings column: %s", column)
 	}
-	query := fmt.Sprintf("UPDATE settings SET %s = ? WHERE id = 1", column) // #nosec G201 -- column validated against allowlist above
+
 	_, err := r.db.ExecContext(ctx, query, enabled)
 	return err
 }
