@@ -266,3 +266,24 @@ class TestCallErrors:
 
         with patch("urllib.request.urlopen", return_value=_Empty()):
             assert api.call("medications.next_intake") is None
+
+    def test_invalid_json_raises_backend_error(self):
+        class _InvalidJson:
+            @property
+            def status(self):
+                return 200
+
+            def read(self):
+                return b'{"broken"'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+        with patch("urllib.request.urlopen", return_value=_InvalidJson()):
+            with pytest.raises(exc.BackendError) as exc_info:
+                api.call("medications.next_intake")
+        assert exc_info.value.status_code == 200
+        assert "Backend returned invalid JSON" in str(exc_info.value)
