@@ -19,8 +19,11 @@ type BPReminderStore interface {
 	GetLastReading(ctx context.Context, userID int64) (*store.BloodPressure, error)
 	BatchGetLastReadings(ctx context.Context, userIDs []int64) (map[int64]*store.BloodPressure, error)
 	CalculatePreferredReminderHour(ctx context.Context, userID int64) (int, error)
+	BatchCalculatePreferredReminderHours(ctx context.Context, userIDs []int64) (map[int64]int, error)
 	UpdatePreferredReminderHour(userID int64, hour int) error
+	BatchUpdatePreferredReminderHours(ctx context.Context, updates map[int64]int) error
 	GetDominantCategory(ctx context.Context, userID int64) (string, error)
+	BatchGetDominantCategories(ctx context.Context, userIDs []int64) (map[int64]string, error)
 	UpdateReminderNotificationSent(userID int64, messageID *int) error
 	GetCurrent() (string, error)
 }
@@ -95,31 +98,51 @@ func (c *BPReminderChecker) Check(ctx context.Context) error {
 
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
-	for _, userID := range activeUserIDs {
-		state := states[userID]
-		lastReading := readings[userID]
+	var usersNeedingHour []int64
+	var eligibleUserIDs []int64
 
+	for _, userID := range activeUserIDs {
+		lastReading := readings[userID]
 		if lastReading != nil && lastReading.MeasuredAt.After(todayStart) {
 			continue
 		}
-
 		if lastReading != nil && now.Sub(lastReading.MeasuredAt) < 12*time.Hour {
 			continue
 		}
 
-		preferredHour := state.PreferredReminderHour
-		if preferredHour == 0 {
-			preferredHour, err = c.store.CalculatePreferredReminderHour(ctx, userID)
-			if err != nil {
-				slog.Warn("Error calculating preferred hour", "userID", userID, "error", err)
-				preferredHour = 20
-			}
+		if states[userID].PreferredReminderHour == 0 {
+			usersNeedingHour = append(usersNeedingHour, userID)
+		}
+		eligibleUserIDs = append(eligibleUserIDs, userID)
+	}
 
-			if preferredHour != state.PreferredReminderHour {
-				if err := c.store.UpdatePreferredReminderHour(userID, preferredHour); err != nil {
-					slog.Error("Error updating preferred hour", "userID", userID, "error", err)
+	if len(usersNeedingHour) > 0 {
+		hours, err := c.store.BatchCalculatePreferredReminderHours(ctx, usersNeedingHour)
+		if err != nil {
+			slog.Warn("Error calculating batch preferred hours", "error", err)
+		} else {
+			updates := make(map[int64]int)
+			for userID, hour := range hours {
+				if hour != states[userID].PreferredReminderHour {
+					updates[userID] = hour
+					states[userID].PreferredReminderHour = hour
 				}
 			}
+			if len(updates) > 0 {
+				if err := c.store.BatchUpdatePreferredReminderHours(ctx, updates); err != nil {
+					slog.Error("Error updating batch preferred hours", "error", err)
+				}
+			}
+		}
+	}
+
+	var notifyUserIDs []int64
+	for _, userID := range eligibleUserIDs {
+		state := states[userID]
+
+		preferredHour := state.PreferredReminderHour
+		if preferredHour == 0 {
+			preferredHour = 20
 		}
 
 		currentHour := now.Hour()
@@ -135,11 +158,28 @@ func (c *BPReminderChecker) Check(ctx context.Context) error {
 			}
 		}
 
+		notifyUserIDs = append(notifyUserIDs, userID)
+	}
+
+	if len(notifyUserIDs) == 0 {
+		return nil
+	}
+
+	dominantCategories, err := c.store.BatchGetDominantCategories(ctx, notifyUserIDs)
+	if err != nil {
+		slog.Warn("Error getting batch dominant BP categories", "error", err)
+	}
+
+	for _, userID := range notifyUserIDs {
+		lastReading := readings[userID]
 		shouldSendEnhanced := false
-		dominantCategory, err := c.store.GetDominantCategory(ctx, userID)
-		if err != nil {
-			slog.Warn("Error getting dominant BP category", "userID", userID, "error", err)
-		} else if lastReading != nil {
+
+		dominantCategory, ok := dominantCategories[userID]
+		if !ok || dominantCategory == "" {
+			dominantCategory = "Normal"
+		}
+
+		if lastReading != nil {
 			lastSeverity := store.CategorySeverity(lastReading.Category)
 			dominantSeverity := store.CategorySeverity(dominantCategory)
 

@@ -241,11 +241,20 @@ func (a *storeAdapter) BatchGetLastReadings(ctx context.Context, userIDs []int64
 func (a *storeAdapter) CalculatePreferredReminderHour(ctx context.Context, userID int64) (int, error) {
 	return a.bp.CalculatePreferredReminderHour(ctx, userID)
 }
+func (a *storeAdapter) BatchCalculatePreferredReminderHours(ctx context.Context, userIDs []int64) (map[int64]int, error) {
+	return a.bp.BatchCalculatePreferredReminderHours(ctx, userIDs)
+}
 func (a *storeAdapter) UpdatePreferredReminderHour(userID int64, hour int) error {
 	return a.bp.UpdatePreferredReminderHour(userID, hour)
 }
+func (a *storeAdapter) BatchUpdatePreferredReminderHours(ctx context.Context, updates map[int64]int) error {
+	return a.bp.BatchUpdatePreferredReminderHours(ctx, updates)
+}
 func (a *storeAdapter) GetDominantCategory(ctx context.Context, userID int64) (string, error) {
 	return a.bp.GetDominantCategory(ctx, userID)
+}
+func (a *storeAdapter) BatchGetDominantCategories(ctx context.Context, userIDs []int64) (map[int64]string, error) {
+	return a.bp.BatchGetDominantCategories(ctx, userIDs)
 }
 func (a *storeAdapter) UpdateReminderNotificationSent(userID int64, messageID *int) error {
 	return a.bp.UpdateReminderNotificationSent(userID, messageID)
