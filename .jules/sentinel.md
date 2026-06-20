@@ -14,3 +14,7 @@
 **Vulnerability:** IP Spoofing / Rate Limiting Bypass via X-Forwarded-For
 **Learning:** Parsing the `X-Forwarded-For` header for the client IP by taking the leftmost element (`parts[0]`) allows trivial IP spoofing when behind a single trusted reverse proxy (like Traefik). An attacker can supply their own fake `X-Forwarded-For` header; Traefik appends the real IP to the end of the list, meaning the leftmost IP remains the attacker-controlled spoofed value. This breaks per-IP rate limiting by allowing the attacker to cycle through fake IPs.
 **Prevention:** When behind a single trusted reverse proxy that appends the client IP to the `X-Forwarded-For` list, extract the rightmost non-empty element (`parts[len(parts)-1]`) to obtain the true IP that connected to the proxy.
+## 2026-06-25 - Dynamic SQL Query Construction Vulnerability
+**Vulnerability:** SQL Injection Risk via Dynamic Column Names
+**Learning:** Constructing SQL queries dynamically using `fmt.Sprintf` with variable column names poses an inherent risk, even when protected by an allowlist. This pattern is fragile and can lead to SQL injection vulnerabilities if the allowlist check is bypassed or modified incorrectly.
+**Prevention:** Always use hardcoded, static SQL query strings. For variable columns, implement a `switch` statement that maps allowed column names to their respective hardcoded SQL query strings, completely eliminating the use of dynamic string concatenation in query construction.
