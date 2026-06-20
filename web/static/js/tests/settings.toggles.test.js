@@ -236,6 +236,29 @@ describe('Feature toggle round-trip via window.toggleFeatureSetting (Phase 9, Ta
         }
     });
 
+    it('window.toggleFeatureSetting reverts DOM when apiCall fails', async () => {
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            const apiCallSpy = vi.fn().mockResolvedValue(null);
+            window.apiCall = apiCallSpy;
+            window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
+
+            // set up initial state
+            window.featureSettings = { health: false };
+            const checkbox = document.getElementById('health-feature-toggle');
+            checkbox.checked = true; // user clicked it
+
+            await window.toggleFeatureSetting('health', true);
+
+            expect(apiCallSpy).toHaveBeenCalledWith('/api/settings/features/health', 'POST', { enabled: true });
+
+            // Should be reverted back to false based on window.featureSettings
+            expect(checkbox.checked).toBe(false);
+        } finally {
+            cleanup();
+        }
+    });
+
     it('window.toggleFeatureSetting routes each feature key to /api/settings/features/<feature>', async () => {
         const { window, cleanup } = loadFrontendEnv();
         try {
