@@ -654,3 +654,41 @@ func TestLoadFromEnv_DemoMode(t *testing.T) {
 		})
 	}
 }
+
+func TestMerge_NilInputs(t *testing.T) {
+	t.Run("both nil", func(t *testing.T) {
+		if got := Merge(nil, nil); got != nil {
+			t.Errorf("Merge(nil, nil) = %v, want nil", got)
+		}
+	})
+
+	valid := &Config{DBPath: "/valid/path"}
+
+	t.Run("env nil", func(t *testing.T) {
+		got := Merge(nil, valid)
+		if got == nil {
+			t.Fatalf("Merge(nil, valid) returned nil")
+		}
+		if got.DBPath != valid.DBPath {
+			t.Errorf("Merge(nil, valid).DBPath = %q, want %q", got.DBPath, valid.DBPath)
+		}
+		// Check that it's a copy
+		if got == valid {
+			t.Errorf("Merge(nil, valid) returned the exact same pointer as input")
+		}
+	})
+
+	t.Run("settings nil", func(t *testing.T) {
+		got := Merge(valid, nil)
+		if got == nil {
+			t.Fatalf("Merge(valid, nil) returned nil")
+		}
+		if got.DBPath != valid.DBPath {
+			t.Errorf("Merge(valid, nil).DBPath = %q, want %q", got.DBPath, valid.DBPath)
+		}
+		// Check that it's a copy
+		if got == valid {
+			t.Errorf("Merge(valid, nil) returned the exact same pointer as input")
+		}
+	})
+}
