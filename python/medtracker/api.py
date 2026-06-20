@@ -65,7 +65,12 @@ def call(
                 # legitimate "no value" result — surface it as None instead of
                 # tripping json.loads("") and raising a script-side ValueError.
                 return None
-            return json.loads(payload)
+            try:
+                return json.loads(payload)
+            except json.JSONDecodeError as e:
+                raise exc.BackendError(
+                    f"Backend returned invalid JSON: {e}", status_code=resp.status
+                ) from e
     except urllib.error.HTTPError as e:
         status = e.code
         error_body = e.read().decode("utf-8")
