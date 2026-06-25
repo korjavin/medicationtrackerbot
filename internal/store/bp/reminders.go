@@ -226,6 +226,82 @@ func (r *Repo) GetDominantCategory(ctx context.Context, userID int64) (string, e
 	return dominantCategory, nil
 }
 
+// BatchGetDominantCategories calculates the dominant BP category over the last 14
+// days for multiple users efficiently. Ties favour the more severe category.
+func (r *Repo) BatchGetDominantCategories(ctx context.Context, userIDs []int64) (map[int64]string, error) {
+	result := make(map[int64]string, len(userIDs))
+	if len(userIDs) == 0 {
+		return result, nil
+	}
+
+	since := time.Now().AddDate(0, 0, -14)
+
+	chunkSize := 500
+	for i := 0; i < len(userIDs); i += chunkSize {
+		end := i + chunkSize
+		if end > len(userIDs) {
+			end = len(userIDs)
+		}
+		chunk := userIDs[i:end]
+
+		placeholders := make([]string, len(chunk))
+		args := make([]interface{}, len(chunk))
+		for j, id := range chunk {
+			placeholders[j] = "?"
+			args[j] = id
+			result[id] = "Normal" // Default
+		}
+
+		args = append([]interface{}{since}, args...)
+		query := "SELECT user_id, category FROM blood_pressure_readings WHERE measured_at >= ? AND ignore_calc = 0 AND user_id IN (" + strings.Join(placeholders, ",") + ")"
+
+		rows, err := r.db.QueryContext(ctx, query, args...)
+		if err != nil {
+			return nil, err
+		}
+
+		userCategories := make(map[int64]map[string]int)
+
+		for rows.Next() {
+			var userID int64
+			var category string
+			if err := rows.Scan(&userID, &category); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			if userCategories[userID] == nil {
+				userCategories[userID] = make(map[string]int)
+			}
+			userCategories[userID][category]++
+		}
+
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+
+		categoryOrder := []string{"Hypertensive Crisis", "High BP Stage 2", "High BP Stage 1", "Elevated", "Normal"}
+
+		for userID, counts := range userCategories {
+			maxCount := 0
+			dominant := "Normal"
+			for _, cat := range categoryOrder {
+				// We want ties to favor the more severe category.
+				// Since categoryOrder is from most severe to least severe,
+				// we only update if count > maxCount, not >=.
+				if count, ok := counts[cat]; ok && count > maxCount {
+					maxCount = count
+					dominant = cat
+				}
+			}
+			result[userID] = dominant
+		}
+	}
+
+	return result, nil
+}
+
 // CalculatePreferredReminderHour returns the average measurement hour over the
 // last 14 days, clamped to [8, 23]. Returns the default of 20 when there are
 // fewer than 3 readings available.
@@ -255,6 +331,82 @@ func (r *Repo) CalculatePreferredReminderHour(ctx context.Context, userID int64)
 	return avgHour, nil
 }
 
+// BatchCalculatePreferredReminderHours computes the average measurement hour over
+// the last 14 days for multiple users. Returns default 20 if <3 readings.
+func (r *Repo) BatchCalculatePreferredReminderHours(ctx context.Context, userIDs []int64) (map[int64]int, error) {
+	result := make(map[int64]int, len(userIDs))
+	if len(userIDs) == 0 {
+		return result, nil
+	}
+
+	since := time.Now().AddDate(0, 0, -14)
+
+	chunkSize := 500
+	for i := 0; i < len(userIDs); i += chunkSize {
+		end := i + chunkSize
+		if end > len(userIDs) {
+			end = len(userIDs)
+		}
+		chunk := userIDs[i:end]
+
+		placeholders := make([]string, len(chunk))
+		args := make([]interface{}, len(chunk))
+		for j, id := range chunk {
+			placeholders[j] = "?"
+			args[j] = id
+			result[id] = 20 // Default fallback
+		}
+
+		args = append([]interface{}{since}, args...)
+		query := "SELECT user_id, measured_at FROM blood_pressure_readings WHERE measured_at >= ? AND user_id IN (" + strings.Join(placeholders, ",") + ")"
+
+		rows, err := r.db.QueryContext(ctx, query, args...)
+		if err != nil {
+			return nil, err
+		}
+
+		userHours := make(map[int64][]int)
+
+		for rows.Next() {
+			var userID int64
+			var measuredAt time.Time
+			if err := rows.Scan(&userID, &measuredAt); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			userHours[userID] = append(userHours[userID], measuredAt.Hour())
+		}
+
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+
+		for userID, hours := range userHours {
+			if len(hours) < 3 {
+				continue
+			}
+
+			totalHour := 0
+			for _, h := range hours {
+				totalHour += h
+			}
+			avgHour := totalHour / len(hours)
+
+			if avgHour < 8 {
+				avgHour = 8
+			} else if avgHour > 23 {
+				avgHour = 23
+			}
+
+			result[userID] = avgHour
+		}
+	}
+
+	return result, nil
+}
+
 // UpdatePreferredReminderHour updates the preferred reminder hour for a user.
 func (r *Repo) UpdatePreferredReminderHour(userID int64, hour int) error {
 	_, err := r.db.Exec(`
@@ -263,6 +415,37 @@ func (r *Repo) UpdatePreferredReminderHour(userID int64, hour int) error {
 		WHERE user_id = ?`,
 		hour, userID)
 	return err
+}
+
+// BatchUpdatePreferredReminderHours updates preferred reminder hours for multiple
+// users efficiently in a single transaction using batched updates.
+func (r *Repo) BatchUpdatePreferredReminderHours(ctx context.Context, updates map[int64]int) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	stmt, err := tx.PrepareContext(ctx, `
+		UPDATE bp_reminder_state
+		SET preferred_reminder_hour = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE user_id = ?`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for userID, hour := range updates {
+		if _, err := stmt.ExecContext(ctx, hour, userID); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
 }
 
 // ListUsersForReminders returns users who have BP reminders enabled.
