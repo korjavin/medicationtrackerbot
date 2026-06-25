@@ -163,11 +163,11 @@ defer.
 - [x] run `go test ./internal/domain/gamification/...` — must pass before next task
 
 ### Task 8: Domain service — streaks, freezes, insight-tier gating
-- [ ] fold `NextStreak` into `ScoreDay`/state recompute using a per-user "minimum viable day" rule (weekly cadence default)
-- [ ] award/bank freezes per the rules; never produce negative HP or demote level
-- [ ] expose `GetInsightTier(ctx, userID)` and ensure tier gates only depth (never raw data) per design §8/§5
-- [ ] write tests: streak continues across a frozen miss; longest_streak tracked; tier increases with level
-- [ ] run `go test ./internal/domain/gamification/...` — must pass before next task
+- [x] fold `NextStreak` into `ScoreDay`/state recompute using a per-user "minimum viable day" rule (weekly cadence default) — `streak.go` `advanceStreak`: crossing into a later week finalizes intervening weeks, week-met = any ledger HP that week (Monday-anchored `weekIndex`/`weekBounds`)
+- [x] award/bank freezes per the rules; never produce negative HP or demote level — `NextStreak` auto-applies a banked freeze on a missed week (else resets to 0, never negative); lifetime HP/level/tier clamps from Task 7 retained
+- [x] expose `GetInsightTier(ctx, userID)` and ensure tier gates only depth (never raw data) per design §8/§5 — added to `GamificationService`; gate-off → 0, enabled+unscored → 1, reads stored tier (set monotonically in `recomputeState`)
+- [x] write tests: streak continues across a frozen miss; longest_streak tracked; tier increases with level — `streak_test.go` (frozen-miss preserves streak + consumes one freeze, reset keeps longest, idempotent re-score, `GetInsightTier` gate/default/climb)
+- [x] run `go test ./internal/domain/gamification/...` — must pass before next task
 
 ### Task 9: Adherence read method (only if missing)
 - [ ] check `internal/store/medication/repo.go` for a date-range intake-history read (taken/scheduled/skipped between two instants)

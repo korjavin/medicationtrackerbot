@@ -128,6 +128,11 @@ type GamificationService interface {
 	// per-ring HP (today + trailing period), level, lifetime HP, next-level
 	// progress, streak, and insight tier. Gate-off yields an empty summary.
 	GetSummary(ctx context.Context, userID int64) (Summary, error)
+
+	// GetInsightTier returns the user's unlocked insight tier (§8) — the depth of
+	// analysis their level grants. It gates only insight depth, never raw data or
+	// safety alerts. Gate-off yields 0 (Task 8).
+	GetInsightTier(ctx context.Context, userID int64) (int, error)
 }
 
 // service implements GamificationService. It composes the narrow per-domain read

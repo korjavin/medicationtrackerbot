@@ -5,8 +5,8 @@ package gamification
 // scoring engine's input structs, runs the scorers against the user's effective
 // Config (recommended defaults overlaid with their target overrides), and writes
 // the resulting HP awards plus the recomputed cached state through the
-// gamification repo. Streaks/freezes (the state's streak fields) are deliberately
-// left untouched here — Task 8 folds NextStreak into the state recompute.
+// gamification repo. The state recompute folds the weekly-cadence streak forward
+// (Task 8): see advanceStreak in streak.go.
 //
 // Mapping scope decisions for the MVP single-day path (each documented at its
 // loader): improvement-vs-baseline (HR/stress) and sleep-timing regularity need
@@ -143,8 +143,8 @@ func (s *service) scoreDayAwards(ctx context.Context, userID int64, start, end t
 // land. Lifetime HP is the prior ledger sum minus this day's old awards plus the
 // new ones (correct because re-scoring the same data reproduces the same UNIQUE
 // keys, so old rows are fully replaced). Level and insight tier are recomputed
-// but never allowed to decrease (§7). Streak fields are carried over unchanged —
-// Task 8 owns them. LastScoredDay only advances forward.
+// but never allowed to decrease (§7). The weekly-cadence streak is folded forward
+// via advanceStreak (§9). LastScoredDay only advances forward.
 func (s *service) recomputeState(ctx context.Context, userID int64, start time.Time, entries []gamstore.LedgerEntry, cfg scoring.Config) (gamstore.State, error) {
 	prev, err := s.gam.GetState(ctx, userID)
 	if err != nil {
@@ -180,6 +180,13 @@ func (s *service) recomputeState(ctx context.Context, userID int64, start time.T
 	st.LifetimeHP = lifetime
 	st.Level = level
 	st.InsightTier = tier
+
+	// Fold the weekly-cadence streak forward (§9): crossing into a later week
+	// finalizes the intervening weeks — the week just left counts as met, fully
+	// skipped weeks are misses that spend a banked freeze (else reset). Never
+	// negative; re-scoring the same or an earlier day is a no-op (idempotent).
+	st.CurrentStreak, st.LongestStreak, st.Freezes = s.advanceStreak(ctx, userID, prev, start, cfg)
+
 	if prev.LastScoredDay == nil || start.After(*prev.LastScoredDay) {
 		d := start
 		st.LastScoredDay = &d
