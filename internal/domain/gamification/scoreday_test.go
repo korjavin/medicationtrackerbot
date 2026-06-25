@@ -193,6 +193,21 @@ func (m *memGam) UpsertState(_ context.Context, userID int64, st gamstore.State)
 	return &st, nil
 }
 
+// MarkBackfilled mirrors the real repo's in-place, set-once latch UPDATE: it
+// stamps BackfilledAt on the existing state row without touching the other
+// columns, and only when the latch is still nil — a redundant call leaves an
+// already-stamped latch unchanged (the `backfilled_at_unix IS NULL` guard).
+func (m *memGam) MarkBackfilled(_ context.Context, userID int64, at time.Time) error {
+	st := m.state[userID]
+	st.UserID = userID
+	if st.BackfilledAt == nil {
+		v := at.UTC()
+		st.BackfilledAt = &v
+	}
+	m.state[userID] = st
+	return nil
+}
+
 func (m *memGam) ApplyDayScore(ctx context.Context, userID int64, day time.Time, entries []gamstore.LedgerEntry, st gamstore.State) (*gamstore.State, error) {
 	// Mirror the real repo: replace the whole day. Drop the user's existing rows
 	// for `day` before inserting so a shrunk re-score leaves no orphan awards.
@@ -323,6 +338,67 @@ func TestScoreDay_SleepAttributedToWakeDay(t *testing.T) {
 	want := cfg.FloorHP + cfg.SleepOutcomeMaxHP
 	if got := fs.gam.ringHP(userID, day, scoring.RingMind); got != want {
 		t.Errorf("sleep Mind-ring HP = %d, want %d (night dropped by start_time window?)", got, want)
+	}
+}
+
+// TestScoreDay_AdherenceDedupesTZStepPhantom guards against double-counting a
+// single logical dose that was materialized twice during a timezone transition:
+// a phantom MISSED source='schedule' row and the real TAKEN source='tz_step' row
+// at the same (medication_id, scheduled_at). The adherence scorer must collapse
+// them to one taken dose (the tz_step sibling shadows the schedule phantom, as the
+// medication store's own readers do), not score a taken+missed pair.
+func TestScoreDay_AdherenceDedupesTZStepPhantom(t *testing.T) {
+	ctx := context.Background()
+	const userID int64 = 31
+	day := time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC)
+	sched := day.Add(8 * time.Hour)
+
+	fs := &fullStores{
+		settings: fakeSettings{enabled: true},
+		med: fakeMed{logs: []store.IntakeLog{
+			{ID: 1, MedicationID: 7, Status: "MISSED", ScheduledAt: sched, Source: "schedule"},
+			{ID: 2, MedicationID: 7, Status: "TAKEN", ScheduledAt: sched, TakenAt: ptrTime(sched), Source: "tz_step"},
+		}},
+	}
+	svc := newFullService(fs)
+	if err := svc.ScoreDay(ctx, userID, day); err != nil {
+		t.Fatalf("ScoreDay: %v", err)
+	}
+
+	cfg := scoring.DefaultConfig()
+	// One on-time TAKEN dose: floor + full outcome (membership 1, ratio 1.0). The
+	// phantom MISSED row must be dropped, not counted as a second expected dose.
+	want := cfg.FloorHP + scaleHPExpected(cfg.AdherenceOutcomeMaxHP, 1.0)
+	if got := fs.gam.ringHP(userID, day, scoring.RingAdherence); got != want {
+		t.Errorf("adherence HP = %d, want %d (tz_step phantom not deduped — dose double-counted?)", got, want)
+	}
+}
+
+// TestScoreDay_AdherencePendingTZStepDoesNotShadow is the inverse guard: a still-
+// PENDING tz_step sibling (e.g. an orphan from a cancelled plan) scores nothing
+// and must NOT shadow the real acted-on schedule row, or a genuine dose vanishes.
+func TestScoreDay_AdherencePendingTZStepDoesNotShadow(t *testing.T) {
+	ctx := context.Background()
+	const userID int64 = 32
+	day := time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC)
+	sched := day.Add(8 * time.Hour)
+
+	fs := &fullStores{
+		settings: fakeSettings{enabled: true},
+		med: fakeMed{logs: []store.IntakeLog{
+			{ID: 1, MedicationID: 7, Status: "TAKEN", ScheduledAt: sched, TakenAt: ptrTime(sched), Source: "schedule"},
+			{ID: 2, MedicationID: 7, Status: "PENDING", ScheduledAt: sched, Source: "tz_step"}, // orphan, never acted on
+		}},
+	}
+	svc := newFullService(fs)
+	if err := svc.ScoreDay(ctx, userID, day); err != nil {
+		t.Fatalf("ScoreDay: %v", err)
+	}
+
+	cfg := scoring.DefaultConfig()
+	want := cfg.FloorHP + scaleHPExpected(cfg.AdherenceOutcomeMaxHP, 1.0)
+	if got := fs.gam.ringHP(userID, day, scoring.RingAdherence); got != want {
+		t.Errorf("adherence HP = %d, want %d (PENDING tz_step wrongly shadowed the real dose?)", got, want)
 	}
 }
 

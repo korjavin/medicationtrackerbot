@@ -496,7 +496,13 @@ Plan 2 (HTTP/MCP) and Plan 3 (frontend) are not yet built.
 idempotent), `gamification_state` (cached level / streak / tier). Feature flag
 `settings.gamification_enabled` defaults to 1 (default-ON). All three tables emit
 `change_events('gamification')` triggers. `day_unix` is INTEGER unix-seconds and
-allowlisted in `TestDoseTimeColumnsAreInteger`.
+allowlisted in `TestDoseTimeColumnsAreInteger`. `gamification_state.backfilled_at_unix`
+is a dedicated "365-day window fully replayed" latch — set only after `Backfill`
+finishes the whole window, and the signal `EnsureBackfilled` keys off (NOT
+`last_scored_day_unix`, which advances on the first backfilled day and on every
+daily score, so a partial backfill or a live score would otherwise look complete).
+`ScoreDay` serializes its read-recompute-write per user (in-process lock) so
+concurrent scores can't desync `gamification_state` from the ledger.
 
 **Scoring-constant choices** (the doc left these as implementation-level, §7/§8):
 

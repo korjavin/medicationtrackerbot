@@ -61,6 +61,13 @@ type LedgerEntry struct {
 // streak bookkeeping, banked freezes, and the insight tier. It is recomputed
 // from the ledger and is never the only copy of anything. LastScoredDay is nil
 // when the user has not been scored yet.
+//
+// BackfilledAt is the "historical window fully replayed" latch: nil until the
+// 365-day backfill completes, then a fixed timestamp. It is deliberately
+// distinct from LastScoredDay — which advances on the first backfilled day and
+// on every ordinary daily score — so a partial backfill or an unrelated live
+// score is never mistaken for a finished backfill. Internal bookkeeping, so it
+// is not serialized (json:"-").
 type State struct {
 	UserID        int64      `json:"-"`
 	LifetimeHP    int        `json:"lifetime_hp"`
@@ -70,6 +77,7 @@ type State struct {
 	Freezes       int        `json:"freezes"`
 	InsightTier   int        `json:"insight_tier"`
 	LastScoredDay *time.Time `json:"last_scored_day,omitempty"`
+	BackfilledAt  *time.Time `json:"-"`
 	UpdatedAt     time.Time  `json:"updated_at"`
 }
 

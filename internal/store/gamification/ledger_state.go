@@ -71,7 +71,7 @@ func (r *Repo) SumHP(ctx context.Context, userID int64) (int, error) {
 // callers never special-case "not yet scored".
 func (r *Repo) GetState(ctx context.Context, userID int64) (State, error) {
 	row := r.db.QueryRowContext(ctx,
-		`SELECT user_id, lifetime_hp, level, current_streak, longest_streak, freezes, insight_tier, last_scored_day_unix, updated_at_unix
+		`SELECT user_id, lifetime_hp, level, current_streak, longest_streak, freezes, insight_tier, last_scored_day_unix, backfilled_at_unix, updated_at_unix
 		   FROM gamification_state WHERE user_id = ?`, userID)
 	s, err := scanState(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -148,16 +148,22 @@ func upsertLedgerTx(ctx context.Context, tx storedb.TX, userID int64, entries []
 }
 
 // upsertStateTx runs the state INSERT ... ON CONFLICT against the given TX,
-// returning the persisted row via RETURNING.
+// returning the persisted row via RETURNING. backfilled_at_unix is carried
+// through st (recomputeState copies prev), so an ordinary daily re-score
+// preserves the backfill latch instead of clearing it.
 func upsertStateTx(ctx context.Context, tx storedb.TX, userID int64, st State, nowUnix int64) (State, error) {
 	var lastScored interface{}
 	if st.LastScoredDay != nil {
 		lastScored = dayToUnix(*st.LastScoredDay)
 	}
+	var backfilledAt interface{}
+	if st.BackfilledAt != nil {
+		backfilledAt = storedb.TimeToUnix(*st.BackfilledAt)
+	}
 	row := tx.QueryRowContext(ctx,
 		`INSERT INTO gamification_state
-		   (user_id, lifetime_hp, level, current_streak, longest_streak, freezes, insight_tier, last_scored_day_unix, updated_at_unix)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		   (user_id, lifetime_hp, level, current_streak, longest_streak, freezes, insight_tier, last_scored_day_unix, backfilled_at_unix, updated_at_unix)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(user_id) DO UPDATE SET
 		   lifetime_hp = excluded.lifetime_hp,
 		   level = excluded.level,
@@ -166,10 +172,34 @@ func upsertStateTx(ctx context.Context, tx storedb.TX, userID int64, st State, n
 		   freezes = excluded.freezes,
 		   insight_tier = excluded.insight_tier,
 		   last_scored_day_unix = excluded.last_scored_day_unix,
+		   backfilled_at_unix = excluded.backfilled_at_unix,
 		   updated_at_unix = excluded.updated_at_unix
-		 RETURNING user_id, lifetime_hp, level, current_streak, longest_streak, freezes, insight_tier, last_scored_day_unix, updated_at_unix`,
-		userID, st.LifetimeHP, st.Level, st.CurrentStreak, st.LongestStreak, st.Freezes, st.InsightTier, lastScored, nowUnix)
+		 RETURNING user_id, lifetime_hp, level, current_streak, longest_streak, freezes, insight_tier, last_scored_day_unix, backfilled_at_unix, updated_at_unix`,
+		userID, st.LifetimeHP, st.Level, st.CurrentStreak, st.LongestStreak, st.Freezes, st.InsightTier, lastScored, backfilledAt, nowUnix)
 	return scanState(row)
+}
+
+// MarkBackfilled stamps the backfill-complete latch on the user's state row,
+// the signal EnsureBackfilled uses to skip the 365-day replay. It is an in-place
+// UPDATE of only backfilled_at_unix (+ updated_at_unix) so it cannot clobber the
+// lifetime/level/streak columns a concurrent score may have just written; the
+// row is guaranteed to exist because Backfill scores at least one day (which
+// upserts the state) before calling this. Callers serialize it under the
+// service's per-user scoring lock so it can't interleave with a state upsert
+// that carries a stale (nil) latch.
+//
+// The latch is set-once: the `backfilled_at_unix IS NULL` guard makes a redundant
+// call (e.g. a second direct Backfill) a no-op — it leaves the timestamp and
+// updated_at_unix untouched and emits no extra gamification_state change event,
+// keeping re-runs idempotent and honoring the "set once" contract documented on
+// the column (migration 073).
+func (r *Repo) MarkBackfilled(ctx context.Context, userID int64, at time.Time) error {
+	nowUnix := storedb.TimeToUnix(r.now())
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE gamification_state SET backfilled_at_unix = ?, updated_at_unix = ?
+		   WHERE user_id = ? AND backfilled_at_unix IS NULL`,
+		storedb.TimeToUnix(at), nowUnix, userID)
+	return err
 }
 
 // scanLedger reads one gamification_ledger row, mapping NULL detail to "" and
@@ -193,12 +223,13 @@ func scanLedger(s scanner) (LedgerEntry, error) {
 // to a nil *time.Time and the *_unix columns back to UTC time.Times.
 func scanState(s scanner) (State, error) {
 	var st State
-	var lastScored sql.NullInt64
+	var lastScored, backfilledAt sql.NullInt64
 	var updatedUnix int64
-	if err := s.Scan(&st.UserID, &st.LifetimeHP, &st.Level, &st.CurrentStreak, &st.LongestStreak, &st.Freezes, &st.InsightTier, &lastScored, &updatedUnix); err != nil {
+	if err := s.Scan(&st.UserID, &st.LifetimeHP, &st.Level, &st.CurrentStreak, &st.LongestStreak, &st.Freezes, &st.InsightTier, &lastScored, &backfilledAt, &updatedUnix); err != nil {
 		return State{}, err
 	}
 	st.LastScoredDay = storedb.NullableUnixToTimePtr(lastScored)
+	st.BackfilledAt = storedb.NullableUnixToTimePtr(backfilledAt)
 	st.UpdatedAt = storedb.UnixToTime(updatedUnix)
 	return st, nil
 }

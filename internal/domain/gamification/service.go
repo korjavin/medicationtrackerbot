@@ -17,6 +17,7 @@ package gamification
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/domain/gamification/scoring"
@@ -84,9 +85,10 @@ type WorkoutStore interface {
 
 // GamStore is the gamification repo itself — the targets/ledger/state surface
 // the service writes to and recomputes from. Satisfied by *gamstore.Repo. The
-// service's only write path is the whole-day ApplyDayScore; the repo's granular
-// UpsertLedger/UpsertState exist for store-level tests and are intentionally not
-// part of this narrow interface.
+// service's daily write path is the whole-day ApplyDayScore; the granular
+// UpsertLedger is store-internal and stays off this interface. UpsertState IS on
+// it: Backfill needs a state-only write to reset the streak-tracking fields
+// before replaying the window (see backfill.go), which no ledger write accompanies.
 type GamStore interface {
 	ListTargets(ctx context.Context, userID int64) ([]gamstore.Target, error)
 	UpsertTarget(ctx context.Context, userID int64, t gamstore.Target) (*gamstore.Target, error)
@@ -96,7 +98,9 @@ type GamStore interface {
 	SumHP(ctx context.Context, userID int64) (int, error)
 
 	GetState(ctx context.Context, userID int64) (gamstore.State, error)
+	UpsertState(ctx context.Context, userID int64, st gamstore.State) (*gamstore.State, error)
 	ApplyDayScore(ctx context.Context, userID int64, day time.Time, entries []gamstore.LedgerEntry, st gamstore.State) (*gamstore.State, error)
+	MarkBackfilled(ctx context.Context, userID int64, at time.Time) error
 }
 
 // SettingsStore exposes the gamification feature flag. Every scoring/read entry
@@ -113,7 +117,7 @@ type SettingsStore interface {
 //   - Task 7: ScoreDay, GetSummary
 //   - Task 8: GetInsightTier
 //   - Task 10: Backfill, EnsureBackfilled
-//   - Plan 2: targets CRUD
+//   - Targets CRUD: ListTargets, UpsertTarget, DeleteTarget
 //
 // This task establishes the skeleton plus the enable gate.
 type GamificationService interface {
@@ -145,6 +149,19 @@ type GamificationService interface {
 	// scored state so it is cheap to call repeatedly. Plan 2 wires it into the
 	// feature-enable hook (Task 10).
 	EnsureBackfilled(ctx context.Context, userID int64) error
+
+	// ListTargets returns the user's per-metric target overrides (the
+	// recommendations they changed). Gate-off yields no targets. See targets.go.
+	ListTargets(ctx context.Context, userID int64) ([]gamstore.Target, error)
+
+	// UpsertTarget validates and persists one band-shaped override, rejecting an
+	// unknown metric key or an incoherent band so invalid state never reaches the
+	// store. Gate-off is a no-op. See targets.go.
+	UpsertTarget(ctx context.Context, userID int64, t gamstore.Target) (*gamstore.Target, error)
+
+	// DeleteTarget removes the user's override for metricKey, reverting them to the
+	// recommended default. Gate-off is a no-op. See targets.go.
+	DeleteTarget(ctx context.Context, userID int64, metricKey string) error
 }
 
 // service implements GamificationService. It composes the narrow per-domain read
@@ -167,6 +184,41 @@ type service struct {
 	cfg scoring.Config
 	// now is the clock. Defaults to time.Now; tests inject a fixed clock.
 	now func() time.Time
+	// scoreMu serializes a user's whole ScoreDay (domain-data load → recompute →
+	// write) so concurrent calls (e.g. a background backfill racing a live
+	// same-day re-score) can neither read the same prior ledger sum and clobber
+	// each other's state, nor commit an older domain-data snapshot after a fresher
+	// one (ApplyDayScore replaces the whole day). See ScoreDay for the full
+	// rationale. In-process locking suffices: the bot is a single binary over a
+	// file-backed SQLite DB, so there is no second writer process. Zero value is
+	// ready to use.
+	scoreMu keyedMutex
+}
+
+// keyedMutex serializes work per int64 key (here: per user). The zero value is
+// ready to use; locks are created lazily and kept for the process lifetime — the
+// user set is bounded for a self-hosted deployment, so reference-counting the
+// per-user mutexes away is not worth the complexity.
+type keyedMutex struct {
+	mu sync.Mutex
+	m  map[int64]*sync.Mutex
+}
+
+// lock acquires the mutex for key and returns its unlock func. Callers
+// `defer unlock()`.
+func (k *keyedMutex) lock(key int64) func() {
+	k.mu.Lock()
+	if k.m == nil {
+		k.m = make(map[int64]*sync.Mutex)
+	}
+	m := k.m[key]
+	if m == nil {
+		m = &sync.Mutex{}
+		k.m[key] = m
+	}
+	k.mu.Unlock()
+	m.Lock()
+	return m.Unlock
 }
 
 var _ GamificationService = (*service)(nil)

@@ -337,3 +337,58 @@ func TestApplyDayScore_ReplacesWholeDay(t *testing.T) {
 		t.Errorf("SumHP = %d after shrunk re-score, want 10 (no orphan HP)", sum)
 	}
 }
+
+// TestMarkBackfilled_LatchRoundTrip covers the backfill-complete latch: it is nil
+// until MarkBackfilled stamps it, survives a state read, leaves the other columns
+// untouched (in-place UPDATE), and is carried through an UpsertState that includes
+// it — proving an ordinary daily re-score (recomputeState copies prev) won't clear
+// it.
+func TestMarkBackfilled_LatchRoundTrip(t *testing.T) {
+	r := setupRepo(t)
+	ctx := context.Background()
+	d := day(2025, 6, 25)
+
+	// Seed a state row, as the first backfilled day's ApplyDayScore would.
+	if _, err := r.UpsertState(ctx, 1, State{LifetimeHP: 5, Level: 1, InsightTier: 1, LastScoredDay: &d}); err != nil {
+		t.Fatalf("UpsertState: %v", err)
+	}
+	if st, _ := r.GetState(ctx, 1); st.BackfilledAt != nil {
+		t.Fatalf("BackfilledAt should be nil before MarkBackfilled, got %v", st.BackfilledAt)
+	}
+
+	at := time.Unix(1750812345, 0).UTC()
+	if err := r.MarkBackfilled(ctx, 1, at); err != nil {
+		t.Fatalf("MarkBackfilled: %v", err)
+	}
+	st, err := r.GetState(ctx, 1)
+	if err != nil {
+		t.Fatalf("GetState: %v", err)
+	}
+	if st.BackfilledAt == nil || !st.BackfilledAt.Equal(at) {
+		t.Errorf("BackfilledAt = %v, want %v", st.BackfilledAt, at)
+	}
+	if st.LifetimeHP != 5 || st.LastScoredDay == nil || !st.LastScoredDay.Equal(d) {
+		t.Errorf("MarkBackfilled clobbered other state columns: %+v", st)
+	}
+
+	// A re-score (UpsertState) that carries the latch preserves it.
+	st.LifetimeHP = 9
+	if _, err := r.UpsertState(ctx, 1, st); err != nil {
+		t.Fatalf("UpsertState carry: %v", err)
+	}
+	if got, _ := r.GetState(ctx, 1); got.BackfilledAt == nil || !got.BackfilledAt.Equal(at) {
+		t.Errorf("latch lost across UpsertState that carried it: %+v", got)
+	}
+
+	// Set-once: a redundant MarkBackfilled (e.g. a second direct Backfill) must
+	// NOT re-stamp an already-set latch, so re-runs stay idempotent and emit no
+	// extra state change event. The `backfilled_at_unix IS NULL` guard makes it a
+	// no-op — the latch keeps its original value despite a later `at`.
+	later := at.Add(48 * time.Hour)
+	if err := r.MarkBackfilled(ctx, 1, later); err != nil {
+		t.Fatalf("MarkBackfilled (redundant): %v", err)
+	}
+	if got, _ := r.GetState(ctx, 1); got.BackfilledAt == nil || !got.BackfilledAt.Equal(at) {
+		t.Errorf("redundant MarkBackfilled re-stamped a set-once latch: got %v, want %v", got.BackfilledAt, at)
+	}
+}

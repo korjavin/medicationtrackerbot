@@ -118,6 +118,7 @@ func TestMigration073_CreatesGamificationSchema(t *testing.T) {
 		{"freezes", "INTEGER", 1},
 		{"insight_tier", "INTEGER", 1},
 		{"last_scored_day_unix", "INTEGER", 0},
+		{"backfilled_at_unix", "INTEGER", 0},
 		{"updated_at_unix", "INTEGER", 1},
 	})
 

@@ -56,6 +56,12 @@ CREATE TABLE gamification_state (
     freezes             INTEGER NOT NULL DEFAULT 0,
     insight_tier        INTEGER NOT NULL DEFAULT 1,
     last_scored_day_unix INTEGER,
+    -- Set once, when the 365-day historical backfill finishes the whole window.
+    -- This is a dedicated "backfill complete" latch, distinct from
+    -- last_scored_day_unix (which advances on the FIRST backfilled day and on
+    -- every ordinary daily score). EnsureBackfilled keys off this so a mid-run
+    -- failure or an unrelated live score never looks like a finished backfill.
+    backfilled_at_unix  INTEGER,
     updated_at_unix     INTEGER NOT NULL
 );
 

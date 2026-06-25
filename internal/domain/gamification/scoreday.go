@@ -47,9 +47,9 @@ const (
 
 // ScoreDay computes the day's HP awards and the recomputed state and persists
 // both atomically. It short-circuits to a no-op when the feature flag is off so
-// transports/backfill can call it unconditionally. day is normalized to
-// UTC-midnight; re-scoring the same day with the same data is idempotent (the
-// ledger's UNIQUE key + INSERT OR REPLACE).
+// transports can call it unconditionally. day is normalized to UTC-midnight;
+// re-scoring the same day with the same data is idempotent (the ledger's UNIQUE
+// key + INSERT OR REPLACE).
 func (s *service) ScoreDay(ctx context.Context, userID int64, day time.Time) error {
 	enabled, err := s.gate(ctx)
 	if err != nil {
@@ -58,7 +58,51 @@ func (s *service) ScoreDay(ctx context.Context, userID int64, day time.Time) err
 	if !enabled {
 		return nil
 	}
+	return s.scoreDayLocked(ctx, userID, day)
+}
 
+// scoreDayLocked is the ungated single-day scorer: it acquires the per-user
+// scoring lock and runs scoreDayCore once. ScoreDay calls it after the
+// feature-flag gate. Backfill does NOT use it — it holds the lock once across the
+// whole 365-day walk and calls scoreDayCore directly (see backfill.go), so the
+// reset + every day's score + the completion latch commit as one atomic unit per
+// user. The caller owns the gate.
+//
+// Serialize the whole load → recompute → write per user. The lock must span the
+// domain-data loads (effectiveConfig + scoreDayAwards), not just the state
+// recompute, for two independent reasons:
+//
+//  1. State consistency: recomputeState reads the prior ledger sum + state and
+//     ApplyDayScore commits the derived state; two concurrent scores (even for
+//     different days) could otherwise both read the same sum and the last writer
+//     would persist a lifetime_hp/level/streak that no longer matches the ledger.
+//  2. Stale-overwrite: ApplyDayScore REPLACES the whole day's ledger with the
+//     awards computed from one snapshot of the domain data. If the loads sat
+//     outside the lock, a backfill could load today's old data, a live same-day
+//     re-score could then load + write newer data, and the backfill could finally
+//     acquire the lock and replace the day with its stale awards — permanently
+//     dropping the newer reading. Holding the lock from before the loads forces
+//     the two calls to run start-to-finish in commit order, so the last writer
+//     always scored the freshest data.
+//
+// The lock is per-user and per-user scoring is infrequent (a one-time 365-day
+// backfill walk plus event-driven re-scores), so the added serialization is
+// negligible. In-process locking suffices: the bot is a single binary over a
+// file-backed SQLite DB, so there is no second writer process.
+func (s *service) scoreDayLocked(ctx context.Context, userID int64, day time.Time) error {
+	unlock := s.scoreMu.lock(userID)
+	defer unlock()
+	return s.scoreDayCore(ctx, userID, day)
+}
+
+// scoreDayCore runs one day's load → recompute → write pipeline WITHOUT taking
+// the per-user scoring lock: the caller MUST already hold it (scoreDayLocked for
+// a single online score, Backfill for the whole walk). Splitting the lock out is
+// what lets Backfill hold one lock across all 365 days — so a concurrent live
+// ScoreDay can neither interleave between days (jumping LastScoredDay into a later
+// week and no-oping the streak fold for every remaining day) nor race the
+// streak reset.
+func (s *service) scoreDayCore(ctx context.Context, userID int64, day time.Time) error {
 	cfg, err := s.effectiveConfig(ctx, userID)
 	if err != nil {
 		return err
@@ -265,7 +309,7 @@ func (s *service) loadAdherence(ctx context.Context, userID int64, start, end ti
 		return scoring.AdherenceDay{}, err
 	}
 	var doses []scoring.Dose
-	for _, l := range logs {
+	for _, l := range dedupeLogicalDoses(logs) {
 		switch l.Status {
 		case "TAKEN":
 			mins := 0
@@ -282,6 +326,53 @@ func (s *service) loadAdherence(ctx context.Context, userID int64, start, end ti
 		}
 	}
 	return scoring.AdherenceDay{Doses: doses}, nil
+}
+
+// dedupeLogicalDoses collapses intake_log rows that represent the SAME logical
+// dose down to one before they are scored. A (medication_id, scheduled_at_unix)
+// slot can carry both a source='schedule' and a source='tz_step' row: the normal
+// scheduler fired the slot at T just before the user approved a timezone-
+// transition plan whose snap-to-clock step also landed at T. The medication store
+// treats these as one dose — its user-action readers shadow the schedule row and
+// its history readers tie-break to the tz_step row (see
+// scheduleNotShadowedByTZStepGate / GetIntakeBySchedule in
+// internal/store/medication/repo.go). ListIntakeHistoryByUser is a history reader
+// and returns both rows, so the adherence scorer must apply the same shadowing or
+// it double-counts the dose during a transition (e.g. a phantom MISSED schedule
+// row scored alongside the real TAKEN tz_step row, dragging the outcome down).
+//
+// A schedule-family row is dropped only when a *resolved* (acted-on) tz_step
+// sibling shares its slot — that is the real dose. A still-PENDING tz_step sibling
+// (e.g. an orphan from a cancelled plan) does NOT shadow: it scores nothing
+// anyway, and the schedule row may itself be the acted-on dose, so dropping it
+// would under-count. Rows are returned in input order (scheduled_at ascending).
+func dedupeLogicalDoses(logs []store.IntakeLog) []store.IntakeLog {
+	type slotKey struct{ med, sched int64 }
+	shadowed := map[slotKey]bool{}
+	for _, l := range logs {
+		if l.Source == "tz_step" && intakeResolved(l) {
+			shadowed[slotKey{l.MedicationID, l.ScheduledAt.UTC().Unix()}] = true
+		}
+	}
+	out := make([]store.IntakeLog, 0, len(logs))
+	for _, l := range logs {
+		if l.Source != "tz_step" && shadowed[slotKey{l.MedicationID, l.ScheduledAt.UTC().Unix()}] {
+			continue // schedule phantom shadowed by its acted-on tz_step sibling
+		}
+		out = append(out, l)
+	}
+	return out
+}
+
+// intakeResolved reports whether a dose has been acted on (its status is final),
+// as opposed to a still-PENDING slot the adherence scorer ignores.
+func intakeResolved(l store.IntakeLog) bool {
+	switch l.Status {
+	case "TAKEN", "SKIPPED", "MISSED":
+		return true
+	default:
+		return false
+	}
 }
 
 // loadBP filters the user's readings to the day and maps systolic/diastolic to

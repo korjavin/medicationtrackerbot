@@ -23,6 +23,12 @@ func sameState(a, b gamstore.State) bool {
 	if a.LastScoredDay != nil && !a.LastScoredDay.Equal(*b.LastScoredDay) {
 		return false
 	}
+	if (a.BackfilledAt == nil) != (b.BackfilledAt == nil) {
+		return false
+	}
+	if a.BackfilledAt != nil && !a.BackfilledAt.Equal(*b.BackfilledAt) {
+		return false
+	}
 	return true
 }
 
@@ -84,6 +90,9 @@ func TestBackfill_CapsAt365_Idempotent(t *testing.T) {
 	}
 	if st1.LastScoredDay == nil || !st1.LastScoredDay.Equal(today) {
 		t.Errorf("last scored day = %v, want %v", st1.LastScoredDay, today)
+	}
+	if st1.BackfilledAt == nil {
+		t.Error("completed backfill did not stamp the BackfilledAt latch")
 	}
 
 	// Second run is a no-op: identical ledger row count + state.
@@ -162,19 +171,23 @@ func TestEnsureBackfilled_RunsOnFirstEnable(t *testing.T) {
 	if st.LastScoredDay == nil {
 		t.Error("first-enable backfill left state unscored")
 	}
+	if st.BackfilledAt == nil {
+		t.Error("first-enable backfill did not stamp the BackfilledAt latch")
+	}
 }
 
-// TestEnsureBackfilled_SkipsWhenAlreadyScored proves the guard short-circuits: a
-// user whose state already carries a LastScoredDay must NOT re-run the 365-day
-// walk, so the (intentionally empty) ledger stays empty.
-func TestEnsureBackfilled_SkipsWhenAlreadyScored(t *testing.T) {
+// TestEnsureBackfilled_SkipsWhenBackfilled proves the guard short-circuits on the
+// dedicated latch: a user whose state already carries a BackfilledAt must NOT
+// re-run the 365-day walk, so the (intentionally empty) ledger stays empty.
+func TestEnsureBackfilled_SkipsWhenBackfilled(t *testing.T) {
 	ctx := context.Background()
 	const userID int64 = 51
 	today := time.Date(2026, 6, 25, 0, 0, 0, 0, time.UTC)
 
 	gam := newMemGam()
 	ls := today.AddDate(0, 0, -1)
-	gam.state[userID] = gamstore.State{UserID: userID, Level: 1, InsightTier: 1, LastScoredDay: &ls}
+	done := today.AddDate(0, 0, -2)
+	gam.state[userID] = gamstore.State{UserID: userID, Level: 1, InsightTier: 1, LastScoredDay: &ls, BackfilledAt: &done}
 	fs := &fullStores{
 		settings: fakeSettings{enabled: true},
 		bp:       fakeBP{readings: []store.BloodPressure{{MeasuredAt: today.Add(9 * time.Hour), Systolic: 116, Diastolic: 76}}},
@@ -187,6 +200,60 @@ func TestEnsureBackfilled_SkipsWhenAlreadyScored(t *testing.T) {
 		t.Fatalf("EnsureBackfilled: %v", err)
 	}
 	if len(fs.gam.ledger) != 0 {
-		t.Errorf("EnsureBackfilled re-ran backfill despite prior scoring: %d rows", len(fs.gam.ledger))
+		t.Errorf("EnsureBackfilled re-ran backfill despite prior backfill: %d rows", len(fs.gam.ledger))
+	}
+}
+
+// TestEnsureBackfilled_RunsWhenScoredButNotBackfilled is the regression guard for
+// the "any scored day == done" bug: a user whose state has a LastScoredDay (e.g.
+// a partial backfill that died part-way, or a live same-day score that landed
+// before first enable) but NO BackfilledAt latch must still get the full
+// historical replay — otherwise the remaining days are silently lost forever.
+//
+// It also guards the streak-reconstruction half of the same scenario: the stale
+// LastScoredDay (today) sits in a later week than every backfilled day, so without
+// the streak reset advanceStreak would no-op for the whole walk and the streak
+// would stay stuck at its pre-backfill value (0) even though the ledger fills.
+// Three consecutive weekly readings must rebuild a streak of 3.
+func TestEnsureBackfilled_RunsWhenScoredButNotBackfilled(t *testing.T) {
+	ctx := context.Background()
+	const userID int64 = 53
+	today := time.Date(2026, 6, 25, 0, 0, 0, 0, time.UTC)
+
+	gam := newMemGam()
+	// Simulate a partial run: only today was scored (advancing LastScoredDay into
+	// the current week), latch never stamped, no streak built yet.
+	scored := today
+	gam.state[userID] = gamstore.State{UserID: userID, Level: 1, InsightTier: 1, LastScoredDay: &scored}
+	// Three fully-completed weeks of in-range readings (today-7/-14/-21) so the
+	// rebuilt weekly fold reaches a streak of 3; the current week (today) is left
+	// empty so it is not folded.
+	fs := &fullStores{
+		settings: fakeSettings{enabled: true},
+		bp: fakeBP{readings: []store.BloodPressure{
+			{MeasuredAt: today.AddDate(0, 0, -7).Add(9 * time.Hour), Systolic: 116, Diastolic: 76},
+			{MeasuredAt: today.AddDate(0, 0, -14).Add(9 * time.Hour), Systolic: 116, Diastolic: 76},
+			{MeasuredAt: today.AddDate(0, 0, -21).Add(9 * time.Hour), Systolic: 116, Diastolic: 76},
+		}},
+		gam: gam,
+	}
+	svc := newFullService(fs)
+	svc.now = func() time.Time { return today.Add(12 * time.Hour) }
+
+	if err := svc.EnsureBackfilled(ctx, userID); err != nil {
+		t.Fatalf("EnsureBackfilled: %v", err)
+	}
+	if len(fs.gam.ledger) == 0 {
+		t.Error("EnsureBackfilled skipped the historical replay despite no BackfilledAt latch")
+	}
+	st, _ := fs.gam.GetState(ctx, userID)
+	if st.BackfilledAt == nil {
+		t.Error("backfill triggered by the guard did not stamp the BackfilledAt latch")
+	}
+	if st.CurrentStreak != 3 {
+		t.Errorf("current streak = %d, want 3 (streak not rebuilt over the backfilled window)", st.CurrentStreak)
+	}
+	if st.LongestStreak != 3 {
+		t.Errorf("longest streak = %d, want 3", st.LongestStreak)
 	}
 }
