@@ -176,11 +176,11 @@ defer.
 - [x] run `go test ./internal/store/medication/...` — must pass before next task — passes; gamification domain tests + `go build ./...` + `go build -tags mobile ./...` also pass
 
 ### Task 10: Domain service — 365-day historical backfill
-- [ ] `Backfill(ctx, userID) error`: iterate the last 365 days (capped), call `ScoreDay` per day, then recompute state once; bounded by data availability
-- [ ] idempotent: re-running `Backfill` produces no row changes (relies on ledger UNIQUE + `INSERT OR REPLACE`)
-- [ ] trigger backfill on first enable (expose `EnsureBackfilled(ctx, userID)`; the actual enable hook is wired in Plan 2)
-- [ ] write integration test: seed ~400 days across domains → assert only 365 scored, HP ≥ 0, second run is a no-op (row counts + state identical)
-- [ ] run `go test ./internal/domain/gamification/...` — must pass before next task
+- [x] `Backfill(ctx, userID) error`: iterate the last 365 days (capped), call `ScoreDay` per day, then recompute state once; bounded by data availability — `backfill.go` walks oldest→newest (`backfillDays=365`) reusing `ScoreDay`, so the weekly streak fold-forward + lifetime/level/tier recompute run per day exactly as online; empty days produce no awards (naturally data-bounded), no separate end-of-run recompute needed
+- [x] idempotent: re-running `Backfill` produces no row changes (relies on ledger UNIQUE + `INSERT OR REPLACE`) — re-score replaces each day's rows in place; `LastScoredDay` never advances backward so the streak fold no-ops on the replay
+- [x] trigger backfill on first enable (expose `EnsureBackfilled(ctx, userID)`; the actual enable hook is wired in Plan 2) — gates off, then short-circuits when `state.LastScoredDay != nil` (already backfilled) so it is cheap to call on every enable/boot
+- [x] write integration test: seed ~400 days across domains → assert only 365 scored, HP ≥ 0, second run is a no-op (row counts + state identical) — `backfill_test.go` `TestBackfill_CapsAt365_Idempotent` (distinct-day count 365, oldest day_unix == today-364, non-negative HP, identical row count + state on re-run) plus gate-off, first-enable, and skip-when-already-scored cases
+- [x] run `go test ./internal/domain/gamification/...` — must pass before next task — passes; `go build ./...` + `go vet` also clean
 
 ### Task 11: Verify acceptance criteria
 - [ ] verify Overview MVP scope implemented (HP floor+outcome+consistency, five rings, levels, streaks+freezes, targets w/ recommendations, 365-day backfill, insight tiers L1–L4)

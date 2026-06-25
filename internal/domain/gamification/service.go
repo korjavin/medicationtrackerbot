@@ -135,6 +135,16 @@ type GamificationService interface {
 	// analysis their level grants. It gates only insight depth, never raw data or
 	// safety alerts. Gate-off yields 0 (Task 8).
 	GetInsightTier(ctx context.Context, userID int64) (int, error)
+
+	// Backfill replays the trailing 365 days (capped) through ScoreDay so an
+	// existing user lands on a populated ledger + state instead of starting empty.
+	// Gate-off is a no-op; re-running is idempotent (Task 10).
+	Backfill(ctx context.Context, userID int64) error
+
+	// EnsureBackfilled runs Backfill once, on first enable, guarded by the user's
+	// scored state so it is cheap to call repeatedly. Plan 2 wires it into the
+	// feature-enable hook (Task 10).
+	EnsureBackfilled(ctx context.Context, userID int64) error
 }
 
 // service implements GamificationService. It composes the narrow per-domain read
