@@ -50,6 +50,8 @@ func (r *Repo) GetBool(ctx context.Context, column string) (bool, error) {
 		query = "SELECT workout_enabled FROM settings WHERE id = 1"
 	case "health_enabled":
 		query = "SELECT health_enabled FROM settings WHERE id = 1"
+	case "gamification_enabled":
+		query = "SELECT gamification_enabled FROM settings WHERE id = 1"
 	case "first_run_complete":
 		query = "SELECT first_run_complete FROM settings WHERE id = 1"
 	default:
@@ -89,6 +91,8 @@ func (r *Repo) SetBool(ctx context.Context, column string, enabled bool) error {
 		query = "UPDATE settings SET workout_enabled = ? WHERE id = 1"
 	case "health_enabled":
 		query = "UPDATE settings SET health_enabled = ? WHERE id = 1"
+	case "gamification_enabled":
+		query = "UPDATE settings SET gamification_enabled = ? WHERE id = 1"
 	case "first_run_complete":
 		query = "UPDATE settings SET first_run_complete = ? WHERE id = 1"
 	default:
@@ -157,6 +161,18 @@ func (r *Repo) GetHealthEnabled(ctx context.Context) (bool, error) {
 // SetHealthEnabled toggles the vitals/health feature.
 func (r *Repo) SetHealthEnabled(ctx context.Context, enabled bool) error {
 	return r.SetBool(ctx, "health_enabled", enabled)
+}
+
+// GetGamificationEnabled returns whether the gamification (HealthPoints / Rings
+// / levels / streaks) layer is enabled. Default-ON: migration 073 adds the
+// column with DEFAULT 1, so a freshly-migrated settings row reports true.
+func (r *Repo) GetGamificationEnabled(ctx context.Context) (bool, error) {
+	return r.GetBool(ctx, "gamification_enabled")
+}
+
+// SetGamificationEnabled toggles the gamification feature.
+func (r *Repo) SetGamificationEnabled(ctx context.Context, enabled bool) error {
+	return r.SetBool(ctx, "gamification_enabled", enabled)
 }
 
 // GetFirstRunComplete reports whether the mobile first-run flow has been

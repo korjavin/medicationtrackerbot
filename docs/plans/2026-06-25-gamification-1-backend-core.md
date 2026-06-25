@@ -116,11 +116,11 @@ defer.
 - [x] run `go test ./internal/store/...` — must pass before next task
 
 ### Task 2: Settings feature flag — `gamification_enabled`
-- [ ] add `case "gamification_enabled"` to the `GetBool`/`SetBool` column switches in `internal/store/settings/repo.go:38`
-- [ ] add `GetGamificationEnabled(ctx)` / `SetGamificationEnabled(ctx, bool)` wrappers (mirror `:102`)
-- [ ] confirm default-ON: a freshly-migrated settings row returns `true`
-- [ ] write tests for get/set + default value
-- [ ] run `go test ./internal/store/settings/...` — must pass before next task
+- [x] add `case "gamification_enabled"` to the `GetBool`/`SetBool` column switches in `internal/store/settings/repo.go:38`
+- [x] add `GetGamificationEnabled(ctx)` / `SetGamificationEnabled(ctx, bool)` wrappers (mirror `:102`)
+- [x] confirm default-ON: a freshly-migrated settings row returns `true`
+- [x] write tests for get/set + default value
+- [x] run `go test ./internal/store/settings/...` — must pass before next task
 
 ### Task 3: Store repo — `internal/store/gamification` scaffold + targets
 - [ ] create `internal/store/gamification/repo.go`: `type Repo struct { db *storedb.DB; now func() time.Time }`, `func New(d *storedb.DB) *Repo`
