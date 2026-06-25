@@ -118,6 +118,7 @@ go run ./cmd/seeddemo -user <telegram_user_id> -db meds.db -topup -seed 42
 | Android emulator dev loop (SDK setup, AVD, local APK build, install, logcat, gotchas) | [docs/android-emulator.md](docs/android-emulator.md) |
 | Demo mode (`DEMO_MODE=1`): public auth-less deployment, per-IP AI rate limits, seeded demo DB, MCP without OAuth | [docs/demo-mode.md](docs/demo-mode.md) |
 | Feature behaviors (Today dashboard, meds, BP, weight, food, workouts, MCP) | [docs/features.md](docs/features.md) |
+| Gamification design (HealthPoints, science-based, outcome-in-range scoring, insight ladder) — **design proposal, not yet implemented** | [docs/gamification.md](docs/gamification.md) |
 | API endpoints | [docs/api.md](docs/api.md) |
 | Environment variables | [docs/environment.md](docs/environment.md) |
 | MCP server deployment (Pocket-ID, Docker, Claude config) | [docs/mcp-deployment.md](docs/mcp-deployment.md) |

@@ -39,6 +39,7 @@ func TestFeatureFlags(t *testing.T) {
 		{"Medication", r.GetMedicationEnabled, r.SetMedicationEnabled, true},
 		{"Workout", r.GetWorkoutEnabled, r.SetWorkoutEnabled, true},
 		{"Health", r.GetHealthEnabled, r.SetHealthEnabled, true},
+		{"Gamification", r.GetGamificationEnabled, r.SetGamificationEnabled, true},
 	}
 
 	for _, tt := range tests {
@@ -225,6 +226,7 @@ func TestSettingsBoolValidation(t *testing.T) {
 		"medication_enabled",
 		"workout_enabled",
 		"health_enabled",
+		"gamification_enabled",
 	}
 
 	for _, col := range validColumns {

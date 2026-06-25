@@ -18,6 +18,7 @@
 //	tz_transition_plans.created_at_unix   (NOT NULL, defaulted to strftime('%s','now'))
 //	tz_transition_plans.notified_at_unix  (nullable)
 //	tz_transition_plans.approved_at_unix  (nullable)
+//	gamification_ledger.day_unix          (NOT NULL, UTC-midnight; UNIQUE dedupe key)
 //
 // TestDoseTimeColumnsAreInteger (store_time_invariants_test.go) enforces
 // INTEGER on every name above via PRAGMA table_info, and rejects the legacy
@@ -38,6 +39,7 @@ import (
 	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
 	"github.com/korjavin/medicationtrackerbot/internal/store/diary"
 	"github.com/korjavin/medicationtrackerbot/internal/store/food"
+	"github.com/korjavin/medicationtrackerbot/internal/store/gamification"
 	"github.com/korjavin/medicationtrackerbot/internal/store/medication"
 	// Blank import: migrations/068_backfill_pre_materialized_tz_steps.go
 	// registers the project's first goose Go migration in its init(). The SQL
@@ -82,6 +84,8 @@ type Repos struct {
 	Settings   *settings.Repo
 	Auth       *auth.Repo
 	Push       *push.Repo
+
+	Gamification *gamification.Repo
 }
 
 // Store is a transitional alias for Repos kept so the ~50 production files
@@ -196,17 +200,18 @@ func NewWithDB(d *storedb.DB) (*Repos, error) {
 	}
 	tzRepo := storetz.New(d)
 	r := &Repos{
-		db:         d,
-		Diary:      diary.New(d),
-		Push:       push.New(d),
-		Auth:       auth.New(d),
-		Vitals:     vitals.New(d),
-		Settings:   settings.New(d),
-		Weight:     weight.New(d),
-		Food:       food.New(d),
-		Workout:    workout.New(d),
-		TZ:         tzRepo,
-		Medication: medication.New(d),
+		db:           d,
+		Diary:        diary.New(d),
+		Push:         push.New(d),
+		Auth:         auth.New(d),
+		Vitals:       vitals.New(d),
+		Settings:     settings.New(d),
+		Weight:       weight.New(d),
+		Food:         food.New(d),
+		Workout:      workout.New(d),
+		TZ:           tzRepo,
+		Medication:   medication.New(d),
+		Gamification: gamification.New(d),
 		// bp.Repo needs a TimezoneLookup for day-boundary calculations in
 		// GetDailyWeightedStats. The tz repo owns the timezone table.
 		BP: bp.New(d, tzRepo),

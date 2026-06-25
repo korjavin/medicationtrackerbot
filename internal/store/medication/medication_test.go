@@ -1,6 +1,7 @@
 package medication
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -659,6 +660,123 @@ func TestGetIntakeHistoryEmpty(t *testing.T) {
 	}
 	if len(history) != 0 {
 		t.Fatalf("expected 0 items, got %d", len(history))
+	}
+}
+
+func TestListIntakeHistoryByUser(t *testing.T) {
+	db := setupMedicationRepo(t)
+
+	med, err := db.Create("Med1", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	const userA, userB int64 = 111, 222
+	since := time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC)
+	until := since.Add(24 * time.Hour)
+
+	// In-window rows for user A (ordered by scheduled time):
+	//   00:00 exactly at `since` (lower bound inclusive) -> PENDING
+	//   12:00 -> TAKEN
+	//   18:00 -> SKIPPED
+	pendingID, err := db.CreateIntake(med, userA, since)
+	if err != nil {
+		t.Fatalf("CreateIntake(pending) failed: %v", err)
+	}
+	_ = pendingID
+	if _, err := db.CreateManualIntake(med, userA, since.Add(12*time.Hour)); err != nil {
+		t.Fatalf("CreateManualIntake(taken) failed: %v", err)
+	}
+	skipID, err := db.CreateIntake(med, userA, since.Add(18*time.Hour))
+	if err != nil {
+		t.Fatalf("CreateIntake(to-skip) failed: %v", err)
+	}
+	if err := db.SkipIntake(skipID); err != nil {
+		t.Fatalf("SkipIntake failed: %v", err)
+	}
+
+	// Out-of-window / other-user rows that must be excluded:
+	if _, err := db.CreateManualIntake(med, userA, since.Add(-1*time.Hour)); err != nil {
+		t.Fatalf("CreateManualIntake(before window) failed: %v", err)
+	}
+	if _, err := db.CreateIntake(med, userA, until); err != nil { // exactly at upper bound (exclusive)
+		t.Fatalf("CreateIntake(at until) failed: %v", err)
+	}
+	if _, err := db.CreateManualIntake(med, userB, since.Add(10*time.Hour)); err != nil {
+		t.Fatalf("CreateManualIntake(other user) failed: %v", err)
+	}
+
+	got, err := db.ListIntakeHistoryByUser(context.Background(), userA, since, until)
+	if err != nil {
+		t.Fatalf("ListIntakeHistoryByUser failed: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("expected 3 in-window rows for user A, got %d: %+v", len(got), got)
+	}
+
+	// Ordered ascending by scheduled time, correct status/user/taken-at mapping.
+	wantStatus := []string{"PENDING", "TAKEN", "SKIPPED"}
+	for i, l := range got {
+		if l.UserID != userA {
+			t.Errorf("row %d: expected user %d, got %d", i, userA, l.UserID)
+		}
+		if l.Status != wantStatus[i] {
+			t.Errorf("row %d: expected status %q, got %q", i, wantStatus[i], l.Status)
+		}
+		if i > 0 && l.ScheduledAt.Before(got[i-1].ScheduledAt) {
+			t.Errorf("rows not ascending by scheduled time: %v before %v", got[i-1].ScheduledAt, l.ScheduledAt)
+		}
+	}
+	if !got[0].ScheduledAt.Equal(since) {
+		t.Errorf("lower bound should be inclusive: first row scheduled %v, want %v", got[0].ScheduledAt, since)
+	}
+	if got[1].TakenAt == nil {
+		t.Error("TAKEN row should carry a non-nil TakenAt")
+	}
+	if got[0].TakenAt != nil {
+		t.Error("PENDING row should have nil TakenAt")
+	}
+	if got[2].TakenAt != nil {
+		t.Error("SKIPPED row should have nil TakenAt")
+	}
+
+	// The row at exactly `until` is excluded only by the half-open upper bound:
+	// widening the window past it pulls it in (proving it is not a user/status filter).
+	widened, err := db.ListIntakeHistoryByUser(context.Background(), userA, since, until.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("ListIntakeHistoryByUser(widened) failed: %v", err)
+	}
+	if len(widened) != 4 {
+		t.Fatalf("expected 4 rows when window extends past `until`, got %d", len(widened))
+	}
+	if !widened[3].ScheduledAt.Equal(until) {
+		t.Errorf("last widened row should be the `until` dose at %v, got %v", until, widened[3].ScheduledAt)
+	}
+}
+
+func TestListIntakeHistoryByUserEmptyRange(t *testing.T) {
+	db := setupMedicationRepo(t)
+
+	med, err := db.Create("Med1", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	// A row exists, but outside the queried window.
+	if _, err := db.CreateManualIntake(med, 111, time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("CreateManualIntake failed: %v", err)
+	}
+
+	start := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	end := start.Add(24 * time.Hour)
+	got, err := db.ListIntakeHistoryByUser(context.Background(), 111, start, end)
+	if err != nil {
+		t.Fatalf("ListIntakeHistoryByUser failed: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected empty non-nil slice, got nil")
+	}
+	if len(got) != 0 {
+		t.Fatalf("expected 0 rows in empty range, got %d", len(got))
 	}
 }
 
