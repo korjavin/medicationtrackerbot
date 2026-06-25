@@ -67,7 +67,7 @@ func (r *Repo) SearchRemoteAPI(ctx context.Context, query string) ([]FoodProduct
 		req.Header.Set("X-API-Key", apiKey)
 	}
 
-	client := &http.Client{}
+	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req) // #nosec G107
 	if err != nil {
 		return nil, err

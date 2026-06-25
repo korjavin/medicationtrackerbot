@@ -18,3 +18,7 @@
 **Vulnerability:** SQL Injection (SQLi)
 **Learning:** Building SQL queries using `fmt.Sprintf` to dynamically insert column names, even when protected by an allowlist map, is prone to human error and potential SQL injection vulnerabilities if the map is improperly maintained or bypassed. It's safer to avoid dynamic string concatenation entirely for structural SQL elements like column or table names.
 **Prevention:** Use explicit `switch` statements mapping verified input directly to hardcoded, static SQL query strings. This completely eliminates the risk of dynamically injected structures while maintaining safety without relying on easily misconfigured maps.
+## 2026-06-27 - [Add Timeouts to Default HTTP Clients]
+**Vulnerability:** Use of default `http.Client{}` without timeouts in external API calls (e.g., OIDC userinfo, OpenFoodFacts).
+**Learning:** Default HTTP clients in Go have no timeout, meaning a slow or unresponsive external server can cause goroutines to hang indefinitely, leading to resource exhaustion (DoS).
+**Prevention:** Always initialize `http.Client` with explicit timeouts (e.g., `&http.Client{Timeout: 10 * time.Second}`) when making external requests.
