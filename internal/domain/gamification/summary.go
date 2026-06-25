@@ -98,6 +98,14 @@ func (s *service) GetSummary(ctx context.Context, userID int64) (Summary, error)
 	if sum.HPToNextLevel < 0 {
 		sum.HPToNextLevel = 0
 	}
+	// Level never decreases (recomputeState clamps it), but LifetimeHP is
+	// recomputed from the ledger and can drop if source data is later deleted —
+	// which would push HPIntoLevel below the prior level's floor. Clamp so the
+	// progress fraction Plan 3 derives from HPIntoLevel/LevelSpanHP never goes
+	// negative.
+	if sum.HPIntoLevel < 0 {
+		sum.HPIntoLevel = 0
+	}
 	for _, r := range sum.TodayRings {
 		sum.TodayHP += r.HP
 	}

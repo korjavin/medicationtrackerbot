@@ -308,15 +308,21 @@ func (s *service) loadBP(ctx context.Context, userID int64, start, end time.Time
 // left zero (unknown) so the scorer uses its absolute bands — improvement-vs-self
 // needs a trailing personal baseline that the single-day path does not compute.
 func (s *service) loadVitalsAuto(ctx context.Context, userID int64, start, end time.Time) (scoring.VitalsAutoDay, error) {
-	hr, err := s.vitals.ListHeart(ctx, userID, start, end)
+	// The vitals store uses inclusive bounds (date_time <= end), so a sample at
+	// exactly next-day midnight (== end) would be attributed to both this day and
+	// the next. Clip the upper bound by 1ms (storage is millisecond-resolution) to
+	// keep the half-open [start, end) convention the other loaders use; the cadence
+	// is anchored to 00:00 UTC, so a sample lands on this boundary every day.
+	upper := end.Add(-time.Millisecond)
+	hr, err := s.vitals.ListHeart(ctx, userID, start, upper)
 	if err != nil {
 		return scoring.VitalsAutoDay{}, err
 	}
-	spo2, err := s.vitals.ListSpO2(ctx, userID, start, end)
+	spo2, err := s.vitals.ListSpO2(ctx, userID, start, upper)
 	if err != nil {
 		return scoring.VitalsAutoDay{}, err
 	}
-	stress, err := s.vitals.ListStress(ctx, userID, start, end)
+	stress, err := s.vitals.ListStress(ctx, userID, start, upper)
 	if err != nil {
 		return scoring.VitalsAutoDay{}, err
 	}
