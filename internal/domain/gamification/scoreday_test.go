@@ -49,8 +49,21 @@ type fakeVitals struct {
 func (f fakeVitals) ListDayStats(context.Context, int64, time.Time) ([]store.DayStat, error) {
 	return f.dayStats, nil
 }
-func (f fakeVitals) ListSleepLogs(context.Context, int64, time.Time) ([]store.SleepLog, error) {
-	return f.sleep, nil
+// ListSleepLogs mirrors the real repo's SQL filter (start_time >= since) so the
+// loader's day-window handling is exercised faithfully — a fake that ignored
+// `since` would hide the sleep-attribution bug where a night's bedtime precedes
+// the scored day's midnight.
+func (f fakeVitals) ListSleepLogs(_ context.Context, _ int64, since time.Time) ([]store.SleepLog, error) {
+	if since.IsZero() {
+		return f.sleep, nil
+	}
+	var out []store.SleepLog
+	for _, sl := range f.sleep {
+		if !sl.StartTime.Before(since) {
+			out = append(out, sl)
+		}
+	}
+	return out, nil
 }
 func (f fakeVitals) ListHeart(context.Context, int64, time.Time, time.Time) ([]store.VitalsHeartLog, error) {
 	return f.hr, nil
@@ -275,6 +288,41 @@ func TestScoreDay_SeededDay(t *testing.T) {
 	}
 	if st.LastScoredDay == nil || !st.LastScoredDay.Equal(day) {
 		t.Errorf("last scored day = %v, want %v", st.LastScoredDay, day)
+	}
+}
+
+// TestScoreDay_SleepAttributedToWakeDay guards against the sleep-attribution
+// regression: a real night's start_time is the prior evening's bedtime while its
+// Day field is the wake-up date. Since ListSleepLogs filters start_time >= since,
+// scoring day D must widen its read window below D-midnight or the night that
+// belongs to D is silently dropped and the Mind ring's sleep HP never lands.
+func TestScoreDay_SleepAttributedToWakeDay(t *testing.T) {
+	ctx := context.Background()
+	const userID int64 = 21
+	day := time.Date(2026, 6, 22, 0, 0, 0, 0, time.UTC)
+	// Bedtime 22:30 the prior evening, 8h sleep (squarely in the 7-9h band).
+	bedtime := day.AddDate(0, 0, -1).Add(22*time.Hour + 30*time.Minute)
+	total := 480
+	fs := &fullStores{
+		settings: fakeSettings{enabled: true},
+		vitals: fakeVitals{sleep: []store.SleepLog{{
+			StartTime:    bedtime,
+			EndTime:      bedtime.Add(time.Duration(total) * time.Minute),
+			Day:          day.Format("2006-01-02"),
+			TotalMinutes: &total,
+		}}},
+	}
+	svc := newFullService(fs)
+
+	if err := svc.ScoreDay(ctx, userID, day); err != nil {
+		t.Fatalf("ScoreDay: %v", err)
+	}
+
+	cfg := scoring.DefaultConfig()
+	// Mind ring: sleep floor + full duration outcome (8h → membership 1).
+	want := cfg.FloorHP + cfg.SleepOutcomeMaxHP
+	if got := fs.gam.ringHP(userID, day, scoring.RingMind); got != want {
+		t.Errorf("sleep Mind-ring HP = %d, want %d (night dropped by start_time window?)", got, want)
 	}
 }
 

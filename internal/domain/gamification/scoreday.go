@@ -360,8 +360,16 @@ func (s *service) loadVitalsAuto(ctx context.Context, userID int64, start, end t
 // loadSleep maps the night attributed to this calendar day onto SleepDay.
 // Duration comes from total_minutes when present, else the start→end span.
 // Regularity is left unknown (no personal onset baseline in the single-day path).
+//
+// A sleep session is attributed to its wake-up day (sl.Day), but its start_time
+// is the prior evening's bedtime — and ListSleepLogs filters start_time >= since.
+// Querying from `start` (this day's midnight) would drop the very night that
+// belongs to this day (bedtime < midnight). Widen the lower bound by a day and
+// let the sl.Day equality below select the right night. (Both the Mi Band import
+// and the frontend store Day = the local wake-up date and start_time = the
+// bedtime the evening before — see internal/domain/sleepimport.go.)
 func (s *service) loadSleep(ctx context.Context, userID int64, start time.Time) (scoring.SleepDay, error) {
-	logs, err := s.vitals.ListSleepLogs(ctx, userID, start)
+	logs, err := s.vitals.ListSleepLogs(ctx, userID, start.AddDate(0, 0, -1))
 	if err != nil {
 		return scoring.SleepDay{}, err
 	}
