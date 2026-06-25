@@ -255,7 +255,7 @@ func bandFromTarget(base scoring.Band, t gamstore.Target) scoring.Band {
 // (floor only, excluded from the outcome); MISSED drag the outcome down. PENDING
 // doses are ignored so a not-yet-resolved day is never penalized.
 func (s *service) loadAdherence(ctx context.Context, userID int64, start, end time.Time) (scoring.AdherenceDay, error) {
-	logs, err := s.med.ListIntakeHistory(ctx, userID, start, end)
+	logs, err := s.med.ListIntakeHistoryByUser(ctx, userID, start, end)
 	if err != nil {
 		return scoring.AdherenceDay{}, err
 	}

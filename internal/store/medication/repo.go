@@ -814,6 +814,58 @@ func (r *Repo) ListIntakeHistory(medID int, days int) ([]IntakeLog, error) {
 	return logs, nil
 }
 
+// ListIntakeHistoryByUser returns every intake_log row for one user whose
+// scheduled instant falls in the half-open window [since, until), ordered by
+// scheduled time ascending. Unlike ListIntakeHistory (medication-keyed, capped,
+// descending) this is the user-keyed date-range reader the gamification
+// adherence scorer needs: it returns all statuses (TAKEN / SKIPPED / MISSED /
+// PENDING) so the caller decides how each contributes. scheduled_at_unix is the
+// dose-time column (INTEGER unix-seconds-UTC), so the bounds are normalized via
+// UTC().Unix().
+func (r *Repo) ListIntakeHistoryByUser(ctx context.Context, userID int64, since, until time.Time) ([]IntakeLog, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, medication_id, user_id, scheduled_at_unix, taken_at_unix, status, snoozed_until_unix, source, tz_plan_id, tz_step_number
+		 FROM intake_log
+		 WHERE user_id = ? AND scheduled_at_unix >= ? AND scheduled_at_unix < ?
+		 ORDER BY scheduled_at_unix ASC`,
+		userID, since.UTC().Unix(), until.UTC().Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	logs := []IntakeLog{}
+	for rows.Next() {
+		var l IntakeLog
+		var schedUnix int64
+		var takenUnix sql.NullInt64
+		var snoozeUnix sql.NullInt64
+		var tzPlanID, tzStepNumber sql.NullInt64
+		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &schedUnix, &takenUnix, &l.Status, &snoozeUnix, &l.Source, &tzPlanID, &tzStepNumber); err != nil {
+			return nil, err
+		}
+		l.ScheduledAt = time.Unix(schedUnix, 0).UTC()
+		if takenUnix.Valid {
+			t := time.Unix(takenUnix.Int64, 0).UTC()
+			l.TakenAt = &t
+		}
+		if snoozeUnix.Valid {
+			t := time.Unix(snoozeUnix.Int64, 0).UTC()
+			l.SnoozedUntil = &t
+		}
+		if tzPlanID.Valid {
+			v := tzPlanID.Int64
+			l.TZPlanID = &v
+		}
+		if tzStepNumber.Valid {
+			v := tzStepNumber.Int64
+			l.TZStepNumber = &v
+		}
+		logs = append(logs, l)
+	}
+	return logs, rows.Err()
+}
+
 func (r *Repo) GetIntake(id int64) (*IntakeLog, error) {
 	var l IntakeLog
 	var schedUnix int64

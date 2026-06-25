@@ -170,10 +170,10 @@ defer.
 - [x] run `go test ./internal/domain/gamification/...` — must pass before next task
 
 ### Task 9: Adherence read method (only if missing)
-- [ ] check `internal/store/medication/repo.go` for a date-range intake-history read (taken/scheduled/skipped between two instants)
-- [ ] if absent, add `ListIntakeHistory(ctx, userID, since, until)` returning the rows the adherence scorer needs; if present, wire the existing method into `MedStore`
-- [ ] write a round-trip test for the read (success + empty range)
-- [ ] run `go test ./internal/store/medication/...` — must pass before next task
+- [x] check `internal/store/medication/repo.go` for a date-range intake-history read (taken/scheduled/skipped between two instants) — absent: the existing `ListIntakeHistory(medID, days)` is medication-keyed, capped at 100, descending, lookback-only; no user-keyed `[since, until)` reader existed
+- [x] if absent, add `ListIntakeHistory(ctx, userID, since, until)` returning the rows the adherence scorer needs; if present, wire the existing method into `MedStore` — ⚠️ deviation: the name `ListIntakeHistory` was already taken by the med-keyed reader (no Go overloading), so added `ListIntakeHistoryByUser(ctx, userID, since, until)` to `*medication.Repo` (all statuses, ascending, half-open window) and renamed the `MedStore` interface method + `scoreday.go` caller + fake to match. Keeps the direct-satisfaction pattern (`*medication.Repo` satisfies `MedStore`) intact for Plan 2 wiring.
+- [x] write a round-trip test for the read (success + empty range) — `TestListIntakeHistoryByUser` (3 in-window rows, ordering, status/user/taken-at mapping, inclusive lower bound, exclusive upper bound) + `TestListIntakeHistoryByUserEmptyRange`
+- [x] run `go test ./internal/store/medication/...` — must pass before next task — passes; gamification domain tests + `go build ./...` + `go build -tags mobile ./...` also pass
 
 ### Task 10: Domain service — 365-day historical backfill
 - [ ] `Backfill(ctx, userID) error`: iterate the last 365 days (capped), call `ScoreDay` per day, then recompute state once; bounded by data availability

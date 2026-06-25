@@ -33,11 +33,13 @@ import (
 // (store.BloodPressure = bp.BloodPressure, etc.), so []store.X and []bp.X are
 // the identical type.
 
-// MedStore is the adherence read surface. ListIntakeHistory returns the
+// MedStore is the adherence read surface. ListIntakeHistoryByUser returns the
 // scheduled/taken/skipped dose rows in [since, until) the adherence scorer
-// needs; the concrete method is added/confirmed in Task 9.
+// needs. It is distinct from medication.Repo.ListIntakeHistory (medication-keyed,
+// capped, descending); the user-keyed range reader was added in Task 9 and is
+// satisfied directly by *medication.Repo.
 type MedStore interface {
-	ListIntakeHistory(ctx context.Context, userID int64, since, until time.Time) ([]store.IntakeLog, error)
+	ListIntakeHistoryByUser(ctx context.Context, userID int64, since, until time.Time) ([]store.IntakeLog, error)
 }
 
 // BPStore is the blood-pressure read surface.

@@ -18,7 +18,7 @@ import (
 
 type fakeMed struct{ logs []store.IntakeLog }
 
-func (f fakeMed) ListIntakeHistory(context.Context, int64, time.Time, time.Time) ([]store.IntakeLog, error) {
+func (f fakeMed) ListIntakeHistoryByUser(context.Context, int64, time.Time, time.Time) ([]store.IntakeLog, error) {
 	return f.logs, nil
 }
 
