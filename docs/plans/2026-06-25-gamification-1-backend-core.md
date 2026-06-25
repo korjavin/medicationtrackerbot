@@ -138,14 +138,14 @@ defer.
 - [x] run `go test ./internal/store/gamification/...` — must pass before next task
 
 ### Task 5: Scoring engine (pure, no DB)
-- [ ] create `internal/domain/gamification/scoring/scoring.go` with a tunable `Config` struct holding all constants (floor amounts, outcome maxima, falloff deltas, level-curve base/exponent, streak/freeze params) + `DefaultConfig()`
-- [ ] `RangeMembership(x, low, high, delta float64) float64` — trapezoid per gamification.md §4.1 (1.0 in-band, linear falloff over delta, 0 beyond)
-- [ ] per-domain scorers returning an HP breakdown `[]LedgerEntry`-shaped result: `ScoreAdherence`, `ScoreBP`, `ScoreVitalsAuto` (HR/SpO₂/stress, baseline-relative, moderate weight), `ScoreSleep` (duration band + regularity), `ScoreMovement` (weekly accumulation, WHO ceiling), `ScoreNourishment` (two-sided + protein adequacy, never restriction), `ScoreWeight` (stability or safe-pace, below-floor guard), `ScoreMind` (process-only, mood value never scored)
-- [ ] level curve: `LevelForLifetimeHP(hp, Config) int`, `HPToReachLevel(level, Config) int` (growing curve, e.g. `base·n^1.5`)
-- [ ] insight-tier gating: `InsightTierForLevel(level, Config) int` (L1–L4 thresholds)
-- [ ] streak math: `NextStreak(prev State, dayMetMinimum bool, Config) (streak, freezesLeft int)` — weekly cadence default, freeze auto-apply, never negative
-- [ ] write exhaustive table-driven tests: trapezoid (in-band, both falloff arms, beyond both tails, degenerate band), each domain scorer (in-range / partial / out-of-range / below-floor), level curve monotonicity, streak transitions incl. freeze consumption
-- [ ] run `go test ./internal/domain/gamification/scoring/...` — must pass before next task
+- [x] create `internal/domain/gamification/scoring/scoring.go` with a tunable `Config` struct holding all constants (floor amounts, outcome maxima, falloff deltas, level-curve base/exponent, streak/freeze params) + `DefaultConfig()`
+- [x] `RangeMembership(x, low, high, delta float64) float64` — trapezoid per gamification.md §4.1 (1.0 in-band, linear falloff over delta, 0 beyond)
+- [x] per-domain scorers returning an HP breakdown `[]LedgerEntry`-shaped result: `ScoreAdherence`, `ScoreBP`, `ScoreVitalsAuto` (HR/SpO₂/stress, baseline-relative, moderate weight), `ScoreSleep` (duration band + regularity), `ScoreMovement` (weekly accumulation, WHO ceiling), `ScoreNourishment` (two-sided + protein adequacy, never restriction), `ScoreWeight` (stability or safe-pace, below-floor guard), `ScoreMind` (process-only, mood value never scored)
+- [x] level curve: `LevelForLifetimeHP(hp, Config) int`, `HPToReachLevel(level, Config) int` (growing curve, e.g. `base·n^1.5`)
+- [x] insight-tier gating: `InsightTierForLevel(level, Config) int` (L1–L4 thresholds)
+- [x] streak math: `NextStreak(prev State, dayMetMinimum bool, Config) (streak, freezesLeft int)` — weekly cadence default, freeze auto-apply, never negative
+- [x] write exhaustive table-driven tests: trapezoid (in-band, both falloff arms, beyond both tails, degenerate band), each domain scorer (in-range / partial / out-of-range / below-floor), level curve monotonicity, streak transitions incl. freeze consumption
+- [x] run `go test ./internal/domain/gamification/scoring/...` — must pass before next task
 
 ### Task 6: Domain service — interface, struct, narrow store interfaces
 - [ ] create `internal/domain/gamification/service.go`: public `GamificationService` interface, unexported `service` struct, `New(...) *service` constructor (mirror `internal/domain/workout/service.go`)
