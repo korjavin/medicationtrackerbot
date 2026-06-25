@@ -190,8 +190,8 @@ defer.
 - [x] confirm `go build ./...` and `go build -tags mobile ./...` both succeed (no build-tag leakage) — both build green
 
 ### Task 12: Update documentation
-- [ ] add a short "Backend implemented (Plan 1)" status note to `docs/gamification.md` §14 pointing at the new packages/tables
-- [ ] note any scoring-constant choices that deviated from the doc defaults
+- [x] add a short "Backend implemented (Plan 1)" status note to `docs/gamification.md` §14 pointing at the new packages/tables — added §14.1 listing the three new packages, migration 073 tables, the feature flag, and the chosen scoring constants
+- [x] note any scoring-constant choices that deviated from the doc defaults — §14.1 records the level curve (100·(n−1)^1.5), insight tiers @ L3/L5/L7 capped at L4, FloorHP=2 + outcome maxima, and the MVP single-day simplifications (baseline-relative HR/stress + sleep regularity left to absolute bands, weight in maintenance mode, weekly activity from session durations)
 
 ## Technical Details
 

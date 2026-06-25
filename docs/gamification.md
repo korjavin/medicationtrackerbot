@@ -469,6 +469,64 @@ Kept deliberately light; the implementation plan is a separate future doc.
 - **Targets editor** extends the existing Settings/targets surface, with the medical
   disclaimer.
 
+### 14.1 Backend implemented — Plan 1 (status)
+
+The backend core from this design now exists (plan
+[docs/plans/2026-06-25-gamification-1-backend-core.md](plans/2026-06-25-gamification-1-backend-core.md)).
+Plan 2 (HTTP/MCP) and Plan 3 (frontend) are not yet built.
+
+**Packages**
+
+- `internal/domain/gamification/scoring/` — the pure, DB-free engine: the
+  trapezoid `RangeMembership` (§4.1), per-domain scorers (`ScoreAdherence`,
+  `ScoreBP`, `ScoreVitalsAuto`, `ScoreSleep`, `ScoreMovement`, `ScoreNourishment`,
+  `ScoreWeight`, `ScoreMind`), the level curve (`LevelForLifetimeHP` /
+  `HPToReachLevel`), insight-tier gating (`InsightTierForLevel`), and streak math
+  (`NextStreak`). All constants live in `Config` / `DefaultConfig()`.
+- `internal/domain/gamification/` — the `GamificationService` (Critical Rule #1
+  single code path): `ScoreDay`, `GetSummary`, `GetInsightTier`, `Backfill`,
+  `EnsureBackfilled`, targets CRUD. Reads the existing per-domain repos through
+  narrow store interfaces; merges per-user target overrides onto `DefaultConfig()`.
+- `internal/store/gamification/` — the `Repo` (targets, ledger, state) wired into
+  `store.Repos`.
+
+**Tables** (migration `073_add_gamification.sql`): `gamification_targets`
+(overrides only), `gamification_ledger` (HP awards — source of truth, UNIQUE
+`(user_id, day_unix, ring, source_metric, kind)` makes rescore/backfill
+idempotent), `gamification_state` (cached level / streak / tier). Feature flag
+`settings.gamification_enabled` defaults to 1 (default-ON). All three tables emit
+`change_events('gamification')` triggers. `day_unix` is INTEGER unix-seconds and
+allowlisted in `TestDoseTimeColumnsAreInteger`.
+
+**Scoring-constant choices** (the doc left these as implementation-level, §7/§8):
+
+- Level curve `HPToReachLevel(n) = 100·(n−1)^1.5` (`LevelBase=100`,
+  `LevelExponent=1.5`).
+- Insight tiers unlock at L3 / L5 / L7, capped at L4 (`InsightMaxTier=4`) for the
+  MVP; L5+ deferred to Phase 2.
+- Integrity floor `FloorHP=2` per honest log; outcome maxima sit above it (e.g.
+  adherence/BP/sleep 10, movement 10, calories 8, weight 8) with passively
+  captured vitals at a moderate 4 (§6.3). Weekly streaks earn 1 freeze/period,
+  banked up to 4.
+- Guideline bands match the doc: BP 90–120 / 60–80, sleep 7–9h, steps ~7k knee,
+  WHO 150 min/week, calories ±10% of target.
+
+**MVP simplifications vs. the design (single-day online path):**
+
+- Improvement-vs-own-baseline for resting HR / stress (§6.3) and sleep-timing
+  regularity (§6.4) need a trailing personal baseline; the single-day path leaves
+  them unknown, so those scorers fall back to their absolute bands. The engine
+  already supports the baseline-relative and regularity paths — the service just
+  doesn't feed them yet.
+- Weight is scored in **maintenance** mode around a trailing-average band (§6.7);
+  goal-mode safe-pace scoring exists in the engine but isn't driven online yet.
+- Weekly WHO-activity progress accumulates completed-session durations over the
+  trailing movement week.
+- Per-Ring toggles, the first-run explainer, recovery/ED-safe modes, and
+  challenges/quests are not in Plan 1 (UI/Phase 2). Scoring is non-punitive by
+  construction (HP only ever added, never negative), so deferring the safety
+  toggles is safe.
+
 ---
 
 ## 15. Safety, accessibility & open questions
