@@ -84,11 +84,9 @@ func (f fakeDiary) List(context.Context, int64, time.Time, time.Time, int, int64
 
 type fakeWorkout struct {
 	history []store.WorkoutSession
-	stats   []store.ExerciseStat
 }
 
 func (f fakeWorkout) ListHistory(int64, int) ([]store.WorkoutSession, error) { return f.history, nil }
-func (f fakeWorkout) ListExerciseStats(int64) ([]store.ExerciseStat, error)  { return f.stats, nil }
 
 // ----- in-memory gamification store fake -------------------------------------
 //
@@ -182,7 +180,18 @@ func (m *memGam) UpsertState(_ context.Context, userID int64, st gamstore.State)
 	return &st, nil
 }
 
-func (m *memGam) ApplyDayScore(ctx context.Context, userID int64, entries []gamstore.LedgerEntry, st gamstore.State) (*gamstore.State, error) {
+func (m *memGam) ApplyDayScore(ctx context.Context, userID int64, day time.Time, entries []gamstore.LedgerEntry, st gamstore.State) (*gamstore.State, error) {
+	// Mirror the real repo: replace the whole day. Drop the user's existing rows
+	// for `day` before inserting so a shrunk re-score leaves no orphan awards.
+	dk := utcMidnight(day).Unix()
+	var kept []gamstore.LedgerEntry
+	for _, e := range m.ledger {
+		if e.UserID == userID && utcMidnight(e.Day).Unix() == dk {
+			continue
+		}
+		kept = append(kept, e)
+	}
+	m.ledger = kept
 	if err := m.UpsertLedger(ctx, userID, entries); err != nil {
 		return nil, err
 	}
@@ -294,6 +303,48 @@ func TestScoreDay_Idempotent(t *testing.T) {
 	}
 	if sum2, _ := fs.gam.SumHP(ctx, userID); sum2 != sum1 {
 		t.Errorf("re-score changed lifetime HP: %d → %d", sum1, sum2)
+	}
+}
+
+// TestScoreDay_DataReduction_RemovesOrphanAwards guards the whole-day-replace
+// invariant: when a day is re-scored with less source data than before (here the
+// BP reading disappears), the previously-written awards must not orphan in the
+// ledger, and the cached lifetime_hp must stay consistent with SumHP(ledger).
+func TestScoreDay_DataReduction_RemovesOrphanAwards(t *testing.T) {
+	ctx := context.Background()
+	const userID int64 = 11
+	day := time.Date(2026, 6, 19, 0, 0, 0, 0, time.UTC)
+	gam := newMemGam()
+
+	// First score: a BP reading produces Vitals floor + outcome.
+	svc1 := newFullService(&fullStores{
+		settings: fakeSettings{enabled: true},
+		bp:       fakeBP{readings: []store.BloodPressure{{MeasuredAt: day.Add(time.Hour), Systolic: 115, Diastolic: 75}}},
+		gam:      gam,
+	})
+	if err := svc1.ScoreDay(ctx, userID, day); err != nil {
+		t.Fatalf("ScoreDay #1: %v", err)
+	}
+	if got := gam.ringHP(userID, day, scoring.RingVitals); got == 0 {
+		t.Fatalf("expected non-zero vitals HP after first score")
+	}
+
+	// Second score of the SAME day with the BP reading removed (shared gam).
+	svc2 := newFullService(&fullStores{settings: fakeSettings{enabled: true}, gam: gam})
+	if err := svc2.ScoreDay(ctx, userID, day); err != nil {
+		t.Fatalf("ScoreDay #2: %v", err)
+	}
+
+	if got := gam.ringHP(userID, day, scoring.RingVitals); got != 0 {
+		t.Errorf("orphan vitals HP after data removed: %d, want 0", got)
+	}
+	sum, _ := gam.SumHP(ctx, userID)
+	st, _ := gam.GetState(ctx, userID)
+	if sum != 0 {
+		t.Errorf("SumHP = %d after all data removed, want 0", sum)
+	}
+	if st.LifetimeHP != sum {
+		t.Errorf("cached lifetime_hp (%d) diverged from SumHP (%d)", st.LifetimeHP, sum)
 	}
 }
 

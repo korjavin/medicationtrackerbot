@@ -268,7 +268,7 @@ func TestApplyDayScore_AtomicLedgerAndState(t *testing.T) {
 	}
 	state := State{LifetimeHP: 25, Level: 1, CurrentStreak: 1, LongestStreak: 1, InsightTier: 1, LastScoredDay: &d}
 
-	out, err := r.ApplyDayScore(ctx, 1, entries, state)
+	out, err := r.ApplyDayScore(ctx, 1, d, entries, state)
 	if err != nil {
 		t.Fatalf("ApplyDayScore: %v", err)
 	}
@@ -298,11 +298,42 @@ func TestApplyDayScore_AtomicLedgerAndState(t *testing.T) {
 	}
 
 	// Re-applying the same day is idempotent for the ledger (replace, not append).
-	if _, err := r.ApplyDayScore(ctx, 1, entries, state); err != nil {
+	if _, err := r.ApplyDayScore(ctx, 1, d, entries, state); err != nil {
 		t.Fatalf("re-apply: %v", err)
 	}
 	led2, _ := r.ListLedger(ctx, 1, dayToUnix(d), dayToUnix(d))
 	if len(led2) != 2 {
 		t.Errorf("expected 2 ledger rows after re-apply, got %d", len(led2))
+	}
+}
+
+// TestApplyDayScore_ReplacesWholeDay verifies a re-score with FEWER awards drops
+// the day's stale rows instead of orphaning them, keeping SumHP consistent with
+// the supplied state.
+func TestApplyDayScore_ReplacesWholeDay(t *testing.T) {
+	r := setupRepo(t)
+	ctx := context.Background()
+	d := day(2025, 6, 25)
+
+	first := []LedgerEntry{
+		{Day: d, Ring: "adherence", SourceMetric: "meds", Kind: "floor", HP: 10},
+		{Day: d, Ring: "vitals", SourceMetric: "bp", Kind: "outcome", HP: 15},
+	}
+	if _, err := r.ApplyDayScore(ctx, 1, d, first, State{LifetimeHP: 25, Level: 1, InsightTier: 1, LastScoredDay: &d}); err != nil {
+		t.Fatalf("ApplyDayScore #1: %v", err)
+	}
+
+	// Re-score with the bp outcome gone (e.g. the reading was deleted).
+	second := []LedgerEntry{{Day: d, Ring: "adherence", SourceMetric: "meds", Kind: "floor", HP: 10}}
+	if _, err := r.ApplyDayScore(ctx, 1, d, second, State{LifetimeHP: 10, Level: 1, InsightTier: 1, LastScoredDay: &d}); err != nil {
+		t.Fatalf("ApplyDayScore #2: %v", err)
+	}
+
+	led, _ := r.ListLedger(ctx, 1, dayToUnix(d), dayToUnix(d))
+	if len(led) != 1 {
+		t.Fatalf("expected 1 ledger row after shrunk re-score, got %d (orphan not removed)", len(led))
+	}
+	if sum, _ := r.SumHP(ctx, 1); sum != 10 {
+		t.Errorf("SumHP = %d after shrunk re-score, want 10 (no orphan HP)", sum)
 	}
 }

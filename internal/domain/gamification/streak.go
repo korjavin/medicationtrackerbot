@@ -29,48 +29,52 @@ const secondsPerDay = 86400
 // The first ever scored day, a re-score of the same week, or an out-of-order
 // earlier day leave the streak untouched — keeping ScoreDay idempotent and never
 // demoting the user.
-func (s *service) advanceStreak(ctx context.Context, userID int64, prev gamstore.State, start time.Time, cfg scoring.Config) (streak, longest, freezes int) {
+func (s *service) advanceStreak(ctx context.Context, userID int64, prev gamstore.State, start time.Time, cfg scoring.Config) (streak, longest, freezes int, err error) {
 	streak = prev.CurrentStreak
 	longest = prev.LongestStreak
 	freezes = prev.Freezes
 	if prev.LastScoredDay == nil {
-		return streak, longest, freezes
+		return streak, longest, freezes, nil
 	}
 	prevWeek := weekIndex(*prev.LastScoredDay)
 	curWeek := weekIndex(start)
 	if curWeek <= prevWeek {
-		return streak, longest, freezes
+		return streak, longest, freezes, nil
 	}
 
 	in := scoring.StreakInput{CurrentStreak: streak, Freezes: freezes}
 	for w := prevWeek; w < curWeek; w++ {
-		met := s.weekHadHP(ctx, userID, w)
+		met, err := s.weekHadHP(ctx, userID, w)
+		if err != nil {
+			return 0, 0, 0, err
+		}
 		in.CurrentStreak, in.Freezes = scoring.NextStreak(in, met, cfg)
 		if in.CurrentStreak > longest {
 			longest = in.CurrentStreak
 		}
 	}
-	return in.CurrentStreak, longest, in.Freezes
+	return in.CurrentStreak, longest, in.Freezes, nil
 }
 
 // weekHadHP reports whether the user earned any HP during the given week — the
 // signal that the week met its minimum. It reads the persisted ledger, so it
 // reflects all days already scored in that week (the day currently being scored
 // belongs to a later week, so its not-yet-applied entries never affect this). A
-// read error is treated as "no HP" (a miss), which only ever spends a freeze —
-// never a punitive outcome.
-func (s *service) weekHadHP(ctx context.Context, userID int64, week int64) bool {
+// read error is propagated (not silently treated as a miss): swallowing it would
+// score the week as missed and irreversibly burn a banked freeze / reset the
+// streak on a transient DB blip, which a retry could not undo.
+func (s *service) weekHadHP(ctx context.Context, userID int64, week int64) (bool, error) {
 	first, last := weekBounds(week)
 	rows, err := s.gam.ListLedger(ctx, userID, first, last)
 	if err != nil {
-		return false
+		return false, err
 	}
 	for _, r := range rows {
 		if r.HP > 0 {
-			return true
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }
 
 // weekIndex buckets a UTC day into a Monday-anchored 7-day window. 1970-01-01 was

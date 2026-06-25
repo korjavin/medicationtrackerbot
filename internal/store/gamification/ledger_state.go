@@ -98,13 +98,23 @@ func (r *Repo) UpsertState(ctx context.Context, userID int64, st State) (*State,
 
 // ApplyDayScore writes a day's ledger awards and the recomputed state row in a
 // single transaction so the cached state never drifts from the ledger it
-// summarizes (the "state update must accompany a ledger write" invariant). Both
-// the batch of INSERT OR REPLACE awards and the state upsert commit together or
-// roll back together. Returns the persisted state.
-func (r *Repo) ApplyDayScore(ctx context.Context, userID int64, entries []LedgerEntry, st State) (*State, error) {
+// summarizes (the "state update must accompany a ledger write" invariant). It
+// REPLACES the whole day: the day's existing ledger rows are deleted before the
+// new awards are inserted, so a re-score whose data shrank (e.g. a deleted BP
+// reading drops an outcome award) cannot leave orphan rows behind — the ledger
+// for the day is always exactly the supplied entries. This is what keeps
+// SumHP(ledger) consistent with the recomputed lifetime_hp. The delete + insert
+// + state upsert commit together or roll back together. Returns the persisted
+// state.
+func (r *Repo) ApplyDayScore(ctx context.Context, userID int64, day time.Time, entries []LedgerEntry, st State) (*State, error) {
 	nowUnix := storedb.TimeToUnix(r.now())
+	dayUnix := dayToUnix(day)
 	var out State
 	err := r.db.WithTx(ctx, func(tx storedb.TX) error {
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM gamification_ledger WHERE user_id = ? AND day_unix = ?`, userID, dayUnix); err != nil {
+			return err
+		}
 		if err := upsertLedgerTx(ctx, tx, userID, entries, nowUnix); err != nil {
 			return err
 		}

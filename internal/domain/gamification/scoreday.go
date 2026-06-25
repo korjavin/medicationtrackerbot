@@ -78,7 +78,7 @@ func (s *service) ScoreDay(ctx context.Context, userID int64, day time.Time) err
 		return err
 	}
 
-	_, err = s.gam.ApplyDayScore(ctx, userID, entries, st)
+	_, err = s.gam.ApplyDayScore(ctx, userID, start, entries, st)
 	return err
 }
 
@@ -184,8 +184,13 @@ func (s *service) recomputeState(ctx context.Context, userID int64, start time.T
 	// Fold the weekly-cadence streak forward (§9): crossing into a later week
 	// finalizes the intervening weeks — the week just left counts as met, fully
 	// skipped weeks are misses that spend a banked freeze (else reset). Never
-	// negative; re-scoring the same or an earlier day is a no-op (idempotent).
-	st.CurrentStreak, st.LongestStreak, st.Freezes = s.advanceStreak(ctx, userID, prev, start, cfg)
+	// negative; re-scoring the same or an earlier day is a no-op (idempotent). A
+	// ledger read error aborts the whole day so the streak is never advanced off a
+	// guessed-miss (which would irreversibly burn a freeze).
+	st.CurrentStreak, st.LongestStreak, st.Freezes, err = s.advanceStreak(ctx, userID, prev, start, cfg)
+	if err != nil {
+		return gamstore.State{}, err
+	}
 
 	if prev.LastScoredDay == nil || start.After(*prev.LastScoredDay) {
 		d := start
@@ -495,7 +500,18 @@ func (s *service) loadMind(ctx context.Context, userID int64, start, end time.Ti
 	if err != nil {
 		return scoring.MindDay{}, err
 	}
-	return scoring.MindDay{JournaledEntries: len(notes)}, nil
+	// diary.List treats `until` as inclusive (created_at <= end), so a note at
+	// exactly next-day midnight (== end) would be counted for both this day and
+	// the next. Drop that single boundary instant to keep the half-open [start,
+	// end) convention the other loaders use; the next day (since == end) counts it.
+	count := 0
+	for _, n := range notes {
+		if n.CreatedAt.Equal(end) {
+			continue
+		}
+		count++
+	}
+	return scoring.MindDay{JournaledEntries: count}, nil
 }
 
 // ----- helpers ---------------------------------------------------------------

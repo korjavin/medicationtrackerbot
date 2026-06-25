@@ -76,27 +76,27 @@ type DiaryStore interface {
 	List(ctx context.Context, userID int64, since, until time.Time, limit int, beforeID int64) ([]store.DiaryNote, error)
 }
 
-// WorkoutStore is the movement read surface (logged sessions + exercise stats).
-// These repo methods are clock/ctx-free, mirroring the workout store package.
+// WorkoutStore is the movement read surface (logged sessions). The method is
+// clock/ctx-free, mirroring the workout store package.
 type WorkoutStore interface {
 	ListHistory(userID int64, limit int) ([]store.WorkoutSession, error)
-	ListExerciseStats(userID int64) ([]store.ExerciseStat, error)
 }
 
 // GamStore is the gamification repo itself — the targets/ledger/state surface
-// the service writes to and recomputes from. Satisfied by *gamstore.Repo.
+// the service writes to and recomputes from. Satisfied by *gamstore.Repo. The
+// service's only write path is the whole-day ApplyDayScore; the repo's granular
+// UpsertLedger/UpsertState exist for store-level tests and are intentionally not
+// part of this narrow interface.
 type GamStore interface {
 	ListTargets(ctx context.Context, userID int64) ([]gamstore.Target, error)
 	UpsertTarget(ctx context.Context, userID int64, t gamstore.Target) (*gamstore.Target, error)
 	DeleteTarget(ctx context.Context, userID int64, metricKey string) error
 
-	UpsertLedger(ctx context.Context, userID int64, entries []gamstore.LedgerEntry) error
 	ListLedger(ctx context.Context, userID, sinceDayUnix, untilDayUnix int64) ([]gamstore.LedgerEntry, error)
 	SumHP(ctx context.Context, userID int64) (int, error)
 
 	GetState(ctx context.Context, userID int64) (gamstore.State, error)
-	UpsertState(ctx context.Context, userID int64, st gamstore.State) (*gamstore.State, error)
-	ApplyDayScore(ctx context.Context, userID int64, entries []gamstore.LedgerEntry, st gamstore.State) (*gamstore.State, error)
+	ApplyDayScore(ctx context.Context, userID int64, day time.Time, entries []gamstore.LedgerEntry, st gamstore.State) (*gamstore.State, error)
 }
 
 // SettingsStore exposes the gamification feature flag. Every scoring/read entry

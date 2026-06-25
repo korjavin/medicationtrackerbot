@@ -150,7 +150,6 @@ type Config struct {
 	StepsBand               Band
 	MovementOutcomeMaxHP    int
 	WeeklyActivityTargetLow float64
-	StrengthSessionsTarget  int
 
 	// Nourishment (§6.6) — handled with the most care. Calories two-sided
 	// around a personalized target; protein one-sided-OK; veg positive bonus.
@@ -226,7 +225,6 @@ func DefaultConfig() Config {
 		StepsBand:               Band{Low: 7000, High: 15000, Falloff: 3000}, // ~7–8k knee, diminishing returns above
 		MovementOutcomeMaxHP:    10,
 		WeeklyActivityTargetLow: 150, // WHO 150–300 min/week; saturates at the low bound
-		StrengthSessionsTarget:  2,
 
 		NourishmentCaloriesMaxHP: 8,
 		CalorieTolerancePct:      0.10, // ±10% of personalized target
