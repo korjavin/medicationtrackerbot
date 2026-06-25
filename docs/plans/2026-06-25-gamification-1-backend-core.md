@@ -123,12 +123,12 @@ defer.
 - [x] run `go test ./internal/store/settings/...` — must pass before next task
 
 ### Task 3: Store repo — `internal/store/gamification` scaffold + targets
-- [ ] create `internal/store/gamification/repo.go`: `type Repo struct { db *storedb.DB; now func() time.Time }`, `func New(d *storedb.DB) *Repo`
-- [ ] define co-located types: `Target`, `LedgerEntry`, `State`, `RingScore` (JSON-tagged like `diary.DiaryNote`)
-- [ ] targets methods: `ListTargets(ctx, userID)`, `UpsertTarget(ctx, userID, Target)`, `DeleteTarget(ctx, userID, metricKey)`
-- [ ] wire `Gamification *gamification.Repo` into `store.Repos` struct (`store.go:71`) and `NewWithDB` (`store.go:197`)
-- [ ] write round-trip tests for targets CRUD (mount schema, like diary tests)
-- [ ] run `go test ./internal/store/...` — must pass before next task
+- [x] create `internal/store/gamification/repo.go`: `type Repo struct { db *storedb.DB; now func() time.Time }`, `func New(d *storedb.DB) *Repo`
+- [x] define co-located types: `Target`, `LedgerEntry`, `State`, `RingScore` (JSON-tagged like `diary.DiaryNote`)
+- [x] targets methods: `ListTargets(ctx, userID)`, `UpsertTarget(ctx, userID, Target)`, `DeleteTarget(ctx, userID, metricKey)`
+- [x] wire `Gamification *gamification.Repo` into `store.Repos` struct (`store.go:71`) and `NewWithDB` (`store.go:197`)
+- [x] write round-trip tests for targets CRUD (mount schema, like diary tests)
+- [x] run `go test ./internal/store/...` — must pass before next task
 
 ### Task 4: Store repo — ledger + state methods
 - [ ] ledger methods: `UpsertLedger(ctx, userID, []LedgerEntry)` (batched `INSERT OR REPLACE`), `ListLedger(ctx, userID, sinceDayUnix, untilDayUnix)`, `SumHP(ctx, userID)`
