@@ -148,12 +148,12 @@ defer.
 - [x] run `go test ./internal/domain/gamification/scoring/...` — must pass before next task
 
 ### Task 6: Domain service — interface, struct, narrow store interfaces
-- [ ] create `internal/domain/gamification/service.go`: public `GamificationService` interface, unexported `service` struct, `New(...) *service` constructor (mirror `internal/domain/workout/service.go`)
-- [ ] define narrow read interfaces the service needs: `MedStore`, `BPStore`, `WeightStore`, `VitalsStore`, `FoodStore`, `DiaryStore`, `WorkoutStore` (only the List/Get methods from Context above), plus `GamStore` (the new repo) and `SettingsStore` (flag + targets)
-- [ ] inject a `scoring.Config` (default, overridable for tests)
-- [ ] add a `gate` helper that short-circuits when `gamification_enabled` is false
-- [ ] write a construction/gate test with fake stores
-- [ ] run `go test ./internal/domain/gamification/...` — must pass before next task
+- [x] create `internal/domain/gamification/service.go`: public `GamificationService` interface, unexported `service` struct, `New(...) *service` constructor (mirror `internal/domain/workout/service.go`)
+- [x] define narrow read interfaces the service needs: `MedStore`, `BPStore`, `WeightStore`, `VitalsStore`, `FoodStore`, `DiaryStore`, `WorkoutStore` (only the List/Get methods from Context above), plus `GamStore` (the new repo) and `SettingsStore` (flag + targets)
+- [x] inject a `scoring.Config` (default, overridable for tests)
+- [x] add a `gate` helper that short-circuits when `gamification_enabled` is false
+- [x] write a construction/gate test with fake stores
+- [x] run `go test ./internal/domain/gamification/...` — must pass before next task
 
 ### Task 7: Domain service — daily scoring + persistence
 - [ ] `ScoreDay(ctx, userID, day time.Time) error`: load that day's rows from each narrow store, resolve effective targets (user override or recommended default from `scoring.Config`), run the scorers, write the resulting `LedgerEntry` rows via `UpsertLedger`, then recompute and `UpsertState` (lifetime HP, level, insight tier)
