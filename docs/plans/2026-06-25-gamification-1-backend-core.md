@@ -183,11 +183,11 @@ defer.
 - [x] run `go test ./internal/domain/gamification/...` — must pass before next task — passes; `go build ./...` + `go vet` also clean
 
 ### Task 11: Verify acceptance criteria
-- [ ] verify Overview MVP scope implemented (HP floor+outcome+consistency, five rings, levels, streaks+freezes, targets w/ recommendations, 365-day backfill, insight tiers L1–L4)
-- [ ] verify guardrails: no negative HP anywhere; food/weight never reward restriction (below-floor → floor only); mood value never scored
-- [ ] run full `go test ./...`
-- [ ] run the linter (project standard) — fix all issues
-- [ ] confirm `go build ./...` and `go build -tags mobile ./...` both succeed (no build-tag leakage)
+- [x] verify Overview MVP scope implemented (HP floor+outcome+consistency, five rings, levels, streaks+freezes, targets w/ recommendations, 365-day backfill, insight tiers L1–L4) — confirmed in code: HP layers via `scoring.Kind{Floor,Outcome,Consistency}`; five rings via `Ring*` constants + `summary.ringScores` canonical order; levels via `HPToReachLevel`/`LevelForLifetimeHP`; streaks+freezes via `NextStreak`; recommendations in `DefaultConfig()` with per-user overrides in `gamification_targets`; backfill capped at `backfillDays=365`; tiers L1–L4 via `InsightMaxTier=4`
+- [x] verify guardrails: no negative HP anywhere; food/weight never reward restriction (below-floor → floor only); mood value never scored — confirmed: `scaleHP`/`addAward` drop HP ≤ 0, `NextStreak`/`max0` floor at 0 (tests `assertNonNegative`, `TestScaleHP_NeverNegative`, backfill non-negative); `ScoreNourishment` sets `r=0` below `CalorieFloor` and `ScoreWeight` sets `r=0` when `BelowHealthyFloor` (floor award retained, tests cover both); `MindDay` has no mood-value field and `ScoreMind` emits no outcome award (test: "mood value is never scored")
+- [x] run full `go test ./...` — all packages pass
+- [x] run the linter (project standard) — `golangci-lint run ./...` → 0 issues; `go vet ./...` clean
+- [x] confirm `go build ./...` and `go build -tags mobile ./...` both succeed (no build-tag leakage) — both build green
 
 ### Task 12: Update documentation
 - [ ] add a short "Backend implemented (Plan 1)" status note to `docs/gamification.md` §14 pointing at the new packages/tables
