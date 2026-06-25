@@ -131,11 +131,11 @@ defer.
 - [x] run `go test ./internal/store/...` — must pass before next task
 
 ### Task 4: Store repo — ledger + state methods
-- [ ] ledger methods: `UpsertLedger(ctx, userID, []LedgerEntry)` (batched `INSERT OR REPLACE`), `ListLedger(ctx, userID, sinceDayUnix, untilDayUnix)`, `SumHP(ctx, userID)`
-- [ ] state methods: `GetState(ctx, userID)` (returns zero-value/default when absent), `UpsertState(ctx, userID, State)`
-- [ ] use `storedb.WithTx` where a state update must accompany a ledger write
-- [ ] write round-trip tests: idempotent upsert (re-insert same key → one row, replaced), range list, SumHP
-- [ ] run `go test ./internal/store/gamification/...` — must pass before next task
+- [x] ledger methods: `UpsertLedger(ctx, userID, []LedgerEntry)` (batched `INSERT OR REPLACE`), `ListLedger(ctx, userID, sinceDayUnix, untilDayUnix)`, `SumHP(ctx, userID)`
+- [x] state methods: `GetState(ctx, userID)` (returns zero-value/default when absent), `UpsertState(ctx, userID, State)`
+- [x] use `storedb.WithTx` where a state update must accompany a ledger write (`ApplyDayScore` writes ledger + state atomically)
+- [x] write round-trip tests: idempotent upsert (re-insert same key → one row, replaced), range list, SumHP
+- [x] run `go test ./internal/store/gamification/...` — must pass before next task
 
 ### Task 5: Scoring engine (pure, no DB)
 - [ ] create `internal/domain/gamification/scoring/scoring.go` with a tunable `Config` struct holding all constants (floor amounts, outcome maxima, falloff deltas, level-curve base/exponent, streak/freeze params) + `DefaultConfig()`
