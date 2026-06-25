@@ -167,6 +167,16 @@ func TestDoseTimeColumnsAreInteger(t *testing.T) {
 				"approved_at",
 			},
 		},
+		{
+			// gamification_ledger.day_unix is a UTC-midnight unix-seconds key
+			// that participates in the UNIQUE dedupe
+			// (user_id, day_unix, ring, source_metric, kind), so it must be
+			// INTEGER to keep the idempotent INSERT OR REPLACE TZ-safe.
+			table: "gamification_ledger",
+			required: []string{
+				"day_unix",
+			},
+		},
 	}
 
 	for _, spec := range specs {

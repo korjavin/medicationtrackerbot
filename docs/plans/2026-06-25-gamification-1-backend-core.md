@@ -103,17 +103,17 @@ defer.
 ## Implementation Steps
 
 ### Task 1: Migration 073 — gamification tables + feature flag + triggers
-- [ ] create `internal/store/migrations/073_add_gamification.sql` with `-- +goose Up/Down` + `StatementBegin/End`
-- [ ] `gamification_targets(id PK, user_id INTEGER NOT NULL, metric_key TEXT NOT NULL, low_val REAL, high_val REAL, falloff REAL, mode TEXT, updated_at_unix INTEGER NOT NULL, UNIQUE(user_id, metric_key))` — stores only user overrides; code holds recommended defaults
-- [ ] `gamification_ledger(id PK, user_id INTEGER NOT NULL, day_unix INTEGER NOT NULL, ring TEXT NOT NULL, source_metric TEXT NOT NULL, kind TEXT NOT NULL, hp INTEGER NOT NULL, detail TEXT, created_at_unix INTEGER NOT NULL, UNIQUE(user_id, day_unix, ring, source_metric, kind))` — UNIQUE makes backfill `INSERT OR REPLACE` idempotent
-- [ ] `gamification_state(user_id INTEGER PRIMARY KEY, lifetime_hp INTEGER NOT NULL DEFAULT 0, level INTEGER NOT NULL DEFAULT 1, current_streak INTEGER NOT NULL DEFAULT 0, longest_streak INTEGER NOT NULL DEFAULT 0, freezes INTEGER NOT NULL DEFAULT 0, insight_tier INTEGER NOT NULL DEFAULT 1, last_scored_day_unix INTEGER, updated_at_unix INTEGER NOT NULL)`
-- [ ] `ALTER TABLE settings ADD COLUMN gamification_enabled INTEGER DEFAULT 1` (default-ON per design)
-- [ ] add INS/UPD/DEL triggers on the three new tables → `INSERT INTO change_events(tag) VALUES ('gamification')` (mirror migration 027/072)
-- [ ] indexes: `idx_gam_ledger_user_day ON gamification_ledger(user_id, day_unix)`, `idx_gam_targets_user ON gamification_targets(user_id)`
-- [ ] write `-- +goose Down` dropping triggers, indexes, tables (settings column drop is optional/no-op per SQLite limits — document)
-- [ ] add `day_unix` to the integer-time allowlist in `internal/store/store_time_invariants_test.go` and the package comment in `internal/store/store.go`
-- [ ] test: a store test mounts the embedded schema and asserts the three tables + the `gamification_enabled` column exist
-- [ ] run `go test ./internal/store/...` — must pass before next task
+- [x] create `internal/store/migrations/073_add_gamification.sql` with `-- +goose Up/Down` + `StatementBegin/End`
+- [x] `gamification_targets(id PK, user_id INTEGER NOT NULL, metric_key TEXT NOT NULL, low_val REAL, high_val REAL, falloff REAL, mode TEXT, updated_at_unix INTEGER NOT NULL, UNIQUE(user_id, metric_key))` — stores only user overrides; code holds recommended defaults
+- [x] `gamification_ledger(id PK, user_id INTEGER NOT NULL, day_unix INTEGER NOT NULL, ring TEXT NOT NULL, source_metric TEXT NOT NULL, kind TEXT NOT NULL, hp INTEGER NOT NULL, detail TEXT, created_at_unix INTEGER NOT NULL, UNIQUE(user_id, day_unix, ring, source_metric, kind))` — UNIQUE makes backfill `INSERT OR REPLACE` idempotent
+- [x] `gamification_state(user_id INTEGER PRIMARY KEY, lifetime_hp INTEGER NOT NULL DEFAULT 0, level INTEGER NOT NULL DEFAULT 1, current_streak INTEGER NOT NULL DEFAULT 0, longest_streak INTEGER NOT NULL DEFAULT 0, freezes INTEGER NOT NULL DEFAULT 0, insight_tier INTEGER NOT NULL DEFAULT 1, last_scored_day_unix INTEGER, updated_at_unix INTEGER NOT NULL)`
+- [x] `ALTER TABLE settings ADD COLUMN gamification_enabled INTEGER DEFAULT 1` (default-ON per design)
+- [x] add INS/UPD/DEL triggers on the three new tables → `INSERT INTO change_events(tag) VALUES ('gamification')` (mirror migration 027/072)
+- [x] indexes: `idx_gam_ledger_user_day ON gamification_ledger(user_id, day_unix)`, `idx_gam_targets_user ON gamification_targets(user_id)`
+- [x] write `-- +goose Down` dropping triggers, indexes, tables (settings column drop made symmetric — modernc SQLite supports `DROP COLUMN`, mirrors migration 022; keeps Up→Down→Up idempotent)
+- [x] add `day_unix` to the integer-time allowlist in `internal/store/store_time_invariants_test.go` and the package comment in `internal/store/store.go`
+- [x] test: a store test mounts the embedded schema and asserts the three tables + the `gamification_enabled` column exist
+- [x] run `go test ./internal/store/...` — must pass before next task
 
 ### Task 2: Settings feature flag — `gamification_enabled`
 - [ ] add `case "gamification_enabled"` to the `GetBool`/`SetBool` column switches in `internal/store/settings/repo.go:38`

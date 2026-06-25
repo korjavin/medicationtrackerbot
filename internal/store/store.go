@@ -18,6 +18,7 @@
 //	tz_transition_plans.created_at_unix   (NOT NULL, defaulted to strftime('%s','now'))
 //	tz_transition_plans.notified_at_unix  (nullable)
 //	tz_transition_plans.approved_at_unix  (nullable)
+//	gamification_ledger.day_unix          (NOT NULL, UTC-midnight; UNIQUE dedupe key)
 //
 // TestDoseTimeColumnsAreInteger (store_time_invariants_test.go) enforces
 // INTEGER on every name above via PRAGMA table_info, and rejects the legacy
