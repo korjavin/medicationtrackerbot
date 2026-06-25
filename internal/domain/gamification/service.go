@@ -119,6 +119,15 @@ type GamificationService interface {
 	// / read entry point short-circuits to a no-op / empty result when it is off,
 	// so transports can call freely without pre-checking the flag.
 	Enabled(ctx context.Context) (bool, error)
+
+	// ScoreDay computes and persists one user-day's HP awards + recomputed state
+	// (Task 7). It is a no-op when the flag is off. Idempotent for the same data.
+	ScoreDay(ctx context.Context, userID int64, day time.Time) error
+
+	// GetSummary is the read model both HTTP (Plan 2) and the bot will serve:
+	// per-ring HP (today + trailing period), level, lifetime HP, next-level
+	// progress, streak, and insight tier. Gate-off yields an empty summary.
+	GetSummary(ctx context.Context, userID int64) (Summary, error)
 }
 
 // service implements GamificationService. It composes the narrow per-domain read

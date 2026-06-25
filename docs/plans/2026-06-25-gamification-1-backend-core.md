@@ -156,11 +156,11 @@ defer.
 - [x] run `go test ./internal/domain/gamification/...` — must pass before next task
 
 ### Task 7: Domain service — daily scoring + persistence
-- [ ] `ScoreDay(ctx, userID, day time.Time) error`: load that day's rows from each narrow store, resolve effective targets (user override or recommended default from `scoring.Config`), run the scorers, write the resulting `LedgerEntry` rows via `UpsertLedger`, then recompute and `UpsertState` (lifetime HP, level, insight tier)
-- [ ] `GetSummary(ctx, userID)`: rings (today + period), level, lifetime HP, next-level progress, current streak, insight tier — the read model Plan 2 will serve
-- [ ] effective-targets resolver: `ListTargets` overrides merged onto `Config` recommendations
-- [ ] write tests: a seeded day produces expected ring HP and state; gate-off yields empty summary
-- [ ] run `go test ./internal/domain/gamification/...` — must pass before next task
+- [x] `ScoreDay(ctx, userID, day time.Time) error`: load that day's rows from each narrow store, resolve effective targets (user override or recommended default from `scoring.Config`), run the scorers, write the resulting `LedgerEntry` rows via `UpsertLedger`, then recompute and `UpsertState` (lifetime HP, level, insight tier) — implemented in `scoreday.go` via `ApplyDayScore` (ledger + state atomic). Streak fields carried over (Task 8 owns them). MVP mapping notes: baselines/regularity left unknown (absolute bands), weight scored as maintenance around trailing average, weekly activity from completed-session durations.
+- [x] `GetSummary(ctx, userID)`: rings (today + period), level, lifetime HP, next-level progress, current streak, insight tier — the read model Plan 2 will serve (`summary.go`, `Summary` struct; all 5 rings emitted in canonical order)
+- [x] effective-targets resolver: `ListTargets` overrides merged onto `Config` recommendations (`effectiveConfig`/`applyTarget`, band-shaped keys; unknown keys ignored for forward-compat)
+- [x] write tests: a seeded day produces expected ring HP and state; gate-off yields empty summary (`scoreday_test.go`: seeded-day HP/state, idempotent re-score, gate-off no-op, summary-after-score, override-merge)
+- [x] run `go test ./internal/domain/gamification/...` — must pass before next task
 
 ### Task 8: Domain service — streaks, freezes, insight-tier gating
 - [ ] fold `NextStreak` into `ScoreDay`/state recompute using a per-user "minimum viable day" rule (weekly cadence default)
