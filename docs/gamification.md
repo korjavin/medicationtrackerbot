@@ -516,6 +516,15 @@ concurrent scores can't desync `gamification_state` from the ledger.
   banked up to 4.
 - Guideline bands match the doc: BP 90–120 / 60–80, sleep 7–9h, steps ~7k knee,
   WHO 150 min/week, calories ±10% of target.
+- **Adherence misses are inferred, not swept.** Production never transitions a
+  forgotten dose from `PENDING` to `MISSED` (only the demo seeder and importer
+  write the literal `MISSED` status), so the adherence scorer treats a dose still
+  `PENDING` past its scheduled time (relative to *now*, not the day's end) as a
+  miss. Without this, logging only the doses taken on time would score a perfect
+  outcome and the 365-day backfill would compute an inflated starting level. A
+  dose still due later today, or a `PENDING` row whose slot already carries a
+  resolved sibling (a tz_step orphan), is excluded; a later take re-scores the day
+  and corrects any same-day transient.
 
 **MVP simplifications vs. the design (single-day online path):**
 

@@ -49,6 +49,7 @@ type fakeVitals struct {
 func (f fakeVitals) ListDayStats(context.Context, int64, time.Time) ([]store.DayStat, error) {
 	return f.dayStats, nil
 }
+
 // ListSleepLogs mirrors the real repo's SQL filter (start_time >= since) so the
 // loader's day-window handling is exercised faithfully — a fake that ignored
 // `since` would hide the sleep-attribution bug where a night's bedtime precedes
@@ -399,6 +400,46 @@ func TestScoreDay_AdherencePendingTZStepDoesNotShadow(t *testing.T) {
 	want := cfg.FloorHP + scaleHPExpected(cfg.AdherenceOutcomeMaxHP, 1.0)
 	if got := fs.gam.ringHP(userID, day, scoring.RingAdherence); got != want {
 		t.Errorf("adherence HP = %d, want %d (PENDING tz_step wrongly shadowed the real dose?)", got, want)
+	}
+}
+
+// TestScoreDay_AdherenceOverduePendingCountsAsMiss guards the production gap that
+// nothing ever sweeps a forgotten dose from PENDING to MISSED (only the demo
+// seeder / importer write MISSED). A dose still PENDING after its scheduled time
+// has passed must drag the adherence outcome down exactly as an explicit MISSED
+// would — otherwise logging only the doses taken on time scores a perfect outcome
+// and the 365-day backfill computes an inflated starting level. A future-scheduled
+// PENDING dose (still due) must stay unscored.
+func TestScoreDay_AdherenceOverduePendingCountsAsMiss(t *testing.T) {
+	ctx := context.Background()
+	const userID int64 = 33
+	day := time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC)
+	taken := day.Add(8 * time.Hour)
+	overdue := day.Add(12 * time.Hour) // before the injected now → a forgotten dose
+	future := day.Add(20 * time.Hour)  // after the injected now → still due
+
+	fs := &fullStores{
+		settings: fakeSettings{enabled: true},
+		med: fakeMed{logs: []store.IntakeLog{
+			{ID: 1, MedicationID: 7, Status: "TAKEN", ScheduledAt: taken, TakenAt: ptrTime(taken), Source: "schedule"},
+			{ID: 2, MedicationID: 8, Status: "PENDING", ScheduledAt: overdue, Source: "schedule"},
+			{ID: 3, MedicationID: 9, Status: "PENDING", ScheduledAt: future, Source: "schedule"},
+		}},
+	}
+	svc := newFullService(fs)
+	// now sits between the overdue dose (12:00) and the future dose (20:00).
+	svc.now = func() time.Time { return day.Add(15 * time.Hour) }
+	if err := svc.ScoreDay(ctx, userID, day); err != nil {
+		t.Fatalf("ScoreDay: %v", err)
+	}
+
+	cfg := scoring.DefaultConfig()
+	// One on-time TAKEN + one overdue-PENDING-as-miss → outcome ratio 1/2 = 0.5;
+	// the future PENDING is unscored. Floor is one (only the TAKEN earns a floor; a
+	// miss earns none).
+	want := cfg.FloorHP + scaleHPExpected(cfg.AdherenceOutcomeMaxHP, 0.5)
+	if got := fs.gam.ringHP(userID, day, scoring.RingAdherence); got != want {
+		t.Errorf("adherence HP = %d, want %d (overdue PENDING not counted as miss, or future PENDING penalized?)", got, want)
 	}
 }
 

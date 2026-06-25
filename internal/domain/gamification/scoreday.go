@@ -301,15 +301,38 @@ func bandFromTarget(base scoring.Band, t gamstore.Target) scoring.Band {
 
 // loadAdherence maps the day's scheduled-dose history onto AdherenceDay. TAKEN
 // doses carry their minutes-late (negative = early → 0); SKIPPED are honest skips
-// (floor only, excluded from the outcome); MISSED drag the outcome down. PENDING
-// doses are ignored so a not-yet-resolved day is never penalized.
+// (floor only, excluded from the outcome); MISSED drag the outcome down.
+//
+// A PENDING dose whose scheduled time has already passed (relative to now) is
+// also treated as a miss. Production has no PENDING→MISSED sweep — only the demo
+// seeder and the importer ever write the literal MISSED status — so a forgotten
+// real dose stays PENDING forever. Were it simply ignored, an overdue dose would
+// silently drop out of the outcome denominator and inflate adherence: a user who
+// logs only the doses they took on time would score a perfect outcome, and the
+// 365-day backfill would compute an inflated starting level. The cutoff is now,
+// not the scored day's end, so a dose still due later today is never prematurely
+// penalized (re-scoring on a later take corrects a same-day transient). A PENDING
+// row whose slot already carries a resolved sibling (e.g. a tz_step orphan from a
+// cancelled plan) is a phantom, not a forgotten dose, and is excluded; at most one
+// miss is counted per overdue slot. A future-scheduled PENDING dose is unscored.
 func (s *service) loadAdherence(ctx context.Context, userID int64, start, end time.Time) (scoring.AdherenceDay, error) {
 	logs, err := s.med.ListIntakeHistoryByUser(ctx, userID, start, end)
 	if err != nil {
 		return scoring.AdherenceDay{}, err
 	}
+	deduped := dedupeLogicalDoses(logs)
+	// Slots already carrying a resolved (acted-on) dose are accounted for; a
+	// still-PENDING sibling sharing the slot must not be counted as a separate miss.
+	resolved := map[slotKey]bool{}
+	for _, l := range deduped {
+		if intakeResolved(l) {
+			resolved[slotKey{l.MedicationID, l.ScheduledAt.UTC().Unix()}] = true
+		}
+	}
+	now := s.now()
+	missedSlots := map[slotKey]bool{} // at most one miss per overdue-PENDING slot
 	var doses []scoring.Dose
-	for _, l := range dedupeLogicalDoses(logs) {
+	for _, l := range deduped {
 		switch l.Status {
 		case "TAKEN":
 			mins := 0
@@ -323,10 +346,22 @@ func (s *service) loadAdherence(ctx context.Context, userID int64, start, end ti
 			doses = append(doses, scoring.Dose{Status: scoring.DoseSkippedWithReason})
 		case "MISSED":
 			doses = append(doses, scoring.Dose{Status: scoring.DoseMissed})
+		case "PENDING":
+			slot := slotKey{l.MedicationID, l.ScheduledAt.UTC().Unix()}
+			if l.ScheduledAt.Before(now) && !resolved[slot] && !missedSlots[slot] {
+				missedSlots[slot] = true
+				doses = append(doses, scoring.Dose{Status: scoring.DoseMissed})
+			}
 		}
 	}
 	return scoring.AdherenceDay{Doses: doses}, nil
 }
+
+// slotKey identifies one logical dose slot — a (medication, scheduled-instant)
+// pair. intake_log can carry more than one row per slot (a source='schedule' row
+// and a source='tz_step' row materialized during a timezone transition), so the
+// adherence path keys by slot to collapse and de-duplicate them.
+type slotKey struct{ med, sched int64 }
 
 // dedupeLogicalDoses collapses intake_log rows that represent the SAME logical
 // dose down to one before they are scored. A (medication_id, scheduled_at_unix)
@@ -347,7 +382,6 @@ func (s *service) loadAdherence(ctx context.Context, userID int64, start, end ti
 // anyway, and the schedule row may itself be the acted-on dose, so dropping it
 // would under-count. Rows are returned in input order (scheduled_at ascending).
 func dedupeLogicalDoses(logs []store.IntakeLog) []store.IntakeLog {
-	type slotKey struct{ med, sched int64 }
 	shadowed := map[slotKey]bool{}
 	for _, l := range logs {
 		if l.Source == "tz_step" && intakeResolved(l) {
