@@ -422,6 +422,20 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	}
 	foodGroups := groupFoodLogs(foodLogs, false, foodDate.Location())
 
+	// Gamification summary warm-loads the Today rings widget and the Journey
+	// screen offline (Plan 2, Task 6). The service gates internally: when the
+	// flag is off GetSummary returns the {enabled:false} empty shape, so there is
+	// no flag branching here. Degrade gracefully — on error omit the key so the
+	// client preserves its cached value rather than treating a transient failure
+	// as "gamification disabled". The key matches the /api/gamification/summary
+	// shape so Plan 3 can seed its cachedFetch cache from the same payload.
+	gamificationSummary, err := s.gamificationSvc.GetSummary(ctx, userID)
+	gamificationOK := true
+	if err != nil {
+		slog.Error("bootstrap gamification summary query failed", "error", err)
+		gamificationOK = false
+	}
+
 	response := map[string]any{
 		"cursor":          bootstrapCursor,
 		"features":        features,
@@ -466,6 +480,11 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	// treating a transient query failure as "no upcoming dose."
 	if nextIntakeOK {
 		response["next_intake"] = nextIntake
+	}
+	// Only include gamification when the read succeeded; omit on error so the
+	// client keeps its cached summary instead of seeing a transient blank.
+	if gamificationOK {
+		response["gamification"] = gamificationSummary
 	}
 	// Surface the demo flag + the limits the operator configured so the
 	// frontend can mount its "Demo version" banner and quote accurate numbers

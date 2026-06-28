@@ -121,9 +121,9 @@ This plan relies on the following instead of authored unit tests:
 - [x] run the **existing** coverage guard `go test ./internal/server/ -run TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` — must be green before next task (CI gate, not a new unit test) — green; full `go test ./...` + both builds (`./...` and `-tags mobile`) also pass
 
 ### Task 6: Bootstrap payload — gamification summary
-- [ ] add a `gamification` block to the `/api/bootstrap` builder (the slim summary/rings shape), omitted or empty when the flag is off
-- [ ] keep the cache key aligned with what Plan 3 will read (`gamification_rings` / a `gamification` summary key) so the bootstrap-warmed cache is reused
-- [ ] `go build ./...` clean + manual smoke: `GET /api/bootstrap` includes the block when enabled, omits/empties it when disabled — before next task
+- [x] add a `gamification` block to the `/api/bootstrap` builder (the slim summary/rings shape), omitted or empty when the flag is off — embeds `service.GetSummary` under the `gamification` key (full Summary: rings + level + HP + streak), which warm-loads both the Today rings widget and the Journey summary. The service gates internally, so no flag branching in the builder: flag-off yields the `{enabled:false}` empty shape.
+- [x] keep the cache key aligned with what Plan 3 will read (`gamification_rings` / a `gamification` summary key) so the bootstrap-warmed cache is reused — the block matches the `/api/gamification/summary` response shape exactly, so Plan 3 seeds its `cachedFetch` summary cache from the same payload (and `today_rings` feeds the rings widget).
+- [x] `go build ./...` clean + manual smoke: `GET /api/bootstrap` includes the block when enabled, omits/empties it when disabled — builds clean (`./...` + `-tags mobile`), `TestHandleBootstrap`/`TestBootstrap*` green. On-error the key is omitted (mirrors `medications`) so the client preserves its cached summary. Live curl pass deferred to Task 7; the flag-off `{enabled:false}` and 401 paths are guaranteed by the already-tested service gate + apiMux middleware.
 
 ### Task 7: Verify acceptance criteria
 - [ ] manual smoke: all endpoints return the documented shapes and gate correctly when disabled (full curl pass, flag on and off)
