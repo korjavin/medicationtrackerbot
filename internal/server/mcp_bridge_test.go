@@ -396,20 +396,21 @@ func (f *fakeSettings) SetWeightEnabled(ctx context.Context, enabled bool) error
 func (f *fakeSettings) GetMedicationEnabled(ctx context.Context) (bool, error) {
 	return f.medication, nil
 }
-func (f *fakeSettings) SetMedicationEnabled(ctx context.Context, enabled bool) error { return nil }
-func (f *fakeSettings) GetWorkoutEnabled(ctx context.Context) (bool, error)          { return f.workout, nil }
-func (f *fakeSettings) SetWorkoutEnabled(ctx context.Context, enabled bool) error    { return nil }
-func (f *fakeSettings) GetFoodIntakeEnabled(ctx context.Context) (bool, error)       { return f.food, nil }
-func (f *fakeSettings) SetFoodIntakeEnabled(ctx context.Context, enabled bool) error { return nil }
-func (f *fakeSettings) GetHealthEnabled(ctx context.Context) (bool, error)           { return f.health, nil }
-func (f *fakeSettings) SetHealthEnabled(ctx context.Context, enabled bool) error     { return nil }
-func (f *fakeSettings) GetFirstRunComplete(ctx context.Context) (bool, error)        { return true, nil }
-func (f *fakeSettings) SetFirstRunComplete(ctx context.Context, complete bool) error { return nil }
-func (f *fakeSettings) GetTabOrder(ctx context.Context) (string, error)              { return "", nil }
-func (f *fakeSettings) SetTabOrder(ctx context.Context, order string) error          { return nil }
-func (f *fakeSettings) GetDismissedTZSuggestion(ctx context.Context) (string, error) { return "", nil }
-func (f *fakeSettings) GetCurrent() (string, error)                                  { return "", nil }
-func (f *fakeSettings) Record(tz string) error                                       { return nil }
+func (f *fakeSettings) SetMedicationEnabled(ctx context.Context, enabled bool) error   { return nil }
+func (f *fakeSettings) GetWorkoutEnabled(ctx context.Context) (bool, error)            { return f.workout, nil }
+func (f *fakeSettings) SetWorkoutEnabled(ctx context.Context, enabled bool) error      { return nil }
+func (f *fakeSettings) GetFoodIntakeEnabled(ctx context.Context) (bool, error)         { return f.food, nil }
+func (f *fakeSettings) SetFoodIntakeEnabled(ctx context.Context, enabled bool) error   { return nil }
+func (f *fakeSettings) GetHealthEnabled(ctx context.Context) (bool, error)             { return f.health, nil }
+func (f *fakeSettings) SetHealthEnabled(ctx context.Context, enabled bool) error       { return nil }
+func (f *fakeSettings) SetGamificationEnabled(ctx context.Context, enabled bool) error { return nil }
+func (f *fakeSettings) GetFirstRunComplete(ctx context.Context) (bool, error)          { return true, nil }
+func (f *fakeSettings) SetFirstRunComplete(ctx context.Context, complete bool) error   { return nil }
+func (f *fakeSettings) GetTabOrder(ctx context.Context) (string, error)                { return "", nil }
+func (f *fakeSettings) SetTabOrder(ctx context.Context, order string) error            { return nil }
+func (f *fakeSettings) GetDismissedTZSuggestion(ctx context.Context) (string, error)   { return "", nil }
+func (f *fakeSettings) GetCurrent() (string, error)                                    { return "", nil }
+func (f *fakeSettings) Record(tz string) error                                         { return nil }
 func (f *fakeSettings) GetWeightUnitPreference(ctx context.Context) (string, error) {
 	return "kg", nil
 }

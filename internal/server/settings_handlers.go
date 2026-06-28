@@ -517,6 +517,21 @@ func (s *Server) handleSetFeatureEnabled(w http.ResponseWriter, r *http.Request)
 		err = s.settings.SetWorkoutEnabled(ctx, req.Enabled)
 	case "health":
 		err = s.settings.SetHealthEnabled(ctx, req.Enabled)
+	case "gamification":
+		err = s.settings.SetGamificationEnabled(ctx, req.Enabled)
+		// First-enable backfill hook: replay the trailing window so the user
+		// lands on a populated Journey. EnsureBackfilled is idempotent (skips
+		// once BackfilledAt is latched) and no-ops when the flag is off, so it
+		// is safe on every enable. Run inline so the toggle's 200 means the
+		// Journey is ready; backfill failure is logged best-effort rather than
+		// failing a toggle that already succeeded (the next enable/boot retries).
+		if err == nil && req.Enabled {
+			if u, ok := r.Context().Value(UserCtxKey).(*TelegramUser); ok && u != nil {
+				if bfErr := s.gamificationSvc.EnsureBackfilled(ctx, u.ID); bfErr != nil {
+					slog.Error("gamification first-enable backfill failed", "error", bfErr, "user_id", u.ID)
+				}
+			}
+		}
 	default:
 		http.Error(w, "Unknown feature", http.StatusBadRequest)
 		return

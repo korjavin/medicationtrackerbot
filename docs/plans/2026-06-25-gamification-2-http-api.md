@@ -12,8 +12,8 @@
 > **⚠️ Testing note (intentional deviation):** by direction, **this plan does not
 > require writing unit/handler tests.** Verification is build + lint + the
 > *existing* MCP coverage guard + manual smoke (see Verification). This overrides the
-> default ralphex "every task must include tests" mandate for Plan 2 only. Plan 1
-> and Plan 3 keep their normal testing posture.
+> default ralphex "every task must include tests" mandate. Plan 3 likewise strips
+> authored tests; only Plan 1 keeps the normal testing posture.
 
 ## Overview
 
@@ -109,9 +109,9 @@ This plan relies on the following instead of authored unit tests:
 - [x] `go build ./...` clean (+ `-tags mobile`) + lint clean (`golangci-lint` 0 issues, gofmt clean). Live curl smoke (read defaults, set + read back, below-floor → 400) deferred to Task 7's manual pass — needs a running authenticated server + seeded DB. The 400-on-invalid path is covered by the existing `TestUpsertTarget_ValidatesMetricAndBand`, gate-off by `TestTargetsCRUD_GateOff_NoOp`; per Plan 2's no-new-tests directive, no tests authored here.
 
 ### Task 4: First-enable backfill hook
-- [ ] on enabling gamification (via the generic feature-toggle handler when `{feature}=gamification` flips false→true), call `service.EnsureBackfilled(ctx, userID)` so the user lands on a populated Journey (run async/non-blocking if the toggle handler must stay fast; otherwise inline)
-- [ ] make the hook idempotent (safe if already backfilled — relies on Plan 1 idempotency)
-- [ ] `go build ./...` clean + manual smoke: toggle flag on → summary becomes populated; toggle again → no duplicate/error — before next task
+- [x] on enabling gamification (via the generic feature-toggle handler when `{feature}=gamification` flips false→true), call `service.EnsureBackfilled(ctx, userID)` so the user lands on a populated Journey. Added the `gamification` case to `handleSetFeatureEnabled` (`settings_handlers.go`) — the toggle previously 400'd on `{feature}=gamification`. Run **inline** (not async) so the toggle's 200 means the Journey is ready; backfill failure is logged best-effort rather than failing a toggle that already persisted. Added `SetGamificationEnabled` to the server's `SettingsStore` interface.
+- [x] make the hook idempotent (safe if already backfilled — relies on Plan 1 idempotency): `EnsureBackfilled` short-circuits once `BackfilledAt` is latched and no-ops when the flag is off (`TestEnsureBackfilled_SkipsWhenBackfilled`/`_GateOff`), so calling it on every enable is safe. The flag is persisted *before* the call so the internal gate sees enabled.
+- [x] `go build ./...` clean (+ `-tags mobile`) — verified. Live manual smoke (toggle on → populated summary; toggle again → no duplicate) deferred to Task 7's manual pass — needs a running authenticated server + seeded DB; idempotency is guaranteed by the already-tested Plan 1 `EnsureBackfilled` guard. The route stays MCP-covered via the existing `POST /api/settings/features/{feature}` exemption (no new route).
 
 ### Task 5: MCP registry operations + coverage
 - [ ] create `internal/mcp/registry/operations_gamification.go` with a `gamification` topic
