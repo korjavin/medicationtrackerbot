@@ -1,13 +1,19 @@
 # Gamification — Plan 2 of 3: HTTP API + MCP Coverage
 
 > **Plan group (3 coarse, mostly-sequential plans).**
-> - Plan 1 — Backend core *(must be merged/green first)*
+> - Plan 1 — Backend core *(merged on `master`)*
 > - **Plan 2 — HTTP API + MCP coverage** ← *you are here* (depends on Plan 1)
 > - Plan 3 — Frontend (depends on this plan's API contract)
 >
 > Design of record: [docs/gamification.md](../gamification.md). Backend service from
 > Plan 1: `internal/domain/gamification` (`GetSummary`, `GetInsightTier`, targets
 > CRUD, `EnsureBackfilled`).
+
+> **⚠️ Testing note (intentional deviation):** by direction, **this plan does not
+> require writing unit/handler tests.** Verification is build + lint + the
+> *existing* MCP coverage guard + manual smoke (see Verification). This overrides the
+> default ralphex "every task must include tests" mandate for Plan 2 only. Plan 1
+> and Plan 3 keep their normal testing posture.
 
 ## Overview
 
@@ -34,32 +40,43 @@ exemptions, and the bootstrap payload addition.
 The gamification **enable toggle** rides the existing generic feature-toggle route
 (see Task 5) — no new toggle endpoint.
 
+**Explicitly out of scope for this plan:** new unit/handler/registry/bootstrap unit
+tests. Do not author them here.
+
 ## Context (from discovery)
 
 **Conventions to mirror (verified file references):**
 
 - **Route registration:** `internal/server/server.go:800` — `apiMux.HandleFunc("GET /api/...", s.handleX)`, path params via `r.PathValue("name")`.
 - **Handler → service:** handlers construct/hold the domain service (e.g. `domain.NewWorkoutService(r.Workout, r.TZ)`); add a `gamification` service built from the Plan 1 repo + the per-domain repos it needs.
-- **MCP coverage guard:** `internal/server/mcp_coverage_test.go:21` — `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt`.
+- **MCP coverage guard:** `internal/server/mcp_coverage_test.go:21` — `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` (a *pre-existing* repo invariant; CI runs it regardless of this plan).
 - **MCP operations:** `internal/mcp/registry/operations_health.go:25` — `Operation{ ID, Topic, Method, Path, Risk, ParamsSchema, BodySchema, Description, ResponseSummary, ResponseExample, Example }`. Read ops should populate `ResponseExample`.
 - **Coverage exemptions:** `internal/server/mcp_coverage_exempt.go:32` — `{Method, Path, Reason}`. Feature-toggle + settings routes are exempt with a "privilege loop" reason (`:74`).
-- **Existing feature-toggle routes (already exempt):** `GET /api/settings/features`, `POST /api/settings/features/{feature}` (`mcp_coverage_exempt.go:74`-ish). The gamification flag toggles through `{feature}` = `gamification` — confirm the generic handler reads/writes `gamification_enabled` (Plan 1 Task 2 added the column + wrappers).
+- **Existing feature-toggle routes (already exempt):** `GET /api/settings/features`, `POST /api/settings/features/{feature}` (`mcp_coverage_exempt.go:74`-ish). The gamification flag toggles through `{feature}` = `gamification` — confirm the generic handler reads/writes `gamification_enabled` (added in Plan 1).
 - **Bootstrap:** `/api/bootstrap` builder seeds per-section caches; add a `gamification` block (Task 6). Bootstrap route is already coverage-exempt (transport/shell).
 
 ## Development Approach
 
-- **Testing approach: Regular** (handler + test in the same task).
-- Each task fully green before the next; run `go test ./internal/server/... ./internal/mcp/...` after changes.
-- Handlers stay thin and **build-tag-free**; all logic is in the Plan 1 service.
-- The MCP coverage guard test is the gate for every new route — never add a route
-  without either a registry op or an exemption in the same task.
+- **No unit tests in this plan** (per direction). Each task is complete when it
+  **builds, lints clean, keeps the existing MCP coverage guard green, and passes a
+  manual smoke check** of the affected endpoint(s).
+- Handlers stay thin and **build-tag-free**; all business logic lives in the Plan 1
+  service.
+- The MCP coverage guard is the gate for every new route — never add a route
+  without either a registry op or an exemption **in the same task** (otherwise the
+  guard, and CI, go red).
+- Update this plan when scope shifts (`➕` new task, `⚠️` blocker).
 
-## Testing Strategy
+## Verification (in place of unit tests)
 
-- **Unit/handler tests:** table-driven per endpoint (success, gate-off → empty/forbidden, bad input → 400, unauth → 401) mirroring existing `internal/server` handler tests (e.g. `TestBPHandlers`).
-- **Guard test:** `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` must pass after each route addition (treat as part of the task's test step).
-- **Registry tests:** validate the new operations parse and their schemas are well-formed (mirror existing registry tests).
-- **Bootstrap test:** asserts the `gamification` block is present (and omitted/empty when the flag is off).
+This plan relies on the following instead of authored unit tests:
+
+- **Build:** `go build ./...` and `go build -tags mobile ./...` succeed.
+- **Lint:** `golangci-lint` clean on touched files.
+- **Existing MCP coverage guard:** `go test ./internal/server/ -run TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` stays green — this is the repo's pre-existing route-coverage invariant, not a new unit test.
+- **No regressions:** the existing suite (`go test ./...`) still passes — we are not adding tests, only not breaking the ones already there.
+- **Manual smoke:** `curl` (or Bruno) each endpoint against a seeded user, with the
+  feature flag on and off, confirming the documented shapes (see Post-Completion).
 
 ## Progress Tracking
 
@@ -68,7 +85,7 @@ The gamification **enable toggle** rides the existing generic feature-toggle rou
 ## What Goes Where
 
 - **Implementation Steps** (checkboxes): handlers, registry ops, exemptions,
-  bootstrap, tests — all in-repo.
+  bootstrap, doc updates — all in-repo. **No test-authoring checkboxes.**
 - **Post-Completion**: manual `curl`/Bruno smoke checks and Phase-2 endpoints.
 
 ## Implementation Steps
@@ -76,50 +93,44 @@ The gamification **enable toggle** rides the existing generic feature-toggle rou
 ### Task 1: Wire the gamification service into the server
 - [ ] construct the `GamificationService` in the server wiring (where other domain services are built), passing the Plan 1 `r.Gamification` repo + the per-domain repos it reads + settings repo
 - [ ] hold it on the server struct (mirror existing service fields)
-- [ ] write a smoke test that the server constructs with the service present
-- [ ] run `go test ./internal/server/...` — must pass before next task
+- [ ] confirm `go build ./...` and `go build -tags mobile ./...` succeed with the service wired — before next task
 
 ### Task 2: Read endpoints — summary, journey, rings
 - [ ] `GET /api/gamification/summary` → `service.GetSummary` (rings + level + HP + next-level progress + streak + insight tier)
 - [ ] `GET /api/gamification/journey` → fuller payload: level/HP history, streak detail, unlocked insight tiers L1–L4, per-ring breakdown
 - [ ] `GET /api/gamification/rings` → slim Today-widget payload (per-ring current vs daily max + level badge)
 - [ ] register all three on `apiMux` (`server.go`), gate behind `gamification_enabled` (return an explicit empty/`disabled` shape, not 500, when off)
-- [ ] write handler tests: success shape, gate-off, unauth
-- [ ] run `go test ./internal/server/...` — must pass before next task
+- [ ] `go build ./...` clean + manual smoke each endpoint (flag on → populated shape, flag off → `{enabled:false}`, unauth → 401) — before next task
 
 ### Task 3: Targets endpoints — read + set
 - [ ] `GET /api/gamification/targets` → effective targets = recommendations merged with user overrides (each field flagged `isRecommended` vs `isCustom` so the UI can show "recommended: …")
 - [ ] `PUT /api/gamification/targets` (or `POST`) → validate + persist overrides via the service; reject values outside sane safety bounds (e.g. weight goal below BMI floor) with 400
 - [ ] register on `apiMux`; gate behind the flag
-- [ ] write handler tests: read defaults (no overrides), set + read back, validation rejection (below-floor)
-- [ ] run `go test ./internal/server/...` — must pass before next task
+- [ ] `go build ./...` clean + manual smoke: read defaults (no overrides), set + read back, below-floor value → 400 — before next task
 
 ### Task 4: First-enable backfill hook
 - [ ] on enabling gamification (via the generic feature-toggle handler when `{feature}=gamification` flips false→true), call `service.EnsureBackfilled(ctx, userID)` so the user lands on a populated Journey (run async/non-blocking if the toggle handler must stay fast; otherwise inline)
 - [ ] make the hook idempotent (safe if already backfilled — relies on Plan 1 idempotency)
-- [ ] write a test: toggling the flag on triggers backfill exactly once; toggling again is a no-op
-- [ ] run `go test ./internal/server/...` — must pass before next task
+- [ ] `go build ./...` clean + manual smoke: toggle flag on → summary becomes populated; toggle again → no duplicate/error — before next task
 
 ### Task 5: MCP registry operations + coverage
 - [ ] create `internal/mcp/registry/operations_gamification.go` with a `gamification` topic
 - [ ] register **read** ops with `ResponseExample`: `gamification.summary` (`GET /api/gamification/summary`), `gamification.journey` (`GET /api/gamification/journey`), `gamification.rings` (`GET /api/gamification/rings`), `gamification.targets.read` (`GET /api/gamification/targets`)
 - [ ] register the **write** op: `gamification.targets.set` (`PUT /api/gamification/targets`, `RiskWrite`, with `BodySchema`)
 - [ ] confirm the gamification enable toggle is covered by the existing `POST /api/settings/features/{feature}` exemption — add no new toggle route
-- [ ] run `go test ./internal/mcp/...` — registry parses and schemas validate
-- [ ] run `go test ./internal/server/ -run TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` — must pass before next task
+- [ ] run the **existing** coverage guard `go test ./internal/server/ -run TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` — must be green before next task (CI gate, not a new unit test)
 
 ### Task 6: Bootstrap payload — gamification summary
 - [ ] add a `gamification` block to the `/api/bootstrap` builder (the slim summary/rings shape), omitted or empty when the flag is off
 - [ ] keep the cache key aligned with what Plan 3 will read (`gamification_rings` / a `gamification` summary key) so the bootstrap-warmed cache is reused
-- [ ] write a bootstrap test: block present when enabled, absent/empty when disabled
-- [ ] run `go test ./internal/server/...` — must pass before next task
+- [ ] `go build ./...` clean + manual smoke: `GET /api/bootstrap` includes the block when enabled, omits/empties it when disabled — before next task
 
 ### Task 7: Verify acceptance criteria
-- [ ] verify all endpoints return the documented shapes and gate correctly when disabled
-- [ ] run full `go test ./...`
-- [ ] run `go test ./internal/server/ -run TestMCPCoverage` — guard green
+- [ ] manual smoke: all endpoints return the documented shapes and gate correctly when disabled (full curl pass, flag on and off)
+- [ ] `go build ./...` and `go build -tags mobile ./...` succeed
 - [ ] run the linter — fix all issues
-- [ ] confirm `go build ./...` and `go build -tags mobile ./...` succeed
+- [ ] existing MCP coverage guard green (`go test ./internal/server/ -run TestMCPCoverage`)
+- [ ] no regressions: `go test ./...` still passes (existing tests only — author no new ones)
 - [ ] freeze the API contract (paths + JSON shapes) for Plan 3 — record it in Technical Details below
 
 ### Task 8: Update documentation
@@ -141,8 +152,11 @@ All gamification routes return a `{ enabled: false }`-shaped empty body (HTTP 20
 
 ## Post-Completion
 
-**Manual smoke (no checkboxes):**
-- `curl` each endpoint with a seeded user; toggle the flag off and confirm empty shapes; toggle on and confirm backfill populated the summary.
+**Manual smoke (the primary verification for this plan — no checkboxes):**
+- `curl` each endpoint with a seeded user; toggle the flag off and confirm the
+  `{enabled:false}` shapes; toggle on and confirm backfill populated the summary;
+  confirm `PUT /api/gamification/targets` rejects below-floor values with 400.
+- Confirm `GET /api/bootstrap` carries the gamification block only when enabled.
 
 **Phase 2 endpoints (separate plans):**
 - Challenges: `GET/POST /api/gamification/challenges`, accept/complete.
