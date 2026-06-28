@@ -23,6 +23,7 @@ import (
 
 	"github.com/VictoriaMetrics/fastcache"
 	"github.com/korjavin/medicationtrackerbot/internal/domain"
+	gamificationsvc "github.com/korjavin/medicationtrackerbot/internal/domain/gamification"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzsuggestion"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzupdate"
@@ -53,6 +54,7 @@ type Server struct {
 	weight              WeightStore
 	workouts            WorkoutStore
 	workoutSvc          workoutsvc.WorkoutService
+	gamificationSvc     gamificationsvc.GamificationService
 	food                FoodStore
 	foodAI              domain.FoodAIService
 	settings            SettingsStore
@@ -313,6 +315,7 @@ func New(s *store.Store, botToken, sessionSecret string, allowedUserID int64, oi
 		weight:          s.Weight,
 		workouts:        s.Workout,
 		workoutSvc:      workoutsvc.New(s.Workout, s.TZ),
+		gamificationSvc: gamificationsvc.New(s.Medication, s.BP, s.Weight, s.Vitals, s.Food, s.Diary, s.Workout, s.Gamification, s.Settings),
 		food:            s.Food,
 		settings:        s.Settings,
 		timezone:        s.TZ,

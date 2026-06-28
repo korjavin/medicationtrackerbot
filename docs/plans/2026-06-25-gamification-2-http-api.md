@@ -91,9 +91,9 @@ This plan relies on the following instead of authored unit tests:
 ## Implementation Steps
 
 ### Task 1: Wire the gamification service into the server
-- [ ] construct the `GamificationService` in the server wiring (where other domain services are built), passing the Plan 1 `r.Gamification` repo + the per-domain repos it reads + settings repo
-- [ ] hold it on the server struct (mirror existing service fields)
-- [ ] confirm `go build ./...` and `go build -tags mobile ./...` succeed with the service wired — before next task
+- [x] construct the `GamificationService` in the server wiring (where other domain services are built), passing the Plan 1 `r.Gamification` repo + the per-domain repos it reads + settings repo
+- [x] hold it on the server struct (mirror existing service fields)
+- [x] confirm `go build ./...` and `go build -tags mobile ./...` succeed with the service wired — before next task
 
 ### Task 2: Read endpoints — summary, journey, rings
 - [ ] `GET /api/gamification/summary` → `service.GetSummary` (rings + level + HP + next-level progress + streak + insight tier)
