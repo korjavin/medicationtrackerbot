@@ -381,7 +381,7 @@ func TestBridge_AuditFieldsLogged(t *testing.T) {
 // Only the feature-flag getters are exercised by bridge tests; the rest
 // panic so an accidental call surfaces in CI rather than silently passing.
 type fakeSettings struct {
-	bp, weight, medication, workout, food, health bool
+	bp, weight, medication, workout, food, health, gamification bool
 }
 
 func (f *fakeSettings) GetBloodPressureEnabled(ctx context.Context) (bool, error) {
@@ -403,6 +403,7 @@ func (f *fakeSettings) GetFoodIntakeEnabled(ctx context.Context) (bool, error)  
 func (f *fakeSettings) SetFoodIntakeEnabled(ctx context.Context, enabled bool) error   { return nil }
 func (f *fakeSettings) GetHealthEnabled(ctx context.Context) (bool, error)             { return f.health, nil }
 func (f *fakeSettings) SetHealthEnabled(ctx context.Context, enabled bool) error       { return nil }
+func (f *fakeSettings) GetGamificationEnabled(ctx context.Context) (bool, error)       { return f.gamification, nil }
 func (f *fakeSettings) SetGamificationEnabled(ctx context.Context, enabled bool) error { return nil }
 func (f *fakeSettings) GetFirstRunComplete(ctx context.Context) (bool, error)          { return true, nil }
 func (f *fakeSettings) SetFirstRunComplete(ctx context.Context, complete bool) error   { return nil }

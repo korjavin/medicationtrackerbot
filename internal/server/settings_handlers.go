@@ -41,13 +41,18 @@ func (s *Server) getFeatureMap(ctx context.Context) (map[string]bool, error) {
 	if err != nil {
 		return nil, err
 	}
+	gamificationEnabled, err := s.settings.GetGamificationEnabled(ctx)
+	if err != nil {
+		return nil, err
+	}
 	return map[string]bool{
-		"food":       foodEnabled,
-		"bp":         bpEnabled,
-		"weight":     weightEnabled,
-		"medication": medicationEnabled,
-		"workout":    workoutEnabled,
-		"health":     healthEnabled,
+		"food":         foodEnabled,
+		"bp":           bpEnabled,
+		"weight":       weightEnabled,
+		"medication":   medicationEnabled,
+		"workout":      workoutEnabled,
+		"health":       healthEnabled,
+		"gamification": gamificationEnabled,
 	}, nil
 }
 
