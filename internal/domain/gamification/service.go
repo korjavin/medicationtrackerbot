@@ -140,6 +140,11 @@ type GamificationService interface {
 	// safety alerts. Gate-off yields 0 (Task 8).
 	GetInsightTier(ctx context.Context, userID int64) (int, error)
 
+	// GetJourney is the Journey-screen read model: the Summary plus a trailing
+	// HP-per-day history, the unlocked insight tiers, and the level curve. Gate-off
+	// yields a disabled Summary with empty extras. See journey.go.
+	GetJourney(ctx context.Context, userID int64) (Journey, error)
+
 	// Backfill replays the trailing 365 days (capped) through ScoreDay so an
 	// existing user lands on a populated ledger + state instead of starting empty.
 	// Gate-off is a no-op; re-running is idempotent (Task 10).

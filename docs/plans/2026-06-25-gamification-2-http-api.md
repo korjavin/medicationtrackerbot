@@ -96,11 +96,11 @@ This plan relies on the following instead of authored unit tests:
 - [x] confirm `go build ./...` and `go build -tags mobile ./...` succeed with the service wired — before next task
 
 ### Task 2: Read endpoints — summary, journey, rings
-- [ ] `GET /api/gamification/summary` → `service.GetSummary` (rings + level + HP + next-level progress + streak + insight tier)
-- [ ] `GET /api/gamification/journey` → fuller payload: level/HP history, streak detail, unlocked insight tiers L1–L4, per-ring breakdown
-- [ ] `GET /api/gamification/rings` → slim Today-widget payload (per-ring current vs daily max + level badge)
-- [ ] register all three on `apiMux` (`server.go`), gate behind `gamification_enabled` (return an explicit empty/`disabled` shape, not 500, when off)
-- [ ] `go build ./...` clean + manual smoke each endpoint (flag on → populated shape, flag off → `{enabled:false}`, unauth → 401) — before next task
+- [x] `GET /api/gamification/summary` → `service.GetSummary` (rings + level + HP + next-level progress + streak + insight tier)
+- [x] `GET /api/gamification/journey` → fuller payload: level/HP history, streak detail, unlocked insight tiers L1–L4, per-ring breakdown — new `service.GetJourney` (`journey.go`) embeds `Summary` + `hp_history` + `unlocked_tiers` + `level_curve`; per-ring breakdown is the embedded `period_rings`
+- [x] `GET /api/gamification/rings` → slim Today-widget payload (`{enabled, level, today_hp, rings:[{ring,hp}]}`, a projection of `Summary`). Note: served per-ring **today HP** only — no fabricated `dailyMaxHp`/label/status, since the service doesn't define a per-ring daily cap (floors are per-count). Reconcile the frozen contract to this shape in Task 7.
+- [x] register all three on `apiMux` (`server.go`), gate behind `gamification_enabled` — handlers call only the service, which returns the `{enabled:false}` shape when off (no 500, no flag branching in the handler)
+- [x] `go build ./...` clean (+ `-tags mobile`) + lint clean. Live curl smoke (flag on/off, 401) deferred to Task 7's manual pass — needs a running authenticated server + seeded DB; the flag-off `{enabled:false}` path is guaranteed by the service's already-tested `GetSummary` gate, 401 by the apiMux auth middleware.
 
 ### Task 3: Targets endpoints — read + set
 - [ ] `GET /api/gamification/targets` → effective targets = recommendations merged with user overrides (each field flagged `isRecommended` vs `isCustom` so the UI can show "recommended: …")

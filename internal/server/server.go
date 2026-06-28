@@ -960,6 +960,13 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/notes", s.handleCreateNote)
 	apiMux.HandleFunc("DELETE /api/notes/{id}", s.handleDeleteNote)
 
+	// Gamification read endpoints (Plan 2). The service gates internally and
+	// returns an {enabled:false} shape when the flag is off. Targets read/set and
+	// MCP coverage come in later tasks.
+	apiMux.HandleFunc("GET /api/gamification/summary", s.handleGamificationSummary)
+	apiMux.HandleFunc("GET /api/gamification/journey", s.handleGamificationJourney)
+	apiMux.HandleFunc("GET /api/gamification/rings", s.handleGamificationRings)
+
 	// Wrap apiMux with the broker-notify middleware so every successful
 	// non-GET write wakes up SSE subscribers. Bridge calls share this wrapped
 	// handler (s.internalMux) so MCP-initiated writes also notify.
