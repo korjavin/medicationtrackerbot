@@ -134,8 +134,8 @@ This plan relies on the following instead of authored unit tests:
 - [x] freeze the API contract (paths + JSON shapes) for Plan 3 — record it in Technical Details below — recorded the verified snake_case shapes; reconciled away the originally-drafted camelCase contract per Tasks 2/3/6's notes
 
 ### Task 8: Update documentation
-- [ ] add the new routes to `docs/api.md`
-- [ ] note the endpoints + bootstrap block in `docs/gamification.md` §14
+- [x] add the new routes to `docs/api.md` — new `## Gamification` section with the five routes (`summary`/`journey`/`rings`/`targets` read + `PUT targets`), the gate/401/bootstrap behavior, and MCP op cross-refs
+- [x] note the endpoints + bootstrap block in `docs/gamification.md` §14 — added §14.2 (Plan 2 status: reads, write, enable+inline-backfill, bootstrap key) and corrected §14.1's "not yet built" line
 
 ## Technical Details
 

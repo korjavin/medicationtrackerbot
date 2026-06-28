@@ -473,7 +473,7 @@ Kept deliberately light; the implementation plan is a separate future doc.
 
 The backend core from this design now exists (plan
 [docs/plans/2026-06-25-gamification-1-backend-core.md](plans/2026-06-25-gamification-1-backend-core.md)).
-Plan 2 (HTTP/MCP) and Plan 3 (frontend) are not yet built.
+Plan 2 (HTTP/MCP, §14.2) is built; Plan 3 (frontend) is not yet built.
 
 **Packages**
 
@@ -541,6 +541,34 @@ concurrent scores can't desync `gamification_state` from the ledger.
   challenges/quests are not in Plan 1 (UI/Phase 2). Scoring is non-punitive by
   construction (HP only ever added, never negative), so deferring the safety
   toggles is safe.
+
+### 14.2 HTTP API + MCP coverage — Plan 2 (status)
+
+The Plan 1 service is now exposed over HTTP (plan
+[docs/plans/2026-06-25-gamification-2-http-api.md](plans/2026-06-25-gamification-2-http-api.md)).
+Handlers (`internal/server/gamification_handlers.go`) call **only** the
+`GamificationService` (Critical Rule #1) and pass its snake_case JSON through
+verbatim. The full route table + frozen JSON shapes live in
+[docs/api.md → Gamification](api.md#gamification); in brief:
+
+- **Reads:** `GET /api/gamification/{summary,journey,rings,targets}`.
+- **Write:** `PUT /api/gamification/targets` (validate + persist target overrides;
+  400 on unknown metric, negative bound/falloff, or `low > high`).
+- **Enable:** the existing generic toggle `POST /api/settings/features/gamification`.
+  On a false→true flip the handler runs `EnsureBackfilled` **inline** (idempotent,
+  latched on `backfilled_at_unix`) so the Journey is populated by the time the
+  toggle returns 200.
+- **Bootstrap:** `/api/bootstrap` embeds `service.GetSummary` under a `gamification`
+  key (same shape as `/api/gamification/summary`), so the Today rings widget and
+  Journey summary warm-load offline. Omitted on error so the client keeps its
+  cached summary.
+
+Every route gates on `gamification_enabled` in the service layer — flag-off returns
+HTTP 200 with a `{enabled:false}` body, never a 500 or a handler-side flag branch.
+All five routes are reachable through the MCP operation registry
+(`internal/mcp/registry/operations_gamification.go`, `gamification` topic), keeping
+the coverage guard green. No new tests were authored in this plan (per direction);
+verification was build + lint + the existing coverage guard + the no-regression run.
 
 ---
 

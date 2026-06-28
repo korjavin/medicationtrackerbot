@@ -55,6 +55,18 @@
 | GET | `/api/workout/rotation/state` | Current rotation position |
 | POST | `/api/workout/rotation/initialize` | Initialize rotation |
 
+## Gamification
+
+All routes gate on the `gamification_enabled` flag in the service layer: when off they return HTTP 200 with a `{"enabled": false}`-shaped body (every other field zero/empty), so the frontend renders a disabled state instead of handling an error. Unauthenticated requests get 401 from the apiMux auth middleware. JSON is snake_case (the domain service's natural shape, passed through verbatim). Enabling the feature uses the existing generic toggle `POST /api/settings/features/gamification`, which on a false→true flip runs `EnsureBackfilled` inline so the Journey is populated by the time the toggle returns 200. The summary is also embedded in `/api/bootstrap` under `gamification` (same shape as `/api/gamification/summary`) so the Today rings widget and Journey warm-load offline.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/gamification/summary` | Today + period rings, level, lifetime HP, next-level progress, streak, insight tier. `today_rings`/`period_rings` are always all five rings (`adherence, movement, vitals, nourishment, mind`) in canonical order. (MCP op `gamification.summary`.) |
+| GET | `/api/gamification/journey` | Embeds `summary` plus `hp_history` (sparse ascending series, trailing 90 days), `unlocked_tiers` (L1–L4), and `level_curve`. (MCP op `gamification.journey`.) |
+| GET | `/api/gamification/rings` | Slim Today-widget projection: `{enabled, level, today_hp, rings:[{ring, hp}]}` — per-ring today HP only (no daily cap; floors are per-count). (MCP op `gamification.rings`.) |
+| GET | `/api/gamification/targets` | Effective target bands = recommendations merged with user overrides, each flagged `is_custom`/`is_recommended`. Metric keys ∈ `{bp_systolic, bp_diastolic, resting_hr, stress, sleep_hours, steps}`. (MCP op `gamification.targets.read`.) |
+| PUT | `/api/gamification/targets` | Validate + persist target overrides. Body `{targets:[{metric_key, low_val?, high_val?, falloff?, mode?}]}`; a one-sided band keeps the recommended value for the unset side. Returns the refreshed targets view. **400** on an unknown `metric_key`, a negative bound/falloff, or `low_val > high_val`. (MCP op `gamification.targets.set`.) |
+
 ## System
 
 | Method | Endpoint | Description |
