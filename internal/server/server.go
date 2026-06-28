@@ -27,10 +27,10 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzsuggestion"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzupdate"
+	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/domain/workout"
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/rxnorm"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
-	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/domain/workout"
 	"golang.org/x/oauth2"
 )
 
@@ -960,12 +960,14 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/notes", s.handleCreateNote)
 	apiMux.HandleFunc("DELETE /api/notes/{id}", s.handleDeleteNote)
 
-	// Gamification read endpoints (Plan 2). The service gates internally and
-	// returns an {enabled:false} shape when the flag is off. Targets read/set and
-	// MCP coverage come in later tasks.
+	// Gamification read + targets endpoints (Plan 2). The service gates internally
+	// and returns an {enabled:false} shape when the flag is off. MCP coverage for
+	// these routes comes in Task 5.
 	apiMux.HandleFunc("GET /api/gamification/summary", s.handleGamificationSummary)
 	apiMux.HandleFunc("GET /api/gamification/journey", s.handleGamificationJourney)
 	apiMux.HandleFunc("GET /api/gamification/rings", s.handleGamificationRings)
+	apiMux.HandleFunc("GET /api/gamification/targets", s.handleGamificationTargets)
+	apiMux.HandleFunc("PUT /api/gamification/targets", s.handleSetGamificationTargets)
 
 	// Wrap apiMux with the broker-notify middleware so every successful
 	// non-GET write wakes up SSE subscribers. Bridge calls share this wrapped

@@ -280,6 +280,37 @@ func applyTarget(cfg *scoring.Config, t gamstore.Target) {
 	}
 }
 
+// targetMetricKeys lists the band-shaped metrics a user may override, in display
+// order. Kept in lockstep with applyTarget / bandForMetric / isKnownTargetMetric:
+// the targets read model iterates it to surface every overridable band.
+var targetMetricKeys = []string{
+	TargetKeyBPSystolic, TargetKeyBPDiastolic, TargetKeyRestingHR,
+	TargetKeyStress, TargetKeySleepHours, TargetKeySteps,
+}
+
+// bandForMetric returns the cfg Band a target metric key maps onto — the inverse
+// of applyTarget's switch, used by the targets read model (EffectiveTargets) to
+// surface effective and recommended band values. An unknown key returns the zero
+// Band.
+func bandForMetric(cfg scoring.Config, key string) scoring.Band {
+	switch key {
+	case TargetKeyBPSystolic:
+		return cfg.BPSystolic
+	case TargetKeyBPDiastolic:
+		return cfg.BPDiastolic
+	case TargetKeyRestingHR:
+		return cfg.RestingHR
+	case TargetKeyStress:
+		return cfg.StressBand
+	case TargetKeySleepHours:
+		return cfg.SleepHours
+	case TargetKeySteps:
+		return cfg.StepsBand
+	default:
+		return scoring.Band{}
+	}
+}
+
 // bandFromTarget returns base with only the override's set (non-nil) fields
 // applied, so a one-sided override (e.g. only Low) keeps the recommended High and
 // Falloff.

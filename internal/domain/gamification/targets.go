@@ -24,6 +24,73 @@ var ErrUnknownTargetMetric = errors.New("gamification: unknown target metric key
 // both are set) or a negative Falloff.
 var ErrInvalidTarget = errors.New("gamification: invalid target band")
 
+// EffectiveTarget is one metric's row in the targets-editor read model (Plan 2,
+// GET /api/gamification/targets): the band the user is actually scored against
+// (Low/High/Falloff), the recommended default it derives from (Recommended*), and
+// whether the user has overridden it. The UI edits the effective band and shows
+// the recommended values as the "recommended: …" hint.
+type EffectiveTarget struct {
+	MetricKey          string  `json:"metric_key"`
+	Low                float64 `json:"low"`
+	High               float64 `json:"high"`
+	Falloff            float64 `json:"falloff"`
+	RecommendedLow     float64 `json:"recommended_low"`
+	RecommendedHigh    float64 `json:"recommended_high"`
+	RecommendedFalloff float64 `json:"recommended_falloff"`
+	IsCustom           bool    `json:"is_custom"`
+	IsRecommended      bool    `json:"is_recommended"`
+}
+
+// TargetsView is the GET /api/gamification/targets read model: the gate flag plus
+// every overridable metric's effective band. Gate-off yields {Enabled:false} so
+// the transport returns the disabled shape without flag branching.
+type TargetsView struct {
+	Enabled bool              `json:"enabled"`
+	Targets []EffectiveTarget `json:"targets"`
+}
+
+// EffectiveTargets returns the targets-editor read model: for each overridable
+// band-shaped metric, its effective values (the recommended defaults overlaid
+// with the user's stored overrides — the same merge scoring uses), the
+// recommended default for comparison, and whether the user customized it. Gate-off
+// yields {Enabled:false}.
+func (s *service) EffectiveTargets(ctx context.Context, userID int64) (TargetsView, error) {
+	enabled, err := s.gate(ctx)
+	if err != nil {
+		return TargetsView{}, err
+	}
+	if !enabled {
+		return TargetsView{}, nil
+	}
+	overrides, err := s.gam.ListTargets(ctx, userID)
+	if err != nil {
+		return TargetsView{}, err
+	}
+	custom := make(map[string]bool, len(overrides))
+	eff := s.cfg
+	for _, t := range overrides {
+		custom[t.MetricKey] = true
+		applyTarget(&eff, t)
+	}
+	out := make([]EffectiveTarget, 0, len(targetMetricKeys))
+	for _, mk := range targetMetricKeys {
+		rec := bandForMetric(s.cfg, mk)
+		cur := bandForMetric(eff, mk)
+		out = append(out, EffectiveTarget{
+			MetricKey:          mk,
+			Low:                cur.Low,
+			High:               cur.High,
+			Falloff:            cur.Falloff,
+			RecommendedLow:     rec.Low,
+			RecommendedHigh:    rec.High,
+			RecommendedFalloff: rec.Falloff,
+			IsCustom:           custom[mk],
+			IsRecommended:      !custom[mk],
+		})
+	}
+	return TargetsView{Enabled: true, Targets: out}, nil
+}
+
 // ListTargets returns the user's target overrides. Gate-off yields no targets
 // (the feature is hidden), never an error, so transports can call it
 // unconditionally.
@@ -91,10 +158,18 @@ func isKnownTargetMetric(key string) bool {
 	}
 }
 
-// validateTargetBand rejects an incoherent override: a Low above High (when both
-// are set) or a negative Falloff. A one-sided target (only Low or only High) is
-// valid — bandFromTarget keeps the recommended value for the unset side.
+// validateTargetBand rejects an out-of-bounds or incoherent override: a negative
+// bound or Falloff (none of the band metrics — BP, HR, stress, sleep hours, steps
+// — can be negative), or a Low above High (when both are set). A one-sided target
+// (only Low or only High) is valid — bandFromTarget keeps the recommended value
+// for the unset side.
 func validateTargetBand(t gamstore.Target) error {
+	if t.LowVal != nil && *t.LowVal < 0 {
+		return ErrInvalidTarget
+	}
+	if t.HighVal != nil && *t.HighVal < 0 {
+		return ErrInvalidTarget
+	}
 	if t.LowVal != nil && t.HighVal != nil && *t.LowVal > *t.HighVal {
 		return ErrInvalidTarget
 	}

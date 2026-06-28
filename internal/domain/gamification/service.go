@@ -155,6 +155,12 @@ type GamificationService interface {
 	// feature-enable hook (Task 10).
 	EnsureBackfilled(ctx context.Context, userID int64) error
 
+	// EffectiveTargets returns the targets-editor read model: each overridable
+	// metric's effective band (recommended defaults overlaid with the user's
+	// overrides), the recommended default, and whether it is customized. Gate-off
+	// yields {Enabled:false}. See targets.go.
+	EffectiveTargets(ctx context.Context, userID int64) (TargetsView, error)
+
 	// ListTargets returns the user's per-metric target overrides (the
 	// recommendations they changed). Gate-off yields no targets. See targets.go.
 	ListTargets(ctx context.Context, userID int64) ([]gamstore.Target, error)

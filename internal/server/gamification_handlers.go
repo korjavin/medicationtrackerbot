@@ -8,9 +8,11 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 
+	gamificationsvc "github.com/korjavin/medicationtrackerbot/internal/domain/gamification"
 	gamstore "github.com/korjavin/medicationtrackerbot/internal/store/gamification"
 )
 
@@ -65,6 +67,56 @@ func (s *Server) handleGamificationRings(w http.ResponseWriter, r *http.Request)
 		TodayHP: sum.TodayHP,
 		Rings:   sum.TodayRings,
 	})
+}
+
+// handleGamificationTargets serves the targets-editor read model: each
+// overridable metric's effective band (recommended defaults overlaid with the
+// user's overrides), its recommended default, and whether the user customized it.
+func (s *Server) handleGamificationTargets(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+
+	view, err := s.gamificationSvc.EffectiveTargets(r.Context(), userID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, view)
+}
+
+// handleSetGamificationTargets validates and persists a batch of band-shaped
+// target overrides, then returns the refreshed read model. An unknown metric key
+// or an out-of-bounds / incoherent band is rejected with 400 — the service runs
+// the same validation any surface would (Critical Rule #1). When the flag is off
+// the upserts are no-ops and the response carries the {enabled:false} shape.
+func (s *Server) handleSetGamificationTargets(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+
+	var req struct {
+		Targets []gamstore.Target `json:"targets"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	for _, t := range req.Targets {
+		if _, err := s.gamificationSvc.UpsertTarget(r.Context(), userID, t); err != nil {
+			if errors.Is(err, gamificationsvc.ErrUnknownTargetMetric) || errors.Is(err, gamificationsvc.ErrInvalidTarget) {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	view, err := s.gamificationSvc.EffectiveTargets(r.Context(), userID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, view)
 }
 
 // writeJSON encodes v as the JSON response body, logging an encode failure.
