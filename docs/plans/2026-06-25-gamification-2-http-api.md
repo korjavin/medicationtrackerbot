@@ -114,11 +114,11 @@ This plan relies on the following instead of authored unit tests:
 - [x] `go build ./...` clean (+ `-tags mobile`) — verified. Live manual smoke (toggle on → populated summary; toggle again → no duplicate) deferred to Task 7's manual pass — needs a running authenticated server + seeded DB; idempotency is guaranteed by the already-tested Plan 1 `EnsureBackfilled` guard. The route stays MCP-covered via the existing `POST /api/settings/features/{feature}` exemption (no new route).
 
 ### Task 5: MCP registry operations + coverage
-- [ ] create `internal/mcp/registry/operations_gamification.go` with a `gamification` topic
-- [ ] register **read** ops with `ResponseExample`: `gamification.summary` (`GET /api/gamification/summary`), `gamification.journey` (`GET /api/gamification/journey`), `gamification.rings` (`GET /api/gamification/rings`), `gamification.targets.read` (`GET /api/gamification/targets`)
-- [ ] register the **write** op: `gamification.targets.set` (`PUT /api/gamification/targets`, `RiskWrite`, with `BodySchema`)
-- [ ] confirm the gamification enable toggle is covered by the existing `POST /api/settings/features/{feature}` exemption — add no new toggle route
-- [ ] run the **existing** coverage guard `go test ./internal/server/ -run TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` — must be green before next task (CI gate, not a new unit test)
+- [x] create `internal/mcp/registry/operations_gamification.go` with a `gamification` topic — `GamificationOperations()` wired into `DefaultOperations()` (registry.go); added a per-topic `Suggestion` so the `gamification` topic surfaces a non-empty next-step in `mcp_help` (required by `TestMCPHelp_FullCatalogIncludesCapabilities`)
+- [x] register **read** ops with `ResponseExample`: `gamification.summary` (`GET /api/gamification/summary`), `gamification.journey` (`GET /api/gamification/journey`), `gamification.rings` (`GET /api/gamification/rings`), `gamification.targets.read` (`GET /api/gamification/targets`) — each carries a `ResponseExample` matching the actual snake_case service shape
+- [x] register the **write** op: `gamification.targets.set` (`PUT /api/gamification/targets`, `RiskWrite`, with `BodySchema`) — body `{targets:[{metric_key, low_val?, high_val?, falloff?, mode?}]}`, metric_key enum = the 6 band metrics
+- [x] confirm the gamification enable toggle is covered by the existing `POST /api/settings/features/{feature}` exemption — add no new toggle route — verified at `mcp_coverage_exempt.go:77`; deliberately NOT registered as an op (privilege loop)
+- [x] run the **existing** coverage guard `go test ./internal/server/ -run TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` — must be green before next task (CI gate, not a new unit test) — green; full `go test ./...` + both builds (`./...` and `-tags mobile`) also pass
 
 ### Task 6: Bootstrap payload — gamification summary
 - [ ] add a `gamification` block to the `/api/bootstrap` builder (the slim summary/rings shape), omitted or empty when the flag is off
