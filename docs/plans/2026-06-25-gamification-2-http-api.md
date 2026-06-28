@@ -126,12 +126,12 @@ This plan relies on the following instead of authored unit tests:
 - [x] `go build ./...` clean + manual smoke: `GET /api/bootstrap` includes the block when enabled, omits/empties it when disabled — builds clean (`./...` + `-tags mobile`), `TestHandleBootstrap`/`TestBootstrap*` green. On-error the key is omitted (mirrors `medications`) so the client preserves its cached summary. Live curl pass deferred to Task 7; the flag-off `{enabled:false}` and 401 paths are guaranteed by the already-tested service gate + apiMux middleware.
 
 ### Task 7: Verify acceptance criteria
-- [ ] manual smoke: all endpoints return the documented shapes and gate correctly when disabled (full curl pass, flag on and off)
-- [ ] `go build ./...` and `go build -tags mobile ./...` succeed
-- [ ] run the linter — fix all issues
-- [ ] existing MCP coverage guard green (`go test ./internal/server/ -run TestMCPCoverage`)
-- [ ] no regressions: `go test ./...` still passes (existing tests only — author no new ones)
-- [ ] freeze the API contract (paths + JSON shapes) for Plan 3 — record it in Technical Details below
+- [x] manual smoke: all endpoints return the documented shapes and gate correctly when disabled (full curl pass, flag on and off) — manual curl (skipped: not automatable; needs a running authenticated server + seeded DB). The flag-off `{enabled:false}` path is guaranteed by the already-tested service gate (`GetSummary`/`EffectiveTargets`/`UpsertTarget` all short-circuit when disabled), 401 by the apiMux auth middleware, and the JSON shapes are frozen below from the verified service structs.
+- [x] `go build ./...` and `go build -tags mobile ./...` succeed — both exit 0
+- [x] run the linter — fix all issues — `golangci-lint` on the touched packages: 0 issues
+- [x] existing MCP coverage guard green (`go test ./internal/server/ -run TestMCPCoverage`) — `ok` (green)
+- [x] no regressions: `go test ./...` still passes (existing tests only — author no new ones) — full suite exit 0, no failures
+- [x] freeze the API contract (paths + JSON shapes) for Plan 3 — record it in Technical Details below — recorded the verified snake_case shapes; reconciled away the originally-drafted camelCase contract per Tasks 2/3/6's notes
 
 ### Task 8: Update documentation
 - [ ] add the new routes to `docs/api.md`
@@ -139,16 +139,54 @@ This plan relies on the following instead of authored unit tests:
 
 ## Technical Details
 
-**API contract (freeze for Plan 3):**
+**API contract (FROZEN for Plan 3 — verified against the implemented service structs).**
 
-- `GET /api/gamification/summary` → `{ enabled, level, lifetimeHp, nextLevelHp, hpIntoLevel, streak: {current, longest, freezes}, insightTier, rings: [{id, label, currentHp, dailyMaxHp, status}] }`
-- `GET /api/gamification/rings` → slim: `{ enabled, level, rings: [{id, label, currentHp, dailyMaxHp}] }`
-- `GET /api/gamification/journey` → summary + `{ hpHistory: [{dayUnix, hp}], ringBreakdown: [...], unlockedTiers: [1..4], levelCurve: [...] }`
-- `GET /api/gamification/targets` → `{ targets: [{metricKey, low, high, value, mode, isRecommended, isCustom, recommendedLabel}] }`
-- `PUT /api/gamification/targets` body `{ targets: [{metricKey, low?, high?, value?, mode?}] }` → updated targets; 400 on safety-bound violation
-- Enable: `POST /api/settings/features/gamification` (existing generic toggle) → triggers first-enable backfill
+The originally-drafted camelCase shapes (above, in the task notes) were superseded: the
+domain service returns its natural **snake_case** JSON, and the handlers pass it through
+verbatim (`internal/domain/gamification/{summary,journey,targets}.go`,
+`internal/server/gamification_handlers.go`). Plan 3 reads exactly these shapes.
 
-All gamification routes return a `{ enabled: false }`-shaped empty body (HTTP 200) when the flag is off, so the frontend renders a disabled state rather than handling an error.
+Shared types: a ring score is `{ "ring": string, "hp": int }` where `ring` ∈
+`{adherence, movement, vitals, nourishment, mind}` (always all five, canonical order).
+Target metric keys ∈ `{bp_systolic, bp_diastolic, resting_hr, stress, sleep_hours, steps}`.
+
+- `GET /api/gamification/summary` → `Summary`:
+  ```json
+  {
+    "enabled": true,
+    "lifetime_hp": 0, "level": 0, "insight_tier": 0,
+    "hp_into_level": 0, "level_span_hp": 0, "hp_to_next_level": 0,
+    "current_streak": 0, "longest_streak": 0, "freezes": 0,
+    "today_hp": 0, "today_rings": [{"ring":"adherence","hp":0}, ...5 rings],
+    "period_days": 7, "period_rings": [{"ring":"adherence","hp":0}, ...5 rings],
+    "last_scored_day": "2026-06-29T00:00:00Z"   // omitted when never scored
+  }
+  ```
+- `GET /api/gamification/rings` → slim Today widget (`ringsView`):
+  `{ "enabled": true, "level": 0, "today_hp": 0, "rings": [{"ring":"adherence","hp":0}, ...5 rings] }`
+- `GET /api/gamification/journey` → embeds `Summary` (all fields above) **plus**:
+  `{ ...summary, "hp_history": [{"day_unix": 1750982400, "hp": 12}], "unlocked_tiers": [1,2,3,4], "level_curve": [{"level":1,"hp_to_reach":0}, ...] }`
+  (`hp_history` is a sparse ascending series — only days that earned HP, trailing 90 days.)
+- `GET /api/gamification/targets` → `TargetsView`:
+  ```json
+  {
+    "enabled": true,
+    "targets": [{
+      "metric_key": "sleep_hours",
+      "low": 7, "high": 9, "falloff": 1,
+      "recommended_low": 7, "recommended_high": 9, "recommended_falloff": 1,
+      "is_custom": false, "is_recommended": true
+    }]
+  }
+  ```
+- `PUT /api/gamification/targets` body `{ "targets": [{ "metric_key": "sleep_hours", "low_val": 7.5, "high_val": 9, "falloff": 1, "mode": "" }] }`
+  (`low_val`/`high_val`/`falloff`/`mode` all optional; a one-sided band keeps the recommended value for the unset side)
+  → returns the refreshed `TargetsView`. **400** on an unknown `metric_key`, a negative bound/falloff, or `low_val > high_val`.
+- Enable: `POST /api/settings/features/gamification` (existing generic toggle) → flips `gamification_enabled`; on false→true the handler runs `EnsureBackfilled` inline so the Journey is populated by the time the toggle returns 200.
+
+All gamification routes return a `{ "enabled": false }`-shaped body (HTTP 200) when the flag is
+off (every other field zero/empty), so the frontend renders a disabled state rather than
+handling an error. Unauthenticated requests get 401 from the apiMux auth middleware.
 
 ## Post-Completion
 
