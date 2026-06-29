@@ -9,7 +9,9 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
+	gamificationsvc "github.com/korjavin/medicationtrackerbot/internal/domain/gamification"
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
@@ -158,6 +160,8 @@ func (s *Server) handleExternalWorkout(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+
+	gamificationsvc.RescoreInstants(r.Context(), s.gamificationSvc, s.allowedUserID, []time.Time{time.UnixMilli(startMs).UTC()})
 
 	durationMin := durationSec / 60
 	s.notify(r.Context(), notifier.Notification{

@@ -159,19 +159,19 @@ compiling. `internal/domain/gamification` stays build-tag-free.
 - [x] `go build ./...` + existing `internal/server` tests green
 
 ### Task 3: Import = atomic, then re-score all affected days
-- [ ] add a small best-effort helper that takes a set of instants, dedups to UTC
+- [x] add a small best-effort helper that takes a set of instants, dedups to UTC
   days, and calls `ScoreDay` per day (one place; reused by bot + server importers)
-- [ ] `internal/bot/sleep_import.go`: after the sleep/vitals/day-stats/Mi Band
+- [x] `internal/bot/sleep_import.go`: after the sleep/vitals/day-stats/Mi Band
   imports complete, collect the union of affected UTC days from the parsed records'
   `DateTime`/`Day` fields and re-score them (the "can be many" historical case),
   best-effort/logged
-- [ ] `internal/bot/activity_commands.go:85`: re-score the single imported Mi Band
+- [x] `internal/bot/activity_commands.go:85`: re-score the single imported Mi Band
   workout's day
-- [ ] `internal/server/external_workout_handlers.go` (after `InsertMiBand` at :145):
+- [x] `internal/server/external_workout_handlers.go` (after `InsertMiBand` at :145):
   re-score the inserted workout's day
-- [ ] `internal/server/bp_handlers.go` `handleImportBloodPressure` (:130): re-score
+- [x] `internal/server/bp_handlers.go` `handleImportBloodPressure` (:130): re-score
   the union of imported readings' days
-- [ ] `go build ./...` + `go build -tags mobile ./...` succeed (bot file compiles
+- [x] `go build ./...` + `go build -tags mobile ./...` succeed (bot file compiles
   server-only; importers tag-free)
 
 ### Task 4: Frontend — co-invalidate `gamification` on scored writes
