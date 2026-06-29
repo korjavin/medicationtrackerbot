@@ -5179,6 +5179,201 @@ textarea.wg-input {
     font-size: var(--wg-weight-goal-delta-size);
 }
 
+/* ============================================================
+   Gamification Journey screen (Plan 3, Task 2). Stacked gloss
+   cards: a level/HP header with a sun progress bar, a 3-stat
+   streak row, the five domain rings (horizontal gloss-inset
+   bars scaled against the day's leader), and the insight-ladder
+   rows with a locked/unlocked state. All visuals resolve to
+   --wg-* tokens; the only dynamic value is the --fill-pct fill
+   width (same convention as the weight-goal card + macro bar).
+   ============================================================ */
+#journey-content > .wg-card {
+    margin-bottom: var(--space-md);
+}
+
+/* Shared progress bar (header HP + per-ring). */
+.wg-journey-bar__track {
+    position: relative;
+    height: 10px;
+    border-radius: var(--radius-pill);
+    overflow: hidden;
+}
+
+.wg-journey-bar__fill {
+    height: 100%;
+    width: var(--fill-pct, 0%);
+    background: var(--wg-fg-3);
+    border-radius: inherit;
+    transition: width 0.4s ease;
+}
+
+.wg-journey-bar__fill--sun {
+    background: var(--wg-sun);
+}
+
+/* Header card — level badge + lifetime HP, progress to next level. */
+.wg-journey-header {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-journey-header__top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-md);
+}
+
+.wg-journey-level-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    color: var(--wg-sun);
+}
+
+.wg-journey-level-badge__num {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-lg);
+    letter-spacing: 0.04em;
+    color: var(--wg-fg-1);
+}
+
+.wg-journey-header__lifetime {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    line-height: 1.1;
+}
+
+.wg-journey-header__hp {
+    font-size: var(--font-size-lg);
+    color: var(--wg-fg-1);
+}
+
+.wg-journey-header__hp-label,
+.wg-journey-header__caption {
+    font-size: var(--font-size-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+/* Streak card — 3 mono stat cells. */
+.wg-journey-stat-row {
+    display: flex;
+    gap: var(--space-sm);
+}
+
+.wg-journey-stat {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: var(--space-sm) 0;
+}
+
+.wg-journey-stat__value {
+    font-size: var(--font-size-lg);
+    color: var(--wg-fg-1);
+}
+
+.wg-journey-stat__label {
+    font-size: var(--font-size-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--wg-fg-3);
+}
+
+/* Rings card — one labelled bar per domain. */
+.wg-journey-rings__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-journey-ring {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-journey-ring__head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+}
+
+.wg-journey-ring__icon {
+    display: inline-flex;
+    color: var(--wg-fg-3);
+}
+
+.wg-journey-ring__label {
+    flex: 1;
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-2);
+}
+
+.wg-journey-ring__hp {
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-1);
+}
+
+/* Insight ladder card. */
+.wg-journey-ladder__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-journey-ladder__row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.wg-journey-ladder__marker {
+    display: inline-flex;
+    flex: 0 0 auto;
+    color: var(--wg-sun);
+}
+
+.wg-journey-ladder__body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.wg-journey-ladder__title {
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-1);
+}
+
+.wg-journey-ladder__desc {
+    font-size: var(--font-size-xs);
+}
+
+.wg-journey-ladder__status {
+    flex: 0 0 auto;
+}
+
+.wg-journey-ladder__row--locked {
+    opacity: 0.55;
+}
+
+.wg-journey-ladder__row--locked .wg-journey-ladder__marker {
+    color: var(--wg-fg-4);
+}
+
+.wg-journey-empty {
+    padding: var(--space-lg) var(--space-xs);
+    text-align: center;
+}
+
 /* Weight range selector + chart panel (Phase 6, Task 4; Round-2 Task 12
    defect #15). Outer container is a flex row holding the inset
    7d/30d/90d/All track and the trailing inline +Log pill (via the

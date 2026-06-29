@@ -91,6 +91,12 @@
             key: 'settings_bundle',
             tag: null,
             description: 'Settings bundle. Never invalidated, only replaced.'
+        },
+        gamification: {
+            key: 'gamification',
+            tag: 'gamification',
+            staleAfterMs: 6 * HOUR_MS,
+            description: 'Gamification Journey read model (GET /api/gamification/journey): level/HP/streak, five rings, insight ladder. Shared cache key reused by the Settings targets editor optimistic write.'
         }
     };
 

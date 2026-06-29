@@ -116,11 +116,11 @@ This plan relies on the following instead of authored integration/render/write t
 - [x] lint clean (no ESLint in repo — architecture guards are the de-facto lint; full `pnpm test` green) + manual smoke deferred to Task 5 (nav gating logic verified by the passing `filterNavItemsByFeatures`/`colsFor` tests; browser/emulator smoke is the plan's manual-only deviation)
 
 ### Task 2: `features/journey.js` — renderer + `window.Gamification`
-- [ ] create `features/journey.js`: closure-scoped module exposing `window.Gamification` (loader + `render`), reading `GET /api/gamification/journey` via `cachedFetch` (register `gamification` key in `core/cache-keys.js`)
-- [ ] render with CSS classes + `--wg-*` tokens only: level badge + HP progress to next level, current/longest streak (+ freezes), the five rings, and the insight-ladder rows (L1–L4 with locked/unlocked state)
-- [ ] handle `OfflineNoCacheError` with an explicit empty state; mount a `WGStaleBadge` freshness chip via `mountFromKey`
-- [ ] **(mandatory, Rule #4)** add `'window.Gamification'` to `architecture.globals.test.js:25` with a justification comment
-- [ ] lint clean + globals + design-token guards green + manual smoke: Journey renders from a real `GET /api/gamification/journey`; cold-offline shows the empty state — before next task
+- [x] create `features/journey.js`: closure-scoped module exposing `window.Gamification` (loader `load()` + `render(journey)`), reading `GET /api/gamification/journey` via `cachedFetch` (registered the `gamification` key in `core/cache-keys.js`, tag `gamification`, 6h staleAfterMs). Wired the loader into `app.js` `switchTab`/`reloadCurrentTab` (`else if (tab === 'journey')`) and added `journey: 'gamification'` to the `tabToFeature` deeplink/saved-tab gate. Also removed the now-stale `journey.js` entry from `architecture.offline-coverage.test.js` (the dead-entry check requires it once `cachedFetch` is present)
+- [x] render with CSS classes + `--wg-*` tokens only: level badge (bolt) + lifetime HP + sun progress bar to next level, current/longest streak + freezes (3 mono stat cells), the five domain rings (gloss-inset bars scaled against the day's leader), and the insight-ladder rows (L1–L4, locked/unlocked from `unlocked_tiers`). New `.wg-journey-*` classes in `styles.css`; only dynamic value is `--fill-pct` (allowed, same convention as the weight-goal card)
+- [x] handle `OfflineNoCacheError` with an explicit empty state; mount a `WGStaleBadge` freshness chip via `mountFromKey`
+- [x] **(mandatory, Rule #4)** add `'window.Gamification'` to `architecture.globals.test.js:25` with a justification comment
+- [x] lint clean + globals + design-token guards green (full `pnpm test` green: 241 files / 2621 tests). Manual browser/emulator smoke is this plan's manual-only deviation, batched into Task 5 (no ESLint in repo — architecture guards are the de-facto lint)
 
 ### Task 3: Today dashboard rings widget
 - [ ] extend `today-loader.js:101` `todayFetchSpecs()` with a `gamification_rings` spec (`feature: 'gamification'`, `tags: ['gamification']`, fetch `GET /api/gamification/rings`)

@@ -675,7 +675,8 @@ function switchTab(tab) {
         bp: 'bp',
         weight: 'weight',
         meds: 'medication',
-        workouts: 'workout'
+        workouts: 'workout',
+        journey: 'gamification'
     };
     const feature = tabToFeature[tab];
     if (feature && window.featureSettingsLoaded && !window.featureSettings[feature]) {
@@ -719,6 +720,7 @@ function switchTab(tab) {
     else if (tab === 'workouts') { loadWorkouts(); }
     else if (tab === 'food') { loadFoodLogs(); }
     else if (tab === 'today') { loadToday(); }
+    else if (tab === 'journey') { if (window.Gamification) window.Gamification.load(); }
     else if (tab === 'settings') { loadSettings(); }
 }
 
@@ -1051,6 +1053,7 @@ function reloadCurrentTab() {
     else if (tab === 'workouts') { loadWorkouts(); }
     else if (tab === 'food') { loadFoodLogs(); }
     else if (tab === 'today') { loadToday(); }
+    else if (tab === 'journey') { if (window.Gamification) window.Gamification.load(); }
     else if (tab === 'health') {
         const stored = typeof getActiveHealthSubTab === 'function' ? getActiveHealthSubTab() : 'overview';
         switchHealthTab(stored);
