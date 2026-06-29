@@ -343,6 +343,26 @@
         return cell(value, 'health', status);
     }
 
+    // Today gamification rings tile. Reads the slim Plan 2 rings payload
+    // ({ enabled, level, today_hp, rings:[{ring,hp}] }) and projects it into a
+    // cell the renderer turns into a tappable summary card that deep-links to
+    // the Journey screen. `enabled` is the cached feature flag; the payload's
+    // own `enabled:false` is honoured too so a lagged flag still hides the tile.
+    function gamificationRingsCell(rings, enabled) {
+        if (!enabled) return cell(null, 'journey', 'disabled');
+        if (rings && rings.enabled === false) return cell(null, 'journey', 'disabled');
+        const list = rings && Array.isArray(rings.rings) ? rings.rings : null;
+        if (!list || list.length === 0) return cell(null, 'journey', 'missing');
+        const value = {
+            level: Number.isFinite(rings.level) ? rings.level : 0,
+            todayHp: Number.isFinite(rings.today_hp) ? rings.today_hp : 0,
+            rings: list
+                .filter((r) => r && typeof r.ring === 'string')
+                .map((r) => ({ ring: r.ring, hp: Number(r.hp) || 0 }))
+        };
+        return cell(value, 'journey', 'ok');
+    }
+
     function aggregateToday(bootstrap, swrCaches, now, opts) {
         const caches = swrCaches || {};
         const nowDate = now instanceof Date ? now : new Date(now || Date.now());
@@ -355,6 +375,7 @@
         const foodEnabled = pickFeature(features, 'food');
         const workoutEnabled = pickFeature(features, 'workout');
         const healthEnabled = pickFeature(features, 'health');
+        const gamificationEnabled = pickFeature(features, 'gamification');
 
         const result = {
             greeting: cell(greetingFor(nowDate), null, 'ok'),
@@ -368,7 +389,8 @@
             macrosToday: macrosTodayCell(caches, foodEnabled),
             macrosTarget: macrosTargetCell(bootstrap, foodEnabled),
             nextWorkout: nextWorkoutCell(caches, workoutEnabled),
-            sleepLastNight: sleepLastNightCell(caches, nowMs, healthEnabled)
+            sleepLastNight: sleepLastNightCell(caches, nowMs, healthEnabled),
+            gamificationRings: gamificationRingsCell(caches.gamification_rings, gamificationEnabled)
         };
         return result;
     }
@@ -971,6 +993,107 @@
         });
     }
 
+    // Ring display metadata for the Today tile, canonical order. Mirrors the
+    // RINGS list in features/journey.js — kept as a small local copy rather than
+    // reaching into window.Gamification so today.js stays self-contained for the
+    // pure-render tests.
+    const RING_TILE_META = [
+        { ring: 'adherence', label: 'Adherence', icon: 'pill' },
+        { ring: 'movement', label: 'Movement', icon: 'activity' },
+        { ring: 'vitals', label: 'Vitals', icon: 'heart' },
+        { ring: 'nourishment', label: 'Nourishment', icon: 'apple' },
+        { ring: 'mind', label: 'Mind', icon: 'moon' }
+    ];
+
+    // Gloss-inset track with a --fill-pct fill (same convention as the journey
+    // bars + weight-goal card; allowed by the design-token guard). ratio clamps
+    // to [0,1].
+    function ringFillTrack(ratio) {
+        const d = doc();
+        const track = d.createElement('div');
+        track.className = 'wg-gloss--inset wg-journey-bar__track';
+        const fill = d.createElement('div');
+        fill.className = 'wg-journey-bar__fill wg-journey-bar__fill--sun';
+        let pct = Number(ratio);
+        if (!Number.isFinite(pct)) pct = 0;
+        pct = Math.max(0, Math.min(1, pct));
+        fill.style.setProperty('--fill-pct', `${(pct * 100).toFixed(1)}%`);
+        track.appendChild(fill);
+        return track;
+    }
+
+    // Today rings summary card. Reuses the journey ring-row + bar CSS but as a
+    // tappable card with a today-HP header; tapping deep-links to Journey.
+    function renderRingsTile(cell, onDeeplink) {
+        if (!cell || cell.status === 'disabled') return null;
+        const d = doc();
+        const card = d.createElement('div');
+        card.className = 'wg-card wg-today-rings';
+        card.setAttribute('data-deeplink', cell.deeplink || 'journey');
+        card.setAttribute('data-section', 'rings');
+
+        const header = d.createElement('div');
+        header.className = 'wg-today-rings__header';
+        const title = d.createElement('span');
+        title.className = 'wg-today-rings__title';
+        title.textContent = 'Today’s rings';
+        header.appendChild(title);
+        const hp = d.createElement('span');
+        hp.className = 'wg-mono-display wg-today-rings__hp';
+        const todayHp = (cell.value && Number.isFinite(cell.value.todayHp)) ? cell.value.todayHp : 0;
+        hp.textContent = `+${todayHp} HP`;
+        header.appendChild(hp);
+        card.appendChild(header);
+
+        if (cell.status === 'missing' || !cell.value) {
+            const empty = d.createElement('div');
+            empty.className = 'wg-today-rings__empty wg-muted';
+            empty.textContent = 'No points yet today';
+            card.appendChild(empty);
+        } else {
+            const hpByRing = {};
+            let max = 0;
+            for (const r of cell.value.rings) {
+                hpByRing[r.ring] = r.hp;
+                if (r.hp > max) max = r.hp;
+            }
+            const list = d.createElement('div');
+            list.className = 'wg-journey-rings__list';
+            for (const meta of RING_TILE_META) {
+                const ringHp = hpByRing[meta.ring] || 0;
+                const row = d.createElement('div');
+                row.className = 'wg-journey-ring';
+                const head = d.createElement('div');
+                head.className = 'wg-journey-ring__head';
+                const ic = iconSvgOrNull(meta.icon, 16);
+                if (ic) {
+                    const wrap = d.createElement('span');
+                    wrap.className = 'wg-journey-ring__icon';
+                    wrap.appendChild(ic);
+                    head.appendChild(wrap);
+                }
+                const label = d.createElement('span');
+                label.className = 'wg-journey-ring__label';
+                label.textContent = meta.label;
+                head.appendChild(label);
+                const value = d.createElement('span');
+                value.className = 'wg-mono-display wg-journey-ring__hp';
+                value.textContent = String(ringHp);
+                head.appendChild(value);
+                row.appendChild(head);
+                // Fill is relative to today's leader, so the top ring reads full.
+                row.appendChild(ringFillTrack(max > 0 ? ringHp / max : 0));
+                list.appendChild(row);
+            }
+            card.appendChild(list);
+        }
+
+        card.addEventListener('click', () => {
+            if (typeof onDeeplink === 'function') onDeeplink(cell.deeplink || 'journey');
+        });
+        return card;
+    }
+
     function defaultHandler(name, fallbackTab) {
         return () => {
             if (typeof window !== 'undefined') {
@@ -1082,6 +1205,9 @@
             shortcutRows.forEach((r) => root.appendChild(r));
             rendered += shortcutRows.length;
         }
+
+        const ringsTile = renderRingsTile(state && state.gamificationRings, onDeeplink);
+        if (ringsTile) { root.appendChild(ringsTile); rendered += 1; }
 
         const bpTile = renderBpTile(state && state.bpLatest, state && state.bpTrend7d, onDeeplink, nowMs);
         const weightTile = renderWeightTile(state && state.weightLatest, state && state.weightTrend7d, onDeeplink, nowMs);

@@ -123,11 +123,11 @@ This plan relies on the following instead of authored integration/render/write t
 - [x] lint clean + globals + design-token guards green (full `pnpm test` green: 241 files / 2621 tests). Manual browser/emulator smoke is this plan's manual-only deviation, batched into Task 5 (no ESLint in repo — architecture guards are the de-facto lint)
 
 ### Task 3: Today dashboard rings widget
-- [ ] extend `today-loader.js:101` `todayFetchSpecs()` with a `gamification_rings` spec (`feature: 'gamification'`, `tags: ['gamification']`, fetch `GET /api/gamification/rings`)
-- [ ] load it in `loadToday()` and pass into `aggregateToday(bootstrap, {...swrCaches, gamification_rings}, now)`
-- [ ] add a pure `gamificationRingsCell(rings, enabled)` to `features/today.js` returning `{value, deeplink: 'journey', status}` (`disabled` when off, `missing` when no data) — read the Plan 2 `rings` shape (`{ring, hp}` + `today_hp`)
-- [ ] render the rings tile in the Today view (`.wg-card`/`.wg-gloss`, tokens only); tapping deep-links to `journey`
-- [ ] lint clean + manual smoke: rings tile renders when enabled, omitted when disabled, deep-links to Journey — before next task
+- [x] extend `today-loader.js:101` `todayFetchSpecs()` with a `gamification_rings` spec (`feature: 'gamification'`, `tags: ['gamification']`, fetch `GET /api/gamification/rings`)
+- [x] load it in `loadToday()` and pass into `aggregateToday(bootstrap, {...swrCaches, gamification_rings}, now)` — read the new key from IndexedDB in `_todayReadCaches` (both `readMeta` + `getCached` branches), track it in the oldest-timestamp `keyFeatures` map, and add it to the `loadToday` refetch `presence`/`missing` loop so a missing/invalidated rings cache re-fetches while Today is mounted
+- [x] add a pure `gamificationRingsCell(rings, enabled)` to `features/today.js` returning `{value, deeplink: 'journey', status}` (`disabled` when off — also honours the payload's own `enabled:false` so a lagged flag still hides it; `missing` when no data) — reads the Plan 2 `rings` shape (`{ring, hp}` + `today_hp`); wired into `aggregateToday` as `gamificationRings`
+- [x] render the rings tile in the Today view (`.wg-card` + reused `wg-journey-ring`/`wg-journey-bar` gloss-inset rows, tokens only; only dynamic value is `--fill-pct`); new `.wg-today-rings*` header classes; tapping deep-links to `journey`
+- [x] lint clean (no ESLint in repo — architecture guards are the de-facto lint; full `pnpm test` green: 241 files / 2621 tests, incl. design-token + inline-style + globals + offline-coverage + sw-precache guards). Manual smoke (rings tile renders when enabled, omitted when disabled, deep-links to Journey) is this plan's manual-only deviation, batched into Task 5
 
 ### Task 4: Settings targets editor
 - [ ] add a `<section id="gamification-targets-settings" class="wg-card wg-settings-section">` to `index.html` (mirror Food Targets `:526`): one `.wg-settings-number-field` per editable band (BP sys/dia, sleep duration, steps, calorie target, weight goal/mode), each showing its **recommended** default as placeholder/label

@@ -5321,6 +5321,40 @@ textarea.wg-input {
     color: var(--wg-fg-1);
 }
 
+/* Today rings summary tile (Plan 3, Task 3). Reuses the journey ring rows +
+   gloss-inset bars inside a tappable Today card with a today-HP header. */
+.wg-today-rings {
+    margin-bottom: var(--space-md);
+    cursor: pointer;
+}
+
+.wg-today-rings__header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-sm);
+}
+
+.wg-today-rings__title {
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-font-size-tag);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--wg-fg-4);
+}
+
+.wg-today-rings__hp {
+    font-size: var(--font-size-sm);
+    color: var(--wg-sun);
+}
+
+.wg-today-rings__empty {
+    font-size: var(--font-size-sm);
+    padding: var(--space-sm) var(--space-xs);
+}
+
 /* Insight ladder card. */
 .wg-journey-ladder__list {
     display: flex;
