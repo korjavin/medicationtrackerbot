@@ -81,7 +81,7 @@
             : DEFAULT_ITEMS.slice();
         const cols = colsFor(items.length);
         if (cols === null) {
-            throw new RangeError(`WGBottomNav.mount: unsupported items.length=${items.length} (must be 1–8)`);
+            throw new RangeError(`WGBottomNav.mount: unsupported items.length=${items.length} (must be 1–10)`);
         }
 
         const nav = document.createElement('nav');

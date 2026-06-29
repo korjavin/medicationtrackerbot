@@ -1291,7 +1291,7 @@
     // Must match the tag vocabulary emitted by internal/store/migrations/027_add_change_events.sql.
     // Notable: workout uses singular 'workout' (not 'workouts'), intake_log emits 'history',
     // and reminder/settings tables emit 'settings'.
-    const RELEVANT_TAGS = ['bp', 'weight', 'medications', 'history', 'food', 'workout', 'health', 'settings'];
+    const RELEVANT_TAGS = ['bp', 'weight', 'medications', 'history', 'food', 'workout', 'health', 'settings', 'gamification'];
 
     function isOfflineStale(opts) {
         const o = opts || {};

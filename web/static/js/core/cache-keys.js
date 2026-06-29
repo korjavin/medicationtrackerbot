@@ -97,6 +97,11 @@
             tag: 'gamification',
             staleAfterMs: 6 * HOUR_MS,
             description: 'Gamification Journey read model (GET /api/gamification/journey): level/HP/streak, five rings, insight ladder. Shared cache key reused by the Settings targets editor optimistic write.'
+        },
+        gamification_rings: {
+            key: 'gamification_rings',
+            tag: 'gamification',
+            description: 'Slim Today rings payload (GET /api/gamification/rings). Registered at boot so a Settings-first targets save (invalidateTags([\'gamification\'])) evicts the Today tile even before Today has been visited this session.'
         }
     };
 

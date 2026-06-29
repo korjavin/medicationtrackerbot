@@ -368,7 +368,7 @@ async function saveGamificationTargets() {
     }
     if (!res) {
         if (handle) await handle.rollback();
-        safeAlert('Failed to save targets');
+        // apiCall already surfaced the failure alert for the write; don't stack a second.
         return;
     }
     if (handle) await handle.commit(null);
