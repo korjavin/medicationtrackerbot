@@ -101,7 +101,7 @@
         gamification_rings: {
             key: 'gamification_rings',
             tag: 'gamification',
-            description: 'Slim Today rings payload (GET /api/gamification/rings). Registered at boot so a Settings-first targets save (invalidateTags([\'gamification\'])) evicts the Today tile even before Today has been visited this session.'
+            description: 'Slim Today rings payload (GET /api/gamification/rings). Bootstrap-warmed: applyBootstrapPayload seeds this from res.gamification.today_rings so the Today tile renders on a cold-start/offline relaunch. Registered at boot so a Settings-first targets save (invalidateTags([\'gamification\'])) evicts the Today tile even before Today has been visited this session.'
         }
     };
 

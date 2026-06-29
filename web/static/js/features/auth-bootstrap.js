@@ -255,6 +255,26 @@ window.AuthBootstrap = (function () {
             await cacheApiSnapshot(`food_${res.food.date}_day`, { groups }, ['food']);
         }
 
+        // Gamification rings warm the Today tile so a cold relaunch offline renders
+        // the rings card (the plan's "offline cached rings + stale badge" path).
+        // The backend sends the full Summary as res.gamification (Plan 2 Task 6);
+        // project its today_rings into the slim shape the Today loader reads from
+        // the 'gamification_rings' key — byte-identical to a live GET /rings, so no
+        // online regression. Omitted on backend error so a transient failure
+        // preserves the cached tile. We deliberately do NOT seed the journey-shaped
+        // 'gamification' key from the summary: it lacks unlocked_tiers/level_curve,
+        // and journey.js renders synchronously from the cache hit (before
+        // cachedFetch's background revalidation lands), so the seed would flash an
+        // all-locked insight ladder on the first online visit.
+        if (res.gamification && typeof res.gamification === 'object') {
+            await cacheApiSnapshot('gamification_rings', {
+                enabled: res.gamification.enabled,
+                level: res.gamification.level,
+                today_hp: res.gamification.today_hp,
+                rings: Array.isArray(res.gamification.today_rings) ? res.gamification.today_rings : [],
+            }, ['gamification']);
+        }
+
         const settingsBundle = normalizeSettingsBundle({
             features: res.features || {},
             settings: res.settings || {},
