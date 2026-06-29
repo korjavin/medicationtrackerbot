@@ -185,12 +185,12 @@ compiling. `internal/domain/gamification` stays build-tag-free.
 - [x] `pnpm test` — existing frontend suite stays green (no new tests authored here)
 
 ### Task 5: Verify acceptance criteria
-- [ ] integration test (`internal/server`): POST `/api/food/log` for today → GET
+- [x] integration test (`internal/server`): POST `/api/food/log` for today → GET
   `/api/gamification/summary` reflects today's nourishment HP / `today_hp`
-- [ ] run full `go test ./...` — all packages pass
-- [ ] run `pnpm test` — frontend suite passes
-- [ ] `golangci-lint run ./...` clean; `go vet ./...` clean
-- [ ] confirm `go build ./...` and `go build -tags mobile ./...` both succeed
+- [x] run full `go test ./...` — all packages pass
+- [x] run `pnpm test` — frontend suite passes
+- [x] `golangci-lint run ./...` clean; `go vet ./...` clean
+- [x] confirm `go build ./...` and `go build -tags mobile ./...` both succeed
 
 ### Task 6: [Final] Update documentation
 - [ ] add a note to `docs/gamification.md` §14: scores re-score on read (recent

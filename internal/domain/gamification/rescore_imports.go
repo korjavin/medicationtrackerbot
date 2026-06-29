@@ -12,6 +12,9 @@ import (
 // ponytail: O(distinct days) ScoreDay calls; bounded by the import set, cheaper
 // than the 365-day backfill; widen or move to per-write hooks if SSE-push latency matters.
 func RescoreInstants(ctx context.Context, svc GamificationService, userID int64, instants []time.Time) {
+	if svc == nil || len(instants) == 0 {
+		return
+	}
 	seen := make(map[time.Time]struct{}, len(instants))
 	for _, t := range instants {
 		day := time.Date(t.UTC().Year(), t.UTC().Month(), t.UTC().Day(), 0, 0, 0, 0, time.UTC)
