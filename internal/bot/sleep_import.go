@@ -265,7 +265,12 @@ func (b *Bot) importSleepFile(filePath string) (int, int, error) {
 	// Re-score all affected UTC days on the gamification ledger (best-effort).
 	var instants []time.Time
 	for _, sl := range domainSleepLogs {
-		instants = append(instants, sl.StartTime)
+		// loadSleep credits a session to its wake-up date (sl.Day), not the bedtime
+		// instant — sl.StartTime is the prior evening and on a positive UTC offset
+		// commonly lands on the previous UTC day, which would re-score the wrong day.
+		if t, err := time.Parse("2006-01-02", sl.Day); err == nil {
+			instants = append(instants, t)
+		}
 	}
 	for _, h := range domainHeartLogs {
 		instants = append(instants, h.DateTime)
