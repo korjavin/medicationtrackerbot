@@ -412,7 +412,7 @@ describe('app.js medication, history and intake flows', () => {
         .mockResolvedValueOnce(null); // null = apiCall handled the error internally
 
       await window.triggerNextIntake();
-      expect(window.DataStore.invalidateTags).toHaveBeenCalledWith(['history', 'medications']);
+      expect(window.DataStore.invalidateTags).toHaveBeenCalledWith(['history', 'medications', 'gamification']);
       expect(window.DataStore.invalidateKey).toHaveBeenCalledWith('next_intake');
       expect(loadHistorySpy).toHaveBeenCalled();
       expect(alertSpy).toHaveBeenCalled();

@@ -1131,7 +1131,7 @@ async function addNote() {
     textarea.value = '';
     setNotesComposerTag(null);
     syncNotesComposerCount();
-    await window.DataStore.invalidateTags(['health-notes']);
+    await window.DataStore.invalidateTags(['health-notes', 'gamification']);
     loadNotes();
 }
 
@@ -1168,7 +1168,7 @@ async function deleteNote(id) {
                 }
             }
             if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
-            await window.DataStore.invalidateTags(['health-notes']);
+            await window.DataStore.invalidateTags(['health-notes', 'gamification']);
             loadNotes();
             return;
         }
@@ -1182,7 +1182,7 @@ async function deleteNote(id) {
         }
         if (res !== null) {
             if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
-            await window.DataStore.invalidateTags(['health-notes']);
+            await window.DataStore.invalidateTags(['health-notes', 'gamification']);
             loadNotes();
         } else {
             if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
@@ -1290,7 +1290,7 @@ async function handleEditNoteSubmit(event) {
     }
 
     if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
-    await window.DataStore.invalidateTags(['health-notes']);
+    await window.DataStore.invalidateTags(['health-notes', 'gamification']);
     closeEditNoteModal();
     loadNotes();
 }

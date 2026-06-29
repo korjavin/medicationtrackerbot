@@ -143,7 +143,7 @@ describe('BP round-2 design parity', () => {
             await window.handleBPSubmit(event);
 
             expect(window.apiCall).toHaveBeenCalledWith('/api/bp', 'POST', expect.any(Object));
-            expect(invalidateSpy).toHaveBeenCalledWith(['bp']);
+            expect(invalidateSpy).toHaveBeenCalledWith(['bp', 'gamification']);
             expect(loadBPSpy).toHaveBeenCalledTimes(1);
         });
     });

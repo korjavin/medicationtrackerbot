@@ -311,7 +311,7 @@ async function uploadFoodPhotoFile(file) {
                 for (const h of handles) { try { await h.commit(null); } catch (_) { /* best-effort */ } }
             }
 
-            await window.DataStore.invalidateTags(['food']);
+            await window.DataStore.invalidateTags(['food', 'gamification']);
             if (typeof todayFoodKey === 'function' && window.DataStore.clearCached) {
                 await window.DataStore.clearCached(todayFoodKey(new Date()));
             }

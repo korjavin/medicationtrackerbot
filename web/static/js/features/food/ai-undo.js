@@ -47,7 +47,7 @@ async function undoFoodAIItems(items, summary, originalCount) {
 
     if (anyOk) {
         try {
-            await window.DataStore.invalidateTags(['food']);
+            await window.DataStore.invalidateTags(['food', 'gamification']);
             if (typeof todayFoodKey === 'function' && window.DataStore.clearCached) {
                 await window.DataStore.clearCached(todayFoodKey(new Date()));
             }

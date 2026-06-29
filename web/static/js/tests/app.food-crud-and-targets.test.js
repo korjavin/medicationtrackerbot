@@ -95,7 +95,7 @@ describe('app.js food CRUD, targets and period helpers', () => {
       window.AppStore.set('currentTab', 'today');
 
       await window.saveFoodLog();
-      expect(invalidateSpy).toHaveBeenCalledWith(['food']);
+      expect(invalidateSpy).toHaveBeenCalledWith(['food', 'gamification']);
       // Optimistic dispatch + commit dispatch + explicit post-POST refresh
       // may each trigger a reload-via-loadToday. The contract is "Today is
       // refreshed", not an exact call count.

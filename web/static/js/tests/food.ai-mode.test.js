@@ -165,7 +165,7 @@ describe('Food modal — "Parse with AI" mode (Plan 2026-05-17, Task 5)', () => 
         expect(rows.length).toBe(SAMPLE_ITEMS.length);
 
         // Cache invalidation + list refresh fired (same as photo flow).
-        expect(window.DataStore.invalidateTags).toHaveBeenCalledWith(['food']);
+        expect(window.DataStore.invalidateTags).toHaveBeenCalledWith(['food', 'gamification']);
         expect(window.loadFoodLogs).toHaveBeenCalled();
         expect(window.loadToday).toHaveBeenCalled();
     });

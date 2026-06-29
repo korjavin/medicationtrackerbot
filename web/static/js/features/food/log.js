@@ -479,7 +479,7 @@ async function saveFoodLog() {
         for (const h of handles) {
             try { await h.commit(null); } catch (_) { /* best-effort */ }
         }
-        await window.DataStore.invalidateTags(['food']);
+        await window.DataStore.invalidateTags(['food', 'gamification']);
         if (typeof todayFoodKey === 'function' && window.DataStore.clearCached) {
             await window.DataStore.clearCached(todayFoodKey(new Date()));
         }
@@ -712,7 +712,7 @@ async function saveFoodLogFromDescription() {
             window.DataStore.recordOwnWrite();
         }
 
-        await window.DataStore.invalidateTags(['food']);
+        await window.DataStore.invalidateTags(['food', 'gamification']);
         if (typeof todayFoodKey === 'function' && window.DataStore.clearCached) {
             await window.DataStore.clearCached(todayFoodKey(new Date()));
         }
@@ -1439,7 +1439,7 @@ async function deleteFoodLog(id) {
         }
 
         for (const h of handles) { try { await h.commit(null); } catch (_) { /* best-effort */ } }
-        await window.DataStore.invalidateTags(['food']);
+        await window.DataStore.invalidateTags(['food', 'gamification']);
         loadFoodLogs();
     });
 }

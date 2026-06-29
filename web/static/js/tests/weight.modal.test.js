@@ -218,7 +218,7 @@ describe('Edit-weight modal (Phase 6, Task 6)', () => {
             expect(method).toBe('POST');
             expect(payload.weight).toBeCloseTo(75.3, 2);
             expect(payload.notes).toBe('morning');
-            expect(invalidateSpy).toHaveBeenCalledWith(['weight']);
+            expect(invalidateSpy).toHaveBeenCalledWith(['weight', 'gamification']);
             expect(loadWeightSpy).toHaveBeenCalledTimes(1);
             expect(document.getElementById('weight-modal').classList.contains('hidden')).toBe(true);
         });

@@ -175,14 +175,14 @@ compiling. `internal/domain/gamification` stays build-tag-free.
   server-only; importers tag-free)
 
 ### Task 4: Frontend — co-invalidate `gamification` on scored writes
-- [ ] add `'gamification'` to the `invalidateTags([...])` arrays on the scored
+- [x] add `'gamification'` to the `invalidateTags([...])` arrays on the scored
   client-write paths so the rings (`gamification_rings`) + journey (`gamification`)
   caches evict and refetch immediately after a write (the refetch then hits the
   Task 2 read-rescore and renders fresh, no reload):
-  food (`features/today-loader.js`, `features/food/photo.js`, `features/food/ai-undo.js`),
+  food (`features/food/log.js`, `features/food/photo.js`, `features/food/ai-undo.js`),
   BP (`features/bp.js`), weight (`features/weight.js`), intakes (`features/meds.js`,
   `features/meds-history.js`), diary/notes (`features/health.js`)
-- [ ] `pnpm test` — existing frontend suite stays green (no new tests authored here)
+- [x] `pnpm test` — existing frontend suite stays green (no new tests authored here)
 
 ### Task 5: Verify acceptance criteria
 - [ ] integration test (`internal/server`): POST `/api/food/log` for today → GET
