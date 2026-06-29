@@ -628,6 +628,10 @@ completes. This is the only path that can score months-old days that a recent-wi
 read can't reach. The distinct-day set is O(distinct-days) `ScoreDay` calls —
 bounded by, and cheaper than, the 365-day backfill; acceptable for a rare heavy op.
 Re-scores are best-effort/logged and never fail the originating import.
+Logging a past intake (`POST /api/medications/log-past`) takes the same explicit
+path: its `taken_at` can be days old — outside the read window — so the handler
+re-scores that one back-dated day directly rather than relying on the recent-window
+cover the way today's confirm/skip does.
 
 **Frontend `gamification` co-invalidation on scored writes.** Food, BP, weight,
 intake, diary/notes, and workout-completion write handlers (in `features/food/log.js`,

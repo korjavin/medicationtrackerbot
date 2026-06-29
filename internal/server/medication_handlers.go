@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/domain"
+	gamificationsvc "github.com/korjavin/medicationtrackerbot/internal/domain/gamification"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/medplan"
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
@@ -1001,6 +1002,12 @@ func (s *Server) handleLogPastIntake(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("log past intake", "user_id", userId, "med_id", req.MedicationID, "taken_at", takenAt, "id", id)
+
+	// Re-score the back-dated day: takenAt can be days/weeks old, outside the
+	// yesterday+today read-rescore window (ensureGamificationFresh), so unlike
+	// today's confirm/skip this write needs an explicit re-score to reach its day —
+	// mirrors the importers. Best-effort/logged inside the helper.
+	gamificationsvc.RescoreInstants(r.Context(), s.gamificationSvc, userId, []time.Time{takenAt})
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(intake); err != nil {
