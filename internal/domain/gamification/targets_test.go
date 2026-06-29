@@ -71,6 +71,44 @@ func TestSetTargets_RejectsBatchWithoutPartialCommit(t *testing.T) {
 	}
 }
 
+// TestSetTargets_AllNilItemResetsOverride asserts a batch item carrying no band
+// fields (Low/High/Falloff all nil) deletes the user's override rather than
+// persisting an empty one — the "clear a custom band to revert to default" path.
+// Idempotent: resetting a never-customized metric is a harmless no-op.
+func TestSetTargets_AllNilItemResetsOverride(t *testing.T) {
+	ctx := context.Background()
+	const userID int64 = 71
+	fs := &fullStores{settings: fakeSettings{enabled: true}}
+	svc := newFullService(fs)
+
+	low := 6.5
+	if _, err := svc.SetTargets(ctx, userID, []gamstore.Target{{MetricKey: TargetKeySleepHours, LowVal: &low}}); err != nil {
+		t.Fatalf("seed custom target: %v", err)
+	}
+	if n := len(fs.gam.targets[userID]); n != 1 {
+		t.Fatalf("after seed: %d targets, want 1", n)
+	}
+
+	// Clearing the band sends an all-nil item — must delete the override.
+	view, err := svc.SetTargets(ctx, userID, []gamstore.Target{{MetricKey: TargetKeySleepHours}})
+	if err != nil {
+		t.Fatalf("reset SetTargets: %v", err)
+	}
+	if n := len(fs.gam.targets[userID]); n != 0 {
+		t.Errorf("after reset: %d targets, want 0 (override deleted)", n)
+	}
+	for _, et := range view.Targets {
+		if et.MetricKey == TargetKeySleepHours && et.IsCustom {
+			t.Errorf("reset metric still reports is_custom=true: %+v", et)
+		}
+	}
+
+	// Resetting a metric that was never customized is a no-op, not an error.
+	if _, err := svc.SetTargets(ctx, userID, []gamstore.Target{{MetricKey: TargetKeySteps}}); err != nil {
+		t.Errorf("idempotent reset of never-custom metric: %v", err)
+	}
+}
+
 // TestTargetsCRUD_GateOff_NoOp asserts every target entry point short-circuits to
 // a no-op when the feature flag is off, persisting nothing.
 func TestTargetsCRUD_GateOff_NoOp(t *testing.T) {

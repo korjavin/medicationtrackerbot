@@ -264,6 +264,11 @@ function updateFoodTargetsVisibility() {
 // units live in the static HTML; JS only addresses fields by metric_key.
 const GAMIFICATION_TARGET_METRICS = ['bp_systolic', 'bp_diastolic', 'resting_hr', 'stress', 'sleep_hours', 'steps'];
 
+// Metric keys the user has a custom override for, per the last applied view.
+// saveGamificationTargets consults this so clearing a previously-custom band
+// sends an explicit reset (not just a skip) and actually reverts to default.
+const gamCustomMetrics = new Set();
+
 // Format an effective/recommended band value for display: round to ≤1 decimal
 // (sleep hours are fractional, the rest integral) and stringify. Empty string
 // for absent/non-numeric so a blank input keeps its recommended placeholder.
@@ -278,8 +283,10 @@ function fmtGamTargetVal(n) {
 // customized one shows its own values).
 function applyGamificationTargets(view) {
     if (!view || view.enabled === false || !Array.isArray(view.targets)) return;
+    gamCustomMetrics.clear();
     for (const t of view.targets) {
         const key = t.metric_key;
+        if (t.is_custom) gamCustomMetrics.add(key);
         const lowEl = document.getElementById(`gam-target-${key}-low`);
         const highEl = document.getElementById(`gam-target-${key}-high`);
         const hintEl = document.querySelector(`[data-gam-hint="${key}"]`);
@@ -345,7 +352,15 @@ async function saveGamificationTargets() {
             safeAlert(`${pretty}: low must not exceed high`);
             return;
         }
-        if (low === null && high === null) continue; // unchanged → keep recommended
+        if (low === null && high === null) {
+            // Both blank. If this metric was a custom override, the user cleared it
+            // to revert to the recommended default — send an all-nil reset so the
+            // backend deletes the override (honouring the "leave blank to keep the
+            // recommended default" copy). A never-custom metric is genuinely
+            // unchanged, so skip it.
+            if (gamCustomMetrics.has(key)) targets.push({ metric_key: key });
+            continue;
+        }
         const t = { metric_key: key };
         if (low !== null) t.low_val = low;
         if (high !== null) t.high_val = high;
@@ -404,7 +419,8 @@ function updateFeatureTabVisibility() {
         bp: 'bp',
         weight: 'weight',
         meds: 'medication',
-        workouts: 'workout'
+        workouts: 'workout',
+        journey: 'gamification'
     };
 
     const currentTab = window.AppStore && window.AppStore.get('currentTab');

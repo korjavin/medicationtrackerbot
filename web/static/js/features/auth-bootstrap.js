@@ -33,6 +33,12 @@ window.SettingsState = (function () {
         medication: true,
         workout: true,
         health: true,
+        // Default-ON server-side (migration 073: gamification_enabled DEFAULT 1).
+        // Mirror that here so the Journey nav slot / Today rings / Settings editor
+        // don't read as off during cold/offline boot or behind an older cached
+        // settings bundle that predates the key — the gates treat a missing flag
+        // as off.
+        gamification: true,
     });
 
     let _state = {

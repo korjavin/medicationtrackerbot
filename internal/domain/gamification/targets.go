@@ -9,6 +9,7 @@ package gamification
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 
 	gamstore "github.com/korjavin/medicationtrackerbot/internal/store/gamification"
@@ -131,6 +132,15 @@ func (s *service) UpsertTarget(ctx context.Context, userID int64, t gamstore.Tar
 // item-3 rejection would already have persisted items 1–2). Gate-off is a no-op
 // yielding the {Enabled:false} shape.
 //
+// An item with no band fields set (Low, High, Falloff all nil) is a RESET: the
+// user cleared a custom band in the editor to revert to the recommended default.
+// Persisting it as an empty override would score identically to the default yet
+// stick as is_custom=true forever (the editor only ever sends band fields, so the
+// row could never be cleared again). So delete the override instead — idempotently,
+// so resetting a metric that was never customized is a harmless no-op. This keeps
+// the UI's "leave a field blank to keep the recommended default" promise honest
+// without a separate DELETE route.
+//
 // ponytail: pre-validation makes the validation path all-or-nothing; a store
 // error mid-batch can still partial-commit. Wrap the row upserts in one store
 // transaction if that rarer DB-failure case ever matters.
@@ -148,6 +158,12 @@ func (s *service) SetTargets(ctx context.Context, userID int64, targets []gamsto
 		}
 	}
 	for _, t := range targets {
+		if t.LowVal == nil && t.HighVal == nil && t.Falloff == nil {
+			if err := s.gam.DeleteTarget(ctx, userID, t.MetricKey); err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return TargetsView{}, err
+			}
+			continue
+		}
 		if _, err := s.gam.UpsertTarget(ctx, userID, t); err != nil {
 			return TargetsView{}, err
 		}
