@@ -702,6 +702,9 @@ async function skipSelectedMedications() {
             await _rollbackOptimistic(handles);
         } else {
             await _commitOptimistic(handles);
+            // SKIPPED is a scored adherence outcome (floor + denominator change),
+            // so evict the gamification rings/journey like the confirm/log-past paths.
+            if (window.DataStore) await window.DataStore.invalidateTags(['gamification']).catch(() => {});
         }
 
         refreshMedsAfterMutation();

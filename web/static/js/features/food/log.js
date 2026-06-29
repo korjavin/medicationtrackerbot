@@ -1388,7 +1388,9 @@ async function saveFoodTargets() {
     try {
         await apiCall('/api/food/settings/targets', 'POST', payload);
         window.FoodLog.targets = payload;
-        await window.DataStore.invalidateTags(['settings', 'food_targets']);
+        // Nourishment scoring reads calorie/protein targets (s.food.GetTargets), so a
+        // target change shifts today's HP — evict the gamification rings/journey too.
+        await window.DataStore.invalidateTags(['settings', 'food_targets', 'gamification']);
         safeAlert('Food targets saved');
         const currentTab = (window.AppStore && typeof window.AppStore.get === 'function' && window.AppStore.get('currentTab'))
             || document.querySelector('.view.active')?.id?.replace(/-view$/, '');

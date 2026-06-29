@@ -190,7 +190,7 @@ describe('app.js food CRUD, targets and period helpers', () => {
         protein: 130,
         fat: 70
       });
-      expect(invalidateSpy).toHaveBeenCalledWith(['settings', 'food_targets']);
+      expect(invalidateSpy).toHaveBeenCalledWith(['settings', 'food_targets', 'gamification']);
       expect(window.safeAlert).toHaveBeenCalledWith('Food targets saved');
       expect(window.loadFoodLogs).toHaveBeenCalled();
 
