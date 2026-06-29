@@ -19,6 +19,7 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/ai"
 	"github.com/korjavin/medicationtrackerbot/internal/config"
 	"github.com/korjavin/medicationtrackerbot/internal/domain"
+	gamificationsvc "github.com/korjavin/medicationtrackerbot/internal/domain/gamification"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzupdate"
 	"github.com/korjavin/medicationtrackerbot/internal/scheduler"
@@ -123,7 +124,8 @@ func runMobile(ctx context.Context, args []string, stdout io.Writer) error {
 		return fmt.Errorf("session-secret must be at least 32 chars, got %d", len(*sessionSecret))
 	}
 
-	srv := server.New(s, "", *sessionSecret, *userID, server.OIDCConfig{}, "", "")
+	gamSvc := gamificationsvc.New(s.Medication, s.BP, s.Weight, s.Vitals, s.Food, s.Diary, s.Workout, s.Gamification, s.Settings)
+	srv := server.New(s, gamSvc, "", *sessionSecret, *userID, server.OIDCConfig{}, "", "")
 	// On Android the binary runs from a read-only nativeLibraryDir with no
 	// co-located "./web/static" directory, so the disk-relative paths in
 	// internal/server would 500 every request to /, /static/*, /favicon.ico,

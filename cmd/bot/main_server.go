@@ -21,6 +21,7 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/config"
 	"github.com/korjavin/medicationtrackerbot/internal/demotopup"
 	"github.com/korjavin/medicationtrackerbot/internal/domain"
+	gamificationsvc "github.com/korjavin/medicationtrackerbot/internal/domain/gamification"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzsuggestion"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzupdate"
@@ -203,6 +204,11 @@ func main() {
 		wpService = webpush.New(s.Push, vapidPublicKey, vapidPrivateKey, vapidSubject, vapidAdminEmail, vapidDomain)
 	}
 
+	// Build gamification service once so the bot and server share a single
+	// instance — the per-user scoreMu then serializes bot imports against
+	// server read-rescores for the same user. See docs/plans/2026-06-29.
+	sharedGamificationSvc := gamificationsvc.New(s.Medication, s.BP, s.Weight, s.Vitals, s.Food, s.Diary, s.Workout, s.Gamification, s.Settings)
+
 	// 4. Bot
 	// Construct the shared TZ-update service before the bot and the server so
 	// both transports serialize timezone changes through one mutex and apply
@@ -231,7 +237,7 @@ func main() {
 
 	var tgBot *bot.Bot
 	if botToken != "" {
-		tgBot, err = bot.New(botToken, allowedUserID, s, foodAI, activityAI, tzUpdater)
+		tgBot, err = bot.New(botToken, allowedUserID, s, foodAI, activityAI, tzUpdater, sharedGamificationSvc)
 		if err != nil {
 			slog.Error("Failed to start bot", "error", err)
 			os.Exit(1)
@@ -286,7 +292,7 @@ func main() {
 		slog.Info("Bot username", "username", botUsername)
 	}
 
-	srv := server.New(s, botToken, sessionSecret, allowedUserID, oidcConfig, botUsername, vapidPublicKey)
+	srv := server.New(s, sharedGamificationSvc, botToken, sessionSecret, allowedUserID, oidcConfig, botUsername, vapidPublicKey)
 
 	// Flip demo mode before Routes() so AuthMiddleware sees the demo resolver
 	// at construction time. Warn loudly — a misconfigured DEMO_MODE on a real

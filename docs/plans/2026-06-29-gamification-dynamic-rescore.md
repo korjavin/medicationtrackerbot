@@ -130,20 +130,20 @@ compiling. `internal/domain/gamification` stays build-tag-free.
 ## Implementation Steps
 
 ### Task 1: Share one gamification service instance across server + bot
-- [ ] in `cmd/bot/main_server.go`, build the gamification service **once** from the
+- [x] in `cmd/bot/main_server.go`, build the gamification service **once** from the
   store (`gamificationsvc.New(s.Medication, s.BP, s.Weight, s.Vitals, s.Food,
   s.Diary, s.Workout, s.Gamification, s.Settings)`) before constructing the bot and
   the server
-- [ ] add a `gamificationSvc gamificationsvc.GamificationService` param to
+- [x] add a `gamificationSvc gamificationsvc.GamificationService` param to
   `server.New` (`internal/server/server.go:307`) and assign it to the
   `gamificationSvc` field instead of building it inline at `server.go:318`
-- [ ] add a `gamificationSvc gamificationsvc.GamificationService` param to
+- [x] add a `gamificationSvc gamificationsvc.GamificationService` param to
   `bot.New` (`internal/bot/bot.go:116`) and store it on the `Bot` struct; pass the
   shared instance from `main_server.go`
-- [ ] `cmd/bot/main_mobile.go`: keep the server's own instance (no bot in this
+- [x] `cmd/bot/main_mobile.go`: keep the server's own instance (no bot in this
   build) — adjust the `server.New` call to build + pass an instance so the new
   signature compiles under `-tags mobile`
-- [ ] confirm `go build ./...` and `go build -tags mobile ./...` both succeed
+- [x] confirm `go build ./...` and `go build -tags mobile ./...` both succeed
 
 ### Task 2: Recent-window re-score on gamification reads (covers all live writes)
 - [ ] extend the read-path helper in `internal/server/gamification_handlers.go`
