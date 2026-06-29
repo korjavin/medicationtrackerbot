@@ -573,6 +573,145 @@
                     class="wg-gloss wg-gloss--sun wg-settings-save-btn">Save Targets</button>
             </section>
 
+            <section id="gamification-targets-settings" class="wg-card wg-settings-section wg-gam-targets hidden">
+                <h3 class="wg-settings-section__title">Journey Targets</h3>
+                <p class="wg-settings-section__desc">Self-set healthy bands for the metrics that earn HealthPoints. Leave a field blank to keep the recommended default.</p>
+                <div class="wg-gam-target-metric" data-gam-metric="bp_systolic">
+                    <div class="wg-gam-target-metric__head">
+                        <span class="wg-settings-number-field__label">BP systolic</span>
+                        <span class="wg-gam-target-metric__hint" data-gam-hint="bp_systolic"></span>
+                    </div>
+                    <div class="wg-settings-number-grid">
+                        <div class="wg-settings-number-field">
+                            <label for="gam-target-bp_systolic-low" class="wg-settings-number-field__label">Low</label>
+                            <div class="wg-gloss--inset wg-settings-number-field__wrap">
+                                <input type="number" id="gam-target-bp_systolic-low" class="wg-settings-number-field__input" min="0">
+                                <span class="wg-settings-number-field__unit">mmHg</span>
+                            </div>
+                        </div>
+                        <div class="wg-settings-number-field">
+                            <label for="gam-target-bp_systolic-high" class="wg-settings-number-field__label">High</label>
+                            <div class="wg-gloss--inset wg-settings-number-field__wrap">
+                                <input type="number" id="gam-target-bp_systolic-high" class="wg-settings-number-field__input" min="0">
+                                <span class="wg-settings-number-field__unit">mmHg</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="wg-gam-target-metric" data-gam-metric="bp_diastolic">
+                    <div class="wg-gam-target-metric__head">
+                        <span class="wg-settings-number-field__label">BP diastolic</span>
+                        <span class="wg-gam-target-metric__hint" data-gam-hint="bp_diastolic"></span>
+                    </div>
+                    <div class="wg-settings-number-grid">
+                        <div class="wg-settings-number-field">
+                            <label for="gam-target-bp_diastolic-low" class="wg-settings-number-field__label">Low</label>
+                            <div class="wg-gloss--inset wg-settings-number-field__wrap">
+                                <input type="number" id="gam-target-bp_diastolic-low" class="wg-settings-number-field__input" min="0">
+                                <span class="wg-settings-number-field__unit">mmHg</span>
+                            </div>
+                        </div>
+                        <div class="wg-settings-number-field">
+                            <label for="gam-target-bp_diastolic-high" class="wg-settings-number-field__label">High</label>
+                            <div class="wg-gloss--inset wg-settings-number-field__wrap">
+                                <input type="number" id="gam-target-bp_diastolic-high" class="wg-settings-number-field__input" min="0">
+                                <span class="wg-settings-number-field__unit">mmHg</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="wg-gam-target-metric" data-gam-metric="resting_hr">
+                    <div class="wg-gam-target-metric__head">
+                        <span class="wg-settings-number-field__label">Resting HR</span>
+                        <span class="wg-gam-target-metric__hint" data-gam-hint="resting_hr"></span>
+                    </div>
+                    <div class="wg-settings-number-grid">
+                        <div class="wg-settings-number-field">
+                            <label for="gam-target-resting_hr-low" class="wg-settings-number-field__label">Low</label>
+                            <div class="wg-gloss--inset wg-settings-number-field__wrap">
+                                <input type="number" id="gam-target-resting_hr-low" class="wg-settings-number-field__input" min="0">
+                                <span class="wg-settings-number-field__unit">bpm</span>
+                            </div>
+                        </div>
+                        <div class="wg-settings-number-field">
+                            <label for="gam-target-resting_hr-high" class="wg-settings-number-field__label">High</label>
+                            <div class="wg-gloss--inset wg-settings-number-field__wrap">
+                                <input type="number" id="gam-target-resting_hr-high" class="wg-settings-number-field__input" min="0">
+                                <span class="wg-settings-number-field__unit">bpm</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="wg-gam-target-metric" data-gam-metric="stress">
+                    <div class="wg-gam-target-metric__head">
+                        <span class="wg-settings-number-field__label">Stress</span>
+                        <span class="wg-gam-target-metric__hint" data-gam-hint="stress"></span>
+                    </div>
+                    <div class="wg-settings-number-grid">
+                        <div class="wg-settings-number-field">
+                            <label for="gam-target-stress-low" class="wg-settings-number-field__label">Low</label>
+                            <div class="wg-gloss--inset wg-settings-number-field__wrap">
+                                <input type="number" id="gam-target-stress-low" class="wg-settings-number-field__input" min="0">
+                                <span class="wg-settings-number-field__unit">idx</span>
+                            </div>
+                        </div>
+                        <div class="wg-settings-number-field">
+                            <label for="gam-target-stress-high" class="wg-settings-number-field__label">High</label>
+                            <div class="wg-gloss--inset wg-settings-number-field__wrap">
+                                <input type="number" id="gam-target-stress-high" class="wg-settings-number-field__input" min="0">
+                                <span class="wg-settings-number-field__unit">idx</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="wg-gam-target-metric" data-gam-metric="sleep_hours">
+                    <div class="wg-gam-target-metric__head">
+                        <span class="wg-settings-number-field__label">Sleep</span>
+                        <span class="wg-gam-target-metric__hint" data-gam-hint="sleep_hours"></span>
+                    </div>
+                    <div class="wg-settings-number-grid">
+                        <div class="wg-settings-number-field">
+                            <label for="gam-target-sleep_hours-low" class="wg-settings-number-field__label">Low</label>
+                            <div class="wg-gloss--inset wg-settings-number-field__wrap">
+                                <input type="number" id="gam-target-sleep_hours-low" class="wg-settings-number-field__input" min="0" step="0.5">
+                                <span class="wg-settings-number-field__unit">h</span>
+                            </div>
+                        </div>
+                        <div class="wg-settings-number-field">
+                            <label for="gam-target-sleep_hours-high" class="wg-settings-number-field__label">High</label>
+                            <div class="wg-gloss--inset wg-settings-number-field__wrap">
+                                <input type="number" id="gam-target-sleep_hours-high" class="wg-settings-number-field__input" min="0" step="0.5">
+                                <span class="wg-settings-number-field__unit">h</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="wg-gam-target-metric" data-gam-metric="steps">
+                    <div class="wg-gam-target-metric__head">
+                        <span class="wg-settings-number-field__label">Steps</span>
+                        <span class="wg-gam-target-metric__hint" data-gam-hint="steps"></span>
+                    </div>
+                    <div class="wg-settings-number-grid">
+                        <div class="wg-settings-number-field">
+                            <label for="gam-target-steps-low" class="wg-settings-number-field__label">Low</label>
+                            <div class="wg-gloss--inset wg-settings-number-field__wrap">
+                                <input type="number" id="gam-target-steps-low" class="wg-settings-number-field__input" min="0" step="500">
+                                <span class="wg-settings-number-field__unit">steps</span>
+                            </div>
+                        </div>
+                        <div class="wg-settings-number-field">
+                            <label for="gam-target-steps-high" class="wg-settings-number-field__label">High</label>
+                            <div class="wg-gloss--inset wg-settings-number-field__wrap">
+                                <input type="number" id="gam-target-steps-high" class="wg-settings-number-field__input" min="0" step="500">
+                                <span class="wg-settings-number-field__unit">steps</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <button id="save-gamification-targets-btn"
+                    class="wg-gloss wg-gloss--sun wg-settings-save-btn">Save Targets</button>
+            </section>
+
             <section id="settings-integrations" class="wg-card wg-settings-section wg-settings-integrations">
                 <h3 class="wg-settings-section__title">Integrations</h3>
                 <p class="wg-settings-section__desc">Provider credentials for AI, food database, and voice agent. Stored locally; existing keys appear as <span class="wg-mono-display">***</span> and stay unchanged unless you re-enter them. Empty a field to clear a saved value.</p>

@@ -10642,6 +10642,31 @@ textarea.wg-input {
     flex-shrink: 0;
 }
 
+/* Journey Targets editor (gamification, Plan 3 Task 4): one labeled band per
+   overridable metric, each a Low/High pair reusing the number-grid above. The
+   head row carries the metric name + a "recommended: …"/"custom" hint. Tokens
+   only — no hardcoded visual values. */
+.wg-gam-target-metric {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wg-settings-number-field-gap);
+}
+
+.wg-gam-target-metric__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-sm);
+}
+
+.wg-gam-target-metric__hint {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-settings-number-field-unit-size);
+    letter-spacing: 0.08em;
+    color: var(--wg-fg-3);
+    text-align: right;
+}
+
 /* Full-width primary Save button inside the Food Targets section —
    `.wg-gloss--sun` carries the glossy gradient; this class adds the
    full-width layout + min-height so the button matches the other

@@ -564,6 +564,13 @@ document.getElementById('save-food-targets-btn').addEventListener('click', async
     await saveFoodTargets();
 });
 
+const saveGamificationTargetsBtn = document.getElementById('save-gamification-targets-btn');
+if (saveGamificationTargetsBtn) {
+    saveGamificationTargetsBtn.addEventListener('click', async function () {
+        await saveGamificationTargets();
+    });
+}
+
 // The weight-unit (kg/lb) preference state machine — the PATCH serial queue,
 // the optimistic-rollback baseline, the stale-hydration guard, and the
 // segmented-toggle DOM helper — lives in features/weight-unit-state.js.
