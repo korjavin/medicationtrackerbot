@@ -12,22 +12,31 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	gamificationsvc "github.com/korjavin/medicationtrackerbot/internal/domain/gamification"
 	gamstore "github.com/korjavin/medicationtrackerbot/internal/store/gamification"
 )
 
-// ensureGamificationBackfill runs the first-read historical backfill best-effort.
-// The gamification flag ships ON by default (migration 073), so a user who never
-// toggled it never fired the enable-hook backfill (handleSetFeatureEnabled) and
-// would otherwise read an empty Journey forever — the only thing that populates
-// the ledger is this backfill. EnsureBackfilled gates on the flag itself and
-// latches once the full window replays, so this is a cheap GetState check on
-// every call after the first. A failure is logged, never surfaced: a read must
-// still return the (possibly empty) current state rather than 500.
-func (s *Server) ensureGamificationBackfill(ctx context.Context, userID int64) {
+// ensureGamificationFresh runs the first-read historical backfill, then re-scores
+// yesterday and today (UTC). The 2-day window is the live-write cover: any food/BP/
+// weight/intake/diary write that landed on the current or prior UTC day will be
+// reflected on the next gamification read without needing per-handler ScoreDay hooks.
+// All calls are best-effort — a failure is logged but never surfaced so reads always
+// return the (possibly slightly stale) current state rather than 500.
+// ponytail: 2-day window covers same-day and previous-UTC-day writes; widen to 7d or
+// add per-write ScoreDay hooks if late-night edge cases matter.
+func (s *Server) ensureGamificationFresh(ctx context.Context, userID int64) {
 	if err := s.gamificationSvc.EnsureBackfilled(ctx, userID); err != nil {
 		slog.Error("gamification first-read backfill failed", "error", err, "user_id", userID)
+	}
+	now := time.Now().UTC()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	yesterday := today.AddDate(0, 0, -1)
+	for _, day := range []time.Time{yesterday, today} {
+		if err := s.gamificationSvc.ScoreDay(ctx, userID, day); err != nil {
+			slog.Error("gamification recent-window rescore failed", "error", err, "user_id", userID, "day", day)
+		}
 	}
 }
 
@@ -35,7 +44,7 @@ func (s *Server) ensureGamificationBackfill(ctx context.Context, userID int64) {
 // next-level progress + streak + insight tier.
 func (s *Server) handleGamificationSummary(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
-	s.ensureGamificationBackfill(r.Context(), userID)
+	s.ensureGamificationFresh(r.Context(), userID)
 
 	sum, err := s.gamificationSvc.GetSummary(r.Context(), userID)
 	if err != nil {
@@ -49,7 +58,7 @@ func (s *Server) handleGamificationSummary(w http.ResponseWriter, r *http.Reques
 // HP history, unlocked insight tiers, and the level curve.
 func (s *Server) handleGamificationJourney(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
-	s.ensureGamificationBackfill(r.Context(), userID)
+	s.ensureGamificationFresh(r.Context(), userID)
 
 	j, err := s.gamificationSvc.GetJourney(r.Context(), userID)
 	if err != nil {
@@ -72,7 +81,7 @@ type ringsView struct {
 // handleGamificationRings serves the slim Today rings payload.
 func (s *Server) handleGamificationRings(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
-	s.ensureGamificationBackfill(r.Context(), userID)
+	s.ensureGamificationFresh(r.Context(), userID)
 
 	sum, err := s.gamificationSvc.GetSummary(r.Context(), userID)
 	if err != nil {

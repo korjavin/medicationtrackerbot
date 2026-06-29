@@ -20,7 +20,7 @@ func createTestServer(t *testing.T) (*Server, *store.Store) {
 		t.Fatalf("Failed to create test store: %v", err)
 	}
 
-	srv := New(db, "test-token", "test-secret", 123456, OIDCConfig{}, "test-bot", "")
+	srv := newServer(db, "test-token", "test-secret", 123456, OIDCConfig{}, "test-bot", "")
 	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
 	return srv, db
 }

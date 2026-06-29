@@ -146,17 +146,17 @@ compiling. `internal/domain/gamification` stays build-tag-free.
 - [x] confirm `go build ./...` and `go build -tags mobile ./...` both succeed
 
 ### Task 2: Recent-window re-score on gamification reads (covers all live writes)
-- [ ] extend the read-path helper in `internal/server/gamification_handlers.go`
+- [x] extend the read-path helper in `internal/server/gamification_handlers.go`
   (the `ensureGamificationBackfill` at :28 — rename to `ensureGamificationFresh`
   or add a sibling) to, after `EnsureBackfilled`, best-effort re-score **yesterday
   then today** (UTC) via `s.gamificationSvc.ScoreDay`; log failures, never surface
-- [ ] call it from `handleGamificationSummary`, `handleGamificationJourney`,
+- [x] call it from `handleGamificationSummary`, `handleGamificationJourney`,
   `handleGamificationRings`, and the bootstrap gamification block
   (`settings_handlers.go:444`) — replace/augment the existing
   `ensureGamificationBackfill` calls so every read path refreshes the recent window
-- [ ] `ponytail:` comment noting the 2-day window is the live-write cover and the
+- [x] `ponytail:` comment noting the 2-day window is the live-write cover and the
   upgrade path (widen window or add per-write hooks) if it proves too narrow
-- [ ] `go build ./...` + existing `internal/server` tests green
+- [x] `go build ./...` + existing `internal/server` tests green
 
 ### Task 3: Import = atomic, then re-score all affected days
 - [ ] add a small best-effort helper that takes a set of instants, dedups to UTC

@@ -29,7 +29,7 @@ func TestNew(t *testing.T) {
 	botUsername := "test_bot"
 	vapidPublicKey := "test-vapid"
 
-	srv := New(db, botToken, sessionSecret, allowedUserID, oidc, botUsername, vapidPublicKey)
+	srv := newServer(db, botToken, sessionSecret, allowedUserID, oidc, botUsername, vapidPublicKey)
 	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
 
 	if srv == nil {
@@ -126,7 +126,7 @@ func TestNew_MissingExternalAPIKey(t *testing.T) {
 
 	os.Unsetenv("EXTERNAL_WORKOUT_API_KEY")
 
-	srv := New(db, "test-bot-token", "test-session-secret", 123456, OIDCConfig{}, "test_bot", "test-vapid")
+	srv := newServer(db, "test-bot-token", "test-session-secret", 123456, OIDCConfig{}, "test_bot", "test-vapid")
 	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
 
 	if srv == nil {
@@ -150,7 +150,7 @@ func TestNew_CustomEnvVars(t *testing.T) {
 	defer os.Unsetenv("FOOD_SEARCH_CACHE_MB")
 	defer os.Unsetenv("CHANGES_STREAM_MAX_CONN")
 
-	srv := New(db, "test-bot-token", "test-session-secret", 123456, OIDCConfig{}, "test_bot", "test-vapid")
+	srv := newServer(db, "test-bot-token", "test-session-secret", 123456, OIDCConfig{}, "test_bot", "test-vapid")
 	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
 
 	if srv == nil {

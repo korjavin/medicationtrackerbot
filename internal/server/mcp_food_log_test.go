@@ -21,7 +21,7 @@ func createMCPFoodLogTestServer(t *testing.T, secret string) (*Server, *store.St
 	if err != nil {
 		t.Fatalf("failed to create test store: %v", err)
 	}
-	srv := New(db, "test-token", "test-session-secret", 123456, OIDCConfig{}, "test-bot", "")
+	srv := newServer(db, "test-token", "test-session-secret", 123456, OIDCConfig{}, "test-bot", "")
 	srv.mcpAuditSecret = secret
 	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
 	return srv, db

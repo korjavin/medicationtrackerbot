@@ -440,7 +440,7 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	// fired the enable-hook backfill and would otherwise warm-load an empty
 	// Journey. EnsureBackfilled is gated + latched, so this is a cheap no-op after
 	// the first call (and best-effort — see ensureGamificationBackfill).
-	s.ensureGamificationBackfill(ctx, userID)
+	s.ensureGamificationFresh(ctx, userID)
 	gamificationSummary, err := s.gamificationSvc.GetSummary(ctx, userID)
 	gamificationOK := true
 	if err != nil {
