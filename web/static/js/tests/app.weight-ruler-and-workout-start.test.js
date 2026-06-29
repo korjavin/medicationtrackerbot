@@ -94,7 +94,7 @@ describe('app.js weight modal helpers and workout start modal flows', () => {
 
       await window._deleteWeightApi(42);
       expect(window.apiCall).toHaveBeenCalledWith('/api/weight/42', 'DELETE');
-      expect(invalidateSpy).toHaveBeenCalledWith(['weight']);
+      expect(invalidateSpy).toHaveBeenCalledWith(['weight', 'gamification']);
     } finally {
       cleanup();
     }

@@ -80,7 +80,7 @@ describe('undoFoodAIItems (shared food-AI undo helper)', () => {
         expect(urls).toEqual(['/api/food/log/11', '/api/food/log/12']);
 
         // Cache invalidation + list refresh fired on the success path.
-        expect(window.DataStore.invalidateTags).toHaveBeenCalledWith(['food']);
+        expect(window.DataStore.invalidateTags).toHaveBeenCalledWith(['food', 'gamification']);
         expect(window.DataStore.advanceCursorSilently).toHaveBeenCalled();
         expect(window.loadFoodLogs).toHaveBeenCalled();
         expect(window.loadToday).toHaveBeenCalled();
@@ -122,7 +122,7 @@ describe('undoFoodAIItems (shared food-AI undo helper)', () => {
         expect(typeof retry).toBe('function');
 
         // Cache invalidation still ran because at least one DELETE succeeded.
-        expect(window.DataStore.invalidateTags).toHaveBeenCalledWith(['food']);
+        expect(window.DataStore.invalidateTags).toHaveBeenCalledWith(['food', 'gamification']);
 
         // Drive the retry: only id 12 should be re-attempted.
         firstRound = false;

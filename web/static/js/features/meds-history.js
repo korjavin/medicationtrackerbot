@@ -440,7 +440,7 @@ async function renderNextIntakeTrigger() {
 async function triggerNextIntake() {
     const res = await apiCall('/api/medications/trigger-next-intake', 'POST');
     if (res && res.status === 'confirmed') {
-        await window.DataStore.invalidateTags(['history', 'medications']);
+        await window.DataStore.invalidateTags(['history', 'medications', 'gamification']);
         await window.DataStore.invalidateKey('next_intake');
         const medNamesStr = res.medication_names ? res.medication_names.join(', ') : `${res.medication_count} medication(s)`;
         safeAlert(`✅ Confirmed: ${medNamesStr}\n\nScheduled for: ${formatDate(res.scheduled_at)}\nTaken at: ${formatDate(res.taken_at)}`);
@@ -616,6 +616,7 @@ async function confirmSelectedMedications() {
         if (res) {
             await _commitOptimistic(handles);
             safeAlert("Confirmed!");
+            if (window.DataStore) await window.DataStore.invalidateTags(['gamification']).catch(() => {});
             refreshMedsAfterMutation();
         } else {
             await _rollbackOptimistic(handles);
@@ -701,6 +702,9 @@ async function skipSelectedMedications() {
             await _rollbackOptimistic(handles);
         } else {
             await _commitOptimistic(handles);
+            // SKIPPED is a scored adherence outcome (floor + denominator change),
+            // so evict the gamification rings/journey like the confirm/log-past paths.
+            if (window.DataStore) await window.DataStore.invalidateTags(['gamification']).catch(() => {});
         }
 
         refreshMedsAfterMutation();
@@ -825,6 +829,7 @@ async function updateIntakeHistory() {
         if (res === true || (isObjRes && failed === 0)) {
             await _commitOptimistic(handles);
             safeAlert("Updated!");
+            if (window.DataStore) await window.DataStore.invalidateTags(['gamification']).catch(() => {});
             refreshMedsAfterMutation();
         } else if (isObjRes && failed > 0) {
             // Partial/total failure: roll back the optimistic flip, name the
@@ -888,6 +893,7 @@ async function confirmLogPast() {
             if (window.DataStore) {
                 await window.DataStore.invalidateByTag('history');
                 await window.DataStore.invalidateByTag('medications');
+                await window.DataStore.invalidateByTag('gamification');
             }
             await loadMeds();
             const activeMedTab = document.querySelector('.med-tab.active');

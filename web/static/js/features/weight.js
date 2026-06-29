@@ -417,7 +417,7 @@ async function handleWeightSubmit(event) {
         }
     }
 
-    await window.DataStore.invalidateTags(['weight']);
+    await window.DataStore.invalidateTags(['weight', 'gamification']);
     // Belt-and-suspenders: CacheKeys.registerAll wires the 'weight'
     // key→tag mapping at boot, so the invalidateTags(['weight']) above
     // already covers the eviction. Clearing the key directly is a
@@ -1202,7 +1202,7 @@ async function _deleteWeightApi(id) {
     }
 
     if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
-    await window.DataStore.invalidateTags(['weight']);
+    await window.DataStore.invalidateTags(['weight', 'gamification']);
     if (window.DataStore.clearCached) {
         await window.DataStore.clearCached('weight');
     }

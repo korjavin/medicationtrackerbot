@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	gamificationsvc "github.com/korjavin/medicationtrackerbot/internal/domain/gamification"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
@@ -93,6 +94,8 @@ Examples:
 		msgConfig.Text = "⚠️ Activity not saved: a duplicate entry with the same timestamp already exists."
 		return
 	}
+
+	gamificationsvc.RescoreInstants(ctx, b.gamificationSvc, b.allowedUserID, []time.Time{time.UnixMilli(startMs).UTC()})
 
 	// Build summary
 	var sb strings.Builder

@@ -9,9 +9,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/korjavin/medicationtrackerbot/internal/domain"
+	gamificationsvc "github.com/korjavin/medicationtrackerbot/internal/domain/gamification"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
@@ -259,6 +261,35 @@ func (b *Bot) importSleepFile(filePath string) (int, int, error) {
 			slog.Info("Successfully imported Mi Band workouts", "imported", wImported, "skipped", wSkipped)
 		}
 	}
+
+	// Re-score all affected UTC days on the gamification ledger (best-effort).
+	var instants []time.Time
+	for _, sl := range domainSleepLogs {
+		// loadSleep credits a session to its wake-up date (sl.Day), not the bedtime
+		// instant — sl.StartTime is the prior evening and on a positive UTC offset
+		// commonly lands on the previous UTC day, which would re-score the wrong day.
+		if t, err := time.Parse("2006-01-02", sl.Day); err == nil {
+			instants = append(instants, t)
+		}
+	}
+	for _, h := range domainHeartLogs {
+		instants = append(instants, h.DateTime)
+	}
+	for _, s := range domainSpo2Logs {
+		instants = append(instants, s.DateTime)
+	}
+	for _, s := range domainStressLogs {
+		instants = append(instants, s.DateTime)
+	}
+	for _, d := range domainDayStats {
+		if t, err := time.Parse("2006-01-02", d.Day); err == nil {
+			instants = append(instants, t)
+		}
+	}
+	for _, w := range domainWorkouts {
+		instants = append(instants, time.UnixMilli(w.SourceStartMs).UTC())
+	}
+	gamificationsvc.RescoreInstants(ctx, b.gamificationSvc, b.allowedUserID, instants)
 
 	return imported + vitalsImported + statsImported + wImported,
 		skipped + vitalsSkipped + statsSkipped + wSkipped, nil

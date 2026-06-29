@@ -147,7 +147,7 @@ async function handleBPSubmit(event) {
         // Invalidate so the next read fetches authoritative server data
         // (server-side id + stats/goal recompute layered on top of the
         // optimistic state).
-        await window.DataStore.invalidateTags(['bp']);
+        await window.DataStore.invalidateTags(['bp', 'gamification']);
         if (window.DataStore.clearCached) {
             await window.DataStore.clearCached('bp');
         }
@@ -717,7 +717,7 @@ async function _deleteBPApi(id) {
     }
 
     if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
-    await window.DataStore.invalidateTags(['bp']);
+    await window.DataStore.invalidateTags(['bp', 'gamification']);
     if (window.DataStore.clearCached) {
         await window.DataStore.clearCached('bp');
     }

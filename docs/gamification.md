@@ -602,6 +602,58 @@ existing architecture guards (globals allowlist incl. `window.Gamification`, des
 tokens, SW precache) + the no-regression run + manual browser/emulator smoke. See
 [docs/frontend.md → Navigation](frontend.md#navigation) for the runtime wiring.
 
+### 14.4 Dynamic re-scoring — Plan 4 (status)
+
+Scores now update as data arrives instead of being frozen after the initial 365-day
+backfill. Implemented in
+[docs/plans/2026-06-29-gamification-dynamic-rescore.md](plans/2026-06-29-gamification-dynamic-rescore.md).
+Three mechanisms together cover every write path:
+
+**Recent-window re-score on gamification reads.** Every gamification read
+(`/api/gamification/{summary,journey,rings}` and the bootstrap `GetSummary` call)
+re-scores yesterday and today (UTC) via `ScoreDay` before returning. This covers all
+live single writes (food, BP, weight, intake, diary, workout) through any transport
+(server handlers or bot callbacks) without per-handler instrumentation. Two `ScoreDay`
+calls per read; cheap on single-user SQLite. Yesterday covers late entries that land
+on the prior UTC day. Streak fold leaves already-scored days untouched
+(`streak.go:30`), so order of re-scores is safe.
+(ponytail: 2-day window is the live-write cover; widen or add per-write hooks if
+future analytics need sub-read latency.)
+
+**Import re-score — atomic import then ScoreDay all affected days.** Bulk/historical
+importers (Mi Band sleep/vitals/day-stats/workouts via the bot, external workout via
+HTTP, BP import via HTTP) collect the union of affected UTC days from the parsed
+records' `DateTime`/`Day` fields, then call `ScoreDay` per day after the import
+completes. This is the only path that can score months-old days that a recent-window
+read can't reach. The distinct-day set is O(distinct-days) `ScoreDay` calls —
+bounded by, and cheaper than, the 365-day backfill; acceptable for a rare heavy op.
+Re-scores are best-effort/logged and never fail the originating import.
+Logging a past intake (`POST /api/medications/log-past`) takes the same explicit
+path: its `taken_at` can be days old — outside the read window — so the handler
+re-scores that one back-dated day directly rather than relying on the recent-window
+cover the way today's confirm/skip does.
+
+**Frontend `gamification` co-invalidation on scored writes.** Food, BP, weight,
+intake, diary/notes, and workout-completion write handlers (in `features/food/log.js`,
+`features/food/photo.js`, `features/food/ai-undo.js`, `features/bp.js`,
+`features/weight.js`, `features/meds.js`, `features/meds-history.js`,
+`features/health.js`, `features/workout/sessions.js`) now include `'gamification'`
+in their `invalidateTags([...])`
+arrays. This causes the rings (`gamification_rings`) and journey (`gamification`)
+caches to evict and refetch immediately after a write; the refetch hits the
+recent-window read-rescore and renders fresh HP without a full reload.
+The import case is covered for free: `ScoreDay` writes the ledger → the
+migration-073 `change_events('gamification')` trigger fires → SSE propagates to all
+connected clients automatically.
+
+**Shared single service instance.** Server and bot share one `GamificationService`
+instance (constructed in `cmd/bot/main_server.go`, passed into both `server.New` and
+`bot.New`). This is required because `ScoreDay` serializes per user via an in-process
+lock (`scoreMu`) on the service struct — separate instances would let a bot import
+and a server read-rescore for the same user race and stale-overwrite each other.
+The mobile build (`main_mobile.go`) has no bot; it constructs its own server-only
+instance as before.
+
 ---
 
 ## 15. Safety, accessibility & open questions

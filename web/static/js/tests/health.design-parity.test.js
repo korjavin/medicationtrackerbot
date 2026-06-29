@@ -163,7 +163,7 @@ describe('Health design parity — Round 2 (Task 5)', () => {
 
         expect(window.apiCall).toHaveBeenCalledWith('/api/notes/42', 'DELETE');
         expect(invalidateSpy).toHaveBeenCalledTimes(1);
-        expect(invalidateSpy.mock.calls[0][0]).toEqual(['health-notes']);
+        expect(invalidateSpy.mock.calls[0][0]).toEqual(['health-notes', 'gamification']);
         // loadNotes is called to repaint the list in place — no full reload.
         expect(loadNotesSpy).toHaveBeenCalledTimes(1);
     });
@@ -183,7 +183,7 @@ describe('Health design parity — Round 2 (Task 5)', () => {
 
         expect(window.apiCall).toHaveBeenCalledWith('/api/notes', 'POST', expect.any(Object));
         expect(invalidateSpy).toHaveBeenCalledTimes(1);
-        expect(invalidateSpy.mock.calls[0][0]).toEqual(['health-notes']);
+        expect(invalidateSpy.mock.calls[0][0]).toEqual(['health-notes', 'gamification']);
         expect(loadNotesSpy).toHaveBeenCalledTimes(1);
     });
 });

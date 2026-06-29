@@ -14,10 +14,11 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/korjavin/medicationtrackerbot/internal/domain"
+	gamificationsvc "github.com/korjavin/medicationtrackerbot/internal/domain/gamification"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzupdate"
-	"github.com/korjavin/medicationtrackerbot/internal/store"
 	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/domain/workout"
+	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
 // pendingExercise holds the metadata needed to send a deferred exercise prompt.
@@ -37,9 +38,10 @@ type Bot struct {
 	medSvc        domain.MedicationService
 	bp            BloodPressureStore
 	weight        WeightStore
-	workouts      WorkoutStore
-	workoutSvc    workoutsvc.WorkoutService
-	exerciseSvc   domain.ExerciseService
+	workouts        WorkoutStore
+	workoutSvc      workoutsvc.WorkoutService
+	gamificationSvc gamificationsvc.GamificationService
+	exerciseSvc     domain.ExerciseService
 	reminderSvc   domain.ReminderService
 	food          FoodStore
 	foodAI        domain.FoodAIService
@@ -113,7 +115,7 @@ type featureFlags struct {
 	HasFoodAI     bool
 }
 
-func New(token string, allowedUserID int64, s *store.Repos, foodAI domain.FoodAIService, activityAI domain.ActivityAIService, tzUpdater tzupdate.Service) (*Bot, error) {
+func New(token string, allowedUserID int64, s *store.Repos, foodAI domain.FoodAIService, activityAI domain.ActivityAIService, tzUpdater tzupdate.Service, gamificationSvc gamificationsvc.GamificationService) (*Bot, error) {
 	api, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
 		return nil, err
@@ -140,6 +142,7 @@ func New(token string, allowedUserID int64, s *store.Repos, foodAI domain.FoodAI
 		weight:               a,
 		workouts:             a,
 		workoutSvc:           workoutsvc.New(s.Workout, s.TZ),
+		gamificationSvc:      gamificationSvc,
 		exerciseSvc:          domain.NewExerciseService(a),
 		reminderSvc:          domain.NewReminderService(a),
 		food:                 a,

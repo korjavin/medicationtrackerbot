@@ -188,7 +188,7 @@ describe('Edit-note modal (Phase 8, Task 8)', () => {
             expect(delUrl).toBe('/api/notes/17');
             expect(delMethod).toBe('DELETE');
 
-            expect(invalidateSpy).toHaveBeenCalledWith(['health-notes']);
+            expect(invalidateSpy).toHaveBeenCalledWith(['health-notes', 'gamification']);
             expect(loadNotesSpy).toHaveBeenCalledTimes(1);
             expect(document.getElementById('note-modal').classList.contains('hidden')).toBe(true);
         });

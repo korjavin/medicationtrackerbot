@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	gamificationsvc "github.com/korjavin/medicationtrackerbot/internal/domain/gamification"
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
@@ -166,6 +167,12 @@ func (s *Server) handleImportBloodPressure(w http.ResponseWriter, r *http.Reques
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	instants := make([]time.Time, len(readings))
+	for i, bp := range readings {
+		instants[i] = bp.MeasuredAt
+	}
+	gamificationsvc.RescoreInstants(r.Context(), s.gamificationSvc, userID, instants)
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{

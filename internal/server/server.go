@@ -304,7 +304,7 @@ func parseIntEnv(key string, defaultValue int) int {
 	return parsed
 }
 
-func New(s *store.Store, botToken, sessionSecret string, allowedUserID int64, oidc OIDCConfig, botUsername string, vapidPublicKey string) *Server {
+func New(s *store.Store, gamSvc gamificationsvc.GamificationService, botToken, sessionSecret string, allowedUserID int64, oidc OIDCConfig, botUsername string, vapidPublicKey string) *Server {
 	foodSearchCacheSizeMB := parseIntEnv("FOOD_SEARCH_CACHE_MB", 40)
 	changeStreamMaxConn := parseIntEnv("CHANGES_STREAM_MAX_CONN", 40)
 
@@ -315,7 +315,7 @@ func New(s *store.Store, botToken, sessionSecret string, allowedUserID int64, oi
 		weight:          s.Weight,
 		workouts:        s.Workout,
 		workoutSvc:      workoutsvc.New(s.Workout, s.TZ),
-		gamificationSvc: gamificationsvc.New(s.Medication, s.BP, s.Weight, s.Vitals, s.Food, s.Diary, s.Workout, s.Gamification, s.Settings),
+		gamificationSvc: gamSvc,
 		food:            s.Food,
 		settings:        s.Settings,
 		timezone:        s.TZ,

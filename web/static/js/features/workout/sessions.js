@@ -613,6 +613,13 @@ async function saveWorkoutSessionDetails() {
         if (anyMutationSucceeded || optimisticHandles.length > 0) {
             await invalidateWorkoutCache();
         }
+        // Finishing via this modal (the primary "Finish workout" path, also reached
+        // by finishWorkoutSession) sets status=completed, which grants Movement-ring
+        // HP — evict the gamification caches like completeWorkoutSession does so the
+        // Today rings/Journey repaint instead of showing stale HP until cache expiry.
+        if (statusChanged && newStatus === 'completed' && window.DataStore) {
+            await window.DataStore.invalidateTags(['gamification']).catch(() => {});
+        }
 
         closeWorkoutSessionModal();
         loadWorkoutHistoryTab();
@@ -720,6 +727,10 @@ async function completeWorkoutSession(sessionId) {
             }
             for (const h of handles) await h.commit(null);
             await invalidateWorkoutCache();
+            // Completing a workout grants Movement-ring HP (loadMovement scores
+            // completed sessions), so evict the gamification caches too — the
+            // refetch hits the read-rescore and repaints the Today rings/HP.
+            if (window.DataStore) await window.DataStore.invalidateTags(['gamification']).catch(() => {});
             loadNextWorkout();
             loadWorkoutHistoryTab(); // Refresh history if visible
         } catch (e) {

@@ -439,8 +439,8 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	// first app load: the flag ships ON by default, so default-on users never
 	// fired the enable-hook backfill and would otherwise warm-load an empty
 	// Journey. EnsureBackfilled is gated + latched, so this is a cheap no-op after
-	// the first call (and best-effort — see ensureGamificationBackfill).
-	s.ensureGamificationBackfill(ctx, userID)
+	// the first call (and best-effort — see ensureGamificationFresh).
+	s.ensureGamificationFresh(ctx, userID)
 	gamificationSummary, err := s.gamificationSvc.GetSummary(ctx, userID)
 	gamificationOK := true
 	if err != nil {

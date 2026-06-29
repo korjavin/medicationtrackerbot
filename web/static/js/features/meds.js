@@ -1158,7 +1158,7 @@ async function saveMedication() {
 
         if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
 
-        await window.DataStore.invalidateTags(['medications', 'history']);
+        await window.DataStore.invalidateTags(['medications', 'history', 'gamification']);
         await window.DataStore.invalidateKey('next_intake');
 
         closeModal();
@@ -1195,7 +1195,7 @@ async function deleteMed(id) {
                 return;
             }
             if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
-            await window.DataStore.invalidateTags(['medications', 'history']);
+            await window.DataStore.invalidateTags(['medications', 'history', 'gamification']);
             await window.DataStore.invalidateKey('next_intake');
             loadMeds();
         });
@@ -1235,7 +1235,7 @@ async function deleteMed(id) {
                 safeAlert("⚠️ " + res.warning);
             }
             if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
-            await window.DataStore.invalidateTags(['medications', 'history']);
+            await window.DataStore.invalidateTags(['medications', 'history', 'gamification']);
             await window.DataStore.invalidateKey('next_intake');
             loadMeds();
         });

@@ -117,9 +117,18 @@ func (s *service) scoreDayCore(ctx context.Context, userID int64, day time.Time)
 	}
 	entries := awardsToEntries(userID, start, awards)
 
-	st, err := s.recomputeState(ctx, userID, start, entries, cfg)
+	st, changed, err := s.recomputeState(ctx, userID, start, entries, cfg)
 	if err != nil {
 		return err
+	}
+	if !changed {
+		// Idempotent no-op: the recomputed ledger + state are identical to what's
+		// already stored, so re-writing them would only bump timestamps and fire the
+		// migration-073 change_events('gamification') triggers for nothing. With the
+		// read-rescore on every gamification read (ensureGamificationFresh), an
+		// unconditional write would feed an endless change-event → SSE → refetch →
+		// rescore loop on an open Today/Journey screen. Skip when nothing changed.
+		return nil
 	}
 
 	_, err = s.gam.ApplyDayScore(ctx, userID, start, entries, st)
@@ -189,20 +198,20 @@ func (s *service) scoreDayAwards(ctx context.Context, userID int64, start, end t
 // keys, so old rows are fully replaced). Level and insight tier are recomputed
 // but never allowed to decrease (§7). The weekly-cadence streak is folded forward
 // via advanceStreak (§9). LastScoredDay only advances forward.
-func (s *service) recomputeState(ctx context.Context, userID int64, start time.Time, entries []gamstore.LedgerEntry, cfg scoring.Config) (gamstore.State, error) {
+func (s *service) recomputeState(ctx context.Context, userID int64, start time.Time, entries []gamstore.LedgerEntry, cfg scoring.Config) (gamstore.State, bool, error) {
 	prev, err := s.gam.GetState(ctx, userID)
 	if err != nil {
-		return gamstore.State{}, err
+		return gamstore.State{}, false, err
 	}
 
 	dayKey := start.Unix()
 	oldDay, err := s.gam.ListLedger(ctx, userID, dayKey, dayKey)
 	if err != nil {
-		return gamstore.State{}, err
+		return gamstore.State{}, false, err
 	}
 	curSum, err := s.gam.SumHP(ctx, userID)
 	if err != nil {
-		return gamstore.State{}, err
+		return gamstore.State{}, false, err
 	}
 
 	lifetime := curSum - sumLedgerHP(oldDay) + sumLedgerHP(entries)
@@ -233,14 +242,21 @@ func (s *service) recomputeState(ctx context.Context, userID int64, start time.T
 	// guessed-miss (which would irreversibly burn a freeze).
 	st.CurrentStreak, st.LongestStreak, st.Freezes, err = s.advanceStreak(ctx, userID, prev, start, cfg)
 	if err != nil {
-		return gamstore.State{}, err
+		return gamstore.State{}, false, err
 	}
 
 	if prev.LastScoredDay == nil || start.After(*prev.LastScoredDay) {
 		d := start
 		st.LastScoredDay = &d
 	}
-	return st, nil
+
+	// changed reports whether persisting (st, entries) would actually alter the
+	// stored ledger or state. When both are identical, the caller skips the write
+	// so the change_events trigger doesn't fire on an idempotent re-score (the
+	// read-rescore loop guard — see scoreDayCore). Timestamps are ignored: they are
+	// the only fields a no-op write would touch.
+	changed := !ledgerSameAwards(oldDay, entries) || !stateMeaningfullyEqual(prev, st)
+	return st, changed, nil
 }
 
 // ----- effective config (recommendations overlaid with user overrides) -------
@@ -732,4 +748,53 @@ func inDay(t, start, end time.Time) bool {
 func utcMidnight(t time.Time) time.Time {
 	u := t.UTC()
 	return time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+// ledgerSameAwards reports whether the stored day's ledger rows carry the same
+// awards as a freshly recomputed set — a multiset comparison on the award-
+// identifying columns (ring/source_metric/kind) plus the value columns (hp/
+// detail). Order and IDs/timestamps are ignored. Used by recomputeState to
+// detect an idempotent re-score and skip the ledger rewrite.
+func ledgerSameAwards(existing, computed []gamstore.LedgerEntry) bool {
+	if len(existing) != len(computed) {
+		return false
+	}
+	type key struct {
+		ring, sourceMetric, kind, detail string
+		hp                               int
+	}
+	counts := make(map[key]int, len(existing))
+	for _, e := range existing {
+		counts[key{e.Ring, e.SourceMetric, e.Kind, e.Detail, e.HP}]++
+	}
+	for _, e := range computed {
+		k := key{e.Ring, e.SourceMetric, e.Kind, e.Detail, e.HP}
+		counts[k]--
+		if counts[k] < 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// stateMeaningfullyEqual compares two cached states on every persisted field
+// except updated_at (the only field an idempotent re-score would touch). Time
+// pointers are compared by value so a freshly-derived LastScoredDay equal to the
+// stored one counts as unchanged.
+func stateMeaningfullyEqual(a, b gamstore.State) bool {
+	if a.UserID != b.UserID || a.LifetimeHP != b.LifetimeHP || a.Level != b.Level ||
+		a.CurrentStreak != b.CurrentStreak || a.LongestStreak != b.LongestStreak ||
+		a.Freezes != b.Freezes || a.InsightTier != b.InsightTier {
+		return false
+	}
+	return timePtrEqual(a.LastScoredDay, b.LastScoredDay) && timePtrEqual(a.BackfilledAt, b.BackfilledAt)
+}
+
+// timePtrEqual reports whether two optional instants are equal, treating two nils
+// as equal and a nil/non-nil pair as unequal.
+func timePtrEqual(a, b *time.Time) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Equal(*b)
 }

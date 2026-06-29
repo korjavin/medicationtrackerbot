@@ -479,7 +479,7 @@ async function saveFoodLog() {
         for (const h of handles) {
             try { await h.commit(null); } catch (_) { /* best-effort */ }
         }
-        await window.DataStore.invalidateTags(['food']);
+        await window.DataStore.invalidateTags(['food', 'gamification']);
         if (typeof todayFoodKey === 'function' && window.DataStore.clearCached) {
             await window.DataStore.clearCached(todayFoodKey(new Date()));
         }
@@ -712,7 +712,7 @@ async function saveFoodLogFromDescription() {
             window.DataStore.recordOwnWrite();
         }
 
-        await window.DataStore.invalidateTags(['food']);
+        await window.DataStore.invalidateTags(['food', 'gamification']);
         if (typeof todayFoodKey === 'function' && window.DataStore.clearCached) {
             await window.DataStore.clearCached(todayFoodKey(new Date()));
         }
@@ -1388,7 +1388,9 @@ async function saveFoodTargets() {
     try {
         await apiCall('/api/food/settings/targets', 'POST', payload);
         window.FoodLog.targets = payload;
-        await window.DataStore.invalidateTags(['settings', 'food_targets']);
+        // Nourishment scoring reads calorie/protein targets (s.food.GetTargets), so a
+        // target change shifts today's HP — evict the gamification rings/journey too.
+        await window.DataStore.invalidateTags(['settings', 'food_targets', 'gamification']);
         safeAlert('Food targets saved');
         const currentTab = (window.AppStore && typeof window.AppStore.get === 'function' && window.AppStore.get('currentTab'))
             || document.querySelector('.view.active')?.id?.replace(/-view$/, '');
@@ -1439,7 +1441,7 @@ async function deleteFoodLog(id) {
         }
 
         for (const h of handles) { try { await h.commit(null); } catch (_) { /* best-effort */ } }
-        await window.DataStore.invalidateTags(['food']);
+        await window.DataStore.invalidateTags(['food', 'gamification']);
         loadFoodLogs();
     });
 }

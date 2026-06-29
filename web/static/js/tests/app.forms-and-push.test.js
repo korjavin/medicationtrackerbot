@@ -179,7 +179,7 @@ describe('app.js form submissions and push modal behavior', () => {
         position: 'seated',
         notes: 'Morning'
       });
-      expect(invalidateSpy).toHaveBeenCalledWith(['bp']);
+      expect(invalidateSpy).toHaveBeenCalledWith(['bp', 'gamification']);
       expect(loadBPSpy).toHaveBeenCalledTimes(1);
       expect(document.getElementById('bp-modal').classList.contains('hidden')).toBe(true);
     } finally {
@@ -331,7 +331,7 @@ describe('app.js form submissions and push modal behavior', () => {
         weight: 79.4,
         notes: 'After workout'
       });
-      expect(invalidateSpy).toHaveBeenCalledWith(['weight']);
+      expect(invalidateSpy).toHaveBeenCalledWith(['weight', 'gamification']);
       expect(loadWeightSpy).toHaveBeenCalledTimes(1);
       expect(document.getElementById('weight-modal').classList.contains('hidden')).toBe(true);
     } finally {

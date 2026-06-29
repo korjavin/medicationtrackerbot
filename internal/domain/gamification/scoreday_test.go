@@ -111,9 +111,10 @@ func (f fakeWorkout) ListHistory(int64, int) ([]store.WorkoutSession, error) { r
 // the production UNIQUE (user, day_unix, ring, source_metric, kind).
 
 type memGam struct {
-	targets map[int64][]gamstore.Target
-	ledger  []gamstore.LedgerEntry
-	state   map[int64]gamstore.State
+	targets    map[int64][]gamstore.Target
+	ledger     []gamstore.LedgerEntry
+	state      map[int64]gamstore.State
+	applyCalls int // ApplyDayScore invocations — guards the no-op-on-unchanged skip
 }
 
 func newMemGam() *memGam {
@@ -226,6 +227,7 @@ func (m *memGam) MarkBackfilled(_ context.Context, userID int64, at time.Time) e
 }
 
 func (m *memGam) ApplyDayScore(ctx context.Context, userID int64, day time.Time, entries []gamstore.LedgerEntry, st gamstore.State) (*gamstore.State, error) {
+	m.applyCalls++
 	// Mirror the real repo: replace the whole day. Drop the user's existing rows
 	// for `day` before inserting so a shrunk re-score leaves no orphan awards.
 	dk := utcMidnight(day).Unix()
@@ -484,6 +486,51 @@ func TestScoreDay_Idempotent(t *testing.T) {
 	}
 	if sum2, _ := fs.gam.SumHP(ctx, userID); sum2 != sum1 {
 		t.Errorf("re-score changed lifetime HP: %d → %d", sum1, sum2)
+	}
+}
+
+// TestScoreDay_UnchangedSkipsWrite guards the read-rescore loop fix: re-scoring a
+// day whose source data is unchanged must NOT persist (ApplyDayScore), because in
+// production an unconditional write fires the change_events('gamification') trigger
+// on every read, feeding an endless change-event → SSE → refetch → rescore loop on
+// an open Today/Journey screen. A real change (added data) must still write.
+func TestScoreDay_UnchangedSkipsWrite(t *testing.T) {
+	ctx := context.Background()
+	const userID int64 = 31
+	day := time.Date(2026, 6, 22, 0, 0, 0, 0, time.UTC)
+	gam := newMemGam()
+
+	bp := fakeBP{readings: []store.BloodPressure{{MeasuredAt: day.Add(time.Hour), Systolic: 118, Diastolic: 78}}}
+	svc := newFullService(&fullStores{settings: fakeSettings{enabled: true}, bp: bp, gam: gam})
+
+	if err := svc.ScoreDay(ctx, userID, day); err != nil {
+		t.Fatalf("ScoreDay #1: %v", err)
+	}
+	if gam.applyCalls != 1 {
+		t.Fatalf("first score: applyCalls = %d, want 1", gam.applyCalls)
+	}
+
+	// Re-score with identical data → no write (the loop guard).
+	if err := svc.ScoreDay(ctx, userID, day); err != nil {
+		t.Fatalf("ScoreDay #2: %v", err)
+	}
+	if gam.applyCalls != 1 {
+		t.Errorf("unchanged re-score wrote anyway: applyCalls = %d, want 1", gam.applyCalls)
+	}
+
+	// A real delta — a diary note adds a Mind-ring award that wasn't there — must
+	// still write (new service, shared ledger, mirrors the existing data-change tests).
+	svc2 := newFullService(&fullStores{
+		settings: fakeSettings{enabled: true},
+		bp:       bp,
+		diary:    fakeDiary{notes: []store.DiaryNote{{Content: "felt ok"}}},
+		gam:      gam,
+	})
+	if err := svc2.ScoreDay(ctx, userID, day); err != nil {
+		t.Fatalf("ScoreDay #3: %v", err)
+	}
+	if gam.applyCalls != 2 {
+		t.Errorf("changed re-score skipped the write: applyCalls = %d, want 2", gam.applyCalls)
 	}
 }
 
