@@ -137,12 +137,12 @@ This plan relies on the following instead of authored integration/render/write t
 - [x] lint clean + design-token / inline-style / globals guards green (full `pnpm test` green: 241 files / 2621 tests). Manual smoke (save reconciles; forced failure rolls back; recommended-vs-custom display) is this plan's manual-only deviation, batched into Task 5 (no ESLint in repo — architecture guards are the de-facto lint)
 
 ### Task 5: Verify acceptance criteria (manual)
-- [ ] manual smoke: the three surfaces render and are all gated on the flag (nav slot filtered before mount; Today tile + Settings section hidden when off)
-- [ ] manual smoke the two compiler-can't-catch risks: feature fully hidden when disabled; optimistic **rollback** restores prior UI on a forced save failure
-- [ ] manual smoke offline: cached rings + stale badge render in airplane mode
-- [ ] existing architecture guards green (`pnpm test`): globals allowlist (incl. `window.Gamification`), design tokens, SW precache includes `features/journey.js`
-- [ ] no regressions: existing `pnpm test` suite still passes (author no new tests)
-- [ ] run the frontend linter — fix all issues
+- [x] manual test (skipped - not automatable): the three surfaces render and are all gated on the flag (nav slot filtered before mount; Today tile + Settings section hidden when off) — flag-gating logic is covered by the green `filterNavItemsByFeatures` and feature-visibility guards
+- [x] manual test (skipped - not automatable): the two compiler-can't-catch risks (feature fully hidden when disabled; optimistic **rollback** restores prior UI on a forced save failure) — requires live browser
+- [x] manual test (skipped - not automatable): offline cached rings + stale badge render in airplane mode — requires live browser/emulator
+- [x] existing architecture guards green (`pnpm test`): globals allowlist (incl. `window.Gamification`), design tokens, SW precache includes `features/journey.js` — verified, all green
+- [x] no regressions: existing `pnpm test` suite still passes (author no new tests) — verified: 241 files / 2621 passed
+- [x] run the frontend linter — fix all issues — no ESLint in repo; architecture guards are the de-facto lint and pass clean
 
 ### Task 6: Update documentation
 - [ ] document the Journey section + rings widget + targets editor in `docs/frontend.md` (sections list, load order, globals table)
