@@ -434,6 +434,13 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	// client preserves its cached value rather than treating a transient failure
 	// as "gamification disabled". The key matches the /api/gamification/summary
 	// shape so Plan 3 can seed its cachedFetch cache from the same payload.
+	//
+	// Run the first-read backfill first so the summary is populated on the very
+	// first app load: the flag ships ON by default, so default-on users never
+	// fired the enable-hook backfill and would otherwise warm-load an empty
+	// Journey. EnsureBackfilled is gated + latched, so this is a cheap no-op after
+	// the first call (and best-effort — see ensureGamificationBackfill).
+	s.ensureGamificationBackfill(ctx, userID)
 	gamificationSummary, err := s.gamificationSvc.GetSummary(ctx, userID)
 	gamificationOK := true
 	if err != nil {

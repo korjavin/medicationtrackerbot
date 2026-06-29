@@ -7,6 +7,7 @@ package server
 // requests) is handled by the apiMux middleware before these run.
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -16,10 +17,25 @@ import (
 	gamstore "github.com/korjavin/medicationtrackerbot/internal/store/gamification"
 )
 
+// ensureGamificationBackfill runs the first-read historical backfill best-effort.
+// The gamification flag ships ON by default (migration 073), so a user who never
+// toggled it never fired the enable-hook backfill (handleSetFeatureEnabled) and
+// would otherwise read an empty Journey forever — the only thing that populates
+// the ledger is this backfill. EnsureBackfilled gates on the flag itself and
+// latches once the full window replays, so this is a cheap GetState check on
+// every call after the first. A failure is logged, never surfaced: a read must
+// still return the (possibly empty) current state rather than 500.
+func (s *Server) ensureGamificationBackfill(ctx context.Context, userID int64) {
+	if err := s.gamificationSvc.EnsureBackfilled(ctx, userID); err != nil {
+		slog.Error("gamification first-read backfill failed", "error", err, "user_id", userID)
+	}
+}
+
 // handleGamificationSummary serves the full read model: rings + level + HP +
 // next-level progress + streak + insight tier.
 func (s *Server) handleGamificationSummary(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+	s.ensureGamificationBackfill(r.Context(), userID)
 
 	sum, err := s.gamificationSvc.GetSummary(r.Context(), userID)
 	if err != nil {
@@ -33,6 +49,7 @@ func (s *Server) handleGamificationSummary(w http.ResponseWriter, r *http.Reques
 // HP history, unlocked insight tiers, and the level curve.
 func (s *Server) handleGamificationJourney(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+	s.ensureGamificationBackfill(r.Context(), userID)
 
 	j, err := s.gamificationSvc.GetJourney(r.Context(), userID)
 	if err != nil {
@@ -55,6 +72,7 @@ type ringsView struct {
 // handleGamificationRings serves the slim Today rings payload.
 func (s *Server) handleGamificationRings(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+	s.ensureGamificationBackfill(r.Context(), userID)
 
 	sum, err := s.gamificationSvc.GetSummary(r.Context(), userID)
 	if err != nil {
@@ -100,19 +118,12 @@ func (s *Server) handleSetGamificationTargets(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	for _, t := range req.Targets {
-		if _, err := s.gamificationSvc.UpsertTarget(r.Context(), userID, t); err != nil {
-			if errors.Is(err, gamificationsvc.ErrUnknownTargetMetric) || errors.Is(err, gamificationsvc.ErrInvalidTarget) {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+	view, err := s.gamificationSvc.SetTargets(r.Context(), userID, req.Targets)
+	if err != nil {
+		if errors.Is(err, gamificationsvc.ErrUnknownTargetMetric) || errors.Is(err, gamificationsvc.ErrInvalidTarget) {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-	}
-
-	view, err := s.gamificationSvc.EffectiveTargets(r.Context(), userID)
-	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

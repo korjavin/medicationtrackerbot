@@ -117,13 +117,42 @@ func (s *service) UpsertTarget(ctx context.Context, userID int64, t gamstore.Tar
 	if !enabled {
 		return nil, nil
 	}
-	if !isKnownTargetMetric(t.MetricKey) {
-		return nil, ErrUnknownTargetMetric
-	}
-	if err := validateTargetBand(t); err != nil {
+	if err := s.validateTarget(t); err != nil {
 		return nil, err
 	}
 	return s.gam.UpsertTarget(ctx, userID, t)
+}
+
+// SetTargets validates and persists a batch of band-shaped overrides as a unit
+// and returns the refreshed view. The WHOLE batch is validated before any write,
+// so an invalid item rejects the request without leaving earlier items partially
+// committed — the failure mode a batch PUT actually hits (the per-row store
+// upsert is not wrapped in a cross-row transaction, so without this pre-pass an
+// item-3 rejection would already have persisted items 1–2). Gate-off is a no-op
+// yielding the {Enabled:false} shape.
+//
+// ponytail: pre-validation makes the validation path all-or-nothing; a store
+// error mid-batch can still partial-commit. Wrap the row upserts in one store
+// transaction if that rarer DB-failure case ever matters.
+func (s *service) SetTargets(ctx context.Context, userID int64, targets []gamstore.Target) (TargetsView, error) {
+	enabled, err := s.gate(ctx)
+	if err != nil {
+		return TargetsView{}, err
+	}
+	if !enabled {
+		return TargetsView{}, nil
+	}
+	for _, t := range targets {
+		if err := s.validateTarget(t); err != nil {
+			return TargetsView{}, err
+		}
+	}
+	for _, t := range targets {
+		if _, err := s.gam.UpsertTarget(ctx, userID, t); err != nil {
+			return TargetsView{}, err
+		}
+	}
+	return s.EffectiveTargets(ctx, userID)
 }
 
 // DeleteTarget removes the user's override for metricKey, reverting them to the
@@ -142,6 +171,29 @@ func (s *service) DeleteTarget(ctx context.Context, userID int64, metricKey stri
 		return ErrUnknownTargetMetric
 	}
 	return s.gam.DeleteTarget(ctx, userID, metricKey)
+}
+
+// validateTarget runs the full domain validation for one override before it is
+// written: the metric must be one the scorer honors, the supplied fields must be
+// in-bounds, and — crucially — the band must stay coherent once merged onto the
+// recommended default. The merged check is what catches a one-sided override
+// whose set side crosses the default unset side (e.g. steps low=20000 against the
+// default high=15000): bandFromTarget is the exact overlay the scorer applies, so
+// a resulting High<Low band would otherwise persist and make the scorer silently
+// award 0 for that metric on every day (trapezoid returns 0 when high<low)
+// instead of returning the documented 400.
+func (s *service) validateTarget(t gamstore.Target) error {
+	if !isKnownTargetMetric(t.MetricKey) {
+		return ErrUnknownTargetMetric
+	}
+	if err := validateTargetBand(t); err != nil {
+		return err
+	}
+	eff := bandFromTarget(bandForMetric(s.cfg, t.MetricKey), t)
+	if eff.High < eff.Low {
+		return ErrInvalidTarget
+	}
+	return nil
 }
 
 // isKnownTargetMetric reports whether key is one of the band-shaped metrics the

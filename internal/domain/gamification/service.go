@@ -170,6 +170,12 @@ type GamificationService interface {
 	// store. Gate-off is a no-op. See targets.go.
 	UpsertTarget(ctx context.Context, userID int64, t gamstore.Target) (*gamstore.Target, error)
 
+	// SetTargets validates and persists a batch of overrides as a unit (whole
+	// batch validated before any write, so an invalid item can't partial-commit
+	// the earlier ones) and returns the refreshed view. Gate-off yields the
+	// {Enabled:false} shape. See targets.go.
+	SetTargets(ctx context.Context, userID int64, targets []gamstore.Target) (TargetsView, error)
+
 	// DeleteTarget removes the user's override for metricKey, reverting them to the
 	// recommended default. Gate-off is a no-op. See targets.go.
 	DeleteTarget(ctx context.Context, userID int64, metricKey string) error

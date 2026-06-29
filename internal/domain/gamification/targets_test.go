@@ -31,6 +31,14 @@ func TestUpsertTarget_ValidatesMetricAndBand(t *testing.T) {
 		t.Errorf("negative falloff err = %v, want ErrInvalidTarget", err)
 	}
 
+	// One-sided override whose set side crosses the recommended default's unset
+	// side: steps low=20000 with the default high=15000 merges to a High<Low band
+	// the scorer would silently zero. Must reject, not persist.
+	crossLow := 20000.0
+	if _, err := svc.UpsertTarget(ctx, userID, gamstore.Target{MetricKey: TargetKeySteps, LowVal: &crossLow}); !errors.Is(err, ErrInvalidTarget) {
+		t.Errorf("one-sided low above default high err = %v, want ErrInvalidTarget", err)
+	}
+
 	okLow := 6.5
 	got, err := svc.UpsertTarget(ctx, userID, gamstore.Target{MetricKey: TargetKeySleepHours, LowVal: &okLow})
 	if err != nil {
@@ -38,6 +46,28 @@ func TestUpsertTarget_ValidatesMetricAndBand(t *testing.T) {
 	}
 	if got == nil || got.MetricKey != TargetKeySleepHours {
 		t.Errorf("upsert returned %+v, want a sleep-hours target", got)
+	}
+}
+
+// TestSetTargets_RejectsBatchWithoutPartialCommit asserts the batch PUT validates
+// the whole payload before any write: a valid item ahead of an invalid one must
+// not be persisted when the batch is rejected.
+func TestSetTargets_RejectsBatchWithoutPartialCommit(t *testing.T) {
+	ctx := context.Background()
+	const userID int64 = 65
+	fs := &fullStores{settings: fakeSettings{enabled: true}}
+	svc := newFullService(fs)
+
+	low := 6.5
+	batch := []gamstore.Target{
+		{MetricKey: TargetKeySleepHours, LowVal: &low}, // valid
+		{MetricKey: "bogus"},                           // invalid → whole batch rejected
+	}
+	if _, err := svc.SetTargets(ctx, userID, batch); !errors.Is(err, ErrUnknownTargetMetric) {
+		t.Fatalf("SetTargets err = %v, want ErrUnknownTargetMetric", err)
+	}
+	if n := len(fs.gam.targets[userID]); n != 0 {
+		t.Errorf("rejected batch persisted %d targets, want 0 (partial commit)", n)
 	}
 }
 
