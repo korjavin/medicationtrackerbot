@@ -630,10 +630,11 @@ bounded by, and cheaper than, the 365-day backfill; acceptable for a rare heavy 
 Re-scores are best-effort/logged and never fail the originating import.
 
 **Frontend `gamification` co-invalidation on scored writes.** Food, BP, weight,
-intake, diary/notes write handlers (in `features/food/log.js`,
+intake, diary/notes, and workout-completion write handlers (in `features/food/log.js`,
 `features/food/photo.js`, `features/food/ai-undo.js`, `features/bp.js`,
 `features/weight.js`, `features/meds.js`, `features/meds-history.js`,
-`features/health.js`) now include `'gamification'` in their `invalidateTags([...])`
+`features/health.js`, `features/workout/sessions.js`) now include `'gamification'`
+in their `invalidateTags([...])`
 arrays. This causes the rings (`gamification_rings`) and journey (`gamification`)
 caches to evict and refetch immediately after a write; the refetch hits the
 recent-window read-rescore and renders fresh HP without a full reload.

@@ -31,8 +31,8 @@ func (s *Server) ensureGamificationFresh(ctx context.Context, userID int64) {
 		slog.Error("gamification first-read backfill failed", "error", err, "user_id", userID)
 	}
 	now := time.Now().UTC()
-	// Yesterday before today: RescoreInstants preserves input order, and the streak
-	// fold must run in calendar order when a read-rescore is what advances
+	// RescoreInstants scores oldest-first, so yesterday lands before today — the
+	// streak fold must run in calendar order when a read-rescore is what advances
 	// LastScoredDay across a week boundary (stale backfill latched on a prior day).
 	gamificationsvc.RescoreInstants(ctx, s.gamificationSvc, userID, []time.Time{now.AddDate(0, 0, -1), now})
 }
