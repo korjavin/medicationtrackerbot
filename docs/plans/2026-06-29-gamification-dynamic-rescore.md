@@ -193,10 +193,10 @@ compiling. `internal/domain/gamification` stays build-tag-free.
 - [x] confirm `go build ./...` and `go build -tags mobile ./...` both succeed
 
 ### Task 6: [Final] Update documentation
-- [ ] add a note to `docs/gamification.md` §14: scores re-score on read (recent
+- [x] add a note to `docs/gamification.md` §14: scores re-score on read (recent
   window) and on import (full affected range); the shared single service instance;
   the frontend `gamification` co-invalidation
-- [ ] update `docs/architecture.md` only if a new shared-wiring pattern warrants it
+- [x] update `docs/architecture.md` only if a new shared-wiring pattern warrants it
 
 ## Technical Details
 
