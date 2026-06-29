@@ -109,11 +109,11 @@ This plan relies on the following instead of authored integration/render/write t
 ## Implementation Steps
 
 ### Task 1: Journey section scaffolding + feature gating
-- [ ] add `{ id: 'journey', label: 'Journey', icon: '<existing wg-icon name>' }` to `DEFAULT_ITEMS` in `components/wg-bottom-nav.js:27`
-- [ ] add `journey: 'gamification'` to `NAV_ID_TO_FEATURE` in `features/bootstrap.js:104` (so the slot is filtered out when disabled, before mount)
-- [ ] add `<div id="journey-view" class="view wg-screen-stage">…</div>` to `web/static/index.html` (mirror an existing section view)
-- [ ] add `features/journey.js` to the script load list in `index.html` (before `features/bootstrap.js`), to the **SW precache list** (keeps that guard green), and to `docs/frontend.md:202` load-order
-- [ ] lint clean + manual smoke: nav shows "Journey" when `features.gamification` is true, omits it when false — before next task
+- [x] add `{ id: 'journey', label: 'Journey', icon: 'bolt' }` to `DEFAULT_ITEMS` in `components/wg-bottom-nav.js` (placed before Settings so Settings stays last; also extended `colsFor` to support 9–10 items so the 9th slot lays out two rows of 5/4 instead of throwing, and updated the existing component-test assertions for the 9-item layout)
+- [x] add `journey: 'gamification'` to `NAV_ID_TO_FEATURE` in `features/bootstrap.js` (so the slot is filtered out when disabled, before mount)
+- [x] add `<div id="journey-view" class="view wg-screen-stage">…</div>` to `web/static/index.html` (mirrors weight-view: stale-badge row + `#journey-content`)
+- [x] add `features/journey.js` to the script load list in `index.html` (after `today.js`, before `features/bootstrap.js`), to the **SW precache list**, and to `docs/frontend.md` load-order. Created a minimal IIFE stub at `features/journey.js` so the script tag + precache entry resolve (real `window.Gamification` renderer lands in Task 2); allowlisted it in `architecture.offline-coverage.test.js` as a no-API-reads scaffold (the dead-entry check forces its removal once Task 2 adds `cachedFetch`)
+- [x] lint clean (no ESLint in repo — architecture guards are the de-facto lint; full `pnpm test` green) + manual smoke deferred to Task 5 (nav gating logic verified by the passing `filterNavItemsByFeatures`/`colsFor` tests; browser/emulator smoke is the plan's manual-only deviation)
 
 ### Task 2: `features/journey.js` — renderer + `window.Gamification`
 - [ ] create `features/journey.js`: closure-scoped module exposing `window.Gamification` (loader + `render`), reading `GET /api/gamification/journey` via `cachedFetch` (register `gamification` key in `core/cache-keys.js`)

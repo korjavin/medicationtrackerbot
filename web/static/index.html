@@ -405,6 +405,15 @@
             </div>
         </div>
 
+        <div id="journey-view" class="view wg-screen-stage">
+            <!-- Gamification Journey screen (Plan 3). Freshness chip + content
+                 are mounted by features/journey.js (window.Gamification);
+                 gated on features.gamification (nav slot filtered before mount
+                 in bootstrap.js). -->
+            <div id="journey-stale-badge" class="wg-section-stale-badge-row hidden"></div>
+            <div id="journey-content"></div>
+        </div>
+
         <div id="settings-view" class="view">
             <div id="settings-stale-badge" class="wg-section-stale-badge-row hidden"></div>
             <section class="wg-card wg-settings-section">
@@ -1766,6 +1775,7 @@
     <script src="/static/js/features/settings/integrations.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/backend-logs.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/today.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="/static/js/features/journey.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/tz-plan-banner.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/workout/modals.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/workout/next-card.js?v=TIMESTAMP_PLACEHOLDER"></script>

@@ -68,6 +68,10 @@ const ALLOWLIST = [
         reason: 'transient in-app summary card rendered after a photo upload — no API reads, pure DOM construction from a passed-in payload',
     },
     {
+        file: 'journey.js',
+        reason: 'Task-1 (Plan 3) scaffolding placeholder — empty IIFE, no API reads yet. Task 2 adds the window.Gamification renderer that reads GET /api/gamification/journey via cachedFetch, at which point this entry must be removed (the dead-entry check enforces it)',
+    },
+    {
         file: 'modal-history.js',
         reason: 'MutationObserver wiring modal show/hide into history.back() — no API reads',
     },
