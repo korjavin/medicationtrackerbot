@@ -183,6 +183,13 @@ function todayFetchSpecs(foodKey) {
                 const groups = await apiCall(`/api/food/log?date=${dateStr}${tzParams}`, 'GET');
                 return { groups: groups || [] };
             }
+        },
+        gamification_rings: {
+            feature: 'gamification',
+            tags: ['gamification'],
+            // Slim Today payload: { enabled, level, today_hp, rings:[{ring,hp}] }.
+            // apiCall returns null on failure so fetchFresh leaves the cache alone.
+            fetch: () => apiCall('/api/gamification/rings', 'GET')
         }
     };
 }
@@ -272,9 +279,9 @@ async function _todayReadCaches(foodKey) {
             : null;
         const hoKey = healthOverviewCacheKey();
         if (readMeta) {
-            const keys = ['settings_bundle', 'next_intake', 'medications', 'bp', 'weight', 'workout_next', hoKey, foodKey];
+            const keys = ['settings_bundle', 'next_intake', 'medications', 'bp', 'weight', 'workout_next', hoKey, foodKey, 'gamification_rings'];
             const metas = await Promise.all(keys.map(readMeta));
-            const [bundleM, nextIntakeM, medsM, bpM, weightM, workoutM, healthM, foodM] = metas;
+            const [bundleM, nextIntakeM, medsM, bpM, weightM, workoutM, healthM, foodM, gamM] = metas;
             if (bundleM?.data) {
                 bootstrap.features = bundleM.data.featureSettings || bootstrap.features;
                 bootstrap.settings = { food_targets: bundleM.data.foodTargets };
@@ -331,6 +338,7 @@ async function _todayReadCaches(foodKey) {
                 const groups = Array.isArray(foodM.data.groups) ? foodM.data.groups : [];
                 swrCaches.food_today = { groups };
             }
+            if (gamM?.data) swrCaches.gamification_rings = gamM.data;
             const featuresMap = bootstrap.features || {};
             const isFeatureOn = (feature) => {
                 if (!feature) return true;
@@ -347,7 +355,8 @@ async function _todayReadCaches(foodKey) {
                 weight: 'weight',
                 workout_next: 'workout',
                 [hoKey]: 'health',
-                [foodKey]: 'food'
+                [foodKey]: 'food',
+                gamification_rings: 'gamification'
             };
             for (let i = 0; i < keys.length; i++) {
                 const m = metas[i];
@@ -355,8 +364,8 @@ async function _todayReadCaches(foodKey) {
                 trackTs(m.timestamp, { includeInOldest: isFeatureOn(keyFeatures[keys[i]]) });
             }
         } else if (window.DataStore && typeof window.DataStore.getCached === 'function') {
-            const keys = ['settings_bundle', 'next_intake', 'medications', 'bp', 'weight', 'workout_next', hoKey, foodKey];
-            const [bundle, nextIntake, meds, bp, weight, workout, health, food] = await Promise.all(
+            const keys = ['settings_bundle', 'next_intake', 'medications', 'bp', 'weight', 'workout_next', hoKey, foodKey, 'gamification_rings'];
+            const [bundle, nextIntake, meds, bp, weight, workout, health, food, gam] = await Promise.all(
                 keys.map((k) => window.DataStore.getCached(k).catch(() => null))
             );
             if (bundle) {
@@ -391,6 +400,7 @@ async function _todayReadCaches(foodKey) {
                 const groups = Array.isArray(food.groups) ? food.groups : [];
                 swrCaches.food_today = { groups };
             }
+            if (gam) swrCaches.gamification_rings = gam;
         }
     } catch (_) { /* best-effort — render whatever we have */ }
     // Register key→tag mappings for every Today cache we just read directly
@@ -535,7 +545,8 @@ async function loadToday() {
             weight: !!bootstrap.weight,
             workout_next: !!swrCaches.workout_next,
             [hoKey]: !!swrCaches.health_overview,
-            [foodKey]: !!swrCaches.food_today
+            [foodKey]: !!swrCaches.food_today,
+            gamification_rings: !!swrCaches.gamification_rings
         };
         const missing = Object.keys(presence).filter((k) => {
             if (presence[k]) return false;

@@ -140,6 +140,11 @@ type GamificationService interface {
 	// safety alerts. Gate-off yields 0 (Task 8).
 	GetInsightTier(ctx context.Context, userID int64) (int, error)
 
+	// GetJourney is the Journey-screen read model: the Summary plus a trailing
+	// HP-per-day history, the unlocked insight tiers, and the level curve. Gate-off
+	// yields a disabled Summary with empty extras. See journey.go.
+	GetJourney(ctx context.Context, userID int64) (Journey, error)
+
 	// Backfill replays the trailing 365 days (capped) through ScoreDay so an
 	// existing user lands on a populated ledger + state instead of starting empty.
 	// Gate-off is a no-op; re-running is idempotent (Task 10).
@@ -150,6 +155,12 @@ type GamificationService interface {
 	// feature-enable hook (Task 10).
 	EnsureBackfilled(ctx context.Context, userID int64) error
 
+	// EffectiveTargets returns the targets-editor read model: each overridable
+	// metric's effective band (recommended defaults overlaid with the user's
+	// overrides), the recommended default, and whether it is customized. Gate-off
+	// yields {Enabled:false}. See targets.go.
+	EffectiveTargets(ctx context.Context, userID int64) (TargetsView, error)
+
 	// ListTargets returns the user's per-metric target overrides (the
 	// recommendations they changed). Gate-off yields no targets. See targets.go.
 	ListTargets(ctx context.Context, userID int64) ([]gamstore.Target, error)
@@ -158,6 +169,12 @@ type GamificationService interface {
 	// unknown metric key or an incoherent band so invalid state never reaches the
 	// store. Gate-off is a no-op. See targets.go.
 	UpsertTarget(ctx context.Context, userID int64, t gamstore.Target) (*gamstore.Target, error)
+
+	// SetTargets validates and persists a batch of overrides as a unit (whole
+	// batch validated before any write, so an invalid item can't partial-commit
+	// the earlier ones) and returns the refreshed view. Gate-off yields the
+	// {Enabled:false} shape. See targets.go.
+	SetTargets(ctx context.Context, userID int64, targets []gamstore.Target) (TargetsView, error)
 
 	// DeleteTarget removes the user's override for metricKey, reverting them to the
 	// recommended default. Gate-off is a no-op. See targets.go.

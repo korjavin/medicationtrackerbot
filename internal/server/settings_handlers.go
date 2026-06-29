@@ -41,13 +41,18 @@ func (s *Server) getFeatureMap(ctx context.Context) (map[string]bool, error) {
 	if err != nil {
 		return nil, err
 	}
+	gamificationEnabled, err := s.settings.GetGamificationEnabled(ctx)
+	if err != nil {
+		return nil, err
+	}
 	return map[string]bool{
-		"food":       foodEnabled,
-		"bp":         bpEnabled,
-		"weight":     weightEnabled,
-		"medication": medicationEnabled,
-		"workout":    workoutEnabled,
-		"health":     healthEnabled,
+		"food":         foodEnabled,
+		"bp":           bpEnabled,
+		"weight":       weightEnabled,
+		"medication":   medicationEnabled,
+		"workout":      workoutEnabled,
+		"health":       healthEnabled,
+		"gamification": gamificationEnabled,
 	}, nil
 }
 
@@ -422,6 +427,27 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	}
 	foodGroups := groupFoodLogs(foodLogs, false, foodDate.Location())
 
+	// Gamification summary warm-loads the Today rings widget and the Journey
+	// screen offline (Plan 2, Task 6). The service gates internally: when the
+	// flag is off GetSummary returns the {enabled:false} empty shape, so there is
+	// no flag branching here. Degrade gracefully — on error omit the key so the
+	// client preserves its cached value rather than treating a transient failure
+	// as "gamification disabled". The key matches the /api/gamification/summary
+	// shape so Plan 3 can seed its cachedFetch cache from the same payload.
+	//
+	// Run the first-read backfill first so the summary is populated on the very
+	// first app load: the flag ships ON by default, so default-on users never
+	// fired the enable-hook backfill and would otherwise warm-load an empty
+	// Journey. EnsureBackfilled is gated + latched, so this is a cheap no-op after
+	// the first call (and best-effort — see ensureGamificationBackfill).
+	s.ensureGamificationBackfill(ctx, userID)
+	gamificationSummary, err := s.gamificationSvc.GetSummary(ctx, userID)
+	gamificationOK := true
+	if err != nil {
+		slog.Error("bootstrap gamification summary query failed", "error", err)
+		gamificationOK = false
+	}
+
 	response := map[string]any{
 		"cursor":          bootstrapCursor,
 		"features":        features,
@@ -466,6 +492,11 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	// treating a transient query failure as "no upcoming dose."
 	if nextIntakeOK {
 		response["next_intake"] = nextIntake
+	}
+	// Only include gamification when the read succeeded; omit on error so the
+	// client keeps its cached summary instead of seeing a transient blank.
+	if gamificationOK {
+		response["gamification"] = gamificationSummary
 	}
 	// Surface the demo flag + the limits the operator configured so the
 	// frontend can mount its "Demo version" banner and quote accurate numbers
@@ -517,6 +548,21 @@ func (s *Server) handleSetFeatureEnabled(w http.ResponseWriter, r *http.Request)
 		err = s.settings.SetWorkoutEnabled(ctx, req.Enabled)
 	case "health":
 		err = s.settings.SetHealthEnabled(ctx, req.Enabled)
+	case "gamification":
+		err = s.settings.SetGamificationEnabled(ctx, req.Enabled)
+		// First-enable backfill hook: replay the trailing window so the user
+		// lands on a populated Journey. EnsureBackfilled is idempotent (skips
+		// once BackfilledAt is latched) and no-ops when the flag is off, so it
+		// is safe on every enable. Run inline so the toggle's 200 means the
+		// Journey is ready; backfill failure is logged best-effort rather than
+		// failing a toggle that already succeeded (the next enable/boot retries).
+		if err == nil && req.Enabled {
+			if u, ok := r.Context().Value(UserCtxKey).(*TelegramUser); ok && u != nil {
+				if bfErr := s.gamificationSvc.EnsureBackfilled(ctx, u.ID); bfErr != nil {
+					slog.Error("gamification first-enable backfill failed", "error", bfErr, "user_id", u.ID)
+				}
+			}
+		}
 	default:
 		http.Error(w, "Unknown feature", http.StatusBadRequest)
 		return

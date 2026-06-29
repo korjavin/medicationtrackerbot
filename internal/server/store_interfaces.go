@@ -170,6 +170,8 @@ type SettingsStore interface {
 	SetWorkoutEnabled(ctx context.Context, enabled bool) error
 	GetHealthEnabled(ctx context.Context) (bool, error)
 	SetHealthEnabled(ctx context.Context, enabled bool) error
+	GetGamificationEnabled(ctx context.Context) (bool, error)
+	SetGamificationEnabled(ctx context.Context, enabled bool) error
 	GetFirstRunComplete(ctx context.Context) (bool, error)
 	SetFirstRunComplete(ctx context.Context, complete bool) error
 	GetTabOrder(ctx context.Context) (string, error)

@@ -1,9 +1,12 @@
 # Gamification: HealthPoints & the Journey
 
-> **Status: Design proposal — not implemented.** This document specifies *what* we
-> want to build and *why* (the science and the ethics). It does not specify the
-> migrations, services, or UI components yet. No code in the repo depends on it.
-> Treat every number below as a tunable default, not a fixed constant.
+> **Status: MVP shipped (backend + HTTP/MCP + frontend); deeper vision still
+> design-only.** The core loop is built across three plans — see §14.1 (backend),
+> §14.2 (HTTP API + MCP), and §14.3 (frontend surfaces). The Phase-2 material below
+> (challenges/quests UI, L5+ insight visualizations, recovery/ED-safe modes,
+> per-Ring toggles, bot nudges) remains a design proposal specifying *what* we want
+> and *why* (the science and the ethics), not yet built. Treat every number below as
+> a tunable default, not a fixed constant.
 
 ## TL;DR — the core loop
 
@@ -473,7 +476,8 @@ Kept deliberately light; the implementation plan is a separate future doc.
 
 The backend core from this design now exists (plan
 [docs/plans/2026-06-25-gamification-1-backend-core.md](plans/2026-06-25-gamification-1-backend-core.md)).
-Plan 2 (HTTP/MCP) and Plan 3 (frontend) are not yet built.
+Plan 2 (HTTP/MCP, §14.2) is built; Plan 3 (frontend, §14.3) is built — the
+**Surfaces** and **Targets editor** bullets above are now implemented.
 
 **Packages**
 
@@ -541,6 +545,62 @@ concurrent scores can't desync `gamification_state` from the ledger.
   challenges/quests are not in Plan 1 (UI/Phase 2). Scoring is non-punitive by
   construction (HP only ever added, never negative), so deferring the safety
   toggles is safe.
+
+### 14.2 HTTP API + MCP coverage — Plan 2 (status)
+
+The Plan 1 service is now exposed over HTTP (plan
+[docs/plans/2026-06-25-gamification-2-http-api.md](plans/2026-06-25-gamification-2-http-api.md)).
+Handlers (`internal/server/gamification_handlers.go`) call **only** the
+`GamificationService` (Critical Rule #1) and pass its snake_case JSON through
+verbatim. The full route table + frozen JSON shapes live in
+[docs/api.md → Gamification](api.md#gamification); in brief:
+
+- **Reads:** `GET /api/gamification/{summary,journey,rings,targets}`.
+- **Write:** `PUT /api/gamification/targets` (validate + persist target overrides;
+  400 on unknown metric, negative bound/falloff, or `low > high`).
+- **Enable:** the existing generic toggle `POST /api/settings/features/gamification`.
+  On a false→true flip the handler runs `EnsureBackfilled` **inline** (idempotent,
+  latched on `backfilled_at_unix`) so the Journey is populated by the time the
+  toggle returns 200.
+- **Bootstrap:** `/api/bootstrap` embeds `service.GetSummary` under a `gamification`
+  key (same shape as `/api/gamification/summary`), so the Today rings widget and
+  Journey summary warm-load offline. Omitted on error so the client keeps its
+  cached summary.
+
+Every route gates on `gamification_enabled` in the service layer — flag-off returns
+HTTP 200 with a `{enabled:false}` body, never a 500 or a handler-side flag branch.
+All five routes are reachable through the MCP operation registry
+(`internal/mcp/registry/operations_gamification.go`, `gamification` topic), keeping
+the coverage guard green. No new tests were authored in this plan (per direction);
+verification was build + lint + the existing coverage guard + the no-regression run.
+
+### 14.3 Frontend surfaces — Plan 3 (status)
+
+The three surfaces from the **Surfaces** / **Targets editor** bullets above are now
+built in the vanilla-JS frontend (plan
+[docs/plans/2026-06-25-gamification-3-frontend.md](plans/2026-06-25-gamification-3-frontend.md)),
+all gated on the `gamification` feature flag and rendered with `--wg-*` tokens only:
+
+- **Journey screen** — `web/static/js/features/journey.js` (`window.Gamification`),
+  `#journey-view` + the flag-gated `journey` bottom-nav slot. Reads
+  `GET /api/gamification/journey` via `cachedFetch` (local-first + `WGStaleBadge`
+  freshness chip; `OfflineNoCacheError` → empty state). Renders the level badge +
+  lifetime HP + progress-to-next-level bar, current/longest streak + freezes, the
+  five domain rings, and the insight ladder L1–L4 (locked/unlocked from
+  `unlocked_tiers`).
+- **Today rings widget** — a `gamificationRingsCell` tile in `features/today.js`
+  (deeplink to Journey), fed by a `gamification_rings` Today fetch spec
+  (`GET /api/gamification/rings`); hidden when the flag is off.
+- **Settings targets editor** — `#gamification-targets-settings`, populated from
+  `GET /api/gamification/targets` and saved via `DataStore.applyOptimistic` →
+  `PUT /api/gamification/targets` (Critical Rule #9) for the six band metrics the
+  backend honors (`bp_systolic`, `bp_diastolic`, `resting_hr`, `stress`,
+  `sleep_hours`, `steps`).
+
+Per direction this plan authored no new tests; verification was frontend lint + the
+existing architecture guards (globals allowlist incl. `window.Gamification`, design
+tokens, SW precache) + the no-regression run + manual browser/emulator smoke. See
+[docs/frontend.md → Navigation](frontend.md#navigation) for the runtime wiring.
 
 ---
 

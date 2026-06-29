@@ -88,6 +88,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.WGSettings',                // components/wg-settings.js — Wandergeek Settings-screen render helpers (Phase 9, Task 2): section() + row() + infoRow() DOM factories consumed by the Settings reskin to build sectioned cards, canonical left-title/right-control rows, and read-only timezone info rows
     'window.AppBackButton',             // features/back-button.js — wires Telegram WebApp BackButton to section → Today navigation
     'window.TZPlanBanner',              // features/tz-plan-banner.js — fetches GET /api/tz-plan/current and renders an actionable banner only when an active timezone-transition plan exists; bootstrap.js calls .refresh() once after auth
+    'window.Gamification',              // features/journey.js — gamification Journey screen (Plan 3): load() reads GET /api/gamification/journey via cachedFetch + mounts the freshness chip; render(journey) paints level/HP/streak, the five rings, and the insight ladder. Gated on features.gamification (nav slot filtered before mount in bootstrap.js)
     'window.editNote',                  // features/health.js — called from dynamically-built edit buttons in notes rows
 
     // Settings / Food — feature toggles, food targets, reminder settings

@@ -564,6 +564,13 @@ document.getElementById('save-food-targets-btn').addEventListener('click', async
     await saveFoodTargets();
 });
 
+const saveGamificationTargetsBtn = document.getElementById('save-gamification-targets-btn');
+if (saveGamificationTargetsBtn) {
+    saveGamificationTargetsBtn.addEventListener('click', async function () {
+        await saveGamificationTargets();
+    });
+}
+
 // The weight-unit (kg/lb) preference state machine — the PATCH serial queue,
 // the optimistic-rollback baseline, the stale-hydration guard, and the
 // segmented-toggle DOM helper — lives in features/weight-unit-state.js.
@@ -675,7 +682,8 @@ function switchTab(tab) {
         bp: 'bp',
         weight: 'weight',
         meds: 'medication',
-        workouts: 'workout'
+        workouts: 'workout',
+        journey: 'gamification'
     };
     const feature = tabToFeature[tab];
     if (feature && window.featureSettingsLoaded && !window.featureSettings[feature]) {
@@ -719,6 +727,7 @@ function switchTab(tab) {
     else if (tab === 'workouts') { loadWorkouts(); }
     else if (tab === 'food') { loadFoodLogs(); }
     else if (tab === 'today') { loadToday(); }
+    else if (tab === 'journey') { if (window.Gamification) window.Gamification.load(); }
     else if (tab === 'settings') { loadSettings(); }
 }
 
@@ -1051,6 +1060,7 @@ function reloadCurrentTab() {
     else if (tab === 'workouts') { loadWorkouts(); }
     else if (tab === 'food') { loadFoodLogs(); }
     else if (tab === 'today') { loadToday(); }
+    else if (tab === 'journey') { if (window.Gamification) window.Gamification.load(); }
     else if (tab === 'health') {
         const stored = typeof getActiveHealthSubTab === 'function' ? getActiveHealthSubTab() : 'overview';
         switchHealthTab(stored);

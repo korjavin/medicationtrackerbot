@@ -23,13 +23,14 @@ import (
 
 	"github.com/VictoriaMetrics/fastcache"
 	"github.com/korjavin/medicationtrackerbot/internal/domain"
+	gamificationsvc "github.com/korjavin/medicationtrackerbot/internal/domain/gamification"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzsuggestion"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzupdate"
+	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/domain/workout"
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/rxnorm"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
-	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/domain/workout"
 	"golang.org/x/oauth2"
 )
 
@@ -53,6 +54,7 @@ type Server struct {
 	weight              WeightStore
 	workouts            WorkoutStore
 	workoutSvc          workoutsvc.WorkoutService
+	gamificationSvc     gamificationsvc.GamificationService
 	food                FoodStore
 	foodAI              domain.FoodAIService
 	settings            SettingsStore
@@ -313,6 +315,7 @@ func New(s *store.Store, botToken, sessionSecret string, allowedUserID int64, oi
 		weight:          s.Weight,
 		workouts:        s.Workout,
 		workoutSvc:      workoutsvc.New(s.Workout, s.TZ),
+		gamificationSvc: gamificationsvc.New(s.Medication, s.BP, s.Weight, s.Vitals, s.Food, s.Diary, s.Workout, s.Gamification, s.Settings),
 		food:            s.Food,
 		settings:        s.Settings,
 		timezone:        s.TZ,
@@ -956,6 +959,15 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("GET /api/notes", s.handleListNotes)
 	apiMux.HandleFunc("POST /api/notes", s.handleCreateNote)
 	apiMux.HandleFunc("DELETE /api/notes/{id}", s.handleDeleteNote)
+
+	// Gamification read + targets endpoints (Plan 2). The service gates internally
+	// and returns an {enabled:false} shape when the flag is off. MCP coverage for
+	// these routes comes in Task 5.
+	apiMux.HandleFunc("GET /api/gamification/summary", s.handleGamificationSummary)
+	apiMux.HandleFunc("GET /api/gamification/journey", s.handleGamificationJourney)
+	apiMux.HandleFunc("GET /api/gamification/rings", s.handleGamificationRings)
+	apiMux.HandleFunc("GET /api/gamification/targets", s.handleGamificationTargets)
+	apiMux.HandleFunc("PUT /api/gamification/targets", s.handleSetGamificationTargets)
 
 	// Wrap apiMux with the broker-notify middleware so every successful
 	// non-GET write wakes up SSE subscribers. Bridge calls share this wrapped

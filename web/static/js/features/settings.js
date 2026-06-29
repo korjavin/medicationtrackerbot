@@ -222,6 +222,9 @@ async function loadSettings() {
     if (window.SettingsIntegrations && typeof window.SettingsIntegrations.load === 'function') {
         try { await window.SettingsIntegrations.load(); } catch (_) { /* no-op */ }
     }
+    // Journey targets editor — loaded lazily off its own endpoint (best-effort;
+    // internally gated on the gamification flag).
+    await loadGamificationTargets();
 }
 
 // Mounts the wg-stale-badge into the Settings section header from the
@@ -255,6 +258,140 @@ function updateFoodTargetsVisibility() {
     settingsBlock.style.display = window.featureSettings.food ? 'flex' : 'none';
 }
 
+// ---- Journey (gamification) targets editor (Plan 3, Task 4) -----------------
+// The overridable band-shaped metrics, in the same display order the backend
+// returns (internal/domain/gamification/scoreday.go targetMetricKeys). Labels +
+// units live in the static HTML; JS only addresses fields by metric_key.
+const GAMIFICATION_TARGET_METRICS = ['bp_systolic', 'bp_diastolic', 'resting_hr', 'stress', 'sleep_hours', 'steps'];
+
+// Metric keys the user has a custom override for, per the last applied view.
+// saveGamificationTargets consults this so clearing a previously-custom band
+// sends an explicit reset (not just a skip) and actually reverts to default.
+const gamCustomMetrics = new Set();
+
+// Format an effective/recommended band value for display: round to ≤1 decimal
+// (sleep hours are fractional, the rest integral) and stringify. Empty string
+// for absent/non-numeric so a blank input keeps its recommended placeholder.
+function fmtGamTargetVal(n) {
+    if (n === null || n === undefined || Number.isNaN(Number(n))) return '';
+    return String(Math.round(Number(n) * 10) / 10);
+}
+
+// Populate the Journey Targets fields from a GET/PUT /api/gamification/targets
+// view: recommended bounds become the placeholder + hint; custom overrides
+// prefill the inputs (so a recommended metric shows faint placeholders and a
+// customized one shows its own values).
+function applyGamificationTargets(view) {
+    if (!view || view.enabled === false || !Array.isArray(view.targets)) return;
+    gamCustomMetrics.clear();
+    for (const t of view.targets) {
+        const key = t.metric_key;
+        if (t.is_custom) gamCustomMetrics.add(key);
+        const lowEl = document.getElementById(`gam-target-${key}-low`);
+        const highEl = document.getElementById(`gam-target-${key}-high`);
+        const hintEl = document.querySelector(`[data-gam-hint="${key}"]`);
+        if (!lowEl || !highEl) continue;
+        const recLow = fmtGamTargetVal(t.recommended_low);
+        const recHigh = fmtGamTargetVal(t.recommended_high);
+        lowEl.placeholder = recLow;
+        highEl.placeholder = recHigh;
+        lowEl.value = t.is_custom ? fmtGamTargetVal(t.low) : '';
+        highEl.value = t.is_custom ? fmtGamTargetVal(t.high) : '';
+        if (hintEl) {
+            hintEl.textContent = t.is_custom
+                ? `custom · rec ${recLow}–${recHigh}`
+                : `recommended ${recLow}–${recHigh}`;
+        }
+    }
+}
+
+// Best-effort field population — fetched separately from the settings_bundle SWR
+// (mirrors SettingsIntegrations.load) so a targets-endpoint outage never blanks
+// the rest of Settings. Skips entirely when the feature is off.
+async function loadGamificationTargets() {
+    if (!window.featureSettings || !window.featureSettings.gamification) return;
+    try {
+        const view = await apiCall('/api/gamification/targets', 'GET');
+        if (view) applyGamificationTargets(view);
+    } catch (e) {
+        console.warn('Failed to load journey targets:', e);
+    }
+}
+
+function updateGamificationTargetsVisibility() {
+    const block = document.getElementById('gamification-targets-settings');
+    if (!block) return;
+    const on = !!(window.featureSettings && window.featureSettings.gamification);
+    block.classList.toggle('hidden', !on);
+}
+
+// Save the edited bands. Only metrics the user actually filled are sent (a blank
+// pair keeps the recommended default). Optimistic write (Critical Rule #9) on the
+// shared 'gamification' cache key: a band change can't retro-repaint the Journey
+// without a re-score, so the mutator is a no-op — the value is the rollback +
+// tag-refresh lifecycle, which on failure restores the prior journey cache and on
+// success invalidates it so the next Journey load re-scores against the new bands.
+async function saveGamificationTargets() {
+    const targets = [];
+    for (const key of GAMIFICATION_TARGET_METRICS) {
+        const lowEl = document.getElementById(`gam-target-${key}-low`);
+        const highEl = document.getElementById(`gam-target-${key}-high`);
+        if (!lowEl || !highEl) continue;
+        const lowStr = lowEl.value.trim();
+        const highStr = highEl.value.trim();
+        const low = lowStr === '' ? null : Number(lowStr);
+        const high = highStr === '' ? null : Number(highStr);
+        const pretty = key.replace(/_/g, ' ');
+        // Client-side guard against obviously unsafe values before the PUT (the
+        // service validates the same, but catch it early for a clearer message).
+        if ((low !== null && (Number.isNaN(low) || low < 0)) || (high !== null && (Number.isNaN(high) || high < 0))) {
+            safeAlert(`Enter valid non-negative numbers for ${pretty}`);
+            return;
+        }
+        if (low !== null && high !== null && low > high) {
+            safeAlert(`${pretty}: low must not exceed high`);
+            return;
+        }
+        if (low === null && high === null) {
+            // Both blank. If this metric was a custom override, the user cleared it
+            // to revert to the recommended default — send an all-nil reset so the
+            // backend deletes the override (honouring the "leave blank to keep the
+            // recommended default" copy). A never-custom metric is genuinely
+            // unchanged, so skip it.
+            if (gamCustomMetrics.has(key)) targets.push({ metric_key: key });
+            continue;
+        }
+        const t = { metric_key: key };
+        if (low !== null) t.low_val = low;
+        if (high !== null) t.high_val = high;
+        targets.push(t);
+    }
+
+    const ds = window.DataStore;
+    const handle = (ds && typeof ds.applyOptimistic === 'function')
+        ? await ds.applyOptimistic('gamification', (prev) => prev, ['gamification'])
+        : null;
+
+    let res;
+    try {
+        res = await apiCall('/api/gamification/targets', 'PUT', { targets });
+    } catch (e) {
+        if (handle) await handle.rollback();
+        console.error('Failed to save journey targets:', e);
+        safeAlert('Failed to save targets');
+        return;
+    }
+    if (!res) {
+        if (handle) await handle.rollback();
+        // apiCall already surfaced the failure alert for the write; don't stack a second.
+        return;
+    }
+    if (handle) await handle.commit(null);
+    applyGamificationTargets(res);
+    try { await ds.invalidateTags(['gamification']); } catch (_) { /* best-effort */ }
+    safeAlert('Targets saved');
+}
+
 async function toggleFeatureSetting(feature, enabled) {
     const result = await apiCall(`/api/settings/features/${feature}`, 'POST', { enabled });
     if (!result) {
@@ -282,7 +419,8 @@ function updateFeatureTabVisibility() {
         bp: 'bp',
         weight: 'weight',
         meds: 'medication',
-        workouts: 'workout'
+        workouts: 'workout',
+        journey: 'gamification'
     };
 
     const currentTab = window.AppStore && window.AppStore.get('currentTab');
@@ -291,6 +429,7 @@ function updateFeatureTabVisibility() {
         switchTab('today');
     }
     updateFoodTargetsVisibility();
+    updateGamificationTargetsVisibility();
 }
 
 window.initOIDCSetupBanner = initOIDCSetupBanner;
@@ -304,5 +443,9 @@ window.SettingsView = {
     updateFeatureToggles,
     updateFoodTargetsVisibility,
     toggleFeatureSetting,
-    updateFeatureTabVisibility
+    updateFeatureTabVisibility,
+    loadGamificationTargets,
+    applyGamificationTargets,
+    saveGamificationTargets,
+    updateGamificationTargetsVisibility
 };

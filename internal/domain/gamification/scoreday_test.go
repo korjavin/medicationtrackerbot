@@ -2,6 +2,7 @@ package gamification
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 	"time"
 
@@ -131,10 +132,25 @@ func (m *memGam) ListTargets(_ context.Context, userID int64) ([]gamstore.Target
 	return m.targets[userID], nil
 }
 func (m *memGam) UpsertTarget(_ context.Context, userID int64, t gamstore.Target) (*gamstore.Target, error) {
+	for i := range m.targets[userID] {
+		if m.targets[userID][i].MetricKey == t.MetricKey {
+			m.targets[userID][i] = t
+			return &t, nil
+		}
+	}
 	m.targets[userID] = append(m.targets[userID], t)
 	return &t, nil
 }
-func (m *memGam) DeleteTarget(context.Context, int64, string) error { return nil }
+func (m *memGam) DeleteTarget(_ context.Context, userID int64, metricKey string) error {
+	rows := m.targets[userID]
+	for i := range rows {
+		if rows[i].MetricKey == metricKey {
+			m.targets[userID] = append(rows[:i], rows[i+1:]...)
+			return nil
+		}
+	}
+	return sql.ErrNoRows
+}
 
 func (m *memGam) UpsertLedger(_ context.Context, userID int64, entries []gamstore.LedgerEntry) error {
 	for _, e := range entries {
