@@ -145,8 +145,8 @@ This plan relies on the following instead of authored integration/render/write t
 - [x] run the frontend linter — fix all issues — no ESLint in repo; architecture guards are the de-facto lint and pass clean
 
 ### Task 6: Update documentation
-- [ ] document the Journey section + rings widget + targets editor in `docs/frontend.md` (sections list, load order, globals table)
-- [ ] flip `docs/gamification.md` §14 surfaces note to "implemented"
+- [x] document the Journey section + rings widget + targets editor in `docs/frontend.md` (sections list, load order, globals table) — load order already carried `features/journey.js` (Task 1); added a `window.Gamification` row to the globals table, updated the bottom-nav paragraph for the flag-gated 9-slot Journey layout (6–10 → two rows, >10 throws), and added a "Gamification surfaces" bullet covering the Journey screen + Today rings tile + Settings targets editor
+- [x] flip `docs/gamification.md` §14 surfaces note to "implemented" — updated the §14.1 status line, added a §14.3 "Frontend surfaces — Plan 3 (status)" block, and revised the top-of-doc banner from "Design proposal — not implemented" to "MVP shipped (backend + HTTP/MCP + frontend); deeper vision still design-only"
 
 ## Technical Details
 
