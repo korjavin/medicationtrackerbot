@@ -7,6 +7,7 @@ package gamification
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/domain/gamification/scoring"
@@ -79,22 +80,34 @@ func (s *service) GetSummary(ctx context.Context, userID int64) (Summary, error)
 	floor := scoring.HPToReachLevel(st.Level, cfg)
 	next := scoring.HPToReachLevel(st.Level+1, cfg)
 
-	// Progress needs the user's *effective* bands (target overrides), not the
-	// base Config the level curve uses above — a customized BP/sleep/steps
-	// target should be what the ring's gauge measures against.
-	effCfg, err := s.effectiveConfig(ctx, userID)
-	if err != nil {
-		return Summary{}, err
+	// Progress + Goal are best-effort enrichments layered on the cached
+	// ledger/state read above: they re-read live domain data (the effective bands,
+	// the per-ring membership re-score across every domain loader, the food
+	// targets), so a transient read error must degrade them — open rings to 0
+	// progress, all rings to no goal text — not 500 a summary that can still serve
+	// cached HP/level/streak/closed-ring state. This keeps GetSummary as forgiving
+	// as the best-effort ensureGamificationFresh re-score that precedes it on the
+	// HTTP path. todayProgress stays a non-nil (possibly empty) map so closed today
+	// rings still read full on the degraded path; only PeriodRings pass nil, which
+	// ringScores treats as "no gauge" (Progress 0).
+	// Progress measures against the user's *effective* bands (target overrides),
+	// not the base Config the level curve uses above.
+	todayProgress := map[string]float64{}
+	goals := map[string]string{}
+	if effCfg, err := s.effectiveConfig(ctx, userID); err != nil {
+		slog.Warn("gamification summary: effective config load failed; rings degrade to no progress/goal", "error", err, "user_id", userID)
+	} else {
+		if p, err := s.ringProgress(ctx, userID, today, effCfg); err != nil {
+			slog.Warn("gamification summary: ring progress recompute failed; open rings degrade to 0", "error", err, "user_id", userID)
+		} else {
+			todayProgress = p
+		}
+		if ft, err := s.food.GetTargets(ctx); err != nil {
+			slog.Warn("gamification summary: food targets load failed; goals degrade to empty", "error", err, "user_id", userID)
+		} else {
+			goals = ringGoals(effCfg, ft)
+		}
 	}
-	todayProgress, err := s.ringProgress(ctx, userID, today, effCfg)
-	if err != nil {
-		return Summary{}, err
-	}
-	foodTargets, err := s.food.GetTargets(ctx)
-	if err != nil {
-		return Summary{}, err
-	}
-	goals := ringGoals(effCfg, foodTargets)
 
 	sum := Summary{
 		Enabled:       true,
@@ -157,14 +170,18 @@ func ringScores(entries []gamstore.LedgerEntry, progress map[string]float64, goa
 	}
 	out := make([]gamstore.RingScore, 0, len(order))
 	for _, ring := range order {
-		// Closed ⇒ full ring: the two can no longer disagree (the "closed but
-		// not full" bug). Open ⇒ the day's best range-membership, if known.
+		// progress == nil ⇒ a period ring: the arc gauge is a daily-loop affordance,
+		// so PeriodRings always leave Progress 0 (the documented contract) regardless
+		// of whether the week closed the ring. For today's rings (non-nil map, maybe
+		// empty) Closed ⇒ full ring — the two can no longer disagree (the "closed but
+		// not full" bug) — else the day's best range-membership, if known (0 when not).
 		p := 0.0
-		switch {
-		case closed[ring]:
-			p = 1.0
-		case progress != nil:
-			p = progress[ring]
+		if progress != nil {
+			if closed[ring] {
+				p = 1.0
+			} else {
+				p = progress[ring]
+			}
 		}
 		out = append(out, gamstore.RingScore{Ring: ring, HP: byRing[ring], Closed: closed[ring], Progress: p, Goal: goals[ring]})
 	}
