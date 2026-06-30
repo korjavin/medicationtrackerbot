@@ -18,15 +18,24 @@ import (
 // ringGoals returns the canonical-ring → goal-text map for cfg + the user's
 // food targets.
 func ringGoals(cfg scoring.Config, food store.FoodTargets) map[string]string {
-	calLow := int(float64(food.Calories) * (1 - cfg.CalorieTolerancePct))
-	calHigh := int(float64(food.Calories) * (1 + cfg.CalorieTolerancePct))
+	// Nourishment needs a calorie target, which defaults to 0 until the user
+	// sets one (migration 023) — first-run and demo users have none. Mirror the
+	// scorer's `CalorieTarget > 0` guard (scoring.go:494): with no target the
+	// calorie outcome isn't scored at all, so a "0–0 kcal" range would advertise
+	// a metric that isn't being measured. Fall back to an actionable prompt.
+	nourishment := "Set a daily calorie target"
+	if food.Calories > 0 {
+		calLow := int(float64(food.Calories) * (1 - cfg.CalorieTolerancePct))
+		calHigh := int(float64(food.Calories) * (1 + cfg.CalorieTolerancePct))
+		nourishment = fmt.Sprintf("Eat near target · %s–%s kcal",
+			formatThousands(calLow), formatThousands(calHigh))
+	}
 	return map[string]string{
-		scoring.RingAdherence: "Take all doses on time",
-		scoring.RingMovement:  fmt.Sprintf("Move toward ~%s steps", formatThousands(int(cfg.StepsBand.Low))),
-		scoring.RingVitals:    fmt.Sprintf("Keep BP in range · <%d/%d", int(cfg.BPSystolic.High), int(cfg.BPDiastolic.High)),
-		scoring.RingNourishment: fmt.Sprintf("Eat near target · %s–%s kcal",
-			formatThousands(calLow), formatThousands(calHigh)),
-		scoring.RingMind: fmt.Sprintf("Sleep %g–%gh", cfg.SleepHours.Low, cfg.SleepHours.High),
+		scoring.RingAdherence:   "Take all doses on time",
+		scoring.RingMovement:    fmt.Sprintf("Move toward ~%s steps", formatThousands(int(cfg.StepsBand.Low))),
+		scoring.RingVitals:      fmt.Sprintf("Keep BP in range · <%d/%d", int(cfg.BPSystolic.High), int(cfg.BPDiastolic.High)),
+		scoring.RingNourishment: nourishment,
+		scoring.RingMind:        fmt.Sprintf("Sleep %g–%gh", cfg.SleepHours.Low, cfg.SleepHours.High),
 	}
 }
 
