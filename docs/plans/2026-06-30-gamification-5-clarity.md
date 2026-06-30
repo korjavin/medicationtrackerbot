@@ -115,10 +115,10 @@ ladder labels (keep the ladder, mark Phase-2 tiers "soon", don't hide them).
 - [x] retire the now-unused `progressBar()` if no other caller remains (grep first) — still used by `renderHeader()`'s level-to-next-level bar (a different concept than the closing rings), so it stays
 
 ### Task 6: Verify acceptance criteria
-- [ ] each of the user's four confusions is resolved on-screen: rings are rings; a closed ring is a *full* ring; every ring shows a concrete goal incl. the nourishment calorie range; the ladder no longer says "Unlocked" for anything without a destination
-- [ ] `go test ./...` passes
-- [ ] `pnpm test` passes (incl. the new `wg-ring` test and the architecture guards: globals allowlist, design tokens, SW precache)
-- [ ] frontend + Go linters clean
+- [x] each of the user's four confusions is resolved on-screen: rings are rings; a closed ring is a *full* ring; every ring shows a concrete goal incl. the nourishment calorie range; the ladder no longer says "Unlocked" for anything without a destination (verified by code: `wg-ring.js` always forces `progress=1` when `closed`; `goals.go:27` builds the kcal range string; `journey.js:308` only emits "Unlocked → view" when `hasDestination`; "View Journey" link added in `today.js:1192`)
+- [x] `go test ./...` passes
+- [x] `pnpm test` passes (incl. the new `wg-ring` test and the architecture guards: globals allowlist, design tokens, SW precache) — 243 files, 2636 tests passed
+- [x] frontend + Go linters clean (`golangci-lint run` on touched gamification packages: 0 issues; `gofmt -l` shows no new unformatted files; no JS lint script configured in this repo, `pnpm test` is the full frontend gate)
 
 ### Task 7: [Final] Update documentation
 - [ ] update `docs/gamification.md` §14.3 (Frontend surfaces) to describe: SVG rings, `RingScore.Progress`/`Goal`, the honest ladder labels, and the Journey "How this works" card — replacing the "horizontal bars" / relative-fill description
