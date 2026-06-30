@@ -5180,12 +5180,53 @@ textarea.wg-input {
 }
 
 /* ============================================================
-   Gamification Journey screen (Plan 3, Task 2). Stacked gloss
-   cards: a level/HP header with a sun progress bar, a 3-stat
-   streak row, the five domain rings (horizontal gloss-inset
-   bars scaled against the day's leader), and the insight-ladder
-   rows with a locked/unlocked state. All visuals resolve to
-   --wg-* tokens; the only dynamic value is the --fill-pct fill
+   wg-ring — SVG "closing ring" gauge (Plan 5, Task 3). An arc fills
+   clockwise from 12 o'clock as progress climbs from 0 to 1; closed
+   always renders a full ring (never a short one that still reads
+   "closed"). Radius is fixed at r=15.9155 in wg-ring.js so the
+   circumference is ≈100 user units and the dash math reads like a
+   percentage. JS sets only the neutral --ring-progress custom
+   property (0..100); CSS owns dash offset and color.
+   ============================================================ */
+.wg-ring {
+    flex-shrink: 0;
+}
+
+.wg-ring__track {
+    fill: none;
+    stroke: var(--wg-border-strong);
+    stroke-width: 3;
+}
+
+.wg-ring__progress {
+    fill: none;
+    stroke: var(--wg-sun);
+    stroke-width: 3;
+    stroke-linecap: round;
+    stroke-dashoffset: calc(100 - var(--ring-progress, 0));
+    transition: stroke-dashoffset 0.4s ease, stroke 0.3s ease;
+}
+
+.wg-ring--closed .wg-ring__progress {
+    stroke: var(--wg-mint-soft);
+}
+
+.wg-ring__check {
+    fill: none;
+    stroke: var(--wg-mint-soft);
+    stroke-width: 3;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+/* ============================================================
+   Gamification Journey screen (Plan 3, Task 2; rings honestified
+   in Plan 5, Task 5). Stacked gloss cards: a level/HP header with
+   a sun progress bar, a 3-stat streak row, the five domain rings
+   (wg-ring SVG arc gauges, see above — closed = full ring, open =
+   real progress toward closing), and the insight-ladder rows with
+   a locked/unlocked state. All visuals resolve to --wg-* tokens;
+   the header's level-progress bar still uses the --fill-pct fill
    width (same convention as the weight-goal card + macro bar).
    ============================================================ */
 #journey-content > .wg-card {
@@ -5257,6 +5298,32 @@ textarea.wg-input {
     font-size: var(--font-size-xs);
     text-transform: uppercase;
     letter-spacing: 0.08em;
+}
+
+/* "How this works" explainer card (Plan 5, Task 5) — static term/desc rows,
+   the first-run primer that was never shipped. */
+.wg-journey-explainer__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-journey-explainer__row {
+    display: flex;
+    gap: var(--space-sm);
+}
+
+.wg-journey-explainer__term {
+    flex: 0 0 auto;
+    width: 96px;
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--wg-fg-2);
+}
+
+.wg-journey-explainer__desc {
+    flex: 1;
+    font-size: var(--font-size-sm);
 }
 
 /* Streak card — 3 mono stat cells. */
@@ -5393,6 +5460,19 @@ textarea.wg-input {
     color: var(--wg-fg-3);
 }
 
+/* Explicit "View Journey →" affordance, distinct from the "your move" deep
+   link — the whole card already navigates to Journey on tap; this just makes
+   that destination discoverable instead of implicit. */
+.wg-today-rings__journey-link {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-xs);
+    margin-top: var(--space-sm);
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-3);
+}
+
 /* Check mark on a closed ring row (landed in range, not just logged). */
 .wg-journey-ring__check {
     display: inline-flex;
@@ -5470,6 +5550,12 @@ textarea.wg-input {
 
 .wg-journey-ladder__row--locked .wg-journey-ladder__marker {
     color: var(--wg-fg-4);
+}
+
+/* Tier 1 is the only row with a real destination (the rings card above) —
+   tappable, unlike the Phase-2 tiers it sits next to. */
+.wg-journey-ladder__row--linked {
+    cursor: pointer;
 }
 
 .wg-journey-empty {

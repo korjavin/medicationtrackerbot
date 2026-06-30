@@ -16,6 +16,7 @@ package gamification
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/domain/gamification/scoring"
@@ -190,6 +191,52 @@ func (s *service) scoreDayAwards(ctx context.Context, userID int64, start, end t
 	awards = append(awards, scoring.ScoreMind(mind, cfg)...)
 
 	return awards, nil
+}
+
+// ringProgress returns the day's per-ring "how close to closing" gauge: the
+// best range-membership r among that ring's outcome/consistency awards,
+// computed by re-running the same loaders + pure scorers scoreDayAwards uses
+// (no new persistence, no schema change — the scorers compute r today and
+// then throw it away once it's been folded into an HP amount). A ring with no
+// r-bearing award for the day (no data, or every membership rounded to 0 HP
+// and was dropped by addAward) reads 0.
+//
+// Ponytail note: this recomputes scoreDayAwards a second time on top of the
+// existing Plan-4 read-rescore; on single-user SQLite the extra pure-compute
+// is negligible. If read latency ever matters, have scoreDayCore return its
+// membership map alongside the awards instead of recomputing here — same
+// numbers, one pass.
+func (s *service) ringProgress(ctx context.Context, userID int64, day time.Time, cfg scoring.Config) (map[string]float64, error) {
+	start := utcMidnight(day)
+	end := start.AddDate(0, 0, 1)
+	awards, err := s.scoreDayAwards(ctx, userID, start, end, cfg)
+	if err != nil {
+		return nil, err
+	}
+	progress := make(map[string]float64, 5)
+	for _, a := range awards {
+		r, ok := awardMembership(a)
+		if ok && r > progress[a.Ring] {
+			progress[a.Ring] = r
+		}
+	}
+	return progress, nil
+}
+
+// awardMembership extracts the range-membership r an outcome/consistency
+// award's Detail carries (see scoring's detailR), if any. Floor awards (whose
+// Detail is "" or a log count) report ok=false.
+func awardMembership(a scoring.Award) (r float64, ok bool) {
+	if a.Detail == "" {
+		return 0, false
+	}
+	var d struct {
+		R *float64 `json:"r"`
+	}
+	if err := json.Unmarshal([]byte(a.Detail), &d); err != nil || d.R == nil {
+		return 0, false
+	}
+	return *d.R, true
 }
 
 // recomputeState builds the new cached state for the user after this day's awards

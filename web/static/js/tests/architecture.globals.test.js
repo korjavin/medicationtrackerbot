@@ -76,6 +76,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.WGBottomNav',               // components/wg-bottom-nav.js — canonical multi-row bottom nav; one slot per real section, no aggregator
     'window.rebuildCanonicalBottomNav', // features/bootstrap.js — re-mounts the canonical bottom nav with the current feature flags; called from toggleFeatureSetting() in app.js after a feature toggle
     'window.WGSparkline',               // components/wg-sparkline.js — Wandergeek SVG sparkline for Today metric tiles; stroke colour is driven by CSS variant class, not a JS colour
+    'window.WGRing',                    // components/wg-ring.js — Wandergeek SVG "closing ring" gauge (Plan 5); arc fill driven by the neutral --ring-progress custom property, colour resolves via .wg-ring__progress / .wg-ring--closed CSS classes
     'window.WGBpChart',                 // components/wg-bp-chart.js — Wandergeek BP sys/dia chart (band + lines + dotted guides + last-point markers); colours resolve via CSS classes on SVG children, never inline
     'window.WGWeightChart',             // components/wg-weight-chart.js — Wandergeek single-series weight chart with optional goal-line overlay; colours resolve via CSS classes on SVG children, never inline
     'window.WGWorkoutChart',            // components/wg-workout-chart.js — Wandergeek single-series workout activity chart for the Stats sub-tab (sessions-per-week or volume); colours resolve via CSS classes on SVG children, never inline
