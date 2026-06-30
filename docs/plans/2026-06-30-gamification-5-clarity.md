@@ -97,9 +97,9 @@ ladder labels (keep the ladder, mark Phase-2 tiers "soon", don't hide them).
 - [x] populate `Goal` in `ringScores()` (pass the effective config + food targets in); keep strings token-free plain text (frontend renders them as the ring subtitle)
 
 ### Task 3: Frontend — `wg-ring` SVG arc component (idea #5)
-- [ ] create `web/static/js/components/wg-ring.js`: a web component rendering an SVG circle whose stroke-dasharray draws an arc from `progress` (0..1); inputs `progress`, `closed`, `label`, `value`; full circle + check affordance when `closed`/`progress>=1`; colors/stroke via `--wg-*` tokens only
-- [ ] register it in the frontend load order and the Service Worker precache list; add to `tests/architecture.globals.test.js` allowlist **only if** it exposes a `window.*` global (prefer a pure custom element with no global)
-- [ ] `tests/wg-ring.test.js` (the documented component-test exception): assert the arc geometry — `progress=0` → empty arc, `progress=1`/`closed` → full circle + done state, a mid value → proportional dash offset
+- [x] create `web/static/js/components/wg-ring.js`: a web component rendering an SVG circle whose stroke-dasharray draws an arc from `progress` (0..1); inputs `progress`, `closed`, `label`, `value`; full circle + check affordance when `closed`/`progress>=1`; colors/stroke via `--wg-*` tokens only
+- [x] register it in the frontend load order and the Service Worker precache list; add to `tests/architecture.globals.test.js` allowlist **only if** it exposes a `window.*` global (prefer a pure custom element with no global)
+- [x] `tests/wg-ring.test.js` (the documented component-test exception): assert the arc geometry — `progress=0` → empty arc, `progress=1`/`closed` → full circle + done state, a mid value → proportional dash offset
 
 ### Task 4: Frontend — Today rings tile: real rings + goals + clear Journey entry (ideas #1, #2, #4)
 - [ ] in `features/today.js` `renderRingsTile()` (1042–1179), replace each `ringFillTrack()` bar (1026–1038, 1169) with a `wg-ring` fed by the ring's `progress` + `closed`

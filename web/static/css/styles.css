@@ -5180,6 +5180,46 @@ textarea.wg-input {
 }
 
 /* ============================================================
+   wg-ring — SVG "closing ring" gauge (Plan 5, Task 3). An arc fills
+   clockwise from 12 o'clock as progress climbs from 0 to 1; closed
+   always renders a full ring (never a short one that still reads
+   "closed"). Radius is fixed at r=15.9155 in wg-ring.js so the
+   circumference is ≈100 user units and the dash math reads like a
+   percentage. JS sets only the neutral --ring-progress custom
+   property (0..100); CSS owns dash offset and color.
+   ============================================================ */
+.wg-ring {
+    flex-shrink: 0;
+}
+
+.wg-ring__track {
+    fill: none;
+    stroke: var(--wg-border-strong);
+    stroke-width: 3;
+}
+
+.wg-ring__progress {
+    fill: none;
+    stroke: var(--wg-sun);
+    stroke-width: 3;
+    stroke-linecap: round;
+    stroke-dashoffset: calc(100 - var(--ring-progress, 0));
+    transition: stroke-dashoffset 0.4s ease, stroke 0.3s ease;
+}
+
+.wg-ring--closed .wg-ring__progress {
+    stroke: var(--wg-mint-soft);
+}
+
+.wg-ring__check {
+    fill: none;
+    stroke: var(--wg-mint-soft);
+    stroke-width: 3;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+/* ============================================================
    Gamification Journey screen (Plan 3, Task 2). Stacked gloss
    cards: a level/HP header with a sun progress bar, a 3-stat
    streak row, the five domain rings (horizontal gloss-inset
