@@ -358,7 +358,13 @@
             todayHp: Number.isFinite(rings.today_hp) ? rings.today_hp : 0,
             rings: list
                 .filter((r) => r && typeof r.ring === 'string')
-                .map((r) => ({ ring: r.ring, hp: Number(r.hp) || 0, closed: !!r.closed }))
+                .map((r) => ({
+                    ring: r.ring,
+                    hp: Number(r.hp) || 0,
+                    closed: !!r.closed,
+                    progress: Number.isFinite(r.progress) ? r.progress : (r.closed ? 1 : 0),
+                    goal: typeof r.goal === 'string' ? r.goal : ''
+                }))
         };
         return cell(value, 'journey', 'ok');
     }
@@ -1020,25 +1026,16 @@
         mind: { verb: 'Log last night’s sleep', section: 'health' }
     };
 
-    // Gloss-inset track with a --fill-pct fill (same convention as the journey
-    // bars + weight-goal card; allowed by the design-token guard). ratio clamps
-    // to [0,1].
-    function ringFillTrack(ratio) {
-        const d = doc();
-        const track = d.createElement('div');
-        track.className = 'wg-gloss--inset wg-journey-bar__track';
-        const fill = d.createElement('div');
-        fill.className = 'wg-journey-bar__fill wg-journey-bar__fill--sun';
-        let pct = Number(ratio);
-        if (!Number.isFinite(pct)) pct = 0;
-        pct = Math.max(0, Math.min(1, pct));
-        fill.style.setProperty('--fill-pct', `${(pct * 100).toFixed(1)}%`);
-        track.appendChild(fill);
-        return track;
+    function ringSvgOrNull(opts) {
+        if (typeof window === 'undefined' || !window.WGRing || typeof window.WGRing.render !== 'function') {
+            return null;
+        }
+        return window.WGRing.render(opts);
     }
 
-    // Today rings summary card. Reuses the journey ring-row + bar CSS but as a
-    // tappable card with a today-HP header; tapping deep-links to Journey.
+    // Today rings summary card. Reuses the journey ring-row CSS plus the
+    // wg-ring SVG gauge, as a tappable card with a today-HP header; tapping
+    // deep-links to Journey.
     function renderRingsTile(cell, onDeeplink) {
         if (!cell || cell.status === 'disabled') return null;
         const d = doc();
@@ -1124,16 +1121,19 @@
             card.appendChild(empty);
         } else {
             const hpByRing = {};
-            let max = 0;
+            const progressByRing = {};
+            const goalByRing = {};
             for (const r of ringList) {
                 hpByRing[r.ring] = r.hp;
-                if (r.hp > max) max = r.hp;
+                progressByRing[r.ring] = r.progress;
+                goalByRing[r.ring] = r.goal;
             }
             const list = d.createElement('div');
             list.className = 'wg-journey-rings__list';
             for (const meta of RING_TILE_META) {
                 const ringHp = hpByRing[meta.ring] || 0;
                 const isClosed = !!closedByRing[meta.ring];
+                const goal = goalByRing[meta.ring] || '';
                 const row = d.createElement('div');
                 row.className = 'wg-journey-ring';
                 const head = d.createElement('div');
@@ -1165,12 +1165,35 @@
                 value.textContent = String(ringHp);
                 head.appendChild(value);
                 row.appendChild(head);
-                // Fill is relative to today's leader, so the top ring reads full.
-                row.appendChild(ringFillTrack(max > 0 ? ringHp / max : 0));
+                // Honest fill: closed always draws a full ring; open rings draw
+                // their real range-membership progress toward closing — never a
+                // bar relative to today's other rings (the bug this replaces).
+                const ring = ringSvgOrNull({
+                    progress: progressByRing[meta.ring],
+                    closed: isClosed,
+                    label: meta.label,
+                    value: isClosed ? 'Closed' : `${ringHp} HP`
+                });
+                if (ring) row.appendChild(ring);
+                if (goal) {
+                    const sub = d.createElement('p');
+                    sub.className = 'wg-journey-ring__sub wg-muted';
+                    sub.textContent = goal;
+                    row.appendChild(sub);
+                }
                 list.appendChild(row);
             }
             card.appendChild(list);
         }
+
+        const journeyLink = d.createElement('div');
+        journeyLink.className = 'wg-today-rings__journey-link';
+        const journeyText = d.createElement('span');
+        journeyText.textContent = 'View Journey';
+        journeyLink.appendChild(journeyText);
+        const journeyIcon = iconSvgOrNull('chevronRight', 14);
+        if (journeyIcon) journeyLink.appendChild(journeyIcon);
+        card.appendChild(journeyLink);
 
         card.addEventListener('click', () => {
             if (typeof onDeeplink === 'function') onDeeplink(cell.deeplink || 'journey');

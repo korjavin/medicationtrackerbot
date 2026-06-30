@@ -5433,6 +5433,19 @@ textarea.wg-input {
     color: var(--wg-fg-3);
 }
 
+/* Explicit "View Journey →" affordance, distinct from the "your move" deep
+   link — the whole card already navigates to Journey on tap; this just makes
+   that destination discoverable instead of implicit. */
+.wg-today-rings__journey-link {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-xs);
+    margin-top: var(--space-sm);
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-3);
+}
+
 /* Check mark on a closed ring row (landed in range, not just logged). */
 .wg-journey-ring__check {
     display: inline-flex;

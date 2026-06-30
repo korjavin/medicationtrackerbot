@@ -102,11 +102,11 @@ ladder labels (keep the ladder, mark Phase-2 tiers "soon", don't hide them).
 - [x] `tests/wg-ring.test.js` (the documented component-test exception): assert the arc geometry — `progress=0` → empty arc, `progress=1`/`closed` → full circle + done state, a mid value → proportional dash offset
 
 ### Task 4: Frontend — Today rings tile: real rings + goals + clear Journey entry (ideas #1, #2, #4)
-- [ ] in `features/today.js` `renderRingsTile()` (1042–1179), replace each `ringFillTrack()` bar (1026–1038, 1169) with a `wg-ring` fed by the ring's `progress` + `closed`
-- [ ] render the per-ring `goal` string as the ring's subtitle (replaces the generic verb)
-- [ ] keep the "N of 5 rings closed" headline (1067), the per-ring check on closed, the "your move" first-open-ring prompt (1095) and its logging deep-link with `stopPropagation` (1100)
-- [ ] add an explicit **"View Journey →"** affordance on the tile (chevron/link) so the card's navigation is discoverable, distinct from the "your move" logging deep-link
-- [ ] retire the now-unused `ringFillTrack` if no other caller remains (grep first)
+- [x] in `features/today.js` `renderRingsTile()` (1042–1179), replace each `ringFillTrack()` bar (1026–1038, 1169) with a `wg-ring` fed by the ring's `progress` + `closed`
+- [x] render the per-ring `goal` string as the ring's subtitle (replaces the generic verb)
+- [x] keep the "N of 5 rings closed" headline (1067), the per-ring check on closed, the "your move" first-open-ring prompt (1095) and its logging deep-link with `stopPropagation` (1100)
+- [x] add an explicit **"View Journey →"** affordance on the tile (chevron/link) so the card's navigation is discoverable, distinct from the "your move" logging deep-link
+- [x] retire the now-unused `ringFillTrack` if no other caller remains (grep first)
 
 ### Task 5: Frontend — Journey screen: rings + goals + honest ladder + explainer (ideas #1, #2, #3, #4)
 - [ ] in `features/journey.js` `renderRings()` (127–190), swap `progressBar()` (66–75) for `wg-ring` using `progress` + `closed`; show `goal` as each ring's sub-line; closed ring → full ring + "Closed for today" note (keep 178–180), open ring → partial arc + its goal (never a misleading short bar)
