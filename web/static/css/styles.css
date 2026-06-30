@@ -5299,6 +5299,32 @@ textarea.wg-input {
     letter-spacing: 0.08em;
 }
 
+/* "How this works" explainer card (Plan 5, Task 5) — static term/desc rows,
+   the first-run primer that was never shipped. */
+.wg-journey-explainer__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-journey-explainer__row {
+    display: flex;
+    gap: var(--space-sm);
+}
+
+.wg-journey-explainer__term {
+    flex: 0 0 auto;
+    width: 96px;
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--wg-fg-2);
+}
+
+.wg-journey-explainer__desc {
+    flex: 1;
+    font-size: var(--font-size-sm);
+}
+
 /* Streak card — 3 mono stat cells. */
 .wg-journey-stat-row {
     display: flex;
@@ -5523,6 +5549,12 @@ textarea.wg-input {
 
 .wg-journey-ladder__row--locked .wg-journey-ladder__marker {
     color: var(--wg-fg-4);
+}
+
+/* Tier 1 is the only row with a real destination (the rings card above) —
+   tappable, unlike the Phase-2 tiers it sits next to. */
+.wg-journey-ladder__row--linked {
+    cursor: pointer;
 }
 
 .wg-journey-empty {

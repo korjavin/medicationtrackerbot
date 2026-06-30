@@ -54,6 +54,13 @@
         return null;
     }
 
+    function ringSvgOrNull(opts) {
+        if (typeof window === 'undefined' || !window.WGRing || typeof window.WGRing.render !== 'function') {
+            return null;
+        }
+        return window.WGRing.render(opts);
+    }
+
     function el(tag, className, text) {
         const node = document.createElement(tag);
         if (className) node.className = className;
@@ -106,6 +113,32 @@
         return card;
     }
 
+    // First-run explainer (Plan 5, Task 5) — a short, static term/desc card
+    // covering HP, rings, closing, levels and the insight ladder in plain
+    // language. No collapse/expand JS: it's five short lines, not worth the
+    // state.
+    const EXPLAINER_TERMS = [
+        ['HP', 'Healthy actions earn HealthPoints (HP).'],
+        ['Rings', 'Each ring tracks one area of your health — adherence, movement, vitals, nourishment, mind.'],
+        ['Closing a ring', 'A ring closes when today’s number lands in your target range, not just from logging.'],
+        ['Levels', 'HP adds up across days; enough HP levels you up.'],
+        ['Insight ladder', 'Levelling up unlocks deeper personal analytics below — some are still coming soon.'],
+    ];
+
+    function renderExplainer() {
+        const card = el('section', 'wg-card wg-journey-explainer');
+        card.appendChild(el('div', 'wg-section-label', 'HOW THIS WORKS'));
+        const list = el('div', 'wg-journey-explainer__list');
+        EXPLAINER_TERMS.forEach(([term, desc]) => {
+            const row = el('div', 'wg-journey-explainer__row');
+            row.appendChild(el('span', 'wg-journey-explainer__term', term));
+            row.appendChild(el('span', 'wg-journey-explainer__desc wg-muted', desc));
+            list.appendChild(row);
+        });
+        card.appendChild(list);
+        return card;
+    }
+
     function statCell(label, value) {
         const cell = el('div', 'wg-journey-stat');
         cell.appendChild(el('span', 'wg-mono-display wg-journey-stat__value', String(value)));
@@ -126,18 +159,21 @@
 
     function renderRings(j) {
         const card = el('section', 'wg-card wg-journey-rings');
+        card.id = 'journey-rings-card';
 
         const rings = Array.isArray(j.today_rings) ? j.today_rings : [];
         const hpByRing = {};
+        const progressByRing = {};
+        const goalByRing = {};
         const closedByRing = {};
-        let max = 0;
         let closedCount = 0;
         rings.forEach((r) => {
             if (!r || typeof r.ring !== 'string') return;
             const hp = Number(r.hp) || 0;
             hpByRing[r.ring] = hp;
+            progressByRing[r.ring] = r.progress;
+            goalByRing[r.ring] = r.goal;
             if (r.closed) { closedByRing[r.ring] = true; closedCount += 1; }
-            if (hp > max) max = hp;
         });
 
         // Closed count in the section label turns the rings from a scoreboard
@@ -174,15 +210,24 @@
             head.appendChild(el('span', 'wg-mono-display wg-journey-ring__hp', String(hp)));
             row.appendChild(head);
 
-            // The "how" subtitle answers "how do I get this ring?" inline. Once
-            // closed it switches to a done note instead of nagging.
-            row.appendChild(el('p', 'wg-journey-ring__sub wg-muted',
-                isClosed ? 'Closed for today' : meta.how));
+            // Honest fill: closed always draws a full ring; an open ring draws
+            // its real range-membership progress toward closing — never a bar
+            // relative to today's other rings (the bug this replaces).
+            const ring = ringSvgOrNull({
+                progress: progressByRing[meta.ring],
+                closed: isClosed,
+                label: meta.label,
+                value: isClosed ? 'Closed' : `${hp} HP`
+            });
+            if (ring) row.appendChild(ring);
 
-            // Fill is relative to the highest-scoring ring today, so the leader
-            // reads full and the others scale against it. All-zero days render
-            // empty tracks rather than NaN.
-            row.appendChild(progressBar(max > 0 ? hp / max : 0));
+            // The subtitle answers "what closes this ring?" with the user's
+            // real goal numbers (falls back to the generic "how" when the
+            // backend hasn't sent a goal). Once closed it switches to a done
+            // note instead of nagging.
+            row.appendChild(el('p', 'wg-journey-ring__sub wg-muted',
+                isClosed ? 'Closed for today' : (goalByRing[meta.ring] || meta.how)));
+
             list.appendChild(row);
         });
         card.appendChild(list);
@@ -220,6 +265,16 @@
         return card;
     }
 
+    // Scrolls to the rings card — the real destination tier 1 ("Rings &
+    // streak") describes. Tiers 2-4 have no built destination yet (Phase 2),
+    // so they never get this treatment or the word "Unlocked".
+    function goToRingsCard() {
+        const target = document.getElementById('journey-rings-card');
+        if (target && typeof target.scrollIntoView === 'function') {
+            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    }
+
     function renderLadder(j) {
         const card = el('section', 'wg-card wg-journey-ladder');
         card.appendChild(el('div', 'wg-section-label', 'INSIGHT LADDER'));
@@ -230,11 +285,17 @@
 
         const list = el('div', 'wg-journey-ladder__list');
         LADDER.forEach((entry) => {
-            const isUnlocked = unlocked.has(entry.tier);
-            const row = el('div', 'wg-journey-ladder__row' + (isUnlocked ? '' : ' wg-journey-ladder__row--locked'));
+            // Honest labels: "Unlocked" only ever appears where there is a
+            // real destination to view. Tier 1 is the only tier with a built
+            // screen (the rings/streak cards above); tiers 2-4 are Phase 2 —
+            // they always read "Unlocks at Lvl N · soon", regardless of the
+            // backend's level-derived unlocked_tiers.
+            const hasDestination = entry.tier === 1 && unlocked.has(entry.tier);
+            const row = el('div', 'wg-journey-ladder__row' +
+                (hasDestination ? ' wg-journey-ladder__row--linked' : ' wg-journey-ladder__row--locked'));
 
             const marker = el('span', 'wg-journey-ladder__marker');
-            const markIcon = icon(isUnlocked ? 'check' : 'bolt', 14);
+            const markIcon = icon(hasDestination ? 'check' : 'bolt', 14);
             if (markIcon) marker.appendChild(markIcon);
             row.appendChild(marker);
 
@@ -244,8 +305,17 @@
             row.appendChild(body);
 
             const status = el('span', 'wg-tag wg-tag--mono wg-journey-ladder__status',
-                isUnlocked ? 'Unlocked' : `Lvl ${entry.level}`);
+                hasDestination ? 'Unlocked → view' : `Unlocks at Lvl ${entry.level} · soon`);
             row.appendChild(status);
+
+            if (hasDestination) {
+                row.setAttribute('role', 'button');
+                row.setAttribute('tabindex', '0');
+                row.addEventListener('click', goToRingsCard);
+                row.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goToRingsCard(); }
+                });
+            }
 
             list.appendChild(row);
         });
@@ -264,6 +334,7 @@
 
         const cards = [
             renderHeader(journey),
+            renderExplainer(),
             renderStreak(journey),
             renderRings(journey),
             renderHistory(journey),

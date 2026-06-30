@@ -109,10 +109,10 @@ ladder labels (keep the ladder, mark Phase-2 tiers "soon", don't hide them).
 - [x] retire the now-unused `ringFillTrack` if no other caller remains (grep first)
 
 ### Task 5: Frontend — Journey screen: rings + goals + honest ladder + explainer (ideas #1, #2, #3, #4)
-- [ ] in `features/journey.js` `renderRings()` (127–190), swap `progressBar()` (66–75) for `wg-ring` using `progress` + `closed`; show `goal` as each ring's sub-line; closed ring → full ring + "Closed for today" note (keep 178–180), open ring → partial arc + its goal (never a misleading short bar)
-- [ ] rework `renderLadder()` (223–254) + `LADDER` (42–47) per the **honest-labels** decision: tier 1 (built) shows `"Unlocked → view"` and navigates to the rings/streak it describes; tiers 2–4 show `"Unlocks at Lvl N · soon"` instead of `"Unlocked"` — `"Unlocked"` only ever appears where there is a real destination
-- [ ] add a short **"How this works"** intro card to `#journey-view` (collapsible or a one-card blurb) covering, in plain language: HP, what a ring is, what *closing* a ring means, levels, and that the insight ladder unlocks deeper personal analytics (some coming soon) — the minimal first-run explainer the design (§14, principle #7) called for but never shipped
-- [ ] retire the now-unused `progressBar()` if no other caller remains (grep first)
+- [x] in `features/journey.js` `renderRings()` (127–190), swap `progressBar()` (66–75) for `wg-ring` using `progress` + `closed`; show `goal` as each ring's sub-line; closed ring → full ring + "Closed for today" note (keep 178–180), open ring → partial arc + its goal (never a misleading short bar)
+- [x] rework `renderLadder()` (223–254) + `LADDER` (42–47) per the **honest-labels** decision: tier 1 (built) shows `"Unlocked → view"` and navigates to the rings/streak it describes; tiers 2–4 show `"Unlocks at Lvl N · soon"` instead of `"Unlocked"` — `"Unlocked"` only ever appears where there is a real destination
+- [x] add a short **"How this works"** intro card to `#journey-view` (collapsible or a one-card blurb) covering, in plain language: HP, what a ring is, what *closing* a ring means, levels, and that the insight ladder unlocks deeper personal analytics (some coming soon) — the minimal first-run explainer the design (§14, principle #7) called for but never shipped
+- [x] retire the now-unused `progressBar()` if no other caller remains (grep first) — still used by `renderHeader()`'s level-to-next-level bar (a different concept than the closing rings), so it stays
 
 ### Task 6: Verify acceptance criteria
 - [ ] each of the user's four confusions is resolved on-screen: rings are rings; a closed ring is a *full* ring; every ring shows a concrete goal incl. the nourishment calorie range; the ladder no longer says "Unlocked" for anything without a destination
