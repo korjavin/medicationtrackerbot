@@ -121,8 +121,8 @@ ladder labels (keep the ladder, mark Phase-2 tiers "soon", don't hide them).
 - [x] frontend + Go linters clean (`golangci-lint run` on touched gamification packages: 0 issues; `gofmt -l` shows no new unformatted files; no JS lint script configured in this repo, `pnpm test` is the full frontend gate)
 
 ### Task 7: [Final] Update documentation
-- [ ] update `docs/gamification.md` §14.3 (Frontend surfaces) to describe: SVG rings, `RingScore.Progress`/`Goal`, the honest ladder labels, and the Journey "How this works" card — replacing the "horizontal bars" / relative-fill description
-- [ ] update any stale "bars" wording in `css/styles.css` header comments (5185–5289) and `wg-bottom-nav.js` if needed
+- [x] update `docs/gamification.md` §14.3 (Frontend surfaces) to describe: SVG rings, `RingScore.Progress`/`Goal`, the honest ladder labels, and the Journey "How this works" card — replacing the "horizontal bars" / relative-fill description
+- [x] update any stale "bars" wording in `css/styles.css` header comments (5185–5289) and `wg-bottom-nav.js` if needed (`wg-bottom-nav.js` had none; `styles.css` Journey-screen header comment updated to describe `wg-ring` arc gauges)
 
 *Note: ralphex automatically moves completed plans to `docs/plans/completed/`.*
 

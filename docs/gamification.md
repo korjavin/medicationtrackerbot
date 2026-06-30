@@ -591,15 +591,15 @@ all gated on the `gamification` feature flag and rendered with `--wg-*` tokens o
   ladder L1–L4 (locked/unlocked from `unlocked_tiers`).
 - **Today rings widget** — a `gamificationRingsCell` tile in `features/today.js`
   (card deeplinks to Journey), fed by a `gamification_rings` Today fetch spec
-  (`GET /api/gamification/rings`); hidden when the flag is off. Beyond the per-ring
-  HP bars it surfaces the **next-step** loop: a **"N of 5 rings closed"** headline
-  (each ring carries a `closed` flag = earned a non-floor outcome/consistency award
-  today), a check on each closed ring, and a single **"your move"** prompt — the
-  first open ring in canonical order, deep-linking to that ring's own logging
-  section (`meds`/`workouts`/`bp`/`food`/`health`). All five closed → a celebration
-  line, no nag. This is the lightweight, frontend-driven version of the
-  challenges/quests vision (§10): the "what do I do next?" compass without a
-  backend suggestion engine.
+  (`GET /api/gamification/rings`); hidden when the flag is off. Beyond the
+  per-ring gauges it surfaces the **next-step** loop: a **"N of 5 rings closed"**
+  headline (each ring carries a `closed` flag = earned a non-floor
+  outcome/consistency award today), a check on each closed ring, and a single
+  **"your move"** prompt — the first open ring in canonical order, deep-linking
+  to that ring's own logging section (`meds`/`workouts`/`bp`/`food`/`health`).
+  All five closed → a celebration line, no nag. This is the lightweight,
+  frontend-driven version of the challenges/quests vision (§10): the "what do I
+  do next?" compass without a backend suggestion engine.
 - **Settings targets editor** — `#gamification-targets-settings`, populated from
   `GET /api/gamification/targets` and saved via `DataStore.applyOptimistic` →
   `PUT /api/gamification/targets` (Critical Rule #9) for the six band metrics the
@@ -610,6 +610,56 @@ Per direction this plan authored no new tests; verification was frontend lint + 
 existing architecture guards (globals allowlist incl. `window.Gamification`, design
 tokens, SW precache) + the no-regression run + manual browser/emulator smoke. See
 [docs/frontend.md → Navigation](frontend.md#navigation) for the runtime wiring.
+
+### 14.3.1 Clarity pass — Plan 5 (status)
+
+Plan 3 shipped the rings as relative-fill horizontal bars (`hp ÷
+highest-scoring-ring-today`), independent of the `closed` flag — a ring could be
+`closed: true` and still render a short bar, and the nourishment ring gave no
+hint whether to eat more or less. Plan 5
+([docs/plans/2026-06-30-gamification-5-clarity.md](plans/2026-06-30-gamification-5-clarity.md))
+made the daily loop honest with two additive `RingScore` fields and a real arc
+gauge:
+
+- **`RingScore.Progress`** (`internal/store/gamification/repo.go`, populated in
+  `domain/gamification/summary.go` `ringScores()`) — `0..1`, `1.0` whenever
+  `Closed` is true, otherwise the day's real range-membership `r` from the pure
+  scorer (`ScoreDay`'s per-ring trapezoid membership, computed alongside the
+  existing recent-window re-score and otherwise discarded). `Closed` and
+  `Progress` can no longer disagree. Only populated for **today's** rings;
+  `PeriodRings` (weekly) leave `Progress` at `0`.
+- **`RingScore.Goal`** — a short, token-free imperative string built server-side
+  from the user's effective bands + food targets, e.g. `"Eat near target ·
+  1,800–2,200 kcal"` for nourishment (answers "more or less?" directly) or
+  `"Sleep 7–9h"` for mind. Both fields flow through `ringsView`, the summary,
+  journey, and bootstrap payloads unchanged (additive JSON, old clients ignore
+  them).
+- **`wg-ring`** (`web/static/js/components/wg-ring.js`) — a small SVG arc-gauge
+  web component (fixed radius so circumference ≈ 100 user units; JS sets only
+  the `--ring-progress` custom property, CSS owns the dash offset/color)
+  replaces the relative-fill bar on both the Today rings tile and the Journey
+  screen's five domain rings. A closed ring always renders as a full ring with a
+  check; an open ring renders a partial arc proportional to `progress`, never a
+  bar that can read "closed" while visibly short.
+- **Goal subtitles** — every ring (Today tile and Journey) shows its `goal`
+  string as a sub-line, so what closes the ring is always stated in the user's
+  own numbers.
+- **Honest insight ladder** — `journey.js` `renderLadder()` only ever emits
+  `"Unlocked → view"` for a tier that has a real destination
+  (`hasDestination`); tiers without one read `"Unlocks at Lvl N · soon"` instead
+  of the previous blanket `"Unlocked"`.
+- **Discoverable Journey entry + first-run explainer** — the Today rings tile
+  gained an explicit "View Journey →" affordance distinct from the "your move"
+  logging deep-link, and `#journey-view` gained a short "How this works" card
+  explaining HP, rings, closing, levels, and the insight ladder in plain
+  language — the first-run explainer §15 called for but never shipped.
+
+Per direction this plan added one test (`tests/wg-ring.test.js`, the arc-geometry
+math — the documented web-component exception to integration-first testing,
+CLAUDE.md rule 8); no other new tests, matching the no-backend-test posture of
+Plans 2–3. Verification was `go test ./...`, `pnpm test` (243 files / 2636
+tests), `golangci-lint`/`gofmt` on touched packages, and manual browser/emulator
+smoke of the four originally-reported confusions.
 
 ### 14.4 Dynamic re-scoring — Plan 4 (status)
 
