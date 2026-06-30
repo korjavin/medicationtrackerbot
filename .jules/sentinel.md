@@ -22,3 +22,7 @@
 **Vulnerability:** Use of default `http.Client{}` without timeouts in external API calls (e.g., OIDC userinfo, OpenFoodFacts).
 **Learning:** Default HTTP clients in Go have no timeout, meaning a slow or unresponsive external server can cause goroutines to hang indefinitely, leading to resource exhaustion (DoS).
 **Prevention:** Always initialize `http.Client` with explicit timeouts (e.g., `&http.Client{Timeout: 10 * time.Second}`) when making external requests.
+## 2026-06-28 - [WebPush DoS and Unbounded Reads]
+**Vulnerability:** Resource exhaustion / DoS via unbounded HTTP clients and unbounded body reads.
+**Learning:** The webpush library can use the default `http.Client` without timeouts and reads unlimited error responses via `io.ReadAll(resp.Body)`, which can consume excessive memory and crash the server if a push endpoint goes rogue or hangs.
+**Prevention:** Always provide an explicitly configured `http.Client` with timeouts to third-party libraries (e.g. `webpush-go`) and wrap untrusted responses with `io.LimitReader` before reading the body.

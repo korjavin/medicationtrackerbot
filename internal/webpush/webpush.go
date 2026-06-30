@@ -40,6 +40,7 @@ type Service struct {
 	vapidSubject    string
 	adminEmail      string
 	domain          string
+	httpClient      *http.Client
 }
 
 func New(subs SubscriptionStore, publicKey, privateKey, subject, adminEmail, domain string) *Service {
@@ -50,6 +51,7 @@ func New(subs SubscriptionStore, publicKey, privateKey, subject, adminEmail, dom
 		vapidSubject:    subject,
 		adminEmail:      adminEmail,
 		domain:          domain,
+		httpClient:      &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -350,6 +352,7 @@ func (s *Service) sendToSubscription(sub push.PushSubscription, payload []byte) 
 		VAPIDPublicKey:  s.vapidPublicKey,
 		VAPIDPrivateKey: s.vapidPrivateKey,
 		TTL:             3600 * 12, // 12 hours
+		HTTPClient:      s.httpClient,
 	})
 	if err != nil {
 		slog.Error("WebPush error", "endpoint", sub.Endpoint, "error", err)
@@ -366,7 +369,7 @@ func (s *Service) sendToSubscription(sub push.PushSubscription, payload []byte) 
 		return fmt.Errorf("webpush: subscription gone: %s", sub.Endpoint)
 	} else if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		// Read response body for error details
-		bodyBytes, readErr := io.ReadAll(resp.Body)
+		bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		if readErr == nil && len(bodyBytes) > 0 {
 			slog.Warn("WebPush unexpected status", "statusCode", resp.StatusCode, "endpoint", sub.Endpoint, "response", string(bodyBytes))
 		} else {
