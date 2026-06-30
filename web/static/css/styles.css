@@ -5399,6 +5399,31 @@ textarea.wg-input {
     color: var(--wg-sun);
 }
 
+/* "Why" line under the rings label + per-ring "how to fill" subtitle. */
+.wg-journey-rings__why {
+    font-size: var(--font-size-sm);
+    margin: 0 0 var(--space-sm);
+}
+
+.wg-journey-ring__sub {
+    font-size: var(--wg-font-size-tag);
+    margin: 2px 0 var(--space-xs);
+}
+
+/* Points-history card — sparkline trend of HP per active day + caption. */
+.wg-journey-history__chart {
+    margin: var(--space-xs) 0 var(--space-sm);
+}
+
+.wg-journey-history__chart .wg-sparkline {
+    width: 100%;
+    height: auto;
+}
+
+.wg-journey-history__caption {
+    font-size: var(--font-size-sm);
+}
+
 /* Insight ladder card. */
 .wg-journey-ladder__list {
     display: flex;

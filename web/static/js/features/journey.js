@@ -21,13 +21,16 @@
     const STALE_AFTER_MS = 6 * 60 * 60 * 1000; // 6h — matches the cache-keys registry
 
     // Ring display metadata in canonical order (matches the backend's
-    // ringScores ordering). Icons come from the WGIcons registry.
+    // ringScores ordering). Icons come from the WGIcons registry. `how` is the
+    // plain-language action that fills the ring — answers "how do I get this?"
+    // right on the row (mirrors today.js RING_MOVE_META verbs; no HP number,
+    // which lives in the backend Config and would drift if duplicated here).
     const RINGS = [
-        { ring: 'adherence', label: 'Adherence', icon: 'pill' },
-        { ring: 'movement', label: 'Movement', icon: 'activity' },
-        { ring: 'vitals', label: 'Vitals', icon: 'heart' },
-        { ring: 'nourishment', label: 'Nourishment', icon: 'apple' },
-        { ring: 'mind', label: 'Mind', icon: 'moon' },
+        { ring: 'adherence', label: 'Adherence', icon: 'pill', how: 'Take your meds on time' },
+        { ring: 'movement', label: 'Movement', icon: 'activity', how: 'Log a workout' },
+        { ring: 'vitals', label: 'Vitals', icon: 'heart', how: 'Log a BP reading' },
+        { ring: 'nourishment', label: 'Nourishment', icon: 'apple', how: 'Log a meal' },
+        { ring: 'mind', label: 'Mind', icon: 'moon', how: 'Log last night’s sleep' },
     ];
 
     // Insight ladder rows for the MVP (InsightMaxTier=4). tier → unlock level
@@ -123,21 +126,31 @@
 
     function renderRings(j) {
         const card = el('section', 'wg-card wg-journey-rings');
-        card.appendChild(el('div', 'wg-section-label', 'TODAY’S RINGS'));
 
         const rings = Array.isArray(j.today_rings) ? j.today_rings : [];
         const hpByRing = {};
+        const closedByRing = {};
         let max = 0;
+        let closedCount = 0;
         rings.forEach((r) => {
             if (!r || typeof r.ring !== 'string') return;
             const hp = Number(r.hp) || 0;
             hpByRing[r.ring] = hp;
+            if (r.closed) { closedByRing[r.ring] = true; closedCount += 1; }
             if (hp > max) max = hp;
         });
+
+        // Closed count in the section label turns the rings from a scoreboard
+        // into a goal ("3 of 5 closed"); the why-line says what a ring *is*.
+        card.appendChild(el('div', 'wg-section-label',
+            `TODAY’S RINGS · ${closedCount} OF ${RINGS.length} CLOSED`));
+        card.appendChild(el('p', 'wg-journey-rings__why wg-muted',
+            'Close each ring daily — one per area of your health.'));
 
         const list = el('div', 'wg-journey-rings__list');
         RINGS.forEach((meta) => {
             const hp = hpByRing[meta.ring] || 0;
+            const isClosed = !!closedByRing[meta.ring];
             const row = el('div', 'wg-journey-ring');
 
             const head = el('div', 'wg-journey-ring__head');
@@ -148,8 +161,23 @@
                 head.appendChild(wrap);
             }
             head.appendChild(el('span', 'wg-journey-ring__label', meta.label));
+            // A check marks a closed ring (landed in range, not just logged).
+            if (isClosed) {
+                const chk = icon('check', 14);
+                if (chk) {
+                    const cw = el('span', 'wg-journey-ring__check');
+                    cw.setAttribute('aria-label', 'closed');
+                    cw.appendChild(chk);
+                    head.appendChild(cw);
+                }
+            }
             head.appendChild(el('span', 'wg-mono-display wg-journey-ring__hp', String(hp)));
             row.appendChild(head);
+
+            // The "how" subtitle answers "how do I get this ring?" inline. Once
+            // closed it switches to a done note instead of nagging.
+            row.appendChild(el('p', 'wg-journey-ring__sub wg-muted',
+                isClosed ? 'Closed for today' : meta.how));
 
             // Fill is relative to the highest-scoring ring today, so the leader
             // reads full and the others scale against it. All-zero days render
@@ -158,6 +186,37 @@
             list.appendChild(row);
         });
         card.appendChild(list);
+        return card;
+    }
+
+    // Points-history card — turns the already-fetched (but previously discarded)
+    // hp_history into a sparkline trend + caption. Each entry is one day that
+    // earned HP (sparse), so "N days" counts active days, not calendar days.
+    // Returns null when there's no history so a fresh account skips the card.
+    function renderHistory(j) {
+        const hist = Array.isArray(j.hp_history) ? j.hp_history : [];
+        if (hist.length === 0) return null;
+
+        const WINDOW = 30;
+        const recent = hist.slice(-WINDOW);
+        const points = recent.map((d) => Number(d && d.hp) || 0);
+        const total = points.reduce((a, b) => a + b, 0);
+
+        const card = el('section', 'wg-card wg-journey-history');
+        card.appendChild(el('div', 'wg-section-label', 'POINTS HISTORY'));
+
+        if (window.WGSparkline && typeof window.WGSparkline.render === 'function') {
+            const spark = window.WGSparkline.render({ points, variant: 'sun', width: 300, height: 56 });
+            if (spark) {
+                const chart = el('div', 'wg-journey-history__chart');
+                chart.appendChild(spark);
+                card.appendChild(chart);
+            }
+        }
+
+        const days = recent.length;
+        card.appendChild(el('div', 'wg-journey-history__caption wg-muted',
+            `Last ${days} day${days === 1 ? '' : 's'} · ${total.toLocaleString()} HP`));
         return card;
     }
 
@@ -203,12 +262,14 @@
             return;
         }
 
-        content.replaceChildren(
+        const cards = [
             renderHeader(journey),
             renderStreak(journey),
             renderRings(journey),
-            renderLadder(journey)
-        );
+            renderHistory(journey),
+            renderLadder(journey),
+        ].filter(Boolean);
+        content.replaceChildren(...cards);
     }
 
     // Mounts the freshness chip into the Journey header from the api_cache
