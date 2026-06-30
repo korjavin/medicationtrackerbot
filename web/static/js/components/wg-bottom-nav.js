@@ -9,9 +9,11 @@
 //   - items:   Array<{ id, label, icon }> — icon name is looked up in WGIcons
 //   - active:  id of the initially-active slot (optional)
 //   - onChange(id): called on click with the slot's id
-//   WGBottomNav.DEFAULT_ITEMS — the canonical slot ordering (8 sections + the
-//                               flag-gated Journey slot); consumers may filter
-//                               it by feature flags before passing.
+//   WGBottomNav.DEFAULT_ITEMS — the canonical slot ordering (8 sections);
+//                               consumers may filter it by feature flags before
+//                               passing. Gamification ("Journey") is NOT a nav
+//                               slot — it is reached from the Today dashboard
+//                               rings tile (deeplink → switchTab('journey')).
 //
 // Styling: all visuals come from CSS classes on `.wg-bottom-nav` and
 // `.wg-nav-item`. The one exception is `--wg-nav-cols` which is set via
@@ -20,14 +22,13 @@
 // Allowlisted in architecture.no-inline-styles.test.js (when that test lands).
 
 (function () {
-    // Canonical order per the design mockup:
+    // Canonical order per the design mockup (CLAUDE.md rule 6):
     //   row 1: today / bp / food / meds
     //   row 2: health("Vitals") / workouts / weight / settings
     // The 'health' id is kept as the internal slug for route + storage
     // stability; only the user-facing label is "Vitals".
-    // 'journey' (gamification) sits just before Settings so Settings stays the
-    // final slot; it is filtered out before mount when the feature is off
-    // (NAV_ID_TO_FEATURE in features/bootstrap.js), so most users still see 8.
+    // Gamification ("Journey") is intentionally NOT a nav slot — it is reached
+    // from the Today dashboard rings tile (deeplink → switchTab('journey')).
     const DEFAULT_ITEMS = Object.freeze([
         { id: 'today', label: 'Today', icon: 'home' },
         { id: 'bp', label: 'BP', icon: 'activity' },
@@ -36,13 +37,12 @@
         { id: 'health', label: 'Vitals', icon: 'heart' },
         { id: 'workouts', label: 'Workouts', icon: 'dumbbell' },
         { id: 'weight', label: 'Weight', icon: 'scale' },
-        { id: 'journey', label: 'Journey', icon: 'bolt' },
         { id: 'settings', label: 'Settings', icon: 'settings' },
     ]);
 
     // Layout rule: ≤5 items → one row; 6–10 items → two rows; >10 is out of
-    // scope (returns null to surface misuse in tests). The 9th slot (Journey,
-    // gamification) lands two rows of 5/4.
+    // scope (returns null to surface misuse in tests). The default 8 slots
+    // lay out as two rows of 4.
     function colsFor(count) {
         if (count <= 0) return null;
         if (count <= 5) return count;

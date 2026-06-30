@@ -108,7 +108,6 @@ const NAV_ID_TO_FEATURE = {
     workouts: 'workout',
     food: 'food',
     health: 'health',
-    journey: 'gamification',
 };
 function filterNavItemsByFeatures(items, features) {
     if (!features) return items.slice();

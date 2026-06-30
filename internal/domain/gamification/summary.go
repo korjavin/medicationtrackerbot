@@ -117,8 +117,15 @@ func (s *service) GetSummary(ctx context.Context, userID int64) (Summary, error)
 // missing) for a stable frontend layout.
 func ringScores(entries []gamstore.LedgerEntry) []gamstore.RingScore {
 	byRing := make(map[string]int, 5)
+	closed := make(map[string]bool, 5)
 	for _, e := range entries {
 		byRing[e.Ring] += e.HP
+		// A non-floor award (outcome or consistency) means the ring was
+		// "closed": the user landed in range / kept a good pattern, not just
+		// logged honestly. See RingScore.Closed.
+		if e.Kind != scoring.KindFloor {
+			closed[e.Ring] = true
+		}
 	}
 	order := []string{
 		scoring.RingAdherence,
@@ -129,7 +136,7 @@ func ringScores(entries []gamstore.LedgerEntry) []gamstore.RingScore {
 	}
 	out := make([]gamstore.RingScore, 0, len(order))
 	for _, ring := range order {
-		out = append(out, gamstore.RingScore{Ring: ring, HP: byRing[ring]})
+		out = append(out, gamstore.RingScore{Ring: ring, HP: byRing[ring], Closed: closed[ring]})
 	}
 	return out
 }

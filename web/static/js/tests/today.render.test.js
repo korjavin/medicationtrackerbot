@@ -455,4 +455,61 @@ describe('TodayDashboard.renderToday', () => {
         expect(empty).not.toBeNull();
         expect(empty.textContent.toLowerCase()).toMatch(/offline|reconnect/);
     });
+
+    // Gamification rings tile: "X of 5 closed" headline + the "your move"
+    // next-step prompt (first open ring in canonical order, deep-linking to its
+    // own section, not Journey).
+    function ringsState(now, closedRings) {
+        const all = ['adherence', 'movement', 'vitals', 'nourishment', 'mind'];
+        const state = allPresentState(now);
+        state.gamificationRings = {
+            value: {
+                level: 4,
+                todayHp: 28,
+                rings: all.map((ring) => ({ ring, hp: closedRings.includes(ring) ? 12 : 2, closed: closedRings.includes(ring) }))
+            },
+            deeplink: 'journey',
+            status: 'ok'
+        };
+        return state;
+    }
+
+    it('rings tile headlines "N of 5 rings closed" and checks each closed ring', () => {
+        const root = env.document.getElementById('today-content');
+        env.render(ringsState(now, ['adherence', 'movement']), root, { now });
+
+        const tile = root.querySelector('.wg-today-rings');
+        expect(tile).not.toBeNull();
+        expect(tile.querySelector('.wg-today-rings__title').textContent).toBe('2 of 5 rings closed');
+        expect(tile.querySelectorAll('.wg-journey-ring__check').length).toBe(2);
+    });
+
+    it('"your move" targets the first open ring and deep-links to its section', () => {
+        const root = env.document.getElementById('today-content');
+        const onDeeplink = vi.fn();
+        // adherence + movement closed → vitals is the first open ring → "Log a BP reading".
+        env.render(ringsState(now, ['adherence', 'movement']), root, { now, onDeeplink });
+
+        const move = root.querySelector('.wg-today-rings__move');
+        expect(move).not.toBeNull();
+        expect(move.textContent).toMatch(/Your move:.*BP reading.*Vitals/);
+
+        move.click();
+        expect(onDeeplink).toHaveBeenCalledWith('bp');
+        // The move click must not also trigger the card's Journey deep-link.
+        expect(onDeeplink).not.toHaveBeenCalledWith('journey');
+    });
+
+    it('all rings closed → celebration, not an actionable move', () => {
+        const root = env.document.getElementById('today-content');
+        env.render(ringsState(now, ['adherence', 'movement', 'vitals', 'nourishment', 'mind']), root, { now });
+
+        const tile = root.querySelector('.wg-today-rings');
+        expect(tile.querySelector('.wg-today-rings__title').textContent).toBe('5 of 5 rings closed');
+        const move = root.querySelector('.wg-today-rings__move');
+        expect(move.textContent.toLowerCase()).toMatch(/all rings closed/);
+        // Celebration is not a button — no section deep-link of its own.
+        expect(move.getAttribute('role')).toBeNull();
+        expect(move.getAttribute('data-section')).toBeNull();
+    });
 });

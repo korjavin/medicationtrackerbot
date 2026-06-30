@@ -87,6 +87,12 @@ type State struct {
 type RingScore struct {
 	Ring string `json:"ring"`
 	HP   int    `json:"hp"`
+	// Closed is true when the ring earned a non-floor award (outcome or
+	// consistency) in the period — i.e. the user did better than merely
+	// logging. Drives the Today "X of 5 rings closed" summary and the
+	// "your move" picker. Floor-only HP (the honesty payout) leaves the
+	// ring open.
+	Closed bool `json:"closed"`
 }
 
 // Repo is the gamification repository. Construct with New; share one *Repo per
