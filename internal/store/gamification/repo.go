@@ -93,6 +93,13 @@ type RingScore struct {
 	// "your move" picker. Floor-only HP (the honesty payout) leaves the
 	// ring open.
 	Closed bool `json:"closed"`
+	// Progress is the ring's fill gauge, 0..1 (1.0 == closed/full). Closed
+	// always reports 1.0 — Progress and Closed can no longer disagree, which
+	// is the fix for "closed but the bar isn't full". An open ring reports
+	// its best range-membership r for the day (how close to closing). Only
+	// populated for today's rings; period rings leave this 0 — the gauge is a
+	// daily-loop affordance, not a weekly one.
+	Progress float64 `json:"progress"`
 }
 
 // Repo is the gamification repository. Construct with New; share one *Repo per

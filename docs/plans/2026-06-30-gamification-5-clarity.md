@@ -79,10 +79,10 @@ ladder labels (keep the ladder, mark Phase-2 tiers "soon", don't hide them).
 ## Implementation Steps
 
 ### Task 1: Backend — honest per-ring `Progress` (idea #1)
-- [ ] add `Progress float64 \`json:"progress"\`` to `RingScore` in `internal/store/gamification/repo.go:87` (0..1; 1.0 = closed/full)
-- [ ] in `internal/domain/gamification/`, add a service helper that returns the day's **per-ring max range-membership `r`** for a user-day, reusing the same loaders + pure scorers `ScoreDay` already runs (no new persistence, no schema change — the scorers compute `r` today and throw it away)
-- [ ] populate `RingScore.Progress` in `summary.go` `ringScores()` for **today's rings**: `Closed → 1.0`; open ring → its real membership `r` from the helper; no data → `0` (period/`PeriodRings` keep `Progress` 0 — the gauge is a daily-loop affordance, not a weekly one)
-- [ ] ensure `ringsView` (`server/gamification_handlers.go:71`), the summary, journey, and `/api/bootstrap` payloads all carry `progress` (verify by reading the structs — most flow through `RingScore` automatically)
+- [x] add `Progress float64 \`json:"progress"\`` to `RingScore` in `internal/store/gamification/repo.go:87` (0..1; 1.0 = closed/full)
+- [x] in `internal/domain/gamification/`, add a service helper that returns the day's **per-ring max range-membership `r`** for a user-day, reusing the same loaders + pure scorers `ScoreDay` already runs (no new persistence, no schema change — the scorers compute `r` today and throw it away)
+- [x] populate `RingScore.Progress` in `summary.go` `ringScores()` for **today's rings**: `Closed → 1.0`; open ring → its real membership `r` from the helper; no data → `0` (period/`PeriodRings` keep `Progress` 0 — the gauge is a daily-loop affordance, not a weekly one)
+- [x] ensure `ringsView` (`server/gamification_handlers.go:71`), the summary, journey, and `/api/bootstrap` payloads all carry `progress` (verify by reading the structs — most flow through `RingScore` automatically)
 
 *Ponytail note: progress is computed on-read alongside the existing Plan-4 re-score; on single-user SQLite the extra pure-compute is negligible. If read latency ever matters, have `ScoreDay` return the membership map instead of recomputing — same numbers, one pass.*
 

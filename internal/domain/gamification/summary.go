@@ -79,6 +79,18 @@ func (s *service) GetSummary(ctx context.Context, userID int64) (Summary, error)
 	floor := scoring.HPToReachLevel(st.Level, cfg)
 	next := scoring.HPToReachLevel(st.Level+1, cfg)
 
+	// Progress needs the user's *effective* bands (target overrides), not the
+	// base Config the level curve uses above — a customized BP/sleep/steps
+	// target should be what the ring's gauge measures against.
+	effCfg, err := s.effectiveConfig(ctx, userID)
+	if err != nil {
+		return Summary{}, err
+	}
+	todayProgress, err := s.ringProgress(ctx, userID, today, effCfg)
+	if err != nil {
+		return Summary{}, err
+	}
+
 	sum := Summary{
 		Enabled:       true,
 		LifetimeHP:    st.LifetimeHP,
@@ -91,8 +103,8 @@ func (s *service) GetSummary(ctx context.Context, userID int64) (Summary, error)
 		LongestStreak: st.LongestStreak,
 		Freezes:       st.Freezes,
 		PeriodDays:    summaryPeriodDays,
-		TodayRings:    ringScores(todayLedger),
-		PeriodRings:   ringScores(periodLedger),
+		TodayRings:    ringScores(todayLedger, todayProgress),
+		PeriodRings:   ringScores(periodLedger, nil),
 		LastScoredDay: st.LastScoredDay,
 	}
 	if sum.HPToNextLevel < 0 {
@@ -114,8 +126,11 @@ func (s *service) GetSummary(ctx context.Context, userID int64) (Summary, error)
 
 // ringScores aggregates ledger entries into a per-ring HP total, emitting all
 // five rings in canonical order (so a ring with no awards reads as 0, not
-// missing) for a stable frontend layout.
-func ringScores(entries []gamstore.LedgerEntry) []gamstore.RingScore {
+// missing) for a stable frontend layout. progress is the day's per-ring
+// range-membership gauge from ringProgress (today's rings only); pass nil for
+// a period whose Progress should stay 0 (the gauge is a daily-loop affordance,
+// not a weekly one).
+func ringScores(entries []gamstore.LedgerEntry, progress map[string]float64) []gamstore.RingScore {
 	byRing := make(map[string]int, 5)
 	closed := make(map[string]bool, 5)
 	for _, e := range entries {
@@ -136,7 +151,16 @@ func ringScores(entries []gamstore.LedgerEntry) []gamstore.RingScore {
 	}
 	out := make([]gamstore.RingScore, 0, len(order))
 	for _, ring := range order {
-		out = append(out, gamstore.RingScore{Ring: ring, HP: byRing[ring], Closed: closed[ring]})
+		// Closed ⇒ full ring: the two can no longer disagree (the "closed but
+		// not full" bug). Open ⇒ the day's best range-membership, if known.
+		p := 0.0
+		switch {
+		case closed[ring]:
+			p = 1.0
+		case progress != nil:
+			p = progress[ring]
+		}
+		out = append(out, gamstore.RingScore{Ring: ring, HP: byRing[ring], Closed: closed[ring], Progress: p})
 	}
 	return out
 }
