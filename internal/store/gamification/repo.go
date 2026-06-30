@@ -100,6 +100,13 @@ type RingScore struct {
 	// populated for today's rings; period rings leave this 0 — the gauge is a
 	// daily-loop affordance, not a weekly one.
 	Progress float64 `json:"progress"`
+	// Goal is a short imperative description of what closes this ring, built
+	// server-side from the user's effective bands + food targets (e.g. "Sleep
+	// 7–9h", "Eat near target · 1,800–2,200 kcal"). Plain text, no design
+	// tokens — the frontend renders it verbatim as the ring's subtitle.
+	// Config-derived, not data-derived, so it is populated for both today's and
+	// period rings.
+	Goal string `json:"goal"`
 }
 
 // Repo is the gamification repository. Construct with New; share one *Repo per

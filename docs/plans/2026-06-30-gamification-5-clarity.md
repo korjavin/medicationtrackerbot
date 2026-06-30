@@ -87,14 +87,14 @@ ladder labels (keep the ladder, mark Phase-2 tiers "soon", don't hide them).
 *Ponytail note: progress is computed on-read alongside the existing Plan-4 re-score; on single-user SQLite the extra pure-compute is negligible. If read latency ever matters, have `ScoreDay` return the membership map instead of recomputing — same numbers, one pass.*
 
 ### Task 2: Backend — concrete per-ring `Goal` label (idea #2, fixes nourishment)
-- [ ] add `Goal string \`json:"goal"\`` to `RingScore` (`repo.go:87`)
-- [ ] build the goal text in the domain service from the user's **effective bands** (`s.cfg` + overrides) and **food targets** (food store), one short imperative string per ring:
+- [x] add `Goal string \`json:"goal"\`` to `RingScore` (`repo.go:87`)
+- [x] build the goal text in the domain service from the user's **effective bands** (`s.cfg` + overrides) and **food targets** (food store), one short imperative string per ring:
   - adherence → `"Take all doses on time"`
   - movement → from the steps band, e.g. `"Move toward ~8,000 steps"`
   - vitals → from the BP band, e.g. `"Keep BP in range · <130/80"`
   - nourishment → from the calorie target ± tolerance, e.g. `"Eat near target · 1,800–2,200 kcal"` (this is the line that answers "more or less?")
   - mind → from the sleep band, e.g. `"Sleep 7–9h"`
-- [ ] populate `Goal` in `ringScores()` (pass the effective config + food targets in); keep strings token-free plain text (frontend renders them as the ring subtitle)
+- [x] populate `Goal` in `ringScores()` (pass the effective config + food targets in); keep strings token-free plain text (frontend renders them as the ring subtitle)
 
 ### Task 3: Frontend — `wg-ring` SVG arc component (idea #5)
 - [ ] create `web/static/js/components/wg-ring.js`: a web component rendering an SVG circle whose stroke-dasharray draws an arc from `progress` (0..1); inputs `progress`, `closed`, `label`, `value`; full circle + check affordance when `closed`/`progress>=1`; colors/stroke via `--wg-*` tokens only

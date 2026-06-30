@@ -90,6 +90,11 @@ func (s *service) GetSummary(ctx context.Context, userID int64) (Summary, error)
 	if err != nil {
 		return Summary{}, err
 	}
+	foodTargets, err := s.food.GetTargets(ctx)
+	if err != nil {
+		return Summary{}, err
+	}
+	goals := ringGoals(effCfg, foodTargets)
 
 	sum := Summary{
 		Enabled:       true,
@@ -103,8 +108,8 @@ func (s *service) GetSummary(ctx context.Context, userID int64) (Summary, error)
 		LongestStreak: st.LongestStreak,
 		Freezes:       st.Freezes,
 		PeriodDays:    summaryPeriodDays,
-		TodayRings:    ringScores(todayLedger, todayProgress),
-		PeriodRings:   ringScores(periodLedger, nil),
+		TodayRings:    ringScores(todayLedger, todayProgress, goals),
+		PeriodRings:   ringScores(periodLedger, nil, goals),
 		LastScoredDay: st.LastScoredDay,
 	}
 	if sum.HPToNextLevel < 0 {
@@ -129,8 +134,9 @@ func (s *service) GetSummary(ctx context.Context, userID int64) (Summary, error)
 // missing) for a stable frontend layout. progress is the day's per-ring
 // range-membership gauge from ringProgress (today's rings only); pass nil for
 // a period whose Progress should stay 0 (the gauge is a daily-loop affordance,
-// not a weekly one).
-func ringScores(entries []gamstore.LedgerEntry, progress map[string]float64) []gamstore.RingScore {
+// not a weekly one). goals is the config-derived ring -> goal-text map from
+// ringGoals, applied to both today's and period rings alike.
+func ringScores(entries []gamstore.LedgerEntry, progress map[string]float64, goals map[string]string) []gamstore.RingScore {
 	byRing := make(map[string]int, 5)
 	closed := make(map[string]bool, 5)
 	for _, e := range entries {
@@ -160,7 +166,7 @@ func ringScores(entries []gamstore.LedgerEntry, progress map[string]float64) []g
 		case progress != nil:
 			p = progress[ring]
 		}
-		out = append(out, gamstore.RingScore{Ring: ring, HP: byRing[ring], Closed: closed[ring], Progress: p})
+		out = append(out, gamstore.RingScore{Ring: ring, HP: byRing[ring], Closed: closed[ring], Progress: p, Goal: goals[ring]})
 	}
 	return out
 }
