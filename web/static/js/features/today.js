@@ -358,7 +358,7 @@
             todayHp: Number.isFinite(rings.today_hp) ? rings.today_hp : 0,
             rings: list
                 .filter((r) => r && typeof r.ring === 'string')
-                .map((r) => ({ ring: r.ring, hp: Number(r.hp) || 0 }))
+                .map((r) => ({ ring: r.ring, hp: Number(r.hp) || 0, closed: !!r.closed }))
         };
         return cell(value, 'journey', 'ok');
     }
@@ -1005,6 +1005,21 @@
         { ring: 'mind', label: 'Mind', icon: 'moon' }
     ];
 
+    // "Your move" — the single suggested action to close an open ring. We pick
+    // the first ring in canonical order whose `closed` is false (adherence is
+    // first because it's the clearest controllable health behaviour, docs §6.1).
+    // The action deep-links to the section where that ring is logged. No HP
+    // number here on purpose: a ring's outcome max lives in the backend scoring
+    // Config and would drift if duplicated client-side; the ring name + action
+    // is the prompt.
+    const RING_MOVE_META = {
+        adherence: { verb: 'Take your next dose', section: 'meds' },
+        movement: { verb: 'Log a workout', section: 'workouts' },
+        vitals: { verb: 'Log a BP reading', section: 'bp' },
+        nourishment: { verb: 'Log a meal', section: 'food' },
+        mind: { verb: 'Log last night’s sleep', section: 'health' }
+    };
+
     // Gloss-inset track with a --fill-pct fill (same convention as the journey
     // bars + weight-goal card; allowed by the design-token guard). ratio clamps
     // to [0,1].
@@ -1032,11 +1047,25 @@
         card.setAttribute('data-deeplink', cell.deeplink || 'journey');
         card.setAttribute('data-section', 'rings');
 
+        const hasValue = !(cell.status === 'missing' || !cell.value);
+        const ringList = hasValue ? cell.value.rings : [];
+        const closedByRing = {};
+        let closedCount = 0;
+        for (const r of ringList) {
+            if (r && r.closed) { closedByRing[r.ring] = true; closedCount += 1; }
+        }
+        // First open ring in canonical order is the suggested "your move".
+        const openMeta = hasValue
+            ? RING_TILE_META.find((m) => !closedByRing[m.ring])
+            : null;
+
         const header = d.createElement('div');
         header.className = 'wg-today-rings__header';
         const title = d.createElement('span');
         title.className = 'wg-today-rings__title';
-        title.textContent = 'Today’s rings';
+        title.textContent = hasValue
+            ? `${closedCount} of ${RING_TILE_META.length} rings closed`
+            : 'Today’s rings';
         header.appendChild(title);
         const hp = d.createElement('span');
         hp.className = 'wg-mono-display wg-today-rings__hp';
@@ -1045,7 +1074,50 @@
         header.appendChild(hp);
         card.appendChild(header);
 
-        if (cell.status === 'missing' || !cell.value) {
+        // "Your move" — one tappable next action that deep-links to the open
+        // ring's section (not the Journey screen). Stop propagation so the
+        // card's own Journey deep-link doesn't fire too. When every ring is
+        // closed, celebrate instead of nagging.
+        if (hasValue) {
+            const move = d.createElement('div');
+            move.className = 'wg-today-rings__move';
+            if (openMeta) {
+                const m = RING_MOVE_META[openMeta.ring];
+                const ic = iconSvgOrNull('target', 16);
+                if (ic) {
+                    const wrap = d.createElement('span');
+                    wrap.className = 'wg-today-rings__move-icon';
+                    wrap.appendChild(ic);
+                    move.appendChild(wrap);
+                }
+                const text = d.createElement('span');
+                text.className = 'wg-today-rings__move-text';
+                text.textContent = `Your move: ${m.verb} · ${openMeta.label}`;
+                move.appendChild(text);
+                move.setAttribute('role', 'button');
+                move.setAttribute('tabindex', '0');
+                move.setAttribute('data-section', m.section);
+                const go = (e) => { if (e) e.stopPropagation(); if (typeof onDeeplink === 'function') onDeeplink(m.section); };
+                move.addEventListener('click', go);
+                move.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') go(e); });
+            } else {
+                move.classList.add('wg-muted');
+                const ic = iconSvgOrNull('check', 16);
+                if (ic) {
+                    const wrap = d.createElement('span');
+                    wrap.className = 'wg-today-rings__move-icon';
+                    wrap.appendChild(ic);
+                    move.appendChild(wrap);
+                }
+                const text = d.createElement('span');
+                text.className = 'wg-today-rings__move-text';
+                text.textContent = 'All rings closed today — nice.';
+                move.appendChild(text);
+            }
+            card.appendChild(move);
+        }
+
+        if (!hasValue) {
             const empty = d.createElement('div');
             empty.className = 'wg-today-rings__empty wg-muted';
             empty.textContent = 'No points yet today';
@@ -1053,7 +1125,7 @@
         } else {
             const hpByRing = {};
             let max = 0;
-            for (const r of cell.value.rings) {
+            for (const r of ringList) {
                 hpByRing[r.ring] = r.hp;
                 if (r.hp > max) max = r.hp;
             }
@@ -1061,6 +1133,7 @@
             list.className = 'wg-journey-rings__list';
             for (const meta of RING_TILE_META) {
                 const ringHp = hpByRing[meta.ring] || 0;
+                const isClosed = !!closedByRing[meta.ring];
                 const row = d.createElement('div');
                 row.className = 'wg-journey-ring';
                 const head = d.createElement('div');
@@ -1076,6 +1149,17 @@
                 label.className = 'wg-journey-ring__label';
                 label.textContent = meta.label;
                 head.appendChild(label);
+                // A check marks a closed ring (landed in range, not just logged).
+                if (isClosed) {
+                    const check = iconSvgOrNull('check', 14);
+                    if (check) {
+                        const cw = d.createElement('span');
+                        cw.className = 'wg-journey-ring__check';
+                        cw.setAttribute('aria-label', 'closed');
+                        cw.appendChild(check);
+                        head.appendChild(cw);
+                    }
+                }
                 const value = d.createElement('span');
                 value.className = 'wg-mono-display wg-journey-ring__hp';
                 value.textContent = String(ringHp);

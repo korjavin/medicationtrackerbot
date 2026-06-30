@@ -28,11 +28,12 @@ describe('WGBottomNav — component', () => {
             expect(window.WGBottomNav).toBeDefined();
             expect(typeof window.WGBottomNav.mount).toBe('function');
             expect(Array.isArray(window.WGBottomNav.DEFAULT_ITEMS)).toBe(true);
-            // 8 sections + the flag-gated Journey slot (gamification).
-            expect(window.WGBottomNav.DEFAULT_ITEMS.length).toBe(9);
+            // 8 sections. Gamification ("Journey") is reached from the Today
+            // dashboard rings tile, not from a nav slot.
+            expect(window.WGBottomNav.DEFAULT_ITEMS.length).toBe(8);
             // Verify the canonical ordering: Today first, Settings last.
             expect(window.WGBottomNav.DEFAULT_ITEMS[0].id).toBe('today');
-            expect(window.WGBottomNav.DEFAULT_ITEMS[8].id).toBe('settings');
+            expect(window.WGBottomNav.DEFAULT_ITEMS[7].id).toBe('settings');
         } finally { cleanup(); }
     });
 
@@ -40,7 +41,7 @@ describe('WGBottomNav — component', () => {
         const { window, cleanup } = loadEnv();
         try {
             const ids = window.WGBottomNav.DEFAULT_ITEMS.map(i => i.id).sort();
-            expect(ids).toEqual(['bp', 'food', 'health', 'journey', 'meds', 'settings', 'today', 'weight', 'workouts']);
+            expect(ids).toEqual(['bp', 'food', 'health', 'meds', 'settings', 'today', 'weight', 'workouts']);
             const icons = window.WGBottomNav.DEFAULT_ITEMS.map(i => i.icon);
             expect(new Set(icons).size).toBe(icons.length);
             expect(icons).not.toContain('more');
@@ -51,17 +52,16 @@ describe('WGBottomNav — component', () => {
         const { window, cleanup } = loadEnv();
         try {
             const order = window.WGBottomNav.DEFAULT_ITEMS.map(i => i.id);
-            // row 1: today / bp / food / meds / health("Vitals")
-            // row 2: workouts / weight / journey / settings (Journey is
-            // flag-gated; filtered out before mount when gamification is off).
+            // row 1: today / bp / food / meds
+            // row 2: health("Vitals") / workouts / weight / settings
             expect(order).toEqual([
                 'today', 'bp', 'food', 'meds',
-                'health', 'workouts', 'weight', 'journey', 'settings',
+                'health', 'workouts', 'weight', 'settings',
             ]);
             const labels = window.WGBottomNav.DEFAULT_ITEMS.map(i => i.label);
             expect(labels).toEqual([
                 'Today', 'BP', 'Food', 'Meds',
-                'Vitals', 'Workouts', 'Weight', 'Journey', 'Settings',
+                'Vitals', 'Workouts', 'Weight', 'Settings',
             ]);
         } finally { cleanup(); }
     });
@@ -127,20 +127,18 @@ describe('WGBottomNav — component', () => {
         } finally { cleanup(); }
     });
 
-    it('Journey is the eighth slot with the "bolt" icon — gamification (flag-gated)', () => {
+    it('Journey is NOT a nav slot — gamification is reached from the Today rings tile', () => {
         const { window, cleanup } = loadEnv();
         try {
-            const journeySlot = window.WGBottomNav.DEFAULT_ITEMS[7];
-            expect(journeySlot.id).toBe('journey');
-            expect(journeySlot.icon).toBe('bolt');
-            expect(journeySlot.label).toBe('Journey');
+            const ids = window.WGBottomNav.DEFAULT_ITEMS.map(i => i.id);
+            expect(ids).not.toContain('journey');
         } finally { cleanup(); }
     });
 
-    it('Settings is the ninth (final) slot with the "settings" icon — Phase 9 contract', () => {
+    it('Settings is the eighth (final) slot with the "settings" icon', () => {
         const { window, cleanup } = loadEnv();
         try {
-            const settingsSlot = window.WGBottomNav.DEFAULT_ITEMS[8];
+            const settingsSlot = window.WGBottomNav.DEFAULT_ITEMS[7];
             expect(settingsSlot.id).toBe('settings');
             expect(settingsSlot.icon).toBe('settings');
             expect(settingsSlot.label).toBe('Settings');
@@ -159,22 +157,10 @@ describe('WGBottomNav — component', () => {
         } finally { cleanup(); }
     });
 
-    it('mount() with the full 9 default items lays out two rows of 5 cols', () => {
+    it('mount() with the full 8 default items lays out two rows of 4 cols', () => {
         const { window, document, cleanup } = loadEnv();
         try {
             window.WGBottomNav.mount(document.getElementById('app'));
-            const inner = document.querySelector('.wg-bottom-nav__inner');
-            expect(inner.style.getPropertyValue('--wg-nav-cols')).toBe('5');
-            expect(inner.children.length).toBe(9);
-        } finally { cleanup(); }
-    });
-
-    it('mount() with 8 items (gamification off) lays out two rows of 4 cols', () => {
-        const { window, document, cleanup } = loadEnv();
-        try {
-            const items = window.WGBottomNav.DEFAULT_ITEMS.filter(i => i.id !== 'journey');
-            expect(items.length).toBe(8);
-            window.WGBottomNav.mount(document.getElementById('app'), { items });
             const inner = document.querySelector('.wg-bottom-nav__inner');
             expect(inner.style.getPropertyValue('--wg-nav-cols')).toBe('4');
             expect(inner.children.length).toBe(8);
@@ -198,6 +184,7 @@ describe('WGBottomNav — component', () => {
                 ...window.WGBottomNav.DEFAULT_ITEMS,
                 { id: 'extra1', label: 'Extra1', icon: 'bell' },
                 { id: 'extra2', label: 'Extra2', icon: 'chart' },
+                { id: 'extra3', label: 'Extra3', icon: 'star' },
             ];
             expect(items.length).toBe(11);
             expect(() =>
@@ -282,7 +269,7 @@ describe('WGBottomNav — component', () => {
         try {
             window.WGBottomNav.mount(document.getElementById('app'));
             const items = document.querySelectorAll('.wg-nav-item');
-            expect(items.length).toBe(9);
+            expect(items.length).toBe(8);
             for (const item of items) {
                 const svg = item.querySelector('svg');
                 expect(svg, `missing svg for ${item.dataset.navId}`).not.toBeNull();

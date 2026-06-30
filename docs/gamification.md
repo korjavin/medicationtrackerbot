@@ -582,15 +582,24 @@ built in the vanilla-JS frontend (plan
 all gated on the `gamification` feature flag and rendered with `--wg-*` tokens only:
 
 - **Journey screen** — `web/static/js/features/journey.js` (`window.Gamification`),
-  `#journey-view` + the flag-gated `journey` bottom-nav slot. Reads
-  `GET /api/gamification/journey` via `cachedFetch` (local-first + `WGStaleBadge`
-  freshness chip; `OfflineNoCacheError` → empty state). Renders the level badge +
-  lifetime HP + progress-to-next-level bar, current/longest streak + freezes, the
-  five domain rings, and the insight ladder L1–L4 (locked/unlocked from
-  `unlocked_tiers`).
+  `#journey-view`. **Not a bottom-nav slot** — reached only from the Today rings
+  tile (deeplink → `switchTab('journey')`); the nav stays at the 8 canonical
+  sections (CLAUDE.md rule 6). Reads `GET /api/gamification/journey` via
+  `cachedFetch` (local-first + `WGStaleBadge` freshness chip; `OfflineNoCacheError`
+  → empty state). Renders the level badge + lifetime HP + progress-to-next-level
+  bar, current/longest streak + freezes, the five domain rings, and the insight
+  ladder L1–L4 (locked/unlocked from `unlocked_tiers`).
 - **Today rings widget** — a `gamificationRingsCell` tile in `features/today.js`
-  (deeplink to Journey), fed by a `gamification_rings` Today fetch spec
-  (`GET /api/gamification/rings`); hidden when the flag is off.
+  (card deeplinks to Journey), fed by a `gamification_rings` Today fetch spec
+  (`GET /api/gamification/rings`); hidden when the flag is off. Beyond the per-ring
+  HP bars it surfaces the **next-step** loop: a **"N of 5 rings closed"** headline
+  (each ring carries a `closed` flag = earned a non-floor outcome/consistency award
+  today), a check on each closed ring, and a single **"your move"** prompt — the
+  first open ring in canonical order, deep-linking to that ring's own logging
+  section (`meds`/`workouts`/`bp`/`food`/`health`). All five closed → a celebration
+  line, no nag. This is the lightweight, frontend-driven version of the
+  challenges/quests vision (§10): the "what do I do next?" compass without a
+  backend suggestion engine.
 - **Settings targets editor** — `#gamification-targets-settings`, populated from
   `GET /api/gamification/targets` and saved via `DataStore.applyOptimistic` →
   `PUT /api/gamification/targets` (Critical Rule #9) for the six band metrics the

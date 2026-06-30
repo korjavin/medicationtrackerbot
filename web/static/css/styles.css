@@ -5355,6 +5355,50 @@ textarea.wg-input {
     padding: var(--space-sm) var(--space-xs);
 }
 
+/* "Your move" — the suggested next action. Tappable, accent-tinted; the
+   all-closed celebration variant reuses .wg-muted for a calm, non-tappable look. */
+.wg-today-rings__move {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    margin-bottom: var(--space-sm);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--wg-radius-icon);
+    background: var(--wg-bg-card-inset);
+    cursor: pointer;
+}
+
+.wg-today-rings__move.wg-muted {
+    background: transparent;
+    cursor: default;
+}
+
+.wg-today-rings__move-icon {
+    display: inline-flex;
+    color: var(--wg-sun);
+}
+
+.wg-today-rings__move.wg-muted .wg-today-rings__move-icon {
+    color: var(--wg-fg-3);
+}
+
+.wg-today-rings__move-text {
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--wg-fg-1);
+}
+
+.wg-today-rings__move.wg-muted .wg-today-rings__move-text {
+    font-weight: 400;
+    color: var(--wg-fg-3);
+}
+
+/* Check mark on a closed ring row (landed in range, not just logged). */
+.wg-journey-ring__check {
+    display: inline-flex;
+    color: var(--wg-sun);
+}
+
 /* Insight ladder card. */
 .wg-journey-ladder__list {
     display: flex;
