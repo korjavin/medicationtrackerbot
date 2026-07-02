@@ -23,7 +23,7 @@ func (f fakeSettings) GetGamificationEnabled(context.Context) (bool, error) {
 // newTestService builds a service with only a settings fake wired; the remaining
 // narrow stores are nil because Task 6 only exercises construction + the gate.
 func newTestService(s SettingsStore) *service {
-	return New(nil, nil, nil, nil, nil, nil, nil, nil, s)
+	return New(nil, nil, nil, nil, nil, nil, nil, nil, s, nil)
 }
 
 func TestNew_DefaultsConfigAndClock(t *testing.T) {

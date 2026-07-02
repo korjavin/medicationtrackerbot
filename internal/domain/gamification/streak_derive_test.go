@@ -50,7 +50,7 @@ func TestGetSummary_DerivedStreak_RepairsOnLateImport(t *testing.T) {
 	// "Now" sits two weeks later: week N+1 is fully in the past with zero
 	// activity — a genuine missed week, not one still in progress.
 	now := weekNDay.AddDate(0, 0, 14)
-	svc := New(fakeMed{}, fakeBP{}, fakeWeight{}, fakeVitals{}, fakeFood{}, fakeDiary{}, fakeWorkout{}, gam, fakeSettings{enabled: true})
+	svc := New(fakeMed{}, fakeBP{}, fakeWeight{}, fakeVitals{}, fakeFood{}, fakeDiary{}, fakeWorkout{}, gam, fakeSettings{enabled: true}, nil)
 	svc.now = func() time.Time { return now }
 
 	sum, err := svc.GetSummary(ctx, userID)

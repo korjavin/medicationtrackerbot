@@ -207,7 +207,7 @@ func main() {
 	// Build gamification service once so the bot and server share a single
 	// instance — the per-user scoreMu then serializes bot imports against
 	// server read-rescores for the same user. See docs/plans/2026-06-29.
-	sharedGamificationSvc := gamificationsvc.New(s.Medication, s.BP, s.Weight, s.Vitals, s.Food, s.Diary, s.Workout, s.Gamification, s.Settings)
+	sharedGamificationSvc := gamificationsvc.New(s.Medication, s.BP, s.Weight, s.Vitals, s.Food, s.Diary, s.Workout, s.Gamification, s.Settings, s.TZ)
 
 	// 4. Bot
 	// Construct the shared TZ-update service before the bot and the server so

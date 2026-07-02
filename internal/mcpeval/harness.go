@@ -160,7 +160,7 @@ func New(ctx context.Context, cfg Config) (*Harness, error) {
 	//    sets internalMux, and registers POST /internal/mcp/bridge. The bridge
 	//    bypasses auth (it sets the user ctx to allowedUserID itself), so the
 	//    dummy auth params below are inert.
-	gamSvc := gamificationsvc.New(repos.Medication, repos.BP, repos.Weight, repos.Vitals, repos.Food, repos.Diary, repos.Workout, repos.Gamification, repos.Settings)
+	gamSvc := gamificationsvc.New(repos.Medication, repos.BP, repos.Weight, repos.Vitals, repos.Food, repos.Diary, repos.Workout, repos.Gamification, repos.Settings, repos.TZ)
 	srv := server.New(repos, gamSvc, "", "mcpeval-session-secret", evalUserID, server.OIDCConfig{}, "", "")
 	srv.SetMCPAuditSecret(bridgeSecret)
 	srv.SetMCPRegistry(server.NewRegistryAdapter(reg))

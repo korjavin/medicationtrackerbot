@@ -110,6 +110,15 @@ type SettingsStore interface {
 	GetGamificationEnabled(ctx context.Context) (bool, error)
 }
 
+// TZStore is the narrow interface insights.go needs to resolve the user's
+// current timezone for the sleep→BP "morning" local-time cutoff. Satisfied by
+// *tz.Repo; same shape as internal/store/bp.TimezoneLookup and the scheduler's
+// GetCurrent() checkers. A nil TZStore (or an error/empty result from it) falls
+// back to UTC rather than failing the read.
+type TZStore interface {
+	GetCurrent() (string, error)
+}
+
 // ----- service --------------------------------------------------------------
 
 // GamificationService is the single domain entry point for the HealthPoints /
@@ -180,6 +189,12 @@ type GamificationService interface {
 	// DeleteTarget removes the user's override for metricKey, reverting them to the
 	// recommended default. Gate-off is a no-op. See targets.go.
 	DeleteTarget(ctx context.Context, userID int64, metricKey string) error
+
+	// GetInsights returns the tier-gated personal-insight read model (§8): the
+	// sleep→next-morning-BP correlation, computed from the user's own log. Gates
+	// on the feature flag AND the user's unlocked insight tier — below tier 3
+	// yields {Locked:true}, never raw data. See insights.go.
+	GetInsights(ctx context.Context, userID int64) (InsightsView, error)
 }
 
 // service implements GamificationService. It composes the narrow per-domain read
@@ -195,6 +210,7 @@ type service struct {
 	workout  WorkoutStore
 	gam      GamStore
 	settings SettingsStore
+	tz       TZStore
 
 	// cfg holds the recommended guideline defaults; per-user overrides are merged
 	// onto a copy at scoring time. Defaults to scoring.DefaultConfig(); in-package
@@ -243,8 +259,9 @@ var _ GamificationService = (*service)(nil)
 
 // New constructs the gamification domain service from its narrow store
 // dependencies, seeding the default scoring config and the real clock. Tests
-// pass fakes and may override cfg/now after construction.
-func New(med MedStore, bp BPStore, weight WeightStore, vitals VitalsStore, food FoodStore, diary DiaryStore, workout WorkoutStore, gam GamStore, settings SettingsStore) *service {
+// pass fakes and may override cfg/now after construction. tz may be nil (falls
+// back to UTC for the sleep→BP insight's morning cutoff).
+func New(med MedStore, bp BPStore, weight WeightStore, vitals VitalsStore, food FoodStore, diary DiaryStore, workout WorkoutStore, gam GamStore, settings SettingsStore, tz TZStore) *service {
 	return &service{
 		med:      med,
 		bp:       bp,
@@ -255,6 +272,7 @@ func New(med MedStore, bp BPStore, weight WeightStore, vitals VitalsStore, food 
 		workout:  workout,
 		gam:      gam,
 		settings: settings,
+		tz:       tz,
 		cfg:      scoring.DefaultConfig(),
 		now:      time.Now,
 	}

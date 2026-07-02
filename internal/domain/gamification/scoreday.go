@@ -650,14 +650,20 @@ func (s *service) loadSleep(ctx context.Context, userID int64, start time.Time) 
 			continue
 		}
 		out.Logged = true
-		if sl.TotalMinutes != nil {
-			out.DurationHours = float64(*sl.TotalMinutes) / 60
-		} else {
-			out.DurationHours = sl.EndTime.Sub(sl.StartTime).Hours()
-		}
+		out.DurationHours = sleepDurationHours(sl)
 		break
 	}
 	return out, nil
+}
+
+// sleepDurationHours returns a sleep log's duration: total_minutes when
+// present, else the start→end span. Shared by loadSleep and insights.go so the
+// two duration computations can't drift.
+func sleepDurationHours(sl store.SleepLog) float64 {
+	if sl.TotalMinutes != nil {
+		return float64(*sl.TotalMinutes) / 60
+	}
+	return sl.EndTime.Sub(sl.StartTime).Hours()
 }
 
 // loadMovement maps the day's steps + workout activity. Steps come from the

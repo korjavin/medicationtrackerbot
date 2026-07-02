@@ -284,13 +284,14 @@ type fullStores struct {
 	workout  fakeWorkout
 	gam      *memGam
 	settings fakeSettings
+	tz       TZStore // nil is fine — insightLocation falls back to UTC
 }
 
 func newFullService(fs *fullStores) *service {
 	if fs.gam == nil {
 		fs.gam = newMemGam()
 	}
-	return New(fs.med, fs.bp, fs.weight, fs.vitals, fs.food, fs.diary, fs.workout, fs.gam, fs.settings)
+	return New(fs.med, fs.bp, fs.weight, fs.vitals, fs.food, fs.diary, fs.workout, fs.gam, fs.settings, fs.tz)
 }
 
 // ringHP sums the ledger HP for one ring on one day (helper for assertions).
