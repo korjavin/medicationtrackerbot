@@ -124,10 +124,10 @@ redesign:
 
 ### Task 4: Frontend — insight ladder tier 2 gets a real destination
 
-- [ ] `journey.js` `renderLadder`: tier 2 ("per-domain trend charts") becomes
+- [x] `journey.js` `renderLadder`: tier 2 ("per-domain trend charts") becomes
       `hasDestination` → "Unlocked → view" deep-linking to the existing trends surface
       (`switchTab('health')` — the Vitals section's charts; matches the tier's copy)
-- [ ] tiers 3-4 keep the honest "Unlocks at Lvl N · soon" until plans 8/9 ship their
+- [x] tiers 3-4 keep the honest "Unlocks at Lvl N · soon" until plans 8/9 ship their
       destinations
 
 ### Task 5: Verify acceptance criteria

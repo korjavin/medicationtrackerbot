@@ -270,7 +270,7 @@
     }
 
     // Scrolls to the rings card — the real destination tier 1 ("Rings &
-    // streak") describes. Tiers 2-4 have no built destination yet (Phase 2),
+    // streak") describes. Tiers 3-4 have no built destination yet (Phase 2),
     // so they never get this treatment or the word "Unlocked".
     function goToRingsCard() {
         const target = document.getElementById('journey-rings-card');
@@ -278,6 +278,20 @@
             target.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
     }
+
+    // Deep-links to the Vitals section's trend charts — the real destination
+    // tier 2 ("Trend charts") describes. Vitals keeps the internal tab id
+    // "health" for deeplink/localStorage stability (CLAUDE.md rule 6).
+    function goToVitalsTrends() {
+        if (typeof window.switchTab === 'function') {
+            window.switchTab('health');
+        }
+    }
+
+    // tier -> destination handler for tiers that have a built screen to link
+    // to. Tiers without an entry here stay locked/"soon" regardless of the
+    // backend's unlocked_tiers (Phase 2).
+    const LADDER_DESTINATIONS = { 1: goToRingsCard, 2: goToVitalsTrends };
 
     function renderLadder(j) {
         const card = el('section', 'wg-card wg-journey-ladder');
@@ -290,11 +304,12 @@
         const list = el('div', 'wg-journey-ladder__list');
         LADDER.forEach((entry) => {
             // Honest labels: "Unlocked" only ever appears where there is a
-            // real destination to view. Tier 1 is the only tier with a built
-            // screen (the rings/streak cards above); tiers 2-4 are Phase 2 —
-            // they always read "Unlocks at Lvl N · soon", regardless of the
-            // backend's level-derived unlocked_tiers.
-            const hasDestination = entry.tier === 1 && unlocked.has(entry.tier);
+            // real destination to view. Tiers 1-2 have a built screen (the
+            // rings/streak cards above, and the Vitals trend charts); tiers
+            // 3-4 are Phase 2 — they always read "Unlocks at Lvl N · soon",
+            // regardless of the backend's level-derived unlocked_tiers.
+            const destination = LADDER_DESTINATIONS[entry.tier];
+            const hasDestination = !!destination && unlocked.has(entry.tier);
             const row = el('div', 'wg-journey-ladder__row' +
                 (hasDestination ? ' wg-journey-ladder__row--linked' : ' wg-journey-ladder__row--locked'));
 
@@ -315,9 +330,9 @@
             if (hasDestination) {
                 row.setAttribute('role', 'button');
                 row.setAttribute('tabindex', '0');
-                row.addEventListener('click', goToRingsCard);
+                row.addEventListener('click', destination);
                 row.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goToRingsCard(); }
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); destination(); }
                 });
             }
 

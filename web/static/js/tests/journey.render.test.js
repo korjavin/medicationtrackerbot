@@ -105,4 +105,29 @@ describe('Journey render', () => {
         expect(mindRow.classList.contains('wg-journey-ring--sync-pending')).toBe(true);
         expect(mindRow.querySelector('.wg-journey-ring__sub').textContent).toBe('Syncs later');
     });
+
+    // Insight ladder tier 2 (Plan 6, Task 4): "Trend charts" now has a real
+    // destination — the Vitals section's existing trend charts — instead of
+    // an evergreen "soon". Tiers 3-4 have no built screen yet and must keep
+    // reading "soon" even though the fixture marks them unlocked.
+    it('tier 2 (trend charts) links to Vitals when unlocked; tiers 3-4 stay "soon"', () => {
+        let switchedTo = null;
+        env.window.switchTab = (tab) => { switchedTo = tab; };
+        env.window.Gamification.render(journey({ unlocked_tiers: [1, 2, 3, 4] }));
+        const { document } = env;
+
+        const rows = document.querySelectorAll('.wg-journey-ladder__row');
+        const titleOf = (row) => row.querySelector('.wg-journey-ladder__title').textContent;
+        const statusOf = (row) => row.querySelector('.wg-journey-ladder__status').textContent;
+
+        const trendRow = Array.from(rows).find((r) => titleOf(r) === 'Trend charts');
+        expect(statusOf(trendRow)).toBe('Unlocked → view');
+        expect(trendRow.classList.contains('wg-journey-ladder__row--linked')).toBe(true);
+        trendRow.click();
+        expect(switchedTo).toBe('health');
+
+        const correlationsRow = Array.from(rows).find((r) => titleOf(r) === 'Correlations');
+        expect(statusOf(correlationsRow)).toMatch(/soon/);
+        expect(correlationsRow.classList.contains('wg-journey-ladder__row--locked')).toBe(true);
+    });
 });
