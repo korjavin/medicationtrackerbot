@@ -837,13 +837,16 @@ fold `score_d = score_{d-1}·m + checkmark_d·(1−m)`, decay multiplier
 (`HabitStrengthHalfLifeDays`) — a daily habit's multiplier ≈0.9481/day (~0.8 after
 a month of daily completion, ~0.99 after three months). A miss lowers strength
 gradually; it never resets to 0. Checkmarks may be fractional (a day's adherence
-ratio is a valid checkmark, not just 0/1), and `frequency` lets a non-daily habit
-reach the same 1.0 steady-state ceiling a daily habit does — folded per pillar by
-`wellbeing.go` over a 90-day lookback (`habitStrengthLookbackDays`; ≈7 half-lives,
-so anything older contributes a negligible remainder): `meds`
-(checkmark = day's taken/expected dose ratio, frequency 1), `movement`
-(workout-day checkmark, frequency 3/7), `measurement` (any BP/weight/food log that
-day, frequency 1). This replaces the weekly streak as the Journey continuity
+ratio is a valid checkmark, not just 0/1). The EMA's steady state is the *mean* of
+its input, so `frequency` only tunes decay speed — a non-daily habit reaches the
+1.0 ceiling only when fed an *implicit* checkmark reflecting cadence compliance
+(uhabits-style), not raw 0/1 daily. Folded per pillar by `wellbeing.go` over a
+90-day lookback (`habitStrengthLookbackDays`; ≈7 half-lives, so anything older
+contributes a negligible remainder): `meds` (checkmark = day's taken/expected dose
+ratio, frequency 1), `movement` (implicit checkmark = share of the 3×/week target
+met in the trailing 7 days, `min(1, workouts_in_last_7d/3)`, frequency 3/7 so the
+decay matches the cadence), `measurement` (any BP/weight/food log that day,
+frequency 1). This replaces the weekly streak as the Journey continuity
 mechanic (§9 note); the derived streak (§14.5) survives as a footnote inside the
 new Strengths card, not a separate headline metric.
 

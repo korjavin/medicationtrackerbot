@@ -841,9 +841,12 @@ func HealthContributorAdherence(pdc float64, present bool, cfg Config) HealthSco
 // score_d = score_{d-1}·m + checkmark_d·(1−m), where the daily decay
 // multiplier m = 0.5^(√frequency/HalfLifeDays). A miss lowers strength
 // gradually — it never resets to 0 — and a checkmark may be fractional
-// (e.g. a day's adherence ratio) rather than a hard 0/1. frequency lets a
-// non-daily habit (e.g. movement at 3×/week ⇒ frequency=3.0/7.0) reach the
-// same steady-state strength as a daily habit hitting its own cadence.
+// (e.g. a day's adherence ratio) rather than a hard 0/1. frequency only tunes
+// decay speed; it does not rescale the output, whose steady state is the mean
+// of the input. A non-daily habit therefore reaches 1.0 only when the caller
+// feeds an *implicit* checkmark reflecting cadence compliance (uhabits-style —
+// e.g. movement at 3×/week ⇒ trailing-week fill, not raw 0/1 daily), with
+// frequency (3.0/7.0) set to slow the decay to match.
 func HabitStrength(checkmarks []float64, frequency float64, cfg Config) float64 {
 	halfLife := cfg.HabitStrengthHalfLifeDays
 	if halfLife <= 0 {

@@ -146,16 +146,7 @@ func (s *service) healthScoreAdherence(ctx context.Context, userID int64, today 
 		if !ok {
 			continue // no doses expected that day — not a miss, just unscored
 		}
-		taken, expected := 0, 0
-		for _, dose := range ad.Doses {
-			switch dose.Status {
-			case scoring.DoseTaken:
-				taken++
-				expected++
-			case scoring.DoseMissed:
-				expected++
-			}
-		}
+		taken, expected := takenExpected(ad)
 		if expected == 0 {
 			continue
 		}
@@ -172,7 +163,9 @@ func (s *service) healthScoreAdherence(ctx context.Context, userID int64, today 
 
 // healthScoreRestingHR builds the "resting_hr" contributor from the recent
 // window's mean daily-minimum HR (the same proxy loadVitalsAuto uses for a
-// single day) vs. the mean over the wider baseline window.
+// single day) vs. the mean over the baseline window strictly before it —
+// mirrors healthScoreWeight so a recent improvement isn't averaged into the
+// very baseline it's graded against.
 func (s *service) healthScoreRestingHR(ctx context.Context, userID int64, today time.Time, cfg scoring.Config) (scoring.HealthScoreContributor, error) {
 	baselineStart := today.AddDate(0, 0, -(cfg.HealthScoreBaselineDays - 1))
 	recentStart := today.AddDate(0, 0, -(cfg.HealthScoreWindowDays - 1))
@@ -187,7 +180,9 @@ func (s *service) healthScoreRestingHR(ctx context.Context, userID int64, today 
 	if !recentOK {
 		return scoring.HealthContributorRestingHR(0, 0, false, cfg), nil
 	}
-	baselineMean, _ := meanInRange(dailyMin, baselineStart, today)
+	// Baseline excludes the recent window (empty for a new user → 0 → the
+	// contributor falls back to the absolute HR band, same as an unknown baseline).
+	baselineMean, _ := meanInRange(dailyMin, baselineStart, recentStart.AddDate(0, 0, -1))
 	return scoring.HealthContributorRestingHR(recentMean, baselineMean, true, cfg), nil
 }
 
@@ -251,11 +246,12 @@ func (s *service) healthScoreSleep(ctx context.Context, userID int64, today time
 		nights[sl.Day] = night{durationHours: dur, onsetMinutes: sleepOnsetMinutes(sl.StartTime)}
 	}
 
-	var recentDur, baselineOnsets []float64
+	var recentDur, recentOnsets, baselineOnsets []float64
 	for day, n := range nights {
 		baselineOnsets = append(baselineOnsets, n.onsetMinutes)
 		if day >= recentStartStr && day <= todayStr {
 			recentDur = append(recentDur, n.durationHours)
+			recentOnsets = append(recentOnsets, n.onsetMinutes)
 		}
 	}
 	if len(recentDur) == 0 {
@@ -266,11 +262,9 @@ func (s *service) healthScoreSleep(ctx context.Context, userID int64, today time
 	var meanDeviation float64
 	if hasRegularity {
 		baselineAvgOnset := mean(baselineOnsets)
-		var devs []float64
-		for day, n := range nights {
-			if day >= recentStartStr && day <= todayStr {
-				devs = append(devs, math.Abs(n.onsetMinutes-baselineAvgOnset))
-			}
+		devs := make([]float64, 0, len(recentOnsets))
+		for _, o := range recentOnsets {
+			devs = append(devs, math.Abs(o-baselineAvgOnset))
 		}
 		meanDeviation = mean(devs)
 	}
@@ -323,16 +317,7 @@ func (s *service) strengthMeds(ctx context.Context, userID int64, today time.Tim
 		if !ok {
 			continue
 		}
-		taken, expected := 0, 0
-		for _, dose := range ad.Doses {
-			switch dose.Status {
-			case scoring.DoseTaken:
-				taken++
-				expected++
-			case scoring.DoseMissed:
-				expected++
-			}
-		}
+		taken, expected := takenExpected(ad)
 		if expected == 0 {
 			continue
 		}
@@ -341,12 +326,39 @@ func (s *service) strengthMeds(ctx context.Context, userID int64, today time.Tim
 	return StrengthView{Key: "meds", Label: "Medication", Value: scoring.HabitStrength(checkmarks, 1, cfg), Frequency: 1}, nil
 }
 
-// movementStrengthFrequency is the expected weekly cadence (3x/week) the
-// movement pillar's EMA targets, per the plan's flexible-frequency design.
-const movementStrengthFrequency = 3.0 / 7.0
+// takenExpected counts a day's taken and expected doses under the shared
+// adherence rule: a TAKEN dose counts toward both, a MISSED dose toward
+// expected only, and a skip-with-reason toward neither.
+func takenExpected(ad scoring.AdherenceDay) (taken, expected int) {
+	for _, dose := range ad.Doses {
+		switch dose.Status {
+		case scoring.DoseTaken:
+			taken++
+			expected++
+		case scoring.DoseMissed:
+			expected++
+		}
+	}
+	return taken, expected
+}
 
-// strengthMovement folds each lookback day's workout-completed checkmark
-// (1/0, a genuine miss on an empty day) into the EMA at a 3x/week frequency.
+// movementWeeklyTarget / movementWindowDays define the flexible "3x per 7
+// days" movement cadence; movementStrengthFrequency is the derived per-day
+// frequency the EMA decay multiplier is tuned to.
+const (
+	movementWeeklyTarget      = 3
+	movementWindowDays        = 7
+	movementStrengthFrequency = float64(movementWeeklyTarget) / float64(movementWindowDays)
+)
+
+// strengthMovement folds an *implicit* daily checkmark into the EMA: each
+// day's value is the share of the weekly target met in the trailing 7 days
+// (min(1, workouts_in_last_7d / 3)). This is what lets a steady 3x/week
+// cadence converge to ~1.0 — the same implicit-checkmark trick uhabits uses
+// for non-daily habits. A raw per-day 0/1 series would instead top out at the
+// completion rate (~0.43 for a perfect 3x/week), because an EMA's steady state
+// is the mean of its input: the frequency parameter tunes decay speed but
+// cannot rescale that mean.
 func (s *service) strengthMovement(ctx context.Context, userID int64, today time.Time, cfg scoring.Config) (StrengthView, error) {
 	start := today.AddDate(0, 0, -(habitStrengthLookbackDays - 1))
 	end := today.AddDate(0, 0, 1)
@@ -366,11 +378,13 @@ func (s *service) strengthMovement(ctx context.Context, userID int64, today time
 	}
 	checkmarks := make([]float64, 0, habitStrengthLookbackDays)
 	for d := start; !d.After(today); d = d.AddDate(0, 0, 1) {
-		if workoutDay[d.Format("2006-01-02")] {
-			checkmarks = append(checkmarks, 1)
-		} else {
-			checkmarks = append(checkmarks, 0)
+		count := 0
+		for k := 0; k < movementWindowDays; k++ {
+			if workoutDay[d.AddDate(0, 0, -k).Format("2006-01-02")] {
+				count++
+			}
 		}
+		checkmarks = append(checkmarks, math.Min(1, float64(count)/float64(movementWeeklyTarget)))
 	}
 	value := scoring.HabitStrength(checkmarks, movementStrengthFrequency, cfg)
 	return StrengthView{Key: "movement", Label: "Movement", Value: value, Frequency: movementStrengthFrequency}, nil

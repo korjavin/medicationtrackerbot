@@ -93,3 +93,56 @@ func TestGetSummary_HealthScore_RenormalizesOverPresentContributorsOnly(t *testi
 		t.Fatalf("expected both bp and adherence contributors present, got contributors=%+v", hs.Contributors)
 	}
 }
+
+// TestGetSummary_MovementStrength_CompliantCadenceReachesCeiling guards the
+// flexible-frequency contract: a user who steadily hits their 3x/week movement
+// target must read near full strength, not the ~0.43 completion-rate ceiling a
+// raw 0/1 daily checkmark series would produce (an EMA's steady state is the
+// mean of its input).
+func TestGetSummary_MovementStrength_CompliantCadenceReachesCeiling(t *testing.T) {
+	ctx := context.Background()
+	const userID int64 = 1
+	gam := newRealGam(t)
+
+	now := time.Date(2026, 6, 20, 12, 0, 0, 0, time.UTC)
+	start := now.AddDate(0, 0, -(habitStrengthLookbackDays - 1))
+
+	// Seed a steady 3-workouts-per-7-days cadence across the whole lookback.
+	var hist []store.WorkoutSession
+	for i := 0; i < habitStrengthLookbackDays; i++ {
+		if d := i % 7; d != 0 && d != 2 && d != 4 {
+			continue
+		}
+		at := start.AddDate(0, 0, i)
+		completed := at
+		hist = append(hist, store.WorkoutSession{Status: "completed", CompletedAt: &completed, ScheduledDate: at})
+	}
+
+	svc := New(
+		fakeMed{}, fakeBP{}, fakeWeight{}, fakeVitals{}, fakeFood{}, fakeDiary{},
+		fakeWorkout{history: hist},
+		gam,
+		fakeSettings{enabled: true},
+	)
+	svc.now = func() time.Time { return now }
+
+	sum, err := svc.GetSummary(ctx, userID)
+	if err != nil {
+		t.Fatalf("GetSummary: %v", err)
+	}
+
+	var movement *StrengthView
+	for i := range sum.Strengths {
+		if sum.Strengths[i].Key == "movement" {
+			movement = &sum.Strengths[i]
+		}
+	}
+	if movement == nil {
+		t.Fatalf("no movement strength in %+v", sum.Strengths)
+	}
+	// A perfect 3x/week cadence should saturate the EMA near 1.0. The old raw
+	// 0/1 implementation topped out around the 3/7 ≈ 0.43 completion rate.
+	if movement.Value < 0.9 {
+		t.Errorf("movement strength = %v for a compliant 3x/week user, want ≥0.9 (regression: EMA capped at completion rate)", movement.Value)
+	}
+}
