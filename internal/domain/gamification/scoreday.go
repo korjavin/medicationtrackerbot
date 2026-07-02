@@ -268,7 +268,11 @@ func (s *service) syncPendingRings(ctx context.Context, userID int64, day time.T
 // new ones (correct because re-scoring the same data reproduces the same UNIQUE
 // keys, so old rows are fully replaced). Level and insight tier are recomputed
 // but never allowed to decrease (§7). The weekly-cadence streak is folded forward
-// via advanceStreak (§9). LastScoredDay only advances forward.
+// via advanceStreak (§9) and still persisted here for backward compatibility,
+// but GetSummary/GetJourney no longer read current_streak/freezes from this
+// row — they recompute both from the ledger on every read via deriveStreak
+// (Task 2, gamification-6), which a late import can repair and this
+// transactional fold cannot. LastScoredDay only advances forward.
 func (s *service) recomputeState(ctx context.Context, userID int64, start time.Time, entries []gamstore.LedgerEntry, cfg scoring.Config) (gamstore.State, bool, error) {
 	prev, err := s.gam.GetState(ctx, userID)
 	if err != nil {

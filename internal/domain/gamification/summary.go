@@ -80,6 +80,21 @@ func (s *service) GetSummary(ctx context.Context, userID int64) (Summary, error)
 	floor := scoring.HPToReachLevel(st.Level, cfg)
 	next := scoring.HPToReachLevel(st.Level+1, cfg)
 
+	// The current streak + freezes are a pure fold over the ledger (Task 2,
+	// gamification-6), not the persisted gamification_state columns: a late
+	// import into an already-scored week updates the ledger, and recomputing
+	// this fresh on every read means the repair needs no explicit trigger.
+	// LongestStreak still honors whatever the transactional path ever recorded —
+	// history outside the trailing derivedStreakWindowWeeks fold is never lost.
+	derivedStreak, derivedFreezes, derivedLongest, err := s.deriveStreak(ctx, userID, today, cfg)
+	if err != nil {
+		return Summary{}, err
+	}
+	longestStreak := st.LongestStreak
+	if derivedLongest > longestStreak {
+		longestStreak = derivedLongest
+	}
+
 	// Progress + Goal are best-effort enrichments layered on the cached
 	// ledger/state read above: they re-read live domain data (the effective bands,
 	// the per-ring membership re-score across every domain loader, the food
@@ -126,9 +141,9 @@ func (s *service) GetSummary(ctx context.Context, userID int64) (Summary, error)
 		HPIntoLevel:   st.LifetimeHP - floor,
 		LevelSpanHP:   next - floor,
 		HPToNextLevel: next - st.LifetimeHP,
-		CurrentStreak: st.CurrentStreak,
-		LongestStreak: st.LongestStreak,
-		Freezes:       st.Freezes,
+		CurrentStreak: derivedStreak,
+		LongestStreak: longestStreak,
+		Freezes:       derivedFreezes,
 		PeriodDays:    summaryPeriodDays,
 		TodayRings:    ringScores(todayLedger, todayProgress, goals, syncPending),
 		PeriodRings:   ringScores(periodLedger, nil, goals, nil),

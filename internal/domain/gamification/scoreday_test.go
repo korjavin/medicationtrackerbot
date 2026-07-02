@@ -3,6 +3,7 @@ package gamification
 import (
 	"context"
 	"database/sql"
+	"sort"
 	"testing"
 	"time"
 
@@ -184,6 +185,33 @@ func (m *memGam) ListLedger(_ context.Context, userID, since, until int64) ([]ga
 		if dk >= since && dk <= until {
 			out = append(out, e)
 		}
+	}
+	return out, nil
+}
+
+// WeeklyHPSums mirrors the real repo's grouped weekly HP sums (Task 2,
+// gamification-6) by bucketing on the same weekIndex the domain layer folds
+// over, so deriveStreak behaves identically against memGam or a real store.
+func (m *memGam) WeeklyHPSums(_ context.Context, userID, sinceDayUnix, untilDayUnix int64) ([]gamstore.WeeklyHP, error) {
+	byWeek := map[int64]int{}
+	for _, e := range m.ledger {
+		if e.UserID != userID {
+			continue
+		}
+		dk := utcMidnight(e.Day).Unix()
+		if dk < sinceDayUnix || dk > untilDayUnix {
+			continue
+		}
+		byWeek[weekIndex(e.Day)] += e.HP
+	}
+	weeks := make([]int64, 0, len(byWeek))
+	for w := range byWeek {
+		weeks = append(weeks, w)
+	}
+	sort.Slice(weeks, func(i, j int) bool { return weeks[i] < weeks[j] })
+	out := make([]gamstore.WeeklyHP, 0, len(weeks))
+	for _, w := range weeks {
+		out = append(out, gamstore.WeeklyHP{Week: w, HP: byWeek[w]})
 	}
 	return out, nil
 }

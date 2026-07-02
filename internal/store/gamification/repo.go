@@ -57,6 +57,16 @@ type LedgerEntry struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+// WeeklyHP is one week's total ledger HP — a single row of the read-time
+// streak fold's input (deriveStreak, internal/domain/gamification/streak.go).
+// Week matches the domain layer's Monday-anchored weekIndex; WeeklyHPSums only
+// ever returns weeks that had at least one ledger row (sparse) — a week with
+// zero HP is simply absent, same as one nobody logged anything in.
+type WeeklyHP struct {
+	Week int64
+	HP   int
+}
+
 // State is the cached gamification_state row for a user: lifetime HP, level,
 // streak bookkeeping, banked freezes, and the insight tier. It is recomputed
 // from the ledger and is never the only copy of anything. LastScoredDay is nil

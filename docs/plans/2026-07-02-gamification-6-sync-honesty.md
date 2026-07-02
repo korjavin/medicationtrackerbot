@@ -93,18 +93,18 @@ redesign:
 
 ### Task 2: Backend — derived streak (pure fold over the ledger)
 
-- [ ] add a repo query returning weekly HP sums for a user over the trailing 52 weeks
+- [x] add a repo query returning weekly HP sums for a user over the trailing 52 weeks
       (`internal/store/gamification/ledger_state.go`, single GROUP BY over
       `gamification_ledger`)
-- [ ] add `deriveStreak()` in `internal/domain/gamification/streak.go`: replay
+- [x] add `deriveStreak()` in `internal/domain/gamification/streak.go`: replay
       `scoring.NextStreak` oldest-first over those weekly sums starting from the first
       week with any HP in the window (freezes replay deterministically: earn 1 per met
       week, bank ≤4, auto-spend on a miss — identical semantics to today)
-- [ ] switch `GetSummary` / `GetJourney` to report the derived current streak +
+- [x] switch `GetSummary` / `GetJourney` to report the derived current streak +
       freezes; `LongestStreak = max(persisted, derived)` so history is never lost
-- [ ] keep `recomputeState`'s transactional writes (state row stays warm for
+- [x] keep `recomputeState`'s transactional writes (state row stays warm for
       compatibility), but no read path depends on them for the current streak anymore
-- [ ] integration test (service + real SQLite store): score week N, leave week N+1
+- [x] integration test (service + real SQLite store): score week N, leave week N+1
       empty past its end, verify streak reset/freeze-spent in summary; then import
       late data into week N+1 via `RescoreInstants` and verify the summary streak is
       repaired. This is the boundary guarantee of the whole plan

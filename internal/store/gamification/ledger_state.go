@@ -53,6 +53,43 @@ func (r *Repo) ListLedger(ctx context.Context, userID, sinceDayUnix, untilDayUni
 	return out, rows.Err()
 }
 
+// WeeklyHPSums groups the user's ledger HP into Monday-anchored weekly buckets
+// over the inclusive [sinceDayUnix, untilDayUnix] range, in one GROUP BY. It
+// backs the derived (backfill-proof) streak fold (Task 2, gamification-6):
+// unlike the transactional advanceStreak, which only ever moves forward at
+// score time, deriveStreak replays this per read, so a late import into an
+// already-passed week's ledger repairs the streak on the very next read with
+// no explicit repair step.
+//
+// day_unix is always UTC-midnight (dayToUnix), so day_unix/86400 is an exact
+// day count with no remainder; +3 shifts the bucket boundary onto Monday and
+// /7 buckets into weeks — this MUST stay in lockstep with the domain layer's
+// weekIndex (internal/domain/gamification/streak.go), which computes the
+// identical index from a time.Time so a ledger row and a scored day always
+// land in the same week.
+func (r *Repo) WeeklyHPSums(ctx context.Context, userID, sinceDayUnix, untilDayUnix int64) ([]WeeklyHP, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT (day_unix/86400 + 3)/7 AS week, SUM(hp) AS hp
+		   FROM gamification_ledger
+		  WHERE user_id = ? AND day_unix >= ? AND day_unix <= ?
+		  GROUP BY week
+		  ORDER BY week`, userID, sinceDayUnix, untilDayUnix)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []WeeklyHP
+	for rows.Next() {
+		var w WeeklyHP
+		if err := rows.Scan(&w.Week, &w.HP); err != nil {
+			return nil, err
+		}
+		out = append(out, w)
+	}
+	return out, rows.Err()
+}
+
 // SumHP returns the user's lifetime HP — the sum of hp across every ledger row.
 // COALESCE keeps a user with no awards at 0 rather than NULL.
 func (r *Repo) SumHP(ctx context.Context, userID int64) (int, error) {
