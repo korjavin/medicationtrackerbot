@@ -15,6 +15,7 @@ package gamification
 
 import (
 	"context"
+	"log/slog"
 	"math"
 	"time"
 
@@ -121,10 +122,19 @@ func (s *service) computeSleepBPInsight(ctx context.Context, userID int64, cfg s
 	}
 	byDay := make(map[string]float64, len(sleepLogs))
 	for _, sl := range sleepLogs {
-		byDay[sl.Day] = sleepDurationHours(sl)
+		// First-seen wins so a day with a nap + main sleep resolves to the same
+		// session loadSleep picks (it breaks on the first match; ListSleepLogs is
+		// start_time DESC) — the two duration reads must not disagree.
+		if _, ok := byDay[sl.Day]; !ok {
+			byDay[sl.Day] = sleepDurationHours(sl)
+		}
 	}
 
-	readings, err := s.bp.ListReadings(ctx, userID, start)
+	// Widen the BP lower bound by a day for the same reason loadSleep widens the
+	// sleep query: firstMorningSystolic matches by *local* day, so an east-of-UTC
+	// user's first-window-day morning reading has a measured_at before start's UTC
+	// midnight. The local-day + hour filter still bounds the result correctly.
+	readings, err := s.bp.ListReadings(ctx, userID, start.AddDate(0, 0, -1))
 	if err != nil {
 		return SleepBPInsight{}, err
 	}
@@ -181,6 +191,9 @@ func firstMorningSystolic(readings []store.BloodPressure, dayStr string, cutoffH
 	var best *store.BloodPressure
 	for i := range readings {
 		r := &readings[i]
+		if r.IgnoreCalc {
+			continue // match the BP stats convention (wellbeing.go, GetDailyWeightedStats)
+		}
 		local := r.MeasuredAt.In(loc)
 		if local.Format("2006-01-02") != dayStr || local.Hour() >= cutoffHour {
 			continue
@@ -203,11 +216,16 @@ func (s *service) insightLocation() *time.Location {
 		return time.UTC
 	}
 	tzStr, err := s.tz.GetCurrent()
-	if err != nil || tzStr == "" {
+	if err != nil {
+		slog.Warn("insight tz lookup failed, using UTC for morning cutoff", "error", err)
 		return time.UTC
+	}
+	if tzStr == "" {
+		return time.UTC // no timezone recorded yet — expected on a fresh install
 	}
 	loc, err := time.LoadLocation(tzStr)
 	if err != nil {
+		slog.Warn("insight tz parse failed, using UTC for morning cutoff", "tz", tzStr, "error", err)
 		return time.UTC
 	}
 	return loc

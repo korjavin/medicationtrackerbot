@@ -402,11 +402,13 @@
     // entirely below tier 3 — matching how the ladder itself keeps the row
     // "locked" — and while `journey.insight` hasn't arrived yet (e.g. render()
     // called directly, as in tests, without a preceding load()).
+    // True when the Journey payload reports insight tier `n` unlocked.
+    function tierUnlocked(j, n) {
+        return Array.isArray(j.unlocked_tiers) && j.unlocked_tiers.map(Number).includes(n);
+    }
+
     function renderInsightCard(j) {
-        const unlocked = new Set(
-            Array.isArray(j.unlocked_tiers) ? j.unlocked_tiers.map((t) => Number(t)) : []
-        );
-        if (!unlocked.has(3)) return null;
+        if (!tierUnlocked(j, 3)) return null;
 
         const insight = j.insight;
         if (!insight) return null;
@@ -595,7 +597,7 @@
                 staleAfterMs: STALE_AFTER_MS,
             });
             const data = result ? result.data : null;
-            if (data && Array.isArray(data.unlocked_tiers) && data.unlocked_tiers.map(Number).includes(3)) {
+            if (data && tierUnlocked(data, 3)) {
                 data.insight = await loadInsight();
             }
             render(data);
