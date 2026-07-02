@@ -108,12 +108,14 @@ change over the existing `RingScore.{Progress,Closed,Goal,SyncPending}` fields.
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] verify Overview requirements: one large concentric stack on Today + Journey,
+- [x] verify Overview requirements: one large concentric stack on Today + Journey,
       legend carries goals/checks/sync states, no scoring/API changes
-- [ ] `pnpm test` passes (architecture guards: globals allowlist, design tokens,
+- [x] `pnpm test` passes (architecture guards: globals allowlist, design tokens,
       SW precache; existing today/journey feature suites)
-- [ ] `go test ./...` still passes (should be untouched)
-- [ ] frontend lint clean
+- [x] `go test ./...` still passes (should be untouched)
+- [x] frontend lint clean (no eslint config in this project; the architecture
+      guard tests — design-tokens, no-inline-styles, no-inline-handlers — serve
+      as lint and pass as part of `pnpm test`)
 
 ### Task 5: Update documentation
 
