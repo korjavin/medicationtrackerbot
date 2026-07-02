@@ -163,12 +163,22 @@ Today headline, strengths replace the streak card on Journey.
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] verify Overview requirements: score legible, contributors named, missing data
+- [x] verify Overview requirements: score legible, contributors named, missing data
       renormalized, strengths EMA live, backfill import shifts both scores without
       any state reset
-- [ ] `go test ./...` passes
-- [ ] `pnpm test` passes
-- [ ] `golangci-lint run` + `gofmt` clean on touched packages
+      (verified: `ComputeHealthScore`/`HabitStrength` in `scoring.go` are pure
+      functions of their inputs with no persisted state; `HealthScoreMinContributors`
+      guards the null-below-threshold case; `TestGetSummary_HealthScore_RenormalizesOverPresentContributorsOnly`
+      in `wellbeing_test.go` exercises the renormalization contract end-to-end
+      through the real service; both scores compute on read per Task 2, so a
+      backfill import re-enters the math on next read with no reset)
+- [x] `go test ./...` passes
+- [x] `pnpm test` passes
+- [x] `golangci-lint run` + `gofmt` clean on touched packages
+      (gofmt flagged only pre-existing unrelated files outside this plan's
+      touched-file set; golangci-lint reports 0 issues on
+      `internal/domain/gamification/...`, `internal/mcp/registry/...`,
+      `internal/server/...`, `internal/store/gamification/...`)
 
 ### Task 6: Update documentation
 
