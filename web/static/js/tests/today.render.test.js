@@ -461,7 +461,7 @@ describe('TodayDashboard.renderToday', () => {
     // Gamification rings tile: "X of 5 closed" headline + the "your move"
     // next-step prompt (first open ring in canonical order, deep-linking to its
     // own section, not Journey).
-    function ringsState(now, closedRings, syncPendingRings) {
+    function ringsState(now, closedRings, syncPendingRings, healthScoreValue) {
         const all = ['adherence', 'movement', 'vitals', 'nourishment', 'mind'];
         const pending = syncPendingRings || [];
         const state = allPresentState(now);
@@ -469,6 +469,7 @@ describe('TodayDashboard.renderToday', () => {
             value: {
                 level: 4,
                 todayHp: 28,
+                healthScore: { value: healthScoreValue === undefined ? null : healthScoreValue },
                 rings: all.map((ring) => ({
                     ring,
                     hp: closedRings.includes(ring) ? 12 : 2,
@@ -590,5 +591,39 @@ describe('TodayDashboard.renderToday', () => {
         const rings = state.gamificationRings.value.rings;
         expect(rings.find((r) => r.ring === 'mind').sync_pending).toBe(true);
         expect(rings.find((r) => r.ring === 'adherence').sync_pending).toBe(false);
+    });
+
+    // Headline (Task 8): the Health Score composite replaces the raw "N HP
+    // today" number — a 0-100 score with a qualitative band word reads as
+    // "good or not" at a glance, which a bare HP count doesn't.
+    it('aggregateToday carries health_score from the raw rings payload into the cell', () => {
+        const caches = {
+            gamification_rings: {
+                level: 4,
+                today_hp: 28,
+                rings: [{ ring: 'adherence', hp: 12, closed: true }],
+                health_score: { value: 82.4, contributors: [], missing: [] }
+            }
+        };
+        const state = env.aggregate({ features: {} }, caches, now);
+        expect(state.gamificationRings.value.healthScore.value).toBe(82.4);
+    });
+
+    it('rings tile headline shows the Health Score number and a token-colored band tag', () => {
+        const root = env.document.getElementById('today-content');
+        env.render(ringsState(now, ['adherence', 'movement'], [], 82), root, { now });
+
+        const tile = root.querySelector('.wg-today-rings');
+        expect(tile.querySelector('.wg-today-rings__score-value').textContent).toBe('82');
+        expect(tile.querySelector('.wg-tag').textContent).toBe('Good');
+    });
+
+    it('rings tile headline shows "Not enough data" instead of a misleading number below the min-contributors floor', () => {
+        const root = env.document.getElementById('today-content');
+        env.render(ringsState(now, ['adherence', 'movement'], [], null), root, { now });
+
+        const tile = root.querySelector('.wg-today-rings');
+        expect(tile.querySelector('.wg-today-rings__score-value').textContent).toBe('—');
+        expect(tile.querySelector('.wg-today-rings__score-note').textContent).toBe('Not enough data');
     });
 });

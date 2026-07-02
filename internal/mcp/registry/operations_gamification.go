@@ -125,7 +125,7 @@ output(result["hp_history"])`,
 			Path:            "/api/gamification/rings",
 			Risk:            RiskRead,
 			Description:     "Slim Today-widget projection of the summary: the level badge plus per-ring HP earned today and whether each ring is closed (earned a non-floor award today). Use this (not gamification.summary) when you only need today's ring fill.",
-			ResponseSummary: "Object {enabled, level, today_hp, rings[] of {ring, hp, closed, progress, goal, sync_pending} for adherence/movement/vitals/nourishment/mind}. closed=true means the ring earned an outcome/consistency award today (not just the honesty floor). progress is the 0..1 fill gauge (1.0 when closed), goal is the short imperative subtitle. sync_pending=true means the ring is open only because its device-synced sample (steps/sleep) hasn't arrived yet today — not a failure.",
+			ResponseSummary: "Object {enabled, level, today_hp, rings[] of {ring, hp, closed, progress, goal, sync_pending} for adherence/movement/vitals/nourishment/mind, health_score}. closed=true means the ring earned an outcome/consistency award today (not just the honesty floor). progress is the 0..1 fill gauge (1.0 when closed), goal is the short imperative subtitle. sync_pending=true means the ring is open only because its device-synced sample (steps/sleep) hasn't arrived yet today — not a failure. health_score rides along (same shape as gamification.summary's field) so the Today widget can show the 0-100 composite without a second call.",
 			ResponseExample: `{
   "enabled": true,
   "level": 7,
@@ -136,7 +136,8 @@ output(result["hp_history"])`,
     {"ring": "vitals", "hp": 15, "closed": true, "progress": 1.0, "goal": "Keep BP in range · <120/80", "sync_pending": false},
     {"ring": "nourishment", "hp": 10, "closed": true, "progress": 1.0, "goal": "Eat near target · 1,800–2,200 kcal", "sync_pending": false},
     {"ring": "mind", "hp": 0, "closed": false, "progress": 0.0, "goal": "Sleep 7–9h", "sync_pending": true}
-  ]
+  ],
+  "health_score": {"value": 78.5, "contributors": [{"key": "bp", "label": "Blood pressure", "score": 0.9, "weight": 1.0, "missing": false}], "missing": []}
 }`,
 			Example: `result = api.call("gamification.rings")
 output(result)`,

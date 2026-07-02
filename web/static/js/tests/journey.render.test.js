@@ -44,6 +44,19 @@ function journey(overrides) {
         unlocked_tiers: [1, 2],
         level_curve: [{ level: 1, hp_to_reach: 0 }],
         hp_history: [{ day_unix: 1750982400, hp: 110 }, { day_unix: 1751068800, hp: 95 }],
+        health_score: {
+            value: 82,
+            contributors: [
+                { key: 'bp', label: 'Blood pressure', score: 0.95, weight: 1, missing: false },
+                { key: 'sleep', label: 'Sleep', score: 0.7, weight: 1, missing: false }
+            ],
+            missing: []
+        },
+        strengths: [
+            { key: 'meds', label: 'Medication', value: 0.92, frequency: 1 },
+            { key: 'movement', label: 'Movement', value: 0.5, frequency: 3 / 7 },
+            { key: 'measurement', label: 'Measurement', value: 0.4, frequency: 1 }
+        ],
         ...overrides
     };
 }
@@ -155,5 +168,68 @@ describe('Journey render', () => {
         const correlationsRow = Array.from(rows).find((r) => titleOf(r) === 'Correlations');
         expect(statusOf(correlationsRow)).toMatch(/soon/);
         expect(correlationsRow.classList.contains('wg-journey-ladder__row--locked')).toBe(true);
+    });
+
+    // Health Score card (Task 8): big number + band word, then one mini-bar
+    // per named contributor — a missing contributor reads "No data", never a
+    // misleading 0%.
+    it('Health Score card shows the composite, a band tag, and per-contributor bars including a missing one', () => {
+        env.window.Gamification.render(journey({
+            health_score: {
+                value: 78.4,
+                contributors: [
+                    { key: 'bp', label: 'Blood pressure', score: 0.9, weight: 1, missing: false },
+                    { key: 'sleep', label: 'Sleep', score: 0, weight: 1, missing: true }
+                ],
+                missing: ['sleep']
+            }
+        }));
+        const { document } = env;
+
+        const card = document.querySelector('.wg-journey-score');
+        expect(card).not.toBeNull();
+        expect(card.querySelector('.wg-journey-score__value').textContent).toBe('78');
+        expect(card.querySelector('.wg-tag').textContent).toBe('Good');
+
+        const rows = card.querySelectorAll('.wg-journey-score__row');
+        expect(rows.length).toBe(2);
+        expect(rows[0].querySelector('.wg-journey-score__row-label').textContent).toBe('Blood pressure');
+        expect(rows[0].querySelector('.wg-journey-score__row-value').textContent).toBe('90%');
+        expect(rows[1].querySelector('.wg-journey-score__row-label').textContent).toBe('Sleep');
+        expect(rows[1].querySelector('.wg-journey-score__row-value').textContent).toBe('No data');
+    });
+
+    it('Health Score renders "not enough data" instead of a misleading number below the min-contributors floor', () => {
+        env.window.Gamification.render(journey({ health_score: { value: null, contributors: [], missing: [] } }));
+        const card = env.document.querySelector('.wg-journey-score');
+        expect(card.querySelector('.wg-journey-score__value').textContent).toBe('—');
+        expect(card.textContent).toMatch(/not enough data/i);
+    });
+
+    // Strengths card (Task 8): replaces the weekly streak card — one
+    // habit-strength EMA gauge per pillar, derived streak demoted to a
+    // footnote line.
+    it('Strengths card renders one gauge per pillar and demotes the streak to a footnote, replacing the streak card', () => {
+        env.window.Gamification.render(journey({
+            strengths: [
+                { key: 'meds', label: 'Medication', value: 0.92, frequency: 1 },
+                { key: 'movement', label: 'Movement', value: 0.5, frequency: 3 / 7 },
+                { key: 'measurement', label: 'Measurement', value: 0.1, frequency: 1 }
+            ]
+        }));
+        const { document } = env;
+
+        expect(document.querySelector('.wg-journey-streak')).toBeNull();
+
+        const card = document.querySelector('.wg-journey-strengths');
+        expect(card).not.toBeNull();
+        const rows = card.querySelectorAll('.wg-journey-strength');
+        expect(rows.length).toBe(3);
+        expect(rows[0].querySelector('.wg-journey-strength__label').textContent).toBe('Medication');
+        expect(rows[0].querySelector('.wg-journey-strength__value').textContent).toBe('92%');
+
+        const footnote = card.querySelector('.wg-journey-strengths__footnote').textContent;
+        expect(footnote).toContain('12-day streak');
+        expect(footnote).toContain('best 21');
     });
 });

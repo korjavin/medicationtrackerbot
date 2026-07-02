@@ -353,9 +353,11 @@
         if (rings && rings.enabled === false) return cell(null, 'journey', 'disabled');
         const list = rings && Array.isArray(rings.rings) ? rings.rings : null;
         if (!list || list.length === 0) return cell(null, 'journey', 'missing');
+        const hs = rings.health_score;
         const value = {
             level: Number.isFinite(rings.level) ? rings.level : 0,
             todayHp: Number.isFinite(rings.today_hp) ? rings.today_hp : 0,
+            healthScore: { value: (hs && Number.isFinite(hs.value)) ? hs.value : null },
             rings: list
                 .filter((r) => r && typeof r.ring === 'string')
                 .map((r) => ({
@@ -585,6 +587,17 @@
         span.className = `wg-tag wg-tag--${kind}`;
         span.textContent = text;
         return span;
+    }
+
+    // Qualitative band for the 0-100 Health Score composite (Task 8, Oura/Whoop
+    // pattern), token-colored via the same wg-tag palette bpStatusTag uses.
+    // Duplicated in journey.js rather than shared — same convention as
+    // RING_TILE_META (today.js stays self-contained for its pure-render tests).
+    function healthScoreBand(value) {
+        if (!Number.isFinite(value)) return null;
+        if (value >= 70) return { label: 'Good', kind: 'normal' };
+        if (value >= 40) return { label: 'Fair', kind: 'high' };
+        return { label: 'Needs attention', kind: 'alert' };
     }
 
     function bpStatusTag(systolic, diastolic) {
@@ -1072,11 +1085,29 @@
                 + (syncPendingCount > 0 ? ` · ${syncPendingCount} waiting for sync` : '')
             : 'Today’s rings';
         header.appendChild(title);
-        const hp = d.createElement('span');
-        hp.className = 'wg-mono-display wg-today-rings__hp';
-        const todayHp = (cell.value && Number.isFinite(cell.value.todayHp)) ? cell.value.todayHp : 0;
-        hp.textContent = `+${todayHp} HP`;
-        header.appendChild(hp);
+
+        // Headline is the Health Score (Task 8), not the raw today_hp count —
+        // "34 HP today" doesn't tell the user whether that's good; a 0-100
+        // score with a band word does. Falls back to a muted note below the
+        // min-contributors threshold ("not enough data") rather than a
+        // misleadingly confident number.
+        const scoreValue = (cell.value && cell.value.healthScore) ? cell.value.healthScore.value : null;
+        const band = healthScoreBand(scoreValue);
+        const scoreWrap = d.createElement('span');
+        scoreWrap.className = 'wg-today-rings__score';
+        const scoreNum = d.createElement('span');
+        scoreNum.className = 'wg-mono-display wg-today-rings__score-value';
+        scoreNum.textContent = Number.isFinite(scoreValue) ? String(Math.round(scoreValue)) : '—';
+        scoreWrap.appendChild(scoreNum);
+        if (band) {
+            scoreWrap.appendChild(statusTag(band.kind, band.label));
+        } else {
+            const note = d.createElement('span');
+            note.className = 'wg-today-rings__score-note wg-muted';
+            note.textContent = 'Not enough data';
+            scoreWrap.appendChild(note);
+        }
+        header.appendChild(scoreWrap);
         card.appendChild(header);
 
         // "Your move" — one tappable next action that deep-links to the open

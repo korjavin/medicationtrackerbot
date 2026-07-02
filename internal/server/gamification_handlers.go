@@ -67,12 +67,15 @@ func (s *Server) handleGamificationJourney(w http.ResponseWriter, r *http.Reques
 
 // ringsView is the slim Today-widget payload: per-ring HP earned today plus the
 // level badge. A projection of Summary, so the Today ring widget can render
-// without pulling the full journey.
+// without pulling the full journey. HealthScore rides along (Task 8) so the
+// Today tile's headline can show the 0-100 composite instead of raw today_hp
+// without a second round-trip to the full Summary.
 type ringsView struct {
-	Enabled bool                 `json:"enabled"`
-	Level   int                  `json:"level"`
-	TodayHP int                  `json:"today_hp"`
-	Rings   []gamstore.RingScore `json:"rings"`
+	Enabled     bool                            `json:"enabled"`
+	Level       int                             `json:"level"`
+	TodayHP     int                             `json:"today_hp"`
+	Rings       []gamstore.RingScore            `json:"rings"`
+	HealthScore gamificationsvc.HealthScoreView `json:"health_score"`
 }
 
 // handleGamificationRings serves the slim Today rings payload.
@@ -86,10 +89,11 @@ func (s *Server) handleGamificationRings(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, ringsView{
-		Enabled: sum.Enabled,
-		Level:   sum.Level,
-		TodayHP: sum.TodayHP,
-		Rings:   sum.TodayRings,
+		Enabled:     sum.Enabled,
+		Level:       sum.Level,
+		TodayHP:     sum.TodayHP,
+		Rings:       sum.TodayRings,
+		HealthScore: sum.HealthScore,
 	})
 }
 

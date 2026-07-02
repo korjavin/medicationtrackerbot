@@ -278,6 +278,7 @@ window.AuthBootstrap = (function () {
                 level: res.gamification.level,
                 today_hp: res.gamification.today_hp,
                 rings: Array.isArray(res.gamification.today_rings) ? res.gamification.today_rings : [],
+                health_score: res.gamification.health_score,
             }, ['gamification']);
         }
 

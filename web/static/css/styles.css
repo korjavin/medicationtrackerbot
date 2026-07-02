@@ -5423,31 +5423,82 @@ textarea.wg-input {
     font-size: var(--font-size-sm);
 }
 
-/* Streak card — 3 mono stat cells. */
-.wg-journey-stat-row {
+/* Health Score card (Task 8): big number + band tag, then one mini-bar row
+   per named contributor. Reuses .wg-journey-bar__track/__fill (the header's
+   HP-progress bar) for the contributor bars. */
+.wg-journey-score__hero {
     display: flex;
+    align-items: baseline;
     gap: var(--space-sm);
+    margin-bottom: var(--space-sm);
 }
 
-.wg-journey-stat {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--space-xs);
-    padding: var(--space-sm) 0;
-}
-
-.wg-journey-stat__value {
-    font-size: var(--font-size-lg);
+.wg-journey-score__value {
+    font-size: var(--font-size-xl);
     color: var(--wg-fg-1);
 }
 
-.wg-journey-stat__label {
+.wg-journey-score__hero-note {
+    font-size: var(--font-size-sm);
+}
+
+.wg-journey-score__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-journey-score__row-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: var(--space-xs);
+}
+
+.wg-journey-score__row-label {
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-2);
+}
+
+.wg-journey-score__row-value {
     font-size: var(--font-size-xs);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--wg-fg-3);
+}
+
+/* Strengths card (Task 8) — replaces the weekly streak card as the
+   continuity mechanic: one habit-strength EMA gauge per pillar, plus the
+   derived streak demoted to a single footnote line. */
+.wg-journey-strengths__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-journey-strength__head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    margin-bottom: var(--space-xs);
+}
+
+.wg-journey-strength__icon {
+    display: inline-flex;
+    color: var(--wg-sun);
+}
+
+.wg-journey-strength__label {
+    flex: 1;
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-2);
+}
+
+.wg-journey-strength__value {
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-1);
+}
+
+.wg-journey-strengths__footnote {
+    margin-top: var(--space-sm);
+    font-size: var(--font-size-xs);
 }
 
 /* Rings card (Plan 7, Task 3): wg-ring-stack on the left, legend list of
@@ -5522,9 +5573,19 @@ textarea.wg-input {
     color: var(--wg-fg-4);
 }
 
-.wg-today-rings__hp {
-    font-size: var(--font-size-sm);
+.wg-today-rings__score {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--space-xs);
+}
+
+.wg-today-rings__score-value {
+    font-size: var(--font-size-lg);
     color: var(--wg-sun);
+}
+
+.wg-today-rings__score-note {
+    font-size: var(--font-size-sm);
 }
 
 .wg-today-rings__empty {

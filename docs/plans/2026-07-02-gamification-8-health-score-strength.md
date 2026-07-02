@@ -134,17 +134,32 @@ Today headline, strengths replace the streak card on Journey.
 
 ### Task 4: Frontend — Health Score headline + strengths card
 
-- [ ] Today tile (`today.js`): headline becomes the Health Score (0–100 with a
+- [x] Today tile (`today.js`): headline becomes the Health Score (0–100 with a
       qualitative band word, e.g. Good/Fair — token-colored), replacing the raw
       "N HP today" number; rings/legend/"your move" from Phases A+B unchanged
-- [ ] Journey (`journey.js`): new "Health Score" card — big number + one mini-bar
+      (deviation: the slim `/api/gamification/rings` payload `today.js` reads
+      didn't carry `health_score` — Task 3 only wired it onto `Summary`/`Journey`.
+      Extended `ringsView` in `internal/server/gamification_handlers.go` with an
+      additive `health_score` field passed through verbatim from `sum.HealthScore`,
+      same pattern as `enabled`/`level`/`today_hp`; mirrored into the
+      `auth-bootstrap.js` bootstrap→`gamification_rings` cache projection so a
+      cold relaunch also has it. Updated the `gamification.rings` MCP
+      ResponseSummary/Example and the `docs/api.md` rings row to document the
+      new field.)
+- [x] Journey (`journey.js`): new "Health Score" card — big number + one mini-bar
       per contributor (label, bar, "no data" state for missing ones); replaces
       nothing, sits above the rings card
-- [ ] Journey: streak card becomes the "Strengths" card — one gauge per pillar
+- [x] Journey: streak card becomes the "Strengths" card — one gauge per pillar
       (meds / movement / measurement), derived streak demoted to a single footnote
       line inside it (e.g. "12 weeks active") or dropped if it reads as noise
-- [ ] update the "How this works" explainer card: HP→levels stays, streak paragraph
+      (deviation: footnote reads "N-day streak · best M" — the plan's "12 weeks"
+      example doesn't match the backend's day-granularity `current_streak`/
+      `longest_streak` fields, so kept the unit consistent with the real data)
+- [x] update the "How this works" explainer card: HP→levels stays, streak paragraph
       replaced by strength + health-score one-liners in plain language
+      (deviation: the explainer never had a streak term to begin with — added
+      "Health Score" and "Strengths" terms in plain language instead of replacing
+      a nonexistent one)
 
 ### Task 5: Verify acceptance criteria
 

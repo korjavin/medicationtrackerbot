@@ -6,7 +6,9 @@
 // from the Plan 2 Journey read model:
 //   { enabled, level, lifetime_hp, hp_into_level, level_span_hp, hp_to_next_level,
 //     current_streak, longest_streak, freezes, today_hp, today_rings:[{ring,hp}],
-//     period_rings:[{ring,hp}], unlocked_tiers:[1..], level_curve:[{level,hp_to_reach}] }
+//     period_rings:[{ring,hp}], unlocked_tiers:[1..], level_curve:[{level,hp_to_reach}],
+//     health_score:{value,contributors:[{key,label,score,weight,missing}],missing:[]},
+//     strengths:[{key,label,value,frequency}] }  (Task 8, the two additive score layers)
 //
 // Visuals come only from CSS classes + --wg-* tokens; the only inline style is
 // `style.setProperty('--fill-pct', …)` for progress fills (allowed by the
@@ -121,6 +123,8 @@
         ['HP', 'Healthy actions earn HealthPoints (HP).'],
         ['Rings', 'Each ring tracks one area of your health — adherence, movement, vitals, nourishment, mind.'],
         ['Closing a ring', 'A ring closes when today’s number lands in your target range, not just from logging.'],
+        ['Health Score', 'A 0–100 score built from your recent readings — a gap in the data dilutes it, it never counts as a zero.'],
+        ['Strengths', 'Each habit’s strength rises when you keep it up and eases off on a miss — no all-or-nothing streak to lose.'],
         ['Levels', 'HP adds up across days; enough HP levels you up.'],
         ['Insight ladder', 'Levelling up unlocks deeper personal analytics below — some are still coming soon.'],
     ];
@@ -139,21 +143,101 @@
         return card;
     }
 
-    function statCell(label, value) {
-        const cell = el('div', 'wg-journey-stat');
-        cell.appendChild(el('span', 'wg-mono-display wg-journey-stat__value', String(value)));
-        cell.appendChild(el('span', 'wg-journey-stat__label', label));
-        return cell;
+    // Qualitative band for the 0-100 Health Score composite (Task 8). Duplicated
+    // from today.js rather than shared, matching the RINGS/RING_TILE_META
+    // convention already in this file pair.
+    function healthScoreBand(value) {
+        if (!Number.isFinite(value)) return null;
+        if (value >= 70) return { label: 'Good', kind: 'normal' };
+        if (value >= 40) return { label: 'Fair', kind: 'high' };
+        return { label: 'Needs attention', kind: 'alert' };
     }
 
-    function renderStreak(j) {
-        const card = el('section', 'wg-card wg-journey-streak');
-        card.appendChild(el('div', 'wg-section-label', 'STREAK'));
-        const row = el('div', 'wg-journey-stat-row');
-        row.appendChild(statCell('Current', `${Number(j.current_streak) || 0}`));
-        row.appendChild(statCell('Longest', `${Number(j.longest_streak) || 0}`));
-        row.appendChild(statCell('Freezes', `${Number(j.freezes) || 0}`));
-        card.appendChild(row);
+    // Health Score card (Task 8): the Oura/Whoop-pattern 0-100 composite as a
+    // big number + band word, then one mini-bar per named contributor. A
+    // contributor with no data in its window renders "No data" instead of a
+    // misleading 0-width bar — the composite renormalizes over what's present,
+    // it never scores an absent signal as zero.
+    function renderHealthScore(j) {
+        const hs = (j && j.health_score) || {};
+        const card = el('section', 'wg-card wg-journey-score');
+        card.appendChild(el('div', 'wg-section-label', 'HEALTH SCORE'));
+
+        const hero = el('div', 'wg-journey-score__hero');
+        const scoreValue = Number.isFinite(hs.value) ? Math.round(hs.value) : null;
+        hero.appendChild(el('span', 'wg-mono-display wg-journey-score__value', scoreValue != null ? String(scoreValue) : '—'));
+        const band = healthScoreBand(scoreValue);
+        if (band) {
+            hero.appendChild(el('span', `wg-tag wg-tag--${band.kind}`, band.label));
+        } else {
+            hero.appendChild(el('span', 'wg-journey-score__hero-note wg-muted', 'Not enough data yet'));
+        }
+        card.appendChild(hero);
+
+        const contributors = Array.isArray(hs.contributors) ? hs.contributors : [];
+        const list = el('div', 'wg-journey-score__list');
+        contributors.forEach((c) => {
+            const row = el('div', 'wg-journey-score__row');
+            const head = el('div', 'wg-journey-score__row-head');
+            head.appendChild(el('span', 'wg-journey-score__row-label', c.label || c.key));
+            head.appendChild(el('span', 'wg-journey-score__row-value wg-muted',
+                c.missing ? 'No data' : `${Math.round((Number(c.score) || 0) * 100)}%`));
+            row.appendChild(head);
+            row.appendChild(progressBar(c.missing ? 0 : c.score, 'wg-journey-bar__fill--sun'));
+            list.appendChild(row);
+        });
+        card.appendChild(list);
+        return card;
+    }
+
+    // Strengths pillar metadata — icon only; label comes from the backend so
+    // wording changes don't need a frontend deploy.
+    const STRENGTHS_META = {
+        meds: { icon: 'pill' },
+        movement: { icon: 'activity' },
+        measurement: { icon: 'chart' },
+    };
+
+    // Strengths card (Task 8): replaces the weekly streak card as the
+    // continuity mechanic — one Loop-Habit-Tracker EMA gauge per pillar
+    // (meds/movement/measurement). The derived streak from Phase A is
+    // demoted to a single footnote line here rather than dropped outright,
+    // since "N-day streak" is still a legible, familiar number.
+    function renderStrengths(j) {
+        const card = el('section', 'wg-card wg-journey-strengths');
+        card.appendChild(el('div', 'wg-section-label', 'STRENGTHS'));
+
+        const strengths = Array.isArray(j.strengths) ? j.strengths : [];
+        if (strengths.length === 0) {
+            card.appendChild(el('p', 'wg-journey-strengths__empty wg-muted', 'No habit data yet.'));
+        } else {
+            const list = el('div', 'wg-journey-strengths__list');
+            strengths.forEach((s) => {
+                const meta = STRENGTHS_META[s.key] || {};
+                const row = el('div', 'wg-journey-strength');
+                const head = el('div', 'wg-journey-strength__head');
+                const ic = icon(meta.icon || 'bolt', 16);
+                if (ic) {
+                    const wrap = el('span', 'wg-journey-strength__icon');
+                    wrap.appendChild(ic);
+                    head.appendChild(wrap);
+                }
+                head.appendChild(el('span', 'wg-journey-strength__label', s.label || s.key));
+                const pct = Math.round((Number(s.value) || 0) * 100);
+                head.appendChild(el('span', 'wg-mono-display wg-journey-strength__value', `${pct}%`));
+                row.appendChild(head);
+                row.appendChild(progressBar(s.value, 'wg-journey-bar__fill--sun'));
+                list.appendChild(row);
+            });
+            card.appendChild(list);
+        }
+
+        const current = Number(j.current_streak) || 0;
+        const longest = Number(j.longest_streak) || 0;
+        const footnote = current > 0
+            ? `${current}-day streak · best ${longest}`
+            : (longest > 0 ? `Best streak: ${longest} days` : 'Close a ring daily to start a streak.');
+        card.appendChild(el('div', 'wg-journey-strengths__footnote wg-muted', footnote));
         return card;
     }
 
@@ -371,7 +455,8 @@
         const cards = [
             renderHeader(journey),
             renderExplainer(),
-            renderStreak(journey),
+            renderHealthScore(journey),
+            renderStrengths(journey),
             renderRings(journey),
             renderHistory(journey),
             renderLadder(journey),
