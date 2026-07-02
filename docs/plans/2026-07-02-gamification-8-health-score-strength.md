@@ -182,10 +182,17 @@ Today headline, strengths replace the streak card on Journey.
 
 ### Task 6: Update documentation
 
-- [ ] `docs/gamification.md`: new §14.6 — the two score layers, formulas, constants,
+- [x] `docs/gamification.md`: new §14.6 — the two score layers, formulas, constants,
       and the "pure function of the log" invariant; mark the weekly-streak mechanic
       as superseded by strengths (§9 note)
-- [ ] `docs/api.md#gamification`: new fields documented
+      (deviation: landed as §14.7, not §14.6 — Plan 7's concentric-rings write-up
+      already claimed §14.6 by the time this task ran; added a superseded-by note
+      in §9 pointing at §14.7)
+- [x] `docs/api.md#gamification`: new fields documented
+      (already satisfied — Task 3's `handleGamificationSummary`/`journey` deviation
+      note and Task 4's `rings` deviation both updated `docs/api.md#gamification`
+      inline as they shipped: `health_score` and `strengths` are documented on the
+      summary/journey/rings rows)
 
 ## Technical Details
 
