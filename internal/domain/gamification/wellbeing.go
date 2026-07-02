@@ -111,23 +111,32 @@ func toHealthScoreView(r scoring.HealthScoreResult) HealthScoreView {
 }
 
 // healthScoreBP builds the "bp" contributor from the recent window's mean
-// reading — present iff at least one reading fell in the window.
+// reading — present iff at least one non-ignored reading fell in the window.
+// ListReadings only lower-bounds measured_at, so future-dated rows (a backup
+// import or clock-skewed entry) are filtered against windowEnd; readings the
+// user flagged ignore_calc are skipped to match the BP stats convention
+// (GetDailyWeightedStats, category alerts).
 func (s *service) healthScoreBP(ctx context.Context, userID int64, today time.Time, cfg scoring.Config) (scoring.HealthScoreContributor, error) {
 	recentStart := today.AddDate(0, 0, -(cfg.HealthScoreWindowDays - 1))
+	windowEnd := today.AddDate(0, 0, 1) // exclusive: window is [recentStart, today]
 	readings, err := s.bp.ListReadings(ctx, userID, recentStart)
 	if err != nil {
 		return scoring.HealthScoreContributor{}, err
 	}
-	if len(readings) == 0 {
-		return scoring.HealthContributorBP(0, 0, false, cfg), nil
-	}
 	var sumSys, sumDia float64
+	var n int
 	for _, r := range readings {
+		if r.IgnoreCalc || !r.MeasuredAt.Before(windowEnd) {
+			continue
+		}
 		sumSys += float64(r.Systolic)
 		sumDia += float64(r.Diastolic)
+		n++
 	}
-	n := float64(len(readings))
-	return scoring.HealthContributorBP(sumSys/n, sumDia/n, true, cfg), nil
+	if n == 0 {
+		return scoring.HealthContributorBP(0, 0, false, cfg), nil
+	}
+	return scoring.HealthContributorBP(sumSys/float64(n), sumDia/float64(n), true, cfg), nil
 }
 
 // healthScoreAdherence builds the "adherence" contributor as the recent
@@ -193,6 +202,7 @@ func (s *service) healthScoreRestingHR(ctx context.Context, userID int64, today 
 func (s *service) healthScoreWeight(ctx context.Context, userID int64, today time.Time, cfg scoring.Config) (scoring.HealthScoreContributor, error) {
 	baselineStart := today.AddDate(0, 0, -(cfg.HealthScoreBaselineDays - 1))
 	recentStart := today.AddDate(0, 0, -(cfg.HealthScoreWindowDays - 1))
+	windowEnd := today.AddDate(0, 0, 1) // exclusive: drop future-dated rows ListLogs' lower-bound admits
 
 	logs, err := s.weight.ListLogs(ctx, userID, baselineStart)
 	if err != nil {
@@ -201,6 +211,9 @@ func (s *service) healthScoreWeight(ctx context.Context, userID int64, today tim
 	var recentSum, priorSum float64
 	var recentN, priorN int
 	for _, l := range logs {
+		if !l.MeasuredAt.Before(windowEnd) {
+			continue // dated in the future — not part of the trailing window
+		}
 		if !l.MeasuredAt.Before(recentStart) {
 			recentSum += l.Weight
 			recentN++

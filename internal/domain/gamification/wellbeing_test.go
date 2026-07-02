@@ -94,6 +94,55 @@ func TestGetSummary_HealthScore_RenormalizesOverPresentContributorsOnly(t *testi
 	}
 }
 
+// TestGetSummary_HealthScoreBP_ExcludesFutureDatedAndIgnoreCalc guards the two
+// window-hygiene rules for the BP contributor: ListReadings only lower-bounds
+// measured_at, so a future-dated row (backup import / clock skew) must not enter
+// today's trailing mean, and a reading the user flagged ignore_calc must be
+// excluded just as the BP stats exclude it. A hypertensive future/ignored row
+// alongside a single in-range real reading must leave the contributor scoring
+// full membership.
+func TestGetSummary_HealthScoreBP_ExcludesFutureDatedAndIgnoreCalc(t *testing.T) {
+	ctx := context.Background()
+	const userID int64 = 1
+	gam := newRealGam(t)
+
+	now := time.Date(2026, 6, 20, 12, 0, 0, 0, time.UTC)
+	recent := now.AddDate(0, 0, -3)  // inside the 14-day recent window
+	future := now.AddDate(0, 0, 5)   // dated after today
+	ignored := now.AddDate(0, 0, -2) // inside the window but ignore_calc
+
+	svc := New(
+		fakeMed{},
+		fakeBP{readings: []store.BloodPressure{
+			{MeasuredAt: recent, Systolic: 110, Diastolic: 70},                     // in-range, counts
+			{MeasuredAt: future, Systolic: 200, Diastolic: 120},                    // future — must be dropped
+			{MeasuredAt: ignored, Systolic: 200, Diastolic: 120, IgnoreCalc: true}, // excluded
+		}},
+		fakeWeight{}, fakeVitals{}, fakeFood{}, fakeDiary{}, fakeWorkout{},
+		gam,
+		fakeSettings{enabled: true},
+	)
+	svc.now = func() time.Time { return now }
+
+	sum, err := svc.GetSummary(ctx, userID)
+	if err != nil {
+		t.Fatalf("GetSummary: %v", err)
+	}
+	for _, c := range sum.HealthScore.Contributors {
+		if c.Key != "bp" {
+			continue
+		}
+		if c.Missing {
+			t.Fatal("bp contributor missing, want present from the one in-range reading")
+		}
+		if c.Score != 1 {
+			t.Errorf("bp score = %v, want 1 (future-dated + ignore_calc rows must not pull the mean out of range)", c.Score)
+		}
+		return
+	}
+	t.Fatal("no bp contributor in health score")
+}
+
 // TestGetSummary_MovementStrength_CompliantCadenceReachesCeiling guards the
 // flexible-frequency contract: a user who steadily hits their 3x/week movement
 // target must read near full strength, not the ~0.43 completion-rate ceiling a
