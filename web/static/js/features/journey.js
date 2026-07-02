@@ -202,7 +202,9 @@
     // continuity mechanic — one Loop-Habit-Tracker EMA gauge per pillar
     // (meds/movement/measurement). The derived streak from Phase A is
     // demoted to a single footnote line here rather than dropped outright,
-    // since "N-day streak" is still a legible, familiar number.
+    // since "N-week streak" is still a legible, familiar number. The streak
+    // is weekly-cadence (derived per met week in streak.go), so it reads in
+    // weeks, not days.
     function renderStrengths(j) {
         const card = el('section', 'wg-card wg-journey-strengths');
         card.appendChild(el('div', 'wg-section-label', 'STRENGTHS'));
@@ -235,8 +237,8 @@
         const current = Number(j.current_streak) || 0;
         const longest = Number(j.longest_streak) || 0;
         const footnote = current > 0
-            ? `${current}-day streak · best ${longest}`
-            : (longest > 0 ? `Best streak: ${longest} days` : 'Close a ring daily to start a streak.');
+            ? `${current}-week streak · best ${longest}`
+            : (longest > 0 ? `Best streak: ${longest} weeks` : 'Close a ring weekly to start a streak.');
         card.appendChild(el('div', 'wg-journey-strengths__footnote wg-muted', footnote));
         return card;
     }

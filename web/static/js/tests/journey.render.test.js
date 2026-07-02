@@ -229,7 +229,7 @@ describe('Journey render', () => {
         expect(rows[0].querySelector('.wg-journey-strength__value').textContent).toBe('92%');
 
         const footnote = card.querySelector('.wg-journey-strengths__footnote').textContent;
-        expect(footnote).toContain('12-day streak');
+        expect(footnote).toContain('12-week streak');
         expect(footnote).toContain('best 21');
     });
 });

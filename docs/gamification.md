@@ -861,7 +861,8 @@ qualitative band word, token-colored) in place of the raw "N HP today" number;
 rings/legend/"your move" unchanged. Journey gets a new Health Score card (big
 number + one mini-bar per contributor, "no data" state for missing ones) above the
 rings card, and the old streak card becomes the Strengths card — one gauge per
-pillar with the derived streak as a footnote line ("N-day streak · best M"). The
+pillar with the derived streak as a footnote line ("N-week streak · best M", the
+streak being weekly-cadence). The
 "How this works" explainer gains Health Score and Strengths terms in plain
 language.
 
