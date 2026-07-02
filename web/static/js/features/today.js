@@ -1027,13 +1027,6 @@
         mind: { verb: 'Log last night’s sleep', section: 'health' }
     };
 
-    function ringSvgOrNull(opts) {
-        if (typeof window === 'undefined' || !window.WGRing || typeof window.WGRing.render !== 'function') {
-            return null;
-        }
-        return window.WGRing.render(opts);
-    }
-
     function ringStackOrNull(opts) {
         if (typeof window === 'undefined' || !window.WGRingStack || typeof window.WGRingStack.render !== 'function') {
             return null;

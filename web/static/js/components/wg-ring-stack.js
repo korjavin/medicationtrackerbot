@@ -129,10 +129,7 @@
     window.WGRingStack = {
         render: renderRingStack,
         VIEWBOX_SIZE,
-        CENTER,
         CIRCUMFERENCE,
-        RADIUS_OUTER,
-        RADIUS_STEP,
         STROKE_WIDTH,
         MAX_RINGS,
         ringRadius,
