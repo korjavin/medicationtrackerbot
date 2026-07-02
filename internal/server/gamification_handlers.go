@@ -140,6 +140,22 @@ func (s *Server) handleSetGamificationTargets(w http.ResponseWriter, r *http.Req
 	writeJSON(w, view)
 }
 
+// handleGamificationInsights serves the tier-3 personal-insight read model
+// (sleep→next-morning-BP). The service gates on the feature flag and the
+// user's unlocked insight tier internally, so this handler is a verbatim
+// pass-through (Critical Rule #1).
+func (s *Server) handleGamificationInsights(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+	s.ensureGamificationFresh(r.Context(), userID)
+
+	view, err := s.gamificationSvc.GetInsights(r.Context(), userID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, view)
+}
+
 // writeJSON encodes v as the JSON response body, logging an encode failure.
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")

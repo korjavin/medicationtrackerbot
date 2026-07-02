@@ -93,12 +93,12 @@ time.
 
 ### Task 2: HTTP route + MCP registration
 
-- [ ] `GET /api/gamification/insights` in `gamification_handlers.go` (verbatim
+- [x] `GET /api/gamification/insights` in `gamification_handlers.go` (verbatim
       pass-through), registered in the server's gamification route block
-- [ ] registry op `gamification.insights` with description, `ResponseExample`
+- [x] registry op `gamification.insights` with description, `ResponseExample`
       (both a real-effect sample and the insufficient-data sample noted in the
       description) in `operations_gamification.go` — coverage guard stays green
-- [ ] document the shape in `docs/api.md#gamification`
+- [x] document the shape in `docs/api.md#gamification`
 
 ### Task 3: Journey — tier-3 destination card
 
