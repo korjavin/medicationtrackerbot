@@ -21,6 +21,8 @@
     const CACHE_KEY = 'gamification';
     const JOURNEY_URL = '/api/gamification/journey';
     const STALE_AFTER_MS = 6 * 60 * 60 * 1000; // 6h — matches the cache-keys registry
+    const INSIGHTS_CACHE_KEY = 'gamification_insights';
+    const INSIGHTS_URL = '/api/gamification/insights';
 
     // Ring display metadata in canonical order (matches the backend's
     // ringScores ordering). Icons come from the WGIcons registry. `how` is the
@@ -372,6 +374,53 @@
         return card;
     }
 
+    // Plain-language copy for the tier-3 sleep→BP insight (Task 3 — the first
+    // real destination in the Insight Ladder). Mirrors the honesty gate in
+    // internal/domain/gamification/insights.go: "no effect" and "insufficient
+    // data" are terminal, genuine findings, not error states, so they render
+    // with the same wording style as the effect case, not an apology.
+    function insightCopy(sleepBp) {
+        if (!sleepBp) return null;
+        if (sleepBp.status === 'effect') {
+            const delta = Number(sleepBp.delta_systolic) || 0;
+            const signed = `${delta >= 0 ? '+' : ''}${Math.round(delta)}`;
+            return `Nights under ${sleepBp.short_threshold_hours}h → next-morning systolic ~${signed} mmHg · ${sleepBp.n_short} nights`;
+        }
+        if (sleepBp.status === 'no_effect') {
+            return 'Your morning BP looks steady regardless of sleep length — solid.';
+        }
+        if (sleepBp.status === 'insufficient_data') {
+            const have = Math.min(Number(sleepBp.n_short) || 0, Number(sleepBp.n_in_band) || 0);
+            return `Not enough paired nights yet · ${have} of ${sleepBp.needed} — keep logging`;
+        }
+        return null;
+    }
+
+    // Tier-3 destination card (Task 3): the sleep→BP insight, fetched
+    // separately from the Journey payload (`load()` attaches it to
+    // `journey.insight` once it sees tier 3 in unlocked_tiers). Omitted
+    // entirely below tier 3 — matching how the ladder itself keeps the row
+    // "locked" — and while `journey.insight` hasn't arrived yet (e.g. render()
+    // called directly, as in tests, without a preceding load()).
+    function renderInsightCard(j) {
+        const unlocked = new Set(
+            Array.isArray(j.unlocked_tiers) ? j.unlocked_tiers.map((t) => Number(t)) : []
+        );
+        if (!unlocked.has(3)) return null;
+
+        const insight = j.insight;
+        if (!insight) return null;
+
+        const card = el('section', 'wg-card wg-journey-insight');
+        card.id = 'journey-insight-card';
+        card.appendChild(el('div', 'wg-section-label', 'YOUR INSIGHT'));
+
+        const copy = insight.emptyState || insightCopy(insight.sleep_bp);
+        if (!copy) return null;
+        card.appendChild(el('p', 'wg-journey-insight__body wg-muted', copy));
+        return card;
+    }
+
     // Scrolls to the rings card — the real destination tier 1 ("Rings &
     // streak") describes. Tiers 3-4 have no built destination yet (Phase 2),
     // so they never get this treatment or the word "Unlocked".
@@ -391,10 +440,22 @@
         }
     }
 
+    // Scrolls to the tier-3 insight card rendered above (renderInsightCard).
+    // A no-op if the card wasn't rendered (e.g. `journey.insight` hasn't
+    // loaded yet) — the ladder row still reads "Unlocked → view" from
+    // unlocked_tiers alone, independent of whether the fetch has resolved.
+    function goToInsightCard() {
+        const target = document.getElementById('journey-insight-card');
+        if (target && typeof target.scrollIntoView === 'function') {
+            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    }
+
     // tier -> destination handler for tiers that have a built screen to link
     // to. Tiers without an entry here stay locked/"soon" regardless of the
-    // backend's unlocked_tiers (Phase 2).
-    const LADDER_DESTINATIONS = { 1: goToRingsCard, 2: goToVitalsTrends };
+    // backend's unlocked_tiers (Phase 2 — tier 4 "good-day model" has no
+    // destination yet).
+    const LADDER_DESTINATIONS = { 1: goToRingsCard, 2: goToVitalsTrends, 3: goToInsightCard };
 
     function renderLadder(j) {
         const card = el('section', 'wg-card wg-journey-ladder');
@@ -461,6 +522,7 @@
             renderStrengths(journey),
             renderRings(journey),
             renderHistory(journey),
+            renderInsightCard(journey),
             renderLadder(journey),
         ].filter(Boolean);
         content.replaceChildren(...cards);
@@ -481,6 +543,28 @@
         await api.mountFromKey({ slot, key: CACHE_KEY, staleAfterMs: STALE_AFTER_MS });
     }
 
+    // Fetches the tier-3 sleep→BP insight through its own cachedFetch entry
+    // (Task 3) — only called once the Journey payload reports tier 3
+    // unlocked, so accounts below level 5 never pay for the extra request.
+    // A cold cache offline read renders an explicit empty state on the card
+    // rather than silently omitting it (local-first read pattern).
+    async function loadInsight() {
+        try {
+            const result = await window.cachedFetch(INSIGHTS_CACHE_KEY, INSIGHTS_URL, {
+                tags: ['gamification'],
+                freshAfterMs: 60_000,
+                staleAfterMs: STALE_AFTER_MS,
+            });
+            return result ? result.data : null;
+        } catch (e) {
+            if (window.OfflineNoCacheError && e instanceof window.OfflineNoCacheError) {
+                return { emptyState: 'No cached insight — connect to load.' };
+            }
+            console.error('Failed to load gamification insight:', e);
+            return null;
+        }
+    }
+
     // Loads the Journey read model and paints the screen. Routes through
     // cachedFetch so a cold relaunch offline renders last-known data; a cold
     // cache offline surfaces an explicit empty state (OfflineNoCacheError).
@@ -490,6 +574,9 @@
 
         if (typeof window.cachedFetch !== 'function') {
             // Early boot / non-browser harness: best-effort direct read.
+            // ponytail: no insight fetch on this degraded path — the tier-3
+            // card just won't show; the primary cachedFetch path below covers
+            // real usage.
             try {
                 const raw = await (window.offlineAwareApiCall || window.apiCallDirect)(JOURNEY_URL, 'GET');
                 render(raw);
@@ -507,7 +594,11 @@
                 freshAfterMs: 60_000,
                 staleAfterMs: STALE_AFTER_MS,
             });
-            render(result ? result.data : null);
+            const data = result ? result.data : null;
+            if (data && Array.isArray(data.unlocked_tiers) && data.unlocked_tiers.map(Number).includes(3)) {
+                data.insight = await loadInsight();
+            }
+            render(data);
             await mountBadge();
         } catch (e) {
             if (window.OfflineNoCacheError && e instanceof window.OfflineNoCacheError) {

@@ -102,16 +102,16 @@ time.
 
 ### Task 3: Journey — tier-3 destination card
 
-- [ ] `journey.js`: tier 3 becomes `hasDestination` → "Unlocked → view" revealing an
+- [x] `journey.js`: tier 3 becomes `hasDestination` → "Unlocked → view" revealing an
       insight card (inline expand or scroll target on the Journey screen — no new
       nav slot, CLAUDE.md rule 6)
-- [ ] card renders all three states in plain language: the effect ("Nights under 7h →
+- [x] card renders all three states in plain language: the effect ("Nights under 7h →
       next-morning systolic ~+8 mmHg · 23 nights"), no-effect ("Your morning BP looks
       steady regardless of sleep length — solid."), and insufficient-data ("Not
       enough paired nights yet · 5 of 8 — keep logging")
-- [ ] locked state (level <5) keeps the existing "Unlocks at Lvl 5" row untouched;
+- [x] locked state (level <5) keeps the existing "Unlocks at Lvl 5" row untouched;
       tier 4 stays honest "soon"
-- [ ] fetch via `cachedFetch` with an `OfflineNoCacheError` empty state and a
+- [x] fetch via `cachedFetch` with an `OfflineNoCacheError` empty state and a
       `gamification` cache tag (local-first read pattern, docs/frontend.md)
 
 ### Task 4: Verify acceptance criteria
