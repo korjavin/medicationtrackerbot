@@ -363,7 +363,8 @@
                     hp: Number(r.hp) || 0,
                     closed: !!r.closed,
                     progress: Number.isFinite(r.progress) ? r.progress : (r.closed ? 1 : 0),
-                    goal: typeof r.goal === 'string' ? r.goal : ''
+                    goal: typeof r.goal === 'string' ? r.goal : '',
+                    sync_pending: !!r.sync_pending
                 }))
         };
         return cell(value, 'journey', 'ok');

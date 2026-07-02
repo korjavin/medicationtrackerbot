@@ -561,4 +561,24 @@ describe('TodayDashboard.renderToday', () => {
         expect(move.getAttribute('role')).toBeNull();
         expect(move.getAttribute('data-section')).toBeNull();
     });
+
+    // Guard the runtime projection: aggregateToday remaps the raw rings payload
+    // into the render cell, and must carry sync_pending through — the other
+    // sync-pending tests build the cell by hand and would miss a dropped field.
+    it('aggregateToday carries sync_pending from the raw rings payload into the cell', () => {
+        const caches = {
+            gamification_rings: {
+                level: 4,
+                today_hp: 28,
+                rings: [
+                    { ring: 'adherence', hp: 12, closed: true },
+                    { ring: 'mind', hp: 2, closed: false, sync_pending: true }
+                ]
+            }
+        };
+        const state = env.aggregate({ features: {} }, caches, now);
+        const rings = state.gamificationRings.value.rings;
+        expect(rings.find((r) => r.ring === 'mind').sync_pending).toBe(true);
+        expect(rings.find((r) => r.ring === 'adherence').sync_pending).toBe(false);
+    });
 });

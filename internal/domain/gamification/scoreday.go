@@ -242,9 +242,9 @@ func awardMembership(a scoring.Award) (r float64, ok bool) {
 // syncPendingRings reports, for today only, whether the Mind and Movement
 // rings are missing their device-synced sample (no sleep log for last night,
 // no day_stats steps row for today) — "hasn't synced yet" rather than "the
-// user failed today". It calls the same loaders scoreDayAwards already uses
-// (no new queries), so a late Mi Band import that fills in today's rows makes
-// this false again for free on the next read.
+// user failed today". It reuses the same loaders scoreDayAwards already uses
+// (same day reads, no new query shapes), so a late Mi Band import that fills in
+// today's rows makes this false again for free on the next read.
 func (s *service) syncPendingRings(ctx context.Context, userID int64, day time.Time) (map[string]bool, error) {
 	start := utcMidnight(day)
 	end := start.AddDate(0, 0, 1)

@@ -127,14 +127,13 @@ func (s *service) deriveStreak(ctx context.Context, userID int64, now time.Time,
 		return 0, 0, 0, nil
 	}
 
+	// WeeklyHPSums returns rows ORDER BY week ascending, so sums[0] is the
+	// earliest week with any HP — where the fold starts.
 	hpByWeek := make(map[int64]int, len(sums))
-	firstWeek := sums[0].Week
 	for _, w := range sums {
 		hpByWeek[w.Week] = w.HP
-		if w.Week < firstWeek {
-			firstWeek = w.Week
-		}
 	}
+	firstWeek := sums[0].Week
 
 	in := scoring.StreakInput{}
 	for w := firstWeek; w <= lastCompleteWeek; w++ {
