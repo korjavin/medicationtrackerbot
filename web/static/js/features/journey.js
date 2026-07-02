@@ -188,8 +188,13 @@
         // One big concentric stack (Plan 7) replaces the old per-row wg-ring
         // gauges; outer→inner follows RINGS' canonical order. Larger size
         // modifier than the Today tile — this is the screen dedicated to it.
+        // The center check appears once every *actionable* ring is closed (each
+        // ring is either closed or waiting on a device sync) — sync-pending
+        // rings don't block celebration, matching the Today tile and the
+        // wg-ring-stack contract (Plan 7, Task 1).
         const body = el('div', 'wg-journey-rings__body');
-        const allClosed = closedCount >= RINGS.length;
+        const allActionableClosed = RINGS.every((meta) =>
+            closedByRing[meta.ring] || syncPendingByRing[meta.ring]);
         const stack = ringStackOrNull({
             rings: RINGS.map((meta) => ({
                 key: meta.ring,
@@ -197,7 +202,7 @@
                 closed: !!closedByRing[meta.ring],
                 syncPending: !!syncPendingByRing[meta.ring]
             })),
-            centerLabel: allClosed ? icon('check', 24) : `${closedCount}/${RINGS.length}`,
+            centerLabel: allActionableClosed ? icon('check', 24) : `${closedCount}/${RINGS.length}`,
             label: 'Today’s rings'
         });
         if (stack) {

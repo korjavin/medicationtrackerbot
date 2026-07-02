@@ -10,6 +10,7 @@ const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const EMPTY_STATE_JS = path.join(REPO_ROOT, 'web/static/js/components/empty-state.js');
 const WG_ICONS_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-icons.js');
 const WG_SPARKLINE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-sparkline.js');
+const WG_RING_STACK_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-ring-stack.js');
 const TODAY_JS = path.join(REPO_ROOT, 'web/static/js/features/today.js');
 
 function loadRenderEnv() {
@@ -22,6 +23,7 @@ function loadRenderEnv() {
     window.eval(fs.readFileSync(EMPTY_STATE_JS, 'utf8') + '\nwindow.createEmptyState = createEmptyState;');
     window.eval(fs.readFileSync(WG_ICONS_JS, 'utf8'));
     window.eval(fs.readFileSync(WG_SPARKLINE_JS, 'utf8'));
+    window.eval(fs.readFileSync(WG_RING_STACK_JS, 'utf8'));
     window.eval(fs.readFileSync(TODAY_JS, 'utf8'));
     return {
         window,
@@ -488,6 +490,8 @@ describe('TodayDashboard.renderToday', () => {
         expect(tile).not.toBeNull();
         expect(tile.querySelector('.wg-today-rings__title').textContent).toBe('2 of 5 rings closed');
         expect(tile.querySelectorAll('.wg-journey-ring__check').length).toBe(2);
+        // Open actionable rings remain → center shows the "2/5" count, not a check.
+        expect(tile.querySelector('.wg-ring-stack__center').textContent).toBe('2/5');
     });
 
     it('"your move" targets the first open ring and deep-links to its section', () => {
@@ -560,6 +564,12 @@ describe('TodayDashboard.renderToday', () => {
         expect(move.textContent.toLowerCase()).toMatch(/all caught up/);
         expect(move.getAttribute('role')).toBeNull();
         expect(move.getAttribute('data-section')).toBeNull();
+        // The stack center must agree with the "caught up" prompt: all
+        // actionable rings closed → check glyph, not the "4/5" count.
+        const center = root.querySelector('.wg-ring-stack__center');
+        expect(center).not.toBeNull();
+        expect(center.querySelector('svg')).not.toBeNull();
+        expect(center.textContent).not.toMatch(/\d/);
     });
 
     // Guard the runtime projection: aggregateToday remaps the raw rings payload

@@ -9,6 +9,7 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const WG_ICONS_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-icons.js');
 const WG_SPARKLINE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-sparkline.js');
+const WG_RING_STACK_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-ring-stack.js');
 const JOURNEY_JS = path.join(REPO_ROOT, 'web/static/js/features/journey.js');
 
 function loadEnv() {
@@ -20,6 +21,7 @@ function loadEnv() {
     const { window } = dom;
     window.eval(fs.readFileSync(WG_ICONS_JS, 'utf8'));
     window.eval(fs.readFileSync(WG_SPARKLINE_JS, 'utf8'));
+    window.eval(fs.readFileSync(WG_RING_STACK_JS, 'utf8'));
     window.eval(fs.readFileSync(JOURNEY_JS, 'utf8'));
     return { window, document: window.document, cleanup: () => dom.window.close() };
 }
@@ -61,6 +63,8 @@ describe('Journey render', () => {
 
         // 3 closed rings → 3 checks.
         expect(document.querySelectorAll('.wg-journey-ring__check').length).toBe(3);
+        // Open actionable rings remain → stack center shows the "3/5" count.
+        expect(document.querySelector('.wg-ring-stack__center').textContent).toBe('3/5');
 
         // Rows follow canonical order: adherence(closed), …, nourishment(open).
         const subs = document.querySelectorAll('.wg-journey-ring__sub');
@@ -104,6 +108,28 @@ describe('Journey render', () => {
         const mindRow = Array.from(rows).find((r) => r.querySelector('.wg-journey-ring__label').textContent === 'Mind');
         expect(mindRow.classList.contains('wg-journey-ring--sync-pending')).toBe(true);
         expect(mindRow.querySelector('.wg-journey-ring__sub').textContent).toBe('Syncs later');
+        // Nourishment is still open/actionable here, so a lone sync-pending ring
+        // must NOT prematurely flip the center to a celebration check.
+        expect(document.querySelector('.wg-ring-stack__center').textContent).toBe('3/5');
+    });
+
+    // Finding 2 (Plan 7, Task 1): the center check appears once every
+    // *actionable* ring is closed — a ring still waiting on a device sample
+    // doesn't block celebration.
+    it('all actionable rings closed with one sync-pending → center celebrates with a check', () => {
+        env.window.Gamification.render(journey({
+            today_rings: [
+                { ring: 'adherence', hp: 40, closed: true },
+                { ring: 'movement', hp: 25, closed: true },
+                { ring: 'vitals', hp: 15, closed: true },
+                { ring: 'nourishment', hp: 10, closed: true },
+                { ring: 'mind', hp: 0, closed: false, sync_pending: true }
+            ]
+        }));
+        const center = env.document.querySelector('.wg-ring-stack__center');
+        expect(center).not.toBeNull();
+        expect(center.querySelector('svg')).not.toBeNull();
+        expect(center.textContent).not.toMatch(/\d/);
     });
 
     // Insight ladder tier 2 (Plan 6, Task 4): "Trend charts" now has a real

@@ -1143,10 +1143,12 @@
             body.className = 'wg-today-rings__body';
 
             // One big concentric stack (Plan 7) replaces the old per-ring gauge;
-            // outer→inner follows RING_TILE_META's canonical order. Closed count
-            // in the center doubles as the celebration state once every
-            // actionable ring is closed (sync-pending rings don't block it).
-            const allClosed = closedCount >= RING_TILE_META.length;
+            // outer→inner follows RING_TILE_META's canonical order. The center
+            // check doubles as the celebration state once every *actionable*
+            // ring is closed — the same condition as the "your move" celebration
+            // above (no open, non-sync-pending ring left), so sync-pending rings
+            // don't block it and the two never disagree.
+            const allActionableClosed = !openMeta;
             const stack = ringStackOrNull({
                 rings: RING_TILE_META.map((meta) => ({
                     key: meta.ring,
@@ -1154,7 +1156,7 @@
                     closed: !!closedByRing[meta.ring],
                     syncPending: !!syncPendingByRing[meta.ring]
                 })),
-                centerLabel: allClosed ? iconSvgOrNull('check', 20) : `${closedCount}/${RING_TILE_META.length}`,
+                centerLabel: allActionableClosed ? iconSvgOrNull('check', 20) : `${closedCount}/${RING_TILE_META.length}`,
                 label: 'Today’s rings'
             });
             if (stack) body.appendChild(stack);
