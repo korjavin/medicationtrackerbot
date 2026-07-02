@@ -1034,9 +1034,16 @@
         return window.WGRing.render(opts);
     }
 
-    // Today rings summary card. Reuses the journey ring-row CSS plus the
-    // wg-ring SVG gauge, as a tappable card with a today-HP header; tapping
-    // deep-links to Journey.
+    function ringStackOrNull(opts) {
+        if (typeof window === 'undefined' || !window.WGRingStack || typeof window.WGRingStack.render !== 'function') {
+            return null;
+        }
+        return window.WGRingStack.render(opts);
+    }
+
+    // Today rings summary card: one wg-ring-stack (Plan 7) plus a compact
+    // legend, as a tappable card with a today-HP header; tapping deep-links
+    // to Journey.
     function renderRingsTile(cell, onDeeplink) {
         if (!cell || cell.status === 'disabled') return null;
         const d = doc();
@@ -1139,6 +1146,28 @@
                 progressByRing[r.ring] = r.progress;
                 goalByRing[r.ring] = r.goal;
             }
+            const body = d.createElement('div');
+            body.className = 'wg-today-rings__body';
+
+            // One big concentric stack (Plan 7) replaces the old per-ring gauge;
+            // outer→inner follows RING_TILE_META's canonical order. Closed count
+            // in the center doubles as the celebration state once every
+            // actionable ring is closed (sync-pending rings don't block it).
+            const allClosed = closedCount >= RING_TILE_META.length;
+            const stack = ringStackOrNull({
+                rings: RING_TILE_META.map((meta) => ({
+                    key: meta.ring,
+                    progress: progressByRing[meta.ring],
+                    closed: !!closedByRing[meta.ring],
+                    syncPending: !!syncPendingByRing[meta.ring]
+                })),
+                centerLabel: allClosed ? iconSvgOrNull('check', 20) : `${closedCount}/${RING_TILE_META.length}`,
+                label: 'Today’s rings'
+            });
+            if (stack) body.appendChild(stack);
+
+            const legend = d.createElement('div');
+            legend.className = 'wg-today-rings__legend';
             const list = d.createElement('div');
             list.className = 'wg-journey-rings__list';
             for (const meta of RING_TILE_META) {
@@ -1177,16 +1206,6 @@
                 value.textContent = String(ringHp);
                 head.appendChild(value);
                 row.appendChild(head);
-                // Honest fill: closed always draws a full ring; open rings draw
-                // their real range-membership progress toward closing — never a
-                // bar relative to today's other rings (the bug this replaces).
-                const ring = ringSvgOrNull({
-                    progress: progressByRing[meta.ring],
-                    closed: isClosed,
-                    label: meta.label,
-                    value: isClosed ? 'Closed' : `${ringHp} HP`
-                });
-                if (ring) row.appendChild(ring);
                 if (isSyncPending || goal) {
                     const sub = d.createElement('p');
                     sub.className = 'wg-journey-ring__sub wg-muted';
@@ -1195,7 +1214,9 @@
                 }
                 list.appendChild(row);
             }
-            card.appendChild(list);
+            legend.appendChild(list);
+            body.appendChild(legend);
+            card.appendChild(body);
         }
 
         const journeyLink = d.createElement('div');

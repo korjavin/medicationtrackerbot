@@ -92,12 +92,12 @@ change over the existing `RingScore.{Progress,Closed,Goal,SyncPending}` fields.
 
 ### Task 2: Today tile rewire
 
-- [ ] `today.js` `renderRingsTile`: replace the five-row ring list with
+- [x] `today.js` `renderRingsTile`: replace the five-row ring list with
       `wg-ring-stack` (left) + a compact legend (right): per ring — icon, label,
       check when closed, goal sub-line, "syncs later" sub-line when `sync_pending`
-- [ ] keep the Phase-A headline ("N of 5 rings closed · M waiting for sync"), the
+- [x] keep the Phase-A headline ("N of 5 rings closed · M waiting for sync"), the
       "your move" prompt, and the "View Journey →" affordance exactly as they are
-- [ ] tile stays tappable → Journey deeplink; legend rows keep their per-section
+- [x] tile stays tappable → Journey deeplink; legend rows keep their per-section
       logging deeplinks from the "your move" wiring
 
 ### Task 3: Journey rings card rewire

@@ -5512,6 +5512,20 @@ textarea.wg-input {
     padding: var(--space-sm) var(--space-xs);
 }
 
+/* Rings body (Plan 7, Task 2): wg-ring-stack on the left, compact legend on
+   the right. Stack is a fixed-size flex item so it doesn't get squeezed by
+   long labels/goal text in the legend column. */
+.wg-today-rings__body {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+}
+
+.wg-today-rings__legend {
+    flex: 1;
+    min-width: 0;
+}
+
 /* "Your move" — the suggested next action. Tappable, accent-tinted; the
    all-closed celebration variant reuses .wg-muted for a calm, non-tappable look. */
 .wg-today-rings__move {
