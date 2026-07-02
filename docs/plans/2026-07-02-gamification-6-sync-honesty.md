@@ -132,11 +132,11 @@ redesign:
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] verify all Overview requirements implemented (sync_pending end-to-end, derived
+- [x] verify all Overview requirements implemented (sync_pending end-to-end, derived
       streak repairs on late import, tier 2 links)
-- [ ] `go test ./...` passes
-- [ ] `pnpm test` passes
-- [ ] `golangci-lint run` + `gofmt` on touched packages — clean
+- [x] `go test ./...` passes
+- [x] `pnpm test` passes
+- [x] `golangci-lint run` + `gofmt` on touched packages — clean
 
 ### Task 6: Update documentation
 
