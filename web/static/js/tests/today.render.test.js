@@ -459,14 +459,20 @@ describe('TodayDashboard.renderToday', () => {
     // Gamification rings tile: "X of 5 closed" headline + the "your move"
     // next-step prompt (first open ring in canonical order, deep-linking to its
     // own section, not Journey).
-    function ringsState(now, closedRings) {
+    function ringsState(now, closedRings, syncPendingRings) {
         const all = ['adherence', 'movement', 'vitals', 'nourishment', 'mind'];
+        const pending = syncPendingRings || [];
         const state = allPresentState(now);
         state.gamificationRings = {
             value: {
                 level: 4,
                 todayHp: 28,
-                rings: all.map((ring) => ({ ring, hp: closedRings.includes(ring) ? 12 : 2, closed: closedRings.includes(ring) }))
+                rings: all.map((ring) => ({
+                    ring,
+                    hp: closedRings.includes(ring) ? 12 : 2,
+                    closed: closedRings.includes(ring),
+                    sync_pending: pending.includes(ring)
+                }))
             },
             deeplink: 'journey',
             status: 'ok'
@@ -509,6 +515,49 @@ describe('TodayDashboard.renderToday', () => {
         const move = root.querySelector('.wg-today-rings__move');
         expect(move.textContent.toLowerCase()).toMatch(/all rings closed/);
         // Celebration is not a button — no section deep-link of its own.
+        expect(move.getAttribute('role')).toBeNull();
+        expect(move.getAttribute('data-section')).toBeNull();
+    });
+
+    // Sync-pending rings (Plan 6, Task 3): a device-synced ring (Mind/Movement)
+    // with no sample yet reads as "waiting", not "failed".
+    it('sync-pending ring renders dimmed with a "Syncs later" sub-line, not the goal text', () => {
+        const root = env.document.getElementById('today-content');
+        env.render(ringsState(now, ['adherence'], ['mind']), root, { now });
+
+        const rows = root.querySelectorAll('.wg-journey-ring');
+        const mindRow = Array.from(rows).find((r) => r.querySelector('.wg-journey-ring__label').textContent === 'Mind');
+        expect(mindRow.classList.contains('wg-journey-ring--sync-pending')).toBe(true);
+        expect(mindRow.querySelector('.wg-journey-ring__sub').textContent).toBe('Syncs later');
+    });
+
+    it('headline appends "· M waiting for sync" when sync-pending rings exist', () => {
+        const root = env.document.getElementById('today-content');
+        env.render(ringsState(now, ['adherence'], ['mind', 'movement']), root, { now });
+
+        const tile = root.querySelector('.wg-today-rings');
+        expect(tile.querySelector('.wg-today-rings__title').textContent)
+            .toBe('1 of 5 rings closed · 2 waiting for sync');
+    });
+
+    it('"your move" skips sync-pending rings and targets the first actionable open ring', () => {
+        const root = env.document.getElementById('today-content');
+        const onDeeplink = vi.fn();
+        // adherence closed, movement sync-pending → vitals is the first actionable open ring.
+        env.render(ringsState(now, ['adherence'], ['movement']), root, { now, onDeeplink });
+
+        const move = root.querySelector('.wg-today-rings__move');
+        expect(move.textContent).toMatch(/Your move:.*BP reading.*Vitals/);
+        move.click();
+        expect(onDeeplink).toHaveBeenCalledWith('bp');
+    });
+
+    it('only sync-pending rings remaining reads as caught up, not a nag', () => {
+        const root = env.document.getElementById('today-content');
+        env.render(ringsState(now, ['adherence', 'movement', 'vitals', 'nourishment'], ['mind']), root, { now });
+
+        const move = root.querySelector('.wg-today-rings__move');
+        expect(move.textContent.toLowerCase()).toMatch(/all caught up/);
         expect(move.getAttribute('role')).toBeNull();
         expect(move.getAttribute('data-section')).toBeNull();
     });

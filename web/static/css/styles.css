@@ -5490,6 +5490,14 @@ textarea.wg-input {
     margin: 2px 0 var(--space-xs);
 }
 
+/* Sync-pending ring row (Plan 6, Task 3): no device sample has arrived yet
+   for a device-synced ring (Mind/Movement). Dimmed like other disabled
+   affordances (opacity 0.6, see .wg-call-card__btn[disabled]) rather than
+   drawn as a failed/empty ring — the device just hasn't reported in. */
+.wg-journey-ring--sync-pending {
+    opacity: 0.6;
+}
+
 /* Points-history card — sparkline trend of HP per active day + caption. */
 .wg-journey-history__chart {
     margin: var(--space-xs) 0 var(--space-sm);

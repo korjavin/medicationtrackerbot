@@ -166,6 +166,7 @@
         const progressByRing = {};
         const goalByRing = {};
         const closedByRing = {};
+        const syncPendingByRing = {};
         let closedCount = 0;
         rings.forEach((r) => {
             if (!r || typeof r.ring !== 'string') return;
@@ -174,6 +175,7 @@
             progressByRing[r.ring] = r.progress;
             goalByRing[r.ring] = r.goal;
             if (r.closed) { closedByRing[r.ring] = true; closedCount += 1; }
+            if (r.sync_pending) { syncPendingByRing[r.ring] = true; }
         });
 
         // Closed count in the section label turns the rings from a scoreboard
@@ -187,7 +189,8 @@
         RINGS.forEach((meta) => {
             const hp = hpByRing[meta.ring] || 0;
             const isClosed = !!closedByRing[meta.ring];
-            const row = el('div', 'wg-journey-ring');
+            const isSyncPending = !!syncPendingByRing[meta.ring];
+            const row = el('div', 'wg-journey-ring' + (isSyncPending ? ' wg-journey-ring--sync-pending' : ''));
 
             const head = el('div', 'wg-journey-ring__head');
             const ic = icon(meta.icon, 16);
@@ -224,9 +227,10 @@
             // The subtitle answers "what closes this ring?" with the user's
             // real goal numbers (falls back to the generic "how" when the
             // backend hasn't sent a goal). Once closed it switches to a done
-            // note instead of nagging.
+            // note instead of nagging; a sync-pending ring (no device sample
+            // yet) reads as waiting, not failing.
             row.appendChild(el('p', 'wg-journey-ring__sub wg-muted',
-                isClosed ? 'Closed for today' : (goalByRing[meta.ring] || meta.how)));
+                isSyncPending ? 'Syncs later' : (isClosed ? 'Closed for today' : (goalByRing[meta.ring] || meta.how))));
 
             list.appendChild(row);
         });

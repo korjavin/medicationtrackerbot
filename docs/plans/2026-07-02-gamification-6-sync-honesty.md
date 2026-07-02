@@ -111,15 +111,15 @@ redesign:
 
 ### Task 3: Frontend — sync-aware Today tile and Journey rings
 
-- [ ] `web/static/js/features/today.js` `renderRingsTile`: rings with `sync_pending`
+- [x] `web/static/js/features/today.js` `renderRingsTile`: rings with `sync_pending`
       render dimmed with a "syncs later" sub-line (token-only styling), instead of an
       empty "failed" arc
-- [ ] exclude `sync_pending` rings from the "your move" candidate list (first open
+- [x] exclude `sync_pending` rings from the "your move" candidate list (first open
       *actionable* ring wins)
-- [ ] headline stays "N of 5 rings closed" but appends "· M waiting for sync" when
+- [x] headline stays "N of 5 rings closed" but appends "· M waiting for sync" when
       M > 0; all-actionable-closed + only-sync-pending-remaining reads as a positive
       state, not a nag
-- [ ] `web/static/js/features/journey.js` rings card: same dimmed sync-pending
+- [x] `web/static/js/features/journey.js` rings card: same dimmed sync-pending
       treatment + sub-line
 
 ### Task 4: Frontend — insight ladder tier 2 gets a real destination

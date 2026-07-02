@@ -84,4 +84,25 @@ describe('Journey render', () => {
         env.window.Gamification.render(journey({ hp_history: [] }));
         expect(env.document.querySelector('.wg-journey-history')).toBeNull();
     });
+
+    // Sync-pending rings (Plan 6, Task 3): a device-synced ring (Mind/Movement)
+    // with no sample yet reads as "waiting", not "failed" — dimmed row + a
+    // "Syncs later" sub-line instead of the usual open-ring "how" text.
+    it('sync-pending ring renders dimmed with a "Syncs later" sub-line', () => {
+        env.window.Gamification.render(journey({
+            today_rings: [
+                { ring: 'adherence', hp: 40, closed: true },
+                { ring: 'movement', hp: 25, closed: true },
+                { ring: 'vitals', hp: 15, closed: true },
+                { ring: 'nourishment', hp: 10, closed: false },
+                { ring: 'mind', hp: 0, closed: false, sync_pending: true }
+            ]
+        }));
+        const { document } = env;
+
+        const rows = document.querySelectorAll('.wg-journey-ring');
+        const mindRow = Array.from(rows).find((r) => r.querySelector('.wg-journey-ring__label').textContent === 'Mind');
+        expect(mindRow.classList.contains('wg-journey-ring--sync-pending')).toBe(true);
+        expect(mindRow.querySelector('.wg-journey-ring__sub').textContent).toBe('Syncs later');
+    });
 });

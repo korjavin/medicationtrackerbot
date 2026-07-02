@@ -1047,13 +1047,19 @@
         const hasValue = !(cell.status === 'missing' || !cell.value);
         const ringList = hasValue ? cell.value.rings : [];
         const closedByRing = {};
+        const syncPendingByRing = {};
         let closedCount = 0;
+        let syncPendingCount = 0;
         for (const r of ringList) {
-            if (r && r.closed) { closedByRing[r.ring] = true; closedCount += 1; }
+            if (!r) continue;
+            if (r.closed) { closedByRing[r.ring] = true; closedCount += 1; }
+            if (r.sync_pending) { syncPendingByRing[r.ring] = true; syncPendingCount += 1; }
         }
-        // First open ring in canonical order is the suggested "your move".
+        // First open, actionable (not sync_pending) ring in canonical order is
+        // the suggested "your move" — a ring waiting on a device sync isn't
+        // something the user can act on right now.
         const openMeta = hasValue
-            ? RING_TILE_META.find((m) => !closedByRing[m.ring])
+            ? RING_TILE_META.find((m) => !closedByRing[m.ring] && !syncPendingByRing[m.ring])
             : null;
 
         const header = d.createElement('div');
@@ -1062,6 +1068,7 @@
         title.className = 'wg-today-rings__title';
         title.textContent = hasValue
             ? `${closedCount} of ${RING_TILE_META.length} rings closed`
+                + (syncPendingCount > 0 ? ` · ${syncPendingCount} waiting for sync` : '')
             : 'Today’s rings';
         header.appendChild(title);
         const hp = d.createElement('span');
@@ -1073,8 +1080,9 @@
 
         // "Your move" — one tappable next action that deep-links to the open
         // ring's section (not the Journey screen). Stop propagation so the
-        // card's own Journey deep-link doesn't fire too. When every ring is
-        // closed, celebrate instead of nagging.
+        // card's own Journey deep-link doesn't fire too. When every actionable
+        // ring is closed — whether or not sync-pending rings remain — celebrate
+        // instead of nagging: a ring waiting on a device sync isn't a "your move".
         if (hasValue) {
             const move = d.createElement('div');
             move.className = 'wg-today-rings__move';
@@ -1108,7 +1116,9 @@
                 }
                 const text = d.createElement('span');
                 text.className = 'wg-today-rings__move-text';
-                text.textContent = 'All rings closed today — nice.';
+                text.textContent = closedCount >= RING_TILE_META.length
+                    ? 'All rings closed today — nice.'
+                    : 'All caught up — the rest will sync in.';
                 move.appendChild(text);
             }
             card.appendChild(move);
@@ -1133,9 +1143,10 @@
             for (const meta of RING_TILE_META) {
                 const ringHp = hpByRing[meta.ring] || 0;
                 const isClosed = !!closedByRing[meta.ring];
+                const isSyncPending = !!syncPendingByRing[meta.ring];
                 const goal = goalByRing[meta.ring] || '';
                 const row = d.createElement('div');
-                row.className = 'wg-journey-ring';
+                row.className = 'wg-journey-ring' + (isSyncPending ? ' wg-journey-ring--sync-pending' : '');
                 const head = d.createElement('div');
                 head.className = 'wg-journey-ring__head';
                 const ic = iconSvgOrNull(meta.icon, 16);
@@ -1175,10 +1186,10 @@
                     value: isClosed ? 'Closed' : `${ringHp} HP`
                 });
                 if (ring) row.appendChild(ring);
-                if (goal) {
+                if (isSyncPending || goal) {
                     const sub = d.createElement('p');
                     sub.className = 'wg-journey-ring__sub wg-muted';
-                    sub.textContent = goal;
+                    sub.textContent = isSyncPending ? 'Syncs later' : goal;
                     row.appendChild(sub);
                 }
                 list.appendChild(row);
