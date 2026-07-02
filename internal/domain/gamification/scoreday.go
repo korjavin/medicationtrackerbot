@@ -438,9 +438,26 @@ func bandFromTarget(base scoring.Band, t gamstore.Target) scoring.Band {
 // cancelled plan) is a phantom, not a forgotten dose, and is excluded; at most one
 // miss is counted per overdue slot. A future-scheduled PENDING dose is unscored.
 func (s *service) loadAdherence(ctx context.Context, userID int64, start, end time.Time) (scoring.AdherenceDay, error) {
-	logs, err := s.med.ListIntakeHistoryByUser(ctx, userID, start, end)
+	byDay, err := s.loadAdherenceRange(ctx, userID, start, end)
 	if err != nil {
 		return scoring.AdherenceDay{}, err
+	}
+	return byDay[start.Unix()], nil
+}
+
+// loadAdherenceRange applies the same dedupe + miss-inference rules as
+// loadAdherence (see there for the full rationale) across [start, end),
+// bucketing doses by their scheduled UTC-midnight day instead of assuming a
+// single day. A day with no expected doses is simply absent from the map —
+// callers that need to distinguish "no data" from "zero doses taken" should
+// treat a missing key that way, not as a miss. Used by loadAdherence (a
+// single-day window collapses to one bucket) and the Health Score / habit-
+// strength window loaders in wellbeing.go, which both need the day-by-day
+// picture rather than one day's totals.
+func (s *service) loadAdherenceRange(ctx context.Context, userID int64, start, end time.Time) (map[int64]scoring.AdherenceDay, error) {
+	logs, err := s.med.ListIntakeHistoryByUser(ctx, userID, start, end)
+	if err != nil {
+		return nil, err
 	}
 	deduped := dedupeLogicalDoses(logs)
 	// Slots already carrying a resolved (acted-on) dose are accounted for; a
@@ -453,7 +470,13 @@ func (s *service) loadAdherence(ctx context.Context, userID int64, start, end ti
 	}
 	now := s.now()
 	missedSlots := map[slotKey]bool{} // at most one miss per overdue-PENDING slot
-	var doses []scoring.Dose
+	byDay := map[int64]scoring.AdherenceDay{}
+	appendDose := func(scheduledAt time.Time, d scoring.Dose) {
+		key := utcMidnight(scheduledAt).Unix()
+		ad := byDay[key]
+		ad.Doses = append(ad.Doses, d)
+		byDay[key] = ad
+	}
 	for _, l := range deduped {
 		switch l.Status {
 		case "TAKEN":
@@ -463,20 +486,20 @@ func (s *service) loadAdherence(ctx context.Context, userID int64, start, end ti
 					mins = int(d.Minutes())
 				}
 			}
-			doses = append(doses, scoring.Dose{Status: scoring.DoseTaken, MinutesLate: mins})
+			appendDose(l.ScheduledAt, scoring.Dose{Status: scoring.DoseTaken, MinutesLate: mins})
 		case "SKIPPED":
-			doses = append(doses, scoring.Dose{Status: scoring.DoseSkippedWithReason})
+			appendDose(l.ScheduledAt, scoring.Dose{Status: scoring.DoseSkippedWithReason})
 		case "MISSED":
-			doses = append(doses, scoring.Dose{Status: scoring.DoseMissed})
+			appendDose(l.ScheduledAt, scoring.Dose{Status: scoring.DoseMissed})
 		case "PENDING":
 			slot := slotKey{l.MedicationID, l.ScheduledAt.UTC().Unix()}
 			if l.ScheduledAt.Before(now) && !resolved[slot] && !missedSlots[slot] {
 				missedSlots[slot] = true
-				doses = append(doses, scoring.Dose{Status: scoring.DoseMissed})
+				appendDose(l.ScheduledAt, scoring.Dose{Status: scoring.DoseMissed})
 			}
 		}
 	}
-	return scoring.AdherenceDay{Doses: doses}, nil
+	return byDay, nil
 }
 
 // slotKey identifies one logical dose slot — a (medication, scheduled-instant)

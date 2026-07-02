@@ -106,17 +106,19 @@ Today headline, strengths replace the streak card on Journey.
 
 ### Task 2: Service — compute both scores on read
 
-- [ ] `internal/domain/gamification/wellbeing.go` (new): build contributor inputs
+- [x] `internal/domain/gamification/wellbeing.go` (new): build contributor inputs
       from the existing per-domain repos over trailing windows — BP in-range share,
       sleep duration/regularity, resting HR vs 60d baseline, weight stability vs
       trailing average, adherence PDC (14d, reusing the miss-inference rule)
-- [ ] pillar strengths: meds (checkmark = day's taken/expected ratio, f=1), movement
+- [x] pillar strengths: meds (checkmark = day's taken/expected ratio, f=1), movement
       (workout-day checkmark, f=3/7), measurement (any BP/weight/food log that day,
       f=1) — fed from the same loaders
-- [ ] extend `GetSummary` / `GetJourney` results additively:
+- [x] extend `GetSummary` / `GetJourney` results additively:
       `health_score {value, contributors[{key,label,score,weight,missing}], missing[]}`
       and `strengths [{key,label,value,frequency}]`
-- [ ] integration test per Testing Strategy (renormalization contract)
+      (deviation: `GetJourney` gets these fields for free via its embedded
+      `Summary` — no separate wiring needed there)
+- [x] integration test per Testing Strategy (renormalization contract)
 
 ### Task 3: API + MCP surface
 

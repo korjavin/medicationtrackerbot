@@ -45,6 +45,18 @@ type Summary struct {
 	PeriodRings []gamstore.RingScore `json:"period_rings"`
 
 	LastScoredDay *time.Time `json:"last_scored_day,omitempty"`
+
+	// HealthScore is the 0-100 Oura/Whoop-pattern composite (Task 8, see
+	// wellbeing.go): a legible headline distinct from the effort-based HP/Rings
+	// above, computed from named contributors over a recent window vs a personal
+	// baseline. A read/degrade error zeroes it out (Value nil, no contributors) —
+	// additive and never blocks the rest of Summary.
+	HealthScore HealthScoreView `json:"health_score"`
+
+	// Strengths is the habit-strength EMA per pillar (Task 8, see wellbeing.go) —
+	// the continuity mechanic that replaces the weekly streak card on Journey. A
+	// read/degrade error yields an empty slice.
+	Strengths []StrengthView `json:"strengths"`
 }
 
 // GetSummary returns the user's gamification read model. Gate-off yields
@@ -109,6 +121,8 @@ func (s *service) GetSummary(ctx context.Context, userID int64) (Summary, error)
 	// not the base Config the level curve uses above.
 	todayProgress := map[string]float64{}
 	goals := map[string]string{}
+	healthScore := HealthScoreView{Missing: []string{}}
+	strengths := []StrengthView{}
 	if effCfg, err := s.effectiveConfig(ctx, userID); err != nil {
 		slog.Warn("gamification summary: effective config load failed; rings degrade to no progress/goal", "error", err, "user_id", userID)
 	} else {
@@ -121,6 +135,16 @@ func (s *service) GetSummary(ctx context.Context, userID int64) (Summary, error)
 			slog.Warn("gamification summary: food targets load failed; goals degrade to empty", "error", err, "user_id", userID)
 		} else {
 			goals = ringGoals(effCfg, ft)
+		}
+		if hs, err := s.computeHealthScore(ctx, userID, today, effCfg); err != nil {
+			slog.Warn("gamification summary: health score compute failed; degrades to unknown", "error", err, "user_id", userID)
+		} else {
+			healthScore = hs
+		}
+		if st, err := s.computeStrengths(ctx, userID, today, effCfg); err != nil {
+			slog.Warn("gamification summary: habit strengths compute failed; degrades to empty", "error", err, "user_id", userID)
+		} else {
+			strengths = st
 		}
 	}
 	// syncPending degrades to "nothing pending" on error — same forgiving
@@ -148,6 +172,8 @@ func (s *service) GetSummary(ctx context.Context, userID int64) (Summary, error)
 		TodayRings:    ringScores(todayLedger, todayProgress, goals, syncPending),
 		PeriodRings:   ringScores(periodLedger, nil, goals, nil),
 		LastScoredDay: st.LastScoredDay,
+		HealthScore:   healthScore,
+		Strengths:     strengths,
 	}
 	if sum.HPToNextLevel < 0 {
 		sum.HPToNextLevel = 0
