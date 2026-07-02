@@ -116,11 +116,11 @@ time.
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] verify Overview requirements: tier 3 unlock is real, honest in all three
+- [x] verify Overview requirements: tier 3 unlock is real, honest in all three
       states, gated by level, computed from the user's own log
-- [ ] `go test ./...` passes (incl. MCP coverage guard)
-- [ ] `pnpm test` passes
-- [ ] `golangci-lint run` + `gofmt` clean
+- [x] `go test ./...` passes (incl. MCP coverage guard)
+- [x] `pnpm test` passes
+- [x] `golangci-lint run` + `gofmt` clean
 
 ### Task 5: Update documentation
 
