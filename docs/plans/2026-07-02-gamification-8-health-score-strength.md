@@ -122,9 +122,13 @@ Today headline, strengths replace the streak card on Journey.
 
 ### Task 3: API + MCP surface
 
-- [ ] handlers pass the new fields through (no handler logic — Critical Rule 1);
+- [x] handlers pass the new fields through (no handler logic — Critical Rule 1);
       bootstrap summary carries them for free
-- [ ] update frozen shapes in `docs/api.md#gamification`; refresh `ResponseExample`s
+      (deviation: no code change needed — `handleGamificationSummary`/`handleGamificationJourney`
+      already `writeJSON` the whole `Summary`/`Journey` struct verbatim, and Task 2
+      added `HealthScore`/`Strengths` directly to `Summary`, which `Journey` embeds
+      and `/api/bootstrap` already serializes; the pass-through was automatic)
+- [x] update frozen shapes in `docs/api.md#gamification`; refresh `ResponseExample`s
       in `internal/mcp/registry/operations_gamification.go` (coverage guard stays
       green — no new routes)
 
