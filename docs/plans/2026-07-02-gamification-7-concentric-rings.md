@@ -119,9 +119,9 @@ change over the existing `RingScore.{Progress,Closed,Goal,SyncPending}` fields.
 
 ### Task 5: Update documentation
 
-- [ ] `docs/frontend.md`: note `wg-ring-stack` alongside `wg-ring` in the components
+- [x] `docs/frontend.md`: note `wg-ring-stack` alongside `wg-ring` in the components
       inventory
-- [ ] `docs/gamification.md` §14.3: rings presentation updated (concentric stack)
+- [x] `docs/gamification.md` §14.3: rings presentation updated (concentric stack)
 
 ## Technical Details
 

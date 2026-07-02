@@ -755,6 +755,45 @@ charts," §8) used to read "soon" for a surface that already existed. `journey.j
 the Vitals section's existing trend charts (`switchTab('health')`). Tiers 3-4 keep
 the honest "Unlocks at Lvl N · soon" until plans 8/9 ship their destinations.
 
+### 14.6 Concentric rings — Plan 7 (status)
+
+Plans 3/5/6 rendered the five rings as a stacked *list* of separate `wg-ring` arcs —
+readable but not the sub-second, gestalt-closure glance Apple's Activity Rings
+popularized. Implemented in
+[docs/plans/2026-07-02-gamification-7-concentric-rings.md](plans/2026-07-02-gamification-7-concentric-rings.md)
+as a pure presentation change — no scoring, API, or `RingScore` field changes.
+
+**`wg-ring-stack`** (`web/static/js/components/wg-ring-stack.js`, `window.WGRingStack`)
+— one SVG rendering up to five concentric arcs outer→inner in canonical ring order
+(adherence outermost, mind innermost), reusing `wg-ring`'s per-arc dash-math contract
+(`pathLength="100"` keeps dash math a flat percentage regardless of that ring's
+radius). `WGRingStack.render({ rings, centerLabel, label })` takes each ring's
+`{ key, progress, closed, syncPending }`; JS only sets the neutral `--ring-progress`
+custom property and picks the `.wg-ring-stack__arc--<key>` color-variant class, CSS
+owns dash offset and per-ring hue. A closed ring always renders full + a brighter
+variant; a sync-pending ring renders its dimmed track only (never an accusatory empty
+arc); an open ring renders its real `progress`. `centerLabel` is caller-supplied
+(Today/Journey both pass `"N/5"`, or a check glyph when every actionable ring is
+closed) so the component stays a pure geometry/color primitive. Per-ring accent
+colors are `--wg-*` tokens, shared by the legend. Covered by
+`tests/wg-ring-stack.test.js` (arc-geometry math — the same web-component testing
+exception as `tests/wg-ring.test.js`, CLAUDE.md rule 8).
+
+**Today rings tile and Journey rings card** (`features/today.js` `renderRingsTile`,
+`features/journey.js`) both replace their five-row ring list with one
+`wg-ring-stack` (~180px on Today, larger on Journey) beside a compact legend —
+per-ring icon, label, check when closed, `goal` sub-line, and the Plan 6
+"syncs later" sub-line when `sync_pending`. The Phase-A headline ("N of 5 rings
+closed · M waiting for sync"), the "your move" prompt, the "View Journey →"
+affordance, and each ring's per-section logging deeplink are unchanged — only the
+ring visualization and its legend layout moved. `wg-ring` itself is untouched and
+stays available for other surfaces; the stack is a sibling component, not a rewrite.
+
+Per direction this plan added no tests beyond `tests/wg-ring-stack.test.js`;
+verification was `go test ./...` (untouched), `pnpm test` (architecture guards:
+globals allowlist incl. `window.WGRingStack`, design tokens, SW precache; existing
+Today/Journey feature suites), and manual phone-width/Android-emulator smoke.
+
 ---
 
 ## 15. Safety, accessibility & open questions
