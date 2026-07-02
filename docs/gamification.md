@@ -713,6 +713,48 @@ and a server read-rescore for the same user race and stale-overwrite each other.
 The mobile build (`main_mobile.go`) has no bot; it constructs its own server-only
 instance as before.
 
+### 14.5 Sync honesty — Plan 6 (status)
+
+The system used to be unable to tell "the user didn't do it" from "the data hasn't
+synced yet," and the streak was transactional state a late import couldn't repair.
+Implemented in
+[docs/plans/2026-07-02-gamification-6-sync-honesty.md](plans/2026-07-02-gamification-6-sync-honesty.md).
+
+**`sync_pending` ring state.** Rings whose outcome depends on a device-synced sample
+(`movement` ← steps, `mind` ← sleep) carry `SyncPending: true` when *today's* ring
+hasn't closed and no synced sample has landed yet — "hasn't synced" instead of
+"failed." `syncPendingRings` (`summary.go`) reuses the same per-domain loaders
+`scoreday.go` already calls for today's re-score, so no new queries. Period (weekly)
+rings and any already-closed ring always report `false` (`ringScores`,
+`summary.go:219`: `SyncPending: !closed[ring] && syncPending[ring]`). It's a display
+state only — HP/ledger scoring is untouched. Frontend: `today.js` `renderRingsTile`
+dims sync-pending rings with a "syncs later" sub-line instead of an empty "failed"
+arc, excludes them from the "your move" candidate list, and appends "· M waiting for
+sync" to the "N of 5 rings closed" headline; `journey.js` mirrors the dimmed
+treatment on the rings card.
+
+**Derived (backfill-proof) streak.** The old `advanceStreak` only moved forward at
+score time (`streak.go:39-43`: returns unchanged when `curWeek <= prevWeek`), so a
+late import that filled an already-passed "failed" week left the streak stranded —
+only the one-time `Backfill` ever rebuilt it. `deriveStreak` (`streak.go:116`)
+replaces that read path: on every `GetSummary`/`GetJourney` call it replays
+`scoring.NextStreak` oldest-first over the trailing 52 weeks of ledger HP sums
+(`WeeklyHPSums`, one `GROUP BY` query), stopping at the last *completed* week — same
+semantics as `advanceStreak` (earn a freeze per met week, bank ≤4, auto-spend on a
+miss), but computed fresh instead of carried forward. A late import lands ledger HP
+in the past week; the very next read re-folds it and the streak self-repairs, with no
+explicit repair path or stranded state. `LongestStreak` reports
+`max(persisted, derived)` so history recorded before this change is never lost. The
+transactional `gamification_state` streak columns keep being written
+(`recomputeState`) for compatibility, but no read path depends on them for the
+current streak anymore.
+
+**Insight ladder tier 2 gets a real destination.** Tier 2 ("per-domain trend
+charts," §8) used to read "soon" for a surface that already existed. `journey.js`
+`renderLadder` now marks tier 2 `hasDestination` and deep-links "Unlocked → view" to
+the Vitals section's existing trend charts (`switchTab('health')`). Tiers 3-4 keep
+the honest "Unlocks at Lvl N · soon" until plans 8/9 ship their destinations.
+
 ---
 
 ## 15. Safety, accessibility & open questions

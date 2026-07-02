@@ -140,9 +140,9 @@ redesign:
 
 ### Task 6: Update documentation
 
-- [ ] `docs/gamification.md`: new §14.5 recording sync-honesty semantics (sync_pending,
+- [x] `docs/gamification.md`: new §14.5 recording sync-honesty semantics (sync_pending,
       derived streak, why transactional streak state was retired from the read path)
-- [ ] `docs/api.md#gamification`: `sync_pending` field documented
+- [x] `docs/api.md#gamification`: `sync_pending` field documented
 
 ## Technical Details
 
