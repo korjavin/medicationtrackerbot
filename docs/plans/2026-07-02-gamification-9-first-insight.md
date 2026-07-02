@@ -124,9 +124,9 @@ time.
 
 ### Task 5: Update documentation
 
-- [ ] `docs/gamification.md` §8: mark tier 3 as shipped, describe the honesty gate
+- [x] `docs/gamification.md` §8: mark tier 3 as shipped, describe the honesty gate
       (min pairs, noise floor) as the template for future insights
-- [ ] `docs/api.md`: insights endpoint
+- [x] `docs/api.md`: insights endpoint
 
 ## Technical Details
 
