@@ -107,6 +107,12 @@ type RingScore struct {
 	// Config-derived, not data-derived, so it is populated for both today's and
 	// period rings.
 	Goal string `json:"goal"`
+	// SyncPending is true when this is a today's ring whose outcome source is
+	// device-synced (Mind ← sleep, Movement ← steps), the ring hasn't closed,
+	// and no sample has arrived yet today — "hasn't synced", not "failed".
+	// Always false for period rings and for rings not sourced from
+	// device-synced data. Display-only: it does not change HP/ledger math.
+	SyncPending bool `json:"sync_pending"`
 }
 
 // Repo is the gamification repository. Construct with New; share one *Repo per

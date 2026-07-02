@@ -239,6 +239,30 @@ func awardMembership(a scoring.Award) (r float64, ok bool) {
 	return *d.R, true
 }
 
+// syncPendingRings reports, for today only, whether the Mind and Movement
+// rings are missing their device-synced sample (no sleep log for last night,
+// no day_stats steps row for today) — "hasn't synced yet" rather than "the
+// user failed today". It calls the same loaders scoreDayAwards already uses
+// (no new queries), so a late Mi Band import that fills in today's rows makes
+// this false again for free on the next read.
+func (s *service) syncPendingRings(ctx context.Context, userID int64, day time.Time) (map[string]bool, error) {
+	start := utcMidnight(day)
+	end := start.AddDate(0, 0, 1)
+
+	sleep, err := s.loadSleep(ctx, userID, start)
+	if err != nil {
+		return nil, err
+	}
+	mov, err := s.loadMovement(ctx, userID, start, end)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]bool{
+		scoring.RingMind:     !sleep.Logged,
+		scoring.RingMovement: !mov.HasSteps,
+	}, nil
+}
+
 // recomputeState builds the new cached state for the user after this day's awards
 // land. Lifetime HP is the prior ledger sum minus this day's old awards plus the
 // new ones (correct because re-scoring the same data reproduces the same UNIQUE

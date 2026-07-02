@@ -20,7 +20,7 @@ func GamificationOperations() []*Operation {
 			Path:            "/api/gamification/summary",
 			Risk:            RiskRead,
 			Description:     "Full gamification read model: lifetime HP, level + within-level progress, current/longest streak + banked freezes, insight tier, and per-ring HP totals for today and the trailing 7-day period.",
-			ResponseSummary: "Summary object: enabled, lifetime_hp, level, insight_tier, hp_into_level/level_span_hp/hp_to_next_level, current_streak/longest_streak/freezes, today_hp, today_rings[] and period_rings[] ({ring, hp, closed} for adherence/movement/vitals/nourishment/mind), period_days, last_scored_day.",
+			ResponseSummary: "Summary object: enabled, lifetime_hp, level, insight_tier, hp_into_level/level_span_hp/hp_to_next_level, current_streak/longest_streak/freezes, today_hp, today_rings[] and period_rings[] ({ring, hp, closed, progress, goal, sync_pending} for adherence/movement/vitals/nourishment/mind), period_days, last_scored_day. sync_pending is true only on today's movement/mind rings when open and no device-synced sample (steps/sleep) has arrived yet today — always false on period_rings.",
 			ResponseExample: `{
   "enabled": true,
   "lifetime_hp": 4820,
@@ -34,19 +34,19 @@ func GamificationOperations() []*Operation {
   "freezes": 2,
   "today_hp": 95,
   "today_rings": [
-    {"ring": "adherence", "hp": 40},
-    {"ring": "movement", "hp": 25},
-    {"ring": "vitals", "hp": 15},
-    {"ring": "nourishment", "hp": 10},
-    {"ring": "mind", "hp": 5}
+    {"ring": "adherence", "hp": 40, "closed": true, "sync_pending": false},
+    {"ring": "movement", "hp": 25, "closed": true, "sync_pending": false},
+    {"ring": "vitals", "hp": 15, "closed": true, "sync_pending": false},
+    {"ring": "nourishment", "hp": 10, "closed": true, "sync_pending": false},
+    {"ring": "mind", "hp": 0, "closed": false, "sync_pending": true}
   ],
   "period_days": 7,
   "period_rings": [
-    {"ring": "adherence", "hp": 260},
-    {"ring": "movement", "hp": 180},
-    {"ring": "vitals", "hp": 90},
-    {"ring": "nourishment", "hp": 70},
-    {"ring": "mind", "hp": 50}
+    {"ring": "adherence", "hp": 260, "closed": true, "sync_pending": false},
+    {"ring": "movement", "hp": 180, "closed": true, "sync_pending": false},
+    {"ring": "vitals", "hp": 90, "closed": true, "sync_pending": false},
+    {"ring": "nourishment", "hp": 70, "closed": true, "sync_pending": false},
+    {"ring": "mind", "hp": 50, "closed": true, "sync_pending": false}
   ],
   "last_scored_day": "2026-06-28T00:00:00Z"
 }`,
@@ -73,9 +73,9 @@ output(result)`,
   "longest_streak": 21,
   "freezes": 2,
   "today_hp": 95,
-  "today_rings": [{"ring": "adherence", "hp": 40, "closed": true}],
+  "today_rings": [{"ring": "adherence", "hp": 40, "closed": true, "sync_pending": false}],
   "period_days": 7,
-  "period_rings": [{"ring": "adherence", "hp": 260, "closed": true}],
+  "period_rings": [{"ring": "adherence", "hp": 260, "closed": true, "sync_pending": false}],
   "last_scored_day": "2026-06-28T00:00:00Z",
   "hp_history": [
     {"day_unix": 1750982400, "hp": 110},
@@ -98,17 +98,17 @@ output(result["hp_history"])`,
 			Path:            "/api/gamification/rings",
 			Risk:            RiskRead,
 			Description:     "Slim Today-widget projection of the summary: the level badge plus per-ring HP earned today and whether each ring is closed (earned a non-floor award today). Use this (not gamification.summary) when you only need today's ring fill.",
-			ResponseSummary: "Object {enabled, level, today_hp, rings[] of {ring, hp, closed} for adherence/movement/vitals/nourishment/mind}. closed=true means the ring earned an outcome/consistency award today (not just the honesty floor).",
+			ResponseSummary: "Object {enabled, level, today_hp, rings[] of {ring, hp, closed, sync_pending} for adherence/movement/vitals/nourishment/mind}. closed=true means the ring earned an outcome/consistency award today (not just the honesty floor). sync_pending=true means the ring is open only because its device-synced sample (steps/sleep) hasn't arrived yet today — not a failure.",
 			ResponseExample: `{
   "enabled": true,
   "level": 7,
   "today_hp": 95,
   "rings": [
-    {"ring": "adherence", "hp": 40, "closed": true},
-    {"ring": "movement", "hp": 25, "closed": true},
-    {"ring": "vitals", "hp": 15, "closed": true},
-    {"ring": "nourishment", "hp": 10, "closed": true},
-    {"ring": "mind", "hp": 2, "closed": false}
+    {"ring": "adherence", "hp": 40, "closed": true, "sync_pending": false},
+    {"ring": "movement", "hp": 25, "closed": true, "sync_pending": false},
+    {"ring": "vitals", "hp": 15, "closed": true, "sync_pending": false},
+    {"ring": "nourishment", "hp": 10, "closed": true, "sync_pending": false},
+    {"ring": "mind", "hp": 0, "closed": false, "sync_pending": true}
   ]
 }`,
 			Example: `result = api.call("gamification.rings")

@@ -78,16 +78,16 @@ redesign:
 
 ### Task 1: Backend — `sync_pending` ring state
 
-- [ ] add `SyncPending bool` to `RingScore` (`internal/store/gamification/repo.go`),
+- [x] add `SyncPending bool` to `RingScore` (`internal/store/gamification/repo.go`),
       JSON tag `sync_pending`, additive
-- [ ] populate it in `ringScores()` (`internal/domain/gamification/summary.go`) for
+- [x] populate it in `ringScores()` (`internal/domain/gamification/summary.go`) for
       **today's** rings only: `mind` → no sleep row for today AND not closed;
       `movement` → no steps/day-stats row for today AND not closed. Reuse the loaders
       `scoreday.go` already calls — expose "has synced sample today" alongside the
       existing recent-window re-score rather than adding new queries
-- [ ] period (weekly) rings always `sync_pending=false` (mirrors the existing
+- [x] period (weekly) rings always `sync_pending=false` (mirrors the existing
       `Progress`-only-for-today rule)
-- [ ] pass the field through summary / journey / rings / bootstrap unchanged; update
+- [x] pass the field through summary / journey / rings / bootstrap unchanged; update
       the frozen shapes in `docs/api.md#gamification` and the `ResponseExample`s in
       `internal/mcp/registry/operations_gamification.go`
 

@@ -108,6 +108,15 @@ func (s *service) GetSummary(ctx context.Context, userID int64) (Summary, error)
 			goals = ringGoals(effCfg, ft)
 		}
 	}
+	// syncPending degrades to "nothing pending" on error — same forgiving
+	// posture as todayProgress/goals above: a transient read error should not
+	// mislabel an open ring as still-syncing.
+	syncPending := map[string]bool{}
+	if sp, err := s.syncPendingRings(ctx, userID, today); err != nil {
+		slog.Warn("gamification summary: sync-pending recompute failed; rings degrade to not-pending", "error", err, "user_id", userID)
+	} else {
+		syncPending = sp
+	}
 
 	sum := Summary{
 		Enabled:       true,
@@ -121,8 +130,8 @@ func (s *service) GetSummary(ctx context.Context, userID int64) (Summary, error)
 		LongestStreak: st.LongestStreak,
 		Freezes:       st.Freezes,
 		PeriodDays:    summaryPeriodDays,
-		TodayRings:    ringScores(todayLedger, todayProgress, goals),
-		PeriodRings:   ringScores(periodLedger, nil, goals),
+		TodayRings:    ringScores(todayLedger, todayProgress, goals, syncPending),
+		PeriodRings:   ringScores(periodLedger, nil, goals, nil),
 		LastScoredDay: st.LastScoredDay,
 	}
 	if sum.HPToNextLevel < 0 {
@@ -148,8 +157,11 @@ func (s *service) GetSummary(ctx context.Context, userID int64) (Summary, error)
 // range-membership gauge from ringProgress (today's rings only); pass nil for
 // a period whose Progress should stay 0 (the gauge is a daily-loop affordance,
 // not a weekly one). goals is the config-derived ring -> goal-text map from
-// ringGoals, applied to both today's and period rings alike.
-func ringScores(entries []gamstore.LedgerEntry, progress map[string]float64, goals map[string]string) []gamstore.RingScore {
+// ringGoals, applied to both today's and period rings alike. syncPending is
+// today's ring -> "no device-synced sample yet" map from syncPendingRings;
+// pass nil for a period, whose rings always report SyncPending=false (a
+// nil-map lookup returns false, so no special-casing needed here).
+func ringScores(entries []gamstore.LedgerEntry, progress map[string]float64, goals map[string]string, syncPending map[string]bool) []gamstore.RingScore {
 	byRing := make(map[string]int, 5)
 	closed := make(map[string]bool, 5)
 	for _, e := range entries {
@@ -183,7 +195,14 @@ func ringScores(entries []gamstore.LedgerEntry, progress map[string]float64, goa
 				p = progress[ring]
 			}
 		}
-		out = append(out, gamstore.RingScore{Ring: ring, HP: byRing[ring], Closed: closed[ring], Progress: p, Goal: goals[ring]})
+		out = append(out, gamstore.RingScore{
+			Ring:        ring,
+			HP:          byRing[ring],
+			Closed:      closed[ring],
+			Progress:    p,
+			Goal:        goals[ring],
+			SyncPending: !closed[ring] && syncPending[ring],
+		})
 	}
 	return out
 }
