@@ -85,17 +85,24 @@ Today headline, strengths replace the streak card on Journey.
 
 ### Task 1: Engine — habit-strength EMA and health-score composite (pure, DB-free)
 
-- [ ] `internal/domain/gamification/scoring/`: add `HabitStrength(checkmarks []float64, frequency float64) float64`
+- [x] `internal/domain/gamification/scoring/`: add `HabitStrength(checkmarks []float64, frequency float64) float64`
       — EMA fold, `m = 0.5^(√f/13)`; checkmarks are fractional 0..1 (a day's
       adherence ratio is a valid checkmark), oldest-first; document the Loop
       provenance + half-life constant in `Config`
-- [ ] add `HealthScoreInput` / `HealthScoreResult` types: named contributors, each
+      (deviation: signature takes a trailing `cfg Config` param, matching every
+      other scorer in the file, so `HalfLifeDays` is a real tunable rather than
+      a hardcoded literal)
+- [x] add `HealthScoreInput` / `HealthScoreResult` types: named contributors, each
       with `Value` (0..1 membership vs band or vs baseline), `Weight`, `Present bool`;
       composite = weighted mean over present contributors only (renormalize), scaled
       to 0–100; result carries per-contributor breakdown + the list of missing ones
-- [ ] contributor definitions reuse `RangeMembership` and the baseline-vs-absolute
+      (`ComputeHealthScore`; `Score` is `*float64`, nil below `HealthScoreMinContributors`)
+- [x] contributor definitions reuse `RangeMembership` and the baseline-vs-absolute
       "kinder of the two" pattern already used by `ScoreVitalsAuto`
-- [ ] weights + windows (14d recent vs 60d baseline) in `Config`/`DefaultConfig()`
+      (`HealthContributorBP/Sleep/RestingHR/Weight/Adherence`; exported
+      `BaselineRelative`/`RampUp`, formerly unexported, so both this package and
+      the Task 2 service can reuse them)
+- [x] weights + windows (14d recent vs 60d baseline) in `Config`/`DefaultConfig()`
 
 ### Task 2: Service — compute both scores on read
 
