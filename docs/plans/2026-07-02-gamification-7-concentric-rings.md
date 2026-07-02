@@ -102,9 +102,9 @@ change over the existing `RingScore.{Progress,Closed,Goal,SyncPending}` fields.
 
 ### Task 3: Journey rings card rewire
 
-- [ ] `journey.js`: replace the rings list with the same `wg-ring-stack` + legend
+- [x] `journey.js`: replace the rings list with the same `wg-ring-stack` + legend
       composition (larger size token acceptable here)
-- [ ] keep the "Close each ring daily" why-line and per-ring goal strings
+- [x] keep the "Close each ring daily" why-line and per-ring goal strings
 
 ### Task 4: Verify acceptance criteria
 

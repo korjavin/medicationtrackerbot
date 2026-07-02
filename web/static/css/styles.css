@@ -772,8 +772,8 @@
        introducing new raw colors. --wg-ring-closed-brightness is the
        filter: brightness() multiplier a closed arc gets instead of a
        second per-ring color. --wg-ring-stack-size is the default
-       rendered width/height (Today tile size; Journey uses a larger
-       modifier). */
+       rendered width/height (Today tile size); --wg-ring-stack-size-lg
+       is the Journey screen's larger modifier (Task 3). */
     --wg-ring-adherence: var(--wg-sun);
     --wg-ring-movement: var(--wg-health-steps-bar);
     --wg-ring-vitals: var(--wg-health-vitals-hr-line);
@@ -781,6 +781,7 @@
     --wg-ring-mind: var(--wg-health-sleep-rem);
     --wg-ring-closed-brightness: 1.18;
     --wg-ring-stack-size: 180px;
+    --wg-ring-stack-size-lg: 220px;
 
     /* Settings screen tokens (Phase 9, Task 1) — sectioned cards, canonical
        setting-row grid (left column title+description, right column control),
@@ -5256,6 +5257,12 @@ textarea.wg-input {
     height: var(--wg-ring-stack-size);
 }
 
+/* Journey screen modifier (Task 3) — larger than the Today tile default. */
+.wg-ring-stack--lg {
+    width: var(--wg-ring-stack-size-lg);
+    height: var(--wg-ring-stack-size-lg);
+}
+
 .wg-ring-stack__svg {
     display: block;
     width: 100%;
@@ -5443,7 +5450,20 @@ textarea.wg-input {
     color: var(--wg-fg-3);
 }
 
-/* Rings card — one labelled bar per domain. */
+/* Rings card (Plan 7, Task 3): wg-ring-stack on the left, legend list of
+   icon/label/check/goal rows on the right. Stack is a fixed-size flex item
+   so it doesn't get squeezed by long goal text in the legend column. */
+.wg-journey-rings__body {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+}
+
+.wg-journey-rings__legend {
+    flex: 1;
+    min-width: 0;
+}
+
 .wg-journey-rings__list {
     display: flex;
     flex-direction: column;

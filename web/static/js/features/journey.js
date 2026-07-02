@@ -54,11 +54,11 @@
         return null;
     }
 
-    function ringSvgOrNull(opts) {
-        if (typeof window === 'undefined' || !window.WGRing || typeof window.WGRing.render !== 'function') {
+    function ringStackOrNull(opts) {
+        if (typeof window === 'undefined' || !window.WGRingStack || typeof window.WGRingStack.render !== 'function') {
             return null;
         }
-        return window.WGRing.render(opts);
+        return window.WGRingStack.render(opts);
     }
 
     function el(tag, className, text) {
@@ -185,6 +185,27 @@
         card.appendChild(el('p', 'wg-journey-rings__why wg-muted',
             'Close each ring daily — one per area of your health.'));
 
+        // One big concentric stack (Plan 7) replaces the old per-row wg-ring
+        // gauges; outer→inner follows RINGS' canonical order. Larger size
+        // modifier than the Today tile — this is the screen dedicated to it.
+        const body = el('div', 'wg-journey-rings__body');
+        const allClosed = closedCount >= RINGS.length;
+        const stack = ringStackOrNull({
+            rings: RINGS.map((meta) => ({
+                key: meta.ring,
+                progress: progressByRing[meta.ring],
+                closed: !!closedByRing[meta.ring],
+                syncPending: !!syncPendingByRing[meta.ring]
+            })),
+            centerLabel: allClosed ? icon('check', 24) : `${closedCount}/${RINGS.length}`,
+            label: 'Today’s rings'
+        });
+        if (stack) {
+            stack.classList.add('wg-ring-stack--lg');
+            body.appendChild(stack);
+        }
+
+        const legend = el('div', 'wg-journey-rings__legend');
         const list = el('div', 'wg-journey-rings__list');
         RINGS.forEach((meta) => {
             const hp = hpByRing[meta.ring] || 0;
@@ -213,17 +234,6 @@
             head.appendChild(el('span', 'wg-mono-display wg-journey-ring__hp', String(hp)));
             row.appendChild(head);
 
-            // Honest fill: closed always draws a full ring; an open ring draws
-            // its real range-membership progress toward closing — never a bar
-            // relative to today's other rings (the bug this replaces).
-            const ring = ringSvgOrNull({
-                progress: progressByRing[meta.ring],
-                closed: isClosed,
-                label: meta.label,
-                value: isClosed ? 'Closed' : `${hp} HP`
-            });
-            if (ring) row.appendChild(ring);
-
             // The subtitle answers "what closes this ring?" with the user's
             // real goal numbers (falls back to the generic "how" when the
             // backend hasn't sent a goal). Once closed it switches to a done
@@ -234,7 +244,9 @@
 
             list.appendChild(row);
         });
-        card.appendChild(list);
+        legend.appendChild(list);
+        body.appendChild(legend);
+        card.appendChild(body);
         return card;
     }
 

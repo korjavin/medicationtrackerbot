@@ -732,6 +732,7 @@ const WANDERGEEK_TOKENS = [
     '--wg-ring-mind',
     '--wg-ring-closed-brightness',
     '--wg-ring-stack-size',
+    '--wg-ring-stack-size-lg',
 
     // Settings screen tokens (Phase 9, Task 1) — sectioned cards, canonical
     // row grid (left column title+description, right column control),
