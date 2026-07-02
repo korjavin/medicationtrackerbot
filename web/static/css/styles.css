@@ -766,6 +766,22 @@
     --wg-health-vitals-spo2-line: #32ade6;
     --wg-health-vitals-stress-line: #ff9500;
 
+    /* wg-ring-stack tokens (Plan 7, Task 1) — one accent per canonical
+       ring domain, aliased to existing palette/chart hues so the stack
+       stays visually coherent with the rest of the app rather than
+       introducing new raw colors. --wg-ring-closed-brightness is the
+       filter: brightness() multiplier a closed arc gets instead of a
+       second per-ring color. --wg-ring-stack-size is the default
+       rendered width/height (Today tile size; Journey uses a larger
+       modifier). */
+    --wg-ring-adherence: var(--wg-sun);
+    --wg-ring-movement: var(--wg-health-steps-bar);
+    --wg-ring-vitals: var(--wg-health-vitals-hr-line);
+    --wg-ring-nourishment: var(--wg-clay-soft);
+    --wg-ring-mind: var(--wg-health-sleep-rem);
+    --wg-ring-closed-brightness: 1.18;
+    --wg-ring-stack-size: 180px;
+
     /* Settings screen tokens (Phase 9, Task 1) — sectioned cards, canonical
        setting-row grid (left column title+description, right column control),
        token'd row hairline divider, read-only info grid used by the Timezone
@@ -5217,6 +5233,80 @@ textarea.wg-input {
     stroke-width: 3;
     stroke-linecap: round;
     stroke-linejoin: round;
+}
+
+/* ============================================================
+   wg-ring-stack — concentric ring stack (Plan 7 "concentric rings",
+   Task 1). Up to 5 wg-ring-style arcs sharing one SVG, outer→inner in
+   canonical ring order, replacing the old stacked-list-of-rings
+   presentation with one glanceable object. Same JS/CSS split as
+   wg-ring: JS sets only the neutral --ring-progress custom property
+   per arc circle (0..100, via each circle's own pathLength="100" so
+   the dash math stays a flat percentage regardless of that ring's
+   radius); CSS owns dash offset, per-ring hue, and the closed /
+   sync-pending states. Stroke width is fixed at 5 user units against
+   the SVG's 100x100 viewBox — keep in sync with STROKE_WIDTH in
+   wg-ring-stack.js if either changes.
+   ============================================================ */
+.wg-ring-stack {
+    position: relative;
+    display: inline-flex;
+    flex-shrink: 0;
+    width: var(--wg-ring-stack-size);
+    height: var(--wg-ring-stack-size);
+}
+
+.wg-ring-stack__svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.wg-ring-stack__track {
+    fill: none;
+    stroke: var(--wg-border-strong);
+    stroke-width: 5;
+}
+
+/* Sync-pending rings render only this dimmed track — never a 0%
+   progress arc, which would read as "you did nothing" rather than
+   "this hasn't synced from your device yet". */
+.wg-ring-stack__track--sync-pending {
+    stroke: var(--wg-border-hairline);
+}
+
+.wg-ring-stack__arc {
+    fill: none;
+    stroke-linecap: round;
+    stroke-width: 5;
+    stroke-dashoffset: calc(100 - var(--ring-progress, 0));
+    transition: stroke-dashoffset 0.4s ease, stroke 0.3s ease, filter 0.3s ease;
+}
+
+/* Closed rings keep their own hue (so adjacent closed/open rings stay
+   distinguishable) but render slightly brighter than open progress. */
+.wg-ring-stack__arc--closed {
+    filter: brightness(var(--wg-ring-closed-brightness));
+}
+
+.wg-ring-stack__arc--adherence { stroke: var(--wg-ring-adherence); }
+.wg-ring-stack__arc--movement { stroke: var(--wg-ring-movement); }
+.wg-ring-stack__arc--vitals { stroke: var(--wg-ring-vitals); }
+.wg-ring-stack__arc--nourishment { stroke: var(--wg-ring-nourishment); }
+.wg-ring-stack__arc--mind { stroke: var(--wg-ring-mind); }
+
+/* Center content (closed count / check glyph) is caller-supplied via
+   opts.centerLabel; this just centers whatever DOM lands there. */
+.wg-ring-stack__center {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--wg-fg-1);
+    font-family: var(--wg-font-mono);
+    text-align: center;
 }
 
 /* ============================================================

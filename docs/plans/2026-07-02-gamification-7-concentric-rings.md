@@ -69,24 +69,24 @@ change over the existing `RingScore.{Progress,Closed,Goal,SyncPending}` fields.
 
 ### Task 1: `wg-ring-stack` web component
 
-- [ ] create `web/static/js/components/wg-ring-stack.js`: one SVG rendering up to 5
+- [x] create `web/static/js/components/wg-ring-stack.js`: one SVG rendering up to 5
       concentric arcs, outer→inner in the order given; per-arc inputs
       `progress` (0..1), `closed`, `sync-pending`, color token name; reuse the
       wg-ring dash math (radius per ring computed so stroke widths + gaps fill a
       fixed viewBox; default rendered size ≈ 180px via CSS token)
-- [ ] closed arc renders full + slightly brighter (token variant); sync-pending arc
+- [x] closed arc renders full + slightly brighter (token variant); sync-pending arc
       renders dimmed track only (no accusatory empty progress arc); open arc renders
       its real `progress`
-- [ ] center of the stack shows "N/5" closed count (or a check glyph when all
+- [x] center of the stack shows "N/5" closed count (or a check glyph when all
       actionable rings are closed) — text via slot/attr so consumers control copy
-- [ ] JS sets only CSS custom properties (`--ring-N-progress` etc.); CSS owns dash
+- [x] JS sets only CSS custom properties (`--ring-N-progress` etc.); CSS owns dash
       offsets and colors (same contract as `wg-ring`)
-- [ ] add per-ring accent color tokens to the Wandergeek token sheet if absent
+- [x] add per-ring accent color tokens to the Wandergeek token sheet if absent
       (one token per ring, reused by the legend)
-- [ ] register the element, add script tag to `web/static/index.html` in component
+- [x] register the element, add script tag to `web/static/index.html` in component
       load order, add the file to the SW precache list, add the new global to
       `tests/architecture.globals.test.js` allowlist with justification
-- [ ] `tests/wg-ring-stack.test.js`: geometry math (radii don't overlap for 5 rings,
+- [x] `tests/wg-ring-stack.test.js`: geometry math (radii don't overlap for 5 rings,
       progress→dash-offset mapping, closed forces full arc, sync-pending renders no
       progress arc)
 

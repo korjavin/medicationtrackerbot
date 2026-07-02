@@ -723,6 +723,16 @@ const WANDERGEEK_TOKENS = [
     '--wg-health-vitals-spo2-line',
     '--wg-health-vitals-stress-line',
 
+    // wg-ring-stack tokens (Plan 7, Task 1) — per-ring accent aliases,
+    // the closed-state brightness multiplier, and the default stack size.
+    '--wg-ring-adherence',
+    '--wg-ring-movement',
+    '--wg-ring-vitals',
+    '--wg-ring-nourishment',
+    '--wg-ring-mind',
+    '--wg-ring-closed-brightness',
+    '--wg-ring-stack-size',
+
     // Settings screen tokens (Phase 9, Task 1) — sectioned cards, canonical
     // row grid (left column title+description, right column control),
     // token'd row hairline divider, info-grid for the Timezone card,
