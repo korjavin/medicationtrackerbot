@@ -9,6 +9,7 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const WG_ICONS_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-icons.js');
 const WG_SPARKLINE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-sparkline.js');
+const WG_RING_STACK_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-ring-stack.js');
 const JOURNEY_JS = path.join(REPO_ROOT, 'web/static/js/features/journey.js');
 
 function loadEnv() {
@@ -20,6 +21,7 @@ function loadEnv() {
     const { window } = dom;
     window.eval(fs.readFileSync(WG_ICONS_JS, 'utf8'));
     window.eval(fs.readFileSync(WG_SPARKLINE_JS, 'utf8'));
+    window.eval(fs.readFileSync(WG_RING_STACK_JS, 'utf8'));
     window.eval(fs.readFileSync(JOURNEY_JS, 'utf8'));
     return { window, document: window.document, cleanup: () => dom.window.close() };
 }
@@ -42,6 +44,19 @@ function journey(overrides) {
         unlocked_tiers: [1, 2],
         level_curve: [{ level: 1, hp_to_reach: 0 }],
         hp_history: [{ day_unix: 1750982400, hp: 110 }, { day_unix: 1751068800, hp: 95 }],
+        health_score: {
+            value: 82,
+            contributors: [
+                { key: 'bp', label: 'Blood pressure', score: 0.95, weight: 1, missing: false },
+                { key: 'sleep', label: 'Sleep', score: 0.7, weight: 1, missing: false }
+            ],
+            missing: []
+        },
+        strengths: [
+            { key: 'meds', label: 'Medication', value: 0.92, frequency: 1 },
+            { key: 'movement', label: 'Movement', value: 0.5, frequency: 3 / 7 },
+            { key: 'measurement', label: 'Measurement', value: 0.4, frequency: 1 }
+        ],
         ...overrides
     };
 }
@@ -61,6 +76,8 @@ describe('Journey render', () => {
 
         // 3 closed rings → 3 checks.
         expect(document.querySelectorAll('.wg-journey-ring__check').length).toBe(3);
+        // Open actionable rings remain → stack center shows the "3/5" count.
+        expect(document.querySelector('.wg-ring-stack__center').textContent).toBe('3/5');
 
         // Rows follow canonical order: adherence(closed), …, nourishment(open).
         const subs = document.querySelectorAll('.wg-journey-ring__sub');
@@ -83,5 +100,136 @@ describe('Journey render', () => {
     it('omits the history card entirely when no points have been earned', () => {
         env.window.Gamification.render(journey({ hp_history: [] }));
         expect(env.document.querySelector('.wg-journey-history')).toBeNull();
+    });
+
+    // Sync-pending rings (Plan 6, Task 3): a device-synced ring (Mind/Movement)
+    // with no sample yet reads as "waiting", not "failed" — dimmed row + a
+    // "Syncs later" sub-line instead of the usual open-ring "how" text.
+    it('sync-pending ring renders dimmed with a "Syncs later" sub-line', () => {
+        env.window.Gamification.render(journey({
+            today_rings: [
+                { ring: 'adherence', hp: 40, closed: true },
+                { ring: 'movement', hp: 25, closed: true },
+                { ring: 'vitals', hp: 15, closed: true },
+                { ring: 'nourishment', hp: 10, closed: false },
+                { ring: 'mind', hp: 0, closed: false, sync_pending: true }
+            ]
+        }));
+        const { document } = env;
+
+        const rows = document.querySelectorAll('.wg-journey-ring');
+        const mindRow = Array.from(rows).find((r) => r.querySelector('.wg-journey-ring__label').textContent === 'Mind');
+        expect(mindRow.classList.contains('wg-journey-ring--sync-pending')).toBe(true);
+        expect(mindRow.querySelector('.wg-journey-ring__sub').textContent).toBe('Syncs later');
+        // Nourishment is still open/actionable here, so a lone sync-pending ring
+        // must NOT prematurely flip the center to a celebration check.
+        expect(document.querySelector('.wg-ring-stack__center').textContent).toBe('3/5');
+    });
+
+    // Finding 2 (Plan 7, Task 1): the center check appears once every
+    // *actionable* ring is closed — a ring still waiting on a device sample
+    // doesn't block celebration.
+    it('all actionable rings closed with one sync-pending → center celebrates with a check', () => {
+        env.window.Gamification.render(journey({
+            today_rings: [
+                { ring: 'adherence', hp: 40, closed: true },
+                { ring: 'movement', hp: 25, closed: true },
+                { ring: 'vitals', hp: 15, closed: true },
+                { ring: 'nourishment', hp: 10, closed: true },
+                { ring: 'mind', hp: 0, closed: false, sync_pending: true }
+            ]
+        }));
+        const center = env.document.querySelector('.wg-ring-stack__center');
+        expect(center).not.toBeNull();
+        expect(center.querySelector('svg')).not.toBeNull();
+        expect(center.textContent).not.toMatch(/\d/);
+    });
+
+    // Insight ladder tier 2 (Plan 6, Task 4): "Trend charts" now has a real
+    // destination — the Vitals section's existing trend charts — instead of
+    // an evergreen "soon". Tiers 3-4 have no built screen yet and must keep
+    // reading "soon" even though the fixture marks them unlocked.
+    it('tier 2 (trend charts) links to Vitals when unlocked; tiers 3-4 stay "soon"', () => {
+        let switchedTo = null;
+        env.window.switchTab = (tab) => { switchedTo = tab; };
+        env.window.Gamification.render(journey({ unlocked_tiers: [1, 2, 3, 4] }));
+        const { document } = env;
+
+        const rows = document.querySelectorAll('.wg-journey-ladder__row');
+        const titleOf = (row) => row.querySelector('.wg-journey-ladder__title').textContent;
+        const statusOf = (row) => row.querySelector('.wg-journey-ladder__status').textContent;
+
+        const trendRow = Array.from(rows).find((r) => titleOf(r) === 'Trend charts');
+        expect(statusOf(trendRow)).toBe('Unlocked → view');
+        expect(trendRow.classList.contains('wg-journey-ladder__row--linked')).toBe(true);
+        trendRow.click();
+        expect(switchedTo).toBe('health');
+
+        const correlationsRow = Array.from(rows).find((r) => titleOf(r) === 'Correlations');
+        expect(statusOf(correlationsRow)).toMatch(/soon/);
+        expect(correlationsRow.classList.contains('wg-journey-ladder__row--locked')).toBe(true);
+    });
+
+    // Health Score card (Task 8): big number + band word, then one mini-bar
+    // per named contributor — a missing contributor reads "No data", never a
+    // misleading 0%.
+    it('Health Score card shows the composite, a band tag, and per-contributor bars including a missing one', () => {
+        env.window.Gamification.render(journey({
+            health_score: {
+                value: 78.4,
+                contributors: [
+                    { key: 'bp', label: 'Blood pressure', score: 0.9, weight: 1, missing: false },
+                    { key: 'sleep', label: 'Sleep', score: 0, weight: 1, missing: true }
+                ],
+                missing: ['sleep']
+            }
+        }));
+        const { document } = env;
+
+        const card = document.querySelector('.wg-journey-score');
+        expect(card).not.toBeNull();
+        expect(card.querySelector('.wg-journey-score__value').textContent).toBe('78');
+        expect(card.querySelector('.wg-tag').textContent).toBe('Good');
+
+        const rows = card.querySelectorAll('.wg-journey-score__row');
+        expect(rows.length).toBe(2);
+        expect(rows[0].querySelector('.wg-journey-score__row-label').textContent).toBe('Blood pressure');
+        expect(rows[0].querySelector('.wg-journey-score__row-value').textContent).toBe('90%');
+        expect(rows[1].querySelector('.wg-journey-score__row-label').textContent).toBe('Sleep');
+        expect(rows[1].querySelector('.wg-journey-score__row-value').textContent).toBe('No data');
+    });
+
+    it('Health Score renders "not enough data" instead of a misleading number below the min-contributors floor', () => {
+        env.window.Gamification.render(journey({ health_score: { value: null, contributors: [], missing: [] } }));
+        const card = env.document.querySelector('.wg-journey-score');
+        expect(card.querySelector('.wg-journey-score__value').textContent).toBe('—');
+        expect(card.textContent).toMatch(/not enough data/i);
+    });
+
+    // Strengths card (Task 8): replaces the weekly streak card — one
+    // habit-strength EMA gauge per pillar, derived streak demoted to a
+    // footnote line.
+    it('Strengths card renders one gauge per pillar and demotes the streak to a footnote, replacing the streak card', () => {
+        env.window.Gamification.render(journey({
+            strengths: [
+                { key: 'meds', label: 'Medication', value: 0.92, frequency: 1 },
+                { key: 'movement', label: 'Movement', value: 0.5, frequency: 3 / 7 },
+                { key: 'measurement', label: 'Measurement', value: 0.1, frequency: 1 }
+            ]
+        }));
+        const { document } = env;
+
+        expect(document.querySelector('.wg-journey-streak')).toBeNull();
+
+        const card = document.querySelector('.wg-journey-strengths');
+        expect(card).not.toBeNull();
+        const rows = card.querySelectorAll('.wg-journey-strength');
+        expect(rows.length).toBe(3);
+        expect(rows[0].querySelector('.wg-journey-strength__label').textContent).toBe('Medication');
+        expect(rows[0].querySelector('.wg-journey-strength__value').textContent).toBe('92%');
+
+        const footnote = card.querySelector('.wg-journey-strengths__footnote').textContent;
+        expect(footnote).toContain('12-week streak');
+        expect(footnote).toContain('best 21');
     });
 });

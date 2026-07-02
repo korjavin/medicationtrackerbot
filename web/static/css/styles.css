@@ -766,6 +766,23 @@
     --wg-health-vitals-spo2-line: #32ade6;
     --wg-health-vitals-stress-line: #ff9500;
 
+    /* wg-ring-stack tokens (Plan 7, Task 1) — one accent per canonical
+       ring domain, aliased to existing palette/chart hues so the stack
+       stays visually coherent with the rest of the app rather than
+       introducing new raw colors. --wg-ring-closed-brightness is the
+       filter: brightness() multiplier a closed arc gets instead of a
+       second per-ring color. --wg-ring-stack-size is the default
+       rendered width/height (Today tile size); --wg-ring-stack-size-lg
+       is the Journey screen's larger modifier (Task 3). */
+    --wg-ring-adherence: var(--wg-sun);
+    --wg-ring-movement: var(--wg-health-steps-bar);
+    --wg-ring-vitals: var(--wg-health-vitals-hr-line);
+    --wg-ring-nourishment: var(--wg-clay-soft);
+    --wg-ring-mind: var(--wg-health-sleep-rem);
+    --wg-ring-closed-brightness: 1.18;
+    --wg-ring-stack-size: 180px;
+    --wg-ring-stack-size-lg: 220px;
+
     /* Settings screen tokens (Phase 9, Task 1) — sectioned cards, canonical
        setting-row grid (left column title+description, right column control),
        token'd row hairline divider, read-only info grid used by the Timezone
@@ -5220,6 +5237,86 @@ textarea.wg-input {
 }
 
 /* ============================================================
+   wg-ring-stack — concentric ring stack (Plan 7 "concentric rings",
+   Task 1). Up to 5 wg-ring-style arcs sharing one SVG, outer→inner in
+   canonical ring order, replacing the old stacked-list-of-rings
+   presentation with one glanceable object. Same JS/CSS split as
+   wg-ring: JS sets only the neutral --ring-progress custom property
+   per arc circle (0..100, via each circle's own pathLength="100" so
+   the dash math stays a flat percentage regardless of that ring's
+   radius); CSS owns dash offset, per-ring hue, and the closed /
+   sync-pending states. Stroke width is fixed at 5 user units against
+   the SVG's 100x100 viewBox — keep in sync with STROKE_WIDTH in
+   wg-ring-stack.js if either changes.
+   ============================================================ */
+.wg-ring-stack {
+    position: relative;
+    display: inline-flex;
+    flex-shrink: 0;
+    width: var(--wg-ring-stack-size);
+    height: var(--wg-ring-stack-size);
+}
+
+/* Journey screen modifier (Task 3) — larger than the Today tile default. */
+.wg-ring-stack--lg {
+    width: var(--wg-ring-stack-size-lg);
+    height: var(--wg-ring-stack-size-lg);
+}
+
+.wg-ring-stack__svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.wg-ring-stack__track {
+    fill: none;
+    stroke: var(--wg-border-strong);
+    stroke-width: 5;
+}
+
+/* Sync-pending rings render only this dimmed track — never a 0%
+   progress arc, which would read as "you did nothing" rather than
+   "this hasn't synced from your device yet". */
+.wg-ring-stack__track--sync-pending {
+    stroke: var(--wg-border-hairline);
+}
+
+.wg-ring-stack__arc {
+    fill: none;
+    stroke-linecap: round;
+    stroke-width: 5;
+    stroke-dashoffset: calc(100 - var(--ring-progress, 0));
+    transition: stroke-dashoffset 0.4s ease, stroke 0.3s ease, filter 0.3s ease;
+}
+
+/* Closed rings keep their own hue (so adjacent closed/open rings stay
+   distinguishable) but render slightly brighter than open progress. */
+.wg-ring-stack__arc--closed {
+    filter: brightness(var(--wg-ring-closed-brightness));
+}
+
+.wg-ring-stack__arc--adherence { stroke: var(--wg-ring-adherence); }
+.wg-ring-stack__arc--movement { stroke: var(--wg-ring-movement); }
+.wg-ring-stack__arc--vitals { stroke: var(--wg-ring-vitals); }
+.wg-ring-stack__arc--nourishment { stroke: var(--wg-ring-nourishment); }
+.wg-ring-stack__arc--mind { stroke: var(--wg-ring-mind); }
+
+/* Center content (closed count / check glyph) is caller-supplied via
+   opts.centerLabel; this just centers whatever DOM lands there. */
+.wg-ring-stack__center {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--wg-fg-1);
+    font-family: var(--wg-font-mono);
+    text-align: center;
+}
+
+/* ============================================================
    Gamification Journey screen (Plan 3, Task 2; rings honestified
    in Plan 5, Task 5). Stacked gloss cards: a level/HP header with
    a sun progress bar, a 3-stat streak row, the five domain rings
@@ -5326,34 +5423,98 @@ textarea.wg-input {
     font-size: var(--font-size-sm);
 }
 
-/* Streak card — 3 mono stat cells. */
-.wg-journey-stat-row {
+/* Health Score card (Task 8): big number + band tag, then one mini-bar row
+   per named contributor. Reuses .wg-journey-bar__track/__fill (the header's
+   HP-progress bar) for the contributor bars. */
+.wg-journey-score__hero {
     display: flex;
+    align-items: baseline;
     gap: var(--space-sm);
+    margin-bottom: var(--space-sm);
 }
 
-.wg-journey-stat {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--space-xs);
-    padding: var(--space-sm) 0;
-}
-
-.wg-journey-stat__value {
-    font-size: var(--font-size-lg);
+.wg-journey-score__value {
+    font-size: var(--font-size-xl);
     color: var(--wg-fg-1);
 }
 
-.wg-journey-stat__label {
-    font-size: var(--font-size-xs);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--wg-fg-3);
+.wg-journey-score__hero-note {
+    font-size: var(--font-size-sm);
 }
 
-/* Rings card — one labelled bar per domain. */
+.wg-journey-score__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-journey-score__row-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: var(--space-xs);
+}
+
+.wg-journey-score__row-label {
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-2);
+}
+
+.wg-journey-score__row-value {
+    font-size: var(--font-size-xs);
+}
+
+/* Strengths card (Task 8) — replaces the weekly streak card as the
+   continuity mechanic: one habit-strength EMA gauge per pillar, plus the
+   derived streak demoted to a single footnote line. */
+.wg-journey-strengths__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-journey-strength__head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    margin-bottom: var(--space-xs);
+}
+
+.wg-journey-strength__icon {
+    display: inline-flex;
+    color: var(--wg-sun);
+}
+
+.wg-journey-strength__label {
+    flex: 1;
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-2);
+}
+
+.wg-journey-strength__value {
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-1);
+}
+
+.wg-journey-strengths__footnote {
+    margin-top: var(--space-sm);
+    font-size: var(--font-size-xs);
+}
+
+/* Rings card (Plan 7, Task 3): wg-ring-stack on the left, legend list of
+   icon/label/check/goal rows on the right. Stack is a fixed-size flex item
+   so it doesn't get squeezed by long goal text in the legend column. */
+.wg-journey-rings__body {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+}
+
+.wg-journey-rings__legend {
+    flex: 1;
+    min-width: 0;
+}
+
 .wg-journey-rings__list {
     display: flex;
     flex-direction: column;
@@ -5412,14 +5573,38 @@ textarea.wg-input {
     color: var(--wg-fg-4);
 }
 
-.wg-today-rings__hp {
-    font-size: var(--font-size-sm);
+.wg-today-rings__score {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--space-xs);
+}
+
+.wg-today-rings__score-value {
+    font-size: var(--font-size-lg);
     color: var(--wg-sun);
+}
+
+.wg-today-rings__score-note {
+    font-size: var(--font-size-sm);
 }
 
 .wg-today-rings__empty {
     font-size: var(--font-size-sm);
     padding: var(--space-sm) var(--space-xs);
+}
+
+/* Rings body (Plan 7, Task 2): wg-ring-stack on the left, compact legend on
+   the right. Stack is a fixed-size flex item so it doesn't get squeezed by
+   long labels/goal text in the legend column. */
+.wg-today-rings__body {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+}
+
+.wg-today-rings__legend {
+    flex: 1;
+    min-width: 0;
 }
 
 /* "Your move" — the suggested next action. Tappable, accent-tinted; the
@@ -5488,6 +5673,14 @@ textarea.wg-input {
 .wg-journey-ring__sub {
     font-size: var(--wg-font-size-tag);
     margin: 2px 0 var(--space-xs);
+}
+
+/* Sync-pending ring row (Plan 6, Task 3): no device sample has arrived yet
+   for a device-synced ring (Mind/Movement). Dimmed like other disabled
+   affordances (opacity 0.6, see .wg-call-card__btn[disabled]) rather than
+   drawn as a failed/empty ring — the device just hasn't reported in. */
+.wg-journey-ring--sync-pending {
+    opacity: 0.6;
 }
 
 /* Points-history card — sparkline trend of HP per active day + caption. */

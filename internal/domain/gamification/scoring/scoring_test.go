@@ -512,17 +512,17 @@ func TestNextStreak(t *testing.T) {
 
 func TestBaselineRelative(t *testing.T) {
 	// span 0.2, baseline 100. delta = 20.
-	if got := baselineRelative(100, 100, true, 0.2); math.Abs(got-0.5) > 1e-9 {
+	if got := BaselineRelative(100, 100, true, 0.2); math.Abs(got-0.5) > 1e-9 {
 		t.Fatalf("at baseline = %v, want 0.5", got)
 	}
-	if got := baselineRelative(80, 100, true, 0.2); math.Abs(got-1.0) > 1e-9 {
+	if got := BaselineRelative(80, 100, true, 0.2); math.Abs(got-1.0) > 1e-9 {
 		t.Fatalf("full improvement (lower better) = %v, want 1.0", got)
 	}
-	if got := baselineRelative(120, 100, true, 0.2); got != 0 {
+	if got := BaselineRelative(120, 100, true, 0.2); got != 0 {
 		t.Fatalf("full regression (lower better) = %v, want 0", got)
 	}
 	// unknown baseline → no credit (falls back to band elsewhere).
-	if got := baselineRelative(80, 0, true, 0.2); got != 0 {
+	if got := BaselineRelative(80, 0, true, 0.2); got != 0 {
 		t.Fatalf("unknown baseline = %v, want 0", got)
 	}
 }

@@ -10,6 +10,7 @@ const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const EMPTY_STATE_JS = path.join(REPO_ROOT, 'web/static/js/components/empty-state.js');
 const WG_ICONS_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-icons.js');
 const WG_SPARKLINE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-sparkline.js');
+const WG_RING_STACK_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-ring-stack.js');
 const TODAY_JS = path.join(REPO_ROOT, 'web/static/js/features/today.js');
 
 function loadRenderEnv() {
@@ -22,6 +23,7 @@ function loadRenderEnv() {
     window.eval(fs.readFileSync(EMPTY_STATE_JS, 'utf8') + '\nwindow.createEmptyState = createEmptyState;');
     window.eval(fs.readFileSync(WG_ICONS_JS, 'utf8'));
     window.eval(fs.readFileSync(WG_SPARKLINE_JS, 'utf8'));
+    window.eval(fs.readFileSync(WG_RING_STACK_JS, 'utf8'));
     window.eval(fs.readFileSync(TODAY_JS, 'utf8'));
     return {
         window,
@@ -459,14 +461,21 @@ describe('TodayDashboard.renderToday', () => {
     // Gamification rings tile: "X of 5 closed" headline + the "your move"
     // next-step prompt (first open ring in canonical order, deep-linking to its
     // own section, not Journey).
-    function ringsState(now, closedRings) {
+    function ringsState(now, closedRings, syncPendingRings, healthScoreValue) {
         const all = ['adherence', 'movement', 'vitals', 'nourishment', 'mind'];
+        const pending = syncPendingRings || [];
         const state = allPresentState(now);
         state.gamificationRings = {
             value: {
                 level: 4,
                 todayHp: 28,
-                rings: all.map((ring) => ({ ring, hp: closedRings.includes(ring) ? 12 : 2, closed: closedRings.includes(ring) }))
+                healthScore: { value: healthScoreValue === undefined ? null : healthScoreValue },
+                rings: all.map((ring) => ({
+                    ring,
+                    hp: closedRings.includes(ring) ? 12 : 2,
+                    closed: closedRings.includes(ring),
+                    sync_pending: pending.includes(ring)
+                }))
             },
             deeplink: 'journey',
             status: 'ok'
@@ -482,6 +491,8 @@ describe('TodayDashboard.renderToday', () => {
         expect(tile).not.toBeNull();
         expect(tile.querySelector('.wg-today-rings__title').textContent).toBe('2 of 5 rings closed');
         expect(tile.querySelectorAll('.wg-journey-ring__check').length).toBe(2);
+        // Open actionable rings remain → center shows the "2/5" count, not a check.
+        expect(tile.querySelector('.wg-ring-stack__center').textContent).toBe('2/5');
     });
 
     it('"your move" targets the first open ring and deep-links to its section', () => {
@@ -511,5 +522,108 @@ describe('TodayDashboard.renderToday', () => {
         // Celebration is not a button — no section deep-link of its own.
         expect(move.getAttribute('role')).toBeNull();
         expect(move.getAttribute('data-section')).toBeNull();
+    });
+
+    // Sync-pending rings (Plan 6, Task 3): a device-synced ring (Mind/Movement)
+    // with no sample yet reads as "waiting", not "failed".
+    it('sync-pending ring renders dimmed with a "Syncs later" sub-line, not the goal text', () => {
+        const root = env.document.getElementById('today-content');
+        env.render(ringsState(now, ['adherence'], ['mind']), root, { now });
+
+        const rows = root.querySelectorAll('.wg-journey-ring');
+        const mindRow = Array.from(rows).find((r) => r.querySelector('.wg-journey-ring__label').textContent === 'Mind');
+        expect(mindRow.classList.contains('wg-journey-ring--sync-pending')).toBe(true);
+        expect(mindRow.querySelector('.wg-journey-ring__sub').textContent).toBe('Syncs later');
+    });
+
+    it('headline appends "· M waiting for sync" when sync-pending rings exist', () => {
+        const root = env.document.getElementById('today-content');
+        env.render(ringsState(now, ['adherence'], ['mind', 'movement']), root, { now });
+
+        const tile = root.querySelector('.wg-today-rings');
+        expect(tile.querySelector('.wg-today-rings__title').textContent)
+            .toBe('1 of 5 rings closed · 2 waiting for sync');
+    });
+
+    it('"your move" skips sync-pending rings and targets the first actionable open ring', () => {
+        const root = env.document.getElementById('today-content');
+        const onDeeplink = vi.fn();
+        // adherence closed, movement sync-pending → vitals is the first actionable open ring.
+        env.render(ringsState(now, ['adherence'], ['movement']), root, { now, onDeeplink });
+
+        const move = root.querySelector('.wg-today-rings__move');
+        expect(move.textContent).toMatch(/Your move:.*BP reading.*Vitals/);
+        move.click();
+        expect(onDeeplink).toHaveBeenCalledWith('bp');
+    });
+
+    it('only sync-pending rings remaining reads as caught up, not a nag', () => {
+        const root = env.document.getElementById('today-content');
+        env.render(ringsState(now, ['adherence', 'movement', 'vitals', 'nourishment'], ['mind']), root, { now });
+
+        const move = root.querySelector('.wg-today-rings__move');
+        expect(move.textContent.toLowerCase()).toMatch(/all caught up/);
+        expect(move.getAttribute('role')).toBeNull();
+        expect(move.getAttribute('data-section')).toBeNull();
+        // The stack center must agree with the "caught up" prompt: all
+        // actionable rings closed → check glyph, not the "4/5" count.
+        const center = root.querySelector('.wg-ring-stack__center');
+        expect(center).not.toBeNull();
+        expect(center.querySelector('svg')).not.toBeNull();
+        expect(center.textContent).not.toMatch(/\d/);
+    });
+
+    // Guard the runtime projection: aggregateToday remaps the raw rings payload
+    // into the render cell, and must carry sync_pending through — the other
+    // sync-pending tests build the cell by hand and would miss a dropped field.
+    it('aggregateToday carries sync_pending from the raw rings payload into the cell', () => {
+        const caches = {
+            gamification_rings: {
+                level: 4,
+                today_hp: 28,
+                rings: [
+                    { ring: 'adherence', hp: 12, closed: true },
+                    { ring: 'mind', hp: 2, closed: false, sync_pending: true }
+                ]
+            }
+        };
+        const state = env.aggregate({ features: {} }, caches, now);
+        const rings = state.gamificationRings.value.rings;
+        expect(rings.find((r) => r.ring === 'mind').sync_pending).toBe(true);
+        expect(rings.find((r) => r.ring === 'adherence').sync_pending).toBe(false);
+    });
+
+    // Headline (Task 8): the Health Score composite replaces the raw "N HP
+    // today" number — a 0-100 score with a qualitative band word reads as
+    // "good or not" at a glance, which a bare HP count doesn't.
+    it('aggregateToday carries health_score from the raw rings payload into the cell', () => {
+        const caches = {
+            gamification_rings: {
+                level: 4,
+                today_hp: 28,
+                rings: [{ ring: 'adherence', hp: 12, closed: true }],
+                health_score: { value: 82.4, contributors: [], missing: [] }
+            }
+        };
+        const state = env.aggregate({ features: {} }, caches, now);
+        expect(state.gamificationRings.value.healthScore.value).toBe(82.4);
+    });
+
+    it('rings tile headline shows the Health Score number and a token-colored band tag', () => {
+        const root = env.document.getElementById('today-content');
+        env.render(ringsState(now, ['adherence', 'movement'], [], 82), root, { now });
+
+        const tile = root.querySelector('.wg-today-rings');
+        expect(tile.querySelector('.wg-today-rings__score-value').textContent).toBe('82');
+        expect(tile.querySelector('.wg-tag').textContent).toBe('Good');
+    });
+
+    it('rings tile headline shows "Not enough data" instead of a misleading number below the min-contributors floor', () => {
+        const root = env.document.getElementById('today-content');
+        env.render(ringsState(now, ['adherence', 'movement'], [], null), root, { now });
+
+        const tile = root.querySelector('.wg-today-rings');
+        expect(tile.querySelector('.wg-today-rings__score-value').textContent).toBe('—');
+        expect(tile.querySelector('.wg-today-rings__score-note').textContent).toBe('Not enough data');
     });
 });

@@ -94,6 +94,57 @@ func weekBounds(week int64) (first, last int64) {
 	return firstDay * secondsPerDay, (firstDay + 6) * secondsPerDay
 }
 
+// derivedStreakWindowWeeks bounds how far back deriveStreak folds — a full
+// year, comfortably beyond MaxFreezes (≤4 by default), so no realistic streak
+// run needs history older than this to resolve correctly.
+// ponytail: fixed window instead of walking back to the user's first-ever
+// ledger row; widen if a real streak run ever needs more than a year of
+// history to resolve (unlikely given the freeze cap).
+const derivedStreakWindowWeeks = 52
+
+// deriveStreak recomputes the current streak, banked freezes, and the peak
+// streak reached, as a pure fold over the ledger's trailing weekly HP sums
+// (Task 2, gamification-6). Unlike advanceStreak, which only moves forward at
+// score time and so can never see a late import land in an already-passed
+// week, this replays scoring.NextStreak oldest-first over every week up to the
+// last *completed* week — the week containing `now` is still in progress and
+// is excluded, exactly like advanceStreak excludes the day currently being
+// scored. A late import that adds ledger HP to a past miss therefore repairs
+// the streak on the very next read: no explicit repair path, no stranded
+// state. longest is the peak streak reached during the replay, for
+// GetSummary's LongestStreak = max(persisted, derived).
+func (s *service) deriveStreak(ctx context.Context, userID int64, now time.Time, cfg scoring.Config) (streak, freezes, longest int, err error) {
+	lastCompleteWeek := weekIndex(now) - 1
+	sinceWeek := lastCompleteWeek - (derivedStreakWindowWeeks - 1)
+	sinceDay, _ := weekBounds(sinceWeek)
+	_, untilDay := weekBounds(lastCompleteWeek)
+
+	sums, err := s.gam.WeeklyHPSums(ctx, userID, sinceDay, untilDay)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	if len(sums) == 0 {
+		return 0, 0, 0, nil
+	}
+
+	// WeeklyHPSums returns rows ORDER BY week ascending, so sums[0] is the
+	// earliest week with any HP — where the fold starts.
+	hpByWeek := make(map[int64]int, len(sums))
+	for _, w := range sums {
+		hpByWeek[w.Week] = w.HP
+	}
+	firstWeek := sums[0].Week
+
+	in := scoring.StreakInput{}
+	for w := firstWeek; w <= lastCompleteWeek; w++ {
+		in.CurrentStreak, in.Freezes = scoring.NextStreak(in, hpByWeek[w] > 0, cfg)
+		if in.CurrentStreak > longest {
+			longest = in.CurrentStreak
+		}
+	}
+	return in.CurrentStreak, in.Freezes, longest, nil
+}
+
 // GetInsightTier returns the user's unlocked insight tier (§8): the depth of
 // analysis their level grants. It gates only how much insight detail a transport
 // may surface — never raw data, trends, or safety alerts (§8 principle #5), which

@@ -57,6 +57,16 @@ type LedgerEntry struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+// WeeklyHP is one week's total ledger HP — a single row of the read-time
+// streak fold's input (deriveStreak, internal/domain/gamification/streak.go).
+// Week matches the domain layer's Monday-anchored weekIndex; WeeklyHPSums only
+// ever returns weeks that had at least one ledger row (sparse) — a week with
+// zero HP is simply absent, same as one nobody logged anything in.
+type WeeklyHP struct {
+	Week int64
+	HP   int
+}
+
 // State is the cached gamification_state row for a user: lifetime HP, level,
 // streak bookkeeping, banked freezes, and the insight tier. It is recomputed
 // from the ledger and is never the only copy of anything. LastScoredDay is nil
@@ -107,6 +117,12 @@ type RingScore struct {
 	// Config-derived, not data-derived, so it is populated for both today's and
 	// period rings.
 	Goal string `json:"goal"`
+	// SyncPending is true when this is a today's ring whose outcome source is
+	// device-synced (Mind ← sleep, Movement ← steps), the ring hasn't closed,
+	// and no sample has arrived yet today — "hasn't synced", not "failed".
+	// Always false for period rings and for rings not sourced from
+	// device-synced data. Display-only: it does not change HP/ledger math.
+	SyncPending bool `json:"sync_pending"`
 }
 
 // Repo is the gamification repository. Construct with New; share one *Repo per

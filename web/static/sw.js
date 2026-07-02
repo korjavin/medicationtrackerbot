@@ -46,6 +46,7 @@ const STATIC_ASSETS = [
     '/static/js/components/wg-bottom-nav.js',
     '/static/js/components/wg-sparkline.js',
     '/static/js/components/wg-ring.js',
+    '/static/js/components/wg-ring-stack.js',
     '/static/js/components/wg-phone-chrome.js',
     '/static/js/components/wg-bp-chart.js',
     '/static/js/components/wg-weight-chart.js',

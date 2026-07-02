@@ -75,6 +75,17 @@ const (
 	ModeWeightGoal        = "goal"
 )
 
+// Health Score contributor keys — stable identifiers for the API/UI
+// breakdown. Distinct from the ledger-scoped Metric* constants above: these
+// name a read-only signal in the 0–100 composite, not an HP source.
+const (
+	HealthKeyBP        = "bp"
+	HealthKeySleep     = "sleep"
+	HealthKeyRestingHR = "resting_hr"
+	HealthKeyWeight    = "weight"
+	HealthKeyAdherence = "adherence"
+)
+
 // Award is one HP grant produced by a scorer — the "[]LedgerEntry-shaped"
 // breakdown the service maps onto a store gamification.LedgerEntry by adding
 // UserID, Day, and CreatedAt. Keeping it a distinct, store-free type is what
@@ -191,6 +202,30 @@ type Config struct {
 	// auto-applied on a miss so the streak survives.
 	FreezeEarnPerPeriod int
 	MaxFreezes          int
+
+	// Health Score (Oura/Whoop pattern): named contributors compared over a
+	// recent window against a personal baseline, combined as a weighted mean
+	// over present contributors only — a missing signal dilutes the average,
+	// never zeroes it. Below HealthScoreMinContributors present, the score is
+	// reported as unknown rather than a misleadingly confident number from a
+	// single signal.
+	HealthScoreWindowDays         int
+	HealthScoreBaselineDays       int
+	HealthScoreMinContributors    int
+	HealthScoreWeightBP           float64
+	HealthScoreWeightSleep        float64
+	HealthScoreWeightRestingHR    float64
+	HealthScoreWeightBodyweight   float64
+	HealthScoreWeightAdherence    float64
+	HealthScoreAdherencePDCTarget float64 // PDC ≥ this fraction earns full adherence credit
+	HealthScoreWeightStabilityPct float64 // ± this fraction of the trailing average earns full weight-stability credit
+
+	// Habit strength (Loop Habit Tracker EMA): m = 0.5^(√f/HalfLifeDays); a
+	// miss lowers strength gradually, never resets it. 13 is uhabits'
+	// Score.kt default (a daily habit's multiplier ≈0.9481/day: ~0.8 after a
+	// month of daily completion, ~0.99 after three months). Flexible
+	// frequency (e.g. f=3/7 for 3×/week movement) works by construction.
+	HabitStrengthHalfLifeDays float64
 }
 
 // DefaultConfig returns the recommended guideline defaults. Every value is a
@@ -249,6 +284,19 @@ func DefaultConfig() Config {
 
 		FreezeEarnPerPeriod: 1,
 		MaxFreezes:          4,
+
+		HealthScoreWindowDays:         14,
+		HealthScoreBaselineDays:       60,
+		HealthScoreMinContributors:    2,
+		HealthScoreWeightBP:           1.0,
+		HealthScoreWeightSleep:        1.0,
+		HealthScoreWeightRestingHR:    1.0,
+		HealthScoreWeightBodyweight:   1.0,
+		HealthScoreWeightAdherence:    1.0,
+		HealthScoreAdherencePDCTarget: 0.8, // §6.1 weekly-adherence precedent
+		HealthScoreWeightStabilityPct: 0.02,
+
+		HabitStrengthHalfLifeDays: 13,
 	}
 }
 
@@ -392,7 +440,7 @@ func ScoreVitalsAuto(in VitalsAutoDay, cfg Config) []Award {
 	var awards []Award
 	if in.HasRestingHR {
 		r := math.Max(cfg.RestingHR.Membership(in.RestingHR),
-			baselineRelative(in.RestingHR, in.BaselineRestingHR, true, cfg.VitalsImprovementSpan))
+			BaselineRelative(in.RestingHR, in.BaselineRestingHR, true, cfg.VitalsImprovementSpan))
 		awards = addAward(awards, RingVitals, MetricRestingHR, KindOutcome, scaleHP(cfg.VitalsAutoOutcomeMaxHP, r), detailR(r))
 	}
 	if in.HasSpO2 {
@@ -401,7 +449,7 @@ func ScoreVitalsAuto(in VitalsAutoDay, cfg Config) []Award {
 	}
 	if in.HasStress {
 		r := math.Max(cfg.StressBand.Membership(in.Stress),
-			baselineRelative(in.Stress, in.BaselineStress, true, cfg.VitalsImprovementSpan))
+			BaselineRelative(in.Stress, in.BaselineStress, true, cfg.VitalsImprovementSpan))
 		awards = addAward(awards, RingVitals, MetricStress, KindOutcome, scaleHP(cfg.VitalsAutoOutcomeMaxHP, r), detailR(r))
 	}
 	return awards
@@ -461,7 +509,7 @@ func ScoreMovement(in MovementDay, cfg Config) []Award {
 		awards = addAward(awards, RingMovement, MetricActivity, KindFloor, cfg.FloorHP, "")
 	}
 	if in.HasActivity {
-		r := rampUp(in.WeeklyActivityMinutes, cfg.WeeklyActivityTargetLow)
+		r := RampUp(in.WeeklyActivityMinutes, cfg.WeeklyActivityTargetLow)
 		awards = addAward(awards, RingMovement, MetricActivity, KindOutcome, scaleHP(cfg.MovementOutcomeMaxHP, r), detailR(r))
 	}
 	return awards
@@ -501,11 +549,11 @@ func ScoreNourishment(in NourishmentDay, cfg Config) []Award {
 		awards = addAward(awards, RingNourishment, MetricCalories, KindOutcome, scaleHP(cfg.NourishmentCaloriesMaxHP, r), detailR(r))
 	}
 	if in.ProteinTarget > 0 {
-		r := rampUp(in.Protein, in.ProteinTarget)
+		r := RampUp(in.Protein, in.ProteinTarget)
 		awards = addAward(awards, RingNourishment, MetricProtein, KindOutcome, scaleHP(cfg.NourishmentProteinMaxHP, r), detailR(r))
 	}
 	if in.VegTarget > 0 {
-		r := rampUp(in.VegServings, in.VegTarget)
+		r := RampUp(in.VegServings, in.VegTarget)
 		awards = addAward(awards, RingNourishment, MetricVeg, KindOutcome, scaleHP(cfg.NourishmentVegMaxHP, r), detailR(r))
 	}
 	return awards
@@ -652,13 +700,176 @@ func NextStreak(prev StreakInput, periodMet bool, cfg Config) (streak, freezesLe
 	return 0, 0 // reset, never negative
 }
 
+// ----- health score & habit strength -----------------------------------------
+
+// HealthScoreContributor is one named signal feeding the Health Score
+// composite: a range-membership Value in [0,1] (meaningless when !Present),
+// its Weight, and whether this window actually had enough data to compute
+// it at all. Present is decided by the caller's loader — the only thing
+// that knows whether a signal exists this window, as opposed to existing
+// but scoring poorly.
+type HealthScoreContributor struct {
+	Key     string
+	Label   string
+	Value   float64
+	Weight  float64
+	Present bool
+}
+
+// HealthScoreInput is the full named-contributor set for one computation: a
+// recent window (HealthScoreWindowDays) compared against a personal
+// baseline (HealthScoreBaselineDays), resolved by the service's per-domain
+// loaders. DB-free here by design — only the composite math lives in this
+// package.
+type HealthScoreInput struct {
+	Contributors []HealthScoreContributor
+}
+
+// HealthScoreResult is the composite Health Score (0–100) plus its
+// breakdown. Score is nil when fewer than Config.HealthScoreMinContributors
+// signals are present — "not enough data" rather than a misleadingly
+// confident number computed from a single signal.
+type HealthScoreResult struct {
+	Score        *float64
+	Contributors []HealthScoreContributor
+	Missing      []string
+}
+
+// ComputeHealthScore folds present contributors into a weighted mean scaled
+// to 0–100, renormalizing over the Σweight of only the present ones — a
+// missing contributor dilutes the average instead of scoring it 0. Backfill
+// imports that add or complete data simply change the input set on the next
+// read; there is no state to reset.
+func ComputeHealthScore(in HealthScoreInput, cfg Config) HealthScoreResult {
+	res := HealthScoreResult{Contributors: in.Contributors}
+	var sumWeight, sumWeightedValue float64
+	present := 0
+	for _, c := range in.Contributors {
+		if !c.Present {
+			res.Missing = append(res.Missing, c.Key)
+			continue
+		}
+		present++
+		sumWeight += c.Weight
+		sumWeightedValue += c.Weight * clamp01(c.Value)
+	}
+	minContributors := cfg.HealthScoreMinContributors
+	if minContributors <= 0 {
+		minContributors = 2
+	}
+	if present < minContributors || sumWeight <= 0 {
+		return res
+	}
+	score := 100 * sumWeightedValue / sumWeight
+	res.Score = &score
+	return res
+}
+
+// HealthContributorBP builds the "bp" Health Score contributor from the
+// recent window's mean reading — the same two-sided membership ScoreBP
+// grants HP for, applied to a window average instead of a single day.
+func HealthContributorBP(meanSystolic, meanDiastolic float64, present bool, cfg Config) HealthScoreContributor {
+	c := HealthScoreContributor{Key: HealthKeyBP, Label: "Blood pressure", Weight: cfg.HealthScoreWeightBP, Present: present}
+	if present {
+		c.Value = math.Min(cfg.BPSystolic.Membership(meanSystolic), cfg.BPDiastolic.Membership(meanDiastolic))
+	}
+	return c
+}
+
+// HealthContributorSleep builds the "sleep" contributor from the window's
+// mean duration and, when a personal timing baseline exists, mean timing
+// deviation — the same two signals ScoreSleep grants HP for, averaged into
+// one 0..1 value instead of two separate awards.
+func HealthContributorSleep(meanDurationHours, meanTimingDeviationMin float64, hasRegularity, present bool, cfg Config) HealthScoreContributor {
+	c := HealthScoreContributor{Key: HealthKeySleep, Label: "Sleep", Weight: cfg.HealthScoreWeightSleep, Present: present}
+	if present {
+		v := cfg.SleepHours.Membership(meanDurationHours)
+		if hasRegularity {
+			reg := RangeMembership(math.Abs(meanTimingDeviationMin), 0, cfg.SleepRegularityToleranceMin, cfg.SleepRegularityFalloffMin)
+			v = (v + reg) / 2
+		}
+		c.Value = v
+	}
+	return c
+}
+
+// HealthContributorRestingHR builds the "resting_hr" contributor using the
+// same kinder-of-two rule as ScoreVitalsAuto: absolute-band membership or
+// improvement vs. the user's own baseline, whichever is higher — so a
+// genetically high resting HR still earns by trending down for that person
+// specifically.
+func HealthContributorRestingHR(meanHR, baselineHR float64, present bool, cfg Config) HealthScoreContributor {
+	c := HealthScoreContributor{Key: HealthKeyRestingHR, Label: "Resting heart rate", Weight: cfg.HealthScoreWeightRestingHR, Present: present}
+	if present {
+		c.Value = math.Max(cfg.RestingHR.Membership(meanHR), BaselineRelative(meanHR, baselineHR, true, cfg.VitalsImprovementSpan))
+	}
+	return c
+}
+
+// HealthContributorWeight builds the "weight" contributor as stability
+// against the user's own trailing average — not an absolute band like
+// ScoreWeight's maintenance mode, but how close the window's readings sit
+// to that person's own recent normal.
+func HealthContributorWeight(meanWeight, trailingAvg float64, present bool, cfg Config) HealthScoreContributor {
+	c := HealthScoreContributor{Key: HealthKeyWeight, Label: "Weight stability", Weight: cfg.HealthScoreWeightBodyweight, Present: present}
+	if present && trailingAvg > 0 {
+		tol := trailingAvg * cfg.HealthScoreWeightStabilityPct
+		c.Value = RangeMembership(meanWeight, trailingAvg-tol, trailingAvg+tol, tol)
+	}
+	return c
+}
+
+// HealthContributorAdherence builds the "adherence" contributor from the
+// window's proportion of days covered (PDC) — full credit at or above
+// Config.HealthScoreAdherencePDCTarget (the §6.1 weekly ≥80% precedent),
+// ramping linearly below it. One-sided-OK: PDC cannot exceed 1.0, so there
+// is no ceiling to fall off from the other side.
+func HealthContributorAdherence(pdc float64, present bool, cfg Config) HealthScoreContributor {
+	c := HealthScoreContributor{Key: HealthKeyAdherence, Label: "Medication adherence", Weight: cfg.HealthScoreWeightAdherence, Present: present}
+	if present {
+		target := cfg.HealthScoreAdherencePDCTarget
+		if target <= 0 {
+			target = 0.8
+		}
+		c.Value = RampUp(pdc, target)
+	}
+	return c
+}
+
+// HabitStrength folds a chronological (oldest-first) series of fractional
+// checkmarks into the Loop Habit Tracker EMA (uhabits Score.kt provenance):
+// score_d = score_{d-1}·m + checkmark_d·(1−m), where the daily decay
+// multiplier m = 0.5^(√frequency/HalfLifeDays). A miss lowers strength
+// gradually — it never resets to 0 — and a checkmark may be fractional
+// (e.g. a day's adherence ratio) rather than a hard 0/1. frequency only tunes
+// decay speed; it does not rescale the output, whose steady state is the mean
+// of the input. A non-daily habit therefore reaches 1.0 only when the caller
+// feeds an *implicit* checkmark reflecting cadence compliance (uhabits-style —
+// e.g. movement at 3×/week ⇒ trailing-week fill, not raw 0/1 daily), with
+// frequency (3.0/7.0) set to slow the decay to match.
+func HabitStrength(checkmarks []float64, frequency float64, cfg Config) float64 {
+	halfLife := cfg.HabitStrengthHalfLifeDays
+	if halfLife <= 0 {
+		halfLife = 13
+	}
+	if frequency <= 0 {
+		frequency = 1
+	}
+	m := math.Pow(0.5, math.Sqrt(frequency)/halfLife)
+	var score float64
+	for _, ck := range checkmarks {
+		score = score*m + clamp01(ck)*(1-m)
+	}
+	return score
+}
+
 // ----- helpers --------------------------------------------------------------
 
-// baselineRelative grades x against the user's own baseline (0 = unknown → 0
+// BaselineRelative grades x against the user's own baseline (0 = unknown → 0
 // credit, falls back to the absolute band). lowerIsBetter inverts the direction
 // (HR, stress). At x = baseline it returns 0.5; a full span of improvement
 // reaches 1.0, the same span of regression reaches 0.
-func baselineRelative(x, baseline float64, lowerIsBetter bool, span float64) float64 {
+func BaselineRelative(x, baseline float64, lowerIsBetter bool, span float64) float64 {
 	if baseline <= 0 || span <= 0 {
 		return 0
 	}
@@ -670,10 +881,10 @@ func baselineRelative(x, baseline float64, lowerIsBetter bool, span float64) flo
 	return clamp01(0.5 + improvement/(2*delta))
 }
 
-// rampUp is a one-sided-OK membership: 0 at/below 0, ramping linearly to full
+// RampUp is a one-sided-OK membership: 0 at/below 0, ramping linearly to full
 // (1) at full, saturating at 1 beyond. Used where more is fine up to a ceiling
-// (weekly activity progress, protein/veg adequacy).
-func rampUp(x, full float64) float64 {
+// (weekly activity progress, protein/veg adequacy, adherence PDC vs target).
+func RampUp(x, full float64) float64 {
 	if full <= 0 {
 		return 0
 	}

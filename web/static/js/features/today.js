@@ -353,9 +353,11 @@
         if (rings && rings.enabled === false) return cell(null, 'journey', 'disabled');
         const list = rings && Array.isArray(rings.rings) ? rings.rings : null;
         if (!list || list.length === 0) return cell(null, 'journey', 'missing');
+        const hs = rings.health_score;
         const value = {
             level: Number.isFinite(rings.level) ? rings.level : 0,
             todayHp: Number.isFinite(rings.today_hp) ? rings.today_hp : 0,
+            healthScore: { value: (hs && Number.isFinite(hs.value)) ? hs.value : null },
             rings: list
                 .filter((r) => r && typeof r.ring === 'string')
                 .map((r) => ({
@@ -363,7 +365,8 @@
                     hp: Number(r.hp) || 0,
                     closed: !!r.closed,
                     progress: Number.isFinite(r.progress) ? r.progress : (r.closed ? 1 : 0),
-                    goal: typeof r.goal === 'string' ? r.goal : ''
+                    goal: typeof r.goal === 'string' ? r.goal : '',
+                    sync_pending: !!r.sync_pending
                 }))
         };
         return cell(value, 'journey', 'ok');
@@ -584,6 +587,17 @@
         span.className = `wg-tag wg-tag--${kind}`;
         span.textContent = text;
         return span;
+    }
+
+    // Qualitative band for the 0-100 Health Score composite (Task 8, Oura/Whoop
+    // pattern), token-colored via the same wg-tag palette bpStatusTag uses.
+    // Duplicated in journey.js rather than shared — same convention as
+    // RING_TILE_META (today.js stays self-contained for its pure-render tests).
+    function healthScoreBand(value) {
+        if (!Number.isFinite(value)) return null;
+        if (value >= 70) return { label: 'Good', kind: 'normal' };
+        if (value >= 40) return { label: 'Fair', kind: 'high' };
+        return { label: 'Needs attention', kind: 'alert' };
     }
 
     function bpStatusTag(systolic, diastolic) {
@@ -1026,16 +1040,16 @@
         mind: { verb: 'Log last night’s sleep', section: 'health' }
     };
 
-    function ringSvgOrNull(opts) {
-        if (typeof window === 'undefined' || !window.WGRing || typeof window.WGRing.render !== 'function') {
+    function ringStackOrNull(opts) {
+        if (typeof window === 'undefined' || !window.WGRingStack || typeof window.WGRingStack.render !== 'function') {
             return null;
         }
-        return window.WGRing.render(opts);
+        return window.WGRingStack.render(opts);
     }
 
-    // Today rings summary card. Reuses the journey ring-row CSS plus the
-    // wg-ring SVG gauge, as a tappable card with a today-HP header; tapping
-    // deep-links to Journey.
+    // Today rings summary card: one wg-ring-stack (Plan 7) plus a compact
+    // legend, as a tappable card with a today-HP header; tapping deep-links
+    // to Journey.
     function renderRingsTile(cell, onDeeplink) {
         if (!cell || cell.status === 'disabled') return null;
         const d = doc();
@@ -1047,13 +1061,19 @@
         const hasValue = !(cell.status === 'missing' || !cell.value);
         const ringList = hasValue ? cell.value.rings : [];
         const closedByRing = {};
+        const syncPendingByRing = {};
         let closedCount = 0;
+        let syncPendingCount = 0;
         for (const r of ringList) {
-            if (r && r.closed) { closedByRing[r.ring] = true; closedCount += 1; }
+            if (!r) continue;
+            if (r.closed) { closedByRing[r.ring] = true; closedCount += 1; }
+            if (r.sync_pending) { syncPendingByRing[r.ring] = true; syncPendingCount += 1; }
         }
-        // First open ring in canonical order is the suggested "your move".
+        // First open, actionable (not sync_pending) ring in canonical order is
+        // the suggested "your move" — a ring waiting on a device sync isn't
+        // something the user can act on right now.
         const openMeta = hasValue
-            ? RING_TILE_META.find((m) => !closedByRing[m.ring])
+            ? RING_TILE_META.find((m) => !closedByRing[m.ring] && !syncPendingByRing[m.ring])
             : null;
 
         const header = d.createElement('div');
@@ -1062,19 +1082,39 @@
         title.className = 'wg-today-rings__title';
         title.textContent = hasValue
             ? `${closedCount} of ${RING_TILE_META.length} rings closed`
+                + (syncPendingCount > 0 ? ` · ${syncPendingCount} waiting for sync` : '')
             : 'Today’s rings';
         header.appendChild(title);
-        const hp = d.createElement('span');
-        hp.className = 'wg-mono-display wg-today-rings__hp';
-        const todayHp = (cell.value && Number.isFinite(cell.value.todayHp)) ? cell.value.todayHp : 0;
-        hp.textContent = `+${todayHp} HP`;
-        header.appendChild(hp);
+
+        // Headline is the Health Score (Task 8), not the raw today_hp count —
+        // "34 HP today" doesn't tell the user whether that's good; a 0-100
+        // score with a band word does. Falls back to a muted note below the
+        // min-contributors threshold ("not enough data") rather than a
+        // misleadingly confident number.
+        const scoreValue = (cell.value && cell.value.healthScore) ? cell.value.healthScore.value : null;
+        const band = healthScoreBand(scoreValue);
+        const scoreWrap = d.createElement('span');
+        scoreWrap.className = 'wg-today-rings__score';
+        const scoreNum = d.createElement('span');
+        scoreNum.className = 'wg-mono-display wg-today-rings__score-value';
+        scoreNum.textContent = Number.isFinite(scoreValue) ? String(Math.round(scoreValue)) : '—';
+        scoreWrap.appendChild(scoreNum);
+        if (band) {
+            scoreWrap.appendChild(statusTag(band.kind, band.label));
+        } else {
+            const note = d.createElement('span');
+            note.className = 'wg-today-rings__score-note wg-muted';
+            note.textContent = 'Not enough data';
+            scoreWrap.appendChild(note);
+        }
+        header.appendChild(scoreWrap);
         card.appendChild(header);
 
         // "Your move" — one tappable next action that deep-links to the open
         // ring's section (not the Journey screen). Stop propagation so the
-        // card's own Journey deep-link doesn't fire too. When every ring is
-        // closed, celebrate instead of nagging.
+        // card's own Journey deep-link doesn't fire too. When every actionable
+        // ring is closed — whether or not sync-pending rings remain — celebrate
+        // instead of nagging: a ring waiting on a device sync isn't a "your move".
         if (hasValue) {
             const move = d.createElement('div');
             move.className = 'wg-today-rings__move';
@@ -1108,7 +1148,9 @@
                 }
                 const text = d.createElement('span');
                 text.className = 'wg-today-rings__move-text';
-                text.textContent = 'All rings closed today — nice.';
+                text.textContent = closedCount >= RING_TILE_META.length
+                    ? 'All rings closed today — nice.'
+                    : 'All caught up — the rest will sync in.';
                 move.appendChild(text);
             }
             card.appendChild(move);
@@ -1128,14 +1170,39 @@
                 progressByRing[r.ring] = r.progress;
                 goalByRing[r.ring] = r.goal;
             }
+            const body = d.createElement('div');
+            body.className = 'wg-today-rings__body';
+
+            // One big concentric stack (Plan 7) replaces the old per-ring gauge;
+            // outer→inner follows RING_TILE_META's canonical order. The center
+            // check doubles as the celebration state once every *actionable*
+            // ring is closed — the same condition as the "your move" celebration
+            // above (no open, non-sync-pending ring left), so sync-pending rings
+            // don't block it and the two never disagree.
+            const allActionableClosed = !openMeta;
+            const stack = ringStackOrNull({
+                rings: RING_TILE_META.map((meta) => ({
+                    key: meta.ring,
+                    progress: progressByRing[meta.ring],
+                    closed: !!closedByRing[meta.ring],
+                    syncPending: !!syncPendingByRing[meta.ring]
+                })),
+                centerLabel: allActionableClosed ? iconSvgOrNull('check', 20) : `${closedCount}/${RING_TILE_META.length}`,
+                label: 'Today’s rings'
+            });
+            if (stack) body.appendChild(stack);
+
+            const legend = d.createElement('div');
+            legend.className = 'wg-today-rings__legend';
             const list = d.createElement('div');
             list.className = 'wg-journey-rings__list';
             for (const meta of RING_TILE_META) {
                 const ringHp = hpByRing[meta.ring] || 0;
                 const isClosed = !!closedByRing[meta.ring];
+                const isSyncPending = !!syncPendingByRing[meta.ring];
                 const goal = goalByRing[meta.ring] || '';
                 const row = d.createElement('div');
-                row.className = 'wg-journey-ring';
+                row.className = 'wg-journey-ring' + (isSyncPending ? ' wg-journey-ring--sync-pending' : '');
                 const head = d.createElement('div');
                 head.className = 'wg-journey-ring__head';
                 const ic = iconSvgOrNull(meta.icon, 16);
@@ -1165,25 +1232,17 @@
                 value.textContent = String(ringHp);
                 head.appendChild(value);
                 row.appendChild(head);
-                // Honest fill: closed always draws a full ring; open rings draw
-                // their real range-membership progress toward closing — never a
-                // bar relative to today's other rings (the bug this replaces).
-                const ring = ringSvgOrNull({
-                    progress: progressByRing[meta.ring],
-                    closed: isClosed,
-                    label: meta.label,
-                    value: isClosed ? 'Closed' : `${ringHp} HP`
-                });
-                if (ring) row.appendChild(ring);
-                if (goal) {
+                if (isSyncPending || goal) {
                     const sub = d.createElement('p');
                     sub.className = 'wg-journey-ring__sub wg-muted';
-                    sub.textContent = goal;
+                    sub.textContent = isSyncPending ? 'Syncs later' : goal;
                     row.appendChild(sub);
                 }
                 list.appendChild(row);
             }
-            card.appendChild(list);
+            legend.appendChild(list);
+            body.appendChild(legend);
+            card.appendChild(body);
         }
 
         const journeyLink = d.createElement('div');

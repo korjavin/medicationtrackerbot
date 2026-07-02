@@ -45,6 +45,18 @@ type Summary struct {
 	PeriodRings []gamstore.RingScore `json:"period_rings"`
 
 	LastScoredDay *time.Time `json:"last_scored_day,omitempty"`
+
+	// HealthScore is the 0-100 Oura/Whoop-pattern composite (Task 8, see
+	// wellbeing.go): a legible headline distinct from the effort-based HP/Rings
+	// above, computed from named contributors over a recent window vs a personal
+	// baseline. A read/degrade error zeroes it out (Value nil, no contributors) —
+	// additive and never blocks the rest of Summary.
+	HealthScore HealthScoreView `json:"health_score"`
+
+	// Strengths is the habit-strength EMA per pillar (Task 8, see wellbeing.go) —
+	// the continuity mechanic that replaces the weekly streak card on Journey. A
+	// read/degrade error yields an empty slice.
+	Strengths []StrengthView `json:"strengths"`
 }
 
 // GetSummary returns the user's gamification read model. Gate-off yields
@@ -80,6 +92,21 @@ func (s *service) GetSummary(ctx context.Context, userID int64) (Summary, error)
 	floor := scoring.HPToReachLevel(st.Level, cfg)
 	next := scoring.HPToReachLevel(st.Level+1, cfg)
 
+	// The current streak + freezes are a pure fold over the ledger (Task 2,
+	// gamification-6), not the persisted gamification_state columns: a late
+	// import into an already-scored week updates the ledger, and recomputing
+	// this fresh on every read means the repair needs no explicit trigger.
+	// LongestStreak still honors whatever the transactional path ever recorded —
+	// history outside the trailing derivedStreakWindowWeeks fold is never lost.
+	derivedStreak, derivedFreezes, derivedLongest, err := s.deriveStreak(ctx, userID, today, cfg)
+	if err != nil {
+		return Summary{}, err
+	}
+	longestStreak := st.LongestStreak
+	if derivedLongest > longestStreak {
+		longestStreak = derivedLongest
+	}
+
 	// Progress + Goal are best-effort enrichments layered on the cached
 	// ledger/state read above: they re-read live domain data (the effective bands,
 	// the per-ring membership re-score across every domain loader, the food
@@ -94,6 +121,8 @@ func (s *service) GetSummary(ctx context.Context, userID int64) (Summary, error)
 	// not the base Config the level curve uses above.
 	todayProgress := map[string]float64{}
 	goals := map[string]string{}
+	healthScore := HealthScoreView{Missing: []string{}}
+	strengths := []StrengthView{}
 	if effCfg, err := s.effectiveConfig(ctx, userID); err != nil {
 		slog.Warn("gamification summary: effective config load failed; rings degrade to no progress/goal", "error", err, "user_id", userID)
 	} else {
@@ -107,6 +136,25 @@ func (s *service) GetSummary(ctx context.Context, userID int64) (Summary, error)
 		} else {
 			goals = ringGoals(effCfg, ft)
 		}
+		if hs, err := s.computeHealthScore(ctx, userID, today, effCfg); err != nil {
+			slog.Warn("gamification summary: health score compute failed; degrades to unknown", "error", err, "user_id", userID)
+		} else {
+			healthScore = hs
+		}
+		if st, err := s.computeStrengths(ctx, userID, today, effCfg); err != nil {
+			slog.Warn("gamification summary: habit strengths compute failed; degrades to empty", "error", err, "user_id", userID)
+		} else {
+			strengths = st
+		}
+	}
+	// syncPending degrades to "nothing pending" on error — same forgiving
+	// posture as todayProgress/goals above: a transient read error should not
+	// mislabel an open ring as still-syncing.
+	syncPending := map[string]bool{}
+	if sp, err := s.syncPendingRings(ctx, userID, today); err != nil {
+		slog.Warn("gamification summary: sync-pending recompute failed; rings degrade to not-pending", "error", err, "user_id", userID)
+	} else {
+		syncPending = sp
 	}
 
 	sum := Summary{
@@ -117,13 +165,15 @@ func (s *service) GetSummary(ctx context.Context, userID int64) (Summary, error)
 		HPIntoLevel:   st.LifetimeHP - floor,
 		LevelSpanHP:   next - floor,
 		HPToNextLevel: next - st.LifetimeHP,
-		CurrentStreak: st.CurrentStreak,
-		LongestStreak: st.LongestStreak,
-		Freezes:       st.Freezes,
+		CurrentStreak: derivedStreak,
+		LongestStreak: longestStreak,
+		Freezes:       derivedFreezes,
 		PeriodDays:    summaryPeriodDays,
-		TodayRings:    ringScores(todayLedger, todayProgress, goals),
-		PeriodRings:   ringScores(periodLedger, nil, goals),
+		TodayRings:    ringScores(todayLedger, todayProgress, goals, syncPending),
+		PeriodRings:   ringScores(periodLedger, nil, goals, nil),
 		LastScoredDay: st.LastScoredDay,
+		HealthScore:   healthScore,
+		Strengths:     strengths,
 	}
 	if sum.HPToNextLevel < 0 {
 		sum.HPToNextLevel = 0
@@ -148,8 +198,11 @@ func (s *service) GetSummary(ctx context.Context, userID int64) (Summary, error)
 // range-membership gauge from ringProgress (today's rings only); pass nil for
 // a period whose Progress should stay 0 (the gauge is a daily-loop affordance,
 // not a weekly one). goals is the config-derived ring -> goal-text map from
-// ringGoals, applied to both today's and period rings alike.
-func ringScores(entries []gamstore.LedgerEntry, progress map[string]float64, goals map[string]string) []gamstore.RingScore {
+// ringGoals, applied to both today's and period rings alike. syncPending is
+// today's ring -> "no device-synced sample yet" map from syncPendingRings;
+// pass nil for a period, whose rings always report SyncPending=false (a
+// nil-map lookup returns false, so no special-casing needed here).
+func ringScores(entries []gamstore.LedgerEntry, progress map[string]float64, goals map[string]string, syncPending map[string]bool) []gamstore.RingScore {
 	byRing := make(map[string]int, 5)
 	closed := make(map[string]bool, 5)
 	for _, e := range entries {
@@ -183,7 +236,14 @@ func ringScores(entries []gamstore.LedgerEntry, progress map[string]float64, goa
 				p = progress[ring]
 			}
 		}
-		out = append(out, gamstore.RingScore{Ring: ring, HP: byRing[ring], Closed: closed[ring], Progress: p, Goal: goals[ring]})
+		out = append(out, gamstore.RingScore{
+			Ring:        ring,
+			HP:          byRing[ring],
+			Closed:      closed[ring],
+			Progress:    p,
+			Goal:        goals[ring],
+			SyncPending: !closed[ring] && syncPending[ring],
+		})
 	}
 	return out
 }

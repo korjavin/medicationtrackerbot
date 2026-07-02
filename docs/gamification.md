@@ -365,6 +365,12 @@ Streaks are kept because they motivate, but engineered so a miss is a *rest*, no
 - **No shame notifications.** Reminders are opt-in, gentle, and well-timed (Fogg
   prompts), never loss-pressure pings.
 
+> **Superseded (§14.7, Plan 8).** As the Journey continuity mechanic, the weekly
+> streak card above is replaced by the per-pillar habit-strength EMA — same
+> "a miss is a rest, not a reset" ethic, computed continuously instead of at a
+> weekly boundary. The derived streak (`deriveStreak`, §14.5) keeps running and is
+> still shown, demoted to a footnote inside the Strengths card.
+
 ---
 
 ## 10. Challenges / Quests  *(opt-in autonomy)*
@@ -712,6 +718,164 @@ lock (`scoreMu`) on the service struct — separate instances would let a bot im
 and a server read-rescore for the same user race and stale-overwrite each other.
 The mobile build (`main_mobile.go`) has no bot; it constructs its own server-only
 instance as before.
+
+### 14.5 Sync honesty — Plan 6 (status)
+
+The system used to be unable to tell "the user didn't do it" from "the data hasn't
+synced yet," and the streak was transactional state a late import couldn't repair.
+Implemented in
+[docs/plans/2026-07-02-gamification-6-sync-honesty.md](plans/2026-07-02-gamification-6-sync-honesty.md).
+
+**`sync_pending` ring state.** Rings whose outcome depends on a device-synced sample
+(`movement` ← steps, `mind` ← sleep) carry `SyncPending: true` when *today's* ring
+hasn't closed and no synced sample has landed yet — "hasn't synced" instead of
+"failed." `syncPendingRings` (`summary.go`) reuses the same per-domain loaders
+`scoreday.go` already calls for today's re-score, so no new queries. Period (weekly)
+rings and any already-closed ring always report `false` (`ringScores`,
+`summary.go:219`: `SyncPending: !closed[ring] && syncPending[ring]`). It's a display
+state only — HP/ledger scoring is untouched. Frontend: `today.js` `renderRingsTile`
+dims sync-pending rings with a "syncs later" sub-line instead of an empty "failed"
+arc, excludes them from the "your move" candidate list, and appends "· M waiting for
+sync" to the "N of 5 rings closed" headline; `journey.js` mirrors the dimmed
+treatment on the rings card.
+
+**Derived (backfill-proof) streak.** The old `advanceStreak` only moved forward at
+score time (`streak.go:39-43`: returns unchanged when `curWeek <= prevWeek`), so a
+late import that filled an already-passed "failed" week left the streak stranded —
+only the one-time `Backfill` ever rebuilt it. `deriveStreak` (`streak.go:116`)
+replaces that read path: on every `GetSummary`/`GetJourney` call it replays
+`scoring.NextStreak` oldest-first over the trailing 52 weeks of ledger HP sums
+(`WeeklyHPSums`, one `GROUP BY` query), stopping at the last *completed* week — same
+semantics as `advanceStreak` (earn a freeze per met week, bank ≤4, auto-spend on a
+miss), but computed fresh instead of carried forward. A late import lands ledger HP
+in the past week; the very next read re-folds it and the streak self-repairs, with no
+explicit repair path or stranded state. `LongestStreak` reports
+`max(persisted, derived)` so history recorded before this change is never lost. The
+transactional `gamification_state` streak columns keep being written
+(`recomputeState`) for compatibility, but no read path depends on them for the
+current streak anymore.
+
+**Insight ladder tier 2 gets a real destination.** Tier 2 ("per-domain trend
+charts," §8) used to read "soon" for a surface that already existed. `journey.js`
+`renderLadder` now marks tier 2 `hasDestination` and deep-links "Unlocked → view" to
+the Vitals section's existing trend charts (`switchTab('health')`). Tiers 3-4 keep
+the honest "Unlocks at Lvl N · soon" until plans 8/9 ship their destinations.
+
+### 14.6 Concentric rings — Plan 7 (status)
+
+Plans 3/5/6 rendered the five rings as a stacked *list* of separate `wg-ring` arcs —
+readable but not the sub-second, gestalt-closure glance Apple's Activity Rings
+popularized. Implemented in
+[docs/plans/2026-07-02-gamification-7-concentric-rings.md](plans/2026-07-02-gamification-7-concentric-rings.md)
+as a pure presentation change — no scoring, API, or `RingScore` field changes.
+
+**`wg-ring-stack`** (`web/static/js/components/wg-ring-stack.js`, `window.WGRingStack`)
+— one SVG rendering up to five concentric arcs outer→inner in canonical ring order
+(adherence outermost, mind innermost), reusing `wg-ring`'s per-arc dash-math contract
+(`pathLength="100"` keeps dash math a flat percentage regardless of that ring's
+radius). `WGRingStack.render({ rings, centerLabel, label })` takes each ring's
+`{ key, progress, closed, syncPending }`; JS only sets the neutral `--ring-progress`
+custom property and picks the `.wg-ring-stack__arc--<key>` color-variant class, CSS
+owns dash offset and per-ring hue. A closed ring always renders full + a brighter
+variant; a sync-pending ring renders its dimmed track only (never an accusatory empty
+arc); an open ring renders its real `progress`. `centerLabel` is caller-supplied
+(Today/Journey both pass `"N/5"`, or a check glyph when every actionable ring is
+closed) so the component stays a pure geometry/color primitive. Per-ring accent
+colors are `--wg-*` tokens, shared by the legend. Covered by
+`tests/wg-ring-stack.test.js` (arc-geometry math — the same web-component testing
+exception as `tests/wg-ring.test.js`, CLAUDE.md rule 8).
+
+**Today rings tile and Journey rings card** (`features/today.js` `renderRingsTile`,
+`features/journey.js`) both replace their five-row ring list with one
+`wg-ring-stack` (~180px on Today, larger on Journey) beside a compact legend —
+per-ring icon, label, check when closed, `goal` sub-line, and the Plan 6
+"syncs later" sub-line when `sync_pending`. The Phase-A headline ("N of 5 rings
+closed · M waiting for sync"), the "your move" prompt, the "View Journey →"
+affordance, and each ring's per-section logging deeplink are unchanged — only the
+ring visualization and its legend layout moved. `wg-ring` itself is untouched and
+stays available for other surfaces; the stack is a sibling component, not a rewrite.
+
+Per direction this plan added no tests beyond `tests/wg-ring-stack.test.js`;
+verification was `go test ./...` (untouched), `pnpm test` (architecture guards:
+globals allowlist incl. `window.WGRingStack`, design tokens, SW precache; existing
+Today/Journey feature suites), and manual phone-width/Android-emulator smoke.
+
+### 14.7 Health Score & habit strength — Plan 8 (status)
+
+"34 HP today" is illegible on its own — it doesn't say whether that's good or what
+to do next. Implemented in
+[docs/plans/2026-07-02-gamification-8-health-score-strength.md](plans/2026-07-02-gamification-8-health-score-strength.md)
+as two new score layers, both **pure functions of the event log** (a backfill
+import just makes them more accurate on the next read — there is no transactional
+state to reset). HP, levels, and the ledger are untouched; this is the presentation
+layer of motivation, not a new currency.
+
+**Health Score 0–100** (Oura/Whoop pattern) — `scoring.ComputeHealthScore`
+(`internal/domain/gamification/scoring/scoring.go`). Five named contributors, each
+a range-membership value in `[0,1]`: `bp` (mean systolic/diastolic vs. the same
+two-sided bands `ScoreBP` grants HP for), `sleep` (mean duration vs. band, averaged
+with a timing-regularity sub-score once the baseline has ≥5 nights), `resting_hr`
+(band membership *or* improvement vs. the user's own baseline, whichever is
+kinder — `BaselineRelative`), `weight` (stability vs. the trailing average, not an
+absolute band), and `adherence` (Proportion of Days Covered vs.
+`HealthScoreAdherencePDCTarget`, the §6.1 ≥80% precedent, via `RampUp`). The
+composite is a weighted mean over *present* contributors only:
+`score = 100 · Σ(w_i·v_i) / Σ(w_i)` — a missing signal (no data in the window)
+dilutes the average instead of scoring 0. Below `HealthScoreMinContributors`
+(default 2) present contributors, `Score` is `nil` ("not enough data") rather than
+a misleadingly confident number from one signal. Windows: recent = 14d
+(`HealthScoreWindowDays`), baseline = 60d (`HealthScoreBaselineDays`), both
+trailing the request day, so a late import re-enters the math on the very next
+read. Built read-time by `wellbeing.go`'s `computeHealthScore`, one loader per
+contributor over the same per-domain repos `scoreDayAwards` already calls — no new
+tables, no new queries beyond the window reads.
+
+**Habit strength per pillar** (Loop Habit Tracker EMA, uhabits `Score.kt`
+provenance) — `scoring.HabitStrength(checkmarks, frequency, cfg)`: chronological
+fold `score_d = score_{d-1}·m + checkmark_d·(1−m)`, decay multiplier
+`m = 0.5^(√frequency/HalfLifeDays)`, half-life 13 days
+(`HabitStrengthHalfLifeDays`) — a daily habit's multiplier ≈0.9481/day (~0.8 after
+a month of daily completion, ~0.99 after three months). A miss lowers strength
+gradually; it never resets to 0. Checkmarks may be fractional (a day's adherence
+ratio is a valid checkmark, not just 0/1). The EMA's steady state is the *mean* of
+its input, so `frequency` only tunes decay speed — a non-daily habit reaches the
+1.0 ceiling only when fed an *implicit* checkmark reflecting cadence compliance
+(uhabits-style), not raw 0/1 daily. Folded per pillar by `wellbeing.go` over a
+90-day lookback (`habitStrengthLookbackDays`; ≈7 half-lives, so anything older
+contributes a negligible remainder): `meds` (checkmark = day's taken/expected dose
+ratio, frequency 1), `movement` (implicit checkmark = share of the 3×/week target
+met in the trailing 7 days, `min(1, workouts_in_last_7d/3)`, frequency 3/7 so the
+decay matches the cadence), `measurement` (any BP/weight/food log that day,
+frequency 1). This replaces the weekly streak as the Journey continuity
+mechanic (§9 note); the derived streak (§14.5) survives as a footnote inside the
+new Strengths card, not a separate headline metric.
+
+**API/MCP surface** (additive, no new routes — see `docs/api.md#gamification`).
+`GetSummary`/`GetJourney` carry `health_score {value, contributors[{key, label,
+score, weight, missing}], missing[]}` and `strengths [{key, label, value,
+frequency}]`; `/api/gamification/rings` also carries `health_score` (verbatim from
+`Summary`) so the Today tile's headline needs no second round-trip.
+
+**Frontend.** Today tile headline becomes the Health Score (0–100 with a
+qualitative band word, token-colored) in place of the raw "N HP today" number;
+rings/legend/"your move" unchanged. Journey gets a new Health Score card (big
+number + one mini-bar per contributor, "no data" state for missing ones) above the
+rings card, and the old streak card becomes the Strengths card — one gauge per
+pillar with the derived streak as a footnote line ("N-week streak · best M", the
+streak being weekly-cadence). The
+"How this works" explainer gains Health Score and Strengths terms in plain
+language.
+
+Per Testing Strategy this plan added one integration test —
+`TestGetSummary_HealthScore_RenormalizesOverPresentContributorsOnly`
+(`internal/domain/gamification/wellbeing_test.go`), seeding only BP + adherence
+data and asserting the composite renormalizes over the two present contributors
+while `sleep`/`resting_hr`/`weight` land in `missing` scored `nil`, not 0 — through
+the real service and a seeded SQLite store, guarding the loaders → composite → API
+shape boundary end to end. No new unit tests: `ComputeHealthScore` and
+`HabitStrength` are pure functions already covered at this integration boundary.
+(ponytail: compute-on-read, no caching — add one only if a read ever measurably
+gets slow.)
 
 ---
 

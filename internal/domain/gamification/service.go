@@ -96,6 +96,7 @@ type GamStore interface {
 
 	ListLedger(ctx context.Context, userID, sinceDayUnix, untilDayUnix int64) ([]gamstore.LedgerEntry, error)
 	SumHP(ctx context.Context, userID int64) (int, error)
+	WeeklyHPSums(ctx context.Context, userID, sinceDayUnix, untilDayUnix int64) ([]gamstore.WeeklyHP, error)
 
 	GetState(ctx context.Context, userID int64) (gamstore.State, error)
 	UpsertState(ctx context.Context, userID int64, st gamstore.State) (*gamstore.State, error)
