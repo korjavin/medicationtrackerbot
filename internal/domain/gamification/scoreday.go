@@ -374,6 +374,10 @@ func applyTarget(cfg *scoring.Config, t gamstore.Target) {
 		cfg.StepsBand = bandFromTarget(cfg.StepsBand, t)
 	case TargetKeyBedtime:
 		cfg.BedtimeWindow = bandFromTarget(cfg.BedtimeWindow, t)
+		// Bedtime scores Membership(|deviation|); Low must stay 0 (see scoring.go)
+		// or an on-time bedtime (deviation 0) would fall below the band and score
+		// worse than a late one. Ignore any user-sent Low for this metric.
+		cfg.BedtimeWindow.Low = 0
 	}
 }
 

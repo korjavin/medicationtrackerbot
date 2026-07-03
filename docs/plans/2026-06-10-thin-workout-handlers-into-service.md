@@ -1,0 +1,262 @@
+# Thin workout HTTP handlers into the domain service + move `internal/workout` → `internal/domain/workout`
+
+## Overview
+
+`internal/server/workout_handlers.go` (1,842 lines) violates the project's
+own Critical Rule #1 (domain service pattern): roughly 1,000 lines of
+business logic — the next-workout scheduling priority engine, stats
+computation, session listing/enrichment, and status-transition rules —
+live in HTTP handlers and call the workout store directly (`s.workouts.*`),
+while `internal/workout/service.go` (219 lines) only covers
+start/snooze/skip/complete/ad-hoc-create.
+
+This plan:
+1. Moves `internal/workout` to `internal/domain/workout` so all domain
+   services live in one place (mechanical: no import cycles, 5 importers,
+   no name conflicts — verified during discovery).
+2. Extracts the business logic from the fat handlers into new
+   `WorkoutService` methods, leaving every handler thin
+   (parse → service call → encode JSON).
+
+**Strictly behavior-preserving.** No route paths, status codes, or JSON
+payload shapes may change — the frontend, Telegram bot, scheduler, and
+MCP registry all depend on them. No new features.
+
+## Context (from discovery)
+
+- Fat handlers (line refs in `internal/server/workout_handlers.go`):
+  - `handleGetNextWorkout` (605–953, ~349 lines): 3-priority scheduling
+    engine (active today → snoozed → pending), timezone-aware day
+    boundaries, ad-hoc (`group_id = -1`) placeholder-log counting.
+  - `handleGetWorkoutStats` (965–1079, ~115 lines): filtering + volume /
+    sessions-per-week computations.
+  - `handleListWorkoutSessions` (468–570, ~103 lines): date/status
+    filtering + group/variant enrichment + rotation state.
+  - `handleGetSessionDetails` (571–604): session + logs + enrichment.
+  - `handleUpdateSessionStatus` (1653–1732): status transition rules,
+    rotation advancement, completion notification dispatch.
+  - `handleAddExerciseToSession` (1277–1384), `handleUpdateExerciseLog`
+    (1136–1222), `handleSnoozeWorkoutSession` (1385–1438),
+    `handlePreSkipWorkoutSession` / `handleCancelPreSkip…` (1439–1502),
+    `handleNextVariantWorkoutSession` (1503–1553),
+    `handleGetRotationState` (1080–1099), `handleInitializeRotation`
+    (1100–1122).
+- Thin handlers (group/variant/exercise/library CRUD, deletes) are fine
+  and stay as-is.
+- `internal/workout/service.go` already has the right pattern: narrow
+  `WorkoutStore` interface, `TZStore`, injectable `Now func() time.Time`
+  clock, table-driven tests in `service_test.go` (418 lines).
+- Importers of `internal/workout`: `internal/bot/bot.go`,
+  `internal/scheduler/scheduler.go`, `internal/scheduler/workout.go`,
+  `internal/server/server.go`, `internal/server/workout_schedule_handlers.go`.
+  `internal/workout` imports only `internal/store` — no cycle risk.
+- Server wiring: `server.go:315` `workoutSvc: workoutsvc.New(s.Workout, s.TZ)`;
+  handlers use `s.workoutSvc` for transitions but `s.workouts` (store)
+  directly for everything else.
+- CLAUDE.md and `docs/architecture.md` reference `internal/workout` as
+  "the reference service pattern" — both need path updates at the end.
+
+## Development Approach
+
+- **Testing approach**: Regular (code first, then tests).
+- Complete each task fully before moving to the next.
+- Make small, focused changes.
+- **CRITICAL: every task MUST include new/updated tests** for code changes
+  in that task — service-level table-driven tests with a fake store and
+  fixed clock, plus keeping existing handler tests green unmodified
+  (they are the behavior-preservation safety net).
+- **CRITICAL: all tests must pass before starting next task** — no exceptions.
+- **CRITICAL: update this plan file when scope changes during implementation.**
+- Run `go test ./...` after each task.
+- Maintain backward compatibility: identical routes, status codes, and
+  JSON shapes. Where a handler today builds an anonymous
+  struct / `map[string]interface{}` response, the extracted service
+  returns a named struct whose json tags reproduce the current output
+  byte-for-byte (field names, omitted/null semantics).
+- Per the domain-service pattern, the service extends its own narrow
+  `WorkoutStore` interface with only the store methods it needs; do not
+  embed the whole store.
+- Notification dispatch (bot interactor) stays in the transport layer:
+  service methods return an outcome the handler uses to decide whether
+  to notify.
+
+## Testing Strategy
+
+- **Unit tests**: required for every task. New service methods get
+  table-driven tests in `internal/domain/workout/` with a fake store and
+  fixed `Now`. Existing `internal/server` handler tests must keep passing
+  unmodified wherever possible — if one must change, the change must be
+  mechanical (e.g. import path), never an expectation change.
+- **E2E tests**: none for backend-only refactor; frontend Vitest suite
+  (`pnpm test`) must stay green (it exercises the JSON contracts via
+  fixtures in some suites).
+
+## Progress Tracking
+
+- Mark completed items with `[x]` immediately when done.
+- Add newly discovered tasks with ➕ prefix.
+- Document issues/blockers with ⚠️ prefix.
+- Update plan if implementation deviates from original scope.
+
+## Implementation Steps
+
+### Task 1: Move `internal/workout` → `internal/domain/workout`
+
+- [ ] `git mv internal/workout internal/domain/workout` (package name
+  stays `workout`; files: `service.go`, `service_test.go`)
+- [ ] update import paths in the 5 importers: `internal/bot/bot.go`,
+  `internal/scheduler/scheduler.go`, `internal/scheduler/workout.go`,
+  `internal/server/server.go`, `internal/server/workout_schedule_handlers.go`
+  (keep the existing `workoutsvc` import alias where used)
+- [ ] grep the whole repo for `internal/workout` to catch any remaining
+  references (docs are handled in the final task; fix code references now)
+- [ ] verify both build modes compile: `go build ./...` and
+  `go build -tags mobile ./...`
+- [ ] run `go test ./...` — must pass before task 2
+
+### Task 2: Extract the next-workout engine into `WorkoutService.GetNext`
+
+- [ ] define a `NextWorkout` response struct in
+  `internal/domain/workout/next.go` with json tags exactly matching the
+  current handler output (session map fields `id`, `scheduled_date`,
+  `scheduled_time`, `status`, `is_snoozed`, `snoozed_until`, `is_today`;
+  top-level `group_name`, `variant_name`, `exercises_count`,
+  `variant_id`, `group_id`, `is_rotating`; plus whatever the snoozed /
+  pending priority branches add — read all of
+  `workout_handlers.go:605-953` before coding)
+- [ ] add `GetNext(userID int64) (*NextWorkout, error)` to
+  `WorkoutService`; move the 3-priority engine (active today → snoozed →
+  pending), timezone-aware `now` computation (reuse the service's `tz` +
+  `Now` fields), and the ad-hoc `group_id == -1` placeholder-log counting
+  into it
+- [ ] extend the service's `WorkoutStore` interface with the read methods
+  the engine needs (`ListActiveSessions`, `GetVariant`,
+  `ListExercisesByVariant`, `ListExerciseLogs`, and the snoozed/pending
+  lookups used by the lower-priority branches)
+- [ ] shrink `handleGetNextWorkout` to: getUserID → `s.workoutSvc.GetNext`
+  → encode (preserve the "no workout" response shape exactly)
+- [ ] write table-driven tests in `internal/domain/workout/next_test.go`:
+  active-session-today wins over snoozed/pending; snoozed branch;
+  pending branch; no-workout case; ad-hoc exercise count from logs;
+  timezone day-boundary case (user TZ ahead of UTC flips `is_today`);
+  store error propagation
+- [ ] run `go test ./internal/domain/workout ./internal/server` then
+  `go test ./...` — must pass before task 3
+
+### Task 3: Extract session listing + details into the service
+
+- [ ] add `ListSessions(userID int64, …filters) ([]SessionView, error)`
+  moving the date filtering, status parsing, and group/variant/rotation
+  enrichment out of `handleListWorkoutSessions`
+  (`workout_handlers.go:468-570`); `SessionView` json tags reproduce the
+  current array element shape
+- [ ] add `GetSessionDetails(sessionID int64) (*SessionDetails, error)`
+  moving the enrichment out of `handleGetSessionDetails` (571–604)
+- [ ] shrink both handlers to parse → service → encode
+- [ ] write table-driven tests: date-range filter inclusive bounds,
+  status filter, enrichment when group/variant missing (today's handlers
+  fall back to "Unknown" — preserve), rotation state merging
+- [ ] run `go test ./...` — must pass before task 4
+
+### Task 4: Extract stats + rotation reads into the service
+
+- [ ] add `GetStats(userID int64, …filters) (*Stats, error)` moving the
+  filter + volume / sessions-per-week / percentile computations out of
+  `handleGetWorkoutStats` (965–1079)
+- [ ] add `GetRotationState(groupID int64)` and `InitializeRotation(groupID int64)`
+  moving the merging/init logic out of handlers 1080–1122
+- [ ] shrink the three handlers to thin form
+- [ ] write tests: stats with zero sessions, with mixed statuses, the
+  per-week bucketing across a month boundary; rotation state for
+  non-rotating group; initialize idempotency (match current behavior)
+- [ ] run `go test ./...` — must pass before task 5
+
+### Task 5: Extract session state transitions into the service
+
+- [ ] add `SetSessionStatus(sessionID int64, status string) (Outcome, error)`
+  moving the transition rules + rotation advancement out of
+  `handleUpdateSessionStatus` (1653–1732); the returned `Outcome` tells
+  the handler whether to fire the completion notification — notification
+  dispatch itself stays in the handler
+- [ ] move pre-skip state management out of `handlePreSkipWorkoutSession`
+  / `handleCancelPreSkipWorkoutSession` (1439–1502) into
+  `PreSkipSession` / `CancelPreSkipSession`
+- [ ] move variant-selection logic out of `handleNextVariantWorkoutSession`
+  (1503–1553) into `NextVariant(sessionID int64)`
+- [ ] move the residual state logic in `handleSnoozeWorkoutSession`
+  (1385–1438) and `handleStartWorkoutSession` (1602–1652) into the
+  existing `SnoozeSession` / `StartSession` service methods (duration
+  parsing stays in the handler — it's transport)
+- [ ] write tests: each transition's happy path + invalid-status error +
+  rotation advancement only for rotating groups (extend the existing
+  `tryAdvanceRotation` test pattern); pre-skip then cancel restores state
+- [ ] run `go test ./...` — must pass before task 6
+
+### Task 6: Extract exercise-log writes into the service
+
+- [ ] move validation + schedule-field merging out of
+  `handleAddExerciseToSession` (1277–1384) into
+  `AddExerciseToSession(sessionID int64, …) (…, error)`
+- [ ] move validation, state transitions, and timestamp handling out of
+  `handleUpdateExerciseLog` (1136–1222) into `UpdateExerciseLog(…)`
+- [ ] map service validation errors to the same HTTP status codes the
+  handlers return today (follow the existing `ErrScheduleInPast` →
+  400 pattern with sentinel errors)
+- [ ] write tests: add-to-session with library vs ad-hoc exercise,
+  invalid input rejection, update-log status transitions, timestamp
+  normalization
+- [ ] run `go test ./...` — must pass before task 7
+
+### Task 7: Verify acceptance criteria
+
+- [ ] every handler in `workout_handlers.go` is thin: no direct
+  `s.workouts.*` calls except in trivial CRUD handlers that were already
+  thin (group/variant/exercise/library CRUD + deletes); grep
+  `s\.workouts\.` and justify each remaining hit in a code comment or
+  move it
+- [ ] `wc -l internal/server/workout_handlers.go` is under ~900 lines
+- [ ] no JSON contract drift: existing `internal/server` workout handler
+  tests pass unmodified
+- [ ] both build modes compile: `go build ./...` and `go build -tags mobile ./...`
+- [ ] run full test suite: `go test ./...` and `pnpm test`
+- [ ] run linter (`go vet ./...` + project linter if configured) — all
+  issues fixed
+
+### Task 8: [Final] Update documentation
+
+- [ ] update CLAUDE.md: Code Layout entry for `internal/workout` →
+  `internal/domain/workout`; "Modifying workout rotation" section paths
+- [ ] update `docs/architecture.md` domain-service-pattern section: the
+  reference service path, and note that workout read models
+  (GetNext/Stats/ListSessions) live in the service
+- [ ] grep docs/ for `internal/workout` and fix remaining references
+
+## Technical Details
+
+- **Service struct shape**: keep the existing pattern —
+  `Service{store WorkoutStore, tz TZStore, Now func() time.Time}`. The
+  new read methods reuse `tz`/`Now` for day-boundary math, which makes
+  the timezone behavior testable for the first time (today
+  `handleGetNextWorkout` calls `time.Now()` inline).
+- **Response structs over maps**: each extracted method returns a named
+  struct with json tags replicating the current anonymous-struct/map
+  output. Verify with the existing handler tests; where a shape isn't
+  covered by a test, add a handler-level test asserting the exact JSON
+  keys *before* extracting (still behavior-preserving — it pins current
+  behavior).
+- **Store interface growth**: `WorkoutStore` grows by ~12 read methods.
+  That's acceptable — it remains the service's own minimal interface;
+  the fake store in tests implements only what each test needs via
+  embedded no-op base.
+- **MCP registry**: untouched. Routes and shapes don't change, so
+  `operations_workouts.go` and the coverage guard need no edits.
+
+## Post-Completion
+
+**Manual verification**:
+- Open the Workouts section in the web UI: next-workout card, session
+  list, history stats all render identically.
+- Trigger a workout notification via the bot and complete a session —
+  rotation advances, completion notification arrives.
+
+**External system updates**: none — routes and payloads are unchanged.
