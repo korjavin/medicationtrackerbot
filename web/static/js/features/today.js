@@ -1013,31 +1013,27 @@
         });
     }
 
-    // Ring display metadata for the Today tile, canonical order. Mirrors the
-    // RINGS list in features/journey.js — kept as a small local copy rather than
-    // reaching into window.Gamification so today.js stays self-contained for the
-    // pure-render tests.
+    // Ring display metadata for the Today tile, canonical order — the three
+    // daily levers (gamification-10 §2.5): a decision made today, not a
+    // delayed body signal. Mirrors the RINGS list in features/journey.js —
+    // kept as a small local copy rather than reaching into window.Gamification
+    // so today.js stays self-contained for the pure-render tests.
     const RING_TILE_META = [
-        { ring: 'adherence', label: 'Adherence', icon: 'pill' },
+        { ring: 'bedtime', label: 'Bedtime', icon: 'moon' },
         { ring: 'movement', label: 'Movement', icon: 'activity' },
-        { ring: 'vitals', label: 'Vitals', icon: 'heart' },
-        { ring: 'nourishment', label: 'Nourishment', icon: 'apple' },
-        { ring: 'mind', label: 'Mind', icon: 'moon' }
+        { ring: 'nourishment', label: 'Nourishment', icon: 'apple' }
     ];
 
     // "Your move" — the single suggested action to close an open ring. We pick
-    // the first ring in canonical order whose `closed` is false (adherence is
-    // first because it's the clearest controllable health behaviour, docs §6.1).
-    // The action deep-links to the section where that ring is logged. No HP
-    // number here on purpose: a ring's outcome max lives in the backend scoring
-    // Config and would drift if duplicated client-side; the ring name + action
-    // is the prompt.
+    // the first ring in canonical order whose `closed` is false. The action
+    // deep-links to the section where that ring is logged. No HP number here on
+    // purpose: a ring's outcome max lives in the backend scoring Config and
+    // would drift if duplicated client-side; the ring name + action is the
+    // prompt.
     const RING_MOVE_META = {
-        adherence: { verb: 'Take your next dose', section: 'meds' },
+        bedtime: { verb: 'Log last night’s sleep', section: 'health' },
         movement: { verb: 'Log a workout', section: 'workouts' },
-        vitals: { verb: 'Log a BP reading', section: 'bp' },
-        nourishment: { verb: 'Log a meal', section: 'food' },
-        mind: { verb: 'Log last night’s sleep', section: 'health' }
+        nourishment: { verb: 'Log a meal', section: 'food' }
     };
 
     function ringStackOrNull(opts) {

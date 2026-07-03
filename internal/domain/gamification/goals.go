@@ -8,6 +8,7 @@ package gamification
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -15,9 +16,12 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
-// ringGoals returns the canonical-ring → goal-text map for cfg + the user's
-// food targets.
-func ringGoals(cfg scoring.Config, food store.FoodTargets) map[string]string {
+// ringGoals returns the lever-key → goal-text map for cfg + the user's food
+// targets + the resolved bedtime baseline center (bedtimeBaselineCenter,
+// scoreday.go — the trailing-median onset ScoreSleep's timing award grades
+// against). hasBedtimeCenter is false until enough baseline nights exist, in
+// which case bedtimeCenterMin is unused.
+func ringGoals(cfg scoring.Config, food store.FoodTargets, bedtimeCenterMin float64, hasBedtimeCenter bool) map[string]string {
 	// Nourishment needs a calorie target, which defaults to 0 until the user
 	// sets one (migration 023) — first-run and demo users have none. Mirror the
 	// scorer's `CalorieTarget > 0` guard (scoring.go:494): with no target the
@@ -30,13 +34,31 @@ func ringGoals(cfg scoring.Config, food store.FoodTargets) map[string]string {
 		nourishment = fmt.Sprintf("Eat near target · %s–%s kcal",
 			formatThousands(calLow), formatThousands(calHigh))
 	}
-	return map[string]string{
-		scoring.RingAdherence:   "Take all doses on time",
-		scoring.RingMovement:    fmt.Sprintf("Move toward ~%s steps", formatThousands(int(cfg.StepsBand.Low))),
-		scoring.RingVitals:      fmt.Sprintf("Keep BP in range · <%d/%d", int(cfg.BPSystolic.High), int(cfg.BPDiastolic.High)),
-		scoring.RingNourishment: nourishment,
-		scoring.RingMind:        fmt.Sprintf("Sleep %g–%gh", cfg.SleepHours.Low, cfg.SleepHours.High),
+	// Bedtime needs a few nights of history before there's a personal window to
+	// name; until then the goal is the action that unlocks one.
+	bedtime := "Log a few nights to find your bedtime window"
+	if hasBedtimeCenter {
+		low := bedtimeCenterMin - cfg.BedtimeWindow.High
+		high := bedtimeCenterMin + cfg.BedtimeWindow.High
+		bedtime = fmt.Sprintf("Lights out %s–%s", clockFromOnsetMinutes(low), clockFromOnsetMinutes(high))
 	}
+	return map[string]string{
+		LeverBedtime:     bedtime,
+		LeverMovement:    fmt.Sprintf("Move toward ~%s steps", formatThousands(int(cfg.StepsBand.Low))),
+		LeverNourishment: nourishment,
+	}
+}
+
+// clockFromOnsetMinutes renders a sleepOnsetMinutes-scale value (continuous
+// noon-to-next-noon, wellbeing.go) as a wall-clock "HH:MM", wrapping back onto
+// the 24h clock.
+func clockFromOnsetMinutes(m float64) string {
+	mm := math.Mod(m, 24*60)
+	if mm < 0 {
+		mm += 24 * 60
+	}
+	total := int(math.Round(mm))
+	return fmt.Sprintf("%02d:%02d", total/60, total%60)
 }
 
 // formatThousands renders a non-negative int with comma thousands separators

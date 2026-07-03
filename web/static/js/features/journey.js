@@ -25,16 +25,15 @@
     const INSIGHTS_URL = '/api/gamification/insights';
 
     // Ring display metadata in canonical order (matches the backend's
-    // ringScores ordering). Icons come from the WGIcons registry. `how` is the
-    // plain-language action that fills the ring — answers "how do I get this?"
-    // right on the row (mirrors today.js RING_MOVE_META verbs; no HP number,
-    // which lives in the backend Config and would drift if duplicated here).
+    // ringScores ordering) — the three daily levers (gamification-10 §2.5).
+    // Icons come from the WGIcons registry. `how` is the plain-language action
+    // that fills the ring — answers "how do I get this?" right on the row
+    // (mirrors today.js RING_MOVE_META verbs; no HP number, which lives in the
+    // backend Config and would drift if duplicated here).
     const RINGS = [
-        { ring: 'adherence', label: 'Adherence', icon: 'pill', how: 'Take your meds on time' },
+        { ring: 'bedtime', label: 'Bedtime', icon: 'moon', how: 'Keep a steady lights-out time' },
         { ring: 'movement', label: 'Movement', icon: 'activity', how: 'Log a workout' },
-        { ring: 'vitals', label: 'Vitals', icon: 'heart', how: 'Log a BP reading' },
         { ring: 'nourishment', label: 'Nourishment', icon: 'apple', how: 'Log a meal' },
-        { ring: 'mind', label: 'Mind', icon: 'moon', how: 'Log last night’s sleep' },
     ];
 
     // Insight ladder rows for the MVP (InsightMaxTier=4). tier → unlock level
@@ -123,7 +122,7 @@
     // state.
     const EXPLAINER_TERMS = [
         ['HP', 'Healthy actions earn HealthPoints (HP).'],
-        ['Rings', 'Each ring tracks one area of your health — adherence, movement, vitals, nourishment, mind.'],
+        ['Rings', 'Each ring tracks one daily decision you make — bedtime, movement, nourishment.'],
         ['Closing a ring', 'A ring closes when today’s number lands in your target range, not just from logging.'],
         ['Health Score', 'A 0–100 score built from your recent readings — a gap in the data dilutes it, it never counts as a zero.'],
         ['Strengths', 'Each habit’s strength rises when you keep it up and eases off on a miss — no all-or-nothing streak to lose.'],

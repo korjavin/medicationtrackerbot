@@ -11,6 +11,7 @@ package gamification
 import (
 	"context"
 	"math"
+	"sort"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/domain/gamification/scoring"
@@ -455,6 +456,23 @@ func mean(vals []float64) float64 {
 		sum += v
 	}
 	return sum / float64(len(vals))
+}
+
+// median returns the middle value of vals (averaging the two middle values for
+// an even-length slice), or 0 for an empty slice. Used for the bedtime-timing
+// baseline (gamification-10 Task 2): a median resists a single very late night
+// skewing the "usual bedtime" the way a mean would.
+func median(vals []float64) float64 {
+	if len(vals) == 0 {
+		return 0
+	}
+	sorted := append([]float64(nil), vals...)
+	sort.Float64s(sorted)
+	mid := len(sorted) / 2
+	if len(sorted)%2 == 1 {
+		return sorted[mid]
+	}
+	return (sorted[mid-1] + sorted[mid]) / 2
 }
 
 // dailyMinByDay buckets HR samples into per-UTC-day minimums — the same

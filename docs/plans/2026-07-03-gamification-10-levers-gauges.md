@@ -123,18 +123,29 @@ untouched. Ring restructure happens at the **view layer** — no migration.
 
 ### Task 2: View layer — rings become the three levers
 
-- [ ] `ringScores()` (`summary.go`): build the rings list as
+- [x] `ringScores()` (`summary.go`): build the rings list as
       `bedtime` (← sleep timing award, `SyncPending` when no sleep row today),
       `movement` (← steps/workout awards, unchanged),
       `nourishment` (← food awards, unchanged); per-ring `Closed` = that lever's
       non-floor award present; adherence/vitals/mind-diary awards keep flowing
       into HP but produce no ring
-- [ ] `goals.go`: goal strings per lever — bedtime reads in the user's numbers
+- [x] `goals.go`: goal strings per lever — bedtime reads in the user's numbers
       ("Lights out 22:45–00:15"); movement/nourishment unchanged
-- [ ] `PeriodRings` (weekly view) re-mapped to the same three levers
-- [ ] update `docs/api.md#gamification` (rings array now three lever rings) and
+
+  ➕ Implementation note: wiring the bedtime goal's real clock numbers required
+  wiring the loader Task 1 punted here — `loadSleep` (scoreday.go) now computes
+  the trailing 14-night median bedtime (`medianBedtimeOnset`, reusing
+  wellbeing.go's existing `sleepOnsetMinutes` continuous-scale helper + a new
+  `median()` numeric helper) and sets `HasRegularity`/`TimingDeviationMin` for
+  real; a parallel `bedtimeBaselineCenter` method (same query shape, ponytail:
+  accepted as a second read like `ringProgress`'s existing re-derivation) feeds
+  `ringGoals` the clock-time window even on a night with no sleep row yet.
+
+- [x] `PeriodRings` (weekly view) re-mapped to the same three levers (shared
+      `ringScores`, no separate code path)
+- [x] update `docs/api.md#gamification` (rings array now three lever rings) and
       the MCP `ResponseExample`s in `operations_gamification.go`
-- [ ] frontend follows the API automatically (`wg-ring-stack` takes N rings);
+- [x] frontend follows the API automatically (`wg-ring-stack` takes N rings);
       verify "your move" candidates are now levers-only by construction, headline
       becomes "N of 3"; adjust any hardcoded five-ring assumptions in
       `today.js` / `journey.js` / their test fixtures
