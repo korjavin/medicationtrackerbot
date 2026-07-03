@@ -65,6 +65,7 @@ The server stores only: WebAuthn public keys, envelopes (ciphertext), a recovery
 - [ ] copy `newHTTPServer` helper; graceful shutdown via `signal.NotifyContext` + 10s timeout (mirror `cmd/bot/main_server.go` select loop)
 - [ ] `GET /healthz` liveness endpoint
 - [ ] `go build ./...` and `go vet ./...` pass with the new binary
+- [ ] import-boundary architecture test `internal/cloudstore/arch_test.go` (durable guard: bot mode and cloud mode must stay decoupled through C0b/C0c/C3a/C1): via `go list -deps`, assert (a) `./cmd/cloud` transitive deps contain no `internal/store` (except `internal/store/db`), no `internal/domain`, no `internal/server`, no `internal/bot`, no `internal/scheduler` — cloud must never grow server-side domain logic or the goose-registry landmine; (b) `./cmd/bot` transitive deps contain no `internal/cloudstore` or `internal/cloudserver` — a cloud change can never alter bot-mode behavior
 
 ### Task 3: wildcard host routing + embedded shell serving
 
