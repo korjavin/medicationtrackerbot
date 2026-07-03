@@ -298,7 +298,7 @@ func (s *service) healthScoreSleep(ctx context.Context, userID int64, today time
 		if sl.TotalMinutes != nil {
 			dur = float64(*sl.TotalMinutes) / 60
 		}
-		nights[sl.Day] = night{durationHours: dur, onsetMinutes: sleepOnsetMinutes(sl.StartTime)}
+		nights[sl.Day] = night{durationHours: dur, onsetMinutes: sleepOnsetMinutes(sl.StartTime, sl.TimezoneOffset)}
 	}
 
 	var recentDur, recentOnsets, baselineOnsets []float64
@@ -329,9 +329,14 @@ func (s *service) healthScoreSleep(ctx context.Context, userID int64, today time
 // sleepOnsetMinutes maps a bedtime instant onto minutes-since-previous-noon,
 // so a typical evening bedtime (e.g. 22:00) and an after-midnight one (e.g.
 // 01:00 -> 25:00) sit on the same continuous scale instead of wrapping at
-// midnight.
-func sleepOnsetMinutes(t time.Time) float64 {
-	u := t.UTC()
+// midnight. Times are stored UTC with the local wall-clock offset kept
+// alongside (store.SleepLog.TimezoneOffset, JS getTimezoneOffset style:
+// minutes-west-of-UTC, so local = UTC - offset); the bedtime lever grades and
+// displays the user's local clock, so shift into local before extracting the
+// hour — without this a non-UTC user's "Lights out" window renders and scores
+// in UTC.
+func sleepOnsetMinutes(t time.Time, tzOffsetMin int) float64 {
+	u := t.UTC().Add(time.Duration(-tzOffsetMin) * time.Minute)
 	minutes := float64(u.Hour()*60 + u.Minute())
 	if u.Hour() < 12 {
 		minutes += 24 * 60

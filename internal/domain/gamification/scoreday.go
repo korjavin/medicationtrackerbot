@@ -654,7 +654,7 @@ func (s *service) loadSleep(ctx context.Context, userID int64, start time.Time) 
 		}
 		out.Logged = true
 		out.DurationHours = sleepDurationHours(sl)
-		onset = sleepOnsetMinutes(sl.StartTime)
+		onset = sleepOnsetMinutes(sl.StartTime, sl.TimezoneOffset)
 		break
 	}
 	if !out.Logged {
@@ -679,7 +679,7 @@ func medianBedtimeOnset(logs []store.SleepLog, excludeDayStr, baselineStartStr s
 		if sl.Day < baselineStartStr || sl.Day >= excludeDayStr {
 			continue
 		}
-		onsets = append(onsets, sleepOnsetMinutes(sl.StartTime))
+		onsets = append(onsets, sleepOnsetMinutes(sl.StartTime, sl.TimezoneOffset))
 	}
 	if len(onsets) < sleepBaselineMinNights {
 		return 0, false
