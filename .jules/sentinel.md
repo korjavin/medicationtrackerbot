@@ -22,3 +22,7 @@
 **Vulnerability:** Use of default `http.Client{}` without timeouts in external API calls (e.g., OIDC userinfo, OpenFoodFacts).
 **Learning:** Default HTTP clients in Go have no timeout, meaning a slow or unresponsive external server can cause goroutines to hang indefinitely, leading to resource exhaustion (DoS).
 **Prevention:** Always initialize `http.Client` with explicit timeouts (e.g., `&http.Client{Timeout: 10 * time.Second}`) when making external requests.
+## 2026-06-28 - MCP Empty Allowed Subject
+**Vulnerability:** OAuth Token Bypass / Authorization Bypass (TM-008)
+**Learning:** The legacy "fail-open" default in the MCP server configuration allowed an empty `MCP_ALLOWED_SUBJECT` to implicitly grant access to any authenticated subject, risking unauthorized health data access via MCP tools.
+**Prevention:** Strictly enforce that `MCP_ALLOWED_SUBJECT` is set during configuration loading. Fail-closed by default, requiring explicit allowlisting (or `*`) rather than defaulting to permissive access.

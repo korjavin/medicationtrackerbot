@@ -9,10 +9,11 @@ import (
 
 func TestLoadConfigFromEnv_AdminPort(t *testing.T) {
 	required := map[string]string{
-		"ALLOWED_USER_ID":   "1",
-		"MCP_DATABASE_PATH": "/tmp/x.db",
-		"POCKET_ID_URL":     "https://auth.example.com",
-		"MCP_SERVER_URL":    "https://mcp.example.com",
+		"ALLOWED_USER_ID":     "1",
+		"MCP_DATABASE_PATH":   "/tmp/x.db",
+		"POCKET_ID_URL":       "https://auth.example.com",
+		"MCP_SERVER_URL":      "https://mcp.example.com",
+		"MCP_ALLOWED_SUBJECT": "*",
 	}
 	for k, v := range required {
 		t.Setenv(k, v)
@@ -52,10 +53,11 @@ func TestLoadConfigFromEnv_AdminPort(t *testing.T) {
 
 func TestLoadConfigFromEnv_AdminPortEqualsMainPort(t *testing.T) {
 	required := map[string]string{
-		"ALLOWED_USER_ID":   "1",
-		"MCP_DATABASE_PATH": "/tmp/x.db",
-		"POCKET_ID_URL":     "https://auth.example.com",
-		"MCP_SERVER_URL":    "https://mcp.example.com",
+		"ALLOWED_USER_ID":     "1",
+		"MCP_DATABASE_PATH":   "/tmp/x.db",
+		"POCKET_ID_URL":       "https://auth.example.com",
+		"MCP_SERVER_URL":      "https://mcp.example.com",
+		"MCP_ALLOWED_SUBJECT": "*",
 	}
 	for k, v := range required {
 		t.Setenv(k, v)
@@ -83,11 +85,7 @@ func TestLoadConfigFromEnv_AdminPortEqualsMainPort(t *testing.T) {
 }
 
 // TestLoadConfigFromEnv_AllowedSubject pins the TM-008 posture: the OAuth
-// middleware is fail-closed (empty MCP_ALLOWED_SUBJECT denies every subject),
-// but for backward compatibility an empty value normalizes to the explicit
-// wildcard "*" with a deprecation warning so the existing fleet keeps working.
-// MCP_REQUIRE_ALLOWED_SUBJECT=1 turns the normalization into a hard startup
-// error instead.
+// middleware is fail-closed (empty MCP_ALLOWED_SUBJECT denies every subject).
 func TestLoadConfigFromEnv_AllowedSubject(t *testing.T) {
 	required := map[string]string{
 		"ALLOWED_USER_ID":   "1",
@@ -101,16 +99,15 @@ func TestLoadConfigFromEnv_AllowedSubject(t *testing.T) {
 		}
 	}
 
-	t.Run("empty normalizes to wildcard (legacy allow-any preserved)", func(t *testing.T) {
+	t.Run("empty subject is rejected", func(t *testing.T) {
 		setRequired(t)
 		t.Setenv("MCP_ALLOWED_SUBJECT", "")
-		t.Setenv("MCP_REQUIRE_ALLOWED_SUBJECT", "")
 		cfg, err := LoadConfigFromEnv()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+		if err == nil {
+			t.Fatalf("expected error when MCP_ALLOWED_SUBJECT is empty, got cfg=%+v", cfg)
 		}
-		if cfg.AllowedSubject != "*" {
-			t.Fatalf("AllowedSubject = %q, want %q (empty should normalize to wildcard)", cfg.AllowedSubject, "*")
+		if !strings.Contains(err.Error(), "MCP_ALLOWED_SUBJECT") {
+			t.Errorf("error should mention MCP_ALLOWED_SUBJECT, got: %v", err)
 		}
 	})
 
@@ -126,23 +123,9 @@ func TestLoadConfigFromEnv_AllowedSubject(t *testing.T) {
 		}
 	})
 
-	t.Run("require flag rejects empty subject", func(t *testing.T) {
-		setRequired(t)
-		t.Setenv("MCP_ALLOWED_SUBJECT", "")
-		t.Setenv("MCP_REQUIRE_ALLOWED_SUBJECT", "1")
-		cfg, err := LoadConfigFromEnv()
-		if err == nil {
-			t.Fatalf("expected error when MCP_REQUIRE_ALLOWED_SUBJECT=1 and subject empty, got cfg=%+v", cfg)
-		}
-		if !strings.Contains(err.Error(), "MCP_ALLOWED_SUBJECT") {
-			t.Errorf("error should mention MCP_ALLOWED_SUBJECT, got: %v", err)
-		}
-	})
-
-	t.Run("require flag accepts wildcard", func(t *testing.T) {
+	t.Run("wildcard subject is preserved", func(t *testing.T) {
 		setRequired(t)
 		t.Setenv("MCP_ALLOWED_SUBJECT", "*")
-		t.Setenv("MCP_REQUIRE_ALLOWED_SUBJECT", "1")
 		cfg, err := LoadConfigFromEnv()
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
