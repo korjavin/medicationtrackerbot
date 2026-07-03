@@ -63,6 +63,12 @@ type WeightGaugeView struct {
 	VelocityPctPerWeek float64 `json:"velocity_pct_per_week,omitempty"`
 	PaceStatus         string  `json:"pace_status,omitempty"`
 	Acceleration       string  `json:"acceleration,omitempty"`
+
+	// GoalDirection (-1 lose, +1 gain, 0 = no goal) is the sign weightPaceStatus
+	// resolved PaceStatus from. Internal only (json:"-") — reused by the weekly
+	// gauge award (gamification-11 §Task2, weeklyGaugeAwards) so it doesn't
+	// re-fetch the goal or re-derive the sign; not part of the read API.
+	GoalDirection int `json:"-"`
 }
 
 // BPGaugeView is the rolling in-range share against the effective personal
@@ -187,13 +193,15 @@ func (s *service) computeWeightGauge(ctx context.Context, userID int64, today ti
 	if err != nil {
 		return WeightGaugeView{}, err
 	}
+	paceStatus, direction := weightPaceStatus(velocity, nowTrend, goal, cfg)
 
 	return WeightGaugeView{
 		Status:             GaugeStatusOK,
 		TrendWeight:        nowTrend,
 		VelocityPctPerWeek: velocity,
-		PaceStatus:         weightPaceStatus(velocity, nowTrend, goal, cfg),
+		PaceStatus:         paceStatus,
 		Acceleration:       weightAcceleration(velocity, prevVelocity, cfg),
+		GoalDirection:      direction,
 	}, nil
 }
 
@@ -211,26 +219,29 @@ func pctChangePerWeek(now, past float64, windowDays int) float64 {
 // weightPaceStatus grades the signed velocity against the user's goal
 // direction using the same safe-pace band ScoreWeight's dormant goal mode
 // already scores by (WeightSafePaceMinPct/MaxPct) — one definition of "safe
-// pace" for both the read and (a later task) the weekly award. No goal set is
-// not a judgment: it yields PaceStatusNoGoal, trend-only.
-func weightPaceStatus(velocityPctPerWeek, currentTrend float64, goal *store.WeightGoal, cfg scoring.Config) string {
+// pace" for both this read and the weekly award (ScoreWeightWeekly,
+// gamification-11 §Task2). No goal set is not a judgment: it yields
+// PaceStatusNoGoal, trend-only, direction 0. direction (-1 lose, +1 gain) is
+// returned alongside the status so the weekly award can reuse it without
+// re-fetching the goal or re-deriving the sign.
+func weightPaceStatus(velocityPctPerWeek, currentTrend float64, goal *store.WeightGoal, cfg scoring.Config) (status string, direction int) {
 	if goal == nil || goal.Goal == nil || *goal.Goal == currentTrend {
-		return PaceStatusNoGoal
+		return PaceStatusNoGoal, 0
 	}
-	direction := 1.0
+	direction = 1
 	if *goal.Goal < currentTrend {
-		direction = -1.0
+		direction = -1
 	}
-	toward := velocityPctPerWeek * direction // positive = progress toward goal
+	toward := velocityPctPerWeek * float64(direction) // positive = progress toward goal
 	switch {
 	case toward < 0:
-		return PaceStatusWrongDirection
+		return PaceStatusWrongDirection, direction
 	case toward < cfg.WeightSafePaceMinPct:
-		return PaceStatusTooSlow
+		return PaceStatusTooSlow, direction
 	case toward > cfg.WeightSafePaceMaxPct:
-		return PaceStatusTooFast
+		return PaceStatusTooFast, direction
 	default:
-		return PaceStatusOnPace
+		return PaceStatusOnPace, direction
 	}
 }
 
@@ -313,7 +324,7 @@ func (s *service) computeBPGauge(ctx context.Context, userID int64, today time.T
 func (s *service) computeRestingHRGauge(ctx context.Context, userID int64, today time.Time, cfg scoring.Config) (RestingHRGaugeView, error) {
 	baselineStart := today.AddDate(0, 0, -(cfg.GaugeRestingHRBaselineWindowDays - 1))
 	recentStart := today.AddDate(0, 0, -(cfg.GaugeRestingHRRecentWindowDays - 1))
-	end := today.AddDate(0, 0, 1).Add(-time.Millisecond) // half-open [start,end) convention, see loadVitalsAuto
+	end := today.AddDate(0, 0, 1).Add(-time.Millisecond) // half-open [start,end) convention, see wellbeing.go's healthScoreRestingHR
 
 	samples, err := s.vitals.ListHeart(ctx, userID, baselineStart, end)
 	if err != nil {

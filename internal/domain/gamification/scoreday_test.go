@@ -331,8 +331,9 @@ func TestScoreDay_SeededDay(t *testing.T) {
 	if got := fs.gam.ringHP(userID, day, scoring.RingAdherence); got != wantAdh {
 		t.Errorf("adherence HP = %d, want %d", got, wantAdh)
 	}
-	// BP lives in the Vitals ring: floor + full outcome (membership 1).
-	wantVitals := cfg.FloorHP + cfg.BPOutcomeMaxHP
+	// BP lives in the Vitals ring: floor only now — the daily outcome moved to
+	// the weekly gauge award (gamification-11 §Task2).
+	wantVitals := cfg.FloorHP
 	if got := fs.gam.ringHP(userID, day, scoring.RingVitals); got != wantVitals {
 		t.Errorf("vitals HP = %d, want %d", got, wantVitals)
 	}

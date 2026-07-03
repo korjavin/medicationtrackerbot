@@ -107,22 +107,31 @@ EMAs and shares automatically.
 
 ### Task 2: HP economy — daily gauge awards → weekly gauge awards
 
-- [ ] remove daily outcome awards: `ScoreBP` outcome, `ScoreWeight` outcome,
+- [x] remove daily outcome awards: `ScoreBP` outcome, `ScoreWeight` outcome,
       `ScoreVitalsAuto` resting-HR + SpO₂ outcomes; keep every integrity floor
       (BP reading, weigh-in) exactly as is
-- [ ] add weekly awards written at each week's last day (`day_unix` = week-end,
+- [x] add weekly awards written at each week's last day (`day_unix` = week-end,
       new `KindOutcome` rows with weekly source metrics, e.g.
       `weight_trend_week`, `bp_share_week`): weight — full HP when velocity is
       on safe pace toward the goal (or stable in maintenance), trapezoid falloff
       for too-fast/wrong-direction (never negative, as always); BP — HP scaled
       by the week's contribution to holding/improving the 30d share
-- [ ] wire week-end days into rescore: `RescoreInstants` adds the week-end day
+      (➕ also added `resting_hr_trend_week`, per Overview §4's "one idempotent
+      weekly award per gauge" — full HP when the trend held or improved vs
+      baseline, falloff as it rises, via new `ScoreRestingHRWeekly`)
+- [x] wire week-end days into rescore: `RescoreInstants` adds the week-end day
       of every affected week; the read-path recent-window rescore includes the
       current week's end day (an in-progress week scores its partial data —
       idempotent rewrite as the week fills)
-- [ ] check `ringScores()`/`goals.go` for any leftover daily-gauge references
+      (implemented by having `RescoreInstants` itself add each instant's
+      week-end day to the dedupe set — `ensureGamificationFresh`'s
+      `{now-1day, now}` window then covers the current week's end day for free,
+      with no `internal/server` changes needed)
+- [x] check `ringScores()`/`goals.go` for any leftover daily-gauge references
       (vitals no longer produce a ring after plan 10 — this task only cleans the
       award streams)
+      (verified: `leverRings` in `summary.go` only lists bedtime/movement/
+      nourishment; `goals.go` has no gauge references at all — nothing to clean)
 
 ### Task 3: HTTP route + MCP registration
 

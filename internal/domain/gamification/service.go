@@ -55,12 +55,13 @@ type WeightStore interface {
 	GetGoal(ctx context.Context, userID int64) (*store.WeightGoal, error)
 }
 
-// VitalsStore is the auto-captured + sleep read surface.
+// VitalsStore is the auto-captured + sleep read surface. SpO₂ is not read here
+// — it earns no HP (gamification-11 Overview §3: safety-alert data, not a
+// game metric) and has no gauge either, so this service never needs it.
 type VitalsStore interface {
 	ListDayStats(ctx context.Context, userID int64, since time.Time) ([]store.DayStat, error)
 	ListSleepLogs(ctx context.Context, userID int64, since time.Time) ([]store.SleepLog, error)
 	ListHeart(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsHeartLog, error)
-	ListSpO2(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsSpO2Log, error)
 }
 
 // FoodStore is the nourishment read surface: per-day logs, aggregate stats, and
