@@ -202,13 +202,32 @@ untouched. Ring restructure happens at the **view layer** — no migration.
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] integration test per Testing Strategy
-- [ ] verify Overview requirements: three lever rings, bedtime-not-duration,
+- [x] integration test per Testing Strategy
+- [x] verify Overview requirements: three lever rings, bedtime-not-duration,
       silent adherence with working alert, no stress anywhere in scoring or
       targets
-- [ ] `go test ./...` passes (incl. MCP coverage guard)
-- [ ] `pnpm test` passes (fixtures updated for three rings)
-- [ ] `golangci-lint run` + `gofmt` clean
+- [x] `go test ./...` passes (incl. MCP coverage guard)
+- [x] `pnpm test` passes (fixtures updated for three rings)
+- [x] `golangci-lint run` + `gofmt` clean
+
+  ➕ Implementation note: added
+  `internal/domain/gamification/gamification10_lever_test.go`, the one
+  integration test the Testing Strategy calls for — through the real service
+  against a real SQLite-backed `gamstore.Repo` (`newRealGam`, reused from
+  `streak_derive_test.go`), not the in-memory `memGam` fake: (a) `GetSummary`'s
+  `TodayRings`/`PeriodRings` are always exactly
+  `[bedtime, movement, nourishment]` in that order; (b) a 15-night run of
+  consistent 22:00 bedtimes (14 baseline nights + the scored night, zero
+  deviation from the median) closes the Bedtime ring with HP > 0, while a
+  diary-only day with no sleep row logged awards it nothing; (c) 14 days of
+  intake logs with 3/14 doses missed (PDC ≈ 0.79 < the 0.90
+  `AdherenceAlertPDCThreshold`) trips `adherence_alert.active=true` with
+  `missed_doses=3`, while an all-taken 14-day window keeps it `false`. `go
+  test ./...` passes for both the server and `-tags mobile` builds;
+  `golangci-lint run ./...` reports 0 issues repo-wide. `gofmt -l` flags a
+  pre-existing set of files unrelated to this plan's diff (confirmed via `git
+  stash` — the same list appears with a clean tree); left untouched as
+  out-of-scope for this task.
 
 ### Task 6: Update documentation
 
