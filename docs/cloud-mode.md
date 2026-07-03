@@ -211,14 +211,7 @@ This is the dominant cost of the proposal and it must be stated, not hidden: the
 
 Port order tracks user value: meds + intakes + reminder computation first (C1 below), then the remaining domains.
 
-## Migrating an existing server-mode install
-
-Server-mode users with real history move by **export → client-side import** — the zero-knowledge property forbids anything else: plaintext can never be uploaded, so the data must enter through an unlocked client that encrypts it locally.
-
-1. **Full-vault export from server mode.** A canonical one-user-all-domains JSON format (meds + intake log, BP, weight, food, workouts, vitals, sleep, diary, tz history, settings). Nothing like it exists yet — `cmd/importer` reads a third-party app's format and there is no `/api/export`. v1 is a `cmd/exporter` CLI against the server DB (the operator has DB access); a Settings → "Download my data" button can follow.
-2. **Import on an unlocked cloud client** (requires C2 — every domain in the export must already be ported). Settings → Import → file picker; records flow through the same JS domain services and validation as live writes, so an import can't create states the app couldn't.
-3. **Bulk lands as a snapshot, not an op flood.** Months of history is thousands of records; the importer writes local Dexie state and uploads one encrypted snapshot (the C0c compaction path), then normal op-based sync resumes. Reminder schedules recompute client-side from the imported plans.
-4. **The same format is the exit door.** The cloud client can export its decrypted vault back to identical JSON — enabling cloud → server migration, plain offline backups, and honest data portability. (Resolves the "full-vault export format" open question: one format, both directions.)
+## Metadata leakage summary
 
 | Signal | Who learns it | Mitigation |
 |---|---|---|
@@ -232,7 +225,7 @@ Server-mode users with real history move by **export → client-side import** �
 
 - **C0 — cloud service MVP**: signup + subdomain provisioning, wildcard host, blob sync API (oplog/snapshot/cursors), push relay, Emergency Kit + key hierarchy + unlock UX in the PWA shell. No domain logic yet — validate crypto, sync, and push end-to-end with a toy record type.
 - **C1 — core loop**: JS domain layer for medications + intake log + reminder computation behind the `/api` shim; contract-test harness against the Go server. A user can fully run medication tracking on cloud mode.
-- **C2 — remaining domains**: BP, weight, food (incl. direct-from-browser AI/vision/barcode), workouts, vitals, sleep, diary, tz handling.
+- **C2 — remaining domains**: BP, weight, food (incl. direct-from-browser AI/vision/barcode), workouts, vitals, sleep, diary, tz handling. Closes with the **server-mode migration pair**: `cmd/exporter` (full-vault JSON) + cloud-client import landing as one encrypted snapshot — see "Migrating an existing server-mode install".
 - **C3a — Telegram bot provisioning + onboarding** (plan: `docs/plans/2026-07-04-cloud-c3a-telegram-managed-bot-onboarding.md`; depends on C0a only, parallel-safe with C0b/C0c): Managed-Bots one-tap creation, BYO token fallback, chat linking, consent screen, wizard step 5, test notification.
 - **C3b — Telegram delivery + inbound** (after C0c): delivery flags on the scheduled queue (`webpush|telegram|both`, client-composed verbosity), sealed inbound mailbox for Confirm/Snooze.
 - **C4 — MCP tier 1** (blind relay + shim).
