@@ -336,6 +336,13 @@ func (s *service) healthScoreSleep(ctx context.Context, userID int64, today time
 // hour — without this a non-UTC user's "Lights out" window renders and scores
 // in UTC.
 func sleepOnsetMinutes(t time.Time, tzOffsetMin int) float64 {
+	// Legacy compatibility: rows imported before the sleepimport.go convention
+	// fix hold Zepp's raw seconds-east-of-UTC (e.g. 3600 for UTC+1). A real
+	// minutes-west offset never exceeds ±14h (±840 min), so a magnitude past
+	// that must be seconds — normalize to minutes-west (= -secondsEast/60).
+	if tzOffsetMin > 900 || tzOffsetMin < -900 {
+		tzOffsetMin = -tzOffsetMin / 60
+	}
 	u := t.UTC().Add(time.Duration(-tzOffsetMin) * time.Minute)
 	minutes := float64(u.Hour()*60 + u.Minute())
 	if u.Hour() < 12 {
