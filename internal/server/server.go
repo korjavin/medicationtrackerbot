@@ -969,6 +969,7 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("GET /api/gamification/targets", s.handleGamificationTargets)
 	apiMux.HandleFunc("PUT /api/gamification/targets", s.handleSetGamificationTargets)
 	apiMux.HandleFunc("GET /api/gamification/insights", s.handleGamificationInsights)
+	apiMux.HandleFunc("GET /api/gamification/gauges", s.handleGamificationGauges)
 
 	// Wrap apiMux with the broker-notify middleware so every successful
 	// non-GET write wakes up SSE subscribers. Bridge calls share this wrapped

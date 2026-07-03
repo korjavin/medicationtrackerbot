@@ -135,7 +135,7 @@ EMAs and shares automatically.
 
 ### Task 3: HTTP route + MCP registration
 
-- [ ] `GET /api/gamification/gauges` (verbatim pass-through) in the gamification
+- [x] `GET /api/gamification/gauges` (verbatim pass-through) in the gamification
       route block; registry op `gamification.gauges` with `ResponseExample`;
       `docs/api.md#gamification` updated
 

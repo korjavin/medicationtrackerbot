@@ -158,6 +158,22 @@ func (s *Server) handleGamificationInsights(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, view)
 }
 
+// handleGamificationGauges serves the gauge-trend read model (weight
+// velocity/acceleration, BP rolling share, resting-HR trend). The service
+// gates on the feature flag internally, so this handler is a verbatim
+// pass-through (Critical Rule #1).
+func (s *Server) handleGamificationGauges(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+	s.ensureGamificationFresh(r.Context(), userID)
+
+	view, err := s.gamificationSvc.GetGauges(r.Context(), userID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, view)
+}
+
 // writeJSON encodes v as the JSON response body, logging an encode failure.
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")

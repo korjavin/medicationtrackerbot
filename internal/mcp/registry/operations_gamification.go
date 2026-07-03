@@ -182,6 +182,43 @@ output(result["sleep_bp"])
 # Sparse data: {"enabled": true, "sleep_bp": {"status": "insufficient_data", "short_threshold_hours": 7, "n_short": 5, "n_in_band": 30, "needed": 8, "window_days": 90}}`,
 		},
 		{
+			ID:              "gamification.gauges",
+			Topic:           "gamification",
+			Method:          "GET",
+			Path:            "/api/gamification/gauges",
+			Risk:            RiskRead,
+			Description:     "Gauge-trend read model (gamification-11): weight as smoothed velocity/acceleration vs the user's goal pace, BP as a rolling in-range share vs a 60-day baseline, and resting HR as a 14-day mean vs baseline. Daily body-metric noise is smoothed out by design — a single bad day barely moves any of these. Each gauge reports insufficient_data instead of a distorted number below its minimum sample count.",
+			ResponseSummary: "Object {enabled, weight, bp, resting_hr}. weight: {status, trend_weight, velocity_pct_per_week (signed, negative = losing), pace_status (\"no_goal\"|\"on_pace\"|\"too_slow\"|\"too_fast\"|\"wrong_direction\"), acceleration (\"speeding_up\"|\"holding\"|\"slowing\")}. bp: {status, share_14d, share_30d, baseline_share_60d, count_14d, count_30d, count_60d} — shares are 0..1 fractions of readings in the personal band. resting_hr: {status, recent_14d_mean, baseline_60d_mean, delta_from_baseline}. Any gauge's status can be \"insufficient_data\" (only status is populated) instead of \"ok\".",
+			ResponseExample: `{
+  "enabled": true,
+  "weight": {
+    "status": "ok",
+    "trend_weight": 81.4,
+    "velocity_pct_per_week": -0.4,
+    "pace_status": "on_pace",
+    "acceleration": "holding"
+  },
+  "bp": {
+    "status": "ok",
+    "share_14d": 0.82,
+    "share_30d": 0.79,
+    "baseline_share_60d": 0.76,
+    "count_14d": 12,
+    "count_30d": 26,
+    "count_60d": 51
+  },
+  "resting_hr": {
+    "status": "ok",
+    "recent_14d_mean": 62.1,
+    "baseline_60d_mean": 65.0,
+    "delta_from_baseline": -2.9
+  }
+}`,
+			Example: `result = api.call("gamification.gauges")
+output(result)
+# Sparse data: {"enabled": true, "weight": {"status": "insufficient_data"}, "bp": {"status": "ok", ...}, "resting_hr": {"status": "insufficient_data"}}`,
+		},
+		{
 			ID:     "gamification.targets.set",
 			Topic:  "gamification",
 			Method: "PUT",
