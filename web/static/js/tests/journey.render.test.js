@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -147,9 +147,9 @@ describe('Journey render', () => {
 
     // Insight ladder tier 2 (Plan 6, Task 4): "Trend charts" now has a real
     // destination — the Vitals section's existing trend charts — instead of
-    // an evergreen "soon". Tiers 3-4 have no built screen yet and must keep
-    // reading "soon" even though the fixture marks them unlocked.
-    it('tier 2 (trend charts) links to Vitals when unlocked; tiers 3-4 stay "soon"', () => {
+    // an evergreen "soon". Tier 4 has no built screen yet and must keep
+    // reading "soon" even though the fixture marks it unlocked.
+    it('tier 2 (trend charts) links to Vitals when unlocked; tier 4 stays "soon"', () => {
         let switchedTo = null;
         env.window.switchTab = (tab) => { switchedTo = tab; };
         env.window.Gamification.render(journey({ unlocked_tiers: [1, 2, 3, 4] }));
@@ -165,9 +165,95 @@ describe('Journey render', () => {
         trendRow.click();
         expect(switchedTo).toBe('health');
 
+        const goodDayRow = Array.from(rows).find((r) => titleOf(r) === 'Your good-day model');
+        expect(statusOf(goodDayRow)).toMatch(/soon/);
+        expect(goodDayRow.classList.contains('wg-journey-ladder__row--locked')).toBe(true);
+    });
+
+    // Insight ladder tier 3 (Plan 9, Task 3): "Correlations" now has a real
+    // destination too — the sleep→BP insight card — once the fetched
+    // `journey.insight` is attached (load() does this; render() tests attach
+    // it directly). Below tier 3, or with no insight fetched yet, there's
+    // nothing to scroll to and the row stays locked/soon.
+    it('tier 3 (correlations) links to the insight card when unlocked and insight data is present', () => {
+        env.window.Gamification.render(journey({
+            unlocked_tiers: [1, 2, 3],
+            insight: { sleep_bp: { status: 'effect', short_threshold_hours: 7, delta_systolic: 8, n_short: 23, n_in_band: 40 } }
+        }));
+        const { document } = env;
+
+        const rows = document.querySelectorAll('.wg-journey-ladder__row');
+        const titleOf = (row) => row.querySelector('.wg-journey-ladder__title').textContent;
+        const statusOf = (row) => row.querySelector('.wg-journey-ladder__status').textContent;
         const correlationsRow = Array.from(rows).find((r) => titleOf(r) === 'Correlations');
+
+        expect(statusOf(correlationsRow)).toBe('Unlocked → view');
+        expect(correlationsRow.classList.contains('wg-journey-ladder__row--linked')).toBe(true);
+
+        const scrollIntoView = vi.fn();
+        document.getElementById('journey-insight-card').scrollIntoView = scrollIntoView;
+        correlationsRow.click();
+        expect(scrollIntoView).toHaveBeenCalled();
+    });
+
+    it('tier 3 stays locked/"soon" below unlock even with insight data present', () => {
+        env.window.Gamification.render(journey({
+            unlocked_tiers: [1, 2],
+            insight: { sleep_bp: { status: 'effect', short_threshold_hours: 7, delta_systolic: 8, n_short: 23, n_in_band: 40 } }
+        }));
+        const { document } = env;
+        const rows = document.querySelectorAll('.wg-journey-ladder__row');
+        const titleOf = (row) => row.querySelector('.wg-journey-ladder__title').textContent;
+        const statusOf = (row) => row.querySelector('.wg-journey-ladder__status').textContent;
+        const correlationsRow = Array.from(rows).find((r) => titleOf(r) === 'Correlations');
+
         expect(statusOf(correlationsRow)).toMatch(/soon/);
-        expect(correlationsRow.classList.contains('wg-journey-ladder__row--locked')).toBe(true);
+        expect(document.getElementById('journey-insight-card')).toBeNull();
+    });
+
+    // Sleep→BP insight card (Task 3): all three honesty-gate states render as
+    // plain-language copy, plus the omitted-until-loaded case.
+    it('insight card renders the "effect" state in plain language', () => {
+        env.window.Gamification.render(journey({
+            unlocked_tiers: [1, 2, 3],
+            insight: { sleep_bp: { status: 'effect', short_threshold_hours: 7, delta_systolic: 8, n_short: 23, n_in_band: 40 } }
+        }));
+        const card = env.document.getElementById('journey-insight-card');
+        expect(card).not.toBeNull();
+        expect(card.querySelector('.wg-journey-insight__body').textContent)
+            .toBe('Nights under 7h → next-morning systolic ~+8 mmHg · 23 nights');
+    });
+
+    it('insight card renders the "no_effect" state as its own honest finding', () => {
+        env.window.Gamification.render(journey({
+            unlocked_tiers: [1, 2, 3],
+            insight: { sleep_bp: { status: 'no_effect', short_threshold_hours: 7, delta_systolic: 1, n_short: 12, n_in_band: 30 } }
+        }));
+        const card = env.document.getElementById('journey-insight-card');
+        expect(card.querySelector('.wg-journey-insight__body').textContent).toMatch(/steady regardless of sleep/i);
+    });
+
+    it('insight card renders the "insufficient_data" state with the paired-night count', () => {
+        env.window.Gamification.render(journey({
+            unlocked_tiers: [1, 2, 3],
+            insight: { sleep_bp: { status: 'insufficient_data', short_threshold_hours: 7, n_short: 5, n_in_band: 9, needed: 8 } }
+        }));
+        const card = env.document.getElementById('journey-insight-card');
+        expect(card.querySelector('.wg-journey-insight__body').textContent).toBe('Not enough paired nights yet · 5 of 8 — keep logging');
+    });
+
+    it('insight card renders the offline-empty state when the fetch had no cache', () => {
+        env.window.Gamification.render(journey({
+            unlocked_tiers: [1, 2, 3],
+            insight: { emptyState: 'No cached insight — connect to load.' }
+        }));
+        const card = env.document.getElementById('journey-insight-card');
+        expect(card.querySelector('.wg-journey-insight__body').textContent).toBe('No cached insight — connect to load.');
+    });
+
+    it('insight card is omitted when tier 3 is unlocked but insight has not loaded yet', () => {
+        env.window.Gamification.render(journey({ unlocked_tiers: [1, 2, 3] }));
+        expect(env.document.getElementById('journey-insight-card')).toBeNull();
     });
 
     // Health Score card (Task 8): big number + band word, then one mini-bar

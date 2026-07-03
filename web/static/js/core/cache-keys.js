@@ -102,6 +102,12 @@
             key: 'gamification_rings',
             tag: 'gamification',
             description: 'Slim Today rings payload (GET /api/gamification/rings). Bootstrap-warmed: applyBootstrapPayload seeds this from res.gamification.today_rings so the Today tile renders on a cold-start/offline relaunch. Registered at boot so a Settings-first targets save (invalidateTags([\'gamification\'])) evicts the Today tile even before Today has been visited this session.'
+        },
+        gamification_insights: {
+            key: 'gamification_insights',
+            tag: 'gamification',
+            staleAfterMs: 6 * HOUR_MS,
+            description: 'Tier-3 sleep→BP personal insight (GET /api/gamification/insights): honest three-state result (effect/no_effect/insufficient_data). Only fetched once the Journey payload reports tier 3 unlocked.'
         }
     };
 

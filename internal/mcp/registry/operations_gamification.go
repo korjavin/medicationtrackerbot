@@ -161,6 +161,30 @@ output(result)`,
 output(result["targets"])`,
 		},
 		{
+			ID:              "gamification.insights",
+			Topic:           "gamification",
+			Method:          "GET",
+			Path:            "/api/gamification/insights",
+			Risk:            RiskRead,
+			Description:     "Tier-3 personal insight: sleep→next-morning-BP. Over the trailing 90 days, pairs each night's sleep duration with the next morning's first systolic reading and compares the mean for short nights vs in-band nights. Honest by construction — reports 'no_effect' when the difference is under the noise floor, or 'insufficient_data' when either bucket has too few paired nights, instead of inventing a number. Gated on the feature flag AND the user's unlocked insight tier: below tier 3 (level 5) the response carries no numbers at all, just {locked:true, unlocks_at_level}.",
+			ResponseSummary: "Object {enabled, locked, unlocks_at_level, sleep_bp}. sleep_bp is null when locked or disabled; otherwise {status: \"effect\"|\"no_effect\"|\"insufficient_data\", short_threshold_hours, delta_systolic (present for effect/no_effect), n_short, n_in_band, needed (present for insufficient_data), window_days}.",
+			ResponseExample: `{
+  "enabled": true,
+  "sleep_bp": {
+    "status": "effect",
+    "short_threshold_hours": 7,
+    "delta_systolic": 8.2,
+    "n_short": 23,
+    "n_in_band": 41,
+    "window_days": 90
+  }
+}`,
+			Example: `result = api.call("gamification.insights")
+output(result["sleep_bp"])
+# Below tier 3: {"enabled": true, "locked": true, "unlocks_at_level": 5}
+# Sparse data: {"enabled": true, "sleep_bp": {"status": "insufficient_data", "short_threshold_hours": 7, "n_short": 5, "n_in_band": 30, "needed": 8, "window_days": 90}}`,
+		},
+		{
 			ID:     "gamification.targets.set",
 			Topic:  "gamification",
 			Method: "PUT",

@@ -347,6 +347,13 @@ convenience* only. They **never** gate a safety alert (a dangerous reading alway
 surfaces immediately at any level) and **never** gate raw data or export. We are
 unlocking *richer mirrors*, never withholding the user's own facts.
 
+**Tier 3 shipped** (§14.8, Plan 9) — the first real L5–6 correlation insight,
+sleep→next-morning BP. It is the template for every future tier: an honesty gate
+(minimum paired-night count per bucket, then a noise floor below which "no effect"
+is itself the reported finding) so "not enough data yet" and "no effect found" are
+genuine, non-alarmist results, not error states or blank cards. Tiers 2 and 4
+still say "soon."
+
 ---
 
 ## 9. Streaks & forgiveness  *(motivating, with guardrails — your tone choice)*
@@ -876,6 +883,50 @@ shape boundary end to end. No new unit tests: `ComputeHealthScore` and
 `HabitStrength` are pure functions already covered at this integration boundary.
 (ponytail: compute-on-read, no caching — add one only if a read ever measurably
 gets slow.)
+
+### 14.8 First real insight: sleep → next-morning BP — Plan 9 (status)
+
+The insight ladder's L5–6 promise ("cross-domain correlations — e.g. nights under
+6h precede next-day systolic +N mmHg for *you*", §8) said "soon" for every earlier
+plan. Implemented in
+[docs/plans/2026-07-02-gamification-9-first-insight.md](plans/2026-07-02-gamification-9-first-insight.md)
+as the tier-3 unlock, and deliberately the *only* insight this plan ships — the
+honesty-gate pattern below is the template future insights (tier 4+) reuse, not a
+general correlation framework.
+
+**Computation** (`internal/domain/gamification/insights.go`, `GetInsights`) —
+pure function of the existing sleep + BP logs, no new tables, same invariant as
+the Health Score (§14.7). Over the trailing `InsightWindowDays` (90), each night's
+sleep duration pairs with the first systolic reading before
+`InsightMorningCutoffHour` (12:00) local time, resolved through a narrow `TZStore`
+(`GetCurrent()`, mirroring `bp.Repo`'s `TimezoneLookup`) that falls back to UTC
+when unset. Pairs bucket into "short" (below the effective `SleepHours.Low` band
+floor) vs "in-band" nights; the two bucket means are compared. **Honesty gate:**
+below `InsightMinPairsPerBucket` (8) nights in *either* bucket, the result is
+`insufficient_data` (with `needed`); otherwise a difference under
+`InsightNoiseFloorMmHg` (3 mmHg) is `no_effect` — a genuine, reportable finding,
+not a blank state — and only a difference at or above the floor is `effect`. Gated
+on `gamification_enabled` AND `InsightTier ≥ 3`: below tier 3 the response is
+`{enabled, locked:true, unlocks_at_level}` with no numbers at all (principle #5 —
+tiers gate depth, never raw data).
+
+**API/MCP surface** — `GET /api/gamification/insights`, registry op
+`gamification.insights` (see `docs/api.md#gamification`).
+
+**Frontend** (`journey.js`) — tier 3 becomes the ladder's first `hasDestination`
+row ("Unlocked → view"), scrolling to a new insight card that renders all three
+states in plain language ("Nights under 7h → next-morning systolic ~+8 mmHg · 23
+nights" / "Your morning BP looks steady regardless of sleep length — solid." /
+"Not enough paired nights yet · 5 of 8 — keep logging"). Fetched through its own
+`cachedFetch` entry (`gamification` tag) with an `OfflineNoCacheError` empty
+state, independent of the main Journey payload. Tier 4 is untouched and still
+says "soon."
+
+Per Testing Strategy this plan added integration tests guarding loaders →
+pairing → API shape end to end (`internal/domain/gamification/insights_test.go`:
+seeded correlated data asserts the `effect` status/delta/counts, sparse data
+asserts `insufficient_data`, below-tier asserts the locked shape carries no
+numbers) — no unit tests, the same boundary-test posture as Health Score.
 
 ---
 

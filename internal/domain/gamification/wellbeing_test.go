@@ -39,6 +39,7 @@ func TestGetSummary_HealthScore_RenormalizesOverPresentContributorsOnly(t *testi
 		fakeWorkout{},
 		gam,
 		fakeSettings{enabled: true},
+		nil,
 	)
 	svc.now = func() time.Time { return now }
 
@@ -121,6 +122,7 @@ func TestGetSummary_HealthScoreBP_ExcludesFutureDatedAndIgnoreCalc(t *testing.T)
 		fakeWeight{}, fakeVitals{}, fakeFood{}, fakeDiary{}, fakeWorkout{},
 		gam,
 		fakeSettings{enabled: true},
+		nil,
 	)
 	svc.now = func() time.Time { return now }
 
@@ -172,6 +174,7 @@ func TestGetSummary_MovementStrength_CompliantCadenceReachesCeiling(t *testing.T
 		fakeWorkout{history: hist},
 		gam,
 		fakeSettings{enabled: true},
+		nil,
 	)
 	svc.now = func() time.Time { return now }
 

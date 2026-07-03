@@ -197,6 +197,19 @@ type Config struct {
 	InsightTierLevels []int
 	InsightMaxTier    int
 
+	// First real insight (§8 tier 3): sleep→next-morning-BP, the honesty-gate
+	// template future insights follow. Pairs each night over the trailing
+	// InsightWindowDays with the first systolic reading before
+	// InsightMorningCutoffHour local time; nights below the effective
+	// SleepHours.Low are "short", the rest "in-band". Reports insufficient_data
+	// below InsightMinPairsPerBucket nights in either bucket, else no_effect
+	// when the two buckets' mean systolic differs by less than
+	// InsightNoiseFloorMmHg.
+	InsightWindowDays        int
+	InsightMinPairsPerBucket int
+	InsightNoiseFloorMmHg    float64
+	InsightMorningCutoffHour int
+
 	// Streaks & forgiveness (§9). Weekly cadence by default: earn
 	// FreezeEarnPerPeriod freeze(s) per met period, bank up to MaxFreezes,
 	// auto-applied on a miss so the streak survives.
@@ -281,6 +294,11 @@ func DefaultConfig() Config {
 
 		InsightTierLevels: []int{3, 5, 7}, // tier2@L3, tier3@L5, tier4@L7
 		InsightMaxTier:    4,
+
+		InsightWindowDays:        90,
+		InsightMinPairsPerBucket: 8,
+		InsightNoiseFloorMmHg:    3,
+		InsightMorningCutoffHour: 12,
 
 		FreezeEarnPerPeriod: 1,
 		MaxFreezes:          4,

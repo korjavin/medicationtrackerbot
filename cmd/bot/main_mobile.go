@@ -124,7 +124,7 @@ func runMobile(ctx context.Context, args []string, stdout io.Writer) error {
 		return fmt.Errorf("session-secret must be at least 32 chars, got %d", len(*sessionSecret))
 	}
 
-	gamSvc := gamificationsvc.New(s.Medication, s.BP, s.Weight, s.Vitals, s.Food, s.Diary, s.Workout, s.Gamification, s.Settings)
+	gamSvc := gamificationsvc.New(s.Medication, s.BP, s.Weight, s.Vitals, s.Food, s.Diary, s.Workout, s.Gamification, s.Settings, s.TZ)
 	srv := server.New(s, gamSvc, "", *sessionSecret, *userID, server.OIDCConfig{}, "", "")
 	// On Android the binary runs from a read-only nativeLibraryDir with no
 	// co-located "./web/static" directory, so the disk-relative paths in
