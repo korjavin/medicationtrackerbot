@@ -165,7 +165,7 @@ All provider keys live as ordinary records inside the encrypted vault (synced ac
 
 - OpenAI(-compatible) chat + vision endpoints support browser CORS; the existing first-run → integrations flow and `***`-masked settings UX carry over as-is.
 - ElevenLabs conversational voice uses their browser SDK (WebRTC/WS) — replacing the server-side proxy handlers. **A voice agent without data access is useless** — operating on the user's data is its entire purpose. Cloud mode solves this with **SDK client tools**: tools registered at `startSession` execute in the browser session itself, backed by the in-browser domain layer — no MCP relay involved, and the availability constraint is trivially satisfied because the device is online and unlocked during its own call. **Status caveat**: this pattern was designed for server mode in `docs/plans/2026-05-18-elevenlabs-dynamic-mcp-client-tools.md` but **never implemented or verified** — no `clientTools` code exists in the repo; today's server-mode voice runs on a manually dashboard-configured MCP server. Validating client tools end-to-end is a prerequisite spike for cloud voice, ideally proven in server mode first where the plan already exists. ElevenLabs' cloud sees tool names, results, and transcripts — inherent to any cloud voice agent; under BYO keys that's strictly user↔ElevenLabs, the zero-knowledge server sees nothing. Open item: agent provisioning (tool definitions must exist on an agent) — programmatic via the ElevenLabs agents API where it covers tool config, dashboard instructions as fallback.
-- **Food DB is the exception to "bring your own": too niche to ask users about.** The operator hosts an instance and cloud mode points at it silently as the built-in default — no setup step, no wizard mention, no expiring trial, no BYO nagging (it's excluded from the trial-pool CTA mechanics below). The URL stays visible-but-unadvertised in Settings → Integrations for the rare user who wants their own (Open Food Facts and self-hosted instances are CORS-open). Honest note: food/barcode lookups necessarily reveal query terms to whoever hosts the DB — same exposure as public Open Food Facts, no health-record content.
+- Food DB / Open Food Facts are CORS-open.
 - The existing graceful degradation contract is unchanged: no key → feature shows its "configure to enable" empty state; key added → capability appears immediately.
 
 The pricing/consent story is clean: AI costs are the user's own, on their own keys; the cloud never proxies (and so never sees prompts, photos, or voice). The trial-keys pool below is the one deliberate, consent-gated exception.
@@ -211,7 +211,14 @@ This is the dominant cost of the proposal and it must be stated, not hidden: the
 
 Port order tracks user value: meds + intakes + reminder computation first (C1 below), then the remaining domains.
 
-## Metadata leakage summary
+## Migrating an existing server-mode install
+
+Server-mode users with real history move by **export → client-side import** — the zero-knowledge property forbids anything else: plaintext can never be uploaded, so the data must enter through an unlocked client that encrypts it locally.
+
+1. **Full-vault export from server mode.** A canonical one-user-all-domains JSON format (meds + intake log, BP, weight, food, workouts, vitals, sleep, diary, tz history, settings). Nothing like it exists yet — `cmd/importer` reads a third-party app's format and there is no `/api/export`. v1 is a `cmd/exporter` CLI against the server DB (the operator has DB access); a Settings → "Download my data" button can follow.
+2. **Import on an unlocked cloud client** (requires C2 — every domain in the export must already be ported). Settings → Import → file picker; records flow through the same JS domain services and validation as live writes, so an import can't create states the app couldn't.
+3. **Bulk lands as a snapshot, not an op flood.** Months of history is thousands of records; the importer writes local Dexie state and uploads one encrypted snapshot (the C0c compaction path), then normal op-based sync resumes. Reminder schedules recompute client-side from the imported plans.
+4. **The same format is the exit door.** The cloud client can export its decrypted vault back to identical JSON — enabling cloud → server migration, plain offline backups, and honest data portability. (Resolves the "full-vault export format" open question: one format, both directions.)
 
 | Signal | Who learns it | Mitigation |
 |---|---|---|
@@ -220,7 +227,6 @@ Port order tracks user value: meds + intakes + reminder computation first (C1 be
 | Sync cadence, blob sizes, IPs | cloud | standard for any sync service; no content |
 | TG bot token, chat id, TG message text at user-chosen verbosity | cloud + Telegram | opt-in; generic-text mode; sealed inbound |
 | MCP query content | nobody (tier 1) / cloud in transit (tier 2) | tier 2 off by default, explicit consent |
-| Food/barcode search terms | operator's food-DB instance (default) | same exposure class as public Open Food Facts; endpoint swappable in settings |
 
 ## Phasing
 
