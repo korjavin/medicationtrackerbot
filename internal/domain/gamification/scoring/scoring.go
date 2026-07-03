@@ -321,7 +321,7 @@ func DefaultConfig() Config {
 		HealthScoreWeightSleep:        1.0,
 		HealthScoreWeightRestingHR:    1.0,
 		HealthScoreWeightBodyweight:   1.0,
-		HealthScoreWeightAdherence:    1.0,
+		HealthScoreWeightAdherence:    0.5, // solved habit (Task 3 safety net); small background credit, not a peer signal
 		HealthScoreAdherencePDCTarget: 0.8, // §6.1 weekly-adherence precedent
 		HealthScoreWeightStabilityPct: 0.02,
 

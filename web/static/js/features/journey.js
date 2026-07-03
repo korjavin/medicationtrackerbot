@@ -124,6 +124,7 @@
         ['HP', 'Healthy actions earn HealthPoints (HP).'],
         ['Rings', 'Each ring tracks one daily decision you make — bedtime, movement, nourishment.'],
         ['Closing a ring', 'A ring closes when today’s number lands in your target range, not just from logging.'],
+        ['Levers vs. gauges', 'Bedtime, movement and nourishment are levers you choose today, so they close rings daily. Weight, BP and heart readings are gauges — read as trends over time, never graded day to day.'],
         ['Health Score', 'A 0–100 score built from your recent readings — a gap in the data dilutes it, it never counts as a zero.'],
         ['Strengths', 'Each habit’s strength rises when you keep it up and eases off on a miss — no all-or-nothing streak to lose.'],
         ['Levels', 'HP adds up across days; enough HP levels you up.'],

@@ -176,15 +176,29 @@ untouched. Ring restructure happens at the **view layer** — no migration.
 
 ### Task 4: Health Score reweight + targets editor
 
-- [ ] `wellbeing.go`: remove the stress contributor; lower the adherence
+- [x] `wellbeing.go`: remove the stress contributor; lower the adherence
       contributor weight (Config); sleep-duration contributor stays (duration's
       new home); renormalization already handles the changed set
-- [ ] Settings targets editor: drop `stress`, add `bedtime` (window editor with
+- [x] Settings targets editor: drop `stress`, add `bedtime` (window editor with
       the recommended-value hint pattern); `PUT /api/gamification/targets`
       validation covers the new metric
-- [ ] update the Journey "How this works" explainer: levers close rings daily;
+- [x] update the Journey "How this works" explainer: levers close rings daily;
       gauges (weight, BP, heart) are read as trends — one plain-language
       paragraph
+
+  ➕ Implementation note: the Health Score never had a stress contributor
+  (`ScoreVitalsAuto`'s stress award was already removed in Task 1; the
+  `Contributors` slice in `wellbeing.go` only ever listed bp/sleep/hr/weight/
+  adherence) — that half of the first bullet was a no-op check. Lowered
+  `Config.HealthScoreWeightAdherence` from 1.0 to 0.5 (small background
+  contributor, per Overview). The targets backend already had `TargetKeyBedtime`
+  and no stress key (Task 1/2); only the frontend (`settings.js`'s
+  `GAMIFICATION_TARGET_METRICS` array + `index.html`'s stress input block) still
+  needed the swap — replaced with a `bedtime` block (min-unit Low/High fields,
+  same generic band-override editor pattern as the other metrics, ordered to
+  match backend `targetMetricKeys`). Added one explainer row to `journey.js`'s
+  `EXPLAINER_TERMS` distinguishing levers (close rings daily) from gauges (read
+  as trends).
 
 ### Task 5: Verify acceptance criteria
 
