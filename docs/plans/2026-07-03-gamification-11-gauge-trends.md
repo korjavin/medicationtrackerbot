@@ -184,10 +184,15 @@ EMAs and shares automatically.
 
 ### Task 6: Update documentation
 
-- [ ] `docs/gamification.md`: §6.2/6.3/6.7 rewritten to weekly gauge scoring
+- [x] `docs/gamification.md`: §6.2/6.3/6.7 rewritten to weekly gauge scoring
       (trend velocity/acceleration, rolling shares); §14.8 records the HP
       economy change and the week-end-day rescore mechanism
-- [ ] `docs/api.md`: gauges endpoint + weekly award metrics
+      (recorded as new §14.10, since §14.8/14.9 are the prior plans' status
+      entries and each plan gets its own; §2.5's lever/gauge intro and §15's
+      "auto-captured streams" bullet also updated to match)
+- [x] `docs/api.md`: gauges endpoint + weekly award metrics
+      (gauges endpoint was already documented in Task 3; added the three
+      weekly metric keys to the `/api/gamification/summary` row)
 
 ## Technical Details
 

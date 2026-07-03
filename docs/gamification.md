@@ -111,7 +111,10 @@ treatment, and conflating them is the mistake gamification-10 corrects:
   trying harder today; grading it like a lever just rewards measurement noise
   or biology. Stress is the clearest case — even *improvement-vs-baseline*
   scoring grades the ungovernable, so it was removed from scoring entirely
-  (§6.3) and now lives in charts only.
+  (§6.3) and now lives in charts only. Gamification-11 (§14.10) finishes the
+  job for the remaining gauges: BP, weight, and resting HR moved from daily
+  outcome grading to one idempotent weekly award each — daily still earns the
+  logging-honesty floor, never the outcome.
 - **Adherence is neither** — it's a solved habit (§6.1): silent unless it
   slips, then it surfaces once as a safety-net alert, never a ring.
 
@@ -278,28 +281,43 @@ of the daily ring set entirely: no ring, no "your move," no daily nag.
 - **Guardrails:** never reward double-dosing; respect intentional med changes; a
   long deliberate taper is not "non-adherence."
 
-### 6.2 Vitals — blood pressure
+### 6.2 Vitals — blood pressure  *(gauge, weekly-scored — gamification-11 §2)*
 
-- **Integrity floor:** `+2 HP` for any reading logged, *whatever the value*.
-- **Outcome band (default):** systolic `[90, 120]`, diastolic `[60, 80]`
-  (ACC/AHA "normal"), two-sided so hypotension also scores lower; `Δ` ≈ 10/5.
-  Personalized — many on medication target `<130/80`; some elderly run higher by
-  clinical design.
+- **Integrity floor:** `+2 HP` for any reading logged, *whatever the value*, every
+  day — honesty is always rewarded regardless of the number.
+- **Outcome — rolling in-range share, once a week:** one bad day is no longer a
+  same-day judgment. Instead, the trailing 30-day share of readings inside the
+  personal band (default systolic `[90, 120]`, diastolic `[60, 80]`, ACC/AHA
+  "normal", personalizable per §6.2's old per-user override path) is compared
+  against the 60-day baseline share; full HP when the 30-day share holds or
+  improves on baseline, falling off linearly as it drops below (`ScoreBPWeekly`,
+  `GaugeBPShareFalloffPts`). Written once, on each week's last day
+  (`MetricBPShareWeek`), so a couple of bad readings can only ever nudge a
+  30-day percentage by a few points — visible as data, irrelevant as judgment.
+- **Below `GaugeBPMinBaselineReadings` readings in the 60-day baseline:** no
+  award either way — honest silence on thin history, never a zero judgment.
 - **Carve-out / safety:** a dangerously high (or low) reading triggers a **health
   alert**, never a silent score penalty. Safety is not a game mechanic.
 
-### 6.3 Vitals — resting HR / SpO₂ (mi-band continuous streams)
+### 6.3 Vitals — resting HR / SpO₂ (mi-band continuous streams)  *(gauge, weekly-scored — gamification-11 §3)*
 
 These are largely *auto-captured*, so the user can't directly "will" them moment
-to moment. They **do count toward grading** (HP) — but scored in a way that's fair
-to genetics: by **range membership *and* improvement vs. the user's own baseline**,
-so the reward tracks *your* trend rather than absolute luck. They carry a
-**moderate** weight — real, but a notch below effortful actions (taking a dose,
-completing a workout), since they're passively captured. No ring (§5) — Vitals
-are gauges, read as trends, not graded daily.
+to moment. Resting HR **counts toward grading** (HP) — scored as a **trend vs
+the user's own 60-day baseline**, so the reward tracks *your* trajectory rather
+than absolute luck. It carries a **moderate** weight — real, but a notch below
+effortful actions (taking a dose, completing a workout), since it's passively
+captured. No ring (§5) — Vitals are gauges, read as trends, not graded daily.
 
-- Resting HR in a personalized band (default `[50, 80]`), SpO₂ ≥ 95%. Graded
-  HP, plus a big role in the insight ladder (§8).
+- **Outcome — baseline-delta trend, once a week:** the trailing 14-day mean
+  resting HR vs the strictly-prior 60-day baseline mean; full HP when the trend
+  held or improved (lower is better), falling off linearly as it rises, reaching
+  zero `GaugeRestingHRFalloffBPM` above baseline (`ScoreRestingHRWeekly`,
+  `MetricRestingHRTrendWeek`). Written once, on each week's last day — no daily
+  grade, so one rough night can't move it.
+- **SpO₂ earns no HP at all.** It dropped out of scoring in gamification-10
+  (stress) and gamification-11 (SpO₂ itself, per this plan's Overview §3): it's
+  safety-alert data, not a game metric. The dangerous-reading alert path is
+  untouched and unrelated to scoring; SpO₂ still appears in charts.
 - **Stress was removed from scoring entirely (gamification-10, §2.5):** it's
   the clearest ungovernable gauge — even improvement-vs-baseline scoring grades
   something the user can't reliably will down. Stress still appears in charts;
@@ -353,17 +371,33 @@ Range-based only. Never rewards restriction.
     removes any deficit-style mechanic.
   - Food and weight are **never** combined into a "deficit" reward.
 
-### 6.7 Vitals — weight  *(also handled with care)*
+### 6.7 Vitals — weight  *(also handled with care; gauge, weekly-scored — gamification-11 §1)*
 
 Weight is **not** rewarded for going down. Instead:
 
-- **Integrity floor:** logging weigh-ins (rewards the *habit of measuring*, not the
-  number).
-- **Outcome — two modes:**
-  - *Maintenance:* reward **stability** (low variance) within a user-defined band.
-  - *Goal:* reward trending toward a user-set goal **at a safe pace**
-    (≤ 0.5–1% bodyweight/week). Points *drop* if loss is too fast (anti-crash-diet)
-    or if the goal sits below a healthy floor.
+- **Integrity floor:** logging weigh-ins, every day (rewards the *habit of
+  measuring*, not the number) — the single-day reading itself is never judged.
+- **Outcome — trend velocity + acceleration, once a week:** a single heavy day
+  can't move the score. A day-indexed EMA (`trend_d = trend_{d-1} +
+  α·(weight_d − trend_{d-1})`, α=0.10, Hacker's-Diet style) folds the trailing
+  history into a smoothed trend line; **velocity** is the trend's change over
+  the last 14 days in %bodyweight/week, and **acceleration** compares velocity
+  now vs 14 days ago (deadbanded so "holding" is the default, not noise
+  flapping between speeding/slowing). Both are read-model headlines
+  (`GET /api/gamification/gauges`) *and* drive the once-a-week HP award
+  (`ScoreWeightWeekly`, `MetricWeightTrendWeek`):
+  - *Goal set:* full HP when velocity is on the safe pace toward the goal
+    (`WeightSafePaceMinPct`–`WeightSafePaceMaxPct`, ≤1% bodyweight/week ceiling);
+    trapezoid falloff — never negative — for too-fast (anti-crash-diet) or
+    wrong-direction weeks.
+  - *No goal (maintenance):* the same safe-pace minimum doubles as a symmetric
+    stability band around zero velocity — holding steady earns full HP,
+    drifting either direction falls off at the same crash-diet rate. This
+    finally wires the safe-pace math that used to be dormant (§14.9 predates
+    this: the goal-mode band existed in the engine but nothing drove it daily).
+- **Below `GaugeWeightMinHistoryDays` days of logged history:** the trend isn't
+  trusted yet — the gauge (and the award) report `insufficient_data` rather
+  than a distorted number.
 - **Guardrails:** refuse to set a goal below a healthy BMI floor without explicit
   override; ED-safe mode hides the number and scores only weigh-in consistency.
 
@@ -1036,6 +1070,67 @@ no re-backfill (§2.5, §5).
 
 ---
 
+### 14.10 Gauge trends — Plan 11 (status)
+
+Implemented in
+[docs/plans/2026-07-03-gamification-11-gauge-trends.md](plans/2026-07-03-gamification-11-gauge-trends.md).
+The gauge half of the levers/gauges model (§14.9 did levers): BP, weight, and
+resting HR move from daily grading to weekly, view-layer + HP-economy change,
+no ledger migration, no re-backfill (§2.5, §5).
+
+- **Read model** (`internal/domain/gamification/gauges.go`, new): `GetGauges` →
+  `GET /api/gamification/gauges` (`docs/api.md#gamification`). Weight — EMA
+  trend (α=0.10/day) with velocity (%bodyweight/week) and acceleration vs the
+  same window one cycle back; pace status vs the user's goal direction+rate, or
+  trend-only when no goal is set. BP — 14d/30d in-range share vs a 60d
+  baseline, with reading counts. Resting HR — 14d mean vs 60d baseline delta.
+  Every gauge reports `insufficient_data` honestly below its configured minimum
+  sample count; all computed on read, no new tables, no persisted state, so a
+  late backup import re-enters the math on the next read (same invariant as
+  the Health Score).
+- **Engine** (`internal/domain/gamification/scoring/scoring.go`): `ScoreBP` and
+  `ScoreWeight` now grant only their integrity floor — the daily outcome bands
+  are gone. `ScoreVitalsAuto` drops the resting-HR and SpO₂ outcome awards
+  (SpO₂ earns no HP at all now; its safety-alert path is untouched). Three new
+  once-a-week replacements, written only on each week's last day from the same
+  reads `gauges.go` computes: `ScoreWeightWeekly` (`MetricWeightTrendWeek`,
+  goal-mode safe-pace trapezoid or symmetric maintenance-stability band),
+  `ScoreBPWeekly` (`MetricBPShareWeek`, full HP when the 30d share holds/beats
+  the 60d baseline, linear falloff below), `ScoreRestingHRWeekly`
+  (`MetricRestingHRTrendWeek`, full HP when the trend held/improved vs
+  baseline, linear falloff as it rises). All three are `KindOutcome` rows on
+  the existing Vitals ring's ledger stream — no new ring.
+- **Rescore plumbing** (`internal/domain/gamification/scoreday.go`,
+  `rescore_imports.go`, `streak.go`): `scoreDayAwards` calls the three weekly
+  scorers only when `isWeekEndDay` (Monday–Sunday, same `weekIndex` anchor as
+  the streak fold). `RescoreInstants` adds each affected day's week-end day to
+  its dedupe set, so a late import into any day of a week refreshes that
+  week's already-written gauge award in place — no `internal/server` wiring
+  needed, since the existing recent-window read-path rescore (`{now-1day,
+  now}`) already covers the current week's in-progress end day for free.
+  Idempotent under the ledger's existing UNIQUE `(user_id, day_unix, ring,
+  source_metric, kind)` constraint.
+- **Frontend** (`journey.js`): a Gauges panel (below Health Score, above rings)
+  — weight sparkline (`WeightGaugeView.TrendHistory`, last 60 days of the same
+  trend line, additive/omitempty, no scoring effect) plus the velocity/pace/
+  acceleration headline; BP in-range share vs baseline; resting HR vs baseline;
+  `insufficient_data` states in plain language; a "why is this moving?" link
+  reusing the existing tier-3 insight-card scroll target. Tone: numbers and
+  direction words only, no alert-colored tags — a slowing trend is an
+  observation, never red.
+- **Testing**: one integration test per the Testing Strategy —
+  `internal/domain/gamification/gauges_weekly_test.go` — a seeded downward
+  weight trend + goal asserting velocity sign/pace/acceleration, a seeded BP
+  series with two bad recent days asserting the 30d share stays within 0.10 of
+  the 60d baseline, and a week-end award scored then rewritten in place (not
+  duplicated) after a late import triggers `RescoreInstants` elsewhere in the
+  same week — plus `journey.render.test.js` coverage for the panel's states.
+- **Mixed-rule history:** past daily gauge awards stay in the ledger as scored
+  (levels never decrease); the weekly stream starts alongside them with no
+  re-backfill, same non-punitive, ring-agnostic reasoning as §14.9.
+
+---
+
 ## 15. Safety, accessibility & open questions
 
 **Safety / accessibility (first-class, not bolt-on):**
@@ -1062,9 +1157,10 @@ no re-backfill (§2.5, §5).
   from the last year of logs so the user starts at a satisfying level with insight
   tiers unlocked; backfill uses the same floor/range rules, is deterministic, and
   the 1-year cap keeps the starting level meaningful (§14).
-- **Auto-captured streams are part of grading.** HR/SpO₂/steps count toward HP,
-  scored by range membership *and* improvement vs. the user's own baseline (fair to
-  genetics), at a moderate weight below effortful actions (§6.3).
+- **Auto-captured streams are part of grading.** Resting HR/steps count toward
+  HP, scored by trend-vs-baseline (fair to genetics, weekly for resting HR —
+  gamification-11 §3), at a moderate weight below effortful actions (§6.3).
+  SpO₂ earns no HP (gamification-11 §3): safety-alert data, not a game metric.
 - **Sleep is outcome-scored.** Sleep duration (7–9h band) and timing regularity
   contribute real HP; it stays in the **Mind** ring, which makes Mind a
   substantively graded ring rather than process-only (§6.4).
