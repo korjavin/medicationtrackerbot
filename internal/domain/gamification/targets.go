@@ -219,7 +219,7 @@ func (s *service) validateTarget(t gamstore.Target) error {
 func isKnownTargetMetric(key string) bool {
 	switch key {
 	case TargetKeyBPSystolic, TargetKeyBPDiastolic, TargetKeyRestingHR,
-		TargetKeyStress, TargetKeySleepHours, TargetKeySteps:
+		TargetKeySleepHours, TargetKeySteps, TargetKeyBedtime:
 		return true
 	default:
 		return false
@@ -227,8 +227,8 @@ func isKnownTargetMetric(key string) bool {
 }
 
 // validateTargetBand rejects an out-of-bounds or incoherent override: a negative
-// bound or Falloff (none of the band metrics — BP, HR, stress, sleep hours, steps
-// — can be negative), or a Low above High (when both are set). A one-sided target
+// bound or Falloff (none of the band metrics — BP, HR, sleep hours, steps,
+// bedtime — can be negative), or a Low above High (when both are set). A one-sided target
 // (only Low or only High) is valid — bandFromTarget keeps the recommended value
 // for the unset side.
 func validateTargetBand(t gamstore.Target) error {

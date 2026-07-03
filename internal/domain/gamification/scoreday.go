@@ -41,9 +41,9 @@ const (
 	TargetKeyBPSystolic  = "bp_systolic"
 	TargetKeyBPDiastolic = "bp_diastolic"
 	TargetKeyRestingHR   = "resting_hr"
-	TargetKeyStress      = "stress"
 	TargetKeySleepHours  = "sleep_hours"
 	TargetKeySteps       = "steps"
+	TargetKeyBedtime     = "bedtime"
 )
 
 // ScoreDay computes the day's HP awards and the recomputed state and persists
@@ -362,12 +362,12 @@ func applyTarget(cfg *scoring.Config, t gamstore.Target) {
 		cfg.BPDiastolic = bandFromTarget(cfg.BPDiastolic, t)
 	case TargetKeyRestingHR:
 		cfg.RestingHR = bandFromTarget(cfg.RestingHR, t)
-	case TargetKeyStress:
-		cfg.StressBand = bandFromTarget(cfg.StressBand, t)
 	case TargetKeySleepHours:
 		cfg.SleepHours = bandFromTarget(cfg.SleepHours, t)
 	case TargetKeySteps:
 		cfg.StepsBand = bandFromTarget(cfg.StepsBand, t)
+	case TargetKeyBedtime:
+		cfg.BedtimeWindow = bandFromTarget(cfg.BedtimeWindow, t)
 	}
 }
 
@@ -376,7 +376,7 @@ func applyTarget(cfg *scoring.Config, t gamstore.Target) {
 // the targets read model iterates it to surface every overridable band.
 var targetMetricKeys = []string{
 	TargetKeyBPSystolic, TargetKeyBPDiastolic, TargetKeyRestingHR,
-	TargetKeyStress, TargetKeySleepHours, TargetKeySteps,
+	TargetKeySleepHours, TargetKeySteps, TargetKeyBedtime,
 }
 
 // bandForMetric returns the cfg Band a target metric key maps onto — the inverse
@@ -391,12 +391,12 @@ func bandForMetric(cfg scoring.Config, key string) scoring.Band {
 		return cfg.BPDiastolic
 	case TargetKeyRestingHR:
 		return cfg.RestingHR
-	case TargetKeyStress:
-		return cfg.StressBand
 	case TargetKeySleepHours:
 		return cfg.SleepHours
 	case TargetKeySteps:
 		return cfg.StepsBand
+	case TargetKeyBedtime:
+		return cfg.BedtimeWindow
 	default:
 		return scoring.Band{}
 	}
@@ -574,9 +574,11 @@ func (s *service) loadBP(ctx context.Context, userID int64, start, end time.Time
 }
 
 // loadVitalsAuto maps the day's auto-captured streams: resting HR proxied by the
-// day's minimum HR sample, SpO₂ and stress by their daily means. Baselines are
-// left zero (unknown) so the scorer uses its absolute bands — improvement-vs-self
-// needs a trailing personal baseline that the single-day path does not compute.
+// day's minimum HR sample, SpO₂ by its daily mean. Baselines are left zero
+// (unknown) so the scorer uses its absolute bands — improvement-vs-self needs a
+// trailing personal baseline that the single-day path does not compute. Stress
+// is intentionally not loaded here — it is not a lever (gamification-10 §2.5) and
+// earns no HP; it stays readable via the vitals store's own chart-facing routes.
 func (s *service) loadVitalsAuto(ctx context.Context, userID int64, start, end time.Time) (scoring.VitalsAutoDay, error) {
 	// The vitals store uses inclusive bounds (date_time <= end), so a sample at
 	// exactly next-day midnight (== end) would be attributed to both this day and
@@ -589,10 +591,6 @@ func (s *service) loadVitalsAuto(ctx context.Context, userID int64, start, end t
 		return scoring.VitalsAutoDay{}, err
 	}
 	spo2, err := s.vitals.ListSpO2(ctx, userID, start, upper)
-	if err != nil {
-		return scoring.VitalsAutoDay{}, err
-	}
-	stress, err := s.vitals.ListStress(ctx, userID, start, upper)
 	if err != nil {
 		return scoring.VitalsAutoDay{}, err
 	}
@@ -615,14 +613,6 @@ func (s *service) loadVitalsAuto(ctx context.Context, userID int64, start, end t
 		}
 		out.HasSpO2 = true
 		out.SpO2 = float64(sum) / float64(len(spo2))
-	}
-	if len(stress) > 0 {
-		sum := 0
-		for _, v := range stress {
-			sum += v.Value
-		}
-		out.HasStress = true
-		out.Stress = float64(sum) / float64(len(stress))
 	}
 	return out, nil
 }

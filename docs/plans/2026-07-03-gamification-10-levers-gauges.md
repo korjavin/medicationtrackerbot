@@ -97,18 +97,29 @@ untouched. Ring restructure happens at the **view layer** — no migration.
 
 ### Task 1: Engine — sleep flips to bedtime timing; stress descored
 
-- [ ] `ScoreSleep`: timing-regularity becomes the primary award
+- [x] `ScoreSleep`: timing-regularity becomes the primary award
       (`SleepRegularityMaxHP` → 10); the daily duration outcome award is removed
       (`SleepOutcomeMaxHP` → deleted or 0 with a comment pointing to the Health
       Score contributor); integrity floor for logging a night stays
-- [ ] bedtime membership: trapezoid on lights-out deviation from the user's
+- [x] bedtime membership: trapezoid on lights-out deviation from the user's
       bedtime window — default window = trailing 14-day median bedtime ± 45 min
       (Config constants), overridable via a new `bedtime` target metric
       (validated like the other bands)
-- [ ] `ScoreVitalsAuto`: remove the stress award and its Config band; resting
+- [x] `ScoreVitalsAuto`: remove the stress award and its Config band; resting
       HR / SpO₂ daily awards stay for now (plan 11 moves them to weekly gauges —
       keep this plan's engine diff minimal)
-- [ ] Config cleanup: delete stress constants; add bedtime-window constants
+- [x] Config cleanup: delete stress constants; add bedtime-window constants
+
+  ➕ Implementation note: `Config.BedtimeWindow` reuses the existing `Band`
+  type (`Low` pinned to 0, `High`/`Falloff` in minutes) so the `bedtime` target
+  override rides the existing generic band-override validation
+  (`applyTarget`/`validateTarget`) with no new code — `ScoreSleep` scores
+  `cfg.BedtimeWindow.Membership(|deviation|)`. Computing the trailing 14-day
+  median bedtime that centers `TimingDeviationMin` for a real night stays a
+  loader concern (`loadSleep` still leaves `HasRegularity` unset, as before
+  this plan — see scoreday.go's package doc); wiring that loader is left to
+  whichever later task first needs a live bedtime award (view layer/goals.go,
+  Task 2) rather than duplicated here.
 
 ### Task 2: View layer — rings become the three levers
 

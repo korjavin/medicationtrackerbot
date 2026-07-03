@@ -201,7 +201,7 @@ output(result["sleep_bp"])
         "type": "object",
         "required": ["metric_key"],
         "properties": {
-          "metric_key": {"type": "string", "enum": ["bp_systolic", "bp_diastolic", "resting_hr", "stress", "sleep_hours", "steps"], "description": "Which band-shaped metric to override."},
+          "metric_key": {"type": "string", "enum": ["bp_systolic", "bp_diastolic", "resting_hr", "sleep_hours", "steps", "bedtime"], "description": "Which band-shaped metric to override."},
           "low_val":  {"type": ["number", "null"], "description": "Lower bound of the healthy band (omit/null to keep the recommended low). Must be >= 0 and <= high_val."},
           "high_val": {"type": ["number", "null"], "description": "Upper bound of the healthy band (omit/null to keep the recommended high). Must be >= 0."},
           "falloff":  {"type": ["number", "null"], "description": "How far outside the band HP decays to zero (>= 0)."},

@@ -45,7 +45,6 @@ type fakeVitals struct {
 	sleep    []store.SleepLog
 	hr       []store.VitalsHeartLog
 	spo2     []store.VitalsSpO2Log
-	stress   []store.VitalsStressLog
 }
 
 func (f fakeVitals) ListDayStats(context.Context, int64, time.Time) ([]store.DayStat, error) {
@@ -73,9 +72,6 @@ func (f fakeVitals) ListHeart(context.Context, int64, time.Time, time.Time) ([]s
 }
 func (f fakeVitals) ListSpO2(context.Context, int64, time.Time, time.Time) ([]store.VitalsSpO2Log, error) {
 	return f.spo2, nil
-}
-func (f fakeVitals) ListStress(context.Context, int64, time.Time, time.Time) ([]store.VitalsStressLog, error) {
-	return f.stress, nil
 }
 
 type fakeFood struct {
@@ -382,8 +378,9 @@ func TestScoreDay_SleepAttributedToWakeDay(t *testing.T) {
 	}
 
 	cfg := scoring.DefaultConfig()
-	// Mind ring: sleep floor + full duration outcome (8h → membership 1).
-	want := cfg.FloorHP + cfg.SleepOutcomeMaxHP
+	// Mind ring: sleep floor only (duration is a gauge, no longer a ledger
+	// award; no personal bedtime baseline in this single-day fixture).
+	want := cfg.FloorHP
 	if got := fs.gam.ringHP(userID, day, scoring.RingMind); got != want {
 		t.Errorf("sleep Mind-ring HP = %d, want %d (night dropped by start_time window?)", got, want)
 	}
