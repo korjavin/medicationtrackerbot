@@ -94,6 +94,34 @@ strongest mechanistic support and design *against* the known failure modes.
 
 ---
 
+### 2.5 Levers & Gauges
+
+Every scored metric is either a **lever** — a decision the user makes *today*,
+one they can actually act on (when to go to bed, how much to move, what to
+eat) — or a **gauge** — what the body reports back, delayed and often noisy
+(weight, BP, resting HR, stress, sleep duration). The two get different
+treatment, and conflating them is the mistake gamification-10 corrects:
+
+- **Gamify levers daily.** A lever gets a ring, a "your move" nudge, and a
+  consistency bonus, because today's choice can change today's outcome.
+- **Read gauges as long-term trends; never grade a gauge daily.** A gauge
+  still earns HP and still feeds the Health Score (§14.7) and the insight
+  ladder (§8, §14.8) once enough of it accumulates — but it never gets a daily
+  "your move." A single noisy reading isn't something willed into range by
+  trying harder today; grading it like a lever just rewards measurement noise
+  or biology. Stress is the clearest case — even *improvement-vs-baseline*
+  scoring grades the ungovernable, so it was removed from scoring entirely
+  (§6.3) and now lives in charts only.
+- **Adherence is neither** — it's a solved habit (§6.1): silent unless it
+  slips, then it surfaces once as a safety-net alert, never a ring.
+
+This is why the daily ring set narrowed from five to three (§5): Bedtime,
+Movement, and Nourishment are levers. Vitals and Adherence left the daily
+ring set — they keep earning HP toward the Health Score, just without a ring
+or daily grading.
+
+---
+
 ## 3. Design principles (the ethical guardrails)
 
 These are **invariants**. Any future mechanic must satisfy all of them.
@@ -180,21 +208,32 @@ one-sided-OK metrics (e.g. protein adequacy) the upper arm is flat to a sane cap
 
 ## 5. Domains, "Rings," and personalized targets
 
-HP is earned across the app's real tracking domains, grouped into five **Rings**
-(à la activity rings, but covering the whole app and tuned to *balance* — no single
-behavior can dominate the day's score):
+The daily ring set (gamification-10) is the three **levers** (§2.5) — decisions
+the user makes today — one ring each, still tuned to *balance* so no single
+behavior can dominate the day's score:
 
-| Ring | App data sources | What "in range" means (default — all editable) |
+| Ring | App data sources | What closes the ring (default — all editable) |
 |------|------------------|--------------------------------------------------|
-| **Adherence** | medications / intake_log | doses taken on time; weekly adherence ≥ 80% (PDC) |
+| **Bedtime** | sleep log lights-out timestamp | lights-out lands within the personalized bedtime window (trailing-median ± tolerance) — a *timing* target; sleep *duration* is a gauge and stays a Health Score contributor only (§6.4) |
 | **Movement** | workouts, mi-band steps/active-minutes | weekly activity toward WHO 150–300 min; daily steps band |
-| **Vitals** | BP, weight, resting HR, SpO₂, stress | each reading inside its personalized clinical band |
 | **Nourishment** | food / intake | calories within ± target; protein/fiber/veg adequacy |
-| **Mind** | diary, mood, sleep | diary/mood *process*-scored (you reflected); sleep *outcome*-scored — duration 7–9h & timing regularity in band |
 
-> Sleep sits in **Mind** deliberately — it pairs with reflection/recovery and its
-> regularity sub-score is process-flavored. Place it in Vitals if you prefer; it's
-> a labeling choice, not a scoring one.
+Every other domain keeps earning HP into the same lifetime ledger (untouched —
+§14.6) but no longer produces a ring:
+
+- **Adherence** (medications) is a silent safety net (§6.1) — no ring, no daily
+  grading; it only speaks up once it slips below threshold.
+- **Vitals** (BP, weight, resting HR, SpO₂) are gauges (§2.5) — delayed, noisy
+  body signals. They earn HP and feed the Health Score and insight ladder, but
+  are never graded as "your move today."
+- **Mind / diary** keeps its integrity floor + reflection HP (§6.8) unchanged —
+  it just has no ring.
+- **Stress** was removed from scoring entirely — the clearest ungovernable
+  gauge (§6.3). It still shows in charts.
+
+History logged under the old five-Ring rules is untouched: HP is non-punitive
+and ring-agnostic in the lifetime sum, so a day scored before this change and a
+day scored after it coexist harmlessly — there is no re-backfill.
 
 **Personalized targets are a hard requirement, not a nicety — and they are
 self-set with recommendations.** Every band lives in Settings and is owned by the
@@ -217,15 +256,25 @@ Numbers are illustrative defaults.
 
 ### 6.1 Adherence — medications
 
-This is the clearest controllable health behavior, and adherence *is* the clinical
-outcome for chronic meds, so outcome-scoring is both safe and meaningful here.
+Adherence *is* the clinical outcome for chronic meds, so it's still
+outcome-scored into the lifetime ledger — but it's a solved habit ("more or
+less given"), not something to grade daily, so gamification-10 pulled it out
+of the daily ring set entirely: no ring, no "your move," no daily nag.
 
 - **Integrity floor:** logging the dose action (taken / skipped-with-reason).
-- **Outcome (per dose):** taken within the window → full; taken late → partial
-  (trapezoid on minutes-late); intentionally skipped *with a reason* → **0, with
-  no penalty** (a doctor-ordered stop must never cost points).
-- **Outcome (weekly):** bonus when adherence rate lands in a healthy band —
-  default ≥ 80% Proportion of Days Covered (a real pharmacology threshold).
+- **Outcome (per dose, still scored, no ring):** taken within the window →
+  full; taken late → partial (trapezoid on minutes-late); intentionally
+  skipped *with a reason* → **0, with no penalty** (a doctor-ordered stop must
+  never cost points).
+- **Health Score contribution:** a reduced-weight background contributor
+  (§14.7) — adherence still counts, just less than before, since it no longer
+  needs a daily ring to stay visible.
+- **Safety-net alert (the only nag left):** a rolling 14-day PDC below a
+  threshold (default 0.90 — stricter than the Health Score's own 0.80 target)
+  surfaces exactly one gentle line on Today ("2 missed evening doses this week
+  — worth a look"), linking to Meds. Above threshold, nothing renders — a
+  solved habit is invisible. (`adherence_alert` on `GET
+  /api/gamification/summary` / `/rings`, `docs/api.md#gamification`.)
 - **Guardrails:** never reward double-dosing; respect intentional med changes; a
   long deliberate taper is not "non-adherence."
 
@@ -239,27 +288,40 @@ outcome for chronic meds, so outcome-scoring is both safe and meaningful here.
 - **Carve-out / safety:** a dangerously high (or low) reading triggers a **health
   alert**, never a silent score penalty. Safety is not a game mechanic.
 
-### 6.3 Vitals — resting HR / SpO₂ / stress (mi-band continuous streams)
+### 6.3 Vitals — resting HR / SpO₂ (mi-band continuous streams)
 
 These are largely *auto-captured*, so the user can't directly "will" them moment
 to moment. They **do count toward grading** (HP) — but scored in a way that's fair
 to genetics: by **range membership *and* improvement vs. the user's own baseline**,
 so the reward tracks *your* trend rather than absolute luck. They carry a
 **moderate** weight — real, but a notch below effortful actions (taking a dose,
-completing a workout), since they're passively captured.
+completing a workout), since they're passively captured. No ring (§5) — Vitals
+are gauges, read as trends, not graded daily.
 
-- Resting HR in a personalized band (default `[50, 80]`), SpO₂ ≥ 95%, stress
-  trending down vs. baseline. Graded HP, plus a big role in the insight ladder (§8).
+- Resting HR in a personalized band (default `[50, 80]`), SpO₂ ≥ 95%. Graded
+  HP, plus a big role in the insight ladder (§8).
+- **Stress was removed from scoring entirely (gamification-10, §2.5):** it's
+  the clearest ungovernable gauge — even improvement-vs-baseline scoring grades
+  something the user can't reliably will down. Stress still appears in charts;
+  it earns no HP and has no target band.
 
 ### 6.4 Mind — sleep
 
+Sleep splits cleanly along the lever/gauge line (§2.5): **when you go to bed is
+a lever** (you choose it); **how long you sleep is a gauge** (the body reports
+it back, and chasing a number can backfire). Gamification-10 flipped the daily
+grading to match:
+
 - **Integrity floor:** logging the night.
-- **Outcome (duration):** two-sided band `7–9h` for adults (AASM / Sleep Research
-  Society / CDC), falloff both sides — chasing 10h+ is *not* rewarded.
-- **Consistency sub-score:** reward **regularity** of sleep/wake timing (low
-  social jetlag). Sleep regularity is a strong, independent predictor of health
-  outcomes (Windred et al. 2023), and rewarding *consistency* sidesteps rewarding
-  the raw value.
+- **Bedtime ring (the lever, daily-graded):** timing-regularity is now the
+  primary award — a trapezoid on how far lights-out lands from the user's own
+  trailing-median bedtime window (default ± 45 min, overridable like any other
+  band). This is what closes the Bedtime ring (§5); it replaces what used to be
+  a duration outcome award.
+- **Duration (the gauge, no longer daily-graded):** the two-sided `7–9h` band
+  (AASM / Sleep Research Society / CDC) is no longer a daily outcome award — it
+  moved to being a Health Score contributor only (§14.7), read as a trend
+  rather than graded night by night.
 
 ### 6.5 Movement — workouts & steps
 
@@ -927,6 +989,50 @@ pairing → API shape end to end (`internal/domain/gamification/insights_test.go
 seeded correlated data asserts the `effect` status/delta/counts, sparse data
 asserts `insufficient_data`, below-tier asserts the locked shape carries no
 numbers) — no unit tests, the same boundary-test posture as Health Score.
+
+---
+
+### 14.9 Levers & gauges restructure — Plan 10 (status)
+
+Implemented in
+[docs/plans/2026-07-03-gamification-10-levers-gauges.md](plans/2026-07-03-gamification-10-levers-gauges.md).
+Concept sharpening on top of Plans 1–9, view-layer only — no ledger migration,
+no re-backfill (§2.5, §5).
+
+- **Engine** (`internal/domain/gamification/scoring/scoring.go`): `ScoreSleep`
+  makes timing-regularity the primary award (`SleepRegularityMaxHP` → 10) and
+  drops the daily duration outcome award; `ScoreVitalsAuto` no longer scores
+  stress. New `Config.BedtimeWindow` band (reuses the existing `Band`/trapezoid
+  machinery, §4.1) with a `bedtime` target-override metric key
+  (`TargetKeyBedtime`, validated like every other band).
+- **View layer** (`summary.go`, `goals.go`): `ringScores()` now returns exactly
+  three rings — `bedtime`, `movement`, `nourishment` — for both `TodayRings`
+  and `PeriodRings` (shared code path, one mapping). `loadSleep`
+  (`scoreday.go`) computes the trailing 14-night median bedtime
+  (`medianBedtimeOnset`) to center each night's timing deviation and feed the
+  Bedtime ring's real clock-time goal string.
+- **Adherence safety net** (`wellbeing.go`): `computeAdherenceAlert` grades
+  rolling 14-day dose-level PDC against `Config.AdherenceAlertPDCThreshold`
+  (0.90, distinct from and stricter than the Health Score's own 0.80 adherence
+  target) and surfaces `adherence_alert {active, pdc, missed_doses}` additively
+  on `Summary` and the slim `/api/gamification/rings` view — absent/inactive
+  when adherence is fine.
+- **Health Score** (`wellbeing.go`): `HealthScoreWeightAdherence` lowered from
+  1.0 to 0.5 (a stress contributor never existed here to remove — `ScoreVitalsAuto`
+  already didn't score it before this plan's own engine change landed first).
+- **Frontend**: Settings' targets editor drops the `stress` band editor and
+  adds a `bedtime` window editor (same generic band-override pattern); Journey's
+  "How this works" explainer gained one paragraph distinguishing levers (close
+  rings daily) from gauges (read as trends).
+- **Testing**: one integration test per the Testing Strategy —
+  `internal/domain/gamification/gamification10_lever_test.go`, through the real
+  service against a real SQLite-backed store — asserting the three-ring shape,
+  a consistent-bedtime night closing the Bedtime ring while a diary-only day
+  doesn't, and the adherence alert tripping/not-tripping at the PDC threshold.
+- **Mixed-rule history:** HP awarded under the old five-Ring rules and HP
+  awarded under this plan's rules coexist in the same lifetime sum without
+  reconciliation — the ledger is non-punitive and ring-agnostic, so a
+  before/after mix is harmless and there is no re-backfill of history.
 
 ---
 

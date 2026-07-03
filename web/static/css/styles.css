@@ -779,6 +779,7 @@
     --wg-ring-vitals: var(--wg-health-vitals-hr-line);
     --wg-ring-nourishment: var(--wg-clay-soft);
     --wg-ring-mind: var(--wg-health-sleep-rem);
+    --wg-ring-bedtime: var(--wg-health-sleep-rem);
     --wg-ring-closed-brightness: 1.18;
     --wg-ring-stack-size: 180px;
     --wg-ring-stack-size-lg: 220px;
@@ -5301,6 +5302,7 @@ textarea.wg-input {
 .wg-ring-stack__arc--vitals { stroke: var(--wg-ring-vitals); }
 .wg-ring-stack__arc--nourishment { stroke: var(--wg-ring-nourishment); }
 .wg-ring-stack__arc--mind { stroke: var(--wg-ring-mind); }
+.wg-ring-stack__arc--bedtime { stroke: var(--wg-ring-bedtime); }
 
 /* Center content (closed count / check glyph) is caller-supplied via
    opts.centerLabel; this just centers whatever DOM lands there. */
@@ -5659,6 +5661,16 @@ textarea.wg-input {
 .wg-today-rings__move.wg-muted .wg-today-rings__move-text {
     font-weight: 400;
     color: var(--wg-fg-3);
+}
+
+/* Adherence safety-net nudge (Task 3): invisible unless the trailing PDC
+   slips — one tappable, token-neutral line to Meds, no icon/urgency styling. */
+.wg-today-rings__adherence {
+    display: block;
+    margin-bottom: var(--space-sm);
+    padding: 0 var(--space-sm);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
 }
 
 /* Explicit "View Journey →" affordance, distinct from the "your move" deep

@@ -642,28 +642,6 @@
                         </div>
                     </div>
                 </div>
-                <div class="wg-gam-target-metric" data-gam-metric="stress">
-                    <div class="wg-gam-target-metric__head">
-                        <span class="wg-settings-number-field__label">Stress</span>
-                        <span class="wg-gam-target-metric__hint" data-gam-hint="stress"></span>
-                    </div>
-                    <div class="wg-settings-number-grid">
-                        <div class="wg-settings-number-field">
-                            <label for="gam-target-stress-low" class="wg-settings-number-field__label">Low</label>
-                            <div class="wg-gloss--inset wg-settings-number-field__wrap">
-                                <input type="number" id="gam-target-stress-low" class="wg-settings-number-field__input" min="0">
-                                <span class="wg-settings-number-field__unit">idx</span>
-                            </div>
-                        </div>
-                        <div class="wg-settings-number-field">
-                            <label for="gam-target-stress-high" class="wg-settings-number-field__label">High</label>
-                            <div class="wg-gloss--inset wg-settings-number-field__wrap">
-                                <input type="number" id="gam-target-stress-high" class="wg-settings-number-field__input" min="0">
-                                <span class="wg-settings-number-field__unit">idx</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
                 <div class="wg-gam-target-metric" data-gam-metric="sleep_hours">
                     <div class="wg-gam-target-metric__head">
                         <span class="wg-settings-number-field__label">Sleep</span>
@@ -704,6 +682,28 @@
                             <div class="wg-gloss--inset wg-settings-number-field__wrap">
                                 <input type="number" id="gam-target-steps-high" class="wg-settings-number-field__input" min="0" step="500">
                                 <span class="wg-settings-number-field__unit">steps</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="wg-gam-target-metric" data-gam-metric="bedtime">
+                    <div class="wg-gam-target-metric__head">
+                        <span class="wg-settings-number-field__label">Bedtime window</span>
+                        <span class="wg-gam-target-metric__hint" data-gam-hint="bedtime"></span>
+                    </div>
+                    <div class="wg-settings-number-grid">
+                        <div class="wg-settings-number-field">
+                            <label for="gam-target-bedtime-low" class="wg-settings-number-field__label">Low</label>
+                            <div class="wg-gloss--inset wg-settings-number-field__wrap">
+                                <input type="number" id="gam-target-bedtime-low" class="wg-settings-number-field__input" min="0">
+                                <span class="wg-settings-number-field__unit">min</span>
+                            </div>
+                        </div>
+                        <div class="wg-settings-number-field">
+                            <label for="gam-target-bedtime-high" class="wg-settings-number-field__label">High</label>
+                            <div class="wg-gloss--inset wg-settings-number-field__wrap">
+                                <input type="number" id="gam-target-bedtime-high" class="wg-settings-number-field__input" min="0">
+                                <span class="wg-settings-number-field__unit">min</span>
                             </div>
                         </div>
                     </div>

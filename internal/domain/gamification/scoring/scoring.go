@@ -56,7 +56,6 @@ const (
 	MetricBP         = "bp"
 	MetricRestingHR  = "resting_hr"
 	MetricSpO2       = "spo2"
-	MetricStress     = "stress"
 	MetricSleep      = "sleep"
 	MetricSteps      = "steps"
 	MetricActivity   = "activity"
@@ -136,23 +135,31 @@ type Config struct {
 	BPSystolic     Band
 	BPDiastolic    Band
 
-	// Auto-captured vitals (§6.3): HR/SpO₂/stress, moderate weight (a notch
-	// below effortful actions). Scored by range membership OR improvement vs.
-	// the user's own baseline (fair to genetics), whichever is kinder.
+	// Auto-captured vitals (§6.3): HR/SpO₂, moderate weight (a notch below
+	// effortful actions). Scored by range membership OR improvement vs. the
+	// user's own baseline (fair to genetics), whichever is kinder. Stress is
+	// not scored (gamification-10: it's ungovernable, not a lever) — charts
+	// still show it, but no HP award reads it.
 	VitalsAutoOutcomeMaxHP int
 	RestingHR              Band
 	SpO2Low                float64
 	SpO2Falloff            float64
-	StressBand             Band
 	VitalsImprovementSpan  float64 // fractional band around baseline for the relative credit
 
-	// Sleep (§6.4), in the Mind ring. Two-sided duration band + a regularity
-	// consistency sub-score on timing deviation.
-	SleepOutcomeMaxHP           int
-	SleepHours                  Band
-	SleepRegularityMaxHP        int
-	SleepRegularityToleranceMin float64
-	SleepRegularityFalloffMin   float64
+	// Sleep (§6.4). Bedtime timing (lights-out deviation from the user's
+	// bedtime window) is the lever and the primary award — the user chooses
+	// when to go to bed. Duration is a gauge: it stays as a Health Score
+	// contributor (HealthContributorSleep) only, never a daily ledger award.
+	// BedtimeWindow is deliberately reused as a Band (Low is always 0) so the
+	// bedtime target override rides the existing band-override machinery
+	// (applyTarget/validateTarget) instead of new bespoke validation: High is
+	// the ±window half-width in minutes around the personal bedtime center
+	// (default: trailing 14-day median bedtime ± 45min — the service resolves
+	// the center, this Config only holds the tolerance/falloff), Falloff
+	// softens the edge instead of a hard cutoff.
+	SleepHours           Band // Health Score contributor band only (gamification-10)
+	SleepRegularityMaxHP int
+	BedtimeWindow        Band
 
 	// Movement (§6.5). Daily steps band + weekly WHO-activity progress that
 	// saturates at the guideline (ceiling = anti-overtraining; never penalized
@@ -239,6 +246,13 @@ type Config struct {
 	// month of daily completion, ~0.99 after three months). Flexible
 	// frequency (e.g. f=3/7 for 3×/week movement) works by construction.
 	HabitStrengthHalfLifeDays float64
+
+	// Adherence safety net (§6.1/§Task 3): adherence has no ring and no daily
+	// grading — it's a solved habit that should stay invisible. The one
+	// exception is a trailing-PDC alert when it slips below this threshold,
+	// distinct from (and stricter than) HealthScoreAdherencePDCTarget above,
+	// which grades Health Score credit rather than firing a nudge.
+	AdherenceAlertPDCThreshold float64
 }
 
 // DefaultConfig returns the recommended guideline defaults. Every value is a
@@ -260,14 +274,11 @@ func DefaultConfig() Config {
 		RestingHR:              Band{Low: 50, High: 80, Falloff: 10},
 		SpO2Low:                95,
 		SpO2Falloff:            4,
-		StressBand:             Band{Low: 0, High: 40, Falloff: 20}, // lower is better
 		VitalsImprovementSpan:  0.2,
 
-		SleepOutcomeMaxHP:           10,
-		SleepHours:                  Band{Low: 7, High: 9, Falloff: 1.5}, // AASM 7–9h, two-sided
-		SleepRegularityMaxHP:        5,
-		SleepRegularityToleranceMin: 30,
-		SleepRegularityFalloffMin:   60,
+		SleepHours:           Band{Low: 7, High: 9, Falloff: 1.5}, // AASM 7–9h, Health Score only
+		SleepRegularityMaxHP: 10,                                  // primary sleep award (was 5): bedtime timing is the lever
+		BedtimeWindow:        Band{Low: 0, High: 45, Falloff: 60}, // ±45min around the personal median, softening over 60 more
 
 		StepsOutcomeMaxHP:       6,
 		StepsBand:               Band{Low: 7000, High: 15000, Falloff: 3000}, // ~7–8k knee, diminishing returns above
@@ -310,11 +321,13 @@ func DefaultConfig() Config {
 		HealthScoreWeightSleep:        1.0,
 		HealthScoreWeightRestingHR:    1.0,
 		HealthScoreWeightBodyweight:   1.0,
-		HealthScoreWeightAdherence:    1.0,
+		HealthScoreWeightAdherence:    0.5, // solved habit (Task 3 safety net); small background credit, not a peer signal
 		HealthScoreAdherencePDCTarget: 0.8, // §6.1 weekly-adherence precedent
 		HealthScoreWeightStabilityPct: 0.02,
 
 		HabitStrengthHalfLifeDays: 13,
+
+		AdherenceAlertPDCThreshold: 0.90,
 	}
 }
 
@@ -443,17 +456,16 @@ type VitalsAutoDay struct {
 	BaselineRestingHR float64
 	HasSpO2           bool
 	SpO2              float64
-	HasStress         bool
-	Stress            float64
-	BaselineStress    float64
 }
 
-// ScoreVitalsAuto (§6.3) scores resting HR, SpO₂, and stress at a moderate
-// weight. HR and stress take the kinder of (absolute band membership,
-// improvement vs. the user's own baseline) so someone with a genetically high
-// resting HR still earns by trending down for themselves. SpO₂ is one-sided
-// (≥95%). One outcome award per present stream; no floor (auto-captured streams
-// don't need an honesty incentive).
+// ScoreVitalsAuto (§6.3) scores resting HR and SpO₂ at a moderate weight. HR
+// takes the kinder of (absolute band membership, improvement vs. the user's
+// own baseline) so someone with a genetically high resting HR still earns by
+// trending down for themselves. SpO₂ is one-sided (≥95%). One outcome award
+// per present stream; no floor (auto-captured streams don't need an honesty
+// incentive). Stress is deliberately not scored here (gamification-10 §2.5):
+// it is not a lever the user governs, so even improvement-vs-baseline would
+// grade the ungovernable — it stays visible in charts only.
 func ScoreVitalsAuto(in VitalsAutoDay, cfg Config) []Award {
 	var awards []Award
 	if in.HasRestingHR {
@@ -465,17 +477,15 @@ func ScoreVitalsAuto(in VitalsAutoDay, cfg Config) []Award {
 		r := RangeMembership(in.SpO2, cfg.SpO2Low, 100, cfg.SpO2Falloff)
 		awards = addAward(awards, RingVitals, MetricSpO2, KindOutcome, scaleHP(cfg.VitalsAutoOutcomeMaxHP, r), detailR(r))
 	}
-	if in.HasStress {
-		r := math.Max(cfg.StressBand.Membership(in.Stress),
-			BaselineRelative(in.Stress, in.BaselineStress, true, cfg.VitalsImprovementSpan))
-		awards = addAward(awards, RingVitals, MetricStress, KindOutcome, scaleHP(cfg.VitalsAutoOutcomeMaxHP, r), detailR(r))
-	}
 	return awards
 }
 
-// SleepDay is one logged night. TimingDeviationMin is |onset − personal average|
-// in minutes for the regularity sub-score; HasRegularity is false when there is
-// no baseline to compare against yet.
+// SleepDay is one logged night. TimingDeviationMin is |bedtime − the user's
+// bedtime window center| in minutes for the bedtime-timing award; HasRegularity
+// is false when there is no personal bedtime baseline to compare against yet.
+// DurationHours is logged for completeness but is a gauge, not a lever: it is
+// never scored here (see Config.SleepHours doc) — only the Health Score reads
+// it (HealthContributorSleep).
 type SleepDay struct {
 	Logged             bool
 	DurationHours      float64
@@ -484,18 +494,17 @@ type SleepDay struct {
 }
 
 // ScoreSleep (§6.4) lives in the Mind ring. It grants a floor for logging the
-// night, a two-sided duration outcome (chasing 10h+ is not rewarded), and a
-// regularity consistency bonus that rewards stable timing without scoring the
-// raw value.
+// night and a bedtime-timing award: membership of the lights-out deviation
+// within the user's bedtime window (§2.5 — the lever is choosing a bedtime,
+// not the hours slept). Duration is a gauge and is intentionally not scored
+// here.
 func ScoreSleep(in SleepDay, cfg Config) []Award {
 	var awards []Award
 	if in.Logged {
 		awards = addAward(awards, RingMind, MetricSleep, KindFloor, cfg.FloorHP, "")
-		r := cfg.SleepHours.Membership(in.DurationHours)
-		awards = addAward(awards, RingMind, MetricSleep, KindOutcome, scaleHP(cfg.SleepOutcomeMaxHP, r), detailR(r))
 	}
 	if in.HasRegularity {
-		r := RangeMembership(math.Abs(in.TimingDeviationMin), 0, cfg.SleepRegularityToleranceMin, cfg.SleepRegularityFalloffMin)
+		r := cfg.BedtimeWindow.Membership(math.Abs(in.TimingDeviationMin))
 		awards = addAward(awards, RingMind, MetricSleep, KindConsistency, scaleHP(cfg.SleepRegularityMaxHP, r), detailR(r))
 	}
 	return awards
@@ -803,7 +812,7 @@ func HealthContributorSleep(meanDurationHours, meanTimingDeviationMin float64, h
 	if present {
 		v := cfg.SleepHours.Membership(meanDurationHours)
 		if hasRegularity {
-			reg := RangeMembership(math.Abs(meanTimingDeviationMin), 0, cfg.SleepRegularityToleranceMin, cfg.SleepRegularityFalloffMin)
+			reg := cfg.BedtimeWindow.Membership(math.Abs(meanTimingDeviationMin))
 			v = (v + reg) / 2
 		}
 		c.Value = v

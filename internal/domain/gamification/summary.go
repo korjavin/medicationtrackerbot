@@ -18,6 +18,34 @@ import (
 // totals cover — a week of activity, the natural cadence for the Rings view.
 const summaryPeriodDays = 7
 
+// Lever ring keys (gamification-10 §2.5) — the three rings surfaced to the
+// user: a decision made today, not a delayed body signal. This is a
+// view-layer regrouping of the five ledger Ring keys (scoring.go), not a
+// ledger schema change — adherence/vitals ledger rows and the Mind ring's
+// diary awards keep earning HP but produce no ring.
+const (
+	LeverBedtime     = "bedtime"
+	LeverMovement    = scoring.RingMovement
+	LeverNourishment = scoring.RingNourishment
+)
+
+// leverRing maps one lever ring onto the ledger (ring, source_metric) it reads
+// from. An empty SourceMetric matches every source metric on that ledger ring.
+type leverRing struct {
+	Key          string
+	Ring         string
+	SourceMetric string
+}
+
+// leverRings is the canonical lever order the rings API returns. Bedtime reads
+// only the sleep-timing award off the Mind ring — the diary floor/reflection
+// awards also live on RingMind (§6.8) but keep earning HP without a ring.
+var leverRings = []leverRing{
+	{Key: LeverBedtime, Ring: scoring.RingMind, SourceMetric: scoring.MetricSleep},
+	{Key: LeverMovement, Ring: scoring.RingMovement},
+	{Key: LeverNourishment, Ring: scoring.RingNourishment},
+}
+
 // Summary is the gamification read model. When Enabled is false every other field
 // is zero/empty: transports render a disabled state without branching on the flag
 // themselves.
@@ -57,6 +85,13 @@ type Summary struct {
 	// the continuity mechanic that replaces the weekly streak card on Journey. A
 	// read/degrade error yields an empty slice.
 	Strengths []StrengthView `json:"strengths"`
+
+	// AdherenceAlert is the safety-net nudge (Task 3, see wellbeing.go):
+	// adherence has no ring and no daily grading, so this stays Active=false
+	// (invisible) unless the trailing PDC drops below
+	// Config.AdherenceAlertPDCThreshold. A read/degrade error yields the zero
+	// value, i.e. inactive.
+	AdherenceAlert AdherenceAlertView `json:"adherence_alert"`
 }
 
 // GetSummary returns the user's gamification read model. Gate-off yields
@@ -123,6 +158,7 @@ func (s *service) GetSummary(ctx context.Context, userID int64) (Summary, error)
 	goals := map[string]string{}
 	healthScore := HealthScoreView{Missing: []string{}}
 	strengths := []StrengthView{}
+	adherenceAlert := AdherenceAlertView{}
 	if effCfg, err := s.effectiveConfig(ctx, userID); err != nil {
 		slog.Warn("gamification summary: effective config load failed; rings degrade to no progress/goal", "error", err, "user_id", userID)
 	} else {
@@ -131,10 +167,16 @@ func (s *service) GetSummary(ctx context.Context, userID int64) (Summary, error)
 		} else {
 			todayProgress = p
 		}
+		bedtimeCenter, hasBedtimeCenter := 0.0, false
+		if c, ok, err := s.bedtimeBaselineCenter(ctx, userID, today); err != nil {
+			slog.Warn("gamification summary: bedtime baseline load failed; goal degrades to no window", "error", err, "user_id", userID)
+		} else {
+			bedtimeCenter, hasBedtimeCenter = c, ok
+		}
 		if ft, err := s.food.GetTargets(ctx); err != nil {
 			slog.Warn("gamification summary: food targets load failed; goals degrade to empty", "error", err, "user_id", userID)
 		} else {
-			goals = ringGoals(effCfg, ft)
+			goals = ringGoals(effCfg, ft, bedtimeCenter, hasBedtimeCenter)
 		}
 		if hs, err := s.computeHealthScore(ctx, userID, today, effCfg); err != nil {
 			slog.Warn("gamification summary: health score compute failed; degrades to unknown", "error", err, "user_id", userID)
@@ -145,6 +187,11 @@ func (s *service) GetSummary(ctx context.Context, userID int64) (Summary, error)
 			slog.Warn("gamification summary: habit strengths compute failed; degrades to empty", "error", err, "user_id", userID)
 		} else {
 			strengths = st
+		}
+		if aa, err := s.computeAdherenceAlert(ctx, userID, today, effCfg); err != nil {
+			slog.Warn("gamification summary: adherence alert compute failed; degrades to inactive", "error", err, "user_id", userID)
+		} else {
+			adherenceAlert = aa
 		}
 	}
 	// syncPending degrades to "nothing pending" on error — same forgiving
@@ -158,22 +205,23 @@ func (s *service) GetSummary(ctx context.Context, userID int64) (Summary, error)
 	}
 
 	sum := Summary{
-		Enabled:       true,
-		LifetimeHP:    st.LifetimeHP,
-		Level:         st.Level,
-		InsightTier:   st.InsightTier,
-		HPIntoLevel:   st.LifetimeHP - floor,
-		LevelSpanHP:   next - floor,
-		HPToNextLevel: next - st.LifetimeHP,
-		CurrentStreak: derivedStreak,
-		LongestStreak: longestStreak,
-		Freezes:       derivedFreezes,
-		PeriodDays:    summaryPeriodDays,
-		TodayRings:    ringScores(todayLedger, todayProgress, goals, syncPending),
-		PeriodRings:   ringScores(periodLedger, nil, goals, nil),
-		LastScoredDay: st.LastScoredDay,
-		HealthScore:   healthScore,
-		Strengths:     strengths,
+		Enabled:        true,
+		LifetimeHP:     st.LifetimeHP,
+		Level:          st.Level,
+		InsightTier:    st.InsightTier,
+		HPIntoLevel:    st.LifetimeHP - floor,
+		LevelSpanHP:    next - floor,
+		HPToNextLevel:  next - st.LifetimeHP,
+		CurrentStreak:  derivedStreak,
+		LongestStreak:  longestStreak,
+		Freezes:        derivedFreezes,
+		PeriodDays:     summaryPeriodDays,
+		TodayRings:     ringScores(todayLedger, todayProgress, goals, syncPending),
+		PeriodRings:    ringScores(periodLedger, nil, goals, nil),
+		LastScoredDay:  st.LastScoredDay,
+		HealthScore:    healthScore,
+		Strengths:      strengths,
+		AdherenceAlert: adherenceAlert,
 	}
 	if sum.HPToNextLevel < 0 {
 		sum.HPToNextLevel = 0
@@ -192,37 +240,41 @@ func (s *service) GetSummary(ctx context.Context, userID int64) (Summary, error)
 	return sum, nil
 }
 
-// ringScores aggregates ledger entries into a per-ring HP total, emitting all
-// five rings in canonical order (so a ring with no awards reads as 0, not
-// missing) for a stable frontend layout. progress is the day's per-ring
-// range-membership gauge from ringProgress (today's rings only); pass nil for
-// a period whose Progress should stay 0 (the gauge is a daily-loop affordance,
-// not a weekly one). goals is the config-derived ring -> goal-text map from
-// ringGoals, applied to both today's and period rings alike. syncPending is
-// today's ring -> "no device-synced sample yet" map from syncPendingRings;
-// pass nil for a period, whose rings always report SyncPending=false (a
-// nil-map lookup returns false, so no special-casing needed here).
+// ringScores aggregates ledger entries into the three lever rings
+// (leverRings), in canonical order (so a ring with no awards reads as 0, not
+// missing) for a stable frontend layout. Ledger entries whose (ring,
+// source_metric) match no lever — adherence, vitals, and the Mind ring's
+// diary awards — still count toward LifetimeHP elsewhere but produce no ring
+// here (gamification-10 §2.5: they're a safety net or a gauge, not a daily
+// lever). progress is the day's per-ledger-ring range-membership gauge from
+// ringProgress (today's rings only), keyed by the ledger ring a lever reads
+// from; pass nil for a period whose Progress should stay 0 (the gauge is a
+// daily-loop affordance, not a weekly one). goals is the lever-key -> goal-text
+// map from ringGoals, applied to both today's and period rings alike.
+// syncPending is today's lever-key -> "no device-synced sample yet" map from
+// syncPendingRings; pass nil for a period, whose rings always report
+// SyncPending=false (a nil-map lookup returns false, so no special-casing
+// needed here).
 func ringScores(entries []gamstore.LedgerEntry, progress map[string]float64, goals map[string]string, syncPending map[string]bool) []gamstore.RingScore {
-	byRing := make(map[string]int, 5)
-	closed := make(map[string]bool, 5)
+	hp := make(map[string]int, len(leverRings))
+	closed := make(map[string]bool, len(leverRings))
 	for _, e := range entries {
-		byRing[e.Ring] += e.HP
-		// A non-floor award (outcome or consistency) means the ring was
-		// "closed": the user landed in range / kept a good pattern, not just
-		// logged honestly. See RingScore.Closed.
-		if e.Kind != scoring.KindFloor {
-			closed[e.Ring] = true
+		for _, lv := range leverRings {
+			if e.Ring != lv.Ring || (lv.SourceMetric != "" && e.SourceMetric != lv.SourceMetric) {
+				continue
+			}
+			hp[lv.Key] += e.HP
+			// A non-floor award (outcome or consistency) means the ring was
+			// "closed": the user landed in range / kept a good pattern, not just
+			// logged honestly. See RingScore.Closed.
+			if e.Kind != scoring.KindFloor {
+				closed[lv.Key] = true
+			}
+			break
 		}
 	}
-	order := []string{
-		scoring.RingAdherence,
-		scoring.RingMovement,
-		scoring.RingVitals,
-		scoring.RingNourishment,
-		scoring.RingMind,
-	}
-	out := make([]gamstore.RingScore, 0, len(order))
-	for _, ring := range order {
+	out := make([]gamstore.RingScore, 0, len(leverRings))
+	for _, lv := range leverRings {
 		// progress == nil ⇒ a period ring: the arc gauge is a daily-loop affordance,
 		// so PeriodRings always leave Progress 0 (the documented contract) regardless
 		// of whether the week closed the ring. For today's rings (non-nil map, maybe
@@ -230,19 +282,19 @@ func ringScores(entries []gamstore.LedgerEntry, progress map[string]float64, goa
 		// not full" bug) — else the day's best range-membership, if known (0 when not).
 		p := 0.0
 		if progress != nil {
-			if closed[ring] {
+			if closed[lv.Key] {
 				p = 1.0
 			} else {
-				p = progress[ring]
+				p = progress[lv.Ring]
 			}
 		}
 		out = append(out, gamstore.RingScore{
-			Ring:        ring,
-			HP:          byRing[ring],
-			Closed:      closed[ring],
+			Ring:        lv.Key,
+			HP:          hp[lv.Key],
+			Closed:      closed[lv.Key],
 			Progress:    p,
-			Goal:        goals[ring],
-			SyncPending: !closed[ring] && syncPending[ring],
+			Goal:        goals[lv.Key],
+			SyncPending: !closed[lv.Key] && syncPending[lv.Key],
 		})
 	}
 	return out

@@ -11,6 +11,7 @@ package gamification
 import (
 	"context"
 	"math"
+	"sort"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/domain/gamification/scoring"
@@ -170,6 +171,47 @@ func (s *service) healthScoreAdherence(ctx context.Context, userID int64, today 
 	return scoring.HealthContributorAdherence(float64(coveredDays)/float64(expectedDays), true, cfg), nil
 }
 
+// AdherenceAlertView is the adherence safety net (Task 3): adherence has no
+// ring and no daily grading — it's a solved habit that stays invisible until
+// the trailing PDC slips below Config.AdherenceAlertPDCThreshold, at which
+// point Today surfaces one gentle line naming the missed-dose count.
+type AdherenceAlertView struct {
+	Active      bool    `json:"active"`
+	PDC         float64 `json:"pdc"`
+	MissedDoses int     `json:"missed_doses"`
+}
+
+// computeAdherenceAlert reuses the same loadAdherenceRange window as
+// healthScoreAdherence, but grades dose-level PDC (taken doses ÷ expected
+// doses) rather than day-level, so MissedDoses is a plain count of individual
+// missed doses for the nudge copy ("2 missed evening doses this week").
+func (s *service) computeAdherenceAlert(ctx context.Context, userID int64, today time.Time, cfg scoring.Config) (AdherenceAlertView, error) {
+	recentStart := today.AddDate(0, 0, -(cfg.HealthScoreWindowDays - 1))
+	byDay, err := s.loadAdherenceRange(ctx, userID, recentStart, today.AddDate(0, 0, 1))
+	if err != nil {
+		return AdherenceAlertView{}, err
+	}
+	var taken, expected int
+	for d := recentStart; !d.After(today); d = d.AddDate(0, 0, 1) {
+		ad, ok := byDay[utcMidnight(d).Unix()]
+		if !ok {
+			continue // no doses expected that day — not a miss, just unscored
+		}
+		t, e := takenExpected(ad)
+		taken += t
+		expected += e
+	}
+	if expected == 0 {
+		return AdherenceAlertView{}, nil
+	}
+	pdc := float64(taken) / float64(expected)
+	return AdherenceAlertView{
+		Active:      pdc < cfg.AdherenceAlertPDCThreshold,
+		PDC:         pdc,
+		MissedDoses: expected - taken,
+	}, nil
+}
+
 // healthScoreRestingHR builds the "resting_hr" contributor from the recent
 // window's mean daily-minimum HR (the same proxy loadVitalsAuto uses for a
 // single day) vs. the mean over the baseline window strictly before it —
@@ -256,7 +298,7 @@ func (s *service) healthScoreSleep(ctx context.Context, userID int64, today time
 		if sl.TotalMinutes != nil {
 			dur = float64(*sl.TotalMinutes) / 60
 		}
-		nights[sl.Day] = night{durationHours: dur, onsetMinutes: sleepOnsetMinutes(sl.StartTime)}
+		nights[sl.Day] = night{durationHours: dur, onsetMinutes: sleepOnsetMinutes(sl.StartTime, sl.TimezoneOffset)}
 	}
 
 	var recentDur, recentOnsets, baselineOnsets []float64
@@ -287,9 +329,21 @@ func (s *service) healthScoreSleep(ctx context.Context, userID int64, today time
 // sleepOnsetMinutes maps a bedtime instant onto minutes-since-previous-noon,
 // so a typical evening bedtime (e.g. 22:00) and an after-midnight one (e.g.
 // 01:00 -> 25:00) sit on the same continuous scale instead of wrapping at
-// midnight.
-func sleepOnsetMinutes(t time.Time) float64 {
-	u := t.UTC()
+// midnight. Times are stored UTC with the local wall-clock offset kept
+// alongside (store.SleepLog.TimezoneOffset, JS getTimezoneOffset style:
+// minutes-west-of-UTC, so local = UTC - offset); the bedtime lever grades and
+// displays the user's local clock, so shift into local before extracting the
+// hour — without this a non-UTC user's "Lights out" window renders and scores
+// in UTC.
+func sleepOnsetMinutes(t time.Time, tzOffsetMin int) float64 {
+	// Legacy compatibility: rows imported before the sleepimport.go convention
+	// fix hold Zepp's raw seconds-east-of-UTC (e.g. 3600 for UTC+1). A real
+	// minutes-west offset never exceeds ±14h (±840 min), so a magnitude past
+	// that must be seconds — normalize to minutes-west (= -secondsEast/60).
+	if tzOffsetMin > 900 || tzOffsetMin < -900 {
+		tzOffsetMin = -tzOffsetMin / 60
+	}
+	u := t.UTC().Add(time.Duration(-tzOffsetMin) * time.Minute)
 	minutes := float64(u.Hour()*60 + u.Minute())
 	if u.Hour() < 12 {
 		minutes += 24 * 60
@@ -455,6 +509,23 @@ func mean(vals []float64) float64 {
 		sum += v
 	}
 	return sum / float64(len(vals))
+}
+
+// median returns the middle value of vals (averaging the two middle values for
+// an even-length slice), or 0 for an empty slice. Used for the bedtime-timing
+// baseline (gamification-10 Task 2): a median resists a single very late night
+// skewing the "usual bedtime" the way a mean would.
+func median(vals []float64) float64 {
+	if len(vals) == 0 {
+		return 0
+	}
+	sorted := append([]float64(nil), vals...)
+	sort.Float64s(sorted)
+	mid := len(sorted) / 2
+	if len(sorted)%2 == 1 {
+		return sorted[mid]
+	}
+	return (sorted[mid-1] + sorted[mid]) / 2
 }
 
 // dailyMinByDay buckets HR samples into per-UTC-day minimums — the same

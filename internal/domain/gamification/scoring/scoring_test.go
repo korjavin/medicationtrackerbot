@@ -238,29 +238,21 @@ func TestScoreVitalsAuto(t *testing.T) {
 func TestScoreSleep(t *testing.T) {
 	cfg := DefaultConfig()
 
-	t.Run("8h logged → floor + full duration outcome", func(t *testing.T) {
+	t.Run("logged night → floor only, duration is not scored (gauge)", func(t *testing.T) {
 		aw := ScoreSleep(SleepDay{Logged: true, DurationHours: 8}, cfg)
 		assertNonNegative(t, aw)
 		if hp, ok := findAward(aw, RingMind, MetricSleep, KindFloor); !ok || hp != cfg.FloorHP {
 			t.Fatalf("sleep floor = %d (ok=%v)", hp, ok)
 		}
-		if hp, ok := findAward(aw, RingMind, MetricSleep, KindOutcome); !ok || hp != cfg.SleepOutcomeMaxHP {
-			t.Fatalf("sleep outcome = %d (ok=%v), want %d", hp, ok, cfg.SleepOutcomeMaxHP)
-		}
-	})
-
-	t.Run("oversleeping is not rewarded more (two-sided)", func(t *testing.T) {
-		// 11h is beyond high(9)+falloff(1.5)=10.5 → r=0.
-		aw := ScoreSleep(SleepDay{Logged: true, DurationHours: 11}, cfg)
 		if hp, ok := findAward(aw, RingMind, MetricSleep, KindOutcome); ok {
-			t.Fatalf("11h should not earn duration HP, got %d", hp)
+			t.Fatalf("duration should never earn a ledger outcome award, got %d", hp)
 		}
 	})
 
-	t.Run("regularity consistency bonus", func(t *testing.T) {
+	t.Run("bedtime-timing award is primary", func(t *testing.T) {
 		aw := ScoreSleep(SleepDay{Logged: true, DurationHours: 8, HasRegularity: true, TimingDeviationMin: 15}, cfg)
 		if hp, ok := findAward(aw, RingMind, MetricSleep, KindConsistency); !ok || hp != cfg.SleepRegularityMaxHP {
-			t.Fatalf("regularity = %d (ok=%v), want %d", hp, ok, cfg.SleepRegularityMaxHP)
+			t.Fatalf("bedtime timing = %d (ok=%v), want %d", hp, ok, cfg.SleepRegularityMaxHP)
 		}
 	})
 }

@@ -32,6 +32,12 @@ const (
 	weightLookbackDays  = 14  // trailing window for the maintenance band center
 	workoutHistoryLimit = 500 // plenty to cover the movement week window
 	diaryDayLimit       = 100 // cap on entries counted for one day's Mind floor
+
+	// bedtimeBaselineDays is the trailing window (excluding the night being
+	// scored) whose median bedtime centers ScoreSleep's timing-regularity
+	// award and the Bedtime ring's goal text (gamification-10 §2.5) — the
+	// personal "usual bedtime" a night's deviation is graded against.
+	bedtimeBaselineDays = 14
 )
 
 // Target-override metric keys (gamification_targets.metric_key). Only band-shaped
@@ -41,9 +47,9 @@ const (
 	TargetKeyBPSystolic  = "bp_systolic"
 	TargetKeyBPDiastolic = "bp_diastolic"
 	TargetKeyRestingHR   = "resting_hr"
-	TargetKeyStress      = "stress"
 	TargetKeySleepHours  = "sleep_hours"
 	TargetKeySteps       = "steps"
+	TargetKeyBedtime     = "bedtime"
 )
 
 // ScoreDay computes the day's HP awards and the recomputed state and persists
@@ -239,8 +245,8 @@ func awardMembership(a scoring.Award) (r float64, ok bool) {
 	return *d.R, true
 }
 
-// syncPendingRings reports, for today only, whether the Mind and Movement
-// rings are missing their device-synced sample (no sleep log for last night,
+// syncPendingRings reports, for today only, whether the Bedtime and Movement
+// levers are missing their device-synced sample (no sleep log for last night,
 // no day_stats steps row for today) — "hasn't synced yet" rather than "the
 // user failed today". It reuses the same loaders scoreDayAwards already uses
 // (same day reads, no new query shapes), so a late Mi Band import that fills in
@@ -258,8 +264,8 @@ func (s *service) syncPendingRings(ctx context.Context, userID int64, day time.T
 		return nil, err
 	}
 	return map[string]bool{
-		scoring.RingMind:     !sleep.Logged,
-		scoring.RingMovement: !mov.HasSteps,
+		LeverBedtime:  !sleep.Logged,
+		LeverMovement: !mov.HasSteps,
 	}, nil
 }
 
@@ -362,12 +368,16 @@ func applyTarget(cfg *scoring.Config, t gamstore.Target) {
 		cfg.BPDiastolic = bandFromTarget(cfg.BPDiastolic, t)
 	case TargetKeyRestingHR:
 		cfg.RestingHR = bandFromTarget(cfg.RestingHR, t)
-	case TargetKeyStress:
-		cfg.StressBand = bandFromTarget(cfg.StressBand, t)
 	case TargetKeySleepHours:
 		cfg.SleepHours = bandFromTarget(cfg.SleepHours, t)
 	case TargetKeySteps:
 		cfg.StepsBand = bandFromTarget(cfg.StepsBand, t)
+	case TargetKeyBedtime:
+		cfg.BedtimeWindow = bandFromTarget(cfg.BedtimeWindow, t)
+		// Bedtime scores Membership(|deviation|); Low must stay 0 (see scoring.go)
+		// or an on-time bedtime (deviation 0) would fall below the band and score
+		// worse than a late one. Ignore any user-sent Low for this metric.
+		cfg.BedtimeWindow.Low = 0
 	}
 }
 
@@ -376,7 +386,7 @@ func applyTarget(cfg *scoring.Config, t gamstore.Target) {
 // the targets read model iterates it to surface every overridable band.
 var targetMetricKeys = []string{
 	TargetKeyBPSystolic, TargetKeyBPDiastolic, TargetKeyRestingHR,
-	TargetKeyStress, TargetKeySleepHours, TargetKeySteps,
+	TargetKeySleepHours, TargetKeySteps, TargetKeyBedtime,
 }
 
 // bandForMetric returns the cfg Band a target metric key maps onto — the inverse
@@ -391,12 +401,12 @@ func bandForMetric(cfg scoring.Config, key string) scoring.Band {
 		return cfg.BPDiastolic
 	case TargetKeyRestingHR:
 		return cfg.RestingHR
-	case TargetKeyStress:
-		return cfg.StressBand
 	case TargetKeySleepHours:
 		return cfg.SleepHours
 	case TargetKeySteps:
 		return cfg.StepsBand
+	case TargetKeyBedtime:
+		return cfg.BedtimeWindow
 	default:
 		return scoring.Band{}
 	}
@@ -574,9 +584,11 @@ func (s *service) loadBP(ctx context.Context, userID int64, start, end time.Time
 }
 
 // loadVitalsAuto maps the day's auto-captured streams: resting HR proxied by the
-// day's minimum HR sample, SpO₂ and stress by their daily means. Baselines are
-// left zero (unknown) so the scorer uses its absolute bands — improvement-vs-self
-// needs a trailing personal baseline that the single-day path does not compute.
+// day's minimum HR sample, SpO₂ by its daily mean. Baselines are left zero
+// (unknown) so the scorer uses its absolute bands — improvement-vs-self needs a
+// trailing personal baseline that the single-day path does not compute. Stress
+// is intentionally not loaded here — it is not a lever (gamification-10 §2.5) and
+// earns no HP; it stays readable via the vitals store's own chart-facing routes.
 func (s *service) loadVitalsAuto(ctx context.Context, userID int64, start, end time.Time) (scoring.VitalsAutoDay, error) {
 	// The vitals store uses inclusive bounds (date_time <= end), so a sample at
 	// exactly next-day midnight (== end) would be attributed to both this day and
@@ -589,10 +601,6 @@ func (s *service) loadVitalsAuto(ctx context.Context, userID int64, start, end t
 		return scoring.VitalsAutoDay{}, err
 	}
 	spo2, err := s.vitals.ListSpO2(ctx, userID, start, upper)
-	if err != nil {
-		return scoring.VitalsAutoDay{}, err
-	}
-	stress, err := s.vitals.ListStress(ctx, userID, start, upper)
 	if err != nil {
 		return scoring.VitalsAutoDay{}, err
 	}
@@ -616,44 +624,91 @@ func (s *service) loadVitalsAuto(ctx context.Context, userID int64, start, end t
 		out.HasSpO2 = true
 		out.SpO2 = float64(sum) / float64(len(spo2))
 	}
-	if len(stress) > 0 {
-		sum := 0
-		for _, v := range stress {
-			sum += v.Value
-		}
-		out.HasStress = true
-		out.Stress = float64(sum) / float64(len(stress))
-	}
 	return out, nil
 }
 
 // loadSleep maps the night attributed to this calendar day onto SleepDay.
 // Duration comes from total_minutes when present, else the start→end span.
-// Regularity is left unknown (no personal onset baseline in the single-day path).
+// Regularity (HasRegularity/TimingDeviationMin) is resolved against the
+// trailing bedtimeBaselineDays median bedtime (medianBedtimeOnset) — the
+// "personal usual bedtime" ScoreSleep's timing-regularity award grades
+// tonight's onset against — and left unknown when there aren't enough
+// baseline nights yet.
 //
 // A sleep session is attributed to its wake-up day (sl.Day), but its start_time
 // is the prior evening's bedtime — and ListSleepLogs filters start_time >= since.
 // Querying from `start` (this day's midnight) would drop the very night that
-// belongs to this day (bedtime < midnight). Widen the lower bound by a day and
-// let the sl.Day equality below select the right night. (Both the Mi Band import
-// and the frontend store Day = the local wake-up date and start_time = the
-// bedtime the evening before — see internal/domain/sleepimport.go.)
+// belongs to this day (bedtime < midnight). Widen the lower bound to cover both
+// tonight and the trailing baseline window, and let the sl.Day comparisons below
+// pick the right nights. (Both the Mi Band import and the frontend store
+// Day = the local wake-up date and start_time = the bedtime the evening before —
+// see internal/domain/sleepimport.go.)
 func (s *service) loadSleep(ctx context.Context, userID int64, start time.Time) (scoring.SleepDay, error) {
-	logs, err := s.vitals.ListSleepLogs(ctx, userID, start.AddDate(0, 0, -1))
+	baselineStart := start.AddDate(0, 0, -bedtimeBaselineDays)
+	logs, err := s.vitals.ListSleepLogs(ctx, userID, baselineStart.AddDate(0, 0, -1))
 	if err != nil {
 		return scoring.SleepDay{}, err
 	}
 	dayStr := start.Format("2006-01-02")
 	var out scoring.SleepDay
+	var onset float64
 	for _, sl := range logs {
 		if sl.Day != dayStr {
 			continue
 		}
 		out.Logged = true
 		out.DurationHours = sleepDurationHours(sl)
+		onset = sleepOnsetMinutes(sl.StartTime, sl.TimezoneOffset)
 		break
 	}
+	if !out.Logged {
+		return out, nil
+	}
+	if center, ok := medianBedtimeOnset(logs, dayStr, baselineStart.Format("2006-01-02")); ok {
+		out.HasRegularity = true
+		out.TimingDeviationMin = onset - center
+	}
 	return out, nil
+}
+
+// medianBedtimeOnset returns the median onset-minutes (sleepOnsetMinutes'
+// continuous noon-to-next-noon scale, wellbeing.go) across logs whose Day
+// falls in [baselineStartStr, excludeDayStr) — the trailing baseline strictly
+// before the night being scored — and whether there were enough nights
+// (sleepBaselineMinNights, the same threshold healthScoreSleep's baseline
+// uses) to trust it.
+func medianBedtimeOnset(logs []store.SleepLog, excludeDayStr, baselineStartStr string) (float64, bool) {
+	var onsets []float64
+	for _, sl := range logs {
+		if sl.Day < baselineStartStr || sl.Day >= excludeDayStr {
+			continue
+		}
+		onsets = append(onsets, sleepOnsetMinutes(sl.StartTime, sl.TimezoneOffset))
+	}
+	if len(onsets) < sleepBaselineMinNights {
+		return 0, false
+	}
+	return median(onsets), true
+}
+
+// bedtimeBaselineCenter returns the trailing bedtimeBaselineDays median bedtime
+// (same onset-minutes scale and baseline loadSleep grades tonight's award
+// against), for rendering the Bedtime ring's goal window in real clock time
+// even on a night with no sleep row yet. ok=false below sleepBaselineMinNights
+// baseline nights.
+//
+// Ponytail note: this re-queries ListSleepLogs independently of loadSleep's own
+// read (same range); on single-user SQLite the extra read is negligible, same
+// tradeoff ringProgress already accepts by recomputing scoreDayAwards a second
+// time.
+func (s *service) bedtimeBaselineCenter(ctx context.Context, userID int64, today time.Time) (float64, bool, error) {
+	baselineStart := today.AddDate(0, 0, -bedtimeBaselineDays)
+	logs, err := s.vitals.ListSleepLogs(ctx, userID, baselineStart.AddDate(0, 0, -1))
+	if err != nil {
+		return 0, false, err
+	}
+	center, ok := medianBedtimeOnset(logs, today.Format("2006-01-02"), baselineStart.Format("2006-01-02"))
+	return center, ok, nil
 }
 
 // sleepDurationHours returns a sleep log's duration: total_minutes when

@@ -45,7 +45,6 @@ type fakeVitals struct {
 	sleep    []store.SleepLog
 	hr       []store.VitalsHeartLog
 	spo2     []store.VitalsSpO2Log
-	stress   []store.VitalsStressLog
 }
 
 func (f fakeVitals) ListDayStats(context.Context, int64, time.Time) ([]store.DayStat, error) {
@@ -73,9 +72,6 @@ func (f fakeVitals) ListHeart(context.Context, int64, time.Time, time.Time) ([]s
 }
 func (f fakeVitals) ListSpO2(context.Context, int64, time.Time, time.Time) ([]store.VitalsSpO2Log, error) {
 	return f.spo2, nil
-}
-func (f fakeVitals) ListStress(context.Context, int64, time.Time, time.Time) ([]store.VitalsStressLog, error) {
-	return f.stress, nil
 }
 
 type fakeFood struct {
@@ -382,8 +378,9 @@ func TestScoreDay_SleepAttributedToWakeDay(t *testing.T) {
 	}
 
 	cfg := scoring.DefaultConfig()
-	// Mind ring: sleep floor + full duration outcome (8h → membership 1).
-	want := cfg.FloorHP + cfg.SleepOutcomeMaxHP
+	// Mind ring: sleep floor only (duration is a gauge, no longer a ledger
+	// award; no personal bedtime baseline in this single-day fixture).
+	want := cfg.FloorHP
 	if got := fs.gam.ringHP(userID, day, scoring.RingMind); got != want {
 		t.Errorf("sleep Mind-ring HP = %d, want %d (night dropped by start_time window?)", got, want)
 	}
@@ -661,25 +658,29 @@ func TestGetSummary_AfterScore(t *testing.T) {
 	if !sum.Enabled {
 		t.Fatal("summary not enabled")
 	}
-	if sum.TodayHP == 0 {
-		t.Error("expected non-zero today HP")
+	// BP (vitals) and diary (mind) awards keep earning lifetime HP but produce
+	// no ring (gamification-10 §2.5) — only the three lever rings do, and none
+	// of bedtime/movement/nourishment were logged today.
+	if sum.LifetimeHP == 0 {
+		t.Error("expected non-zero lifetime HP from BP + diary awards")
 	}
-	if sum.LifetimeHP != sum.TodayHP {
-		t.Errorf("lifetime (%d) should equal today HP (%d) for a single scored day", sum.LifetimeHP, sum.TodayHP)
+	if sum.TodayHP != 0 {
+		t.Errorf("today HP = %d, want 0 (no lever data logged)", sum.TodayHP)
 	}
-	if len(sum.TodayRings) != 5 {
-		t.Fatalf("expected all 5 rings, got %d", len(sum.TodayRings))
+	if len(sum.TodayRings) != 3 {
+		t.Fatalf("expected the 3 lever rings, got %d", len(sum.TodayRings))
 	}
-	// Vitals (BP) and Mind (diary) rings should be non-zero; others zero today.
-	got := map[string]int{}
+	gotKeys := map[string]bool{}
 	for _, r := range sum.TodayRings {
-		got[r.Ring] = r.HP
+		gotKeys[r.Ring] = true
+		if r.HP != 0 {
+			t.Errorf("ring %s HP = %d, want 0 (no lever data logged)", r.Ring, r.HP)
+		}
 	}
-	if got[scoring.RingVitals] == 0 {
-		t.Error("expected non-zero vitals ring")
-	}
-	if got[scoring.RingMind] == 0 {
-		t.Error("expected non-zero mind ring")
+	for _, key := range []string{LeverBedtime, LeverMovement, LeverNourishment} {
+		if !gotKeys[key] {
+			t.Errorf("missing lever ring %q", key)
+		}
 	}
 	if sum.Level < 1 {
 		t.Errorf("level = %d, want >= 1", sum.Level)

@@ -34,11 +34,9 @@ function journey(overrides) {
         current_streak: 12, longest_streak: 21, freezes: 2,
         today_hp: 95,
         today_rings: [
-            { ring: 'adherence', hp: 40, closed: true },
+            { ring: 'bedtime', hp: 40, closed: true },
             { ring: 'movement', hp: 25, closed: true },
-            { ring: 'vitals', hp: 15, closed: true },
-            { ring: 'nourishment', hp: 10, closed: false },
-            { ring: 'mind', hp: 5, closed: false }
+            { ring: 'nourishment', hp: 10, closed: false }
         ],
         period_rings: [],
         unlocked_tiers: [1, 2],
@@ -66,23 +64,23 @@ describe('Journey render', () => {
     beforeEach(() => { env = loadEnv(); });
     afterEach(() => { env.cleanup(); });
 
-    it('rings card frames the day as a goal: N of 5 closed + why-line + per-ring how/check', () => {
+    it('rings card frames the day as a goal: N of 3 closed + why-line + per-ring how/check', () => {
         env.window.Gamification.render(journey());
         const { document } = env;
 
         const label = document.querySelector('.wg-journey-rings .wg-section-label');
-        expect(label.textContent).toContain('3 OF 5 CLOSED');
+        expect(label.textContent).toContain('2 OF 3 CLOSED');
         expect(document.querySelector('.wg-journey-rings__why').textContent).toMatch(/one per area/i);
 
-        // 3 closed rings → 3 checks.
-        expect(document.querySelectorAll('.wg-journey-ring__check').length).toBe(3);
-        // Open actionable rings remain → stack center shows the "3/5" count.
-        expect(document.querySelector('.wg-ring-stack__center').textContent).toBe('3/5');
+        // 2 closed rings → 2 checks.
+        expect(document.querySelectorAll('.wg-journey-ring__check').length).toBe(2);
+        // Open actionable rings remain → stack center shows the "2/3" count.
+        expect(document.querySelector('.wg-ring-stack__center').textContent).toBe('2/3');
 
-        // Rows follow canonical order: adherence(closed), …, nourishment(open).
+        // Rows follow canonical order: bedtime(closed), movement(closed), nourishment(open).
         const subs = document.querySelectorAll('.wg-journey-ring__sub');
-        expect(subs[0].textContent).toBe('Closed for today');      // adherence
-        expect(subs[3].textContent).toBe('Log a meal');            // nourishment (open)
+        expect(subs[0].textContent).toBe('Closed for today');      // bedtime
+        expect(subs[2].textContent).toBe('Log a meal');            // nourishment (open)
     });
 
     it('renders the previously-discarded hp_history as a sparkline + summed caption', () => {
@@ -102,28 +100,26 @@ describe('Journey render', () => {
         expect(env.document.querySelector('.wg-journey-history')).toBeNull();
     });
 
-    // Sync-pending rings (Plan 6, Task 3): a device-synced ring (Mind/Movement)
+    // Sync-pending rings (Plan 6, Task 3): a device-synced ring (Bedtime/Movement)
     // with no sample yet reads as "waiting", not "failed" — dimmed row + a
     // "Syncs later" sub-line instead of the usual open-ring "how" text.
     it('sync-pending ring renders dimmed with a "Syncs later" sub-line', () => {
         env.window.Gamification.render(journey({
             today_rings: [
-                { ring: 'adherence', hp: 40, closed: true },
+                { ring: 'bedtime', hp: 0, closed: false, sync_pending: true },
                 { ring: 'movement', hp: 25, closed: true },
-                { ring: 'vitals', hp: 15, closed: true },
-                { ring: 'nourishment', hp: 10, closed: false },
-                { ring: 'mind', hp: 0, closed: false, sync_pending: true }
+                { ring: 'nourishment', hp: 10, closed: false }
             ]
         }));
         const { document } = env;
 
         const rows = document.querySelectorAll('.wg-journey-ring');
-        const mindRow = Array.from(rows).find((r) => r.querySelector('.wg-journey-ring__label').textContent === 'Mind');
-        expect(mindRow.classList.contains('wg-journey-ring--sync-pending')).toBe(true);
-        expect(mindRow.querySelector('.wg-journey-ring__sub').textContent).toBe('Syncs later');
+        const bedtimeRow = Array.from(rows).find((r) => r.querySelector('.wg-journey-ring__label').textContent === 'Bedtime');
+        expect(bedtimeRow.classList.contains('wg-journey-ring--sync-pending')).toBe(true);
+        expect(bedtimeRow.querySelector('.wg-journey-ring__sub').textContent).toBe('Syncs later');
         // Nourishment is still open/actionable here, so a lone sync-pending ring
         // must NOT prematurely flip the center to a celebration check.
-        expect(document.querySelector('.wg-ring-stack__center').textContent).toBe('3/5');
+        expect(document.querySelector('.wg-ring-stack__center').textContent).toBe('1/3');
     });
 
     // Finding 2 (Plan 7, Task 1): the center check appears once every
@@ -132,11 +128,9 @@ describe('Journey render', () => {
     it('all actionable rings closed with one sync-pending → center celebrates with a check', () => {
         env.window.Gamification.render(journey({
             today_rings: [
-                { ring: 'adherence', hp: 40, closed: true },
+                { ring: 'bedtime', hp: 0, closed: false, sync_pending: true },
                 { ring: 'movement', hp: 25, closed: true },
-                { ring: 'vitals', hp: 15, closed: true },
-                { ring: 'nourishment', hp: 10, closed: true },
-                { ring: 'mind', hp: 0, closed: false, sync_pending: true }
+                { ring: 'nourishment', hp: 10, closed: true }
             ]
         }));
         const center = env.document.querySelector('.wg-ring-stack__center');

@@ -262,7 +262,7 @@ function updateFoodTargetsVisibility() {
 // The overridable band-shaped metrics, in the same display order the backend
 // returns (internal/domain/gamification/scoreday.go targetMetricKeys). Labels +
 // units live in the static HTML; JS only addresses fields by metric_key.
-const GAMIFICATION_TARGET_METRICS = ['bp_systolic', 'bp_diastolic', 'resting_hr', 'stress', 'sleep_hours', 'steps'];
+const GAMIFICATION_TARGET_METRICS = ['bp_systolic', 'bp_diastolic', 'resting_hr', 'sleep_hours', 'steps', 'bedtime'];
 
 // Metric keys the user has a custom override for, per the last applied view.
 // saveGamificationTargets consults this so clearing a previously-custom band
