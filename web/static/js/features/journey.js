@@ -223,8 +223,11 @@
 
     function bpGaugeCopy(bp) {
         if (!bp || bp.status !== 'ok') return 'Log a few more BP readings to see your range trend.';
-        const share30d = Math.round((Number(bp.share_30d) || 0) * 100);
         const baseline = Math.round((Number(bp.baseline_share_60d) || 0) * 100);
+        // No readings in the last 30 days would render "In range 0%", which
+        // reads as "out of range all month" when the truth is "no measurements".
+        if (!(Number(bp.count_30d) > 0)) return `Baseline ${baseline}% in range · none logged in the last 30 days`;
+        const share30d = Math.round((Number(bp.share_30d) || 0) * 100);
         return `In range ${share30d}% of last 30 days · baseline ${baseline}%`;
     }
 

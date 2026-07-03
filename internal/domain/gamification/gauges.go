@@ -159,7 +159,7 @@ func (s *service) computeWeightGauge(ctx context.Context, userID int64, today ti
 	// reading (same convention as insights.go's sleep-day dedupe).
 	windowEnd := today.AddDate(0, 0, 1)
 	byDay := make(map[string]float64, len(logs))
-	var earliest time.Time
+	var earliest, latest time.Time
 	for _, l := range logs {
 		if !l.MeasuredAt.Before(windowEnd) {
 			continue // future-dated — not part of the trailing window
@@ -171,8 +171,20 @@ func (s *service) computeWeightGauge(ctx context.Context, userID int64, today ti
 		if earliest.IsZero() || l.MeasuredAt.Before(earliest) {
 			earliest = l.MeasuredAt
 		}
+		if l.MeasuredAt.After(latest) {
+			latest = l.MeasuredAt
+		}
 	}
 	if earliest.IsZero() || int(today.Sub(utcMidnight(earliest)).Hours()/24) < cfg.GaugeWeightMinHistoryDays {
+		return WeightGaugeView{Status: GaugeStatusInsufficientData}, nil
+	}
+	// Recent-data guard (mirrors computeBPGauge's Count30d>0 and
+	// computeRestingHRGauge's recentOK): the EMA carries the last weigh-in
+	// forward across gaps, so without this a user who abandoned logging weeks
+	// ago would still read velocity≈0 "holding · on pace" and collect the
+	// maintenance weekly award indefinitely. No weigh-in within the velocity
+	// window means there is no recent trend to report.
+	if int(today.Sub(utcMidnight(latest)).Hours()/24) > cfg.GaugeWeightVelocityWindowDays {
 		return WeightGaugeView{Status: GaugeStatusInsufficientData}, nil
 	}
 
@@ -192,7 +204,15 @@ func (s *service) computeWeightGauge(ctx context.Context, userID int64, today ti
 		trend[key] = current
 	}
 
+	// Start the sparkline at the first real weigh-in, not `start`: before the
+	// user's earliest log the EMA is still 0, so a fixed today-59 window would
+	// emit a run of leading zeros for anyone with under weightTrendSparklineDays
+	// of history, which wg-sparkline autoscales against (min=0) into a flat line
+	// then a cliff. Clamping to earliest keeps every point a real trend value.
 	trendHistoryStart := start
+	if em := utcMidnight(earliest); em.After(trendHistoryStart) {
+		trendHistoryStart = em
+	}
 	if cutoff := today.AddDate(0, 0, -(weightTrendSparklineDays - 1)); cutoff.After(trendHistoryStart) {
 		trendHistoryStart = cutoff
 	}

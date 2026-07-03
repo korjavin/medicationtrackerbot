@@ -371,6 +371,20 @@ describe('Journey render', () => {
         expect(rows[2].textContent).toMatch(/not enough resting-hr data/i);
     });
 
+    it('Gauges card BP caption avoids a misleading "0%" when no readings in the last 30 days', () => {
+        env.window.Gamification.render(journey({
+            gauges: {
+                enabled: true,
+                weight: { status: 'insufficient_data' },
+                bp: { status: 'ok', share_30d: 0, baseline_share_60d: 0.76, count_30d: 0, count_60d: 8 },
+                resting_hr: { status: 'insufficient_data' }
+            }
+        }));
+        const rows = env.document.querySelectorAll('.wg-journey-gauges .wg-journey-gauge__caption');
+        expect(rows[1].textContent).toBe('Baseline 76% in range · none logged in the last 30 days');
+        expect(rows[1].textContent).not.toMatch(/0%/);
+    });
+
     it('Gauges card link scrolls to the tier-3 insight card', () => {
         env.window.Gamification.render(journey({
             unlocked_tiers: [1, 2, 3],
