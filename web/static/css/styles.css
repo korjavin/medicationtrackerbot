@@ -5549,15 +5549,18 @@ textarea.wg-input {
     color: var(--wg-fg-1);
 }
 
-/* Today rings summary tile (Plan 3, Task 3). Reuses the journey ring rows +
-   gloss-inset bars inside a tappable Today card with a today-HP header. */
+/* Today rings summary tile: compact square-ish card — stack centered over a
+   per-ring icon state row. Width-capped so it doesn't sprawl into an empty
+   horizontal band on wide screens; the full legend lives on Journey. */
 .wg-today-rings {
     margin-bottom: var(--space-md);
     cursor: pointer;
+    max-width: 320px;
 }
 
 .wg-today-rings__header {
     display: flex;
+    flex-wrap: wrap;
     align-items: baseline;
     justify-content: space-between;
     gap: var(--space-sm);
@@ -5593,18 +5596,31 @@ textarea.wg-input {
     padding: var(--space-sm) var(--space-xs);
 }
 
-/* Rings body (Plan 7, Task 2): wg-ring-stack on the left, compact legend on
-   the right. Stack is a fixed-size flex item so it doesn't get squeezed by
-   long labels/goal text in the legend column. */
+/* Rings body: wg-ring-stack centered, per-ring icon state row beneath it. */
 .wg-today-rings__body {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: var(--space-md);
+    gap: var(--space-sm);
 }
 
-.wg-today-rings__legend {
-    flex: 1;
-    min-width: 0;
+.wg-today-rings__icons {
+    display: flex;
+    justify-content: center;
+    gap: var(--space-sm);
+}
+
+.wg-today-rings__ic {
+    display: inline-flex;
+    color: var(--wg-fg-3);
+}
+
+.wg-today-rings__ic--closed {
+    color: var(--wg-sun);
+}
+
+.wg-today-rings__ic--sync {
+    color: var(--wg-fg-4);
 }
 
 /* "Your move" — the suggested next action. Tappable, accent-tinted; the

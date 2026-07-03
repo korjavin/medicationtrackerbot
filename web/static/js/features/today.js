@@ -1047,9 +1047,9 @@
         return window.WGRingStack.render(opts);
     }
 
-    // Today rings summary card: one wg-ring-stack (Plan 7) plus a compact
-    // legend, as a tappable card with a today-HP header; tapping deep-links
-    // to Journey.
+    // Today rings summary card: a compact, square-ish tappable card — the
+    // wg-ring-stack (Plan 7) centered over a per-ring icon state row; tapping
+    // deep-links to Journey (which carries the full legend with goals + HP).
     function renderRingsTile(cell, onDeeplink) {
         if (!cell || cell.status === 'disabled') return null;
         const d = doc();
@@ -1162,11 +1162,9 @@
             empty.textContent = 'No points yet today';
             card.appendChild(empty);
         } else {
-            const hpByRing = {};
             const progressByRing = {};
             const goalByRing = {};
             for (const r of ringList) {
-                hpByRing[r.ring] = r.hp;
                 progressByRing[r.ring] = r.progress;
                 goalByRing[r.ring] = r.goal;
             }
@@ -1192,56 +1190,28 @@
             });
             if (stack) body.appendChild(stack);
 
-            const legend = d.createElement('div');
-            legend.className = 'wg-today-rings__legend';
-            const list = d.createElement('div');
-            list.className = 'wg-journey-rings__list';
+            // Compact per-ring state row: one icon per ring, colored by state
+            // (closed / syncs-later / open), with the label + goal in the
+            // accessible name. The verbose legend (labels, goals, per-ring HP)
+            // lives on the Journey screen — Today stays square.
+            const icons = d.createElement('div');
+            icons.className = 'wg-today-rings__icons';
             for (const meta of RING_TILE_META) {
-                const ringHp = hpByRing[meta.ring] || 0;
                 const isClosed = !!closedByRing[meta.ring];
                 const isSyncPending = !!syncPendingByRing[meta.ring];
                 const goal = goalByRing[meta.ring] || '';
-                const row = d.createElement('div');
-                row.className = 'wg-journey-ring' + (isSyncPending ? ' wg-journey-ring--sync-pending' : '');
-                const head = d.createElement('div');
-                head.className = 'wg-journey-ring__head';
+                const item = d.createElement('span');
+                item.className = 'wg-today-rings__ic'
+                    + (isClosed ? ' wg-today-rings__ic--closed' : '')
+                    + (isSyncPending ? ' wg-today-rings__ic--sync' : '');
+                const stateText = isClosed ? 'closed' : (isSyncPending ? 'syncs later' : (goal || 'open'));
+                item.setAttribute('aria-label', meta.label + ' — ' + stateText);
+                item.setAttribute('title', meta.label + ' — ' + stateText);
                 const ic = iconSvgOrNull(meta.icon, 16);
-                if (ic) {
-                    const wrap = d.createElement('span');
-                    wrap.className = 'wg-journey-ring__icon';
-                    wrap.appendChild(ic);
-                    head.appendChild(wrap);
-                }
-                const label = d.createElement('span');
-                label.className = 'wg-journey-ring__label';
-                label.textContent = meta.label;
-                head.appendChild(label);
-                // A check marks a closed ring (landed in range, not just logged).
-                if (isClosed) {
-                    const check = iconSvgOrNull('check', 14);
-                    if (check) {
-                        const cw = d.createElement('span');
-                        cw.className = 'wg-journey-ring__check';
-                        cw.setAttribute('aria-label', 'closed');
-                        cw.appendChild(check);
-                        head.appendChild(cw);
-                    }
-                }
-                const value = d.createElement('span');
-                value.className = 'wg-mono-display wg-journey-ring__hp';
-                value.textContent = String(ringHp);
-                head.appendChild(value);
-                row.appendChild(head);
-                if (isSyncPending || goal) {
-                    const sub = d.createElement('p');
-                    sub.className = 'wg-journey-ring__sub wg-muted';
-                    sub.textContent = isSyncPending ? 'Syncs later' : goal;
-                    row.appendChild(sub);
-                }
-                list.appendChild(row);
+                if (ic) item.appendChild(ic);
+                icons.appendChild(item);
             }
-            legend.appendChild(list);
-            body.appendChild(legend);
+            body.appendChild(icons);
             card.appendChild(body);
         }
 

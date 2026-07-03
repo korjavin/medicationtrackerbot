@@ -490,7 +490,7 @@ describe('TodayDashboard.renderToday', () => {
         const tile = root.querySelector('.wg-today-rings');
         expect(tile).not.toBeNull();
         expect(tile.querySelector('.wg-today-rings__title').textContent).toBe('2 of 5 rings closed');
-        expect(tile.querySelectorAll('.wg-journey-ring__check').length).toBe(2);
+        expect(tile.querySelectorAll('.wg-today-rings__ic--closed').length).toBe(2);
         // Open actionable rings remain → center shows the "2/5" count, not a check.
         expect(tile.querySelector('.wg-ring-stack__center').textContent).toBe('2/5');
     });
@@ -526,14 +526,15 @@ describe('TodayDashboard.renderToday', () => {
 
     // Sync-pending rings (Plan 6, Task 3): a device-synced ring (Mind/Movement)
     // with no sample yet reads as "waiting", not "failed".
-    it('sync-pending ring renders dimmed with a "Syncs later" sub-line, not the goal text', () => {
+    it('sync-pending ring renders as a dimmed "syncs later" icon, not the goal text', () => {
         const root = env.document.getElementById('today-content');
         env.render(ringsState(now, ['adherence'], ['mind']), root, { now });
 
-        const rows = root.querySelectorAll('.wg-journey-ring');
-        const mindRow = Array.from(rows).find((r) => r.querySelector('.wg-journey-ring__label').textContent === 'Mind');
-        expect(mindRow.classList.contains('wg-journey-ring--sync-pending')).toBe(true);
-        expect(mindRow.querySelector('.wg-journey-ring__sub').textContent).toBe('Syncs later');
+        const icons = root.querySelectorAll('.wg-today-rings__ic');
+        const mind = Array.from(icons).find((el) => (el.getAttribute('aria-label') || '').startsWith('Mind'));
+        expect(mind).not.toBeUndefined();
+        expect(mind.classList.contains('wg-today-rings__ic--sync')).toBe(true);
+        expect(mind.getAttribute('aria-label')).toMatch(/syncs later/i);
     });
 
     it('headline appends "· M waiting for sync" when sync-pending rings exist', () => {
