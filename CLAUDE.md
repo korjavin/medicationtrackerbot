@@ -119,6 +119,8 @@ go run ./cmd/seeddemo -user <telegram_user_id> -db meds.db -topup -seed 42
 | Demo mode (`DEMO_MODE=1`): public auth-less deployment, per-IP AI rate limits, seeded demo DB, MCP without OAuth | [docs/demo-mode.md](docs/demo-mode.md) |
 | Feature behaviors (Today dashboard, meds, BP, weight, food, workouts, MCP) | [docs/features.md](docs/features.md) |
 | Gamification design (HealthPoints, science-based, outcome-in-range scoring, insight ladder) — **design proposal, not yet implemented** | [docs/gamification.md](docs/gamification.md) |
+| E2EE cloud mode (zero-knowledge cloud + browser PWA: blind push relay, encrypted sync, per-user subdomains, BYO keys, optional Telegram, MCP relay) — **design proposal, not yet implemented** | [docs/cloud-mode.md](docs/cloud-mode.md) |
+| Cloud-mode crypto (passkey-only key management: WebAuthn PRF envelopes over a random DEK, device enrollment ceremonies, recovery code, formats) — **design proposal, not yet implemented** | [docs/cloud-crypto.md](docs/cloud-crypto.md) |
 | API endpoints | [docs/api.md](docs/api.md) |
 | Environment variables | [docs/environment.md](docs/environment.md) |
 | MCP server deployment (Pocket-ID, Docker, Claude config) | [docs/mcp-deployment.md](docs/mcp-deployment.md) |
