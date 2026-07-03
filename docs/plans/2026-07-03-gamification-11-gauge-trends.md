@@ -163,12 +163,24 @@ EMAs and shares automatically.
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] integration test per Testing Strategy
-- [ ] verify Overview requirements: no daily gauge HP anywhere, weekly awards
-      idempotent under late import, panel honest under sparse data
-- [ ] `go test ./...` passes (incl. MCP coverage guard)
-- [ ] `pnpm test` passes
-- [ ] `golangci-lint run` + `gofmt` clean
+- [x] integration test per Testing Strategy
+      (`internal/domain/gamification/gauges_weekly_test.go`: seeded downward
+      weight trend + goal asserts velocity sign/pace/acceleration; seeded BP
+      with two bad recent days asserts the 30d share stays within 0.10 of the
+      60d baseline; a week-end award is scored, then a late import rewrites
+      the trend and `RescoreInstants` is called with an instant elsewhere in
+      the same week — the ledger keeps exactly one row for the metric and its
+      HP changes, proving update-in-place, not duplication)
+- [x] verify Overview requirements: no daily gauge HP anywhere (confirmed:
+      `ScoreBP`/`ScoreWeight` only ever grant `KindFloor`, never
+      `KindOutcome` — the daily outcome path was removed in Task 2), weekly
+      awards idempotent under late import (Task 5 integration test), panel
+      honest under sparse data (`insufficient_data` states + Task 4's
+      `journey.render.test.js` coverage)
+- [x] `go test ./...` passes (incl. MCP coverage guard)
+- [x] `pnpm test` passes
+- [x] `golangci-lint run` + `gofmt` clean (also fixed a pre-existing gofmt
+      drift in `gauges.go` from Task 4)
 
 ### Task 6: Update documentation
 

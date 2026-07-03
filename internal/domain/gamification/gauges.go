@@ -63,11 +63,11 @@ type GaugesView struct {
 // (no goal → PaceStatusNoGoal, trend-only), and acceleration vs
 // cfg.GaugeWeightVelocityWindowDays ago.
 type WeightGaugeView struct {
-	Status             string    `json:"status"`
-	TrendWeight        float64   `json:"trend_weight,omitempty"`
-	VelocityPctPerWeek float64   `json:"velocity_pct_per_week,omitempty"`
-	PaceStatus         string    `json:"pace_status,omitempty"`
-	Acceleration       string    `json:"acceleration,omitempty"`
+	Status             string  `json:"status"`
+	TrendWeight        float64 `json:"trend_weight,omitempty"`
+	VelocityPctPerWeek float64 `json:"velocity_pct_per_week,omitempty"`
+	PaceStatus         string  `json:"pace_status,omitempty"`
+	Acceleration       string  `json:"acceleration,omitempty"`
 
 	// TrendHistory is the last weightTrendSparklineDays of the same EMA trend
 	// line (oldest first) — the Journey gauges panel's sparkline (gamification-
