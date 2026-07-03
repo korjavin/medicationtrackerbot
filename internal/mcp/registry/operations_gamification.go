@@ -188,7 +188,7 @@ output(result["sleep_bp"])
 			Path:            "/api/gamification/gauges",
 			Risk:            RiskRead,
 			Description:     "Gauge-trend read model (gamification-11): weight as smoothed velocity/acceleration vs the user's goal pace, BP as a rolling in-range share vs a 60-day baseline, and resting HR as a 14-day mean vs baseline. Daily body-metric noise is smoothed out by design — a single bad day barely moves any of these. Each gauge reports insufficient_data instead of a distorted number below its minimum sample count.",
-			ResponseSummary: "Object {enabled, weight, bp, resting_hr}. weight: {status, trend_weight, velocity_pct_per_week (signed, negative = losing), pace_status (\"no_goal\"|\"on_pace\"|\"too_slow\"|\"too_fast\"|\"wrong_direction\"), acceleration (\"speeding_up\"|\"holding\"|\"slowing\")}. bp: {status, share_14d, share_30d, baseline_share_60d, count_14d, count_30d, count_60d} — shares are 0..1 fractions of readings in the personal band. resting_hr: {status, recent_14d_mean, baseline_60d_mean, delta_from_baseline}. Any gauge's status can be \"insufficient_data\" (only status is populated) instead of \"ok\".",
+			ResponseSummary: "Object {enabled, weight, bp, resting_hr}. weight: {status, trend_weight, velocity_pct_per_week (signed, negative = losing), pace_status (\"no_goal\"|\"on_pace\"|\"too_slow\"|\"too_fast\"|\"wrong_direction\"), acceleration (\"speeding_up\"|\"holding\"|\"slowing\"), trend_history (last 60 days of the EMA trend line, oldest first — read-side only, for a sparkline)}. bp: {status, share_14d, share_30d, baseline_share_60d, count_14d, count_30d, count_60d} — shares are 0..1 fractions of readings in the personal band. resting_hr: {status, recent_14d_mean, baseline_60d_mean, delta_from_baseline}. Any gauge's status can be \"insufficient_data\" (only status is populated) instead of \"ok\".",
 			ResponseExample: `{
   "enabled": true,
   "weight": {
@@ -196,7 +196,8 @@ output(result["sleep_bp"])
     "trend_weight": 81.4,
     "velocity_pct_per_week": -0.4,
     "pace_status": "on_pace",
-    "acceleration": "holding"
+    "acceleration": "holding",
+    "trend_history": [82.1, 82.0, 81.9, 81.7, 81.4]
   },
   "bp": {
     "status": "ok",

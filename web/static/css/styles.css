@@ -5466,6 +5466,49 @@ textarea.wg-input {
     font-size: var(--font-size-xs);
 }
 
+/* Gauges panel (gamification-11 §Task4): weight/BP/resting-HR trends, below
+   Health Score and above Strengths/Rings. Token-neutral throughout — no
+   variant classes tint a row by "good"/"bad" state; a slowing trend reads
+   the same visual weight as an on-pace one. */
+.wg-journey-gauges__why {
+    font-size: var(--font-size-sm);
+    margin: 0 0 var(--space-sm);
+}
+
+.wg-journey-gauges__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.wg-journey-gauge__label {
+    display: block;
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-2);
+    margin-bottom: var(--space-xs);
+}
+
+.wg-journey-gauge__chart {
+    margin: 0 0 var(--space-xs);
+}
+
+.wg-journey-gauge__chart .wg-sparkline {
+    width: 100%;
+    height: auto;
+}
+
+.wg-journey-gauge__caption {
+    font-size: var(--font-size-sm);
+    margin: 0;
+}
+
+.wg-journey-gauges__link {
+    margin-top: var(--space-sm);
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-3);
+    cursor: pointer;
+}
+
 /* Strengths card (Task 8) — replaces the weekly streak card as the
    continuity mechanic: one habit-strength EMA gauge per pillar, plus the
    derived streak demoted to a single footnote line. */

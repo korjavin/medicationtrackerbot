@@ -312,4 +312,91 @@ describe('Journey render', () => {
         expect(footnote).toContain('12-week streak');
         expect(footnote).toContain('best 21');
     });
+
+    // Gauges panel (gamification-11 §Task4): weight/BP/resting-HR read as
+    // trends, sourced from `journey.gauges` (attached by load() from its own
+    // fetch, same pattern as the tier-3 insight). Omitted entirely until
+    // `gauges` has loaded — render() tests attach it directly.
+    it('omits the Gauges card until journey.gauges has loaded', () => {
+        env.window.Gamification.render(journey());
+        expect(env.document.querySelector('.wg-journey-gauges')).toBeNull();
+    });
+
+    it('Gauges card renders weight velocity/pace/acceleration, BP share vs baseline, and resting HR vs baseline', () => {
+        env.window.Gamification.render(journey({
+            gauges: {
+                enabled: true,
+                weight: {
+                    status: 'ok', trend_weight: 81.4, velocity_pct_per_week: -0.4,
+                    pace_status: 'on_pace', acceleration: 'holding',
+                    trend_history: [82.1, 82.0, 81.9, 81.7, 81.4]
+                },
+                bp: { status: 'ok', share_14d: 0.83, share_30d: 0.82, baseline_share_60d: 0.76, count_14d: 12, count_30d: 26, count_60d: 51 },
+                resting_hr: { status: 'ok', recent_14d_mean: 62, baseline_60d_mean: 65, delta_from_baseline: -3 }
+            }
+        }));
+        const { document } = env;
+
+        const card = document.querySelector('.wg-journey-gauges');
+        expect(card).not.toBeNull();
+
+        const rows = card.querySelectorAll('.wg-journey-gauge');
+        expect(rows.length).toBe(3);
+        expect(rows[0].querySelector('.wg-journey-gauge__label').textContent).toBe('Weight');
+        expect(rows[0].querySelector('.wg-journey-gauge__caption').textContent).toBe('-0.4%/week · on pace · holding steady');
+        expect(rows[0].querySelector('.wg-sparkline')).not.toBeNull();
+
+        expect(rows[1].querySelector('.wg-journey-gauge__label').textContent).toBe('Blood pressure');
+        expect(rows[1].querySelector('.wg-journey-gauge__caption').textContent).toBe('In range 82% of last 30 days · baseline 76%');
+
+        expect(rows[2].querySelector('.wg-journey-gauge__label').textContent).toBe('Resting heart rate');
+        expect(rows[2].querySelector('.wg-journey-gauge__caption').textContent).toBe('62 avg · 3 below your baseline');
+
+        const link = card.querySelector('.wg-journey-gauges__link');
+        expect(link.textContent).toMatch(/why is this moving/i);
+    });
+
+    it('Gauges card renders each gauge\'s insufficient_data honestly instead of a distorted number', () => {
+        env.window.Gamification.render(journey({
+            gauges: {
+                enabled: true,
+                weight: { status: 'insufficient_data' },
+                bp: { status: 'insufficient_data' },
+                resting_hr: { status: 'insufficient_data' }
+            }
+        }));
+        const rows = env.document.querySelectorAll('.wg-journey-gauges .wg-journey-gauge__caption');
+        expect(rows[0].textContent).toMatch(/not enough history/i);
+        expect(rows[1].textContent).toMatch(/log a few more bp readings/i);
+        expect(rows[2].textContent).toMatch(/not enough resting-hr data/i);
+    });
+
+    it('Gauges card link scrolls to the tier-3 insight card', () => {
+        env.window.Gamification.render(journey({
+            unlocked_tiers: [1, 2, 3],
+            insight: { sleep_bp: { status: 'no_effect', short_threshold_hours: 7, delta_systolic: 1, n_short: 12, n_in_band: 30 } },
+            gauges: {
+                enabled: true,
+                weight: { status: 'insufficient_data' },
+                bp: { status: 'insufficient_data' },
+                resting_hr: { status: 'insufficient_data' }
+            }
+        }));
+        const { document } = env;
+        const scrollIntoView = vi.fn();
+        document.getElementById('journey-insight-card').scrollIntoView = scrollIntoView;
+        document.querySelector('.wg-journey-gauges__link').click();
+        expect(scrollIntoView).toHaveBeenCalled();
+    });
+
+    it('Gauges card renders the offline-empty state when the fetch had no cache', () => {
+        env.window.Gamification.render(journey({ gauges: { emptyState: 'No cached gauge data — connect to load.' } }));
+        const card = env.document.querySelector('.wg-journey-gauges');
+        expect(card.querySelector('.wg-journey-gauges__empty').textContent).toBe('No cached gauge data — connect to load.');
+    });
+
+    it('omits the Gauges card when the feature is gated off', () => {
+        env.window.Gamification.render(journey({ gauges: { enabled: false } }));
+        expect(env.document.querySelector('.wg-journey-gauges')).toBeNull();
+    });
 });

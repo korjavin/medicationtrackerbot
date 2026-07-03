@@ -108,6 +108,12 @@
             tag: 'gamification',
             staleAfterMs: 6 * HOUR_MS,
             description: 'Tier-3 sleep→BP personal insight (GET /api/gamification/insights): honest three-state result (effect/no_effect/insufficient_data). Only fetched once the Journey payload reports tier 3 unlocked.'
+        },
+        gamification_gauges: {
+            key: 'gamification_gauges',
+            tag: 'gamification',
+            staleAfterMs: 6 * HOUR_MS,
+            description: 'Gauge-trend read model (GET /api/gamification/gauges): weight EMA velocity/acceleration, BP rolling in-range share, resting HR vs baseline. Journey Gauges panel.'
         }
     };
 

@@ -25,6 +25,11 @@ const (
 	GaugeStatusInsufficientData = "insufficient_data"
 )
 
+// weightTrendSparklineDays bounds WeightGaugeView.TrendHistory — long enough
+// for the Journey panel's sparkline to read as a trend line, short enough to
+// stay a cheap read-side slice (not a Config knob: it has no scoring effect).
+const weightTrendSparklineDays = 60
+
 // Weight pace-status values (WeightGaugeView.PaceStatus). NoGoal is not a
 // judgment — a user who hasn't set a goal simply gets the trend, no verdict.
 const (
@@ -58,11 +63,18 @@ type GaugesView struct {
 // (no goal → PaceStatusNoGoal, trend-only), and acceleration vs
 // cfg.GaugeWeightVelocityWindowDays ago.
 type WeightGaugeView struct {
-	Status             string  `json:"status"`
-	TrendWeight        float64 `json:"trend_weight,omitempty"`
-	VelocityPctPerWeek float64 `json:"velocity_pct_per_week,omitempty"`
-	PaceStatus         string  `json:"pace_status,omitempty"`
-	Acceleration       string  `json:"acceleration,omitempty"`
+	Status             string    `json:"status"`
+	TrendWeight        float64   `json:"trend_weight,omitempty"`
+	VelocityPctPerWeek float64   `json:"velocity_pct_per_week,omitempty"`
+	PaceStatus         string    `json:"pace_status,omitempty"`
+	Acceleration       string    `json:"acceleration,omitempty"`
+
+	// TrendHistory is the last weightTrendSparklineDays of the same EMA trend
+	// line (oldest first) — the Journey gauges panel's sparkline (gamification-
+	// 11 §Task4). Not used by scoring; purely a read-side convenience so the
+	// frontend doesn't need to refetch raw weight logs to draw the line it's
+	// already been told the headline for.
+	TrendHistory []float64 `json:"trend_history,omitempty"`
 
 	// GoalDirection (-1 lose, +1 gain, 0 = no goal) is the sign weightPaceStatus
 	// resolved PaceStatus from. Internal only (json:"-") — reused by the weekly
@@ -180,6 +192,15 @@ func (s *service) computeWeightGauge(ctx context.Context, userID int64, today ti
 		trend[key] = current
 	}
 
+	trendHistoryStart := start
+	if cutoff := today.AddDate(0, 0, -(weightTrendSparklineDays - 1)); cutoff.After(trendHistoryStart) {
+		trendHistoryStart = cutoff
+	}
+	trendHistory := make([]float64, 0, weightTrendSparklineDays)
+	for d := trendHistoryStart; !d.After(today); d = d.AddDate(0, 0, 1) {
+		trendHistory = append(trendHistory, trend[d.Format("2006-01-02")])
+	}
+
 	velocityDays := cfg.GaugeWeightVelocityWindowDays
 	nowTrend := trend[today.Format("2006-01-02")]
 	pastTrend := trend[today.AddDate(0, 0, -velocityDays).Format("2006-01-02")]
@@ -202,6 +223,7 @@ func (s *service) computeWeightGauge(ctx context.Context, userID int64, today ti
 		PaceStatus:         paceStatus,
 		Acceleration:       weightAcceleration(velocity, prevVelocity, cfg),
 		GoalDirection:      direction,
+		TrendHistory:       trendHistory,
 	}, nil
 }
 

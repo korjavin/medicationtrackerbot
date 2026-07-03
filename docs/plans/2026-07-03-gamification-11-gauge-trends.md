@@ -141,16 +141,25 @@ EMAs and shares automatically.
 
 ### Task 4: Journey — Gauges panel
 
-- [ ] `journey.js`: "Gauges" card (below Health Score, above rings): weight —
+- [x] `journey.js`: "Gauges" card (below Health Score, above rings): weight —
       sparkline of the smoothed trend + "−0.4%/week · on pace · speeding up"
       line; BP — "in range 82% of last 30 days · baseline 76%"; resting HR —
       "62 avg · 3 below your baseline"; `insufficient_data` states in plain
       language; `cachedFetch` + `gamification` tag + `OfflineNoCacheError`
       empty state
-- [ ] "why is this moving? → your insights" link scrolling to the tier-3/4
+      (➕ the sparkline needed a time series the read model didn't expose yet —
+      added `WeightGaugeView.TrendHistory` (`internal/domain/gamification/
+      gauges.go`, last 60 days of the same EMA trend line, additive/omitempty
+      JSON, no scoring effect) plus a new `gamification_gauges` cache-keys
+      entry and 6 new tests in `journey.render.test.js`)
+- [x] "why is this moving? → your insights" link scrolling to the tier-3/4
       insight cards
-- [ ] tone: numbers and direction words only, token-neutral colors — a slowing
+      (reuses the existing tier-3 `goToInsightCard` scroll target; tier-4 has
+      no destination yet per the ladder's own Phase-2 gating)
+- [x] tone: numbers and direction words only, token-neutral colors — a slowing
       trend is an observation, never red
+      (no `wg-tag--alert`/`--high` anywhere in the gauges card; captions are
+      plain `wg-muted` text regardless of state)
 
 ### Task 5: Verify acceptance criteria
 
