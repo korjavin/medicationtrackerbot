@@ -171,6 +171,47 @@ func (s *service) healthScoreAdherence(ctx context.Context, userID int64, today 
 	return scoring.HealthContributorAdherence(float64(coveredDays)/float64(expectedDays), true, cfg), nil
 }
 
+// AdherenceAlertView is the adherence safety net (Task 3): adherence has no
+// ring and no daily grading — it's a solved habit that stays invisible until
+// the trailing PDC slips below Config.AdherenceAlertPDCThreshold, at which
+// point Today surfaces one gentle line naming the missed-dose count.
+type AdherenceAlertView struct {
+	Active      bool    `json:"active"`
+	PDC         float64 `json:"pdc"`
+	MissedDoses int     `json:"missed_doses"`
+}
+
+// computeAdherenceAlert reuses the same loadAdherenceRange window as
+// healthScoreAdherence, but grades dose-level PDC (taken doses ÷ expected
+// doses) rather than day-level, so MissedDoses is a plain count of individual
+// missed doses for the nudge copy ("2 missed evening doses this week").
+func (s *service) computeAdherenceAlert(ctx context.Context, userID int64, today time.Time, cfg scoring.Config) (AdherenceAlertView, error) {
+	recentStart := today.AddDate(0, 0, -(cfg.HealthScoreWindowDays - 1))
+	byDay, err := s.loadAdherenceRange(ctx, userID, recentStart, today.AddDate(0, 0, 1))
+	if err != nil {
+		return AdherenceAlertView{}, err
+	}
+	var taken, expected int
+	for d := recentStart; !d.After(today); d = d.AddDate(0, 0, 1) {
+		ad, ok := byDay[utcMidnight(d).Unix()]
+		if !ok {
+			continue // no doses expected that day — not a miss, just unscored
+		}
+		t, e := takenExpected(ad)
+		taken += t
+		expected += e
+	}
+	if expected == 0 {
+		return AdherenceAlertView{}, nil
+	}
+	pdc := float64(taken) / float64(expected)
+	return AdherenceAlertView{
+		Active:      pdc < cfg.AdherenceAlertPDCThreshold,
+		PDC:         pdc,
+		MissedDoses: expected - taken,
+	}, nil
+}
+
 // healthScoreRestingHR builds the "resting_hr" contributor from the recent
 // window's mean daily-minimum HR (the same proxy loadVitalsAuto uses for a
 // single day) vs. the mean over the baseline window strictly before it —

@@ -610,6 +610,56 @@ describe('TodayDashboard.renderToday', () => {
         expect(state.gamificationRings.value.healthScore.value).toBe(82.4);
     });
 
+    // Adherence safety net (Task 3): a solved habit stays invisible until the
+    // trailing PDC actually slips, then Today surfaces one gentle line.
+    it('aggregateToday carries an active adherence_alert from the raw rings payload into the cell', () => {
+        const caches = {
+            gamification_rings: {
+                level: 4,
+                today_hp: 28,
+                rings: [{ ring: 'nourishment', hp: 12, closed: true }],
+                adherence_alert: { active: true, pdc: 0.72, missed_doses: 2 }
+            }
+        };
+        const state = env.aggregate({ features: {} }, caches, now);
+        expect(state.gamificationRings.value.adherenceAlert).toEqual({ missedDoses: 2 });
+    });
+
+    it('aggregateToday drops an inactive adherence_alert — a solved habit stays invisible', () => {
+        const caches = {
+            gamification_rings: {
+                level: 4,
+                today_hp: 28,
+                rings: [{ ring: 'nourishment', hp: 12, closed: true }],
+                adherence_alert: { active: false, pdc: 0.95, missed_doses: 1 }
+            }
+        };
+        const state = env.aggregate({ features: {} }, caches, now);
+        expect(state.gamificationRings.value.adherenceAlert).toBeNull();
+    });
+
+    it('renders the adherence nudge line when active and deep-links to Meds', () => {
+        const root = env.document.getElementById('today-content');
+        const onDeeplink = vi.fn();
+        const state = ringsState(now, ['bedtime', 'movement']);
+        state.gamificationRings.value.adherenceAlert = { missedDoses: 2 };
+        env.render(state, root, { now, onDeeplink });
+
+        const nudge = root.querySelector('.wg-today-rings__adherence');
+        expect(nudge).not.toBeNull();
+        expect(nudge.textContent).toMatch(/2 missed doses/i);
+
+        nudge.click();
+        expect(onDeeplink).toHaveBeenCalledWith('meds');
+        expect(onDeeplink).not.toHaveBeenCalledWith('journey');
+    });
+
+    it('renders no adherence line at all when the alert is inactive', () => {
+        const root = env.document.getElementById('today-content');
+        env.render(ringsState(now, ['bedtime', 'movement']), root, { now });
+        expect(root.querySelector('.wg-today-rings__adherence')).toBeNull();
+    });
+
     it('rings tile headline shows the Health Score number and a token-colored band tag', () => {
         const root = env.document.getElementById('today-content');
         env.render(ringsState(now, ['bedtime', 'movement'], [], 82), root, { now });

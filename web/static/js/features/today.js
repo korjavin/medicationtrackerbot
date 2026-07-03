@@ -354,10 +354,12 @@
         const list = rings && Array.isArray(rings.rings) ? rings.rings : null;
         if (!list || list.length === 0) return cell(null, 'journey', 'missing');
         const hs = rings.health_score;
+        const aa = rings.adherence_alert;
         const value = {
             level: Number.isFinite(rings.level) ? rings.level : 0,
             todayHp: Number.isFinite(rings.today_hp) ? rings.today_hp : 0,
             healthScore: { value: (hs && Number.isFinite(hs.value)) ? hs.value : null },
+            adherenceAlert: (aa && aa.active) ? { missedDoses: Number(aa.missed_doses) || 0 } : null,
             rings: list
                 .filter((r) => r && typeof r.ring === 'string')
                 .map((r) => ({
@@ -1150,6 +1152,23 @@
                 move.appendChild(text);
             }
             card.appendChild(move);
+        }
+
+        // Adherence safety net (Task 3): a solved habit is invisible — this
+        // line only renders while the trailing PDC has actually slipped, and
+        // links to Meds rather than nagging inline every day.
+        const adherenceAlert = hasValue ? cell.value.adherenceAlert : null;
+        if (adherenceAlert) {
+            const nudge = d.createElement('div');
+            nudge.className = 'wg-today-rings__adherence wg-muted';
+            nudge.textContent = `${adherenceAlert.missedDoses} missed dose${adherenceAlert.missedDoses === 1 ? '' : 's'} recently — worth a look`;
+            nudge.setAttribute('role', 'button');
+            nudge.setAttribute('tabindex', '0');
+            nudge.setAttribute('data-section', 'meds');
+            const goMeds = (e) => { if (e) e.stopPropagation(); if (typeof onDeeplink === 'function') onDeeplink('meds'); };
+            nudge.addEventListener('click', goMeds);
+            nudge.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') goMeds(e); });
+            card.appendChild(nudge);
         }
 
         if (!hasValue) {

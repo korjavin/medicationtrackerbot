@@ -20,7 +20,7 @@ func GamificationOperations() []*Operation {
 			Path:            "/api/gamification/summary",
 			Risk:            RiskRead,
 			Description:     "Full gamification read model: lifetime HP, level + within-level progress, current/longest streak + banked freezes, insight tier, per-ring HP totals for today and the trailing 7-day period, the 0-100 Health Score composite, and per-pillar habit-strength EMAs.",
-			ResponseSummary: "Summary object: enabled, lifetime_hp, level, insight_tier, hp_into_level/level_span_hp/hp_to_next_level, current_streak/longest_streak/freezes, today_hp, today_rings[] and period_rings[] ({ring, hp, closed, progress, goal, sync_pending} for the three daily levers bedtime/movement/nourishment — adherence and vitals awards and the Mind ring's diary awards still earn lifetime_hp but produce no ring, gamification-10 §2.5), period_days, last_scored_day, health_score ({value (0-100 or null below min-contributors), contributors[] ({key, label, score, weight, missing} for bp/sleep/resting_hr/weight/adherence), missing[] (keys absent from the composite, weights renormalized over the rest)}), strengths[] ({key, label, value (0..1 EMA), frequency} for meds/movement/measurement). sync_pending is true only on today's bedtime/movement rings when open and no device-synced sample (sleep/steps) has arrived yet today — always false on period_rings.",
+			ResponseSummary: "Summary object: enabled, lifetime_hp, level, insight_tier, hp_into_level/level_span_hp/hp_to_next_level, current_streak/longest_streak/freezes, today_hp, today_rings[] and period_rings[] ({ring, hp, closed, progress, goal, sync_pending} for the three daily levers bedtime/movement/nourishment — adherence and vitals awards and the Mind ring's diary awards still earn lifetime_hp but produce no ring, gamification-10 §2.5), period_days, last_scored_day, health_score ({value (0-100 or null below min-contributors), contributors[] ({key, label, score, weight, missing} for bp/sleep/resting_hr/weight/adherence), missing[] (keys absent from the composite, weights renormalized over the rest)}), strengths[] ({key, label, value (0..1 EMA), frequency} for meds/movement/measurement), adherence_alert ({active, pdc, missed_doses} — a safety-net nudge over the trailing window when dose-level PDC drops below threshold; adherence has no ring/daily grading, so active is false the vast majority of the time). sync_pending is true only on today's bedtime/movement rings when open and no device-synced sample (sleep/steps) has arrived yet today — always false on period_rings.",
 			ResponseExample: `{
   "enabled": true,
   "lifetime_hp": 4820,
@@ -60,7 +60,8 @@ func GamificationOperations() []*Operation {
     {"key": "meds", "label": "Medication", "value": 0.87, "frequency": 1},
     {"key": "movement", "label": "Movement", "value": 0.62, "frequency": 0.4286},
     {"key": "measurement", "label": "Measurement", "value": 0.95, "frequency": 1}
-  ]
+  ],
+  "adherence_alert": {"active": false, "pdc": 0.95, "missed_doses": 1}
 }`,
 			Example: `result = api.call("gamification.summary")
 output(result)`,
@@ -72,7 +73,7 @@ output(result)`,
 			Path:            "/api/gamification/journey",
 			Risk:            RiskRead,
 			Description:     "Journey-screen read model: the full summary (including the Health Score composite and per-pillar habit strengths) plus a trailing 90-day HP-per-day history (sparse — only days that earned HP), the list of unlocked insight tiers, and the level curve (cumulative HP to reach each level up to a few past the current one).",
-			ResponseSummary: "Journey object: all Summary fields (see gamification.summary, including health_score and strengths[]) plus hp_history[] ({day_unix, hp}), unlocked_tiers[] (ints 1..insight_tier), and level_curve[] ({level, hp_to_reach}).",
+			ResponseSummary: "Journey object: all Summary fields (see gamification.summary, including health_score, strengths[], and adherence_alert) plus hp_history[] ({day_unix, hp}), unlocked_tiers[] (ints 1..insight_tier), and level_curve[] ({level, hp_to_reach}).",
 			ResponseExample: `{
   "enabled": true,
   "lifetime_hp": 4820,
@@ -100,6 +101,7 @@ output(result)`,
   "strengths": [
     {"key": "meds", "label": "Medication", "value": 0.87, "frequency": 1}
   ],
+  "adherence_alert": {"active": false, "pdc": 0.95, "missed_doses": 1},
   "hp_history": [
     {"day_unix": 1750982400, "hp": 110},
     {"day_unix": 1751068800, "hp": 95}
@@ -121,7 +123,7 @@ output(result["hp_history"])`,
 			Path:            "/api/gamification/rings",
 			Risk:            RiskRead,
 			Description:     "Slim Today-widget projection of the summary: the level badge plus per-ring HP earned today and whether each ring is closed (earned a non-floor award today). Use this (not gamification.summary) when you only need today's ring fill.",
-			ResponseSummary: "Object {enabled, level, today_hp, rings[] of {ring, hp, closed, progress, goal, sync_pending} for the three daily levers bedtime/movement/nourishment, health_score}. closed=true means the ring earned an outcome/consistency award today (not just the honesty floor). progress is the 0..1 fill gauge (1.0 when closed), goal is the short imperative subtitle. sync_pending=true means the ring is open only because its device-synced sample (sleep/steps) hasn't arrived yet today — not a failure. health_score rides along (same shape as gamification.summary's field) so the Today widget can show the 0-100 composite without a second call.",
+			ResponseSummary: "Object {enabled, level, today_hp, rings[] of {ring, hp, closed, progress, goal, sync_pending} for the three daily levers bedtime/movement/nourishment, health_score, adherence_alert}. closed=true means the ring earned an outcome/consistency award today (not just the honesty floor). progress is the 0..1 fill gauge (1.0 when closed), goal is the short imperative subtitle. sync_pending=true means the ring is open only because its device-synced sample (sleep/steps) hasn't arrived yet today — not a failure. health_score rides along (same shape as gamification.summary's field) so the Today widget can show the 0-100 composite without a second call. adherence_alert ({active, pdc, missed_doses}) is the safety-net nudge, active only when trailing dose-level PDC drops below threshold; adherence itself has no ring.",
 			ResponseExample: `{
   "enabled": true,
   "level": 7,
@@ -131,7 +133,8 @@ output(result["hp_history"])`,
     {"ring": "movement", "hp": 25, "closed": true, "progress": 1.0, "goal": "Move toward ~7,000 steps", "sync_pending": false},
     {"ring": "nourishment", "hp": 10, "closed": true, "progress": 1.0, "goal": "Eat near target · 1,800–2,200 kcal", "sync_pending": false}
   ],
-  "health_score": {"value": 78.5, "contributors": [{"key": "bp", "label": "Blood pressure", "score": 0.9, "weight": 1.0, "missing": false}], "missing": []}
+  "health_score": {"value": 78.5, "contributors": [{"key": "bp", "label": "Blood pressure", "score": 0.9, "weight": 1.0, "missing": false}], "missing": []},
+  "adherence_alert": {"active": false, "pdc": 0.95, "missed_doses": 1}
 }`,
 			Example: `result = api.call("gamification.rings")
 output(result)`,

@@ -246,6 +246,13 @@ type Config struct {
 	// month of daily completion, ~0.99 after three months). Flexible
 	// frequency (e.g. f=3/7 for 3×/week movement) works by construction.
 	HabitStrengthHalfLifeDays float64
+
+	// Adherence safety net (§6.1/§Task 3): adherence has no ring and no daily
+	// grading — it's a solved habit that should stay invisible. The one
+	// exception is a trailing-PDC alert when it slips below this threshold,
+	// distinct from (and stricter than) HealthScoreAdherencePDCTarget above,
+	// which grades Health Score credit rather than firing a nudge.
+	AdherenceAlertPDCThreshold float64
 }
 
 // DefaultConfig returns the recommended guideline defaults. Every value is a
@@ -319,6 +326,8 @@ func DefaultConfig() Config {
 		HealthScoreWeightStabilityPct: 0.02,
 
 		HabitStrengthHalfLifeDays: 13,
+
+		AdherenceAlertPDCThreshold: 0.90,
 	}
 }
 

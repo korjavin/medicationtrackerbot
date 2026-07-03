@@ -152,15 +152,27 @@ untouched. Ring restructure happens at the **view layer** — no migration.
 
 ### Task 3: Adherence safety net
 
-- [ ] compute rolling 14-day PDC in the summary read path (reuse the adherence
+- [x] compute rolling 14-day PDC in the summary read path (reuse the adherence
       loader + miss inference); expose additive
       `adherence_alert {active, pdc, missed_doses}` on summary/bootstrap when PDC
       < threshold (Config, default 0.90) — field absent/inactive otherwise
-- [ ] `today.js`: one gentle line when active ("2 missed evening doses this
+- [x] `today.js`: one gentle line when active ("2 missed evening doses this
       week — worth a look"), token-neutral styling, links to Meds section; no
       line at all when adherence is fine (a solved habit is invisible)
-- [ ] remove adherence from any remaining daily-loop surface (it no longer has a
+- [x] remove adherence from any remaining daily-loop surface (it no longer has a
       ring; confirm nothing else nags it)
+
+  ➕ Implementation note: `computeAdherenceAlert` (wellbeing.go) reuses the
+  same `loadAdherenceRange` window as `healthScoreAdherence` (Config's
+  existing `HealthScoreWindowDays`, 14d default) but grades dose-level PDC
+  (taken ÷ expected doses) rather than day-level, so `missed_doses` is a plain
+  count (`expected - taken`) for the nudge copy. `AdherenceAlertPDCThreshold`
+  (0.90) is a distinct, stricter config constant from
+  `HealthScoreAdherencePDCTarget` (0.8, Health Score credit) — the two must
+  not be conflated. Wired additively onto `Summary` (bootstrap/journey ride
+  along automatically) and onto the slim `ringsView` (`/api/gamification/rings`,
+  what Today actually reads). A repo-wide grep confirmed no other frontend
+  surface nags adherence — this is the only nudge.
 
 ### Task 4: Health Score reweight + targets editor
 

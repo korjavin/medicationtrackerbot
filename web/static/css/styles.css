@@ -5661,6 +5661,16 @@ textarea.wg-input {
     color: var(--wg-fg-3);
 }
 
+/* Adherence safety-net nudge (Task 3): invisible unless the trailing PDC
+   slips — one tappable, token-neutral line to Meds, no icon/urgency styling. */
+.wg-today-rings__adherence {
+    display: block;
+    margin-bottom: var(--space-sm);
+    padding: 0 var(--space-sm);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+}
+
 /* Explicit "View Journey →" affordance, distinct from the "your move" deep
    link — the whole card already navigates to Journey on tap; this just makes
    that destination discoverable instead of implicit. */

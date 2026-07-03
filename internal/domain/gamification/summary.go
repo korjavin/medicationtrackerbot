@@ -85,6 +85,13 @@ type Summary struct {
 	// the continuity mechanic that replaces the weekly streak card on Journey. A
 	// read/degrade error yields an empty slice.
 	Strengths []StrengthView `json:"strengths"`
+
+	// AdherenceAlert is the safety-net nudge (Task 3, see wellbeing.go):
+	// adherence has no ring and no daily grading, so this stays Active=false
+	// (invisible) unless the trailing PDC drops below
+	// Config.AdherenceAlertPDCThreshold. A read/degrade error yields the zero
+	// value, i.e. inactive.
+	AdherenceAlert AdherenceAlertView `json:"adherence_alert"`
 }
 
 // GetSummary returns the user's gamification read model. Gate-off yields
@@ -151,6 +158,7 @@ func (s *service) GetSummary(ctx context.Context, userID int64) (Summary, error)
 	goals := map[string]string{}
 	healthScore := HealthScoreView{Missing: []string{}}
 	strengths := []StrengthView{}
+	adherenceAlert := AdherenceAlertView{}
 	if effCfg, err := s.effectiveConfig(ctx, userID); err != nil {
 		slog.Warn("gamification summary: effective config load failed; rings degrade to no progress/goal", "error", err, "user_id", userID)
 	} else {
@@ -180,6 +188,11 @@ func (s *service) GetSummary(ctx context.Context, userID int64) (Summary, error)
 		} else {
 			strengths = st
 		}
+		if aa, err := s.computeAdherenceAlert(ctx, userID, today, effCfg); err != nil {
+			slog.Warn("gamification summary: adherence alert compute failed; degrades to inactive", "error", err, "user_id", userID)
+		} else {
+			adherenceAlert = aa
+		}
 	}
 	// syncPending degrades to "nothing pending" on error — same forgiving
 	// posture as todayProgress/goals above: a transient read error should not
@@ -192,22 +205,23 @@ func (s *service) GetSummary(ctx context.Context, userID int64) (Summary, error)
 	}
 
 	sum := Summary{
-		Enabled:       true,
-		LifetimeHP:    st.LifetimeHP,
-		Level:         st.Level,
-		InsightTier:   st.InsightTier,
-		HPIntoLevel:   st.LifetimeHP - floor,
-		LevelSpanHP:   next - floor,
-		HPToNextLevel: next - st.LifetimeHP,
-		CurrentStreak: derivedStreak,
-		LongestStreak: longestStreak,
-		Freezes:       derivedFreezes,
-		PeriodDays:    summaryPeriodDays,
-		TodayRings:    ringScores(todayLedger, todayProgress, goals, syncPending),
-		PeriodRings:   ringScores(periodLedger, nil, goals, nil),
-		LastScoredDay: st.LastScoredDay,
-		HealthScore:   healthScore,
-		Strengths:     strengths,
+		Enabled:        true,
+		LifetimeHP:     st.LifetimeHP,
+		Level:          st.Level,
+		InsightTier:    st.InsightTier,
+		HPIntoLevel:    st.LifetimeHP - floor,
+		LevelSpanHP:    next - floor,
+		HPToNextLevel:  next - st.LifetimeHP,
+		CurrentStreak:  derivedStreak,
+		LongestStreak:  longestStreak,
+		Freezes:        derivedFreezes,
+		PeriodDays:     summaryPeriodDays,
+		TodayRings:     ringScores(todayLedger, todayProgress, goals, syncPending),
+		PeriodRings:    ringScores(periodLedger, nil, goals, nil),
+		LastScoredDay:  st.LastScoredDay,
+		HealthScore:    healthScore,
+		Strengths:      strengths,
+		AdherenceAlert: adherenceAlert,
 	}
 	if sum.HPToNextLevel < 0 {
 		sum.HPToNextLevel = 0
