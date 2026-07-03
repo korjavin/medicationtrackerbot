@@ -231,11 +231,27 @@ untouched. Ring restructure happens at the **view layer** — no migration.
 
 ### Task 6: Update documentation
 
-- [ ] `docs/gamification.md`: new §2.5 "Levers & Gauges" stating the rule
+- [x] `docs/gamification.md`: new §2.5 "Levers & Gauges" stating the rule
       (gamify levers daily, trend gauges long-term, attribute via insights);
       rewrite §5 ring table to the three levers; §6.4 sleep flip; §6.1 adherence
       safety-net role; note the mixed-rule history stance
-- [ ] `docs/api.md`: rings + `adherence_alert` + `bedtime` target
+- [x] `docs/api.md`: rings + `adherence_alert` + `bedtime` target
+
+  ➕ Implementation note: also updated §6.3 (stress fully removed from
+  scoring, gauge framing) since it was directly contradicted by the new §2.5,
+  and added a `### 14.9 Levers & gauges restructure — Plan 10 (status)` section
+  matching the doc's existing per-plan status-log pattern (§14.1–14.8).
+  `docs/api.md`'s `/api/gamification/rings` and `/targets` rows were updated to
+  include `adherence_alert` and the corrected metric-key set. Also fixed a
+  stale `ResponseSummary` string in
+  `internal/mcp/registry/operations_gamification.go`
+  (`gamification.targets.read`) that still listed `stress` and omitted
+  `bedtime` — a leftover inconsistency from Task 2/4 directly contradicting
+  the docs being written here. Earlier historical status sections (§14.2,
+  §14.3) that describe Plan 2/3's state *at the time* (five rings, stress in
+  the targets list) were left as-is — they're point-in-time status logs, not
+  current-state documentation, and §14.9 now supersedes them for anyone
+  reading top-to-bottom.
 
 ## Technical Details
 

@@ -146,7 +146,7 @@ output(result)`,
 			Path:            "/api/gamification/targets",
 			Risk:            RiskRead,
 			Description:     "Targets-editor read model: each overridable band-shaped metric's effective band (the recommended default overlaid with the user's override), the recommended default for comparison, and whether the user customized it.",
-			ResponseSummary: "Object {enabled, targets[] of {metric_key, low, high, falloff, recommended_low, recommended_high, recommended_falloff, is_custom, is_recommended}}. Metrics: bp_systolic, bp_diastolic, resting_hr, stress, sleep_hours, steps.",
+			ResponseSummary: "Object {enabled, targets[] of {metric_key, low, high, falloff, recommended_low, recommended_high, recommended_falloff, is_custom, is_recommended}}. Metrics: bp_systolic, bp_diastolic, resting_hr, sleep_hours, steps, bedtime (minutes of deviation from the user's trailing bedtime median; stress was dropped, gamification-10).",
 			ResponseExample: `{
   "enabled": true,
   "targets": [
