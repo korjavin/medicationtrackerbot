@@ -253,6 +253,29 @@ type Config struct {
 	// distinct from (and stricter than) HealthScoreAdherencePDCTarget above,
 	// which grades Health Score credit rather than firing a nudge.
 	AdherenceAlertPDCThreshold float64
+
+	// Gauge trends (gamification-11 §Overview): weight becomes a trend
+	// velocity+acceleration read (Hacker's-Diet-style EMA) instead of a daily
+	// band score; BP becomes a rolling in-range share; resting HR a trend vs
+	// baseline. All three compute on read from the raw log — no new tables —
+	// feeding the Journey gauges panel and the weekly award streams that
+	// replace the removed daily gauge outcomes. WeightSafePaceMinPct/MaxPct
+	// above (already scored by ScoreWeight) double as the pace-status
+	// thresholds here — one definition of "safe pace", not a duplicate.
+	GaugeWeightEMAAlpha                       float64
+	GaugeWeightLookbackDays                   int
+	GaugeWeightVelocityWindowDays             int
+	GaugeWeightAccelerationDeadbandPctPerWeek float64
+	GaugeWeightMinHistoryDays                 int
+
+	GaugeBPRecentWindowDays    int
+	GaugeBPMidWindowDays       int
+	GaugeBPBaselineWindowDays  int
+	GaugeBPMinBaselineReadings int
+
+	GaugeRestingHRRecentWindowDays   int
+	GaugeRestingHRBaselineWindowDays int
+	GaugeRestingHRMinBaselineDays    int
 }
 
 // DefaultConfig returns the recommended guideline defaults. Every value is a
@@ -328,6 +351,21 @@ func DefaultConfig() Config {
 		HabitStrengthHalfLifeDays: 13,
 
 		AdherenceAlertPDCThreshold: 0.90,
+
+		GaugeWeightEMAAlpha:                       0.10, // Hacker's Diet ~10%/day
+		GaugeWeightLookbackDays:                   120,
+		GaugeWeightVelocityWindowDays:             14,
+		GaugeWeightAccelerationDeadbandPctPerWeek: 0.15,
+		GaugeWeightMinHistoryDays:                 28, // 2x the velocity window: enough for both velocity and acceleration
+
+		GaugeBPRecentWindowDays:    14,
+		GaugeBPMidWindowDays:       30,
+		GaugeBPBaselineWindowDays:  60,
+		GaugeBPMinBaselineReadings: 4,
+
+		GaugeRestingHRRecentWindowDays:   14,
+		GaugeRestingHRBaselineWindowDays: 60,
+		GaugeRestingHRMinBaselineDays:    5,
 	}
 }
 

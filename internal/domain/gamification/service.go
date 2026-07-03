@@ -194,6 +194,12 @@ type GamificationService interface {
 	// on the feature flag AND the user's unlocked insight tier — below tier 3
 	// yields {Locked:true}, never raw data. See insights.go.
 	GetInsights(ctx context.Context, userID int64) (InsightsView, error)
+
+	// GetGauges returns the gauge-trend read model (gamification-11): weight
+	// velocity/acceleration, BP rolling in-range share, resting HR vs baseline —
+	// computed fresh from the log on every call. Gate-off yields {Enabled:false}.
+	// See gauges.go.
+	GetGauges(ctx context.Context, userID int64) (GaugesView, error)
 }
 
 // service implements GamificationService. It composes the narrow per-domain read

@@ -92,17 +92,17 @@ EMAs and shares automatically.
 
 ### Task 1: Domain — gauge trend models
 
-- [ ] `internal/domain/gamification/gauges.go` (new): weight — EMA over trailing
+- [x] `internal/domain/gamification/gauges.go` (new): weight — EMA over trailing
       ~120 days (α=0.10/day, gaps carried forward), velocity = smoothed change
       over the last 14 days in %bodyweight/week, pace status vs the user's goal
       direction+rate (no goal → trend-only, no judgment), acceleration =
       velocity now vs 14 days ago with a deadband → speeding/holding/slowing
-- [ ] BP — in-range share (existing effective band) over 14d and 30d vs the 60d
+- [x] BP — in-range share (existing effective band) over 14d and 30d vs the 60d
       baseline share, with reading counts; resting HR — 14d mean vs 60d baseline
       delta
-- [ ] every gauge carries honest `insufficient_data` below minimum sample counts
+- [x] every gauge carries honest `insufficient_data` below minimum sample counts
       (Config); all computed on read, no new tables
-- [ ] `GetGauges` on the `GamificationService` interface, feature-gated like all
+- [x] `GetGauges` on the `GamificationService` interface, feature-gated like all
       reads
 
 ### Task 2: HP economy — daily gauge awards → weekly gauge awards
