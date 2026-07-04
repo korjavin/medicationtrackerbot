@@ -23,7 +23,7 @@ var routedCommands = []string{
 	"log", "download", "bp", "bphistory", "bpstats",
 	"weight", "weighthistory", "goal", "bpgoal", "stock",
 	"workout", "startnext", "workoutstatus", "workouthistory",
-	"next", "intake", "food", "activity", "note", "tz",
+	"next", "intake", "food", "activity", "note", "tz", "week",
 }
 
 func TestCommandSpecs_CoversEveryRoutedCommand(t *testing.T) {

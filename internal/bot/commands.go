@@ -50,6 +50,7 @@ var commandSpecs = []commandSpec{
 	// help work even when every domain section is toggled off.
 	{Name: "start", Description: "Start the bot and open the App", Section: "General"},
 	{Name: "help", Description: "Show available commands", Section: "General"},
+	{Name: "week", Description: "View your weekly gamification review", Section: "General"},
 
 	// Medication.
 	{Name: "log", Description: "Manually log a dose for any medication", Section: "Medication Commands",

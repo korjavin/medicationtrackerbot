@@ -531,6 +531,8 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 		b.handleActivityCommand(msg, &msgConfig)
 	case "note":
 		b.handleNoteCommand(msg, &msgConfig)
+	case "week":
+		b.handleWeekCommand(&msgConfig)
 	case "tz":
 		b.handleTZCommand(msg.Chat.ID)
 		return

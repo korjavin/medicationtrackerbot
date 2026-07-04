@@ -127,10 +127,10 @@ invariant, so backfilled weeks read correctly in retrospect).
 
 ### Task 4: Bot — `/week` command
 
-- [ ] register `/week` following the existing bot command pattern; handler calls
+- [x] register `/week` following the existing bot command pattern; handler calls
       `GetWeeklyReview` and formats the structured data into a short Telegram
       message (thin channel — formatting only), same tone rules
-- [ ] flag-off / quiet-week / error paths all produce a friendly one-liner,
+- [x] flag-off / quiet-week / error paths all produce a friendly one-liner,
       never a stack of zeros
 
 ### Task 5: Opt-in Sunday digest
