@@ -48,8 +48,16 @@ services:
       - "traefik.enable=true"
       - "traefik.docker.network=proxy"
       - "traefik.http.routers.portainer.rule=Host(`portainer.${CLOUD_BASE_DOMAIN}`)"
+      # Higher priority than the cloud app's wildcard HostRegexp, which also
+      # matches portainer.<base> and (being a longer rule) would otherwise win
+      # Traefik v3's default length-based priority and shadow this router.
+      - "traefik.http.routers.portainer.priority=1000"
       - "traefik.http.routers.portainer.entrypoints=websecure"
       - "traefik.http.routers.portainer.tls.certresolver=wildcard"
+      # Serve off the wildcard cert (main + *.<base> SANs) so portainer.<base>
+      # is not published to Certificate Transparency logs as its own name.
+      - "traefik.http.routers.portainer.tls.domains[0].main=${CLOUD_BASE_DOMAIN}"
+      - "traefik.http.routers.portainer.tls.domains[0].sans=*.${CLOUD_BASE_DOMAIN}"
       - "traefik.http.services.portainer.loadbalancer.server.port=9000"
 
 networks:

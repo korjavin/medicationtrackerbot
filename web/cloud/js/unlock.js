@@ -18,7 +18,14 @@ const LDK_AAD = new TextEncoder().encode('mt/v1/ldk');
 
 export async function runUnlockFlow() {
   const app = document.getElementById('app');
-  const cached = await readLdkRecord();
+  let cached = null;
+  try {
+    cached = await readLdkRecord();
+  } catch {
+    // IndexedDB unavailable (storage disabled, private mode, quota policy) —
+    // fall through to cold unlock rather than leaving a blank page.
+    cached = null;
+  }
   if (cached) {
     try {
       const dek = await unwrapWithLdk(cached);
