@@ -49,11 +49,11 @@ QR mechanics (the trick that avoids shipping a camera/scanner): the QR encodes a
 
 ### Task 1: transfer slots (server)
 
-- [ ] migration `002_transfer_slots.sql`: `transfer_slots(id TEXT PK, account_id TEXT NOT NULL, enrollment_token_hash BLOB NOT NULL, ct BLOB NOT NULL, created_at_unix INTEGER NOT NULL, expires_at_unix INTEGER NOT NULL, fetched INTEGER NOT NULL DEFAULT 0)`
-- [ ] `POST /api/transfer` (session auth, i.e. an unlocked device): body `{ct}`; server generates `slot_id` + enrollment token, stores hash, returns `{slot_id, enrollment_token, expires_at}` — note the plaintext `TK` never appears in any request
-- [ ] `POST /api/transfer/{slot_id}/claim` (unauthenticated, subdomain host): valid+unexpired+unfetched slot → mark fetched, return `{ct, enrollment_token}`; single use enforced atomically (UPDATE ... WHERE fetched=0 + RowsAffected check)
-- [ ] lazy cleanup: expired/fetched slots deleted on each transfer API call (`ponytail:` no background sweeper; slot volume is trivial)
-- [ ] integration test: create → claim → second claim 410s; expired slot 410s — guards single-use + TTL contract
+- [x] migration `002_transfer_slots.sql`: `transfer_slots(id TEXT PK, account_id TEXT NOT NULL, enrollment_token_hash BLOB NOT NULL, ct BLOB NOT NULL, created_at_unix INTEGER NOT NULL, expires_at_unix INTEGER NOT NULL, fetched INTEGER NOT NULL DEFAULT 0)`
+- [x] `POST /api/transfer` (session auth, i.e. an unlocked device): body `{ct}`; server generates `slot_id` + enrollment token, stores hash, returns `{slot_id, enrollment_token, expires_at}` — note the plaintext `TK` never appears in any request
+- [x] `POST /api/transfer/{slot_id}/claim` (unauthenticated, subdomain host): valid+unexpired+unfetched slot → mark fetched, return `{ct, enrollment_token}`; single use enforced atomically (UPDATE ... WHERE fetched=0 + RowsAffected check)
+- [x] lazy cleanup: expired/fetched slots deleted on each transfer API call (`ponytail:` no background sweeper; slot volume is trivial)
+- [x] integration test: create → claim → second claim 410s; expired slot 410s — guards single-use + TTL contract
 
 ### Task 2: register/begin accepts enrollment tokens
 

@@ -33,6 +33,11 @@ var ErrClaimInvalid = errors.New("cloudstore: invalid or expired claim token")
 // claim token there would let a fresh passkey be enrolled onto a live account.
 var ErrAlreadyClaimed = errors.New("cloudstore: account already claimed")
 
+// ErrTransferSlotInvalid is returned by ClaimTransferSlot when the slot does
+// not exist, was already fetched, or has expired. Callers must not
+// distinguish these cases in responses (all map to 410 Gone).
+var ErrTransferSlotInvalid = errors.New("cloudstore: invalid, expired, or already-claimed transfer slot")
+
 // Account is one row in the accounts table. ClaimTokenHash/ClaimExpiresAt are
 // nil once the account has been claimed (first credential registered).
 type Account struct {
@@ -428,6 +433,65 @@ func (r *Repo) ListEnvelopes(ctx context.Context, accountID string) ([]Envelope,
 		envelopes = append(envelopes, e)
 	}
 	return envelopes, rows.Err()
+}
+
+// CreateTransferSlot inserts a new device-transfer slot: ct is the DEK
+// encrypted client-side under the transfer key (TK), which never reaches the
+// server. enrollmentTokenHash gates the eventual passkey registration on the
+// new device (see ClaimTransferSlot + the register/begin|finish gate).
+func (r *Repo) CreateTransferSlot(ctx context.Context, id, accountID string, enrollmentTokenHash, ct []byte, createdAt, expiresAt time.Time) error {
+	_, err := r.db.ExecContext(ctx,
+		`INSERT INTO transfer_slots (id, account_id, enrollment_token_hash, ct, created_at_unix, expires_at_unix) VALUES (?, ?, ?, ?, ?, ?)`,
+		id, accountID, enrollmentTokenHash, ct, storedb.TimeToUnix(createdAt), storedb.TimeToUnix(expiresAt))
+	return err
+}
+
+// ClaimTransferSlot atomically marks a transfer slot fetched — single use,
+// enforced by the UPDATE's WHERE clause plus a RowsAffected check rather than
+// a SELECT-then-UPDATE, so two concurrent claims can't both succeed. On
+// success it also rotates the slot's enrollment token to newTokenHash (the
+// fresh token that authorizes the new device's registration) and returns the
+// account id + ciphertext for the caller to hand back to the new device.
+// Returns ErrTransferSlotInvalid if the slot is unknown, already fetched, or
+// expired.
+func (r *Repo) ClaimTransferSlot(ctx context.Context, slotID string, newTokenHash []byte, now time.Time) (accountID string, ct []byte, err error) {
+	err = r.db.WithTx(ctx, func(tx storedb.TX) error {
+		result, txErr := tx.ExecContext(ctx,
+			`UPDATE transfer_slots SET fetched = 1, enrollment_token_hash = ? WHERE id = ? AND fetched = 0 AND expires_at_unix > ?`,
+			newTokenHash, slotID, storedb.TimeToUnix(now))
+		if txErr != nil {
+			return txErr
+		}
+		n, txErr := result.RowsAffected()
+		if txErr != nil {
+			return txErr
+		}
+		if n == 0 {
+			return ErrTransferSlotInvalid
+		}
+		return tx.QueryRowContext(ctx, `SELECT account_id, ct FROM transfer_slots WHERE id = ?`, slotID).Scan(&accountID, &ct)
+	})
+	if err != nil {
+		return "", nil, err
+	}
+	return accountID, ct, nil
+}
+
+// SweepExpiredTransferSlots deletes expired or already-fetched slots, called
+// opportunistically on every transfer API request rather than from a
+// background job (ponytail: slot volume is trivial; add a ticker only if
+// that stops being true).
+func (r *Repo) SweepExpiredTransferSlots(ctx context.Context, now time.Time) (int, error) {
+	result, err := r.db.ExecContext(ctx,
+		`DELETE FROM transfer_slots WHERE fetched = 1 OR expires_at_unix < ?`, storedb.TimeToUnix(now))
+	if err != nil {
+		return 0, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return int(n), nil
 }
 
 // SetRecoveryVerifier upserts the hashed recovery verifier for an account,
