@@ -122,9 +122,9 @@ The server stores only: WebAuthn public keys, envelopes (ciphertext), a recovery
 
 ### Task 10: client unlock flow (`web/cloud/js/unlock.js`)
 
-- [ ] cold unlock: login/begin → `get()` with `allowCredentials` + top-level `prf.eval = salt_kek` → send assertion to finish (session) → fetch own envelope → derive KEK → unwrap DEK → render "vault unlocked" state (shows account + device list placeholder; real data arrives in C0c)
-- [ ] warm unlock per spec "LDK" section: generate a non-extractable AES CryptoKey (LDK) stored in IndexedDB, cache DEK wrapped under it; on next launch unwrap silently, fall back to cold unlock when absent
-- [ ] locked/unlocked UI states + explicit "Lock" action (drops in-memory DEK + LDK cache)
+- [x] cold unlock: login/begin → `get()` with `allowCredentials` + top-level `prf.eval = salt_kek` → send assertion to finish (session) → fetch own envelope → derive KEK → unwrap DEK → render "vault unlocked" state (shows account + device list placeholder; real data arrives in C0c)
+- [x] warm unlock per spec "LDK" section: generate a non-extractable AES CryptoKey (LDK) stored in IndexedDB, cache DEK wrapped under it; on next launch unwrap silently, fall back to cold unlock when absent
+- [x] locked/unlocked UI states + explicit "Lock" action (drops in-memory DEK + LDK cache)
 
 ### Task 11: build + deploy wiring
 

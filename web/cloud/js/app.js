@@ -9,8 +9,6 @@ if (claimToken) {
   const { runSignupWizard } = await import('./signup.js');
   runSignupWizard(claimToken);
 } else {
-  // ponytail: unlock.js (Task 10) isn't built yet — a subdomain visited
-  // without a claim fragment has nothing to resume into until then.
-  document.getElementById('app').innerHTML =
-    '<p>Open your personal invite link to set up this device.</p>';
+  const { runUnlockFlow } = await import('./unlock.js');
+  runUnlockFlow();
 }
