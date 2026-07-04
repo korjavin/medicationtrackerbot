@@ -41,9 +41,9 @@
     // Insight ladder rows for the MVP (InsightMaxTier=4). tier → unlock level
     // mirrors scoring.InsightTierLevels {3,5,7} (tier 1 is always level 1);
     // locked/unlocked state is derived from journey.unlocked_tiers, not from
-    // the level, so a backend curve change can't desync the lock state.
-    // ponytail: descriptions are illustrative (per docs/gamification.md §8);
-    // the L5+ visualizations themselves are Phase 2.
+    // the level, so a backend curve change can't desync the lock state. All
+    // four tiers now have a real destination (gamification-13 closes the
+    // ladder) — a locked row just means "not reached yet", never "soon".
     const LADDER = [
         { tier: 1, level: 1, title: 'Rings & streak', desc: 'Daily rings, current streak, personal bests.' },
         { tier: 2, level: 3, title: 'Trend charts', desc: 'Per-domain trends & 30/90-day baselines — you vs. your past.' },
@@ -130,7 +130,7 @@
         ['Health Score', 'A 0–100 score built from your recent readings — a gap in the data dilutes it, it never counts as a zero.'],
         ['Strengths', 'Each habit’s strength rises when you keep it up and eases off on a miss — no all-or-nothing streak to lose.'],
         ['Levels', 'HP adds up across days; enough HP levels you up.'],
-        ['Insight ladder', 'Levelling up unlocks deeper personal analytics below — some are still coming soon.'],
+        ['Insight ladder', 'Levelling up unlocks deeper personal analytics below.'],
     ];
 
     function renderExplainer() {
@@ -658,9 +658,86 @@
         return card;
     }
 
+    // Plain-language behavior labels for the tier-4 good-day scan (Task 3),
+    // matching the fixed candidate set in insights_goodday.go.
+    const GOOD_DAY_BEHAVIOR_LABEL = {
+        workout: 'a workout',
+        bedtime: 'bedtime in your window',
+        steps: 'hitting your step goal',
+        adherence: 'taking all doses on time',
+    };
+
+    function goodDayFindingLine(finding) {
+        const label = GOOD_DAY_BEHAVIOR_LABEL[finding.behavior] || finding.behavior;
+        const withPct = Math.round((Number(finding.rate_with) || 0) * 100);
+        const withoutPct = Math.round((Number(finding.rate_without) || 0) * 100);
+        const nWith = Number(finding.n_with) || 0;
+        const total = nWith + (Number(finding.n_without) || 0);
+        return `On days after ${label}, morning BP in range ${withPct}% vs ${withoutPct}% · ${nWith}/${total} days`;
+    }
+
+    function goodDayInsufficientLine(item) {
+        const label = GOOD_DAY_BEHAVIOR_LABEL[item.behavior] || item.behavior;
+        const have = Math.min(Number(item.n_with) || 0, Number(item.n_without) || 0);
+        return `Not enough contrast yet for ${label} · keep logging — ${have} of ${item.needed} days needed`;
+    }
+
+    // Mirrors the honesty gate in insights_goodday.go: `effect` (one line per
+    // finding, max 3 — already capped server-side), `no_effect` (a genuine
+    // "nothing stands out" result, not an apology), and `insufficient_data`
+    // (one line per behavior still short on paired days).
+    function goodDayLines(gd) {
+        if (!gd) return [];
+        if (gd.status === 'effect') {
+            return (Array.isArray(gd.findings) ? gd.findings : []).map(goodDayFindingLine);
+        }
+        if (gd.status === 'no_effect') {
+            return ['No single habit stands out yet — your good days look evenly spread.'];
+        }
+        if (gd.status === 'insufficient_data') {
+            const items = Array.isArray(gd.insufficient) ? gd.insufficient : [];
+            return items.length > 0
+                ? items.map(goodDayInsufficientLine)
+                : ['Not enough contrast yet — keep logging.'];
+        }
+        return [];
+    }
+
+    // Tier-4 destination card (Task 3): the good-day association scan, reusing
+    // the same `insight` fetch as the tier-3 card (both live under
+    // GET /api/gamification/insights). Omitted below tier 4 or before
+    // `journey.insight` has loaded, matching renderInsightCard's contract.
+    function renderGoodDayCard(j) {
+        if (!tierUnlocked(j, 4)) return null;
+
+        const insight = j.insight;
+        if (!insight) return null;
+
+        const card = el('section', 'wg-card wg-journey-insight wg-journey-goodday');
+        card.id = 'journey-goodday-card';
+        card.appendChild(el('div', 'wg-section-label', 'YOUR GOOD-DAY MODEL'));
+
+        if (insight.emptyState) {
+            card.appendChild(el('p', 'wg-journey-insight__body wg-muted', insight.emptyState));
+            return card;
+        }
+
+        const gd = insight.good_day;
+        const lines = goodDayLines(gd);
+        if (lines.length === 0) return null;
+
+        const list = el('div', 'wg-journey-goodday__list');
+        lines.forEach((line) => list.appendChild(el('p', 'wg-journey-insight__body wg-muted', line)));
+        card.appendChild(list);
+
+        if (gd.good_day_definition) {
+            card.appendChild(el('p', 'wg-journey-goodday__definition wg-muted', gd.good_day_definition));
+        }
+        return card;
+    }
+
     // Scrolls to the rings card — the real destination tier 1 ("Rings &
-    // streak") describes. Tiers 3-4 have no built destination yet (Phase 2),
-    // so they never get this treatment or the word "Unlocked".
+    // streak") describes.
     function goToRingsCard() {
         const target = document.getElementById('journey-rings-card');
         if (target && typeof target.scrollIntoView === 'function') {
@@ -688,11 +765,21 @@
         }
     }
 
+    // Scrolls to the tier-4 good-day card rendered above (renderGoodDayCard).
+    // A no-op if the card wasn't rendered (e.g. `journey.insight` hasn't
+    // loaded yet) — the ladder row still reads "Unlocked → view" from
+    // unlocked_tiers alone, independent of whether the fetch has resolved.
+    function goToGoodDayCard() {
+        const target = document.getElementById('journey-goodday-card');
+        if (target && typeof target.scrollIntoView === 'function') {
+            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    }
+
     // tier -> destination handler for tiers that have a built screen to link
-    // to. Tiers without an entry here stay locked/"soon" regardless of the
-    // backend's unlocked_tiers (Phase 2 — tier 4 "good-day model" has no
-    // destination yet).
-    const LADDER_DESTINATIONS = { 1: goToRingsCard, 2: goToVitalsTrends, 3: goToInsightCard };
+    // to. Every ladder tier has an entry now that the good-day card (tier 4)
+    // ships — a tier without an entry would stay permanently "locked".
+    const LADDER_DESTINATIONS = { 1: goToRingsCard, 2: goToVitalsTrends, 3: goToInsightCard, 4: goToGoodDayCard };
 
     function renderLadder(j) {
         const card = el('section', 'wg-card wg-journey-ladder');
@@ -705,10 +792,9 @@
         const list = el('div', 'wg-journey-ladder__list');
         LADDER.forEach((entry) => {
             // Honest labels: "Unlocked" only ever appears where there is a
-            // real destination to view. Tiers 1-2 have a built screen (the
-            // rings/streak cards above, and the Vitals trend charts); tiers
-            // 3-4 are Phase 2 — they always read "Unlocks at Lvl N · soon",
-            // regardless of the backend's level-derived unlocked_tiers.
+            // real destination to view, gated on the backend's level-derived
+            // unlocked_tiers — a row below its level just reads "Unlocks at
+            // Lvl N", never "soon" (every tier now has a built destination).
             const destination = LADDER_DESTINATIONS[entry.tier];
             const hasDestination = !!destination && unlocked.has(entry.tier);
             const row = el('div', 'wg-journey-ladder__row' +
@@ -725,7 +811,7 @@
             row.appendChild(body);
 
             const status = el('span', 'wg-tag wg-tag--mono wg-journey-ladder__status',
-                hasDestination ? 'Unlocked → view' : `Unlocks at Lvl ${entry.level} · soon`);
+                hasDestination ? 'Unlocked → view' : `Unlocks at Lvl ${entry.level}`);
             row.appendChild(status);
 
             if (hasDestination) {
@@ -762,6 +848,7 @@
             renderRings(journey),
             renderHistory(journey),
             renderInsightCard(journey),
+            renderGoodDayCard(journey),
             renderLadder(journey),
         ].filter(Boolean);
         content.replaceChildren(...cards);

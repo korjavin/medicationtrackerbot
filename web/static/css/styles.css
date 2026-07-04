@@ -5800,6 +5800,20 @@ textarea.wg-input {
     margin: 0;
 }
 
+/* Tier-4 good-day card (gamification-13 Task 3) — up to 3 finding lines,
+   same list rhythm as the weekly-review lines, plus a definition sub-line
+   in the user's own numbers so the model is never a black box. */
+.wg-journey-goodday__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-journey-goodday__definition {
+    font-size: var(--font-size-xs);
+    margin: var(--space-sm) 0 0;
+}
+
 /* Insight ladder card. */
 .wg-journey-ladder__list {
     display: flex;

@@ -119,17 +119,17 @@ behavior → HP → level → insight loop is now closed at every rung the UI sh
 
 ### Task 3: Journey — tier-4 destination card
 
-- [ ] `journey.js`: tier 4 becomes `hasDestination` → "Unlocked → view" revealing
+- [x] `journey.js`: tier 4 becomes `hasDestination` → "Unlocked → view" revealing
       the good-day card (same inline-expand pattern as tier 3; no new nav slot)
-- [ ] card copy, three states in plain language: findings ("On days after a
+- [x] card copy, three states in plain language: findings ("On days after a
       workout, morning BP in range 78% vs 55% · 21/34 days" — one line per
       finding, max 3), no-effect ("No single habit stands out yet — your good
       days look evenly spread."), insufficient-data ("Not enough contrast yet ·
       keep logging — 6 of 10 workout days needed")
-- [ ] a `good_day_definition` sub-line states what "good day" means in the user's
+- [x] a `good_day_definition` sub-line states what "good day" means in the user's
       own numbers ("in range = systolic 90–120"), so the model is never a black
       box (the Oura contributor-transparency lesson)
-- [ ] locked state (level <7) keeps the honest "Unlocks at Lvl 7" row; ladder no
+- [x] locked state (level <7) keeps the honest "Unlocks at Lvl 7" row; ladder no
       longer contains any "soon" tier
 
 ### Task 4: Verify acceptance criteria
