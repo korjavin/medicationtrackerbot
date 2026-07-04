@@ -114,11 +114,17 @@ function renderUnlocked(app, ctx) {
       <h1>Vault unlocked</h1>
       <p>Account <code id="account-id"></code></p>
       <p>Devices and data sync arrive with the next update.</p>
+      <button id="add-device-button">Add a device</button>
       <button id="lock-button">Lock</button>
     </section>`;
   // Server-controlled value — set via textContent, never innerHTML (E2EE
   // threat model treats the server as hostile; XSS here reads the DEK).
   app.querySelector('#account-id').textContent = ctx.accountId;
+  // ponytail: no device-list screen yet (that's C0b Task 5) — the entry point
+  // lives here temporarily and returns to this same screen on exit.
+  app.querySelector('#add-device-button').addEventListener('click', () => {
+    import('./transfer.js').then(({ renderAddDevice }) => renderAddDevice(app, ctx, () => renderUnlocked(app, ctx)));
+  });
   app.querySelector('#lock-button').addEventListener('click', () => {
     // Only transition to locked once the cached DEK is confirmed gone; if the
     // delete rejects, stay on the unlocked screen with a visible error rather

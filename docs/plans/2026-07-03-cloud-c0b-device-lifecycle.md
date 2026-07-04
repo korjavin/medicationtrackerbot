@@ -63,8 +63,8 @@ QR mechanics (the trick that avoids shipping a camera/scanner): the QR encodes a
 
 ### Task 3: "Add device" flow on the old device (client)
 
-- [ ] `web/cloud/js/transfer.js`: unlocked device → "Add device" → generate `TK` (256-bit), encrypt DEK per spec (`aad="mt/v1/xfer"‖account_id`), `POST /api/transfer`, render QR of `https://<sub>.<base>/claim#<slot_id>.<base64url(TK)>` plus the typed-fallback string (`<slot_id>.<TK-base32>`), live TTL countdown
-- [ ] device-list screen entry point (Task 5 hosts the button; render standalone screen now)
+- [x] `web/cloud/js/transfer.js`: unlocked device → "Add device" → generate `TK` (256-bit), encrypt DEK per spec (`aad="mt/v1/xfer"‖account_id`), `POST /api/transfer`, render QR of `https://<sub>.<base>/claim#<slot_id>.<base64url(TK)>` plus the typed-fallback string (`<slot_id>.<TK-base32>`), live TTL countdown
+- [x] device-list screen entry point (Task 5 hosts the button; render standalone screen now)
 
 ### Task 4: claim flow on the new device (client)
 
