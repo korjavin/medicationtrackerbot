@@ -97,7 +97,14 @@ async function coldUnlock(app) {
   const envelope = { nonce: fromBase64(envJson.nonce), ct: fromBase64(envJson.ct) };
   const dek = await unwrapEnvelope({ kek, envelope, accountId, credentialId });
 
-  await establishLdkCache(dek, accountId);
+  try {
+    await establishLdkCache(dek, accountId);
+  } catch {
+    // Warm-cache is an optimization; a storage-blocked browser (private mode,
+    // quota policy, partitioned iframe) must still reach the vault after a
+    // successful cold unlock rather than bouncing back to a locked loop. This
+    // mirrors the read-path tolerance in runUnlockFlow.
+  }
   renderUnlocked(app, { accountId, dek });
 }
 
