@@ -111,11 +111,11 @@ behavior → HP → level → insight loop is now closed at every rung the UI sh
 
 ### Task 2: API surface (no new route)
 
-- [ ] `GET /api/gamification/insights` response gains the `good_day` key (verbatim
+- [x] `GET /api/gamification/insights` response gains the `good_day` key (verbatim
       pass-through — no handler changes beyond none); update the
       `ResponseExample` for `gamification.insights` in
       `operations_gamification.go` to show both insights
-- [ ] document the extended shape in `docs/api.md#gamification`
+- [x] document the extended shape in `docs/api.md#gamification`
 
 ### Task 3: Journey — tier-4 destination card
 
