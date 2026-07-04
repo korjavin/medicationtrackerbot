@@ -197,6 +197,7 @@ func (a *WebAuthnAPI) RegisterBegin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req registerBeginRequest
+	r.Body = http.MaxBytesReader(w, r.Body, maxEnvelopeBodyBytes)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ClaimToken == "" {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
@@ -407,6 +408,9 @@ func (a *WebAuthnAPI) LoginFinish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// go-webauthn parses r.Body with no size cap of its own; bound it before the
+	// unauthenticated assertion is decoded into memory.
+	r.Body = http.MaxBytesReader(w, r.Body, maxRegisterFinishBodyBytes)
 	cred, err := wa.FinishLogin(&accountUser{account: account, creds: toWebAuthnCredentials(creds)}, challenge.session, r)
 	if err != nil {
 		http.Error(w, "login failed", http.StatusBadRequest)

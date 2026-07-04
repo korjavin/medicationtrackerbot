@@ -26,9 +26,16 @@ function renderWelcome(app, claimToken, errorText) {
       <h1>Welcome to Med Tracker Cloud</h1>
       <p>Your data is encrypted on this device. This server only stores an
          encrypted bundle it cannot read, and rings your reminders.</p>
-      ${errorText ? `<p class="wizard-error">${errorText}</p>` : ''}
       <button id="create-passkey">Create your passkey</button>
     </section>`;
+  // Error text may carry a browser exception message; render via textContent,
+  // never interpolated into innerHTML (this page holds the DEK — XSS here reads it).
+  if (errorText) {
+    const p = document.createElement('p');
+    p.className = 'wizard-error';
+    p.textContent = errorText;
+    app.querySelector('section').appendChild(p);
+  }
   app.querySelector('#create-passkey').addEventListener('click', () => {
     startRegistration(app, claimToken).catch((err) => {
       renderWelcome(app, claimToken, err.message || String(err));

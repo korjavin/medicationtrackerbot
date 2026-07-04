@@ -45,9 +45,16 @@ function renderLocked(app, errorText) {
     <section class="wizard-step">
       <h1>Med Tracker</h1>
       <p>Unlock this device with your passkey to open your vault.</p>
-      ${errorText ? `<p class="wizard-error">${errorText}</p>` : ''}
       <button id="unlock-button">Unlock with passkey</button>
     </section>`;
+  // Error text may carry a browser exception message; render via textContent,
+  // never interpolated into innerHTML (this page holds the DEK — XSS here reads it).
+  if (errorText) {
+    const p = document.createElement('p');
+    p.className = 'wizard-error';
+    p.textContent = errorText;
+    app.querySelector('section').appendChild(p);
+  }
   app.querySelector('#unlock-button').addEventListener('click', () => {
     coldUnlock(app).catch((err) => renderLocked(app, err.message || String(err)));
   });
@@ -106,7 +113,17 @@ function renderUnlocked(app, ctx) {
   // threat model treats the server as hostile; XSS here reads the DEK).
   app.querySelector('#account-id').textContent = ctx.accountId;
   app.querySelector('#lock-button').addEventListener('click', () => {
-    clearLdkRecord().then(() => renderLocked(app));
+    // Only transition to locked once the cached DEK is confirmed gone; if the
+    // delete rejects, stay on the unlocked screen with a visible error rather
+    // than claiming a lock that didn't happen.
+    clearLdkRecord()
+      .then(() => renderLocked(app))
+      .catch((err) => {
+        const p = document.createElement('p');
+        p.className = 'wizard-error';
+        p.textContent = `Could not lock — try again. (${err.message || String(err)})`;
+        app.querySelector('section').appendChild(p);
+      });
   });
 }
 
