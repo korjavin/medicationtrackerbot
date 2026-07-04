@@ -146,6 +146,23 @@ func (s *service) scoreDayCore(ctx context.Context, userID int64, day time.Time)
 // concatenating the awards. A load error from any domain aborts the day (partial
 // scoring would silently understate HP).
 func (s *service) scoreDayAwards(ctx context.Context, userID int64, start, end time.Time, cfg scoring.Config) ([]scoring.Award, error) {
+	// The read-path rescore (ensureGamificationFresh → RescoreInstants) adds the
+	// current week's end day so an in-progress week refreshes its weekly GAUGE
+	// award on partial data (gamification-11 §Task2). That end day is in the
+	// future on any read before the week closes. A future day carries no
+	// same-day data, but the rolling-window loaders — loadMovement's trailing
+	// 7-day activity above all — would pull already-completed past rows forward
+	// and write a future-dated daily award, inflating lifetime HP before the day
+	// is reached. Only the weekly gauge award belongs on a not-yet-reached day,
+	// so for a future day compute that alone and skip every daily scorer; the
+	// daily awards land when the day actually arrives and is re-scored.
+	if start.After(utcMidnight(s.now())) {
+		if isWeekEndDay(start) {
+			return s.weeklyGaugeAwards(ctx, userID, start, cfg)
+		}
+		return nil, nil
+	}
+
 	var awards []scoring.Award
 
 	adh, err := s.loadAdherence(ctx, userID, start, end)
