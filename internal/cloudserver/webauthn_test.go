@@ -166,6 +166,160 @@ func TestWebAuthnRegistration_RejectsReplayedChallenge(t *testing.T) {
 	}
 }
 
+// beginLogin drives POST /api/webauthn/login/begin through the full Handler
+// and returns the parsed assertion options plus the login challenge cookie.
+func beginLogin(t *testing.T, h http.Handler, host string) (*virtualwebauthn.AssertionOptions, *http.Cookie) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/webauthn/login/begin", nil)
+	req.Host = host
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login/begin status = %d, body %q", rec.Code, rec.Body.String())
+	}
+
+	opts, err := virtualwebauthn.ParseAssertionOptions(rec.Body.String())
+	if err != nil {
+		t.Fatalf("ParseAssertionOptions: %v", err)
+	}
+
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == loginChallengeCookieName {
+			return opts, c
+		}
+	}
+	t.Fatalf("no login challenge cookie set")
+	return nil, nil
+}
+
+func finishLogin(t *testing.T, h http.Handler, host string, challengeCookie *http.Cookie, response string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/webauthn/login/finish", strings.NewReader(response))
+	req.Host = host
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(challengeCookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+// registerCredential drives a full registration ceremony and returns the
+// virtualwebauthn authenticator+credential a login ceremony can reuse.
+func registerCredential(t *testing.T, h http.Handler, host, claimToken string) (virtualwebauthn.Authenticator, virtualwebauthn.Credential) {
+	t.Helper()
+	rp := virtualwebauthn.RelyingParty{Name: "Med Tracker Cloud", ID: host, Origin: "http://" + host}
+	authenticator := virtualwebauthn.NewAuthenticator()
+	cred := virtualwebauthn.NewCredential(virtualwebauthn.KeyTypeEC2)
+
+	opts, challengeCookie := beginRegistration(t, h, host, claimToken)
+	response := virtualwebauthn.CreateAttestationResponse(rp, authenticator, cred, *opts)
+	rec := finishRegistration(t, h, host, challengeCookie, response)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("register/finish status = %d, body %q", rec.Code, rec.Body.String())
+	}
+	authenticator.AddCredential(cred)
+	return authenticator, cred
+}
+
+func TestWebAuthnLogin_FullCeremony(t *testing.T) {
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+	h, _ := newTestWebAuthnHandler(store)
+
+	authenticator, cred := registerCredential(t, h, host, claimToken)
+	rp := virtualwebauthn.RelyingParty{Name: "Med Tracker Cloud", ID: host, Origin: "http://" + host}
+
+	loginOpts, loginChallengeCookie := beginLogin(t, h, host)
+	if loginOpts.RelyingPartyID != host {
+		t.Fatalf("RP ID = %q, want %q", loginOpts.RelyingPartyID, host)
+	}
+
+	loginResponse := virtualwebauthn.CreateAssertionResponse(rp, authenticator, cred, *loginOpts)
+	rec := finishLogin(t, h, host, loginChallengeCookie, loginResponse)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login/finish status = %d, body %q", rec.Code, rec.Body.String())
+	}
+
+	var sessionCookie *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == SessionCookieName && c.Value != "" {
+			sessionCookie = c
+		}
+	}
+	if sessionCookie == nil {
+		t.Fatalf("no session cookie set on login finish")
+	}
+	accountID, credID, ok := VerifySessionToken(sessionCookie.Value, "test-session-secret-at-least-32-bytes-long")
+	if !ok || accountID != account.ID || len(credID) == 0 {
+		t.Fatalf("VerifySessionToken failed: ok=%v accountID=%q credID=%x", ok, accountID, credID)
+	}
+
+	// The minted session must pass the auth middleware for account-scoped routes.
+	protected := RequireSession("test-session-secret-at-least-32-bytes-long", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s, ok := SessionFromContext(r.Context())
+		if !ok || s.AccountID != account.ID {
+			t.Errorf("SessionFromContext: ok=%v accountID=%q", ok, s.AccountID)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	protReq := httptest.NewRequest(http.MethodGet, "/api/whatever", nil)
+	protReq.Host = host
+	protReq.AddCookie(sessionCookie)
+	protReq = protReq.WithContext(withAccount(protReq.Context(), account))
+	protRec := httptest.NewRecorder()
+	protected.ServeHTTP(protRec, protReq)
+	if protRec.Code != http.StatusOK {
+		t.Fatalf("protected handler status = %d, want 200 (body %q)", protRec.Code, protRec.Body.String())
+	}
+
+	creds, err := store.CredentialsByAccount(t.Context(), account.ID)
+	if err != nil {
+		t.Fatalf("CredentialsByAccount: %v", err)
+	}
+	if len(creds) != 1 || creds[0].LastAssertedAt == nil {
+		t.Fatalf("expected credential to be touched by login, got %+v", creds)
+	}
+}
+
+func TestWebAuthnLogin_RejectsBadOrigin(t *testing.T) {
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+	h, _ := newTestWebAuthnHandler(store)
+
+	authenticator, cred := registerCredential(t, h, host, claimToken)
+	rp := virtualwebauthn.RelyingParty{Name: "Med Tracker Cloud", ID: host, Origin: "https://evil.example.com"}
+
+	loginOpts, loginChallengeCookie := beginLogin(t, h, host)
+	loginResponse := virtualwebauthn.CreateAssertionResponse(rp, authenticator, cred, *loginOpts)
+	rec := finishLogin(t, h, host, loginChallengeCookie, loginResponse)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("login/finish with bad origin status = %d, want 400 (body %q)", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRequireSession_RejectsMissingOrInvalidCookie(t *testing.T) {
+	protected := RequireSession("test-session-secret-at-least-32-bytes-long", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("inner handler must not run without a valid session")
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/whatever", nil)
+	rec := httptest.NewRecorder()
+	protected.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("missing cookie status = %d, want 401", rec.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/whatever", nil)
+	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: "garbage"})
+	rec = httptest.NewRecorder()
+	protected.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("invalid cookie status = %d, want 401", rec.Code)
+	}
+}
+
 func TestWebAuthnRegistration_RejectsInvalidClaimToken(t *testing.T) {
 	store := setupStore(t)
 	account, _ := setupInvite(t, store)

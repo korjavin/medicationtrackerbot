@@ -18,25 +18,33 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
 )
 
-// registerStore is the subset of *cloudstore.Repo the registration ceremony
-// needs.
-type registerStore interface {
+// webauthnStore is the subset of *cloudstore.Repo the registration and login
+// ceremonies need.
+type webauthnStore interface {
 	AddCredential(ctx context.Context, cred cloudstore.Credential) error
 	ConsumeClaimToken(ctx context.Context, subdomain string, tokenHash []byte, now time.Time) (*cloudstore.Account, error)
+	CredentialsByAccount(ctx context.Context, accountID string) ([]cloudstore.Credential, error)
+	TouchCredential(ctx context.Context, credentialID []byte, signCount uint32, assertedAt time.Time) error
 }
 
-// WebAuthnAPI holds the account-scoped WebAuthn HTTP handlers — registration
-// in this plan; login joins it in a follow-up task behind the same Routes mux.
+// WebAuthnAPI holds the account-scoped WebAuthn HTTP handlers: registration
+// and login.
 type WebAuthnAPI struct {
-	store         registerStore
-	sessionSecret string
-	challenges    *challengeStore
+	store           webauthnStore
+	sessionSecret   string
+	challenges      *challengeStore[registerChallenge]
+	loginChallenges *challengeStore[loginChallenge]
 }
 
 // NewWebAuthnAPI builds the WebAuthn handlers. sessionSecret mints the HMAC
-// session cookie (session.go) on successful registration.
-func NewWebAuthnAPI(store registerStore, sessionSecret string) *WebAuthnAPI {
-	return &WebAuthnAPI{store: store, sessionSecret: sessionSecret, challenges: newChallengeStore()}
+// session cookie (session.go) on successful registration or login.
+func NewWebAuthnAPI(store webauthnStore, sessionSecret string) *WebAuthnAPI {
+	return &WebAuthnAPI{
+		store:           store,
+		sessionSecret:   sessionSecret,
+		challenges:      newChallengeStore[registerChallenge](),
+		loginChallenges: newChallengeStore[loginChallenge](),
+	}
 }
 
 // Routes returns the account-scoped WebAuthn mux, mounted under the
@@ -45,10 +53,13 @@ func (a *WebAuthnAPI) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/webauthn/register/begin", a.RegisterBegin)
 	mux.HandleFunc("POST /api/webauthn/register/finish", a.RegisterFinish)
+	mux.HandleFunc("POST /api/webauthn/login/begin", a.LoginBegin)
+	mux.HandleFunc("POST /api/webauthn/login/finish", a.LoginFinish)
 	return mux
 }
 
 const challengeCookieName = "cloud_webauthn_challenge"
+const loginChallengeCookieName = "cloud_webauthn_login_challenge"
 const challengeTTL = 5 * time.Minute
 
 // registerChallenge is what challengeStore holds between RegisterBegin and
@@ -58,7 +69,13 @@ type registerChallenge struct {
 	session   webauthn.SessionData
 	accountID string
 	tokenHash []byte
-	expires   time.Time
+}
+
+// loginChallenge is what challengeStore holds between LoginBegin and
+// LoginFinish.
+type loginChallenge struct {
+	session   webauthn.SessionData
+	accountID string
 }
 
 // challengeStore holds in-flight WebAuthn ceremony state keyed by a random id
@@ -67,16 +84,21 @@ type registerChallenge struct {
 // ponytail: in-memory, single-process — restart mid-ceremony just means the
 // user retries. Move to the DB only if this service ever needs horizontal
 // scale.
-type challengeStore struct {
+type challengeStore[T any] struct {
 	mu      sync.Mutex
-	entries map[string]registerChallenge
+	entries map[string]challengeEntry[T]
 }
 
-func newChallengeStore() *challengeStore {
-	return &challengeStore{entries: make(map[string]registerChallenge)}
+type challengeEntry[T any] struct {
+	value   T
+	expires time.Time
 }
 
-func (s *challengeStore) put(c registerChallenge) (string, error) {
+func newChallengeStore[T any]() *challengeStore[T] {
+	return &challengeStore[T]{entries: make(map[string]challengeEntry[T])}
+}
+
+func (s *challengeStore[T]) put(v T) (string, error) {
 	id, err := randomToken(16)
 	if err != nil {
 		return "", err
@@ -89,36 +111,50 @@ func (s *challengeStore) put(c registerChallenge) (string, error) {
 			delete(s.entries, k)
 		}
 	}
-	s.entries[id] = c
+	s.entries[id] = challengeEntry[T]{value: v, expires: now.Add(challengeTTL)}
 	return id, nil
 }
 
 // take returns and deletes the challenge for id — single use regardless of
 // whether it turns out to already be expired.
-func (s *challengeStore) take(id string) (registerChallenge, bool) {
+func (s *challengeStore[T]) take(id string) (T, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	c, ok := s.entries[id]
+	e, ok := s.entries[id]
 	delete(s.entries, id)
-	if !ok || time.Now().After(c.expires) {
-		return registerChallenge{}, false
+	if !ok || time.Now().After(e.expires) {
+		var zero T
+		return zero, false
 	}
-	return c, true
+	return e.value, true
 }
 
-// accountUser adapts a cloudstore.Account to webauthn.User for the
-// registration ceremony. C0a only ever registers an account's first
-// credential (gated by the claim token, with no prior credentials to list);
-// later credentials registering behind a session would populate
-// WebAuthnCredentials from cloudstore.CredentialsByAccount.
+// accountUser adapts a cloudstore.Account to webauthn.User. Registration
+// leaves creds nil (the claim-gated first credential has no prior credentials
+// to list); login populates it from cloudstore.CredentialsByAccount.
 type accountUser struct {
 	account *cloudstore.Account
+	creds   []webauthn.Credential
 }
 
 func (u *accountUser) WebAuthnID() []byte                         { return []byte(u.account.ID) }
 func (u *accountUser) WebAuthnName() string                       { return u.account.Subdomain }
 func (u *accountUser) WebAuthnDisplayName() string                { return u.account.Subdomain }
-func (u *accountUser) WebAuthnCredentials() []webauthn.Credential { return nil }
+func (u *accountUser) WebAuthnCredentials() []webauthn.Credential { return u.creds }
+
+// toWebAuthnCredentials adapts stored credentials to what go-webauthn's login
+// ceremony needs to verify a signature and check the sign counter.
+func toWebAuthnCredentials(stored []cloudstore.Credential) []webauthn.Credential {
+	creds := make([]webauthn.Credential, len(stored))
+	for i, c := range stored {
+		creds[i] = webauthn.Credential{
+			ID:            c.ID,
+			PublicKey:     c.PublicKey,
+			Authenticator: webauthn.Authenticator{SignCount: c.SignCount},
+		}
+	}
+	return creds
+}
 
 // rpForRequest builds a per-subdomain webauthn.WebAuthn scoped to r's host —
 // see docs/cloud-crypto.md "RP ID": the per-user instance host gives
@@ -191,22 +227,13 @@ func (a *WebAuthnAPI) RegisterBegin(w http.ResponseWriter, r *http.Request) {
 		session:   *session,
 		accountID: account.ID,
 		tokenHash: tokenHash,
-		expires:   time.Now().Add(challengeTTL),
 	})
 	if err != nil {
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
 	}
 
-	http.SetCookie(w, &http.Cookie{
-		Name:     challengeCookieName,
-		Value:    challengeID,
-		Path:     "/api/webauthn/register",
-		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   int(challengeTTL.Seconds()),
-	})
+	setChallengeCookie(w, challengeCookieName, "/api/webauthn/register", challengeID)
 	writeJSON(w, http.StatusOK, creation)
 }
 
@@ -225,7 +252,7 @@ func (a *WebAuthnAPI) RegisterFinish(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing challenge", http.StatusBadRequest)
 		return
 	}
-	clearChallengeCookie(w)
+	clearChallengeCookie(w, challengeCookieName, "/api/webauthn/register")
 
 	challenge, ok := a.challenges.take(cookie.Value)
 	if !ok || challenge.accountID != account.ID {
@@ -271,11 +298,113 @@ func (a *WebAuthnAPI) RegisterFinish(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"account_id": account.ID})
 }
 
-func clearChallengeCookie(w http.ResponseWriter) {
+// LoginBegin starts an assertion ceremony against the account's existing
+// credentials, resolved from the subdomain host. The client adds the PRF
+// eval extension itself (server never sees PRF output) — see
+// docs/cloud-crypto.md's cold-unlock flow.
+func (a *WebAuthnAPI) LoginBegin(w http.ResponseWriter, r *http.Request) {
+	account, ok := AccountFromContext(r.Context())
+	if !ok {
+		http.Error(w, "account not resolved", http.StatusInternalServerError)
+		return
+	}
+
+	creds, err := a.store.CredentialsByAccount(r.Context(), account.ID)
+	if err != nil {
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return
+	}
+
+	wa, err := rpForRequest(r)
+	if err != nil {
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return
+	}
+
+	assertion, session, err := wa.BeginLogin(&accountUser{account: account, creds: toWebAuthnCredentials(creds)})
+	if err != nil {
+		http.Error(w, "no credentials to authenticate with", http.StatusBadRequest)
+		return
+	}
+
+	challengeID, err := a.loginChallenges.put(loginChallenge{session: *session, accountID: account.ID})
+	if err != nil {
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return
+	}
+
+	setChallengeCookie(w, loginChallengeCookieName, "/api/webauthn/login", challengeID)
+	writeJSON(w, http.StatusOK, assertion)
+}
+
+// LoginFinish verifies the assertion against the challenge started by
+// LoginBegin, updates the credential's sign counter, and issues a fresh
+// session cookie.
+func (a *WebAuthnAPI) LoginFinish(w http.ResponseWriter, r *http.Request) {
+	account, ok := AccountFromContext(r.Context())
+	if !ok {
+		http.Error(w, "account not resolved", http.StatusInternalServerError)
+		return
+	}
+
+	cookie, err := r.Cookie(loginChallengeCookieName)
+	if err != nil {
+		http.Error(w, "missing challenge", http.StatusBadRequest)
+		return
+	}
+	clearChallengeCookie(w, loginChallengeCookieName, "/api/webauthn/login")
+
+	challenge, ok := a.loginChallenges.take(cookie.Value)
+	if !ok || challenge.accountID != account.ID {
+		http.Error(w, "challenge expired or unknown", http.StatusBadRequest)
+		return
+	}
+
+	creds, err := a.store.CredentialsByAccount(r.Context(), account.ID)
+	if err != nil {
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return
+	}
+
+	wa, err := rpForRequest(r)
+	if err != nil {
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return
+	}
+
+	cred, err := wa.FinishLogin(&accountUser{account: account, creds: toWebAuthnCredentials(creds)}, challenge.session, r)
+	if err != nil {
+		http.Error(w, "login failed", http.StatusBadRequest)
+		return
+	}
+
+	now := time.Now().UTC()
+	if err := a.store.TouchCredential(r.Context(), cred.ID, cred.Authenticator.SignCount, now); err != nil {
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return
+	}
+
+	http.SetCookie(w, sessionCookie(NewSessionToken(account.ID, cred.ID, a.sessionSecret)))
+	writeJSON(w, http.StatusOK, map[string]string{"account_id": account.ID})
+}
+
+func setChallengeCookie(w http.ResponseWriter, name, path, value string) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     challengeCookieName,
+		Name:     name,
+		Value:    value,
+		Path:     path,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(challengeTTL.Seconds()),
+	})
+}
+
+func clearChallengeCookie(w http.ResponseWriter, name, path string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     name,
 		Value:    "",
-		Path:     "/api/webauthn/register",
+		Path:     path,
 		HttpOnly: true,
 		Secure:   true,
 		SameSite: http.SameSiteLaxMode,

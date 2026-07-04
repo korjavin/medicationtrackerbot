@@ -1,6 +1,7 @@
 package cloudserver
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -14,8 +15,7 @@ import (
 
 // SessionCookieName is the cookie carrying an account's HMAC session token,
 // scoped to the subdomain host. Minted by the WebAuthn register/login finish
-// handlers; verified by the auth middleware added alongside login in the
-// next task.
+// handlers; verified by RequireSession for every account-scoped API route.
 const SessionCookieName = "cloud_session"
 
 const sessionTTL = 30 * 24 * time.Hour
@@ -77,4 +77,47 @@ func sessionCookie(token string) *http.Cookie {
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(sessionTTL.Seconds()),
 	}
+}
+
+// Session is the verified identity RequireSession attaches to a request's
+// context.
+type Session struct {
+	AccountID    string
+	CredentialID []byte
+}
+
+type sessionCtxKey struct{}
+
+// RequireSession wraps next with session-cookie authentication for
+// account-scoped "/api/*" routes: missing/invalid/expired cookies get 401.
+// It also rejects a session whose account id doesn't match the account
+// resolved from the request's subdomain host (router.go's AccountFromContext)
+// — defense in depth against a session token replayed against another
+// account's subdomain.
+func RequireSession(sessionSecret string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cookie, err := r.Cookie(SessionCookieName)
+		if err != nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		accountID, credentialID, ok := VerifySessionToken(cookie.Value, sessionSecret)
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if account, resolved := AccountFromContext(r.Context()); resolved && account.ID != accountID {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		ctx := context.WithValue(r.Context(), sessionCtxKey{}, Session{AccountID: accountID, CredentialID: credentialID})
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// SessionFromContext returns the verified session RequireSession attached to
+// ctx.
+func SessionFromContext(ctx context.Context) (Session, bool) {
+	s, ok := ctx.Value(sessionCtxKey{}).(Session)
+	return s, ok
 }

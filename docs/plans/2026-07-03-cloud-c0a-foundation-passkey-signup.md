@@ -91,10 +91,10 @@ The server stores only: WebAuthn public keys, envelopes (ciphertext), a recovery
 
 ### Task 6: WebAuthn login + sessions
 
-- [ ] HMAC session token (copy `createSessionToken`/`verifySessionToken` shape from `internal/server/google_auth.go`, payload = `account_id|credential_id|ts`, 30-day TTL) set as `HttpOnly Secure SameSite=Lax` cookie scoped to the subdomain origin; auth middleware for all account-scoped `/api/*` routes
-- [ ] `POST /api/webauthn/login/begin` (subdomain host, unauthenticated): returns assertion options with `allowCredentials` = account's credential ids (client adds the PRF eval — server never sees PRF outputs, which travel only in `clientExtensionResults` client-side)
-- [ ] `POST /api/webauthn/login/finish`: verify assertion, update `last_asserted_at_unix` + sign_count, issue session cookie
-- [ ] integration test with `virtualwebauthn`: login begin→finish issues a session that passes the auth middleware — guards the auth contract
+- [x] HMAC session token (copy `createSessionToken`/`verifySessionToken` shape from `internal/server/google_auth.go`, payload = `account_id|credential_id|ts`, 30-day TTL) set as `HttpOnly Secure SameSite=Lax` cookie scoped to the subdomain origin; auth middleware for all account-scoped `/api/*` routes
+- [x] `POST /api/webauthn/login/begin` (subdomain host, unauthenticated): returns assertion options with `allowCredentials` = account's credential ids (client adds the PRF eval — server never sees PRF outputs, which travel only in `clientExtensionResults` client-side)
+- [x] `POST /api/webauthn/login/finish`: verify assertion, update `last_asserted_at_unix` + sign_count, issue session cookie
+- [x] integration test with `virtualwebauthn`: login begin→finish issues a session that passes the auth middleware — guards the auth contract
 
 ### Task 7: envelope API + recovery material at signup
 
