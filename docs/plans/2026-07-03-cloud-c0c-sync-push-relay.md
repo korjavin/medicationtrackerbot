@@ -81,10 +81,10 @@ Completes C0: the cloud becomes a working encrypted-sync backend and blind alarm
 
 ### Task 6: service worker + NK
 
-- [ ] `web/cloud/sw.js`: precache shell, `push` handler — read NK from IndexedDB, decrypt app layer (`aad="mt/v1/push"`) → rich notification; NK absent/decrypt fails → generic "Medication reminder"; `notificationclick` focuses/opens the shell
-- [ ] NK provisioning on first unlock: generate NK, write as encrypted vault record (toy record machinery from Task 3) + plaintext copy in IndexedDB; settings toggle "rich notifications" ↔ generic mode (deletes IDB copy)
-- [ ] client demo scheduler: "remind me in N minutes" button → encrypts payload under NK → `PUT /api/push/schedule` (stands in for the C1 reminder engine)
-- [ ] SW registration + push permission prompt in the unlocked shell (user-gesture gated); on iOS gate the prompt behind installed state (`display-mode: standalone`) and show add-to-homescreen instructions first — **install-then-push ordering** per docs/cloud-mode.md Onboarding, with the step shown/skipped by derived state (subscription exists? standalone?), never a stored step counter
+- [x] `web/cloud/sw.js`: precache shell, `push` handler — read NK from IndexedDB, decrypt app layer (`aad="mt/v1/push"`) → rich notification; NK absent/decrypt fails → generic "Medication reminder"; `notificationclick` focuses/opens the shell
+- [x] NK provisioning on first unlock: generate NK, write as encrypted vault record (toy record machinery from Task 3) + plaintext copy in IndexedDB; settings toggle "rich notifications" ↔ generic mode (deletes IDB copy) — ➕ scope note: `sync.js`'s note-specific pending/apply plumbing was generalized to carry `recordType` per pending row (was hardcoded to the note type), since the NK vault record now shares the same oplog/pending machinery as notes
+- [x] client demo scheduler: "remind me in N minutes" button → encrypts payload under NK → `PUT /api/push/schedule` (stands in for the C1 reminder engine) — `web/cloud/js/push.js`, keeps a local mirror of not-yet-fired demo reminders so the replace-all PUT always resends the full still-pending batch
+- [x] SW registration + push permission prompt in the unlocked shell (user-gesture gated); on iOS gate the prompt behind installed state (`display-mode: standalone`) and show add-to-homescreen instructions first — **install-then-push ordering** per docs/cloud-mode.md Onboarding, with the step shown/skipped by derived state (subscription exists? standalone?), never a stored step counter
 
 ### Task 7: stale-sync warning
 

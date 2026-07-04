@@ -8,6 +8,12 @@ import { deriveKData, encryptRecord, decryptRecord, encryptSnapshot, decryptSnap
 import { openDb } from './localdb.js';
 
 const NOTE_RECORD_TYPE = 'note';
+// Task 6: the NK (push notification key) is itself a vault record so every
+// enrolled device converges on the same one via the ordinary oplog, exactly
+// like a note (docs/cloud-crypto.md "The push key (NK)"). Fixed singleton id
+// — an account has exactly one NK.
+const NK_RECORD_TYPE = 'nk';
+const NK_RECORD_ID = 'nk';
 const OPS_PAGE_LIMIT = 200;
 // docs/plans/2026-07-03-cloud-c0c-sync-push-relay.md Task 3: snapshot once the
 // un-compacted oplog tail passes this many ops.
@@ -15,11 +21,11 @@ const SNAPSHOT_THRESHOLD = 500;
 
 // record_type_tag is the only wire field the server stores unencrypted
 // alongside the ciphertext (opWire.RecordTypeTag) — packing "<type>:<recordId>"
-// into it lets the reading client recover record_id for the AAD binding
-// without a schema change, and costs nothing: record_id was never
+// into it lets the reading client recover record_type/record_id for the AAD
+// binding without a schema change, and costs nothing: neither was ever
 // confidential (docs/cloud-crypto.md AAD only binds already-visible metadata).
-function noteTag(recordId) {
-  return `${NOTE_RECORD_TYPE}:${recordId}`;
+function makeTag(recordType, recordId) {
+  return `${recordType}:${recordId}`;
 }
 function parseTag(tag) {
   const idx = tag.indexOf(':');
@@ -110,13 +116,58 @@ async function replaceAllRecords(records) {
   });
 }
 
-async function markPending(recordId) {
-  await withStore('pending', 'readwrite', (store) => store.put({ recordId }));
+async function markPending(recordId, recordType) {
+  await withStore('pending', 'readwrite', (store) => store.put({ recordId, recordType }));
 }
 
-async function readPendingIds() {
-  const rows = await withStore('pending', 'readonly', (store) => reqToPromise(store.getAll()));
-  return rows.map((r) => r.recordId);
+async function readPending() {
+  return withStore('pending', 'readonly', (store) => reqToPromise(store.getAll()));
+}
+
+// --- device-local plaintext values (NK, demo reminders) -------------------
+// Shares the 'device' object store with unlock.js's LDK cache (localdb.js),
+// keyed by name — plain out-of-line values, no schema bump needed.
+
+async function readDeviceValue(key) {
+  const db = await openDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction('device', 'readonly');
+      const req = tx.objectStore('device').get(key);
+      req.onsuccess = () => resolve(req.result ?? null);
+      req.onerror = () => reject(req.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function writeDeviceValue(key, value) {
+  const db = await openDb();
+  try {
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('device', 'readwrite');
+      tx.objectStore('device').put(value, key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function deleteDeviceValue(key) {
+  const db = await openDb();
+  try {
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('device', 'readwrite');
+      tx.objectStore('device').delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } finally {
+    db.close();
+  }
 }
 
 async function clearPending(recordIds) {
@@ -127,10 +178,10 @@ async function clearPending(recordIds) {
 
 // --- remote sync ---------------------------------------------------------
 
-async function applyIncoming(record) {
+async function applyIncoming(recordType, record) {
   const existing = await getRecord(record.recordId);
   if (!existing || record.clientTs > existing.clientTs) {
-    await putRecord(record);
+    await putRecord({ ...record, recordType });
   }
 }
 
@@ -200,7 +251,7 @@ async function pullTail(ctx) {
           nonce: fromBase64(op.nonce),
           ct: fromBase64(op.ct),
         });
-        await applyIncoming(JSON.parse(new TextDecoder().decode(plaintext)));
+        await applyIncoming(recordType, JSON.parse(new TextDecoder().decode(plaintext)));
       } catch {
         // Tampered ciphertext or a seq the server assigned to a different op
         // than this client predicted (concurrent-writer race) — the record
@@ -240,27 +291,30 @@ async function maybeSnapshot(ctx) {
 }
 
 async function flushPending(ctx) {
-  const pendingIds = await readPendingIds();
-  if (pendingIds.length === 0) return;
+  const pending = await readPending();
+  if (pending.length === 0) return;
   const kData = await getKData(ctx);
   const meta = await readMeta();
   let seq = meta.localLastSeq;
   const ops = [];
   const includedIds = [];
-  for (const recordId of pendingIds) {
+  for (const { recordId, recordType } of pending) {
     const record = await getRecord(recordId);
     if (!record) continue;
     seq += 1;
-    const plaintext = new TextEncoder().encode(JSON.stringify(record));
+    // recordType is already carried by the wire tag (parseTag) — omit it from
+    // the encrypted body so the local-only bookkeeping field never round-trips.
+    const { recordType: _recordType, ...wireBody } = record;
+    const plaintext = new TextEncoder().encode(JSON.stringify(wireBody));
     const { nonce, ct } = await encryptRecord({
       kData,
       accountId: ctx.accountId,
-      recordType: NOTE_RECORD_TYPE,
+      recordType,
       recordId,
       seq,
       plaintext,
     });
-    ops.push({ record_type_tag: noteTag(recordId), nonce: toBase64(nonce), ct: toBase64(ct) });
+    ops.push({ record_type_tag: makeTag(recordType, recordId), nonce: toBase64(nonce), ct: toBase64(ct) });
     includedIds.push(recordId);
   }
   if (ops.length === 0) return;
@@ -300,27 +354,64 @@ export async function pullOnOpen(ctx) {
 export async function listNotes(ctx) {
   await bootstrapIfNeeded(ctx);
   const records = await readAllRecords();
-  return records.filter((r) => !r.deleted).sort((a, b) => b.clientTs - a.clientTs);
+  return records
+    .filter((r) => r.recordType === NOTE_RECORD_TYPE && !r.deleted)
+    .sort((a, b) => b.clientTs - a.clientTs);
 }
 
-async function writeNote(ctx, record) {
+async function writeRecord(ctx, recordType, record) {
   await bootstrapIfNeeded(ctx);
-  await putRecord(record);
-  await markPending(record.recordId);
+  await putRecord({ ...record, recordType });
+  await markPending(record.recordId, recordType);
   await flushPending(ctx);
   return record;
 }
 
 export async function createNote(ctx, text) {
-  return writeNote(ctx, { recordId: crypto.randomUUID(), clientTs: Date.now(), text, deleted: false });
+  return writeRecord(ctx, NOTE_RECORD_TYPE, { recordId: crypto.randomUUID(), clientTs: Date.now(), text, deleted: false });
 }
 
 export async function updateNote(ctx, recordId, text) {
-  return writeNote(ctx, { recordId, clientTs: Date.now(), text, deleted: false });
+  return writeRecord(ctx, NOTE_RECORD_TYPE, { recordId, clientTs: Date.now(), text, deleted: false });
 }
 
 export async function deleteNote(ctx, recordId) {
-  return writeNote(ctx, { recordId, clientTs: Date.now(), text: '', deleted: true });
+  return writeRecord(ctx, NOTE_RECORD_TYPE, { recordId, clientTs: Date.now(), text: '', deleted: true });
+}
+
+// --- NK (push notification key) provisioning (Task 6, docs/cloud-crypto.md
+// "The push key (NK)") -------------------------------------------------
+
+// True once this device holds a plaintext NK copy (SW-reachable IndexedDB) —
+// i.e. "rich notifications" mode is on for this device.
+export async function hasRichNotifications() {
+  return (await readDeviceValue('nk')) !== null;
+}
+
+// Deletes only this device's plaintext NK copy — the vault record (and other
+// devices' copies) are untouched, matching the spec's per-device toggle.
+export async function disableRichNotifications() {
+  await deleteDeviceValue('nk');
+}
+
+// Returns this device's NK, provisioning one if the account doesn't have one
+// yet: check the local plaintext cache, then the synced vault record (another
+// device may already have created it), and only generate+upload a new one if
+// neither exists.
+export async function getOrCreateNK(ctx) {
+  const cached = await readDeviceValue('nk');
+  if (cached) return cached;
+  await pullOnOpen(ctx);
+  const existing = await getRecord(NK_RECORD_ID);
+  if (existing && existing.recordType === NK_RECORD_TYPE && !existing.deleted) {
+    const nk = fromBase64(existing.nk);
+    await writeDeviceValue('nk', nk);
+    return nk;
+  }
+  const nk = crypto.getRandomValues(new Uint8Array(32));
+  await writeRecord(ctx, NK_RECORD_TYPE, { recordId: NK_RECORD_ID, clientTs: Date.now(), nk: toBase64(nk), deleted: false });
+  await writeDeviceValue('nk', nk);
+  return nk;
 }
 
 // Sync-status indicator (Task 3): derived entirely from local sync-engine
@@ -328,7 +419,7 @@ export async function deleteNote(ctx, recordId) {
 export async function getSyncStatus(ctx) {
   await bootstrapIfNeeded(ctx);
   const meta = await readMeta();
-  const pendingCount = (await readPendingIds()).length;
+  const pendingCount = (await readPending()).length;
   return {
     lastSyncedAt: meta.lastSyncedAt,
     pendingCount,

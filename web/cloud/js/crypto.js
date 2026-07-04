@@ -273,3 +273,27 @@ export async function decryptSnapshot({ kData, accountId, snapshotSeq, nonce, ct
   const aad = encodeFields('mt/v1/snap', accountId, encodeSeq(snapshotSeq));
   return aesGcmDecrypt(kData, nonce, ct, aad);
 }
+
+// Push payload (docs/cloud-crypto.md "Push payload"): AES-GCM(NK, payload,
+// aad="mt/v1/push"). scheduled_pushes.ct is a single BLOB wire column with no
+// separate nonce field, so — same as encryptTransferPayload above — the nonce
+// is packed ahead of the ciphertext into one blob rather than adding a column.
+const PUSH_AAD = utf8('mt/v1/push');
+
+export async function encryptPushPayload(nk, plaintext) {
+  const nonce = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await aesGcmEncrypt(nk, nonce, plaintext, PUSH_AAD);
+  const packed = new Uint8Array(nonce.length + ct.length);
+  packed.set(nonce, 0);
+  packed.set(ct, nonce.length);
+  return packed;
+}
+
+// Throws (AEAD failure) on a tampered payload or the wrong NK — the caller
+// (sw.js) treats that identically to "NK absent": fall back to a generic
+// notification.
+export async function decryptPushPayload(nk, packed) {
+  const nonce = packed.slice(0, 12);
+  const ct = packed.slice(12);
+  return aesGcmDecrypt(nk, nonce, ct, PUSH_AAD);
+}
