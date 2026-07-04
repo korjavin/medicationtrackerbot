@@ -32,6 +32,7 @@ type config struct {
 	sessionSecret     string
 	claimTTL          time.Duration
 	accountQuotaBytes int64
+	vapidPublicKey    string
 }
 
 func loadConfig() (config, error) {
@@ -41,6 +42,7 @@ func loadConfig() (config, error) {
 		baseDomain:        os.Getenv("CLOUD_BASE_DOMAIN"),
 		claimTTL:          14 * 24 * time.Hour,
 		accountQuotaBytes: 50 << 20, // 50MB
+		vapidPublicKey:    os.Getenv("VAPID_PUBLIC_KEY"),
 	}
 	if cfg.dbPath == "" {
 		cfg.dbPath = "cloud.db"
@@ -151,6 +153,7 @@ func main() {
 	deviceAPI := cloudserver.NewDeviceAPI(store, cfg.sessionSecret)
 	recoveryAPI := cloudserver.NewRecoveryAPI(store)
 	syncAPI := cloudserver.NewSyncAPI(store, cfg.sessionSecret, cfg.accountQuotaBytes)
+	pushAPI := cloudserver.NewPushAPI(store, cfg.sessionSecret, cfg.vapidPublicKey)
 	apiMux := http.NewServeMux()
 	webauthnAPI.RegisterRoutes(apiMux)
 	envelopeAPI.RegisterRoutes(apiMux)
@@ -158,6 +161,7 @@ func main() {
 	deviceAPI.RegisterRoutes(apiMux)
 	recoveryAPI.RegisterRoutes(apiMux)
 	syncAPI.RegisterRoutes(apiMux)
+	pushAPI.RegisterRoutes(apiMux)
 	router := cloudserver.New(cfg.baseDomain, store, cloudweb.FS, apiMux)
 
 	mux := http.NewServeMux()

@@ -68,9 +68,9 @@ Completes C0: the cloud becomes a working encrypted-sync backend and blind alarm
 
 ### Task 4: push subscriptions + VAPID
 
-- [ ] migration `004_push.sql`: `push_subscriptions(account_id TEXT NOT NULL, endpoint TEXT PK, p256dh TEXT NOT NULL, auth TEXT NOT NULL, created_at_unix INTEGER NOT NULL, disabled INTEGER NOT NULL DEFAULT 0)`, `scheduled_pushes(id INTEGER PK AUTOINCREMENT, account_id TEXT NOT NULL, fire_at_unix INTEGER NOT NULL, ct BLOB NOT NULL, sent_at_unix INTEGER)` + index on `(sent_at_unix, fire_at_unix)`
-- [ ] `POST /api/push/subscriptions` + `DELETE` (session auth); `GET /api/push/vapid-public-key` (unauthenticated on subdomain host)
-- [ ] cloudstore implements `webpush.SubscriptionStore`-shaped `List/Disable` for the relay sender (account-keyed instead of the bot's int64 user — adapt, don't force-fit)
+- [x] migration `004_push.sql`: `push_subscriptions(account_id TEXT NOT NULL, endpoint TEXT PK, p256dh TEXT NOT NULL, auth TEXT NOT NULL, created_at_unix INTEGER NOT NULL, disabled INTEGER NOT NULL DEFAULT 0)`, `scheduled_pushes(id INTEGER PK AUTOINCREMENT, account_id TEXT NOT NULL, fire_at_unix INTEGER NOT NULL, ct BLOB NOT NULL, sent_at_unix INTEGER)` + index on `(sent_at_unix, fire_at_unix)`
+- [x] `POST /api/push/subscriptions` + `DELETE` (session auth); `GET /api/push/vapid-public-key` (unauthenticated on subdomain host)
+- [x] cloudstore implements `webpush.SubscriptionStore`-shaped `List/Disable` for the relay sender (account-keyed instead of the bot's int64 user — adapt, don't force-fit)
 
 ### Task 5: schedule API + blind firing loop
 
