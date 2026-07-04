@@ -147,9 +147,9 @@ Two-layer deployment: a static infra layer run once on the host with plain `dock
 
 ### Task 13: [Final] Update documentation
 
-- [ ] CLAUDE.md: add `cloud` to the cmd/ list, `internal/cloudstore` + `internal/cloudserver` + `web/cloud/` to Code Layout, `docs/cloud-deployment.md` to the docs index
-- [ ] docs/cloud-mode.md + docs/cloud-crypto.md: update status lines (C0a implemented; note any spec deviations discovered — e.g. server-assigned subdomain/account_id, which is a deliberate clarification: only key material must be client-generated)
-- [ ] docs/environment.md: new `CLOUD_*` env vars
+- [x] CLAUDE.md: add `cloud` to the cmd/ list, `internal/cloudstore` + `internal/cloudserver` + `web/cloud/` to Code Layout, `docs/cloud-deployment.md` to the docs index
+- [x] docs/cloud-mode.md + docs/cloud-crypto.md: update status lines (C0a implemented; note any spec deviations discovered — e.g. server-assigned subdomain/account_id, which is a deliberate clarification: only key material must be client-generated)
+- [x] docs/environment.md: new `CLOUD_*` env vars
 
 ## Technical Details
 

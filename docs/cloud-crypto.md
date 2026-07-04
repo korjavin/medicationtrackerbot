@@ -1,6 +1,6 @@
 # Cloud-mode crypto — passkey-only key management (C0 design)
 
-**Status: design proposal, not yet implemented.** Detailed companion to [docs/cloud-mode.md](cloud-mode.md), specifying the C0 phase's key management, envelope formats, and ceremonies.
+**Status: suite v1 implemented for C0a** (`web/cloud/js/crypto.js` — HKDF/AES-GCM formats, recovery-code + envelope-audit derivations; server-side WebAuthn ceremonies in `internal/cloudserver`). Device-lifecycle ceremonies (cross-device enrollment, recovery redemption) remain design proposal, targeted at C0b. Detailed companion to [docs/cloud-mode.md](cloud-mode.md), specifying the C0 phase's key management, envelope formats, and ceremonies.
 
 Core stance: **there are no passphrases anywhere in the system.** Unlock is a passkey ceremony (Face ID / fingerprint / device PIN via WebAuthn). The only thing a user can write down is the optional high-entropy recovery code in the Emergency Kit — a backup credential, not a memorized secret.
 
