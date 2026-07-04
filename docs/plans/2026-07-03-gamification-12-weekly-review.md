@@ -149,12 +149,14 @@ invariant, so backfilled weeks read correctly in retrospect).
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] verify Overview requirements: card + `/week` + opt-in digest, lever/gauge
+- [x] verify Overview requirements: card + `/week` + opt-in digest, lever/gauge
       structure, tone rules, quiet-week handling, default-OFF digest
-- [ ] `go test ./...` passes (incl. MCP coverage guard); mobile build
+- [x] `go test ./...` passes (incl. MCP coverage guard); mobile build
       `go build -tags mobile ./...` still compiles (digest behind server wiring)
-- [ ] `pnpm test` passes
-- [ ] `golangci-lint run` + `gofmt` clean
+- [x] `pnpm test` passes
+- [x] `golangci-lint run` + `gofmt` clean (gofmt flags pre-existing files
+      unrelated to this branch — `internal/bot/bot.go` etc. were already
+      unformatted on `master`; nothing this plan touched needs reformatting)
 
 ### Task 7: Update documentation
 
