@@ -39,6 +39,14 @@ var ErrAlreadyClaimed = errors.New("cloudstore: account already claimed")
 // distinguish these cases in responses (all map to 410 Gone).
 var ErrTransferSlotInvalid = errors.New("cloudstore: invalid, expired, or already-claimed transfer slot")
 
+// ErrRecoveryInvalid is returned by VerifyRecoveryAttempt when no recovery
+// verifier is set for the account, or the supplied one does not match.
+var ErrRecoveryInvalid = errors.New("cloudstore: invalid recovery verifier")
+
+// ErrRecoveryRateLimited is returned by VerifyRecoveryAttempt once an account
+// has racked up recoveryMaxAttempts failures within the last recoveryWindow.
+var ErrRecoveryRateLimited = errors.New("cloudstore: recovery attempts rate limited")
+
 // Account is one row in the accounts table. ClaimTokenHash/ClaimExpiresAt are
 // nil once the account has been claimed (first credential registered).
 type Account struct {
@@ -610,5 +618,84 @@ func (r *Repo) SetRecoveryVerifier(ctx context.Context, accountID string, verifi
 		`INSERT INTO recovery_auth (account_id, verifier_hash) VALUES (?, ?)
 		 ON CONFLICT(account_id) DO UPDATE SET verifier_hash = excluded.verifier_hash, failed_attempts = 0, window_start_unix = NULL`,
 		accountID, verifierHash)
+	return err
+}
+
+const (
+	recoveryMaxAttempts = 5
+	recoveryWindow      = time.Hour
+)
+
+// VerifyRecoveryAttempt checks verifierHash against accountID's stored
+// recovery verifier, rate-limited to recoveryMaxAttempts per recoveryWindow
+// (docs/cloud-crypto.md "recovery" domain separation — the verifier
+// authenticates the attempt without unwrapping anything). A stale window
+// (older than recoveryWindow) resets the counter before the limit check. On
+// mismatch (or no verifier set for the account) the counter is bumped and
+// ErrRecoveryInvalid is returned; a match returns nil without touching the
+// counter — only a forced rotation (SetRecoveryVerifier) resets it, so a
+// burned code can't be tried again after its one successful redemption plus
+// rotation.
+func (r *Repo) VerifyRecoveryAttempt(ctx context.Context, accountID string, verifierHash []byte, now time.Time) error {
+	// WithTx rolls back the transaction on any non-nil return, so the verdict
+	// travels back via result instead of fn's return value — otherwise the
+	// attempt-counter UPDATE below would be discarded every time this
+	// reports ErrRecoveryInvalid/ErrRecoveryRateLimited, and the rate limit
+	// could never actually trip.
+	result := error(ErrRecoveryInvalid)
+	err := r.db.WithTx(ctx, func(tx storedb.TX) error {
+		var (
+			storedHash  []byte
+			attempts    int
+			windowStart sql.NullInt64
+		)
+		scanErr := tx.QueryRowContext(ctx,
+			`SELECT verifier_hash, failed_attempts, window_start_unix FROM recovery_auth WHERE account_id = ?`,
+			accountID).Scan(&storedHash, &attempts, &windowStart)
+		if scanErr != nil {
+			if errors.Is(scanErr, sql.ErrNoRows) {
+				return nil
+			}
+			return scanErr
+		}
+
+		windowStartAt := now
+		if windowStart.Valid {
+			windowStartAt = storedb.UnixToTime(windowStart.Int64)
+			if now.Sub(windowStartAt) > recoveryWindow {
+				attempts = 0
+				windowStartAt = now
+			}
+		}
+		if attempts >= recoveryMaxAttempts {
+			result = ErrRecoveryRateLimited
+			return nil
+		}
+		if subtle.ConstantTimeCompare(storedHash, verifierHash) == 1 {
+			result = nil
+			return nil
+		}
+		_, execErr := tx.ExecContext(ctx,
+			`UPDATE recovery_auth SET failed_attempts = ?, window_start_unix = ? WHERE account_id = ?`,
+			attempts+1, storedb.TimeToUnix(windowStartAt), accountID)
+		return execErr
+	})
+	if err != nil {
+		return err
+	}
+	return result
+}
+
+// CreateClaimedTransferSlot inserts a transfer slot that starts already
+// claimed (fetched=1) so a successful recovery redemption can hand out an
+// enrollment token gated through the exact same machinery a device-transfer
+// claim produces (ValidEnrollmentToken / RedeemTransferToken) — see
+// docs/cloud-crypto.md "Token hygiene": one storage shape for both slot
+// kinds, no second gate. ct is empty: recovery has no transfer ciphertext of
+// its own, the DEK comes from the "recovery" envelope instead.
+func (r *Repo) CreateClaimedTransferSlot(ctx context.Context, id, accountID string, enrollmentTokenHash []byte, createdAt, expiresAt time.Time) error {
+	_, err := r.db.ExecContext(ctx,
+		`INSERT INTO transfer_slots (id, account_id, enrollment_token_hash, ct, created_at_unix, expires_at_unix, fetched) VALUES (?, ?, ?, ?, ?, ?, 1)`,
+		id, accountID, enrollmentTokenHash, []byte{}, storedb.TimeToUnix(createdAt), storedb.TimeToUnix(expiresAt))
 	return err
 }

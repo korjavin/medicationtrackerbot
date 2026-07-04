@@ -94,6 +94,20 @@ async function claimAndEnroll(app, { slotId, tk }) {
     throw new Error('Code invalid or tampered — generate a new one on your other device.');
   }
 
+  if (!(await enrollWithToken(app, { enrollmentToken, accountId, dek }))) return;
+  // Session cookie + LDK are both set now; hand off to the unlock flow's
+  // normal "already unlocked" render instead of duplicating it here.
+  location.href = '/';
+}
+
+// Registers a new passkey under an already-obtained DEK, gated by a
+// device-transfer or recovery enrollment token — the shared tail of both
+// claim.js (device-transfer) and recover.js (Emergency Kit redemption): the
+// two flows differ only in how they obtain {enrollmentToken, accountId, dek},
+// not in how they turn that into a live passkey + session. Returns false (having
+// already rendered the terminal error state) if the authenticator lacks PRF
+// support; true once the passkey + session + warm-unlock cache are all live.
+export async function enrollWithToken(app, { enrollmentToken, accountId, dek }) {
   const beginRes = await fetch('/api/webauthn/register/begin', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -120,7 +134,7 @@ async function claimAndEnroll(app, { slotId, tk }) {
   const prfOutput = prfAssertion.getClientExtensionResults().prf?.results?.first;
   if (!prfOutput) {
     renderUnsupportedAuthenticator(app);
-    return;
+    return false;
   }
 
   const credentialId = new Uint8Array(credential.rawId);
@@ -153,7 +167,5 @@ async function claimAndEnroll(app, { slotId, tk }) {
     // Warm-cache is an optimization; a storage-blocked browser must still
     // reach the vault after a successful enrollment — see unlock.js.
   }
-  // Session cookie + LDK are both set now; hand off to the unlock flow's
-  // normal "already unlocked" render instead of duplicating it here.
-  location.href = '/';
+  return true;
 }

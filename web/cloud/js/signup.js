@@ -181,7 +181,12 @@ function renderLossProtectionError(app, err) {
   app.querySelector('section').appendChild(p);
 }
 
-async function renderEmergencyKit(app, ctx) {
+// Exported so recover.js re-renders the identical Emergency Kit screen for
+// the forced code rotation after a successful recovery redemption, rather
+// than a second copy of this ceremony. ctx.onKitSaved, if given, replaces the
+// default "You're set up" done screen (recover.js redirects to the unlocked
+// vault instead).
+export async function renderEmergencyKit(app, ctx) {
   const { codeBytes, formatted } = await generateRecoveryCode();
   const kekRec = await deriveKEKRec(codeBytes, ctx.accountId);
   const verifier = await deriveVerifier(codeBytes, ctx.accountId);
@@ -228,7 +233,7 @@ async function renderEmergencyKit(app, ctx) {
   const checkbox = app.querySelector('#kit-saved-checkbox');
   const button = app.querySelector('#kit-continue');
   checkbox.addEventListener('change', () => { button.disabled = !checkbox.checked; });
-  button.addEventListener('click', () => renderDone(app));
+  button.addEventListener('click', () => (ctx.onKitSaved ? ctx.onKitSaved() : renderDone(app)));
 }
 
 function renderDone(app) {

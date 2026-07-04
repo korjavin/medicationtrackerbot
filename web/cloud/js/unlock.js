@@ -46,6 +46,7 @@ function renderLocked(app, errorText) {
       <h1>Med Tracker</h1>
       <p>Unlock this device with your passkey to open your vault.</p>
       <button id="unlock-button">Unlock with passkey</button>
+      <p><a href="/recover">Recover with your Emergency Kit</a></p>
     </section>`;
   // Error text may carry a browser exception message; render via textContent,
   // never interpolated into innerHTML (this page holds the DEK — XSS here reads it).

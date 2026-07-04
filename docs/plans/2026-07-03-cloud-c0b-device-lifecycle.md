@@ -82,10 +82,10 @@ QR mechanics (the trick that avoids shipping a camera/scanner): the QR encodes a
 
 ### Task 6: recovery redemption + forced rotation
 
-- [ ] `POST /api/recover` (unauthenticated, subdomain host): body `{verifier}`; constant-time compare against `recovery_auth.verifier_hash`; rate limit 5 attempts/hour per account (use `failed_attempts` + `window_start_unix` columns); success returns the `recovery` envelope + a one-time enrollment token
-- [ ] client `/recover` route: type recovery code → derive `verifier` + `KEK_rec` (crypto.js has both from C0a) → redeem → unwrap DEK → enroll new passkey via enrollment token (reuse Task 4 machinery)
-- [ ] forced rotation immediately after: generate new recovery code, upload new `recovery` envelope + new verifier (old one overwritten in the same flow), re-render Emergency Kit with "I saved it" gate — a used code is burned, per spec
-- [ ] integration test: redemption happy path; 6th attempt within the hour rejected; old verifier rejected after rotation — guards the recovery contract + rate limit
+- [x] `POST /api/recover` (unauthenticated, subdomain host): body `{verifier}`; constant-time compare against `recovery_auth.verifier_hash`; rate limit 5 attempts/hour per account (use `failed_attempts` + `window_start_unix` columns); success returns the `recovery` envelope + a one-time enrollment token
+- [x] client `/recover` route: type recovery code → derive `verifier` + `KEK_rec` (crypto.js has both from C0a) → redeem → unwrap DEK → enroll new passkey via enrollment token (reuse Task 4 machinery)
+- [x] forced rotation immediately after: generate new recovery code, upload new `recovery` envelope + new verifier (old one overwritten in the same flow), re-render Emergency Kit with "I saved it" gate — a used code is burned, per spec
+- [x] integration test: redemption happy path; 6th attempt within the hour rejected; old verifier rejected after rotation — guards the recovery contract + rate limit
 
 ### Task 7: Verify acceptance criteria
 
