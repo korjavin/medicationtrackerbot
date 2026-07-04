@@ -433,8 +433,17 @@ func (r *Repo) DeleteCredentialWithEnvelope(ctx context.Context, accountID strin
 			return err
 		}
 		if remaining == 0 {
+			// Recovery needs BOTH the 'recovery' envelope (holds the DEK ct) and
+			// the recovery_auth verifier row (authenticates the redemption). They
+			// are written by two separate requests at signup (envelope first, then
+			// verifier), so an interrupted setup can leave an envelope with no
+			// verifier — and VerifyRecoveryAttempt returns ErrRecoveryInvalid
+			// forever without the verifier row. Require both, else deleting the
+			// last credential strands the account permanently.
 			var hasRecovery int
-			err := tx.QueryRowContext(ctx, `SELECT 1 FROM envelopes WHERE account_id = ? AND credential_ref = 'recovery'`, accountID).Scan(&hasRecovery)
+			err := tx.QueryRowContext(ctx, `SELECT 1 FROM envelopes e
+				WHERE e.account_id = ? AND e.credential_ref = 'recovery'
+				  AND EXISTS (SELECT 1 FROM recovery_auth ra WHERE ra.account_id = e.account_id)`, accountID).Scan(&hasRecovery)
 			if errors.Is(err, sql.ErrNoRows) {
 				return ErrLastCredential
 			}

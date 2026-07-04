@@ -281,11 +281,22 @@ func TestDeleteCredentialWithEnvelope_NeverStrandsAccount(t *testing.T) {
 		t.Fatalf("expected the last credential to survive, got len %d err %v", len(creds), err)
 	}
 
-	// With a recovery envelope in place, removing the last credential succeeds.
+	// A recovery envelope alone is NOT enough: recovery also needs the verifier
+	// row (VerifyRecoveryAttempt fails without it), so deleting the last
+	// credential must still be refused to avoid a permanent strand.
 	if err := r.PutEnvelope(ctx, Envelope{AccountID: "acc-strand", CredentialRef: "recovery", V: 1, Nonce: []byte("n"), CT: []byte("c"), MAC: []byte("m")}); err != nil {
 		t.Fatalf("PutEnvelope(recovery): %v", err)
 	}
+	if err := r.DeleteCredentialWithEnvelope(ctx, "acc-strand", credB.ID); err != ErrLastCredential {
+		t.Fatalf("delete last credential with envelope but no verifier: got %v, want ErrLastCredential", err)
+	}
+
+	// With BOTH the recovery envelope and the verifier in place, the recovery
+	// path is complete and removing the last credential succeeds.
+	if err := r.SetRecoveryVerifier(ctx, "acc-strand", []byte("verifier-hash")); err != nil {
+		t.Fatalf("SetRecoveryVerifier: %v", err)
+	}
 	if err := r.DeleteCredentialWithEnvelope(ctx, "acc-strand", credB.ID); err != nil {
-		t.Fatalf("delete last credential with recovery envelope: %v", err)
+		t.Fatalf("delete last credential with recovery envelope + verifier: %v", err)
 	}
 }
