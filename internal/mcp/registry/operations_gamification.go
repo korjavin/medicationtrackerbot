@@ -163,8 +163,8 @@ output(result["targets"])`,
 			Method:          "GET",
 			Path:            "/api/gamification/insights",
 			Risk:            RiskRead,
-			Description:     "Tier-3 personal insight: sleep→next-morning-BP. Over the trailing 90 days, pairs each night's sleep duration with the next morning's first systolic reading and compares the mean for short nights vs in-band nights. Honest by construction — reports 'no_effect' when the difference is under the noise floor, or 'insufficient_data' when either bucket has too few paired nights, instead of inventing a number. Gated on the feature flag AND the user's unlocked insight tier: below tier 3 (level 5) the response carries no numbers at all, just {locked:true, unlocks_at_level}.",
-			ResponseSummary: "Object {enabled, locked, unlocks_at_level, sleep_bp}. sleep_bp is null when locked or disabled; otherwise {status: \"effect\"|\"no_effect\"|\"insufficient_data\", short_threshold_hours, delta_systolic (present for effect/no_effect), n_short, n_in_band, needed (present for insufficient_data), window_days}.",
+			Description:     "Two independent personal insights, each gated on its own unlocked insight tier. Tier-3 sleep→next-morning-BP (`sleep_bp`): over the trailing 90 days, pairs each night's sleep duration with the next morning's first systolic reading and compares the mean for short nights vs in-band nights. Tier-4 good-day association scan (`good_day`, gamification-13): over the trailing 90 days, marks each day with an in-band mean systolic as a 'good day', then compares the good-day rate with-vs-without each of four previous-day/bridging-night behaviors (workout, bedtime-in-window, steps-in-band, all doses on time). Both are honest by construction — 'no_effect'/'insufficient_data' are reported as real results, never inferred numbers. Below a tier's unlock level its key carries no numbers, just {locked:true, unlocks_at_level} nested under that key's own object.",
+			ResponseSummary: "Object {enabled, locked, unlocks_at_level, sleep_bp, good_day}. `locked`/`unlocks_at_level` at the top level gate `sleep_bp` (tier 3, level 5) — `sleep_bp` is null when locked or disabled, otherwise {status: \"effect\"|\"no_effect\"|\"insufficient_data\", short_threshold_hours, delta_systolic (present for effect/no_effect), n_short, n_in_band, needed (present for insufficient_data), window_days}. `good_day` (tier 4, level 7) carries its own {locked, unlocks_at_level} when below tier 4; otherwise {status: \"effect\"|\"no_effect\"|\"insufficient_data\", window_days, good_day_definition, findings: [{behavior, rate_with, rate_without, delta_pp, n_with, n_without}] (top 3 by |delta_pp|, only behaviors whose difference clears the 15pp noise floor), insufficient: [{behavior, n_with, n_without, needed}] (behaviors with fewer than 10 days in an arm)}.",
 			ResponseExample: `{
   "enabled": true,
   "sleep_bp": {
@@ -174,12 +174,25 @@ output(result["targets"])`,
     "n_short": 23,
     "n_in_band": 41,
     "window_days": 90
+  },
+  "good_day": {
+    "status": "effect",
+    "window_days": 90,
+    "good_day_definition": "in range = systolic 90-120",
+    "findings": [
+      {"behavior": "workout", "rate_with": 0.78, "rate_without": 0.55, "delta_pp": 23, "n_with": 21, "n_without": 34}
+    ],
+    "insufficient": [
+      {"behavior": "adherence", "n_with": 6, "n_without": 40, "needed": 10}
+    ]
   }
 }`,
 			Example: `result = api.call("gamification.insights")
 output(result["sleep_bp"])
-# Below tier 3: {"enabled": true, "locked": true, "unlocks_at_level": 5}
-# Sparse data: {"enabled": true, "sleep_bp": {"status": "insufficient_data", "short_threshold_hours": 7, "n_short": 5, "n_in_band": 30, "needed": 8, "window_days": 90}}`,
+output(result["good_day"])
+# Below tier 3: {"enabled": true, "locked": true, "unlocks_at_level": 5, "good_day": {"locked": true, "unlocks_at_level": 7}}
+# Sparse sleep data: {"enabled": true, "sleep_bp": {"status": "insufficient_data", "short_threshold_hours": 7, "n_short": 5, "n_in_band": 30, "needed": 8, "window_days": 90}}
+# Tier 3 unlocked, tier 4 not: {"enabled": true, "sleep_bp": {...}, "good_day": {"locked": true, "unlocks_at_level": 7}}`,
 		},
 		{
 			ID:              "gamification.gauges",

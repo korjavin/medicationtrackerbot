@@ -141,12 +141,13 @@ describe('Journey render', () => {
 
     // Insight ladder tier 2 (Plan 6, Task 4): "Trend charts" now has a real
     // destination — the Vitals section's existing trend charts — instead of
-    // an evergreen "soon". Tier 4 has no built screen yet and must keep
-    // reading "soon" even though the fixture marks it unlocked.
-    it('tier 2 (trend charts) links to Vitals when unlocked; tier 4 stays "soon"', () => {
+    // an evergreen "soon". Tier 4 (gamification-13) now has a real
+    // destination too, so below its own unlock level it just reads "Unlocks
+    // at Lvl N" — no "soon" anywhere in the ladder anymore.
+    it('tier 2 (trend charts) links to Vitals when unlocked; tier 4 stays locked below its level', () => {
         let switchedTo = null;
         env.window.switchTab = (tab) => { switchedTo = tab; };
-        env.window.Gamification.render(journey({ unlocked_tiers: [1, 2, 3, 4] }));
+        env.window.Gamification.render(journey({ unlocked_tiers: [1, 2, 3] }));
         const { document } = env;
 
         const rows = document.querySelectorAll('.wg-journey-ladder__row');
@@ -160,8 +161,33 @@ describe('Journey render', () => {
         expect(switchedTo).toBe('health');
 
         const goodDayRow = Array.from(rows).find((r) => titleOf(r) === 'Your good-day model');
-        expect(statusOf(goodDayRow)).toMatch(/soon/);
+        expect(statusOf(goodDayRow)).toBe('Unlocks at Lvl 7');
         expect(goodDayRow.classList.contains('wg-journey-ladder__row--locked')).toBe(true);
+    });
+
+    // Insight ladder tier 4 (gamification-13 Task 3): "Your good-day model"
+    // now has a real destination too — the good-day card — once the fetched
+    // `journey.insight` carries `good_day` (load() does this; render() tests
+    // attach it directly), same contract as the tier-3 row below.
+    it('tier 4 (good-day model) links to the good-day card when unlocked and insight data is present', () => {
+        env.window.Gamification.render(journey({
+            unlocked_tiers: [1, 2, 3, 4],
+            insight: { good_day: { status: 'no_effect' } }
+        }));
+        const { document } = env;
+
+        const rows = document.querySelectorAll('.wg-journey-ladder__row');
+        const titleOf = (row) => row.querySelector('.wg-journey-ladder__title').textContent;
+        const statusOf = (row) => row.querySelector('.wg-journey-ladder__status').textContent;
+        const goodDayRow = Array.from(rows).find((r) => titleOf(r) === 'Your good-day model');
+
+        expect(statusOf(goodDayRow)).toBe('Unlocked → view');
+        expect(goodDayRow.classList.contains('wg-journey-ladder__row--linked')).toBe(true);
+
+        const scrollIntoView = vi.fn();
+        document.getElementById('journey-goodday-card').scrollIntoView = scrollIntoView;
+        goodDayRow.click();
+        expect(scrollIntoView).toHaveBeenCalled();
     });
 
     // Insight ladder tier 3 (Plan 9, Task 3): "Correlations" now has a real
@@ -190,7 +216,7 @@ describe('Journey render', () => {
         expect(scrollIntoView).toHaveBeenCalled();
     });
 
-    it('tier 3 stays locked/"soon" below unlock even with insight data present', () => {
+    it('tier 3 stays locked below unlock even with insight data present', () => {
         env.window.Gamification.render(journey({
             unlocked_tiers: [1, 2],
             insight: { sleep_bp: { status: 'effect', short_threshold_hours: 7, delta_systolic: 8, n_short: 23, n_in_band: 40 } }
@@ -201,7 +227,7 @@ describe('Journey render', () => {
         const statusOf = (row) => row.querySelector('.wg-journey-ladder__status').textContent;
         const correlationsRow = Array.from(rows).find((r) => titleOf(r) === 'Correlations');
 
-        expect(statusOf(correlationsRow)).toMatch(/soon/);
+        expect(statusOf(correlationsRow)).toBe('Unlocks at Lvl 5');
         expect(document.getElementById('journey-insight-card')).toBeNull();
     });
 
@@ -248,6 +274,70 @@ describe('Journey render', () => {
     it('insight card is omitted when tier 3 is unlocked but insight has not loaded yet', () => {
         env.window.Gamification.render(journey({ unlocked_tiers: [1, 2, 3] }));
         expect(env.document.getElementById('journey-insight-card')).toBeNull();
+    });
+
+    // Good-day card (gamification-13 Task 3): the tier-4 association scan,
+    // same honesty-gate states as the sleep→BP card above, plus the
+    // good_day_definition sub-line spelling out the user's own band.
+    it('good-day card renders the "effect" state as one line per finding plus the definition', () => {
+        env.window.Gamification.render(journey({
+            unlocked_tiers: [1, 2, 3, 4],
+            insight: {
+                good_day: {
+                    status: 'effect',
+                    good_day_definition: 'in range = systolic 90–120',
+                    findings: [
+                        { behavior: 'workout', rate_with: 0.78, rate_without: 0.55, delta_pp: 23, n_with: 21, n_without: 13 }
+                    ]
+                }
+            }
+        }));
+        const card = env.document.getElementById('journey-goodday-card');
+        expect(card).not.toBeNull();
+        expect(card.querySelector('.wg-journey-insight__body').textContent)
+            .toBe('On days after a workout, BP in range 78% vs 55% · 21/34 days');
+        expect(card.querySelector('.wg-journey-goodday__definition').textContent)
+            .toBe('in range = systolic 90–120');
+    });
+
+    it('good-day card renders the "no_effect" state as its own honest finding', () => {
+        env.window.Gamification.render(journey({
+            unlocked_tiers: [1, 2, 3, 4],
+            insight: { good_day: { status: 'no_effect', good_day_definition: 'in range = systolic 90–120' } }
+        }));
+        const card = env.document.getElementById('journey-goodday-card');
+        expect(card.querySelector('.wg-journey-insight__body').textContent)
+            .toMatch(/no single habit stands out/i);
+    });
+
+    it('good-day card renders the "insufficient_data" state with the per-behavior day count', () => {
+        env.window.Gamification.render(journey({
+            unlocked_tiers: [1, 2, 3, 4],
+            insight: {
+                good_day: {
+                    status: 'insufficient_data',
+                    good_day_definition: 'in range = systolic 90–120',
+                    insufficient: [{ behavior: 'workout', n_with: 6, n_without: 20, needed: 10 }]
+                }
+            }
+        }));
+        const card = env.document.getElementById('journey-goodday-card');
+        expect(card.querySelector('.wg-journey-insight__body').textContent)
+            .toBe('Not enough contrast yet for a workout · keep logging — 6 of 10 days needed');
+    });
+
+    it('good-day card renders the offline-empty state when the fetch had no cache', () => {
+        env.window.Gamification.render(journey({
+            unlocked_tiers: [1, 2, 3, 4],
+            insight: { emptyState: 'No cached insight — connect to load.' }
+        }));
+        const card = env.document.getElementById('journey-goodday-card');
+        expect(card.querySelector('.wg-journey-insight__body').textContent).toBe('No cached insight — connect to load.');
+    });
+
+    it('good-day card is omitted when tier 4 is unlocked but insight has not loaded yet', () => {
+        env.window.Gamification.render(journey({ unlocked_tiers: [1, 2, 3, 4] }));
+        expect(env.document.getElementById('journey-goodday-card')).toBeNull();
     });
 
     // Health Score card (Task 8): big number + band word, then one mini-bar
