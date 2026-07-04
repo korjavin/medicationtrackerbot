@@ -164,7 +164,7 @@ output(result["targets"])`,
 			Path:            "/api/gamification/insights",
 			Risk:            RiskRead,
 			Description:     "Two independent personal insights, each gated on its own unlocked insight tier. Tier-3 sleep→next-morning-BP (`sleep_bp`): over the trailing 90 days, pairs each night's sleep duration with the next morning's first systolic reading and compares the mean for short nights vs in-band nights. Tier-4 good-day association scan (`good_day`, gamification-13): over the trailing 90 days, marks each day with an in-band mean systolic as a 'good day', then compares the good-day rate with-vs-without each of four previous-day/bridging-night behaviors (workout, bedtime-in-window, steps-in-band, all doses on time). Both are honest by construction — 'no_effect'/'insufficient_data' are reported as real results, never inferred numbers. Below a tier's unlock level its key carries no numbers, just {locked:true, unlocks_at_level} nested under that key's own object.",
-			ResponseSummary: "Object {enabled, locked, unlocks_at_level, sleep_bp, good_day}. `locked`/`unlocks_at_level` at the top level gate `sleep_bp` (tier 3, level 5) — `sleep_bp` is null when locked or disabled, otherwise {status: \"effect\"|\"no_effect\"|\"insufficient_data\", short_threshold_hours, delta_systolic (present for effect/no_effect), n_short, n_in_band, needed (present for insufficient_data), window_days}. `good_day` (tier 4, level 7) carries its own {locked, unlocks_at_level} when below tier 4; otherwise {status: \"ok\"|\"no_effect\"|\"insufficient_data\", window_days, good_day_definition, findings: [{behavior, rate_with, rate_without, delta_pp, n_with, n_without}] (top 3 by |delta_pp|, only behaviors whose difference clears the 15pp noise floor), insufficient: [{behavior, n_with, n_without, needed}] (behaviors with fewer than 10 days in an arm)}.",
+			ResponseSummary: "Object {enabled, locked, unlocks_at_level, sleep_bp, good_day}. `locked`/`unlocks_at_level` at the top level gate `sleep_bp` (tier 3, level 5) — `sleep_bp` is null when locked or disabled, otherwise {status: \"effect\"|\"no_effect\"|\"insufficient_data\", short_threshold_hours, delta_systolic (present for effect/no_effect), n_short, n_in_band, needed (present for insufficient_data), window_days}. `good_day` (tier 4, level 7) carries its own {locked, unlocks_at_level} when below tier 4; otherwise {status: \"effect\"|\"no_effect\"|\"insufficient_data\", window_days, good_day_definition, findings: [{behavior, rate_with, rate_without, delta_pp, n_with, n_without}] (top 3 by |delta_pp|, only behaviors whose difference clears the 15pp noise floor), insufficient: [{behavior, n_with, n_without, needed}] (behaviors with fewer than 10 days in an arm)}.",
 			ResponseExample: `{
   "enabled": true,
   "sleep_bp": {
@@ -176,7 +176,7 @@ output(result["targets"])`,
     "window_days": 90
   },
   "good_day": {
-    "status": "ok",
+    "status": "effect",
     "window_days": 90,
     "good_day_definition": "in range = systolic 90-120",
     "findings": [

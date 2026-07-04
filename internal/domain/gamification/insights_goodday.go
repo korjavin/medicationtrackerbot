@@ -184,6 +184,14 @@ func goodDayDefinition(cfg scoring.Config) string {
 // cfg.BPSystolic — strict band membership, ignoring Falloff, same convention
 // computeBPGauge uses for "share of readings in range"). Only meaningful when
 // hasBP is true for that day.
+//
+// ponytail: BP/workout/adherence day-keys are UTC-midnight, steps/bedtime use
+// their stored local wake/aggregate day — the same mixed basis scoreday.go's
+// loaders already use. The cross-day D-1→D join thus carries a day-label skew
+// bounded by the user's tz offset (and ~0 in practice, since BP readings land
+// morning/evening, not near midnight); the ≥10/arm + 15pp gates absorb it.
+// Unify on a local-day basis only if a real non-UTC user shows spurious
+// findings — it needs re-keying the shared loadAdherenceRange loader.
 func (s *service) goodDayOutcomes(ctx context.Context, userID int64, start, end time.Time, cfg scoring.Config) (good, hasBP map[string]bool, err error) {
 	readings, err := s.bp.ListReadings(ctx, userID, start)
 	if err != nil {
