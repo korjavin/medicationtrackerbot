@@ -14,7 +14,6 @@ import {
   deriveKEKRec,
   deriveVerifier,
   toBase64,
-  toBase64Url,
 } from './crypto.js';
 
 export async function runSignupWizard(claimToken) {
@@ -47,13 +46,18 @@ async function startRegistration(app, claimToken) {
   const { publicKey } = await beginRes.json();
   const creationOptions = PublicKeyCredential.parseCreationOptionsFromJSON(publicKey);
 
+  // account_id is server-assigned but already present in the begin options
+  // (user.id), so the client can derive the KEK and wrap the first envelope
+  // before finish — letting finish persist credential + envelope atomically.
+  const accountId = new TextDecoder().decode(creationOptions.user.id);
+
   const credential = await navigator.credentials.create({ publicKey: creationOptions });
 
   // PRF availability is only reliable from a fresh assertion, never from
   // create()'s "enabled" flag alone — docs/cloud-crypto.md "Registration
   // caveat". Probe it before calling finish, so an unsupported authenticator
-  // aborts here (register/finish is never called => no envelope is ever
-  // created for it).
+  // aborts here (register/finish is never called => no account is ever
+  // claimed for it).
   const salt = await saltKek();
   const prfAssertion = await navigator.credentials.get({
     publicKey: {
@@ -69,6 +73,17 @@ async function startRegistration(app, claimToken) {
     return;
   }
 
+  // Derive the DEK envelope up front and send it with the attestation response.
+  // The server stores credential + envelope in one transaction, so a reload or
+  // crash mid-signup can never leave a claimed credential with no envelope to
+  // unwrap its DEK (which would dead-end cold unlock). If finish fails the whole
+  // registration rolls back server-side and the still-valid claim can retry.
+  const credentialId = new Uint8Array(credential.rawId);
+  const dek = generateDEK();
+  const kek = await deriveKEK(new Uint8Array(prfOutput), accountId, credentialId);
+  const kMac = await deriveKMac(dek);
+  const envelope = await wrapEnvelope({ kek, dek, kMac, accountId, credentialId });
+
   const finishBody = credential.toJSON();
   // Never transmit the PRF output — it lives client-side only.
   if (finishBody.clientExtensionResults) delete finishBody.clientExtensionResults.prf;
@@ -76,17 +91,17 @@ async function startRegistration(app, claimToken) {
   const finishRes = await fetch('/api/webauthn/register/finish', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(finishBody),
+    body: JSON.stringify({
+      credential: finishBody,
+      envelope: {
+        v: envelope.v,
+        nonce: toBase64(envelope.nonce),
+        ct: toBase64(envelope.ct),
+        mac: toBase64(envelope.mac),
+      },
+    }),
   });
   if (!finishRes.ok) throw new Error('Passkey registration failed. Please try again.');
-  const { account_id: accountId } = await finishRes.json();
-
-  const credentialId = new Uint8Array(credential.rawId);
-  const dek = generateDEK();
-  const kek = await deriveKEK(new Uint8Array(prfOutput), accountId, credentialId);
-  const kMac = await deriveKMac(dek);
-  const envelope = await wrapEnvelope({ kek, dek, kMac, accountId, credentialId });
-  await putEnvelope(toBase64Url(credentialId), envelope);
 
   renderLossProtection(app, { accountId, dek });
 }

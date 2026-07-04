@@ -91,7 +91,15 @@ func TestEnvelopeAPI_PutGetListAndVerifier(t *testing.T) {
 	if err := json.Unmarshal(listRec.Body.Bytes(), &list); err != nil {
 		t.Fatalf("unmarshal list: %v", err)
 	}
-	if len(list) != 1 || list[0].CredentialRef != "recovery" || string(list[0].MAC) != "mac-bytes" {
+	// The list now holds the credential's envelope (stored atomically at
+	// register/finish) plus the "recovery" envelope just uploaded.
+	var recovery *envelopeListItem
+	for i := range list {
+		if list[i].CredentialRef == "recovery" {
+			recovery = &list[i]
+		}
+	}
+	if len(list) != 2 || recovery == nil || string(recovery.MAC) != "mac-bytes" {
 		t.Fatalf("unexpected list: %+v", list)
 	}
 

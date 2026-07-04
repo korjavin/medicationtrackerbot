@@ -28,6 +28,11 @@ var migrationsFS embed.FS
 // responses (a guessed fresh subdomain must not leak which failure mode hit).
 var ErrClaimInvalid = errors.New("cloudstore: invalid or expired claim token")
 
+// ErrAlreadyClaimed is returned by ResetClaim when the target account has
+// already been claimed (a credential exists, claim token cleared) — reissuing a
+// claim token there would let a fresh passkey be enrolled onto a live account.
+var ErrAlreadyClaimed = errors.New("cloudstore: account already claimed")
+
 // Account is one row in the accounts table. ClaimTokenHash/ClaimExpiresAt are
 // nil once the account has been claimed (first credential registered).
 type Account struct {
@@ -201,13 +206,20 @@ func consumeClaimTx(ctx context.Context, tx storedb.TX, subdomain string, tokenH
 	}, nil
 }
 
-// ClaimAndAddCredential atomically consumes the claim token and inserts the
-// account's first credential in one transaction. Doing both in a single tx
-// prevents a mid-registration DB failure from stranding an account
-// claimed-but-credential-less — an unrecoverable state (the claim is gone so
-// the user can't re-register, and no credential exists so they can't log in)
-// that would otherwise need an operator reset-claim.
-func (r *Repo) ClaimAndAddCredential(ctx context.Context, subdomain string, tokenHash []byte, cred Credential, now time.Time) (*Account, error) {
+// ClaimAndAddCredential atomically consumes the claim token, inserts the
+// account's first credential, and stores its DEK envelope in one transaction.
+// Doing all three in a single tx prevents a mid-registration failure from
+// stranding an account in an unrecoverable state:
+//   - claimed-but-credential-less (claim gone, can't re-register; no credential,
+//     can't log in), or
+//   - credential-but-envelope-less (the passkey exists so the claim is spent and
+//     cold unlock can't fall back to signup, but no envelope means there is
+//     nothing to unwrap the DEK from — cold unlock dead-ends at envelope fetch).
+//
+// Either state would otherwise need an operator reset-claim/delete. Folding the
+// envelope in matches the "one transaction" first-signup upload in
+// docs/cloud-crypto.md.
+func (r *Repo) ClaimAndAddCredential(ctx context.Context, subdomain string, tokenHash []byte, cred Credential, env Envelope, now time.Time) (*Account, error) {
 	var account *Account
 	err := r.db.WithTx(ctx, func(tx storedb.TX) error {
 		a, err := consumeClaimTx(ctx, tx, subdomain, tokenHash, now)
@@ -217,6 +229,11 @@ func (r *Repo) ClaimAndAddCredential(ctx context.Context, subdomain string, toke
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO credentials (id, account_id, public_key, transports, sign_count, created_at_unix) VALUES (?, ?, ?, ?, ?, ?)`,
 			cred.ID, cred.AccountID, cred.PublicKey, cred.Transports, cred.SignCount, storedb.TimeToUnix(cred.CreatedAt)); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO envelopes (account_id, credential_ref, v, nonce, ct, mac) VALUES (?, ?, ?, ?, ?, ?)`,
+			env.AccountID, env.CredentialRef, env.V, env.Nonce, env.CT, env.MAC); err != nil {
 			return err
 		}
 		account = a
@@ -246,12 +263,15 @@ func (r *Repo) SweepExpiredClaims(ctx context.Context, now time.Time) (int, erro
 	return int(n), nil
 }
 
-// ResetClaim replaces an account's claim token/expiry (e.g. after the
-// original claim link expired unused). Returns sql.ErrNoRows if the
-// subdomain does not exist.
+// ResetClaim replaces an *unclaimed* account's claim token/expiry (e.g. after
+// the original claim link expired unused). It is gated on
+// claim_token_hash IS NOT NULL — a claimed account (credential enrolled, token
+// cleared) is off-limits, so a stale invite link can never re-open a live
+// account for a fresh passkey under a different DEK. Returns sql.ErrNoRows if
+// the subdomain does not exist, ErrAlreadyClaimed if it exists but is claimed.
 func (r *Repo) ResetClaim(ctx context.Context, subdomain string, tokenHash []byte, expiresAt time.Time) error {
 	result, err := r.db.ExecContext(ctx,
-		`UPDATE accounts SET claim_token_hash = ?, claim_expires_unix = ? WHERE subdomain = ?`,
+		`UPDATE accounts SET claim_token_hash = ?, claim_expires_unix = ? WHERE subdomain = ? AND claim_token_hash IS NOT NULL`,
 		tokenHash, storedb.TimeToUnix(expiresAt), subdomain)
 	if err != nil {
 		return err
@@ -261,7 +281,15 @@ func (r *Repo) ResetClaim(ctx context.Context, subdomain string, tokenHash []byt
 		return err
 	}
 	if n == 0 {
-		return sql.ErrNoRows
+		// Distinguish "no such subdomain" from "exists but already claimed".
+		var id string
+		if err := r.db.QueryRowContext(ctx, `SELECT id FROM accounts WHERE subdomain = ?`, subdomain).Scan(&id); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return sql.ErrNoRows
+			}
+			return err
+		}
+		return ErrAlreadyClaimed
 	}
 	return nil
 }

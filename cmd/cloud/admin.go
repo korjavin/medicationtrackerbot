@@ -148,6 +148,10 @@ func adminResetClaim(ctx context.Context, store *cloudstore.Repo, subdomain stri
 			fmt.Fprintf(os.Stderr, "no such subdomain: %s\n", subdomain)
 			return 1
 		}
+		if errors.Is(err, cloudstore.ErrAlreadyClaimed) {
+			fmt.Fprintf(os.Stderr, "%s is already claimed — reset-claim only reopens unclaimed invites; use delete to remove it\n", subdomain)
+			return 1
+		}
 		fmt.Fprintf(os.Stderr, "reset-claim failed: %v\n", err)
 		return 1
 	}

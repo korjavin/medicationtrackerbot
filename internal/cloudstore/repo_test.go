@@ -2,6 +2,8 @@ package cloudstore
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"testing"
 	"time"
 
@@ -178,6 +180,18 @@ func TestResetClaim(t *testing.T) {
 	if _, err := r.ConsumeClaimToken(ctx, "quiet-fox-def456", newHash, now); err != nil {
 		t.Fatalf("ConsumeClaimToken with reset hash: %v", err)
 	}
+
+	// After the account is claimed (token cleared by ConsumeClaimToken above),
+	// reset-claim must refuse to reopen it — a stale invite link cannot enroll a
+	// fresh passkey onto a live account.
+	if err := r.ResetClaim(ctx, "quiet-fox-def456", []byte("another-hash"), now.Add(48*time.Hour)); !errors.Is(err, ErrAlreadyClaimed) {
+		t.Fatalf("ResetClaim on claimed account = %v, want ErrAlreadyClaimed", err)
+	}
+
+	// A non-existent subdomain still reports ErrNoRows, not ErrAlreadyClaimed.
+	if err := r.ResetClaim(ctx, "no-such-sub", []byte("hash"), now.Add(time.Hour)); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("ResetClaim on missing subdomain = %v, want sql.ErrNoRows", err)
+	}
 }
 
 func TestClaimAndAddCredential(t *testing.T) {
@@ -192,7 +206,8 @@ func TestClaimAndAddCredential(t *testing.T) {
 	}
 
 	cred := Credential{ID: []byte{9, 8, 7}, AccountID: acc.ID, PublicKey: []byte("pk"), Transports: "internal", CreatedAt: now}
-	claimed, err := r.ClaimAndAddCredential(ctx, acc.Subdomain, tokenHash, cred, now)
+	env := Envelope{AccountID: acc.ID, CredentialRef: "CQgH", V: 1, Nonce: []byte("nonce"), CT: []byte("ciphertext"), MAC: []byte("mac")}
+	claimed, err := r.ClaimAndAddCredential(ctx, acc.Subdomain, tokenHash, cred, env, now)
 	if err != nil {
 		t.Fatalf("ClaimAndAddCredential: %v", err)
 	}
@@ -200,12 +215,16 @@ func TestClaimAndAddCredential(t *testing.T) {
 		t.Fatalf("expected claimed account %s, got %s", acc.ID, claimed.ID)
 	}
 
-	// Credential is present and the claim is consumed (both committed together).
+	// Credential, envelope, and claim consumption all committed together.
 	creds, err := r.CredentialsByAccount(ctx, acc.ID)
 	if err != nil || len(creds) != 1 {
 		t.Fatalf("expected 1 credential, got %d (err %v)", len(creds), err)
 	}
-	if _, err := r.ClaimAndAddCredential(ctx, acc.Subdomain, tokenHash, cred, now); err != ErrClaimInvalid {
+	got, err := r.GetEnvelope(ctx, acc.ID, "CQgH")
+	if err != nil || string(got.CT) != "ciphertext" {
+		t.Fatalf("expected envelope stored atomically, got %+v (err %v)", got, err)
+	}
+	if _, err := r.ClaimAndAddCredential(ctx, acc.Subdomain, tokenHash, cred, env, now); err != ErrClaimInvalid {
 		t.Fatalf("expected ErrClaimInvalid on replay, got %v", err)
 	}
 }

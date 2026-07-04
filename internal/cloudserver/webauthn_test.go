@@ -59,7 +59,13 @@ func beginRegistration(t *testing.T, h http.Handler, host, claimToken string) (*
 
 func finishRegistration(t *testing.T, h http.Handler, host string, challengeCookie *http.Cookie, response string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/api/webauthn/register/finish", strings.NewReader(response))
+	// finish now carries the attestation response plus the first envelope; the
+	// server stores credential + envelope in one transaction.
+	body, _ := json.Marshal(registerFinishRequest{
+		Credential: json.RawMessage(response),
+		Envelope:   envelopeWire{V: 1, Nonce: []byte("nonce-bytes-1234"), CT: []byte("ciphertext-bytes"), MAC: []byte("mac-bytes")},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/webauthn/register/finish", bytes.NewReader(body))
 	req.Host = host
 	req.Header.Set("Content-Type", "application/json")
 	req.AddCookie(challengeCookie)
@@ -116,6 +122,13 @@ func TestWebAuthnRegistration_FullCeremony(t *testing.T) {
 	}
 	if len(creds) != 1 {
 		t.Fatalf("expected 1 stored credential, got %d", len(creds))
+	}
+
+	// The first envelope was persisted atomically with the credential — so a
+	// reload immediately after finish can cold-unlock instead of dead-ending.
+	envs, err := store.ListEnvelopes(t.Context(), account.ID)
+	if err != nil || len(envs) != 1 {
+		t.Fatalf("expected 1 envelope stored with the credential, got %d (err %v)", len(envs), err)
 	}
 
 	// The claim token is now invalidated: consuming it again must fail.
@@ -178,6 +191,13 @@ func beginLogin(t *testing.T, h http.Handler, host string) (*virtualwebauthn.Ass
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("login/begin status = %d, body %q", rec.Code, rec.Body.String())
+	}
+
+	// Spec (docs/cloud-crypto.md): userVerification=required on all ceremonies.
+	// virtualwebauthn's AssertionOptions drops the field, so assert on the raw
+	// JSON that go-webauthn emitted.
+	if !strings.Contains(rec.Body.String(), `"userVerification":"required"`) {
+		t.Fatalf("login/begin options missing userVerification=required: %s", rec.Body.String())
 	}
 
 	opts, err := virtualwebauthn.ParseAssertionOptions(rec.Body.String())

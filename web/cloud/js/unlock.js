@@ -63,7 +63,7 @@ async function coldUnlock(app) {
   // salt applies to whichever allowed credential the authenticator picks.
   const salt = await saltKek();
   const assertion = await navigator.credentials.get({
-    publicKey: { ...requestOptions, extensions: { prf: { eval: { first: salt } } } },
+    publicKey: { ...requestOptions, userVerification: 'required', extensions: { prf: { eval: { first: salt } } } },
   });
 
   const prfOutput = assertion.getClientExtensionResults().prf?.results?.first;

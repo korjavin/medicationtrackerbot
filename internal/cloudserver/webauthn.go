@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -21,7 +23,7 @@ import (
 // webauthnStore is the subset of *cloudstore.Repo the registration and login
 // ceremonies need.
 type webauthnStore interface {
-	ClaimAndAddCredential(ctx context.Context, subdomain string, tokenHash []byte, cred cloudstore.Credential, now time.Time) (*cloudstore.Account, error)
+	ClaimAndAddCredential(ctx context.Context, subdomain string, tokenHash []byte, cred cloudstore.Credential, env cloudstore.Envelope, now time.Time) (*cloudstore.Account, error)
 	CredentialsByAccount(ctx context.Context, accountID string) ([]cloudstore.Credential, error)
 	TouchCredential(ctx context.Context, credentialID []byte, signCount uint32, assertedAt time.Time) error
 }
@@ -55,6 +57,10 @@ func (a *WebAuthnAPI) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/webauthn/login/begin", a.LoginBegin)
 	mux.HandleFunc("POST /api/webauthn/login/finish", a.LoginFinish)
 }
+
+// maxRegisterFinishBodyBytes caps the finish body, which now carries the
+// WebAuthn attestation response (a few KiB) plus the first envelope.
+const maxRegisterFinishBodyBytes = 64 << 10
 
 const challengeCookieName = "cloud_webauthn_challenge"
 const loginChallengeCookieName = "cloud_webauthn_login_challenge"
@@ -235,9 +241,21 @@ func (a *WebAuthnAPI) RegisterBegin(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, creation)
 }
 
+// registerFinishRequest is the finish body: the WebAuthn attestation response
+// plus the first credential's DEK envelope. Bundling the envelope lets the
+// server persist credential + envelope in one transaction (see
+// ClaimAndAddCredential) so a reload/crash can never strand a credential with
+// no envelope to unwrap its DEK — the "one transaction" first-signup upload of
+// docs/cloud-crypto.md.
+type registerFinishRequest struct {
+	Credential json.RawMessage `json:"credential"`
+	Envelope   envelopeWire    `json:"envelope"`
+}
+
 // RegisterFinish verifies the authenticator's response against the challenge
 // started by RegisterBegin, then atomically invalidates the claim token and
-// persists the credential — a claim can mint at most one credential.
+// persists the credential + its DEK envelope — a claim can mint at most one
+// credential.
 func (a *WebAuthnAPI) RegisterFinish(w http.ResponseWriter, r *http.Request) {
 	account, ok := AccountFromContext(r.Context())
 	if !ok {
@@ -258,13 +276,29 @@ func (a *WebAuthnAPI) RegisterFinish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var req registerFinishRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, maxRegisterFinishBodyBytes)).Decode(&req); err != nil || len(req.Credential) == 0 {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	if len(req.Envelope.Nonce) == 0 || len(req.Envelope.Nonce) > maxNonceLen ||
+		len(req.Envelope.CT) == 0 || len(req.Envelope.CT) > maxCTLen || len(req.Envelope.MAC) > maxMACLen {
+		http.Error(w, "envelope field too large or missing", http.StatusBadRequest)
+		return
+	}
+
 	wa, err := rpForRequest(r)
 	if err != nil {
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
 	}
 
-	cred, err := wa.FinishRegistration(&accountUser{account: account}, challenge.session, r)
+	parsed, err := protocol.ParseCredentialCreationResponseBytes(req.Credential)
+	if err != nil {
+		http.Error(w, "registration failed", http.StatusBadRequest)
+		return
+	}
+	cred, err := wa.CreateCredential(&accountUser{account: account}, challenge.session, parsed)
 	if err != nil {
 		http.Error(w, "registration failed", http.StatusBadRequest)
 		return
@@ -278,6 +312,13 @@ func (a *WebAuthnAPI) RegisterFinish(w http.ResponseWriter, r *http.Request) {
 		Transports: transportsCSV(cred.Transport),
 		SignCount:  cred.Authenticator.SignCount,
 		CreatedAt:  now,
+	}, cloudstore.Envelope{
+		AccountID:     account.ID,
+		CredentialRef: base64.RawURLEncoding.EncodeToString(cred.ID),
+		V:             req.Envelope.V,
+		Nonce:         req.Envelope.Nonce,
+		CT:            req.Envelope.CT,
+		MAC:           req.Envelope.MAC,
 	}, now); err != nil {
 		if errors.Is(err, cloudstore.ErrClaimInvalid) {
 			http.Error(w, "claim already used or expired", http.StatusConflict)
@@ -314,7 +355,8 @@ func (a *WebAuthnAPI) LoginBegin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	assertion, session, err := wa.BeginLogin(&accountUser{account: account, creds: toWebAuthnCredentials(creds)})
+	assertion, session, err := wa.BeginLogin(&accountUser{account: account, creds: toWebAuthnCredentials(creds)},
+		webauthn.WithUserVerification(protocol.VerificationRequired))
 	if err != nil {
 		http.Error(w, "no credentials to authenticate with", http.StatusBadRequest)
 		return
