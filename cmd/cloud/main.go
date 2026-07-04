@@ -111,6 +111,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	if len(os.Args) > 1 && os.Args[1] == "admin" {
+		os.Exit(runAdmin(cfg, os.Args[2:]))
+	}
+
 	sharedDB, err := storedb.Open(cfg.dbPath)
 	if err != nil {
 		slog.Error("Failed to open database", "error", err)

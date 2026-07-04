@@ -76,10 +76,10 @@ The server stores only: WebAuthn public keys, envelopes (ciphertext), a recovery
 
 ### Task 4: account provisioning — admin invitations (the only registration door)
 
-- [ ] provisioning helper: generate `account_id` (128-bit random, base32) and subdomain `<adjective>-<animal>-<6 base32 chars>` from small embedded wordlists, retry on UNIQUE collision; store account with a hashed one-time **claim token** (32 random bytes, `CLOUD_CLAIM_TTL`) and produce the claim URL `https://<sub>.<base>/#claim=<token>` (fragment — never hits server logs)
-- [ ] admin CLI subcommands (argv[1] dispatch in main.go): `cloud admin invite` (pre-provision; print claim URL + terminal QR), `cloud admin list` (subdomain, claimed?, created, last-asserted — no PII), `cloud admin reset-claim <subdomain>` (new claim token for an unclaimed account), `cloud admin revoke <subdomain>` (delete unclaimed account), `cloud admin delete <subdomain>` (delete account + all rows, confirm prompt)
-- [ ] lazy expiry: unclaimed accounts past `claim_expires_unix` are rejected at claim time and swept opportunistically on provisioning calls
-- [ ] integration test: invite→claim single-use; expired claim rejected; reset-claim invalidates the old token — guards the provisioning contract
+- [x] provisioning helper: generate `account_id` (128-bit random, base32) and subdomain `<adjective>-<animal>-<6 base32 chars>` from small embedded wordlists, retry on UNIQUE collision; store account with a hashed one-time **claim token** (32 random bytes, `CLOUD_CLAIM_TTL`) and produce the claim URL `https://<sub>.<base>/#claim=<token>` (fragment — never hits server logs)
+- [x] admin CLI subcommands (argv[1] dispatch in main.go): `cloud admin invite` (pre-provision; print claim URL + terminal QR), `cloud admin list` (subdomain, claimed?, created, last-asserted — no PII), `cloud admin reset-claim <subdomain>` (new claim token for an unclaimed account), `cloud admin revoke <subdomain>` (delete unclaimed account), `cloud admin delete <subdomain>` (delete account + all rows, confirm prompt)
+- [x] lazy expiry: unclaimed accounts past `claim_expires_unix` are rejected at claim time and swept opportunistically on provisioning calls
+- [x] integration test: invite→claim single-use; expired claim rejected; reset-claim invalidates the old token — guards the provisioning contract
 
 ### Task 5: WebAuthn registration ceremony (server)
 

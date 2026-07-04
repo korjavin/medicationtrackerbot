@@ -191,6 +191,24 @@ func (r *Repo) ConsumeClaimToken(ctx context.Context, subdomain string, tokenHas
 	return account, nil
 }
 
+// SweepExpiredClaims deletes unclaimed accounts whose claim has expired,
+// freeing their subdomains. Called opportunistically on provisioning rather
+// than from a background job (ponytail: this service is invite-only and
+// low-volume; add a ticker only if that stops being true).
+func (r *Repo) SweepExpiredClaims(ctx context.Context, now time.Time) (int, error) {
+	result, err := r.db.ExecContext(ctx,
+		`DELETE FROM accounts WHERE claim_token_hash IS NOT NULL AND claim_expires_unix IS NOT NULL AND claim_expires_unix < ?`,
+		storedb.TimeToUnix(now))
+	if err != nil {
+		return 0, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return int(n), nil
+}
+
 // ResetClaim replaces an account's claim token/expiry (e.g. after the
 // original claim link expired unused). Returns sql.ErrNoRows if the
 // subdomain does not exist.
