@@ -89,20 +89,20 @@ invariant, so backfilled weeks read correctly in retrospect).
 
 ### Task 1: Domain — `GetWeeklyReview` read model
 
-- [ ] `internal/domain/gamification/weekly.go` (new): given `now`, resolve the
+- [x] `internal/domain/gamification/weekly.go` (new): given `now`, resolve the
       current ISO week (Mon–Sun, user tz, `weekIndex`-consistent) and the
       previous week
-- [ ] **levers section**: per-lever-ring closed-day counts this week vs last,
+- [x] **levers section**: per-lever-ring closed-day counts this week vs last,
       days-with-any-HP, best day (most rings closed), strength values now vs 7
       days ago
-- [ ] **gauges section**: embed plan 11's models — weight velocity + pace status
+- [x] **gauges section**: embed plan 11's models — weight velocity + pace status
       + acceleration, BP 30d share now vs a week ago, RHR delta; plus Health
       Score now vs anchored 7 days earlier
-- [ ] empty-week semantics: zero-HP week returns a valid review with
+- [x] empty-week semantics: zero-HP week returns a valid review with
       `quiet: true`, never an error
-- [ ] add `GetWeeklyReview` to the service interface, gated on
+- [x] add `GetWeeklyReview` to the service interface, gated on
       `gamification_enabled`
-- [ ] integration test per Testing Strategy
+- [x] integration test per Testing Strategy
 
 ### Task 2: HTTP route + MCP registration
 

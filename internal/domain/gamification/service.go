@@ -201,6 +201,13 @@ type GamificationService interface {
 	// computed fresh from the log on every call. Gate-off yields {Enabled:false}.
 	// See gauges.go.
 	GetGauges(ctx context.Context, userID int64) (GaugesView, error)
+
+	// GetWeeklyReview returns the "Your week" read model (gamification-12):
+	// lever closed-day counts + best day, habit-strength deltas, gauge
+	// movement, and Health Score week-over-week — the shared basis for the
+	// Journey card and the bot's /week digest. Gate-off yields
+	// {Enabled:false}; a zero-HP week yields {Quiet:true}. See weekly.go.
+	GetWeeklyReview(ctx context.Context, userID int64) (WeeklyReview, error)
 }
 
 // service implements GamificationService. It composes the narrow per-domain read
