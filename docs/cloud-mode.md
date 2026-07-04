@@ -1,6 +1,8 @@
 # E2EE Cloud Mode — zero-knowledge cloud + browser PWA
 
-**Status: design proposal, not yet implemented.**
+**Status: design proposal; C0a (service foundation + passkey signup/unlock) is implemented — see `cmd/cloud`, `internal/cloudstore`, `internal/cloudserver`, `web/cloud/`, [docs/cloud-deployment.md](cloud-deployment.md). Everything below C0a in Phasing is still design-only.**
+
+C0a deviations from this spec, discovered during implementation: subdomain and `account_id` are **server-assigned** at invite time, not client-generated at signup — a deliberate clarification, only key material (DEK, KEK, passkey PRF, recovery code) must be client-generated. Registration is invite-only from day one (admin CLI `cloud admin invite`), matching the Onboarding section below.
 
 Third install story, alongside server mode (`docs/architecture.md`) and the Capacitor mobile build (`docs/local-mode.md`):
 
@@ -71,6 +73,7 @@ Model the cloud as honest-but-curious **and** breachable. Design so that even a 
 - **Wildcard everything so individual names never leak**: wildcard DNS record (`*.app.<domain>` — names absent from the zone) and wildcard TLS cert via DNS-01 (names absent from Certificate Transparency logs). Residual leak: DNS queries and TLS SNI expose the subdomain to network observers (mitigated over time by DoH and ECH). This is why the subdomain is a moat, not the auth.
 - One static bundle served for every subdomain; the API resolves the account from the `Host` header.
 - Rate limits + storage quotas per account. Registration is **invite-only, always**: accounts exist only when the operator mints one (see Onboarding). No public signup surface exists — which also deletes the signup-abuse problem outright.
+- **Local dev without DNS or certs**: `*.localhost` subdomains resolve without any `/etc/hosts` entry and are treated as a secure context by browsers, so `CLOUD_BASE_DOMAIN=localhost` gives a full local dev loop — including WebAuthn/passkeys — against `http://<sub>.localhost:<port>`.
 
 ## Onboarding — invite → wizard → installed PWA
 
@@ -90,7 +93,7 @@ The claim link lands on a minimal, picture-first education wizard:
 
 Deliberately PII-free: no names, no emails in listings (the optional URL-recovery email is the single stored exception). The admin sees pseudo-secret subdomains, claim status, created / last-sync timestamps, storage usage. Capabilities: mint an invite (pre-provision + print claim link/QR), re-issue a claim link, withdraw an unclaimed invite, delete an account.
 
-`ponytail:` admin is CLI subcommands on the same binary (`cloud admin invite|list|reset-claim|revoke|delete`) — self-hosters have shell access, and it keeps the HTTP surface free of admin auth. A web admin page is a later nicety. Self-hosting the whole cloud stays a first-class goal: one binary + one compose block (see docs/cloud-deployment.md once C0a lands).
+`ponytail:` admin is CLI subcommands on the same binary (`cloud admin invite|list|reset-claim|revoke|delete`) — self-hosters have shell access, and it keeps the HTTP surface free of admin auth. A web admin page is a later nicety. Self-hosting the whole cloud stays a first-class goal: one binary + one compose block (see [docs/cloud-deployment.md](cloud-deployment.md)).
 
 ## Key hierarchy
 
@@ -234,6 +237,9 @@ Server-mode users with real history move by **export → client-side import** �
 ## Phasing
 
 - **C0 — cloud service MVP**: signup + subdomain provisioning, wildcard host, blob sync API (oplog/snapshot/cursors), push relay, Emergency Kit + key hierarchy + unlock UX in the PWA shell. No domain logic yet — validate crypto, sync, and push end-to-end with a toy record type.
+  - **C0a (implemented)** — service foundation + passkey signup/unlock: `cloudstore`/`cloudserver` packages, wildcard host routing, admin-invite provisioning, WebAuthn registration/login, envelope API, client crypto module (suite v1), signup wizard + Emergency Kit, cold/warm unlock. See `docs/plans/2026-07-03-cloud-c0a-foundation-passkey-signup.md`.
+  - **C0b** — device lifecycle (add/remove devices, cross-device enrollment, recovery redemption). Plan: `docs/plans/2026-07-03-cloud-c0b-device-lifecycle.md`.
+  - **C0c** — sync + push relay (oplog/snapshot/cursors, Web Push). Plan: `docs/plans/2026-07-03-cloud-c0c-sync-push-relay.md`.
 - **C1 — core loop**: JS domain layer for medications + intake log + reminder computation behind the `/api` shim; contract-test harness against the Go server. A user can fully run medication tracking on cloud mode.
 - **C2 — remaining domains**: BP, weight, food (incl. direct-from-browser AI/vision/barcode), workouts, vitals, sleep, diary, tz handling. Closes with the **server-mode migration pair**: `cmd/exporter` (full-vault JSON) + cloud-client import landing as one encrypted snapshot — see "Migrating an existing server-mode install".
 - **C3a — Telegram bot provisioning + onboarding** (plan: `docs/plans/2026-07-04-cloud-c3a-telegram-managed-bot-onboarding.md`; depends on C0a only, parallel-safe with C0b/C0c): Managed-Bots one-tap creation, BYO token fallback, chat linking, consent screen, wizard step 5, test notification.

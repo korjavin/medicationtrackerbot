@@ -90,7 +90,7 @@ go run ./cmd/seeddemo -user <telegram_user_id> -db meds.db -topup -seed 42
 
 ## Code Layout
 
-- `cmd/` — entry points (`bot`, `mcptool`, `importer`, `bpimporter`, `genvapid`, `seeddemo`)
+- `cmd/` — entry points (`bot`, `cloud`, `mcptool`, `importer`, `bpimporter`, `genvapid`, `seeddemo`)
 - `internal/ai` — AI client (OpenAI-compatible)
 - `internal/store` — per-domain SQLite repositories (one Go package per feature). `store.Repos` (alias: `store.Store`) is a thin aggregator wired in `cmd/bot/main.go` (and `cmd/mcptool`, `cmd/seeddemo`, `cmd/bpimporter`). Sub-packages:
   - `db/` — shared `*sql.DB` open/close + busy-timeout config, `WithTx` cross-repo transaction helper, goose migrations runner, unix-seconds time helpers.
@@ -108,6 +108,9 @@ go run ./cmd/seeddemo -user <telegram_user_id> -db meds.db -topup -seed 42
 - `internal/tzlookup` — geo-to-timezone (tzf, offline)
 - `web/static/` — vanilla JS frontend, Dexie.js, Service Worker
 - `python/` — `medtracker` helper package, sandboxed runner, and example scripts used by the `mcp_execute` tool. Tests live in `python/tests/` and `python/runner/`.
+- `internal/cloudstore` — SQLite repo for `cmd/cloud` (accounts, credentials, envelopes, recovery verifier). Own migrations; imports only `internal/store/db`, never `internal/store` (goose-registry landmine — see [docs/cloud-mode.md](docs/cloud-mode.md))
+- `internal/cloudserver` — HTTP handlers for `cmd/cloud`: wildcard host routing, WebAuthn registration/login ceremonies, envelope API, admin invite provisioning
+- `web/cloud/` — embedded static shell (signup/unlock wizard + client-side crypto module) served by `cmd/cloud`; a separate app from `web/static/`, no shared build or globals
 
 ## Documentation Index
 
@@ -119,8 +122,9 @@ go run ./cmd/seeddemo -user <telegram_user_id> -db meds.db -topup -seed 42
 | Demo mode (`DEMO_MODE=1`): public auth-less deployment, per-IP AI rate limits, seeded demo DB, MCP without OAuth | [docs/demo-mode.md](docs/demo-mode.md) |
 | Feature behaviors (Today dashboard, meds, BP, weight, food, workouts, MCP) | [docs/features.md](docs/features.md) |
 | Gamification design (HealthPoints, science-based, outcome-in-range scoring, insight ladder) — **design proposal, not yet implemented** | [docs/gamification.md](docs/gamification.md) |
-| E2EE cloud mode (zero-knowledge cloud + browser PWA: blind push relay, encrypted sync, per-user subdomains, BYO keys, optional Telegram, MCP relay) — **design proposal, not yet implemented** | [docs/cloud-mode.md](docs/cloud-mode.md) |
-| Cloud-mode crypto (passkey-only key management: WebAuthn PRF envelopes over a random DEK, device enrollment ceremonies, recovery code, formats) — **design proposal, not yet implemented** | [docs/cloud-crypto.md](docs/cloud-crypto.md) |
+| E2EE cloud mode (zero-knowledge cloud + browser PWA: blind push relay, encrypted sync, per-user subdomains, BYO keys, optional Telegram, MCP relay) — **C0a (service foundation + passkey signup/unlock) implemented in `cmd/cloud`; rest still design proposal** | [docs/cloud-mode.md](docs/cloud-mode.md) |
+| Cloud-mode crypto (passkey-only key management: WebAuthn PRF envelopes over a random DEK, device enrollment ceremonies, recovery code, formats) — **suite v1 implemented in `web/cloud/js/crypto.js`** | [docs/cloud-crypto.md](docs/cloud-crypto.md) |
+| Cloud deployment (self-hosted `cmd/cloud`: Traefik + Portainer infra layer, DNS-01 wildcard cert, gitops app stack, admin invite) | [docs/cloud-deployment.md](docs/cloud-deployment.md) |
 | API endpoints | [docs/api.md](docs/api.md) |
 | Environment variables | [docs/environment.md](docs/environment.md) |
 | MCP server deployment (Pocket-ID, Docker, Claude config) | [docs/mcp-deployment.md](docs/mcp-deployment.md) |

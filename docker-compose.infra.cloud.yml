@@ -1,0 +1,73 @@
+version: '3'
+
+# Static infra layer for cloud-mode: Traefik (wildcard TLS via DNS-01) +
+# Portainer, run once on a fresh server with plain `docker compose`. NOT
+# managed by Portainer gitops — the app stack (docker-compose.cloud.yml) is.
+# See docs/cloud-deployment.md for the full setup walkthrough.
+
+services:
+  traefik:
+    image: traefik:v3.3
+    container_name: cloud-traefik
+    restart: unless-stopped
+    command:
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+      - "--entrypoints.websecure.address=:443"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedByDefault=false"
+      - "--providers.docker.network=proxy"
+      - "--certificatesresolvers.wildcard.acme.dnschallenge=true"
+      - "--certificatesresolvers.wildcard.acme.dnschallenge.provider=${DNS_PROVIDER:-cloudflare}"
+      - "--certificatesresolvers.wildcard.acme.email=${ACME_EMAIL}"
+      - "--certificatesresolvers.wildcard.acme.storage=/letsencrypt/acme.json"
+    environment:
+      # lego (Traefik's ACME client) reads DNS provider credentials from the
+      # container env. Swap these two vars to use a different provider.
+      - CF_DNS_API_TOKEN=${CF_DNS_API_TOKEN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_acme:/letsencrypt
+    networks:
+      - proxy
+
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: cloud-portainer
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.routers.portainer.rule=Host(`portainer.${CLOUD_BASE_DOMAIN}`)"
+      # Higher priority than the cloud app's wildcard HostRegexp, which also
+      # matches portainer.<base> and (being a longer rule) would otherwise win
+      # Traefik v3's default length-based priority and shadow this router.
+      - "traefik.http.routers.portainer.priority=1000"
+      - "traefik.http.routers.portainer.entrypoints=websecure"
+      - "traefik.http.routers.portainer.tls.certresolver=wildcard"
+      # Serve off the wildcard cert (main + *.<base> SANs) so portainer.<base>
+      # is not published to Certificate Transparency logs as its own name.
+      - "traefik.http.routers.portainer.tls.domains[0].main=${CLOUD_BASE_DOMAIN}"
+      - "traefik.http.routers.portainer.tls.domains[0].sans=*.${CLOUD_BASE_DOMAIN}"
+      - "traefik.http.services.portainer.loadbalancer.server.port=9000"
+
+networks:
+  # Attachable + external so the Portainer-managed app stack
+  # (docker-compose.cloud.yml) can join it without owning it.
+  proxy:
+    name: proxy
+    driver: bridge
+    attachable: true
+
+volumes:
+  traefik_acme:
+  portainer_data:

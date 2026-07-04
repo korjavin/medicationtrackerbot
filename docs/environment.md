@@ -56,6 +56,21 @@ ELEVENLABS_API_KEY=...
 ELEVENLABS_AGENT_ID=agent_...
 ```
 
+## Cloud service (`cmd/cloud`)
+
+See [docs/cloud-deployment.md](cloud-deployment.md) for the full self-hosted deployment guide.
+
+```bash
+# Required
+CLOUD_BASE_DOMAIN=app.example.com  # Base domain; subdomains are <sub>.<this>. Use 'localhost' for local dev (no DNS/certs needed).
+SESSION_SECRET=...                 # Same length (>=32) + entropy (Shannon >=3.5) requirement as cmd/bot
+
+# Optional
+CLOUD_DB_PATH=cloud.db             # SQLite database path (default: cloud.db)
+PORT=8080                          # HTTP port (default: 8080)
+CLOUD_CLAIM_TTL=14                 # Invite claim-link validity, in days (default: 14)
+```
+
 ## MCP server (`cmd/mcptool`)
 
 ```bash

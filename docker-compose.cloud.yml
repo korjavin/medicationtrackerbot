@@ -1,0 +1,40 @@
+version: '3'
+
+# Cloud-mode app stack: single `cloud` service, deployed as a Portainer
+# gitops stack from this repo's `deploy` branch (webhook-redeployed by
+# .github/workflows/deploy.yml, same pattern as the bot stack). Joins the
+# `proxy` network created by docker-compose.infra.cloud.yml. See
+# docs/cloud-deployment.md.
+
+services:
+  cloud:
+    image: ghcr.io/korjavin/medicationtrackerbot:latest
+    container_name: medtracker-cloud
+    restart: unless-stopped
+    command: ["./cloud"]
+    volumes:
+      - cloud_data:/app/data
+    environment:
+      - CLOUD_BASE_DOMAIN=${CLOUD_BASE_DOMAIN}
+      - SESSION_SECRET=${SESSION_SECRET}
+      - CLOUD_DB_PATH=${CLOUD_DB_PATH:-/app/data/cloud.db}
+      - PORT=${PORT:-8080}
+      - CLOUD_CLAIM_TTL=${CLOUD_CLAIM_TTL:-14}
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.routers.cloud.rule=HostRegexp(`^.+\\.${CLOUD_BASE_DOMAIN}$$`) || Host(`${CLOUD_BASE_DOMAIN}`)"
+      - "traefik.http.routers.cloud.entrypoints=websecure"
+      - "traefik.http.routers.cloud.tls.certresolver=wildcard"
+      - "traefik.http.routers.cloud.tls.domains[0].main=${CLOUD_BASE_DOMAIN}"
+      - "traefik.http.routers.cloud.tls.domains[0].sans=*.${CLOUD_BASE_DOMAIN}"
+      - "traefik.http.services.cloud.loadbalancer.server.port=${PORT:-8080}"
+
+networks:
+  proxy:
+    external: true
+
+volumes:
+  cloud_data:
