@@ -2,6 +2,7 @@ package cloudserver
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"time"
@@ -13,6 +14,36 @@ import (
 // relaySendTimeout bounds a single subscription's push-service round trip so
 // one slow endpoint can't stall an entire tick.
 const relaySendTimeout = 10 * time.Second
+
+// Task 7's stale-sync sweep cadence and thresholds. The warning fires at most
+// once a day per account (warnCooldown) once the account's scheduled-push
+// queue is close to running dry (dryQueueWarnWithin, default 120h) and it
+// hasn't synced in staleSyncAfter.
+const (
+	staleSweepInterval        = time.Hour
+	staleSyncAfter            = 24 * time.Hour
+	warnCooldown              = 24 * time.Hour
+	defaultDryQueueWarnWithin = 120 * time.Hour
+)
+
+// staleSyncWarningPayload is the server-composed, content-free push body
+// (Task 7): a literal constant, never derived from account data, sent
+// outside the NK app-layer encryption path. web/cloud/sw.js recognizes
+// kind=="server-warning" and renders it directly instead of attempting an NK
+// decrypt.
+var staleSyncWarningPayload = mustMarshalStaleSyncWarning()
+
+func mustMarshalStaleSyncWarning() []byte {
+	b, err := json.Marshal(struct {
+		Kind  string `json:"kind"`
+		Title string `json:"title"`
+		Body  string `json:"body"`
+	}{Kind: "server-warning", Title: "Med Tracker", Body: "Open the app to keep reminders running"})
+	if err != nil {
+		panic(err) // static literal — cannot fail
+	}
+	return b
+}
 
 // PushSender delivers one already-encrypted payload to one subscription and
 // reports the push service's HTTP status (or a transport error). Swappable
@@ -54,20 +85,29 @@ type relayStore interface {
 	MarkPushSent(ctx context.Context, id int64, sentAt time.Time) error
 	List(ctx context.Context, accountID string) ([]cloudstore.PushSubscription, error)
 	Disable(ctx context.Context, endpoint string) error
+	AccountsNeedingStaleSyncWarning(ctx context.Context, now time.Time, dryQueueWithin, staleAfter, warnCooldown time.Duration) ([]string, error)
+	MarkStaleSyncWarned(ctx context.Context, accountID string, now time.Time) error
 }
 
 // Relay is the blind push-firing loop: it never decrypts or composes a
 // payload, only forwards each due scheduled_pushes.ct blob to every enabled
-// subscription for that account.
+// subscription for that account. It also runs Task 7's hourly stale-sync
+// sweep, which is the one exception that composes its own (content-free)
+// payload server-side.
 type Relay struct {
-	store    relayStore
-	sender   PushSender
-	interval time.Duration
+	store              relayStore
+	sender             PushSender
+	interval           time.Duration
+	dryQueueWarnWithin time.Duration
 }
 
-// NewRelay builds a Relay that ticks every 30s.
-func NewRelay(store relayStore, sender PushSender) *Relay {
-	return &Relay{store: store, sender: sender, interval: 30 * time.Second}
+// NewRelay builds a Relay that ticks every 30s. dryQueueWarnWithin is
+// CLOUD_DRY_QUEUE_WARN_HOURS (Task 7); <= 0 uses the 120h default.
+func NewRelay(store relayStore, sender PushSender, dryQueueWarnWithin time.Duration) *Relay {
+	if dryQueueWarnWithin <= 0 {
+		dryQueueWarnWithin = defaultDryQueueWarnWithin
+	}
+	return &Relay{store: store, sender: sender, interval: 30 * time.Second, dryQueueWarnWithin: dryQueueWarnWithin}
 }
 
 // Run ticks until ctx is cancelled. Call it in its own goroutine, passing the
@@ -75,12 +115,16 @@ func NewRelay(store relayStore, sender PushSender) *Relay {
 func (rl *Relay) Run(ctx context.Context) {
 	ticker := time.NewTicker(rl.interval)
 	defer ticker.Stop()
+	staleTicker := time.NewTicker(staleSweepInterval)
+	defer staleTicker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			rl.Tick(ctx)
+		case <-staleTicker.C:
+			rl.StaleSyncSweep(ctx)
 		}
 	}
 }
@@ -112,6 +156,33 @@ func (rl *Relay) Tick(ctx context.Context) {
 
 		if err := rl.store.MarkPushSent(ctx, p.ID, time.Now().UTC()); err != nil {
 			slog.Error("push relay: mark sent", "id", p.ID, "error", err)
+		}
+	}
+}
+
+// StaleSyncSweep sends the generic dry-queue warning (Task 7) to every
+// account whose scheduled-push queue is about to run dry while the account
+// hasn't synced recently, at most once per warnCooldown per account. Exported
+// so tests can drive it without waiting on the hourly ticker.
+func (rl *Relay) StaleSyncSweep(ctx context.Context) {
+	now := time.Now().UTC()
+	accountIDs, err := rl.store.AccountsNeedingStaleSyncWarning(ctx, now, rl.dryQueueWarnWithin, staleSyncAfter, warnCooldown)
+	if err != nil {
+		slog.Error("push relay: list stale-sync accounts", "error", err)
+		return
+	}
+
+	for _, accountID := range accountIDs {
+		subs, err := rl.store.List(ctx, accountID)
+		if err != nil {
+			slog.Error("push relay: list subscriptions for stale-sync warning", "accountID", accountID, "error", err)
+			continue
+		}
+		for _, sub := range subs {
+			rl.send(ctx, sub, staleSyncWarningPayload)
+		}
+		if err := rl.store.MarkStaleSyncWarned(ctx, accountID, now); err != nil {
+			slog.Error("push relay: mark stale-sync warned", "accountID", accountID, "error", err)
 		}
 	}
 }

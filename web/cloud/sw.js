@@ -57,10 +57,28 @@ async function readNK() {
   }
 }
 
+// Task 7's stale-sync warning is a server-composed, content-free push sent
+// outside the NK app-layer encryption path (the server has no NK to encrypt
+// with). It's plain JSON tagged kind=="server-warning" — anything else is NK
+// ciphertext and falls through to the decrypt attempt below.
+function tryDecodeServerWarning(data) {
+  try {
+    const payload = JSON.parse(new TextDecoder().decode(data));
+    if (payload && payload.kind === 'server-warning') {
+      return { title: payload.title || GENERIC_NOTIFICATION.title, body: payload.body || GENERIC_NOTIFICATION.body };
+    }
+  } catch {
+    // Not JSON — real NK ciphertext, ignore.
+  }
+  return null;
+}
+
 // NK absent, or the app-layer ciphertext fails to decrypt (tampered, or this
 // device's vault was never provisioned) — fall back to the content-free
 // generic notification rather than surfacing an error to the user.
 async function decodePush(data) {
+  const warning = tryDecodeServerWarning(data);
+  if (warning) return warning;
   try {
     const nk = await readNK();
     if (!nk) return GENERIC_NOTIFICATION;

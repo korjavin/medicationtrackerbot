@@ -88,8 +88,8 @@ Completes C0: the cloud becomes a working encrypted-sync backend and blind alarm
 
 ### Task 7: stale-sync warning
 
-- [ ] hourly sweep in the sender goroutine: accounts whose latest unsent `fire_at_unix` is within `CLOUD_DRY_QUEUE_WARN_HOURS` (default 120h) **and** `last_sync_unix` older than 24h → send a server-composed generic push ("Open the app to keep reminders running"); record last-warned time in `sync_state` to fire at most once/day
-- [ ] the warning text is a server constant — content-free by construction; no account data is read (only timestamps, which the server inherently has)
+- [x] hourly sweep in the sender goroutine: accounts whose latest unsent `fire_at_unix` is within `CLOUD_DRY_QUEUE_WARN_HOURS` (default 120h) **and** `last_sync_unix` older than 24h → send a server-composed generic push ("Open the app to keep reminders running"); record last-warned time in `sync_state` to fire at most once/day
+- [x] the warning text is a server constant — content-free by construction; no account data is read (only timestamps, which the server inherently has)
 
 ### Task 8: Verify acceptance criteria
 

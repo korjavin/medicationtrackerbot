@@ -181,6 +181,47 @@ func (r *Repo) PutSnapshot(ctx context.Context, accountID string, snapshotSeq in
 	})
 }
 
+// AccountsNeedingStaleSyncWarning returns account IDs whose scheduled-push
+// queue is about to run dry (the latest unsent entry fires within
+// dryQueueWithin of now) while the account hasn't synced in staleAfter and
+// hasn't already been warned within warnCooldown (Task 7's dry-queue safety
+// net — docs/cloud-mode.md "Dry-queue safety net").
+func (r *Repo) AccountsNeedingStaleSyncWarning(ctx context.Context, now time.Time, dryQueueWithin, staleAfter, warnCooldown time.Duration) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT ss.account_id
+		 FROM sync_state ss
+		 JOIN (SELECT account_id, MAX(fire_at_unix) AS latest_fire FROM scheduled_pushes WHERE sent_at_unix IS NULL GROUP BY account_id) sp
+		   ON sp.account_id = ss.account_id
+		 WHERE sp.latest_fire <= ?
+		   AND ss.last_sync_unix IS NOT NULL AND ss.last_sync_unix <= ?
+		   AND (ss.last_warned_unix IS NULL OR ss.last_warned_unix <= ?)`,
+		storedb.TimeToUnix(now.Add(dryQueueWithin)),
+		storedb.TimeToUnix(now.Add(-staleAfter)),
+		storedb.TimeToUnix(now.Add(-warnCooldown)))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var accountIDs []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		accountIDs = append(accountIDs, id)
+	}
+	return accountIDs, rows.Err()
+}
+
+// MarkStaleSyncWarned records that accountID was just sent the dry-queue
+// warning push, so AccountsNeedingStaleSyncWarning skips it until warnCooldown
+// elapses.
+func (r *Repo) MarkStaleSyncWarned(ctx context.Context, accountID string, now time.Time) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE sync_state SET last_warned_unix = ? WHERE account_id = ?`, storedb.TimeToUnix(now), accountID)
+	return err
+}
+
 // GetSnapshot returns the account's latest snapshot, or (nil, nil) when none
 // has been uploaded yet, and touches sync_state.last_sync_unix like the other
 // sync endpoints.

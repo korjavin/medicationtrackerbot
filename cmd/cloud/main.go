@@ -35,6 +35,7 @@ type config struct {
 	vapidPublicKey    string
 	vapidPrivateKey   string
 	vapidSubject      string
+	dryQueueWarnHours time.Duration
 }
 
 func loadConfig() (config, error) {
@@ -47,6 +48,7 @@ func loadConfig() (config, error) {
 		vapidPublicKey:    os.Getenv("VAPID_PUBLIC_KEY"),
 		vapidPrivateKey:   os.Getenv("VAPID_PRIVATE_KEY"),
 		vapidSubject:      os.Getenv("VAPID_SUBJECT"),
+		dryQueueWarnHours: 120 * time.Hour,
 	}
 	if cfg.dbPath == "" {
 		cfg.dbPath = "cloud.db"
@@ -78,6 +80,14 @@ func loadConfig() (config, error) {
 			return cfg, errors.New("CLOUD_ACCOUNT_QUOTA_BYTES must be a non-negative integer (0 disables the quota)")
 		}
 		cfg.accountQuotaBytes = bytes
+	}
+
+	if warnHours := os.Getenv("CLOUD_DRY_QUEUE_WARN_HOURS"); warnHours != "" {
+		hours, err := strconv.Atoi(warnHours)
+		if err != nil || hours <= 0 {
+			return cfg, errors.New("CLOUD_DRY_QUEUE_WARN_HOURS must be a positive integer number of hours")
+		}
+		cfg.dryQueueWarnHours = time.Duration(hours) * time.Hour
 	}
 
 	return cfg, nil
@@ -174,7 +184,7 @@ func main() {
 			VAPIDPublicKey:  cfg.vapidPublicKey,
 			VAPIDPrivateKey: cfg.vapidPrivateKey,
 			VAPIDSubject:    cfg.vapidSubject,
-		})
+		}, cfg.dryQueueWarnHours)
 	} else {
 		slog.Info("Push relay disabled: VAPID keys not configured")
 	}

@@ -78,7 +78,7 @@ func TestRelay_DueSelection_ReplaceAll_DisablesGone(t *testing.T) {
 	}})
 
 	sender := &fakeSender{goneFor: map[string]bool{"https://push.example/gone": true}}
-	relay := NewRelay(store, sender)
+	relay := NewRelay(store, sender, 0)
 	relay.Tick(ctx)
 
 	if len(sender.sent) != 2 {
@@ -105,10 +105,71 @@ func TestRelay_DueSelection_ReplaceAll_DisablesGone(t *testing.T) {
 	}})
 
 	sender2 := &fakeSender{goneFor: map[string]bool{}}
-	relay2 := NewRelay(store, sender2)
+	relay2 := NewRelay(store, sender2, 0)
 	relay2.Tick(ctx)
 
 	if len(sender2.sent) != 1 || string(sender2.sent[0].ct) != "second-due-ct" {
 		t.Fatalf("expected only the new due entry to fire (old future entry dropped by replace-all), got %+v", sender2.sent)
+	}
+}
+
+// TestRelay_StaleSyncSweep guards Task 7's dry-queue safety net: only an
+// account whose queue is about to run dry AND hasn't synced recently gets
+// warned, and a second sweep within the cooldown doesn't re-warn it.
+func TestRelay_StaleSyncSweep(t *testing.T) {
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+
+	webauthnAPI := NewWebAuthnAPI(store, "test-session-secret-at-least-32-bytes-long")
+	pushAPI := NewPushAPI(store, "test-session-secret-at-least-32-bytes-long", "test-vapid-public-key")
+	mux := http.NewServeMux()
+	webauthnAPI.RegisterRoutes(mux)
+	pushAPI.RegisterRoutes(mux)
+	h := New("localhost", store, testFS(), mux)
+
+	session := registerAndGetSession(t, h, host, claimToken)
+
+	ctx := context.Background()
+	if err := store.UpsertPushSubscription(ctx, account.ID, "https://push.example/ok", "p256dh", "auth", time.Now().UTC()); err != nil {
+		t.Fatalf("UpsertPushSubscription: %v", err)
+	}
+
+	// Queue's only entry fires soon (within the warn horizon).
+	putSchedule(t, h, host, session, putScheduleRequest{Entries: []scheduleEntryWire{
+		{FireAtUnix: time.Now().Add(time.Hour).Unix(), CT: []byte("soon-ct")},
+	}})
+
+	// Backdate last_sync_unix past staleSyncAfter (24h) via ListOps' now param
+	// — the only way to set it without reaching into cloudstore internals.
+	if _, err := store.ListOps(ctx, account.ID, 0, 100, time.Now().Add(-25*time.Hour)); err != nil {
+		t.Fatalf("ListOps (backdate sync): %v", err)
+	}
+
+	sender := &fakeSender{goneFor: map[string]bool{}}
+	relay := NewRelay(store, sender, 120*time.Hour)
+	relay.StaleSyncSweep(ctx)
+
+	if len(sender.sent) != 1 {
+		t.Fatalf("expected 1 warning send, got %d: %+v", len(sender.sent), sender.sent)
+	}
+	var payload struct {
+		Kind  string `json:"kind"`
+		Title string `json:"title"`
+		Body  string `json:"body"`
+	}
+	if err := json.Unmarshal(sender.sent[0].ct, &payload); err != nil {
+		t.Fatalf("unmarshal warning payload: %v", err)
+	}
+	if payload.Kind != "server-warning" || payload.Body == "" {
+		t.Fatalf("unexpected warning payload: %+v", payload)
+	}
+
+	// A second sweep right away must not re-warn within the cooldown.
+	sender2 := &fakeSender{goneFor: map[string]bool{}}
+	relay2 := NewRelay(store, sender2, 120*time.Hour)
+	relay2.StaleSyncSweep(ctx)
+	if len(sender2.sent) != 0 {
+		t.Fatalf("expected no re-warn within cooldown, got %+v", sender2.sent)
 	}
 }
