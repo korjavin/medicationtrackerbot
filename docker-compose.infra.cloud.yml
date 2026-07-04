@@ -7,7 +7,9 @@ version: '3'
 
 services:
   traefik:
-    image: traefik:v3.3
+    # v3.5+ required: older Traefik falls back to Docker API 1.24, which
+    # Docker Engine 29 (current get.docker.com default) refuses.
+    image: traefik:v3.6
     container_name: cloud-traefik
     restart: unless-stopped
     command:
