@@ -58,9 +58,9 @@ function renderDevices(app, ctx, onExit, devices) {
   }
 
   app.querySelector('#add-device-button').addEventListener('click', () => {
-    import('./transfer.js').then(({ renderAddDevice }) =>
-      renderAddDevice(app, ctx, () => renderDeviceList(app, ctx, onExit))
-    );
+    import('./transfer.js')
+      .then(({ renderAddDevice }) => renderAddDevice(app, ctx, () => renderDeviceList(app, ctx, onExit)))
+      .catch(() => renderDeviceListError(app, ctx, onExit, 'Could not open the add-device flow. Try again.'));
   });
   app.querySelector('#devices-back').addEventListener('click', onExit);
 }

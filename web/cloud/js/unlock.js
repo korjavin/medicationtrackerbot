@@ -122,7 +122,14 @@ function renderUnlocked(app, ctx) {
   // threat model treats the server as hostile; XSS here reads the DEK).
   app.querySelector('#account-id').textContent = ctx.accountId;
   app.querySelector('#devices-button').addEventListener('click', () => {
-    import('./devices.js').then(({ renderDeviceList }) => renderDeviceList(app, ctx, () => renderUnlocked(app, ctx)));
+    import('./devices.js')
+      .then(({ renderDeviceList }) => renderDeviceList(app, ctx, () => renderUnlocked(app, ctx)))
+      .catch(() => {
+        const p = document.createElement('p');
+        p.className = 'wizard-error';
+        p.textContent = 'Could not open the devices screen. Try again.';
+        app.querySelector('section').appendChild(p);
+      });
   });
   app.querySelector('#lock-button').addEventListener('click', () => {
     // Only transition to locked once the cached DEK is confirmed gone; if the

@@ -49,15 +49,15 @@ type createTransferRequest struct {
 }
 
 type createTransferResponse struct {
-	SlotID          string    `json:"slot_id"`
-	EnrollmentToken string    `json:"enrollment_token"`
-	ExpiresAt       time.Time `json:"expires_at"`
+	SlotID    string    `json:"slot_id"`
+	ExpiresAt time.Time `json:"expires_at"`
 }
 
 // CreateTransfer opens a device-transfer slot for the caller's session
 // account: it stores the DEK ciphertext (already encrypted client-side under
-// a transfer key the server never sees) and mints a slot id + one-time
-// enrollment token for the eventual claim.
+// a transfer key the server never sees) and returns a slot id the new device
+// claims. The claim (not this call) mints the enrollment token that authorizes
+// the new device's registration.
 func (a *TransferAPI) CreateTransfer(w http.ResponseWriter, r *http.Request) {
 	session, ok := SessionFromContext(r.Context())
 	if !ok {
@@ -86,7 +86,11 @@ func (a *TransferAPI) CreateTransfer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
 	}
-	token, tokenHash, err := NewClaimToken()
+	// The slot's real enrollment token is minted at claim time (ClaimTransferSlot
+	// rotates enrollment_token_hash and only a fetched=1 slot's token validates).
+	// This create-time hash is just a non-null placeholder for the NOT NULL
+	// column and is never returned — an old device can't enroll off it.
+	_, tokenHash, err := NewClaimToken()
 	if err != nil {
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
@@ -98,7 +102,7 @@ func (a *TransferAPI) CreateTransfer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, createTransferResponse{SlotID: slotID, EnrollmentToken: token, ExpiresAt: expiresAt})
+	writeJSON(w, http.StatusOK, createTransferResponse{SlotID: slotID, ExpiresAt: expiresAt})
 }
 
 type claimTransferResponse struct {

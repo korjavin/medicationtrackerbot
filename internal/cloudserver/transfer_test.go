@@ -44,8 +44,8 @@ func TestTransferSlot_CreateClaimLifecycle(t *testing.T) {
 	if err := json.Unmarshal(createRec.Body.Bytes(), &created); err != nil {
 		t.Fatalf("unmarshal create response: %v", err)
 	}
-	if created.SlotID == "" || created.EnrollmentToken == "" {
-		t.Fatalf("expected slot_id + enrollment_token, got %+v", created)
+	if created.SlotID == "" {
+		t.Fatalf("expected slot_id, got %+v", created)
 	}
 
 	claimReq := httptest.NewRequest(http.MethodPost, "/api/transfer/"+created.SlotID+"/claim", nil)
@@ -61,9 +61,6 @@ func TestTransferSlot_CreateClaimLifecycle(t *testing.T) {
 	}
 	if string(claimed.CT) != "dek-ciphertext-bytes" || claimed.EnrollmentToken == "" {
 		t.Fatalf("unexpected claim response: %+v", claimed)
-	}
-	if claimed.EnrollmentToken == created.EnrollmentToken {
-		t.Fatalf("claim must rotate the enrollment token, not echo the creation one")
 	}
 
 	// Single use: a second claim of the same slot must be rejected.

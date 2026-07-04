@@ -34,7 +34,11 @@ export async function runClaimFlow() {
 function parseCode(raw, decodeTk) {
   const dot = raw.indexOf('.');
   if (dot < 0) return null;
-  const slotId = raw.slice(0, dot);
+  // Slot ids are lowercase base32 (server randomToken). The QR fragment already
+  // carries lowercase, but a human transcribing the typed fallback may enter it
+  // uppercased — the TK half is case-insensitive (Crockford), so normalize the
+  // slot-id half too or a valid code 410s on a case mismatch.
+  const slotId = raw.slice(0, dot).toLowerCase();
   const tkPart = raw.slice(dot + 1);
   if (!slotId || !tkPart) return null;
   try {
