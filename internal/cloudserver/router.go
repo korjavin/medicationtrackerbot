@@ -48,7 +48,23 @@ func New(baseDomain string, store accountStore, staticFS fs.FS, api http.Handler
 	}
 }
 
+// setSecurityHeaders hardens the E2EE origin. The threat model
+// (docs/cloud-crypto.md) rates on-origin XSS as catastrophic — it can read the
+// in-memory DEK and drive the non-extractable LDK — and names a strict CSP with
+// zero third-party script as the real defense. The shell loads only same-origin
+// modules/CSS (no inline script/style, WebAuthn isn't CSP-governed), so a
+// self-only policy holds without exceptions.
+func setSecurityHeaders(w http.ResponseWriter) {
+	h := w.Header()
+	h.Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("X-Frame-Options", "DENY")
+	h.Set("Referrer-Policy", "no-referrer")
+	h.Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+}
+
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	setSecurityHeaders(w)
 	host := stripPort(r.Host)
 	if host == h.baseDomain {
 		h.static.ServeHTTP(w, r)

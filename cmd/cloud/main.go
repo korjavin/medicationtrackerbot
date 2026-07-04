@@ -50,10 +50,11 @@ func loadConfig() (config, error) {
 		return cfg, errors.New("CLOUD_BASE_DOMAIN is required (e.g. app.example.com; use 'localhost' for local dev)")
 	}
 
+	// Read but don't validate SESSION_SECRET here: the admin subcommands
+	// (list/revoke/delete) never mint sessions, so main() validates it only on
+	// the server path — after the admin dispatch — to keep ad-hoc operator use
+	// from needing a real secret in env.
 	cfg.sessionSecret = os.Getenv("SESSION_SECRET")
-	if err := validateSessionSecret(cfg.sessionSecret); err != nil {
-		return cfg, err
-	}
 
 	if ttlDays := os.Getenv("CLOUD_CLAIM_TTL"); ttlDays != "" {
 		days, err := strconv.Atoi(ttlDays)
@@ -113,6 +114,11 @@ func main() {
 
 	if len(os.Args) > 1 && os.Args[1] == "admin" {
 		os.Exit(runAdmin(cfg, os.Args[2:]))
+	}
+
+	if err := validateSessionSecret(cfg.sessionSecret); err != nil {
+		slog.Error("Failed to load config", "error", err)
+		os.Exit(1)
 	}
 
 	sharedDB, err := storedb.Open(cfg.dbPath)

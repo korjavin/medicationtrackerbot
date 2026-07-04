@@ -106,7 +106,12 @@ func RequireSession(sessionSecret string, next http.Handler) http.Handler {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		if account, resolved := AccountFromContext(r.Context()); resolved && account.ID != accountID {
+		// These routes are always mounted behind the subdomain branch, which
+		// resolves an account before dispatch. A missing account means the
+		// middleware was reached off that path — fail closed rather than trust
+		// a session token that can't be bound to this host's account.
+		account, resolved := AccountFromContext(r.Context())
+		if !resolved || account.ID != accountID {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}

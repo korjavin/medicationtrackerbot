@@ -71,6 +71,14 @@ func TestRouter_HostVariants(t *testing.T) {
 			if tc.wantBody != "" && rec.Body.String() != tc.wantBody {
 				t.Fatalf("body = %q, want %q", rec.Body.String(), tc.wantBody)
 			}
+			// Every response on the E2EE origin must carry the hardening headers,
+			// including 404s (docs/cloud-crypto.md rates on-origin XSS catastrophic).
+			if csp := rec.Header().Get("Content-Security-Policy"); csp == "" {
+				t.Errorf("missing Content-Security-Policy header")
+			}
+			if xcto := rec.Header().Get("X-Content-Type-Options"); xcto != "nosniff" {
+				t.Errorf("X-Content-Type-Options = %q, want nosniff", xcto)
+			}
 		})
 	}
 }
