@@ -58,11 +58,14 @@ type InsightsView struct {
 	Locked         bool            `json:"locked,omitempty"`
 	UnlocksAtLevel int             `json:"unlocks_at_level,omitempty"`
 	SleepBP        *SleepBPInsight `json:"sleep_bp,omitempty"`
+	GoodDay        *GoodDayInsight `json:"good_day,omitempty"`
 }
 
 // GetInsights returns the tier-gated insights read model. Gate-off yields
-// {Enabled:false}; below tier 3 yields {Locked:true, UnlocksAtLevel:5} (the
-// level InsightTierLevels maps to tier 3) with no computed numbers.
+// {Enabled:false}. Below tier 3 the top-level Locked/UnlocksAtLevel gate
+// SleepBP (unchanged from before the good-day insight existed); GoodDay
+// carries its own Locked/UnlocksAtLevel for its higher tier-4 gate, so it is
+// present (locked) even while SleepBP is unlocked.
 func (s *service) GetInsights(ctx context.Context, userID int64) (InsightsView, error) {
 	enabled, err := s.gate(ctx)
 	if err != nil {
@@ -76,23 +79,41 @@ func (s *service) GetInsights(ctx context.Context, userID int64) (InsightsView, 
 	if err != nil {
 		return InsightsView{}, err
 	}
+
+	view := InsightsView{Enabled: true}
 	if tier < sleepBPInsightTier {
-		return InsightsView{
-			Enabled:        true,
+		view.Locked = true
+		view.UnlocksAtLevel = insightUnlockLevel(sleepBPInsightTier, s.cfg)
+	}
+	if tier < goodDayInsightTier {
+		view.GoodDay = &GoodDayInsight{
 			Locked:         true,
-			UnlocksAtLevel: insightUnlockLevel(sleepBPInsightTier, s.cfg),
-		}, nil
+			UnlocksAtLevel: insightUnlockLevel(goodDayInsightTier, s.cfg),
+		}
+	}
+	if tier < sleepBPInsightTier && tier < goodDayInsightTier {
+		return view, nil
 	}
 
 	cfg, err := s.effectiveConfig(ctx, userID)
 	if err != nil {
 		return InsightsView{}, err
 	}
-	insight, err := s.computeSleepBPInsight(ctx, userID, cfg)
-	if err != nil {
-		return InsightsView{}, err
+	if tier >= sleepBPInsightTier {
+		insight, err := s.computeSleepBPInsight(ctx, userID, cfg)
+		if err != nil {
+			return InsightsView{}, err
+		}
+		view.SleepBP = &insight
 	}
-	return InsightsView{Enabled: true, SleepBP: &insight}, nil
+	if tier >= goodDayInsightTier {
+		gd, err := s.computeGoodDayInsight(ctx, userID, cfg)
+		if err != nil {
+			return InsightsView{}, err
+		}
+		view.GoodDay = &gd
+	}
+	return view, nil
 }
 
 // insightUnlockLevel returns the level at which the given insight tier

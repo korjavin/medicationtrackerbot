@@ -221,6 +221,19 @@ type Config struct {
 	InsightNoiseFloorMmHg    float64
 	InsightMorningCutoffHour int
 
+	// Second real insight (§8 tier 4): the good-day association scan
+	// (gamification-13). Over the trailing GoodDayWindowDays, a day is "good"
+	// when its mean systolic sits in the effective BPSystolic band. Each
+	// candidate behavior (workout, bedtime, steps, adherence) on the previous
+	// day is compared with-vs-without; a behavior needs GoodDayMinDaysPerArm
+	// days in *each* arm to be judged at all, and is only reported as a finding
+	// when the rate difference is at least GoodDayNoiseFloorPP percentage
+	// points. GoodDayTopFindings caps how many findings the read model returns.
+	GoodDayWindowDays    int
+	GoodDayMinDaysPerArm int
+	GoodDayNoiseFloorPP  float64
+	GoodDayTopFindings   int
+
 	// Streaks & forgiveness (§9). Weekly cadence by default: earn
 	// FreezeEarnPerPeriod freeze(s) per met period, bank up to MaxFreezes,
 	// auto-applied on a miss so the streak survives.
@@ -345,6 +358,11 @@ func DefaultConfig() Config {
 		InsightMinPairsPerBucket: 8,
 		InsightNoiseFloorMmHg:    3,
 		InsightMorningCutoffHour: 12,
+
+		GoodDayWindowDays:    90,
+		GoodDayMinDaysPerArm: 10,
+		GoodDayNoiseFloorPP:  15,
+		GoodDayTopFindings:   3,
 
 		FreezeEarnPerPeriod: 1,
 		MaxFreezes:          4,

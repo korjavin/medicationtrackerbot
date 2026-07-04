@@ -80,12 +80,12 @@ behavior → HP → level → insight loop is now closed at every rung the UI sh
 
 ### Task 1: Domain — good-day association scan
 
-- [ ] extend `internal/domain/gamification/insights.go` (or sibling
+- [x] extend `internal/domain/gamification/insights.go` (or sibling
       `insights_goodday.go`): over the trailing 90 days, mark each day as a
       **good day** if it has ≥1 BP reading and its mean systolic sits in the
       user's effective band (the app's primary outcome; days without any BP
       reading are excluded from the denominator, not counted as bad)
-- [ ] candidate behaviors evaluated on the **previous** day (behavior yesterday →
+- [x] candidate behaviors evaluated on the **previous** day (behavior yesterday →
       good day today), aligned to the plan-10 levers: completed a workout;
       **bedtime in window** (the night bridging into the outcome day — reuse the
       plan-10 bedtime-membership predicate, NOT sleep duration, which is a
@@ -93,19 +93,19 @@ behavior → HP → level → insight loop is now closed at every rung the UI sh
       adherence loader's miss inference — adherence is demoted from the daily
       loop but stays a valid candidate here: the scan may confirm it matters, or
       that it doesn't)
-- [ ] per behavior: rate of good days with vs without, difference in percentage
+- [x] per behavior: rate of good days with vs without, difference in percentage
       points, `n_with` / `n_without`
-- [ ] honesty gates (Config constants): ≥10 days in *each* arm per behavior, else
+- [x] honesty gates (Config constants): ≥10 days in *each* arm per behavior, else
       that behavior is `insufficient_data`; report a behavior as a finding only if
       the rate difference ≥ 15 pp (noise floor); order findings by difference,
       cap at top 3; all behaviors gated/quiet → overall `insufficient_data` or
       `no_effect` with counts (both are honest results and must render as such)
-- [ ] result shape (additive under a `good_day` key in the existing `GetInsights`
+- [x] result shape (additive under a `good_day` key in the existing `GetInsights`
       payload): `{status, window_days, good_day_definition, findings:[{behavior,
       rate_with, rate_without, delta_pp, n_with, n_without}], insufficient:[...]}`;
       tier gate: requires `InsightTier ≥ 4` (level 7), below → `{locked:true,
       unlocks_at_level:7}` — same depth-not-data gating as tier 3
-- [ ] integration test: seed 90 days where workout-preceded days carry in-band BP
+- [x] integration test: seed 90 days where workout-preceded days carry in-band BP
       at a markedly higher rate → assert the finding's sign/rates/counts; seed too
       few workout days → assert that behavior lands in `insufficient`
 
