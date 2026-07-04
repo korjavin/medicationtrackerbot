@@ -3,6 +3,7 @@ package cloudserver
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -144,5 +145,84 @@ func TestSyncAPI_QuotaRejected(t *testing.T) {
 	page := getOpsPage(t, h, host, session, "?since=0")
 	if len(page.Ops) != 0 {
 		t.Fatalf("expected no ops persisted after quota rejection, got %+v", page.Ops)
+	}
+}
+
+func putSnapshot(t *testing.T, h http.Handler, host string, session *http.Cookie, req putSnapshotRequest) *http.Response {
+	t.Helper()
+	body, _ := json.Marshal(req)
+	r := httptest.NewRequest(http.MethodPost, "/api/sync/snapshot", bytes.NewReader(body))
+	r.Host = host
+	r.AddCookie(session)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, r)
+	return rec.Result()
+}
+
+func getSnapshot(t *testing.T, h http.Handler, host string, session *http.Cookie) *http.Response {
+	t.Helper()
+	r := httptest.NewRequest(http.MethodGet, "/api/sync/snapshot", nil)
+	r.Host = host
+	r.AddCookie(session)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, r)
+	return rec.Result()
+}
+
+// TestSyncAPI_SnapshotCompaction guards the compaction contract: a snapshot
+// uploaded at seq N compacts every oplog row <= N while later rows survive,
+// and a fresh device can bootstrap from snapshot + ops-since alone.
+func TestSyncAPI_SnapshotCompaction(t *testing.T) {
+	h, host, claimToken := newTestSyncHandler(t, 0)
+	session := registerAndGetSession(t, h, host, claimToken)
+
+	// No snapshot yet.
+	resp := getSnapshot(t, h, host, session)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("GET /api/sync/snapshot before upload: status = %d, want 204", resp.StatusCode)
+	}
+
+	_, appended := postOpsBatch(t, h, host, session, []opWire{
+		{RecordTypeTag: "note", Nonce: []byte("nonce-a"), CT: []byte("ciphertext-a")},
+		{RecordTypeTag: "note", Nonce: []byte("nonce-b"), CT: []byte("ciphertext-b")},
+		{RecordTypeTag: "note", Nonce: []byte("nonce-c"), CT: []byte("ciphertext-c")},
+	})
+	if len(appended.Assigned) != 3 {
+		t.Fatalf("expected 3 assigned seqs, got %v", appended.Assigned)
+	}
+
+	// Reject a snapshot_seq beyond the account's last_seq.
+	resp = putSnapshot(t, h, host, session, putSnapshotRequest{SnapshotSeq: 99, Nonce: []byte("n"), CT: []byte("snapshot-ahead")})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("PUT snapshot ahead of last_seq: status = %d, want 400", resp.StatusCode)
+	}
+
+	// Compact seq <= 2.
+	resp = putSnapshot(t, h, host, session, putSnapshotRequest{SnapshotSeq: 2, Nonce: []byte("snap-nonce"), CT: []byte("snapshot-ct")})
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("PUT /api/sync/snapshot: status = %d, want 204", resp.StatusCode)
+	}
+
+	// Op 3 (seq > snapshot_seq) survives; ops 1-2 are gone.
+	tail := getOpsPage(t, h, host, session, "?since=0")
+	if len(tail.Ops) != 1 || tail.Ops[0].Seq != 3 {
+		t.Fatalf("oplog after compaction = %+v, want only seq 3 to survive", tail.Ops)
+	}
+
+	// A fresh device bootstraps from snapshot + ops-since alone.
+	resp = getSnapshot(t, h, host, session)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/sync/snapshot after upload: status = %d, want 200", resp.StatusCode)
+	}
+	var snap getSnapshotResponse
+	if err := json.NewDecoder(resp.Body).Decode(&snap); err != nil {
+		t.Fatalf("decode getSnapshotResponse: %v", err)
+	}
+	if snap.SnapshotSeq != 2 || string(snap.CT) != "snapshot-ct" {
+		t.Fatalf("snapshot = %+v, want seq 2 / ct 'snapshot-ct'", snap)
+	}
+	bootstrapTail := getOpsPage(t, h, host, session, fmt.Sprintf("?since=%d", snap.SnapshotSeq))
+	if len(bootstrapTail.Ops) != 1 || bootstrapTail.Ops[0].Seq != 3 || string(bootstrapTail.Ops[0].CT) != "ciphertext-c" {
+		t.Fatalf("bootstrap tail = %+v, want only seq 3 / ciphertext-c", bootstrapTail.Ops)
 	}
 }

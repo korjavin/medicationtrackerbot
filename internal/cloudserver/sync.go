@@ -23,6 +23,9 @@ const (
 	maxRecordTypeTagLen = 128
 	defaultOpsPageLimit = 200
 	maxOpsPageLimit     = 1000
+
+	maxSnapshotBodyBytes = 8 << 20 // 8 MiB request body (a full account snapshot)
+	maxSnapshotCTLen     = 8 << 20
 )
 
 // syncStore is the subset of *cloudstore.Repo the sync (oplog) endpoints
@@ -30,6 +33,8 @@ const (
 type syncStore interface {
 	AppendOps(ctx context.Context, accountID string, ops []cloudstore.OpInput, quotaBytes int64, now time.Time) ([]int64, error)
 	ListOps(ctx context.Context, accountID string, since int64, limit int, now time.Time) ([]cloudstore.Op, error)
+	PutSnapshot(ctx context.Context, accountID string, snapshotSeq int64, nonce, ct []byte, now time.Time) error
+	GetSnapshot(ctx context.Context, accountID string, now time.Time) (*cloudstore.Snapshot, error)
 	CredentialExists(ctx context.Context, credentialID []byte) (bool, error)
 }
 
@@ -51,6 +56,8 @@ func NewSyncAPI(store syncStore, sessionSecret string, quotaBytes int64) *SyncAP
 func (a *SyncAPI) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/sync/ops", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.PostOps)))
 	mux.Handle("GET /api/sync/ops", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.GetOps)))
+	mux.Handle("POST /api/sync/snapshot", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.PostSnapshot)))
+	mux.Handle("GET /api/sync/snapshot", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.GetSnapshot)))
 }
 
 // opWire is the wire shape of one op in a POST /api/sync/ops batch.
@@ -175,4 +182,71 @@ func (a *SyncAPI) GetOps(w http.ResponseWriter, r *http.Request) {
 		next = &n
 	}
 	writeJSON(w, http.StatusOK, getOpsResponse{Ops: out, Next: next})
+}
+
+type putSnapshotRequest struct {
+	SnapshotSeq int64  `json:"snapshot_seq"`
+	Nonce       []byte `json:"nonce"`
+	CT          []byte `json:"ct"`
+}
+
+// PostSnapshot uploads (or replaces) the caller's account snapshot, compacting
+// every oplog row it supersedes. Rejects a snapshot_seq beyond the account's
+// last assigned oplog seq.
+func (a *SyncAPI) PostSnapshot(w http.ResponseWriter, r *http.Request) {
+	session, ok := SessionFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req putSnapshotRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, maxSnapshotBodyBytes)).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	if req.SnapshotSeq <= 0 || len(req.Nonce) == 0 || len(req.Nonce) > maxOpNonceLen ||
+		len(req.CT) == 0 || len(req.CT) > maxSnapshotCTLen {
+		http.Error(w, "snapshot field too large or missing", http.StatusBadRequest)
+		return
+	}
+
+	err := a.store.PutSnapshot(r.Context(), session.AccountID, req.SnapshotSeq, req.Nonce, req.CT, time.Now().UTC())
+	if err != nil {
+		if errors.Is(err, cloudstore.ErrSnapshotSeqAhead) {
+			http.Error(w, "snapshot_seq ahead of last_seq", http.StatusBadRequest)
+			return
+		}
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type getSnapshotResponse struct {
+	SnapshotSeq int64  `json:"snapshot_seq"`
+	Nonce       []byte `json:"nonce"`
+	CT          []byte `json:"ct"`
+}
+
+// GetSnapshot returns the caller's account's latest snapshot, or 204 when
+// none has been uploaded yet — the new-device bootstrap path is this plus a
+// GET /api/sync/ops?since=snapshot_seq tail.
+func (a *SyncAPI) GetSnapshot(w http.ResponseWriter, r *http.Request) {
+	session, ok := SessionFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	snap, err := a.store.GetSnapshot(r.Context(), session.AccountID, time.Now().UTC())
+	if err != nil {
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return
+	}
+	if snap == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	writeJSON(w, http.StatusOK, getSnapshotResponse{SnapshotSeq: snap.SnapshotSeq, Nonce: snap.Nonce, CT: snap.CT})
 }

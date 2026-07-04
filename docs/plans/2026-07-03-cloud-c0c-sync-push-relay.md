@@ -54,9 +54,9 @@ Completes C0: the cloud becomes a working encrypted-sync backend and blind alarm
 
 ### Task 2: snapshot upload + compaction
 
-- [ ] `POST /api/sync/snapshot` (session auth): `{snapshot_seq, nonce, ct}` — upsert snapshot, delete oplog rows `seq <= snapshot_seq` in the same tx; reject `snapshot_seq > last_seq`
-- [ ] `GET /api/sync/snapshot` (session auth): latest snapshot (204 when none) — new-device bootstrap = snapshot + ops-since
-- [ ] integration test: snapshot at seq N compacts ops ≤ N, ops > N survive, fresh client restores snapshot+tail — guards the compaction contract
+- [x] `POST /api/sync/snapshot` (session auth): `{snapshot_seq, nonce, ct}` — upsert snapshot, delete oplog rows `seq <= snapshot_seq` in the same tx; reject `snapshot_seq > last_seq`
+- [x] `GET /api/sync/snapshot` (session auth): latest snapshot (204 when none) — new-device bootstrap = snapshot + ops-since
+- [x] integration test: snapshot at seq N compacts ops ≤ N, ops > N survive, fresh client restores snapshot+tail — guards the compaction contract
 
 ### Task 3: client sync engine + toy records
 

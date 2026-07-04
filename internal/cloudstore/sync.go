@@ -13,6 +13,22 @@ import (
 // push the account's total oplog+snapshot storage past its quota.
 var ErrQuotaExceeded = errors.New("cloudstore: account storage quota exceeded")
 
+// ErrSnapshotSeqAhead is returned by PutSnapshot when snapshot_seq is greater
+// than the account's last assigned oplog seq — the client would be
+// compacting ops the server never assigned, which can only mean a stale or
+// corrupt client view.
+var ErrSnapshotSeqAhead = errors.New("cloudstore: snapshot_seq is ahead of last_seq")
+
+// Snapshot is an account's latest compacted state: all oplog rows with
+// seq <= SnapshotSeq have been folded into it and deleted.
+type Snapshot struct {
+	AccountID   string
+	SnapshotSeq int64
+	Nonce       []byte
+	CT          []byte
+	CreatedAt   time.Time
+}
+
 // Op is one row of an account's encrypted oplog. seq is assigned by the
 // server (contiguous, per account) — record_type_tag/nonce/ct are opaque
 // ciphertext the server never inspects.
@@ -127,4 +143,69 @@ func (r *Repo) ListOps(ctx context.Context, accountID string, since int64, limit
 		return nil, err
 	}
 	return ops, nil
+}
+
+// PutSnapshot upserts the account's compaction snapshot and deletes every
+// oplog row it now supersedes (seq <= snapshotSeq), in one transaction so a
+// concurrent ListOps/AppendOps never observes the snapshot without the
+// matching compaction or vice versa. Rejects snapshotSeq > last_seq with
+// ErrSnapshotSeqAhead — the client can only compact ops the server actually
+// assigned.
+func (r *Repo) PutSnapshot(ctx context.Context, accountID string, snapshotSeq int64, nonce, ct []byte, now time.Time) error {
+	return r.db.WithTx(ctx, func(tx storedb.TX) error {
+		var lastSeq int64
+		err := tx.QueryRowContext(ctx, `SELECT last_seq FROM sync_state WHERE account_id = ?`, accountID).Scan(&lastSeq)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if snapshotSeq > lastSeq {
+			return ErrSnapshotSeqAhead
+		}
+
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO snapshots (account_id, snapshot_seq, nonce, ct, created_at_unix) VALUES (?, ?, ?, ?, ?)
+			 ON CONFLICT(account_id) DO UPDATE SET snapshot_seq = excluded.snapshot_seq, nonce = excluded.nonce, ct = excluded.ct, created_at_unix = excluded.created_at_unix`,
+			accountID, snapshotSeq, nonce, ct, storedb.TimeToUnix(now)); err != nil {
+			return err
+		}
+
+		if _, err := tx.ExecContext(ctx, `DELETE FROM oplog WHERE account_id = ? AND seq <= ?`, accountID, snapshotSeq); err != nil {
+			return err
+		}
+
+		_, err = tx.ExecContext(ctx,
+			`INSERT INTO sync_state (account_id, last_seq, last_sync_unix) VALUES (?, ?, ?)
+			 ON CONFLICT(account_id) DO UPDATE SET last_sync_unix = excluded.last_sync_unix`,
+			accountID, lastSeq, storedb.TimeToUnix(now))
+		return err
+	})
+}
+
+// GetSnapshot returns the account's latest snapshot, or (nil, nil) when none
+// has been uploaded yet, and touches sync_state.last_sync_unix like the other
+// sync endpoints.
+func (r *Repo) GetSnapshot(ctx context.Context, accountID string, now time.Time) (*Snapshot, error) {
+	var (
+		s           Snapshot
+		createdUnix int64
+	)
+	s.AccountID = accountID
+	err := r.db.QueryRowContext(ctx,
+		`SELECT snapshot_seq, nonce, ct, created_at_unix FROM snapshots WHERE account_id = ?`, accountID).
+		Scan(&s.SnapshotSeq, &s.Nonce, &s.CT, &createdUnix)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	s.CreatedAt = storedb.UnixToTime(createdUnix)
+
+	if _, err := r.db.ExecContext(ctx,
+		`INSERT INTO sync_state (account_id, last_seq, last_sync_unix) VALUES (?, 0, ?)
+		 ON CONFLICT(account_id) DO UPDATE SET last_sync_unix = excluded.last_sync_unix`,
+		accountID, storedb.TimeToUnix(now)); err != nil {
+		return nil, err
+	}
+	return &s, nil
 }
