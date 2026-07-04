@@ -47,6 +47,11 @@ var ErrRecoveryInvalid = errors.New("cloudstore: invalid recovery verifier")
 // has racked up recoveryMaxAttempts failures within the last recoveryWindow.
 var ErrRecoveryRateLimited = errors.New("cloudstore: recovery attempts rate limited")
 
+// ErrLastCredential is returned by DeleteCredentialWithEnvelope when removing
+// the credential would leave the account with no credentials and no recovery
+// envelope — i.e. no remaining path to unwrap the DEK.
+var ErrLastCredential = errors.New("cloudstore: cannot remove the account's last unwrap path")
+
 // Account is one row in the accounts table. ClaimTokenHash/ClaimExpiresAt are
 // nil once the account has been claimed (first credential registered).
 type Account struct {
@@ -401,9 +406,14 @@ func (r *Repo) CredentialExists(ctx context.Context, credentialID []byte) (bool,
 
 // DeleteCredentialWithEnvelope removes a credential and its DEK envelope for
 // accountID in one transaction (routine device removal — docs/cloud-crypto.md
-// "Removing a device / revocation"). The caller is responsible for the
-// "never strand an account" check before calling this. Returns sql.ErrNoRows
-// if credentialID does not belong to accountID.
+// "Removing a device / revocation"). It enforces the "never strand an account"
+// invariant inside the same transaction: if the delete would leave the account
+// with zero credentials and no recovery envelope, it rolls back and returns
+// ErrLastCredential. Doing the count-and-check in the tx (rather than a
+// caller-side pre-read) closes the TOCTOU where two concurrent revocations of
+// different credentials both observe a stale count and drop the account to
+// zero unwrap paths. Returns sql.ErrNoRows if credentialID does not belong to
+// accountID.
 func (r *Repo) DeleteCredentialWithEnvelope(ctx context.Context, accountID string, credentialID []byte) error {
 	credRef := base64.RawURLEncoding.EncodeToString(credentialID)
 	return r.db.WithTx(ctx, func(tx storedb.TX) error {
@@ -417,6 +427,20 @@ func (r *Repo) DeleteCredentialWithEnvelope(ctx context.Context, accountID strin
 		}
 		if n == 0 {
 			return sql.ErrNoRows
+		}
+		var remaining int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM credentials WHERE account_id = ?`, accountID).Scan(&remaining); err != nil {
+			return err
+		}
+		if remaining == 0 {
+			var hasRecovery int
+			err := tx.QueryRowContext(ctx, `SELECT 1 FROM envelopes WHERE account_id = ? AND credential_ref = 'recovery'`, accountID).Scan(&hasRecovery)
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrLastCredential
+			}
+			if err != nil {
+				return err
+			}
 		}
 		_, err = tx.ExecContext(ctx, `DELETE FROM envelopes WHERE account_id = ? AND credential_ref = ?`, accountID, credRef)
 		return err
@@ -594,13 +618,20 @@ func (r *Repo) AddCredentialWithEnvelope(ctx context.Context, cred Credential, e
 	})
 }
 
-// SweepExpiredTransferSlots deletes expired or already-fetched slots, called
-// opportunistically on every transfer API request rather than from a
-// background job (ponytail: slot volume is trivial; add a ticker only if
-// that stops being true).
+// SweepExpiredTransferSlots deletes expired slots, called opportunistically on
+// every transfer API request rather than from a background job (ponytail: slot
+// volume is trivial; add a ticker only if that stops being true). It must NOT
+// delete claimed (fetched=1) slots on any other basis than expiry: a claimed
+// slot still holds the live enrollment token that ValidEnrollmentToken /
+// RedeemTransferToken need between ClaimTransferSlot and register/finish. Since
+// the sweep is global (not account-scoped) and runs on every account's
+// transfer/claim/recover request, deleting fetched slots eagerly would let one
+// account's request wipe another's in-progress enrollment. Redeemed slots are
+// deleted explicitly by RedeemTransferToken; unredeemed claimed slots expire
+// via their TTL and get reaped here on expiry.
 func (r *Repo) SweepExpiredTransferSlots(ctx context.Context, now time.Time) (int, error) {
 	result, err := r.db.ExecContext(ctx,
-		`DELETE FROM transfer_slots WHERE fetched = 1 OR expires_at_unix < ?`, storedb.TimeToUnix(now))
+		`DELETE FROM transfer_slots WHERE expires_at_unix < ?`, storedb.TimeToUnix(now))
 	if err != nil {
 		return 0, err
 	}

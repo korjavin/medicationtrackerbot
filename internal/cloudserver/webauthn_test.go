@@ -374,6 +374,16 @@ func TestWebAuthnRegistration_SessionGateRejectsRevokedCredential(t *testing.T) 
 		t.Fatalf("no session cookie set on finish")
 	}
 
+	// A recovery envelope keeps an unwrap path alive so revoking the sole
+	// credential is permitted (the "never strand the account" invariant now
+	// blocks removing the last credential otherwise).
+	if err := store.PutEnvelope(t.Context(), cloudstore.Envelope{
+		AccountID: account.ID, CredentialRef: "recovery", V: 1,
+		Nonce: []byte("nonce"), CT: []byte("ct"), MAC: []byte("mac"),
+	}); err != nil {
+		t.Fatalf("PutEnvelope(recovery): %v", err)
+	}
+
 	// Revoke that credential out from under the still-valid session cookie.
 	creds, err := store.CredentialsByAccount(t.Context(), account.ID)
 	if err != nil || len(creds) != 1 {

@@ -245,3 +245,47 @@ func TestConsumeClaimToken_ExpiredAndUnknown(t *testing.T) {
 		t.Fatalf("expected ErrClaimInvalid for unknown subdomain, got %v", err)
 	}
 }
+
+// TestDeleteCredentialWithEnvelope_NeverStrandsAccount verifies the "never
+// strand the account" invariant is enforced inside DeleteCredentialWithEnvelope
+// itself (not just the handler pre-check), so it holds under concurrent
+// revocations: deleting down to the last credential is blocked unless a
+// recovery envelope remains as an unwrap path.
+func TestDeleteCredentialWithEnvelope_NeverStrandsAccount(t *testing.T) {
+	r := setupRepo(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	if _, err := r.CreateAccount(ctx, "acc-strand", "brave-otter-strand1", []byte("h"), now.Add(time.Hour), now); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	credA := Credential{ID: []byte{1}, AccountID: "acc-strand", PublicKey: []byte("pkA"), CreatedAt: now}
+	credB := Credential{ID: []byte{2}, AccountID: "acc-strand", PublicKey: []byte("pkB"), CreatedAt: now}
+	for _, c := range []Credential{credA, credB} {
+		if err := r.AddCredential(ctx, c); err != nil {
+			t.Fatalf("AddCredential: %v", err)
+		}
+	}
+
+	// Removing one of two credentials is fine.
+	if err := r.DeleteCredentialWithEnvelope(ctx, "acc-strand", credA.ID); err != nil {
+		t.Fatalf("delete first credential: %v", err)
+	}
+	// Removing the last credential with no recovery envelope must be refused.
+	if err := r.DeleteCredentialWithEnvelope(ctx, "acc-strand", credB.ID); err != ErrLastCredential {
+		t.Fatalf("delete last credential: got %v, want ErrLastCredential", err)
+	}
+	// The credential must still be present (the delete rolled back).
+	creds, err := r.CredentialsByAccount(ctx, "acc-strand")
+	if err != nil || len(creds) != 1 {
+		t.Fatalf("expected the last credential to survive, got len %d err %v", len(creds), err)
+	}
+
+	// With a recovery envelope in place, removing the last credential succeeds.
+	if err := r.PutEnvelope(ctx, Envelope{AccountID: "acc-strand", CredentialRef: "recovery", V: 1, Nonce: []byte("n"), CT: []byte("c"), MAC: []byte("m")}); err != nil {
+		t.Fatalf("PutEnvelope(recovery): %v", err)
+	}
+	if err := r.DeleteCredentialWithEnvelope(ctx, "acc-strand", credB.ID); err != nil {
+		t.Fatalf("delete last credential with recovery envelope: %v", err)
+	}
+}

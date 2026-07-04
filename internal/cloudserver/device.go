@@ -102,28 +102,18 @@ func (a *DeviceAPI) DeleteDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	creds, err := a.store.CredentialsByAccount(r.Context(), session.AccountID)
-	if err != nil {
-		http.Error(w, "server error", http.StatusInternalServerError)
-		return
-	}
-	if len(creds) <= 1 {
-		if _, err := a.store.GetEnvelope(r.Context(), session.AccountID, "recovery"); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				http.Error(w, "cannot remove the last device without a recovery code set up", http.StatusConflict)
-				return
-			}
-			http.Error(w, "server error", http.StatusInternalServerError)
-			return
-		}
-	}
-
+	// The "never strand the account" invariant is enforced atomically inside
+	// DeleteCredentialWithEnvelope's transaction (see its doc) so concurrent
+	// revocations can't both slip past a stale pre-read.
 	if err := a.store.DeleteCredentialWithEnvelope(r.Context(), session.AccountID, credentialID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
 			http.NotFound(w, r)
-			return
+		case errors.Is(err, cloudstore.ErrLastCredential):
+			http.Error(w, "cannot remove the last device without a recovery code set up", http.StatusConflict)
+		default:
+			http.Error(w, "server error", http.StatusInternalServerError)
 		}
-		http.Error(w, "server error", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
