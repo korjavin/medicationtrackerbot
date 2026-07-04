@@ -24,6 +24,27 @@ import (
 // build the instant set in record order, not calendar order, so we sort.
 // ponytail: O(distinct days) ScoreDay calls; bounded by the import set, cheaper
 // than the 365-day backfill; widen or move to per-write hooks if SSE-push latency matters.
+// EnsureFresh runs the first-read historical backfill, then re-scores yesterday and
+// today (UTC-relative to now). The 2-day window is the live-write cover: any food/BP/
+// weight/intake/diary write that landed on the current or prior UTC day is reflected on
+// the next gamification read without per-handler ScoreDay hooks. All calls are
+// best-effort — failures are logged, never surfaced — so reads return the (possibly
+// slightly stale) current state rather than an error. Shared verbatim by the HTTP,
+// /week bot, and Sunday-digest read paths so the load-bearing window stays identical
+// across transports.
+// ponytail: 2-day window covers same-day and previous-UTC-day writes; widen to 7d or
+// add per-write ScoreDay hooks if late-night edge cases matter.
+func EnsureFresh(ctx context.Context, svc GamificationService, userID int64, now time.Time) {
+	if err := svc.EnsureBackfilled(ctx, userID); err != nil {
+		slog.Error("gamification freshness backfill failed", "error", err, "user_id", userID)
+	}
+	utc := now.UTC()
+	// RescoreInstants scores oldest-first, so yesterday lands before today — the streak
+	// fold must run in calendar order when a read-rescore is what advances LastScoredDay
+	// across a week boundary (stale backfill latched on a prior day).
+	RescoreInstants(ctx, svc, userID, []time.Time{utc.AddDate(0, 0, -1), utc})
+}
+
 func RescoreInstants(ctx context.Context, svc GamificationService, userID int64, instants []time.Time) {
 	if svc == nil || len(instants) == 0 {
 		return

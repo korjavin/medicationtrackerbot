@@ -18,23 +18,12 @@ import (
 	gamstore "github.com/korjavin/medicationtrackerbot/internal/store/gamification"
 )
 
-// ensureGamificationFresh runs the first-read historical backfill, then re-scores
-// yesterday and today (UTC). The 2-day window is the live-write cover: any food/BP/
-// weight/intake/diary write that landed on the current or prior UTC day will be
-// reflected on the next gamification read without needing per-handler ScoreDay hooks.
-// All calls are best-effort — a failure is logged but never surfaced so reads always
-// return the (possibly slightly stale) current state rather than 500.
-// ponytail: 2-day window covers same-day and previous-UTC-day writes; widen to 7d or
-// add per-write ScoreDay hooks if late-night edge cases matter.
+// ensureGamificationFresh delegates to gamificationsvc.EnsureFresh, the shared
+// first-read backfill + yesterday/today rescore prelude used by every gamification
+// read surface (HTTP, /week bot, Sunday digest). See EnsureFresh for the window
+// rationale.
 func (s *Server) ensureGamificationFresh(ctx context.Context, userID int64) {
-	if err := s.gamificationSvc.EnsureBackfilled(ctx, userID); err != nil {
-		slog.Error("gamification first-read backfill failed", "error", err, "user_id", userID)
-	}
-	now := time.Now().UTC()
-	// RescoreInstants scores oldest-first, so yesterday lands before today — the
-	// streak fold must run in calendar order when a read-rescore is what advances
-	// LastScoredDay across a week boundary (stale backfill latched on a prior day).
-	gamificationsvc.RescoreInstants(ctx, s.gamificationSvc, userID, []time.Time{now.AddDate(0, 0, -1), now})
+	gamificationsvc.EnsureFresh(ctx, s.gamificationSvc, userID, time.Now())
 }
 
 // handleGamificationSummary serves the full read model: rings + level + HP +

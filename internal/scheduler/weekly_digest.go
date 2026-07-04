@@ -105,11 +105,7 @@ func (c *WeeklyDigestChecker) Check(ctx context.Context) error {
 	// unprompted digest user who never opens the Journey screen would otherwise
 	// get an undercounted week. Guarded by the Sunday/hour + resend checks
 	// above, so this runs at most once per week, not on every 15-min tick.
-	utcNow := nowFn().UTC()
-	if err := c.gam.EnsureBackfilled(ctx, c.allowedUserID); err != nil {
-		slog.Error("weekly digest: backfill failed", "error", err, "user_id", c.allowedUserID)
-	}
-	gamificationsvc.RescoreInstants(ctx, c.gam, c.allowedUserID, []time.Time{utcNow.AddDate(0, 0, -1), utcNow})
+	gamificationsvc.EnsureFresh(ctx, c.gam, c.allowedUserID, nowFn())
 
 	// Anchor the review one day back: at a west-of-UTC Sunday evening the
 	// current UTC instant has already rolled into Monday (next ISO week), so

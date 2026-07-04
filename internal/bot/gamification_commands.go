@@ -51,10 +51,7 @@ func (b *Bot) handleWeekCommand(msgConfig *tgbotapi.MessageConfig) {
 	// gamification read's rescore window, so a food/weight write that hasn't
 	// been scored yet would otherwise read as missing here.
 	now := time.Now().UTC()
-	if err := b.gamificationSvc.EnsureBackfilled(context.Background(), b.allowedUserID); err != nil {
-		slog.Error("weekly review backfill", "error", err, "user_id", b.allowedUserID)
-	}
-	gamificationsvc.RescoreInstants(context.Background(), b.gamificationSvc, b.allowedUserID, []time.Time{now.AddDate(0, 0, -1), now})
+	gamificationsvc.EnsureFresh(context.Background(), b.gamificationSvc, b.allowedUserID, now)
 
 	wr, err := b.gamificationSvc.GetWeeklyReview(context.Background(), b.allowedUserID, now)
 	if err != nil {
