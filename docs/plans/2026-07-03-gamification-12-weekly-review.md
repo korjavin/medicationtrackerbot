@@ -135,15 +135,15 @@ invariant, so backfilled weeks read correctly in retrospect).
 
 ### Task 5: Opt-in Sunday digest
 
-- [ ] settings flag `weekly_digest_enabled`, **default OFF** (migration +
+- [x] settings flag `weekly_digest_enabled`, **default OFF** (migration +
       settings accessor), toggleable via the generic
       `POST /api/settings/features/weekly_digest` surface and a Settings UI
       switch next to the gamification toggle
-- [ ] scheduler job following the existing reminder pattern: Sunday at a fixed
+- [x] scheduler job following the existing reminder pattern: Sunday at a fixed
       local-evening hour (Config, e.g. 19:00 user tz), for users with both
       `gamification_enabled` and `weekly_digest_enabled`, send the formatted
       digest through the bot; server build only
-- [ ] digest send is best-effort/logged; a failure never affects scoring or
+- [x] digest send is best-effort/logged; a failure never affects scoring or
       other reminders; no retry queue (ponytail: it's a weekly nicety, next week
       comes)
 

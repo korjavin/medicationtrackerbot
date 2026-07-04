@@ -4,7 +4,7 @@ package bot
 // presentations" (gamification-12 Overview) — /week formats the same
 // WeeklyReview the Journey "Your week" card renders, independently phrased
 // (Technical Details: no shared template layer between web and bot). The
-// scheduled Sunday digest (Task 5) reuses formatWeeklyReview so the two bot
+// scheduled Sunday digest (Task 5) reuses FormatWeeklyReview so the two bot
 // surfaces never drift.
 
 import (
@@ -52,15 +52,15 @@ func (b *Bot) handleWeekCommand(msgConfig *tgbotapi.MessageConfig) {
 		msgConfig.Text = "❌ Error retrieving your weekly review."
 		return
 	}
-	msgConfig.Text = formatWeeklyReview(wr)
+	msgConfig.Text = FormatWeeklyReview(wr)
 }
 
-// formatWeeklyReview renders the WeeklyReview read model into the short
+// FormatWeeklyReview renders the WeeklyReview read model into the short
 // digest text /week and the opt-in Sunday message share. Tone rules match
 // the Journey card: neutral-to-positive phrasing only, a down week reads as
 // observation, and a zero-HP week reads as "a quiet week" — every branch is
 // a friendly one-liner, never a stack of zeros (Task 4).
-func formatWeeklyReview(wr gamificationsvc.WeeklyReview) string {
+func FormatWeeklyReview(wr gamificationsvc.WeeklyReview) string {
 	if !wr.Enabled {
 		return "🎮 Gamification is turned off in Settings."
 	}

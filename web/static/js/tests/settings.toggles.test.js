@@ -43,7 +43,7 @@ describe('Settings Features section (Phase 9, Task 5)', () => {
         }
     });
 
-    it('mounts all six feature toggles inside the Features card', () => {
+    it('mounts all seven feature toggles inside the Features card', () => {
         const { dom, cleanup } = loadIndex();
         try {
             const doc = dom.window.document;
@@ -59,6 +59,7 @@ describe('Settings Features section (Phase 9, Task 5)', () => {
                 'medication-feature-toggle',
                 'food-intake-toggle',
                 'health-feature-toggle',
+                'weekly-digest-feature-toggle',
             ];
             for (const inputId of expected) {
                 const setting = doc.querySelector(`mt-setting-toggle[input-id="${inputId}"]`);
@@ -96,7 +97,7 @@ describe('Settings Features section (Phase 9, Task 5)', () => {
             const list = featuresCard.querySelector('.wg-settings-row-list');
             expect(list).not.toBeNull();
             const toggles = list.querySelectorAll('mt-setting-toggle');
-            expect(toggles.length).toBe(6);
+            expect(toggles.length).toBe(7);
         } finally {
             cleanup();
         }
@@ -182,6 +183,7 @@ describe('Settings toggle `divider` attribute (Phase 9, Task 5)', () => {
                 'medication-feature-toggle',
                 'food-intake-toggle',
                 'health-feature-toggle',
+                'weekly-digest-feature-toggle',
                 'bp-reminders-toggle',
                 'weight-reminders-toggle',
             ];
@@ -292,6 +294,7 @@ describe('Feature toggle round-trip via window.toggleFeatureSetting (Phase 9, Ta
                 'medication-feature-toggle',
                 'food-intake-toggle',
                 'health-feature-toggle',
+                'weekly-digest-feature-toggle',
             ];
             for (const id of ids) {
                 const input = document.getElementById(id);

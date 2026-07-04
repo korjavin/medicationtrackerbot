@@ -93,6 +93,18 @@ func (a *storeAdapter) GetBloodPressureEnabled(ctx context.Context) (bool, error
 func (a *storeAdapter) GetWeightEnabled(ctx context.Context) (bool, error) {
 	return a.settings.GetWeightEnabled(ctx)
 }
+func (a *storeAdapter) GetGamificationEnabled(ctx context.Context) (bool, error) {
+	return a.settings.GetGamificationEnabled(ctx)
+}
+func (a *storeAdapter) GetWeeklyDigestEnabled(ctx context.Context) (bool, error) {
+	return a.settings.GetWeeklyDigestEnabled(ctx)
+}
+func (a *storeAdapter) GetWeeklyDigestLastSentAt(ctx context.Context) (*time.Time, error) {
+	return a.settings.GetWeeklyDigestLastSentAt(ctx)
+}
+func (a *storeAdapter) SetWeeklyDigestLastSentAt(ctx context.Context, sentAt time.Time) error {
+	return a.settings.SetWeeklyDigestLastSentAt(ctx, sentAt)
+}
 
 // --- TZ (tz.Repo) ---
 

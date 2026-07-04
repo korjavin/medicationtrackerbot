@@ -394,6 +394,13 @@ func main() {
 
 	// Always start scheduler (works with web push even without bot)
 	sch := scheduler.NewWithNotifiers(s, allowedUserID, notifiers)
+	// Opt-in Sunday-evening digest (gamification-12 Task 5): server-build
+	// only, reuses the same shared gamification service and delivery sink
+	// as every other checker. Registered via AddEntry rather than New()'s
+	// tag-free entries list because this checker formats through the bot
+	// package (see internal/scheduler/weekly_digest.go).
+	digestChecker := scheduler.NewWeeklyDigestChecker(s, sch.Sink, allowedUserID, sharedGamificationSvc)
+	sch.AddEntry("weekly_digest", digestChecker, 15*time.Minute, 4*time.Minute)
 	sch.Start()
 	if tgBot != nil {
 		slog.Info("Scheduler started")
@@ -457,5 +464,3 @@ func main() {
 		}
 	}
 }
-
-
