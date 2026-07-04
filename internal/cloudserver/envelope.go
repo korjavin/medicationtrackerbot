@@ -34,6 +34,7 @@ type envelopeStore interface {
 	ListEnvelopes(ctx context.Context, accountID string) ([]cloudstore.Envelope, error)
 	SetRecoveryVerifier(ctx context.Context, accountID string, verifierHash []byte) error
 	SetLossAck(ctx context.Context, accountID string, ackAt time.Time) error
+	CredentialExists(ctx context.Context, credentialID []byte) (bool, error)
 }
 
 // EnvelopeAPI holds the account-scoped envelope storage + recovery verifier
@@ -50,11 +51,11 @@ func NewEnvelopeAPI(store envelopeStore, sessionSecret string) *EnvelopeAPI {
 
 // RegisterRoutes adds the envelope + recovery-verifier routes to mux.
 func (a *EnvelopeAPI) RegisterRoutes(mux *http.ServeMux) {
-	mux.Handle("PUT /api/envelopes/{credential_ref}", RequireSession(a.sessionSecret, http.HandlerFunc(a.PutEnvelope)))
-	mux.Handle("GET /api/envelopes/{credential_ref}", RequireSession(a.sessionSecret, http.HandlerFunc(a.GetEnvelope)))
-	mux.Handle("GET /api/envelopes", RequireSession(a.sessionSecret, http.HandlerFunc(a.ListEnvelopes)))
-	mux.Handle("PUT /api/recovery-verifier", RequireSession(a.sessionSecret, http.HandlerFunc(a.PutRecoveryVerifier)))
-	mux.Handle("POST /api/loss-ack", RequireSession(a.sessionSecret, http.HandlerFunc(a.PostLossAck)))
+	mux.Handle("PUT /api/envelopes/{credential_ref}", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.PutEnvelope)))
+	mux.Handle("GET /api/envelopes/{credential_ref}", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.GetEnvelope)))
+	mux.Handle("GET /api/envelopes", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.ListEnvelopes)))
+	mux.Handle("PUT /api/recovery-verifier", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.PutRecoveryVerifier)))
+	mux.Handle("POST /api/loss-ack", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.PostLossAck)))
 }
 
 // envelopeWire is the wire shape of an envelope — nonce/ct/mac are base64

@@ -74,11 +74,11 @@ QR mechanics (the trick that avoids shipping a camera/scanner): the QR encodes a
 
 ### Task 5: device list, envelope audit, revocation
 
-- [ ] `GET /api/devices` (session auth): credentials joined with envelopes — `{credential_id, created_at, last_asserted_at, envelope: {v, nonce, ct, mac}}`
-- [ ] `DELETE /api/devices/{credential_id}` (session auth): delete credential + its envelope in one tx; reject deleting the **last** verified credential unless a recovery envelope exists (never strand an account); invalidate outstanding sessions minted for that credential (session tokens carry credential_id — verification now checks the credential still exists)
-- [ ] client device-list screen: verify each envelope's `mac` with `K_mac` (unlocked device has DEK) → render verified / **unverified — remove?** badge per spec's malicious-credential defense; revoke button with confirm
-- [ ] revocation UX copy distinguishes "retire device" from "device stolen" — the latter points to DEK rotation (out of C0 scope, documented as known limitation in docs/cloud-crypto.md status note)
-- [ ] integration test: revocation cascade — credential gone, envelope gone, old session token rejected — guards the security-relevant cleanup
+- [x] `GET /api/devices` (session auth): credentials joined with envelopes — `{credential_id, created_at, last_asserted_at, envelope: {v, nonce, ct, mac}}`
+- [x] `DELETE /api/devices/{credential_id}` (session auth): delete credential + its envelope in one tx; reject deleting the **last** verified credential unless a recovery envelope exists (never strand an account); invalidate outstanding sessions minted for that credential (session tokens carry credential_id — verification now checks the credential still exists)
+- [x] client device-list screen: verify each envelope's `mac` with `K_mac` (unlocked device has DEK) → render verified / **unverified — remove?** badge per spec's malicious-credential defense; revoke button with confirm
+- [x] revocation UX copy distinguishes "retire device" from "device stolen" — the latter points to DEK rotation (out of C0 scope, documented as known limitation in docs/cloud-crypto.md status note)
+- [x] integration test: revocation cascade — credential gone, envelope gone, old session token rejected — guards the security-relevant cleanup
 
 ### Task 6: recovery redemption + forced rotation
 

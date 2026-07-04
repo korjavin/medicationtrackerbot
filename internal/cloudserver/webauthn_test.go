@@ -278,7 +278,7 @@ func TestWebAuthnLogin_FullCeremony(t *testing.T) {
 	}
 
 	// The minted session must pass the auth middleware for account-scoped routes.
-	protected := RequireSession("test-session-secret-at-least-32-bytes-long", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	protected := RequireSession(store, "test-session-secret-at-least-32-bytes-long", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, ok := SessionFromContext(r.Context())
 		if !ok || s.AccountID != account.ID {
 			t.Errorf("SessionFromContext: ok=%v accountID=%q", ok, s.AccountID)
@@ -322,7 +322,8 @@ func TestWebAuthnLogin_RejectsBadOrigin(t *testing.T) {
 }
 
 func TestRequireSession_RejectsMissingOrInvalidCookie(t *testing.T) {
-	protected := RequireSession("test-session-secret-at-least-32-bytes-long", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	store := setupStore(t)
+	protected := RequireSession(store, "test-session-secret-at-least-32-bytes-long", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatalf("inner handler must not run without a valid session")
 	}))
 

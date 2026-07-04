@@ -12,6 +12,7 @@ import (
 	"crypto/subtle"
 	"database/sql"
 	"embed"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"time"
@@ -373,6 +374,45 @@ func (r *Repo) CredentialsByAccount(ctx context.Context, accountID string) ([]Cr
 		creds = append(creds, c)
 	}
 	return creds, rows.Err()
+}
+
+// CredentialExists reports whether credentialID is still a registered
+// credential — used by session verification to reject tokens minted for a
+// credential that has since been revoked.
+func (r *Repo) CredentialExists(ctx context.Context, credentialID []byte) (bool, error) {
+	var exists int
+	err := r.db.QueryRowContext(ctx, `SELECT 1 FROM credentials WHERE id = ?`, credentialID).Scan(&exists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// DeleteCredentialWithEnvelope removes a credential and its DEK envelope for
+// accountID in one transaction (routine device removal — docs/cloud-crypto.md
+// "Removing a device / revocation"). The caller is responsible for the
+// "never strand an account" check before calling this. Returns sql.ErrNoRows
+// if credentialID does not belong to accountID.
+func (r *Repo) DeleteCredentialWithEnvelope(ctx context.Context, accountID string, credentialID []byte) error {
+	credRef := base64.RawURLEncoding.EncodeToString(credentialID)
+	return r.db.WithTx(ctx, func(tx storedb.TX) error {
+		result, err := tx.ExecContext(ctx, `DELETE FROM credentials WHERE id = ? AND account_id = ?`, credentialID, accountID)
+		if err != nil {
+			return err
+		}
+		n, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return sql.ErrNoRows
+		}
+		_, err = tx.ExecContext(ctx, `DELETE FROM envelopes WHERE account_id = ? AND credential_ref = ?`, accountID, credRef)
+		return err
+	})
 }
 
 // TouchCredential updates a credential's sign counter and last-asserted

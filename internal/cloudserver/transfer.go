@@ -22,6 +22,7 @@ type transferStore interface {
 	CreateTransferSlot(ctx context.Context, id, accountID string, enrollmentTokenHash, ct []byte, createdAt, expiresAt time.Time) error
 	ClaimTransferSlot(ctx context.Context, slotID string, newTokenHash []byte, now time.Time) (accountID string, ct []byte, err error)
 	SweepExpiredTransferSlots(ctx context.Context, now time.Time) (int, error)
+	CredentialExists(ctx context.Context, credentialID []byte) (bool, error)
 }
 
 // TransferAPI holds the device-transfer HTTP handlers: an unlocked device
@@ -39,7 +40,7 @@ func NewTransferAPI(store transferStore, sessionSecret string) *TransferAPI {
 
 // RegisterRoutes adds the transfer-slot routes to mux.
 func (a *TransferAPI) RegisterRoutes(mux *http.ServeMux) {
-	mux.Handle("POST /api/transfer", RequireSession(a.sessionSecret, http.HandlerFunc(a.CreateTransfer)))
+	mux.Handle("POST /api/transfer", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.CreateTransfer)))
 	mux.HandleFunc("POST /api/transfer/{slot_id}/claim", a.ClaimTransfer)
 }
 
