@@ -71,6 +71,7 @@ Model the cloud as honest-but-curious **and** breachable. Design so that even a 
 - **Wildcard everything so individual names never leak**: wildcard DNS record (`*.app.<domain>` — names absent from the zone) and wildcard TLS cert via DNS-01 (names absent from Certificate Transparency logs). Residual leak: DNS queries and TLS SNI expose the subdomain to network observers (mitigated over time by DoH and ECH). This is why the subdomain is a moat, not the auth.
 - One static bundle served for every subdomain; the API resolves the account from the `Host` header.
 - Rate limits + storage quotas per account. Registration is **invite-only, always**: accounts exist only when the operator mints one (see Onboarding). No public signup surface exists — which also deletes the signup-abuse problem outright.
+- **Local dev without DNS or certs**: `*.localhost` subdomains resolve without any `/etc/hosts` entry and are treated as a secure context by browsers, so `CLOUD_BASE_DOMAIN=localhost` gives a full local dev loop — including WebAuthn/passkeys — against `http://<sub>.localhost:<port>`.
 
 ## Onboarding — invite → wizard → installed PWA
 

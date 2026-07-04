@@ -17,8 +17,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/korjavin/medicationtrackerbot/internal/cloudserver"
 	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
 	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
+	cloudweb "github.com/korjavin/medicationtrackerbot/web/cloud"
 )
 
 // config is the env-driven configuration for cmd/cloud — no flags, per the
@@ -116,17 +118,21 @@ func main() {
 	}
 	defer sharedDB.Close()
 
-	if _, err := cloudstore.New(sharedDB); err != nil {
+	store, err := cloudstore.New(sharedDB)
+	if err != nil {
 		slog.Error("Failed to initialize cloudstore", "error", err)
 		os.Exit(1)
 	}
 	slog.Info("Database initialized", "path", cfg.dbPath, "baseDomain", cfg.baseDomain, "claimTTL", cfg.claimTTL)
+
+	router := cloudserver.New(cfg.baseDomain, store, cloudweb.FS)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 	})
+	mux.Handle("/", router)
 
 	serverAddr := ":" + cfg.port
 	slog.Info("Server starting", "addr", serverAddr)

@@ -69,10 +69,10 @@ The server stores only: WebAuthn public keys, envelopes (ciphertext), a recovery
 
 ### Task 3: wildcard host routing + embedded shell serving
 
-- [ ] `web/cloud/` static dir (shell skeleton: `index.html`, `signup.html`, `css/`, `js/`) embedded via a new `web/cloud/embed.go` (`package cloudweb`, unconditional `//go:embed`, served with `http.FileServerFS`)
-- [ ] host-routing middleware in `internal/cloudserver/` (new package holding all HTTP handlers): exact `CLOUD_BASE_DOMAIN` host → static landing/education page (no signup surface — registration is admin-CLI-only); `<sub>.CLOUD_BASE_DOMAIN` → account shell + account-scoped API (middleware resolves the account from the Host label, 404 page for unknown subdomains); strip an optional port from Host for dev
-- [ ] dev note in code + docs: `*.localhost` subdomains are secure contexts and resolve without DNS — `CLOUD_BASE_DOMAIN=localhost` gives a full local dev loop including passkeys on desktop
-- [ ] integration test: httptest with `Host` header variants (base, known sub, unknown sub) — guards the routing contract
+- [x] `web/cloud/` static dir (shell skeleton: `index.html`, `signup.html`, `css/`, `js/`) embedded via a new `web/cloud/embed.go` (`package cloudweb`, unconditional `//go:embed`, served with `http.FileServerFS`)
+- [x] host-routing middleware in `internal/cloudserver/` (new package holding all HTTP handlers): exact `CLOUD_BASE_DOMAIN` host → static landing/education page (no signup surface — registration is admin-CLI-only); `<sub>.CLOUD_BASE_DOMAIN` → account shell + account-scoped API (middleware resolves the account from the Host label, 404 page for unknown subdomains); strip an optional port from Host for dev
+- [x] dev note in code + docs: `*.localhost` subdomains are secure contexts and resolve without DNS — `CLOUD_BASE_DOMAIN=localhost` gives a full local dev loop including passkeys on desktop
+- [x] integration test: httptest with `Host` header variants (base, known sub, unknown sub) — guards the routing contract
 
 ### Task 4: account provisioning — admin invitations (the only registration door)
 
