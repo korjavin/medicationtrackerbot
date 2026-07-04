@@ -134,11 +134,11 @@ behavior → HP → level → insight loop is now closed at every rung the UI sh
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] verify Overview requirements: tier 4 real, all three states honest,
+- [x] verify Overview requirements: tier 4 real, all three states honest,
       level-gated, additive API, no causal language anywhere in copy
-- [ ] `go test ./...` passes (incl. MCP coverage guard)
-- [ ] `pnpm test` passes
-- [ ] `golangci-lint run` + `gofmt` clean
+- [x] `go test ./...` passes (incl. MCP coverage guard)
+- [x] `pnpm test` passes
+- [x] `golangci-lint run` + `gofmt` clean
 
 ### Task 5: Update documentation
 
