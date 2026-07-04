@@ -140,10 +140,10 @@ Two-layer deployment: a static infra layer run once on the host with plain `dock
 
 ### Task 12: Verify acceptance criteria
 
-- [ ] full local walkthrough works with `CLOUD_BASE_DOMAIN=localhost`: `cloud admin invite` → open claim link → passkey (desktop platform authenticator) → envelope uploaded → kit shown → lock → unlock via passkey
-- [ ] verify server never receives key material: grep handlers for any field that could carry DEK/PRF/code plaintext; envelopes/verifier are the only key-adjacent payloads and are ciphertext/hash
-- [ ] `go test ./...`, `go build ./...`, `go build -tags mobile ./...`, `pnpm test` all pass
-- [ ] run linter — all issues fixed
+- [x] manual test (skipped - not automatable: requires an interactive browser with a real/virtual platform authenticator, which this terminal-only agent environment can't drive; the same begin→finish ceremony paths are already exercised end-to-end by the `virtualwebauthn` integration tests in Tasks 5–7, listed under Post-Completion for the operator's real-device pass)
+- [x] verify server never receives key material: grepped `internal/cloudserver/*.go` for `prf`/`clientExtensionResults`/`dek`/`kek`/recovery-code fields — the only extension reference is the `register/begin` options advertising `prf: {}` capability (webauthn.go:226), never reading client PRF output; envelope request/response structs (`envelope.go`) carry only `nonce`/`ct`/`mac`/`v` ciphertext fields; `recoveryVerifierRequest` carries a pre-derived `verifier` that the server re-hashes with SHA-256 before storage — no plaintext key material crosses the wire
+- [x] `go test ./...`, `go build ./...`, `go build -tags mobile ./...`, `pnpm test` all pass — confirmed clean
+- [x] run linter — `golangci-lint run ./...` reports 0 issues; `go vet ./...` clean
 
 ### Task 13: [Final] Update documentation
 
