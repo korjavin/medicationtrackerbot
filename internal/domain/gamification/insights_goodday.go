@@ -162,10 +162,15 @@ func (s *service) computeGoodDayInsight(ctx context.Context, userID int64, cfg s
 		out.Findings = out.Findings[:cfg.GoodDayTopFindings]
 	}
 
+	// no_effect is only honest when *every* behavior cleared the data gate and
+	// none cleared the noise floor (docs/api.md#gamification). If some behaviors
+	// are still insufficient, we're not entitled to say "nothing stands out" —
+	// fall to insufficient_data so the not-enough-data behaviors render instead
+	// of being hidden behind an overstated "your good days look evenly spread".
 	switch {
 	case len(out.Findings) > 0:
 		out.Status = InsightStatusEffect
-	case anyEnoughData:
+	case anyEnoughData && len(out.Insufficient) == 0:
 		out.Status = InsightStatusNoEffect
 	default:
 		out.Status = InsightStatusInsufficientData
