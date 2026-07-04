@@ -48,14 +48,6 @@ func NewEnvelopeAPI(store envelopeStore, sessionSecret string) *EnvelopeAPI {
 	return &EnvelopeAPI{store: store, sessionSecret: sessionSecret}
 }
 
-// Routes returns the account-scoped envelope mux, mounted under the
-// subdomain branch of cloudserver.Handler as (part of) its "/api/*" handler.
-func (a *EnvelopeAPI) Routes() http.Handler {
-	mux := http.NewServeMux()
-	a.RegisterRoutes(mux)
-	return mux
-}
-
 // RegisterRoutes adds the envelope + recovery-verifier routes to mux.
 func (a *EnvelopeAPI) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("PUT /api/envelopes/{credential_ref}", RequireSession(a.sessionSecret, http.HandlerFunc(a.PutEnvelope)))

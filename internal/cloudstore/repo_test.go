@@ -180,6 +180,36 @@ func TestResetClaim(t *testing.T) {
 	}
 }
 
+func TestClaimAndAddCredential(t *testing.T) {
+	r := setupRepo(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	tokenHash := []byte("claimtokenhash-32-bytes-of-junk")
+	acc, err := r.CreateAccount(ctx, "acc-3", "eager-lynx-jkl012", tokenHash, now.Add(time.Hour), now)
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	cred := Credential{ID: []byte{9, 8, 7}, AccountID: acc.ID, PublicKey: []byte("pk"), Transports: "internal", CreatedAt: now}
+	claimed, err := r.ClaimAndAddCredential(ctx, acc.Subdomain, tokenHash, cred, now)
+	if err != nil {
+		t.Fatalf("ClaimAndAddCredential: %v", err)
+	}
+	if claimed.ID != acc.ID {
+		t.Fatalf("expected claimed account %s, got %s", acc.ID, claimed.ID)
+	}
+
+	// Credential is present and the claim is consumed (both committed together).
+	creds, err := r.CredentialsByAccount(ctx, acc.ID)
+	if err != nil || len(creds) != 1 {
+		t.Fatalf("expected 1 credential, got %d (err %v)", len(creds), err)
+	}
+	if _, err := r.ClaimAndAddCredential(ctx, acc.Subdomain, tokenHash, cred, now); err != ErrClaimInvalid {
+		t.Fatalf("expected ErrClaimInvalid on replay, got %v", err)
+	}
+}
+
 func TestConsumeClaimToken_ExpiredAndUnknown(t *testing.T) {
 	r := setupRepo(t)
 	ctx := context.Background()

@@ -21,8 +21,7 @@ import (
 // webauthnStore is the subset of *cloudstore.Repo the registration and login
 // ceremonies need.
 type webauthnStore interface {
-	AddCredential(ctx context.Context, cred cloudstore.Credential) error
-	ConsumeClaimToken(ctx context.Context, subdomain string, tokenHash []byte, now time.Time) (*cloudstore.Account, error)
+	ClaimAndAddCredential(ctx context.Context, subdomain string, tokenHash []byte, cred cloudstore.Credential, now time.Time) (*cloudstore.Account, error)
 	CredentialsByAccount(ctx context.Context, accountID string) ([]cloudstore.Credential, error)
 	TouchCredential(ctx context.Context, credentialID []byte, signCount uint32, assertedAt time.Time) error
 }
@@ -45,14 +44,6 @@ func NewWebAuthnAPI(store webauthnStore, sessionSecret string) *WebAuthnAPI {
 		challenges:      newChallengeStore[registerChallenge](),
 		loginChallenges: newChallengeStore[loginChallenge](),
 	}
-}
-
-// Routes returns the account-scoped WebAuthn mux, mounted under the
-// subdomain branch of cloudserver.Handler as its "/api/*" handler.
-func (a *WebAuthnAPI) Routes() http.Handler {
-	mux := http.NewServeMux()
-	a.RegisterRoutes(mux)
-	return mux
 }
 
 // RegisterRoutes adds the WebAuthn ceremony routes to mux, so callers that
@@ -280,23 +271,18 @@ func (a *WebAuthnAPI) RegisterFinish(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now().UTC()
-	if _, err := a.store.ConsumeClaimToken(r.Context(), account.Subdomain, challenge.tokenHash, now); err != nil {
-		if errors.Is(err, cloudstore.ErrClaimInvalid) {
-			http.Error(w, "claim already used or expired", http.StatusConflict)
-			return
-		}
-		http.Error(w, "server error", http.StatusInternalServerError)
-		return
-	}
-
-	if err := a.store.AddCredential(r.Context(), cloudstore.Credential{
+	if _, err := a.store.ClaimAndAddCredential(r.Context(), account.Subdomain, challenge.tokenHash, cloudstore.Credential{
 		ID:         cred.ID,
 		AccountID:  account.ID,
 		PublicKey:  cred.PublicKey,
 		Transports: transportsCSV(cred.Transport),
 		SignCount:  cred.Authenticator.SignCount,
 		CreatedAt:  now,
-	}); err != nil {
+	}, now); err != nil {
+		if errors.Is(err, cloudstore.ErrClaimInvalid) {
+			http.Error(w, "claim already used or expired", http.StatusConflict)
+			return
+		}
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
 	}

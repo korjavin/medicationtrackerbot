@@ -148,41 +148,78 @@ func (r *Repo) ListAccounts(ctx context.Context) ([]Account, error) {
 func (r *Repo) ConsumeClaimToken(ctx context.Context, subdomain string, tokenHash []byte, now time.Time) (*Account, error) {
 	var account *Account
 	err := r.db.WithTx(ctx, func(tx storedb.TX) error {
-		var (
-			id           string
-			createdUnix  int64
-			storedHash   []byte
-			claimExpires sql.NullInt64
-			lossAck      sql.NullInt64
-		)
-		err := tx.QueryRowContext(ctx,
-			`SELECT id, created_at_unix, claim_token_hash, claim_expires_unix, loss_ack_unix FROM accounts WHERE subdomain = ?`,
-			subdomain).Scan(&id, &createdUnix, &storedHash, &claimExpires, &lossAck)
+		a, err := consumeClaimTx(ctx, tx, subdomain, tokenHash, now)
 		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return ErrClaimInvalid
-			}
 			return err
 		}
-		if len(storedHash) == 0 || !claimExpires.Valid {
-			return ErrClaimInvalid
+		account = a
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return account, nil
+}
+
+// consumeClaimTx validates+clears the claim inside an existing transaction, so
+// callers can bundle it with a follow-up write (see ClaimAndAddCredential).
+func consumeClaimTx(ctx context.Context, tx storedb.TX, subdomain string, tokenHash []byte, now time.Time) (*Account, error) {
+	var (
+		id           string
+		createdUnix  int64
+		storedHash   []byte
+		claimExpires sql.NullInt64
+		lossAck      sql.NullInt64
+	)
+	err := tx.QueryRowContext(ctx,
+		`SELECT id, created_at_unix, claim_token_hash, claim_expires_unix, loss_ack_unix FROM accounts WHERE subdomain = ?`,
+		subdomain).Scan(&id, &createdUnix, &storedHash, &claimExpires, &lossAck)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrClaimInvalid
 		}
-		if subtle.ConstantTimeCompare(storedHash, tokenHash) != 1 {
-			return ErrClaimInvalid
-		}
-		if now.After(storedb.UnixToTime(claimExpires.Int64)) {
-			return ErrClaimInvalid
+		return nil, err
+	}
+	if len(storedHash) == 0 || !claimExpires.Valid {
+		return nil, ErrClaimInvalid
+	}
+	if subtle.ConstantTimeCompare(storedHash, tokenHash) != 1 {
+		return nil, ErrClaimInvalid
+	}
+	if now.After(storedb.UnixToTime(claimExpires.Int64)) {
+		return nil, ErrClaimInvalid
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE accounts SET claim_token_hash = NULL, claim_expires_unix = NULL WHERE id = ?`, id); err != nil {
+		return nil, err
+	}
+	return &Account{
+		ID:        id,
+		Subdomain: subdomain,
+		CreatedAt: storedb.UnixToTime(createdUnix),
+		LossAckAt: storedb.NullableUnixToTimePtr(lossAck),
+	}, nil
+}
+
+// ClaimAndAddCredential atomically consumes the claim token and inserts the
+// account's first credential in one transaction. Doing both in a single tx
+// prevents a mid-registration DB failure from stranding an account
+// claimed-but-credential-less — an unrecoverable state (the claim is gone so
+// the user can't re-register, and no credential exists so they can't log in)
+// that would otherwise need an operator reset-claim.
+func (r *Repo) ClaimAndAddCredential(ctx context.Context, subdomain string, tokenHash []byte, cred Credential, now time.Time) (*Account, error) {
+	var account *Account
+	err := r.db.WithTx(ctx, func(tx storedb.TX) error {
+		a, err := consumeClaimTx(ctx, tx, subdomain, tokenHash, now)
+		if err != nil {
+			return err
 		}
 		if _, err := tx.ExecContext(ctx,
-			`UPDATE accounts SET claim_token_hash = NULL, claim_expires_unix = NULL WHERE id = ?`, id); err != nil {
+			`INSERT INTO credentials (id, account_id, public_key, transports, sign_count, created_at_unix) VALUES (?, ?, ?, ?, ?, ?)`,
+			cred.ID, cred.AccountID, cred.PublicKey, cred.Transports, cred.SignCount, storedb.TimeToUnix(cred.CreatedAt)); err != nil {
 			return err
 		}
-		account = &Account{
-			ID:        id,
-			Subdomain: subdomain,
-			CreatedAt: storedb.UnixToTime(createdUnix),
-			LossAckAt: storedb.NullableUnixToTimePtr(lossAck),
-		}
+		account = a
 		return nil
 	})
 	if err != nil {

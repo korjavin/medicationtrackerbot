@@ -187,7 +187,11 @@ export async function parseRecoveryCode(formatted) {
   if (clean.length !== 36) throw new Error('invalid recovery code length');
   const codeBytes = base32Decode(clean.slice(0, 32));
   const expected = await checksumGroup(codeBytes);
-  if (expected !== clean.slice(32, 36)) throw new Error('invalid recovery code checksum');
+  // Normalize the typed checksum group the same way base32Decode normalizes the
+  // body, so an O/I/L transcription typo isn't tolerated in the code but
+  // falsely rejected in the checksum.
+  const typedChecksum = [...clean.slice(32, 36)].map((c) => CROCKFORD_NORMALIZE[c] || c).join('');
+  if (expected !== typedChecksum) throw new Error('invalid recovery code checksum');
   return codeBytes;
 }
 

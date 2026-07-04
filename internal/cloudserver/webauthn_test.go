@@ -70,7 +70,9 @@ func finishRegistration(t *testing.T, h http.Handler, host string, challengeCook
 
 func newTestWebAuthnHandler(store *cloudstore.Repo) (http.Handler, *WebAuthnAPI) {
 	api := NewWebAuthnAPI(store, "test-session-secret-at-least-32-bytes-long")
-	return New("localhost", store, testFS(), api.Routes()), api
+	mux := http.NewServeMux()
+	api.RegisterRoutes(mux)
+	return New("localhost", store, testFS(), mux), api
 }
 
 func TestWebAuthnRegistration_FullCeremony(t *testing.T) {

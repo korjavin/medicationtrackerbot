@@ -72,6 +72,25 @@ describe('cloud crypto suite v1', () => {
     expect(Array.from(parsed)).toEqual(Array.from(codeBytes));
   });
 
+  it('tolerates Crockford transcription typos (O/I/L) in the checksum group', async () => {
+    // The code body already normalizes O→0 / I,L→1 via base32Decode; the
+    // checksum group must too. Find a code whose checksum contains a 0 or 1,
+    // substitute its typo-alias, and confirm parse still accepts it.
+    const alias = { 0: 'O', 1: 'L' };
+    for (let i = 0; i < 100; i++) {
+      const { codeBytes, formatted } = await generateRecoveryCode();
+      const groups = formatted.split('-');
+      const checksum = groups[8];
+      const idx = [...checksum].findIndex((c) => alias[c]);
+      if (idx === -1) continue;
+      groups[8] = checksum.slice(0, idx) + alias[checksum[idx]] + checksum.slice(idx + 1);
+      const parsed = await parseRecoveryCode(groups.join('-'));
+      expect(Array.from(parsed)).toEqual(Array.from(codeBytes));
+      return;
+    }
+    throw new Error('no checksum with a 0/1 char found in 100 tries');
+  });
+
   it('rejects a recovery code with a corrupted checksum group', async () => {
     const { formatted } = await generateRecoveryCode();
     const groups = formatted.split('-');
