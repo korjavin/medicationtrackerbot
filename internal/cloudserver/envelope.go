@@ -27,16 +27,17 @@ const (
 )
 
 // envelopeStore is the subset of *cloudstore.Repo the envelope, recovery
-// verifier, and loss-ack endpoints need.
+// material, and loss-ack endpoints need.
 type envelopeStore interface {
 	PutEnvelope(ctx context.Context, e cloudstore.Envelope) error
 	GetEnvelope(ctx context.Context, accountID, credentialRef string) (*cloudstore.Envelope, error)
 	ListEnvelopes(ctx context.Context, accountID string) ([]cloudstore.Envelope, error)
-	SetRecoveryVerifier(ctx context.Context, accountID string, verifierHash []byte) error
+	SetRecoveryMaterial(ctx context.Context, accountID string, env cloudstore.Envelope, verifierHash []byte) error
 	SetLossAck(ctx context.Context, accountID string, ackAt time.Time) error
+	CredentialExists(ctx context.Context, credentialID []byte) (bool, error)
 }
 
-// EnvelopeAPI holds the account-scoped envelope storage + recovery verifier
+// EnvelopeAPI holds the account-scoped envelope storage + recovery material
 // HTTP handlers. Every route requires a valid session (RequireSession).
 type EnvelopeAPI struct {
 	store         envelopeStore
@@ -48,13 +49,13 @@ func NewEnvelopeAPI(store envelopeStore, sessionSecret string) *EnvelopeAPI {
 	return &EnvelopeAPI{store: store, sessionSecret: sessionSecret}
 }
 
-// RegisterRoutes adds the envelope + recovery-verifier routes to mux.
+// RegisterRoutes adds the envelope + recovery-material routes to mux.
 func (a *EnvelopeAPI) RegisterRoutes(mux *http.ServeMux) {
-	mux.Handle("PUT /api/envelopes/{credential_ref}", RequireSession(a.sessionSecret, http.HandlerFunc(a.PutEnvelope)))
-	mux.Handle("GET /api/envelopes/{credential_ref}", RequireSession(a.sessionSecret, http.HandlerFunc(a.GetEnvelope)))
-	mux.Handle("GET /api/envelopes", RequireSession(a.sessionSecret, http.HandlerFunc(a.ListEnvelopes)))
-	mux.Handle("PUT /api/recovery-verifier", RequireSession(a.sessionSecret, http.HandlerFunc(a.PutRecoveryVerifier)))
-	mux.Handle("POST /api/loss-ack", RequireSession(a.sessionSecret, http.HandlerFunc(a.PostLossAck)))
+	mux.Handle("PUT /api/envelopes/{credential_ref}", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.PutEnvelope)))
+	mux.Handle("GET /api/envelopes/{credential_ref}", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.GetEnvelope)))
+	mux.Handle("GET /api/envelopes", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.ListEnvelopes)))
+	mux.Handle("PUT /api/recovery-material", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.PutRecoveryMaterial)))
+	mux.Handle("POST /api/loss-ack", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.PostLossAck)))
 }
 
 // envelopeWire is the wire shape of an envelope — nonce/ct/mac are base64
@@ -74,8 +75,19 @@ type envelopeListItem struct {
 	MAC           []byte `json:"mac"`
 }
 
+// recoveryVerifierRequest is the {verifier} body shape shared by the recovery
+// redemption endpoint (POST /api/recover) — the plaintext verifier the server
+// hashes and compares, never persisted.
 type recoveryVerifierRequest struct {
 	Verifier []byte `json:"verifier"`
+}
+
+// recoveryMaterialRequest bundles the recovery envelope + verifier so the
+// server writes both in one transaction — the two can never partially apply
+// and leave a mismatched recovery pair.
+type recoveryMaterialRequest struct {
+	Envelope envelopeWire `json:"envelope"`
+	Verifier []byte       `json:"verifier"`
 }
 
 // validCredentialRef mirrors the plan's contract: a credential_ref is either
@@ -103,6 +115,14 @@ func (a *EnvelopeAPI) PutEnvelope(w http.ResponseWriter, r *http.Request) {
 	ref := r.PathValue("credential_ref")
 	if !validCredentialRef(ref) {
 		http.Error(w, "invalid credential_ref", http.StatusBadRequest)
+		return
+	}
+	// The recovery envelope and its verifier must move together — a lone
+	// envelope write here would pair a new envelope with the stale verifier and
+	// silently break recovery. Force recovery material through the atomic
+	// /api/recovery-material endpoint (docs/cloud-crypto.md).
+	if ref == "recovery" {
+		http.Error(w, "use /api/recovery-material for the recovery envelope", http.StatusConflict)
 		return
 	}
 
@@ -178,24 +198,43 @@ func (a *EnvelopeAPI) ListEnvelopes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// PutRecoveryVerifier stores SHA-256(verifier) for the caller's session
-// account. The verifier itself is never persisted — see docs/cloud-crypto.md
-// "recovery" domain separation.
-func (a *EnvelopeAPI) PutRecoveryVerifier(w http.ResponseWriter, r *http.Request) {
+// PutRecoveryMaterial stores the recovery envelope and SHA-256(verifier) for
+// the caller's session account in one transaction. Emergency Kit rotation
+// writes through this instead of separate envelope + verifier PUTs, so a
+// partial failure can never leave a new envelope paired with the old verifier
+// (which silently breaks recovery and can strand the account past the
+// last-credential guard).
+func (a *EnvelopeAPI) PutRecoveryMaterial(w http.ResponseWriter, r *http.Request) {
 	session, ok := SessionFromContext(r.Context())
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	var req recoveryVerifierRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxEnvelopeBodyBytes)).Decode(&req); err != nil || len(req.Verifier) == 0 || len(req.Verifier) > maxVerifierLen {
+	var req recoveryMaterialRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, maxEnvelopeBodyBytes)).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	env := req.Envelope
+	if len(env.Nonce) == 0 || len(env.Nonce) > maxNonceLen || len(env.CT) == 0 || len(env.CT) > maxCTLen || len(env.MAC) > maxMACLen {
+		http.Error(w, "envelope field too large or missing", http.StatusBadRequest)
+		return
+	}
+	if len(req.Verifier) == 0 || len(req.Verifier) > maxVerifierLen {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
 
 	hash := sha256.Sum256(req.Verifier)
-	if err := a.store.SetRecoveryVerifier(r.Context(), session.AccountID, hash[:]); err != nil {
+	if err := a.store.SetRecoveryMaterial(r.Context(), session.AccountID, cloudstore.Envelope{
+		AccountID:     session.AccountID,
+		CredentialRef: "recovery",
+		V:             env.V,
+		Nonce:         env.Nonce,
+		CT:            env.CT,
+		MAC:           env.MAC,
+	}, hash[:]); err != nil {
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
 	}

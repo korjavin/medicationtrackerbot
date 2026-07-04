@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   auditEnvelope,
+  decryptTransferPayload,
   deriveKEK,
   deriveKEKRec,
   deriveKMac,
   deriveVerifier,
+  encryptTransferPayload,
   generateDEK,
   generateRecoveryCode,
   parseRecoveryCode,
@@ -97,5 +99,21 @@ describe('cloud crypto suite v1', () => {
     const lastChar = groups[8][0];
     groups[8] = (lastChar === '0' ? '1' : '0') + groups[8].slice(1);
     await expect(parseRecoveryCode(groups.join('-'))).rejects.toThrow(/checksum/);
+  });
+
+  it('round-trips a device-transfer payload under TK', async () => {
+    const tk = crypto.getRandomValues(new Uint8Array(32));
+    const dek = generateDEK();
+    const packed = await encryptTransferPayload(tk, dek, accountId);
+    const recovered = await decryptTransferPayload(tk, packed, accountId);
+    expect(Array.from(recovered)).toEqual(Array.from(dek));
+  });
+
+  it('rejects a device-transfer payload under the wrong TK (AEAD failure)', async () => {
+    const tk = crypto.getRandomValues(new Uint8Array(32));
+    const wrongTk = crypto.getRandomValues(new Uint8Array(32));
+    const dek = generateDEK();
+    const packed = await encryptTransferPayload(tk, dek, accountId);
+    await expect(decryptTransferPayload(wrongTk, packed, accountId)).rejects.toThrow();
   });
 });

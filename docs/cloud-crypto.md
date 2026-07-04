@@ -1,6 +1,6 @@
 # Cloud-mode crypto — passkey-only key management (C0 design)
 
-**Status: suite v1 implemented for C0a** (`web/cloud/js/crypto.js` — HKDF/AES-GCM formats, recovery-code + envelope-audit derivations; server-side WebAuthn ceremonies in `internal/cloudserver`). Device-lifecycle ceremonies (cross-device enrollment, recovery redemption) remain design proposal, targeted at C0b. Detailed companion to [docs/cloud-mode.md](cloud-mode.md), specifying the C0 phase's key management, envelope formats, and ceremonies.
+**Status: suite v1 implemented** (`web/cloud/js/crypto.js` — HKDF/AES-GCM formats, recovery-code + envelope-audit derivations; server-side WebAuthn ceremonies in `internal/cloudserver`). C0a shipped signup/unlock; **C0b shipped Path B (QR/typed-code hand-off), recovery redemption + forced rotation, and revocation** — see `docs/plans/2026-07-03-cloud-c0b-device-lifecycle.md`. **Path A (cross-device hybrid-transport enrollment) is explicitly deferred** — out of scope for C0, no implementation exists; Path B covers cross-device enrollment unconditionally. **DEK rotation is a documented gap**: revocation today removes the credential + envelope but does not rotate DEK/NK, so a stolen-and-unlocked device retains a readable copy of data synced before revocation (see "Removing a device / revocation" below). Detailed companion to [docs/cloud-mode.md](cloud-mode.md), specifying the C0 phase's key management, envelope formats, and ceremonies.
 
 Core stance: **there are no passphrases anywhere in the system.** Unlock is a passkey ceremony (Face ID / fingerprint / device PIN via WebAuthn). The only thing a user can write down is the optional high-entropy recovery code in the Emergency Kit — a backup credential, not a memorized secret.
 
@@ -126,25 +126,28 @@ Binding `account_seq` into the AAD makes server-side reordering/replay of cipher
 
 ### Enrolling a new device
 
-The crux: a new passkey's PRF output exists only on the new device, and the plaintext DEK exists only on unlocked devices. Three paths, all ending identically — the new device holds DEK, creates its own passkey, and uploads its own envelope:
+The crux: a new passkey's PRF output exists only on the new device, and the plaintext DEK exists only on unlocked devices. Three paths were designed, all ending identically — the new device holds DEK, creates its own passkey, and uploads its own envelope:
 
-**Path A — cross-device passkey ceremony (preferred; no app needed on the old device).** The new device runs the *cold unlock* flow above; the browser offers the hybrid transport (QR + Bluetooth proximity), the user scans with the phone that holds an existing passkey, approves with biometrics, and the PRF output is delivered to the new device's JS. PRF-over-hybrid works on current Chrome/Safari against iOS/Android passkeys, but the matrix isn't universal — hence Path B. Then: create local passkey → `get()` for PRF → `envelope_new` → upload (session already authenticated by the assertion).
+**Path A — cross-device passkey ceremony — deferred, out of scope for C0.** Would run the *cold unlock* flow on the new device via the browser's hybrid transport (QR + Bluetooth proximity) against an existing passkey. PRF-over-hybrid support isn't universal enough yet to be the primary path; Path B covers the same use case unconditionally, so Path A stayed a design note. Revisit if/when the platform support matrix matures.
 
-**Path B — QR hand-off from an unlocked device (works regardless of PRF-over-hybrid support).**
+**Path B — QR hand-off from an unlocked device (implemented, C0b).**
 
-1. Old device (unlocked): "Add a device" → generates one-shot transfer key `TK` (256-bit) and uploads a transfer slot: `{slot_id, enrollment_token, ct = AES-GCM(TK, DEK, aad = "mt/v1/xfer" ‖ account_id)}`. TTL 10 minutes, single fetch, then deleted. `TK` never touches the server.
-2. Old device displays QR = `{instance URL, slot_id, TK}` (typed fallback: full-strength base32 code).
-3. New device scans, fetches the slot (the `enrollment_token` authorizes it), decrypts DEK, creates its passkey, uploads `envelope_new` + credential.
+1. Old device (unlocked): "Add a device" (`web/cloud/js/transfer.js`) → generates one-shot transfer key `TK` (256-bit) and uploads a transfer slot via `POST /api/transfer`: `{slot_id, enrollment_token, ct = AES-GCM(TK, DEK, aad = "mt/v1/xfer" ‖ account_id)}`. TTL 10 minutes, single fetch, then deleted (lazy cleanup, no background sweeper). `TK` never touches the server.
+2. Old device displays QR = `https://<sub>.<base>/claim#<slot_id>.<TK>` (typed fallback: `<slot_id>.<TK>` base32 string).
+3. New device scans (native camera app) or types the fallback at the `/claim` route, fetches the slot via `POST /api/transfer/{slot_id}/claim` (the `enrollment_token` authorizes it), decrypts DEK (AEAD failure → explicit "code invalid or tampered" abort), creates its passkey via `register/begin|finish` gated by the enrollment token, uploads `envelope_new` + credential.
 
 A malicious server cannot substitute the slot contents: it doesn't know `TK`, so any tampered ciphertext fails AEAD and the client aborts.
 
-**Path C — recovery code (all devices lost).** Fresh device → instance URL → "Recover" → type the code → client sends `verifier` (server checks hash, rate-limits) → downloads `envelope_rec` → `KEK_rec` unwraps DEK → enroll a new passkey as above. The UI then **forces recovery-code rotation** (new code, new `envelope_rec`, new kit) — a used code is treated as burned.
+**Path C — recovery code (all devices lost) — implemented, C0b.** Fresh device → instance URL → "Recover" → type the code → client sends `verifier` to `POST /api/recover` (server checks hash, rate-limits 5 attempts/hour/account via `recovery_auth.failed_attempts` + `window_start_unix`) → downloads `envelope_rec` + a one-time enrollment token → `KEK_rec` unwraps DEK → enroll a new passkey via the same enrollment-token machinery as Path B. The UI then **forces recovery-code rotation** immediately after (new code, new `envelope_rec`, new verifier, re-rendered Emergency Kit with its own "I saved it" gate) — a used code is burned, per spec.
+
+The `register/begin|finish` gate (`internal/cloudserver/webauthn.go`) generalizes across all three entry points: a signup claim token (C0a), a transfer/recovery enrollment token (C0b), or an existing session (an already-unlocked device enrolling an additional local passkey, e.g. a hardware security key) — each single-use where applicable, invalidated at finish.
 
 ### Removing a device / revocation
 
-- Routine removal (device retired): delete its WebAuthn credential, envelope, push subscription. Data keys unchanged.
-- Suspected compromise (stolen unlocked device): removal **plus DEK rotation** — DEK′, fresh snapshot under `K_data′`, re-wrap surviving envelopes, rotate NK and device session tokens. Initiated from any remaining device or via recovery code; this is why the onboarding pushes a second enrolled credential so hard.
+- **Routine removal (implemented, C0b)**: `DELETE /api/devices/{credential_id}` deletes the WebAuthn credential and its envelope in one transaction. Rejects deleting the **last** verified credential unless usable recovery material exists (the recovery envelope **and** its verifier row — an interrupted setup with envelope but no verifier doesn't count), so an account can never be stranded. Session verification checks the credential still exists (the shared verify path, not a per-handler check), so any outstanding session token minted for that credential is rejected on its next use. Data keys unchanged — this is a credential-and-envelope-only removal.
+- **Suspected compromise (stolen unlocked device) — documented gap, not implemented.** The spec calls for removal **plus DEK rotation** (DEK′, fresh snapshot under `K_data′`, re-wrap surviving envelopes, rotate NK). C0b ships only the routine-removal path above; a stolen-and-unlocked device retains a readable copy of any data it synced before revocation. The device-list UI's revocation copy distinguishes "retire device" (safe today) from "device stolen" (points at this limitation) until rotation lands. Initiated from any remaining device or via recovery code once implemented; this is why onboarding pushes a second enrolled credential so hard.
 - Orphaned envelopes (user deleted the passkey at the OS level): harmless ciphertext; the device-list UI surfaces credentials that haven't asserted in N days for cleanup.
+- Malicious/unverified envelopes: the device-list UI recomputes each envelope's `mac` with `K_mac` (available on any unlocked device) and renders **unverified — remove?** for any that fail — the client-side defense against a server or attacker inserting a credential it can't produce a valid MAC for (see Security analysis).
 
 ## The push key (NK) — why it exists
 
@@ -201,8 +204,9 @@ Everything in `envelopes`, `oplog`, `snapshots`, `scheduled_pushes` is ciphertex
 
 ## Open questions
 
-- PRF-over-hybrid (Path A) support matrix at ship time — decides how prominent Path B is in the UI.
+- PRF-over-hybrid (Path A) support matrix — still deferred; revisit if the platform matrix matures enough to justify a second enrollment path alongside Path B.
+- DEK rotation on suspected-compromise revocation — the documented C0b gap above; needs the snapshot/re-wrap/NK-rotation flow designed and built.
 - Strict mode scope: ceremony-per-launch only, or also ciphertext-at-rest locally?
-- Should envelope `mac` verification failures hard-block sync or only warn? (Lean: warn + red banner; hard-block adds a server-controlled DoS lever.)
-- Typed-fallback UX for Path B on devices without cameras.
+- **Decided (C0b)**: envelope `mac` verification failures warn (device-list "unverified — remove?" badge), not hard-block — avoids a server-controlled DoS lever.
+- **Decided (C0b)**: typed-fallback UX for Path B on devices without cameras — `<slot_id>.<TK>` base32 string entered on the `/claim` route.
 - Formal review: the construction is conventional (envelope encryption + HKDF domain separation + AEAD with bound AAD), but C0 should include an external cryptographic review before beta.

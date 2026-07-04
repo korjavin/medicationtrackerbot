@@ -88,13 +88,23 @@ type Session struct {
 
 type sessionCtxKey struct{}
 
+// sessionStore is the subset of *cloudstore.Repo RequireSession needs to
+// check that a session token's credential hasn't been revoked since it was
+// minted.
+type sessionStore interface {
+	CredentialExists(ctx context.Context, credentialID []byte) (bool, error)
+}
+
 // RequireSession wraps next with session-cookie authentication for
 // account-scoped "/api/*" routes: missing/invalid/expired cookies get 401.
 // It also rejects a session whose account id doesn't match the account
 // resolved from the request's subdomain host (router.go's AccountFromContext)
 // — defense in depth against a session token replayed against another
-// account's subdomain.
-func RequireSession(sessionSecret string, next http.Handler) http.Handler {
+// account's subdomain — and whose credential has since been revoked (Task 5
+// device removal): session tokens carry credential_id, so checking it still
+// exists here means every route inherits revocation for free rather than
+// each handler re-checking it.
+func RequireSession(store sessionStore, sessionSecret string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(SessionCookieName)
 		if err != nil {
@@ -112,6 +122,11 @@ func RequireSession(sessionSecret string, next http.Handler) http.Handler {
 		// a session token that can't be bound to this host's account.
 		account, resolved := AccountFromContext(r.Context())
 		if !resolved || account.ID != accountID {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		exists, err := store.CredentialExists(r.Context(), credentialID)
+		if err != nil || !exists {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}

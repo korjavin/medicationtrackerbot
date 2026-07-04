@@ -113,7 +113,9 @@ async function startRegistration(app, claimToken) {
   renderLossProtection(app, { accountId, dek });
 }
 
-function renderUnsupportedAuthenticator(app) {
+// Exported so claim.js (device-transfer enrollment) shows the identical
+// unsupported-authenticator state rather than a second copy of this copy.
+export function renderUnsupportedAuthenticator(app) {
   app.innerHTML = `
     <section class="wizard-step">
       <h1>This device can't be used yet</h1>
@@ -121,20 +123,6 @@ function renderUnsupportedAuthenticator(app) {
          needs to protect your data. Try a hardware security key (e.g. a
          YubiKey) or a different device or browser.</p>
     </section>`;
-}
-
-async function putEnvelope(credentialRef, envelope) {
-  const res = await fetch(`/api/envelopes/${credentialRef}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      v: envelope.v,
-      nonce: toBase64(envelope.nonce),
-      ct: toBase64(envelope.ct),
-      mac: toBase64(envelope.mac),
-    }),
-  });
-  if (!res.ok) throw new Error('Could not upload the encrypted envelope.');
 }
 
 function renderLossProtection(app, ctx) {
@@ -179,7 +167,12 @@ function renderLossProtectionError(app, err) {
   app.querySelector('section').appendChild(p);
 }
 
-async function renderEmergencyKit(app, ctx) {
+// Exported so recover.js re-renders the identical Emergency Kit screen for
+// the forced code rotation after a successful recovery redemption, rather
+// than a second copy of this ceremony. ctx.onKitSaved, if given, replaces the
+// default "You're set up" done screen (recover.js redirects to the unlocked
+// vault instead).
+export async function renderEmergencyKit(app, ctx) {
   const { codeBytes, formatted } = await generateRecoveryCode();
   const kekRec = await deriveKEKRec(codeBytes, ctx.accountId);
   const verifier = await deriveVerifier(codeBytes, ctx.accountId);
@@ -188,14 +181,24 @@ async function renderEmergencyKit(app, ctx) {
     kek: kekRec, dek: ctx.dek, kMac, accountId: ctx.accountId, credentialId: 'recovery',
   });
 
-  await putEnvelope('recovery', envelopeRec);
-  await fetch('/api/recovery-verifier', {
+  // Envelope + verifier go up in one atomic request: a partial write would
+  // pair a new envelope with the old verifier, silently breaking recovery
+  // (one code authenticates but can't decrypt, the other decrypts but can't
+  // authenticate) and can strand the account past the last-credential guard.
+  const recoveryRes = await fetch('/api/recovery-material', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ verifier: toBase64(verifier) }),
-  }).then((res) => {
-    if (!res.ok) throw new Error('Could not save recovery material.');
+    body: JSON.stringify({
+      envelope: {
+        v: envelopeRec.v,
+        nonce: toBase64(envelopeRec.nonce),
+        ct: toBase64(envelopeRec.ct),
+        mac: toBase64(envelopeRec.mac),
+      },
+      verifier: toBase64(verifier),
+    }),
   });
+  if (!recoveryRes.ok) throw new Error('Could not save recovery material.');
 
   const kitUrl = location.origin;
   const { qrcode } = await import('../vendor/qrcode.mjs');
@@ -226,7 +229,7 @@ async function renderEmergencyKit(app, ctx) {
   const checkbox = app.querySelector('#kit-saved-checkbox');
   const button = app.querySelector('#kit-continue');
   checkbox.addEventListener('change', () => { button.disabled = !checkbox.checked; });
-  button.addEventListener('click', () => renderDone(app));
+  button.addEventListener('click', () => (ctx.onKitSaved ? ctx.onKitSaved() : renderDone(app)));
 }
 
 function renderDone(app) {

@@ -66,3 +66,29 @@ body {
   padding: 0.5rem;
   border-radius: 0.25rem;
 }
+
+.device-list {
+  list-style: none;
+  padding: 0;
+}
+
+.device-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid #334155;
+}
+
+.device-row span:first-child {
+  flex: 1;
+}
+
+.device-verified {
+  color: #4ade80;
+}
+
+.device-unverified {
+  color: #f87171;
+  font-weight: bold;
+}

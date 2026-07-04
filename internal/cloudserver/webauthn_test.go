@@ -278,7 +278,7 @@ func TestWebAuthnLogin_FullCeremony(t *testing.T) {
 	}
 
 	// The minted session must pass the auth middleware for account-scoped routes.
-	protected := RequireSession("test-session-secret-at-least-32-bytes-long", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	protected := RequireSession(store, "test-session-secret-at-least-32-bytes-long", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, ok := SessionFromContext(r.Context())
 		if !ok || s.AccountID != account.ID {
 			t.Errorf("SessionFromContext: ok=%v accountID=%q", ok, s.AccountID)
@@ -322,7 +322,8 @@ func TestWebAuthnLogin_RejectsBadOrigin(t *testing.T) {
 }
 
 func TestRequireSession_RejectsMissingOrInvalidCookie(t *testing.T) {
-	protected := RequireSession("test-session-secret-at-least-32-bytes-long", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	store := setupStore(t)
+	protected := RequireSession(store, "test-session-secret-at-least-32-bytes-long", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatalf("inner handler must not run without a valid session")
 	}))
 
@@ -339,6 +340,72 @@ func TestRequireSession_RejectsMissingOrInvalidCookie(t *testing.T) {
 	protected.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("invalid cookie status = %d, want 401", rec.Code)
+	}
+}
+
+// TestWebAuthnRegistration_SessionGateRejectsRevokedCredential pins the
+// revocation guarantee on the register/begin session gate: a device whose
+// credential was revoked, but which still holds a valid session cookie (30-day
+// TTL) and its in-memory DEK, must not be able to self-enroll a fresh
+// credential and undo its own revocation.
+func TestWebAuthnRegistration_SessionGateRejectsRevokedCredential(t *testing.T) {
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+	h, _ := newTestWebAuthnHandler(store)
+
+	// Enroll the first device via the claim gate and capture its session cookie.
+	rp := virtualwebauthn.RelyingParty{Name: "Med Tracker Cloud", ID: host, Origin: "http://" + host}
+	authenticator := virtualwebauthn.NewAuthenticator()
+	cred := virtualwebauthn.NewCredential(virtualwebauthn.KeyTypeEC2)
+	opts, challengeCookie := beginRegistration(t, h, host, claimToken)
+	response := virtualwebauthn.CreateAttestationResponse(rp, authenticator, cred, *opts)
+	rec := finishRegistration(t, h, host, challengeCookie, response)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("register/finish status = %d, body %q", rec.Code, rec.Body.String())
+	}
+	var sessionCookie *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == SessionCookieName && c.Value != "" {
+			sessionCookie = c
+		}
+	}
+	if sessionCookie == nil {
+		t.Fatalf("no session cookie set on finish")
+	}
+
+	// A complete recovery path (envelope + verifier) keeps an unwrap path alive
+	// so revoking the sole credential is permitted (the "never strand the
+	// account" invariant now blocks removing the last credential otherwise).
+	if err := store.PutEnvelope(t.Context(), cloudstore.Envelope{
+		AccountID: account.ID, CredentialRef: "recovery", V: 1,
+		Nonce: []byte("nonce"), CT: []byte("ct"), MAC: []byte("mac"),
+	}); err != nil {
+		t.Fatalf("PutEnvelope(recovery): %v", err)
+	}
+	if err := store.SetRecoveryVerifier(t.Context(), account.ID, []byte("verifier-hash")); err != nil {
+		t.Fatalf("SetRecoveryVerifier: %v", err)
+	}
+
+	// Revoke that credential out from under the still-valid session cookie.
+	creds, err := store.CredentialsByAccount(t.Context(), account.ID)
+	if err != nil || len(creds) != 1 {
+		t.Fatalf("CredentialsByAccount: %v (len %d)", err, len(creds))
+	}
+	if err := store.DeleteCredentialWithEnvelope(t.Context(), account.ID, creds[0].ID); err != nil {
+		t.Fatalf("DeleteCredentialWithEnvelope: %v", err)
+	}
+
+	// No claim/enrollment token -> session gate. The revoked credential no
+	// longer exists, so register/begin must reject rather than start a ceremony.
+	body, _ := json.Marshal(registerBeginRequest{})
+	req := httptest.NewRequest(http.MethodPost, "/api/webauthn/register/begin", bytes.NewReader(body))
+	req.Host = host
+	req.AddCookie(sessionCookie)
+	rrec := httptest.NewRecorder()
+	h.ServeHTTP(rrec, req)
+	if rrec.Code != http.StatusUnauthorized {
+		t.Fatalf("register/begin via session gate for revoked credential status = %d, want 401 (body %q)", rrec.Code, rrec.Body.String())
 	}
 }
 

@@ -46,6 +46,7 @@ function renderLocked(app, errorText) {
       <h1>Med Tracker</h1>
       <p>Unlock this device with your passkey to open your vault.</p>
       <button id="unlock-button">Unlock with passkey</button>
+      <p><a href="/recover">Recover with your Emergency Kit</a></p>
     </section>`;
   // Error text may carry a browser exception message; render via textContent,
   // never interpolated into innerHTML (this page holds the DEK — XSS here reads it).
@@ -113,12 +114,23 @@ function renderUnlocked(app, ctx) {
     <section class="wizard-step">
       <h1>Vault unlocked</h1>
       <p>Account <code id="account-id"></code></p>
-      <p>Devices and data sync arrive with the next update.</p>
+      <p>Data sync arrives with the next update.</p>
+      <button id="devices-button">Devices</button>
       <button id="lock-button">Lock</button>
     </section>`;
   // Server-controlled value — set via textContent, never innerHTML (E2EE
   // threat model treats the server as hostile; XSS here reads the DEK).
   app.querySelector('#account-id').textContent = ctx.accountId;
+  app.querySelector('#devices-button').addEventListener('click', () => {
+    import('./devices.js')
+      .then(({ renderDeviceList }) => renderDeviceList(app, ctx, () => renderUnlocked(app, ctx)))
+      .catch(() => {
+        const p = document.createElement('p');
+        p.className = 'wizard-error';
+        p.textContent = 'Could not open the devices screen. Try again.';
+        app.querySelector('section').appendChild(p);
+      });
+  });
   app.querySelector('#lock-button').addEventListener('click', () => {
     // Only transition to locked once the cached DEK is confirmed gone; if the
     // delete rejects, stay on the unlocked screen with a visible error rather
@@ -139,7 +151,9 @@ function renderUnlocked(app, ctx) {
 // demanding a biometric every time. Non-extractable keys structured-clone
 // into IndexedDB directly — no export/import round-trip needed.
 
-async function establishLdkCache(dek, accountId) {
+// Exported so claim.js (device-transfer enrollment) seeds the same warm-unlock
+// cache on the new device after its own registration ceremony finishes.
+export async function establishLdkCache(dek, accountId) {
   const ldk = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
   const nonce = crypto.getRandomValues(new Uint8Array(12));
   const ct = new Uint8Array(

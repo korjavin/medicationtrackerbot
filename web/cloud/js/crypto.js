@@ -60,7 +60,7 @@ export function encodeFields(...parts) {
   return out;
 }
 
-function base32Encode(bytes) {
+export function base32Encode(bytes) {
   let bits = 0;
   let value = 0;
   let output = '';
@@ -76,7 +76,7 @@ function base32Encode(bytes) {
   return output;
 }
 
-function base32Decode(str) {
+export function base32Decode(str) {
   let bits = 0;
   let value = 0;
   const out = [];
@@ -164,6 +164,28 @@ export async function auditEnvelope({ dek, envelope, credentialId }) {
   const kMac = await deriveKMac(dek);
   const expected = await computeEnvelopeMac(kMac, credentialId, envelope.nonce, envelope.ct);
   return timingSafeEqual(expected, envelope.mac);
+}
+
+// Path B device transfer (docs/cloud-crypto.md "Enrolling a new device"): the
+// DEK encrypted under a one-shot transfer key TK, never a KEK — the server's
+// ct column is opaque, so nonce ‖ ciphertext is packed into one blob rather
+// than adding a second wire field.
+export async function encryptTransferPayload(tk, dek, accountId) {
+  const nonce = crypto.getRandomValues(new Uint8Array(12));
+  const aad = encodeFields('mt/v1/xfer', accountId);
+  const ct = await aesGcmEncrypt(tk, nonce, dek, aad);
+  const packed = new Uint8Array(nonce.length + ct.length);
+  packed.set(nonce, 0);
+  packed.set(ct, nonce.length);
+  return packed;
+}
+
+// Throws (AEAD failure) on a tampered or wrong-TK packed payload.
+export async function decryptTransferPayload(tk, packed, accountId) {
+  const nonce = packed.slice(0, 12);
+  const ct = packed.slice(12);
+  const aad = encodeFields('mt/v1/xfer', accountId);
+  return aesGcmDecrypt(tk, nonce, ct, aad);
 }
 
 async function checksumGroup(codeBytes) {

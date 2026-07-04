@@ -137,9 +137,15 @@ func main() {
 
 	webauthnAPI := cloudserver.NewWebAuthnAPI(store, cfg.sessionSecret)
 	envelopeAPI := cloudserver.NewEnvelopeAPI(store, cfg.sessionSecret)
+	transferAPI := cloudserver.NewTransferAPI(store, cfg.sessionSecret)
+	deviceAPI := cloudserver.NewDeviceAPI(store, cfg.sessionSecret)
+	recoveryAPI := cloudserver.NewRecoveryAPI(store)
 	apiMux := http.NewServeMux()
 	webauthnAPI.RegisterRoutes(apiMux)
 	envelopeAPI.RegisterRoutes(apiMux)
+	transferAPI.RegisterRoutes(apiMux)
+	deviceAPI.RegisterRoutes(apiMux)
+	recoveryAPI.RegisterRoutes(apiMux)
 	router := cloudserver.New(cfg.baseDomain, store, cloudweb.FS, apiMux)
 
 	mux := http.NewServeMux()

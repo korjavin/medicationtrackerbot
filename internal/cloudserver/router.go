@@ -98,9 +98,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The account shell lives at signup.html (it self-selects claim wizard
-	// vs. unlock flow at runtime — see web/cloud/js/app.js), not index.html.
-	if r.URL.Path == "/" {
+	// The account shell lives at signup.html (it self-selects claim wizard,
+	// device-transfer claim, or unlock flow at runtime — see
+	// web/cloud/js/app.js), not index.html. /claim is the QR/typed-fallback
+	// hand-off landing page (see web/cloud/js/transfer.js); its slot id + TK
+	// ride the URL fragment, which browsers never send to the server. /recover
+	// is the Emergency Kit redemption page (see web/cloud/js/recover.js).
+	if r.URL.Path == "/" || r.URL.Path == "/claim" || r.URL.Path == "/recover" {
 		r.URL.Path = "/signup.html"
 	}
 	h.static.ServeHTTP(w, r)
