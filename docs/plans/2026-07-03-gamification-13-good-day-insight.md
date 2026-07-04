@@ -142,10 +142,10 @@ behavior → HP → level → insight loop is now closed at every rung the UI sh
 
 ### Task 5: Update documentation
 
-- [ ] `docs/gamification.md` §8: mark tier 4 shipped; note the fixed
+- [x] `docs/gamification.md` §8: mark tier 4 shipped; note the fixed
       candidate-behavior set and the gates; state that the ladder is now fully
       real and future insights are additions, not unlocks
-- [ ] `docs/api.md`: extended insights shape
+- [x] `docs/api.md`: extended insights shape
 
 ## Technical Details
 

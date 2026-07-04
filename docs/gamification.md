@@ -447,8 +447,13 @@ unlocking *richer mirrors*, never withholding the user's own facts.
 sleep→next-morning BP. It is the template for every future tier: an honesty gate
 (minimum paired-night count per bucket, then a noise floor below which "no effect"
 is itself the reported finding) so "not enough data yet" and "no effect found" are
-genuine, non-alarmist results, not error states or blank cards. Tiers 2 and 4
-still say "soon."
+genuine, non-alarmist results, not error states or blank cards.
+
+**Tier 4 shipped** (§14.12, Plan 13) — "your good-day model," a fixed four-behavior
+association scan (workout, bedtime, steps, adherence) reusing the same honesty-gate
+template. The insight ladder is now fully real end to end: every tier the ladder
+advertises is a real card, not a placeholder. Future insights are additions to the
+ladder's existing rungs, not new unlocks.
 
 ---
 
@@ -1015,8 +1020,7 @@ states in plain language ("Nights under 7h → next-morning systolic ~+8 mmHg ·
 nights" / "Your morning BP looks steady regardless of sleep length — solid." /
 "Not enough paired nights yet · 5 of 8 — keep logging"). Fetched through its own
 `cachedFetch` entry (`gamification` tag) with an `OfflineNoCacheError` empty
-state, independent of the main Journey payload. Tier 4 is untouched and still
-says "soon."
+state, independent of the main Journey payload. Tier 4 shipped in Plan 13 (§14.12).
 
 Per Testing Strategy this plan added integration tests guarding loaders →
 pairing → API shape end to end (`internal/domain/gamification/insights_test.go`:
@@ -1182,6 +1186,53 @@ mechanics, no new tables.
   seeded two weeks with a known difference, asserting lever counts, gauge
   movement fields, best day, and the empty-week shape — no unit tests, no
   E2E.
+
+---
+
+### 14.12 Second real insight: your good-day model — Plan 13 (status)
+
+Implemented in
+[docs/plans/2026-07-03-gamification-13-good-day-insight.md](plans/2026-07-03-gamification-13-good-day-insight.md).
+The L7–8 promise (§8, "your good-day model — a simple personal
+feature-importance") was the last ladder rung still reading "soon." This plan
+ships it as an attribution engine over the plan-10 levers: the proof that
+*your* levers move *your* gauges, using the plan-9 honesty-gate template rather
+than a new correlation framework.
+
+- **Computation** (`internal/domain/gamification/insights.go`, additive to
+  `GetInsights`): over the trailing `InsightWindowDays` (90), a day is a
+  **good day** if it has ≥1 BP reading and its mean systolic sits in the
+  user's effective band (days with no reading are excluded from the
+  denominator, not counted as bad). Four fixed candidate behaviors are
+  evaluated on the previous day/bridging-night — completed a workout,
+  bedtime in window (the plan-10 membership predicate, not sleep duration),
+  steps in band, all doses taken on time (the adherence loader's miss
+  inference) — and each behavior's good-day rate with vs without is compared.
+  **Honesty gate:** a behavior needs ≥10 days in *each* arm or it is
+  `insufficient_data`; a rate difference ≥15 percentage points clears into
+  `findings` (ordered by `|delta_pp|`, capped at 3), otherwise it's
+  `no_effect` — both are genuine reported results, not blank states. Gated on
+  `InsightTier ≥ 4` (level 7) independently of `sleep_bp`'s tier-3 gate, so
+  `good_day` can read locked while `sleep_bp` is already unlocked.
+- **API/MCP surface** — additive `good_day` key on the existing
+  `GET /api/gamification/insights`, registry op `gamification.insights` (see
+  `docs/api.md#gamification`). No new route.
+- **Frontend** (`journey.js`) — tier 4 becomes the ladder's second
+  `hasDestination` row, same inline-expand pattern as tier 3: one line per
+  finding ("On days after a workout, morning BP in range 78% vs 55% ·
+  21/34 days", max 3), a `no_effect` line ("No single habit stands out yet —
+  your good days look evenly spread."), an `insufficient_data` line ("Not
+  enough contrast yet · keep logging — 6 of 10 workout days needed"), and a
+  `good_day_definition` sub-line stating the user's own band ("in range =
+  systolic 90–120") so the model is never a black box. Below level 7 the
+  honest "Unlocks at Lvl 7" row remains — the ladder no longer has any
+  "soon" tier.
+- **Tone:** no causal language anywhere in the copy — a behavior's days were
+  "in range more often", never "because"; same non-alarmist stance as tier 3.
+- **Testing:** one service-level integration test per the Testing Strategy —
+  seeded 90 days with a planted workout→good-day association asserts the
+  finding's sign/rates/counts, and sparse workout days assert
+  `insufficient_data` — no unit tests, no E2E.
 
 ---
 
