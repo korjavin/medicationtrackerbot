@@ -295,7 +295,7 @@ describe('Journey render', () => {
         const card = env.document.getElementById('journey-goodday-card');
         expect(card).not.toBeNull();
         expect(card.querySelector('.wg-journey-insight__body').textContent)
-            .toBe('On days after a workout, morning BP in range 78% vs 55% · 21/34 days');
+            .toBe('On days after a workout, BP in range 78% vs 55% · 21/34 days');
         expect(card.querySelector('.wg-journey-goodday__definition').textContent)
             .toBe('in range = systolic 90–120');
     });

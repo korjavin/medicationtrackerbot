@@ -673,7 +673,7 @@
         const withoutPct = Math.round((Number(finding.rate_without) || 0) * 100);
         const nWith = Number(finding.n_with) || 0;
         const total = nWith + (Number(finding.n_without) || 0);
-        return `On days after ${label}, morning BP in range ${withPct}% vs ${withoutPct}% · ${nWith}/${total} days`;
+        return `On days after ${label}, BP in range ${withPct}% vs ${withoutPct}% · ${nWith}/${total} days`;
     }
 
     function goodDayInsufficientLine(item) {

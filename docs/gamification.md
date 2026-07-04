@@ -1219,7 +1219,7 @@ than a new correlation framework.
   `docs/api.md#gamification`). No new route.
 - **Frontend** (`journey.js`) — tier 4 becomes the ladder's second
   `hasDestination` row, same inline-expand pattern as tier 3: one line per
-  finding ("On days after a workout, morning BP in range 78% vs 55% ·
+  finding ("On days after a workout, BP in range 78% vs 55% ·
   21/34 days", max 3), a `no_effect` line ("No single habit stands out yet —
   your good days look evenly spread."), an `insufficient_data` line ("Not
   enough contrast yet · keep logging — 6 of 10 workout days needed"), and a
