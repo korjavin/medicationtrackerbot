@@ -25,21 +25,26 @@ type accountStore interface {
 }
 
 // Handler routes requests by Host: the exact base domain gets the static
-// landing page, "<sub>.<base>" gets the account shell (unknown subdomains get
-// a 404), and everything else is served from the same embedded static FS.
+// landing page, "<sub>.<base>" gets the account shell + account-scoped API
+// (unknown subdomains get a 404), and everything else is served from the same
+// embedded static FS.
 type Handler struct {
 	baseDomain string
 	store      accountStore
 	static     http.Handler
+	api        http.Handler
 }
 
 // New builds the host-routing Handler. staticFS is the embedded web/cloud
-// tree (cloudweb.FS) containing index.html, signup.html, css/, js/.
-func New(baseDomain string, store accountStore, staticFS fs.FS) *Handler {
+// tree (cloudweb.FS) containing index.html, signup.html, css/, js/. api
+// handles "/api/*" requests on the subdomain branch (nil serves 404 for
+// them) — see WebAuthnAPI.Routes.
+func New(baseDomain string, store accountStore, staticFS fs.FS, api http.Handler) *Handler {
 	return &Handler{
 		baseDomain: baseDomain,
 		store:      store,
 		static:     http.FileServerFS(staticFS),
+		api:        api,
 	}
 }
 
@@ -56,13 +61,24 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := h.store.AccountBySubdomain(r.Context(), sub); err != nil {
+	account, err := h.store.AccountBySubdomain(r.Context(), sub)
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.NotFound(w, r)
 			return
 		}
 		slog.Error("cloudserver: resolve account", "error", err, "subdomain", sub)
 		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	r = r.WithContext(withAccount(r.Context(), account))
+
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		if h.api == nil {
+			http.NotFound(w, r)
+			return
+		}
+		h.api.ServeHTTP(w, r)
 		return
 	}
 
@@ -72,6 +88,23 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		r.URL.Path = "/signup.html"
 	}
 	h.static.ServeHTTP(w, r)
+}
+
+// accountCtxKey is the context key the resolved account is stashed under by
+// ServeHTTP, so account-scoped API handlers (webauthn.go) don't need a second
+// AccountBySubdomain round trip.
+type accountCtxKey struct{}
+
+func withAccount(ctx context.Context, a *cloudstore.Account) context.Context {
+	return context.WithValue(ctx, accountCtxKey{}, a)
+}
+
+// AccountFromContext returns the account resolved for this request's
+// subdomain host. Only set for requests routed through Handler's subdomain
+// branch.
+func AccountFromContext(ctx context.Context) (*cloudstore.Account, bool) {
+	a, ok := ctx.Value(accountCtxKey{}).(*cloudstore.Account)
+	return a, ok
 }
 
 // stripPort mirrors net/http's canonical host-header handling: dev requests

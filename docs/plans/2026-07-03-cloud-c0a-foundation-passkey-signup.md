@@ -83,11 +83,11 @@ The server stores only: WebAuthn public keys, envelopes (ciphertext), a recovery
 
 ### Task 5: WebAuthn registration ceremony (server)
 
-- [ ] add `github.com/go-webauthn/webauthn` dep; construct a per-request `webauthn.WebAuthn` with `RPID`/`RPOrigins` derived from the account subdomain host (per-user RP ID per docs/cloud-crypto.md)
-- [ ] `POST /api/webauthn/register/begin` + `/finish` on the subdomain host: begin requires a valid claim token (first credential — the account is unclaimed until then; later credentials in plan C0b reuse this handler behind a session); options: `residentKey=required`, `userVerification=required`, `extensions: {prf: {}}`, attestation `none`
-- [ ] challenge/`SessionData` store: in-memory map keyed by random id in a short-lived cookie, 5-min TTL, single process (`ponytail:` restart mid-ceremony = user retries)
-- [ ] `finish` persists the credential, invalidates the claim token, and issues an HMAC session cookie (Task 6's token, minted here so the client can immediately upload envelopes)
-- [ ] integration test with `virtualwebauthn`: full begin→finish registration against the real verification path, then reject: bad origin, replayed challenge — guards the ceremony contract
+- [x] add `github.com/go-webauthn/webauthn` dep; construct a per-request `webauthn.WebAuthn` with `RPID`/`RPOrigins` derived from the account subdomain host (per-user RP ID per docs/cloud-crypto.md)
+- [x] `POST /api/webauthn/register/begin` + `/finish` on the subdomain host: begin requires a valid claim token (first credential — the account is unclaimed until then; later credentials in plan C0b reuse this handler behind a session); options: `residentKey=required`, `userVerification=required`, `extensions: {prf: {}}`, attestation `none`
+- [x] challenge/`SessionData` store: in-memory map keyed by random id in a short-lived cookie, 5-min TTL, single process (`ponytail:` restart mid-ceremony = user retries)
+- [x] `finish` persists the credential, invalidates the claim token, and issues an HMAC session cookie (Task 6's token, minted here so the client can immediately upload envelopes)
+- [x] integration test with `virtualwebauthn`: full begin→finish registration against the real verification path, then reject: bad origin, replayed challenge — guards the ceremony contract
 
 ### Task 6: WebAuthn login + sessions
 

@@ -41,7 +41,7 @@ func TestRouter_HostVariants(t *testing.T) {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
-	h := New("app.example.com", store, testFS())
+	h := New("app.example.com", store, testFS(), nil)
 
 	cases := []struct {
 		name       string

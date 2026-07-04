@@ -129,7 +129,8 @@ func main() {
 	}
 	slog.Info("Database initialized", "path", cfg.dbPath, "baseDomain", cfg.baseDomain, "claimTTL", cfg.claimTTL)
 
-	router := cloudserver.New(cfg.baseDomain, store, cloudweb.FS)
+	webauthnAPI := cloudserver.NewWebAuthnAPI(store, cfg.sessionSecret)
+	router := cloudserver.New(cfg.baseDomain, store, cloudweb.FS, webauthnAPI.Routes())
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
