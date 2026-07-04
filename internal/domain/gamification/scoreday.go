@@ -345,7 +345,10 @@ func (s *service) recomputeState(ctx context.Context, userID int64, start time.T
 		return gamstore.State{}, false, err
 	}
 
-	if prev.LastScoredDay == nil || start.After(*prev.LastScoredDay) {
+	// Don't record a future week-end day (scored on the read path to refresh an
+	// in-progress week's gauge award) as "last scored" — it would surface a
+	// nonsensical future last_scored_day in the summary/journey API and MCP.
+	if (prev.LastScoredDay == nil || start.After(*prev.LastScoredDay)) && !start.After(utcMidnight(s.now())) {
 		d := start
 		st.LastScoredDay = &d
 	}

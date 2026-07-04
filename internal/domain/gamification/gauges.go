@@ -267,7 +267,14 @@ func pctChangePerWeek(now, past float64, windowDays int) float64 {
 // returned alongside the status so the weekly award can reuse it without
 // re-fetching the goal or re-deriving the sign.
 func weightPaceStatus(velocityPctPerWeek, currentTrend float64, goal *store.WeightGoal, cfg scoring.Config) (status string, direction int) {
-	if goal == nil || goal.Goal == nil || *goal.Goal == currentTrend {
+	// At goal → maintenance (direction 0), same as no goal. currentTrend is an
+	// EMA-smoothed float and the goal is a user-set number, so an exact-equality
+	// test never fires; treat "within one safe-pace week of the goal" as arrived
+	// so a user holding steady at their goal earns the symmetric-band award
+	// instead of being scored as perpetually "too slow" (zero HP).
+	atGoal := goal != nil && goal.Goal != nil &&
+		math.Abs(*goal.Goal-currentTrend) <= math.Abs(currentTrend)*cfg.WeightSafePaceMaxPct/100
+	if goal == nil || goal.Goal == nil || atGoal {
 		return PaceStatusNoGoal, 0
 	}
 	direction = 1
