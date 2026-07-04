@@ -220,6 +220,43 @@ output(result)
 # Sparse data: {"enabled": true, "weight": {"status": "insufficient_data"}, "bp": {"status": "ok", ...}, "resting_hr": {"status": "insufficient_data"}}`,
 		},
 		{
+			ID:              "gamification.weekly_review",
+			Topic:           "gamification",
+			Method:          "GET",
+			Path:            "/api/gamification/weekly-review",
+			Risk:            RiskRead,
+			Description:     "Weekly review read model (gamification-12): the reading cadence for gauges — current ISO week (Mon-Sun, user tz) vs the previous week. Combines lever closed-day counts, the best day, strength deltas, gauge movement (weight velocity/pace/acceleration, BP 30-day share now vs a week ago, resting HR delta), and Health Score movement. A week with no HP returns quiet: true instead of an error or a wall of zeros — render it as \"a quiet week\", never a failure.",
+			ResponseSummary: "Object {enabled, quiet, week_start, week_end, days_with_any_hp, levers, best_day, strengths, gauges, health_score}. levers: [{key, closed_this_week, closed_last_week}]. best_day: {day_unix, rings_closed} or omitted if no rings closed. strengths: [{key, label, value_now, value_prior}]. gauges: {weight, bp, bp_share_30d_prior, resting_hr} — weight/bp/resting_hr have the same shape as gamification.gauges. health_score: {now, prior} — each a HealthScoreView (see gamification.summary).",
+			ResponseExample: `{
+  "enabled": true,
+  "quiet": false,
+  "week_start": "2026-06-29T00:00:00Z",
+  "week_end": "2026-07-05T23:59:59Z",
+  "days_with_any_hp": 6,
+  "levers": [
+    { "key": "bedtime", "closed_this_week": 5, "closed_last_week": 4 },
+    { "key": "movement", "closed_this_week": 4, "closed_last_week": 3 }
+  ],
+  "best_day": { "day_unix": 1751500800, "rings_closed": 3 },
+  "strengths": [
+    { "key": "bedtime", "label": "Bedtime", "value_now": 0.71, "value_prior": 0.6 }
+  ],
+  "gauges": {
+    "weight": { "status": "ok", "trend_weight": 81.4, "velocity_pct_per_week": -0.4, "pace_status": "on_pace", "acceleration": "holding" },
+    "bp": { "status": "ok", "share_14d": 0.82, "share_30d": 0.79, "baseline_share_60d": 0.76 },
+    "bp_share_30d_prior": 0.74,
+    "resting_hr": { "status": "ok", "recent_14d_mean": 62.1, "baseline_60d_mean": 65.0, "delta_from_baseline": -2.9 }
+  },
+  "health_score": {
+    "now": { "value": 78.0, "contributors": [], "missing": [] },
+    "prior": { "value": 74.0, "contributors": [], "missing": [] }
+  }
+}`,
+			Example: `result = api.call("gamification.weekly_review")
+output(result)
+# Quiet week: {"enabled": true, "quiet": true, "week_start": "...", "week_end": "...", "days_with_any_hp": 0, "levers": [...zeros...], "strengths": [...]}`,
+		},
+		{
 			ID:     "gamification.targets.set",
 			Topic:  "gamification",
 			Method: "PUT",

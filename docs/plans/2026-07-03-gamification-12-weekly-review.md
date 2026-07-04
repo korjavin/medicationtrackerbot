@@ -106,11 +106,11 @@ invariant, so backfilled weeks read correctly in retrospect).
 
 ### Task 2: HTTP route + MCP registration
 
-- [ ] `GET /api/gamification/weekly-review` (verbatim pass-through), registered
+- [x] `GET /api/gamification/weekly-review` (verbatim pass-through), registered
       in the gamification route block
-- [ ] registry op `gamification.weekly_review` with description +
+- [x] registry op `gamification.weekly_review` with description +
       `ResponseExample`
-- [ ] document the shape in `docs/api.md#gamification`
+- [x] document the shape in `docs/api.md#gamification`
 
 ### Task 3: Journey — "Your week" card
 

@@ -174,6 +174,22 @@ func (s *Server) handleGamificationGauges(w http.ResponseWriter, r *http.Request
 	writeJSON(w, view)
 }
 
+// handleGamificationWeeklyReview serves the weekly review read model (lever
+// closed-day counts, gauge movement, best day, Health Score movement, all
+// current week vs previous week). The service gates on the feature flag
+// internally, so this handler is a verbatim pass-through (Critical Rule #1).
+func (s *Server) handleGamificationWeeklyReview(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+	s.ensureGamificationFresh(r.Context(), userID)
+
+	view, err := s.gamificationSvc.GetWeeklyReview(r.Context(), userID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, view)
+}
+
 // writeJSON encodes v as the JSON response body, logging an encode failure.
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
