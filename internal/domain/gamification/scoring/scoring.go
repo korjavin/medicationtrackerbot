@@ -55,23 +55,29 @@ const (
 	MetricMedication = "medication"
 	MetricBP         = "bp"
 	MetricRestingHR  = "resting_hr"
-	MetricSpO2       = "spo2"
-	MetricSleep      = "sleep"
-	MetricSteps      = "steps"
-	MetricActivity   = "activity"
-	MetricMeal       = "meal"
-	MetricCalories   = "calories"
-	MetricProtein    = "protein"
-	MetricVeg        = "veg"
-	MetricWeight     = "weight"
-	MetricDiary      = "diary"
-)
+	// MetricSpO2 no longer earns HP (gamification-11 Overview §3: safety-alert
+	// data, not a game metric) — the identifier stays only as a stable ledger
+	// value for any pre-plan-11 historical rows.
+	MetricSpO2     = "spo2"
+	MetricSleep    = "sleep"
+	MetricSteps    = "steps"
+	MetricActivity = "activity"
+	MetricMeal     = "meal"
+	MetricCalories = "calories"
+	MetricProtein  = "protein"
+	MetricVeg      = "veg"
+	MetricWeight   = "weight"
+	MetricDiary    = "diary"
 
-// Weight-scoring modes (§6.7). Maintenance rewards stability inside a band; Goal
-// rewards safe-pace progress toward a user-set goal.
-const (
-	ModeWeightMaintenance = "maintenance"
-	ModeWeightGoal        = "goal"
+	// Weekly gauge-award metrics (gamification-11 §Task2): the idempotent
+	// once-per-week replacements for the removed daily BP/weight/resting-HR
+	// outcomes, written only on each week's last day. Distinct from
+	// MetricBP/MetricWeight/MetricRestingHR above (the still-daily integrity
+	// floors) so floor and weekly-outcome rows never collide on the ledger's
+	// UNIQUE key.
+	MetricWeightTrendWeek    = "weight_trend_week"
+	MetricBPShareWeek        = "bp_share_week"
+	MetricRestingHRTrendWeek = "resting_hr_trend_week"
 )
 
 // Health Score contributor keys — stable identifiers for the API/UI
@@ -129,22 +135,21 @@ type Config struct {
 	AdherenceOnTimeGraceMin float64
 	AdherenceLateFalloffMin float64
 
-	// BP (§6.2). Two-sided systolic/diastolic bands; both must be in range
-	// (the day scores the min of the two memberships).
-	BPOutcomeMaxHP int
-	BPSystolic     Band
-	BPDiastolic    Band
+	// BP (§6.2). Two-sided systolic/diastolic bands, still shared by the
+	// integrity floor, the weekly in-range-share award, and the Health Score
+	// contributor. The daily band-membership outcome moved to the weekly
+	// award (gamification-11 §Task2).
+	BPSystolic  Band
+	BPDiastolic Band
 
-	// Auto-captured vitals (§6.3): HR/SpO₂, moderate weight (a notch below
-	// effortful actions). Scored by range membership OR improvement vs. the
-	// user's own baseline (fair to genetics), whichever is kinder. Stress is
-	// not scored (gamification-10: it's ungovernable, not a lever) — charts
-	// still show it, but no HP award reads it.
-	VitalsAutoOutcomeMaxHP int
-	RestingHR              Band
-	SpO2Low                float64
-	SpO2Falloff            float64
-	VitalsImprovementSpan  float64 // fractional band around baseline for the relative credit
+	// Auto-captured vitals (§6.3): resting HR feeds the Health Score
+	// contributor and the weekly trend award (gamification-11 §Task2) via
+	// range membership OR improvement vs. the user's own baseline (fair to
+	// genetics), whichever is kinder. Stress and SpO₂ are not scored
+	// (gamification-10 §2.5 / gamification-11 Overview §3: ungovernable /
+	// safety-alert data, not levers) — both stay visible in charts only.
+	RestingHR             Band
+	VitalsImprovementSpan float64 // fractional band around baseline for the relative credit
 
 	// Sleep (§6.4). Bedtime timing (lights-out deviation from the user's
 	// bedtime window) is the lever and the primary award — the user chooses
@@ -177,11 +182,10 @@ type Config struct {
 	NourishmentProteinMaxHP  int
 	NourishmentVegMaxHP      int
 
-	// Weight (§6.7), in the Vitals ring. Maintenance = stability in a band;
-	// Goal = safe-pace progress, with an anti-crash-diet falloff above the safe
-	// pace and a below-healthy-floor guard.
-	WeightOutcomeMaxHP        int
-	WeightMaintenanceFalloff  float64
+	// Weight (§6.7), in the Vitals ring. The daily band/outcome moved to the
+	// weekly trend-velocity award (gamification-11 §Task2); these remain as the
+	// safe-pace tolerance both ScoreWeightWeekly and gauges.go's pace-status
+	// read share.
 	WeightSafePaceMaxPct      float64
 	WeightSafePaceMinPct      float64
 	WeightPaceFalloffBelowPct float64
@@ -253,6 +257,43 @@ type Config struct {
 	// distinct from (and stricter than) HealthScoreAdherencePDCTarget above,
 	// which grades Health Score credit rather than firing a nudge.
 	AdherenceAlertPDCThreshold float64
+
+	// Gauge trends (gamification-11 §Overview): weight becomes a trend
+	// velocity+acceleration read (Hacker's-Diet-style EMA) instead of a daily
+	// band score; BP becomes a rolling in-range share; resting HR a trend vs
+	// baseline. All three compute on read from the raw log — no new tables —
+	// feeding the Journey gauges panel and the weekly award streams that
+	// replace the removed daily gauge outcomes. WeightSafePaceMinPct/MaxPct
+	// above (already scored by ScoreWeight) double as the pace-status
+	// thresholds here — one definition of "safe pace", not a duplicate.
+	GaugeWeightEMAAlpha                       float64
+	GaugeWeightLookbackDays                   int
+	GaugeWeightVelocityWindowDays             int
+	GaugeWeightAccelerationDeadbandPctPerWeek float64
+	GaugeWeightMinHistoryDays                 int
+
+	GaugeBPRecentWindowDays    int
+	GaugeBPMidWindowDays       int
+	GaugeBPBaselineWindowDays  int
+	GaugeBPMinBaselineReadings int
+
+	GaugeRestingHRRecentWindowDays   int
+	GaugeRestingHRBaselineWindowDays int
+	GaugeRestingHRMinBaselineDays    int
+
+	// Weekly gauge awards (gamification-11 §Task2): the idempotent replacement
+	// for the removed daily BP/weight/resting-HR outcomes, granted once per
+	// week on the week's last day from the same trend/share reads gauges.go
+	// computes. Weight and BP reuse the existing safe-pace/falloff constants
+	// above (WeightSafePaceMinPct/MaxPct, WeightPaceFalloffBelowPct/AbovePct) —
+	// one definition of "safe pace", not a weekly-specific duplicate.
+	GaugeWeightWeeklyMaxHP int
+
+	GaugeBPWeeklyMaxHP     int
+	GaugeBPShareFalloffPts float64 // share-point (0..1) decline below the 60d baseline before the award reaches 0
+
+	GaugeRestingHRWeeklyMaxHP int
+	GaugeRestingHRFalloffBPM  float64 // bpm rise above the 60d baseline before the award reaches 0
 }
 
 // DefaultConfig returns the recommended guideline defaults. Every value is a
@@ -266,15 +307,11 @@ func DefaultConfig() Config {
 		AdherenceOnTimeGraceMin: 60,
 		AdherenceLateFalloffMin: 120,
 
-		BPOutcomeMaxHP: 10,
-		BPSystolic:     Band{Low: 90, High: 120, Falloff: 10}, // ACC/AHA "normal", two-sided
-		BPDiastolic:    Band{Low: 60, High: 80, Falloff: 5},
+		BPSystolic:  Band{Low: 90, High: 120, Falloff: 10}, // ACC/AHA "normal", two-sided
+		BPDiastolic: Band{Low: 60, High: 80, Falloff: 5},
 
-		VitalsAutoOutcomeMaxHP: 4, // moderate weight: passively captured
-		RestingHR:              Band{Low: 50, High: 80, Falloff: 10},
-		SpO2Low:                95,
-		SpO2Falloff:            4,
-		VitalsImprovementSpan:  0.2,
+		RestingHR:             Band{Low: 50, High: 80, Falloff: 10},
+		VitalsImprovementSpan: 0.2,
 
 		SleepHours:           Band{Low: 7, High: 9, Falloff: 1.5}, // AASM 7–9h, Health Score only
 		SleepRegularityMaxHP: 10,                                  // primary sleep award (was 5): bedtime timing is the lever
@@ -290,8 +327,6 @@ func DefaultConfig() Config {
 		NourishmentProteinMaxHP:  4,
 		NourishmentVegMaxHP:      3,
 
-		WeightOutcomeMaxHP:        8,
-		WeightMaintenanceFalloff:  1.0,
 		WeightSafePaceMaxPct:      1.0, // ≤1% bodyweight/week is safe
 		WeightSafePaceMinPct:      0.25,
 		WeightPaceFalloffBelowPct: 0.2,
@@ -328,6 +363,29 @@ func DefaultConfig() Config {
 		HabitStrengthHalfLifeDays: 13,
 
 		AdherenceAlertPDCThreshold: 0.90,
+
+		GaugeWeightEMAAlpha:                       0.10, // Hacker's Diet ~10%/day
+		GaugeWeightLookbackDays:                   120,
+		GaugeWeightVelocityWindowDays:             14,
+		GaugeWeightAccelerationDeadbandPctPerWeek: 0.15,
+		GaugeWeightMinHistoryDays:                 28, // 2x the velocity window: enough for both velocity and acceleration
+
+		GaugeBPRecentWindowDays:    14,
+		GaugeBPMidWindowDays:       30,
+		GaugeBPBaselineWindowDays:  60,
+		GaugeBPMinBaselineReadings: 4,
+
+		GaugeRestingHRRecentWindowDays:   14,
+		GaugeRestingHRBaselineWindowDays: 60,
+		GaugeRestingHRMinBaselineDays:    5,
+
+		GaugeWeightWeeklyMaxHP: 20,
+
+		GaugeBPWeeklyMaxHP:     20,
+		GaugeBPShareFalloffPts: 0.20, // a 20-point share decline zeroes the award
+
+		GaugeRestingHRWeeklyMaxHP: 10,
+		GaugeRestingHRFalloffBPM:  5, // a 5bpm rise above baseline zeroes the award
 	}
 }
 
@@ -426,58 +484,16 @@ type BPDay struct {
 }
 
 // ScoreBP (§6.2) grants one integrity floor for the day (regardless of how many
-// readings — measurement floors don't multiply, unlike scheduled doses) and a
-// two-sided outcome on the day's mean reading. Both systolic and diastolic must
-// be in range: the outcome uses the min of the two memberships. Safety alerts on
-// dangerous readings are a separate concern — never a silent score penalty.
+// readings — measurement floors don't multiply, unlike scheduled doses). The
+// two-sided range-membership outcome moved to the weekly rolling in-range
+// share (gamification-11 §Task2, ScoreBPWeekly): one bad day is no longer a
+// same-day judgment. Safety alerts on dangerous readings are a separate
+// concern — never a silent score penalty.
 func ScoreBP(in BPDay, cfg Config) []Award {
 	if len(in.Readings) == 0 {
 		return nil
 	}
-	var awards []Award
-	awards = addAward(awards, RingVitals, MetricBP, KindFloor, cfg.FloorHP, "")
-	var sumSys, sumDia float64
-	for _, rd := range in.Readings {
-		sumSys += rd.Systolic
-		sumDia += rd.Diastolic
-	}
-	n := float64(len(in.Readings))
-	r := math.Min(cfg.BPSystolic.Membership(sumSys/n), cfg.BPDiastolic.Membership(sumDia/n))
-	awards = addAward(awards, RingVitals, MetricBP, KindOutcome, scaleHP(cfg.BPOutcomeMaxHP, r), detailR(r))
-	return awards
-}
-
-// VitalsAutoDay is one user-day of auto-captured streams. The Baseline* fields
-// carry the user's own recent baseline (0 = unknown) so scoring can credit
-// improvement-vs-self, not just absolute range.
-type VitalsAutoDay struct {
-	HasRestingHR      bool
-	RestingHR         float64
-	BaselineRestingHR float64
-	HasSpO2           bool
-	SpO2              float64
-}
-
-// ScoreVitalsAuto (§6.3) scores resting HR and SpO₂ at a moderate weight. HR
-// takes the kinder of (absolute band membership, improvement vs. the user's
-// own baseline) so someone with a genetically high resting HR still earns by
-// trending down for themselves. SpO₂ is one-sided (≥95%). One outcome award
-// per present stream; no floor (auto-captured streams don't need an honesty
-// incentive). Stress is deliberately not scored here (gamification-10 §2.5):
-// it is not a lever the user governs, so even improvement-vs-baseline would
-// grade the ungovernable — it stays visible in charts only.
-func ScoreVitalsAuto(in VitalsAutoDay, cfg Config) []Award {
-	var awards []Award
-	if in.HasRestingHR {
-		r := math.Max(cfg.RestingHR.Membership(in.RestingHR),
-			BaselineRelative(in.RestingHR, in.BaselineRestingHR, true, cfg.VitalsImprovementSpan))
-		awards = addAward(awards, RingVitals, MetricRestingHR, KindOutcome, scaleHP(cfg.VitalsAutoOutcomeMaxHP, r), detailR(r))
-	}
-	if in.HasSpO2 {
-		r := RangeMembership(in.SpO2, cfg.SpO2Low, 100, cfg.SpO2Falloff)
-		awards = addAward(awards, RingVitals, MetricSpO2, KindOutcome, scaleHP(cfg.VitalsAutoOutcomeMaxHP, r), detailR(r))
-	}
-	return awards
+	return addAward(nil, RingVitals, MetricBP, KindFloor, cfg.FloorHP, "")
 }
 
 // SleepDay is one logged night. TimingDeviationMin is |bedtime − the user's
@@ -586,52 +602,110 @@ func ScoreNourishment(in NourishmentDay, cfg Config) []Award {
 	return awards
 }
 
-// WeightDay is one user-day of weight scoring. Maintenance mode uses Weight
-// against [BandLow, BandHigh]; goal mode uses WeeklyChangePct (signed % of
-// bodyweight/week, negative = loss) and GoalDirection (-1 lose, +1 gain).
-// BelowHealthyFloor forces a zero outcome (refuse to reward an unhealthy target).
+// WeightDay is one user-day of weight scoring: only whether a weigh-in was
+// logged, for the integrity floor. The maintenance/goal outcome moved to the
+// weekly trend-velocity award (gamification-11 §Task2, ScoreWeightWeekly).
 type WeightDay struct {
-	Logged            bool
-	Mode              string
-	Weight            float64
-	BandLow           float64
-	BandHigh          float64
-	WeeklyChangePct   float64
-	GoalDirection     int
-	SafePaceMaxPct    float64
-	BelowHealthyFloor bool
+	Logged bool
 }
 
-// ScoreWeight (§6.7) lives in the Vitals ring and is never rewarded for going
-// down per se. The floor rewards the habit of weighing in. Maintenance rewards
-// stability inside the user's band (two-sided). Goal rewards safe-pace progress
-// toward the goal, with a gentle falloff below the safe minimum and a steeper
-// anti-crash-diet falloff above the safe maximum. A weight below the healthy
-// floor scores zero outcome.
+// ScoreWeight (§6.7) lives in the Vitals ring and grants only the habit floor
+// for weighing in — the day's reading itself is never judged (§Task2: that
+// moved to the weekly trend-velocity/pace award, so a single heavy day can't
+// move it).
 func ScoreWeight(in WeightDay, cfg Config) []Award {
-	var awards []Award
 	if !in.Logged {
-		return awards
+		return nil
 	}
-	awards = addAward(awards, RingVitals, MetricWeight, KindFloor, cfg.FloorHP, "")
+	return addAward(nil, RingVitals, MetricWeight, KindFloor, cfg.FloorHP, "")
+}
+
+// ----- weekly gauge awards (gamification-11 §Task2) -------------------------
+//
+// The three functions below are the once-per-week replacements for the daily
+// BP/weight/resting-HR outcomes removed above. They are written only on each
+// week's last day, from the same trend/share reads gauges.go's GaugesView
+// already computes (velocity, in-range share, baseline delta) — no separate
+// math, no new tables. HasData=false (the gauge reported insufficient_data)
+// grants no award: honest silence on thin history, never a zero judgment.
+
+// WeightWeeklyInput is one week's smoothed weight-trend read at week-end.
+// VelocityPctPerWeek is the EMA trend's %bodyweight/week (gauges.go's
+// WeightGaugeView.VelocityPctPerWeek). GoalDirection is -1 (lose)/+1 (gain)
+// when the user has a goal, 0 when they don't (maintenance: stability itself
+// is rewarded, not progress toward any target).
+type WeightWeeklyInput struct {
+	HasData            bool
+	VelocityPctPerWeek float64
+	GoalDirection      int
+}
+
+// ScoreWeightWeekly grants full HP when the trend's velocity sits on the safe
+// pace toward the goal, with the same gentle-below/steep-above (anti-crash-
+// diet) trapezoid falloff ScoreWeight's daily goal mode used. With no goal
+// (GoalDirection 0), the safe-pace minimum doubles as a symmetric stability
+// band around zero velocity — holding steady earns full HP, drifting either
+// direction falls off at the same crash-diet rate.
+func ScoreWeightWeekly(in WeightWeeklyInput, cfg Config) []Award {
+	if !in.HasData {
+		return nil
+	}
 	var r float64
-	switch {
-	case in.BelowHealthyFloor:
-		r = 0
-	case in.Mode == ModeWeightGoal:
-		safeMax := in.SafePaceMaxPct
-		if safeMax <= 0 {
-			safeMax = cfg.WeightSafePaceMaxPct
-		}
-		toward := in.WeeklyChangePct * float64(in.GoalDirection) // positive = progress toward goal
-		r = trapezoid(toward, cfg.WeightSafePaceMinPct, safeMax, cfg.WeightPaceFalloffBelowPct, cfg.WeightPaceFalloffAbovePct)
-	default: // maintenance
-		if in.BandHigh > in.BandLow {
-			r = RangeMembership(in.Weight, in.BandLow, in.BandHigh, cfg.WeightMaintenanceFalloff)
+	if in.GoalDirection != 0 {
+		toward := in.VelocityPctPerWeek * float64(in.GoalDirection) // positive = progress toward goal
+		r = trapezoid(toward, cfg.WeightSafePaceMinPct, cfg.WeightSafePaceMaxPct, cfg.WeightPaceFalloffBelowPct, cfg.WeightPaceFalloffAbovePct)
+	} else {
+		r = trapezoid(in.VelocityPctPerWeek, -cfg.WeightSafePaceMinPct, cfg.WeightSafePaceMinPct, cfg.WeightPaceFalloffAbovePct, cfg.WeightPaceFalloffAbovePct)
+	}
+	return addAward(nil, RingVitals, MetricWeightTrendWeek, KindOutcome, scaleHP(cfg.GaugeWeightWeeklyMaxHP, r), detailR(r))
+}
+
+// BPWeeklyInput is one week's rolling in-range share read at week-end
+// (gauges.go's BPGaugeView.Share30d/BaselineShare60d).
+type BPWeeklyInput struct {
+	HasData          bool
+	Share30d         float64
+	BaselineShare60d float64
+}
+
+// ScoreBPWeekly grants full HP when the trailing 30-day in-range share is at
+// or above the 60-day baseline (holding or improving control), falling off
+// linearly as the share drops GaugeBPShareFalloffPts below baseline. Two bad
+// days can only ever nudge this a few points — never a same-day judgment.
+func ScoreBPWeekly(in BPWeeklyInput, cfg Config) []Award {
+	if !in.HasData {
+		return nil
+	}
+	delta := in.Share30d - in.BaselineShare60d
+	r := trapezoid(delta, 0, 1, cfg.GaugeBPShareFalloffPts, 0)
+	return addAward(nil, RingVitals, MetricBPShareWeek, KindOutcome, scaleHP(cfg.GaugeBPWeeklyMaxHP, r), detailR(r))
+}
+
+// RestingHRWeeklyInput is one week's baseline-delta read at week-end
+// (gauges.go's RestingHRGaugeView.DeltaFromBaseline; negative/zero = the
+// recent 14-day mean is at or below the 60-day baseline, i.e. held or
+// improved — lower resting HR is better).
+type RestingHRWeeklyInput struct {
+	HasData           bool
+	DeltaFromBaseline float64
+}
+
+// ScoreRestingHRWeekly grants full HP when the trend held or improved vs
+// baseline, falling off linearly as it rises, reaching 0 at
+// GaugeRestingHRFalloffBPM above baseline.
+func ScoreRestingHRWeekly(in RestingHRWeeklyInput, cfg Config) []Award {
+	if !in.HasData {
+		return nil
+	}
+	r := 1.0
+	if in.DeltaFromBaseline > 0 {
+		if cfg.GaugeRestingHRFalloffBPM <= 0 {
+			r = 0
+		} else {
+			r = clamp01(1 - in.DeltaFromBaseline/cfg.GaugeRestingHRFalloffBPM)
 		}
 	}
-	awards = addAward(awards, RingVitals, MetricWeight, KindOutcome, scaleHP(cfg.WeightOutcomeMaxHP, r), detailR(r))
-	return awards
+	return addAward(nil, RingVitals, MetricRestingHRTrendWeek, KindOutcome, scaleHP(cfg.GaugeRestingHRWeeklyMaxHP, r), detailR(r))
 }
 
 // MindDay is one user-day of reflection. There is deliberately no mood-value
@@ -820,11 +894,10 @@ func HealthContributorSleep(meanDurationHours, meanTimingDeviationMin float64, h
 	return c
 }
 
-// HealthContributorRestingHR builds the "resting_hr" contributor using the
-// same kinder-of-two rule as ScoreVitalsAuto: absolute-band membership or
-// improvement vs. the user's own baseline, whichever is higher — so a
-// genetically high resting HR still earns by trending down for that person
-// specifically.
+// HealthContributorRestingHR builds the "resting_hr" contributor using a
+// kinder-of-two rule: absolute-band membership or improvement vs. the user's
+// own baseline, whichever is higher — so a genetically high resting HR still
+// earns by trending down for that person specifically.
 func HealthContributorRestingHR(meanHR, baselineHR float64, present bool, cfg Config) HealthScoreContributor {
 	c := HealthScoreContributor{Key: HealthKeyRestingHR, Label: "Resting heart rate", Weight: cfg.HealthScoreWeightRestingHR, Present: present}
 	if present {

@@ -94,6 +94,15 @@ func weekBounds(week int64) (first, last int64) {
 	return firstDay * secondsPerDay, (firstDay + 6) * secondsPerDay
 }
 
+// isWeekEndDay reports whether day is the last day of its week — the one day
+// scoreDayAwards additionally computes the weekly gauge awards on
+// (gamification-11 §Task2). Same Monday-anchored bucketing as weekIndex/
+// weekBounds, so it never drifts out of lockstep with the streak fold.
+func isWeekEndDay(day time.Time) bool {
+	_, last := weekBounds(weekIndex(day))
+	return utcMidnight(day).Unix() == last
+}
+
 // derivedStreakWindowWeeks bounds how far back deriveStreak folds — a full
 // year, comfortably beyond MaxFreezes (≤4 by default), so no realistic streak
 // run needs history older than this to resolve correctly.

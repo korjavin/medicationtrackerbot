@@ -23,6 +23,8 @@
     const STALE_AFTER_MS = 6 * 60 * 60 * 1000; // 6h — matches the cache-keys registry
     const INSIGHTS_CACHE_KEY = 'gamification_insights';
     const INSIGHTS_URL = '/api/gamification/insights';
+    const GAUGES_CACHE_KEY = 'gamification_gauges';
+    const GAUGES_URL = '/api/gamification/gauges';
 
     // Ring display metadata in canonical order (matches the backend's
     // ringScores ordering) — the three daily levers (gamification-10 §2.5).
@@ -189,6 +191,109 @@
             list.appendChild(row);
         });
         card.appendChild(list);
+        return card;
+    }
+
+    // Gauges panel (gamification-11 §Task4): weight/BP/resting-HR read as
+    // trends, never a daily grade — copy is numbers + direction words only,
+    // no color judgment (a slowing trend is an observation, never red; see
+    // .wg-journey-gauge__caption, which stays wg-muted regardless of state).
+    const GAUGE_PACE_STATUS_LABEL = {
+        on_pace: 'on pace',
+        too_slow: 'slower than your pace',
+        too_fast: 'faster than your pace',
+        wrong_direction: 'moving away from goal',
+    };
+    const GAUGE_ACCELERATION_LABEL = {
+        speeding_up: 'speeding up',
+        holding: 'holding steady',
+        slowing: 'slowing',
+    };
+
+    function weightGaugeCopy(w) {
+        if (!w || w.status !== 'ok') return 'Keep logging weight — not enough history yet for a trend.';
+        const velocity = Number(w.velocity_pct_per_week) || 0;
+        const parts = [`${velocity >= 0 ? '+' : ''}${velocity.toFixed(1)}%/week`];
+        const pace = GAUGE_PACE_STATUS_LABEL[w.pace_status];
+        if (pace) parts.push(pace);
+        const accel = GAUGE_ACCELERATION_LABEL[w.acceleration];
+        if (accel) parts.push(accel);
+        return parts.join(' · ');
+    }
+
+    function bpGaugeCopy(bp) {
+        if (!bp || bp.status !== 'ok') return 'Log a few more BP readings to see your range trend.';
+        const baseline = Math.round((Number(bp.baseline_share_60d) || 0) * 100);
+        // No readings in the last 30 days would render "In range 0%", which
+        // reads as "out of range all month" when the truth is "no measurements".
+        if (!(Number(bp.count_30d) > 0)) return `Baseline ${baseline}% in range · none logged in the last 30 days`;
+        const share30d = Math.round((Number(bp.share_30d) || 0) * 100);
+        return `In range ${share30d}% of last 30 days · baseline ${baseline}%`;
+    }
+
+    function restingHRGaugeCopy(hr) {
+        if (!hr || hr.status !== 'ok') return 'Not enough resting-HR data yet for a baseline.';
+        const recent = Math.round(Number(hr.recent_14d_mean) || 0);
+        const delta = Math.round(Number(hr.delta_from_baseline) || 0);
+        const deltaWord = delta === 0 ? 'at your baseline' : `${Math.abs(delta)} ${delta < 0 ? 'below' : 'above'} your baseline`;
+        return `${recent} avg · ${deltaWord}`;
+    }
+
+    function renderGaugeRow(label, caption, sparklinePoints) {
+        const row = el('div', 'wg-journey-gauge');
+        row.appendChild(el('span', 'wg-journey-gauge__label', label));
+        if (Array.isArray(sparklinePoints) && sparklinePoints.length > 1 &&
+            window.WGSparkline && typeof window.WGSparkline.render === 'function') {
+            const spark = window.WGSparkline.render({ points: sparklinePoints, variant: 'mint', width: 300, height: 40 });
+            if (spark) {
+                const chart = el('div', 'wg-journey-gauge__chart');
+                chart.appendChild(spark);
+                row.appendChild(chart);
+            }
+        }
+        row.appendChild(el('p', 'wg-journey-gauge__caption wg-muted', caption));
+        return row;
+    }
+
+    // Reads `journey.gauges` (attached by load() from its own cachedFetch
+    // entry — GET /api/gamification/gauges, gamification-11 §Task3) rather
+    // than the Journey payload itself, same pattern as the tier-3 insight
+    // card. Renders an explicit offline-empty state via `emptyState`, and
+    // omits the whole card while gate-off (`enabled:false`) or not loaded yet.
+    function renderGauges(j) {
+        const gauges = j.gauges;
+        if (!gauges) return null;
+
+        const card = el('section', 'wg-card wg-journey-gauges');
+        card.appendChild(el('div', 'wg-section-label', 'GAUGES'));
+
+        if (gauges.emptyState) {
+            card.appendChild(el('p', 'wg-journey-gauges__empty wg-muted', gauges.emptyState));
+            return card;
+        }
+        if (gauges.enabled === false) return null;
+
+        card.appendChild(el('p', 'wg-journey-gauges__why wg-muted',
+            'Your body reports back slowly — these read as trends, never a daily grade.'));
+
+        const list = el('div', 'wg-journey-gauges__list');
+        list.appendChild(renderGaugeRow('Weight', weightGaugeCopy(gauges.weight), gauges.weight && gauges.weight.trend_history));
+        list.appendChild(renderGaugeRow('Blood pressure', bpGaugeCopy(gauges.bp)));
+        list.appendChild(renderGaugeRow('Resting heart rate', restingHRGaugeCopy(gauges.resting_hr)));
+        card.appendChild(list);
+
+        // Attribution loop (Task4, item 2): the tier-3/4 insight cards answer
+        // "why is this moving?" — reuses the ladder's own scroll target so
+        // there's one destination for "your insights", not two.
+        const link = el('div', 'wg-journey-gauges__link', 'Why is this moving? → your insights');
+        link.setAttribute('role', 'button');
+        link.setAttribute('tabindex', '0');
+        link.addEventListener('click', goToInsightCard);
+        link.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goToInsightCard(); }
+        });
+        card.appendChild(link);
+
         return card;
     }
 
@@ -521,6 +626,7 @@
             renderHeader(journey),
             renderExplainer(),
             renderHealthScore(journey),
+            renderGauges(journey),
             renderStrengths(journey),
             renderRings(journey),
             renderHistory(journey),
@@ -567,6 +673,27 @@
         }
     }
 
+    // Fetches the Gauges read model through its own cachedFetch entry (Task
+    // 4) — unlike the tier-3 insight, this isn't ladder-gated: it's fetched
+    // whenever the Journey payload loads. A cold cache offline read renders
+    // an explicit empty state on the card rather than omitting it silently.
+    async function loadGauges() {
+        try {
+            const result = await window.cachedFetch(GAUGES_CACHE_KEY, GAUGES_URL, {
+                tags: ['gamification'],
+                freshAfterMs: 60_000,
+                staleAfterMs: STALE_AFTER_MS,
+            });
+            return result ? result.data : null;
+        } catch (e) {
+            if (window.OfflineNoCacheError && e instanceof window.OfflineNoCacheError) {
+                return { emptyState: 'No cached gauge data — connect to load.' };
+            }
+            console.error('Failed to load gamification gauges:', e);
+            return null;
+        }
+    }
+
     // Loads the Journey read model and paints the screen. Routes through
     // cachedFetch so a cold relaunch offline renders last-known data; a cold
     // cache offline surfaces an explicit empty state (OfflineNoCacheError).
@@ -599,6 +726,9 @@
             const data = result ? result.data : null;
             if (data && tierUnlocked(data, 3)) {
                 data.insight = await loadInsight();
+            }
+            if (data) {
+                data.gauges = await loadGauges();
             }
             render(data);
             await mountBadge();

@@ -9,10 +9,11 @@ package gamification
 // (Task 8): see advanceStreak in streak.go.
 //
 // Mapping scope decisions for the MVP single-day path (each documented at its
-// loader): improvement-vs-baseline (HR/stress) and sleep-timing regularity need
-// a trailing personal baseline and are left "unknown" so the scorers fall back to
-// their absolute bands; weight is scored as maintenance around a trailing
-// average; weekly activity minutes come from completed workout-session durations.
+// loader): sleep-timing regularity needs a trailing personal baseline and is
+// left "unknown" so the scorer falls back to its absolute band; weekly
+// activity minutes come from completed workout-session durations. BP, weight,
+// and resting HR only contribute their integrity floor here — the gauge
+// award moved to the week's last day (gamification-11 §Task2, below).
 
 import (
 	"context"
@@ -29,7 +30,6 @@ import (
 // science of a single day's score.
 const (
 	movementWeekDays    = 7   // rolling window for WHO weekly-activity progress
-	weightLookbackDays  = 14  // trailing window for the maintenance band center
 	workoutHistoryLimit = 500 // plenty to cover the movement week window
 	diaryDayLimit       = 100 // cap on entries counted for one day's Mind floor
 
@@ -146,6 +146,23 @@ func (s *service) scoreDayCore(ctx context.Context, userID int64, day time.Time)
 // concatenating the awards. A load error from any domain aborts the day (partial
 // scoring would silently understate HP).
 func (s *service) scoreDayAwards(ctx context.Context, userID int64, start, end time.Time, cfg scoring.Config) ([]scoring.Award, error) {
+	// The read-path rescore (ensureGamificationFresh → RescoreInstants) adds the
+	// current week's end day so an in-progress week refreshes its weekly GAUGE
+	// award on partial data (gamification-11 §Task2). That end day is in the
+	// future on any read before the week closes. A future day carries no
+	// same-day data, but the rolling-window loaders — loadMovement's trailing
+	// 7-day activity above all — would pull already-completed past rows forward
+	// and write a future-dated daily award, inflating lifetime HP before the day
+	// is reached. Only the weekly gauge award belongs on a not-yet-reached day,
+	// so for a future day compute that alone and skip every daily scorer; the
+	// daily awards land when the day actually arrives and is re-scored.
+	if start.After(utcMidnight(s.now())) {
+		if isWeekEndDay(start) {
+			return s.weeklyGaugeAwards(ctx, userID, start, cfg)
+		}
+		return nil, nil
+	}
+
 	var awards []scoring.Award
 
 	adh, err := s.loadAdherence(ctx, userID, start, end)
@@ -159,12 +176,6 @@ func (s *service) scoreDayAwards(ctx context.Context, userID int64, start, end t
 		return nil, err
 	}
 	awards = append(awards, scoring.ScoreBP(bpDay, cfg)...)
-
-	va, err := s.loadVitalsAuto(ctx, userID, start, end)
-	if err != nil {
-		return nil, err
-	}
-	awards = append(awards, scoring.ScoreVitalsAuto(va, cfg)...)
 
 	sleep, err := s.loadSleep(ctx, userID, start)
 	if err != nil {
@@ -184,7 +195,7 @@ func (s *service) scoreDayAwards(ctx context.Context, userID int64, start, end t
 	}
 	awards = append(awards, scoring.ScoreNourishment(nour, cfg)...)
 
-	wt, err := s.loadWeight(ctx, userID, start, end, cfg)
+	wt, err := s.loadWeight(ctx, userID, start, end)
 	if err != nil {
 		return nil, err
 	}
@@ -195,6 +206,14 @@ func (s *service) scoreDayAwards(ctx context.Context, userID int64, start, end t
 		return nil, err
 	}
 	awards = append(awards, scoring.ScoreMind(mind, cfg)...)
+
+	if isWeekEndDay(start) {
+		weekly, err := s.weeklyGaugeAwards(ctx, userID, start, cfg)
+		if err != nil {
+			return nil, err
+		}
+		awards = append(awards, weekly...)
+	}
 
 	return awards, nil
 }
@@ -326,7 +345,10 @@ func (s *service) recomputeState(ctx context.Context, userID int64, start time.T
 		return gamstore.State{}, false, err
 	}
 
-	if prev.LastScoredDay == nil || start.After(*prev.LastScoredDay) {
+	// Don't record a future week-end day (scored on the read path to refresh an
+	// in-progress week's gauge award) as "last scored" — it would surface a
+	// nonsensical future last_scored_day in the summary/journey API and MCP.
+	if (prev.LastScoredDay == nil || start.After(*prev.LastScoredDay)) && !start.After(utcMidnight(s.now())) {
 		d := start
 		st.LastScoredDay = &d
 	}
@@ -583,50 +605,6 @@ func (s *service) loadBP(ctx context.Context, userID int64, start, end time.Time
 	return out, nil
 }
 
-// loadVitalsAuto maps the day's auto-captured streams: resting HR proxied by the
-// day's minimum HR sample, SpO₂ by its daily mean. Baselines are left zero
-// (unknown) so the scorer uses its absolute bands — improvement-vs-self needs a
-// trailing personal baseline that the single-day path does not compute. Stress
-// is intentionally not loaded here — it is not a lever (gamification-10 §2.5) and
-// earns no HP; it stays readable via the vitals store's own chart-facing routes.
-func (s *service) loadVitalsAuto(ctx context.Context, userID int64, start, end time.Time) (scoring.VitalsAutoDay, error) {
-	// The vitals store uses inclusive bounds (date_time <= end), so a sample at
-	// exactly next-day midnight (== end) would be attributed to both this day and
-	// the next. Clip the upper bound by 1ms (storage is millisecond-resolution) to
-	// keep the half-open [start, end) convention the other loaders use; the cadence
-	// is anchored to 00:00 UTC, so a sample lands on this boundary every day.
-	upper := end.Add(-time.Millisecond)
-	hr, err := s.vitals.ListHeart(ctx, userID, start, upper)
-	if err != nil {
-		return scoring.VitalsAutoDay{}, err
-	}
-	spo2, err := s.vitals.ListSpO2(ctx, userID, start, upper)
-	if err != nil {
-		return scoring.VitalsAutoDay{}, err
-	}
-
-	var out scoring.VitalsAutoDay
-	if len(hr) > 0 {
-		min := hr[0].Value
-		for _, h := range hr[1:] {
-			if h.Value < min {
-				min = h.Value
-			}
-		}
-		out.HasRestingHR = true
-		out.RestingHR = float64(min)
-	}
-	if len(spo2) > 0 {
-		sum := 0
-		for _, v := range spo2 {
-			sum += v.Value
-		}
-		out.HasSpO2 = true
-		out.SpO2 = float64(sum) / float64(len(spo2))
-	}
-	return out, nil
-}
-
 // loadSleep maps the night attributed to this calendar day onto SleepDay.
 // Duration comes from total_minutes when present, else the start→end span.
 // Regularity (HasRegularity/TimingDeviationMin) is resolved against the
@@ -796,45 +774,21 @@ func (s *service) loadNourishment(ctx context.Context, userID int64, start time.
 	return out, nil
 }
 
-// loadWeight maps the day's weigh-in onto WeightDay in maintenance mode: the band
-// is centered on the trailing average of prior readings (± the configured
-// falloff), rewarding stability. With no prior readings the outcome is skipped
-// and only the weigh-in floor is granted. (Goal-pace mode is supported by the
-// scorer and can be wired once a per-user goal/start-weight feed is available.)
-func (s *service) loadWeight(ctx context.Context, userID int64, start, end time.Time, cfg scoring.Config) (scoring.WeightDay, error) {
-	logs, err := s.weight.ListLogs(ctx, userID, start.AddDate(0, 0, -weightLookbackDays))
+// loadWeight reports only whether a weigh-in was logged this day, for the
+// integrity floor — the band/trend judgment moved to the weekly trend-
+// velocity award (gamification-11 §Task2), so no trailing average is needed
+// here anymore.
+func (s *service) loadWeight(ctx context.Context, userID int64, start, end time.Time) (scoring.WeightDay, error) {
+	logs, err := s.weight.ListLogs(ctx, userID, start)
 	if err != nil {
 		return scoring.WeightDay{}, err
 	}
-
-	var out scoring.WeightDay
-	var priorSum float64
-	var priorN int
-	dayFound := false
 	for _, l := range logs {
 		if inDay(l.MeasuredAt, start, end) {
-			if !dayFound { // logs are DESC; first match is the latest reading that day
-				out.Logged = true
-				out.Weight = l.Weight
-				dayFound = true
-			}
-			continue
-		}
-		if l.MeasuredAt.Before(start) {
-			priorSum += l.Weight
-			priorN++
+			return scoring.WeightDay{Logged: true}, nil
 		}
 	}
-	if !out.Logged {
-		return out, nil
-	}
-	if priorN > 0 {
-		avg := priorSum / float64(priorN)
-		out.Mode = scoring.ModeWeightMaintenance
-		out.BandLow = avg - cfg.WeightMaintenanceFalloff
-		out.BandHigh = avg + cfg.WeightMaintenanceFalloff
-	}
-	return out, nil
+	return scoring.WeightDay{}, nil
 }
 
 // loadMind counts the day's diary entries for the Mind floor. The reflection

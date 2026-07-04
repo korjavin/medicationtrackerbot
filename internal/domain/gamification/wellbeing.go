@@ -213,14 +213,15 @@ func (s *service) computeAdherenceAlert(ctx context.Context, userID int64, today
 }
 
 // healthScoreRestingHR builds the "resting_hr" contributor from the recent
-// window's mean daily-minimum HR (the same proxy loadVitalsAuto uses for a
-// single day) vs. the mean over the baseline window strictly before it —
-// mirrors healthScoreWeight so a recent improvement isn't averaged into the
-// very baseline it's graded against.
+// window's mean daily-minimum HR vs. the mean over the baseline window
+// strictly before it — mirrors healthScoreWeight so a recent improvement
+// isn't averaged into the very baseline it's graded against. gauges.go's
+// computeRestingHRGauge mirrors this same daily-minimum-HR proxy and windowing
+// for the trend read.
 func (s *service) healthScoreRestingHR(ctx context.Context, userID int64, today time.Time, cfg scoring.Config) (scoring.HealthScoreContributor, error) {
 	baselineStart := today.AddDate(0, 0, -(cfg.HealthScoreBaselineDays - 1))
 	recentStart := today.AddDate(0, 0, -(cfg.HealthScoreWindowDays - 1))
-	end := today.AddDate(0, 0, 1).Add(-time.Millisecond) // half-open [start,end) convention, see loadVitalsAuto
+	end := today.AddDate(0, 0, 1).Add(-time.Millisecond) // half-open [start,end) convention (samples are millisecond-resolution)
 
 	samples, err := s.vitals.ListHeart(ctx, userID, baselineStart, end)
 	if err != nil {
@@ -528,9 +529,9 @@ func median(vals []float64) float64 {
 	return (sorted[mid-1] + sorted[mid]) / 2
 }
 
-// dailyMinByDay buckets HR samples into per-UTC-day minimums — the same
-// "day's minimum HR sample" resting-HR proxy loadVitalsAuto uses for a single
-// day, generalized across a window.
+// dailyMinByDay buckets HR samples into per-UTC-day minimums — the "day's
+// minimum HR sample" resting-HR proxy healthScoreRestingHR and gauges.go's
+// computeRestingHRGauge both use, generalized across a window.
 func dailyMinByDay(samples []store.VitalsHeartLog) map[string]int {
 	out := map[string]int{}
 	for _, smp := range samples {

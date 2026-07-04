@@ -152,14 +152,14 @@ func TestScoreAdherence(t *testing.T) {
 func TestScoreBP(t *testing.T) {
 	cfg := DefaultConfig()
 
-	t.Run("in-range → floor + full outcome", func(t *testing.T) {
+	t.Run("readings logged → floor only, the day's reading is not judged", func(t *testing.T) {
 		aw := ScoreBP(BPDay{Readings: []BPReading{{Systolic: 115, Diastolic: 75}}}, cfg)
 		assertNonNegative(t, aw)
 		if hp, ok := findAward(aw, RingVitals, MetricBP, KindFloor); !ok || hp != cfg.FloorHP {
 			t.Fatalf("floor = %d (ok=%v), want %d", hp, ok, cfg.FloorHP)
 		}
-		if hp, ok := findAward(aw, RingVitals, MetricBP, KindOutcome); !ok || hp != cfg.BPOutcomeMaxHP {
-			t.Fatalf("outcome = %d (ok=%v), want %d", hp, ok, cfg.BPOutcomeMaxHP)
+		if hp, ok := findAward(aw, RingVitals, MetricBP, KindOutcome); ok {
+			t.Fatalf("expected no daily outcome (moved to the weekly award), got %d", hp)
 		}
 	})
 
@@ -172,65 +172,16 @@ func TestScoreBP(t *testing.T) {
 		}
 	})
 
-	t.Run("min-of-two: bad diastolic caps outcome", func(t *testing.T) {
-		// systolic in band (r=1), diastolic 85 → 5 above high(80), delta 5 → r=0.
-		aw := ScoreBP(BPDay{Readings: []BPReading{{Systolic: 115, Diastolic: 85}}}, cfg)
-		if hp, ok := findAward(aw, RingVitals, MetricBP, KindOutcome); ok {
-			t.Fatalf("expected zero outcome when diastolic out of band, got %d", hp)
-		}
-	})
-
-	t.Run("far out of range → floor only", func(t *testing.T) {
+	t.Run("far out of range → still just the floor (honesty rewarded)", func(t *testing.T) {
 		aw := ScoreBP(BPDay{Readings: []BPReading{{Systolic: 180, Diastolic: 110}}}, cfg)
 		if _, ok := findAward(aw, RingVitals, MetricBP, KindFloor); !ok {
 			t.Fatal("expected integrity floor even for a dangerous reading (honesty rewarded)")
-		}
-		if _, ok := findAward(aw, RingVitals, MetricBP, KindOutcome); ok {
-			t.Fatal("expected no outcome for a far-out-of-range reading")
 		}
 	})
 
 	t.Run("no readings → nil", func(t *testing.T) {
 		if aw := ScoreBP(BPDay{}, cfg); aw != nil {
 			t.Fatalf("expected nil, got %+v", aw)
-		}
-	})
-}
-
-func TestScoreVitalsAuto(t *testing.T) {
-	cfg := DefaultConfig()
-
-	t.Run("HR in band → outcome", func(t *testing.T) {
-		aw := ScoreVitalsAuto(VitalsAutoDay{HasRestingHR: true, RestingHR: 60}, cfg)
-		assertNonNegative(t, aw)
-		if hp, ok := findAward(aw, RingVitals, MetricRestingHR, KindOutcome); !ok || hp != cfg.VitalsAutoOutcomeMaxHP {
-			t.Fatalf("HR outcome = %d (ok=%v), want %d", hp, ok, cfg.VitalsAutoOutcomeMaxHP)
-		}
-	})
-
-	t.Run("genetically high HR but improving vs baseline still earns", func(t *testing.T) {
-		// HR 90 is above the absolute band (band r ≈ 0), but it is below the
-		// user's own baseline of 100 → improvement credit > 0.5 → nonzero HP.
-		aw := ScoreVitalsAuto(VitalsAutoDay{HasRestingHR: true, RestingHR: 90, BaselineRestingHR: 100}, cfg)
-		if hp, ok := findAward(aw, RingVitals, MetricRestingHR, KindOutcome); !ok || hp == 0 {
-			t.Fatalf("expected baseline-relative credit, got %d (ok=%v)", hp, ok)
-		}
-	})
-
-	t.Run("SpO2 high earns, low earns nothing", func(t *testing.T) {
-		good := ScoreVitalsAuto(VitalsAutoDay{HasSpO2: true, SpO2: 98}, cfg)
-		if hp, ok := findAward(good, RingVitals, MetricSpO2, KindOutcome); !ok || hp != cfg.VitalsAutoOutcomeMaxHP {
-			t.Fatalf("SpO2 98 outcome = %d (ok=%v), want %d", hp, ok, cfg.VitalsAutoOutcomeMaxHP)
-		}
-		low := ScoreVitalsAuto(VitalsAutoDay{HasSpO2: true, SpO2: 88}, cfg) // below 95-4 → r=0
-		if hp, ok := findAward(low, RingVitals, MetricSpO2, KindOutcome); ok {
-			t.Fatalf("SpO2 88 should earn nothing, got %d", hp)
-		}
-	})
-
-	t.Run("no streams → no awards, never a floor", func(t *testing.T) {
-		if aw := ScoreVitalsAuto(VitalsAutoDay{}, cfg); len(aw) != 0 {
-			t.Fatalf("expected no awards, got %+v", aw)
 		}
 	})
 }
@@ -345,39 +296,122 @@ func TestScoreNourishment(t *testing.T) {
 func TestScoreWeight(t *testing.T) {
 	cfg := DefaultConfig()
 
-	t.Run("maintenance in band → floor + full outcome", func(t *testing.T) {
-		aw := ScoreWeight(WeightDay{Logged: true, Mode: ModeWeightMaintenance, Weight: 75, BandLow: 73, BandHigh: 77}, cfg)
+	t.Run("logged → floor only, the day's reading is not judged", func(t *testing.T) {
+		aw := ScoreWeight(WeightDay{Logged: true}, cfg)
 		assertNonNegative(t, aw)
-		if hp, ok := findAward(aw, RingVitals, MetricWeight, KindOutcome); !ok || hp != cfg.WeightOutcomeMaxHP {
-			t.Fatalf("maintenance outcome = %d (ok=%v), want %d", hp, ok, cfg.WeightOutcomeMaxHP)
+		if hp, ok := findAward(aw, RingVitals, MetricWeight, KindFloor); !ok || hp != cfg.FloorHP {
+			t.Fatalf("floor = %d (ok=%v), want %d", hp, ok, cfg.FloorHP)
+		}
+		if hp, ok := findAward(aw, RingVitals, MetricWeight, KindOutcome); ok {
+			t.Fatalf("expected no daily outcome (moved to the weekly award), got %d", hp)
 		}
 	})
 
+	t.Run("not logged → no awards", func(t *testing.T) {
+		if aw := ScoreWeight(WeightDay{Logged: false}, cfg); len(aw) != 0 {
+			t.Fatalf("expected no awards, got %+v", aw)
+		}
+	})
+}
+
+func TestScoreWeightWeekly(t *testing.T) {
+	cfg := DefaultConfig()
+
 	t.Run("goal: safe-pace loss rewarded, crash-diet pace penalized", func(t *testing.T) {
-		safe := ScoreWeight(WeightDay{Logged: true, Mode: ModeWeightGoal, WeeklyChangePct: -0.6, GoalDirection: -1}, cfg)
-		crash := ScoreWeight(WeightDay{Logged: true, Mode: ModeWeightGoal, WeeklyChangePct: -2.0, GoalDirection: -1}, cfg)
-		safeHP, _ := findAward(safe, RingVitals, MetricWeight, KindOutcome)
-		crashHP, _ := findAward(crash, RingVitals, MetricWeight, KindOutcome)
-		if safeHP != cfg.WeightOutcomeMaxHP {
-			t.Fatalf("safe-pace outcome = %d, want %d", safeHP, cfg.WeightOutcomeMaxHP)
+		safe := ScoreWeightWeekly(WeightWeeklyInput{HasData: true, VelocityPctPerWeek: -0.6, GoalDirection: -1}, cfg)
+		crash := ScoreWeightWeekly(WeightWeeklyInput{HasData: true, VelocityPctPerWeek: -2.0, GoalDirection: -1}, cfg)
+		safeHP, _ := findAward(safe, RingVitals, MetricWeightTrendWeek, KindOutcome)
+		crashHP, _ := findAward(crash, RingVitals, MetricWeightTrendWeek, KindOutcome)
+		if safeHP != cfg.GaugeWeightWeeklyMaxHP {
+			t.Fatalf("safe-pace outcome = %d, want %d", safeHP, cfg.GaugeWeightWeeklyMaxHP)
 		}
 		if crashHP != 0 {
 			t.Fatalf("crash-diet pace should earn no outcome, got %d", crashHP)
 		}
 	})
 
-	t.Run("below healthy floor → zero outcome", func(t *testing.T) {
-		aw := ScoreWeight(WeightDay{Logged: true, Mode: ModeWeightGoal, WeeklyChangePct: -0.5, GoalDirection: -1, BelowHealthyFloor: true}, cfg)
-		if hp, ok := findAward(aw, RingVitals, MetricWeight, KindOutcome); ok {
-			t.Fatalf("below-floor weight must never be rewarded, got %d", hp)
+	t.Run("no goal: holding steady earns full, drifting either way falls off", func(t *testing.T) {
+		steady := ScoreWeightWeekly(WeightWeeklyInput{HasData: true, VelocityPctPerWeek: 0}, cfg)
+		partial := ScoreWeightWeekly(WeightWeeklyInput{HasData: true, VelocityPctPerWeek: 0.5}, cfg)
+		steadyHP, _ := findAward(steady, RingVitals, MetricWeightTrendWeek, KindOutcome)
+		partialHP, ok := findAward(partial, RingVitals, MetricWeightTrendWeek, KindOutcome)
+		if steadyHP != cfg.GaugeWeightWeeklyMaxHP {
+			t.Fatalf("steady outcome = %d, want %d", steadyHP, cfg.GaugeWeightWeeklyMaxHP)
 		}
-		if _, ok := findAward(aw, RingVitals, MetricWeight, KindFloor); !ok {
-			t.Fatal("expected weigh-in floor even below the healthy floor")
+		if !ok || partialHP >= steadyHP {
+			t.Fatalf("drifting outcome = %d (ok=%v), want a nonzero amount less than steady %d", partialHP, ok, steadyHP)
+		}
+
+		// Far enough off in either direction falls all the way to zero.
+		up := ScoreWeightWeekly(WeightWeeklyInput{HasData: true, VelocityPctPerWeek: 2.0}, cfg)
+		down := ScoreWeightWeekly(WeightWeeklyInput{HasData: true, VelocityPctPerWeek: -2.0}, cfg)
+		if _, ok := findAward(up, RingVitals, MetricWeightTrendWeek, KindOutcome); ok {
+			t.Fatal("expected zero outcome for a large upward drift")
+		}
+		if _, ok := findAward(down, RingVitals, MetricWeightTrendWeek, KindOutcome); ok {
+			t.Fatal("expected zero outcome for a large downward drift")
 		}
 	})
 
-	t.Run("not logged → no awards", func(t *testing.T) {
-		if aw := ScoreWeight(WeightDay{Logged: false}, cfg); len(aw) != 0 {
+	t.Run("insufficient data → no award", func(t *testing.T) {
+		if aw := ScoreWeightWeekly(WeightWeeklyInput{HasData: false}, cfg); len(aw) != 0 {
+			t.Fatalf("expected no awards, got %+v", aw)
+		}
+	})
+}
+
+func TestScoreBPWeekly(t *testing.T) {
+	cfg := DefaultConfig()
+
+	t.Run("share held at baseline → full HP", func(t *testing.T) {
+		aw := ScoreBPWeekly(BPWeeklyInput{HasData: true, Share30d: 0.8, BaselineShare60d: 0.8}, cfg)
+		assertNonNegative(t, aw)
+		if hp, ok := findAward(aw, RingVitals, MetricBPShareWeek, KindOutcome); !ok || hp != cfg.GaugeBPWeeklyMaxHP {
+			t.Fatalf("outcome = %d (ok=%v), want %d", hp, ok, cfg.GaugeBPWeeklyMaxHP)
+		}
+	})
+
+	t.Run("share improved above baseline → still full HP (saturates, no bonus)", func(t *testing.T) {
+		aw := ScoreBPWeekly(BPWeeklyInput{HasData: true, Share30d: 0.95, BaselineShare60d: 0.7}, cfg)
+		if hp, ok := findAward(aw, RingVitals, MetricBPShareWeek, KindOutcome); !ok || hp != cfg.GaugeBPWeeklyMaxHP {
+			t.Fatalf("outcome = %d (ok=%v), want %d", hp, ok, cfg.GaugeBPWeeklyMaxHP)
+		}
+	})
+
+	t.Run("share dropped far below baseline → falls off to zero", func(t *testing.T) {
+		aw := ScoreBPWeekly(BPWeeklyInput{HasData: true, Share30d: 0.2, BaselineShare60d: 0.8}, cfg)
+		if hp, ok := findAward(aw, RingVitals, MetricBPShareWeek, KindOutcome); ok {
+			t.Fatalf("expected zero outcome for a large share drop, got %d", hp)
+		}
+	})
+
+	t.Run("insufficient data → no award", func(t *testing.T) {
+		if aw := ScoreBPWeekly(BPWeeklyInput{HasData: false}, cfg); len(aw) != 0 {
+			t.Fatalf("expected no awards, got %+v", aw)
+		}
+	})
+}
+
+func TestScoreRestingHRWeekly(t *testing.T) {
+	cfg := DefaultConfig()
+
+	t.Run("held or improved (delta <= 0) → full HP", func(t *testing.T) {
+		aw := ScoreRestingHRWeekly(RestingHRWeeklyInput{HasData: true, DeltaFromBaseline: -2}, cfg)
+		assertNonNegative(t, aw)
+		if hp, ok := findAward(aw, RingVitals, MetricRestingHRTrendWeek, KindOutcome); !ok || hp != cfg.GaugeRestingHRWeeklyMaxHP {
+			t.Fatalf("outcome = %d (ok=%v), want %d", hp, ok, cfg.GaugeRestingHRWeeklyMaxHP)
+		}
+	})
+
+	t.Run("rose beyond the falloff → zero outcome", func(t *testing.T) {
+		aw := ScoreRestingHRWeekly(RestingHRWeeklyInput{HasData: true, DeltaFromBaseline: cfg.GaugeRestingHRFalloffBPM + 1}, cfg)
+		if hp, ok := findAward(aw, RingVitals, MetricRestingHRTrendWeek, KindOutcome); ok {
+			t.Fatalf("expected zero outcome for a large HR rise, got %d", hp)
+		}
+	})
+
+	t.Run("insufficient data → no award", func(t *testing.T) {
+		if aw := ScoreRestingHRWeekly(RestingHRWeeklyInput{HasData: false}, cfg); len(aw) != 0 {
 			t.Fatalf("expected no awards, got %+v", aw)
 		}
 	})

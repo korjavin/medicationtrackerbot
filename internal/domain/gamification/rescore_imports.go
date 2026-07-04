@@ -7,8 +7,12 @@ import (
 	"time"
 )
 
-// RescoreInstants deduplicates instants to UTC-midnight days and calls ScoreDay
-// for each in calendar order, best-effort (failures logged, never returned). Call
+// RescoreInstants deduplicates instants to UTC-midnight days — plus each of
+// those days' week-end day, so a late import that changes a week's trend/share
+// also refreshes that week's already-written gauge award (gamification-11
+// §Task2: the award lives only on the week's last day, so touching any other
+// day in the week would otherwise leave it stale) — and calls ScoreDay for
+// each in calendar order, best-effort (failures logged, never returned). Call
 // this once after an atomic import completes so every touched historical day
 // reflects the new data.
 //
@@ -24,15 +28,20 @@ func RescoreInstants(ctx context.Context, svc GamificationService, userID int64,
 	if svc == nil || len(instants) == 0 {
 		return
 	}
-	seen := make(map[time.Time]struct{}, len(instants))
-	days := make([]time.Time, 0, len(instants))
-	for _, t := range instants {
-		day := time.Date(t.UTC().Year(), t.UTC().Month(), t.UTC().Day(), 0, 0, 0, 0, time.UTC)
+	seen := make(map[time.Time]struct{}, len(instants)*2)
+	days := make([]time.Time, 0, len(instants)*2)
+	add := func(day time.Time) {
 		if _, ok := seen[day]; ok {
-			continue
+			return
 		}
 		seen[day] = struct{}{}
 		days = append(days, day)
+	}
+	for _, t := range instants {
+		day := time.Date(t.UTC().Year(), t.UTC().Month(), t.UTC().Day(), 0, 0, 0, 0, time.UTC)
+		add(day)
+		_, lastUnix := weekBounds(weekIndex(day))
+		add(time.Unix(lastUnix, 0).UTC())
 	}
 	sort.Slice(days, func(i, j int) bool { return days[i].Before(days[j]) })
 	for _, day := range days {

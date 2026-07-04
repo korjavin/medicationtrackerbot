@@ -92,72 +92,107 @@ EMAs and shares automatically.
 
 ### Task 1: Domain — gauge trend models
 
-- [ ] `internal/domain/gamification/gauges.go` (new): weight — EMA over trailing
+- [x] `internal/domain/gamification/gauges.go` (new): weight — EMA over trailing
       ~120 days (α=0.10/day, gaps carried forward), velocity = smoothed change
       over the last 14 days in %bodyweight/week, pace status vs the user's goal
       direction+rate (no goal → trend-only, no judgment), acceleration =
       velocity now vs 14 days ago with a deadband → speeding/holding/slowing
-- [ ] BP — in-range share (existing effective band) over 14d and 30d vs the 60d
+- [x] BP — in-range share (existing effective band) over 14d and 30d vs the 60d
       baseline share, with reading counts; resting HR — 14d mean vs 60d baseline
       delta
-- [ ] every gauge carries honest `insufficient_data` below minimum sample counts
+- [x] every gauge carries honest `insufficient_data` below minimum sample counts
       (Config); all computed on read, no new tables
-- [ ] `GetGauges` on the `GamificationService` interface, feature-gated like all
+- [x] `GetGauges` on the `GamificationService` interface, feature-gated like all
       reads
 
 ### Task 2: HP economy — daily gauge awards → weekly gauge awards
 
-- [ ] remove daily outcome awards: `ScoreBP` outcome, `ScoreWeight` outcome,
+- [x] remove daily outcome awards: `ScoreBP` outcome, `ScoreWeight` outcome,
       `ScoreVitalsAuto` resting-HR + SpO₂ outcomes; keep every integrity floor
       (BP reading, weigh-in) exactly as is
-- [ ] add weekly awards written at each week's last day (`day_unix` = week-end,
+- [x] add weekly awards written at each week's last day (`day_unix` = week-end,
       new `KindOutcome` rows with weekly source metrics, e.g.
       `weight_trend_week`, `bp_share_week`): weight — full HP when velocity is
       on safe pace toward the goal (or stable in maintenance), trapezoid falloff
       for too-fast/wrong-direction (never negative, as always); BP — HP scaled
       by the week's contribution to holding/improving the 30d share
-- [ ] wire week-end days into rescore: `RescoreInstants` adds the week-end day
+      (➕ also added `resting_hr_trend_week`, per Overview §4's "one idempotent
+      weekly award per gauge" — full HP when the trend held or improved vs
+      baseline, falloff as it rises, via new `ScoreRestingHRWeekly`)
+- [x] wire week-end days into rescore: `RescoreInstants` adds the week-end day
       of every affected week; the read-path recent-window rescore includes the
       current week's end day (an in-progress week scores its partial data —
       idempotent rewrite as the week fills)
-- [ ] check `ringScores()`/`goals.go` for any leftover daily-gauge references
+      (implemented by having `RescoreInstants` itself add each instant's
+      week-end day to the dedupe set — `ensureGamificationFresh`'s
+      `{now-1day, now}` window then covers the current week's end day for free,
+      with no `internal/server` changes needed)
+- [x] check `ringScores()`/`goals.go` for any leftover daily-gauge references
       (vitals no longer produce a ring after plan 10 — this task only cleans the
       award streams)
+      (verified: `leverRings` in `summary.go` only lists bedtime/movement/
+      nourishment; `goals.go` has no gauge references at all — nothing to clean)
 
 ### Task 3: HTTP route + MCP registration
 
-- [ ] `GET /api/gamification/gauges` (verbatim pass-through) in the gamification
+- [x] `GET /api/gamification/gauges` (verbatim pass-through) in the gamification
       route block; registry op `gamification.gauges` with `ResponseExample`;
       `docs/api.md#gamification` updated
 
 ### Task 4: Journey — Gauges panel
 
-- [ ] `journey.js`: "Gauges" card (below Health Score, above rings): weight —
+- [x] `journey.js`: "Gauges" card (below Health Score, above rings): weight —
       sparkline of the smoothed trend + "−0.4%/week · on pace · speeding up"
       line; BP — "in range 82% of last 30 days · baseline 76%"; resting HR —
       "62 avg · 3 below your baseline"; `insufficient_data` states in plain
       language; `cachedFetch` + `gamification` tag + `OfflineNoCacheError`
       empty state
-- [ ] "why is this moving? → your insights" link scrolling to the tier-3/4
+      (➕ the sparkline needed a time series the read model didn't expose yet —
+      added `WeightGaugeView.TrendHistory` (`internal/domain/gamification/
+      gauges.go`, last 60 days of the same EMA trend line, additive/omitempty
+      JSON, no scoring effect) plus a new `gamification_gauges` cache-keys
+      entry and 6 new tests in `journey.render.test.js`)
+- [x] "why is this moving? → your insights" link scrolling to the tier-3/4
       insight cards
-- [ ] tone: numbers and direction words only, token-neutral colors — a slowing
+      (reuses the existing tier-3 `goToInsightCard` scroll target; tier-4 has
+      no destination yet per the ladder's own Phase-2 gating)
+- [x] tone: numbers and direction words only, token-neutral colors — a slowing
       trend is an observation, never red
+      (no `wg-tag--alert`/`--high` anywhere in the gauges card; captions are
+      plain `wg-muted` text regardless of state)
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] integration test per Testing Strategy
-- [ ] verify Overview requirements: no daily gauge HP anywhere, weekly awards
-      idempotent under late import, panel honest under sparse data
-- [ ] `go test ./...` passes (incl. MCP coverage guard)
-- [ ] `pnpm test` passes
-- [ ] `golangci-lint run` + `gofmt` clean
+- [x] integration test per Testing Strategy
+      (`internal/domain/gamification/gauges_weekly_test.go`: seeded downward
+      weight trend + goal asserts velocity sign/pace/acceleration; seeded BP
+      with two bad recent days asserts the 30d share stays within 0.10 of the
+      60d baseline; a week-end award is scored, then a late import rewrites
+      the trend and `RescoreInstants` is called with an instant elsewhere in
+      the same week — the ledger keeps exactly one row for the metric and its
+      HP changes, proving update-in-place, not duplication)
+- [x] verify Overview requirements: no daily gauge HP anywhere (confirmed:
+      `ScoreBP`/`ScoreWeight` only ever grant `KindFloor`, never
+      `KindOutcome` — the daily outcome path was removed in Task 2), weekly
+      awards idempotent under late import (Task 5 integration test), panel
+      honest under sparse data (`insufficient_data` states + Task 4's
+      `journey.render.test.js` coverage)
+- [x] `go test ./...` passes (incl. MCP coverage guard)
+- [x] `pnpm test` passes
+- [x] `golangci-lint run` + `gofmt` clean (also fixed a pre-existing gofmt
+      drift in `gauges.go` from Task 4)
 
 ### Task 6: Update documentation
 
-- [ ] `docs/gamification.md`: §6.2/6.3/6.7 rewritten to weekly gauge scoring
+- [x] `docs/gamification.md`: §6.2/6.3/6.7 rewritten to weekly gauge scoring
       (trend velocity/acceleration, rolling shares); §14.8 records the HP
       economy change and the week-end-day rescore mechanism
-- [ ] `docs/api.md`: gauges endpoint + weekly award metrics
+      (recorded as new §14.10, since §14.8/14.9 are the prior plans' status
+      entries and each plan gets its own; §2.5's lever/gauge intro and §15's
+      "auto-captured streams" bullet also updated to match)
+- [x] `docs/api.md`: gauges endpoint + weekly award metrics
+      (gauges endpoint was already documented in Task 3; added the three
+      weekly metric keys to the `/api/gamification/summary` row)
 
 ## Technical Details
 
