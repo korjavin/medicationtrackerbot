@@ -109,8 +109,8 @@ go run ./cmd/seeddemo -user <telegram_user_id> -db meds.db -topup -seed 42
 - `web/static/` — vanilla JS frontend, Dexie.js, Service Worker
 - `python/` — `medtracker` helper package, sandboxed runner, and example scripts used by the `mcp_execute` tool. Tests live in `python/tests/` and `python/runner/`.
 - `internal/cloudstore` — SQLite repo for `cmd/cloud` (accounts, credentials, envelopes, recovery verifier). Own migrations; imports only `internal/store/db`, never `internal/store` (goose-registry landmine — see [docs/cloud-mode.md](docs/cloud-mode.md))
-- `internal/cloudserver` — HTTP handlers for `cmd/cloud`: wildcard host routing, WebAuthn registration/login ceremonies, envelope API, admin invite provisioning
-- `web/cloud/` — embedded static shell (signup/unlock wizard + client-side crypto module) served by `cmd/cloud`; a separate app from `web/static/`, no shared build or globals
+- `internal/cloudserver` — HTTP handlers for `cmd/cloud`: wildcard host routing, WebAuthn registration/login ceremonies, envelope API, admin invite provisioning, encrypted oplog sync + snapshot compaction, push subscriptions + blind scheduled-push relay (sender goroutine + stale-sync warning sweep)
+- `web/cloud/` — embedded static shell (signup/unlock wizard, client-side crypto module, sync engine + local IndexedDB mirror, toy encrypted-notes UI, NK-aware service worker + push scheduler) served by `cmd/cloud`; a separate app from `web/static/`, no shared build or globals
 
 ## Documentation Index
 

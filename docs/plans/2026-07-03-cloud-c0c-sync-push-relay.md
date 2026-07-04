@@ -99,9 +99,9 @@ Completes C0: the cloud becomes a working encrypted-sync backend and blind alarm
 
 ### Task 9: [Final] Update documentation
 
-- [ ] docs/cloud-mode.md: mark C0 complete (all three plans), update status header; note C1 (JS domain layer) as next
-- [ ] docs/cloud-deployment.md: VAPID setup, quotas, `CLOUD_DRY_QUEUE_WARN_HOURS`; docs/environment.md: new env vars
-- [ ] CLAUDE.md: reflect final cmd/cloud surface in the index/Code Layout if anything moved
+- [x] docs/cloud-mode.md: mark C0 complete (all three plans), update status header; note C1 (JS domain layer) as next
+- [x] docs/cloud-deployment.md: VAPID setup, quotas, `CLOUD_DRY_QUEUE_WARN_HOURS`; docs/environment.md: new env vars
+- [x] CLAUDE.md: reflect final cmd/cloud surface in the index/Code Layout if anything moved
 
 ## Technical Details
 
