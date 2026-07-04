@@ -81,7 +81,7 @@ func TestGetWeeklyReview_TwoWeeksKnownDifference(t *testing.T) {
 	})
 	svc.now = func() time.Time { return today }
 
-	review, err := svc.GetWeeklyReview(ctx, userID)
+	review, err := svc.GetWeeklyReview(ctx, userID, today)
 	if err != nil {
 		t.Fatalf("GetWeeklyReview: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestGetWeeklyReview_QuietWeek(t *testing.T) {
 	svc := newFullService(&fullStores{settings: fakeSettings{enabled: true}})
 	svc.now = func() time.Time { return today }
 
-	review, err := svc.GetWeeklyReview(ctx, userID)
+	review, err := svc.GetWeeklyReview(ctx, userID, today)
 	if err != nil {
 		t.Fatalf("GetWeeklyReview: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestGetWeeklyReview_GateOff(t *testing.T) {
 	ctx := context.Background()
 	svc := newFullService(&fullStores{settings: fakeSettings{enabled: false}})
 
-	review, err := svc.GetWeeklyReview(ctx, 203)
+	review, err := svc.GetWeeklyReview(ctx, 203, time.Date(2026, 6, 21, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("GetWeeklyReview: %v", err)
 	}

@@ -99,7 +99,13 @@ func (c *WeeklyDigestChecker) Check(ctx context.Context) error {
 		return nil
 	}
 
-	wr, err := c.gam.GetWeeklyReview(ctx, c.allowedUserID)
+	// Anchor the review one day back: at a west-of-UTC Sunday evening the
+	// current UTC instant has already rolled into Monday (next ISO week), so
+	// weekIndex(now) would point at the just-started week and the digest would
+	// report an empty "quiet week" every Sunday. now-24h lands squarely in the
+	// week that just ended for every timezone (19:00 local is at most one UTC
+	// day ahead, so a single-day rewind never overshoots into the prior week).
+	wr, err := c.gam.GetWeeklyReview(ctx, c.allowedUserID, now.Add(-24*time.Hour))
 	if err != nil {
 		return err
 	}

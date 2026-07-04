@@ -84,11 +84,11 @@ type WeeklyReview struct {
 }
 
 // GetWeeklyReview returns the weekly review read model, gated on
-// gamification_enabled. It resolves the ISO week (Mon-Sun) containing `now`
+// gamification_enabled. It resolves the ISO week (Mon-Sun) containing asOf
 // via the same weekIndex/weekBounds bucketing streak.go uses, so "this
 // week"/"last week" never drifts from the streak/weekly-gauge-award
 // definition of a week.
-func (s *service) GetWeeklyReview(ctx context.Context, userID int64) (WeeklyReview, error) {
+func (s *service) GetWeeklyReview(ctx context.Context, userID int64, asOf time.Time) (WeeklyReview, error) {
 	enabled, err := s.gate(ctx)
 	if err != nil {
 		return WeeklyReview{}, err
@@ -101,7 +101,7 @@ func (s *service) GetWeeklyReview(ctx context.Context, userID int64) (WeeklyRevi
 	if err != nil {
 		return WeeklyReview{}, err
 	}
-	today := utcMidnight(s.now())
+	today := utcMidnight(asOf)
 	week := weekIndex(today)
 	weekStart, weekEnd := weekBounds(week)
 	weekStartT, weekEndT := time.Unix(weekStart, 0).UTC(), time.Unix(weekEnd, 0).UTC()

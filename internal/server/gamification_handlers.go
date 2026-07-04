@@ -182,7 +182,7 @@ func (s *Server) handleGamificationWeeklyReview(w http.ResponseWriter, r *http.R
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 	s.ensureGamificationFresh(r.Context(), userID)
 
-	view, err := s.gamificationSvc.GetWeeklyReview(r.Context(), userID)
+	view, err := s.gamificationSvc.GetWeeklyReview(r.Context(), userID, time.Now().UTC())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

@@ -46,7 +46,7 @@ var gaugeAccelerationLabels = map[string]string{
 // the gamification_enabled gate and the quiet-week semantics, so this
 // handler never branches on flags itself.
 func (b *Bot) handleWeekCommand(msgConfig *tgbotapi.MessageConfig) {
-	wr, err := b.gamificationSvc.GetWeeklyReview(context.Background(), b.allowedUserID)
+	wr, err := b.gamificationSvc.GetWeeklyReview(context.Background(), b.allowedUserID, time.Now().UTC())
 	if err != nil {
 		slog.Error("get weekly review", "error", err, "user_id", b.allowedUserID)
 		msgConfig.Text = "❌ Error retrieving your weekly review."
@@ -147,6 +147,11 @@ func weeklyBPLine(bp gamificationsvc.BPGaugeView, priorShare float64) string {
 	}
 	share := int(math.Round(bp.Share30d * 100))
 	prior := int(math.Round(priorShare * 100))
+	// No comparable prior week (too few readings a week ago yields a 0 share) →
+	// show just the current share rather than a misleading "up from 0%".
+	if prior <= 0 {
+		return fmt.Sprintf("BP in range %d%%", share)
+	}
 	delta := share - prior
 	word := "holding steady"
 	switch {

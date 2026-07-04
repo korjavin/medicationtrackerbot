@@ -255,6 +255,9 @@
         if (!bp || bp.status !== 'ok' || !(Number(bp.count_30d) > 0)) return null;
         const share = Math.round((Number(bp.share_30d) || 0) * 100);
         const prior = Math.round((Number(priorSharePct) || 0) * 100);
+        // No comparable prior week (too few readings a week ago yields a 0
+        // share) → show just the current share, not a misleading "up from 0%".
+        if (prior <= 0) return `BP in range ${share}%`;
         const delta = share - prior;
         const word = delta === 0 ? 'holding steady' : `${delta > 0 ? 'up' : 'down'} from ${prior}%`;
         return `BP in range ${share}% · ${word}`;

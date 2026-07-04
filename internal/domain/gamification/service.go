@@ -205,9 +205,13 @@ type GamificationService interface {
 	// GetWeeklyReview returns the "Your week" read model (gamification-12):
 	// lever closed-day counts + best day, habit-strength deltas, gauge
 	// movement, and Health Score week-over-week — the shared basis for the
-	// Journey card and the bot's /week digest. Gate-off yields
+	// Journey card and the bot's /week digest. asOf anchors which ISO week is
+	// reviewed (the week containing it, UTC-bucketed like the rest of the
+	// engine): live surfaces pass time.Now(); the Sunday digest passes a
+	// now-1day anchor so a west-of-UTC evening send still reviews the week that
+	// just ended rather than the one that just began. Gate-off yields
 	// {Enabled:false}; a zero-HP week yields {Quiet:true}. See weekly.go.
-	GetWeeklyReview(ctx context.Context, userID int64) (WeeklyReview, error)
+	GetWeeklyReview(ctx context.Context, userID int64, asOf time.Time) (WeeklyReview, error)
 }
 
 // service implements GamificationService. It composes the narrow per-domain read
