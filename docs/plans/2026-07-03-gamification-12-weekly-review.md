@@ -160,9 +160,9 @@ invariant, so backfilled weeks read correctly in retrospect).
 
 ### Task 7: Update documentation
 
-- [ ] `docs/gamification.md`: §14.7 — weekly review as the gauge-reading
+- [x] `docs/gamification.md`: §14.7 — weekly review as the gauge-reading
       cadence, surfaces, tone rules, digest opt-in
-- [ ] `docs/api.md`: weekly-review endpoint; no new env vars (Config constants
+- [x] `docs/api.md`: weekly-review endpoint; no new env vars (Config constants
       suffice)
 
 ## Technical Details
