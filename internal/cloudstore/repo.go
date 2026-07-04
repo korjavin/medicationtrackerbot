@@ -52,6 +52,12 @@ var ErrRecoveryRateLimited = errors.New("cloudstore: recovery attempts rate limi
 // envelope — i.e. no remaining path to unwrap the DEK.
 var ErrLastCredential = errors.New("cloudstore: cannot remove the account's last unwrap path")
 
+// ErrSourceCredentialRevoked is returned by AddCredentialWithEnvelope when the
+// session's own credential no longer exists at insert time — a revocation that
+// landed after RegisterFinish's ceremony began. Prevents a revoked device from
+// minting a fresh credential + session.
+var ErrSourceCredentialRevoked = errors.New("cloudstore: source credential revoked")
+
 // Account is one row in the accounts table. ClaimTokenHash/ClaimExpiresAt are
 // nil once the account has been claimed (first credential registered).
 type Account struct {
@@ -408,7 +414,8 @@ func (r *Repo) CredentialExists(ctx context.Context, credentialID []byte) (bool,
 // accountID in one transaction (routine device removal — docs/cloud-crypto.md
 // "Removing a device / revocation"). It enforces the "never strand an account"
 // invariant inside the same transaction: if the delete would leave the account
-// with zero credentials and no recovery envelope, it rolls back and returns
+// with zero credentials and no usable recovery material (the recovery envelope
+// AND its recovery_auth verifier row — see below), it rolls back and returns
 // ErrLastCredential. Doing the count-and-check in the tx (rather than a
 // caller-side pre-read) closes the TOCTOU where two concurrent revocations of
 // different credentials both observe a stale count and drop the account to
@@ -435,10 +442,10 @@ func (r *Repo) DeleteCredentialWithEnvelope(ctx context.Context, accountID strin
 		if remaining == 0 {
 			// Recovery needs BOTH the 'recovery' envelope (holds the DEK ct) and
 			// the recovery_auth verifier row (authenticates the redemption). They
-			// are written by two separate requests at signup (envelope first, then
-			// verifier), so an interrupted setup can leave an envelope with no
-			// verifier — and VerifyRecoveryAttempt returns ErrRecoveryInvalid
-			// forever without the verifier row. Require both, else deleting the
+			// SetRecoveryMaterial writes them atomically, but an envelope left by
+			// an older half-written signup (or a bare envelope PUT) could pair a
+			// recovery envelope with no verifier — and VerifyRecoveryAttempt then
+			// returns ErrRecoveryInvalid forever. Require both, else deleting the
 			// last credential strands the account permanently.
 			var hasRecovery int
 			err := tx.QueryRowContext(ctx, `SELECT 1 FROM envelopes e
@@ -612,15 +619,26 @@ func (r *Repo) RedeemTransferToken(ctx context.Context, accountID string, tokenH
 // envelope for an already-claimed account in one transaction, so an unlocked
 // device adding a local passkey (e.g. a security key) via plain session auth
 // can never end up with a credential that has no envelope to unwrap its DEK
-// from.
-func (r *Repo) AddCredentialWithEnvelope(ctx context.Context, cred Credential, env Envelope) error {
+// from. sourceCredentialID is the session's own credential: it must still exist
+// at insert time or the insert rolls back with ErrSourceCredentialRevoked —
+// checked inside the tx (not a caller-side pre-read) so a revocation committing
+// mid-ceremony can't let the revoked device mint a fresh credential + session.
+func (r *Repo) AddCredentialWithEnvelope(ctx context.Context, sourceCredentialID []byte, cred Credential, env Envelope) error {
 	return r.db.WithTx(ctx, func(tx storedb.TX) error {
+		var exists int
+		err := tx.QueryRowContext(ctx, `SELECT 1 FROM credentials WHERE id = ?`, sourceCredentialID).Scan(&exists)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrSourceCredentialRevoked
+		}
+		if err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO credentials (id, account_id, public_key, transports, sign_count, created_at_unix) VALUES (?, ?, ?, ?, ?, ?)`,
 			cred.ID, cred.AccountID, cred.PublicKey, cred.Transports, cred.SignCount, storedb.TimeToUnix(cred.CreatedAt)); err != nil {
 			return err
 		}
-		_, err := tx.ExecContext(ctx,
+		_, err = tx.ExecContext(ctx,
 			`INSERT INTO envelopes (account_id, credential_ref, v, nonce, ct, mac) VALUES (?, ?, ?, ?, ?, ?)`,
 			env.AccountID, env.CredentialRef, env.V, env.Nonce, env.CT, env.MAC)
 		return err
@@ -659,6 +677,28 @@ func (r *Repo) SetRecoveryVerifier(ctx context.Context, accountID string, verifi
 		 ON CONFLICT(account_id) DO UPDATE SET verifier_hash = excluded.verifier_hash, failed_attempts = 0, window_start_unix = NULL`,
 		accountID, verifierHash)
 	return err
+}
+
+// SetRecoveryMaterial upserts the recovery envelope and its verifier in one
+// transaction, so a partial write can never pair a new envelope with an old
+// verifier (or vice versa) — a mismatch silently breaks recovery: one code
+// authenticates but can't decrypt, the other decrypts but can't authenticate.
+// This is the atomic counterpart the Emergency Kit rotation writes through,
+// replacing two independent PUTs.
+func (r *Repo) SetRecoveryMaterial(ctx context.Context, accountID string, env Envelope, verifierHash []byte) error {
+	return r.db.WithTx(ctx, func(tx storedb.TX) error {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO envelopes (account_id, credential_ref, v, nonce, ct, mac) VALUES (?, 'recovery', ?, ?, ?, ?)
+			 ON CONFLICT(account_id, credential_ref) DO UPDATE SET v = excluded.v, nonce = excluded.nonce, ct = excluded.ct, mac = excluded.mac`,
+			accountID, env.V, env.Nonce, env.CT, env.MAC); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx,
+			`INSERT INTO recovery_auth (account_id, verifier_hash) VALUES (?, ?)
+			 ON CONFLICT(account_id) DO UPDATE SET verifier_hash = excluded.verifier_hash, failed_attempts = 0, window_start_unix = NULL`,
+			accountID, verifierHash)
+		return err
+	})
 }
 
 const (

@@ -26,7 +26,7 @@ type webauthnStore interface {
 	ClaimAndAddCredential(ctx context.Context, subdomain string, tokenHash []byte, cred cloudstore.Credential, env cloudstore.Envelope, now time.Time) (*cloudstore.Account, error)
 	ValidEnrollmentToken(ctx context.Context, accountID string, tokenHash []byte, now time.Time) (bool, error)
 	RedeemTransferToken(ctx context.Context, accountID string, tokenHash []byte, cred cloudstore.Credential, env cloudstore.Envelope, now time.Time) error
-	AddCredentialWithEnvelope(ctx context.Context, cred cloudstore.Credential, env cloudstore.Envelope) error
+	AddCredentialWithEnvelope(ctx context.Context, sourceCredentialID []byte, cred cloudstore.Credential, env cloudstore.Envelope) error
 	CredentialsByAccount(ctx context.Context, accountID string) ([]cloudstore.Credential, error)
 	TouchCredential(ctx context.Context, credentialID []byte, signCount uint32, assertedAt time.Time) error
 	CredentialExists(ctx context.Context, credentialID []byte) (bool, error)
@@ -90,6 +90,11 @@ type registerChallenge struct {
 	accountID string
 	gate      registerGate
 	tokenHash []byte
+	// sessionCredentialID is the credential the session cookie was minted for,
+	// remembered only for gateSession so RegisterFinish can re-check it still
+	// exists — otherwise a device revoked mid-ceremony could finish within the
+	// challenge TTL and mint a fresh credential, defeating its own revocation.
+	sessionCredentialID []byte
 }
 
 // loginChallenge is what challengeStore holds between LoginBegin and
@@ -224,8 +229,9 @@ func (a *WebAuthnAPI) RegisterBegin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var (
-		gate      registerGate
-		tokenHash []byte
+		gate                registerGate
+		tokenHash           []byte
+		sessionCredentialID []byte
 	)
 	switch {
 	case req.ClaimToken != "":
@@ -271,7 +277,7 @@ func (a *WebAuthnAPI) RegisterBegin(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		gate = gateSession
+		gate, sessionCredentialID = gateSession, session.CredentialID
 	}
 
 	wa, err := rpForRequest(r)
@@ -294,10 +300,11 @@ func (a *WebAuthnAPI) RegisterBegin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	challengeID, err := a.challenges.put(registerChallenge{
-		session:   *session,
-		accountID: account.ID,
-		gate:      gate,
-		tokenHash: tokenHash,
+		session:             *session,
+		accountID:           account.ID,
+		gate:                gate,
+		tokenHash:           tokenHash,
+		sessionCredentialID: sessionCredentialID,
 	})
 	if err != nil {
 		http.Error(w, "server error", http.StatusInternalServerError)
@@ -409,7 +416,18 @@ func (a *WebAuthnAPI) RegisterFinish(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case gateSession:
-		if err := a.store.AddCredentialWithEnvelope(r.Context(), credRow, envRow); err != nil {
+		// The source credential's existence is re-checked inside
+		// AddCredentialWithEnvelope's transaction: RegisterBegin verified it, but
+		// a revocation can land inside the 5-minute challenge TTL. Doing the check
+		// in the same tx as the insert (not as a separate pre-read) closes the
+		// TOCTOU where a revocation commits between check and insert — otherwise a
+		// device revoked mid-ceremony could finish and mint a fresh credential +
+		// session, defeating its own revocation.
+		if err := a.store.AddCredentialWithEnvelope(r.Context(), challenge.sessionCredentialID, credRow, envRow); err != nil {
+			if errors.Is(err, cloudstore.ErrSourceCredentialRevoked) {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
 			http.Error(w, "server error", http.StatusInternalServerError)
 			return
 		}

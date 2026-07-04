@@ -2,6 +2,7 @@ package cloudserver
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -49,12 +50,13 @@ func registerAndGetSession(t *testing.T, h http.Handler, host, claimToken string
 	return nil
 }
 
-func TestEnvelopeAPI_PutGetListAndVerifier(t *testing.T) {
+func TestEnvelopeAPI_PutGetList(t *testing.T) {
 	h, host, claimToken := newTestAPIHandler(t)
 	session := registerAndGetSession(t, h, host, claimToken)
 
+	ref := base64.RawURLEncoding.EncodeToString([]byte("device-cred-2"))
 	body, _ := json.Marshal(envelopeWire{V: 1, Nonce: []byte("0123456789ab"), CT: []byte("ciphertext-bytes"), MAC: []byte("mac-bytes")})
-	putReq := httptest.NewRequest(http.MethodPut, "/api/envelopes/recovery", bytes.NewReader(body))
+	putReq := httptest.NewRequest(http.MethodPut, "/api/envelopes/"+ref, bytes.NewReader(body))
 	putReq.Host = host
 	putReq.AddCookie(session)
 	putRec := httptest.NewRecorder()
@@ -63,7 +65,7 @@ func TestEnvelopeAPI_PutGetListAndVerifier(t *testing.T) {
 		t.Fatalf("PUT envelope status = %d, body %q", putRec.Code, putRec.Body.String())
 	}
 
-	getReq := httptest.NewRequest(http.MethodGet, "/api/envelopes/recovery", nil)
+	getReq := httptest.NewRequest(http.MethodGet, "/api/envelopes/"+ref, nil)
 	getReq.Host = host
 	getReq.AddCookie(session)
 	getRec := httptest.NewRecorder()
@@ -91,26 +93,35 @@ func TestEnvelopeAPI_PutGetListAndVerifier(t *testing.T) {
 	if err := json.Unmarshal(listRec.Body.Bytes(), &list); err != nil {
 		t.Fatalf("unmarshal list: %v", err)
 	}
-	// The list now holds the credential's envelope (stored atomically at
-	// register/finish) plus the "recovery" envelope just uploaded.
-	var recovery *envelopeListItem
+	// The list holds the registration credential's envelope (stored atomically
+	// at register/finish) plus the one just uploaded.
+	var uploaded *envelopeListItem
 	for i := range list {
-		if list[i].CredentialRef == "recovery" {
-			recovery = &list[i]
+		if list[i].CredentialRef == ref {
+			uploaded = &list[i]
 		}
 	}
-	if len(list) != 2 || recovery == nil || string(recovery.MAC) != "mac-bytes" {
+	if len(list) != 2 || uploaded == nil || string(uploaded.MAC) != "mac-bytes" {
 		t.Fatalf("unexpected list: %+v", list)
 	}
+}
 
-	verifierBody, _ := json.Marshal(recoveryVerifierRequest{Verifier: []byte("a-recovery-verifier")})
-	verifierReq := httptest.NewRequest(http.MethodPut, "/api/recovery-verifier", bytes.NewReader(verifierBody))
-	verifierReq.Host = host
-	verifierReq.AddCookie(session)
-	verifierRec := httptest.NewRecorder()
-	h.ServeHTTP(verifierRec, verifierReq)
-	if verifierRec.Code != http.StatusNoContent {
-		t.Fatalf("PUT recovery-verifier status = %d, body %q", verifierRec.Code, verifierRec.Body.String())
+// TestEnvelopeAPI_RejectsRecoveryEnvelopeWrite pins the invariant that the
+// recovery envelope can only be written atomically with its verifier via
+// /api/recovery-material — a lone PUT /api/envelopes/recovery would let a
+// stale client pair a fresh envelope with the old verifier and break recovery.
+func TestEnvelopeAPI_RejectsRecoveryEnvelopeWrite(t *testing.T) {
+	h, host, claimToken := newTestAPIHandler(t)
+	session := registerAndGetSession(t, h, host, claimToken)
+
+	body, _ := json.Marshal(envelopeWire{V: 1, Nonce: []byte("0123456789ab"), CT: []byte("ct"), MAC: []byte("mac")})
+	req := httptest.NewRequest(http.MethodPut, "/api/envelopes/recovery", bytes.NewReader(body))
+	req.Host = host
+	req.AddCookie(session)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("PUT /api/envelopes/recovery status = %d, want 409 (body %q)", rec.Code, rec.Body.String())
 	}
 }
 

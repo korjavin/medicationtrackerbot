@@ -31,27 +31,21 @@ func newTestRecoveryHandler(t *testing.T) (http.Handler, string, string) {
 }
 
 // setRecoveryVerifier uploads the "recovery" envelope + verifier for the
-// session's account, mirroring signup.js's renderEmergencyKit upload calls.
+// session's account through the atomic recovery-material endpoint, mirroring
+// signup.js's renderEmergencyKit upload call.
 func setRecoveryVerifier(t *testing.T, h http.Handler, host string, session *http.Cookie, verifier []byte) {
 	t.Helper()
-	envBody, _ := json.Marshal(envelopeWire{V: 1, Nonce: []byte("nonce-bytes-1234"), CT: []byte("recovery-ct-bytes"), MAC: []byte("mac-bytes")})
-	envReq := httptest.NewRequest(http.MethodPut, "/api/envelopes/recovery", bytes.NewReader(envBody))
-	envReq.Host = host
-	envReq.AddCookie(session)
-	envRec := httptest.NewRecorder()
-	h.ServeHTTP(envRec, envReq)
-	if envRec.Code != http.StatusNoContent {
-		t.Fatalf("PUT /api/envelopes/recovery status = %d, body %q", envRec.Code, envRec.Body.String())
-	}
-
-	verBody, _ := json.Marshal(recoveryVerifierRequest{Verifier: verifier})
-	verReq := httptest.NewRequest(http.MethodPut, "/api/recovery-verifier", bytes.NewReader(verBody))
-	verReq.Host = host
-	verReq.AddCookie(session)
-	verRec := httptest.NewRecorder()
-	h.ServeHTTP(verRec, verReq)
-	if verRec.Code != http.StatusNoContent {
-		t.Fatalf("PUT /api/recovery-verifier status = %d, body %q", verRec.Code, verRec.Body.String())
+	body, _ := json.Marshal(recoveryMaterialRequest{
+		Envelope: envelopeWire{V: 1, Nonce: []byte("nonce-bytes-1234"), CT: []byte("recovery-ct-bytes"), MAC: []byte("mac-bytes")},
+		Verifier: verifier,
+	})
+	req := httptest.NewRequest(http.MethodPut, "/api/recovery-material", bytes.NewReader(body))
+	req.Host = host
+	req.AddCookie(session)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("PUT /api/recovery-material status = %d, body %q", rec.Code, rec.Body.String())
 	}
 }
 

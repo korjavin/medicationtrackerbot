@@ -87,8 +87,9 @@ func (a *DeviceAPI) ListDevices(w http.ResponseWriter, r *http.Request) {
 // DeleteDevice revokes one credential: removes its WebAuthn credential and
 // DEK envelope in one transaction (RequireSession then rejects any session
 // token that was minted for it). Refuses to remove the account's last
-// remaining credential unless a recovery envelope exists, so the account is
-// never stranded with no way to unwrap the DEK.
+// remaining credential unless usable recovery material exists (both the
+// recovery envelope and its verifier row), so the account is never stranded
+// with no way to unwrap the DEK.
 func (a *DeviceAPI) DeleteDevice(w http.ResponseWriter, r *http.Request) {
 	session, ok := SessionFromContext(r.Context())
 	if !ok {
