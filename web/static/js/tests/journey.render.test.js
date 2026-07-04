@@ -286,6 +286,73 @@ describe('Journey render', () => {
         expect(card.textContent).toMatch(/not enough data/i);
     });
 
+    // "Your week" card (gamification-12 §Task3) — sourced from
+    // `journey.weekly_review` (attached by load() from its own fetch, same
+    // pattern as Gauges/Insights). Omitted entirely until it has loaded.
+    it('omits the Weekly Review card until journey.weekly_review has loaded', () => {
+        env.window.Gamification.render(journey());
+        expect(env.document.querySelector('.wg-journey-weekly')).toBeNull();
+    });
+
+    it('Weekly Review card renders score movement, lever line, gauge lines, and best day', () => {
+        env.window.Gamification.render(journey({
+            weekly_review: {
+                enabled: true,
+                quiet: false,
+                levers: [
+                    { key: 'bedtime', closed_this_week: 5, closed_last_week: 4 },
+                    { key: 'movement', closed_this_week: 4, closed_last_week: 3 },
+                    { key: 'nourishment', closed_this_week: 6, closed_last_week: 5 }
+                ],
+                best_day: { day_unix: 1751328000, rings_closed: 3 }, // 2025-07-01 (Tuesday, UTC)
+                gauges: {
+                    weight: { status: 'ok', velocity_pct_per_week: -0.4, pace_status: 'on_pace', acceleration: 'speeding_up' },
+                    bp: { status: 'ok', share_30d: 0.82, count_30d: 26 },
+                    bp_share_30d_prior: 0.76,
+                    resting_hr: { status: 'ok', recent_14d_mean: 62, delta_from_baseline: -3 }
+                },
+                health_score: { now: { value: 78, contributors: [], missing: [] }, prior: { value: 74, contributors: [], missing: [] } }
+            }
+        }));
+        const { document } = env;
+
+        const card = document.querySelector('.wg-journey-weekly');
+        expect(card).not.toBeNull();
+        expect(card.querySelector('.wg-journey-weekly__summary').textContent).toBe('YOUR WEEK');
+
+        const lines = Array.from(card.querySelectorAll('.wg-journey-weekly__line')).map((n) => n.textContent);
+        expect(lines).toEqual([
+            'Health Score 78 · up 4',
+            'Bedtime closed 5 of 7 · Movement 4 · Nourishment 6',
+            'Weight -0.4%/wk · on pace · speeding up',
+            'BP in range 82% · up from 76%',
+            'Resting HR 62 avg · 3 below your baseline',
+            'Best day: Tuesday · 3 rings closed'
+        ]);
+    });
+
+    it('Weekly Review card reads a zero-HP week as "a quiet week", never a wall of zeros', () => {
+        env.window.Gamification.render(journey({
+            weekly_review: { enabled: true, quiet: true, levers: [], gauges: {}, health_score: {} }
+        }));
+        const card = env.document.querySelector('.wg-journey-weekly');
+        expect(card.textContent).toMatch(/a quiet week/i);
+        expect(card.querySelectorAll('.wg-journey-weekly__line').length).toBe(0);
+    });
+
+    it('Weekly Review card renders the offline-empty state when the fetch had no cache', () => {
+        env.window.Gamification.render(journey({
+            weekly_review: { emptyState: 'No cached weekly review — connect to load.' }
+        }));
+        const card = env.document.querySelector('.wg-journey-weekly');
+        expect(card.querySelector('.wg-journey-weekly__empty').textContent).toBe('No cached weekly review — connect to load.');
+    });
+
+    it('omits the Weekly Review card when the feature is gated off', () => {
+        env.window.Gamification.render(journey({ weekly_review: { enabled: false } }));
+        expect(env.document.querySelector('.wg-journey-weekly')).toBeNull();
+    });
+
     // Strengths card (Task 8): replaces the weekly streak card — one
     // habit-strength EMA gauge per pillar, derived streak demoted to a
     // footnote line.

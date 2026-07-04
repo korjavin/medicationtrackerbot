@@ -114,13 +114,13 @@ invariant, so backfilled weeks read correctly in retrospect).
 
 ### Task 3: Journey — "Your week" card
 
-- [ ] `journey.js`: collapsible "Your week" card between the Health Score card
+- [x] `journey.js`: collapsible "Your week" card between the Health Score card
       and the Gauges panel; fetch via `cachedFetch` (tag `gamification`,
       `OfflineNoCacheError` → empty state)
-- [ ] renders: score movement ("Health Score 78 · up 4"), lever line ("Bedtime
+- [x] renders: score movement ("Health Score 78 · up 4"), lever line ("Bedtime
       closed 5 of 7 · Movement 4 · Nourishment 6"), gauge lines ("Weight −0.4%/wk
       · on pace · speeding up", "BP in range 82% · up from 76%"), best day
-- [ ] tone guardrail: neutral-to-positive phrasing only; a down week reads as
+- [x] tone guardrail: neutral-to-positive phrasing only; a down week reads as
       observation ("BP logging was lighter this week"); the quiet week reads as
       "A quiet week — everything picks up where you left off"; no red styling
       for negative deltas

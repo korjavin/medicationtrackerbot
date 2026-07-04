@@ -5466,6 +5466,31 @@ textarea.wg-input {
     font-size: var(--font-size-xs);
 }
 
+/* "Your week" card (gamification-12 §Task3): a native <details>/<summary>
+   collapsible between Health Score and Gauges. Every line is wg-muted
+   regardless of direction — no red styling for a down week (tone rules). */
+.wg-journey-weekly__summary {
+    cursor: pointer;
+    user-select: none;
+}
+
+.wg-journey-weekly__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    margin-top: var(--space-sm);
+}
+
+.wg-journey-weekly__line {
+    font-size: var(--font-size-sm);
+    margin: 0;
+}
+
+.wg-journey-weekly__empty,
+.wg-journey-weekly__body {
+    margin-top: var(--space-sm);
+}
+
 /* Gauges panel (gamification-11 §Task4): weight/BP/resting-HR trends, below
    Health Score and above Strengths/Rings. Token-neutral throughout — no
    variant classes tint a row by "good"/"bad" state; a slowing trend reads
