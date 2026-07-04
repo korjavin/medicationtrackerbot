@@ -77,6 +77,11 @@ type Credential struct {
 	PublicKey      []byte
 	Transports     string
 	SignCount      uint32
+	// Backup flags from the registration ceremony. go-webauthn compares the
+	// assertion's BE bit against the stored value at login, so synced passkeys
+	// (BE=1) fail unlock unless these round-trip through the store.
+	BackupEligible bool
+	BackupState    bool
 	CreatedAt      time.Time
 	LastAssertedAt *time.Time
 }
@@ -252,8 +257,8 @@ func (r *Repo) ClaimAndAddCredential(ctx context.Context, subdomain string, toke
 			return err
 		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO credentials (id, account_id, public_key, transports, sign_count, created_at_unix) VALUES (?, ?, ?, ?, ?, ?)`,
-			cred.ID, cred.AccountID, cred.PublicKey, cred.Transports, cred.SignCount, storedb.TimeToUnix(cred.CreatedAt)); err != nil {
+			`INSERT INTO credentials (id, account_id, public_key, transports, sign_count, backup_eligible, backup_state, created_at_unix) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			cred.ID, cred.AccountID, cred.PublicKey, cred.Transports, cred.SignCount, cred.BackupEligible, cred.BackupState, storedb.TimeToUnix(cred.CreatedAt)); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx,
@@ -361,15 +366,15 @@ func (r *Repo) SetLossAck(ctx context.Context, accountID string, ackAt time.Time
 // AddCredential inserts a new WebAuthn credential for an account.
 func (r *Repo) AddCredential(ctx context.Context, cred Credential) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO credentials (id, account_id, public_key, transports, sign_count, created_at_unix) VALUES (?, ?, ?, ?, ?, ?)`,
-		cred.ID, cred.AccountID, cred.PublicKey, cred.Transports, cred.SignCount, storedb.TimeToUnix(cred.CreatedAt))
+		`INSERT INTO credentials (id, account_id, public_key, transports, sign_count, backup_eligible, backup_state, created_at_unix) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		cred.ID, cred.AccountID, cred.PublicKey, cred.Transports, cred.SignCount, cred.BackupEligible, cred.BackupState, storedb.TimeToUnix(cred.CreatedAt))
 	return err
 }
 
 // CredentialsByAccount returns every credential registered for an account.
 func (r *Repo) CredentialsByAccount(ctx context.Context, accountID string) ([]Credential, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, account_id, public_key, transports, sign_count, created_at_unix, last_asserted_at_unix FROM credentials WHERE account_id = ?`,
+		`SELECT id, account_id, public_key, transports, sign_count, backup_eligible, backup_state, created_at_unix, last_asserted_at_unix FROM credentials WHERE account_id = ?`,
 		accountID)
 	if err != nil {
 		return nil, err
@@ -384,7 +389,7 @@ func (r *Repo) CredentialsByAccount(ctx context.Context, accountID string) ([]Cr
 			createdUnix    int64
 			lastAssertedAt sql.NullInt64
 		)
-		if err := rows.Scan(&c.ID, &c.AccountID, &c.PublicKey, &c.Transports, &signCount, &createdUnix, &lastAssertedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.AccountID, &c.PublicKey, &c.Transports, &signCount, &c.BackupEligible, &c.BackupState, &createdUnix, &lastAssertedAt); err != nil {
 			return nil, err
 		}
 		c.SignCount = uint32(signCount)
@@ -604,8 +609,8 @@ func (r *Repo) RedeemTransferToken(ctx context.Context, accountID string, tokenH
 			return ErrTransferSlotInvalid
 		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO credentials (id, account_id, public_key, transports, sign_count, created_at_unix) VALUES (?, ?, ?, ?, ?, ?)`,
-			cred.ID, cred.AccountID, cred.PublicKey, cred.Transports, cred.SignCount, storedb.TimeToUnix(cred.CreatedAt)); err != nil {
+			`INSERT INTO credentials (id, account_id, public_key, transports, sign_count, backup_eligible, backup_state, created_at_unix) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			cred.ID, cred.AccountID, cred.PublicKey, cred.Transports, cred.SignCount, cred.BackupEligible, cred.BackupState, storedb.TimeToUnix(cred.CreatedAt)); err != nil {
 			return err
 		}
 		_, err = tx.ExecContext(ctx,
@@ -634,8 +639,8 @@ func (r *Repo) AddCredentialWithEnvelope(ctx context.Context, sourceCredentialID
 			return err
 		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO credentials (id, account_id, public_key, transports, sign_count, created_at_unix) VALUES (?, ?, ?, ?, ?, ?)`,
-			cred.ID, cred.AccountID, cred.PublicKey, cred.Transports, cred.SignCount, storedb.TimeToUnix(cred.CreatedAt)); err != nil {
+			`INSERT INTO credentials (id, account_id, public_key, transports, sign_count, backup_eligible, backup_state, created_at_unix) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			cred.ID, cred.AccountID, cred.PublicKey, cred.Transports, cred.SignCount, cred.BackupEligible, cred.BackupState, storedb.TimeToUnix(cred.CreatedAt)); err != nil {
 			return err
 		}
 		_, err = tx.ExecContext(ctx,

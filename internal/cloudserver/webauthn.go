@@ -174,8 +174,12 @@ func toWebAuthnCredentials(stored []cloudstore.Credential) []webauthn.Credential
 	creds := make([]webauthn.Credential, len(stored))
 	for i, c := range stored {
 		creds[i] = webauthn.Credential{
-			ID:            c.ID,
-			PublicKey:     c.PublicKey,
+			ID:        c.ID,
+			PublicKey: c.PublicKey,
+			// Flags must round-trip from registration: FinishLogin rejects
+			// assertions whose BE bit differs from the stored credential, and
+			// synced passkeys (Apple/Google/1Password) always assert BE=1.
+			Flags:         webauthn.CredentialFlags{BackupEligible: c.BackupEligible, BackupState: c.BackupState},
 			Authenticator: webauthn.Authenticator{SignCount: c.SignCount},
 		}
 	}
@@ -380,12 +384,14 @@ func (a *WebAuthnAPI) RegisterFinish(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now().UTC()
 	credRow := cloudstore.Credential{
-		ID:         cred.ID,
-		AccountID:  account.ID,
-		PublicKey:  cred.PublicKey,
-		Transports: transportsCSV(cred.Transport),
-		SignCount:  cred.Authenticator.SignCount,
-		CreatedAt:  now,
+		ID:             cred.ID,
+		AccountID:      account.ID,
+		PublicKey:      cred.PublicKey,
+		Transports:     transportsCSV(cred.Transport),
+		SignCount:      cred.Authenticator.SignCount,
+		BackupEligible: cred.Flags.BackupEligible,
+		BackupState:    cred.Flags.BackupState,
+		CreatedAt:      now,
 	}
 	envRow := cloudstore.Envelope{
 		AccountID:     account.ID,

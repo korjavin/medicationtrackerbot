@@ -228,9 +228,12 @@ func finishLogin(t *testing.T, h http.Handler, host string, challengeCookie *htt
 // registerCredential drives a full registration ceremony and returns the
 // virtualwebauthn authenticator+credential a login ceremony can reuse.
 func registerCredential(t *testing.T, h http.Handler, host, claimToken string) (virtualwebauthn.Authenticator, virtualwebauthn.Credential) {
+	return registerCredentialWithAuthenticator(t, h, host, claimToken, virtualwebauthn.NewAuthenticator())
+}
+
+func registerCredentialWithAuthenticator(t *testing.T, h http.Handler, host, claimToken string, authenticator virtualwebauthn.Authenticator) (virtualwebauthn.Authenticator, virtualwebauthn.Credential) {
 	t.Helper()
 	rp := virtualwebauthn.RelyingParty{Name: "Med Tracker Cloud", ID: host, Origin: "http://" + host}
-	authenticator := virtualwebauthn.NewAuthenticator()
 	cred := virtualwebauthn.NewCredential(virtualwebauthn.KeyTypeEC2)
 
 	opts, challengeCookie := beginRegistration(t, h, host, claimToken)
@@ -301,6 +304,40 @@ func TestWebAuthnLogin_FullCeremony(t *testing.T) {
 	}
 	if len(creds) != 1 || creds[0].LastAssertedAt == nil {
 		t.Fatalf("expected credential to be touched by login, got %+v", creds)
+	}
+}
+
+// Synced passkeys (Apple Passwords, Google Password Manager, 1Password) set
+// the backup-eligible/backup-state flags on every assertion, and go-webauthn's
+// FinishLogin rejects a mismatch against the stored credential. Regression
+// test for the C0a defect where flags weren't persisted (always false), which
+// made unlock impossible with any consumer passkey provider.
+func TestWebAuthnLogin_SyncedPasskeyBackupFlags(t *testing.T) {
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+	h, _ := newTestWebAuthnHandler(store)
+
+	synced := virtualwebauthn.NewAuthenticatorWithOptions(virtualwebauthn.AuthenticatorOptions{
+		BackupEligible: true,
+		BackupState:    true,
+	})
+	authenticator, cred := registerCredentialWithAuthenticator(t, h, host, claimToken, synced)
+
+	creds, err := store.CredentialsByAccount(t.Context(), account.ID)
+	if err != nil || len(creds) != 1 {
+		t.Fatalf("CredentialsByAccount: %v (n=%d)", err, len(creds))
+	}
+	if !creds[0].BackupEligible || !creds[0].BackupState {
+		t.Fatalf("backup flags not persisted at registration: %+v", creds[0])
+	}
+
+	rp := virtualwebauthn.RelyingParty{Name: "Med Tracker Cloud", ID: host, Origin: "http://" + host}
+	loginOpts, loginChallengeCookie := beginLogin(t, h, host)
+	loginResponse := virtualwebauthn.CreateAssertionResponse(rp, authenticator, cred, *loginOpts)
+	rec := finishLogin(t, h, host, loginChallengeCookie, loginResponse)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login/finish with synced passkey status = %d, body %q", rec.Code, rec.Body.String())
 	}
 }
 
