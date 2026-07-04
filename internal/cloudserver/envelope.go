@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
 )
@@ -25,13 +26,14 @@ const (
 	maxCredentialRefLen  = 1024
 )
 
-// envelopeStore is the subset of *cloudstore.Repo the envelope and recovery
-// verifier endpoints need.
+// envelopeStore is the subset of *cloudstore.Repo the envelope, recovery
+// verifier, and loss-ack endpoints need.
 type envelopeStore interface {
 	PutEnvelope(ctx context.Context, e cloudstore.Envelope) error
 	GetEnvelope(ctx context.Context, accountID, credentialRef string) (*cloudstore.Envelope, error)
 	ListEnvelopes(ctx context.Context, accountID string) ([]cloudstore.Envelope, error)
 	SetRecoveryVerifier(ctx context.Context, accountID string, verifierHash []byte) error
+	SetLossAck(ctx context.Context, accountID string, ackAt time.Time) error
 }
 
 // EnvelopeAPI holds the account-scoped envelope storage + recovery verifier
@@ -60,6 +62,7 @@ func (a *EnvelopeAPI) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/envelopes/{credential_ref}", RequireSession(a.sessionSecret, http.HandlerFunc(a.GetEnvelope)))
 	mux.Handle("GET /api/envelopes", RequireSession(a.sessionSecret, http.HandlerFunc(a.ListEnvelopes)))
 	mux.Handle("PUT /api/recovery-verifier", RequireSession(a.sessionSecret, http.HandlerFunc(a.PutRecoveryVerifier)))
+	mux.Handle("POST /api/loss-ack", RequireSession(a.sessionSecret, http.HandlerFunc(a.PostLossAck)))
 }
 
 // envelopeWire is the wire shape of an envelope — nonce/ct/mac are base64
@@ -201,6 +204,23 @@ func (a *EnvelopeAPI) PutRecoveryVerifier(w http.ResponseWriter, r *http.Request
 
 	hash := sha256.Sum256(req.Verifier)
 	if err := a.store.SetRecoveryVerifier(r.Context(), session.AccountID, hash[:]); err != nil {
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// PostLossAck records that the caller's session account acknowledged the
+// "we cannot recover your data" education step (docs/cloud-mode.md
+// Onboarding step 3), so the stateless client wizard never re-nags.
+func (a *EnvelopeAPI) PostLossAck(w http.ResponseWriter, r *http.Request) {
+	session, ok := SessionFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if err := a.store.SetLossAck(r.Context(), session.AccountID, time.Now().UTC()); err != nil {
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
 	}

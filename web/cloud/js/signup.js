@@ -1,0 +1,215 @@
+// Claim/registration wizard: the passkey signup ceremony described in
+// docs/cloud-crypto.md "Signup (first device)". Drives the account shell
+// (signup.html's #app) through create-passkey -> loss-protection ack ->
+// Emergency Kit. Each screen is rendered fresh from the outcome of the
+// previous step rather than a stored step counter, per docs/cloud-mode.md
+// Onboarding ("the wizard is stateless").
+import {
+  saltKek,
+  generateDEK,
+  deriveKEK,
+  deriveKMac,
+  wrapEnvelope,
+  generateRecoveryCode,
+  deriveKEKRec,
+  deriveVerifier,
+  toBase64,
+  toBase64Url,
+} from './crypto.js';
+
+export async function runSignupWizard(claimToken) {
+  renderWelcome(document.getElementById('app'), claimToken);
+}
+
+function renderWelcome(app, claimToken, errorText) {
+  app.innerHTML = `
+    <section class="wizard-step">
+      <h1>Welcome to Med Tracker Cloud</h1>
+      <p>Your data is encrypted on this device. This server only stores an
+         encrypted bundle it cannot read, and rings your reminders.</p>
+      ${errorText ? `<p class="wizard-error">${errorText}</p>` : ''}
+      <button id="create-passkey">Create your passkey</button>
+    </section>`;
+  app.querySelector('#create-passkey').addEventListener('click', () => {
+    startRegistration(app, claimToken).catch((err) => {
+      renderWelcome(app, claimToken, err.message || String(err));
+    });
+  });
+}
+
+async function startRegistration(app, claimToken) {
+  const beginRes = await fetch('/api/webauthn/register/begin', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ claim_token: claimToken }),
+  });
+  if (!beginRes.ok) throw new Error('Could not start passkey registration — the invite link may be expired.');
+  const { publicKey } = await beginRes.json();
+  const creationOptions = PublicKeyCredential.parseCreationOptionsFromJSON(publicKey);
+
+  const credential = await navigator.credentials.create({ publicKey: creationOptions });
+
+  // PRF availability is only reliable from a fresh assertion, never from
+  // create()'s "enabled" flag alone — docs/cloud-crypto.md "Registration
+  // caveat". Probe it before calling finish, so an unsupported authenticator
+  // aborts here (register/finish is never called => no envelope is ever
+  // created for it).
+  const salt = await saltKek();
+  const prfAssertion = await navigator.credentials.get({
+    publicKey: {
+      challenge: crypto.getRandomValues(new Uint8Array(32)),
+      allowCredentials: [{ type: 'public-key', id: credential.rawId }],
+      userVerification: 'required',
+      extensions: { prf: { eval: { first: salt } } },
+    },
+  });
+  const prfOutput = prfAssertion.getClientExtensionResults().prf?.results?.first;
+  if (!prfOutput) {
+    renderUnsupportedAuthenticator(app);
+    return;
+  }
+
+  const finishBody = credential.toJSON();
+  // Never transmit the PRF output — it lives client-side only.
+  if (finishBody.clientExtensionResults) delete finishBody.clientExtensionResults.prf;
+
+  const finishRes = await fetch('/api/webauthn/register/finish', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(finishBody),
+  });
+  if (!finishRes.ok) throw new Error('Passkey registration failed. Please try again.');
+  const { account_id: accountId } = await finishRes.json();
+
+  const credentialId = new Uint8Array(credential.rawId);
+  const dek = generateDEK();
+  const kek = await deriveKEK(new Uint8Array(prfOutput), accountId, credentialId);
+  const kMac = await deriveKMac(dek);
+  const envelope = await wrapEnvelope({ kek, dek, kMac, accountId, credentialId });
+  await putEnvelope(toBase64Url(credentialId), envelope);
+
+  renderLossProtection(app, { accountId, dek });
+}
+
+function renderUnsupportedAuthenticator(app) {
+  app.innerHTML = `
+    <section class="wizard-step">
+      <h1>This device can't be used yet</h1>
+      <p>Your passkey doesn't support the security feature (PRF) this app
+         needs to protect your data. Try a hardware security key (e.g. a
+         YubiKey) or a different device or browser.</p>
+    </section>`;
+}
+
+async function putEnvelope(credentialRef, envelope) {
+  const res = await fetch(`/api/envelopes/${credentialRef}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      v: envelope.v,
+      nonce: toBase64(envelope.nonce),
+      ct: toBase64(envelope.ct),
+      mac: toBase64(envelope.mac),
+    }),
+  });
+  if (!res.ok) throw new Error('Could not upload the encrypted envelope.');
+}
+
+function renderLossProtection(app, ctx) {
+  app.innerHTML = `
+    <section class="wizard-step">
+      <h1>Protect against device loss</h1>
+      <p>We cannot recover your data if you lose every passkey and the
+         Emergency Kit — there is no password reset. Before continuing:</p>
+      <ul>
+        <li>Check whether your passkey is synced (iCloud Keychain / Google
+            Password Manager) — if so, losing this device is a non-event.</li>
+        <li>You can add a second device later.</li>
+        <li>Save the Emergency Kit on the next screen.</li>
+      </ul>
+      <label class="wizard-ack">
+        <input type="checkbox" id="loss-ack-checkbox">
+        I understand my data is unrecoverable if I lose this device.
+      </label>
+      <button id="loss-ack-continue" disabled>Continue</button>
+    </section>`;
+  const checkbox = app.querySelector('#loss-ack-checkbox');
+  const button = app.querySelector('#loss-ack-continue');
+  checkbox.addEventListener('change', () => { button.disabled = !checkbox.checked; });
+  button.addEventListener('click', () => {
+    button.disabled = true;
+    fetch('/api/loss-ack', { method: 'POST' })
+      .then((res) => {
+        if (!res.ok) throw new Error('Could not save your acknowledgment.');
+        return renderEmergencyKit(app, ctx);
+      })
+      .catch((err) => {
+        button.disabled = false;
+        renderLossProtectionError(app, err);
+      });
+  });
+}
+
+function renderLossProtectionError(app, err) {
+  const p = document.createElement('p');
+  p.className = 'wizard-error';
+  p.textContent = err.message || String(err);
+  app.querySelector('section').appendChild(p);
+}
+
+async function renderEmergencyKit(app, ctx) {
+  const { codeBytes, formatted } = await generateRecoveryCode();
+  const kekRec = await deriveKEKRec(codeBytes, ctx.accountId);
+  const verifier = await deriveVerifier(codeBytes, ctx.accountId);
+  const kMac = await deriveKMac(ctx.dek);
+  const envelopeRec = await wrapEnvelope({
+    kek: kekRec, dek: ctx.dek, kMac, accountId: ctx.accountId, credentialId: 'recovery',
+  });
+
+  await putEnvelope('recovery', envelopeRec);
+  await fetch('/api/recovery-verifier', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ verifier: toBase64(verifier) }),
+  }).then((res) => {
+    if (!res.ok) throw new Error('Could not save recovery material.');
+  });
+
+  const kitUrl = location.origin;
+  const { qrcode } = await import('../vendor/qrcode.mjs');
+  const qr = qrcode(0, 'M');
+  qr.addData(`${kitUrl}\n${ctx.accountId}\n${formatted}`);
+  qr.make();
+
+  app.innerHTML = `
+    <section class="wizard-step kit">
+      <h1>Your Emergency Kit</h1>
+      <p>This is the only way back into your account if you lose every
+         passkey. Save or print it now — it will not be shown again.</p>
+      <dl>
+        <dt>URL</dt><dd>${kitUrl}</dd>
+        <dt>Account ID</dt><dd>${ctx.accountId}</dd>
+        <dt>Recovery code</dt><dd class="recovery-code">${formatted}</dd>
+      </dl>
+      <div class="kit-qr">${qr.createSvgTag(4)}</div>
+      <label class="wizard-ack">
+        <input type="checkbox" id="kit-saved-checkbox">
+        I saved my Emergency Kit.
+      </label>
+      <button id="kit-continue" disabled>Enter Med Tracker</button>
+    </section>`;
+
+  const checkbox = app.querySelector('#kit-saved-checkbox');
+  const button = app.querySelector('#kit-continue');
+  checkbox.addEventListener('change', () => { button.disabled = !checkbox.checked; });
+  button.addEventListener('click', () => renderDone(app));
+}
+
+function renderDone(app) {
+  app.innerHTML = `
+    <section class="wizard-step">
+      <h1>You're set up</h1>
+      <p>Your vault is unlocked on this device. The full app arrives with
+         the next update.</p>
+    </section>`;
+}

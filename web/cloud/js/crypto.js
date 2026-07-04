@@ -13,6 +13,32 @@ export function utf8(str) {
   return new TextEncoder().encode(str);
 }
 
+// Standard base64 (with padding) — matches Go's encoding/json []byte
+// marshaling, used for the envelope wire fields (nonce/ct/mac).
+export function toBase64(bytes) {
+  let binary = '';
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary);
+}
+
+export function fromBase64(str) {
+  const binary = atob(str);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+// base64url (unpadded) — matches the server's credential_ref path segment
+// (base64.RawURLEncoding) and WebAuthn's JSON encoding of binary fields.
+export function toBase64Url(bytes) {
+  return toBase64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+export function fromBase64Url(str) {
+  const padded = str + '='.repeat((4 - (str.length % 4)) % 4);
+  return fromBase64(padded.replace(/-/g, '+').replace(/_/g, '/'));
+}
+
 export function timingSafeEqual(a, b) {
   if (a.length !== b.length) return false;
   let diff = 0;

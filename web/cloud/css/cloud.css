@@ -11,3 +11,58 @@ body {
   padding: 0 1.5rem;
   line-height: 1.5;
 }
+
+.wizard-step {
+  max-width: 32rem;
+  margin: 4rem auto;
+  padding: 0 1.5rem;
+  line-height: 1.5;
+}
+
+.wizard-step button {
+  font-size: 1rem;
+  padding: 0.75rem 1.25rem;
+  border-radius: 0.5rem;
+  border: none;
+  background: #38bdf8;
+  color: #0f172a;
+  cursor: pointer;
+}
+
+.wizard-step button:disabled {
+  background: #334155;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.wizard-ack {
+  display: block;
+  margin: 1rem 0;
+}
+
+.wizard-error {
+  color: #f87171;
+}
+
+.kit dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.5rem 1rem;
+}
+
+.kit dt {
+  font-weight: bold;
+  color: #94a3b8;
+}
+
+.recovery-code {
+  font-family: ui-monospace, monospace;
+  font-size: 1.1rem;
+  letter-spacing: 0.05em;
+}
+
+.kit-qr svg {
+  background: #fff;
+  padding: 0.5rem;
+  border-radius: 0.25rem;
+}
