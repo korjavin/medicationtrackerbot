@@ -26,19 +26,21 @@ import (
 // config is the env-driven configuration for cmd/cloud — no flags, per the
 // bot binary's convention (cmd/bot/main_server.go).
 type config struct {
-	dbPath        string
-	port          string
-	baseDomain    string
-	sessionSecret string
-	claimTTL      time.Duration
+	dbPath            string
+	port              string
+	baseDomain        string
+	sessionSecret     string
+	claimTTL          time.Duration
+	accountQuotaBytes int64
 }
 
 func loadConfig() (config, error) {
 	cfg := config{
-		dbPath:     os.Getenv("CLOUD_DB_PATH"),
-		port:       os.Getenv("PORT"),
-		baseDomain: os.Getenv("CLOUD_BASE_DOMAIN"),
-		claimTTL:   14 * 24 * time.Hour,
+		dbPath:            os.Getenv("CLOUD_DB_PATH"),
+		port:              os.Getenv("PORT"),
+		baseDomain:        os.Getenv("CLOUD_BASE_DOMAIN"),
+		claimTTL:          14 * 24 * time.Hour,
+		accountQuotaBytes: 50 << 20, // 50MB
 	}
 	if cfg.dbPath == "" {
 		cfg.dbPath = "cloud.db"
@@ -62,6 +64,14 @@ func loadConfig() (config, error) {
 			return cfg, errors.New("CLOUD_CLAIM_TTL must be a positive integer number of days")
 		}
 		cfg.claimTTL = time.Duration(days) * 24 * time.Hour
+	}
+
+	if quota := os.Getenv("CLOUD_ACCOUNT_QUOTA_BYTES"); quota != "" {
+		bytes, err := strconv.ParseInt(quota, 10, 64)
+		if err != nil || bytes < 0 {
+			return cfg, errors.New("CLOUD_ACCOUNT_QUOTA_BYTES must be a non-negative integer (0 disables the quota)")
+		}
+		cfg.accountQuotaBytes = bytes
 	}
 
 	return cfg, nil
@@ -140,12 +150,14 @@ func main() {
 	transferAPI := cloudserver.NewTransferAPI(store, cfg.sessionSecret)
 	deviceAPI := cloudserver.NewDeviceAPI(store, cfg.sessionSecret)
 	recoveryAPI := cloudserver.NewRecoveryAPI(store)
+	syncAPI := cloudserver.NewSyncAPI(store, cfg.sessionSecret, cfg.accountQuotaBytes)
 	apiMux := http.NewServeMux()
 	webauthnAPI.RegisterRoutes(apiMux)
 	envelopeAPI.RegisterRoutes(apiMux)
 	transferAPI.RegisterRoutes(apiMux)
 	deviceAPI.RegisterRoutes(apiMux)
 	recoveryAPI.RegisterRoutes(apiMux)
+	syncAPI.RegisterRoutes(apiMux)
 	router := cloudserver.New(cfg.baseDomain, store, cloudweb.FS, apiMux)
 
 	mux := http.NewServeMux()

@@ -47,10 +47,10 @@ Completes C0: the cloud becomes a working encrypted-sync backend and blind alarm
 
 ### Task 1: oplog + snapshot storage and API
 
-- [ ] migration `003_sync.sql`: `oplog(account_id TEXT NOT NULL, seq INTEGER NOT NULL, device_credential_id BLOB, record_type_tag TEXT NOT NULL, nonce BLOB NOT NULL, ct BLOB NOT NULL, created_at_unix INTEGER NOT NULL, PRIMARY KEY(account_id, seq))`, `snapshots(account_id TEXT PK, snapshot_seq INTEGER NOT NULL, nonce BLOB NOT NULL, ct BLOB NOT NULL, created_at_unix INTEGER NOT NULL)`, `sync_state(account_id TEXT PK, last_seq INTEGER NOT NULL DEFAULT 0, last_sync_unix INTEGER)`
-- [ ] `POST /api/sync/ops` (session auth): batch of `{record_type_tag, nonce, ct}`; server assigns contiguous `seq` values in one tx (read+bump `sync_state.last_seq`), returns `{assigned: [seq...]}`; per-op and per-batch size caps + per-account total-storage quota (env `CLOUD_ACCOUNT_QUOTA_BYTES`, default 50MB) → 413 on breach
-- [ ] `GET /api/sync/ops?since=<seq>` (session auth): ordered page (limit + `next` cursor); every sync API call updates `sync_state.last_sync_unix`
-- [ ] integration test: append from two sessions → strictly increasing seqs, cursor pagination exact, quota 413 — guards the sync contract
+- [x] migration `003_sync.sql`: `oplog(account_id TEXT NOT NULL, seq INTEGER NOT NULL, device_credential_id BLOB, record_type_tag TEXT NOT NULL, nonce BLOB NOT NULL, ct BLOB NOT NULL, created_at_unix INTEGER NOT NULL, PRIMARY KEY(account_id, seq))`, `snapshots(account_id TEXT PK, snapshot_seq INTEGER NOT NULL, nonce BLOB NOT NULL, ct BLOB NOT NULL, created_at_unix INTEGER NOT NULL)`, `sync_state(account_id TEXT PK, last_seq INTEGER NOT NULL DEFAULT 0, last_sync_unix INTEGER)`
+- [x] `POST /api/sync/ops` (session auth): batch of `{record_type_tag, nonce, ct}`; server assigns contiguous `seq` values in one tx (read+bump `sync_state.last_seq`), returns `{assigned: [seq...]}`; per-op and per-batch size caps + per-account total-storage quota (env `CLOUD_ACCOUNT_QUOTA_BYTES`, default 50MB) → 413 on breach
+- [x] `GET /api/sync/ops?since=<seq>` (session auth): ordered page (limit + `next` cursor); every sync API call updates `sync_state.last_sync_unix`
+- [x] integration test: append from two sessions → strictly increasing seqs, cursor pagination exact, quota 413 — guards the sync contract
 
 ### Task 2: snapshot upload + compaction
 
