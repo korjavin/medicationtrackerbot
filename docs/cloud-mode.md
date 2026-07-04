@@ -1,6 +1,6 @@
 # E2EE Cloud Mode — zero-knowledge cloud + browser PWA
 
-**Status: design proposal; C0a (service foundation + passkey signup/unlock) is implemented — see `cmd/cloud`, `internal/cloudstore`, `internal/cloudserver`, `web/cloud/`, [docs/cloud-deployment.md](cloud-deployment.md). Everything below C0a in Phasing is still design-only.**
+**Status: design proposal; C0a (service foundation + passkey signup/unlock) and C0b (device lifecycle: QR/typed-code add-device, recovery redemption + forced rotation, revocation) are implemented — see `cmd/cloud`, `internal/cloudstore`, `internal/cloudserver`, `web/cloud/`, [docs/cloud-deployment.md](cloud-deployment.md). Everything below C0b in Phasing is still design-only.**
 
 C0a deviations from this spec, discovered during implementation: subdomain and `account_id` are **server-assigned** at invite time, not client-generated at signup — a deliberate clarification, only key material (DEK, KEK, passkey PRF, recovery code) must be client-generated. Registration is invite-only from day one (admin CLI `cloud admin invite`), matching the Onboarding section below.
 
@@ -142,8 +142,8 @@ Zero knowledge means **no account reset**; recovery must be designed in, not bol
 | Lost | Still has | Outcome |
 |---|---|---|
 | Phone | synced passkey (iCloud/Google) | New device asserts with the restored passkey; PRF unwraps the DEK. Non-event. |
-| Phone (device-local passkey) | a second enrolled device | Enroll replacement via cross-device passkey ceremony or QR hand-off ([cloud-crypto.md](cloud-crypto.md) Paths A/B); rotate keys if theft suspected. |
-| Phone (device-local passkey) | Emergency Kit | Recovery code unwraps DEK → enroll a new passkey → code force-rotated. Full restore. |
+| Phone (device-local passkey) | a second enrolled device | **Implemented (C0b)**: enroll replacement via QR hand-off / typed fallback ([cloud-crypto.md](cloud-crypto.md) Path B — Path A cross-device ceremony stays deferred); revoke the lost device from the surviving one. Key rotation on theft is a documented gap, not yet implemented. |
+| Phone (device-local passkey) | Emergency Kit | **Implemented (C0b)**: recovery code unwraps DEK → enroll a new passkey → code force-rotated. Full restore. |
 | Phone + forgot URL | email on file | Server emails the URL; then any row above applies. |
 | All devices + all passkeys + Kit | nothing | **Data unrecoverable — by design.** Stated plainly in onboarding. |
 
@@ -238,7 +238,7 @@ Server-mode users with real history move by **export → client-side import** �
 
 - **C0 — cloud service MVP**: signup + subdomain provisioning, wildcard host, blob sync API (oplog/snapshot/cursors), push relay, Emergency Kit + key hierarchy + unlock UX in the PWA shell. No domain logic yet — validate crypto, sync, and push end-to-end with a toy record type.
   - **C0a (implemented)** — service foundation + passkey signup/unlock: `cloudstore`/`cloudserver` packages, wildcard host routing, admin-invite provisioning, WebAuthn registration/login, envelope API, client crypto module (suite v1), signup wizard + Emergency Kit, cold/warm unlock. See `docs/plans/2026-07-03-cloud-c0a-foundation-passkey-signup.md`.
-  - **C0b** — device lifecycle (add/remove devices, cross-device enrollment, recovery redemption). Plan: `docs/plans/2026-07-03-cloud-c0b-device-lifecycle.md`.
+  - **C0b (implemented)** — device lifecycle: transfer slots + QR/typed-code add-device (Path B), enrollment-token-gated registration, device list + envelope-audit UI, revocation (credential+envelope removal; DEK rotation on theft not yet implemented), recovery redemption + forced rotation. Plan: `docs/plans/2026-07-03-cloud-c0b-device-lifecycle.md`.
   - **C0c** — sync + push relay (oplog/snapshot/cursors, Web Push). Plan: `docs/plans/2026-07-03-cloud-c0c-sync-push-relay.md`.
 - **C1 — core loop**: JS domain layer for medications + intake log + reminder computation behind the `/api` shim; contract-test harness against the Go server. A user can fully run medication tracking on cloud mode.
 - **C2 — remaining domains**: BP, weight, food (incl. direct-from-browser AI/vision/barcode), workouts, vitals, sleep, diary, tz handling. Closes with the **server-mode migration pair**: `cmd/exporter` (full-vault JSON) + cloud-client import landing as one encrypted snapshot — see "Migrating an existing server-mode install".

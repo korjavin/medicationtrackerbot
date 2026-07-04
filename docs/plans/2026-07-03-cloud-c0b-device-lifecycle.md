@@ -95,9 +95,9 @@ QR mechanics (the trick that avoids shipping a camera/scanner): the QR encodes a
 
 ### Task 8: [Final] Update documentation
 
-- [ ] docs/cloud-crypto.md: mark Path B + recovery + revocation as implemented; note Path A (hybrid PRF) explicitly deferred and DEK rotation as the documented gap
-- [ ] docs/cloud-mode.md recovery matrix: verify rows match shipped behavior
-- [ ] docs/api.md or docs/cloud-deployment.md: new endpoints
+- [x] docs/cloud-crypto.md: mark Path B + recovery + revocation as implemented; note Path A (hybrid PRF) explicitly deferred and DEK rotation as the documented gap
+- [x] docs/cloud-mode.md recovery matrix: verify rows match shipped behavior
+- [x] docs/api.md or docs/cloud-deployment.md: new endpoints
 
 ## Technical Details
 

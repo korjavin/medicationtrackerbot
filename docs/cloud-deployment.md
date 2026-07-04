@@ -62,3 +62,21 @@ Emergency Kit flow this link starts.
 `CLOUD_BASE_DOMAIN=localhost` works without any DNS or infra: `*.localhost`
 subdomains are secure contexts and resolve without configuration, giving a
 full local loop including passkeys on desktop.
+
+## API endpoints (`internal/cloudserver`)
+
+All routes are host-routed off the account's subdomain except where noted.
+Full ceremony details: [cloud-crypto.md](cloud-crypto.md).
+
+| Route | Auth | Purpose |
+|---|---|---|
+| `POST /api/webauthn/register/begin`, `POST /api/webauthn/register/finish` | claim token, enrollment token, or session | Register a passkey — first device (C0a), transfer/recovery target, or an additional local passkey |
+| `POST /api/webauthn/login/begin`, `POST /api/webauthn/login/finish` | none | Cold-unlock assertion; issues a session token bound to `credential_id` |
+| `GET /api/envelopes`, `GET /api/envelopes/{credential_ref}`, `PUT /api/envelopes/{credential_ref}` | session | Fetch/upload wrapped-DEK envelopes (`credential_ref` is a credential id or `"recovery"`) |
+| `PUT /api/recovery-verifier` | session | Upload the recovery-code verifier hash (signup, and forced rotation after redemption) |
+| `POST /api/loss-ack` | session | Record the "I understand data is unrecoverable" onboarding acknowledgment |
+| `POST /api/transfer` | session | Old device: create a transfer slot (`{ct}`) → `{slot_id, enrollment_token, expires_at}` |
+| `POST /api/transfer/{slot_id}/claim` | none | New device: single-fetch claim → `{ct, enrollment_token}`; 410 once fetched or expired |
+| `POST /api/recover` | none | Redeem a recovery-code verifier (rate-limited 5/hour/account) → recovery envelope + enrollment token |
+| `GET /api/devices` | session | List credentials joined with their envelopes, for the device-list/audit UI |
+| `DELETE /api/devices/{credential_id}` | session | Revoke a device: deletes credential + envelope in one tx; rejects removing the last verified credential unless a recovery envelope exists |
