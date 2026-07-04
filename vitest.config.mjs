@@ -3,7 +3,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     environment: 'node',
-    include: ['web/static/js/tests/**/*.test.js'],
+    include: ['web/static/js/tests/**/*.test.js', 'web/cloud/js/tests/**/*.test.js'],
     setupFiles: ['web/static/js/tests/helpers/setup.js'],
     restoreMocks: true,
     clearMocks: true,

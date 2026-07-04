@@ -105,10 +105,10 @@ The server stores only: WebAuthn public keys, envelopes (ciphertext), a recovery
 
 ### Task 8: client crypto module (`web/cloud/js/crypto.js`)
 
-- [ ] implement suite v1 exactly per docs/cloud-crypto.md "Exact formats": length-prefixed field encoding, `salt_kek` constant, `KEK = HKDF(PRF, salt=account_id, info="mt/v1/kek"‖credential_id)`, envelope AES-256-GCM with the specified AAD, recovery-code generation (160-bit Crockford base32 + checksum group) with `KEK_rec`/`verifier` derivations, envelope-audit MAC (`K_mac`)
-- [ ] pure WebCrypto (`crypto.subtle`), no dependencies; every exported function takes/returns `Uint8Array`/plain objects (no DOM)
-- [ ] add `web/cloud/js/tests/**/*.test.js` glob to `vitest.config.mjs` `include`
-- [ ] Vitest integration test (Node WebCrypto): envelope wrap→unwrap roundtrip, tamper detection (flip ct/aad byte → throws), HKDF domain separation (`KEK_rec` ≠ `verifier` for same code), recovery-code checksum — guards format-spec compliance across future edits
+- [x] implement suite v1 exactly per docs/cloud-crypto.md "Exact formats": length-prefixed field encoding, `salt_kek` constant, `KEK = HKDF(PRF, salt=account_id, info="mt/v1/kek"‖credential_id)`, envelope AES-256-GCM with the specified AAD, recovery-code generation (160-bit Crockford base32 + checksum group) with `KEK_rec`/`verifier` derivations, envelope-audit MAC (`K_mac`)
+- [x] pure WebCrypto (`crypto.subtle`), no dependencies; every exported function takes/returns `Uint8Array`/plain objects (no DOM)
+- [x] add `web/cloud/js/tests/**/*.test.js` glob to `vitest.config.mjs` `include`
+- [x] Vitest integration test (Node WebCrypto): envelope wrap→unwrap roundtrip, tamper detection (flip ct/aad byte → throws), HKDF domain separation (`KEK_rec` ≠ `verifier` for same code), recovery-code checksum — guards format-spec compliance across future edits
 
 ### Task 9: client signup flow (`web/cloud/js/signup.js` + shell pages)
 
