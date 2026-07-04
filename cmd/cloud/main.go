@@ -33,6 +33,8 @@ type config struct {
 	claimTTL          time.Duration
 	accountQuotaBytes int64
 	vapidPublicKey    string
+	vapidPrivateKey   string
+	vapidSubject      string
 }
 
 func loadConfig() (config, error) {
@@ -43,6 +45,8 @@ func loadConfig() (config, error) {
 		claimTTL:          14 * 24 * time.Hour,
 		accountQuotaBytes: 50 << 20, // 50MB
 		vapidPublicKey:    os.Getenv("VAPID_PUBLIC_KEY"),
+		vapidPrivateKey:   os.Getenv("VAPID_PRIVATE_KEY"),
+		vapidSubject:      os.Getenv("VAPID_SUBJECT"),
 	}
 	if cfg.dbPath == "" {
 		cfg.dbPath = "cloud.db"
@@ -164,6 +168,17 @@ func main() {
 	pushAPI.RegisterRoutes(apiMux)
 	router := cloudserver.New(cfg.baseDomain, store, cloudweb.FS, apiMux)
 
+	var relay *cloudserver.Relay
+	if cfg.vapidPublicKey != "" && cfg.vapidPrivateKey != "" {
+		relay = cloudserver.NewRelay(store, &cloudserver.WebPushSender{
+			VAPIDPublicKey:  cfg.vapidPublicKey,
+			VAPIDPrivateKey: cfg.vapidPrivateKey,
+			VAPIDSubject:    cfg.vapidSubject,
+		})
+	} else {
+		slog.Info("Push relay disabled: VAPID keys not configured")
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -177,6 +192,10 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	if relay != nil {
+		go relay.Run(ctx)
+	}
 
 	listenErr := make(chan error, 1)
 	go func() {

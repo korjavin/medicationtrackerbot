@@ -74,3 +74,74 @@ func (r *Repo) Disable(ctx context.Context, endpoint string) error {
 	_, err := r.db.ExecContext(ctx, `UPDATE push_subscriptions SET disabled = 1 WHERE endpoint = ?`, endpoint)
 	return err
 }
+
+// ScheduledPush is one row in the scheduled_pushes table — a client-scheduled
+// blind push (fire_at, ct) the relay sender fires without ever decrypting.
+// SentAt is nil until the relay has attempted delivery.
+type ScheduledPush struct {
+	ID        int64
+	AccountID string
+	FireAt    time.Time
+	CT        []byte
+	SentAt    *time.Time
+}
+
+// ScheduledPushInput is one entry of a PUT /api/push/schedule replace-all
+// batch, before insertion.
+type ScheduledPushInput struct {
+	FireAt time.Time
+	CT     []byte
+}
+
+// ReplaceSchedule replaces accountID's unsent schedule with entries in one
+// transaction (delete-then-insert), mirroring the Capacitor Reminders loop's
+// replace-all semantics. Already-sent entries are left untouched so the
+// relay's send history survives a client re-schedule.
+func (r *Repo) ReplaceSchedule(ctx context.Context, accountID string, entries []ScheduledPushInput, now time.Time) error {
+	return r.db.WithTx(ctx, func(tx storedb.TX) error {
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM scheduled_pushes WHERE account_id = ? AND sent_at_unix IS NULL`, accountID); err != nil {
+			return err
+		}
+		for _, e := range entries {
+			if _, err := tx.ExecContext(ctx,
+				`INSERT INTO scheduled_pushes (account_id, fire_at_unix, ct) VALUES (?, ?, ?)`,
+				accountID, storedb.TimeToUnix(e.FireAt), e.CT); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// DueScheduledPushes returns unsent entries across every account whose
+// fire_at has passed — the relay sender's per-tick query.
+func (r *Repo) DueScheduledPushes(ctx context.Context, now time.Time) ([]ScheduledPush, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, account_id, fire_at_unix, ct FROM scheduled_pushes WHERE sent_at_unix IS NULL AND fire_at_unix <= ? ORDER BY fire_at_unix`,
+		storedb.TimeToUnix(now))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var due []ScheduledPush
+	for rows.Next() {
+		var (
+			p        ScheduledPush
+			fireUnix int64
+		)
+		if err := rows.Scan(&p.ID, &p.AccountID, &fireUnix, &p.CT); err != nil {
+			return nil, err
+		}
+		p.FireAt = storedb.UnixToTime(fireUnix)
+		due = append(due, p)
+	}
+	return due, rows.Err()
+}
+
+// MarkPushSent marks a scheduled push as sent so later ticks skip it.
+func (r *Repo) MarkPushSent(ctx context.Context, id int64, sentAt time.Time) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE scheduled_pushes SET sent_at_unix = ? WHERE id = ?`, storedb.TimeToUnix(sentAt), id)
+	return err
+}

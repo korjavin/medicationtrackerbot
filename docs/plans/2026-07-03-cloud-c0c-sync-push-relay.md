@@ -74,10 +74,10 @@ Completes C0: the cloud becomes a working encrypted-sync backend and blind alarm
 
 ### Task 5: schedule API + blind firing loop
 
-- [ ] `PUT /api/push/schedule` (session auth): replace-all — delete this account's unsent future entries, insert batch of `{fire_at_unix, ct}` (caps: entries ≤ 2000, ct ≤ 4KB — 4078-byte webpush payload limit minus RFC 8291 overhead)
-- [ ] sender goroutine in cmd/cloud: 30s ticker, `SELECT ... WHERE sent_at_unix IS NULL AND fire_at_unix <= now` → for each account fan out to enabled subscriptions via `webpush-go` (the stored `ct` is the app-layer ciphertext; webpush-go applies RFC 8291) → mark sent; 404/410 responses disable the subscription; per-send timeout + error logging via slog
-- [ ] graceful shutdown: ticker stops with the server context (mirror scheduler patterns)
-- [ ] integration test: fake sender captures due-and-only-due payloads; replace-all drops old future entries but never sent ones; 410 disables — guards the relay contract
+- [x] `PUT /api/push/schedule` (session auth): replace-all — delete this account's unsent future entries, insert batch of `{fire_at_unix, ct}` (caps: entries ≤ 2000, ct ≤ 4KB — 4078-byte webpush payload limit minus RFC 8291 overhead)
+- [x] sender goroutine in cmd/cloud: 30s ticker, `SELECT ... WHERE sent_at_unix IS NULL AND fire_at_unix <= now` → for each account fan out to enabled subscriptions via `webpush-go` (the stored `ct` is the app-layer ciphertext; webpush-go applies RFC 8291) → mark sent; 404/410 responses disable the subscription; per-send timeout + error logging via slog
+- [x] graceful shutdown: ticker stops with the server context (mirror scheduler patterns)
+- [x] integration test: fake sender captures due-and-only-due payloads; replace-all drops old future entries but never sent ones; 410 disables — guards the relay contract
 
 ### Task 6: service worker + NK
 

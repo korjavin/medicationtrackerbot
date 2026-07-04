@@ -6,6 +6,9 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
+	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
 )
 
 // Size caps on subscription fields: endpoints are push-service URLs (well
@@ -16,14 +19,22 @@ const (
 	maxPushSubscriptionBodyBytes = 4 << 10
 	maxPushEndpointLen           = 2048
 	maxPushKeyLen                = 256
+
+	// Schedule caps: 2000 entries covers years of daily reminders; 4KB per
+	// ciphertext leaves headroom under the ~4078-byte webpush payload limit
+	// once RFC 8291 overhead is subtracted.
+	maxScheduleBodyBytes = 1 << 20 // 1 MiB request body (a full replace-all batch)
+	maxScheduleEntries   = 2000
+	maxScheduleCTLen     = 4 << 10
 )
 
-// pushStore is the subset of *cloudstore.Repo the push-subscription endpoints
-// need.
+// pushStore is the subset of *cloudstore.Repo the push-subscription and
+// schedule endpoints need.
 type pushStore interface {
 	UpsertPushSubscription(ctx context.Context, accountID, endpoint, p256dh, auth string, now time.Time) error
 	DeletePushSubscription(ctx context.Context, accountID, endpoint string) error
 	CredentialExists(ctx context.Context, credentialID []byte) (bool, error)
+	ReplaceSchedule(ctx context.Context, accountID string, entries []cloudstore.ScheduledPushInput, now time.Time) error
 }
 
 // PushAPI holds the push-subscription + VAPID-public-key HTTP handlers.
@@ -46,6 +57,7 @@ func (a *PushAPI) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/push/subscriptions", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.PostSubscription)))
 	mux.Handle("DELETE /api/push/subscriptions", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.DeleteSubscription)))
 	mux.HandleFunc("GET /api/push/vapid-public-key", a.GetVapidPublicKey)
+	mux.Handle("PUT /api/push/schedule", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.PutSchedule)))
 }
 
 type subscriptionRequest struct {
@@ -127,4 +139,49 @@ func (a *PushAPI) GetVapidPublicKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, vapidPublicKeyResponse{PublicKey: a.vapidPublicKey})
+}
+
+type scheduleEntryWire struct {
+	FireAtUnix int64  `json:"fire_at_unix"`
+	CT         []byte `json:"ct"`
+}
+
+type putScheduleRequest struct {
+	Entries []scheduleEntryWire `json:"entries"`
+}
+
+// PutSchedule replaces the caller's session account's pending push schedule:
+// every not-yet-sent entry is dropped and the batch is inserted in its place
+// (replace-all, mirroring the Capacitor Reminders loop). Entries the relay
+// has already fired are untouched.
+func (a *PushAPI) PutSchedule(w http.ResponseWriter, r *http.Request) {
+	session, ok := SessionFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req putScheduleRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, maxScheduleBodyBytes)).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	if len(req.Entries) > maxScheduleEntries {
+		http.Error(w, "too many schedule entries", http.StatusBadRequest)
+		return
+	}
+	entries := make([]cloudstore.ScheduledPushInput, len(req.Entries))
+	for i, e := range req.Entries {
+		if e.FireAtUnix <= 0 || len(e.CT) == 0 || len(e.CT) > maxScheduleCTLen {
+			http.Error(w, "schedule entry field too large or missing", http.StatusBadRequest)
+			return
+		}
+		entries[i] = cloudstore.ScheduledPushInput{FireAt: storedb.UnixToTime(e.FireAtUnix), CT: e.CT}
+	}
+
+	if err := a.store.ReplaceSchedule(r.Context(), session.AccountID, entries, time.Now().UTC()); err != nil {
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
