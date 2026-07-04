@@ -188,7 +188,7 @@ async function renderEmergencyKit(app, ctx) {
          passkey. Save or print it now — it will not be shown again.</p>
       <dl>
         <dt>URL</dt><dd>${kitUrl}</dd>
-        <dt>Account ID</dt><dd>${ctx.accountId}</dd>
+        <dt>Account ID</dt><dd id="kit-account-id"></dd>
         <dt>Recovery code</dt><dd class="recovery-code">${formatted}</dd>
       </dl>
       <div class="kit-qr">${qr.createSvgTag(4)}</div>
@@ -199,6 +199,8 @@ async function renderEmergencyKit(app, ctx) {
       <button id="kit-continue" disabled>Enter Med Tracker</button>
     </section>`;
 
+  // Server-controlled value — set via textContent, never innerHTML.
+  app.querySelector('#kit-account-id').textContent = ctx.accountId;
   const checkbox = app.querySelector('#kit-saved-checkbox');
   const button = app.querySelector('#kit-continue');
   checkbox.addEventListener('change', () => { button.disabled = !checkbox.checked; });

@@ -98,10 +98,13 @@ function renderUnlocked(app, ctx) {
   app.innerHTML = `
     <section class="wizard-step">
       <h1>Vault unlocked</h1>
-      <p>Account <code>${ctx.accountId}</code></p>
+      <p>Account <code id="account-id"></code></p>
       <p>Devices and data sync arrive with the next update.</p>
       <button id="lock-button">Lock</button>
     </section>`;
+  // Server-controlled value — set via textContent, never innerHTML (E2EE
+  // threat model treats the server as hostile; XSS here reads the DEK).
+  app.querySelector('#account-id').textContent = ctx.accountId;
   app.querySelector('#lock-button').addEventListener('click', () => {
     clearLdkRecord().then(() => renderLocked(app));
   });
