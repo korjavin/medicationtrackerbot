@@ -169,9 +169,12 @@ func (s *Server) handleGamificationGauges(w http.ResponseWriter, r *http.Request
 // internally, so this handler is a verbatim pass-through (Critical Rule #1).
 func (s *Server) handleGamificationWeeklyReview(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
-	s.ensureGamificationFresh(r.Context(), userID)
+	// Weekly review folds the whole week, so freshen the whole week (not just
+	// EnsureFresh's yesterday/today window) — see EnsureFreshWeek.
+	now := time.Now()
+	gamificationsvc.EnsureFreshWeek(r.Context(), s.gamificationSvc, userID, now, now)
 
-	view, err := s.gamificationSvc.GetWeeklyReview(r.Context(), userID, time.Now().UTC())
+	view, err := s.gamificationSvc.GetWeeklyReview(r.Context(), userID, now.UTC())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

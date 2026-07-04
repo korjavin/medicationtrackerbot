@@ -46,12 +46,13 @@ var gaugeAccelerationLabels = map[string]string{
 // the gamification_enabled gate and the quiet-week semantics, so this
 // handler never branches on flags itself.
 func (b *Bot) handleWeekCommand(msgConfig *tgbotapi.MessageConfig) {
-	// Match the HTTP read path (ensureGamificationFresh): the ledger the lever
-	// counts fold over is only materialized on first-enable backfill and on a
-	// gamification read's rescore window, so a food/weight write that hasn't
-	// been scored yet would otherwise read as missing here.
+	// Match the HTTP read path: the ledger the lever counts fold over is only
+	// materialized on first-enable backfill and on a gamification read's rescore
+	// window, so a food/weight write that hasn't been scored yet would otherwise
+	// read as missing. The weekly fold spans the whole week, so freshen the whole
+	// week (EnsureFreshWeek), not just yesterday/today.
 	now := time.Now().UTC()
-	gamificationsvc.EnsureFresh(context.Background(), b.gamificationSvc, b.allowedUserID, now)
+	gamificationsvc.EnsureFreshWeek(context.Background(), b.gamificationSvc, b.allowedUserID, now, now)
 
 	wr, err := b.gamificationSvc.GetWeeklyReview(context.Background(), b.allowedUserID, now)
 	if err != nil {

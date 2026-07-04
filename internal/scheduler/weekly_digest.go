@@ -99,13 +99,14 @@ func (c *WeeklyDigestChecker) Check(ctx context.Context) error {
 		return nil
 	}
 
-	// Match the HTTP read path (ensureGamificationFresh) before reading: the
-	// lever counts fold over the ledger, which is only materialized on
-	// first-enable backfill and on a gamification read's rescore window. An
-	// unprompted digest user who never opens the Journey screen would otherwise
-	// get an undercounted week. Guarded by the Sunday/hour + resend checks
-	// above, so this runs at most once per week, not on every 15-min tick.
-	gamificationsvc.EnsureFresh(ctx, c.gam, c.allowedUserID, nowFn())
+	// Freshen before reading: the lever counts fold over the whole week's ledger,
+	// which is only materialized on first-enable backfill and on a gamification
+	// read's rescore window. An unprompted digest user who never opens the Journey
+	// screen would otherwise get an undercounted week. The review is anchored a day
+	// back (see below), so freshen that same anchor's week; nowFn() clamps the
+	// upper bound to the real current day. Guarded by the Sunday/hour + resend
+	// checks above, so this runs at most once per week, not on every 15-min tick.
+	gamificationsvc.EnsureFreshWeek(ctx, c.gam, c.allowedUserID, now.Add(-24*time.Hour), nowFn())
 
 	// Anchor the review one day back: at a west-of-UTC Sunday evening the
 	// current UTC instant has already rolled into Monday (next ISO week), so

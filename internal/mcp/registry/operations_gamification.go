@@ -225,7 +225,7 @@ output(result)
 			Method:          "GET",
 			Path:            "/api/gamification/weekly-review",
 			Risk:            RiskRead,
-			Description:     "Weekly review read model (gamification-12): the reading cadence for gauges — current ISO week (Mon-Sun, user tz) vs the previous week. Combines lever closed-day counts, the best day, strength deltas, gauge movement (weight velocity/pace/acceleration, BP 30-day share now vs a week ago, resting HR delta), and Health Score movement. A week with no HP returns quiet: true instead of an error or a wall of zeros — render it as \"a quiet week\", never a failure.",
+			Description:     "Weekly review read model (gamification-12): the reading cadence for gauges — current ISO week (Mon-Sun, UTC day-keyed, weekIndex-consistent — the same UTC-midnight bucketing the streak/gauge-award day keys use across the gamification package) vs the previous week. Combines lever closed-day counts, the best day, strength deltas, gauge movement (weight velocity/pace/acceleration, BP 30-day share now vs a week ago, resting HR delta), and Health Score movement. A week with no HP returns quiet: true instead of an error or a wall of zeros — render it as \"a quiet week\", never a failure.",
 			ResponseSummary: "Object {enabled, quiet, week_start, week_end, days_with_any_hp, levers, best_day, strengths, gauges, health_score}. levers: [{key, closed_this_week, closed_last_week}]. best_day: {day_unix, rings_closed} or omitted if no rings closed. strengths: [{key, label, value_now, value_prior}]. gauges: {weight, bp, bp_share_30d_prior, resting_hr} — weight/bp/resting_hr have the same shape as gamification.gauges. health_score: {now, prior} — each a HealthScoreView (see gamification.summary).",
 			ResponseExample: `{
   "enabled": true,

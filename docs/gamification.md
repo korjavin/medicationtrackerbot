@@ -1140,8 +1140,8 @@ mechanics, no new tables.
 
 - **Read model** (`internal/domain/gamification/weekly.go`, new):
   `GetWeeklyReview` → `GET /api/gamification/weekly-review`
-  (`docs/api.md#gamification`). Resolves the current ISO week (Mon–Sun, user
-  tz) via the same `weekIndex`/`weekBounds` bucketing `streak.go` and the
+  (`docs/api.md#gamification`). Resolves the current ISO week (Mon–Sun, UTC
+  day-keyed) via the same `weekIndex`/`weekBounds` bucketing `streak.go` and the
   weekly gauge awards use, and folds it against the prior week: per-lever
   closed-day counts (levers), the best day (most rings closed, omitted if
   none did), habit-strength deltas now vs 7 days ago, `gauges.go`'s gauge

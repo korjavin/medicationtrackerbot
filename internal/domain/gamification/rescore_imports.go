@@ -45,6 +45,48 @@ func EnsureFresh(ctx context.Context, svc GamificationService, userID int64, now
 	RescoreInstants(ctx, svc, userID, []time.Time{utc.AddDate(0, 0, -1), utc})
 }
 
+// EnsureFreshWeek is EnsureFresh widened to the two ISO weeks the weekly review
+// folds. GetWeeklyReview sums the entire reviewed week's ledger AND the prior
+// week's ledger (closed_last_week), not just today, but food/weight/diary writes
+// don't self-hook ScoreDay (only meds/BP/workout do) and EnsureFresh only
+// re-scores yesterday+today — so a lever close on an earlier day of either week
+// (a Mon–Fri close seen by a Sunday digest, or a backdated write into last week)
+// would be missing from the fold, undercounting closed-day counts and even
+// reporting a false quiet week. Re-scoring both weeks' elapsed days oldest-first
+// (ScoreDay is idempotent + a cheap no-op when the ledger already matches) makes
+// both the this-week and last-week folds reflect the full log. The weekly HTTP /
+// /week bot / Sunday-digest paths call this instead of EnsureFresh so the
+// freshness window matches every ledger range the read consumes.
+//
+// reviewAnchor selects the reviewed ISO week (the same instant passed to
+// GetWeeklyReview — the digest anchors a day back to stay west-of-UTC-safe, so it
+// and now can sit in different weeks); the prior week is week−1. now clamps the
+// upper bound to the real current day: scoring a future day would write a
+// premature weekly gauge award on an incomplete week's end day.
+// ponytail: ≤14 idempotent ScoreDay calls per weekly read (prior week is always
+// fully elapsed); the per-write cover stays 2 days for the far more frequent
+// daily reads.
+func EnsureFreshWeek(ctx context.Context, svc GamificationService, userID int64, reviewAnchor, now time.Time) {
+	if err := svc.EnsureBackfilled(ctx, userID); err != nil {
+		slog.Error("gamification freshness backfill failed", "error", err, "user_id", userID)
+	}
+	week := weekIndex(reviewAnchor.UTC())
+	priorStartUnix, _ := weekBounds(week - 1)
+	_, weekEndUnix := weekBounds(week)
+	upper := time.Unix(weekEndUnix, 0).UTC()
+	if today := utcMidnight(now); today.Before(upper) {
+		upper = today
+	}
+	// Contiguous from the prior week's start, oldest-first (the streak fold needs
+	// calendar order). Re-scoring already-scored past days no-ops the streak fold
+	// (they're not later than LastScoredDay) and just refreshes their ledger rows.
+	for d := time.Unix(priorStartUnix, 0).UTC(); !d.After(upper); d = d.AddDate(0, 0, 1) {
+		if err := svc.ScoreDay(ctx, userID, d); err != nil {
+			slog.Error("gamification weekly freshness rescore failed", "error", err, "user_id", userID, "day", d)
+		}
+	}
+}
+
 func RescoreInstants(ctx context.Context, svc GamificationService, userID int64, instants []time.Time) {
 	if svc == nil || len(instants) == 0 {
 		return
