@@ -231,7 +231,7 @@ output(result)
   "enabled": true,
   "quiet": false,
   "week_start": "2026-06-29T00:00:00Z",
-  "week_end": "2026-07-05T23:59:59Z",
+  "week_end": "2026-07-05T00:00:00Z",
   "days_with_any_hp": 6,
   "levers": [
     { "key": "bedtime", "closed_this_week": 5, "closed_last_week": 4 },

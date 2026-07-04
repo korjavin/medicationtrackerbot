@@ -46,7 +46,17 @@ var gaugeAccelerationLabels = map[string]string{
 // the gamification_enabled gate and the quiet-week semantics, so this
 // handler never branches on flags itself.
 func (b *Bot) handleWeekCommand(msgConfig *tgbotapi.MessageConfig) {
-	wr, err := b.gamificationSvc.GetWeeklyReview(context.Background(), b.allowedUserID, time.Now().UTC())
+	// Match the HTTP read path (ensureGamificationFresh): the ledger the lever
+	// counts fold over is only materialized on first-enable backfill and on a
+	// gamification read's rescore window, so a food/weight write that hasn't
+	// been scored yet would otherwise read as missing here.
+	now := time.Now().UTC()
+	if err := b.gamificationSvc.EnsureBackfilled(context.Background(), b.allowedUserID); err != nil {
+		slog.Error("weekly review backfill", "error", err, "user_id", b.allowedUserID)
+	}
+	gamificationsvc.RescoreInstants(context.Background(), b.gamificationSvc, b.allowedUserID, []time.Time{now.AddDate(0, 0, -1), now})
+
+	wr, err := b.gamificationSvc.GetWeeklyReview(context.Background(), b.allowedUserID, now)
 	if err != nil {
 		slog.Error("get weekly review", "error", err, "user_id", b.allowedUserID)
 		msgConfig.Text = "❌ Error retrieving your weekly review."
