@@ -60,11 +60,11 @@ Completes C0: the cloud becomes a working encrypted-sync backend and blind alarm
 
 ### Task 3: client sync engine + toy records
 
-- [ ] `web/cloud/js/sync.js`: record encrypt/decrypt per spec (`aad = "mt/v1/rec"‖account_id‖record_type‖record_id‖account_seq` — encrypt-then-assign is impossible, so AAD binds at *decrypt*: client verifies the server-claimed seq decrypts cleanly; tampered/reordered seq → AEAD failure surfaces a sync-integrity error), local Dexie mirror, push-batch on write, pull-on-open, LWW by `(record_id, client_ts)` for the toy type
-- [ ] snapshot logic: on unlock, if oplog tail > threshold (e.g. 500 ops) build + upload snapshot from local state
-- [ ] toy record UI in the unlocked shell: encrypted notes (create/edit/list) — exists to prove sync, labelled as demo
-- [ ] sync-status indicator in the unlocked shell: last-synced time, pending (unpushed) op count, offline state — driven by the sync engine's own state, no new API. This widget is the seed of the permanent cloud-mode status UI that C1 inherits
-- [ ] Vitest integration test (Node WebCrypto): encrypt→"server assigns seq"→decrypt roundtrip; decrypt with altered seq/type throws — guards the AAD anti-reorder property
+- [x] `web/cloud/js/sync.js`: record encrypt/decrypt per spec (`aad = "mt/v1/rec"‖account_id‖record_type‖record_id‖account_seq` — encrypt-then-assign is impossible, so AAD binds at *decrypt*: client verifies the server-claimed seq decrypts cleanly; tampered/reordered seq → AEAD failure surfaces a sync-integrity error), local mirror, push-batch on write, pull-on-open, LWW by `(record_id, client_ts)` for the toy type — ➕ scope note: implemented the local mirror as a plain IndexedDB store (`web/cloud/js/localdb.js`, extending the existing `unlock.js` LDK-cache pattern) instead of Dexie — `web/cloud/` has no bundler/vendoring step and already has this exact raw-IndexedDB pattern in-repo; Dexie is a `web/static/`-only dependency and this toy record set (a handful of notes) doesn't need its query layer. ➕ also: `record_id` isn't a separate wire column on `oplog` (Task 1's schema only has `record_type_tag`), so it's packed as `"<type>:<recordId>"` into `record_type_tag` — that field was never confidential (server-visible metadata already), so this satisfies the AAD binding without a migration change
+- [x] snapshot logic: on unlock, if oplog tail > threshold (e.g. 500 ops) build + upload snapshot from local state
+- [x] toy record UI in the unlocked shell: encrypted notes (create/edit/list) — exists to prove sync, labelled as demo (`web/cloud/js/notes.js`)
+- [x] sync-status indicator in the unlocked shell: last-synced time, pending (unpushed) op count, offline state — driven by the sync engine's own state, no new API. This widget is the seed of the permanent cloud-mode status UI that C1 inherits
+- [x] Vitest integration test (Node WebCrypto): encrypt→"server assigns seq"→decrypt roundtrip; decrypt with altered seq/type throws — guards the AAD anti-reorder property (`web/cloud/js/tests/sync.test.js`)
 
 ### Task 4: push subscriptions + VAPID
 
