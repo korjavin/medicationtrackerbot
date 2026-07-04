@@ -477,6 +477,75 @@ func (r *Repo) ClaimTransferSlot(ctx context.Context, slotID string, newTokenHas
 	return accountID, ct, nil
 }
 
+// ValidEnrollmentToken reports whether tokenHash matches the current,
+// claimed (fetched=1), unexpired transfer slot for accountID — the state a
+// slot is in after ClaimTransferSlot and before its enrollment token is
+// redeemed. Checked at register/begin so a bad token fails before the
+// WebAuthn ceremony starts; the atomic consume happens at RedeemTransferToken.
+func (r *Repo) ValidEnrollmentToken(ctx context.Context, accountID string, tokenHash []byte, now time.Time) (bool, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM transfer_slots WHERE account_id = ? AND enrollment_token_hash = ? AND fetched = 1 AND expires_at_unix > ?`,
+		accountID, tokenHash, storedb.TimeToUnix(now)).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// RedeemTransferToken atomically consumes a claimed transfer slot's
+// enrollment token and persists the new device's credential + DEK envelope in
+// one transaction — mirroring ClaimAndAddCredential's rationale: a
+// mid-registration failure must not strand the slot half-consumed, nor leave
+// a credential with no envelope to unwrap its DEK from. Returns
+// ErrTransferSlotInvalid if the token doesn't match a claimed, unexpired slot
+// for accountID.
+func (r *Repo) RedeemTransferToken(ctx context.Context, accountID string, tokenHash []byte, cred Credential, env Envelope, now time.Time) error {
+	return r.db.WithTx(ctx, func(tx storedb.TX) error {
+		result, err := tx.ExecContext(ctx,
+			`DELETE FROM transfer_slots WHERE account_id = ? AND enrollment_token_hash = ? AND fetched = 1 AND expires_at_unix > ?`,
+			accountID, tokenHash, storedb.TimeToUnix(now))
+		if err != nil {
+			return err
+		}
+		n, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n != 1 {
+			return ErrTransferSlotInvalid
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO credentials (id, account_id, public_key, transports, sign_count, created_at_unix) VALUES (?, ?, ?, ?, ?, ?)`,
+			cred.ID, cred.AccountID, cred.PublicKey, cred.Transports, cred.SignCount, storedb.TimeToUnix(cred.CreatedAt)); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx,
+			`INSERT INTO envelopes (account_id, credential_ref, v, nonce, ct, mac) VALUES (?, ?, ?, ?, ?, ?)`,
+			env.AccountID, env.CredentialRef, env.V, env.Nonce, env.CT, env.MAC)
+		return err
+	})
+}
+
+// AddCredentialWithEnvelope inserts an additional credential + its DEK
+// envelope for an already-claimed account in one transaction, so an unlocked
+// device adding a local passkey (e.g. a security key) via plain session auth
+// can never end up with a credential that has no envelope to unwrap its DEK
+// from.
+func (r *Repo) AddCredentialWithEnvelope(ctx context.Context, cred Credential, env Envelope) error {
+	return r.db.WithTx(ctx, func(tx storedb.TX) error {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO credentials (id, account_id, public_key, transports, sign_count, created_at_unix) VALUES (?, ?, ?, ?, ?, ?)`,
+			cred.ID, cred.AccountID, cred.PublicKey, cred.Transports, cred.SignCount, storedb.TimeToUnix(cred.CreatedAt)); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx,
+			`INSERT INTO envelopes (account_id, credential_ref, v, nonce, ct, mac) VALUES (?, ?, ?, ?, ?, ?)`,
+			env.AccountID, env.CredentialRef, env.V, env.Nonce, env.CT, env.MAC)
+		return err
+	})
+}
+
 // SweepExpiredTransferSlots deletes expired or already-fetched slots, called
 // opportunistically on every transfer API request rather than from a
 // background job (ponytail: slot volume is trivial; add a ticker only if

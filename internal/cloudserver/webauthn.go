@@ -24,6 +24,9 @@ import (
 // ceremonies need.
 type webauthnStore interface {
 	ClaimAndAddCredential(ctx context.Context, subdomain string, tokenHash []byte, cred cloudstore.Credential, env cloudstore.Envelope, now time.Time) (*cloudstore.Account, error)
+	ValidEnrollmentToken(ctx context.Context, accountID string, tokenHash []byte, now time.Time) (bool, error)
+	RedeemTransferToken(ctx context.Context, accountID string, tokenHash []byte, cred cloudstore.Credential, env cloudstore.Envelope, now time.Time) error
+	AddCredentialWithEnvelope(ctx context.Context, cred cloudstore.Credential, env cloudstore.Envelope) error
 	CredentialsByAccount(ctx context.Context, accountID string) ([]cloudstore.Credential, error)
 	TouchCredential(ctx context.Context, credentialID []byte, signCount uint32, assertedAt time.Time) error
 }
@@ -66,12 +69,25 @@ const challengeCookieName = "cloud_webauthn_challenge"
 const loginChallengeCookieName = "cloud_webauthn_login_challenge"
 const challengeTTL = 5 * time.Minute
 
+// registerGate identifies which of the three ways RegisterBegin authorized a
+// registration ceremony, so RegisterFinish knows how to persist the result:
+// consume a signup claim, redeem a device-transfer enrollment token, or (an
+// already-unlocked device) just add the credential under the live session.
+type registerGate int
+
+const (
+	gateClaim registerGate = iota
+	gateEnrollment
+	gateSession
+)
+
 // registerChallenge is what challengeStore holds between RegisterBegin and
 // RegisterFinish: the go-webauthn session data plus enough of the claim to
 // consume it atomically once the ceremony verifies.
 type registerChallenge struct {
 	session   webauthn.SessionData
 	accountID string
+	gate      registerGate
 	tokenHash []byte
 }
 
@@ -183,12 +199,15 @@ func schemeForHost(host string) string {
 }
 
 type registerBeginRequest struct {
-	ClaimToken string `json:"claim_token"`
+	ClaimToken      string `json:"claim_token,omitempty"`
+	EnrollmentToken string `json:"enrollment_token,omitempty"`
 }
 
-// RegisterBegin starts the first-credential registration ceremony for an
-// unclaimed account. It requires the claim token from the invite URL
-// fragment — the only place that token exists outside the server's hash.
+// RegisterBegin starts a registration ceremony, gated one of three ways: a
+// signup claim token (first credential on a fresh account), an enrollment
+// token from a claimed device-transfer slot (adding a second device), or
+// plain session auth (an already-unlocked device enrolling an additional
+// local passkey).
 func (a *WebAuthnAPI) RegisterBegin(w http.ResponseWriter, r *http.Request) {
 	account, ok := AccountFromContext(r.Context())
 	if !ok {
@@ -198,15 +217,45 @@ func (a *WebAuthnAPI) RegisterBegin(w http.ResponseWriter, r *http.Request) {
 
 	var req registerBeginRequest
 	r.Body = http.MaxBytesReader(w, r.Body, maxEnvelopeBodyBytes)
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ClaimToken == "" {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
 
-	tokenHash, ok := validClaimToken(account, req.ClaimToken, time.Now().UTC())
-	if !ok {
-		http.Error(w, "invalid or expired claim", http.StatusForbidden)
-		return
+	var (
+		gate      registerGate
+		tokenHash []byte
+	)
+	switch {
+	case req.ClaimToken != "":
+		hash, valid := validClaimToken(account, req.ClaimToken, time.Now().UTC())
+		if !valid {
+			http.Error(w, "invalid or expired claim", http.StatusForbidden)
+			return
+		}
+		gate, tokenHash = gateClaim, hash
+	case req.EnrollmentToken != "":
+		hash, valid := hashHexToken(req.EnrollmentToken)
+		if !valid {
+			http.Error(w, "invalid or expired enrollment token", http.StatusForbidden)
+			return
+		}
+		ok, err := a.store.ValidEnrollmentToken(r.Context(), account.ID, hash, time.Now().UTC())
+		if err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+		if !ok {
+			http.Error(w, "invalid or expired enrollment token", http.StatusForbidden)
+			return
+		}
+		gate, tokenHash = gateEnrollment, hash
+	default:
+		if _, ok := sessionForAccount(r, a.sessionSecret, account.ID); !ok {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		gate = gateSession
 	}
 
 	wa, err := rpForRequest(r)
@@ -231,6 +280,7 @@ func (a *WebAuthnAPI) RegisterBegin(w http.ResponseWriter, r *http.Request) {
 	challengeID, err := a.challenges.put(registerChallenge{
 		session:   *session,
 		accountID: account.ID,
+		gate:      gate,
 		tokenHash: tokenHash,
 	})
 	if err != nil {
@@ -306,27 +356,47 @@ func (a *WebAuthnAPI) RegisterFinish(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now().UTC()
-	if _, err := a.store.ClaimAndAddCredential(r.Context(), account.Subdomain, challenge.tokenHash, cloudstore.Credential{
+	credRow := cloudstore.Credential{
 		ID:         cred.ID,
 		AccountID:  account.ID,
 		PublicKey:  cred.PublicKey,
 		Transports: transportsCSV(cred.Transport),
 		SignCount:  cred.Authenticator.SignCount,
 		CreatedAt:  now,
-	}, cloudstore.Envelope{
+	}
+	envRow := cloudstore.Envelope{
 		AccountID:     account.ID,
 		CredentialRef: base64.RawURLEncoding.EncodeToString(cred.ID),
 		V:             req.Envelope.V,
 		Nonce:         req.Envelope.Nonce,
 		CT:            req.Envelope.CT,
 		MAC:           req.Envelope.MAC,
-	}, now); err != nil {
-		if errors.Is(err, cloudstore.ErrClaimInvalid) {
-			http.Error(w, "claim already used or expired", http.StatusConflict)
+	}
+
+	switch challenge.gate {
+	case gateClaim:
+		if _, err := a.store.ClaimAndAddCredential(r.Context(), account.Subdomain, challenge.tokenHash, credRow, envRow, now); err != nil {
+			if errors.Is(err, cloudstore.ErrClaimInvalid) {
+				http.Error(w, "claim already used or expired", http.StatusConflict)
+				return
+			}
+			http.Error(w, "server error", http.StatusInternalServerError)
 			return
 		}
-		http.Error(w, "server error", http.StatusInternalServerError)
-		return
+	case gateEnrollment:
+		if err := a.store.RedeemTransferToken(r.Context(), account.ID, challenge.tokenHash, credRow, envRow, now); err != nil {
+			if errors.Is(err, cloudstore.ErrTransferSlotInvalid) {
+				http.Error(w, "enrollment token already used or expired", http.StatusConflict)
+				return
+			}
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+	case gateSession:
+		if err := a.store.AddCredentialWithEnvelope(r.Context(), credRow, envRow); err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	http.SetCookie(w, sessionCookie(NewSessionToken(account.ID, cred.ID, a.sessionSecret)))
@@ -476,6 +546,34 @@ func validClaimToken(account *cloudstore.Account, token string, now time.Time) (
 		return nil, false
 	}
 	return account.ClaimTokenHash, true
+}
+
+// hashHexToken decodes a hex-encoded token (the wire format shared by claim
+// and enrollment tokens, see NewClaimToken) and returns its SHA-256 hash —
+// what the store compares against.
+func hashHexToken(token string) ([]byte, bool) {
+	raw, err := hex.DecodeString(token)
+	if err != nil {
+		return nil, false
+	}
+	sum := sha256.Sum256(raw)
+	return sum[:], true
+}
+
+// sessionForAccount checks for a valid session cookie bound to accountID,
+// without requiring one — RegisterBegin falls back to this only when neither
+// a claim nor an enrollment token was supplied, so an already-unlocked device
+// can enroll an additional local passkey.
+func sessionForAccount(r *http.Request, sessionSecret, accountID string) (Session, bool) {
+	cookie, err := r.Cookie(SessionCookieName)
+	if err != nil {
+		return Session{}, false
+	}
+	sid, credID, ok := VerifySessionToken(cookie.Value, sessionSecret)
+	if !ok || sid != accountID {
+		return Session{}, false
+	}
+	return Session{AccountID: sid, CredentialID: credID}, true
 }
 
 func transportsCSV(t []protocol.AuthenticatorTransport) string {

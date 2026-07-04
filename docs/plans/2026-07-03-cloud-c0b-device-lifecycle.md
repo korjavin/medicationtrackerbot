@@ -57,9 +57,9 @@ QR mechanics (the trick that avoids shipping a camera/scanner): the QR encodes a
 
 ### Task 2: register/begin accepts enrollment tokens
 
-- [ ] extend `POST /api/webauthn/register/begin|finish` gate from C0a: accept `enrollment_token` (from a claimed slot) as an alternative to the signup claim token; token is single-use, bound to the slot's account, invalidated at finish
-- [ ] also allow plain session auth on register/begin (an unlocked device enrolling an additional local passkey — e.g. adding a security key)
-- [ ] integration test: registration via enrollment token succeeds; reuse of the token fails — guards the generalized gate
+- [x] extend `POST /api/webauthn/register/begin|finish` gate from C0a: accept `enrollment_token` (from a claimed slot) as an alternative to the signup claim token; token is single-use, bound to the slot's account, invalidated at finish
+- [x] also allow plain session auth on register/begin (an unlocked device enrolling an additional local passkey — e.g. adding a security key)
+- [x] integration test: registration via enrollment token succeeds; reuse of the token fails — guards the generalized gate
 
 ### Task 3: "Add device" flow on the old device (client)
 
