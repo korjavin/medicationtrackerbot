@@ -38,21 +38,13 @@ func (a *DeviceAPI) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("DELETE /api/devices/{credential_id}", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.DeleteDevice)))
 }
 
-// deviceEnvelopeWire is the envelope shape nested in a device-list item — the
-// client needs nonce+ct+mac (not just mac) to recompute and verify the audit
-// tag (docs/cloud-crypto.md envelope-audit MAC).
-type deviceEnvelopeWire struct {
-	V     int    `json:"v"`
-	Nonce []byte `json:"nonce"`
-	CT    []byte `json:"ct"`
-	MAC   []byte `json:"mac"`
-}
-
 type deviceListItem struct {
-	CredentialID   string              `json:"credential_id"`
-	CreatedAt      time.Time           `json:"created_at"`
-	LastAssertedAt *time.Time          `json:"last_asserted_at,omitempty"`
-	Envelope       *deviceEnvelopeWire `json:"envelope,omitempty"`
+	CredentialID   string     `json:"credential_id"`
+	CreatedAt      time.Time  `json:"created_at"`
+	LastAssertedAt *time.Time `json:"last_asserted_at,omitempty"`
+	// Envelope carries nonce+ct+mac (not just mac) so the client can recompute
+	// and verify the audit tag (docs/cloud-crypto.md envelope-audit MAC).
+	Envelope *envelopeWire `json:"envelope,omitempty"`
 }
 
 // ListDevices returns every credential registered for the caller's session
@@ -85,7 +77,7 @@ func (a *DeviceAPI) ListDevices(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if env != nil {
-			item.Envelope = &deviceEnvelopeWire{V: env.V, Nonce: env.Nonce, CT: env.CT, MAC: env.MAC}
+			item.Envelope = &envelopeWire{V: env.V, Nonce: env.Nonce, CT: env.CT, MAC: env.MAC}
 		}
 		out = append(out, item)
 	}

@@ -29,6 +29,7 @@ type webauthnStore interface {
 	AddCredentialWithEnvelope(ctx context.Context, cred cloudstore.Credential, env cloudstore.Envelope) error
 	CredentialsByAccount(ctx context.Context, accountID string) ([]cloudstore.Credential, error)
 	TouchCredential(ctx context.Context, credentialID []byte, signCount uint32, assertedAt time.Time) error
+	CredentialExists(ctx context.Context, credentialID []byte) (bool, error)
 }
 
 // WebAuthnAPI holds the account-scoped WebAuthn HTTP handlers: registration
@@ -251,8 +252,23 @@ func (a *WebAuthnAPI) RegisterBegin(w http.ResponseWriter, r *http.Request) {
 		}
 		gate, tokenHash = gateEnrollment, hash
 	default:
-		if _, ok := sessionForAccount(r, a.sessionSecret, account.ID); !ok {
+		session, ok := sessionForAccount(r, a.sessionSecret, account.ID)
+		if !ok {
 			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		// sessionForAccount only checks the HMAC signature + expiry, not that
+		// the session's credential still exists. Mirror RequireSession's
+		// revocation check here so a revoked device (credential deleted, but a
+		// 30-day session cookie + in-memory DEK still in hand) can't self-enroll
+		// a fresh credential and defeat its own revocation (Task 5).
+		exists, err := a.store.CredentialExists(r.Context(), session.CredentialID)
+		if err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+		if !exists {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		gate = gateSession

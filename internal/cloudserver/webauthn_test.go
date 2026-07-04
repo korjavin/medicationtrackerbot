@@ -343,6 +343,59 @@ func TestRequireSession_RejectsMissingOrInvalidCookie(t *testing.T) {
 	}
 }
 
+// TestWebAuthnRegistration_SessionGateRejectsRevokedCredential pins the
+// revocation guarantee on the register/begin session gate: a device whose
+// credential was revoked, but which still holds a valid session cookie (30-day
+// TTL) and its in-memory DEK, must not be able to self-enroll a fresh
+// credential and undo its own revocation.
+func TestWebAuthnRegistration_SessionGateRejectsRevokedCredential(t *testing.T) {
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+	h, _ := newTestWebAuthnHandler(store)
+
+	// Enroll the first device via the claim gate and capture its session cookie.
+	rp := virtualwebauthn.RelyingParty{Name: "Med Tracker Cloud", ID: host, Origin: "http://" + host}
+	authenticator := virtualwebauthn.NewAuthenticator()
+	cred := virtualwebauthn.NewCredential(virtualwebauthn.KeyTypeEC2)
+	opts, challengeCookie := beginRegistration(t, h, host, claimToken)
+	response := virtualwebauthn.CreateAttestationResponse(rp, authenticator, cred, *opts)
+	rec := finishRegistration(t, h, host, challengeCookie, response)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("register/finish status = %d, body %q", rec.Code, rec.Body.String())
+	}
+	var sessionCookie *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == SessionCookieName && c.Value != "" {
+			sessionCookie = c
+		}
+	}
+	if sessionCookie == nil {
+		t.Fatalf("no session cookie set on finish")
+	}
+
+	// Revoke that credential out from under the still-valid session cookie.
+	creds, err := store.CredentialsByAccount(t.Context(), account.ID)
+	if err != nil || len(creds) != 1 {
+		t.Fatalf("CredentialsByAccount: %v (len %d)", err, len(creds))
+	}
+	if err := store.DeleteCredentialWithEnvelope(t.Context(), account.ID, creds[0].ID); err != nil {
+		t.Fatalf("DeleteCredentialWithEnvelope: %v", err)
+	}
+
+	// No claim/enrollment token -> session gate. The revoked credential no
+	// longer exists, so register/begin must reject rather than start a ceremony.
+	body, _ := json.Marshal(registerBeginRequest{})
+	req := httptest.NewRequest(http.MethodPost, "/api/webauthn/register/begin", bytes.NewReader(body))
+	req.Host = host
+	req.AddCookie(sessionCookie)
+	rrec := httptest.NewRecorder()
+	h.ServeHTTP(rrec, req)
+	if rrec.Code != http.StatusUnauthorized {
+		t.Fatalf("register/begin via session gate for revoked credential status = %d, want 401 (body %q)", rrec.Code, rrec.Body.String())
+	}
+}
+
 func TestWebAuthnRegistration_RejectsInvalidClaimToken(t *testing.T) {
 	store := setupStore(t)
 	account, _ := setupInvite(t, store)
