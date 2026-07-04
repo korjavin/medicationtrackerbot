@@ -113,7 +113,9 @@ async function startRegistration(app, claimToken) {
   renderLossProtection(app, { accountId, dek });
 }
 
-function renderUnsupportedAuthenticator(app) {
+// Exported so claim.js (device-transfer enrollment) shows the identical
+// unsupported-authenticator state rather than a second copy of this copy.
+export function renderUnsupportedAuthenticator(app) {
   app.innerHTML = `
     <section class="wizard-step">
       <h1>This device can't be used yet</h1>

@@ -21,7 +21,10 @@ function renderFatal(err) {
 }
 
 try {
-  if (claimToken) {
+  if (location.pathname === '/claim') {
+    const { runClaimFlow } = await import('./claim.js');
+    await runClaimFlow();
+  } else if (claimToken) {
     const { runSignupWizard } = await import('./signup.js');
     await runSignupWizard(claimToken);
   } else {

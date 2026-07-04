@@ -103,14 +103,16 @@ func (a *TransferAPI) CreateTransfer(w http.ResponseWriter, r *http.Request) {
 type claimTransferResponse struct {
 	CT              []byte `json:"ct"`
 	EnrollmentToken string `json:"enrollment_token"`
+	AccountID       string `json:"account_id"`
 }
 
 // ClaimTransfer fetches a transfer slot exactly once: it atomically marks the
 // slot fetched, rotates its enrollment token, and hands the new device the
-// DEK ciphertext plus the (freshly-minted) token that authorizes its passkey
-// registration (see the register/begin|finish gate). A slot that is unknown,
-// already fetched, or expired responds 410 Gone in all cases — the caller
-// must not be able to distinguish which.
+// DEK ciphertext, the account id (needed as the transfer AEAD's AAD — see
+// docs/cloud-crypto.md "Path B"), plus the (freshly-minted) token that
+// authorizes its passkey registration (see the register/begin|finish gate). A
+// slot that is unknown, already fetched, or expired responds 410 Gone in all
+// cases — the caller must not be able to distinguish which.
 func (a *TransferAPI) ClaimTransfer(w http.ResponseWriter, r *http.Request) {
 	slotID := r.PathValue("slot_id")
 	if slotID == "" {
@@ -130,7 +132,7 @@ func (a *TransferAPI) ClaimTransfer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, ct, err := a.store.ClaimTransferSlot(r.Context(), slotID, tokenHash, now)
+	accountID, ct, err := a.store.ClaimTransferSlot(r.Context(), slotID, tokenHash, now)
 	if err != nil {
 		if errors.Is(err, cloudstore.ErrTransferSlotInvalid) {
 			http.Error(w, "transfer slot invalid or expired", http.StatusGone)
@@ -140,5 +142,5 @@ func (a *TransferAPI) ClaimTransfer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, claimTransferResponse{CT: ct, EnrollmentToken: token})
+	writeJSON(w, http.StatusOK, claimTransferResponse{CT: ct, EnrollmentToken: token, AccountID: accountID})
 }

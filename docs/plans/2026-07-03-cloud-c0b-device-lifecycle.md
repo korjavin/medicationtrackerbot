@@ -68,9 +68,9 @@ QR mechanics (the trick that avoids shipping a camera/scanner): the QR encodes a
 
 ### Task 4: claim flow on the new device (client)
 
-- [ ] `/claim` route in the shell: parse fragment (or show typed-code input when fragment absent) → `POST .../claim` → decrypt DEK with `TK` (AEAD failure → explicit "code invalid or tampered" error, abort) → hold DEK in memory
-- [ ] proceed into the existing registration ceremony (register/begin with enrollment token) → create local passkey → immediate `get()` for PRF → wrap DEK → `PUT` envelope (computing its audit `mac` with `K_mac`) → session established → warm-unlock cache (LDK) seeded
-- [ ] PRF-unsupported error state reused from C0a signup (abort before envelope upload)
+- [x] `/claim` route in the shell: parse fragment (or show typed-code input when fragment absent) → `POST .../claim` → decrypt DEK with `TK` (AEAD failure → explicit "code invalid or tampered" error, abort) → hold DEK in memory
+- [x] proceed into the existing registration ceremony (register/begin with enrollment token) → create local passkey → immediate `get()` for PRF → wrap DEK → `PUT` envelope (computing its audit `mac` with `K_mac`) → session established → warm-unlock cache (LDK) seeded
+- [x] PRF-unsupported error state reused from C0a signup (abort before envelope upload)
 
 ### Task 5: device list, envelope audit, revocation
 
