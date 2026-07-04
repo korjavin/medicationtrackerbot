@@ -51,11 +51,18 @@ func NewWebAuthnAPI(store webauthnStore, sessionSecret string) *WebAuthnAPI {
 // subdomain branch of cloudserver.Handler as its "/api/*" handler.
 func (a *WebAuthnAPI) Routes() http.Handler {
 	mux := http.NewServeMux()
+	a.RegisterRoutes(mux)
+	return mux
+}
+
+// RegisterRoutes adds the WebAuthn ceremony routes to mux, so callers that
+// need to combine several APIs' routes onto one mux (cmd/cloud) can do so
+// without a second layer of muxing.
+func (a *WebAuthnAPI) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/webauthn/register/begin", a.RegisterBegin)
 	mux.HandleFunc("POST /api/webauthn/register/finish", a.RegisterFinish)
 	mux.HandleFunc("POST /api/webauthn/login/begin", a.LoginBegin)
 	mux.HandleFunc("POST /api/webauthn/login/finish", a.LoginFinish)
-	return mux
 }
 
 const challengeCookieName = "cloud_webauthn_challenge"

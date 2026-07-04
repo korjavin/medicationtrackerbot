@@ -98,10 +98,10 @@ The server stores only: WebAuthn public keys, envelopes (ciphertext), a recovery
 
 ### Task 7: envelope API + recovery material at signup
 
-- [ ] `PUT /api/envelopes/{credential_ref}` (session auth): body `{v, nonce, ct, mac}`, upsert; `credential_ref` is base64url credential id or literal `recovery`; enforce sane size caps
-- [ ] `GET /api/envelopes/{credential_ref}` and `GET /api/envelopes` (session auth) — list returns refs + `mac` so clients can run the envelope audit (verification is client-side, plan C0b)
-- [ ] `PUT /api/recovery-verifier` (session auth): stores `SHA-256(verifier)` in `recovery_auth` (redemption endpoint is plan C0b; the material must exist from day one so kits generated now work later)
-- [ ] integration test: envelope put/get/list + verifier set over a signup→register→session flow — guards the storage contract end-to-end
+- [x] `PUT /api/envelopes/{credential_ref}` (session auth): body `{v, nonce, ct, mac}`, upsert; `credential_ref` is base64url credential id or literal `recovery`; enforce sane size caps
+- [x] `GET /api/envelopes/{credential_ref}` and `GET /api/envelopes` (session auth) — list returns refs + `mac` so clients can run the envelope audit (verification is client-side, plan C0b)
+- [x] `PUT /api/recovery-verifier` (session auth): stores `SHA-256(verifier)` in `recovery_auth` (redemption endpoint is plan C0b; the material must exist from day one so kits generated now work later)
+- [x] integration test: envelope put/get/list + verifier set over a signup→register→session flow — guards the storage contract end-to-end
 
 ### Task 8: client crypto module (`web/cloud/js/crypto.js`)
 
