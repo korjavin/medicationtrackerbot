@@ -114,6 +114,12 @@
             tag: 'gamification',
             staleAfterMs: 6 * HOUR_MS,
             description: 'Gauge-trend read model (GET /api/gamification/gauges): weight EMA velocity/acceleration, BP rolling in-range share, resting HR vs baseline. Journey Gauges panel.'
+        },
+        gamification_weekly: {
+            key: 'gamification_weekly',
+            tag: 'gamification',
+            staleAfterMs: 6 * HOUR_MS,
+            description: 'Weekly review read model (GET /api/gamification/weekly-review): this week vs last — lever closed-day counts, best day, strengths, gauge movement, Health Score movement. Journey "Your week" card.'
         }
     };
 

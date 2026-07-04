@@ -172,6 +172,8 @@ type SettingsStore interface {
 	SetHealthEnabled(ctx context.Context, enabled bool) error
 	GetGamificationEnabled(ctx context.Context) (bool, error)
 	SetGamificationEnabled(ctx context.Context, enabled bool) error
+	GetWeeklyDigestEnabled(ctx context.Context) (bool, error)
+	SetWeeklyDigestEnabled(ctx context.Context, enabled bool) error
 	GetFirstRunComplete(ctx context.Context) (bool, error)
 	SetFirstRunComplete(ctx context.Context, complete bool) error
 	GetTabOrder(ctx context.Context) (string, error)

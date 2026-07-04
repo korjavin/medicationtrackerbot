@@ -194,6 +194,136 @@
         return card;
     }
 
+    // "Your week" card (gamification-12 §Task3): the primary reading cadence
+    // for gauges (Overview) — this week vs last, folded from the same
+    // ledger/gauge/Health-Score reads the other cards already use. Fetched
+    // through its own cachedFetch entry (loadWeeklyReview), rendered as a
+    // native <details>/<summary> collapsible (the tz-plan-banner convention)
+    // between the Health Score and Gauges cards. Tone rules: neutral-to-
+    // positive phrasing only, no red styling for a down week — every line
+    // renders wg-muted regardless of direction, same as the Gauges panel.
+    const WEEKLY_CACHE_KEY = 'gamification_weekly';
+    const WEEKLY_URL = '/api/gamification/weekly-review';
+
+    function weekdayLabel(dayUnix) {
+        const t = Number(dayUnix) * 1000;
+        if (!Number.isFinite(t)) return null;
+        try {
+            return new Date(t).toLocaleDateString(undefined, { weekday: 'long', timeZone: 'UTC' });
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function weeklyScoreLine(hs) {
+        const now = hs && hs.now;
+        const prior = hs && hs.prior;
+        const nowValue = now && Number.isFinite(now.value) ? Math.round(now.value) : null;
+        if (nowValue == null) return null;
+        const priorValue = prior && Number.isFinite(prior.value) ? Math.round(prior.value) : null;
+        if (priorValue == null) return `Health Score ${nowValue}`;
+        const delta = nowValue - priorValue;
+        if (delta === 0) return `Health Score ${nowValue} · holding steady`;
+        return `Health Score ${nowValue} · ${delta > 0 ? 'up' : 'down'} ${Math.abs(delta)}`;
+    }
+
+    // First lever spells out "closed N of 7"; the rest just carry the count —
+    // the denominator (a week) doesn't need repeating per lever.
+    function weeklyLeverLine(levers) {
+        const list = Array.isArray(levers) ? levers : [];
+        if (list.length === 0) return null;
+        return list.map((lv, i) => {
+            const meta = RINGS.find((r) => r.ring === lv.key);
+            const label = (meta && meta.label) || lv.key;
+            const closed = Number(lv.closed_this_week) || 0;
+            return i === 0 ? `${label} closed ${closed} of 7` : `${label} ${closed}`;
+        }).join(' · ');
+    }
+
+    function weeklyWeightLine(w) {
+        if (!w || w.status !== 'ok') return null;
+        const velocity = Number(w.velocity_pct_per_week) || 0;
+        const parts = [`${velocity >= 0 ? '+' : ''}${velocity.toFixed(1)}%/wk`];
+        const pace = GAUGE_PACE_STATUS_LABEL[w.pace_status];
+        if (pace) parts.push(pace);
+        const accel = GAUGE_ACCELERATION_LABEL[w.acceleration];
+        if (accel) parts.push(accel);
+        return `Weight ${parts.join(' · ')}`;
+    }
+
+    function weeklyBPLine(bp, priorSharePct) {
+        if (!bp || bp.status !== 'ok' || !(Number(bp.count_30d) > 0)) return null;
+        const share = Math.round((Number(bp.share_30d) || 0) * 100);
+        const prior = Math.round((Number(priorSharePct) || 0) * 100);
+        // No comparable prior week (too few readings a week ago yields a 0
+        // share) → show just the current share, not a misleading "up from 0%".
+        if (prior <= 0) return `BP in range ${share}%`;
+        const delta = share - prior;
+        const word = delta === 0 ? 'holding steady' : `${delta > 0 ? 'up' : 'down'} from ${prior}%`;
+        return `BP in range ${share}% · ${word}`;
+    }
+
+    function weeklyRestingHRLine(hr) {
+        if (!hr || hr.status !== 'ok') return null;
+        const recent = Math.round(Number(hr.recent_14d_mean) || 0);
+        const delta = Math.round(Number(hr.delta_from_baseline) || 0);
+        const deltaWord = delta === 0 ? 'at your baseline' : `${Math.abs(delta)} ${delta < 0 ? 'below' : 'above'} your baseline`;
+        return `Resting HR ${recent} avg · ${deltaWord}`;
+    }
+
+    function weeklyBestDayLine(bestDay) {
+        if (!bestDay) return null;
+        const day = weekdayLabel(bestDay.day_unix);
+        if (!day) return null;
+        const rings = Number(bestDay.rings_closed) || 0;
+        return `Best day: ${day} · ${rings} ring${rings === 1 ? '' : 's'} closed`;
+    }
+
+    // Reads `journey.weekly_review` (attached by load() from its own
+    // cachedFetch entry — GET /api/gamification/weekly-review), same pattern
+    // as Gauges/Insights. Renders an explicit offline-empty state, omits the
+    // card entirely while gate-off or not loaded yet, and reads a zero-HP
+    // week as "a quiet week" rather than a wall of zeros (Overview).
+    function renderWeeklyReview(j) {
+        const wr = j.weekly_review;
+        if (!wr) return null;
+
+        const card = el('section', 'wg-card wg-journey-weekly');
+        const details = el('details', 'wg-journey-weekly__details');
+        details.open = true;
+        details.appendChild(el('summary', 'wg-journey-weekly__summary wg-section-label', 'YOUR WEEK'));
+
+        if (wr.emptyState) {
+            details.appendChild(el('p', 'wg-journey-weekly__empty wg-muted', wr.emptyState));
+            card.appendChild(details);
+            return card;
+        }
+        if (wr.enabled === false) return null;
+
+        if (wr.quiet) {
+            details.appendChild(el('p', 'wg-journey-weekly__body wg-muted',
+                'A quiet week — everything picks up where you left off.'));
+            card.appendChild(details);
+            return card;
+        }
+
+        const gauges = wr.gauges || {};
+        const lines = [
+            weeklyScoreLine(wr.health_score),
+            weeklyLeverLine(wr.levers),
+            weeklyWeightLine(gauges.weight),
+            weeklyBPLine(gauges.bp, gauges.bp_share_30d_prior),
+            weeklyRestingHRLine(gauges.resting_hr),
+            weeklyBestDayLine(wr.best_day),
+        ].filter(Boolean);
+
+        const list = el('div', 'wg-journey-weekly__list');
+        lines.forEach((line) => list.appendChild(el('p', 'wg-journey-weekly__line wg-muted', line)));
+        details.appendChild(list);
+        card.appendChild(details);
+        return card;
+    }
+
     // Gauges panel (gamification-11 §Task4): weight/BP/resting-HR read as
     // trends, never a daily grade — copy is numbers + direction words only,
     // no color judgment (a slowing trend is an observation, never red; see
@@ -626,6 +756,7 @@
             renderHeader(journey),
             renderExplainer(),
             renderHealthScore(journey),
+            renderWeeklyReview(journey),
             renderGauges(journey),
             renderStrengths(journey),
             renderRings(journey),
@@ -694,6 +825,27 @@
         }
     }
 
+    // Fetches the Weekly Review read model through its own cachedFetch entry
+    // (Task 3) — like Gauges, fetched whenever the Journey payload loads. A
+    // cold cache offline read renders an explicit empty state on the card
+    // rather than omitting it silently.
+    async function loadWeeklyReview() {
+        try {
+            const result = await window.cachedFetch(WEEKLY_CACHE_KEY, WEEKLY_URL, {
+                tags: ['gamification'],
+                freshAfterMs: 60_000,
+                staleAfterMs: STALE_AFTER_MS,
+            });
+            return result ? result.data : null;
+        } catch (e) {
+            if (window.OfflineNoCacheError && e instanceof window.OfflineNoCacheError) {
+                return { emptyState: 'No cached weekly review — connect to load.' };
+            }
+            console.error('Failed to load gamification weekly review:', e);
+            return null;
+        }
+    }
+
     // Loads the Journey read model and paints the screen. Routes through
     // cachedFetch so a cold relaunch offline renders last-known data; a cold
     // cache offline surfaces an explicit empty state (OfflineNoCacheError).
@@ -729,6 +881,7 @@
             }
             if (data) {
                 data.gauges = await loadGauges();
+                data.weekly_review = await loadWeeklyReview();
             }
             render(data);
             await mountBadge();

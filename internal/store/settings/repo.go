@@ -52,6 +52,8 @@ func (r *Repo) GetBool(ctx context.Context, column string) (bool, error) {
 		query = "SELECT health_enabled FROM settings WHERE id = 1"
 	case "gamification_enabled":
 		query = "SELECT gamification_enabled FROM settings WHERE id = 1"
+	case "weekly_digest_enabled":
+		query = "SELECT weekly_digest_enabled FROM settings WHERE id = 1"
 	case "first_run_complete":
 		query = "SELECT first_run_complete FROM settings WHERE id = 1"
 	default:
@@ -93,6 +95,8 @@ func (r *Repo) SetBool(ctx context.Context, column string, enabled bool) error {
 		query = "UPDATE settings SET health_enabled = ? WHERE id = 1"
 	case "gamification_enabled":
 		query = "UPDATE settings SET gamification_enabled = ? WHERE id = 1"
+	case "weekly_digest_enabled":
+		query = "UPDATE settings SET weekly_digest_enabled = ? WHERE id = 1"
 	case "first_run_complete":
 		query = "UPDATE settings SET first_run_complete = ? WHERE id = 1"
 	default:
@@ -173,6 +177,40 @@ func (r *Repo) GetGamificationEnabled(ctx context.Context) (bool, error) {
 // SetGamificationEnabled toggles the gamification feature.
 func (r *Repo) SetGamificationEnabled(ctx context.Context, enabled bool) error {
 	return r.SetBool(ctx, "gamification_enabled", enabled)
+}
+
+// GetWeeklyDigestEnabled returns whether the opt-in scheduled Sunday-evening
+// bot digest is enabled. Default-OFF: migration 074 adds the column with
+// DEFAULT 0, unlike most feature flags (gamification-12 Task 5).
+func (r *Repo) GetWeeklyDigestEnabled(ctx context.Context) (bool, error) {
+	return r.GetBool(ctx, "weekly_digest_enabled")
+}
+
+// SetWeeklyDigestEnabled toggles the scheduled weekly digest.
+func (r *Repo) SetWeeklyDigestEnabled(ctx context.Context, enabled bool) error {
+	return r.SetBool(ctx, "weekly_digest_enabled", enabled)
+}
+
+// GetWeeklyDigestLastSentAt returns when the scheduled digest last actually
+// sent, or nil if it never has. The scheduler checker uses this to avoid
+// resending within the same Sunday-evening hour window (it polls every 15
+// min).
+func (r *Repo) GetWeeklyDigestLastSentAt(ctx context.Context) (*time.Time, error) {
+	var v sql.NullInt64
+	if err := r.db.QueryRowContext(ctx, "SELECT weekly_digest_last_sent_at_unix FROM settings WHERE id = 1").Scan(&v); err != nil {
+		return nil, err
+	}
+	if !v.Valid {
+		return nil, nil
+	}
+	t := time.Unix(v.Int64, 0).UTC()
+	return &t, nil
+}
+
+// SetWeeklyDigestLastSentAt records that the scheduled digest was just sent.
+func (r *Repo) SetWeeklyDigestLastSentAt(ctx context.Context, sentAt time.Time) error {
+	_, err := r.db.ExecContext(ctx, "UPDATE settings SET weekly_digest_last_sent_at_unix = ? WHERE id = 1", sentAt.UTC().Unix())
+	return err
 }
 
 // GetFirstRunComplete reports whether the mobile first-run flow has been

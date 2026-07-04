@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
+	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/domain/workout"
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
-	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/domain/workout"
 )
 
 // Checker is the interface each independent check implements.
@@ -36,6 +36,12 @@ type Scheduler struct {
 	BPReminderChecker         *BPReminderChecker
 	WeightReminderChecker     *WeightReminderChecker
 	TZPlanNotifier            *TZPlanNotifier
+
+	// Sink is exposed so server-build-only extensions constructed after New()
+	// (e.g. the weekly digest checker, which depends on the bot package and
+	// so can't be wired inside this tag-free file) can reuse the same
+	// delivery channel as every other checker instead of building their own.
+	Sink ReminderSink
 }
 
 // New constructs a Scheduler wired against the supplied ReminderSink. The
@@ -69,6 +75,7 @@ func New(s *store.Repos, allowedUserID int64, sink ReminderSink) *Scheduler {
 		BPReminderChecker:         bpChecker,
 		WeightReminderChecker:     weightChecker,
 		TZPlanNotifier:            tzPlanNotifier,
+		Sink:                      sink,
 
 		entries: []tickerEntry{
 			{name: "medication", checker: medChecker, interval: 1 * time.Minute},
@@ -95,6 +102,14 @@ func New(s *store.Repos, allowedUserID int64, sink ReminderSink) *Scheduler {
 // sink_localnotifications.go (mobile).
 func NewWithNotifiers(s *store.Repos, allowedUserID int64, notifiers []notifier.Notifier) *Scheduler {
 	return New(s, allowedUserID, defaultSink(notifiers, allowedUserID))
+}
+
+// AddEntry registers an additional checker to run on its own ticker. Used by
+// server-build-only extensions (weekly digest) constructed outside New()
+// because they depend on packages this tag-free file can't import. Must be
+// called before Start().
+func (s *Scheduler) AddEntry(name string, checker Checker, interval, initialDelay time.Duration) {
+	s.entries = append(s.entries, tickerEntry{name: name, checker: checker, interval: interval, initialDelay: initialDelay})
 }
 
 func (s *Scheduler) Start() {

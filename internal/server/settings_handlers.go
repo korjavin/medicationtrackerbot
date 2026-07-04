@@ -45,14 +45,19 @@ func (s *Server) getFeatureMap(ctx context.Context) (map[string]bool, error) {
 	if err != nil {
 		return nil, err
 	}
+	weeklyDigestEnabled, err := s.settings.GetWeeklyDigestEnabled(ctx)
+	if err != nil {
+		return nil, err
+	}
 	return map[string]bool{
-		"food":         foodEnabled,
-		"bp":           bpEnabled,
-		"weight":       weightEnabled,
-		"medication":   medicationEnabled,
-		"workout":      workoutEnabled,
-		"health":       healthEnabled,
-		"gamification": gamificationEnabled,
+		"food":          foodEnabled,
+		"bp":            bpEnabled,
+		"weight":        weightEnabled,
+		"medication":    medicationEnabled,
+		"workout":       workoutEnabled,
+		"health":        healthEnabled,
+		"gamification":  gamificationEnabled,
+		"weekly_digest": weeklyDigestEnabled,
 	}, nil
 }
 
@@ -563,6 +568,8 @@ func (s *Server) handleSetFeatureEnabled(w http.ResponseWriter, r *http.Request)
 				}
 			}
 		}
+	case "weekly_digest":
+		err = s.settings.SetWeeklyDigestEnabled(ctx, req.Enabled)
 	default:
 		http.Error(w, "Unknown feature", http.StatusBadRequest)
 		return

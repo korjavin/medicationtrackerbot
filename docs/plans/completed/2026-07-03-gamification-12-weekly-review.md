@@ -89,78 +89,80 @@ invariant, so backfilled weeks read correctly in retrospect).
 
 ### Task 1: Domain — `GetWeeklyReview` read model
 
-- [ ] `internal/domain/gamification/weekly.go` (new): given `now`, resolve the
+- [x] `internal/domain/gamification/weekly.go` (new): given `now`, resolve the
       current ISO week (Mon–Sun, user tz, `weekIndex`-consistent) and the
       previous week
-- [ ] **levers section**: per-lever-ring closed-day counts this week vs last,
+- [x] **levers section**: per-lever-ring closed-day counts this week vs last,
       days-with-any-HP, best day (most rings closed), strength values now vs 7
       days ago
-- [ ] **gauges section**: embed plan 11's models — weight velocity + pace status
+- [x] **gauges section**: embed plan 11's models — weight velocity + pace status
       + acceleration, BP 30d share now vs a week ago, RHR delta; plus Health
       Score now vs anchored 7 days earlier
-- [ ] empty-week semantics: zero-HP week returns a valid review with
+- [x] empty-week semantics: zero-HP week returns a valid review with
       `quiet: true`, never an error
-- [ ] add `GetWeeklyReview` to the service interface, gated on
+- [x] add `GetWeeklyReview` to the service interface, gated on
       `gamification_enabled`
-- [ ] integration test per Testing Strategy
+- [x] integration test per Testing Strategy
 
 ### Task 2: HTTP route + MCP registration
 
-- [ ] `GET /api/gamification/weekly-review` (verbatim pass-through), registered
+- [x] `GET /api/gamification/weekly-review` (verbatim pass-through), registered
       in the gamification route block
-- [ ] registry op `gamification.weekly_review` with description +
+- [x] registry op `gamification.weekly_review` with description +
       `ResponseExample`
-- [ ] document the shape in `docs/api.md#gamification`
+- [x] document the shape in `docs/api.md#gamification`
 
 ### Task 3: Journey — "Your week" card
 
-- [ ] `journey.js`: collapsible "Your week" card between the Health Score card
+- [x] `journey.js`: collapsible "Your week" card between the Health Score card
       and the Gauges panel; fetch via `cachedFetch` (tag `gamification`,
       `OfflineNoCacheError` → empty state)
-- [ ] renders: score movement ("Health Score 78 · up 4"), lever line ("Bedtime
+- [x] renders: score movement ("Health Score 78 · up 4"), lever line ("Bedtime
       closed 5 of 7 · Movement 4 · Nourishment 6"), gauge lines ("Weight −0.4%/wk
       · on pace · speeding up", "BP in range 82% · up from 76%"), best day
-- [ ] tone guardrail: neutral-to-positive phrasing only; a down week reads as
+- [x] tone guardrail: neutral-to-positive phrasing only; a down week reads as
       observation ("BP logging was lighter this week"); the quiet week reads as
       "A quiet week — everything picks up where you left off"; no red styling
       for negative deltas
 
 ### Task 4: Bot — `/week` command
 
-- [ ] register `/week` following the existing bot command pattern; handler calls
+- [x] register `/week` following the existing bot command pattern; handler calls
       `GetWeeklyReview` and formats the structured data into a short Telegram
       message (thin channel — formatting only), same tone rules
-- [ ] flag-off / quiet-week / error paths all produce a friendly one-liner,
+- [x] flag-off / quiet-week / error paths all produce a friendly one-liner,
       never a stack of zeros
 
 ### Task 5: Opt-in Sunday digest
 
-- [ ] settings flag `weekly_digest_enabled`, **default OFF** (migration +
+- [x] settings flag `weekly_digest_enabled`, **default OFF** (migration +
       settings accessor), toggleable via the generic
       `POST /api/settings/features/weekly_digest` surface and a Settings UI
       switch next to the gamification toggle
-- [ ] scheduler job following the existing reminder pattern: Sunday at a fixed
+- [x] scheduler job following the existing reminder pattern: Sunday at a fixed
       local-evening hour (Config, e.g. 19:00 user tz), for users with both
       `gamification_enabled` and `weekly_digest_enabled`, send the formatted
       digest through the bot; server build only
-- [ ] digest send is best-effort/logged; a failure never affects scoring or
+- [x] digest send is best-effort/logged; a failure never affects scoring or
       other reminders; no retry queue (ponytail: it's a weekly nicety, next week
       comes)
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] verify Overview requirements: card + `/week` + opt-in digest, lever/gauge
+- [x] verify Overview requirements: card + `/week` + opt-in digest, lever/gauge
       structure, tone rules, quiet-week handling, default-OFF digest
-- [ ] `go test ./...` passes (incl. MCP coverage guard); mobile build
+- [x] `go test ./...` passes (incl. MCP coverage guard); mobile build
       `go build -tags mobile ./...` still compiles (digest behind server wiring)
-- [ ] `pnpm test` passes
-- [ ] `golangci-lint run` + `gofmt` clean
+- [x] `pnpm test` passes
+- [x] `golangci-lint run` + `gofmt` clean (gofmt flags pre-existing files
+      unrelated to this branch — `internal/bot/bot.go` etc. were already
+      unformatted on `master`; nothing this plan touched needs reformatting)
 
 ### Task 7: Update documentation
 
-- [ ] `docs/gamification.md`: §14.7 — weekly review as the gauge-reading
+- [x] `docs/gamification.md`: §14.7 — weekly review as the gauge-reading
       cadence, surfaces, tone rules, digest opt-in
-- [ ] `docs/api.md`: weekly-review endpoint; no new env vars (Config constants
+- [x] `docs/api.md`: weekly-review endpoint; no new env vars (Config constants
       suffice)
 
 ## Technical Details

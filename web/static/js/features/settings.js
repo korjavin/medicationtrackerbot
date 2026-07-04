@@ -250,6 +250,7 @@ function updateFeatureToggles() {
     document.getElementById('health-feature-toggle').checked = !!flags.health;
     document.getElementById('medication-feature-toggle').checked = !!flags.medication;
     document.getElementById('workout-feature-toggle').checked = !!flags.workout;
+    document.getElementById('weekly-digest-feature-toggle').checked = !!flags.weekly_digest;
 }
 
 function updateFoodTargetsVisibility() {

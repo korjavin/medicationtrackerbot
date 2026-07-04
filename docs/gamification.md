@@ -1129,6 +1129,60 @@ no ledger migration, no re-backfill (§2.5, §5).
   (levels never decrease); the weekly stream starts alongside them with no
   re-backfill, same non-punitive, ring-agnostic reasoning as §14.9.
 
+### 14.11 Weekly review — Plan 12 (status)
+
+Implemented in
+[docs/plans/2026-07-03-gamification-12-weekly-review.md](plans/2026-07-03-gamification-12-weekly-review.md).
+Under the levers/gauges model (§14.9, §14.10), the weekly review is the
+cadence at which gauges are meant to be read: one read model, two
+presentations, both pure presentation over already-computed data — no new
+mechanics, no new tables.
+
+- **Read model** (`internal/domain/gamification/weekly.go`, new):
+  `GetWeeklyReview` → `GET /api/gamification/weekly-review`
+  (`docs/api.md#gamification`). Resolves the current ISO week (Mon–Sun, UTC
+  day-keyed) via the same `weekIndex`/`weekBounds` bucketing `streak.go` and the
+  weekly gauge awards use, and folds it against the prior week: per-lever
+  closed-day counts (levers), the best day (most rings closed, omitted if
+  none did), habit-strength deltas now vs 7 days ago, `gauges.go`'s gauge
+  views plus BP's 30-day share a week ago, and the Health Score now vs
+  anchored 7 days earlier. A zero-HP week returns `quiet: true` with the rest
+  of the shape still valid (zeros, not an error) — "a quiet week," never a
+  failure. Everything is computed on read from existing folds, so a late
+  backup import that retro-fills a lighter week simply changes what the next
+  read returns.
+- **Surfaces, "one read model, two presentations":**
+  - **Journey card** (`journey.js`): a collapsible "Your week" card between
+    the Health Score card and the Gauges panel, fetched via `cachedFetch`
+    (tag `gamification`, `OfflineNoCacheError` → empty state). Renders score
+    movement, the lever line, gauge lines, and the best day.
+  - **Bot digest** (`internal/bot/gamification_commands.go`): the on-demand
+    `/week` command calls `GetWeeklyReview` and renders it through
+    `FormatWeeklyReview` — a thin-channel formatter shared with the
+    scheduled digest below, independently phrased from the web card (no
+    shared template layer between the two presentation languages).
+  - **Opt-in Sunday digest** (`internal/scheduler/weekly_digest.go`,
+    `!mobile`-tagged): a scheduler job polling for Sunday at
+    `WeeklyDigestHour` (19:00, user tz, `Config` constant, no per-user
+    customization) for users with both `gamification_enabled` and the new
+    `weekly_digest_enabled` flag, sending `FormatWeeklyReview`'s text
+    through the bot sink. The flag defaults **OFF** (migration +
+    `weekly_digest_enabled` settings column), toggled via the generic
+    `POST /api/settings/features/weekly_digest` surface and a Settings UI
+    switch next to the gamification toggle — opt-in per design principles
+    #4/#8. Send failures are logged and never retried (a weekly nicety,
+    next week comes) and never affect scoring or other reminders. Mobile
+    build: the Journey card works as-is; the digest job is not wired to
+    `LocalNotificationSink`.
+- **Tone:** neutral-to-positive phrasing only, matching the rest of the
+  design's Gentler-Streak stance (§9) — a down week reads as observation
+  ("BP logging was lighter this week"), never "you failed"; no red styling
+  for negative deltas anywhere in the card or digest text.
+- **Testing:** one service-level integration test per the Testing Strategy —
+  seeded two weeks with a known difference, asserting lever counts, gauge
+  movement fields, best day, and the empty-week shape — no unit tests, no
+  E2E.
+
 ---
 
 ## 15. Safety, accessibility & open questions
