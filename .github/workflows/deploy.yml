@@ -147,10 +147,10 @@ jobs:
           # Using environment variables prevents template injection attacks
           
           IMAGE_NAME="ghcr.io/${GITHUB_REPO_OWNER}/${GITHUB_REPO_NAME}"
-          
-          sed -i "s|image: ${IMAGE_NAME}:.*|image: ${IMAGE_NAME}:${GITHUB_COMMIT_SHA}|g" docker-compose.yml
 
-          git add docker-compose.yml
+          sed -i "s|image: ${IMAGE_NAME}:.*|image: ${IMAGE_NAME}:${GITHUB_COMMIT_SHA}|g" docker-compose.yml docker-compose.cloud.yml
+
+          git add docker-compose.yml docker-compose.cloud.yml
           git commit -m "ci: Update image tag to ${GITHUB_COMMIT_SHA}" || echo "No changes to commit"
           git push origin deploy --force
 
