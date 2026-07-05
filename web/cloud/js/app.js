@@ -28,15 +28,13 @@ try {
     const { runRecoverFlow } = await import('./recover.js');
     await runRecoverFlow();
   } else if (location.pathname === '/devices') {
-    const { readLdkRecord, unwrapWithLdk } = await import('./unlock.js');
+    const { warmUnlock } = await import('./unlock.js');
     const { renderDeviceList } = await import('./devices.js');
     try {
-      const cached = await readLdkRecord();
-      if (!cached) {
+      const ctx = await warmUnlock();
+      if (!ctx) {
         location.href = '/unlock';
       } else {
-        const dek = await unwrapWithLdk(cached);
-        const ctx = { accountId: cached.accountId, dek };
         renderDeviceList(document.getElementById('app'), ctx, () => {
           location.href = '/';
         });

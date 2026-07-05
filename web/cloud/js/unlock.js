@@ -202,6 +202,18 @@ export async function unwrapWithLdk(record) {
   return new Uint8Array(pt);
 }
 
+// Warm-unlock in one step: read the LDK cache and unwrap the DEK into the ctx
+// shape every caller needs ({ accountId, dek }). Returns null when there's no
+// cache (fresh/cleared device) so callers can redirect to /unlock; throws are
+// left to the caller's catch. Shared by cloud-boot.js (real-app shim) and
+// app.js's /devices branch so the ctx shape lives in exactly one place.
+export async function warmUnlock() {
+  const cached = await readLdkRecord();
+  if (!cached) return null;
+  const dek = await unwrapWithLdk(cached);
+  return { accountId: cached.accountId, dek };
+}
+
 // Exported so cloud-boot.js (web/static's cloud boot shim) can perform the
 // same warm-unlock read/unwrap without duplicating the LDK cache format.
 export async function readLdkRecord() {
