@@ -7,7 +7,9 @@ import { createWeightDomain } from '../../domain/weight.js';
 import { createNotesDomain } from '../../domain/notes.js';
 import { createSettingsDomain } from '../../domain/settings.js';
 import { createVitalsDomain } from '../../domain/vitals.js';
+import { createRemindersDomain } from '../../domain/reminders.js';
 import { recordsPort } from './sync.js';
+import { scheduleReminderRecompute } from './reminders.js';
 
 function parseQuery(endpoint) {
   const qIndex = endpoint.indexOf('?');
@@ -56,6 +58,7 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
   const notes = createNotesDomain({ records, now });
   const settings = createSettingsDomain({ records, now, timeZone });
   const vitals = createVitalsDomain({ records, now, timeZone });
+  const reminders = createRemindersDomain({ records, now });
 
   // PORTED_SET: the feature domains this shim can actually serve end-to-end
   // (records + domain module + shim routes wired). Clamped onto every read
@@ -253,6 +256,16 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
     // feature, and no error surfaces.
     if ((path === '/api/bp/reminder/toggle' || path === '/api/weight/reminder/toggle') && method === 'POST') {
       return { enabled: !!(body && body.enabled) };
+    }
+
+    // Medication reminders are functionally wired in cloud mode (Task 5): the
+    // toggle actually gates whether computeReminderHorizon's med portion gets
+    // uploaded to the blind push relay, unlike the bp/weight stubs above.
+    if (path === '/api/medication/reminder/status' && method === 'GET') return reminders.getStatus();
+    if (path === '/api/medication/reminder/toggle' && method === 'POST') {
+      const status = await reminders.setEnabled(!!(body && body.enabled));
+      scheduleReminderRecompute(ctx, { records, timeZone });
+      return status;
     }
 
     const stubKey = `${method} ${path}`;

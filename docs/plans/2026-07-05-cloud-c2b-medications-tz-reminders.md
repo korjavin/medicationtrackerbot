@@ -219,20 +219,41 @@ Prerequisite: `docs/plans/2026-07-05-cloud-c2-push-vapid-per-account.md` (per-ac
 VAPID keys + working push delivery) must be deployed before this task — the
 relay is otherwise unconfigured/disabled in a real deployment.
 
-- [ ] `web/domain/reminders.js`: pure horizon computation — given meds,
+- [x] `web/domain/reminders.js`: pure horizon computation — given meds,
       pending intakes, timeZone, now: emit `{fire_at_unix, text}` for (a)
       each forecast dose slot in the next 7 days, (b) re-reminds for
       currently-PENDING intakes per server rules (snooze expiry, or +1h
       past schedule, advancing +1h), capped well under the 2000-entry relay
       limit; text = the server's notification body format (med names +
       dose count)
-- [ ] shim layer: recompute + `pushSchedule(ctx, entries)` (replace-all)
+- [x] shim layer: recompute + `pushSchedule(ctx, entries)` (replace-all)
       on unlock and after every intake/med/tzplan mutation, debounced;
       reuse `web/cloud/js/push.js` as-is
-- [ ] med reminder enable/disable: `GET/POST /api/*/reminder` shims backed
+- [x] med reminder enable/disable: `GET/POST /api/*/reminder` shims backed
       by a `medreminderpref` singleton record; when disabled, upload an
       empty med portion of the schedule (BP/weight reminder stubs stay
       as-is from C1)
+
+  ➕ `planDoses`'s window semantics (ported near-verbatim from medplan.go,
+  every other call site of which only ever drives it with a <=12h window)
+  cap look-ahead at "today + tomorrow" regardless of window size — a real
+  gap for a 7-day reminder horizon. `computeReminderHorizon` walks one day
+  at a time (7 calls to `planDosesWithTzPlan` with a 24h window each,
+  deduped by medicationId+slot) instead of widening the window, so
+  medschedule.js/tzplan.js stay untouched. Verified via an ad hoc Node
+  script (daily/weekly schedules, tz-plan passthrough, disabled-preference
+  empty horizon) — not committed, per the plan's "no unit tests" testing
+  approach.
+
+  ➕ `web/cloud/js/reminders.js`'s `scheduleReminderRecompute` is wired now
+  at the one mutation site this task actually owns (the new
+  `medreminderpref` toggle route in apishim.js) and on unlock
+  (cloud-boot.js) — both work today since `recomputeAndPush` reads raw
+  medication/intake/tzplan records directly rather than through those
+  domains' higher-level APIs. The "after every intake/med/tzplan mutation"
+  call sites for the mutations themselves are one-line additions Task 7
+  makes alongside the route table that first wires those domains into the
+  shim — they can't be added before the mutations exist to hook into.
 
 ### Task 6: RxNorm direct-from-browser
 
