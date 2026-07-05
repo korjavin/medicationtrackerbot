@@ -165,6 +165,17 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
       return { unit };
     }
 
+    // Reminder toggles: BP/weight reminders aren't functionally scheduled in
+    // cloud C1 (the push relay is blind), but the Reminders section in Settings
+    // is always visible and not feature-gated. Echo success instead of falling
+    // through to the unmapped-route 404, which api.js turns into a user-facing
+    // "Error:" alert + toggle revert. The reminder status stubs still report
+    // disabled, so the toggle resets on reload — honest for a not-yet-wired
+    // feature, and no error surfaces.
+    if ((path === '/api/bp/reminder/toggle' || path === '/api/weight/reminder/toggle') && method === 'POST') {
+      return { enabled: !!(body && body.enabled) };
+    }
+
     const stubKey = `${method} ${path}`;
     const stub = STUBS[stubKey];
     if (stub) {
