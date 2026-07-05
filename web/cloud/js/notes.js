@@ -33,15 +33,19 @@ export function renderNotes(app, ctx, onExit) {
 }
 
 async function refresh(app, ctx) {
+  // pullOnOpen swallows network failures internally (offline flag), so this
+  // still renders from the local mirror when offline; the try/catch is for a
+  // hard failure (e.g. IndexedDB read) so listNotes/describeSyncStatus can't
+  // reject unhandled and leave the screen stuck on "Syncing…".
   try {
     await pullOnOpen(ctx);
+    const [notes, statusText] = await Promise.all([listNotes(ctx), describeSyncStatus(ctx)]);
+    renderList(app, ctx, notes);
+    const statusEl = app.querySelector('#sync-status');
+    if (statusEl) statusEl.textContent = statusText;
   } catch (err) {
     showError(app, err);
   }
-  const [notes, statusText] = await Promise.all([listNotes(ctx), describeSyncStatus(ctx)]);
-  renderList(app, ctx, notes);
-  const statusEl = app.querySelector('#sync-status');
-  if (statusEl) statusEl.textContent = statusText;
 }
 
 function renderList(app, ctx, notes) {

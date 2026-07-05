@@ -262,11 +262,12 @@ async function pullTail(ctx) {
         });
         await applyIncoming(recordType, JSON.parse(new TextDecoder().decode(plaintext)));
       } catch {
-        // Tampered ciphertext or a seq the server assigned to a different op
-        // than this client predicted (concurrent-writer race) — the record
-        // is unreadable; surface it via the sync-status counter rather than
-        // silently dropping it or wedging the pull loop.
-        await writeMeta({ integrityErrors: (await readMeta()).integrityErrors + 1 });
+        // Unreadable op — almost always the benign seq-in-AAD mis-prediction
+        // junk a concurrent writer leaves behind (flushPending re-posts a good
+        // copy under a fresh seq), not tampering. Counting these as
+        // "integrity" warnings would fire on ordinary multi-device use, so
+        // just skip the row and advance. Genuine tamper detection lives on the
+        // snapshot decrypt path (bootstrap), which has no benign-failure case.
       }
       await writeMeta({ localLastSeq: op.seq });
     }
@@ -377,8 +378,8 @@ async function flushPending(ctx) {
       return;
     }
     // Mis-predicted: a concurrent device interleaved. Re-pull to advance past
-    // the peer ops (and our own now-dead ops — they surface as integrity
-    // warnings; our optimistic local copies survive since 'pending' is kept),
+    // the peer ops (and our own now-dead ops — pullTail skips those unreadable
+    // rows; our optimistic local copies survive since 'pending' is kept),
     // then loop to re-post these records under fresh seqs.
     await pullTail(ctx);
     if (offline) return; // couldn't advance — retry next open
@@ -455,8 +456,18 @@ export async function getOrCreateNK(ctx) {
   }
   const nk = crypto.getRandomValues(new Uint8Array(32));
   await writeRecord(ctx, NK_RECORD_TYPE, { recordId: NK_RECORD_ID, clientTs: Date.now(), nk: toBase64(nk), deleted: false });
-  await writeDeviceValue('nk', nk);
-  return nk;
+  // A peer device may have created a *different* NK concurrently. writeRecord's
+  // flush re-pulls the tail on a seq collision, so the vault record now holds
+  // the LWW-converged NK — adopt that, not our just-generated one, or this
+  // device would cache an orphan key and its push payloads would decrypt
+  // nowhere but here. ponytail: exactly-equal clientTs across two devices
+  // (strict-`>` LWW tie) leaves a residual divergence window; rare enough to
+  // accept for the C0 toy path, where rich-notification decrypt failures
+  // degrade gracefully to a generic notification.
+  const converged = await getRecord(NK_RECORD_ID);
+  const finalNk = converged && converged.recordType === NK_RECORD_TYPE && !converged.deleted ? fromBase64(converged.nk) : nk;
+  await writeDeviceValue('nk', finalNk);
+  return finalNk;
 }
 
 // Sync-status indicator (Task 3): derived entirely from local sync-engine

@@ -3,8 +3,11 @@ package cloudserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
@@ -66,6 +69,35 @@ type subscriptionRequest struct {
 	Auth     string `json:"auth"`
 }
 
+var errInvalidPushEndpoint = errors.New("invalid push endpoint")
+
+// validatePushEndpoint blocks the obvious authenticated-SSRF vectors before an
+// endpoint is stored and later POSTed to by the blind relay: a subscription is
+// a client-controlled URL the server makes outbound requests to. Require https
+// and reject literal-IP hosts that point at loopback / link-local (cloud
+// metadata at 169.254.169.254) / private ranges.
+//
+// ponytail: literal-IP block only — a hostname that *resolves* to a private IP
+// (DNS rebinding) still slips through; closing that needs a dial-time control
+// on the relay's HTTP client, out of scope for the C0 push path where real
+// endpoints are public push-service hosts.
+func validatePushEndpoint(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" {
+		return errInvalidPushEndpoint
+	}
+	host := u.Hostname()
+	if host == "" {
+		return errInvalidPushEndpoint
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+			return errInvalidPushEndpoint
+		}
+	}
+	return nil
+}
+
 // PostSubscription registers (or refreshes) a web-push subscription for the
 // caller's session account.
 func (a *PushAPI) PostSubscription(w http.ResponseWriter, r *http.Request) {
@@ -84,6 +116,10 @@ func (a *PushAPI) PostSubscription(w http.ResponseWriter, r *http.Request) {
 		req.P256dh == "" || len(req.P256dh) > maxPushKeyLen ||
 		req.Auth == "" || len(req.Auth) > maxPushKeyLen {
 		http.Error(w, "subscription field too large or missing", http.StatusBadRequest)
+		return
+	}
+	if err := validatePushEndpoint(req.Endpoint); err != nil {
+		http.Error(w, "invalid endpoint", http.StatusBadRequest)
 		return
 	}
 
