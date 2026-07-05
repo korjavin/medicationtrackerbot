@@ -190,9 +190,8 @@ func main() {
 	var relay *cloudserver.Relay
 	if cfg.vapidPublicKey != "" && cfg.vapidPrivateKey != "" {
 		relay = cloudserver.NewRelay(store, &cloudserver.WebPushSender{
-			VAPIDPublicKey:  cfg.vapidPublicKey,
-			VAPIDPrivateKey: cfg.vapidPrivateKey,
-			VAPIDSubject:    cfg.vapidSubject,
+			Subject:    cfg.vapidSubject,
+			BaseDomain: cfg.baseDomain,
 		}, cfg.dryQueueWarnHours)
 	} else {
 		slog.Info("Push relay disabled: VAPID keys not configured")

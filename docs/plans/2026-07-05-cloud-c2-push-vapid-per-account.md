@@ -126,10 +126,10 @@ backfilled; existing subscriptions do not.
 
 ### Task 4: Relay sends with per-account keys + Apple subject switch
 
-- [ ] change `PushSender.Send` to accept the account keypair (e.g. `Send(ctx, sub, keys AccountVAPIDKeys, ct)`); update the fake sender in tests
-- [ ] `WebPushSender` keeps only `Subject` + `BaseDomain`; per send, pick subject: endpoint host contains `push.apple.com` → `https://<BaseDomain>`, else the configured `mailto:` subject (~10-line copy of the `internal/webpush` switch, cloud-local)
-- [ ] relay loop (`processDue` + stale-sync sweep): fetch the account's keypair (extend `relayStore` with an account-keys lookup or join keys into `DueScheduledPushes`/`List` — pick whichever is the smaller diff); skip + `slog.Warn` if keys are NULL (cannot happen post-backfill, but never send unsigned)
-- [ ] extend `relay_test.go`: captured sends carry each account's own keypair; Apple-endpoint subscription gets the `https://` subject, FCM-shaped endpoint gets `mailto:`
+- [x] change `PushSender.Send` to accept the account keypair (e.g. `Send(ctx, sub, keys AccountVAPIDKeys, ct)`); update the fake sender in tests
+- [x] `WebPushSender` keeps only `Subject` + `BaseDomain`; per send, pick subject: endpoint host contains `push.apple.com` → `https://<BaseDomain>`, else the configured `mailto:` subject (~10-line copy of the `internal/webpush` switch, cloud-local)
+- [x] relay loop (`processDue` + stale-sync sweep): fetch the account's keypair (extend `relayStore` with an account-keys lookup or join keys into `DueScheduledPushes`/`List` — pick whichever is the smaller diff); skip + `slog.Warn` if keys are NULL (cannot happen post-backfill, but never send unsigned)
+- [x] extend `relay_test.go`: captured sends carry each account's own keypair; Apple-endpoint subscription gets the `https://` subject, FCM-shaped endpoint gets `mailto:`
 
 ### Task 5: Wiring + deployment config
 

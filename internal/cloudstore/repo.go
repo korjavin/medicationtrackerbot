@@ -184,6 +184,25 @@ func (r *Repo) AccountIDsMissingVAPIDKeys(ctx context.Context) ([]string, error)
 	return ids, rows.Err()
 }
 
+// AccountVAPIDKeys is one account's per-account VAPID keypair, looked up by
+// the push relay before it signs that account's sends.
+type AccountVAPIDKeys struct {
+	PublicKey  string
+	PrivateKey string
+}
+
+// AccountVAPIDKeysByID returns accountID's VAPID keypair. Both fields are
+// empty if the keys are still NULL (should not happen post-backfill) — the
+// caller decides whether that's fatal.
+func (r *Repo) AccountVAPIDKeysByID(ctx context.Context, accountID string) (AccountVAPIDKeys, error) {
+	var pub, priv sql.NullString
+	err := r.db.QueryRowContext(ctx, `SELECT vapid_public_key, vapid_private_key FROM accounts WHERE id = ?`, accountID).Scan(&pub, &priv)
+	if err != nil {
+		return AccountVAPIDKeys{}, err
+	}
+	return AccountVAPIDKeys{PublicKey: pub.String, PrivateKey: priv.String}, nil
+}
+
 func scanAccount(scan func(dest ...any) error) (*Account, error) {
 	var (
 		a            Account

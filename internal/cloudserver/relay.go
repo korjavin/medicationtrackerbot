@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/SherClockHolmes/webpush-go"
@@ -45,31 +46,33 @@ func mustMarshalStaleSyncWarning() []byte {
 	return b
 }
 
-// PushSender delivers one already-encrypted payload to one subscription and
-// reports the push service's HTTP status (or a transport error). Swappable
-// in tests for a fake that never hits the network.
+// PushSender delivers one already-encrypted payload to one subscription,
+// signed with that subscription's account's own VAPID keypair, and reports
+// the push service's HTTP status (or a transport error). Swappable in tests
+// for a fake that never hits the network.
 type PushSender interface {
-	Send(ctx context.Context, sub cloudstore.PushSubscription, ct []byte) (statusCode int, err error)
+	Send(ctx context.Context, sub cloudstore.PushSubscription, keys cloudstore.AccountVAPIDKeys, ct []byte) (statusCode int, err error)
 }
 
 // WebPushSender is the production PushSender. ct is already NK-encrypted
 // app-layer ciphertext (see docs/cloud-crypto.md); webpush-go wraps it in
 // RFC 8291 per subscription — the relay composes nothing and can read
-// nothing.
+// nothing. The VAPID keypair is per-account (passed into Send), not held
+// here; Subject/BaseDomain are service-wide (RFC 8292 identifies the relay
+// operator, never the user).
 type WebPushSender struct {
-	VAPIDPublicKey  string
-	VAPIDPrivateKey string
-	VAPIDSubject    string
+	Subject    string
+	BaseDomain string
 }
 
-func (s *WebPushSender) Send(ctx context.Context, sub cloudstore.PushSubscription, ct []byte) (int, error) {
+func (s *WebPushSender) Send(ctx context.Context, sub cloudstore.PushSubscription, keys cloudstore.AccountVAPIDKeys, ct []byte) (int, error) {
 	resp, err := webpush.SendNotificationWithContext(ctx, ct, &webpush.Subscription{
 		Endpoint: sub.Endpoint,
 		Keys:     webpush.Keys{Auth: sub.Auth, P256dh: sub.P256dh},
 	}, &webpush.Options{
-		Subscriber:      s.VAPIDSubject,
-		VAPIDPublicKey:  s.VAPIDPublicKey,
-		VAPIDPrivateKey: s.VAPIDPrivateKey,
+		Subscriber:      vapidSubjectFor(sub.Endpoint, s.Subject, s.BaseDomain),
+		VAPIDPublicKey:  keys.PublicKey,
+		VAPIDPrivateKey: keys.PrivateKey,
 		TTL:             12 * 3600,
 	})
 	if err != nil {
@@ -77,6 +80,18 @@ func (s *WebPushSender) Send(ctx context.Context, sub cloudstore.PushSubscriptio
 	}
 	defer resp.Body.Close()
 	return resp.StatusCode, nil
+}
+
+// vapidSubjectFor picks the RFC 8292 VAPID subject for one push-service
+// endpoint. Apple's push service rejects a mailto: subject and requires an
+// https:// one; FCM/Mozilla expect the configured mailto:. Cloud-local copy
+// of the switch in internal/webpush/webpush.go (bot mode) — kept separate
+// since that version is entangled with bot config.
+func vapidSubjectFor(endpoint, subject, baseDomain string) string {
+	if strings.Contains(endpoint, "push.apple.com") {
+		return "https://" + baseDomain
+	}
+	return subject
 }
 
 // relayStore is the subset of *cloudstore.Repo the blind push relay needs.
@@ -87,6 +102,7 @@ type relayStore interface {
 	Disable(ctx context.Context, endpoint string) error
 	AccountsNeedingStaleSyncWarning(ctx context.Context, now time.Time, dryQueueWithin, staleAfter, warnCooldown time.Duration) ([]string, error)
 	MarkStaleSyncWarned(ctx context.Context, accountID string, now time.Time) error
+	AccountVAPIDKeysByID(ctx context.Context, accountID string) (cloudstore.AccountVAPIDKeys, error)
 }
 
 // Relay is the blind push-firing loop: it never decrypts or composes a
@@ -139,6 +155,7 @@ func (rl *Relay) Tick(ctx context.Context) {
 	}
 
 	subsByAccount := make(map[string][]cloudstore.PushSubscription)
+	keysByAccount := make(map[string]cloudstore.AccountVAPIDKeys)
 	for _, p := range due {
 		subs, ok := subsByAccount[p.AccountID]
 		if !ok {
@@ -150,8 +167,22 @@ func (rl *Relay) Tick(ctx context.Context) {
 			subsByAccount[p.AccountID] = subs
 		}
 
-		for _, sub := range subs {
-			rl.send(ctx, sub, p.CT)
+		keys, ok := keysByAccount[p.AccountID]
+		if !ok {
+			keys, err = rl.store.AccountVAPIDKeysByID(ctx, p.AccountID)
+			if err != nil {
+				slog.Error("push relay: load VAPID keys", "accountID", p.AccountID, "error", err)
+				continue
+			}
+			keysByAccount[p.AccountID] = keys
+		}
+
+		if keys.PublicKey == "" || keys.PrivateKey == "" {
+			slog.Warn("push relay: account has no VAPID keys, skipping send", "accountID", p.AccountID)
+		} else {
+			for _, sub := range subs {
+				rl.send(ctx, sub, keys, p.CT)
+			}
 		}
 
 		if err := rl.store.MarkPushSent(ctx, p.ID, time.Now().UTC()); err != nil {
@@ -178,8 +209,17 @@ func (rl *Relay) StaleSyncSweep(ctx context.Context) {
 			slog.Error("push relay: list subscriptions for stale-sync warning", "accountID", accountID, "error", err)
 			continue
 		}
-		for _, sub := range subs {
-			rl.send(ctx, sub, staleSyncWarningPayload)
+		keys, err := rl.store.AccountVAPIDKeysByID(ctx, accountID)
+		if err != nil {
+			slog.Error("push relay: load VAPID keys for stale-sync warning", "accountID", accountID, "error", err)
+			continue
+		}
+		if keys.PublicKey == "" || keys.PrivateKey == "" {
+			slog.Warn("push relay: account has no VAPID keys, skipping stale-sync warning", "accountID", accountID)
+		} else {
+			for _, sub := range subs {
+				rl.send(ctx, sub, keys, staleSyncWarningPayload)
+			}
 		}
 		if err := rl.store.MarkStaleSyncWarned(ctx, accountID, now); err != nil {
 			slog.Error("push relay: mark stale-sync warned", "accountID", accountID, "error", err)
@@ -187,11 +227,11 @@ func (rl *Relay) StaleSyncSweep(ctx context.Context) {
 	}
 }
 
-func (rl *Relay) send(ctx context.Context, sub cloudstore.PushSubscription, ct []byte) {
+func (rl *Relay) send(ctx context.Context, sub cloudstore.PushSubscription, keys cloudstore.AccountVAPIDKeys, ct []byte) {
 	sendCtx, cancel := context.WithTimeout(ctx, relaySendTimeout)
 	defer cancel()
 
-	status, err := rl.sender.Send(sendCtx, sub, ct)
+	status, err := rl.sender.Send(sendCtx, sub, keys, ct)
 	if err != nil {
 		slog.Error("push relay: send failed", "endpoint", sub.Endpoint, "error", err)
 		return
