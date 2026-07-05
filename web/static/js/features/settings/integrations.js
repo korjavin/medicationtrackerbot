@@ -44,8 +44,37 @@
         }
     };
 
+    // Secret-bearing fields per group — mirrors INTEGRATIONS_SECRET_FIELDS in
+    // web/domain/settings.js and the server's handleGetIntegrations masking.
+    const SECRET_FIELDS = {
+        openai: new Set(['api_key', 'vision_api_key']),
+        food: new Set(['api_key']),
+        elevenlabs: new Set(['api_key'])
+    };
+
     function getInput(id) {
         return document.getElementById(id);
+    }
+
+    // maskPayload converts a raw DOM payload into the masked shape the server
+    // GET returns: secret fields collapse to "***" when set, "" when cleared,
+    // and the "***" sentinel (user didn't re-enter) stays "***". Used for the
+    // optimistic cache write so cleartext provider keys never land in the
+    // plaintext api_cache store — in cloud mode the real secret lives only in
+    // the encrypted vault. The raw payload still goes to the PATCH itself.
+    function maskPayload(payload) {
+        const out = {};
+        for (const group of Object.keys(payload || {})) {
+            out[group] = {};
+            const secrets = SECRET_FIELDS[group] || new Set();
+            for (const field of Object.keys(payload[group] || {})) {
+                const value = payload[group][field];
+                out[group][field] = secrets.has(field)
+                    ? (value ? '***' : '')
+                    : value;
+            }
+        }
+        return out;
     }
 
     function applyPayloadToDOM(payload) {
@@ -108,7 +137,7 @@
 
         let handle = null;
         if (dsOk) {
-            handle = await window.DataStore.applyOptimistic(CACHE_KEY, () => payload, CACHE_TAGS);
+            handle = await window.DataStore.applyOptimistic(CACHE_KEY, () => maskPayload(payload), CACHE_TAGS);
         }
 
         let res = null;
@@ -136,7 +165,9 @@
             fresh = apiOk ? await apiCall('/api/settings/integrations', 'GET') : null;
         } catch (_) { /* fall through with optimistic payload */ }
         if (fresh) applyPayloadToDOM(fresh);
-        if (handle) { try { await handle.commit(fresh || payload); } catch (_) { /* best-effort */ } }
+        // Commit the masked server view when the reload succeeded, else the
+        // locally-masked payload — never the raw cleartext keys.
+        if (handle) { try { await handle.commit(fresh || maskPayload(payload)); } catch (_) { /* best-effort */ } }
 
         if (typeof safeAlert === 'function') safeAlert('Integrations saved. Restart the server for the new values to take effect.');
     }

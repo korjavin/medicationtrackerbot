@@ -203,8 +203,16 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
     if (method === 'POST') {
       const m = /^\/api\/settings\/features\/([^/]+)$/.exec(path);
       if (m) {
+        const feature = m[1];
         const enabled = !!(body && body.enabled);
-        await settings.setFeature(m[1], enabled);
+        await settings.setFeature(feature, enabled);
+        // The UI (settings.js toggleFeatureSetting) applies the *requested*
+        // value optimistically and feeds it straight into nav filtering, so
+        // reporting success for an unported feature would surface a tab whose
+        // routes this shim can't serve until the next reload re-clamps it off.
+        // Return null on an unported enable so apiCall's falsy-result path
+        // reverts the toggle instead. GET/bootstrap already clamp reads.
+        if (enabled && !PORTED_SET.has(feature)) return null;
         return { enabled };
       }
     }

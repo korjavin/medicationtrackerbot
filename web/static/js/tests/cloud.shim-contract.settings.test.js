@@ -36,8 +36,19 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         const { window } = env;
         window.rebuildCanonicalBottomNav = vi.fn();
 
-        // 'medication' is not in the shim's PORTED_SET, unlike 'bp'/'weight'/'health'.
+        // Establish the real post-bootstrap baseline: the shim clamps
+        // 'medication' off (it's not in PORTED_SET, unlike 'bp'/'weight'/'health').
+        const boot0 = await window.apiCall('/api/bootstrap');
+        window.SettingsState.applyBootstrapFeatures(boot0.features);
+        expect(window.featureSettings.medication).toBe(false);
+
         await window.toggleFeatureSetting('medication', true);
+
+        // In-session too: the shim rejects the unported enable so the UI never
+        // flips window.featureSettings on (which nav filtering trusts), so no
+        // dead tab surfaces before the next reload.
+        expect(window.featureSettings.medication).toBe(false);
+        expect(window.rebuildCanonicalBottomNav).not.toHaveBeenCalled();
 
         const flags = await window.apiCall('/api/settings/features', 'GET');
         expect(flags.medication).toBe(false);
