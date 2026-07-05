@@ -1,9 +1,11 @@
 // Service worker for the cloud shell (Task 6, docs/cloud-mode.md "Push relay
 // & reminder lifecycle"). Classic script (not `type: module`) for the widest
-// browser support; NK decrypt needs crypto.js/localdb.js (ES modules), so it
-// dynamic-imports them inside the push handler instead of a static top-level
-// import — dynamic import() is available in classic workers in every browser
-// this project targets (Chrome, Firefox, Safari 15+).
+// browser support. It is fully self-contained: the NK decrypt path inlines the
+// tiny bit of WebCrypto + IndexedDB read it needs rather than importing
+// crypto.js/localdb.js. Dynamic import() of ES modules inside a classic
+// service worker is unreliable across browsers (rejects in Firefox and
+// Safari < 16) and importScripts() can't load ES modules — so importing would
+// silently degrade every push to a generic notification on those browsers.
 
 const CACHE_NAME = 'medtracker-cloud-v1';
 const PRECACHE_URLS = [
@@ -42,9 +44,16 @@ const GENERIC_NOTIFICATION = { title: 'Med Tracker', body: 'Medication reminder'
 
 // NK plaintext cache lives in the 'device' object store under key 'nk'
 // (docs/cloud-crypto.md: "plaintext copy in device IndexedDB" for the SW).
+// Opened without a version so the SW never triggers a schema upgrade — the app
+// page always creates the DB before any subscription can receive a push, so the
+// store exists; if it somehow doesn't, the transaction throws and decodePush
+// falls back to the generic notification.
 async function readNK() {
-  const { openDb } = await import('./js/localdb.js');
-  const db = await openDb();
+  const db = await new Promise((resolve, reject) => {
+    const req = indexedDB.open('medtracker-cloud');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
   try {
     return await new Promise((resolve, reject) => {
       const tx = db.transaction('device', 'readonly');
@@ -62,6 +71,20 @@ async function readNK() {
 // with). It's plain JSON tagged kind=="server-warning" — anything else is NK
 // ciphertext and falls through to the decrypt attempt below.
 const STALE_SYNC_WARNING = { title: 'Med Tracker', body: 'Open the app to keep reminders running' };
+
+// Inlined from crypto.js encryptPushPayload/decryptPushPayload: NK app-layer is
+// AES-GCM(NK, payload, aad="mt/v1/push") with the 12-byte nonce packed ahead of
+// the ciphertext (single BLOB wire column). Kept here so the worker needs no
+// module import (see top-of-file note).
+const PUSH_AAD = new TextEncoder().encode('mt/v1/push');
+
+async function decryptPushPayload(nk, packed) {
+  const nonce = packed.slice(0, 12);
+  const ct = packed.slice(12);
+  const key = await crypto.subtle.importKey('raw', nk, 'AES-GCM', false, ['decrypt']);
+  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: nonce, additionalData: PUSH_AAD }, key, ct);
+  return new Uint8Array(pt);
+}
 
 function tryDecodeServerWarning(data) {
   try {
@@ -88,7 +111,6 @@ async function decodePush(data) {
   try {
     const nk = await readNK();
     if (!nk) return GENERIC_NOTIFICATION;
-    const { decryptPushPayload } = await import('./js/crypto.js');
     const plaintext = await decryptPushPayload(nk, new Uint8Array(data));
     const payload = JSON.parse(new TextDecoder().decode(plaintext));
     return { title: payload.title || GENERIC_NOTIFICATION.title, body: payload.body || GENERIC_NOTIFICATION.body };

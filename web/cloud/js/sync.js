@@ -299,72 +299,90 @@ async function maybeSnapshot(ctx) {
   }
 }
 
+// Max re-post attempts when a concurrent writer keeps interleaving (below).
+const FLUSH_MAX_ATTEMPTS = 5;
+
 async function flushPending(ctx) {
-  const pending = await readPending();
-  if (pending.length === 0) return;
   const kData = await getKData(ctx);
-  const meta = await readMeta();
-  // Not bootstrapped yet (bootstrap failed transiently): localLastSeq is null,
-  // so `seq += 1` would predict seqs from 1 and AAD-bind every op to the wrong
-  // seq. On a non-empty account the server assigns the real (higher) seqs and
-  // the records become permanently undecryptable on every device. Keep the
-  // writes safely in 'pending' until a real bootstrap sets the cursor.
-  if (meta.localLastSeq === null) return;
-  let seq = meta.localLastSeq;
-  const ops = [];
-  const includedIds = [];
-  for (const { recordId, recordType } of pending) {
-    const record = await getRecord(recordId);
-    if (!record) continue;
-    seq += 1;
-    // recordType is already carried by the wire tag (parseTag) — omit it from
-    // the encrypted body so the local-only bookkeeping field never round-trips.
-    const { recordType: _recordType, ...wireBody } = record;
-    const plaintext = new TextEncoder().encode(JSON.stringify(wireBody));
-    const { nonce, ct } = await encryptRecord({
-      kData,
-      accountId: ctx.accountId,
-      recordType,
-      recordId,
-      seq,
-      plaintext,
-    });
-    ops.push({ record_type_tag: makeTag(recordType, recordId), nonce: toBase64(nonce), ct: toBase64(ct) });
-    includedIds.push(recordId);
-  }
-  if (ops.length === 0) return;
-  let res;
-  try {
-    res = await fetch('/api/sync/ops', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ops }),
-    });
-  } catch {
-    offline = true;
-    return; // left in 'pending' — retried on the next pullOnOpen/write
-  }
-  if (!res.ok) {
-    offline = true;
-    return;
-  }
-  offline = false;
-  const { assigned } = await res.json();
-  await clearPending(includedIds);
-  await writeMeta({ lastSyncedAt: Date.now() });
-  if (assigned[0] === meta.localLastSeq + 1) {
-    // Our batch was assigned contiguously from our cursor — we already hold
-    // every op up to max(assigned) locally, so just advance.
-    await writeMeta({ localLastSeq: Math.max(...assigned) });
-  } else {
-    // A concurrent device appended between our cursor and our assignment. Don't
-    // jump the cursor to max(assigned): that would skip the peer's interleaved
-    // ops forever. Re-pull from the old cursor so they're applied (our own
-    // ops, AAD-bound to the seq we predicted, resurface as integrity warnings
-    // but survive locally from the optimistic write above).
+  // Convergence under concurrent writers. Each record's AAD binds account_seq
+  // (docs' "Seq assignment vs AAD"), but the client can't know its assigned
+  // seq until POST returns. The server assigns a batch a contiguous block in
+  // one tx, so it's all-or-nothing: if another device appended between our
+  // cursor read and our POST, our whole batch lands at a *higher* block than
+  // we predicted and every op is AAD-bound to the wrong seq — undecryptable on
+  // every device (including us on re-pull). So on a mis-predicted batch we
+  // must re-pull past the interleaved peer ops (and our now-dead ones) and
+  // re-encrypt+re-post the same records under freshly predicted seqs. Bounded
+  // so a continuously-writing peer can't spin us forever; leftover 'pending'
+  // is retried on the next open/write.
+  // ponytail: each collision leaks its mis-bound ops as undecryptable oplog
+  // junk (rare for the toy note set); snapshot compaction eventually drops them.
+  for (let attempt = 0; attempt < FLUSH_MAX_ATTEMPTS; attempt++) {
+    const pending = await readPending();
+    if (pending.length === 0) return;
+    const meta = await readMeta();
+    // Not bootstrapped yet (bootstrap failed transiently): localLastSeq is null,
+    // so `seq += 1` would predict seqs from 1 and AAD-bind every op to the wrong
+    // seq. Keep the writes safely in 'pending' until a real bootstrap sets the
+    // cursor.
+    if (meta.localLastSeq === null) return;
+    let seq = meta.localLastSeq;
+    const ops = [];
+    const includedIds = [];
+    for (const { recordId, recordType } of pending) {
+      const record = await getRecord(recordId);
+      if (!record) continue;
+      seq += 1;
+      // recordType is already carried by the wire tag (parseTag) — omit it from
+      // the encrypted body so the local-only bookkeeping field never round-trips.
+      const { recordType: _recordType, ...wireBody } = record;
+      const plaintext = new TextEncoder().encode(JSON.stringify(wireBody));
+      const { nonce, ct } = await encryptRecord({
+        kData,
+        accountId: ctx.accountId,
+        recordType,
+        recordId,
+        seq,
+        plaintext,
+      });
+      ops.push({ record_type_tag: makeTag(recordType, recordId), nonce: toBase64(nonce), ct: toBase64(ct) });
+      includedIds.push(recordId);
+    }
+    if (ops.length === 0) return;
+    let res;
+    try {
+      res = await fetch('/api/sync/ops', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ops }),
+      });
+    } catch {
+      offline = true;
+      return; // left in 'pending' — retried on the next pullOnOpen/write
+    }
+    if (!res.ok) {
+      offline = true;
+      return;
+    }
+    offline = false;
+    const { assigned } = await res.json();
+    await writeMeta({ lastSyncedAt: Date.now() });
+    if (assigned[0] === meta.localLastSeq + 1) {
+      // Assigned contiguously from our cursor — predicted seqs equal assigned
+      // seqs, so every op's AAD is correct and other devices can decrypt them.
+      // We already hold these records locally, so just clear and advance.
+      await clearPending(includedIds);
+      await writeMeta({ localLastSeq: Math.max(...assigned) });
+      await maybeSnapshot(ctx);
+      return;
+    }
+    // Mis-predicted: a concurrent device interleaved. Re-pull to advance past
+    // the peer ops (and our own now-dead ops — they surface as integrity
+    // warnings; our optimistic local copies survive since 'pending' is kept),
+    // then loop to re-post these records under fresh seqs.
     await pullTail(ctx);
+    if (offline) return; // couldn't advance — retry next open
   }
-  await maybeSnapshot(ctx);
 }
 
 // --- public API ------------------------------------------------------------
