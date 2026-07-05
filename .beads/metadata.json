@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "medicationtrackerbot",
+  "project_id": "fee2c4af-7a1d-41a3-bc14-f905c4c5a798"
+}
