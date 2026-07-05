@@ -48,6 +48,25 @@ describe('cloud shim contract — notes flows (features/health.js over web/domai
         expect(rows.length).toBe(2);
     });
 
+    it('emits numeric ids so before_id pagination advances past page 1', async () => {
+        const { window } = env;
+        // Two pages worth (>50). Ids must be numeric for the frontend's
+        // `_notesCursor > 0` gate and the shim's before_id keyset to work.
+        for (let i = 0; i < 55; i++) {
+            await window.apiCall('/api/notes', 'POST', { content: `note ${i}` });
+        }
+
+        const page1 = await window.apiCall('/api/notes?limit=50', 'GET');
+        expect(page1).toHaveLength(50);
+        const cursor = page1[page1.length - 1].id;
+        expect(Number(cursor) > 0).toBe(true);
+
+        const page2 = await window.apiCall(`/api/notes?limit=50&before_id=${cursor}`, 'GET');
+        expect(page2).toHaveLength(5);
+        // No overlap between pages — the cursor actually advanced.
+        expect(page2.map((n) => n.id)).not.toContain(cursor);
+    });
+
     it('deleteNote removes the note from the shim-backed store', async () => {
         const { window, document } = env;
         const created = await window.apiCall('/api/notes', 'POST', { content: 'to be removed' });

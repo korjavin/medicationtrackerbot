@@ -15,8 +15,13 @@ function normalizeTag(raw) {
   return VALID_TAGS.has(t) ? t : null;
 }
 
-function genId(nowMs) {
-  return `note_${nowMs}_${Math.random().toString(36).slice(2, 10)}`;
+// Mirror the server's int64 auto-increment: a positive, monotonic, numeric id.
+// The frontend's "load more" cursor gates on `id > 0` and passes it back as a
+// numeric before_id (features/health.js), so string ids like `note_...` would
+// coerce to NaN and silently break pagination past the first page.
+function nextId(existing) {
+  const max = existing.reduce((m, r) => Math.max(m, Number(r.recordId) || 0), 0);
+  return String(max + 1);
 }
 
 function toResponse(record) {
@@ -47,7 +52,7 @@ export function createNotesDomain({ records, now }) {
     }
     const nowMs = now();
     const record = {
-      recordId: genId(nowMs),
+      recordId: nextId(await records.list(RECORD_TYPE)),
       clientTs: nowMs,
       deleted: false,
       content,
