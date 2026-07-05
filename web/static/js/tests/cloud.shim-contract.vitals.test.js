@@ -49,18 +49,22 @@ describe('cloud shim contract — vitals overview (features/health.js over web/d
             heart_rate_avg: hr,
             user_modified: false,
         });
-        const hrDay = (n, values) => ({
-            recordId: `hr_${day(n)}`,
+        // HR samples are filtered by absolute instant (ms <= now), so anchor
+        // them to fixed offsets before `now` — not to a today-UTC hour, which
+        // would land in the future when CI runs early in the day and be
+        // dropped (flaky). All offsets stay well inside the 7d window.
+        const HOUR = 60 * 60 * 1000;
+        const hrRecord = (id, offsetHours, values) => ({
+            recordId: id,
             clientTs: Date.now(),
             deleted: false,
-            day: day(n),
-            samples: values.map((v, i) => ({ date_time: `${day(n)}T${String(i + 8).padStart(2, '0')}:00:00Z`, value: v })),
+            samples: values.map((v, i) => ({ date_time: new Date(Date.now() - (offsetHours + i) * HOUR).toISOString(), value: v })),
         });
 
         env = loadCloudShimFrontendEnv({
             seedRecords: {
                 sleep: [daySleep(0, 420, 60), daySleep(1, 400, 62), daySleep(2, 450, 58)],
-                hrsample: [hrDay(0, [60, 62, 64]), hrDay(1, [58, 60])],
+                hrsample: [hrRecord('hr_a', 1, [60, 62, 64]), hrRecord('hr_b', 25, [58, 60])],
             },
         });
         installApiCache(env.window);
