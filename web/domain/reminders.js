@@ -13,6 +13,7 @@
 // matching the server always reminding while the medication feature is on)
 // gating whether the med portion of the horizon is computed at all.
 import { planDosesWithTzPlan } from './tzplan.js';
+import { minDoseIntervalMs } from './medschedule.js';
 
 const REMINDERPREF_RECORD_TYPE = 'medreminderpref';
 const REMINDERPREF_RECORD_ID = 'medreminderpref';
@@ -89,9 +90,34 @@ export function computeReminderHorizon({
       targets.push(t);
     }
   }
+  // A dose the user already confirmed early (via trigger-next-intake) or
+  // skipped must not resurface as a "Time to take" push. Mirrors the server
+  // scheduler's dedup, which skips a normal target already covered by a
+  // handled intake (internal/scheduler/medication.go): an exact-slot match
+  // plus the symmetric ±minDoseInterval band (same rule as medintake.js's
+  // materializeDueDoses / HasIntakeNearScheduledTime), so a schedule edit or
+  // tz-plan shift that moves the forecast target near — but not exactly onto —
+  // an already-handled intake still suppresses the duplicate push.
+  const handledByMed = new Map();
+  for (const intake of intakes) {
+    if (intake.deleted) continue;
+    if (intake.status === 'TAKEN' || intake.status === 'SKIPPED') {
+      const list = handledByMed.get(intake.medication_id) || [];
+      list.push(Date.parse(intake.scheduled_at));
+      handledByMed.set(intake.medication_id, list);
+    }
+  }
+  const isHandled = (t, med) => {
+    const handled = handledByMed.get(t.medicationId);
+    if (!handled) return false;
+    // bandMs === 0 (as_needed / unparseable) collapses to exact-slot equality.
+    const bandMs = med ? minDoseIntervalMs(med.schedule, med.tz_shift_policy) : 0;
+    return handled.some((ms) => Math.abs(ms - t.scheduledAtMs) <= bandMs);
+  };
   const bySlot = new Map();
   for (const t of targets) {
     const med = medById.get(t.medicationId);
+    if (isHandled(t, med)) continue;
     const list = bySlot.get(t.scheduledAtMs) || [];
     list.push(med ? medDisplayName(med) : t.medName);
     bySlot.set(t.scheduledAtMs, list);

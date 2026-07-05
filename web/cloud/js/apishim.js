@@ -242,8 +242,17 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
       // gradual-shift medications may need a plan staged instead of an
       // immediate write (Task 4).
       if (body && body.timezone) {
-        await tzplan.proposeTimezoneChange(body.timezone);
+        const res = await tzplan.proposeTimezoneChange(body.timezone);
         scheduleReminderRecompute(ctx, { records, timeZone });
+        // A medium/strict-policy med stages a PENDING_APPROVAL plan without
+        // moving the clock. bootstrap.js already ran TZPlanBanner.refresh()
+        // before this POST, so without a re-refresh the plan stays hidden
+        // (no Telegram channel in cloud mode) and the stored tz still differs
+        // → every boot re-prompts. Surface it now.
+        if (res && res.planCreated && targetWindow && targetWindow.TZPlanBanner
+            && typeof targetWindow.TZPlanBanner.refresh === 'function') {
+          targetWindow.TZPlanBanner.refresh();
+        }
       }
       return true;
     }
