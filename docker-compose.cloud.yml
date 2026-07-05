@@ -20,6 +20,8 @@ services:
       - CLOUD_DB_PATH=${CLOUD_DB_PATH:-/app/data/cloud.db}
       - PORT=${PORT:-8080}
       - CLOUD_CLAIM_TTL=${CLOUD_CLAIM_TTL:-14}
+      - CLOUD_ACCOUNT_QUOTA_BYTES=${CLOUD_ACCOUNT_QUOTA_BYTES:-}
+      - CLOUD_DRY_QUEUE_WARN_HOURS=${CLOUD_DRY_QUEUE_WARN_HOURS:-}
       - VAPID_SUBJECT=${VAPID_SUBJECT:-}
     networks:
       - proxy
