@@ -93,6 +93,9 @@ async function loadSettings() {
     // cloud mode" deferral.
     if (window.__MEDTRACKER_CLOUD__) {
         document.querySelector('.wg-settings-notifications')?.classList.add('wg-settings-hidden');
+        // Devices row (add/manage a second device) only makes sense in cloud
+        // mode — server/mobile builds have no /devices shell route.
+        document.querySelector('.wg-settings-cloud-devices')?.classList.remove('wg-settings-hidden');
     }
     const applyBundle = async (rawBundle) => {
         const bundle = window.AuthBootstrap.normalizeSettingsBundle(rawBundle);

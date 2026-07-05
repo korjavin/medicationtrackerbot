@@ -569,4 +569,23 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
             cleanup();
         }
     });
+
+    it('shows the Devices row only when window.__MEDTRACKER_CLOUD__ is set (server/mobile builds never render it)', async () => {
+        allowConsoleNoise();
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+
+            await window.loadSettings();
+            expect(document.querySelector('.wg-settings-cloud-devices').classList.contains('wg-settings-hidden')).toBe(true);
+
+            window.__MEDTRACKER_CLOUD__ = true;
+            await window.loadSettings();
+            expect(document.querySelector('.wg-settings-cloud-devices').classList.contains('wg-settings-hidden')).toBe(false);
+            expect(document.getElementById('settings-devices-link').getAttribute('href')).toBe('/devices');
+        } finally {
+            delete window.__MEDTRACKER_CLOUD__;
+            cleanup();
+        }
+    });
 });

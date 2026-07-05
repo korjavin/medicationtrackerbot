@@ -23,19 +23,17 @@ window.MedTrackerCloudReady = (async function boot() {
         return;
     }
     try {
-        const [{ readLdkRecord, unwrapWithLdk }, { installApiShim }, { pullOnOpen }] = await Promise.all([
+        const [{ warmUnlock }, { installApiShim }, { pullOnOpen }] = await Promise.all([
             import('/js/unlock.js'),
             import('/js/apishim.js'),
             import('/js/sync.js'),
         ]);
 
-        const cached = await readLdkRecord();
-        if (!cached) {
+        const ctx = await warmUnlock();
+        if (!ctx) {
             location.href = '/unlock';
             return;
         }
-        const dek = await unwrapWithLdk(cached);
-        const ctx = { accountId: cached.accountId, dek };
 
         installApiShim(ctx);
         await pullOnOpen(ctx);

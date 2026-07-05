@@ -81,21 +81,21 @@ trivial merge risk in `web/static/js/features/settings.js` if C2a lands concurre
 
 ### Task 1: Serve the shell at /devices
 
-- [ ] `internal/cloudserver/router.go:147` — add `r.URL.Path == "/devices"` to the
+- [x] `internal/cloudserver/router.go:147` — add `r.URL.Path == "/devices"` to the
       shell-path case (rewrites to `signup.html`, same as `/unlock`/`/claim`/`/recover`)
-- [ ] update the routing comment block above the case to mention `/devices`
-- [ ] integration test: extend the existing router/host-routing Go test — GET
+- [x] update the routing comment block above the case to mention `/devices`
+- [x] integration test: extend the existing router/host-routing Go test — GET
       `https://<sub>.<base>/devices` returns the shell page (guards the real
       route contract; without it the frontend link 404s to the app SPA fallback)
 
 ### Task 2: /devices dispatch in the cloud shell
 
-- [ ] `web/cloud/js/app.js` — add a `location.pathname === '/devices'` branch
+- [x] `web/cloud/js/app.js` — add a `location.pathname === '/devices'` branch
       before the unlock fallback: import `readLdkRecord`/`unwrapWithLdk` from
       `unlock.js` and `renderDeviceList` from `devices.js`; warm-unlock, build
       `ctx = {accountId, dek}`, call
       `renderDeviceList(document.getElementById('app'), ctx, () => { location.href = '/'; })`
-- [ ] no-warm-cache path: `readLdkRecord()` returns null (fresh profile / cleared
+- [x] no-warm-cache path: `readLdkRecord()` returns null (fresh profile / cleared
       storage) → `location.href = '/unlock'` (cold unlock lands the user in the
       app; they tap the Settings row again — now warm). Same failure handling for
       `unwrapWithLdk` throw, mirroring `cloud-boot.js:35-38`.
@@ -103,31 +103,31 @@ trivial merge risk in `web/static/js/features/settings.js` if C2a lands concurre
 
 ### Task 3: Cloud-only Devices row in Settings
 
-- [ ] `web/static/js/features/settings.js` — render a "Devices" row/card
+- [x] `web/static/js/features/settings.js` — render a "Devices" row/card
       ("Manage devices · add a new device") only when
       `window.__MEDTRACKER_CLOUD__` is truthy; activation navigates to `/devices`
       (plain `location.href` — full page swap into the shell is intended)
-- [ ] follow the screen's existing row markup + design tokens (no hardcoded
+- [x] follow the screen's existing row markup + design tokens (no hardcoded
       colors, no inline `.style.` — rule 3); reuse an existing settings-row class
-- [ ] integration test: extend the existing settings Vitest suite
+- [x] integration test: extend the existing settings Vitest suite
       (`settings.*.test.js` pattern via `tests/helpers/frontend-harness.js`) —
       row present when `window.__MEDTRACKER_CLOUD__ = true`, absent when unset
       (guards the server/mobile-build contract)
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] verify all requirements from Overview are implemented (row visible in cloud
+- [x] verify all requirements from Overview are implemented (row visible in cloud
       mode only; `/devices` serves shell; warm unlock → device list; no-cache →
       `/unlock` redirect)
-- [ ] `go test ./...` (both default and `-tags mobile`) — must pass
-- [ ] `pnpm test` — must pass
-- [ ] run linter — all issues must be fixed
+- [x] `go test ./...` (both default and `-tags mobile`) — must pass
+- [x] `pnpm test` — must pass
+- [x] run linter — all issues must be fixed
 
 ### Task 5: [Final] Update documentation
 
-- [ ] `docs/cloud-mode.md` — note the `/devices` entry point and Settings row in
+- [x] `docs/cloud-mode.md` — note the `/devices` entry point and Settings row in
       the C0b device-lifecycle section
-- [ ] `docs/cloud-crypto.md` — update the "device-list UI" references (currently
+- [x] `docs/cloud-crypto.md` — update the "device-list UI" references (currently
       describe it as reachable from the unlock shell only)
 
 ## Technical Details
