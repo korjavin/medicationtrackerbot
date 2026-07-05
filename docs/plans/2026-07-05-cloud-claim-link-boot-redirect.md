@@ -87,11 +87,11 @@ the one place the fragment is first seen and dropped fixes every entry through `
 
 ### Task 2: Verify acceptance criteria
 
-- [ ] Re-read `cloud-boot.js` end-to-end: claim-token branch is first; warm-unlock path unchanged for
+- [x] Re-read `cloud-boot.js` end-to-end: claim-token branch is first; warm-unlock path unchanged for
       the tokenless case.
-- [ ] Grep for other bare `location.href = '/unlock'` or root redirects that could also drop a claim
+- [x] Grep for other bare `location.href = '/unlock'` or root redirects that could also drop a claim
       fragment (`grep -rn "location.href" web/cloud/js`) — confirm cloud-boot is the only entry via `/`.
-- [ ] Run the existing frontend test suite (`pnpm test`) — must pass.
+- [x] Run the existing frontend test suite (`pnpm test`) — must pass.
 
 ## Technical Details
 
