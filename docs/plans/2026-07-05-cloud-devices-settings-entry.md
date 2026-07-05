@@ -103,13 +103,13 @@ trivial merge risk in `web/static/js/features/settings.js` if C2a lands concurre
 
 ### Task 3: Cloud-only Devices row in Settings
 
-- [ ] `web/static/js/features/settings.js` — render a "Devices" row/card
+- [x] `web/static/js/features/settings.js` — render a "Devices" row/card
       ("Manage devices · add a new device") only when
       `window.__MEDTRACKER_CLOUD__` is truthy; activation navigates to `/devices`
       (plain `location.href` — full page swap into the shell is intended)
-- [ ] follow the screen's existing row markup + design tokens (no hardcoded
+- [x] follow the screen's existing row markup + design tokens (no hardcoded
       colors, no inline `.style.` — rule 3); reuse an existing settings-row class
-- [ ] integration test: extend the existing settings Vitest suite
+- [x] integration test: extend the existing settings Vitest suite
       (`settings.*.test.js` pattern via `tests/helpers/frontend-harness.js`) —
       row present when `window.__MEDTRACKER_CLOUD__ = true`, absent when unset
       (guards the server/mobile-build contract)
