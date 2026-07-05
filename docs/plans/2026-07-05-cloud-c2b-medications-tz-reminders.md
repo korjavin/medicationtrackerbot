@@ -160,23 +160,23 @@ plan stays meds-shaped.
 
 ### Task 3: Intake state machine
 
-- [ ] **deterministic intake ids**: scheduled intakes use
+- [x] **deterministic intake ids**: scheduled intakes use
       `recordId = 'intake-<medId>-<slotUnix>'`; manual log-past intakes use
       a random UUID (no slot). This is the multi-device dedup mechanism —
       document it in the module header
-- [ ] due-dose materialization: on domain init and on a minute-ish timer in
+- [x] due-dose materialization: on domain init and on a minute-ish timer in
       the shim layer (timer lives in the shim, NOT in web/domain), run
       fire-mode PlanDoses and write PENDING intake records for due slots
       (dedup: deterministic id + ±min-dose-interval band check per
       `HasIntakeNearScheduledTime` semantics)
-- [ ] ops with exact server semantics (op table in Context): confirm /
+- [x] ops with exact server semantics (op table in Context): confirm /
       confirm-schedule (incl. revert-unchecked-TAKEN path) / skip /
       log-past / bulk update (`{updated, failed, failures[]}`) / cancel /
       delete-future / snooze / trigger-next-intake (earliest cluster,
       10min) / next-intake (12h forecast + clustering, 204-equivalent when
       none); inventory decrement/increment inline with each status flip,
       with the already-confirmed idempotency guard
-- [ ] history: `GET /api/history?days&med_id` equivalent over intake
+- [x] history: `GET /api/history?days&med_id` equivalent over intake
       records, newest-first, same row shape
 
 ### Task 4: TZ handling — suggestion, plan preview, one-record plans

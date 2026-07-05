@@ -171,3 +171,28 @@ export function isLowOnStock(med, now, daysThreshold = DEFAULT_LOW_STOCK_THRESHO
 export function listLowOnStock(medications, now, daysThreshold = DEFAULT_LOW_STOCK_THRESHOLD_DAYS) {
   return medications.filter((med) => !med.archived && isLowOnStock(med, now, daysThreshold));
 }
+
+// Ported from internal/domain/tzreschedule/engine.go:305 (nominalIntervalHours).
+function nominalIntervalHours(cfg) {
+  if (!cfg || !Array.isArray(cfg.times) || cfg.times.length === 0) return 24;
+  if (cfg.type === 'weekly') {
+    const dosesPerWeek = cfg.days.length > 0 ? cfg.days.length * cfg.times.length : cfg.times.length;
+    const interval = 168 / dosesPerWeek;
+    return interval < 1 ? 1 : interval;
+  }
+  return 24 / cfg.times.length;
+}
+
+// Ported from internal/domain/tzreschedule/policy.go:44 (MinDoseInterval),
+// used by medintake.js's due-dose materialization as the ±band dedup replacing
+// the server's HasIntakeNearScheduledTime SQL query. tzShiftPolicy defaults to
+// "flexible" for empty/unknown values, matching NormalizePolicy.
+const MIN_DOSE_INTERVAL_FACTOR = { strict: 0.70, medium: 0.65, flexible: 0.60 };
+
+export function minDoseIntervalMs(schedule, tzShiftPolicy) {
+  const cfg = parseSchedule(schedule);
+  if (!cfg || cfg.type === 'as_needed') return 0;
+  const hours = nominalIntervalHours(cfg);
+  const factor = MIN_DOSE_INTERVAL_FACTOR[tzShiftPolicy] || MIN_DOSE_INTERVAL_FACTOR.flexible;
+  return hours * 60 * 60 * 1000 * factor;
+}
