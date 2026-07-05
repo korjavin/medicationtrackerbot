@@ -186,6 +186,35 @@ func TestAccountCredentialEnvelopeRoundtrip(t *testing.T) {
 	}
 }
 
+// TestSetAccountVAPIDKeys_NeverRotates guards the backfill-only invariant
+// directly: SetAccountVAPIDKeys must silently no-op on an account that already
+// has keys. Rotating a live keypair would orphan every push subscription bound
+// to the old subscribe-time key. The existing backfill tests only prove the
+// AccountIDsMissingVAPIDKeys filter skips keyed accounts, so dropping the
+// `AND vapid_public_key IS NULL` clause would still pass them — this exercises
+// the guard head-on.
+func TestSetAccountVAPIDKeys_NeverRotates(t *testing.T) {
+	r := setupRepo(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	if _, err := r.CreateAccount(ctx, "acc-vapid", "vapid-sub", []byte("h"), now.Add(time.Hour), now, "pub-original", "priv-original"); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	// Attempting to set keys on an already-keyed account must leave them intact.
+	if err := r.SetAccountVAPIDKeys(ctx, "acc-vapid", "pub-rotated", "priv-rotated"); err != nil {
+		t.Fatalf("SetAccountVAPIDKeys: %v", err)
+	}
+	keys, err := r.AccountVAPIDKeysByID(ctx, "acc-vapid")
+	if err != nil {
+		t.Fatalf("AccountVAPIDKeysByID: %v", err)
+	}
+	if keys.PublicKey != "pub-original" || keys.PrivateKey != "priv-original" {
+		t.Fatalf("expected keys left untouched, got %+v", keys)
+	}
+}
+
 func TestResetClaim(t *testing.T) {
 	r := setupRepo(t)
 	ctx := context.Background()
