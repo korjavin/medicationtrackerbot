@@ -291,11 +291,13 @@ export function generatePlan({
 
 // planDosesWithTzPlan composes medschedule.js's planDoses with an APPROVED
 // tz transition plan: unions in the plan's own due/forecast steps and drops
-// the affected medications' normal-schedule targets entirely for as long as
-// the plan is active — the one suppression rule kept from the server's three
-// SQL gates (orphan-step / cancelled-plan states can't exist here because the
-// steps live inside the plan record itself). `tzPlan` is the raw stored
-// record (or null/non-APPROVED, in which case this is a pure passthrough).
+// a medication's normal-schedule targets only while that med still has a
+// future step — mirroring the server's MedsWithFuturePendingTZStepsForPlan
+// gate. Keying the suppression on every med in the plan instead would keep an
+// early-finishing med's normal doses suppressed until the whole plan flips
+// COMPLETED (the last step of any med), silently dropping that med's doses
+// mid-plan. `tzPlan` is the raw stored record (or null/non-APPROVED, in which
+// case this is a pure passthrough).
 export function planDosesWithTzPlan({
   medications, timeZone, now, window = 0, tzPlan,
 }) {
@@ -306,7 +308,9 @@ export function planDosesWithTzPlan({
     return base;
   }
 
-  const affectedMedIds = new Set(tzPlan.steps.map((s) => s.medicationId));
+  const affectedMedIds = new Set(
+    tzPlan.steps.filter((s) => s.scheduledAtMs > now).map((s) => s.medicationId),
+  );
   const stepTargets = tzPlan.steps
     .filter((s) => targetInWindow(s.scheduledAtMs, now, window))
     .map((s) => ({

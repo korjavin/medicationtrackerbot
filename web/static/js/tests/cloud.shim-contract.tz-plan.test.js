@@ -8,6 +8,7 @@ import {
     afterEach, beforeEach, describe, expect, it, vi
 } from 'vitest';
 import { loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
+import { planDosesWithTzPlan } from '../../../domain/tzplan.js';
 
 function seedPendingPlan(overrides = {}) {
     return {
@@ -92,5 +93,49 @@ describe('cloud shim contract — TZ plan banner (features/tz-plan-banner.js ove
         expect(plan.status).toBe('REJECTED');
         const settings = await window.apiCall('/api/settings');
         expect(settings.timezone).toBe('America/New_York');
+    });
+});
+
+// planDosesWithTzPlan suppression rule — mirrors the server's
+// MedsWithFuturePendingTZStepsForPlan gate: a med's normal doses are only
+// dropped while that med still has a FUTURE step. In a multi-med plan an
+// early-finishing med must resume its normal schedule even though the plan is
+// still APPROVED because another med has steps left.
+describe('planDosesWithTzPlan — per-med future-step suppression (web/domain/tzplan.js)', () => {
+    it('resumes an early-finishing med\'s normal doses while a later med still has future steps', () => {
+        const now = Date.UTC(2026, 0, 15, 6, 0); // 06:00 UTC
+        const window = 12 * 3600_000; // 12h forecast
+        const timeZone = 'UTC';
+
+        // Both meds dose daily at 12:00 UTC → next dose is now+6h (in window).
+        const medications = [
+            { id: 1, name: 'MedA', schedule: '12:00' },
+            { id: 2, name: 'MedB', schedule: '12:00' }
+        ];
+
+        const tzPlan = {
+            recordId: 'tzplan-current',
+            status: 'APPROVED',
+            steps: [
+                // MedA finished: its only step is already in the past.
+                { medicationId: 1, medName: 'MedA', scheduledAtMs: now - 3600_000, stepNumber: 1 },
+                // MedB still transitioning: a step 3h out (inside the window).
+                { medicationId: 2, medName: 'MedB', scheduledAtMs: now + 3 * 3600_000, stepNumber: 1 }
+            ]
+        };
+
+        const targets = planDosesWithTzPlan({
+            medications, timeZone, now, window, tzPlan
+        });
+
+        const medANormal = targets.filter((t) => t.medicationId === 1 && t.source === 'normal_schedule');
+        const medBNormal = targets.filter((t) => t.medicationId === 2 && t.source === 'normal_schedule');
+        const medBStep = targets.filter((t) => t.medicationId === 2 && t.source === 'tz_step');
+
+        // MedA (no future step) resumes its normal schedule...
+        expect(medANormal).toHaveLength(1);
+        // ...while MedB (future step) stays suppressed and shows its step.
+        expect(medBNormal).toHaveLength(0);
+        expect(medBStep).toHaveLength(1);
     });
 });
