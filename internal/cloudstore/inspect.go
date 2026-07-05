@@ -265,8 +265,13 @@ func (r *Repo) AccountSummaries(ctx context.Context) ([]AccountSummary, error) {
 	for i, acc := range accounts {
 		a := byID[acc.ID]
 		summaries[i] = AccountSummary{
-			Account:     acc,
-			Claimed:     a.devices > 0,
+			Account: acc,
+			// Authoritative claim state = claim token cleared, matching inspect,
+			// reset-claim, and revoke. A device count is NOT a proxy: a claimed
+			// account can legitimately drop to zero credentials while recovery
+			// material remains (see DeleteCredentialWithEnvelope), and reset-claim
+			// would still reject it as already claimed.
+			Claimed:     acc.ClaimTokenHash == nil,
 			DeviceCount: a.devices,
 			OpCount:     a.ops,
 			LastSyncAt:  storedb.NullableUnixToTimePtr(a.lastSync),

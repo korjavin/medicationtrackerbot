@@ -13,9 +13,15 @@ func TestInspectAccountAndSummaries(t *testing.T) {
 
 	// Account 1: claimed, two devices, ops from both, a snapshot, and a
 	// mixed push queue.
-	acc1, err := r.CreateAccount(ctx, "acc-1", "busy-otter-abc123", []byte("tokenhash-1-32-bytes-of-junk!!!"), now.Add(time.Hour), now)
+	acc1Token := []byte("tokenhash-1-32-bytes-of-junk!!!")
+	acc1, err := r.CreateAccount(ctx, "acc-1", "busy-otter-abc123", acc1Token, now.Add(time.Hour), now)
 	if err != nil {
 		t.Fatalf("CreateAccount acc1: %v", err)
+	}
+	// Clear the claim token so acc-1 is genuinely claimed (claim_token_hash NULL),
+	// matching the authoritative claim definition AccountSummaries reports.
+	if _, err := r.ConsumeClaimToken(ctx, "busy-otter-abc123", acc1Token, now); err != nil {
+		t.Fatalf("ConsumeClaimToken acc1: %v", err)
 	}
 	cred1 := []byte("credential-one-bytes")
 	cred2 := []byte("credential-two-bytes")

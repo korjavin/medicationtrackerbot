@@ -235,12 +235,16 @@ Server-mode users with real history move by **export → client-side import** �
 | Food/barcode search terms | operator's food-DB instance (default) | same exposure class as public Open Food Facts; endpoint swappable in settings |
 
 **Ground truth, not a claim**: `cloud admin inspect <subdomain>` (see
-[docs/cloud-deployment.md](cloud-deployment.md#5-admin-commands)) prints
-*exactly* what a hostile operator with shell access could see, by
-construction — it's a read-only view over the same tables the server
-queries at runtime, and it prints sizes/timestamps/counts/tags, never
-plaintext, nonces, MACs, or ciphertext bytes. Sample output against a
-seeded account:
+[docs/cloud-deployment.md](cloud-deployment.md#5-admin-commands)) is the
+read-only debug view over an account's health-data-bearing surfaces —
+devices, DEK envelopes, the sync log, and the push queue — reading the same
+tables the server queries at runtime and printing sizes/timestamps/counts/
+tags, never plaintext, nonces, MACs, or ciphertext bytes. It is *not* a dump
+of every column an operator with shell access could `sqlite3` out: purely
+account-lifecycle metadata that carries no health signal — claim expiry,
+loss-ack, recovery-attempt counters (`recovery_auth`), transfer slots, and
+stale-sync warning timestamps — lives in other tables and is out of scope
+here. Sample output against a seeded account:
 
 ```
 $ ./cloud admin inspect amber-falcon-8k3q9x
@@ -273,10 +277,11 @@ push:
   next fire: 2026-07-05T12:41:34Z
 ```
 
-This is the entire view: two devices identified only by a short credential
-prefix (not names), ciphertext sizes, a sync op count + record-type
-histogram (`bp`/`weight` — the type tag is plaintext metadata, not new
-leakage), and push queue state. No health data, no keys, no message content.
+This is the devices/envelopes/sync/push view: two devices identified only by
+a short credential prefix (not names), ciphertext sizes, a sync op count +
+record-type histogram (`bp`/`weight` — the type tag is plaintext metadata,
+not new leakage), and push queue state. No health data, no keys, no message
+content.
 
 ## C1 implementation notes
 
