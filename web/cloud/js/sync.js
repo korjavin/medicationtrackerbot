@@ -35,6 +35,22 @@ function parseTag(tag) {
 let offline = false;
 const kDataCache = new WeakMap();
 
+// Serializes the record-store mutations that must not interleave:
+// replaceAllRecords() clears the whole store and re-lays a snapshot, while a
+// write lands as putRecord()→markPending(). If the clear straddles that pair
+// (record already in 'records', 'pending' row not yet written), the overlay
+// preservation in replaceAllRecords misses it, the clear wipes it, and
+// flushPending's getRecord() returns null → the write is silently lost and its
+// 'pending' row orphaned. A single-slot promise queue makes the two regions
+// mutually exclusive. The two locked regions never nest, so this can't
+// deadlock. ponytail: module-global lock; fine for one device's serial sync.
+let recordsLock = Promise.resolve();
+function withRecordsLock(fn) {
+  const run = recordsLock.then(fn, fn);
+  recordsLock = run.then(() => {}, () => {}); // keep the queue alive past a failure
+  return run;
+}
+
 async function getKData(ctx) {
   let kData = kDataCache.get(ctx.dek);
   if (!kData) {
@@ -116,16 +132,18 @@ async function replaceAllRecords(records) {
   // wiping them loses the user's note and orphans its 'pending' row forever.
   // Re-overlay them after the clear; the oplog tail LWW-corrects them once the
   // server assigns their real seq.
-  const pending = await readPending();
-  const overlay = [];
-  for (const { recordId } of pending) {
-    const r = await getRecord(recordId);
-    if (r) overlay.push(r);
-  }
-  await withStore('records', 'readwrite', (store) => {
-    store.clear();
-    for (const record of records) store.put(record);
-    for (const record of overlay) store.put(record);
+  await withRecordsLock(async () => {
+    const pending = await readPending();
+    const overlay = [];
+    for (const { recordId } of pending) {
+      const r = await getRecord(recordId);
+      if (r) overlay.push(r);
+    }
+    await withStore('records', 'readwrite', (store) => {
+      store.clear();
+      for (const record of records) store.put(record);
+      for (const record of overlay) store.put(record);
+    });
   });
 }
 
@@ -407,8 +425,13 @@ export async function listNotes(ctx) {
 
 async function writeRecord(ctx, recordType, record) {
   await bootstrapIfNeeded(ctx);
-  await putRecord({ ...record, recordType });
-  await markPending(record.recordId, recordType);
+  // Atomic w.r.t. replaceAllRecords' clear (see withRecordsLock): the record
+  // and its 'pending' row must both be visible, or neither, when a concurrent
+  // bootstrap snapshots what to preserve.
+  await withRecordsLock(async () => {
+    await putRecord({ ...record, recordType });
+    await markPending(record.recordId, recordType);
+  });
   await flushPending(ctx);
   return record;
 }
