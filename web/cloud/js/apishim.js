@@ -37,9 +37,15 @@ function debugOnce(key, ...args) {
 
 // installApiShim wires the domain instances to window.offlineAwareApiCall.
 // ctx is the sync engine context (accountId, dek, ...) that recordsPort/
-// writeRecord already expect.
-export function installApiShim(ctx) {
-  const records = recordsPort(ctx);
+// writeRecord already expect. Tests inject an in-memory records port via
+// opts.records to exercise the shim without crypto/IndexedDB (see
+// tests/helpers/cloud-shim-harness.js) — the port interface makes this a
+// drop-in swap with zero shim logic changes. opts.win overrides the target
+// window (the JSDOM window in tests); defaults to the global window in the
+// browser where this module actually runs in production.
+export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
+  const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
+  const records = recordsOverride || recordsPort(ctx);
   const now = () => Date.now();
   const timeZone = (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
   const bp = createBPDomain({ records, now, timeZone });
@@ -149,6 +155,6 @@ export function installApiShim(ctx) {
     throw apiError(404, `Not found: ${method} ${path}`);
   }
 
-  window.offlineAwareApiCall = shimCall;
+  targetWindow.offlineAwareApiCall = shimCall;
   return shimCall;
 }

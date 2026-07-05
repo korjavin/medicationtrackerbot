@@ -148,10 +148,12 @@ mobile); all existing Vitest suites must pass unchanged; Go changes to
 
 ### Task 7: Shim-mode contract runs of the existing feature suites
 
-- [ ] add a shim-mode harness helper (extend `web/static/js/tests/helpers/frontend-harness.js` or a sibling `cloud-shim-harness.js`): installs `installApiShim` with an in-memory records port (no crypto, no IndexedDB — the port interface makes this trivial) before loading feature files
-- [ ] run the existing BP feature suite(s) (`features.bp*` / `bp.*.test.js`) under the shim harness: save/list/delete/goal/stats flows must pass against the JS domain layer — divergences are contract bugs, fix them in `web/domain/` (or flag server quirks worth documenting)
-- [ ] same for the weight suite(s), including the edit (`?replaces=`) flow and trend rendering
-- [ ] these runs are ADDITIVE test files (e.g. `cloud.shim-contract.bp.test.js`) that import the same describe blocks or drive the same flows — the original suites keep running un-shimmed; both must be green
+- [x] add a shim-mode harness helper (extend `web/static/js/tests/helpers/frontend-harness.js` or a sibling `cloud-shim-harness.js`): installs `installApiShim` with an in-memory records port (no crypto, no IndexedDB — the port interface makes this trivial) before loading feature files
+- [x] run the existing BP feature suite(s) (`features.bp*` / `bp.*.test.js`) under the shim harness: save/list/delete/goal/stats flows must pass against the JS domain layer — divergences are contract bugs, fix them in `web/domain/` (or flag server quirks worth documenting)
+- [x] same for the weight suite(s), including the edit (`?replaces=`) flow and trend rendering
+- [x] these runs are ADDITIVE test files (e.g. `cloud.shim-contract.bp.test.js`) that import the same describe blocks or drive the same flows — the original suites keep running un-shimmed; both must be green
+
+⚠️ Goal-setting has no confirmed contract bug to fix: the server only exposes `GET /api/bp/goal` / `GET /api/weight/goal` (`internal/server/server.go:825,840`) — there's no POST route in production, so `apishim.js` correctly has no POST handler for either goal endpoint even though `bp.setGoal`/`weight.setGoal` exist in `web/domain/`. The shim-contract tests seed goal/weight records directly via `seedRecords` (simulating a cross-device sync arrival) instead of exercising a nonexistent POST call.
 
 ### Task 8: Verify acceptance criteria
 
