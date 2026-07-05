@@ -331,14 +331,36 @@ relay is otherwise unconfigured/disabled in a real deployment.
 
 ### Task 8: Shim-mode contract runs
 
-- [ ] meds suite: CRUD, archive, restock, inventory, warning alert (fake
+- [x] meds suite: CRUD, archive, restock, inventory, warning alert (fake
       rxnorm port), 409 duplicate
-- [ ] meds-history suite: history filters, confirm/skip/log-past/cancel/
+- [x] meds-history suite: history filters, confirm/skip/log-past/cancel/
       delete/bulk-update flows incl. inventory side effects and
       idempotent double-confirm
-- [ ] tz banner: seeded `tzplan` record renders, approve/reject round-trip
-- [ ] reminder horizon: confirm-intake shrinks the uploaded schedule
+- [x] tz banner: seeded `tzplan` record renders, approve/reject round-trip
+- [x] reminder horizon: confirm-intake shrinks the uploaded schedule
       (assert via a captured pushSchedule fake)
+
+  ➕ Three new shim-contract files, following the C1 pattern (a new file
+  alongside the network-mocked original rather than editing it):
+  `cloud.shim-contract.meds.test.js` (CRUD/409/warning/restock/low-stock,
+  driving the real `saveMedication`/`deleteMed` through
+  `window.offlineAwareApiCall`), `cloud.shim-contract.meds-history.test.js`
+  (intake state machine + reminder horizon, driven directly via
+  `window.apiCall` since those ops are plain JSON-in/JSON-out — no DOM modal
+  flow needed to exercise the domain contract), and
+  `cloud.shim-contract.tz-plan.test.js` (drives the real
+  `window.TZPlanBanner.refresh()/mountCard()`). `web/domain/medications.js`'s
+  `create()` never accepts an initial `inventory_count` (matches the
+  server's `repo.go` `Create` signature — inventory starts untracked;
+  `restock`'s COALESCE-to-0 is what starts tracking), so the restock/
+  low-stock tests seed inventory via a restock call rather than the create
+  form. `tests/helpers/frontend-harness.js` didn't load
+  `features/tz-plan-banner.js` at all (no prior test exercised
+  `window.TZPlanBanner`); added it after `meds-history.js`, matching its
+  runtime-only dependency on `window.apiCall`/`window.reloadCurrentTab`.
+  The reminder-horizon test uses `vi.mock` on `web/cloud/js/push.js` +
+  `vi.useFakeTimers()` to flush `scheduleReminderRecompute`'s 2s debounce
+  deterministically instead of a real wall-clock wait.
 
 ### Task 9: Verify acceptance criteria
 

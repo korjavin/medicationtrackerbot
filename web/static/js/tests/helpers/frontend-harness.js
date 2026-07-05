@@ -44,6 +44,7 @@ const PUSH_MODAL_JS = path.join(REPO_ROOT, 'web/static/js/features/push-modal.js
 const MEDICATION_UTILS_JS = path.join(REPO_ROOT, 'web/static/js/features/medication-utils.js');
 const MEDS_JS = path.join(REPO_ROOT, 'web/static/js/features/meds.js');
 const MEDS_HISTORY_JS = path.join(REPO_ROOT, 'web/static/js/features/meds-history.js');
+const TZ_PLAN_BANNER_JS = path.join(REPO_ROOT, 'web/static/js/features/tz-plan-banner.js');
 const TODAY_LOADER_JS = path.join(REPO_ROOT, 'web/static/js/features/today-loader.js');
 const FOOD_PHOTO_SUMMARY_JS = path.join(REPO_ROOT, 'web/static/js/features/food-photo-summary.js');
 // features/food.js was split into per-concern sub-files under
@@ -313,6 +314,11 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   // (meds.js → loadHistory / optimistic helpers; meds-history.js →
   // renderHistory / showMedicationConfirmModal).
   evalFileCached(window, MEDS_HISTORY_JS);
+  // tz-plan-banner.js owns window.TZPlanBanner (Today's timezone-transition
+  // plan card, C2b). Only needs window.apiCall / window.reloadCurrentTab at
+  // call time, so load order relative to meds.js/meds-history.js doesn't
+  // matter beyond being after core/api.js.
+  evalFileCached(window, TZ_PLAN_BANNER_JS);
   // today-loader.js owns the Today view loading orchestration (loadToday /
   // _todayRender / _todayReadCaches / fetchSettingsBundle / todayFetchSpecs /
   // fetchNextIntakePayload / todayFoodKey / healthOverviewCacheKey) extracted
