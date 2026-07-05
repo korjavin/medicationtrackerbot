@@ -131,7 +131,7 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
         });
         const { window } = env;
 
-        const res = await window.apiCall('/api/medications/cancel-intake', 'POST', { intake_id: 'intake-1' });
+        const res = await window.apiCall('/api/medications/cancel-intake', 'POST', { intake_ids: ['intake-1'] });
         expect(res).toEqual({ status: 'cancelled', cancelled_count: 1, requested_count: 1 });
 
         const meds = await window.apiCall('/api/medications');
