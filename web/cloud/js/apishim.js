@@ -184,6 +184,15 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
     }
 
     console.warn(`[cloud shim] unmapped route (C2 discovery): ${method} ${path}`);
+    // A thrown non-GET is turned into a blocking "Error:" alert by api.js
+    // (apiCall catch → safeAlert). Every write the always-visible C1 Settings
+    // surface can still reach an unmapped route from — the feature toggles
+    // (POST /api/settings/features/*), the Test-BP button
+    // (POST /api/bp/reminder/test), tab-order, journey targets — guards a falsy
+    // result and reverts or no-ops honestly. So resolve null for writes to a
+    // not-yet-wired route instead of alerting the user; reads keep throwing so
+    // apiCall's offline/empty-state handling is unchanged.
+    if (method !== 'GET') return null;
     throw apiError(404, `Not found: ${method} ${path}`);
   }
 

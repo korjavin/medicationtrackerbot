@@ -157,6 +157,21 @@ describe('cloud shim contract — weight flows (features/weight.js over web/doma
         expect(boot.settings.weight_unit_preference).toBe('lb');
     });
 
+    it('unmapped Settings writes resolve null from the shim (no 404 → no user alert)', async () => {
+        const { window } = env;
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        // Feature toggles, the Test-BP button, tab-order and journey targets all
+        // POST to routes the shim doesn't map in C1, yet the Settings screen is
+        // always visible. Before the fix the shim threw a 404, which api.js turns
+        // into a blocking "Error:" alert + reverted control. Writes must resolve
+        // null so each caller reverts/no-ops silently.
+        await expect(window.offlineAwareApiCall('/api/settings/features/bp', 'POST', { enabled: false })).resolves.toBeNull();
+        await expect(window.offlineAwareApiCall('/api/bp/reminder/test', 'POST')).resolves.toBeNull();
+        // Reads still reject so apiCall's offline/empty-state path is unchanged.
+        await expect(window.offlineAwareApiCall('/api/does-not-exist', 'GET')).rejects.toThrow(/Not found/);
+        warn.mockRestore();
+    });
+
     it('_deleteWeightApi removes the log from the shim-backed store', async () => {
         const { window, document } = env;
         await submitWeightLog(window, document, { daysAgo: 1, weight: 80.0 });
