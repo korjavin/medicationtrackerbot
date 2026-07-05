@@ -9,5 +9,5 @@ package domainweb
 
 import "embed"
 
-//go:embed bp.js weight.js notes.js settings.js vitals.js medschedule.js
+//go:embed bp.js weight.js notes.js settings.js vitals.js medschedule.js medications.js
 var FS embed.FS

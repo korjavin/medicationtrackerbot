@@ -145,17 +145,17 @@ plan stays meds-shaped.
 
 ### Task 2: Medication records + CRUD — `web/domain/medications.js`
 
-- [ ] record types: `medication` (server field names: name, dosage,
+- [x] record types: `medication` (server field names: name, dosage,
       schedule, supplement, start_date, end_date, rxcui, normalized_name,
       inventory_count, tz_shift_policy, archived, created_at),
       `intake` (medication_id, scheduled_at, taken_at, status, snoozed_until,
       source), `restock` (medication_id, quantity, note, restocked_at)
-- [ ] `createMedicationsDomain({records, now, timeZone, rxnorm})` — rxnorm
+- [x] `createMedicationsDomain({records, now, timeZone, rxnorm})` — rxnorm
       injected as a port (browser impl does real fetches; tests inject a fake)
-- [ ] med create/update/delete/list mirroring handler shapes incl. the
+- [x] med create/update/delete/list mirroring handler shapes incl. the
       `(name,dosage)` uniqueness → 409-equivalent error, archive cleanup of
       pending intakes, and the `warning` field from the rxnorm port
-- [ ] restock (add + record row, `{status, quantity_added, inventory_count}`),
+- [x] restock (add + record row, `{status, quantity_added, inventory_count}`),
       restock list, low-stock list with `days_remaining`
 
 ### Task 3: Intake state machine
