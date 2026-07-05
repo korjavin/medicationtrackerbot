@@ -120,21 +120,21 @@ Two structural findings from discovery that shape this plan:
 
 ### Task 1: Food domain core — `web/domain/food.js`
 
-- [ ] `createFoodDomain({records, now, timeZone, foodDb})` (`foodDb` =
+- [x] `createFoodDomain({records, now, timeZone, foodDb})` (`foodDb` =
       injected remote-search port; Task 5 provides the browser impl,
       tests inject a fake)
-- [ ] record types: `foodlog` (server field names, frozen total macros,
+- [x] record types: `foodlog` (server field names, frozen total macros,
       `eaten_at` normalized like the server) and `foodproduct` (per-100g
       floats, `usage_count`, `is_meal`, `total_weight_g`; name-keyed
       upsert semantics incl. COALESCE-preserve + usage bump + last_used)
-- [ ] log create/update replicate the server's side effects: product
+- [x] log create/update replicate the server's side effects: product
       upsert from named manual logs, ownership-by-construction, `is_meal`
       resolved from the referenced product at read time
-- [ ] port `CalculateMacros` (int truncation + 4/4/9 calorie recompute),
+- [x] port `CalculateMacros` (int truncation + 4/4/9 calorie recompute),
       `groupFoodLogs` (hour buckets, 30-min clusters, multi-day calendar
       grouping, group totals) and window-SUM stats with tz-midnight
       alignment (device tz — same accepted deviation as C1)
-- [ ] products list with limit/offset/sort + `is_meal` filter + `q`;
+- [x] products list with limit/offset/sort + `is_meal` filter + `q`;
       `createMealFromLogs` aggregation (summed totals → per-100g,
       `total_weight_g` = sum)
 
