@@ -120,11 +120,14 @@ async function decodePush(data) {
 }
 
 self.addEventListener('push', (event) => {
-  const raw = event.data ? event.data.arrayBuffer() : Promise.resolve(null);
+  // PushMessageData.arrayBuffer() is synchronous (returns an ArrayBuffer, not a
+  // Promise — unlike Response.arrayBuffer()), so wrap the result rather than
+  // calling .then() on it directly.
+  const buf = event.data ? event.data.arrayBuffer() : null;
   event.waitUntil(
-    raw
-      .then((buf) => (buf && buf.byteLength ? decodePush(buf) : GENERIC_NOTIFICATION))
-      .then((n) => self.registration.showNotification(n.title, { body: n.body }))
+    Promise.resolve(buf && buf.byteLength ? decodePush(buf) : GENERIC_NOTIFICATION).then((n) =>
+      self.registration.showNotification(n.title, { body: n.body })
+    )
   );
 });
 
