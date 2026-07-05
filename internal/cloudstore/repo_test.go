@@ -146,6 +146,17 @@ func TestAccountCredentialEnvelopeRoundtrip(t *testing.T) {
 		t.Fatalf("expected 1 account, got %d", len(accounts))
 	}
 
+	// A push subscription and a future-dated scheduled push must be cascaded
+	// away by DeleteAccount. Orphaned scheduled_pushes are re-selected by
+	// DueScheduledPushes every relay tick, and AccountVAPIDKeysByID then errors
+	// (no account row) so the relay never marks them sent — a permanent wedge.
+	if err := r.UpsertPushSubscription(ctx, acc.ID, "https://push.example/endpoint", "p256dh", "auth", now); err != nil {
+		t.Fatalf("UpsertPushSubscription: %v", err)
+	}
+	if err := r.ReplaceSchedule(ctx, acc.ID, []ScheduledPushInput{{FireAt: now.Add(time.Hour), CT: []byte("ct")}}, now); err != nil {
+		t.Fatalf("ReplaceSchedule: %v", err)
+	}
+
 	if err := r.DeleteAccount(ctx, "brave-otter-abc123"); err != nil {
 		t.Fatalf("DeleteAccount: %v", err)
 	}
@@ -155,6 +166,23 @@ func TestAccountCredentialEnvelopeRoundtrip(t *testing.T) {
 	}
 	if len(accounts) != 0 {
 		t.Fatalf("expected 0 accounts after delete, got %d", len(accounts))
+	}
+
+	subs, err := r.List(ctx, acc.ID)
+	if err != nil {
+		t.Fatalf("List subscriptions after delete: %v", err)
+	}
+	if len(subs) != 0 {
+		t.Fatalf("expected 0 push subscriptions after delete, got %d", len(subs))
+	}
+	due, err := r.DueScheduledPushes(ctx, now.Add(48*time.Hour))
+	if err != nil {
+		t.Fatalf("DueScheduledPushes after delete: %v", err)
+	}
+	for _, p := range due {
+		if p.AccountID == acc.ID {
+			t.Fatalf("expected no scheduled pushes for deleted account, found id=%d", p.ID)
+		}
 	}
 }
 

@@ -407,21 +407,20 @@ func (r *Repo) ResetClaim(ctx context.Context, subdomain string, tokenHash []byt
 }
 
 // DeleteAccount removes an account and every row that references it
-// (credentials, envelopes, recovery_auth), in a single transaction.
+// (credentials, envelopes, recovery_auth, push_subscriptions,
+// scheduled_pushes), in a single transaction. Leaving scheduled_pushes behind
+// would strand a future-dated row the relay can never sign (its account's
+// VAPID keys are gone), so it would re-error on every 30s tick forever.
 func (r *Repo) DeleteAccount(ctx context.Context, subdomain string) error {
 	return r.db.WithTx(ctx, func(tx storedb.TX) error {
 		var accountID string
 		if err := tx.QueryRowContext(ctx, `SELECT id FROM accounts WHERE subdomain = ?`, subdomain).Scan(&accountID); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM envelopes WHERE account_id = ?`, accountID); err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM credentials WHERE account_id = ?`, accountID); err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM recovery_auth WHERE account_id = ?`, accountID); err != nil {
-			return err
+		for _, table := range []string{"envelopes", "credentials", "recovery_auth", "push_subscriptions", "scheduled_pushes"} {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE account_id = ?`, accountID); err != nil {
+				return err
+			}
 		}
 		_, err := tx.ExecContext(ctx, `DELETE FROM accounts WHERE id = ?`, accountID)
 		return err
