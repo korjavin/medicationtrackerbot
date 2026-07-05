@@ -129,45 +129,15 @@ async function readPending() {
 // keyed by name — plain out-of-line values, no schema bump needed.
 
 async function readDeviceValue(key) {
-  const db = await openDb();
-  try {
-    return await new Promise((resolve, reject) => {
-      const tx = db.transaction('device', 'readonly');
-      const req = tx.objectStore('device').get(key);
-      req.onsuccess = () => resolve(req.result ?? null);
-      req.onerror = () => reject(req.error);
-    });
-  } finally {
-    db.close();
-  }
+  return withStore('device', 'readonly', (store) => reqToPromise(store.get(key))).then((r) => r ?? null);
 }
 
 async function writeDeviceValue(key, value) {
-  const db = await openDb();
-  try {
-    await new Promise((resolve, reject) => {
-      const tx = db.transaction('device', 'readwrite');
-      tx.objectStore('device').put(value, key);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  } finally {
-    db.close();
-  }
+  await withStore('device', 'readwrite', (store) => store.put(value, key));
 }
 
 async function deleteDeviceValue(key) {
-  const db = await openDb();
-  try {
-    await new Promise((resolve, reject) => {
-      const tx = db.transaction('device', 'readwrite');
-      tx.objectStore('device').delete(key);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  } finally {
-    db.close();
-  }
+  await withStore('device', 'readwrite', (store) => store.delete(key));
 }
 
 async function clearPending(recordIds) {
@@ -192,7 +162,14 @@ async function bootstrap(ctx) {
     snapRes = await fetch('/api/sync/snapshot');
   } catch {
     offline = true;
-    await writeMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    return; // leave localLastSeq null so bootstrapIfNeeded retries next open
+  }
+  // 204 = fresh account with no snapshot (a legit cursor-0 bootstrap); anything
+  // other than 200/204 (5xx behind a proxy, transient error) must NOT poison
+  // the cursor to 0 — a device that then pulled ?since=0 after a later
+  // compaction would silently skip all snapshotted state. Stay null → retry.
+  if (snapRes.status !== 200 && snapRes.status !== 204) {
+    offline = true;
     return;
   }
   offline = false;
@@ -239,6 +216,15 @@ async function pullTail(ctx) {
     }
     offline = false;
     const body = await res.json();
+    // The server compacted past our cursor (another device snapshotted while we
+    // were away): ops between our cursor and body.snapshot_seq no longer exist,
+    // so an incremental tail would silently skip them. Re-bootstrap from the
+    // snapshot, then resume the tail above it.
+    if (typeof body.snapshot_seq === 'number' && body.snapshot_seq > meta.localLastSeq) {
+      await bootstrap(ctx);
+      if (offline) return; // bootstrap failed transiently — retry next open
+      continue;
+    }
     for (const op of body.ops || []) {
       const { recordType, recordId } = parseTag(op.record_type_tag);
       try {
@@ -335,8 +321,20 @@ async function flushPending(ctx) {
   }
   offline = false;
   const { assigned } = await res.json();
-  await writeMeta({ localLastSeq: Math.max(meta.localLastSeq, ...assigned), lastSyncedAt: Date.now() });
   await clearPending(includedIds);
+  await writeMeta({ lastSyncedAt: Date.now() });
+  if (assigned[0] === meta.localLastSeq + 1) {
+    // Our batch was assigned contiguously from our cursor — we already hold
+    // every op up to max(assigned) locally, so just advance.
+    await writeMeta({ localLastSeq: Math.max(...assigned) });
+  } else {
+    // A concurrent device appended between our cursor and our assignment. Don't
+    // jump the cursor to max(assigned): that would skip the peer's interleaved
+    // ops forever. Re-pull from the old cursor so they're applied (our own
+    // ops, AAD-bound to the seq we predicted, resurface as integrity warnings
+    // but survive locally from the optimistic write above).
+    await pullTail(ctx);
+  }
   await maybeSnapshot(ctx);
 }
 

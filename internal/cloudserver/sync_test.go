@@ -208,6 +208,11 @@ func TestSyncAPI_SnapshotCompaction(t *testing.T) {
 	if len(tail.Ops) != 1 || tail.Ops[0].Seq != 3 {
 		t.Fatalf("oplog after compaction = %+v, want only seq 3 to survive", tail.Ops)
 	}
+	// The compaction floor is surfaced so a lagging device (cursor below 2) can
+	// detect it was compacted past and re-bootstrap instead of skipping ops 1-2.
+	if tail.SnapshotSeq != 2 {
+		t.Fatalf("GET ops snapshot_seq = %d, want 2 (the compaction floor)", tail.SnapshotSeq)
+	}
 
 	// A fresh device bootstraps from snapshot + ops-since alone.
 	resp = getSnapshot(t, h, host, session)

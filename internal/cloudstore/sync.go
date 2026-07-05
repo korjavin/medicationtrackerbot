@@ -145,6 +145,18 @@ func (r *Repo) ListOps(ctx context.Context, accountID string, since int64, limit
 	return ops, nil
 }
 
+// CompactionFloor returns the account's current snapshot seq — every oplog row
+// with seq <= it has been compacted away — or 0 when no snapshot exists. A
+// client whose sync cursor sits below the floor was compacted past (another
+// device snapshotted while it was away) and must re-bootstrap from the snapshot
+// instead of an incremental tail that would silently skip the folded ops.
+func (r *Repo) CompactionFloor(ctx context.Context, accountID string) (int64, error) {
+	var floor int64
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COALESCE((SELECT snapshot_seq FROM snapshots WHERE account_id = ?), 0)`, accountID).Scan(&floor)
+	return floor, err
+}
+
 // PutSnapshot upserts the account's compaction snapshot and deletes every
 // oplog row it now supersedes (seq <= snapshotSeq), in one transaction so a
 // concurrent ListOps/AppendOps never observes the snapshot without the

@@ -33,6 +33,7 @@ const (
 type syncStore interface {
 	AppendOps(ctx context.Context, accountID string, ops []cloudstore.OpInput, quotaBytes int64, now time.Time) ([]int64, error)
 	ListOps(ctx context.Context, accountID string, since int64, limit int, now time.Time) ([]cloudstore.Op, error)
+	CompactionFloor(ctx context.Context, accountID string) (int64, error)
 	PutSnapshot(ctx context.Context, accountID string, snapshotSeq int64, nonce, ct []byte, now time.Time) error
 	GetSnapshot(ctx context.Context, accountID string, now time.Time) (*cloudstore.Snapshot, error)
 	CredentialExists(ctx context.Context, credentialID []byte) (bool, error)
@@ -135,6 +136,10 @@ type opListItem struct {
 type getOpsResponse struct {
 	Ops  []opListItem `json:"ops"`
 	Next *int64       `json:"next"`
+	// SnapshotSeq is the account's current compaction floor (0 if no snapshot):
+	// a client whose cursor is below it must re-bootstrap, since the ops between
+	// its cursor and the floor have been compacted away.
+	SnapshotSeq int64 `json:"snapshot_seq"`
 }
 
 // GetOps returns an ordered page of the caller's session account's oplog
@@ -172,6 +177,11 @@ func (a *SyncAPI) GetOps(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
 	}
+	floor, err := a.store.CompactionFloor(r.Context(), session.AccountID)
+	if err != nil {
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return
+	}
 	out := make([]opListItem, len(ops))
 	for i, o := range ops {
 		out[i] = opListItem{Seq: o.Seq, RecordTypeTag: o.RecordTypeTag, Nonce: o.Nonce, CT: o.CT}
@@ -181,7 +191,7 @@ func (a *SyncAPI) GetOps(w http.ResponseWriter, r *http.Request) {
 		n := ops[len(ops)-1].Seq
 		next = &n
 	}
-	writeJSON(w, http.StatusOK, getOpsResponse{Ops: out, Next: next})
+	writeJSON(w, http.StatusOK, getOpsResponse{Ops: out, Next: next, SnapshotSeq: floor})
 }
 
 type putSnapshotRequest struct {
