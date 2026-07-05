@@ -187,6 +187,8 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
       return true;
     }
 
+    if (path === '/api/settings/features' && method === 'GET') return clampFeatures(await settings.getFeatures());
+
     if (method === 'POST') {
       const m = /^\/api\/settings\/features\/([^/]+)$/.exec(path);
       if (m) {

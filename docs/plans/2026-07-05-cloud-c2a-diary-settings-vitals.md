@@ -163,13 +163,22 @@ enforces `web/domain/**`), shim clamps, feature flags as the gating switch.
 
 ### Task 5: Shim-mode contract runs
 
-- [ ] extend the C1 shim harness suites: notes CRUD flow through the real
+- [x] extend the C1 shim harness suites: notes CRUD flow through the real
       `features/health.js` UI path; settings toggle + tab-order + targets
       round-trips; integrations save/read-back; health overview empty-state
       render — additive test files per C1 convention, originals untouched
-- [ ] seed-data variant for vitals: inject records through the in-memory
+      (`cloud.shim-contract.notes.test.js`, `cloud.shim-contract.settings.test.js`)
+- [x] seed-data variant for vitals: inject records through the in-memory
       port and assert the overview aggregates match the handler semantics
       for a small fixture (one week of sleep + samples)
+      (`cloud.shim-contract.vitals.test.js`)
+- ➕ writing the settings contract test surfaced a real gap from Task 2:
+      `GET /api/settings/features` was never routed in `apishim.js` — it
+      silently 404'd and fell back to `/api/settings`'s embedded features
+      slice (functionally masked by `fetchBundle`'s fallback chain, but
+      every Settings load hit the unmapped-route console.warn). Fixed by
+      routing it to `clampFeatures(await settings.getFeatures())`, same as
+      the `/api/init` stub.
 
 ### Task 6: Verify acceptance criteria
 
