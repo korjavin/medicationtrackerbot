@@ -68,12 +68,20 @@ async function getSubscription() {
 }
 
 async function subscribe() {
-  const reg = await registerServiceWorker();
+  // Request permission first, before any await — Safari/iOS drop the click's
+  // transient activation across an await (the VAPID fetch / SW activation) and
+  // would reject the prompt without showing it.
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') throw new Error('Notification permission was not granted.');
+  await registerServiceWorker();
+  // register() resolves once the registration is recorded, not once the worker
+  // is active; pushManager.subscribe() on an inactive registration throws
+  // InvalidStateError on first enable. serviceWorker.ready waits for an active
+  // worker and returns its registration.
+  const reg = await navigator.serviceWorker.ready;
   const keyRes = await fetch('/api/push/vapid-public-key');
   if (!keyRes.ok) throw new Error('Push is not configured on this server.');
   const { public_key: publicKey } = await keyRes.json();
-  const permission = await Notification.requestPermission();
-  if (permission !== 'granted') throw new Error('Notification permission was not granted.');
   const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) });
   const json = sub.toJSON();
   const res = await fetch('/api/push/subscriptions', {
