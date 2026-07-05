@@ -116,12 +116,12 @@ trivial merge risk in `web/static/js/features/settings.js` if C2a lands concurre
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] verify all requirements from Overview are implemented (row visible in cloud
+- [x] verify all requirements from Overview are implemented (row visible in cloud
       mode only; `/devices` serves shell; warm unlock → device list; no-cache →
       `/unlock` redirect)
-- [ ] `go test ./...` (both default and `-tags mobile`) — must pass
-- [ ] `pnpm test` — must pass
-- [ ] run linter — all issues must be fixed
+- [x] `go test ./...` (both default and `-tags mobile`) — must pass
+- [x] `pnpm test` — must pass
+- [x] run linter — all issues must be fixed
 
 ### Task 5: [Final] Update documentation
 
