@@ -146,10 +146,10 @@ backfilled; existing subscriptions do not.
 
 ### Task 7: [Final] Update documentation
 
-- [ ] `docs/cloud-deployment.md`: remove the `genvapid` / VAPID-keys operator step; document push as zero-config with optional `VAPID_SUBJECT`
-- [ ] `docs/environment.md`: cloud-mode section — remove `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`, add `VAPID_SUBJECT` default (bot-mode rows untouched)
-- [ ] `docs/cloud-mode.md`: short note under the push-relay section — per-account VAPID keys, why (push-service-enforced misrouting rejection), subject policy (operator identity, never user data), rotation unsupported by design
-- [ ] `docs/plans/2026-07-05-cloud-c2b-medications-tz-reminders.md`: add a one-line prerequisite note pointing at this plan before Task 5
+- [x] `docs/cloud-deployment.md`: remove the `genvapid` / VAPID-keys operator step; document push as zero-config with optional `VAPID_SUBJECT`
+- [x] `docs/environment.md`: cloud-mode section — remove `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`, add `VAPID_SUBJECT` default (bot-mode rows untouched)
+- [x] `docs/cloud-mode.md`: short note under the push-relay section — per-account VAPID keys, why (push-service-enforced misrouting rejection), subject policy (operator identity, never user data), rotation unsupported by design
+- [x] `docs/plans/2026-07-05-cloud-c2b-medications-tz-reminders.md`: add a one-line prerequisite note pointing at this plan before Task 5
 
 ## Technical Details
 

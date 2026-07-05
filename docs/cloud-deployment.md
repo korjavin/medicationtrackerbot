@@ -38,13 +38,16 @@ Open `https://portainer.<base>`, finish the initial admin setup, then:
 1. Create a stack from a Git repository: this repo, `deploy` branch,
    compose path `docker-compose.cloud.yml`.
 2. Set stack env vars: `CLOUD_BASE_DOMAIN`, `SESSION_SECRET` (≥32 chars,
-   Shannon entropy ≥3.5 — same rule as the bot's session secret), and — to
-   enable the push relay — `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT`
-   (generate with `cmd/genvapid`, same as the bot). Optional tuning:
-   `CLOUD_ACCOUNT_QUOTA_BYTES` (per-account oplog+snapshot storage cap,
-   default 50MB, 0 disables) and `CLOUD_DRY_QUEUE_WARN_HOURS` (default 120 —
-   how close the last unsent reminder must be before the hourly sweep warns
-   a stale-synced account). See [environment.md](environment.md).
+   Shannon entropy ≥3.5 — same rule as the bot's session secret). Push is
+   zero-config: each account gets its own VAPID keypair generated
+   server-side at invite provisioning, no `genvapid` step and no
+   `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` to set. Optionally set
+   `VAPID_SUBJECT` (defaults to `mailto:noreply@<CLOUD_BASE_DOMAIN>`) to
+   change the operator contact identifier in the push JWT. Other optional
+   tuning: `CLOUD_ACCOUNT_QUOTA_BYTES` (per-account oplog+snapshot storage
+   cap, default 50MB, 0 disables) and `CLOUD_DRY_QUEUE_WARN_HOURS` (default
+   120 — how close the last unsent reminder must be before the hourly sweep
+   warns a stale-synced account). See [environment.md](environment.md).
 3. Enable the stack's redeploy webhook and append its URL as a new line in
    the `PORTAINER_REDEPLOY_HOOK` GitHub secret (multiline — one URL per line,
    same secret the bot stack already uses).

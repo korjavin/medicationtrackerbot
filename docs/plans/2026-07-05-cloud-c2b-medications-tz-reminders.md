@@ -205,6 +205,10 @@ plan stays meds-shaped.
 
 ### Task 5: Reminders — compute and upload to the blind relay
 
+Prerequisite: `docs/plans/2026-07-05-cloud-c2-push-vapid-per-account.md` (per-account
+VAPID keys + working push delivery) must be deployed before this task — the
+relay is otherwise unconfigured/disabled in a real deployment.
+
 - [ ] `web/domain/reminders.js`: pure horizon computation — given meds,
       pending intakes, timeZone, now: emit `{fire_at_unix, text}` for (a)
       each forecast dose slot in the next 7 days, (b) re-reminds for
