@@ -133,9 +133,9 @@ backfilled; existing subscriptions do not.
 
 ### Task 5: Wiring + deployment config
 
-- [ ] `cmd/cloud/main.go`: delete `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` env reads; relay is always enabled; `VAPID_SUBJECT` optional with default `mailto:noreply@<CLOUD_BASE_DOMAIN>`
-- [ ] `docker-compose.cloud.yml`: add optional `VAPID_SUBJECT=${VAPID_SUBJECT:-}` to the environment block (keys no longer exist as config)
-- [ ] create `.env.cloud.example`: `CLOUD_BASE_DOMAIN`, `SESSION_SECRET`, commented-out optional `VAPID_SUBJECT`, `CLOUD_CLAIM_TTL`, `CLOUD_ACCOUNT_QUOTA_BYTES`, `CLOUD_DRY_QUEUE_WARN_HOURS`, `CLOUD_DB_PATH`, `PORT` — with one-line comments each
+- [x] `cmd/cloud/main.go`: delete `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` env reads; relay is always enabled; `VAPID_SUBJECT` optional with default `mailto:noreply@<CLOUD_BASE_DOMAIN>`
+- [x] `docker-compose.cloud.yml`: add optional `VAPID_SUBJECT=${VAPID_SUBJECT:-}` to the environment block (keys no longer exist as config)
+- [x] create `.env.cloud.example`: `CLOUD_BASE_DOMAIN`, `SESSION_SECRET`, commented-out optional `VAPID_SUBJECT`, `CLOUD_CLAIM_TTL`, `CLOUD_ACCOUNT_QUOTA_BYTES`, `CLOUD_DRY_QUEUE_WARN_HOURS`, `CLOUD_DB_PATH`, `PORT` — with one-line comments each
 
 ### Task 6: Verify acceptance criteria
 

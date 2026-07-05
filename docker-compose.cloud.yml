@@ -20,6 +20,7 @@ services:
       - CLOUD_DB_PATH=${CLOUD_DB_PATH:-/app/data/cloud.db}
       - PORT=${PORT:-8080}
       - CLOUD_CLAIM_TTL=${CLOUD_CLAIM_TTL:-14}
+      - VAPID_SUBJECT=${VAPID_SUBJECT:-}
     networks:
       - proxy
     labels:

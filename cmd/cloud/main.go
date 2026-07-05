@@ -34,8 +34,6 @@ type config struct {
 	sessionSecret     string
 	claimTTL          time.Duration
 	accountQuotaBytes int64
-	vapidPublicKey    string
-	vapidPrivateKey   string
 	vapidSubject      string
 	dryQueueWarnHours time.Duration
 }
@@ -47,8 +45,6 @@ func loadConfig() (config, error) {
 		baseDomain:        os.Getenv("CLOUD_BASE_DOMAIN"),
 		claimTTL:          14 * 24 * time.Hour,
 		accountQuotaBytes: 50 << 20, // 50MB
-		vapidPublicKey:    os.Getenv("VAPID_PUBLIC_KEY"),
-		vapidPrivateKey:   os.Getenv("VAPID_PRIVATE_KEY"),
 		vapidSubject:      os.Getenv("VAPID_SUBJECT"),
 		dryQueueWarnHours: 120 * time.Hour,
 	}
@@ -60,6 +56,9 @@ func loadConfig() (config, error) {
 	}
 	if cfg.baseDomain == "" {
 		return cfg, errors.New("CLOUD_BASE_DOMAIN is required (e.g. app.example.com; use 'localhost' for local dev)")
+	}
+	if cfg.vapidSubject == "" {
+		cfg.vapidSubject = "mailto:noreply@" + cfg.baseDomain
 	}
 
 	// Read but don't validate SESSION_SECRET here: the admin subcommands
@@ -187,15 +186,10 @@ func main() {
 	pushAPI.RegisterRoutes(apiMux)
 	router := cloudserver.New(cfg.baseDomain, store, cloudweb.FS, webstatic.FS, domainweb.FS, apiMux)
 
-	var relay *cloudserver.Relay
-	if cfg.vapidPublicKey != "" && cfg.vapidPrivateKey != "" {
-		relay = cloudserver.NewRelay(store, &cloudserver.WebPushSender{
-			Subject:    cfg.vapidSubject,
-			BaseDomain: cfg.baseDomain,
-		}, cfg.dryQueueWarnHours)
-	} else {
-		slog.Info("Push relay disabled: VAPID keys not configured")
-	}
+	relay := cloudserver.NewRelay(store, &cloudserver.WebPushSender{
+		Subject:    cfg.vapidSubject,
+		BaseDomain: cfg.baseDomain,
+	}, cfg.dryQueueWarnHours)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -211,9 +205,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	if relay != nil {
-		go relay.Run(ctx)
-	}
+	go relay.Run(ctx)
 
 	listenErr := make(chan error, 1)
 	go func() {
