@@ -150,25 +150,25 @@ Two structural findings from discovery that shape this plan:
 
 ### Task 3: Client-side AI — `web/domain/foodai.js` + browser provider client
 
-- [ ] copy `MealSystemPrompt`, `MealPhotoSystemPrompt`, and `mealSchema`
+- [x] copy `MealSystemPrompt`, `MealPhotoSystemPrompt`, and `mealSchema`
       verbatim into `web/domain/foodai.js` with a comment pinning the Go
       source (`internal/ai/openai.go`); port `convertParsedMeal`
       validation (name non-empty, weight>0, macros≥0) + `CalculateMacros`
       application; parse → create log records → return
       `{status:"created", items, failed}` exactly like the handlers
-- [ ] `createFoodAIDomain({aiClient, foodDomain, now})` — pure; the
+- [x] `createFoodAIDomain({aiClient, foodDomain, now})` — pure; the
       browser `aiClient` lives in `web/cloud/js/aiclient.js`: chat
       completions with strict json_schema + the response_format-rejection
       fallback + fence stripping; photo path converts the picked File to
       a data URL (8 MB cap, image/* sniff) and sends the two-part content
       array; vision credentials fall back to text credentials
-- [ ] unmasked key access: export a narrowly-named reader from the
+- [x] unmasked key access: export a narrowly-named reader from the
       settings domain (e.g. `readIntegrationsUnmasked`) consumed
       module-to-module by `aiclient.js`/`foodDb` ONLY — never reachable
       via any shim route (masked `getIntegrations` stays the only `/api`
       shape); grep-test in the contract suite asserts no route returns a
-      raw key
-- [ ] missing-key behavior: AI entry points return the "add a key in
+      raw key (grep-test lands in Task 6's contract-suite pass)
+- [x] missing-key behavior: AI entry points return the "add a key in
       Settings → Integrations" error the UI can show; no key = no
       provider call attempted (this replaces `food_intake_enabled`)
 
