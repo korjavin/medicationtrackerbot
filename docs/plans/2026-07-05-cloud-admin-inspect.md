@@ -119,12 +119,12 @@ Completion). Intended to run after C1 merges.
 
 ### Task 3: Verify acceptance criteria
 
-- [ ] `inspect` on a live-ish seeded DB shows all sections correctly,
+- [x] `inspect` on a live-ish seeded DB shows all sections correctly,
       including the empty-account case (no credentials, no ops, no snapshot)
-- [ ] `go build ./... && go build -tags mobile ./...` green;
+- [x] `go build ./... && go build -tags mobile ./...` green;
       `go test -count=1 ./internal/cloudstore/ ./cmd/cloud/...` green;
       full `go test ./...` green
-- [ ] run linter — all issues fixed
+- [x] run linter — all issues fixed
 
 ### Task 4: [Final] Update documentation
 
