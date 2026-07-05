@@ -139,10 +139,10 @@ backfilled; existing subscriptions do not.
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] verify all requirements from Overview are implemented (per-account keys end-to-end: provision → public-key endpoint → relay send; subject switch; zero required VAPID env)
-- [ ] verify edge cases: base-domain request to the key endpoint, NULL-key account skipped by relay, backfill idempotent on restart
-- [ ] run `go test ./...` — must pass
-- [ ] run the project linter — all issues fixed
+- [x] verify all requirements from Overview are implemented (per-account keys end-to-end: provision → public-key endpoint → relay send; subject switch; zero required VAPID env)
+- [x] verify edge cases: base-domain request to the key endpoint, NULL-key account skipped by relay, backfill idempotent on restart
+- [x] run `go test ./...` — must pass
+- [x] run the project linter — all issues fixed
 
 ### Task 7: [Final] Update documentation
 
