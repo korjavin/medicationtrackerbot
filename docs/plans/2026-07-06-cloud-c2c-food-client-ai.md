@@ -140,10 +140,10 @@ Two structural findings from discovery that shape this plan:
 
 ### Task 2: Shim routes + feature flip
 
-- [ ] route table: log CRUD + stats + products CRUD + from-logs; delete
+- [x] route table: log CRUD + stats + products CRUD + from-logs; delete
       the obsolete stubs; add `food` to `PORTED_SET` and default the
       feature flag per bot-mode behavior (nav tab appears)
-- [ ] search route: served by the shim as a plain JSON response for
+- [x] search route: served by the shim as a plain JSON response for
       `apiCall`-shaped callers IF any exist — the NDJSON streaming caller
       is handled by the Task 4 guard instead; unknown-route warn list must
       be food-free after this plan
