@@ -1132,10 +1132,17 @@ async function saveMedication() {
 
         let res;
         try {
+            // (window.offlineAwareApiCall || window.apiCallDirect): routes through
+            // the cloud shim when installed (see apishim.js), falling back to a
+            // direct fetch in bot mode — same precedent as journey.js's load().
+            // Plain apiCall() can't be used here: it swallows the error and shows
+            // a generic alert, but this catch needs e.status to detect a 409
+            // name+dosage duplicate and show a friendlier message.
+            const directCall = window.offlineAwareApiCall || window.apiCallDirect;
             if (editingMedId) {
-                res = await apiCallDirect(`/api/medications/${editingMedId}`, 'POST', payload);
+                res = await directCall(`/api/medications/${editingMedId}`, 'POST', payload);
             } else {
-                res = await apiCallDirect('/api/medications', 'POST', payload);
+                res = await directCall('/api/medications', 'POST', payload);
             }
         } catch (e) {
             if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }

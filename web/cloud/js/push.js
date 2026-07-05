@@ -93,7 +93,7 @@ async function subscribe() {
   return sub;
 }
 
-async function pushSchedule(ctx, reminders) {
+export async function pushSchedule(ctx, reminders) {
   const nk = await getOrCreateNK(ctx);
   const entries = [];
   for (const r of reminders) {

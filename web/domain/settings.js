@@ -67,16 +67,47 @@ export function createSettingsDomain({ records, now, timeZone }) {
   async function getGeneral() {
     const all = await records.list(GENERAL_RECORD_TYPE);
     const rec = findSingleton(all, GENERAL_RECORD_ID);
-    return { timezone: (rec && rec.timezone) || timeZone };
+    return {
+      timezone: (rec && rec.timezone) || timeZone,
+      dismissed_tz_suggestion: (rec && rec.dismissed_tz_suggestion) || '',
+    };
   }
 
+  // setTimezone merges onto the existing singleton record (rather than
+  // replacing it) so it never clobbers dismissed_tz_suggestion — mirrors
+  // repo.go's Record(), which only clears the dismissal on an actual TZ
+  // change, never on every write.
   async function setTimezone(tz) {
     if (tz) {
+      const all = await records.list(GENERAL_RECORD_TYPE);
+      const existing = findSingleton(all, GENERAL_RECORD_ID);
+      const changed = !existing || existing.timezone !== tz;
       await records.put(GENERAL_RECORD_TYPE, {
-        recordId: GENERAL_RECORD_ID, clientTs: now(), deleted: false, timezone: tz,
+        ...existing,
+        recordId: GENERAL_RECORD_ID,
+        clientTs: now(),
+        deleted: false,
+        timezone: tz,
+        dismissed_tz_suggestion: changed ? '' : (existing && existing.dismissed_tz_suggestion) || '',
       });
     }
     return getGeneral();
+  }
+
+  // setDismissedTzSuggestion mirrors tzsuggestion.Service.RecordDismissal —
+  // persists the detected TZ the user dismissed so other devices skip the
+  // same prompt (LWW via clientTs, same as every other singleton record).
+  async function setDismissedTzSuggestion(tz) {
+    const all = await records.list(GENERAL_RECORD_TYPE);
+    const existing = findSingleton(all, GENERAL_RECORD_ID);
+    await records.put(GENERAL_RECORD_TYPE, {
+      ...existing,
+      recordId: GENERAL_RECORD_ID,
+      clientTs: now(),
+      deleted: false,
+      dismissed_tz_suggestion: tz || '',
+    });
+    return tz || '';
   }
 
   async function getFeatures() {
@@ -203,6 +234,7 @@ export function createSettingsDomain({ records, now, timeZone }) {
   return {
     getGeneral,
     setTimezone,
+    setDismissedTzSuggestion,
     getFeatures,
     setFeature,
     getTabOrder,

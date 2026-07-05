@@ -134,74 +134,84 @@ plan stays meds-shaped.
 
 ### Task 1: Schedule engine — `web/domain/medschedule.js`
 
-- [ ] port `ValidSchedule`/`ScheduleConfig` parsing (legacy `"HH:MM"` +
+- [x] port `ValidSchedule`/`ScheduleConfig` parsing (legacy `"HH:MM"` +
       JSON forms) and `PlanDoses` fire+forecast (pure; inputs: meds array,
       IANA timeZone, nowMs, windowMs) — semantics per
       `internal/domain/medplan/medplan.go` incl. course-window and
       created-at filtering, weekly day filter, output ordering
-- [ ] port doses/day + low-stock math (`repo.go:345-434`): daysOfStock,
+- [x] port doses/day + low-stock math (`repo.go:345-434`): daysOfStock,
       must-last-until-end-date rule, default threshold 7
-- [ ] pure module, no ports needed beyond arguments (purity guard applies)
+- [x] pure module, no ports needed beyond arguments (purity guard applies)
 
 ### Task 2: Medication records + CRUD — `web/domain/medications.js`
 
-- [ ] record types: `medication` (server field names: name, dosage,
+- [x] record types: `medication` (server field names: name, dosage,
       schedule, supplement, start_date, end_date, rxcui, normalized_name,
       inventory_count, tz_shift_policy, archived, created_at),
       `intake` (medication_id, scheduled_at, taken_at, status, snoozed_until,
       source), `restock` (medication_id, quantity, note, restocked_at)
-- [ ] `createMedicationsDomain({records, now, timeZone, rxnorm})` — rxnorm
+- [x] `createMedicationsDomain({records, now, timeZone, rxnorm})` — rxnorm
       injected as a port (browser impl does real fetches; tests inject a fake)
-- [ ] med create/update/delete/list mirroring handler shapes incl. the
+- [x] med create/update/delete/list mirroring handler shapes incl. the
       `(name,dosage)` uniqueness → 409-equivalent error, archive cleanup of
       pending intakes, and the `warning` field from the rxnorm port
-- [ ] restock (add + record row, `{status, quantity_added, inventory_count}`),
+- [x] restock (add + record row, `{status, quantity_added, inventory_count}`),
       restock list, low-stock list with `days_remaining`
 
 ### Task 3: Intake state machine
 
-- [ ] **deterministic intake ids**: scheduled intakes use
+- [x] **deterministic intake ids**: scheduled intakes use
       `recordId = 'intake-<medId>-<slotUnix>'`; manual log-past intakes use
       a random UUID (no slot). This is the multi-device dedup mechanism —
       document it in the module header
-- [ ] due-dose materialization: on domain init and on a minute-ish timer in
+- [x] due-dose materialization: on domain init and on a minute-ish timer in
       the shim layer (timer lives in the shim, NOT in web/domain), run
       fire-mode PlanDoses and write PENDING intake records for due slots
       (dedup: deterministic id + ±min-dose-interval band check per
       `HasIntakeNearScheduledTime` semantics)
-- [ ] ops with exact server semantics (op table in Context): confirm /
+- [x] ops with exact server semantics (op table in Context): confirm /
       confirm-schedule (incl. revert-unchecked-TAKEN path) / skip /
       log-past / bulk update (`{updated, failed, failures[]}`) / cancel /
       delete-future / snooze / trigger-next-intake (earliest cluster,
       10min) / next-intake (12h forecast + clustering, 204-equivalent when
       none); inventory decrement/increment inline with each status flip,
       with the already-confirmed idempotency guard
-- [ ] history: `GET /api/history?days&med_id` equivalent over intake
+- [x] history: `GET /api/history?days&med_id` equivalent over intake
       records, newest-first, same row shape
 
 ### Task 4: TZ handling — suggestion, plan preview, one-record plans
 
-- [ ] port `GeneratePlan` + `policy.go` shift caps to
+- [x] port `GeneratePlan` + `policy.go` shift caps to
       `web/domain/tzplan.js` (pure: old/new tz, meds, recent intakes →
       steps with per-med step numbers and notes)
-- [ ] suggestion flow: device tz ≠ stored `settings.timezone` (C2a record)
+- [x] suggestion flow: device tz ≠ stored `settings.timezone` (C2a record)
       and not dismissed → the existing banner path; dismissal persists (C1
       already stubs `dismissed_tz_suggestion` — make it a real record field)
-- [ ] plan lifecycle, minimal: on accepting a tz change that needs steps,
+- [x] plan lifecycle, minimal: on accepting a tz change that needs steps,
       create ONE `tzplan` record `{old_tz, new_tz, status:
       PENDING_APPROVAL, steps:[...], created_at}`; banner reads it via
       `GET /api/tz-plan/current` (shim maps to the record, snake_case step
       shape the banner expects); approve → status APPROVED (+ settings.timezone
       updated); reject → status REJECTED + timezone reverted
-- [ ] forecast/fire integration: while a plan is APPROVED with future
+- [x] forecast/fire integration: while a plan is APPROVED with future
       steps, PlanDoses callers union the plan's due steps in and suppress
       the same-med normal targets for stepped slots (the ONE suppression
       rule kept from the server's three gates); plan flips to COMPLETED
       when no future steps remain
-- [ ] flexible-policy tz change (whole shift at once) needs no plan — just
+- [x] flexible-policy tz change (whole shift at once) needs no plan — just
       update the timezone and let recomputation handle it (matches server
       behavior where flexible yields a single step; verify equivalence and
       note any deviation here with ➕)
+
+  ➕ `generatePlan` drops the server's flexible one-step branch entirely
+  (rather than generating then discarding it) since a plain
+  `settings.setTimezone` write plus the existing `planDoses` recompute
+  under the new zone is exactly equivalent for a policy that always
+  shifts the whole offset in one step — verified via a Node smoke script
+  exercising eastbound/westbound generation, suppression, and the full
+  propose→approve/reject→complete lifecycle over an in-memory records
+  port. Shim wiring (the actual `/api/tz-plan/*` + `/api/tz-suggestion/*`
+  routes) is Task 7's concern; this task only ships the domain layer.
 
 ### Task 5: Reminders — compute and upload to the blind relay
 
@@ -209,73 +219,186 @@ Prerequisite: `docs/plans/2026-07-05-cloud-c2-push-vapid-per-account.md` (per-ac
 VAPID keys + working push delivery) must be deployed before this task — the
 relay is otherwise unconfigured/disabled in a real deployment.
 
-- [ ] `web/domain/reminders.js`: pure horizon computation — given meds,
+- [x] `web/domain/reminders.js`: pure horizon computation — given meds,
       pending intakes, timeZone, now: emit `{fire_at_unix, text}` for (a)
       each forecast dose slot in the next 7 days, (b) re-reminds for
       currently-PENDING intakes per server rules (snooze expiry, or +1h
       past schedule, advancing +1h), capped well under the 2000-entry relay
       limit; text = the server's notification body format (med names +
       dose count)
-- [ ] shim layer: recompute + `pushSchedule(ctx, entries)` (replace-all)
+- [x] shim layer: recompute + `pushSchedule(ctx, entries)` (replace-all)
       on unlock and after every intake/med/tzplan mutation, debounced;
       reuse `web/cloud/js/push.js` as-is
-- [ ] med reminder enable/disable: `GET/POST /api/*/reminder` shims backed
+- [x] med reminder enable/disable: `GET/POST /api/*/reminder` shims backed
       by a `medreminderpref` singleton record; when disabled, upload an
       empty med portion of the schedule (BP/weight reminder stubs stay
       as-is from C1)
 
+  ➕ `planDoses`'s window semantics (ported near-verbatim from medplan.go,
+  every other call site of which only ever drives it with a <=12h window)
+  cap look-ahead at "today + tomorrow" regardless of window size — a real
+  gap for a 7-day reminder horizon. `computeReminderHorizon` walks one day
+  at a time (7 calls to `planDosesWithTzPlan` with a 24h window each,
+  deduped by medicationId+slot) instead of widening the window, so
+  medschedule.js/tzplan.js stay untouched. Verified via an ad hoc Node
+  script (daily/weekly schedules, tz-plan passthrough, disabled-preference
+  empty horizon) — not committed, per the plan's "no unit tests" testing
+  approach.
+
+  ➕ `web/cloud/js/reminders.js`'s `scheduleReminderRecompute` is wired now
+  at the one mutation site this task actually owns (the new
+  `medreminderpref` toggle route in apishim.js) and on unlock
+  (cloud-boot.js) — both work today since `recomputeAndPush` reads raw
+  medication/intake/tzplan records directly rather than through those
+  domains' higher-level APIs. The "after every intake/med/tzplan mutation"
+  call sites for the mutations themselves are one-line additions Task 7
+  makes alongside the route table that first wires those domains into the
+  shim — they can't be added before the mutations exist to hook into.
+
 ### Task 6: RxNorm direct-from-browser
 
-- [ ] `web/cloud/js/rxnorm.js` (browser impl of the rxnorm port): the three
+- [x] `web/cloud/js/rxnorm.js` (browser impl of the rxnorm port): the three
       RxNav lookups + interaction list, exact URLs from
       `internal/rxnorm/client.go`; graceful empty results on any failure
       (never block a med save on RxNav being down); verify CORS on the two
       hosts early — if either blocks browser calls, fall back to skipping
       that call and note it here with ⚠️ (do NOT proxy through the cloud
       server; that would leak drug names to the operator)
-- [ ] warning assembly identical to the server (first interaction +
+- [x] warning assembly identical to the server (first interaction +
       `"(+N more)"`) so `meds.js`'s alert path works unchanged
+
+  ⚠️ Verified live: `rxnav.nlm.nih.gov`'s `rxcui.json`, `approximateTerm.json`
+  and `rxcui/{id}/properties.json` all send
+  `access-control-allow-origin: *` — real browser calls work. The
+  interaction endpoint (`lhncbc.nlm.nih.gov/RxNav/APIs/api/interaction/
+  list.json`) is not a CORS failure, it's gone: every request 403s with a
+  static CloudFront/S3 error page (matches NLM's public interaction-API
+  decommission), so its CORS behavior can't be confirmed either way.
+  `checkInteractions()` already degrades to `[]` on any non-OK/non-JSON
+  response — same code path as a network failure — so med save still
+  succeeds, it just never surfaces an interaction warning right now. No
+  fallback needed beyond the existing graceful-empty-results handling.
 
 ### Task 7: Shim wiring + feature flip
 
-- [ ] route table for all 18 med routes + 3 tz routes (Context §route
+- [x] route table for all 18 med routes + 3 tz routes (Context §route
       surface); remove overlapping stubs; flip `medications` feature flag
       (and whatever flag gates the Today next-intake widget) on
-- [ ] Today integration: `next-intake` + `trigger-next-intake` drive the
+- [x] Today integration: `next-intake` + `trigger-next-intake` drive the
       Today card; verify the full Today fan-out has no new unmapped-route
       warns for meds
 
+  ➕ There were no literal med/tz stub entries in `STUBS` to remove — those
+  21 endpoints simply fell through to the generic unmapped-route 404/null
+  path before this task. The one existing flag is `medication` (added to
+  `apishim.js`'s `PORTED_SET`); there is no separate next-intake-widget flag
+  — `today-loader.js`'s fan-out already gates the next-intake fetch on the
+  same `medication` flag via `isFeatureDisabled('medication')`.
+
+  ➕ `POST /api/settings` (timezone change) now routes through
+  `tzplan.proposeTimezoneChange` instead of calling `settings.setTimezone`
+  directly, matching the server's `handleUpdateSettings` → `tzUpdater
+  .UpdateTimezone` — needed so a medium/strict-policy medication correctly
+  stages a plan instead of jumping the clock immediately.
+
+  ⚠️ Found and fixed a real cloud-mode bug while wiring Today: `meds.js`'s
+  create/update flow called `apiCallDirect(...)` directly (a raw `fetch()`
+  that bypasses `window.offlineAwareApiCall` entirely), so create/update
+  would have 404'd against the real network in cloud mode even with the shim
+  installed. Fixed to `(window.offlineAwareApiCall || window.apiCallDirect)`,
+  the same fallback precedent `journey.js`'s `load()` already uses — `apiCall()`
+  itself couldn't be used there since that flow's catch block needs `e.status
+  === 409` to detect a name+dosage duplicate, and `apiCall()` swallows errors
+  before that check could run. Added a small `withDuplicateStatus` helper in
+  `apishim.js` so the domain's `err.code === 'duplicate'` maps to
+  `err.status = 409` for that one call site — no other medication error code
+  is read by status anywhere in the frontend, so nothing else needed mapping.
+
+  ➕ Due-dose materialization (`intake.materializeDueDoses()`) and tz-plan
+  status refresh (`tzplan.refreshPlanStatus()`) run once on shim install and
+  then on a 60s `setInterval`, per Task 3/4's "shim owns the timer" note. The
+  interval handle is module-level (not per-install) so re-installing the shim
+  (every shim-mode test case, and any future hot-reload) clears the prior
+  timer instead of stacking a new one — matches the "one shim per page load"
+  production invariant.
+
+  ⚠️ Updated `cloud.shim-contract.settings.test.js`'s clamp test, which used
+  `medication` as its example of an unported/clamped feature — now stale
+  since `medication` joined `PORTED_SET` in this task. Swapped the example to
+  `workout` (still unported, still defaults to `true`), preserving the test's
+  actual intent (verify the generic clamp mechanism) without asserting a now-
+  false fact about medications.
+
 ### Task 8: Shim-mode contract runs
 
-- [ ] meds suite: CRUD, archive, restock, inventory, warning alert (fake
+- [x] meds suite: CRUD, archive, restock, inventory, warning alert (fake
       rxnorm port), 409 duplicate
-- [ ] meds-history suite: history filters, confirm/skip/log-past/cancel/
+- [x] meds-history suite: history filters, confirm/skip/log-past/cancel/
       delete/bulk-update flows incl. inventory side effects and
       idempotent double-confirm
-- [ ] tz banner: seeded `tzplan` record renders, approve/reject round-trip
-- [ ] reminder horizon: confirm-intake shrinks the uploaded schedule
+- [x] tz banner: seeded `tzplan` record renders, approve/reject round-trip
+- [x] reminder horizon: confirm-intake shrinks the uploaded schedule
       (assert via a captured pushSchedule fake)
+
+  ➕ Three new shim-contract files, following the C1 pattern (a new file
+  alongside the network-mocked original rather than editing it):
+  `cloud.shim-contract.meds.test.js` (CRUD/409/warning/restock/low-stock,
+  driving the real `saveMedication`/`deleteMed` through
+  `window.offlineAwareApiCall`), `cloud.shim-contract.meds-history.test.js`
+  (intake state machine + reminder horizon, driven directly via
+  `window.apiCall` since those ops are plain JSON-in/JSON-out — no DOM modal
+  flow needed to exercise the domain contract), and
+  `cloud.shim-contract.tz-plan.test.js` (drives the real
+  `window.TZPlanBanner.refresh()/mountCard()`). `web/domain/medications.js`'s
+  `create()` never accepts an initial `inventory_count` (matches the
+  server's `repo.go` `Create` signature — inventory starts untracked;
+  `restock`'s COALESCE-to-0 is what starts tracking), so the restock/
+  low-stock tests seed inventory via a restock call rather than the create
+  form. `tests/helpers/frontend-harness.js` didn't load
+  `features/tz-plan-banner.js` at all (no prior test exercised
+  `window.TZPlanBanner`); added it after `meds-history.js`, matching its
+  runtime-only dependency on `window.apiCall`/`window.reloadCurrentTab`.
+  The reminder-horizon test uses `vi.mock` on `web/cloud/js/push.js` +
+  `vi.useFakeTimers()` to flush `scheduleReminderRecompute`'s 2s debounce
+  deterministically instead of a real wall-clock wait.
 
 ### Task 9: Verify acceptance criteria
 
-- [ ] all flows work in cloud mode end-to-end in the shim harness; due-dose
+- [x] all flows work in cloud mode end-to-end in the shim harness; due-dose
       materialization produces deterministic ids (two domain instances over
       the same store converge)
-- [ ] `pnpm test` fully green (old + new); `go build ./... && go build
+- [x] `pnpm test` fully green (old + new); `go build ./... && go build
       -tags mobile ./...` and `go test -count=1 ./...` green
-- [ ] run linters — all issues fixed
+- [x] run linters — all issues fixed
+
+  ➕ Confirmed the convergence property with an ad hoc Node smoke script
+  (not committed, per the plan's "no unit tests" approach): two independent
+  `createIntakeDomain` instances sharing one in-memory records store, same
+  clock — device A's `materializeDueDoses()` writes
+  `intake-med-1-<slotUnix>`, device B's subsequent call sees that id already
+  present (via `intakes.some((i) => i.recordId === id)`) and creates zero
+  new records. No duplicate, no divergence — matches the Technical Details
+  rationale.
+
+  ➕ `pnpm test`: 255 files / 2760 passed / 29 skipped, 0 failed. `go build
+  ./...` and `go build -tags mobile ./...` both clean. `go test -count=1
+  ./...` all packages ok. `golangci-lint run ./...` reports 0 issues.
 
 ### Task 10: [Final] Update documentation
 
-- [ ] `docs/cloud-mode.md`: C2b status; document record types
+- [x] `docs/cloud-mode.md`: C2b status; document record types
       (`medication`, `intake` w/ deterministic ids, `restock`, `tzplan`,
       `medreminderpref`); document the simplifications (no pre-
       materialization, one-record tz plans, inventory-with-flip) and the
       reminder compute-and-upload loop; **add the metadata-leakage row:
       drug-name queries → RxNav (NIH), from the client IP, same class as
       food-DB search**
-- [ ] `CLAUDE.md`: cloud index row update if needed
-- [ ] update the C2 sequence note in the C2a plan's Overview if scope shifted
+- [x] `CLAUDE.md`: cloud index row update if needed
+- [x] update the C2 sequence note in the C2a plan's Overview if scope shifted
+
+  ➕ No scope shift: the C2a plan's Overview already lists the sequence as
+  "C2a → C2b meds+tz → C2c food+AI → C2d workouts → C2e exporter/migration",
+  which matches what C2b actually shipped. Left unchanged.
 
 ## Technical Details
 

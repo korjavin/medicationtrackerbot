@@ -7,7 +7,29 @@ import { createWeightDomain } from '../../domain/weight.js';
 import { createNotesDomain } from '../../domain/notes.js';
 import { createSettingsDomain } from '../../domain/settings.js';
 import { createVitalsDomain } from '../../domain/vitals.js';
+import { createRemindersDomain } from '../../domain/reminders.js';
+import { createMedicationsDomain } from '../../domain/medications.js';
+import { createIntakeDomain } from '../../domain/medintake.js';
+import { createTzPlanDomain } from '../../domain/tzplan.js';
 import { recordsPort } from './sync.js';
+import { scheduleReminderRecompute } from './reminders.js';
+import { createRxnormPort } from './rxnorm.js';
+
+// materializeTimerHandle is module-level (not per-shim-instance) because the
+// production invariant is "one shim installed per page load"; re-installing
+// (as every shim-mode test case does) simply clears and restarts the single
+// sweep instead of stacking a new setInterval on top of the previous one.
+const MATERIALIZE_INTERVAL_MS = 60_000;
+let materializeTimerHandle;
+
+// The only medication error code the UI branches on by HTTP status (meds.js's
+// create/update flow shows a friendlier message for a 409 name+dosage clash);
+// every other domain error surfaces via its .message through apiCallDirect's
+// generic catch, so nothing else needs a status.
+function withDuplicateStatus(err) {
+  if (err && err.code === 'duplicate') err.status = 409;
+  throw err;
+}
 
 function parseQuery(endpoint) {
   const qIndex = endpoint.indexOf('?');
@@ -56,13 +78,34 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
   const notes = createNotesDomain({ records, now });
   const settings = createSettingsDomain({ records, now, timeZone });
   const vitals = createVitalsDomain({ records, now, timeZone });
+  const reminders = createRemindersDomain({ records, now });
+  const medications = createMedicationsDomain({
+    records, now, timeZone, rxnorm: createRxnormPort(),
+  });
+  const intake = createIntakeDomain({ records, now, timeZone });
+  const tzplan = createTzPlanDomain({ records, now, timeZone });
+
+  // Due-dose materialization + tz-plan status refresh: neither domain module
+  // owns a timer (Task 3/4's modules stay pure functions of their inputs), so
+  // the shim runs both once on install and again every MATERIALIZE_INTERVAL_MS.
+  async function runMaterializationSweep() {
+    try {
+      await intake.materializeDueDoses();
+      await tzplan.refreshPlanStatus();
+    } catch (e) {
+      console.error('[cloud shim] materialization sweep failed', e);
+    }
+  }
+  clearInterval(materializeTimerHandle);
+  runMaterializationSweep();
+  materializeTimerHandle = setInterval(runMaterializationSweep, MATERIALIZE_INTERVAL_MS);
 
   // PORTED_SET: the feature domains this shim can actually serve end-to-end
   // (records + domain module + shim routes wired). Clamped onto every read
   // of the features map so a stored/toggled flag for an unported domain
-  // (food/medication/workout/gamification/weekly_digest — C2b/c/d) can never
-  // surface as enabled, per docs/cloud-mode.md "C2 shim architecture".
-  const PORTED_SET = new Set(['bp', 'weight', 'health']);
+  // (food/workout/gamification/weekly_digest — C2c/d) can never surface as
+  // enabled, per docs/cloud-mode.md "C2 shim architecture".
+  const PORTED_SET = new Set(['bp', 'weight', 'health', 'medication']);
   function clampFeatures(flags) {
     const out = {};
     for (const key of Object.keys(flags)) out[key] = PORTED_SET.has(key) ? !!flags[key] : false;
@@ -100,7 +143,7 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
       weight_reminder_status: { enabled: false, preferred_reminder_hour: 9 },
       timezone: general.timezone,
       weight_unit_preference: weightUnit,
-      dismissed_tz_suggestion: '',
+      dismissed_tz_suggestion: general.dismissed_tz_suggestion,
     };
     if (tabOrder) block.tab_order = tabOrder;
     return { settings: block, features: clampFeatures(features) };
@@ -194,7 +237,23 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
     }
 
     if (path === '/api/settings' && method === 'POST') {
-      await settings.setTimezone(body && body.timezone);
+      // Mirrors handleUpdateSettings: a timezone change goes through the tz
+      // transition planner (proposeTimezoneChange), not a bare setTimezone —
+      // gradual-shift medications may need a plan staged instead of an
+      // immediate write (Task 4).
+      if (body && body.timezone) {
+        const res = await tzplan.proposeTimezoneChange(body.timezone);
+        scheduleReminderRecompute(ctx, { records, timeZone });
+        // A medium/strict-policy med stages a PENDING_APPROVAL plan without
+        // moving the clock. bootstrap.js already ran TZPlanBanner.refresh()
+        // before this POST, so without a re-refresh the plan stays hidden
+        // (no Telegram channel in cloud mode) and the stored tz still differs
+        // → every boot re-prompts. Surface it now.
+        if (res && res.planCreated && targetWindow && targetWindow.TZPlanBanner
+            && typeof targetWindow.TZPlanBanner.refresh === 'function') {
+          targetWindow.TZPlanBanner.refresh();
+        }
+      }
       return true;
     }
 
@@ -244,6 +303,85 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
       });
     }
 
+    // --- Medications + intake state machine (Task 7: C2b shim wiring) ---
+    if (path === '/api/medications') {
+      if (method === 'GET') return medications.list({ archived: params.get('archived') === 'true' });
+      if (method === 'POST') {
+        const res = await medications.create(body).catch(withDuplicateStatus);
+        scheduleReminderRecompute(ctx, { records, timeZone });
+        return res;
+      }
+    }
+    if (path === '/api/medications/next-intake' && method === 'GET') return intake.nextIntake();
+    if (path === '/api/inventory/low' && method === 'GET') return medications.listLowStock();
+    if (path === '/api/history' && method === 'GET') {
+      return intake.history({ days: intParam(params, 'days', 3), medId: intParam(params, 'med_id', 0) });
+    }
+    if (method === 'POST') {
+      // Literal action paths under /api/medications/ — checked before the
+      // {id} regexes below so an action name is never mistaken for an id.
+      const intakeActions = {
+        '/api/medications/trigger-next-intake': () => intake.triggerNextIntake(),
+        '/api/medications/log-past': () => intake.logPast(body && body.medication_id, Date.parse(body && body.taken_at)),
+        '/api/medications/cancel-intake': () => intake.cancelIntakes((body && body.intake_ids) || []),
+        '/api/medications/delete-intake': () => intake.deleteFutureIntakes((body && body.intake_ids) || []),
+        '/api/medications/snooze': () => intake.snooze(body && body.intake_id, body && body.duration_minutes),
+        '/api/medications/skip': () => intake.skip(body && body.intake_id),
+        '/api/medications/confirm-schedule': () => intake.confirmSchedule({
+          scheduledAt: body && body.scheduled_at,
+          medicationIds: (body && body.medication_ids) || [],
+          intakeIds: (body && body.intake_ids) || [],
+        }),
+      };
+      const action = intakeActions[path];
+      if (action) {
+        const res = await action();
+        scheduleReminderRecompute(ctx, { records, timeZone });
+        return res;
+      }
+    }
+    if (path === '/api/intakes/update' && method === 'POST') {
+      const res = await intake.updateIntakes((body && body.updates) || []);
+      scheduleReminderRecompute(ctx, { records, timeZone });
+      return res;
+    }
+    if (method === 'POST') {
+      const m = /^\/api\/medications\/([^/]+)\/restock$/.exec(path);
+      if (m) {
+        const res = await medications.restock(Number(m[1]), body && body.quantity, body && body.note);
+        scheduleReminderRecompute(ctx, { records, timeZone });
+        return res;
+      }
+    }
+    if (method === 'GET') {
+      const m = /^\/api\/medications\/([^/]+)\/restocks$/.exec(path);
+      if (m) return medications.listRestocks(Number(m[1]));
+    }
+    if (method === 'POST') {
+      const m = /^\/api\/medications\/([^/]+)$/.exec(path);
+      if (m) {
+        const res = await medications.update(Number(m[1]), body).catch(withDuplicateStatus);
+        scheduleReminderRecompute(ctx, { records, timeZone });
+        return res;
+      }
+    }
+    if (method === 'DELETE') {
+      const m = /^\/api\/medications\/([^/]+)$/.exec(path);
+      if (m) { await medications.remove(Number(m[1])); return true; }
+    }
+
+    // --- TZ transition plan + suggestion (Task 7) ---
+    if (path === '/api/tz-plan/current' && method === 'GET') return tzplan.getCurrentPlan();
+    if (method === 'POST') {
+      const m = /^\/api\/tz-plan\/[^/]+\/(approve|reject)$/.exec(path);
+      if (m) {
+        const res = m[1] === 'approve' ? await tzplan.approvePlan() : await tzplan.rejectPlan();
+        scheduleReminderRecompute(ctx, { records, timeZone });
+        return res;
+      }
+    }
+    if (path === '/api/tz-suggestion/dismiss' && method === 'POST') return tzplan.recordDismissal(body && body.detected_tz);
+
     // Reminder toggles: BP/weight reminders aren't functionally scheduled in
     // cloud C1 (the push relay is blind), but the Reminders section in Settings
     // is always visible and not feature-gated. Echo success instead of falling
@@ -253,6 +391,16 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
     // feature, and no error surfaces.
     if ((path === '/api/bp/reminder/toggle' || path === '/api/weight/reminder/toggle') && method === 'POST') {
       return { enabled: !!(body && body.enabled) };
+    }
+
+    // Medication reminders are functionally wired in cloud mode (Task 5): the
+    // toggle actually gates whether computeReminderHorizon's med portion gets
+    // uploaded to the blind push relay, unlike the bp/weight stubs above.
+    if (path === '/api/medication/reminder/status' && method === 'GET') return reminders.getStatus();
+    if (path === '/api/medication/reminder/toggle' && method === 'POST') {
+      const status = await reminders.setEnabled(!!(body && body.enabled));
+      scheduleReminderRecompute(ctx, { records, timeZone });
+      return status;
     }
 
     const stubKey = `${method} ${path}`;

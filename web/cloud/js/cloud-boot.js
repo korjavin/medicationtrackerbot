@@ -38,8 +38,23 @@ window.MedTrackerCloudReady = (async function boot() {
         installApiShim(ctx);
         await pullOnOpen(ctx);
         if (window.DataStore && typeof window.DataStore.invalidateTags === 'function') {
-            window.DataStore.invalidateTags(['bp', 'weight']);
+            // Cloud mode has no change-poll loop — pullOnOpen is the only sync
+            // trigger — so every shim-served tag must be evicted here or a
+            // remote change from another device renders stale until some other
+            // refresh path repaints. 'medications'/'history' cover the meds
+            // list, Today next-dose tile (next_intake) and per-med history.
+            // Awaited so MedTrackerCloudReady (which checkAuth blocks on before
+            // applyBootstrapPayload) doesn't resolve until the Dexie evictions
+            // finish — otherwise the app could read stale cache mid-clear.
+            await window.DataStore.invalidateTags(['bp', 'weight', 'medications', 'history']);
         }
+        // Recompute + re-upload the med reminder horizon on every unlock so a
+        // device that was closed for a while "self-heals" the schedule (see
+        // docs/plans/2026-07-05-cloud-c2b-medications-tz-reminders.md Task 5's
+        // Reminder fidelity limits note) — best-effort, never blocks boot.
+        import('/js/reminders.js')
+            .then(({ scheduleReminderRecompute }) => scheduleReminderRecompute(ctx))
+            .catch((e) => console.error('[cloud-boot] reminder recompute failed', e));
     } catch (e) {
         console.error('[cloud-boot] warm unlock failed', e);
         location.href = '/unlock';
