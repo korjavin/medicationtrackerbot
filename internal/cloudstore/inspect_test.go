@@ -63,9 +63,25 @@ func TestInspectAccountAndSummaries(t *testing.T) {
 		t.Fatalf("CreateAccount acc2: %v", err)
 	}
 
+	// InspectAccount must be strictly read-only: reusing the mutating
+	// GetSnapshot here would stamp sync_state.last_sync_unix and clobber the
+	// staleness signal this tool exists to surface. Pin the contract.
+	var beforeSync int64
+	if err := r.db.QueryRowContext(ctx, `SELECT last_sync_unix FROM sync_state WHERE account_id = ?`, acc1.ID).Scan(&beforeSync); err != nil {
+		t.Fatalf("read last_sync_unix before inspect: %v", err)
+	}
+
 	insp, err := r.InspectAccount(ctx, acc1.ID)
 	if err != nil {
 		t.Fatalf("InspectAccount acc1: %v", err)
+	}
+
+	var afterSync int64
+	if err := r.db.QueryRowContext(ctx, `SELECT last_sync_unix FROM sync_state WHERE account_id = ?`, acc1.ID).Scan(&afterSync); err != nil {
+		t.Fatalf("read last_sync_unix after inspect: %v", err)
+	}
+	if afterSync != beforeSync {
+		t.Fatalf("InspectAccount mutated sync_state.last_sync_unix: before=%d after=%d", beforeSync, afterSync)
 	}
 	if len(insp.Devices) != 2 {
 		t.Fatalf("expected 2 devices, got %d", len(insp.Devices))

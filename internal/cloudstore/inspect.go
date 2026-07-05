@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"errors"
 	"strings"
 	"time"
 
@@ -157,18 +158,29 @@ func (r *Repo) syncStats(ctx context.Context, accountID string) (SyncStats, map[
 }
 
 func (r *Repo) snapshotState(ctx context.Context, accountID string) (SnapshotState, error) {
-	snap, err := r.GetSnapshot(ctx, accountID, time.Now())
+	// Read-only: unlike GetSnapshot (a sync endpoint that touches
+	// sync_state.last_sync_unix), inspection must not mutate — writing here
+	// would reset the staleness signal this tool exists to surface. length(ct)
+	// avoids loading the ciphertext blob.
+	var (
+		seq         int64
+		ctBytes     int
+		createdUnix int64
+	)
+	err := r.db.QueryRowContext(ctx,
+		`SELECT snapshot_seq, length(ct), created_at_unix FROM snapshots WHERE account_id = ?`, accountID).
+		Scan(&seq, &ctBytes, &createdUnix)
+	if errors.Is(err, sql.ErrNoRows) {
+		return SnapshotState{}, nil
+	}
 	if err != nil {
 		return SnapshotState{}, err
 	}
-	if snap == nil {
-		return SnapshotState{}, nil
-	}
 	return SnapshotState{
 		Exists:    true,
-		Seq:       snap.SnapshotSeq,
-		CTBytes:   len(snap.CT),
-		CreatedAt: snap.CreatedAt,
+		Seq:       seq,
+		CTBytes:   ctBytes,
+		CreatedAt: storedb.UnixToTime(createdUnix),
 	}, nil
 }
 
