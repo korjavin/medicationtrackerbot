@@ -386,15 +386,19 @@ relay is otherwise unconfigured/disabled in a real deployment.
 
 ### Task 10: [Final] Update documentation
 
-- [ ] `docs/cloud-mode.md`: C2b status; document record types
+- [x] `docs/cloud-mode.md`: C2b status; document record types
       (`medication`, `intake` w/ deterministic ids, `restock`, `tzplan`,
       `medreminderpref`); document the simplifications (no pre-
       materialization, one-record tz plans, inventory-with-flip) and the
       reminder compute-and-upload loop; **add the metadata-leakage row:
       drug-name queries → RxNav (NIH), from the client IP, same class as
       food-DB search**
-- [ ] `CLAUDE.md`: cloud index row update if needed
-- [ ] update the C2 sequence note in the C2a plan's Overview if scope shifted
+- [x] `CLAUDE.md`: cloud index row update if needed
+- [x] update the C2 sequence note in the C2a plan's Overview if scope shifted
+
+  ➕ No scope shift: the C2a plan's Overview already lists the sequence as
+  "C2a → C2b meds+tz → C2c food+AI → C2d workouts → C2e exporter/migration",
+  which matches what C2b actually shipped. Left unchanged.
 
 ## Technical Details
 
