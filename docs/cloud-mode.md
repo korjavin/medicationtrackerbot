@@ -133,6 +133,8 @@ The server is a **blind alarm clock**. It cannot compute "when is the next dose"
 
 Known platform caveats: iOS web push requires the installed (home-screen) PWA and has occasional delivery quirks; Safari may drop subscriptions for long-unused web apps — the stale-sync warning doubles as the countermeasure.
 
+**Per-account VAPID keys** (implemented, see `docs/plans/2026-07-05-cloud-c2-push-vapid-per-account.md`): each account gets its own VAPID keypair, generated server-side at invite provisioning. Push services bind a subscription to the `applicationServerKey` used at `subscribe()` time and reject sends signed with a different key — so a relay bug that misrouted account A's payload to account B's endpoint gets rejected by Apple/Google themselves, a third enforcement layer on top of RFC 8291 per-subscription encryption and NK app-layer encryption. The VAPID *subject* stays service-wide (it identifies the relay operator per RFC 8292, never the user — a per-user subject would leak identity to Google/Apple): `VAPID_SUBJECT` env, defaulting to `mailto:noreply@<CLOUD_BASE_DOMAIN>`, with `https://<CLOUD_BASE_DOMAIN>` substituted for Apple endpoints. Key rotation is unsupported by design — push services bind subscriptions to the subscribe-time key, so rotating would orphan every subscription for that account.
+
 ## Lost device / recovery — the reliability matrix
 
 Zero knowledge means **no account reset**; recovery must be designed in, not bolted on. There is no passphrase to forget — recovery paths are other passkeys, other devices, and the recovery code.

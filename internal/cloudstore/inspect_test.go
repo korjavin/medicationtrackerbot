@@ -14,7 +14,7 @@ func TestInspectAccountAndSummaries(t *testing.T) {
 	// Account 1: claimed, two devices, ops from both, a snapshot, and a
 	// mixed push queue.
 	acc1Token := []byte("tokenhash-1-32-bytes-of-junk!!!")
-	acc1, err := r.CreateAccount(ctx, "acc-1", "busy-otter-abc123", acc1Token, now.Add(time.Hour), now)
+	acc1, err := r.CreateAccount(ctx, "acc-1", "busy-otter-abc123", acc1Token, now.Add(time.Hour), now, "", "")
 	if err != nil {
 		t.Fatalf("CreateAccount acc1: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestInspectAccountAndSummaries(t *testing.T) {
 	}
 
 	// Account 2: empty/unclaimed.
-	if _, err := r.CreateAccount(ctx, "acc-2", "quiet-otter-def456", []byte("tokenhash-2-32-bytes-of-junk!!!"), now.Add(time.Hour), now); err != nil {
+	if _, err := r.CreateAccount(ctx, "acc-2", "quiet-otter-def456", []byte("tokenhash-2-32-bytes-of-junk!!!"), now.Add(time.Hour), now, "", ""); err != nil {
 		t.Fatalf("CreateAccount acc2: %v", err)
 	}
 

@@ -30,7 +30,7 @@ func TestAccountCredentialEnvelopeRoundtrip(t *testing.T) {
 	now := time.Now().UTC()
 
 	tokenHash := []byte("claimtokenhash-32-bytes-of-junk")
-	acc, err := r.CreateAccount(ctx, "acc-1", "brave-otter-abc123", tokenHash, now.Add(14*24*time.Hour), now)
+	acc, err := r.CreateAccount(ctx, "acc-1", "brave-otter-abc123", tokenHash, now.Add(14*24*time.Hour), now, "", "")
 	if err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
@@ -146,6 +146,17 @@ func TestAccountCredentialEnvelopeRoundtrip(t *testing.T) {
 		t.Fatalf("expected 1 account, got %d", len(accounts))
 	}
 
+	// A push subscription and a future-dated scheduled push must be cascaded
+	// away by DeleteAccount. Orphaned scheduled_pushes are re-selected by
+	// DueScheduledPushes every relay tick, and AccountVAPIDKeysByID then errors
+	// (no account row) so the relay never marks them sent — a permanent wedge.
+	if err := r.UpsertPushSubscription(ctx, acc.ID, "https://push.example/endpoint", "p256dh", "auth", now); err != nil {
+		t.Fatalf("UpsertPushSubscription: %v", err)
+	}
+	if err := r.ReplaceSchedule(ctx, acc.ID, []ScheduledPushInput{{FireAt: now.Add(time.Hour), CT: []byte("ct")}}, now); err != nil {
+		t.Fatalf("ReplaceSchedule: %v", err)
+	}
+
 	if err := r.DeleteAccount(ctx, "brave-otter-abc123"); err != nil {
 		t.Fatalf("DeleteAccount: %v", err)
 	}
@@ -156,6 +167,52 @@ func TestAccountCredentialEnvelopeRoundtrip(t *testing.T) {
 	if len(accounts) != 0 {
 		t.Fatalf("expected 0 accounts after delete, got %d", len(accounts))
 	}
+
+	subs, err := r.List(ctx, acc.ID)
+	if err != nil {
+		t.Fatalf("List subscriptions after delete: %v", err)
+	}
+	if len(subs) != 0 {
+		t.Fatalf("expected 0 push subscriptions after delete, got %d", len(subs))
+	}
+	due, err := r.DueScheduledPushes(ctx, now.Add(48*time.Hour))
+	if err != nil {
+		t.Fatalf("DueScheduledPushes after delete: %v", err)
+	}
+	for _, p := range due {
+		if p.AccountID == acc.ID {
+			t.Fatalf("expected no scheduled pushes for deleted account, found id=%d", p.ID)
+		}
+	}
+}
+
+// TestSetAccountVAPIDKeys_NeverRotates guards the backfill-only invariant
+// directly: SetAccountVAPIDKeys must silently no-op on an account that already
+// has keys. Rotating a live keypair would orphan every push subscription bound
+// to the old subscribe-time key. The existing backfill tests only prove the
+// AccountIDsMissingVAPIDKeys filter skips keyed accounts, so dropping the
+// `AND vapid_public_key IS NULL` clause would still pass them — this exercises
+// the guard head-on.
+func TestSetAccountVAPIDKeys_NeverRotates(t *testing.T) {
+	r := setupRepo(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	if _, err := r.CreateAccount(ctx, "acc-vapid", "vapid-sub", []byte("h"), now.Add(time.Hour), now, "pub-original", "priv-original"); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	// Attempting to set keys on an already-keyed account must leave them intact.
+	if err := r.SetAccountVAPIDKeys(ctx, "acc-vapid", "pub-rotated", "priv-rotated"); err != nil {
+		t.Fatalf("SetAccountVAPIDKeys: %v", err)
+	}
+	keys, err := r.AccountVAPIDKeysByID(ctx, "acc-vapid")
+	if err != nil {
+		t.Fatalf("AccountVAPIDKeysByID: %v", err)
+	}
+	if keys.PublicKey != "pub-original" || keys.PrivateKey != "priv-original" {
+		t.Fatalf("expected keys left untouched, got %+v", keys)
+	}
 }
 
 func TestResetClaim(t *testing.T) {
@@ -163,7 +220,7 @@ func TestResetClaim(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	if _, err := r.CreateAccount(ctx, "acc-2", "quiet-fox-def456", []byte("old-hash"), now.Add(time.Hour), now); err != nil {
+	if _, err := r.CreateAccount(ctx, "acc-2", "quiet-fox-def456", []byte("old-hash"), now.Add(time.Hour), now, "", ""); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
@@ -200,7 +257,7 @@ func TestClaimAndAddCredential(t *testing.T) {
 	now := time.Now().UTC()
 
 	tokenHash := []byte("claimtokenhash-32-bytes-of-junk")
-	acc, err := r.CreateAccount(ctx, "acc-3", "eager-lynx-jkl012", tokenHash, now.Add(time.Hour), now)
+	acc, err := r.CreateAccount(ctx, "acc-3", "eager-lynx-jkl012", tokenHash, now.Add(time.Hour), now, "", "")
 	if err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
@@ -235,7 +292,7 @@ func TestConsumeClaimToken_ExpiredAndUnknown(t *testing.T) {
 	now := time.Now().UTC()
 
 	tokenHash := []byte("expiring-hash")
-	if _, err := r.CreateAccount(ctx, "acc-3", "sleepy-owl-ghi789", tokenHash, now.Add(-time.Minute), now.Add(-time.Hour)); err != nil {
+	if _, err := r.CreateAccount(ctx, "acc-3", "sleepy-owl-ghi789", tokenHash, now.Add(-time.Minute), now.Add(-time.Hour), "", ""); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 	if _, err := r.ConsumeClaimToken(ctx, "sleepy-owl-ghi789", tokenHash, now); err != ErrClaimInvalid {
@@ -256,7 +313,7 @@ func TestDeleteCredentialWithEnvelope_NeverStrandsAccount(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	if _, err := r.CreateAccount(ctx, "acc-strand", "brave-otter-strand1", []byte("h"), now.Add(time.Hour), now); err != nil {
+	if _, err := r.CreateAccount(ctx, "acc-strand", "brave-otter-strand1", []byte("h"), now.Add(time.Hour), now, "", ""); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 	credA := Credential{ID: []byte{1}, AccountID: "acc-strand", PublicKey: []byte("pkA"), CreatedAt: now}

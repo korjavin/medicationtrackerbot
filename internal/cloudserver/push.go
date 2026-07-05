@@ -45,14 +45,13 @@ type pushStore interface {
 // unauthenticated (it is not a secret — the client needs it before it has
 // ever unlocked).
 type PushAPI struct {
-	store          pushStore
-	sessionSecret  string
-	vapidPublicKey string
+	store         pushStore
+	sessionSecret string
 }
 
 // NewPushAPI builds the push handlers.
-func NewPushAPI(store pushStore, sessionSecret, vapidPublicKey string) *PushAPI {
-	return &PushAPI{store: store, sessionSecret: sessionSecret, vapidPublicKey: vapidPublicKey}
+func NewPushAPI(store pushStore, sessionSecret string) *PushAPI {
+	return &PushAPI{store: store, sessionSecret: sessionSecret}
 }
 
 // RegisterRoutes adds the push routes to mux.
@@ -165,16 +164,19 @@ type vapidPublicKeyResponse struct {
 	PublicKey string `json:"public_key"`
 }
 
-// GetVapidPublicKey returns the service's VAPID public key, unauthenticated —
-// the client needs it to call PushManager.subscribe() before any account
-// session exists in that browser tab. 503 when the operator hasn't
-// configured VAPID_PUBLIC_KEY (push is simply unavailable).
+// GetVapidPublicKey returns the calling account's VAPID public key,
+// unauthenticated — the client needs it to call PushManager.subscribe()
+// before any account session exists in that browser tab. The account is
+// resolved from the request's subdomain by the wildcard-host router; a
+// base-domain request (no account in context) 404s, as does an account
+// whose keys haven't been backfilled yet (should not happen post-backfill).
 func (a *PushAPI) GetVapidPublicKey(w http.ResponseWriter, r *http.Request) {
-	if a.vapidPublicKey == "" {
-		http.Error(w, "push not configured", http.StatusServiceUnavailable)
+	account, ok := AccountFromContext(r.Context())
+	if !ok || account.VAPIDPublicKey == nil || *account.VAPIDPublicKey == "" {
+		http.Error(w, "push not configured", http.StatusNotFound)
 		return
 	}
-	writeJSON(w, http.StatusOK, vapidPublicKeyResponse{PublicKey: a.vapidPublicKey})
+	writeJSON(w, http.StatusOK, vapidPublicKeyResponse{PublicKey: *account.VAPIDPublicKey})
 }
 
 type scheduleEntryWire struct {

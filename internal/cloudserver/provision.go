@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/SherClockHolmes/webpush-go"
 	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
 )
 
@@ -38,7 +39,7 @@ var ErrAccountsExhausted = fmt.Errorf("cloudserver: could not allocate a free su
 
 // provisionStore is the subset of *cloudstore.Repo Provision needs.
 type provisionStore interface {
-	CreateAccount(ctx context.Context, id, subdomain string, claimTokenHash []byte, claimExpiresAt, createdAt time.Time) (*cloudstore.Account, error)
+	CreateAccount(ctx context.Context, id, subdomain string, claimTokenHash []byte, claimExpiresAt, createdAt time.Time, vapidPublicKey, vapidPrivateKey string) (*cloudstore.Account, error)
 	SweepExpiredClaims(ctx context.Context, now time.Time) (int, error)
 }
 
@@ -72,6 +73,11 @@ func Provision(ctx context.Context, store provisionStore, ttl time.Duration, now
 		return nil, err
 	}
 
+	vapidPrivate, vapidPublic, err := webpush.GenerateVAPIDKeys()
+	if err != nil {
+		return nil, fmt.Errorf("generate VAPID keys: %w", err)
+	}
+
 	for attempt := 0; attempt < maxSubdomainAttempts; attempt++ {
 		accountID, err := randomToken(16)
 		if err != nil {
@@ -81,7 +87,7 @@ func Provision(ctx context.Context, store provisionStore, ttl time.Duration, now
 		if err != nil {
 			return nil, err
 		}
-		acc, err := store.CreateAccount(ctx, accountID, sub, tokenHash, now.Add(ttl), now)
+		acc, err := store.CreateAccount(ctx, accountID, sub, tokenHash, now.Add(ttl), now, vapidPublic, vapidPrivate)
 		if err == nil {
 			return &Invite{Account: acc, Token: token}, nil
 		}
@@ -90,6 +96,34 @@ func Provision(ctx context.Context, store provisionStore, ttl time.Duration, now
 		}
 	}
 	return nil, ErrAccountsExhausted
+}
+
+// backfillStore is the subset of *cloudstore.Repo BackfillVAPIDKeys needs.
+type backfillStore interface {
+	AccountIDsMissingVAPIDKeys(ctx context.Context) ([]string, error)
+	SetAccountVAPIDKeys(ctx context.Context, accountID, vapidPublicKey, vapidPrivateKey string) error
+}
+
+// BackfillVAPIDKeys generates a VAPID keypair for every account that predates
+// per-account keys (NULL vapid_public_key) — pre-existing claimed accounts
+// from before this feature shipped. Returns the number of accounts backfilled.
+// Safe to call on every startup: accounts that already have keys are skipped
+// by SetAccountVAPIDKeys's own NULL-only guard.
+func BackfillVAPIDKeys(ctx context.Context, store backfillStore) (int, error) {
+	ids, err := store.AccountIDsMissingVAPIDKeys(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("list accounts missing VAPID keys: %w", err)
+	}
+	for _, id := range ids {
+		priv, pub, err := webpush.GenerateVAPIDKeys()
+		if err != nil {
+			return 0, fmt.Errorf("generate VAPID keys for account %s: %w", id, err)
+		}
+		if err := store.SetAccountVAPIDKeys(ctx, id, pub, priv); err != nil {
+			return 0, fmt.Errorf("set VAPID keys for account %s: %w", id, err)
+		}
+	}
+	return len(ids), nil
 }
 
 // NewClaimToken returns a random 32-byte claim token (hex-encoded, for the

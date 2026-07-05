@@ -15,6 +15,7 @@ import (
 type sentPush struct {
 	endpoint string
 	ct       []byte
+	keys     cloudstore.AccountVAPIDKeys
 }
 
 // fakeSender never touches the network: it records every send and reports a
@@ -25,8 +26,8 @@ type fakeSender struct {
 	goneFor map[string]bool
 }
 
-func (f *fakeSender) Send(ctx context.Context, sub cloudstore.PushSubscription, ct []byte) (int, error) {
-	f.sent = append(f.sent, sentPush{endpoint: sub.Endpoint, ct: ct})
+func (f *fakeSender) Send(ctx context.Context, sub cloudstore.PushSubscription, keys cloudstore.AccountVAPIDKeys, ct []byte) (int, error) {
+	f.sent = append(f.sent, sentPush{endpoint: sub.Endpoint, ct: ct, keys: keys})
 	if f.goneFor[sub.Endpoint] {
 		return http.StatusGone, nil
 	}
@@ -56,7 +57,7 @@ func TestRelay_DueSelection_ReplaceAll_DisablesGone(t *testing.T) {
 	host := account.Subdomain + ".localhost"
 
 	webauthnAPI := NewWebAuthnAPI(store, "test-session-secret-at-least-32-bytes-long")
-	pushAPI := NewPushAPI(store, "test-session-secret-at-least-32-bytes-long", "test-vapid-public-key")
+	pushAPI := NewPushAPI(store, "test-session-secret-at-least-32-bytes-long")
 	mux := http.NewServeMux()
 	webauthnAPI.RegisterRoutes(mux)
 	pushAPI.RegisterRoutes(mux)
@@ -122,7 +123,7 @@ func TestRelay_StaleSyncSweep(t *testing.T) {
 	host := account.Subdomain + ".localhost"
 
 	webauthnAPI := NewWebAuthnAPI(store, "test-session-secret-at-least-32-bytes-long")
-	pushAPI := NewPushAPI(store, "test-session-secret-at-least-32-bytes-long", "test-vapid-public-key")
+	pushAPI := NewPushAPI(store, "test-session-secret-at-least-32-bytes-long")
 	mux := http.NewServeMux()
 	webauthnAPI.RegisterRoutes(mux)
 	pushAPI.RegisterRoutes(mux)
@@ -171,5 +172,105 @@ func TestRelay_StaleSyncSweep(t *testing.T) {
 	relay2.StaleSyncSweep(ctx)
 	if len(sender2.sent) != 0 {
 		t.Fatalf("expected no re-warn within cooldown, got %+v", sender2.sent)
+	}
+}
+
+// TestRelay_SendsWithPerAccountVAPIDKeys guards the per-account-key design
+// upgrade: each account's own keypair (generated at Provision) must reach the
+// sender for that account's sends, and two accounts must never see each
+// other's keys.
+func TestRelay_SendsWithPerAccountVAPIDKeys(t *testing.T) {
+	store := setupStore(t)
+	accountA, claimTokenA := setupInvite(t, store)
+	accountB, claimTokenB := setupInvite(t, store)
+	hostA := accountA.Subdomain + ".localhost"
+	hostB := accountB.Subdomain + ".localhost"
+
+	webauthnAPI := NewWebAuthnAPI(store, "test-session-secret-at-least-32-bytes-long")
+	pushAPI := NewPushAPI(store, "test-session-secret-at-least-32-bytes-long")
+	mux := http.NewServeMux()
+	webauthnAPI.RegisterRoutes(mux)
+	pushAPI.RegisterRoutes(mux)
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux)
+
+	sessionA := registerAndGetSession(t, h, hostA, claimTokenA)
+	sessionB := registerAndGetSession(t, h, hostB, claimTokenB)
+
+	ctx := context.Background()
+	if err := store.UpsertPushSubscription(ctx, accountA.ID, "https://push.example/a", "p256dh", "auth", time.Now().UTC()); err != nil {
+		t.Fatalf("UpsertPushSubscription A: %v", err)
+	}
+	if err := store.UpsertPushSubscription(ctx, accountB.ID, "https://push.example/b", "p256dh", "auth", time.Now().UTC()); err != nil {
+		t.Fatalf("UpsertPushSubscription B: %v", err)
+	}
+
+	putSchedule(t, h, hostA, sessionA, putScheduleRequest{Entries: []scheduleEntryWire{
+		{FireAtUnix: time.Now().Add(-time.Minute).Unix(), CT: []byte("ct-a")},
+	}})
+	putSchedule(t, h, hostB, sessionB, putScheduleRequest{Entries: []scheduleEntryWire{
+		{FireAtUnix: time.Now().Add(-time.Minute).Unix(), CT: []byte("ct-b")},
+	}})
+
+	sender := &fakeSender{goneFor: map[string]bool{}}
+	relay := NewRelay(store, sender, 0)
+	relay.Tick(ctx)
+
+	if len(sender.sent) != 2 {
+		t.Fatalf("expected 2 sends, got %d: %+v", len(sender.sent), sender.sent)
+	}
+
+	keysA, err := store.AccountVAPIDKeysByID(ctx, accountA.ID)
+	if err != nil {
+		t.Fatalf("AccountVAPIDKeysByID A: %v", err)
+	}
+	keysB, err := store.AccountVAPIDKeysByID(ctx, accountB.ID)
+	if err != nil {
+		t.Fatalf("AccountVAPIDKeysByID B: %v", err)
+	}
+	if keysA.PublicKey == "" || keysB.PublicKey == "" || keysA.PublicKey == keysB.PublicKey {
+		t.Fatalf("expected distinct, non-empty per-account keys, got A=%q B=%q", keysA.PublicKey, keysB.PublicKey)
+	}
+
+	for _, s := range sender.sent {
+		switch s.endpoint {
+		case "https://push.example/a":
+			if s.keys != keysA {
+				t.Errorf("send to A carried keys %+v, want %+v", s.keys, keysA)
+			}
+		case "https://push.example/b":
+			if s.keys != keysB {
+				t.Errorf("send to B carried keys %+v, want %+v", s.keys, keysB)
+			}
+		default:
+			t.Errorf("unexpected send to %q", s.endpoint)
+		}
+	}
+}
+
+// TestVAPIDSubjectFor guards the iOS subject-fragility fix: Apple's push
+// service requires an https:// subject while FCM/Mozilla expect the
+// configured mailto:, so sending the wrong one for an endpoint permanently
+// kills that platform's subscriptions (4xx -> Disable).
+func TestVAPIDSubjectFor(t *testing.T) {
+	const (
+		configuredSubject = "mailto:noreply@example.com"
+		baseDomain        = "example.com"
+	)
+	cases := []struct {
+		name     string
+		endpoint string
+		want     string
+	}{
+		{"apple endpoint gets https subject", "https://web.push.apple.com/abc123", "https://" + baseDomain},
+		{"fcm endpoint gets configured mailto subject", "https://fcm.googleapis.com/fcm/send/xyz", configuredSubject},
+		{"mozilla endpoint gets configured mailto subject", "https://updates.push.services.mozilla.com/wpush/v2/xyz", configuredSubject},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := vapidSubjectFor(c.endpoint, configuredSubject, baseDomain)
+			if got != c.want {
+				t.Errorf("vapidSubjectFor(%q) = %q, want %q", c.endpoint, got, c.want)
+			}
+		})
 	}
 }

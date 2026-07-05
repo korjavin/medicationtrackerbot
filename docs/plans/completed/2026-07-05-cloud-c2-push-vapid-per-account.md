@@ -107,49 +107,49 @@ backfilled; existing subscriptions do not.
 
 ### Task 1: Schema + store — per-account VAPID keypair
 
-- [ ] add `internal/cloudstore/migrations/007_account_vapid.sql`: `ALTER TABLE accounts ADD COLUMN vapid_public_key TEXT` + same for `vapid_private_key` (nullable — existing rows backfilled in Task 2)
-- [ ] add both fields to the `Account` struct and `scanAccount` in `internal/cloudstore/repo.go`
-- [ ] extend `CreateAccount` to accept and store the keypair
-- [ ] add `Repo.SetAccountVAPIDKeys(ctx, accountID, pub, priv string) error` (used only by backfill; refuses to overwrite non-NULL keys — rotation would orphan subscriptions)
+- [x] add `internal/cloudstore/migrations/007_account_vapid.sql`: `ALTER TABLE accounts ADD COLUMN vapid_public_key TEXT` + same for `vapid_private_key` (nullable — existing rows backfilled in Task 2)
+- [x] add both fields to the `Account` struct and `scanAccount` in `internal/cloudstore/repo.go`
+- [x] extend `CreateAccount` to accept and store the keypair
+- [x] add `Repo.SetAccountVAPIDKeys(ctx, accountID, pub, priv string) error` (used only by backfill; refuses to overwrite non-NULL keys — rotation would orphan subscriptions)
 
 ### Task 2: Key generation at provisioning + startup backfill
 
-- [ ] `internal/cloudserver/provision.go`: `Provision` calls `webpush.GenerateVAPIDKeys()` and passes the pair to `CreateAccount` — every new invite carries keys from birth
-- [ ] add `internal/cloudstore` backfill query listing account IDs `WHERE vapid_public_key IS NULL`, and a small `cloudserver.BackfillVAPIDKeys(ctx, store)` loop generating + `SetAccountVAPIDKeys` for each
-- [ ] call the backfill once at `cmd/cloud` startup (before the relay starts), log count backfilled
-- [ ] extend `provision_test.go`: provisioned account has a non-empty distinct keypair; backfill fills NULL-key accounts and leaves populated ones untouched
+- [x] `internal/cloudserver/provision.go`: `Provision` calls `webpush.GenerateVAPIDKeys()` and passes the pair to `CreateAccount` — every new invite carries keys from birth
+- [x] add `internal/cloudstore` backfill query listing account IDs `WHERE vapid_public_key IS NULL`, and a small `cloudserver.BackfillVAPIDKeys(ctx, store)` loop generating + `SetAccountVAPIDKeys` for each
+- [x] call the backfill once at `cmd/cloud` startup (before the relay starts), log count backfilled
+- [x] extend `provision_test.go`: provisioned account has a non-empty distinct keypair; backfill fills NULL-key accounts and leaves populated ones untouched
 
 ### Task 3: Public-key endpoint goes per-account
 
-- [ ] `internal/cloudserver/push.go`: drop the `vapidPublicKey` field from `PushAPI` / `NewPushAPI`; `GetVapidPublicKey` reads the account from the router's request context and returns that account's `vapid_public_key` (404 only if the context has no account — base-domain request)
-- [ ] extend `push_test.go`: two accounts get different keys from `GET /api/push/vapid-public-key` on their respective subdomains
+- [x] `internal/cloudserver/push.go`: drop the `vapidPublicKey` field from `PushAPI` / `NewPushAPI`; `GetVapidPublicKey` reads the account from the router's request context and returns that account's `vapid_public_key` (404 only if the context has no account — base-domain request)
+- [x] extend `push_test.go`: two accounts get different keys from `GET /api/push/vapid-public-key` on their respective subdomains
 
 ### Task 4: Relay sends with per-account keys + Apple subject switch
 
-- [ ] change `PushSender.Send` to accept the account keypair (e.g. `Send(ctx, sub, keys AccountVAPIDKeys, ct)`); update the fake sender in tests
-- [ ] `WebPushSender` keeps only `Subject` + `BaseDomain`; per send, pick subject: endpoint host contains `push.apple.com` → `https://<BaseDomain>`, else the configured `mailto:` subject (~10-line copy of the `internal/webpush` switch, cloud-local)
-- [ ] relay loop (`processDue` + stale-sync sweep): fetch the account's keypair (extend `relayStore` with an account-keys lookup or join keys into `DueScheduledPushes`/`List` — pick whichever is the smaller diff); skip + `slog.Warn` if keys are NULL (cannot happen post-backfill, but never send unsigned)
-- [ ] extend `relay_test.go`: captured sends carry each account's own keypair; Apple-endpoint subscription gets the `https://` subject, FCM-shaped endpoint gets `mailto:`
+- [x] change `PushSender.Send` to accept the account keypair (e.g. `Send(ctx, sub, keys AccountVAPIDKeys, ct)`); update the fake sender in tests
+- [x] `WebPushSender` keeps only `Subject` + `BaseDomain`; per send, pick subject: endpoint host contains `push.apple.com` → `https://<BaseDomain>`, else the configured `mailto:` subject (~10-line copy of the `internal/webpush` switch, cloud-local)
+- [x] relay loop (`processDue` + stale-sync sweep): fetch the account's keypair (extend `relayStore` with an account-keys lookup or join keys into `DueScheduledPushes`/`List` — pick whichever is the smaller diff); skip + `slog.Warn` if keys are NULL (cannot happen post-backfill, but never send unsigned)
+- [x] extend `relay_test.go`: captured sends carry each account's own keypair; Apple-endpoint subscription gets the `https://` subject, FCM-shaped endpoint gets `mailto:`
 
 ### Task 5: Wiring + deployment config
 
-- [ ] `cmd/cloud/main.go`: delete `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` env reads; relay is always enabled; `VAPID_SUBJECT` optional with default `mailto:noreply@<CLOUD_BASE_DOMAIN>`
-- [ ] `docker-compose.cloud.yml`: add optional `VAPID_SUBJECT=${VAPID_SUBJECT:-}` to the environment block (keys no longer exist as config)
-- [ ] create `.env.cloud.example`: `CLOUD_BASE_DOMAIN`, `SESSION_SECRET`, commented-out optional `VAPID_SUBJECT`, `CLOUD_CLAIM_TTL`, `CLOUD_ACCOUNT_QUOTA_BYTES`, `CLOUD_DRY_QUEUE_WARN_HOURS`, `CLOUD_DB_PATH`, `PORT` — with one-line comments each
+- [x] `cmd/cloud/main.go`: delete `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` env reads; relay is always enabled; `VAPID_SUBJECT` optional with default `mailto:noreply@<CLOUD_BASE_DOMAIN>`
+- [x] `docker-compose.cloud.yml`: add optional `VAPID_SUBJECT=${VAPID_SUBJECT:-}` to the environment block (keys no longer exist as config)
+- [x] create `.env.cloud.example`: `CLOUD_BASE_DOMAIN`, `SESSION_SECRET`, commented-out optional `VAPID_SUBJECT`, `CLOUD_CLAIM_TTL`, `CLOUD_ACCOUNT_QUOTA_BYTES`, `CLOUD_DRY_QUEUE_WARN_HOURS`, `CLOUD_DB_PATH`, `PORT` — with one-line comments each
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] verify all requirements from Overview are implemented (per-account keys end-to-end: provision → public-key endpoint → relay send; subject switch; zero required VAPID env)
-- [ ] verify edge cases: base-domain request to the key endpoint, NULL-key account skipped by relay, backfill idempotent on restart
-- [ ] run `go test ./...` — must pass
-- [ ] run the project linter — all issues fixed
+- [x] verify all requirements from Overview are implemented (per-account keys end-to-end: provision → public-key endpoint → relay send; subject switch; zero required VAPID env)
+- [x] verify edge cases: base-domain request to the key endpoint, NULL-key account skipped by relay, backfill idempotent on restart
+- [x] run `go test ./...` — must pass
+- [x] run the project linter — all issues fixed
 
 ### Task 7: [Final] Update documentation
 
-- [ ] `docs/cloud-deployment.md`: remove the `genvapid` / VAPID-keys operator step; document push as zero-config with optional `VAPID_SUBJECT`
-- [ ] `docs/environment.md`: cloud-mode section — remove `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`, add `VAPID_SUBJECT` default (bot-mode rows untouched)
-- [ ] `docs/cloud-mode.md`: short note under the push-relay section — per-account VAPID keys, why (push-service-enforced misrouting rejection), subject policy (operator identity, never user data), rotation unsupported by design
-- [ ] `docs/plans/2026-07-05-cloud-c2b-medications-tz-reminders.md`: add a one-line prerequisite note pointing at this plan before Task 5
+- [x] `docs/cloud-deployment.md`: remove the `genvapid` / VAPID-keys operator step; document push as zero-config with optional `VAPID_SUBJECT`
+- [x] `docs/environment.md`: cloud-mode section — remove `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`, add `VAPID_SUBJECT` default (bot-mode rows untouched)
+- [x] `docs/cloud-mode.md`: short note under the push-relay section — per-account VAPID keys, why (push-service-enforced misrouting rejection), subject policy (operator identity, never user data), rotation unsupported by design
+- [x] `docs/plans/2026-07-05-cloud-c2b-medications-tz-reminders.md`: add a one-line prerequisite note pointing at this plan before Task 5
 
 ## Technical Details
 

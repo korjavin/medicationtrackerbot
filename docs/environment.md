@@ -72,11 +72,10 @@ CLOUD_CLAIM_TTL=14                 # Invite claim-link validity, in days (defaul
 CLOUD_ACCOUNT_QUOTA_BYTES=52428800 # Per-account oplog+snapshot storage cap, in bytes (default: 50MB; 0 disables)
 CLOUD_DRY_QUEUE_WARN_HOURS=120     # Stale-sync warning: how close (hours) the last unsent reminder must be before the hourly sweep nudges a stale-synced account (default: 120)
 
-# Web Push relay (optional; same vars and cmd/genvapid as the bot). Push is
-# simply unavailable if unset — sync still works.
-VAPID_PUBLIC_KEY=...
-VAPID_PRIVATE_KEY=...
-VAPID_SUBJECT=mailto:you@example.com
+# Web Push relay — zero-config: each account gets its own VAPID keypair
+# generated server-side at invite provisioning (backfilled for pre-existing
+# accounts at startup). No VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY to set.
+VAPID_SUBJECT=mailto:you@example.com  # Optional. Operator contact identifier (RFC 8292), never user data. Default: mailto:noreply@<CLOUD_BASE_DOMAIN>. Apple endpoints automatically get https://<CLOUD_BASE_DOMAIN> instead.
 ```
 
 ## MCP server (`cmd/mcptool`)
