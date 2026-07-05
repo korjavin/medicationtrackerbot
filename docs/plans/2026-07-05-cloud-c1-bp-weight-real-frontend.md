@@ -157,11 +157,11 @@ mobile); all existing Vitest suites must pass unchanged; Go changes to
 
 ### Task 8: Verify acceptance criteria
 
-- [ ] BP + weight full flows work through the shim: create/list/delete/goal/stats for BP; create/edit-replace/delete/goal for weight; derived fields (category, trend) match server semantics
-- [ ] `web/domain/` purity guard green; no new direct store/network calls from feature files
-- [ ] `pnpm test` fully green (old suites unchanged + new shim suites)
-- [ ] `go build ./... && go build -tags mobile ./...` and `go test -count=1 ./...` (both tags) green
-- [ ] run linters (golangci-lint if configured, eslint if configured) — all issues fixed
+- [x] BP + weight full flows work through the shim: create/list/delete/goal/stats for BP; create/edit-replace/delete/goal for weight; derived fields (category, trend) match server semantics (verified by the Task 7 shim-contract suites, part of the 249 green Vitest files)
+- [x] `web/domain/` purity guard green; no new direct store/network calls from feature files (`architecture.domain-purity.test.js`, 3 tests, green)
+- [x] `pnpm test` fully green (old suites unchanged + new shim suites) — 249 test files, 2721 passed / 29 skipped
+- [x] `go build ./... && go build -tags mobile ./...` and `go test -count=1 ./...` (both tags) green
+- [x] run linters (golangci-lint if configured, eslint if configured) — all issues fixed (`golangci-lint run ./...`: 0 issues; no eslint config exists in this repo, so that step is not applicable)
 
 ### Task 9: [Final] Update documentation
 
