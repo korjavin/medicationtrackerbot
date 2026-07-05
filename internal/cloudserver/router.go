@@ -34,6 +34,7 @@ type Handler struct {
 	store      accountStore
 	shell      http.Handler // web/cloud: base-domain landing page + /unlock, /claim, /recover
 	app        http.Handler // web/static assets, mounted under /static/
+	domain     http.Handler // web/domain modules, mounted under /domain/
 	appIndex   []byte       // web/static/index.html, served at "/" on subdomains
 	api        http.Handler
 }
@@ -42,9 +43,12 @@ type Handler struct {
 // (cloudweb.FS) containing index.html, signup.html, css/, js/ — the passkey
 // unlock/claim/recover wizard. appFS is the embedded web/static tree
 // (webstatic.FS) — the real health-tracking frontend served to unlocked
-// accounts, ported by C1. api handles "/api/*" requests on the subdomain
+// accounts, ported by C1. domainFS is the embedded web/domain tree
+// (domainweb.FS) — the runtime-agnostic BP/weight modules, served under
+// "/domain/" because web/cloud/js/apishim.js imports them from there
+// (../../domain/*.js). api handles "/api/*" requests on the subdomain
 // branch (nil serves 404 for them) — see WebAuthnAPI.Routes.
-func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, api http.Handler) *Handler {
+func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, domainFS fs.FS, api http.Handler) *Handler {
 	idx, err := fs.ReadFile(appFS, "index.html")
 	if err != nil {
 		panic("cloudserver: appFS missing index.html: " + err.Error())
@@ -54,6 +58,7 @@ func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, api 
 		store:      store,
 		shell:      http.FileServerFS(shellFS),
 		app:        http.StripPrefix("/static/", http.FileServerFS(appFS)),
+		domain:     http.StripPrefix("/domain/", http.FileServerFS(domainFS)),
 		appIndex:   injectCloudBoot(idx),
 		api:        api,
 	}
@@ -135,8 +140,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// URL fragment, which browsers never send to the server), /recover is
 	// the Emergency Kit redemption page (see web/cloud/js/recover.js). The
 	// shell's own assets (css/js/vendor/sw.js) are root-relative — anything
-	// that isn't "/", the shell's explicit paths, or "/static/*" (the real
-	// app, C1) is assumed to be one of those and also goes to the shell.
+	// that isn't "/", the shell's explicit paths, "/static/*" (the real app,
+	// C1), or "/domain/*" (the runtime-agnostic BP/weight modules) is assumed
+	// to be one of those and also goes to the shell.
 	switch {
 	case r.URL.Path == "/unlock" || r.URL.Path == "/claim" || r.URL.Path == "/recover":
 		r.URL.Path = "/signup.html"
@@ -148,6 +154,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case strings.HasPrefix(r.URL.Path, "/static/"):
 		h.app.ServeHTTP(w, r)
+		return
+	case strings.HasPrefix(r.URL.Path, "/domain/"):
+		h.domain.ServeHTTP(w, r)
 		return
 	}
 	h.shell.ServeHTTP(w, r)

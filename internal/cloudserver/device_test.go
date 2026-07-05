@@ -28,7 +28,7 @@ func newTestDeviceHandler(t *testing.T) (http.Handler, string, string) {
 	transferAPI.RegisterRoutes(mux)
 	deviceAPI.RegisterRoutes(mux)
 
-	return New("localhost", store, testFS(), testAppFS(), mux), host, claimToken
+	return New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux), host, claimToken
 }
 
 // enrollSecondDevice drives the device-transfer + enrollment-token

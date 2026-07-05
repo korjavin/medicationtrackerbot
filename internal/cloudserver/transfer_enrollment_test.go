@@ -53,7 +53,7 @@ func TestWebAuthnRegistration_ViaEnrollmentToken(t *testing.T) {
 	mux := http.NewServeMux()
 	webauthnAPI.RegisterRoutes(mux)
 	transferAPI.RegisterRoutes(mux)
-	h := New("localhost", store, testFS(), testAppFS(), mux)
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux)
 
 	session := registerAndGetSession(t, h, host, claimToken)
 

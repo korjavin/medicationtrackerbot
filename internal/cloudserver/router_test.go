@@ -41,6 +41,13 @@ func testAppFS() fstest.MapFS {
 	}
 }
 
+func testDomainFS() fstest.MapFS {
+	return fstest.MapFS{
+		"bp.js":     {Data: []byte("export const createBPDomain = () => ({});")},
+		"weight.js": {Data: []byte("export const createWeightDomain = () => ({});")},
+	}
+}
+
 func TestRouter_HostVariants(t *testing.T) {
 	store := setupStore(t)
 	ctx := t.Context()
@@ -49,7 +56,7 @@ func TestRouter_HostVariants(t *testing.T) {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
-	h := New("app.example.com", store, testFS(), testAppFS(), nil)
+	h := New("app.example.com", store, testFS(), testAppFS(), testDomainFS(), nil)
 
 	cases := []struct {
 		name       string
@@ -65,6 +72,7 @@ func TestRouter_HostVariants(t *testing.T) {
 		{"known subdomain claim serves the shell", "known-sub.app.example.com", "/claim", http.StatusOK, "account shell"},
 		{"known subdomain recover serves the shell", "known-sub.app.example.com", "/recover", http.StatusOK, "account shell"},
 		{"known subdomain app asset resolves", "known-sub.app.example.com", "/static/js/app.js", http.StatusOK, "console.log(1)"},
+		{"known subdomain domain module resolves", "known-sub.app.example.com", "/domain/bp.js", http.StatusOK, "export const createBPDomain = () => ({});"},
 		{"known subdomain cloud-boot.js resolves via shell fallback", "known-sub.app.example.com", "/js/cloud-boot.js", http.StatusOK, "window.__MEDTRACKER_CLOUD__=true;"},
 		{"unknown subdomain is 404", "no-such-sub.app.example.com", "/", http.StatusNotFound, ""},
 		{"unrelated host is 404", "evil.example.org", "/", http.StatusNotFound, ""},

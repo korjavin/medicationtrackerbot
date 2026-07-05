@@ -18,18 +18,6 @@ export function calculateBPCategory(systolic, diastolic) {
   return 'Unknown';
 }
 
-// Ported from internal/store/bp/repo.go:116.
-export function categorySeverity(category) {
-  switch (category) {
-    case 'Hypertensive Crisis': return 5;
-    case 'High BP Stage 2': return 4;
-    case 'High BP Stage 1': return 3;
-    case 'Elevated': return 2;
-    case 'Normal': return 1;
-    default: return 0;
-  }
-}
-
 // ponytail: DST-at-midnight edge case can be off by the transition delta —
 // Intl has no direct "start of local day" primitive. Acceptable for C1
 // (single device, same tz); revisit only if a bug report ties to it.
