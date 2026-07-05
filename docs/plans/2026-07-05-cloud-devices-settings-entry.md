@@ -81,10 +81,10 @@ trivial merge risk in `web/static/js/features/settings.js` if C2a lands concurre
 
 ### Task 1: Serve the shell at /devices
 
-- [ ] `internal/cloudserver/router.go:147` — add `r.URL.Path == "/devices"` to the
+- [x] `internal/cloudserver/router.go:147` — add `r.URL.Path == "/devices"` to the
       shell-path case (rewrites to `signup.html`, same as `/unlock`/`/claim`/`/recover`)
-- [ ] update the routing comment block above the case to mention `/devices`
-- [ ] integration test: extend the existing router/host-routing Go test — GET
+- [x] update the routing comment block above the case to mention `/devices`
+- [x] integration test: extend the existing router/host-routing Go test — GET
       `https://<sub>.<base>/devices` returns the shell page (guards the real
       route contract; without it the frontend link 404s to the app SPA fallback)
 

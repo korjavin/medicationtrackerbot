@@ -138,13 +138,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// warm/cold unlock landing page, /claim is the QR/typed-fallback
 	// hand-off page (see web/cloud/js/transfer.js; its slot id + TK ride the
 	// URL fragment, which browsers never send to the server), /recover is
-	// the Emergency Kit redemption page (see web/cloud/js/recover.js). The
-	// shell's own assets (css/js/vendor/sw.js) are root-relative — anything
-	// that isn't "/", the shell's explicit paths, "/static/*" (the real app,
-	// C1), or "/domain/*" (the runtime-agnostic BP/weight modules) is assumed
-	// to be one of those and also goes to the shell.
+	// the Emergency Kit redemption page (see web/cloud/js/recover.js), /devices
+	// is the device-list page (warm-unlocks silently via the LDK cache, then
+	// renders devices.js's list — see web/cloud/js/app.js). The shell's own
+	// assets (css/js/vendor/sw.js) are root-relative — anything that isn't
+	// "/", the shell's explicit paths, "/static/*" (the real app, C1), or
+	// "/domain/*" (the runtime-agnostic BP/weight modules) is assumed to be
+	// one of those and also goes to the shell.
 	switch {
-	case r.URL.Path == "/unlock" || r.URL.Path == "/claim" || r.URL.Path == "/recover":
+	case r.URL.Path == "/unlock" || r.URL.Path == "/claim" || r.URL.Path == "/recover" || r.URL.Path == "/devices":
 		r.URL.Path = "/signup.html"
 		h.shell.ServeHTTP(w, r)
 		return
