@@ -2,9 +2,10 @@
 // records port — no window/document/fetch/IndexedDB — so the same file can
 // later run inside the Go server via goja (C6) with a Go-backed records port.
 // Mirrors internal/server/settings_handlers.go (general/features/tab-order)
-// + internal/server/food_handlers.go (targets). Feature-flag defaults mirror
-// internal/store/migrations/{022,025,073,074}_*.sql (food_intake and
-// weekly_digest default off; everything else defaults on).
+// + internal/server/food_handlers.go (targets)
+// + internal/server/settings_integrations_handlers.go (provider keys).
+// Feature-flag defaults mirror internal/store/migrations/{022,025,073,074}_*.sql
+// (food_intake and weekly_digest default off; everything else defaults on).
 
 const GENERAL_RECORD_TYPE = 'settings';
 const GENERAL_RECORD_ID = 'settings';
@@ -14,6 +15,28 @@ const TABORDER_RECORD_TYPE = 'taborder';
 const TABORDER_RECORD_ID = 'taborder';
 const FOODTARGETS_RECORD_TYPE = 'foodtargets';
 const FOODTARGETS_RECORD_ID = 'foodtargets';
+const INTEGRATIONS_RECORD_TYPE = 'integrations';
+const INTEGRATIONS_RECORD_ID = 'integrations';
+
+// SECRET_MASK mirrors secretMask in settings_integrations_handlers.go: GET
+// returns this sentinel for non-empty secret fields (never the raw key), and
+// PATCH treats a field submitted with this exact value as "leave unchanged".
+const SECRET_MASK = '***';
+
+const DEFAULT_INTEGRATIONS = {
+  openai: {
+    api_key: '', url: '', model: '', vision_api_key: '', vision_url: '', vision_model: '',
+  },
+  food: { api_key: '', url: '', domain: '' },
+  elevenlabs: { api_key: '', agent_id: '' },
+};
+
+// Secret-bearing fields per group — masked on read, mask-preserves on write.
+const INTEGRATIONS_SECRET_FIELDS = {
+  openai: new Set(['api_key', 'vision_api_key']),
+  food: new Set(['api_key']),
+  elevenlabs: new Set(['api_key']),
+};
 
 const DEFAULT_FEATURES = {
   food: false,
@@ -122,7 +145,71 @@ export function createSettingsDomain({ records, now, timeZone }) {
     return t;
   }
 
+  // getStoredIntegrations returns the unmasked values held in the vault
+  // record (encrypted at rest like every other record — see sync.js), with
+  // every field defaulted so groups/fields never seen before read as ''
+  // rather than undefined.
+  async function getStoredIntegrations() {
+    const all = await records.list(INTEGRATIONS_RECORD_TYPE);
+    const rec = findSingleton(all, INTEGRATIONS_RECORD_ID);
+    const out = {};
+    for (const group of Object.keys(DEFAULT_INTEGRATIONS)) {
+      out[group] = { ...DEFAULT_INTEGRATIONS[group], ...(rec && rec[group]) };
+    }
+    return out;
+  }
+
+  // getIntegrations mirrors handleGetIntegrations: secret fields are masked
+  // to SECRET_MASK when set, '' when unset, so the caller can tell
+  // "configured" apart from "not configured" without ever reading the key.
+  async function getIntegrations() {
+    const stored = await getStoredIntegrations();
+    const out = {};
+    for (const group of Object.keys(stored)) {
+      out[group] = {};
+      for (const field of Object.keys(stored[group])) {
+        const value = stored[group][field];
+        out[group][field] = INTEGRATIONS_SECRET_FIELDS[group].has(field)
+          ? (value ? SECRET_MASK : '')
+          : value;
+      }
+    }
+    return out;
+  }
+
+  // patchIntegrations mirrors handleUpdateIntegrations: groups omitted from
+  // patch are untouched; within a provided group, fields not present as an
+  // own property are untouched (server's *string nil case), an explicit ''
+  // clears, SECRET_MASK on a secret field preserves the existing value
+  // (resolveSecretPatch), and any other string overwrites.
+  async function patchIntegrations(patch) {
+    const stored = await getStoredIntegrations();
+    for (const group of Object.keys(DEFAULT_INTEGRATIONS)) {
+      const groupPatch = patch && typeof patch[group] === 'object' ? patch[group] : null;
+      if (!groupPatch) continue;
+      for (const field of Object.keys(DEFAULT_INTEGRATIONS[group])) {
+        if (!Object.prototype.hasOwnProperty.call(groupPatch, field)) continue;
+        const incoming = groupPatch[field];
+        if (INTEGRATIONS_SECRET_FIELDS[group].has(field) && incoming === SECRET_MASK) continue;
+        stored[group][field] = typeof incoming === 'string' ? incoming : '';
+      }
+    }
+    await records.put(INTEGRATIONS_RECORD_TYPE, {
+      recordId: INTEGRATIONS_RECORD_ID, clientTs: now(), deleted: false, ...stored,
+    });
+    return getIntegrations();
+  }
+
   return {
-    getGeneral, setTimezone, getFeatures, setFeature, getTabOrder, setTabOrder, getFoodTargets, setFoodTargets,
+    getGeneral,
+    setTimezone,
+    getFeatures,
+    setFeature,
+    getTabOrder,
+    setTabOrder,
+    getFoodTargets,
+    setFoodTargets,
+    getIntegrations,
+    patchIntegrations,
   };
 }

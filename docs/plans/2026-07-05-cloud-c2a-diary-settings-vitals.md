@@ -129,17 +129,17 @@ enforces `web/domain/**`), shim clamps, feature flags as the gating switch.
 
 ### Task 3: Integrations — provider keys as an encrypted vault record
 
-- [ ] extend `web/domain/settings.js` with the `'integrations'` singleton
+- [x] extend `web/domain/settings.js` with the `'integrations'` singleton
       record mirroring `GET/PATCH /api/settings/integrations` shapes
       (see `features/settings/integrations.js:91-167` for what the UI
       sends/expects: OpenAI text + vision key/url/model, food-DB
       key/url/domain, ElevenLabs — masked-read semantics if the server
       does masking; check the handler)
-- [ ] shim: route both methods; the Integrations screen in Settings must
+- [x] shim: route both methods; the Integrations screen in Settings must
       round-trip (enter key → save → reload → masked/read back)
-- [ ] do NOT wire any consumer yet (client-side AI calls are C2c); this
+- [x] do NOT wire any consumer yet (client-side AI calls are C2c); this
       task only makes the keys live encrypted in the vault
-- [ ] docs note for later: record body holds secrets — confirm nothing
+- [x] docs note for later: record body holds secrets — confirm nothing
       logs record bodies (grep the sync/shim paths for console logging of
       decrypted bodies; the C1 unknown-route warn logs only paths)
 

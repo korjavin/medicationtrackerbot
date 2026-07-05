@@ -204,6 +204,11 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
       if (method === 'POST') return settings.setFoodTargets(body);
     }
 
+    if (path === '/api/settings/integrations') {
+      if (method === 'GET') return settings.getIntegrations();
+      if (method === 'PATCH') return settings.patchIntegrations(body);
+    }
+
     // Reminder toggles: BP/weight reminders aren't functionally scheduled in
     // cloud C1 (the push relay is blind), but the Reminders section in Settings
     // is always visible and not feature-gated. Echo success instead of falling
