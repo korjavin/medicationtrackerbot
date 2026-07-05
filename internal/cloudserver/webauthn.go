@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -19,6 +20,19 @@ import (
 
 	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
 )
+
+// logCeremonyFailure surfaces go-webauthn validation failures in the server
+// log — the HTTP responses are deliberately generic, so without this a real
+// authenticator being rejected (flag mismatch, origin, signature) is
+// undiagnosable. protocol.Error carries the useful detail in DevInfo.
+func logCeremonyFailure(ceremony, accountID string, err error) {
+	var pErr *protocol.Error
+	if errors.As(err, &pErr) {
+		slog.Warn("cloudserver: webauthn ceremony failed", "ceremony", ceremony, "account", accountID, "error", err, "devInfo", pErr.DevInfo)
+		return
+	}
+	slog.Warn("cloudserver: webauthn ceremony failed", "ceremony", ceremony, "account", accountID, "error", err)
+}
 
 // webauthnStore is the subset of *cloudstore.Repo the registration and login
 // ceremonies need.
@@ -378,6 +392,7 @@ func (a *WebAuthnAPI) RegisterFinish(w http.ResponseWriter, r *http.Request) {
 	}
 	cred, err := wa.CreateCredential(&accountUser{account: account}, challenge.session, parsed)
 	if err != nil {
+		logCeremonyFailure("register", account.ID, err)
 		http.Error(w, "registration failed", http.StatusBadRequest)
 		return
 	}
@@ -523,6 +538,7 @@ func (a *WebAuthnAPI) LoginFinish(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxRegisterFinishBodyBytes)
 	cred, err := wa.FinishLogin(&accountUser{account: account, creds: toWebAuthnCredentials(creds)}, challenge.session, r)
 	if err != nil {
+		logCeremonyFailure("login", account.ID, err)
 		http.Error(w, "login failed", http.StatusBadRequest)
 		return
 	}
