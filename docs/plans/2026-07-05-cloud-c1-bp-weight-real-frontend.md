@@ -106,11 +106,11 @@ mobile); all existing Vitest suites must pass unchanged; Go changes to
 
 ### Task 2: `web/domain/` — runtime-agnostic BP domain module
 
-- [ ] create `web/domain/bp.js` (ES module, no browser globals) exporting `createBPDomain({ records, now, timeZone })` with methods mirroring the server contract: `create(input)`, `list({days, limit})`, `remove(id)`, `getGoal()`, `setGoal(goal)`, `getStats()`
-- [ ] port `calculateBPCategory` + `categorySeverity` from `internal/store/bp/repo.go:95` — identical buckets and strings; apply category at write time only when input category is empty and `ignore_calc` is false (same as `CreateReading`)
-- [ ] port daily-weighted stats (`bp/repo.go:346`): group readings by local calendar day in `timeZone`, average per day, then average the day-averages over 14/30/60-day windows; exclude `ignore_calc` rows; return the server's `{stats_14, stats_30, stats_60}` shape with `{systolic, diastolic, days, readings}` (ints, same rounding)
-- [ ] record shape: `recordType 'bp'`, body carries the server JSON field names (`measured_at` RFC3339, `systolic`, `diastolic`, `pulse`, `site`, `position`, `category`, `ignore_calc`, `notes`, `tag`); `id` = `recordId`; list applies `days`/`limit` filters and newest-first ordering exactly like `handleListBloodPressure`
-- [ ] BP goal: singleton record `recordType 'bpgoal'` (fixed recordId), body `{target_systolic, target_diastolic}` — nullable ints like the server response
+- [x] create `web/domain/bp.js` (ES module, no browser globals) exporting `createBPDomain({ records, now, timeZone })` with methods mirroring the server contract: `create(input)`, `list({days, limit})`, `remove(id)`, `getGoal()`, `setGoal(goal)`, `getStats()`
+- [x] port `calculateBPCategory` + `categorySeverity` from `internal/store/bp/repo.go:95` — identical buckets and strings; apply category at write time only when input category is empty and `ignore_calc` is false (same as `CreateReading`)
+- [x] port daily-weighted stats (`bp/repo.go:346`): group readings by local calendar day in `timeZone`, average per day, then average the day-averages over 14/30/60-day windows; exclude `ignore_calc` rows; return the server's `{stats_14, stats_30, stats_60}` shape with `{systolic, diastolic, days, readings}` (ints, same rounding)
+- [x] record shape: `recordType 'bp'`, body carries the server JSON field names (`measured_at` RFC3339, `systolic`, `diastolic`, `pulse`, `site`, `position`, `category`, `ignore_calc`, `notes`, `tag`); `id` = `recordId`; list applies `days`/`limit` filters and newest-first ordering exactly like `handleListBloodPressure`
+- [x] BP goal: singleton record `recordType 'bpgoal'` (fixed recordId), body `{target_systolic, target_diastolic}` — nullable ints like the server response
 
 ### Task 3: `web/domain/` — runtime-agnostic weight domain module
 
