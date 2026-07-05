@@ -91,9 +91,9 @@ The claim link lands on a minimal, picture-first education wizard:
 
 ## Operating the cloud — admin surface
 
-Deliberately PII-free: no names, no emails in listings (the optional URL-recovery email is the single stored exception). The admin sees pseudo-secret subdomains, claim status, created / last-sync timestamps, storage usage. Capabilities: mint an invite (pre-provision + print claim link/QR), re-issue a claim link, withdraw an unclaimed invite, delete an account.
+Deliberately PII-free: no names, no emails in listings (the optional URL-recovery email is the single stored exception). The admin sees pseudo-secret subdomains, claim status, created / last-sync timestamps, storage usage. Capabilities: mint an invite (pre-provision + print claim link/QR), re-issue a claim link, withdraw an unclaimed invite, delete an account, and `inspect <subdomain>` a single account's full debug view (devices, envelopes, sync state, push queue — see [docs/cloud-deployment.md](cloud-deployment.md) for the command reference and a sample output; the same output doubles as the ground-truth metadata-leakage illustration below).
 
-`ponytail:` admin is CLI subcommands on the same binary (`cloud admin invite|list|reset-claim|revoke|delete`) — self-hosters have shell access, and it keeps the HTTP surface free of admin auth. A web admin page is a later nicety. Self-hosting the whole cloud stays a first-class goal: one binary + one compose block (see [docs/cloud-deployment.md](cloud-deployment.md)).
+`ponytail:` admin is CLI subcommands on the same binary (`cloud admin invite|list|inspect|reset-claim|revoke|delete`) — self-hosters have shell access, and it keeps the HTTP surface free of admin auth. A web admin page is a later nicety. Self-hosting the whole cloud stays a first-class goal: one binary + one compose block (see [docs/cloud-deployment.md](cloud-deployment.md)).
 
 ## Key hierarchy
 
@@ -233,6 +233,55 @@ Server-mode users with real history move by **export → client-side import** �
 | TG bot token, chat id, TG message text at user-chosen verbosity | cloud + Telegram | opt-in; generic-text mode; sealed inbound |
 | MCP query content | nobody (tier 1) / cloud in transit (tier 2) | tier 2 off by default, explicit consent |
 | Food/barcode search terms | operator's food-DB instance (default) | same exposure class as public Open Food Facts; endpoint swappable in settings |
+
+**Ground truth, not a claim**: `cloud admin inspect <subdomain>` (see
+[docs/cloud-deployment.md](cloud-deployment.md#5-admin-commands)) is the
+read-only debug view over an account's health-data-bearing surfaces —
+devices, DEK envelopes, the sync log, and the push queue — reading the same
+tables the server queries at runtime and printing sizes/timestamps/counts/
+tags, never plaintext, nonces, MACs, or ciphertext bytes. It is *not* a dump
+of every column an operator with shell access could `sqlite3` out: purely
+account-lifecycle metadata that carries no health signal — claim expiry,
+loss-ack, recovery-attempt counters (`recovery_auth`), transfer slots, and
+stale-sync warning timestamps — lives in other tables and is out of scope
+here. Sample output against a seeded account:
+
+```
+$ ./cloud admin inspect amber-falcon-8k3q9x
+account: amber-falcon-8k3q9x
+  created: 2026-06-05T11:56:34Z
+  claimed: true
+
+devices:
+  ref       transports       synced  sign_count  created               last_unlock
+  cGhvbmUt  internal,hybrid  true    43          2026-06-05T11:56:34Z  2026-07-05T11:56:34Z
+  bGFwdG9w  internal         false   7           2026-06-15T11:56:34Z  never
+
+envelopes:
+  ref       v  size
+  bGFwdG9w  1  412B
+  cGhvbmUt  1  412B
+
+sync:
+  ops: 140
+  seq range: 501..640
+  last append: 2026-07-05T05:56:34Z (device cGhvbmUt)
+  record types:
+    bp: 93
+    weight: 47
+  snapshot: seq 500, 47.1KiB, written 2026-07-05T05:56:34Z
+
+push:
+  subscriptions: 1 active, 0 disabled
+  pending scheduled: 1
+  next fire: 2026-07-05T12:41:34Z
+```
+
+This is the devices/envelopes/sync/push view: two devices identified only by
+a short credential prefix (not names), ciphertext sizes, a sync op count +
+record-type histogram (`bp`/`weight` — the type tag is plaintext metadata,
+not new leakage), and push queue state. No health data, no keys, no message
+content.
 
 ## C1 implementation notes
 

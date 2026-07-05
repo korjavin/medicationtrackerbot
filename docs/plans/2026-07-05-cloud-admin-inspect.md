@@ -80,7 +80,7 @@ Completion). Intended to run after C1 merges.
 
 ### Task 1: cloudstore inspect queries
 
-- [ ] add `internal/cloudstore/inspect.go` with read-only aggregates, one
+- [x] add `internal/cloudstore/inspect.go` with read-only aggregates, one
       `InspectAccount(ctx, accountID)` returning a struct composed of:
       sync stats (op count, min/max seq, last append time, last appending
       device credential id), record-type histogram (split
@@ -89,51 +89,51 @@ Completion). Intended to run after C1 merges.
       (credential_ref, v, ct byte size), push state (active + disabled
       subscription counts, pending scheduled count, next fire time, last
       sent time)
-- [ ] reuse `CredentialsByAccount` for the device list — no new query
-- [ ] add `AccountSummaries(ctx)` for the enriched `list`: per account —
+- [x] reuse `CredentialsByAccount` for the device list — no new query
+- [x] add `AccountSummaries(ctx)` for the enriched `list`: per account —
       subdomain, created, claimed (credential count > 0), device count,
       op count, last sync activity (single GROUP BY query joined over
       accounts; keep it one query, not N+1)
-- [ ] integration test in `internal/cloudstore/inspect_test.go`: seed two
+- [x] integration test in `internal/cloudstore/inspect_test.go`: seed two
       accounts (one with ops from two credentials + snapshot + scheduled
       pushes, one empty/unclaimed), assert `InspectAccount` and
       `AccountSummaries` values
 
 ### Task 2: `cloud admin inspect` subcommand + enriched `list`
 
-- [ ] wire `inspect <subdomain>` into `runAdmin` (`cmd/cloud/admin.go`),
+- [x] wire `inspect <subdomain>` into `runAdmin` (`cmd/cloud/admin.go`),
       resolving the account via `AccountBySubdomain`; unknown subdomain →
       clear error, exit 1
-- [ ] output: plain aligned text (stdlib `text/tabwriter`), sections
+- [x] output: plain aligned text (stdlib `text/tabwriter`), sections
       `account / devices / envelopes / sync / push`; credential ids and
       envelope refs printed as the same 8-char prefix so pairings are
       eyeball-able; times in UTC RFC3339; byte sizes human-readable
-- [ ] devices section marks synced passkeys (`backup_eligible`) and shows
+- [x] devices section marks synced passkeys (`backup_eligible`) and shows
       `last unlock` from `last_asserted_at`; never-asserted prints `never`
-- [ ] switch `adminList` to `AccountSummaries` output (adds claimed/devices/
+- [x] switch `adminList` to `AccountSummaries` output (adds claimed/devices/
       ops/last-activity columns); keep existing columns so muscle memory
       survives
-- [ ] no secrets in output: never print claim tokens, nonces, MACs, or
+- [x] no secrets in output: never print claim tokens, nonces, MACs, or
       ciphertext bytes — sizes and counts only (nonce/ct presence is implied
       by the envelope row existing)
 
 ### Task 3: Verify acceptance criteria
 
-- [ ] `inspect` on a live-ish seeded DB shows all sections correctly,
+- [x] `inspect` on a live-ish seeded DB shows all sections correctly,
       including the empty-account case (no credentials, no ops, no snapshot)
-- [ ] `go build ./... && go build -tags mobile ./...` green;
+- [x] `go build ./... && go build -tags mobile ./...` green;
       `go test -count=1 ./internal/cloudstore/ ./cmd/cloud/...` green;
       full `go test ./...` green
-- [ ] run linter — all issues fixed
+- [x] run linter — all issues fixed
 
 ### Task 4: [Final] Update documentation
 
-- [ ] `docs/cloud-deployment.md`: add `admin inspect` (+ enriched `list`) to
+- [x] `docs/cloud-deployment.md`: add `admin inspect` (+ enriched `list`) to
       the admin command reference with a trimmed sample output
-- [ ] `docs/cloud-mode.md`: paste a representative `inspect` output into the
+- [x] `docs/cloud-mode.md`: paste a representative `inspect` output into the
       metadata-leakage section as the ground-truth illustration of what the
       operator sees ("this is the entire view — sizes, timestamps, tags")
-- [ ] `CLAUDE.md`: no change expected (CLI lives under existing `cmd/cloud`
+- [x] `CLAUDE.md`: no change expected (CLI lives under existing `cmd/cloud`
       entry) — confirm and skip if so
 
 ## Technical Details
