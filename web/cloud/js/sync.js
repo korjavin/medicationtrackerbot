@@ -110,9 +110,22 @@ async function readAllRecords() {
 }
 
 async function replaceAllRecords(records) {
+  // Preserve optimistic copies of not-yet-flushed writes: a snapshot bootstrap
+  // (or a compaction re-bootstrap from pullTail) clears the whole store, but
+  // pending writes are unsynced local truth the snapshot doesn't contain yet —
+  // wiping them loses the user's note and orphans its 'pending' row forever.
+  // Re-overlay them after the clear; the oplog tail LWW-corrects them once the
+  // server assigns their real seq.
+  const pending = await readPending();
+  const overlay = [];
+  for (const { recordId } of pending) {
+    const r = await getRecord(recordId);
+    if (r) overlay.push(r);
+  }
   await withStore('records', 'readwrite', (store) => {
     store.clear();
     for (const record of records) store.put(record);
+    for (const record of overlay) store.put(record);
   });
 }
 
@@ -209,6 +222,10 @@ async function pullTail(ctx) {
   const kData = await getKData(ctx);
   for (;;) {
     const meta = await readMeta();
+    // Not bootstrapped (bootstrap failed transiently, cursor still null): a
+    // ?since=null request is a guaranteed 400, and pulling before we know our
+    // floor is meaningless. Bail; the next open retries bootstrap first.
+    if (meta.localLastSeq === null) return;
     let res;
     try {
       res = await fetch(`/api/sync/ops?since=${meta.localLastSeq}&limit=${OPS_PAGE_LIMIT}`);
@@ -287,6 +304,12 @@ async function flushPending(ctx) {
   if (pending.length === 0) return;
   const kData = await getKData(ctx);
   const meta = await readMeta();
+  // Not bootstrapped yet (bootstrap failed transiently): localLastSeq is null,
+  // so `seq += 1` would predict seqs from 1 and AAD-bind every op to the wrong
+  // seq. On a non-empty account the server assigns the real (higher) seqs and
+  // the records become permanently undecryptable on every device. Keep the
+  // writes safely in 'pending' until a real bootstrap sets the cursor.
+  if (meta.localLastSeq === null) return;
   let seq = meta.localLastSeq;
   const ops = [];
   const includedIds = [];

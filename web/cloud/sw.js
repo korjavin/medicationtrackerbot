@@ -61,11 +61,17 @@ async function readNK() {
 // outside the NK app-layer encryption path (the server has no NK to encrypt
 // with). It's plain JSON tagged kind=="server-warning" — anything else is NK
 // ciphertext and falls through to the decrypt attempt below.
+const STALE_SYNC_WARNING = { title: 'Med Tracker', body: 'Open the app to keep reminders running' };
+
 function tryDecodeServerWarning(data) {
   try {
     const payload = JSON.parse(new TextDecoder().decode(data));
     if (payload && payload.kind === 'server-warning') {
-      return { title: payload.title || GENERIC_NOTIFICATION.title, body: payload.body || GENERIC_NOTIFICATION.body };
+      // The server is untrusted in the zero-knowledge model: render a fixed
+      // client-side constant keyed only on the `kind` flag, never the
+      // server-supplied title/body, so a hostile server can't inject arbitrary
+      // (phishing) notification text on this one non-NK-encrypted channel.
+      return { ...STALE_SYNC_WARNING };
     }
   } catch {
     // Not JSON — real NK ciphertext, ignore.
