@@ -134,14 +134,14 @@ plan stays meds-shaped.
 
 ### Task 1: Schedule engine — `web/domain/medschedule.js`
 
-- [ ] port `ValidSchedule`/`ScheduleConfig` parsing (legacy `"HH:MM"` +
+- [x] port `ValidSchedule`/`ScheduleConfig` parsing (legacy `"HH:MM"` +
       JSON forms) and `PlanDoses` fire+forecast (pure; inputs: meds array,
       IANA timeZone, nowMs, windowMs) — semantics per
       `internal/domain/medplan/medplan.go` incl. course-window and
       created-at filtering, weekly day filter, output ordering
-- [ ] port doses/day + low-stock math (`repo.go:345-434`): daysOfStock,
+- [x] port doses/day + low-stock math (`repo.go:345-434`): daysOfStock,
       must-last-until-end-date rule, default threshold 7
-- [ ] pure module, no ports needed beyond arguments (purity guard applies)
+- [x] pure module, no ports needed beyond arguments (purity guard applies)
 
 ### Task 2: Medication records + CRUD — `web/domain/medications.js`
 
