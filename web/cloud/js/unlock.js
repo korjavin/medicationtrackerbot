@@ -124,7 +124,6 @@ function renderUnlocked(app, ctx) {
       <h1>Vault unlocked</h1>
       <p>Account <code id="account-id"></code></p>
       <p id="sync-status" class="sync-status">Syncing&hellip;</p>
-      <button id="notes-button">Notes</button>
       <button id="reminders-button">Reminders</button>
       <button id="devices-button">Devices</button>
       <button id="lock-button">Lock</button>
@@ -143,16 +142,6 @@ function renderUnlocked(app, ctx) {
         })
     )
     .catch(() => {});
-  app.querySelector('#notes-button').addEventListener('click', () => {
-    import('./notes.js')
-      .then(({ renderNotes }) => renderNotes(app, ctx, () => renderUnlocked(app, ctx)))
-      .catch(() => {
-        const p = document.createElement('p');
-        p.className = 'wizard-error';
-        p.textContent = 'Could not open the notes screen. Try again.';
-        app.querySelector('section').appendChild(p);
-      });
-  });
   app.querySelector('#reminders-button').addEventListener('click', () => {
     import('./push.js')
       .then(({ renderPush }) => renderPush(app, ctx, () => renderUnlocked(app, ctx)))

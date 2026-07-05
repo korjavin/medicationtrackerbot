@@ -92,20 +92,20 @@ enforces `web/domain/**`), shim clamps, feature flags as the gating switch.
 
 ### Task 1: Diary domain module
 
-- [ ] create `web/domain/notes.js` exporting `createNotesDomain({records, now})`
+- [x] create `web/domain/notes.js` exporting `createNotesDomain({records, now})`
       with `list({limit})`, `create(input)`, `remove(id)` mirroring the
       handler shapes in `internal/server` (find the notes handlers; response
       field names verbatim — check what `features/health.js` reads back)
-- [ ] record: `recordType 'note'`, body = server JSON fields + `recordId`,
+- [x] record: `recordType 'note'`, body = server JSON fields + `recordId`,
       `clientTs`, `deleted`; newest-first list order, `limit` default
       matching the handler
-- [ ] retire the cloud-shell demo notes screen: remove the Notes button +
+- [x] retire the cloud-shell demo notes screen: remove the Notes button +
       `web/cloud/js/notes.js` screen from the unlocked shell (the real app
       is the UI now); keep `sync.js`'s generic record functions; migrate
       nothing (demo data is disposable, and old `{text}` bodies simply
       render as notes with empty fields if any survive — acceptable on the
       test rig)
-- [ ] shim: route `GET/POST /api/notes` + `DELETE /api/notes/{id}`;
+- [x] shim: route `GET/POST /api/notes` + `DELETE /api/notes/{id}`;
       remove any overlapping stub
 
 ### Task 2: Settings domain module — general, features, tab order, targets

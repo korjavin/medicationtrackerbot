@@ -1,13 +1,13 @@
 // Client sync engine: docs/cloud-mode.md "Sync protocol" + docs/cloud-crypto.md
 // "Oplog record / snapshot". Pull-on-open + push-on-write against
 // /api/sync/ops and /api/sync/snapshot, with a local IndexedDB mirror (via
-// localdb.js) so the unlocked shell has something to render offline. The
-// "toy record type" proving the mechanism is an encrypted note: { recordId,
-// clientTs, text, deleted }, merged by last-write-wins on clientTs.
+// localdb.js) so the unlocked shell has something to render offline. Records
+// are { recordId, clientTs, deleted, ...body }, merged by last-write-wins on
+// clientTs; recordsPort() below exposes the generic list/put/del trio that
+// web/domain/'s domain modules are built on.
 import { deriveKData, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, toBase64, fromBase64 } from './crypto.js';
 import { openDb } from './localdb.js';
 
-const NOTE_RECORD_TYPE = 'note';
 // Task 6: the NK (push notification key) is itself a vault record so every
 // enrolled device converges on the same one via the ordinary oplog, exactly
 // like a note (docs/cloud-crypto.md "The push key (NK)"). Fixed singleton id
@@ -416,18 +416,14 @@ export async function pullOnOpen(ctx) {
 }
 
 // Generic record-store read: live (non-tombstoned) records of a type from the
-// local mirror, newest-first by clientTs. Task 1: the same read path backs
-// both the notes demo UI and recordsPort() below (web/domain/'s storage port).
+// local mirror, newest-first by clientTs. Backs recordsPort() below
+// (web/domain/'s storage port).
 export async function listRecords(ctx, recordType) {
   await bootstrapIfNeeded(ctx);
   const records = await readAllRecords();
   return records
     .filter((r) => r.recordType === recordType && !r.deleted)
     .sort((a, b) => b.clientTs - a.clientTs);
-}
-
-export async function listNotes(ctx) {
-  return listRecords(ctx, NOTE_RECORD_TYPE);
 }
 
 export async function writeRecord(ctx, recordType, record) {
@@ -447,25 +443,13 @@ export async function writeRecord(ctx, recordType, record) {
 // list/put/del trio, closed over ctx so domain code stays free of sync
 // internals (crypto, seq prediction, IndexedDB). del writes a tombstone via
 // writeRecord — same convergence semantics (LWW on clientTs) as every other
-// write, matching the notes deleteNote() pattern.
+// write.
 export function recordsPort(ctx) {
   return {
     list: (recordType) => listRecords(ctx, recordType),
     put: (recordType, record) => writeRecord(ctx, recordType, record),
     del: (recordType, recordId) => writeRecord(ctx, recordType, { recordId, clientTs: Date.now(), deleted: true }),
   };
-}
-
-export async function createNote(ctx, text) {
-  return writeRecord(ctx, NOTE_RECORD_TYPE, { recordId: crypto.randomUUID(), clientTs: Date.now(), text, deleted: false });
-}
-
-export async function updateNote(ctx, recordId, text) {
-  return writeRecord(ctx, NOTE_RECORD_TYPE, { recordId, clientTs: Date.now(), text, deleted: false });
-}
-
-export async function deleteNote(ctx, recordId) {
-  return writeRecord(ctx, NOTE_RECORD_TYPE, { recordId, clientTs: Date.now(), text: '', deleted: true });
 }
 
 // --- NK (push notification key) provisioning (Task 6, docs/cloud-crypto.md

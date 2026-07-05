@@ -4,6 +4,7 @@
 // instead of the Go server. See docs/cloud-mode.md "C1 shim architecture".
 import { createBPDomain } from '../../domain/bp.js';
 import { createWeightDomain } from '../../domain/weight.js';
+import { createNotesDomain } from '../../domain/notes.js';
 import { recordsPort } from './sync.js';
 
 function parseQuery(endpoint) {
@@ -50,6 +51,7 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
   const timeZone = (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
   const bp = createBPDomain({ records, now, timeZone });
   const weight = createWeightDomain({ records, now, timeZone });
+  const notes = createNotesDomain({ records, now });
 
   // Weight-unit preference: a singleton record (fixed recordId, LWW on
   // clientTs) so the Settings kg/lb toggle — always present in the nav, not
@@ -158,6 +160,17 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
       if (m) { await weight.remove(m[1]); return true; }
     }
     if (path === '/api/weight/goal' && method === 'GET') return weight.getGoal();
+
+    if (path === '/api/notes') {
+      if (method === 'POST') return notes.create(body);
+      if (method === 'GET') {
+        return notes.list({ limit: intParam(params, 'limit', 50), beforeId: params.get('before_id') || undefined });
+      }
+    }
+    if (method === 'DELETE') {
+      const m = /^\/api\/notes\/([^/]+)$/.exec(path);
+      if (m) { await notes.remove(m[1]); return true; }
+    }
 
     if (path === '/api/settings/weight-unit' && method === 'PATCH') {
       const unit = body && body.unit === 'lb' ? 'lb' : 'kg';

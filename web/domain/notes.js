@@ -1,0 +1,88 @@
+// Runtime-agnostic diary/notes domain module. Pure logic over an injected
+// records port — no window/document/fetch/IndexedDB — so the same file can
+// later run inside the Go server via goja (C6) with a Go-backed records port.
+// Mirrors internal/store/diary/repo.go + internal/server/notes_handlers.go.
+
+const RECORD_TYPE = 'note';
+const MAX_CONTENT_RUNES = 10000;
+const VALID_TAGS = new Set(['SLEEP', 'STRESS', 'HR', 'SPO2', 'STEPS', 'NOTE']);
+
+// Ported from internal/domain/notes.go NormalizeNoteTag: invalid tags are
+// silently dropped (nil), never rejected.
+function normalizeTag(raw) {
+  if (!raw) return null;
+  const t = String(raw).trim().toUpperCase();
+  return VALID_TAGS.has(t) ? t : null;
+}
+
+function genId(nowMs) {
+  return `note_${nowMs}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function toResponse(record) {
+  const resp = {
+    id: record.recordId,
+    content: record.content,
+    created_at: record.created_at,
+  };
+  if (record.tag) resp.tag = record.tag;
+  return resp;
+}
+
+// createNotesDomain builds the diary domain API over the injected ports:
+//   records — { list(type), put(type, record), del(type, id) }
+//   now()   — current time in ms epoch
+export function createNotesDomain({ records, now }) {
+  async function create(input) {
+    const content = (input && input.content ? String(input.content) : '').trim();
+    if (!content) {
+      const err = new Error('content is required');
+      err.code = 'empty_content';
+      throw err;
+    }
+    if ([...content].length > MAX_CONTENT_RUNES) {
+      const err = new Error('content too long');
+      err.code = 'content_too_long';
+      throw err;
+    }
+    const nowMs = now();
+    const record = {
+      recordId: genId(nowMs),
+      clientTs: nowMs,
+      deleted: false,
+      content,
+      tag: normalizeTag(input && input.tag),
+      created_at: new Date(nowMs).toISOString(),
+    };
+    await records.put(RECORD_TYPE, record);
+    return toResponse(record);
+  }
+
+  // list mirrors handleListNotes's newest-first + before_id keyset cursor
+  // contract (internal/server/notes_handlers.go:16-54). since/until are
+  // accepted for parity but the C1 shim only ever passes limit/beforeId.
+  async function list({ limit = 50, beforeId, since, until } = {}) {
+    const all = await records.list(RECORD_TYPE);
+    let filtered = all.sort((a, b) => b.clientTs - a.clientTs);
+    if (since) filtered = filtered.filter((r) => Date.parse(r.created_at) >= since);
+    if (until) filtered = filtered.filter((r) => Date.parse(r.created_at) <= until);
+    if (beforeId) {
+      const idx = filtered.findIndex((r) => r.recordId === beforeId);
+      filtered = idx === -1 ? [] : filtered.slice(idx + 1);
+    }
+    const bounded = limit > 0 ? filtered.slice(0, limit) : filtered;
+    return bounded.map(toResponse);
+  }
+
+  async function remove(id) {
+    const all = await records.list(RECORD_TYPE);
+    if (!all.some((r) => r.recordId === id)) {
+      const err = new Error('note not found');
+      err.code = 'not_found';
+      throw err;
+    }
+    await records.del(RECORD_TYPE, id);
+  }
+
+  return { create, list, remove };
+}
