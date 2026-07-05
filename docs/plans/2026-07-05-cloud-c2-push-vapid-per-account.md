@@ -114,10 +114,10 @@ backfilled; existing subscriptions do not.
 
 ### Task 2: Key generation at provisioning + startup backfill
 
-- [ ] `internal/cloudserver/provision.go`: `Provision` calls `webpush.GenerateVAPIDKeys()` and passes the pair to `CreateAccount` — every new invite carries keys from birth
-- [ ] add `internal/cloudstore` backfill query listing account IDs `WHERE vapid_public_key IS NULL`, and a small `cloudserver.BackfillVAPIDKeys(ctx, store)` loop generating + `SetAccountVAPIDKeys` for each
-- [ ] call the backfill once at `cmd/cloud` startup (before the relay starts), log count backfilled
-- [ ] extend `provision_test.go`: provisioned account has a non-empty distinct keypair; backfill fills NULL-key accounts and leaves populated ones untouched
+- [x] `internal/cloudserver/provision.go`: `Provision` calls `webpush.GenerateVAPIDKeys()` and passes the pair to `CreateAccount` — every new invite carries keys from birth
+- [x] add `internal/cloudstore` backfill query listing account IDs `WHERE vapid_public_key IS NULL`, and a small `cloudserver.BackfillVAPIDKeys(ctx, store)` loop generating + `SetAccountVAPIDKeys` for each
+- [x] call the backfill once at `cmd/cloud` startup (before the relay starts), log count backfilled
+- [x] extend `provision_test.go`: provisioned account has a non-empty distinct keypair; backfill fills NULL-key accounts and leaves populated ones untouched
 
 ### Task 3: Public-key endpoint goes per-account
 

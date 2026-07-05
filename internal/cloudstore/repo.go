@@ -163,6 +163,27 @@ func (r *Repo) SetAccountVAPIDKeys(ctx context.Context, accountID, vapidPublicKe
 	return err
 }
 
+// AccountIDsMissingVAPIDKeys returns the IDs of every account with no VAPID
+// keypair yet — pre-existing accounts from before per-account keys shipped.
+// Used by the startup backfill.
+func (r *Repo) AccountIDsMissingVAPIDKeys(ctx context.Context) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id FROM accounts WHERE vapid_public_key IS NULL`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 func scanAccount(scan func(dest ...any) error) (*Account, error) {
 	var (
 		a            Account

@@ -163,6 +163,13 @@ func main() {
 	}
 	slog.Info("Database initialized", "path", cfg.dbPath, "baseDomain", cfg.baseDomain, "claimTTL", cfg.claimTTL)
 
+	backfilled, err := cloudserver.BackfillVAPIDKeys(context.Background(), store)
+	if err != nil {
+		slog.Error("Failed to backfill VAPID keys", "error", err)
+		os.Exit(1)
+	}
+	slog.Info("VAPID key backfill complete", "accountsBackfilled", backfilled)
+
 	webauthnAPI := cloudserver.NewWebAuthnAPI(store, cfg.sessionSecret)
 	envelopeAPI := cloudserver.NewEnvelopeAPI(store, cfg.sessionSecret)
 	transferAPI := cloudserver.NewTransferAPI(store, cfg.sessionSecret)
