@@ -39,3 +39,8 @@ mcpeval-report.md
 # Local secrets (API keys / prod endpoints) — e.g. .env.mcpeval for the eval loop
 .env
 .env.*
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+.beads-credential-key
+.beads/proxieddb/
