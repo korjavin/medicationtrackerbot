@@ -12,6 +12,16 @@
 window.__MEDTRACKER_CLOUD__ = true;
 
 window.MedTrackerCloudReady = (async function boot() {
+    // Invite/claim links (https://<acct>.cloud…/#claim=<token>) resolve to '/',
+    // which serves web/static + this shim — not the passkey shell. Hand off to
+    // the shell (signup wizard via app.js) with the fragment intact BEFORE the
+    // warm-unlock cache read, so a fresh device (no cache) — or a device holding
+    // a stale LDK for a different account — still reaches the claim wizard.
+    const claimToken = new URLSearchParams(location.hash.slice(1)).get('claim');
+    if (claimToken) {
+        location.href = '/unlock' + location.hash;
+        return;
+    }
     try {
         const [{ readLdkRecord, unwrapWithLdk }, { installApiShim }, { pullOnOpen }] = await Promise.all([
             import('/js/unlock.js'),

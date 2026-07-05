@@ -71,18 +71,18 @@ the one place the fragment is first seen and dropped fixes every entry through `
 
 ### Task 1: Route claim links to the shell wizard before warm-unlock in `cloud-boot.js`
 
-- [ ] In `web/cloud/js/cloud-boot.js`, at the very top of the `boot()` async IIFE (before the
+- [x] In `web/cloud/js/cloud-boot.js`, at the very top of the `boot()` async IIFE (before the
       dynamic `import(...)` / `readLdkRecord()` calls at lines 16-22), read the claim token with the
       same parse `app.js` uses:
       `const claimToken = new URLSearchParams(location.hash.slice(1)).get('claim');`
-- [ ] If `claimToken` is present, redirect to the shell preserving the fragment and return early:
+- [x] If `claimToken` is present, redirect to the shell preserving the fragment and return early:
       `if (claimToken) { location.href = '/unlock' + location.hash; return; }`
       — this runs before any cache read, so a stale LDK cache for another account cannot short-circuit
       the claim.
-- [ ] Leave the existing no-cache redirect (`cloud-boot.js:24`) and error-fallback redirect
+- [x] Leave the existing no-cache redirect (`cloud-boot.js:24`) and error-fallback redirect
       (`cloud-boot.js:37`) as-is — with the claim token handled up front, those only fire for genuine
       returning-device unlock, where dropping the (absent) fragment is correct.
-- [ ] Confirm no build/lint step flags the change: run `pnpm test` (existing suite must stay green;
+- [x] Confirm no build/lint step flags the change: run `pnpm test` (existing suite must stay green;
       this file has no test of its own) and any frontend lint the repo runs.
 
 ### Task 2: Verify acceptance criteria
