@@ -257,15 +257,27 @@ relay is otherwise unconfigured/disabled in a real deployment.
 
 ### Task 6: RxNorm direct-from-browser
 
-- [ ] `web/cloud/js/rxnorm.js` (browser impl of the rxnorm port): the three
+- [x] `web/cloud/js/rxnorm.js` (browser impl of the rxnorm port): the three
       RxNav lookups + interaction list, exact URLs from
       `internal/rxnorm/client.go`; graceful empty results on any failure
       (never block a med save on RxNav being down); verify CORS on the two
       hosts early — if either blocks browser calls, fall back to skipping
       that call and note it here with ⚠️ (do NOT proxy through the cloud
       server; that would leak drug names to the operator)
-- [ ] warning assembly identical to the server (first interaction +
+- [x] warning assembly identical to the server (first interaction +
       `"(+N more)"`) so `meds.js`'s alert path works unchanged
+
+  ⚠️ Verified live: `rxnav.nlm.nih.gov`'s `rxcui.json`, `approximateTerm.json`
+  and `rxcui/{id}/properties.json` all send
+  `access-control-allow-origin: *` — real browser calls work. The
+  interaction endpoint (`lhncbc.nlm.nih.gov/RxNav/APIs/api/interaction/
+  list.json`) is not a CORS failure, it's gone: every request 403s with a
+  static CloudFront/S3 error page (matches NLM's public interaction-API
+  decommission), so its CORS behavior can't be confirmed either way.
+  `checkInteractions()` already degrades to `[]` on any non-OK/non-JSON
+  response — same code path as a network failure — so med save still
+  succeeds, it just never surfaces an interaction warning right now. No
+  fallback needed beyond the existing graceful-empty-results handling.
 
 ### Task 7: Shim wiring + feature flip
 
