@@ -83,41 +83,51 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
     await records.put(UNIT_RECORD_TYPE, { recordId: 'weight-unit', clientTs: now(), deleted: false, unit });
   }
 
-  // Mirrors handleBootstrap's shape (internal/server/settings_handlers.go)
-  // closely enough for applyBootstrapPayload to hydrate the Today/BP/Weight
-  // caches with real data — everything gated behind a clamped-off feature
-  // flag is simply omitted, which applyBootstrapPayload already treats as
-  // "leave that cache alone".
-  async function bootstrapPayload() {
-    const [readings, goal, stats, logs, weightGoal, weightUnit, features, foodTargets, tabOrder, general] = await Promise.all([
-      bp.list({ days: 60, limit: 0 }),
-      bp.getGoal(),
-      bp.getStats(),
-      weight.list({ days: 35, limit: 0 }),
-      weight.getGoal(),
+  // settingsResponse builds the {settings, features} subset shared by
+  // GET /api/settings and the bootstrap payload — the settings-only reads,
+  // without the heavy bp/weight aggregate reads that /api/settings discards.
+  async function settingsResponse() {
+    const [weightUnit, features, foodTargets, tabOrder, general] = await Promise.all([
       readWeightUnit(),
       settings.getFeatures(),
       settings.getFoodTargets(),
       settings.getTabOrder(),
       settings.getGeneral(),
     ]);
-    const payload = {
+    const block = {
+      food_targets: foodTargets,
+      bp_reminder_status: { enabled: false, preferred_reminder_hour: 20 },
+      weight_reminder_status: { enabled: false, preferred_reminder_hour: 9 },
+      timezone: general.timezone,
+      weight_unit_preference: weightUnit,
+      dismissed_tz_suggestion: '',
+    };
+    if (tabOrder) block.tab_order = tabOrder;
+    return { settings: block, features: clampFeatures(features) };
+  }
+
+  // Mirrors handleBootstrap's shape (internal/server/settings_handlers.go)
+  // closely enough for applyBootstrapPayload to hydrate the Today/BP/Weight
+  // caches with real data — everything gated behind a clamped-off feature
+  // flag is simply omitted, which applyBootstrapPayload already treats as
+  // "leave that cache alone".
+  async function bootstrapPayload() {
+    const [readings, goal, stats, logs, weightGoal, settingsPart] = await Promise.all([
+      bp.list({ days: 60, limit: 0 }),
+      bp.getGoal(),
+      bp.getStats(),
+      weight.list({ days: 35, limit: 0 }),
+      weight.getGoal(),
+      settingsResponse(),
+    ]);
+    return {
       cursor: 0,
       needs_first_run: false,
-      features: clampFeatures(features),
+      features: settingsPart.features,
       bp: { readings, goal, stats },
       weight: { logs, goal: weightGoal },
-      settings: {
-        food_targets: foodTargets,
-        bp_reminder_status: { enabled: false, preferred_reminder_hour: 20 },
-        weight_reminder_status: { enabled: false, preferred_reminder_hour: 9 },
-        timezone: general.timezone,
-        weight_unit_preference: weightUnit,
-        dismissed_tz_suggestion: '',
-      },
+      settings: settingsPart.settings,
     };
-    if (tabOrder) payload.settings.tab_order = tabOrder;
-    return payload;
   }
 
   // Stubs for boot-path endpoints the frontend calls unconditionally
@@ -129,7 +139,7 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
     'GET /api/bootstrap': bootstrapPayload,
     'GET /api/init': async () => ({ features: clampFeatures(await settings.getFeatures()) }),
     'GET /api/settings': async () => {
-      const { settings: settingsBlock, features } = await bootstrapPayload();
+      const { settings: settingsBlock, features } = await settingsResponse();
       return { ...settingsBlock, features };
     },
     'GET /api/bp/reminder/status': () => ({ enabled: false, preferred_reminder_hour: 20 }),
