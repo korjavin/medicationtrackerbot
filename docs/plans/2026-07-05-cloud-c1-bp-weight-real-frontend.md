@@ -122,11 +122,11 @@ mobile); all existing Vitest suites must pass unchanged; Go changes to
 
 ### Task 4: The apiCall shim
 
-- [ ] create `web/cloud/js/apishim.js` exporting `installApiShim(ctx)`: builds the domain instances over `recordsPort(ctx)` and assigns `window.offlineAwareApiCall = shimCall`
-- [ ] route table: method+path patterns for the ported endpoints → domain calls, returning the exact server JSON shapes (including `{imported:…}`-style envelopes where the server has them); `?days=`/`?limit=`/`?replaces=` query parsing to match handler defaults (`days` default 30 for BP list / 30 for weight list, `limit` 100)
-- [ ] stub registry for boot-path endpoints the frontend calls unconditionally: `/auth/status` → `{authenticated:true, method:"cloud"}`, `/api/bootstrap` → minimal payload with feature flags enabling only Today/BP/Weight/Settings (nav filters the rest before mount — CLAUDE.md rule 6), reminder-status endpoints → disabled shape, `/api/settings*` reads → sane defaults; every stub logs once at debug so gaps are discoverable
-- [ ] unknown `/api/*` route → reject like a 404 `apiCall` error (never silently hang), with a console.warn naming the path — this is the discovery mechanism for endpoints C2 must port
-- [ ] writes that reach the shim while a sync flush is pending must still resolve immediately with the domain result (local-first: the oplog flush is async, same UX as the current optimistic path)
+- [x] create `web/cloud/js/apishim.js` exporting `installApiShim(ctx)`: builds the domain instances over `recordsPort(ctx)` and assigns `window.offlineAwareApiCall = shimCall`
+- [x] route table: method+path patterns for the ported endpoints → domain calls, returning the exact server JSON shapes (including `{imported:…}`-style envelopes where the server has them); `?days=`/`?limit=`/`?replaces=` query parsing to match handler defaults (`days` default 30 for BP list / 30 for weight list, `limit` 100)
+- [x] stub registry for boot-path endpoints the frontend calls unconditionally: `/auth/status` → `{authenticated:true, method:"cloud"}`, `/api/bootstrap` → minimal payload with feature flags enabling only Today/BP/Weight/Settings (nav filters the rest before mount — CLAUDE.md rule 6), reminder-status endpoints → disabled shape, `/api/settings*` reads → sane defaults; every stub logs once at debug so gaps are discoverable
+- [x] unknown `/api/*` route → reject like a 404 `apiCall` error (never silently hang), with a console.warn naming the path — this is the discovery mechanism for endpoints C2 must port
+- [x] writes that reach the shim while a sync flush is pending must still resolve immediately with the domain result (local-first: the oplog flush is async, same UX as the current optimistic path)
 
 ### Task 5: Serve `web/static` from cmd/cloud
 
