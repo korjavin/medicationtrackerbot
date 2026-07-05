@@ -52,7 +52,7 @@ func TestRouter_HostVariants(t *testing.T) {
 	store := setupStore(t)
 	ctx := t.Context()
 	now := time.Now().UTC()
-	if _, err := store.CreateAccount(ctx, "acc-1", "known-sub", []byte("hash"), now.Add(time.Hour), now); err != nil {
+	if _, err := store.CreateAccount(ctx, "acc-1", "known-sub", []byte("hash"), now.Add(time.Hour), now, "", ""); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 

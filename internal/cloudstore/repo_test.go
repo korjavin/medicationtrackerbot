@@ -30,7 +30,7 @@ func TestAccountCredentialEnvelopeRoundtrip(t *testing.T) {
 	now := time.Now().UTC()
 
 	tokenHash := []byte("claimtokenhash-32-bytes-of-junk")
-	acc, err := r.CreateAccount(ctx, "acc-1", "brave-otter-abc123", tokenHash, now.Add(14*24*time.Hour), now)
+	acc, err := r.CreateAccount(ctx, "acc-1", "brave-otter-abc123", tokenHash, now.Add(14*24*time.Hour), now, "", "")
 	if err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestResetClaim(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	if _, err := r.CreateAccount(ctx, "acc-2", "quiet-fox-def456", []byte("old-hash"), now.Add(time.Hour), now); err != nil {
+	if _, err := r.CreateAccount(ctx, "acc-2", "quiet-fox-def456", []byte("old-hash"), now.Add(time.Hour), now, "", ""); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
@@ -200,7 +200,7 @@ func TestClaimAndAddCredential(t *testing.T) {
 	now := time.Now().UTC()
 
 	tokenHash := []byte("claimtokenhash-32-bytes-of-junk")
-	acc, err := r.CreateAccount(ctx, "acc-3", "eager-lynx-jkl012", tokenHash, now.Add(time.Hour), now)
+	acc, err := r.CreateAccount(ctx, "acc-3", "eager-lynx-jkl012", tokenHash, now.Add(time.Hour), now, "", "")
 	if err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestConsumeClaimToken_ExpiredAndUnknown(t *testing.T) {
 	now := time.Now().UTC()
 
 	tokenHash := []byte("expiring-hash")
-	if _, err := r.CreateAccount(ctx, "acc-3", "sleepy-owl-ghi789", tokenHash, now.Add(-time.Minute), now.Add(-time.Hour)); err != nil {
+	if _, err := r.CreateAccount(ctx, "acc-3", "sleepy-owl-ghi789", tokenHash, now.Add(-time.Minute), now.Add(-time.Hour), "", ""); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 	if _, err := r.ConsumeClaimToken(ctx, "sleepy-owl-ghi789", tokenHash, now); err != ErrClaimInvalid {
@@ -256,7 +256,7 @@ func TestDeleteCredentialWithEnvelope_NeverStrandsAccount(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	if _, err := r.CreateAccount(ctx, "acc-strand", "brave-otter-strand1", []byte("h"), now.Add(time.Hour), now); err != nil {
+	if _, err := r.CreateAccount(ctx, "acc-strand", "brave-otter-strand1", []byte("h"), now.Add(time.Hour), now, "", ""); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 	credA := Credential{ID: []byte{1}, AccountID: "acc-strand", PublicKey: []byte("pkA"), CreatedAt: now}

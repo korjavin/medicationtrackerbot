@@ -107,10 +107,10 @@ backfilled; existing subscriptions do not.
 
 ### Task 1: Schema + store — per-account VAPID keypair
 
-- [ ] add `internal/cloudstore/migrations/007_account_vapid.sql`: `ALTER TABLE accounts ADD COLUMN vapid_public_key TEXT` + same for `vapid_private_key` (nullable — existing rows backfilled in Task 2)
-- [ ] add both fields to the `Account` struct and `scanAccount` in `internal/cloudstore/repo.go`
-- [ ] extend `CreateAccount` to accept and store the keypair
-- [ ] add `Repo.SetAccountVAPIDKeys(ctx, accountID, pub, priv string) error` (used only by backfill; refuses to overwrite non-NULL keys — rotation would orphan subscriptions)
+- [x] add `internal/cloudstore/migrations/007_account_vapid.sql`: `ALTER TABLE accounts ADD COLUMN vapid_public_key TEXT` + same for `vapid_private_key` (nullable — existing rows backfilled in Task 2)
+- [x] add both fields to the `Account` struct and `scanAccount` in `internal/cloudstore/repo.go`
+- [x] extend `CreateAccount` to accept and store the keypair
+- [x] add `Repo.SetAccountVAPIDKeys(ctx, accountID, pub, priv string) error` (used only by backfill; refuses to overwrite non-NULL keys — rotation would orphan subscriptions)
 
 ### Task 2: Key generation at provisioning + startup backfill
 

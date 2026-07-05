@@ -38,7 +38,7 @@ var ErrAccountsExhausted = fmt.Errorf("cloudserver: could not allocate a free su
 
 // provisionStore is the subset of *cloudstore.Repo Provision needs.
 type provisionStore interface {
-	CreateAccount(ctx context.Context, id, subdomain string, claimTokenHash []byte, claimExpiresAt, createdAt time.Time) (*cloudstore.Account, error)
+	CreateAccount(ctx context.Context, id, subdomain string, claimTokenHash []byte, claimExpiresAt, createdAt time.Time, vapidPublicKey, vapidPrivateKey string) (*cloudstore.Account, error)
 	SweepExpiredClaims(ctx context.Context, now time.Time) (int, error)
 }
 
@@ -81,7 +81,7 @@ func Provision(ctx context.Context, store provisionStore, ttl time.Duration, now
 		if err != nil {
 			return nil, err
 		}
-		acc, err := store.CreateAccount(ctx, accountID, sub, tokenHash, now.Add(ttl), now)
+		acc, err := store.CreateAccount(ctx, accountID, sub, tokenHash, now.Add(ttl), now, "", "")
 		if err == nil {
 			return &Invite{Account: acc, Token: token}, nil
 		}

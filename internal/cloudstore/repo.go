@@ -61,12 +61,14 @@ var ErrSourceCredentialRevoked = errors.New("cloudstore: source credential revok
 // Account is one row in the accounts table. ClaimTokenHash/ClaimExpiresAt are
 // nil once the account has been claimed (first credential registered).
 type Account struct {
-	ID             string
-	Subdomain      string
-	CreatedAt      time.Time
-	ClaimTokenHash []byte
-	ClaimExpiresAt *time.Time
-	LossAckAt      *time.Time
+	ID              string
+	Subdomain       string
+	CreatedAt       time.Time
+	ClaimTokenHash  []byte
+	ClaimExpiresAt  *time.Time
+	LossAckAt       *time.Time
+	VAPIDPublicKey  *string
+	VAPIDPrivateKey *string
 }
 
 // Credential is one row in the credentials table — a WebAuthn public key
@@ -111,22 +113,54 @@ func New(d *storedb.DB) (*Repo, error) {
 	return &Repo{db: d}, nil
 }
 
-// CreateAccount inserts a new (unclaimed) account row.
-func (r *Repo) CreateAccount(ctx context.Context, id, subdomain string, claimTokenHash []byte, claimExpiresAt, createdAt time.Time) (*Account, error) {
+// CreateAccount inserts a new (unclaimed) account row. vapidPublicKey/
+// vapidPrivateKey are the account's own VAPID keypair generated at
+// provisioning; pass "" for both on the (unsupported) legacy path — stored as
+// NULL, picked up later by the startup backfill.
+func (r *Repo) CreateAccount(ctx context.Context, id, subdomain string, claimTokenHash []byte, claimExpiresAt, createdAt time.Time, vapidPublicKey, vapidPrivateKey string) (*Account, error) {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO accounts (id, subdomain, created_at_unix, claim_token_hash, claim_expires_unix) VALUES (?, ?, ?, ?, ?)`,
-		id, subdomain, storedb.TimeToUnix(createdAt), claimTokenHash, storedb.TimeToUnix(claimExpiresAt))
+		`INSERT INTO accounts (id, subdomain, created_at_unix, claim_token_hash, claim_expires_unix, vapid_public_key, vapid_private_key) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		id, subdomain, storedb.TimeToUnix(createdAt), claimTokenHash, storedb.TimeToUnix(claimExpiresAt), nullString(vapidPublicKey), nullString(vapidPrivateKey))
 	if err != nil {
 		return nil, err
 	}
 	expires := storedb.UnixToTime(storedb.TimeToUnix(claimExpiresAt))
 	return &Account{
-		ID:             id,
-		Subdomain:      subdomain,
-		CreatedAt:      storedb.UnixToTime(storedb.TimeToUnix(createdAt)),
-		ClaimTokenHash: claimTokenHash,
-		ClaimExpiresAt: &expires,
+		ID:              id,
+		Subdomain:       subdomain,
+		CreatedAt:       storedb.UnixToTime(storedb.TimeToUnix(createdAt)),
+		ClaimTokenHash:  claimTokenHash,
+		ClaimExpiresAt:  &expires,
+		VAPIDPublicKey:  nullStringPtr(vapidPublicKey),
+		VAPIDPrivateKey: nullStringPtr(vapidPrivateKey),
 	}, nil
+}
+
+// nullString turns "" into a driver NULL so an unset VAPID key never gets
+// stored as an empty-string value that would read as "present" to a NULL check.
+func nullString(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+func nullStringPtr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// SetAccountVAPIDKeys sets an account's VAPID keypair, but only if it
+// currently has none. Rotation would orphan every subscription created under
+// the old key (push services bind subscriptions to the subscribe-time key),
+// so this is backfill-only: it silently no-ops if the account already has keys.
+func (r *Repo) SetAccountVAPIDKeys(ctx context.Context, accountID, vapidPublicKey, vapidPrivateKey string) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE accounts SET vapid_public_key = ?, vapid_private_key = ? WHERE id = ? AND vapid_public_key IS NULL`,
+		vapidPublicKey, vapidPrivateKey, accountID)
+	return err
 }
 
 func scanAccount(scan func(dest ...any) error) (*Account, error) {
@@ -136,8 +170,10 @@ func scanAccount(scan func(dest ...any) error) (*Account, error) {
 		claimHash    []byte
 		claimExpires sql.NullInt64
 		lossAck      sql.NullInt64
+		vapidPublic  sql.NullString
+		vapidPrivate sql.NullString
 	)
-	if err := scan(&a.ID, &a.Subdomain, &createdUnix, &claimHash, &claimExpires, &lossAck); err != nil {
+	if err := scan(&a.ID, &a.Subdomain, &createdUnix, &claimHash, &claimExpires, &lossAck, &vapidPublic, &vapidPrivate); err != nil {
 		return nil, err
 	}
 	a.CreatedAt = storedb.UnixToTime(createdUnix)
@@ -146,10 +182,16 @@ func scanAccount(scan func(dest ...any) error) (*Account, error) {
 	}
 	a.ClaimExpiresAt = storedb.NullableUnixToTimePtr(claimExpires)
 	a.LossAckAt = storedb.NullableUnixToTimePtr(lossAck)
+	if vapidPublic.Valid {
+		a.VAPIDPublicKey = &vapidPublic.String
+	}
+	if vapidPrivate.Valid {
+		a.VAPIDPrivateKey = &vapidPrivate.String
+	}
 	return &a, nil
 }
 
-const accountColumns = `id, subdomain, created_at_unix, claim_token_hash, claim_expires_unix, loss_ack_unix`
+const accountColumns = `id, subdomain, created_at_unix, claim_token_hash, claim_expires_unix, loss_ack_unix, vapid_public_key, vapid_private_key`
 
 // AccountBySubdomain looks up an account by its subdomain label.
 func (r *Repo) AccountBySubdomain(ctx context.Context, subdomain string) (*Account, error) {
