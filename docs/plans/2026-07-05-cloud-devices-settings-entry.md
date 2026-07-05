@@ -90,12 +90,12 @@ trivial merge risk in `web/static/js/features/settings.js` if C2a lands concurre
 
 ### Task 2: /devices dispatch in the cloud shell
 
-- [ ] `web/cloud/js/app.js` — add a `location.pathname === '/devices'` branch
+- [x] `web/cloud/js/app.js` — add a `location.pathname === '/devices'` branch
       before the unlock fallback: import `readLdkRecord`/`unwrapWithLdk` from
       `unlock.js` and `renderDeviceList` from `devices.js`; warm-unlock, build
       `ctx = {accountId, dek}`, call
       `renderDeviceList(document.getElementById('app'), ctx, () => { location.href = '/'; })`
-- [ ] no-warm-cache path: `readLdkRecord()` returns null (fresh profile / cleared
+- [x] no-warm-cache path: `readLdkRecord()` returns null (fresh profile / cleared
       storage) → `location.href = '/unlock'` (cold unlock lands the user in the
       app; they tap the Settings row again — now warm). Same failure handling for
       `unwrapWithLdk` throw, mirroring `cloud-boot.js:35-38`.

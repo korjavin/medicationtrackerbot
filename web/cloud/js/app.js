@@ -27,6 +27,24 @@ try {
   } else if (location.pathname === '/recover') {
     const { runRecoverFlow } = await import('./recover.js');
     await runRecoverFlow();
+  } else if (location.pathname === '/devices') {
+    const { readLdkRecord, unwrapWithLdk } = await import('./unlock.js');
+    const { renderDeviceList } = await import('./devices.js');
+    try {
+      const cached = await readLdkRecord();
+      if (!cached) {
+        location.href = '/unlock';
+      } else {
+        const dek = await unwrapWithLdk(cached);
+        const ctx = { accountId: cached.accountId, dek };
+        renderDeviceList(document.getElementById('app'), ctx, () => {
+          location.href = '/';
+        });
+      }
+    } catch (e) {
+      console.error('[devices] warm unlock failed', e);
+      location.href = '/unlock';
+    }
   } else if (claimToken) {
     const { runSignupWizard } = await import('./signup.js');
     await runSignupWizard(claimToken);
