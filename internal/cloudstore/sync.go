@@ -174,6 +174,20 @@ func (r *Repo) PutSnapshot(ctx context.Context, accountID string, snapshotSeq in
 			return ErrSnapshotSeqAhead
 		}
 
+		// The compaction floor must be monotonic. Two devices that both cross
+		// the snapshot threshold near-simultaneously can upload snapshots at
+		// different seqs; if a lower one overwrites a higher one, the DELETE
+		// below has already dropped the oplog rows the lower snapshot doesn't
+		// cover, permanently losing those records. Ignore a snapshot at or
+		// below the current floor — it's already superseded.
+		var existing sql.NullInt64
+		if err := tx.QueryRowContext(ctx, `SELECT snapshot_seq FROM snapshots WHERE account_id = ?`, accountID).Scan(&existing); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if existing.Valid && snapshotSeq <= existing.Int64 {
+			return nil
+		}
+
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO snapshots (account_id, snapshot_seq, nonce, ct, created_at_unix) VALUES (?, ?, ?, ?, ?)
 			 ON CONFLICT(account_id) DO UPDATE SET snapshot_seq = excluded.snapshot_seq, nonce = excluded.nonce, ct = excluded.ct, created_at_unix = excluded.created_at_unix`,

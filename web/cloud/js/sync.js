@@ -188,7 +188,13 @@ async function bootstrap(ctx) {
       await replaceAllRecords(records);
       lastSnapshotSeq = body.snapshot_seq;
     } catch {
+      // Undecryptable snapshot (tampered ct or key mismatch): surface it and
+      // still advance the cursor past the compaction floor. Otherwise pullTail
+      // sees snapshot_seq > localLastSeq(0), re-bootstraps, fails again, and
+      // spins in a tight fetch loop that never resolves. Mirrors the per-op
+      // decrypt-failure handling below (advance past the bad seq).
       await writeMeta({ integrityErrors: (await readMeta()).integrityErrors + 1 });
+      lastSnapshotSeq = body.snapshot_seq;
     }
   }
   await writeMeta({ localLastSeq: lastSnapshotSeq, lastSnapshotSeq });
