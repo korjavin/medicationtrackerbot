@@ -110,21 +110,21 @@ enforces `web/domain/**`), shim clamps, feature flags as the gating switch.
 
 ### Task 2: Settings domain module — general, features, tab order, targets
 
-- [ ] create `web/domain/settings.js` exporting
+- [x] create `web/domain/settings.js` exporting
       `createSettingsDomain({records, now})` managing singleton records
       (fixed recordIds, C1 `weightunitpref` pattern): `'settings'` (general
       row: timezone etc. — mirror `GET /api/settings` response fields),
       `'features'` (toggle map), `'taborder'`, `'foodtargets'`
-- [ ] shim: make `GET/POST /api/settings`, `GET /api/settings/features`,
+- [x] shim: make `GET/POST /api/settings`, `GET /api/settings/features`,
       `POST /api/settings/features/{feature}`, `POST /api/settings/tab-order`,
       `GET/POST /api/food/settings/targets` live; delete the corresponding
       STUBS entries
-- [ ] **feature-flag clamp**: the shim's effective flags =
+- [x] **feature-flag clamp**: the shim's effective flags =
       (stored `'features'` record ∨ defaults) ∧ PORTED_SET — a user toggle
       can never enable a domain the shim can't serve; unported features
       stay hidden in the Settings toggle list too if the UI reads the same
       filtered map (verify how settings.js renders toggles)
-- [ ] bootstrap payload (`apishim.js` `/api/bootstrap`): source
+- [x] bootstrap payload (`apishim.js` `/api/bootstrap`): source
       feature flags + settings from the records instead of hardcoded stubs
 
 ### Task 3: Integrations — provider keys as an encrypted vault record

@@ -5,6 +5,7 @@
 import { createBPDomain } from '../../domain/bp.js';
 import { createWeightDomain } from '../../domain/weight.js';
 import { createNotesDomain } from '../../domain/notes.js';
+import { createSettingsDomain } from '../../domain/settings.js';
 import { recordsPort } from './sync.js';
 
 function parseQuery(endpoint) {
@@ -52,6 +53,19 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
   const bp = createBPDomain({ records, now, timeZone });
   const weight = createWeightDomain({ records, now, timeZone });
   const notes = createNotesDomain({ records, now });
+  const settings = createSettingsDomain({ records, now, timeZone });
+
+  // PORTED_SET: the feature domains this shim can actually serve end-to-end
+  // (records + domain module + shim routes wired). Clamped onto every read
+  // of the features map so a stored/toggled flag for an unported domain
+  // (food/medication/workout/health/gamification/weekly_digest — C2b/c/d)
+  // can never surface as enabled, per docs/cloud-mode.md "C2 shim architecture".
+  const PORTED_SET = new Set(['bp', 'weight']);
+  function clampFeatures(flags) {
+    const out = {};
+    for (const key of Object.keys(flags)) out[key] = PORTED_SET.has(key) ? !!flags[key] : false;
+    return out;
+  }
 
   // Weight-unit preference: a singleton record (fixed recordId, LWW on
   // clientTs) so the Settings kg/lb toggle — always present in the nav, not
@@ -67,43 +81,31 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
     await records.put(UNIT_RECORD_TYPE, { recordId: 'weight-unit', clientTs: now(), deleted: false, unit });
   }
 
-  // Feature flags enabling only the sections C1 ported (Today/BP/Weight/
-  // Settings) — the bottom nav filters everything else before mount
-  // (CLAUDE.md rule 6). Field names match internal/server/settings_handlers.go
-  // getFeatureMap().
-  const FEATURES = {
-    food: false,
-    bp: true,
-    weight: true,
-    medication: false,
-    workout: false,
-    health: false,
-    gamification: false,
-    weekly_digest: false,
-  };
-
   // Mirrors handleBootstrap's shape (internal/server/settings_handlers.go)
   // closely enough for applyBootstrapPayload to hydrate the Today/BP/Weight
-  // caches with real data — everything gated behind a disabled feature flag
-  // above is simply omitted, which applyBootstrapPayload already treats as
+  // caches with real data — everything gated behind a clamped-off feature
+  // flag is simply omitted, which applyBootstrapPayload already treats as
   // "leave that cache alone".
   async function bootstrapPayload() {
-    const [readings, goal, stats, logs, weightGoal, weightUnit] = await Promise.all([
+    const [readings, goal, stats, logs, weightGoal, weightUnit, features, foodTargets, tabOrder] = await Promise.all([
       bp.list({ days: 60, limit: 0 }),
       bp.getGoal(),
       bp.getStats(),
       weight.list({ days: 35, limit: 0 }),
       weight.getGoal(),
       readWeightUnit(),
+      settings.getFeatures(),
+      settings.getFoodTargets(),
+      settings.getTabOrder(),
     ]);
-    return {
+    const payload = {
       cursor: 0,
       needs_first_run: false,
-      features: FEATURES,
+      features: clampFeatures(features),
       bp: { readings, goal, stats },
       weight: { logs, goal: weightGoal },
       settings: {
-        food_targets: { calories: 0, carbs: 0, protein: 0, fat: 0 },
+        food_targets: foodTargets,
         bp_reminder_status: { enabled: false, preferred_reminder_hour: 20 },
         weight_reminder_status: { enabled: false, preferred_reminder_hour: 9 },
         timezone: timeZone,
@@ -111,6 +113,8 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
         dismissed_tz_suggestion: '',
       },
     };
+    if (tabOrder) payload.settings.tab_order = tabOrder;
+    return payload;
   }
 
   // Stubs for boot-path endpoints the frontend calls unconditionally
@@ -120,15 +124,13 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
   const STUBS = {
     'GET /auth/status': () => ({ authenticated: true, method: 'cookie' }),
     'GET /api/bootstrap': bootstrapPayload,
-    'GET /api/init': () => ({ features: FEATURES }),
+    'GET /api/init': async () => ({ features: clampFeatures(await settings.getFeatures()) }),
     'GET /api/settings': async () => {
-      const { settings, features } = await bootstrapPayload();
-      return { ...settings, features };
+      const { settings: settingsBlock, features } = await bootstrapPayload();
+      return { ...settingsBlock, features };
     },
-    'GET /api/settings/features': () => FEATURES,
     'GET /api/bp/reminder/status': () => ({ enabled: false, preferred_reminder_hour: 20 }),
     'GET /api/weight/reminder/status': () => ({ enabled: false, preferred_reminder_hour: 9 }),
-    'GET /api/food/settings/targets': () => ({ calories: 0, carbs: 0, protein: 0, fat: 0 }),
   };
 
   // shimCall implements the window.offlineAwareApiCall(endpoint, method, body,
@@ -178,6 +180,30 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
       return { unit };
     }
 
+    if (path === '/api/settings' && method === 'POST') {
+      await settings.setTimezone(body && body.timezone);
+      return true;
+    }
+
+    if (method === 'POST') {
+      const m = /^\/api\/settings\/features\/([^/]+)$/.exec(path);
+      if (m) {
+        const enabled = !!(body && body.enabled);
+        await settings.setFeature(m[1], enabled);
+        return { enabled };
+      }
+    }
+
+    if (path === '/api/settings/tab-order' && method === 'POST') {
+      await settings.setTabOrder(body && body.order);
+      return true;
+    }
+
+    if (path === '/api/food/settings/targets') {
+      if (method === 'GET') return settings.getFoodTargets();
+      if (method === 'POST') return settings.setFoodTargets(body);
+    }
+
     // Reminder toggles: BP/weight reminders aren't functionally scheduled in
     // cloud C1 (the push relay is blind), but the Reminders section in Settings
     // is always visible and not feature-gated. Echo success instead of falling
@@ -198,13 +224,12 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
 
     console.warn(`[cloud shim] unmapped route (C2 discovery): ${method} ${path}`);
     // A thrown non-GET is turned into a blocking "Error:" alert by api.js
-    // (apiCall catch → safeAlert). Every write the always-visible C1 Settings
-    // surface can still reach an unmapped route from — the feature toggles
-    // (POST /api/settings/features/*), the Test-BP button
-    // (POST /api/bp/reminder/test), tab-order, journey targets — guards a falsy
-    // result and reverts or no-ops honestly. So resolve null for writes to a
-    // not-yet-wired route instead of alerting the user; reads keep throwing so
-    // apiCall's offline/empty-state handling is unchanged.
+    // (apiCall catch → safeAlert). Writes the always-visible Settings surface
+    // can still reach an unmapped route from — the Test-BP button
+    // (POST /api/bp/reminder/test), journey targets (unported, C2d) — guard a
+    // falsy result and revert or no-op honestly. So resolve null for writes to
+    // a not-yet-wired route instead of alerting the user; reads keep throwing
+    // so apiCall's offline/empty-state handling is unchanged.
     if (method !== 'GET') return null;
     throw apiError(404, `Not found: ${method} ${path}`);
   }
