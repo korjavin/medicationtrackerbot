@@ -80,7 +80,7 @@ Completion). Intended to run after C1 merges.
 
 ### Task 1: cloudstore inspect queries
 
-- [ ] add `internal/cloudstore/inspect.go` with read-only aggregates, one
+- [x] add `internal/cloudstore/inspect.go` with read-only aggregates, one
       `InspectAccount(ctx, accountID)` returning a struct composed of:
       sync stats (op count, min/max seq, last append time, last appending
       device credential id), record-type histogram (split
@@ -89,12 +89,12 @@ Completion). Intended to run after C1 merges.
       (credential_ref, v, ct byte size), push state (active + disabled
       subscription counts, pending scheduled count, next fire time, last
       sent time)
-- [ ] reuse `CredentialsByAccount` for the device list — no new query
-- [ ] add `AccountSummaries(ctx)` for the enriched `list`: per account —
+- [x] reuse `CredentialsByAccount` for the device list — no new query
+- [x] add `AccountSummaries(ctx)` for the enriched `list`: per account —
       subdomain, created, claimed (credential count > 0), device count,
       op count, last sync activity (single GROUP BY query joined over
       accounts; keep it one query, not N+1)
-- [ ] integration test in `internal/cloudstore/inspect_test.go`: seed two
+- [x] integration test in `internal/cloudstore/inspect_test.go`: seed two
       accounts (one with ops from two credentials + snapshot + scheduled
       pushes, one empty/unclaimed), assert `InspectAccount` and
       `AccountSummaries` values
