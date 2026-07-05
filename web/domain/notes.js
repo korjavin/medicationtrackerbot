@@ -15,13 +15,22 @@ function normalizeTag(raw) {
   return VALID_TAGS.has(t) ? t : null;
 }
 
-// Mirror the server's int64 auto-increment: a positive, monotonic, numeric id.
 // The frontend's "load more" cursor gates on `id > 0` and passes it back as a
 // numeric before_id (features/health.js), so string ids like `note_...` would
-// coerce to NaN and silently break pagination past the first page.
-function nextId(existing) {
-  const max = existing.reduce((m, r) => Math.max(m, Number(r.recordId) || 0), 0);
-  return String(max + 1);
+// coerce to NaN and silently break pagination past the first page. So the id
+// must be numeric, positive, and monotonic-descending (newest first).
+//
+// A dense `max+1` counter satisfies that but collides across devices: two
+// offline devices with the same live-note count both mint the same id, and the
+// LWW-on-clientTs sync merge then silently discards one note. Instead stamp the
+// id from the millisecond clock (already time-ordered) with 3 low-order random
+// digits for cross-device entropy, and fall back to `localMax+1` so a stalled
+// clock or a same-ms random collision can never reuse a local id.
+// ponytail: nowMs*1000 stays under Number.MAX_SAFE_INTEGER until ~year 2255.
+function nextId(existing, nowMs) {
+  const localMax = existing.reduce((m, r) => Math.max(m, Number(r.recordId) || 0), 0);
+  const stamped = nowMs * 1000 + Math.floor(Math.random() * 1000);
+  return String(Math.max(stamped, localMax + 1));
 }
 
 function toResponse(record) {
@@ -52,7 +61,7 @@ export function createNotesDomain({ records, now }) {
     }
     const nowMs = now();
     const record = {
-      recordId: nextId(await records.list(RECORD_TYPE)),
+      recordId: nextId(await records.list(RECORD_TYPE), nowMs),
       clientTs: nowMs,
       deleted: false,
       content,
