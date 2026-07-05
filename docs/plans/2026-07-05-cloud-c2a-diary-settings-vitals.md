@@ -199,14 +199,15 @@ enforces `web/domain/**`), shim clamps, feature flags as the gating switch.
 
 ### Task 7: [Final] Update documentation
 
-- [ ] `docs/cloud-mode.md`: C2a status in phasing; document the new record
+- [x] `docs/cloud-mode.md`: C2a status in phasing; document the new record
       types (`note`, `settings`, `features`, `taborder`, `foodtargets`,
       `integrations`, vitals streams) and the integrations-keys-in-vault
       property (BYO keys are now E2EE — better than server mode); note the
       vitals empty-until-migration behavior
-- [ ] `CLAUDE.md`: no structural change expected — confirm the cloud-mode
+- [x] `CLAUDE.md`: no structural change expected — confirm the cloud-mode
       index row mentions C2a
-- [ ] update the C2 sequence note (this file's Overview) if scope shifted
+- [x] update the C2 sequence note (this file's Overview) if scope shifted
+      (no shift — scope matches what shipped, left as-is)
 
 ## Technical Details
 
