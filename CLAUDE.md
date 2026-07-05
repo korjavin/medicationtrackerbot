@@ -177,7 +177,7 @@ When a screen needs to render cached data offline (or behind a 5xx proxy), route
 4. Tests (Vitest): one case for warm-cache offline render (asserts data + `Offline · …` chip), one for `OfflineNoCacheError` empty state. Reference: `web/static/js/tests/food.offline-cached-fetch.test.js`, `sections.stale-badge.test.js`.
 
 
-<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:6cd5cc61 -->
+<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:970c3bf2 -->
 ## Beads Issue Tracker
 
 This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
@@ -221,6 +221,7 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 
    # Team-maintainer opt-in only, unless current instructions forbid it:
    git pull --rebase
+   bd dolt push
    git push
    git status
    ```
