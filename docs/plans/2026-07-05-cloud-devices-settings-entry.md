@@ -125,9 +125,9 @@ trivial merge risk in `web/static/js/features/settings.js` if C2a lands concurre
 
 ### Task 5: [Final] Update documentation
 
-- [ ] `docs/cloud-mode.md` — note the `/devices` entry point and Settings row in
+- [x] `docs/cloud-mode.md` — note the `/devices` entry point and Settings row in
       the C0b device-lifecycle section
-- [ ] `docs/cloud-crypto.md` — update the "device-list UI" references (currently
+- [x] `docs/cloud-crypto.md` — update the "device-list UI" references (currently
       describe it as reachable from the unlock shell only)
 
 ## Technical Details
