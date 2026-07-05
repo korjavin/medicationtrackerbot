@@ -28,8 +28,10 @@ export async function runUnlockFlow() {
   }
   if (cached) {
     try {
-      const dek = await unwrapWithLdk(cached);
-      renderUnlocked(app, { accountId: cached.accountId, dek });
+      await unwrapWithLdk(cached);
+      // The real app (web/static, C1) reads the LDK cache itself via
+      // cloud-boot.js — send the browser there instead of the toy menu below.
+      location.href = '/';
       return;
     } catch {
       // Cache unreadable/corrupted (e.g. IndexedDB cleared mid-write) — fall
@@ -101,12 +103,19 @@ async function coldUnlock(app) {
   try {
     await establishLdkCache(dek, accountId);
   } catch {
-    // Warm-cache is an optimization; a storage-blocked browser (private mode,
-    // quota policy, partitioned iframe) must still reach the vault after a
-    // successful cold unlock rather than bouncing back to a locked loop. This
-    // mirrors the read-path tolerance in runUnlockFlow.
+    // Warm-cache is an optimization, but a navigation to '/' hands off to
+    // cloud-boot.js, which re-derives the DEK by re-reading that very cache —
+    // if the write just failed (storage-blocked private mode, quota policy,
+    // partitioned iframe), redirecting would bounce straight back to
+    // /unlock in a loop. Fall back to the toy in-memory menu instead, which
+    // still holds this cold-unlock's dek. ponytail: revisit once the real
+    // app has a no-cache boot path to hand the in-memory dek to directly.
+    renderUnlocked(app, { accountId, dek });
+    return;
   }
-  renderUnlocked(app, { accountId, dek });
+  // The real app (web/static, C1) reads the LDK cache itself via
+  // cloud-boot.js — send the browser there instead of the toy menu below.
+  location.href = '/';
 }
 
 function renderUnlocked(app, ctx) {
@@ -195,7 +204,7 @@ export async function establishLdkCache(dek, accountId) {
   await writeLdkRecord({ ldk, nonce, ct, accountId });
 }
 
-async function unwrapWithLdk(record) {
+export async function unwrapWithLdk(record) {
   const pt = await crypto.subtle.decrypt(
     { name: 'AES-GCM', iv: record.nonce, additionalData: LDK_AAD },
     record.ldk,
@@ -204,7 +213,9 @@ async function unwrapWithLdk(record) {
   return new Uint8Array(pt);
 }
 
-async function readLdkRecord() {
+// Exported so cloud-boot.js (web/static's cloud boot shim) can perform the
+// same warm-unlock read/unwrap without duplicating the LDK cache format.
+export async function readLdkRecord() {
   const db = await openDb();
   try {
     return await new Promise((resolve, reject) => {

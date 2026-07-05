@@ -171,6 +171,36 @@ async function checkAuth() {
         return true;
     }
 
+    // Cloud-mode short-circuit (mirrors the embedded-shell branch above).
+    // web/cloud/js/cloud-boot.js sets window.__MEDTRACKER_CLOUD__ synchronously
+    // before any other script runs, then asynchronously warm-unlocks the vault
+    // and installs the apiCall shim (window.offlineAwareApiCall) — unlike the
+    // mobile apiBase value, that install is not ready yet at this point, so we
+    // await window.MedTrackerCloudReady before touching the network. There is
+    // no cookie and the Telegram login UI is meaningless here either.
+    if (window.__MEDTRACKER_CLOUD__) {
+        if (window.MedTrackerCloudReady) {
+            try { await window.MedTrackerCloudReady; } catch (_) { /* boot() already redirects to /unlock on failure */ }
+        }
+        sessionStorage.removeItem('medtracker_auth_reload_in_progress');
+        saveAuthState('cloud');
+        const bootstrap = await apiCall(bootstrapURL(), 'GET');
+        if (bootstrap) {
+            await applyBootstrapPayload(bootstrap);
+        } else {
+            await loadInitData();
+            if (!window.SettingsState.isLoaded() && window.DataStore) {
+                try {
+                    const cachedBundle = await window.DataStore.getCached('settings_bundle');
+                    if (cachedBundle) {
+                        hydrateFeatureSettingsFromBundle(cachedBundle);
+                    }
+                } catch (_) { /* best-effort cache read */ }
+            }
+        }
+        return true;
+    }
+
     if (window.userInitData) {
         // We are in Telegram, proceed as normal
         sessionStorage.removeItem('medtracker_auth_reload_in_progress');

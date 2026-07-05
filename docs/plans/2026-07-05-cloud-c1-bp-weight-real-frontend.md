@@ -138,13 +138,13 @@ mobile); all existing Vitest suites must pass unchanged; Go changes to
 
 ### Task 6: Cloud boot path in the frontend
 
-- [ ] serve a tiny `cloud-boot.js` (from `web/cloud/js/`, loaded by a script tag the cloud router injects — or a cloud-only variant of index.html if injection is uglier) that runs before `app.js`: sets `window.__MEDTRACKER_CLOUD__ = true`, attempts warm unlock via the LDK cache (`web/cloud/js/unlock.js` readLdkRecord/unwrapWithLdk), on success builds `ctx` and calls `installApiShim(ctx)` + kicks `pullOnOpen(ctx)`, on failure redirects to `/unlock`
-- [ ] `app.js` `checkAuth()`: short-circuit on `window.__MEDTRACKER_CLOUD__` (exact mirror of the `__MEDTRACKER_BOOTSTRAP__` mobile pattern) — never render the Telegram login screen in cloud mode
-- [ ] guard `messenger-adapter.js` `loadTelegramSdk()`: skip when `__MEDTRACKER_CLOUD__` (CSP would block telegram.org anyway; fail closed, not noisily)
-- [ ] guard `web/static` service-worker registration: skip when `__MEDTRACKER_CLOUD__` (the cloud origin already has `web/cloud/sw.js`; two SWs on one scope is a fight we skip — ponytail: revisit offline-app-shell for cloud in C2)
-- [ ] disable the DataStore change stream (SSE/poller) in cloud mode via the same flag; after each `pullOnOpen` that applied ops, call `DataStore.invalidateTags(['bp','weight'])` so remote changes repaint
-- [ ] `/unlock` shell: after successful unlock/enrollment, `location.href = '/'` (the LDK cache carries the DEK across — `establishLdkCache` already runs on every unlock path)
-- [ ] new `window.*` globals get allowlist entries in `tests/architecture.globals.test.js` with justification (rule 4)
+- [x] serve a tiny `cloud-boot.js` (from `web/cloud/js/`, loaded by a script tag the cloud router injects — or a cloud-only variant of index.html if injection is uglier) that runs before `app.js`: sets `window.__MEDTRACKER_CLOUD__ = true`, attempts warm unlock via the LDK cache (`web/cloud/js/unlock.js` readLdkRecord/unwrapWithLdk), on success builds `ctx` and calls `installApiShim(ctx)` + kicks `pullOnOpen(ctx)`, on failure redirects to `/unlock`
+- [x] `app.js` `checkAuth()`: short-circuit on `window.__MEDTRACKER_CLOUD__` (exact mirror of the `__MEDTRACKER_BOOTSTRAP__` mobile pattern) — never render the Telegram login screen in cloud mode
+- [x] guard `messenger-adapter.js` `loadTelegramSdk()`: skip when `__MEDTRACKER_CLOUD__` (CSP would block telegram.org anyway; fail closed, not noisily)
+- [x] guard `web/static` service-worker registration: skip when `__MEDTRACKER_CLOUD__` (the cloud origin already has `web/cloud/sw.js`; two SWs on one scope is a fight we skip — ponytail: revisit offline-app-shell for cloud in C2)
+- [x] disable the DataStore change stream (SSE/poller) in cloud mode via the same flag; after each `pullOnOpen` that applied ops, call `DataStore.invalidateTags(['bp','weight'])` so remote changes repaint
+- [x] `/unlock` shell: after successful unlock/enrollment, `location.href = '/'` (the LDK cache carries the DEK across — `establishLdkCache` already runs on every unlock path)
+- [x] new `window.*` globals get allowlist entries in `tests/architecture.globals.test.js` with justification (rule 4)
 
 ### Task 7: Shim-mode contract runs of the existing feature suites
 

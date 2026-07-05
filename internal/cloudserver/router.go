@@ -6,6 +6,7 @@
 package cloudserver
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -53,9 +54,27 @@ func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, api 
 		store:      store,
 		shell:      http.FileServerFS(shellFS),
 		app:        http.StripPrefix("/static/", http.FileServerFS(appFS)),
-		appIndex:   idx,
+		appIndex:   injectCloudBoot(idx),
 		api:        api,
 	}
+}
+
+// injectCloudBoot splices a classic (non-module) <script src="/js/cloud-boot.js">
+// tag right after <head>, served from cloudweb.FS's js/ directory via the
+// default shell-fallback branch below. It must run before every other
+// web/static script — as a classic script it blocks parsing synchronously,
+// setting window.__MEDTRACKER_CLOUD__ before messenger-adapter.js /
+// app-shell.js / data-store.js ever check it — so it goes first, ahead of
+// even native-bootstrap.js. web/static/index.html itself stays untouched;
+// this only rewrites the copy cmd/cloud serves.
+func injectCloudBoot(idx []byte) []byte {
+	const marker = "<head>"
+	const inject = "<head>\n    <script src=\"/js/cloud-boot.js\"></script>"
+	out := bytes.Replace(idx, []byte(marker), []byte(inject), 1)
+	if bytes.Equal(out, idx) {
+		panic("cloudserver: index.html missing <head> to inject cloud-boot.js")
+	}
+	return out
 }
 
 // setSecurityHeaders hardens the E2EE origin. The threat model

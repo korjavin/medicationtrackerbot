@@ -27,15 +27,16 @@ func setupStore(t *testing.T) *cloudstore.Repo {
 
 func testFS() fstest.MapFS {
 	return fstest.MapFS{
-		"index.html":    {Data: []byte("landing page")},
-		"signup.html":   {Data: []byte("account shell")},
-		"css/cloud.css": {Data: []byte("body{}")},
+		"index.html":       {Data: []byte("landing page")},
+		"signup.html":      {Data: []byte("account shell")},
+		"css/cloud.css":    {Data: []byte("body{}")},
+		"js/cloud-boot.js": {Data: []byte("window.__MEDTRACKER_CLOUD__=true;")},
 	}
 }
 
 func testAppFS() fstest.MapFS {
 	return fstest.MapFS{
-		"index.html": {Data: []byte("real app")},
+		"index.html": {Data: []byte("<html><head></head><body>real app</body></html>")},
 		"js/app.js":  {Data: []byte("console.log(1)")},
 	}
 }
@@ -59,11 +60,12 @@ func TestRouter_HostVariants(t *testing.T) {
 	}{
 		{"base domain serves landing page", "app.example.com", "/", http.StatusOK, "landing page"},
 		{"base domain with dev port", "app.example.com:8080", "/", http.StatusOK, "landing page"},
-		{"known subdomain serves the real app at root", "known-sub.app.example.com", "/", http.StatusOK, "real app"},
+		{"known subdomain serves the real app at root", "known-sub.app.example.com", "/", http.StatusOK, "<html><head>\n    <script src=\"/js/cloud-boot.js\"></script></head><body>real app</body></html>"},
 		{"known subdomain serves the unlock shell", "known-sub.app.example.com", "/unlock", http.StatusOK, "account shell"},
 		{"known subdomain claim serves the shell", "known-sub.app.example.com", "/claim", http.StatusOK, "account shell"},
 		{"known subdomain recover serves the shell", "known-sub.app.example.com", "/recover", http.StatusOK, "account shell"},
 		{"known subdomain app asset resolves", "known-sub.app.example.com", "/static/js/app.js", http.StatusOK, "console.log(1)"},
+		{"known subdomain cloud-boot.js resolves via shell fallback", "known-sub.app.example.com", "/js/cloud-boot.js", http.StatusOK, "window.__MEDTRACKER_CLOUD__=true;"},
 		{"unknown subdomain is 404", "no-such-sub.app.example.com", "/", http.StatusNotFound, ""},
 		{"unrelated host is 404", "evil.example.org", "/", http.StatusNotFound, ""},
 	}
