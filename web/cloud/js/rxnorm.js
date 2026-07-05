@@ -17,13 +17,23 @@
 const BASE_URL = 'https://rxnav.nlm.nih.gov';
 const INTERACTION_URL = 'https://lhncbc.nlm.nih.gov/RxNav/APIs';
 
+// 10s cap mirrors internal/rxnorm/client.go's http.Client{Timeout: 10s}. A
+// bare fetch() has no timeout, so a half-open stall (captive portal, degraded
+// network) would hang the awaited searchRxNorm inside a med create/update and
+// the write would never persist. On abort/error the caller degrades to empty.
+const FETCH_TIMEOUT_MS = 10000;
+
 async function fetchJson(url) {
-  const res = await fetch(url);
-  if (!res.ok) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) return null;
     return await res.json();
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
