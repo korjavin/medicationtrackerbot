@@ -114,11 +114,11 @@ mobile); all existing Vitest suites must pass unchanged; Go changes to
 
 ### Task 3: `web/domain/` — runtime-agnostic weight domain module
 
-- [ ] create `web/domain/weight.js` exporting `createWeightDomain({ records, now, timeZone })` with `create(input, {replacesId})`, `list({days, limit})`, `remove(id)`, `getGoal()`, `setGoal(goal)`
-- [ ] port the EMA trend (α=0.1): previous trend = trend of the newest log by `measured_at` excluding `replacesId` (the `?replaces=` edit semantics from `weight_handlers.go:39-45`); seed with current weight when no prior log
-- [ ] record shape: `recordType 'weight'`, server field names (`measured_at`, `weight`, `weight_trend`, `body_fat`, `muscle_mass`, `notes`); skip `body_fat_trend`/`muscle_mass_trend` (import-only server-side)
-- [ ] weight goal: `recordType 'weightgoal'`, append-only like the `weight_goals` table (`set_at`, `target_weight`, `target_date`, `start_weight`); `getGoal()` reproduces `handleGetWeightGoal`'s merged response: latest goal + `highest_weight`/`highest_date` derived from the weight records
-- [ ] Vitest purity guard `web/static/js/tests/architecture.domain-purity.test.js` (or alongside existing arch tests): source of every file under `web/domain/` contains no `window.`, `document.`, `fetch(`, `indexedDB`, `navigator.` — the C6/goja portability invariant
+- [x] create `web/domain/weight.js` exporting `createWeightDomain({ records, now, timeZone })` with `create(input, {replacesId})`, `list({days, limit})`, `remove(id)`, `getGoal()`, `setGoal(goal)`
+- [x] port the EMA trend (α=0.1): previous trend = trend of the newest log by `measured_at` excluding `replacesId` (the `?replaces=` edit semantics from `weight_handlers.go:39-45`); seed with current weight when no prior log
+- [x] record shape: `recordType 'weight'`, server field names (`measured_at`, `weight`, `weight_trend`, `body_fat`, `muscle_mass`, `notes`); skip `body_fat_trend`/`muscle_mass_trend` (import-only server-side)
+- [x] weight goal: `recordType 'weightgoal'`, append-only like the `weight_goals` table (`set_at`, `target_weight`, `target_date`, `start_weight`); `getGoal()` reproduces `handleGetWeightGoal`'s merged response: latest goal + `highest_weight`/`highest_date` derived from the weight records
+- [x] Vitest purity guard `web/static/js/tests/architecture.domain-purity.test.js` (or alongside existing arch tests): source of every file under `web/domain/` contains no `window.`, `document.`, `fetch(`, `indexedDB`, `navigator.` — the C6/goja portability invariant
 
 ### Task 4: The apiCall shim
 
