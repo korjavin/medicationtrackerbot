@@ -51,6 +51,20 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
   const bp = createBPDomain({ records, now, timeZone });
   const weight = createWeightDomain({ records, now, timeZone });
 
+  // Weight-unit preference: a singleton record (fixed recordId, LWW on
+  // clientTs) so the Settings kg/lb toggle — always present in the nav, not
+  // feature-gated — persists across reloads instead of hitting the unmapped-
+  // route 404 (which api.js turns into a user-facing "Error:" alert + revert).
+  const UNIT_RECORD_TYPE = 'weightunitpref';
+  async function readWeightUnit() {
+    const rows = (await records.list(UNIT_RECORD_TYPE)).filter((r) => !r.deleted);
+    const latest = rows.sort((a, b) => b.clientTs - a.clientTs)[0];
+    return latest && latest.unit === 'lb' ? 'lb' : 'kg';
+  }
+  async function writeWeightUnit(unit) {
+    await records.put(UNIT_RECORD_TYPE, { recordId: 'weight-unit', clientTs: now(), deleted: false, unit });
+  }
+
   // Feature flags enabling only the sections C1 ported (Today/BP/Weight/
   // Settings) — the bottom nav filters everything else before mount
   // (CLAUDE.md rule 6). Field names match internal/server/settings_handlers.go
@@ -72,12 +86,13 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
   // above is simply omitted, which applyBootstrapPayload already treats as
   // "leave that cache alone".
   async function bootstrapPayload() {
-    const [readings, goal, stats, logs, weightGoal] = await Promise.all([
+    const [readings, goal, stats, logs, weightGoal, weightUnit] = await Promise.all([
       bp.list({ days: 60, limit: 0 }),
       bp.getGoal(),
       bp.getStats(),
       weight.list({ days: 35, limit: 0 }),
       weight.getGoal(),
+      readWeightUnit(),
     ]);
     return {
       cursor: 0,
@@ -90,7 +105,7 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
         bp_reminder_status: { enabled: false, preferred_reminder_hour: 20 },
         weight_reminder_status: { enabled: false, preferred_reminder_hour: 9 },
         timezone: timeZone,
-        weight_unit_preference: 'kg',
+        weight_unit_preference: weightUnit,
         dismissed_tz_suggestion: '',
       },
     };
@@ -143,6 +158,12 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
       if (m) { await weight.remove(m[1]); return true; }
     }
     if (path === '/api/weight/goal' && method === 'GET') return weight.getGoal();
+
+    if (path === '/api/settings/weight-unit' && method === 'PATCH') {
+      const unit = body && body.unit === 'lb' ? 'lb' : 'kg';
+      await writeWeightUnit(unit);
+      return { unit };
+    }
 
     const stubKey = `${method} ${path}`;
     const stub = STUBS[stubKey];

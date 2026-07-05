@@ -145,6 +145,18 @@ describe('cloud shim contract — weight flows (features/weight.js over web/doma
         expect(listRes[0].id).not.toBe(original.id);
     });
 
+    it('PATCH /api/settings/weight-unit persists and is echoed by bootstrap (no 404 alert)', async () => {
+        const { window } = env;
+        // The Settings kg/lb toggle is always present in cloud mode; before the
+        // shim mapped this route it fell through to the 404 path, which api.js
+        // turns into a user-facing alert + reverted preference.
+        const res = await window.apiCall('/api/settings/weight-unit', 'PATCH', { unit: 'lb' });
+        expect(res).toEqual({ unit: 'lb' });
+
+        const boot = await window.apiCall('/api/bootstrap');
+        expect(boot.settings.weight_unit_preference).toBe('lb');
+    });
+
     it('_deleteWeightApi removes the log from the shim-backed store', async () => {
         const { window, document } = env;
         await submitWeightLog(window, document, { daysAgo: 1, weight: 80.0 });
