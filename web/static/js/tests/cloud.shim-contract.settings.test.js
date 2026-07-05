@@ -86,6 +86,18 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         expect(document.getElementById('food-target-fat').value).toBe('70');
     });
 
+    it('dismissing a tz suggestion persists and GET /api/settings + bootstrap echo it back', async () => {
+        const { window } = env;
+
+        await window.apiCall('/api/tz-suggestion/dismiss', 'POST', { detected_tz: 'Europe/Berlin' });
+
+        const settings = await window.apiCall('/api/settings', 'GET');
+        expect(settings.dismissed_tz_suggestion).toBe('Europe/Berlin');
+
+        const boot = await window.apiCall('/api/bootstrap');
+        expect(boot.settings.dismissed_tz_suggestion).toBe('Europe/Berlin');
+    });
+
     it('Integrations round-trip: entering a key, saving, then reloading shows the masked value', async () => {
         const { window, document } = env;
 

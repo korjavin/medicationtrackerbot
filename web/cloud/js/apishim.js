@@ -143,7 +143,7 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
       weight_reminder_status: { enabled: false, preferred_reminder_hour: 9 },
       timezone: general.timezone,
       weight_unit_preference: weightUnit,
-      dismissed_tz_suggestion: '',
+      dismissed_tz_suggestion: general.dismissed_tz_suggestion,
     };
     if (tabOrder) block.tab_order = tabOrder;
     return { settings: block, features: clampFeatures(features) };
