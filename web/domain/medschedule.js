@@ -57,7 +57,9 @@ function weekdayAllowed(weekday, days) {
 
 // window === 0 → fire mode: include only targets at-or-before now.
 // window  > 0 → forecast mode: include only targets in (now, now+window].
-function targetInWindow(target, now, window) {
+// Exported so tzplan.js's forecast union (Task 4) applies the identical
+// fire/forecast rule to transition-plan steps.
+export function targetInWindow(target, now, window) {
   if (window === 0) return target <= now;
   return target > now && target - now <= window;
 }
@@ -173,7 +175,8 @@ export function listLowOnStock(medications, now, daysThreshold = DEFAULT_LOW_STO
 }
 
 // Ported from internal/domain/tzreschedule/engine.go:305 (nominalIntervalHours).
-function nominalIntervalHours(cfg) {
+// Exported so tzplan.js's step-shift math (Task 4) can share this definition.
+export function nominalIntervalHours(cfg) {
   if (!cfg || !Array.isArray(cfg.times) || cfg.times.length === 0) return 24;
   if (cfg.type === 'weekly') {
     const dosesPerWeek = cfg.days.length > 0 ? cfg.days.length * cfg.times.length : cfg.times.length;
@@ -185,8 +188,10 @@ function nominalIntervalHours(cfg) {
 
 // Ported from internal/domain/tzreschedule/policy.go:44 (MinDoseInterval),
 // used by medintake.js's due-dose materialization as the ±band dedup replacing
-// the server's HasIntakeNearScheduledTime SQL query. tzShiftPolicy defaults to
-// "flexible" for empty/unknown values, matching NormalizePolicy.
+// the server's HasIntakeNearScheduledTime SQL query, and by tzplan.js's step
+// generation (Task 4) as the hard minimum gap between transition steps.
+// tzShiftPolicy defaults to "flexible" for empty/unknown values, matching
+// NormalizePolicy.
 const MIN_DOSE_INTERVAL_FACTOR = { strict: 0.70, medium: 0.65, flexible: 0.60 };
 
 export function minDoseIntervalMs(schedule, tzShiftPolicy) {
@@ -194,5 +199,17 @@ export function minDoseIntervalMs(schedule, tzShiftPolicy) {
   if (!cfg || cfg.type === 'as_needed') return 0;
   const hours = nominalIntervalHours(cfg);
   const factor = MIN_DOSE_INTERVAL_FACTOR[tzShiftPolicy] || MIN_DOSE_INTERVAL_FACTOR.flexible;
+  return hours * 60 * 60 * 1000 * factor;
+}
+
+// Ported from internal/domain/tzreschedule/policy.go:59 (MaxDoseInterval) —
+// tzplan.js's step generation (Task 4) hard maximum gap between steps.
+const MAX_DOSE_INTERVAL_FACTOR = { strict: 1.50, medium: 1.75, flexible: 2.00 };
+
+export function maxDoseIntervalMs(schedule, tzShiftPolicy) {
+  const cfg = parseSchedule(schedule);
+  if (!cfg || cfg.type === 'as_needed') return 0;
+  const hours = nominalIntervalHours(cfg);
+  const factor = MAX_DOSE_INTERVAL_FACTOR[tzShiftPolicy] || MAX_DOSE_INTERVAL_FACTOR.flexible;
   return hours * 60 * 60 * 1000 * factor;
 }

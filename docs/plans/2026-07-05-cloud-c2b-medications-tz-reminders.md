@@ -181,27 +181,37 @@ plan stays meds-shaped.
 
 ### Task 4: TZ handling — suggestion, plan preview, one-record plans
 
-- [ ] port `GeneratePlan` + `policy.go` shift caps to
+- [x] port `GeneratePlan` + `policy.go` shift caps to
       `web/domain/tzplan.js` (pure: old/new tz, meds, recent intakes →
       steps with per-med step numbers and notes)
-- [ ] suggestion flow: device tz ≠ stored `settings.timezone` (C2a record)
+- [x] suggestion flow: device tz ≠ stored `settings.timezone` (C2a record)
       and not dismissed → the existing banner path; dismissal persists (C1
       already stubs `dismissed_tz_suggestion` — make it a real record field)
-- [ ] plan lifecycle, minimal: on accepting a tz change that needs steps,
+- [x] plan lifecycle, minimal: on accepting a tz change that needs steps,
       create ONE `tzplan` record `{old_tz, new_tz, status:
       PENDING_APPROVAL, steps:[...], created_at}`; banner reads it via
       `GET /api/tz-plan/current` (shim maps to the record, snake_case step
       shape the banner expects); approve → status APPROVED (+ settings.timezone
       updated); reject → status REJECTED + timezone reverted
-- [ ] forecast/fire integration: while a plan is APPROVED with future
+- [x] forecast/fire integration: while a plan is APPROVED with future
       steps, PlanDoses callers union the plan's due steps in and suppress
       the same-med normal targets for stepped slots (the ONE suppression
       rule kept from the server's three gates); plan flips to COMPLETED
       when no future steps remain
-- [ ] flexible-policy tz change (whole shift at once) needs no plan — just
+- [x] flexible-policy tz change (whole shift at once) needs no plan — just
       update the timezone and let recomputation handle it (matches server
       behavior where flexible yields a single step; verify equivalence and
       note any deviation here with ➕)
+
+  ➕ `generatePlan` drops the server's flexible one-step branch entirely
+  (rather than generating then discarding it) since a plain
+  `settings.setTimezone` write plus the existing `planDoses` recompute
+  under the new zone is exactly equivalent for a policy that always
+  shifts the whole offset in one step — verified via a Node smoke script
+  exercising eastbound/westbound generation, suppression, and the full
+  propose→approve/reject→complete lifecycle over an in-memory records
+  port. Shim wiring (the actual `/api/tz-plan/*` + `/api/tz-suggestion/*`
+  routes) is Task 7's concern; this task only ships the domain layer.
 
 ### Task 5: Reminders — compute and upload to the blind relay
 

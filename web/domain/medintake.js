@@ -6,9 +6,9 @@
 // settings_handlers.go (next-intake forecast).
 //
 // Record type: intake — medication_id, scheduled_at, taken_at, status
-// (PENDING|TAKEN|SKIPPED), snoozed_until, source (always "schedule" here —
-// cloud mode has no tz_step materialization yet; that lands with the tz plan
-// forecast union in Task 4).
+// (PENDING|TAKEN|SKIPPED), snoozed_until, source ("schedule" or "tz_step" —
+// a slot that came from an APPROVED tz transition plan's steps, unioned in
+// via planDosesWithTzPlan, see tzplan.js).
 //
 // Deterministic ids are the multi-device dedup mechanism: a scheduled dose's
 // recordId is `intake-<medId>-<slotUnix>`, so two devices materializing "the
@@ -16,10 +16,13 @@
 // no dupes, no divergence. Manual (log-past) intakes have no natural slot, so
 // they get a random id (same nowMs+random technique as medications.js's
 // nextId / weight.js's genId).
-import { planDoses, minDoseIntervalMs } from './medschedule.js';
+import { minDoseIntervalMs } from './medschedule.js';
+import { planDosesWithTzPlan } from './tzplan.js';
 
 const MEDICATION_RECORD_TYPE = 'medication';
 const INTAKE_RECORD_TYPE = 'intake';
+const TZPLAN_RECORD_TYPE = 'tzplan';
+const TZPLAN_RECORD_ID = 'tzplan-current';
 
 const NEXT_INTAKE_FORECAST_MS = 12 * 60 * 60 * 1000;
 const CLUSTER_WINDOW_MS = 10 * 60 * 1000;
@@ -89,6 +92,17 @@ export function createIntakeDomain({ records, now, timeZone }) {
     return all.find((i) => i.recordId === id) || null;
   }
 
+  // The active APPROVED tz transition plan, or null — read directly (this
+  // module's established pattern for shared record types, same as
+  // medications.js reading intake records). A PENDING_APPROVAL/REJECTED/
+  // COMPLETED plan has no effect on forecasting: planDosesWithTzPlan is a
+  // passthrough for anything that isn't APPROVED.
+  async function loadActiveTzPlan() {
+    const all = await records.list(TZPLAN_RECORD_TYPE);
+    const plan = all.find((r) => !r.deleted && r.recordId === TZPLAN_RECORD_ID);
+    return plan && plan.status === 'APPROVED' ? plan : null;
+  }
+
   async function putIntake(intake) {
     await records.put(INTAKE_RECORD_TYPE, intake);
   }
@@ -119,9 +133,10 @@ export function createIntakeDomain({ records, now, timeZone }) {
     const meds = await loadMeds();
     const intakes = await loadIntakes();
     const nowMs = now();
+    const tzPlan = await loadActiveTzPlan();
 
-    const targets = planDoses({
-      medications: meds.map(toMedScheduleShape), timeZone, now: nowMs, window: 0,
+    const targets = planDosesWithTzPlan({
+      medications: meds.map(toMedScheduleShape), timeZone, now: nowMs, window: 0, tzPlan,
     });
 
     const created = [];
@@ -147,7 +162,7 @@ export function createIntakeDomain({ records, now, timeZone }) {
         taken_at: null,
         status: 'PENDING',
         snoozed_until: null,
-        source: 'schedule',
+        source: target.source === 'tz_step' ? 'tz_step' : 'schedule',
       };
       await putIntake(record);
       intakes.push(record);
@@ -330,16 +345,17 @@ export function createIntakeDomain({ records, now, timeZone }) {
 
   // Ported from handleTriggerNextIntake: pick the earliest not-yet-handled
   // dose cluster (±10min) in the next 12h and confirm-or-create each member.
-  // Plan-step union/suppression (medplan's SourceTransitionStep targets) is
-  // Task 4's concern — this only sees normal-schedule targets for now.
+  // planDosesWithTzPlan unions in an APPROVED plan's own steps and suppresses
+  // affected meds' normal targets (Task 4).
   async function triggerNextIntake() {
     const meds = await loadMeds();
     const intakes = await loadIntakes();
     const nowMs = now();
     const nowIso = new Date(nowMs).toISOString();
+    const tzPlan = await loadActiveTzPlan();
 
-    const targets = planDoses({
-      medications: meds.map(toMedScheduleShape), timeZone, now: nowMs, window: NEXT_INTAKE_FORECAST_MS,
+    const targets = planDosesWithTzPlan({
+      medications: meds.map(toMedScheduleShape), timeZone, now: nowMs, window: NEXT_INTAKE_FORECAST_MS, tzPlan,
     });
 
     let clusterEarliestMs = null;
@@ -384,7 +400,7 @@ export function createIntakeDomain({ records, now, timeZone }) {
           taken_at: nowIso,
           status: 'TAKEN',
           snoozed_until: null,
-          source: 'schedule',
+          source: target.source === 'tz_step' ? 'tz_step' : 'schedule',
         };
         await putIntake(record);
         intakes.push(record);
@@ -409,9 +425,10 @@ export function createIntakeDomain({ records, now, timeZone }) {
     const meds = await loadMeds();
     const intakes = await loadIntakes();
     const nowMs = now();
+    const tzPlan = await loadActiveTzPlan();
 
-    const targets = planDoses({
-      medications: meds.map(toMedScheduleShape), timeZone, now: nowMs, window: NEXT_INTAKE_FORECAST_MS,
+    const targets = planDosesWithTzPlan({
+      medications: meds.map(toMedScheduleShape), timeZone, now: nowMs, window: NEXT_INTAKE_FORECAST_MS, tzPlan,
     });
 
     let nextTimeMs = null;
