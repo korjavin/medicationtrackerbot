@@ -22,6 +22,7 @@ const NON_SPA_NAVIGATION_PATHS = new Set([
 // Static assets to cache on install
 const STATIC_ASSETS = [
     '/',
+    '/static/css/base-fallback.css',
     '/static/css/styles.css',
     '/static/css/firstrun.css',
     // Core modules

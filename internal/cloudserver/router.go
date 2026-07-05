@@ -6,6 +6,7 @@
 package cloudserver
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -25,27 +26,60 @@ type accountStore interface {
 }
 
 // Handler routes requests by Host: the exact base domain gets the static
-// landing page, "<sub>.<base>" gets the account shell + account-scoped API
-// (unknown subdomains get a 404), and everything else is served from the same
-// embedded static FS.
+// landing page, "<sub>.<base>" gets the real web/static app (with the
+// passkey unlock/claim/recover shell at explicit paths) + account-scoped
+// API (unknown subdomains get a 404).
 type Handler struct {
 	baseDomain string
 	store      accountStore
-	static     http.Handler
+	shell      http.Handler // web/cloud: base-domain landing page + /unlock, /claim, /recover
+	app        http.Handler // web/static assets, mounted under /static/
+	domain     http.Handler // web/domain modules, mounted under /domain/
+	appIndex   []byte       // web/static/index.html, served at "/" on subdomains
 	api        http.Handler
 }
 
-// New builds the host-routing Handler. staticFS is the embedded web/cloud
-// tree (cloudweb.FS) containing index.html, signup.html, css/, js/. api
-// handles "/api/*" requests on the subdomain branch (nil serves 404 for
-// them) — see WebAuthnAPI.Routes.
-func New(baseDomain string, store accountStore, staticFS fs.FS, api http.Handler) *Handler {
+// New builds the host-routing Handler. shellFS is the embedded web/cloud tree
+// (cloudweb.FS) containing index.html, signup.html, css/, js/ — the passkey
+// unlock/claim/recover wizard. appFS is the embedded web/static tree
+// (webstatic.FS) — the real health-tracking frontend served to unlocked
+// accounts, ported by C1. domainFS is the embedded web/domain tree
+// (domainweb.FS) — the runtime-agnostic BP/weight modules, served under
+// "/domain/" because web/cloud/js/apishim.js imports them from there
+// (../../domain/*.js). api handles "/api/*" requests on the subdomain
+// branch (nil serves 404 for them) — see WebAuthnAPI.Routes.
+func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, domainFS fs.FS, api http.Handler) *Handler {
+	idx, err := fs.ReadFile(appFS, "index.html")
+	if err != nil {
+		panic("cloudserver: appFS missing index.html: " + err.Error())
+	}
 	return &Handler{
 		baseDomain: baseDomain,
 		store:      store,
-		static:     http.FileServerFS(staticFS),
+		shell:      http.FileServerFS(shellFS),
+		app:        http.StripPrefix("/static/", http.FileServerFS(appFS)),
+		domain:     http.StripPrefix("/domain/", http.FileServerFS(domainFS)),
+		appIndex:   injectCloudBoot(idx),
 		api:        api,
 	}
+}
+
+// injectCloudBoot splices a classic (non-module) <script src="/js/cloud-boot.js">
+// tag right after <head>, served from cloudweb.FS's js/ directory via the
+// default shell-fallback branch below. It must run before every other
+// web/static script — as a classic script it blocks parsing synchronously,
+// setting window.__MEDTRACKER_CLOUD__ before messenger-adapter.js /
+// app-shell.js / data-store.js ever check it — so it goes first, ahead of
+// even native-bootstrap.js. web/static/index.html itself stays untouched;
+// this only rewrites the copy cmd/cloud serves.
+func injectCloudBoot(idx []byte) []byte {
+	const marker = "<head>"
+	const inject = "<head>\n    <script src=\"/js/cloud-boot.js\"></script>"
+	out := bytes.Replace(idx, []byte(marker), []byte(inject), 1)
+	if bytes.Equal(out, idx) {
+		panic("cloudserver: index.html missing <head> to inject cloud-boot.js")
+	}
+	return out
 }
 
 // setSecurityHeaders hardens the E2EE origin. The threat model
@@ -67,7 +101,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	setSecurityHeaders(w)
 	host := stripPort(r.Host)
 	if host == h.baseDomain {
-		h.static.ServeHTTP(w, r)
+		h.shell.ServeHTTP(w, r)
 		return
 	}
 
@@ -98,16 +132,34 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The account shell lives at signup.html (it self-selects claim wizard,
+	// The passkey shell lives at signup.html (it self-selects claim wizard,
 	// device-transfer claim, or unlock flow at runtime — see
-	// web/cloud/js/app.js), not index.html. /claim is the QR/typed-fallback
-	// hand-off landing page (see web/cloud/js/transfer.js); its slot id + TK
-	// ride the URL fragment, which browsers never send to the server. /recover
-	// is the Emergency Kit redemption page (see web/cloud/js/recover.js).
-	if r.URL.Path == "/" || r.URL.Path == "/claim" || r.URL.Path == "/recover" {
+	// web/cloud/js/app.js), reached via explicit paths: /unlock is the
+	// warm/cold unlock landing page, /claim is the QR/typed-fallback
+	// hand-off page (see web/cloud/js/transfer.js; its slot id + TK ride the
+	// URL fragment, which browsers never send to the server), /recover is
+	// the Emergency Kit redemption page (see web/cloud/js/recover.js). The
+	// shell's own assets (css/js/vendor/sw.js) are root-relative — anything
+	// that isn't "/", the shell's explicit paths, "/static/*" (the real app,
+	// C1), or "/domain/*" (the runtime-agnostic BP/weight modules) is assumed
+	// to be one of those and also goes to the shell.
+	switch {
+	case r.URL.Path == "/unlock" || r.URL.Path == "/claim" || r.URL.Path == "/recover":
 		r.URL.Path = "/signup.html"
+		h.shell.ServeHTTP(w, r)
+		return
+	case r.URL.Path == "/":
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(h.appIndex)
+		return
+	case strings.HasPrefix(r.URL.Path, "/static/"):
+		h.app.ServeHTTP(w, r)
+		return
+	case strings.HasPrefix(r.URL.Path, "/domain/"):
+		h.domain.ServeHTTP(w, r)
+		return
 	}
-	h.static.ServeHTTP(w, r)
+	h.shell.ServeHTTP(w, r)
 }
 
 // accountCtxKey is the context key the resolved account is stashed under by

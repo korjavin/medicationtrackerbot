@@ -25,18 +25,17 @@
     <script src="/static/vendor/dexie.min.js"></script>
     <script src="/static/vendor/zxing.min.js"></script>
     <script src="/static/config.js"></script>
+    <!-- Blocked outright under the cloud origin's strict CSP (style-src
+         'self', no third-party fonts) — degrades to the same-origin
+         base-fallback.css font stack below. Loads normally in the bot-mode
+         and mobile builds, which don't set that CSP. -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet"
         href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+    <link rel="stylesheet" href="/static/css/base-fallback.css?v=TIMESTAMP_PLACEHOLDER">
     <link rel="stylesheet" href="/static/css/styles.css?v=TIMESTAMP_PLACEHOLDER">
     <link rel="stylesheet" href="/static/css/firstrun.css?v=TIMESTAMP_PLACEHOLDER">
-    <style>
-        /* Fallback if css doesn't load immediately */
-        body {
-            font-family: -apple-system, BlinkMacMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-        }
-    </style>
 </head>
 
 <body>

@@ -191,8 +191,11 @@ checkAuth().then(async authorized => {
             window.SyncManager.init();
         }
 
-        // Initialize PushManager
-        if (window.MedTrackerPush) {
+        // Initialize PushManager. Skipped in cloud mode (C1): cmd/cloud has no
+        // web-push backend — /api/webpush/* is unregistered there — and the
+        // service worker isn't registered either, so initialize() would only
+        // fire a doomed vapid-key fetch. Reminders arrive in C3b.
+        if (window.MedTrackerPush && !window.__MEDTRACKER_CLOUD__) {
             window.MedTrackerPush.initialize().then(supported => {
                 if (supported && window.MedTrackerPush.subscription) {
                     // Update UI if already subscribed

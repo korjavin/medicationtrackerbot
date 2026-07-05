@@ -85,6 +85,15 @@ function initOIDCSetupBanner() {
 
 // Load settings (BP reminders status, etc.)
 async function loadSettings() {
+    // Cloud mode (C1) has no web-push / reminder backend — the Notifications
+    // controls (Web Push toggle + Test Meds/Test BP) POST to bot-mode
+    // /api/webpush/* + /api/bp/reminder/test routes cmd/cloud never registers,
+    // so clicking them only surfaces 404 errors. Hide the whole section until
+    // reminders land in C3b, matching the plan's "reminders UI disabled in
+    // cloud mode" deferral.
+    if (window.__MEDTRACKER_CLOUD__) {
+        document.querySelector('.wg-settings-notifications')?.classList.add('wg-settings-hidden');
+    }
     const applyBundle = async (rawBundle) => {
         const bundle = window.AuthBootstrap.normalizeSettingsBundle(rawBundle);
         window.SettingsState.applyBootstrapFeatures(bundle.featureSettings);

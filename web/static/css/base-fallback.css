@@ -1,0 +1,6 @@
+/* Fallback if styles.css doesn't load immediately. Same-origin file (not an
+   inline <style> block) so the page also renders under a strict
+   default-src 'self' CSP — see internal/cloudserver/router.go. */
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}

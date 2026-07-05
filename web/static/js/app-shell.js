@@ -17,6 +17,10 @@ window.sendSwAuthToken = function () {
 };
 
 window.initServiceWorker = function () {
+    // The cloud origin already runs web/cloud/sw.js on this scope (registered
+    // by the shell before unlock) — a second SW fighting over "/" is a
+    // ponytail: revisit offline-app-shell for cloud in C2, skip for now.
+    if (window.__MEDTRACKER_CLOUD__) return;
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', async () => {
             try {

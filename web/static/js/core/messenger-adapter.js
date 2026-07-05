@@ -300,6 +300,16 @@
             }
         } catch (e) { /* fall through */ }
 
+        // Cloud-mode signal (web/cloud/js/cloud-boot.js sets this before any
+        // other script runs): the E2EE origin's CSP (default-src 'self') would
+        // block telegram.org outright, and there is no Telegram identity here
+        // anyway — fail closed rather than let the network request even fire.
+        try {
+            if (typeof window !== 'undefined' && window.__MEDTRACKER_CLOUD__) {
+                return Promise.resolve();
+            }
+        } catch (e) { /* fall through */ }
+
         if (typeof window !== 'undefined' && window.Telegram && window.Telegram.WebApp) {
             return Promise.resolve();
         }

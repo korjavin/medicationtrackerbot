@@ -185,6 +185,14 @@ const ALLOWED_GLOBALS = new Set([
     // Capacitor shell bootstrap — embedded-Go shell (mobile Phase 2a, Task 5).
     'window.__MEDTRACKER_BOOTSTRAP__',  // index.html inline shim — Capacitor shell injects { apiBase: "http://127.0.0.1:<port>" } before WebView load by mirroring window.MedtrackerNative.apiBase(). core/api.js's resolveApiUrl() reads it to prefix relative endpoints. Reserved as the carrier for future shell-injected feature flags. The assignment lives in index.html (not a JS file) so the regex below does not flag it; the allowlist entry exists for documentation and to prevent a future JS-side writer from being silently rejected.
 
+    // Cloud-mode boot shim (C1) — web/cloud/js/cloud-boot.js, injected by
+    // internal/cloudserver/router.go ahead of every other script on account
+    // subdomains. Both assignments live outside web/static/js (JS_ROOT below
+    // does not scan web/cloud/) so the regex guard never sees them; the
+    // entries exist for documentation, mirroring __MEDTRACKER_BOOTSTRAP__.
+    'window.__MEDTRACKER_CLOUD__',      // cloud-boot.js — set synchronously before any other script; checkAuth() (app.js), loadTelegramSdk() (messenger-adapter.js), initServiceWorker() (app-shell.js), and startChangePolling() (data-store.js) all branch on it to skip Telegram/bot-mode-only behavior on the E2EE cloud origin
+    'window.MedTrackerCloudReady',      // cloud-boot.js — Promise that resolves once the async warm-unlock + installApiShim(ctx) + pullOnOpen(ctx) sequence finishes (or rejects/redirects to /unlock on failure); checkAuth() awaits this before calling apiCall(bootstrapURL()), the same shape as window.MessengerAdapterReady gating the Telegram SDK upgrade
+
     // Native platform abstractions — mobile Phase 2b, Task 1 (foundation).
     // The four globals below are the seam between feature code and platform
     // APIs (web/* impls for the PWA, capacitor/* impls for the Android shell).

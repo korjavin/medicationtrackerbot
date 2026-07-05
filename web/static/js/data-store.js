@@ -941,6 +941,11 @@
         },
 
         startChangePolling() {
+            // Cloud mode has no SSE/poll endpoint (no internal/server behind
+            // this origin) — remote changes repaint via cloud-boot.js's
+            // pullOnOpen + invalidateTags instead; local writes already
+            // repaint via applyOptimistic.
+            if (window.__MEDTRACKER_CLOUD__) return;
             if (changeUnauthorized) return;
             if (changeStream || changePollTimer) return;
             this.pruneStaleClientCache();

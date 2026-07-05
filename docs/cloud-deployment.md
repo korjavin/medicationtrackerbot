@@ -63,6 +63,15 @@ Prints the claim URL (and a terminal QR) for the operator to hand to the
 first user. See [cloud-mode.md](cloud-mode.md) for the claim → passkey →
 Emergency Kit flow this link starts.
 
+## Serving (C1)
+
+Account subdomains now serve the full `web/static` app (BP + weight ported to
+the in-browser `web/domain/` layer, see [cloud-mode.md](cloud-mode.md)), not
+just the signup/unlock shell. Routing: `/` → the app's `index.html`; the
+unlock/claim/recovery wizard moved to explicit paths — `/unlock`, `/claim`,
+`/recover` — still rewriting to the embedded `web/cloud` shell's
+`signup.html`; `/api/*` unchanged.
+
 ## Local dev loop
 
 `CLOUD_BASE_DOMAIN=localhost` works without any DNS or infra: `*.localhost`

@@ -27,7 +27,7 @@ func newTestRecoveryHandler(t *testing.T) (http.Handler, string, string) {
 	envelopeAPI.RegisterRoutes(mux)
 	recoveryAPI.RegisterRoutes(mux)
 
-	return New("localhost", store, testFS(), mux), host, claimToken
+	return New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux), host, claimToken
 }
 
 // setRecoveryVerifier uploads the "recovery" envelope + verifier for the
