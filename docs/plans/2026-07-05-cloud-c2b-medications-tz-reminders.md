@@ -281,12 +281,53 @@ relay is otherwise unconfigured/disabled in a real deployment.
 
 ### Task 7: Shim wiring + feature flip
 
-- [ ] route table for all 18 med routes + 3 tz routes (Context §route
+- [x] route table for all 18 med routes + 3 tz routes (Context §route
       surface); remove overlapping stubs; flip `medications` feature flag
       (and whatever flag gates the Today next-intake widget) on
-- [ ] Today integration: `next-intake` + `trigger-next-intake` drive the
+- [x] Today integration: `next-intake` + `trigger-next-intake` drive the
       Today card; verify the full Today fan-out has no new unmapped-route
       warns for meds
+
+  ➕ There were no literal med/tz stub entries in `STUBS` to remove — those
+  21 endpoints simply fell through to the generic unmapped-route 404/null
+  path before this task. The one existing flag is `medication` (added to
+  `apishim.js`'s `PORTED_SET`); there is no separate next-intake-widget flag
+  — `today-loader.js`'s fan-out already gates the next-intake fetch on the
+  same `medication` flag via `isFeatureDisabled('medication')`.
+
+  ➕ `POST /api/settings` (timezone change) now routes through
+  `tzplan.proposeTimezoneChange` instead of calling `settings.setTimezone`
+  directly, matching the server's `handleUpdateSettings` → `tzUpdater
+  .UpdateTimezone` — needed so a medium/strict-policy medication correctly
+  stages a plan instead of jumping the clock immediately.
+
+  ⚠️ Found and fixed a real cloud-mode bug while wiring Today: `meds.js`'s
+  create/update flow called `apiCallDirect(...)` directly (a raw `fetch()`
+  that bypasses `window.offlineAwareApiCall` entirely), so create/update
+  would have 404'd against the real network in cloud mode even with the shim
+  installed. Fixed to `(window.offlineAwareApiCall || window.apiCallDirect)`,
+  the same fallback precedent `journey.js`'s `load()` already uses — `apiCall()`
+  itself couldn't be used there since that flow's catch block needs `e.status
+  === 409` to detect a name+dosage duplicate, and `apiCall()` swallows errors
+  before that check could run. Added a small `withDuplicateStatus` helper in
+  `apishim.js` so the domain's `err.code === 'duplicate'` maps to
+  `err.status = 409` for that one call site — no other medication error code
+  is read by status anywhere in the frontend, so nothing else needed mapping.
+
+  ➕ Due-dose materialization (`intake.materializeDueDoses()`) and tz-plan
+  status refresh (`tzplan.refreshPlanStatus()`) run once on shim install and
+  then on a 60s `setInterval`, per Task 3/4's "shim owns the timer" note. The
+  interval handle is module-level (not per-install) so re-installing the shim
+  (every shim-mode test case, and any future hot-reload) clears the prior
+  timer instead of stacking a new one — matches the "one shim per page load"
+  production invariant.
+
+  ⚠️ Updated `cloud.shim-contract.settings.test.js`'s clamp test, which used
+  `medication` as its example of an unported/clamped feature — now stale
+  since `medication` joined `PORTED_SET` in this task. Swapped the example to
+  `workout` (still unported, still defaults to `true`), preserving the test's
+  actual intent (verify the generic clamp mechanism) without asserting a now-
+  false fact about medications.
 
 ### Task 8: Shim-mode contract runs
 
