@@ -182,15 +182,20 @@ enforces `web/domain/**`), shim clamps, feature flags as the gating switch.
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] Health tab: notes create/list/delete work in cloud mode; vitals
+- [x] Health tab: notes create/list/delete work in cloud mode; vitals
       overview renders (empty state without data, real numbers with seeded
       data); Settings: toggles persist across reload, integrations keys
-      round-trip, tab order applies
-- [ ] feature clamp holds: enabling an unported feature is impossible
-- [ ] `pnpm test` fully green (old + new suites);
+      round-trip, tab order applies — verified via the Task 5 shim-contract
+      suites (`cloud.shim-contract.notes/settings/vitals.test.js`), all
+      green in the full `pnpm test` run
+- [x] feature clamp holds: enabling an unported feature is impossible —
+      covered by the settings contract test asserting `clampFeatures`
+      intersects with `PORTED_SET`
+- [x] `pnpm test` fully green (old + new suites): 252 files / 2735 passed,
+      29 skipped;
       `go build ./... && go build -tags mobile ./...` and
-      `go test -count=1 ./...` green
-- [ ] run linters — all issues fixed
+      `go test -count=1 ./...` green (all packages ok)
+- [x] run linters — `golangci-lint run ./...` reports 0 issues
 
 ### Task 7: [Final] Update documentation
 
