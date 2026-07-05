@@ -33,6 +33,13 @@ func testFS() fstest.MapFS {
 	}
 }
 
+func testAppFS() fstest.MapFS {
+	return fstest.MapFS{
+		"index.html": {Data: []byte("real app")},
+		"js/app.js":  {Data: []byte("console.log(1)")},
+	}
+}
+
 func TestRouter_HostVariants(t *testing.T) {
 	store := setupStore(t)
 	ctx := t.Context()
@@ -41,7 +48,7 @@ func TestRouter_HostVariants(t *testing.T) {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
-	h := New("app.example.com", store, testFS(), nil)
+	h := New("app.example.com", store, testFS(), testAppFS(), nil)
 
 	cases := []struct {
 		name       string
@@ -52,8 +59,11 @@ func TestRouter_HostVariants(t *testing.T) {
 	}{
 		{"base domain serves landing page", "app.example.com", "/", http.StatusOK, "landing page"},
 		{"base domain with dev port", "app.example.com:8080", "/", http.StatusOK, "landing page"},
-		{"known subdomain serves account shell", "known-sub.app.example.com", "/", http.StatusOK, "account shell"},
-		{"known subdomain asset passes through", "known-sub.app.example.com", "/css/cloud.css", http.StatusOK, "body{}"},
+		{"known subdomain serves the real app at root", "known-sub.app.example.com", "/", http.StatusOK, "real app"},
+		{"known subdomain serves the unlock shell", "known-sub.app.example.com", "/unlock", http.StatusOK, "account shell"},
+		{"known subdomain claim serves the shell", "known-sub.app.example.com", "/claim", http.StatusOK, "account shell"},
+		{"known subdomain recover serves the shell", "known-sub.app.example.com", "/recover", http.StatusOK, "account shell"},
+		{"known subdomain app asset resolves", "known-sub.app.example.com", "/static/js/app.js", http.StatusOK, "console.log(1)"},
 		{"unknown subdomain is 404", "no-such-sub.app.example.com", "/", http.StatusNotFound, ""},
 		{"unrelated host is 404", "evil.example.org", "/", http.StatusNotFound, ""},
 	}

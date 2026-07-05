@@ -21,6 +21,7 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
 	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
 	cloudweb "github.com/korjavin/medicationtrackerbot/web/cloud"
+	webstatic "github.com/korjavin/medicationtrackerbot/web/static"
 )
 
 // config is the env-driven configuration for cmd/cloud — no flags, per the
@@ -176,7 +177,7 @@ func main() {
 	recoveryAPI.RegisterRoutes(apiMux)
 	syncAPI.RegisterRoutes(apiMux)
 	pushAPI.RegisterRoutes(apiMux)
-	router := cloudserver.New(cfg.baseDomain, store, cloudweb.FS, apiMux)
+	router := cloudserver.New(cfg.baseDomain, store, cloudweb.FS, webstatic.FS, apiMux)
 
 	var relay *cloudserver.Relay
 	if cfg.vapidPublicKey != "" && cfg.vapidPrivateKey != "" {

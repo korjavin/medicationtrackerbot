@@ -130,11 +130,11 @@ mobile); all existing Vitest suites must pass unchanged; Go changes to
 
 ### Task 5: Serve `web/static` from cmd/cloud
 
-- [ ] add an embed of `web/static` reachable from `cmd/cloud` (check how `internal/server` exposes it today — reuse the same embed package if one exists rather than embedding twice; otherwise add `web/static/embed.go`)
-- [ ] `internal/cloudserver/router.go`: on account subdomains, serve the app — `/` → `web/static/index.html`, static assets from the app FS; move the shell to explicit paths (`/unlock`, `/claim`, `/recover` → `signup.html` rewrites as today); `/api/*` unchanged
-- [ ] CSP audit: `web/static/index.html` must load under `default-src 'self'` — verify no inline scripts/styles break; if the page has inline bootstrap snippets, move them to a file served same-origin (do NOT weaken the CSP)
-- [ ] confirm `index.html` contains no `telegram.org` script tag (rule 11 already guarantees this) and that the placeholders (`VERSION_PLACEHOLDER`) render harmlessly in the cloud build
-- [ ] Go routing test in `internal/cloudserver/router_test.go`: subdomain `/` serves the app index, `/unlock` serves the shell, assets resolve, unknown subdomain still 404s
+- [x] add an embed of `web/static` reachable from `cmd/cloud` (check how `internal/server` exposes it today — reuse the same embed package if one exists rather than embedding twice; otherwise add `web/static/embed.go`)
+- [x] `internal/cloudserver/router.go`: on account subdomains, serve the app — `/` → `web/static/index.html`, static assets from the app FS; move the shell to explicit paths (`/unlock`, `/claim`, `/recover` → `signup.html` rewrites as today); `/api/*` unchanged
+- [x] CSP audit: `web/static/index.html` must load under `default-src 'self'` — verify no inline scripts/styles break; if the page has inline bootstrap snippets, move them to a file served same-origin (do NOT weaken the CSP)
+- [x] confirm `index.html` contains no `telegram.org` script tag (rule 11 already guarantees this) and that the placeholders (`VERSION_PLACEHOLDER`) render harmlessly in the cloud build
+- [x] Go routing test in `internal/cloudserver/router_test.go`: subdomain `/` serves the app index, `/unlock` serves the shell, assets resolve, unknown subdomain still 404s
 
 ### Task 6: Cloud boot path in the frontend
 

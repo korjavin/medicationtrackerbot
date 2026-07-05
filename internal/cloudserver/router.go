@@ -25,25 +25,35 @@ type accountStore interface {
 }
 
 // Handler routes requests by Host: the exact base domain gets the static
-// landing page, "<sub>.<base>" gets the account shell + account-scoped API
-// (unknown subdomains get a 404), and everything else is served from the same
-// embedded static FS.
+// landing page, "<sub>.<base>" gets the real web/static app (with the
+// passkey unlock/claim/recover shell at explicit paths) + account-scoped
+// API (unknown subdomains get a 404).
 type Handler struct {
 	baseDomain string
 	store      accountStore
-	static     http.Handler
+	shell      http.Handler // web/cloud: base-domain landing page + /unlock, /claim, /recover
+	app        http.Handler // web/static assets, mounted under /static/
+	appIndex   []byte       // web/static/index.html, served at "/" on subdomains
 	api        http.Handler
 }
 
-// New builds the host-routing Handler. staticFS is the embedded web/cloud
-// tree (cloudweb.FS) containing index.html, signup.html, css/, js/. api
-// handles "/api/*" requests on the subdomain branch (nil serves 404 for
-// them) — see WebAuthnAPI.Routes.
-func New(baseDomain string, store accountStore, staticFS fs.FS, api http.Handler) *Handler {
+// New builds the host-routing Handler. shellFS is the embedded web/cloud tree
+// (cloudweb.FS) containing index.html, signup.html, css/, js/ — the passkey
+// unlock/claim/recover wizard. appFS is the embedded web/static tree
+// (webstatic.FS) — the real health-tracking frontend served to unlocked
+// accounts, ported by C1. api handles "/api/*" requests on the subdomain
+// branch (nil serves 404 for them) — see WebAuthnAPI.Routes.
+func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, api http.Handler) *Handler {
+	idx, err := fs.ReadFile(appFS, "index.html")
+	if err != nil {
+		panic("cloudserver: appFS missing index.html: " + err.Error())
+	}
 	return &Handler{
 		baseDomain: baseDomain,
 		store:      store,
-		static:     http.FileServerFS(staticFS),
+		shell:      http.FileServerFS(shellFS),
+		app:        http.StripPrefix("/static/", http.FileServerFS(appFS)),
+		appIndex:   idx,
 		api:        api,
 	}
 }
@@ -67,7 +77,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	setSecurityHeaders(w)
 	host := stripPort(r.Host)
 	if host == h.baseDomain {
-		h.static.ServeHTTP(w, r)
+		h.shell.ServeHTTP(w, r)
 		return
 	}
 
@@ -98,16 +108,30 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The account shell lives at signup.html (it self-selects claim wizard,
+	// The passkey shell lives at signup.html (it self-selects claim wizard,
 	// device-transfer claim, or unlock flow at runtime — see
-	// web/cloud/js/app.js), not index.html. /claim is the QR/typed-fallback
-	// hand-off landing page (see web/cloud/js/transfer.js); its slot id + TK
-	// ride the URL fragment, which browsers never send to the server. /recover
-	// is the Emergency Kit redemption page (see web/cloud/js/recover.js).
-	if r.URL.Path == "/" || r.URL.Path == "/claim" || r.URL.Path == "/recover" {
+	// web/cloud/js/app.js), reached via explicit paths: /unlock is the
+	// warm/cold unlock landing page, /claim is the QR/typed-fallback
+	// hand-off page (see web/cloud/js/transfer.js; its slot id + TK ride the
+	// URL fragment, which browsers never send to the server), /recover is
+	// the Emergency Kit redemption page (see web/cloud/js/recover.js). The
+	// shell's own assets (css/js/vendor/sw.js) are root-relative — anything
+	// that isn't "/", the shell's explicit paths, or "/static/*" (the real
+	// app, C1) is assumed to be one of those and also goes to the shell.
+	switch {
+	case r.URL.Path == "/unlock" || r.URL.Path == "/claim" || r.URL.Path == "/recover":
 		r.URL.Path = "/signup.html"
+		h.shell.ServeHTTP(w, r)
+		return
+	case r.URL.Path == "/":
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(h.appIndex)
+		return
+	case strings.HasPrefix(r.URL.Path, "/static/"):
+		h.app.ServeHTTP(w, r)
+		return
 	}
-	h.static.ServeHTTP(w, r)
+	h.shell.ServeHTTP(w, r)
 }
 
 // accountCtxKey is the context key the resolved account is stashed under by
