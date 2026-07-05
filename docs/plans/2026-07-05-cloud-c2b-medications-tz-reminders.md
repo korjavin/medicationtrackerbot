@@ -364,12 +364,25 @@ relay is otherwise unconfigured/disabled in a real deployment.
 
 ### Task 9: Verify acceptance criteria
 
-- [ ] all flows work in cloud mode end-to-end in the shim harness; due-dose
+- [x] all flows work in cloud mode end-to-end in the shim harness; due-dose
       materialization produces deterministic ids (two domain instances over
       the same store converge)
-- [ ] `pnpm test` fully green (old + new); `go build ./... && go build
+- [x] `pnpm test` fully green (old + new); `go build ./... && go build
       -tags mobile ./...` and `go test -count=1 ./...` green
-- [ ] run linters — all issues fixed
+- [x] run linters — all issues fixed
+
+  ➕ Confirmed the convergence property with an ad hoc Node smoke script
+  (not committed, per the plan's "no unit tests" approach): two independent
+  `createIntakeDomain` instances sharing one in-memory records store, same
+  clock — device A's `materializeDueDoses()` writes
+  `intake-med-1-<slotUnix>`, device B's subsequent call sees that id already
+  present (via `intakes.some((i) => i.recordId === id)`) and creates zero
+  new records. No duplicate, no divergence — matches the Technical Details
+  rationale.
+
+  ➕ `pnpm test`: 255 files / 2760 passed / 29 skipped, 0 failed. `go build
+  ./...` and `go build -tags mobile ./...` both clean. `go test -count=1
+  ./...` all packages ok. `golangci-lint run ./...` reports 0 issues.
 
 ### Task 10: [Final] Update documentation
 
