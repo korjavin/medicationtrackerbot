@@ -89,7 +89,7 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
   // flag is simply omitted, which applyBootstrapPayload already treats as
   // "leave that cache alone".
   async function bootstrapPayload() {
-    const [readings, goal, stats, logs, weightGoal, weightUnit, features, foodTargets, tabOrder] = await Promise.all([
+    const [readings, goal, stats, logs, weightGoal, weightUnit, features, foodTargets, tabOrder, general] = await Promise.all([
       bp.list({ days: 60, limit: 0 }),
       bp.getGoal(),
       bp.getStats(),
@@ -99,6 +99,7 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
       settings.getFeatures(),
       settings.getFoodTargets(),
       settings.getTabOrder(),
+      settings.getGeneral(),
     ]);
     const payload = {
       cursor: 0,
@@ -110,7 +111,7 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
         food_targets: foodTargets,
         bp_reminder_status: { enabled: false, preferred_reminder_hour: 20 },
         weight_reminder_status: { enabled: false, preferred_reminder_hour: 9 },
-        timezone: timeZone,
+        timezone: general.timezone,
         weight_unit_preference: weightUnit,
         dismissed_tz_suggestion: '',
       },

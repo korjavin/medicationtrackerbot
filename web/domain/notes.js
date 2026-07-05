@@ -67,10 +67,13 @@ export function createNotesDomain({ records, now }) {
   // contract (internal/server/notes_handlers.go:16-54).
   async function list({ limit = 50, beforeId } = {}) {
     const all = await records.list(RECORD_TYPE);
-    let filtered = all.sort((a, b) => b.clientTs - a.clientTs);
+    // Server orders strictly by id DESC (unique, monotonic) and applies the
+    // cursor as `id < beforeID` — robust whether or not the cursor row still
+    // exists. Mirror both: sort by numeric id, keyset-filter by id.
+    let filtered = all.slice().sort((a, b) => Number(b.recordId) - Number(a.recordId));
     if (beforeId) {
-      const idx = filtered.findIndex((r) => r.recordId === beforeId);
-      filtered = idx === -1 ? [] : filtered.slice(idx + 1);
+      const bid = Number(beforeId);
+      filtered = filtered.filter((r) => Number(r.recordId) < bid);
     }
     const bounded = limit > 0 ? filtered.slice(0, limit) : filtered;
     return bounded.map(toResponse);
