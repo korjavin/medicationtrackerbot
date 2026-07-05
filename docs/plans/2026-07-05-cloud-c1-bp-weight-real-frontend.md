@@ -165,9 +165,9 @@ mobile); all existing Vitest suites must pass unchanged; Go changes to
 
 ### Task 9: [Final] Update documentation
 
-- [ ] `docs/cloud-mode.md`: mark C1 implemented in the phasing section; document the shim architecture (offlineAwareApiCall slot, stub registry, unknown-route warning as the C2 discovery mechanism) and the record types (`bp`, `weight`, `bpgoal`, `weightgoal`)
-- [ ] `CLAUDE.md`: update the cloud-mode doc index row (C1 status) and the `web/domain/` entry in Code Layout with its purity constraint
-- [ ] `docs/cloud-deployment.md`: note that account subdomains now serve the full app; unlock shell moved to `/unlock`
+- [x] `docs/cloud-mode.md`: mark C1 implemented in the phasing section; document the shim architecture (offlineAwareApiCall slot, stub registry, unknown-route warning as the C2 discovery mechanism) and the record types (`bp`, `weight`, `bpgoal`, `weightgoal`)
+- [x] `CLAUDE.md`: update the cloud-mode doc index row (C1 status) and the `web/domain/` entry in Code Layout with its purity constraint
+- [x] `docs/cloud-deployment.md`: note that account subdomains now serve the full app; unlock shell moved to `/unlock`
 
 ## Technical Details
 
