@@ -100,9 +100,9 @@ mobile); all existing Vitest suites must pass unchanged; Go changes to
 
 ### Task 1: Generalize the record store port in the cloud sync engine
 
-- [ ] in `web/cloud/js/sync.js`, export a generic `listRecords(ctx, recordType)` (live records of a type from the local mirror, sorted by `clientTs` desc) alongside the existing generic `writeRecord`; reimplement `listNotes` on top of it
-- [ ] export a `recordsPort(ctx)` factory returning `{ list(type), put(type, record), del(type, recordId) }` — the object handed to `web/domain/` as its storage port; `del` writes a tombstone (`deleted: true`) via `writeRecord`, matching the notes pattern
-- [ ] keep all crypto/seq/snapshot behavior untouched — this task is exports-only refactoring; existing cloud shell must behave identically
+- [x] in `web/cloud/js/sync.js`, export a generic `listRecords(ctx, recordType)` (live records of a type from the local mirror, sorted by `clientTs` desc) alongside the existing generic `writeRecord`; reimplement `listNotes` on top of it
+- [x] export a `recordsPort(ctx)` factory returning `{ list(type), put(type, record), del(type, recordId) }` — the object handed to `web/domain/` as its storage port; `del` writes a tombstone (`deleted: true`) via `writeRecord`, matching the notes pattern
+- [x] keep all crypto/seq/snapshot behavior untouched — this task is exports-only refactoring; existing cloud shell must behave identically
 
 ### Task 2: `web/domain/` — runtime-agnostic BP domain module
 

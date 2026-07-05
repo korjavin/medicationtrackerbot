@@ -415,15 +415,22 @@ export async function pullOnOpen(ctx) {
   await maybeSnapshot(ctx);
 }
 
-export async function listNotes(ctx) {
+// Generic record-store read: live (non-tombstoned) records of a type from the
+// local mirror, newest-first by clientTs. Task 1: the same read path backs
+// both the notes demo UI and recordsPort() below (web/domain/'s storage port).
+export async function listRecords(ctx, recordType) {
   await bootstrapIfNeeded(ctx);
   const records = await readAllRecords();
   return records
-    .filter((r) => r.recordType === NOTE_RECORD_TYPE && !r.deleted)
+    .filter((r) => r.recordType === recordType && !r.deleted)
     .sort((a, b) => b.clientTs - a.clientTs);
 }
 
-async function writeRecord(ctx, recordType, record) {
+export async function listNotes(ctx) {
+  return listRecords(ctx, NOTE_RECORD_TYPE);
+}
+
+export async function writeRecord(ctx, recordType, record) {
   await bootstrapIfNeeded(ctx);
   // Atomic w.r.t. replaceAllRecords' clear (see withRecordsLock): the record
   // and its 'pending' row must both be visible, or neither, when a concurrent
@@ -434,6 +441,19 @@ async function writeRecord(ctx, recordType, record) {
   });
   await flushPending(ctx);
   return record;
+}
+
+// Storage port handed to web/domain/'s createXDomain() factories: the generic
+// list/put/del trio, closed over ctx so domain code stays free of sync
+// internals (crypto, seq prediction, IndexedDB). del writes a tombstone via
+// writeRecord — same convergence semantics (LWW on clientTs) as every other
+// write, matching the notes deleteNote() pattern.
+export function recordsPort(ctx) {
+  return {
+    list: (recordType) => listRecords(ctx, recordType),
+    put: (recordType, record) => writeRecord(ctx, recordType, record),
+    del: (recordType, recordId) => writeRecord(ctx, recordType, { recordId, clientTs: Date.now(), deleted: true }),
+  };
 }
 
 export async function createNote(ctx, text) {
