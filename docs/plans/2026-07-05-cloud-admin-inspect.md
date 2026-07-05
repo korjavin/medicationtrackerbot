@@ -128,12 +128,12 @@ Completion). Intended to run after C1 merges.
 
 ### Task 4: [Final] Update documentation
 
-- [ ] `docs/cloud-deployment.md`: add `admin inspect` (+ enriched `list`) to
+- [x] `docs/cloud-deployment.md`: add `admin inspect` (+ enriched `list`) to
       the admin command reference with a trimmed sample output
-- [ ] `docs/cloud-mode.md`: paste a representative `inspect` output into the
+- [x] `docs/cloud-mode.md`: paste a representative `inspect` output into the
       metadata-leakage section as the ground-truth illustration of what the
       operator sees ("this is the entire view — sizes, timestamps, tags")
-- [ ] `CLAUDE.md`: no change expected (CLI lives under existing `cmd/cloud`
+- [x] `CLAUDE.md`: no change expected (CLI lives under existing `cmd/cloud`
       entry) — confirm and skip if so
 
 ## Technical Details

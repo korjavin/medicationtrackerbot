@@ -63,6 +63,68 @@ Prints the claim URL (and a terminal QR) for the operator to hand to the
 first user. See [cloud-mode.md](cloud-mode.md) for the claim → passkey →
 Emergency Kit flow this link starts.
 
+## 5. Admin commands
+
+`docker exec -it medtracker-cloud ./cloud admin <subcommand>` — every
+subcommand opens its own DB handle, so these are safe to run at any time
+against a live container:
+
+- `invite` — pre-provision an account and print its claim URL + QR (above)
+- `list` — one line per account: subdomain, claimed?, created, device count,
+  op count, last sync activity
+- `inspect <subdomain>` — full read-only debug view of one account: devices,
+  envelopes, sync state, push queue. Answers "did the phone's write reach the
+  server?", "does device 2 have an envelope?", "did snapshot compaction run?",
+  "is the push queue draining?" without sqlite3 spelunking. Never prints
+  secrets — claim tokens, nonces, MACs, and ciphertext bytes are omitted;
+  only sizes, counts, and timestamps. Credential ids and envelope refs share
+  the same 8-char prefix so device↔envelope pairings are eyeball-able.
+- `reset-claim <subdomain>` — issue a fresh claim token for an unclaimed
+  account
+- `revoke <subdomain>` — delete an unclaimed account (withdraw an unused
+  invite)
+- `delete <subdomain>` — delete an account and all its data (asks for
+  confirmation)
+
+Sample `inspect` output (trimmed to one credential per section for brevity —
+a real account can have more devices, a bigger record-type histogram, etc.):
+
+```
+$ ./cloud admin inspect amber-falcon-8k3q9x
+account: amber-falcon-8k3q9x
+  created: 2026-06-05T11:56:34Z
+  claimed: true
+
+devices:
+  ref       transports       synced  sign_count  created               last_unlock
+  cGhvbmUt  internal,hybrid  true    43          2026-06-05T11:56:34Z  2026-07-05T11:56:34Z
+  bGFwdG9w  internal         false   7           2026-06-15T11:56:34Z  never
+
+envelopes:
+  ref       v  size
+  bGFwdG9w  1  412B
+  cGhvbmUt  1  412B
+
+sync:
+  ops: 140
+  seq range: 501..640
+  last append: 2026-07-05T05:56:34Z (device cGhvbmUt)
+  record types:
+    bp: 93
+    weight: 47
+  snapshot: seq 500, 47.1KiB, written 2026-07-05T05:56:34Z
+
+push:
+  subscriptions: 1 active, 0 disabled
+  pending scheduled: 1
+  next fire: 2026-07-05T12:41:34Z
+```
+
+An empty/unclaimed account renders every section explicitly (`devices: none`,
+`envelopes: none`, `sync: ops: 0`, `snapshot: none`, `push: no
+subscriptions`) rather than omitting them — a silently vanished section would
+hide exactly the bugs this tool exists to surface.
+
 ## Serving (C1)
 
 Account subdomains now serve the full `web/static` app (BP + weight ported to
