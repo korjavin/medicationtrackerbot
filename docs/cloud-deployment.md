@@ -38,7 +38,13 @@ Open `https://portainer.<base>`, finish the initial admin setup, then:
 1. Create a stack from a Git repository: this repo, `deploy` branch,
    compose path `docker-compose.cloud.yml`.
 2. Set stack env vars: `CLOUD_BASE_DOMAIN`, `SESSION_SECRET` (≥32 chars,
-   Shannon entropy ≥3.5 — same rule as the bot's session secret).
+   Shannon entropy ≥3.5 — same rule as the bot's session secret), and — to
+   enable the push relay — `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT`
+   (generate with `cmd/genvapid`, same as the bot). Optional tuning:
+   `CLOUD_ACCOUNT_QUOTA_BYTES` (per-account oplog+snapshot storage cap,
+   default 50MB, 0 disables) and `CLOUD_DRY_QUEUE_WARN_HOURS` (default 120 —
+   how close the last unsent reminder must be before the hourly sweep warns
+   a stale-synced account). See [environment.md](environment.md).
 3. Enable the stack's redeploy webhook and append its URL as a new line in
    the `PORTAINER_REDEPLOY_HOOK` GitHub secret (multiline — one URL per line,
    same secret the bot stack already uses).
@@ -80,3 +86,8 @@ Full ceremony details: [cloud-crypto.md](cloud-crypto.md).
 | `POST /api/recover` | none | Redeem a recovery-code verifier (rate-limited 5/hour/account) → recovery envelope + enrollment token |
 | `GET /api/devices` | session | List credentials joined with their envelopes, for the device-list/audit UI |
 | `DELETE /api/devices/{credential_id}` | session | Revoke a device: deletes credential + envelope in one tx; rejects removing the last verified credential unless usable recovery material (recovery envelope + verifier) exists |
+| `POST /api/sync/ops`, `GET /api/sync/ops?since=<seq>` | session | Append a batch of encrypted oplog entries (server assigns contiguous `seq`) / page through ops since a cursor. Per-op and per-batch size caps + per-account quota (413 on breach) |
+| `POST /api/sync/snapshot`, `GET /api/sync/snapshot` | session | Upload a compacting snapshot (deletes oplog rows `seq <= snapshot_seq`) / fetch the latest snapshot (204 when none) — new-device bootstrap is snapshot + ops-since |
+| `POST /api/push/subscriptions`, `DELETE /api/push/subscriptions` | session | Register/remove a Web Push subscription for the relay |
+| `GET /api/push/vapid-public-key` | none | Public VAPID key for the browser's `PushManager.subscribe` call |
+| `PUT /api/push/schedule` | session | Replace-all: clears this account's unsent future entries, inserts a batch of `{fire_at_unix, ct}` (app-layer-encrypted payloads the sender goroutine fires blindly) |

@@ -224,3 +224,76 @@ export async function deriveKEKRec(codeBytes, accountId) {
 export async function deriveVerifier(codeBytes, accountId) {
   return hkdf(codeBytes, utf8(accountId), utf8('mt/v1/rec-auth'));
 }
+
+// K_data = HKDF(DEK, info="mt/v1/data") — oplog record + snapshot encryption
+// key (docs/cloud-crypto.md key hierarchy table).
+export async function deriveKData(dek) {
+  return hkdf(dek, new Uint8Array(0), utf8('mt/v1/data'));
+}
+
+// account_seq / snapshot_seq are JS numbers (server int64, well under
+// Number.MAX_SAFE_INTEGER at any real workload); fixed 8-byte big-endian
+// framing keeps the AAD encoding unambiguous.
+function encodeSeq(seq) {
+  const out = new Uint8Array(8);
+  new DataView(out.buffer).setBigUint64(0, BigInt(seq), false);
+  return out;
+}
+
+// record = { account_seq, nonce, ct = AES-GCM(K_data, plaintext, aad) },
+// aad = "mt/v1/rec" ‖ account_id ‖ record_type ‖ record_id ‖ account_seq.
+// account_seq is unknown to the client until the server assigns it in the
+// POST /api/sync/ops response, so it cannot be pre-bound before that call
+// returns — see docs' "Seq assignment vs AAD" note. Callers encrypt using
+// their best-known (usually correct) predicted seq and must be prepared for
+// decryptRecord to reject a record whose true assigned seq differs.
+export async function encryptRecord({ kData, accountId, recordType, recordId, seq, plaintext }) {
+  const nonce = crypto.getRandomValues(new Uint8Array(12));
+  const aad = encodeFields('mt/v1/rec', accountId, recordType, recordId, encodeSeq(seq));
+  const ct = await aesGcmEncrypt(kData, nonce, plaintext, aad);
+  return { nonce, ct };
+}
+
+// Throws (AEAD failure) when the server-claimed seq wasn't the one the
+// ciphertext was actually encrypted under — the anti-reorder/replay property.
+export async function decryptRecord({ kData, accountId, recordType, recordId, seq, nonce, ct }) {
+  const aad = encodeFields('mt/v1/rec', accountId, recordType, recordId, encodeSeq(seq));
+  return aesGcmDecrypt(kData, nonce, ct, aad);
+}
+
+// snapshot = same construction, aad = "mt/v1/snap" ‖ account_id ‖ snapshot_seq.
+export async function encryptSnapshot({ kData, accountId, snapshotSeq, plaintext }) {
+  const nonce = crypto.getRandomValues(new Uint8Array(12));
+  const aad = encodeFields('mt/v1/snap', accountId, encodeSeq(snapshotSeq));
+  const ct = await aesGcmEncrypt(kData, nonce, plaintext, aad);
+  return { nonce, ct };
+}
+
+export async function decryptSnapshot({ kData, accountId, snapshotSeq, nonce, ct }) {
+  const aad = encodeFields('mt/v1/snap', accountId, encodeSeq(snapshotSeq));
+  return aesGcmDecrypt(kData, nonce, ct, aad);
+}
+
+// Push payload (docs/cloud-crypto.md "Push payload"): AES-GCM(NK, payload,
+// aad="mt/v1/push"). scheduled_pushes.ct is a single BLOB wire column with no
+// separate nonce field, so — same as encryptTransferPayload above — the nonce
+// is packed ahead of the ciphertext into one blob rather than adding a column.
+const PUSH_AAD = utf8('mt/v1/push');
+
+export async function encryptPushPayload(nk, plaintext) {
+  const nonce = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await aesGcmEncrypt(nk, nonce, plaintext, PUSH_AAD);
+  const packed = new Uint8Array(nonce.length + ct.length);
+  packed.set(nonce, 0);
+  packed.set(ct, nonce.length);
+  return packed;
+}
+
+// Throws (AEAD failure) on a tampered payload or the wrong NK — the caller
+// (sw.js) treats that identically to "NK absent": fall back to a generic
+// notification.
+export async function decryptPushPayload(nk, packed) {
+  const nonce = packed.slice(0, 12);
+  const ct = packed.slice(12);
+  return aesGcmDecrypt(nk, nonce, ct, PUSH_AAD);
+}

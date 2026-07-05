@@ -10,8 +10,8 @@ import {
   fromBase64,
   toBase64Url,
 } from './crypto.js';
+import { openDb } from './localdb.js';
 
-const DB_NAME = 'medtracker-cloud';
 const STORE_NAME = 'device';
 const LDK_RECORD_KEY = 'ldk';
 const LDK_AAD = new TextEncoder().encode('mt/v1/ldk');
@@ -114,13 +114,46 @@ function renderUnlocked(app, ctx) {
     <section class="wizard-step">
       <h1>Vault unlocked</h1>
       <p>Account <code id="account-id"></code></p>
-      <p>Data sync arrives with the next update.</p>
+      <p id="sync-status" class="sync-status">Syncing&hellip;</p>
+      <button id="notes-button">Notes</button>
+      <button id="reminders-button">Reminders</button>
       <button id="devices-button">Devices</button>
       <button id="lock-button">Lock</button>
     </section>`;
   // Server-controlled value — set via textContent, never innerHTML (E2EE
   // threat model treats the server as hostile; XSS here reads the DEK).
   app.querySelector('#account-id').textContent = ctx.accountId;
+  import('./sync.js')
+    .then(({ pullOnOpen, describeSyncStatus }) =>
+      pullOnOpen(ctx)
+        .catch(() => {})
+        .then(() => describeSyncStatus(ctx))
+        .then((text) => {
+          const el = app.querySelector('#sync-status');
+          if (el) el.textContent = text;
+        })
+    )
+    .catch(() => {});
+  app.querySelector('#notes-button').addEventListener('click', () => {
+    import('./notes.js')
+      .then(({ renderNotes }) => renderNotes(app, ctx, () => renderUnlocked(app, ctx)))
+      .catch(() => {
+        const p = document.createElement('p');
+        p.className = 'wizard-error';
+        p.textContent = 'Could not open the notes screen. Try again.';
+        app.querySelector('section').appendChild(p);
+      });
+  });
+  app.querySelector('#reminders-button').addEventListener('click', () => {
+    import('./push.js')
+      .then(({ renderPush }) => renderPush(app, ctx, () => renderUnlocked(app, ctx)))
+      .catch(() => {
+        const p = document.createElement('p');
+        p.className = 'wizard-error';
+        p.textContent = 'Could not open the reminders screen. Try again.';
+        app.querySelector('section').appendChild(p);
+      });
+  });
   app.querySelector('#devices-button').addEventListener('click', () => {
     import('./devices.js')
       .then(({ renderDeviceList }) => renderDeviceList(app, ctx, () => renderUnlocked(app, ctx)))
@@ -169,15 +202,6 @@ async function unwrapWithLdk(record) {
     record.ct
   );
   return new Uint8Array(pt);
-}
-
-function openDb() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = () => req.result.createObjectStore(STORE_NAME);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
 }
 
 async function readLdkRecord() {

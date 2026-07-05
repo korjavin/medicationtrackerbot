@@ -26,19 +26,29 @@ import (
 // config is the env-driven configuration for cmd/cloud — no flags, per the
 // bot binary's convention (cmd/bot/main_server.go).
 type config struct {
-	dbPath        string
-	port          string
-	baseDomain    string
-	sessionSecret string
-	claimTTL      time.Duration
+	dbPath            string
+	port              string
+	baseDomain        string
+	sessionSecret     string
+	claimTTL          time.Duration
+	accountQuotaBytes int64
+	vapidPublicKey    string
+	vapidPrivateKey   string
+	vapidSubject      string
+	dryQueueWarnHours time.Duration
 }
 
 func loadConfig() (config, error) {
 	cfg := config{
-		dbPath:     os.Getenv("CLOUD_DB_PATH"),
-		port:       os.Getenv("PORT"),
-		baseDomain: os.Getenv("CLOUD_BASE_DOMAIN"),
-		claimTTL:   14 * 24 * time.Hour,
+		dbPath:            os.Getenv("CLOUD_DB_PATH"),
+		port:              os.Getenv("PORT"),
+		baseDomain:        os.Getenv("CLOUD_BASE_DOMAIN"),
+		claimTTL:          14 * 24 * time.Hour,
+		accountQuotaBytes: 50 << 20, // 50MB
+		vapidPublicKey:    os.Getenv("VAPID_PUBLIC_KEY"),
+		vapidPrivateKey:   os.Getenv("VAPID_PRIVATE_KEY"),
+		vapidSubject:      os.Getenv("VAPID_SUBJECT"),
+		dryQueueWarnHours: 120 * time.Hour,
 	}
 	if cfg.dbPath == "" {
 		cfg.dbPath = "cloud.db"
@@ -62,6 +72,22 @@ func loadConfig() (config, error) {
 			return cfg, errors.New("CLOUD_CLAIM_TTL must be a positive integer number of days")
 		}
 		cfg.claimTTL = time.Duration(days) * 24 * time.Hour
+	}
+
+	if quota := os.Getenv("CLOUD_ACCOUNT_QUOTA_BYTES"); quota != "" {
+		bytes, err := strconv.ParseInt(quota, 10, 64)
+		if err != nil || bytes < 0 {
+			return cfg, errors.New("CLOUD_ACCOUNT_QUOTA_BYTES must be a non-negative integer (0 disables the quota)")
+		}
+		cfg.accountQuotaBytes = bytes
+	}
+
+	if warnHours := os.Getenv("CLOUD_DRY_QUEUE_WARN_HOURS"); warnHours != "" {
+		hours, err := strconv.Atoi(warnHours)
+		if err != nil || hours <= 0 {
+			return cfg, errors.New("CLOUD_DRY_QUEUE_WARN_HOURS must be a positive integer number of hours")
+		}
+		cfg.dryQueueWarnHours = time.Duration(hours) * time.Hour
 	}
 
 	return cfg, nil
@@ -140,13 +166,28 @@ func main() {
 	transferAPI := cloudserver.NewTransferAPI(store, cfg.sessionSecret)
 	deviceAPI := cloudserver.NewDeviceAPI(store, cfg.sessionSecret)
 	recoveryAPI := cloudserver.NewRecoveryAPI(store)
+	syncAPI := cloudserver.NewSyncAPI(store, cfg.sessionSecret, cfg.accountQuotaBytes)
+	pushAPI := cloudserver.NewPushAPI(store, cfg.sessionSecret, cfg.vapidPublicKey)
 	apiMux := http.NewServeMux()
 	webauthnAPI.RegisterRoutes(apiMux)
 	envelopeAPI.RegisterRoutes(apiMux)
 	transferAPI.RegisterRoutes(apiMux)
 	deviceAPI.RegisterRoutes(apiMux)
 	recoveryAPI.RegisterRoutes(apiMux)
+	syncAPI.RegisterRoutes(apiMux)
+	pushAPI.RegisterRoutes(apiMux)
 	router := cloudserver.New(cfg.baseDomain, store, cloudweb.FS, apiMux)
+
+	var relay *cloudserver.Relay
+	if cfg.vapidPublicKey != "" && cfg.vapidPrivateKey != "" {
+		relay = cloudserver.NewRelay(store, &cloudserver.WebPushSender{
+			VAPIDPublicKey:  cfg.vapidPublicKey,
+			VAPIDPrivateKey: cfg.vapidPrivateKey,
+			VAPIDSubject:    cfg.vapidSubject,
+		}, cfg.dryQueueWarnHours)
+	} else {
+		slog.Info("Push relay disabled: VAPID keys not configured")
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -161,6 +202,10 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	if relay != nil {
+		go relay.Run(ctx)
+	}
 
 	listenErr := make(chan error, 1)
 	go func() {
