@@ -164,6 +164,14 @@ describe('Settings → Integrations section', () => {
         expect(patchCall.body.openai.url).toBe('https://proxy.example.com/v1');
         expect(patchCall.body.elevenlabs.api_key).toBe('el-new');
         expect(patchCall.body.elevenlabs.agent_id).toBe('agent_xyz');
+
+        // The optimistic write must never persist the raw provider key into the
+        // plaintext api_cache — only the masked "***" sentinel. In cloud mode
+        // the real secret lives only in the encrypted vault.
+        const optimisticCache = applySpy.mock.calls[0][1](null);
+        expect(optimisticCache.elevenlabs.api_key).toBe('***');
+        const cached = await window.DataStore.getCached('settings_integrations');
+        expect(cached.elevenlabs.api_key).not.toBe('el-new');
     });
 
     it('save() rolls back the optimistic cache row when the PATCH fails', async () => {

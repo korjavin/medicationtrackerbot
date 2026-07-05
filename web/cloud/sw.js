@@ -17,7 +17,6 @@ const PRECACHE_URLS = [
   '/js/crypto.js',
   '/js/devices.js',
   '/js/localdb.js',
-  '/js/notes.js',
   '/js/push.js',
   '/js/recover.js',
   '/js/signup.js',

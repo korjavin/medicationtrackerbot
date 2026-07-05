@@ -50,3 +50,26 @@ export function loadCloudShimFrontendEnv(opts = {}) {
     installApiShim({}, { records: createInMemoryRecordsPort(seedRecords), win: env.window });
     return env;
 }
+
+// Minimal in-memory stand-in for window.MedTrackerDB.ApiCache (get/set/clear),
+// enough for DataStore.loadSWR/applyOptimistic — the read/write surface every
+// shim-contract suite needs to drive real feature code (health.js, settings.js)
+// without a real Dexie/IndexedDB backing.
+export function installApiCache(window, seed = {}) {
+    const map = new Map(Object.entries(seed));
+    window.MedTrackerDB = {
+        ...(window.MedTrackerDB || {}),
+        ApiCache: {
+            async get(key) { return map.has(key) ? map.get(key) : null; },
+            async set(key, value) { map.set(key, value); },
+            async clear(key) { map.delete(key); },
+            async keys(prefix) {
+                const all = [...map.keys()];
+                return typeof prefix === 'string' && prefix
+                    ? all.filter((k) => k.startsWith(prefix))
+                    : all;
+            }
+        }
+    };
+    return map;
+}

@@ -92,107 +92,122 @@ enforces `web/domain/**`), shim clamps, feature flags as the gating switch.
 
 ### Task 1: Diary domain module
 
-- [ ] create `web/domain/notes.js` exporting `createNotesDomain({records, now})`
+- [x] create `web/domain/notes.js` exporting `createNotesDomain({records, now})`
       with `list({limit})`, `create(input)`, `remove(id)` mirroring the
       handler shapes in `internal/server` (find the notes handlers; response
       field names verbatim — check what `features/health.js` reads back)
-- [ ] record: `recordType 'note'`, body = server JSON fields + `recordId`,
+- [x] record: `recordType 'note'`, body = server JSON fields + `recordId`,
       `clientTs`, `deleted`; newest-first list order, `limit` default
       matching the handler
-- [ ] retire the cloud-shell demo notes screen: remove the Notes button +
+- [x] retire the cloud-shell demo notes screen: remove the Notes button +
       `web/cloud/js/notes.js` screen from the unlocked shell (the real app
       is the UI now); keep `sync.js`'s generic record functions; migrate
       nothing (demo data is disposable, and old `{text}` bodies simply
       render as notes with empty fields if any survive — acceptable on the
       test rig)
-- [ ] shim: route `GET/POST /api/notes` + `DELETE /api/notes/{id}`;
+- [x] shim: route `GET/POST /api/notes` + `DELETE /api/notes/{id}`;
       remove any overlapping stub
 
 ### Task 2: Settings domain module — general, features, tab order, targets
 
-- [ ] create `web/domain/settings.js` exporting
+- [x] create `web/domain/settings.js` exporting
       `createSettingsDomain({records, now})` managing singleton records
       (fixed recordIds, C1 `weightunitpref` pattern): `'settings'` (general
       row: timezone etc. — mirror `GET /api/settings` response fields),
       `'features'` (toggle map), `'taborder'`, `'foodtargets'`
-- [ ] shim: make `GET/POST /api/settings`, `GET /api/settings/features`,
+- [x] shim: make `GET/POST /api/settings`, `GET /api/settings/features`,
       `POST /api/settings/features/{feature}`, `POST /api/settings/tab-order`,
       `GET/POST /api/food/settings/targets` live; delete the corresponding
       STUBS entries
-- [ ] **feature-flag clamp**: the shim's effective flags =
+- [x] **feature-flag clamp**: the shim's effective flags =
       (stored `'features'` record ∨ defaults) ∧ PORTED_SET — a user toggle
       can never enable a domain the shim can't serve; unported features
       stay hidden in the Settings toggle list too if the UI reads the same
       filtered map (verify how settings.js renders toggles)
-- [ ] bootstrap payload (`apishim.js` `/api/bootstrap`): source
+- [x] bootstrap payload (`apishim.js` `/api/bootstrap`): source
       feature flags + settings from the records instead of hardcoded stubs
 
 ### Task 3: Integrations — provider keys as an encrypted vault record
 
-- [ ] extend `web/domain/settings.js` with the `'integrations'` singleton
+- [x] extend `web/domain/settings.js` with the `'integrations'` singleton
       record mirroring `GET/PATCH /api/settings/integrations` shapes
       (see `features/settings/integrations.js:91-167` for what the UI
       sends/expects: OpenAI text + vision key/url/model, food-DB
       key/url/domain, ElevenLabs — masked-read semantics if the server
       does masking; check the handler)
-- [ ] shim: route both methods; the Integrations screen in Settings must
+- [x] shim: route both methods; the Integrations screen in Settings must
       round-trip (enter key → save → reload → masked/read back)
-- [ ] do NOT wire any consumer yet (client-side AI calls are C2c); this
+- [x] do NOT wire any consumer yet (client-side AI calls are C2c); this
       task only makes the keys live encrypted in the vault
-- [ ] docs note for later: record body holds secrets — confirm nothing
+- [x] docs note for later: record body holds secrets — confirm nothing
       logs record bodies (grep the sync/shim paths for console logging of
       decrypted bodies; the C1 unknown-route warn logs only paths)
 
 ### Task 4: Vitals read side — record shapes + aggregates
 
-- [ ] define vault record shapes for the vitals streams, matching the
+- [x] define vault record shapes for the vitals streams, matching the
       store schema field names (`internal/store/vitals/`): `'sleep'`
       (sessions), `'daystats'` (daily aggregates), `'hrsample'`,
       `'spo2sample'`, `'stresssample'` (continuous samples) — these are the
       C2e import targets; document each in the plan-completion notes
-- [ ] create `web/domain/vitals.js` exporting
+- [x] create `web/domain/vitals.js` exporting
       `createVitalsDomain({records, now, timeZone})` with `overview()` and
       `sleep()` reproducing `health_handlers.go:35-54` +
       `internal/domain/vitals.go` aggregation (7/30d windows, daily sleep
       stats); correct empty-state shapes when no records exist (the normal
       case until C2e)
-- [ ] shim: route `GET /api/health/overview` + `GET /api/health/sleep`;
+- [x] shim: route `GET /api/health/overview` + `GET /api/health/sleep`;
       flip the `health` feature flag on — the Vitals nav slot appears and
       renders the empty state cleanly (no console errors, no infinite
       spinners)
 
 ### Task 5: Shim-mode contract runs
 
-- [ ] extend the C1 shim harness suites: notes CRUD flow through the real
+- [x] extend the C1 shim harness suites: notes CRUD flow through the real
       `features/health.js` UI path; settings toggle + tab-order + targets
       round-trips; integrations save/read-back; health overview empty-state
       render — additive test files per C1 convention, originals untouched
-- [ ] seed-data variant for vitals: inject records through the in-memory
+      (`cloud.shim-contract.notes.test.js`, `cloud.shim-contract.settings.test.js`)
+- [x] seed-data variant for vitals: inject records through the in-memory
       port and assert the overview aggregates match the handler semantics
       for a small fixture (one week of sleep + samples)
+      (`cloud.shim-contract.vitals.test.js`)
+- ➕ writing the settings contract test surfaced a real gap from Task 2:
+      `GET /api/settings/features` was never routed in `apishim.js` — it
+      silently 404'd and fell back to `/api/settings`'s embedded features
+      slice (functionally masked by `fetchBundle`'s fallback chain, but
+      every Settings load hit the unmapped-route console.warn). Fixed by
+      routing it to `clampFeatures(await settings.getFeatures())`, same as
+      the `/api/init` stub.
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] Health tab: notes create/list/delete work in cloud mode; vitals
+- [x] Health tab: notes create/list/delete work in cloud mode; vitals
       overview renders (empty state without data, real numbers with seeded
       data); Settings: toggles persist across reload, integrations keys
-      round-trip, tab order applies
-- [ ] feature clamp holds: enabling an unported feature is impossible
-- [ ] `pnpm test` fully green (old + new suites);
+      round-trip, tab order applies — verified via the Task 5 shim-contract
+      suites (`cloud.shim-contract.notes/settings/vitals.test.js`), all
+      green in the full `pnpm test` run
+- [x] feature clamp holds: enabling an unported feature is impossible —
+      covered by the settings contract test asserting `clampFeatures`
+      intersects with `PORTED_SET`
+- [x] `pnpm test` fully green (old + new suites): 252 files / 2735 passed,
+      29 skipped;
       `go build ./... && go build -tags mobile ./...` and
-      `go test -count=1 ./...` green
-- [ ] run linters — all issues fixed
+      `go test -count=1 ./...` green (all packages ok)
+- [x] run linters — `golangci-lint run ./...` reports 0 issues
 
 ### Task 7: [Final] Update documentation
 
-- [ ] `docs/cloud-mode.md`: C2a status in phasing; document the new record
+- [x] `docs/cloud-mode.md`: C2a status in phasing; document the new record
       types (`note`, `settings`, `features`, `taborder`, `foodtargets`,
       `integrations`, vitals streams) and the integrations-keys-in-vault
       property (BYO keys are now E2EE — better than server mode); note the
       vitals empty-until-migration behavior
-- [ ] `CLAUDE.md`: no structural change expected — confirm the cloud-mode
+- [x] `CLAUDE.md`: no structural change expected — confirm the cloud-mode
       index row mentions C2a
-- [ ] update the C2 sequence note (this file's Overview) if scope shifted
+- [x] update the C2 sequence note (this file's Overview) if scope shifted
+      (no shift — scope matches what shipped, left as-is)
 
 ## Technical Details
 
@@ -205,6 +220,13 @@ enforces `web/domain/**`), shim clamps, feature flags as the gating switch.
   (e.g. one record per stream-day); C2a should define shapes that allow
   day-batched bodies (`{date, samples:[…]}`) from the start — decide while
   implementing Task 4 and record the decision here with ➕
+  ➕ **Decided in Task 4**: `hrsample`/`spo2sample`/`stresssample` are
+  day-batched — one record per stream-day, `recordId` keyed by day,
+  body `{day, samples: [{date_time, tz_offset, value[, info]}]}`. `sleep`
+  and `daystats` are one record per session/day respectively (already
+  natural granularity, no batching needed). `web/domain/vitals.js`
+  expands the batched sample arrays in-memory before bucketing/averaging,
+  so the aggregation math is unaffected by the storage granularity choice.
 - **Integrations record holds secrets**: it is encrypted like everything
   else, but treat it as the most sensitive record — no logging of bodies,
   and the masked-read behavior of the server (if any) should be reproduced

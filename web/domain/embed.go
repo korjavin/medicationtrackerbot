@@ -1,4 +1,4 @@
-// Package domainweb embeds the runtime-agnostic BP/weight domain modules
+// Package domainweb embeds the runtime-agnostic domain modules
 // (web/domain) so cmd/cloud can serve them at /domain/ — the path
 // web/cloud/js/apishim.js imports them from (../../domain/*.js resolves to
 // /domain/*.js in the browser). Kept a separate embed rather than folded into
@@ -9,5 +9,5 @@ package domainweb
 
 import "embed"
 
-//go:embed bp.js weight.js
+//go:embed bp.js weight.js notes.js settings.js vitals.js
 var FS embed.FS
