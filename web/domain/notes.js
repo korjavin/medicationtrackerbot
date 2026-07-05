@@ -59,13 +59,10 @@ export function createNotesDomain({ records, now }) {
   }
 
   // list mirrors handleListNotes's newest-first + before_id keyset cursor
-  // contract (internal/server/notes_handlers.go:16-54). since/until are
-  // accepted for parity but the C1 shim only ever passes limit/beforeId.
-  async function list({ limit = 50, beforeId, since, until } = {}) {
+  // contract (internal/server/notes_handlers.go:16-54).
+  async function list({ limit = 50, beforeId } = {}) {
     const all = await records.list(RECORD_TYPE);
     let filtered = all.sort((a, b) => b.clientTs - a.clientTs);
-    if (since) filtered = filtered.filter((r) => Date.parse(r.created_at) >= since);
-    if (until) filtered = filtered.filter((r) => Date.parse(r.created_at) <= until);
     if (beforeId) {
       const idx = filtered.findIndex((r) => r.recordId === beforeId);
       filtered = idx === -1 ? [] : filtered.slice(idx + 1);
