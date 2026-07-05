@@ -101,19 +101,19 @@ Completion). Intended to run after C1 merges.
 
 ### Task 2: `cloud admin inspect` subcommand + enriched `list`
 
-- [ ] wire `inspect <subdomain>` into `runAdmin` (`cmd/cloud/admin.go`),
+- [x] wire `inspect <subdomain>` into `runAdmin` (`cmd/cloud/admin.go`),
       resolving the account via `AccountBySubdomain`; unknown subdomain →
       clear error, exit 1
-- [ ] output: plain aligned text (stdlib `text/tabwriter`), sections
+- [x] output: plain aligned text (stdlib `text/tabwriter`), sections
       `account / devices / envelopes / sync / push`; credential ids and
       envelope refs printed as the same 8-char prefix so pairings are
       eyeball-able; times in UTC RFC3339; byte sizes human-readable
-- [ ] devices section marks synced passkeys (`backup_eligible`) and shows
+- [x] devices section marks synced passkeys (`backup_eligible`) and shows
       `last unlock` from `last_asserted_at`; never-asserted prints `never`
-- [ ] switch `adminList` to `AccountSummaries` output (adds claimed/devices/
+- [x] switch `adminList` to `AccountSummaries` output (adds claimed/devices/
       ops/last-activity columns); keep existing columns so muscle memory
       survives
-- [ ] no secrets in output: never print claim tokens, nonces, MACs, or
+- [x] no secrets in output: never print claim tokens, nonces, MACs, or
       ciphertext bytes — sizes and counts only (nonce/ct presence is implied
       by the envelope row existing)
 
