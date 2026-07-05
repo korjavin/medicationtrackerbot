@@ -176,7 +176,7 @@ func main() {
 	deviceAPI := cloudserver.NewDeviceAPI(store, cfg.sessionSecret)
 	recoveryAPI := cloudserver.NewRecoveryAPI(store)
 	syncAPI := cloudserver.NewSyncAPI(store, cfg.sessionSecret, cfg.accountQuotaBytes)
-	pushAPI := cloudserver.NewPushAPI(store, cfg.sessionSecret, cfg.vapidPublicKey)
+	pushAPI := cloudserver.NewPushAPI(store, cfg.sessionSecret)
 	apiMux := http.NewServeMux()
 	webauthnAPI.RegisterRoutes(apiMux)
 	envelopeAPI.RegisterRoutes(apiMux)

@@ -56,7 +56,7 @@ func TestRelay_DueSelection_ReplaceAll_DisablesGone(t *testing.T) {
 	host := account.Subdomain + ".localhost"
 
 	webauthnAPI := NewWebAuthnAPI(store, "test-session-secret-at-least-32-bytes-long")
-	pushAPI := NewPushAPI(store, "test-session-secret-at-least-32-bytes-long", "test-vapid-public-key")
+	pushAPI := NewPushAPI(store, "test-session-secret-at-least-32-bytes-long")
 	mux := http.NewServeMux()
 	webauthnAPI.RegisterRoutes(mux)
 	pushAPI.RegisterRoutes(mux)
@@ -122,7 +122,7 @@ func TestRelay_StaleSyncSweep(t *testing.T) {
 	host := account.Subdomain + ".localhost"
 
 	webauthnAPI := NewWebAuthnAPI(store, "test-session-secret-at-least-32-bytes-long")
-	pushAPI := NewPushAPI(store, "test-session-secret-at-least-32-bytes-long", "test-vapid-public-key")
+	pushAPI := NewPushAPI(store, "test-session-secret-at-least-32-bytes-long")
 	mux := http.NewServeMux()
 	webauthnAPI.RegisterRoutes(mux)
 	pushAPI.RegisterRoutes(mux)

@@ -121,8 +121,8 @@ backfilled; existing subscriptions do not.
 
 ### Task 3: Public-key endpoint goes per-account
 
-- [ ] `internal/cloudserver/push.go`: drop the `vapidPublicKey` field from `PushAPI` / `NewPushAPI`; `GetVapidPublicKey` reads the account from the router's request context and returns that account's `vapid_public_key` (404 only if the context has no account — base-domain request)
-- [ ] extend `push_test.go`: two accounts get different keys from `GET /api/push/vapid-public-key` on their respective subdomains
+- [x] `internal/cloudserver/push.go`: drop the `vapidPublicKey` field from `PushAPI` / `NewPushAPI`; `GetVapidPublicKey` reads the account from the router's request context and returns that account's `vapid_public_key` (404 only if the context has no account — base-domain request)
+- [x] extend `push_test.go`: two accounts get different keys from `GET /api/push/vapid-public-key` on their respective subdomains
 
 ### Task 4: Relay sends with per-account keys + Apple subject switch
 
