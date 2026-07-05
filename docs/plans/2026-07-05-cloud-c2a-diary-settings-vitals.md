@@ -145,18 +145,18 @@ enforces `web/domain/**`), shim clamps, feature flags as the gating switch.
 
 ### Task 4: Vitals read side — record shapes + aggregates
 
-- [ ] define vault record shapes for the vitals streams, matching the
+- [x] define vault record shapes for the vitals streams, matching the
       store schema field names (`internal/store/vitals/`): `'sleep'`
       (sessions), `'daystats'` (daily aggregates), `'hrsample'`,
       `'spo2sample'`, `'stresssample'` (continuous samples) — these are the
       C2e import targets; document each in the plan-completion notes
-- [ ] create `web/domain/vitals.js` exporting
+- [x] create `web/domain/vitals.js` exporting
       `createVitalsDomain({records, now, timeZone})` with `overview()` and
       `sleep()` reproducing `health_handlers.go:35-54` +
       `internal/domain/vitals.go` aggregation (7/30d windows, daily sleep
       stats); correct empty-state shapes when no records exist (the normal
       case until C2e)
-- [ ] shim: route `GET /api/health/overview` + `GET /api/health/sleep`;
+- [x] shim: route `GET /api/health/overview` + `GET /api/health/sleep`;
       flip the `health` feature flag on — the Vitals nav slot appears and
       renders the empty state cleanly (no console errors, no infinite
       spinners)
@@ -205,6 +205,13 @@ enforces `web/domain/**`), shim clamps, feature flags as the gating switch.
   (e.g. one record per stream-day); C2a should define shapes that allow
   day-batched bodies (`{date, samples:[…]}`) from the start — decide while
   implementing Task 4 and record the decision here with ➕
+  ➕ **Decided in Task 4**: `hrsample`/`spo2sample`/`stresssample` are
+  day-batched — one record per stream-day, `recordId` keyed by day,
+  body `{day, samples: [{date_time, tz_offset, value[, info]}]}`. `sleep`
+  and `daystats` are one record per session/day respectively (already
+  natural granularity, no batching needed). `web/domain/vitals.js`
+  expands the batched sample arrays in-memory before bucketing/averaging,
+  so the aggregation math is unaffected by the storage granularity choice.
 - **Integrations record holds secrets**: it is encrypted like everything
   else, but treat it as the most sensitive record — no logging of bodies,
   and the masked-read behavior of the server (if any) should be reproduced

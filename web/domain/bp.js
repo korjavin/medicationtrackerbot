@@ -21,7 +21,7 @@ export function calculateBPCategory(systolic, diastolic) {
 // ponytail: DST-at-midnight edge case can be off by the transition delta —
 // Intl has no direct "start of local day" primitive. Acceptable for C1
 // (single device, same tz); revisit only if a bug report ties to it.
-function offsetMsAt(ms, timeZone) {
+export function offsetMsAt(ms, timeZone) {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone,
     hourCycle: 'h23',
@@ -34,7 +34,7 @@ function offsetMsAt(ms, timeZone) {
   return wallAsUtc - ms;
 }
 
-function dayStartMs(ms, timeZone) {
+export function dayStartMs(ms, timeZone) {
   const offset = offsetMsAt(ms, timeZone);
   const wallMidnight = Math.floor((ms + offset) / DAY_MS) * DAY_MS;
   const offset2 = offsetMsAt(wallMidnight - offset, timeZone);

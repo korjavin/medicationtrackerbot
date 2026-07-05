@@ -6,6 +6,7 @@ import { createBPDomain } from '../../domain/bp.js';
 import { createWeightDomain } from '../../domain/weight.js';
 import { createNotesDomain } from '../../domain/notes.js';
 import { createSettingsDomain } from '../../domain/settings.js';
+import { createVitalsDomain } from '../../domain/vitals.js';
 import { recordsPort } from './sync.js';
 
 function parseQuery(endpoint) {
@@ -54,13 +55,14 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
   const weight = createWeightDomain({ records, now, timeZone });
   const notes = createNotesDomain({ records, now });
   const settings = createSettingsDomain({ records, now, timeZone });
+  const vitals = createVitalsDomain({ records, now, timeZone });
 
   // PORTED_SET: the feature domains this shim can actually serve end-to-end
   // (records + domain module + shim routes wired). Clamped onto every read
   // of the features map so a stored/toggled flag for an unported domain
-  // (food/medication/workout/health/gamification/weekly_digest — C2b/c/d)
-  // can never surface as enabled, per docs/cloud-mode.md "C2 shim architecture".
-  const PORTED_SET = new Set(['bp', 'weight']);
+  // (food/medication/workout/gamification/weekly_digest — C2b/c/d) can never
+  // surface as enabled, per docs/cloud-mode.md "C2 shim architecture".
+  const PORTED_SET = new Set(['bp', 'weight', 'health']);
   function clampFeatures(flags) {
     const out = {};
     for (const key of Object.keys(flags)) out[key] = PORTED_SET.has(key) ? !!flags[key] : false;
@@ -207,6 +209,16 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
     if (path === '/api/settings/integrations') {
       if (method === 'GET') return settings.getIntegrations();
       if (method === 'PATCH') return settings.patchIntegrations(body);
+    }
+
+    if (path === '/api/health/overview' && method === 'GET') return vitals.overview();
+    if (path === '/api/health/sleep' && method === 'GET') {
+      return vitals.sleep({
+        from: params.get('from') || undefined,
+        to: params.get('to') || undefined,
+        days: intParam(params, 'days', 90),
+        limit: intParam(params, 'limit', 0),
+      });
     }
 
     // Reminder toggles: BP/weight reminders aren't functionally scheduled in
