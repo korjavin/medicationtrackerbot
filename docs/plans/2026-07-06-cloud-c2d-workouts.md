@@ -235,7 +235,7 @@ also not ported.
 
 ### Task 7: Shim-mode contract runs
 
-- [ ] the suites listed in Testing Strategy, incl. rotation-cursor
+- [x] the suites listed in Testing Strategy, incl. rotation-cursor
       assertions after complete/skip/next-variant and the
       two-instance lazy-`getNext` convergence case
 
