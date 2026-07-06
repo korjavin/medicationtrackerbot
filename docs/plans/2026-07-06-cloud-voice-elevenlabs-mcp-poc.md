@@ -149,7 +149,7 @@ Two pieces:
 
 ### Task 4: [Final] Docs + verify
 
-- [ ] `docs/cloud-mode.md`: a "Voice (ElevenLabs)" subsection — cloud mints the
+- [x] `docs/cloud-mode.md`: a "Voice (ElevenLabs)" subsection — cloud mints the
       signed URL browser-direct with the vault key (BYO; key never crosses
       `/api`), and dynamic MCP tools (`mcp_help`+`mcp_call`) dispatch in-tab into
       the local catalog (no relay). State the manual prerequisite: the user's
@@ -158,7 +158,7 @@ Two pieces:
       `elevenlabs.{api_key, agent_id}` must be set in Settings → Integrations.
       Add the leakage note (BYO ElevenLabs key used browser-direct; MCP
       dispatch stays in-tab, nothing to the cloud server).
-- [ ] `go build ./...` + `pnpm test` green; if a new `window.*` global was
+- [x] `go build ./...` + `pnpm test` green; if a new `window.*` global was
       added, it's in the globals allowlist.
 
 ## Post-Completion (manual — the real PoC acceptance)
