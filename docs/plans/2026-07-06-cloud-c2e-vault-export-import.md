@@ -1,0 +1,126 @@
+# Cloud C2e — Full-Vault Export/Import (both modes, canonical JSON, optional age encryption)
+
+## Overview
+
+C2e closes the C2 series with the **no-lock-in guarantee**: one canonical one-user-all-domains JSON format, exportable **and** importable in **both** runtimes — a full 2×2 matrix (bot export, bot import, cloud export, cloud import), so any instance pair migrates in either direction and a plain file on the user's disk is always an exit door.
+
+Locked decisions (user-confirmed 2026-07-06):
+
+1. **No CLI.** One shared Settings → Import/Export screen in `web/static` serves both modes. Bot mode: `GET /api/export` + `POST /api/import`. Cloud mode: fully client-side against the unlocked vault (zero-knowledge forbids anything else — plaintext never touches the server).
+2. **Optional passphrase encryption via age** (scrypt recipient), running **browser-side in both modes** via a vendored single-file `typage` ESM. The file is plaintext JSON or `.json.age` decryptable anywhere with `age -d`. The server never sees the passphrase and never performs backup crypto. No custom crypto layer.
+3. **Import flows through domain semantics, not raw table writes.** Bot: wipe-then-insert with the same validation shapes the handlers use. Cloud: records land via `replaceAllRecords` + **one snapshot upload** (the C0c compaction path), never as an op flood.
+4. **Round-trip is the contract**: bot export → cloud import → cloud export → bot import must be identity (modulo declared normalizations). A shared golden fixture enforces it in CI on both sides.
+
+## Context (from discovery — port sources)
+
+- **Per-user table manifest**: `internal/seeddemo/wipe.go:34-124` enumerates every user-scoped/join-scoped/singleton table — the authoritative "what belongs to one user" list. `WipeUser(ctx, store, userID)` is transactional and is the reusable replace-semantics primitive for bot-mode import.
+- **Bot repos usable for export/import** (all `internal/store/<pkg>/repo.go`): medication `List:159`/`Create:147` + intake `ListIntakeHistoryByUser:825`/`CreateManualIntake:568` + restocks `:297/:321`; bp `ListReadings:192`/`ImportReadings:284` (bulk exists) + goals `:144/:168`; weight `ListLogs:98`/`CreateLog:86` + goals + unit pref (settings row); food logs `:451/:509`, products `UpsertProduct:141`/`ListProducts:242`; workout groups/variants/exercises/library/rotation/sessions/logs (`workout/repo.go`), mi-band `ListMiBand:336`/`ImportMiBand:151` (bulk exists) + GPS `GetMiBandGPS:372`; vitals `ImportSleepLogs:103`/`ListSleepLogs:262`, `ImportDayStats:184`/`ListDayStats:227`, `ImportVitals:336` + `ListHeart/ListSpO2/ListStress`; diary `List:75`/`Create:50`; tz `GetCurrent:61`/`Record:81` + transition plans `CreateTransitionPlanWithSteps:379`; settings feature toggles / tab order / food targets / integrations (`settings/repo.go`).
+- **Time-column reality**: intake_log is unix-seconds INTEGER (`scheduled_at_unix` etc.); vitals streams unix INTEGER; mi-band **millisecond** INTEGER (`source_start_ms`); most everything else DATETIME text. The canonical format hides all of this behind the API wire shapes (see Technical Details).
+- **Bot-mode quirk**: `medications`, `timezone_history`, restocks are single-user (no `user_id` column) — exported as the authed user's data, wiped wholesale on import (exactly what `WipeUser` already does).
+- **Cloud record inventory**: the full recordType table (bp, bpgoal, weight, weightgoal, weightunitpref, note, settings, features, taborder, foodtargets, integrations, medreminderpref, sleep, daystats, hrsample/spo2sample/stresssample day-batched, medication, intake, restock, tzplan, foodlog, foodproduct, workoutgroup, workoutvariant, workoutexercise, exerciselibrary, workoutsession, exerciselog, workoutrotation, miband) with id schemes is in the deep-dive table mirrored into Technical Details below. `nk` (push key, `sync.js:15`) is device/crypto state — **never exported**.
+- **Cloud local store is raw IndexedDB, not Dexie** (`web/cloud/js/localdb.js`): stores `records` (keyPath `recordId`), `pending`, `sync_meta`. **`replaceAllRecords` (`web/cloud/js/sync.js:128`)** clears+relays the whole store preserving the pending overlay — the natural bulk-write target. Snapshot upload: `maybeSnapshot` (`sync.js:297`) → `encryptSnapshot` → `POST /api/sync/snapshot {snapshot_seq, nonce, ct}`. Import composes these two.
+- **Settings seam**: `web/static/js/features/settings.js:94-99` is the existing `window.__MEDTRACKER_CLOUD__` gate (hides notifications, reveals `.wg-settings-cloud-devices`). `window.SettingsIntegrations.load()` (`settings.js:234`, module `features/settings/integrations.js`) is the model for a self-contained lazily-loaded section module. Row idiom: `wg-settings-row` + `wg-settings-action-btn`.
+- **No full-vault endpoints exist.** Only per-domain CSV: `GET /api/bp/export`, `GET /api/weight/export`, `POST /api/bp/import` — all in `mcpCoverageExempt` ("Bulk import / export" bucket, `internal/server/mcp_coverage_exempt.go` ~lines 90-94). New routes register via `apiMux.HandleFunc` (`internal/server/server.go:804-973`) and MUST get exemption entries or `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` fails.
+- **Vendoring pattern**: `web/static/vendor/{dexie.min.js,zxing.min.js}`, classic `<script>` tags in `web/static/index.html:25-26`. typage ships as an ESM — load it with dynamic `import()` from the feature module instead (no new global scripts). SW precache lists: `web/static/sw.js:29` (bot) and `web/cloud/sw.js:11 PRECACHE_URLS` (cloud shell) — but the Import/Export screen lives in `web/static`, which cloud account subdomains serve in full, so one vendored copy under `web/static/vendor/` covers both modes.
+- **Unknown-route oracle**: `apishim.js:592` warns on unmapped routes. C2e adds **no cloud shim routes** — cloud export/import is client-side, so `/api/export`/`/api/import` must never be called when `__MEDTRACKER_CLOUD__` is set (the feature module branches before fetching).
+- **Explicitly NOT exported**: push subscriptions, API tokens / login nonces, `change_events`, download cursors, bp/weight reminder-state, workout schedule snapshots, the cloud `nk` record, gamification ledger (derived; gamification targets deferred until gamification ships).
+- **Exported but sensitive**: the `integrations` provider keys (OpenAI, Food DB, ElevenLabs). They are the user's own keys and a restore must bring them back, but their presence makes the backup file secret-bearing — the UI nudges toward a passphrase (Task 6). Cloud-side they are read module-to-module (C2c's `readIntegrationsUnmasked`), never via `/api`; bot-side `GET /api/export` runs over the authed session where the server already holds them, so no new exposure either way.
+
+## Development Approach
+
+- **CRITICAL: bot mode must not regress.** All bot-side changes are additive (two new routes, one new settings section). No existing handler, store method, or migration changes.
+- **CRITICAL: the canonical format is the API wire shape, not the DB shape.** Field names and value formats match what the `/api/*` contract already emits per domain (which is also what the cloud record bodies store verbatim). This makes the Go exporter a repo-walk + JSON marshal and the cloud exporter a records-walk + regroup, with no third dialect to maintain.
+- **CRITICAL: unmasked provider keys never cross the cloud `/api` shim surface** (C2c rule). Cloud export reads them module-to-module inside the client.
+- **CRITICAL: cloud import lands as ONE snapshot, not ops.** Months of history is thousands of records; `replaceAllRecords` + forced snapshot POST is the only acceptable shape (`sync.js` header documents why day-batching exists — the same oplog-explosion argument applies here).
+- Import v1 is **replace-only** (wipe target user, then insert). Merge semantics are a documented non-goal — deterministic ids make a later merge feasible, but nobody asked yet.
+- Age encryption is **browser-only code**. Go never links an age library. The Vitest suites exercise the vendored typage against known-answer files generated with the reference `age` CLI.
+- Plan tasks assume C2a–C2d record conventions as shipped (deterministic ids, singletons, day-batched vitals) — the importer **mints recordIds by the same rules** so post-import LWW converges with live devices instead of duplicating.
+
+## Testing Strategy
+
+- **Unit**: none beyond what tasks name — no coverage-driven suites (CLAUDE.md rule 8).
+- **Integration (Go)**: round-trip test in `internal/server` — seed a user (reuse `internal/seeddemo` generators), `GET /api/export`, wipe, `POST /api/import`, re-export, require deep equality; plus golden-fixture compatibility (exporter output for a fixed seed matches the checked-in canonical fixture).
+- **Integration (Vitest)**: `cloud.vault-roundtrip.test.js` — canonical fixture → cloud import (records port) → cloud export → deep-equal fixture; assert deterministic recordIds (`intake-<medId>-<slotUnix>`, `session-<groupId>-<date>`, `rotation-<groupId>`, singletons) and day-batch pack/unpack. `backup-crypto.test.js` — encrypt/decrypt round-trip + decrypt of a CLI-generated `.age` known-answer file.
+- **E2E**: manual on the rig — bot export from the production bot instance, import into the cloud account, spot-check every section renders; then cloud export and diff against the bot export.
+
+## Progress Tracking
+
+- `[ ]` not started · `[x]` done · ➕ added during implementation · ⚠️ deviation, explain inline
+
+## Implementation Steps
+
+### Task 1: Canonical vault format — spec + shared golden fixture
+
+- [ ] Write `docs/vault-format.md`: `{"format": "medtracker-vault", "version": 1, "exported_at": <RFC3339>, "data": {...}}` with one key per domain: `medications` (incl. nested `intakes` flat list + `restocks`), `bp` (readings + goal), `weight` (logs + goals + unit_pref), `food` (logs + products + targets), `workouts` (groups, variants, exercises, library, rotations, sessions, exercise_logs, miband incl. gps), `vitals` (sleep, day_stats, heart, spo2, stress — flat per-sample arrays), `diary` (notes), `tz` (current + history + transition_plan), `settings` (timezone, features, tab_order, integrations, med_reminder_pref, dismissed flags). Field names = existing API wire names per domain. All timestamps as the wire format each domain already uses (documented per section; see Technical Details for the unix/ms cases).
+- [ ] Document the skip list (push, tokens, change_events, cursors, reminder-state, snapshots, `nk`, gamification) and the normalizations the round-trip contract tolerates (`exported_at`, ordering, absent-vs-null optional fields).
+- [ ] Create the golden fixture `tests/fixtures/vault-v1.json`: a small hand-curated vault covering every domain, every deterministic-id case (scheduled + manual intake, tzplan, workout session/rotation), day-batch boundary (samples spanning two days), and an integrations key. This single file is consumed by both the Go and Vitest round-trip tests (Tasks 2, 3, 5).
+- [ ] Verify: fixture validates against the spec by eye; both later test tasks pin it.
+
+### Task 2: Bot-mode `GET /api/export`
+
+- [ ] `internal/server/vault_export.go`: handler walks the store repos for the authed user (list methods cited in Context), assembles the canonical struct set (`internal/server/vaultformat` types or same-package structs — smallest thing that both handlers share), marshals JSON, `Content-Disposition: attachment; filename=medtracker-vault-<date>.json`.
+- [ ] Convert storage time forms to wire forms at the boundary (unix-seconds intake fields → the same wire fields the intake API already emits; mi-band ms fields likewise; DATETIME passthrough).
+- [ ] Register `GET /api/export` on `apiMux` (`server.go`); add `mcpCoverageExempt` entry in the "Bulk import / export" bucket with Reason.
+- [ ] Test: golden-fixture export test — seed a fixed dataset, export, compare against `vault-v1.json` (modulo `exported_at`).
+
+### Task 3: Bot-mode `POST /api/import` (replace semantics)
+
+- [ ] `internal/server/vault_import.go`: parse + validate version/format, then transactionally `seeddemo.WipeUser` → insert every domain via store methods (bulk methods where they exist: `ImportReadings`, `ImportMiBand`, `ImportSleepLogs`, `ImportDayStats`, `ImportVitals`; per-row creates elsewhere), preserving numeric ids where they are FK glue (medications, workout entities, notes) via explicit-id inserts.
+- [ ] Reject with 400 + structured error list on unknown version or per-record validation failure; import is all-or-nothing (single transaction / wipe only after parse+validate passes).
+- [ ] Register `POST /api/import` + exemption entry.
+- [ ] Confirmation is the UI's job (Task 6 shows a destructive-action confirm); the endpoint itself requires body flag `"mode": "replace"` to be explicit.
+- [ ] Test: Go round-trip — seed via `internal/seeddemo`, export, wipe, import, re-export, deep-equal. Plus: import of `vault-v1.json` into a fresh DB then export equals the fixture.
+
+### Task 4: Vendor typage + backup crypto wrapper
+
+- [ ] Vendor the single-file typage build as `web/static/vendor/age.min.js` (ESM). Record version + upstream URL in a header comment.
+- [ ] `web/static/js/core/backup-crypto.js`: thin wrapper — `encryptBackup(jsonString, passphrase) -> Uint8Array` (age scrypt recipient), `decryptBackup(bytes, passphrase) -> string`, `isAgeFile(bytes)` (header sniff `age-encryption.org/v1`). Dynamic `import('/static/vendor/age.min.js')` on first use — no new global script tag, no new `window.*` global beyond the module's own registration if the codebase pattern requires one (allowlist entry if so).
+- [ ] Add `vendor/age.min.js` + `core/backup-crypto.js` to the bot SW precache list (`web/static/sw.js`); verify whether existing vendor files are precached and follow suit for consistency.
+- [ ] Test: `tests/backup-crypto.test.js` — round-trip, wrong-passphrase rejection, and decrypt of a checked-in known-answer file generated with the reference `age` CLI (`age -e -p`), proving cross-tool compatibility both directions.
+
+### Task 5: Cloud-side vault module — `web/domain/vault.js` + `window.CloudVault`
+
+- [ ] `web/domain/vault.js` (pure, ports-injected like siblings — purity guard applies): `recordsToVault(records)` and `vaultToRecords(vault, {now})`. Encodes ALL record conventions: singleton recordIds (`settings`, `features`, `taborder`, `foodtargets`, `integrations`, `medreminderpref`, `bpgoal`, `weightgoal`, `weight-unit`, `tzplan-current`), deterministic ids (`intake-<medId>-<slotUnix>`, `session-<groupId>-<scheduledDate>`, `rotation-<groupId>`), numeric body-`id` preservation (workout/meds/notes/bp FK glue), vitals day-batch pack/unpack (`hrsample`/`spo2sample`/`stresssample` ↔ flat canonical arrays), and the skip set (`nk` never crosses either direction).
+- [ ] Add `vault.js` to the `web/domain/embed.go` `//go:embed` list.
+- [ ] `web/cloud/js/cloud-boot.js`: install `window.CloudVault = { exportAll, importAll }` — `exportAll()` reads all records (incl. unmasked integrations module-to-module), runs `recordsToVault`, returns the JSON string; `importAll(json)` runs `vaultToRecords`, calls `replaceAllRecords` (`sync.js:128`), then forces one snapshot upload (`maybeSnapshot` path with threshold bypassed / a small exported `forceSnapshot(ctx)` in `sync.js`).
+- [ ] Test: `cloud.vault-roundtrip.test.js` against the in-memory records port — `vault-v1.json` → `importAll` → assert record set (ids, batching, singletons) → `exportAll` → deep-equal fixture.
+
+### Task 6: Settings → Import/Export UI (shared screen, both modes)
+
+- [ ] `web/static/index.html`: new `.wg-settings-importexport` section block — Export row (passphrase input, optional; "Download" `wg-settings-action-btn`) + Import row (file picker accepting `.json`/`.age`, passphrase prompt when `isAgeFile`, destructive-action confirm dialog stating replace semantics).
+- [ ] `web/static/js/features/settings/importexport.js` (model: `integrations.js`, hung off `loadSettings` like `SettingsIntegrations.load()`): export → `window.__MEDTRACKER_CLOUD__ ? CloudVault.exportAll() : apiCall('/api/export')`, then optional `encryptBackup`, then Blob download; import → read file, optional `decryptBackup`, then `CloudVault.importAll(json)` or `POST /api/import`; success/error toasts; on cloud import completion, full UI refresh (reuse the post-bootstrap reload path — simplest correct: `location.reload()`).
+- [ ] Empty-passphrase export shows a one-line nudge ("backup contains your provider API keys — consider a passphrase"); does not block.
+- [ ] No inline styles / hardcoded colors (rule 3); no new `window.*` globals beyond `SettingsImportExport` + `CloudVault` + `BackupCrypto` — each with an allowlist entry + justification in `tests/architecture.globals.test.js` (rule 4).
+- [ ] Test: extend the settings feature suite (rule 8 — no standalone file) through `frontend-harness.js`: export button produces a download blob whose JSON parses to `format: medtracker-vault` (bot branch, `apiCall` mocked); import happy path posts to `/api/import` after confirm; cloud branch dispatches to a stubbed `CloudVault`.
+
+### Task 7: Cross-implementation round-trip contract
+
+- [ ] The two golden-fixture pins (Task 2 Go test, Task 5 Vitest test) both consume `tests/fixtures/vault-v1.json` — that is the cross-runtime contract: any format drift in one implementation fails that side's pin against the shared file.
+- [ ] Add the full-loop assertion cheaply: extend the Vitest round-trip to also run `recordsToVault(vaultToRecords(botExportSample))` where `botExportSample` is a second fixture captured from the Task 2 Go test's real output (checked in as `tests/fixtures/vault-v1-botexport.json` if it differs from the hand fixture in ordering/optional-field presence — otherwise reuse one file).
+- [ ] Verify: `go test ./...` and `pnpm test` both fail if either side changes a field name.
+
+### Task 8: [Final] Update documentation
+
+- [ ] `docs/cloud-mode.md`: add "C2e implementation notes" section (what shipped, deviations); flip the status line from "C2e … only unported piece" to implemented; note import-replace semantics and merge as a non-goal.
+- [ ] `docs/api.md`: `GET /api/export`, `POST /api/import`.
+- [ ] `docs/features.md`: Settings → Import/Export behavior (both modes, age encryption, replace warning).
+- [ ] `CLAUDE.md`: one-line pointer if the docs index needs it (vault-format.md row in the Documentation Index table).
+
+### Task: Verify acceptance criteria
+
+- [ ] `go test ./...` green; `pnpm test` green (incl. new suites, globals allowlist, MCP coverage guard, domain purity guard on `vault.js`).
+- [ ] Manual rig pass: bot export from the real bot instance downloads; the same file imports into a cloud account (via the deployed C2e build) and every section renders the history; cloud export of that account diffs clean against the bot export (modulo documented normalizations); an `.age` export decrypts with the reference `age` CLI.
+- [ ] Cloud shim unknown-route warn list on the rig: `/api/export`/`/api/import` never appear (cloud branch never fetches them); remaining warn entries, if any, are triaged as dead routes or filed as beads.
+
+## Technical Details
+
+- **Format = wire shape.** The canonical JSON reuses each domain's existing `/api` field names and value formats verbatim — the same convention cloud record bodies already follow (C1/C2 pattern), so the cloud side is mostly regrouping and the Go side is repo-walk + the same marshaling the handlers do. The only true conversions are at the Go storage boundary: intake unix-seconds columns, vitals unix `date_time`, mi-band millisecond columns → their established wire forms.
+- **Deterministic-id re-minting on cloud import** is what makes import safe next to live devices: an imported scheduled intake gets `intake-<medId>-<slotUnix>`, so a phone that already has that slot converges by LWW instead of double-logging. Random-id types (manual intakes, restocks, foodlogs) keep their exported recordIds when present in the file (cloud→cloud restore) and mint fresh ones only for bot-origin files that never had recordIds.
+- **Snapshot landing**: after `replaceAllRecords`, upload one snapshot with `snapshot_seq = localLastSeq` (server compaction floor), so other devices whose cursors fall below it re-bootstrap from the snapshot (`sync.js:264` path) — exactly the designed recovery flow, no new server behavior.
+- **age specifics**: scrypt recipient (passphrase), armor off (binary `.age`); `typage` is by the format author and tracks the spec; the known-answer test pins interop with the reference CLI in both directions.
+- **Bot import ordering** (FK safety): medications → intakes/restocks; workout groups → variants → exercises → sessions → logs; products → food logs. All inside one transaction with `WipeUser` first; parse/validate fully before touching the DB.
+
+## Post-Completion
+
+- C2 is closed. The post-C2e state feeds C3a/C3b (Telegram bridge) and the C4 PoC exit review as planned.
+- Follow-ups to file as beads if wanted, not in scope: merge-mode import; Settings → "Download my data" scheduled/automatic backups; gamification targets in the format once gamification ships; `age` identity-file (keypair) recipients in addition to passphrase.
