@@ -115,17 +115,17 @@ before investing —
 
 ### Task 2: Pairing + frame crypto (shared contract)
 
-- [ ] pairing code format (client-generated, shown once):
+- [x] pairing code format (client-generated, shown once):
       `mtmcp1.<base64url(json{relay_url, pairing_id, key})>` where `key` is
       32 random bytes from the browser; the code never touches the server
       (the POST from Task 1 registers only the id)
-- [ ] frame format (both directions): `nonce(12) ‖ AES-GCM(key, payload,
+- [x] frame format (both directions): `nonce(12) ‖ AES-GCM(key, payload,
       aad="mt/v1/mcp"‖pairing_id)`; payload = one JSON-RPC MCP message;
       document in the plan-adjacent code comment as the wire contract
-- [ ] Go side: `internal/mcpshim/` package (shim core, importable by the
+- [x] Go side: `internal/mcpshim/` package (shim core, importable by the
       test): dial, encrypt/decrypt, request/response correlation by
       JSON-RPC id, 30s per-call timeout → the offline-device error text
-- [ ] browser side: extend `web/cloud/js/crypto.js` with the same
+- [x] browser side: extend `web/cloud/js/crypto.js` with the same
       seal/open (reuse existing AES-GCM helpers; no new primitives)
 
 ### Task 3: Browser responder — catalog + dispatcher

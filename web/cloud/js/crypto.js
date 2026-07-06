@@ -297,3 +297,28 @@ export async function decryptPushPayload(nk, packed) {
   const ct = packed.slice(12);
   return aesGcmDecrypt(nk, nonce, ct, PUSH_AAD);
 }
+
+// MCP relay frame crypto (docs/cloud-mode.md "MCP", Tier 1; wire contract
+// documented in internal/mcpshim/frame.go). Frame = nonce(12) ‖
+// AES-GCM(pairingKey, payload, aad), aad = encodeFields('mt/v1/mcp',
+// pairingId). payload is one JSON-RPC MCP message, utf8-encoded
+// (mcp-responder.js owns JSON.stringify/parse + utf8()/TextDecoder); the
+// relay pipes the frame opaquely and never sees pairingKey.
+export async function sealMCPFrame(pairingKey, pairingId, payload) {
+  const nonce = crypto.getRandomValues(new Uint8Array(12));
+  const aad = encodeFields('mt/v1/mcp', pairingId);
+  const ct = await aesGcmEncrypt(pairingKey, nonce, payload, aad);
+  const packed = new Uint8Array(nonce.length + ct.length);
+  packed.set(nonce, 0);
+  packed.set(ct, nonce.length);
+  return packed;
+}
+
+// Throws (AEAD failure) on a tampered frame, the wrong key, or a pairingId
+// mismatch (cross-pairing replay).
+export async function openMCPFrame(pairingKey, pairingId, frame) {
+  const nonce = frame.slice(0, 12);
+  const ct = frame.slice(12);
+  const aad = encodeFields('mt/v1/mcp', pairingId);
+  return aesGcmDecrypt(pairingKey, nonce, ct, aad);
+}
