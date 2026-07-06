@@ -263,6 +263,14 @@ func (r *Repo) SetSupplement(id int64, supplement bool) error {
 	return err
 }
 
+// SetInventoryCount sets the absolute stock level (nil = untracked). Used by the
+// create handler to persist initial stock, mirroring how SetSupplement layers on
+// after Create so the base Create signature stays untouched by ~100 test callers.
+func (r *Repo) SetInventoryCount(id int64, count *int) error {
+	_, err := r.db.Exec("UPDATE medications SET inventory_count = ? WHERE id = ?", count, id)
+	return err
+}
+
 func (r *Repo) UpdateCreatedAt(id int64, createdAt time.Time) error {
 	_, err := r.db.Exec("UPDATE medications SET created_at = ? WHERE id = ?", createdAt, id)
 	if err != nil {

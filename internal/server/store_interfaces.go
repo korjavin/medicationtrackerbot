@@ -13,6 +13,7 @@ type MedicationStore interface {
 	List(showArchived bool) ([]store.Medication, error)
 	Create(name, dosage, schedule string, startDate, endDate *time.Time, rxcui, normalizedName string, tzShiftPolicy string) (int64, error)
 	SetSupplement(id int64, supplement bool) error
+	SetInventoryCount(id int64, count *int) error
 	Get(id int64) (*store.Medication, error)
 	Update(id int64, name, dosage, schedule string, archived bool, startDate, endDate *time.Time, rxcui, normalizedName string, inventoryCount *int, tzShiftPolicy string) error
 	Delete(id int64) error

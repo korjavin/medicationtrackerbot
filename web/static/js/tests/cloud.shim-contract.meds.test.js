@@ -100,6 +100,17 @@ describe('cloud shim contract — meds CRUD flows (features/meds.js over web/dom
         });
     });
 
+    it('saveMedication (create) with track-inventory persists the initial stock (med-eas.13)', async () => {
+        const { window, document } = env;
+        fillMedForm(window, document, { name: 'Aspirin', dosage: '100mg', trackInventory: true, inventoryCount: 42 });
+
+        await window.saveMedication();
+
+        const list = await window.apiCall('/api/medications');
+        expect(list).toHaveLength(1);
+        expect(list[0].inventory_count).toBe(42);
+    });
+
     it('saveMedication (edit) updates the matching record', async () => {
         const { window, document } = env;
         fillMedForm(window, document, { name: 'Aspirin', dosage: '100mg' });

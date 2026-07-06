@@ -209,7 +209,7 @@ export function createMedicationsDomain({
       end_date: toISOStringOrNull(input && input.end_date),
       rxcui: rxcui || '',
       normalized_name: normalizedName || '',
-      inventory_count: null,
+      inventory_count: input && input.inventory_count !== undefined ? input.inventory_count : null,
       tz_shift_policy: tzShiftPolicy,
       created_at: new Date(nowMs).toISOString(),
     };
