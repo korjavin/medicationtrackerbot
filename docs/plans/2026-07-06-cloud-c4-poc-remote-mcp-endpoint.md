@@ -69,8 +69,8 @@ Also folds in the Connect-Claude discoverability gap (supersedes `2026-07-06-clo
 
 ### Task 4: Settings entry point
 
-- [ ] Cloud-only "Claude connector" row on the Settings screen next to the Devices row (gate pattern `settings.js:94-99`), linking to `/devices`. Subtitle: "Use your data from claude.ai or ChatGPT — with consent".
-- [ ] Test: row visible only when `window.__MEDTRACKER_CLOUD__`.
+- [x] Cloud-only "Claude connector" row on the Settings screen next to the Devices row (gate pattern `settings.js:94-99`), linking to `/devices`. Subtitle: "Use your data from claude.ai or ChatGPT — with consent".
+- [x] Test: row visible only when `window.__MEDTRACKER_CLOUD__`.
 
 ### Task 5: [Final] Docs
 
