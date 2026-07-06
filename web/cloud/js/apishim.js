@@ -13,6 +13,7 @@ import { createIntakeDomain } from '../../domain/medintake.js';
 import { createTzPlanDomain } from '../../domain/tzplan.js';
 import { createFoodDomain } from '../../domain/food.js';
 import { createFoodAIDomain } from '../../domain/foodai.js';
+import { createWorkoutDomain } from '../../domain/workout.js';
 import { recordsPort } from './sync.js';
 import { scheduleReminderRecompute } from './reminders.js';
 import { createRxnormPort } from './rxnorm.js';
@@ -94,6 +95,7 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
   const foodAI = createFoodAIDomain({
     aiClient: createAIClient({ settingsDomain: settings }), foodDomain: food, now,
   });
+  const workout = createWorkoutDomain({ records, now, timeZone });
 
   // Task 4's frontend bypass guards (photo.js/log.js/products.js — raw fetch
   // to the AI + search endpoints) call these directly, entirely outside the
@@ -122,7 +124,7 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
   // of the features map so a stored/toggled flag for an unported domain
   // (food/workout/gamification/weekly_digest — C2c/d) can never surface as
   // enabled, per docs/cloud-mode.md "C2 shim architecture".
-  const PORTED_SET = new Set(['bp', 'weight', 'health', 'medication', 'food']);
+  const PORTED_SET = new Set(['bp', 'weight', 'health', 'medication', 'food', 'workout']);
   function clampFeatures(flags) {
     const out = {};
     for (const key of Object.keys(flags)) out[key] = PORTED_SET.has(key) ? !!flags[key] : false;
@@ -440,6 +442,123 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
     if (method === 'DELETE') {
       const m = /^\/api\/food\/products\/([^/]+)$/.exec(path);
       if (m) { await food.removeProduct(m[1]); return true; }
+    }
+
+    // --- Workouts: groups/variants/exercises/library CRUD, next-workout +
+    // rotation engine, session lifecycle, exercise logs, stats, mi-band
+    // (Task 6: C2d shim wiring). Unlike bp/weight/food, the CRUD routes use
+    // separate /create, /update, /delete literal paths with a query-param
+    // `?id=` (workout_crud_handlers.go's style), not a combined GET+POST
+    // base path. Intentionally NOT routed (no apiCall-shaped frontend
+    // caller — MCP/bot-only, per the plan): rotation/state,
+    // rotation/initialize, exercises/unique, sessions/schedule, the legacy
+    // session/snooze + session/skip compat routes, and the external Mi
+    // Notify webhook — these fall through to the unmapped-route warning.
+    if (path === '/api/workout/groups' && method === 'GET') return workout.listGroups();
+    if (path === '/api/workout/groups/create' && method === 'POST') return workout.createGroup(body);
+    if (path === '/api/workout/groups/update' && method === 'PUT') {
+      await workout.updateGroup(intParam(params, 'id', 0), body);
+      return true;
+    }
+    if (path === '/api/workout/groups/delete' && method === 'DELETE') {
+      await workout.deleteGroup(intParam(params, 'id', 0));
+      return true;
+    }
+
+    if (path === '/api/workout/variants' && method === 'GET') {
+      return workout.listVariants(intParam(params, 'group_id', 0));
+    }
+    if (path === '/api/workout/variants/create' && method === 'POST') return workout.createVariant(body);
+    if (path === '/api/workout/variants/update' && method === 'PUT') {
+      await workout.updateVariant(intParam(params, 'id', 0), body);
+      return true;
+    }
+    if (path === '/api/workout/variants/delete' && method === 'DELETE') {
+      await workout.deleteVariant(intParam(params, 'id', 0));
+      return true;
+    }
+
+    if (path === '/api/workout/exercises' && method === 'GET') {
+      return workout.listExercises(intParam(params, 'variant_id', 0));
+    }
+    if (path === '/api/workout/exercises/create' && method === 'POST') return workout.createExercise(body);
+    if (path === '/api/workout/exercises/update' && method === 'PUT') {
+      await workout.updateExercise(intParam(params, 'id', 0), body);
+      return true;
+    }
+    if (path === '/api/workout/exercises/delete' && method === 'DELETE') {
+      await workout.deleteExercise(intParam(params, 'id', 0));
+      return true;
+    }
+
+    if (path === '/api/workout/exercise-library' && method === 'GET') return workout.listLibrary();
+    if (path === '/api/workout/exercise-library/create' && method === 'POST') {
+      return workout.createLibraryItem(body);
+    }
+    if (path === '/api/workout/exercise-library/update' && method === 'PUT') {
+      await workout.updateLibraryItem(intParam(params, 'id', 0), body);
+      return true;
+    }
+    if (path === '/api/workout/exercise-library/delete' && method === 'DELETE') {
+      await workout.deleteLibraryItem(intParam(params, 'id', 0));
+      return true;
+    }
+
+    if (path === '/api/workout/sessions' && method === 'GET') {
+      return workout.listSessions(intParam(params, 'limit', 30));
+    }
+    if (path === '/api/workout/sessions/next' && method === 'GET') return workout.getNext();
+    if (path === '/api/workout/sessions/details' && method === 'GET') {
+      return workout.getSessionDetails(intParam(params, 'id', 0));
+    }
+    if (path === '/api/workout/sessions/delete' && method === 'DELETE') {
+      await workout.deleteSession(intParam(params, 'id', 0));
+      return true;
+    }
+    if (path === '/api/workout/sessions/status' && method === 'PUT') {
+      return workout.setSessionStatus(intParam(params, 'id', 0), body && body.status);
+    }
+    if (path === '/api/workout/sessions/adhoc' && method === 'POST') {
+      const session = await workout.createAdHocSession();
+      return { session, group_name: 'Ad-hoc Workout', variant_name: '' };
+    }
+    if (method === 'POST') {
+      const m = /^\/api\/workout\/sessions\/([^/]+)\/(start|snooze|skip|preskip|cancel-preskip|next-variant)$/.exec(path);
+      if (m) {
+        const id = Number(m[1]);
+        const action = m[2];
+        if (action === 'start') await workout.startSession(id);
+        else if (action === 'snooze') await workout.snoozeSession(id, body && body.minutes);
+        else if (action === 'skip') await workout.skipSession(id);
+        else if (action === 'preskip') await workout.preSkipSession(id);
+        else if (action === 'cancel-preskip') await workout.cancelPreSkipSession(id);
+        else await workout.nextVariant(id);
+        return true;
+      }
+    }
+
+    if (path === '/api/workout/sessions/logs/create' && method === 'POST') return workout.createLog(body);
+    if (path === '/api/workout/sessions/logs/update' && method === 'POST') {
+      await workout.updateLog(body && body.id, body);
+      return true;
+    }
+    if (path === '/api/workout/sessions/logs/delete' && method === 'DELETE') {
+      await workout.deleteLog(intParam(params, 'id', 0));
+      return true;
+    }
+
+    if (path === '/api/workout/stats' && method === 'GET') return workout.getStats();
+
+    if (path === '/api/workout/miband' && method === 'GET') {
+      return workout.listMiBand(intParam(params, 'limit', 100));
+    }
+    if (method === 'PATCH') {
+      const m = /^\/api\/workout\/miband\/([^/]+)$/.exec(path);
+      if (m) { await workout.updateMiBand(Number(m[1]), body); return true; }
+    }
+    if (method === 'DELETE') {
+      const m = /^\/api\/workout\/miband\/([^/]+)$/.exec(path);
+      if (m) { await workout.deleteMiBand(Number(m[1])); return true; }
     }
 
     // Reminder toggles: BP/weight reminders aren't functionally scheduled in

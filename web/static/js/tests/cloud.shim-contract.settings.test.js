@@ -37,25 +37,26 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         window.rebuildCanonicalBottomNav = vi.fn();
 
         // Establish the real post-bootstrap baseline: the shim clamps
-        // 'workout' off (it's not in PORTED_SET, unlike 'bp'/'weight'/'health'/
-        // 'medication' — the latter joined PORTED_SET in C2b Task 7).
+        // 'gamification' off (it's not in PORTED_SET, unlike 'bp'/'weight'/
+        // 'health'/'medication'/'food'/'workout' — 'workout' joined PORTED_SET
+        // in C2d Task 6).
         const boot0 = await window.apiCall('/api/bootstrap');
         window.SettingsState.applyBootstrapFeatures(boot0.features);
-        expect(window.featureSettings.workout).toBe(false);
+        expect(window.featureSettings.gamification).toBe(false);
 
-        await window.toggleFeatureSetting('workout', true);
+        await window.toggleFeatureSetting('gamification', true);
 
         // In-session too: the shim rejects the unported enable so the UI never
         // flips window.featureSettings on (which nav filtering trusts), so no
         // dead tab surfaces before the next reload.
-        expect(window.featureSettings.workout).toBe(false);
+        expect(window.featureSettings.gamification).toBe(false);
         expect(window.rebuildCanonicalBottomNav).not.toHaveBeenCalled();
 
         const flags = await window.apiCall('/api/settings/features', 'GET');
-        expect(flags.workout).toBe(false);
+        expect(flags.gamification).toBe(false);
 
         const boot = await window.apiCall('/api/bootstrap');
-        expect(boot.features.workout).toBe(false);
+        expect(boot.features.gamification).toBe(false);
     });
 
     it('saveTabOrder persists through the shim and is echoed by bootstrap', async () => {

@@ -147,24 +147,24 @@ also not ported.
 
 ### Task 1: Record model + numeric-id strategy
 
-- [ ] record types: `workoutgroup`, `workoutvariant`, `workoutexercise`,
+- [x] record types: `workoutgroup`, `workoutvariant`, `workoutexercise`,
       `exerciselibrary`, `workoutsession`, `exerciselog`, `workoutrotation`
       (per-group, deterministic recordId `rotation-<groupId>`), `miband` —
       bodies use server JSON field names verbatim
-- [ ] shared id helper in `web/domain/` : mint positive numeric ids
+- [x] shared id helper in `web/domain/` : mint positive numeric ids
       (epoch-ms-derived + per-instance entropy), stored as body `id`;
       foreign keys store numeric ids; `-1` ad-hoc sentinels kept literal;
       lookups resolve "record of type T whose body.id == n" via the
       records port; document the LWW-merge id-self-heal property in the
       module header (`ponytail:` numeric ids exist solely for frontend
       sentinel compatibility — revisit if C2e migration wants stable ids)
-- [ ] deterministic recordIds where multi-device dedup matters:
+- [x] deterministic recordIds where multi-device dedup matters:
       `session-<groupId>-<scheduledDate>` for schedule-materialized
       sessions (ad-hoc sessions get random recordIds — no natural slot)
 
 ### Task 2: CRUD domains — groups, variants, exercises, library
 
-- [ ] `createWorkoutDomain({records, now, timeZone})` in
+- [x] `createWorkoutDomain({records, now, timeZone})` in
       `web/domain/workout.js` (split files if it gets large — same purity
       rules): groups/variants/exercises/library CRUD mirroring handler
       shapes incl. `days_of_week` JSON-array-as-string round-trip,
@@ -174,36 +174,36 @@ also not ported.
 
 ### Task 3: Next-workout + rotation engine
 
-- [ ] port `GetNext` three-priority resolution (P0 active-today, P1
+- [x] port `GetNext` three-priority resolution (P0 active-today, P1
       expired snooze, P2 two-week scan in device tz with rotation-cursor
       variant selection), incl. lazy session creation through the records
       port with the deterministic recordId, completed/skipped-keeps-
       scanning, and the exact `NextWorkout` response shape (`is_today`,
       conditional `snoozed_until`, ad-hoc placeholder-log exercise count)
-- [ ] port `AdvanceRotation` (rotation_order-circular, reset-on-invalid)
+- [x] port `AdvanceRotation` (rotation_order-circular, reset-on-invalid)
       + `InitializeRotation`; rotation advances on complete, skip, and
       next-variant (which also deletes the current pending session) —
       all inside the domain ops, best-effort, rotating groups only
-- [ ] session lifecycle ops: start (+clear snooze), snooze (+count),
+- [x] session lifecycle ops: start (+clear snooze), snooze (+count),
       skip, preskip/cancel-preskip, `SetSessionStatus` validation
       (400-equivalent on bad status, 404-equivalent on missing), ad-hoc
       create (`-1/-1/in_progress/started_at=now`)
 
 ### Task 4: Exercise logs + stats
 
-- [ ] logs create/update/delete with the web-path semantics:
+- [x] logs create/update/delete with the web-path semantics:
       non-negative validation, `logged_at` bump only while placeholder,
       propagate-to-schedule for non-library sources, auto-promote
       placeholder→completed at `sets_completed>=1`, the
       `(session_id, exercise_id, source)` uniqueness guard
-- [ ] SessionView list (`total_volume`, `exercises_completed`, ad-hoc
+- [x] SessionView list (`total_volume`, `exercises_completed`, ad-hoc
       biggest-volume display name) + SessionDetails
-- [ ] stats: 30-day totals/completion rate, 12-week Monday heatmap with
+- [x] stats: 30-day totals/completion rate, 12-week Monday heatmap with
       `weekly_activity: null` when empty, `top_exercises`
 
 ### Task 5: Mi-band read/edit side
 
-- [ ] `miband` records (fields per the enriched GET shape incl.
+- [x] `miband` records (fields per the enriched GET shape incl.
       `source_start_ms` + tz offset for local time rendering); list with
       limit, PATCH diff-semantics over the six editable fields, DELETE →
       tombstone; ingestion has no cloud path (records arrive via C2e
@@ -211,38 +211,51 @@ also not ported.
 
 ### Task 6: Shim wiring — routes, `apiCallDirect` wrapper, feature flip
 
-- [ ] route table for all UI-called workout routes (query-param id style
+- [x] route table for all UI-called workout routes (query-param id style
       preserved); MCP/bot-only routes intentionally unmapped (the
       unknown-route warn documents them as not-ported-by-design — add a
       comment in the shim listing them so the warn list stays
       interpretable)
-- [ ] cloud-boot installs a `window.apiCallDirect` wrapper routing
+- [x] cloud-boot installs a `window.apiCallDirect` wrapper routing
       `/api/*` into the same shim dispatch (fixes `groups.js:55`,
       `next-card.js:179`, `stats.js:40`, `today-loader.js:154` with zero
       `web/static` edits); non-`/api` URLs pass through untouched
-- [ ] add `workout` to `PORTED_SET`; bootstrap payload gains the
-      `workout_next` cache entry; Today's workout card lights up
+- [x] add `workout` to `PORTED_SET`; bootstrap payload gains the
+      `workout_next` cache entry (warmed directly by cloud-boot.js via
+      `cacheApiSnapshot`, since neither the native nor shim `/api/bootstrap`
+      bundles a `res.workout` key to piggyback on); Today's workout card
+      lights up
+- ➕ added `deleteSession` to `web/domain/workout.js` (ports
+      `DeleteSession`, repo.go:1029) — discovered during wiring that
+      `sessions.js:413`'s `DELETE /api/workout/sessions/delete?id=` had no
+      domain counterpart from Tasks 1-5
+- ➕ updated `cloud.shim-contract.settings.test.js`'s unported-feature-clamp
+      case to use `gamification` instead of `workout` as the example, since
+      `workout` now joins `PORTED_SET`
 
 ### Task 7: Shim-mode contract runs
 
-- [ ] the suites listed in Testing Strategy, incl. rotation-cursor
+- [x] the suites listed in Testing Strategy, incl. rotation-cursor
       assertions after complete/skip/next-variant and the
       two-instance lazy-`getNext` convergence case
 
 ### Task 8: Verify acceptance criteria
 
-- [ ] full workout UX in the shim harness; unknown-route warns contain
+- [x] full workout UX in the shim harness; unknown-route warns contain
       only the documented MCP-only routes; `pnpm test` fully green;
       `go build ./... && go build -tags mobile ./...` +
       `go test -count=1 ./...` green; linters clean
+      (`go vet ./...` clean; `gofmt -l` drift is pre-existing on master,
+      not introduced by this branch — no JS lint script is configured,
+      only `vitest run`)
 
 ### Task 9: [Final] Update documentation
 
-- [ ] `docs/cloud-mode.md`: C2d implementation notes — record types, the
+- [x] `docs/cloud-mode.md`: C2d implementation notes — record types, the
       numeric-id strategy + rationale, lazy-materialization-on-read, the
       `apiCallDirect` wrapper, scheduler-loop skip, reminder deferral
-- [ ] `CLAUDE.md`: cloud index row update if needed
-- [ ] note remaining C2 scope: C2e (exporter + migration import) is now
+- [x] `CLAUDE.md`: cloud index row update if needed
+- [x] note remaining C2 scope: C2e (exporter + migration import) is now
       the only unported piece; the post-C2d unknown-route warn list on
       the rig is its final input
 

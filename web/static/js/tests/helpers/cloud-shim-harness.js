@@ -45,9 +45,23 @@ export function createInMemoryRecordsPort(seed = {}) {
 }
 
 export function loadCloudShimFrontendEnv(opts = {}) {
-    const { seedRecords, ...frontendOpts } = opts;
+    const { seedRecords, wrapApiCallDirect, ...frontendOpts } = opts;
     const env = loadFrontendEnv(frontendOpts);
-    installApiShim({}, { records: createInMemoryRecordsPort(seedRecords), win: env.window });
+    const shimCall = installApiShim({}, { records: createInMemoryRecordsPort(seedRecords), win: env.window });
+    if (wrapApiCallDirect) {
+        // Workout's groups.js/next-card.js/stats.js call window.apiCallDirect
+        // directly, bypassing offlineAwareApiCall (Decision 3, C2d plan) —
+        // mirror cloud-boot.js's wrapper here so those bypasses are shim-served
+        // too. Opt-in only: other suites' background pollers (e.g. the
+        // change-poll loop hitting /api/changes) also call apiCallDirect and
+        // aren't expecting the shim's unmapped-route warn.
+        const realApiCallDirect = env.window.apiCallDirect;
+        env.window.apiCallDirect = (endpoint, method, body, callOpts) => (
+            endpoint.startsWith('/api/')
+                ? shimCall(endpoint, method, body, callOpts)
+                : realApiCallDirect(endpoint, method, body, callOpts)
+        );
+    }
     return env;
 }
 

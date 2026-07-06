@@ -35,7 +35,33 @@ window.MedTrackerCloudReady = (async function boot() {
             return;
         }
 
-        installApiShim(ctx);
+        const shimCall = installApiShim(ctx);
+        // Decision 3 (C2d plan): groups.js/next-card.js/stats.js/today-loader.js
+        // call window.apiCallDirect directly, bypassing the offlineAwareApiCall
+        // seam apiCall() checks first. Route /api/* straight into the same shim
+        // dispatch so those bypasses are served too; anything else (there is no
+        // other caller today, but the real implementation is one already-broken
+        // fetch away) keeps hitting the real network fetch unchanged.
+        // Order-independent install: core/api.js (index.html, well after this
+        // shim's <head> injection) also does `window.apiCallDirect = …`. The
+        // boot() awaits above can resume mid-parse — the event loop spins while
+        // the parser is blocked fetching an earlier script — so we can't assume
+        // api.js has run yet. A plain capture-and-reassign would either read an
+        // undefined real fn or get clobbered when api.js runs last. Instead hold
+        // the real fn in a closure and expose the wrapper via an accessor whose
+        // setter absorbs api.js's later assignment as the fallback rather than
+        // replacing the wrapper.
+        let realApiCallDirect = window.apiCallDirect;
+        const wrapper = (endpoint, method, body, opts) => (
+            endpoint.startsWith('/api/')
+                ? shimCall(endpoint, method, body, opts)
+                : realApiCallDirect(endpoint, method, body, opts)
+        );
+        Object.defineProperty(window, 'apiCallDirect', {
+            configurable: true,
+            get() { return wrapper; },
+            set(fn) { realApiCallDirect = fn; },
+        });
         await pullOnOpen(ctx);
         if (window.DataStore && typeof window.DataStore.invalidateTags === 'function') {
             // Cloud mode has no change-poll loop — pullOnOpen is the only sync
@@ -46,7 +72,16 @@ window.MedTrackerCloudReady = (async function boot() {
             // Awaited so MedTrackerCloudReady (which checkAuth blocks on before
             // applyBootstrapPayload) doesn't resolve until the Dexie evictions
             // finish — otherwise the app could read stale cache mid-clear.
-            await window.DataStore.invalidateTags(['bp', 'weight', 'medications', 'history']);
+            await window.DataStore.invalidateTags(['bp', 'weight', 'medications', 'history', 'workout']);
+        }
+        // Warm workout_next the same way applyBootstrapPayload warms bp/weight,
+        // so Today's workout card paints instantly instead of waiting on
+        // next-card.js's own fetch. No res.workout bootstrap key exists on
+        // either server (native or shim) to piggyback on, so this calls the
+        // same route the frontend's fetcher would and caches it directly.
+        if (window.cacheApiSnapshot) {
+            const workoutNext = await window.apiCallDirect('/api/workout/sessions/next').catch(() => null);
+            await window.cacheApiSnapshot('workout_next', workoutNext === null ? { session: null } : workoutNext, ['workout']);
         }
         // Recompute + re-upload the med reminder horizon on every unlock so a
         // device that was closed for a while "self-heals" the schedule (see
