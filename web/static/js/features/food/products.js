@@ -69,6 +69,75 @@ function cancelInFlightFoodSearch() {
     window.FoodProducts._nextRequestId();
 }
 
+// runCloudFoodSearch is cloud mode's replacement for the NDJSON stream: local
+// results render immediately via web/domain/food.js's search(), and a second
+// call (local+remote merged, once web/cloud/js/fooddb.js is wired in Task 5)
+// backs the "Load more from OpenFoodFacts" button — feeding the exact same
+// render callbacks as the bot-mode fetch path. `barcode`, when set, checks
+// for a direct code match first and autofills instead of rendering a list,
+// mirroring onFoodBarcodeChange's local/remote match branches.
+async function runCloudFoodSearch(query, requestId, { barcode } = {}) {
+    let local = [];
+    try {
+        local = await window.CloudFoodSearch.search(query, { remote: false });
+    } catch (e) {
+        if (requestId !== window.FoodProducts._getRequestId()) return;
+        console.error('Search failed', e);
+        setFoodSearchStatus('error', 'Search finished with an error. Please try again.');
+        return;
+    }
+    if (requestId !== window.FoodProducts._getRequestId()) return;
+
+    if (barcode) {
+        const match = local.find(p => p.barcode === barcode);
+        if (match) {
+            document.getElementById('food-name').value = decodeFoodDisplayText(match.name);
+            autofillFoodProduct(match);
+            setFoodSearchStatus('success', 'Product found and filled in.');
+            return;
+        }
+    }
+
+    const loadMoreCallback = async () => {
+        const myRequestId = window.FoodProducts._nextRequestId();
+        setFoodSearchStatus('loading', 'Searching OpenFoodFacts...');
+        let merged;
+        try {
+            merged = await window.CloudFoodSearch.search(query, { remote: true });
+        } catch (e) {
+            if (myRequestId !== window.FoodProducts._getRequestId()) return;
+            console.error('Load more failed', e);
+            setFoodSearchStatus('success', `Found ${local.length} local result(s). Remote fetch failed.`);
+            renderFoodAutocomplete(local, false, null);
+            return;
+        }
+        if (myRequestId !== window.FoodProducts._getRequestId()) return;
+
+        if (barcode) {
+            const remoteMatch = merged.find(p => p.barcode === barcode);
+            if (remoteMatch) {
+                document.getElementById('food-name').value = decodeFoodDisplayText(remoteMatch.name);
+                autofillFoodProduct(remoteMatch);
+                const list = document.getElementById('food-autocomplete-list');
+                if (list) list.classList.add('hidden');
+                setFoodSearchStatus('success', 'Product found and filled in.');
+                return;
+            }
+        }
+
+        renderFoodAutocomplete(merged, false, null);
+        setFoodSearchStatus('success', `Found ${merged.length} result(s).`);
+    };
+
+    renderFoodAutocomplete(local, local.length > 0, local.length > 0 ? loadMoreCallback : null);
+    if (local.length > 0) {
+        setFoodSearchStatus('success', `Found ${local.length} local result(s).`);
+    } else {
+        setFoodSearchStatus('empty', 'No local products found.');
+        loadMoreCallback();
+    }
+}
+
 function decodeFoodDisplayText(value) {
     const raw = (value || '').toString();
     if (!raw) return '';
@@ -93,7 +162,10 @@ async function initFoodProductsCache() {
     if (!cache) {
         try {
             let products = [];
-            if (typeof window.cachedFetch === 'function') {
+            // cachedFetch uses apiCallDirect (raw network) and bypasses the
+            // cloud shim; in cloud mode that 404s on the account subdomain.
+            // Fall through to apiCall so the shim serves it from the vault.
+            if (typeof window.cachedFetch === 'function' && !window.__MEDTRACKER_CLOUD__) {
                 try {
                     const result = await window.cachedFetch(
                         'food_products_cache',
@@ -211,6 +283,18 @@ async function onFoodNameChange() {
         if (prevController) prevController.abort();
         const controller = new AbortController();
         window.FoodProducts._setAbortController(controller);
+
+        if (window.__MEDTRACKER_CLOUD__) {
+            // Cloud mode: there is no /api/food/products/search on the wire
+            // (apishim.js intentionally excludes it) — two-phase delivery
+            // straight from web/domain/food.js's search() (local, then a
+            // local+remote merge once the food-DB fetch lands) feeds the
+            // same render callbacks. AbortController state is still tracked
+            // above so cancelInFlightFoodSearch() stays a no-op-safe call.
+            await runCloudFoodSearch(query, requestId);
+            return;
+        }
+
         let timeoutId;
 
         try {
@@ -421,6 +505,15 @@ async function onFoodBarcodeChange() {
         if (prevController) prevController.abort();
         const controller = new AbortController();
         window.FoodProducts._setAbortController(controller);
+
+        if (window.__MEDTRACKER_CLOUD__) {
+            // Cloud mode: same two-phase delivery as onFoodNameChange, with
+            // the direct-barcode-match check runCloudFoodSearch performs
+            // before falling back to rendering a result list.
+            await runCloudFoodSearch(barcode, requestId, { barcode });
+            return;
+        }
+
         let timeoutId;
 
         try {
@@ -691,7 +784,10 @@ function renderFoodAutocomplete(products, showLoadMore = false, loadMoreCallback
             item.appendChild(metaSpan);
         }
 
-        if (p.id && p.id > 0) {
+        // Bot-mode product ids are positive integers; cloud-mode ids are
+        // string recordIds (`foodproduct_…`). Remote food-DB results carry no
+        // id. Render edit/delete only for saved local products (mirrors log.js).
+        if (p.id && (typeof p.id === 'string' || p.id > 0)) {
             const actions = document.createElement('span');
             actions.className = 'autocomplete-item-actions';
 
@@ -849,19 +945,23 @@ async function saveFoodProduct() {
         // Optimistic: patch the matching product in the in-memory cache + the
         // `food_products_cache` payload so the row reflects the edit before
         // the PUT resolves. Snapshot for rollback on failure.
-        const numericId = parseInt(id, 10);
+        // Bot-mode cache rows carry numeric ids; cloud-mode rows carry string
+        // recordIds. Keep numeric strings as numbers to match number-typed
+        // cache rows, but leave recordIds intact — parseInt on a recordId
+        // yields NaN, which never matches and no-ops the patch (mirrors log.js).
+        const patchId = /^\d+$/.test(id) ? parseInt(id, 10) : id;
         const cacheBefore = Array.isArray(window.FoodProducts.cache)
             ? window.FoodProducts.cache.slice()
             : [];
         window.FoodProducts.cache = cacheBefore.map((p) => {
-            if (!p || p.id !== numericId) return p;
+            if (!p || p.id !== patchId) return p;
             return { ...p, ...payload };
         });
 
         const handle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
             ? await window.DataStore.applyOptimistic('food_products_cache', (prev) => {
                 if (!Array.isArray(prev)) return prev;
-                return prev.map((p) => (p && p.id === numericId) ? { ...p, ...payload } : p);
+                return prev.map((p) => (p && p.id === patchId) ? { ...p, ...payload } : p);
             }, ['food'])
             : null;
 

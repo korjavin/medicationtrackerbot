@@ -10,6 +10,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"html"
 	"io/fs"
 	"log/slog"
 	"net"
@@ -47,8 +48,11 @@ type Handler struct {
 // (domainweb.FS) — the runtime-agnostic BP/weight modules, served under
 // "/domain/" because web/cloud/js/apishim.js imports them from there
 // (../../domain/*.js). api handles "/api/*" requests on the subdomain
-// branch (nil serves 404 for them) — see WebAuthnAPI.Routes.
-func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, domainFS fs.FS, api http.Handler) *Handler {
+// branch (nil serves 404 for them) — see WebAuthnAPI.Routes. foodDBURL is
+// the operator's default FastFoodDB instance (CLOUD_FOOD_DB_URL, cmd/cloud)
+// — a URL, not a secret; "" disables the operator default (remote food
+// search stays local-only until the user sets their own in Settings).
+func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, domainFS fs.FS, api http.Handler, foodDBURL string) *Handler {
 	idx, err := fs.ReadFile(appFS, "index.html")
 	if err != nil {
 		panic("cloudserver: appFS missing index.html: " + err.Error())
@@ -59,22 +63,26 @@ func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, doma
 		shell:      http.FileServerFS(shellFS),
 		app:        http.StripPrefix("/static/", http.FileServerFS(appFS)),
 		domain:     http.StripPrefix("/domain/", http.FileServerFS(domainFS)),
-		appIndex:   injectCloudBoot(idx),
+		appIndex:   injectCloudBoot(idx, foodDBURL),
 		api:        api,
 	}
 }
 
-// injectCloudBoot splices a classic (non-module) <script src="/js/cloud-boot.js">
-// tag right after <head>, served from cloudweb.FS's js/ directory via the
-// default shell-fallback branch below. It must run before every other
+// injectCloudBoot splices the operator's default food-DB URL (as a
+// CSP-safe <meta>, read by web/cloud/js/fooddb.js — an inline <script>
+// would be blocked by our own script-src 'self', see setSecurityHeaders)
+// and a classic (non-module) <script src="/js/cloud-boot.js"> tag right
+// after <head>, served from cloudweb.FS's js/ directory via the default
+// shell-fallback branch below. cloud-boot.js must run before every other
 // web/static script — as a classic script it blocks parsing synchronously,
 // setting window.__MEDTRACKER_CLOUD__ before messenger-adapter.js /
 // app-shell.js / data-store.js ever check it — so it goes first, ahead of
 // even native-bootstrap.js. web/static/index.html itself stays untouched;
 // this only rewrites the copy cmd/cloud serves.
-func injectCloudBoot(idx []byte) []byte {
+func injectCloudBoot(idx []byte, foodDBURL string) []byte {
 	const marker = "<head>"
-	const inject = "<head>\n    <script src=\"/js/cloud-boot.js\"></script>"
+	inject := "<head>\n    <meta name=\"medtracker-food-db-url\" content=\"" + html.EscapeString(foodDBURL) + "\">" +
+		"\n    <script src=\"/js/cloud-boot.js\"></script>"
 	out := bytes.Replace(idx, []byte(marker), []byte(inject), 1)
 	if bytes.Equal(out, idx) {
 		panic("cloudserver: index.html missing <head> to inject cloud-boot.js")
@@ -85,12 +93,27 @@ func injectCloudBoot(idx []byte) []byte {
 // setSecurityHeaders hardens the E2EE origin. The threat model
 // (docs/cloud-crypto.md) rates on-origin XSS as catastrophic — it can read the
 // in-memory DEK and drive the non-extractable LDK — and names a strict CSP with
-// zero third-party script as the real defense. The shell loads only same-origin
-// modules/CSS (no inline script/style, WebAuthn isn't CSP-governed), so a
-// self-only policy holds without exceptions.
-func setSecurityHeaders(w http.ResponseWriter) {
+// zero third-party script as the real defense. Script/style/img/default stay
+// self-only (no inline script/style, WebAuthn isn't CSP-governed).
+//
+// accountApp relaxes connect-src to `'self' https:` for the per-account app
+// document + assets only: C2c food runs browser-direct calls to the user's own
+// AI provider (aiclient.js) and food-DB (fooddb.js), whose origins are
+// BYO/vault-secret and so unknowable server-side — a scoped allowlist is
+// impossible. This is an accepted weakening: the app document also holds the
+// in-memory DEK and decrypted records, so an on-origin XSS there can now POST
+// them to any https: origin (the strict 'self' policy previously blocked that
+// exfiltration path). Sandboxing the browser-direct provider calls into a
+// worker/iframe is the only way to restore 'self' on the DEK page — deferred.
+// The base-domain shell and the passkey ceremony pages (/unlock, /claim,
+// /recover, /devices) make no cross-origin calls and keep connect-src 'self'.
+func setSecurityHeaders(w http.ResponseWriter, accountApp bool) {
 	h := w.Header()
-	h.Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
+	connectSrc := "connect-src 'self'"
+	if accountApp {
+		connectSrc = "connect-src 'self' https:"
+	}
+	h.Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; "+connectSrc+"; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("X-Frame-Options", "DENY")
 	h.Set("Referrer-Policy", "no-referrer")
@@ -98,8 +121,8 @@ func setSecurityHeaders(w http.ResponseWriter) {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	setSecurityHeaders(w)
 	host := stripPort(r.Host)
+	setSecurityHeaders(w, host != h.baseDomain && isAppPath(r.URL.Path))
 	if host == h.baseDomain {
 		h.shell.ServeHTTP(w, r)
 		return
@@ -179,6 +202,15 @@ func withAccount(ctx context.Context, a *cloudstore.Account) context.Context {
 func AccountFromContext(ctx context.Context) (*cloudstore.Account, bool) {
 	a, ok := ctx.Value(accountCtxKey{}).(*cloudstore.Account)
 	return a, ok
+}
+
+// isAppPath reports whether p serves the per-account app document ("/") or its
+// same-origin assets ("/static/*", "/domain/*") — the only pages that make
+// browser-direct C2c food calls and so need the relaxed connect-src. Everything
+// else (the passkey ceremony pages, /api/*, shell fallbacks) keeps the strict
+// connect-src 'self' from setSecurityHeaders.
+func isAppPath(p string) bool {
+	return p == "/" || strings.HasPrefix(p, "/static/") || strings.HasPrefix(p, "/domain/")
 }
 
 // stripPort mirrors net/http's canonical host-header handling: dev requests

@@ -28,7 +28,7 @@ func newTestSyncHandler(t *testing.T, quotaBytes int64) (http.Handler, string, s
 	deviceAPI.RegisterRoutes(mux)
 	syncAPI.RegisterRoutes(mux)
 
-	return New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux), host, claimToken
+	return New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, ""), host, claimToken
 }
 
 func postOpsBatch(t *testing.T, h http.Handler, host string, session *http.Cookie, ops []opWire) (*http.Response, postOpsResponse) {

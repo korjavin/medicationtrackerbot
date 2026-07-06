@@ -120,129 +120,133 @@ Two structural findings from discovery that shape this plan:
 
 ### Task 1: Food domain core — `web/domain/food.js`
 
-- [ ] `createFoodDomain({records, now, timeZone, foodDb})` (`foodDb` =
+- [x] `createFoodDomain({records, now, timeZone, foodDb})` (`foodDb` =
       injected remote-search port; Task 5 provides the browser impl,
       tests inject a fake)
-- [ ] record types: `foodlog` (server field names, frozen total macros,
+- [x] record types: `foodlog` (server field names, frozen total macros,
       `eaten_at` normalized like the server) and `foodproduct` (per-100g
       floats, `usage_count`, `is_meal`, `total_weight_g`; name-keyed
       upsert semantics incl. COALESCE-preserve + usage bump + last_used)
-- [ ] log create/update replicate the server's side effects: product
+- [x] log create/update replicate the server's side effects: product
       upsert from named manual logs, ownership-by-construction, `is_meal`
       resolved from the referenced product at read time
-- [ ] port `CalculateMacros` (int truncation + 4/4/9 calorie recompute),
+- [x] port `CalculateMacros` (int truncation + 4/4/9 calorie recompute),
       `groupFoodLogs` (hour buckets, 30-min clusters, multi-day calendar
       grouping, group totals) and window-SUM stats with tz-midnight
       alignment (device tz — same accepted deviation as C1)
-- [ ] products list with limit/offset/sort + `is_meal` filter + `q`;
+- [x] products list with limit/offset/sort + `is_meal` filter + `q`;
       `createMealFromLogs` aggregation (summed totals → per-100g,
       `total_weight_g` = sum)
 
 ### Task 2: Shim routes + feature flip
 
-- [ ] route table: log CRUD + stats + products CRUD + from-logs; delete
+- [x] route table: log CRUD + stats + products CRUD + from-logs; delete
       the obsolete stubs; add `food` to `PORTED_SET` and default the
       feature flag per bot-mode behavior (nav tab appears)
-- [ ] search route: served by the shim as a plain JSON response for
+- [x] search route: served by the shim as a plain JSON response for
       `apiCall`-shaped callers IF any exist — the NDJSON streaming caller
       is handled by the Task 4 guard instead; unknown-route warn list must
       be food-free after this plan
 
 ### Task 3: Client-side AI — `web/domain/foodai.js` + browser provider client
 
-- [ ] copy `MealSystemPrompt`, `MealPhotoSystemPrompt`, and `mealSchema`
+- [x] copy `MealSystemPrompt`, `MealPhotoSystemPrompt`, and `mealSchema`
       verbatim into `web/domain/foodai.js` with a comment pinning the Go
       source (`internal/ai/openai.go`); port `convertParsedMeal`
       validation (name non-empty, weight>0, macros≥0) + `CalculateMacros`
       application; parse → create log records → return
       `{status:"created", items, failed}` exactly like the handlers
-- [ ] `createFoodAIDomain({aiClient, foodDomain, now})` — pure; the
+- [x] `createFoodAIDomain({aiClient, foodDomain, now})` — pure; the
       browser `aiClient` lives in `web/cloud/js/aiclient.js`: chat
       completions with strict json_schema + the response_format-rejection
       fallback + fence stripping; photo path converts the picked File to
       a data URL (8 MB cap, image/* sniff) and sends the two-part content
       array; vision credentials fall back to text credentials
-- [ ] unmasked key access: export a narrowly-named reader from the
+- [x] unmasked key access: export a narrowly-named reader from the
       settings domain (e.g. `readIntegrationsUnmasked`) consumed
       module-to-module by `aiclient.js`/`foodDb` ONLY — never reachable
       via any shim route (masked `getIntegrations` stays the only `/api`
       shape); grep-test in the contract suite asserts no route returns a
-      raw key
-- [ ] missing-key behavior: AI entry points return the "add a key in
+      raw key (grep-test lands in Task 6's contract-suite pass)
+- [x] missing-key behavior: AI entry points return the "add a key in
       Settings → Integrations" error the UI can show; no key = no
       provider call attempted (this replaces `food_intake_enabled`)
 
 ### Task 4: Frontend bypass guards (guard-only, 4 sites)
 
-- [ ] `features/food/photo.js`: `__MEDTRACKER_CLOUD__` branch skips the
+- [x] `features/food/photo.js`: `__MEDTRACKER_CLOUD__` branch skips the
       FormData POST and hands the File to the cloud AI module (exposed via
       one new allowlisted `window.*` entry); same undo-toast + optimistic
       cache path afterwards
-- [ ] `features/food/log.js` description flow: cloud branch calls the
+- [x] `features/food/log.js` description flow: cloud branch calls the
       cloud AI module instead of raw fetch; identical response handling
-- [ ] `features/food/products.js` search: cloud branch replaces the NDJSON
+- [x] `features/food/products.js` search: cloud branch replaces the NDJSON
       stream with two-phase delivery (local results immediately, remote
       results when the food-DB fetch lands) feeding the same render
       callbacks + AbortController semantics
-- [ ] `features/food/ai-undo.js`: cloud branch routes the DELETE through
+- [x] `features/food/ai-undo.js`: cloud branch routes the DELETE through
       `apiCall` (hits the shim); bot branch keeps its raw fetch untouched
-- [ ] new `window.*` globals get `tests/architecture.globals.test.js`
+- [x] new `window.*` globals get `tests/architecture.globals.test.js`
       allowlist entries with justification
 
 ### Task 5: Food-DB direct + operator default
 
-- [ ] browser `foodDb` port impl (`web/cloud/js/fooddb.js`): search +
+- [x] browser `foodDb` port impl (`web/cloud/js/fooddb.js`): search +
       barcode GETs with `X-API-Key` from vault `integrations.food.api_key`
       (may be empty), response mapped per `openfoodfacts_api.go`; base URL
       = vault `integrations.food.url` when set, else the **operator
       default**
-- [ ] operator default plumbing: `CLOUD_FOOD_DB_URL` env on `cmd/cloud`,
+- [x] operator default plumbing: `CLOUD_FOOD_DB_URL` env on `cmd/cloud`,
       injected into the served page (the `cloud-boot.js` config path) —
       a URL, not a secret; absent env = remote search silently disabled
       (local-only results), never an error
-- [ ] Settings → Integrations: food URL field shows the effective default
+- [x] Settings → Integrations: food URL field shows the effective default
       as placeholder (visible-but-unadvertised override, per
       cloud-mode.md) — no wizard step, no nagging
-- [ ] ⚠️ deployment requirement, verify on the rig: the operator food-DB
+- [x] ⚠️ deployment requirement, verify on the rig: the operator food-DB
       instance must allow CORS from `*.<base>` origins — document the
       needed header/Traefik label in `docs/cloud-deployment.md`; if the
       operator instance can't do CORS, remote search stays local-only and
       this task documents why (do NOT proxy queries through the cloud
       server silently — that would move query-term exposure from "food-DB
-      host" to "cloud operator" without consent)
+      host" to "cloud operator" without consent) — documented in
+      `docs/cloud-deployment.md`'s new "Food-DB CORS requirement" section;
+      actual on-the-rig verification against a real FastFoodDB deployment
+      is a manual step (skipped here - not automatable in this environment)
 
 ### Task 6: Shim-mode contract runs
 
-- [ ] food log suite: add/edit/delete, grouping (hour buckets + 30-min
+- [x] food log suite: add/edit/delete, grouping (hour buckets + 30-min
       cluster), stats strip vs targets, per-100g edit semantics (project
       memory: edit modals must show original per-100g values)
-- [ ] products suite: list/sort/edit/delete, meal-from-logs, search
+- [x] products suite: list/sort/edit/delete, meal-from-logs, search
       local+remote (fake foodDb), barcode query detection
-- [ ] AI suites: description + photo happy path (fake provider returning
+- [x] AI suites: description + photo happy path (fake provider returning
       schema-shaped JSON → logs created → undo removes them), fallback
       path (provider rejects response_format), missing-key hint, oversized
       photo rejection
-- [ ] masked-key assertion: `/api/settings/integrations` GET still returns
+- [x] masked-key assertion: `/api/settings/integrations` GET still returns
       `'***'`; no shim route response contains a stored raw key
 
 ### Task 7: Verify acceptance criteria
 
-- [ ] full food UX works in the shim harness incl. all four guarded
+- [x] full food UX works in the shim harness incl. all four guarded
       bypass paths; unknown-route warn list contains no `/api/food/*`
-- [ ] `pnpm test` fully green; `go build ./... && go build -tags mobile
+- [x] `pnpm test` fully green; `go build ./... && go build -tags mobile
       ./...` + `go test -count=1 ./...` green; linters clean
 
 ### Task 8: [Final] Update documentation
 
-- [ ] `docs/cloud-mode.md`: C2c implementation notes (record types
+- [x] `docs/cloud-mode.md`: C2c implementation notes (record types
       `foodlog`/`foodproduct`, AI/foodDb ports, the four guarded bypasses,
       `food_intake_enabled` → key-presence collapse); leakage table gains
       the explicit row: **meal descriptions + photos → the user's AI
       provider, directly from the client** (BYO consent), and confirms the
       existing food-DB row covers the operator default
-- [ ] `docs/cloud-deployment.md`: `CLOUD_FOOD_DB_URL` + the CORS
-      requirement for the operator food-DB instance
-- [ ] `CLAUDE.md`: cloud index row update if needed
+- [x] `docs/cloud-deployment.md`: `CLOUD_FOOD_DB_URL` + the CORS
+      requirement for the operator food-DB instance (already documented in
+      Task 5; verified present, no change needed)
+- [x] `CLAUDE.md`: cloud index row update if needed
 
 ## Technical Details
 

@@ -3,6 +3,7 @@ package cloudserver
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -56,7 +57,7 @@ func TestRouter_HostVariants(t *testing.T) {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
-	h := New("app.example.com", store, testFS(), testAppFS(), testDomainFS(), nil)
+	h := New("app.example.com", store, testFS(), testAppFS(), testDomainFS(), nil, "https://food.example.com")
 
 	cases := []struct {
 		name       string
@@ -67,7 +68,7 @@ func TestRouter_HostVariants(t *testing.T) {
 	}{
 		{"base domain serves landing page", "app.example.com", "/", http.StatusOK, "landing page"},
 		{"base domain with dev port", "app.example.com:8080", "/", http.StatusOK, "landing page"},
-		{"known subdomain serves the real app at root", "known-sub.app.example.com", "/", http.StatusOK, "<html><head>\n    <script src=\"/js/cloud-boot.js\"></script></head><body>real app</body></html>"},
+		{"known subdomain serves the real app at root", "known-sub.app.example.com", "/", http.StatusOK, "<html><head>\n    <meta name=\"medtracker-food-db-url\" content=\"https://food.example.com\">\n    <script src=\"/js/cloud-boot.js\"></script></head><body>real app</body></html>"},
 		{"known subdomain serves the unlock shell", "known-sub.app.example.com", "/unlock", http.StatusOK, "account shell"},
 		{"known subdomain claim serves the shell", "known-sub.app.example.com", "/claim", http.StatusOK, "account shell"},
 		{"known subdomain recover serves the shell", "known-sub.app.example.com", "/recover", http.StatusOK, "account shell"},
@@ -94,8 +95,22 @@ func TestRouter_HostVariants(t *testing.T) {
 			}
 			// Every response on the E2EE origin must carry the hardening headers,
 			// including 404s (docs/cloud-crypto.md rates on-origin XSS catastrophic).
-			if csp := rec.Header().Get("Content-Security-Policy"); csp == "" {
+			csp := rec.Header().Get("Content-Security-Policy")
+			if csp == "" {
 				t.Errorf("missing Content-Security-Policy header")
+			}
+			// Account-subdomain app pages (/, /static/*, /domain/*) relax
+			// connect-src to permit browser-direct C2c food calls to BYO
+			// AI/food-DB origins — an accepted weakening since those pages also
+			// hold the in-memory DEK. The base domain and the passkey ceremony
+			// pages make no cross-origin calls and stay strict.
+			wantConnect := "connect-src 'self';"
+			if stripPort(tc.host) != "app.example.com" &&
+				(tc.path == "/" || strings.HasPrefix(tc.path, "/static/") || strings.HasPrefix(tc.path, "/domain/")) {
+				wantConnect = "connect-src 'self' https:;"
+			}
+			if !strings.Contains(csp, wantConnect) {
+				t.Errorf("CSP connect-src = %q, want it to contain %q", csp, wantConnect)
 			}
 			if xcto := rec.Header().Get("X-Content-Type-Options"); xcto != "nosniff" {
 				t.Errorf("X-Content-Type-Options = %q, want nosniff", xcto)

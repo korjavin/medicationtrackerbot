@@ -11,9 +11,13 @@ import { createRemindersDomain } from '../../domain/reminders.js';
 import { createMedicationsDomain } from '../../domain/medications.js';
 import { createIntakeDomain } from '../../domain/medintake.js';
 import { createTzPlanDomain } from '../../domain/tzplan.js';
+import { createFoodDomain } from '../../domain/food.js';
+import { createFoodAIDomain } from '../../domain/foodai.js';
 import { recordsPort } from './sync.js';
 import { scheduleReminderRecompute } from './reminders.js';
 import { createRxnormPort } from './rxnorm.js';
+import { createAIClient } from './aiclient.js';
+import { createFoodDbClient } from './fooddb.js';
 
 // materializeTimerHandle is module-level (not per-shim-instance) because the
 // production invariant is "one shim installed per page load"; re-installing
@@ -84,6 +88,19 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
   });
   const intake = createIntakeDomain({ records, now, timeZone });
   const tzplan = createTzPlanDomain({ records, now, timeZone });
+  const food = createFoodDomain({
+    records, now, timeZone, foodDb: createFoodDbClient({ settingsDomain: settings }),
+  });
+  const foodAI = createFoodAIDomain({
+    aiClient: createAIClient({ settingsDomain: settings }), foodDomain: food, now,
+  });
+
+  // Task 4's frontend bypass guards (photo.js/log.js/products.js — raw fetch
+  // to the AI + search endpoints) call these directly, entirely outside the
+  // shimCall route table below: the AI provider call and the food-DB search
+  // both go straight from the browser, never through any /api surface.
+  targetWindow.CloudFoodAI = foodAI;
+  targetWindow.CloudFoodSearch = { search: food.search };
 
   // Due-dose materialization + tz-plan status refresh: neither domain module
   // owns a timer (Task 3/4's modules stay pure functions of their inputs), so
@@ -105,7 +122,7 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
   // of the features map so a stored/toggled flag for an unported domain
   // (food/workout/gamification/weekly_digest — C2c/d) can never surface as
   // enabled, per docs/cloud-mode.md "C2 shim architecture".
-  const PORTED_SET = new Set(['bp', 'weight', 'health', 'medication']);
+  const PORTED_SET = new Set(['bp', 'weight', 'health', 'medication', 'food']);
   function clampFeatures(flags) {
     const out = {};
     for (const key of Object.keys(flags)) out[key] = PORTED_SET.has(key) ? !!flags[key] : false;
@@ -381,6 +398,49 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
       }
     }
     if (path === '/api/tz-suggestion/dismiss' && method === 'POST') return tzplan.recordDismissal(body && body.detected_tz);
+
+    // --- Food logs + products (Task 2: C2c shim wiring). The NDJSON search
+    // route (food_handlers.go handleSearchFoodProducts) has no apiCall-shaped
+    // caller — products.js streams it via raw fetch, guarded separately
+    // (Task 4) — so it is intentionally not routed here.
+    if (path === '/api/food/log') {
+      if (method === 'POST') return food.create(body);
+      if (method === 'GET') {
+        return food.listGrouped({ date: params.get('date') || undefined, days: intParam(params, 'days', 1) });
+      }
+    }
+    if (method === 'PUT') {
+      const m = /^\/api\/food\/log\/([^/]+)$/.exec(path);
+      if (m) return food.update(m[1], body);
+    }
+    if (method === 'DELETE') {
+      const m = /^\/api\/food\/log\/([^/]+)$/.exec(path);
+      if (m) { await food.remove(m[1]); return true; }
+    }
+    if (path === '/api/food/stats' && method === 'GET') {
+      return food.stats({ date: params.get('date') || undefined, days: intParam(params, 'days', 7) });
+    }
+    if (path === '/api/food/products/from-logs' && method === 'POST') {
+      return food.createMealFromLogs(body && body.name, (body && body.log_ids) || []);
+    }
+    if (path === '/api/food/products' && method === 'GET') {
+      const isMealParam = params.get('is_meal');
+      return food.listProducts({
+        isMeal: isMealParam ? isMealParam === 'true' : undefined,
+        q: params.get('q') || undefined,
+        offset: intParam(params, 'offset', 0),
+        limit: intParam(params, 'limit', 100),
+        sort: params.get('sort') || undefined,
+      });
+    }
+    if (method === 'PUT') {
+      const m = /^\/api\/food\/products\/([^/]+)$/.exec(path);
+      if (m) return food.updateProduct(m[1], body);
+    }
+    if (method === 'DELETE') {
+      const m = /^\/api\/food\/products\/([^/]+)$/.exec(path);
+      if (m) { await food.removeProduct(m[1]); return true; }
+    }
 
     // Reminder toggles: BP/weight reminders aren't functionally scheduled in
     // cloud C1 (the push relay is blind), but the Reminders section in Settings

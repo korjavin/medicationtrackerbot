@@ -30,6 +30,17 @@ async function undoFoodAIItems(items, summary, originalCount) {
 
     const results = await Promise.all(items.map(async (it) => {
         if (!it || !it.id) return { item: it, ok: false };
+        // Cloud mode has no /api/food/log/:id on the wire — apiCall routes
+        // through the shim (installApiShim's food.remove) instead of a raw
+        // fetch; bot mode keeps the direct DELETE untouched.
+        if (window.__MEDTRACKER_CLOUD__) {
+            try {
+                const res = await apiCall(`/api/food/log/${it.id}`, 'DELETE');
+                return { item: it, ok: !!res };
+            } catch (_) {
+                return { item: it, ok: false };
+            }
+        }
         try {
             const res = await fetch(`/api/food/log/${it.id}`, {
                 method: 'DELETE',

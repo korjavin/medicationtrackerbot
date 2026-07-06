@@ -413,7 +413,11 @@ async function saveFoodLog() {
 
     const pidEl = document.getElementById('food-log-product-id');
     if (pidEl && pidEl.value) {
-        payload.product_id = parseInt(pidEl.value, 10);
+        // Bot-mode product ids are numeric; cloud-mode ids are string recordIds
+        // (`foodproduct_…`). parseInt on a recordId yields NaN (falsy), which
+        // silently drops the product link — keep numeric strings as numbers but
+        // leave recordIds intact (mirrors the editingId guard below).
+        payload.product_id = /^\d+$/.test(pidEl.value) ? parseInt(pidEl.value, 10) : pidEl.value;
     }
 
     const isUpdate = !!id;
@@ -430,7 +434,12 @@ async function saveFoodLog() {
         const dayKey = typeof todayFoodKey === 'function'
             ? todayFoodKey(new Date(dateStr))
             : `food_${localDay}_day`;
-        const editingId = isUpdate ? parseInt(id, 10) : null;
+        // Bot-mode log ids are numeric (server JSON numbers); cloud-mode ids are
+        // string recordIds (`foodlog_…`). Keep numeric strings as numbers so the
+        // `l.id === editingId` match in buildOptimisticFoodCache still hits the
+        // number-typed cache rows, but leave string ids intact — parseInt on a
+        // recordId yields NaN, which never matches and duplicates the edited row.
+        const editingId = isUpdate ? (/^\d+$/.test(id) ? parseInt(id, 10) : id) : null;
         const localId = `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         const optimisticLog = {
             id: editingId || localId,
@@ -649,14 +658,14 @@ async function saveFoodLogFromDescription() {
         return;
     }
 
+    const eatenAt = new Date(dateStr);
     const payload = {
         description,
-        eaten_at: new Date(dateStr).toISOString(),
+        eaten_at: eatenAt.toISOString(),
     };
 
     const btn = document.getElementById('food-modal-save-btn');
     await withSubmit(btn, async () => {
-        let res;
         // Pre-stamp the timing-window fallback before the fetch — see
         // photo.js for the rationale (AI parse can take several seconds,
         // long enough for the broker tailer's empty-source Notify to race
@@ -669,38 +678,58 @@ async function saveFoodLogFromDescription() {
         } else if (window.DataStore && typeof window.DataStore.recordOwnWrite === 'function') {
             window.DataStore.recordOwnWrite();
         }
-        try {
-            res = await fetch('/api/food/log/from-description', {
-                method: 'POST',
-                headers: window.makeWriteHeaders({ 'Content-Type': 'application/json' }),
-                body: JSON.stringify(payload),
-            });
-        } catch (e) {
-            if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
-            console.error('Food AI parse network error:', e);
-            safeAlert('Failed to parse meal: ' + (e && e.message ? e.message : e));
-            return;
-        }
 
-        if (!res.ok) {
-            if (res.status === 429 && window.DemoBanner && typeof window.DemoBanner.tryHandleResponse === 'function') {
-                const demoParsed = await window.DemoBanner.tryHandleResponse(res);
-                if (demoParsed) {
-                    if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
-                    return;
-                }
+        let items, failed;
+        if (window.__MEDTRACKER_CLOUD__) {
+            // Cloud mode: the description never leaves the device via /api —
+            // it goes straight from the browser to the user's own AI provider
+            // (web/domain/foodai.js + web/cloud/js/aiclient.js).
+            let result;
+            try {
+                result = await window.CloudFoodAI.parseMealFromDescription(description, { eatenAt });
+            } catch (e) {
+                if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
+                console.error('Food AI parse failed:', e);
+                safeAlert('Failed to parse meal: ' + (e && e.message ? e.message : e));
+                return;
             }
-            let msg = `HTTP ${res.status}`;
-            try { msg = (await res.text()) || msg; } catch (_) { /* keep status fallback */ }
-            if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
-            safeAlert('Failed to parse meal: ' + msg);
-            return;
-        }
+            items = Array.isArray(result.items) ? result.items : [];
+            failed = Math.max(0, Math.trunc(Number(result.failed) || 0));
+        } else {
+            let res;
+            try {
+                res = await fetch('/api/food/log/from-description', {
+                    method: 'POST',
+                    headers: window.makeWriteHeaders({ 'Content-Type': 'application/json' }),
+                    body: JSON.stringify(payload),
+                });
+            } catch (e) {
+                if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
+                console.error('Food AI parse network error:', e);
+                safeAlert('Failed to parse meal: ' + (e && e.message ? e.message : e));
+                return;
+            }
 
-        let data = null;
-        try { data = await res.json(); } catch (_) { data = null; }
-        const items = (data && Array.isArray(data.items)) ? data.items : [];
-        const failed = Math.max(0, Math.trunc(Number(data && data.failed) || 0));
+            if (!res.ok) {
+                if (res.status === 429 && window.DemoBanner && typeof window.DemoBanner.tryHandleResponse === 'function') {
+                    const demoParsed = await window.DemoBanner.tryHandleResponse(res);
+                    if (demoParsed) {
+                        if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
+                        return;
+                    }
+                }
+                let msg = `HTTP ${res.status}`;
+                try { msg = (await res.text()) || msg; } catch (_) { /* keep status fallback */ }
+                if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
+                safeAlert('Failed to parse meal: ' + msg);
+                return;
+            }
+
+            let data = null;
+            try { data = await res.json(); } catch (_) { data = null; }
+            items = (data && Array.isArray(data.items)) ? data.items : [];
+            failed = Math.max(0, Math.trunc(Number(data && data.failed) || 0));
+        }
 
         // Refresh the timing-window stamp now that the response has landed —
         // the pre-fetch stamp may have aged past SELF_ECHO_WINDOW_MS during a
@@ -797,7 +826,11 @@ async function loadFoodLogs() {
     try {
         let groups = [];
         let groupsMeta = null;
-        if (typeof window.cachedFetch === 'function') {
+        // cachedFetch routes through apiCallDirect (raw network), bypassing the
+        // cloud shim installed on offlineAwareApiCall — in cloud mode that hits
+        // a nonexistent /api/food/log on the account subdomain (404). Fall
+        // through to apiCall, which the shim serves from the local vault.
+        if (typeof window.cachedFetch === 'function' && !window.__MEDTRACKER_CLOUD__) {
             const groupsResult = await window.cachedFetch(
                 dayFoodCacheKey,
                 `/api/food/log?date=${dateStr}${tzParams}`,

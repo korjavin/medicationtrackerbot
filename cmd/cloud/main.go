@@ -36,6 +36,7 @@ type config struct {
 	accountQuotaBytes int64
 	vapidSubject      string
 	dryQueueWarnHours time.Duration
+	foodDBURL         string
 }
 
 func loadConfig() (config, error) {
@@ -47,6 +48,7 @@ func loadConfig() (config, error) {
 		accountQuotaBytes: 50 << 20, // 50MB
 		vapidSubject:      os.Getenv("VAPID_SUBJECT"),
 		dryQueueWarnHours: 120 * time.Hour,
+		foodDBURL:         os.Getenv("CLOUD_FOOD_DB_URL"),
 	}
 	if cfg.dbPath == "" {
 		cfg.dbPath = "cloud.db"
@@ -184,7 +186,7 @@ func main() {
 	recoveryAPI.RegisterRoutes(apiMux)
 	syncAPI.RegisterRoutes(apiMux)
 	pushAPI.RegisterRoutes(apiMux)
-	router := cloudserver.New(cfg.baseDomain, store, cloudweb.FS, webstatic.FS, domainweb.FS, apiMux)
+	router := cloudserver.New(cfg.baseDomain, store, cloudweb.FS, webstatic.FS, domainweb.FS, apiMux, cfg.foodDBURL)
 
 	relay := cloudserver.NewRelay(store, &cloudserver.WebPushSender{
 		Subject:    cfg.vapidSubject,

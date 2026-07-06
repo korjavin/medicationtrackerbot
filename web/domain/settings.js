@@ -243,5 +243,10 @@ export function createSettingsDomain({ records, now, timeZone }) {
     setFoodTargets,
     getIntegrations,
     patchIntegrations,
+    // readIntegrationsUnmasked exposes raw provider keys for module-to-module
+    // consumption only (web/cloud/js/aiclient.js, the food-DB port) — never
+    // reachable via any shim route; getIntegrations()'s masked shape stays
+    // the only /api-facing view.
+    readIntegrationsUnmasked: getStoredIntegrations,
   };
 }

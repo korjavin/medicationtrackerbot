@@ -47,12 +47,12 @@ const ALLOWED = new Map([
         "style.setProperty on a neutral CSS custom property (--fill-pct) — CSS class reads it via width: var(--fill-pct, 0%); no hardcoded visual value lives in JS",
     ],
     [
-        'web/static/js/features/food/log.js:1340',
-        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS. Line shifted by addition of the X-Client-ID self-echo pre-stamp + post-response refresh branches above the from-description fetch (Plan 2026-05-22 review iteration).",
+        'web/static/js/features/food/log.js:1373',
+        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS. Line shifted by the C2c Task 4 cloud/bot branch added above the from-description fetch (window.__MEDTRACKER_CLOUD__ calls window.CloudFoodAI instead of POSTing /api/food/log/from-description), then again by the review-fix product_id string-id comment, then again by the cloud-mode cachedFetch-bypass comment in loadFoodLogs.",
     ],
     [
-        'web/static/js/features/food/log.js:1341',
-        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS. Line shifted by addition of the X-Client-ID self-echo pre-stamp + post-response refresh branches above the from-description fetch (Plan 2026-05-22 review iteration).",
+        'web/static/js/features/food/log.js:1374',
+        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS. Line shifted by the C2c Task 4 cloud/bot branch added above the from-description fetch (window.__MEDTRACKER_CLOUD__ calls window.CloudFoodAI instead of POSTing /api/food/log/from-description), then again by the review-fix product_id string-id comment, then again by the cloud-mode cachedFetch-bypass comment in loadFoodLogs.",
     ],
     [
         'web/static/js/features/meds.js:83',

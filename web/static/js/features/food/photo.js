@@ -231,10 +231,6 @@ async function uploadFoodPhotoFile(file) {
         if (originalLabel) originalLabel.textContent = 'Analyzing…';
 
         try {
-            const form = new FormData();
-            form.append('image', file, file.name || 'food.jpg');
-            form.append('eaten_at', eatenAt.toISOString());
-
             // Stamp the timing-window fallback before the fetch fires so an
             // SSE event delivered while the request is still in flight (long
             // AI analysis can run multiple seconds; the change_events row is
@@ -249,37 +245,58 @@ async function uploadFoodPhotoFile(file) {
             } else if (window.DataStore && typeof window.DataStore.recordOwnWrite === 'function') {
                 window.DataStore.recordOwnWrite();
             }
-            let res;
-            try {
-                res = await fetch('/api/food/log/from-photo', {
-                    method: 'POST',
-                    headers: window.makeWriteHeaders(),
-                    body: form,
-                });
-            } catch (netErr) {
-                if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
-                throw netErr;
-            }
 
-            if (!res.ok) {
-                if (res.status === 429 && window.DemoBanner && typeof window.DemoBanner.tryHandleResponse === 'function') {
-                    const demoParsed = await window.DemoBanner.tryHandleResponse(res);
-                    if (demoParsed) {
-                        if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
-                        const demoErr = new Error('Demo rate limit reached');
-                        demoErr.status = 429;
-                        demoErr.demoLimit = demoParsed;
-                        throw demoErr;
-                    }
+            let items, failed;
+            if (window.__MEDTRACKER_CLOUD__) {
+                // Cloud mode: the photo never leaves the device via /api — it
+                // goes straight from the browser to the user's own AI
+                // provider (web/domain/foodai.js + web/cloud/js/aiclient.js).
+                let result;
+                try {
+                    result = await window.CloudFoodAI.parseMealFromPhoto(file, { eatenAt });
+                } catch (aiErr) {
+                    if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
+                    throw aiErr;
                 }
-                const txt = await res.text();
-                if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
-                throw new Error(txt || `HTTP ${res.status}`);
-            }
+                items = Array.isArray(result.items) ? result.items : [];
+                failed = Math.max(0, Math.trunc(Number(result.failed) || 0));
+            } else {
+                const form = new FormData();
+                form.append('image', file, file.name || 'food.jpg');
+                form.append('eaten_at', eatenAt.toISOString());
 
-            const data = await res.json().catch(() => null);
-            const items = (data && Array.isArray(data.items)) ? data.items : [];
-            const failed = Math.max(0, Math.trunc(Number(data && data.failed) || 0));
+                let res;
+                try {
+                    res = await fetch('/api/food/log/from-photo', {
+                        method: 'POST',
+                        headers: window.makeWriteHeaders(),
+                        body: form,
+                    });
+                } catch (netErr) {
+                    if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
+                    throw netErr;
+                }
+
+                if (!res.ok) {
+                    if (res.status === 429 && window.DemoBanner && typeof window.DemoBanner.tryHandleResponse === 'function') {
+                        const demoParsed = await window.DemoBanner.tryHandleResponse(res);
+                        if (demoParsed) {
+                            if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
+                            const demoErr = new Error('Demo rate limit reached');
+                            demoErr.status = 429;
+                            demoErr.demoLimit = demoParsed;
+                            throw demoErr;
+                        }
+                    }
+                    const txt = await res.text();
+                    if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
+                    throw new Error(txt || `HTTP ${res.status}`);
+                }
+
+                const data = await res.json().catch(() => null);
+                items = (data && Array.isArray(data.items)) ? data.items : [];
+                failed = Math.max(0, Math.trunc(Number(data && data.failed) || 0));
+            }
 
             // Refresh the timing-window stamp now that the response has
             // landed. The pre-fetch stamp may have aged past SELF_ECHO_WINDOW_MS
