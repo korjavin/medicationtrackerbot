@@ -1,0 +1,29 @@
+// Browser-direct ElevenLabs signed-URL client for cloud mode. Bot mode mints
+// the WebSocket signed URL server-side (to hide the operator's key); cloud has
+// no such route, so here the tab mints it directly against api.elevenlabs.io
+// using the user's own key read from the vault — the BYO / C2c pattern. The
+// key never crosses /api. Mirrors web/cloud/js/aiclient.js's settingsDomain
+// credential seam. CORS on get_signed_url returns `allow-origin: *`, so the
+// browser can call it directly with the xi-api-key header.
+const SIGNED_URL_ENDPOINT = 'https://api.elevenlabs.io/v1/convai/conversation/get_signed_url';
+
+export function createElevenLabsClient({ settingsDomain }) {
+  async function fetchSignedURL() {
+    const { elevenlabs } = await settingsDomain.readIntegrationsUnmasked();
+    if (!elevenlabs || !elevenlabs.api_key || !elevenlabs.agent_id) {
+      throw new Error('Set your ElevenLabs key and agent id in Settings → Integrations');
+    }
+    const url = `${SIGNED_URL_ENDPOINT}?agent_id=${encodeURIComponent(elevenlabs.agent_id)}`;
+    const resp = await fetch(url, { method: 'GET', headers: { 'xi-api-key': elevenlabs.api_key } });
+    if (!resp.ok) {
+      const err = new Error(`Failed to get signed URL (${resp.status})`);
+      err.status = resp.status;
+      throw err;
+    }
+    const data = await resp.json();
+    if (!data || !data.signed_url) throw new Error('Response missing signed_url');
+    return data.signed_url;
+  }
+
+  return { fetchSignedURL };
+}

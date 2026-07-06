@@ -32,6 +32,11 @@
     }
 
     async function fetchSignedURL() {
+        // Cloud mode has no server signed-URL route — mint it browser-direct
+        // from the vault's ElevenLabs key (BYO; key never crosses /api).
+        if (window.__MEDTRACKER_CLOUD__ && window.CloudElevenLabs) {
+            return window.CloudElevenLabs.fetchSignedURL();
+        }
         const apiCall = (typeof window.offlineAwareApiCall === 'function')
             ? window.offlineAwareApiCall
             : (typeof window.apiCallDirect === 'function' ? window.apiCallDirect : null);
@@ -49,6 +54,27 @@
         const data = await resp.json();
         if (!data || !data.signed_url) throw new Error('Response missing signed_url');
         return data.signed_url;
+    }
+
+    // Cloud-only dynamic MCP client-tools. The ElevenLabs agent invokes these
+    // by name (must match its dashboard config, marked blocking); each callback
+    // dispatches straight into the in-tab MCP dispatcher — no relay, no crypto,
+    // since this tab is both the voice client and the MCP responder host.
+    // Returns JSON strings the agent reads; dispatcher errors come back as a
+    // short string rather than throwing into the SDK.
+    function buildClientTools() {
+        if (!window.__MEDTRACKER_CLOUD__ || !window.CloudMCPDispatcher) return undefined;
+        const dispatch = async (method, params) => {
+            try {
+                return JSON.stringify(await window.CloudMCPDispatcher.handle(method, params));
+            } catch (err) {
+                return JSON.stringify({ error: (err && err.message) || 'MCP dispatch failed' });
+            }
+        };
+        return {
+            mcp_help: async () => dispatch('mcp_help', {}),
+            mcp_call: async ({ op, params } = {}) => dispatch('mcp_call', { op, params: params || {} }),
+        };
     }
 
     let activeConversation = null;
@@ -274,8 +300,10 @@
             if (!Conversation || typeof Conversation.startSession !== 'function') {
                 throw new Error('ElevenLabs SDK missing Conversation.startSession');
             }
+            const clientTools = buildClientTools();
             activeConversation = await Conversation.startSession({
                 signedUrl,
+                ...(clientTools ? { clientTools } : {}),
                 onConnect: () => setState('in_call', 'Connected'),
                 onDisconnect: () => {
                     activeConversation = null;
@@ -349,29 +377,36 @@
         });
         controls.appendChild(muteBtn);
 
-        const photoBtn = document.createElement('button');
-        photoBtn.type = 'button';
-        photoBtn.className = 'wg-call-card__photo';
-        photoBtn.textContent = 'Send photo';
-        controls.appendChild(photoBtn);
+        // Photo upload proxies through the bot-mode /api/elevenlabs/upload-file
+        // route, which cloud mode doesn't serve — so it always 404s there. This
+        // PoC doesn't implement browser-direct upload, so hide the control in
+        // cloud mode rather than showing a button that always fails.
+        // ponytail: drop when cloud gets a browser-direct upload path.
+        if (!window.__MEDTRACKER_CLOUD__) {
+            const photoBtn = document.createElement('button');
+            photoBtn.type = 'button';
+            photoBtn.className = 'wg-call-card__photo';
+            photoBtn.textContent = 'Send photo';
+            controls.appendChild(photoBtn);
 
-        const photoInput = document.createElement('input');
-        photoInput.type = 'file';
-        photoInput.accept = 'image/*';
-        photoInput.capture = 'environment';
-        photoInput.className = 'wg-call-card__photo-input';
-        photoInput.addEventListener('change', (event) => {
-            const file = event.target && event.target.files && event.target.files[0];
-            if (file) {
-                sendPhoto(file).catch(() => { /* status surfaced via setState */ });
-            }
-            try { photoInput.value = ''; } catch (_) { /* ignore */ }
-        });
-        controls.appendChild(photoInput);
+            const photoInput = document.createElement('input');
+            photoInput.type = 'file';
+            photoInput.accept = 'image/*';
+            photoInput.capture = 'environment';
+            photoInput.className = 'wg-call-card__photo-input';
+            photoInput.addEventListener('change', (event) => {
+                const file = event.target && event.target.files && event.target.files[0];
+                if (file) {
+                    sendPhoto(file).catch(() => { /* status surfaced via setState */ });
+                }
+                try { photoInput.value = ''; } catch (_) { /* ignore */ }
+            });
+            controls.appendChild(photoInput);
 
-        photoBtn.addEventListener('click', () => {
-            photoInput.click();
-        });
+            photoBtn.addEventListener('click', () => {
+                photoInput.click();
+            });
+        }
 
         const status = document.createElement('div');
         status.className = 'wg-call-card__status';

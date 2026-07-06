@@ -119,13 +119,31 @@ func injectCloudBoot(idx []byte, foodDBURL string) []byte {
 // worker/iframe is the only way to restore 'self' on the DEK page — deferred.
 // The base-domain shell and the passkey ceremony pages (/unlock, /claim,
 // /recover, /devices) make no cross-origin calls and keep connect-src 'self'.
+//
+// accountApp also loads the @elevenlabs/client voice SDK as an ES module from
+// esm.sh (elevenlabs-call.js), whose AudioWorklets (rawAudioProcessor /
+// audioConcatProcessor) run from blob: URLs — Chrome falls back worklet-src →
+// worker-src → script-src. This mirrors the bot-mode CSP (server.go). It is a
+// further weakening of the zero-third-party-script defense on the DEK-bearing
+// page: esm.sh script now executes on-origin. Vendoring the SDK locally to
+// restore script-src 'self' is the follow-up — deferred with the sandboxing above.
 func setSecurityHeaders(w http.ResponseWriter, accountApp bool) {
 	h := w.Header()
 	connectSrc := "connect-src 'self'"
+	scriptSrc := "script-src 'self'"
+	workerSrc := ""
+	mediaSrc := ""
 	if accountApp {
-		connectSrc = "connect-src 'self' https:"
+		// wss: is listed explicitly: the @elevenlabs/client voice SDK opens a
+		// wss://api.elevenlabs.io socket, and relying on the CSP3 https:→wss:
+		// scheme-coercion match is fragile across browsers (WebKit/iOS Safari
+		// has been inconsistent). Bot mode (server.go) also enumerates wss:.
+		connectSrc = "connect-src 'self' https: wss:"
+		scriptSrc = "script-src 'self' https://esm.sh blob: data:"
+		workerSrc = "worker-src 'self' blob:; "
+		mediaSrc = "media-src 'self' blob:; "
 	}
-	h.Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; "+connectSrc+"; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
+	h.Set("Content-Security-Policy", "default-src 'self'; "+scriptSrc+"; style-src 'self'; img-src 'self'; "+workerSrc+mediaSrc+connectSrc+"; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("X-Frame-Options", "DENY")
 	h.Set("Referrer-Policy", "no-referrer")
