@@ -130,3 +130,12 @@ Returns `active_weeks` (count of weeks with at least one completed session) and 
 - **Configuration**: separate from main bot, runs on a different port; the executor side spawns a sandboxed runner subprocess (see [mcp-deployment.md](mcp-deployment.md#python-executor-service))
 
 See [mcp-deployment.md](mcp-deployment.md) for deployment details and [docs/mcp-python-executor.md](mcp-python-executor.md) for the executor architecture decision record.
+
+### Claude connector (cloud mode)
+
+Server-mode's MCP server above runs in-process against plaintext data. Cloud mode is zero-knowledge, so it instead exposes two consent-driven connector modes from the Devices screen (Settings → "Claude connector" row → Devices):
+
+- **Remote connector (claude.ai, ChatGPT) — primary.** Enable → a consent dialog states the trade-off (the server can read MCP requests/answers while relaying them; nothing is stored; the pairing key is kept server-side, at rest, until Disconnect) → the page shows a connector URL (`https://<account-subdomain>/mcp/<token>`) to paste into claude.ai/ChatGPT's custom-connector settings. Requires an unlocked PWA tab somewhere to actually answer queries.
+- **Local shim (Claude Code) — alternative.** A one-time pairing code plus a `claude mcp add` one-liner wire `cmd/mcpshim` (a local stdio↔relay binary) into Claude Code/Desktop. Zero-knowledge throughout — the server only ever sees encrypted relay frames.
+
+The two modes are mutually exclusive per account (one relay pairing at a time); switching modes disconnects the other. See [docs/cloud-mode.md → MCP](cloud-mode.md#mcp) for the full tier breakdown and leakage summary.

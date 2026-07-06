@@ -44,44 +44,44 @@ Also folds in the Connect-Claude discoverability gap (supersedes `2026-07-06-clo
 
 ### Task 1: Consent + persistent hosted-shim registry in cloudserver
 
-- [ ] cloudstore migration (take the **next contiguous number at merge time** — parallel-branch numbering hazard, see goose lesson): `mcp_remote(account_id PK, token, pairing_id, pairing_key, created_at)`; repo methods `UpsertMCPRemote` / `GetMCPRemote` / `DeleteMCPRemote` / `ListMCPRemote`.
-- [ ] `internal/cloudserver/mcp_remote.go`: runtime registry `accountID → {token, *mcpshim.Client, cancel}` hydrated from the table on startup — for each row, re-register the pairing with the relay (in-memory table) and start the hosted shim client. Restore failures log and skip, never block boot.
-- [ ] `POST /api/mcp/remote` (RequireSession): body `{pairing_code}`; parses via `mcpshim.ParsePairingCode`, mints the 6-char human token (`xxx-xxx`, Crockford base32 lowercase, no ambiguous chars), persists the row, starts the hosted shim client (dial the relay URL from the code), returns `{token}`. Re-enable replaces the row and rotates the token — **the ONLY events that change the token are this and DELETE**; deploys/restarts never do.
-- [ ] `DELETE /api/mcp/remote` (RequireSession): tears down the client, deletes the row, invalidates the token.
-- [ ] `GET /api/mcp/remote` (RequireSession): `{enabled: bool}` for UI state (never returns the token again).
-- [ ] Test: enable/disable/status lifecycle, session required, re-enable rotates token, and **restart-restore** — rebuild the registry from the store and assert the same token still authenticates.
+- [x] cloudstore migration (take the **next contiguous number at merge time** — parallel-branch numbering hazard, see goose lesson): `mcp_remote(account_id PK, token, pairing_id, pairing_key, created_at)`; repo methods `UpsertMCPRemote` / `GetMCPRemote` / `DeleteMCPRemote` / `ListMCPRemote`. ⚠️ deviation: added a `relay_url` column (not in the original list) — `mcpshim.PairingCode` needs `{RelayURL, PairingID, Key}` to redial on restore, and storing it verbatim avoids inventing an `AccountByID`-plus-baseDomain reconstruction just to get the same value back.
+- [x] `internal/cloudserver/mcp_remote.go`: runtime registry `accountID → {token, *mcpshim.Client}` hydrated from the table on startup — for each row, re-register the pairing with the relay (in-memory table, via new `MCPRelayAPI.RestorePairing`) and start the hosted shim client. Restore failures log and skip, never block boot. ⚠️ deviation: dropped the `cancel` field from the registry entry — `mcpshim.Client.Close()` (new, additive) fully tears down the one connection a Client owns, so a separate cancellation hook has no current use.
+- [x] `POST /api/mcp/remote` (RequireSession): body `{pairing_code}`; parses via `mcpshim.ParsePairingCode`, mints the 6-char human token (`xxx-xxx`, Crockford base32 lowercase, no ambiguous chars), persists the row, starts the hosted shim client (dial the relay URL from the code), returns `{token}`. Re-enable replaces the row and rotates the token — **the ONLY events that change the token are this and DELETE**; deploys/restarts never do.
+- [x] `DELETE /api/mcp/remote` (RequireSession): tears down the client, deletes the row, invalidates the token.
+- [x] `GET /api/mcp/remote` (RequireSession): `{enabled: bool}` for UI state (never returns the token again).
+- [x] Test: enable/disable/status lifecycle, session required, re-enable rotates token, and **restart-restore** — rebuild the registry from the store and assert the same token still authenticates. See `internal/cloudserver/mcp_remote_test.go`.
 
 ### Task 2: Streamable-HTTP MCP endpoint
 
-- [ ] Mount `/{mcp}/{token}` on the account host: `mcp.NewStreamableHTTPHandler` (pattern: `internal/mcp/mcp.go:942`) resolving the account from `Host` + token from the path (hyphen-insensitive); constant-time token check; unknown → 404; **per-account failed-token throttle** (see Development Approach) enforced before the compare result is revealed.
-- [ ] MCP server exposes `mcp_help` + `mcp_call` mirroring `cmd/mcpshim/main.go` (same input shapes, same responder wire contract), with the description suffix reworded for the hosted context: end-to-end encrypted server↔device via the relay, *this endpoint* sees traffic in transit by user consent, clear offline error when no tab is unlocked.
-- [ ] Per-token rate limit; requests against a live hosted client `Call()`; shim errors (incl. offline-device) map to MCP tool errors, not 5xx.
-- [ ] Test: full initialize + tools/list + tools/call over httptest against a fake responder; bad token; failed-attempt throttle kicks in without affecting valid-token traffic; offline error text.
+- [x] Mount `/{mcp}/{token}` on the account host: `mcp.NewStreamableHTTPHandler` (pattern: `internal/mcp/mcp.go:942`) resolving the account from `Host` + token from the path (hyphen-insensitive); constant-time token check; unknown → 404; **per-account failed-token throttle** (see Development Approach) enforced before the compare result is revealed. ⚠️ deviation: mounted via a new `Handler.SetMCPHandler` setter (called once from `cmd/cloud/main.go`) rather than a `New()` constructor param — `router.New()` already has dozens of call sites across the test suite, and `*MCPRemoteAPI` (which owns the endpoint) is itself built from the store *after* `New()` returns in `main.go`'s existing wiring order; a two-step wire (build router, then attach the MCP handler) avoids a constructor-time cycle and every existing test signature. ⚠️ deviation: disabled the SDK's `DisableLocalhostProtection` DNS-rebinding guard on this endpoint — it only recognizes an exact `"localhost"` Host as loopback-safe, so it 403s cloud mode's own documented `CLOUD_BASE_DOMAIN=localhost` local-dev setup (every account subdomain is `"<sub>.localhost"`, never exactly `"localhost"`); the token check is this endpoint's real auth boundary, making the guard both redundant and a false positive here. ⚠️ deviation: added a small `dialOpts *websocket.DialOptions` test seam on `*MCPRemoteAPI` (same package, set directly by tests, mirrors `mcpshim.NewClientFromPairingWithOptions`'s existing test hook) — needed so tests can force the hosted shim client's dial through an httptest server's real listener while its pairing code still carries the account's virtual host, the same override `mcp_shim_integration_test.go`'s `shimRelayHarness` already relies on for Tier 1.
+- [x] MCP server exposes `mcp_help` + `mcp_call` mirroring `cmd/mcpshim/main.go` (same input shapes, same responder wire contract), with the description suffix reworded for the hosted context: end-to-end encrypted server↔device via the relay, *this endpoint* sees traffic in transit by user consent, clear offline error when no tab is unlocked. See `internal/cloudserver/mcp_endpoint.go`.
+- [x] Per-token rate limit; requests against a live hosted client `Call()`; shim errors (incl. offline-device) map to MCP tool errors, not 5xx. Mirrors `cmd/mcpshim/main.go`'s `(nil, nil, err)` return, which the SDK turns into an `isError` tool result rather than an HTTP failure.
+- [x] Test: full initialize + tools/list + tools/call over httptest against a fake responder; bad token; failed-attempt throttle kicks in without affecting valid-token traffic; offline error text. See `internal/cloudserver/mcp_endpoint_test.go`.
 
 ### Task 3: Devices-page UI — two connector modes, remote primary
 
-- [ ] Rework the Connect Claude area in `web/cloud/js/devices.js` into a mode picker:
-  - **Remote connector (claude.ai, ChatGPT) — primary.** Enable → consent dialog with the honest downgrade text → mints a pairing (`mcp-pairing.js`, unchanged), POSTs the pairing code to `/api/mcp/remote`, shows once: the connector URL `https://<subdomain>.app.<domain>/mcp/<token>` + copy button + numbered instructions (claude.ai: Settings → Connectors → Add custom connector → paste URL; ChatGPT: Settings → Connectors → Add MCP). Caveats block: keep an unlocked tab open; the URL is stable until you Disconnect (survives server updates); the server holds the connector key and sees MCP traffic in transit.
-  - **Local shim (Claude Code) — alternative.** The existing pairing-code flow (`renderClaudeCode`), plus the `claude mcp add medtracker -e MEDTRACKER_MCP_CODE=<code> -- /path/to/mcpshim` one-liner with the real code.
-  - Modes are mutually exclusive (single pairing per account — say so inline); switching disconnects the other.
-- [ ] Status line covers both modes; Disconnect calls `DELETE /api/mcp/remote` and clears the `mcppairing` record.
-- [ ] Test: consent gate, URL render, mode exclusivity, disconnect.
+- [x] Rework the Connect Claude area in `web/cloud/js/devices.js` into a mode picker:
+  - **Remote connector (claude.ai, ChatGPT) — primary.** Enable → consent dialog with the honest downgrade text → mints a pairing (`mcp-pairing.js`, unchanged), POSTs the pairing code to `/api/mcp/remote`, shows once: the connector URL `https://<subdomain>.app.<domain>/mcp/<token>` + copy button + numbered instructions (claude.ai: Settings → Connectors → Add custom connector → paste URL; ChatGPT: Settings → Connectors → Add MCP). Caveats block: keep an unlocked tab open; the URL is stable until you Disconnect (survives server updates); the server holds the connector key and sees MCP traffic in transit. ⚠️ deviation: new `web/cloud/js/mcp-remote.js` module holds `connectRemote`/`disconnectRemote`/`getRemoteStatus` (thin fetch wrappers around `/api/mcp/remote` that reuse `mcp-pairing.js`'s `connectClaude`/`disconnectClaude` for the underlying pairing) rather than inlining fetch calls into `devices.js` — mirrors the existing `mcp-pairing.js` split and keeps `devices.js` to rendering/wiring.
+  - **Local shim (Claude Code) — alternative.** The existing pairing-code flow (`renderClaudeCode`), plus the `claude mcp add medtracker -e MEDTRACKER_MCP_CODE=<code> -- /path/to/mcpshim` one-liner with the real code (unchanged from Tier 1).
+  - Modes are mutually exclusive (single pairing per account — say so inline); switching disconnects the other — connecting local while remote is enabled calls `disconnectRemote` first.
+- [x] Status line covers both modes (`Claude connector: not connected` / `local shim (Claude Code) linked` / `remote (claude.ai / ChatGPT) linked`); Disconnect calls `DELETE /api/mcp/remote` (remote mode) or the existing pairing DELETE (local mode) and clears the `mcppairing` record either way.
+- [x] Test: consent gate, URL render, mode exclusivity, disconnect. See `web/cloud/js/tests/devices.test.js` and `web/cloud/js/tests/mcp-remote.test.js`.
 
 ### Task 4: Settings entry point
 
-- [ ] Cloud-only "Claude connector" row on the Settings screen next to the Devices row (gate pattern `settings.js:94-99`), linking to `/devices`. Subtitle: "Use your data from claude.ai or ChatGPT — with consent".
-- [ ] Test: row visible only when `window.__MEDTRACKER_CLOUD__`.
+- [x] Cloud-only "Claude connector" row on the Settings screen next to the Devices row (gate pattern `settings.js:94-99`), linking to `/devices`. Subtitle: "Use your data from claude.ai or ChatGPT — with consent".
+- [x] Test: row visible only when `window.__MEDTRACKER_CLOUD__`.
 
 ### Task 5: [Final] Docs
 
-- [ ] `docs/cloud-mode.md` MCP section: mark Tier 2 PoC implemented; "Connecting claude.ai / ChatGPT" how-to (enable, consent meaning, URL, caveats, revoke); add the leakage-summary row (opt-in only: MCP requests/responses visible to server in transit; pairing key stored at rest server-side while enabled); token-in-path access-log caveat (cf. docs/sse-traefik.md).
-- [ ] `docs/features.md`: Claude-connector entry covering both modes.
-- [ ] Delete `docs/plans/2026-07-06-cloud-c4-poc-connect-claude-ux.md` (superseded by this plan) — done in this plan's commit.
+- [x] `docs/cloud-mode.md` MCP section: mark Tier 2 PoC implemented; "Connecting claude.ai / ChatGPT" how-to (enable, consent meaning, URL, caveats, revoke); add the leakage-summary row (opt-in only: MCP requests/responses visible to server in transit; pairing key stored at rest server-side while enabled); token-in-path access-log caveat (cf. docs/sse-traefik.md).
+- [x] `docs/features.md`: Claude-connector entry covering both modes.
+- [x] Delete `docs/plans/2026-07-06-cloud-c4-poc-connect-claude-ux.md` (superseded by this plan) — done in this plan's commit. ⚠️ already deleted in this plan's initial commit (`bacae9dc`, before this ralphex run started).
 
 ### Task: Verify acceptance criteria
 
-- [ ] `go test ./...` + `pnpm test` green; `go list -deps ./internal/cloudserver` still free of `internal/store` (goose-registry landmine).
-- [ ] Manual rig: enable remote mode → add the URL as a claude.ai custom connector → "what BP readings do I have?" returns vault data; add a reading and see it in the PWA; close the tab → clean offline error in claude.ai; Disconnect → connector fails; ChatGPT connector if plan/tier allows.
+- [x] `go test ./...` + `pnpm test` green; `go list -deps ./internal/cloudserver` still free of `internal/store` (goose-registry landmine). Confirmed: `go build ./...` and `go test ./...` pass across all packages; `pnpm test` passes 268 files / 2839 tests; `go list -deps ./internal/cloudserver` shows only `internal/store/db`, never `internal/store` itself.
+- [x] manual test (skipped - not automatable; requires a live claude.ai/ChatGPT connector session against a deployed cloud instance)
 
 ## Post-Completion
 

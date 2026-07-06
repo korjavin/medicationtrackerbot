@@ -88,3 +88,30 @@ func (c *Client) redialLocked(ctx context.Context) (*ShimCore, error) {
 	c.core = core
 	return core, nil
 }
+
+// Close tears down the underlying relay connection, if one was ever dialed
+// (Call connects lazily, so a Client that never made a call has nothing to
+// close). Used by the cloudserver hosted-shim registry to release a Client
+// on Disconnect/re-enable/restore-replace.
+func (c *Client) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.core == nil {
+		return nil
+	}
+	return c.core.Close()
+}
+
+// CloseNow tears down the underlying relay connection immediately, without the
+// graceful close handshake — the non-blocking teardown the cloudserver
+// hosted-shim registry uses while holding its lifecycle lock, where a blocking
+// close against an unresponsive peer would stall every account. See
+// ShimCore.CloseNow.
+func (c *Client) CloseNow() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.core == nil {
+		return
+	}
+	c.core.CloseNow()
+}

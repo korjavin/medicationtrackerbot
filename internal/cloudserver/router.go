@@ -38,6 +38,7 @@ type Handler struct {
 	domain     http.Handler // web/domain modules, mounted under /domain/
 	appIndex   []byte       // web/static/index.html, served at "/" on subdomains
 	api        http.Handler
+	mcp        http.Handler // Task 2: hosted-remote streamable-HTTP MCP endpoint, mounted at "/mcp/<token>"; nil until SetMCPHandler is called
 }
 
 // New builds the host-routing Handler. shellFS is the embedded web/cloud tree
@@ -66,6 +67,17 @@ func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, doma
 		appIndex:   injectCloudBoot(idx, foodDBURL),
 		api:        api,
 	}
+}
+
+// SetMCPHandler wires the Task 2 hosted-remote streamable-HTTP MCP endpoint
+// onto the router's "/mcp/<token>" path. Separate from New (rather than a
+// constructor param) because it's built from *MCPRemoteAPI, which itself
+// needs the router's account resolution at request time via
+// AccountFromContext — a constructor-time cycle the two-step wiring avoids.
+// Every existing router test leaves this nil, which 404s every /mcp/*
+// request, same as an unmounted route.
+func (h *Handler) SetMCPHandler(mcp http.Handler) {
+	h.mcp = mcp
 }
 
 // injectCloudBoot splices the operator's default food-DB URL (as a
@@ -194,6 +206,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case strings.HasPrefix(r.URL.Path, "/domain/"):
 		h.domain.ServeHTTP(w, r)
+		return
+	case strings.HasPrefix(r.URL.Path, "/mcp/"):
+		if h.mcp == nil {
+			http.NotFound(w, r)
+			return
+		}
+		h.mcp.ServeHTTP(w, r)
 		return
 	}
 	h.shell.ServeHTTP(w, r)

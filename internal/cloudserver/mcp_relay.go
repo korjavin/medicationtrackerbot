@@ -59,6 +59,23 @@ type MCPRelayAPI struct {
 	sessionSecret string
 	pairings      *pairingTable
 	limiter       *rateLimiter
+
+	// onLegacyPairingMutation, if set, wraps a legacy pairing mutation
+	// (CreatePairing/DeletePairing minting or revoking an account's single
+	// relay pairing). The hosted-remote registry wires it (in NewMCPRemoteAPI)
+	// to run `mutate` under its lifecycle lock, after tearing down any persisted
+	// Tier 2 enablement for that account — teardown and the pairing mutation
+	// happen atomically so neither can interleave with PostRemote's enable
+	// critical section. Destroying or replacing the pairing without this would
+	// otherwise strand an "enabled" remote row and a still-valid token whose
+	// hosted shim relays to a pairing that no longer exists. Only the legacy
+	// HTTP handlers call this — remote's own pairing management
+	// (RestorePairing/MakePairingPermanent/RevokePairing) does not, so there's
+	// no re-entrancy back into the remote registry. When unset, callers run
+	// `mutate` directly. Returns an error if the Tier 2 teardown fails durably —
+	// the caller then aborts its pairing mutation so a failed teardown can't
+	// strand a persisted remote row against an evicted/revoked pairing.
+	onLegacyPairingMutation func(ctx context.Context, accountID string, mutate func()) error
 }
 
 // NewMCPRelayAPI builds the MCP relay handlers.
@@ -99,8 +116,57 @@ func (a *MCPRelayAPI) CreatePairing(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	id := a.pairings.mint(session.AccountID)
+	// Minting a fresh pairing replaces whatever the account had — including a
+	// pairing a persisted Tier 2 enablement depends on. Tear that enablement
+	// down first so we never leave a remote row pointing at the pairing this
+	// mint is about to evict, and run the mint under the remote registry's
+	// lifecycle lock so it can't slip between PostRemote's pin and start().
+	// (During the remote-enable flow the browser mints then immediately POSTs
+	// /api/mcp/remote, so the teardown is a no-op there; it only bites a stale
+	// local-shim mint against an already-remote account.)
+	var id string
+	mutate := func() { id = a.pairings.mint(session.AccountID) }
+	if a.onLegacyPairingMutation != nil {
+		if err := a.onLegacyPairingMutation(r.Context(), session.AccountID, mutate); err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		mutate()
+	}
 	writeJSON(w, http.StatusOK, createPairingResponse{PairingID: id})
+}
+
+// RestorePairing re-registers a persisted pairing (cloudstore's mcp_remote
+// row) into the in-memory pairing table under its already-known id — called
+// once per row by the hosted-remote registry's startup Restore, since a
+// process restart otherwise drops every pairing (see the ponytail note atop
+// this file). Restored pairings never expire: Tier 2 enablement is persisted
+// and set-and-forget, so its pairing must outlive the 24h TTL that ages out
+// Tier 1's re-mintable local-shim pairings.
+func (a *MCPRelayAPI) RestorePairing(pairingID, accountID string) {
+	a.pairings.restore(pairingID, accountID)
+}
+
+// MakePairingPermanent clears the expiry on accountID's live pairing so a
+// freshly-enabled Tier 2 connector (whose pairing the browser minted with the
+// normal 24h TTL) survives past that TTL without a restart — the persisted
+// enablement is meant to be permanent until Disconnect. It pins by the
+// submitted pairingID (not merely by account): if a concurrent re-mint
+// (double-click, second tab, stale UI) already replaced the account's pairing,
+// pairingID no longer matches the live one and this returns false, so the
+// caller rejects the enable instead of persisting a pairing the hosted shim
+// can never dial. Returns false (no-op) if the account has no pairing or its
+// current pairing id differs from pairingID.
+func (a *MCPRelayAPI) MakePairingPermanent(accountID, pairingID string) bool {
+	return a.pairings.makePermanent(accountID, pairingID)
+}
+
+// RevokePairing drops accountID's pairing and closes both legs — the server
+// side of Disconnect, so a torn-down Tier 2 enablement leaves no permanent
+// pairing lingering in the in-memory table.
+func (a *MCPRelayAPI) RevokePairing(accountID string) {
+	a.pairings.revoke(accountID)
 }
 
 // DeletePairing revokes the caller's account's pairing (if any) and drops
@@ -111,7 +177,21 @@ func (a *MCPRelayAPI) DeletePairing(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	a.pairings.revoke(session.AccountID)
+	// Revoking the pairing out from under a persisted Tier 2 enablement would
+	// leave the remote row + token enabled but relaying to nothing. Tear the
+	// enablement down as part of the same mutation, under the remote registry's
+	// lifecycle lock, so state stays consistent whether the user disconnects via
+	// the new /api/mcp/remote path or this legacy endpoint (a stale tab, or a
+	// local-mode client) — and so the revoke can't interleave with PostRemote.
+	mutate := func() { a.pairings.revoke(session.AccountID) }
+	if a.onLegacyPairingMutation != nil {
+		if err := a.onLegacyPairingMutation(r.Context(), session.AccountID, mutate); err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		mutate()
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -236,7 +316,9 @@ type legSlot struct {
 
 // pairingRecord is one account's pairing: an id, the account that minted it,
 // an expiry, and at most one live device leg + one live shim leg (single
-// shim + single device per pairing, per the plan).
+// shim + single device per pairing, per the plan). A zero expiresAt means the
+// pairing never expires — used for persisted Tier 2 enablements (see
+// pairingTable.restore / makePermanent).
 type pairingRecord struct {
 	id        string
 	accountID string
@@ -245,6 +327,12 @@ type pairingRecord struct {
 	mu     sync.Mutex
 	device *legSlot
 	shim   *legSlot
+}
+
+// isExpired reports whether the pairing has aged out. A zero expiresAt (a
+// persisted Tier 2 pairing) never expires.
+func (p *pairingRecord) isExpired(now time.Time) bool {
+	return !p.expiresAt.IsZero() && now.After(p.expiresAt)
 }
 
 // join registers conn as this pairing's device or shim leg, closing out any
@@ -386,7 +474,7 @@ func (t *pairingTable) cleanup() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	for id, rec := range t.byID {
-		if now.After(rec.expiresAt) {
+		if rec.isExpired(now) {
 			delete(t.byID, id)
 			delete(t.byAcc, rec.accountID)
 			rec.closeLegs()
@@ -398,7 +486,46 @@ func (t *pairingTable) cleanup() {
 // account already held.
 func (t *pairingTable) mint(accountID string) string {
 	id := generatePairingID()
-	rec := &pairingRecord{id: id, accountID: accountID, expiresAt: time.Now().Add(t.ttl)}
+	t.register(id, accountID, false)
+	return id
+}
+
+// restore re-registers a pairing under its already-known id, instead of
+// generating a fresh one — used to rebuild this in-memory table from
+// cloudstore's persisted mcp_remote rows after a process restart (Task 1's
+// hosted-remote registry). A fresh id here would strand the pairing id the
+// hosted mcpshim.Client (and, for the remote-enabled account, no separate
+// local shim config) still holds. Restored pairings never expire (permanent),
+// matching the persisted enablement's set-and-forget lifetime.
+func (t *pairingTable) restore(id, accountID string) {
+	t.register(id, accountID, true)
+}
+
+// makePermanent clears the expiry on accountID's live pairing so a Tier 2
+// enablement whose pairing was minted with the normal TTL survives past it.
+// The check that the account's current pairing id equals pairingID and the
+// pin happen under one lock hold, so a concurrent mint can't slip a different
+// pairing in between validate and pin. Returns false if the account has no
+// pairing or its live pairing id differs from pairingID (a stale submission).
+func (t *pairingTable) makePermanent(accountID, pairingID string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	rec, ok := t.byAcc[accountID]
+	if !ok || rec.id != pairingID {
+		return false
+	}
+	rec.expiresAt = time.Time{}
+	return true
+}
+
+// register installs a pairing record under id, revoking any pairing the
+// account already held — the shared body behind mint (fresh id) and restore
+// (known id). permanent leaves expiresAt zero so the pairing never ages out.
+func (t *pairingTable) register(id, accountID string, permanent bool) {
+	rec := &pairingRecord{id: id, accountID: accountID}
+	if !permanent {
+		rec.expiresAt = time.Now().Add(t.ttl)
+	}
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -408,7 +535,6 @@ func (t *pairingTable) mint(accountID string) string {
 	}
 	t.byID[id] = rec
 	t.byAcc[accountID] = rec
-	return id
 }
 
 // revoke drops accountID's pairing, if any, closing both of its legs.
@@ -432,7 +558,7 @@ func (t *pairingTable) byPairingID(id string) (*pairingRecord, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	rec, ok := t.byID[id]
-	if !ok || time.Now().After(rec.expiresAt) {
+	if !ok || rec.isExpired(time.Now()) {
 		return nil, false
 	}
 	return rec, true
@@ -444,7 +570,7 @@ func (t *pairingTable) byAccountID(accountID string) (*pairingRecord, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	rec, ok := t.byAcc[accountID]
-	if !ok || time.Now().After(rec.expiresAt) {
+	if !ok || rec.isExpired(time.Now()) {
 		return nil, false
 	}
 	return rec, true

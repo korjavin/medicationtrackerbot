@@ -142,6 +142,16 @@ func (s *ShimCore) Close() error {
 	return s.conn.Close(websocket.StatusNormalClosure, "shim closing")
 }
 
+// CloseNow tears down the relay connection immediately, skipping the graceful
+// close handshake. The cloudserver hosted-shim registry uses this under its
+// process-wide lifecycleMu, where the graceful Close's ~10s handshake against
+// an unresponsive relay peer would head-of-line-block every account's
+// enable/disable/pairing endpoints — the same reason the relay's serveLeg
+// evictions use CloseNow.
+func (s *ShimCore) CloseNow() {
+	s.conn.CloseNow()
+}
+
 // isClosed reports whether readLoop has already torn this connection down
 // (relay dropped it — most commonly because the paired device went
 // offline, per serveLeg's symmetric close). Client uses this to decide
