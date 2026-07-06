@@ -133,7 +133,7 @@ push is sent right away to **only** the current device's subscription. Closes bd
 
 ### Task 6: [Final] Update documentation
 
-- [ ] `docs/cloud-mode.md` push section: note the test push is an immediate,
+- [x] `docs/cloud-mode.md` push section: note the test push is an immediate,
       this-device-only send (`POST /api/push/test`), distinct from scheduled
       reminders which deliver to all devices; add it to the leakage table if
       relevant (endpoint + ciphertext size/timing → cloud; content → nobody).
