@@ -58,6 +58,16 @@ func (r *Repo) ConsumePendingByUsername(ctx context.Context, suggestedUsername s
 	return accountID, nil
 }
 
+// HasPendingByAccount reports whether the account has a live (unexpired)
+// managed-bot provisioning row — drives the status endpoint's "pending" state.
+func (r *Repo) HasPendingByAccount(ctx context.Context, accountID string, now time.Time) (bool, error) {
+	var exists bool
+	err := r.db.QueryRowContext(ctx,
+		`SELECT EXISTS(SELECT 1 FROM tg_pending WHERE account_id = ? AND expires_at_unix > ?)`,
+		accountID, storedb.TimeToUnix(now)).Scan(&exists)
+	return exists, err
+}
+
 // UpsertBot inserts or replaces an account's linked bot. Re-linking (a fresh
 // managed provision or BYO token) rotates every field and clears any prior
 // chat link — the new bot must be /start'ed again.

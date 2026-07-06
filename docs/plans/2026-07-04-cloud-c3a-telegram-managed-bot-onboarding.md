@@ -65,10 +65,10 @@ Optional Telegram setup during onboarding, one tap: the cloud's **manager bot** 
 
 ### Task 3: managed provisioning + manager webhook
 
-- [ ] `POST /api/telegram/provision` (session auth): generate `suggested_username` = `mt_<8 base32>_bot` (the random suffix IS the pairing key), insert `tg_pending` (TTL 1h), return `{deep_link, suggested_username}` where deep_link = `https://t.me/newbot/<manager>/<suggested>?name=Med Tracker`
-- [ ] `POST /tg/manager/<secret>` webhook: on `managed_bot` update — match `ConsumePendingByUsername`; matched → `GetManagedBotToken`, seal + `UpsertBot(kind=managed)`, `SetWebhook` for the child at `/tg/bot/<account-scoped ref>/<per-bot secret>`; unmatched (edited username) → log + drop (⚠️ v1 ceiling, wizard copy mitigates; revisit after Post-Completion empirics)
-- [ ] `GET /api/telegram/status` (session auth): `{state: none|skipped|pending|bot_created|linked, bot_username?}` — drives the client's polling UI and the stateless wizard step
-- [ ] integration test: provision → fake `managed_bot` update → status walks `pending → bot_created`; edited-username update leaves status `pending` — guards the binding state machine
+- [x] `POST /api/telegram/provision` (session auth): generate `suggested_username` = `mt_<8 base32>_bot` (the random suffix IS the pairing key), insert `tg_pending` (TTL 1h), return `{deep_link, suggested_username}` where deep_link = `https://t.me/newbot/<manager>/<suggested>?name=Med Tracker` (`TelegramAPI.Provision` in `internal/cloudserver/telegram.go`; `RegisterAPIRoutes` wires it on the subdomain apiMux)
+- [x] `POST /tg/manager/<secret>` webhook: on `managed_bot` update — match `ConsumePendingByUsername`; matched → `GetManagedBotToken`, seal + `UpsertBot(kind=managed)`, `SetWebhook` for the child at `/tg/bot/<account-scoped ref>/<per-bot secret>`; unmatched (edited username) → log + drop (⚠️ v1 ceiling, wizard copy mitigates; revisit after Post-Completion empirics) (`ManagerWebhook`; secret checked in both the path component and `X-Telegram-Bot-Api-Secret-Token` header, constant-time; `RegisterWebhookRoutes` wires it on the base-host mux in `cmd/cloud/main.go`)
+- [x] `GET /api/telegram/status` (session auth): `{state: none|skipped|pending|bot_created|linked, bot_username?}` — drives the client's polling UI and the stateless wizard step (`Status`; adds `enabled:true` for Task 5; new `HasPendingByAccount` store method for the `pending` state)
+- [x] integration test: provision → fake `managed_bot` update → status walks `pending → bot_created`; edited-username update leaves status `pending` — guards the binding state machine (`TestTelegramProvisioningStateMachine` in `internal/cloudserver/telegram_test.go`, also asserts token sealed at rest + wrong-secret 403)
 
 ### Task 4: chat linking + child webhook + BYO fallback
 

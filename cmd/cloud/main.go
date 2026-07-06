@@ -199,20 +199,23 @@ func main() {
 	pushAPI.RegisterRoutes(apiMux)
 	mcpRelayAPI.RegisterRoutes(apiMux)
 	mcpRemoteAPI.RegisterRoutes(apiMux)
-	router := cloudserver.New(cfg.baseDomain, store, cloudweb.FS, webstatic.FS, domainweb.FS, apiMux, cfg.foodDBURL)
-	router.SetMCPHandler(mcpRemoteAPI.Endpoint())
 
 	// Telegram is fully disabled unless a manager bot token is configured; the
 	// wizard step simply doesn't render and no webhook routes are wired.
+	var tgAPI *cloudserver.TelegramAPI
 	if cfg.managerBotToken == "" {
 		slog.Info("telegram disabled", "reason", "MANAGER_BOT_TOKEN unset")
 	} else {
-		tgAPI := cloudserver.NewTelegramAPI(store, cfg.sessionSecret, cfg.managerBotToken, cfg.baseDomain, cfg.tgAPIBaseURL)
+		tgAPI = cloudserver.NewTelegramAPI(store, cfg.sessionSecret, cfg.managerBotToken, cfg.baseDomain, cfg.tgAPIBaseURL)
 		if err := tgAPI.Bootstrap(context.Background()); err != nil {
 			slog.Error("telegram manager bot bootstrap failed", "error", err)
 			os.Exit(1)
 		}
+		tgAPI.RegisterAPIRoutes(apiMux)
 	}
+
+	router := cloudserver.New(cfg.baseDomain, store, cloudweb.FS, webstatic.FS, domainweb.FS, apiMux, cfg.foodDBURL)
+	router.SetMCPHandler(mcpRemoteAPI.Endpoint())
 
 	relay := cloudserver.NewRelay(store, webPushSender, cfg.dryQueueWarnHours)
 
@@ -221,6 +224,9 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 	})
+	if tgAPI != nil {
+		tgAPI.RegisterWebhookRoutes(mux)
+	}
 	mux.Handle("/", router)
 
 	serverAddr := ":" + cfg.port
