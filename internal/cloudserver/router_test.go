@@ -134,12 +134,23 @@ func TestRouter_HostVariants(t *testing.T) {
 			// hold the in-memory DEK. The base domain and the passkey ceremony
 			// pages make no cross-origin calls and stay strict.
 			wantConnect := "connect-src 'self';"
-			if stripPort(tc.host) != "app.example.com" &&
-				(tc.path == "/" || strings.HasPrefix(tc.path, "/static/") || strings.HasPrefix(tc.path, "/domain/")) {
+			// Account app pages also load the @elevenlabs/client voice SDK from
+			// esm.sh (blob: AudioWorklets); base/ceremony pages stay strict.
+			wantScript := "script-src 'self';"
+			accountApp := stripPort(tc.host) != "app.example.com" &&
+				(tc.path == "/" || strings.HasPrefix(tc.path, "/static/") || strings.HasPrefix(tc.path, "/domain/"))
+			if accountApp {
 				wantConnect = "connect-src 'self' https:;"
+				wantScript = "script-src 'self' https://esm.sh blob: data:;"
 			}
 			if !strings.Contains(csp, wantConnect) {
 				t.Errorf("CSP connect-src = %q, want it to contain %q", csp, wantConnect)
+			}
+			if !strings.Contains(csp, wantScript) {
+				t.Errorf("CSP script-src = %q, want it to contain %q", csp, wantScript)
+			}
+			if accountApp && !strings.Contains(csp, "worker-src 'self' blob:;") {
+				t.Errorf("CSP = %q, want worker-src 'self' blob: for account app SDK worklets", csp)
 			}
 			if xcto := rec.Header().Get("X-Content-Type-Options"); xcto != "nosniff" {
 				t.Errorf("X-Content-Type-Options = %q, want nosniff", xcto)
