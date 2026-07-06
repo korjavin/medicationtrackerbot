@@ -124,10 +124,10 @@ push is sent right away to **only** the current device's subscription. Closes bd
 
 ### Task 5: Verify
 
-- [ ] `go build ./... && go build -tags mobile ./...` green.
-- [ ] `go test ./internal/cloudserver/... -race` green.
-- [ ] `pnpm test` green.
-- [ ] Reason through: the test reaches only the clicking device; real reminders
+- [x] `go build ./... && go build -tags mobile ./...` green.
+- [x] `go test ./internal/cloudserver/... -race` green.
+- [x] `pnpm test` green.
+- [x] Reason through: the test reaches only the clicking device; real reminders
       still fan out to all devices; the server stays blind (only endpoint +
       ciphertext cross the wire).
 
