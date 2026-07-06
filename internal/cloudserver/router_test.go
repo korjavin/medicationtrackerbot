@@ -49,6 +49,35 @@ func testDomainFS() fstest.MapFS {
 	}
 }
 
+// med-eas.21: bot mode generates /static/config.js; cloud mode must serve a
+// passkey-mode equivalent as real JavaScript, or the shared index.html's
+// <script src="/static/config.js"> 404s and the browser refuses the text/plain
+// body on every load.
+func TestRouter_CloudConfigJS(t *testing.T) {
+	store := setupStore(t)
+	now := time.Now().UTC()
+	if _, err := store.CreateAccount(t.Context(), "acc-1", "known-sub", []byte("hash"), now.Add(time.Hour), now, "", ""); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	h := New("app.example.com", store, testFS(), testAppFS(), testDomainFS(), nil, "https://food.example.com")
+
+	req := httptest.NewRequest(http.MethodGet, "/static/config.js", nil)
+	req.Host = "known-sub.app.example.com"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/javascript" {
+		t.Fatalf("Content-Type = %q, want application/javascript (a wrong MIME is the bug)", ct)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "window.OIDC_CONFIG") || !strings.Contains(body, "window.BOT_USERNAME") {
+		t.Fatalf("body does not define the expected globals: %q", body)
+	}
+}
+
 func TestRouter_HostVariants(t *testing.T) {
 	store := setupStore(t)
 	ctx := t.Context()
