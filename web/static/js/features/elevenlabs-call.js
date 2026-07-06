@@ -56,6 +56,27 @@
         return data.signed_url;
     }
 
+    // Cloud-only dynamic MCP client-tools. The ElevenLabs agent invokes these
+    // by name (must match its dashboard config, marked blocking); each callback
+    // dispatches straight into the in-tab MCP dispatcher — no relay, no crypto,
+    // since this tab is both the voice client and the MCP responder host.
+    // Returns JSON strings the agent reads; dispatcher errors come back as a
+    // short string rather than throwing into the SDK.
+    function buildClientTools() {
+        if (!window.__MEDTRACKER_CLOUD__ || !window.CloudMCPDispatcher) return undefined;
+        const dispatch = async (method, params) => {
+            try {
+                return JSON.stringify(await window.CloudMCPDispatcher.handle(method, params));
+            } catch (err) {
+                return JSON.stringify({ error: (err && err.message) || 'MCP dispatch failed' });
+            }
+        };
+        return {
+            mcp_help: async () => dispatch('mcp_help', {}),
+            mcp_call: async ({ op, params } = {}) => dispatch('mcp_call', { op, params: params || {} }),
+        };
+    }
+
     let activeConversation = null;
     // Live call state tracked outside the DOM so we can restore the correct
     // button text / status when the Today screen re-renders mid-call (sync
@@ -279,8 +300,10 @@
             if (!Conversation || typeof Conversation.startSession !== 'function') {
                 throw new Error('ElevenLabs SDK missing Conversation.startSession');
             }
+            const clientTools = buildClientTools();
             activeConversation = await Conversation.startSession({
                 signedUrl,
+                ...(clientTools ? { clientTools } : {}),
                 onConnect: () => setState('in_call', 'Connected'),
                 onDisconnect: () => {
                     activeConversation = null;

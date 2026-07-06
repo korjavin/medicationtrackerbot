@@ -134,7 +134,7 @@ Two pieces:
 
 ### Task 3: Register dynamic MCP client-tools at startSession (cloud only)
 
-- [ ] In `web/static/js/features/elevenlabs-call.js` `startCall()`, when
+- [x] In `web/static/js/features/elevenlabs-call.js` `startCall()`, when
       `window.__MEDTRACKER_CLOUD__`, pass `clientTools` to
       `Conversation.startSession({ signedUrl, clientTools })`:
       - `mcp_help: async () => JSON.stringify(await
@@ -143,7 +143,7 @@ Two pieces:
         window.CloudMCPDispatcher.handle('mcp_call', { op, params: params || {} }))`
       Return JSON strings the agent can read; surface dispatcher errors as a
       short string rather than throwing into the SDK.
-- [ ] Bot mode passes no `clientTools` (unchanged). Test (c): cloud registers
+- [x] Bot mode passes no `clientTools` (unchanged). Test (c): cloud registers
       the two tools and a simulated `mcp_call('bp.list')` round-trips into the
       catalog; bot mode registers none.
 

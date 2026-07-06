@@ -596,6 +596,62 @@ describe('features/elevenlabs-call.js — wg-call-state event detail', () => {
     });
 });
 
+describe('features/elevenlabs-call.js — cloud dynamic MCP client-tools', () => {
+    it('cloud mode registers mcp_help + mcp_call that round-trip into the dispatcher', async () => {
+        const { window, cleanup } = createConversationEnv();
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            window.CloudMCPDispatcher = {
+                handle: vi.fn(async (method, params) => {
+                    if (method === 'mcp_help') return { catalog: ['bp.list'] };
+                    if (method === 'mcp_call') return { op: params.op, rows: [{ sys: 120 }] };
+                    return {};
+                }),
+            };
+            const { opts } = await startCall(window);
+            expect(opts.clientTools).toBeDefined();
+            expect(typeof opts.clientTools.mcp_help).toBe('function');
+            expect(typeof opts.clientTools.mcp_call).toBe('function');
+
+            const helpJSON = await opts.clientTools.mcp_help();
+            expect(JSON.parse(helpJSON)).toEqual({ catalog: ['bp.list'] });
+            expect(window.CloudMCPDispatcher.handle).toHaveBeenCalledWith('mcp_help', {});
+
+            const callJSON = await opts.clientTools.mcp_call({ op: 'bp.list' });
+            expect(JSON.parse(callJSON)).toEqual({ op: 'bp.list', rows: [{ sys: 120 }] });
+            expect(window.CloudMCPDispatcher.handle).toHaveBeenCalledWith('mcp_call', { op: 'bp.list', params: {} });
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('surfaces dispatcher errors as a short JSON string instead of throwing into the SDK', async () => {
+        const { window, cleanup } = createConversationEnv();
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            window.CloudMCPDispatcher = {
+                handle: vi.fn(async () => { throw new Error('unknown operation "nope"'); }),
+            };
+            const { opts } = await startCall(window);
+            const out = await opts.clientTools.mcp_call({ op: 'nope' });
+            expect(JSON.parse(out)).toEqual({ error: 'unknown operation "nope"' });
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('bot mode registers no clientTools', async () => {
+        const { window, cleanup } = createConversationEnv();
+        try {
+            // No __MEDTRACKER_CLOUD__ flag → bot mode.
+            const { opts } = await startCall(window);
+            expect(opts.clientTools).toBeUndefined();
+        } finally {
+            cleanup();
+        }
+    });
+});
+
 describe('features/elevenlabs-call.js — Today card markup', () => {
     it('mountCard() renders mute, photo, and hidden file input', () => {
         const { window, document, cleanup } = createEnv();
