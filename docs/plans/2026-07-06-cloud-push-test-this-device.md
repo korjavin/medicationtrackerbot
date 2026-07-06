@@ -107,7 +107,7 @@ push is sent right away to **only** the current device's subscription. Closes bd
 
 ### Task 3: Settings wiring + copy
 
-- [ ] `web/static/js/features/settings.js` Test button: keep calling
+- [x] `web/static/js/features/settings.js` Test button: keep calling
       `sendTestPush(ctx)`; update the success status to "Test sent to this
       device." (immediate, not "scheduled — arrive shortly").
 
