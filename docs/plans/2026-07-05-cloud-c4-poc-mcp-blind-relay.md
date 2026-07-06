@@ -188,14 +188,14 @@ before investing —
 
 ### Task 7: [Final] Update documentation
 
-- [ ] `docs/cloud-mode.md` MCP section: mark Tier-1 PoC implemented, add
+- [x] `docs/cloud-mode.md` MCP section: mark Tier-1 PoC implemented, add
       the pairing-code + frame-format contract, restate the four locked
       decisions (Go shim / codegen-in-full-C4 / offline-UX / executor
       parked), and add the leakage-table row: MCP frame sizes + timing →
       cloud (tier 1), content → nobody
-- [ ] `docs/cloud-deployment.md`: one "Connect Claude (PoC)" subsection —
+- [x] `docs/cloud-deployment.md`: one "Connect Claude (PoC)" subsection —
       build the shim, paste the code, Claude Code config snippet
-- [ ] `CLAUDE.md`: add `cmd/mcpshim` to the entry-points list
+- [x] `CLAUDE.md`: add `cmd/mcpshim` to the entry-points list
 
 ## Technical Details
 

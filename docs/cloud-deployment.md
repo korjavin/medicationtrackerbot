@@ -153,6 +153,36 @@ An empty/unclaimed account renders every section explicitly (`devices: none`,
 subscriptions`) rather than omitting them — a silently vanished section would
 hide exactly the bugs this tool exists to surface.
 
+## 6. Connect Claude (PoC)
+
+MCP tier 1 (see [cloud-mode.md → MCP](cloud-mode.md#mcp)) lets Claude Desktop
+or Claude Code query your vault through a local shim + blind relay — no
+content ever reaches the server.
+
+1. In the unlocked PWA, go to Settings → "Connect Claude" and mint a pairing
+   code (one-time, shown once — copy it now).
+2. On the machine running Claude, build the shim from the repo:
+   ```bash
+   go build -o mcpshim ./cmd/mcpshim
+   ```
+3. Add it to Claude Code's or Claude Desktop's MCP server config:
+   ```json
+   {
+     "mcpServers": {
+       "medtracker": {
+         "command": "/path/to/mcpshim",
+         "env": { "MEDTRACKER_MCP_CODE": "mtmcp1...." }
+       }
+     }
+   }
+   ```
+4. Ask Claude something like "what BP readings do I have?" — it discovers
+   ops via `mcp_help`, then calls `mcp_call` for `bp.list`/`bp.create`/etc.,
+   answered live by the unlocked browser tab. Close the tab and the shim
+   returns a clear "open your app and unlock it" error instead of hanging.
+
+Settings → "Disconnect" revokes the pairing and drops the stored key.
+
 ## Serving (C1)
 
 Account subdomains now serve the full `web/static` app (BP + weight ported to
