@@ -27,7 +27,7 @@ function defaultTimeZone() {
   return (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
 }
 
-export async function recomputeAndPush(ctx, { records: recordsOverride, timeZone: tzOverride } = {}) {
+export async function computeReminderEntries(ctx, { records: recordsOverride, timeZone: tzOverride } = {}) {
   const records = recordsOverride || recordsPort(ctx);
   const timeZone = tzOverride || defaultTimeZone();
   const now = () => Date.now();
@@ -40,13 +40,27 @@ export async function recomputeAndPush(ctx, { records: recordsOverride, timeZone
   ]);
   const tzPlan = tzplans.find((r) => r.recordId === TZPLAN_RECORD_ID && !r.deleted) || null;
 
-  const entries = await remindersDomain.buildHorizon({
+  return remindersDomain.buildHorizon({
     medications: medications.filter((m) => !m.deleted),
     intakes: intakes.filter((i) => !i.deleted),
     timeZone,
     tzPlan,
   });
+}
+
+export async function recomputeAndPush(ctx, opts = {}) {
+  const entries = await computeReminderEntries(ctx, opts);
   await pushSchedule(ctx, entries);
+}
+
+// sendTestPush appends one test entry to the real reminder set and PUTs both
+// together — /api/push/schedule is replace-all, so PUTting the test entry
+// alone would wipe every real reminder until the next recompute. Delivery
+// depends on the relay's tick interval, so the notification is not instant.
+export async function sendTestPush(ctx, opts = {}) {
+  const realEntries = await computeReminderEntries(ctx, opts);
+  const testEntry = { fireAtUnix: Math.floor(Date.now() / 1000) + 5, text: 'Test notification from Med Tracker' };
+  await pushSchedule(ctx, [...realEntries, testEntry]);
 }
 
 // scheduleReminderRecompute debounces recomputeAndPush per ctx (keyed by

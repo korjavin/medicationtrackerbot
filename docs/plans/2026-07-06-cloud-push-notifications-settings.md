@@ -108,17 +108,17 @@ reminders, or it wipes the user's real schedule until the next recompute.
 
 ### Task 2: Add a DOM-free "send a test push" helper that does not clobber the real schedule
 
-- [ ] Add an exported helper — prefer `web/cloud/js/reminders.js`
+- [x] Add an exported helper — prefer `web/cloud/js/reminders.js`
       `sendTestPush(ctx)` — that: computes the current real reminder entries the
       same way `recomputeAndPush` does (extract/reuse the compute step so it can
       return the entry array without PUTting), appends one test entry
       `{ fireAtUnix: nowUnix + N, text: 'Test notification from Med Tracker' }`
       (N a few seconds), and calls `pushSchedule(ctx, [...realEntries, testEntry])`
       in a single replace-all PUT.
-- [ ] If `recomputeAndPush` cannot be cleanly split, factor its compute step into
+- [x] If `recomputeAndPush` cannot be cleanly split, factor its compute step into
       a `computeReminderEntries(ctx)` that both it and `sendTestPush` call — no
       behavior change to the existing recompute path.
-- [ ] Document (code comment) that the test relies on the relay ticker, so it
+- [x] Document (code comment) that the test relies on the relay ticker, so it
       arrives within the tick interval, not instantly.
 
 ### Task 3: Add the cloud Notifications DOM block
