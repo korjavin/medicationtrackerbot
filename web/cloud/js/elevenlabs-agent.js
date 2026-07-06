@@ -187,6 +187,10 @@ export function createElevenLabsAgentProvisioner({ settingsDomain }) {
       const resp = await fetch(TOOLS_ENDPOINT, { method: 'POST', headers: headers(key), body: JSON.stringify(toolBody(spec)) });
       if (!resp.ok) throw await toError(resp, `create tool ${spec.name}`);
       const created = await resp.json();
+      // Guard the id like ensureAgent guards agent_id: a missing id would
+      // otherwise be silently dropped by ensureAgent's filter(Boolean), leaving
+      // the agent wired to fewer tools with no diagnostic.
+      if (!created.id) throw new Error(`ElevenLabs create tool ${spec.name} response missing id`);
       map[spec.name] = created.id;
     }
     return map;
