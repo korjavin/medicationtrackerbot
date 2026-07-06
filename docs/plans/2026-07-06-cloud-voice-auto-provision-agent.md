@@ -152,12 +152,12 @@ with an audible tool-call sound. Closes bd **med-eas.26**.
 
 ### Task 6: [Final] Docs + verify
 
-- [ ] `docs/cloud-mode.md` voice section: fully-from-code provisioning — user
+- [x] `docs/cloud-mode.md` voice section: fully-from-code provisioning — user
       sets only the ElevenLabs API key; the app creates the tools + a MedTracker
       agent (tool-call sound on); reads and writes vault data by voice; nothing
       touches the ElevenLabs dashboard. Note the browser-direct BYO-key leakage
       row (key used against api.elevenlabs.io only).
-- [ ] `go build ./...` + `pnpm test` green; new `window.*` globals allowlisted.
+- [x] `go build ./...` + `pnpm test` green; new `window.*` globals allowlisted.
 
 ## Technical Details
 
