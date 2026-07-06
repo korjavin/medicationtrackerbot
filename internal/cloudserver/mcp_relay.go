@@ -220,17 +220,22 @@ func (p *pairingRecord) join(isDevice bool, conn *websocket.Conn) chan *websocke
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	// CloseNow (not the graceful Close) on every eviction below: Close blocks up
+	// to ~10s on the WebSocket close handshake against an unresponsive peer, and
+	// these run while p.mu / the pairing table's mu is held — a graceful close
+	// here would stall every account's pairing/relay endpoints. The evicted
+	// leg's serveLeg observes the read error and tears its half down cleanly.
 	slot := &legSlot{conn: conn, peerCh: make(chan *websocket.Conn, 1)}
 	var peer *legSlot
 	if isDevice {
 		if p.device != nil {
-			p.device.conn.Close(websocket.StatusPolicyViolation, "replaced by new connection")
+			p.device.conn.CloseNow()
 		}
 		p.device = slot
 		peer = p.shim
 	} else {
 		if p.shim != nil {
-			p.shim.conn.Close(websocket.StatusPolicyViolation, "replaced by new connection")
+			p.shim.conn.CloseNow()
 		}
 		p.shim = slot
 		peer = p.device
@@ -262,12 +267,15 @@ func (p *pairingRecord) clear(isDevice bool, conn *websocket.Conn) {
 func (p *pairingRecord) closeLegs() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	// CloseNow, not Close: this runs under the pairing table's mu (revoke/mint/
+	// cleanup) — a graceful close's ~10s handshake wait against a dead peer would
+	// stall every account's pairing/relay endpoints.
 	if p.device != nil {
-		p.device.conn.Close(websocket.StatusNormalClosure, "pairing revoked")
+		p.device.conn.CloseNow()
 		p.device = nil
 	}
 	if p.shim != nil {
-		p.shim.conn.Close(websocket.StatusNormalClosure, "pairing revoked")
+		p.shim.conn.CloseNow()
 		p.shim = nil
 	}
 }
