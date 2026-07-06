@@ -216,16 +216,16 @@ Two structural findings from discovery that shape this plan:
 
 ### Task 6: Shim-mode contract runs
 
-- [ ] food log suite: add/edit/delete, grouping (hour buckets + 30-min
+- [x] food log suite: add/edit/delete, grouping (hour buckets + 30-min
       cluster), stats strip vs targets, per-100g edit semantics (project
       memory: edit modals must show original per-100g values)
-- [ ] products suite: list/sort/edit/delete, meal-from-logs, search
+- [x] products suite: list/sort/edit/delete, meal-from-logs, search
       local+remote (fake foodDb), barcode query detection
-- [ ] AI suites: description + photo happy path (fake provider returning
+- [x] AI suites: description + photo happy path (fake provider returning
       schema-shaped JSON → logs created → undo removes them), fallback
       path (provider rejects response_format), missing-key hint, oversized
       photo rejection
-- [ ] masked-key assertion: `/api/settings/integrations` GET still returns
+- [x] masked-key assertion: `/api/settings/integrations` GET still returns
       `'***'`; no shim route response contains a stored raw key
 
 ### Task 7: Verify acceptance criteria
