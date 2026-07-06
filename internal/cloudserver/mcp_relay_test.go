@@ -169,6 +169,18 @@ func TestMCPRelay_ShimReconnectRebridgesBothWays(t *testing.T) {
 	}
 	defer shimConn2.CloseNow()
 
+	// websocket.Dial returning only means the client handshake finished — the
+	// server-side join (which evicts the old shim leg and registers shimConn2 as
+	// the device's peer) may not have run yet. join CloseNow()s the old shim
+	// under p.mu *before* swapping in the new slot, so the old conn's read
+	// erroring is the happens-before signal that shimConn2 now owns the leg.
+	// Without this wait, the device write below races the join and can be
+	// delivered to the not-yet-evicted old shim, so shimConn2 never sees it and
+	// the read times out (the med-5m8 CI flake).
+	if _, _, err := shimConn.Read(ctx); err == nil {
+		t.Fatalf("expected the old shim conn to be evicted after reconnect, but its read succeeded")
+	}
+
 	// device -> new shim: the direction the stale-peer bug broke — the device
 	// leg must now write to the reconnected shim, not the evicted conn.
 	want := []byte("device-to-reconnected-shim")
