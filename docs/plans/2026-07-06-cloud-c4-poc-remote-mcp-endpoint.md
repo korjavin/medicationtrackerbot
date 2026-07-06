@@ -19,15 +19,15 @@ Also folds in the Connect-Claude discoverability gap (supersedes `2026-07-06-clo
 - Relay: `internal/cloudserver/mcp_relay.go` — in-memory pairing table, single pairing per account (PoC ceiling). Consequence: **remote and local-shim modes are mutually exclusive per account** in this PoC (the hosted shim occupies the account's one pairing). Acceptable; note in UI.
 - Settings seam for the entry-point row: cloud-only-row gate at `web/static/js/features/settings.js:94-99` (`.wg-settings-cloud-devices` pattern).
 - Host routing: account subdomains already route `/api/*` + shell pages in `internal/cloudserver`; the MCP endpoint mounts on the account host.
-- claude.ai custom connectors accept a bare remote MCP URL (no OAuth required); ChatGPT connectors likewise support no-auth MCP in developer mode. PoC auth = **capability URL** with a long random token; OAuth 2.1 + DCR is full-C4 scope.
+- claude.ai custom connectors accept a bare remote MCP URL (no OAuth required); ChatGPT connectors likewise support no-auth MCP in developer mode. PoC auth = **capability URL** with a short human-typeable token (user decision 2026-07-06: the URL gets typed across devices into claude.ai/ChatGPT, so typeability wins; the entropy loss is compensated by a per-account failed-attempt throttle — see Development Approach). OAuth 2.1 + DCR is full-C4 scope.
 
 ## Development Approach
 
 - **CRITICAL: relay, responder, crypto, and `cmd/mcpshim` are untouched.** Tier 1 keeps working; Tier 2 is additive.
 - **CRITICAL: consent is explicit and honest.** Enabling remote mode shows exactly what changes ("the server can read what Claude asks and what it answers while relaying — nothing is stored"). Off by default; one click to revoke; revoke kills the hosted client and invalidates the URL immediately.
-- **CRITICAL: the token is a secret.** ≥256-bit random, shown once with the URL, constant-time compare, never logged (mind Traefik access logs — token travels in the path, so the docs task must note the access-log caveat like docs/sse-traefik.md does for initData).
+- **CRITICAL: the token is short, so the throttle IS the security.** Token = 6 lowercase Crockford-base32 chars rendered `xxx-xxx` (~30 bits; hyphen stripped on check). Brute-forceable only if attempts are unlimited, so a **per-account failed-token throttle is mandatory, not optional**: cap failed attempts (e.g. 100/min per account, then 429 with backoff). Only failures count — valid-token traffic is never affected by it. At that cap, the expected 2^29 guesses take decades; combined with the ≥48-bit subdomain, internet-wide scanning stays hopeless. Constant-time compare, shown once with the URL, never logged (mind Traefik access logs — the token travels in the path; docs task notes the access-log caveat like docs/sse-traefik.md does for initData). Re-enable rotates it.
 - Hosted state is **in-memory** (`ponytail:` restart = re-enable, consistent with the relay's pairing table; persistence is full-C4 alongside persistent pairings).
-- Per-token rate limiting on the MCP endpoint (reuse the demo-mode per-IP limiter pattern, keyed by token).
+- Per-token rate limiting on successful-auth MCP calls too (reuse the demo-mode per-IP limiter pattern, keyed by token) — hosted clients can retry-storm.
 - No new frontend globals beyond what the devices page already owns; secrets rendered `textContent`-only (existing rule in `devices.js` — the page holds the DEK).
 
 ## Testing Strategy
@@ -45,7 +45,7 @@ Also folds in the Connect-Claude discoverability gap (supersedes `2026-07-06-clo
 ### Task 1: Consent + hosted shim registry in cloudserver
 
 - [ ] `internal/cloudserver/mcp_remote.go`: in-memory registry `accountID → {token, *mcpshim.Client, cancel}`.
-- [ ] `POST /api/mcp/remote` (RequireSession): body `{pairing_code}`; parses via `mcpshim.ParsePairingCode`, mints a 32-byte URL-safe token, starts the hosted shim client (dial the relay URL from the code), returns `{token}`. Re-enable replaces the previous entry.
+- [ ] `POST /api/mcp/remote` (RequireSession): body `{pairing_code}`; parses via `mcpshim.ParsePairingCode`, mints the 6-char human token (`xxx-xxx`, Crockford base32 lowercase, no ambiguous chars), starts the hosted shim client (dial the relay URL from the code), returns `{token}`. Re-enable replaces the previous entry and rotates the token.
 - [ ] `DELETE /api/mcp/remote` (RequireSession): tears down the client, invalidates the token.
 - [ ] `GET /api/mcp/remote` (RequireSession): `{enabled: bool}` for UI state (never returns the token again).
 - [ ] `ponytail:` in-memory registry — server restart requires re-enable from the app; persistent enablement is full-C4.
@@ -53,10 +53,10 @@ Also folds in the Connect-Claude discoverability gap (supersedes `2026-07-06-clo
 
 ### Task 2: Streamable-HTTP MCP endpoint
 
-- [ ] Mount `/{mcp}/{token}` on the account host: `mcp.NewStreamableHTTPHandler` (pattern: `internal/mcp/mcp.go:942`) resolving the account from `Host` + token from the path; constant-time token check; unknown → 404.
+- [ ] Mount `/{mcp}/{token}` on the account host: `mcp.NewStreamableHTTPHandler` (pattern: `internal/mcp/mcp.go:942`) resolving the account from `Host` + token from the path (hyphen-insensitive); constant-time token check; unknown → 404; **per-account failed-token throttle** (see Development Approach) enforced before the compare result is revealed.
 - [ ] MCP server exposes `mcp_help` + `mcp_call` mirroring `cmd/mcpshim/main.go` (same input shapes, same responder wire contract), with the description suffix reworded for the hosted context: end-to-end encrypted server↔device via the relay, *this endpoint* sees traffic in transit by user consent, clear offline error when no tab is unlocked.
 - [ ] Per-token rate limit; requests against a live hosted client `Call()`; shim errors (incl. offline-device) map to MCP tool errors, not 5xx.
-- [ ] Test: full initialize + tools/list + tools/call over httptest against a fake responder; bad token; offline error text.
+- [ ] Test: full initialize + tools/list + tools/call over httptest against a fake responder; bad token; failed-attempt throttle kicks in without affecting valid-token traffic; offline error text.
 
 ### Task 3: Devices-page UI — two connector modes, remote primary
 
