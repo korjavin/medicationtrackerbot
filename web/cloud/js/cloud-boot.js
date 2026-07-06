@@ -22,18 +22,42 @@ window.MedTrackerCloudReady = (async function boot() {
         location.href = '/unlock' + location.hash;
         return;
     }
+    // --- Warm-unlock decision. This is the ONLY block allowed to redirect to
+    // /unlock, and only on "there is no usable local key" — no cached LDK record
+    // (warmUnlock → null) or the read itself failing. Everything that decides
+    // "must unlock" lives here and NOWHERE else; the post-unlock boot below must
+    // never send the browser back to /unlock, or a boot failure unrelated to the
+    // key ping-pongs against unlock.js's "record unwraps → go to /" gate forever
+    // (med-eas.16). Kept narrow on purpose: import unlock.js alone (NOT the ~15
+    // apishim modules) so an apishim/sync load error can't masquerade as a
+    // locked device.
+    let ctx;
     try {
-        const [{ warmUnlock }, { installApiShim }, { pullOnOpen }] = await Promise.all([
-            import('/js/unlock.js'),
+        const { warmUnlock } = await import('/js/unlock.js');
+        ctx = await warmUnlock();
+    } catch (e) {
+        // Genuinely can't read the vault key (unlock.js/localdb.js broke). This
+        // will NOT loop: /unlock loads the same unlock.js + localdb.js, so if
+        // they're truly broken it renders the locked/error screen instead of
+        // bouncing back to /.
+        console.error('[cloud-boot] warm unlock read failed', e);
+        location.href = '/unlock';
+        return;
+    }
+    if (!ctx) {
+        location.href = '/unlock';
+        return;
+    }
+
+    // --- Post-unlock boot. The vault is unlocked; from here on any failure
+    // degrades the app in place and is logged — it must NOT redirect to /unlock
+    // (see decision above). A failed sync/shim-install is not a reason to evict
+    // the user to the unlock screen.
+    try {
+        const [{ installApiShim }, { pullOnOpen }] = await Promise.all([
             import('/js/apishim.js'),
             import('/js/sync.js'),
         ]);
-
-        const ctx = await warmUnlock();
-        if (!ctx) {
-            location.href = '/unlock';
-            return;
-        }
 
         const shimCall = installApiShim(ctx);
         // Decision 3 (C2d plan): groups.js/next-card.js/stats.js/today-loader.js
@@ -100,7 +124,8 @@ window.MedTrackerCloudReady = (async function boot() {
             .then(({ refreshResponder }) => refreshResponder(ctx))
             .catch((e) => console.error('[cloud-boot] mcp responder failed', e));
     } catch (e) {
-        console.error('[cloud-boot] warm unlock failed', e);
-        location.href = '/unlock';
+        // Boot the app degraded rather than redirecting — the vault is already
+        // unlocked, so /unlock would just bounce straight back to / (med-eas.16).
+        console.error('[cloud-boot] post-unlock boot failed', e);
     }
 })();
