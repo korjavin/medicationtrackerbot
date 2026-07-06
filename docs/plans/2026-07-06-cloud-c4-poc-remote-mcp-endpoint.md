@@ -60,12 +60,12 @@ Also folds in the Connect-Claude discoverability gap (supersedes `2026-07-06-clo
 
 ### Task 3: Devices-page UI — two connector modes, remote primary
 
-- [ ] Rework the Connect Claude area in `web/cloud/js/devices.js` into a mode picker:
-  - **Remote connector (claude.ai, ChatGPT) — primary.** Enable → consent dialog with the honest downgrade text → mints a pairing (`mcp-pairing.js`, unchanged), POSTs the pairing code to `/api/mcp/remote`, shows once: the connector URL `https://<subdomain>.app.<domain>/mcp/<token>` + copy button + numbered instructions (claude.ai: Settings → Connectors → Add custom connector → paste URL; ChatGPT: Settings → Connectors → Add MCP). Caveats block: keep an unlocked tab open; the URL is stable until you Disconnect (survives server updates); the server holds the connector key and sees MCP traffic in transit.
-  - **Local shim (Claude Code) — alternative.** The existing pairing-code flow (`renderClaudeCode`), plus the `claude mcp add medtracker -e MEDTRACKER_MCP_CODE=<code> -- /path/to/mcpshim` one-liner with the real code.
-  - Modes are mutually exclusive (single pairing per account — say so inline); switching disconnects the other.
-- [ ] Status line covers both modes; Disconnect calls `DELETE /api/mcp/remote` and clears the `mcppairing` record.
-- [ ] Test: consent gate, URL render, mode exclusivity, disconnect.
+- [x] Rework the Connect Claude area in `web/cloud/js/devices.js` into a mode picker:
+  - **Remote connector (claude.ai, ChatGPT) — primary.** Enable → consent dialog with the honest downgrade text → mints a pairing (`mcp-pairing.js`, unchanged), POSTs the pairing code to `/api/mcp/remote`, shows once: the connector URL `https://<subdomain>.app.<domain>/mcp/<token>` + copy button + numbered instructions (claude.ai: Settings → Connectors → Add custom connector → paste URL; ChatGPT: Settings → Connectors → Add MCP). Caveats block: keep an unlocked tab open; the URL is stable until you Disconnect (survives server updates); the server holds the connector key and sees MCP traffic in transit. ⚠️ deviation: new `web/cloud/js/mcp-remote.js` module holds `connectRemote`/`disconnectRemote`/`getRemoteStatus` (thin fetch wrappers around `/api/mcp/remote` that reuse `mcp-pairing.js`'s `connectClaude`/`disconnectClaude` for the underlying pairing) rather than inlining fetch calls into `devices.js` — mirrors the existing `mcp-pairing.js` split and keeps `devices.js` to rendering/wiring.
+  - **Local shim (Claude Code) — alternative.** The existing pairing-code flow (`renderClaudeCode`), plus the `claude mcp add medtracker -e MEDTRACKER_MCP_CODE=<code> -- /path/to/mcpshim` one-liner with the real code (unchanged from Tier 1).
+  - Modes are mutually exclusive (single pairing per account — say so inline); switching disconnects the other — connecting local while remote is enabled calls `disconnectRemote` first.
+- [x] Status line covers both modes (`Claude connector: not connected` / `local shim (Claude Code) linked` / `remote (claude.ai / ChatGPT) linked`); Disconnect calls `DELETE /api/mcp/remote` (remote mode) or the existing pairing DELETE (local mode) and clears the `mcppairing` record either way.
+- [x] Test: consent gate, URL render, mode exclusivity, disconnect. See `web/cloud/js/tests/devices.test.js` and `web/cloud/js/tests/mcp-remote.test.js`.
 
 ### Task 4: Settings entry point
 
