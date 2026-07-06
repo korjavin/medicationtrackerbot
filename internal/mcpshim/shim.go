@@ -13,6 +13,15 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 )
 
+// maxFrameBytes matches the relay's per-frame cap (cloudserver's
+// maxRelayFrameBytes, 64 KiB). coder/websocket defaults to a 32 KiB read
+// limit, so without this the shim would drop the connection on any 32–64 KiB
+// response the relay itself passed fine — surfacing as a spurious
+// ErrDeviceOffline. Kept in lockstep with the relay constant by hand
+// (ponytail: no shared package to import it from — cloudserver is the wrong
+// dependency direction for the shim).
+const maxFrameBytes = 64 << 10
+
 // CallTimeout bounds how long Call waits for a correlated response. There is
 // exactly one reason a call never returns on this transport: no unlocked
 // device is on the other end of the relay (the relay itself only drops or
@@ -64,6 +73,7 @@ func DialPairingWithOptions(ctx context.Context, pc *PairingCode, opts *websocke
 	if err != nil {
 		return nil, fmt.Errorf("mcpshim: dial relay: %w", err)
 	}
+	conn.SetReadLimit(maxFrameBytes)
 	s := &ShimCore{
 		conn:      conn,
 		key:       pc.Key,

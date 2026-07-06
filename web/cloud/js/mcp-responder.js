@@ -145,14 +145,17 @@ class MCPError extends Error {
 // domain instances (same construction path apishim.js uses for bp/weight/
 // notes).
 export function createDispatcher({ bp, weight, notes }) {
-  const ops = {
+  // Prototype-free so a caller-supplied op like "toString"/"constructor"
+  // resolves to undefined (→ the unknown-op did-you-mean path) instead of an
+  // inherited Object.prototype member that would dispatch a bogus result.
+  const ops = Object.assign(Object.create(null), {
     'bp.list': (p) => bp.list(p || {}),
     'bp.create': (p) => bp.create(p || {}),
     'weight.list': (p) => weight.list(p || {}),
     'weight.create': (p) => weight.create(p || {}),
     'notes.list': (p) => notes.list({ limit: p && p.limit, beforeId: p && p.before_id }),
     'notes.create': (p) => notes.create(p || {}),
-  };
+  });
 
   async function handle(method, params) {
     if (method === 'mcp_help') {
