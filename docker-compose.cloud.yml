@@ -23,6 +23,7 @@ services:
       - CLOUD_ACCOUNT_QUOTA_BYTES=${CLOUD_ACCOUNT_QUOTA_BYTES:-}
       - CLOUD_DRY_QUEUE_WARN_HOURS=${CLOUD_DRY_QUEUE_WARN_HOURS:-}
       - VAPID_SUBJECT=${VAPID_SUBJECT:-}
+      - MANAGER_BOT_TOKEN=${MANAGER_BOT_TOKEN:-}
     networks:
       - proxy
     labels:
