@@ -11,7 +11,13 @@ import { connectClaude, disconnectClaude } from './mcp-pairing.js';
 // returns the token — that's shown once, at enable time.
 export async function getRemoteStatus() {
   const res = await fetch('/api/mcp/remote');
-  if (!res.ok) return false;
+  // A non-2xx here is a genuine failure, not "disabled" — the endpoint returns
+  // 200 {enabled:false} when off. Collapsing an error to `false` would let the
+  // devices page render mode 'local' while Tier 2 is actually enabled, so
+  // Disconnect would run client-only cleanup and orphan the server-side
+  // enablement (a permanent relay pairing restored on every restart). Fail the
+  // load instead, matching loadDevices' handling of /api/devices.
+  if (!res.ok) throw new Error('Could not load the remote connector status.');
   const { enabled } = await res.json();
   return enabled;
 }

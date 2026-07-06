@@ -57,7 +57,12 @@ func generateMCPRemoteToken() (string, error) {
 // relayURLIsSelf reports whether relayURL points at reqHost over a WebSocket
 // scheme — the hosted shim only ever dials the account's own origin, so this
 // binds a submitted pairing code's relay_url to the request host and blocks
-// SSRF via an attacker-chosen relay_url.
+// SSRF via an attacker-chosen relay_url. mcp-pairing.js builds relay_url as
+// "<ws|wss>://" + location.host, which equals the request Host header, so the
+// match is exact: host including port (else an attacker could keep their own
+// subdomain but redirect the dial to an arbitrary internal port, which all
+// resolve to the same server under wildcard DNS) and path empty/root (the
+// shim appends its own "/api/mcp/relay/shim" path).
 func relayURLIsSelf(relayURL, reqHost string) bool {
 	u, err := url.Parse(relayURL)
 	if err != nil {
@@ -66,7 +71,10 @@ func relayURLIsSelf(relayURL, reqHost string) bool {
 	if u.Scheme != "ws" && u.Scheme != "wss" {
 		return false
 	}
-	return stripPort(u.Host) == stripPort(reqHost)
+	if u.Path != "" && u.Path != "/" {
+		return false
+	}
+	return u.Host == reqHost
 }
 
 // mcpRemoteStore is the subset of *cloudstore.Repo the hosted-remote consent

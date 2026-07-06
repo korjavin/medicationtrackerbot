@@ -162,15 +162,25 @@ func TestMCPRemote_RejectsForeignRelayURL(t *testing.T) {
 	if _, err := rand.Read(key); err != nil {
 		t.Fatalf("generate pairing key: %v", err)
 	}
-	code, err := mcpshim.FormatPairingCode(&mcpshim.PairingCode{RelayURL: "wss://169.254.169.254", PairingID: pairingID, Key: key})
-	if err != nil {
-		t.Fatalf("format pairing code: %v", err)
-	}
-	if rec := postMCPRemote(t, h, host, session, code); rec.Code != http.StatusBadRequest {
-		t.Fatalf("enable with foreign relay_url status = %d, want 400", rec.Code)
-	}
-	if resp := getMCPRemoteStatus(t, h, host, session); resp.Enabled {
-		t.Fatalf("foreign relay_url enabled Tier 2, want it rejected")
+	// Foreign host, plus same-host tricks that pin the account's own subdomain
+	// but redirect the dial elsewhere: an alternate port (all subdomains
+	// resolve to the same server under wildcard DNS, so this reaches arbitrary
+	// internal ports) and a non-root path prefix.
+	for _, relayURL := range []string{
+		"wss://169.254.169.254",
+		"wss://" + host + ":6379",
+		"wss://" + host + "/evil",
+	} {
+		code, err := mcpshim.FormatPairingCode(&mcpshim.PairingCode{RelayURL: relayURL, PairingID: pairingID, Key: key})
+		if err != nil {
+			t.Fatalf("format pairing code: %v", err)
+		}
+		if rec := postMCPRemote(t, h, host, session, code); rec.Code != http.StatusBadRequest {
+			t.Fatalf("enable with relay_url %q status = %d, want 400", relayURL, rec.Code)
+		}
+		if resp := getMCPRemoteStatus(t, h, host, session); resp.Enabled {
+			t.Fatalf("relay_url %q enabled Tier 2, want it rejected", relayURL)
+		}
 	}
 }
 

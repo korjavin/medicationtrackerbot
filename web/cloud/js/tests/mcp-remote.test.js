@@ -27,9 +27,9 @@ describe('getRemoteStatus', () => {
     await expect(getRemoteStatus()).resolves.toBe(true);
   });
 
-  it('treats a failed request as disabled', async () => {
+  it('throws on a failed request rather than reporting disabled', async () => {
     global.fetch = vi.fn(async () => ({ ok: false }));
-    await expect(getRemoteStatus()).resolves.toBe(false);
+    await expect(getRemoteStatus()).rejects.toThrow();
   });
 });
 
