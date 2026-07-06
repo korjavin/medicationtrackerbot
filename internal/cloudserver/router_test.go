@@ -99,10 +99,13 @@ func TestRouter_HostVariants(t *testing.T) {
 			if csp == "" {
 				t.Errorf("missing Content-Security-Policy header")
 			}
-			// Account subdomains relax connect-src to permit browser-direct C2c
-			// food calls to BYO AI/food-DB origins; the base domain stays strict.
+			// Account-subdomain app pages (/, /static/*, /domain/*) relax
+			// connect-src to permit browser-direct C2c food calls to BYO
+			// AI/food-DB origins; the base domain and the passkey ceremony pages
+			// (which hold the in-memory DEK) stay strict.
 			wantConnect := "connect-src 'self';"
-			if stripPort(tc.host) != "app.example.com" {
+			if stripPort(tc.host) != "app.example.com" &&
+				(tc.path == "/" || strings.HasPrefix(tc.path, "/static/") || strings.HasPrefix(tc.path, "/domain/")) {
 				wantConnect = "connect-src 'self' https:;"
 			}
 			if !strings.Contains(csp, wantConnect) {

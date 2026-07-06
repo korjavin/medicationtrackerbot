@@ -96,10 +96,13 @@ func injectCloudBoot(idx []byte, foodDBURL string) []byte {
 // self-only (no inline script/style, WebAuthn isn't CSP-governed).
 //
 // accountApp relaxes connect-src to `'self' https:` for the per-account app
-// only: C2c food runs browser-direct calls to the user's own AI provider
-// (aiclient.js) and food-DB (fooddb.js), whose origins are BYO/vault-secret and
-// so unknowable server-side — a scoped allowlist is impossible. The base-domain
-// signup/unlock shell makes no cross-origin calls and keeps connect-src 'self'.
+// document + assets only: C2c food runs browser-direct calls to the user's own
+// AI provider (aiclient.js) and food-DB (fooddb.js), whose origins are
+// BYO/vault-secret and so unknowable server-side — a scoped allowlist is
+// impossible. The base-domain shell and, critically, the passkey ceremony pages
+// (/unlock, /claim, /recover, /devices) — which run the WebAuthn PRF unlock and
+// hold the in-memory DEK — make no cross-origin calls and keep connect-src
+// 'self', so on-origin XSS there can't POST the DEK to an attacker origin.
 func setSecurityHeaders(w http.ResponseWriter, accountApp bool) {
 	h := w.Header()
 	connectSrc := "connect-src 'self'"
@@ -115,7 +118,7 @@ func setSecurityHeaders(w http.ResponseWriter, accountApp bool) {
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	host := stripPort(r.Host)
-	setSecurityHeaders(w, host != h.baseDomain)
+	setSecurityHeaders(w, host != h.baseDomain && isAppPath(r.URL.Path))
 	if host == h.baseDomain {
 		h.shell.ServeHTTP(w, r)
 		return
@@ -195,6 +198,15 @@ func withAccount(ctx context.Context, a *cloudstore.Account) context.Context {
 func AccountFromContext(ctx context.Context) (*cloudstore.Account, bool) {
 	a, ok := ctx.Value(accountCtxKey{}).(*cloudstore.Account)
 	return a, ok
+}
+
+// isAppPath reports whether p serves the per-account app document ("/") or its
+// same-origin assets ("/static/*", "/domain/*") — the only pages that make
+// browser-direct C2c food calls and so need the relaxed connect-src. Everything
+// else (the passkey ceremony pages, /api/*, shell fallbacks) keeps the strict
+// connect-src 'self' from setSecurityHeaders.
+func isAppPath(p string) bool {
+	return p == "/" || strings.HasPrefix(p, "/static/") || strings.HasPrefix(p, "/domain/")
 }
 
 // stripPort mirrors net/http's canonical host-header handling: dev requests

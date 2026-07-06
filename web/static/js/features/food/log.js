@@ -413,7 +413,11 @@ async function saveFoodLog() {
 
     const pidEl = document.getElementById('food-log-product-id');
     if (pidEl && pidEl.value) {
-        payload.product_id = parseInt(pidEl.value, 10);
+        // Bot-mode product ids are numeric; cloud-mode ids are string recordIds
+        // (`foodproduct_…`). parseInt on a recordId yields NaN (falsy), which
+        // silently drops the product link — keep numeric strings as numbers but
+        // leave recordIds intact (mirrors the editingId guard below).
+        payload.product_id = /^\d+$/.test(pidEl.value) ? parseInt(pidEl.value, 10) : pidEl.value;
     }
 
     const isUpdate = !!id;
