@@ -173,9 +173,8 @@ func (a *MCPRelayAPI) serveLeg(ctx context.Context, conn *websocket.Conn, record
 	// relayPeerWaitTimeout, accumulating under reconnect churn.
 	waitTimer := time.NewTimer(relayPeerWaitTimeout)
 	defer waitTimer.Stop()
-	var peer *websocket.Conn
 	select {
-	case peer = <-peerCh:
+	case <-peerCh: // presence signal; the live peer conn is re-read each write below.
 	case <-waitTimer.C:
 		conn.Close(websocket.StatusPolicyViolation, "no peer connected in time")
 		return
@@ -188,24 +187,41 @@ func (a *MCPRelayAPI) serveLeg(ctx context.Context, conn *websocket.Conn, record
 		if err != nil {
 			// Only tear down the peer if this conn is still the pairing's
 			// registered leg. If a newer connection evicted us (join replaced
-			// this slot), that replacement has already adopted `peer` — closing
-			// it here would kill the live bridge, not just our dead half.
+			// this slot), the replacement now owns the bridge — closing the
+			// peer here would kill the live bridge, not just our dead half.
 			if record.current(isDevice, conn) {
-				peer.Close(websocket.StatusNormalClosure, "peer disconnected")
+				if peer := record.peerConn(isDevice); peer != nil {
+					peer.Close(websocket.StatusNormalClosure, "peer disconnected")
+				}
 			}
 			return
 		}
 		if !a.limiter.Allow(record.id) {
 			conn.Close(websocket.StatusPolicyViolation, "rate limit exceeded")
-			peer.Close(websocket.StatusPolicyViolation, "peer rate limited")
+			if peer := record.peerConn(isDevice); peer != nil {
+				peer.Close(websocket.StatusPolicyViolation, "peer rate limited")
+			}
 			return
+		}
+		// Re-read the peer conn each frame rather than caching it: when the
+		// peer leg reconnects, join swaps in a fresh conn on its slot, and a
+		// cached pointer would keep writing the evicted (dead) conn — breaking
+		// the bridge one-way until a full teardown. See join.
+		peer := record.peerConn(isDevice)
+		if peer == nil {
+			// Peer dropped mid-stream; drop this frame and keep serving so a
+			// reconnecting peer re-bridges without tearing our leg down. A
+			// genuinely-gone peer's own read-error path (above) closes us.
+			continue
 		}
 		wctx, cancel := context.WithTimeout(ctx, relayWriteTimeout)
 		err = peer.Write(wctx, typ, data)
 		cancel()
 		if err != nil {
-			conn.Close(websocket.StatusNormalClosure, "peer write failed")
-			return
+			// The peer conn we wrote to is dead — but it may be an evicted conn
+			// mid-replacement. Drop the frame and keep serving; the next frame
+			// re-reads the current peer (possibly a reconnect).
+			continue
 		}
 	}
 }
@@ -243,9 +259,9 @@ func (p *pairingRecord) join(isDevice bool, conn *websocket.Conn) chan *websocke
 	// to ~10s on the WebSocket close handshake against an unresponsive peer, and
 	// these run while p.mu / the pairing table's mu is held — a graceful close
 	// here would stall every account's pairing/relay endpoints. The evicted
-	// leg's serveLeg observes the read error and tears its half down; its
-	// record.current check (serveLeg) keeps it from also closing the peer this
-	// replacement just adopted.
+	// leg's serveLeg observes the read error and returns; its record.current
+	// check keeps it from closing the peer, which this replacement now bridges
+	// to (serveLeg re-reads the live peer via peerConn each frame).
 	slot := &legSlot{conn: conn, peerCh: make(chan *websocket.Conn, 1)}
 	var peer *legSlot
 	if isDevice {
@@ -262,13 +278,34 @@ func (p *pairingRecord) join(isDevice bool, conn *websocket.Conn) chan *websocke
 		peer = p.device
 	}
 	if peer != nil {
+		// Both directions signal presence: our own serveLeg unblocks on
+		// slot.peerCh, and a peer still waiting in its initial select unblocks
+		// on peer.peerCh. A peer already piping ignores the send (buffered, or
+		// the default) — it re-reads the swapped-in conn via peerConn.
 		slot.peerCh <- peer.conn
 		select {
 		case peer.peerCh <- conn:
-		default: // peer is already piping against an earlier peerCh send; nothing to wake.
+		default:
 		}
 	}
 	return slot.peerCh
+}
+
+// peerConn returns the opposite leg's current live conn (nil if that leg
+// isn't connected). Called per-frame by serveLeg so a peer reconnect (which
+// swaps join's slot) is picked up transparently instead of writing a cached,
+// evicted conn.
+func (p *pairingRecord) peerConn(isDevice bool) *websocket.Conn {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	peer := p.shim
+	if !isDevice {
+		peer = p.device
+	}
+	if peer == nil {
+		return nil
+	}
+	return peer.conn
 }
 
 // current reports whether conn is still this pairing's registered leg — i.e.

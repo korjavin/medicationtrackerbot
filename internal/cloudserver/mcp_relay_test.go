@@ -123,6 +123,80 @@ func TestMCPRelay_FramesPassOpaqueBothWays(t *testing.T) {
 	}
 }
 
+func TestMCPRelay_ShimReconnectRebridgesBothWays(t *testing.T) {
+	h, host, claimToken := newTestMCPRelayHandler(t)
+	session := registerAndGetSession(t, h, host, claimToken)
+	pairingID := mintPairing(t, h, host, session)
+
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	client := wsClientFor(srv.Listener.Addr().String())
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	deviceHeader := http.Header{}
+	deviceHeader.Set("Cookie", session.Name+"="+session.Value)
+	deviceConn, _, err := websocket.Dial(ctx, "ws://"+host+"/api/mcp/relay/device", &websocket.DialOptions{
+		HTTPClient: client,
+		HTTPHeader: deviceHeader,
+	})
+	if err != nil {
+		t.Fatalf("dial device: %v", err)
+	}
+	defer deviceConn.CloseNow()
+
+	shimConn, _, err := websocket.Dial(ctx, "ws://"+host+"/api/mcp/relay/shim?pairing="+pairingID, &websocket.DialOptions{HTTPClient: client})
+	if err != nil {
+		t.Fatalf("dial shim: %v", err)
+	}
+
+	// Bridge the two legs with one frame so both serveLegs are past their
+	// initial peer-wait select and into the read/write loop (where the old
+	// code cached its peer).
+	if err := shimConn.Write(ctx, websocket.MessageBinary, []byte("prime")); err != nil {
+		t.Fatalf("shim write (prime): %v", err)
+	}
+	if _, _, err := deviceConn.Read(ctx); err != nil {
+		t.Fatalf("device read (prime): %v", err)
+	}
+
+	// Shim reconnects (new conn on the same pairing) — join evicts the old
+	// shim leg while the device leg stays bridged.
+	shimConn2, _, err := websocket.Dial(ctx, "ws://"+host+"/api/mcp/relay/shim?pairing="+pairingID, &websocket.DialOptions{HTTPClient: client})
+	if err != nil {
+		t.Fatalf("dial shim (reconnect): %v", err)
+	}
+	defer shimConn2.CloseNow()
+
+	// device -> new shim: the direction the stale-peer bug broke — the device
+	// leg must now write to the reconnected shim, not the evicted conn.
+	want := []byte("device-to-reconnected-shim")
+	if err := deviceConn.Write(ctx, websocket.MessageBinary, want); err != nil {
+		t.Fatalf("device write after shim reconnect: %v", err)
+	}
+	_, got, err := shimConn2.Read(ctx)
+	if err != nil {
+		t.Fatalf("reconnected shim read: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("reconnected shim got %q, want %q", got, want)
+	}
+
+	// new shim -> device: the other direction still bridges too.
+	want = []byte("reconnected-shim-to-device")
+	if err := shimConn2.Write(ctx, websocket.MessageBinary, want); err != nil {
+		t.Fatalf("reconnected shim write: %v", err)
+	}
+	_, got, err = deviceConn.Read(ctx)
+	if err != nil {
+		t.Fatalf("device read after shim reconnect: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("device got %q, want %q", got, want)
+	}
+}
+
 func TestMCPRelay_CrossPairingAccessRejected(t *testing.T) {
 	h, host, claimToken := newTestMCPRelayHandler(t)
 	session := registerAndGetSession(t, h, host, claimToken)
