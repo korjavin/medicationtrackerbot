@@ -781,7 +781,10 @@ function renderFoodAutocomplete(products, showLoadMore = false, loadMoreCallback
             item.appendChild(metaSpan);
         }
 
-        if (p.id && p.id > 0) {
+        // Bot-mode product ids are positive integers; cloud-mode ids are
+        // string recordIds (`foodproduct_…`). Remote food-DB results carry no
+        // id. Render edit/delete only for saved local products (mirrors log.js).
+        if (p.id && (typeof p.id === 'string' || p.id > 0)) {
             const actions = document.createElement('span');
             actions.className = 'autocomplete-item-actions';
 
@@ -939,19 +942,23 @@ async function saveFoodProduct() {
         // Optimistic: patch the matching product in the in-memory cache + the
         // `food_products_cache` payload so the row reflects the edit before
         // the PUT resolves. Snapshot for rollback on failure.
-        const numericId = parseInt(id, 10);
+        // Bot-mode cache rows carry numeric ids; cloud-mode rows carry string
+        // recordIds. Keep numeric strings as numbers to match number-typed
+        // cache rows, but leave recordIds intact — parseInt on a recordId
+        // yields NaN, which never matches and no-ops the patch (mirrors log.js).
+        const patchId = /^\d+$/.test(id) ? parseInt(id, 10) : id;
         const cacheBefore = Array.isArray(window.FoodProducts.cache)
             ? window.FoodProducts.cache.slice()
             : [];
         window.FoodProducts.cache = cacheBefore.map((p) => {
-            if (!p || p.id !== numericId) return p;
+            if (!p || p.id !== patchId) return p;
             return { ...p, ...payload };
         });
 
         const handle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
             ? await window.DataStore.applyOptimistic('food_products_cache', (prev) => {
                 if (!Array.isArray(prev)) return prev;
-                return prev.map((p) => (p && p.id === numericId) ? { ...p, ...payload } : p);
+                return prev.map((p) => (p && p.id === patchId) ? { ...p, ...payload } : p);
             }, ['food'])
             : null;
 
