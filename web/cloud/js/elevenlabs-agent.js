@@ -137,8 +137,29 @@ export function createElevenLabsAgentProvisioner({ settingsDomain }) {
     return elevenlabs.api_key;
   }
 
-  // ensureTools returns a { name → id } map for every TOOL_SPECS entry,
-  // creating any that don't already exist on the account (matched by name).
+  function toolBody(spec) {
+    return {
+      tool_config: {
+        type: 'client',
+        name: spec.name,
+        description: spec.description,
+        parameters: spec.parameters,
+        // Blocking: the agent waits for and reads the callback's return value.
+        // ElevenLabs client tools default to fire-and-forget, so without this
+        // the get_* reads would return data the agent never consumes. (The
+        // prior hand-configured tools set this via the dashboard's "blocking"
+        // toggle.) Verify the field name against the live API during
+        // acceptance, like tool_call_sound.
+        expects_response: true,
+      },
+    };
+  }
+
+  // ensureTools returns a { name → id } map for every TOOL_SPECS entry. It only
+  // runs during a (re)provision (provision() short-circuits when the stored
+  // version matches), so it PATCHes tools that already exist by name — otherwise
+  // a TOOLSET_VERSION bump that edits a spec (params/description) would never
+  // reach accounts that already created the tool. Missing tools are created.
   async function ensureTools(key) {
     const listResp = await fetch(TOOLS_ENDPOINT, { method: 'GET', headers: headers(key) });
     if (!listResp.ok) throw await toError(listResp, 'tool list');
@@ -152,26 +173,18 @@ export function createElevenLabsAgentProvisioner({ settingsDomain }) {
 
     const map = {};
     for (const spec of TOOL_SPECS) {
-      if (byName.has(spec.name)) {
-        map[spec.name] = byName.get(spec.name);
+      const existingId = byName.get(spec.name);
+      if (existingId) {
+        // Update the existing tool in place so edited specs propagate. PATCH
+        // endpoint shape verified against the live API during acceptance.
+        const resp = await fetch(`${TOOLS_ENDPOINT}/${encodeURIComponent(existingId)}`, {
+          method: 'PATCH', headers: headers(key), body: JSON.stringify(toolBody(spec)),
+        });
+        if (!resp.ok) throw await toError(resp, `update tool ${spec.name}`);
+        map[spec.name] = existingId;
         continue;
       }
-      const body = {
-        tool_config: {
-          type: 'client',
-          name: spec.name,
-          description: spec.description,
-          parameters: spec.parameters,
-          // Blocking: the agent waits for and reads the callback's return value.
-          // ElevenLabs client tools default to fire-and-forget, so without this
-          // the get_* reads would return data the agent never consumes. (The
-          // prior hand-configured tools set this via the dashboard's "blocking"
-          // toggle.) Verify the field name against the live API during
-          // acceptance, like tool_call_sound.
-          expects_response: true,
-        },
-      };
-      const resp = await fetch(TOOLS_ENDPOINT, { method: 'POST', headers: headers(key), body: JSON.stringify(body) });
+      const resp = await fetch(TOOLS_ENDPOINT, { method: 'POST', headers: headers(key), body: JSON.stringify(toolBody(spec)) });
       if (!resp.ok) throw await toError(resp, `create tool ${spec.name}`);
       const created = await resp.json();
       map[spec.name] = created.id;

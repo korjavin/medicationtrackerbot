@@ -120,6 +120,9 @@ describe('cloud shim contract — ElevenLabs provisioner (web/cloud/js/elevenlab
             if (url === 'https://api.elevenlabs.io/v1/convai/tools' && method === 'POST') {
                 return okJson({ id: `tool-${JSON.parse(opts.body).tool_config.name}` });
             }
+            if (url.startsWith('https://api.elevenlabs.io/v1/convai/tools/') && method === 'PATCH') {
+                return okJson({});
+            }
             if (url === 'https://api.elevenlabs.io/v1/convai/agents/create' && method === 'POST') {
                 return okJson({ agent_id: agentId });
             }
@@ -139,7 +142,7 @@ describe('cloud shim contract — ElevenLabs provisioner (web/cloud/js/elevenlab
         });
     }
 
-    it('ensureTools idempotent: all tools already present → GET only, no create POST', async () => {
+    it('ensureTools: all tools present → no duplicate create POST, PATCHes each in place', async () => {
         const { window } = env;
         await setKey(window);
         const { spy, calls } = makeElevenLabsFetch({ existingTools: existingAll() });
@@ -147,8 +150,14 @@ describe('cloud shim contract — ElevenLabs provisioner (web/cloud/js/elevenlab
 
         await window.CloudElevenLabsAgent.provision();
 
+        // No duplicate tools minted (POST /tools creates a fresh tool each time).
         const toolPosts = calls.filter((c) => c.url.endsWith('/tools') && c.method === 'POST');
         expect(toolPosts).toHaveLength(0);
+        // But each existing tool is PATCHed so a spec edit under a version bump
+        // actually propagates.
+        const toolPatches = calls.filter((c) => c.url.includes('/tools/') && c.method === 'PATCH');
+        expect(toolPatches).toHaveLength(TOOL_SPECS.length);
+        expect(toolPatches[0].body.tool_config).toMatchObject({ type: 'client', expects_response: true });
         // xi-api-key on the tool list call.
         const listCall = calls.find((c) => c.url.endsWith('/tools') && c.method === 'GET');
         expect(listCall.headers['xi-api-key']).toBe('xi-test-key');
@@ -198,7 +207,9 @@ describe('cloud shim contract — ElevenLabs provisioner (web/cloud/js/elevenlab
         vi.stubGlobal('fetch', second.spy);
         const again = await window.CloudElevenLabsAgent.provision();
         expect(again).toBe('agent-new');
-        expect(second.calls.some((c) => c.url.endsWith('/agents/create'))).toBe(false);
+        // Reuse touches no ElevenLabs API at all (the invariant — not merely
+        // "skips /agents/create").
+        expect(second.spy).not.toHaveBeenCalled();
         // Sanity: the version we stored is the module's current one.
         expect(TOOLSET_VERSION).toBeGreaterThan(0);
     });
@@ -212,7 +223,7 @@ describe('cloud shim contract — ElevenLabs provisioner (web/cloud/js/elevenlab
         const id = await window.CloudElevenLabsAgent.provision();
         expect(id).toBe('preset-1');
         expect(calls.some((c) => c.url.endsWith('/agents/create'))).toBe(false);
-        const patch = calls.find((c) => c.method === 'PATCH');
+        const patch = calls.find((c) => c.method === 'PATCH' && c.url.includes('/agents/'));
         expect(patch.url).toContain('preset-1');
         expect(patch.body.conversation_config.agent.tool_call_sound).toBe('typing');
     });

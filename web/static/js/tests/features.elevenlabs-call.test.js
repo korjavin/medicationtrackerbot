@@ -675,6 +675,25 @@ describe('features/elevenlabs-call.js — cloud dynamic MCP client-tools', () =>
         }
     });
 
+    it('cloud mode awaits provision() and forwards its agent id into fetchSignedURL', async () => {
+        const { window, cleanup } = createConversationEnv();
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            const provision = vi.fn(async () => 'agent-provisioned-42');
+            const fetchSignedURL = vi.fn(async () => 'wss://api.elevenlabs.io/v1/convai/conversation?token=xyz');
+            window.CloudElevenLabsAgent = { provision };
+            window.CloudElevenLabs = { fetchSignedURL };
+
+            const { opts } = await startCall(window);
+
+            expect(provision).toHaveBeenCalledTimes(1);
+            expect(fetchSignedURL).toHaveBeenCalledWith('agent-provisioned-42');
+            expect(opts.signedUrl).toBe('wss://api.elevenlabs.io/v1/convai/conversation?token=xyz');
+        } finally {
+            cleanup();
+        }
+    });
+
     it('parses stringified tool args (SDK may hand JSON strings)', async () => {
         const { window, cleanup } = createConversationEnv();
         try {
