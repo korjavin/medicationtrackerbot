@@ -113,11 +113,11 @@ push is sent right away to **only** the current device's subscription. Closes bd
 
 ### Task 4: Tests
 
-- [ ] Go: `internal/cloudserver` test — two subs on one account; `POST
+- [x] Go: `internal/cloudserver` test — two subs on one account; `POST
       /api/push/test` to endpoint A sends only to A (assert via a stub/fake
       `WebPushSender` capturing the endpoint it sent to); unknown endpoint → 404;
       `ct` forwarded verbatim.
-- [ ] Frontend: update `settings.cloud-notifications.test.js` — `sendTestPush`
+- [x] Frontend: update `settings.cloud-notifications.test.js` — `sendTestPush`
       posts `/api/push/test` with the current endpoint + a `ct`, and does NOT
       `PUT /api/push/schedule`. Replace the old "non-clobber guarantee" case
       (that behavior no longer applies to the test path).
