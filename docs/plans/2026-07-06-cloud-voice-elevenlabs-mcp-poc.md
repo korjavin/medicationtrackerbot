@@ -98,7 +98,7 @@ Two pieces:
 
 ### Task 1: Browser-direct ElevenLabs signed URL + cloud entry-bug fix
 
-- [ ] New `web/cloud/js/elevenlabs-signed-url.js`:
+- [x] New `web/cloud/js/elevenlabs-signed-url.js`:
       `createElevenLabsClient({ settingsDomain })` exposing `async
       fetchSignedURL()` — reads `const { elevenlabs } = await
       settingsDomain.readIntegrationsUnmasked()`; throws a clear user-facing
@@ -107,16 +107,16 @@ Two pieces:
       https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=<id>`
       with header `xi-api-key: <api_key>`, returns `data.signed_url`. Mirror
       `web/cloud/js/aiclient.js`.
-- [ ] Publish it from `web/cloud/js/apishim.js` (e.g. `window.CloudElevenLabs =
+- [x] Publish it from `web/cloud/js/apishim.js` (e.g. `window.CloudElevenLabs =
       createElevenLabsClient({ settingsDomain: settings })`, alongside
       `CloudFoodAI` at :104).
-- [ ] Guard at the TOP of `fetchSignedURL()` in
+- [x] Guard at the TOP of `fetchSignedURL()` in
       `web/static/js/features/elevenlabs-call.js` (before the `:35` apiCall
       resolution): `if (window.__MEDTRACKER_CLOUD__) return
       window.CloudElevenLabs.fetchSignedURL();` — one branch covers both the :39
       apiCall and the :43 raw-fetch tails. Leave `startCall()`/`startSession`
       untouched; it just receives a browser-minted `signedUrl`.
-- [ ] Integration test (a) above.
+- [x] Integration test (a) above.
 
 ### Task 2: In-tab MCP dispatcher exposed for client-tools
 

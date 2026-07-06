@@ -19,6 +19,7 @@ import { scheduleReminderRecompute } from './reminders.js';
 import { createRxnormPort } from './rxnorm.js';
 import { createAIClient } from './aiclient.js';
 import { createFoodDbClient } from './fooddb.js';
+import { createElevenLabsClient } from './elevenlabs-signed-url.js';
 
 // materializeTimerHandle is module-level (not per-shim-instance) because the
 // production invariant is "one shim installed per page load"; re-installing
@@ -103,6 +104,10 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
   // both go straight from the browser, never through any /api surface.
   targetWindow.CloudFoodAI = foodAI;
   targetWindow.CloudFoodSearch = { search: food.search };
+  // Voice: elevenlabs-call.js's fetchSignedURL() branches on
+  // window.__MEDTRACKER_CLOUD__ to mint the signed URL browser-direct here
+  // (BYO ElevenLabs key from the vault; never crosses /api).
+  targetWindow.CloudElevenLabs = createElevenLabsClient({ settingsDomain: settings });
 
   // Due-dose materialization + tz-plan status refresh: neither domain module
   // owns a timer (Task 3/4's modules stay pure functions of their inputs), so

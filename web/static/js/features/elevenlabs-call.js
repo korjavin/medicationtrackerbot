@@ -32,6 +32,11 @@
     }
 
     async function fetchSignedURL() {
+        // Cloud mode has no server signed-URL route — mint it browser-direct
+        // from the vault's ElevenLabs key (BYO; key never crosses /api).
+        if (window.__MEDTRACKER_CLOUD__ && window.CloudElevenLabs) {
+            return window.CloudElevenLabs.fetchSignedURL();
+        }
         const apiCall = (typeof window.offlineAwareApiCall === 'function')
             ? window.offlineAwareApiCall
             : (typeof window.apiCallDirect === 'function' ? window.apiCallDirect : null);
