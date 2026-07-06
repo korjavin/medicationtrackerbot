@@ -139,7 +139,12 @@ export async function sendTestPush(ctx) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ endpoint: sub.endpoint, ct: toBase64(ct) }),
   });
-  if (!res.ok) throw new Error("This device's subscription expired — re-enable push notifications.");
+  if (!res.ok) {
+    if (res.status === 410 || res.status === 404) {
+      throw new Error("This device's subscription expired — re-enable push notifications.");
+    }
+    throw new Error("Couldn't send the test push — try again in a moment.");
+  }
 }
 
 export async function pushSchedule(ctx, reminders) {
