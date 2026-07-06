@@ -198,12 +198,16 @@ reminders, or it wipes the user's real schedule until the next recompute.
 
 ### Task 7: [Final] Update documentation
 
-- [ ] `docs/cloud-mode.md` (push relay / reminder lifecycle section): note that
+- [x] `docs/cloud-mode.md` (push relay / reminder lifecycle section): note that
       the main-app Settings now surfaces cloud push subscribe + test, reusing the
       `/api/push/*` routes and vault-NK encryption; the `/unlock` shell push
       screen remains for the pre-app flow.
-- [ ] If a new `window.*` global was added, record it in the globals allowlist
-      as required by CLAUDE.md rule 4.
+- [x] If a new `window.*` global was added, record it in the globals allowlist
+      as required by CLAUDE.md rule 4. Added `window.MedTrackerCloud` to
+      `web/static/js/tests/architecture.globals.test.js` (documentation entry,
+      same precedent as `__MEDTRACKER_CLOUD__`/`MedTrackerCloudReady` — the
+      assignment lives in `cloud-boot.js`, outside the scanned `web/static/js`
+      tree).
 
 ## Technical Details
 
