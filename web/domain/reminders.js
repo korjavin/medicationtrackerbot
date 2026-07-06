@@ -35,7 +35,9 @@ function medDisplayName(med) {
   return med.dosage ? `${med.name} (${med.dosage})` : med.name;
 }
 
-function formatHHMM(ms, timeZone) {
+// Exported for workout.js's ad-hoc session creation (Task 3), which needs the
+// same device-local HH:MM stamp the server derives from `time.Now().Format("15:04")`.
+export function formatHHMM(ms, timeZone) {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone, hourCycle: 'h23', hour: '2-digit', minute: '2-digit',
   }).formatToParts(new Date(ms));

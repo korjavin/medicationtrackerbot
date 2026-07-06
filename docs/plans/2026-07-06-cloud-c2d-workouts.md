@@ -174,17 +174,17 @@ also not ported.
 
 ### Task 3: Next-workout + rotation engine
 
-- [ ] port `GetNext` three-priority resolution (P0 active-today, P1
+- [x] port `GetNext` three-priority resolution (P0 active-today, P1
       expired snooze, P2 two-week scan in device tz with rotation-cursor
       variant selection), incl. lazy session creation through the records
       port with the deterministic recordId, completed/skipped-keeps-
       scanning, and the exact `NextWorkout` response shape (`is_today`,
       conditional `snoozed_until`, ad-hoc placeholder-log exercise count)
-- [ ] port `AdvanceRotation` (rotation_order-circular, reset-on-invalid)
+- [x] port `AdvanceRotation` (rotation_order-circular, reset-on-invalid)
       + `InitializeRotation`; rotation advances on complete, skip, and
       next-variant (which also deletes the current pending session) —
       all inside the domain ops, best-effort, rotating groups only
-- [ ] session lifecycle ops: start (+clear snooze), snooze (+count),
+- [x] session lifecycle ops: start (+clear snooze), snooze (+count),
       skip, preskip/cancel-preskip, `SetSessionStatus` validation
       (400-equivalent on bad status, 404-equivalent on missing), ad-hoc
       create (`-1/-1/in_progress/started_at=now`)

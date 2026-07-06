@@ -33,7 +33,10 @@ export function parseSchedule(schedule) {
   }
 }
 
-function localDateParts(ms, timeZone) {
+// Exported for workout.js's GetNext port (Task 3) — the two-week scheduling
+// scan needs the identical local-calendar-day + wall-clock-to-UTC conversion
+// this file already uses for dose targets.
+export function localDateParts(ms, timeZone) {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone,
     year: 'numeric', month: '2-digit', day: '2-digit',
@@ -46,7 +49,7 @@ function localDateParts(ms, timeZone) {
 // Two-pass refine, same technique as bp.js's dayStartMs: guess the offset,
 // convert, then re-derive the offset at the guessed instant (handles DST
 // transitions landing on the target wall-clock time).
-function localWallToUtcMs(wallAsUtc, timeZone) {
+export function localWallToUtcMs(wallAsUtc, timeZone) {
   const guess = wallAsUtc - offsetMsAt(wallAsUtc, timeZone);
   return wallAsUtc - offsetMsAt(guess, timeZone);
 }
