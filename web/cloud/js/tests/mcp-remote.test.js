@@ -55,6 +55,15 @@ describe('connectRemote', () => {
     await expect(connectRemote(ctx)).rejects.toThrow(/Could not enable/);
     expect(disconnectClaude).toHaveBeenCalledWith(ctx);
   });
+
+  it('rolls back the freshly-minted pairing if the POST itself rejects (offline)', async () => {
+    connectClaude.mockResolvedValue({ code: 'mtmcp1.fake' });
+    disconnectClaude.mockResolvedValue();
+    global.fetch = vi.fn(async () => { throw new TypeError('Failed to fetch'); });
+
+    await expect(connectRemote(ctx)).rejects.toThrow(/Failed to fetch/);
+    expect(disconnectClaude).toHaveBeenCalledWith(ctx);
+  });
 });
 
 describe('disconnectRemote', () => {

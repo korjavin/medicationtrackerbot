@@ -8,8 +8,10 @@ CREATE TABLE mcp_remote (
     pairing_key BLOB NOT NULL,
     created_at_unix INTEGER NOT NULL
 );
-
-CREATE UNIQUE INDEX idx_mcp_remote_token ON mcp_remote(token);
+-- No index on token: it's never looked up by the DB (the endpoint resolves the
+-- account first, then compares the token in memory; startup does a full scan).
+-- A UNIQUE index would only add a rare cross-account collision 500 with no
+-- benefit, since token uniqueness is never required.
 -- +goose StatementEnd
 
 -- +goose Down

@@ -23,11 +23,19 @@ export async function getRemoteStatus() {
 // orphaned vault record answering nothing.
 export async function connectRemote(ctx) {
   const { code } = await connectClaude(ctx);
-  const res = await fetch('/api/mcp/remote', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ pairing_code: code }),
-  });
+  let res;
+  try {
+    res = await fetch('/api/mcp/remote', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pairing_code: code }),
+    });
+  } catch (err) {
+    // Network-level failure (offline/DNS): roll the just-minted pairing back
+    // too, else it's orphaned answering nothing.
+    await disconnectClaude(ctx);
+    throw err;
+  }
   if (!res.ok) {
     await disconnectClaude(ctx);
     throw new Error('Could not enable the remote connector. Try again.');
