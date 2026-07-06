@@ -147,18 +147,18 @@ also not ported.
 
 ### Task 1: Record model + numeric-id strategy
 
-- [ ] record types: `workoutgroup`, `workoutvariant`, `workoutexercise`,
+- [x] record types: `workoutgroup`, `workoutvariant`, `workoutexercise`,
       `exerciselibrary`, `workoutsession`, `exerciselog`, `workoutrotation`
       (per-group, deterministic recordId `rotation-<groupId>`), `miband` —
       bodies use server JSON field names verbatim
-- [ ] shared id helper in `web/domain/` : mint positive numeric ids
+- [x] shared id helper in `web/domain/` : mint positive numeric ids
       (epoch-ms-derived + per-instance entropy), stored as body `id`;
       foreign keys store numeric ids; `-1` ad-hoc sentinels kept literal;
       lookups resolve "record of type T whose body.id == n" via the
       records port; document the LWW-merge id-self-heal property in the
       module header (`ponytail:` numeric ids exist solely for frontend
       sentinel compatibility — revisit if C2e migration wants stable ids)
-- [ ] deterministic recordIds where multi-device dedup matters:
+- [x] deterministic recordIds where multi-device dedup matters:
       `session-<groupId>-<scheduledDate>` for schedule-materialized
       sessions (ad-hoc sessions get random recordIds — no natural slot)
 
