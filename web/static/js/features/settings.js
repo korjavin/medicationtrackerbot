@@ -93,15 +93,11 @@ function initOIDCSetupBanner() {
 // .wg-settings-notifications-cloud block instead, driven by the DOM-free
 // web/cloud/js/push.js + reminders.js primitives (dynamic-imported so
 // server/mobile builds never pull in cloud-only modules).
-let _cloudNotificationsState = { pushModulePromise: null, remindersModulePromise: null, bound: false }; // module-state: cached dynamic-import promises for the cloud push/reminders modules + one-time listener-bind guard
-function loadCloudPushModule() {
-    if (!_cloudNotificationsState.pushModulePromise) _cloudNotificationsState.pushModulePromise = import('/js/push.js');
-    return _cloudNotificationsState.pushModulePromise;
-}
-function loadCloudRemindersModule() {
-    if (!_cloudNotificationsState.remindersModulePromise) _cloudNotificationsState.remindersModulePromise = import('/js/reminders.js');
-    return _cloudNotificationsState.remindersModulePromise;
-}
+// ponytail: no memoization — import() already caches by specifier. These
+// functions exist only as the test seam (Vitest overrides the window globals).
+let _cloudNotificationsBound = false; // one-time listener-bind guard
+function loadCloudPushModule() { return import('/js/push.js'); }
+function loadCloudRemindersModule() { return import('/js/reminders.js'); }
 
 async function refreshCloudPushToggleState(toggleBtn) {
     try {
@@ -122,8 +118,8 @@ function bindCloudNotifications() {
     if (!toggleBtn || !testBtn || !status) return;
 
     refreshCloudPushToggleState(toggleBtn);
-    if (_cloudNotificationsState.bound) return;
-    _cloudNotificationsState.bound = true;
+    if (_cloudNotificationsBound) return;
+    _cloudNotificationsBound = true;
 
     toggleBtn.addEventListener('click', async () => {
         toggleBtn.disabled = true;
