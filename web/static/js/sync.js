@@ -132,20 +132,9 @@ const SyncDebug = {
         const closeBtn = panel.querySelector('.sync-debug-close');
         if (closeBtn) closeBtn.addEventListener('click', () => this.toggle());
         document.body.appendChild(panel);
-
-        // Add CSS for debug lines
-        const style = document.createElement('style');
-        style.textContent = `
-            .debug-line { padding: 2px 0; border-bottom: 1px solid #333; }
-            .debug-time { color: #888; margin-right: 8px; }
-            .debug-level { font-weight: bold; margin-right: 8px; }
-            .debug-line.error .debug-level { color: #f66; }
-            .debug-line.warn .debug-level { color: #fa0; }
-            .debug-line.info .debug-level { color: #0af; }
-            .debug-msg { color: #fff; }
-            .debug-data { color: #888; font-size: 10px; display: block; margin-left: 60px; }
-        `;
-        document.head.appendChild(style);
+        // The .debug-* line styles live in css/styles.css (not a runtime-injected
+        // <style>, which the cloud origin's strict style-src 'self' CSP blocks —
+        // med-eas.22).
     }
 };
 
