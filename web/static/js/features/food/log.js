@@ -430,7 +430,12 @@ async function saveFoodLog() {
         const dayKey = typeof todayFoodKey === 'function'
             ? todayFoodKey(new Date(dateStr))
             : `food_${localDay}_day`;
-        const editingId = isUpdate ? parseInt(id, 10) : null;
+        // Bot-mode log ids are numeric (server JSON numbers); cloud-mode ids are
+        // string recordIds (`foodlog_…`). Keep numeric strings as numbers so the
+        // `l.id === editingId` match in buildOptimisticFoodCache still hits the
+        // number-typed cache rows, but leave string ids intact — parseInt on a
+        // recordId yields NaN, which never matches and duplicates the edited row.
+        const editingId = isUpdate ? (/^\d+$/.test(id) ? parseInt(id, 10) : id) : null;
         const localId = `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         const optimisticLog = {
             id: editingId || localId,

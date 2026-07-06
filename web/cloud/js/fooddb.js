@@ -73,7 +73,10 @@ export function createFoodDbClient({ settingsDomain }) {
     if (configured) return { url: configured.replace(/\/$/, ''), apiKey: food.api_key };
     const operatorDefault = (typeof window !== 'undefined' && window.__MEDTRACKER_FOOD_DB_URL__) || '';
     if (!operatorDefault) return null;
-    return { url: operatorDefault.replace(/\/$/, ''), apiKey: food.api_key };
+    // Falling back to the operator's default DB: never forward the user's
+    // vault-held food-DB key to the operator (zero-knowledge break) — that key
+    // was meant for the user's own provider, not the operator's host.
+    return { url: operatorDefault.replace(/\/$/, ''), apiKey: '' };
   }
 
   async function search(query) {

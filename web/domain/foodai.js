@@ -77,10 +77,16 @@ export function convertParsedMeal(parsed) {
     if (!(item.weight_grams > 0)) {
       throw invalid(`item ${i} (${JSON.stringify(item.name)}) has non-positive weight_grams`, 'invalid_item');
     }
-    if (item.carbs_100g < 0 || item.protein_100g < 0 || item.fat_100g < 0) {
+    // Missing macro keys default to 0 to mirror Go's float64 zero-value: the
+    // schema marks all three required, but the response_format-rejection
+    // fallback sends an unconstrained request where a provider may omit one.
+    // Without the default, undefined would pass the `< 0` check and then
+    // propagate NaN through calculateMacros, collapsing the whole item to 0 kcal.
+    const c100 = item.carbs_100g || 0, p100 = item.protein_100g || 0, f100 = item.fat_100g || 0;
+    if (c100 < 0 || p100 < 0 || f100 < 0) {
       throw invalid(`item ${i} (${JSON.stringify(item.name)}) has negative macros`, 'invalid_item');
     }
-    const { carbs, protein, fat, calories } = calculateMacros(item.carbs_100g, item.protein_100g, item.fat_100g, item.weight_grams);
+    const { carbs, protein, fat, calories } = calculateMacros(c100, p100, f100, item.weight_grams);
     return { name: item.name, weight: Math.trunc(item.weight_grams), carbs, protein, fat, calories };
   });
 }
