@@ -183,6 +183,8 @@ func main() {
 	}
 	pushAPI := cloudserver.NewPushAPI(store, webPushSender, cfg.sessionSecret)
 	mcpRelayAPI := cloudserver.NewMCPRelayAPI(store, cfg.sessionSecret)
+	mcpRemoteAPI := cloudserver.NewMCPRemoteAPI(store, mcpRelayAPI, cfg.sessionSecret)
+	mcpRemoteAPI.Restore(context.Background())
 	apiMux := http.NewServeMux()
 	webauthnAPI.RegisterRoutes(apiMux)
 	envelopeAPI.RegisterRoutes(apiMux)
@@ -192,6 +194,7 @@ func main() {
 	syncAPI.RegisterRoutes(apiMux)
 	pushAPI.RegisterRoutes(apiMux)
 	mcpRelayAPI.RegisterRoutes(apiMux)
+	mcpRemoteAPI.RegisterRoutes(apiMux)
 	router := cloudserver.New(cfg.baseDomain, store, cloudweb.FS, webstatic.FS, domainweb.FS, apiMux, cfg.foodDBURL)
 
 	relay := cloudserver.NewRelay(store, webPushSender, cfg.dryQueueWarnHours)

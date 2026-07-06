@@ -44,12 +44,12 @@ Also folds in the Connect-Claude discoverability gap (supersedes `2026-07-06-clo
 
 ### Task 1: Consent + persistent hosted-shim registry in cloudserver
 
-- [ ] cloudstore migration (take the **next contiguous number at merge time** — parallel-branch numbering hazard, see goose lesson): `mcp_remote(account_id PK, token, pairing_id, pairing_key, created_at)`; repo methods `UpsertMCPRemote` / `GetMCPRemote` / `DeleteMCPRemote` / `ListMCPRemote`.
-- [ ] `internal/cloudserver/mcp_remote.go`: runtime registry `accountID → {token, *mcpshim.Client, cancel}` hydrated from the table on startup — for each row, re-register the pairing with the relay (in-memory table) and start the hosted shim client. Restore failures log and skip, never block boot.
-- [ ] `POST /api/mcp/remote` (RequireSession): body `{pairing_code}`; parses via `mcpshim.ParsePairingCode`, mints the 6-char human token (`xxx-xxx`, Crockford base32 lowercase, no ambiguous chars), persists the row, starts the hosted shim client (dial the relay URL from the code), returns `{token}`. Re-enable replaces the row and rotates the token — **the ONLY events that change the token are this and DELETE**; deploys/restarts never do.
-- [ ] `DELETE /api/mcp/remote` (RequireSession): tears down the client, deletes the row, invalidates the token.
-- [ ] `GET /api/mcp/remote` (RequireSession): `{enabled: bool}` for UI state (never returns the token again).
-- [ ] Test: enable/disable/status lifecycle, session required, re-enable rotates token, and **restart-restore** — rebuild the registry from the store and assert the same token still authenticates.
+- [x] cloudstore migration (take the **next contiguous number at merge time** — parallel-branch numbering hazard, see goose lesson): `mcp_remote(account_id PK, token, pairing_id, pairing_key, created_at)`; repo methods `UpsertMCPRemote` / `GetMCPRemote` / `DeleteMCPRemote` / `ListMCPRemote`. ⚠️ deviation: added a `relay_url` column (not in the original list) — `mcpshim.PairingCode` needs `{RelayURL, PairingID, Key}` to redial on restore, and storing it verbatim avoids inventing an `AccountByID`-plus-baseDomain reconstruction just to get the same value back.
+- [x] `internal/cloudserver/mcp_remote.go`: runtime registry `accountID → {token, *mcpshim.Client}` hydrated from the table on startup — for each row, re-register the pairing with the relay (in-memory table, via new `MCPRelayAPI.RestorePairing`) and start the hosted shim client. Restore failures log and skip, never block boot. ⚠️ deviation: dropped the `cancel` field from the registry entry — `mcpshim.Client.Close()` (new, additive) fully tears down the one connection a Client owns, so a separate cancellation hook has no current use.
+- [x] `POST /api/mcp/remote` (RequireSession): body `{pairing_code}`; parses via `mcpshim.ParsePairingCode`, mints the 6-char human token (`xxx-xxx`, Crockford base32 lowercase, no ambiguous chars), persists the row, starts the hosted shim client (dial the relay URL from the code), returns `{token}`. Re-enable replaces the row and rotates the token — **the ONLY events that change the token are this and DELETE**; deploys/restarts never do.
+- [x] `DELETE /api/mcp/remote` (RequireSession): tears down the client, deletes the row, invalidates the token.
+- [x] `GET /api/mcp/remote` (RequireSession): `{enabled: bool}` for UI state (never returns the token again).
+- [x] Test: enable/disable/status lifecycle, session required, re-enable rotates token, and **restart-restore** — rebuild the registry from the store and assert the same token still authenticates. See `internal/cloudserver/mcp_remote_test.go`.
 
 ### Task 2: Streamable-HTTP MCP endpoint
 

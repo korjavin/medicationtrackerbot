@@ -103,6 +103,15 @@ func (a *MCPRelayAPI) CreatePairing(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, createPairingResponse{PairingID: id})
 }
 
+// RestorePairing re-registers a persisted pairing (cloudstore's mcp_remote
+// row) into the in-memory pairing table under its already-known id — called
+// once per row by the hosted-remote registry's startup Restore, since a
+// process restart otherwise drops every pairing (see the ponytail note atop
+// this file).
+func (a *MCPRelayAPI) RestorePairing(pairingID, accountID string) {
+	a.pairings.restore(pairingID, accountID)
+}
+
 // DeletePairing revokes the caller's account's pairing (if any) and drops
 // both of its connected legs.
 func (a *MCPRelayAPI) DeletePairing(w http.ResponseWriter, r *http.Request) {
@@ -398,6 +407,24 @@ func (t *pairingTable) cleanup() {
 // account already held.
 func (t *pairingTable) mint(accountID string) string {
 	id := generatePairingID()
+	t.register(id, accountID)
+	return id
+}
+
+// restore re-registers a pairing under its already-known id, instead of
+// generating a fresh one — used to rebuild this in-memory table from
+// cloudstore's persisted mcp_remote rows after a process restart (Task 1's
+// hosted-remote registry). A fresh id here would strand the pairing id the
+// hosted mcpshim.Client (and, for the remote-enabled account, no separate
+// local shim config) still holds.
+func (t *pairingTable) restore(id, accountID string) {
+	t.register(id, accountID)
+}
+
+// register installs a pairing record under id, revoking any pairing the
+// account already held — the shared body behind mint (fresh id) and restore
+// (known id).
+func (t *pairingTable) register(id, accountID string) {
 	rec := &pairingRecord{id: id, accountID: accountID, expiresAt: time.Now().Add(t.ttl)}
 
 	t.mu.Lock()
@@ -408,7 +435,6 @@ func (t *pairingTable) mint(accountID string) string {
 	}
 	t.byID[id] = rec
 	t.byAcc[accountID] = rec
-	return id
 }
 
 // revoke drops accountID's pairing, if any, closing both of its legs.
