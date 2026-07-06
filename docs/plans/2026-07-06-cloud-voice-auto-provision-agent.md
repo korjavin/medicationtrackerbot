@@ -134,11 +134,13 @@ with an audible tool-call sound. Closes bd **med-eas.26**.
 
 ### Task 4: Settings UX — key is enough
 
-- [ ] `web/static/index.html` + `integrations.js`: mark the ElevenLabs **Agent
+- [x] `web/static/index.html` + `integrations.js`: mark the ElevenLabs **Agent
       ID** field optional with a hint that leaving it blank lets the app create
       the agent; update the API-key field hint to "Add your key — we set up the
       voice agent for you." No behavior change when an agent id IS provided
-      (PATCH path).
+      (PATCH path). ⚠️ integrations.js needed no change — it never required
+      agent_id; only the HTML hints (reusing `wg-settings-integrations__note`)
+      were added.
 
 ### Task 5: Tests
 
