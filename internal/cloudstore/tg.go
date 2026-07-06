@@ -33,8 +33,14 @@ type TGBot struct {
 }
 
 // CreatePending inserts a short-lived managed-bot provisioning row keyed by the
-// suggested username (whose random suffix is the pairing key).
+// suggested username (whose random suffix is the pairing key). It first sweeps
+// expired rows (TTL 1h) so abandoned/repeated provisions don't accumulate — the
+// opportunistic cleanup the schema comment promises, no background job needed.
 func (r *Repo) CreatePending(ctx context.Context, suggestedUsername, accountID string, createdAt, expiresAt time.Time) error {
+	if _, err := r.db.ExecContext(ctx,
+		`DELETE FROM tg_pending WHERE expires_at_unix <= ?`, storedb.TimeToUnix(createdAt)); err != nil {
+		return err
+	}
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO tg_pending (suggested_username, account_id, created_at_unix, expires_at_unix) VALUES (?, ?, ?, ?)`,
 		suggestedUsername, accountID, storedb.TimeToUnix(createdAt), storedb.TimeToUnix(expiresAt))
@@ -56,6 +62,23 @@ func (r *Repo) ConsumePendingByUsername(ctx context.Context, suggestedUsername s
 		return "", err
 	}
 	return accountID, nil
+}
+
+// PendingAccountByUsername returns the account that started a managed-bot flow
+// for suggestedUsername *without* consuming the row, so the manager webhook can
+// run its fallible Telegram work (token fetch, webhook set) first and delete the
+// pending row only once everything succeeds — a 500 then lets Telegram retry the
+// whole bind instead of stranding the flow. Returns ErrPendingInvalid for
+// unknown/expired rows.
+func (r *Repo) PendingAccountByUsername(ctx context.Context, suggestedUsername string, now time.Time) (string, error) {
+	var accountID string
+	err := r.db.QueryRowContext(ctx,
+		`SELECT account_id FROM tg_pending WHERE suggested_username = ? AND expires_at_unix > ?`,
+		suggestedUsername, storedb.TimeToUnix(now)).Scan(&accountID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrPendingInvalid
+	}
+	return accountID, err
 }
 
 // HasPendingByAccount reports whether the account has a live (unexpired)
