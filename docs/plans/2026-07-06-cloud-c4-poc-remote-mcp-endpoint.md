@@ -74,9 +74,9 @@ Also folds in the Connect-Claude discoverability gap (supersedes `2026-07-06-clo
 
 ### Task 5: [Final] Docs
 
-- [ ] `docs/cloud-mode.md` MCP section: mark Tier 2 PoC implemented; "Connecting claude.ai / ChatGPT" how-to (enable, consent meaning, URL, caveats, revoke); add the leakage-summary row (opt-in only: MCP requests/responses visible to server in transit; pairing key stored at rest server-side while enabled); token-in-path access-log caveat (cf. docs/sse-traefik.md).
-- [ ] `docs/features.md`: Claude-connector entry covering both modes.
-- [ ] Delete `docs/plans/2026-07-06-cloud-c4-poc-connect-claude-ux.md` (superseded by this plan) — done in this plan's commit.
+- [x] `docs/cloud-mode.md` MCP section: mark Tier 2 PoC implemented; "Connecting claude.ai / ChatGPT" how-to (enable, consent meaning, URL, caveats, revoke); add the leakage-summary row (opt-in only: MCP requests/responses visible to server in transit; pairing key stored at rest server-side while enabled); token-in-path access-log caveat (cf. docs/sse-traefik.md).
+- [x] `docs/features.md`: Claude-connector entry covering both modes.
+- [x] Delete `docs/plans/2026-07-06-cloud-c4-poc-connect-claude-ux.md` (superseded by this plan) — done in this plan's commit. ⚠️ already deleted in this plan's initial commit (`bacae9dc`, before this ralphex run started).
 
 ### Task: Verify acceptance criteria
 
