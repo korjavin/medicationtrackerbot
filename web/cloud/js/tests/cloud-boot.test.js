@@ -14,9 +14,10 @@ const SRC = readFileSync(
   'utf8',
 ).replace(/\bimport\(/g, '__imp(');
 
-async function runBoot({ hash = '', modules }) {
+async function runBoot({ hash = '', modules, setupWindow }) {
   const location = { hash, href: '' };
   const window = {};
+  if (setupWindow) setupWindow(window);
   const __imp = (spec) => {
     const key = spec.replace('/js/', '');
     if (!(key in modules)) throw new Error(`unexpected import(${spec})`);
@@ -63,39 +64,49 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     expect(location.href).toBe('');
   });
 
-  it('routes window.apiCallDirect("/api/*") through the shim, surviving a later core/api.js reassignment (med-1iv)', async () => {
-    // Workout reads (groups.js/next-card.js/stats.js/today-loader.js) call
-    // window.apiCallDirect directly. In cloud mode the ONLY thing that keeps
-    // those from hitting the network (a guaranteed 404 — the cloud server has no
-    // /api/workout/* routes) is the accessor cloud-boot installs. Pin that it
-    // (a) routes /api/* to shimCall and (b) still does so after core/api.js runs
-    // its `window.apiCallDirect = apiCallDirect` assignment (the historical
-    // clobber that caused the med-1iv 404).
+  it('installs the apiCallDirect shim wrapper when window.apiCallDirect is NON-configurable (med-1iv)', async () => {
+    // core/api.js declares `apiCallDirect` as a top-level function, so
+    // window.apiCallDirect is a non-configurable (but writable) global. The old
+    // accessor form (Object.defineProperty) threw "Cannot redefine property"
+    // there, aborting the whole post-unlock boot — so workout reads
+    // (groups/next-card/stats/today, which call window.apiCallDirect directly)
+    // escaped to the network → 404. Reproduce that exact property shape and pin
+    // that boot completes AND the wrapper routes /api/* to the shim.
+    const realCalls = [];
+    const setupWindow = (window) => {
+      // Non-configurable + writable, exactly like a classic-script top-level
+      // `function apiCallDirect(){}` global.
+      Object.defineProperty(window, 'apiCallDirect', {
+        value: (endpoint) => { realCalls.push(endpoint); return Promise.resolve('real'); },
+        writable: true,
+        configurable: false,
+        enumerable: true,
+      });
+    };
     const shimCalls = [];
     const shimCall = (endpoint) => { shimCalls.push(endpoint); return Promise.resolve([]); };
+    // pullOnOpen runs AFTER the wrapper install; if the install threw (the bug),
+    // this spy would never be called — so it also guards "boot didn't abort".
+    let pullOnOpenCalled = false;
     const { window } = await runBoot({
+      setupWindow,
       modules: {
         'unlock.js': { warmUnlock: async () => ({ accountId: 'a', dek: new Uint8Array(1) }) },
         'apishim.js': { installApiShim: () => shimCall },
-        'sync.js': { pullOnOpen: async () => {} },
+        'sync.js': { pullOnOpen: async () => { pullOnOpenCalled = true; } },
         'reminders.js': { scheduleReminderRecompute: () => {} },
         'mcp-responder.js': { refreshResponder: () => {} },
       },
     });
 
-    // A workout read routes to the shim, not the network.
+    // Boot ran past the wrapper install (pre-fix it threw here and aborted).
+    expect(pullOnOpenCalled).toBe(true);
+    // A workout read now routes to the shim, not the network...
     await window.apiCallDirect('/api/workout/groups');
     expect(shimCalls).toContain('/api/workout/groups');
-
-    // core/api.js runs after the shim's <head> injection and reassigns
-    // window.apiCallDirect — the accessor must absorb it as the fallback, not be
-    // replaced. /api/* still hits the shim; non-/api/ falls to the real fn.
-    const realCalls = [];
-    window.apiCallDirect = (endpoint) => { realCalls.push(endpoint); return Promise.resolve('real'); };
-    await window.apiCallDirect('/api/workout/groups');
-    expect(shimCalls.filter((e) => e === '/api/workout/groups')).toHaveLength(2);
+    // ...and non-/api/ still falls through to the real fn.
     await window.apiCallDirect('/not-api/thing');
-    expect(realCalls).toEqual(['/not-api/thing']);
+    expect(realCalls).toContain('/not-api/thing');
   });
 
   it('hands a #claim= link to the /unlock shell before touching the warm-unlock cache', async () => {
