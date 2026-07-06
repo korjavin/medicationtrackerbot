@@ -7,11 +7,17 @@
 //
 // Base URL resolution: the vault's `integrations.food.url` wins when set;
 // otherwise falls back to the operator default injected by cmd/cloud into
-// the served page as window.__MEDTRACKER_FOOD_DB_URL__ (see
-// internal/cloudserver/router.go's injectCloudBoot + CLOUD_FOOD_DB_URL in
-// docs/environment.md). Neither set = remote search silently disabled
+// the served page as a <meta name="medtracker-food-db-url"> tag (a
+// CSP-safe carrier — the origin's script-src 'self' blocks inline scripts;
+// see internal/cloudserver/router.go's injectCloudBoot + CLOUD_FOOD_DB_URL
+// in docs/environment.md). Neither set = remote search silently disabled
 // (search() below just returns []), never an error.
 const FETCH_TIMEOUT_MS = 10000;
+
+function operatorFoodDbURL() {
+  if (typeof document === 'undefined') return '';
+  return document.querySelector('meta[name="medtracker-food-db-url"]')?.content || '';
+}
 
 function isBarcode(query) {
   return query.length >= 8 && /^[0-9]+$/.test(query);
@@ -71,7 +77,7 @@ export function createFoodDbClient({ settingsDomain }) {
     const { food } = await settingsDomain.readIntegrationsUnmasked();
     const configured = (food.url || '').trim();
     if (configured) return { url: configured.replace(/\/$/, ''), apiKey: food.api_key };
-    const operatorDefault = (typeof window !== 'undefined' && window.__MEDTRACKER_FOOD_DB_URL__) || '';
+    const operatorDefault = operatorFoodDbURL();
     if (!operatorDefault) return null;
     // Falling back to the operator's default DB: never forward the user's
     // vault-held food-DB key to the operator (zero-knowledge break) — that key

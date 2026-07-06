@@ -10,11 +10,11 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"html"
 	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
@@ -68,8 +68,9 @@ func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, doma
 	}
 }
 
-// injectCloudBoot splices a config script (the operator's default food-DB
-// URL, read by web/cloud/js/fooddb.js as window.__MEDTRACKER_FOOD_DB_URL__)
+// injectCloudBoot splices the operator's default food-DB URL (as a
+// CSP-safe <meta>, read by web/cloud/js/fooddb.js — an inline <script>
+// would be blocked by our own script-src 'self', see setSecurityHeaders)
 // and a classic (non-module) <script src="/js/cloud-boot.js"> tag right
 // after <head>, served from cloudweb.FS's js/ directory via the default
 // shell-fallback branch below. cloud-boot.js must run before every other
@@ -80,7 +81,7 @@ func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, doma
 // this only rewrites the copy cmd/cloud serves.
 func injectCloudBoot(idx []byte, foodDBURL string) []byte {
 	const marker = "<head>"
-	inject := "<head>\n    <script>window.__MEDTRACKER_FOOD_DB_URL__ = " + strconv.Quote(foodDBURL) + ";</script>" +
+	inject := "<head>\n    <meta name=\"medtracker-food-db-url\" content=\"" + html.EscapeString(foodDBURL) + "\">" +
 		"\n    <script src=\"/js/cloud-boot.js\"></script>"
 	out := bytes.Replace(idx, []byte(marker), []byte(inject), 1)
 	if bytes.Equal(out, idx) {
