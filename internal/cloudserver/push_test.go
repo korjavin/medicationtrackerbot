@@ -148,3 +148,41 @@ func TestPostTestPush_TargetsOnlyNamedEndpoint(t *testing.T) {
 		t.Fatalf("POST /api/push/test to unknown endpoint status = %d, want 404", recUnknown.Code)
 	}
 }
+
+// TestPostTestPush_GoneDisablesSubscription guards the stale-subscription path
+// the client's "subscription expired — re-enable" UX depends on: when the push
+// service returns 410, PostTestPush must respond 410 and disable the row so it
+// stops being relayed to.
+func TestPostTestPush_GoneDisablesSubscription(t *testing.T) {
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+
+	webauthnAPI := NewWebAuthnAPI(store, "test-session-secret-at-least-32-bytes-long")
+	sender := &fakeSender{goneFor: map[string]bool{"https://push.example/gone": true}}
+	pushAPI := NewPushAPI(store, sender, "test-session-secret-at-least-32-bytes-long")
+	mux := http.NewServeMux()
+	webauthnAPI.RegisterRoutes(mux)
+	pushAPI.RegisterRoutes(mux)
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "")
+
+	session := registerAndGetSession(t, h, host, claimToken)
+
+	ctx := t.Context()
+	if err := store.UpsertPushSubscription(ctx, account.ID, "https://push.example/gone", "p256dh", "auth", time.Now().UTC()); err != nil {
+		t.Fatalf("UpsertPushSubscription: %v", err)
+	}
+
+	rec := postTestPush(t, h, host, session, testPushRequest{Endpoint: "https://push.example/gone", CT: []byte("test-ct")})
+	if rec.Code != http.StatusGone {
+		t.Fatalf("POST /api/push/test to gone endpoint status = %d, want 410", rec.Code)
+	}
+
+	sub, err := store.GetByEndpoint(ctx, account.ID, "https://push.example/gone")
+	if err != nil {
+		t.Fatalf("GetByEndpoint: %v", err)
+	}
+	if sub != nil {
+		t.Fatalf("subscription should be disabled after 410 (GetByEndpoint filters disabled), got %+v", sub)
+	}
+}
