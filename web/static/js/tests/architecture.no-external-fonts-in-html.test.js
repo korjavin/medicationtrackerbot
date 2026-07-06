@@ -1,6 +1,6 @@
 // architecture.no-external-fonts-in-html.test.js
 //
-// Lint guard for med-eas.6.
+// Lint guard for med-eas.8.
 //
 // web/static/index.html is served by the server, the cloud binary, and the
 // mobile APK. Cloud mode wraps it in a strict `style-src 'self'` CSP

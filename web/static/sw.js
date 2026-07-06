@@ -25,7 +25,7 @@ const STATIC_ASSETS = [
     '/static/css/base-fallback.css',
     '/static/css/styles.css',
     '/static/css/firstrun.css',
-    // Self-hosted fonts (med-eas.6) — cached so the branded type survives offline
+    // Self-hosted fonts (med-eas.8) — cached so the branded type survives offline
     '/static/css/fonts.css',
     '/static/fonts/space-grotesk-latin.woff2',
     '/static/fonts/space-grotesk-latin-ext.woff2',
