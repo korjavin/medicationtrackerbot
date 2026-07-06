@@ -73,6 +73,38 @@ describe('telegram.js onboarding module', () => {
     expect(app.querySelector('#tg-skip')).toBeNull();
   });
 
+  it('pending state renders the deep-link button, not a linkless waiting page', async () => {
+    // Regression (med-eas.31): the poll on the 'pending' state used to clobber
+    // the create-bot page with a linkless "waiting" page. Status now carries the
+    // deep link so the button persists (and survives a reload).
+    const deepLink = 'https://t.me/newbot/mt_manager/mt_vzv3ih3d_bot?name=Med+Tracker';
+    global.fetch = fetchStub({
+      '/api/telegram/status': {
+        ok: true,
+        json: async () => ({ enabled: true, state: 'pending', suggested_username: 'mt_vzv3ih3d_bot', deep_link: deepLink }),
+      },
+    });
+    await mountTelegram(app, {});
+    const link = app.querySelector('#tg-deep-link');
+    expect(link).not.toBeNull();
+    expect(link.getAttribute('href')).toBe(deepLink);
+    expect(app.querySelector('#tg-suggested').textContent).toBe('mt_vzv3ih3d_bot');
+  });
+
+  it('accept -> provision lands on the deep-link create-bot page', async () => {
+    const deepLink = 'https://t.me/newbot/mt_manager/mt_new_bot?name=Med+Tracker';
+    global.fetch = fetchStub({
+      '/api/telegram/status': { ok: true, json: async () => ({ enabled: true, state: 'none' }) },
+      'POST /api/telegram/provision': { ok: true, json: async () => ({ deep_link: deepLink, suggested_username: 'mt_new_bot' }) },
+    });
+    await mountTelegram(app, {});
+    app.querySelector('#tg-accept').dispatchEvent(new dom.window.Event('click'));
+    await vi.waitFor(() => {
+      if (!app.querySelector('#tg-deep-link')) throw new Error('deep-link page not rendered yet');
+    });
+    expect(app.querySelector('#tg-deep-link').getAttribute('href')).toBe(deepLink);
+  });
+
   it('renders the linked state with a working test-notification button', async () => {
     const fetch = fetchStub({
       '/api/telegram/status': { ok: true, json: async () => ({ enabled: true, state: 'linked', bot_username: 'mt_abc_bot' }) },
