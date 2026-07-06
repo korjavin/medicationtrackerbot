@@ -105,13 +105,28 @@ window.MedTrackerCloudReady = (async function boot() {
                     import('/js/sync.js'),
                     import('/js/crypto.js'),
                 ]);
-                createResponder({
+                const startResponder = () => createResponder({
                     pairingId: pairing.pairingId,
                     key: fromBase64(pairing.key),
                     records: recordsPort(ctx),
                     now: () => Date.now(),
                     timeZone: (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC',
                 }).connect();
+                // Elect one responder per account: the relay keeps a single
+                // device leg per pairing and evicts the old one on each new
+                // connection, so if every open tab connected they'd ping-pong
+                // — each eviction triggers the evicted tab's reconnect, which
+                // re-evicts the other, forever. Hold an exclusive Web Lock for
+                // this tab's lifetime; other tabs queue and only take over when
+                // the holder's tab closes (auto-releasing the lock).
+                if (navigator.locks && navigator.locks.request) {
+                    navigator.locks.request('mcp-responder', () => {
+                        startResponder();
+                        return new Promise(() => {});
+                    });
+                } else {
+                    startResponder();
+                }
             })
             .catch((e) => console.error('[cloud-boot] mcp responder failed', e));
     } catch (e) {

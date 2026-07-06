@@ -163,10 +163,15 @@ func (a *MCPRelayAPI) serveLeg(ctx context.Context, conn *websocket.Conn, record
 	peerCh := record.join(isDevice, conn)
 	defer record.clear(isDevice, conn)
 
+	// NewTimer+Stop, not time.After: on the common path the peer arrives
+	// immediately and an un-stopped time.After timer would linger the full
+	// relayPeerWaitTimeout, accumulating under reconnect churn.
+	waitTimer := time.NewTimer(relayPeerWaitTimeout)
+	defer waitTimer.Stop()
 	var peer *websocket.Conn
 	select {
 	case peer = <-peerCh:
-	case <-time.After(relayPeerWaitTimeout):
+	case <-waitTimer.C:
 		conn.Close(websocket.StatusPolicyViolation, "no peer connected in time")
 		return
 	case <-ctx.Done():
