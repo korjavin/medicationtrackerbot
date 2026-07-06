@@ -25,6 +25,12 @@ const STATIC_ASSETS = [
     '/static/css/base-fallback.css',
     '/static/css/styles.css',
     '/static/css/firstrun.css',
+    // Self-hosted fonts (med-eas.8) — cached so the branded type survives offline
+    '/static/css/fonts.css',
+    '/static/fonts/space-grotesk-latin.woff2',
+    '/static/fonts/space-grotesk-latin-ext.woff2',
+    '/static/fonts/jetbrains-mono-latin.woff2',
+    '/static/fonts/jetbrains-mono-latin-ext.woff2',
     // Core modules
     '/static/js/core/utils.js',
     '/static/js/core/messenger-adapter.js',
