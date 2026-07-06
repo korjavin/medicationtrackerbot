@@ -777,7 +777,10 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     if (!group.is_rotating) throw invalidRequest('workout group does not use rotation', 'invalid_request');
 
     await advanceRotation(group.id);
-    await records.del(WORKOUT_RECORD_TYPES.SESSION, session.recordId);
+    // Cascade-delete the session's exercise logs first, matching Go's
+    // DeleteSession (repo.go:1029) — FK cascade is disabled, so records.del
+    // on the session alone would orphan any logs created against it.
+    await deleteSession(id);
   }
 
   // -- Exercise logs --
