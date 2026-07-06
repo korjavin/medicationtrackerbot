@@ -367,8 +367,13 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
       }
     }
     const dayStart = dayStartMs(endMs, timeZone);
-    const endExclusive = dayStart + DAY_MS;
-    const start = dayStart - (days - 1) * DAY_MS;
+    // Snap each edge back through dayStartMs so DST transitions inside the range
+    // don't shift a boundary by the offset delta — mirrors Go's AddDate calendar
+    // math (repo.go:509/595) rather than raw fixed-86.4Ms hops. The +DAY_MS/2
+    // buffer absorbs the DST drift (≤2h) so the floor always lands on the
+    // intended local midnight.
+    const endExclusive = dayStartMs(dayStart + DAY_MS + DAY_MS / 2, timeZone);
+    const start = dayStartMs(dayStart - (days - 1) * DAY_MS + DAY_MS / 2, timeZone);
     return { start, endExclusive };
   }
 

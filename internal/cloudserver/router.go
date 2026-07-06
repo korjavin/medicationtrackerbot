@@ -100,10 +100,13 @@ func injectCloudBoot(idx []byte, foodDBURL string) []byte {
 // document + assets only: C2c food runs browser-direct calls to the user's own
 // AI provider (aiclient.js) and food-DB (fooddb.js), whose origins are
 // BYO/vault-secret and so unknowable server-side — a scoped allowlist is
-// impossible. The base-domain shell and, critically, the passkey ceremony pages
-// (/unlock, /claim, /recover, /devices) — which run the WebAuthn PRF unlock and
-// hold the in-memory DEK — make no cross-origin calls and keep connect-src
-// 'self', so on-origin XSS there can't POST the DEK to an attacker origin.
+// impossible. This is an accepted weakening: the app document also holds the
+// in-memory DEK and decrypted records, so an on-origin XSS there can now POST
+// them to any https: origin (the strict 'self' policy previously blocked that
+// exfiltration path). Sandboxing the browser-direct provider calls into a
+// worker/iframe is the only way to restore 'self' on the DEK page — deferred.
+// The base-domain shell and the passkey ceremony pages (/unlock, /claim,
+// /recover, /devices) make no cross-origin calls and keep connect-src 'self'.
 func setSecurityHeaders(w http.ResponseWriter, accountApp bool) {
 	h := w.Header()
 	connectSrc := "connect-src 'self'"

@@ -100,6 +100,13 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
         const logs = grouped.flatMap((g) => g.logs);
         expect(logs.map((l) => l.name).sort()).toEqual(['Grilled chicken', 'White rice']);
 
+        // Parity with Go's CalculateMacros (int-trunc, 4c+4p+9f): 200g grilled
+        // chicken @ protein_100g=30, fat_100g=4 -> protein 60, fat 8, 312 kcal.
+        // Guards against a coefficient/truncation regression in calculateMacros.
+        expect(logs.find((l) => l.name === 'Grilled chicken')).toMatchObject({
+            weight: 200, carbs: 0, protein: 60, fat: 8, calories: 312,
+        });
+
         // Parity with the server AI handlers (food_handlers.go:255) — they
         // CreateLog bare-named entries with no product_id and no UpsertProduct,
         // so AI logging must NOT populate the product catalog.

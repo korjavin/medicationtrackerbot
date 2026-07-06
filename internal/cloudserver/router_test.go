@@ -101,8 +101,9 @@ func TestRouter_HostVariants(t *testing.T) {
 			}
 			// Account-subdomain app pages (/, /static/*, /domain/*) relax
 			// connect-src to permit browser-direct C2c food calls to BYO
-			// AI/food-DB origins; the base domain and the passkey ceremony pages
-			// (which hold the in-memory DEK) stay strict.
+			// AI/food-DB origins — an accepted weakening since those pages also
+			// hold the in-memory DEK. The base domain and the passkey ceremony
+			// pages make no cross-origin calls and stay strict.
 			wantConnect := "connect-src 'self';"
 			if stripPort(tc.host) != "app.example.com" &&
 				(tc.path == "/" || strings.HasPrefix(tc.path, "/static/") || strings.HasPrefix(tc.path, "/domain/")) {
