@@ -35,7 +35,7 @@
 import { localDateParts, localWallToUtcMs } from './medschedule.js';
 import { formatHHMM } from './reminders.js';
 
-export const WORKOUT_RECORD_TYPES = {
+const WORKOUT_RECORD_TYPES = {
   GROUP: 'workoutgroup',
   VARIANT: 'workoutvariant',
   EXERCISE: 'workoutexercise',
@@ -48,7 +48,7 @@ export const WORKOUT_RECORD_TYPES = {
 
 // Ad-hoc sessions use this literal pair — kept as-is (never minted) so the
 // frontend's `group_id == -1 / variant_id == -1` checks keep working verbatim.
-export const ADHOC_ID = -1;
+const ADHOC_ID = -1;
 
 // mintNumericId ports the nextId technique used by medications.js/notes.js:
 // stamp from the millisecond clock (time-ordered) plus low-order random
@@ -58,7 +58,7 @@ export const ADHOC_ID = -1;
 // scope collisions must be avoided within, e.g. all groups, or all variants
 // across all groups).
 // ponytail: nowMs*1000 stays under Number.MAX_SAFE_INTEGER until ~year 2255.
-export function mintNumericId(existing, nowMs) {
+function mintNumericId(existing, nowMs) {
   const localMax = existing.reduce((m, r) => Math.max(m, Number(r.id) || 0), 0);
   const stamped = nowMs * 1000 + Math.floor(Math.random() * 1000);
   return Math.max(stamped, localMax + 1);
@@ -67,7 +67,7 @@ export function mintNumericId(existing, nowMs) {
 // genRecordId mints an opaque recordId for record types with no natural
 // dedup slot (groups, variants, exercises, library entries, logs, ad-hoc
 // sessions). Same shape as food.js/notes.js's genId.
-export function genRecordId(prefix, nowMs) {
+function genRecordId(prefix, nowMs) {
   return `${prefix}_${nowMs}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
@@ -77,13 +77,13 @@ export function genRecordId(prefix, nowMs) {
 // rather than creating duplicates. `date` is a "YYYY-MM-DD" local-date
 // string. Ad-hoc sessions (group_id/variant_id == -1) have no such slot and
 // get a random recordId via genRecordId instead.
-export function sessionRecordId(groupId, date) {
+function sessionRecordId(groupId, date) {
   return `session-${groupId}-${date}`;
 }
 
 // rotationRecordId is the deterministic one-row-per-group slot for rotation
 // cursor state, mirroring the server's one-row-per-group table.
-export function rotationRecordId(groupId) {
+function rotationRecordId(groupId) {
   return `rotation-${groupId}`;
 }
 
@@ -92,7 +92,7 @@ export function rotationRecordId(groupId) {
 // rather than caching a recordId, so a foreign key pointing at a losing
 // LWW write's id simply misses (caller treats as not-found) instead of
 // resolving to stale data.
-export async function findByNumericId(records, recordType, id) {
+async function findByNumericId(records, recordType, id) {
   const all = await records.list(recordType);
   return all.find((r) => !r.deleted && r.id === id) || null;
 }
@@ -1203,7 +1203,11 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // empty result marshals to JSON null; that's a real frontend contract
   // (stats.js reads `Array.isArray(...)` / truthiness), not an oversight.
   async function getStats() {
-    const sessions = sortSessions(await activeRecords(WORKOUT_RECORD_TYPES.SESSION)).slice(0, 500);
+    // The 500-cap mirrors Go's ListHistory(userID, 500) and covers the 30-day +
+    // 12-week windows only. top_exercises below aggregates over the full session
+    // set, matching ListExerciseStats' unbounded JOIN (repo.go:1479).
+    const allSessions = sortSessions(await activeRecords(WORKOUT_RECORD_TYPES.SESSION));
+    const sessions = allSessions.slice(0, 500);
     const nowMs = now();
     const since30 = nowMs - 30 * 24 * 60 * 60 * 1000;
     const cutoff12w = nowMs - 84 * 24 * 60 * 60 * 1000;
@@ -1238,7 +1242,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       if (entry.completed > 0) activeWeeks++;
     }
 
-    const sessionIds = new Set(sessions.map((s) => s.id));
+    const sessionIds = new Set(allSessions.map((s) => s.id));
     const agg = new Map();
     for (const log of await activeRecords(WORKOUT_RECORD_TYPES.LOG)) {
       if (log.status !== 'completed' || !sessionIds.has(log.session_id)) continue;
@@ -1394,14 +1398,11 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     listLibrary,
     updateLibraryItem,
     deleteLibraryItem,
-    getRotationState,
-    initializeRotation,
     getNext,
     createAdHocSession,
     startSession,
     snoozeSession,
     skipSession,
-    completeSession,
     preSkipSession,
     cancelPreSkipSession,
     deleteSession,
