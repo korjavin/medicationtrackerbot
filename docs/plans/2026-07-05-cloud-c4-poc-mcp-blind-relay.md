@@ -130,22 +130,22 @@ before investing —
 
 ### Task 3: Browser responder — catalog + dispatcher
 
-- [ ] `web/cloud/js/mcp-responder.js`: connects to `/api/mcp/relay/device`
+- [x] `web/cloud/js/mcp-responder.js`: connects to `/api/mcp/relay/device`
       when a pairing exists and the vault is unlocked; decrypts frames,
       dispatches, encrypts responses; reconnect with backoff while the tab
       lives; visibly indicates "Claude connector: linked/active" in the
       settings screen it's minted from
-- [ ] hardcoded PoC catalog (one static JS object, `ponytail:` replaced by
+- [x] hardcoded PoC catalog (one static JS object, `ponytail:` replaced by
       registry codegen in full C4): `bp.list`, `bp.create`, `weight.list`,
       `weight.create`, plus `notes.list`/`notes.create` if C2a is merged
       by then — each with description + input schema matching the
       registry's shapes for those ops
-- [ ] `mcp_help` returns the catalog (+ a `usage_protocol` string that
+- [x] `mcp_help` returns the catalog (+ a `usage_protocol` string that
       names the online-device constraint); `mcp_call` maps op → the
       existing domain instances (same construction path as apishim);
       errors mirror registry semantics (unknown op → did-you-mean over the
       tiny catalog)
-- [ ] Vitest: responder dispatch over in-memory records port — `mcp_call`
+- [x] Vitest: responder dispatch over in-memory records port — `mcp_call`
       for `bp.create` then `bp.list` round-trips and returns wire-shaped
       JSON
 
