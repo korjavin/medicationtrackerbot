@@ -63,6 +63,41 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     expect(location.href).toBe('');
   });
 
+  it('routes window.apiCallDirect("/api/*") through the shim, surviving a later core/api.js reassignment (med-1iv)', async () => {
+    // Workout reads (groups.js/next-card.js/stats.js/today-loader.js) call
+    // window.apiCallDirect directly. In cloud mode the ONLY thing that keeps
+    // those from hitting the network (a guaranteed 404 — the cloud server has no
+    // /api/workout/* routes) is the accessor cloud-boot installs. Pin that it
+    // (a) routes /api/* to shimCall and (b) still does so after core/api.js runs
+    // its `window.apiCallDirect = apiCallDirect` assignment (the historical
+    // clobber that caused the med-1iv 404).
+    const shimCalls = [];
+    const shimCall = (endpoint) => { shimCalls.push(endpoint); return Promise.resolve([]); };
+    const { window } = await runBoot({
+      modules: {
+        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', dek: new Uint8Array(1) }) },
+        'apishim.js': { installApiShim: () => shimCall },
+        'sync.js': { pullOnOpen: async () => {} },
+        'reminders.js': { scheduleReminderRecompute: () => {} },
+        'mcp-responder.js': { refreshResponder: () => {} },
+      },
+    });
+
+    // A workout read routes to the shim, not the network.
+    await window.apiCallDirect('/api/workout/groups');
+    expect(shimCalls).toContain('/api/workout/groups');
+
+    // core/api.js runs after the shim's <head> injection and reassigns
+    // window.apiCallDirect — the accessor must absorb it as the fallback, not be
+    // replaced. /api/* still hits the shim; non-/api/ falls to the real fn.
+    const realCalls = [];
+    window.apiCallDirect = (endpoint) => { realCalls.push(endpoint); return Promise.resolve('real'); };
+    await window.apiCallDirect('/api/workout/groups');
+    expect(shimCalls.filter((e) => e === '/api/workout/groups')).toHaveLength(2);
+    await window.apiCallDirect('/not-api/thing');
+    expect(realCalls).toEqual(['/not-api/thing']);
+  });
+
   it('hands a #claim= link to the /unlock shell before touching the warm-unlock cache', async () => {
     const { location } = await runBoot({ hash: '#claim=tok123', modules: {} });
     expect(location.href).toBe('/unlock#claim=tok123');
