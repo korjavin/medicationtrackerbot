@@ -4,7 +4,7 @@
 
 The C4 PoC (PR #426) shipped Tier 1: a local stdio shim for Claude Code/Desktop. The user wants Tier 2 from the cloud-mode MCP design: an **internet-accessible streamable-HTTP MCP endpoint on the cloud server** that hosted clients (claude.ai web custom connectors, ChatGPT connectors) can use directly — the server proxies MCP traffic to the user's unlocked browser tab over the existing blind relay.
 
-**This is the design doc's "hosted-relay convenience mode": an explicit, per-account, consented zero-knowledge downgrade for MCP traffic.** The server terminates the client's plain MCP connection, so it sees requests and responses (health data in results) in transit, in memory, never stored. Vault data at rest stays E2EE. Enable is off by default behind honest warning text; the consent act is literal — the client hands the server the pairing key.
+**This is the design doc's "hosted-relay convenience mode": an explicit, per-account, consented zero-knowledge downgrade for MCP traffic.** The server terminates the client's plain MCP connection, so it sees requests and responses (health data in results) in transit — never stored. Vault data at rest stays E2EE. Enable is off by default behind honest warning text; the consent act is literal — the client hands the server the pairing key, which the server keeps (persisted, for set-and-forget) until Disconnect.
 
 **Architecture in one line: the server runs the shim itself.** `internal/mcpshim.Client` already does dial/seal/correlate against the relay (`client.go:31,43,52`); the browser responder and relay stay byte-identical. New code is only: a consent endpoint that receives a pairing code, a hosted shim client per enabled account, a streamable-HTTP MCP handler, and UI.
 
@@ -26,7 +26,7 @@ Also folds in the Connect-Claude discoverability gap (supersedes `2026-07-06-clo
 - **CRITICAL: relay, responder, crypto, and `cmd/mcpshim` are untouched.** Tier 1 keeps working; Tier 2 is additive.
 - **CRITICAL: consent is explicit and honest.** Enabling remote mode shows exactly what changes ("the server can read what Claude asks and what it answers while relaying — nothing is stored"). Off by default; one click to revoke; revoke kills the hosted client and invalidates the URL immediately.
 - **CRITICAL: the token is short, so the throttle IS the security.** Token = 6 lowercase Crockford-base32 chars rendered `xxx-xxx` (~30 bits; hyphen stripped on check). Brute-forceable only if attempts are unlimited, so a **per-account failed-token throttle is mandatory, not optional**: cap failed attempts (e.g. 100/min per account, then 429 with backoff). Only failures count — valid-token traffic is never affected by it. At that cap, the expected 2^29 guesses take decades; combined with the ≥48-bit subdomain, internet-wide scanning stays hopeless. Constant-time compare, shown once with the URL, never logged (mind Traefik access logs — the token travels in the path; docs task notes the access-log caveat like docs/sse-traefik.md does for initData). Re-enable rotates it.
-- Hosted state is **in-memory** (`ponytail:` restart = re-enable, consistent with the relay's pairing table; persistence is full-C4 alongside persistent pairings).
+- **CRITICAL: set-up-once-and-forget (user decision 2026-07-06).** Remote enablement is **persisted** in cloudstore — the token survives deploys/restarts/crashes and changes ONLY on explicit Disconnect/re-enable. On startup the server restores each enablement: re-registers the pairing with the relay (its table is in-memory) and restarts the hosted shim client; unlocked tabs reconnect on their own (PR #432 reconnect logic). Honest consequence, stated in the consent text and leakage table: the pairing key now sits **at rest** in the server DB, not just in memory — a modest increment over Tier 2's in-transit visibility, but it must be said plainly.
 - Per-token rate limiting on successful-auth MCP calls too (reuse the demo-mode per-IP limiter pattern, keyed by token) — hosted clients can retry-storm.
 - No new frontend globals beyond what the devices page already owns; secrets rendered `textContent`-only (existing rule in `devices.js` — the page holds the DEK).
 
@@ -42,14 +42,14 @@ Also folds in the Connect-Claude discoverability gap (supersedes `2026-07-06-clo
 
 ## Implementation Steps
 
-### Task 1: Consent + hosted shim registry in cloudserver
+### Task 1: Consent + persistent hosted-shim registry in cloudserver
 
-- [ ] `internal/cloudserver/mcp_remote.go`: in-memory registry `accountID → {token, *mcpshim.Client, cancel}`.
-- [ ] `POST /api/mcp/remote` (RequireSession): body `{pairing_code}`; parses via `mcpshim.ParsePairingCode`, mints the 6-char human token (`xxx-xxx`, Crockford base32 lowercase, no ambiguous chars), starts the hosted shim client (dial the relay URL from the code), returns `{token}`. Re-enable replaces the previous entry and rotates the token.
-- [ ] `DELETE /api/mcp/remote` (RequireSession): tears down the client, invalidates the token.
+- [ ] cloudstore migration (take the **next contiguous number at merge time** — parallel-branch numbering hazard, see goose lesson): `mcp_remote(account_id PK, token, pairing_id, pairing_key, created_at)`; repo methods `UpsertMCPRemote` / `GetMCPRemote` / `DeleteMCPRemote` / `ListMCPRemote`.
+- [ ] `internal/cloudserver/mcp_remote.go`: runtime registry `accountID → {token, *mcpshim.Client, cancel}` hydrated from the table on startup — for each row, re-register the pairing with the relay (in-memory table) and start the hosted shim client. Restore failures log and skip, never block boot.
+- [ ] `POST /api/mcp/remote` (RequireSession): body `{pairing_code}`; parses via `mcpshim.ParsePairingCode`, mints the 6-char human token (`xxx-xxx`, Crockford base32 lowercase, no ambiguous chars), persists the row, starts the hosted shim client (dial the relay URL from the code), returns `{token}`. Re-enable replaces the row and rotates the token — **the ONLY events that change the token are this and DELETE**; deploys/restarts never do.
+- [ ] `DELETE /api/mcp/remote` (RequireSession): tears down the client, deletes the row, invalidates the token.
 - [ ] `GET /api/mcp/remote` (RequireSession): `{enabled: bool}` for UI state (never returns the token again).
-- [ ] `ponytail:` in-memory registry — server restart requires re-enable from the app; persistent enablement is full-C4.
-- [ ] Test: enable/disable/status lifecycle, session required, re-enable rotates token.
+- [ ] Test: enable/disable/status lifecycle, session required, re-enable rotates token, and **restart-restore** — rebuild the registry from the store and assert the same token still authenticates.
 
 ### Task 2: Streamable-HTTP MCP endpoint
 
@@ -61,7 +61,7 @@ Also folds in the Connect-Claude discoverability gap (supersedes `2026-07-06-clo
 ### Task 3: Devices-page UI — two connector modes, remote primary
 
 - [ ] Rework the Connect Claude area in `web/cloud/js/devices.js` into a mode picker:
-  - **Remote connector (claude.ai, ChatGPT) — primary.** Enable → consent dialog with the honest downgrade text → mints a pairing (`mcp-pairing.js`, unchanged), POSTs the pairing code to `/api/mcp/remote`, shows once: the connector URL `https://<subdomain>.app.<domain>/mcp/<token>` + copy button + numbered instructions (claude.ai: Settings → Connectors → Add custom connector → paste URL; ChatGPT: Settings → Connectors → Add MCP). Caveats block: keep an unlocked tab open, server restart = re-enable, server sees MCP traffic in transit.
+  - **Remote connector (claude.ai, ChatGPT) — primary.** Enable → consent dialog with the honest downgrade text → mints a pairing (`mcp-pairing.js`, unchanged), POSTs the pairing code to `/api/mcp/remote`, shows once: the connector URL `https://<subdomain>.app.<domain>/mcp/<token>` + copy button + numbered instructions (claude.ai: Settings → Connectors → Add custom connector → paste URL; ChatGPT: Settings → Connectors → Add MCP). Caveats block: keep an unlocked tab open; the URL is stable until you Disconnect (survives server updates); the server holds the connector key and sees MCP traffic in transit.
   - **Local shim (Claude Code) — alternative.** The existing pairing-code flow (`renderClaudeCode`), plus the `claude mcp add medtracker -e MEDTRACKER_MCP_CODE=<code> -- /path/to/mcpshim` one-liner with the real code.
   - Modes are mutually exclusive (single pairing per account — say so inline); switching disconnects the other.
 - [ ] Status line covers both modes; Disconnect calls `DELETE /api/mcp/remote` and clears the `mcppairing` record.
@@ -74,7 +74,7 @@ Also folds in the Connect-Claude discoverability gap (supersedes `2026-07-06-clo
 
 ### Task 5: [Final] Docs
 
-- [ ] `docs/cloud-mode.md` MCP section: mark Tier 2 PoC implemented; "Connecting claude.ai / ChatGPT" how-to (enable, consent meaning, URL, caveats, revoke); add the leakage-summary row (MCP requests/responses visible to server in transit, opt-in only); token-in-path access-log caveat (cf. docs/sse-traefik.md).
+- [ ] `docs/cloud-mode.md` MCP section: mark Tier 2 PoC implemented; "Connecting claude.ai / ChatGPT" how-to (enable, consent meaning, URL, caveats, revoke); add the leakage-summary row (opt-in only: MCP requests/responses visible to server in transit; pairing key stored at rest server-side while enabled); token-in-path access-log caveat (cf. docs/sse-traefik.md).
 - [ ] `docs/features.md`: Claude-connector entry covering both modes.
 - [ ] Delete `docs/plans/2026-07-06-cloud-c4-poc-connect-claude-ux.md` (superseded by this plan) — done in this plan's commit.
 
@@ -85,4 +85,4 @@ Also folds in the Connect-Claude discoverability gap (supersedes `2026-07-06-clo
 
 ## Post-Completion
 
-Feeds the C4 exit review together with Tier 1: latency through the double hop (client → cloud → relay → tab), tab-lifecycle pain, consent-UX clarity. Full-C4 items deliberately out of scope: OAuth 2.1 + dynamic client registration (replaces the capability URL), persistent pairings/enablement across restarts, multi-pairing (remote + local simultaneously), generated catalog, packaged shim binary, QR pairing.
+Feeds the C4 exit review together with Tier 1: latency through the double hop (client → cloud → relay → tab), tab-lifecycle pain, consent-UX clarity. Full-C4 items deliberately out of scope: OAuth 2.1 + dynamic client registration (replaces the capability URL), persistent **local-shim** pairings across restarts (remote enablement IS persisted in this plan), multi-pairing (remote + local simultaneously), generated catalog, packaged shim binary, QR pairing.
