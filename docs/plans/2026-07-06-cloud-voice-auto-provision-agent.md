@@ -121,7 +121,7 @@ with an audible tool-call sound. Closes bd **med-eas.26**.
 
 ### Task 3: Concrete client-tool callbacks → catalog
 
-- [ ] In `buildClientTools()`, register callbacks whose names MATCH the
+- [x] In `buildClientTools()`, register callbacks whose names MATCH the
       provisioned tools, each dispatching in-tab into `CloudMCPDispatcher`:
       - `get_blood_pressure: ({days}={}) → mcp_call bp.list {days}`
       - `log_blood_pressure: ({systolic,diastolic,pulse}) → mcp_call bp.create
@@ -129,7 +129,7 @@ with an audible tool-call sound. Closes bd **med-eas.26**.
       - `get_weight`/`log_weight`/`get_notes`/`add_note` likewise.
       Return concise text/JSON; catch dispatcher errors into a short string.
       JSON.parse any stringified object args.
-- [ ] Keep the generic `mcp_help`/`mcp_call` too (harmless), but the concrete
+- [x] Keep the generic `mcp_help`/`mcp_call` too (harmless), but the concrete
       tools are the provisioned + used path.
 
 ### Task 4: Settings UX — key is enough
