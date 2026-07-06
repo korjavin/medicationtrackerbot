@@ -171,6 +171,7 @@ describe('cloud shim contract — ElevenLabs provisioner (web/cloud/js/elevenlab
                 name: 'log_blood_pressure',
                 description: expect.any(String),
                 parameters: expect.objectContaining({ type: 'object', required: ['systolic', 'diastolic'] }),
+                expects_response: true,
             },
         });
     });

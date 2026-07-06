@@ -162,6 +162,13 @@ export function createElevenLabsAgentProvisioner({ settingsDomain }) {
           name: spec.name,
           description: spec.description,
           parameters: spec.parameters,
+          // Blocking: the agent waits for and reads the callback's return value.
+          // ElevenLabs client tools default to fire-and-forget, so without this
+          // the get_* reads would return data the agent never consumes. (The
+          // prior hand-configured tools set this via the dashboard's "blocking"
+          // toggle.) Verify the field name against the live API during
+          // acceptance, like tool_call_sound.
+          expects_response: true,
         },
       };
       const resp = await fetch(TOOLS_ENDPOINT, { method: 'POST', headers: headers(key), body: JSON.stringify(body) });
@@ -195,10 +202,6 @@ export function createElevenLabsAgentProvisioner({ settingsDomain }) {
   async function ensureAgent(key, toolMap) {
     const toolIds = TOOL_SPECS.map((s) => toolMap[s.name]).filter(Boolean);
     const stored = await settingsDomain.getVoiceProvisioning();
-    if (stored.agentId && stored.toolsetVersion === TOOLSET_VERSION) {
-      return stored.agentId;
-    }
-
     const { elevenlabs } = await settingsDomain.readIntegrationsUnmasked();
     const presetId = (elevenlabs && elevenlabs.agent_id) || stored.agentId || '';
     const config = agentConfig(toolIds);
@@ -227,6 +230,12 @@ export function createElevenLabsAgentProvisioner({ settingsDomain }) {
   // provision orchestrates ensureTools → ensureAgent and returns the agent id
   // the signed-URL client should use.
   async function provision() {
+    // Already provisioned at this toolset version → reuse without touching the
+    // ElevenLabs API (the key is validated later when minting the signed URL).
+    const stored = await settingsDomain.getVoiceProvisioning();
+    if (stored.agentId && stored.toolsetVersion === TOOLSET_VERSION) {
+      return stored.agentId;
+    }
     const key = await apiKey();
     const toolMap = await ensureTools(key);
     return ensureAgent(key, toolMap);
