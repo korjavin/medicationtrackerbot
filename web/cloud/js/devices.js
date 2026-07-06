@@ -4,6 +4,7 @@
 // K_mac and checks every envelope's mac before rendering a verified /
 // unverified badge — a forged envelope (no DEK access) fails the audit.
 import { auditEnvelope, fromBase64, fromBase64Url } from './crypto.js';
+import { getPairing, connectClaude, disconnectClaude } from './mcp-pairing.js';
 
 export function renderDeviceList(app, ctx, onExit) {
   app.innerHTML = `
@@ -40,15 +41,20 @@ async function loadDevices(app, ctx, onExit) {
     })
   );
 
-  renderDevices(app, ctx, onExit, audited);
+  const pairing = await getPairing(ctx);
+  renderDevices(app, ctx, onExit, audited, pairing);
 }
 
-function renderDevices(app, ctx, onExit, devices) {
+function renderDevices(app, ctx, onExit, devices, pairing) {
   app.innerHTML = `
     <section class="wizard-step">
       <h1>Devices</h1>
       <ul class="device-list" id="device-list"></ul>
       <button id="add-device-button">Add a device</button>
+      <h2>Claude connector</h2>
+      <p id="claude-status"></p>
+      <button id="claude-connect-button">Connect Claude</button>
+      <button id="claude-disconnect-button">Disconnect</button>
       <button id="devices-back">Back</button>
     </section>`;
 
@@ -62,7 +68,57 @@ function renderDevices(app, ctx, onExit, devices) {
       .then(({ renderAddDevice }) => renderAddDevice(app, ctx, () => renderDeviceList(app, ctx, onExit)))
       .catch(() => renderDeviceListError(app, ctx, onExit, 'Could not open the add-device flow. Try again.'));
   });
+
+  const status = app.querySelector('#claude-status');
+  const connectButton = app.querySelector('#claude-connect-button');
+  const disconnectButton = app.querySelector('#claude-disconnect-button');
+  status.textContent = pairing ? 'Claude connector: linked' : 'Claude connector: not connected';
+  connectButton.hidden = !!pairing;
+  disconnectButton.hidden = !pairing;
+
+  connectButton.addEventListener('click', () => {
+    connectClaude(ctx)
+      .then(({ code }) => renderClaudeCode(app, ctx, onExit, code))
+      .catch((err) => renderDeviceListError(app, ctx, onExit, err.message || String(err)));
+  });
+  disconnectButton.addEventListener('click', () => {
+    disconnectClaude(ctx)
+      .then(() => renderDeviceList(app, ctx, onExit))
+      .catch((err) => renderDeviceListError(app, ctx, onExit, err.message || String(err)));
+  });
+
   app.querySelector('#devices-back').addEventListener('click', onExit);
+}
+
+// The pairing code carries the E2E key in the clear (that's the point — the
+// server never sees it) and is shown exactly once, right after minting.
+function renderClaudeCode(app, ctx, onExit, code) {
+  const snippet = JSON.stringify(
+    { mcpServers: { medtracker: { command: '<path>/mcpshim', env: { MEDTRACKER_MCP_CODE: code } } } },
+    null,
+    2
+  );
+  app.innerHTML = `
+    <section class="wizard-step">
+      <h1>Connect Claude</h1>
+      <p>Save this pairing code now — it will not be shown again. Build the
+         shim (<code>go build ./cmd/mcpshim</code>) and paste this config
+         into Claude Code / Desktop's MCP settings.</p>
+      <dl>
+        <dt>Pairing code</dt><dd class="claude-code" id="claude-code"></dd>
+      </dl>
+      <button id="claude-copy-code">Copy code</button>
+      <pre id="claude-config-snippet"></pre>
+      <button id="claude-copy-snippet">Copy config</button>
+      <button id="claude-done">Done</button>
+    </section>`;
+
+  // Server/client-generated secrets — textContent only, never innerHTML.
+  app.querySelector('#claude-code').textContent = code;
+  app.querySelector('#claude-config-snippet').textContent = snippet;
+  app.querySelector('#claude-copy-code').addEventListener('click', () => navigator.clipboard.writeText(code));
+  app.querySelector('#claude-copy-snippet').addEventListener('click', () => navigator.clipboard.writeText(snippet));
+  app.querySelector('#claude-done').addEventListener('click', () => renderDeviceList(app, ctx, onExit));
 }
 
 function renderDeviceRow(app, ctx, onExit, d) {

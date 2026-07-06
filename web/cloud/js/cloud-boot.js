@@ -90,6 +90,15 @@ window.MedTrackerCloudReady = (async function boot() {
         import('/js/reminders.js')
             .then(({ scheduleReminderRecompute }) => scheduleReminderRecompute(ctx))
             .catch((e) => console.error('[cloud-boot] reminder recompute failed', e));
+        // Task 4: if this account has a Claude pairing, this tab starts
+        // answering MCP calls too — any unlocked device may be the one online
+        // when the shim connects. refreshResponder reads the pairing from the
+        // vault, elects a single answering tab (Web Lock, so open tabs don't
+        // ping-pong the relay's single device leg), and no-ops when there's no
+        // pairing. Best-effort, never blocks boot.
+        import('/js/mcp-responder.js')
+            .then(({ refreshResponder }) => refreshResponder(ctx))
+            .catch((e) => console.error('[cloud-boot] mcp responder failed', e));
     } catch (e) {
         console.error('[cloud-boot] warm unlock failed', e);
         location.href = '/unlock';

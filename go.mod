@@ -5,6 +5,7 @@ go 1.26.1
 require (
 	github.com/SherClockHolmes/webpush-go v1.4.0
 	github.com/VictoriaMetrics/fastcache v1.13.3
+	github.com/coder/websocket v1.8.15
 	github.com/descope/virtualwebauthn v1.0.5
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
 	github.com/go-webauthn/webauthn v0.17.4

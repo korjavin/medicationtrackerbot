@@ -94,107 +94,108 @@ before investing —
 
 ### Task 1: Blind relay endpoint in cloudserver
 
-- [ ] `internal/cloudserver/mcp_relay.go`: in-memory pairing table
+- [x] `internal/cloudserver/mcp_relay.go`: in-memory pairing table
       (pairing id → device conn / shim conn, TTL ~24h, single shim + single
       device per pairing — `ponytail:` multi-pairing later if wanted)
-- [ ] `GET /api/mcp/relay/device` (WS upgrade; auth: existing session
+- [x] `GET /api/mcp/relay/device` (WS upgrade; auth: existing session
       cookie + account context) and `GET /api/mcp/relay/shim?pairing=<id>`
       (WS upgrade; auth: possession of the pairing id — the E2E key is the
       real secret and the relay never has it; pairing ids are single-use,
       bound to the account that minted them)
-- [ ] relay behavior: pipe opaque binary frames both ways, no inspection,
+- [x] relay behavior: pipe opaque binary frames both ways, no inspection,
       no buffering beyond one in-flight frame per direction (PoC), close
       both ends when either drops; frame size cap (64 KiB) and a
       per-pairing rate limit reusing the repo's limiter idiom
-- [ ] `POST /api/mcp/pairings` (session-authed): mint `{pairing_id}`;
+- [x] `POST /api/mcp/pairings` (session-authed): mint `{pairing_id}`;
       DELETE to revoke; pairings die with process restart (in-memory —
       `ponytail:` persist if PoC graduates)
-- [ ] add `github.com/coder/websocket`; Go integration test: two test WS
+- [x] add `github.com/coder/websocket`; Go integration test: two test WS
       clients through the real handler — frames pass opaque, cross-pairing
       access rejected, dead-peer close propagates
 
 ### Task 2: Pairing + frame crypto (shared contract)
 
-- [ ] pairing code format (client-generated, shown once):
+- [x] pairing code format (client-generated, shown once):
       `mtmcp1.<base64url(json{relay_url, pairing_id, key})>` where `key` is
       32 random bytes from the browser; the code never touches the server
       (the POST from Task 1 registers only the id)
-- [ ] frame format (both directions): `nonce(12) ‖ AES-GCM(key, payload,
+- [x] frame format (both directions): `nonce(12) ‖ AES-GCM(key, payload,
       aad="mt/v1/mcp"‖pairing_id)`; payload = one JSON-RPC MCP message;
       document in the plan-adjacent code comment as the wire contract
-- [ ] Go side: `internal/mcpshim/` package (shim core, importable by the
+- [x] Go side: `internal/mcpshim/` package (shim core, importable by the
       test): dial, encrypt/decrypt, request/response correlation by
       JSON-RPC id, 30s per-call timeout → the offline-device error text
-- [ ] browser side: extend `web/cloud/js/crypto.js` with the same
+- [x] browser side: extend `web/cloud/js/crypto.js` with the same
       seal/open (reuse existing AES-GCM helpers; no new primitives)
 
 ### Task 3: Browser responder — catalog + dispatcher
 
-- [ ] `web/cloud/js/mcp-responder.js`: connects to `/api/mcp/relay/device`
+- [x] `web/cloud/js/mcp-responder.js`: connects to `/api/mcp/relay/device`
       when a pairing exists and the vault is unlocked; decrypts frames,
       dispatches, encrypts responses; reconnect with backoff while the tab
       lives; visibly indicates "Claude connector: linked/active" in the
       settings screen it's minted from
-- [ ] hardcoded PoC catalog (one static JS object, `ponytail:` replaced by
+- [x] hardcoded PoC catalog (one static JS object, `ponytail:` replaced by
       registry codegen in full C4): `bp.list`, `bp.create`, `weight.list`,
       `weight.create`, plus `notes.list`/`notes.create` if C2a is merged
       by then — each with description + input schema matching the
       registry's shapes for those ops
-- [ ] `mcp_help` returns the catalog (+ a `usage_protocol` string that
+- [x] `mcp_help` returns the catalog (+ a `usage_protocol` string that
       names the online-device constraint); `mcp_call` maps op → the
       existing domain instances (same construction path as apishim);
       errors mirror registry semantics (unknown op → did-you-mean over the
       tiny catalog)
-- [ ] Vitest: responder dispatch over in-memory records port — `mcp_call`
+- [x] Vitest: responder dispatch over in-memory records port — `mcp_call`
       for `bp.create` then `bp.list` round-trips and returns wire-shaped
       JSON
 
 ### Task 4: Pairing UI in the cloud app
 
-- [ ] settings/devices screen (cloud shell surface, `web/cloud/js/`):
+- [x] settings/devices screen (cloud shell surface, `web/cloud/js/`):
       "Connect Claude" → POST pairing, generate key, render the one-time
       code (copy button; QR unnecessary for PoC) + the exact shim config
       snippet to paste into Claude Code/Desktop (`command: <path>/mcpshim`,
       `env: MEDTRACKER_MCP_CODE=...`)
-- [ ] "Disconnect" → DELETE pairing + drop the stored key (key lives in a
+- [x] "Disconnect" → DELETE pairing + drop the stored key (key lives in a
       vault record `mcppairing` so any unlocked device can answer —
       `ponytail:` single pairing record, per-device pairings later)
 
 ### Task 5: The shim — `cmd/mcpshim`
 
-- [ ] stdio MCP server via `modelcontextprotocol/go-sdk` exposing exactly
+- [x] stdio MCP server via `modelcontextprotocol/go-sdk` exposing exactly
       two tools, `mcp_help` and `mcp_call`, whose descriptions state the
       E2E architecture and the online-device requirement in one sentence
-- [ ] reads `MEDTRACKER_MCP_CODE`; dials the relay; forwards tool calls as
+- [x] reads `MEDTRACKER_MCP_CODE`; dials the relay; forwards tool calls as
       encrypted frames via `internal/mcpshim`; no device / timeout →
       the actionable error text (locked decision above)
-- [ ] no config file, no flags beyond `-version` (PoC); reconnects on
+- [x] no config file, no flags beyond `-version` (PoC); reconnects on
       drop; logs to stderr only (stdout is the MCP transport)
-- [ ] Go integration test (the one that matters): in-process relay +
+- [x] Go integration test (the one that matters): in-process relay +
       fake device (Go crypto from Task 2) + shim core — `mcp_help` and
       `mcp_call` round-trip ciphertext through the relay; kill the fake
       device → next call returns the offline error within the timeout
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] full loop green in tests; `go build ./... && go build -tags mobile
+- [x] full loop green in tests; `go build ./... && go build -tags mobile
       ./...`, `go test -count=1 ./...`, `pnpm test` all green
-- [ ] run linters — all issues fixed
-- [ ] arch boundaries hold: no `internal/server` or `web/static` diffs in
+- [x] run linters — all issues fixed (2 errorlint findings in
+      `internal/mcpshim/shim.go` — non-`%w` wraps — fixed)
+- [x] arch boundaries hold: no `internal/server` or `web/static` diffs in
       this plan; `cmd/mcpshim` pulls no store/domain packages (transport +
-      crypto only — verify with `go list -deps`, same idiom as
-      `internal/cloudstore/arch_test.go`)
+      crypto only — verified via `go list -deps ./cmd/mcpshim/...`, same
+      idiom as `internal/cloudstore/arch_test.go`)
 
 ### Task 7: [Final] Update documentation
 
-- [ ] `docs/cloud-mode.md` MCP section: mark Tier-1 PoC implemented, add
+- [x] `docs/cloud-mode.md` MCP section: mark Tier-1 PoC implemented, add
       the pairing-code + frame-format contract, restate the four locked
       decisions (Go shim / codegen-in-full-C4 / offline-UX / executor
       parked), and add the leakage-table row: MCP frame sizes + timing →
       cloud (tier 1), content → nobody
-- [ ] `docs/cloud-deployment.md`: one "Connect Claude (PoC)" subsection —
+- [x] `docs/cloud-deployment.md`: one "Connect Claude (PoC)" subsection —
       build the shim, paste the code, Claude Code config snippet
-- [ ] `CLAUDE.md`: add `cmd/mcpshim` to the entry-points list
+- [x] `CLAUDE.md`: add `cmd/mcpshim` to the entry-points list
 
 ## Technical Details
 

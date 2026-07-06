@@ -198,16 +198,44 @@ Three tiers, because "MCP" and "server that can't read data" genuinely conflict 
 
 **Tier 0 — MVP: no MCP in cloud mode.** Server-mode installs keep the full registry/executor. Cloud mode ships without it.
 
-**Tier 1 — blind relay + local shim (preserves zero knowledge).** For Claude Desktop / Claude Code, which can run a local stdio MCP server:
+**Tier 1 — blind relay + local shim (preserves zero knowledge). PoC implemented**, see
+`docs/plans/2026-07-05-cloud-c4-poc-mcp-blind-relay.md`. For Claude Desktop / Claude Code,
+which can run a local stdio MCP server:
 
 ```
-Claude Desktop ──stdio── medtracker-mcp-shim ──wss:// ciphertext ──► cloud relay ──► user's device (PWA)
-                          (holds a pairing key)      (blind pipe)        (decrypts, runs op, answers)
+Claude Desktop ──stdio── cmd/mcpshim ──wss:// ciphertext ──► cloud relay ──► user's device (PWA)
+                          (holds a pairing key)  (blind pipe)   (decrypts, runs op, answers)
 ```
 
-- Pairing: the PWA shows a one-time code encoding the relay endpoint + a shared session key; the user pastes it into the shim config (`npx medtracker-mcp-shim`). Frames are E2E encrypted shim↔device; the relay sees only sizes and timing.
-- The device answers using the *same operation catalog semantics* as `internal/mcp/registry` — `mcp_help` (the catalog is static, ships with the client) and `mcp_call` (executed by the in-browser domain layer against local data). `mcp_execute` (Python) has no browser sandbox; Pyodide is a conceivable stretch, parked as an open question.
-- **The honest constraint: a device must be online with an unlocked vault.** A phone with the PWA backgrounded is not reliably reachable (iOS SW execution on push is too constrained to serve queries silently). Realistic availability = a desktop tab left open, or an old phone plugged in at home with the PWA foregrounded — at which point the user has voluntarily re-invented a tiny server, but it's *their* device, zero config, and the guarantee holds.
+- **The shim is a Go binary** (`cmd/mcpshim`, built from the repo — `go build ./cmd/mcpshim`),
+  not an npm package; it uses the already-vendored `modelcontextprotocol/go-sdk` stdio
+  transport and the `internal/mcpshim` package for dial/crypto/request-correlation. No
+  config file — reads `MEDTRACKER_MCP_CODE` from the environment, reconnects on drop, logs
+  to stderr only.
+- **Pairing code**: the PWA's Settings → "Connect Claude" screen POSTs `/api/mcp/pairings`
+  (session-authed) to mint a `{pairing_id}`, generates 32 random key bytes client-side, and
+  shows a one-time code `mtmcp1.<base64url(json{relay_url, pairing_id, key})>` — the key
+  never touches the server. The user pastes the code into the shim's `MEDTRACKER_MCP_CODE`
+  env var. "Disconnect" issues a DELETE and drops the stored key (kept in a vault record
+  `mcppairing` so any unlocked device can answer).
+- **Frame format** (both directions): `nonce(12) ‖ AES-GCM(key, payload, aad="mt/v1/mcp"‖pairing_id)`,
+  payload = one JSON-RPC MCP message. The relay (`internal/cloudserver/mcp_relay.go`) pipes
+  opaque binary frames between the shim leg (`GET /api/mcp/relay/shim?pairing=<id>`,
+  authenticated by possession of the single-use pairing id) and the device leg
+  (`GET /api/mcp/relay/device`, authenticated by the existing session cookie) — no
+  inspection, no buffering beyond one in-flight frame per direction, 64 KiB frame cap,
+  closes both ends when either drops. Pairings are in-memory (die with process restart) and
+  currently one shim + one device per pairing.
+- The device answers using the *same operation catalog semantics* as `internal/mcp/registry`,
+  via a hardcoded PoC catalog in `web/cloud/js/mcp-responder.js` (`bp.*`, `weight.*`,
+  `notes.*`) — `mcp_help` (catalog + `usage_protocol`) and `mcp_call` (executed by the
+  in-browser domain layer against local data, same construction path as `apishim`). The full
+  catalog generated from `internal/mcp/registry` (with drift guard + ported-set filtering)
+  is full-C4 scope, not the PoC. `mcp_execute` (Python) has no browser sandbox and stays
+  parked, as does its Pyodide alternative.
+- **The honest constraint: a device must be online with an unlocked vault.** A phone with the PWA backgrounded is not reliably reachable (iOS SW execution on push is too constrained to serve queries silently). Realistic availability = a desktop tab left open, or an old phone plugged in at home with the PWA foregrounded — at which point the user has voluntarily re-invented a tiny server, but it's *their* device, zero config, and the guarantee holds. When no device is online, the shim's tools return an actionable MCP error naming the E2E architecture and telling the user to open and unlock their app.
+- **PoC ceilings** (each `ponytail:`-marked in code): in-memory pairings, single pairing per
+  account, hardcoded catalog, no QR pairing, no packaged shim binary/release artifact.
 
 **Tier 2 — hosted-relay convenience mode (explicit consent, reduced guarantee).** claude.ai's remote MCP cannot run a shim, so the relay would have to terminate the MCP connection and see requests/responses **in transit** (never stored). This is a deliberate, per-account, clearly-labelled downgrade switch ("Claude can query your data through the cloud; the cloud sees answers while relaying them"), off by default. Ship order: 0 → 1, and decide on 2 only if demand is real.
 
@@ -239,6 +267,7 @@ Server-mode users with real history move by **export → client-side import** �
 | Sync cadence, blob sizes, IPs | cloud | standard for any sync service; no content |
 | TG bot token, chat id, TG message text at user-chosen verbosity | cloud + Telegram | opt-in; generic-text mode; sealed inbound |
 | MCP query content | nobody (tier 1) / cloud in transit (tier 2) | tier 2 off by default, explicit consent |
+| MCP frame sizes + timing | cloud (tier 1) | inherent to a blind relay; pairing ids only, content stays sealed |
 | Food/barcode search terms | operator's food-DB instance (default) | same exposure class as public Open Food Facts; endpoint swappable in settings |
 | Drug-name search + interaction queries | RxNav (NIH), from the client IP | direct-from-browser by design (never proxied through the cloud operator); same exposure class as food-DB search; nothing persisted beyond `rxcui`/`normalized_name` on the med record |
 | Meal descriptions + photos (AI parsing) | the user's own OpenAI(-compatible) provider, direct from the client | BYO key + BYO consent — never proxied through the cloud operator; same never-see guarantee as the vault keys that authorize it |
@@ -370,7 +399,7 @@ C2d shipped **workouts** — groups/variants/exercises/exercise-library CRUD, th
   - **C2d (implemented)** — workouts: groups/variants/exercises/library CRUD, next-workout + rotation engine, session lifecycle, exercise logs, stats, mi-band read/edit side. See "C2d implementation notes" above and `docs/plans/2026-07-06-cloud-c2d-workouts.md`.
 - **C3a — Telegram bot provisioning + onboarding** (plan: `docs/plans/2026-07-04-cloud-c3a-telegram-managed-bot-onboarding.md`; depends on C0a only, parallel-safe with C0b/C0c): Managed-Bots one-tap creation, BYO token fallback, chat linking, consent screen, wizard step 5, test notification.
 - **C3b — Telegram delivery + inbound** (after C0c): delivery flags on the scheduled queue (`webpush|telegram|both`, client-composed verbosity), sealed inbound mailbox for Confirm/Snooze. The plan MUST implement the drain protocol above (ack-after-flush, idempotent re-apply via deterministic ids, concurrent drainers, server-timestamp ordering).
-- **C4 — MCP tier 1** (blind relay + shim).
+- **C4 — MCP tier 1 PoC (implemented)** — blind relay (`internal/cloudserver/mcp_relay.go`) + Go shim (`cmd/mcpshim`, crypto/framing in `internal/mcpshim`) + browser responder (`web/cloud/js/mcp-responder.js`) with a hardcoded `bp`/`weight`/`notes` catalog. See "MCP" section above and `docs/plans/2026-07-05-cloud-c4-poc-mcp-blind-relay.md`. Full catalog codegen, multi-pairing/persistence, and shim binary distribution are the identified full-C4 follow-ups; go/no-go decided at the PoC's exit review.
 - **C5 — trial provider pool**: metered OpenAI-compatible relay, ElevenLabs signed-URL minting + client-tools voice agent, trial-consent wizard screen, quota admin. Depends on C2 (the PWA needs AI features to call it).
 - **C6 — bot-mode domain unification** (after C2 parity; optional but intended): embed the JS domain layer in the server build (goja preferred, Node sidecar fallback) behind a SQLite storage port; shadow-mirror real traffic (Go serves, JS diffs, divergences logged); flip per-domain when quiet; deprecate the Go domain layer. Ends the double maintenance — see "The client: porting the domain layer" §3.
 
