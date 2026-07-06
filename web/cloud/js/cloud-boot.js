@@ -49,6 +49,12 @@ window.MedTrackerCloudReady = (async function boot() {
         return;
     }
 
+    // Publish ctx for main-app code (e.g. Settings' cloud push controls) that
+    // needs the unlocked vault but isn't part of this boot closure. Plain field
+    // set — must not throw or block the try/catch below that guards the rest
+    // of post-unlock boot.
+    window.MedTrackerCloud = { ctx };
+
     // --- Post-unlock boot. The vault is unlocked; from here on any failure
     // degrades the app in place and is logged — it must NOT redirect to /unlock
     // (see decision above). A failed sync/shim-install is not a reason to evict

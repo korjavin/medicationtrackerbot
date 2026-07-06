@@ -194,6 +194,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.MedTrackerCloudReady',      // cloud-boot.js — Promise that resolves once the async warm-unlock + installApiShim(ctx) + pullOnOpen(ctx) sequence finishes (or rejects/redirects to /unlock on failure); checkAuth() awaits this before calling apiCall(bootstrapURL()), the same shape as window.MessengerAdapterReady gating the Telegram SDK upgrade
     'window.CloudFoodAI',               // apishim.js (installApiShim) — createFoodAIDomain instance wired to the browser aiclient.js; photo.js/log.js call parseMealFromPhoto/parseMealFromDescription directly in cloud mode instead of POSTing /api/food/log/from-{photo,description} (C2c Task 4)
     'window.CloudFoodSearch',           // apishim.js (installApiShim) — { search(q, opts) } over the same food domain instance the shim uses; products.js's cloud branch replaces the NDJSON stream with two local/remote calls into this (C2c Task 4)
+    'window.MedTrackerCloud',           // cloud-boot.js — published once warmUnlock() resolves a non-null ctx ({ accountId, dek }); features/settings.js's cloud Notifications branch reads window.MedTrackerCloud.ctx to call the DOM-free subscribe()/sendTestPush(ctx) helpers without re-deriving the vault key
 
     // Native platform abstractions — mobile Phase 2b, Task 1 (foundation).
     // The four globals below are the seam between feature code and platform

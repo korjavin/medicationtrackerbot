@@ -10,13 +10,17 @@
 // window.AuthBootstrap, window.SettingsState, window.WeightUnitState,
 // window.FoodLog, window.TimeFormat, window.DataStore, window.WGStaleBadge,
 // window.SettingsIntegrations, window.AppStore, window.rebuildCanonicalBottomNav,
-// window.OIDC_CONFIG.
+// window.OIDC_CONFIG, applyWebpushStatus, hideWebpushStatus (both from app.js).
 //
 // The timezone info renderer (window.renderSettingsTimeInfo) lives in
 // core/time-format.js and the Integrations card lives in
 // features/settings/integrations.js — both already extracted; loadSettings()
 // delegates to them. The weight-unit (kg/lb) state machine lives in
 // features/weight-unit-state.js.
+//
+// Cloud-mode Notifications (bindCloudNotifications) dynamic-imports
+// web/cloud/js/push.js + reminders.js and reads window.MedTrackerCloud.ctx
+// (published by cloud-boot.js post-unlock) — see docs/cloud-mode.md.
 //
 // Public surface is mirrored on window.SettingsView for discoverability; the
 // bare function names are the live call path used by app.js bindings
@@ -83,16 +87,110 @@ function initOIDCSetupBanner() {
     container.appendChild(rowList);
 }
 
+// Cloud-mode Notifications wiring. The server block's Web Push toggle +
+// Test buttons POST to bot-mode /api/webpush/* + /api/bp/reminder/test
+// routes cmd/cloud never registers, so cloud mode swaps in the
+// .wg-settings-notifications-cloud block instead, driven by the DOM-free
+// web/cloud/js/push.js + reminders.js primitives (dynamic-imported so
+// server/mobile builds never pull in cloud-only modules).
+// ponytail: no memoization — import() already caches by specifier. These
+// functions exist only as the test seam (Vitest overrides the window globals).
+let _cloudNotificationsBound = false; // module-state: one-time guard so the cloud toggle/test click listeners bind once across repeated loadSettings() calls
+function loadCloudPushModule() { return import('/js/push.js'); }
+function loadCloudRemindersModule() { return import('/js/reminders.js'); }
+
+async function refreshCloudPushToggleState(toggleBtn) {
+    try {
+        const { getSubscription } = await loadCloudPushModule();
+        const sub = await getSubscription();
+        toggleBtn.dataset.subscribed = sub ? '1' : '0';
+        toggleBtn.textContent = sub ? 'Disable' : 'Enable';
+    } catch (e) {
+        toggleBtn.dataset.subscribed = '0';
+        toggleBtn.textContent = 'Enable';
+    }
+}
+
+function bindCloudNotifications() {
+    const toggleBtn = document.getElementById('cloud-push-toggle');
+    const testBtn = document.getElementById('cloud-push-test-btn');
+    const status = document.getElementById('cloud-push-status');
+    if (!toggleBtn || !testBtn || !status) return;
+
+    // Disable the controls until the async getSubscription() check resolves —
+    // the button defaults to 'Enable' with dataset.subscribed unset, so a click
+    // in that window could subscribe while already subscribed or wrongly report
+    // "Enable push notifications first."
+    toggleBtn.disabled = true;
+    testBtn.disabled = true;
+    const ready = refreshCloudPushToggleState(toggleBtn).finally(() => {
+        toggleBtn.disabled = false;
+        testBtn.disabled = false;
+    });
+    if (_cloudNotificationsBound) return ready;
+    _cloudNotificationsBound = true;
+
+    toggleBtn.addEventListener('click', async () => {
+        toggleBtn.disabled = true;
+        try {
+            if (toggleBtn.dataset.subscribed === '1') {
+                const { unsubscribe } = await loadCloudPushModule();
+                await unsubscribe();
+                applyWebpushStatus(status, 'Notifications disabled', 'muted');
+            } else if (Notification.permission === 'denied') {
+                applyWebpushStatus(status, 'Notifications are blocked in your browser settings.', 'error');
+            } else {
+                // Reach Notification.requestPermission() synchronously inside the
+                // click's transient activation — Safari/iOS drop it across the
+                // dynamic import() await below, so requesting here (not only inside
+                // push.js subscribe()) keeps first-enable working on iOS.
+                // subscribe() re-checks and no-ops when already granted.
+                const permission = await Notification.requestPermission();
+                if (permission !== 'granted') {
+                    applyWebpushStatus(status, 'Notification permission was not granted.', 'error');
+                } else {
+                    applyWebpushStatus(status, 'Requesting permission...', null);
+                    const { subscribe } = await loadCloudPushModule();
+                    await subscribe();
+                    applyWebpushStatus(status, 'Notifications enabled', 'success');
+                }
+            }
+        } catch (err) {
+            applyWebpushStatus(status, err.message || 'Failed to update notifications', 'error');
+        }
+        await refreshCloudPushToggleState(toggleBtn);
+        toggleBtn.disabled = false;
+        setTimeout(() => hideWebpushStatus(status), 3000);
+    });
+
+    testBtn.addEventListener('click', async () => {
+        const ctx = window.MedTrackerCloud?.ctx;
+        if (!ctx) {
+            applyWebpushStatus(status, 'Unlock the vault before sending a test push.', 'error');
+        } else if (toggleBtn.dataset.subscribed !== '1') {
+            applyWebpushStatus(status, 'Enable push notifications first.', 'error');
+        } else {
+            testBtn.disabled = true;
+            try {
+                const { sendTestPush } = await loadCloudRemindersModule();
+                await sendTestPush(ctx);
+                applyWebpushStatus(status, 'Test push scheduled — it should arrive shortly.', 'success');
+            } catch (err) {
+                applyWebpushStatus(status, err.message || 'Failed to send test push', 'error');
+            }
+            testBtn.disabled = false;
+        }
+        setTimeout(() => hideWebpushStatus(status), 3000);
+    });
+    return ready;
+}
+
 // Load settings (BP reminders status, etc.)
 async function loadSettings() {
-    // Cloud mode (C1) has no web-push / reminder backend — the Notifications
-    // controls (Web Push toggle + Test Meds/Test BP) POST to bot-mode
-    // /api/webpush/* + /api/bp/reminder/test routes cmd/cloud never registers,
-    // so clicking them only surfaces 404 errors. Hide the whole section until
-    // reminders land in C3b, matching the plan's "reminders UI disabled in
-    // cloud mode" deferral.
     if (window.__MEDTRACKER_CLOUD__) {
         document.querySelector('.wg-settings-notifications')?.classList.add('wg-settings-hidden');
+        document.querySelector('.wg-settings-notifications-cloud')?.classList.remove('wg-settings-hidden');
+        await bindCloudNotifications();
         // Devices row (add/manage a second device) only makes sense in cloud
         // mode — server/mobile builds have no /devices shell route.
         document.querySelector('.wg-settings-cloud-devices')?.classList.remove('wg-settings-hidden');
