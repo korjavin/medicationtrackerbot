@@ -93,11 +93,14 @@ routes simply don't register.
 2. Open BotFather's MiniApp (`/mybots` → your bot → *Bot Settings*) and enable
    **Bot Management Mode**. This is what lets the manager bot receive
    `managed_bot` updates and fetch child-bot tokens (`getManagedBotToken`).
-3. Set `MANAGER_BOT_TOKEN=<the token>` as a stack env var and redeploy. On
+3. Set `MANAGER_BOT_TOKEN=<the token>` as a stack env var and redeploy. The
+   compose service already forwards it into the container via
+   `MANAGER_BOT_TOKEN=${MANAGER_BOT_TOKEN:-}` — a Portainer stack variable alone
+   is not enough unless the compose `environment:` block references it. On
    startup the server calls `getMe` to resolve the manager username (no extra
    env) and registers the manager webhook at `https://<CLOUD_BASE_DOMAIN>/tg/manager/<secret>`.
-   Log line `telegram disabled` means the token is unset; its absence is not an
-   error.
+   Log line `telegram disabled` means the token is unset (or not forwarded by
+   compose); its absence is not an error.
 
 **Token-at-rest trade-off (read before setting `SESSION_SECRET`):** each child
 bot token is sealed with AES-GCM under a key derived from `SESSION_SECRET`
