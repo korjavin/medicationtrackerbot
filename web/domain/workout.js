@@ -717,6 +717,17 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     await records.put(WORKOUT_RECORD_TYPES.SESSION, { ...session, status: 'pending', clientTs: now() });
   }
 
+  // deleteSession ports DeleteSession (repo.go:1029): tombstone the session's
+  // logs first, then the session itself — a missing session no-ops (mirrors
+  // the Go store's `DELETE ... WHERE id = ?` affecting zero rows).
+  async function deleteSession(id) {
+    const session = await findSession(id);
+    if (!session) return;
+    const logs = (await activeRecords(WORKOUT_RECORD_TYPES.LOG)).filter((l) => l.session_id === id);
+    for (const l of logs) await records.del(WORKOUT_RECORD_TYPES.LOG, l.recordId);
+    await records.del(WORKOUT_RECORD_TYPES.SESSION, session.recordId);
+  }
+
   const VALID_SESSION_STATUSES = new Set(['in_progress', 'completed', 'skipped']);
 
   // setSessionStatus ports transitions.go's SetSessionStatus. Returns null
@@ -1393,6 +1404,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     completeSession,
     preSkipSession,
     cancelPreSkipSession,
+    deleteSession,
     setSessionStatus,
     nextVariant,
     createLog,

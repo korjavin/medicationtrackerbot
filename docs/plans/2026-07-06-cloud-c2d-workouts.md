@@ -211,17 +211,27 @@ also not ported.
 
 ### Task 6: Shim wiring — routes, `apiCallDirect` wrapper, feature flip
 
-- [ ] route table for all UI-called workout routes (query-param id style
+- [x] route table for all UI-called workout routes (query-param id style
       preserved); MCP/bot-only routes intentionally unmapped (the
       unknown-route warn documents them as not-ported-by-design — add a
       comment in the shim listing them so the warn list stays
       interpretable)
-- [ ] cloud-boot installs a `window.apiCallDirect` wrapper routing
+- [x] cloud-boot installs a `window.apiCallDirect` wrapper routing
       `/api/*` into the same shim dispatch (fixes `groups.js:55`,
       `next-card.js:179`, `stats.js:40`, `today-loader.js:154` with zero
       `web/static` edits); non-`/api` URLs pass through untouched
-- [ ] add `workout` to `PORTED_SET`; bootstrap payload gains the
-      `workout_next` cache entry; Today's workout card lights up
+- [x] add `workout` to `PORTED_SET`; bootstrap payload gains the
+      `workout_next` cache entry (warmed directly by cloud-boot.js via
+      `cacheApiSnapshot`, since neither the native nor shim `/api/bootstrap`
+      bundles a `res.workout` key to piggyback on); Today's workout card
+      lights up
+- ➕ added `deleteSession` to `web/domain/workout.js` (ports
+      `DeleteSession`, repo.go:1029) — discovered during wiring that
+      `sessions.js:413`'s `DELETE /api/workout/sessions/delete?id=` had no
+      domain counterpart from Tasks 1-5
+- ➕ updated `cloud.shim-contract.settings.test.js`'s unported-feature-clamp
+      case to use `gamification` instead of `workout` as the example, since
+      `workout` now joins `PORTED_SET`
 
 ### Task 7: Shim-mode contract runs
 
