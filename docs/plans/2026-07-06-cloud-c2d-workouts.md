@@ -251,11 +251,11 @@ also not ported.
 
 ### Task 9: [Final] Update documentation
 
-- [ ] `docs/cloud-mode.md`: C2d implementation notes — record types, the
+- [x] `docs/cloud-mode.md`: C2d implementation notes — record types, the
       numeric-id strategy + rationale, lazy-materialization-on-read, the
       `apiCallDirect` wrapper, scheduler-loop skip, reminder deferral
-- [ ] `CLAUDE.md`: cloud index row update if needed
-- [ ] note remaining C2 scope: C2e (exporter + migration import) is now
+- [x] `CLAUDE.md`: cloud index row update if needed
+- [x] note remaining C2 scope: C2e (exporter + migration import) is now
       the only unported piece; the post-C2d unknown-route warn list on
       the rig is its final input
 
