@@ -177,6 +177,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write(h.appIndex)
 		return
+	case r.URL.Path == "/static/config.js":
+		// The shared web/static index.html loads /static/config.js, which bot
+		// mode generates on the fly (serveConfigJS: window.BOT_USERNAME +
+		// window.OIDC_CONFIG). Cloud mode is passkey-only — no Telegram bot, no
+		// OIDC — and has no such file, so without this it 404s (and the browser
+		// refuses the text/plain body) on every load (med-eas.21). Serve the
+		// cloud-appropriate defaults; the frontend already guards both globals to
+		// exactly these values.
+		w.Header().Set("Content-Type", "application/javascript")
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Write([]byte("window.BOT_USERNAME = \"\";\nwindow.OIDC_CONFIG = {\"enabled\":false};\n"))
+		return
 	case strings.HasPrefix(r.URL.Path, "/static/"):
 		h.app.ServeHTTP(w, r)
 		return
