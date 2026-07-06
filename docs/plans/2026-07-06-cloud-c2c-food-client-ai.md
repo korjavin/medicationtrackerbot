@@ -174,19 +174,19 @@ Two structural findings from discovery that shape this plan:
 
 ### Task 4: Frontend bypass guards (guard-only, 4 sites)
 
-- [ ] `features/food/photo.js`: `__MEDTRACKER_CLOUD__` branch skips the
+- [x] `features/food/photo.js`: `__MEDTRACKER_CLOUD__` branch skips the
       FormData POST and hands the File to the cloud AI module (exposed via
       one new allowlisted `window.*` entry); same undo-toast + optimistic
       cache path afterwards
-- [ ] `features/food/log.js` description flow: cloud branch calls the
+- [x] `features/food/log.js` description flow: cloud branch calls the
       cloud AI module instead of raw fetch; identical response handling
-- [ ] `features/food/products.js` search: cloud branch replaces the NDJSON
+- [x] `features/food/products.js` search: cloud branch replaces the NDJSON
       stream with two-phase delivery (local results immediately, remote
       results when the food-DB fetch lands) feeding the same render
       callbacks + AbortController semantics
-- [ ] `features/food/ai-undo.js`: cloud branch routes the DELETE through
+- [x] `features/food/ai-undo.js`: cloud branch routes the DELETE through
       `apiCall` (hits the shim); bot branch keeps its raw fetch untouched
-- [ ] new `window.*` globals get `tests/architecture.globals.test.js`
+- [x] new `window.*` globals get `tests/architecture.globals.test.js`
       allowlist entries with justification
 
 ### Task 5: Food-DB direct + operator default

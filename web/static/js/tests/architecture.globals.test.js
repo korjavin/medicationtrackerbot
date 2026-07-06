@@ -192,6 +192,8 @@ const ALLOWED_GLOBALS = new Set([
     // entries exist for documentation, mirroring __MEDTRACKER_BOOTSTRAP__.
     'window.__MEDTRACKER_CLOUD__',      // cloud-boot.js — set synchronously before any other script; checkAuth() (app.js), loadTelegramSdk() (messenger-adapter.js), initServiceWorker() (app-shell.js), and startChangePolling() (data-store.js) all branch on it to skip Telegram/bot-mode-only behavior on the E2EE cloud origin
     'window.MedTrackerCloudReady',      // cloud-boot.js — Promise that resolves once the async warm-unlock + installApiShim(ctx) + pullOnOpen(ctx) sequence finishes (or rejects/redirects to /unlock on failure); checkAuth() awaits this before calling apiCall(bootstrapURL()), the same shape as window.MessengerAdapterReady gating the Telegram SDK upgrade
+    'window.CloudFoodAI',               // apishim.js (installApiShim) — createFoodAIDomain instance wired to the browser aiclient.js; photo.js/log.js call parseMealFromPhoto/parseMealFromDescription directly in cloud mode instead of POSTing /api/food/log/from-{photo,description} (C2c Task 4)
+    'window.CloudFoodSearch',           // apishim.js (installApiShim) — { search(q, opts) } over the same food domain instance the shim uses; products.js's cloud branch replaces the NDJSON stream with two local/remote calls into this (C2c Task 4)
 
     // Native platform abstractions — mobile Phase 2b, Task 1 (foundation).
     // The four globals below are the seam between feature code and platform

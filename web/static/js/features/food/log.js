@@ -649,14 +649,14 @@ async function saveFoodLogFromDescription() {
         return;
     }
 
+    const eatenAt = new Date(dateStr);
     const payload = {
         description,
-        eaten_at: new Date(dateStr).toISOString(),
+        eaten_at: eatenAt.toISOString(),
     };
 
     const btn = document.getElementById('food-modal-save-btn');
     await withSubmit(btn, async () => {
-        let res;
         // Pre-stamp the timing-window fallback before the fetch — see
         // photo.js for the rationale (AI parse can take several seconds,
         // long enough for the broker tailer's empty-source Notify to race
@@ -669,38 +669,58 @@ async function saveFoodLogFromDescription() {
         } else if (window.DataStore && typeof window.DataStore.recordOwnWrite === 'function') {
             window.DataStore.recordOwnWrite();
         }
-        try {
-            res = await fetch('/api/food/log/from-description', {
-                method: 'POST',
-                headers: window.makeWriteHeaders({ 'Content-Type': 'application/json' }),
-                body: JSON.stringify(payload),
-            });
-        } catch (e) {
-            if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
-            console.error('Food AI parse network error:', e);
-            safeAlert('Failed to parse meal: ' + (e && e.message ? e.message : e));
-            return;
-        }
 
-        if (!res.ok) {
-            if (res.status === 429 && window.DemoBanner && typeof window.DemoBanner.tryHandleResponse === 'function') {
-                const demoParsed = await window.DemoBanner.tryHandleResponse(res);
-                if (demoParsed) {
-                    if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
-                    return;
-                }
+        let items, failed;
+        if (window.__MEDTRACKER_CLOUD__) {
+            // Cloud mode: the description never leaves the device via /api —
+            // it goes straight from the browser to the user's own AI provider
+            // (web/domain/foodai.js + web/cloud/js/aiclient.js).
+            let result;
+            try {
+                result = await window.CloudFoodAI.parseMealFromDescription(description, { eatenAt });
+            } catch (e) {
+                if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
+                console.error('Food AI parse failed:', e);
+                safeAlert('Failed to parse meal: ' + (e && e.message ? e.message : e));
+                return;
             }
-            let msg = `HTTP ${res.status}`;
-            try { msg = (await res.text()) || msg; } catch (_) { /* keep status fallback */ }
-            if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
-            safeAlert('Failed to parse meal: ' + msg);
-            return;
-        }
+            items = Array.isArray(result.items) ? result.items : [];
+            failed = Math.max(0, Math.trunc(Number(result.failed) || 0));
+        } else {
+            let res;
+            try {
+                res = await fetch('/api/food/log/from-description', {
+                    method: 'POST',
+                    headers: window.makeWriteHeaders({ 'Content-Type': 'application/json' }),
+                    body: JSON.stringify(payload),
+                });
+            } catch (e) {
+                if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
+                console.error('Food AI parse network error:', e);
+                safeAlert('Failed to parse meal: ' + (e && e.message ? e.message : e));
+                return;
+            }
 
-        let data = null;
-        try { data = await res.json(); } catch (_) { data = null; }
-        const items = (data && Array.isArray(data.items)) ? data.items : [];
-        const failed = Math.max(0, Math.trunc(Number(data && data.failed) || 0));
+            if (!res.ok) {
+                if (res.status === 429 && window.DemoBanner && typeof window.DemoBanner.tryHandleResponse === 'function') {
+                    const demoParsed = await window.DemoBanner.tryHandleResponse(res);
+                    if (demoParsed) {
+                        if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
+                        return;
+                    }
+                }
+                let msg = `HTTP ${res.status}`;
+                try { msg = (await res.text()) || msg; } catch (_) { /* keep status fallback */ }
+                if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
+                safeAlert('Failed to parse meal: ' + msg);
+                return;
+            }
+
+            let data = null;
+            try { data = await res.json(); } catch (_) { data = null; }
+            items = (data && Array.isArray(data.items)) ? data.items : [];
+            failed = Math.max(0, Math.trunc(Number(data && data.failed) || 0));
+        }
 
         // Refresh the timing-window stamp now that the response has landed —
         // the pre-fetch stamp may have aged past SELF_ECHO_WINDOW_MS during a

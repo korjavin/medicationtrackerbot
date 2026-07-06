@@ -12,9 +12,11 @@ import { createMedicationsDomain } from '../../domain/medications.js';
 import { createIntakeDomain } from '../../domain/medintake.js';
 import { createTzPlanDomain } from '../../domain/tzplan.js';
 import { createFoodDomain } from '../../domain/food.js';
+import { createFoodAIDomain } from '../../domain/foodai.js';
 import { recordsPort } from './sync.js';
 import { scheduleReminderRecompute } from './reminders.js';
 import { createRxnormPort } from './rxnorm.js';
+import { createAIClient } from './aiclient.js';
 
 // materializeTimerHandle is module-level (not per-shim-instance) because the
 // production invariant is "one shim installed per page load"; re-installing
@@ -88,6 +90,16 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
   // foodDb (remote product search) is undefined until Task 5 wires the browser
   // FastFoodDB client — search(remote=true) degrades to local-only results.
   const food = createFoodDomain({ records, now, timeZone });
+  const foodAI = createFoodAIDomain({
+    aiClient: createAIClient({ settingsDomain: settings }), foodDomain: food, now,
+  });
+
+  // Task 4's frontend bypass guards (photo.js/log.js/products.js — raw fetch
+  // to the AI + search endpoints) call these directly, entirely outside the
+  // shimCall route table below: the AI provider call and the food-DB search
+  // both go straight from the browser, never through any /api surface.
+  targetWindow.CloudFoodAI = foodAI;
+  targetWindow.CloudFoodSearch = { search: (q, opts) => food.search(q, opts) };
 
   // Due-dose materialization + tz-plan status refresh: neither domain module
   // owns a timer (Task 3/4's modules stay pure functions of their inputs), so
