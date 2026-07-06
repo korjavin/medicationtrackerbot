@@ -22,6 +22,23 @@ export function calculateMacros(carbs100, protein100, fat100, weight) {
   return { carbs, protein, fat, calories };
 }
 
+// Mirrors the HTTP handlers' pre-store guards (food_handlers.go:53-60,
+// :515-522, :829-837) — in cloud mode the domain layer is the only validation
+// seam, so a negative macro/weight would otherwise sync straight into the vault
+// and corrupt daily/weekly stats.
+function invalidRequest(message) {
+  const err = new Error(message);
+  err.code = 'invalid_request';
+  return err;
+}
+
+function assertNonNegativeMacros(input, { checkWeight = false } = {}) {
+  if (checkWeight && (input.weight || 0) < 0) throw invalidRequest('Weight cannot be negative');
+  if ((input.carbs || 0) < 0 || (input.protein || 0) < 0 || (input.fat || 0) < 0 || (input.calories || 0) < 0) {
+    throw invalidRequest('Nutritional values cannot be negative');
+  }
+}
+
 function toISOString(v) {
   if (v instanceof Date) return v.toISOString();
   if (typeof v === 'number') return new Date(v).toISOString();
@@ -250,6 +267,7 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
   // skipProductUpsert matches the AI handlers (handleCreateFoodLogFrom*), which
   // CreateLog a bare-named entry with no product_id and no UpsertProduct.
   async function create(input, { skipProductUpsert = false } = {}) {
+    assertNonNegativeMacros(input, { checkWeight: true });
     const nowMs = now();
     let resolvedName = input.name || '';
     let resolvedProductId = null;
@@ -296,6 +314,7 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
   // recomputes per-100g macros from the edited totals and upserts the named
   // product (no usage-only bump path — unlike create).
   async function update(id, input) {
+    assertNonNegativeMacros(input, { checkWeight: true });
     const all = await records.list(LOG_RECORD_TYPE);
     const existing = all.find((r) => !r.deleted && r.recordId === id);
     if (!existing) {
@@ -439,6 +458,11 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
   }
 
   async function updateProduct(id, input) {
+    if (!input.name) throw invalidRequest('Name is required');
+    if ((input.carbs_100g || 0) < 0 || (input.protein_100g || 0) < 0 ||
+        (input.fat_100g || 0) < 0 || (input.energy_kcal_100g || 0) < 0) {
+      throw invalidRequest('Nutritional values cannot be negative');
+    }
     const all = await records.list(PRODUCT_RECORD_TYPE);
     const existing = all.find((p) => !p.deleted && p.recordId === id);
     if (!existing) {

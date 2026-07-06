@@ -162,7 +162,10 @@ async function initFoodProductsCache() {
     if (!cache) {
         try {
             let products = [];
-            if (typeof window.cachedFetch === 'function') {
+            // cachedFetch uses apiCallDirect (raw network) and bypasses the
+            // cloud shim; in cloud mode that 404s on the account subdomain.
+            // Fall through to apiCall so the shim serves it from the vault.
+            if (typeof window.cachedFetch === 'function' && !window.__MEDTRACKER_CLOUD__) {
                 try {
                     const result = await window.cachedFetch(
                         'food_products_cache',

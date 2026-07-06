@@ -826,7 +826,11 @@ async function loadFoodLogs() {
     try {
         let groups = [];
         let groupsMeta = null;
-        if (typeof window.cachedFetch === 'function') {
+        // cachedFetch routes through apiCallDirect (raw network), bypassing the
+        // cloud shim installed on offlineAwareApiCall — in cloud mode that hits
+        // a nonexistent /api/food/log on the account subdomain (404). Fall
+        // through to apiCall, which the shim serves from the local vault.
+        if (typeof window.cachedFetch === 'function' && !window.__MEDTRACKER_CLOUD__) {
             const groupsResult = await window.cachedFetch(
                 dayFoodCacheKey,
                 `/api/food/log?date=${dateStr}${tzParams}`,
