@@ -230,7 +230,7 @@ func (a *MCPRemoteAPI) start(accountID, token string, pc *mcpshim.PairingCode) {
 	a.byAcc[accountID] = entry
 	a.mu.Unlock()
 	if old != nil {
-		_ = old.client.Close()
+		old.client.CloseNow()
 	}
 }
 
@@ -241,7 +241,7 @@ func (a *MCPRemoteAPI) stop(accountID string) {
 	delete(a.byAcc, accountID)
 	a.mu.Unlock()
 	if entry != nil {
-		_ = entry.client.Close()
+		entry.client.CloseNow()
 	}
 }
 

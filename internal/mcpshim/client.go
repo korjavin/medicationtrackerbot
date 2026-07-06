@@ -101,3 +101,17 @@ func (c *Client) Close() error {
 	}
 	return c.core.Close()
 }
+
+// CloseNow tears down the underlying relay connection immediately, without the
+// graceful close handshake — the non-blocking teardown the cloudserver
+// hosted-shim registry uses while holding its lifecycle lock, where a blocking
+// close against an unresponsive peer would stall every account. See
+// ShimCore.CloseNow.
+func (c *Client) CloseNow() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.core == nil {
+		return
+	}
+	c.core.CloseNow()
+}
