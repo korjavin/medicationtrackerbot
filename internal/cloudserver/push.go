@@ -31,9 +31,9 @@ const (
 	maxScheduleEntries   = 2000
 	maxScheduleCTLen     = 4 << 10
 
-	// Test-push caps: same shape/size bound as a single schedule entry.
+	// Test-push body cap; the ciphertext reuses maxScheduleCTLen (same bound
+	// as a single schedule entry).
 	maxTestPushBodyBytes = 8 << 10
-	maxTestPushCTLen     = 4 << 10
 )
 
 // pushStore is the subset of *cloudstore.Repo the push-subscription and
@@ -257,7 +257,7 @@ func (a *PushAPI) PostTestPush(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
-	if req.Endpoint == "" || len(req.Endpoint) > maxPushEndpointLen || len(req.CT) == 0 || len(req.CT) > maxTestPushCTLen {
+	if req.Endpoint == "" || len(req.Endpoint) > maxPushEndpointLen || len(req.CT) == 0 || len(req.CT) > maxScheduleCTLen {
 		http.Error(w, "request field too large or missing", http.StatusBadRequest)
 		return
 	}
