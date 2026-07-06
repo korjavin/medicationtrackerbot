@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"math/big"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -58,12 +59,18 @@ func generateMCPRemoteToken() (string, error) {
 // scheme — the hosted shim only ever dials the account's own origin, so this
 // binds a submitted pairing code's relay_url to the request host and blocks
 // SSRF via an attacker-chosen relay_url. mcp-pairing.js builds relay_url as
-// "<ws|wss>://" + location.host, which equals the request Host header, so the
-// match is exact: host including port (else an attacker could keep their own
-// subdomain but redirect the dial to an arbitrary internal port, which all
-// resolve to the same server under wildcard DNS) and path empty/root (the
-// shim appends its own "/api/mcp/relay/shim" path).
-func relayURLIsSelf(relayURL, reqHost string) bool {
+// "<ws|wss>://" + location.host, which equals the request Host header.
+//
+// The hostname must match the request's (the router already validated that
+// this subdomain resolves to a real account under the base domain), and the
+// path must be empty/root (the shim appends its own "/api/mcp/relay/shim").
+// The port cannot be taken from the request: the Host header is spoofable and
+// every "<sub>.<base>:<port>" resolves to this same server under wildcard DNS,
+// so trusting it would let an authenticated caller aim the hosted shim's dial
+// at any TCP port on the server's own IP (SSRF). Instead we pin the port to
+// the values a legitimate browser origin actually uses — none/standard-web, or
+// the server's real listen port (listenPort) for direct-port dev/self-hosting.
+func relayURLIsSelf(relayURL, reqHost, listenPort string) bool {
 	u, err := url.Parse(relayURL)
 	if err != nil {
 		return false
@@ -74,7 +81,32 @@ func relayURLIsSelf(relayURL, reqHost string) bool {
 	if u.Path != "" && u.Path != "/" {
 		return false
 	}
-	return u.Host == reqHost
+	if u.Hostname() != stripPort(reqHost) {
+		return false
+	}
+	switch p := u.Port(); {
+	case p == "" || p == "80" || p == "443":
+		return true
+	case listenPort != "" && p == listenPort:
+		return true
+	default:
+		return false
+	}
+}
+
+// serverListenPort returns the port the server itself is listening on for this
+// request (net/http stashes the listener address under LocalAddrContextKey).
+// Empty when unavailable (e.g. httptest.NewRequest, which skips the server
+// path) — relayURLIsSelf then only accepts none/standard-web ports.
+func serverListenPort(r *http.Request) string {
+	la, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
+	if !ok {
+		return ""
+	}
+	if _, port, err := net.SplitHostPort(la.String()); err == nil {
+		return port
+	}
+	return ""
 }
 
 // mcpRemoteStore is the subset of *cloudstore.Repo the hosted-remote consent
@@ -279,7 +311,7 @@ func (a *MCPRemoteAPI) PostRemote(w http.ResponseWriter, r *http.Request) {
 	// points elsewhere: without this, an authenticated account holder could
 	// submit an arbitrary relay_url and make the server dial an internal or
 	// attacker-chosen host (SSRF), triggered by hitting their own /mcp endpoint.
-	if !relayURLIsSelf(pc.RelayURL, r.Host) {
+	if !relayURLIsSelf(pc.RelayURL, r.Host, serverListenPort(r)) {
 		http.Error(w, "invalid pairing code", http.StatusBadRequest)
 		return
 	}

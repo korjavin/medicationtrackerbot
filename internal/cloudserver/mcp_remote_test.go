@@ -226,6 +226,24 @@ func TestMCPRemote_RejectsForeignRelayURL(t *testing.T) {
 			t.Fatalf("relay_url %q enabled Tier 2, want it rejected", relayURL)
 		}
 	}
+
+	// The real bypass a bare host-equality check misses: the caller spoofs the
+	// Host header AND relay_url to carry the SAME non-standard port. Routing
+	// strips the port so it still resolves to the account, and "u.Host ==
+	// r.Host" would then pass — but the shim would dial <sub>:6379 (all
+	// subdomains resolve to this server under wildcard DNS). The port allowlist
+	// must reject it.
+	portedHost := host + ":6379"
+	code, err := mcpshim.FormatPairingCode(&mcpshim.PairingCode{RelayURL: "wss://" + portedHost, PairingID: pairingID, Key: key})
+	if err != nil {
+		t.Fatalf("format pairing code: %v", err)
+	}
+	if rec := postMCPRemote(t, h, portedHost, session, code); rec.Code != http.StatusBadRequest {
+		t.Fatalf("enable with matching ported Host+relay_url status = %d, want 400", rec.Code)
+	}
+	if resp := getMCPRemoteStatus(t, h, host, session); resp.Enabled {
+		t.Fatalf("matching ported Host+relay_url enabled Tier 2, want it rejected")
+	}
 }
 
 // TestMCPRemote_ReEnableRotatesToken guards the plan's locked invariant: only
