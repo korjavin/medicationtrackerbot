@@ -203,7 +203,7 @@ also not ported.
 
 ### Task 5: Mi-band read/edit side
 
-- [ ] `miband` records (fields per the enriched GET shape incl.
+- [x] `miband` records (fields per the enriched GET shape incl.
       `source_start_ms` + tz offset for local time rendering); list with
       limit, PATCH diff-semantics over the six editable fields, DELETE →
       tombstone; ingestion has no cloud path (records arrive via C2e

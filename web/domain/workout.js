@@ -1264,6 +1264,108 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     };
   }
 
+  // -- Mi-Band (read/edit side only — see plan Task 5: ingestion has no
+  // cloud path, records arrive via the C2e import) --
+
+  // formatMiBandTime ports the handler's local-time rendering
+  // (miband_handlers.go: `if wo.TzOffset != 0 { ... FixedZone ... }` then
+  // `Format(time.RFC3339)`): a zero offset keeps the UTC `Z` suffix instead
+  // of emitting `+00:00`, matching Go's `.UTC()` fallback path exactly.
+  function formatMiBandTime(ms, offsetSeconds) {
+    const local = new Date(ms + (offsetSeconds || 0) * 1000);
+    const pad = (n) => String(n).padStart(2, '0');
+    const base = `${local.getUTCFullYear()}-${pad(local.getUTCMonth() + 1)}-${pad(local.getUTCDate())}` +
+      `T${pad(local.getUTCHours())}:${pad(local.getUTCMinutes())}:${pad(local.getUTCSeconds())}`;
+    if (!offsetSeconds) return `${base}Z`;
+    const sign = offsetSeconds < 0 ? '-' : '+';
+    const abs = Math.abs(offsetSeconds);
+    return `${base}${sign}${pad(Math.floor(abs / 3600))}:${pad(Math.floor((abs % 3600) / 60))}`;
+  }
+
+  // toMiBandResponse mirrors handleListMiBandWorkouts's `enriched` shape.
+  function toMiBandResponse(record) {
+    return {
+      id: record.id,
+      activity_type: record.activity_type,
+      activity_name: record.activity_name,
+      start_time: formatMiBandTime(record.source_start_ms, record.tz_offset),
+      end_time: formatMiBandTime(record.source_end_ms, record.tz_offset),
+      duration_sec: record.duration_sec,
+      distance_m: record.distance_m,
+      steps: record.steps,
+      calories: record.calories,
+      heart_rate_avg: record.heart_rate_avg,
+      spo2_avg: record.spo2_avg,
+      source_start_ms: record.source_start_ms,
+      source: record.source,
+    };
+  }
+
+  // listMiBand ports ListMiBand: last-90-days cutoff, source_start_ms DESC,
+  // default limit 100 (the handler's default; the store's own default of 50
+  // is unreachable from HTTP since the handler always passes a positive
+  // limit).
+  async function listMiBand(limit) {
+    const lim = limit && limit > 0 ? limit : 100;
+    const cutoffMs = now() - 90 * 24 * 60 * 60 * 1000;
+    const all = (await activeRecords(WORKOUT_RECORD_TYPES.MIBAND))
+      .filter((w) => w.source_start_ms >= cutoffMs)
+      .sort((a, b) => b.source_start_ms - a.source_start_ms)
+      .slice(0, lim);
+    return all.map(toMiBandResponse);
+  }
+
+  // providedNum ports the *int/*float64 "absent means don't touch" pattern
+  // of UpdateMiBandWorkoutFields — distinct from numOrNull, which treats an
+  // absent field as "clear to null"; here absent/null means "leave alone"
+  // (returns undefined, never null).
+  function providedNum(input, key, isInt) {
+    const v = input && input[key];
+    if (v === null || v === undefined) return undefined;
+    const n = Number(v);
+    if (Number.isNaN(n)) return undefined;
+    return isInt ? Math.trunc(n) : n;
+  }
+
+  // updateMiBand ports UpdateMiBand's diff semantics (miband.go:453): builds
+  // the six optional fields first and no-ops (without checking existence,
+  // matching the Go early-return-before-the-query order) when none are
+  // present; only once there's something to write does a missing record
+  // become a not_found error (mirrors the Go rowsAffected==0 -> sql.ErrNoRows).
+  async function updateMiBand(id, input) {
+    const steps = providedNum(input, 'steps', true);
+    const distanceM = providedNum(input, 'distance_m', false);
+    const durationSec = providedNum(input, 'duration_sec', true);
+    const calories = providedNum(input, 'calories', true);
+    const heartRateAvg = providedNum(input, 'heart_rate_avg', true);
+    const spo2Avg = providedNum(input, 'spo2_avg', true);
+    if ([steps, distanceM, durationSec, calories, heartRateAvg, spo2Avg].every((v) => v === undefined)) {
+      return;
+    }
+
+    const rec = await findByNumericId(records, WORKOUT_RECORD_TYPES.MIBAND, id);
+    if (!rec) throw invalidRequest('Workout not found', 'not_found');
+
+    await records.put(WORKOUT_RECORD_TYPES.MIBAND, {
+      ...rec,
+      steps: steps === undefined ? rec.steps : steps,
+      distance_m: distanceM === undefined ? rec.distance_m : distanceM,
+      duration_sec: durationSec === undefined ? rec.duration_sec : durationSec,
+      calories: calories === undefined ? rec.calories : calories,
+      heart_rate_avg: heartRateAvg === undefined ? rec.heart_rate_avg : heartRateAvg,
+      spo2_avg: spo2Avg === undefined ? rec.spo2_avg : spo2Avg,
+      clientTs: now(),
+    });
+  }
+
+  // deleteMiBand ports DeleteMiBand: missing record -> not_found (mirrors
+  // the handler's sql.ErrNoRows -> 404 mapping); del() is the tombstone.
+  async function deleteMiBand(id) {
+    const rec = await findByNumericId(records, WORKOUT_RECORD_TYPES.MIBAND, id);
+    if (!rec) throw invalidRequest('Workout not found', 'not_found');
+    await records.del(WORKOUT_RECORD_TYPES.MIBAND, rec.recordId);
+  }
+
   return {
     createGroup,
     listGroups,
@@ -1299,5 +1401,8 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     listSessions,
     getSessionDetails,
     getStats,
+    listMiBand,
+    updateMiBand,
+    deleteMiBand,
   };
 }
