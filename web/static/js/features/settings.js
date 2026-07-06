@@ -189,7 +189,7 @@ function bindCloudNotifications() {
 async function loadSettings() {
     if (window.__MEDTRACKER_CLOUD__) {
         document.querySelector('.wg-settings-notifications')?.classList.add('wg-settings-hidden');
-        document.querySelector('.wg-settings-notifications-cloud')?.removeAttribute('hidden');
+        document.querySelector('.wg-settings-notifications-cloud')?.classList.remove('wg-settings-hidden');
         await bindCloudNotifications();
         // Devices row (add/manage a second device) only makes sense in cloud
         // mode — server/mobile builds have no /devices shell route.

@@ -28,7 +28,7 @@ describe('cloud Notifications block visibility (server vs cloud mode)', () => {
             window.apiCall = vi.fn(async () => { throw new Error('offline'); });
             await window.loadSettings();
 
-            expect(document.querySelector('.wg-settings-notifications-cloud').hasAttribute('hidden')).toBe(true);
+            expect(document.querySelector('.wg-settings-notifications-cloud').classList.contains('wg-settings-hidden')).toBe(true);
             expect(document.querySelector('.wg-settings-notifications').classList.contains('wg-settings-hidden')).toBe(false);
         } finally {
             cleanup();
@@ -47,7 +47,7 @@ describe('cloud Notifications block visibility (server vs cloud mode)', () => {
             window.apiCall = vi.fn(async () => { throw new Error('offline'); });
             await window.loadSettings();
 
-            expect(document.querySelector('.wg-settings-notifications-cloud').hasAttribute('hidden')).toBe(false);
+            expect(document.querySelector('.wg-settings-notifications-cloud').classList.contains('wg-settings-hidden')).toBe(false);
             expect(document.querySelector('.wg-settings-notifications').classList.contains('wg-settings-hidden')).toBe(true);
         } finally {
             cleanup();
