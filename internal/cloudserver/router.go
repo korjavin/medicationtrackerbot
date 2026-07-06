@@ -92,12 +92,21 @@ func injectCloudBoot(idx []byte, foodDBURL string) []byte {
 // setSecurityHeaders hardens the E2EE origin. The threat model
 // (docs/cloud-crypto.md) rates on-origin XSS as catastrophic — it can read the
 // in-memory DEK and drive the non-extractable LDK — and names a strict CSP with
-// zero third-party script as the real defense. The shell loads only same-origin
-// modules/CSS (no inline script/style, WebAuthn isn't CSP-governed), so a
-// self-only policy holds without exceptions.
-func setSecurityHeaders(w http.ResponseWriter) {
+// zero third-party script as the real defense. Script/style/img/default stay
+// self-only (no inline script/style, WebAuthn isn't CSP-governed).
+//
+// accountApp relaxes connect-src to `'self' https:` for the per-account app
+// only: C2c food runs browser-direct calls to the user's own AI provider
+// (aiclient.js) and food-DB (fooddb.js), whose origins are BYO/vault-secret and
+// so unknowable server-side — a scoped allowlist is impossible. The base-domain
+// signup/unlock shell makes no cross-origin calls and keeps connect-src 'self'.
+func setSecurityHeaders(w http.ResponseWriter, accountApp bool) {
 	h := w.Header()
-	h.Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
+	connectSrc := "connect-src 'self'"
+	if accountApp {
+		connectSrc = "connect-src 'self' https:"
+	}
+	h.Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; "+connectSrc+"; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("X-Frame-Options", "DENY")
 	h.Set("Referrer-Policy", "no-referrer")
@@ -105,8 +114,8 @@ func setSecurityHeaders(w http.ResponseWriter) {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	setSecurityHeaders(w)
 	host := stripPort(r.Host)
+	setSecurityHeaders(w, host != h.baseDomain)
 	if host == h.baseDomain {
 		h.shell.ServeHTTP(w, r)
 		return

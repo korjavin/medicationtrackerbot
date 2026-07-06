@@ -3,6 +3,7 @@ package cloudserver
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -94,8 +95,18 @@ func TestRouter_HostVariants(t *testing.T) {
 			}
 			// Every response on the E2EE origin must carry the hardening headers,
 			// including 404s (docs/cloud-crypto.md rates on-origin XSS catastrophic).
-			if csp := rec.Header().Get("Content-Security-Policy"); csp == "" {
+			csp := rec.Header().Get("Content-Security-Policy")
+			if csp == "" {
 				t.Errorf("missing Content-Security-Policy header")
+			}
+			// Account subdomains relax connect-src to permit browser-direct C2c
+			// food calls to BYO AI/food-DB origins; the base domain stays strict.
+			wantConnect := "connect-src 'self';"
+			if stripPort(tc.host) != "app.example.com" {
+				wantConnect = "connect-src 'self' https:;"
+			}
+			if !strings.Contains(csp, wantConnect) {
+				t.Errorf("CSP connect-src = %q, want it to contain %q", csp, wantConnect)
 			}
 			if xcto := rec.Header().Get("X-Content-Type-Options"); xcto != "nosniff" {
 				t.Errorf("X-Content-Type-Options = %q, want nosniff", xcto)

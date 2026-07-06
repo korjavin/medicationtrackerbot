@@ -18,10 +18,14 @@ function isBarcode(query) {
 }
 
 // normalizeFoodProductName ports normalizeFoodProductName (openfoodfacts_api.go).
+// Product names come from an untrusted food-DB response, so entity-decode via a
+// <textarea> (RCDATA — character refs decode, tags stay inert text) rather than
+// a <div>+innerHTML sink, which would parse `<img onerror=…>` into a live
+// element and fire the handler even detached. Matches Go's html.UnescapeString.
 function normalizeFoodProductName(name) {
-  const div = document.createElement('div');
-  div.innerHTML = name || '';
-  let decoded = (div.textContent || '').trim();
+  const el = document.createElement('textarea');
+  el.innerHTML = name || '';
+  let decoded = (el.value || '').trim();
   if (!decoded) return '';
   if (decoded.includes('%')) {
     try {

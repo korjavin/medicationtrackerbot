@@ -163,6 +163,31 @@ describe('cloud shim contract — food products flows (features/food/{products,d
         expect(opts.headers).toMatchObject({ 'X-API-Key': 'test-key' });
     });
 
+    it('decodes HTML entities in an untrusted product name without parsing tags into live DOM', async () => {
+        const { window } = env;
+        env.window.__MEDTRACKER_CLOUD__ = true;
+        vi.stubGlobal('document', window.document);
+        window.__XSS__ = undefined;
+
+        await window.apiCall('/api/settings/integrations', 'PATCH', {
+            food: { url: 'https://fooddb.example.test', api_key: 'test-key' }
+        });
+
+        const hostile = "Ben &amp; Jerry's <img src=x onerror=window.__XSS__=1>";
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+            ok: true,
+            async json() { return { results: [{ name: hostile, barcode: '', carbs: 1, protein: 1, fat: 1, kcal100g: 50 }] }; }
+        }));
+
+        const results = await window.CloudFoodSearch.search('jerry', { remote: true });
+        const remote = results.find((p) => p.name.startsWith('Ben'));
+        // Entities decode (matches Go html.UnescapeString) but the <img> tag
+        // stays inert text — a div+innerHTML sink would have stripped it and
+        // could fire onerror. Tag text preserved proves the RCDATA decode.
+        expect(remote.name).toBe("Ben & Jerry's <img src=x onerror=window.__XSS__=1>");
+        expect(window.__XSS__).toBeUndefined();
+    });
+
     it('an 8+ digit all-numeric query is treated as a barcode lookup, not a text search', async () => {
         const { window } = env;
         env.window.__MEDTRACKER_CLOUD__ = true;
