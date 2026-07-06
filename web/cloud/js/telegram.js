@@ -71,6 +71,12 @@ export async function mountTelegram(container, opts = {}) {
     }, POLL_MS);
   };
 
+  // Signature of what's currently painted. While polling, an unchanged
+  // signature means "nothing to repaint" — critically, this stops the pending
+  // poll from clobbering the create-bot page (with its deep-link button) every
+  // 2.5s. We only repaint on a real state transition.
+  let shown = null;
+
   function render(status) {
     if (!status.enabled) {
       stopPolling();
@@ -78,6 +84,9 @@ export async function mountTelegram(container, opts = {}) {
       else container.replaceChildren();
       return;
     }
+    const sig = `${status.state}:${status.bot_username || status.suggested_username || ''}`;
+    if (sig === shown) return; // same state already on screen; keep polling
+    shown = sig;
     switch (status.state) {
       case 'linked':
         renderLinked(status);
@@ -86,7 +95,7 @@ export async function mountTelegram(container, opts = {}) {
         renderOpenBot(status);
         break;
       case 'pending':
-        renderWaiting();
+        renderCreateBot(status.deep_link, status.suggested_username);
         break;
       default: // 'none' | 'skipped'
         if (status.state === 'skipped' && inWizard) {
@@ -161,6 +170,17 @@ export async function mountTelegram(container, opts = {}) {
 
   async function provision() {
     const { deep_link, suggested_username } = await apiJSON('/api/telegram/provision', { method: 'POST' });
+    // Route through render() (state 'pending') so the create-bot page is drawn
+    // in exactly one place — the same page the poll keeps showing until the
+    // child bot is created, so the deep-link button never disappears.
+    render({ enabled: true, state: 'pending', deep_link, suggested_username });
+  }
+
+  // renderCreateBot draws the deep-link page for the whole 'pending' phase.
+  // Shown both right after provision() and on any later status poll / reload
+  // (status carries deep_link while pending), so the "Open Telegram" button
+  // stays put until Telegram reports the bot created.
+  function renderCreateBot(deepLink, suggested) {
     container.innerHTML = `
       <section class="wizard-step">
         <h1>Create your bot</h1>
@@ -170,8 +190,8 @@ export async function mountTelegram(container, opts = {}) {
         <a id="tg-deep-link" class="button" target="_blank" rel="noopener">Open Telegram to create the bot</a>
         <p class="muted">Waiting for the bot to be created…</p>
       </section>`;
-    container.querySelector('#tg-suggested').textContent = suggested_username;
-    container.querySelector('#tg-deep-link').href = deep_link;
+    container.querySelector('#tg-suggested').textContent = suggested || '';
+    if (deepLink) container.querySelector('#tg-deep-link').href = deepLink;
     poll();
   }
 
@@ -195,16 +215,6 @@ export async function mountTelegram(container, opts = {}) {
   }
 
   // --- Post-provision states --------------------------------------------
-
-  function renderWaiting() {
-    container.innerHTML = `
-      <section class="wizard-step">
-        <h1>Create your bot</h1>
-        <p>Finish creating the bot in Telegram (keep the suggested username).
-           This page updates automatically once it's ready.</p>
-      </section>`;
-    poll();
-  }
 
   function renderOpenBot(status) {
     container.innerHTML = `

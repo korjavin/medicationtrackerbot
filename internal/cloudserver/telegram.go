@@ -115,11 +115,17 @@ func (t *TelegramAPI) Provision(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	deepLink := "https://t.me/newbot/" + t.managerUsername + "/" + suggested + "?" + url.Values{"name": {"Med Tracker"}}.Encode()
 	writeJSON(w, http.StatusOK, map[string]string{
-		"deep_link":          deepLink,
+		"deep_link":          t.deepLink(suggested),
 		"suggested_username": suggested,
 	})
+}
+
+// deepLink builds the BotFather "new managed bot" link for a suggested username.
+// Provision and Status both return it so the client's pending page keeps showing
+// the same "Open Telegram to create the bot" button, including after a reload.
+func (t *TelegramAPI) deepLink(suggested string) string {
+	return "https://t.me/newbot/" + t.managerUsername + "/" + suggested + "?" + url.Values{"name": {"Med Tracker"}}.Encode()
 }
 
 // Status reports where the account sits in the Telegram-setup state machine so
@@ -143,15 +149,19 @@ func (t *TelegramAPI) Status(w http.ResponseWriter, r *http.Request) {
 			resp["state"] = "bot_created"
 		}
 	case errors.Is(err, sql.ErrNoRows):
-		pending, perr := t.store.HasPendingByAccount(r.Context(), sess.AccountID, time.Now())
+		suggested, perr := t.store.PendingUsernameByAccount(r.Context(), sess.AccountID, time.Now())
 		if perr != nil {
 			slog.Error("telegram status: pending check", "error", perr, "account", sess.AccountID)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 		switch {
-		case pending:
+		case suggested != "":
 			resp["state"] = "pending"
+			// Carry the deep link so the pending page can (re)render the
+			// create-bot button without a fresh provision POST.
+			resp["suggested_username"] = suggested
+			resp["deep_link"] = t.deepLink(suggested)
 		case account != nil && account.TGSkippedAt != nil:
 			resp["state"] = "skipped"
 		}

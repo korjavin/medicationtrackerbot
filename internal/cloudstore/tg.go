@@ -81,14 +81,19 @@ func (r *Repo) PendingAccountByUsername(ctx context.Context, suggestedUsername s
 	return accountID, err
 }
 
-// HasPendingByAccount reports whether the account has a live (unexpired)
-// managed-bot provisioning row — drives the status endpoint's "pending" state.
-func (r *Repo) HasPendingByAccount(ctx context.Context, accountID string, now time.Time) (bool, error) {
-	var exists bool
+// PendingUsernameByAccount returns the suggested username of the account's live
+// provisioning row (empty string if none), so the status endpoint can rebuild
+// the create-bot deep link — the pending page must keep showing that link,
+// including after a reload. sql.ErrNoRows is folded into ("", nil).
+func (r *Repo) PendingUsernameByAccount(ctx context.Context, accountID string, now time.Time) (string, error) {
+	var suggested string
 	err := r.db.QueryRowContext(ctx,
-		`SELECT EXISTS(SELECT 1 FROM tg_pending WHERE account_id = ? AND expires_at_unix > ?)`,
-		accountID, storedb.TimeToUnix(now)).Scan(&exists)
-	return exists, err
+		`SELECT suggested_username FROM tg_pending WHERE account_id = ? AND expires_at_unix > ?`,
+		accountID, storedb.TimeToUnix(now)).Scan(&suggested)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return suggested, err
 }
 
 // UpsertBot inserts or replaces an account's linked bot. Re-linking (a fresh
