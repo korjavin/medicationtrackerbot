@@ -3203,6 +3203,19 @@ input:checked+.toggle-slider:before {
     border-radius: var(--radius-sm);
 }
 
+/* Sync-debug log lines. Moved out of a runtime-injected <style> element in
+   sync.js (SyncDebug.createPanel) so it loads under the cloud origin's strict
+   style-src 'self' CSP, which blocks inline stylesheets (med-eas.22). Colors
+   match the existing dev-debug-panel convention above. */
+.debug-line { padding: 2px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.15); }
+.debug-time { color: rgba(255, 255, 255, 0.55); margin-right: 8px; }
+.debug-level { font-weight: bold; margin-right: 8px; }
+.debug-line.error .debug-level { color: var(--color-danger); }
+.debug-line.warn .debug-level { color: var(--color-warning); }
+.debug-line.info .debug-level { color: var(--color-info); }
+.debug-msg { color: #fff; }
+.debug-data { color: rgba(255, 255, 255, 0.55); font-size: 10px; display: block; margin-left: 60px; }
+
 .sync-hint {
     font-size: var(--font-size-xs);
     opacity: 0.7;
