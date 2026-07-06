@@ -37,6 +37,8 @@ type config struct {
 	vapidSubject      string
 	dryQueueWarnHours time.Duration
 	foodDBURL         string
+	managerBotToken   string
+	tgAPIBaseURL      string
 }
 
 func loadConfig() (config, error) {
@@ -49,6 +51,8 @@ func loadConfig() (config, error) {
 		vapidSubject:      os.Getenv("VAPID_SUBJECT"),
 		dryQueueWarnHours: 120 * time.Hour,
 		foodDBURL:         os.Getenv("CLOUD_FOOD_DB_URL"),
+		managerBotToken:   os.Getenv("MANAGER_BOT_TOKEN"),
+		tgAPIBaseURL:      os.Getenv("CLOUD_TG_API_BASE_URL"),
 	}
 	if cfg.dbPath == "" {
 		cfg.dbPath = "cloud.db"
@@ -197,6 +201,18 @@ func main() {
 	mcpRemoteAPI.RegisterRoutes(apiMux)
 	router := cloudserver.New(cfg.baseDomain, store, cloudweb.FS, webstatic.FS, domainweb.FS, apiMux, cfg.foodDBURL)
 	router.SetMCPHandler(mcpRemoteAPI.Endpoint())
+
+	// Telegram is fully disabled unless a manager bot token is configured; the
+	// wizard step simply doesn't render and no webhook routes are wired.
+	if cfg.managerBotToken == "" {
+		slog.Info("telegram disabled", "reason", "MANAGER_BOT_TOKEN unset")
+	} else {
+		tgAPI := cloudserver.NewTelegramAPI(store, cfg.sessionSecret, cfg.managerBotToken, cfg.baseDomain, cfg.tgAPIBaseURL)
+		if err := tgAPI.Bootstrap(context.Background()); err != nil {
+			slog.Error("telegram manager bot bootstrap failed", "error", err)
+			os.Exit(1)
+		}
+	}
 
 	relay := cloudserver.NewRelay(store, webPushSender, cfg.dryQueueWarnHours)
 

@@ -59,9 +59,9 @@ Optional Telegram setup during onboarding, one tap: the cloud's **manager bot** 
 
 ### Task 2: minimal Telegram Bot API client
 
-- [ ] `internal/cloudserver/tgapi` (or `internal/tgclient`): raw-HTTP client with injectable base URL; methods: `GetMe`, `GetManagedBotToken`, `SetWebhook` (with `secret_token`), `DeleteWebhook`, `SendMessage`; typed structs for `Update` covering `managed_bot` and `message` (`/start` payloads); honest error mapping (Telegram's `{ok:false, description}` envelope)
-- [ ] manager-bot bootstrap at `cmd/cloud` startup when `MANAGER_BOT_TOKEN` is set: `GetMe` (resolves manager username — no extra env), `SetWebhook` to `/tg/manager/<secret>`; absent token → log "telegram disabled", skip all wiring
-- [ ] integration test: client against the httptest fake — success, API-error envelope, and secret-token header presence on SetWebhook (guards the contract our webhooks depend on)
+- [x] `internal/cloudserver/tgapi` (or `internal/tgclient`): raw-HTTP client with injectable base URL; methods: `GetMe`, `GetManagedBotToken`, `SetWebhook` (with `secret_token`), `DeleteWebhook`, `SendMessage`; typed structs for `Update` covering `managed_bot` and `message` (`/start` payloads); honest error mapping (Telegram's `{ok:false, description}` envelope) — implemented in `internal/tgclient/tgclient.go`
+- [x] manager-bot bootstrap at `cmd/cloud` startup when `MANAGER_BOT_TOKEN` is set: `GetMe` (resolves manager username — no extra env), `SetWebhook` to `/tg/manager/<secret>`; absent token → log "telegram disabled", skip all wiring — `TelegramAPI.Bootstrap` in `internal/cloudserver/telegram.go`, wired in `cmd/cloud/main.go`; webhook secret HKDF-derived from `SESSION_SECRET` (`CLOUD_TG_API_BASE_URL` overrides the API root for tests)
+- [x] integration test: client against the httptest fake — success, API-error envelope, and secret-token header presence on SetWebhook (guards the contract our webhooks depend on) — `internal/tgclient/tgclient_test.go`
 
 ### Task 3: managed provisioning + manager webhook
 
