@@ -230,9 +230,9 @@ Two structural findings from discovery that shape this plan:
 
 ### Task 7: Verify acceptance criteria
 
-- [ ] full food UX works in the shim harness incl. all four guarded
+- [x] full food UX works in the shim harness incl. all four guarded
       bypass paths; unknown-route warn list contains no `/api/food/*`
-- [ ] `pnpm test` fully green; `go build ./... && go build -tags mobile
+- [x] `pnpm test` fully green; `go build ./... && go build -tags mobile
       ./...` + `go test -count=1 ./...` green; linters clean
 
 ### Task 8: [Final] Update documentation
