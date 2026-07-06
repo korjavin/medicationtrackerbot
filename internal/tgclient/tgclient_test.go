@@ -110,3 +110,24 @@ func TestGetManagedBotTokenSuccess(t *testing.T) {
 		t.Fatalf("bot_id not forwarded: %v", f.lastBody["bot_id"])
 	}
 }
+
+// TestTransportErrorRedactsToken guards the log-leak fix: a transport-level
+// failure returns a *url.Error whose message embeds the token as a URL path
+// segment. The client must strip it so callers logging the error don't leak
+// the bot token.
+func TestTransportErrorRedactsToken(t *testing.T) {
+	// Point at a closed listener so http.Do fails at the transport layer.
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	url := srv.URL
+	srv.Close()
+
+	const token = "123456:AA-secret-token"
+	c := New(token, url)
+	_, err := c.GetMe(context.Background())
+	if err == nil {
+		t.Fatal("expected transport error, got nil")
+	}
+	if strings.Contains(err.Error(), token) {
+		t.Fatalf("token leaked in error: %q", err.Error())
+	}
+}

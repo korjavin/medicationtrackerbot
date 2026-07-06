@@ -54,6 +54,14 @@ export async function mountTelegram(container, opts = {}) {
   const poll = () => {
     stopPolling();
     timer = setInterval(async () => {
+      // Self-terminate once the mount is torn down (settings Back / navigation
+      // rewrites app.innerHTML, detaching container). Without this the interval
+      // would fetch /api/telegram/status forever and accumulate a new timer on
+      // every re-entry to the Devices screen.
+      if (!container.isConnected) {
+        stopPolling();
+        return;
+      }
       try {
         const s = await getStatus();
         render(s);

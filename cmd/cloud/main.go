@@ -208,10 +208,15 @@ func main() {
 	} else {
 		tgAPI = cloudserver.NewTelegramAPI(store, cfg.sessionSecret, cfg.managerBotToken, cfg.baseDomain, cfg.tgAPIBaseURL)
 		if err := tgAPI.Bootstrap(context.Background()); err != nil {
-			slog.Error("telegram manager bot bootstrap failed", "error", err)
-			os.Exit(1)
+			// Bootstrap hits api.telegram.org (getMe + setWebhook). Telegram is
+			// an optional, additive feature — a transient third-party outage at
+			// startup must not brick unlock/sync/push for every account. Log and
+			// leave Telegram disabled (no routes) instead of exiting.
+			slog.Error("telegram manager bot bootstrap failed; disabling telegram", "error", err)
+			tgAPI = nil
+		} else {
+			tgAPI.RegisterAPIRoutes(apiMux)
 		}
-		tgAPI.RegisterAPIRoutes(apiMux)
 	}
 
 	router := cloudserver.New(cfg.baseDomain, store, cloudweb.FS, webstatic.FS, domainweb.FS, apiMux, cfg.foodDBURL)

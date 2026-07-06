@@ -9,8 +9,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -59,13 +61,16 @@ func (c *Client) call(ctx context.Context, method string, params any, result any
 	url := fmt.Sprintf("%s/bot%s/%s", c.baseURL, c.token, method)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, &body)
 	if err != nil {
-		return err
+		return c.redact(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return err
+		// *url.Error.Error() prints the full request URL, which embeds the bot
+		// token as a path segment — strip it so a routine transport failure
+		// (DNS, timeout, refused) doesn't leak the token into caller logs.
+		return c.redact(err)
 	}
 	defer resp.Body.Close()
 
@@ -86,6 +91,19 @@ func (c *Client) call(ctx context.Context, method string, params any, result any
 		}
 	}
 	return nil
+}
+
+// redact returns err with any occurrence of the bot token replaced. The token
+// only ever appears verbatim in *url.Error (URL path segment); replacing the
+// raw substring covers it without depending on the error's concrete type.
+func (c *Client) redact(err error) error {
+	if err == nil || c.token == "" {
+		return err
+	}
+	if s := err.Error(); strings.Contains(s, c.token) {
+		return errors.New(strings.ReplaceAll(s, c.token, "bot<redacted>"))
+	}
+	return err
 }
 
 // User is the subset of Telegram's User we use.
