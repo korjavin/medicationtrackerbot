@@ -72,11 +72,11 @@ Optional Telegram setup during onboarding, one tap: the cloud's **manager bot** 
 
 ### Task 4: chat linking + child webhook + BYO fallback
 
-- [ ] `POST /tg/bot/<ref>/<secret>` child webhook: on `/start` message — link `chat_id` (`LinkChat`), send the welcome message (the end-to-end proof: "Your Med Tracker bot is connected"); reject wrong secret with 403; ignore non-`/start` content in C3a (no command surface until C3b)
-- [ ] `POST /api/telegram/byo` (session auth): `{token}` → `GetMe` validation → seal + `UpsertBot(kind=byo)` + `SetWebhook`; linking then follows the same `/start` path (client shows `t.me/<bot_username>` link)
-- [ ] `DELETE /api/telegram` (session auth): `DeleteWebhook`, remove row; note in response copy that a *managed* bot itself remains owned by the user (delete via BotFather if desired)
-- [ ] `POST /api/telegram/test` (session auth, linked only): sends a test notification through the bot — gives the wizard/settings a verifiable "it works" button
-- [ ] integration test: `/start` links chat + emits welcome; wrong webhook secret 403s; BYO with invalid token rejected via fake `getMe`; DELETE cascades — guards the linking contract end-to-end
+- [x] `POST /tg/bot/<ref>/<secret>` child webhook: on `/start` message — link `chat_id` (`LinkChat`), send the welcome message (the end-to-end proof: "Your Med Tracker bot is connected"); reject wrong secret with 403; ignore non-`/start` content in C3a (no command surface until C3b) (`ChildWebhook` in `internal/cloudserver/telegram.go`; loads bot by ref, constant-time secret check, welcome-send failure is non-fatal)
+- [x] `POST /api/telegram/byo` (session auth): `{token}` → `GetMe` validation → seal + `UpsertBot(kind=byo)` + `SetWebhook`; linking then follows the same `/start` path (client shows `t.me/<bot_username>` link) (`BYO`; getMe rejection → 400, not 500)
+- [x] `DELETE /api/telegram` (session auth): `DeleteWebhook`, remove row; note in response copy that a *managed* bot itself remains owned by the user (delete via BotFather if desired) (`Delete`; best-effort DeleteWebhook, then DeleteBot)
+- [x] `POST /api/telegram/test` (session auth, linked only): sends a test notification through the bot — gives the wizard/settings a verifiable "it works" button (`Test`; 409 when unlinked)
+- [x] integration test: `/start` links chat + emits welcome; wrong webhook secret 403s; BYO with invalid token rejected via fake `getMe`; DELETE cascades — guards the linking contract end-to-end (`TestTelegramLinkingAndBYO` in `internal/cloudserver/telegram_test.go`; recording fake asserts welcome + test messages sent)
 
 ### Task 5: client — consent screen + wizard step 5
 

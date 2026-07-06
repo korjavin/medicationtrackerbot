@@ -26,6 +26,14 @@ import (
 // provision — a user who never completes the BotFather dialog frees the row.
 const pendingTTL = time.Hour
 
+// welcomeMessage / testMessage are the only user-visible strings C3a sends —
+// server constants, no message content leaves the account beyond these (the
+// zero-knowledge posture the consent screen declares).
+const (
+	welcomeMessage = "✅ Your Med Tracker bot is connected."
+	testMessage    = "🔔 Test notification from Med Tracker — your bot works."
+)
+
 // TelegramAPI owns cmd/cloud's Telegram surface: the manager-bot bootstrap
 // (C3a Task 2), managed provisioning + webhooks (Tasks 3–4), and the
 // session-authed status/BYO/skip/test endpoints. It is only constructed when
@@ -77,6 +85,9 @@ func (t *TelegramAPI) Bootstrap(ctx context.Context) error {
 func (t *TelegramAPI) RegisterAPIRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/telegram/provision", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Provision)))
 	mux.Handle("GET /api/telegram/status", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Status)))
+	mux.Handle("POST /api/telegram/byo", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.BYO)))
+	mux.Handle("POST /api/telegram/test", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Test)))
+	mux.Handle("DELETE /api/telegram", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Delete)))
 }
 
 // RegisterWebhookRoutes wires the base-host Telegram server-to-server webhook
@@ -84,6 +95,7 @@ func (t *TelegramAPI) RegisterAPIRoutes(mux *http.ServeMux) {
 // ServeMux prefers the more specific pattern). Only called when enabled.
 func (t *TelegramAPI) RegisterWebhookRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /tg/manager/{secret}", t.ManagerWebhook)
+	mux.HandleFunc("POST /tg/bot/{ref}/{secret}", t.ChildWebhook)
 }
 
 // Provision starts a managed-bot creation flow: it mints a random suggested
@@ -216,14 +228,199 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	child := tgclient.New(token, t.apiBaseURL)
-	childURL := "https://" + t.baseDomain + "/tg/bot/" + accountID + "/" + botSecret
-	if err := child.SetWebhook(r.Context(), childURL, botSecret); err != nil {
+	if err := child.SetWebhook(r.Context(), t.childWebhookURL(accountID, botSecret), botSecret); err != nil {
 		slog.Error("telegram manager webhook: set child webhook", "error", err, "account", accountID)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	slog.Info("telegram managed bot provisioned", "account", accountID, "bot_username", mb.BotUsername)
 	w.WriteHeader(http.StatusOK)
+}
+
+// ChildWebhook receives a linked bot's updates. It loads the bot addressed by
+// the URL ref, checks the secret (path + header, constant-time) against that
+// bot's per-bot secret, then on a /start message links the chat and sends the
+// welcome message — the end-to-end proof the bot works. Non-/start content is
+// ignored in C3a (no command surface until C3b).
+func (t *TelegramAPI) ChildWebhook(w http.ResponseWriter, r *http.Request) {
+	ref := r.PathValue("ref")
+	bot, err := t.store.BotByWebhookRef(r.Context(), ref)
+	if errors.Is(err, sql.ErrNoRows) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if err != nil {
+		slog.Error("telegram child webhook: load bot", "error", err, "ref", ref)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if !t.authWebhook(r, bot.WebhookSecret) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	var upd tgclient.Update
+	if err := json.NewDecoder(r.Body).Decode(&upd); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if upd.Message == nil || !strings.HasPrefix(upd.Message.Text, "/start") {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	now := time.Now()
+	if err := t.store.LinkChat(r.Context(), ref, upd.Message.Chat.ID, now); err != nil {
+		slog.Error("telegram child webhook: link chat", "error", err, "ref", ref)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	client, err := t.botClient(bot)
+	if err != nil {
+		slog.Error("telegram child webhook: open token", "error", err, "ref", ref)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if err := client.SendMessage(r.Context(), upd.Message.Chat.ID, welcomeMessage); err != nil {
+		slog.Error("telegram child webhook: send welcome", "error", err, "ref", ref)
+		// chat is linked; a failed welcome send is not fatal — reply 200 so
+		// Telegram doesn't retry the /start.
+	}
+	slog.Info("telegram bot linked", "account", ref, "chat_id", upd.Message.Chat.ID)
+	w.WriteHeader(http.StatusOK)
+}
+
+// BYO validates an operator-supplied bot token via getMe, seals it, stores it
+// (kind=byo), and points a webhook at the child route. Linking then follows the
+// same /start path as a managed bot.
+func (t *TelegramAPI) BYO(w http.ResponseWriter, r *http.Request) {
+	sess, ok := SessionFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var body struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Token) == "" {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	token := strings.TrimSpace(body.Token)
+
+	client := tgclient.New(token, t.apiBaseURL)
+	me, err := client.GetMe(r.Context())
+	if err != nil {
+		// Bad token — Telegram rejects getMe. Surface as a 400, not a 500.
+		slog.Info("telegram byo: getMe rejected", "account", sess.AccountID, "error", err)
+		http.Error(w, "invalid bot token", http.StatusBadRequest)
+		return
+	}
+
+	ct, nonce, err := sealTGToken(t.sessionSecret, token)
+	if err != nil {
+		slog.Error("telegram byo: seal token", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	botSecret := randomSecret()
+	if err := t.store.UpsertBot(r.Context(), cloudstore.TGBot{
+		AccountID:     sess.AccountID,
+		BotID:         me.ID,
+		BotUsername:   me.Username,
+		TokenCT:       ct,
+		TokenNonce:    nonce,
+		Kind:          "byo",
+		WebhookSecret: botSecret,
+		CreatedAt:     time.Now(),
+	}); err != nil {
+		slog.Error("telegram byo: upsert bot", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if err := client.SetWebhook(r.Context(), t.childWebhookURL(sess.AccountID, botSecret), botSecret); err != nil {
+		slog.Error("telegram byo: set webhook", "error", err, "account", sess.AccountID)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"bot_username": me.Username})
+}
+
+// Test sends a test notification through a linked bot — the wizard/settings
+// "it works" button. Requires a bot that has been /start'ed (chat linked).
+func (t *TelegramAPI) Test(w http.ResponseWriter, r *http.Request) {
+	sess, ok := SessionFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	bot, err := t.store.BotByAccount(r.Context(), sess.AccountID)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && bot.ChatID == nil) {
+		http.Error(w, "bot not linked", http.StatusConflict)
+		return
+	}
+	if err != nil {
+		slog.Error("telegram test: load bot", "error", err, "account", sess.AccountID)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	client, err := t.botClient(bot)
+	if err != nil {
+		slog.Error("telegram test: open token", "error", err, "account", sess.AccountID)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if err := client.SendMessage(r.Context(), *bot.ChatID, testMessage); err != nil {
+		slog.Error("telegram test: send", "error", err, "account", sess.AccountID)
+		http.Error(w, "send failed", http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"sent": true})
+}
+
+// Delete unlinks the account's bot: it deletes the Telegram webhook (best
+// effort) and removes the row. A *managed* bot itself stays owned by the user
+// (deletable via BotFather) — the response copy says so.
+func (t *TelegramAPI) Delete(w http.ResponseWriter, r *http.Request) {
+	sess, ok := SessionFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	bot, err := t.store.BotByAccount(r.Context(), sess.AccountID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		slog.Error("telegram delete: load bot", "error", err, "account", sess.AccountID)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if err == nil {
+		if client, cerr := t.botClient(bot); cerr == nil {
+			if werr := client.DeleteWebhook(r.Context()); werr != nil {
+				slog.Warn("telegram delete: delete webhook", "error", werr, "account", sess.AccountID)
+			}
+		}
+		if derr := t.store.DeleteBot(r.Context(), sess.AccountID); derr != nil {
+			slog.Error("telegram delete: delete row", "error", derr, "account", sess.AccountID)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"note": "Bot unlinked. A managed bot remains yours — delete it in BotFather if you no longer want it.",
+	})
+}
+
+// childWebhookURL builds the base-host child-webhook URL for a bot secret.
+func (t *TelegramAPI) childWebhookURL(accountID, botSecret string) string {
+	return "https://" + t.baseDomain + "/tg/bot/" + accountID + "/" + botSecret
+}
+
+// botClient opens a bot's sealed token and returns a tgclient bound to it.
+func (t *TelegramAPI) botClient(bot *cloudstore.TGBot) (*tgclient.Client, error) {
+	token, err := openTGToken(t.sessionSecret, bot.TokenCT, bot.TokenNonce)
+	if err != nil {
+		return nil, err
+	}
+	return tgclient.New(token, t.apiBaseURL), nil
 }
 
 // authWebhook checks both the secret path component and the
