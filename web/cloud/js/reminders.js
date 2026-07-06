@@ -13,7 +13,9 @@
 // primitive.
 import { createRemindersDomain } from '../../domain/reminders.js';
 import { recordsPort } from './sync.js';
-import { pushSchedule } from './push.js';
+import { pushSchedule, sendTestPush } from './push.js';
+
+export { sendTestPush };
 
 const MEDICATION_RECORD_TYPE = 'medication';
 const INTAKE_RECORD_TYPE = 'intake';
@@ -51,16 +53,6 @@ export async function computeReminderEntries(ctx, { records: recordsOverride, ti
 export async function recomputeAndPush(ctx, opts = {}) {
   const entries = await computeReminderEntries(ctx, opts);
   await pushSchedule(ctx, entries);
-}
-
-// sendTestPush appends one test entry to the real reminder set and PUTs both
-// together — /api/push/schedule is replace-all, so PUTting the test entry
-// alone would wipe every real reminder until the next recompute. Delivery
-// depends on the relay's tick interval, so the notification is not instant.
-export async function sendTestPush(ctx, opts = {}) {
-  const realEntries = await computeReminderEntries(ctx, opts);
-  const testEntry = { fireAtUnix: Math.floor(Date.now() / 1000) + 5, text: 'Test notification from Med Tracker' };
-  await pushSchedule(ctx, [...realEntries, testEntry]);
 }
 
 // scheduleReminderRecompute debounces recomputeAndPush per ctx (keyed by

@@ -1,10 +1,10 @@
-// Plan 2026-07-06 cloud-push-notifications-settings, Task 5. Guards the
-// cloud-only Notifications block wired in features/settings.js
-// (bindCloudNotifications) against: the server block staying hidden in
-// server mode, the cloud block un-hiding + wiring Enable/Disable/Test in
-// cloud mode, and the real (non-mocked) sendTestPush/pushSchedule chain
-// preserving the real reminder entries when it appends the test entry
-// (PUT /api/push/schedule is replace-all — see web/cloud/js/reminders.js).
+// Plan 2026-07-06 cloud-push-notifications-settings, Task 5, updated by
+// med-eas.20 (cloud-push-test-this-device). Guards the cloud-only
+// Notifications block wired in features/settings.js (bindCloudNotifications)
+// against: the server block staying hidden in server mode, the cloud block
+// un-hiding + wiring Enable/Disable/Test in cloud mode, and the real
+// (non-mocked) sendTestPush sending an immediate this-device-only test via
+// POST /api/push/test (never PUT /api/push/schedule).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
 import { allowConsoleNoise } from './helpers/setup.js';
@@ -239,49 +239,80 @@ describe('cloud Notifications controls (bindCloudNotifications)', () => {
             testBtn.click();
             await vi.waitFor(() => expect(sendTestPush).toHaveBeenCalledTimes(1));
             expect(sendTestPush).toHaveBeenCalledWith(ctx);
-            await vi.waitFor(() => expect(status.textContent).toContain('Test push scheduled'));
+            await vi.waitFor(() => expect(status.textContent).toContain('Test sent to this device.'));
         } finally {
             cleanup();
         }
     });
 });
 
-describe('sendTestPush non-clobber guarantee (web/cloud/js/reminders.js, real implementation)', () => {
-    // /api/push/schedule is a replace-all PUT (docs/cloud-mode.md), so
-    // sendTestPush must upload the real reminder entries alongside the test
-    // entry in one call, or the test push wipes every real reminder until
-    // the next recompute. Exercises the real sendTestPush/computeReminderEntries
-    // against an injected records port (bypassing recordsPort/IndexedDB, which
-    // need a browser) and a stubbed domain horizon (createRemindersDomain is
-    // covered on its own merits by the domain-purity suite) — only
-    // web/cloud/js/push.js's pushSchedule is mocked, to capture what gets sent.
+describe('sendTestPush this-device-only send (web/cloud/js/push.js, real implementation)', () => {
+    // sendTestPush no longer schedules anything (docs/cloud-mode.md): it
+    // POSTs the current device's subscription + encrypted ct straight to
+    // /api/push/test, which the server sends immediately to that one
+    // subscription only. Exercises the real sendTestPush against a stubbed
+    // service-worker registration + fetch (crypto/sync are mocked — they're
+    // covered on their own merits elsewhere).
     afterEach(() => {
         vi.resetModules();
+        vi.unstubAllGlobals();
     });
 
-    it('PUTs the real entries plus one appended test entry, never the test entry alone', async () => {
-        const realEntry = { fireAtUnix: 1700000000, text: 'Take Aspirin (10mg)' };
-        vi.doMock('../../../../web/domain/reminders.js', () => ({
-            createRemindersDomain: () => ({ buildHorizon: async () => [realEntry] })
+    it('POSTs endpoint + ct to /api/push/test and never touches /api/push/schedule', async () => {
+        vi.doMock('../../../../web/cloud/js/sync.js', () => ({
+            getOrCreateNK: vi.fn().mockResolvedValue('nk-stub'),
+            hasRichNotifications: vi.fn(),
+            disableRichNotifications: vi.fn(),
         }));
-        const pushSchedule = vi.fn().mockResolvedValue(undefined);
-        vi.doMock('../../../../web/cloud/js/push.js', () => ({ pushSchedule }));
+        vi.doMock('../../../../web/cloud/js/crypto.js', () => ({
+            encryptPushPayload: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3])),
+            toBase64: vi.fn(() => 'ct-base64'),
+        }));
 
-        const { sendTestPush } = await import('../../../../web/cloud/js/reminders.js');
+        const sub = { endpoint: 'https://push.example/device-a' };
+        vi.stubGlobal('navigator', {
+            serviceWorker: {
+                getRegistration: vi.fn().mockResolvedValue({
+                    pushManager: { getSubscription: vi.fn().mockResolvedValue(sub) }
+                })
+            }
+        });
+        const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+        vi.stubGlobal('fetch', fetchMock);
+
+        const { sendTestPush } = await import('../../../../web/cloud/js/push.js');
         const ctx = { accountId: 'acc-1' };
-        const fakeRecords = { list: vi.fn(async () => []) };
+        await sendTestPush(ctx);
 
-        const beforeUnix = Math.floor(Date.now() / 1000);
-        await sendTestPush(ctx, { records: fakeRecords, timeZone: 'UTC' });
-        const afterUnix = Math.floor(Date.now() / 1000);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const [url, opts] = fetchMock.mock.calls[0];
+        expect(url).toBe('/api/push/test');
+        expect(opts.method).toBe('POST');
+        const body = JSON.parse(opts.body);
+        expect(body.endpoint).toBe(sub.endpoint);
+        expect(body.ct).toBe('ct-base64');
+    });
 
-        expect(pushSchedule).toHaveBeenCalledTimes(1);
-        const [calledCtx, entries] = pushSchedule.mock.calls[0];
-        expect(calledCtx).toBe(ctx);
-        expect(entries).toHaveLength(2);
-        expect(entries[0]).toEqual(realEntry);
-        expect(entries[1].text).toBe('Test notification from Med Tracker');
-        expect(entries[1].fireAtUnix).toBeGreaterThanOrEqual(beforeUnix);
-        expect(entries[1].fireAtUnix).toBeLessThanOrEqual(afterUnix + 5 + 1);
+    it('throws a clear error when no subscription exists on this device', async () => {
+        vi.doMock('../../../../web/cloud/js/sync.js', () => ({
+            getOrCreateNK: vi.fn(),
+            hasRichNotifications: vi.fn(),
+            disableRichNotifications: vi.fn(),
+        }));
+        vi.doMock('../../../../web/cloud/js/crypto.js', () => ({
+            encryptPushPayload: vi.fn(),
+            toBase64: vi.fn(),
+        }));
+        vi.stubGlobal('navigator', {
+            serviceWorker: {
+                getRegistration: vi.fn().mockResolvedValue({
+                    pushManager: { getSubscription: vi.fn().mockResolvedValue(null) }
+                })
+            }
+        });
+        vi.stubGlobal('fetch', vi.fn());
+
+        const { sendTestPush } = await import('../../../../web/cloud/js/push.js');
+        await expect(sendTestPush({ accountId: 'acc-1' })).rejects.toThrow(/enable push/i);
     });
 });

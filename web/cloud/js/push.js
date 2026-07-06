@@ -124,6 +124,29 @@ export async function subscribe() {
   return sub;
 }
 
+// sendTestPush sends an immediate, this-device-only test notification: no
+// schedule round-trip, no relay ticker wait, and no risk of clobbering the
+// real reminder schedule (see docs/cloud-mode.md — replaces the old
+// append-to-schedule test path).
+export async function sendTestPush(ctx) {
+  const sub = await getSubscription();
+  if (!sub) throw new Error('Enable push notifications on this device first.');
+  const nk = await getOrCreateNK(ctx);
+  const plaintext = new TextEncoder().encode(JSON.stringify({ title: 'Med Tracker', body: 'Test notification' }));
+  const ct = await encryptPushPayload(nk, plaintext);
+  const res = await fetch('/api/push/test', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ endpoint: sub.endpoint, ct: toBase64(ct) }),
+  });
+  if (!res.ok) {
+    if (res.status === 410 || res.status === 404) {
+      throw new Error("This device's subscription expired — re-enable push notifications.");
+    }
+    throw new Error("Couldn't send the test push — try again in a moment.");
+  }
+}
+
 export async function pushSchedule(ctx, reminders) {
   const nk = await getOrCreateNK(ctx);
   const entries = [];

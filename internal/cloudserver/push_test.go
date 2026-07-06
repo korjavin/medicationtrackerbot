@@ -1,10 +1,12 @@
 package cloudserver
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 // TestGetVapidPublicKey_PerAccount guards the per-account VAPID design: two
@@ -15,7 +17,7 @@ func TestGetVapidPublicKey_PerAccount(t *testing.T) {
 	accountA, _ := setupInvite(t, store)
 	accountB, _ := setupInvite(t, store)
 
-	pushAPI := NewPushAPI(store, "test-session-secret-at-least-32-bytes-long")
+	pushAPI := NewPushAPI(store, &fakeSender{}, "test-session-secret-at-least-32-bytes-long")
 	mux := http.NewServeMux()
 	pushAPI.RegisterRoutes(mux)
 	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "")
@@ -85,5 +87,102 @@ func TestValidatePushEndpoint(t *testing.T) {
 		if err := validatePushEndpoint(e); err == nil {
 			t.Errorf("validatePushEndpoint(%q) = nil, want error", e)
 		}
+	}
+}
+
+func postTestPush(t *testing.T, h http.Handler, host string, session *http.Cookie, req testPushRequest) *httptest.ResponseRecorder {
+	t.Helper()
+	body, _ := json.Marshal(req)
+	r := httptest.NewRequest(http.MethodPost, "/api/push/test", bytes.NewReader(body))
+	r.Host = host
+	r.AddCookie(session)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, r)
+	return rec
+}
+
+// TestPostTestPush_TargetsOnlyNamedEndpoint guards the this-device-only test
+// affordance: with two subscriptions on the same account, POST
+// /api/push/test must send to exactly the named endpoint (never fan out to
+// the other device), forward ct verbatim (the server stays blind to
+// plaintext), and 404 an endpoint that isn't registered to the account.
+func TestPostTestPush_TargetsOnlyNamedEndpoint(t *testing.T) {
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+
+	webauthnAPI := NewWebAuthnAPI(store, "test-session-secret-at-least-32-bytes-long")
+	sender := &fakeSender{}
+	pushAPI := NewPushAPI(store, sender, "test-session-secret-at-least-32-bytes-long")
+	mux := http.NewServeMux()
+	webauthnAPI.RegisterRoutes(mux)
+	pushAPI.RegisterRoutes(mux)
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "")
+
+	session := registerAndGetSession(t, h, host, claimToken)
+
+	ctx := t.Context()
+	if err := store.UpsertPushSubscription(ctx, account.ID, "https://push.example/device-a", "p256dh", "auth", time.Now().UTC()); err != nil {
+		t.Fatalf("UpsertPushSubscription A: %v", err)
+	}
+	if err := store.UpsertPushSubscription(ctx, account.ID, "https://push.example/device-b", "p256dh", "auth", time.Now().UTC()); err != nil {
+		t.Fatalf("UpsertPushSubscription B: %v", err)
+	}
+
+	rec := postTestPush(t, h, host, session, testPushRequest{Endpoint: "https://push.example/device-a", CT: []byte("test-ct")})
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("POST /api/push/test status = %d, body %q", rec.Code, rec.Body.String())
+	}
+	if len(sender.sent) != 1 {
+		t.Fatalf("expected exactly 1 send (this-device-only), got %d: %+v", len(sender.sent), sender.sent)
+	}
+	if sender.sent[0].endpoint != "https://push.example/device-a" {
+		t.Fatalf("sent to %q, want only device-a (device-b must not receive the test)", sender.sent[0].endpoint)
+	}
+	if string(sender.sent[0].ct) != "test-ct" {
+		t.Fatalf("sent ct = %q, want %q — server must forward ciphertext verbatim (blind)", sender.sent[0].ct, "test-ct")
+	}
+
+	recUnknown := postTestPush(t, h, host, session, testPushRequest{Endpoint: "https://push.example/unknown-device", CT: []byte("test-ct")})
+	if recUnknown.Code != http.StatusNotFound {
+		t.Fatalf("POST /api/push/test to unknown endpoint status = %d, want 404", recUnknown.Code)
+	}
+}
+
+// TestPostTestPush_GoneDisablesSubscription guards the stale-subscription path
+// the client's "subscription expired — re-enable" UX depends on: when the push
+// service returns 410, PostTestPush must respond 410 and disable the row so it
+// stops being relayed to.
+func TestPostTestPush_GoneDisablesSubscription(t *testing.T) {
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+
+	webauthnAPI := NewWebAuthnAPI(store, "test-session-secret-at-least-32-bytes-long")
+	sender := &fakeSender{goneFor: map[string]bool{"https://push.example/gone": true}}
+	pushAPI := NewPushAPI(store, sender, "test-session-secret-at-least-32-bytes-long")
+	mux := http.NewServeMux()
+	webauthnAPI.RegisterRoutes(mux)
+	pushAPI.RegisterRoutes(mux)
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "")
+
+	session := registerAndGetSession(t, h, host, claimToken)
+
+	ctx := t.Context()
+	if err := store.UpsertPushSubscription(ctx, account.ID, "https://push.example/gone", "p256dh", "auth", time.Now().UTC()); err != nil {
+		t.Fatalf("UpsertPushSubscription: %v", err)
+	}
+
+	rec := postTestPush(t, h, host, session, testPushRequest{Endpoint: "https://push.example/gone", CT: []byte("test-ct")})
+	if rec.Code != http.StatusGone {
+		t.Fatalf("POST /api/push/test to gone endpoint status = %d, want 410", rec.Code)
+	}
+
+	sub, err := store.GetByEndpoint(ctx, account.ID, "https://push.example/gone")
+	if err != nil {
+		t.Fatalf("GetByEndpoint: %v", err)
+	}
+	if sub != nil {
+		t.Fatalf("subscription should be disabled after 410 (GetByEndpoint filters disabled), got %+v", sub)
 	}
 }

@@ -194,7 +194,7 @@ function bindCloudNotifications() {
             try {
                 const { sendTestPush } = await loadCloudRemindersModule();
                 await sendTestPush(ctx);
-                applyWebpushStatus(status, 'Test push scheduled — it should arrive shortly.', 'success');
+                applyWebpushStatus(status, 'Test sent to this device.', 'success');
             } catch (err) {
                 applyWebpushStatus(status, err.message || 'Failed to send test push', 'error');
             }
