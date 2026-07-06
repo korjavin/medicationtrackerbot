@@ -52,7 +52,7 @@ Optional Telegram setup during onboarding, one tap: the cloud's **manager bot** 
 
 ### Task 1: cloudstore — Telegram bots migration + repo methods
 
-- [ ] migration `00N_telegram.sql`: `tg_bots(account_id TEXT PK, bot_id INTEGER NOT NULL, bot_username TEXT NOT NULL, token_ct BLOB NOT NULL, token_nonce BLOB NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('managed','byo')), chat_id INTEGER, webhook_secret TEXT NOT NULL, created_at_unix INTEGER NOT NULL, linked_at_unix INTEGER)`, `tg_pending(suggested_username TEXT PK, account_id TEXT NOT NULL, created_at_unix INTEGER NOT NULL, expires_at_unix INTEGER NOT NULL)`; add `tg_skipped_unix INTEGER` to `accounts`
+- [ ] migration `009_telegram.sql` (latest is `008_mcp_remote.sql`; take `009`, or the next contiguous number if another branch landed one first): `tg_bots(account_id TEXT PK, bot_id INTEGER NOT NULL, bot_username TEXT NOT NULL, token_ct BLOB NOT NULL, token_nonce BLOB NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('managed','byo')), chat_id INTEGER, webhook_secret TEXT NOT NULL, created_at_unix INTEGER NOT NULL, linked_at_unix INTEGER)`, `tg_pending(suggested_username TEXT PK, account_id TEXT NOT NULL, created_at_unix INTEGER NOT NULL, expires_at_unix INTEGER NOT NULL)`; add `tg_skipped_unix INTEGER` to `accounts`
 - [ ] repo methods: `CreatePending`, `ConsumePendingByUsername`, `UpsertBot`, `BotByAccount`, `BotByWebhookRef`, `LinkChat`, `DeleteBot`, `SetTGSkipped` — context-first, unix-seconds convention
 - [ ] token seal/open helpers (HKDF from `SESSION_SECRET`, `info="mt/tg-token/v1"`, AES-GCM) in `internal/cloudserver`
 - [ ] integration test: migration + bot row roundtrip with token seal/open (guards the at-rest encryption actually decrypts after a store/load cycle)
