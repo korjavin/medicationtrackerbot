@@ -192,13 +192,14 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name          string     `json:"name"`
-		Dosage        string     `json:"dosage"`
-		Schedule      string     `json:"schedule"`
-		Supplement    *bool      `json:"supplement"`
-		StartDate     *time.Time `json:"start_date"`
-		EndDate       *time.Time `json:"end_date"`
-		TZShiftPolicy string     `json:"tz_shift_policy"`
+		Name           string     `json:"name"`
+		Dosage         string     `json:"dosage"`
+		Schedule       string     `json:"schedule"`
+		Supplement     *bool      `json:"supplement"`
+		StartDate      *time.Time `json:"start_date"`
+		EndDate        *time.Time `json:"end_date"`
+		InventoryCount *int       `json:"inventory_count"`
+		TZShiftPolicy  string     `json:"tz_shift_policy"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -241,6 +242,12 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Supplement != nil {
 		if err := s.meds.SetSupplement(id, *req.Supplement); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	if req.InventoryCount != nil {
+		if err := s.meds.SetInventoryCount(id, req.InventoryCount); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

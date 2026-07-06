@@ -85,10 +85,11 @@ func TestHandleCreate(t *testing.T) {
 	defer db.Close()
 
 	reqBody := map[string]interface{}{
-		"name":       "Test Med",
-		"dosage":     "500mg",
-		"schedule":   "Every day",
-		"supplement": true,
+		"name":            "Test Med",
+		"dosage":          "500mg",
+		"schedule":        "Every day",
+		"supplement":      true,
+		"inventory_count": 42,
 	}
 	body, _ := json.Marshal(reqBody)
 
@@ -120,6 +121,13 @@ func TestHandleCreate(t *testing.T) {
 	}
 	if !meds[0].Supplement {
 		t.Errorf("Expected supplement=true, got false")
+	}
+	// Regression (med-eas.13): initial stock supplied on create must persist,
+	// not be dropped to NULL.
+	if meds[0].InventoryCount == nil {
+		t.Errorf("Expected inventory_count to be persisted on create, got nil")
+	} else if *meds[0].InventoryCount != 42 {
+		t.Errorf("Expected inventory_count=42, got %d", *meds[0].InventoryCount)
 	}
 }
 
