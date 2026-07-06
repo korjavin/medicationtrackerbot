@@ -88,10 +88,10 @@ Optional Telegram setup during onboarding, one tap: the cloud's **manager bot** 
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] full walkthrough against the fake Telegram API in tests: consent → provision → managed_bot → token stored sealed → /start → linked → test message
-- [ ] verify Telegram-disabled mode: no wizard step, no webhook routes… routes may exist but 404/403 cleanly; no startup errors
-- [ ] verify no plaintext bot tokens in DB rows, logs, or API responses (grep + test assertion)
-- [ ] `go test ./...`, `pnpm test`, both build modes, linter — all pass/fixed
+- [x] full walkthrough against the fake Telegram API in tests: consent → provision → managed_bot → token stored sealed → /start → linked → test message (`TestTelegramProvisioningStateMachine` + `TestTelegramLinkingAndBYO`, both pass)
+- [x] verify Telegram-disabled mode: no wizard step, no webhook routes… routes may exist but 404/403 cleanly; no startup errors (`cmd/cloud/main.go`: `MANAGER_BOT_TOKEN` unset → logs "telegram disabled", `tgAPI` nil, neither `RegisterAPIRoutes` nor `RegisterWebhookRoutes` called; status carries `enabled:false`)
+- [x] verify no plaintext bot tokens in DB rows, logs, or API responses (grep + test assertion) (`telegram_test.go:106` asserts `TokenCT` has no plaintext; Status returns only `enabled/state/bot_username`; `slog` calls log errors/bot_id/ref/account, never the token)
+- [x] `go test ./...`, `pnpm test`, both build modes, linter — all pass/fixed (`go test ./...` green; server + `-tags mobile` builds OK; `go vet` + `golangci-lint` 0 issues; Telegram frontend test passes. ⚠️ `pnpm test` has 2 pre-existing failures in `cloud.shim-contract.food-ai.test.js` — C2c code untouched by this branch, not a C3a regression)
 
 ### Task 7: [Final] Update documentation
 
