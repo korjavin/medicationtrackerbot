@@ -222,6 +222,10 @@ export function createResponder({
   }
 
   async function onFrame(data) {
+    // Capture the socket this frame arrived on: the dispatch below awaits, and
+    // a reconnect (see scheduleReconnect) can rebind `ws` to a new CONNECTING
+    // socket meanwhile — send()ing on that throws and loses the response.
+    const sock = ws;
     const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array(await data.arrayBuffer());
     let payload;
     try {
@@ -229,6 +233,9 @@ export function createResponder({
     } catch {
       return; // ponytail: drop undecryptable frames (tamper/wrong-key); full C4 may alert.
     }
+    // ponytail: no anti-replay/dedup — the blind relay could replay a captured
+    // write frame and this re-executes it. Binding a per-connection counter into
+    // the frame AAD + a seen-id window here is full-C4 scope (see the plan).
     let request;
     try {
       request = JSON.parse(decoder.decode(payload));
@@ -237,7 +244,7 @@ export function createResponder({
     }
     const response = await handleRequest(dispatcher, request);
     const responseFrame = await sealMCPFrame(key, pairingId, utf8(JSON.stringify(response)));
-    ws.send(responseFrame);
+    if (sock.readyState === WebSocket.OPEN) sock.send(responseFrame);
   }
 
   function scheduleReconnect() {
