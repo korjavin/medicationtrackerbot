@@ -17,6 +17,12 @@ const FOODTARGETS_RECORD_TYPE = 'foodtargets';
 const FOODTARGETS_RECORD_ID = 'foodtargets';
 const INTEGRATIONS_RECORD_TYPE = 'integrations';
 const INTEGRATIONS_RECORD_ID = 'integrations';
+// Provisioned ElevenLabs voice agent state (agent id + toolset version + tool
+// id map). Kept in its own vault singleton rather than the masked integrations
+// record because it holds an object map, and because it is app-provisioned
+// state, not a user-entered secret. Never reachable via any /api shim route.
+const VOICEPROV_RECORD_TYPE = 'voiceprovisioning';
+const VOICEPROV_RECORD_ID = 'voiceprovisioning';
 
 // SECRET_MASK mirrors secretMask in settings_integrations_handlers.go: GET
 // returns this sentinel for non-empty secret fields (never the raw key), and
@@ -231,6 +237,31 @@ export function createSettingsDomain({ records, now, timeZone }) {
     return getIntegrations();
   }
 
+  // getVoiceProvisioning / setVoiceProvisioning persist the app-provisioned
+  // ElevenLabs agent id, toolset version, and tool-id map in the vault so
+  // elevenlabs-agent.js can reprovision only when the version changes.
+  async function getVoiceProvisioning() {
+    const all = await records.list(VOICEPROV_RECORD_TYPE);
+    const rec = findSingleton(all, VOICEPROV_RECORD_ID);
+    return {
+      agentId: (rec && rec.agentId) || '',
+      toolsetVersion: (rec && rec.toolsetVersion) || 0,
+      toolIds: (rec && rec.toolIds) || {},
+    };
+  }
+
+  async function setVoiceProvisioning({ agentId, toolsetVersion, toolIds }) {
+    await records.put(VOICEPROV_RECORD_TYPE, {
+      recordId: VOICEPROV_RECORD_ID,
+      clientTs: now(),
+      deleted: false,
+      agentId: agentId || '',
+      toolsetVersion: toolsetVersion || 0,
+      toolIds: toolIds || {},
+    });
+    return getVoiceProvisioning();
+  }
+
   return {
     getGeneral,
     setTimezone,
@@ -243,6 +274,8 @@ export function createSettingsDomain({ records, now, timeZone }) {
     setFoodTargets,
     getIntegrations,
     patchIntegrations,
+    getVoiceProvisioning,
+    setVoiceProvisioning,
     // readIntegrationsUnmasked exposes raw provider keys for module-to-module
     // consumption only (web/cloud/js/aiclient.js, the food-DB port) — never
     // reachable via any shim route; getIntegrations()'s masked shape stays

@@ -33,9 +33,16 @@
 
     async function fetchSignedURL() {
         // Cloud mode has no server signed-URL route — mint it browser-direct
-        // from the vault's ElevenLabs key (BYO; key never crosses /api).
+        // from the vault's ElevenLabs key (BYO; key never crosses /api). First
+        // auto-provision the tools + MedTracker agent from code (idempotent;
+        // reprovisions only on a toolset-version bump) so the user configures
+        // only the API key. Provisioning errors surface as the call status.
         if (window.__MEDTRACKER_CLOUD__ && window.CloudElevenLabs) {
-            return window.CloudElevenLabs.fetchSignedURL();
+            let agentId;
+            if (window.CloudElevenLabsAgent) {
+                agentId = await window.CloudElevenLabsAgent.provision();
+            }
+            return window.CloudElevenLabs.fetchSignedURL(agentId);
         }
         const apiCall = (typeof window.offlineAwareApiCall === 'function')
             ? window.offlineAwareApiCall
@@ -71,9 +78,34 @@
                 return JSON.stringify({ error: (err && err.message) || 'MCP dispatch failed' });
             }
         };
+        // The SDK sometimes hands tool args as a JSON string rather than an
+        // object; coerce so destructuring works either way.
+        const asObj = (a) => {
+            if (typeof a === 'string') { try { return JSON.parse(a); } catch (_) { return {}; } }
+            return a || {};
+        };
+        // now() as a stable seam so tests can stamp a deterministic timestamp.
+        const nowISO = () => new Date().toISOString();
+        const call = (op, params) => dispatch('mcp_call', { op, params });
         return {
+            // Generic surface — harmless to keep; the concrete tools below are
+            // the provisioned + actually-invoked path (Task 3).
             mcp_help: async () => dispatch('mcp_help', {}),
-            mcp_call: async ({ op, params } = {}) => dispatch('mcp_call', { op, params: params || {} }),
+            mcp_call: async ({ op, params } = {}) => call(op, params || {}),
+            // Concrete tools whose names match the provisioned ElevenLabs tools
+            // (elevenlabs-agent.js TOOL_SPECS). Each maps 1:1 to a catalog op.
+            get_blood_pressure: async (a) => call('bp.list', { days: asObj(a).days }),
+            log_blood_pressure: async (a) => {
+                const { systolic, diastolic, pulse } = asObj(a);
+                return call('bp.create', { measured_at: nowISO(), systolic, diastolic, pulse });
+            },
+            get_weight: async (a) => call('weight.list', { days: asObj(a).days }),
+            log_weight: async (a) => call('weight.create', { measured_at: nowISO(), weight: asObj(a).kg }),
+            get_notes: async () => call('notes.list', {}),
+            add_note: async (a) => {
+                const { text, tag } = asObj(a);
+                return call('notes.create', { content: text, tag });
+            },
         };
     }
 
