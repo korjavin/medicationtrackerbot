@@ -20,6 +20,7 @@ import { createRxnormPort } from './rxnorm.js';
 import { createAIClient } from './aiclient.js';
 import { createFoodDbClient } from './fooddb.js';
 import { createElevenLabsClient } from './elevenlabs-signed-url.js';
+import { createElevenLabsAgentProvisioner } from './elevenlabs-agent.js';
 import { createDispatcher } from './mcp-responder.js';
 
 // materializeTimerHandle is module-level (not per-shim-instance) because the
@@ -109,6 +110,11 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
   // window.__MEDTRACKER_CLOUD__ to mint the signed URL browser-direct here
   // (BYO ElevenLabs key from the vault; never crosses /api).
   targetWindow.CloudElevenLabs = createElevenLabsClient({ settingsDomain: settings });
+  // Auto-provisioning: creates the ElevenLabs client tools + a MedTracker agent
+  // from code (browser-direct with the vault key) so the user configures only
+  // the API key. elevenlabs-call.js calls provision() before minting the
+  // signed URL. See web/cloud/js/elevenlabs-agent.js.
+  targetWindow.CloudElevenLabsAgent = createElevenLabsAgentProvisioner({ settingsDomain: settings });
   // Voice MCP tools: elevenlabs-call.js registers mcp_help/mcp_call clientTools
   // (cloud only) that dispatch straight into this in-tab catalog — same
   // bp/weight/notes instances above, no relay/crypto (the relay responder in

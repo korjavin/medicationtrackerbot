@@ -85,25 +85,28 @@ with an audible tool-call sound. Closes bd **med-eas.26**.
 
 ### Task 1: Browser-direct ElevenLabs provisioning client
 
-- [ ] New `web/cloud/js/elevenlabs-agent.js`:
+- [x] New `web/cloud/js/elevenlabs-agent.js`:
       `createElevenLabsAgentProvisioner({ settingsDomain })` reading the vault
       `elevenlabs.api_key`. A `TOOLSET_VERSION` const and a fixed tool spec list
       (name, description, flat params) for: `get_blood_pressure` (days?),
       `log_blood_pressure` (systolic, diastolic, pulse?), `get_weight`,
       `log_weight` (kg), `get_notes`, `add_note` (text, tag?).
-- [ ] `ensureTools()`: `GET /v1/convai/tools`, match our tools by name; `POST
+- [x] `ensureTools()`: `GET /v1/convai/tools`, match our tools by name; `POST
       /v1/convai/tools` (the `tool_config` client shape above) for any missing;
       return a `{ name → id }` map. All with `xi-api-key`.
-- [ ] `ensureAgent(toolIds)`: if the vault has a stored agent id + matching
+- [x] `ensureAgent(toolIds)`: if the vault has a stored agent id + matching
       `TOOLSET_VERSION`, reuse it; else `POST /v1/convai/agents/create` with the
       tool_ids, a strong system prompt (call the tools for any data question,
       never claim no access), `tts.voice_id`, and `tool_call_sound: 'typing'` +
       `tool_call_sound_behavior: 'always'`; persist `{ agentId, toolsetVersion,
       toolIds }` to the vault. (If the user pre-set an `agent_id`, `PATCH` that
-      agent instead of creating one.)
-- [ ] `provision()`: orchestrates ensureTools → ensureAgent, returns the
+      agent instead of creating one.) ➕ persistence added as a dedicated
+      `voiceprovisioning` vault singleton via new
+      `settingsDomain.get/setVoiceProvisioning` (object map won't round-trip the
+      masked integrations record).
+- [x] `provision()`: orchestrates ensureTools → ensureAgent, returns the
       `agentId`; clear errors on bad key/quota/agent-slot limits.
-- [ ] Publish from `apishim.js`: `window.CloudElevenLabsAgent =
+- [x] Publish from `apishim.js`: `window.CloudElevenLabsAgent =
       createElevenLabsAgentProvisioner({ settingsDomain: settings })`.
 
 ### Task 2: Signed URL + call flow use the provisioned agent
