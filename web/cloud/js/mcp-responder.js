@@ -185,7 +185,20 @@ export async function handleRequest(dispatcher, request) {
   try {
     response.result = await dispatcher.handle(request.method, request.params);
   } catch (e) {
-    response.error = { code: e.code || -32603, message: e.message };
+    // JSON-RPC error.code MUST be numeric — the Go shim decodes it into an
+    // int64 (jsonrpc.WireError.Code) and drops the whole frame on a string,
+    // which surfaces as a bogus offline-device timeout instead of the real
+    // error. Domain modules (web/domain/notes.js) throw string codes like
+    // "empty_content" for user-correctable validation failures, so map any
+    // non-numeric code to -32602 (invalid params) and keep the original in
+    // error.data.
+    if (typeof e.code === 'number') {
+      response.error = { code: e.code, message: e.message };
+    } else if (e.code) {
+      response.error = { code: -32602, message: e.message, data: { domain_code: e.code } };
+    } else {
+      response.error = { code: -32603, message: e.message };
+    }
   }
   return response;
 }

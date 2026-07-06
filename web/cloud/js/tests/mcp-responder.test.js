@@ -66,6 +66,21 @@ describe('mcp-responder dispatch', () => {
     expect(response.error.message).toContain('bp.list');
   });
 
+  it('maps a domain string error code to numeric -32602 with the code in error.data', async () => {
+    const dispatcher = makeDispatcher();
+    const response = await handleRequest(dispatcher, {
+      jsonrpc: '2.0',
+      id: 5,
+      method: 'mcp_call',
+      params: { op: 'notes.create', params: { content: '' } },
+    });
+    expect(response.result).toBeUndefined();
+    // Must be numeric so the Go shim's int64 decode doesn't drop the frame.
+    expect(typeof response.error.code).toBe('number');
+    expect(response.error.code).toBe(-32602);
+    expect(response.error.data).toEqual({ domain_code: 'empty_content' });
+  });
+
   it('suggestOperations falls back to Levenshtein distance for an unrelated typo', () => {
     expect(suggestOperations('notes.creat')).toContain('notes.create');
   });
