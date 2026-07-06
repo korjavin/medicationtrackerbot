@@ -151,12 +151,12 @@ before investing —
 
 ### Task 4: Pairing UI in the cloud app
 
-- [ ] settings/devices screen (cloud shell surface, `web/cloud/js/`):
+- [x] settings/devices screen (cloud shell surface, `web/cloud/js/`):
       "Connect Claude" → POST pairing, generate key, render the one-time
       code (copy button; QR unnecessary for PoC) + the exact shim config
       snippet to paste into Claude Code/Desktop (`command: <path>/mcpshim`,
       `env: MEDTRACKER_MCP_CODE=...`)
-- [ ] "Disconnect" → DELETE pairing + drop the stored key (key lives in a
+- [x] "Disconnect" → DELETE pairing + drop the stored key (key lives in a
       vault record `mcppairing` so any unlocked device can answer —
       `ponytail:` single pairing record, per-device pairings later)
 

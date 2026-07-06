@@ -90,6 +90,30 @@ window.MedTrackerCloudReady = (async function boot() {
         import('/js/reminders.js')
             .then(({ scheduleReminderRecompute }) => scheduleReminderRecompute(ctx))
             .catch((e) => console.error('[cloud-boot] reminder recompute failed', e));
+        // Task 4: if this account has a Claude pairing, this tab starts
+        // answering MCP calls too — any unlocked device may be the one
+        // online when the shim connects. relayURL is intentionally omitted:
+        // the vault record's relayUrl is the shim's dial target (it appends
+        // /api/mcp/relay/shim), while this tab is already same-origin and
+        // dials /api/mcp/relay/device by default. Best-effort, never blocks boot.
+        import('/js/mcp-pairing.js')
+            .then(async ({ getPairing }) => {
+                const pairing = await getPairing(ctx);
+                if (!pairing) return;
+                const [{ createResponder }, { recordsPort }, { fromBase64 }] = await Promise.all([
+                    import('/js/mcp-responder.js'),
+                    import('/js/sync.js'),
+                    import('/js/crypto.js'),
+                ]);
+                createResponder({
+                    pairingId: pairing.pairingId,
+                    key: fromBase64(pairing.key),
+                    records: recordsPort(ctx),
+                    now: () => Date.now(),
+                    timeZone: (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC',
+                }).connect();
+            })
+            .catch((e) => console.error('[cloud-boot] mcp responder failed', e));
     } catch (e) {
         console.error('[cloud-boot] warm unlock failed', e);
         location.href = '/unlock';
