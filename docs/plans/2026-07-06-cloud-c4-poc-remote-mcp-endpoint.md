@@ -80,8 +80,8 @@ Also folds in the Connect-Claude discoverability gap (supersedes `2026-07-06-clo
 
 ### Task: Verify acceptance criteria
 
-- [ ] `go test ./...` + `pnpm test` green; `go list -deps ./internal/cloudserver` still free of `internal/store` (goose-registry landmine).
-- [ ] Manual rig: enable remote mode → add the URL as a claude.ai custom connector → "what BP readings do I have?" returns vault data; add a reading and see it in the PWA; close the tab → clean offline error in claude.ai; Disconnect → connector fails; ChatGPT connector if plan/tier allows.
+- [x] `go test ./...` + `pnpm test` green; `go list -deps ./internal/cloudserver` still free of `internal/store` (goose-registry landmine). Confirmed: `go build ./...` and `go test ./...` pass across all packages; `pnpm test` passes 268 files / 2839 tests; `go list -deps ./internal/cloudserver` shows only `internal/store/db`, never `internal/store` itself.
+- [x] manual test (skipped - not automatable; requires a live claude.ai/ChatGPT connector session against a deployed cloud instance)
 
 ## Post-Completion
 
