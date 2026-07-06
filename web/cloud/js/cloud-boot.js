@@ -91,43 +91,13 @@ window.MedTrackerCloudReady = (async function boot() {
             .then(({ scheduleReminderRecompute }) => scheduleReminderRecompute(ctx))
             .catch((e) => console.error('[cloud-boot] reminder recompute failed', e));
         // Task 4: if this account has a Claude pairing, this tab starts
-        // answering MCP calls too — any unlocked device may be the one
-        // online when the shim connects. relayURL is intentionally omitted:
-        // the vault record's relayUrl is the shim's dial target (it appends
-        // /api/mcp/relay/shim), while this tab is already same-origin and
-        // dials /api/mcp/relay/device by default. Best-effort, never blocks boot.
-        import('/js/mcp-pairing.js')
-            .then(async ({ getPairing }) => {
-                const pairing = await getPairing(ctx);
-                if (!pairing) return;
-                const [{ createResponder }, { recordsPort }, { fromBase64 }] = await Promise.all([
-                    import('/js/mcp-responder.js'),
-                    import('/js/sync.js'),
-                    import('/js/crypto.js'),
-                ]);
-                const startResponder = () => createResponder({
-                    pairingId: pairing.pairingId,
-                    key: fromBase64(pairing.key),
-                    records: recordsPort(ctx),
-                    now: () => Date.now(),
-                    timeZone: (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC',
-                }).connect();
-                // Elect one responder per account: the relay keeps a single
-                // device leg per pairing and evicts the old one on each new
-                // connection, so if every open tab connected they'd ping-pong
-                // — each eviction triggers the evicted tab's reconnect, which
-                // re-evicts the other, forever. Hold an exclusive Web Lock for
-                // this tab's lifetime; other tabs queue and only take over when
-                // the holder's tab closes (auto-releasing the lock).
-                if (navigator.locks && navigator.locks.request) {
-                    navigator.locks.request('mcp-responder', () => {
-                        startResponder();
-                        return new Promise(() => {});
-                    });
-                } else {
-                    startResponder();
-                }
-            })
+        // answering MCP calls too — any unlocked device may be the one online
+        // when the shim connects. refreshResponder reads the pairing from the
+        // vault, elects a single answering tab (Web Lock, so open tabs don't
+        // ping-pong the relay's single device leg), and no-ops when there's no
+        // pairing. Best-effort, never blocks boot.
+        import('/js/mcp-responder.js')
+            .then(({ refreshResponder }) => refreshResponder(ctx))
             .catch((e) => console.error('[cloud-boot] mcp responder failed', e));
     } catch (e) {
         console.error('[cloud-boot] warm unlock failed', e);

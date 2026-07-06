@@ -292,3 +292,73 @@ export function createResponder({
     dispatcher,
   };
 }
+
+// --- Singleton responder controller -------------------------------------
+// The responder's lifecycle must track the vault pairing at RUNTIME, not just
+// at boot: "Connect Claude" mints a pairing (start), "Disconnect" removes it
+// (stop), re-pairing replaces the key (restart) — all without a page reload.
+// boot, connect, and disconnect therefore call refreshResponder(ctx) /
+// stopResponder(). One Web Lock ('mcp-responder') elects a single answering
+// tab across the account; the elected tab swaps its inner responder in place
+// as the pairing changes.
+//
+// ponytail: cross-tab re-pair isn't broadcast — if tab A holds the election
+// and the user re-pairs in tab B, tab A keeps the old key until it reloads.
+// A BroadcastChannel/storage-event nudge is full-C4 scope.
+let controllerCtx = null;
+let electing = false;
+let releaseLock = null;
+let active = null; // { pairingId, responder }
+
+async function reconcile() {
+  if (!controllerCtx) {
+    if (active) { active.responder.stop(); active = null; }
+    return;
+  }
+  const { getPairing } = await import('./mcp-pairing.js');
+  const pairing = await getPairing(controllerCtx);
+  const nextId = pairing ? pairing.pairingId : null;
+  if ((active && active.pairingId) === nextId) return; // unchanged
+  if (active) { active.responder.stop(); active = null; }
+  if (!pairing) return;
+  const { recordsPort } = await import('./sync.js');
+  const { fromBase64 } = await import('./crypto.js');
+  const responder = createResponder({
+    pairingId: pairing.pairingId,
+    key: fromBase64(pairing.key),
+    records: recordsPort(controllerCtx),
+    now: () => Date.now(),
+    timeZone: (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC',
+  });
+  active = { pairingId: pairing.pairingId, responder };
+  responder.connect();
+}
+
+// refreshResponder reconciles the running responder to the vault's current
+// pairing. Safe to call repeatedly; the first call that needs to answer wins
+// the cross-tab election and holds it for the tab's lifetime, swapping its
+// inner responder as the pairing changes.
+export function refreshResponder(ctx) {
+  controllerCtx = ctx;
+  if (releaseLock || !(navigator.locks && navigator.locks.request)) {
+    // This tab already holds the election (or Web Locks is unsupported):
+    // reconcile in place.
+    reconcile().catch((e) => console.error('[mcp] responder reconcile failed', e));
+    return;
+  }
+  if (electing) return; // election in flight; its reconcile will read ctx.
+  electing = true;
+  navigator.locks.request('mcp-responder', () => new Promise((release) => {
+    releaseLock = release;
+    reconcile().catch((e) => console.error('[mcp] responder reconcile failed', e));
+  })).catch((e) => { electing = false; console.error('[mcp] responder lock failed', e); });
+}
+
+// stopResponder stops any running responder and releases the election so a
+// later reconnect re-elects cleanly. Called from Disconnect.
+export function stopResponder() {
+  controllerCtx = null;
+  if (active) { active.responder.stop(); active = null; }
+  if (releaseLock) { releaseLock(); releaseLock = null; }
+  electing = false;
+}

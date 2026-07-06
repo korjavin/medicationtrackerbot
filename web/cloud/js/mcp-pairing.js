@@ -7,6 +7,7 @@
 // internal/mcpshim/pairingcode.go.
 import { recordsPort } from './sync.js';
 import { toBase64, toBase64Url, utf8 } from './crypto.js';
+import { refreshResponder, stopResponder } from './mcp-responder.js';
 
 export const MCPPAIRING_RECORD_TYPE = 'mcppairing';
 export const MCPPAIRING_RECORD_ID = 'mcppairing';
@@ -42,6 +43,12 @@ export async function connectClaude(ctx) {
     key: toBase64(key),
   });
 
+  // Start answering immediately: the tab that just minted the pairing is
+  // typically the one still open when the shim connects, so it must become the
+  // responder now — before this fix the responder only started on the next
+  // page load, and the shim's first call timed out to "no device online".
+  refreshResponder(ctx);
+
   const wire = { relay_url: relayUrl, pairing_id: pairingId, key: toBase64(key) };
   const code = `mtmcp1.${toBase64Url(utf8(JSON.stringify(wire)))}`;
   return { code };
@@ -52,4 +59,8 @@ export async function disconnectClaude(ctx) {
   const res = await fetch('/api/mcp/pairings', { method: 'DELETE' });
   if (!res.ok) throw new Error('Could not disconnect. Try again.');
   await recordsPort(ctx).del(MCPPAIRING_RECORD_TYPE, MCPPAIRING_RECORD_ID);
+  // Stop this tab's responder so it doesn't loop reconnecting to the now-
+  // revoked pairing (the relay 404s it; the WS API can't see that status, so
+  // onclose would otherwise reconnect forever).
+  stopResponder();
 }

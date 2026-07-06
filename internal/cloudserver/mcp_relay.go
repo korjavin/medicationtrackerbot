@@ -29,6 +29,11 @@ const (
 
 	maxRelayFrameBytes   = 64 << 10
 	relayPeerWaitTimeout = 60 * time.Second
+	// relayWriteTimeout bounds a single pipe write: without it, a peer that
+	// keeps its socket open but stops reading wedges the other leg's goroutine
+	// in Write forever (r.Context() has no deadline and only cancels when the
+	// writer's own conn closes — which it can't, because it's stuck writing).
+	relayWriteTimeout = 30 * time.Second
 
 	// mcpRelayRateLimitMax/-Window bound how many frames one pairing may push
 	// through the relay per window — generous for interactive tool calls
@@ -181,7 +186,13 @@ func (a *MCPRelayAPI) serveLeg(ctx context.Context, conn *websocket.Conn, record
 	for {
 		typ, data, err := conn.Read(ctx)
 		if err != nil {
-			peer.Close(websocket.StatusNormalClosure, "peer disconnected")
+			// Only tear down the peer if this conn is still the pairing's
+			// registered leg. If a newer connection evicted us (join replaced
+			// this slot), that replacement has already adopted `peer` — closing
+			// it here would kill the live bridge, not just our dead half.
+			if record.current(isDevice, conn) {
+				peer.Close(websocket.StatusNormalClosure, "peer disconnected")
+			}
 			return
 		}
 		if !a.limiter.Allow(record.id) {
@@ -189,7 +200,10 @@ func (a *MCPRelayAPI) serveLeg(ctx context.Context, conn *websocket.Conn, record
 			peer.Close(websocket.StatusPolicyViolation, "peer rate limited")
 			return
 		}
-		if err := peer.Write(ctx, typ, data); err != nil {
+		wctx, cancel := context.WithTimeout(ctx, relayWriteTimeout)
+		err = peer.Write(wctx, typ, data)
+		cancel()
+		if err != nil {
 			conn.Close(websocket.StatusNormalClosure, "peer write failed")
 			return
 		}
@@ -229,7 +243,9 @@ func (p *pairingRecord) join(isDevice bool, conn *websocket.Conn) chan *websocke
 	// to ~10s on the WebSocket close handshake against an unresponsive peer, and
 	// these run while p.mu / the pairing table's mu is held — a graceful close
 	// here would stall every account's pairing/relay endpoints. The evicted
-	// leg's serveLeg observes the read error and tears its half down cleanly.
+	// leg's serveLeg observes the read error and tears its half down; its
+	// record.current check (serveLeg) keeps it from also closing the peer this
+	// replacement just adopted.
 	slot := &legSlot{conn: conn, peerCh: make(chan *websocket.Conn, 1)}
 	var peer *legSlot
 	if isDevice {
@@ -253,6 +269,17 @@ func (p *pairingRecord) join(isDevice bool, conn *websocket.Conn) chan *websocke
 		}
 	}
 	return slot.peerCh
+}
+
+// current reports whether conn is still this pairing's registered leg — i.e.
+// it hasn't been evicted and replaced by a newer connection on the same leg.
+func (p *pairingRecord) current(isDevice bool, conn *websocket.Conn) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if isDevice {
+		return p.device != nil && p.device.conn == conn
+	}
+	return p.shim != nil && p.shim.conn == conn
 }
 
 // clear drops conn from whichever leg it occupies, provided it hasn't
