@@ -237,15 +237,16 @@ Two structural findings from discovery that shape this plan:
 
 ### Task 8: [Final] Update documentation
 
-- [ ] `docs/cloud-mode.md`: C2c implementation notes (record types
+- [x] `docs/cloud-mode.md`: C2c implementation notes (record types
       `foodlog`/`foodproduct`, AI/foodDb ports, the four guarded bypasses,
       `food_intake_enabled` → key-presence collapse); leakage table gains
       the explicit row: **meal descriptions + photos → the user's AI
       provider, directly from the client** (BYO consent), and confirms the
       existing food-DB row covers the operator default
-- [ ] `docs/cloud-deployment.md`: `CLOUD_FOOD_DB_URL` + the CORS
-      requirement for the operator food-DB instance
-- [ ] `CLAUDE.md`: cloud index row update if needed
+- [x] `docs/cloud-deployment.md`: `CLOUD_FOOD_DB_URL` + the CORS
+      requirement for the operator food-DB instance (already documented in
+      Task 5; verified present, no change needed)
+- [x] `CLAUDE.md`: cloud index row update if needed
 
 ## Technical Details
 
