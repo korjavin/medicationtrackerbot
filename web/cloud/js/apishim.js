@@ -20,6 +20,7 @@ import { createRxnormPort } from './rxnorm.js';
 import { createAIClient } from './aiclient.js';
 import { createFoodDbClient } from './fooddb.js';
 import { createElevenLabsClient } from './elevenlabs-signed-url.js';
+import { createDispatcher } from './mcp-responder.js';
 
 // materializeTimerHandle is module-level (not per-shim-instance) because the
 // production invariant is "one shim installed per page load"; re-installing
@@ -108,6 +109,12 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
   // window.__MEDTRACKER_CLOUD__ to mint the signed URL browser-direct here
   // (BYO ElevenLabs key from the vault; never crosses /api).
   targetWindow.CloudElevenLabs = createElevenLabsClient({ settingsDomain: settings });
+  // Voice MCP tools: elevenlabs-call.js registers mcp_help/mcp_call clientTools
+  // (cloud only) that dispatch straight into this in-tab catalog — same
+  // bp/weight/notes instances above, no relay/crypto (the relay responder in
+  // mcp-responder.js only exists in the Claude-connector-elected tab and builds
+  // its own instances, so this is the clean reuse seam).
+  targetWindow.CloudMCPDispatcher = createDispatcher({ bp, weight, notes });
 
   // Due-dose materialization + tz-plan status refresh: neither domain module
   // owns a timer (Task 3/4's modules stay pure functions of their inputs), so

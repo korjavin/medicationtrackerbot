@@ -120,15 +120,17 @@ Two pieces:
 
 ### Task 2: In-tab MCP dispatcher exposed for client-tools
 
-- [ ] Publish a dispatcher from `web/cloud/js/apishim.js` built from the same
+- [x] Publish a dispatcher from `web/cloud/js/apishim.js` built from the same
       domain instances it already constructs: `window.CloudMCPDispatcher =
       createDispatcher({ bp, weight, notes })` (import `createDispatcher` from
-      `mcp-responder.js`). If a responder is already created in `cloud-boot.js`,
-      reuse its `.dispatcher` instead of building a second one — pick the single
-      cleanest seam and note it.
-- [ ] Integration test (b): `CloudMCPDispatcher.handle('mcp_call', { op:
+      `mcp-responder.js`). Seam chosen: apishim.js (not cloud-boot's responder)
+      — the relay responder is only created in the Claude-connector-elected tab
+      and builds its own domain instances, whereas apishim.js already has the
+      exact bp/weight/notes instances in scope. Globals allowlist entry added.
+- [x] Integration test (b): `CloudMCPDispatcher.handle('mcp_call', { op:
       'bp.list', params: {} })` returns wire-shaped JSON over an in-memory
-      records port; `handle('mcp_help', {})` returns `{ catalog, usage_protocol }`.
+      records port; `handle('mcp_help', {})` returns `{ catalog, usage_protocol }`
+      (+ unknown-op did-you-mean case) — `cloud.shim-contract.mcp-dispatcher.test.js`.
 
 ### Task 3: Register dynamic MCP client-tools at startSession (cloud only)
 
