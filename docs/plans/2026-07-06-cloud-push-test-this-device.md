@@ -78,10 +78,10 @@ push is sent right away to **only** the current device's subscription. Closes bd
 
 ### Task 1: Server — immediate single-device test-send endpoint
 
-- [ ] Add a subscription lookup by endpoint in `internal/cloudstore/push.go`
+- [x] Add a subscription lookup by endpoint in `internal/cloudstore/push.go`
       (e.g. `GetByEndpoint(ctx, accountID, endpoint)` returning the enabled sub
       or nil), or filter `List` in the handler — whichever is cleaner.
-- [ ] Add `POST /api/push/test` in `internal/cloudserver/push.go` (session-authed,
+- [x] Add `POST /api/push/test` in `internal/cloudserver/push.go` (session-authed,
       account-scoped by subdomain): request `{ "endpoint": string, "ct": []byte }`
       (`ct` base64, same shape/size caps as a schedule entry, 1–4096 bytes).
       Resolve the subscription for (account, endpoint); if none/disabled → 404.
@@ -89,7 +89,7 @@ push is sent right away to **only** the current device's subscription. Closes bd
       ct)` immediately. On 404/410 disable the sub (mirror the relay) and return
       an error the client can show ("this device's subscription expired —
       re-enable"). Success → 204.
-- [ ] Register the route in the push routes block. Validate `endpoint`
+- [x] Register the route in the push routes block. Validate `endpoint`
       belongs to the resolved account (never send to another account's sub).
 
 ### Task 2: Client — direct single-device test send

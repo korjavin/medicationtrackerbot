@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -29,6 +30,10 @@ const (
 	maxScheduleBodyBytes = 1 << 20 // 1 MiB request body (a full replace-all batch)
 	maxScheduleEntries   = 2000
 	maxScheduleCTLen     = 4 << 10
+
+	// Test-push caps: same shape/size bound as a single schedule entry.
+	maxTestPushBodyBytes = 8 << 10
+	maxTestPushCTLen     = 4 << 10
 )
 
 // pushStore is the subset of *cloudstore.Repo the push-subscription and
@@ -38,6 +43,9 @@ type pushStore interface {
 	DeletePushSubscription(ctx context.Context, accountID, endpoint string) error
 	CredentialExists(ctx context.Context, credentialID []byte) (bool, error)
 	ReplaceSchedule(ctx context.Context, accountID string, entries []cloudstore.ScheduledPushInput, now time.Time) error
+	GetByEndpoint(ctx context.Context, accountID, endpoint string) (*cloudstore.PushSubscription, error)
+	Disable(ctx context.Context, endpoint string) error
+	AccountVAPIDKeysByID(ctx context.Context, accountID string) (cloudstore.AccountVAPIDKeys, error)
 }
 
 // PushAPI holds the push-subscription + VAPID-public-key HTTP handlers.
@@ -46,12 +54,14 @@ type pushStore interface {
 // ever unlocked).
 type PushAPI struct {
 	store         pushStore
+	sender        PushSender
 	sessionSecret string
 }
 
-// NewPushAPI builds the push handlers.
-func NewPushAPI(store pushStore, sessionSecret string) *PushAPI {
-	return &PushAPI{store: store, sessionSecret: sessionSecret}
+// NewPushAPI builds the push handlers. sender delivers the immediate
+// this-device test push (Task 1); it is the same PushSender the relay uses.
+func NewPushAPI(store pushStore, sender PushSender, sessionSecret string) *PushAPI {
+	return &PushAPI{store: store, sender: sender, sessionSecret: sessionSecret}
 }
 
 // RegisterRoutes adds the push routes to mux.
@@ -60,6 +70,7 @@ func (a *PushAPI) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("DELETE /api/push/subscriptions", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.DeleteSubscription)))
 	mux.HandleFunc("GET /api/push/vapid-public-key", a.GetVapidPublicKey)
 	mux.Handle("PUT /api/push/schedule", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.PutSchedule)))
+	mux.Handle("POST /api/push/test", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.PostTestPush)))
 }
 
 type subscriptionRequest struct {
@@ -219,6 +230,68 @@ func (a *PushAPI) PutSchedule(w http.ResponseWriter, r *http.Request) {
 
 	if err := a.store.ReplaceSchedule(r.Context(), session.AccountID, entries, time.Now().UTC()); err != nil {
 		http.Error(w, "server error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type testPushRequest struct {
+	Endpoint string `json:"endpoint"`
+	CT       []byte `json:"ct"`
+}
+
+// PostTestPush sends ct immediately to the caller's own subscription
+// (identified by endpoint), never fanning out to the account's other
+// devices — the "this-device-only" test affordance. It reuses the same
+// PushSender + per-account VAPID keys as the blind relay, so the send is
+// indistinguishable on the wire from a real scheduled push.
+func (a *PushAPI) PostTestPush(w http.ResponseWriter, r *http.Request) {
+	session, ok := SessionFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req testPushRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, maxTestPushBodyBytes)).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	if req.Endpoint == "" || len(req.Endpoint) > maxPushEndpointLen || len(req.CT) == 0 || len(req.CT) > maxTestPushCTLen {
+		http.Error(w, "request field too large or missing", http.StatusBadRequest)
+		return
+	}
+
+	sub, err := a.store.GetByEndpoint(r.Context(), session.AccountID, req.Endpoint)
+	if err != nil {
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return
+	}
+	if sub == nil {
+		http.Error(w, "subscription not found", http.StatusNotFound)
+		return
+	}
+
+	keys, err := a.store.AccountVAPIDKeysByID(r.Context(), session.AccountID)
+	if err != nil {
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return
+	}
+	if keys.PublicKey == "" || keys.PrivateKey == "" {
+		http.Error(w, "push not configured", http.StatusInternalServerError)
+		return
+	}
+
+	status, err := a.sender.Send(r.Context(), *sub, keys, req.CT)
+	if err != nil {
+		http.Error(w, "send failed", http.StatusBadGateway)
+		return
+	}
+	if status == http.StatusNotFound || status == http.StatusGone {
+		if err := a.store.Disable(r.Context(), sub.Endpoint); err != nil {
+			slog.Error("test push: disable stale subscription", "endpoint", sub.Endpoint, "error", err)
+		}
+		http.Error(w, "subscription expired", http.StatusGone)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

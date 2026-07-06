@@ -177,7 +177,11 @@ func main() {
 	deviceAPI := cloudserver.NewDeviceAPI(store, cfg.sessionSecret)
 	recoveryAPI := cloudserver.NewRecoveryAPI(store)
 	syncAPI := cloudserver.NewSyncAPI(store, cfg.sessionSecret, cfg.accountQuotaBytes)
-	pushAPI := cloudserver.NewPushAPI(store, cfg.sessionSecret)
+	webPushSender := &cloudserver.WebPushSender{
+		Subject:    cfg.vapidSubject,
+		BaseDomain: cfg.baseDomain,
+	}
+	pushAPI := cloudserver.NewPushAPI(store, webPushSender, cfg.sessionSecret)
 	mcpRelayAPI := cloudserver.NewMCPRelayAPI(store, cfg.sessionSecret)
 	apiMux := http.NewServeMux()
 	webauthnAPI.RegisterRoutes(apiMux)
@@ -190,10 +194,7 @@ func main() {
 	mcpRelayAPI.RegisterRoutes(apiMux)
 	router := cloudserver.New(cfg.baseDomain, store, cloudweb.FS, webstatic.FS, domainweb.FS, apiMux, cfg.foodDBURL)
 
-	relay := cloudserver.NewRelay(store, &cloudserver.WebPushSender{
-		Subject:    cfg.vapidSubject,
-		BaseDomain: cfg.baseDomain,
-	}, cfg.dryQueueWarnHours)
+	relay := cloudserver.NewRelay(store, webPushSender, cfg.dryQueueWarnHours)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {

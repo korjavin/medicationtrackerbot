@@ -2,6 +2,8 @@ package cloudstore
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"time"
 
 	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
@@ -65,6 +67,30 @@ func (r *Repo) List(ctx context.Context, accountID string) ([]PushSubscription, 
 		subs = append(subs, s)
 	}
 	return subs, rows.Err()
+}
+
+// GetByEndpoint returns accountID's enabled subscription for endpoint, or nil
+// if it doesn't exist, belongs to another account, or is disabled — the
+// lookup the test-push handler uses to resolve "the calling device's own
+// subscription" without ever touching another account's rows.
+func (r *Repo) GetByEndpoint(ctx context.Context, accountID, endpoint string) (*PushSubscription, error) {
+	var (
+		s           PushSubscription
+		createdUnix int64
+		disabled    int
+	)
+	err := r.db.QueryRowContext(ctx,
+		`SELECT account_id, endpoint, p256dh, auth, created_at_unix, disabled FROM push_subscriptions WHERE account_id = ? AND endpoint = ? AND disabled = 0`,
+		accountID, endpoint).Scan(&s.AccountID, &s.Endpoint, &s.P256dh, &s.Auth, &createdUnix, &disabled)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	s.CreatedAt = storedb.UnixToTime(createdUnix)
+	s.Disabled = disabled != 0
+	return &s, nil
 }
 
 // Disable marks a subscription inactive (called by the relay sender on HTTP

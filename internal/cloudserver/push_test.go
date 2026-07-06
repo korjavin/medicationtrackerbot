@@ -15,7 +15,7 @@ func TestGetVapidPublicKey_PerAccount(t *testing.T) {
 	accountA, _ := setupInvite(t, store)
 	accountB, _ := setupInvite(t, store)
 
-	pushAPI := NewPushAPI(store, "test-session-secret-at-least-32-bytes-long")
+	pushAPI := NewPushAPI(store, &fakeSender{}, "test-session-secret-at-least-32-bytes-long")
 	mux := http.NewServeMux()
 	pushAPI.RegisterRoutes(mux)
 	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "")
