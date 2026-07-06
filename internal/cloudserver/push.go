@@ -282,7 +282,9 @@ func (a *PushAPI) PostTestPush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	status, err := a.sender.Send(r.Context(), *sub, keys, req.CT)
+	sendCtx, cancel := context.WithTimeout(r.Context(), relaySendTimeout)
+	defer cancel()
+	status, err := a.sender.Send(sendCtx, *sub, keys, req.CT)
 	if err != nil {
 		http.Error(w, "send failed", http.StatusBadGateway)
 		return
@@ -292,6 +294,11 @@ func (a *PushAPI) PostTestPush(w http.ResponseWriter, r *http.Request) {
 			slog.Error("test push: disable stale subscription", "endpoint", sub.Endpoint, "error", err)
 		}
 		http.Error(w, "subscription expired", http.StatusGone)
+		return
+	}
+	if status/100 != 2 {
+		slog.Warn("test push: push service rejected send", "endpoint", sub.Endpoint, "status", status)
+		http.Error(w, "push service rejected send", http.StatusBadGateway)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
