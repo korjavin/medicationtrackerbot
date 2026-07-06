@@ -175,16 +175,26 @@ reminders, or it wipes the user's real schedule until the next recompute.
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] `pnpm test` green (full frontend suite).
-- [ ] `go build ./...` and `go build -tags mobile ./...` green (no backend
+- [x] `pnpm test` green (full frontend suite). 265 test files / 2820 tests
+      passed, 29 skipped, 0 failed.
+- [x] `go build ./...` and `go build -tags mobile ./...` green (no backend
       change expected, but the shared HTML/embed must still build/serve).
-- [ ] Manually reason through: subscribe provisions the NK (device + vault),
+      Both build clean.
+- [x] Manually reason through: subscribe provisions the NK (device + vault),
       the cloud `sw.js` can `readNK` and decrypt, and the test push fires via the
-      relay without wiping real reminders.
-- [ ] Run the frontend linter / architecture tests — no inline-style or globals
-      violations (if a new `window.MedTrackerCloud` global trips
-      `tests/architecture.globals.test.js`, add an allowlist entry with
-      justification).
+      relay without wiping real reminders. Confirmed by reading
+      `web/cloud/js/push.js` (`pushSchedule` calls `getOrCreateNK(ctx)`, which
+      writes the plaintext NK to IndexedDB `device→nk` that `sw.js:readNK`
+      consumes) and `web/cloud/js/reminders.js` (`sendTestPush` builds
+      `[...realEntries, testEntry]` and PUTs them together in one call, so the
+      replace-all schedule endpoint never drops the real reminders).
+- [x] Run the frontend linter / architecture tests — no inline-style or globals
+      violations. `architecture.globals.test.js` passes; `window.MedTrackerCloud`
+      is assigned in `web/cloud/js/cloud-boot.js`, which sits outside the
+      scanned `web/static/js` tree (same precedent as the existing
+      `window.__MEDTRACKER_CLOUD__` / `window.MedTrackerCloudReady` entries), so
+      the regex guard does not trip. Formal allowlist documentation entry is
+      Task 7.
 
 ### Task 7: [Final] Update documentation
 
