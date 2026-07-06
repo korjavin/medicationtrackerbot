@@ -33,14 +33,15 @@ func newTestMCPRemoteHandler(t *testing.T) (h http.Handler, store *cloudstore.Re
 }
 
 // testPairingCode builds a real-shaped "mtmcp1...." pairing code for
-// pairingID, mirroring what mcp-pairing.js mints client-side.
-func testPairingCode(t *testing.T, pairingID string) string {
+// pairingID, mirroring what mcp-pairing.js mints client-side: relay_url is the
+// account's own origin (wss://<host>), which PostRemote validates.
+func testPairingCode(t *testing.T, host, pairingID string) string {
 	t.Helper()
 	key := make([]byte, 32)
 	if _, err := rand.Read(key); err != nil {
 		t.Fatalf("generate pairing key: %v", err)
 	}
-	code, err := mcpshim.FormatPairingCode(&mcpshim.PairingCode{RelayURL: "https://acct.example", PairingID: pairingID, Key: key})
+	code, err := mcpshim.FormatPairingCode(&mcpshim.PairingCode{RelayURL: "ws://" + host, PairingID: pairingID, Key: key})
 	if err != nil {
 		t.Fatalf("format pairing code: %v", err)
 	}
@@ -117,7 +118,7 @@ func TestMCPRemote_EnableDisableStatusLifecycle(t *testing.T) {
 	}
 
 	pairingID := mintPairing(t, h, host, session)
-	rec := postMCPRemote(t, h, host, session, testPairingCode(t, pairingID))
+	rec := postMCPRemote(t, h, host, session, testPairingCode(t, host, pairingID))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST /api/mcp/remote status = %d, body %q", rec.Code, rec.Body.String())
 	}
@@ -147,6 +148,32 @@ func TestMCPRemote_EnableDisableStatusLifecycle(t *testing.T) {
 	}
 }
 
+// TestMCPRemote_RejectsForeignRelayURL guards the SSRF boundary: a pairing
+// code whose relay_url points at any host other than the account's own origin
+// must be rejected, so an authenticated caller can't make the server dial an
+// arbitrary internal/attacker host.
+func TestMCPRemote_RejectsForeignRelayURL(t *testing.T) {
+	h, _, account, claimToken := newTestMCPRemoteHandler(t)
+	host := account.Subdomain + ".localhost"
+	session := registerAndGetSession(t, h, host, claimToken)
+
+	pairingID := mintPairing(t, h, host, session)
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatalf("generate pairing key: %v", err)
+	}
+	code, err := mcpshim.FormatPairingCode(&mcpshim.PairingCode{RelayURL: "wss://169.254.169.254", PairingID: pairingID, Key: key})
+	if err != nil {
+		t.Fatalf("format pairing code: %v", err)
+	}
+	if rec := postMCPRemote(t, h, host, session, code); rec.Code != http.StatusBadRequest {
+		t.Fatalf("enable with foreign relay_url status = %d, want 400", rec.Code)
+	}
+	if resp := getMCPRemoteStatus(t, h, host, session); resp.Enabled {
+		t.Fatalf("foreign relay_url enabled Tier 2, want it rejected")
+	}
+}
+
 // TestMCPRemote_ReEnableRotatesToken guards the plan's locked invariant: only
 // re-enable and delete may change the token — a fresh POST while already
 // enabled must mint a brand new one, never reuse the old.
@@ -156,7 +183,7 @@ func TestMCPRemote_ReEnableRotatesToken(t *testing.T) {
 	session := registerAndGetSession(t, h, host, claimToken)
 
 	pairingID := mintPairing(t, h, host, session)
-	first := postMCPRemote(t, h, host, session, testPairingCode(t, pairingID))
+	first := postMCPRemote(t, h, host, session, testPairingCode(t, host, pairingID))
 	if first.Code != http.StatusOK {
 		t.Fatalf("first enable status = %d, body %q", first.Code, first.Body.String())
 	}
@@ -165,7 +192,7 @@ func TestMCPRemote_ReEnableRotatesToken(t *testing.T) {
 		t.Fatalf("decode first enable response: %v", err)
 	}
 
-	second := postMCPRemote(t, h, host, session, testPairingCode(t, pairingID))
+	second := postMCPRemote(t, h, host, session, testPairingCode(t, host, pairingID))
 	if second.Code != http.StatusOK {
 		t.Fatalf("re-enable status = %d, body %q", second.Code, second.Body.String())
 	}
@@ -189,7 +216,7 @@ func TestMCPRemote_RestartRestore(t *testing.T) {
 	session := registerAndGetSession(t, h, host, claimToken)
 
 	pairingID := mintPairing(t, h, host, session)
-	rec := postMCPRemote(t, h, host, session, testPairingCode(t, pairingID))
+	rec := postMCPRemote(t, h, host, session, testPairingCode(t, host, pairingID))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("enable status = %d, body %q", rec.Code, rec.Body.String())
 	}

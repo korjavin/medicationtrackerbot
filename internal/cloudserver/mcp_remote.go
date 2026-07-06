@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"math/big"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -51,6 +52,21 @@ func generateMCPRemoteToken() (string, error) {
 	}
 	s := sb.String()
 	return s[:3] + "-" + s[3:], nil
+}
+
+// relayURLIsSelf reports whether relayURL points at reqHost over a WebSocket
+// scheme — the hosted shim only ever dials the account's own origin, so this
+// binds a submitted pairing code's relay_url to the request host and blocks
+// SSRF via an attacker-chosen relay_url.
+func relayURLIsSelf(relayURL, reqHost string) bool {
+	u, err := url.Parse(relayURL)
+	if err != nil {
+		return false
+	}
+	if u.Scheme != "ws" && u.Scheme != "wss" {
+		return false
+	}
+	return stripPort(u.Host) == stripPort(reqHost)
 }
 
 // mcpRemoteStore is the subset of *cloudstore.Repo the hosted-remote consent
@@ -186,6 +202,15 @@ func (a *MCPRemoteAPI) PostRemote(w http.ResponseWriter, r *http.Request) {
 	}
 	pc, err := mcpshim.ParsePairingCode(req.PairingCode)
 	if err != nil {
+		http.Error(w, "invalid pairing code", http.StatusBadRequest)
+		return
+	}
+	// The hosted shim always dials the server's own relay — mcp-pairing.js
+	// sets relay_url to wss://<this host>. Reject any code whose relay_url
+	// points elsewhere: without this, an authenticated account holder could
+	// submit an arbitrary relay_url and make the server dial an internal or
+	// attacker-chosen host (SSRF), triggered by hitting their own /mcp endpoint.
+	if !relayURLIsSelf(pc.RelayURL, r.Host) {
 		http.Error(w, "invalid pairing code", http.StatusBadRequest)
 		return
 	}
