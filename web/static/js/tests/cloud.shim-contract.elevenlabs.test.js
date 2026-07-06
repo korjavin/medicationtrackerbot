@@ -8,6 +8,7 @@
 // file's realm (vitest node env), so stubGlobal('fetch') intercepts it.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installApiCache, loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
+import { TOOL_SPECS, TOOLSET_VERSION } from '../../../cloud/js/elevenlabs-agent.js';
 
 describe('cloud shim contract — ElevenLabs signed URL (web/cloud/js/elevenlabs-signed-url.js)', () => {
     let env;
@@ -77,5 +78,149 @@ describe('cloud shim contract — ElevenLabs signed URL (web/cloud/js/elevenlabs
         const integrations = await window.apiCall('/api/settings/integrations', 'GET');
         expect(integrations.elevenlabs.api_key).toBe('***');
         expect(JSON.stringify(integrations)).not.toContain('xi-test-key');
+    });
+});
+
+// Plan 2026-07-06 cloud-voice, Task 5 — the browser-direct agent + tool
+// provisioner (web/cloud/js/elevenlabs-agent.js, published as
+// window.CloudElevenLabsAgent). Same fetch-boundary fake as above: the tab
+// calls api.elevenlabs.io directly with the vault key. We route the mock by
+// URL + method so we can assert idempotency (GET-then-conditional-POST) and the
+// exact request shapes.
+describe('cloud shim contract — ElevenLabs provisioner (web/cloud/js/elevenlabs-agent.js)', () => {
+    let env;
+
+    beforeEach(() => {
+        env = loadCloudShimFrontendEnv();
+        installApiCache(env.window);
+        env.window.__MEDTRACKER_CLOUD__ = true;
+    });
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+        env.cleanup();
+        env = null;
+    });
+
+    function okJson(data) {
+        return { ok: true, status: 200, async json() { return data; }, async text() { return JSON.stringify(data); } };
+    }
+
+    // Route fetch by URL + method. `existingTools` is what GET /tools returns;
+    // POST /tools mints `tool-<name>`; POST /agents/create returns `agentId`;
+    // PATCH echoes the id. Records every call for assertions.
+    function makeElevenLabsFetch({ existingTools = [], agentId = 'agent-new' } = {}) {
+        const calls = [];
+        const spy = vi.fn(async (url, opts = {}) => {
+            const method = (opts.method || 'GET').toUpperCase();
+            calls.push({ url, method, body: opts.body ? JSON.parse(opts.body) : undefined, headers: opts.headers || {} });
+            if (url === 'https://api.elevenlabs.io/v1/convai/tools' && method === 'GET') {
+                return okJson({ tools: existingTools });
+            }
+            if (url === 'https://api.elevenlabs.io/v1/convai/tools' && method === 'POST') {
+                return okJson({ id: `tool-${JSON.parse(opts.body).tool_config.name}` });
+            }
+            if (url === 'https://api.elevenlabs.io/v1/convai/agents/create' && method === 'POST') {
+                return okJson({ agent_id: agentId });
+            }
+            if (url.startsWith('https://api.elevenlabs.io/v1/convai/agents/') && method === 'PATCH') {
+                return okJson({});
+            }
+            throw new Error(`unexpected fetch ${method} ${url}`);
+        });
+        return { spy, calls };
+    }
+
+    const existingAll = () => TOOL_SPECS.map((s) => ({ id: `tool-${s.name}`, tool_config: { name: s.name } }));
+
+    async function setKey(window, extra = {}) {
+        await window.apiCall('/api/settings/integrations', 'PATCH', {
+            elevenlabs: { api_key: 'xi-test-key', ...extra },
+        });
+    }
+
+    it('ensureTools idempotent: all tools already present → GET only, no create POST', async () => {
+        const { window } = env;
+        await setKey(window);
+        const { spy, calls } = makeElevenLabsFetch({ existingTools: existingAll() });
+        vi.stubGlobal('fetch', spy);
+
+        await window.CloudElevenLabsAgent.provision();
+
+        const toolPosts = calls.filter((c) => c.url.endsWith('/tools') && c.method === 'POST');
+        expect(toolPosts).toHaveLength(0);
+        // xi-api-key on the tool list call.
+        const listCall = calls.find((c) => c.url.endsWith('/tools') && c.method === 'GET');
+        expect(listCall.headers['xi-api-key']).toBe('xi-test-key');
+    });
+
+    it('ensureTools creates missing tools with the exact client tool_config shape', async () => {
+        const { window } = env;
+        await setKey(window);
+        const { spy, calls } = makeElevenLabsFetch({ existingTools: [] });
+        vi.stubGlobal('fetch', spy);
+
+        await window.CloudElevenLabsAgent.provision();
+
+        const toolPosts = calls.filter((c) => c.url.endsWith('/tools') && c.method === 'POST');
+        expect(toolPosts).toHaveLength(TOOL_SPECS.length);
+        const bp = toolPosts.find((c) => c.body.tool_config.name === 'log_blood_pressure');
+        expect(bp.body).toEqual({
+            tool_config: {
+                type: 'client',
+                name: 'log_blood_pressure',
+                description: expect.any(String),
+                parameters: expect.objectContaining({ type: 'object', required: ['systolic', 'diastolic'] }),
+            },
+        });
+    });
+
+    it('ensureAgent creates once with tool_ids + tool_call_sound, then reuses on matching version', async () => {
+        const { window } = env;
+        await setKey(window);
+        const first = makeElevenLabsFetch({ existingTools: existingAll() });
+        vi.stubGlobal('fetch', first.spy);
+
+        const agentId = await window.CloudElevenLabsAgent.provision();
+        expect(agentId).toBe('agent-new');
+
+        const createCall = first.calls.find((c) => c.url.endsWith('/agents/create'));
+        const agent = createCall.body.conversation_config.agent;
+        expect(agent.prompt.tool_ids).toHaveLength(TOOL_SPECS.length);
+        expect(agent.prompt.prompt).toMatch(/tool/i);
+        expect(agent.tool_call_sound).toBe('typing');
+        expect(agent.tool_call_sound_behavior).toBe('always');
+        expect(createCall.body.conversation_config.tts.voice_id).toBeTruthy();
+
+        // Second provision on the same (stored) TOOLSET_VERSION reuses the agent.
+        const second = makeElevenLabsFetch({ existingTools: existingAll() });
+        vi.stubGlobal('fetch', second.spy);
+        const again = await window.CloudElevenLabsAgent.provision();
+        expect(again).toBe('agent-new');
+        expect(second.calls.some((c) => c.url.endsWith('/agents/create'))).toBe(false);
+        // Sanity: the version we stored is the module's current one.
+        expect(TOOLSET_VERSION).toBeGreaterThan(0);
+    });
+
+    it('reuses a user-preset agent_id via PATCH instead of creating a new agent', async () => {
+        const { window } = env;
+        await setKey(window, { agent_id: 'preset-1' });
+        const { spy, calls } = makeElevenLabsFetch({ existingTools: existingAll() });
+        vi.stubGlobal('fetch', spy);
+
+        const id = await window.CloudElevenLabsAgent.provision();
+        expect(id).toBe('preset-1');
+        expect(calls.some((c) => c.url.endsWith('/agents/create'))).toBe(false);
+        const patch = calls.find((c) => c.method === 'PATCH');
+        expect(patch.url).toContain('preset-1');
+        expect(patch.body.conversation_config.agent.tool_call_sound).toBe('typing');
+    });
+
+    it('missing key: throws a Settings/Integrations hint without calling fetch', async () => {
+        const { window } = env;
+        const fetchSpy = vi.fn();
+        vi.stubGlobal('fetch', fetchSpy);
+        await expect(window.CloudElevenLabsAgent.provision()).rejects.toThrow(/Settings.*Integrations/i);
+        expect(fetchSpy).not.toHaveBeenCalled();
     });
 });

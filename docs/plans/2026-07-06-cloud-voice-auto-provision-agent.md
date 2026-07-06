@@ -144,7 +144,7 @@ with an audible tool-call sound. Closes bd **med-eas.26**.
 
 ### Task 5: Tests
 
-- [ ] Add the Vitest cases in Testing Strategy (provisioner idempotency, tool
+- [x] Add the Vitest cases in Testing Strategy (provisioner idempotency, tool
       create shape, agent create with tool_call_sound + version reuse, concrete
       callback → catalog mapping with measured_at stamping). Extend the existing
       `web/static/js/tests/features.elevenlabs-call.test.js` /

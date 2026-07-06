@@ -640,6 +640,57 @@ describe('features/elevenlabs-call.js — cloud dynamic MCP client-tools', () =>
         }
     });
 
+    it('concrete tools map 1:1 to catalog ops, stamping measured_at on writes', async () => {
+        const { window, cleanup } = createConversationEnv();
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            const handle = vi.fn(async () => ({ ok: true }));
+            window.CloudMCPDispatcher = { handle };
+            const { opts } = await startCall(window);
+            const t = opts.clientTools;
+
+            await t.get_blood_pressure({ days: 7 });
+            expect(handle).toHaveBeenCalledWith('mcp_call', { op: 'bp.list', params: { days: 7 } });
+
+            await t.log_blood_pressure({ systolic: 120, diastolic: 80, pulse: 60 });
+            const bpCreate = handle.mock.calls.find((c) => c[0] === 'mcp_call' && c[1].op === 'bp.create');
+            expect(bpCreate[1].params).toMatchObject({ systolic: 120, diastolic: 80, pulse: 60 });
+            expect(bpCreate[1].params.measured_at).toMatch(/^\d{4}-\d{2}-\d{2}T.*Z$/);
+
+            await t.get_weight({ days: 30 });
+            expect(handle).toHaveBeenCalledWith('mcp_call', { op: 'weight.list', params: { days: 30 } });
+
+            await t.log_weight({ kg: 70.5 });
+            const wCreate = handle.mock.calls.find((c) => c[0] === 'mcp_call' && c[1].op === 'weight.create');
+            expect(wCreate[1].params).toMatchObject({ weight: 70.5 });
+            expect(wCreate[1].params.measured_at).toMatch(/^\d{4}-\d{2}-\d{2}T.*Z$/);
+
+            await t.get_notes();
+            expect(handle).toHaveBeenCalledWith('mcp_call', { op: 'notes.list', params: {} });
+
+            await t.add_note({ text: 'slept well', tag: 'SLEEP' });
+            expect(handle).toHaveBeenCalledWith('mcp_call', { op: 'notes.create', params: { content: 'slept well', tag: 'SLEEP' } });
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('parses stringified tool args (SDK may hand JSON strings)', async () => {
+        const { window, cleanup } = createConversationEnv();
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            const handle = vi.fn(async () => ({ ok: true }));
+            window.CloudMCPDispatcher = { handle };
+            const { opts } = await startCall(window);
+
+            await opts.clientTools.log_blood_pressure(JSON.stringify({ systolic: 130, diastolic: 85 }));
+            const bpCreate = handle.mock.calls.find((c) => c[0] === 'mcp_call' && c[1].op === 'bp.create');
+            expect(bpCreate[1].params).toMatchObject({ systolic: 130, diastolic: 85 });
+        } finally {
+            cleanup();
+        }
+    });
+
     it('bot mode registers no clientTools', async () => {
         const { window, cleanup } = createConversationEnv();
         try {
