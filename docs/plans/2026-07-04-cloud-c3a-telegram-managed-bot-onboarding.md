@@ -80,11 +80,11 @@ Optional Telegram setup during onboarding, one tap: the cloud's **manager bot** 
 
 ### Task 5: client — consent screen + wizard step 5
 
-- [ ] consent screen (`web/cloud/js/telegram.js`): plain-language channel-credential warning per docs/cloud-mode.md (server-visible secret; message content at chosen verbosity visible to the relay; skippable) — Accept → provision flow; Skip → `POST /api/telegram/skip` (`tg_skipped_unix`) so the stateless wizard never re-nags
-- [ ] managed flow UI: deep-link button ("keep the suggested bot name" copy), status polling (`pending → bot_created → linked`), then "open your bot and tap Start" using the returned `bot_username`, then test-notification button on `linked`
-- [ ] BYO form behind an "advanced" disclosure: token input → validate → same linking UI
-- [ ] wizard step 5 derived-state rule: render when server config has Telegram enabled AND `status ∈ {none}`; settings screen hosts the same module for later linking/unlinking
-- [ ] hide everything when the server reports Telegram disabled (no `MANAGER_BOT_TOKEN` and no BYO configured — status endpoint carries `enabled: bool`)
+- [x] consent screen (`web/cloud/js/telegram.js`): plain-language channel-credential warning per docs/cloud-mode.md (server-visible secret; message content at chosen verbosity visible to the relay; skippable) — Accept → provision flow; Skip → `POST /api/telegram/skip` (`tg_skipped_unix`) so the stateless wizard never re-nags (added the missing `Skip` handler + route to `internal/cloudserver/telegram.go`; `SetTGSkipped` store method already existed from Task 1)
+- [x] managed flow UI: deep-link button ("keep the suggested bot name" copy), status polling (`pending → bot_created → linked`), then "open your bot and tap Start" using the returned `bot_username`, then test-notification button on `linked` (`mountTelegram` self-drives off `GET /api/telegram/status`; 2.5s poll, cleared on terminal/linked state)
+- [x] BYO form behind an "advanced" disclosure: token input → validate → same linking UI (`<details>` disclosure → `POST /api/telegram/byo` → `renderOpenBot`; 400 surfaced as "token rejected by Telegram")
+- [x] wizard step 5 derived-state rule: render when server config has Telegram enabled AND `status ∈ {none}`; settings screen hosts the same module for later linking/unlinking (signup.js `renderTelegramStep` after Emergency Kit; module self-gates to `onDone()` when disabled/already-resolved; devices.js hosts the same module in settings mode via `#telegram-mount`)
+- [x] hide everything when the server reports Telegram disabled (no `MANAGER_BOT_TOKEN` and no BYO configured — status endpoint carries `enabled: bool`) (disabled → routes unregistered → status non-2xx → `getStatus` returns `{enabled:false}`; wizard falls through to done, settings mount clears itself)
 
 ### Task 6: Verify acceptance criteria
 

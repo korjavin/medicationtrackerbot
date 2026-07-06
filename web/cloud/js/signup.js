@@ -229,7 +229,21 @@ export async function renderEmergencyKit(app, ctx) {
   const checkbox = app.querySelector('#kit-saved-checkbox');
   const button = app.querySelector('#kit-continue');
   checkbox.addEventListener('change', () => { button.disabled = !checkbox.checked; });
-  button.addEventListener('click', () => (ctx.onKitSaved ? ctx.onKitSaved() : renderDone(app)));
+  button.addEventListener('click', () => (ctx.onKitSaved ? ctx.onKitSaved() : renderTelegramStep(app)));
+}
+
+// Wizard step 5: optional Telegram linking. mountTelegram self-gates on the
+// server's status (enabled + state === 'none'); when Telegram is disabled or
+// already resolved it calls onDone immediately, so the wizard falls straight
+// through to the done screen with no dead step.
+async function renderTelegramStep(app) {
+  try {
+    const { mountTelegram } = await import('./telegram.js');
+    await mountTelegram(app, { onDone: () => renderDone(app) });
+  } catch (e) {
+    console.error('[signup] telegram step failed', e);
+    renderDone(app);
+  }
 }
 
 function renderDone(app) {

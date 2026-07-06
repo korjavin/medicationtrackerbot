@@ -86,6 +86,7 @@ func (t *TelegramAPI) RegisterAPIRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/telegram/provision", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Provision)))
 	mux.Handle("GET /api/telegram/status", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Status)))
 	mux.Handle("POST /api/telegram/byo", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.BYO)))
+	mux.Handle("POST /api/telegram/skip", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Skip)))
 	mux.Handle("POST /api/telegram/test", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Test)))
 	mux.Handle("DELETE /api/telegram", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Delete)))
 }
@@ -343,6 +344,22 @@ func (t *TelegramAPI) BYO(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"bot_username": me.Username})
+}
+
+// Skip records that the user declined Telegram setup (tg_skipped_unix) so the
+// stateless wizard's derived-state rule never re-nags. Idempotent.
+func (t *TelegramAPI) Skip(w http.ResponseWriter, r *http.Request) {
+	sess, ok := SessionFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if err := t.store.SetTGSkipped(r.Context(), sess.AccountID, time.Now()); err != nil {
+		slog.Error("telegram skip: set skipped", "error", err, "account", sess.AccountID)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"skipped": true})
 }
 
 // Test sends a test notification through a linked bot — the wizard/settings
