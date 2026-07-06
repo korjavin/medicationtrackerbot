@@ -90,19 +90,19 @@ reminders, or it wipes the user's real schedule until the next recompute.
 
 ### Task 1: Expose the cloud vault `ctx` and reusable push primitives to main-app code
 
-- [ ] In `web/cloud/js/push.js`, add `export` to `subscribe` (currently
+- [x] In `web/cloud/js/push.js`, add `export` to `subscribe` (currently
       module-internal at ~line 70) and to `getSubscription`/`unsubscribe` if a
       DOM-free unsubscribe helper exists (add a small DOM-free `unsubscribe()`
       that reads the current `PushSubscription`, `POST`s nothing but
       `DELETE /api/push/subscriptions` with the endpoint, and calls
       `subscription.unsubscribe()`), leaving `renderPush`/`renderPushScreen`
       untouched.
-- [ ] In `web/cloud/js/cloud-boot.js`, after `warmUnlock()` returns a non-null
+- [x] In `web/cloud/js/cloud-boot.js`, after `warmUnlock()` returns a non-null
       `ctx` (the post-unlock block), publish a small facade once:
       `window.MedTrackerCloud = { ctx }`. Keep it inside the post-unlock block so
       it only exists for an unlocked vault. Do not let its assignment throw the
       boot (it is a plain field set).
-- [ ] Confirm ordering: `window.MedTrackerCloudReady` still resolves after the
+- [x] Confirm ordering: `window.MedTrackerCloudReady` still resolves after the
       facade is published, so Settings code that `await`s it can rely on
       `window.MedTrackerCloud.ctx` being present.
 
