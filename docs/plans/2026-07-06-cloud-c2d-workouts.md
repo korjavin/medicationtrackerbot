@@ -191,14 +191,14 @@ also not ported.
 
 ### Task 4: Exercise logs + stats
 
-- [ ] logs create/update/delete with the web-path semantics:
+- [x] logs create/update/delete with the web-path semantics:
       non-negative validation, `logged_at` bump only while placeholder,
       propagate-to-schedule for non-library sources, auto-promote
       placeholder→completed at `sets_completed>=1`, the
       `(session_id, exercise_id, source)` uniqueness guard
-- [ ] SessionView list (`total_volume`, `exercises_completed`, ad-hoc
+- [x] SessionView list (`total_volume`, `exercises_completed`, ad-hoc
       biggest-volume display name) + SessionDetails
-- [ ] stats: 30-day totals/completion rate, 12-week Monday heatmap with
+- [x] stats: 30-day totals/completion rate, 12-week Monday heatmap with
       `weekly_activity: null` when empty, `top_exercises`
 
 ### Task 5: Mi-band read/edit side

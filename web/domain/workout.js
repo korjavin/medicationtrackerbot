@@ -213,6 +213,34 @@ function toRotationResponse(record) {
   };
 }
 
+function toLogResponse(record) {
+  const resp = {
+    id: record.id,
+    session_id: record.session_id,
+    exercise_id: record.exercise_id,
+    exercise_name: record.exercise_name,
+    status: record.status,
+    logged_at: record.logged_at,
+    source: record.source,
+  };
+  if (hasValue(record.sets_completed)) resp.sets_completed = record.sets_completed;
+  if (hasValue(record.reps_completed)) resp.reps_completed = record.reps_completed;
+  if (hasValue(record.weight_kg)) resp.weight_kg = record.weight_kg;
+  if (record.notes) resp.notes = record.notes;
+  return resp;
+}
+
+// validateExerciseValues ports ValidateExerciseValues (exercise_logs.go:28):
+// nil/undefined means "don't change" and is always allowed; only a present
+// negative value is rejected.
+function validateExerciseValues(sets, reps, weight) {
+  if (hasValue(sets) && sets < 0) throw invalidRequest('sets must be non-negative');
+  if (hasValue(reps) && reps < 0) throw invalidRequest('reps must be non-negative');
+  if (hasValue(weight) && weight < 0) throw invalidRequest('weight must be non-negative');
+}
+
+const VALID_LOG_STATUSES = new Set(['', 'completed', 'skipped']);
+
 // assertNoDuplicateLibraryName ports the DB's
 // `UNIQUE INDEX idx_exercise_library_user_name (user_id, name)` (migration
 // 028) into an app-layer check, since the cloud records port has no SQL
@@ -726,6 +754,141 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     await records.del(WORKOUT_RECORD_TYPES.SESSION, session.recordId);
   }
 
+  // -- Exercise logs --
+
+  // propagateExerciseToSchedule ports PropagateExerciseToSchedule (repo.go:1330):
+  // best-effort write-back of non-null sets/reps/weight onto the scheduled
+  // exercise definition, guarded by the exact same three conditions the SQL
+  // WHERE clause encodes (exercise id+name match, and the session is still
+  // pending/notified/in_progress with that exercise's variant) — a mismatch
+  // on any of them is a silent no-op, matching the SQL affecting zero rows.
+  async function propagateExerciseToSchedule(sessionId, exerciseId, exerciseName, sets, reps, weight) {
+    const session = await findSession(sessionId);
+    if (!session || !['pending', 'notified', 'in_progress'].includes(session.status)) return;
+    const exercise = await findByNumericId(records, WORKOUT_RECORD_TYPES.EXERCISE, exerciseId);
+    if (!exercise || exercise.exercise_name !== exerciseName || exercise.variant_id !== session.variant_id) return;
+
+    const targetRepsMax = (hasValue(reps) && hasValue(exercise.target_reps_max) && reps > exercise.target_reps_max)
+      ? null : exercise.target_reps_max;
+    await records.put(WORKOUT_RECORD_TYPES.EXERCISE, {
+      ...exercise,
+      target_sets: hasValue(sets) ? sets : exercise.target_sets,
+      target_reps_min: hasValue(reps) ? reps : exercise.target_reps_min,
+      target_reps_max: targetRepsMax,
+      target_weight_kg: hasValue(weight) ? weight : exercise.target_weight_kg,
+      clientTs: now(),
+    });
+  }
+
+  // createLog ports AddExerciseToSession (exercise_logs.go:119) + the
+  // handler's request validation (workout_handlers.go:485): required
+  // session/exercise ids, non-negative target values, source defaulting to
+  // "schedule", the session-exists guard, and the
+  // (session_id, exercise_id, source) uniqueness the DB enforces via a
+  // partial unique index (migration 052) for exercise_id > 0.
+  async function createLog(input) {
+    const sessionId = Number(input && input.session_id) || 0;
+    const exerciseId = Number(input && input.exercise_id) || 0;
+    if (!sessionId || !exerciseId) {
+      throw invalidRequest('SessionID and ExerciseID are required');
+    }
+
+    const targetSets = Number(input && input.target_sets) || 0;
+    const targetRepsMin = Number(input && input.target_reps_min) || 0;
+    const targetWeightKg = numOrNull(input && input.target_weight_kg);
+    validateExerciseValues(targetSets, targetRepsMin, targetWeightKg);
+
+    const source = (input && input.source) || 'schedule';
+    if (source !== 'schedule' && source !== 'library') {
+      throw invalidRequest("source must be 'schedule' or 'library'");
+    }
+
+    const session = await findSession(sessionId);
+    if (!session) throw invalidRequest('Session not found', 'not_found');
+
+    if (exerciseId > 0) {
+      const dup = (await activeRecords(WORKOUT_RECORD_TYPES.LOG))
+        .some((l) => l.session_id === sessionId && l.exercise_id === exerciseId && l.source === source);
+      if (dup) throw invalidRequest('exercise already logged for this session', 'conflict');
+    }
+
+    const nowMs = now();
+    const exerciseName = (input && input.exercise_name) || '';
+    const record = {
+      recordId: genRecordId('log', nowMs),
+      clientTs: nowMs,
+      deleted: false,
+      id: mintNumericId(await records.list(WORKOUT_RECORD_TYPES.LOG), nowMs),
+      session_id: sessionId,
+      exercise_id: exerciseId,
+      exercise_name: exerciseName,
+      sets_completed: targetSets,
+      reps_completed: targetRepsMin,
+      weight_kg: targetWeightKg,
+      status: (input && input.status) || '',
+      notes: (input && input.notes) || '',
+      logged_at: new Date(nowMs).toISOString(),
+      source,
+    };
+    await records.put(WORKOUT_RECORD_TYPES.LOG, record);
+
+    if (source !== 'library') {
+      const propagateSets = targetSets === 0 ? null : targetSets;
+      const propagateReps = targetRepsMin === 0 ? null : targetRepsMin;
+      await propagateExerciseToSchedule(sessionId, exerciseId, exerciseName, propagateSets, propagateReps, targetWeightKg);
+    }
+
+    return { id: record.id };
+  }
+
+  // updateLog ports UpdateExerciseLog (exercise_logs.go:47): validation,
+  // the store write (sets/reps/weight/notes, logged_at bumped only while the
+  // row is still a placeholder), best-effort schedule propagation skipped
+  // for source="library", and auto-promotion of a placeholder to
+  // "completed" once sets_completed >= 1. A missing log id no-ops, matching
+  // the Go store's `UPDATE ... WHERE id = ?` affecting zero rows.
+  async function updateLog(id, input) {
+    const sets = numOrNull(input && input.sets_completed, true);
+    const reps = numOrNull(input && input.reps_completed, true);
+    const weight = numOrNull(input && input.weight_kg, false);
+    validateExerciseValues(sets, reps, weight);
+
+    const status = (input && input.status) || '';
+    if (!VALID_LOG_STATUSES.has(status)) {
+      throw invalidRequest('status must be one of "", "completed", "skipped"');
+    }
+
+    const log = await findByNumericId(records, WORKOUT_RECORD_TYPES.LOG, id);
+    if (!log) return;
+
+    const wasPlaceholder = log.status === '';
+    let newStatus = status;
+    if (newStatus === '' && wasPlaceholder && hasValue(sets) && sets >= 1) newStatus = 'completed';
+
+    const nowMs = now();
+    await records.put(WORKOUT_RECORD_TYPES.LOG, {
+      ...log,
+      sets_completed: hasValue(sets) ? sets : log.sets_completed,
+      reps_completed: hasValue(reps) ? reps : log.reps_completed,
+      weight_kg: hasValue(weight) ? weight : log.weight_kg,
+      notes: (input && input.notes) || '',
+      status: newStatus,
+      logged_at: wasPlaceholder ? new Date(nowMs).toISOString() : log.logged_at,
+      clientTs: nowMs,
+    });
+
+    if (log.source !== 'library') {
+      const propagateSets = sets === 0 ? null : sets;
+      const propagateReps = reps === 0 ? null : reps;
+      await propagateExerciseToSchedule(log.session_id, log.exercise_id, log.exercise_name, propagateSets, propagateReps, weight);
+    }
+  }
+
+  async function deleteLog(id) {
+    const log = await findByNumericId(records, WORKOUT_RECORD_TYPES.LOG, id);
+    if (log) await records.del(WORKOUT_RECORD_TYPES.LOG, log.recordId);
+  }
+
   // -- Next-workout engine --
 
   // buildSessionResponse ports next.go's buildSessionResponse for the
@@ -916,6 +1079,191 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     };
   }
 
+  // -- Session views + stats --
+
+  // sessionSortKey/sortSessions ports ListHistory's `ORDER BY scheduled_date
+  // DESC, scheduled_time DESC`. scheduled_date already carries a full instant
+  // here (local midnight rendered as UTC ISO), so same-day sessions tie-break
+  // on the scheduled_time string, exactly like the SQL two-column ORDER BY.
+  function sortSessions(sessions) {
+    return [...sessions].sort((a, b) => {
+      const da = new Date(a.scheduled_date).getTime();
+      const db = new Date(b.scheduled_date).getTime();
+      if (da !== db) return db - da;
+      return a.scheduled_time < b.scheduled_time ? 1 : a.scheduled_time > b.scheduled_time ? -1 : 0;
+    });
+  }
+
+  // listSessions ports ListSessions (sessions.go:34): recent sessions newest
+  // first, enriched with group/variant names, per-session exercise counts,
+  // completed count, and total volume. Ad-hoc sessions (group_id == -1) are
+  // labelled "Ad-hoc" and take their "variant" name from the biggest
+  // completed exercise by volume (falling back to sets*reps for bodyweight
+  // exercises); their exercise count comes from the logged exercises rather
+  // than a variant.
+  async function listSessions(limit) {
+    const lim = limit || 30;
+    const sessions = sortSessions(await activeRecords(WORKOUT_RECORD_TYPES.SESSION)).slice(0, lim);
+    const allLogs = await activeRecords(WORKOUT_RECORD_TYPES.LOG);
+
+    const views = [];
+    for (const session of sessions) {
+      const logs = allLogs.filter((l) => l.session_id === session.id);
+      const exercises = await listExercises(session.variant_id);
+
+      let groupName = 'Unknown';
+      let variantName = 'Unknown';
+      if (session.group_id === ADHOC_ID) {
+        groupName = 'Ad-hoc';
+        let bestName = '';
+        let bestVol = -1;
+        for (const log of logs) {
+          if (log.status !== 'completed') continue;
+          let vol = 0;
+          if (hasValue(log.sets_completed) && hasValue(log.reps_completed) && hasValue(log.weight_kg)) {
+            vol = log.sets_completed * log.reps_completed * log.weight_kg;
+          } else if (hasValue(log.sets_completed) && hasValue(log.reps_completed)) {
+            vol = log.sets_completed * log.reps_completed;
+          }
+          if (vol > bestVol) {
+            bestVol = vol;
+            bestName = log.exercise_name;
+          }
+        }
+        variantName = bestName;
+      } else {
+        const group = await findByNumericId(records, WORKOUT_RECORD_TYPES.GROUP, session.group_id);
+        const variant = await findByNumericId(records, WORKOUT_RECORD_TYPES.VARIANT, session.variant_id);
+        if (group) groupName = group.name;
+        if (variant) variantName = variant.name;
+      }
+
+      let completed = 0;
+      let totalVolume = 0;
+      for (const log of logs) {
+        if (log.status !== 'completed') continue;
+        completed++;
+        if (hasValue(log.sets_completed) && hasValue(log.reps_completed) && hasValue(log.weight_kg)) {
+          totalVolume += log.sets_completed * log.reps_completed * log.weight_kg;
+        }
+      }
+
+      views.push({
+        session: toSessionResponse(session),
+        group_name: groupName,
+        variant_name: variantName,
+        exercises_count: session.group_id === ADHOC_ID ? logs.length : exercises.length,
+        exercises_completed: completed,
+        total_volume: totalVolume,
+      });
+    }
+    return views;
+  }
+
+  // getSessionDetails ports GetSessionDetails (sessions.go:113): returns
+  // null when the session doesn't exist (caller/shim maps that to 404).
+  async function getSessionDetails(id) {
+    const session = await findSession(id);
+    if (!session) return null;
+    const logs = (await activeRecords(WORKOUT_RECORD_TYPES.LOG))
+      .filter((l) => l.session_id === session.id)
+      .sort((a, b) => a.id - b.id);
+    return { session: toSessionResponse(session), logs: logs.map(toLogResponse) };
+  }
+
+  // mondayOfUtc ports stats.go's mondayOf, bucketing by the ISO Monday of
+  // the UTC calendar day `ms` falls on. Session instants here are always
+  // full UTC ISO strings (never a bare local-date), so bucketing off
+  // getUTCDay() is the direct equivalent of Go walking `t.Weekday()`
+  // backwards on the stored instant.
+  function mondayOfUtc(ms) {
+    const d = new Date(ms);
+    const day = d.getUTCDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    const monday = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + diff));
+    return monday.toISOString().slice(0, 10);
+  }
+
+  // getStats ports GetStats (stats.go:44): 30-day session counts +
+  // completion rate, a 12-week completed/skipped heatmap bucketed by ISO
+  // Monday, and top exercises by aggregate volume. weekly_activity and
+  // top_exercises both stay `null` (never `[]`) when nothing falls in their
+  // window — the Go source declares both with `var` and only appends, so an
+  // empty result marshals to JSON null; that's a real frontend contract
+  // (stats.js reads `Array.isArray(...)` / truthiness), not an oversight.
+  async function getStats() {
+    const sessions = sortSessions(await activeRecords(WORKOUT_RECORD_TYPES.SESSION)).slice(0, 500);
+    const nowMs = now();
+    const since30 = nowMs - 30 * 24 * 60 * 60 * 1000;
+    const cutoff12w = nowMs - 84 * 24 * 60 * 60 * 1000;
+
+    let totalSessions = 0;
+    let completedSessions = 0;
+    let skippedSessions = 0;
+    const weekMap = new Map();
+
+    for (const session of sessions) {
+      const schedMs = new Date(session.scheduled_date).getTime();
+      if (schedMs >= since30) {
+        if (session.status === 'completed') { completedSessions++; totalSessions++; }
+        else if (session.status === 'skipped') { skippedSessions++; totalSessions++; }
+      }
+      if (schedMs >= cutoff12w) {
+        const week = mondayOfUtc(schedMs);
+        if (!weekMap.has(week)) weekMap.set(week, { week, completed: 0, skipped: 0 });
+        const entry = weekMap.get(week);
+        if (session.status === 'completed') entry.completed++;
+        else if (session.status === 'skipped') entry.skipped++;
+      }
+    }
+
+    const weekKeys = Array.from(weekMap.keys()).sort();
+    let weeklyActivity = null;
+    let activeWeeks = 0;
+    for (const week of weekKeys) {
+      if (!weeklyActivity) weeklyActivity = [];
+      const entry = weekMap.get(week);
+      weeklyActivity.push(entry);
+      if (entry.completed > 0) activeWeeks++;
+    }
+
+    const sessionIds = new Set(sessions.map((s) => s.id));
+    const agg = new Map();
+    for (const log of await activeRecords(WORKOUT_RECORD_TYPES.LOG)) {
+      if (log.status !== 'completed' || !sessionIds.has(log.session_id)) continue;
+      let entry = agg.get(log.exercise_name);
+      if (!entry) {
+        entry = { exercise_name: log.exercise_name, sessionIds: new Set(), total_volume_kg: 0, max_weight_kg: 0 };
+        agg.set(log.exercise_name, entry);
+      }
+      entry.sessionIds.add(log.session_id);
+      if (hasValue(log.sets_completed) && hasValue(log.reps_completed) && hasValue(log.weight_kg)) {
+        entry.total_volume_kg += log.sets_completed * log.reps_completed * log.weight_kg;
+      }
+      if (hasValue(log.weight_kg) && log.weight_kg > entry.max_weight_kg) entry.max_weight_kg = log.weight_kg;
+    }
+    let topExercises = Array.from(agg.values())
+      .map((entry) => ({
+        exercise_name: entry.exercise_name,
+        session_count: entry.sessionIds.size,
+        total_volume_kg: entry.total_volume_kg,
+        max_weight_kg: entry.max_weight_kg,
+      }))
+      .sort((a, b) => b.total_volume_kg - a.total_volume_kg)
+      .slice(0, 8);
+    if (topExercises.length === 0) topExercises = null;
+
+    return {
+      total_sessions: totalSessions,
+      completed_sessions: completedSessions,
+      skipped_sessions: skippedSessions,
+      completion_rate: totalSessions > 0 ? (completedSessions / totalSessions) * 100 : 0,
+      active_weeks: activeWeeks,
+      top_exercises: topExercises,
+      weekly_activity: weeklyActivity,
+    };
+  }
+
   return {
     createGroup,
     listGroups,
@@ -945,5 +1293,11 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     cancelPreSkipSession,
     setSessionStatus,
     nextVariant,
+    createLog,
+    updateLog,
+    deleteLog,
+    listSessions,
+    getSessionDetails,
+    getStats,
   };
 }
