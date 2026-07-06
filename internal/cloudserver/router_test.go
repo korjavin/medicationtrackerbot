@@ -140,7 +140,7 @@ func TestRouter_HostVariants(t *testing.T) {
 			accountApp := stripPort(tc.host) != "app.example.com" &&
 				(tc.path == "/" || strings.HasPrefix(tc.path, "/static/") || strings.HasPrefix(tc.path, "/domain/"))
 			if accountApp {
-				wantConnect = "connect-src 'self' https:;"
+				wantConnect = "connect-src 'self' https: wss:;"
 				wantScript = "script-src 'self' https://esm.sh blob: data:;"
 			}
 			if !strings.Contains(csp, wantConnect) {

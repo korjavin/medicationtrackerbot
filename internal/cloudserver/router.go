@@ -134,7 +134,11 @@ func setSecurityHeaders(w http.ResponseWriter, accountApp bool) {
 	workerSrc := ""
 	mediaSrc := ""
 	if accountApp {
-		connectSrc = "connect-src 'self' https:"
+		// wss: is listed explicitly: the @elevenlabs/client voice SDK opens a
+		// wss://api.elevenlabs.io socket, and relying on the CSP3 https:→wss:
+		// scheme-coercion match is fragile across browsers (WebKit/iOS Safari
+		// has been inconsistent). Bot mode (server.go) also enumerates wss:.
+		connectSrc = "connect-src 'self' https: wss:"
 		scriptSrc = "script-src 'self' https://esm.sh blob: data:"
 		workerSrc = "worker-src 'self' blob:; "
 		mediaSrc = "media-src 'self' blob:; "
