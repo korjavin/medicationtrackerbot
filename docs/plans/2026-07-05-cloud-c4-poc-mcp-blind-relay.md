@@ -94,22 +94,22 @@ before investing —
 
 ### Task 1: Blind relay endpoint in cloudserver
 
-- [ ] `internal/cloudserver/mcp_relay.go`: in-memory pairing table
+- [x] `internal/cloudserver/mcp_relay.go`: in-memory pairing table
       (pairing id → device conn / shim conn, TTL ~24h, single shim + single
       device per pairing — `ponytail:` multi-pairing later if wanted)
-- [ ] `GET /api/mcp/relay/device` (WS upgrade; auth: existing session
+- [x] `GET /api/mcp/relay/device` (WS upgrade; auth: existing session
       cookie + account context) and `GET /api/mcp/relay/shim?pairing=<id>`
       (WS upgrade; auth: possession of the pairing id — the E2E key is the
       real secret and the relay never has it; pairing ids are single-use,
       bound to the account that minted them)
-- [ ] relay behavior: pipe opaque binary frames both ways, no inspection,
+- [x] relay behavior: pipe opaque binary frames both ways, no inspection,
       no buffering beyond one in-flight frame per direction (PoC), close
       both ends when either drops; frame size cap (64 KiB) and a
       per-pairing rate limit reusing the repo's limiter idiom
-- [ ] `POST /api/mcp/pairings` (session-authed): mint `{pairing_id}`;
+- [x] `POST /api/mcp/pairings` (session-authed): mint `{pairing_id}`;
       DELETE to revoke; pairings die with process restart (in-memory —
       `ponytail:` persist if PoC graduates)
-- [ ] add `github.com/coder/websocket`; Go integration test: two test WS
+- [x] add `github.com/coder/websocket`; Go integration test: two test WS
       clients through the real handler — frames pass opaque, cross-pairing
       access rejected, dead-peer close propagates
 

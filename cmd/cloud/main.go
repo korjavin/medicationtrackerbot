@@ -178,6 +178,7 @@ func main() {
 	recoveryAPI := cloudserver.NewRecoveryAPI(store)
 	syncAPI := cloudserver.NewSyncAPI(store, cfg.sessionSecret, cfg.accountQuotaBytes)
 	pushAPI := cloudserver.NewPushAPI(store, cfg.sessionSecret)
+	mcpRelayAPI := cloudserver.NewMCPRelayAPI(store, cfg.sessionSecret)
 	apiMux := http.NewServeMux()
 	webauthnAPI.RegisterRoutes(apiMux)
 	envelopeAPI.RegisterRoutes(apiMux)
@@ -186,6 +187,7 @@ func main() {
 	recoveryAPI.RegisterRoutes(apiMux)
 	syncAPI.RegisterRoutes(apiMux)
 	pushAPI.RegisterRoutes(apiMux)
+	mcpRelayAPI.RegisterRoutes(apiMux)
 	router := cloudserver.New(cfg.baseDomain, store, cloudweb.FS, webstatic.FS, domainweb.FS, apiMux, cfg.foodDBURL)
 
 	relay := cloudserver.NewRelay(store, &cloudserver.WebPushSender{
