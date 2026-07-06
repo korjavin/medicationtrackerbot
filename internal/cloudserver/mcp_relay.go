@@ -59,6 +59,23 @@ type MCPRelayAPI struct {
 	sessionSecret string
 	pairings      *pairingTable
 	limiter       *rateLimiter
+
+	// onLegacyPairingMutation, if set, wraps a legacy pairing mutation
+	// (CreatePairing/DeletePairing minting or revoking an account's single
+	// relay pairing). The hosted-remote registry wires it (in NewMCPRemoteAPI)
+	// to run `mutate` under its lifecycle lock, after tearing down any persisted
+	// Tier 2 enablement for that account — teardown and the pairing mutation
+	// happen atomically so neither can interleave with PostRemote's enable
+	// critical section. Destroying or replacing the pairing without this would
+	// otherwise strand an "enabled" remote row and a still-valid token whose
+	// hosted shim relays to a pairing that no longer exists. Only the legacy
+	// HTTP handlers call this — remote's own pairing management
+	// (RestorePairing/MakePairingPermanent/RevokePairing) does not, so there's
+	// no re-entrancy back into the remote registry. When unset, callers run
+	// `mutate` directly. Returns an error if the Tier 2 teardown fails durably —
+	// the caller then aborts its pairing mutation so a failed teardown can't
+	// strand a persisted remote row against an evicted/revoked pairing.
+	onLegacyPairingMutation func(ctx context.Context, accountID string, mutate func()) error
 }
 
 // NewMCPRelayAPI builds the MCP relay handlers.
@@ -99,7 +116,24 @@ func (a *MCPRelayAPI) CreatePairing(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	id := a.pairings.mint(session.AccountID)
+	// Minting a fresh pairing replaces whatever the account had — including a
+	// pairing a persisted Tier 2 enablement depends on. Tear that enablement
+	// down first so we never leave a remote row pointing at the pairing this
+	// mint is about to evict, and run the mint under the remote registry's
+	// lifecycle lock so it can't slip between PostRemote's pin and start().
+	// (During the remote-enable flow the browser mints then immediately POSTs
+	// /api/mcp/remote, so the teardown is a no-op there; it only bites a stale
+	// local-shim mint against an already-remote account.)
+	var id string
+	mutate := func() { id = a.pairings.mint(session.AccountID) }
+	if a.onLegacyPairingMutation != nil {
+		if err := a.onLegacyPairingMutation(r.Context(), session.AccountID, mutate); err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		mutate()
+	}
 	writeJSON(w, http.StatusOK, createPairingResponse{PairingID: id})
 }
 
@@ -117,10 +151,15 @@ func (a *MCPRelayAPI) RestorePairing(pairingID, accountID string) {
 // MakePairingPermanent clears the expiry on accountID's live pairing so a
 // freshly-enabled Tier 2 connector (whose pairing the browser minted with the
 // normal 24h TTL) survives past that TTL without a restart — the persisted
-// enablement is meant to be permanent until Disconnect. No-op if the account
-// has no pairing.
-func (a *MCPRelayAPI) MakePairingPermanent(accountID string) {
-	a.pairings.makePermanent(accountID)
+// enablement is meant to be permanent until Disconnect. It pins by the
+// submitted pairingID (not merely by account): if a concurrent re-mint
+// (double-click, second tab, stale UI) already replaced the account's pairing,
+// pairingID no longer matches the live one and this returns false, so the
+// caller rejects the enable instead of persisting a pairing the hosted shim
+// can never dial. Returns false (no-op) if the account has no pairing or its
+// current pairing id differs from pairingID.
+func (a *MCPRelayAPI) MakePairingPermanent(accountID, pairingID string) bool {
+	return a.pairings.makePermanent(accountID, pairingID)
 }
 
 // RevokePairing drops accountID's pairing and closes both legs — the server
@@ -138,7 +177,21 @@ func (a *MCPRelayAPI) DeletePairing(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	a.pairings.revoke(session.AccountID)
+	// Revoking the pairing out from under a persisted Tier 2 enablement would
+	// leave the remote row + token enabled but relaying to nothing. Tear the
+	// enablement down as part of the same mutation, under the remote registry's
+	// lifecycle lock, so state stays consistent whether the user disconnects via
+	// the new /api/mcp/remote path or this legacy endpoint (a stale tab, or a
+	// local-mode client) — and so the revoke can't interleave with PostRemote.
+	mutate := func() { a.pairings.revoke(session.AccountID) }
+	if a.onLegacyPairingMutation != nil {
+		if err := a.onLegacyPairingMutation(r.Context(), session.AccountID, mutate); err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		mutate()
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -450,13 +503,19 @@ func (t *pairingTable) restore(id, accountID string) {
 
 // makePermanent clears the expiry on accountID's live pairing so a Tier 2
 // enablement whose pairing was minted with the normal TTL survives past it.
-// No-op if the account has no pairing.
-func (t *pairingTable) makePermanent(accountID string) {
+// The check that the account's current pairing id equals pairingID and the
+// pin happen under one lock hold, so a concurrent mint can't slip a different
+// pairing in between validate and pin. Returns false if the account has no
+// pairing or its live pairing id differs from pairingID (a stale submission).
+func (t *pairingTable) makePermanent(accountID, pairingID string) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if rec, ok := t.byAcc[accountID]; ok {
-		rec.expiresAt = time.Time{}
+	rec, ok := t.byAcc[accountID]
+	if !ok || rec.id != pairingID {
+		return false
 	}
+	rec.expiresAt = time.Time{}
+	return true
 }
 
 // register installs a pairing record under id, revoking any pairing the

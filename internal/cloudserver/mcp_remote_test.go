@@ -148,6 +148,50 @@ func TestMCPRemote_EnableDisableStatusLifecycle(t *testing.T) {
 	}
 }
 
+// TestMCPRemote_LegacyPairingMutationTearsDownRemote guards against a stale
+// legacy endpoint (or tab) stranding an enabled-but-broken remote row: once
+// Tier 2 is enabled, revoking the pairing via the old DELETE /api/mcp/pairings
+// must also disable remote, not leave the row + token authenticating against a
+// pairing that no longer exists. A fresh mint (POST /api/mcp/pairings) against
+// an already-remote account must likewise tear the old enablement down.
+func TestMCPRemote_LegacyPairingMutationTearsDownRemote(t *testing.T) {
+	h, _, account, claimToken := newTestMCPRemoteHandler(t)
+	host := account.Subdomain + ".localhost"
+	session := registerAndGetSession(t, h, host, claimToken)
+
+	enable := func() {
+		t.Helper()
+		pairingID := mintPairing(t, h, host, session)
+		if rec := postMCPRemote(t, h, host, session, testPairingCode(t, host, pairingID)); rec.Code != http.StatusOK {
+			t.Fatalf("enable status = %d, body %q", rec.Code, rec.Body.String())
+		}
+		if resp := getMCPRemoteStatus(t, h, host, session); !resp.Enabled {
+			t.Fatalf("precondition: remote should be enabled")
+		}
+	}
+
+	// Legacy DELETE /api/mcp/pairings while remote is enabled.
+	enable()
+	req := httptest.NewRequest(http.MethodDelete, "/api/mcp/pairings", nil)
+	req.Host = host
+	req.AddCookie(session)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("DELETE /api/mcp/pairings status = %d, body %q", rec.Code, rec.Body.String())
+	}
+	if resp := getMCPRemoteStatus(t, h, host, session); resp.Enabled {
+		t.Fatalf("legacy pairing DELETE left remote enabled; expected teardown")
+	}
+
+	// Legacy mint (POST /api/mcp/pairings) while remote is enabled.
+	enable()
+	mintPairing(t, h, host, session)
+	if resp := getMCPRemoteStatus(t, h, host, session); resp.Enabled {
+		t.Fatalf("legacy pairing mint left the prior remote enablement in place; expected teardown")
+	}
+}
+
 // TestMCPRemote_RejectsForeignRelayURL guards the SSRF boundary: a pairing
 // code whose relay_url points at any host other than the account's own origin
 // must be rejected, so an authenticated caller can't make the server dial an

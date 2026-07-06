@@ -103,6 +103,14 @@ type MCPRemoteAPI struct {
 	sessionSecret string
 	relayAPI      *MCPRelayAPI
 
+	// lifecycleMu serializes whole enable/disable/legacy-mutation critical
+	// sections against each other so a pairing mutation can't interleave with
+	// PostRemote's pin→persist→start. It is the outermost lock — mu and the
+	// relay's pairing-table lock are only ever taken while holding it (or not at
+	// all), never the reverse. Distinct from mu, which guards the byAcc map for
+	// short reads/writes.
+	lifecycleMu sync.Mutex
+
 	mu    sync.RWMutex
 	byAcc map[string]*mcpRemoteEntry
 
@@ -126,7 +134,7 @@ type MCPRemoteAPI struct {
 // NewMCPRemoteAPI builds the handlers with an empty registry. Call Restore
 // once at startup to hydrate it from persisted enablements.
 func NewMCPRemoteAPI(store mcpRemoteStore, relayAPI *MCPRelayAPI, sessionSecret string) *MCPRemoteAPI {
-	return &MCPRemoteAPI{
+	a := &MCPRemoteAPI{
 		store:         store,
 		sessionSecret: sessionSecret,
 		relayAPI:      relayAPI,
@@ -134,6 +142,59 @@ func NewMCPRemoteAPI(store mcpRemoteStore, relayAPI *MCPRelayAPI, sessionSecret 
 		failLimiter:   newRateLimiter(mcpEndpointFailLimitMax, mcpEndpointFailLimitWindow),
 		callLimiter:   newRateLimiter(mcpEndpointCallLimitMax, mcpEndpointCallLimitWindow),
 	}
+	// The legacy pairing endpoints (CreatePairing/DeletePairing) mutate the
+	// account's single relay pairing; wire them to tear down any Tier 2
+	// enablement riding on that pairing so they can't strand an enabled-but-
+	// broken remote row. See MCPRelayAPI.onLegacyPairingMutation.
+	relayAPI.onLegacyPairingMutation = a.coordinateLegacyPairingMutation
+	return a
+}
+
+// coordinateLegacyPairingMutation runs a legacy pairing mutation (mint/revoke)
+// atomically with the Tier 2 teardown it may require, under lifecycleMu. Holding
+// the lifecycle lock across BOTH the teardown and `mutate` is what closes the
+// enable race: without it, a legacy mutation could land between PostRemote's
+// MakePairingPermanent and start() — see an empty registry (teardown no-ops),
+// then evict the very pairing PostRemote is about to persist and start, leaving
+// remote reported enabled while the hosted shim dials a dead pairing. Because
+// PostRemote holds lifecycleMu across its whole pin→persist→start section, the
+// mutation is forced fully before it (then MakePairingPermanent rejects the now-
+// stale submit with 409) or fully after it (then the teardown sees the live
+// entry and disables remote cleanly).
+func (a *MCPRemoteAPI) coordinateLegacyPairingMutation(ctx context.Context, accountID string, mutate func()) error {
+	a.lifecycleMu.Lock()
+	defer a.lifecycleMu.Unlock()
+	if err := a.disableForAccount(ctx, accountID); err != nil {
+		return err
+	}
+	mutate()
+	return nil
+}
+
+// disableForAccount tears down accountID's Tier 2 enablement — closes the
+// hosted shim client and deletes the persisted row — if one exists. Idempotent
+// and cheap when remote was never enabled (registry check first, no DB write).
+// Wired as the relay's legacy-pairing-mutation hook.
+//
+// The durable delete comes BEFORE stop() and is fatal: if it fails (DB error or
+// a canceled request context) we leave the live client and pairing untouched and
+// return the error so the caller aborts its pairing mutation. Stopping the client
+// and mutating the pairing anyway would strand the persisted mcp_remote row + its
+// live token, which Restore then resurrects on the next restart while the
+// in-memory client and pairing are gone.
+func (a *MCPRemoteAPI) disableForAccount(ctx context.Context, accountID string) error {
+	a.mu.RLock()
+	_, enabled := a.byAcc[accountID]
+	a.mu.RUnlock()
+	if !enabled {
+		return nil
+	}
+	if err := a.store.DeleteMCPRemote(ctx, accountID); err != nil {
+		slog.Error("mcp remote: delete on legacy pairing mutation", "account_id", accountID, "error", err)
+		return err
+	}
+	a.stop(accountID)
+	return nil
 }
 
 // RegisterRoutes adds the consent routes to mux.
@@ -227,15 +288,36 @@ func (a *MCPRemoteAPI) PostRemote(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
 	}
+	// Hold lifecycleMu across the whole pin→persist→start section so no legacy
+	// pairing mutation (CreatePairing/DeletePairing) or self-disable can slip
+	// between the pin and start() and evict the pairing under us. See
+	// coordinateLegacyPairingMutation.
+	a.lifecycleMu.Lock()
+	defer a.lifecycleMu.Unlock()
+	// Pin the submitted pairing permanent BEFORE persisting — and only if it's
+	// still the account's live pairing. The browser minted it with the normal
+	// 24h TTL; a persisted Tier 2 enablement is set-and-forget, so it must not
+	// age out. Pinning by the submitted id (not just the account) atomically
+	// rejects a stale submission: a concurrent re-mint (double-click, second
+	// tab) could have replaced this pairing, and persisting it anyway would
+	// leave remote reported as enabled while the hosted shim redials a revoked
+	// pairing and never connects.
+	if !a.relayAPI.MakePairingPermanent(session.AccountID, pc.PairingID) {
+		http.Error(w, "pairing no longer active — reconnect and try again", http.StatusConflict)
+		return
+	}
 	if err := a.store.UpsertMCPRemote(r.Context(), session.AccountID, token, pc.RelayURL, pc.PairingID, pc.Key, time.Now().UTC()); err != nil {
+		// The pin above cleared the pairing's TTL in anticipation of this durable
+		// write. With no row persisted there's nothing to keep it alive for, so
+		// revoke it rather than leave a never-expiring pairing backing no
+		// enablement (the "permanent only while enabled" lifecycle). Still under
+		// lifecycleMu, so no concurrent enable observes the pinned-but-unpersisted
+		// window.
+		a.relayAPI.RevokePairing(session.AccountID)
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
 	}
 	a.start(session.AccountID, token, pc)
-	// The browser minted this pairing with the normal 24h TTL; a persisted
-	// Tier 2 enablement is set-and-forget, so pin it permanent now (a restart
-	// would restore it permanent anyway via Restore).
-	a.relayAPI.MakePairingPermanent(session.AccountID)
 	writeJSON(w, http.StatusOK, enableMCPRemoteResponse{Token: token})
 }
 
@@ -247,6 +329,11 @@ func (a *MCPRemoteAPI) DeleteRemote(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	// Under lifecycleMu for the same reason as PostRemote: this deletes the row
+	// and revokes the pairing, so an interleave with a concurrent enable would
+	// otherwise leave the account enabled-but-dead.
+	a.lifecycleMu.Lock()
+	defer a.lifecycleMu.Unlock()
 	if err := a.store.DeleteMCPRemote(r.Context(), session.AccountID); err != nil {
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return

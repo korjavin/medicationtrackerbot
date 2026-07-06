@@ -311,9 +311,16 @@ func TestPairingTable_PermanentPairingSurvivesTTL(t *testing.T) {
 	if tbl.byID[enabledID].expiresAt.IsZero() {
 		t.Fatalf("precondition: freshly minted pairing should have a TTL")
 	}
-	tbl.makePermanent("acct-enabled")
+	if !tbl.makePermanent("acct-enabled", enabledID) {
+		t.Fatalf("makePermanent should pin the account's current pairing")
+	}
 	if !tbl.byID[enabledID].expiresAt.IsZero() {
 		t.Fatalf("makePermanent should clear the expiry")
+	}
+	// A stale pairing id (already replaced by a concurrent re-mint) must be
+	// rejected rather than silently pinning whatever the account holds now.
+	if tbl.makePermanent("acct-enabled", "some-other-id") {
+		t.Fatalf("makePermanent must reject a pairing id that isn't the account's current one")
 	}
 
 	// cleanup evicts only the expired (minted) one, leaving both permanents.
