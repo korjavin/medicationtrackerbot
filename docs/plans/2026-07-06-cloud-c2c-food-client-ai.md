@@ -191,25 +191,28 @@ Two structural findings from discovery that shape this plan:
 
 ### Task 5: Food-DB direct + operator default
 
-- [ ] browser `foodDb` port impl (`web/cloud/js/fooddb.js`): search +
+- [x] browser `foodDb` port impl (`web/cloud/js/fooddb.js`): search +
       barcode GETs with `X-API-Key` from vault `integrations.food.api_key`
       (may be empty), response mapped per `openfoodfacts_api.go`; base URL
       = vault `integrations.food.url` when set, else the **operator
       default**
-- [ ] operator default plumbing: `CLOUD_FOOD_DB_URL` env on `cmd/cloud`,
+- [x] operator default plumbing: `CLOUD_FOOD_DB_URL` env on `cmd/cloud`,
       injected into the served page (the `cloud-boot.js` config path) —
       a URL, not a secret; absent env = remote search silently disabled
       (local-only results), never an error
-- [ ] Settings → Integrations: food URL field shows the effective default
+- [x] Settings → Integrations: food URL field shows the effective default
       as placeholder (visible-but-unadvertised override, per
       cloud-mode.md) — no wizard step, no nagging
-- [ ] ⚠️ deployment requirement, verify on the rig: the operator food-DB
+- [x] ⚠️ deployment requirement, verify on the rig: the operator food-DB
       instance must allow CORS from `*.<base>` origins — document the
       needed header/Traefik label in `docs/cloud-deployment.md`; if the
       operator instance can't do CORS, remote search stays local-only and
       this task documents why (do NOT proxy queries through the cloud
       server silently — that would move query-term exposure from "food-DB
-      host" to "cloud operator" without consent)
+      host" to "cloud operator" without consent) — documented in
+      `docs/cloud-deployment.md`'s new "Food-DB CORS requirement" section;
+      actual on-the-rig verification against a real FastFoodDB deployment
+      is a manual step (skipped here - not automatable in this environment)
 
 ### Task 6: Shim-mode contract runs
 

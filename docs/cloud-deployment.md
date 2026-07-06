@@ -45,9 +45,11 @@ Open `https://portainer.<base>`, finish the initial admin setup, then:
    `VAPID_SUBJECT` (defaults to `mailto:noreply@<CLOUD_BASE_DOMAIN>`) to
    change the operator contact identifier in the push JWT. Other optional
    tuning: `CLOUD_ACCOUNT_QUOTA_BYTES` (per-account oplog+snapshot storage
-   cap, default 50MB, 0 disables) and `CLOUD_DRY_QUEUE_WARN_HOURS` (default
+   cap, default 50MB, 0 disables), `CLOUD_DRY_QUEUE_WARN_HOURS` (default
    120 — how close the last unsent reminder must be before the hourly sweep
-   warns a stale-synced account). See [environment.md](environment.md).
+   warns a stale-synced account), and `CLOUD_FOOD_DB_URL` (operator's
+   default FastFoodDB instance for food search — see the CORS note below).
+   See [environment.md](environment.md).
 3. Enable the stack's redeploy webhook and append its URL as a new line in
    the `PORTAINER_REDEPLOY_HOOK` GitHub secret (multiline — one URL per line,
    same secret the bot stack already uses).
@@ -55,6 +57,29 @@ Open `https://portainer.<base>`, finish the initial admin setup, then:
 Operators who don't want gitops can instead run
 `docker compose -f docker-compose.cloud.yml up -d` directly against the same
 external `proxy` network.
+
+### Food-DB CORS requirement
+
+`CLOUD_FOOD_DB_URL` is called directly from the browser (`web/cloud/js/fooddb.js`,
+C2c) — never proxied through the cloud server, so query terms never reach the
+operator, only the food-DB host. That means the food-DB instance itself must
+send `Access-Control-Allow-Origin` covering every account subdomain
+(`*.<CLOUD_BASE_DOMAIN>`) on its `/api/v1/food/search` and
+`/api/v1/food/barcode/{code}` routes. If you run FastFoodDB behind Traefik,
+add a CORS headers middleware to its router, e.g.:
+
+```yaml
+labels:
+  - "traefik.http.middlewares.fooddb-cors.headers.accessControlAllowOriginList=https://*.app.example.com"
+  - "traefik.http.middlewares.fooddb-cors.headers.accessControlAllowMethods=GET"
+  - "traefik.http.routers.fooddb.middlewares=fooddb-cors"
+```
+
+If the instance can't be configured for CORS, leave `CLOUD_FOOD_DB_URL` unset
+— remote search then stays local-only (products already logged), which is
+silent and correct. Do not proxy queries through the cloud server as a
+workaround: that would move query-term exposure from "food-DB host" to "cloud
+operator" without the user's consent (see docs/cloud-mode.md's leakage table).
 
 ## 4. Mint the first invite
 

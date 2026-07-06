@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
@@ -47,8 +48,11 @@ type Handler struct {
 // (domainweb.FS) — the runtime-agnostic BP/weight modules, served under
 // "/domain/" because web/cloud/js/apishim.js imports them from there
 // (../../domain/*.js). api handles "/api/*" requests on the subdomain
-// branch (nil serves 404 for them) — see WebAuthnAPI.Routes.
-func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, domainFS fs.FS, api http.Handler) *Handler {
+// branch (nil serves 404 for them) — see WebAuthnAPI.Routes. foodDBURL is
+// the operator's default FastFoodDB instance (CLOUD_FOOD_DB_URL, cmd/cloud)
+// — a URL, not a secret; "" disables the operator default (remote food
+// search stays local-only until the user sets their own in Settings).
+func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, domainFS fs.FS, api http.Handler, foodDBURL string) *Handler {
 	idx, err := fs.ReadFile(appFS, "index.html")
 	if err != nil {
 		panic("cloudserver: appFS missing index.html: " + err.Error())
@@ -59,22 +63,25 @@ func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, doma
 		shell:      http.FileServerFS(shellFS),
 		app:        http.StripPrefix("/static/", http.FileServerFS(appFS)),
 		domain:     http.StripPrefix("/domain/", http.FileServerFS(domainFS)),
-		appIndex:   injectCloudBoot(idx),
+		appIndex:   injectCloudBoot(idx, foodDBURL),
 		api:        api,
 	}
 }
 
-// injectCloudBoot splices a classic (non-module) <script src="/js/cloud-boot.js">
-// tag right after <head>, served from cloudweb.FS's js/ directory via the
-// default shell-fallback branch below. It must run before every other
+// injectCloudBoot splices a config script (the operator's default food-DB
+// URL, read by web/cloud/js/fooddb.js as window.__MEDTRACKER_FOOD_DB_URL__)
+// and a classic (non-module) <script src="/js/cloud-boot.js"> tag right
+// after <head>, served from cloudweb.FS's js/ directory via the default
+// shell-fallback branch below. cloud-boot.js must run before every other
 // web/static script — as a classic script it blocks parsing synchronously,
 // setting window.__MEDTRACKER_CLOUD__ before messenger-adapter.js /
 // app-shell.js / data-store.js ever check it — so it goes first, ahead of
 // even native-bootstrap.js. web/static/index.html itself stays untouched;
 // this only rewrites the copy cmd/cloud serves.
-func injectCloudBoot(idx []byte) []byte {
+func injectCloudBoot(idx []byte, foodDBURL string) []byte {
 	const marker = "<head>"
-	const inject = "<head>\n    <script src=\"/js/cloud-boot.js\"></script>"
+	inject := "<head>\n    <script>window.__MEDTRACKER_FOOD_DB_URL__ = " + strconv.Quote(foodDBURL) + ";</script>" +
+		"\n    <script src=\"/js/cloud-boot.js\"></script>"
 	out := bytes.Replace(idx, []byte(marker), []byte(inject), 1)
 	if bytes.Equal(out, idx) {
 		panic("cloudserver: index.html missing <head> to inject cloud-boot.js")

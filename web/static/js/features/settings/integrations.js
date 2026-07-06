@@ -88,6 +88,19 @@
                 input.value = typeof value === 'string' ? value : '';
             }
         }
+        applyCloudFoodDbPlaceholder();
+    }
+
+    // applyCloudFoodDbPlaceholder shows the operator's default food-DB URL
+    // (window.__MEDTRACKER_FOOD_DB_URL__, injected by cmd/cloud — see
+    // internal/cloudserver/router.go) as the field's placeholder when the
+    // user hasn't set their own override. Cloud-only: bot mode never sets
+    // that global, so the field's placeholder stays empty there.
+    function applyCloudFoodDbPlaceholder() {
+        if (!window.__MEDTRACKER_CLOUD__) return;
+        const input = getInput(FIELD_IDS.food.url);
+        if (!input) return;
+        input.placeholder = window.__MEDTRACKER_FOOD_DB_URL__ || '';
     }
 
     function readDOMIntoPayload() {

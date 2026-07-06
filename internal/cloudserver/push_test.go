@@ -18,7 +18,7 @@ func TestGetVapidPublicKey_PerAccount(t *testing.T) {
 	pushAPI := NewPushAPI(store, "test-session-secret-at-least-32-bytes-long")
 	mux := http.NewServeMux()
 	pushAPI.RegisterRoutes(mux)
-	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux)
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "")
 
 	getKey := func(host string) (int, string) {
 		req := httptest.NewRequest(http.MethodGet, "/api/push/vapid-public-key", nil)

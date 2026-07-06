@@ -24,7 +24,7 @@ func newTestTransferHandler(t *testing.T) (http.Handler, string, string) {
 	webauthnAPI.RegisterRoutes(mux)
 	transferAPI.RegisterRoutes(mux)
 
-	return New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux), host, claimToken
+	return New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, ""), host, claimToken
 }
 
 func TestTransferSlot_CreateClaimLifecycle(t *testing.T) {
@@ -81,7 +81,7 @@ func TestTransferSlot_ExpiredSlot410(t *testing.T) {
 	transferAPI := NewTransferAPI(store, "test-session-secret-at-least-32-bytes-long")
 	mux := http.NewServeMux()
 	transferAPI.RegisterRoutes(mux)
-	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux)
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "")
 
 	// Insert an already-expired slot directly through the store, bypassing
 	// the HTTP layer's fixed 10-minute TTL, so expiry can be exercised

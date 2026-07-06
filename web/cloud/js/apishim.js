@@ -17,6 +17,7 @@ import { recordsPort } from './sync.js';
 import { scheduleReminderRecompute } from './reminders.js';
 import { createRxnormPort } from './rxnorm.js';
 import { createAIClient } from './aiclient.js';
+import { createFoodDbClient } from './fooddb.js';
 
 // materializeTimerHandle is module-level (not per-shim-instance) because the
 // production invariant is "one shim installed per page load"; re-installing
@@ -87,9 +88,9 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
   });
   const intake = createIntakeDomain({ records, now, timeZone });
   const tzplan = createTzPlanDomain({ records, now, timeZone });
-  // foodDb (remote product search) is undefined until Task 5 wires the browser
-  // FastFoodDB client — search(remote=true) degrades to local-only results.
-  const food = createFoodDomain({ records, now, timeZone });
+  const food = createFoodDomain({
+    records, now, timeZone, foodDb: createFoodDbClient({ settingsDomain: settings }),
+  });
   const foodAI = createFoodAIDomain({
     aiClient: createAIClient({ settingsDomain: settings }), foodDomain: food, now,
   });

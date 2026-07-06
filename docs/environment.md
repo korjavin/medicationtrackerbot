@@ -71,6 +71,7 @@ PORT=8080                          # HTTP port (default: 8080)
 CLOUD_CLAIM_TTL=14                 # Invite claim-link validity, in days (default: 14)
 CLOUD_ACCOUNT_QUOTA_BYTES=52428800 # Per-account oplog+snapshot storage cap, in bytes (default: 50MB; 0 disables)
 CLOUD_DRY_QUEUE_WARN_HOURS=120     # Stale-sync warning: how close (hours) the last unsent reminder must be before the hourly sweep nudges a stale-synced account (default: 120)
+CLOUD_FOOD_DB_URL=https://food.example.com  # Operator's default FastFoodDB instance for remote food search (browser calls it directly — see docs/cloud-deployment.md's CORS note). A URL, not a secret. Unset = remote search silently disabled until the user sets their own in Settings → Integrations.
 
 # Web Push relay — zero-config: each account gets its own VAPID keypair
 # generated server-side at invite provisioning (backfilled for pre-existing

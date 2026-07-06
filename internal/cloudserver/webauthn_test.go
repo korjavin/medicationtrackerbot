@@ -78,7 +78,7 @@ func newTestWebAuthnHandler(store *cloudstore.Repo) (http.Handler, *WebAuthnAPI)
 	api := NewWebAuthnAPI(store, "test-session-secret-at-least-32-bytes-long")
 	mux := http.NewServeMux()
 	api.RegisterRoutes(mux)
-	return New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux), api
+	return New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, ""), api
 }
 
 func TestWebAuthnRegistration_FullCeremony(t *testing.T) {
