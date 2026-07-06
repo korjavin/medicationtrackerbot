@@ -72,6 +72,8 @@ CLOUD_CLAIM_TTL=14                 # Invite claim-link validity, in days (defaul
 CLOUD_ACCOUNT_QUOTA_BYTES=52428800 # Per-account oplog+snapshot storage cap, in bytes (default: 50MB; 0 disables)
 CLOUD_DRY_QUEUE_WARN_HOURS=120     # Stale-sync warning: how close (hours) the last unsent reminder must be before the hourly sweep nudges a stale-synced account (default: 120)
 CLOUD_FOOD_DB_URL=https://food.example.com  # Operator's default FastFoodDB instance for remote food search (browser calls it directly — see docs/cloud-deployment.md's CORS note). A URL, not a secret. Unset = remote search silently disabled until the user sets their own in Settings → Integrations.
+MANAGER_BOT_TOKEN=...              # Optional. BotFather token for the operator's manager bot with "Bot Management Mode" enabled. Enables one-tap managed-bot provisioning + BYO Telegram linking (C3a). Unset = Telegram fully disabled (wizard step + webhook routes skipped). See docs/cloud-deployment.md. NOTE: child bot tokens are sealed with a key derived from SESSION_SECRET — rotating SESSION_SECRET orphans stored tokens (users must re-link).
+CLOUD_TG_API_BASE_URL=...          # Optional. Overrides the Telegram Bot API root (default https://api.telegram.org). For tests/self-hosted proxies only.
 
 # Web Push relay — zero-config: each account gets its own VAPID keypair
 # generated server-side at invite provisioning (backfilled for pre-existing

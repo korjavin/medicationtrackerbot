@@ -95,9 +95,9 @@ Optional Telegram setup during onboarding, one tap: the cloud's **manager bot** 
 
 ### Task 7: [Final] Update documentation
 
-- [ ] docs/cloud-mode.md: Telegram section status (C3a implemented — provisioning/linking; delivery + mailbox = C3b), record any spike findings
-- [ ] docs/cloud-deployment.md: manager-bot BotFather setup runbook (create bot, enable "Bot Management Mode" in the BotFather MiniApp, set `MANAGER_BOT_TOKEN`); docs/environment.md: `MANAGER_BOT_TOKEN`
-- [ ] note the `SESSION_SECRET`-rotation-orphans-tokens trade-off where operators will see it (deployment doc)
+- [x] docs/cloud-mode.md: Telegram section status (C3a implemented — provisioning/linking; delivery + mailbox = C3b), record any spike findings (added a "Status: C3a implemented" note at the top of the Telegram section; real-Telegram empirics still open/Post-Completion)
+- [x] docs/cloud-deployment.md: manager-bot BotFather setup runbook (create bot, enable "Bot Management Mode" in the BotFather MiniApp, set `MANAGER_BOT_TOKEN`); docs/environment.md: `MANAGER_BOT_TOKEN` (new "Telegram manager bot" subsection + env-var entries for `MANAGER_BOT_TOKEN` and `CLOUD_TG_API_BASE_URL`)
+- [x] note the `SESSION_SECRET`-rotation-orphans-tokens trade-off where operators will see it (deployment doc) (called out in the runbook's "Token-at-rest trade-off" paragraph and in environment.md's `MANAGER_BOT_TOKEN` note)
 
 ## Technical Details
 
