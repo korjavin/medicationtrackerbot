@@ -122,7 +122,7 @@ func (s *ShimCore) Call(ctx context.Context, method string, params any) (json.Ra
 	}()
 
 	if err := s.conn.Write(ctx, websocket.MessageBinary, frame); err != nil {
-		return nil, fmt.Errorf("%w: write frame: %v", errConnectionDropped, err)
+		return nil, fmt.Errorf("%w: write frame: %w", errConnectionDropped, err)
 	}
 
 	timer := time.NewTimer(CallTimeout)
@@ -138,7 +138,7 @@ func (s *ShimCore) Call(ctx context.Context, method string, params any) (json.Ra
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case <-s.closed:
-		return nil, fmt.Errorf("%w: %v", errConnectionDropped, s.closeErr)
+		return nil, fmt.Errorf("%w: %w", errConnectionDropped, s.closeErr)
 	}
 }
 

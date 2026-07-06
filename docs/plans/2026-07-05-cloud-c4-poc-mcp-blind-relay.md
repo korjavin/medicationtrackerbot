@@ -177,13 +177,14 @@ before investing —
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] full loop green in tests; `go build ./... && go build -tags mobile
+- [x] full loop green in tests; `go build ./... && go build -tags mobile
       ./...`, `go test -count=1 ./...`, `pnpm test` all green
-- [ ] run linters — all issues fixed
-- [ ] arch boundaries hold: no `internal/server` or `web/static` diffs in
+- [x] run linters — all issues fixed (2 errorlint findings in
+      `internal/mcpshim/shim.go` — non-`%w` wraps — fixed)
+- [x] arch boundaries hold: no `internal/server` or `web/static` diffs in
       this plan; `cmd/mcpshim` pulls no store/domain packages (transport +
-      crypto only — verify with `go list -deps`, same idiom as
-      `internal/cloudstore/arch_test.go`)
+      crypto only — verified via `go list -deps ./cmd/mcpshim/...`, same
+      idiom as `internal/cloudstore/arch_test.go`)
 
 ### Task 7: [Final] Update documentation
 
