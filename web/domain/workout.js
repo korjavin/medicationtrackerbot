@@ -284,8 +284,23 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
   }
 
-  function localMidnightUtcMs(parts, tz) {
-    return localWallToUtcMs(Date.UTC(parts.year, parts.month - 1, parts.day), tz);
+  // scheduledDateRFC renders "YYYY-MM-DD" local calendar day as an RFC3339
+  // instant carrying the local offset — mirroring Go's time.Time JSON, where
+  // scheduled_date is a local-zoned instant. The frontend reads only the date
+  // prefix (`scheduled_date.split('T')[0]`) as the local calendar day
+  // (next-card.js, history.js, sessions.js), so it MUST equal `dateStr`;
+  // rendering via toISOString()/UTC would shift the day backward in
+  // positive-offset zones. Value stays a parseable, correctly-ordered instant
+  // for sortSessions' `new Date(...).getTime()`.
+  function scheduledDateRFC(dateStr, tz) {
+    const wallUtc = Date.UTC(+dateStr.slice(0, 4), +dateStr.slice(5, 7) - 1, +dateStr.slice(8, 10));
+    let offMin = Math.round((wallUtc - localWallToUtcMs(wallUtc, tz)) / 60000);
+    if (offMin === 0) return `${dateStr}T00:00:00Z`;
+    const sign = offMin > 0 ? '+' : '-';
+    offMin = Math.abs(offMin);
+    const oh = String(Math.floor(offMin / 60)).padStart(2, '0');
+    const om = String(offMin % 60).padStart(2, '0');
+    return `${dateStr}T00:00:00${sign}${oh}:${om}`;
   }
 
   // parseHHMM ports fmt.Sscanf(s, "%d:%d", ...)'s leniency: digits, a colon,
@@ -644,7 +659,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       user_id: CLOUD_USER_ID,
       group_id: ADHOC_ID,
       variant_id: ADHOC_ID,
-      scheduled_date: new Date(nowMs).toISOString(),
+      scheduled_date: scheduledDateRFC(localDateStr(nowMs, timeZone), timeZone),
       scheduled_time: formatHHMM(nowMs, timeZone),
       status: 'in_progress',
       started_at: new Date(nowMs).toISOString(),
@@ -1057,10 +1072,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
         user_id: CLOUD_USER_ID,
         group_id: best.groupId,
         variant_id: best.variantId,
-        scheduled_date: new Date(localMidnightUtcMs(
-          { year: +best.dateStr.slice(0, 4), month: +best.dateStr.slice(5, 7), day: +best.dateStr.slice(8, 10) },
-          timeZone,
-        )).toISOString(),
+        scheduled_date: scheduledDateRFC(best.dateStr, timeZone),
         scheduled_time: best.scheduledTime,
         status: 'pending',
         started_at: null,
@@ -1078,7 +1090,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     return {
       session: {
         id: best.sessionId,
-        scheduled_date: new Date(best.scheduledMs).toISOString(),
+        scheduled_date: scheduledDateRFC(best.dateStr, timeZone),
         scheduled_time: best.scheduledTime,
         status: best.status,
         is_snoozed: false,
