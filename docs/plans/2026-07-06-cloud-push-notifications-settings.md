@@ -135,19 +135,19 @@ reminders, or it wipes the user's real schedule until the next recompute.
 
 ### Task 4: Wire the cloud Notifications controls in settings.js
 
-- [ ] In `web/static/js/features/settings.js`, in the existing
+- [x] In `web/static/js/features/settings.js`, in the existing
       `if (window.__MEDTRACKER_CLOUD__)` branch (~line 94): keep hiding the
       server `.wg-settings-notifications` block, and instead un-hide
       `.wg-settings-notifications-cloud` and bind its controls.
-- [ ] Enable button → `await import('/js/push.js')` then `subscribe()`; reflect
+- [x] Enable button → `await import('/js/push.js')` then `subscribe()`; reflect
       result in the status line; on `Notification.permission === 'denied'` show a
       clear "blocked in browser settings" message. Disable button → the DOM-free
       `unsubscribe()`.
-- [ ] Test button → `await import('/js/reminders.js')` then
+- [x] Test button → `await import('/js/reminders.js')` then
       `sendTestPush(window.MedTrackerCloud.ctx)`; show "Test push scheduled —
       it should arrive shortly." Guard on `window.MedTrackerCloud?.ctx` being
       present (vault unlocked) and on push being subscribed first.
-- [ ] Reflect current subscription state on section mount (check
+- [x] Reflect current subscription state on section mount (check
       `navigator.serviceWorker` registration + `pushManager.getSubscription()`)
       so the button shows Enable vs Disable correctly.
 
