@@ -33,20 +33,13 @@ func NewClient(code string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewClientFromPairing(pc), nil
+	return &Client{pc: pc}, nil
 }
 
-// NewClientFromPairing builds a Client from an already-parsed pairing code —
-// the seam the Go integration test uses to point at a local httptest relay
-// (mirroring DialPairing's role for ShimCore).
-func NewClientFromPairing(pc *PairingCode) *Client {
-	return &Client{pc: pc}
-}
-
-// NewClientFromPairingWithOptions is NewClientFromPairing with the
-// underlying coder/websocket.DialOptions exposed, mirroring
-// DialPairingWithOptions — the seam the Go integration test uses to force
-// every (re)dial through an httptest.Server's real listener address.
+// NewClientFromPairingWithOptions builds a Client from an already-parsed
+// pairing code with the underlying coder/websocket.DialOptions exposed,
+// mirroring DialPairingWithOptions — the seam the Go integration test uses to
+// force every (re)dial through an httptest.Server's real listener address.
 func NewClientFromPairingWithOptions(pc *PairingCode, opts *websocket.DialOptions) *Client {
 	return &Client{pc: pc, opts: opts}
 }

@@ -52,24 +52,9 @@ type ShimCore struct {
 	closeErr error
 }
 
-// Dial parses code (the MEDTRACKER_MCP_CODE value) and connects to its
-// relay's shim leg.
-func Dial(ctx context.Context, code string) (*ShimCore, error) {
-	pc, err := ParsePairingCode(code)
-	if err != nil {
-		return nil, err
-	}
-	return DialPairing(ctx, pc)
-}
-
-// DialPairing connects using an already-parsed pairing code — the seam Task
-// 5's integration test uses to dial a local httptest relay directly.
-func DialPairing(ctx context.Context, pc *PairingCode) (*ShimCore, error) {
-	return DialPairingWithOptions(ctx, pc, nil)
-}
-
-// DialPairingWithOptions is DialPairing with the underlying
-// coder/websocket.DialOptions exposed, so a test can force the socket
+// DialPairingWithOptions connects using an already-parsed pairing code, with
+// the underlying coder/websocket.DialOptions exposed, so a test can force the
+// socket
 // through an httptest.Server's real listener address while still sending
 // the pairing's real relay host (cloudserver's subdomain router resolves
 // the account from the Host header even for the shim leg) — the same
