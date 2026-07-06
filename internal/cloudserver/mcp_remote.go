@@ -58,7 +58,6 @@ func generateMCPRemoteToken() (string, error) {
 type mcpRemoteStore interface {
 	CredentialExists(ctx context.Context, credentialID []byte) (bool, error)
 	UpsertMCPRemote(ctx context.Context, accountID, token, relayURL, pairingID string, pairingKey []byte, now time.Time) error
-	GetMCPRemote(ctx context.Context, accountID string) (*cloudstore.MCPRemote, error)
 	DeleteMCPRemote(ctx context.Context, accountID string) error
 	ListMCPRemote(ctx context.Context) ([]cloudstore.MCPRemote, error)
 }
@@ -200,6 +199,10 @@ func (a *MCPRemoteAPI) PostRemote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.start(session.AccountID, token, pc)
+	// The browser minted this pairing with the normal 24h TTL; a persisted
+	// Tier 2 enablement is set-and-forget, so pin it permanent now (a restart
+	// would restore it permanent anyway via Restore).
+	a.relayAPI.MakePairingPermanent(session.AccountID)
 	writeJSON(w, http.StatusOK, enableMCPRemoteResponse{Token: token})
 }
 
@@ -216,6 +219,9 @@ func (a *MCPRemoteAPI) DeleteRemote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.stop(session.AccountID)
+	// Also drop the (now-permanent) relay pairing, else disabling remote mode
+	// would leave a never-expiring pairing lingering in the in-memory table.
+	a.relayAPI.RevokePairing(session.AccountID)
 	w.WriteHeader(http.StatusNoContent)
 }
 

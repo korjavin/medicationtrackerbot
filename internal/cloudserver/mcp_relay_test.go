@@ -280,3 +280,52 @@ func TestMCPRelay_DeadPeerClosePropagates(t *testing.T) {
 		t.Fatalf("shim read after device dropped: expected error (propagated close), got none")
 	}
 }
+
+// TestPairingTable_PermanentPairingSurvivesTTL locks in the Tier 2 fix: a
+// persisted (restored / made-permanent) pairing has a zero expiry and is never
+// swept by cleanup or rejected by the lookups, whereas a minted (Tier 1)
+// pairing ages out on its TTL.
+func TestPairingTable_PermanentPairingSurvivesTTL(t *testing.T) {
+	tbl := newPairingTable(time.Hour)
+
+	// Tier 1: minted → has a future expiry, ages out.
+	mintedID := tbl.mint("acct-minted")
+	if rec, ok := tbl.byID[mintedID]; !ok || rec.expiresAt.IsZero() {
+		t.Fatalf("minted pairing should carry a non-zero expiry")
+	}
+	if !tbl.byID[mintedID].isExpired(time.Now().Add(2 * time.Hour)) {
+		t.Fatalf("minted pairing should be expired 2h past a 1h TTL")
+	}
+
+	// Tier 2 via restore: permanent from the start.
+	tbl.restore("pair-restored", "acct-restored")
+	if !tbl.byID["pair-restored"].expiresAt.IsZero() {
+		t.Fatalf("restored pairing should never expire (zero expiresAt)")
+	}
+	if tbl.byID["pair-restored"].isExpired(time.Now().Add(100 * 365 * 24 * time.Hour)) {
+		t.Fatalf("restored pairing must not expire even a century out")
+	}
+
+	// Tier 2 via enable: minted with a TTL, then pinned permanent.
+	enabledID := tbl.mint("acct-enabled")
+	if tbl.byID[enabledID].expiresAt.IsZero() {
+		t.Fatalf("precondition: freshly minted pairing should have a TTL")
+	}
+	tbl.makePermanent("acct-enabled")
+	if !tbl.byID[enabledID].expiresAt.IsZero() {
+		t.Fatalf("makePermanent should clear the expiry")
+	}
+
+	// cleanup evicts only the expired (minted) one, leaving both permanents.
+	tbl.byID[mintedID].expiresAt = time.Now().Add(-time.Minute) // force-expire
+	tbl.cleanup()
+	if _, ok := tbl.byAccountID("acct-minted"); ok {
+		t.Fatalf("expired minted pairing should have been swept")
+	}
+	if _, ok := tbl.byAccountID("acct-restored"); !ok {
+		t.Fatalf("permanent restored pairing should survive cleanup")
+	}
+	if _, ok := tbl.byAccountID("acct-enabled"); !ok {
+		t.Fatalf("permanent enabled pairing should survive cleanup")
+	}
+}

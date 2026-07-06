@@ -2,8 +2,6 @@ package cloudstore
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"time"
 
 	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
@@ -33,24 +31,6 @@ func (r *Repo) UpsertMCPRemote(ctx context.Context, accountID, token, relayURL, 
 		 ON CONFLICT(account_id) DO UPDATE SET token = excluded.token, relay_url = excluded.relay_url, pairing_id = excluded.pairing_id, pairing_key = excluded.pairing_key, created_at_unix = excluded.created_at_unix`,
 		accountID, token, relayURL, pairingID, pairingKey, storedb.TimeToUnix(now))
 	return err
-}
-
-// GetMCPRemote returns accountID's hosted-remote enablement, or nil if it has
-// none.
-func (r *Repo) GetMCPRemote(ctx context.Context, accountID string) (*MCPRemote, error) {
-	m := MCPRemote{AccountID: accountID}
-	var createdUnix int64
-	err := r.db.QueryRowContext(ctx,
-		`SELECT token, relay_url, pairing_id, pairing_key, created_at_unix FROM mcp_remote WHERE account_id = ?`,
-		accountID).Scan(&m.Token, &m.RelayURL, &m.PairingID, &m.PairingKey, &createdUnix)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	m.CreatedAt = storedb.UnixToTime(createdUnix)
-	return &m, nil
 }
 
 // DeleteMCPRemote removes accountID's hosted-remote enablement (Disconnect).
