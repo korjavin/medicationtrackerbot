@@ -84,11 +84,25 @@ export async function unsubscribe() {
   await sub.unsubscribe();
 }
 
+// Safari/WebKit (including iOS) still implement the LEGACY callback form of
+// Notification.requestPermission(): it returns undefined and delivers the
+// result to a callback instead of resolving a promise. `await`ing it yields
+// undefined, so a plain `=== 'granted'` check reports "not granted" even after
+// the user taps Allow (med-eas.19). Normalize both forms. The requestPermission
+// call happens synchronously inside the Promise executor, so callers that invoke
+// this before any other await keep the click's transient activation.
+export function requestNotificationPermission() {
+  return new Promise((resolve) => {
+    const maybe = Notification.requestPermission(resolve);
+    if (maybe && typeof maybe.then === 'function') maybe.then(resolve);
+  });
+}
+
 export async function subscribe() {
   // Request permission first, before any await — Safari/iOS drop the click's
   // transient activation across an await (the VAPID fetch / SW activation) and
   // would reject the prompt without showing it.
-  const permission = await Notification.requestPermission();
+  const permission = await requestNotificationPermission();
   if (permission !== 'granted') throw new Error('Notification permission was not granted.');
   await registerServiceWorker();
   // register() resolves once the registration is recorded, not once the worker

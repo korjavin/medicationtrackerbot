@@ -84,6 +84,62 @@ describe('cloud Notifications controls (bindCloudNotifications)', () => {
         }
     });
 
+    it('Enable click handles the WebKit/iOS callback form of requestPermission (med-eas.19)', async () => {
+        allowConsoleNoise();
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            // WebKit/iOS: requestPermission delivers the result via callback and
+            // returns undefined (not a promise). A plain await would yield
+            // undefined -> "not granted" and never subscribe.
+            window.Notification = {
+                permission: 'default',
+                requestPermission: vi.fn((cb) => { cb('granted'); return undefined; }),
+            };
+            const subscribe = vi.fn().mockResolvedValue(undefined);
+            const getSubscription = vi.fn()
+                .mockResolvedValueOnce(null)
+                .mockResolvedValue({});
+            stubCloudModules(window, {
+                push: { subscribe, unsubscribe: vi.fn(), getSubscription },
+                reminders: { sendTestPush: vi.fn() }
+            });
+            window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+            await window.loadSettings();
+
+            const toggleBtn = document.getElementById('cloud-push-toggle');
+            toggleBtn.click();
+            // The callback-form permission must be treated as granted -> subscribe.
+            await vi.waitFor(() => expect(subscribe).toHaveBeenCalledTimes(1));
+            await vi.waitFor(() => expect(toggleBtn.textContent).toBe('Disable'));
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('Enable click shows the iOS install hint when Notification is unavailable (med-eas.19)', async () => {
+        allowConsoleNoise();
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            delete window.Notification; // non-installed iOS Safari: no Notification API
+            const subscribe = vi.fn();
+            stubCloudModules(window, {
+                push: { subscribe, unsubscribe: vi.fn(), getSubscription: vi.fn().mockResolvedValue(null) },
+                reminders: { sendTestPush: vi.fn() }
+            });
+            window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+            await window.loadSettings();
+
+            document.getElementById('cloud-push-toggle').click();
+            const status = document.getElementById('cloud-push-status');
+            await vi.waitFor(() => expect(status.textContent).toMatch(/Home Screen/i));
+            expect(subscribe).not.toHaveBeenCalled();
+        } finally {
+            cleanup();
+        }
+    });
+
     it('Disable click calls the mocked unsubscribe()', async () => {
         allowConsoleNoise();
         const { window, document, cleanup } = loadFrontendEnv();

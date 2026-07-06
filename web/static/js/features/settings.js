@@ -111,6 +111,21 @@ async function refreshCloudPushToggleState(toggleBtn) {
     }
 }
 
+// WebKit/iOS implement the LEGACY callback form of Notification.requestPermission():
+// it returns undefined and delivers the result via callback. A plain
+// `await Notification.requestPermission()` then yields undefined, which reads as
+// "not granted" even after the user taps Allow (med-eas.19). Normalize both
+// forms. The requestPermission call runs synchronously inside the Promise
+// executor, so calling this as the first await in the click handler preserves
+// Safari's transient-activation requirement. Mirrors push.js's
+// requestNotificationPermission (settings.js can't import it before the gesture).
+function requestNotificationPermissionNormalized() {
+    return new Promise((resolve) => {
+        const maybe = Notification.requestPermission(resolve);
+        if (maybe && typeof maybe.then === 'function') maybe.then(resolve);
+    });
+}
+
 function bindCloudNotifications() {
     const toggleBtn = document.getElementById('cloud-push-toggle');
     const testBtn = document.getElementById('cloud-push-test-btn');
@@ -137,15 +152,20 @@ function bindCloudNotifications() {
                 const { unsubscribe } = await loadCloudPushModule();
                 await unsubscribe();
                 applyWebpushStatus(status, 'Notifications disabled', 'muted');
+            } else if (typeof Notification === 'undefined') {
+                // Non-installed iOS Safari exposes no Notification API — Web Push
+                // there requires the app be added to the Home Screen first.
+                applyWebpushStatus(status, 'To enable notifications on iOS, add this app to your Home Screen, then reopen it from there.', 'error');
             } else if (Notification.permission === 'denied') {
                 applyWebpushStatus(status, 'Notifications are blocked in your browser settings.', 'error');
             } else {
-                // Reach Notification.requestPermission() synchronously inside the
-                // click's transient activation — Safari/iOS drop it across the
-                // dynamic import() await below, so requesting here (not only inside
-                // push.js subscribe()) keeps first-enable working on iOS.
-                // subscribe() re-checks and no-ops when already granted.
-                const permission = await Notification.requestPermission();
+                // Reach requestPermission() synchronously inside the click's
+                // transient activation — Safari/iOS drop it across the dynamic
+                // import() await below, so requesting here (not only inside push.js
+                // subscribe()) keeps first-enable working on iOS. The normalized
+                // helper handles WebKit's callback form (med-eas.19). subscribe()
+                // re-checks and no-ops when already granted.
+                const permission = await requestNotificationPermissionNormalized();
                 if (permission !== 'granted') {
                     applyWebpushStatus(status, 'Notification permission was not granted.', 'error');
                 } else {
