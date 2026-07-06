@@ -89,6 +89,7 @@
             }
         }
         applyCloudFoodDbPlaceholder();
+        applyRestartNoteVisibility();
     }
 
     // applyCloudFoodDbPlaceholder shows the operator's default food-DB URL
@@ -102,6 +103,23 @@
         const input = getInput(FIELD_IDS.food.url);
         if (!input) return;
         input.placeholder = document.querySelector('meta[name="medtracker-food-db-url"]')?.content || '';
+    }
+
+    // The "Changes take effect after the server restarts." copy is only true for
+    // the server build, which caches the AI/food/ElevenLabs clients at boot and
+    // registers no hot-reload. Cloud mode reads the key from the vault per call
+    // in the browser, and the mobile build registers an integrations reloader —
+    // both apply changes live. Hide the note (and drop the restart wording in the
+    // save toast) in those modes so the UI stops lying. (med-eas.6)
+    function appliesLive() {
+        if (window.__MEDTRACKER_CLOUD__) return true;
+        const cap = window.Capacitor;
+        return !!(cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform());
+    }
+
+    function applyRestartNoteVisibility() {
+        const note = document.getElementById('integrations-restart-note');
+        if (note) note.hidden = appliesLive();
     }
 
     function readDOMIntoPayload() {
@@ -183,10 +201,15 @@
         // locally-masked payload — never the raw cleartext keys.
         if (handle) { try { await handle.commit(fresh || maskPayload(payload)); } catch (_) { /* best-effort */ } }
 
-        if (typeof safeAlert === 'function') safeAlert('Integrations saved. Restart the server for the new values to take effect.');
+        if (typeof safeAlert === 'function') {
+            safeAlert(appliesLive()
+                ? 'Integrations saved.'
+                : 'Integrations saved. Restart the server for the new values to take effect.');
+        }
     }
 
     function bindControls() {
+        applyRestartNoteVisibility();
         const btn = document.getElementById('save-integrations-btn');
         if (btn && !btn.dataset.integrationsBound) {
             btn.dataset.integrationsBound = '1';

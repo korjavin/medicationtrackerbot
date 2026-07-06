@@ -84,6 +84,45 @@ describe('Settings → Integrations section', () => {
         expect(saveBtn).not.toBeNull();
     });
 
+    it('server mode shows the "restart" note and restart wording in the save toast (med-eas.6)', async () => {
+        const { window, document } = env;
+        // Default harness env is server mode (no __MEDTRACKER_CLOUD__, no Capacitor).
+        const note = document.getElementById('integrations-restart-note');
+        expect(note).not.toBeNull();
+        expect(note.hidden).toBe(false);
+
+        const alerts = [];
+        window.safeAlert = (msg) => alerts.push(msg);
+        window.apiCall = vi.fn(async (url, method) => {
+            if (method === 'PATCH') return { ok: true };
+            if (method === 'GET') return { openai: {}, food: {}, elevenlabs: {} };
+            return null;
+        });
+        await window.SettingsIntegrations.save();
+        expect(alerts[0]).toContain('Restart the server');
+    });
+
+    it('cloud mode hides the "restart" note and drops the restart wording from the save toast (med-eas.6)', async () => {
+        const { window, document } = env;
+        window.__MEDTRACKER_CLOUD__ = true;
+
+        window.apiCall = vi.fn(async (url, method) => {
+            if (method === 'PATCH') return { ok: true };
+            if (method === 'GET') return { openai: {}, food: {}, elevenlabs: {} };
+            return null;
+        });
+        // load() re-applies note visibility for the (now cloud) mode.
+        await window.SettingsIntegrations.load();
+        const note = document.getElementById('integrations-restart-note');
+        expect(note.hidden).toBe(true);
+
+        const alerts = [];
+        window.safeAlert = (msg) => alerts.push(msg);
+        await window.SettingsIntegrations.save();
+        expect(alerts[0]).toBe('Integrations saved.');
+        expect(alerts[0]).not.toContain('Restart');
+    });
+
     it('exposes SettingsIntegrations on window with load + save methods', () => {
         const { window } = env;
         expect(window.SettingsIntegrations).toBeDefined();
