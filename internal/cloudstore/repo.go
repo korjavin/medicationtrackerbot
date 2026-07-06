@@ -69,6 +69,7 @@ type Account struct {
 	LossAckAt       *time.Time
 	VAPIDPublicKey  *string
 	VAPIDPrivateKey *string
+	TGSkippedAt     *time.Time
 }
 
 // Credential is one row in the credentials table — a WebAuthn public key
@@ -212,8 +213,9 @@ func scanAccount(scan func(dest ...any) error) (*Account, error) {
 		lossAck      sql.NullInt64
 		vapidPublic  sql.NullString
 		vapidPrivate sql.NullString
+		tgSkipped    sql.NullInt64
 	)
-	if err := scan(&a.ID, &a.Subdomain, &createdUnix, &claimHash, &claimExpires, &lossAck, &vapidPublic, &vapidPrivate); err != nil {
+	if err := scan(&a.ID, &a.Subdomain, &createdUnix, &claimHash, &claimExpires, &lossAck, &vapidPublic, &vapidPrivate, &tgSkipped); err != nil {
 		return nil, err
 	}
 	a.CreatedAt = storedb.UnixToTime(createdUnix)
@@ -228,10 +230,11 @@ func scanAccount(scan func(dest ...any) error) (*Account, error) {
 	if vapidPrivate.Valid {
 		a.VAPIDPrivateKey = &vapidPrivate.String
 	}
+	a.TGSkippedAt = storedb.NullableUnixToTimePtr(tgSkipped)
 	return &a, nil
 }
 
-const accountColumns = `id, subdomain, created_at_unix, claim_token_hash, claim_expires_unix, loss_ack_unix, vapid_public_key, vapid_private_key`
+const accountColumns = `id, subdomain, created_at_unix, claim_token_hash, claim_expires_unix, loss_ack_unix, vapid_public_key, vapid_private_key, tg_skipped_unix`
 
 // AccountBySubdomain looks up an account by its subdomain label.
 func (r *Repo) AccountBySubdomain(ctx context.Context, subdomain string) (*Account, error) {

@@ -81,6 +81,36 @@ silent and correct. Do not proxy queries through the cloud server as a
 workaround: that would move query-term exposure from "food-DB host" to "cloud
 operator" without the user's consent (see docs/cloud-mode.md's leakage table).
 
+### Telegram manager bot (optional, C3a)
+
+One-time operator setup enables one-tap managed-bot provisioning for users
+(BYO token entry works too, but the managed path needs this). Skip it and
+Telegram is fully disabled — the onboarding wizard step and `/tg/*` webhook
+routes simply don't register.
+
+1. In BotFather, create a bot: `/newbot` → pick a name and username. This is
+   the **manager** bot, not a user-facing one.
+2. Open BotFather's MiniApp (`/mybots` → your bot → *Bot Settings*) and enable
+   **Bot Management Mode**. This is what lets the manager bot receive
+   `managed_bot` updates and fetch child-bot tokens (`getManagedBotToken`).
+3. Set `MANAGER_BOT_TOKEN=<the token>` as a stack env var and redeploy. On
+   startup the server calls `getMe` to resolve the manager username (no extra
+   env) and registers the manager webhook at `https://<CLOUD_BASE_DOMAIN>/tg/manager/<secret>`.
+   Log line `telegram disabled` means the token is unset; its absence is not an
+   error.
+
+**Token-at-rest trade-off (read before setting `SESSION_SECRET`):** each child
+bot token is sealed with AES-GCM under a key derived from `SESSION_SECRET`
+(HKDF, `info="mt/tg-token/v1"`). Zero new secrets to operate — but **rotating
+`SESSION_SECRET` orphans every stored bot token**: the old tokens can no longer
+be decrypted, so linked users must re-link (re-run the wizard step or re-enter a
+BYO token). Rotating `SESSION_SECRET` also invalidates sessions, so treat it as
+a disruptive operation. The managed bots themselves stay owned by the users in
+Telegram regardless.
+
+`CLOUD_TG_API_BASE_URL` overrides the Bot API root (default
+`https://api.telegram.org`) — for tests or a self-hosted API proxy only.
+
 ## 4. Mint the first invite
 
 ```bash

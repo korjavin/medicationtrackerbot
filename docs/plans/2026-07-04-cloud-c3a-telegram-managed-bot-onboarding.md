@@ -52,52 +52,52 @@ Optional Telegram setup during onboarding, one tap: the cloud's **manager bot** 
 
 ### Task 1: cloudstore — Telegram bots migration + repo methods
 
-- [ ] migration `00N_telegram.sql`: `tg_bots(account_id TEXT PK, bot_id INTEGER NOT NULL, bot_username TEXT NOT NULL, token_ct BLOB NOT NULL, token_nonce BLOB NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('managed','byo')), chat_id INTEGER, webhook_secret TEXT NOT NULL, created_at_unix INTEGER NOT NULL, linked_at_unix INTEGER)`, `tg_pending(suggested_username TEXT PK, account_id TEXT NOT NULL, created_at_unix INTEGER NOT NULL, expires_at_unix INTEGER NOT NULL)`; add `tg_skipped_unix INTEGER` to `accounts`
-- [ ] repo methods: `CreatePending`, `ConsumePendingByUsername`, `UpsertBot`, `BotByAccount`, `BotByWebhookRef`, `LinkChat`, `DeleteBot`, `SetTGSkipped` — context-first, unix-seconds convention
-- [ ] token seal/open helpers (HKDF from `SESSION_SECRET`, `info="mt/tg-token/v1"`, AES-GCM) in `internal/cloudserver`
-- [ ] integration test: migration + bot row roundtrip with token seal/open (guards the at-rest encryption actually decrypts after a store/load cycle)
+- [x] migration `009_telegram.sql` (latest is `008_mcp_remote.sql`; take `009`, or the next contiguous number if another branch landed one first): `tg_bots(account_id TEXT PK, bot_id INTEGER NOT NULL, bot_username TEXT NOT NULL, token_ct BLOB NOT NULL, token_nonce BLOB NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('managed','byo')), chat_id INTEGER, webhook_secret TEXT NOT NULL, created_at_unix INTEGER NOT NULL, linked_at_unix INTEGER)`, `tg_pending(suggested_username TEXT PK, account_id TEXT NOT NULL, created_at_unix INTEGER NOT NULL, expires_at_unix INTEGER NOT NULL)`; add `tg_skipped_unix INTEGER` to `accounts`
+- [x] repo methods: `CreatePending`, `ConsumePendingByUsername`, `UpsertBot`, `BotByAccount`, `BotByWebhookRef`, `LinkChat`, `DeleteBot`, `SetTGSkipped` — context-first, unix-seconds convention (in `internal/cloudstore/tg.go`; `Account.TGSkippedAt` wired into the account scan so Task 3's status endpoint can read the skip flag)
+- [x] token seal/open helpers (HKDF from `SESSION_SECRET`, `info="mt/tg-token/v1"`, AES-GCM) in `internal/cloudserver` (`tg_token.go`)
+- [x] integration test: migration + bot row roundtrip with token seal/open (guards the at-rest encryption actually decrypts after a store/load cycle) (`internal/cloudserver/tg_token_test.go`: seal→store→load→open, ciphertext-has-no-plaintext, wrong-secret rejection, pending single-use + expiry)
 
 ### Task 2: minimal Telegram Bot API client
 
-- [ ] `internal/cloudserver/tgapi` (or `internal/tgclient`): raw-HTTP client with injectable base URL; methods: `GetMe`, `GetManagedBotToken`, `SetWebhook` (with `secret_token`), `DeleteWebhook`, `SendMessage`; typed structs for `Update` covering `managed_bot` and `message` (`/start` payloads); honest error mapping (Telegram's `{ok:false, description}` envelope)
-- [ ] manager-bot bootstrap at `cmd/cloud` startup when `MANAGER_BOT_TOKEN` is set: `GetMe` (resolves manager username — no extra env), `SetWebhook` to `/tg/manager/<secret>`; absent token → log "telegram disabled", skip all wiring
-- [ ] integration test: client against the httptest fake — success, API-error envelope, and secret-token header presence on SetWebhook (guards the contract our webhooks depend on)
+- [x] `internal/cloudserver/tgapi` (or `internal/tgclient`): raw-HTTP client with injectable base URL; methods: `GetMe`, `GetManagedBotToken`, `SetWebhook` (with `secret_token`), `DeleteWebhook`, `SendMessage`; typed structs for `Update` covering `managed_bot` and `message` (`/start` payloads); honest error mapping (Telegram's `{ok:false, description}` envelope) — implemented in `internal/tgclient/tgclient.go`
+- [x] manager-bot bootstrap at `cmd/cloud` startup when `MANAGER_BOT_TOKEN` is set: `GetMe` (resolves manager username — no extra env), `SetWebhook` to `/tg/manager/<secret>`; absent token → log "telegram disabled", skip all wiring — `TelegramAPI.Bootstrap` in `internal/cloudserver/telegram.go`, wired in `cmd/cloud/main.go`; webhook secret HKDF-derived from `SESSION_SECRET` (`CLOUD_TG_API_BASE_URL` overrides the API root for tests)
+- [x] integration test: client against the httptest fake — success, API-error envelope, and secret-token header presence on SetWebhook (guards the contract our webhooks depend on) — `internal/tgclient/tgclient_test.go`
 
 ### Task 3: managed provisioning + manager webhook
 
-- [ ] `POST /api/telegram/provision` (session auth): generate `suggested_username` = `mt_<8 base32>_bot` (the random suffix IS the pairing key), insert `tg_pending` (TTL 1h), return `{deep_link, suggested_username}` where deep_link = `https://t.me/newbot/<manager>/<suggested>?name=Med Tracker`
-- [ ] `POST /tg/manager/<secret>` webhook: on `managed_bot` update — match `ConsumePendingByUsername`; matched → `GetManagedBotToken`, seal + `UpsertBot(kind=managed)`, `SetWebhook` for the child at `/tg/bot/<account-scoped ref>/<per-bot secret>`; unmatched (edited username) → log + drop (⚠️ v1 ceiling, wizard copy mitigates; revisit after Post-Completion empirics)
-- [ ] `GET /api/telegram/status` (session auth): `{state: none|skipped|pending|bot_created|linked, bot_username?}` — drives the client's polling UI and the stateless wizard step
-- [ ] integration test: provision → fake `managed_bot` update → status walks `pending → bot_created`; edited-username update leaves status `pending` — guards the binding state machine
+- [x] `POST /api/telegram/provision` (session auth): generate `suggested_username` = `mt_<8 base32>_bot` (the random suffix IS the pairing key), insert `tg_pending` (TTL 1h), return `{deep_link, suggested_username}` where deep_link = `https://t.me/newbot/<manager>/<suggested>?name=Med Tracker` (`TelegramAPI.Provision` in `internal/cloudserver/telegram.go`; `RegisterAPIRoutes` wires it on the subdomain apiMux)
+- [x] `POST /tg/manager/<secret>` webhook: on `managed_bot` update — match `ConsumePendingByUsername`; matched → `GetManagedBotToken`, seal + `UpsertBot(kind=managed)`, `SetWebhook` for the child at `/tg/bot/<account-scoped ref>/<per-bot secret>`; unmatched (edited username) → log + drop (⚠️ v1 ceiling, wizard copy mitigates; revisit after Post-Completion empirics) (`ManagerWebhook`; secret checked in both the path component and `X-Telegram-Bot-Api-Secret-Token` header, constant-time; `RegisterWebhookRoutes` wires it on the base-host mux in `cmd/cloud/main.go`)
+- [x] `GET /api/telegram/status` (session auth): `{state: none|skipped|pending|bot_created|linked, bot_username?}` — drives the client's polling UI and the stateless wizard step (`Status`; adds `enabled:true` for Task 5; new `HasPendingByAccount` store method for the `pending` state)
+- [x] integration test: provision → fake `managed_bot` update → status walks `pending → bot_created`; edited-username update leaves status `pending` — guards the binding state machine (`TestTelegramProvisioningStateMachine` in `internal/cloudserver/telegram_test.go`, also asserts token sealed at rest + wrong-secret 403)
 
 ### Task 4: chat linking + child webhook + BYO fallback
 
-- [ ] `POST /tg/bot/<ref>/<secret>` child webhook: on `/start` message — link `chat_id` (`LinkChat`), send the welcome message (the end-to-end proof: "Your Med Tracker bot is connected"); reject wrong secret with 403; ignore non-`/start` content in C3a (no command surface until C3b)
-- [ ] `POST /api/telegram/byo` (session auth): `{token}` → `GetMe` validation → seal + `UpsertBot(kind=byo)` + `SetWebhook`; linking then follows the same `/start` path (client shows `t.me/<bot_username>` link)
-- [ ] `DELETE /api/telegram` (session auth): `DeleteWebhook`, remove row; note in response copy that a *managed* bot itself remains owned by the user (delete via BotFather if desired)
-- [ ] `POST /api/telegram/test` (session auth, linked only): sends a test notification through the bot — gives the wizard/settings a verifiable "it works" button
-- [ ] integration test: `/start` links chat + emits welcome; wrong webhook secret 403s; BYO with invalid token rejected via fake `getMe`; DELETE cascades — guards the linking contract end-to-end
+- [x] `POST /tg/bot/<ref>/<secret>` child webhook: on `/start` message — link `chat_id` (`LinkChat`), send the welcome message (the end-to-end proof: "Your Med Tracker bot is connected"); reject wrong secret with 403; ignore non-`/start` content in C3a (no command surface until C3b) (`ChildWebhook` in `internal/cloudserver/telegram.go`; loads bot by ref, constant-time secret check, welcome-send failure is non-fatal)
+- [x] `POST /api/telegram/byo` (session auth): `{token}` → `GetMe` validation → seal + `UpsertBot(kind=byo)` + `SetWebhook`; linking then follows the same `/start` path (client shows `t.me/<bot_username>` link) (`BYO`; getMe rejection → 400, not 500)
+- [x] `DELETE /api/telegram` (session auth): `DeleteWebhook`, remove row; note in response copy that a *managed* bot itself remains owned by the user (delete via BotFather if desired) (`Delete`; best-effort DeleteWebhook, then DeleteBot)
+- [x] `POST /api/telegram/test` (session auth, linked only): sends a test notification through the bot — gives the wizard/settings a verifiable "it works" button (`Test`; 409 when unlinked)
+- [x] integration test: `/start` links chat + emits welcome; wrong webhook secret 403s; BYO with invalid token rejected via fake `getMe`; DELETE cascades — guards the linking contract end-to-end (`TestTelegramLinkingAndBYO` in `internal/cloudserver/telegram_test.go`; recording fake asserts welcome + test messages sent)
 
 ### Task 5: client — consent screen + wizard step 5
 
-- [ ] consent screen (`web/cloud/js/telegram.js`): plain-language channel-credential warning per docs/cloud-mode.md (server-visible secret; message content at chosen verbosity visible to the relay; skippable) — Accept → provision flow; Skip → `POST /api/telegram/skip` (`tg_skipped_unix`) so the stateless wizard never re-nags
-- [ ] managed flow UI: deep-link button ("keep the suggested bot name" copy), status polling (`pending → bot_created → linked`), then "open your bot and tap Start" using the returned `bot_username`, then test-notification button on `linked`
-- [ ] BYO form behind an "advanced" disclosure: token input → validate → same linking UI
-- [ ] wizard step 5 derived-state rule: render when server config has Telegram enabled AND `status ∈ {none}`; settings screen hosts the same module for later linking/unlinking
-- [ ] hide everything when the server reports Telegram disabled (no `MANAGER_BOT_TOKEN` and no BYO configured — status endpoint carries `enabled: bool`)
+- [x] consent screen (`web/cloud/js/telegram.js`): plain-language channel-credential warning per docs/cloud-mode.md (server-visible secret; message content at chosen verbosity visible to the relay; skippable) — Accept → provision flow; Skip → `POST /api/telegram/skip` (`tg_skipped_unix`) so the stateless wizard never re-nags (added the missing `Skip` handler + route to `internal/cloudserver/telegram.go`; `SetTGSkipped` store method already existed from Task 1)
+- [x] managed flow UI: deep-link button ("keep the suggested bot name" copy), status polling (`pending → bot_created → linked`), then "open your bot and tap Start" using the returned `bot_username`, then test-notification button on `linked` (`mountTelegram` self-drives off `GET /api/telegram/status`; 2.5s poll, cleared on terminal/linked state)
+- [x] BYO form behind an "advanced" disclosure: token input → validate → same linking UI (`<details>` disclosure → `POST /api/telegram/byo` → `renderOpenBot`; 400 surfaced as "token rejected by Telegram")
+- [x] wizard step 5 derived-state rule: render when server config has Telegram enabled AND `status ∈ {none}`; settings screen hosts the same module for later linking/unlinking (signup.js `renderTelegramStep` after Emergency Kit; module self-gates to `onDone()` when disabled/already-resolved; devices.js hosts the same module in settings mode via `#telegram-mount`)
+- [x] hide everything when the server reports Telegram disabled (no `MANAGER_BOT_TOKEN` and no BYO configured — status endpoint carries `enabled: bool`) (disabled → routes unregistered → status non-2xx → `getStatus` returns `{enabled:false}`; wizard falls through to done, settings mount clears itself)
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] full walkthrough against the fake Telegram API in tests: consent → provision → managed_bot → token stored sealed → /start → linked → test message
-- [ ] verify Telegram-disabled mode: no wizard step, no webhook routes… routes may exist but 404/403 cleanly; no startup errors
-- [ ] verify no plaintext bot tokens in DB rows, logs, or API responses (grep + test assertion)
-- [ ] `go test ./...`, `pnpm test`, both build modes, linter — all pass/fixed
+- [x] full walkthrough against the fake Telegram API in tests: consent → provision → managed_bot → token stored sealed → /start → linked → test message (`TestTelegramProvisioningStateMachine` + `TestTelegramLinkingAndBYO`, both pass)
+- [x] verify Telegram-disabled mode: no wizard step, no webhook routes… routes may exist but 404/403 cleanly; no startup errors (`cmd/cloud/main.go`: `MANAGER_BOT_TOKEN` unset → logs "telegram disabled", `tgAPI` nil, neither `RegisterAPIRoutes` nor `RegisterWebhookRoutes` called; status carries `enabled:false`)
+- [x] verify no plaintext bot tokens in DB rows, logs, or API responses (grep + test assertion) (`telegram_test.go:106` asserts `TokenCT` has no plaintext; Status returns only `enabled/state/bot_username`; `slog` calls log errors/bot_id/ref/account, never the token)
+- [x] `go test ./...`, `pnpm test`, both build modes, linter — all pass/fixed (`go test ./...` green; server + `-tags mobile` builds OK; `go vet` + `golangci-lint` 0 issues; Telegram frontend test passes. ⚠️ `pnpm test` has 2 pre-existing failures in `cloud.shim-contract.food-ai.test.js` — C2c code untouched by this branch, not a C3a regression)
 
 ### Task 7: [Final] Update documentation
 
-- [ ] docs/cloud-mode.md: Telegram section status (C3a implemented — provisioning/linking; delivery + mailbox = C3b), record any spike findings
-- [ ] docs/cloud-deployment.md: manager-bot BotFather setup runbook (create bot, enable "Bot Management Mode" in the BotFather MiniApp, set `MANAGER_BOT_TOKEN`); docs/environment.md: `MANAGER_BOT_TOKEN`
-- [ ] note the `SESSION_SECRET`-rotation-orphans-tokens trade-off where operators will see it (deployment doc)
+- [x] docs/cloud-mode.md: Telegram section status (C3a implemented — provisioning/linking; delivery + mailbox = C3b), record any spike findings (added a "Status: C3a implemented" note at the top of the Telegram section; real-Telegram empirics still open/Post-Completion)
+- [x] docs/cloud-deployment.md: manager-bot BotFather setup runbook (create bot, enable "Bot Management Mode" in the BotFather MiniApp, set `MANAGER_BOT_TOKEN`); docs/environment.md: `MANAGER_BOT_TOKEN` (new "Telegram manager bot" subsection + env-var entries for `MANAGER_BOT_TOKEN` and `CLOUD_TG_API_BASE_URL`)
+- [x] note the `SESSION_SECRET`-rotation-orphans-tokens trade-off where operators will see it (deployment doc) (called out in the runbook's "Token-at-rest trade-off" paragraph and in environment.md's `MANAGER_BOT_TOKEN` note)
 
 ## Technical Details
 

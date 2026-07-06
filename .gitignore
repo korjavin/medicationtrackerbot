@@ -44,3 +44,5 @@ mcpeval-report.md
 .dolt/
 .beads-credential-key
 .beads/proxieddb/
+.beads/issues.jsonl
+.beads/interactions.jsonl

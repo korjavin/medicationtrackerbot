@@ -15,6 +15,7 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.4.1
 	github.com/pressly/goose/v3 v3.26.0
 	github.com/ringsaturn/tzf v1.0.4
+	golang.org/x/crypto v0.52.0
 	golang.org/x/oauth2 v0.34.0
 	modernc.org/sqlite v1.42.2
 )
@@ -49,7 +50,6 @@ require (
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.mongodb.org/mongo-driver v1.11.4 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/crypto v0.52.0 // indirect
 	golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b // indirect
 	golang.org/x/sync v0.16.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
