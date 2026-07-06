@@ -164,7 +164,7 @@ also not ported.
 
 ### Task 2: CRUD domains — groups, variants, exercises, library
 
-- [ ] `createWorkoutDomain({records, now, timeZone})` in
+- [x] `createWorkoutDomain({records, now, timeZone})` in
       `web/domain/workout.js` (split files if it gets large — same purity
       rules): groups/variants/exercises/library CRUD mirroring handler
       shapes incl. `days_of_week` JSON-array-as-string round-trip,
