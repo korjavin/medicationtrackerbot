@@ -72,11 +72,15 @@ export async function getSubscription() {
 export async function unsubscribe() {
   const sub = await getSubscription();
   if (!sub) return;
-  await fetch('/api/push/subscriptions', {
+  // Drop the server row before the browser subscription — mirrors subscribe()'s
+  // res.ok guard. If the server delete fails, keep the browser subscription so
+  // the UI still reports enabled rather than leaving a stale server row.
+  const res = await fetch('/api/push/subscriptions', {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ endpoint: sub.endpoint }),
   });
+  if (!res.ok) throw new Error('Could not remove this device from push.');
   await sub.unsubscribe();
 }
 

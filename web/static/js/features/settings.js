@@ -95,7 +95,7 @@ function initOIDCSetupBanner() {
 // server/mobile builds never pull in cloud-only modules).
 // ponytail: no memoization — import() already caches by specifier. These
 // functions exist only as the test seam (Vitest overrides the window globals).
-let _cloudNotificationsBound = false; // one-time listener-bind guard
+let _cloudNotificationsBound = false; // module-state: one-time guard so the cloud toggle/test click listeners bind once across repeated loadSettings() calls
 function loadCloudPushModule() { return import('/js/push.js'); }
 function loadCloudRemindersModule() { return import('/js/reminders.js'); }
 
@@ -117,8 +117,17 @@ function bindCloudNotifications() {
     const status = document.getElementById('cloud-push-status');
     if (!toggleBtn || !testBtn || !status) return;
 
-    refreshCloudPushToggleState(toggleBtn);
-    if (_cloudNotificationsBound) return;
+    // Disable the controls until the async getSubscription() check resolves —
+    // the button defaults to 'Enable' with dataset.subscribed unset, so a click
+    // in that window could subscribe while already subscribed or wrongly report
+    // "Enable push notifications first."
+    toggleBtn.disabled = true;
+    testBtn.disabled = true;
+    const ready = refreshCloudPushToggleState(toggleBtn).finally(() => {
+        toggleBtn.disabled = false;
+        testBtn.disabled = false;
+    });
+    if (_cloudNotificationsBound) return ready;
     _cloudNotificationsBound = true;
 
     toggleBtn.addEventListener('click', async () => {
@@ -131,10 +140,20 @@ function bindCloudNotifications() {
             } else if (Notification.permission === 'denied') {
                 applyWebpushStatus(status, 'Notifications are blocked in your browser settings.', 'error');
             } else {
-                applyWebpushStatus(status, 'Requesting permission...', null);
-                const { subscribe } = await loadCloudPushModule();
-                await subscribe();
-                applyWebpushStatus(status, 'Notifications enabled', 'success');
+                // Reach Notification.requestPermission() synchronously inside the
+                // click's transient activation — Safari/iOS drop it across the
+                // dynamic import() await below, so requesting here (not only inside
+                // push.js subscribe()) keeps first-enable working on iOS.
+                // subscribe() re-checks and no-ops when already granted.
+                const permission = await Notification.requestPermission();
+                if (permission !== 'granted') {
+                    applyWebpushStatus(status, 'Notification permission was not granted.', 'error');
+                } else {
+                    applyWebpushStatus(status, 'Requesting permission...', null);
+                    const { subscribe } = await loadCloudPushModule();
+                    await subscribe();
+                    applyWebpushStatus(status, 'Notifications enabled', 'success');
+                }
             }
         } catch (err) {
             applyWebpushStatus(status, err.message || 'Failed to update notifications', 'error');
@@ -163,6 +182,7 @@ function bindCloudNotifications() {
         }
         setTimeout(() => hideWebpushStatus(status), 3000);
     });
+    return ready;
 }
 
 // Load settings (BP reminders status, etc.)
@@ -170,7 +190,7 @@ async function loadSettings() {
     if (window.__MEDTRACKER_CLOUD__) {
         document.querySelector('.wg-settings-notifications')?.classList.add('wg-settings-hidden');
         document.querySelector('.wg-settings-notifications-cloud')?.removeAttribute('hidden');
-        bindCloudNotifications();
+        await bindCloudNotifications();
         // Devices row (add/manage a second device) only makes sense in cloud
         // mode — server/mobile builds have no /devices shell route.
         document.querySelector('.wg-settings-cloud-devices')?.classList.remove('wg-settings-hidden');

@@ -61,7 +61,7 @@ describe('cloud Notifications controls (bindCloudNotifications)', () => {
         const { window, document, cleanup } = loadFrontendEnv();
         try {
             window.__MEDTRACKER_CLOUD__ = true;
-            window.Notification = { permission: 'default' };
+            window.Notification = { permission: 'default', requestPermission: vi.fn().mockResolvedValue('granted') };
             const subscribe = vi.fn().mockResolvedValue(undefined);
             const getSubscription = vi.fn()
                 .mockResolvedValueOnce(null) // initial mount state: not subscribed
