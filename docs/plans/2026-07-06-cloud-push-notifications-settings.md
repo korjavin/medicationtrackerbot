@@ -153,7 +153,7 @@ reminders, or it wipes the user's real schedule until the next recompute.
 
 ### Task 5: Integration test
 
-- [ ] Add a Vitest suite via `tests/helpers/frontend-harness.js` (extend the
+- [x] Add a Vitest suite via `tests/helpers/frontend-harness.js` (extend the
       settings feature suite, not a new coverage-driven file) asserting, in
       cloud mode (`window.__MEDTRACKER_CLOUD__ = true`, a stubbed
       `window.MedTrackerCloud.ctx`, mocked dynamic `/js/push.js` +
@@ -162,7 +162,15 @@ reminders, or it wipes the user's real schedule until the next recompute.
       calls the mocked `subscribe`; clicking Test calls `sendTestPush`/
       `pushSchedule` with an entry array that includes the appended test entry
       (asserting the real entries are preserved — the non-clobber guarantee).
-- [ ] Assert server mode (no cloud flag) leaves the cloud block hidden and the
+      Added `web/static/js/tests/settings.cloud-notifications.test.js`: DOM
+      visibility + Enable/Disable/Test wiring against
+      `window.loadCloudPushModule`/`window.loadCloudRemindersModule` stubs, plus
+      a dedicated describe block exercising the real (non-mocked)
+      `sendTestPush`/`computeReminderEntries` from `web/cloud/js/reminders.js`
+      (only `web/cloud/js/push.js`'s `pushSchedule` and
+      `web/domain/reminders.js`'s `createRemindersDomain` mocked) to prove the
+      non-clobber guarantee against production logic.
+- [x] Assert server mode (no cloud flag) leaves the cloud block hidden and the
       server block visible (unchanged behavior).
 
 ### Task 6: Verify acceptance criteria
