@@ -485,6 +485,32 @@
                 </div>
             </section>
 
+            <section class="wg-card wg-settings-section wg-settings-notifications-cloud" hidden>
+                <h3 class="wg-settings-section__title">Notifications</h3>
+                <p class="wg-settings-section__desc">Push alerts and test notifications</p>
+                <div class="wg-settings-row-list">
+                    <div class="wg-settings-row">
+                        <div class="wg-settings-row__content">
+                            <div class="wg-settings-row__title wg-mono-display">Web Push Notifications</div>
+                            <div class="wg-settings-row__desc">Browser notifications for medications</div>
+                        </div>
+                        <div class="wg-settings-row__control wg-settings-action-row">
+                            <button id="cloud-push-toggle" class="wg-gloss wg-settings-action-btn">Enable</button>
+                        </div>
+                    </div>
+                    <div id="cloud-push-status" class="wg-settings-webpush-status wg-settings-hidden"></div>
+                    <div class="wg-settings-row">
+                        <div class="wg-settings-row__content">
+                            <div class="wg-settings-row__title wg-mono-display">Test Notifications</div>
+                            <div class="wg-settings-row__desc">Send a test push to this device</div>
+                        </div>
+                        <div class="wg-settings-row__control wg-settings-action-row">
+                            <button id="cloud-push-test-btn" class="wg-gloss wg-settings-action-btn">Send test push</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <section class="wg-card wg-settings-section wg-settings-features">
                 <h3 class="wg-settings-section__title">Features</h3>
                 <p class="wg-settings-section__desc">Enable or disable sections</p>

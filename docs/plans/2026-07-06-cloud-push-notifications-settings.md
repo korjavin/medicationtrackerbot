@@ -123,14 +123,14 @@ reminders, or it wipes the user's real schedule until the next recompute.
 
 ### Task 3: Add the cloud Notifications DOM block
 
-- [ ] In `web/static/index.html`, add a cloud-only Notifications block adjacent
+- [x] In `web/static/index.html`, add a cloud-only Notifications block adjacent
       to `.wg-settings-notifications` (e.g. `.wg-settings-notifications-cloud`),
       `hidden` by default, using existing `--wg-*` settings classes (mirror the
       server block's card/heading/button markup). Controls: an Enable/Disable
       push button (`#cloud-push-toggle` or a labeled button reflecting state) and
       a "Send test push" button (`#cloud-push-test-btn`), plus a small status
       line element for feedback (e.g. "Push enabled on this device").
-- [ ] No inline styles or hardcoded colors — reuse the notification section's
+- [x] No inline styles or hardcoded colors — reuse the notification section's
       existing classes/tokens.
 
 ### Task 4: Wire the cloud Notifications controls in settings.js
