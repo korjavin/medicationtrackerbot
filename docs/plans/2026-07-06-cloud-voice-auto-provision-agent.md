@@ -111,10 +111,10 @@ with an audible tool-call sound. Closes bd **med-eas.26**.
 
 ### Task 2: Signed URL + call flow use the provisioned agent
 
-- [ ] Update `web/cloud/js/elevenlabs-signed-url.js` so `fetchSignedURL(agentId)`
+- [x] Update `web/cloud/js/elevenlabs-signed-url.js` so `fetchSignedURL(agentId)`
       takes the provisioned agent id (fall back to the vault `agent_id` if set),
       not a required user-set one.
-- [ ] In `web/static/js/features/elevenlabs-call.js` `startCall()` cloud branch:
+- [x] In `web/static/js/features/elevenlabs-call.js` `startCall()` cloud branch:
       before minting the signed URL, `const agentId = await
       window.CloudElevenLabsAgent.provision();` then
       `fetchSignedURL(agentId)`. Surface provisioning errors as the call status.

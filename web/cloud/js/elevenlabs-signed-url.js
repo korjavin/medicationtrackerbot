@@ -8,12 +8,18 @@
 const SIGNED_URL_ENDPOINT = 'https://api.elevenlabs.io/v1/convai/conversation/get_signed_url';
 
 export function createElevenLabsClient({ settingsDomain }) {
-  async function fetchSignedURL() {
+  // agentId is the app-provisioned agent (elevenlabs-agent.js provision());
+  // fall back to a user-set vault agent_id for the pre-provisioning path.
+  async function fetchSignedURL(agentId) {
     const { elevenlabs } = await settingsDomain.readIntegrationsUnmasked();
-    if (!elevenlabs || !elevenlabs.api_key || !elevenlabs.agent_id) {
-      throw new Error('Set your ElevenLabs key and agent id in Settings → Integrations');
+    if (!elevenlabs || !elevenlabs.api_key) {
+      throw new Error('Set your ElevenLabs API key in Settings → Integrations');
     }
-    const url = `${SIGNED_URL_ENDPOINT}?agent_id=${encodeURIComponent(elevenlabs.agent_id)}`;
+    const id = agentId || (elevenlabs && elevenlabs.agent_id);
+    if (!id) {
+      throw new Error('No ElevenLabs agent — provisioning failed');
+    }
+    const url = `${SIGNED_URL_ENDPOINT}?agent_id=${encodeURIComponent(id)}`;
     const resp = await fetch(url, { method: 'GET', headers: { 'xi-api-key': elevenlabs.api_key } });
     if (!resp.ok) {
       const err = new Error(`Failed to get signed URL (${resp.status})`);

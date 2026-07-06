@@ -33,9 +33,16 @@
 
     async function fetchSignedURL() {
         // Cloud mode has no server signed-URL route — mint it browser-direct
-        // from the vault's ElevenLabs key (BYO; key never crosses /api).
+        // from the vault's ElevenLabs key (BYO; key never crosses /api). First
+        // auto-provision the tools + MedTracker agent from code (idempotent;
+        // reprovisions only on a toolset-version bump) so the user configures
+        // only the API key. Provisioning errors surface as the call status.
         if (window.__MEDTRACKER_CLOUD__ && window.CloudElevenLabs) {
-            return window.CloudElevenLabs.fetchSignedURL();
+            let agentId;
+            if (window.CloudElevenLabsAgent) {
+                agentId = await window.CloudElevenLabsAgent.provision();
+            }
+            return window.CloudElevenLabs.fetchSignedURL(agentId);
         }
         const apiCall = (typeof window.offlineAwareApiCall === 'function')
             ? window.offlineAwareApiCall
