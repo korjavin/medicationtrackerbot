@@ -162,15 +162,15 @@ before investing —
 
 ### Task 5: The shim — `cmd/mcpshim`
 
-- [ ] stdio MCP server via `modelcontextprotocol/go-sdk` exposing exactly
+- [x] stdio MCP server via `modelcontextprotocol/go-sdk` exposing exactly
       two tools, `mcp_help` and `mcp_call`, whose descriptions state the
       E2E architecture and the online-device requirement in one sentence
-- [ ] reads `MEDTRACKER_MCP_CODE`; dials the relay; forwards tool calls as
+- [x] reads `MEDTRACKER_MCP_CODE`; dials the relay; forwards tool calls as
       encrypted frames via `internal/mcpshim`; no device / timeout →
       the actionable error text (locked decision above)
-- [ ] no config file, no flags beyond `-version` (PoC); reconnects on
+- [x] no config file, no flags beyond `-version` (PoC); reconnects on
       drop; logs to stderr only (stdout is the MCP transport)
-- [ ] Go integration test (the one that matters): in-process relay +
+- [x] Go integration test (the one that matters): in-process relay +
       fake device (Go crypto from Task 2) + shim core — `mcp_help` and
       `mcp_call` round-trip ciphertext through the relay; kill the fake
       device → next call returns the offline error within the timeout

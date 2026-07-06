@@ -89,3 +89,17 @@ func openFrame(key []byte, pairingID string, frame []byte) ([]byte, error) {
 	nonce, ct := frame[:nonceSize], frame[nonceSize:]
 	return gcm.Open(nil, nonce, ct, frameAAD(pairingID))
 }
+
+// EncryptFrame and DecryptFrame export sealFrame/openFrame so a fake Go
+// device — the Task 5 integration test's stand-in for
+// web/cloud/js/mcp-responder.js — can speak the exact same wire contract
+// without duplicating the AES-GCM framing (same rationale as
+// FormatPairingCode exporting the pairing-code encoder).
+func EncryptFrame(key []byte, pairingID string, payload []byte) ([]byte, error) {
+	return sealFrame(key, pairingID, payload)
+}
+
+// DecryptFrame is EncryptFrame's inverse.
+func DecryptFrame(key []byte, pairingID string, frame []byte) ([]byte, error) {
+	return openFrame(key, pairingID, frame)
+}

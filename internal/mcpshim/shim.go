@@ -27,6 +27,15 @@ const CallTimeout = 30 * time.Second
 //nolint:staticcheck // ST1005: this is a terminal, user-facing sentence relayed verbatim to the model (the plan's locked offline-device UX text), not a wrapped Go error.
 var ErrDeviceOffline = errors.New("No unlocked Med Tracker device is online. Open your app at https://<sub>.<base> and unlock it, then retry — this connector talks to your device, not to a server, because your data is end-to-end encrypted.")
 
+// errConnectionDropped marks a Call failure caused by this ShimCore's own
+// relay connection already having died (most often because the relay closed
+// the shim leg in lockstep with its paired device leg dropping — serveLeg's
+// symmetric close). Client matches this with errors.Is to redial and retry
+// once, so the caller sees a real CallTimeout wait against a fresh
+// connection (and thus ErrDeviceOffline) instead of this raw transport
+// error.
+var errConnectionDropped = errors.New("mcpshim: connection dropped")
+
 // ShimCore holds one live connection to the relay's shim leg: the pairing
 // key, the socket, and the table correlating outstanding requests to their
 // responses by JSON-RPC id.
@@ -56,7 +65,17 @@ func Dial(ctx context.Context, code string) (*ShimCore, error) {
 // DialPairing connects using an already-parsed pairing code — the seam Task
 // 5's integration test uses to dial a local httptest relay directly.
 func DialPairing(ctx context.Context, pc *PairingCode) (*ShimCore, error) {
-	conn, _, err := websocket.Dial(ctx, pc.RelayURL+"/api/mcp/relay/shim?pairing="+pc.PairingID, nil)
+	return DialPairingWithOptions(ctx, pc, nil)
+}
+
+// DialPairingWithOptions is DialPairing with the underlying
+// coder/websocket.DialOptions exposed, so a test can force the socket
+// through an httptest.Server's real listener address while still sending
+// the pairing's real relay host (cloudserver's subdomain router resolves
+// the account from the Host header even for the shim leg) — the same
+// dial-address override internal/cloudserver's own tests use.
+func DialPairingWithOptions(ctx context.Context, pc *PairingCode, opts *websocket.DialOptions) (*ShimCore, error) {
+	conn, _, err := websocket.Dial(ctx, pc.RelayURL+"/api/mcp/relay/shim?pairing="+pc.PairingID, opts)
 	if err != nil {
 		return nil, fmt.Errorf("mcpshim: dial relay: %w", err)
 	}
@@ -103,7 +122,7 @@ func (s *ShimCore) Call(ctx context.Context, method string, params any) (json.Ra
 	}()
 
 	if err := s.conn.Write(ctx, websocket.MessageBinary, frame); err != nil {
-		return nil, fmt.Errorf("mcpshim: write frame: %w", err)
+		return nil, fmt.Errorf("%w: write frame: %v", errConnectionDropped, err)
 	}
 
 	timer := time.NewTimer(CallTimeout)
@@ -119,13 +138,26 @@ func (s *ShimCore) Call(ctx context.Context, method string, params any) (json.Ra
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case <-s.closed:
-		return nil, s.closeErr
+		return nil, fmt.Errorf("%w: %v", errConnectionDropped, s.closeErr)
 	}
 }
 
 // Close tears down the relay connection.
 func (s *ShimCore) Close() error {
 	return s.conn.Close(websocket.StatusNormalClosure, "shim closing")
+}
+
+// isClosed reports whether readLoop has already torn this connection down
+// (relay dropped it — most commonly because the paired device went
+// offline, per serveLeg's symmetric close). Client uses this to decide
+// whether a call needs a fresh Dial before it can proceed.
+func (s *ShimCore) isClosed() bool {
+	select {
+	case <-s.closed:
+		return true
+	default:
+		return false
+	}
 }
 
 // readLoop decrypts and decodes incoming frames, delivering each Response to
