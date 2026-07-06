@@ -241,10 +241,13 @@ also not ported.
 
 ### Task 8: Verify acceptance criteria
 
-- [ ] full workout UX in the shim harness; unknown-route warns contain
+- [x] full workout UX in the shim harness; unknown-route warns contain
       only the documented MCP-only routes; `pnpm test` fully green;
       `go build ./... && go build -tags mobile ./...` +
       `go test -count=1 ./...` green; linters clean
+      (`go vet ./...` clean; `gofmt -l` drift is pre-existing on master,
+      not introduced by this branch — no JS lint script is configured,
+      only `vitest run`)
 
 ### Task 9: [Final] Update documentation
 
