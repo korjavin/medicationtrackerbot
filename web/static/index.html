@@ -25,14 +25,13 @@
     <script src="/static/vendor/dexie.min.js"></script>
     <script src="/static/vendor/zxing.min.js"></script>
     <script src="/static/config.js"></script>
-    <!-- Blocked outright under the cloud origin's strict CSP (style-src
-         'self', no third-party fonts) — degrades to the same-origin
-         base-fallback.css font stack below. Loads normally in the bot-mode
-         and mobile builds, which don't set that CSP. -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="stylesheet"
-        href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+    <!-- Space Grotesk + JetBrains Mono are self-hosted from the same origin
+         (web/static/fonts, @font-face in fonts.css) so they load under the
+         cloud origin's strict `style-src 'self'` CSP without phoning a font CDN
+         — which would break cloud mode's zero-knowledge property (med-eas.6).
+         Latin + latin-ext subsets only; other scripts fall back to the
+         same-origin base-fallback.css stack. -->
+    <link rel="stylesheet" href="/static/css/fonts.css?v=TIMESTAMP_PLACEHOLDER">
     <link rel="stylesheet" href="/static/css/base-fallback.css?v=TIMESTAMP_PLACEHOLDER">
     <link rel="stylesheet" href="/static/css/styles.css?v=TIMESTAMP_PLACEHOLDER">
     <link rel="stylesheet" href="/static/css/firstrun.css?v=TIMESTAMP_PLACEHOLDER">
