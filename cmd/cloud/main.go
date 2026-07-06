@@ -196,6 +196,7 @@ func main() {
 	mcpRelayAPI.RegisterRoutes(apiMux)
 	mcpRemoteAPI.RegisterRoutes(apiMux)
 	router := cloudserver.New(cfg.baseDomain, store, cloudweb.FS, webstatic.FS, domainweb.FS, apiMux, cfg.foodDBURL)
+	router.SetMCPHandler(mcpRemoteAPI.Endpoint())
 
 	relay := cloudserver.NewRelay(store, webPushSender, cfg.dryQueueWarnHours)
 

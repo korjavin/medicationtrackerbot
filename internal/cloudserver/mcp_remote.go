@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
 	"github.com/korjavin/medicationtrackerbot/internal/mcpshim"
 )
@@ -81,6 +82,22 @@ type MCPRemoteAPI struct {
 
 	mu    sync.RWMutex
 	byAcc map[string]*mcpRemoteEntry
+
+	// failLimiter and callLimiter back the Task 2 streamable-HTTP endpoint
+	// (mcp_endpoint.go): failLimiter caps wrong-token guesses per account
+	// (the plan's "the throttle IS the security"), callLimiter caps
+	// successful-auth tool calls per token (retry-storm protection).
+	failLimiter *rateLimiter
+	callLimiter *rateLimiter
+
+	// dialOpts overrides the hosted shim client's websocket dial options —
+	// nil in production (a real dial to the pairing code's relay URL). Tests
+	// set this directly (same package) to force every hosted client's dial
+	// through an httptest.Server's real listener address while the pairing
+	// code's RelayURL still carries the account's virtual "<sub>.localhost"
+	// host, mirroring internal/cloudserver/mcp_shim_integration_test.go's
+	// shimRelayHarness.
+	dialOpts *websocket.DialOptions
 }
 
 // NewMCPRemoteAPI builds the handlers with an empty registry. Call Restore
@@ -91,6 +108,8 @@ func NewMCPRemoteAPI(store mcpRemoteStore, relayAPI *MCPRelayAPI, sessionSecret 
 		sessionSecret: sessionSecret,
 		relayAPI:      relayAPI,
 		byAcc:         make(map[string]*mcpRemoteEntry),
+		failLimiter:   newRateLimiter(mcpEndpointFailLimitMax, mcpEndpointFailLimitWindow),
+		callLimiter:   newRateLimiter(mcpEndpointCallLimitMax, mcpEndpointCallLimitWindow),
 	}
 }
 
@@ -121,7 +140,7 @@ func (a *MCPRemoteAPI) Restore(ctx context.Context) {
 // start installs accountID's live entry, closing out and replacing any prior
 // one (re-enable, or a restore over an already-started registry).
 func (a *MCPRemoteAPI) start(accountID, token string, pc *mcpshim.PairingCode) {
-	entry := &mcpRemoteEntry{token: token, client: mcpshim.NewClientFromPairingWithOptions(pc, nil)}
+	entry := &mcpRemoteEntry{token: token, client: mcpshim.NewClientFromPairingWithOptions(pc, a.dialOpts)}
 	a.mu.Lock()
 	old := a.byAcc[accountID]
 	a.byAcc[accountID] = entry
