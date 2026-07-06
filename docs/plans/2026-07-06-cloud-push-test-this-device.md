@@ -94,14 +94,14 @@ push is sent right away to **only** the current device's subscription. Closes bd
 
 ### Task 2: Client — direct single-device test send
 
-- [ ] Add a `sendTestPush(ctx)` implementation (replace the schedule-based one in
+- [x] Add a `sendTestPush(ctx)` implementation (replace the schedule-based one in
       `web/cloud/js/reminders.js`, or add a `sendTestPush` in `push.js` and
       re-point reminders' export): get the current subscription via
       `getSubscription()`; if none, throw a clear "enable push first" error;
       get `nk` via `getOrCreateNK(ctx)`; `encryptPushPayload(nk, JSON.stringify({
       title: 'Med Tracker', body: 'Test notification' }))`; `POST
       /api/push/test { endpoint: sub.endpoint, ct: toBase64(ct) }`.
-- [ ] Remove the now-unused schedule-append/non-clobber logic from the test
+- [x] Remove the now-unused schedule-append/non-clobber logic from the test
       path (the real reminder recompute path keeps `computeReminderEntries` +
       `pushSchedule` unchanged).
 
