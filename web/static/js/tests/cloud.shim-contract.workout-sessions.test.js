@@ -24,9 +24,9 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         env = null;
     });
 
-    async function makeRotatingGroup(window, variantNames) {
+    async function makeRotatingGroup(window, variantNames, scheduledTime = '23:59') {
         const group = await window.apiCall('/api/workout/groups/create', 'POST', {
-            name: 'Push/Pull/Legs', is_rotating: true, days_of_week: EVERY_DAY, scheduled_time: '23:59'
+            name: 'Push/Pull/Legs', is_rotating: true, days_of_week: EVERY_DAY, scheduled_time: scheduledTime
         });
         const variants = [];
         for (let i = 0; i < variantNames.length; i++) {
@@ -54,9 +54,17 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
 
     it('P0 prioritizes an active-today session over a P2 candidate', async () => {
         const { window } = env;
+        // Group A (23:59): materialize today's occurrence and start it, so it is
+        // an active-today session.
         await makeRotatingGroup(window, ['Push']);
         const first = await window.apiCallDirect('/api/workout/sessions/next');
         await window.apiCall(`/api/workout/sessions/${first.session.id}/start`, 'POST');
+
+        // Decoy group B scheduled one minute earlier today: its pending
+        // occurrence is the earliest P2 candidate, so without the P0 branch
+        // getNext would return B's fresh pending session instead. P0 must keep
+        // the active session in front.
+        await makeRotatingGroup(window, ['Legs'], '23:58');
 
         const next = await window.apiCallDirect('/api/workout/sessions/next');
         expect(next.session.id).toBe(first.session.id);

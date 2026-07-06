@@ -1197,16 +1197,20 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     return { session: toSessionResponse(session), logs: logs.map(toLogResponse) };
   }
 
-  // mondayOfUtc ports stats.go's mondayOf, bucketing by the ISO Monday of
-  // the UTC calendar day `ms` falls on. Session instants here are always
-  // full UTC ISO strings (never a bare local-date), so bucketing off
-  // getUTCDay() is the direct equivalent of Go walking `t.Weekday()`
-  // backwards on the stored instant.
-  function mondayOfUtc(ms) {
-    const d = new Date(ms);
-    const day = d.getUTCDay();
+  // mondayOf ports stats.go's mondayOf, bucketing by the ISO Monday of the
+  // session's LOCAL calendar day. scheduled_date is an offset-carrying instant
+  // (scheduledDateRFC) whose date prefix IS the local day, so we bucket off
+  // that prefix — matching Go walking `session.ScheduledDate.Weekday()` on the
+  // offset-aware time. Reading getUTCDay() off the raw instant would shift the
+  // bucket a UTC day (and possibly a whole week) earlier for positive-offset
+  // zones, since local midnight maps to the previous UTC calendar day.
+  function mondayOf(dateStr) {
+    const y = +dateStr.slice(0, 4);
+    const mo = +dateStr.slice(5, 7) - 1;
+    const dd = +dateStr.slice(8, 10);
+    const day = new Date(Date.UTC(y, mo, dd)).getUTCDay();
     const diff = day === 0 ? -6 : 1 - day;
-    const monday = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + diff));
+    const monday = new Date(Date.UTC(y, mo, dd + diff));
     return monday.toISOString().slice(0, 10);
   }
 
@@ -1239,7 +1243,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
         else if (session.status === 'skipped') { skippedSessions++; totalSessions++; }
       }
       if (schedMs >= cutoff12w) {
-        const week = mondayOfUtc(schedMs);
+        const week = mondayOf(String(session.scheduled_date).slice(0, 10));
         if (!weekMap.has(week)) weekMap.set(week, { week, completed: 0, skipped: 0 });
         const entry = weekMap.get(week);
         if (session.status === 'completed') entry.completed++;
