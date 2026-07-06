@@ -883,7 +883,10 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       reps_completed: hasValue(reps) ? reps : log.reps_completed,
       weight_kg: hasValue(weight) ? weight : log.weight_kg,
       notes: (input && input.notes) || '',
-      status: newStatus,
+      // Go's UpdateExerciseLog never writes status; UpdateExerciseLogStatus
+      // fires only for a non-empty newStatus. So an omitted status preserves
+      // the existing one — editing a completed log must not reset it to ''.
+      status: newStatus === '' ? log.status : newStatus,
       logged_at: wasPlaceholder ? new Date(nowMs).toISOString() : log.logged_at,
       clientTs: nowMs,
     });

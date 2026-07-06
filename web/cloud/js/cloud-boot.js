@@ -42,12 +42,26 @@ window.MedTrackerCloudReady = (async function boot() {
         // dispatch so those bypasses are served too; anything else (there is no
         // other caller today, but the real implementation is one already-broken
         // fetch away) keeps hitting the real network fetch unchanged.
-        const realApiCallDirect = window.apiCallDirect;
-        window.apiCallDirect = (endpoint, method, body, opts) => (
+        // Order-independent install: core/api.js (index.html, well after this
+        // shim's <head> injection) also does `window.apiCallDirect = …`. The
+        // boot() awaits above can resume mid-parse — the event loop spins while
+        // the parser is blocked fetching an earlier script — so we can't assume
+        // api.js has run yet. A plain capture-and-reassign would either read an
+        // undefined real fn or get clobbered when api.js runs last. Instead hold
+        // the real fn in a closure and expose the wrapper via an accessor whose
+        // setter absorbs api.js's later assignment as the fallback rather than
+        // replacing the wrapper.
+        let realApiCallDirect = window.apiCallDirect;
+        const wrapper = (endpoint, method, body, opts) => (
             endpoint.startsWith('/api/')
                 ? shimCall(endpoint, method, body, opts)
                 : realApiCallDirect(endpoint, method, body, opts)
         );
+        Object.defineProperty(window, 'apiCallDirect', {
+            configurable: true,
+            get() { return wrapper; },
+            set(fn) { realApiCallDirect = fn; },
+        });
         await pullOnOpen(ctx);
         if (window.DataStore && typeof window.DataStore.invalidateTags === 'function') {
             // Cloud mode has no change-poll loop — pullOnOpen is the only sync

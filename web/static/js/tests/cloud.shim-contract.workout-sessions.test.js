@@ -177,6 +177,26 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect(details.logs.every((l) => l.status === 'completed')).toBe(true);
     });
 
+    it('updating a completed log without a status keeps it completed (no reset to placeholder)', async () => {
+        const { window } = env;
+        await makeRotatingGroup(window, ['Push']);
+        const first = await window.apiCallDirect('/api/workout/sessions/next');
+        const sessionId = first.session.id;
+        const log = await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+            session_id: sessionId, exercise_id: 1, exercise_name: 'Bench', source: 'schedule',
+            target_sets: 3, target_reps_min: 8, status: 'completed'
+        });
+
+        // Edit weight only, no status field — same shape sessions.js sends.
+        await window.apiCall('/api/workout/sessions/logs/update', 'POST', {
+            id: log.id, sets_completed: 3, reps_completed: 8, weight_kg: 65
+        });
+
+        const details = await window.apiCall(`/api/workout/sessions/details?id=${sessionId}`);
+        expect(details.logs[0].status).toBe('completed');
+        expect(details.logs[0].weight_kg).toBe(65);
+    });
+
     it('ad-hoc flow: create-adhoc + log a library exercise, listSessions names it by biggest volume', async () => {
         const { window } = env;
         const item = await window.apiCall('/api/workout/exercise-library/create', 'POST', { name: 'Deadlift' });
