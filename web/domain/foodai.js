@@ -104,7 +104,7 @@ export function createFoodAIDomain({ aiClient, foodDomain, now }) {
     let failed = 0;
     for (const item of items) {
       try {
-        saved.push(await foodDomain.create({ ...item, eaten_at: eatenAt }));
+        saved.push(await foodDomain.create({ ...item, eaten_at: eatenAt }, { skipProductUpsert: true }));
       } catch {
         failed++;
       }

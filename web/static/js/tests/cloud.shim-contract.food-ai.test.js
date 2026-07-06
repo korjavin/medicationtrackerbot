@@ -100,6 +100,13 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
         const logs = grouped.flatMap((g) => g.logs);
         expect(logs.map((l) => l.name).sort()).toEqual(['Grilled chicken', 'White rice']);
 
+        // Parity with the server AI handlers (food_handlers.go:255) — they
+        // CreateLog bare-named entries with no product_id and no UpsertProduct,
+        // so AI logging must NOT populate the product catalog.
+        expect(logs.every((l) => l.product_id === undefined)).toBe(true);
+        const products = await window.apiCall('/api/food/products', 'GET');
+        expect(products.total).toBe(0);
+
         window.safeConfirm = vi.fn(async (_msg, cb) => { await cb(true); });
         const summaryStub = { showRemoved: vi.fn(), showError: vi.fn() };
         await window.undoFoodAIItems(logs, summaryStub);

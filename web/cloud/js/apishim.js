@@ -100,7 +100,7 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
   // shimCall route table below: the AI provider call and the food-DB search
   // both go straight from the browser, never through any /api surface.
   targetWindow.CloudFoodAI = foodAI;
-  targetWindow.CloudFoodSearch = { search: (q, opts) => food.search(q, opts) };
+  targetWindow.CloudFoodSearch = { search: food.search };
 
   // Due-dose materialization + tz-plan status refresh: neither domain module
   // owns a timer (Task 3/4's modules stay pure functions of their inputs), so

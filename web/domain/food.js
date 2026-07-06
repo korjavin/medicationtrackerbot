@@ -233,7 +233,7 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     return { carbs_100g: 0, protein_100g: 0, fat_100g: 0, energy_kcal_100g: 0 };
   }
 
-  async function isMealFor(record, productsById) {
+  function isMealFor(record, productsById) {
     if (!record.product_id) return false;
     const product = productsById.get(record.product_id);
     return !!(product && product.is_meal);
@@ -247,7 +247,9 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
   // create mirrors handleCreateFoodLog (food_handlers.go:21): a product_id
   // resolves the log's name/product and only bumps usage afterwards; a bare
   // name upserts the product with the computed per-100g macros up front.
-  async function create(input) {
+  // skipProductUpsert matches the AI handlers (handleCreateFoodLogFrom*), which
+  // CreateLog a bare-named entry with no product_id and no UpsertProduct.
+  async function create(input, { skipProductUpsert = false } = {}) {
     const nowMs = now();
     let resolvedName = input.name || '';
     let resolvedProductId = null;
@@ -264,7 +266,7 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
       resolvedProductId = product.recordId;
       if (!resolvedName) resolvedName = product.name;
       bumpAfterCreate = product.name;
-    } else if (resolvedName) {
+    } else if (resolvedName && !skipProductUpsert) {
       const product = await upsertProductByName({ name: resolvedName, barcode: input.barcode || null, ...per100gFrom(input) });
       resolvedProductId = product.recordId;
     }
@@ -287,7 +289,7 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     if (bumpAfterCreate) await upsertProductByName({ name: bumpAfterCreate });
 
     const products = await productsIndex();
-    return toLogResponse(record, await isMealFor(record, products));
+    return toLogResponse(record, isMealFor(record, products));
   }
 
   // update mirrors handleUpdateFoodLog (food_handlers.go:477): always
@@ -330,7 +332,7 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     }
 
     const products = await productsIndex();
-    return toLogResponse(record, await isMealFor(record, products));
+    return toLogResponse(record, isMealFor(record, products));
   }
 
   async function remove(id) {
@@ -385,7 +387,7 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
 
     const responses = [];
     for (const record of logs) {
-      responses.push(toLogResponse(record, await isMealFor(record, products)));
+      responses.push(toLogResponse(record, isMealFor(record, products)));
     }
     return groupFoodLogs(responses, days > 1, timeZone);
   }
