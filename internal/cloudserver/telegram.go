@@ -355,6 +355,20 @@ func (t *TelegramAPI) ChildWebhook(w http.ResponseWriter, r *http.Request) {
 	ref := r.PathValue("ref")
 	bot, err := t.store.BotByWebhookRef(r.Context(), ref)
 	if errors.Is(err, sql.ErrNoRows) {
+		// A managed bot's webhook is set *before* the bot row is written so a
+		// SetWebhook failure 500s cleanly without stranding the row. This opens
+		// a tiny race: if Telegram immediately buffers a deep-link /start, it can
+		// deliver it here before the UpsertBot transaction commits. If we 403,
+		// Telegram drops the update and the user's /start is lost. Wait and retry.
+		for i := 0; i < 5; i++ {
+			time.Sleep(100 * time.Millisecond)
+			bot, err = t.store.BotByWebhookRef(r.Context(), ref)
+			if err == nil {
+				break
+			}
+		}
+	}
+	if errors.Is(err, sql.ErrNoRows) {
 		slog.Warn("telegram child webhook: unknown ref", "ref", ref)
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
