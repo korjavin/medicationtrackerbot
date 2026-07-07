@@ -181,18 +181,33 @@ func (t *TelegramAPI) Status(w http.ResponseWriter, r *http.Request) {
 // dropped with 200 so Telegram doesn't retry.
 func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 	if !t.authWebhook(r, t.managerSecret) {
+		slog.Warn("telegram manager webhook: auth rejected")
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
+	// Read the body once so we can log the raw payload. The managed_bot update
+	// schema (Bot API 9.6, 2026-04) is newer than our struct — logging the raw
+	// bytes is the only way to confirm the field names Telegram actually sends
+	// when a bind silently no-ops. The manager bot is operator-only (no user
+	// chat content); the payload carries bot_id + bot_username, never a token.
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
+	if err != nil {
+		slog.Error("telegram manager webhook: read body", "error", err)
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
 	var upd tgclient.Update
-	if err := json.NewDecoder(r.Body).Decode(&upd); err != nil {
+	if err := json.Unmarshal(body, &upd); err != nil {
+		slog.Warn("telegram manager webhook: decode failed", "error", err, "body", string(body))
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
 	if upd.ManagedBot == nil {
+		slog.Info("telegram manager webhook: update without managed_bot", "update_id", upd.UpdateID, "body", string(body))
 		w.WriteHeader(http.StatusOK)
 		return
 	}
+	slog.Info("telegram manager webhook: managed_bot update", "bot_id", upd.ManagedBot.BotID, "bot_username", upd.ManagedBot.BotUsername)
 	mb := upd.ManagedBot
 	now := time.Now()
 	// Peek (don't consume) the pending row: the pending row is the only retry
