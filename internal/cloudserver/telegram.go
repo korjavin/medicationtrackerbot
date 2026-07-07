@@ -85,6 +85,7 @@ func (t *TelegramAPI) Bootstrap(ctx context.Context) error {
 func (t *TelegramAPI) RegisterAPIRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/telegram/provision", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Provision)))
 	mux.Handle("GET /api/telegram/status", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Status)))
+	mux.Handle("GET /api/telegram/diag", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Diag)))
 	mux.Handle("POST /api/telegram/byo", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.BYO)))
 	mux.Handle("POST /api/telegram/skip", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Skip)))
 	mux.Handle("POST /api/telegram/test", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Test)))
@@ -171,6 +172,53 @@ func (t *TelegramAPI) Status(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// Diag returns Telegram's getWebhookInfo for the account's linked child bot so
+// we can tell, when /start produces no ChildWebhook activity, whether Telegram
+// even has our webhook URL (managed bots may not honor an independent
+// setWebhook) or is delivering to it and getting rejected (last_error 401/403).
+// Also echoes the URL we *expect* Telegram to hold, for a direct compare. The
+// caller owns this account, so exposing its own webhook secret is fine.
+func (t *TelegramAPI) Diag(w http.ResponseWriter, r *http.Request) {
+	sess, ok := SessionFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	bot, err := t.store.BotByAccount(r.Context(), sess.AccountID)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeJSON(w, http.StatusOK, map[string]any{"linked": false, "note": "no bot provisioned for this account"})
+		return
+	}
+	if err != nil {
+		slog.Error("telegram diag: load bot", "error", err, "account", sess.AccountID)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	client, err := t.botClient(bot)
+	if err != nil {
+		slog.Error("telegram diag: open token", "error", err, "account", sess.AccountID)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	info, err := client.GetWebhookInfo(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"bot_username":         bot.BotUsername,
+			"kind":                 bot.Kind,
+			"getWebhookInfo_error": err.Error(),
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"bot_username": bot.BotUsername,
+		"bot_id":       bot.BotID,
+		"kind":         bot.Kind,
+		"chat_linked":  bot.ChatID != nil,
+		"expected_url": t.childWebhookURL(sess.AccountID, bot.WebhookSecret),
+		"webhook_info": info,
+	})
 }
 
 // ManagerWebhook receives the manager bot's updates. It authenticates the

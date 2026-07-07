@@ -160,6 +160,27 @@ func (c *Client) DeleteWebhook(ctx context.Context) error {
 	return c.call(ctx, "deleteWebhook", nil, nil)
 }
 
+// WebhookInfo is the subset of getWebhookInfo we surface for diagnosing why a
+// bot isn't receiving updates: whether Telegram has our URL at all, how many
+// updates are stuck, and the last delivery error (a 401/403 here means our
+// webhook handler is rejecting Telegram's requests).
+type WebhookInfo struct {
+	URL                  string   `json:"url"`
+	HasCustomCertificate bool     `json:"has_custom_certificate"`
+	PendingUpdateCount   int      `json:"pending_update_count"`
+	IPAddress            string   `json:"ip_address"`
+	LastErrorDate        int64    `json:"last_error_date"`
+	LastErrorMessage     string   `json:"last_error_message"`
+	AllowedUpdates       []string `json:"allowed_updates"`
+}
+
+// GetWebhookInfo returns Telegram's view of the bot's webhook registration.
+func (c *Client) GetWebhookInfo(ctx context.Context) (WebhookInfo, error) {
+	var info WebhookInfo
+	err := c.call(ctx, "getWebhookInfo", nil, &info)
+	return info, err
+}
+
 // SendMessage sends a plain-text message to chatID.
 func (c *Client) SendMessage(ctx context.Context, chatID int64, text string) error {
 	return c.call(ctx, "sendMessage", map[string]any{
