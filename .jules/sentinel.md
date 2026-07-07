@@ -22,3 +22,7 @@
 **Vulnerability:** Use of default `http.Client{}` without timeouts in external API calls (e.g., OIDC userinfo, OpenFoodFacts).
 **Learning:** Default HTTP clients in Go have no timeout, meaning a slow or unresponsive external server can cause goroutines to hang indefinitely, leading to resource exhaustion (DoS).
 **Prevention:** Always initialize `http.Client` with explicit timeouts (e.g., `&http.Client{Timeout: 10 * time.Second}`) when making external requests.
+## 2026-07-07 - False Positive CPE Match in Trivy
+**Vulnerability:** CVE-2026-2303 reported against telegraf.
+**Learning:** Trivy can sometimes misidentify dependencies due to CPE string matching. In this case, `telegram-bot-api` triggered a false positive finding for the unrelated `telegraf` project.
+**Prevention:** Use a `.trivyignore` file explicitly referenced in the CI workflow (`trivyignores: .trivyignore`) to document and bypass known false positives, keeping the security scan actionable and reducing alert fatigue.
