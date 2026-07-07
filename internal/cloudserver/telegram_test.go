@@ -18,6 +18,21 @@ func fakeTG(t *testing.T, responses map[string]string) *httptest.Server {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")
 		method := parts[len(parts)-1]
+		// Mirror the real API: getManagedBotToken rejects a call that omits a
+		// non-zero user_id ("400: invalid user_id specified"). Guards that the
+		// manager webhook actually threads the creator's user id through.
+		if method == "getManagedBotToken" {
+			var req struct {
+				UserID int64 `json:"user_id"`
+			}
+			body, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(body, &req)
+			if req.UserID == 0 {
+				w.Header().Set("Content-Type", "application/json")
+				io.WriteString(w, `{"ok":false,"error_code":400,"description":"Bad Request: invalid user_id specified"}`)
+				return
+			}
+		}
 		env, ok := responses[method]
 		if !ok {
 			env = `{"ok":true,"result":{}}`
@@ -85,7 +100,7 @@ func TestTelegramProvisioningStateMachine(t *testing.T) {
 
 	// managed_bot webhook with the matching suggested username → bot created
 	managerSecret := deriveWebhookSecret(tgTestSecret, "mt/tg-manager-webhook/v1")
-	update := `{"update_id":1,"message":{"message_id":1,"chat":{"id":100,"type":"private"},"managed_bot_created":{"bot":{"id":909,"username":"` + prov.Suggested + `"}}}}`
+	update := `{"update_id":1,"message":{"message_id":1,"from":{"id":6918132008},"chat":{"id":100,"type":"private"},"managed_bot_created":{"bot":{"id":909,"username":"` + prov.Suggested + `"}}}}`
 	whRec := postWebhook(t, top, "/tg/manager/"+managerSecret, managerSecret, update)
 	if whRec.Code != http.StatusOK {
 		t.Fatalf("manager webhook status = %d, body %q", whRec.Code, whRec.Body.String())
@@ -118,7 +133,7 @@ func TestTelegramProvisioningStateMachine(t *testing.T) {
 	if provRec2 := doReq(t, top, http.MethodPost, "http://"+host2+"/api/telegram/provision", host2, session2, nil); provRec2.Code != http.StatusOK {
 		t.Fatalf("provision 2 status = %d", provRec2.Code)
 	}
-	edited := `{"update_id":2,"message":{"message_id":2,"chat":{"id":100,"type":"private"},"managed_bot_created":{"bot":{"id":42,"username":"mt_edited_by_user_bot"}}}}`
+	edited := `{"update_id":2,"message":{"message_id":2,"from":{"id":6918132008},"chat":{"id":100,"type":"private"},"managed_bot_created":{"bot":{"id":42,"username":"mt_edited_by_user_bot"}}}}`
 	if whRec2 := postWebhook(t, top, "/tg/manager/"+managerSecret, managerSecret, edited); whRec2.Code != http.StatusOK {
 		t.Fatalf("edited-username webhook status = %d (must drop with 200)", whRec2.Code)
 	}
@@ -208,7 +223,7 @@ func TestTelegramLinkingAndBYO(t *testing.T) {
 	}
 	json.Unmarshal(provRec.Body.Bytes(), &prov)
 	managerSecret := deriveWebhookSecret(tgTestSecret, "mt/tg-manager-webhook/v1")
-	update := `{"update_id":1,"message":{"message_id":1,"chat":{"id":100,"type":"private"},"managed_bot_created":{"bot":{"id":909,"username":"` + prov.Suggested + `"}}}}`
+	update := `{"update_id":1,"message":{"message_id":1,"from":{"id":6918132008},"chat":{"id":100,"type":"private"},"managed_bot_created":{"bot":{"id":909,"username":"` + prov.Suggested + `"}}}}`
 	if whRec := postWebhook(t, top, "/tg/manager/"+managerSecret, managerSecret, update); whRec.Code != http.StatusOK {
 		t.Fatalf("manager webhook status = %d", whRec.Code)
 	}
