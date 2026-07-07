@@ -437,7 +437,11 @@ func (s *Server) exportVitals(ctx context.Context, userID int64, data *VaultData
 			StartTime:      sl.StartTime,
 			EndTime:        sl.EndTime,
 			TimezoneOffset: sl.TimezoneOffset,
-			Day:            sl.Day,
+			// sleep_logs.day is a DATE-affinity column, so modernc returns it as
+			// an RFC3339 timestamp ("2026-07-08T00:00:00Z"); the canonical format
+			// (and the cloud record body) use a plain YYYY-MM-DD date. Trim to the
+			// date so bot and cloud exports agree.
+			Day: dateOnly(sl.Day),
 			LightMinutes:   sl.LightMinutes,
 			DeepMinutes:    sl.DeepMinutes,
 			REMMinutes:     sl.REMMinutes,
@@ -665,4 +669,12 @@ func derefTime(t *time.Time) time.Time {
 		return *t
 	}
 	return time.Time{}
+}
+
+// dateOnly trims a possibly-timestamped day string to its YYYY-MM-DD prefix.
+func dateOnly(day string) string {
+	if len(day) >= 10 {
+		return day[:10]
+	}
+	return day
 }

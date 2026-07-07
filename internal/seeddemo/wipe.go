@@ -2,6 +2,7 @@ package seeddemo
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store"
@@ -27,6 +28,24 @@ func WipeUser(ctx context.Context, s *store.Store, userID int64) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if err := WipeUserTx(ctx, tx, userID); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit wipe: %w", err)
+	}
+	return nil
+}
+
+// WipeUserTx runs the same per-user delete set as WipeUser inside a caller-
+// supplied transaction, so a wipe-then-insert flow (bot-mode vault import) is
+// one atomic unit. It does NOT commit — the caller owns the transaction.
+func WipeUserTx(ctx context.Context, tx *sql.Tx, userID int64) error {
+	if userID == 0 {
+		return fmt.Errorf("seeddemo: WipeUserTx requires a non-zero user_id")
+	}
+
 	// intake_reminders has FK to intake_log with ON DELETE CASCADE, but FK
 	// enforcement is off in modernc/sqlite — clear it explicitly before
 	// intake_log so the wipe doesn't leave dangling rows. Same pattern for
@@ -46,6 +65,7 @@ func WipeUser(ctx context.Context, s *store.Store, userID int64) error {
 		"intake_log",
 		"blood_pressure_readings",
 		"weight_logs",
+		"weight_goals",
 		"sleep_logs",
 		"food_log",
 		"food_products",
@@ -123,8 +143,5 @@ func WipeUser(ctx context.Context, s *store.Store, userID int64) error {
 		return fmt.Errorf("reset food targets: %w", err)
 	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit wipe: %w", err)
-	}
 	return nil
 }

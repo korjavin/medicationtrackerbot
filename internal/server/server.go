@@ -841,6 +841,7 @@ func (s *Server) Routes() http.Handler {
 
 	// Full-vault export/import (C2e) — canonical one-user-all-domains JSON.
 	apiMux.HandleFunc("GET /api/export", s.handleVaultExport)
+	apiMux.HandleFunc("POST /api/import", s.handleVaultImport)
 
 	// Weight endpoints
 	apiMux.HandleFunc("POST /api/weight", s.handleCreateWeight)

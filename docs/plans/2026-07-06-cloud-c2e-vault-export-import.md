@@ -65,11 +65,11 @@ Locked decisions (user-confirmed 2026-07-06):
 
 ### Task 3: Bot-mode `POST /api/import` (replace semantics)
 
-- [ ] `internal/server/vault_import.go`: parse + validate version/format, then transactionally `seeddemo.WipeUser` → insert every domain via store methods (bulk methods where they exist: `ImportReadings`, `ImportMiBand`, `ImportSleepLogs`, `ImportDayStats`, `ImportVitals`; per-row creates elsewhere), preserving numeric ids where they are FK glue (medications, workout entities, notes) via explicit-id inserts.
-- [ ] Reject with 400 + structured error list on unknown version or per-record validation failure; import is all-or-nothing (single transaction / wipe only after parse+validate passes).
-- [ ] Register `POST /api/import` + exemption entry.
-- [ ] Confirmation is the UI's job (Task 6 shows a destructive-action confirm); the endpoint itself requires body flag `"mode": "replace"` to be explicit.
-- [ ] Test: Go round-trip — seed via `internal/seeddemo`, export, wipe, import, re-export, deep-equal. Plus: import of `vault-v1.json` into a fresh DB then export equals the fixture.
+- [x] `internal/server/vault_import.go`: parse + validate version/format, then transactionally `seeddemo.WipeUser` → insert every domain, preserving numeric ids where they are FK glue (medications, food products, workout entities) via explicit-id inserts. ⚠️ Deviations: (a) uses **raw INSERTs in one tx**, not the bulk store methods (`ImportReadings` etc.) — the round-trip contract needs exact-field + explicit-ID fidelity that auto-ID / default-stamping Create methods can't give, and raw SQL mirrors the export's own raw reads; (b) factored `seeddemo.WipeUserTx(ctx, tx, userID)` out of `WipeUser` so wipe+insert is one atomic transaction (true all-or-nothing); (c) added `weight_goals` to the wipe set — it was missing from `WipeUser` (append-only goal history would otherwise survive a replace); (d) fixed a bot-export bug where `sleep_logs.day` (a DATE-affinity column) round-trips as an RFC3339 timestamp — `exportVitals` now trims it to `YYYY-MM-DD` so bot == cloud == fixture.
+- [x] Reject with 400 + structured error list (`{"ok":false,"errors":[...]}`) on unknown format/version/mode; import is all-or-nothing (single transaction; wipe only inside the tx after parse+validate passes, so a rejected import never touches the DB).
+- [x] Register `POST /api/import` + `mcpCoverageExempt` entry.
+- [x] Confirmation is the UI's job (Task 6 shows a destructive-action confirm); the endpoint itself requires body flag `"mode": "replace"` to be explicit.
+- [x] Test: `vault_import_test.go` — `TestVaultImportRoundTrip` imports `vault-v1.json` into a fresh migrated DB then exports and asserts identity with the fixture modulo the documented normalizations (`exported_at`, list ordering, cloud-only `med_reminder_pref`), `TestVaultImportValidation` pins the four 400 cases + proves a rejected import doesn't wipe, and `TestVaultImportReplaceHandler` drives the full HTTP path with `mode:replace`.
 
 ### Task 4: Vendor typage + backup crypto wrapper
 
