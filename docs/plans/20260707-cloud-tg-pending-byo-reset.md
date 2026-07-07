@@ -61,8 +61,8 @@ Fix bd med-eas.32 (P1 bug). In cloud mode, after a user provisions a managed chi
 - [x] run `go vet ./...` and `golangci-lint run` — fix all issues (vet clean; golangci-lint 0 issues after `cache clean` — initial run only reported stale-cache ghosts from a deleted sibling worktree)
 
 ### Task 6: [Final] Update documentation
-- [ ] document `POST /api/telegram/reset` in `docs/api.md` (cloud-only section, next to the other `/api/telegram/*` routes)
-- [ ] add a short note to `docs/cloud-mode.md` (Telegram linking) that the pending page always exposes BYO + Start-over so a lost `managed_bot_created` update never strands the account
+- [x] document `POST /api/telegram/reset` in `docs/api.md` (cloud-only section, next to the other `/api/telegram/*` routes — no cloud section existed, so added a "Cloud Mode Telegram" table covering all `/api/telegram/*` routes)
+- [x] add a short note to `docs/cloud-mode.md` (Telegram linking) that the pending page always exposes BYO + Start-over so a lost `managed_bot_created` update never strands the account
 
 ## Technical Details
 - New store method: `DELETE FROM tg_pending WHERE account_id = ?`, idempotent.
