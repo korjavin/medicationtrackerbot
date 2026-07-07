@@ -318,6 +318,31 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
         expect(window.safeAlert).not.toHaveBeenCalledWith(expect.stringMatching(/trial limit/i));
     });
 
+    it('reverse-proxy 503 (non-JSON body): generic friendly message, not the no-key error', async () => {
+        allowConsoleNoise();
+        const { window, document } = env;
+        enableTrialAI(env);
+
+        // Traefik emits its own 503 while the backend restarts — must not
+        // read as "add your own key".
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+            ok: false,
+            status: 503,
+            async text() { return '503 Service Unavailable'; }
+        }));
+
+        document.getElementById('food-id').value = '';
+        document.getElementById('food-parse-ai').checked = true;
+        document.getElementById('food-datetime').value = todayAt('09:00');
+        document.getElementById('food-name').value = 'a banana';
+
+        await window.saveFoodLog();
+        await flushPromises();
+
+        expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/trial ai request failed/i));
+        expect(window.safeAlert).not.toHaveBeenCalledWith(expect.stringMatching(/add an openai key/i));
+    });
+
     it('trial 502: sanitized upstream error surfaces a friendly message, not raw JSON', async () => {
         allowConsoleNoise();
         const { window, document } = env;

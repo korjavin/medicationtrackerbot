@@ -773,7 +773,7 @@ describe('features/elevenlabs-call.js — trial-voice fallback precedence (cloud
     // Wire a cloud env around fetchSignedURL(): vault-key presence via
     // CloudElevenLabs.hasKey, trial availability via the injected meta flag,
     // and the trial proxy route via a fetch stub.
-    function cloudEnv({ hasKey, trialFlag, trialStatus = 200 } = {}) {
+    function cloudEnv({ hasKey, trialFlag, trialStatus = 200, trialBody } = {}) {
         const env = createEnv();
         const { window } = env;
         window.__MEDTRACKER_CLOUD__ = true;
@@ -783,12 +783,22 @@ describe('features/elevenlabs-call.js — trial-voice fallback precedence (cloud
             meta.setAttribute('content', '1');
             window.document.head.appendChild(meta);
         }
+        // Default bodies mirror the trial proxy's error contract; pass
+        // trialBody explicitly to simulate a reverse-proxy error (non-JSON).
+        if (trialBody === undefined) {
+            if (trialStatus === 429) trialBody = { error: 'trial_rate_limit', retry_after_seconds: 60 };
+            else if (trialStatus === 503) trialBody = { error: 'trial_not_configured' };
+            else trialBody = { signed_url: 'wss://trial.example/signed' };
+        }
         const trialFetch = vi.fn(async (url) => {
             if (typeof url === 'string' && url.startsWith('/api/trial/elevenlabs/signed-url')) {
                 return {
                     ok: trialStatus >= 200 && trialStatus < 300,
                     status: trialStatus,
-                    async json() { return { signed_url: 'wss://trial.example/signed' }; },
+                    async json() {
+                        if (typeof trialBody === 'string') throw new SyntaxError('not JSON');
+                        return trialBody;
+                    },
                 };
             }
             throw new Error(`Unexpected fetch: ${url}`);
@@ -860,6 +870,26 @@ describe('features/elevenlabs-call.js — trial-voice fallback precedence (cloud
         try {
             await expect(window.WGCallAgent.fetchSignedURL())
                 .rejects.toThrow('Set your ElevenLabs API key in Settings → Integrations');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('reverse-proxy 503 (non-JSON body) → generic error, not the set-your-key message', async () => {
+        const { window, cleanup } = cloudEnv({ hasKey: false, trialFlag: true, trialStatus: 503, trialBody: '503 Service Unavailable' });
+        try {
+            await expect(window.WGCallAgent.fetchSignedURL())
+                .rejects.toThrow('Failed to get signed URL (503)');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('reverse-proxy 429 (non-JSON body) → generic error, not the trial-limit message', async () => {
+        const { window, cleanup } = cloudEnv({ hasKey: false, trialFlag: true, trialStatus: 429, trialBody: '429 Too Many Requests' });
+        try {
+            await expect(window.WGCallAgent.fetchSignedURL())
+                .rejects.toThrow('Failed to get signed URL (429)');
         } finally {
             cleanup();
         }

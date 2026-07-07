@@ -42,21 +42,29 @@
 
     async function fetchTrialSignedURL() {
         const resp = await fetch('/api/trial/elevenlabs/signed-url', { method: 'GET' });
-        if (resp.status === 429) {
+        if (resp.ok) {
+            const data = await resp.json();
+            if (!data || !data.signed_url) throw new Error('Response missing signed_url');
+            return data.signed_url;
+        }
+        // Map errors by the trial proxy's machine-readable body, not status
+        // code — behind Traefik a 503/429 can come from the reverse proxy
+        // itself (backend restarting, proxy throttle) and must not degrade
+        // to the misleading "set your key" message.
+        let code = '';
+        try {
+            code = (await resp.json())?.error || '';
+        } catch { /* non-JSON body — reverse-proxy error page */ }
+        if (code === 'trial_rate_limit') {
             throw new Error('Trial limit reached — try again in a minute or add your own ElevenLabs key in Settings → Integrations.');
         }
-        if (resp.status === 503) {
+        if (code === 'trial_not_configured') {
             // Flag/route mismatch — degrade to the plain BYO message.
             throw new Error('Set your ElevenLabs API key in Settings → Integrations');
         }
-        if (!resp.ok) {
-            const err = new Error(`Failed to get signed URL (${resp.status})`);
-            err.status = resp.status;
-            throw err;
-        }
-        const data = await resp.json();
-        if (!data || !data.signed_url) throw new Error('Response missing signed_url');
-        return data.signed_url;
+        const err = new Error(`Failed to get signed URL (${resp.status})`);
+        err.status = resp.status;
+        throw err;
     }
 
     async function fetchSignedURL() {

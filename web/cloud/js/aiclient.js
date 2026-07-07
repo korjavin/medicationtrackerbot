@@ -75,6 +75,7 @@ async function postChatCompletion(endpoint, apiKey, body) {
     const err = new Error(extractErrorMessage(text) || `API returned status code ${res.status}`);
     err.apiError = true;
     err.status = res.status;
+    err.body = text;
     throw err;
   }
 
@@ -108,22 +109,37 @@ async function fileToDataURL(file) {
   });
 }
 
+// trialErrorCode extracts the trial proxy's machine-readable error code
+// ({"error":"trial_not_configured"} etc.) from a failed response body.
+// Returns '' for non-JSON bodies (e.g. a reverse-proxy error page).
+function trialErrorCode(bodyText) {
+  try {
+    const obj = JSON.parse(bodyText);
+    return typeof obj?.error === 'string' ? obj.error : '';
+  } catch {
+    return '';
+  }
+}
+
 // Trial proxy path: strip model (server forces the operator's model, the
 // client must not choose it), rely on the same-origin session cookie instead
-// of Authorization, and map the proxy's error contract onto client errors —
-// 503 is exclusively trial_not_configured (degrades to the plain no-key
-// error), 429 is exclusively our rate limiter, and anything else with a
-// status is the server's sanitized {"error":"upstream_error"} body, which
-// would read as raw JSON in an alert — replace it with a friendly message.
-// That sanitizing also means isResponseFormatRejection never matches here
-// (no fenced retry on trial).
+// of Authorization, and map the proxy's error contract onto client errors by
+// the machine-readable body, not status code — behind Traefik a 503/429 can
+// come from the reverse proxy itself (backend restarting, proxy throttle),
+// and those must not degrade to the misleading "add your own key" message.
+// trial_not_configured degrades to the plain no-key error, trial_rate_limit
+// becomes the trial-limit error, and anything else with a status (including
+// the server's sanitized {"error":"upstream_error"}) gets a friendly retry
+// message instead of raw JSON in an alert. That sanitizing also means
+// isResponseFormatRejection never matches here (no fenced retry on trial).
 async function postTrialChatCompletion(vision, body) {
   const { model: _serverForced, ...rest } = body;
   try {
     return await postChatCompletion(`/api/trial/openai/chat/completions${vision ? '?vision=1' : ''}`, '', rest);
   } catch (err) {
-    if (err.status === 503) throw noKeyError();
-    if (err.status === 429) throw trialLimitError();
+    const code = trialErrorCode(err.body);
+    if (code === 'trial_not_configured') throw noKeyError();
+    if (code === 'trial_rate_limit') throw trialLimitError();
     if (err.status) {
       const friendly = new Error('Trial AI request failed — try again or add your own OpenAI key in Settings → Integrations.');
       friendly.status = err.status;
