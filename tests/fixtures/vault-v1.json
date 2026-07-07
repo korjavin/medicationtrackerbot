@@ -1,0 +1,18 @@
+{
+  "format": "medtracker-vault",
+  "version": 1,
+  "exported_at": "2026-07-07T12:00:00Z",
+  "data": {
+    "medications": {
+      "medications": [
+        {
+          "id": 1,
+          "name": "Aspirin",
+          "dosage": "100mg",
+          "schedule": "08:00",
+          "tz_shift_policy": "flexible"
+        }
+      ]
+    }
+  }
+}

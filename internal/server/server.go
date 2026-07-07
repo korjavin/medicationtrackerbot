@@ -48,6 +48,7 @@ type WorkoutInteractor interface {
 }
 
 type Server struct {
+	store               *store.Store
 	meds                MedicationStore
 	medSvc              domain.MedicationService
 	bp                  BloodPressureStore
@@ -309,6 +310,7 @@ func New(s *store.Store, gamSvc gamificationsvc.GamificationService, botToken, s
 	changeStreamMaxConn := parseIntEnv("CHANGES_STREAM_MAX_CONN", 40)
 
 	srv := &Server{
+		store: s,
 		meds:            s.Medication,
 		medSvc:          domain.NewMedicationService(s.Medication),
 		bp:              s.BP,
@@ -971,6 +973,9 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("GET /api/gamification/insights", s.handleGamificationInsights)
 	apiMux.HandleFunc("GET /api/gamification/gauges", s.handleGamificationGauges)
 	apiMux.HandleFunc("GET /api/gamification/weekly-review", s.handleGamificationWeeklyReview)
+
+	apiMux.HandleFunc("POST /api/import", s.handleImportVault)
+	apiMux.HandleFunc("GET /api/export", s.handleExportVault)
 
 	// Wrap apiMux with the broker-notify middleware so every successful
 	// non-GET write wakes up SSE subscribers. Bridge calls share this wrapped
