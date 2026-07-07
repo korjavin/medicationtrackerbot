@@ -89,6 +89,15 @@ All routes gate on the `gamification_enabled` flag in the service layer: when of
 | GET/POST | `/auth/telegram/callback` | Telegram Login Widget auth (GET: redirect flow, 302; POST: JSON callback) |
 | GET | `/api/elevenlabs/signed-url` | Returns a signed conversation URL for the ElevenLabs convai widget on the Today screen. Requires `ELEVENLABS_API_KEY` + `ELEVENLABS_AGENT_ID`; 503 if either is unset. |
 
+## Cloud Trial Proxy (cloud-only, `cmd/cloud`)
+
+Served only by the cloud service on the account subdomain; not present in the bot/server or mobile builds. Both routes require an authenticated account session and share one per-account rate limit (`TRIAL_RATE_PER_MIN`, default 10/min) — on limit: `429 {"error":"trial_rate_limit","retry_after_seconds":60}` + `Retry-After`. When the corresponding `TRIAL_*` envs are unset: `503 {"error":"trial_not_configured"}` and the client degrades to pure BYO. See [cloud-mode.md → Trial provider keys](cloud-mode.md#trial-provider-keys-pooled-metered).
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/trial/openai/chat/completions` | Proxies an OpenAI-compatible chat request to the operator's trial provider. `model` is forced server-side to the trial model; `?vision=1` selects the vision triple; `"stream":true` rejected with 400; body capped at 12 MiB. Upstream non-200 bodies are sanitized to `{"error":"upstream_error"}`. |
+| GET | `/api/trial/elevenlabs/signed-url` | Server-mints a signed conversation URL for the operator's shared trial ElevenLabs agent; returns `{"signed_url": ...}`. Cloud analogue of `/api/elevenlabs/signed-url`. |
+
 ## MCP Bridge
 
 These endpoints are called only by the MCP server process (`cmd/mcptool`) over the internal Docker network. Each request must carry an HMAC-SHA256 signature in `X-Signature` (hex-encoded) derived from `MCP_AUDIT_SECRET` over the raw request body. The MCP read tools query SQLite directly, but write tools route through these endpoints so the bot's domain services own all mutating writes (audit fan-out, validation, attribution).

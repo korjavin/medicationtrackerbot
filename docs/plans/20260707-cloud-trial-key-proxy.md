@@ -90,8 +90,8 @@
 - [x] run linter — `golangci-lint run`: 0 issues
 
 ### Task 10: [Final] Update documentation
-- [ ] confirm `docs/environment.md`, `docs/cloud-mode.md` cover the trial envs, proxy routes, rate limit, and precedence chain
-- [ ] update `docs/api.md` with the two new routes (marked cloud-only)
+- [x] confirm `docs/environment.md`, `docs/cloud-mode.md` cover the trial envs, proxy routes, rate limit, and precedence chain (environment.md TRIAL_* block + cloud-mode.md "Trial provider keys" implementation paragraph, added in Task 1 — verified present)
+- [x] update `docs/api.md` with the two new routes (marked cloud-only) — new "Cloud Trial Proxy" section
 
 ## Technical Details
 - **Routes** (all under the account subdomain, account resolved by `router.go` host routing; handlers 401 when `AccountFromContext` is nil):
