@@ -142,6 +142,14 @@ func (a *TrialProxyAPI) ChatCompletions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// cmd/cloud's http.Server deadlines (15s read / 45s write) would kill the
+	// slow vision path before the 90s upstream timeout — extend both for this
+	// route. Best effort: unsupported writers (tests) just keep the defaults.
+	rc := http.NewResponseController(w)
+	deadline := time.Now().Add(trialUpstreamTimout + 15*time.Second)
+	_ = rc.SetReadDeadline(deadline)
+	_ = rc.SetWriteDeadline(deadline)
+
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxTrialBodyBytes+1))
 	if err != nil {
 		http.Error(w, "failed to read body", http.StatusBadRequest)
