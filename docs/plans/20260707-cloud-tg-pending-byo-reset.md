@@ -31,8 +31,8 @@ Fix bd med-eas.32 (P1 bug). In cloud mode, after a user provisions a managed chi
 ## Implementation Steps
 
 ### Task 1: Add DeletePendingByAccount store method
-- [ ] in `internal/cloudstore/tg.go`, add `func (r *Repo) DeletePendingByAccount(ctx context.Context, accountID string) error` running `DELETE FROM tg_pending WHERE account_id = ?` (idempotent — deleting zero rows is success, not an error)
-- [ ] place it next to the other pending helpers (`ConsumePendingByUsername` / `PendingUsernameByAccount`) and match their error-wrapping style
+- [x] in `internal/cloudstore/tg.go`, add `func (r *Repo) DeletePendingByAccount(ctx context.Context, accountID string) error` running `DELETE FROM tg_pending WHERE account_id = ?` (idempotent — deleting zero rows is success, not an error)
+- [x] place it next to the other pending helpers (`ConsumePendingByUsername` / `PendingUsernameByAccount`) and match their error-wrapping style
 
 ### Task 2: Add POST /api/telegram/reset handler
 - [ ] in `internal/cloudserver/telegram.go`, add `func (t *TelegramAPI) Reset(w http.ResponseWriter, r *http.Request)`: require session (mirror the `SessionFromContext` guard used by sibling handlers), call `t.store.DeletePendingByAccount(ctx, sess.AccountID)`, on error `slog.Error` + 500, on success `writeJSON(w, http.StatusOK, map[string]bool{"reset": true})`

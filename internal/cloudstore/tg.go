@@ -81,6 +81,14 @@ func (r *Repo) PendingAccountByUsername(ctx context.Context, suggestedUsername s
 	return accountID, err
 }
 
+// DeletePendingByAccount clears an account's pending managed-bot provisioning
+// row (the "start over" path from the pending page). Idempotent — deleting
+// zero rows is success.
+func (r *Repo) DeletePendingByAccount(ctx context.Context, accountID string) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM tg_pending WHERE account_id = ?`, accountID)
+	return err
+}
+
 // PendingUsernameByAccount returns the suggested username of the account's live
 // provisioning row (empty string if none), so the status endpoint can rebuild
 // the create-bot deep link — the pending page must keep showing that link,
