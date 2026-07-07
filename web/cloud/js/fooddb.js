@@ -76,34 +76,44 @@ export function createFoodDbClient({ settingsDomain }) {
   async function baseURL() {
     const { food } = await settingsDomain.readIntegrationsUnmasked();
     const configured = (food.url || '').trim();
-    if (configured) return { url: configured.replace(/\/$/, ''), apiKey: food.api_key };
+    if (configured) return { url: configured.replace(/\/$/, ''), apiKey: food.api_key, isOperatorDefault: false };
     // Mirror Go SearchRemoteAPI: fall back to the bare `domain` field (bare host
     // → https://) before the operator default. Still the user's own DB, so the
     // vault-held key is forwarded here (unlike the operator fallback below).
     const domain = (food.domain || '').trim();
     if (domain) {
       const withScheme = /^https?:\/\//.test(domain) ? domain : `https://${domain}`;
-      return { url: withScheme.replace(/\/$/, ''), apiKey: food.api_key };
+      return { url: withScheme.replace(/\/$/, ''), apiKey: food.api_key, isOperatorDefault: false };
     }
     const operatorDefault = operatorFoodDbURL();
     if (!operatorDefault) return null;
     // Falling back to the operator's default DB: never forward the user's
     // vault-held food-DB key to the operator (zero-knowledge break) — that key
     // was meant for the user's own provider, not the operator's host.
-    return { url: operatorDefault.replace(/\/$/, ''), apiKey: '' };
+    // Set isOperatorDefault to true so we route it through the proxy.
+    return { url: operatorDefault.replace(/\/$/, ''), apiKey: '', isOperatorDefault: true };
   }
 
   async function search(query) {
     const cfg = await baseURL();
     if (!cfg) return [];
 
+    let data;
     if (isBarcode(query)) {
-      const data = await fetchJson(`${cfg.url}/api/v1/food/barcode/${encodeURIComponent(query)}`, cfg.apiKey);
+      if (cfg.isOperatorDefault) {
+        data = await fetchJson(`/api/food/barcode/${encodeURIComponent(query)}`);
+      } else {
+        data = await fetchJson(`${cfg.url}/api/v1/food/barcode/${encodeURIComponent(query)}`, cfg.apiKey);
+      }
       if (!data || !data.name) return [];
       return [mapFastFoodProduct(data)];
     }
 
-    const data = await fetchJson(`${cfg.url}/api/v1/food/search?q=${encodeURIComponent(query)}&limit=20`, cfg.apiKey);
+    if (cfg.isOperatorDefault) {
+        data = await fetchJson(`/api/food/search?q=${encodeURIComponent(query)}&limit=20`);
+    } else {
+        data = await fetchJson(`${cfg.url}/api/v1/food/search?q=${encodeURIComponent(query)}&limit=20`, cfg.apiKey);
+    }
     const results = (data && data.results) || [];
     return results.filter((p) => p.name).map(mapFastFoodProduct);
   }
