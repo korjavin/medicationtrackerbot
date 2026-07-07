@@ -15,6 +15,18 @@
 
 const POLL_MS = 2500;
 
+// BYO fallback shared by the consent and create-bot pages. Static string —
+// no server-supplied values — so innerHTML interpolation is XSS-safe.
+const BYO_DETAILS_HTML = `
+        <details id="tg-advanced">
+          <summary>Advanced: use your own bot token</summary>
+          <p>Create a bot with <a href="https://t.me/BotFather" target="_blank"
+             rel="noopener">@BotFather</a> and paste its token:</p>
+          <input id="tg-byo-token" type="text" autocomplete="off"
+                 placeholder="123456:ABC-DEF..." />
+          <button id="tg-byo-submit">Link this bot</button>
+        </details>`;
+
 async function apiJSON(url, opts) {
   const res = await fetch(url, opts);
   if (!res.ok) {
@@ -132,15 +144,7 @@ export async function mountTelegram(container, opts = {}) {
         <div class="wizard-actions">
           <button id="tg-accept">Set up my bot</button>
           <button id="tg-skip" class="secondary">Skip</button>
-        </div>
-        <details id="tg-advanced">
-          <summary>Advanced: use your own bot token</summary>
-          <p>Create a bot with <a href="https://t.me/BotFather" target="_blank"
-             rel="noopener">@BotFather</a> and paste its token:</p>
-          <input id="tg-byo-token" type="text" autocomplete="off"
-                 placeholder="123456:ABC-DEF..." />
-          <button id="tg-byo-submit">Link this bot</button>
-        </details>
+        </div>${BYO_DETAILS_HTML}
       </section>`;
 
     container.querySelector('#tg-accept').addEventListener('click', () => {
@@ -163,6 +167,10 @@ export async function mountTelegram(container, opts = {}) {
     } else {
       container.querySelector('#tg-skip').remove();
     }
+    wireBYO();
+  }
+
+  function wireBYO() {
     container.querySelector('#tg-byo-submit').addEventListener('click', () => {
       submitBYO().catch(showError);
     });
@@ -190,36 +198,34 @@ export async function mountTelegram(container, opts = {}) {
         <a id="tg-deep-link" class="button" target="_blank" rel="noopener">Open Telegram to create the bot</a>
         <p class="muted">Waiting for the bot to be created…</p>
         <p class="muted">Didn't finish linking automatically? Paste the bot's
-           token below, or start over — no need to wait.</p>
-        <details id="tg-advanced">
-          <summary>Advanced: use your own bot token</summary>
-          <p>Create a bot with <a href="https://t.me/BotFather" target="_blank"
-             rel="noopener">@BotFather</a> and paste its token:</p>
-          <input id="tg-byo-token" type="text" autocomplete="off"
-                 placeholder="123456:ABC-DEF..." />
-          <button id="tg-byo-submit">Link this bot</button>
-        </details>
+           token below, or start over — no need to wait.</p>${BYO_DETAILS_HTML}
         <button id="tg-reset" class="secondary">Start over</button>
       </section>`;
     container.querySelector('#tg-suggested').textContent = suggested || '';
     if (deepLink) container.querySelector('#tg-deep-link').href = deepLink;
-    container.querySelector('#tg-byo-submit').addEventListener('click', () => {
-      submitBYO().catch(showError);
-    });
+    wireBYO();
     container.querySelector('#tg-reset').addEventListener('click', () => {
-      resetPending().catch(showError);
+      const btn = container.querySelector('#tg-reset');
+      btn.disabled = true;
+      resetPending().catch((err) => {
+        btn.disabled = false;
+        showError(err);
+      });
     });
     poll();
   }
 
   // resetPending clears the stuck pending row server-side and returns the user
   // to the consent screen — the escape hatch when the managed_bot_created
-  // webhook update was lost and the bind will never arrive.
+  // webhook update was lost and the bind will never arrive. Polling is left
+  // running until the POST succeeds so a failed reset keeps the page live;
+  // renderConsent() stops it.
   async function resetPending() {
-    stopPolling();
     await apiJSON('/api/telegram/reset', { method: 'POST' });
-    shown = null; // force repaint; sig for 'none' may equal a stale entry
-    render(await getStatus());
+    // A later provision() re-enters 'pending' with the same sig as the page we
+    // came from; null the dedupe so that render isn't swallowed.
+    shown = null;
+    renderConsent();
   }
 
   async function submitBYO() {
