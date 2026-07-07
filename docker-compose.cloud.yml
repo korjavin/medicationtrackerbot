@@ -24,6 +24,21 @@ services:
       - CLOUD_DRY_QUEUE_WARN_HOURS=${CLOUD_DRY_QUEUE_WARN_HOURS:-}
       - VAPID_SUBJECT=${VAPID_SUBJECT:-}
       - MANAGER_BOT_TOKEN=${MANAGER_BOT_TOKEN:-}
+      - CLOUD_FOOD_DB_URL=${CLOUD_FOOD_DB_URL:-}
+      - CLOUD_TG_API_BASE_URL=${CLOUD_TG_API_BASE_URL:-}
+      # Operator TRIAL provider keys (all optional; unset = pure BYO, trial
+      # proxy routes 503). Read by cmd/cloud/main.go via TrialConfigFromEnv.
+      # Voice needs BOTH TRIAL_ELEVENLABS_* set or the trial flag stays off.
+      # See docs/environment.md → Trial provider keys.
+      - TRIAL_OPENAI_API_KEY=${TRIAL_OPENAI_API_KEY:-}
+      - TRIAL_OPENAI_URL=${TRIAL_OPENAI_URL:-}
+      - TRIAL_OPENAI_MODEL=${TRIAL_OPENAI_MODEL:-}
+      - TRIAL_OPENAI_VISION_API_KEY=${TRIAL_OPENAI_VISION_API_KEY:-}
+      - TRIAL_OPENAI_VISION_URL=${TRIAL_OPENAI_VISION_URL:-}
+      - TRIAL_OPENAI_VISION_MODEL=${TRIAL_OPENAI_VISION_MODEL:-}
+      - TRIAL_ELEVENLABS_API_KEY=${TRIAL_ELEVENLABS_API_KEY:-}
+      - TRIAL_ELEVENLABS_AGENT_ID=${TRIAL_ELEVENLABS_AGENT_ID:-}
+      - TRIAL_RATE_PER_MIN=${TRIAL_RATE_PER_MIN:-}
     networks:
       - proxy
     labels:
