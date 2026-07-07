@@ -212,9 +212,6 @@ const ALLOWED_GLOBALS = new Set([
     'window.Geolocation',               // native/index.js — device geolocation abstraction (getCurrentPosition); web impl wraps navigator.geolocation, Capacitor impl wraps @capacitor/geolocation with a 1h in-memory last-known-position cache
     'window.Barcode',                   // native/index.js — barcode scanner abstraction (scan); web impl uses window.BarcodeDetector with a ZXing fallback, Capacitor impl wraps @capacitor-mlkit/barcode-scanning
     'window.Reminders',                 // native/index.js — local-notification reminders abstraction (schedule, cancelAll); web impl is a no-op (Web Push owns the browser path via push.js), Capacitor impl wraps @capacitor/local-notifications with replace-all semantics on every appResume
-
-    // Vendored code
-    'window.log',                       // vendor/elevenlabs-client.esm.js — ElevenLabs SDK assigns window.log internally
 ]);
 
 /**

@@ -145,6 +145,12 @@ func TestRouter_HostVariants(t *testing.T) {
 			if tc.wantBody != "" && rec.Body.String() != tc.wantBody {
 				t.Fatalf("body = %q, want %q", rec.Body.String(), tc.wantBody)
 			}
+
+			if tc.name == "known subdomain serves the real app at root" {
+				if cc := rec.Header().Get("Cache-Control"); cc != "no-cache, no-store, must-revalidate" {
+					t.Errorf("Cache-Control = %q, want no-cache, no-store, must-revalidate", cc)
+				}
+			}
 			// Every response on the E2EE origin must carry the hardening headers,
 			// including 404s (docs/cloud-crypto.md rates on-origin XSS catastrophic).
 			csp := rec.Header().Get("Content-Security-Policy")

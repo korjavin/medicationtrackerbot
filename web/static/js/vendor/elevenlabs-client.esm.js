@@ -7081,7 +7081,7 @@ function requireLoglevel() {
       var _log = typeof window !== undefinedType ? window.log : void 0;
       defaultLogger.noConflict = function() {
         if (typeof window !== undefinedType && window.log === defaultLogger) {
-          window.log = _log;
+
         }
         return defaultLogger;
       };
