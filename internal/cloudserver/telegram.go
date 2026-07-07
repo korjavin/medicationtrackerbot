@@ -339,6 +339,7 @@ func (t *TelegramAPI) ChildWebhook(w http.ResponseWriter, r *http.Request) {
 	ref := r.PathValue("ref")
 	bot, err := t.store.BotByWebhookRef(r.Context(), ref)
 	if errors.Is(err, sql.ErrNoRows) {
+		slog.Warn("telegram child webhook: unknown ref", "ref", ref)
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -348,11 +349,26 @@ func (t *TelegramAPI) ChildWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !t.authWebhook(r, bot.WebhookSecret) {
+		slog.Warn("telegram child webhook: auth rejected", "ref", ref)
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
+	// Log the raw body: getWebhookInfo shows Telegram delivering to this URL
+	// with no error and 0 pending, yet /start produces no bind — so the child
+	// update shape (Bot API 9.6 managed bot) likely differs from our struct and
+	// we're silently dropping it on the non-/start path. Same raw-body trace that
+	// cracked the managed_bot_created schema. Manager-only infra; no third-party
+	// PII beyond the account's own chat.
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
+	if err != nil {
+		slog.Error("telegram child webhook: read body", "error", err, "ref", ref)
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	slog.Info("telegram child webhook: update", "ref", ref, "body", string(body))
 	var upd tgclient.Update
-	if err := json.NewDecoder(r.Body).Decode(&upd); err != nil {
+	if err := json.Unmarshal(body, &upd); err != nil {
+		slog.Warn("telegram child webhook: decode failed", "error", err, "ref", ref, "body", string(body))
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
