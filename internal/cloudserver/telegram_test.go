@@ -285,6 +285,27 @@ func TestTelegramLinkingAndBYO(t *testing.T) {
 	if got := tgState(t, top, host, session); got != "none" {
 		t.Fatalf("status after delete = %q, want none", got)
 	}
+
+	// BYO from the pending page clears the leftover pending row — a later
+	// unlink must land on none, not resurrect the stale pending state.
+	if provRec2 := doReq(t, top, http.MethodPost, "http://"+host+"/api/telegram/provision", host, session, nil); provRec2.Code != http.StatusOK {
+		t.Fatalf("re-provision status = %d", provRec2.Code)
+	}
+	if got := tgState(t, top, host, session); got != "pending" {
+		t.Fatalf("status after re-provision = %q, want pending", got)
+	}
+	if byoOK := doReq(t, top, http.MethodPost, "http://"+host+"/api/telegram/byo", host, session, []byte(`{"token":"777:GOODTOKEN"}`)); byoOK.Code != http.StatusOK {
+		t.Fatalf("BYO from pending status = %d, body %q", byoOK.Code, byoOK.Body.String())
+	}
+	if got := tgState(t, top, host, session); got != "bot_created" {
+		t.Fatalf("status after BYO = %q, want bot_created", got)
+	}
+	if delRec2 := doReq(t, top, http.MethodDelete, "http://"+host+"/api/telegram", host, session, nil); delRec2.Code != http.StatusOK {
+		t.Fatalf("delete after BYO status = %d", delRec2.Code)
+	}
+	if got := tgState(t, top, host, session); got != "none" {
+		t.Fatalf("status after unlink of BYO bot = %q, want none (stale pending row resurrected)", got)
+	}
 }
 
 func tgState(t *testing.T, h http.Handler, host string, session *http.Cookie) string {

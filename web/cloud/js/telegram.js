@@ -74,8 +74,14 @@ export async function mountTelegram(container, opts = {}) {
         stopPolling();
         return;
       }
+      const myTimer = timer;
       try {
         const s = await getStatus();
+        // While this fetch was in flight another path (reset, unlink, a state
+        // transition) may have repainted and stopped/replaced polling; the
+        // response is stale — rendering it would repaint a dead page and
+        // restart the interval.
+        if (timer !== myTimer) return;
         render(s);
       } catch (e) {
         console.error('[telegram] status poll failed', e);

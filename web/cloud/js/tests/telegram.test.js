@@ -131,6 +131,48 @@ describe('telegram.js onboarding module', () => {
     expect(app.querySelector('#tg-deep-link')).toBeNull();
   });
 
+  it('a stale in-flight status poll cannot repaint the pending page after reset', async () => {
+    // Race: a poll tick's GET /status is in flight when Start-over completes.
+    // The stale response (still 'pending') must not repaint the create-bot
+    // page over the consent screen or restart the stopped interval.
+    vi.useFakeTimers();
+    let state = 'pending';
+    let releaseStale;
+    const stale = new Promise((r) => { releaseStale = r; });
+    let statusCalls = 0;
+    const pendingBody = { enabled: true, state: 'pending', suggested_username: 'mt_x_bot', deep_link: 'https://t.me/newbot/mt_manager/mt_x_bot' };
+    global.fetch = fetchStub({
+      '/api/telegram/status': () => {
+        statusCalls++;
+        if (statusCalls === 2) {
+          // first poll tick — hold it in flight across the reset
+          return stale.then(() => ({ ok: true, json: async () => pendingBody }));
+        }
+        return { ok: true, json: async () => ({ ...pendingBody, state }) };
+      },
+      'POST /api/telegram/reset': () => {
+        state = 'none';
+        return { ok: true, json: async () => ({ reset: true }) };
+      },
+    });
+    await mountTelegram(app, {});
+    expect(app.querySelector('#tg-deep-link')).not.toBeNull();
+
+    await vi.advanceTimersByTimeAsync(2500); // poll tick fires, status held in flight
+    app.querySelector('#tg-reset').dispatchEvent(new dom.window.Event('click'));
+    await vi.advanceTimersByTimeAsync(0); // flush reset POST + renderConsent
+    expect(app.querySelector('#tg-accept')).not.toBeNull();
+
+    releaseStale();
+    await vi.advanceTimersByTimeAsync(0); // stale response lands — must be dropped
+    expect(app.querySelector('#tg-accept')).not.toBeNull();
+    expect(app.querySelector('#tg-deep-link')).toBeNull();
+
+    const before = statusCalls;
+    await vi.advanceTimersByTimeAsync(5000); // interval must not have restarted
+    expect(statusCalls).toBe(before);
+  });
+
   it('accept -> provision lands on the deep-link create-bot page', async () => {
     const deepLink = 'https://t.me/newbot/mt_manager/mt_new_bot?name=Med+Tracker';
     global.fetch = fetchStub({

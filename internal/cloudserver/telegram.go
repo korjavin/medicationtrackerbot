@@ -452,6 +452,14 @@ func (t *TelegramAPI) BYO(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	// BYO is reachable from the pending page, so a leftover pending row may
+	// coexist with the bot row. Clear it: otherwise a later unlink resurrects
+	// the stale pending state, and a late-completed BotFather dialog would
+	// match the row and silently overwrite this bot. Non-fatal — the bot works
+	// either way.
+	if err := t.store.DeletePendingByAccount(r.Context(), sess.AccountID); err != nil {
+		slog.Error("telegram byo: delete pending", "error", err, "account", sess.AccountID)
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"bot_username": me.Username})
 }
 
