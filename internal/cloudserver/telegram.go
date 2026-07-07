@@ -232,6 +232,15 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 
 	token, err := t.manager.GetManagedBotToken(r.Context(), botID)
 	if err != nil {
+		if tgclient.IsClientError(err) {
+			// Permanent (bot deleted/deactivated, invalid) — drop with 200 so
+			// Telegram stops re-driving a dead event. Common for stale retries
+			// of bots the user deleted mid-setup. The pending row is left intact
+			// so a fresh create can still bind.
+			slog.Warn("telegram manager webhook: get managed token permanently failed, dropping", "error", err, "bot_id", botID)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		slog.Error("telegram manager webhook: get managed token", "error", err, "bot_id", botID)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return

@@ -96,7 +96,7 @@ func TestSetWebhookSecretToken(t *testing.T) {
 func TestGetManagedBotTokenSuccess(t *testing.T) {
 	f, srv := newFake(t)
 	defer srv.Close()
-	f.responses["getManagedBotToken"] = `{"ok":true,"result":{"token":"555:CHILD"}}`
+	f.responses["getManagedBotToken"] = `{"ok":true,"result":"555:CHILD"}`
 
 	c := New("123:ABC", srv.URL)
 	tok, err := c.GetManagedBotToken(context.Background(), 555)
