@@ -1,4 +1,4 @@
-// web/static/js/vendor/node_modules/@elevenlabs/client/dist/utils/errors.js
+// node_modules/@elevenlabs/client/dist/utils/errors.js
 async function extractApiErrorMessage(response) {
   try {
     const body = await response.json();
@@ -22,7 +22,7 @@ var SessionConnectionError = class extends Error {
   }
 };
 
-// web/static/js/vendor/node_modules/@elevenlabs/client/dist/BaseConversation.js
+// node_modules/@elevenlabs/client/dist/BaseConversation.js
 var HTTPS_API_ORIGIN = "https://api.elevenlabs.io";
 function isTextOnly(options) {
   const { textOnly: textOnlyOverride } = options.overrides?.conversation ?? {};
@@ -472,7 +472,7 @@ var BaseConversation = class {
   }
 };
 
-// web/static/js/vendor/node_modules/@elevenlabs/client/dist/utils/BaseConnection.js
+// node_modules/@elevenlabs/client/dist/utils/BaseConnection.js
 var BaseConnection = class {
   queue = [];
   disconnectionDetails = null;
@@ -541,21 +541,21 @@ function parseFormat(format) {
   };
 }
 
-// web/static/js/vendor/node_modules/@elevenlabs/client/dist/version.js
+// node_modules/@elevenlabs/client/dist/version.js
 var PACKAGE_VERSION = "1.7.0";
 
-// web/static/js/vendor/node_modules/@elevenlabs/client/dist/sourceInfo.js
+// node_modules/@elevenlabs/client/dist/sourceInfo.js
 var sourceInfo = Object.freeze({
   name: "js_sdk",
   version: PACKAGE_VERSION
 });
 
-// web/static/js/vendor/node_modules/@elevenlabs/client/dist/utils/events.js
+// node_modules/@elevenlabs/client/dist/utils/events.js
 function isValidSocketEvent(event) {
   return !!event.type;
 }
 
-// web/static/js/vendor/node_modules/@elevenlabs/client/dist/utils/overrides.js
+// node_modules/@elevenlabs/client/dist/utils/overrides.js
 var CONVERSATION_INITIATION_CLIENT_DATA_TYPE = "conversation_initiation_client_data";
 function constructOverrides(config) {
   const overridesEvent = {
@@ -602,7 +602,7 @@ function constructOverrides(config) {
   return overridesEvent;
 }
 
-// web/static/js/vendor/node_modules/@elevenlabs/client/dist/utils/WebSocketConnection.js
+// node_modules/@elevenlabs/client/dist/utils/WebSocketConnection.js
 var MAIN_PROTOCOL = "convai";
 var WSS_API_ORIGIN = "wss://api.elevenlabs.io";
 var WSS_API_PATHNAME = "/v1/convai/conversation?agent_id=";
@@ -740,7 +740,7 @@ var WebSocketConnection = class _WebSocketConnection extends BaseConnection {
   }
 };
 
-// web/static/js/vendor/node_modules/livekit-client/dist/livekit-client.esm.mjs
+// node_modules/livekit-client/dist/livekit-client.esm.mjs
 function _mergeNamespaces(n, m) {
   m.forEach(function(e2) {
     e2 && typeof e2 !== "string" && !Array.isArray(e2) && Object.keys(e2).forEach(function(k) {
@@ -29142,7 +29142,7 @@ _defineProperty(JWSSignatureVerificationFailed, "code", "ERR_JWS_SIGNATURE_VERIF
 var ONE_SECOND_IN_MILLISECONDS = 1e3;
 var ONE_MINUTE_IN_MILLISECONDS = 60 * ONE_SECOND_IN_MILLISECONDS;
 
-// web/static/js/vendor/node_modules/@elevenlabs/client/dist/utils/audio.js
+// node_modules/@elevenlabs/client/dist/utils/audio.js
 function arrayBufferToBase64(b) {
   const buffer = new Uint8Array(b);
   const base64Data = window.btoa(String.fromCharCode(...buffer));
@@ -29158,7 +29158,7 @@ function base64ToArrayBuffer(base64) {
   return bytes.buffer;
 }
 
-// web/static/js/vendor/node_modules/@elevenlabs/client/dist/utils/createWorkletModuleLoader.js
+// node_modules/@elevenlabs/client/dist/utils/createWorkletModuleLoader.js
 var URLCache = /* @__PURE__ */ new Map();
 function createWorkletModuleLoader(name, sourceCode) {
   return async (worklet, path) => {
@@ -29195,7 +29195,7 @@ function createWorkletModuleLoader(name, sourceCode) {
   };
 }
 
-// web/static/js/vendor/node_modules/@elevenlabs/client/dist/utils/rawAudioProcessor.generated.js
+// node_modules/@elevenlabs/client/dist/utils/rawAudioProcessor.generated.js
 var loadRawAudioProcessor = createWorkletModuleLoader(
   "rawAudioProcessor",
   // language=JavaScript
@@ -29326,7 +29326,7 @@ registerProcessor("rawAudioProcessor", RawAudioProcessor);
 `
 );
 
-// web/static/js/vendor/node_modules/@elevenlabs/client/dist/utils/calculateVolume.js
+// node_modules/@elevenlabs/client/dist/utils/calculateVolume.js
 function calculateVolume(frequencyData) {
   if (frequencyData.length === 0) {
     return 0;
@@ -29339,7 +29339,7 @@ function calculateVolume(frequencyData) {
   return volume < 0 ? 0 : volume > 1 ? 1 : volume;
 }
 
-// web/static/js/vendor/node_modules/@elevenlabs/client/dist/utils/volumeProvider.js
+// node_modules/@elevenlabs/client/dist/utils/volumeProvider.js
 var NO_VOLUME = {
   getVolume: () => 0,
   getByteFrequencyData: () => {
@@ -29382,7 +29382,7 @@ function createAnalyserVolumeProvider(analyser, sampleRate) {
   };
 }
 
-// web/static/js/vendor/node_modules/@elevenlabs/client/dist/utils/WebRTCConnection.js
+// node_modules/@elevenlabs/client/dist/utils/WebRTCConnection.js
 var DEFAULT_LIVEKIT_WS_URL = "wss://livekit.rtc.elevenlabs.io";
 var HTTPS_API_ORIGIN2 = "https://api.elevenlabs.io";
 function convertWssToHttps(origin) {
@@ -29842,7 +29842,7 @@ var WebRTCConnection = class _WebRTCConnection extends BaseConnection {
   }
 };
 
-// web/static/js/vendor/node_modules/@elevenlabs/client/dist/utils/ConnectionFactory.js
+// node_modules/@elevenlabs/client/dist/utils/ConnectionFactory.js
 function determineConnectionType(config) {
   const hasSignedUrl = "signedUrl" in config && config.signedUrl;
   if (hasSignedUrl && config.connectionType === "webrtc") {
@@ -29871,7 +29871,7 @@ async function createConnection(config) {
   }
 }
 
-// web/static/js/vendor/node_modules/@elevenlabs/client/dist/utils/compatibility.js
+// node_modules/@elevenlabs/client/dist/utils/compatibility.js
 function isIosDevice() {
   return [
     "iPad Simulator",
@@ -29887,7 +29887,7 @@ function isAndroidDevice() {
   return /android/i.test(navigator.userAgent);
 }
 
-// web/static/js/vendor/node_modules/@elevenlabs/client/dist/utils/applyDelay.js
+// node_modules/@elevenlabs/client/dist/utils/applyDelay.js
 async function applyDelay(delayConfig = {
   default: 0,
   // Give the Android AudioManager enough time to switch to the correct audio mode
@@ -29904,7 +29904,7 @@ async function applyDelay(delayConfig = {
   }
 }
 
-// web/static/js/vendor/node_modules/@elevenlabs/client/dist/TextConversation.js
+// node_modules/@elevenlabs/client/dist/TextConversation.js
 var EMPTY_FREQUENCY_DATA = new Uint8Array(0);
 var TextConversation = class _TextConversation extends BaseConversation {
   type = "text";
@@ -29963,7 +29963,7 @@ var TextConversation = class _TextConversation extends BaseConversation {
   }
 };
 
-// web/static/js/vendor/node_modules/@elevenlabs/client/dist/utils/audioConcatProcessor.generated.js
+// node_modules/@elevenlabs/client/dist/utils/audioConcatProcessor.generated.js
 var loadAudioConcatProcessor = createWorkletModuleLoader(
   "audioConcatProcessor",
   // language=JavaScript
@@ -30074,14 +30074,14 @@ registerProcessor("audioConcatProcessor", AudioConcatProcessor);
 `
 );
 
-// web/static/js/vendor/node_modules/@elevenlabs/client/dist/utils/addLibsamplerateModule.js
+// node_modules/@elevenlabs/client/dist/utils/addLibsamplerateModule.js
 var LIBSAMPLERATE_JS = "https://cdn.jsdelivr.net/npm/@alexanderolsen/libsamplerate-js@2.1.2/dist/libsamplerate.worklet.js";
 async function addLibsamplerateModule(context, customPath) {
   const libsamplerateUrl = customPath || LIBSAMPLERATE_JS;
   await context.audioWorklet.addModule(libsamplerateUrl);
 }
 
-// web/static/js/vendor/node_modules/@elevenlabs/client/dist/utils/output.js
+// node_modules/@elevenlabs/client/dist/utils/output.js
 var MediaDeviceOutput = class _MediaDeviceOutput {
   context;
   analyser;
@@ -30210,7 +30210,7 @@ var MediaDeviceOutput = class _MediaDeviceOutput {
   }
 };
 
-// web/static/js/vendor/node_modules/@elevenlabs/client/dist/utils/input.js
+// node_modules/@elevenlabs/client/dist/utils/input.js
 var defaultConstraints = {
   echoCancellation: true,
   noiseSuppression: true,
@@ -30380,7 +30380,7 @@ var MediaDeviceInput = class _MediaDeviceInput {
   };
 };
 
-// web/static/js/vendor/node_modules/@elevenlabs/client/dist/utils/attachInputToConnection.js
+// node_modules/@elevenlabs/client/dist/utils/attachInputToConnection.js
 function attachInputToConnection(input, connection) {
   const listener = (event) => {
     const rawAudioPcmData = event.data[0];
@@ -30394,7 +30394,7 @@ function attachInputToConnection(input, connection) {
   };
 }
 
-// web/static/js/vendor/node_modules/@elevenlabs/client/dist/utils/attachConnectionToOutput.js
+// node_modules/@elevenlabs/client/dist/utils/attachConnectionToOutput.js
 function attachConnectionToOutput(connection, output) {
   const listener = (event) => {
     output.playAudio(base64ToArrayBuffer(event.audio_base_64));
@@ -30405,7 +30405,7 @@ function attachConnectionToOutput(connection, output) {
   };
 }
 
-// web/static/js/vendor/node_modules/@elevenlabs/client/dist/platform/VoiceSessionSetup.js
+// node_modules/@elevenlabs/client/dist/platform/VoiceSessionSetup.js
 async function setupInputOutput(options, connection) {
   if (connection instanceof WebRTCConnection) {
     return {
@@ -30452,7 +30452,7 @@ async function webSessionSetup(options) {
 }
 var setupStrategy = webSessionSetup;
 
-// web/static/js/vendor/node_modules/@elevenlabs/client/dist/VoiceConversation.js
+// node_modules/@elevenlabs/client/dist/VoiceConversation.js
 var VoiceConversation = class _VoiceConversation extends BaseConversation {
   input;
   output;
@@ -30635,7 +30635,7 @@ var VoiceConversation = class _VoiceConversation extends BaseConversation {
   };
 };
 
-// web/static/js/vendor/node_modules/@elevenlabs/client/dist/utils/postOverallFeedback.js
+// node_modules/@elevenlabs/client/dist/utils/postOverallFeedback.js
 var HTTPS_API_ORIGIN3 = "https://api.elevenlabs.io";
 function postOverallFeedback(conversationId, likeOrFeedback, origin = HTTPS_API_ORIGIN3) {
   const body = {};
@@ -30654,7 +30654,7 @@ function postOverallFeedback(conversationId, likeOrFeedback, origin = HTTPS_API_
   });
 }
 
-// web/static/js/vendor/node_modules/@elevenlabs/client/dist/scribe/connection.js
+// node_modules/@elevenlabs/client/dist/scribe/connection.js
 var EventEmitter = class {
   listeners = /* @__PURE__ */ new Map();
   on(event, listener) {
@@ -31010,7 +31010,7 @@ var RealtimeConnection = class {
   }
 };
 
-// web/static/js/vendor/node_modules/@elevenlabs/client/dist/utils/scribeAudioProcessor.generated.js
+// node_modules/@elevenlabs/client/dist/utils/scribeAudioProcessor.generated.js
 var loadScribeAudioProcessor = createWorkletModuleLoader(
   "scribeAudioProcessor",
   // language=JavaScript
@@ -31123,7 +31123,7 @@ registerProcessor("scribeAudioProcessor", ScribeAudioProcessor);
 `
 );
 
-// web/static/js/vendor/node_modules/@elevenlabs/client/dist/scribe/scribe.js
+// node_modules/@elevenlabs/client/dist/scribe/scribe.js
 var AudioFormat;
 (function(AudioFormat2) {
   AudioFormat2["PCM_8000"] = "pcm_8000";
@@ -31296,7 +31296,7 @@ var ScribeRealtime = class _ScribeRealtime {
   }
 };
 
-// web/static/js/vendor/node_modules/@elevenlabs/client/dist/index.js
+// node_modules/@elevenlabs/client/dist/index.js
 var Conversation = {
   startSession(options) {
     return isTextOnly(options) ? TextConversation.startSession(options) : VoiceConversation.startSession(options);
