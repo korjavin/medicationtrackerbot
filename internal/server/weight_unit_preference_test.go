@@ -160,4 +160,3 @@ func TestHandleSetWeightUnitPreference_RejectsInvalidJSON(t *testing.T) {
 		t.Fatalf("expected 400 for invalid JSON, got %d", w.Code)
 	}
 }
-

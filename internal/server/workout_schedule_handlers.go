@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/korjavin/medicationtrackerbot/internal/store"
 	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/domain/workout"
+	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
 // maxScheduledExercises caps a single schedule request. The body is already

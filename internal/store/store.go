@@ -41,6 +41,7 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/store/food"
 	"github.com/korjavin/medicationtrackerbot/internal/store/gamification"
 	"github.com/korjavin/medicationtrackerbot/internal/store/medication"
+
 	// Blank import: migrations/068_backfill_pre_materialized_tz_steps.go
 	// registers the project's first goose Go migration in its init(). The SQL
 	// migrations are still embedded directly via //go:embed migrations/*.sql

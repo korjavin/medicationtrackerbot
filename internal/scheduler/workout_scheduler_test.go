@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
+	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/domain/workout"
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 	"github.com/korjavin/medicationtrackerbot/internal/testharness"
-	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/domain/workout"
 )
 
 type workoutScenarioInput struct {

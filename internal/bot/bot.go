@@ -33,28 +33,28 @@ type pendingExercise struct {
 }
 
 type Bot struct {
-	api           *tgbotapi.BotAPI
-	meds          MedicationStore
-	medSvc        domain.MedicationService
-	bp            BloodPressureStore
-	weight        WeightStore
+	api             *tgbotapi.BotAPI
+	meds            MedicationStore
+	medSvc          domain.MedicationService
+	bp              BloodPressureStore
+	weight          WeightStore
 	workouts        WorkoutStore
 	workoutSvc      workoutsvc.WorkoutService
 	gamificationSvc gamificationsvc.GamificationService
 	exerciseSvc     domain.ExerciseService
-	reminderSvc   domain.ReminderService
-	food          FoodStore
-	foodAI        domain.FoodAIService
-	activityAI    domain.ActivityAIService
-	activityLog   ActivityLogStore
-	imports       ImportStore
-	notesSvc      domain.NotesService
-	timezone      TimezoneStore
-	tzUpdater     tzupdate.Service
-	tzPlanStore   TZPlanCallbackStore
-	tzLifecycle   tzreschedule.LifecycleService
-	allowedUserID int64
-	appDomain     string
+	reminderSvc     domain.ReminderService
+	food            FoodStore
+	foodAI          domain.FoodAIService
+	activityAI      domain.ActivityAIService
+	activityLog     ActivityLogStore
+	imports         ImportStore
+	notesSvc        domain.NotesService
+	timezone        TimezoneStore
+	tzUpdater       tzupdate.Service
+	tzPlanStore     TZPlanCallbackStore
+	tzLifecycle     tzreschedule.LifecycleService
+	allowedUserID   int64
+	appDomain       string
 
 	workoutMessagesMu sync.Mutex
 	workoutMessages   map[int64]map[int]struct{}

@@ -670,4 +670,3 @@ func loadDemoExercisesForVariant(ctx context.Context, s *store.Store, variantID 
 	}
 	return out, rows.Err()
 }
-

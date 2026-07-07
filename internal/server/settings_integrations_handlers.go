@@ -268,4 +268,3 @@ func resolveSecretPatch(incoming *string) *string {
 	}
 	return incoming
 }
-
