@@ -81,6 +81,14 @@ func (r *Repo) PendingAccountByUsername(ctx context.Context, suggestedUsername s
 	return accountID, err
 }
 
+// DeletePendingByAccount clears an account's pending managed-bot provisioning
+// row (the "start over" path from the pending page). Idempotent — deleting
+// zero rows is success.
+func (r *Repo) DeletePendingByAccount(ctx context.Context, accountID string) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM tg_pending WHERE account_id = ?`, accountID)
+	return err
+}
+
 // PendingUsernameByAccount returns the suggested username of the account's live
 // provisioning row (empty string if none), so the status endpoint can rebuild
 // the create-bot deep link — the pending page must keep showing that link,
@@ -109,6 +117,37 @@ func (r *Repo) UpsertBot(ctx context.Context, b TGBot) error {
 		   chat_id = NULL, linked_at_unix = NULL`,
 		b.AccountID, b.BotID, b.BotUsername, b.TokenCT, b.TokenNonce, b.Kind, b.WebhookSecret, storedb.TimeToUnix(b.CreatedAt))
 	return err
+}
+
+// UpsertManagedBotIfPending is the manager-webhook variant of UpsertBot that
+// atomically gates the write on the pending row still existing. The single
+// INSERT ... SELECT ... WHERE EXISTS is serialized against the "start over"
+// DELETE (DeletePendingByAccount) by SQLite's writer, so a reset that lands
+// mid-bind either wins (pending gone → no row written, returns false) or loses
+// (bot written, and the reset's own status re-fetch then sees bot_created).
+// This closes the peek-then-write race a plain UpsertBot would leave open. It
+// does NOT consume the pending row — the caller sets the child webhook first and
+// only writes the bot row here once that succeeds, so a failed SetWebhook 500s
+// with the pending retry anchor still intact; the caller deletes it last.
+func (r *Repo) UpsertManagedBotIfPending(ctx context.Context, b TGBot, suggestedUsername string, now time.Time) (bool, error) {
+	res, err := r.db.ExecContext(ctx,
+		`INSERT INTO tg_bots (account_id, bot_id, bot_username, token_ct, token_nonce, kind, webhook_secret, created_at_unix)
+		 SELECT ?, ?, ?, ?, ?, ?, ?, ?
+		 WHERE EXISTS (SELECT 1 FROM tg_pending WHERE suggested_username = ? AND expires_at_unix > ?)
+		 ON CONFLICT(account_id) DO UPDATE SET bot_id = excluded.bot_id, bot_username = excluded.bot_username,
+		   token_ct = excluded.token_ct, token_nonce = excluded.token_nonce, kind = excluded.kind,
+		   webhook_secret = excluded.webhook_secret, created_at_unix = excluded.created_at_unix,
+		   chat_id = NULL, linked_at_unix = NULL`,
+		b.AccountID, b.BotID, b.BotUsername, b.TokenCT, b.TokenNonce, b.Kind, b.WebhookSecret, storedb.TimeToUnix(b.CreatedAt),
+		suggestedUsername, storedb.TimeToUnix(now))
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
 }
 
 const tgBotColumns = `account_id, bot_id, bot_username, token_ct, token_nonce, kind, chat_id, webhook_secret, created_at_unix, linked_at_unix`

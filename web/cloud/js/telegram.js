@@ -15,6 +15,18 @@
 
 const POLL_MS = 2500;
 
+// BYO fallback shared by the consent and create-bot pages. Static string —
+// no server-supplied values — so innerHTML interpolation is XSS-safe.
+const BYO_DETAILS_HTML = `
+        <details id="tg-advanced">
+          <summary>Advanced: use your own bot token</summary>
+          <p>Create a bot with <a href="https://t.me/BotFather" target="_blank"
+             rel="noopener">@BotFather</a> and paste its token:</p>
+          <input id="tg-byo-token" type="text" autocomplete="off"
+                 placeholder="123456:ABC-DEF..." />
+          <button id="tg-byo-submit">Link this bot</button>
+        </details>`;
+
 async function apiJSON(url, opts) {
   const res = await fetch(url, opts);
   if (!res.ok) {
@@ -62,8 +74,14 @@ export async function mountTelegram(container, opts = {}) {
         stopPolling();
         return;
       }
+      const myTimer = timer;
       try {
         const s = await getStatus();
+        // While this fetch was in flight another path (reset, unlink, a state
+        // transition) may have repainted and stopped/replaced polling; the
+        // response is stale — rendering it would repaint a dead page and
+        // restart the interval.
+        if (timer !== myTimer) return;
         render(s);
       } catch (e) {
         console.error('[telegram] status poll failed', e);
@@ -132,15 +150,7 @@ export async function mountTelegram(container, opts = {}) {
         <div class="wizard-actions">
           <button id="tg-accept">Set up my bot</button>
           <button id="tg-skip" class="secondary">Skip</button>
-        </div>
-        <details id="tg-advanced">
-          <summary>Advanced: use your own bot token</summary>
-          <p>Create a bot with <a href="https://t.me/BotFather" target="_blank"
-             rel="noopener">@BotFather</a> and paste its token:</p>
-          <input id="tg-byo-token" type="text" autocomplete="off"
-                 placeholder="123456:ABC-DEF..." />
-          <button id="tg-byo-submit">Link this bot</button>
-        </details>
+        </div>${BYO_DETAILS_HTML}
       </section>`;
 
     container.querySelector('#tg-accept').addEventListener('click', () => {
@@ -163,6 +173,10 @@ export async function mountTelegram(container, opts = {}) {
     } else {
       container.querySelector('#tg-skip').remove();
     }
+    wireBYO();
+  }
+
+  function wireBYO() {
     container.querySelector('#tg-byo-submit').addEventListener('click', () => {
       submitBYO().catch(showError);
     });
@@ -189,10 +203,35 @@ export async function mountTelegram(container, opts = {}) {
            (<code id="tg-suggested"></code>) so we can link it automatically.</p>
         <a id="tg-deep-link" class="button" target="_blank" rel="noopener">Open Telegram to create the bot</a>
         <p class="muted">Waiting for the bot to be created…</p>
+        <p class="muted">Didn't finish linking automatically? Paste the bot's
+           token below, or start over — no need to wait.</p>${BYO_DETAILS_HTML}
+        <button id="tg-reset" class="secondary">Start over</button>
       </section>`;
     container.querySelector('#tg-suggested').textContent = suggested || '';
     if (deepLink) container.querySelector('#tg-deep-link').href = deepLink;
+    wireBYO();
+    container.querySelector('#tg-reset').addEventListener('click', () => {
+      const btn = container.querySelector('#tg-reset');
+      btn.disabled = true;
+      resetPending().catch((err) => {
+        btn.disabled = false;
+        showError(err);
+      });
+    });
     poll();
+  }
+
+  // resetPending clears the stuck pending row server-side — the escape hatch
+  // when the managed_bot_created webhook update was lost and the bind will
+  // never arrive. Reset only deletes the pending row, so the webhook may have
+  // created the bot while the click was in flight: re-fetch status and render
+  // the server's actual state (usually 'none' → consent, but 'bot_created'
+  // after a lost race) instead of assuming none. Polling is left running until
+  // the POST succeeds so a failed reset keeps the page live; the resulting
+  // render stops or replaces it.
+  async function resetPending() {
+    await apiJSON('/api/telegram/reset', { method: 'POST' });
+    render(await getStatus());
   }
 
   async function submitBYO() {

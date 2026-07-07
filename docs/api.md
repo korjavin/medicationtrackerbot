@@ -89,6 +89,21 @@ All routes gate on the `gamification_enabled` flag in the service layer: when of
 | GET/POST | `/auth/telegram/callback` | Telegram Login Widget auth (GET: redirect flow, 302; POST: JSON callback) |
 | GET | `/api/elevenlabs/signed-url` | Returns a signed conversation URL for the ElevenLabs convai widget on the Today screen. Requires `ELEVENLABS_API_KEY` + `ELEVENLABS_AGENT_ID`; 503 if either is unset. |
 
+## Cloud Mode Telegram (`cmd/cloud` only)
+
+Session-authed endpoints served on the account subdomain by `cmd/cloud` (see [cloud-mode.md → Telegram](cloud-mode.md#telegram-optional-byo-bot-token)). Not present in the server build.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/telegram/provision` | Start managed-bot creation: mints a suggested username, records a 1h-TTL `tg_pending` row, returns the BotFather deep link |
+| GET | `/api/telegram/status` | Linking state: `linked` / `bot_created` / `pending` / `skipped` / `none` |
+| GET | `/api/telegram/diag` | Manager-webhook diagnostics (`getWebhookInfo` passthrough) |
+| POST | `/api/telegram/byo` | Bring-your-own bot token; works from any state including `pending` (the upserted bot row wins over a leftover pending row) |
+| POST | `/api/telegram/skip` | Record explicit opt-out |
+| POST | `/api/telegram/reset` | Clear the caller's `tg_pending` row so status returns to `none` (idempotent; touches nothing else). The pending page's "Start over" — escape hatch when the managed `managed_bot_created` update was lost, no need to wait out the TTL. Returns `{"reset": true}` |
+| POST | `/api/telegram/test` | Send a test notification through the linked bot |
+| DELETE | `/api/telegram` | Unlink and delete the bot binding |
+
 ## Cloud Trial Proxy (cloud-only, `cmd/cloud`)
 
 Served only by the cloud service on the account subdomain; not present in the bot/server or mobile builds. Both routes require an authenticated account session and share one per-account rate limit (`TRIAL_RATE_PER_MIN`, default 10/min) — on limit: `429 {"error":"trial_rate_limit","retry_after_seconds":60}` + `Retry-After`. When the corresponding `TRIAL_*` envs are unset: `503 {"error":"trial_not_configured"}` and the client degrades to pure BYO. See [cloud-mode.md → Trial provider keys](cloud-mode.md#trial-provider-keys-pooled-metered).
