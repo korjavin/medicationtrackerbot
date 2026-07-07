@@ -202,13 +202,13 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	botID, botUsername, ok := upd.ManagedBotCreatedInfo()
+	botID, botUsername, userID, ok := upd.ManagedBotCreatedInfo()
 	if !ok {
 		slog.Info("telegram manager webhook: update without managed_bot_created", "update_id", upd.UpdateID, "body", string(body))
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-	slog.Info("telegram manager webhook: managed_bot_created", "bot_id", botID, "bot_username", botUsername)
+	slog.Info("telegram manager webhook: managed_bot_created", "bot_id", botID, "bot_username", botUsername, "user_id", userID)
 	now := time.Now()
 	// Peek (don't consume) the pending row: the pending row is the only retry
 	// anchor, so we delete it only after every fallible Telegram/DB step below
@@ -230,7 +230,7 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := t.manager.GetManagedBotToken(r.Context(), botID)
+	token, err := t.manager.GetManagedBotToken(r.Context(), botID, userID)
 	if err != nil {
 		slog.Error("telegram manager webhook: get managed token", "error", err, "bot_id", botID)
 		http.Error(w, "internal error", http.StatusInternalServerError)

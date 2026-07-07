@@ -68,7 +68,7 @@ func TestAPIErrorEnvelope(t *testing.T) {
 	f.responses["getManagedBotToken"] = `{"ok":false,"description":"bot not found"}`
 
 	c := New("123:ABC", srv.URL)
-	_, err := c.GetManagedBotToken(context.Background(), 999)
+	_, err := c.GetManagedBotToken(context.Background(), 999, 6918132008)
 	if err == nil || !strings.Contains(err.Error(), "bot not found") {
 		t.Fatalf("expected api-error envelope surfaced, got %v", err)
 	}
@@ -99,7 +99,7 @@ func TestGetManagedBotTokenSuccess(t *testing.T) {
 	f.responses["getManagedBotToken"] = `{"ok":true,"result":{"token":"555:CHILD"}}`
 
 	c := New("123:ABC", srv.URL)
-	tok, err := c.GetManagedBotToken(context.Background(), 555)
+	tok, err := c.GetManagedBotToken(context.Background(), 555, 6918132008)
 	if err != nil {
 		t.Fatalf("GetManagedBotToken: %v", err)
 	}

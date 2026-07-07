@@ -124,12 +124,14 @@ func (c *Client) GetMe(ctx context.Context) (User, error) {
 }
 
 // GetManagedBotToken fetches a child bot's token after a managed_bot update.
-// Bot API 9.6. Returns the raw token string.
-func (c *Client) GetManagedBotToken(ctx context.Context, botID int64) (string, error) {
+// Bot API 9.6. Requires both the child bot_id and the creator's user_id — the
+// live API returns "400: invalid user_id specified" without the latter. Returns
+// the raw token string.
+func (c *Client) GetManagedBotToken(ctx context.Context, botID, userID int64) (string, error) {
 	var res struct {
 		Token string `json:"token"`
 	}
-	err := c.call(ctx, "getManagedBotToken", map[string]any{"bot_id": botID}, &res)
+	err := c.call(ctx, "getManagedBotToken", map[string]any{"bot_id": botID, "user_id": userID}, &res)
 	return res.Token, err
 }
 
@@ -155,26 +157,46 @@ func (c *Client) SendMessage(ctx context.Context, chatID int64, text string) err
 	}, nil)
 }
 
-// Update is the subset of a Telegram update our webhooks read: a message
-// carrying managed_bot_created (child bot created via the manager) and plain
-// message (/start linking).
+// Update is the subset of a Telegram update our webhooks read. A managed-bot
+// creation arrives in TWO shapes (both observed live, Bot API 9.6, 2026-04):
+// a top-level managed_bot update ({user, bot}) and a service message
+// (message.managed_bot_created.bot). We accept either; whichever binds first
+// consumes the pending row and the other no-ops.
 type Update struct {
-	UpdateID int64    `json:"update_id"`
-	Message  *Message `json:"message,omitempty"`
+	UpdateID   int64             `json:"update_id"`
+	ManagedBot *ManagedBotUpdate `json:"managed_bot,omitempty"`
+	Message    *Message          `json:"message,omitempty"`
 }
 
-// ManagedBotCreatedInfo returns the created child bot's id + username when this
-// update is the managed_bot_created service message Telegram posts to the
-// manager bot after a user creates a bot via the newbot deep link. ok=false for
-// any other update. Verified against the real Bot API 9.6 payload (2026-04):
-// update.message.managed_bot_created.bot.{id,username} — NOT a top-level
-// managed_bot field (the original C3a struct guessed wrong).
-func (u *Update) ManagedBotCreatedInfo() (botID int64, username string, ok bool) {
-	if u.Message == nil || u.Message.ManagedBotCreated == nil {
-		return 0, "", false
+// ManagedBotUpdate is the top-level managed_bot update: the creator user and
+// the created child bot.
+type ManagedBotUpdate struct {
+	User *User `json:"user"`
+	Bot  *User `json:"bot"`
+}
+
+// ManagedBotCreatedInfo returns the created child bot's id + username and the
+// creator's user id when this update is a managed-bot creation (either shape).
+// The user id is required: getManagedBotToken rejects the call without it.
+// ok=false for any other update.
+func (u *Update) ManagedBotCreatedInfo() (botID int64, username string, userID int64, ok bool) {
+	switch {
+	case u.ManagedBot != nil && u.ManagedBot.Bot != nil:
+		var uid int64
+		if u.ManagedBot.User != nil {
+			uid = u.ManagedBot.User.ID
+		}
+		b := u.ManagedBot.Bot
+		return b.ID, b.Username, uid, b.ID != 0 && uid != 0
+	case u.Message != nil && u.Message.ManagedBotCreated != nil && u.Message.ManagedBotCreated.Bot != nil:
+		var uid int64
+		if u.Message.From != nil {
+			uid = u.Message.From.ID
+		}
+		b := u.Message.ManagedBotCreated.Bot
+		return b.ID, b.Username, uid, b.ID != 0 && uid != 0
 	}
-	b := u.Message.ManagedBotCreated.Bot
-	return b.ID, b.Username, b.ID != 0 && b.Username != ""
+	return 0, "", 0, false
 }
 
 // Message is the subset of a Telegram message we read: text for /start linking,
@@ -190,13 +212,7 @@ type Message struct {
 // ManagedBotCreated is the service field on the message Telegram posts to the
 // manager bot when a user creates a child bot via the newbot deep link.
 type ManagedBotCreated struct {
-	Bot ManagedBot `json:"bot"`
-}
-
-// ManagedBot is the created child bot (the subset of the User object we need).
-type ManagedBot struct {
-	ID       int64  `json:"id"`
-	Username string `json:"username"`
+	Bot *User `json:"bot"`
 }
 
 // Chat is the subset of a Telegram chat we read (the chat id to link).
