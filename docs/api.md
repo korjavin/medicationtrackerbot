@@ -27,6 +27,7 @@
 | GET | `/api/food/log` | Food log entries |
 | POST | `/api/food/log` | Log food |
 | GET | `/api/food/search` | Search Open Food Facts |
+| GET | `/api/food/barcode/{barcode}` | Lookup food item by barcode (server-side proxy for Cloud Mode operator default) |
 | GET | `/api/food/targets` | Nutrition targets |
 | POST | `/api/food/targets` | Set nutrition targets |
 | GET | `/api/health/overview` | Aggregate 7d/30d dashboard: per-night sleep phases (`sleep_stats_*`), HR/SpO2/stress histories, step aggregates, and averages. Fixed trailing window. (MCP op `health.overview`.) |
@@ -88,6 +89,13 @@ All routes gate on the `gamification_enabled` flag in the service layer: when of
 | GET | `/auth/google/callback` | Google callback |
 | GET/POST | `/auth/telegram/callback` | Telegram Login Widget auth (GET: redirect flow, 302; POST: JSON callback) |
 | GET | `/api/elevenlabs/signed-url` | Returns a signed conversation URL for the ElevenLabs convai widget on the Today screen. Requires `ELEVENLABS_API_KEY` + `ELEVENLABS_AGENT_ID`; 503 if either is unset. |
+
+## Cloud Mode Server Proxy (`cmd/cloud` only)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/food/search` | Same-origin proxy for the operator default `CLOUD_FOOD_DB_URL` (bypasses browser CORS requirements) |
+| GET | `/api/food/barcode/{barcode}` | Same-origin proxy for the operator default `CLOUD_FOOD_DB_URL` |
 
 ## Cloud Mode Telegram (`cmd/cloud` only)
 
