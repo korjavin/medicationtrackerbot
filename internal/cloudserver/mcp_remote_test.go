@@ -29,7 +29,7 @@ func newTestMCPRemoteHandler(t *testing.T) (h http.Handler, store *cloudstore.Re
 	relayAPI.RegisterRoutes(mux)
 	remoteAPI.RegisterRoutes(mux)
 
-	return New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, ""), store, account, claimToken
+	return New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false), store, account, claimToken
 }
 
 // testPairingCode builds a real-shaped "mtmcp1...." pairing code for

@@ -27,7 +27,7 @@ func newTestMCPRelayHandler(t *testing.T) (http.Handler, string, string) {
 	webauthnAPI.RegisterRoutes(mux)
 	relayAPI.RegisterRoutes(mux)
 
-	return New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, ""), host, claimToken
+	return New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false), host, claimToken
 }
 
 // mintPairing drives POST /api/mcp/pairings through h directly (no real

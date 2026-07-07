@@ -28,7 +28,7 @@ func newTrialTestHandlerAPI(t *testing.T, cfg TrialConfig) (http.Handler, *Trial
 	webauthnAPI.RegisterRoutes(mux)
 	trialAPI.RegisterRoutes(mux)
 
-	return New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, ""), trialAPI, host, claimToken
+	return New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false), trialAPI, host, claimToken
 }
 
 func postTrialChat(h http.Handler, host, path, body string, session *http.Cookie) *httptest.ResponseRecorder {
@@ -241,7 +241,7 @@ func TestTrialProxy_RateLimit(t *testing.T) {
 	mux := http.NewServeMux()
 	NewWebAuthnAPI(store, secret).RegisterRoutes(mux)
 	NewTrialProxyAPI(store, secret, cfg).RegisterRoutes(mux)
-	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "")
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
 
 	host1 := account1.Subdomain + ".localhost"
 	host2 := account2.Subdomain + ".localhost"

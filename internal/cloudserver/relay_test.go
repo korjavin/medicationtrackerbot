@@ -61,7 +61,7 @@ func TestRelay_DueSelection_ReplaceAll_DisablesGone(t *testing.T) {
 	mux := http.NewServeMux()
 	webauthnAPI.RegisterRoutes(mux)
 	pushAPI.RegisterRoutes(mux)
-	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "")
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
 
 	session := registerAndGetSession(t, h, host, claimToken)
 
@@ -127,7 +127,7 @@ func TestRelay_StaleSyncSweep(t *testing.T) {
 	mux := http.NewServeMux()
 	webauthnAPI.RegisterRoutes(mux)
 	pushAPI.RegisterRoutes(mux)
-	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "")
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
 
 	session := registerAndGetSession(t, h, host, claimToken)
 
@@ -191,7 +191,7 @@ func TestRelay_SendsWithPerAccountVAPIDKeys(t *testing.T) {
 	mux := http.NewServeMux()
 	webauthnAPI.RegisterRoutes(mux)
 	pushAPI.RegisterRoutes(mux)
-	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "")
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
 
 	sessionA := registerAndGetSession(t, h, hostA, claimTokenA)
 	sessionB := registerAndGetSession(t, h, hostB, claimTokenB)

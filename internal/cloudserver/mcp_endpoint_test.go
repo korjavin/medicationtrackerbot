@@ -33,7 +33,7 @@ func newTestMCPEndpointHandler(t *testing.T) (h http.Handler, remoteAPI *MCPRemo
 	relayAPI.RegisterRoutes(mux)
 	remoteAPI.RegisterRoutes(mux)
 
-	router := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "")
+	router := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
 	router.SetMCPHandler(remoteAPI.Endpoint())
 	return router, remoteAPI, account, claimToken
 }

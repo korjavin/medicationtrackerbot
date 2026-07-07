@@ -65,8 +65,8 @@
 - [x] integration test: N allowed then 429 for the same account; different account still allowed (`TestTrialProxy_RateLimit`)
 
 ### Task 5: Trial-availability flag to the client
-- [ ] extend `injectCloudBoot` in `internal/cloudserver/router.go` to add `<meta name="medtracker-trial-ai" content="1">` and `<meta name="medtracker-trial-voice" content="1">` only when the corresponding trial key is configured (booleans only — never URLs/models/keys)
-- [ ] plumb the two booleans through `cloudserver.New(...)` from `cmd/cloud/main.go` alongside the existing `foodDBURL` parameter
+- [x] extend `injectCloudBoot` in `internal/cloudserver/router.go` to add `<meta name="medtracker-trial-ai" content="1">` and `<meta name="medtracker-trial-voice" content="1">` only when the corresponding trial key is configured (booleans only — never URLs/models/keys) — covered by `TestRouter_HostVariants` (flags on → both metas in served index)
+- [x] plumb the two booleans through `cloudserver.New(...)` from `cmd/cloud/main.go` alongside the existing `foodDBURL` parameter (`cfg.trial.TrialAIConfigured()` / `TrialVoiceConfigured()`)
 
 ### Task 6: Client fallback — aiclient.js
 - [ ] in `web/cloud/js/aiclient.js`: when the vault key is empty and the trial meta flag is set, route the same chat-completions request body to `/api/trial/openai/chat/completions` (with `?vision=1` for `parseMealFromImage`) via the app's normal `fetch` with credentials; omit `Authorization` header and `model` (server forces it)
