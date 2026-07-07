@@ -130,8 +130,15 @@ func TestTelegramProvisioningStateMachine(t *testing.T) {
 	account2, claim2 := setupInvite(t, store)
 	host2 := account2.Subdomain + ".localhost"
 	session2 := registerAndGetSession(t, top, host2, claim2)
-	if provRec2 := doReq(t, top, http.MethodPost, "http://"+host2+"/api/telegram/provision", host2, session2, nil); provRec2.Code != http.StatusOK {
+	provRec2 := doReq(t, top, http.MethodPost, "http://"+host2+"/api/telegram/provision", host2, session2, nil)
+	if provRec2.Code != http.StatusOK {
 		t.Fatalf("provision 2 status = %d", provRec2.Code)
+	}
+	var prov2 struct {
+		Suggested string `json:"suggested_username"`
+	}
+	if err := json.Unmarshal(provRec2.Body.Bytes(), &prov2); err != nil {
+		t.Fatalf("decode provision 2: %v", err)
 	}
 	edited := `{"update_id":2,"message":{"message_id":2,"from":{"id":6918132008},"chat":{"id":100,"type":"private"},"managed_bot_created":{"bot":{"id":42,"username":"mt_edited_by_user_bot"}}}}`
 	if whRec2 := postWebhook(t, top, "/tg/manager/"+managerSecret, managerSecret, edited); whRec2.Code != http.StatusOK {
@@ -151,6 +158,18 @@ func TestTelegramProvisioningStateMachine(t *testing.T) {
 	// reset must not touch account 1's bound bot
 	if got := tgState(t, top, host, session); got != "bot_created" {
 		t.Fatalf("status of account 1 after account 2 reset = %q, want bot_created", got)
+	}
+
+	// A managed_bot webhook that arrives after reset deleted the pending row
+	// (the "start over" race) must NOT bind a bot — the atomic pending gate in
+	// UpsertManagedBotIfPending drops it with 200 and status stays none.
+	rc := postWebhook(t, top, "/tg/manager/"+managerSecret, managerSecret,
+		`{"update_id":3,"message":{"message_id":3,"from":{"id":6918132008},"chat":{"id":100,"type":"private"},"managed_bot_created":{"bot":{"id":911,"username":"`+prov2.Suggested+`"}}}}`)
+	if rc.Code != http.StatusOK {
+		t.Fatalf("post-reset webhook status = %d, want 200 drop", rc.Code)
+	}
+	if got := tgState(t, top, host2, session2); got != "none" {
+		t.Fatalf("status after post-reset webhook = %q, want none (no bind after reset)", got)
 	}
 
 	// wrong secret → 403
@@ -305,6 +324,57 @@ func TestTelegramLinkingAndBYO(t *testing.T) {
 	}
 	if got := tgState(t, top, host, session); got != "none" {
 		t.Fatalf("status after unlink of BYO bot = %q, want none (stale pending row resurrected)", got)
+	}
+}
+
+// TestTelegramBYOWebhookFailureLeavesNoBot guards that a SetWebhook failure on
+// the BYO path never commits a bot_created row whose webhook was never set: the
+// bot row is the commit point (set webhook first). Because the pending row is
+// deleted up front, a failed bind cleanly falls back to none so the user can
+// retry — never a phantom bot_created that /start can't reach.
+func TestTelegramBYOWebhookFailureLeavesNoBot(t *testing.T) {
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+
+	// getMe validates the token; setWebhook is scripted to fail.
+	tgSrv := fakeTG(t, map[string]string{
+		"getMe":      `{"ok":true,"result":{"id":7,"is_bot":true,"username":"byo_bot","can_manage_bots":false}}`,
+		"setWebhook": `{"ok":false,"error_code":400,"description":"Bad Request: bad webhook"}`,
+	})
+
+	webauthnAPI := NewWebAuthnAPI(store, tgTestSecret)
+	// No Bootstrap: it would call the (scripted-to-fail) manager setWebhook. BYO
+	// doesn't need the resolved manager username.
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tgSrv.URL)
+	apiMux := http.NewServeMux()
+	webauthnAPI.RegisterRoutes(apiMux)
+	tgAPI.RegisterAPIRoutes(apiMux)
+	router := New("localhost", store, testFS(), testAppFS(), testDomainFS(), apiMux, "")
+	top := http.NewServeMux()
+	tgAPI.RegisterWebhookRoutes(top)
+	top.Handle("/", router)
+
+	session := registerAndGetSession(t, top, host, claimToken)
+
+	// provision → pending, then BYO from the pending page with setWebhook failing
+	if provRec := doReq(t, top, http.MethodPost, "http://"+host+"/api/telegram/provision", host, session, nil); provRec.Code != http.StatusOK {
+		t.Fatalf("provision status = %d", provRec.Code)
+	}
+	if got := tgState(t, top, host, session); got != "pending" {
+		t.Fatalf("status after provision = %q, want pending", got)
+	}
+
+	byoRec := doReq(t, top, http.MethodPost, "http://"+host+"/api/telegram/byo", host, session, []byte(`{"token":"888:BYOTOKEN"}`))
+	if byoRec.Code != http.StatusInternalServerError {
+		t.Fatalf("BYO with failing setWebhook status = %d, want 500", byoRec.Code)
+	}
+	// No bot row written (bot row is the commit point) and pending deleted → none.
+	if _, err := store.BotByAccount(t.Context(), account.ID); err == nil {
+		t.Fatal("bot row written despite setWebhook failure; want no row")
+	}
+	if got := tgState(t, top, host, session); got != "none" {
+		t.Fatalf("status after failed BYO = %q, want none (no phantom bot_created)", got)
 	}
 }
 

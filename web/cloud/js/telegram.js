@@ -221,17 +221,17 @@ export async function mountTelegram(container, opts = {}) {
     poll();
   }
 
-  // resetPending clears the stuck pending row server-side and returns the user
-  // to the consent screen — the escape hatch when the managed_bot_created
-  // webhook update was lost and the bind will never arrive. Polling is left
-  // running until the POST succeeds so a failed reset keeps the page live;
-  // renderConsent() stops it.
+  // resetPending clears the stuck pending row server-side — the escape hatch
+  // when the managed_bot_created webhook update was lost and the bind will
+  // never arrive. Reset only deletes the pending row, so the webhook may have
+  // created the bot while the click was in flight: re-fetch status and render
+  // the server's actual state (usually 'none' → consent, but 'bot_created'
+  // after a lost race) instead of assuming none. Polling is left running until
+  // the POST succeeds so a failed reset keeps the page live; the resulting
+  // render stops or replaces it.
   async function resetPending() {
     await apiJSON('/api/telegram/reset', { method: 'POST' });
-    // A later provision() re-enters 'pending' with the same sig as the page we
-    // came from; null the dedupe so that render isn't swallowed.
-    shown = null;
-    renderConsent();
+    render(await getStatus());
   }
 
   async function submitBYO() {

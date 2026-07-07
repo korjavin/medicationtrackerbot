@@ -131,6 +131,33 @@ describe('telegram.js onboarding module', () => {
     expect(app.querySelector('#tg-deep-link')).toBeNull();
   });
 
+  it('Start-over renders the actual server state when the webhook won the race (bot_created, not consent)', async () => {
+    // Reset only deletes the pending row; if the managed_bot_created webhook
+    // completed just before the click, reset still succeeds while the bot row
+    // exists. The client must show the created bot, not paint consent over it.
+    const fetch = fetchStub({
+      '/api/telegram/status': (() => {
+        let calls = 0;
+        return () => ({
+          ok: true,
+          json: async () => (++calls === 1
+            ? { enabled: true, state: 'pending', suggested_username: 'mt_x_bot', deep_link: 'https://t.me/newbot/mt_manager/mt_x_bot' }
+            : { enabled: true, state: 'bot_created', bot_username: 'mt_x_bot' }),
+        });
+      })(),
+      'POST /api/telegram/reset': { ok: true, json: async () => ({ reset: true }) },
+    });
+    global.fetch = fetch;
+    await mountTelegram(app, {});
+
+    app.querySelector('#tg-reset').dispatchEvent(new dom.window.Event('click'));
+    await vi.waitFor(() => {
+      if (!app.querySelector('#tg-bot-link')) throw new Error('open-bot page not rendered yet');
+    });
+    expect(app.querySelector('#tg-accept')).toBeNull();
+    expect(app.querySelector('#tg-bot-link').textContent).toBe('Open @mt_x_bot');
+  });
+
   it('a stale in-flight status poll cannot repaint the pending page after reset', async () => {
     // Race: a poll tick's GET /status is in flight when Start-over completes.
     // The stale response (still 'pending') must not repaint the create-bot

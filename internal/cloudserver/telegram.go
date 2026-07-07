@@ -301,7 +301,25 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	botSecret := randomSecret()
-	if err := t.store.UpsertBot(r.Context(), cloudstore.TGBot{
+	// Set the child webhook BEFORE writing the bot row so the bot row is the
+	// bind's commit point — it exists only after every fallible Telegram step has
+	// succeeded. A SetWebhook failure here 500s with nothing written and the
+	// pending row still intact, so Telegram re-drives the whole bind. Writing the
+	// bot row first would let a "start over" (reset) delete the pending retry
+	// anchor in the window before a SetWebhook failure, stranding a bot_created
+	// row whose webhook was never set with no pending row left to retry against.
+	child := tgclient.New(token, t.apiBaseURL)
+	if err := child.SetWebhook(r.Context(), t.childWebhookURL(accountID, botSecret), botSecret); err != nil {
+		slog.Error("telegram manager webhook: set child webhook", "error", err, "account", accountID)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	// Webhook is live — commit the bot row, gated on the pending row still
+	// existing: "start over" (reset) deletes it, and this atomic check makes a
+	// reset that lands mid-bind resolve cleanly. written=false means reset won the
+	// race — drop with 200 (the webhook we just set is harmlessly orphaned; a
+	// fresh provision rotates the secret and replaces it).
+	written, err := t.store.UpsertManagedBotIfPending(r.Context(), cloudstore.TGBot{
 		AccountID:     accountID,
 		BotID:         botID,
 		BotUsername:   botUsername,
@@ -310,16 +328,15 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 		Kind:          "managed",
 		WebhookSecret: botSecret,
 		CreatedAt:     now,
-	}); err != nil {
+	}, botUsername, now)
+	if err != nil {
 		slog.Error("telegram manager webhook: upsert bot", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-
-	child := tgclient.New(token, t.apiBaseURL)
-	if err := child.SetWebhook(r.Context(), t.childWebhookURL(accountID, botSecret), botSecret); err != nil {
-		slog.Error("telegram manager webhook: set child webhook", "error", err, "account", accountID)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+	if !written {
+		slog.Info("telegram manager webhook: pending gone before bind (reset), dropping", "bot_username", botUsername)
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 	// Bind fully succeeded — now retire the pending row (single-use). A retry
@@ -432,7 +449,33 @@ func (t *TelegramAPI) BYO(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	// BYO is reachable from the pending page, so a managed provision may still be
+	// in flight. Claim (delete) the pending row BEFORE writing the bot row: the
+	// pending row is the manager webhook's write gate (UpsertManagedBotIfPending
+	// only overwrites while it exists), so deleting it first makes the BYO choice
+	// win — a delayed managed_bot_created update then finds no pending row and
+	// drops instead of clobbering this bot with a mismatched secret. Deleting
+	// after the write left a window where that late update could overwrite the
+	// just-written BYO row, 403ing the user's /start. Fatal on error: proceeding
+	// past a failed delete would reopen exactly that race.
+	if err := t.store.DeletePendingByAccount(r.Context(), sess.AccountID); err != nil {
+		slog.Error("telegram byo: delete pending", "error", err, "account", sess.AccountID)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	botSecret := randomSecret()
+	// Set the webhook BEFORE writing the bot row so the bot row is the commit
+	// point (same invariant as the managed path): it exists only after every
+	// fallible Telegram step has succeeded. Writing the bot row first would leave
+	// a bot_created row whose webhook was never set if SetWebhook 500s — Status
+	// then reports bot_created and the pending anchor is already gone, so /start
+	// never reaches the server. Pending is already deleted above, so a SetWebhook
+	// failure here cleanly falls back to none and the user can retry BYO.
+	if err := client.SetWebhook(r.Context(), t.childWebhookURL(sess.AccountID, botSecret), botSecret); err != nil {
+		slog.Error("telegram byo: set webhook", "error", err, "account", sess.AccountID)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	if err := t.store.UpsertBot(r.Context(), cloudstore.TGBot{
 		AccountID:     sess.AccountID,
 		BotID:         me.ID,
@@ -446,19 +489,6 @@ func (t *TelegramAPI) BYO(w http.ResponseWriter, r *http.Request) {
 		slog.Error("telegram byo: upsert bot", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
-	}
-	if err := client.SetWebhook(r.Context(), t.childWebhookURL(sess.AccountID, botSecret), botSecret); err != nil {
-		slog.Error("telegram byo: set webhook", "error", err, "account", sess.AccountID)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	// BYO is reachable from the pending page, so a leftover pending row may
-	// coexist with the bot row. Clear it: otherwise a later unlink resurrects
-	// the stale pending state, and a late-completed BotFather dialog would
-	// match the row and silently overwrite this bot. Non-fatal — the bot works
-	// either way.
-	if err := t.store.DeletePendingByAccount(r.Context(), sess.AccountID); err != nil {
-		slog.Error("telegram byo: delete pending", "error", err, "account", sess.AccountID)
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"bot_username": me.Username})
 }
