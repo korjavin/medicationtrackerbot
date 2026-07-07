@@ -157,6 +157,11 @@
         return out;
     }
 
+    let _telegramMounted = false;
+    window._loadTelegramModule = function() {
+        return import('/js/telegram.js');
+    };
+
     async function loadIntegrations() {
         if (typeof apiCall !== 'function') return null;
         // Demo mode hides #settings-integrations via DemoBanner.mount because
@@ -180,10 +185,14 @@
 
             if (window.__MEDTRACKER_CLOUD__) {
                 const tgMount = document.getElementById('telegram-settings-mount');
-                if (tgMount) {
-                    import('/js/telegram.js')
+                if (tgMount && !_telegramMounted) {
+                    _telegramMounted = true;
+                    window._loadTelegramModule()
                         .then(({ mountTelegram }) => mountTelegram(tgMount, {}))
-                        .catch((err) => console.error('[settings] telegram module failed', err));
+                        .catch((err) => {
+                            _telegramMounted = false;
+                            console.error('[settings] telegram module failed', err);
+                        });
                 }
             }
 
@@ -275,6 +284,7 @@
         _applyPayloadToDOM: applyPayloadToDOM,
         _readDOMIntoPayload: readDOMIntoPayload,
         _cacheKey: CACHE_KEY,
-        _cacheTags: CACHE_TAGS
+        _cacheTags: CACHE_TAGS,
+        _resetTelegramMounted: () => { _telegramMounted = false; }
     };
 })();

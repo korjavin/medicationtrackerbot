@@ -48,6 +48,7 @@ describe('Settings → Integrations section', () => {
     beforeEach(() => {
         env = loadFrontendEnv();
         installApiCacheMap(env.window);
+        env.window._loadTelegramModule = () => Promise.resolve({ mountTelegram: vi.fn() });
     });
 
     afterEach(() => {
@@ -104,7 +105,6 @@ describe('Settings → Integrations section', () => {
     });
 
     it('cloud mode hides the "restart" note and drops the restart wording from the save toast (med-eas.6)', async () => {
-        allowConsoleNoise();
         const { window, document } = env;
         window.__MEDTRACKER_CLOUD__ = true;
 
@@ -115,6 +115,10 @@ describe('Settings → Integrations section', () => {
         });
         // load() re-applies note visibility for the (now cloud) mode.
         await window.SettingsIntegrations.load();
+
+        // Wait for dynamic imports to resolve
+        await new Promise(r => setTimeout(r, 0));
+
         const note = document.getElementById('integrations-restart-note');
         expect(note.hidden).toBe(true);
 
@@ -216,7 +220,6 @@ describe('Settings → Integrations section', () => {
     });
 
     it('cloud mode shows the trial hint only when the trial flag is set and the vault key is empty', async () => {
-        allowConsoleNoise();
         const { window, document } = env;
         window.__MEDTRACKER_CLOUD__ = true;
         for (const name of ['medtracker-trial-ai', 'medtracker-trial-voice']) {
@@ -238,6 +241,32 @@ describe('Settings → Integrations section', () => {
         expect(aiHint.hidden).toBe(false);          // no vault key + trial flag → hint
         expect(voiceHint.hidden).toBe(true);        // vault key present → no hint
         expect(aiHint.textContent).toContain('Trial key active');
+    });
+
+    it('cloud mode mounts the Telegram module into #telegram-settings-mount exactly once', async () => {
+        const { window, document } = env;
+        window.__MEDTRACKER_CLOUD__ = true;
+
+        const mountTelegram = vi.fn();
+        window._loadTelegramModule = vi.fn(() => Promise.resolve({ mountTelegram }));
+
+        window.apiCall = vi.fn(async () => ({}));
+
+        window.SettingsIntegrations._resetTelegramMounted();
+
+        await window.SettingsIntegrations.load();
+        await new Promise(r => setTimeout(r, 0)); // tick for import resolution
+
+        expect(window._loadTelegramModule).toHaveBeenCalledTimes(1);
+        expect(mountTelegram).toHaveBeenCalledTimes(1);
+        expect(mountTelegram.mock.calls[0][0]).toBe(document.getElementById('telegram-settings-mount'));
+
+        // Repeated calls shouldn't trigger another mount
+        await window.SettingsIntegrations.load();
+        await new Promise(r => setTimeout(r, 0));
+
+        expect(window._loadTelegramModule).toHaveBeenCalledTimes(1);
+        expect(mountTelegram).toHaveBeenCalledTimes(1);
     });
 
     it('hides the trial hints when no trial meta flags are injected (server mode / no trial envs)', async () => {
