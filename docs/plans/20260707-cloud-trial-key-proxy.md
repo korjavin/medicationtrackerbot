@@ -55,9 +55,9 @@
 - [x] integration test (`internal/cloudserver/trial_proxy_test.go`, httptest upstream): proxied call carries trial key + forced model upstream; response body/headers contain no trial key; 503 when unconfigured; unauthenticated request (no account) rejected
 
 ### Task 3: TrialProxyAPI — ElevenLabs signed-URL mint
-- [ ] `GET /api/trial/elevenlabs/signed-url` on the same `TrialProxyAPI`: 503 `{"error":"trial_not_configured"}` when key or agent ID empty; otherwise server-side GET to `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=<TRIAL_AGENT_ID>` with `xi-api-key`, return `{"signed_url": ...}` (mirror `internal/server/elevenlabs_handlers.go` behavior; reimplement, do NOT import `internal/server`)
-- [ ] make the upstream base URL a field on `TrialProxyAPI` so tests can point it at httptest
-- [ ] integration test: mints from a fake upstream, asserts the `xi-api-key` header is sent upstream and absent from the client response; 503 when unconfigured
+- [x] `GET /api/trial/elevenlabs/signed-url` on the same `TrialProxyAPI`: 503 `{"error":"trial_not_configured"}` when key or agent ID empty; otherwise server-side GET to `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=<TRIAL_AGENT_ID>` with `xi-api-key`, return `{"signed_url": ...}` (mirror `internal/server/elevenlabs_handlers.go` behavior; reimplement, do NOT import `internal/server`)
+- [x] make the upstream base URL a field on `TrialProxyAPI` so tests can point it at httptest (`elevenLabsSignedURLBase`, unexported — tests live in the same package)
+- [x] integration test: mints from a fake upstream, asserts the `xi-api-key` header is sent upstream and absent from the client response; 503 when unconfigured
 
 ### Task 4: Per-account rate limiting on trial routes
 - [ ] one `rateLimiter` (`newRateLimiter(cfg.PerMinute, time.Minute)`) shared across all trial routes, keyed `account.ID`

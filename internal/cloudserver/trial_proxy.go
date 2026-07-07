@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -28,6 +29,8 @@ type TrialProxyAPI struct {
 	sessionSecret string
 	limiter       *rateLimiter
 	client        *http.Client
+	// elevenLabsSignedURLBase is overridable in tests.
+	elevenLabsSignedURLBase string
 }
 
 // NewTrialProxyAPI builds the trial proxy handlers.
@@ -37,11 +40,12 @@ func NewTrialProxyAPI(store sessionStore, sessionSecret string, cfg TrialConfig)
 		perMin = trialDefaultRatePerMin
 	}
 	return &TrialProxyAPI{
-		cfg:           cfg,
-		store:         store,
-		sessionSecret: sessionSecret,
-		limiter:       newRateLimiter(perMin, time.Minute),
-		client:        &http.Client{Timeout: trialUpstreamTimout},
+		cfg:                     cfg,
+		store:                   store,
+		sessionSecret:           sessionSecret,
+		limiter:                 newRateLimiter(perMin, time.Minute),
+		client:                  &http.Client{Timeout: trialUpstreamTimout},
+		elevenLabsSignedURLBase: "https://api.elevenlabs.io/v1/convai/conversation/get_signed_url",
 	}
 }
 
@@ -49,6 +53,56 @@ func NewTrialProxyAPI(store sessionStore, sessionSecret string, cfg TrialConfig)
 // on unauthenticated requests and guarantees AccountFromContext downstream.
 func (a *TrialProxyAPI) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/trial/openai/chat/completions", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.ChatCompletions)))
+	mux.Handle("GET /api/trial/elevenlabs/signed-url", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.ElevenLabsSignedURL)))
+}
+
+// ElevenLabsSignedURL mints a conversation signed URL for the operator's
+// shared trial agent, keeping the xi-api-key server-side (mirrors bot-mode
+// internal/server.handleElevenLabsSignedURL, reimplemented here because
+// cloudserver must not import internal/server).
+func (a *TrialProxyAPI) ElevenLabsSignedURL(w http.ResponseWriter, r *http.Request) {
+	account, ok := AccountFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if !a.cfg.TrialVoiceConfigured() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_not_configured"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		a.elevenLabsSignedURLBase+"?agent_id="+url.QueryEscape(a.cfg.ElevenLabsAgentID), nil)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})
+		return
+	}
+	req.Header.Set("xi-api-key", a.cfg.ElevenLabsAPIKey)
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		slog.Warn("trial elevenlabs mint upstream failed", "account", account.ID)
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})
+		return
+	}
+	defer resp.Body.Close()
+	slog.Info("trial elevenlabs mint", "account", account.ID, "status", resp.StatusCode)
+
+	if resp.StatusCode != http.StatusOK {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})
+		return
+	}
+	var payload struct {
+		SignedURL string `json:"signed_url"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&payload); err != nil || payload.SignedURL == "" {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]string{"signed_url": payload.SignedURL})
 }
 
 // ChatCompletions proxies an OpenAI-compatible chat request to the trial

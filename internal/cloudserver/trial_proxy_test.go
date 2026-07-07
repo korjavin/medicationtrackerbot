@@ -11,6 +11,11 @@ import (
 // newTrialTestHandler mirrors cmd/cloud/main.go's wiring for the trial proxy
 // so the tests drive the real subdomain-routing + session + proxy contract.
 func newTrialTestHandler(t *testing.T, cfg TrialConfig) (http.Handler, string, string) {
+	h, _, host, claimToken := newTrialTestHandlerAPI(t, cfg)
+	return h, host, claimToken
+}
+
+func newTrialTestHandlerAPI(t *testing.T, cfg TrialConfig) (http.Handler, *TrialProxyAPI, string, string) {
 	t.Helper()
 	store := setupStore(t)
 	account, claimToken := setupInvite(t, store)
@@ -23,7 +28,7 @@ func newTrialTestHandler(t *testing.T, cfg TrialConfig) (http.Handler, string, s
 	webauthnAPI.RegisterRoutes(mux)
 	trialAPI.RegisterRoutes(mux)
 
-	return New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, ""), host, claimToken
+	return New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, ""), trialAPI, host, claimToken
 }
 
 func postTrialChat(h http.Handler, host, path, body string, session *http.Cookie) *httptest.ResponseRecorder {
@@ -153,6 +158,70 @@ func TestTrialProxy_NotConfigured503(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "trial_not_configured") {
 		t.Fatalf("body = %q, want trial_not_configured", rec.Body.String())
+	}
+}
+
+func TestTrialProxy_ElevenLabsSignedURL(t *testing.T) {
+	const trialKey = "xi-trial-secret-key"
+	const agentID = "agent-trial-42"
+
+	var gotAPIKey, gotAgentID string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAPIKey = r.Header.Get("xi-api-key")
+		gotAgentID = r.URL.Query().Get("agent_id")
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"signed_url":"wss://api.elevenlabs.io/v1/convai/conversation?token=abc"}`))
+	}))
+	defer upstream.Close()
+
+	cfg := TrialConfig{ElevenLabsAPIKey: trialKey, ElevenLabsAgentID: agentID, RatePerMinute: 100}
+	h, trialAPI, host, claimToken := newTrialTestHandlerAPI(t, cfg)
+	trialAPI.elevenLabsSignedURLBase = upstream.URL
+	session := registerAndGetSession(t, h, host, claimToken)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/trial/elevenlabs/signed-url", nil)
+	req.Host = host
+	req.AddCookie(session)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %q", rec.Code, rec.Body.String())
+	}
+	if gotAPIKey != trialKey {
+		t.Fatalf("upstream xi-api-key = %q, want trial key", gotAPIKey)
+	}
+	if gotAgentID != agentID {
+		t.Fatalf("upstream agent_id = %q, want %q", gotAgentID, agentID)
+	}
+	var payload map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("response not JSON: %v", err)
+	}
+	if !strings.HasPrefix(payload["signed_url"], "wss://") {
+		t.Fatalf("signed_url = %q", payload["signed_url"])
+	}
+
+	// SECURITY INVARIANT: key never reaches the client.
+	if strings.Contains(rec.Body.String(), trialKey) {
+		t.Fatalf("xi-api-key leaked in response body: %q", rec.Body.String())
+	}
+	for name, vals := range rec.Header() {
+		if strings.Contains(strings.Join(vals, " "), trialKey) {
+			t.Fatalf("xi-api-key leaked in response header %s", name)
+		}
+	}
+
+	// Unconfigured (missing agent ID counts as unconfigured) → 503.
+	h2, host2, claimToken2 := newTrialTestHandler(t, TrialConfig{ElevenLabsAPIKey: trialKey, RatePerMinute: 100})
+	session2 := registerAndGetSession(t, h2, host2, claimToken2)
+	req = httptest.NewRequest(http.MethodGet, "/api/trial/elevenlabs/signed-url", nil)
+	req.Host = host2
+	req.AddCookie(session2)
+	rec = httptest.NewRecorder()
+	h2.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "trial_not_configured") {
+		t.Fatalf("unconfigured: status = %d, body %q, want 503 trial_not_configured", rec.Code, rec.Body.String())
 	}
 }
 
