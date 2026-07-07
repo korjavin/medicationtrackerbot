@@ -1,1 +1,4 @@
+# False positive CPE match: telegram-bot-api is misidentified as telegraf
+# See TM-008 or .jules/sentinel.md (2026-07-07) for details.
+# Revisit if/when Trivy fixes the CPE matching for go-telegram-bot-api.
 CVE-2026-2303

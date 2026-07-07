@@ -1,6 +1,10 @@
 name: Trivy Container Image Scanning
 
 on:
+  pull_request:
+    paths:
+      - '.trivyignore'
+      - '.github/workflows/trivy-container-scan.yml'
   schedule:
     - cron: '0 3 * * *'
   workflow_dispatch:
