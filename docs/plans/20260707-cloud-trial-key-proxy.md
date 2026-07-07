@@ -69,9 +69,10 @@
 - [x] plumb the two booleans through `cloudserver.New(...)` from `cmd/cloud/main.go` alongside the existing `foodDBURL` parameter (`cfg.trial.TrialAIConfigured()` / `TrialVoiceConfigured()`)
 
 ### Task 6: Client fallback — aiclient.js
-- [ ] in `web/cloud/js/aiclient.js`: when the vault key is empty and the trial meta flag is set, route the same chat-completions request body to `/api/trial/openai/chat/completions` (with `?vision=1` for `parseMealFromImage`) via the app's normal `fetch` with credentials; omit `Authorization` header and `model` (server forces it)
-- [ ] only when the vault key is empty AND the trial flag is absent (or the trial route returns 503) → throw the existing `noKeyError()`; surface 429 as a distinct "trial limit reached — try again in a minute or add your own key" error message
-- [ ] Vitest (extend the existing food/aiclient suite): vault key present → browser-direct unchanged; no key + trial flag → trial route hit with forced-server model; no key + no flag → `no_api_key` error; trial 429 → limit message
+- [x] in `web/cloud/js/aiclient.js`: when the vault key is empty and the trial meta flag is set, route the same chat-completions request body to `/api/trial/openai/chat/completions` (with `?vision=1` for `parseMealFromImage`) via the app's normal `fetch` with credentials; omit `Authorization` header and `model` (server forces it)
+- [x] only when the vault key is empty AND the trial flag is absent (or the trial route returns 503) → throw the existing `noKeyError()`; surface 429 as a distinct "trial limit reached — try again in a minute or add your own key" error message
+- [x] Vitest (extend the existing food/aiclient suite): vault key present → browser-direct unchanged; no key + trial flag → trial route hit with forced-server model; no key + no flag → `no_api_key` error; trial 429 → limit message (+ trial 503 → no-key error, vault-beats-trial precedence, `?vision=1` on photo path)
+- ➕ [x] fixed pre-existing date-bomb failures in `cloud.shim-contract.food-ai.test.js` (hardcoded `2026-07-06T…` fixtures fell out of the `days=1` window) with a dynamic `todayAt()` helper
 
 ### Task 7: Client fallback — ElevenLabs
 - [ ] in `web/static/js/features/elevenlabs-call.js` cloud branch of `fetchSignedURL()`: if the vault elevenlabs key is empty and the trial-voice meta flag is set, skip agent provisioning and GET `/api/trial/elevenlabs/signed-url` (the trial uses the operator's shared agent); vault key present → current provision + browser-direct path unchanged

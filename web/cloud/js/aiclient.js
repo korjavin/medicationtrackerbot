@@ -4,6 +4,13 @@
 // vault's unmasked `integrations.openai` record. Never routed through any
 // /api shim surface. Mirrors internal/ai/openai.go's request/response shapes,
 // the response_format-rejection fallback, and fence stripping.
+//
+// Trial fallback: when the vault has no key and the served page carries
+// <meta name="medtracker-trial-ai" content="1"> (injected by cmd/cloud when
+// TRIAL_OPENAI_* is configured), the same request body is POSTed to the
+// same-origin proxy /api/trial/openai/chat/completions — no Authorization
+// header, no model field (the server forces the operator's model). Vault
+// key always wins; no key and no trial flag keeps today's no_api_key error.
 import { MealSystemPrompt, MealPhotoSystemPrompt, mealSchema } from '../../domain/foodai.js';
 
 const DEFAULT_URL = 'https://api.openai.com/v1';
@@ -18,6 +25,17 @@ function noKeyError() {
   const err = new Error('Add an OpenAI key in Settings → Integrations to use AI food logging.');
   err.code = 'no_api_key';
   return err;
+}
+
+function trialLimitError() {
+  const err = new Error('Trial limit reached — try again in a minute or add your own OpenAI key in Settings → Integrations.');
+  err.code = 'trial_rate_limit';
+  return err;
+}
+
+function trialAIAvailable() {
+  if (typeof document === 'undefined') return false;
+  return document.querySelector('meta[name="medtracker-trial-ai"]')?.content === '1';
 }
 
 function extractJSONContent(content) {
@@ -39,7 +57,7 @@ function isResponseFormatRejection(err) {
   return !!(err && err.apiError && /response_format/i.test(err.message));
 }
 
-async function postChatCompletion(url, apiKey, body) {
+async function postChatCompletion(endpoint, apiKey, body) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   let res;
@@ -47,7 +65,7 @@ async function postChatCompletion(url, apiKey, body) {
   try {
     const headers = { 'Content-Type': 'application/json' };
     if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
-    res = await fetch(`${url}/chat/completions`, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal });
+    res = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal });
     text = await res.text();
   } finally {
     clearTimeout(timer);
@@ -56,6 +74,7 @@ async function postChatCompletion(url, apiKey, body) {
   if (!res.ok) {
     const err = new Error(extractErrorMessage(text) || `API returned status code ${res.status}`);
     err.apiError = true;
+    err.status = res.status;
     throw err;
   }
 
@@ -89,6 +108,23 @@ async function fileToDataURL(file) {
   });
 }
 
+// Trial proxy path: strip model (server forces the operator's model, the
+// client must not choose it), rely on the same-origin session cookie instead
+// of Authorization, and map the proxy's error contract onto client errors —
+// 503 trial_not_configured degrades to the plain no-key error, 429 becomes a
+// distinct rate-limit message. Upstream error bodies are sanitized server-side
+// so isResponseFormatRejection never matches here (no fenced retry on trial).
+async function postTrialChatCompletion(vision, body) {
+  const { model: _serverForced, ...rest } = body;
+  try {
+    return await postChatCompletion(`/api/trial/openai/chat/completions${vision ? '?vision=1' : ''}`, '', rest);
+  } catch (err) {
+    if (err.status === 503) throw noKeyError();
+    if (err.status === 429) throw trialLimitError();
+    throw err;
+  }
+}
+
 const RESPONSE_FORMAT = { type: 'json_schema', json_schema: { name: 'parsed_meal', strict: true, schema: mealSchema } };
 
 function fenceInstruction(systemPrompt) {
@@ -115,8 +151,10 @@ export function createAIClient({ settingsDomain }) {
 
   async function parseMealFromDescription(description) {
     const { text } = await credentials();
-    if (!text.apiKey) throw noKeyError();
-    const url = text.url.replace(/\/$/, '');
+    const useTrial = !text.apiKey;
+    if (useTrial && !trialAIAvailable()) throw noKeyError();
+    const endpoint = `${text.url.replace(/\/$/, '')}/chat/completions`;
+    const post = (body) => (useTrial ? postTrialChatCompletion(false, body) : postChatCompletion(endpoint, text.apiKey, body));
 
     const body = {
       model: text.model,
@@ -128,10 +166,10 @@ export function createAIClient({ settingsDomain }) {
       response_format: RESPONSE_FORMAT,
     };
     try {
-      return await postChatCompletion(url, text.apiKey, body);
+      return await post(body);
     } catch (err) {
       if (!isResponseFormatRejection(err)) throw err;
-      return postChatCompletion(url, text.apiKey, {
+      return post({
         model: text.model,
         temperature: 0.1,
         messages: [
@@ -144,8 +182,10 @@ export function createAIClient({ settingsDomain }) {
 
   async function parseMealFromImage(file) {
     const { vision } = await credentials();
-    if (!vision.apiKey) throw noKeyError();
-    const url = vision.url.replace(/\/$/, '');
+    const useTrial = !vision.apiKey;
+    if (useTrial && !trialAIAvailable()) throw noKeyError();
+    const endpoint = `${vision.url.replace(/\/$/, '')}/chat/completions`;
+    const post = (body) => (useTrial ? postTrialChatCompletion(true, body) : postChatCompletion(endpoint, vision.apiKey, body));
     const dataURL = await fileToDataURL(file);
 
     const userContent = (text) => [
@@ -163,10 +203,10 @@ export function createAIClient({ settingsDomain }) {
       response_format: RESPONSE_FORMAT,
     };
     try {
-      return await postChatCompletion(url, vision.apiKey, body);
+      return await post(body);
     } catch (err) {
       if (!isResponseFormatRejection(err)) throw err;
-      return postChatCompletion(url, vision.apiKey, {
+      return post({
         model: vision.model,
         temperature: 0.1,
         messages: [

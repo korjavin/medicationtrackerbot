@@ -21,6 +21,14 @@ function flushPromises() {
     return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+// Local-date fixture — hardcoded dates rot out of the `days=1` query window
+// once the wall clock passes them (see the date-bomb gotcha in MEMORY.md).
+function todayAt(hhmm) {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${hhmm}`;
+}
+
 function makeImageFile(env, name = 'meal.jpg', sizeBytes) {
     const W = env.window;
     const bytes = sizeBytes ? new Uint8Array(sizeBytes) : new Uint8Array([1, 2, 3, 4]);
@@ -42,6 +50,17 @@ async function setOpenAIKey(window) {
     await window.apiCall('/api/settings/integrations', 'PATCH', {
         openai: { api_key: 'sk-test-dummy', url: 'https://api.example.test/v1' }
     });
+}
+
+// aiclient.js reads the trial flag from ITS realm's document (Node has none
+// under vitest environment: 'node') — stub it with env.window's JSDOM
+// document carrying the <meta> that injectCloudBoot splices server-side.
+function enableTrialAI(env) {
+    const meta = env.document.createElement('meta');
+    meta.name = 'medtracker-trial-ai';
+    meta.content = '1';
+    env.document.head.appendChild(meta);
+    vi.stubGlobal('document', env.document);
 }
 
 describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-undo}.js over web/domain/foodai.js)', () => {
@@ -87,7 +106,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
 
         document.getElementById('food-id').value = '';
         document.getElementById('food-parse-ai').checked = true;
-        document.getElementById('food-datetime').value = '2026-07-06T12:00';
+        document.getElementById('food-datetime').value = todayAt('12:00');
         document.getElementById('food-name').value = '200g grilled chicken with rice';
 
         await window.saveFoodLog();
@@ -162,7 +181,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
 
         document.getElementById('food-id').value = '';
         document.getElementById('food-parse-ai').checked = true;
-        document.getElementById('food-datetime').value = '2026-07-06T08:00';
+        document.getElementById('food-datetime').value = todayAt('08:00');
         document.getElementById('food-name').value = 'a bowl of oatmeal';
 
         await window.saveFoodLog();
@@ -184,7 +203,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
 
         document.getElementById('food-id').value = '';
         document.getElementById('food-parse-ai').checked = true;
-        document.getElementById('food-datetime').value = '2026-07-06T08:00';
+        document.getElementById('food-datetime').value = todayAt('08:00');
         document.getElementById('food-name').value = 'two eggs';
 
         await window.saveFoodLog();
@@ -209,6 +228,117 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
         expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/8\s*MB/i));
     });
 
+    it('trial fallback: no vault key + trial meta flag routes to the same-origin proxy with no model and no Authorization', async () => {
+        const { window, document } = env;
+        enableTrialAI(env);
+
+        const fetchSpy = vi.fn().mockResolvedValue(chatCompletionResponse([
+            { name: 'Banana', weight_grams: 120, carbs_100g: 23, protein_100g: 1.1, fat_100g: 0.3 }
+        ]));
+        vi.stubGlobal('fetch', fetchSpy);
+
+        document.getElementById('food-id').value = '';
+        document.getElementById('food-parse-ai').checked = true;
+        document.getElementById('food-datetime').value = todayAt('09:00');
+        document.getElementById('food-name').value = 'a banana';
+
+        await window.saveFoodLog();
+        await flushPromises();
+
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(fetchSpy.mock.calls[0][0]).toBe('/api/trial/openai/chat/completions');
+        const [, init] = fetchSpy.mock.calls[0];
+        expect(init.headers.Authorization).toBeUndefined();
+        const body = JSON.parse(init.body);
+        expect(body.model).toBeUndefined();
+        expect(body.response_format).toBeDefined();
+
+        const grouped = await window.apiCall('/api/food/log?days=1');
+        expect(grouped.flatMap((g) => g.logs).map((l) => l.name)).toEqual(['Banana']);
+    });
+
+    it('trial fallback photo: parseMealFromImage hits the proxy with ?vision=1', async () => {
+        const { window } = env;
+        enableTrialAI(env);
+
+        const fetchSpy = vi.fn().mockResolvedValue(chatCompletionResponse([
+            { name: 'Salad', weight_grams: 180, carbs_100g: 5, protein_100g: 2, fat_100g: 3 }
+        ]));
+        vi.stubGlobal('fetch', fetchSpy);
+
+        await window.uploadFoodPhotoFile(makeImageFile(env));
+        await flushPromises();
+
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(fetchSpy.mock.calls[0][0]).toBe('/api/trial/openai/chat/completions?vision=1');
+    });
+
+    it('trial 429: rate-limit response surfaces the distinct trial-limit message', async () => {
+        allowConsoleNoise();
+        const { window, document } = env;
+        enableTrialAI(env);
+
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+            ok: false,
+            status: 429,
+            async text() { return JSON.stringify({ error: 'trial_rate_limit', retry_after_seconds: 60 }); }
+        }));
+
+        document.getElementById('food-id').value = '';
+        document.getElementById('food-parse-ai').checked = true;
+        document.getElementById('food-datetime').value = todayAt('09:00');
+        document.getElementById('food-name').value = 'a banana';
+
+        await window.saveFoodLog();
+        await flushPromises();
+
+        expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/trial limit/i));
+    });
+
+    it('trial 503: unconfigured proxy degrades to the plain no-key error', async () => {
+        allowConsoleNoise();
+        const { window, document } = env;
+        enableTrialAI(env);
+
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+            ok: false,
+            status: 503,
+            async text() { return JSON.stringify({ error: 'trial_not_configured' }); }
+        }));
+
+        document.getElementById('food-id').value = '';
+        document.getElementById('food-parse-ai').checked = true;
+        document.getElementById('food-datetime').value = todayAt('09:00');
+        document.getElementById('food-name').value = 'a banana';
+
+        await window.saveFoodLog();
+        await flushPromises();
+
+        expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/Settings.*Integrations/i));
+        expect(window.safeAlert).not.toHaveBeenCalledWith(expect.stringMatching(/trial limit/i));
+    });
+
+    it('vault key beats trial: with both present the call stays browser-direct', async () => {
+        const { window, document } = env;
+        await setOpenAIKey(window);
+        enableTrialAI(env);
+
+        const fetchSpy = vi.fn().mockResolvedValue(chatCompletionResponse([
+            { name: 'Toast', weight_grams: 60, carbs_100g: 45, protein_100g: 8, fat_100g: 3 }
+        ]));
+        vi.stubGlobal('fetch', fetchSpy);
+
+        document.getElementById('food-id').value = '';
+        document.getElementById('food-parse-ai').checked = true;
+        document.getElementById('food-datetime').value = todayAt('09:00');
+        document.getElementById('food-name').value = 'a slice of toast';
+
+        await window.saveFoodLog();
+        await flushPromises();
+
+        expect(fetchSpy.mock.calls[0][0]).toBe('https://api.example.test/v1/chat/completions');
+    });
+
     it('masked-key assertion: GET /api/settings/integrations never returns the raw key, even after a live AI call', async () => {
         const { window, document } = env;
         await setOpenAIKey(window);
@@ -218,7 +348,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
 
         document.getElementById('food-id').value = '';
         document.getElementById('food-parse-ai').checked = true;
-        document.getElementById('food-datetime').value = '2026-07-06T08:00';
+        document.getElementById('food-datetime').value = todayAt('08:00');
         document.getElementById('food-name').value = 'a slice of toast';
         await window.saveFoodLog();
         await flushPromises();
