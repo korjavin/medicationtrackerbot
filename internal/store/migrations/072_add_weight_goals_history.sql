@@ -21,7 +21,7 @@ CREATE TABLE weight_goals (
     user_id         INTEGER NOT NULL,
     set_at_unix     INTEGER NOT NULL,
     target_weight   REAL    NOT NULL,
-    target_date     TEXT    NOT NULL,
+    target_date     TEXT,
     start_weight    REAL
 );
 CREATE INDEX idx_weight_goals_user_set_at ON weight_goals(user_id, set_at_unix DESC);

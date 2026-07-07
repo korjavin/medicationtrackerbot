@@ -67,7 +67,7 @@ func TestMigration072_CreatesWeightGoalsHistoryTable(t *testing.T) {
 		{"user_id", "INTEGER", 1},
 		{"set_at_unix", "INTEGER", 1},
 		{"target_weight", "REAL", 1},
-		{"target_date", "TEXT", 1},
+		{"target_date", "TEXT", 0},
 		{"start_weight", "REAL", 0},
 	}
 	got := pragmaColumns(t, db, "weight_goals")
