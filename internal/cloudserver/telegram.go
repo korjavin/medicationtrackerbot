@@ -202,25 +202,25 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	if upd.ManagedBot == nil {
-		slog.Info("telegram manager webhook: update without managed_bot", "update_id", upd.UpdateID, "body", string(body))
+	botID, botUsername, ok := upd.ManagedBotCreatedInfo()
+	if !ok {
+		slog.Info("telegram manager webhook: update without managed_bot_created", "update_id", upd.UpdateID, "body", string(body))
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-	slog.Info("telegram manager webhook: managed_bot update", "bot_id", upd.ManagedBot.BotID, "bot_username", upd.ManagedBot.BotUsername)
-	mb := upd.ManagedBot
+	slog.Info("telegram manager webhook: managed_bot_created", "bot_id", botID, "bot_username", botUsername)
 	now := time.Now()
 	// Peek (don't consume) the pending row: the pending row is the only retry
 	// anchor, so we delete it only after every fallible Telegram/DB step below
 	// succeeds. A 500 before that leaves the row intact and Telegram re-drives
 	// the whole bind — otherwise a transient token/webhook failure would strand
 	// the flow with no way to re-fire the managed_bot update.
-	accountID, err := t.store.PendingAccountByUsername(r.Context(), mb.BotUsername, now)
+	accountID, err := t.store.PendingAccountByUsername(r.Context(), botUsername, now)
 	if errors.Is(err, cloudstore.ErrPendingInvalid) {
 		// Edited username or replay — no fast-path binding. v1 ceiling; the
 		// wizard copy asks the user to keep the suggested name (BYO fallback
 		// otherwise). ponytail: revisit if ManagedBotUpdated carries the link.
-		slog.Info("telegram manager webhook: no pending match", "bot_username", mb.BotUsername)
+		slog.Info("telegram manager webhook: no pending match", "bot_username", botUsername)
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -230,9 +230,9 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := t.manager.GetManagedBotToken(r.Context(), mb.BotID)
+	token, err := t.manager.GetManagedBotToken(r.Context(), botID)
 	if err != nil {
-		slog.Error("telegram manager webhook: get managed token", "error", err, "bot_id", mb.BotID)
+		slog.Error("telegram manager webhook: get managed token", "error", err, "bot_id", botID)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -245,8 +245,8 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 	botSecret := randomSecret()
 	if err := t.store.UpsertBot(r.Context(), cloudstore.TGBot{
 		AccountID:     accountID,
-		BotID:         mb.BotID,
-		BotUsername:   mb.BotUsername,
+		BotID:         botID,
+		BotUsername:   botUsername,
 		TokenCT:       ct,
 		TokenNonce:    nonce,
 		Kind:          "managed",
@@ -266,10 +266,10 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	// Bind fully succeeded — now retire the pending row (single-use). A retry
 	// that already deleted it lands on ErrPendingInvalid, which is fine.
-	if _, err := t.store.ConsumePendingByUsername(r.Context(), mb.BotUsername, now); err != nil && !errors.Is(err, cloudstore.ErrPendingInvalid) {
+	if _, err := t.store.ConsumePendingByUsername(r.Context(), botUsername, now); err != nil && !errors.Is(err, cloudstore.ErrPendingInvalid) {
 		slog.Error("telegram manager webhook: delete pending", "error", err, "account", accountID)
 	}
-	slog.Info("telegram managed bot provisioned", "account", accountID, "bot_username", mb.BotUsername)
+	slog.Info("telegram managed bot provisioned", "account", accountID, "bot_username", botUsername)
 	w.WriteHeader(http.StatusOK)
 }
 

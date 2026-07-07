@@ -85,7 +85,7 @@ func TestTelegramProvisioningStateMachine(t *testing.T) {
 
 	// managed_bot webhook with the matching suggested username → bot created
 	managerSecret := deriveWebhookSecret(tgTestSecret, "mt/tg-manager-webhook/v1")
-	update := `{"update_id":1,"managed_bot":{"bot_id":909,"bot_username":"` + prov.Suggested + `"}}`
+	update := `{"update_id":1,"message":{"message_id":1,"chat":{"id":100,"type":"private"},"managed_bot_created":{"bot":{"id":909,"username":"` + prov.Suggested + `"}}}}`
 	whRec := postWebhook(t, top, "/tg/manager/"+managerSecret, managerSecret, update)
 	if whRec.Code != http.StatusOK {
 		t.Fatalf("manager webhook status = %d, body %q", whRec.Code, whRec.Body.String())
@@ -118,7 +118,7 @@ func TestTelegramProvisioningStateMachine(t *testing.T) {
 	if provRec2 := doReq(t, top, http.MethodPost, "http://"+host2+"/api/telegram/provision", host2, session2, nil); provRec2.Code != http.StatusOK {
 		t.Fatalf("provision 2 status = %d", provRec2.Code)
 	}
-	edited := `{"update_id":2,"managed_bot":{"bot_id":42,"bot_username":"mt_edited_by_user_bot"}}`
+	edited := `{"update_id":2,"message":{"message_id":2,"chat":{"id":100,"type":"private"},"managed_bot_created":{"bot":{"id":42,"username":"mt_edited_by_user_bot"}}}}`
 	if whRec2 := postWebhook(t, top, "/tg/manager/"+managerSecret, managerSecret, edited); whRec2.Code != http.StatusOK {
 		t.Fatalf("edited-username webhook status = %d (must drop with 200)", whRec2.Code)
 	}
@@ -208,7 +208,7 @@ func TestTelegramLinkingAndBYO(t *testing.T) {
 	}
 	json.Unmarshal(provRec.Body.Bytes(), &prov)
 	managerSecret := deriveWebhookSecret(tgTestSecret, "mt/tg-manager-webhook/v1")
-	update := `{"update_id":1,"managed_bot":{"bot_id":909,"bot_username":"` + prov.Suggested + `"}}`
+	update := `{"update_id":1,"message":{"message_id":1,"chat":{"id":100,"type":"private"},"managed_bot_created":{"bot":{"id":909,"username":"` + prov.Suggested + `"}}}}`
 	if whRec := postWebhook(t, top, "/tg/manager/"+managerSecret, managerSecret, update); whRec.Code != http.StatusOK {
 		t.Fatalf("manager webhook status = %d", whRec.Code)
 	}
