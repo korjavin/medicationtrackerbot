@@ -25,7 +25,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # Create the runtime user with no shell login. We do not install pip-managed
 # packages because the helper has zero runtime dependencies (urllib + json
 # from the stdlib).
-RUN addgroup -g 1000 runner && \
+# We also upgrade existing packages to patch vulnerabilities in the base image (e.g., libexpat).
+RUN apk upgrade --no-cache && \
+    addgroup -g 1000 runner && \
     adduser -D -u 1000 -G runner -s /sbin/nologin runner
 
 WORKDIR /opt/medtracker

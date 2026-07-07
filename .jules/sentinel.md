@@ -22,3 +22,7 @@
 **Vulnerability:** Use of default `http.Client{}` without timeouts in external API calls (e.g., OIDC userinfo, OpenFoodFacts).
 **Learning:** Default HTTP clients in Go have no timeout, meaning a slow or unresponsive external server can cause goroutines to hang indefinitely, leading to resource exhaustion (DoS).
 **Prevention:** Always initialize `http.Client` with explicit timeouts (e.g., `&http.Client{Timeout: 10 * time.Second}`) when making external requests.
+## 2026-07-07 - Patch libexpat CVEs in Alpine Base Images
+**Vulnerability:** Known vulnerabilities (e.g., integer overflows, use-after-free) in packages inherited from Alpine base images (like libexpat in python3/alpine images).
+**Learning:** Container base images (like `alpine:latest` or `python:3.12-alpine`) frequently contain outdated packages with known CVEs (like libexpat) because the image tags are not updated synchronously with every upstream package patch. Relying solely on the base image without upgrading its existing packages propagates these vulnerabilities into production.
+**Prevention:** Always include a `RUN apk upgrade --no-cache` (or equivalent for other package managers) command in Dockerfiles, ideally before or chained with the package installation step, to ensure all inherited packages are updated to their latest patched versions during the image build process.
