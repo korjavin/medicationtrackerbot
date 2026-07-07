@@ -858,6 +858,40 @@
                 <button id="save-integrations-btn" type="button" class="wg-gloss wg-gloss--sun wg-settings-save-btn">Save Integrations</button>
             </section>
 
+            <section id="settings-importexport" class="wg-card wg-settings-section wg-settings-importexport">
+                <h3 class="wg-settings-section__title">Import / Export</h3>
+                <p class="wg-settings-section__desc">Download all your data as one file, or restore from a backup. Importing replaces everything currently stored.</p>
+
+                <div class="wg-settings-integrations__group">
+                    <h4 class="wg-settings-integrations__group-title wg-mono-display">Export</h4>
+                    <div class="wg-settings-integrations__field">
+                        <label for="importexport-export-passphrase" class="wg-settings-integrations__label">Passphrase (optional)</label>
+                        <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
+                            <input type="password" id="importexport-export-passphrase" class="wg-settings-integrations__input" autocomplete="off" placeholder="Encrypt the backup">
+                        </div>
+                        <p id="importexport-passphrase-nudge" class="wg-settings-integrations__note" hidden>The backup contains your provider API keys — consider a passphrase.</p>
+                    </div>
+                    <button id="importexport-export-btn" type="button" class="wg-gloss wg-gloss--sun wg-settings-save-btn">Download backup</button>
+                </div>
+
+                <div class="wg-settings-integrations__group">
+                    <h4 class="wg-settings-integrations__group-title wg-mono-display">Import</h4>
+                    <div class="wg-settings-integrations__field">
+                        <label for="importexport-import-file" class="wg-settings-integrations__label">Backup file (.json or .age)</label>
+                        <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
+                            <input type="file" id="importexport-import-file" class="wg-settings-integrations__input" accept=".json,.age">
+                        </div>
+                    </div>
+                    <div id="importexport-import-passphrase-field" class="wg-settings-integrations__field" hidden>
+                        <label for="importexport-import-passphrase" class="wg-settings-integrations__label">Passphrase</label>
+                        <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
+                            <input type="password" id="importexport-import-passphrase" class="wg-settings-integrations__input" autocomplete="off" placeholder="Decrypt the backup">
+                        </div>
+                    </div>
+                    <button id="importexport-import-btn" type="button" class="wg-gloss wg-settings-save-btn">Import backup (replace)</button>
+                </div>
+            </section>
+
             <section id="settings-about" class="wg-card wg-settings-section wg-settings-about">
                 <h3 class="wg-settings-section__title">About</h3>
                 <p class="wg-settings-section__desc">Diagnostics for the embedded server</p>
@@ -1972,6 +2006,7 @@
     <script src="/static/js/features/call-indicator.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/settings.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/settings/integrations.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="/static/js/features/settings/importexport.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/backend-logs.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/today.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/journey.js?v=TIMESTAMP_PLACEHOLDER"></script>

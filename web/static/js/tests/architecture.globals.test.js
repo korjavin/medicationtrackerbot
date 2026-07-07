@@ -179,6 +179,7 @@ const ALLOWED_GLOBALS = new Set([
 
     // Settings → Integrations section (local-only mode foundation, Task 3).
     'window.SettingsIntegrations',      // features/settings/integrations.js — load + save handlers for the Integrations card (OpenAI / Food / ElevenLabs credentials); routes the save through DataStore.applyOptimistic so the masked GET view repaints immediately on commit and rolls back on failure.
+    'window.SettingsImportExport',      // features/settings/importexport.js — Settings → Import/Export section (C2e Task 6). One shared screen for both runtimes: export via CloudVault.exportAll() (cloud) or GET /api/export (bot) with optional browser-side age (BackupCrypto) encryption + Blob download; import reads a .json/.age file, optional decrypt, destructive replace-confirm, then CloudVault.importAll() (cloud) or POST /api/import mode:replace (bot), then reloads. Cloud branch never fetches /api/export|/api/import.
 
     // Backend logs diagnostics — embedded-Go shell (mobile Phase 2a, Task 5).
     'window.BackendLogs',               // features/backend-logs.js — Settings → About → "Backend logs" debug screen. Detects window.MedtrackerNative (Capacitor shell's addJavascriptInterface bridge); reveals a "View logs" row that opens a modal showing the last 200 stdout+stderr lines from the embedded Go binary. No-op in browser PWA + server-mode where MedtrackerNative is absent.

@@ -352,6 +352,11 @@ async function loadSettings() {
     if (window.SettingsIntegrations && typeof window.SettingsIntegrations.load === 'function') {
         try { await window.SettingsIntegrations.load(); } catch (_) { /* no-op */ }
     }
+    // Import/Export section (C2e Task 6) — static, so load() just (re)binds its
+    // controls; safe in both bot and cloud modes.
+    if (window.SettingsImportExport && typeof window.SettingsImportExport.load === 'function') {
+        try { window.SettingsImportExport.load(); } catch (_) { /* no-op */ }
+    }
     // Journey targets editor — loaded lazily off its own endpoint (best-effort;
     // internally gated on the gamification flag).
     await loadGamificationTargets();
