@@ -127,13 +127,23 @@ func (c *Client) GetMe(ctx context.Context) (User, error) {
 // Bot API 9.6. The bot is identified by user_id — bots ARE users, so this is the
 // child bot's own id, NOT the human creator's (the live API returns "400: user
 // is not a bot" if a human id is passed, and "400: invalid user_id specified"
-// if it's omitted). Returns the raw token string.
+// if it's omitted). The result is the token as a bare JSON string (result:
+// "123:ABC"), not an object — verified against the live API.
 func (c *Client) GetManagedBotToken(ctx context.Context, botID int64) (string, error) {
-	var res struct {
-		Token string `json:"token"`
+	var token string
+	err := c.call(ctx, "getManagedBotToken", map[string]any{"user_id": botID}, &token)
+	return token, err
+}
+
+// IsClientError reports whether err is a Telegram API error with a 4xx status —
+// a permanent rejection (bad/deleted/deactivated bot, invalid params) that
+// retrying won't fix, as opposed to a transient 5xx/network failure.
+func IsClientError(err error) bool {
+	var ae *apiError
+	if errors.As(err, &ae) {
+		return ae.Code >= 400 && ae.Code < 500
 	}
-	err := c.call(ctx, "getManagedBotToken", map[string]any{"user_id": botID}, &res)
-	return res.Token, err
+	return false
 }
 
 // SetWebhook registers url as the bot's webhook with the given secret_token

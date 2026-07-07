@@ -57,7 +57,7 @@ func TestTelegramProvisioningStateMachine(t *testing.T) {
 
 	tgSrv := fakeTG(t, map[string]string{
 		"getMe":              `{"ok":true,"result":{"id":7,"is_bot":true,"username":"mt_manager_bot","can_manage_bots":true}}`,
-		"getManagedBotToken": `{"ok":true,"result":{"token":"555:CHILD"}}`,
+		"getManagedBotToken": `{"ok":true,"result":"555:CHILD"}`,
 	})
 
 	webauthnAPI := NewWebAuthnAPI(store, tgTestSecret)
@@ -175,7 +175,7 @@ func newRecordingTG(t *testing.T) *recordingTG {
 			}
 			io.WriteString(w, `{"ok":true,"result":{"id":7,"is_bot":true,"username":"mt_manager_bot","can_manage_bots":true}}`)
 		case "getManagedBotToken":
-			io.WriteString(w, `{"ok":true,"result":{"token":"555:CHILD"}}`)
+			io.WriteString(w, `{"ok":true,"result":"555:CHILD"}`)
 		case "sendMessage":
 			b, _ := io.ReadAll(r.Body)
 			rec.mu.sent = append(rec.mu.sent, string(b))
