@@ -1,761 +1,1260 @@
 #!/usr/bin/env bash
-#
-# Beads (bd) installation script
-# Usage: curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/install.sh | bash
-#
-# ⚠️ IMPORTANT: This script must be EXECUTED, never SOURCED
-# ❌ WRONG: source install.sh (will exit your shell on errors)
-# ✅ CORRECT: bash install.sh
-# ✅ CORRECT: curl -fsSL ... | bash
-#
+set -euo pipefail
 
-set -e
+APP_NAME="medtracker"
+DEFAULT_INSTALL_DIR="/opt/medtracker"
+COMPOSE_FILE="docker-compose.yml"
+ENV_FILE=".env"
+DEFAULT_PUID="$(id -u 2>/dev/null || echo 1000)"
+DEFAULT_PGID="$(id -g 2>/dev/null || echo 1000)"
+STATE_FILE=""
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+say() { printf '%s\n' "$*"; }
+warn() { printf 'Warning: %s\n' "$*" >&2; }
+die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
 
-log_info() {
-    echo -e "${BLUE}==>${NC} $1" >&2
+has_cmd() { command -v "$1" >/dev/null 2>&1; }
+
+USE_WHIPTAIL=false
+if has_cmd whiptail; then
+  USE_WHIPTAIL=true
+fi
+
+prompt() {
+  local message="$1"
+  local default="$2"
+  local value=""
+  if "$USE_WHIPTAIL"; then
+    value=$(whiptail --inputbox "$message" 10 78 "$default" 3>&1 1>&2 2>&3) || exit 1
+  else
+    read -r -p "$message [$default]: " value
+    value="${value:-$default}"
+  fi
+  printf '%s' "$value"
 }
 
-log_success() {
-    echo -e "${GREEN}==>${NC} $1" >&2
+prompt_secret() {
+  local message="$1"
+  local value=""
+  if "$USE_WHIPTAIL"; then
+    value=$(whiptail --passwordbox "$message" 10 78 3>&1 1>&2 2>&3) || exit 1
+  else
+    read -r -s -p "$message: " value
+    printf '\n'
+  fi
+  printf '%s' "$value"
 }
 
-log_warning() {
-    echo -e "${YELLOW}==>${NC} $1" >&2
-}
-
-log_error() {
-    echo -e "${RED}Error:${NC} $1" >&2
-}
-
-print_missing_build_deps_help() {
-    local system
-    system=$(uname -s)
-
-    case "$system" in
-        Darwin)
-            log_warning "Build from source requires CGO and a C toolchain."
-            log_warning "Install Xcode Command Line Tools: xcode-select --install"
-            ;;
-        Linux)
-            log_warning "Build from source requires CGO and a C toolchain."
-            log_warning "Install build tools with your package manager, for example:"
-            log_warning "  Debian/Ubuntu: sudo apt-get install -y build-essential pkg-config libzstd-dev"
-            log_warning "  Fedora/RHEL: sudo dnf install -y gcc gcc-c++ make pkgconf-pkg-config libzstd-devel"
-            ;;
-        FreeBSD)
-            log_warning "Build from source requires CGO and a C toolchain."
-            log_warning "Install them with: pkg install -y gcc gmake pkgconf zstd"
-            ;;
-    esac
-}
-
-release_has_asset() {
-    local release_json=$1
-    local asset_name=$2
-
-    if echo "$release_json" | grep -Fq "\"name\": \"$asset_name\""; then
-        return 0
-    fi
-
-    return 1
-}
-
-download_file() {
-    local url=$1
-    local output_path=$2
-
-    if command -v curl &> /dev/null; then
-        curl -fsSL -o "$output_path" "$url"
-        return $?
-    fi
-
-    if command -v wget &> /dev/null; then
-        wget -q -O "$output_path" "$url"
-        return $?
-    fi
-
-    log_error "Neither curl nor wget found. Please install one of them."
-    return 1
-}
-
-sha256_file() {
-    local file_path=$1
-
-    if command -v sha256sum &> /dev/null; then
-        sha256sum "$file_path" | awk '{print $1}'
-        return 0
-    fi
-
-    if command -v shasum &> /dev/null; then
-        shasum -a 256 "$file_path" | awk '{print $1}'
-        return 0
-    fi
-
-    if command -v openssl &> /dev/null; then
-        openssl dgst -sha256 "$file_path" | awk '{print $2}'
-        return 0
-    fi
-
-    return 1
-}
-
-verify_release_checksum() {
-    local release_json=$1
-    local version=$2
-    local archive_name=$3
-    local archive_path=$4
-
-    local checksums_name="checksums.txt"
-    local checksums_url="https://github.com/gastownhall/beads/releases/download/${version}/${checksums_name}"
-
-    if ! release_has_asset "$release_json" "$checksums_name"; then
-        log_error "Release metadata is missing ${checksums_name}; refusing to install unverified binary"
-        return 1
-    fi
-
-    if ! download_file "$checksums_url" "$checksums_name"; then
-        log_error "Failed to download ${checksums_name}; refusing to install unverified binary"
-        return 1
-    fi
-
-    local expected
-    expected=$(awk -v target="$archive_name" '{name=$2; sub(/^\*/, "", name); if (name == target) {print $1; exit}}' "$checksums_name")
-    if [ -z "$expected" ]; then
-        log_error "No checksum entry found for ${archive_name} in ${checksums_name}"
-        return 1
-    fi
-
-    local actual
-    actual=$(sha256_file "$archive_path") || {
-        log_error "No SHA256 tool found (need one of: sha256sum, shasum, openssl)"
-        return 1
-    }
-
-    if [ "$expected" != "$actual" ]; then
-        log_error "Checksum mismatch for ${archive_name}; refusing to install"
-        return 1
-    fi
-
-    log_success "Checksum verified for ${archive_name}"
+get_state() {
+  local key="$1"
+  if [ -z "$STATE_FILE" ] || [ ! -f "$STATE_FILE" ]; then
     return 0
+  fi
+  # grep returns 1 on no match; under set -e + pipefail that aborts the
+  # whole script when called via $(...). Suppress so a missing key just
+  # yields empty output.
+  { grep -m1 "^${key}=" "$STATE_FILE" || true; } | sed "s/^${key}=//"
 }
 
-find_extracted_bd() {
-    local search_dir=$1
+set_state() {
+  local key="$1"
+  local value="$2"
+  if [ -z "$STATE_FILE" ]; then
+    return 0
+  fi
+  local tmp
+  tmp=$(mktemp)
+  if [ -f "$STATE_FILE" ]; then
+    grep -v "^${key}=" "$STATE_FILE" > "$tmp" || true
+  fi
+  printf '%s=%s\n' "$key" "$value" >> "$tmp"
+  mv "$tmp" "$STATE_FILE"
+  chmod 600 "$STATE_FILE" 2>/dev/null || true
+}
 
-    if [ -x "$search_dir/bd" ]; then
-        printf '%s\n' "$search_dir/bd"
-        return 0
+prompt_state() {
+  local key="$1"
+  local message="$2"
+  local default="$3"
+  local saved
+  saved=$(get_state "$key")
+  if [ -n "$saved" ]; then
+    default="$saved"
+  fi
+  local value
+  value=$(prompt "$message" "$default")
+  set_state "$key" "$value"
+  printf '%s' "$value"
+}
+
+prompt_secret_state() {
+  local key="$1"
+  local message="$2"
+  local saved
+  saved=$(get_state "$key")
+  local value=""
+  if [ -n "$saved" ]; then
+    if "$USE_WHIPTAIL"; then
+      if whiptail --yesno "Reuse saved value for ${message}?" 10 78; then
+        value="$saved"
+      else
+        value=$(whiptail --passwordbox "$message" 10 78 3>&1 1>&2 2>&3) || exit 1
+      fi
+    else
+      read -r -s -p "$message (press Enter to keep existing): " value
+      printf '\n'
+      if [ -z "$value" ]; then
+        value="$saved"
+      fi
     fi
+  else
+    value=$(prompt_secret "$message")
+  fi
+  set_state "$key" "$value"
+  printf '%s' "$value"
+}
 
-    local extracted_bd
-    extracted_bd=$(find "$search_dir" -mindepth 2 -maxdepth 2 -type f -name bd | head -n 1)
-    if [ -n "$extracted_bd" ] && [ -x "$extracted_bd" ]; then
-        printf '%s\n' "$extracted_bd"
-        return 0
+confirm_state() {
+  local key="$1"
+  local message="$2"
+  local default_yes="$3"
+  local saved
+  saved=$(get_state "$key")
+  if [ -n "$saved" ]; then
+    default_yes="$saved"
+  fi
+  if confirm "$message" "$default_yes"; then
+    set_state "$key" "yes"
+    return 0
+  fi
+  set_state "$key" "no"
+  return 1
+}
+
+confirm() {
+  local message="$1"
+  local default_yes="${2:-yes}"
+  local result=1
+  if "$USE_WHIPTAIL"; then
+    if [ "$default_yes" = "no" ]; then
+      whiptail --defaultno --yesno "$message" 10 78
+    else
+      whiptail --yesno "$message" 10 78
     fi
+    result=$?
+  else
+    local prompt_suffix="[Y/n]"
+    if [ "$default_yes" = "no" ]; then
+      prompt_suffix="[y/N]"
+    fi
+    local answer
+    read -r -p "$message $prompt_suffix " answer
+    answer="${answer:-$default_yes}"
+    case "$answer" in
+      y|Y|yes|YES) result=0 ;;
+      *) result=1 ;;
+    esac
+  fi
+  return $result
+}
 
+detect_timezone() {
+  local tz=""
+  if has_cmd timedatectl; then
+    tz=$(timedatectl show -p Timezone --value 2>/dev/null || true)
+  fi
+  if [ -z "$tz" ] && [ -f /etc/timezone ]; then
+    tz=$(cat /etc/timezone 2>/dev/null || true)
+  fi
+  if [ -z "$tz" ]; then
+    tz="UTC"
+  fi
+  printf '%s' "$tz"
+}
+
+detect_public_ip() {
+  local ip=""
+  if has_cmd curl; then
+    ip=$(curl -fsSL https://api.ipify.org 2>/dev/null || true)
+    if [ -z "$ip" ]; then
+      ip=$(curl -fsSL https://ifconfig.me 2>/dev/null || true)
+    fi
+  elif has_cmd wget; then
+    ip=$(wget -qO- https://api.ipify.org 2>/dev/null || true)
+  fi
+  printf '%s' "$ip"
+}
+
+validate_oidc_discovery() {
+  local issuer="$1"
+  if [ -z "$issuer" ]; then
+    return 0
+  fi
+  local url="${issuer%/}/.well-known/openid-configuration"
+  local body=""
+  if has_cmd curl; then
+    body=$(curl -fsSL "$url" 2>/dev/null || true)
+  elif has_cmd wget; then
+    body=$(wget -qO- "$url" 2>/dev/null || true)
+  fi
+  if [ -z "$body" ]; then
+    warn "OIDC discovery check failed at $url"
     return 1
+  fi
+  if ! printf '%s' "$body" | grep -q '"authorization_endpoint"'; then
+    warn "OIDC discovery missing authorization_endpoint"
+    return 1
+  fi
+  if ! printf '%s' "$body" | grep -q '"token_endpoint"'; then
+    warn "OIDC discovery missing token_endpoint"
+    return 1
+  fi
+  if ! printf '%s' "$body" | grep -q '"userinfo_endpoint"'; then
+    warn "OIDC discovery missing userinfo_endpoint"
+    return 1
+  fi
+  return 0
 }
 
-# Re-sign binary for macOS only when explicitly requested.
-# This replaces the upstream signature with a local ad-hoc signature.
-resign_for_macos() {
-    local binary_path=$1
-
-    # Only run on macOS
-    if [[ "$(uname -s)" != "Darwin" ]]; then
-        return 0
-    fi
-
-    # Keep re-signing opt-in so users can decide whether to preserve
-    # the release signature/Gatekeeper behavior.
-    if [ "${BEADS_INSTALL_RESIGN_MACOS:-0}" != "1" ]; then
-        log_info "Skipping macOS ad-hoc re-signing (default)"
-        log_info "Set BEADS_INSTALL_RESIGN_MACOS=1 to opt in"
-        return 0
-    fi
-
-    # Check if codesign is available
-    if ! command -v codesign &> /dev/null; then
-        log_warning "codesign not found, skipping re-signing"
-        return 0
-    fi
-
-    log_warning "Opt-in macOS re-sign enabled: replacing release signature with local ad-hoc signature"
-    codesign --remove-signature "$binary_path" 2>/dev/null || true
-    if codesign --force --sign - "$binary_path"; then
-        log_success "Binary re-signed for this machine"
-    else
-        log_warning "Failed to re-sign binary (non-fatal)"
-    fi
-}
-
-# Detect OS and architecture
-detect_platform() {
-    local os arch
-
-    # Detect Windows environments where this bash script won't produce a usable install.
-    # MSYS2, Git Bash, and Cygwin report MINGW*, MSYS*, or CYGWIN* from uname -s.
-    case "$(uname -s)" in
-        MINGW*|MSYS*|CYGWIN*)
-            log_error "Windows detected ($(uname -s))."
-            echo "" >&2
-            echo "  This bash installer is for macOS/Linux. On Windows, use the PowerShell installer:" >&2
-            echo "" >&2
-            echo "    irm https://raw.githubusercontent.com/gastownhall/beads/main/install.ps1 | iex" >&2
-            echo "" >&2
-            exit 1
-            ;;
-    esac
-
-    # Detect WSL (Windows Subsystem for Linux).
-    # WSL reports uname -s as "Linux" but installs into the Linux filesystem,
-    # which is not accessible from native Windows tools.
-    if [ -f /proc/version ] && grep -qi 'microsoft\|wsl' /proc/version 2>/dev/null; then
-        log_warning "WSL (Windows Subsystem for Linux) detected."
-        echo "" >&2
-        echo "  This will install the Linux version of bd, usable only inside WSL." >&2
-        echo "  If you want bd available in native Windows (PowerShell, cmd), use:" >&2
-        echo "" >&2
-        echo "    irm https://raw.githubusercontent.com/gastownhall/beads/main/install.ps1 | iex" >&2
-        echo "" >&2
-        # Only show interactive message and pause if running in a terminal (skip in CI/non-interactive shells)
-        if [ -t 0 ]; then
-            echo "  Continuing with Linux install for WSL in 5 seconds... (Ctrl+C to cancel)" >&2
-            sleep 5
-        else
-            echo "  Continuing with Linux install (non-interactive mode)..." >&2
-        fi
-    fi
-
-    case "$(uname -s)" in
-        Darwin)
-            os="darwin"
-            ;;
-        Linux)
-            os="linux"
-            ;;
-        FreeBSD)
-            os="freebsd"
-            ;;
-        *)
-            log_error "Unsupported operating system: $(uname -s)"
-            exit 1
-            ;;
-    esac
-
-    case "$(uname -m)" in
-        x86_64|amd64)
-            arch="amd64"
-            ;;
-        aarch64|arm64)
-            arch="arm64"
-            ;;
-        armv7*|armv6*|armhf|arm)
-            arch="arm"
-            ;;
-        *)
-            log_error "Unsupported architecture: $(uname -m)"
-            exit 1
-            ;;
-    esac
-
-    echo "${os}_${arch}"
-}
-
-# Create 'beads' symlink alias for bd
-create_beads_alias() {
-    local install_dir=$1
-
-    log_info "Creating 'beads' alias..."
-    rm -f "$install_dir/beads"
-    if [[ -w "$install_dir" ]]; then
-        ln -s bd "$install_dir/beads"
-    else
-        sudo ln -s bd "$install_dir/beads"
-    fi
-    log_success "Created 'beads' alias -> bd"
-}
-
-# Download and install from GitHub releases
-install_from_release() {
-    log_info "Installing bd from GitHub releases..."
-
-    local platform=$1
-    local tmp_dir
-    tmp_dir=$(mktemp -d)
-
-    # Get latest release version
-    log_info "Fetching latest release..."
-    local latest_url="https://api.github.com/repos/gastownhall/beads/releases/latest"
-    local version
-    local release_json
-
-    if command -v curl &> /dev/null; then
-        release_json=$(curl -fsSL "$latest_url")
-    elif command -v wget &> /dev/null; then
-        release_json=$(wget -qO- "$latest_url")
-    else
-        log_error "Neither curl nor wget found. Please install one of them."
-        return 1
-    fi
-
-    version=$(echo "$release_json" | grep '"tag_name"' | sed -E 's/.*"tag_name": "([^"]+)".*/\1/')
-
-    if [ -z "$version" ]; then
-        log_error "Failed to fetch latest version"
-        return 1
-    fi
-
-    log_info "Latest version: $version"
-
-    # Download URL
-    local archive_name="beads_${version#v}_${platform}.tar.gz"
-    local download_url="https://github.com/gastownhall/beads/releases/download/${version}/${archive_name}"
-
-    if ! release_has_asset "$release_json" "$archive_name"; then
-        log_warning "No prebuilt archive available for platform ${platform}. Falling back to source installation methods."
-        rm -rf "$tmp_dir"
-        return 1
-    fi
-
-    log_info "Downloading $archive_name..."
-
-    cd "$tmp_dir"
-    if ! download_file "$download_url" "$archive_name"; then
-        log_error "Download failed"
-        cd - > /dev/null || cd "$HOME"
-        rm -rf "$tmp_dir"
-        return 1
-    fi
-
-    log_info "Verifying release checksum..."
-    if ! verify_release_checksum "$release_json" "$version" "$archive_name" "$archive_name"; then
-        cd - > /dev/null || cd "$HOME"
-        rm -rf "$tmp_dir"
-        return 1
-    fi
-
-    # Extract archive
-    log_info "Extracting archive..."
-    if ! tar -xzf "$archive_name"; then
-        log_error "Failed to extract archive"
-        rm -rf "$tmp_dir"
-        return 1
-    fi
-
-    local extracted_bd
-    if ! extracted_bd=$(find_extracted_bd "$tmp_dir"); then
-        log_error "Extracted archive does not contain an executable 'bd' binary"
-        cd - > /dev/null || cd "$HOME"
-        rm -rf "$tmp_dir"
-        return 1
-    fi
-
-    # Determine install location
-    local install_dir
-    if [[ -w /usr/local/bin ]]; then
-        install_dir="/usr/local/bin"
-    else
-        install_dir="$HOME/.local/bin"
-        mkdir -p "$install_dir"
-    fi
-
-    # Install binary
-    log_info "Installing to $install_dir..."
-    if [[ -w "$install_dir" ]]; then
-        if ! mv "$extracted_bd" "$install_dir/bd"; then
-            log_error "Failed to install bd to $install_dir"
-            cd - > /dev/null || cd "$HOME"
-            rm -rf "$tmp_dir"
-            return 1
-        fi
-    else
-        if ! sudo mv "$extracted_bd" "$install_dir/bd"; then
-            log_error "Failed to install bd to $install_dir"
-            cd - > /dev/null || cd "$HOME"
-            rm -rf "$tmp_dir"
-            return 1
-        fi
-    fi
-
-    # Optional local ad-hoc re-sign for macOS (off by default)
-    resign_for_macos "$install_dir/bd"
-
-    # Create 'beads' alias symlink
-    create_beads_alias "$install_dir"
-
-    log_success "bd installed to $install_dir/bd"
-
-    # Record where we installed the binary so PATH precedence warnings can
-    # point to the newly installed release binary.
-    LAST_INSTALL_PATH="$install_dir/bd"
-
-    # Check if install_dir is in PATH
-    if [[ ":$PATH:" != *":$install_dir:"* ]]; then
-        log_warning "$install_dir is not in your PATH"
-        echo ""
-        echo "Add this to your shell profile (~/.bashrc, ~/.zshrc, etc.):"
-        echo "  export PATH=\"\$PATH:$install_dir\""
-        echo ""
-    fi
-
-    cd - > /dev/null || cd "$HOME"
-    rm -rf "$tmp_dir"
+maybe_open_url() {
+  local url="$1"
+  if [ -z "$url" ]; then
     return 0
-}
-
-# Check if Go is installed and meets minimum version
-check_go() {
-    if command -v go &> /dev/null; then
-        local go_version=$(go version | awk '{print $3}' | sed 's/go//')
-        log_info "Go detected: $(go version)"
-
-        # Extract major and minor version numbers
-    local major=$(echo "$go_version" | cut -d. -f1)
-    local minor=$(echo "$go_version" | cut -d. -f2)
-
-    # Check if Go version is 1.24 or later
-    if [ "$major" -eq 1 ] && [ "$minor" -lt 24 ]; then
-        log_error "Go 1.24 or later is required (found: $go_version)"
-            echo ""
-            echo "Please upgrade Go:"
-            echo "  - Download from https://go.dev/dl/"
-            echo "  - Or use your package manager to update"
-            echo ""
-            return 1
-        fi
-
-        return 0
-    else
-        return 1
-    fi
-}
-
-# Verify a built/installed binary has CGO enabled.
-verify_binary_has_cgo() {
-    local binary_path=$1
-    local install_method=$2
-
-    if [[ ! -f "$binary_path" ]]; then
-        log_error "Expected binary not found at $binary_path"
-        return 1
-    fi
-
-    if ! command -v strings &> /dev/null; then
-        log_warning "'strings' not found; unable to verify CGO metadata for $binary_path"
-        return 0
-    fi
-
-    if strings "$binary_path" | awk '/^build[[:space:]]+CGO_ENABLED=0$/ { found=1 } END { exit(found?0:1) }'; then
-        log_error "Binary produced by ${install_method} was built without CGO support"
-        log_warning "CGO is required for some features. Install a working C toolchain and retry."
-        return 1
-    fi
-
-    log_success "Verified CGO support in $binary_path"
+  fi
+  if has_cmd xdg-open; then
+    xdg-open "$url" >/dev/null 2>&1 || true
     return 0
-}
-
-# Install using go install (fallback).
-#
-# Tries CGO_ENABLED=1 first for an embedded-capable binary. If that fails
-# (host lacks C toolchain or transitive Dolt deps' headers), falls back to
-# CGO_ENABLED=0 which yields a server-mode-only binary that still works on
-# any Go-capable box. See docs/ICU-POLICY.md and docs/INSTALLING.md.
-install_with_go() {
-    log_info "Installing bd using 'go install'..."
-
-    local gobin bin_dir
-    gobin=$(go env GOBIN 2>/dev/null || true)
-    if [ -n "$gobin" ]; then
-        bin_dir="$gobin"
-    else
-        bin_dir="$(go env GOPATH)/bin"
-    fi
-
-    # The repository lives under gastownhall, but the Go module path remains
-    # github.com/steveyegge/beads for compatibility with released tags.
-    if CGO_ENABLED=1 GOFLAGS="${GOFLAGS:+$GOFLAGS }-tags=gms_pure_go" go install github.com/steveyegge/beads/cmd/bd@latest; then
-        log_success "bd installed via go install (embedded-capable)"
-        LAST_INSTALL_PATH="$bin_dir/bd"
-
-        if ! verify_binary_has_cgo "$LAST_INSTALL_PATH" "go install"; then
-            return 1
-        fi
-    else
-        log_warning "go install with CGO failed; retrying without CGO (server-mode-only binary)"
-        if CGO_ENABLED=0 go install github.com/steveyegge/beads/cmd/bd@latest; then
-            log_success "bd installed via go install (CGO_ENABLED=0, server mode only)"
-            log_warning "This bd cannot use embedded Dolt. Run 'bd init --server' to use an external dolt sql-server, or reinstall with a C toolchain for embedded mode."
-            LAST_INSTALL_PATH="$bin_dir/bd"
-        else
-            log_error "go install failed both with and without CGO"
-            print_missing_build_deps_help
-            return 1
-        fi
-    fi
-
-    # Optional local ad-hoc re-sign for macOS (off by default)
-    resign_for_macos "$bin_dir/bd"
-
-    # Create 'beads' alias symlink
-    create_beads_alias "$bin_dir"
-
-    # Check if GOPATH/bin (or GOBIN) is in PATH
-    if [[ ":$PATH:" != *":$bin_dir:"* ]]; then
-        log_warning "$bin_dir is not in your PATH"
-        echo ""
-        echo "Add this to your shell profile (~/.bashrc, ~/.zshrc, etc.):"
-        echo "  export PATH=\"\$PATH:$bin_dir\""
-        echo ""
-    fi
-
+  fi
+  if has_cmd open; then
+    open "$url" >/dev/null 2>&1 || true
     return 0
+  fi
+  return 0
 }
 
-# Build from source (last resort)
-build_from_source() {
-    log_info "Building bd from source..."
+gen_random_base64() {
+  if ! has_cmd openssl; then
+    die "openssl is required to generate secrets. Please install openssl and re-run."
+  fi
+  openssl rand -base64 32
+}
 
-    local tmp_dir
-    tmp_dir=$(mktemp -d)
+b64url_from_hex() {
+  local hex="$1"
+  if has_cmd python3; then
+    python3 - "$hex" <<'PY'
+import base64, binascii, sys
+hexstr = sys.argv[1]
+raw = binascii.unhexlify(hexstr.encode())
+print(base64.urlsafe_b64encode(raw).rstrip(b"=").decode())
+PY
+    return
+  fi
+  if has_cmd python; then
+    python - "$hex" <<'PY'
+import base64, binascii, sys
+hexstr = sys.argv[1]
+raw = binascii.unhexlify(hexstr.encode())
+print(base64.urlsafe_b64encode(raw).rstrip(b"=").decode())
+PY
+    return
+  fi
+  if has_cmd xxd; then
+    printf '%s' "$hex" | xxd -r -p | openssl base64 -A | tr '+/' '-_' | tr -d '='
+    return
+  fi
+  die "python3 or xxd is required to generate VAPID keys. Please install one and re-run."
+}
 
-    cd "$tmp_dir"
-    log_info "Cloning repository..."
+gen_vapid_keys() {
+  if ! has_cmd openssl; then
+    die "openssl is required to generate VAPID keys. Please install openssl and re-run."
+  fi
+  local tmpdir keytext priv_hex pub_hex
+  tmpdir=$(mktemp -d)
+  openssl ecparam -name prime256v1 -genkey -noout -out "$tmpdir/key.pem" >/dev/null 2>&1
+  keytext=$(openssl ec -in "$tmpdir/key.pem" -text -noout 2>/dev/null)
+  priv_hex=$(printf '%s\n' "$keytext" | awk '
+    $1=="priv:" {flag=1; next}
+    $1=="pub:" {flag=0}
+    flag {gsub(":", ""); gsub(" ", ""); printf $0}
+  ')
+  pub_hex=$(printf '%s\n' "$keytext" | awk '
+    $1=="pub:" {flag=1; next}
+    $1=="ASN1" || $1=="NIST" {flag=0}
+    flag {gsub(":", ""); gsub(" ", ""); printf $0}
+  ')
+  rm -rf "$tmpdir"
+  if [ -z "$priv_hex" ] || [ -z "$pub_hex" ]; then
+    die "Failed to generate VAPID keys."
+  fi
+  VAPID_PRIVATE_KEY=$(b64url_from_hex "$priv_hex")
+  VAPID_PUBLIC_KEY=$(b64url_from_hex "$pub_hex")
+}
 
-    if git clone --depth 1 https://github.com/gastownhall/beads.git; then
-        cd beads
-        log_info "Building binary..."
+print_container_install_help() {
+  local os_id=""
+  local os_name=""
+  local os_version=""
+  local os_codename=""
+  if [ -f /etc/os-release ]; then
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    os_id="${ID:-}"
+    os_name="${NAME:-}"
+    os_version="${VERSION_ID:-}"
+    os_codename="${VERSION_CODENAME:-}"
+  fi
 
-        if CGO_ENABLED=1 go build -tags gms_pure_go -o bd ./cmd/bd; then
-            if ! verify_binary_has_cgo "./bd" "source build"; then
-                cd - > /dev/null || cd "$HOME"
-                rm -rf "$tmp_dir"
-                return 1
-            fi
+  say "No Docker/Podman compose command was found."
+  say ""
+  say "Install Docker (recommended), then re-run this installer."
+  say ""
 
-            # Determine install location
-            local install_dir
-            if [[ -w /usr/local/bin ]]; then
-                install_dir="/usr/local/bin"
-            else
-                install_dir="$HOME/.local/bin"
-                mkdir -p "$install_dir"
-            fi
+  case "$os_id" in
+    ubuntu|debian)
+      local distro="$os_id"
+      local codename="$os_codename"
+      local codename_note=""
+      if [ -z "$codename" ]; then
+        codename="<codename>"
+        codename_note="(replace <codename> with your distro codename, e.g., jammy or bookworm)"
+      fi
+      say "Detected: ${os_name:-$os_id} ${os_version}"
+      say ""
+      say "Copy/paste these commands:"
+      say "  sudo apt-get update"
+      say "  sudo apt-get install -y ca-certificates curl gnupg"
+      say "  sudo install -m 0755 -d /etc/apt/keyrings"
+      say "  curl -fsSL https://download.docker.com/linux/${distro}/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg"
+      say "  sudo chmod a+r /etc/apt/keyrings/docker.gpg"
+      say "  echo \"deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/${distro} ${codename} stable\" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null"
+      say "  sudo apt-get update"
+      say "  sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin"
+      if [ -n "$codename_note" ]; then
+        say "  ${codename_note}"
+      fi
+      ;;
+    fedora)
+      say "Detected: ${os_name:-$os_id} ${os_version}"
+      say ""
+      say "Copy/paste these commands:"
+      say "  sudo dnf -y install dnf-plugins-core"
+      say "  sudo dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo"
+      say "  sudo dnf -y install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin"
+      say "  sudo systemctl enable --now docker"
+      say "  sudo usermod -aG docker \$USER"
+      say "  newgrp docker"
+      say "  docker compose version"
+      ;;
+    rhel|centos|rocky|almalinux)
+      say "Detected: ${os_name:-$os_id} ${os_version}"
+      say ""
+      say "Copy/paste these commands:"
+      say "  sudo dnf -y install dnf-plugins-core"
+      say "  sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo"
+      say "  sudo dnf -y install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin"
+      say "  sudo systemctl enable --now docker"
+      say "  sudo usermod -aG docker \$USER"
+      say "  newgrp docker"
+      say "  docker compose version"
+      ;;
+    amzn)
+      say "Detected: ${os_name:-Amazon Linux} ${os_version}"
+      say ""
+      say "Copy/paste these commands:"
+      say "  sudo yum -y install docker"
+      say "  sudo systemctl enable --now docker"
+      say "  sudo usermod -aG docker \$USER"
+      say "  newgrp docker"
+      say "  docker compose version"
+      ;;
+    *)
+      say "Detected: ${os_name:-Unknown Linux}"
+      say ""
+      say "Please install Docker Engine and the Docker Compose plugin for your OS."
+      say "After installing, ensure your user can run docker, then re-run this installer."
+      ;;
+  esac
 
-            log_info "Installing to $install_dir..."
-            if [[ -w "$install_dir" ]]; then
-                mv bd "$install_dir/"
-            else
-                sudo mv bd "$install_dir/"
-            fi
+  say ""
+  say "If you prefer Podman instead of Docker:"
+  say "  - Install podman and podman-compose (or ensure 'podman compose' works)."
+  say "  - Enable the Podman socket if you plan to use Traefik."
+  say ""
+}
 
-            # Optional local ad-hoc re-sign for macOS (off by default)
-            resign_for_macos "$install_dir/bd"
+say ""
+say "Medication Tracker Bot Installer"
+say ""
 
-            # Create 'beads' alias symlink
-            create_beads_alias "$install_dir"
+COMPOSE_CMD=""
+CONTAINER_CLI=""
 
-            log_success "bd installed to $install_dir/bd"
+if has_cmd docker; then
+  if docker compose version >/dev/null 2>&1; then
+    COMPOSE_CMD="docker compose"
+    CONTAINER_CLI="docker"
+  elif has_cmd docker-compose; then
+    COMPOSE_CMD="docker-compose"
+    CONTAINER_CLI="docker"
+  fi
+fi
 
-            # Record where we installed the binary when building from source
-            LAST_INSTALL_PATH="$install_dir/bd"
+if [ -z "$COMPOSE_CMD" ] && has_cmd podman; then
+  if podman compose version >/dev/null 2>&1; then
+    COMPOSE_CMD="podman compose"
+    CONTAINER_CLI="podman"
+  elif has_cmd podman-compose; then
+    COMPOSE_CMD="podman-compose"
+    CONTAINER_CLI="podman"
+  fi
+fi
 
-            # Check if install_dir is in PATH
-            if [[ ":$PATH:" != *":$install_dir:"* ]]; then
-                log_warning "$install_dir is not in your PATH"
-                echo ""
-                echo "Add this to your shell profile (~/.bashrc, ~/.zshrc, etc.):"
-                echo "  export PATH=\"\$PATH:$install_dir\""
-                echo ""
-            fi
+if [ -z "$COMPOSE_CMD" ]; then
+  print_container_install_help
+  exit 1
+fi
 
-            cd - > /dev/null || cd "$HOME"
-            rm -rf "$tmp_dir"
-            return 0
-        else
-            log_error "Build failed"
-            print_missing_build_deps_help
-            cd - > /dev/null || cd "$HOME"
-            cd - > /dev/null
-            rm -rf "$tmp_dir"
-            return 1
-        fi
+# Preflight required binaries. These are invoked deep inside `$(...)`
+# substitutions during prompts; if they're missing, `die` only exits the
+# subshell and the resulting set -e abort is easy to miss.
+missing_bins=()
+for bin in openssl curl mktemp; do
+  if ! has_cmd "$bin"; then
+    missing_bins+=("$bin")
+  fi
+done
+if [ "${#missing_bins[@]}" -gt 0 ]; then
+  say ""
+  say "Missing required commands: ${missing_bins[*]}"
+  say "Install them and re-run the installer. On Debian/Ubuntu:"
+  say "  sudo apt-get update && sudo apt-get install -y ${missing_bins[*]}"
+  say "On RHEL/Fedora:"
+  say "  sudo dnf install -y ${missing_bins[*]}"
+  exit 1
+fi
+
+INSTALL_DIR=$(prompt_state "INSTALL_DIR" "Install directory" "$DEFAULT_INSTALL_DIR")
+if [ -z "$INSTALL_DIR" ]; then
+  die "Install directory is required"
+fi
+
+if [ ! -d "$INSTALL_DIR" ]; then
+  if mkdir -p "$INSTALL_DIR" 2>/dev/null; then
+    :
+  else
+    if has_cmd sudo; then
+      sudo mkdir -p "$INSTALL_DIR"
     else
-        log_error "Failed to clone repository"
-        rm -rf "$tmp_dir"
-        return 1
+      die "Cannot create $INSTALL_DIR (missing permissions). Run as root or choose another directory."
     fi
-}
+  fi
+fi
 
-# Verify installation
-verify_installation() {
-    # If multiple 'bd' binaries exist on PATH, warn the user before verification
-    warn_if_multiple_bd || true
-
-    if command -v bd &> /dev/null; then
-        log_success "bd is installed and ready!"
-        echo ""
-        bd version 2>/dev/null || echo "bd (development build)"
-        echo ""
-        echo "You can use either 'bd' or 'beads' to run the command."
-        echo ""
-        echo "Get started:"
-        echo "  cd your-project"
-        echo "  bd init"
-        echo "  bd quickstart"
-        echo ""
-        return 0
+if ! touch "$INSTALL_DIR/.write_test" 2>/dev/null; then
+  if has_cmd sudo; then
+    if confirm "Install directory is not writable. Use sudo to make it writable?" "yes"; then
+      sudo chown -R "$(id -u):$(id -g)" "$INSTALL_DIR" || true
     else
-        log_error "bd was installed but is not in PATH"
-        return 1
+      die "Install directory must be writable. Choose another directory or run as root."
     fi
-}
+  else
+    die "Install directory must be writable. Choose another directory or run as root."
+  fi
+fi
+rm -f "$INSTALL_DIR/.write_test" 2>/dev/null || true
 
-# Returns a list of full paths to 'bd' found in PATH (earlier entries first)
-get_bd_paths_in_path() {
-    local IFS=':'
-    local -a entries
-    read -ra entries <<< "$PATH"
-    local -a found
-    local p
-    for p in "${entries[@]}"; do
-        [ -z "$p" ] && continue
-        if [ -x "$p/bd" ]; then
-            # Resolve symlink if possible
-            if command -v readlink >/dev/null 2>&1; then
-                resolved=$(readlink -f "$p/bd" 2>/dev/null || printf '%s' "$p/bd")
-            else
-                resolved="$p/bd"
-            fi
-            # avoid duplicates
-            skip=0
-            for existing in "${found[@]:-}"; do
-                if [ "$existing" = "$resolved" ]; then skip=1; break; fi
-            done
-            if [ $skip -eq 0 ]; then
-                found+=("$resolved")
-            fi
-        fi
-    done
-    # print results, one per line
-    for item in "${found[@]:-}"; do
-        printf '%s\n' "$item"
-    done
-}
+STATE_FILE="$INSTALL_DIR/.installer_state"
+touch "$STATE_FILE" 2>/dev/null || true
+chmod 600 "$STATE_FILE" 2>/dev/null || true
 
-warn_if_multiple_bd() {
-    # Use bash 3.2-compatible approach instead of mapfile (bash 4.0+)
-    bd_paths=()
-    while IFS= read -r line; do
-        bd_paths+=("$line")
-    done < <(get_bd_paths_in_path)
-    if [ "${#bd_paths[@]}" -le 1 ]; then
-        return 0
+if [ -f "$INSTALL_DIR/$COMPOSE_FILE" ] || [ -f "$INSTALL_DIR/$ENV_FILE" ]; then
+  if ! confirm_state "OVERWRITE_EXISTING" "Existing config found in $INSTALL_DIR. Overwrite?" "no"; then
+    die "Aborted"
+  fi
+fi
+
+cd "$INSTALL_DIR"
+
+DOMAIN=$(prompt_state "DOMAIN" "Primary domain for web app (e.g., meds.example.com)" "")
+if [ -z "$DOMAIN" ]; then
+  die "Domain is required"
+fi
+
+USE_TRAEFIK=true
+if ! confirm_state "USE_TRAEFIK" "Use bundled Traefik + Let's Encrypt (recommended)?" "yes"; then
+  USE_TRAEFIK=false
+fi
+
+CERT_RESOLVER="letsencrypt"
+LE_EMAIL=""
+NETWORK_NAME=""
+
+if $USE_TRAEFIK; then
+  LE_EMAIL=$(prompt_state "LE_EMAIL" "Email for Let's Encrypt" "admin@example.com")
+  if [ -z "$LE_EMAIL" ]; then
+    die "Let's Encrypt email is required"
+  fi
+else
+  NETWORK_NAME=$(prompt_state "NETWORK_NAME" "Existing Traefik network name" "traefik_net")
+  CERT_RESOLVER=$(prompt_state "CERT_RESOLVER" "Existing Traefik cert resolver name" "myresolver")
+fi
+
+TZ=$(prompt_state "TZ" "Timezone" "$(detect_timezone)")
+
+TELEGRAM_BOT_TOKEN=""
+ALLOWED_USER_ID=""
+ENABLE_LOCAL_TG_API=false
+TELEGRAM_API_ID=""
+TELEGRAM_API_HASH=""
+TELEGRAM_API_ENDPOINT=""
+
+TELEGRAM_BOT_TOKEN=$(prompt_secret_state "TELEGRAM_BOT_TOKEN" "Telegram Bot Token")
+if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
+  die "Telegram Bot Token is required"
+fi
+say ""
+say "IMPORTANT: Configure your bot in Telegram to enable the web app:"
+say "1. Open @BotFather in Telegram"
+say "2. Send /setdomain"
+say "3. Select your bot"
+say "4. Send: ${DOMAIN}"
+say ""
+say "This allows your bot to open the web app correctly."
+say "You can do this later, but the bot won't work properly until configured."
+say ""
+say "Your Telegram User ID is used as an access allowlist (extra security)."
+say "Get it by messaging @userinfobot or @myidbot in Telegram."
+ALLOWED_USER_ID=$(prompt_state "ALLOWED_USER_ID" "Your Telegram User ID" "")
+if [ -z "$ALLOWED_USER_ID" ]; then
+  die "Telegram User ID is required"
+fi
+
+if confirm_state "ENABLE_LOCAL_TG_API" "Use local Telegram Bot API server (larger files, more setup)?" "no"; then
+  ENABLE_LOCAL_TG_API=true
+  TELEGRAM_API_ID=$(prompt_state "TELEGRAM_API_ID" "Telegram API ID (from my.telegram.org)" "")
+  TELEGRAM_API_HASH=$(prompt_secret_state "TELEGRAM_API_HASH" "Telegram API Hash")
+  if [ -z "$TELEGRAM_API_ID" ] || [ -z "$TELEGRAM_API_HASH" ]; then
+    die "Telegram API ID and Hash are required for local Telegram API"
+  fi
+  TELEGRAM_API_ENDPOINT="http://telegram-bot-api:8081"
+fi
+
+ENABLE_POCKET_ID=false
+POCKET_ID_DOMAIN=""
+POCKET_ID_APP_URL=""
+POCKET_ID_ENCRYPTION_KEY=""
+POCKET_ID_TRUST_PROXY="true"
+POCKET_ID_PUID="$DEFAULT_PUID"
+POCKET_ID_PGID="$DEFAULT_PGID"
+POCKET_ID_URL=""
+POCKET_ID_CLIENT_ID=""
+POCKET_ID_CLIENT_SECRET=""
+
+ENABLE_OIDC=false
+OIDC_ISSUER_URL=""
+OIDC_AUTH_URL=""
+OIDC_TOKEN_URL=""
+OIDC_USERINFO_URL=""
+OIDC_CLIENT_ID=""
+OIDC_CLIENT_SECRET=""
+OIDC_REDIRECT_URL=""
+OIDC_ADMIN_EMAIL=""
+OIDC_ALLOWED_SUBJECT=""
+OIDC_BUTTON_LABEL=""
+OIDC_BUTTON_COLOR=""
+OIDC_BUTTON_TEXT_COLOR=""
+OIDC_SCOPES=""
+OIDC_NEEDS_SETUP=false
+POCKET_ID_BUNDLE=false
+
+if confirm_state "POCKET_ID_BUNDLE" "Use Pocket-ID for browser login and MCP (recommended)?" "yes"; then
+  POCKET_ID_BUNDLE=true
+  ENABLE_OIDC=true
+  ENABLE_MCP=true
+  ENABLE_POCKET_ID=true
+  POCKET_ID_DOMAIN=$(prompt_state "POCKET_ID_DOMAIN" "Pocket-ID domain (e.g., id.example.com)" "")
+  if [ -z "$POCKET_ID_DOMAIN" ]; then
+    die "Pocket-ID domain is required"
+  fi
+  POCKET_ID_APP_URL="https://${POCKET_ID_DOMAIN}"
+  POCKET_ID_URL="$POCKET_ID_APP_URL"
+  POCKET_ID_ENCRYPTION_KEY=$(get_state "POCKET_ID_ENCRYPTION_KEY")
+  if [ -z "$POCKET_ID_ENCRYPTION_KEY" ]; then
+    POCKET_ID_ENCRYPTION_KEY=$(gen_random_base64)
+    set_state "POCKET_ID_ENCRYPTION_KEY" "$POCKET_ID_ENCRYPTION_KEY"
+  fi
+
+  OIDC_REDIRECT_URL="https://${DOMAIN}/auth/oidc/callback"
+  OIDC_ISSUER_URL="$POCKET_ID_APP_URL"
+  OIDC_BUTTON_LABEL="Login with Pocket-ID"
+
+  if confirm_state "OIDC_HAS_CLIENT" "Do you already have an OIDC client for web login?" "no"; then
+    OIDC_CLIENT_ID=$(prompt_state "OIDC_CLIENT_ID" "OIDC Client ID" "")
+    OIDC_CLIENT_SECRET=$(prompt_secret_state "OIDC_CLIENT_SECRET" "OIDC Client Secret")
+    if [ -z "$OIDC_CLIENT_ID" ] || [ -z "$OIDC_CLIENT_SECRET" ]; then
+      die "OIDC Client ID and Secret are required"
     fi
+  else
+    OIDC_NEEDS_SETUP=true
+  fi
 
-    log_warning "Multiple 'bd' executables found on your PATH. An older copy may be executed instead of the one we installed."
-    echo "Found the following 'bd' executables (entries earlier in PATH take precedence):"
-    local i=1
-    for p in "${bd_paths[@]}"; do
-        local ver
-        if [ -x "$p" ]; then
-            ver=$("$p" version 2>/dev/null || true)
-        fi
-        if [ -z "$ver" ]; then ver="<unknown version>"; fi
-        echo "  $i. $p  -> $ver"
-        i=$((i+1))
-    done
-
-    if [ -n "$LAST_INSTALL_PATH" ]; then
-        echo ""
-        echo "We installed to: $LAST_INSTALL_PATH"
-        # Compare first PATH entry vs installed path
-        first="${bd_paths[0]}"
-        if [ "$first" != "$LAST_INSTALL_PATH" ]; then
-            log_warning "The 'bd' executable that appears first in your PATH is different from the one we installed. To make the newly installed 'bd' the one you get when running 'bd', either:"
-            echo "  - Remove or rename the older $first from your PATH, or"
-            echo "  - Reorder your PATH so that $(dirname "$LAST_INSTALL_PATH") appears before $(dirname "$first")"
-            echo "After updating PATH, restart your shell and run 'bd version' to confirm."
-        else
-            echo "The installed 'bd' is first in your PATH.";
-        fi
+  OIDC_ADMIN_EMAIL=$(prompt_state "OIDC_ADMIN_EMAIL" "Allowed email for web login (optional)" "")
+  say "Allowed subject is the unique user ID from your OIDC provider."
+  say "For Pocket-ID: open your user profile and copy the Subject (sub)."
+  say "Leave blank if you want to restrict by email only."
+  OIDC_ALLOWED_SUBJECT=$(prompt_state "OIDC_ALLOWED_SUBJECT" "Allowed subject (sub UUID) for web login (optional)" "")
+  if [ -z "$OIDC_ADMIN_EMAIL" ] && [ -z "$OIDC_ALLOWED_SUBJECT" ]; then
+    if $OIDC_NEEDS_SETUP; then
+      warn "No allowed email/subject set. You must set OIDC_ADMIN_EMAIL or OIDC_ALLOWED_SUBJECT before enabling OIDC."
     else
-        log_warning "We couldn't determine where we installed 'bd' during this run.";
+      die "Set at least one of allowed email or allowed subject for OIDC login"
     fi
-}
+  fi
+elif confirm_state "ENABLE_OIDC" "Enable browser login (OIDC)?" "no"; then
+  ENABLE_OIDC=true
+  OIDC_REDIRECT_URL="https://${DOMAIN}/auth/oidc/callback"
 
-# Main installation flow
-main() {
-    echo ""
-    echo "🔗 Beads (bd) Installer"
-    echo ""
-
-    log_info "Detecting platform..."
-    local platform
-    platform=$(detect_platform)
-    log_info "Platform: $platform"
-
-    # Try downloading from GitHub releases first
-    if install_from_release "$platform"; then
-        verify_installation
-        exit 0
+  if confirm_state "OIDC_USE_POCKET_ID" "Use Pocket-ID for browser login (recommended)?" "yes"; then
+    if ! $ENABLE_POCKET_ID; then
+      ENABLE_POCKET_ID=true
+      POCKET_ID_DOMAIN=$(prompt_state "POCKET_ID_DOMAIN" "Pocket-ID domain (e.g., id.example.com)" "")
+      if [ -z "$POCKET_ID_DOMAIN" ]; then
+        die "Pocket-ID domain is required"
+      fi
+      POCKET_ID_APP_URL="https://${POCKET_ID_DOMAIN}"
+      POCKET_ID_URL="$POCKET_ID_APP_URL"
+      POCKET_ID_ENCRYPTION_KEY=$(get_state "POCKET_ID_ENCRYPTION_KEY")
+      if [ -z "$POCKET_ID_ENCRYPTION_KEY" ]; then
+        POCKET_ID_ENCRYPTION_KEY=$(gen_random_base64)
+        set_state "POCKET_ID_ENCRYPTION_KEY" "$POCKET_ID_ENCRYPTION_KEY"
+      fi
     fi
-
-    log_warning "Failed to install from releases, trying alternative methods..."
-
-    # Try go install as fallback
-    if check_go; then
-        if install_with_go; then
-            verify_installation
-            exit 0
-        fi
+    OIDC_ISSUER_URL="$POCKET_ID_APP_URL"
+    OIDC_BUTTON_LABEL="Login with Pocket-ID"
+  else
+    OIDC_ISSUER_URL=$(prompt_state "OIDC_ISSUER_URL" "OIDC Issuer URL (e.g., https://id.example.com)" "")
+    if [ -z "$OIDC_ISSUER_URL" ]; then
+      die "OIDC Issuer URL is required"
     fi
+  fi
 
-    # Try building from source as last resort
-    log_warning "Falling back to building from source..."
-
-    if ! check_go; then
-        log_warning "Go is not installed"
-        echo ""
-        echo "bd requires Go 1.24 or later to build from source. You can:"
-        echo "  1. Install Go from https://go.dev/dl/"
-        echo "  2. Use your package manager:"
-        echo "     - macOS: brew install go"
-        echo "     - Ubuntu/Debian: sudo apt install golang"
-        echo "     - Other Linux: Check your distro's package manager"
-        echo ""
-        echo "After installing Go, run this script again."
-        exit 1
+  if confirm_state "OIDC_HAS_CLIENT" "Do you already have OIDC client credentials?" "no"; then
+    OIDC_CLIENT_ID=$(prompt_state "OIDC_CLIENT_ID" "OIDC Client ID" "")
+    OIDC_CLIENT_SECRET=$(prompt_secret_state "OIDC_CLIENT_SECRET" "OIDC Client Secret")
+    if [ -z "$OIDC_CLIENT_ID" ] || [ -z "$OIDC_CLIENT_SECRET" ]; then
+      die "OIDC Client ID and Secret are required"
     fi
+  else
+    OIDC_NEEDS_SETUP=true
+  fi
 
-    if build_from_source; then
-        verify_installation
-        exit 0
+  OIDC_ADMIN_EMAIL=$(prompt_state "OIDC_ADMIN_EMAIL" "Allowed email for web login (optional)" "")
+  say "Allowed subject is the unique user ID from your OIDC provider."
+  say "For Pocket-ID: open your user profile and copy the Subject (sub)."
+  say "Leave blank if you want to restrict by email only."
+  OIDC_ALLOWED_SUBJECT=$(prompt_state "OIDC_ALLOWED_SUBJECT" "Allowed subject (sub UUID) for web login (optional)" "")
+  if [ -z "$OIDC_ADMIN_EMAIL" ] && [ -z "$OIDC_ALLOWED_SUBJECT" ]; then
+    if $OIDC_NEEDS_SETUP; then
+      warn "No allowed email/subject set. You must set OIDC_ADMIN_EMAIL or OIDC_ALLOWED_SUBJECT before enabling OIDC."
+    else
+      die "Set at least one of allowed email or allowed subject for OIDC login"
     fi
+  fi
+fi
 
-    # All methods failed
-    log_error "Installation failed"
-    echo ""
-    echo "Manual installation:"
-    echo "  1. Download from https://github.com/gastownhall/beads/releases/latest"
-    echo "  2. Verify SHA256 checksum against checksums.txt"
-    echo "  3. Extract and move 'bd' to your PATH"
-    echo ""
-    echo "Or install from source:"
-    echo "  1. Install Go from https://go.dev/dl/"
-    echo "  2. Run: CGO_ENABLED=1 GOFLAGS=-tags=gms_pure_go go install github.com/steveyegge/beads/cmd/bd@latest"
-    echo ""
-    exit 1
-}
+ENABLE_WEBPUSH=false
+VAPID_PUBLIC_KEY=""
+VAPID_PRIVATE_KEY=""
+VAPID_SUBJECT=""
 
-main "$@"
+if confirm_state "ENABLE_WEBPUSH" "Enable web push (browser notifications)?" "yes"; then
+  ENABLE_WEBPUSH=true
+  VAPID_SUBJECT_DEFAULT="$LE_EMAIL"
+  if [ -z "$VAPID_SUBJECT_DEFAULT" ]; then
+    VAPID_SUBJECT_DEFAULT="admin@example.com"
+  fi
+  VAPID_SUBJECT=$(prompt_state "VAPID_SUBJECT" "VAPID subject email" "$VAPID_SUBJECT_DEFAULT")
+  if confirm_state "VAPID_AUTOGEN" "Auto-generate VAPID keys now?" "yes"; then
+    gen_vapid_keys
+  else
+    VAPID_PUBLIC_KEY=$(prompt_state "VAPID_PUBLIC_KEY" "VAPID public key" "")
+    VAPID_PRIVATE_KEY=$(prompt_secret_state "VAPID_PRIVATE_KEY" "VAPID private key")
+  fi
+  if [ -z "$VAPID_PUBLIC_KEY" ] || [ -z "$VAPID_PRIVATE_KEY" ] || [ -z "$VAPID_SUBJECT" ]; then
+    die "VAPID public key, private key, and subject are required for web push."
+  fi
+fi
+
+OPENAI_API_KEY=""
+OPENAI_URL=""
+OPENAI_MODEL=""
+say ""
+say "AI food/activity logging uses an OpenAI-compatible API to parse"
+say "natural-language entries for /food and /activity commands."
+if confirm_state "ENABLE_OPENAI" "Enable AI food/activity logging?" "no"; then
+  OPENAI_API_KEY=$(prompt_secret_state "OPENAI_API_KEY" "OpenAI API key")
+  OPENAI_URL=$(prompt_state "OPENAI_URL" "OpenAI base URL" "https://api.openai.com/v1")
+  OPENAI_MODEL=$(prompt_state "OPENAI_MODEL" "OpenAI model" "gpt-4o-mini")
+  if [ -z "$OPENAI_API_KEY" ]; then
+    die "OpenAI API key is required when AI logging is enabled"
+  fi
+fi
+
+EXTERNAL_WORKOUT_API_KEY=""
+say ""
+say "The external workout endpoint accepts webhooks (e.g. Mi Notify) using"
+say "a shared secret in the X-Api-Key header."
+if confirm_state "ENABLE_EXTERNAL_WORKOUT" "Enable external workout webhook (Mi Notify)?" "no"; then
+  EXTERNAL_WORKOUT_API_KEY=$(get_state "EXTERNAL_WORKOUT_API_KEY")
+  if [ -z "$EXTERNAL_WORKOUT_API_KEY" ]; then
+    if confirm "Auto-generate the webhook API key?" "yes"; then
+      EXTERNAL_WORKOUT_API_KEY=$(gen_random_base64)
+      set_state "EXTERNAL_WORKOUT_API_KEY" "$EXTERNAL_WORKOUT_API_KEY"
+    else
+      EXTERNAL_WORKOUT_API_KEY=$(prompt_secret_state "EXTERNAL_WORKOUT_API_KEY" "Workout webhook API key")
+      if [ -z "$EXTERNAL_WORKOUT_API_KEY" ]; then
+        die "Workout webhook API key is required when the external workout endpoint is enabled"
+      fi
+    fi
+  fi
+fi
+
+ENABLE_MCP=false
+MCP_DOMAIN=""
+MCP_SERVER_URL=""
+MCP_ALLOWED_SUBJECT=""
+MCP_MAX_QUERY_DAYS="90"
+MCP_PROFILE_ENABLED=false
+MCP_NEEDS_SETUP=false
+
+if $ENABLE_MCP; then
+  MCP_DOMAIN=$(prompt_state "MCP_DOMAIN" "MCP domain (e.g., mcp.example.com)" "")
+  if [ -z "$MCP_DOMAIN" ]; then
+    die "MCP domain is required"
+  fi
+  MCP_SERVER_URL="https://${MCP_DOMAIN}"
+
+  if confirm_state "MCP_HAS_CLIENT" "Do you already have Pocket-ID client credentials + user subject for MCP?" "no"; then
+    MCP_ALLOWED_SUBJECT=$(prompt_state "MCP_ALLOWED_SUBJECT" "Pocket-ID user subject (sub UUID)" "")
+    POCKET_ID_CLIENT_ID=$(prompt_state "POCKET_ID_CLIENT_ID" "Pocket-ID Client ID" "")
+    POCKET_ID_CLIENT_SECRET=$(prompt_secret_state "POCKET_ID_CLIENT_SECRET" "Pocket-ID Client Secret")
+    MCP_MAX_QUERY_DAYS=$(prompt_state "MCP_MAX_QUERY_DAYS" "MCP max query days" "$MCP_MAX_QUERY_DAYS")
+
+    if [ -z "$MCP_ALLOWED_SUBJECT" ] || [ -z "$POCKET_ID_CLIENT_ID" ] || [ -z "$POCKET_ID_CLIENT_SECRET" ]; then
+      die "Pocket-ID client ID/secret and user subject are required for MCP"
+    fi
+    MCP_PROFILE_ENABLED=true
+  else
+    MCP_NEEDS_SETUP=true
+  fi
+elif confirm_state "ENABLE_MCP" "Enable Claude MCP connector (optional)?" "no"; then
+  ENABLE_MCP=true
+  MCP_DOMAIN=$(prompt_state "MCP_DOMAIN" "MCP domain (e.g., mcp.example.com)" "")
+  if [ -z "$MCP_DOMAIN" ]; then
+    die "MCP domain is required"
+  fi
+  MCP_SERVER_URL="https://${MCP_DOMAIN}"
+  if $ENABLE_POCKET_ID; then
+    if [ -z "$POCKET_ID_URL" ]; then
+      POCKET_ID_URL="$POCKET_ID_APP_URL"
+    fi
+  else
+    if confirm_state "INSTALL_POCKET_ID" "Install Pocket-ID on this server?" "yes"; then
+      ENABLE_POCKET_ID=true
+      POCKET_ID_DOMAIN=$(prompt_state "POCKET_ID_DOMAIN" "Pocket-ID domain (e.g., id.example.com)" "")
+      if [ -z "$POCKET_ID_DOMAIN" ]; then
+        die "Pocket-ID domain is required"
+      fi
+      POCKET_ID_APP_URL="https://${POCKET_ID_DOMAIN}"
+      POCKET_ID_URL="$POCKET_ID_APP_URL"
+      POCKET_ID_ENCRYPTION_KEY=$(get_state "POCKET_ID_ENCRYPTION_KEY")
+      if [ -z "$POCKET_ID_ENCRYPTION_KEY" ]; then
+        POCKET_ID_ENCRYPTION_KEY=$(gen_random_base64)
+        set_state "POCKET_ID_ENCRYPTION_KEY" "$POCKET_ID_ENCRYPTION_KEY"
+      fi
+    else
+      POCKET_ID_URL=$(prompt_state "POCKET_ID_URL" "Pocket-ID URL (e.g., https://id.example.com)" "")
+      if [ -z "$POCKET_ID_URL" ]; then
+        die "Pocket-ID URL is required"
+      fi
+    fi
+  fi
+
+  if confirm_state "MCP_HAS_CLIENT" "Do you already have Pocket-ID client credentials + user subject?" "no"; then
+    MCP_ALLOWED_SUBJECT=$(prompt_state "MCP_ALLOWED_SUBJECT" "Pocket-ID user subject (sub UUID)" "")
+    POCKET_ID_CLIENT_ID=$(prompt_state "POCKET_ID_CLIENT_ID" "Pocket-ID Client ID" "")
+    POCKET_ID_CLIENT_SECRET=$(prompt_secret_state "POCKET_ID_CLIENT_SECRET" "Pocket-ID Client Secret")
+    MCP_MAX_QUERY_DAYS=$(prompt_state "MCP_MAX_QUERY_DAYS" "MCP max query days" "$MCP_MAX_QUERY_DAYS")
+
+    if [ -z "$MCP_ALLOWED_SUBJECT" ] || [ -z "$POCKET_ID_CLIENT_ID" ] || [ -z "$POCKET_ID_CLIENT_SECRET" ]; then
+      die "Pocket-ID client ID/secret and user subject are required for MCP"
+    fi
+    MCP_PROFILE_ENABLED=true
+  else
+    MCP_NEEDS_SETUP=true
+  fi
+fi
+
+ENABLE_LITESTREAM=false
+LITESTREAM_ACCESS_KEY_ID=""
+LITESTREAM_SECRET_ACCESS_KEY=""
+R2_ENDPOINT=""
+R2_BUCKET=""
+
+say ""
+say "Litestream replicates your SQLite DB to any S3-compatible storage (R2, S3, Wasabi, B2, MinIO)."
+say "Risks: backups contain sensitive health data. Use a private bucket, restrict keys, and secure access."
+say "If your R2 credentials leak, your data can be accessed."
+if confirm_state "ENABLE_LITESTREAM" "Enable Litestream backup to Cloudflare R2 (optional)?" "no"; then
+  ENABLE_LITESTREAM=true
+  LITESTREAM_ACCESS_KEY_ID=$(prompt_state "LITESTREAM_ACCESS_KEY_ID" "R2 Access Key ID" "")
+  LITESTREAM_SECRET_ACCESS_KEY=$(prompt_secret_state "LITESTREAM_SECRET_ACCESS_KEY" "R2 Secret Access Key")
+  R2_ENDPOINT=$(prompt_state "R2_ENDPOINT" "R2 Endpoint (e.g., https://<account>.r2.cloudflarestorage.com)" "")
+  R2_BUCKET=$(prompt_state "R2_BUCKET" "R2 Bucket name" "")
+  if [ -z "$LITESTREAM_ACCESS_KEY_ID" ] || [ -z "$LITESTREAM_SECRET_ACCESS_KEY" ] || [ -z "$R2_ENDPOINT" ] || [ -z "$R2_BUCKET" ]; then
+    die "R2 credentials are required for Litestream"
+  fi
+fi
+
+PUBLIC_IP=$(detect_public_ip)
+
+# Write .env
+{
+  printf 'COMPOSE_PROJECT_NAME=%s\n' "$APP_NAME"
+  printf 'TZ=%s\n' "$TZ"
+  printf 'DOMAIN=%s\n' "$DOMAIN"
+  printf 'PORT=8080\n'
+  printf 'TELEGRAM_BOT_TOKEN=%s\n' "$TELEGRAM_BOT_TOKEN"
+  printf 'ALLOWED_USER_ID=%s\n' "$ALLOWED_USER_ID"
+  printf 'TELEGRAM_API_ENDPOINT=%s\n' "$TELEGRAM_API_ENDPOINT"
+  printf 'TELEGRAM_API_ID=%s\n' "$TELEGRAM_API_ID"
+  printf 'TELEGRAM_API_HASH=%s\n' "$TELEGRAM_API_HASH"
+  SESSION_SECRET=$(get_state "SESSION_SECRET")
+  if [ -z "$SESSION_SECRET" ]; then
+    SESSION_SECRET=$(gen_random_base64)
+    set_state "SESSION_SECRET" "$SESSION_SECRET"
+  fi
+  printf 'SESSION_SECRET=%s\n' "$SESSION_SECRET"
+  MCP_AUDIT_SECRET=$(get_state "MCP_AUDIT_SECRET")
+  if [ -z "$MCP_AUDIT_SECRET" ]; then
+    MCP_AUDIT_SECRET=$(gen_random_base64)
+    set_state "MCP_AUDIT_SECRET" "$MCP_AUDIT_SECRET"
+  fi
+  printf 'MCP_AUDIT_SECRET=%s\n' "$MCP_AUDIT_SECRET"
+  printf 'MCP_AUDIT_ENDPOINT=%s\n' "http://medtracker:8080/api/mcp-audit"
+  printf 'AUTH_TRUST_PROXY=%s\n' "true"
+  printf 'GOOGLE_CLIENT_ID=%s\n' ""
+  printf 'GOOGLE_CLIENT_SECRET=%s\n' ""
+  printf 'GOOGLE_REDIRECT_URL=%s\n' ""
+  printf 'ADMIN_EMAIL=%s\n' ""
+  printf 'OIDC_ISSUER_URL=%s\n' "$OIDC_ISSUER_URL"
+  printf 'OIDC_AUTH_URL=%s\n' "$OIDC_AUTH_URL"
+  printf 'OIDC_TOKEN_URL=%s\n' "$OIDC_TOKEN_URL"
+  printf 'OIDC_USERINFO_URL=%s\n' "$OIDC_USERINFO_URL"
+  printf 'OIDC_CLIENT_ID=%s\n' "$OIDC_CLIENT_ID"
+  printf 'OIDC_CLIENT_SECRET=%s\n' "$OIDC_CLIENT_SECRET"
+  printf 'OIDC_REDIRECT_URL=%s\n' "$OIDC_REDIRECT_URL"
+  printf 'OIDC_ADMIN_EMAIL=%s\n' "$OIDC_ADMIN_EMAIL"
+  printf 'OIDC_ALLOWED_SUBJECT=%s\n' "$OIDC_ALLOWED_SUBJECT"
+  printf 'OIDC_BUTTON_LABEL=%s\n' "$OIDC_BUTTON_LABEL"
+  printf 'OIDC_BUTTON_COLOR=%s\n' "$OIDC_BUTTON_COLOR"
+  printf 'OIDC_BUTTON_TEXT_COLOR=%s\n' "$OIDC_BUTTON_TEXT_COLOR"
+  printf 'OIDC_SCOPES=%s\n' "$OIDC_SCOPES"
+  printf 'VAPID_PUBLIC_KEY=%s\n' "$VAPID_PUBLIC_KEY"
+  printf 'VAPID_PRIVATE_KEY=%s\n' "$VAPID_PRIVATE_KEY"
+  printf 'VAPID_SUBJECT=%s\n' "$VAPID_SUBJECT"
+  printf 'OPENAI_API_KEY=%s\n' "$OPENAI_API_KEY"
+  printf 'OPENAI_URL=%s\n' "$OPENAI_URL"
+  printf 'OPENAI_MODEL=%s\n' "$OPENAI_MODEL"
+  printf 'EXTERNAL_WORKOUT_API_KEY=%s\n' "$EXTERNAL_WORKOUT_API_KEY"
+  printf 'MCP_DOMAIN=%s\n' "$MCP_DOMAIN"
+  printf 'MCP_SERVER_URL=%s\n' "$MCP_SERVER_URL"
+  printf 'MCP_ALLOWED_SUBJECT=%s\n' "$MCP_ALLOWED_SUBJECT"
+  printf 'MCP_MAX_QUERY_DAYS=%s\n' "$MCP_MAX_QUERY_DAYS"
+  printf 'COMPOSE_PROFILES=%s\n' "$([ "$MCP_PROFILE_ENABLED" = true ] && echo "mcp" || echo "")"
+  printf 'POCKET_ID_DOMAIN=%s\n' "$POCKET_ID_DOMAIN"
+  printf 'POCKET_ID_APP_URL=%s\n' "$POCKET_ID_APP_URL"
+  printf 'POCKET_ID_ENCRYPTION_KEY=%s\n' "$POCKET_ID_ENCRYPTION_KEY"
+  printf 'POCKET_ID_TRUST_PROXY=%s\n' "$POCKET_ID_TRUST_PROXY"
+  printf 'POCKET_ID_PUID=%s\n' "$POCKET_ID_PUID"
+  printf 'POCKET_ID_PGID=%s\n' "$POCKET_ID_PGID"
+  printf 'POCKET_ID_URL=%s\n' "$POCKET_ID_URL"
+  printf 'POCKET_ID_CLIENT_ID=%s\n' "$POCKET_ID_CLIENT_ID"
+  printf 'POCKET_ID_CLIENT_SECRET=%s\n' "$POCKET_ID_CLIENT_SECRET"
+  printf 'LITESTREAM_ACCESS_KEY_ID=%s\n' "$LITESTREAM_ACCESS_KEY_ID"
+  printf 'LITESTREAM_SECRET_ACCESS_KEY=%s\n' "$LITESTREAM_SECRET_ACCESS_KEY"
+  printf 'R2_ENDPOINT=%s\n' "$R2_ENDPOINT"
+  printf 'R2_BUCKET=%s\n' "$R2_BUCKET"
+  if ! $USE_TRAEFIK; then
+    printf 'NETWORK_NAME=%s\n' "$NETWORK_NAME"
+    printf 'CERT_RESOLVER=%s\n' "$CERT_RESOLVER"
+  else
+    printf 'CERT_RESOLVER=%s\n' "$CERT_RESOLVER"
+    printf 'LE_EMAIL=%s\n' "$LE_EMAIL"
+  fi
+} > "$ENV_FILE"
+chmod 600 "$ENV_FILE"
+say "Created ${ENV_FILE} with mode 600 (owner read/write only)."
+
+# Build compose file
+{
+  printf "version: '3.8'\n\n"
+  printf "services:\n"
+
+  if $USE_TRAEFIK; then
+    printf "  traefik:\n"
+    printf "    image: traefik:v3.6\n"
+    printf "    container_name: ${APP_NAME}-traefik\n"
+    printf "    restart: unless-stopped\n"
+    printf "    command:\n"
+    printf "      - --providers.docker=true\n"
+    printf "      - --providers.docker.exposedbydefault=false\n"
+    if [ "$CONTAINER_CLI" = "podman" ]; then
+      printf "      - --providers.docker.endpoint=unix:///var/run/podman.sock\n"
+    fi
+    printf "      - --entrypoints.web.address=:80\n"
+    printf "      - --entrypoints.websecure.address=:443\n"
+    printf "      - --entrypoints.web.http.redirections.entrypoint.to=websecure\n"
+    printf "      - --entrypoints.web.http.redirections.entrypoint.scheme=https\n"
+    printf "      - --certificatesresolvers.${CERT_RESOLVER}.acme.email=${LE_EMAIL}\n"
+    printf "      - --certificatesresolvers.${CERT_RESOLVER}.acme.storage=/letsencrypt/acme.json\n"
+    printf "      - --certificatesresolvers.${CERT_RESOLVER}.acme.httpchallenge.entrypoint=web\n"
+    printf "    ports:\n"
+    printf "      - 80:80\n"
+    printf "      - 443:443\n"
+    printf "    volumes:\n"
+    if [ "$CONTAINER_CLI" = "podman" ]; then
+      printf "      - ${XDG_RUNTIME_DIR:-/run}/podman/podman.sock:/var/run/podman.sock:ro\n"
+    else
+      printf "      - /var/run/docker.sock:/var/run/docker.sock:ro\n"
+    fi
+    printf "      - traefik_letsencrypt:/letsencrypt\n"
+    printf "    networks:\n"
+    printf "      - proxy\n\n"
+  fi
+
+  if $ENABLE_POCKET_ID; then
+    printf "  pocket-id:\n"
+    printf "    image: ghcr.io/pocket-id/pocket-id:v2\n"
+    printf "    container_name: ${APP_NAME}-pocket-id\n"
+    printf "    restart: unless-stopped\n"
+    printf "    environment:\n"
+    printf "      - APP_URL=\${POCKET_ID_APP_URL}\n"
+    printf "      - TRUST_PROXY=\${POCKET_ID_TRUST_PROXY}\n"
+    printf "      - ENCRYPTION_KEY=\${POCKET_ID_ENCRYPTION_KEY}\n"
+    printf "      - PUID=\${POCKET_ID_PUID}\n"
+    printf "      - PGID=\${POCKET_ID_PGID}\n"
+    printf "    volumes:\n"
+    printf "      - pocket_id_data:/app/data\n"
+    if $USE_TRAEFIK; then
+      printf "    networks:\n"
+      printf "      - proxy\n"
+    else
+      printf "    networks:\n"
+      printf "      - traefik_net\n"
+    fi
+    printf "    labels:\n"
+    printf "      - traefik.enable=true\n"
+    printf "      - traefik.http.routers.pocket-id.rule=Host(\`\${POCKET_ID_DOMAIN}\`)\n"
+    printf "      - traefik.http.routers.pocket-id.entrypoints=websecure\n"
+    printf "      - traefik.http.routers.pocket-id.tls.certresolver=\${CERT_RESOLVER}\n"
+    printf "      - traefik.http.services.pocket-id.loadbalancer.server.port=1411\n\n"
+  fi
+
+  printf "  medtracker:\n"
+  printf "    image: ghcr.io/korjavin/medicationtrackerbot:latest\n"
+  printf "    container_name: ${APP_NAME}\n"
+  printf "    restart: unless-stopped\n"
+  printf "    volumes:\n"
+  printf "      - medtracker_data:/app/data\n"
+  if $ENABLE_LOCAL_TG_API; then
+    printf "      - telegram_bot_api_data:/var/lib/telegram-bot-api\n"
+  fi
+  printf "    environment:\n"
+  printf "      - TELEGRAM_BOT_TOKEN=\${TELEGRAM_BOT_TOKEN}\n"
+  printf "      - ALLOWED_USER_ID=\${ALLOWED_USER_ID}\n"
+  printf "      - DB_PATH=\${DB_PATH:-/app/data/meds.db}\n"
+  printf "      - PORT=\${PORT:-8080}\n"
+  printf "      - TZ=\${TZ}\n"
+  printf "      - SESSION_SECRET=\${SESSION_SECRET}\n"
+  printf "      - AUTH_TRUST_PROXY=\${AUTH_TRUST_PROXY}\n"
+  printf "      - APP_DOMAIN=\${DOMAIN}\n"
+  printf "      - MCP_DOMAIN=\${MCP_DOMAIN}\n"
+  printf "      - POCKET_ID_DOMAIN=\${POCKET_ID_DOMAIN}\n"
+  printf "      - GOOGLE_CLIENT_ID=\${GOOGLE_CLIENT_ID}\n"
+  printf "      - GOOGLE_CLIENT_SECRET=\${GOOGLE_CLIENT_SECRET}\n"
+  printf "      - GOOGLE_REDIRECT_URL=\${GOOGLE_REDIRECT_URL}\n"
+  printf "      - ADMIN_EMAIL=\${ADMIN_EMAIL}\n"
+  printf "      - OIDC_ISSUER_URL=\${OIDC_ISSUER_URL}\n"
+  printf "      - OIDC_AUTH_URL=\${OIDC_AUTH_URL}\n"
+  printf "      - OIDC_TOKEN_URL=\${OIDC_TOKEN_URL}\n"
+  printf "      - OIDC_USERINFO_URL=\${OIDC_USERINFO_URL}\n"
+  printf "      - OIDC_CLIENT_ID=\${OIDC_CLIENT_ID}\n"
+  printf "      - OIDC_CLIENT_SECRET=\${OIDC_CLIENT_SECRET}\n"
+  printf "      - OIDC_REDIRECT_URL=\${OIDC_REDIRECT_URL}\n"
+  printf "      - OIDC_ADMIN_EMAIL=\${OIDC_ADMIN_EMAIL}\n"
+  printf "      - OIDC_ALLOWED_SUBJECT=\${OIDC_ALLOWED_SUBJECT}\n"
+  printf "      - OIDC_BUTTON_LABEL=\${OIDC_BUTTON_LABEL}\n"
+  printf "      - OIDC_BUTTON_COLOR=\${OIDC_BUTTON_COLOR}\n"
+  printf "      - OIDC_BUTTON_TEXT_COLOR=\${OIDC_BUTTON_TEXT_COLOR}\n"
+  printf "      - OIDC_SCOPES=\${OIDC_SCOPES}\n"
+  printf "      - POCKET_ID_CLIENT_ID=\${POCKET_ID_CLIENT_ID}\n"
+  printf "      - POCKET_ID_CLIENT_SECRET=\${POCKET_ID_CLIENT_SECRET}\n"
+  printf "      - TELEGRAM_API_ENDPOINT=\${TELEGRAM_API_ENDPOINT}\n"
+  printf "      - VAPID_PUBLIC_KEY=\${VAPID_PUBLIC_KEY}\n"
+  printf "      - VAPID_PRIVATE_KEY=\${VAPID_PRIVATE_KEY}\n"
+  printf "      - VAPID_SUBJECT=\${VAPID_SUBJECT}\n"
+  printf "      - MCP_AUDIT_SECRET=\${MCP_AUDIT_SECRET}\n"
+  printf "      - OPENAI_API_KEY=\${OPENAI_API_KEY}\n"
+  printf "      - OPENAI_URL=\${OPENAI_URL}\n"
+  printf "      - OPENAI_MODEL=\${OPENAI_MODEL}\n"
+  printf "      - EXTERNAL_WORKOUT_API_KEY=\${EXTERNAL_WORKOUT_API_KEY}\n"
+  if $USE_TRAEFIK; then
+    printf "    networks:\n"
+    printf "      - proxy\n"
+  else
+    printf "    networks:\n"
+    printf "      - traefik_net\n"
+  fi
+  printf "    labels:\n"
+  printf "      - traefik.enable=true\n"
+  printf "      - traefik.http.routers.medtracker.rule=Host(\`\${DOMAIN}\`)\n"
+  printf "      - traefik.http.routers.medtracker.entrypoints=websecure\n"
+  printf "      - traefik.http.routers.medtracker.tls.certresolver=\${CERT_RESOLVER}\n"
+  printf "      - traefik.http.services.medtracker.loadbalancer.server.port=\${PORT:-8080}\n\n"
+
+  if $ENABLE_MCP; then
+    printf "  mcp-server:\n"
+    printf "    image: ghcr.io/korjavin/medicationtrackerbot:latest\n"
+    printf "    container_name: ${APP_NAME}-mcp\n"
+    printf "    restart: unless-stopped\n"
+    printf "    profiles:\n"
+    printf "      - mcp\n"
+    printf "    command: [\"./mcptool\"]\n"
+    printf "    volumes:\n"
+    printf "      - medtracker_data:/app/data:ro\n"
+    printf "    environment:\n"
+    printf "      - MCP_PORT=\${MCP_PORT:-8081}\n"
+    printf "      - MCP_DATABASE_PATH=\${MCP_DATABASE_PATH:-/app/data/meds.db}\n"
+    printf "      - MCP_MAX_QUERY_DAYS=\${MCP_MAX_QUERY_DAYS:-90}\n"
+    printf "      - MCP_SERVER_URL=\${MCP_SERVER_URL}\n"
+    printf "      - MCP_ALLOWED_SUBJECT=\${MCP_ALLOWED_SUBJECT}\n"
+    printf "      - ALLOWED_USER_ID=\${ALLOWED_USER_ID}\n"
+    printf "      - MCP_AUDIT_ENDPOINT=\${MCP_AUDIT_ENDPOINT:-http://medtracker:8080/api/mcp-audit}\n"
+    printf "      - MCP_AUDIT_SECRET=\${MCP_AUDIT_SECRET}\n"
+    printf "      - POCKET_ID_URL=\${POCKET_ID_URL}\n"
+    printf "      - POCKET_ID_CLIENT_ID=\${POCKET_ID_CLIENT_ID}\n"
+    printf "      - POCKET_ID_CLIENT_SECRET=\${POCKET_ID_CLIENT_SECRET}\n"
+    printf "      - POCKET_ID_JWKS_JSON=\${POCKET_ID_JWKS_JSON}\n"
+    printf "      - SKIP_PERMS_FIX=true\n"
+    printf "      - TZ=\${TZ}\n"
+    if $USE_TRAEFIK; then
+      printf "    networks:\n"
+      printf "      - proxy\n"
+    else
+      printf "    networks:\n"
+      printf "      - traefik_net\n"
+    fi
+    printf "    labels:\n"
+    printf "      - traefik.enable=true\n"
+    printf "      - traefik.http.routers.medtracker-mcp.rule=Host(\`\${MCP_DOMAIN}\`)\n"
+    printf "      - traefik.http.routers.medtracker-mcp.entrypoints=websecure\n"
+    printf "      - traefik.http.routers.medtracker-mcp.tls.certresolver=\${CERT_RESOLVER}\n"
+    printf "      - traefik.http.services.medtracker-mcp.loadbalancer.server.port=\${MCP_PORT:-8081}\n\n"
+  fi
+
+  if $ENABLE_LOCAL_TG_API; then
+    printf "  telegram-bot-api:\n"
+    printf "    image: aiogram/telegram-bot-api:latest\n"
+    printf "    container_name: ${APP_NAME}-telegram-api\n"
+    printf "    restart: unless-stopped\n"
+    printf "    entrypoint: /bin/sh\n"
+    printf "    command:\n"
+    printf "      - -c\n"
+    printf "      - |\n"
+    printf "        grep -q :1000: /etc/group || echo \"appgroup:x:1000:\" >> /etc/group\n"
+    printf "        grep -q :1000: /etc/passwd || echo \"appuser:x:1000:1000:appuser:/var/lib/telegram-bot-api:/bin/sh\" >> /etc/passwd\n"
+    printf "        chown -R 1000:1000 /var/lib/telegram-bot-api\n"
+    printf "        exec telegram-bot-api --local \\\n          --api-id=\$\${TELEGRAM_API_ID} \\\n          --api-hash=\$\${TELEGRAM_API_HASH} \\\n          --dir=/var/lib/telegram-bot-api \\\n          --temp-dir=/tmp \\\n          --username=appuser \\\n          --groupname=appgroup \\\n          --http-port=8081\n"
+    printf "    volumes:\n"
+    printf "      - telegram_bot_api_data:/var/lib/telegram-bot-api\n"
+    printf "    environment:\n"
+    printf "      - TELEGRAM_API_ID=\${TELEGRAM_API_ID}\n"
+    printf "      - TELEGRAM_API_HASH=\${TELEGRAM_API_HASH}\n"
+    printf "      - TELEGRAM_LOCAL=1\n"
+    printf "    networks:\n"
+    if $USE_TRAEFIK; then
+      printf "      - proxy\n\n"
+    else
+      printf "      - traefik_net\n\n"
+    fi
+  fi
+
+  if $ENABLE_LITESTREAM; then
+    printf "  litestream:\n"
+    printf "    image: litestream/litestream:latest\n"
+    printf "    container_name: ${APP_NAME}-litestream\n"
+    printf "    restart: unless-stopped\n"
+    printf "    entrypoint: /bin/sh\n"
+    printf "    command:\n"
+    printf "      - -c\n"
+    printf "      - |\n"
+    printf "        cat << EOF > /tmp/litestream.yml\n"
+    printf "        retention:\n"
+    printf "          enabled: \$\${LITESTREAM_RETENTION_ENABLED:-false}\n"
+    printf "        levels:\n"
+    printf "          - interval: \$\${LITESTREAM_LEVEL_1_INTERVAL:-4h}\n"
+    printf "          - interval: \$\${LITESTREAM_LEVEL_2_INTERVAL:-24h}\n"
+    printf "          - interval: \$\${LITESTREAM_LEVEL_3_INTERVAL:-168h}\n"
+    printf "        snapshot:\n"
+    printf "          interval: \$\${LITESTREAM_SNAPSHOT_INTERVAL:-240h}\n"
+    printf "          retention: \$\${LITESTREAM_RETENTION:-1680h}\n"
+    printf "        l0-retention: \$\${LITESTREAM_L0_RETENTION:-24h}\n"
+    printf "        l0-retention-check-interval: \$\${LITESTREAM_L0_RETENTION_CHECK_INTERVAL:-24h}\n"
+    printf "        dbs:\n"
+    printf "          - path: /app/data/meds.db\n"
+    printf "            replica:\n"
+    printf "              type: s3\n"
+    printf "              bucket: \$\${R2_BUCKET}\n"
+    printf "              path: medtracker\n"
+    printf "              endpoint: \$\${R2_ENDPOINT}\n"
+    printf "              sync-interval: \$\${LITESTREAM_SYNC_INTERVAL:-1h}\n"
+    printf "        EOF\n"
+    printf "        exec litestream replicate -config /tmp/litestream.yml\n"
+    printf "    volumes:\n"
+    printf "      - medtracker_data:/app/data\n"
+    printf "    environment:\n"
+    printf "      - LITESTREAM_ACCESS_KEY_ID=\${LITESTREAM_ACCESS_KEY_ID}\n"
+    printf "      - LITESTREAM_SECRET_ACCESS_KEY=\${LITESTREAM_SECRET_ACCESS_KEY}\n"
+    printf "      - R2_ENDPOINT=\${R2_ENDPOINT}\n"
+    printf "      - R2_BUCKET=\${R2_BUCKET}\n"
+    printf "      - LITESTREAM_SYNC_INTERVAL=\${LITESTREAM_SYNC_INTERVAL:-1h}\n"
+    printf "      - LITESTREAM_SNAPSHOT_INTERVAL=\${LITESTREAM_SNAPSHOT_INTERVAL:-240h}\n"
+    printf "      - LITESTREAM_RETENTION=\${LITESTREAM_RETENTION:-1680h}\n"
+    printf "      - LITESTREAM_RETENTION_ENABLED=\${LITESTREAM_RETENTION_ENABLED:-false}\n"
+    printf "      - LITESTREAM_LEVEL_1_INTERVAL=\${LITESTREAM_LEVEL_1_INTERVAL:-4h}\n"
+    printf "      - LITESTREAM_LEVEL_2_INTERVAL=\${LITESTREAM_LEVEL_2_INTERVAL:-24h}\n"
+    printf "      - LITESTREAM_LEVEL_3_INTERVAL=\${LITESTREAM_LEVEL_3_INTERVAL:-168h}\n"
+    printf "      - LITESTREAM_L0_RETENTION=\${LITESTREAM_L0_RETENTION:-24h}\n"
+    printf "      - LITESTREAM_L0_RETENTION_CHECK_INTERVAL=\${LITESTREAM_L0_RETENTION_CHECK_INTERVAL:-24h}\n"
+    printf "    depends_on:\n"
+    printf "      - medtracker\n"
+    printf "    networks:\n"
+    if $USE_TRAEFIK; then
+      printf "      - proxy\n\n"
+    else
+      printf "      - traefik_net\n\n"
+    fi
+  fi
+
+  printf "networks:\n"
+  if $USE_TRAEFIK; then
+    printf "  proxy:\n"
+  else
+    printf "  traefik_net:\n"
+    printf "    external: true\n"
+    printf "    name: \${NETWORK_NAME}\n"
+  fi
+
+  printf "\nvolumes:\n"
+  printf "  medtracker_data:\n"
+  if $ENABLE_POCKET_ID; then
+    printf "  pocket_id_data:\n"
+  fi
+  if $ENABLE_LOCAL_TG_API; then
+    printf "  telegram_bot_api_data:\n"
+  fi
+  if $USE_TRAEFIK; then
+    printf "  traefik_letsencrypt:\n"
+  fi
+} > "$COMPOSE_FILE"
+
+say ""
+say "Configuration written to: $INSTALL_DIR/$COMPOSE_FILE and $INSTALL_DIR/$ENV_FILE"
+
+STACK_STARTED=false
+if confirm "Start the stack now?" "yes"; then
+  $COMPOSE_CMD up -d
+  STACK_STARTED=true
+else
+  STACK_STARTED=false
+fi
+
+say ""
+say "Next steps:"
+if [ -n "$PUBLIC_IP" ]; then
+  say "- Point your DNS A/AAAA record for ${DOMAIN} to ${PUBLIC_IP}."
+else
+  say "- Point your DNS A/AAAA record for ${DOMAIN} to your server's public IP."
+fi
+
+if $ENABLE_POCKET_ID; then
+  if [ -n "$PUBLIC_IP" ]; then
+    say "- Point your DNS A/AAAA record for ${POCKET_ID_DOMAIN} to ${PUBLIC_IP}."
+  else
+    say "- Point your DNS A/AAAA record for ${POCKET_ID_DOMAIN} to your server's public IP."
+  fi
+fi
+
+if $ENABLE_MCP; then
+  if [ -n "$PUBLIC_IP" ]; then
+    say "- Point your DNS A/AAAA record for ${MCP_DOMAIN} to ${PUBLIC_IP}."
+  else
+    say "- Point your DNS A/AAAA record for ${MCP_DOMAIN} to your server's public IP."
+  fi
+fi
+
+say "- Wait for DNS to propagate, then open https://${DOMAIN}."
+
+if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
+  say "- Configure your bot's domain: In @BotFather, use /setdomain and set it to ${DOMAIN}"
+fi
+say "- In Telegram, open your bot and send /start to launch the app."
+
+if $ENABLE_POCKET_ID; then
+  say "- OIDC setup helper: https://${DOMAIN}/oidc-setup"
+  if $STACK_STARTED; then
+    maybe_open_url "https://${POCKET_ID_DOMAIN}/setup"
+    say "- Attempted to open Pocket-ID setup at https://${POCKET_ID_DOMAIN}/setup"
+  fi
+fi
+
+if $ENABLE_OIDC; then
+  if $OIDC_NEEDS_SETUP; then
+    if $ENABLE_POCKET_ID; then
+      say "- Finish Pocket-ID setup at https://${POCKET_ID_DOMAIN}/setup and create your admin user."
+    fi
+    say "- Create an OIDC client with redirect URL ${OIDC_REDIRECT_URL}."
+    say "- Update ${INSTALL_DIR}/${ENV_FILE} with OIDC_CLIENT_ID and OIDC_CLIENT_SECRET."
+    say "- Set OIDC_ADMIN_EMAIL or OIDC_ALLOWED_SUBJECT, then run: $COMPOSE_CMD up -d"
+  fi
+
+  if ! validate_oidc_discovery "$OIDC_ISSUER_URL"; then
+    warn "OIDC discovery may fail until Pocket-ID is fully initialized."
+  fi
+fi
+
+if $ENABLE_MCP; then
+  if $MCP_NEEDS_SETUP; then
+    if $ENABLE_POCKET_ID; then
+      say "- Finish Pocket-ID setup at https://${POCKET_ID_DOMAIN}/setup and create your admin user."
+    fi
+    say "- Create a Pocket-ID client (redirect URIs: https://claude.ai/api/mcp/auth_callback and https://claude.com/api/mcp/auth_callback)."
+    say "- Update ${INSTALL_DIR}/${ENV_FILE} with POCKET_ID_CLIENT_ID, POCKET_ID_CLIENT_SECRET, MCP_ALLOWED_SUBJECT."
+    say "- Set COMPOSE_PROFILES=mcp in ${INSTALL_DIR}/${ENV_FILE}, then run: $COMPOSE_CMD up -d"
+  else
+    say "- Configure Claude MCP with: https://${MCP_DOMAIN}/mcp (Streamable HTTP)."
+    say "- Ensure Pocket-ID client redirect URIs include https://claude.ai/api/mcp/auth_callback and https://claude.com/api/mcp/auth_callback."
+  fi
+fi
+
+if $ENABLE_LITESTREAM; then
+  say "- Litestream is enabled. Make sure your R2 bucket is private and access keys are restricted."
+fi
+
+say ""
+say "Manage the stack:"
+say "- Logs: $COMPOSE_CMD logs -f"
+say "- Update: $COMPOSE_CMD pull && $COMPOSE_CMD up -d"

@@ -2,7 +2,6 @@ package gojaspike
 
 import (
 	"database/sql"
-	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -32,75 +31,10 @@ func setupDB(t testing.TB) *sql.DB {
 	return db
 }
 
-// RecordsPort provides the DB interface to the JS domain
-type RecordsPort struct {
-	db *sql.DB
-	vm *goja.Runtime
-}
-
-func (rp *RecordsPort) put(call goja.FunctionCall) goja.Value {
-	rt := call.Argument(0).String()
-	recordObj := call.Argument(1).Export().(map[string]interface{})
-	id, ok := recordObj["recordId"].(string)
-	if !ok {
-		panic("recordId missing")
-	}
-
-	dataBytes, _ := json.Marshal(recordObj)
-	_, err := rp.db.Exec("INSERT INTO records (type, id, data) VALUES (?, ?, ?) ON CONFLICT(type, id) DO UPDATE SET data = excluded.data", rt, id, string(dataBytes))
+func loadJS(t testing.TB, path string) string {
+	bpJSBytes, err := os.ReadFile(path)
 	if err != nil {
-		panic(err)
-	}
-
-	res, _ := rp.vm.RunString("Promise.resolve()")
-	return res
-}
-
-func (rp *RecordsPort) list(call goja.FunctionCall) goja.Value {
-	rt := call.Argument(0).String()
-
-	rows, err := rp.db.Query("SELECT data FROM records WHERE type = ?", rt)
-	if err != nil {
-		panic(err)
-	}
-	defer rows.Close()
-
-	var records []interface{}
-	for rows.Next() {
-		var data string
-		if err := rows.Scan(&data); err != nil {
-			panic(err)
-		}
-		var rec map[string]interface{}
-		if err := json.Unmarshal([]byte(data), &rec); err != nil {
-			panic(err)
-		}
-		records = append(records, rec)
-	}
-
-	// Create a JS array and wrap it in a promise
-	rp.vm.Set("_tmpList", records)
-	res, _ := rp.vm.RunString("Promise.resolve(_tmpList)")
-	return res
-}
-
-func (rp *RecordsPort) del(call goja.FunctionCall) goja.Value {
-	rt := call.Argument(0).String()
-	id := call.Argument(1).String()
-
-	_, err := rp.db.Exec("DELETE FROM records WHERE type = ? AND id = ?", rt, id)
-	if err != nil {
-		panic(err)
-	}
-
-	res, _ := rp.vm.RunString("Promise.resolve()")
-	return res
-}
-
-func loadJS(t testing.TB) string {
-	bpJSBytes, err := os.ReadFile("../../web/domain/bp.js")
-	if err != nil {
-		t.Fatalf("failed to read bp.js: %v", err)
+		t.Fatalf("failed to read %s: %v", path, err)
 	}
 
 	code := string(bpJSBytes)
@@ -117,12 +51,10 @@ func setupVM(t testing.TB, code string, db *sql.DB) *goja.Runtime {
 		t.Fatalf("run js failed: %v", err)
 	}
 
-	rp := &RecordsPort{db: db, vm: vm}
+	rp := NewRecordsPort(db, vm)
 
 	records := vm.NewObject()
-	records.Set("put", rp.put)
-	records.Set("list", rp.list)
-	records.Set("del", rp.del)
+	rp.Setup(records)
 
 	injection := vm.NewObject()
 	injection.Set("records", records)
@@ -147,9 +79,6 @@ func setupVM(t testing.TB, code string, db *sql.DB) *goja.Runtime {
 				err = e;
 				done = true;
 			});
-			// Since we use native Go sync DB calls and mock Promises that resolve immediately in the port,
-			// the microtasks might execute synchronously if we force them, or we can just return the promise.
-			// Actually, Goja doesn't have an event loop by default, so Promise chains might not resolve unless we run them.
 			return domain.create(input);
 		}
 	`)
@@ -163,15 +92,8 @@ func setupVM(t testing.TB, code string, db *sql.DB) *goja.Runtime {
 func TestGojaBP(t *testing.T) {
 	db := setupDB(t)
 	defer db.Close()
-	code := loadJS(t)
+	code := loadJS(t, "../../web/domain/bp.js")
 	vm := setupVM(t, code, db)
-
-	// Since Goja Promises don't resolve automatically without an event loop loop,
-	// let's use a simpler wrapper. Wait, the domain functions return async Promises.
-	// We can use a small polyfill or just rely on a simple callback if we transpile, but we aren't transpiling async/await.
-	// Oh, bp.js uses `async/await` which means it returns native Goja Promises!
-
-	// Wait, if bp.js uses `async function`, Goja supports native Promises since recently.
 
 	inputObj := vm.NewObject()
 	inputObj.Set("measured_at", time.Now().Format(time.RFC3339))
