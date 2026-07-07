@@ -56,6 +56,19 @@ func (a *TrialProxyAPI) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/trial/elevenlabs/signed-url", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.ElevenLabsSignedURL)))
 }
 
+// rateLimit enforces the shared per-account trial limit (one limiter across
+// all trial routes). On limit it writes the 429 contract (mirrors demo-mode's
+// shape so existing frontend 429 handling applies) and returns false.
+func (a *TrialProxyAPI) rateLimit(w http.ResponseWriter, accountID string) bool {
+	if a.limiter.Allow(accountID) {
+		return true
+	}
+	slog.Info("trial rate limited", "account", accountID)
+	w.Header().Set("Retry-After", "60")
+	writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": "trial_rate_limit", "retry_after_seconds": 60})
+	return false
+}
+
 // ElevenLabsSignedURL mints a conversation signed URL for the operator's
 // shared trial agent, keeping the xi-api-key server-side (mirrors bot-mode
 // internal/server.handleElevenLabsSignedURL, reimplemented here because
@@ -68,6 +81,9 @@ func (a *TrialProxyAPI) ElevenLabsSignedURL(w http.ResponseWriter, r *http.Reque
 	}
 	if !a.cfg.TrialVoiceConfigured() {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_not_configured"})
+		return
+	}
+	if !a.rateLimit(w, account.ID) {
 		return
 	}
 
@@ -120,6 +136,9 @@ func (a *TrialProxyAPI) ChatCompletions(w http.ResponseWriter, r *http.Request) 
 	}
 	if key == "" {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_not_configured"})
+		return
+	}
+	if !a.rateLimit(w, account.ID) {
 		return
 	}
 

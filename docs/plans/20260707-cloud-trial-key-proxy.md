@@ -60,9 +60,9 @@
 - [x] integration test: mints from a fake upstream, asserts the `xi-api-key` header is sent upstream and absent from the client response; 503 when unconfigured
 
 ### Task 4: Per-account rate limiting on trial routes
-- [ ] one `rateLimiter` (`newRateLimiter(cfg.PerMinute, time.Minute)`) shared across all trial routes, keyed `account.ID`
-- [ ] on limit: 429 JSON `{"error":"trial_rate_limit","retry_after_seconds":60}` + `Retry-After` header (mirrors the demo-mode 429 shape so existing frontend 429 handling applies)
-- [ ] integration test: N allowed then 429 for the same account; different account still allowed
+- [x] one `rateLimiter` (`newRateLimiter(cfg.PerMinute, time.Minute)`) shared across all trial routes, keyed `account.ID` (limiter built in `NewTrialProxyAPI`, checked via `rateLimit()` in both handlers after the configured check so unconfigured stays 503)
+- [x] on limit: 429 JSON `{"error":"trial_rate_limit","retry_after_seconds":60}` + `Retry-After` header (mirrors the demo-mode 429 shape so existing frontend 429 handling applies)
+- [x] integration test: N allowed then 429 for the same account; different account still allowed (`TestTrialProxy_RateLimit`)
 
 ### Task 5: Trial-availability flag to the client
 - [ ] extend `injectCloudBoot` in `internal/cloudserver/router.go` to add `<meta name="medtracker-trial-ai" content="1">` and `<meta name="medtracker-trial-voice" content="1">` only when the corresponding trial key is configured (booleans only — never URLs/models/keys)

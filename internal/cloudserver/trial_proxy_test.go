@@ -225,6 +225,51 @@ func TestTrialProxy_ElevenLabsSignedURL(t *testing.T) {
 	}
 }
 
+func TestTrialProxy_RateLimit(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"choices":[]}`))
+	}))
+	defer upstream.Close()
+
+	cfg := TrialConfig{OpenAIAPIKey: "sk-trial", OpenAIURL: upstream.URL, OpenAIModel: "m", RatePerMinute: 2}
+	store := setupStore(t)
+	account1, token1 := setupInvite(t, store)
+	account2, token2 := setupInvite(t, store)
+	secret := "test-session-secret-at-least-32-bytes-long"
+
+	mux := http.NewServeMux()
+	NewWebAuthnAPI(store, secret).RegisterRoutes(mux)
+	NewTrialProxyAPI(store, secret, cfg).RegisterRoutes(mux)
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "")
+
+	host1 := account1.Subdomain + ".localhost"
+	host2 := account2.Subdomain + ".localhost"
+	session1 := registerAndGetSession(t, h, host1, token1)
+	session2 := registerAndGetSession(t, h, host2, token2)
+
+	for i := 0; i < 2; i++ {
+		if rec := postTrialChat(h, host1, "/api/trial/openai/chat/completions", `{"messages":[]}`, session1); rec.Code != http.StatusOK {
+			t.Fatalf("request %d status = %d, want 200", i, rec.Code)
+		}
+	}
+	rec := postTrialChat(h, host1, "/api/trial/openai/chat/completions", `{"messages":[]}`, session1)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429", rec.Code)
+	}
+	if rec.Header().Get("Retry-After") != "60" {
+		t.Fatalf("Retry-After = %q, want 60", rec.Header().Get("Retry-After"))
+	}
+	if !strings.Contains(rec.Body.String(), "trial_rate_limit") || !strings.Contains(rec.Body.String(), "retry_after_seconds") {
+		t.Fatalf("429 body = %q, want trial_rate_limit contract", rec.Body.String())
+	}
+
+	// A different account is unaffected by account1's exhaustion.
+	if rec := postTrialChat(h, host2, "/api/trial/openai/chat/completions", `{"messages":[]}`, session2); rec.Code != http.StatusOK {
+		t.Fatalf("other account status = %d, want 200, body %q", rec.Code, rec.Body.String())
+	}
+}
+
 func TestTrialProxy_Unauthenticated401(t *testing.T) {
 	cfg := TrialConfig{OpenAIAPIKey: "sk-trial", OpenAIURL: "http://unused.invalid", OpenAIModel: "m", RatePerMinute: 100}
 	h, host, _ := newTrialTestHandler(t, cfg)
