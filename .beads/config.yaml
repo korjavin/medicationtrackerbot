@@ -67,4 +67,4 @@
 
 sync.remote: "git+https://github.com/korjavin/medicationtrackerbot.git"
 export:
-    auto: true
+    auto: false
