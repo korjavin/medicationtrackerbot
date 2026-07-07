@@ -157,14 +157,14 @@ func TestRouter_HostVariants(t *testing.T) {
 			// hold the in-memory DEK. The base domain and the passkey ceremony
 			// pages make no cross-origin calls and stay strict.
 			wantConnect := "connect-src 'self';"
-			// Account app pages also load the @elevenlabs/client voice SDK from
-			// esm.sh (blob: AudioWorklets); base/ceremony pages stay strict.
+			// Account app pages also load the @elevenlabs/client voice SDK locally
+			// (blob: AudioWorklets); base/ceremony pages stay strict.
 			wantScript := "script-src 'self';"
 			accountApp := stripPort(tc.host) != "app.example.com" &&
 				(tc.path == "/" || strings.HasPrefix(tc.path, "/static/") || strings.HasPrefix(tc.path, "/domain/"))
 			if accountApp {
 				wantConnect = "connect-src 'self' https: wss:;"
-				wantScript = "script-src 'self' https://esm.sh blob: data:;"
+				wantScript = "script-src 'self' blob: data:;"
 			}
 			if !strings.Contains(csp, wantConnect) {
 				t.Errorf("CSP connect-src = %q, want it to contain %q", csp, wantConnect)

@@ -22,3 +22,7 @@
 **Vulnerability:** Use of default `http.Client{}` without timeouts in external API calls (e.g., OIDC userinfo, OpenFoodFacts).
 **Learning:** Default HTTP clients in Go have no timeout, meaning a slow or unresponsive external server can cause goroutines to hang indefinitely, leading to resource exhaustion (DoS).
 **Prevention:** Always initialize `http.Client` with explicit timeouts (e.g., `&http.Client{Timeout: 10 * time.Second}`) when making external requests.
+## 2026-07-07 - Strict CSP Regression via Vendoring External SDKs
+**Vulnerability:** Third-party script execution on highly sensitive pages (XSS via external supply chain).
+**Learning:** Permitting external CDNs (like `https://esm.sh`) in the `script-src` Content Security Policy on pages holding sensitive in-memory keys (like the DEK) exposes the entire E2EE architecture to a supply-chain attack. If the CDN is compromised, the injected script executes on-origin and can exfiltrate sensitive memory.
+**Prevention:** Vendor third-party ES modules locally to maintain a strict `script-src 'self'` CSP on sensitive pages, fully decoupling the application security from external CDN trust.

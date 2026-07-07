@@ -16,7 +16,7 @@
 // rawAudioProcessor / audioConcatProcessor worklets.
 
 (function () {
-    const SDK_URL = 'https://esm.sh/@elevenlabs/client';
+    const SDK_URL = '/js/vendor/elevenlabs-client.esm.js';
 
     let sdkPromise = null;
     function loadSDK() {
