@@ -1,6 +1,6 @@
 module github.com/korjavin/medicationtrackerbot
 
-go 1.26.1
+go 1.26.4
 
 require (
 	github.com/SherClockHolmes/webpush-go v1.4.0
