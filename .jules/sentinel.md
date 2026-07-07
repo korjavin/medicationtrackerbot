@@ -22,3 +22,7 @@
 **Vulnerability:** Use of default `http.Client{}` without timeouts in external API calls (e.g., OIDC userinfo, OpenFoodFacts).
 **Learning:** Default HTTP clients in Go have no timeout, meaning a slow or unresponsive external server can cause goroutines to hang indefinitely, leading to resource exhaustion (DoS).
 **Prevention:** Always initialize `http.Client` with explicit timeouts (e.g., `&http.Client{Timeout: 10 * time.Second}`) when making external requests.
+## 2026-07-07 - Hide Time & Timezone section in Cloud Settings
+**Issue:** med-eas.15 requires the Time & Timezone section to be hidden in Cloud mode since server time is meaningless there.
+**Learning:** For conditional visibility in Settings, toggling the `wg-settings-hidden` class based on `window.__MEDTRACKER_CLOUD__` directly in `loadSettings()` allows hiding UI sections natively.
+**Prevention:** Consider testing all UI blocks for differences in context meaning (e.g. cloud vs server) and conditionally updating them during initialization.
