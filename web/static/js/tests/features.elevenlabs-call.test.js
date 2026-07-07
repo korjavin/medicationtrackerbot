@@ -885,6 +885,20 @@ describe('features/elevenlabs-call.js — trial-voice fallback precedence (cloud
         }
     });
 
+    it('reverse-proxy 503 error carries no .status — startCall must not map it to "not configured"', async () => {
+        // startCall() renders err.status === 503 as "Voice agent is not
+        // configured on this server."; the trial generic-error path must not
+        // feed that mapping during a backend restart behind Traefik.
+        const { window, cleanup } = cloudEnv({ hasKey: false, trialFlag: true, trialStatus: 503, trialBody: '503 Service Unavailable' });
+        try {
+            const err = await window.WGCallAgent.fetchSignedURL().catch((e) => e);
+            expect(err.message).toBe('Failed to get signed URL (503)');
+            expect(err.status).toBeUndefined();
+        } finally {
+            cleanup();
+        }
+    });
+
     it('reverse-proxy 429 (non-JSON body) → generic error, not the trial-limit message', async () => {
         const { window, cleanup } = cloudEnv({ hasKey: false, trialFlag: true, trialStatus: 429, trialBody: '429 Too Many Requests' });
         try {

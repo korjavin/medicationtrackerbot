@@ -62,9 +62,10 @@
             // Flag/route mismatch — degrade to the plain BYO message.
             throw new Error('Set your ElevenLabs API key in Settings → Integrations');
         }
-        const err = new Error(`Failed to get signed URL (${resp.status})`);
-        err.status = resp.status;
-        throw err;
+        // Deliberately no err.status: startCall() maps status 503 to "Voice
+        // agent is not configured on this server", which is exactly the
+        // misread a reverse-proxy 503 must not produce on the trial path.
+        throw new Error(`Failed to get signed URL (${resp.status})`);
     }
 
     async function fetchSignedURL() {

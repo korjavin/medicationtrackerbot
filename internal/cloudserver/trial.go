@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // Trial defaults mirror web/cloud/js/aiclient.js (DEFAULT_URL/DEFAULT_MODEL)
@@ -61,6 +62,10 @@ func TrialConfigFromEnv() (TrialConfig, error) {
 		ElevenLabsAgentID: os.Getenv("TRIAL_ELEVENLABS_AGENT_ID"),
 		RatePerMinute:     trialDefaultRatePerMin,
 	}
+	// Trim trailing slashes like internal/ai and aiclient.js do — the proxy
+	// concatenates "/chat/completions", and strict routers 404 on "//".
+	cfg.OpenAIURL = strings.TrimRight(cfg.OpenAIURL, "/")
+	cfg.VisionURL = strings.TrimRight(cfg.VisionURL, "/")
 	if cfg.OpenAIURL == "" {
 		cfg.OpenAIURL = trialDefaultOpenAIURL
 	}

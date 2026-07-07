@@ -285,3 +285,22 @@ func TestTrialProxy_Unauthenticated401(t *testing.T) {
 		t.Fatalf("status = %d, want 401", rec.Code)
 	}
 }
+
+func TestTrialConfigFromEnv_TrimsTrailingSlash(t *testing.T) {
+	// The proxy concatenates "/chat/completions" onto these; a trailing
+	// slash in the env would produce "//" and 404 on strict routers.
+	t.Setenv("TRIAL_OPENAI_API_KEY", "sk-test")
+	t.Setenv("TRIAL_OPENAI_URL", "https://api.openai.com/v1/")
+	t.Setenv("TRIAL_OPENAI_VISION_URL", "https://vision.example/v1//")
+
+	cfg, err := TrialConfigFromEnv()
+	if err != nil {
+		t.Fatalf("TrialConfigFromEnv: %v", err)
+	}
+	if cfg.OpenAIURL != "https://api.openai.com/v1" {
+		t.Errorf("OpenAIURL = %q, want trailing slash trimmed", cfg.OpenAIURL)
+	}
+	if cfg.VisionURL != "https://vision.example/v1" {
+		t.Errorf("VisionURL = %q, want trailing slashes trimmed", cfg.VisionURL)
+	}
+}
