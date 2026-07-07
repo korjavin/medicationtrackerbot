@@ -22,3 +22,7 @@
 **Vulnerability:** Use of default `http.Client{}` without timeouts in external API calls (e.g., OIDC userinfo, OpenFoodFacts).
 **Learning:** Default HTTP clients in Go have no timeout, meaning a slow or unresponsive external server can cause goroutines to hang indefinitely, leading to resource exhaustion (DoS).
 **Prevention:** Always initialize `http.Client` with explicit timeouts (e.g., `&http.Client{Timeout: 10 * time.Second}`) when making external requests.
+## 2026-07-07 - Update Go Version for Security Patch
+**Vulnerability:** Trivy reported multiple High/Critical vulnerabilities in the Go standard library (net/mail, net/http, net, crypto/x509, crypto/tls) (CVEs).
+**Learning:** Container images and dependency trees that rely on an outdated minor or patch version of the Go toolchain retain the compiled vulnerable standard library functions. Regular security audits (like `trivy-container-scan`) require both the `go.mod` directive and the CI/Dockerfile environments to use the patched version.
+**Prevention:** Monitor Trivy scan results regularly and upgrade the Go toolchain to the latest secure patch release across `go.mod`, GitHub Actions, and Docker base images whenever standard library vulnerabilities are reported.
