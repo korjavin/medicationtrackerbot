@@ -158,9 +158,7 @@
     }
 
     let _telegramMounted = false;
-    window._loadTelegramModule = function() {
-        return import('/js/telegram.js');
-    };
+    let _telegramModuleLoader = () => import('/js/telegram.js');
 
     async function loadIntegrations() {
         if (typeof apiCall !== 'function') return null;
@@ -187,7 +185,7 @@
                 const tgMount = document.getElementById('telegram-settings-mount');
                 if (tgMount && !_telegramMounted) {
                     _telegramMounted = true;
-                    window._loadTelegramModule()
+                    _telegramModuleLoader()
                         .then(({ mountTelegram }) => mountTelegram(tgMount, {}))
                         .catch((err) => {
                             _telegramMounted = false;
@@ -285,6 +283,7 @@
         _readDOMIntoPayload: readDOMIntoPayload,
         _cacheKey: CACHE_KEY,
         _cacheTags: CACHE_TAGS,
-        _resetTelegramMounted: () => { _telegramMounted = false; }
+        _resetTelegramMounted: () => { _telegramMounted = false; },
+        _setTelegramLoader: (loader) => { _telegramModuleLoader = loader; }
     };
 })();

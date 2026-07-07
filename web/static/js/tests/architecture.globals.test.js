@@ -178,7 +178,6 @@ const ALLOWED_GLOBALS = new Set([
 
     // Settings → Integrations section (local-only mode foundation, Task 3).
     'window.SettingsIntegrations',      // features/settings/integrations.js — load + save handlers for the Integrations card (OpenAI / Food / ElevenLabs credentials); routes the save through DataStore.applyOptimistic so the masked GET view repaints immediately on commit and rolls back on failure.
-    'window._loadTelegramModule',       // features/settings/integrations.js — test seam
 
     // Backend logs diagnostics — embedded-Go shell (mobile Phase 2a, Task 5).
     'window.BackendLogs',               // features/backend-logs.js — Settings → About → "Backend logs" debug screen. Detects window.MedtrackerNative (Capacitor shell's addJavascriptInterface bridge); reveals a "View logs" row that opens a modal showing the last 200 stdout+stderr lines from the embedded Go binary. No-op in browser PWA + server-mode where MedtrackerNative is absent.
