@@ -33,7 +33,6 @@ const CallTimeout = 30 * time.Second
 // CallTimeout. Text matches the plan's locked "offline-device UX" decision
 // verbatim so cmd/mcpshim (Task 5) can surface it as the MCP tool error
 // without rewrapping.
-//
 //nolint:staticcheck // ST1005: this is a terminal, user-facing sentence relayed verbatim to the model (the plan's locked offline-device UX text), not a wrapped Go error.
 var ErrDeviceOffline = errors.New("No unlocked Med Tracker device is online. Open your app at https://<sub>.<base> and unlock it, then retry — this connector talks to your device, not to a server, because your data is end-to-end encrypted.")
 

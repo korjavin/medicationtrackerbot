@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/domain/workout"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
+	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/domain/workout"
 )
 
 func TestHandleUpdateSessionStatus(t *testing.T) {

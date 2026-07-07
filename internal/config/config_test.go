@@ -399,7 +399,7 @@ func TestMerge(t *testing.T) {
 				Food: FoodConfig{APIKey: "food-db"},
 			},
 			wantOpenAI: OpenAIConfig{
-				APIKey: "sk-env",                // env wins
+				APIKey: "sk-env",                 // env wins
 				URL:    "https://db.example/v1", // settings fills gap
 				Model:  "db-model",              // settings fills gap
 			},

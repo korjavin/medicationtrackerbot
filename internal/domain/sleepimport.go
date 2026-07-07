@@ -188,8 +188,8 @@ func ParseSleepDatabase(dbPath string) ([]SleepLog, error) {
 		}
 
 		sl := SleepLog{
-			StartTime: time.UnixMilli(startMs).UTC(),
-			EndTime:   time.UnixMilli(endMs).UTC(),
+			StartTime:      time.UnixMilli(startMs).UTC(),
+			EndTime:        time.UnixMilli(endMs).UTC(),
 			// Zepp exports tz as seconds-east-of-UTC (3600 = UTC+1). SleepLog.TimezoneOffset's
 			// only consumer (the gamification bedtime lever) reads it JS-style: minutes-west-of-UTC
 			// (local = UTC - offset), matching what seeddemo writes. Convert at this boundary so the

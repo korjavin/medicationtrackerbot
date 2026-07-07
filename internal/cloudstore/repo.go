@@ -75,11 +75,11 @@ type Account struct {
 // Credential is one row in the credentials table — a WebAuthn public key
 // credential bound to an account.
 type Credential struct {
-	ID         []byte
-	AccountID  string
-	PublicKey  []byte
-	Transports string
-	SignCount  uint32
+	ID             []byte
+	AccountID      string
+	PublicKey      []byte
+	Transports     string
+	SignCount      uint32
 	// Backup flags from the registration ceremony. go-webauthn compares the
 	// assertion's BE bit against the stored value at login, so synced passkeys
 	// (BE=1) fail unlock unless these round-trip through the store.

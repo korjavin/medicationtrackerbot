@@ -12,8 +12,8 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/korjavin/medicationtrackerbot/internal/domain"
-	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/domain/workout"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
+	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/domain/workout"
 )
 
 func TestWorkoutCallbackRouting_PanicRegression(t *testing.T) {
