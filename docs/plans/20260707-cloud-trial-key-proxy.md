@@ -41,10 +41,10 @@
 ## Implementation Steps
 
 ### Task 1: Trial config loading in cmd/cloud
-- [ ] add a `trialConfig` struct in `cmd/cloud/main.go` (or a small `internal/cloudserver/trial.go` config type) with fields for: OpenAI text triple (`APIKey, URL, Model`), OpenAI vision triple (`VisionAPIKey, VisionURL, VisionModel`), ElevenLabs (`APIKey, AgentID`), and rate limit (`PerMinute int`, default 10)
-- [ ] load from envs mirroring existing naming: `TRIAL_OPENAI_API_KEY`, `TRIAL_OPENAI_URL`, `TRIAL_OPENAI_MODEL`, `TRIAL_OPENAI_VISION_API_KEY`, `TRIAL_OPENAI_VISION_URL`, `TRIAL_OPENAI_VISION_MODEL`, `TRIAL_ELEVENLABS_API_KEY`, `TRIAL_ELEVENLABS_AGENT_ID`, `TRIAL_RATE_PER_MIN`
-- [ ] defaults: URL → `https://api.openai.com/v1`, model → `gpt-4o-mini`, vision triple falls back to the text triple when unset (same fallback `aiclient.js` uses today)
-- [ ] document the new envs in `docs/environment.md` and the trial-key design in `docs/cloud-mode.md`
+- [x] add a `trialConfig` struct in `cmd/cloud/main.go` (or a small `internal/cloudserver/trial.go` config type) with fields for: OpenAI text triple (`APIKey, URL, Model`), OpenAI vision triple (`VisionAPIKey, VisionURL, VisionModel`), ElevenLabs (`APIKey, AgentID`), and rate limit (`PerMinute int`, default 10) — implemented as `cloudserver.TrialConfig` in `internal/cloudserver/trial.go`, held on cmd/cloud's `config.trial`
+- [x] load from envs mirroring existing naming: `TRIAL_OPENAI_API_KEY`, `TRIAL_OPENAI_URL`, `TRIAL_OPENAI_MODEL`, `TRIAL_OPENAI_VISION_API_KEY`, `TRIAL_OPENAI_VISION_URL`, `TRIAL_OPENAI_VISION_MODEL`, `TRIAL_ELEVENLABS_API_KEY`, `TRIAL_ELEVENLABS_AGENT_ID`, `TRIAL_RATE_PER_MIN` (`TrialConfigFromEnv`, called from `loadConfig`)
+- [x] defaults: URL → `https://api.openai.com/v1`, model → `gpt-4o-mini`, vision triple falls back to the text triple when unset (same per-field fallback `aiclient.js` uses today)
+- [x] document the new envs in `docs/environment.md` and the trial-key design in `docs/cloud-mode.md`
 
 ### Task 2: TrialProxyAPI — OpenAI-compatible chat proxy
 - [ ] create `internal/cloudserver/trial_proxy.go` with `TrialProxyAPI` struct (holds trial config + a `*rateLimiter`) and `RegisterRoutes(mux *http.ServeMux)`, wired in `cmd/cloud/main.go` next to the other `RegisterRoutes` calls

@@ -39,6 +39,7 @@ type config struct {
 	foodDBURL         string
 	managerBotToken   string
 	tgAPIBaseURL      string
+	trial             cloudserver.TrialConfig
 }
 
 func loadConfig() (config, error) {
@@ -88,6 +89,12 @@ func loadConfig() (config, error) {
 		}
 		cfg.accountQuotaBytes = bytes
 	}
+
+	trial, err := cloudserver.TrialConfigFromEnv()
+	if err != nil {
+		return cfg, err
+	}
+	cfg.trial = trial
 
 	if warnHours := os.Getenv("CLOUD_DRY_QUEUE_WARN_HOURS"); warnHours != "" {
 		hours, err := strconv.Atoi(warnHours)
