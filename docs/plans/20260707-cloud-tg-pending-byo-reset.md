@@ -54,11 +54,11 @@ Fix bd med-eas.32 (P1 bug). In cloud mode, after a user provisions a managed chi
 - ⚠️ pre-existing (fails on clean tree, unrelated to this branch): `web/static/js/tests/cloud.shim-contract.food-ai.test.js` — 2 failures ("Oatmeal" missing from grouped log). Affects the Task 5 `pnpm test` gate; scoped telegram suite passes 8/8.
 
 ### Task 5: Verify acceptance criteria
-- [ ] verify: from `pending`, pasting a valid token via BYO links the bot (status → `linked`/`bot_created`), and Start-over clears pending (status → `none`) — both without waiting for the TTL
-- [ ] verify the managed deep-link path and the consent-screen BYO/skip flows are unchanged
-- [ ] run `go test ./internal/cloudserver/... ./internal/cloudstore/...` — must pass
-- [ ] run `pnpm test` (or the scoped cloud vitest run) — must pass
-- [ ] run `go vet ./...` and `golangci-lint run` — fix all issues
+- [x] verify: from `pending`, pasting a valid token via BYO links the bot (status → `linked`/`bot_created`), and Start-over clears pending (status → `none`) — both without waiting for the TTL (reset: integration test provision→pending→reset→none; BYO: `Status` checks `BotByAccount` before the pending branch, so the BYO-upserted bot row wins over the leftover pending row; frontend test asserts the form + Start-over are reachable from pending)
+- [x] verify the managed deep-link path and the consent-screen BYO/skip flows are unchanged (TestTelegramProvisioningStateMachine managed-bind path green; consent/skip/provision frontend cases green; branch only adds code, no edits to those handlers)
+- [x] run `go test ./internal/cloudserver/... ./internal/cloudstore/...` — must pass (both ok)
+- [x] run `pnpm test` (or the scoped cloud vitest run) — must pass (2863 passed; only failures are the 2 pre-existing `cloud.shim-contract.food-ai` cases, reproduced identically on master; scoped telegram suite 8/8)
+- [x] run `go vet ./...` and `golangci-lint run` — fix all issues (vet clean; golangci-lint 0 issues after `cache clean` — initial run only reported stale-cache ghosts from a deleted sibling worktree)
 
 ### Task 6: [Final] Update documentation
 - [ ] document `POST /api/telegram/reset` in `docs/api.md` (cloud-only section, next to the other `/api/telegram/*` routes)
