@@ -47,12 +47,12 @@
 - [x] document the new envs in `docs/environment.md` and the trial-key design in `docs/cloud-mode.md`
 
 ### Task 2: TrialProxyAPI — OpenAI-compatible chat proxy
-- [ ] create `internal/cloudserver/trial_proxy.go` with `TrialProxyAPI` struct (holds trial config + a `*rateLimiter`) and `RegisterRoutes(mux *http.ServeMux)`, wired in `cmd/cloud/main.go` next to the other `RegisterRoutes` calls
-- [ ] `POST /api/trial/openai/chat/completions` — requires `AccountFromContext`; 503 JSON `{"error":"trial_not_configured"}` when the relevant trial key is empty; otherwise forwards the request body verbatim to `<trialURL>/chat/completions` with `Authorization: Bearer <trial key>`, forcing the `model` field to the trial model (overwrite whatever the client sent — the client must not choose the operator's model), and streams the upstream status + JSON body back
-- [ ] vision vs text selection: accept `?vision=1` query param → use the vision triple; otherwise the text triple
-- [ ] enforce a request body size cap (reuse the 8 MiB photo cap as ceiling, e.g. 12 MiB total body) and the 90s upstream timeout matching `aiclient.js`
-- [ ] never echo upstream `Authorization` or trial config in responses or logs (log account ID + status only, via `slog`)
-- [ ] integration test (`internal/cloudserver/trial_proxy_test.go`, httptest upstream): proxied call carries trial key + forced model upstream; response body/headers contain no trial key; 503 when unconfigured; unauthenticated request (no account) rejected
+- [x] create `internal/cloudserver/trial_proxy.go` with `TrialProxyAPI` struct (holds trial config + a `*rateLimiter`) and `RegisterRoutes(mux *http.ServeMux)`, wired in `cmd/cloud/main.go` next to the other `RegisterRoutes` calls
+- [x] `POST /api/trial/openai/chat/completions` — requires `AccountFromContext`; 503 JSON `{"error":"trial_not_configured"}` when the relevant trial key is empty; otherwise forwards the request body verbatim to `<trialURL>/chat/completions` with `Authorization: Bearer <trial key>`, forcing the `model` field to the trial model (overwrite whatever the client sent — the client must not choose the operator's model), and streams the upstream status + JSON body back — routes wrapped in `RequireSession` (401 without a session cookie), matching every sibling cloud API; `AccountFromContext` still checked for the account-ID log key
+- [x] vision vs text selection: accept `?vision=1` query param → use the vision triple; otherwise the text triple
+- [x] enforce a request body size cap (reuse the 8 MiB photo cap as ceiling, e.g. 12 MiB total body) and the 90s upstream timeout matching `aiclient.js`
+- [x] never echo upstream `Authorization` or trial config in responses or logs (log account ID + status only, via `slog`); non-200 upstream bodies sanitized to `{"error":"upstream_error"}`; `"stream":true` rejected with 400
+- [x] integration test (`internal/cloudserver/trial_proxy_test.go`, httptest upstream): proxied call carries trial key + forced model upstream; response body/headers contain no trial key; 503 when unconfigured; unauthenticated request (no account) rejected
 
 ### Task 3: TrialProxyAPI — ElevenLabs signed-URL mint
 - [ ] `GET /api/trial/elevenlabs/signed-url` on the same `TrialProxyAPI`: 503 `{"error":"trial_not_configured"}` when key or agent ID empty; otherwise server-side GET to `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=<TRIAL_AGENT_ID>` with `xi-api-key`, return `{"signed_url": ...}` (mirror `internal/server/elevenlabs_handlers.go` behavior; reimplement, do NOT import `internal/server`)
