@@ -267,7 +267,28 @@ export function createResponder({
     reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
   }
 
-  function connect() {
+  async function connect() {
+    if (stopped) return;
+
+    // Pre-flight check to distinguish 404 (stale pairing) from network drops.
+    // fetch()ing the WS endpoint without Upgrade headers yields 404 if the
+    // server dropped the pairing, or 400 Bad Request if the pairing exists
+    // but we didn't upgrade.
+    const httpUrl = wsURL().replace(/^ws:/, 'http:').replace(/^wss:/, 'https:');
+    try {
+      const res = await fetch(httpUrl);
+      if (res.status === 404) {
+        console.warn('[mcp] server dropped pairing, stopping responder');
+        import('./mcp-pairing.js').then(({ purgePairing }) => {
+          if (controllerCtx) purgePairing(controllerCtx);
+        });
+        stop();
+        return;
+      }
+    } catch (e) {
+      // Network error during pre-flight, let the WS try anyway or just fall through
+    }
+
     stopped = false;
     status = 'connecting';
     ws = new WebSocket(wsURL());
