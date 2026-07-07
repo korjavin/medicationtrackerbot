@@ -247,13 +247,13 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	var upd tgclient.Update
 	if err := json.Unmarshal(body, &upd); err != nil {
-		slog.Warn("telegram manager webhook: decode failed", "error", err, "body", string(body))
+		slog.Warn("telegram manager webhook: decode failed", "error", err)
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
 	botID, botUsername, userID, ok := upd.ManagedBotCreatedInfo()
 	if !ok {
-		slog.Info("telegram manager webhook: update without managed_bot_created", "update_id", upd.UpdateID, "body", string(body))
+		slog.Info("telegram manager webhook: update without managed_bot_created", "update_id", upd.UpdateID)
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -383,10 +383,10 @@ func (t *TelegramAPI) ChildWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	slog.Info("telegram child webhook: update", "ref", ref, "body", string(body))
+	slog.Info("telegram child webhook: update", "ref", ref)
 	var upd tgclient.Update
 	if err := json.Unmarshal(body, &upd); err != nil {
-		slog.Warn("telegram child webhook: decode failed", "error", err, "ref", ref, "body", string(body))
+		slog.Warn("telegram child webhook: decode failed", "error", err, "ref", ref)
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
