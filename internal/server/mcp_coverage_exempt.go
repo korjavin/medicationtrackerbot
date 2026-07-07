@@ -96,4 +96,8 @@ var mcpCoverageExempt = []routeExemption{
 	// --- Legacy compat shims, superseded ---
 	{Method: "POST", Path: "/api/workout/session/snooze", Reason: "legacy compat shim, superseded by /sessions/{id}/snooze"},
 	{Method: "POST", Path: "/api/workout/session/skip", Reason: "legacy compat shim, superseded by /sessions/{id}/skip"},
+
+	// Vault import/export
+	{Method: "POST", Path: "/api/import", Reason: "Bulk import vault; agent uses targeted domain endpoints instead"},
+	{Method: "GET", Path: "/api/export", Reason: "Bulk export vault; agent uses targeted domain endpoints instead"},
 }

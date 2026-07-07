@@ -442,3 +442,9 @@ func (r *Repo) GetPlanByHash(hash string) (*TZTransitionPlan, error) {
 	}
 	return p, nil
 }
+
+type TimezoneHistory struct {
+	ID         int64     `json:"id"`
+	RecordedAt time.Time `json:"recorded_at"`
+	Timezone   string    `json:"timezone"`
+}
