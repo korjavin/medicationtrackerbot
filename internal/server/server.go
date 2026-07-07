@@ -48,6 +48,12 @@ type WorkoutInteractor interface {
 }
 
 type Server struct {
+	// store is the full repo aggregator, kept so the full-vault export/import
+	// handlers (vault_export.go / vault_import.go) can reach every domain repo —
+	// including methods not on the narrow per-domain Server interfaces (restocks,
+	// miband GPS, workout cascade, tz plan, integrations) — without widening a
+	// dozen interfaces. Regular handlers keep using the per-domain fields below.
+	store               *store.Store
 	meds                MedicationStore
 	medSvc              domain.MedicationService
 	bp                  BloodPressureStore
@@ -309,6 +315,7 @@ func New(s *store.Store, gamSvc gamificationsvc.GamificationService, botToken, s
 	changeStreamMaxConn := parseIntEnv("CHANGES_STREAM_MAX_CONN", 40)
 
 	srv := &Server{
+		store:           s,
 		meds:            s.Medication,
 		medSvc:          domain.NewMedicationService(s.Medication),
 		bp:              s.BP,
@@ -831,6 +838,9 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/bp/reminder/snooze", s.handleSnoozeBPReminder)
 	apiMux.HandleFunc("POST /api/bp/reminder/dontbug", s.handleDontBugMeBPReminder)
 	apiMux.HandleFunc("POST /api/bp/reminder/test", s.handleSendTestBPNotification)
+
+	// Full-vault export/import (C2e) — canonical one-user-all-domains JSON.
+	apiMux.HandleFunc("GET /api/export", s.handleVaultExport)
 
 	// Weight endpoints
 	apiMux.HandleFunc("POST /api/weight", s.handleCreateWeight)
