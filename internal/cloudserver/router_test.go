@@ -78,6 +78,29 @@ func TestRouter_CloudConfigJS(t *testing.T) {
 	}
 }
 
+// With no TRIAL_* envs configured the served index must carry no trial
+// markers at all — behavior is byte-identical to pure BYO.
+func TestRouter_TrialFlagsOff_NoTrialMetas(t *testing.T) {
+	store := setupStore(t)
+	now := time.Now().UTC()
+	if _, err := store.CreateAccount(t.Context(), "acc-1", "known-sub", []byte("hash"), now.Add(time.Hour), now, "", ""); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	h := New("app.example.com", store, testFS(), testAppFS(), testDomainFS(), nil, "https://food.example.com", false, false)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Host = "known-sub.app.example.com"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "medtracker-trial") {
+		t.Fatalf("index with trial flags off leaks trial markers: %q", rec.Body.String())
+	}
+}
+
 func TestRouter_HostVariants(t *testing.T) {
 	store := setupStore(t)
 	ctx := t.Context()

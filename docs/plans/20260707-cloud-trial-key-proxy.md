@@ -83,11 +83,11 @@
 - [x] in `web/static/js/features/settings/integrations.js`, cloud-only (mirror `applyCloudFoodDbPlaceholder` pattern): when the trial meta flag is set and the corresponding vault key is empty, show a small hint next to the OpenAI / ElevenLabs key fields — "Trial key active (rate-limited). Add your own key to remove limits." (`applyTrialHints()` on payload apply; hidden `<p>` hints in index.html; covered in `settings.integrations.test.js`)
 
 ### Task 9: Verify acceptance criteria
-- [ ] verify: no `TRIAL_*` env set → cloud behaves exactly as today (grep responses/meta for absence of trial markers)
-- [ ] verify: trial key/URL/model never appear in any response, meta tag, or client bundle (grep + the Task 2/3 tests)
-- [ ] run `go test ./...` — must pass
-- [ ] run `pnpm test` — must pass
-- [ ] run linter — all issues must be fixed
+- [x] verify: no `TRIAL_*` env set → cloud behaves exactly as today (grep clean; added `TestRouter_TrialFlagsOff_NoTrialMetas` guarding flags-off index has no trial markers; unconfigured proxy 503s covered by Task 2/3 tests)
+- [x] verify: trial key/URL/model never appear in any response, meta tag, or client bundle (grep: client JS mentions env names only in comments, no values; `injectCloudBoot` emits booleans only; Task 2/3 tests assert no key in responses)
+- [x] run `go test ./...` — all packages pass, no failures
+- [x] run `pnpm test` — 271 files / 2875 tests pass
+- [x] run linter — `golangci-lint run`: 0 issues
 
 ### Task 10: [Final] Update documentation
 - [ ] confirm `docs/environment.md`, `docs/cloud-mode.md` cover the trial envs, proxy routes, rate limit, and precedence chain
