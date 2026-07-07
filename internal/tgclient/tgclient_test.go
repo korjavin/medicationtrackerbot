@@ -68,7 +68,7 @@ func TestAPIErrorEnvelope(t *testing.T) {
 	f.responses["getManagedBotToken"] = `{"ok":false,"description":"bot not found"}`
 
 	c := New("123:ABC", srv.URL)
-	_, err := c.GetManagedBotToken(context.Background(), 999, 6918132008)
+	_, err := c.GetManagedBotToken(context.Background(), 999)
 	if err == nil || !strings.Contains(err.Error(), "bot not found") {
 		t.Fatalf("expected api-error envelope surfaced, got %v", err)
 	}
@@ -99,15 +99,20 @@ func TestGetManagedBotTokenSuccess(t *testing.T) {
 	f.responses["getManagedBotToken"] = `{"ok":true,"result":{"token":"555:CHILD"}}`
 
 	c := New("123:ABC", srv.URL)
-	tok, err := c.GetManagedBotToken(context.Background(), 555, 6918132008)
+	tok, err := c.GetManagedBotToken(context.Background(), 555)
 	if err != nil {
 		t.Fatalf("GetManagedBotToken: %v", err)
 	}
 	if tok != "555:CHILD" {
 		t.Fatalf("got token %q", tok)
 	}
-	if f.lastBody["bot_id"] != float64(555) {
-		t.Fatalf("bot_id not forwarded: %v", f.lastBody["bot_id"])
+	// The managed bot is identified by user_id (bots are users), set to the
+	// bot's own id — not bot_id, and not the human creator.
+	if f.lastBody["user_id"] != float64(555) {
+		t.Fatalf("user_id (bot id) not forwarded: %v", f.lastBody["user_id"])
+	}
+	if _, ok := f.lastBody["bot_id"]; ok {
+		t.Fatalf("bot_id should not be sent; got %v", f.lastBody["bot_id"])
 	}
 }
 

@@ -124,14 +124,15 @@ func (c *Client) GetMe(ctx context.Context) (User, error) {
 }
 
 // GetManagedBotToken fetches a child bot's token after a managed_bot update.
-// Bot API 9.6. Requires both the child bot_id and the creator's user_id — the
-// live API returns "400: invalid user_id specified" without the latter. Returns
-// the raw token string.
-func (c *Client) GetManagedBotToken(ctx context.Context, botID, userID int64) (string, error) {
+// Bot API 9.6. The bot is identified by user_id — bots ARE users, so this is the
+// child bot's own id, NOT the human creator's (the live API returns "400: user
+// is not a bot" if a human id is passed, and "400: invalid user_id specified"
+// if it's omitted). Returns the raw token string.
+func (c *Client) GetManagedBotToken(ctx context.Context, botID int64) (string, error) {
 	var res struct {
 		Token string `json:"token"`
 	}
-	err := c.call(ctx, "getManagedBotToken", map[string]any{"bot_id": botID, "user_id": userID}, &res)
+	err := c.call(ctx, "getManagedBotToken", map[string]any{"user_id": botID}, &res)
 	return res.Token, err
 }
 

@@ -19,8 +19,8 @@ func fakeTG(t *testing.T, responses map[string]string) *httptest.Server {
 		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")
 		method := parts[len(parts)-1]
 		// Mirror the real API: getManagedBotToken rejects a call that omits a
-		// non-zero user_id ("400: invalid user_id specified"). Guards that the
-		// manager webhook actually threads the creator's user id through.
+		// non-zero user_id ("400: invalid user_id specified"). user_id is the
+		// managed bot's own id (bots are users); guards that we send it.
 		if method == "getManagedBotToken" {
 			var req struct {
 				UserID int64 `json:"user_id"`
