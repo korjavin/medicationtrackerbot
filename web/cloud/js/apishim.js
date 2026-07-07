@@ -167,17 +167,19 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
   // GET /api/settings and the bootstrap payload — the settings-only reads,
   // without the heavy bp/weight aggregate reads that /api/settings discards.
   async function settingsResponse() {
-    const [weightUnit, features, foodTargets, tabOrder, general] = await Promise.all([
+    const [weightUnit, features, foodTargets, tabOrder, general, bpStatus, weightStatus] = await Promise.all([
       readWeightUnit(),
       settings.getFeatures(),
       settings.getFoodTargets(),
       settings.getTabOrder(),
       settings.getGeneral(),
+      reminders.getBPStatus(),
+      reminders.getWeightStatus(),
     ]);
     const block = {
       food_targets: foodTargets,
-      bp_reminder_status: { enabled: false, preferred_reminder_hour: 20 },
-      weight_reminder_status: { enabled: false, preferred_reminder_hour: 9 },
+      bp_reminder_status: bpStatus,
+      weight_reminder_status: weightStatus,
       timezone: general.timezone,
       weight_unit_preference: weightUnit,
       dismissed_tz_suggestion: general.dismissed_tz_suggestion,
@@ -222,8 +224,8 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
       const { settings: settingsBlock, features } = await settingsResponse();
       return { ...settingsBlock, features };
     },
-    'GET /api/bp/reminder/status': () => ({ enabled: false, preferred_reminder_hour: 20 }),
-    'GET /api/weight/reminder/status': () => ({ enabled: false, preferred_reminder_hour: 9 }),
+    'GET /api/bp/reminder/status': async () => reminders.getBPStatus(),
+    'GET /api/weight/reminder/status': async () => reminders.getWeightStatus(),
   };
 
   // shimCall implements the window.offlineAwareApiCall(endpoint, method, body,
@@ -579,15 +581,15 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
       if (m) { await workout.deleteMiBand(Number(m[1])); return true; }
     }
 
-    // Reminder toggles: BP/weight reminders aren't functionally scheduled in
-    // cloud C1 (the push relay is blind), but the Reminders section in Settings
-    // is always visible and not feature-gated. Echo success instead of falling
-    // through to the unmapped-route 404, which api.js turns into a user-facing
-    // "Error:" alert + toggle revert. The reminder status stubs still report
-    // disabled, so the toggle resets on reload — honest for a not-yet-wired
-    // feature, and no error surfaces.
-    if ((path === '/api/bp/reminder/toggle' || path === '/api/weight/reminder/toggle') && method === 'POST') {
-      return { enabled: !!(body && body.enabled) };
+    if (path === '/api/bp/reminder/toggle' && method === 'POST') {
+      const status = await reminders.setBPEnabled(!!(body && body.enabled));
+      scheduleReminderRecompute(ctx, { records, timeZone });
+      return status;
+    }
+    if (path === '/api/weight/reminder/toggle' && method === 'POST') {
+      const status = await reminders.setWeightEnabled(!!(body && body.enabled));
+      scheduleReminderRecompute(ctx, { records, timeZone });
+      return status;
     }
 
     // Medication reminders are functionally wired in cloud mode (Task 5): the
