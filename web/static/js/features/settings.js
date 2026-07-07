@@ -214,6 +214,8 @@ async function loadSettings() {
         // Devices row (add/manage a second device) only makes sense in cloud
         // mode — server/mobile builds have no /devices shell route.
         document.querySelector('.wg-settings-cloud-devices')?.classList.remove('wg-settings-hidden');
+        // med-eas.15: Hide Time & Timezone card in cloud mode (server time is meaningless)
+        document.querySelector('.wg-settings-time')?.classList.add('wg-settings-hidden');
     }
     const applyBundle = async (rawBundle) => {
         const bundle = window.AuthBootstrap.normalizeSettingsBundle(rawBundle);

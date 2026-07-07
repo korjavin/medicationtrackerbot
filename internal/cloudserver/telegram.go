@@ -234,11 +234,9 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	// Read the body once so we can log the raw payload. The managed_bot update
-	// schema (Bot API 9.6, 2026-04) is newer than our struct — logging the raw
-	// bytes is the only way to confirm the field names Telegram actually sends
-	// when a bind silently no-ops. The manager bot is operator-only (no user
-	// chat content); the payload carries bot_id + bot_username, never a token.
+	// Read the request body once for JSON decoding. Logs must only include
+	// non-sensitive diagnostics such as update_id or decode error. Do not
+	// log the raw payload, as it can contain PII.
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
 	if err != nil {
 		slog.Error("telegram manager webhook: read body", "error", err)
@@ -247,13 +245,13 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	var upd tgclient.Update
 	if err := json.Unmarshal(body, &upd); err != nil {
-		slog.Warn("telegram manager webhook: decode failed", "error", err, "body", string(body))
+		slog.Warn("telegram manager webhook: decode failed", "error", err)
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
 	botID, botUsername, userID, ok := upd.ManagedBotCreatedInfo()
 	if !ok {
-		slog.Info("telegram manager webhook: update without managed_bot_created", "update_id", upd.UpdateID, "body", string(body))
+		slog.Info("telegram manager webhook: update without managed_bot_created", "update_id", upd.UpdateID)
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -357,6 +355,20 @@ func (t *TelegramAPI) ChildWebhook(w http.ResponseWriter, r *http.Request) {
 	ref := r.PathValue("ref")
 	bot, err := t.store.BotByWebhookRef(r.Context(), ref)
 	if errors.Is(err, sql.ErrNoRows) {
+		// A managed bot's webhook is set *before* the bot row is written so a
+		// SetWebhook failure 500s cleanly without stranding the row. This opens
+		// a tiny race: if Telegram immediately buffers a deep-link /start, it can
+		// deliver it here before the UpsertBot transaction commits. If we 403,
+		// Telegram drops the update and the user's /start is lost. Wait and retry.
+		for i := 0; i < 5; i++ {
+			time.Sleep(100 * time.Millisecond)
+			bot, err = t.store.BotByWebhookRef(r.Context(), ref)
+			if err == nil {
+				break
+			}
+		}
+	}
+	if errors.Is(err, sql.ErrNoRows) {
 		slog.Warn("telegram child webhook: unknown ref", "ref", ref)
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
@@ -371,22 +383,19 @@ func (t *TelegramAPI) ChildWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	// Log the raw body: getWebhookInfo shows Telegram delivering to this URL
-	// with no error and 0 pending, yet /start produces no bind — so the child
-	// update shape (Bot API 9.6 managed bot) likely differs from our struct and
-	// we're silently dropping it on the non-/start path. Same raw-body trace that
-	// cracked the managed_bot_created schema. Manager-only infra; no third-party
-	// PII beyond the account's own chat.
+	// Read the request body once for JSON decoding. Logs must only include
+	// non-sensitive diagnostics such as ref, update_id, and decode error.
+	// Do not log the raw Telegram payload, as it can contain PII.
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
 	if err != nil {
 		slog.Error("telegram child webhook: read body", "error", err, "ref", ref)
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	slog.Info("telegram child webhook: update", "ref", ref, "body", string(body))
+	slog.Info("telegram child webhook: update", "ref", ref)
 	var upd tgclient.Update
 	if err := json.Unmarshal(body, &upd); err != nil {
-		slog.Warn("telegram child webhook: decode failed", "error", err, "ref", ref, "body", string(body))
+		slog.Warn("telegram child webhook: decode failed", "error", err, "ref", ref)
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
