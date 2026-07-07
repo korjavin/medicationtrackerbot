@@ -89,4 +89,29 @@ describe('fooddb', () => {
       expect.objectContaining({ headers: { 'X-API-Key': 'secret' } })
     );
   });
+
+
+  it('uses domain fallback directly when vault config exists', async () => {
+    settingsDomain.readIntegrationsUnmasked.mockResolvedValue({
+      food: { domain: 'user-domain.example.com', api_key: 'secret-domain' }
+    });
+
+    const client = createFoodDbClient({ settingsDomain });
+
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ results: [{ name: 'User Domain Apple', kcal100g: 52 }] })
+    });
+
+    const results = await client.search('apple');
+
+    expect(results).toHaveLength(1);
+    expect(results[0].name).toBe('User Domain Apple');
+
+    // Should call user's URL directly with their API key
+    expect(global.fetch).toHaveBeenCalledWith(
+      'https://user-domain.example.com/api/v1/food/search?q=apple&limit=20',
+      expect.objectContaining({ headers: { 'X-API-Key': 'secret-domain' } })
+    );
+  });
 });

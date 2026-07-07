@@ -58,28 +58,13 @@ Operators who don't want gitops can instead run
 `docker compose -f docker-compose.cloud.yml up -d` directly against the same
 external `proxy` network.
 
-### Food-DB CORS requirement
+### Food-DB Configuration
 
-`CLOUD_FOOD_DB_URL` is called directly from the browser (`web/cloud/js/fooddb.js`,
-C2c) — never proxied through the cloud server, so query terms never reach the
-operator, only the food-DB host. That means the food-DB instance itself must
-send `Access-Control-Allow-Origin` covering every account subdomain
-(`*.<CLOUD_BASE_DOMAIN>`) on its `/api/v1/food/search` and
-`/api/v1/food/barcode/{code}` routes. If you run FastFoodDB behind Traefik,
-add a CORS headers middleware to its router, e.g.:
+`CLOUD_FOOD_DB_URL` configures the default FastFoodDB instance for users without a BYO vault setting.
+Requests to the operator default are now routed through a same-origin proxy on the cloud server (`/api/food/search`, `/api/food/barcode/`),
+eliminating the need for CORS configuration on the upstream FastFoodDB instance.
 
-```yaml
-labels:
-  - "traefik.http.middlewares.fooddb-cors.headers.accessControlAllowOriginList=https://*.app.example.com"
-  - "traefik.http.middlewares.fooddb-cors.headers.accessControlAllowMethods=GET"
-  - "traefik.http.routers.fooddb.middlewares=fooddb-cors"
-```
-
-If the instance can't be configured for CORS, leave `CLOUD_FOOD_DB_URL` unset
-— remote search then stays local-only (products already logged), which is
-silent and correct. Do not proxy queries through the cloud server as a
-workaround: that would move query-term exposure from "food-DB host" to "cloud
-operator" without the user's consent (see docs/cloud-mode.md's leakage table).
+If left unset, remote search degrades to local-only (products already logged), which is silent and correct.
 
 ### Telegram manager bot (optional, C3a)
 
