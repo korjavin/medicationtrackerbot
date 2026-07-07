@@ -8,6 +8,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"context"
+	"time"
+	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
 )
 
 // fakeTG is an httptest stand-in for api.telegram.org for the provisioning
@@ -418,4 +421,64 @@ func postWebhook(t *testing.T, h http.Handler, path, secretHeader, body string) 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, r)
 	return rec
+}
+
+// TestChildWebhookRace guards against the race condition where Telegram delivers
+// a deep-link auto-/start to the child webhook immediately after SetWebhook but
+// before the UpsertBot transaction fully commits. It verifies that ChildWebhook
+// waits for the row to appear rather than immediately returning a 403 Forbidden.
+func TestChildWebhookRace(t *testing.T) {
+	store := setupStore(t)
+	tgSrv := fakeTG(t, map[string]string{
+		"getMe":       `{"ok":true,"result":{"id":99,"is_bot":true,"username":"manager_bot","can_manage_bots":true}}`,
+		"sendMessage": `{"ok":true,"result":{}}`,
+	})
+
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tgSrv.URL)
+	top := http.NewServeMux()
+	tgAPI.RegisterWebhookRoutes(top)
+
+	accountID := "acc-123"
+	botSecret := "secret123"
+
+	ct, nonce, _ := sealTGToken(tgTestSecret, "123:VALIDTOKEN")
+
+	// Run the webhook in a goroutine so it blocks waiting for the bot row
+	done := make(chan bool)
+	go func() {
+		update := `{"update_id":1,"message":{"message_id":1,"text":"/start","chat":{"id":123,"type":"private"}}}`
+		req := httptest.NewRequest(http.MethodPost, "/tg/bot/"+accountID+"/"+botSecret, bytes.NewBufferString(update))
+		req.Header.Set("X-Telegram-Bot-Api-Secret-Token", botSecret)
+		rec := httptest.NewRecorder()
+		top.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Errorf("ChildWebhook returned %d, want 200 OK", rec.Code)
+		}
+		done <- true
+	}()
+
+	// Simulate the manager webhook's transaction committing shortly after the child webhook arrives
+	time.Sleep(150 * time.Millisecond)
+
+	err := store.UpsertBot(context.Background(), cloudstore.TGBot{
+		AccountID:     accountID,
+		BotID:         123,
+		BotUsername:   "test_bot",
+		TokenCT:       ct,
+		TokenNonce:    nonce,
+		Kind:          "managed",
+		WebhookSecret: botSecret,
+		CreatedAt:     time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("UpsertBot failed: %v", err)
+	}
+
+	// Wait for the webhook to finish processing
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ChildWebhook timed out waiting for bot row")
+	}
 }
