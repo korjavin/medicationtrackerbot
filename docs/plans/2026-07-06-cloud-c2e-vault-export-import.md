@@ -101,10 +101,10 @@ Locked decisions (user-confirmed 2026-07-06):
 
 ### Task 8: [Final] Update documentation
 
-- [ ] `docs/cloud-mode.md`: add "C2e implementation notes" section (what shipped, deviations); flip the status line from "C2e … only unported piece" to implemented; note import-replace semantics and merge as a non-goal.
-- [ ] `docs/api.md`: `GET /api/export`, `POST /api/import`.
-- [ ] `docs/features.md`: Settings → Import/Export behavior (both modes, age encryption, replace warning).
-- [ ] `CLAUDE.md`: one-line pointer if the docs index needs it (vault-format.md row in the Documentation Index table).
+- [x] `docs/cloud-mode.md`: add "C2e implementation notes" section (what shipped, deviations); flip the status line from "C2e … only unported piece" to implemented; note import-replace semantics and merge as a non-goal.
+- [x] `docs/api.md`: `GET /api/export`, `POST /api/import`.
+- [x] `docs/features.md`: Settings → Import/Export behavior (both modes, age encryption, replace warning).
+- [x] `CLAUDE.md`: one-line pointer if the docs index needs it (vault-format.md row in the Documentation Index table).
 
 ### Task: Verify acceptance criteria
 
