@@ -230,7 +230,7 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := t.manager.GetManagedBotToken(r.Context(), botID, userID)
+	token, err := t.manager.GetManagedBotToken(r.Context(), botID)
 	if err != nil {
 		slog.Error("telegram manager webhook: get managed token", "error", err, "bot_id", botID)
 		http.Error(w, "internal error", http.StatusInternalServerError)
