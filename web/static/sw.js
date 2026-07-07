@@ -44,6 +44,7 @@ const STATIC_ASSETS = [
     '/static/js/core/modal-controller.js',
     '/static/js/core/chart-utils.js',
     '/static/js/core/cache-keys.js',
+    '/static/js/core/backup-crypto.js',
     // Components
     '/static/js/components/mt-elements.js',
     '/static/js/components/empty-state.js',
@@ -142,6 +143,7 @@ const STATIC_ASSETS = [
     // Vendor
     '/static/vendor/dexie.min.js',
     '/static/vendor/zxing.min.js',
+    '/static/vendor/age.min.js',
     // Icons & manifest
     '/static/icons/icon-192.png',
     '/static/icons/icon-512.png',
