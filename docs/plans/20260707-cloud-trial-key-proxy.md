@@ -80,7 +80,7 @@
 - [x] Vitest (extend the existing elevenlabs-call suite): precedence chain vault → trial → error (+ 429 limit message, 503 degrade)
 
 ### Task 8: Settings hint (trial vs BYO)
-- [ ] in `web/static/js/features/settings/integrations.js`, cloud-only (mirror `applyCloudFoodDbPlaceholder` pattern): when the trial meta flag is set and the corresponding vault key is empty, show a small hint next to the OpenAI / ElevenLabs key fields — "Trial key active (rate-limited). Add your own key to remove limits."
+- [x] in `web/static/js/features/settings/integrations.js`, cloud-only (mirror `applyCloudFoodDbPlaceholder` pattern): when the trial meta flag is set and the corresponding vault key is empty, show a small hint next to the OpenAI / ElevenLabs key fields — "Trial key active (rate-limited). Add your own key to remove limits." (`applyTrialHints()` on payload apply; hidden `<p>` hints in index.html; covered in `settings.integrations.test.js`)
 
 ### Task 9: Verify acceptance criteria
 - [ ] verify: no `TRIAL_*` env set → cloud behaves exactly as today (grep responses/meta for absence of trial markers)
