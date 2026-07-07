@@ -75,10 +75,10 @@ CLOUD_FOOD_DB_URL=https://food.example.com  # Operator's default FastFoodDB inst
 # Trial provider keys (all optional; unset = pure BYO, trial proxy routes return 503).
 # Operator-owned keys served ONLY through server-side proxy routes (/api/trial/*) —
 # they never reach the browser. See docs/cloud-mode.md → Trial provider keys.
-TRIAL_OPENAI_API_KEY=...           # Enables POST /api/trial/openai/chat/completions
-TRIAL_OPENAI_URL=https://api.openai.com/v1  # OpenAI-compatible base URL (default shown)
+TRIAL_OPENAI_API_KEY=...           # Master switch: enables POST /api/trial/openai/chat/completions and the client trial-AI flag
+TRIAL_OPENAI_URL=https://api.openai.com/v1  # OpenAI-compatible base URL (default shown). Provider must support response_format json_schema — the trial path has no fenced-JSON retry
 TRIAL_OPENAI_MODEL=gpt-4o-mini     # Model forced server-side on every trial chat call (default shown)
-TRIAL_OPENAI_VISION_API_KEY=...    # Vision triple; each field falls back to the text triple when unset
+TRIAL_OPENAI_VISION_API_KEY=...    # Vision triple; each field falls back to the text triple when unset. Overrides only — without TRIAL_OPENAI_API_KEY trial AI stays off
 TRIAL_OPENAI_VISION_URL=...
 TRIAL_OPENAI_VISION_MODEL=...
 TRIAL_ELEVENLABS_API_KEY=...       # With TRIAL_ELEVENLABS_AGENT_ID, enables GET /api/trial/elevenlabs/signed-url

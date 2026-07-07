@@ -95,7 +95,7 @@ Served only by the cloud service on the account subdomain; not present in the bo
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/trial/openai/chat/completions` | Proxies an OpenAI-compatible chat request to the operator's trial provider. `model` is forced server-side to the trial model; `?vision=1` selects the vision triple; `"stream":true` rejected with 400; body capped at 12 MiB. Upstream non-200 bodies are sanitized to `{"error":"upstream_error"}`. |
+| POST | `/api/trial/openai/chat/completions` | Proxies an OpenAI-compatible chat request to the operator's trial provider. `model` is forced server-side to the trial model (and stripped from the 200 response body); `?vision=1` selects the vision triple; `"stream":true` rejected with 400; body capped at 12 MiB. Any upstream non-200 becomes `502 {"error":"upstream_error"}` — 503/429 stay reserved for not-configured / trial rate limit. |
 | GET | `/api/trial/elevenlabs/signed-url` | Server-mints a signed conversation URL for the operator's shared trial ElevenLabs agent; returns `{"signed_url": ...}`. Cloud analogue of `/api/elevenlabs/signed-url`. |
 
 ## MCP Bridge

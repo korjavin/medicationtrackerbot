@@ -2,19 +2,16 @@ package cloudserver
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
 
-// newTrialTestHandler mirrors cmd/cloud/main.go's wiring for the trial proxy
-// so the tests drive the real subdomain-routing + session + proxy contract.
-func newTrialTestHandler(t *testing.T, cfg TrialConfig) (http.Handler, string, string) {
-	h, _, host, claimToken := newTrialTestHandlerAPI(t, cfg)
-	return h, host, claimToken
-}
-
+// newTrialTestHandlerAPI mirrors cmd/cloud/main.go's wiring for the trial
+// proxy so the tests drive the real subdomain-routing + session + proxy
+// contract.
 func newTrialTestHandlerAPI(t *testing.T, cfg TrialConfig) (http.Handler, *TrialProxyAPI, string, string) {
 	t.Helper()
 	store := setupStore(t)
@@ -49,18 +46,12 @@ func TestTrialProxy_ChatCompletions(t *testing.T) {
 	var gotAuth, gotBody string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
-		var b strings.Builder
-		buf := make([]byte, 64<<10)
-		for {
-			n, err := r.Body.Read(buf)
-			b.Write(buf[:n])
-			if err != nil {
-				break
-			}
-		}
-		gotBody = b.String()
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		// Real providers echo the resolved model in the 200 body — the proxy
+		// must strip it (SECURITY INVARIANT check below relies on this).
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"choices":[{"message":{"content":"parsed"}}]}`))
+		w.Write([]byte(`{"model":"trial-model","choices":[{"message":{"content":"parsed"}}]}`))
 	}))
 	defer upstream.Close()
 
@@ -69,7 +60,7 @@ func TestTrialProxy_ChatCompletions(t *testing.T) {
 		VisionAPIKey: visionKey, VisionURL: upstream.URL, VisionModel: "trial-vision-model",
 		RatePerMinute: 100,
 	}
-	h, host, claimToken := newTrialTestHandler(t, cfg)
+	h, _, host, claimToken := newTrialTestHandlerAPI(t, cfg)
 	session := registerAndGetSession(t, h, host, claimToken)
 
 	// Text triple: trial key + forced model go upstream, client model ignored.
@@ -136,12 +127,12 @@ func TestTrialProxy_UpstreamErrorSanitized(t *testing.T) {
 	defer upstream.Close()
 
 	cfg := TrialConfig{OpenAIAPIKey: "sk-trial-secret-key", OpenAIURL: upstream.URL, OpenAIModel: "m", VisionAPIKey: "sk-trial-secret-key", VisionURL: upstream.URL, VisionModel: "m", RatePerMinute: 100}
-	h, host, claimToken := newTrialTestHandler(t, cfg)
+	h, _, host, claimToken := newTrialTestHandlerAPI(t, cfg)
 	session := registerAndGetSession(t, h, host, claimToken)
 
 	rec := postTrialChat(h, host, "/api/trial/openai/chat/completions", `{"messages":[]}`, session)
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want upstream 401 passed through", rec.Code)
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502 (upstream status never passed through)", rec.Code)
 	}
 	if !strings.Contains(rec.Body.String(), "upstream_error") || strings.Contains(rec.Body.String(), "sk-trial") {
 		t.Fatalf("upstream error body not sanitized: %q", rec.Body.String())
@@ -149,7 +140,7 @@ func TestTrialProxy_UpstreamErrorSanitized(t *testing.T) {
 }
 
 func TestTrialProxy_NotConfigured503(t *testing.T) {
-	h, host, claimToken := newTrialTestHandler(t, TrialConfig{RatePerMinute: 100})
+	h, _, host, claimToken := newTrialTestHandlerAPI(t, TrialConfig{RatePerMinute: 100})
 	session := registerAndGetSession(t, h, host, claimToken)
 
 	rec := postTrialChat(h, host, "/api/trial/openai/chat/completions", `{"messages":[]}`, session)
@@ -213,7 +204,7 @@ func TestTrialProxy_ElevenLabsSignedURL(t *testing.T) {
 	}
 
 	// Unconfigured (missing agent ID counts as unconfigured) → 503.
-	h2, host2, claimToken2 := newTrialTestHandler(t, TrialConfig{ElevenLabsAPIKey: trialKey, RatePerMinute: 100})
+	h2, _, host2, claimToken2 := newTrialTestHandlerAPI(t, TrialConfig{ElevenLabsAPIKey: trialKey, RatePerMinute: 100})
 	session2 := registerAndGetSession(t, h2, host2, claimToken2)
 	req = httptest.NewRequest(http.MethodGet, "/api/trial/elevenlabs/signed-url", nil)
 	req.Host = host2
@@ -272,7 +263,7 @@ func TestTrialProxy_RateLimit(t *testing.T) {
 
 func TestTrialProxy_Unauthenticated401(t *testing.T) {
 	cfg := TrialConfig{OpenAIAPIKey: "sk-trial", OpenAIURL: "http://unused.invalid", OpenAIModel: "m", RatePerMinute: 100}
-	h, host, _ := newTrialTestHandler(t, cfg)
+	h, _, host, _ := newTrialTestHandlerAPI(t, cfg)
 
 	rec := postTrialChat(h, host, "/api/trial/openai/chat/completions", `{"messages":[]}`, nil)
 	if rec.Code != http.StatusUnauthorized {

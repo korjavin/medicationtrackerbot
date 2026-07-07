@@ -318,6 +318,29 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
         expect(window.safeAlert).not.toHaveBeenCalledWith(expect.stringMatching(/trial limit/i));
     });
 
+    it('trial 502: sanitized upstream error surfaces a friendly message, not raw JSON', async () => {
+        allowConsoleNoise();
+        const { window, document } = env;
+        enableTrialAI(env);
+
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+            ok: false,
+            status: 502,
+            async text() { return JSON.stringify({ error: 'upstream_error' }); }
+        }));
+
+        document.getElementById('food-id').value = '';
+        document.getElementById('food-parse-ai').checked = true;
+        document.getElementById('food-datetime').value = todayAt('09:00');
+        document.getElementById('food-name').value = 'a banana';
+
+        await window.saveFoodLog();
+        await flushPromises();
+
+        expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/trial ai request failed/i));
+        expect(window.safeAlert).not.toHaveBeenCalledWith(expect.stringContaining('upstream_error'));
+    });
+
     it('vault key beats trial: with both present the call stays browser-direct', async () => {
         const { window, document } = env;
         await setOpenAIKey(window);

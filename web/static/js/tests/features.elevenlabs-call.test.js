@@ -682,7 +682,7 @@ describe('features/elevenlabs-call.js — cloud dynamic MCP client-tools', () =>
             const provision = vi.fn(async () => 'agent-provisioned-42');
             const fetchSignedURL = vi.fn(async () => 'wss://api.elevenlabs.io/v1/convai/conversation?token=xyz');
             window.CloudElevenLabsAgent = { provision };
-            window.CloudElevenLabs = { fetchSignedURL };
+            window.CloudElevenLabs = { fetchSignedURL, hasKey: async () => true };
 
             const { opts } = await startCall(window);
 

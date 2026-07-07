@@ -66,9 +66,7 @@
         // reprovisions only on a toolset-version bump) so the user configures
         // only the API key. Provisioning errors surface as the call status.
         if (window.__MEDTRACKER_CLOUD__ && window.CloudElevenLabs) {
-            const hasKey = typeof window.CloudElevenLabs.hasKey === 'function'
-                ? await window.CloudElevenLabs.hasKey()
-                : true;
+            const hasKey = await window.CloudElevenLabs.hasKey();
             if (!hasKey && trialVoiceAvailable()) {
                 return fetchTrialSignedURL();
             }

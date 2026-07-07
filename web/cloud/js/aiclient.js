@@ -111,9 +111,12 @@ async function fileToDataURL(file) {
 // Trial proxy path: strip model (server forces the operator's model, the
 // client must not choose it), rely on the same-origin session cookie instead
 // of Authorization, and map the proxy's error contract onto client errors —
-// 503 trial_not_configured degrades to the plain no-key error, 429 becomes a
-// distinct rate-limit message. Upstream error bodies are sanitized server-side
-// so isResponseFormatRejection never matches here (no fenced retry on trial).
+// 503 is exclusively trial_not_configured (degrades to the plain no-key
+// error), 429 is exclusively our rate limiter, and anything else with a
+// status is the server's sanitized {"error":"upstream_error"} body, which
+// would read as raw JSON in an alert — replace it with a friendly message.
+// That sanitizing also means isResponseFormatRejection never matches here
+// (no fenced retry on trial).
 async function postTrialChatCompletion(vision, body) {
   const { model: _serverForced, ...rest } = body;
   try {
@@ -121,6 +124,11 @@ async function postTrialChatCompletion(vision, body) {
   } catch (err) {
     if (err.status === 503) throw noKeyError();
     if (err.status === 429) throw trialLimitError();
+    if (err.status) {
+      const friendly = new Error('Trial AI request failed — try again or add your own OpenAI key in Settings → Integrations.');
+      friendly.status = err.status;
+      throw friendly;
+    }
     throw err;
   }
 }
@@ -153,8 +161,9 @@ export function createAIClient({ settingsDomain }) {
     const { text } = await credentials();
     const useTrial = !text.apiKey;
     if (useTrial && !trialAIAvailable()) throw noKeyError();
-    const endpoint = `${text.url.replace(/\/$/, '')}/chat/completions`;
-    const post = (body) => (useTrial ? postTrialChatCompletion(false, body) : postChatCompletion(endpoint, text.apiKey, body));
+    const post = (body) => (useTrial
+      ? postTrialChatCompletion(false, body)
+      : postChatCompletion(`${text.url.replace(/\/$/, '')}/chat/completions`, text.apiKey, body));
 
     const body = {
       model: text.model,
@@ -184,8 +193,9 @@ export function createAIClient({ settingsDomain }) {
     const { vision } = await credentials();
     const useTrial = !vision.apiKey;
     if (useTrial && !trialAIAvailable()) throw noKeyError();
-    const endpoint = `${vision.url.replace(/\/$/, '')}/chat/completions`;
-    const post = (body) => (useTrial ? postTrialChatCompletion(true, body) : postChatCompletion(endpoint, vision.apiKey, body));
+    const post = (body) => (useTrial
+      ? postTrialChatCompletion(true, body)
+      : postChatCompletion(`${vision.url.replace(/\/$/, '')}/chat/completions`, vision.apiKey, body));
     const dataURL = await fileToDataURL(file);
 
     const userContent = (text) => [

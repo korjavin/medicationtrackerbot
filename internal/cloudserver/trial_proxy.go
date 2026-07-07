@@ -33,17 +33,14 @@ type TrialProxyAPI struct {
 	elevenLabsSignedURLBase string
 }
 
-// NewTrialProxyAPI builds the trial proxy handlers.
+// NewTrialProxyAPI builds the trial proxy handlers. cfg.RatePerMinute must be
+// positive — TrialConfigFromEnv guarantees it.
 func NewTrialProxyAPI(store sessionStore, sessionSecret string, cfg TrialConfig) *TrialProxyAPI {
-	perMin := cfg.RatePerMinute
-	if perMin <= 0 {
-		perMin = trialDefaultRatePerMin
-	}
 	return &TrialProxyAPI{
 		cfg:                     cfg,
 		store:                   store,
 		sessionSecret:           sessionSecret,
-		limiter:                 newRateLimiter(perMin, time.Minute),
+		limiter:                 newRateLimiter(cfg.RatePerMinute, time.Minute),
 		client:                  &http.Client{Timeout: trialUpstreamTimout},
 		elevenLabsSignedURLBase: "https://api.elevenlabs.io/v1/convai/conversation/get_signed_url",
 	}
@@ -193,10 +190,31 @@ func (a *TrialProxyAPI) ChatCompletions(w http.ResponseWriter, r *http.Request) 
 
 	if resp.StatusCode != http.StatusOK {
 		// Upstream error bodies can echo request auth context — sanitize.
-		writeJSON(w, resp.StatusCode, map[string]string{"error": "upstream_error"})
+		// Always 502 (never the upstream status): 503 must stay reserved
+		// for trial_not_configured and 429 for our own rate limiter, or the
+		// client misreads a transient upstream outage as "add your own key".
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})
+		return
+	}
+	// SECURITY INVARIANT: the upstream 200 echoes the forced trial model in
+	// its top-level "model" field — strip it before relaying.
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxTrialBodyBytes))
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})
+		return
+	}
+	var out map[string]json.RawMessage
+	if err := json.Unmarshal(respBody, &out); err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})
+		return
+	}
+	delete(out, "model")
+	sanitized, err := json.Marshal(out)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_, _ = io.Copy(w, resp.Body)
+	_, _ = w.Write(sanitized)
 }

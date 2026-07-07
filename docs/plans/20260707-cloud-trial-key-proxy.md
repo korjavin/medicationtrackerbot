@@ -97,7 +97,7 @@
 - **Routes** (all under the account subdomain, account resolved by `router.go` host routing; handlers 401 when `AccountFromContext` is nil):
   - `POST /api/trial/openai/chat/completions[?vision=1]` — body: OpenAI-compatible chat request (messages, response_format…); `model` is server-forced; response: upstream JSON passed through
   - `GET /api/trial/elevenlabs/signed-url` — response `{"signed_url": "..."}`
-- **Error contract**: `503 {"error":"trial_not_configured"}`, `429 {"error":"trial_rate_limit","retry_after_seconds":60}`, upstream errors passed through with upstream status (body sanitized to `{"error":"upstream_error"}` — upstream error bodies could echo request auth context)
+- **Error contract**: `503 {"error":"trial_not_configured"}`, `429 {"error":"trial_rate_limit","retry_after_seconds":60}`, any upstream error → `502 {"error":"upstream_error"}` (never the upstream status — 503/429 stay reserved for the two meanings above; upstream error bodies could echo request auth context). Chat 200 bodies are relayed with the top-level `model` field stripped (upstream echoes the forced trial model)
 - **No streaming**: `aiclient.js` doesn't use SSE streaming today; the proxy rejects `"stream":true` bodies with 400 to keep the surface minimal
 - **CSP**: trial calls are same-origin `/api/*`, so no `connect-src` changes needed (unlike browser-direct BYO)
 
