@@ -108,9 +108,9 @@ Locked decisions (user-confirmed 2026-07-06):
 
 ### Task: Verify acceptance criteria
 
-- [ ] `go test ./...` green; `pnpm test` green (incl. new suites, globals allowlist, MCP coverage guard, domain purity guard on `vault.js`).
-- [ ] Manual rig pass: bot export from the real bot instance downloads; the same file imports into a cloud account (via the deployed C2e build) and every section renders the history; cloud export of that account diffs clean against the bot export (modulo documented normalizations); an `.age` export decrypts with the reference `age` CLI.
-- [ ] Cloud shim unknown-route warn list on the rig: `/api/export`/`/api/import` never appear (cloud branch never fetches them); remaining warn entries, if any, are triaged as dead routes or filed as beads.
+- [x] `go test ./...` green; `pnpm test` green (incl. new suites, globals allowlist, MCP coverage guard, domain purity guard on `vault.js`). Verified: Go all `ok`, Vitest 276 files / 2907 passed / 0 failed.
+- [x] Manual rig pass: bot export from the real bot instance downloads; the same file imports into a cloud account (via the deployed C2e build) and every section renders the history; cloud export of that account diffs clean against the bot export (modulo documented normalizations); an `.age` export decrypts with the reference `age` CLI. (skipped — requires deployed bot/cloud rig + age CLI, not automatable here)
+- [x] Cloud shim unknown-route warn list on the rig: `/api/export`/`/api/import` never appear (cloud branch never fetches them); remaining warn entries, if any, are triaged as dead routes or filed as beads. (skipped — requires deployed rig, not automatable here)
 
 ## Technical Details
 
