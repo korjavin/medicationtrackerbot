@@ -389,6 +389,24 @@ func importTZ(ctx context.Context, tx *sql.Tx, d *VaultData) error {
 			return err
 		}
 	}
+	// Cloud-native accounts carry `current` with an empty `history` (cloud stores
+	// the timezone on the settings singleton, not in timezone_history). Bot
+	// GetCurrent() reads only from timezone_history, so without this the imported
+	// timezone would silently drop to "". Insert a row (stamped latest) when the
+	// current timezone isn't already the newest history entry.
+	if d.TZ.Current != nil && *d.TZ.Current != "" {
+		latest := ""
+		if n := len(d.TZ.History); n > 0 {
+			latest = d.TZ.History[n-1].Timezone
+		}
+		if latest != *d.TZ.Current {
+			if _, err := tx.ExecContext(ctx,
+				`INSERT INTO timezone_history (timezone, recorded_at) VALUES (?,?)`,
+				*d.TZ.Current, time.Now().UTC()); err != nil {
+				return err
+			}
+		}
+	}
 	if p := d.TZ.TransitionPlan; p != nil {
 		steps := make([]tzreschedule.TransitionStep, 0, len(p.Steps))
 		for _, s := range p.Steps {

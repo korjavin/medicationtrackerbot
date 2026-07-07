@@ -108,6 +108,39 @@ func sortArrays(v any) any {
 	}
 }
 
+// TestVaultImportCloudNativeTimezone pins the cloud-native → bot direction:
+// cloud stores the timezone on the settings singleton, so a cloud-origin vault
+// carries tz.current with an empty tz.history. Bot GetCurrent() reads only from
+// timezone_history, so importTZ must synthesize a history row or the timezone
+// silently drops to "".
+func TestVaultImportCloudNativeTimezone(t *testing.T) {
+	db, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	srv := newServer(db, "tok", "sec", 123, OIDCConfig{}, "bot", "")
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
+
+	const userID = 1
+	tz := "Europe/Berlin"
+	v := &Vault{
+		Format:  vaultFormat,
+		Version: vaultVersion,
+		Data:    VaultData{TZ: VaultTZ{Current: &tz}},
+	}
+	if err := srv.importVault(context.Background(), userID, v); err != nil {
+		t.Fatalf("importVault: %v", err)
+	}
+	got, err := db.TZ.GetCurrent()
+	if err != nil {
+		t.Fatalf("GetCurrent: %v", err)
+	}
+	if got != tz {
+		t.Fatalf("timezone dropped on cloud-native import: want %q, got %q", tz, got)
+	}
+}
+
 // TestVaultImportValidation rejects bad envelopes / modes with 400 and does NOT
 // wipe: parse+validate runs before any DB write.
 func TestVaultImportValidation(t *testing.T) {

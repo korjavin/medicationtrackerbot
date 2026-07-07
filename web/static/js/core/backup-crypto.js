@@ -6,8 +6,9 @@
 // passphrase and never performs backup crypto (C2e locked decision 2).
 //
 // The vendored ESM (`/static/vendor/age.min.js`) is loaded lazily via dynamic
-// import() on first use, so nothing is downloaded for users who never open the
-// Import/Export screen and there is no new global <script> tag.
+// import() on first use, so it is not parsed/executed for users who never open
+// the Import/Export screen and there is no new global <script> tag. (The SW
+// still precaches the file so import/export works offline.)
 
 (function () {
     // Overridable module loader so tests can inject the bundle by filesystem
