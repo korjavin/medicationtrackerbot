@@ -75,9 +75,9 @@
 - ➕ [x] fixed pre-existing date-bomb failures in `cloud.shim-contract.food-ai.test.js` (hardcoded `2026-07-06T…` fixtures fell out of the `days=1` window) with a dynamic `todayAt()` helper
 
 ### Task 7: Client fallback — ElevenLabs
-- [ ] in `web/static/js/features/elevenlabs-call.js` cloud branch of `fetchSignedURL()`: if the vault elevenlabs key is empty and the trial-voice meta flag is set, skip agent provisioning and GET `/api/trial/elevenlabs/signed-url` (the trial uses the operator's shared agent); vault key present → current provision + browser-direct path unchanged
-- [ ] keep the existing "Set your ElevenLabs API key in Settings → Integrations" error for no-key + no-trial; map 429 to a trial-limit message
-- [ ] Vitest (extend the existing elevenlabs-call suite): precedence chain vault → trial → error
+- [x] in `web/static/js/features/elevenlabs-call.js` cloud branch of `fetchSignedURL()`: if the vault elevenlabs key is empty and the trial-voice meta flag is set, skip agent provisioning and GET `/api/trial/elevenlabs/signed-url` (the trial uses the operator's shared agent); vault key present → current provision + browser-direct path unchanged — key presence probed via a new `hasKey()` on `web/cloud/js/elevenlabs-signed-url.js`'s client (`window.CloudElevenLabs.hasKey`)
+- [x] keep the existing "Set your ElevenLabs API key in Settings → Integrations" error for no-key + no-trial; map 429 to a trial-limit message (trial 503 also degrades to the set-your-key message)
+- [x] Vitest (extend the existing elevenlabs-call suite): precedence chain vault → trial → error (+ 429 limit message, 503 degrade)
 
 ### Task 8: Settings hint (trial vs BYO)
 - [ ] in `web/static/js/features/settings/integrations.js`, cloud-only (mirror `applyCloudFoodDbPlaceholder` pattern): when the trial meta flag is set and the corresponding vault key is empty, show a small hint next to the OpenAI / ElevenLabs key fields — "Trial key active (rate-limited). Add your own key to remove limits."

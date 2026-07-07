@@ -768,3 +768,100 @@ describe('features/elevenlabs-call.js — Today card markup', () => {
         }
     });
 });
+
+describe('features/elevenlabs-call.js — trial-voice fallback precedence (cloud)', () => {
+    // Wire a cloud env around fetchSignedURL(): vault-key presence via
+    // CloudElevenLabs.hasKey, trial availability via the injected meta flag,
+    // and the trial proxy route via a fetch stub.
+    function cloudEnv({ hasKey, trialFlag, trialStatus = 200 } = {}) {
+        const env = createEnv();
+        const { window } = env;
+        window.__MEDTRACKER_CLOUD__ = true;
+        if (trialFlag) {
+            const meta = window.document.createElement('meta');
+            meta.setAttribute('name', 'medtracker-trial-voice');
+            meta.setAttribute('content', '1');
+            window.document.head.appendChild(meta);
+        }
+        const trialFetch = vi.fn(async (url) => {
+            if (typeof url === 'string' && url.startsWith('/api/trial/elevenlabs/signed-url')) {
+                return {
+                    ok: trialStatus >= 200 && trialStatus < 300,
+                    status: trialStatus,
+                    async json() { return { signed_url: 'wss://trial.example/signed' }; },
+                };
+            }
+            throw new Error(`Unexpected fetch: ${url}`);
+        });
+        window.fetch = trialFetch;
+        const byoFetchSignedURL = vi.fn(async () => 'wss://byo.example/signed');
+        const provision = vi.fn(async () => {
+            // Mirrors elevenlabs-agent.js: provisioning needs the user's key.
+            if (!hasKey) throw new Error('Set your ElevenLabs API key in Settings → Integrations');
+            return 'agent-byo-1';
+        });
+        window.CloudElevenLabs = {
+            fetchSignedURL: byoFetchSignedURL,
+            hasKey: vi.fn(async () => Boolean(hasKey)),
+        };
+        window.CloudElevenLabsAgent = { provision };
+        return { ...env, trialFetch, byoFetchSignedURL, provision };
+    }
+
+    it('vault key present → provision + browser-direct path, trial route never hit (even with flag set)', async () => {
+        const { window, trialFetch, byoFetchSignedURL, provision, cleanup } = cloudEnv({ hasKey: true, trialFlag: true });
+        try {
+            const url = await window.WGCallAgent.fetchSignedURL();
+            expect(url).toBe('wss://byo.example/signed');
+            expect(provision).toHaveBeenCalledTimes(1);
+            expect(byoFetchSignedURL).toHaveBeenCalledWith('agent-byo-1');
+            expect(trialFetch).not.toHaveBeenCalled();
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('no vault key + trial flag → GET /api/trial/elevenlabs/signed-url, provisioning skipped', async () => {
+        const { window, trialFetch, byoFetchSignedURL, provision, cleanup } = cloudEnv({ hasKey: false, trialFlag: true });
+        try {
+            const url = await window.WGCallAgent.fetchSignedURL();
+            expect(url).toBe('wss://trial.example/signed');
+            expect(trialFetch).toHaveBeenCalledWith('/api/trial/elevenlabs/signed-url', { method: 'GET' });
+            expect(provision).not.toHaveBeenCalled();
+            expect(byoFetchSignedURL).not.toHaveBeenCalled();
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('no vault key + no trial flag → existing set-your-key error', async () => {
+        const { window, trialFetch, cleanup } = cloudEnv({ hasKey: false, trialFlag: false });
+        try {
+            await expect(window.WGCallAgent.fetchSignedURL())
+                .rejects.toThrow('Set your ElevenLabs API key in Settings → Integrations');
+            expect(trialFetch).not.toHaveBeenCalled();
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('trial route 429 → distinct trial-limit message', async () => {
+        const { window, cleanup } = cloudEnv({ hasKey: false, trialFlag: true, trialStatus: 429 });
+        try {
+            await expect(window.WGCallAgent.fetchSignedURL())
+                .rejects.toThrow(/Trial limit reached/);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('trial route 503 (flag/route mismatch) → degrades to the set-your-key error', async () => {
+        const { window, cleanup } = cloudEnv({ hasKey: false, trialFlag: true, trialStatus: 503 });
+        try {
+            await expect(window.WGCallAgent.fetchSignedURL())
+                .rejects.toThrow('Set your ElevenLabs API key in Settings → Integrations');
+        } finally {
+            cleanup();
+        }
+    });
+});

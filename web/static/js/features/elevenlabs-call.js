@@ -31,6 +31,34 @@
         return sdkPromise;
     }
 
+    // Trial-voice fallback (cloud only): no vault key + operator trial flag
+    // (<meta name="medtracker-trial-voice">, injected when TRIAL_ELEVENLABS_*
+    // is configured) → mint from the same-origin trial proxy, which uses the
+    // operator's shared agent — no provisioning, no key in the browser.
+    function trialVoiceAvailable() {
+        const meta = window.document.querySelector('meta[name="medtracker-trial-voice"]');
+        return !!meta && meta.content === '1';
+    }
+
+    async function fetchTrialSignedURL() {
+        const resp = await fetch('/api/trial/elevenlabs/signed-url', { method: 'GET' });
+        if (resp.status === 429) {
+            throw new Error('Trial limit reached — try again in a minute or add your own ElevenLabs key in Settings → Integrations.');
+        }
+        if (resp.status === 503) {
+            // Flag/route mismatch — degrade to the plain BYO message.
+            throw new Error('Set your ElevenLabs API key in Settings → Integrations');
+        }
+        if (!resp.ok) {
+            const err = new Error(`Failed to get signed URL (${resp.status})`);
+            err.status = resp.status;
+            throw err;
+        }
+        const data = await resp.json();
+        if (!data || !data.signed_url) throw new Error('Response missing signed_url');
+        return data.signed_url;
+    }
+
     async function fetchSignedURL() {
         // Cloud mode has no server signed-URL route — mint it browser-direct
         // from the vault's ElevenLabs key (BYO; key never crosses /api). First
@@ -38,6 +66,14 @@
         // reprovisions only on a toolset-version bump) so the user configures
         // only the API key. Provisioning errors surface as the call status.
         if (window.__MEDTRACKER_CLOUD__ && window.CloudElevenLabs) {
+            const hasKey = typeof window.CloudElevenLabs.hasKey === 'function'
+                ? await window.CloudElevenLabs.hasKey()
+                : true;
+            if (!hasKey && trialVoiceAvailable()) {
+                return fetchTrialSignedURL();
+            }
+            // No key + no trial: provision() throws the existing
+            // "Set your ElevenLabs API key…" error.
             let agentId;
             if (window.CloudElevenLabsAgent) {
                 agentId = await window.CloudElevenLabsAgent.provision();
