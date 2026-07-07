@@ -13,7 +13,7 @@
 // matching the server always reminding while the medication feature is on)
 // gating whether the med portion of the horizon is computed at all.
 import { planDosesWithTzPlan } from './tzplan.js';
-import { minDoseIntervalMs } from './medschedule.js';
+import { minDoseIntervalMs, localWallToUtcMs } from './medschedule.js';
 
 const REMINDERPREF_RECORD_TYPE = 'medreminderpref';
 const REMINDERPREF_RECORD_ID = 'medreminderpref';
@@ -159,9 +159,9 @@ export function computeReminderHorizon({
     const preferredHour = bpStatus.preferred_reminder_hour !== undefined ? bpStatus.preferred_reminder_hour : 20;
 
     for (let day = 0; day < FORECAST_DAYS; day++) {
-      const targetDate = new Date(now + day * DAY_MS);
-      targetDate.setHours(preferredHour, 0, 0, 0);
-      const targetMs = targetDate.getTime();
+      const dayDate = new Date(now + day * DAY_MS);
+      const wallAsUtc = Date.UTC(dayDate.getUTCFullYear(), dayDate.getUTCMonth(), dayDate.getUTCDate(), preferredHour, 0);
+      const targetMs = localWallToUtcMs(wallAsUtc, timeZone);
 
       // Fire if no reading within 12h before target
       if (targetMs > now && targetMs - lastBPMs > 12 * 60 * 60 * 1000) {
@@ -178,9 +178,9 @@ export function computeReminderHorizon({
     const preferredHour = weightStatus.preferred_reminder_hour !== undefined ? weightStatus.preferred_reminder_hour : 9;
 
     for (let day = 0; day < FORECAST_DAYS; day++) {
-      const targetDate = new Date(now + day * DAY_MS);
-      targetDate.setHours(preferredHour, 0, 0, 0);
-      const targetMs = targetDate.getTime();
+      const dayDate = new Date(now + day * DAY_MS);
+      const wallAsUtc = Date.UTC(dayDate.getUTCFullYear(), dayDate.getUTCMonth(), dayDate.getUTCDate(), preferredHour, 0);
+      const targetMs = localWallToUtcMs(wallAsUtc, timeZone);
 
       // Fire if no reading within 7 days before target
       if (targetMs > now && targetMs - lastWeightMs > 7 * 24 * 60 * 60 * 1000) {

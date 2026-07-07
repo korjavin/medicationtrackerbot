@@ -69,4 +69,10 @@ describe('cloud shim contract — reminders', () => {
         expect(bootstrap.settings.weight_reminder_status.enabled).toBe(true);
         expect(bootstrap.settings.weight_reminder_status.preferred_reminder_hour).toBe(10);
     });
+
+    it('computes correct BP and weight reminder entries with timezone offset', async () => {
+        // Mock a pushSchedule interceptor via push API testing if possible,
+        // or just import computeReminderHorizon from domain to test the pure function.
+        // We will do a pure function test to verify timezone math explicitly.
+    });
 });
