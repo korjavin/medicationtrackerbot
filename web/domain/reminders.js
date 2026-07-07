@@ -17,6 +17,10 @@ import { minDoseIntervalMs } from './medschedule.js';
 
 const REMINDERPREF_RECORD_TYPE = 'medreminderpref';
 const REMINDERPREF_RECORD_ID = 'medreminderpref';
+const BP_REMINDERPREF_RECORD_TYPE = 'bpreminderpref';
+const BP_REMINDERPREF_RECORD_ID = 'bpreminderpref';
+const WEIGHT_REMINDERPREF_RECORD_TYPE = 'weightreminderpref';
+const WEIGHT_REMINDERPREF_RECORD_ID = 'weightreminderpref';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const FORECAST_DAYS = 7;
@@ -59,7 +63,8 @@ function doseSlotText(names) {
 // (server field names), timeZone is an IANA string, now is ms epoch, tzPlan
 // is the optional active tzplan record (a passthrough, see tzplan.js).
 export function computeReminderHorizon({
-  medications = [], intakes = [], timeZone, now, tzPlan,
+  medications = [], intakes = [], bps = [], weights = [],
+  timeZone, now, tzPlan, bpStatus = { enabled: false }, weightStatus = { enabled: false },
 } = {}) {
   const meds = medications.filter((m) => !m.deleted && !m.archived);
   const medById = new Map(meds.map((m) => [m.recordId ?? m.id, m]));
@@ -146,6 +151,44 @@ export function computeReminderHorizon({
     }
   }
 
+  // BP reminders logic
+  if (bpStatus.enabled) {
+    const sortedBPs = [...bps].sort((a, b) => new Date(b.measured_at || b.measuredAt) - new Date(a.measured_at || a.measuredAt));
+    const lastBP = sortedBPs[0];
+    const lastBPMs = lastBP ? new Date(lastBP.measured_at || lastBP.measuredAt).getTime() : 0;
+    const preferredHour = bpStatus.preferred_reminder_hour !== undefined ? bpStatus.preferred_reminder_hour : 20;
+
+    for (let day = 0; day < FORECAST_DAYS; day++) {
+      const targetDate = new Date(now + day * DAY_MS);
+      targetDate.setHours(preferredHour, 0, 0, 0);
+      const targetMs = targetDate.getTime();
+
+      // Fire if no reading within 12h before target
+      if (targetMs > now && targetMs - lastBPMs > 12 * 60 * 60 * 1000) {
+        entries.push({ fireAtUnix: Math.floor(targetMs / 1000), text: "📊 **Time to measure your blood pressure**\n\nPlease take a moment to measure and record your BP." });
+      }
+    }
+  }
+
+  // Weight reminders logic
+  if (weightStatus.enabled) {
+    const sortedWeights = [...weights].sort((a, b) => new Date(b.measured_at || b.measuredAt) - new Date(a.measured_at || a.measuredAt));
+    const lastWeight = sortedWeights[0];
+    const lastWeightMs = lastWeight ? new Date(lastWeight.measured_at || lastWeight.measuredAt).getTime() : 0;
+    const preferredHour = weightStatus.preferred_reminder_hour !== undefined ? weightStatus.preferred_reminder_hour : 9;
+
+    for (let day = 0; day < FORECAST_DAYS; day++) {
+      const targetDate = new Date(now + day * DAY_MS);
+      targetDate.setHours(preferredHour, 0, 0, 0);
+      const targetMs = targetDate.getTime();
+
+      // Fire if no reading within 7 days before target
+      if (targetMs > now && targetMs - lastWeightMs > 7 * 24 * 60 * 60 * 1000) {
+        entries.push({ fireAtUnix: Math.floor(targetMs / 1000), text: "⚖️ **Time to track your weight**\n\nIt's been about a week since your last measurement. Regular tracking helps you stay on top of your goals!" });
+      }
+    }
+  }
+
   entries.sort((a, b) => a.fireAtUnix - b.fireAtUnix);
   return entries.slice(0, MAX_HORIZON_ENTRIES);
 }
@@ -175,18 +218,76 @@ export function createRemindersDomain({ records, now }) {
     return getStatus();
   }
 
+  async function getBPStatus() {
+    const all = await records.list(BP_REMINDERPREF_RECORD_TYPE);
+    const rec = findSingleton(all, BP_REMINDERPREF_RECORD_ID);
+    return {
+      enabled: rec ? !!rec.enabled : false,
+      preferred_reminder_hour: rec && rec.preferred_reminder_hour !== undefined ? rec.preferred_reminder_hour : 20
+    };
+  }
+
+  async function setBPEnabled(enabled, preferred_reminder_hour) {
+    const current = await getBPStatus();
+    const hour = preferred_reminder_hour !== undefined ? preferred_reminder_hour : current.preferred_reminder_hour;
+    await records.put(BP_REMINDERPREF_RECORD_TYPE, {
+      recordId: BP_REMINDERPREF_RECORD_ID, clientTs: now(), deleted: false, enabled: !!enabled, preferred_reminder_hour: hour,
+    });
+    return getBPStatus();
+  }
+
+  async function getWeightStatus() {
+    const all = await records.list(WEIGHT_REMINDERPREF_RECORD_TYPE);
+    const rec = findSingleton(all, WEIGHT_REMINDERPREF_RECORD_ID);
+    return {
+      enabled: rec ? !!rec.enabled : false,
+      preferred_reminder_hour: rec && rec.preferred_reminder_hour !== undefined ? rec.preferred_reminder_hour : 9
+    };
+  }
+
+  async function setWeightEnabled(enabled, preferred_reminder_hour) {
+    const current = await getWeightStatus();
+    const hour = preferred_reminder_hour !== undefined ? preferred_reminder_hour : current.preferred_reminder_hour;
+    await records.put(WEIGHT_REMINDERPREF_RECORD_TYPE, {
+      recordId: WEIGHT_REMINDERPREF_RECORD_ID, clientTs: now(), deleted: false, enabled: !!enabled, preferred_reminder_hour: hour,
+    });
+    return getWeightStatus();
+  }
+
   // buildHorizon returns [] when reminders are disabled — the caller uploads
   // that empty med portion via a replace-all pushSchedule, per the plan's
   // "disabled -> upload empty med portion" rule.
   async function buildHorizon({
-    medications, intakes, timeZone, tzPlan,
+    medications, intakes, bps, weights, timeZone, tzPlan,
   }) {
-    const { enabled } = await getStatus();
-    if (!enabled) return [];
+    const [{ enabled }, bpStatus, weightStatus] = await Promise.all([
+      getStatus(),
+      getBPStatus(),
+      getWeightStatus()
+    ]);
+
+    // We compute the horizon for everything enabled. If medication reminders are disabled,
+    // we still need to compute BP/Weight reminders if they are enabled.
+    // If all are disabled, computeReminderHorizon returns empty arrays anyway based on the statuses.
+    let medsToPass = medications;
+    let intakesToPass = intakes;
+    if (!enabled) {
+      medsToPass = [];
+      intakesToPass = [];
+    }
+
     return computeReminderHorizon({
-      medications, intakes, timeZone, now: now(), tzPlan,
+      medications: medsToPass,
+      intakes: intakesToPass,
+      bps,
+      weights,
+      timeZone,
+      now: now(),
+      tzPlan,
+      bpStatus,
+      weightStatus
     });
   }
 
-  return { getStatus, setEnabled, buildHorizon };
+  return { getStatus, setEnabled, getBPStatus, setBPEnabled, getWeightStatus, setWeightEnabled, buildHorizon };
 }
