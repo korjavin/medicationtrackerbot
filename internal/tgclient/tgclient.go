@@ -155,27 +155,48 @@ func (c *Client) SendMessage(ctx context.Context, chatID int64, text string) err
 	}, nil)
 }
 
-// Update is the subset of a Telegram update our webhooks read: managed_bot
-// (child bot created via the manager) and message (/start linking).
+// Update is the subset of a Telegram update our webhooks read: a message
+// carrying managed_bot_created (child bot created via the manager) and plain
+// message (/start linking).
 type Update struct {
-	UpdateID   int64             `json:"update_id"`
-	ManagedBot *ManagedBotUpdate `json:"managed_bot,omitempty"`
-	Message    *Message          `json:"message,omitempty"`
+	UpdateID int64    `json:"update_id"`
+	Message  *Message `json:"message,omitempty"`
 }
 
-// ManagedBotUpdate arrives on the manager bot's webhook when a user creates a
-// child bot through the manager's newbot deep link.
-type ManagedBotUpdate struct {
-	BotID       int64  `json:"bot_id"`
-	BotUsername string `json:"bot_username"`
+// ManagedBotCreatedInfo returns the created child bot's id + username when this
+// update is the managed_bot_created service message Telegram posts to the
+// manager bot after a user creates a bot via the newbot deep link. ok=false for
+// any other update. Verified against the real Bot API 9.6 payload (2026-04):
+// update.message.managed_bot_created.bot.{id,username} — NOT a top-level
+// managed_bot field (the original C3a struct guessed wrong).
+func (u *Update) ManagedBotCreatedInfo() (botID int64, username string, ok bool) {
+	if u.Message == nil || u.Message.ManagedBotCreated == nil {
+		return 0, "", false
+	}
+	b := u.Message.ManagedBotCreated.Bot
+	return b.ID, b.Username, b.ID != 0 && b.Username != ""
 }
 
-// Message is the subset of a Telegram message we read for /start linking.
+// Message is the subset of a Telegram message we read: text for /start linking,
+// and managed_bot_created for the manager-webhook bind.
 type Message struct {
-	MessageID int64  `json:"message_id"`
-	Text      string `json:"text"`
-	Chat      Chat   `json:"chat"`
-	From      *User  `json:"from,omitempty"`
+	MessageID         int64              `json:"message_id"`
+	Text              string             `json:"text"`
+	Chat              Chat               `json:"chat"`
+	From              *User              `json:"from,omitempty"`
+	ManagedBotCreated *ManagedBotCreated `json:"managed_bot_created,omitempty"`
+}
+
+// ManagedBotCreated is the service field on the message Telegram posts to the
+// manager bot when a user creates a child bot via the newbot deep link.
+type ManagedBotCreated struct {
+	Bot ManagedBot `json:"bot"`
+}
+
+// ManagedBot is the created child bot (the subset of the User object we need).
+type ManagedBot struct {
+	ID       int64  `json:"id"`
+	Username string `json:"username"`
 }
 
 // Chat is the subset of a Telegram chat we read (the chat id to link).
