@@ -86,7 +86,6 @@ func TestLoadFromEnv_AllFieldsPopulated(t *testing.T) {
 	wantFood := FoodConfig{
 		APIKey: "food-key",
 		URL:    "https://food.example.test/v1",
-		Domain: "food.example.test",
 	}
 	if cfg.Food != wantFood {
 		t.Errorf("Food = %+v want %+v", cfg.Food, wantFood)
@@ -285,7 +284,7 @@ func TestLoadFromSettings_AllFieldsPopulated(t *testing.T) {
 			APIKey: "sk-from-db", URL: "https://db.example/v1", Model: "db-model",
 			VisionAPIKey: "sk-vision-db", VisionURL: "https://v.db/v1", VisionModel: "v-db",
 		},
-		food: settings.IntegrationFood{APIKey: "food-db", URL: "https://food.db/v1", Domain: "food.db"},
+		food: settings.IntegrationFood{APIKey: "food-db", URL: "https://food.db/v1"},
 		el:   settings.IntegrationElevenLabs{APIKey: "el-db", AgentID: "el-agent-db"},
 	}
 	cfg, err := LoadFromSettings(context.Background(), r)
@@ -299,7 +298,7 @@ func TestLoadFromSettings_AllFieldsPopulated(t *testing.T) {
 	if cfg.OpenAI != want {
 		t.Errorf("OpenAI = %+v want %+v", cfg.OpenAI, want)
 	}
-	if cfg.Food != (FoodConfig{APIKey: "food-db", URL: "https://food.db/v1", Domain: "food.db"}) {
+	if cfg.Food != (FoodConfig{APIKey: "food-db", URL: "https://food.db/v1"}) {
 		t.Errorf("Food = %+v", cfg.Food)
 	}
 	if cfg.ElevenLabs != (ElevenLabsConfig{APIKey: "el-db", AgentID: "el-agent-db"}) {
@@ -337,7 +336,7 @@ func TestMerge(t *testing.T) {
 			APIKey: "sk-env", URL: "https://env.example/v1", Model: "env-model",
 			VisionAPIKey: "sk-vision-env", VisionURL: "https://v.env/v1", VisionModel: "v-env",
 		},
-		Food:       FoodConfig{APIKey: "food-env", URL: "https://food.env/v1", Domain: "food.env"},
+		Food:       FoodConfig{APIKey: "food-env", URL: "https://food.env/v1"},
 		ElevenLabs: ElevenLabsConfig{APIKey: "el-env", AgentID: "el-env-agent"},
 	}
 	settingsFull := &Config{
@@ -345,7 +344,7 @@ func TestMerge(t *testing.T) {
 			APIKey: "sk-db", URL: "https://db.example/v1", Model: "db-model",
 			VisionAPIKey: "sk-vision-db", VisionURL: "https://v.db/v1", VisionModel: "v-db",
 		},
-		Food:       FoodConfig{APIKey: "food-db", URL: "https://food.db/v1", Domain: "food.db"},
+		Food:       FoodConfig{APIKey: "food-db", URL: "https://food.db/v1"},
 		ElevenLabs: ElevenLabsConfig{APIKey: "el-db", AgentID: "el-db-agent"},
 	}
 

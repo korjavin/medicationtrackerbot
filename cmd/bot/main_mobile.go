@@ -146,7 +146,6 @@ func runMobile(ctx context.Context, args []string, stdout io.Writer) error {
 		s.Food.SetRemoteConfig(food.RemoteConfig{
 			APIKey: c.Food.APIKey,
 			URL:    c.Food.URL,
-			Domain: c.Food.Domain,
 		})
 		srv.SetElevenLabsConfig(server.ElevenLabsConfig{
 			APIKey:  c.ElevenLabs.APIKey,

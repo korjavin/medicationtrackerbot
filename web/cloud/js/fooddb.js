@@ -77,14 +77,6 @@ export function createFoodDbClient({ settingsDomain }) {
     const { food } = await settingsDomain.readIntegrationsUnmasked();
     const configured = (food.url || '').trim();
     if (configured) return { url: configured.replace(/\/$/, ''), apiKey: food.api_key };
-    // Mirror Go SearchRemoteAPI: fall back to the bare `domain` field (bare host
-    // → https://) before the operator default. Still the user's own DB, so the
-    // vault-held key is forwarded here (unlike the operator fallback below).
-    const domain = (food.domain || '').trim();
-    if (domain) {
-      const withScheme = /^https?:\/\//.test(domain) ? domain : `https://${domain}`;
-      return { url: withScheme.replace(/\/$/, ''), apiKey: food.api_key };
-    }
     const operatorDefault = operatorFoodDbURL();
     if (!operatorDefault) return null;
     // Falling back to the operator's default DB: never forward the user's

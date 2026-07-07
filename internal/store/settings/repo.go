@@ -307,7 +307,6 @@ type IntegrationOpenAI struct {
 type IntegrationFood struct {
 	APIKey string
 	URL    string
-	Domain string
 }
 
 // IntegrationElevenLabs is the settings-table-backed view of the Voice Agent
@@ -352,8 +351,8 @@ func (r *Repo) SetIntegrationOpenAI(ctx context.Context, v IntegrationOpenAI) er
 // singleton settings row.
 func (r *Repo) GetIntegrationFood(ctx context.Context) (IntegrationFood, error) {
 	var v IntegrationFood
-	err := r.db.QueryRowContext(ctx, `SELECT food_api_key, food_url, food_domain
-		FROM settings WHERE id = 1`).Scan(&v.APIKey, &v.URL, &v.Domain)
+	err := r.db.QueryRowContext(ctx, `SELECT food_api_key, food_url
+		FROM settings WHERE id = 1`).Scan(&v.APIKey, &v.URL)
 	if err == sql.ErrNoRows {
 		return IntegrationFood{}, nil
 	}
@@ -363,8 +362,8 @@ func (r *Repo) GetIntegrationFood(ctx context.Context) (IntegrationFood, error) 
 // SetIntegrationFood writes all remote food-DB lookup columns in one statement.
 func (r *Repo) SetIntegrationFood(ctx context.Context, v IntegrationFood) error {
 	_, err := r.db.ExecContext(ctx, `UPDATE settings SET
-		food_api_key = ?, food_url = ?, food_domain = ?
-		WHERE id = 1`, v.APIKey, v.URL, v.Domain)
+		food_api_key = ?, food_url = ?
+		WHERE id = 1`, v.APIKey, v.URL)
 	return err
 }
 
@@ -404,7 +403,6 @@ type IntegrationOpenAIPatch struct {
 type IntegrationFoodPatch struct {
 	APIKey *string
 	URL    *string
-	Domain *string
 }
 
 // IntegrationElevenLabsPatch is the partial-update counterpart of
@@ -488,8 +486,8 @@ func (p *IntegrationOpenAIPatch) sqlSet() ([]string, []any) {
 }
 
 func (p *IntegrationFoodPatch) sqlSet() ([]string, []any) {
-	sets := make([]string, 0, 3)
-	args := make([]any, 0, 3)
+	sets := make([]string, 0, 2)
+	args := make([]any, 0, 2)
 	if p.APIKey != nil {
 		sets = append(sets, "food_api_key = ?")
 		args = append(args, *p.APIKey)
@@ -497,10 +495,6 @@ func (p *IntegrationFoodPatch) sqlSet() ([]string, []any) {
 	if p.URL != nil {
 		sets = append(sets, "food_url = ?")
 		args = append(args, *p.URL)
-	}
-	if p.Domain != nil {
-		sets = append(sets, "food_domain = ?")
-		args = append(args, *p.Domain)
 	}
 	return sets, args
 }

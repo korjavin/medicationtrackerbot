@@ -25,20 +25,12 @@ type fastFoodProduct struct {
 // SearchRemoteAPI performs a live, resilient search against the FastFoodDB API.
 // It maps the response safely to our local FoodProduct struct.
 func (r *Repo) SearchRemoteAPI(ctx context.Context, query string) ([]FoodProduct, error) {
-	// Snapshot the remote config once so URL/Domain/APIKey come from the
+	// Snapshot the remote config once so URL/APIKey come from the
 	// same write — see SetRemoteConfig for the hot-reload context.
 	cfg := r.RemoteConfigSnapshot()
 	baseURL := cfg.URL
 	if baseURL == "" {
-		domain := cfg.Domain
-		if domain == "" {
-			return nil, fmt.Errorf("food remote search is not configured: set FoodConfig.URL or FoodConfig.Domain")
-		}
-		if strings.HasPrefix(domain, "http://") || strings.HasPrefix(domain, "https://") {
-			baseURL = domain
-		} else {
-			baseURL = "https://" + domain
-		}
+		return nil, fmt.Errorf("food remote search is not configured: set FoodConfig.URL")
 	}
 	baseURL = strings.TrimRight(baseURL, "/")
 

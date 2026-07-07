@@ -147,7 +147,6 @@ func main() {
 	s.Food.SetRemoteConfig(food.RemoteConfig{
 		APIKey: cfg.Food.APIKey,
 		URL:    cfg.Food.URL,
-		Domain: cfg.Food.Domain,
 	})
 
 	// 2.5 OpenAI Client

@@ -11,7 +11,7 @@ import (
 
 func TestSearchRemoteAPI_NotConfigured(t *testing.T) {
 	r := setupFoodRepo(t)
-	// No SetRemoteConfig call — both URL and Domain are empty.
+	// No SetRemoteConfig call — URL is empty.
 
 	if _, err := r.SearchRemoteAPI(context.Background(), "apple"); err == nil {
 		t.Fatal("expected error when food remote search is not configured, got nil")
@@ -51,23 +51,6 @@ func TestSearchRemoteAPI_UsesInjectedURLAndAPIKey(t *testing.T) {
 	}
 	if !strings.Contains(gotPath, "/api/v1/food/search") {
 		t.Errorf("upstream path = %q, want search path", gotPath)
-	}
-}
-
-func TestSearchRemoteAPI_DomainFallback(t *testing.T) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"results": []map[string]any{}})
-	}))
-	defer upstream.Close()
-
-	r := setupFoodRepo(t)
-	// Strip the scheme to simulate a bare domain; the code is supposed to
-	// prepend https:// — for the test we use the full upstream URL as
-	// "domain" since both http:// and https:// prefixes are recognised.
-	r.SetRemoteConfig(RemoteConfig{Domain: upstream.URL})
-
-	if _, err := r.SearchRemoteAPI(context.Background(), "apple"); err != nil {
-		t.Fatalf("SearchRemoteAPI: %v", err)
 	}
 }
 

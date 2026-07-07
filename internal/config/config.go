@@ -69,12 +69,10 @@ type OpenAIConfig struct {
 }
 
 // FoodConfig groups the remote food-DB lookup settings used by
-// internal/store/food's SearchRemoteAPI call. Either URL or Domain must be set
-// at the call site for remote search to work.
+// internal/store/food's SearchRemoteAPI call.
 type FoodConfig struct {
 	APIKey string
 	URL    string
-	Domain string
 }
 
 // ElevenLabsConfig groups the Voice Agent proxy credentials. Both APIKey and
@@ -174,7 +172,6 @@ func LoadFromEnv() (*Config, error) {
 		Food: FoodConfig{
 			APIKey: os.Getenv("FOOD_API_KEY"),
 			URL:    os.Getenv("FOOD_API_URL"),
-			Domain: os.Getenv("FOOD_DOMAIN"),
 		},
 		ElevenLabs: ElevenLabsConfig{
 			APIKey:  os.Getenv("ELEVENLABS_API_KEY"),
@@ -380,7 +377,6 @@ func LoadFromSettings(ctx context.Context, r SettingsReader) (*Config, error) {
 		Food: FoodConfig{
 			APIKey: food.APIKey,
 			URL:    food.URL,
-			Domain: food.Domain,
 		},
 		ElevenLabs: ElevenLabsConfig{
 			APIKey:  el.APIKey,
@@ -421,7 +417,6 @@ func Merge(envCfg, settingsCfg *Config) *Config {
 	out.Food = FoodConfig{
 		APIKey: firstNonEmpty(envCfg.Food.APIKey, settingsCfg.Food.APIKey),
 		URL:    firstNonEmpty(envCfg.Food.URL, settingsCfg.Food.URL),
-		Domain: firstNonEmpty(envCfg.Food.Domain, settingsCfg.Food.Domain),
 	}
 	out.ElevenLabs = ElevenLabsConfig{
 		APIKey:  firstNonEmpty(envCfg.ElevenLabs.APIKey, settingsCfg.ElevenLabs.APIKey),

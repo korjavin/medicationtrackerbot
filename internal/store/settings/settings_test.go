@@ -366,7 +366,6 @@ func TestIntegrationFood(t *testing.T) {
 	in := IntegrationFood{
 		APIKey: "food-key",
 		URL:    "https://food.example.test/v1",
-		Domain: "food.example.test",
 	}
 	if err := r.SetIntegrationFood(ctx, in); err != nil {
 		t.Fatalf("SetIntegrationFood: %v", err)

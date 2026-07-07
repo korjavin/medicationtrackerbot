@@ -37,7 +37,6 @@ type openAIIntegrationDTO struct {
 type foodIntegrationDTO struct {
 	APIKey string `json:"api_key"`
 	URL    string `json:"url"`
-	Domain string `json:"domain"`
 }
 
 type elevenLabsIntegrationDTO struct {
@@ -71,7 +70,6 @@ type openAIIntegrationPatch struct {
 type foodIntegrationPatch struct {
 	APIKey *string `json:"api_key,omitempty"`
 	URL    *string `json:"url,omitempty"`
-	Domain *string `json:"domain,omitempty"`
 }
 
 type elevenLabsIntegrationPatch struct {
@@ -127,7 +125,6 @@ func (s *Server) handleGetIntegrations(w http.ResponseWriter, r *http.Request) {
 		Food: foodIntegrationDTO{
 			APIKey: maskSecret(food.APIKey),
 			URL:    food.URL,
-			Domain: food.Domain,
 		},
 		ElevenLabs: elevenLabsIntegrationDTO{
 			APIKey:  maskSecret(el.APIKey),
@@ -203,7 +200,6 @@ func (s *Server) handleUpdateIntegrations(w http.ResponseWriter, r *http.Request
 		foodNext = &settings.IntegrationFoodPatch{
 			APIKey: resolveSecretPatch(req.Food.APIKey),
 			URL:    req.Food.URL,
-			Domain: req.Food.Domain,
 		}
 	}
 

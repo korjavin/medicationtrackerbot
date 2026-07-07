@@ -70,7 +70,6 @@ describe('Settings → Integrations section', () => {
             'integrations-openai-vision-model',
             'integrations-food-api-key',
             'integrations-food-url',
-            'integrations-food-domain',
             'integrations-elevenlabs-api-key',
             'integrations-elevenlabs-agent-id'
         ];
@@ -156,7 +155,6 @@ describe('Settings → Integrations section', () => {
         expect(document.getElementById('integrations-openai-url').value).toBe('https://api.openai.com/v1');
         expect(document.getElementById('integrations-openai-model').value).toBe('gpt-5');
         expect(document.getElementById('integrations-food-api-key').value).toBe('***');
-        expect(document.getElementById('integrations-food-domain').value).toBe('fastfood.example.com');
         expect(document.getElementById('integrations-elevenlabs-api-key').value).toBe('');
         expect(document.getElementById('integrations-elevenlabs-agent-id').value).toBe('agent_abc');
     });

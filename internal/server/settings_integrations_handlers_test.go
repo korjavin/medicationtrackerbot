@@ -30,7 +30,7 @@ func TestHandleGetIntegrations_MasksSecretsAndReportsPlainFields(t *testing.T) {
 		t.Fatalf("seed openai: %v", err)
 	}
 	if err := db.Settings.SetIntegrationFood(ctx, settings.IntegrationFood{
-		APIKey: "food-key", URL: "", Domain: "fastfood.example.com",
+		APIKey: "food-key", URL: "",
 	}); err != nil {
 		t.Fatalf("seed food: %v", err)
 	}
@@ -74,9 +74,6 @@ func TestHandleGetIntegrations_MasksSecretsAndReportsPlainFields(t *testing.T) {
 	}
 	if resp.Food.URL != "" {
 		t.Errorf("Food.URL should be empty: %q", resp.Food.URL)
-	}
-	if resp.Food.Domain != "fastfood.example.com" {
-		t.Errorf("Food.Domain mismatch: %q", resp.Food.Domain)
 	}
 
 	if resp.ElevenLabs.APIKey != secretMask {
@@ -153,7 +150,7 @@ func TestHandlePatchIntegrations_PartialUpdateAndSecretPreservation(t *testing.T
 	if err != nil {
 		t.Fatalf("read food: %v", err)
 	}
-	if food.APIKey != "" || food.URL != "" || food.Domain != "" {
+	if food.APIKey != "" || food.URL != "" {
 		t.Errorf("Food group should be untouched (omitted from patch); got %+v", food)
 	}
 }

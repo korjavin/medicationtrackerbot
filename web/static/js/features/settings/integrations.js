@@ -35,8 +35,7 @@
         },
         food: {
             api_key: 'integrations-food-api-key',
-            url: 'integrations-food-url',
-            domain: 'integrations-food-domain'
+            url: 'integrations-food-url'
         },
         elevenlabs: {
             api_key: 'integrations-elevenlabs-api-key',
