@@ -1,0 +1,69 @@
+// C2e Task 5 — cross-runtime round-trip contract for the cloud full-vault
+// export/import (web/domain/vault.js). The shared golden fixture
+// tests/fixtures/vault-v1.json is the same file the Go exporter/importer pin
+// (Tasks 2/3): importing it into the cloud record set and re-exporting must be
+// identity on `data`, and the intermediate records must carry the deterministic
+// recordIds + day-batching the live cloud modules mint (so imported data
+// converges by LWW with live devices instead of duplicating).
+import { describe, it, expect } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { recordsToVault, vaultToRecords, VAULT_MANAGED_TYPES } from '../../../../web/domain/vault.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(__dirname, '../../../..');
+const fixture = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'tests/fixtures/vault-v1.json'), 'utf8'));
+
+// Fixed clock so id minting is deterministic across runs.
+const NOW = Date.parse('2026-07-08T12:00:00Z');
+
+describe('cloud vault round-trip (web/domain/vault.js)', () => {
+  it('fixture -> vaultToRecords -> recordsToVault is identity on data', () => {
+    const records = vaultToRecords(fixture, { now: NOW });
+    const back = recordsToVault(records, { now: NOW });
+    expect(back.format).toBe('medtracker-vault');
+    expect(back.version).toBe(1);
+    expect(back.data).toEqual(fixture.data);
+  });
+
+  it('mints deterministic recordIds for scheduled slots, sessions, rotations, and singletons', () => {
+    const records = vaultToRecords(fixture, { now: NOW });
+    const idsByType = (type) => records.filter((r) => r.recordType === type).map((r) => r.recordId);
+
+    // Scheduled intake: intake-<medId>-<slotUnixSeconds>.
+    const slotUnix = Math.floor(Date.parse('2026-07-07T07:00:00Z') / 1000);
+    expect(idsByType('intake')).toContain(`intake-1-${slotUnix}`);
+    // Manual intake (scheduled_at == taken_at) gets a manual id, not a slot id.
+    expect(idsByType('intake').some((id) => id.startsWith('intake-manual-'))).toBe(true);
+
+    // Scheduled session: session-<groupId>-<localDate>; rotation: rotation-<groupId>.
+    expect(idsByType('workoutsession')).toContain('session-10-2026-07-07');
+    expect(idsByType('workoutrotation')).toEqual(['rotation-10']);
+
+    // Singletons land on their fixed recordIds (so the live domain modules read them).
+    for (const [type, id] of [
+      ['bpgoal', 'bpgoal'], ['weightunitpref', 'weight-unit'], ['settings', 'settings'],
+      ['features', 'features'], ['taborder', 'taborder'], ['foodtargets', 'foodtargets'],
+      ['integrations', 'integrations'], ['medreminderpref', 'medreminderpref'], ['tzplan', 'tzplan-current'],
+    ]) {
+      expect(idsByType(type)).toEqual([id]);
+    }
+  });
+
+  it('packs vitals samples into one day-batch record per UTC calendar day', () => {
+    const records = vaultToRecords(fixture, { now: NOW });
+    const hr = records.filter((r) => r.recordType === 'hrsample');
+    // Fixture heart samples span 07-07 (23:50Z) and 07-08 (00:10Z, 09:00Z).
+    expect(hr.map((r) => r.recordId).sort()).toEqual(['hrsample-2026-07-07', 'hrsample-2026-07-08']);
+    const day8 = hr.find((r) => r.recordId === 'hrsample-2026-07-08');
+    expect(day8.samples.map((s) => s.value)).toEqual([56, 72]);
+    // Batch body shape is { day, samples:[...] } — what vitals.js readSamples expects.
+    expect(day8.day).toBe('2026-07-08');
+  });
+
+  it('every produced record type is vault-managed (preserving nk/plumbing on import is the shell shim job)', () => {
+    const records = vaultToRecords(fixture, { now: NOW });
+    for (const r of records) expect(VAULT_MANAGED_TYPES.has(r.recordType)).toBe(true);
+  });
+});

@@ -125,7 +125,7 @@ async function readAllRecords() {
   return withStore('records', 'readonly', (store) => reqToPromise(store.getAll()));
 }
 
-async function replaceAllRecords(records) {
+export async function replaceAllRecords(records) {
   // Preserve optimistic copies of not-yet-flushed writes: a snapshot bootstrap
   // (or a compaction re-bootstrap from pullTail) clears the whole store, but
   // pending writes are unsynced local truth the snapshot doesn't contain yet —
@@ -294,19 +294,20 @@ async function pullTail(ctx) {
   }
 }
 
-async function maybeSnapshot(ctx) {
-  const meta = await readMeta();
-  if (meta.localLastSeq === null || meta.localLastSeq - meta.lastSnapshotSeq < SNAPSHOT_THRESHOLD) return;
+// snapshotAt encrypts the whole local record store and POSTs it as the
+// compaction floor at `snapshotSeq`. Shared by the threshold-gated
+// maybeSnapshot and the C2e forced snapshot after a full-vault import.
+async function snapshotAt(ctx, snapshotSeq) {
   const kData = await getKData(ctx);
   const records = await readAllRecords();
   const plaintext = new TextEncoder().encode(JSON.stringify(records));
-  const { nonce, ct } = await encryptSnapshot({ kData, accountId: ctx.accountId, snapshotSeq: meta.localLastSeq, plaintext });
+  const { nonce, ct } = await encryptSnapshot({ kData, accountId: ctx.accountId, snapshotSeq, plaintext });
   let res;
   try {
     res = await fetch('/api/sync/snapshot', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ snapshot_seq: meta.localLastSeq, nonce: toBase64(nonce), ct: toBase64(ct) }),
+      body: JSON.stringify({ snapshot_seq: snapshotSeq, nonce: toBase64(nonce), ct: toBase64(ct) }),
     });
   } catch {
     offline = true;
@@ -314,8 +315,34 @@ async function maybeSnapshot(ctx) {
   }
   if (res.ok) {
     offline = false;
-    await writeMeta({ lastSnapshotSeq: meta.localLastSeq });
+    await writeMeta({ lastSnapshotSeq: snapshotSeq });
   }
+}
+
+async function maybeSnapshot(ctx) {
+  const meta = await readMeta();
+  if (meta.localLastSeq === null || meta.localLastSeq - meta.lastSnapshotSeq < SNAPSHOT_THRESHOLD) return;
+  await snapshotAt(ctx, meta.localLastSeq);
+}
+
+// forceSnapshot uploads one snapshot at the current cursor regardless of the
+// threshold — the C2e full-vault import lands its whole record set via
+// replaceAllRecords (not the oplog), so a snapshot at snapshot_seq =
+// localLastSeq is the only thing that propagates it: other devices whose
+// cursor falls below it re-bootstrap from the snapshot (the designed recovery
+// flow, no new server behavior). No-op if the device never bootstrapped.
+export async function forceSnapshot(ctx) {
+  const meta = await readMeta();
+  if (meta.localLastSeq === null) return;
+  await snapshotAt(ctx, meta.localLastSeq);
+}
+
+// readAllLiveRecords returns every non-tombstoned record (with its recordType)
+// — the flat input recordsToVault regroups for a full-vault export. Bootstraps
+// first so a just-unlocked device exports the synced set, not an empty store.
+export async function readAllLiveRecords(ctx) {
+  await bootstrapIfNeeded(ctx);
+  return (await readAllRecords()).filter((r) => !r.deleted);
 }
 
 // Max re-post attempts when a concurrent writer keeps interleaving (below).
