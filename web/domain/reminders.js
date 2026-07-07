@@ -13,7 +13,7 @@
 // matching the server always reminding while the medication feature is on)
 // gating whether the med portion of the horizon is computed at all.
 import { planDosesWithTzPlan } from './tzplan.js';
-import { minDoseIntervalMs, localWallToUtcMs } from './medschedule.js';
+import { minDoseIntervalMs, localWallToUtcMs, localDateParts } from './medschedule.js';
 
 const REMINDERPREF_RECORD_TYPE = 'medreminderpref';
 const REMINDERPREF_RECORD_ID = 'medreminderpref';
@@ -158,9 +158,10 @@ export function computeReminderHorizon({
     const lastBPMs = lastBP ? new Date(lastBP.measured_at || lastBP.measuredAt).getTime() : 0;
     const preferredHour = bpStatus.preferred_reminder_hour !== undefined ? bpStatus.preferred_reminder_hour : 20;
 
-    for (let day = 0; day < FORECAST_DAYS; day++) {
-      const dayDate = new Date(now + day * DAY_MS);
-      const wallAsUtc = Date.UTC(dayDate.getUTCFullYear(), dayDate.getUTCMonth(), dayDate.getUTCDate(), preferredHour, 0);
+    const { year, month, day } = localDateParts(now, timeZone);
+
+    for (let d = 0; d < FORECAST_DAYS; d++) {
+      const wallAsUtc = Date.UTC(year, month - 1, day + d, preferredHour, 0);
       const targetMs = localWallToUtcMs(wallAsUtc, timeZone);
 
       // Fire if no reading within 12h before target
@@ -177,9 +178,10 @@ export function computeReminderHorizon({
     const lastWeightMs = lastWeight ? new Date(lastWeight.measured_at || lastWeight.measuredAt).getTime() : 0;
     const preferredHour = weightStatus.preferred_reminder_hour !== undefined ? weightStatus.preferred_reminder_hour : 9;
 
-    for (let day = 0; day < FORECAST_DAYS; day++) {
-      const dayDate = new Date(now + day * DAY_MS);
-      const wallAsUtc = Date.UTC(dayDate.getUTCFullYear(), dayDate.getUTCMonth(), dayDate.getUTCDate(), preferredHour, 0);
+    const { year, month, day } = localDateParts(now, timeZone);
+
+    for (let d = 0; d < FORECAST_DAYS; d++) {
+      const wallAsUtc = Date.UTC(year, month - 1, day + d, preferredHour, 0);
       const targetMs = localWallToUtcMs(wallAsUtc, timeZone);
 
       // Fire if no reading within 7 days before target
