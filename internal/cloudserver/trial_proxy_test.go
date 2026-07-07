@@ -117,6 +117,12 @@ func TestTrialProxy_ChatCompletions(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("stream:true status = %d, want 400", rec.Code)
 	}
+
+	// A JSON null body must 400, not panic (nil-map assignment).
+	rec = postTrialChat(h, host, "/api/trial/openai/chat/completions", `null`, session)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "invalid_json") {
+		t.Fatalf("null body: status = %d, body %q, want 400 invalid_json", rec.Code, rec.Body.String())
+	}
 }
 
 func TestTrialProxy_UpstreamErrorSanitized(t *testing.T) {
@@ -149,6 +155,15 @@ func TestTrialProxy_NotConfigured503(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "trial_not_configured") {
 		t.Fatalf("body = %q, want trial_not_configured", rec.Body.String())
+	}
+
+	// Vision-only key without the master switch (TRIAL_OPENAI_API_KEY) must
+	// also 503 — ?vision=1 must not serve while trial AI is off.
+	h, _, host, claimToken = newTrialTestHandlerAPI(t, TrialConfig{VisionAPIKey: "sk-vision-only", VisionURL: "http://unused", VisionModel: "m", RatePerMinute: 100})
+	session = registerAndGetSession(t, h, host, claimToken)
+	rec = postTrialChat(h, host, "/api/trial/openai/chat/completions?vision=1", `{"messages":[]}`, session)
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "trial_not_configured") {
+		t.Fatalf("vision-only: status = %d, body %q, want 503 trial_not_configured", rec.Code, rec.Body.String())
 	}
 }
 

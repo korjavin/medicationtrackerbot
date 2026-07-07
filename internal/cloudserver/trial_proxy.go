@@ -127,13 +127,16 @@ func (a *TrialProxyAPI) ChatCompletions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Master switch: gate both triples on TrialAIConfigured, not the
+	// per-triple key — a vision-only TRIAL_OPENAI_VISION_API_KEY must not
+	// serve while the operator believes trial AI is off (no meta flag).
+	if !a.cfg.TrialAIConfigured() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_not_configured"})
+		return
+	}
 	key, baseURL, model := a.cfg.OpenAIAPIKey, a.cfg.OpenAIURL, a.cfg.OpenAIModel
 	if r.URL.Query().Get("vision") == "1" {
 		key, baseURL, model = a.cfg.VisionAPIKey, a.cfg.VisionURL, a.cfg.VisionModel
-	}
-	if key == "" {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_not_configured"})
-		return
 	}
 	if !a.rateLimit(w, account.ID) {
 		return
@@ -152,7 +155,9 @@ func (a *TrialProxyAPI) ChatCompletions(w http.ResponseWriter, r *http.Request) 
 	// Decode to force the model and reject streaming; RawMessage keeps every
 	// other field byte-identical to what the client sent.
 	var payload map[string]json.RawMessage
-	if err := json.Unmarshal(body, &payload); err != nil {
+	// A JSON `null` body unmarshals successfully into a nil map — reject it
+	// too, or payload["model"] below panics.
+	if err := json.Unmarshal(body, &payload); err != nil || payload == nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 		return
 	}
