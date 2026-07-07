@@ -91,6 +91,46 @@ describe('telegram.js onboarding module', () => {
     expect(app.querySelector('#tg-suggested').textContent).toBe('mt_vzv3ih3d_bot');
   });
 
+  it('pending state surfaces the BYO form and Start-over alongside the deep link (med-eas.32)', async () => {
+    // The always-works fallbacks must be reachable while pending — a lost
+    // managed_bot_created webhook update otherwise strands the account until
+    // the 1h TTL expires.
+    global.fetch = fetchStub({
+      '/api/telegram/status': {
+        ok: true,
+        json: async () => ({ enabled: true, state: 'pending', suggested_username: 'mt_x_bot', deep_link: 'https://t.me/newbot/mt_manager/mt_x_bot' }),
+      },
+    });
+    await mountTelegram(app, {});
+    expect(app.querySelector('#tg-deep-link')).not.toBeNull();
+    expect(app.querySelector('#tg-byo-token')).not.toBeNull();
+    expect(app.querySelector('#tg-byo-submit')).not.toBeNull();
+    expect(app.querySelector('#tg-reset')).not.toBeNull();
+  });
+
+  it('Start-over posts /api/telegram/reset and returns to the consent screen', async () => {
+    let state = 'pending';
+    const fetch = fetchStub({
+      '/api/telegram/status': () => ({
+        ok: true,
+        json: async () => ({ enabled: true, state, suggested_username: 'mt_x_bot', deep_link: 'https://t.me/newbot/mt_manager/mt_x_bot' }),
+      }),
+      'POST /api/telegram/reset': () => {
+        state = 'none';
+        return { ok: true, json: async () => ({ reset: true }) };
+      },
+    });
+    global.fetch = fetch;
+    await mountTelegram(app, {});
+
+    app.querySelector('#tg-reset').dispatchEvent(new dom.window.Event('click'));
+    await vi.waitFor(() => {
+      if (!app.querySelector('#tg-accept')) throw new Error('consent screen not rendered yet');
+    });
+    expect(fetch).toHaveBeenCalledWith('/api/telegram/reset', { method: 'POST' });
+    expect(app.querySelector('#tg-deep-link')).toBeNull();
+  });
+
   it('accept -> provision lands on the deep-link create-bot page', async () => {
     const deepLink = 'https://t.me/newbot/mt_manager/mt_new_bot?name=Med+Tracker';
     global.fetch = fetchStub({

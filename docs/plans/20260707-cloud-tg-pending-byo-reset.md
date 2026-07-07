@@ -49,8 +49,9 @@ Fix bd med-eas.32 (P1 bug). In cloud mode, after a user provisions a managed chi
 - [x] add a short line of copy on the pending page noting that if Telegram didn't finish linking automatically, they can paste the bot's token (BYO) or start over — no waiting required
 
 ### Task 4: Extend frontend telegram test for the pending page
-- [ ] in `web/cloud/js/tests/telegram.test.js`, add a case rendering the `pending` state and asserting the BYO form (`#tg-byo-token`, `#tg-byo-submit`) and Start-over control (`#tg-reset`) are present alongside the deep-link button
-- [ ] add a case asserting a Start-over click POSTs `/api/telegram/reset` and the view returns to the consent/none screen (mock `apiJSON`/fetch the way the existing suite does)
+- [x] in `web/cloud/js/tests/telegram.test.js`, add a case rendering the `pending` state and asserting the BYO form (`#tg-byo-token`, `#tg-byo-submit`) and Start-over control (`#tg-reset`) are present alongside the deep-link button
+- [x] add a case asserting a Start-over click POSTs `/api/telegram/reset` and the view returns to the consent/none screen (mock `apiJSON`/fetch the way the existing suite does)
+- ⚠️ pre-existing (fails on clean tree, unrelated to this branch): `web/static/js/tests/cloud.shim-contract.food-ai.test.js` — 2 failures ("Oatmeal" missing from grouped log). Affects the Task 5 `pnpm test` gate; scoped telegram suite passes 8/8.
 
 ### Task 5: Verify acceptance criteria
 - [ ] verify: from `pending`, pasting a valid token via BYO links the bot (status → `linked`/`bot_created`), and Start-over clears pending (status → `none`) — both without waiting for the TTL
