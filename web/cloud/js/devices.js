@@ -91,7 +91,6 @@ function renderDevices(app, ctx, onExit, devices, pairing, remoteEnabled) {
       </div>
       <p class="claude-mode-note">Only one connector can be active at a time — switching disconnects the other.</p>
       <button id="claude-disconnect-button">Disconnect</button>
-      <div id="telegram-mount"></div>
       <button id="devices-back">Back</button>
     </section>`;
 
@@ -132,13 +131,6 @@ function renderDevices(app, ctx, onExit, devices, pairing, remoteEnabled) {
   });
 
   app.querySelector('#devices-back').addEventListener('click', onExit);
-
-  // Telegram linking/unlinking reuses the wizard's module (no onDone → settings
-  // mode: it renders the current state and self-hides when Telegram is
-  // disabled). Best-effort — a load failure must not break the devices page.
-  import('./telegram.js')
-    .then(({ mountTelegram }) => mountTelegram(app.querySelector('#telegram-mount'), {}))
-    .catch((err) => console.error('[devices] telegram module failed', err));
 }
 
 // The connector URL carries the human token in the clear (it's a capability

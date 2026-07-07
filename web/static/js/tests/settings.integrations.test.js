@@ -11,6 +11,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import { allowConsoleNoise } from './helpers/setup.js';
 
 function installApiCacheMap(window, initialCache = {}) {
     const map = new Map();
@@ -103,6 +104,7 @@ describe('Settings → Integrations section', () => {
     });
 
     it('cloud mode hides the "restart" note and drops the restart wording from the save toast (med-eas.6)', async () => {
+        allowConsoleNoise();
         const { window, document } = env;
         window.__MEDTRACKER_CLOUD__ = true;
 
@@ -214,6 +216,7 @@ describe('Settings → Integrations section', () => {
     });
 
     it('cloud mode shows the trial hint only when the trial flag is set and the vault key is empty', async () => {
+        allowConsoleNoise();
         const { window, document } = env;
         window.__MEDTRACKER_CLOUD__ = true;
         for (const name of ['medtracker-trial-ai', 'medtracker-trial-voice']) {

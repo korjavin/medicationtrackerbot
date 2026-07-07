@@ -177,6 +177,16 @@
             if (window.DataStore && typeof window.DataStore.setCachedWithTags === 'function') {
                 try { await window.DataStore.setCachedWithTags(CACHE_KEY, payload, CACHE_TAGS); } catch (_) { /* best-effort cache */ }
             }
+
+            if (window.__MEDTRACKER_CLOUD__) {
+                const tgMount = document.getElementById('telegram-settings-mount');
+                if (tgMount) {
+                    import('/js/telegram.js')
+                        .then(({ mountTelegram }) => mountTelegram(tgMount, {}))
+                        .catch((err) => console.error('[settings] telegram module failed', err));
+                }
+            }
+
             return payload;
         } catch (e) {
             console.error('Failed to load integrations:', e);
