@@ -31,6 +31,43 @@
         return sdkPromise;
     }
 
+    // Trial-voice fallback (cloud only): no vault key + operator trial flag
+    // (<meta name="medtracker-trial-voice">, injected when TRIAL_ELEVENLABS_*
+    // is configured) → mint from the same-origin trial proxy, which uses the
+    // operator's shared agent — no provisioning, no key in the browser.
+    function trialVoiceAvailable() {
+        const meta = window.document.querySelector('meta[name="medtracker-trial-voice"]');
+        return !!meta && meta.content === '1';
+    }
+
+    async function fetchTrialSignedURL() {
+        const resp = await fetch('/api/trial/elevenlabs/signed-url', { method: 'GET' });
+        if (resp.ok) {
+            const data = await resp.json();
+            if (!data || !data.signed_url) throw new Error('Response missing signed_url');
+            return data.signed_url;
+        }
+        // Map errors by the trial proxy's machine-readable body, not status
+        // code — behind Traefik a 503/429 can come from the reverse proxy
+        // itself (backend restarting, proxy throttle) and must not degrade
+        // to the misleading "set your key" message.
+        let code = '';
+        try {
+            code = (await resp.json())?.error || '';
+        } catch { /* non-JSON body — reverse-proxy error page */ }
+        if (code === 'trial_rate_limit') {
+            throw new Error('Trial limit reached — try again in a minute or add your own ElevenLabs key in Settings → Integrations.');
+        }
+        if (code === 'trial_not_configured') {
+            // Flag/route mismatch — degrade to the plain BYO message.
+            throw new Error('Set your ElevenLabs API key in Settings → Integrations');
+        }
+        // Deliberately no err.status: startCall() maps status 503 to "Voice
+        // agent is not configured on this server", which is exactly the
+        // misread a reverse-proxy 503 must not produce on the trial path.
+        throw new Error(`Failed to get signed URL (${resp.status})`);
+    }
+
     async function fetchSignedURL() {
         // Cloud mode has no server signed-URL route — mint it browser-direct
         // from the vault's ElevenLabs key (BYO; key never crosses /api). First
@@ -38,6 +75,12 @@
         // reprovisions only on a toolset-version bump) so the user configures
         // only the API key. Provisioning errors surface as the call status.
         if (window.__MEDTRACKER_CLOUD__ && window.CloudElevenLabs) {
+            const hasKey = await window.CloudElevenLabs.hasKey();
+            if (!hasKey && trialVoiceAvailable()) {
+                return fetchTrialSignedURL();
+            }
+            // No key + no trial: provision() throws the existing
+            // "Set your ElevenLabs API key…" error.
             let agentId;
             if (window.CloudElevenLabsAgent) {
                 agentId = await window.CloudElevenLabsAgent.provision();

@@ -20,7 +20,7 @@ func TestGetVapidPublicKey_PerAccount(t *testing.T) {
 	pushAPI := NewPushAPI(store, &fakeSender{}, "test-session-secret-at-least-32-bytes-long")
 	mux := http.NewServeMux()
 	pushAPI.RegisterRoutes(mux)
-	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "")
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
 
 	getKey := func(host string) (int, string) {
 		req := httptest.NewRequest(http.MethodGet, "/api/push/vapid-public-key", nil)
@@ -117,7 +117,7 @@ func TestPostTestPush_TargetsOnlyNamedEndpoint(t *testing.T) {
 	mux := http.NewServeMux()
 	webauthnAPI.RegisterRoutes(mux)
 	pushAPI.RegisterRoutes(mux)
-	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "")
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
 
 	session := registerAndGetSession(t, h, host, claimToken)
 
@@ -164,7 +164,7 @@ func TestPostTestPush_GoneDisablesSubscription(t *testing.T) {
 	mux := http.NewServeMux()
 	webauthnAPI.RegisterRoutes(mux)
 	pushAPI.RegisterRoutes(mux)
-	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "")
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
 
 	session := registerAndGetSession(t, h, host, claimToken)
 

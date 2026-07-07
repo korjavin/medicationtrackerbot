@@ -104,6 +104,15 @@ Session-authed endpoints served on the account subdomain by `cmd/cloud` (see [cl
 | POST | `/api/telegram/test` | Send a test notification through the linked bot |
 | DELETE | `/api/telegram` | Unlink and delete the bot binding |
 
+## Cloud Trial Proxy (cloud-only, `cmd/cloud`)
+
+Served only by the cloud service on the account subdomain; not present in the bot/server or mobile builds. Both routes require an authenticated account session and share one per-account rate limit (`TRIAL_RATE_PER_MIN`, default 10/min) — on limit: `429 {"error":"trial_rate_limit","retry_after_seconds":60}` + `Retry-After`. When the corresponding `TRIAL_*` envs are unset: `503 {"error":"trial_not_configured"}` and the client degrades to pure BYO. See [cloud-mode.md → Trial provider keys](cloud-mode.md#trial-provider-keys-pooled-metered).
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/trial/openai/chat/completions` | Proxies an OpenAI-compatible chat request to the operator's trial provider. `model` is forced server-side to the trial model (and stripped from the 200 response body); `?vision=1` selects the vision triple; `"stream":true` rejected with 400; body capped at 12 MiB. Any upstream non-200 becomes `502 {"error":"upstream_error"}` — 503/429 stay reserved for not-configured / trial rate limit. |
+| GET | `/api/trial/elevenlabs/signed-url` | Server-mints a signed conversation URL for the operator's shared trial ElevenLabs agent; returns `{"signed_url": ...}`. Cloud analogue of `/api/elevenlabs/signed-url`. |
+
 ## MCP Bridge
 
 These endpoints are called only by the MCP server process (`cmd/mcptool`) over the internal Docker network. Each request must carry an HMAC-SHA256 signature in `X-Signature` (hex-encoded) derived from `MCP_AUDIT_SECRET` over the raw request body. The MCP read tools query SQLite directly, but write tools route through these endpoints so the bot's domain services own all mutating writes (audit fan-out, validation, attribution).

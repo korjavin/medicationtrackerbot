@@ -26,7 +26,7 @@ func newTestAPIHandler(t *testing.T) (http.Handler, string, string) {
 	webauthnAPI.RegisterRoutes(mux)
 	envelopeAPI.RegisterRoutes(mux)
 
-	return New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, ""), host, claimToken
+	return New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false), host, claimToken
 }
 
 func registerAndGetSession(t *testing.T, h http.Handler, host, claimToken string) *http.Cookie {

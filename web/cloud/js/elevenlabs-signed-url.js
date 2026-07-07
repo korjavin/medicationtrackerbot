@@ -31,5 +31,13 @@ export function createElevenLabsClient({ settingsDomain }) {
     return data.signed_url;
   }
 
-  return { fetchSignedURL };
+  // hasKey lets the call controller decide vault-BYO vs trial-proxy before
+  // provisioning (which needs the user's own key) without duplicating the
+  // vault read there.
+  async function hasKey() {
+    const { elevenlabs } = await settingsDomain.readIntegrationsUnmasked();
+    return Boolean(elevenlabs && elevenlabs.api_key);
+  }
+
+  return { fetchSignedURL, hasKey };
 }

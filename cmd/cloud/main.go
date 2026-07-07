@@ -39,6 +39,7 @@ type config struct {
 	foodDBURL         string
 	managerBotToken   string
 	tgAPIBaseURL      string
+	trial             cloudserver.TrialConfig
 }
 
 func loadConfig() (config, error) {
@@ -88,6 +89,12 @@ func loadConfig() (config, error) {
 		}
 		cfg.accountQuotaBytes = bytes
 	}
+
+	trial, err := cloudserver.TrialConfigFromEnv()
+	if err != nil {
+		return cfg, err
+	}
+	cfg.trial = trial
 
 	if warnHours := os.Getenv("CLOUD_DRY_QUEUE_WARN_HOURS"); warnHours != "" {
 		hours, err := strconv.Atoi(warnHours)
@@ -189,6 +196,7 @@ func main() {
 	mcpRelayAPI := cloudserver.NewMCPRelayAPI(store, cfg.sessionSecret)
 	mcpRemoteAPI := cloudserver.NewMCPRemoteAPI(store, mcpRelayAPI, cfg.sessionSecret)
 	mcpRemoteAPI.Restore(context.Background())
+	trialProxyAPI := cloudserver.NewTrialProxyAPI(store, cfg.sessionSecret, cfg.trial)
 	apiMux := http.NewServeMux()
 	webauthnAPI.RegisterRoutes(apiMux)
 	envelopeAPI.RegisterRoutes(apiMux)
@@ -199,6 +207,7 @@ func main() {
 	pushAPI.RegisterRoutes(apiMux)
 	mcpRelayAPI.RegisterRoutes(apiMux)
 	mcpRemoteAPI.RegisterRoutes(apiMux)
+	trialProxyAPI.RegisterRoutes(apiMux)
 
 	// Telegram is fully disabled unless a manager bot token is configured; the
 	// wizard step simply doesn't render and no webhook routes are wired.
@@ -219,7 +228,7 @@ func main() {
 		}
 	}
 
-	router := cloudserver.New(cfg.baseDomain, store, cloudweb.FS, webstatic.FS, domainweb.FS, apiMux, cfg.foodDBURL)
+	router := cloudserver.New(cfg.baseDomain, store, cloudweb.FS, webstatic.FS, domainweb.FS, apiMux, cfg.foodDBURL, cfg.trial.TrialAIConfigured(), cfg.trial.TrialVoiceConfigured())
 	router.SetMCPHandler(mcpRemoteAPI.Endpoint())
 
 	relay := cloudserver.NewRelay(store, webPushSender, cfg.dryQueueWarnHours)
