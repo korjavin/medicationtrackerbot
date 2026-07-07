@@ -838,6 +838,7 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("DELETE /api/weight/{id}", s.handleDeleteWeight)
 	apiMux.HandleFunc("GET /api/weight/export", s.handleExportWeight)
 	apiMux.HandleFunc("GET /api/weight/goal", s.handleGetWeightGoal)
+	apiMux.HandleFunc("POST /api/weight/goal", s.handleSetWeightGoal)
 	apiMux.HandleFunc("GET /api/weight/goals/history", s.handleListWeightGoals)
 
 	// Weight Reminder endpoints

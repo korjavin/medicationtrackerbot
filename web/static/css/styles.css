@@ -5210,6 +5210,16 @@ textarea.wg-input {
     font-size: var(--wg-weight-goal-delta-size);
 }
 
+.wg-weight-goal-card__action {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+}
+
+.wg-weight-goal-card__empty-text {
+    margin-top: var(--space-xs);
+}
+
 /* ============================================================
    wg-ring — SVG "closing ring" gauge (Plan 5, Task 3). An arc fills
    clockwise from 12 o'clock as progress climbs from 0 to 1; closed
