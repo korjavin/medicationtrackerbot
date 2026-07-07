@@ -41,62 +41,63 @@
 ## Implementation Steps
 
 ### Task 1: Trial config loading in cmd/cloud
-- [ ] add a `trialConfig` struct in `cmd/cloud/main.go` (or a small `internal/cloudserver/trial.go` config type) with fields for: OpenAI text triple (`APIKey, URL, Model`), OpenAI vision triple (`VisionAPIKey, VisionURL, VisionModel`), ElevenLabs (`APIKey, AgentID`), and rate limit (`PerMinute int`, default 10)
-- [ ] load from envs mirroring existing naming: `TRIAL_OPENAI_API_KEY`, `TRIAL_OPENAI_URL`, `TRIAL_OPENAI_MODEL`, `TRIAL_OPENAI_VISION_API_KEY`, `TRIAL_OPENAI_VISION_URL`, `TRIAL_OPENAI_VISION_MODEL`, `TRIAL_ELEVENLABS_API_KEY`, `TRIAL_ELEVENLABS_AGENT_ID`, `TRIAL_RATE_PER_MIN`
-- [ ] defaults: URL → `https://api.openai.com/v1`, model → `gpt-4o-mini`, vision triple falls back to the text triple when unset (same fallback `aiclient.js` uses today)
-- [ ] document the new envs in `docs/environment.md` and the trial-key design in `docs/cloud-mode.md`
+- [x] add a `trialConfig` struct in `cmd/cloud/main.go` (or a small `internal/cloudserver/trial.go` config type) with fields for: OpenAI text triple (`APIKey, URL, Model`), OpenAI vision triple (`VisionAPIKey, VisionURL, VisionModel`), ElevenLabs (`APIKey, AgentID`), and rate limit (`PerMinute int`, default 10) — implemented as `cloudserver.TrialConfig` in `internal/cloudserver/trial.go`, held on cmd/cloud's `config.trial`
+- [x] load from envs mirroring existing naming: `TRIAL_OPENAI_API_KEY`, `TRIAL_OPENAI_URL`, `TRIAL_OPENAI_MODEL`, `TRIAL_OPENAI_VISION_API_KEY`, `TRIAL_OPENAI_VISION_URL`, `TRIAL_OPENAI_VISION_MODEL`, `TRIAL_ELEVENLABS_API_KEY`, `TRIAL_ELEVENLABS_AGENT_ID`, `TRIAL_RATE_PER_MIN` (`TrialConfigFromEnv`, called from `loadConfig`)
+- [x] defaults: URL → `https://api.openai.com/v1`, model → `gpt-4o-mini`, vision triple falls back to the text triple when unset (same per-field fallback `aiclient.js` uses today)
+- [x] document the new envs in `docs/environment.md` and the trial-key design in `docs/cloud-mode.md`
 
 ### Task 2: TrialProxyAPI — OpenAI-compatible chat proxy
-- [ ] create `internal/cloudserver/trial_proxy.go` with `TrialProxyAPI` struct (holds trial config + a `*rateLimiter`) and `RegisterRoutes(mux *http.ServeMux)`, wired in `cmd/cloud/main.go` next to the other `RegisterRoutes` calls
-- [ ] `POST /api/trial/openai/chat/completions` — requires `AccountFromContext`; 503 JSON `{"error":"trial_not_configured"}` when the relevant trial key is empty; otherwise forwards the request body verbatim to `<trialURL>/chat/completions` with `Authorization: Bearer <trial key>`, forcing the `model` field to the trial model (overwrite whatever the client sent — the client must not choose the operator's model), and streams the upstream status + JSON body back
-- [ ] vision vs text selection: accept `?vision=1` query param → use the vision triple; otherwise the text triple
-- [ ] enforce a request body size cap (reuse the 8 MiB photo cap as ceiling, e.g. 12 MiB total body) and the 90s upstream timeout matching `aiclient.js`
-- [ ] never echo upstream `Authorization` or trial config in responses or logs (log account ID + status only, via `slog`)
-- [ ] integration test (`internal/cloudserver/trial_proxy_test.go`, httptest upstream): proxied call carries trial key + forced model upstream; response body/headers contain no trial key; 503 when unconfigured; unauthenticated request (no account) rejected
+- [x] create `internal/cloudserver/trial_proxy.go` with `TrialProxyAPI` struct (holds trial config + a `*rateLimiter`) and `RegisterRoutes(mux *http.ServeMux)`, wired in `cmd/cloud/main.go` next to the other `RegisterRoutes` calls
+- [x] `POST /api/trial/openai/chat/completions` — requires `AccountFromContext`; 503 JSON `{"error":"trial_not_configured"}` when the relevant trial key is empty; otherwise forwards the request body verbatim to `<trialURL>/chat/completions` with `Authorization: Bearer <trial key>`, forcing the `model` field to the trial model (overwrite whatever the client sent — the client must not choose the operator's model), and streams the upstream status + JSON body back — routes wrapped in `RequireSession` (401 without a session cookie), matching every sibling cloud API; `AccountFromContext` still checked for the account-ID log key
+- [x] vision vs text selection: accept `?vision=1` query param → use the vision triple; otherwise the text triple
+- [x] enforce a request body size cap (reuse the 8 MiB photo cap as ceiling, e.g. 12 MiB total body) and the 90s upstream timeout matching `aiclient.js`
+- [x] never echo upstream `Authorization` or trial config in responses or logs (log account ID + status only, via `slog`); non-200 upstream bodies sanitized to `{"error":"upstream_error"}`; `"stream":true` rejected with 400
+- [x] integration test (`internal/cloudserver/trial_proxy_test.go`, httptest upstream): proxied call carries trial key + forced model upstream; response body/headers contain no trial key; 503 when unconfigured; unauthenticated request (no account) rejected
 
 ### Task 3: TrialProxyAPI — ElevenLabs signed-URL mint
-- [ ] `GET /api/trial/elevenlabs/signed-url` on the same `TrialProxyAPI`: 503 `{"error":"trial_not_configured"}` when key or agent ID empty; otherwise server-side GET to `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=<TRIAL_AGENT_ID>` with `xi-api-key`, return `{"signed_url": ...}` (mirror `internal/server/elevenlabs_handlers.go` behavior; reimplement, do NOT import `internal/server`)
-- [ ] make the upstream base URL a field on `TrialProxyAPI` so tests can point it at httptest
-- [ ] integration test: mints from a fake upstream, asserts the `xi-api-key` header is sent upstream and absent from the client response; 503 when unconfigured
+- [x] `GET /api/trial/elevenlabs/signed-url` on the same `TrialProxyAPI`: 503 `{"error":"trial_not_configured"}` when key or agent ID empty; otherwise server-side GET to `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=<TRIAL_AGENT_ID>` with `xi-api-key`, return `{"signed_url": ...}` (mirror `internal/server/elevenlabs_handlers.go` behavior; reimplement, do NOT import `internal/server`)
+- [x] make the upstream base URL a field on `TrialProxyAPI` so tests can point it at httptest (`elevenLabsSignedURLBase`, unexported — tests live in the same package)
+- [x] integration test: mints from a fake upstream, asserts the `xi-api-key` header is sent upstream and absent from the client response; 503 when unconfigured
 
 ### Task 4: Per-account rate limiting on trial routes
-- [ ] one `rateLimiter` (`newRateLimiter(cfg.PerMinute, time.Minute)`) shared across all trial routes, keyed `account.ID`
-- [ ] on limit: 429 JSON `{"error":"trial_rate_limit","retry_after_seconds":60}` + `Retry-After` header (mirrors the demo-mode 429 shape so existing frontend 429 handling applies)
-- [ ] integration test: N allowed then 429 for the same account; different account still allowed
+- [x] one `rateLimiter` (`newRateLimiter(cfg.PerMinute, time.Minute)`) shared across all trial routes, keyed `account.ID` (limiter built in `NewTrialProxyAPI`, checked via `rateLimit()` in both handlers after the configured check so unconfigured stays 503)
+- [x] on limit: 429 JSON `{"error":"trial_rate_limit","retry_after_seconds":60}` + `Retry-After` header (mirrors the demo-mode 429 shape so existing frontend 429 handling applies)
+- [x] integration test: N allowed then 429 for the same account; different account still allowed (`TestTrialProxy_RateLimit`)
 
 ### Task 5: Trial-availability flag to the client
-- [ ] extend `injectCloudBoot` in `internal/cloudserver/router.go` to add `<meta name="medtracker-trial-ai" content="1">` and `<meta name="medtracker-trial-voice" content="1">` only when the corresponding trial key is configured (booleans only — never URLs/models/keys)
-- [ ] plumb the two booleans through `cloudserver.New(...)` from `cmd/cloud/main.go` alongside the existing `foodDBURL` parameter
+- [x] extend `injectCloudBoot` in `internal/cloudserver/router.go` to add `<meta name="medtracker-trial-ai" content="1">` and `<meta name="medtracker-trial-voice" content="1">` only when the corresponding trial key is configured (booleans only — never URLs/models/keys) — covered by `TestRouter_HostVariants` (flags on → both metas in served index)
+- [x] plumb the two booleans through `cloudserver.New(...)` from `cmd/cloud/main.go` alongside the existing `foodDBURL` parameter (`cfg.trial.TrialAIConfigured()` / `TrialVoiceConfigured()`)
 
 ### Task 6: Client fallback — aiclient.js
-- [ ] in `web/cloud/js/aiclient.js`: when the vault key is empty and the trial meta flag is set, route the same chat-completions request body to `/api/trial/openai/chat/completions` (with `?vision=1` for `parseMealFromImage`) via the app's normal `fetch` with credentials; omit `Authorization` header and `model` (server forces it)
-- [ ] only when the vault key is empty AND the trial flag is absent (or the trial route returns 503) → throw the existing `noKeyError()`; surface 429 as a distinct "trial limit reached — try again in a minute or add your own key" error message
-- [ ] Vitest (extend the existing food/aiclient suite): vault key present → browser-direct unchanged; no key + trial flag → trial route hit with forced-server model; no key + no flag → `no_api_key` error; trial 429 → limit message
+- [x] in `web/cloud/js/aiclient.js`: when the vault key is empty and the trial meta flag is set, route the same chat-completions request body to `/api/trial/openai/chat/completions` (with `?vision=1` for `parseMealFromImage`) via the app's normal `fetch` with credentials; omit `Authorization` header and `model` (server forces it)
+- [x] only when the vault key is empty AND the trial flag is absent (or the trial route returns 503) → throw the existing `noKeyError()`; surface 429 as a distinct "trial limit reached — try again in a minute or add your own key" error message
+- [x] Vitest (extend the existing food/aiclient suite): vault key present → browser-direct unchanged; no key + trial flag → trial route hit with forced-server model; no key + no flag → `no_api_key` error; trial 429 → limit message (+ trial 503 → no-key error, vault-beats-trial precedence, `?vision=1` on photo path)
+- ➕ [x] fixed pre-existing date-bomb failures in `cloud.shim-contract.food-ai.test.js` (hardcoded `2026-07-06T…` fixtures fell out of the `days=1` window) with a dynamic `todayAt()` helper
 
 ### Task 7: Client fallback — ElevenLabs
-- [ ] in `web/static/js/features/elevenlabs-call.js` cloud branch of `fetchSignedURL()`: if the vault elevenlabs key is empty and the trial-voice meta flag is set, skip agent provisioning and GET `/api/trial/elevenlabs/signed-url` (the trial uses the operator's shared agent); vault key present → current provision + browser-direct path unchanged
-- [ ] keep the existing "Set your ElevenLabs API key in Settings → Integrations" error for no-key + no-trial; map 429 to a trial-limit message
-- [ ] Vitest (extend the existing elevenlabs-call suite): precedence chain vault → trial → error
+- [x] in `web/static/js/features/elevenlabs-call.js` cloud branch of `fetchSignedURL()`: if the vault elevenlabs key is empty and the trial-voice meta flag is set, skip agent provisioning and GET `/api/trial/elevenlabs/signed-url` (the trial uses the operator's shared agent); vault key present → current provision + browser-direct path unchanged — key presence probed via a new `hasKey()` on `web/cloud/js/elevenlabs-signed-url.js`'s client (`window.CloudElevenLabs.hasKey`)
+- [x] keep the existing "Set your ElevenLabs API key in Settings → Integrations" error for no-key + no-trial; map 429 to a trial-limit message (trial 503 also degrades to the set-your-key message)
+- [x] Vitest (extend the existing elevenlabs-call suite): precedence chain vault → trial → error (+ 429 limit message, 503 degrade)
 
 ### Task 8: Settings hint (trial vs BYO)
-- [ ] in `web/static/js/features/settings/integrations.js`, cloud-only (mirror `applyCloudFoodDbPlaceholder` pattern): when the trial meta flag is set and the corresponding vault key is empty, show a small hint next to the OpenAI / ElevenLabs key fields — "Trial key active (rate-limited). Add your own key to remove limits."
+- [x] in `web/static/js/features/settings/integrations.js`, cloud-only (mirror `applyCloudFoodDbPlaceholder` pattern): when the trial meta flag is set and the corresponding vault key is empty, show a small hint next to the OpenAI / ElevenLabs key fields — "Trial key active (rate-limited). Add your own key to remove limits." (`applyTrialHints()` on payload apply; hidden `<p>` hints in index.html; covered in `settings.integrations.test.js`)
 
 ### Task 9: Verify acceptance criteria
-- [ ] verify: no `TRIAL_*` env set → cloud behaves exactly as today (grep responses/meta for absence of trial markers)
-- [ ] verify: trial key/URL/model never appear in any response, meta tag, or client bundle (grep + the Task 2/3 tests)
-- [ ] run `go test ./...` — must pass
-- [ ] run `pnpm test` — must pass
-- [ ] run linter — all issues must be fixed
+- [x] verify: no `TRIAL_*` env set → cloud behaves exactly as today (grep clean; added `TestRouter_TrialFlagsOff_NoTrialMetas` guarding flags-off index has no trial markers; unconfigured proxy 503s covered by Task 2/3 tests)
+- [x] verify: trial key/URL/model never appear in any response, meta tag, or client bundle (grep: client JS mentions env names only in comments, no values; `injectCloudBoot` emits booleans only; Task 2/3 tests assert no key in responses)
+- [x] run `go test ./...` — all packages pass, no failures
+- [x] run `pnpm test` — 271 files / 2875 tests pass
+- [x] run linter — `golangci-lint run`: 0 issues
 
 ### Task 10: [Final] Update documentation
-- [ ] confirm `docs/environment.md`, `docs/cloud-mode.md` cover the trial envs, proxy routes, rate limit, and precedence chain
-- [ ] update `docs/api.md` with the two new routes (marked cloud-only)
+- [x] confirm `docs/environment.md`, `docs/cloud-mode.md` cover the trial envs, proxy routes, rate limit, and precedence chain (environment.md TRIAL_* block + cloud-mode.md "Trial provider keys" implementation paragraph, added in Task 1 — verified present)
+- [x] update `docs/api.md` with the two new routes (marked cloud-only) — new "Cloud Trial Proxy" section
 
 ## Technical Details
 - **Routes** (all under the account subdomain, account resolved by `router.go` host routing; handlers 401 when `AccountFromContext` is nil):
   - `POST /api/trial/openai/chat/completions[?vision=1]` — body: OpenAI-compatible chat request (messages, response_format…); `model` is server-forced; response: upstream JSON passed through
   - `GET /api/trial/elevenlabs/signed-url` — response `{"signed_url": "..."}`
-- **Error contract**: `503 {"error":"trial_not_configured"}`, `429 {"error":"trial_rate_limit","retry_after_seconds":60}`, upstream errors passed through with upstream status (body sanitized to `{"error":"upstream_error"}` — upstream error bodies could echo request auth context)
+- **Error contract**: `503 {"error":"trial_not_configured"}`, `429 {"error":"trial_rate_limit","retry_after_seconds":60}`, any upstream error → `502 {"error":"upstream_error"}` (never the upstream status — 503/429 stay reserved for the two meanings above; upstream error bodies could echo request auth context). Chat 200 bodies are relayed with the top-level `model` field stripped (upstream echoes the forced trial model)
 - **No streaming**: `aiclient.js` doesn't use SSE streaming today; the proxy rejects `"stream":true` bodies with 400 to keep the surface minimal
 - **CSP**: trial calls are same-origin `/api/*`, so no `connect-src` changes needed (unlike browser-direct BYO)
 

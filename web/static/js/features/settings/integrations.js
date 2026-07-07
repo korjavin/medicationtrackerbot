@@ -89,7 +89,29 @@
             }
         }
         applyCloudFoodDbPlaceholder();
+        applyTrialHints();
         applyRestartNoteVisibility();
+    }
+
+    // applyTrialHints shows "Trial key active (rate-limited)…" next to the
+    // OpenAI / ElevenLabs key fields when the operator's trial key is
+    // available (the boolean <meta name="medtracker-trial-ai/voice"> flags
+    // injected by cmd/cloud) and the user has no own key in the vault
+    // (masked value "***" means a key is stored). Cloud-only: bot mode
+    // never injects those tags.
+    function applyTrialHints() {
+        if (!window.__MEDTRACKER_CLOUD__) return;
+        const hints = [
+            ['integrations-openai-trial-hint', 'medtracker-trial-ai', FIELD_IDS.openai.api_key],
+            ['integrations-elevenlabs-trial-hint', 'medtracker-trial-voice', FIELD_IDS.elevenlabs.api_key]
+        ];
+        for (const [hintId, metaName, inputId] of hints) {
+            const hint = document.getElementById(hintId);
+            if (!hint) continue;
+            const trialOn = document.querySelector('meta[name="' + metaName + '"]')?.content === '1';
+            const keySet = !!(getInput(inputId)?.value);
+            hint.hidden = !trialOn || keySet;
+        }
     }
 
     // applyCloudFoodDbPlaceholder shows the operator's default food-DB URL

@@ -53,7 +53,10 @@ type Handler struct {
 // the operator's default FastFoodDB instance (CLOUD_FOOD_DB_URL, cmd/cloud)
 // — a URL, not a secret; "" disables the operator default (remote food
 // search stays local-only until the user sets their own in Settings).
-func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, domainFS fs.FS, api http.Handler, foodDBURL string) *Handler {
+// trialAI / trialVoice advertise the operator's trial-key proxy routes
+// (docs/cloud-mode.md → Trial provider keys) as boolean <meta> flags —
+// booleans only, never key/URL/model material (security invariant).
+func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, domainFS fs.FS, api http.Handler, foodDBURL string, trialAI, trialVoice bool) *Handler {
 	idx, err := fs.ReadFile(appFS, "index.html")
 	if err != nil {
 		panic("cloudserver: appFS missing index.html: " + err.Error())
@@ -64,7 +67,7 @@ func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, doma
 		shell:      http.FileServerFS(shellFS),
 		app:        http.StripPrefix("/static/", http.FileServerFS(appFS)),
 		domain:     http.StripPrefix("/domain/", http.FileServerFS(domainFS)),
-		appIndex:   injectCloudBoot(idx, foodDBURL),
+		appIndex:   injectCloudBoot(idx, foodDBURL, trialAI, trialVoice),
 		api:        api,
 	}
 }
@@ -91,10 +94,16 @@ func (h *Handler) SetMCPHandler(mcp http.Handler) {
 // app-shell.js / data-store.js ever check it — so it goes first, ahead of
 // even native-bootstrap.js. web/static/index.html itself stays untouched;
 // this only rewrites the copy cmd/cloud serves.
-func injectCloudBoot(idx []byte, foodDBURL string) []byte {
+func injectCloudBoot(idx []byte, foodDBURL string, trialAI, trialVoice bool) []byte {
 	const marker = "<head>"
-	inject := "<head>\n    <meta name=\"medtracker-food-db-url\" content=\"" + html.EscapeString(foodDBURL) + "\">" +
-		"\n    <script src=\"/js/cloud-boot.js\"></script>"
+	inject := "<head>\n    <meta name=\"medtracker-food-db-url\" content=\"" + html.EscapeString(foodDBURL) + "\">"
+	if trialAI {
+		inject += "\n    <meta name=\"medtracker-trial-ai\" content=\"1\">"
+	}
+	if trialVoice {
+		inject += "\n    <meta name=\"medtracker-trial-voice\" content=\"1\">"
+	}
+	inject += "\n    <script src=\"/js/cloud-boot.js\"></script>"
 	out := bytes.Replace(idx, []byte(marker), []byte(inject), 1)
 	if bytes.Equal(out, idx) {
 		panic("cloudserver: index.html missing <head> to inject cloud-boot.js")

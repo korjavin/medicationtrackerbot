@@ -72,6 +72,18 @@ CLOUD_CLAIM_TTL=14                 # Invite claim-link validity, in days (defaul
 CLOUD_ACCOUNT_QUOTA_BYTES=52428800 # Per-account oplog+snapshot storage cap, in bytes (default: 50MB; 0 disables)
 CLOUD_DRY_QUEUE_WARN_HOURS=120     # Stale-sync warning: how close (hours) the last unsent reminder must be before the hourly sweep nudges a stale-synced account (default: 120)
 CLOUD_FOOD_DB_URL=https://food.example.com  # Operator's default FastFoodDB instance for remote food search (browser calls it directly — see docs/cloud-deployment.md's CORS note). A URL, not a secret. Unset = remote search silently disabled until the user sets their own in Settings → Integrations.
+# Trial provider keys (all optional; unset = pure BYO, trial proxy routes return 503).
+# Operator-owned keys served ONLY through server-side proxy routes (/api/trial/*) —
+# they never reach the browser. See docs/cloud-mode.md → Trial provider keys.
+TRIAL_OPENAI_API_KEY=...           # Master switch: enables POST /api/trial/openai/chat/completions and the client trial-AI flag
+TRIAL_OPENAI_URL=https://api.openai.com/v1  # OpenAI-compatible base URL (default shown). Provider must support response_format json_schema — the trial path has no fenced-JSON retry
+TRIAL_OPENAI_MODEL=gpt-4o-mini     # Model forced server-side on every trial chat call (default shown)
+TRIAL_OPENAI_VISION_API_KEY=...    # Vision triple; each field falls back to the text triple when unset. Overrides only — without TRIAL_OPENAI_API_KEY trial AI stays off
+TRIAL_OPENAI_VISION_URL=...
+TRIAL_OPENAI_VISION_MODEL=...
+TRIAL_ELEVENLABS_API_KEY=...       # With TRIAL_ELEVENLABS_AGENT_ID, enables GET /api/trial/elevenlabs/signed-url
+TRIAL_ELEVENLABS_AGENT_ID=agent_...# Operator's shared ElevenLabs agent minted for trial users
+TRIAL_RATE_PER_MIN=10              # Per-account sliding-window limit shared across all trial routes (default: 10)
 MANAGER_BOT_TOKEN=...              # Optional. BotFather token for the operator's manager bot with "Bot Management Mode" enabled. Enables one-tap managed-bot provisioning + BYO Telegram linking (C3a). Unset = Telegram fully disabled (wizard step + webhook routes skipped). See docs/cloud-deployment.md. NOTE: child bot tokens are sealed with a key derived from SESSION_SECRET — rotating SESSION_SECRET orphans stored tokens (users must re-link).
 CLOUD_TG_API_BASE_URL=...          # Optional. Overrides the Telegram Bot API root (default https://api.telegram.org). For tests/self-hosted proxies only.
 

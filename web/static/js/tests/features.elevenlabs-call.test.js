@@ -682,7 +682,7 @@ describe('features/elevenlabs-call.js — cloud dynamic MCP client-tools', () =>
             const provision = vi.fn(async () => 'agent-provisioned-42');
             const fetchSignedURL = vi.fn(async () => 'wss://api.elevenlabs.io/v1/convai/conversation?token=xyz');
             window.CloudElevenLabsAgent = { provision };
-            window.CloudElevenLabs = { fetchSignedURL };
+            window.CloudElevenLabs = { fetchSignedURL, hasKey: async () => true };
 
             const { opts } = await startCall(window);
 
@@ -763,6 +763,147 @@ describe('features/elevenlabs-call.js — Today card markup', () => {
             }
             // Conversation methods were exercised by setMute.
             expect(conversation.setMicMuted).toHaveBeenCalled();
+        } finally {
+            cleanup();
+        }
+    });
+});
+
+describe('features/elevenlabs-call.js — trial-voice fallback precedence (cloud)', () => {
+    // Wire a cloud env around fetchSignedURL(): vault-key presence via
+    // CloudElevenLabs.hasKey, trial availability via the injected meta flag,
+    // and the trial proxy route via a fetch stub.
+    function cloudEnv({ hasKey, trialFlag, trialStatus = 200, trialBody } = {}) {
+        const env = createEnv();
+        const { window } = env;
+        window.__MEDTRACKER_CLOUD__ = true;
+        if (trialFlag) {
+            const meta = window.document.createElement('meta');
+            meta.setAttribute('name', 'medtracker-trial-voice');
+            meta.setAttribute('content', '1');
+            window.document.head.appendChild(meta);
+        }
+        // Default bodies mirror the trial proxy's error contract; pass
+        // trialBody explicitly to simulate a reverse-proxy error (non-JSON).
+        if (trialBody === undefined) {
+            if (trialStatus === 429) trialBody = { error: 'trial_rate_limit', retry_after_seconds: 60 };
+            else if (trialStatus === 503) trialBody = { error: 'trial_not_configured' };
+            else trialBody = { signed_url: 'wss://trial.example/signed' };
+        }
+        const trialFetch = vi.fn(async (url) => {
+            if (typeof url === 'string' && url.startsWith('/api/trial/elevenlabs/signed-url')) {
+                return {
+                    ok: trialStatus >= 200 && trialStatus < 300,
+                    status: trialStatus,
+                    async json() {
+                        if (typeof trialBody === 'string') throw new SyntaxError('not JSON');
+                        return trialBody;
+                    },
+                };
+            }
+            throw new Error(`Unexpected fetch: ${url}`);
+        });
+        window.fetch = trialFetch;
+        const byoFetchSignedURL = vi.fn(async () => 'wss://byo.example/signed');
+        const provision = vi.fn(async () => {
+            // Mirrors elevenlabs-agent.js: provisioning needs the user's key.
+            if (!hasKey) throw new Error('Set your ElevenLabs API key in Settings → Integrations');
+            return 'agent-byo-1';
+        });
+        window.CloudElevenLabs = {
+            fetchSignedURL: byoFetchSignedURL,
+            hasKey: vi.fn(async () => Boolean(hasKey)),
+        };
+        window.CloudElevenLabsAgent = { provision };
+        return { ...env, trialFetch, byoFetchSignedURL, provision };
+    }
+
+    it('vault key present → provision + browser-direct path, trial route never hit (even with flag set)', async () => {
+        const { window, trialFetch, byoFetchSignedURL, provision, cleanup } = cloudEnv({ hasKey: true, trialFlag: true });
+        try {
+            const url = await window.WGCallAgent.fetchSignedURL();
+            expect(url).toBe('wss://byo.example/signed');
+            expect(provision).toHaveBeenCalledTimes(1);
+            expect(byoFetchSignedURL).toHaveBeenCalledWith('agent-byo-1');
+            expect(trialFetch).not.toHaveBeenCalled();
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('no vault key + trial flag → GET /api/trial/elevenlabs/signed-url, provisioning skipped', async () => {
+        const { window, trialFetch, byoFetchSignedURL, provision, cleanup } = cloudEnv({ hasKey: false, trialFlag: true });
+        try {
+            const url = await window.WGCallAgent.fetchSignedURL();
+            expect(url).toBe('wss://trial.example/signed');
+            expect(trialFetch).toHaveBeenCalledWith('/api/trial/elevenlabs/signed-url', { method: 'GET' });
+            expect(provision).not.toHaveBeenCalled();
+            expect(byoFetchSignedURL).not.toHaveBeenCalled();
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('no vault key + no trial flag → existing set-your-key error', async () => {
+        const { window, trialFetch, cleanup } = cloudEnv({ hasKey: false, trialFlag: false });
+        try {
+            await expect(window.WGCallAgent.fetchSignedURL())
+                .rejects.toThrow('Set your ElevenLabs API key in Settings → Integrations');
+            expect(trialFetch).not.toHaveBeenCalled();
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('trial route 429 → distinct trial-limit message', async () => {
+        const { window, cleanup } = cloudEnv({ hasKey: false, trialFlag: true, trialStatus: 429 });
+        try {
+            await expect(window.WGCallAgent.fetchSignedURL())
+                .rejects.toThrow(/Trial limit reached/);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('trial route 503 (flag/route mismatch) → degrades to the set-your-key error', async () => {
+        const { window, cleanup } = cloudEnv({ hasKey: false, trialFlag: true, trialStatus: 503 });
+        try {
+            await expect(window.WGCallAgent.fetchSignedURL())
+                .rejects.toThrow('Set your ElevenLabs API key in Settings → Integrations');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('reverse-proxy 503 (non-JSON body) → generic error, not the set-your-key message', async () => {
+        const { window, cleanup } = cloudEnv({ hasKey: false, trialFlag: true, trialStatus: 503, trialBody: '503 Service Unavailable' });
+        try {
+            await expect(window.WGCallAgent.fetchSignedURL())
+                .rejects.toThrow('Failed to get signed URL (503)');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('reverse-proxy 503 error carries no .status — startCall must not map it to "not configured"', async () => {
+        // startCall() renders err.status === 503 as "Voice agent is not
+        // configured on this server."; the trial generic-error path must not
+        // feed that mapping during a backend restart behind Traefik.
+        const { window, cleanup } = cloudEnv({ hasKey: false, trialFlag: true, trialStatus: 503, trialBody: '503 Service Unavailable' });
+        try {
+            const err = await window.WGCallAgent.fetchSignedURL().catch((e) => e);
+            expect(err.message).toBe('Failed to get signed URL (503)');
+            expect(err.status).toBeUndefined();
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('reverse-proxy 429 (non-JSON body) → generic error, not the trial-limit message', async () => {
+        const { window, cleanup } = cloudEnv({ hasKey: false, trialFlag: true, trialStatus: 429, trialBody: '429 Too Many Requests' });
+        try {
+            await expect(window.WGCallAgent.fetchSignedURL())
+                .rejects.toThrow('Failed to get signed URL (429)');
         } finally {
             cleanup();
         }

@@ -213,6 +213,42 @@ describe('Settings → Integrations section', () => {
         expect(cached.elevenlabs.api_key).not.toBe('el-new');
     });
 
+    it('cloud mode shows the trial hint only when the trial flag is set and the vault key is empty', async () => {
+        const { window, document } = env;
+        window.__MEDTRACKER_CLOUD__ = true;
+        for (const name of ['medtracker-trial-ai', 'medtracker-trial-voice']) {
+            const meta = document.createElement('meta');
+            meta.setAttribute('name', name);
+            meta.setAttribute('content', '1');
+            document.head.appendChild(meta);
+        }
+
+        window.apiCall = vi.fn(async () => ({
+            openai: { api_key: '', url: '', model: '', vision_api_key: '', vision_url: '', vision_model: '' },
+            food: { api_key: '', url: '', domain: '' },
+            elevenlabs: { api_key: '***', agent_id: '' }
+        }));
+        await window.SettingsIntegrations.load();
+
+        const aiHint = document.getElementById('integrations-openai-trial-hint');
+        const voiceHint = document.getElementById('integrations-elevenlabs-trial-hint');
+        expect(aiHint.hidden).toBe(false);          // no vault key + trial flag → hint
+        expect(voiceHint.hidden).toBe(true);        // vault key present → no hint
+        expect(aiHint.textContent).toContain('Trial key active');
+    });
+
+    it('hides the trial hints when no trial meta flags are injected (server mode / no trial envs)', async () => {
+        const { window, document } = env;
+        window.apiCall = vi.fn(async () => ({
+            openai: { api_key: '', url: '', model: '', vision_api_key: '', vision_url: '', vision_model: '' },
+            food: { api_key: '', url: '', domain: '' },
+            elevenlabs: { api_key: '', agent_id: '' }
+        }));
+        await window.SettingsIntegrations.load();
+        expect(document.getElementById('integrations-openai-trial-hint').hidden).toBe(true);
+        expect(document.getElementById('integrations-elevenlabs-trial-hint').hidden).toBe(true);
+    });
+
     it('save() rolls back the optimistic cache row when the PATCH fails', async () => {
         const { window, document } = env;
 
