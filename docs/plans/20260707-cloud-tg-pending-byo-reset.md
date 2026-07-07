@@ -42,11 +42,11 @@ Fix bd med-eas.32 (P1 bug). In cloud mode, after a user provisions a managed chi
 - [x] integration test in `internal/cloudserver/telegram_test.go`: provision → assert status `pending` → `POST /api/telegram/reset` (200) → assert status `none` (extends TestTelegramProvisioningStateMachine's already-pending second account)
 
 ### Task 3: Surface BYO + Start-over on the pending page
-- [ ] in `web/cloud/js/telegram.js`, extend `renderCreateBot(deepLink, suggested)` so the pending page renders, below the existing "Open Telegram" deep-link button: the same BYO token form used on the consent screen (reuse the identical `#tg-byo-token` input + `#tg-byo-submit` button markup) inside a `<details>` "Advanced: use your own bot token" disclosure, plus a "Start over" button (`#tg-reset`)
-- [ ] wire the BYO submit on this page to the existing `submitBYO()` (same handler that posts `/api/telegram/byo`); do not duplicate the submit logic
-- [ ] add a `resetPending()` helper: `await apiJSON('/api/telegram/reset', { method: 'POST' })` then re-render to the consent/none view (call `render()` with a fresh `/api/telegram/status`, or `render({ enabled: true, state: 'none' })`) so the user lands back on the initial screen; wire `#tg-reset` click to `resetPending().catch(showError)`
-- [ ] keep the DEK-shell contract: any dynamic value (deep link, suggested username) set via `.href` / `textContent`, never interpolated into the HTML string (follow the existing pattern in this function)
-- [ ] add a short line of copy on the pending page noting that if Telegram didn't finish linking automatically, they can paste the bot's token (BYO) or start over — no waiting required
+- [x] in `web/cloud/js/telegram.js`, extend `renderCreateBot(deepLink, suggested)` so the pending page renders, below the existing "Open Telegram" deep-link button: the same BYO token form used on the consent screen (reuse the identical `#tg-byo-token` input + `#tg-byo-submit` button markup) inside a `<details>` "Advanced: use your own bot token" disclosure, plus a "Start over" button (`#tg-reset`)
+- [x] wire the BYO submit on this page to the existing `submitBYO()` (same handler that posts `/api/telegram/byo`); do not duplicate the submit logic
+- [x] add a `resetPending()` helper: `await apiJSON('/api/telegram/reset', { method: 'POST' })` then re-render to the consent/none view (call `render()` with a fresh `/api/telegram/status`, or `render({ enabled: true, state: 'none' })`) so the user lands back on the initial screen; wire `#tg-reset` click to `resetPending().catch(showError)`
+- [x] keep the DEK-shell contract: any dynamic value (deep link, suggested username) set via `.href` / `textContent`, never interpolated into the HTML string (follow the existing pattern in this function)
+- [x] add a short line of copy on the pending page noting that if Telegram didn't finish linking automatically, they can paste the bot's token (BYO) or start over — no waiting required
 
 ### Task 4: Extend frontend telegram test for the pending page
 - [ ] in `web/cloud/js/tests/telegram.test.js`, add a case rendering the `pending` state and asserting the BYO form (`#tg-byo-token`, `#tg-byo-submit`) and Start-over control (`#tg-reset`) are present alongside the deep-link button

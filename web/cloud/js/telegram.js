@@ -189,10 +189,37 @@ export async function mountTelegram(container, opts = {}) {
            (<code id="tg-suggested"></code>) so we can link it automatically.</p>
         <a id="tg-deep-link" class="button" target="_blank" rel="noopener">Open Telegram to create the bot</a>
         <p class="muted">Waiting for the bot to be created…</p>
+        <p class="muted">Didn't finish linking automatically? Paste the bot's
+           token below, or start over — no need to wait.</p>
+        <details id="tg-advanced">
+          <summary>Advanced: use your own bot token</summary>
+          <p>Create a bot with <a href="https://t.me/BotFather" target="_blank"
+             rel="noopener">@BotFather</a> and paste its token:</p>
+          <input id="tg-byo-token" type="text" autocomplete="off"
+                 placeholder="123456:ABC-DEF..." />
+          <button id="tg-byo-submit">Link this bot</button>
+        </details>
+        <button id="tg-reset" class="secondary">Start over</button>
       </section>`;
     container.querySelector('#tg-suggested').textContent = suggested || '';
     if (deepLink) container.querySelector('#tg-deep-link').href = deepLink;
+    container.querySelector('#tg-byo-submit').addEventListener('click', () => {
+      submitBYO().catch(showError);
+    });
+    container.querySelector('#tg-reset').addEventListener('click', () => {
+      resetPending().catch(showError);
+    });
     poll();
+  }
+
+  // resetPending clears the stuck pending row server-side and returns the user
+  // to the consent screen — the escape hatch when the managed_bot_created
+  // webhook update was lost and the bind will never arrive.
+  async function resetPending() {
+    stopPolling();
+    await apiJSON('/api/telegram/reset', { method: 'POST' });
+    shown = null; // force repaint; sig for 'none' may equal a stale entry
+    render(await getStatus());
   }
 
   async function submitBYO() {
