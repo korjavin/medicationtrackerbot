@@ -27,7 +27,8 @@ WORKDIR /app
 # bundled so the MCP server's in-process executor (internal/mcp/executor)
 # can spawn the sandbox runner from python/runner/runner.py without
 # requiring a side container in MVP deployments.
-RUN apk add --no-cache tzdata ca-certificates su-exec python3
+RUN apk upgrade --no-cache && \
+    apk add --no-cache tzdata ca-certificates su-exec python3
 
 COPY --from=builder /app/bot .
 COPY --from=builder /app/mcptool .
