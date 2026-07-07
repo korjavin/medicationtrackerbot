@@ -35,15 +35,6 @@ function makeImageFile(env, name = 'meal.jpg', sizeBytes) {
     return new W.File([new W.Blob([bytes])], name, { type: 'image/jpeg' });
 }
 
-// Anchor datetime fixtures to the current day: listGrouped's days=1 window is
-// [today's local midnight, tomorrow), so a hardcoded date rots the day after
-// it's written (see the date-bomb/MaxQueryDays gotcha).
-function todayAt(hhmm) {
-    const d = new Date();
-    const pad = (n) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${hhmm}`;
-}
-
 function chatCompletionResponse(items) {
     const body = JSON.stringify({ items });
     return {
