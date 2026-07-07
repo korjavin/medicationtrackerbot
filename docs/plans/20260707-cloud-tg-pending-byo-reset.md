@@ -35,11 +35,11 @@ Fix bd med-eas.32 (P1 bug). In cloud mode, after a user provisions a managed chi
 - [x] place it next to the other pending helpers (`ConsumePendingByUsername` / `PendingUsernameByAccount`) and match their error-wrapping style
 
 ### Task 2: Add POST /api/telegram/reset handler
-- [ ] in `internal/cloudserver/telegram.go`, add `func (t *TelegramAPI) Reset(w http.ResponseWriter, r *http.Request)`: require session (mirror the `SessionFromContext` guard used by sibling handlers), call `t.store.DeletePendingByAccount(ctx, sess.AccountID)`, on error `slog.Error` + 500, on success `writeJSON(w, http.StatusOK, map[string]bool{"reset": true})`
-- [ ] wire the route in `RegisterAPIRoutes`: `mux.Handle("POST /api/telegram/reset", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Reset)))`
-- [ ] confirm reset only clears the pending row and does not touch a `bot`/`tg_skipped` row (so it is a no-op-safe "start over" from the pending state); after reset, `Status` returns `none`
-- [ ] add reset to the MCP coverage exemption list (`internal/server/mcp_coverage_exempt.go` or the cloud equivalent) **only if** an equivalent guard applies to cloudserver routes — verify whether cloudserver routes are covered by that test; if not, skip this item
-- [ ] integration test in `internal/cloudserver/telegram_test.go`: provision → assert status `pending` → `POST /api/telegram/reset` (200) → assert status `none`
+- [x] in `internal/cloudserver/telegram.go`, add `func (t *TelegramAPI) Reset(w http.ResponseWriter, r *http.Request)`: require session (mirror the `SessionFromContext` guard used by sibling handlers), call `t.store.DeletePendingByAccount(ctx, sess.AccountID)`, on error `slog.Error` + 500, on success `writeJSON(w, http.StatusOK, map[string]bool{"reset": true})`
+- [x] wire the route in `RegisterAPIRoutes`: `mux.Handle("POST /api/telegram/reset", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Reset)))`
+- [x] confirm reset only clears the pending row and does not touch a `bot`/`tg_skipped` row (so it is a no-op-safe "start over" from the pending state); after reset, `Status` returns `none` (test also asserts a sibling account's bound bot is untouched)
+- [x] add reset to the MCP coverage exemption list — verified: no MCP coverage guard exists for cloudserver routes (grep for mcpCoverageExempt/mcp_coverage in internal/cloudserver is empty), skipped per plan condition
+- [x] integration test in `internal/cloudserver/telegram_test.go`: provision → assert status `pending` → `POST /api/telegram/reset` (200) → assert status `none` (extends TestTelegramProvisioningStateMachine's already-pending second account)
 
 ### Task 3: Surface BYO + Start-over on the pending page
 - [ ] in `web/cloud/js/telegram.js`, extend `renderCreateBot(deepLink, suggested)` so the pending page renders, below the existing "Open Telegram" deep-link button: the same BYO token form used on the consent screen (reuse the identical `#tg-byo-token` input + `#tg-byo-submit` button markup) inside a `<details>` "Advanced: use your own bot token" disclosure, plus a "Start over" button (`#tg-reset`)

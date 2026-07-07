@@ -88,6 +88,7 @@ func (t *TelegramAPI) RegisterAPIRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/telegram/diag", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Diag)))
 	mux.Handle("POST /api/telegram/byo", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.BYO)))
 	mux.Handle("POST /api/telegram/skip", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Skip)))
+	mux.Handle("POST /api/telegram/reset", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Reset)))
 	mux.Handle("POST /api/telegram/test", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Test)))
 	mux.Handle("DELETE /api/telegram", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Delete)))
 }
@@ -468,6 +469,23 @@ func (t *TelegramAPI) Skip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"skipped": true})
+}
+
+// Reset abandons a stuck managed-bot provisioning: it clears the account's
+// pending row (idempotent) so Status falls back to none and the user can start
+// over without waiting out the pending TTL. Bot and skipped rows are untouched.
+func (t *TelegramAPI) Reset(w http.ResponseWriter, r *http.Request) {
+	sess, ok := SessionFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if err := t.store.DeletePendingByAccount(r.Context(), sess.AccountID); err != nil {
+		slog.Error("telegram reset: delete pending", "error", err, "account", sess.AccountID)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"reset": true})
 }
 
 // Test sends a test notification through a linked bot — the wizard/settings

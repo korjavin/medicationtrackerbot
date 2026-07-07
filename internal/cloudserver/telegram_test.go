@@ -141,6 +141,18 @@ func TestTelegramProvisioningStateMachine(t *testing.T) {
 		t.Fatalf("status after edited-username webhook = %q, want pending (unmatched drop)", got)
 	}
 
+	// reset clears the stuck pending row → status back to none, no TTL wait
+	if resetRec := doReq(t, top, http.MethodPost, "http://"+host2+"/api/telegram/reset", host2, session2, nil); resetRec.Code != http.StatusOK {
+		t.Fatalf("reset status = %d, body %q", resetRec.Code, resetRec.Body.String())
+	}
+	if got := tgState(t, top, host2, session2); got != "none" {
+		t.Fatalf("status after reset = %q, want none", got)
+	}
+	// reset must not touch account 1's bound bot
+	if got := tgState(t, top, host, session); got != "bot_created" {
+		t.Fatalf("status of account 1 after account 2 reset = %q, want bot_created", got)
+	}
+
 	// wrong secret → 403
 	if whRec3 := postWebhook(t, top, "/tg/manager/deadbeef", "deadbeef", update); whRec3.Code != http.StatusForbidden {
 		t.Fatalf("wrong-secret webhook status = %d, want 403", whRec3.Code)
