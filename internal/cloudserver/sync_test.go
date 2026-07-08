@@ -2,6 +2,7 @@ package cloudserver
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -229,5 +230,113 @@ func TestSyncAPI_SnapshotCompaction(t *testing.T) {
 	bootstrapTail := getOpsPage(t, h, host, session, fmt.Sprintf("?since=%d", snap.SnapshotSeq))
 	if len(bootstrapTail.Ops) != 1 || bootstrapTail.Ops[0].Seq != 3 || string(bootstrapTail.Ops[0].CT) != "ciphertext-c" {
 		t.Fatalf("bootstrap tail = %+v, want only seq 3 / ciphertext-c", bootstrapTail.Ops)
+	}
+}
+
+// TestSyncAPI_SnapshotCompressRoundTrip guards the compress-before-encrypt
+// snapshot format at its real server boundary (the size caps). The server
+// treats ct as opaque bytes, so the client's gzip(JSON) ciphertext must POST
+// under the raised cap and GET back byte-identical; a legacy uncompressed
+// ciphertext must still round-trip. The plaintext gzip magic-byte assertion
+// stands in for the client's decrypt-time sniff — 0x1f 0x8b means gunzip,
+// '[' means raw JSON.
+func TestSyncAPI_SnapshotCompressRoundTrip(t *testing.T) {
+	h, host, claimToken := newTestSyncHandler(t, 0)
+	session := registerAndGetSession(t, h, host, claimToken)
+
+	// A vault plaintext bigger than the OLD 8 MiB cap, so an uncompressed
+	// upload would have been truncated → 400. Varied per-record content keeps
+	// the gzip ratio realistic rather than degenerate.
+	type record struct {
+		ID   int    `json:"id"`
+		Name string `json:"name"`
+		Note string `json:"note"`
+	}
+	recs := make([]record, 0, 80000)
+	for i := 0; i < 80000; i++ {
+		recs = append(recs, record{
+			ID:   i,
+			Name: fmt.Sprintf("medication-%d-%x", i, i*2654435761),
+			Note: fmt.Sprintf("took dose %d at hour %d, felt %d/10, next refill in %d days", i, i%24, i%11, i%90),
+		})
+	}
+	plaintext, err := json.Marshal(recs)
+	if err != nil {
+		t.Fatalf("marshal vault: %v", err)
+	}
+	const oldCap = 8 << 20
+	if len(plaintext) <= oldCap {
+		t.Fatalf("test vault plaintext = %d bytes, want > old 8 MiB cap to be representative", len(plaintext))
+	}
+
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	if _, err := gz.Write(plaintext); err != nil {
+		t.Fatalf("gzip write: %v", err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+	gzipped := buf.Bytes()
+
+	// Compression is what makes the vault fit: gzip shrinks it well under the
+	// raised cap, and the magic bytes are what the client sniffs on decrypt.
+	if len(gzipped) >= maxSnapshotBodyBytes {
+		t.Fatalf("gzipped vault = %d bytes, not under raised cap %d", len(gzipped), maxSnapshotBodyBytes)
+	}
+	if len(gzipped) >= len(plaintext) {
+		t.Fatalf("gzip did not shrink the vault: %d >= %d", len(gzipped), len(plaintext))
+	}
+	if gzipped[0] != 0x1f || gzipped[1] != 0x8b {
+		t.Fatalf("gzip magic bytes = %#x %#x, want 0x1f 0x8b", gzipped[0], gzipped[1])
+	}
+
+	// Need last_seq >= 1 before a snapshot at seq 1 is accepted.
+	postOpsBatch(t, h, host, session, []opWire{
+		{RecordTypeTag: "note", Nonce: []byte("nonce-a"), CT: []byte("ciphertext-a")},
+	})
+
+	resp := putSnapshot(t, h, host, session, putSnapshotRequest{SnapshotSeq: 1, Nonce: []byte("snap-nonce"), CT: gzipped})
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("POST compressed snapshot: status = %d, want 204", resp.StatusCode)
+	}
+
+	resp = getSnapshot(t, h, host, session)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET snapshot: status = %d, want 200", resp.StatusCode)
+	}
+	var got getSnapshotResponse
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode snapshot: %v", err)
+	}
+	if !bytes.Equal(got.CT, gzipped) {
+		t.Fatalf("snapshot ct not byte-identical: got %d bytes, want %d", len(got.CT), len(gzipped))
+	}
+
+	// A legacy uncompressed snapshot (raw JSON ciphertext starting with '[')
+	// must still round-trip so already-deployed accounts keep bootstrapping.
+	// The compaction floor is monotonic, so advance the oplog and snapshot at a
+	// higher seq to replace the compressed one above.
+	postOpsBatch(t, h, host, session, []opWire{
+		{RecordTypeTag: "note", Nonce: []byte("nonce-b"), CT: []byte("ciphertext-b")},
+	})
+	legacy := []byte(`[{"id":1,"name":"legacy"}]`)
+	if legacy[0] != '[' {
+		t.Fatalf("legacy fixture must start with '[' to model a raw-JSON snapshot")
+	}
+	resp = putSnapshot(t, h, host, session, putSnapshotRequest{SnapshotSeq: 2, Nonce: []byte("legacy-nonce"), CT: legacy})
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("POST legacy snapshot: status = %d, want 204", resp.StatusCode)
+	}
+	resp = getSnapshot(t, h, host, session)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET legacy snapshot: status = %d, want 200", resp.StatusCode)
+	}
+	var gotLegacy getSnapshotResponse
+	if err := json.NewDecoder(resp.Body).Decode(&gotLegacy); err != nil {
+		t.Fatalf("decode legacy snapshot: %v", err)
+	}
+	if !bytes.Equal(gotLegacy.CT, legacy) {
+		t.Fatalf("legacy snapshot ct not byte-identical: got %q, want %q", gotLegacy.CT, legacy)
 	}
 }

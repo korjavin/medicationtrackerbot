@@ -132,13 +132,14 @@ npm dependency.
 
 ### Task 3: Integration test — snapshot compress round-trip through the real handler
 
-- [ ] Add one integration test (Go side, `internal/cloudserver`) that POSTs a
+- [x] Add one integration test (Go side, `internal/cloudserver`) that POSTs a
       compressed snapshot representative of a large vault and asserts: (a) the
       body is accepted (under the raised cap), (b) `GET /api/sync/snapshot`
       returns it byte-identical, and (c) an uncompressed (legacy) snapshot body
       still POSTs+GETs successfully. Client-side gzip/gunzip+sniff correctness is
       covered by the byte-identical round-trip of the ciphertext plus a plaintext
       magic-byte assertion. Must pass before Task 4.
+      (`TestSyncAPI_SnapshotCompressRoundTrip` in `sync_test.go`.)
 
 ### Task 4: Verify acceptance criteria
 
