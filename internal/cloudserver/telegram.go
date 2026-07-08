@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -251,7 +252,30 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	botID, botUsername, userID, ok := upd.ManagedBotCreatedInfo()
 	if !ok {
-		slog.Info("telegram manager webhook: update without managed_bot_created", "update_id", upd.UpdateID)
+		if upd.Message != nil && upd.Message.Chat.Type == "private" {
+			text := strings.TrimSpace(strings.ToLower(upd.Message.Text))
+			switch text {
+			case "yes", "sure", "y", "yeah", "ok", "okay", "yep", "absolutely", "please", "i do":
+				now := time.Now()
+				inv, err := Provision(r.Context(), t.store, 14*24*time.Hour, now)
+				if err != nil {
+					slog.Error("telegram manager webhook: provision invite failed", "error", err)
+					t.manager.SendMessage(r.Context(), upd.Message.Chat.ID, "Sorry, I encountered an error while creating your invite. Please try again later.")
+				} else {
+					link := inv.ClaimURL(t.baseDomain)
+					msg := fmt.Sprintf("Great! Here is your invite link to claim your new Med Tracker account:\n\n%s\n\nOnce you claim it, you can follow the instructions to set up your own bot.", link)
+					t.manager.SendMessage(r.Context(), upd.Message.Chat.ID, msg)
+				}
+			case "/start", "hi", "hello", "help":
+				msg := "Hi! I am the manager bot for Med Tracker. I help people set up their own personal health tracking bot (meds, vitals, food intake, weight, blood pressure).\n\nWould you like to try it out? If so, just reply with 'yes' and I will generate an invite link for you."
+				t.manager.SendMessage(r.Context(), upd.Message.Chat.ID, msg)
+			default:
+				msg := "I am a manager bot for Med Tracker. If you would like an invite to try it out, just reply with 'yes'."
+				t.manager.SendMessage(r.Context(), upd.Message.Chat.ID, msg)
+			}
+		} else {
+			slog.Info("telegram manager webhook: update without managed_bot_created", "update_id", upd.UpdateID)
+		}
 		w.WriteHeader(http.StatusOK)
 		return
 	}
