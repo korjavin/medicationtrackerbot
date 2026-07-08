@@ -191,7 +191,11 @@ func (c *Client) SetMyProfilePhoto(ctx context.Context, photo []byte) error {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 
-	part, err := writer.CreateFormFile("photo", "photo.jpg")
+	if err := writer.WriteField("photo", `{"type":"static","photo":"attach://profile_photo"}`); err != nil {
+		return err
+	}
+
+	part, err := writer.CreateFormFile("profile_photo", "photo.jpg")
 	if err != nil {
 		return err
 	}
