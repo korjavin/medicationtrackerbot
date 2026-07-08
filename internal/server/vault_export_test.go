@@ -359,7 +359,9 @@ func TestVaultExportGzip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("gunzip: %v", err)
 	}
-	if !bytes.Equal(bytes.TrimSpace(got), bytes.TrimSpace(plain)) {
-		t.Fatalf("gunzipped body differs from plain body")
+	// Ignore exported_at: the two calls are stamped independently and can land in
+	// different seconds (passes locally, fails on a slower CI runner).
+	if !reflect.DeepEqual(decodeIgnoringExportedAt(t, got), decodeIgnoringExportedAt(t, plain)) {
+		t.Fatalf("gunzipped body differs from plain body:\n got=%s\nwant=%s", got, plain)
 	}
 }
