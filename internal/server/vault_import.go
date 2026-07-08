@@ -1,10 +1,12 @@
 package server
 
 import (
+	"compress/gzip"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -52,10 +54,24 @@ func (s *Server) handleVaultImport(w http.ResponseWriter, r *http.Request) {
 	// Bound the body: the whole vault is materialized into structs in memory, so
 	// an unbounded POST is a memory-DoS. Generous cap (vaults can be large) but
 	// finite — every other JSON handler here uses http.MaxBytesReader.
-	r.Body = http.MaxBytesReader(w, r.Body, 64<<20)
+	r.Body = http.MaxBytesReader(w, r.Body, maxVaultUploadBytes)
+
+	// The UI gzips the body (a real vault's JSON is hundreds of MB, far past the
+	// cap above). Decompress under a second, larger limit so 64MB of gzip can't
+	// be a decompression bomb.
+	body := io.Reader(r.Body)
+	if r.Header.Get("Content-Encoding") == "gzip" {
+		zr, err := gzip.NewReader(r.Body)
+		if err != nil {
+			http.Error(w, "invalid gzip body", http.StatusBadRequest)
+			return
+		}
+		defer func() { _ = zr.Close() }()
+		body = io.LimitReader(zr, maxVaultInflatedBytes)
+	}
 
 	var req vaultImportRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(body).Decode(&req); err != nil {
 		http.Error(w, fmt.Sprintf("invalid JSON: %v", err), http.StatusBadRequest)
 		return
 	}

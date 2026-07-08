@@ -37,7 +37,10 @@
         const vault = await apiCall(`/api/export?include_secrets=${includeSecrets ? '1' : '0'}`,
             'GET', null, { timeoutMs: 10 * 60_000 });
         if (!vault) throw new Error('Export failed');
-        return JSON.stringify(vault, null, 2);
+        // ponytail: no indent — the file is gzipped anyway, and a real vault is
+        // hundreds of MB, so pretty-printing only doubles the string we hold in
+        // memory. `gunzip -c … | jq` is the human-readable path.
+        return JSON.stringify(vault);
     }
 
     function todayStamp() {
@@ -76,11 +79,14 @@
 
         const base = `medtracker-vault-${todayStamp()}`;
         try {
+            // gzip first: age ciphertext doesn't compress, and the plain file is
+            // hundreds of MB. See core/backup-crypto.js.
+            const gz = await window.BackupCrypto.gzipString(json);
             if (passphrase) {
-                const bytes = await window.BackupCrypto.encryptBackup(json, passphrase);
-                downloadBlobAsFile(new Blob([bytes], { type: 'application/octet-stream' }), `${base}.json.age`);
+                const bytes = await window.BackupCrypto.encryptBackup(gz, passphrase);
+                downloadBlobAsFile(new Blob([bytes], { type: 'application/octet-stream' }), `${base}.json.gz.age`);
             } else {
-                downloadBlobAsFile(new Blob([json], { type: 'application/json' }), `${base}.json`);
+                downloadBlobAsFile(new Blob([gz], { type: 'application/gzip' }), `${base}.json.gz`);
             }
         } catch (e) {
             console.error('Export encryption failed:', e);
@@ -97,17 +103,10 @@
         });
     }
 
-    function readFileText(file) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result);
-            reader.onerror = () => reject(reader.error || new Error('Failed to read file'));
-            reader.readAsText(file);
-        });
-    }
-
     // Matches http.MaxBytesReader in internal/server/vault_import.go — reject
-    // client-side rather than materializing the file only to get a 400.
+    // client-side rather than materializing the file only to get a 400. The
+    // upload is gzipped, so 64MB here is ~1GB of vault JSON. Only a pre-
+    // compression plain .json backup is measured uncompressed.
     const MAX_BACKUP_BYTES = 64 * 1024 * 1024;
 
     // Reveal the decrypt-passphrase field iff the picked file is an age file.
@@ -144,16 +143,19 @@
             return;
         }
 
-        // Decrypt (age) or decode (plaintext) to the vault JSON string.
+        // Unwrap to the vault JSON string. Four shapes, sniffed by magic bytes so
+        // a renamed file still works: .json, .json.gz, .json.age, .json.gz.age
+        // (the two non-gz forms are pre-compression backups).
         let json;
         try {
             if (window.BackupCrypto.isAgeFile(bytes)) {
                 const passphrase = el('importexport-import-passphrase')?.value || '';
                 if (!passphrase) { safeAlert('This backup is encrypted — enter its passphrase'); return; }
-                json = await window.BackupCrypto.decryptBackup(bytes, passphrase);
-            } else {
-                json = await readFileText(file);
+                bytes = await window.BackupCrypto.decryptBackup(bytes, passphrase);
             }
+            json = window.BackupCrypto.isGzipFile(bytes)
+                ? await window.BackupCrypto.gunzipToString(bytes)
+                : await window.BackupCrypto.bytesToString(bytes);
         } catch (e) {
             console.error('Import decrypt failed:', e);
             safeAlert('Could not read backup — wrong passphrase?');
@@ -174,8 +176,13 @@
                 return;
             }
             const vault = JSON.parse(json);
-            const res = await apiCall('/api/import', 'POST', { ...vault, mode: 'replace' },
-                { timeoutMs: 10 * 60_000 });
+            // gzip the upload: a full vault's JSON exceeds the 64MB body cap
+            // (http.MaxBytesReader), so an uncompressed POST can't restore a real
+            // backup at all. The handler gunzips on Content-Encoding.
+            const body = await window.BackupCrypto.gzipString(
+                JSON.stringify({ ...vault, mode: 'replace' }));
+            const res = await apiCall('/api/import', 'POST', body,
+                { timeoutMs: 10 * 60_000, headers: { 'Content-Encoding': 'gzip' } });
             if (!res) return; // apiCall already surfaced the error
             safeAlert('Import complete.');
             location.reload();

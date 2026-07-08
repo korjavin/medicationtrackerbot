@@ -22,6 +22,15 @@ const SAMPLE_VAULT = {
 // jsdom's Blob has no .text(); read it back through the env's FileReader
 // (FileReader is a window global, not a Node one). location.reload is a
 // jsdom navigation no-op, so the import success path needs no stubbing.
+function blobBytes(window, blob) {
+    return new Promise((resolve, reject) => {
+        const r = new window.FileReader();
+        r.onload = () => resolve(r.result);
+        r.onerror = () => reject(r.error);
+        r.readAsArrayBuffer(blob);
+    });
+}
+
 function blobText(window, blob) {
     return new Promise((resolve, reject) => {
         const r = new window.FileReader();
@@ -45,8 +54,11 @@ describe('Settings → Import/Export section', () => {
         // "Not implemented: navigation" console.error — expected, not a failure.
         allowConsoleNoise();
         env = loadFrontendEnv();
-        // isAgeFile(false) by default — tests drive plaintext .json files.
+        // Keep the real gzip/decode helpers (the export and import paths run
+        // through them); stub only the age crypto. isAgeFile(false) by default —
+        // tests drive plaintext .json files.
         env.window.BackupCrypto = {
+            ...env.window.BackupCrypto,
             isAgeFile: vi.fn(() => false),
             encryptBackup: vi.fn(),
             decryptBackup: vi.fn()
@@ -96,7 +108,7 @@ describe('Settings → Import/Export section', () => {
         expect(window.CloudVault.exportAll).toHaveBeenCalledWith({ includeSecrets: false });
     });
 
-    it('bot export downloads a medtracker-vault JSON blob from GET /api/export', async () => {
+    it('bot export downloads a gzipped medtracker-vault blob from GET /api/export', async () => {
         const { window } = env;
         window.apiCall = vi.fn(async (url, method) => {
             expect(url).toBe('/api/export?include_secrets=1');
@@ -109,16 +121,19 @@ describe('Settings → Import/Export section', () => {
         await window.SettingsImportExport.export();
 
         expect(downloads).toHaveLength(1);
-        expect(downloads[0].filename).toMatch(/^medtracker-vault-\d{4}-\d{2}-\d{2}\.json$/);
-        const parsed = JSON.parse(await blobText(window, downloads[0].blob));
+        expect(downloads[0].filename).toMatch(/^medtracker-vault-\d{4}-\d{2}-\d{2}\.json\.gz$/);
+        // The blob is a real gzip member that gunzips back to the vault.
+        const gz = new Uint8Array(await blobBytes(window, downloads[0].blob));
+        expect(window.BackupCrypto.isGzipFile(gz)).toBe(true);
+        const parsed = JSON.parse(await window.BackupCrypto.gunzipToString(gz));
         expect(parsed.format).toBe('medtracker-vault');
     });
 
-    it('bot import POSTs vault + mode:replace to /api/import after confirm', async () => {
+    it('bot import POSTs a gzipped vault + mode:replace to /api/import after confirm', async () => {
         const { window, document } = env;
         const posts = [];
-        window.apiCall = vi.fn(async (url, method, body) => {
-            if (url === '/api/import') { posts.push({ method, body }); return { ok: true }; }
+        window.apiCall = vi.fn(async (url, method, body, opts) => {
+            if (url === '/api/import') { posts.push({ method, body, opts }); return { ok: true }; }
             return null;
         });
 
@@ -128,8 +143,32 @@ describe('Settings → Import/Export section', () => {
         expect(window.safeConfirm).toHaveBeenCalled();
         expect(posts).toHaveLength(1);
         expect(posts[0].method).toBe('POST');
-        expect(posts[0].body.mode).toBe('replace');
-        expect(posts[0].body.format).toBe('medtracker-vault');
+        // Body is gzip bytes, not an object: the plaintext exceeds the 64MB cap.
+        expect(posts[0].opts.headers).toEqual({ 'Content-Encoding': 'gzip' });
+        expect(window.BackupCrypto.isGzipFile(posts[0].body)).toBe(true);
+        const sent = JSON.parse(await window.BackupCrypto.gunzipToString(posts[0].body));
+        expect(sent.mode).toBe('replace');
+        expect(sent.format).toBe('medtracker-vault');
+    });
+
+    it('bot import accepts a gzipped backup file', async () => {
+        const { window, document } = env;
+        const posts = [];
+        window.apiCall = vi.fn(async (url, method, body) => {
+            if (url === '/api/import') { posts.push(body); return { ok: true }; }
+            return null;
+        });
+
+        const gz = await window.BackupCrypto.gzipString(JSON.stringify(SAMPLE_VAULT));
+        const input = document.getElementById('importexport-import-file');
+        const file = new window.File([gz], 'backup.json.gz', { type: 'application/gzip' });
+        Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+
+        await window.SettingsImportExport.import();
+
+        expect(posts).toHaveLength(1);
+        const sent = JSON.parse(await window.BackupCrypto.gunzipToString(posts[0]));
+        expect(sent.format).toBe('medtracker-vault');
     });
 
     it('bot import does nothing when the confirm is declined', async () => {

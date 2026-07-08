@@ -36,6 +36,11 @@ describe('BackupCrypto (core/backup-crypto.js over vendored typage)', () => {
             url: 'https://example.test/',
             runScripts: 'outside-only',
         });
+        // jsdom lacks the Streams/Fetch primitives the module gzips through; every
+        // browser has them. Borrow Node's (see frontend-harness.js).
+        for (const g of ['Response', 'CompressionStream', 'DecompressionStream']) {
+            if (!dom.window[g] && globalThis[g]) dom.window[g] = globalThis[g];
+        }
         const src = fs.readFileSync(
             path.join(REPO_ROOT, 'web/static/js/core/backup-crypto.js'),
             'utf8'
@@ -52,6 +57,9 @@ describe('BackupCrypto (core/backup-crypto.js over vendored typage)', () => {
         expect(typeof BackupCrypto.encryptBackup).toBe('function');
         expect(typeof BackupCrypto.decryptBackup).toBe('function');
         expect(typeof BackupCrypto.isAgeFile).toBe('function');
+        expect(typeof BackupCrypto.isGzipFile).toBe('function');
+        expect(typeof BackupCrypto.gzipString).toBe('function');
+        expect(typeof BackupCrypto.gunzipToString).toBe('function');
     });
 
     it('round-trips encrypt → decrypt and emits a real age v1 file', async () => {
@@ -60,7 +68,36 @@ describe('BackupCrypto (core/backup-crypto.js over vendored typage)', () => {
         expect(ct).toBeInstanceOf(Uint8Array);
         expect(BackupCrypto.isAgeFile(ct)).toBe(true);
         const out = await BackupCrypto.decryptBackup(ct, 's3cret pass');
-        expect(out).toBe(payload);
+        expect(new TextDecoder().decode(out)).toBe(payload);
+    });
+
+    it('round-trips gzip → age → decrypt → gunzip (the real export shape)', async () => {
+        // Compress-then-encrypt: what doExport writes as .json.gz.age.
+        const payload = JSON.stringify({ format: 'medtracker-vault', version: 1, data: { a: 1 } });
+        const gz = await BackupCrypto.gzipString(payload);
+        expect(BackupCrypto.isGzipFile(gz)).toBe(true);
+
+        const ct = await BackupCrypto.encryptBackup(gz, 's3cret pass');
+        expect(BackupCrypto.isAgeFile(ct)).toBe(true);
+        // Ciphertext must NOT look like gzip — the import sniff runs after decrypt.
+        expect(BackupCrypto.isGzipFile(ct)).toBe(false);
+
+        const inner = await BackupCrypto.decryptBackup(ct, 's3cret pass');
+        expect(BackupCrypto.isGzipFile(inner)).toBe(true);
+        expect(await BackupCrypto.gunzipToString(inner)).toBe(payload);
+    });
+
+    it('gzip actually compresses a repetitive vault', async () => {
+        const big = JSON.stringify({ logs: Array.from({ length: 2000 }, (_, i) => ({ measured_at: '2026-07-08T06:30:00Z', weight: 82.4, i })) });
+        const gz = await BackupCrypto.gzipString(big);
+        expect(gz.length).toBeLessThan(big.length / 5);
+        expect(await BackupCrypto.gunzipToString(gz)).toBe(big);
+    });
+
+    it('isGzipFile only matches the gzip magic', () => {
+        expect(BackupCrypto.isGzipFile(new Uint8Array([0x1f, 0x8b, 0x08]))).toBe(true);
+        expect(BackupCrypto.isGzipFile(new TextEncoder().encode('{"format":"x"}'))).toBe(false);
+        expect(BackupCrypto.isGzipFile(new Uint8Array([0x1f]))).toBe(false);
     });
 
     it('rejects a wrong passphrase', async () => {
@@ -83,6 +120,8 @@ describe('BackupCrypto (core/backup-crypto.js over vendored typage)', () => {
         const bytes = new Uint8Array(fs.readFileSync(KAT_FILE));
         expect(BackupCrypto.isAgeFile(bytes)).toBe(true);
         const out = await BackupCrypto.decryptBackup(bytes, KAT_PASS);
-        expect(out).toBe(KAT_PLAIN);
+        // Pre-compression backup: the plaintext is bare JSON, not a gzip member.
+        expect(BackupCrypto.isGzipFile(out)).toBe(false);
+        expect(new TextDecoder().decode(out)).toBe(KAT_PLAIN);
     });
 });

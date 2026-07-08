@@ -30,6 +30,7 @@ const WG_TOGGLE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-toggle.js
 const WG_SETTINGS_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-settings.js');
 const MODAL_MANAGER_JS = path.join(REPO_ROOT, 'web/static/js/core/modal-manager.js');
 const CORE_API_JS = path.join(REPO_ROOT, 'web/static/js/core/api.js');
+const BACKUP_CRYPTO_JS = path.join(REPO_ROOT, 'web/static/js/core/backup-crypto.js');
 const APP_KERNEL_JS = path.join(REPO_ROOT, 'web/static/js/core/app-kernel.js');
 const STORE_JS = path.join(REPO_ROOT, 'web/static/js/core/store.js');
 const MODAL_CONTROLLER_JS = path.join(REPO_ROOT, 'web/static/js/core/modal-controller.js');
@@ -166,6 +167,14 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
 
   const { window } = dom;
 
+  // jsdom ships no Streams/Fetch primitives, but every browser (and Capacitor
+  // WebView) has them; core/backup-crypto.js gzips through Response +
+  // Compression/DecompressionStream. Borrow Node's rather than reshaping the
+  // module around a test-env gap.
+  for (const g of ['Response', 'CompressionStream', 'DecompressionStream']) {
+    if (!window[g] && globalThis[g]) window[g] = globalThis[g];
+  }
+
   const backButtonState = {
     showCalls: 0,
     hideCalls: 0,
@@ -240,6 +249,9 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   evalFileCached(window, WG_SETTINGS_JS);
   evalFileCached(window, MODAL_MANAGER_JS);
   evalFileCached(window, CORE_API_JS);
+  // Real gzip/sniff helpers for the vault import/export screen; the age crypto
+  // inside is lazily imported and never touched unless a passphrase is used.
+  evalFileCached(window, BACKUP_CRYPTO_JS);
   evalFileCached(window, APP_KERNEL_JS);
   evalFileCached(window, STORE_JS);
   evalFileCached(window, MODAL_CONTROLLER_JS);

@@ -25,6 +25,13 @@ const (
 	// take minutes on a large dataset. Bounded, not cleared: a stuck transfer
 	// still dies rather than pinning a goroutine + an import transaction forever.
 	vaultIOTimeout = 10 * time.Minute
+
+	// maxVaultUploadBytes caps the raw POST /api/import body. The UI gzips it, so
+	// this is 64MB of *compressed* vault — roughly a gigabyte of JSON.
+	maxVaultUploadBytes = 64 << 20
+	// maxVaultInflatedBytes caps what that gzip may expand to, so a small
+	// malicious body can't inflate into an OOM.
+	maxVaultInflatedBytes = 1 << 30
 )
 
 // Vault is the top-level envelope.

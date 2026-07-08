@@ -87,8 +87,13 @@ function composeAbortSignal(timeoutMs, callerSignal) {
 }
 
 async function apiCallDirect(endpoint, method = "GET", body = null, opts = {}) {
-    const { timeoutMs = 60_000, signal: callerSignal } = opts;
+    const { timeoutMs = 60_000, signal: callerSignal, headers: extraHeaders } = opts;
+    // A Uint8Array/Blob/ArrayBuffer body is sent verbatim — the vault import
+    // POSTs a gzipped JSON body (Content-Encoding via opts.headers) because the
+    // plaintext runs to hundreds of MB. Everything else is JSON-encoded.
+    const isRawBody = body instanceof Uint8Array || body instanceof Blob || body instanceof ArrayBuffer;
     const headers = makeAuthHeaders(body ? { "Content-Type": "application/json" } : null);
+    Object.assign(headers, extraHeaders || {});
 
     // Tag non-GET writes with the per-browser stable client id so the
     // backend can echo it back on the SSE payload (source_client_id),
@@ -112,7 +117,7 @@ async function apiCallDirect(endpoint, method = "GET", body = null, opts = {}) {
         const res = await fetch(resolveApiUrl(endpoint), {
             method,
             headers,
-            body: body ? JSON.stringify(body) : null,
+            body: body ? (isRawBody ? body : JSON.stringify(body)) : null,
             signal
         });
         if (res.status === 401 || res.status === 403) {

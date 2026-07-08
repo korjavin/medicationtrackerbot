@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -607,5 +608,63 @@ func TestVaultImportRestoresDefaultReminderRowsWhenBlocksAbsent(t *testing.T) {
 		if !enabled || hour != tc.hour {
 			t.Errorf("%s: got enabled=%v hour=%d, want the migration default (true, %d)", tc.table, enabled, hour, tc.hour)
 		}
+	}
+}
+
+// TestVaultImportGzipBody pins the gzipped upload path: the UI compresses the
+// body because a real vault's JSON is hundreds of MB — well past
+// maxVaultUploadBytes — so an uncompressed POST cannot restore a real backup.
+// A gzip body without the header (or a corrupt one) must 400, not wipe.
+func TestVaultImportGzipBody(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "tests", "fixtures", "vault-v1.json"))
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(raw, &body); err != nil {
+		t.Fatalf("decode fixture: %v", err)
+	}
+	body["mode"] = "replace"
+	plain, _ := json.Marshal(body)
+
+	var gzBuf bytes.Buffer
+	zw := gzip.NewWriter(&gzBuf)
+	if _, err := zw.Write(plain); err != nil {
+		t.Fatalf("gzip write: %v", err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+
+	post := func(t *testing.T, payload []byte, contentEncoding string) *httptest.ResponseRecorder {
+		t.Helper()
+		db, err := store.New(":memory:")
+		if err != nil {
+			t.Fatalf("store.New: %v", err)
+		}
+		t.Cleanup(func() { _ = db.Close() })
+		srv := newServer(db, "tok", "sec", 123, OIDCConfig{}, "bot", "")
+		t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
+
+		req := httptest.NewRequest("POST", "/api/import", bytes.NewReader(payload))
+		if contentEncoding != "" {
+			req.Header.Set("Content-Encoding", contentEncoding)
+		}
+		req = withUser(req, 1)
+		w := httptest.NewRecorder()
+		srv.handleVaultImport(w, req)
+		return w
+	}
+
+	if w := post(t, gzBuf.Bytes(), "gzip"); w.Code != http.StatusOK {
+		t.Fatalf("gzip body: want 200, got %d: %s", w.Code, w.Body.String())
+	}
+	// Uncompressed body still works — the header, not the bytes, selects the path.
+	if w := post(t, plain, ""); w.Code != http.StatusOK {
+		t.Fatalf("plain body: want 200, got %d: %s", w.Code, w.Body.String())
+	}
+	// Header says gzip, body isn't: reject before the wipe.
+	if w := post(t, plain, "gzip"); w.Code != http.StatusBadRequest {
+		t.Fatalf("mislabeled body: want 400, got %d", w.Code)
 	}
 }
