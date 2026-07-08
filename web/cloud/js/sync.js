@@ -355,7 +355,11 @@ async function snapshotAt(ctx, snapshotSeq) {
   }
   if (!res.ok) return { ok: false, status: res.status }; // 4xx=won't-fit, 5xx=retryable; caller decides offline
   offline = false;
-  await writeMeta({ lastSnapshotSeq: snapshotSeq });
+  // A successful snapshot means the store now fits the server cap, so clear any
+  // stale "too large" error a prior oversized import recorded. Covers both the
+  // forced path and the threshold-gated maybeSnapshot (e.g. the store shrank, or
+  // a peer re-bootstrap healed this device) — otherwise the banner sticks forever.
+  await writeMeta({ lastSnapshotSeq: snapshotSeq, forceSnapshotError: null });
   return { ok: true, status: res.status };
 }
 
@@ -458,11 +462,20 @@ async function tryForceSnapshot(ctx) {
     return; // couldn't reach the server — marker stays set, retried next open
   }
   if (!res.ok) {
-    // A permanent 4xx on the bump (e.g. 413 quota exceeded) will keep failing;
-    // leaving forceSnapshotPending set would block every later pull/flush
-    // forever — the same wedge the snapshot leg below guards against.
+    // A permanent 4xx on the bump (e.g. 413 quota exceeded) will keep failing.
+    // Unlike the snapshot leg below — which advances localLastSeq to the
+    // server-assigned seq before its upload, keeping this device's cursor at/above
+    // the compaction floor — the bump was REJECTED, so we have no assigned seq and
+    // the cursor stays where bootstrap left it, below the floor. Clearing the
+    // marker here would let pullOnOpen fall through to pullTail, which re-bootstraps
+    // the stale server snapshot straight over the just-imported records (the exact
+    // silent wipe the header comment guards against). So surface the error for the
+    // status line but KEEP the marker set: pullOnOpen returns early (no pull, no
+    // wipe), and re-attempting the tiny bump op each open is cheap (not the
+    // oversized-snapshot re-encrypt wedge). The user must free account quota for
+    // the import to sync.
     if (isPermanentSyncStatus(res.status)) {
-      await writeMeta({ forceSnapshotPending: false, forceSnapshotError: { status: res.status, at: Date.now() } });
+      await writeMeta({ forceSnapshotError: { status: res.status, at: Date.now() } });
       offline = false;
       return;
     }
