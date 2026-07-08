@@ -36,6 +36,13 @@ func (s *Server) handleVaultImport(w http.ResponseWriter, r *http.Request) {
 	}
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
+	// Same reason as handleVaultExport: uploading up to 64MB outruns
+	// http.Server.ReadTimeout (15s), and the wipe-then-reinsert of every domain
+	// outruns WriteTimeout (45s).
+	rc := http.NewResponseController(w)
+	_ = rc.SetReadDeadline(time.Now().Add(vaultIOTimeout))
+	_ = rc.SetWriteDeadline(time.Now().Add(vaultIOTimeout))
+
 	// Bound the body: the whole vault is materialized into structs in memory, so
 	// an unbounded POST is a memory-DoS. Generous cap (vaults can be large) but
 	// finite — every other JSON handler here uses http.MaxBytesReader.

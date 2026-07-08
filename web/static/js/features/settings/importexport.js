@@ -29,7 +29,10 @@
             }
             return await window.CloudVault.exportAll();
         }
-        const vault = await apiCall('/api/export', 'GET');
+        // A full vault is every domain over all history; the default 60s
+        // apiCall timeout aborts long exports mid-download. Matches the
+        // server's vaultIOTimeout.
+        const vault = await apiCall('/api/export', 'GET', null, { timeoutMs: 10 * 60_000 });
         if (!vault) throw new Error('Export failed');
         return JSON.stringify(vault, null, 2);
     }
@@ -147,7 +150,8 @@
                 return;
             }
             const vault = JSON.parse(json);
-            const res = await apiCall('/api/import', 'POST', { ...vault, mode: 'replace' });
+            const res = await apiCall('/api/import', 'POST', { ...vault, mode: 'replace' },
+                { timeoutMs: 10 * 60_000 });
             if (!res) return; // apiCall already surfaced the error
             safeAlert('Import complete.');
             location.reload();

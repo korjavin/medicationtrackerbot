@@ -1,8 +1,13 @@
 package server
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -139,5 +144,58 @@ func TestVaultExportHandler(t *testing.T) {
 	// Settings singletons always resolve (migrated schema seeds row id=1).
 	if v.Data.Settings.FoodTargets == nil {
 		t.Fatalf("food targets missing from settings")
+	}
+}
+
+// TestVaultExportGzip pins the wire compression: a gzip-accepting client gets a
+// Content-Encoding: gzip body that decompresses to the same vault a plain
+// client receives. A regression here silently ships a 10x-larger response (or,
+// worse, a gzip body without the header — unreadable JSON).
+func TestVaultExportGzip(t *testing.T) {
+	db, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	srv := newServer(db, "tok", "sec", 123, OIDCConfig{}, "bot", "")
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
+
+	call := func(acceptEncoding string) (*httptest.ResponseRecorder, []byte) {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodGet, "/api/export", nil)
+		if acceptEncoding != "" {
+			r.Header.Set("Accept-Encoding", acceptEncoding)
+		}
+		r = r.WithContext(context.WithValue(r.Context(), UserCtxKey, &TelegramUser{ID: 123}))
+		w := httptest.NewRecorder()
+		srv.handleVaultExport(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status %d", w.Code)
+		}
+		return w, w.Body.Bytes()
+	}
+
+	plainRes, plain := call("")
+	if enc := plainRes.Header().Get("Content-Encoding"); enc != "" {
+		t.Fatalf("no Accept-Encoding: unexpected Content-Encoding %q", enc)
+	}
+	if plainRes.Header().Get("Vary") != "Accept-Encoding" {
+		t.Fatalf("missing Vary: Accept-Encoding")
+	}
+
+	gzRes, gzBody := call("gzip, deflate, br")
+	if enc := gzRes.Header().Get("Content-Encoding"); enc != "gzip" {
+		t.Fatalf("Content-Encoding = %q, want gzip", enc)
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(gzBody))
+	if err != nil {
+		t.Fatalf("gzip.NewReader: %v", err)
+	}
+	got, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatalf("gunzip: %v", err)
+	}
+	if !bytes.Equal(bytes.TrimSpace(got), bytes.TrimSpace(plain)) {
+		t.Fatalf("gunzipped body differs from plain body")
 	}
 }

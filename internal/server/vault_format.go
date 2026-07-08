@@ -19,6 +19,12 @@ import "time"
 const (
 	vaultFormat  = "medtracker-vault"
 	vaultVersion = 1
+
+	// vaultIOTimeout replaces the http.Server Read/WriteTimeout on the two vault
+	// handlers, which move a whole user's history in one request and legitimately
+	// take minutes on a large dataset. Bounded, not cleared: a stuck transfer
+	// still dies rather than pinning a goroutine + an import transaction forever.
+	vaultIOTimeout = 10 * time.Minute
 )
 
 // Vault is the top-level envelope.

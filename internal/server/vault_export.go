@@ -1,11 +1,14 @@
 package server
 
 import (
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
@@ -28,6 +31,14 @@ func (s *Server) handleVaultExport(w http.ResponseWriter, r *http.Request) {
 	}
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
+	// A full vault is every domain over all history: the repo walk plus the
+	// encode of tens of MB routinely outruns http.Server.WriteTimeout (45s),
+	// which killed the socket mid-encode with "i/o timeout". Same escape hatch
+	// the SSE stream uses (changes_handlers.go), but bounded rather than cleared.
+	rc := http.NewResponseController(w)
+	_ = rc.SetWriteDeadline(time.Now().Add(vaultIOTimeout))
+
+	started := time.Now()
 	vault, err := s.buildVault(r.Context(), userID)
 	if err != nil {
 		slog.Error("vault export failed", "error", err, "user_id", userID)
@@ -39,11 +50,26 @@ func (s *Server) handleVaultExport(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition",
 		fmt.Sprintf("attachment; filename=medtracker-vault-%s.json", time.Now().UTC().Format("2006-01-02")))
 
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(vault); err != nil {
-		slog.Error("vault export encode failed", "error", err, "user_id", userID)
+	// Compress on the wire: a full vault is highly repetitive JSON and gzips
+	// ~10x. fetch/XHR decompress transparently, so callers see plain JSON.
+	// Vary because the same URL now has two representations.
+	w.Header().Set("Vary", "Accept-Encoding")
+	out := io.Writer(w)
+	if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+		w.Header().Set("Content-Encoding", "gzip")
+		gz := gzip.NewWriter(w)
+		defer func() { _ = gz.Close() }()
+		out = gz
 	}
+
+	// ponytail: no SetIndent — the browser re-indents for the saved file
+	// (importexport.js JSON.stringify(vault, null, 2)), so indenting here only
+	// inflates the wire. `age -d | jq` prettifies the file for anyone else.
+	if err := json.NewEncoder(out).Encode(vault); err != nil {
+		slog.Error("vault export encode failed", "error", err, "user_id", userID)
+		return
+	}
+	slog.Info("vault export sent", "user_id", userID, "build_duration", time.Since(started))
 }
 
 // buildVault walks every domain repo for one user and assembles the canonical
