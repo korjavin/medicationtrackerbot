@@ -349,12 +349,12 @@ async function snapshotAt(ctx, snapshotSeq) {
     });
   } catch {
     offline = true;
-    return false;
+    return { ok: false, status: 0 }; // network error — retryable
   }
-  if (!res.ok) return false;
+  if (!res.ok) return { ok: false, status: res.status }; // 4xx=won't-fit, 5xx=retryable; caller decides offline
   offline = false;
   await writeMeta({ lastSnapshotSeq: snapshotSeq });
-  return true;
+  return { ok: true, status: res.status };
 }
 
 async function maybeSnapshot(ctx) {
@@ -458,13 +458,24 @@ async function tryForceSnapshot(ctx) {
   // the floor (no re-bootstrap) once the marker clears.
   await writeMeta({ localLastSeq: snapshotSeq });
   // A rejected snapshot leaves forceSnapshotPending set, which blocks every later
-  // pull/flush. Surface that as offline so the status line is honest.
-  if (!(await snapshotAt(ctx, snapshotSeq))) {
+  // pull/flush. A 4xx means the body was accepted by the network but refused —
+  // the snapshot is larger than the server cap and will NEVER fit, so re-encrypting
+  // it every open wedges the app forever and blocks all pulls. Record a durable
+  // error, clear the pending marker so the pull/flush path proceeds, and surface
+  // it in the status line. A 5xx/offline failure is transient: leave the marker
+  // set and retry next open.
+  const snap = await snapshotAt(ctx, snapshotSeq);
+  if (!snap.ok) {
+    if (snap.status >= 400 && snap.status < 500) {
+      await writeMeta({ forceSnapshotPending: false, forceSnapshotError: { status: snap.status, at: Date.now() } });
+      offline = false;
+      return;
+    }
     offline = true;
     return;
   }
   if ((await readMeta()).lastSnapshotSeq >= snapshotSeq) {
-    await writeMeta({ forceSnapshotPending: false });
+    await writeMeta({ forceSnapshotPending: false, forceSnapshotError: null });
   }
 }
 
@@ -688,6 +699,7 @@ export async function getSyncStatus(ctx) {
     pendingCount,
     offline,
     integrityErrors: meta.integrityErrors,
+    forceSnapshotError: meta.forceSnapshotError || null,
   };
 }
 
@@ -697,5 +709,6 @@ export async function describeSyncStatus(ctx) {
   parts.push(status.offline ? 'Offline' : status.lastSyncedAt ? `Synced ${new Date(status.lastSyncedAt).toLocaleTimeString()}` : 'Not yet synced');
   if (status.pendingCount > 0) parts.push(`${status.pendingCount} pending`);
   if (status.integrityErrors > 0) parts.push(`${status.integrityErrors} sync-integrity warning(s)`);
+  if (status.forceSnapshotError) parts.push('Import too large to sync');
   return parts.join(' · ');
 }

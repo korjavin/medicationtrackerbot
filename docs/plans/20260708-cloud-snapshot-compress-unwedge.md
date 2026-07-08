@@ -108,15 +108,15 @@ npm dependency.
 
 ### Task 2: Raise server snapshot caps + honest failure (server + client)
 
-- [ ] `internal/cloudserver/sync.go`: raise `maxSnapshotBodyBytes` and
+- [x] `internal/cloudserver/sync.go`: raise `maxSnapshotBodyBytes` and
       `maxSnapshotCTLen` from `8 << 20` to `64 << 20` (headroom well above a
       compressed large vault, so the cap stops being the binding limit and
       compaction keeps working as the store grows). Keep the existing
       `len(req.CT) > maxSnapshotCTLen` and nonce validation.
-- [ ] Sanity-check `cmd/cloud/main.go` `ReadTimeout` (15s) is comfortable for a
+- [x] Sanity-check `cmd/cloud/main.go` `ReadTimeout` (15s) is comfortable for a
       ~2–3 MB compressed upload (it is; note it here, no change unless a slow-link
       concern is raised).
-- [ ] Stop the wedge: in `web/cloud/js/sync.js`, when `snapshotAt` fails inside
+- [x] Stop the wedge: in `web/cloud/js/sync.js`, when `snapshotAt` fails inside
       `tryForceSnapshot` with a **non-transient** rejection (HTTP 4xx, i.e. the
       body was accepted by the network but refused — distinct from the offline
       `catch`/`!res.ok` 5xx path), record the failure durably (e.g. a
@@ -127,7 +127,7 @@ npm dependency.
       (status code) so `tryForceSnapshot`/`pullOnOpen` can distinguish
       "retryable offline" from "this snapshot will never fit — surface it and let
       pulls proceed."
-- [ ] Surface `forceSnapshotError` in whatever status/offline indicator the shell
+- [x] Surface `forceSnapshotError` in whatever status/offline indicator the shell
       already reads, so a stuck import is visible rather than a silent spinner.
 
 ### Task 3: Integration test — snapshot compress round-trip through the real handler
