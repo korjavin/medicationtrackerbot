@@ -465,12 +465,20 @@ func importSettings(ctx context.Context, tx *sql.Tx, d *VaultData) error {
 	oa, fi, el := s.Integrations.OpenAI, s.Integrations.Food, s.Integrations.ElevenLabs
 	f := s.Features
 
+	// Feature flags are COALESCEd against the existing row so an absent flag
+	// (nil pointer → NULL) preserves the current enabled state instead of
+	// disabling the section. See VaultFeatures in vault_format.go.
 	_, err := tx.ExecContext(ctx, `
 		UPDATE settings SET
 		  dismissed_tz_suggestion = ?,
-		  food_intake_enabled = ?, blood_pressure_enabled = ?, weight_enabled = ?,
-		  medication_enabled = ?, workout_enabled = ?, health_enabled = ?,
-		  gamification_enabled = ?, weekly_digest_enabled = ?,
+		  food_intake_enabled = COALESCE(?, food_intake_enabled),
+		  blood_pressure_enabled = COALESCE(?, blood_pressure_enabled),
+		  weight_enabled = COALESCE(?, weight_enabled),
+		  medication_enabled = COALESCE(?, medication_enabled),
+		  workout_enabled = COALESCE(?, workout_enabled),
+		  health_enabled = COALESCE(?, health_enabled),
+		  gamification_enabled = COALESCE(?, gamification_enabled),
+		  weekly_digest_enabled = COALESCE(?, weekly_digest_enabled),
 		  tab_order = ?,
 		  food_target_calories = ?, food_target_carbs = ?, food_target_protein = ?, food_target_fat = ?,
 		  openai_api_key = ?, openai_url = ?, openai_model = ?,
@@ -479,7 +487,8 @@ func importSettings(ctx context.Context, tx *sql.Tx, d *VaultData) error {
 		  elevenlabs_api_key = ?, elevenlabs_agent_id = ?
 		WHERE id = 1`,
 		s.DismissedTZSuggestion,
-		f.Food, f.BP, f.Weight, f.Medication, f.Workout, f.Health, f.Gamification, f.WeeklyDigest,
+		nullBool(f.Food), nullBool(f.BP), nullBool(f.Weight), nullBool(f.Medication),
+		nullBool(f.Workout), nullBool(f.Health), nullBool(f.Gamification), nullBool(f.WeeklyDigest),
 		tabOrder,
 		ftCal, ftCarbs, ftProt, ftFat,
 		oa.APIKey, oa.URL, oa.Model, oa.VisionAPIKey, oa.VisionURL, oa.VisionModel,
@@ -489,6 +498,13 @@ func importSettings(ctx context.Context, tx *sql.Tx, d *VaultData) error {
 }
 
 // --- nullable SQL arg helpers ---
+
+func nullBool(b *bool) any {
+	if b == nil {
+		return nil
+	}
+	return *b
+}
 
 func nullTime(t *time.Time) any {
 	if t == nil {

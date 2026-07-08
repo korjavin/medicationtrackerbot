@@ -382,15 +382,19 @@ type VaultSettings struct {
 	MedReminderPref       *VaultMedReminderPref `json:"med_reminder_pref,omitempty"`
 }
 
+// VaultFeatures uses pointers so an absent flag (missing key, or a fresh
+// cloud account whose export emits `features: {}`) stays nil and is left
+// untouched on import — writing a zero-value false would silently disable the
+// section. A real per-mode export always populates all eight.
 type VaultFeatures struct {
-	Food         bool `json:"food"`
-	BP           bool `json:"bp"`
-	Weight       bool `json:"weight"`
-	Medication   bool `json:"medication"`
-	Workout      bool `json:"workout"`
-	Health       bool `json:"health"`
-	Gamification bool `json:"gamification"`
-	WeeklyDigest bool `json:"weekly_digest"`
+	Food         *bool `json:"food"`
+	BP           *bool `json:"bp"`
+	Weight       *bool `json:"weight"`
+	Medication   *bool `json:"medication"`
+	Workout      *bool `json:"workout"`
+	Health       *bool `json:"health"`
+	Gamification *bool `json:"gamification"`
+	WeeklyDigest *bool `json:"weekly_digest"`
 }
 
 type VaultFoodTargets struct {

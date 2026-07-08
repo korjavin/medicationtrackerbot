@@ -64,6 +64,37 @@ func TestVaultImportRoundTrip(t *testing.T) {
 	}
 }
 
+// TestVaultImportEmptyFeaturesPreservesEnabled pins the fix for the cross-mode
+// bug where a vault with an absent/empty `features` block (a fresh cloud
+// account exports `features: {}`) would unconditionally disable every section.
+// With nullable flags + COALESCE, absent flags leave the existing enabled
+// state untouched.
+func TestVaultImportEmptyFeaturesPreservesEnabled(t *testing.T) {
+	db, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	srv := newServer(db, "tok", "sec", 123, OIDCConfig{}, "bot", "")
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
+	ctx := context.Background()
+
+	// BP defaults enabled on a fresh migrated DB.
+	if on, err := db.Settings.GetBloodPressureEnabled(ctx); err != nil || !on {
+		t.Fatalf("precondition: bp enabled=%v err=%v", on, err)
+	}
+
+	v := Vault{Format: vaultFormat, Version: vaultVersion}
+	// Settings.Features left zero-valued (all nil pointers) == empty features.
+	if err := srv.importVault(ctx, 1, &v); err != nil {
+		t.Fatalf("importVault: %v", err)
+	}
+
+	if on, err := db.Settings.GetBloodPressureEnabled(ctx); err != nil || !on {
+		t.Fatalf("bp should remain enabled after empty-features import; enabled=%v err=%v", on, err)
+	}
+}
+
 // TestVaultDemoModeForbidden verifies the export/import endpoints refuse to run
 // under DEMO_MODE, where auth is bypassed: export would leak the operator's raw
 // integration API keys and import would let anyone wipe the shared demo data.

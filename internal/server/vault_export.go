@@ -644,30 +644,31 @@ func (s *Server) exportSettings(ctx context.Context, data *VaultData) error {
 
 func (s *Server) exportFeatures(ctx context.Context) (VaultFeatures, error) {
 	var f VaultFeatures
-	var err error
-	if f.Food, err = s.store.Settings.GetFoodIntakeEnabled(ctx); err != nil {
-		return f, fmt.Errorf("feature food: %w", err)
+	get := func(dst **bool, fn func(context.Context) (bool, error), name string) error {
+		v, err := fn(ctx)
+		if err != nil {
+			return fmt.Errorf("feature %s: %w", name, err)
+		}
+		*dst = &v
+		return nil
 	}
-	if f.BP, err = s.store.Settings.GetBloodPressureEnabled(ctx); err != nil {
-		return f, fmt.Errorf("feature bp: %w", err)
-	}
-	if f.Weight, err = s.store.Settings.GetWeightEnabled(ctx); err != nil {
-		return f, fmt.Errorf("feature weight: %w", err)
-	}
-	if f.Medication, err = s.store.Settings.GetMedicationEnabled(ctx); err != nil {
-		return f, fmt.Errorf("feature medication: %w", err)
-	}
-	if f.Workout, err = s.store.Settings.GetWorkoutEnabled(ctx); err != nil {
-		return f, fmt.Errorf("feature workout: %w", err)
-	}
-	if f.Health, err = s.store.Settings.GetHealthEnabled(ctx); err != nil {
-		return f, fmt.Errorf("feature health: %w", err)
-	}
-	if f.Gamification, err = s.store.Settings.GetGamificationEnabled(ctx); err != nil {
-		return f, fmt.Errorf("feature gamification: %w", err)
-	}
-	if f.WeeklyDigest, err = s.store.Settings.GetWeeklyDigestEnabled(ctx); err != nil {
-		return f, fmt.Errorf("feature weekly_digest: %w", err)
+	for _, g := range []struct {
+		dst  **bool
+		fn   func(context.Context) (bool, error)
+		name string
+	}{
+		{&f.Food, s.store.Settings.GetFoodIntakeEnabled, "food"},
+		{&f.BP, s.store.Settings.GetBloodPressureEnabled, "bp"},
+		{&f.Weight, s.store.Settings.GetWeightEnabled, "weight"},
+		{&f.Medication, s.store.Settings.GetMedicationEnabled, "medication"},
+		{&f.Workout, s.store.Settings.GetWorkoutEnabled, "workout"},
+		{&f.Health, s.store.Settings.GetHealthEnabled, "health"},
+		{&f.Gamification, s.store.Settings.GetGamificationEnabled, "gamification"},
+		{&f.WeeklyDigest, s.store.Settings.GetWeeklyDigestEnabled, "weekly_digest"},
+	} {
+		if err := get(g.dst, g.fn, g.name); err != nil {
+			return f, err
+		}
 	}
 	return f, nil
 }
