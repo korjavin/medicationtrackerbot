@@ -11,8 +11,10 @@ import (
 	"reflect"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store"
+	"github.com/korjavin/medicationtrackerbot/internal/store/settings"
 )
 
 // TestVaultImportRoundTrip is the bot-side half of the cross-runtime contract
@@ -347,5 +349,90 @@ func TestVaultImportReminderStateGamificationAndTZPlans(t *testing.T) {
 	}
 	if plans[1].Status != "PENDING_APPROVAL" || plans[1].ApprovedAt != nil || len(plans[1].Steps) != 2 {
 		t.Fatalf("newest tz plan lost fields: %+v", plans[1])
+	}
+}
+
+// TestVaultImportPreservesSecretsWhenAbsent pins the vault's only non-replace
+// import path: a secrets-free vault (exported with include_secrets=0, so
+// settings.integrations and api_tokens are absent) must leave the destination's
+// provider keys and minted API tokens working, while a secrets-bearing vault
+// replaces both.
+func TestVaultImportPreservesSecretsWhenAbsent(t *testing.T) {
+	db, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	srv := newServer(db, "tok", "sec", 123, OIDCConfig{}, "bot", "")
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
+	ctx := context.Background()
+
+	if err := db.Settings.SetIntegrationOpenAI(ctx, settings.IntegrationOpenAI{
+		APIKey: "sk-existing", URL: "https://existing.example", Model: "gpt-x",
+	}); err != nil {
+		t.Fatalf("seed openai: %v", err)
+	}
+	if _, err := db.Auth.CreateToken(ctx, "existing", "hash-existing"); err != nil {
+		t.Fatalf("seed token: %v", err)
+	}
+
+	// 1. Secrets-free vault: both blocks absent → both survive untouched.
+	if err := srv.importVault(ctx, 1, &Vault{Format: vaultFormat, Version: vaultVersion}); err != nil {
+		t.Fatalf("importVault (no secrets): %v", err)
+	}
+	oa, err := db.Settings.GetIntegrationOpenAI(ctx)
+	if err != nil {
+		t.Fatalf("get openai: %v", err)
+	}
+	if oa.APIKey != "sk-existing" || oa.URL != "https://existing.example" {
+		t.Fatalf("secrets-free import clobbered provider keys: %+v", oa)
+	}
+	toks, err := db.Auth.ListTokens(ctx)
+	if err != nil {
+		t.Fatalf("list tokens: %v", err)
+	}
+	if len(toks) != 1 || toks[0].Name != "existing" {
+		t.Fatalf("secrets-free import clobbered api tokens: %+v", toks)
+	}
+
+	// 2. Secrets-bearing vault: both blocks present → both replaced wholesale.
+	last := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
+	v := Vault{Format: vaultFormat, Version: vaultVersion}
+	v.Data.Settings.Integrations = &VaultIntegrations{
+		OpenAI: VaultOpenAI{APIKey: "sk-imported", URL: "https://imported.example", Model: "gpt-y"},
+	}
+	v.Data.APITokens = &[]VaultAPIToken{
+		{Name: "mcp", TokenHash: "hash-mcp", CreatedAt: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC), LastUsedAt: &last},
+		{Name: "cli", TokenHash: "hash-cli", CreatedAt: time.Date(2026, 2, 2, 3, 4, 5, 0, time.UTC)},
+	}
+	if err := srv.importVault(ctx, 1, &v); err != nil {
+		t.Fatalf("importVault (with secrets): %v", err)
+	}
+	if oa, err = db.Settings.GetIntegrationOpenAI(ctx); err != nil {
+		t.Fatalf("get openai: %v", err)
+	}
+	if oa.APIKey != "sk-imported" || oa.URL != "https://imported.example" {
+		t.Fatalf("secrets-bearing import did not replace provider keys: %+v", oa)
+	}
+	// The hash — not the plaintext — is what keeps a minted token authenticating.
+	if tok, err := db.Auth.GetTokenByHash(ctx, "hash-mcp"); err != nil || tok == nil {
+		t.Fatalf("imported token hash does not authenticate: tok=%v err=%v", tok, err)
+	}
+	if tok, err := db.Auth.GetTokenByHash(ctx, "hash-existing"); err != nil || tok != nil {
+		t.Fatalf("pre-import token survived a secrets-bearing (replace) import: %v err=%v", tok, err)
+	}
+	got, err := srv.buildVault(ctx, 1, true)
+	if err != nil {
+		t.Fatalf("buildVault: %v", err)
+	}
+	if got.Data.APITokens == nil || len(*got.Data.APITokens) != 2 {
+		t.Fatalf("api tokens did not round-trip: %+v", got.Data.APITokens)
+	}
+	if rt := (*got.Data.APITokens)[0]; rt.Name != "mcp" || rt.TokenHash != "hash-mcp" ||
+		rt.LastUsedAt == nil || !rt.LastUsedAt.Equal(last) || !rt.CreatedAt.Equal((*v.Data.APITokens)[0].CreatedAt) {
+		t.Fatalf("api token drift: %+v", rt)
+	}
+	if rt := (*got.Data.APITokens)[1]; rt.Name != "cli" || rt.LastUsedAt != nil {
+		t.Fatalf("api token drift: %+v", rt)
 	}
 }

@@ -122,6 +122,7 @@ func (s *Server) importVault(ctx context.Context, userID int64, v *Vault) error 
 		{"settings", func() error { return importSettings(ctx, tx, d) }},
 		{"reminder_state", func() error { return importReminderState(ctx, tx, userID, d) }},
 		{"gamification", func() error { return importGamification(ctx, tx, userID, d) }},
+		{"api_tokens", func() error { return importAPITokens(ctx, tx, d) }},
 	}
 	for _, st := range steps {
 		if err := st.fn(); err != nil {
@@ -556,13 +557,6 @@ func importSettings(ctx context.Context, tx *sql.Tx, d *VaultData) error {
 		ftCal, ftCarbs, ftProt, ftFat = t.Calories, t.Carbs, t.Protein, t.Fat
 	}
 
-	// TODO(task 4): an absent integrations block must leave the target's keys
-	// untouched. Until then, preserve the pre-pointer behaviour (write blanks).
-	ig := s.Integrations
-	if ig == nil {
-		ig = &VaultIntegrations{}
-	}
-	oa, fi, el := ig.OpenAI, ig.Food, ig.ElevenLabs
 	f := s.Features
 
 	// Feature flags are COALESCEd against the existing row so an absent flag
@@ -580,21 +574,58 @@ func importSettings(ctx context.Context, tx *sql.Tx, d *VaultData) error {
 		  gamification_enabled = COALESCE(?, gamification_enabled),
 		  weekly_digest_enabled = COALESCE(?, weekly_digest_enabled),
 		  tab_order = ?,
-		  food_target_calories = ?, food_target_carbs = ?, food_target_protein = ?, food_target_fat = ?,
-		  openai_api_key = ?, openai_url = ?, openai_model = ?,
-		  openai_vision_api_key = ?, openai_vision_url = ?, openai_vision_model = ?,
-		  food_api_key = ?, food_url = ?, food_domain = ?,
-		  elevenlabs_api_key = ?, elevenlabs_agent_id = ?
+		  food_target_calories = ?, food_target_carbs = ?, food_target_protein = ?, food_target_fat = ?
 		WHERE id = 1`,
 		s.DismissedTZSuggestion,
 		nullBool(f.Food), nullBool(f.BP), nullBool(f.Weight), nullBool(f.Medication),
 		nullBool(f.Workout), nullBool(f.Health), nullBool(f.Gamification), nullBool(f.WeeklyDigest),
 		tabOrder,
-		ftCal, ftCarbs, ftProt, ftFat,
+		ftCal, ftCarbs, ftProt, ftFat)
+	if err != nil {
+		return err
+	}
+
+	// Provider keys are the secret half: an absent block (include_secrets=0
+	// export) leaves the destination's keys alone, a present one replaces them.
+	// This is the vault's only non-replace import path — see docs/vault-format.md.
+	ig := s.Integrations
+	if ig == nil {
+		return nil
+	}
+	oa, fi, el := ig.OpenAI, ig.Food, ig.ElevenLabs
+	_, err = tx.ExecContext(ctx, `
+		UPDATE settings SET
+		  openai_api_key = ?, openai_url = ?, openai_model = ?,
+		  openai_vision_api_key = ?, openai_vision_url = ?, openai_vision_model = ?,
+		  food_api_key = ?, food_url = ?, food_domain = ?,
+		  elevenlabs_api_key = ?, elevenlabs_agent_id = ?
+		WHERE id = 1`,
 		oa.APIKey, oa.URL, oa.Model, oa.VisionAPIKey, oa.VisionURL, oa.VisionModel,
 		fi.APIKey, fi.URL, fi.Domain,
 		el.APIKey, el.AgentID)
 	return err
+}
+
+// importAPITokens mirrors the integrations rule: an absent api_tokens block
+// (include_secrets=0) leaves the destination's tokens minted and working; a
+// present block replaces them wholesale. api_tokens is deliberately NOT in
+// WipeUserTx — the wipe runs before this step, and a secrets-free vault must
+// not silently de-authorize the target's MCP clients.
+func importAPITokens(ctx context.Context, tx *sql.Tx, d *VaultData) error {
+	if d.APITokens == nil {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM api_tokens`); err != nil {
+		return err
+	}
+	for _, t := range *d.APITokens {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO api_tokens (name, token_hash, created_at, last_used_at) VALUES (?,?,?,?)`,
+			t.Name, t.TokenHash, rfc3339(t.CreatedAt), nullTimeRFC(t.LastUsedAt)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // --- nullable SQL arg helpers ---

@@ -84,8 +84,8 @@ Locked decisions (user-confirmed 2026-07-08):
 
 ### Task 4: API tokens + the secrets toggle's import semantics
 
-- [ ] `importAPITokens`: when `data.api_tokens` is **absent**, do nothing (existing tokens survive). When **present**, `DELETE FROM api_tokens` then insert every row (`name`, `token_hash`, `created_at`, `last_used_at`) — replace semantics scoped to the block. Same rule for `settings.integrations`: absent → skip the provider-key columns in the `UPDATE settings` (they're currently unconditional in `importSettings`, so this needs a split or COALESCE-with-nil, matching the `nullBool` feature-flag precedent).
-- [ ] Test: `TestVaultImportPreservesSecretsWhenAbsent` (both directions).
+- [x] `importAPITokens`: when `data.api_tokens` is **absent**, do nothing (existing tokens survive). When **present**, `DELETE FROM api_tokens` then insert every row (`name`, `token_hash`, `created_at`, `last_used_at`) — replace semantics scoped to the block. Same rule for `settings.integrations`: absent → skip the provider-key columns in the `UPDATE settings`. ⚠️ Implemented as a **split**, not COALESCE-with-nil: the provider keys move to a second `UPDATE settings` that only runs when `Integrations != nil`. COALESCE can't express "leave alone" here because an intentionally-cleared key is the empty string, not NULL.
+- [x] Test: `TestVaultImportPreservesSecretsWhenAbsent` (both directions). ✅ `TZ=UTC go test ./internal/server` fully green — `TestVaultImportRoundTrip`, red since Task 1 on the `api_tokens` block, now passes.
 
 ### Task 5: The wipe/vault agreement guard
 
