@@ -1,7 +1,7 @@
 {
   "format": "medtracker-vault",
   "version": 1,
-  "exported_at": "2026-07-07T23:46:13Z",
+  "exported_at": "2026-07-08T10:31:22Z",
   "data": {
     "medications": {
       "items": [
@@ -95,12 +95,20 @@
           "notes": ""
         }
       ],
-      "goal": {
-        "target_weight": 78,
-        "target_date": "2026-12-31",
-        "set_at": "2026-06-01T09:00:00Z",
-        "start_weight": 85
-      },
+      "goals": [
+        {
+          "target_weight": 80,
+          "target_date": "2026-09-30",
+          "set_at": "2026-03-01T09:00:00Z",
+          "start_weight": 88
+        },
+        {
+          "target_weight": 78,
+          "target_date": "2026-12-31",
+          "set_at": "2026-06-01T09:00:00Z",
+          "start_weight": 85
+        }
+      ],
       "unit_pref": "kg"
     },
     "food": {

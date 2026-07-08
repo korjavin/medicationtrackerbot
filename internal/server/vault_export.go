@@ -191,20 +191,39 @@ func (s *Server) exportWeight(ctx context.Context, userID int64, data *VaultData
 			Notes:      wl.Notes,
 		})
 	}
-	goal, err := s.store.Weight.GetGoal(ctx, userID)
+	// Goal history is append-only user data — export all of it, oldest first
+	// (ListGoals returns newest first).
+	goals, err := s.store.Weight.ListGoals(ctx, userID, 0)
 	if err != nil {
-		return fmt.Errorf("weight goal: %w", err)
+		return fmt.Errorf("list weight goals: %w", err)
 	}
-	if goal != nil && goal.Goal != nil {
-		vg := &VaultWeightGoal{
-			TargetWeight: *goal.Goal,
-			SetAt:        derefTime(goal.GoalSetAt),
-			StartWeight:  goal.GoalStartWeight,
+	for i := len(goals) - 1; i >= 0; i-- {
+		g := goals[i]
+		data.Weight.Goals = append(data.Weight.Goals, VaultWeightGoal{
+			TargetWeight: g.TargetWeight,
+			TargetDate:   g.TargetDate,
+			SetAt:        g.SetAt,
+			StartWeight:  g.StartWeight,
+		})
+	}
+	if len(goals) == 0 {
+		// No history row: a pre-history user may still have a goal in the
+		// legacy singleton settings columns, which GetGoal falls back to.
+		goal, gerr := s.store.Weight.GetGoal(ctx, userID)
+		if gerr != nil {
+			return fmt.Errorf("weight goal: %w", gerr)
 		}
-		if goal.GoalDate != nil {
-			vg.TargetDate = goal.GoalDate.Format("2006-01-02")
+		if goal != nil && goal.Goal != nil {
+			vg := VaultWeightGoal{
+				TargetWeight: *goal.Goal,
+				SetAt:        derefTime(goal.GoalSetAt),
+				StartWeight:  goal.GoalStartWeight,
+			}
+			if goal.GoalDate != nil {
+				vg.TargetDate = goal.GoalDate.Format("2006-01-02")
+			}
+			data.Weight.Goals = append(data.Weight.Goals, vg)
 		}
-		data.Weight.Goal = vg
 	}
 	unit, err := s.store.Weight.GetUnitPreference(ctx)
 	if err != nil {

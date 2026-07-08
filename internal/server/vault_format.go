@@ -109,9 +109,12 @@ type VaultBPGoal struct {
 // --- weight ---
 
 type VaultWeight struct {
-	Logs     []VaultWeightLog `json:"logs"`
-	Goal     *VaultWeightGoal `json:"goal"`
-	UnitPref *string          `json:"unit_pref"`
+	Logs []VaultWeightLog `json:"logs"`
+	// Goals is the full append-only goal history, oldest first. Replace-import
+	// restores every row; the legacy singleton settings.weight_goal{,_date}
+	// columns are rebuilt from the newest one.
+	Goals    []VaultWeightGoal `json:"goals"`
+	UnitPref *string           `json:"unit_pref"`
 }
 
 type VaultWeightLog struct {

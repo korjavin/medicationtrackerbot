@@ -92,12 +92,20 @@
           "notes": "post-run"
         }
       ],
-      "goal": {
-        "target_weight": 78.0,
-        "target_date": "2026-12-31",
-        "set_at": "2026-06-01T09:00:00Z",
-        "start_weight": 85.0
-      },
+      "goals": [
+        {
+          "target_weight": 80.0,
+          "target_date": "2026-09-30",
+          "set_at": "2026-03-01T09:00:00Z",
+          "start_weight": 88.0
+        },
+        {
+          "target_weight": 78.0,
+          "target_date": "2026-12-31",
+          "set_at": "2026-06-01T09:00:00Z",
+          "start_weight": 85.0
+        }
+      ],
       "unit_pref": "kg"
     },
     "food": {

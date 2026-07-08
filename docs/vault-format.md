@@ -104,7 +104,7 @@ is called out as unix-seconds or milliseconds, it is an **RFC3339 string**.
 ```json
 "weight": {
   "logs": [ { log } ],
-  "goal": { goal } | null,
+  "goals": [ { goal } ],
   "unit_pref": "kg" | "lb" | null
 }
 ```
@@ -112,8 +112,10 @@ is called out as unix-seconds or milliseconds, it is an **RFC3339 string**.
 - **log** (leaf, no `id`) — `measured_at` (RFC3339), `weight` (num), `body_fat`
   (num|null), `muscle_mass` (num|null), `notes` (str). `weight_trend` is **derived**
   (rolling average) — omitted.
-- **goal** — `target_weight` (num), `target_date` (`YYYY-MM-DD`), `set_at` (RFC3339),
-  `start_weight` (num|null).
+- **goals** (leaf, no `id`) — the full append-only goal history, **oldest first**.
+  Each: `target_weight` (num), `target_date` (`YYYY-MM-DD`), `set_at` (RFC3339),
+  `start_weight` (num|null). The newest row is the current goal; bot-mode import
+  rebuilds the legacy singleton `settings.weight_goal{,_date}` columns from it.
 
 ### `food`
 

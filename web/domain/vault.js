@@ -28,7 +28,9 @@
 //     manual (taken_at == scheduled_at) mint `intake-manual-...`.
 //   - vitals hr/spo2/stress are day-batched ({day, samples:[...]}); the vault
 //     flattens them to per-sample arrays and this packs/unpacks by UTC day.
-//   - singletons: bpgoal, weightgoal, weight-unit, settings, features,
+//   - weightgoal is append-only history (many rows), not a singleton — the
+//     vault carries `weight.goals[]` oldest-first; only the newest is current.
+//   - singletons: bpgoal, weight-unit, settings, features,
 //     taborder, foodtargets, integrations, medreminderpref, tzplan-current.
 //   - timezone_history has no cloud consumer, so imported entries land in a
 //     passthrough `tzhistory` store purely for backup fidelity.
@@ -131,12 +133,12 @@ export function recordsToVault(records, { now } = {}) {
   };
 
   // --- weight ---
-  const weightGoal = sortBy(pick('weightgoal'), (r) => r.set_at).slice(-1)[0] || null;
   const unitRec = singleton('weightunitpref', 'weight-unit');
   const weight = {
     logs: sortBy(pick('weight'), (r) => r.measured_at)
       .map((r) => stripMeta(r, ['weight_trend'])),
-    goal: weightGoal ? stripMeta(weightGoal) : null,
+    // Append-only goal history, oldest first — not just the current goal.
+    goals: sortBy(pick('weightgoal'), (r) => r.set_at).map((r) => stripMeta(r)),
     unit_pref: unitRec ? (unitRec.unit === 'lb' ? 'lb' : 'kg') : null,
   };
 
@@ -336,7 +338,7 @@ export function vaultToRecords(vault, { now } = {}) {
     prevTrend = trend;
     push('weight', `weight-${mintNum()}`, { ...log, weight_trend: trend });
   }
-  if (weight.goal) push('weightgoal', `weightgoal-${mintNum()}`, { ...weight.goal });
+  for (const g of weight.goals || []) push('weightgoal', `weightgoal-${mintNum()}`, { ...g });
   if (weight.unit_pref) push('weightunitpref', 'weight-unit', { unit: weight.unit_pref === 'lb' ? 'lb' : 'kg' });
 
   // --- food (products get a namespaced recordId so their small bot ids can't

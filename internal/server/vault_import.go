@@ -197,14 +197,21 @@ func importWeight(ctx context.Context, tx *sql.Tx, userID int64, d *VaultData) e
 	// is empty, so a replace-import with no goal must clear them (as importBP
 	// does for bp_target_*) — otherwise a pre-import goal resurrects.
 	var wGoal, wGoalDate any
-	if g := d.Weight.Goal; g != nil {
+	var latest *VaultWeightGoal
+	for i := range d.Weight.Goals {
+		g := &d.Weight.Goals[i]
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO weight_goals (user_id, set_at_unix, target_weight, target_date, start_weight)
 			VALUES (?,?,?,?,?)`,
 			userID, g.SetAt.UTC().Unix(), g.TargetWeight, g.TargetDate, nullFloat(g.StartWeight)); err != nil {
 			return err
 		}
-		wGoal, wGoalDate = g.TargetWeight, g.TargetDate
+		if latest == nil || !g.SetAt.Before(latest.SetAt) {
+			latest = g
+		}
+	}
+	if latest != nil {
+		wGoal, wGoalDate = latest.TargetWeight, latest.TargetDate
 	}
 	if _, err := tx.ExecContext(ctx,
 		`UPDATE settings SET weight_goal = ?, weight_goal_date = ? WHERE id = 1`,
