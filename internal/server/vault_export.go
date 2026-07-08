@@ -613,7 +613,7 @@ func (s *Server) exportTZ(ctx context.Context, data *VaultData) error {
 				})
 			}
 		}
-		data.TZ.TransitionPlan = vp
+		data.TZ.TransitionPlans = append(data.TZ.TransitionPlans, *vp)
 	}
 	return nil
 }
@@ -670,7 +670,7 @@ func (s *Server) exportSettings(ctx context.Context, data *VaultData) error {
 	if err != nil {
 		return fmt.Errorf("integration elevenlabs: %w", err)
 	}
-	data.Settings.Integrations = VaultIntegrations{
+	data.Settings.Integrations = &VaultIntegrations{
 		OpenAI: VaultOpenAI{
 			APIKey:       oa.APIKey,
 			URL:          oa.URL,

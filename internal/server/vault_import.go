@@ -443,7 +443,7 @@ func importTZ(ctx context.Context, tx *sql.Tx, d *VaultData) error {
 			}
 		}
 	}
-	if p := d.TZ.TransitionPlan; p != nil {
+	for _, p := range d.TZ.TransitionPlans {
 		steps := make([]tzreschedule.TransitionStep, 0, len(p.Steps))
 		for _, s := range p.Steps {
 			steps = append(steps, tzreschedule.TransitionStep{
@@ -487,7 +487,13 @@ func importSettings(ctx context.Context, tx *sql.Tx, d *VaultData) error {
 		ftCal, ftCarbs, ftProt, ftFat = t.Calories, t.Carbs, t.Protein, t.Fat
 	}
 
-	oa, fi, el := s.Integrations.OpenAI, s.Integrations.Food, s.Integrations.ElevenLabs
+	// TODO(task 4): an absent integrations block must leave the target's keys
+	// untouched. Until then, preserve the pre-pointer behaviour (write blanks).
+	ig := s.Integrations
+	if ig == nil {
+		ig = &VaultIntegrations{}
+	}
+	oa, fi, el := ig.OpenAI, ig.Food, ig.ElevenLabs
 	f := s.Features
 
 	// Feature flags are COALESCEd against the existing row so an absent flag
