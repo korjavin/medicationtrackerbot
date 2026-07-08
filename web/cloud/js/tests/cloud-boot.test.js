@@ -136,7 +136,7 @@ describe('CloudVault.importAll data-loss guard (null cursor)', () => {
     };
   }
   const MANAGED = new Set(['note', 'bp']);
-  const VAULT_MOD = { vaultToRecords: () => [], VAULT_MANAGED_TYPES: MANAGED };
+  const VAULT_MOD = { vaultToRecords: () => [], managedTypesForImport: () => MANAGED };
   const VAULT_JSON = '{"format":"medtracker-vault","version":1,"data":{}}';
 
   async function bootWithSync(sync) {

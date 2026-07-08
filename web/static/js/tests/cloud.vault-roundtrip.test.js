@@ -9,7 +9,9 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { recordsToVault, vaultToRecords, VAULT_MANAGED_TYPES } from '../../../../web/domain/vault.js';
+import {
+  recordsToVault, vaultToRecords, VAULT_MANAGED_TYPES, managedTypesForImport,
+} from '../../../../web/domain/vault.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
@@ -64,10 +66,50 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     for (const [type, id] of [
       ['bpgoal', 'bpgoal'], ['weightunitpref', 'weight-unit'], ['settings', 'settings'],
       ['features', 'features'], ['taborder', 'taborder'], ['foodtargets', 'foodtargets'],
-      ['integrations', 'integrations'], ['medreminderpref', 'medreminderpref'], ['tzplan', 'tzplan-current'],
+      ['integrations', 'integrations'], ['medreminderpref', 'medreminderpref'],
+      ['bpreminderpref', 'bpreminderpref'], ['weightreminderpref', 'weightreminderpref'],
+      ['gamification', 'gamification'], ['apitokens', 'apitokens'],
     ]) {
       expect(idsByType(type)).toEqual([id]);
     }
+
+    // Two tz plans: the PENDING_APPROVAL one keeps the recordId the live readers
+    // look up; the older COMPLETED one becomes passthrough history.
+    expect(idsByType('tzplan').sort()).toEqual(['tzplan-current', 'tzplanhistory-1']);
+    const current = records.find((r) => r.recordId === 'tzplan-current');
+    expect(current.status).toBe('PENDING_APPROVAL');
+    // Bot-only plan metadata rides along on the body so it round-trips.
+    expect(current.plan_hash).toBe('hash-pending-0002');
+    const past = records.find((r) => r.recordId === 'tzplanhistory-1');
+    expect([past.status, past.user_action, past.notified_at])
+      .toEqual(['COMPLETED', 'APPROVED', '2026-05-02T09:05:00Z']);
+
+    // Reminder prefs carry the bot-only snooze fields verbatim (no cloud reader).
+    const bpPref = records.find((r) => r.recordType === 'bpreminderpref');
+    expect(bpPref.snoozed_until).toBe('2026-07-08T18:00:00Z');
+    expect(bpPref.dont_remind_until).toBe(null);
+    expect(bpPref.preferred_reminder_hour).toBe(20);
+  });
+
+  it('omits the secret-bearing blocks when includeSecrets is false, and keeps them unmanaged on import', () => {
+    const records = vaultToRecords(fixture, { now: NOW });
+    const bare = recordsToVault(records, { now: NOW, includeSecrets: false });
+    expect(bare.data.api_tokens).toBeUndefined();
+    expect('integrations' in bare.data.settings).toBe(false);
+    // Everything else survives the toggle.
+    expect(bare.data.gamification).toEqual(fixture.data.gamification);
+    expect(bare.data.settings.bp_reminder).toEqual(fixture.data.settings.bp_reminder);
+
+    // A secrets-free vault must not wipe the destination's keys/tokens, so those
+    // two record types drop out of the managed (= replaced) set. Mirrors the
+    // bot's asymmetric importAPITokens / importSettings rule.
+    const narrowed = managedTypesForImport(bare);
+    expect(narrowed.has('integrations')).toBe(false);
+    expect(narrowed.has('apitokens')).toBe(false);
+    expect(narrowed.has('gamification')).toBe(true);
+    const full = managedTypesForImport(fixture);
+    expect(full.has('integrations')).toBe(true);
+    expect(full.has('apitokens')).toBe(true);
   });
 
   it('packs vitals samples into one day-batch record per UTC calendar day', () => {

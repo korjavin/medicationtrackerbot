@@ -31,11 +31,21 @@
 //   - weightgoal is append-only history (many rows), not a singleton — the
 //     vault carries `weight.goals[]` oldest-first; only the newest is current.
 //   - singletons: bpgoal, weight-unit, settings, features,
-//     taborder, foodtargets, integrations, medreminderpref, tzplan-current.
-//   - timezone_history has no cloud consumer, so imported entries land in a
-//     passthrough `tzhistory` store purely for backup fidelity.
-// The `nk` push key + device/reminder plumbing are NOT vault-managed (see
-// VAULT_MANAGED_TYPES); importAll preserves them across the replace.
+//     taborder, foodtargets, integrations, medreminderpref, bpreminderpref,
+//     weightreminderpref, gamification, apitokens, tzplan-current.
+//   - the active/pending tz plan stays at `tzplan-current` (what tzplan.js and
+//     medintake.js look up by exact recordId); every older plan lands on a
+//     `tzplanhistory-<idx>` recordId of the same `tzplan` type, ignored by
+//     those readers and re-merged on export.
+//   - timezone_history, gamification and api_tokens have no cloud consumer, so
+//     imported entries land in passthrough `tzhistory` / `gamification` /
+//     `apitokens` stores purely for backup fidelity. The reminder-pref bodies
+//     likewise carry the bot-only snoozed_until / dont_remind_until fields
+//     verbatim so a cloud round-trip doesn't drop them.
+// The `nk` push key + device/voice plumbing are NOT vault-managed (see
+// VAULT_MANAGED_TYPES); importAll preserves them across the replace. The two
+// secret-bearing types (integrations, apitokens) are managed only when the
+// vault actually carries them — see managedTypesForImport.
 
 import { calculateBPCategory } from './bp.js';
 import { calculateWeightTrend } from './weight.js';
@@ -44,9 +54,8 @@ export const VAULT_FORMAT = 'medtracker-vault';
 export const VAULT_VERSION = 1;
 
 // Every recordType this module reads on export / writes on import. importAll
-// preserves records whose type is NOT here (nk, bpreminderpref,
-// weightreminderpref, voiceprovisioning) so a replace never drops device or
-// crypto state.
+// preserves records whose type is NOT here (nk, voiceprovisioning) so a replace
+// never drops device or crypto state.
 export const VAULT_MANAGED_TYPES = new Set([
   'medication', 'intake', 'restock',
   'bp', 'bpgoal',
@@ -58,7 +67,22 @@ export const VAULT_MANAGED_TYPES = new Set([
   'note',
   'tzplan', 'tzhistory',
   'settings', 'features', 'taborder', 'foodtargets', 'integrations', 'medreminderpref',
+  'bpreminderpref', 'weightreminderpref', 'gamification', 'apitokens',
 ]);
+
+// managedTypesForImport narrows VAULT_MANAGED_TYPES for one vault file: the two
+// secret-bearing blocks (settings.integrations, api_tokens) import with
+// asymmetric semantics — absent means "the export was taken with
+// include_secrets=0, leave the destination's values alone", so their record
+// types must NOT be wiped by the replace. Mirrors importAPITokens /
+// importSettings in internal/server/vault_import.go.
+export function managedTypesForImport(vault) {
+  const types = new Set(VAULT_MANAGED_TYPES);
+  const data = (vault && vault.data) || {};
+  if (!(data.settings && data.settings.integrations)) types.delete('integrations');
+  if (!data.api_tokens) types.delete('apitokens');
+  return types;
+}
 
 const META_FIELDS = new Set(['recordType', 'recordId', 'clientTs', 'deleted']);
 
@@ -103,7 +127,7 @@ function sortBy(arr, keyFn) {
 // Export: records -> vault
 // ---------------------------------------------------------------------------
 
-export function recordsToVault(records, { now } = {}) {
+export function recordsToVault(records, { now, includeSecrets = true } = {}) {
   const byType = new Map();
   for (const rec of records) {
     if (rec.deleted) continue;
@@ -220,13 +244,12 @@ export function recordsToVault(records, { now } = {}) {
     notes: sortBy(pick('note'), (r) => r.created_at).map((r) => stripMeta(r)),
   };
 
-  // --- tz ---
+  // --- tz (current plan + tzplanhistory-* merged back into one oldest-first list) ---
   const general = singleton('settings', 'settings');
-  const planRec = singleton('tzplan', 'tzplan-current');
   const tz = {
     current: general ? (general.timezone || null) : null,
     history: sortBy(pick('tzhistory'), (r) => r.changed_at).map((r) => stripMeta(r)),
-    transition_plan: planRec ? planToVault(planRec) : null,
+    transition_plans: sortBy(pick('tzplan'), (r) => r.created_at).map(planToVault),
   };
 
   // --- settings ---
@@ -251,14 +274,45 @@ export function recordsToVault(records, { now } = {}) {
     integrations: integrationsRec ? stripMeta(integrationsRec) : null,
     med_reminder_pref: medreminderRec ? { enabled: !!medreminderRec.enabled } : null,
   };
+  const bpReminderRec = singleton('bpreminderpref', 'bpreminderpref');
+  const weightReminderRec = singleton('weightreminderpref', 'weightreminderpref');
+  if (bpReminderRec) settings.bp_reminder = reminderToVault(bpReminderRec);
+  if (weightReminderRec) settings.weight_reminder = reminderToVault(weightReminderRec);
+  // include_secrets=0: omit the block entirely (absent, not `null`/`{}` — only
+  // absent means "leave the destination's provider keys alone" on import).
+  if (!includeSecrets) delete settings.integrations;
+
+  // --- gamification / api_tokens (passthrough; no cloud reader) ---
+  const gamRec = singleton('gamification', 'gamification');
+  const gamification = {
+    targets: (gamRec && gamRec.targets) || [],
+    ledger: (gamRec && gamRec.ledger) || [],
+    state: (gamRec && gamRec.state) || null,
+  };
+  const tokensRec = singleton('apitokens', 'apitokens');
+
+  const data = {
+    medications, bp, weight, food, workouts, vitals, diary, tz, settings, gamification,
+  };
+  if (includeSecrets && tokensRec) data.api_tokens = tokensRec.tokens || [];
 
   return {
     format: VAULT_FORMAT,
     version: VAULT_VERSION,
     exported_at: toRFC3339(now ?? 0),
-    data: {
-      medications, bp, weight, food, workouts, vitals, diary, tz, settings,
-    },
+    data,
+  };
+}
+
+// reminderToVault emits the four vault fields from a bp/weight reminder-pref
+// record. snoozed_until / dont_remind_until have no cloud feature behind them —
+// importAll writes them onto the body so they read back here unchanged.
+function reminderToVault(rec) {
+  return {
+    enabled: !!rec.enabled,
+    preferred_reminder_hour: rec.preferred_reminder_hour,
+    snoozed_until: rec.snoozed_until ?? null,
+    dont_remind_until: rec.dont_remind_until ?? null,
   };
 }
 
@@ -270,6 +324,11 @@ function planToVault(rec) {
     created_at: rec.created_at,
   };
   if (rec.approved_at) out.approved_at = rec.approved_at;
+  // Passthrough bot-only plan metadata — no cloud reader, carried for fidelity.
+  if (rec.notified_at) out.notified_at = rec.notified_at;
+  out.plan_hash = rec.plan_hash || '';
+  out.inputs_json = rec.inputs_json || '';
+  if (rec.user_action) out.user_action = rec.user_action;
   out.steps = (Array.isArray(rec.steps) ? rec.steps : []).map((s) => ({
     medication_id: s.medicationId,
     med_name: s.medName,
@@ -386,7 +445,19 @@ export function vaultToRecords(vault, { now } = {}) {
   const tz = data.tz || {};
   let historyIdx = 0;
   for (const h of tz.history || []) push('tzhistory', `tzhistory-${historyIdx += 1}`, { ...h });
-  if (tz.transition_plan) push('tzplan', 'tzplan-current', planFromVault(tz.transition_plan));
+  // The newest active/pending plan keeps the `tzplan-current` recordId the live
+  // readers look up (tzplan.js, medintake.js); older/finished plans are carried
+  // as tzplanhistory-<idx> of the same type, invisible to those exact-id reads.
+  const plans = sortBy(tz.transition_plans || [], (p) => p.created_at);
+  let currentIdx = -1;
+  plans.forEach((p, i) => {
+    if (p.status === 'PENDING_APPROVAL' || p.status === 'APPROVED') currentIdx = i;
+  });
+  let planIdx = 0;
+  plans.forEach((p, i) => {
+    const recordId = i === currentIdx ? 'tzplan-current' : `tzplanhistory-${planIdx += 1}`;
+    push('tzplan', recordId, planFromVault(p));
+  });
 
   // --- settings ---
   const settings = data.settings || {};
@@ -399,8 +470,31 @@ export function vaultToRecords(vault, { now } = {}) {
   if (settings.food_targets) push('foodtargets', 'foodtargets', { ...settings.food_targets });
   if (settings.integrations) push('integrations', 'integrations', { ...settings.integrations });
   if (settings.med_reminder_pref) push('medreminderpref', 'medreminderpref', { enabled: !!settings.med_reminder_pref.enabled });
+  if (settings.bp_reminder) push('bpreminderpref', 'bpreminderpref', reminderFromVault(settings.bp_reminder));
+  if (settings.weight_reminder) push('weightreminderpref', 'weightreminderpref', reminderFromVault(settings.weight_reminder));
+
+  // --- gamification / api_tokens (passthrough singletons; absent api_tokens
+  // leaves the destination's tokens alone — see managedTypesForImport) ---
+  const gam = data.gamification;
+  if (gam) {
+    push('gamification', 'gamification', {
+      targets: gam.targets || [], ledger: gam.ledger || [], state: gam.state || null,
+    });
+  }
+  if (data.api_tokens) push('apitokens', 'apitokens', { tokens: [...data.api_tokens] });
 
   return out;
+}
+
+// reminderFromVault keeps the bot-only snoozed_until / dont_remind_until on the
+// record body (no cloud reader touches them) so the next export round-trips.
+function reminderFromVault(st) {
+  return {
+    enabled: !!st.enabled,
+    preferred_reminder_hour: st.preferred_reminder_hour,
+    snoozed_until: st.snoozed_until ?? null,
+    dont_remind_until: st.dont_remind_until ?? null,
+  };
 }
 
 function planFromVault(plan) {
@@ -419,6 +513,10 @@ function planFromVault(plan) {
     })),
   };
   if (plan.approved_at) body.approved_at = plan.approved_at;
+  if (plan.notified_at) body.notified_at = plan.notified_at;
+  if (plan.plan_hash) body.plan_hash = plan.plan_hash;
+  if (plan.inputs_json) body.inputs_json = plan.inputs_json;
+  if (plan.user_action) body.user_action = plan.user_action;
   return body;
 }
 

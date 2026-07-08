@@ -94,10 +94,10 @@ Locked decisions (user-confirmed 2026-07-08):
 
 ### Task 6: Cloud-side parity (`web/domain/vault.js`)
 
-- [ ] `exportAll(records, { includeSecrets = true })`: emit `settings.bp_reminder` / `weight_reminder` from the `bpreminderpref` / `weightreminderpref` records (verbatim body, so importer-written `snoozed_until` etc. round-trip); emit `gamification` / `api_tokens` from passthrough records; emit `tz.transition_plans` from `tzplan-current` + `tzplanhistory-*`. When `includeSecrets` is false, omit `settings.integrations` and `api_tokens`.
-- [ ] `importAll`: write the reminder pref records (preserving the bot-only fields on the body), passthrough `gamification` / `apitokens` singletons, `tzplanhistory-<idx>` per non-current plan, and keep the active/pending plan at `tzplan-current`. Add every new type to `VAULT_MANAGED_TYPES` **except** the ones that must survive a replace; when `api_tokens` is absent from the vault, do not delete the existing `apitokens` record (mirror the bot's asymmetric rule).
-- [ ] Update the record-inventory comment block at the top of the module.
-- [ ] Test: `cloud.vault-roundtrip.test.js` deep-equal against the enriched fixture + new recordId assertions + a `includeSecrets: false` case.
+- [x] `exportAll(records, { includeSecrets = true })`: emit `settings.bp_reminder` / `weight_reminder` from the `bpreminderpref` / `weightreminderpref` records (verbatim body, so importer-written `snoozed_until` etc. round-trip); emit `gamification` / `api_tokens` from passthrough records; emit `tz.transition_plans` from `tzplan-current` + `tzplanhistory-*`. When `includeSecrets` is false, omit `settings.integrations` and `api_tokens`. ⚠️ Implemented on `recordsToVault(records, {now, includeSecrets})`; threading it through `CloudVault.exportAll` is Task 7's second bullet.
+- [x] `importAll`: write the reminder pref records (preserving the bot-only fields on the body), passthrough `gamification` / `apitokens` singletons, `tzplanhistory-<idx>` per non-current plan, and keep the active/pending plan at `tzplan-current`. Add every new type to `VAULT_MANAGED_TYPES` **except** the ones that must survive a replace; when `api_tokens` is absent from the vault, do not delete the existing `apitokens` record (mirror the bot's asymmetric rule). ⚠️ The "except" is per-file, not static: `managedTypesForImport(vault)` narrows the set by dropping `integrations` / `apitokens` when the vault omits them (a static exclusion would make a secrets-bearing vault unable to *replace* them). `cloud-boot.js` importAll now calls it; its test stub updated.
+- [x] Update the record-inventory comment block at the top of the module.
+- [x] Test: `cloud.vault-roundtrip.test.js` deep-equal against the enriched fixture + new recordId assertions + a `includeSecrets: false` case. ✅ `pnpm test` green. ⚠️ Two fixture fixes were needed for the strict cross-runtime deep-equal: `tests/fixtures/vault-v1-botexport.json` regenerated (Task 8's last bullet, pulled forward — it still carried the old `transition_plan` shape) and `tests/fixtures/vault-v1.json`'s gamification targets reordered to the exporter's canonical `metric_key ASC` (the Go round-trip is order-insensitive, the Vitest one is not).
 
 ### Task 7: Settings UI checkbox
 
@@ -109,4 +109,4 @@ Locked decisions (user-confirmed 2026-07-08):
 
 - [ ] `docs/api.md`: `GET /api/export?include_secrets=0|1`.
 - [ ] `docs/features.md` + `docs/cloud-mode.md`: the vault now carries reminder prefs, gamification, full tz-plan history and API tokens; the toggle and its non-replace import semantics; the one intentionally-skipped table and why.
-- [ ] Regenerate `tests/fixtures/vault-v1-botexport.json`.
+- [x] Regenerate `tests/fixtures/vault-v1-botexport.json`. ➕ done in Task 6 (the Vitest cross-runtime test needed it).

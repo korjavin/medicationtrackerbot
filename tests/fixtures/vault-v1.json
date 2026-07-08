@@ -475,20 +475,20 @@
     "gamification": {
       "targets": [
         {
-          "metric_key": "steps",
-          "low_val": 6000.0,
-          "high_val": 12000.0,
-          "falloff": 2000.0,
-          "mode": "range",
-          "updated_at": "2026-06-10T08:00:00Z"
-        },
-        {
           "metric_key": "sleep_minutes",
           "low_val": 420.0,
           "high_val": null,
           "falloff": null,
           "mode": "at_least",
           "updated_at": "2026-06-11T08:00:00Z"
+        },
+        {
+          "metric_key": "steps",
+          "low_val": 6000.0,
+          "high_val": 12000.0,
+          "falloff": 2000.0,
+          "mode": "range",
+          "updated_at": "2026-06-10T08:00:00Z"
         }
       ],
       "ledger": [

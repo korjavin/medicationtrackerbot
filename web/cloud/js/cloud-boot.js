@@ -61,7 +61,7 @@ window.MedTrackerCloudReady = (async function boot() {
     // record (including the unmasked integrations keys, module-to-module, never
     // across the /api shim) and regroups via web/domain/vault.js; importAll
     // wipes+relays the whole record store (preserving device/crypto state the
-    // vault never carries — nk, reminder prefs) and forces one snapshot upload
+    // vault never carries — nk, voice provisioning) and forces one snapshot upload
     // so other devices re-bootstrap. Lazy dynamic imports keep this off the
     // boot critical path.
     window.CloudVault = {
@@ -74,14 +74,17 @@ window.MedTrackerCloudReady = (async function boot() {
             return JSON.stringify(recordsToVault(records, { now: Date.now() }), null, 2);
         },
         async importAll(json) {
-            const [{ replaceAllRecords, forceSnapshot, readAllLiveRecords, isBootstrapped, dropPendingForTypes }, { vaultToRecords, VAULT_MANAGED_TYPES }] = await Promise.all([
+            const [{ replaceAllRecords, forceSnapshot, readAllLiveRecords, isBootstrapped, dropPendingForTypes }, { vaultToRecords, managedTypesForImport }] = await Promise.all([
                 import('/js/sync.js'),
                 import('/domain/vault.js'),
             ]);
             const vault = typeof json === 'string' ? JSON.parse(json) : json;
             const records = vaultToRecords(vault, { now: Date.now() });
-            // Preserve records the vault never manages (nk push key, reminder
-            // prefs, voice provisioning) across the wholesale replace.
+            // Managed set is narrowed per-file: a secrets-free vault must not
+            // wipe the destination's integrations keys / api tokens.
+            const VAULT_MANAGED_TYPES = managedTypesForImport(vault);
+            // Preserve records the vault never manages (nk push key, voice
+            // provisioning, un-carried secrets) across the wholesale replace.
             // readAllLiveRecords bootstraps first, so isBootstrapped below
             // reflects whether that bootstrap actually reached the server.
             const survive = (await readAllLiveRecords(ctx))
