@@ -345,8 +345,8 @@ func TestSyncAPI_SnapshotCompressRoundTrip(t *testing.T) {
 // the round-trip test above does NOT: its gzipped body is ~1.5 MiB (well under
 // the old cap), so it would still pass if maxSnapshotBodyBytes regressed. Here
 // the CT is opaque bytes sized against the boundary — a ~16 MiB CT (base64 body
-// ~21 MiB, over the old 8 MiB cap) must be accepted, and a body past 64 MiB must
-// be rejected because io.LimitReader truncates it into an invalid JSON decode.
+// ~21 MiB, over the old 8 MiB cap) must be accepted, and a body past the raised
+// cap must be rejected because io.LimitReader truncates it into an invalid JSON decode.
 func TestSyncAPI_SnapshotCapBoundary(t *testing.T) {
 	h, host, claimToken := newTestSyncHandler(t, 0)
 	session := registerAndGetSession(t, h, host, claimToken)
@@ -370,7 +370,7 @@ func TestSyncAPI_SnapshotCapBoundary(t *testing.T) {
 		t.Fatalf("POST 16 MiB snapshot under raised cap: status = %d, want 204", resp.StatusCode)
 	}
 
-	// A body past the 64 MiB cap is truncated by LimitReader → invalid JSON → 400.
+	// A body past the raised cap is truncated by LimitReader → invalid JSON → 400.
 	resp = putSnapshot(t, h, host, session, putSnapshotRequest{
 		SnapshotSeq: 2, Nonce: []byte("snap-nonce"), CT: bytes.Repeat([]byte{0xCD}, maxSnapshotBodyBytes+(1<<20)),
 	})

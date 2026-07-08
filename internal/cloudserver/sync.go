@@ -24,11 +24,15 @@ const (
 	defaultOpsPageLimit = 200
 	maxOpsPageLimit     = 1000
 
-	// 64 MiB headroom well above a gzip-compressed large vault (~2-3 MB for a
-	// 24 MB plaintext vault), so the cap stops being the binding limit and
-	// oplog compaction keeps working as the store grows.
-	maxSnapshotBodyBytes = 64 << 20 // 64 MiB request body (a full account snapshot)
-	maxSnapshotCTLen     = 64 << 20
+	// 64 MiB decoded-CT headroom well above a gzip-compressed large vault
+	// (~2-3 MB for a 24 MB plaintext vault), so the cap stops being the binding
+	// limit and oplog compaction keeps working as the store grows. The body cap
+	// must exceed the CT cap: json decodes req.CT from base64, so the JSON body
+	// holds ~4/3 the decoded CT (+ nonce/scaffolding). 96 MiB covers base64 of a
+	// full 64 MiB CT (~85 MiB) with room to spare, so maxSnapshotCTLen — not an
+	// accidental base64 sub-limit — is what a too-large snapshot actually trips.
+	maxSnapshotBodyBytes = 96 << 20 // 96 MiB request body (base64 of a 64 MiB CT + overhead)
+	maxSnapshotCTLen     = 64 << 20 // 64 MiB decoded ciphertext
 )
 
 // syncStore is the subset of *cloudstore.Repo the sync (oplog) endpoints
