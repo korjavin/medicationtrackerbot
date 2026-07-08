@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"strings"
 	"time"
@@ -58,12 +59,16 @@ func (c *Client) call(ctx context.Context, method string, params any, result any
 			return err
 		}
 	}
+	return c.doRequest(ctx, method, "application/json", &body, result)
+}
+
+func (c *Client) doRequest(ctx context.Context, method string, contentType string, body *bytes.Buffer, result any) error {
 	url := fmt.Sprintf("%s/bot%s/%s", c.baseURL, c.token, method)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, &body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, body)
 	if err != nil {
 		return c.redact(err)
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", contentType)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -158,6 +163,49 @@ func (c *Client) SetWebhook(ctx context.Context, url, secretToken string) error 
 // DeleteWebhook removes the bot's webhook.
 func (c *Client) DeleteWebhook(ctx context.Context) error {
 	return c.call(ctx, "deleteWebhook", nil, nil)
+}
+
+// SetMyName changes the bot's name.
+func (c *Client) SetMyName(ctx context.Context, name string) error {
+	return c.call(ctx, "setMyName", map[string]any{
+		"name": name,
+	}, nil)
+}
+
+// SetMyDescription changes the bot's description, which is shown in the chat with the bot if the chat is empty.
+func (c *Client) SetMyDescription(ctx context.Context, description string) error {
+	return c.call(ctx, "setMyDescription", map[string]any{
+		"description": description,
+	}, nil)
+}
+
+// SetMyShortDescription changes the bot's short description, which is shown on the bot's profile page and is sent together with the link when users share the bot.
+func (c *Client) SetMyShortDescription(ctx context.Context, shortDescription string) error {
+	return c.call(ctx, "setMyShortDescription", map[string]any{
+		"short_description": shortDescription,
+	}, nil)
+}
+
+// SetMyProfilePhoto changes the profile photo of the bot.
+func (c *Client) SetMyProfilePhoto(ctx context.Context, photo []byte) error {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	part, err := writer.CreateFormFile("photo", "photo.jpg")
+	if err != nil {
+		return err
+	}
+	_, err = part.Write(photo)
+	if err != nil {
+		return err
+	}
+
+	err = writer.Close()
+	if err != nil {
+		return err
+	}
+
+	return c.doRequest(ctx, "setMyProfilePhoto", writer.FormDataContentType(), &body, nil)
 }
 
 // WebhookInfo is the subset of getWebhookInfo we surface for diagnosing why a

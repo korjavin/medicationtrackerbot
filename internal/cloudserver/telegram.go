@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -307,6 +308,25 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 	// anchor in the window before a SetWebhook failure, stranding a bot_created
 	// row whose webhook was never set with no pending row left to retry against.
 	child := tgclient.New(token, t.apiBaseURL)
+
+	// Best-effort profile setup
+	if err := child.SetMyName(r.Context(), "Med Tracker"); err != nil {
+		slog.Warn("telegram manager webhook: set name failed", "error", err, "account", accountID)
+	}
+	if err := child.SetMyShortDescription(r.Context(), "Your personal medication and health tracker."); err != nil {
+		slog.Warn("telegram manager webhook: set short description failed", "error", err, "account", accountID)
+	}
+	if err := child.SetMyDescription(r.Context(), "Welcome to Med Tracker! I can help you track your medications, log your blood pressure, and keep a journal of your health."); err != nil {
+		slog.Warn("telegram manager webhook: set description failed", "error", err, "account", accountID)
+	}
+
+	// If logo exists, best-effort set it as well
+	if logo, err := os.ReadFile("docs/logo.jpg"); err == nil {
+		if err := child.SetMyProfilePhoto(r.Context(), logo); err != nil {
+			slog.Warn("telegram manager webhook: set profile photo failed", "error", err, "account", accountID)
+		}
+	}
+
 	if err := child.SetWebhook(r.Context(), t.childWebhookURL(accountID, botSecret), botSecret); err != nil {
 		slog.Error("telegram manager webhook: set child webhook", "error", err, "account", accountID)
 		http.Error(w, "internal error", http.StatusInternalServerError)
