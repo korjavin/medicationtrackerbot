@@ -284,3 +284,68 @@ func TestVaultImportReplaceHandler(t *testing.T) {
 		t.Fatalf("want 3 heart samples, got %d", len(v.Data.Vitals.Heart))
 	}
 }
+
+// TestVaultImportReminderStateGamificationAndTZPlans pins the blocks whose
+// omission this plan fixes: reminder state (previously wiped, never restored),
+// gamification (never wiped nor restored) and the *full* tz plan history (only
+// the active plan used to be exported). Every list carries two rows in the
+// fixture, so a dropped row shows up here.
+func TestVaultImportReminderStateGamificationAndTZPlans(t *testing.T) {
+	db, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	srv := newServer(db, "tok", "sec", 123, OIDCConfig{}, "bot", "")
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
+
+	const userID = 1
+	ctx := context.Background()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "tests", "fixtures", "vault-v1.json"))
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	var v Vault
+	if err := json.Unmarshal(raw, &v); err != nil {
+		t.Fatalf("unmarshal fixture: %v", err)
+	}
+	if err := srv.importVault(ctx, userID, &v); err != nil {
+		t.Fatalf("importVault: %v", err)
+	}
+	got, err := srv.buildVault(ctx, userID, true)
+	if err != nil {
+		t.Fatalf("buildVault: %v", err)
+	}
+
+	bp := got.Data.Settings.BPReminder
+	if bp == nil || !bp.Enabled || bp.PreferredReminderHour != 20 || bp.SnoozedUntil == nil {
+		t.Fatalf("bp_reminder not restored: %+v", bp)
+	}
+	if !bp.SnoozedUntil.Equal(*v.Data.Settings.BPReminder.SnoozedUntil) {
+		t.Fatalf("bp snoozed_until drift: %v", bp.SnoozedUntil)
+	}
+	wt := got.Data.Settings.WeightReminder
+	if wt == nil || wt.Enabled || wt.PreferredReminderHour != 7 || wt.SnoozedUntil != nil {
+		t.Fatalf("weight_reminder not restored: %+v", wt)
+	}
+
+	g := got.Data.Gamification
+	if len(g.Targets) != 2 || len(g.Ledger) != 2 {
+		t.Fatalf("gamification lists lost rows: %d targets, %d ledger", len(g.Targets), len(g.Ledger))
+	}
+	if g.State == nil || g.State.LifetimeHP != 1355 || g.State.LongestStreak != 21 {
+		t.Fatalf("gamification state not restored: %+v", g.State)
+	}
+
+	plans := got.Data.TZ.TransitionPlans
+	if len(plans) != 2 {
+		t.Fatalf("want 2 tz plans (history + pending), got %d", len(plans))
+	}
+	if plans[0].Status != "COMPLETED" || plans[0].UserAction != "APPROVED" ||
+		plans[0].PlanHash == "" || plans[0].NotifiedAt == nil || len(plans[0].Steps) != 1 {
+		t.Fatalf("oldest tz plan lost fields: %+v", plans[0])
+	}
+	if plans[1].Status != "PENDING_APPROVAL" || plans[1].ApprovedAt != nil || len(plans[1].Steps) != 2 {
+		t.Fatalf("newest tz plan lost fields: %+v", plans[1])
+	}
+}

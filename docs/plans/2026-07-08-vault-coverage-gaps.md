@@ -78,9 +78,9 @@ Locked decisions (user-confirmed 2026-07-08):
 
 ### Task 3: Bot-mode import of the new blocks + wipe-set sync
 
-- [ ] `internal/seeddemo/wipe.go`: add `gamification_targets`, `gamification_ledger`, `gamification_state` to the user-scoped delete list. (`api_tokens` is NOT wiped — see Task 4.)
-- [ ] `vault_import.go`: `importReminderState`, `importGamification`, all-plans `importTZ`. Use `rfc3339` / `nullTimeRFC` for every DATETIME bind and raw unix ints for the `*_unix` columns.
-- [ ] Test: per-block round-trip assertions (two-row lists survive), plus `TZ=UTC go test ./internal/server`.
+- [x] `internal/seeddemo/wipe.go`: add `gamification_targets`, `gamification_ledger`, `gamification_state` to the user-scoped delete list. (`api_tokens` is NOT wiped — see Task 4.)
+- [x] `vault_import.go`: `importReminderState`, `importGamification`, all-plans `importTZ` (now also carries `plan_hash`, `inputs_json`, `user_action`, `notified_at_unix`). Use `rfc3339` / `nullTimeRFC` for every DATETIME bind and raw unix ints for the `*_unix` columns.
+- [x] Test: `TestVaultImportReminderStateGamificationAndTZPlans` (two-row lists survive; oldest+newest tz plan keep every field). ⚠️ `TZ=UTC go test ./internal/server` — `TestVaultImportRoundTrip` still red on exactly one block, `api_tokens` (every other block verified byte-identical); it goes green in Task 4 with `importAPITokens`.
 
 ### Task 4: API tokens + the secrets toggle's import semantics
 

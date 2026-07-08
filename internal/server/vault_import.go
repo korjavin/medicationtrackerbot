@@ -120,6 +120,8 @@ func (s *Server) importVault(ctx context.Context, userID int64, v *Vault) error 
 		{"diary", func() error { return importDiary(ctx, tx, userID, d) }},
 		{"tz", func() error { return importTZ(ctx, tx, d) }},
 		{"settings", func() error { return importSettings(ctx, tx, d) }},
+		{"reminder_state", func() error { return importReminderState(ctx, tx, userID, d) }},
+		{"gamification", func() error { return importGamification(ctx, tx, userID, d) }},
 	}
 	for _, st := range steps {
 		if err := st.fn(); err != nil {
@@ -460,11 +462,78 @@ func importTZ(ctx context.Context, tx *sql.Tx, d *VaultData) error {
 			return fmt.Errorf("marshal tz steps: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO tz_transition_plans (old_tz, new_tz, created_at_unix, status, steps_json, approved_at_unix)
-			VALUES (?,?,?,?,?,?)`,
+			INSERT INTO tz_transition_plans
+			  (old_tz, new_tz, created_at_unix, status, steps_json, inputs_json, plan_hash,
+			   approved_at_unix, notified_at_unix, user_action)
+			VALUES (?,?,?,?,?,?,?,?,?,?)`,
 			p.OldTZ, p.NewTZ, p.CreatedAt.UTC().Unix(), p.Status, string(stepsJSON),
-			nullUnix(p.ApprovedAt)); err != nil {
+			p.InputsJSON, p.PlanHash,
+			nullUnix(p.ApprovedAt), nullUnix(p.NotifiedAt), p.UserAction); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// importReminderState restores the two scheduler-owned reminder rows. Only the
+// user-set fields are carried (see exportReminderState); the transient
+// last_notification_sent_at / notification_message_id columns stay unset so a
+// restore never resurrects a stale Telegram message id. The rows were deleted by
+// the wipe, so this is a plain INSERT.
+func importReminderState(ctx context.Context, tx *sql.Tx, userID int64, d *VaultData) error {
+	write := func(table string, st *VaultReminderState) error {
+		if st == nil {
+			return nil
+		}
+		// #nosec G202 -- table is one of two in-package literals, not user input.
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO `+table+`
+			  (user_id, enabled, preferred_reminder_hour, snoozed_until, dont_remind_until)
+			VALUES (?,?,?,?,?)`,
+			userID, st.Enabled, st.PreferredReminderHour,
+			nullTimeRFC(st.SnoozedUntil), nullTimeRFC(st.DontRemindUntil))
+		if err != nil {
+			return fmt.Errorf("%s: %w", table, err)
+		}
+		return nil
+	}
+	if err := write("bp_reminder_state", d.Settings.BPReminder); err != nil {
+		return err
+	}
+	return write("weight_reminder_state", d.Settings.WeightReminder)
+}
+
+func importGamification(ctx context.Context, tx *sql.Tx, userID int64, d *VaultData) error {
+	g := &d.Gamification
+	for _, t := range g.Targets {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO gamification_targets (user_id, metric_key, low_val, high_val, falloff, mode, updated_at_unix)
+			VALUES (?,?,?,?,?,?,?)`,
+			userID, t.MetricKey, nullFloat(t.LowVal), nullFloat(t.HighVal), nullFloat(t.Falloff),
+			nullStr(t.Mode), t.UpdatedAt.UTC().Unix()); err != nil {
+			return fmt.Errorf("targets: %w", err)
+		}
+	}
+	for _, e := range g.Ledger {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO gamification_ledger
+			  (user_id, day_unix, ring, source_metric, kind, hp, detail, created_at_unix)
+			VALUES (?,?,?,?,?,?,?,?)`,
+			userID, e.Day.UTC().Unix(), e.Ring, e.SourceMetric, e.Kind, e.HP,
+			nullStr(e.Detail), e.CreatedAt.UTC().Unix()); err != nil {
+			return fmt.Errorf("ledger: %w", err)
+		}
+	}
+	if st := g.State; st != nil {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO gamification_state
+			  (user_id, lifetime_hp, level, current_streak, longest_streak, freezes, insight_tier,
+			   last_scored_day_unix, backfilled_at_unix, updated_at_unix)
+			VALUES (?,?,?,?,?,?,?,?,?,?)`,
+			userID, st.LifetimeHP, st.Level, st.CurrentStreak, st.LongestStreak, st.Freezes,
+			st.InsightTier, nullUnix(st.LastScoredDay), nullUnix(st.BackfilledAt),
+			st.UpdatedAt.UTC().Unix()); err != nil {
+			return fmt.Errorf("state: %w", err)
 		}
 	}
 	return nil

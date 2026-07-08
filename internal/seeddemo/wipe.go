@@ -79,6 +79,9 @@ func WipeUserTx(ctx context.Context, tx *sql.Tx, userID int64) error {
 		"day_stats",
 		"miband_workouts",
 		"exercise_library",
+		"gamification_targets",
+		"gamification_ledger",
+		"gamification_state",
 	}
 	for _, table := range scoped {
 		// #nosec G202 -- table is from a fixed in-package list, not user input.
