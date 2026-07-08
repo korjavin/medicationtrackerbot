@@ -155,6 +155,19 @@ func (c *Client) SetWebhook(ctx context.Context, url, secretToken string) error 
 	}, nil)
 }
 
+// BotCommand represents a bot command.
+type BotCommand struct {
+	Command     string `json:"command"`
+	Description string `json:"description"`
+}
+
+// SetMyCommands changes the list of the bot's commands.
+func (c *Client) SetMyCommands(ctx context.Context, commands []BotCommand) error {
+	return c.call(ctx, "setMyCommands", map[string]any{
+		"commands": commands,
+	}, nil)
+}
+
 // DeleteWebhook removes the bot's webhook.
 func (c *Client) DeleteWebhook(ctx context.Context) error {
 	return c.call(ctx, "deleteWebhook", nil, nil)

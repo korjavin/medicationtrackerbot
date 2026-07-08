@@ -416,6 +416,15 @@ func (t *TelegramAPI) ChildWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	// Automatically configure the bot's command menu
+	commands := []tgclient.BotCommand{
+		{Command: "start", Description: "Start the bot and open the App"},
+	}
+	if err := client.SetMyCommands(r.Context(), commands); err != nil {
+		slog.Warn("telegram child webhook: set commands", "error", err, "ref", ref)
+		// Non-fatal, just missing autocomplete
+	}
+
 	if err := client.SendMessage(r.Context(), upd.Message.Chat.ID, welcomeMessage); err != nil {
 		slog.Error("telegram child webhook: send welcome", "error", err, "ref", ref)
 		// chat is linked; a failed welcome send is not fatal — reply 200 so
