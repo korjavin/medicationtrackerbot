@@ -64,6 +64,32 @@ func TestVaultImportRoundTrip(t *testing.T) {
 	}
 }
 
+// TestVaultDemoModeForbidden verifies the export/import endpoints refuse to run
+// under DEMO_MODE, where auth is bypassed: export would leak the operator's raw
+// integration API keys and import would let anyone wipe the shared demo data.
+func TestVaultDemoModeForbidden(t *testing.T) {
+	db, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	srv := newServer(db, "tok", "sec", 123, OIDCConfig{}, "bot", "")
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
+	srv.SetDemoMode(true)
+
+	rec := httptest.NewRecorder()
+	srv.handleVaultExport(rec, httptest.NewRequest(http.MethodGet, "/api/export", nil))
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("export in demo mode: got %d, want %d", rec.Code, http.StatusForbidden)
+	}
+
+	rec = httptest.NewRecorder()
+	srv.handleVaultImport(rec, httptest.NewRequest(http.MethodPost, "/api/import", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("import in demo mode: got %d, want %d", rec.Code, http.StatusForbidden)
+	}
+}
+
 // normalizeVault decodes a vault and applies the normalizations the round-trip
 // contract tolerates: drops the per-run exported_at and the cloud-only
 // med_reminder_pref (bot mode has no such row), and sorts every array so

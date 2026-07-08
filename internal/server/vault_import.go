@@ -28,7 +28,18 @@ type vaultImportRequest struct {
 // re-insert inside a single transaction so a mid-insert failure leaves the
 // prior data intact.
 func (s *Server) handleVaultImport(w http.ResponseWriter, r *http.Request) {
+	// Demo mode bypasses auth, so this destructive whole-user replace would let
+	// any anonymous visitor wipe the shared demo dataset. Block it.
+	if s.demoMode {
+		http.Error(w, "not available in demo mode", http.StatusForbidden)
+		return
+	}
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+
+	// Bound the body: the whole vault is materialized into structs in memory, so
+	// an unbounded POST is a memory-DoS. Generous cap (vaults can be large) but
+	// finite — every other JSON handler here uses http.MaxBytesReader.
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<20)
 
 	var req vaultImportRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

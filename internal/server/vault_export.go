@@ -18,6 +18,14 @@ import (
 // runtime produces the same shape client-side (window.CloudVault), so a file
 // from either mode imports into the other.
 func (s *Server) handleVaultExport(w http.ResponseWriter, r *http.Request) {
+	// Demo mode bypasses auth (every request is the shared seeded user), so the
+	// export — which dumps the settings singleton's plaintext integration API
+	// keys (masked on every other endpoint) — would leak the operator's real
+	// OpenAI/ElevenLabs secrets to any anonymous visitor. Block it.
+	if s.demoMode {
+		http.Error(w, "not available in demo mode", http.StatusForbidden)
+		return
+	}
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
 	vault, err := s.buildVault(r.Context(), userID)
