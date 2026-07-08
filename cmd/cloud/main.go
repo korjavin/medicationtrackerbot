@@ -137,7 +137,6 @@ func newHTTPServer(addr string, handler http.Handler) *http.Server {
 		Addr:              addr,
 		Handler:           handler,
 		ReadTimeout:       15 * time.Second, // comfortable for a ~2-3 MB gzip-compressed vault snapshot upload
-
 		ReadHeaderTimeout: 10 * time.Second,
 		WriteTimeout:      45 * time.Second,
 		MaxHeaderBytes:    1 << 20,
