@@ -289,7 +289,7 @@ func importWorkouts(ctx context.Context, tx *sql.Tx, userID int64, d *VaultData)
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO workout_rotation_state (group_id, current_variant_id, last_session_date, updated_at)
 			VALUES (?,?,?,?)`,
-			rot.GroupID, rot.CurrentVariantID, nullTime(rot.LastSessionDate), rot.UpdatedAt); err != nil {
+			rot.GroupID, rot.CurrentVariantID, nullTimeRFC(rot.LastSessionDate), rfc3339(rot.UpdatedAt)); err != nil {
 			return err
 		}
 	}
@@ -299,8 +299,8 @@ func importWorkouts(ctx context.Context, tx *sql.Tx, userID int64, d *VaultData)
 			  (id, group_id, variant_id, user_id, scheduled_date, scheduled_time, status,
 			   started_at, completed_at, snoozed_until, snooze_count, notification_message_id, notes)
 			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			ses.ID, ses.GroupID, ses.VariantID, userID, ses.ScheduledDate, ses.ScheduledTime, ses.Status,
-			nullTime(ses.StartedAt), nullTime(ses.CompletedAt), nullTime(ses.SnoozedUntil),
+			ses.ID, ses.GroupID, ses.VariantID, userID, rfc3339(ses.ScheduledDate), ses.ScheduledTime, ses.Status,
+			nullTimeRFC(ses.StartedAt), nullTimeRFC(ses.CompletedAt), nullTimeRFC(ses.SnoozedUntil),
 			ses.SnoozeCount, nullInt(ses.NotificationMessageID), ses.Notes); err != nil {
 			return err
 		}
@@ -311,7 +311,7 @@ func importWorkouts(ctx context.Context, tx *sql.Tx, userID int64, d *VaultData)
 			  (session_id, exercise_id, exercise_name, sets_completed, reps_completed, weight_kg, status, notes, logged_at, source)
 			VALUES (?,?,?,?,?,?,?,?,?,?)`,
 			el.SessionID, el.ExerciseID, el.ExerciseName, nullInt(el.SetsCompleted),
-			nullInt(el.RepsCompleted), nullFloat(el.WeightKg), el.Status, el.Notes, el.LoggedAt, el.Source); err != nil {
+			nullInt(el.RepsCompleted), nullFloat(el.WeightKg), el.Status, el.Notes, rfc3339(el.LoggedAt), el.Source); err != nil {
 			return err
 		}
 	}
@@ -522,6 +522,20 @@ func nullTime(t *time.Time) any {
 		return nil
 	}
 	return *t
+}
+
+// rfc3339 / nullTimeRFC store a time.Time as an offset-preserving RFC 3339
+// string. Binding a raw time.Time makes the modernc.org/sqlite driver write
+// Go's time.Time.String() form ("2006-01-02 15:04:05 -0700 -0700"), which is
+// not machine-parseable for non-UTC offsets and reads back as an unscannable
+// string under a UTC process. RFC 3339 text round-trips under any timezone.
+func rfc3339(t time.Time) string { return t.Format(time.RFC3339Nano) }
+
+func nullTimeRFC(t *time.Time) any {
+	if t == nil {
+		return nil
+	}
+	return t.Format(time.RFC3339Nano)
 }
 
 func nullUnix(t *time.Time) any {
