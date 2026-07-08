@@ -436,3 +436,38 @@ func TestVaultImportPreservesSecretsWhenAbsent(t *testing.T) {
 		t.Fatalf("api token drift: %+v", rt)
 	}
 }
+
+// A replace-import must not let the destination's weight unit preference
+// survive a vault that carries none — same rule as weight_goal / bp_target_*.
+func TestVaultImportClearsWeightUnitPref(t *testing.T) {
+	db, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	srv := newServer(db, "tok", "sec", 123, OIDCConfig{}, "bot", "")
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
+	ctx := context.Background()
+
+	if err := db.Weight.SetUnitPreference(ctx, "lb"); err != nil {
+		t.Fatalf("seed unit pref: %v", err)
+	}
+	// unit_pref absent (a cloud export from an account with no preference).
+	if err := srv.importVault(ctx, 1, &Vault{Format: vaultFormat, Version: vaultVersion}); err != nil {
+		t.Fatalf("importVault: %v", err)
+	}
+	if unit, err := db.Weight.GetUnitPreference(ctx); err != nil || unit != "kg" {
+		t.Fatalf("stale unit pref survived replace-import: %q err=%v", unit, err)
+	}
+
+	// A present unit_pref still replaces.
+	lb := "lb"
+	v := Vault{Format: vaultFormat, Version: vaultVersion}
+	v.Data.Weight.UnitPref = &lb
+	if err := srv.importVault(ctx, 1, &v); err != nil {
+		t.Fatalf("importVault (lb): %v", err)
+	}
+	if unit, err := db.Weight.GetUnitPreference(ctx); err != nil || unit != "lb" {
+		t.Fatalf("unit pref not imported: %q err=%v", unit, err)
+	}
+}

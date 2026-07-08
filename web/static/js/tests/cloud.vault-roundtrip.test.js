@@ -91,6 +91,26 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     expect(bpPref.preferred_reminder_hour).toBe(20);
   });
 
+  it('maps a NOTIFIED plan to tzplan-current (bot mode treats it as the live plan)', () => {
+    const v = JSON.parse(JSON.stringify(fixture));
+    v.data.tz.transition_plans[1].status = 'NOTIFIED';
+    const records = vaultToRecords(v, { now: NOW });
+    const current = records.find((r) => r.recordId === 'tzplan-current');
+    expect(current.status).toBe('NOTIFIED');
+  });
+
+  it('emits empty secret blocks (not absent) when includeSecrets and the account has none', () => {
+    // A destination restore must be able to CLEAR stale keys/tokens; only an
+    // absent block means "leave them alone". Same shape the Go exporter emits.
+    const records = vaultToRecords(fixture, { now: NOW })
+      .filter((r) => r.recordType !== 'integrations' && r.recordType !== 'apitokens');
+    const out = recordsToVault(records, { now: NOW });
+    expect(out.data.api_tokens).toEqual([]);
+    expect(out.data.settings.integrations).toEqual({});
+    expect(managedTypesForImport(out).has('integrations')).toBe(true);
+    expect(managedTypesForImport(out).has('apitokens')).toBe(true);
+  });
+
   it('omits the secret-bearing blocks when includeSecrets is false, and keeps them unmanaged on import', () => {
     const records = vaultToRecords(fixture, { now: NOW });
     const bare = recordsToVault(records, { now: NOW, includeSecrets: false });

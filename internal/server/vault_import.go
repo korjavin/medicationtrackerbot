@@ -228,11 +228,14 @@ func importWeight(ctx context.Context, tx *sql.Tx, userID int64, d *VaultData) e
 		wGoal, wGoalDate); err != nil {
 		return err
 	}
-	if d.Weight.UnitPref != nil {
-		if _, err := tx.ExecContext(ctx,
-			`UPDATE settings SET weight_unit_preference = ? WHERE id = 1`, *d.Weight.UnitPref); err != nil {
-			return err
-		}
+	// Always written (like weight_goal above): an absent unit_pref means the
+	// source had no preference, so the destination must fall back to the column
+	// default rather than keep its own. The column is NOT NULL CHECK IN
+	// ('kg','lb'), hence COALESCE instead of a bare NULL.
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE settings SET weight_unit_preference = COALESCE(?, 'kg') WHERE id = 1`,
+		nullStr(d.Weight.UnitPref)); err != nil {
+		return err
 	}
 	return nil
 }

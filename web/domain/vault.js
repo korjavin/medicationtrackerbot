@@ -70,6 +70,13 @@ export const VAULT_MANAGED_TYPES = new Set([
   'bpreminderpref', 'weightreminderpref', 'gamification', 'apitokens',
 ]);
 
+// The tz-plan statuses bot mode treats as the single live plan
+// (tz.GetLatestActiveOrPendingTransitionPlan). NOTIFIED is a real persistent
+// state the scheduler writes and can sit in for up to 48h before auto-approve,
+// so it must map back to the `tzplan-current` recordId that tzplan.js and
+// medintake.js look up by exact id.
+const ACTIVE_PLAN_STATUSES = new Set(['PENDING_APPROVAL', 'NOTIFIED', 'APPROVED']);
+
 // managedTypesForImport narrows VAULT_MANAGED_TYPES for one vault file: the two
 // secret-bearing blocks (settings.integrations, api_tokens) import with
 // asymmetric semantics — absent means "the export was taken with
@@ -136,7 +143,7 @@ export function recordsToVault(records, { now, includeSecrets = true } = {}) {
     else byType.set(rec.recordType, [rec]);
   }
   const pick = (type) => byType.get(type) || [];
-  const singleton = (type, recordId) => pick(type).find((r) => recordId === undefined || r.recordId === recordId) || null;
+  const singleton = (type, recordId) => pick(type).find((r) => r.recordId === recordId) || null;
 
   // --- medications ---
   const medications = {
@@ -271,7 +278,10 @@ export function recordsToVault(records, { now, includeSecrets = true } = {}) {
         fat: foodtargetsRec.fat,
       }
       : null,
-    integrations: integrationsRec ? stripMeta(integrationsRec) : null,
+    // Present-but-empty (not null) when there are no keys: `absent` is the only
+    // value meaning "leave the destination alone". Mirrors bot mode, which
+    // always emits the block under include_secrets=1.
+    integrations: integrationsRec ? stripMeta(integrationsRec) : {},
     med_reminder_pref: medreminderRec ? { enabled: !!medreminderRec.enabled } : null,
   };
   const bpReminderRec = singleton('bpreminderpref', 'bpreminderpref');
@@ -294,7 +304,9 @@ export function recordsToVault(records, { now, includeSecrets = true } = {}) {
   const data = {
     medications, bp, weight, food, workouts, vitals, diary, tz, settings, gamification,
   };
-  if (includeSecrets && tokensRec) data.api_tokens = tokensRec.tokens || [];
+  // Same rule as `integrations`: emit `[]` (not absent) so a restore can clear
+  // stale tokens on the destination.
+  if (includeSecrets) data.api_tokens = (tokensRec && tokensRec.tokens) || [];
 
   return {
     format: VAULT_FORMAT,
@@ -451,7 +463,8 @@ export function vaultToRecords(vault, { now } = {}) {
   const plans = sortBy(tz.transition_plans || [], (p) => p.created_at);
   let currentIdx = -1;
   plans.forEach((p, i) => {
-    if (p.status === 'PENDING_APPROVAL' || p.status === 'APPROVED') currentIdx = i;
+    // Same active set as bot mode's GetLatestActiveOrPendingTransitionPlan.
+    if (ACTIVE_PLAN_STATUSES.has(p.status)) currentIdx = i;
   });
   let planIdx = 0;
   plans.forEach((p, i) => {

@@ -90,8 +90,8 @@ window.MedTrackerCloudReady = (async function boot() {
             const survive = (await readAllLiveRecords(ctx))
                 .filter((r) => !VAULT_MANAGED_TYPES.has(r.recordType));
             // Refuse to wipe until the account cursor exists. Without it,
-            // forceSnapshot can't propagate the import (null cursor → no-op, no
-            // retry marker) and the next open re-bootstraps the stale server
+            // forceSnapshot can't propagate the import (null cursor → nothing to
+            // snapshot at) and the next open re-bootstraps the stale server
             // snapshot over the imported records. Throwing here surfaces the
             // error in importexport.js and skips the reload — no destructive
             // replace happens, so local data is untouched.

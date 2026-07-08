@@ -367,8 +367,6 @@ const IMPORT_BUMP_RECORD_ID = '__vault_import_bump__';
 // tryForceSnapshot, which pullOnOpen also re-runs (before any pull) every open
 // until the snapshot lands.
 export async function forceSnapshot(ctx) {
-  const meta = await readMeta();
-  if (meta.localLastSeq === null) return;
   await writeMeta({ forceSnapshotPending: true });
   await tryForceSnapshot(ctx);
 }

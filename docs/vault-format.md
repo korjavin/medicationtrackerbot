@@ -329,7 +329,13 @@ API tokens and carries the array as a passthrough record.
 `GET /api/export?include_secrets=0` (bot) / `exportAll(records, {includeSecrets: false})`
 (cloud) omits the two secret-bearing blocks — `settings.integrations` and top-level
 `api_tokens` — so the file can be shared or stored casually. Absent (or `1`/`true`) means
-include; the export UI's checkbox is **checked by default**.
+include; the export UI's checkbox is **checked by default**. Any other value of the query
+param (`no`, `off`, `False`, …) fails closed and omits the blocks — a typo must never leak
+provider keys.
+
+With secrets included, both runtimes emit the blocks **even when the account has none**
+(`"integrations": {}`, `"api_tokens": []`). Only an *absent* block means "leave the
+destination alone", so a restore over an old install can clear stale keys and tokens.
 
 Import semantics for those two blocks are deliberately **not** replace-only, the single
 exception to the wipe-then-insert rule:

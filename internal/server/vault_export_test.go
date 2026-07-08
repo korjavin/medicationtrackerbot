@@ -231,11 +231,17 @@ func TestVaultExportSecretsOmitted(t *testing.T) {
 		t.Errorf("food targets dropped by include_secrets=0")
 	}
 
-	// The handler's query parsing: absent and "1" both include, "0"/"false" omit.
+	// The handler's query parsing: absent and "1"/"true" include. Anything else
+	// present — including an unrecognized value — must fail closed rather than
+	// silently ship the operator's provider keys.
 	for _, tc := range []struct {
 		query string
 		want  bool
-	}{{"", true}, {"?include_secrets=1", true}, {"?include_secrets=0", false}, {"?include_secrets=false", false}} {
+	}{
+		{"", true}, {"?include_secrets=1", true}, {"?include_secrets=true", true},
+		{"?include_secrets=0", false}, {"?include_secrets=false", false},
+		{"?include_secrets=no", false}, {"?include_secrets=False", false}, {"?include_secrets=off", false},
+	} {
 		req := httptest.NewRequest(http.MethodGet, "/api/export"+tc.query, nil)
 		req = req.WithContext(context.WithValue(req.Context(), UserCtxKey, &TelegramUser{ID: userID}))
 		rec := httptest.NewRecorder()
