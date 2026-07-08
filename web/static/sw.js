@@ -44,6 +44,7 @@ const STATIC_ASSETS = [
     '/static/js/core/modal-controller.js',
     '/static/js/core/chart-utils.js',
     '/static/js/core/cache-keys.js',
+    '/static/js/core/backup-crypto.js',
     // Components
     '/static/js/components/mt-elements.js',
     '/static/js/components/empty-state.js',
@@ -119,6 +120,7 @@ const STATIC_ASSETS = [
     '/static/js/features/deeplink-router.js',
     '/static/js/features/settings.js',
     '/static/js/features/settings/integrations.js',
+    '/static/js/features/settings/importexport.js',
     '/static/js/features/backend-logs.js',
     '/static/js/features/today.js',
     '/static/js/features/journey.js',
@@ -142,6 +144,7 @@ const STATIC_ASSETS = [
     // Vendor
     '/static/vendor/dexie.min.js',
     '/static/vendor/zxing.min.js',
+    '/static/vendor/age.min.js',
     // Icons & manifest
     '/static/icons/icon-192.png',
     '/static/icons/icon-512.png',

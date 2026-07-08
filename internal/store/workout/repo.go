@@ -624,11 +624,17 @@ func (r *Repo) DeleteExerciseLibraryItem(id int64) error {
 
 func (r *Repo) GetRotationState(groupID int64) (*WorkoutRotationState, error) {
 	var rs WorkoutRotationState
-	var lastSessionDate sql.NullTime
+	// Scan the DATE/DATETIME columns as text and parse explicitly rather than
+	// relying on the driver's auto-parse: modernc's DATE/DATETIME→time.Time
+	// conversion is timezone-sensitive, so a vault import that stores an
+	// offset-bearing timestamp (e.g. "…+02:00") reads back as an unparseable
+	// string under a UTC process, failing a sql.NullTime scan. Parsing the
+	// offset out of the stored string makes the read TZ-independent.
+	var lastSessionDate, updatedAt sql.NullString
 	err := r.db.QueryRow(`
 		SELECT group_id, current_variant_id, last_session_date, updated_at
 		FROM workout_rotation_state WHERE group_id = ?`, groupID).Scan(
-		&rs.GroupID, &rs.CurrentVariantID, &lastSessionDate, &rs.UpdatedAt,
+		&rs.GroupID, &rs.CurrentVariantID, &lastSessionDate, &updatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -637,9 +643,55 @@ func (r *Repo) GetRotationState(groupID int64) (*WorkoutRotationState, error) {
 		return nil, err
 	}
 	if lastSessionDate.Valid {
-		rs.LastSessionDate = &lastSessionDate.Time
+		if t, ok := parseFlexibleTime(lastSessionDate.String); ok {
+			rs.LastSessionDate = &t
+		}
+	}
+	if updatedAt.Valid {
+		if t, ok := parseFlexibleTime(updatedAt.String); ok {
+			rs.UpdatedAt = t
+		}
 	}
 	return &rs, nil
+}
+
+// parseFlexibleTime parses a timestamp string in any of the formats SQLite
+// columns end up holding across write paths (DATE('now') bare dates,
+// CURRENT_TIMESTAMP, and driver-serialized time.Time params carrying a numeric
+// offset). Returns ok=false if none match.
+func parseFlexibleTime(s string) (time.Time, bool) {
+	for _, layout := range []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		// Go's time.Time.String() form — what the modernc.org/sqlite driver
+		// writes when a time.Time is bound directly (both production inserts
+		// and vault imports do this).
+		"2006-01-02 15:04:05.999999999 -0700 MST",
+		"2006-01-02 15:04:05 -0700 MST",
+		"2006-01-02 15:04:05.999999999-07:00",
+		"2006-01-02 15:04:05-07:00",
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05",
+		"2006-01-02T15:04:05",
+		"2006-01-02",
+	} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
+// flexNullTime parses a nullable timestamp column (see parseFlexibleTime),
+// returning nil when the column is NULL or unparseable.
+func flexNullTime(ns sql.NullString) *time.Time {
+	if !ns.Valid {
+		return nil
+	}
+	if t, ok := parseFlexibleTime(ns.String); ok {
+		return &t
+	}
+	return nil
 }
 
 func (r *Repo) InitializeRotation(groupID, startingVariantID int64) error {
@@ -1623,24 +1675,25 @@ func (r *Repo) ListDistinctExerciseNamesForUser(ctx context.Context, userID int6
 // SELECT must already list all 13 columns in the canonical order.
 func scanSession(rows *sql.Rows) (WorkoutSession, error) {
 	var ws WorkoutSession
-	var startedAt, completedAt, snoozedUntil sql.NullTime
+	// Scan the DATE/DATETIME columns as text and parse explicitly — modernc's
+	// auto-conversion is timezone-sensitive and chokes on offset-bearing
+	// timestamps under a UTC process (e.g. vault-imported "…+02:00"). See
+	// parseFlexibleTime.
+	var scheduledDate, startedAt, completedAt, snoozedUntil sql.NullString
 	var notificationMsgID sql.NullInt64
 	var notes sql.NullString
 
-	if err := rows.Scan(&ws.ID, &ws.GroupID, &ws.VariantID, &ws.UserID, &ws.ScheduledDate, &ws.ScheduledTime, &ws.Status,
+	if err := rows.Scan(&ws.ID, &ws.GroupID, &ws.VariantID, &ws.UserID, &scheduledDate, &ws.ScheduledTime, &ws.Status,
 		&startedAt, &completedAt, &snoozedUntil, &ws.SnoozeCount, &notificationMsgID, &notes); err != nil {
 		return WorkoutSession{}, err
 	}
 
-	if startedAt.Valid {
-		ws.StartedAt = &startedAt.Time
+	if t, ok := parseFlexibleTime(scheduledDate.String); ok {
+		ws.ScheduledDate = t
 	}
-	if completedAt.Valid {
-		ws.CompletedAt = &completedAt.Time
-	}
-	if snoozedUntil.Valid {
-		ws.SnoozedUntil = &snoozedUntil.Time
-	}
+	ws.StartedAt = flexNullTime(startedAt)
+	ws.CompletedAt = flexNullTime(completedAt)
+	ws.SnoozedUntil = flexNullTime(snoozedUntil)
 	if notificationMsgID.Valid {
 		msgID := int(notificationMsgID.Int64)
 		ws.NotificationMessageID = &msgID
@@ -1659,11 +1712,17 @@ func scanExerciseLog(rows *sql.Rows) (WorkoutExerciseLog, error) {
 	var weightKg sql.NullFloat64
 	var notes sql.NullString
 
+	var loggedAt sql.NullString
 	if err := rows.Scan(&log.ID, &log.SessionID, &log.ExerciseID, &log.ExerciseName,
-		&setsCompleted, &repsCompleted, &weightKg, &log.Status, &notes, &log.LoggedAt, &log.Source); err != nil {
+		&setsCompleted, &repsCompleted, &weightKg, &log.Status, &notes, &loggedAt, &log.Source); err != nil {
 		return WorkoutExerciseLog{}, err
 	}
 
+	// logged_at (DATETIME) parsed explicitly — modernc's auto-conversion is
+	// timezone-sensitive on offset-bearing timestamps. See parseFlexibleTime.
+	if t, ok := parseFlexibleTime(loggedAt.String); ok {
+		log.LoggedAt = t
+	}
 	if setsCompleted.Valid {
 		s := int(setsCompleted.Int64)
 		log.SetsCompleted = &s

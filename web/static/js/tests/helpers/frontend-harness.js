@@ -86,6 +86,7 @@ const WORKOUT_STATS_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/st
 const WORKOUT_INDEX_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/index.js');
 const SETTINGS_JS = path.join(REPO_ROOT, 'web/static/js/features/settings.js');
 const SETTINGS_INTEGRATIONS_JS = path.join(REPO_ROOT, 'web/static/js/features/settings/integrations.js');
+const SETTINGS_IMPORTEXPORT_JS = path.join(REPO_ROOT, 'web/static/js/features/settings/importexport.js');
 const WORKOUT_MODALS_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/modals.js');
 
 // Native platform abstraction layer (Phase 2b). Must load before feature
@@ -359,6 +360,11 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   // its DOMContentLoaded bind sees the same DOM tree the rest of the
   // harness uses.
   evalFileCached(window, SETTINGS_INTEGRATIONS_JS);
+
+  // settings/importexport.js — Settings → Import/Export section (C2e Task 6).
+  // Static section (no server prefill); binds its export/import/file-change
+  // handlers on eval. Loaded alongside the other settings sub-modules.
+  evalFileCached(window, SETTINGS_IMPORTEXPORT_JS);
 
   // workout/modals.js — the workout-start push-notification modal flow
   // (showWorkoutStartModal / closeWorkoutStartModal / startWorkoutFromModal /

@@ -55,6 +55,56 @@ window.MedTrackerCloudReady = (async function boot() {
     // of post-unlock boot.
     window.MedTrackerCloud = { ctx };
 
+    // C2e full-vault export/import (Settings → Import/Export, Task 6). Both
+    // sides are entirely client-side against the unlocked vault — zero-knowledge
+    // forbids the server ever seeing plaintext. exportAll reads every live
+    // record (including the unmasked integrations keys, module-to-module, never
+    // across the /api shim) and regroups via web/domain/vault.js; importAll
+    // wipes+relays the whole record store (preserving device/crypto state the
+    // vault never carries — nk, reminder prefs) and forces one snapshot upload
+    // so other devices re-bootstrap. Lazy dynamic imports keep this off the
+    // boot critical path.
+    window.CloudVault = {
+        async exportAll() {
+            const [{ readAllLiveRecords }, { recordsToVault }] = await Promise.all([
+                import('/js/sync.js'),
+                import('/domain/vault.js'),
+            ]);
+            const records = await readAllLiveRecords(ctx);
+            return JSON.stringify(recordsToVault(records, { now: Date.now() }), null, 2);
+        },
+        async importAll(json) {
+            const [{ replaceAllRecords, forceSnapshot, readAllLiveRecords, isBootstrapped, dropPendingForTypes }, { vaultToRecords, VAULT_MANAGED_TYPES }] = await Promise.all([
+                import('/js/sync.js'),
+                import('/domain/vault.js'),
+            ]);
+            const vault = typeof json === 'string' ? JSON.parse(json) : json;
+            const records = vaultToRecords(vault, { now: Date.now() });
+            // Preserve records the vault never manages (nk push key, reminder
+            // prefs, voice provisioning) across the wholesale replace.
+            // readAllLiveRecords bootstraps first, so isBootstrapped below
+            // reflects whether that bootstrap actually reached the server.
+            const survive = (await readAllLiveRecords(ctx))
+                .filter((r) => !VAULT_MANAGED_TYPES.has(r.recordType));
+            // Refuse to wipe until the account cursor exists. Without it,
+            // forceSnapshot can't propagate the import (null cursor → no-op, no
+            // retry marker) and the next open re-bootstraps the stale server
+            // snapshot over the imported records. Throwing here surfaces the
+            // error in importexport.js and skips the reload — no destructive
+            // replace happens, so local data is untouched.
+            if (!(await isBootstrapped())) {
+                throw new Error('Sync not ready — connect to the internet and reopen the app before importing.');
+            }
+            // Replace-only: discard any not-yet-flushed managed writes first, or
+            // replaceAllRecords' pending overlay resurrects them over the backup
+            // (and they later flush over it). Non-managed pending (nk, reminder
+            // prefs) stays queued — those records are in `survive`.
+            await dropPendingForTypes(VAULT_MANAGED_TYPES);
+            await replaceAllRecords([...records, ...survive]);
+            await forceSnapshot(ctx);
+        },
+    };
+
     // --- Post-unlock boot. The vault is unlocked; from here on any failure
     // degrades the app in place and is logged — it must NOT redirect to /unlock
     // (see decision above). A failed sync/shim-install is not a reason to evict

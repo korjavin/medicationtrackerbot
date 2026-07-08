@@ -92,6 +92,8 @@ var mcpCoverageExempt = []routeExemption{
 	{Method: "POST", Path: "/api/food/log/from-photo", Reason: "multipart image upload routed through OpenAI Vision; agents log food via the JSON /api/food/log endpoint"},
 	{Method: "GET", Path: "/api/bp/export", Reason: "CSV download; agent uses health.bp.list instead"},
 	{Method: "GET", Path: "/api/weight/export", Reason: "CSV download; agent uses health.weight.list instead"},
+	{Method: "GET", Path: "/api/export", Reason: "Full-vault backup download (all domains, one file); user-facing no-lock-in export, not an agent read path"},
+	{Method: "POST", Path: "/api/import", Reason: "Full-vault restore (replace-all, wipe + re-insert every domain); destructive user-facing migration, not an agent write path"},
 
 	// --- Legacy compat shims, superseded ---
 	{Method: "POST", Path: "/api/workout/session/snooze", Reason: "legacy compat shim, superseded by /sessions/{id}/snooze"},
