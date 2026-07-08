@@ -890,9 +890,11 @@
                 <div class="wg-settings-integrations__group">
                     <h4 class="wg-settings-integrations__group-title wg-mono-display">Import</h4>
                     <div class="wg-settings-integrations__field">
-                        <label for="importexport-import-file" class="wg-settings-integrations__label">Backup file (.json or .age)</label>
+                        <label for="importexport-import-file" class="wg-settings-integrations__label">Backup file (.json.gz, .json.gz.age, .json, .age)</label>
                         <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
-                            <input type="file" id="importexport-import-file" class="wg-settings-integrations__input" accept=".json,.age">
+                            <!-- Import sniffs magic bytes, not the extension; this list only shapes the OS
+                                 file picker. .gz first: that is what export writes now. -->
+                            <input type="file" id="importexport-import-file" class="wg-settings-integrations__input" accept=".gz,.age,.json,application/gzip,application/json">
                         </div>
                     </div>
                     <div id="importexport-import-passphrase-field" class="wg-settings-integrations__field" hidden>
