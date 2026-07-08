@@ -214,7 +214,7 @@ const RECONNECT_MAX_MS = 30000;
 // module). records/now/timeZone are the same ports apishim.js's domain
 // instances take.
 export function createResponder({
-  pairingId, key, records, now, timeZone, relayURL,
+  pairingId, key, records, now, timeZone, relayURL, onStalePairing,
 }) {
   const dispatcher = createDispatcher({
     bp: createBPDomain({ records, now, timeZone }),
@@ -279,9 +279,13 @@ export function createResponder({
       const res = await fetch(httpUrl);
       if (res.status === 404) {
         console.warn('[mcp] server dropped pairing, stopping responder');
-        import('./mcp-pairing.js').then(({ purgePairing }) => {
-          if (controllerCtx) purgePairing(controllerCtx);
-        });
+        if (onStalePairing) {
+          onStalePairing();
+        } else {
+          import('./mcp-pairing.js').then(({ purgePairing }) => {
+            if (controllerCtx) purgePairing(controllerCtx);
+          });
+        }
         stop();
         return;
       }
@@ -350,6 +354,11 @@ async function reconcile() {
     records: recordsPort(controllerCtx),
     now: () => Date.now(),
     timeZone: (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC',
+    onStalePairing: () => {
+      import('./mcp-pairing.js').then(({ purgePairing }) => {
+        if (controllerCtx) purgePairing(controllerCtx);
+      });
+    },
   });
   active = { pairingId: pairing.pairingId, responder };
   responder.connect();

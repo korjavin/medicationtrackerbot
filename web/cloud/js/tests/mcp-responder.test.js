@@ -137,7 +137,21 @@ describe('mcp-responder reconnect logic', () => {
     // Simulate server dropped pairing (404)
     global.fetch.mockResolvedValue({ status: 404 });
 
-    const responder = setupResponder();
+    let stalePairingCalled = false;
+    const records = createInMemoryRecordsPort();
+    // Seed the singleton
+    await records.put('mcppairing', { recordId: 'mcppairing', pairingId: 'test-pairing', deleted: false });
+
+    const responder = createResponder({
+      pairingId: 'test-pairing',
+      key: new Uint8Array(32),
+      records,
+      now: () => Date.now(),
+      timeZone: 'UTC',
+      relayURL: 'wss://test.local/api/mcp/relay/device',
+      onStalePairing: () => { stalePairingCalled = true; },
+    });
+
     await responder.connect();
 
     // Ensure fetch was called on http scheme equivalent of the ws
@@ -150,9 +164,8 @@ describe('mcp-responder reconnect logic', () => {
     // Wait for the async purge to finish processing - the import is async inside connect()
     await new Promise(resolve => setTimeout(resolve, 50));
 
-    // In Vitest, the dynamically imported module inside connect() doesn't
-    // easily share the same mock instance in this setup since we are not providing controllerCtx.
-    // However, we verified it stops connecting and returns idle.
+    // Ensure the onStalePairing callback was called
+    expect(stalePairingCalled).toBe(true);
     expect(responder.getStatus()).toBe('idle');
   });
 
