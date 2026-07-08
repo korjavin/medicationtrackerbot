@@ -274,8 +274,12 @@ self.addEventListener('fetch', (event) => {
         event.respondWith(
             fetch(event.request)
                 .then((response) => {
-                    // Cache successful GET requests for offline support
-                    if (response.ok && event.request.method === 'GET') {
+                    // Cache successful GET requests for offline support.
+                    // /api/export is excluded: its body is the full vault, which with
+                    // include_secrets=1 (the default) carries unmasked provider API keys
+                    // and every api_tokens hash. cache.put ignores Cache-Control, so the
+                    // path skip is the only way to keep it off disk.
+                    if (response.ok && event.request.method === 'GET' && url.pathname !== '/api/export') {
                         const responseClone = response.clone();
                         caches.open(DYNAMIC_CACHE)
                             .then((cache) => {

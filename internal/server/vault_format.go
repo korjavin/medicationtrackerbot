@@ -36,16 +36,24 @@ type Vault struct {
 }
 
 // VaultData holds one key per domain.
+//
+// APITokens is a pointer-slice, not a plain slice: it is the only block (with
+// Settings.Integrations) whose import is NOT replace-semantics. Absent means
+// "the export was taken with include_secrets=0 — leave the target's tokens
+// alone"; a present (even empty) array replaces them. nil vs []{} must survive
+// the JSON boundary, which a plain `omitempty` slice cannot express.
 type VaultData struct {
-	Medications VaultMedications `json:"medications"`
-	BP          VaultBP          `json:"bp"`
-	Weight      VaultWeight      `json:"weight"`
-	Food        VaultFood        `json:"food"`
-	Workouts    VaultWorkouts    `json:"workouts"`
-	Vitals      VaultVitals      `json:"vitals"`
-	Diary       VaultDiary       `json:"diary"`
-	TZ          VaultTZ          `json:"tz"`
-	Settings    VaultSettings    `json:"settings"`
+	Medications  VaultMedications  `json:"medications"`
+	BP           VaultBP           `json:"bp"`
+	Weight       VaultWeight       `json:"weight"`
+	Food         VaultFood         `json:"food"`
+	Workouts     VaultWorkouts     `json:"workouts"`
+	Vitals       VaultVitals       `json:"vitals"`
+	Diary        VaultDiary        `json:"diary"`
+	TZ           VaultTZ           `json:"tz"`
+	Settings     VaultSettings     `json:"settings"`
+	Gamification VaultGamification `json:"gamification"`
+	APITokens    *[]VaultAPIToken  `json:"api_tokens,omitempty"`
 }
 
 // --- medications ---
@@ -79,6 +87,12 @@ type VaultIntake struct {
 	Status       string     `json:"status"`
 	SnoozedUntil *time.Time `json:"snoozed_until"`
 	Source       string     `json:"source"`
+	// source='tz_step' doses are only visible to the medication repo when they
+	// still point at their plan (the APPROVED/COMPLETED gate in
+	// medication/repo.go). Carry the FK — tz_transition_plans.id is preserved
+	// verbatim on import — or a restore permanently hides them.
+	TZPlanID     *int64 `json:"tz_plan_id,omitempty"`
+	TZStepNumber *int64 `json:"tz_step_number,omitempty"`
 }
 
 type VaultRestock struct {
@@ -269,20 +283,20 @@ type VaultExerciseLog struct {
 }
 
 type VaultMiBand struct {
-	ActivityType int             `json:"activity_type"`
-	ActivityName string          `json:"activity_name"`
-	SourceStartMs int64          `json:"source_start_ms"`
-	SourceEndMs  int64           `json:"source_end_ms"`
-	TzOffset     int             `json:"tz_offset"`
-	DurationSec  int             `json:"duration_sec"`
-	DistanceM    float64         `json:"distance_m"`
-	Steps        int             `json:"steps"`
-	Calories     int             `json:"calories"`
-	HeartRateAvg int             `json:"heart_rate_avg"`
-	SpO2Avg      int             `json:"spo2_avg"`
-	PauseMs      int64           `json:"pause_ms"`
-	Source       string          `json:"source"`
-	GPS          []VaultGPSPoint `json:"gps"`
+	ActivityType  int             `json:"activity_type"`
+	ActivityName  string          `json:"activity_name"`
+	SourceStartMs int64           `json:"source_start_ms"`
+	SourceEndMs   int64           `json:"source_end_ms"`
+	TzOffset      int             `json:"tz_offset"`
+	DurationSec   int             `json:"duration_sec"`
+	DistanceM     float64         `json:"distance_m"`
+	Steps         int             `json:"steps"`
+	Calories      int             `json:"calories"`
+	HeartRateAvg  int             `json:"heart_rate_avg"`
+	SpO2Avg       int             `json:"spo2_avg"`
+	PauseMs       int64           `json:"pause_ms"`
+	Source        string          `json:"source"`
+	GPS           []VaultGPSPoint `json:"gps"`
 }
 
 type VaultGPSPoint struct {
@@ -333,7 +347,10 @@ type VaultSample struct {
 	DateTime time.Time `json:"date_time"`
 	TzOffset int       `json:"tz_offset"`
 	Value    int       `json:"value"`
-	Info     string    `json:"info,omitempty"`
+	// Type is the per-sample discriminator the /api/health/* reads and the
+	// Mi Band importer both use. omitempty so the common 0 stays off the wire.
+	Type int    `json:"type,omitempty"`
+	Info string `json:"info,omitempty"`
 }
 
 // --- diary ---
@@ -351,9 +368,12 @@ type VaultNote struct {
 // --- tz ---
 
 type VaultTZ struct {
-	Current        *string         `json:"current"`
-	History        []VaultTZChange `json:"history"`
-	TransitionPlan *VaultTZPlan    `json:"transition_plan"`
+	Current *string         `json:"current"`
+	History []VaultTZChange `json:"history"`
+	// TransitionPlans is the full plan history, oldest first — past plans feed
+	// history analysis and the wipe deletes every row, so exporting only the
+	// active/pending one loses data on a replace-import.
+	TransitionPlans []VaultTZPlan `json:"transition_plans"`
 }
 
 type VaultTZChange struct {
@@ -362,11 +382,18 @@ type VaultTZChange struct {
 }
 
 type VaultTZPlan struct {
+	// ID is preserved verbatim on import so intake_log.tz_plan_id keeps
+	// resolving. Absent (cloud-native vaults) means "assign a fresh id".
+	ID         int64         `json:"id,omitempty"`
 	OldTZ      string        `json:"old_tz"`
 	NewTZ      string        `json:"new_tz"`
 	Status     string        `json:"status"`
 	CreatedAt  time.Time     `json:"created_at"`
 	ApprovedAt *time.Time    `json:"approved_at,omitempty"`
+	NotifiedAt *time.Time    `json:"notified_at,omitempty"`
+	PlanHash   string        `json:"plan_hash"`
+	InputsJSON string        `json:"inputs_json"`
+	UserAction string        `json:"user_action,omitempty"`
 	Steps      []VaultTZStep `json:"steps"`
 }
 
@@ -382,13 +409,29 @@ type VaultTZStep struct {
 // --- settings ---
 
 type VaultSettings struct {
-	Timezone              string                `json:"timezone"`
-	DismissedTZSuggestion string                `json:"dismissed_tz_suggestion"`
-	Features              VaultFeatures         `json:"features"`
-	TabOrder              []string              `json:"tab_order"`
-	FoodTargets           *VaultFoodTargets     `json:"food_targets"`
-	Integrations          VaultIntegrations     `json:"integrations"`
-	MedReminderPref       *VaultMedReminderPref `json:"med_reminder_pref,omitempty"`
+	Timezone              string            `json:"timezone"`
+	DismissedTZSuggestion string            `json:"dismissed_tz_suggestion"`
+	Features              VaultFeatures     `json:"features"`
+	TabOrder              []string          `json:"tab_order"`
+	FoodTargets           *VaultFoodTargets `json:"food_targets"`
+	// Integrations is a pointer: absent (include_secrets=0) means "leave the
+	// target's provider keys alone", while a present block replaces them. An
+	// empty-string-filled block is NOT the same thing — it clears them.
+	Integrations    *VaultIntegrations    `json:"integrations,omitempty"`
+	MedReminderPref *VaultMedReminderPref `json:"med_reminder_pref,omitempty"`
+	// BPReminder / WeightReminder mirror med_reminder_pref for the two
+	// scheduler-owned reminder-state rows. Only the user-set fields travel; the
+	// transient scheduler/Telegram columns (last_notification_sent_at,
+	// notification_message_id) stay behind.
+	BPReminder     *VaultReminderState `json:"bp_reminder,omitempty"`
+	WeightReminder *VaultReminderState `json:"weight_reminder,omitempty"`
+}
+
+type VaultReminderState struct {
+	Enabled               bool       `json:"enabled"`
+	PreferredReminderHour int        `json:"preferred_reminder_hour"`
+	SnoozedUntil          *time.Time `json:"snoozed_until"`
+	DontRemindUntil       *time.Time `json:"dont_remind_until"`
 }
 
 // VaultFeatures uses pointers so an absent flag (missing key, or a fresh
@@ -441,4 +484,61 @@ type VaultElevenLabs struct {
 
 type VaultMedReminderPref struct {
 	Enabled bool `json:"enabled"`
+}
+
+// --- gamification ---
+
+// VaultGamification carries the HealthPoints engine's three tables. The ledger
+// is technically recomputable, but only from health data that predates the
+// user's install window, so a restore that drops it silently resets HP/level.
+// Leaf ids are omitted (metric_key and the ledger's UNIQUE tuple are the
+// natural keys).
+type VaultGamification struct {
+	Targets []VaultGamTarget      `json:"targets"`
+	Ledger  []VaultGamLedgerEntry `json:"ledger"`
+	State   *VaultGamState        `json:"state"`
+}
+
+type VaultGamTarget struct {
+	MetricKey string    `json:"metric_key"`
+	LowVal    *float64  `json:"low_val"`
+	HighVal   *float64  `json:"high_val"`
+	Falloff   *float64  `json:"falloff"`
+	Mode      *string   `json:"mode"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type VaultGamLedgerEntry struct {
+	// Day is the UTC-midnight instant of the scored day (stored as day_unix).
+	Day          time.Time `json:"day"`
+	Ring         string    `json:"ring"`
+	SourceMetric string    `json:"source_metric"`
+	Kind         string    `json:"kind"`
+	HP           int       `json:"hp"`
+	Detail       *string   `json:"detail"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+type VaultGamState struct {
+	LifetimeHP    int        `json:"lifetime_hp"`
+	Level         int        `json:"level"`
+	CurrentStreak int        `json:"current_streak"`
+	LongestStreak int        `json:"longest_streak"`
+	Freezes       int        `json:"freezes"`
+	InsightTier   int        `json:"insight_tier"`
+	LastScoredDay *time.Time `json:"last_scored_day"`
+	BackfilledAt  *time.Time `json:"backfilled_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+}
+
+// --- api tokens ---
+
+// VaultAPIToken carries the bcrypt-style token_hash, not the plaintext (which
+// is unrecoverable). That is exactly what makes an already-minted MCP/API token
+// keep authenticating after a server move.
+type VaultAPIToken struct {
+	Name       string     `json:"name"`
+	TokenHash  string     `json:"token_hash"`
+	CreatedAt  time.Time  `json:"created_at"`
+	LastUsedAt *time.Time `json:"last_used_at"`
 }

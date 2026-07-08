@@ -204,14 +204,23 @@ async function applyIncoming(recordType, record) {
   }
 }
 
+// Returns true once the local mirror is at a known cursor. False means "did not
+// bootstrap" — callers that would otherwise proceed on a stale cursor must bail.
 async function bootstrap(ctx) {
+  // A stranded full-vault import (forceSnapshotPending) means the LOCAL store is
+  // authoritative and has not been pushed yet. Replacing it with the server's
+  // stale snapshot would destroy the import. pullOnOpen also guards this, but
+  // bootstrap is reachable from pullTail's compaction branch — which flushPending
+  // reaches on any write — so the guard has to live here, at the one place that
+  // calls replaceAllRecords.
+  if ((await readMeta()).forceSnapshotPending) return false;
   const kData = await getKData(ctx);
   let snapRes;
   try {
     snapRes = await fetch('/api/sync/snapshot');
   } catch {
     offline = true;
-    return; // leave localLastSeq null so bootstrapIfNeeded retries next open
+    return false; // leave localLastSeq null so bootstrapIfNeeded retries next open
   }
   // 204 = fresh account with no snapshot (a legit cursor-0 bootstrap); anything
   // other than 200/204 (5xx behind a proxy, transient error) must NOT poison
@@ -219,7 +228,7 @@ async function bootstrap(ctx) {
   // compaction would silently skip all snapshotted state. Stay null → retry.
   if (snapRes.status !== 200 && snapRes.status !== 204) {
     offline = true;
-    return;
+    return false;
   }
   offline = false;
   let lastSnapshotSeq = 0;
@@ -247,6 +256,7 @@ async function bootstrap(ctx) {
     }
   }
   await writeMeta({ localLastSeq: lastSnapshotSeq, lastSnapshotSeq });
+  return true;
 }
 
 async function bootstrapIfNeeded(ctx) {
@@ -280,8 +290,9 @@ async function pullTail(ctx) {
     // so an incremental tail would silently skip them. Re-bootstrap from the
     // snapshot, then resume the tail above it.
     if (typeof body.snapshot_seq === 'number' && body.snapshot_seq > meta.localLastSeq) {
-      await bootstrap(ctx);
-      if (offline) return; // bootstrap failed transiently — retry next open
+      // Transient failure, or a stranded import that must be pushed first: either
+      // way the cursor didn't move, so looping would spin. Retry next open.
+      if (!(await bootstrap(ctx))) return;
       continue;
     }
     for (const op of body.ops || []) {
@@ -314,7 +325,11 @@ async function pullTail(ctx) {
 
 // snapshotAt encrypts the whole local record store and POSTs it as the
 // compaction floor at `snapshotSeq`. Shared by the threshold-gated
-// maybeSnapshot and the C2e forced snapshot after a full-vault import.
+// maybeSnapshot and the C2e forced snapshot after a full-vault import. Returns
+// whether the snapshot landed; a rejected body (oversized, seq ahead of the
+// server) is only "offline" for the forced path, where it strands the import —
+// maybeSnapshot runs after a successful pull+flush, so failing it must not flip
+// a healthy app to offline for good.
 async function snapshotAt(ctx, snapshotSeq) {
   const kData = await getKData(ctx);
   const records = await readAllRecords();
@@ -329,12 +344,12 @@ async function snapshotAt(ctx, snapshotSeq) {
     });
   } catch {
     offline = true;
-    return;
+    return false;
   }
-  if (res.ok) {
-    offline = false;
-    await writeMeta({ lastSnapshotSeq: snapshotSeq });
-  }
+  if (!res.ok) return false;
+  offline = false;
+  await writeMeta({ lastSnapshotSeq: snapshotSeq });
+  return true;
 }
 
 async function maybeSnapshot(ctx) {
@@ -367,10 +382,17 @@ const IMPORT_BUMP_RECORD_ID = '__vault_import_bump__';
 // tryForceSnapshot, which pullOnOpen also re-runs (before any pull) every open
 // until the snapshot lands.
 export async function forceSnapshot(ctx) {
-  const meta = await readMeta();
-  if (meta.localLastSeq === null) return;
-  await writeMeta({ forceSnapshotPending: true });
+  await markForceSnapshotPending();
   await tryForceSnapshot(ctx);
+}
+
+// Set the durable marker BEFORE the destructive replaceAllRecords. Between the
+// replace landing and the marker being written, bootstrap()/pullOnOpen() see no
+// marker and re-bootstrap the stale server snapshot over the fresh import — and
+// the pre-import data is already gone. Marking first makes that window safe: a
+// crash leaves a pending forced snapshot, which the next open retries.
+export async function markForceSnapshotPending() {
+  await writeMeta({ forceSnapshotPending: true });
 }
 
 // Drives (or retries) a pending forced snapshot to completion: advance last_seq
@@ -422,11 +444,20 @@ async function tryForceSnapshot(ctx) {
   }
   offline = false;
   const { assigned } = await res.json();
+  if (!Array.isArray(assigned) || assigned.length === 0) {
+    offline = true; // malformed response — don't poison the cursor with -Infinity
+    return;
+  }
   const snapshotSeq = Math.max(...assigned);
   // Advance our cursor to the bump so a subsequent pull sees our own snapshot as
   // the floor (no re-bootstrap) once the marker clears.
   await writeMeta({ localLastSeq: snapshotSeq });
-  await snapshotAt(ctx, snapshotSeq);
+  // A rejected snapshot leaves forceSnapshotPending set, which blocks every later
+  // pull/flush. Surface that as offline so the status line is honest.
+  if (!(await snapshotAt(ctx, snapshotSeq))) {
+    offline = true;
+    return;
+  }
   if ((await readMeta()).lastSnapshotSeq >= snapshotSeq) {
     await writeMeta({ forceSnapshotPending: false });
   }

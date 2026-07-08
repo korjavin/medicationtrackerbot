@@ -61,34 +61,37 @@ window.MedTrackerCloudReady = (async function boot() {
     // record (including the unmasked integrations keys, module-to-module, never
     // across the /api shim) and regroups via web/domain/vault.js; importAll
     // wipes+relays the whole record store (preserving device/crypto state the
-    // vault never carries — nk, reminder prefs) and forces one snapshot upload
+    // vault never carries — nk, voice provisioning) and forces one snapshot upload
     // so other devices re-bootstrap. Lazy dynamic imports keep this off the
     // boot critical path.
     window.CloudVault = {
-        async exportAll() {
+        async exportAll({ includeSecrets = true } = {}) {
             const [{ readAllLiveRecords }, { recordsToVault }] = await Promise.all([
                 import('/js/sync.js'),
                 import('/domain/vault.js'),
             ]);
             const records = await readAllLiveRecords(ctx);
-            return JSON.stringify(recordsToVault(records, { now: Date.now() }), null, 2);
+            return JSON.stringify(recordsToVault(records, { now: Date.now(), includeSecrets }), null, 2);
         },
         async importAll(json) {
-            const [{ replaceAllRecords, forceSnapshot, readAllLiveRecords, isBootstrapped, dropPendingForTypes }, { vaultToRecords, VAULT_MANAGED_TYPES }] = await Promise.all([
+            const [{ replaceAllRecords, forceSnapshot, markForceSnapshotPending, readAllLiveRecords, isBootstrapped, dropPendingForTypes }, { vaultToRecords, managedTypesForImport }] = await Promise.all([
                 import('/js/sync.js'),
                 import('/domain/vault.js'),
             ]);
             const vault = typeof json === 'string' ? JSON.parse(json) : json;
             const records = vaultToRecords(vault, { now: Date.now() });
-            // Preserve records the vault never manages (nk push key, reminder
-            // prefs, voice provisioning) across the wholesale replace.
+            // Managed set is narrowed per-file: a secrets-free vault must not
+            // wipe the destination's integrations keys / api tokens.
+            const VAULT_MANAGED_TYPES = managedTypesForImport(vault);
+            // Preserve records the vault never manages (nk push key, voice
+            // provisioning, un-carried secrets) across the wholesale replace.
             // readAllLiveRecords bootstraps first, so isBootstrapped below
             // reflects whether that bootstrap actually reached the server.
             const survive = (await readAllLiveRecords(ctx))
                 .filter((r) => !VAULT_MANAGED_TYPES.has(r.recordType));
             // Refuse to wipe until the account cursor exists. Without it,
-            // forceSnapshot can't propagate the import (null cursor → no-op, no
-            // retry marker) and the next open re-bootstraps the stale server
+            // forceSnapshot can't propagate the import (null cursor → nothing to
+            // snapshot at) and the next open re-bootstraps the stale server
             // snapshot over the imported records. Throwing here surfaces the
             // error in importexport.js and skips the reload — no destructive
             // replace happens, so local data is untouched.
@@ -99,9 +102,23 @@ window.MedTrackerCloudReady = (async function boot() {
             // replaceAllRecords' pending overlay resurrects them over the backup
             // (and they later flush over it). Non-managed pending (nk, reminder
             // prefs) stays queued — those records are in `survive`.
+            // Mark before the wipe: a crash between replaceAllRecords and the
+            // marker would let the next open re-bootstrap the stale server
+            // snapshot over the import (and the old data is already gone).
+            await markForceSnapshotPending();
             await dropPendingForTypes(VAULT_MANAGED_TYPES);
             await replaceAllRecords([...records, ...survive]);
-            await forceSnapshot(ctx);
+            // Past this line the import HAS happened locally. Propagation to the
+            // server is retryable (forceSnapshotPending stays set, next pullOnOpen
+            // retries), so a throw here must not reach importexport.js — it would
+            // report "Import failed" and skip the reload while the old data is
+            // already gone, leaving the user staring at pre-import UI over
+            // post-import data.
+            try {
+                await forceSnapshot(ctx);
+            } catch (err) {
+                console.warn('[cloud] import applied locally; sync to other devices deferred', err);
+            }
         },
     };
 

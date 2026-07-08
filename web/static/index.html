@@ -871,6 +871,13 @@
                 <div class="wg-settings-integrations__group">
                     <h4 class="wg-settings-integrations__group-title wg-mono-display">Export</h4>
                     <div class="wg-settings-integrations__field">
+                        <label class="checkbox-label" for="importexport-include-secrets">
+                            <input type="checkbox" id="importexport-include-secrets" checked>
+                            Include API keys and external provider settings
+                        </label>
+                        <p class="wg-settings-integrations__note">The backup will contain secrets — encrypt it with a passphrase, or uncheck to leave them out.</p>
+                    </div>
+                    <div class="wg-settings-integrations__field">
                         <label for="importexport-export-passphrase" class="wg-settings-integrations__label">Passphrase (optional)</label>
                         <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
                             <input type="password" id="importexport-export-passphrase" class="wg-settings-integrations__input" autocomplete="off" placeholder="Encrypt the backup">

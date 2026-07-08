@@ -37,6 +37,16 @@
           "status": "TAKEN",
           "snoozed_until": null,
           "source": "schedule"
+        },
+        {
+          "medication_id": 1,
+          "scheduled_at": "2026-07-10T07:00:00Z",
+          "taken_at": null,
+          "status": "PENDING",
+          "snoozed_until": null,
+          "source": "tz_step",
+          "tz_plan_id": 2,
+          "tz_step_number": 1
         }
       ],
       "restocks": [
@@ -73,7 +83,10 @@
           "tag": "morning"
         }
       ],
-      "goal": { "target_systolic": 120, "target_diastolic": 80 }
+      "goal": {
+        "target_systolic": 120,
+        "target_diastolic": 80
+      }
     },
     "weight": {
       "logs": [
@@ -294,19 +307,51 @@
         }
       ],
       "day_stats": [
-        { "day": "2026-07-07", "steps": 8400, "calories": 2100, "distance": 6200 },
-        { "day": "2026-07-08", "steps": 10200, "calories": 2350, "distance": 7800 }
+        {
+          "day": "2026-07-07",
+          "steps": 8400,
+          "calories": 2100,
+          "distance": 6200
+        },
+        {
+          "day": "2026-07-08",
+          "steps": 10200,
+          "calories": 2350,
+          "distance": 7800
+        }
       ],
       "heart": [
-        { "date_time": "2026-07-07T23:50:00Z", "tz_offset": 7200, "value": 58 },
-        { "date_time": "2026-07-08T00:10:00Z", "tz_offset": 7200, "value": 56 },
-        { "date_time": "2026-07-08T09:00:00Z", "tz_offset": 7200, "value": 72 }
+        {
+          "date_time": "2026-07-07T23:50:00Z",
+          "tz_offset": 7200,
+          "value": 58,
+          "type": 1
+        },
+        {
+          "date_time": "2026-07-08T00:10:00Z",
+          "tz_offset": 7200,
+          "value": 56
+        },
+        {
+          "date_time": "2026-07-08T09:00:00Z",
+          "tz_offset": 7200,
+          "value": 72
+        }
       ],
       "spo2": [
-        { "date_time": "2026-07-08T09:00:00Z", "tz_offset": 7200, "value": 97 }
+        {
+          "date_time": "2026-07-08T09:00:00Z",
+          "tz_offset": 7200,
+          "value": 97
+        }
       ],
       "stress": [
-        { "date_time": "2026-07-08T09:00:00Z", "tz_offset": 7200, "value": 42, "info": "relaxed" }
+        {
+          "date_time": "2026-07-08T09:00:00Z",
+          "tz_offset": 7200,
+          "value": 42,
+          "info": "relaxed"
+        }
       ]
     },
     "diary": {
@@ -321,32 +366,62 @@
     "tz": {
       "current": "Europe/Berlin",
       "history": [
-        { "timezone": "Europe/Berlin", "changed_at": "2026-06-01T00:00:00Z" }
+        {
+          "timezone": "Europe/Berlin",
+          "changed_at": "2026-06-01T00:00:00Z"
+        }
       ],
-      "transition_plan": {
-        "old_tz": "Europe/Berlin",
-        "new_tz": "America/New_York",
-        "status": "PENDING_APPROVAL",
-        "created_at": "2026-07-08T10:00:00Z",
-        "steps": [
-          {
-            "medication_id": 1,
-            "med_name": "Lisinopril",
-            "step_number": 1,
-            "total_steps": 2,
-            "scheduled_at": "2026-07-10T07:00:00Z",
-            "note": "shift 3h earlier"
-          },
-          {
-            "medication_id": 1,
-            "med_name": "Lisinopril",
-            "step_number": 2,
-            "total_steps": 2,
-            "scheduled_at": "2026-07-11T04:00:00Z",
-            "note": "shift to target"
-          }
-        ]
-      }
+      "transition_plans": [
+        {
+          "id": 1,
+          "old_tz": "America/New_York",
+          "new_tz": "Europe/Berlin",
+          "status": "COMPLETED",
+          "created_at": "2026-05-02T09:00:00Z",
+          "approved_at": "2026-05-02T09:30:00Z",
+          "notified_at": "2026-05-02T09:05:00Z",
+          "plan_hash": "hash-completed-0001",
+          "inputs_json": "{\"old_tz\":\"America/New_York\",\"new_tz\":\"Europe/Berlin\"}",
+          "user_action": "APPROVED",
+          "steps": [
+            {
+              "medication_id": 1,
+              "med_name": "Lisinopril",
+              "step_number": 1,
+              "total_steps": 1,
+              "scheduled_at": "2026-05-03T08:00:00Z",
+              "note": "shift 1h later"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "old_tz": "Europe/Berlin",
+          "new_tz": "America/New_York",
+          "status": "PENDING_APPROVAL",
+          "created_at": "2026-07-08T10:00:00Z",
+          "plan_hash": "hash-pending-0002",
+          "inputs_json": "{\"old_tz\":\"Europe/Berlin\",\"new_tz\":\"America/New_York\"}",
+          "steps": [
+            {
+              "medication_id": 1,
+              "med_name": "Lisinopril",
+              "step_number": 1,
+              "total_steps": 2,
+              "scheduled_at": "2026-07-10T07:00:00Z",
+              "note": "shift 3h earlier"
+            },
+            {
+              "medication_id": 1,
+              "med_name": "Lisinopril",
+              "step_number": 2,
+              "total_steps": 2,
+              "scheduled_at": "2026-07-11T04:00:00Z",
+              "note": "shift to target"
+            }
+          ]
+        }
+      ]
     },
     "settings": {
       "timezone": "Europe/Berlin",
@@ -361,8 +436,20 @@
         "gamification": false,
         "weekly_digest": false
       },
-      "tab_order": ["bp", "weight", "food", "meds", "health", "workouts"],
-      "food_targets": { "calories": 2200, "carbs": 220, "protein": 140, "fat": 70 },
+      "tab_order": [
+        "bp",
+        "weight",
+        "food",
+        "meds",
+        "health",
+        "workouts"
+      ],
+      "food_targets": {
+        "calories": 2200,
+        "carbs": 220,
+        "protein": 140,
+        "fat": 70
+      },
       "integrations": {
         "openai": {
           "api_key": "sk-test-openai-key-0001",
@@ -382,7 +469,86 @@
           "agent_id": ""
         }
       },
-      "med_reminder_pref": { "enabled": true }
-    }
+      "med_reminder_pref": {
+        "enabled": true
+      },
+      "bp_reminder": {
+        "enabled": true,
+        "preferred_reminder_hour": 20,
+        "snoozed_until": "2026-07-08T18:00:00Z",
+        "dont_remind_until": null
+      },
+      "weight_reminder": {
+        "enabled": false,
+        "preferred_reminder_hour": 7,
+        "snoozed_until": null,
+        "dont_remind_until": null
+      }
+    },
+    "gamification": {
+      "targets": [
+        {
+          "metric_key": "sleep_minutes",
+          "low_val": 420.0,
+          "high_val": null,
+          "falloff": null,
+          "mode": "at_least",
+          "updated_at": "2026-06-11T08:00:00Z"
+        },
+        {
+          "metric_key": "steps",
+          "low_val": 6000.0,
+          "high_val": 12000.0,
+          "falloff": 2000.0,
+          "mode": "range",
+          "updated_at": "2026-06-10T08:00:00Z"
+        }
+      ],
+      "ledger": [
+        {
+          "day": "2026-07-06T00:00:00Z",
+          "ring": "move",
+          "source_metric": "steps",
+          "kind": "in_range",
+          "hp": 30,
+          "detail": "{\"steps\":9500}",
+          "created_at": "2026-07-07T00:05:00Z"
+        },
+        {
+          "day": "2026-07-07T00:00:00Z",
+          "ring": "rest",
+          "source_metric": "sleep_minutes",
+          "kind": "in_range",
+          "hp": 25,
+          "detail": null,
+          "created_at": "2026-07-08T00:05:00Z"
+        }
+      ],
+      "state": {
+        "lifetime_hp": 1355,
+        "level": 4,
+        "current_streak": 6,
+        "longest_streak": 21,
+        "freezes": 1,
+        "insight_tier": 2,
+        "last_scored_day": "2026-07-07T00:00:00Z",
+        "backfilled_at": "2026-06-01T03:00:00Z",
+        "updated_at": "2026-07-08T00:05:00Z"
+      }
+    },
+    "api_tokens": [
+      {
+        "name": "mcp-laptop",
+        "token_hash": "c2ltdWxhdGVkLWhhc2gtMDAwMQ==",
+        "created_at": "2026-05-20T12:00:00Z",
+        "last_used_at": "2026-07-07T19:30:00Z"
+      },
+      {
+        "name": "home-assistant",
+        "token_hash": "c2ltdWxhdGVkLWhhc2gtMDAwMg==",
+        "created_at": "2026-06-02T12:00:00Z",
+        "last_used_at": null
+      }
+    ]
   }
 }

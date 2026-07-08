@@ -3,7 +3,9 @@ package server
 import (
 	"compress/gzip"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -38,8 +40,21 @@ func (s *Server) handleVaultExport(w http.ResponseWriter, r *http.Request) {
 	rc := http.NewResponseController(w)
 	_ = rc.SetWriteDeadline(time.Now().Add(vaultIOTimeout))
 
+	// include_secrets: absent → include (the vault is a migration mechanism
+	// first). Once present — including present-but-empty — the value must be
+	// explicitly truthy, or api_tokens + settings.integrations are omitted so
+	// the file can be shared or stored casually — a typo'd value must not
+	// silently leak provider keys. Hence Has(), not Get() != "".
+	// See docs/vault-format.md.
+	q := r.URL.Query()
+	includeSecrets := true
+	if q.Has("include_secrets") {
+		v := q.Get("include_secrets")
+		includeSecrets = v == "1" || v == "true"
+	}
+
 	started := time.Now()
-	vault, err := s.buildVault(r.Context(), userID)
+	vault, err := s.buildVault(r.Context(), userID, includeSecrets)
 	if err != nil {
 		slog.Error("vault export failed", "error", err, "user_id", userID)
 		http.Error(w, "export failed", http.StatusInternalServerError)
@@ -77,7 +92,11 @@ func (s *Server) handleVaultExport(w http.ResponseWriter, r *http.Request) {
 // repo doesn't already return time.Time (intake unix-seconds and vitals
 // unix-millis are already time.Time on their structs; mi-band millisecond
 // fields stay raw int64 per the format).
-func (s *Server) buildVault(ctx context.Context, userID int64) (*Vault, error) {
+//
+// includeSecrets=false leaves Settings.Integrations nil and APITokens nil —
+// both are pointers, and "absent" is what tells the importer to leave the
+// destination's existing secrets alone.
+func (s *Server) buildVault(ctx context.Context, userID int64, includeSecrets bool) (*Vault, error) {
 	var data VaultData
 	var zero time.Time
 	// ponytail: repo list methods are windowed by since/days/limit; a
@@ -111,8 +130,19 @@ func (s *Server) buildVault(ctx context.Context, userID int64) (*Vault, error) {
 	if err := s.exportTZ(ctx, &data); err != nil {
 		return nil, err
 	}
-	if err := s.exportSettings(ctx, &data); err != nil {
+	if err := s.exportSettings(ctx, &data, includeSecrets); err != nil {
 		return nil, err
+	}
+	if err := s.exportReminderState(ctx, userID, &data); err != nil {
+		return nil, err
+	}
+	if err := s.exportGamification(ctx, userID, &data); err != nil {
+		return nil, err
+	}
+	if includeSecrets {
+		if err := s.exportAPITokens(ctx, &data); err != nil {
+			return nil, err
+		}
 	}
 
 	return &Vault{
@@ -170,6 +200,8 @@ func (s *Server) exportMedications(ctx context.Context, userID int64, data *Vaul
 			Status:       in.Status,
 			SnoozedUntil: in.SnoozedUntil,
 			Source:       in.Source,
+			TZPlanID:     in.TZPlanID,
+			TZStepNumber: in.TZStepNumber,
 		})
 	}
 	return nil
@@ -240,9 +272,16 @@ func (s *Server) exportWeight(ctx context.Context, userID int64, data *VaultData
 			return fmt.Errorf("weight goal: %w", gerr)
 		}
 		if goal != nil && goal.Goal != nil {
+			// goal_set_at is nullable on the legacy singleton. A zero time.Time
+			// would import as set_at_unix = -62135596800 (year 1), so stamp the
+			// export instant instead.
+			setAt := time.Now().UTC()
+			if goal.GoalSetAt != nil {
+				setAt = *goal.GoalSetAt
+			}
 			vg := VaultWeightGoal{
 				TargetWeight: *goal.Goal,
-				SetAt:        derefTime(goal.GoalSetAt),
+				SetAt:        setAt,
 				StartWeight:  goal.GoalStartWeight,
 			}
 			if goal.GoalDate != nil {
@@ -494,17 +533,17 @@ func (s *Server) exportVitals(ctx context.Context, userID int64, data *VaultData
 			// an RFC3339 timestamp ("2026-07-08T00:00:00Z"); the canonical format
 			// (and the cloud record body) use a plain YYYY-MM-DD date. Trim to the
 			// date so bot and cloud exports agree.
-			Day: dateOnly(sl.Day),
-			LightMinutes:   sl.LightMinutes,
-			DeepMinutes:    sl.DeepMinutes,
-			REMMinutes:     sl.REMMinutes,
-			AwakeMinutes:   sl.AwakeMinutes,
-			TotalMinutes:   sl.TotalMinutes,
-			TurnOverCount:  sl.TurnOverCount,
-			HeartRateAvg:   sl.HeartRateAvg,
-			SpO2Avg:        sl.SpO2Avg,
-			UserModified:   sl.UserModified,
-			Notes:          sl.Notes,
+			Day:           dateOnly(sl.Day),
+			LightMinutes:  sl.LightMinutes,
+			DeepMinutes:   sl.DeepMinutes,
+			REMMinutes:    sl.REMMinutes,
+			AwakeMinutes:  sl.AwakeMinutes,
+			TotalMinutes:  sl.TotalMinutes,
+			TurnOverCount: sl.TurnOverCount,
+			HeartRateAvg:  sl.HeartRateAvg,
+			SpO2Avg:       sl.SpO2Avg,
+			UserModified:  sl.UserModified,
+			Notes:         sl.Notes,
 		})
 	}
 	days, err := s.store.Vitals.ListDayStats(ctx, userID, zero)
@@ -522,7 +561,7 @@ func (s *Server) exportVitals(ctx context.Context, userID int64, data *VaultData
 	}
 	for _, h := range heart {
 		data.Vitals.Heart = append(data.Vitals.Heart, VaultSample{
-			DateTime: h.DateTime, TzOffset: h.TzOffset, Value: h.Value,
+			DateTime: h.DateTime, TzOffset: h.TzOffset, Value: h.Value, Type: h.Type,
 		})
 	}
 	spo2, err := s.store.Vitals.ListSpO2(ctx, userID, zero, far)
@@ -531,7 +570,7 @@ func (s *Server) exportVitals(ctx context.Context, userID int64, data *VaultData
 	}
 	for _, sp := range spo2 {
 		data.Vitals.SpO2 = append(data.Vitals.SpO2, VaultSample{
-			DateTime: sp.DateTime, TzOffset: sp.TzOffset, Value: sp.Value,
+			DateTime: sp.DateTime, TzOffset: sp.TzOffset, Value: sp.Value, Type: sp.Type,
 		})
 	}
 	stress, err := s.store.Vitals.ListStress(ctx, userID, zero, far)
@@ -540,7 +579,7 @@ func (s *Server) exportVitals(ctx context.Context, userID int64, data *VaultData
 	}
 	for _, st := range stress {
 		data.Vitals.Stress = append(data.Vitals.Stress, VaultSample{
-			DateTime: st.DateTime, TzOffset: st.TzOffset, Value: st.Value, Info: st.Info,
+			DateTime: st.DateTime, TzOffset: st.TzOffset, Value: st.Value, Type: st.Type, Info: st.Info,
 		})
 	}
 	return nil
@@ -551,7 +590,11 @@ func (s *Server) exportDiary(ctx context.Context, userID int64, data *VaultData,
 	if err != nil {
 		return fmt.Errorf("list diary: %w", err)
 	}
-	for _, n := range notes {
+	// Diary.List orders by `id DESC` (newest first). Import re-inserts in array
+	// order and lets ids autoincrement, so emit oldest-first — otherwise a
+	// bot→bot round-trip inverts the whole feed and its beforeID cursor.
+	for i := len(notes) - 1; i >= 0; i-- {
+		n := notes[i]
 		data.Diary.Notes = append(data.Diary.Notes, VaultNote{
 			Content: n.Content, Tag: n.Tag, CreatedAt: n.CreatedAt,
 		})
@@ -569,7 +612,7 @@ func (s *Server) exportTZ(ctx context.Context, data *VaultData) error {
 	}
 
 	rows, err := s.store.DB().QueryContext(ctx,
-		`SELECT timezone, recorded_at FROM timezone_history ORDER BY recorded_at ASC`)
+		`SELECT timezone, recorded_at FROM timezone_history ORDER BY recorded_at ASC, id ASC`)
 	if err != nil {
 		return fmt.Errorf("tz history: %w", err)
 	}
@@ -585,25 +628,38 @@ func (s *Server) exportTZ(ctx context.Context, data *VaultData) error {
 		return fmt.Errorf("tz history rows: %w", err)
 	}
 
-	plan, err := s.store.TZ.GetLatestActiveOrPendingTransitionPlan()
+	// Every plan, oldest first: the typed getter returns only the latest
+	// active/pending one, but the wipe deletes the whole table and past plans
+	// feed history analysis. Steps live entirely in steps_json — the separate
+	// tz_transition_steps table was dropped in migration 069.
+	planRows, err := s.store.DB().QueryContext(ctx, `
+		SELECT id, old_tz, new_tz, status, created_at_unix, approved_at_unix, notified_at_unix,
+		       plan_hash, inputs_json, COALESCE(user_action, ''), steps_json
+		FROM tz_transition_plans
+		ORDER BY created_at_unix ASC, id ASC`)
 	if err != nil {
-		return fmt.Errorf("tz plan: %w", err)
+		return fmt.Errorf("tz plans: %w", err)
 	}
-	if plan != nil {
-		vp := &VaultTZPlan{
-			OldTZ:      plan.OldTZ,
-			NewTZ:      plan.NewTZ,
-			Status:     plan.Status,
-			CreatedAt:  plan.CreatedAt,
-			ApprovedAt: plan.ApprovedAt,
+	defer planRows.Close()
+	for planRows.Next() {
+		var p VaultTZPlan
+		var createdUnix int64
+		var approvedUnix, notifiedUnix *int64
+		var stepsJSON string
+		if err := planRows.Scan(&p.ID, &p.OldTZ, &p.NewTZ, &p.Status, &createdUnix, &approvedUnix, &notifiedUnix,
+			&p.PlanHash, &p.InputsJSON, &p.UserAction, &stepsJSON); err != nil {
+			return fmt.Errorf("scan tz plan: %w", err)
 		}
-		if plan.StepsJSON != "" {
+		p.CreatedAt = time.Unix(createdUnix, 0).UTC()
+		p.ApprovedAt = unixPtrToTime(approvedUnix)
+		p.NotifiedAt = unixPtrToTime(notifiedUnix)
+		if stepsJSON != "" {
 			var steps []tzreschedule.TransitionStep
-			if err := json.Unmarshal([]byte(plan.StepsJSON), &steps); err != nil {
+			if err := json.Unmarshal([]byte(stepsJSON), &steps); err != nil {
 				return fmt.Errorf("parse tz steps: %w", err)
 			}
 			for _, st := range steps {
-				vp.Steps = append(vp.Steps, VaultTZStep{
+				p.Steps = append(p.Steps, VaultTZStep{
 					MedicationID: st.MedicationID,
 					MedName:      st.MedName,
 					StepNumber:   st.StepNumber,
@@ -613,12 +669,20 @@ func (s *Server) exportTZ(ctx context.Context, data *VaultData) error {
 				})
 			}
 		}
-		data.TZ.TransitionPlan = vp
+		data.TZ.TransitionPlans = append(data.TZ.TransitionPlans, p)
 	}
-	return nil
+	return planRows.Err()
 }
 
-func (s *Server) exportSettings(ctx context.Context, data *VaultData) error {
+func unixPtrToTime(n *int64) *time.Time {
+	if n == nil {
+		return nil
+	}
+	t := time.Unix(*n, 0).UTC()
+	return &t
+}
+
+func (s *Server) exportSettings(ctx context.Context, data *VaultData, includeSecrets bool) error {
 	cur, err := s.store.TZ.GetCurrent()
 	if err != nil {
 		return fmt.Errorf("settings timezone: %w", err)
@@ -658,6 +722,12 @@ func (s *Server) exportSettings(ctx context.Context, data *VaultData) error {
 		Fat:      targets.Fat,
 	}
 
+	if !includeSecrets {
+		// Nil Integrations == "leave the destination's provider keys alone".
+		// med_reminder_pref is a cloud-only singleton; bot mode has no such row.
+		return nil
+	}
+
 	oa, err := s.store.Settings.GetIntegrationOpenAI(ctx)
 	if err != nil {
 		return fmt.Errorf("integration openai: %w", err)
@@ -670,7 +740,7 @@ func (s *Server) exportSettings(ctx context.Context, data *VaultData) error {
 	if err != nil {
 		return fmt.Errorf("integration elevenlabs: %w", err)
 	}
-	data.Settings.Integrations = VaultIntegrations{
+	data.Settings.Integrations = &VaultIntegrations{
 		OpenAI: VaultOpenAI{
 			APIKey:       oa.APIKey,
 			URL:          oa.URL,
@@ -684,6 +754,129 @@ func (s *Server) exportSettings(ctx context.Context, data *VaultData) error {
 	}
 	// med_reminder_pref is a cloud-only singleton; bot mode has no such row, so
 	// it is intentionally left nil (omitempty drops it from bot exports).
+	return nil
+}
+
+// exportReminderState carries the two scheduler-owned reminder rows. Only the
+// user-set fields travel; last_notification_sent_at / notification_message_id
+// are transient scheduler + Telegram state that must not follow a restore.
+func (s *Server) exportReminderState(ctx context.Context, userID int64, data *VaultData) error {
+	read := func(table string) (*VaultReminderState, error) {
+		var st VaultReminderState
+		err := s.store.DB().QueryRowContext(ctx, `
+			SELECT enabled, COALESCE(preferred_reminder_hour, 0), snoozed_until, dont_remind_until
+			FROM `+table+` WHERE user_id = ?`, userID).
+			Scan(&st.Enabled, &st.PreferredReminderHour, &st.SnoozedUntil, &st.DontRemindUntil)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", table, err)
+		}
+		return &st, nil
+	}
+
+	bp, err := read("bp_reminder_state")
+	if err != nil {
+		return err
+	}
+	data.Settings.BPReminder = bp
+
+	wt, err := read("weight_reminder_state")
+	if err != nil {
+		return err
+	}
+	data.Settings.WeightReminder = wt
+	return nil
+}
+
+func (s *Server) exportGamification(ctx context.Context, userID int64, data *VaultData) error {
+	targetRows, err := s.store.DB().QueryContext(ctx, `
+		SELECT metric_key, low_val, high_val, falloff, mode, updated_at_unix
+		FROM gamification_targets WHERE user_id = ? ORDER BY metric_key ASC`, userID)
+	if err != nil {
+		return fmt.Errorf("gamification targets: %w", err)
+	}
+	defer targetRows.Close()
+	for targetRows.Next() {
+		var t VaultGamTarget
+		var updated int64
+		if err := targetRows.Scan(&t.MetricKey, &t.LowVal, &t.HighVal, &t.Falloff, &t.Mode, &updated); err != nil {
+			return fmt.Errorf("scan gamification target: %w", err)
+		}
+		t.UpdatedAt = time.Unix(updated, 0).UTC()
+		data.Gamification.Targets = append(data.Gamification.Targets, t)
+	}
+	if err := targetRows.Err(); err != nil {
+		return fmt.Errorf("gamification target rows: %w", err)
+	}
+
+	ledgerRows, err := s.store.DB().QueryContext(ctx, `
+		SELECT day_unix, ring, source_metric, kind, hp, detail, created_at_unix
+		FROM gamification_ledger WHERE user_id = ?
+		ORDER BY day_unix ASC, ring ASC, source_metric ASC, kind ASC`, userID)
+	if err != nil {
+		return fmt.Errorf("gamification ledger: %w", err)
+	}
+	defer ledgerRows.Close()
+	for ledgerRows.Next() {
+		var e VaultGamLedgerEntry
+		var day, created int64
+		if err := ledgerRows.Scan(&day, &e.Ring, &e.SourceMetric, &e.Kind, &e.HP, &e.Detail, &created); err != nil {
+			return fmt.Errorf("scan gamification ledger: %w", err)
+		}
+		e.Day = time.Unix(day, 0).UTC()
+		e.CreatedAt = time.Unix(created, 0).UTC()
+		data.Gamification.Ledger = append(data.Gamification.Ledger, e)
+	}
+	if err := ledgerRows.Err(); err != nil {
+		return fmt.Errorf("gamification ledger rows: %w", err)
+	}
+
+	var st VaultGamState
+	var lastScored, backfilled *int64
+	var updated int64
+	err = s.store.DB().QueryRowContext(ctx, `
+		SELECT lifetime_hp, level, current_streak, longest_streak, freezes, insight_tier,
+		       last_scored_day_unix, backfilled_at_unix, updated_at_unix
+		FROM gamification_state WHERE user_id = ?`, userID).
+		Scan(&st.LifetimeHP, &st.Level, &st.CurrentStreak, &st.LongestStreak, &st.Freezes,
+			&st.InsightTier, &lastScored, &backfilled, &updated)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("gamification state: %w", err)
+	}
+	st.LastScoredDay = unixPtrToTime(lastScored)
+	st.BackfilledAt = unixPtrToTime(backfilled)
+	st.UpdatedAt = time.Unix(updated, 0).UTC()
+	data.Gamification.State = &st
+	return nil
+}
+
+// exportAPITokens carries token_hash, not the (unrecoverable) plaintext — which
+// is exactly what makes an already-minted MCP/API token keep authenticating
+// after a server move. Only reached when include_secrets is on.
+func (s *Server) exportAPITokens(ctx context.Context, data *VaultData) error {
+	rows, err := s.store.DB().QueryContext(ctx,
+		`SELECT name, token_hash, created_at, last_used_at FROM api_tokens ORDER BY id ASC`)
+	if err != nil {
+		return fmt.Errorf("api tokens: %w", err)
+	}
+	defer rows.Close()
+	tokens := []VaultAPIToken{}
+	for rows.Next() {
+		var t VaultAPIToken
+		if err := rows.Scan(&t.Name, &t.TokenHash, &t.CreatedAt, &t.LastUsedAt); err != nil {
+			return fmt.Errorf("scan api token: %w", err)
+		}
+		tokens = append(tokens, t)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("api token rows: %w", err)
+	}
+	data.APITokens = &tokens
 	return nil
 }
 
@@ -716,13 +909,6 @@ func (s *Server) exportFeatures(ctx context.Context) (VaultFeatures, error) {
 		}
 	}
 	return f, nil
-}
-
-func derefTime(t *time.Time) time.Time {
-	if t != nil {
-		return *t
-	}
-	return time.Time{}
 }
 
 // dateOnly trims a possibly-timestamped day string to its YYYY-MM-DD prefix.

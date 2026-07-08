@@ -9,7 +9,9 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { recordsToVault, vaultToRecords, VAULT_MANAGED_TYPES } from '../../../../web/domain/vault.js';
+import {
+  recordsToVault, vaultToRecords, VAULT_MANAGED_TYPES, managedTypesForImport,
+} from '../../../../web/domain/vault.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
@@ -35,12 +37,18 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
   it('canonicalizes a real bot export (Go output) back to the fixture (cross-runtime full loop)', () => {
     // The bot exporter emits DESC-ordered lists and no med_reminder_pref (a
     // cloud-only singleton). recordsToVault sorts every array, so ordering is
-    // absorbed; med_reminder_pref is the one documented normalization (drop it
-    // from both sides, like the Go TestVaultImportRoundTrip does).
+    // absorbed; med_reminder_pref and the date-only columns are the documented
+    // normalizations (same two the Go TestVaultImportRoundTrip applies).
     const back = recordsToVault(vaultToRecords(botExport, { now: NOW }), { now: NOW });
     const strip = (data) => {
       const d = JSON.parse(JSON.stringify(data));
       delete d.settings.med_reminder_pref;
+      // scheduled_date / last_session_date are DATE columns: the bot re-emits them
+      // as UTC midnight, the hand fixture writes the local-midnight form. Only the
+      // calendar day is contractual — mirrors dateOnlyKeys in vault_import_test.go.
+      const day = (s) => (typeof s === 'string' ? s.slice(0, 10) : s);
+      for (const s of d.workouts.sessions) s.scheduled_date = day(s.scheduled_date);
+      for (const r of d.workouts.rotations) r.last_session_date = day(r.last_session_date);
       return d;
     };
     expect(strip(back.data)).toEqual(strip(fixture.data));
@@ -64,10 +72,70 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     for (const [type, id] of [
       ['bpgoal', 'bpgoal'], ['weightunitpref', 'weight-unit'], ['settings', 'settings'],
       ['features', 'features'], ['taborder', 'taborder'], ['foodtargets', 'foodtargets'],
-      ['integrations', 'integrations'], ['medreminderpref', 'medreminderpref'], ['tzplan', 'tzplan-current'],
+      ['integrations', 'integrations'], ['medreminderpref', 'medreminderpref'],
+      ['bpreminderpref', 'bpreminderpref'], ['weightreminderpref', 'weightreminderpref'],
+      ['gamification', 'gamification'], ['apitokens', 'apitokens'],
     ]) {
       expect(idsByType(type)).toEqual([id]);
     }
+
+    // Two tz plans: the PENDING_APPROVAL one keeps the recordId the live readers
+    // look up; the older COMPLETED one becomes passthrough history.
+    expect(idsByType('tzplan').sort()).toEqual(['tzplan-current', 'tzplanhistory-1']);
+    const current = records.find((r) => r.recordId === 'tzplan-current');
+    expect(current.status).toBe('PENDING_APPROVAL');
+    // Bot-only plan metadata rides along on the body so it round-trips.
+    expect(current.plan_hash).toBe('hash-pending-0002');
+    const past = records.find((r) => r.recordId === 'tzplanhistory-1');
+    expect([past.status, past.user_action, past.notified_at])
+      .toEqual(['COMPLETED', 'APPROVED', '2026-05-02T09:05:00Z']);
+
+    // Reminder prefs carry the bot-only snooze fields verbatim (no cloud reader).
+    const bpPref = records.find((r) => r.recordType === 'bpreminderpref');
+    expect(bpPref.snoozed_until).toBe('2026-07-08T18:00:00Z');
+    expect(bpPref.dont_remind_until).toBe(null);
+    expect(bpPref.preferred_reminder_hour).toBe(20);
+  });
+
+  it('maps a NOTIFIED plan to tzplan-current (bot mode treats it as the live plan)', () => {
+    const v = JSON.parse(JSON.stringify(fixture));
+    v.data.tz.transition_plans[1].status = 'NOTIFIED';
+    const records = vaultToRecords(v, { now: NOW });
+    const current = records.find((r) => r.recordId === 'tzplan-current');
+    expect(current.status).toBe('NOTIFIED');
+  });
+
+  it('emits empty secret blocks (not absent) when includeSecrets and the account has none', () => {
+    // A destination restore must be able to CLEAR stale keys/tokens; only an
+    // absent block means "leave them alone". Same shape the Go exporter emits.
+    const records = vaultToRecords(fixture, { now: NOW })
+      .filter((r) => r.recordType !== 'integrations' && r.recordType !== 'apitokens');
+    const out = recordsToVault(records, { now: NOW });
+    expect(out.data.api_tokens).toEqual([]);
+    expect(out.data.settings.integrations).toEqual({});
+    expect(managedTypesForImport(out).has('integrations')).toBe(true);
+    expect(managedTypesForImport(out).has('apitokens')).toBe(true);
+  });
+
+  it('omits the secret-bearing blocks when includeSecrets is false, and keeps them unmanaged on import', () => {
+    const records = vaultToRecords(fixture, { now: NOW });
+    const bare = recordsToVault(records, { now: NOW, includeSecrets: false });
+    expect(bare.data.api_tokens).toBeUndefined();
+    expect('integrations' in bare.data.settings).toBe(false);
+    // Everything else survives the toggle.
+    expect(bare.data.gamification).toEqual(fixture.data.gamification);
+    expect(bare.data.settings.bp_reminder).toEqual(fixture.data.settings.bp_reminder);
+
+    // A secrets-free vault must not wipe the destination's keys/tokens, so those
+    // two record types drop out of the managed (= replaced) set. Mirrors the
+    // bot's asymmetric importAPITokens / importSettings rule.
+    const narrowed = managedTypesForImport(bare);
+    expect(narrowed.has('integrations')).toBe(false);
+    expect(narrowed.has('apitokens')).toBe(false);
+    expect(narrowed.has('gamification')).toBe(true);
+    const full = managedTypesForImport(fixture);
+    expect(full.has('integrations')).toBe(true);
+    expect(full.has('apitokens')).toBe(true);
   });
 
   it('packs vitals samples into one day-batch record per UTC calendar day', () => {
@@ -93,5 +161,45 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     expect(() => vaultToRecords({ some: 'other app' }, { now: NOW })).toThrow();
     expect(() => vaultToRecords({ format: 'medtracker-vault', version: 2, data: {} }, { now: NOW })).toThrow();
     expect(() => vaultToRecords(null, { now: NOW })).toThrow();
+  });
+
+  it('rejects a structurally-valid vault whose rows cannot mint a recordId', () => {
+    // replaceAllRecords clears the store before put()ing; an undefined out-of-line
+    // key throws mid-transaction, committing the clear and inserting nothing. So a
+    // hand-edited/truncated file must be rejected here, before anything destructive.
+    const wrap = (data) => ({ format: 'medtracker-vault', version: 1, data });
+    expect(() => vaultToRecords(wrap({ medications: { items: [{ name: 'x' }] } }), { now: NOW })).toThrow(/Corrupt backup/);
+    expect(() => vaultToRecords(wrap({ medications: { items: 'abc' } }), { now: NOW })).toThrow(/Corrupt backup/);
+  });
+
+  it('file content can never override the sync meta fields', () => {
+    const records = vaultToRecords({
+      format: 'medtracker-vault',
+      version: 1,
+      data: { diary: { notes: [{ content: 'hi', created_at: '2026-07-08T10:00:00Z', deleted: true, recordId: { evil: 1 }, recordType: 'bp' }] } },
+    }, { now: NOW });
+    const note = records.find((r) => r.recordType === 'note');
+    expect(note).toBeTruthy();
+    expect(note.deleted).toBe(false);
+    expect(typeof note.recordId).toBe('string');
+  });
+
+  it('keeps a tz_step intake distinct from its shadowed schedule sibling', () => {
+    const slot = '2026-07-10T07:00:00Z';
+    const records = vaultToRecords({
+      format: 'medtracker-vault',
+      version: 1,
+      data: {
+        medications: {
+          intakes: [
+            { medication_id: 1, scheduled_at: slot, taken_at: null, status: 'PENDING', source: 'schedule' },
+            { medication_id: 1, scheduled_at: slot, taken_at: null, status: 'PENDING', source: 'tz_step', tz_plan_id: 2, tz_step_number: 1 },
+          ],
+        },
+      },
+    }, { now: NOW });
+    const ids = records.filter((r) => r.recordType === 'intake').map((r) => r.recordId);
+    expect(new Set(ids).size).toBe(2);
+    expect(ids).toContain(`intake-1-${Math.floor(Date.parse(slot) / 1000)}`);
   });
 });

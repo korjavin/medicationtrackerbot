@@ -31,11 +31,21 @@
 //   - weightgoal is append-only history (many rows), not a singleton — the
 //     vault carries `weight.goals[]` oldest-first; only the newest is current.
 //   - singletons: bpgoal, weight-unit, settings, features,
-//     taborder, foodtargets, integrations, medreminderpref, tzplan-current.
-//   - timezone_history has no cloud consumer, so imported entries land in a
-//     passthrough `tzhistory` store purely for backup fidelity.
-// The `nk` push key + device/reminder plumbing are NOT vault-managed (see
-// VAULT_MANAGED_TYPES); importAll preserves them across the replace.
+//     taborder, foodtargets, integrations, medreminderpref, bpreminderpref,
+//     weightreminderpref, gamification, apitokens, tzplan-current.
+//   - the active/pending tz plan stays at `tzplan-current` (what tzplan.js and
+//     medintake.js look up by exact recordId); every older plan lands on a
+//     `tzplanhistory-<idx>` recordId of the same `tzplan` type, ignored by
+//     those readers and re-merged on export.
+//   - timezone_history, gamification and api_tokens have no cloud consumer, so
+//     imported entries land in passthrough `tzhistory` / `gamification` /
+//     `apitokens` stores purely for backup fidelity. The reminder-pref bodies
+//     likewise carry the bot-only snoozed_until / dont_remind_until fields
+//     verbatim so a cloud round-trip doesn't drop them.
+// The `nk` push key + device/voice plumbing are NOT vault-managed (see
+// VAULT_MANAGED_TYPES); importAll preserves them across the replace. The two
+// secret-bearing types (integrations, apitokens) are managed only when the
+// vault actually carries them — see managedTypesForImport.
 
 import { calculateBPCategory } from './bp.js';
 import { calculateWeightTrend } from './weight.js';
@@ -44,9 +54,8 @@ export const VAULT_FORMAT = 'medtracker-vault';
 export const VAULT_VERSION = 1;
 
 // Every recordType this module reads on export / writes on import. importAll
-// preserves records whose type is NOT here (nk, bpreminderpref,
-// weightreminderpref, voiceprovisioning) so a replace never drops device or
-// crypto state.
+// preserves records whose type is NOT here (nk, voiceprovisioning) so a replace
+// never drops device or crypto state.
 export const VAULT_MANAGED_TYPES = new Set([
   'medication', 'intake', 'restock',
   'bp', 'bpgoal',
@@ -58,7 +67,29 @@ export const VAULT_MANAGED_TYPES = new Set([
   'note',
   'tzplan', 'tzhistory',
   'settings', 'features', 'taborder', 'foodtargets', 'integrations', 'medreminderpref',
+  'bpreminderpref', 'weightreminderpref', 'gamification', 'apitokens',
 ]);
+
+// The tz-plan statuses bot mode treats as the single live plan
+// (tz.GetLatestActiveOrPendingTransitionPlan). NOTIFIED is a real persistent
+// state the scheduler writes and can sit in for up to 48h before auto-approve,
+// so it must map back to the `tzplan-current` recordId that tzplan.js and
+// medintake.js look up by exact id.
+const ACTIVE_PLAN_STATUSES = new Set(['PENDING_APPROVAL', 'NOTIFIED', 'APPROVED']);
+
+// managedTypesForImport narrows VAULT_MANAGED_TYPES for one vault file: the two
+// secret-bearing blocks (settings.integrations, api_tokens) import with
+// asymmetric semantics — absent means "the export was taken with
+// include_secrets=0, leave the destination's values alone", so their record
+// types must NOT be wiped by the replace. Mirrors importAPITokens /
+// importSettings in internal/server/vault_import.go.
+export function managedTypesForImport(vault) {
+  const types = new Set(VAULT_MANAGED_TYPES);
+  const data = (vault && vault.data) || {};
+  if (!(data.settings && data.settings.integrations)) types.delete('integrations');
+  if (!data.api_tokens) types.delete('apitokens');
+  return types;
+}
 
 const META_FIELDS = new Set(['recordType', 'recordId', 'clientTs', 'deleted']);
 
@@ -103,7 +134,7 @@ function sortBy(arr, keyFn) {
 // Export: records -> vault
 // ---------------------------------------------------------------------------
 
-export function recordsToVault(records, { now } = {}) {
+export function recordsToVault(records, { now, includeSecrets = true } = {}) {
   const byType = new Map();
   for (const rec of records) {
     if (rec.deleted) continue;
@@ -112,7 +143,7 @@ export function recordsToVault(records, { now } = {}) {
     else byType.set(rec.recordType, [rec]);
   }
   const pick = (type) => byType.get(type) || [];
-  const singleton = (type, recordId) => pick(type).find((r) => recordId === undefined || r.recordId === recordId) || null;
+  const singleton = (type, recordId) => pick(type).find((r) => r.recordId === recordId) || null;
 
   // --- medications ---
   const medications = {
@@ -220,13 +251,12 @@ export function recordsToVault(records, { now } = {}) {
     notes: sortBy(pick('note'), (r) => r.created_at).map((r) => stripMeta(r)),
   };
 
-  // --- tz ---
+  // --- tz (current plan + tzplanhistory-* merged back into one oldest-first list) ---
   const general = singleton('settings', 'settings');
-  const planRec = singleton('tzplan', 'tzplan-current');
   const tz = {
     current: general ? (general.timezone || null) : null,
     history: sortBy(pick('tzhistory'), (r) => r.changed_at).map((r) => stripMeta(r)),
-    transition_plan: planRec ? planToVault(planRec) : null,
+    transition_plans: sortBy(pick('tzplan'), (r) => r.created_at).map(planToVault),
   };
 
   // --- settings ---
@@ -248,28 +278,73 @@ export function recordsToVault(records, { now } = {}) {
         fat: foodtargetsRec.fat,
       }
       : null,
-    integrations: integrationsRec ? stripMeta(integrationsRec) : null,
+    // Present-but-empty (not null) when there are no keys: `absent` is the only
+    // value meaning "leave the destination alone". Mirrors bot mode, which
+    // always emits the block under include_secrets=1.
+    integrations: integrationsRec ? stripMeta(integrationsRec) : {},
     med_reminder_pref: medreminderRec ? { enabled: !!medreminderRec.enabled } : null,
   };
+  const bpReminderRec = singleton('bpreminderpref', 'bpreminderpref');
+  const weightReminderRec = singleton('weightreminderpref', 'weightreminderpref');
+  if (bpReminderRec) settings.bp_reminder = reminderToVault(bpReminderRec);
+  if (weightReminderRec) settings.weight_reminder = reminderToVault(weightReminderRec);
+  // include_secrets=0: omit the block entirely (absent, not `null`/`{}` — only
+  // absent means "leave the destination's provider keys alone" on import).
+  if (!includeSecrets) delete settings.integrations;
+
+  // --- gamification / api_tokens (passthrough; no cloud reader) ---
+  const gamRec = singleton('gamification', 'gamification');
+  const gamification = {
+    targets: (gamRec && gamRec.targets) || [],
+    ledger: (gamRec && gamRec.ledger) || [],
+    state: (gamRec && gamRec.state) || null,
+  };
+  const tokensRec = singleton('apitokens', 'apitokens');
+
+  const data = {
+    medications, bp, weight, food, workouts, vitals, diary, tz, settings, gamification,
+  };
+  // Same rule as `integrations`: emit `[]` (not absent) so a restore can clear
+  // stale tokens on the destination.
+  if (includeSecrets) data.api_tokens = (tokensRec && tokensRec.tokens) || [];
 
   return {
     format: VAULT_FORMAT,
     version: VAULT_VERSION,
     exported_at: toRFC3339(now ?? 0),
-    data: {
-      medications, bp, weight, food, workouts, vitals, diary, tz, settings,
-    },
+    data,
+  };
+}
+
+// reminderToVault emits the four vault fields from a bp/weight reminder-pref
+// record. snoozed_until / dont_remind_until have no cloud feature behind them —
+// importAll writes them onto the body so they read back here unchanged.
+function reminderToVault(rec) {
+  return {
+    enabled: !!rec.enabled,
+    preferred_reminder_hour: rec.preferred_reminder_hour,
+    snoozed_until: rec.snoozed_until ?? null,
+    dont_remind_until: rec.dont_remind_until ?? null,
   };
 }
 
 function planToVault(rec) {
-  const out = {
+  const out = {};
+  // Bot-mode plan id — carried verbatim so intake_log.tz_plan_id keeps
+  // resolving after a cloud round-trip. Cloud-native plans have none.
+  if (rec.id) out.id = rec.id;
+  Object.assign(out, {
     old_tz: rec.old_tz,
     new_tz: rec.new_tz,
     status: rec.status,
     created_at: rec.created_at,
-  };
+  });
   if (rec.approved_at) out.approved_at = rec.approved_at;
+  // Passthrough bot-only plan metadata — no cloud reader, carried for fidelity.
+  if (rec.notified_at) out.notified_at = rec.notified_at;
+  out.plan_hash = rec.plan_hash || '';
+  out.inputs_json = rec.inputs_json || '';
+  if (rec.user_action) out.user_action = rec.user_action;
   out.steps = (Array.isArray(rec.steps) ? rec.steps : []).map((s) => ({
     medication_id: s.medicationId,
     med_name: s.medName,
@@ -302,9 +377,23 @@ export function vaultToRecords(vault, { now } = {}) {
   let seq = 0;
   const mintNum = () => nowMs * 1000 + (seq += 1);
   const base = () => ({ clientTs: nowMs, deleted: false });
-  const push = (recordType, recordId, body) => out.push({
-    recordType, recordId, ...base(), ...body,
-  });
+  // Meta fields are spread LAST: `body` comes verbatim from the file, and a
+  // hand-edited or truncated vault must not be able to set recordId/recordType/
+  // deleted from inside a domain object. A bad recordId is fatal downstream —
+  // importAll's replaceAllRecords clears the store before put()ing, and an
+  // undefined out-of-line key throws mid-transaction, leaving zero records — so
+  // validate here, before anything destructive runs.
+  const usedIds = new Set();
+  const push = (recordType, recordId, body) => {
+    const ok = (typeof recordId === 'string' && recordId !== '') || Number.isFinite(recordId);
+    if (!ok) throw new Error(`Corrupt backup: ${recordType} entry has no usable id`);
+    // Bot schemas allow rows that mint the same recordId (two workout_sessions
+    // for one group+day). Suffix rather than silently overwrite.
+    let unique = recordId;
+    for (let n = 2; usedIds.has(`${recordType}:${unique}`); n += 1) unique = `${recordId}-${n}`;
+    usedIds.add(`${recordType}:${unique}`);
+    out.push({ ...body, recordType, recordId: unique, ...base() });
+  };
 
   // --- medications (recordId IS the numeric id) ---
   const meds = data.medications || {};
@@ -314,9 +403,20 @@ export function vaultToRecords(vault, { now } = {}) {
   }
   for (const it of meds.intakes || []) {
     const manual = it.taken_at != null && it.taken_at === it.scheduled_at;
+    // A tz_step dose and its shadowed 'schedule' sibling legitimately share
+    // (medication_id, scheduled_at) in bot mode, so the source must be part of
+    // the id. 'schedule' keeps the bare form the live cloud readers look up.
+    const scheduledMs = Date.parse(it.scheduled_at);
+    // A missing/garbage scheduled_at would mint `intake-<med>-NaN`, which push()
+    // accepts (non-empty string) and the live readers can never look up — the
+    // dose silently disappears after the destructive replace. Fail the import.
+    if (!Number.isFinite(scheduledMs)) {
+      throw new Error(`Corrupt backup: intake has unparseable scheduled_at ${JSON.stringify(it.scheduled_at)}`);
+    }
+    const slot = `intake-${it.medication_id}-${Math.floor(scheduledMs / 1000)}`;
     const recordId = manual
       ? `intake-manual-${nowMs}-${seq += 1}`
-      : `intake-${it.medication_id}-${Math.floor(Date.parse(it.scheduled_at) / 1000)}`;
+      : (it.source && it.source !== 'schedule' ? `${slot}-${it.source}` : slot);
     push('intake', recordId, { ...it });
   }
   for (const r of meds.restocks || []) push('restock', mintNum(), { ...r });
@@ -386,7 +486,20 @@ export function vaultToRecords(vault, { now } = {}) {
   const tz = data.tz || {};
   let historyIdx = 0;
   for (const h of tz.history || []) push('tzhistory', `tzhistory-${historyIdx += 1}`, { ...h });
-  if (tz.transition_plan) push('tzplan', 'tzplan-current', planFromVault(tz.transition_plan));
+  // The newest active/pending plan keeps the `tzplan-current` recordId the live
+  // readers look up (tzplan.js, medintake.js); older/finished plans are carried
+  // as tzplanhistory-<idx> of the same type, invisible to those exact-id reads.
+  const plans = sortBy(tz.transition_plans || [], (p) => p.created_at);
+  let currentIdx = -1;
+  plans.forEach((p, i) => {
+    // Same active set as bot mode's GetLatestActiveOrPendingTransitionPlan.
+    if (ACTIVE_PLAN_STATUSES.has(p.status)) currentIdx = i;
+  });
+  let planIdx = 0;
+  plans.forEach((p, i) => {
+    const recordId = i === currentIdx ? 'tzplan-current' : `tzplanhistory-${planIdx += 1}`;
+    push('tzplan', recordId, planFromVault(p));
+  });
 
   // --- settings ---
   const settings = data.settings || {};
@@ -399,12 +512,36 @@ export function vaultToRecords(vault, { now } = {}) {
   if (settings.food_targets) push('foodtargets', 'foodtargets', { ...settings.food_targets });
   if (settings.integrations) push('integrations', 'integrations', { ...settings.integrations });
   if (settings.med_reminder_pref) push('medreminderpref', 'medreminderpref', { enabled: !!settings.med_reminder_pref.enabled });
+  if (settings.bp_reminder) push('bpreminderpref', 'bpreminderpref', reminderFromVault(settings.bp_reminder));
+  if (settings.weight_reminder) push('weightreminderpref', 'weightreminderpref', reminderFromVault(settings.weight_reminder));
+
+  // --- gamification / api_tokens (passthrough singletons; absent api_tokens
+  // leaves the destination's tokens alone — see managedTypesForImport) ---
+  const gam = data.gamification;
+  if (gam) {
+    push('gamification', 'gamification', {
+      targets: gam.targets || [], ledger: gam.ledger || [], state: gam.state || null,
+    });
+  }
+  if (data.api_tokens) push('apitokens', 'apitokens', { tokens: [...data.api_tokens] });
 
   return out;
 }
 
+// reminderFromVault keeps the bot-only snoozed_until / dont_remind_until on the
+// record body (no cloud reader touches them) so the next export round-trips.
+function reminderFromVault(st) {
+  return {
+    enabled: !!st.enabled,
+    preferred_reminder_hour: st.preferred_reminder_hour,
+    snoozed_until: st.snoozed_until ?? null,
+    dont_remind_until: st.dont_remind_until ?? null,
+  };
+}
+
 function planFromVault(plan) {
   const body = {
+    ...(plan.id ? { id: plan.id } : {}),
     old_tz: plan.old_tz,
     new_tz: plan.new_tz,
     status: plan.status,
@@ -419,6 +556,10 @@ function planFromVault(plan) {
     })),
   };
   if (plan.approved_at) body.approved_at = plan.approved_at;
+  if (plan.notified_at) body.notified_at = plan.notified_at;
+  if (plan.plan_hash) body.plan_hash = plan.plan_hash;
+  if (plan.inputs_json) body.inputs_json = plan.inputs_json;
+  if (plan.user_action) body.user_action = plan.user_action;
   return body;
 }
 

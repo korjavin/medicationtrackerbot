@@ -68,10 +68,38 @@ describe('Settings → Import/Export section', () => {
         expect(typeof window.SettingsImportExport.import).toBe('function');
     });
 
+    it('include-secrets checkbox is checked by default', () => {
+        expect(env.document.getElementById('importexport-include-secrets').checked).toBe(true);
+    });
+
+    it('bot export drops secrets when the checkbox is unchecked', async () => {
+        const { window, document } = env;
+        document.getElementById('importexport-include-secrets').checked = false;
+        window.apiCall = vi.fn(async () => SAMPLE_VAULT);
+        window.downloadBlobAsFile = () => {};
+
+        await window.SettingsImportExport.export();
+
+        expect(window.apiCall).toHaveBeenCalledWith('/api/export?include_secrets=0', 'GET', null,
+            expect.objectContaining({ timeoutMs: 600000 }));
+    });
+
+    it('cloud export passes includeSecrets:false through to CloudVault', async () => {
+        const { window, document } = env;
+        window.__MEDTRACKER_CLOUD__ = true;
+        document.getElementById('importexport-include-secrets').checked = false;
+        window.CloudVault = { exportAll: vi.fn(async () => JSON.stringify(SAMPLE_VAULT)), importAll: vi.fn() };
+        window.downloadBlobAsFile = () => {};
+
+        await window.SettingsImportExport.export();
+
+        expect(window.CloudVault.exportAll).toHaveBeenCalledWith({ includeSecrets: false });
+    });
+
     it('bot export downloads a medtracker-vault JSON blob from GET /api/export', async () => {
         const { window } = env;
         window.apiCall = vi.fn(async (url, method) => {
-            expect(url).toBe('/api/export');
+            expect(url).toBe('/api/export?include_secrets=1');
             expect(method).toBe('GET');
             return SAMPLE_VAULT;
         });

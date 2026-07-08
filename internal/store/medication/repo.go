@@ -835,7 +835,7 @@ func (r *Repo) ListIntakeHistoryByUser(ctx context.Context, userID int64, since,
 		`SELECT id, medication_id, user_id, scheduled_at_unix, taken_at_unix, status, snoozed_until_unix, source, tz_plan_id, tz_step_number
 		 FROM intake_log
 		 WHERE user_id = ? AND scheduled_at_unix >= ? AND scheduled_at_unix < ?
-		 ORDER BY scheduled_at_unix ASC`,
+		 ORDER BY scheduled_at_unix ASC, id ASC`,
 		userID, since.UTC().Unix(), until.UTC().Unix())
 	if err != nil {
 		return nil, err

@@ -122,7 +122,7 @@ describe('CloudVault.importAll data-loss guard (null cursor)', () => {
   // server snapshot over the import. importAll must refuse to wipe until the
   // account cursor exists — throwing so importexport.js skips the reload.
   function syncModule(overrides) {
-    const calls = { replaceAllRecords: 0, forceSnapshot: 0, dropPendingForTypes: [], order: [] };
+    const calls = { replaceAllRecords: 0, forceSnapshot: 0, markForceSnapshotPending: 0, dropPendingForTypes: [], order: [] };
     return {
       calls,
       mod: {
@@ -130,13 +130,14 @@ describe('CloudVault.importAll data-loss guard (null cursor)', () => {
         readAllLiveRecords: async () => [],
         replaceAllRecords: async () => { calls.replaceAllRecords += 1; calls.order.push('replace'); },
         forceSnapshot: async () => { calls.forceSnapshot += 1; },
+        markForceSnapshotPending: async () => { calls.markForceSnapshotPending += 1; calls.order.push('mark'); },
         dropPendingForTypes: async (types) => { calls.dropPendingForTypes.push(types); calls.order.push('drop'); },
         ...overrides,
       },
     };
   }
   const MANAGED = new Set(['note', 'bp']);
-  const VAULT_MOD = { vaultToRecords: () => [], VAULT_MANAGED_TYPES: MANAGED };
+  const VAULT_MOD = { vaultToRecords: () => [], managedTypesForImport: () => MANAGED };
   const VAULT_JSON = '{"format":"medtracker-vault","version":1,"data":{}}';
 
   async function bootWithSync(sync) {
@@ -159,6 +160,7 @@ describe('CloudVault.importAll data-loss guard (null cursor)', () => {
     await expect(window.CloudVault.importAll(VAULT_JSON)).rejects.toThrow(/Sync not ready/);
     expect(sync.calls.replaceAllRecords).toBe(0);
     expect(sync.calls.forceSnapshot).toBe(0);
+    expect(sync.calls.markForceSnapshotPending).toBe(0);
     expect(sync.calls.dropPendingForTypes).toHaveLength(0);
   });
 
@@ -168,6 +170,10 @@ describe('CloudVault.importAll data-loss guard (null cursor)', () => {
     await window.CloudVault.importAll(VAULT_JSON);
     expect(sync.calls.replaceAllRecords).toBe(1);
     expect(sync.calls.forceSnapshot).toBe(1);
+    // The durable retry marker must land BEFORE the destructive replace: a crash
+    // in between would otherwise let the next open re-bootstrap the stale server
+    // snapshot over the freshly imported records.
+    expect(sync.calls.order.indexOf('mark')).toBeLessThan(sync.calls.order.indexOf('replace'));
   });
 
   it('drops pending managed writes before the replace so they cannot survive the backup', async () => {
@@ -180,6 +186,6 @@ describe('CloudVault.importAll data-loss guard (null cursor)', () => {
     expect(sync.calls.dropPendingForTypes).toHaveLength(1);
     expect(sync.calls.dropPendingForTypes[0]).toBe(MANAGED);
     // Drop must run before the replace, else the overlay re-adds the stale rows.
-    expect(sync.calls.order).toEqual(['drop', 'replace']);
+    expect(sync.calls.order).toEqual(['mark', 'drop', 'replace']);
   });
 });
