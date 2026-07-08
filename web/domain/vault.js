@@ -261,6 +261,16 @@ function planToVault(rec) {
 // ---------------------------------------------------------------------------
 
 export function vaultToRecords(vault, { now } = {}) {
+  // Guard the destructive replace: importAll wipes the whole record store, so a
+  // wrong/foreign/future file must be rejected BEFORE that (mirrors bot mode's
+  // validateVault 400 in internal/server/vault_import.go). Without this, any
+  // parseable JSON (an empty {}, another app's export, a v2 backup) silently
+  // wipes every record and replaces it with nothing.
+  if (!vault || vault.format !== VAULT_FORMAT || vault.version !== VAULT_VERSION) {
+    throw new Error(
+      `Not a ${VAULT_FORMAT} v${VAULT_VERSION} backup (got format ${JSON.stringify(vault && vault.format)}, version ${JSON.stringify(vault && vault.version)})`
+    );
+  }
   const nowMs = now ?? 0;
   const data = (vault && vault.data) || {};
   const out = [];

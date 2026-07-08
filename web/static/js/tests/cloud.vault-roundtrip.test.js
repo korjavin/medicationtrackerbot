@@ -85,4 +85,13 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     const records = vaultToRecords(fixture, { now: NOW });
     for (const r of records) expect(VAULT_MANAGED_TYPES.has(r.recordType)).toBe(true);
   });
+
+  it('rejects a non-vault file BEFORE the destructive replace (mirrors bot-mode validateVault)', () => {
+    // importAll wipes the store then re-inserts these records — a foreign/empty/
+    // future file must throw here so the wipe never runs (med data-loss guard).
+    expect(() => vaultToRecords({}, { now: NOW })).toThrow();
+    expect(() => vaultToRecords({ some: 'other app' }, { now: NOW })).toThrow();
+    expect(() => vaultToRecords({ format: 'medtracker-vault', version: 2, data: {} }, { now: NOW })).toThrow();
+    expect(() => vaultToRecords(null, { now: NOW })).toThrow();
+  });
 });
