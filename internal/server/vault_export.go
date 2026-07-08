@@ -270,9 +270,16 @@ func (s *Server) exportWeight(ctx context.Context, userID int64, data *VaultData
 			return fmt.Errorf("weight goal: %w", gerr)
 		}
 		if goal != nil && goal.Goal != nil {
+			// goal_set_at is nullable on the legacy singleton. A zero time.Time
+			// would import as set_at_unix = -62135596800 (year 1), so stamp the
+			// export instant instead.
+			setAt := time.Now().UTC()
+			if goal.GoalSetAt != nil {
+				setAt = *goal.GoalSetAt
+			}
 			vg := VaultWeightGoal{
 				TargetWeight: *goal.Goal,
-				SetAt:        derefTime(goal.GoalSetAt),
+				SetAt:        setAt,
 				StartWeight:  goal.GoalStartWeight,
 			}
 			if goal.GoalDate != nil {
@@ -896,13 +903,6 @@ func (s *Server) exportFeatures(ctx context.Context) (VaultFeatures, error) {
 		}
 	}
 	return f, nil
-}
-
-func derefTime(t *time.Time) time.Time {
-	if t != nil {
-		return *t
-	}
-	return time.Time{}
 }
 
 // dateOnly trims a possibly-timestamped day string to its YYYY-MM-DD prefix.

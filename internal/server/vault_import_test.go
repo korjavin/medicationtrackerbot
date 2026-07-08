@@ -128,6 +128,12 @@ func TestVaultDemoModeForbidden(t *testing.T) {
 // med_reminder_pref (bot mode has no such row), and sorts every array so
 // per-domain list ordering (e.g. bp/weight/day_stats export DESC vs the
 // fixture's ASC) doesn't count as drift.
+//
+// Timestamps are compared as instants (UTC), not as text: the importer
+// normalizes every bound time.Time to UTC (see nullTime in vault_import.go),
+// so an offset-bearing input re-exports as the same instant in "…Z" form.
+// The two DATE columns (scheduled_date, last_session_date) carry a calendar
+// date, not an instant, and are compared as such.
 func normalizeVault(t *testing.T, b []byte) map[string]any {
 	t.Helper()
 	var m map[string]any
@@ -140,7 +146,36 @@ func normalizeVault(t *testing.T, b []byte) map[string]any {
 			delete(settings, "med_reminder_pref")
 		}
 	}
-	return sortArrays(m).(map[string]any)
+	return sortArrays(canonicalizeTimes(m)).(map[string]any)
+}
+
+var dateOnlyKeys = map[string]bool{"scheduled_date": true, "last_session_date": true}
+
+func canonicalizeTimes(v any) any {
+	switch x := v.(type) {
+	case map[string]any:
+		for k, val := range x {
+			if s, ok := val.(string); ok {
+				if dateOnlyKeys[k] && len(s) >= 10 {
+					x[k] = s[:10]
+					continue
+				}
+				if ts, err := time.Parse(time.RFC3339Nano, s); err == nil {
+					x[k] = ts.UTC().Format(time.RFC3339Nano)
+					continue
+				}
+			}
+			x[k] = canonicalizeTimes(val)
+		}
+		return x
+	case []any:
+		for i, el := range x {
+			x[i] = canonicalizeTimes(el)
+		}
+		return x
+	default:
+		return v
+	}
 }
 
 // sortArrays recursively canonicalizes a decoded-JSON tree so array order is
@@ -469,5 +504,48 @@ func TestVaultImportClearsWeightUnitPref(t *testing.T) {
 	}
 	if unit, err := db.Weight.GetUnitPreference(ctx); err != nil || unit != "lb" {
 		t.Fatalf("unit pref not imported: %q err=%v", unit, err)
+	}
+}
+
+// TestVaultImportOffsetTimestampsAreReadable pins the corruption a cloud-origin
+// vault used to cause: offset-bearing timestamps ("…+02:00") were bound raw,
+// and modernc.org/sqlite writes a non-UTC time.Time as "2026-07-07 12:00:00
+// +0200 +0200" — text its own reader can't parse, so every later scan of that
+// column failed. Import normalizes to UTC; readers must work afterwards.
+func TestVaultImportOffsetTimestampsAreReadable(t *testing.T) {
+	db, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	srv := newServer(db, "tok", "sec", 123, OIDCConfig{}, "bot", "")
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
+
+	ctx := context.Background()
+	const userID = 1
+	berlin := time.FixedZone("CEST", 2*3600)
+	at := time.Date(2026, 7, 7, 12, 0, 0, 0, berlin)
+
+	v := &Vault{Format: vaultFormat, Version: vaultVersion, Data: VaultData{
+		BP:    VaultBP{Readings: []VaultBPReading{{MeasuredAt: at, Systolic: 120, Diastolic: 80}}},
+		Diary: VaultDiary{Notes: []VaultNote{{Content: "hi", CreatedAt: at}}},
+	}}
+	if err := srv.importVault(ctx, userID, v); err != nil {
+		t.Fatalf("importVault: %v", err)
+	}
+
+	readings, err := db.BP.ListReadings(ctx, userID, time.Time{})
+	if err != nil {
+		t.Fatalf("ListReadings after offset-bearing import: %v", err)
+	}
+	if len(readings) != 1 || !readings[0].MeasuredAt.Equal(at) {
+		t.Fatalf("measured_at did not round-trip as an instant: %+v", readings)
+	}
+	notes, err := db.Diary.List(ctx, userID, time.Time{}, time.Time{}, 10, 0)
+	if err != nil {
+		t.Fatalf("diary List after offset-bearing import: %v", err)
+	}
+	if len(notes) != 1 || !notes[0].CreatedAt.Equal(at) {
+		t.Fatalf("created_at did not round-trip as an instant: %+v", notes)
 	}
 }

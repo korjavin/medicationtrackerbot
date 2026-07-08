@@ -401,6 +401,12 @@ destroys, and the token hashes are what keep a minted token working after a serv
 - **Deterministic re-minting** — cloud import re-mints scheduled-intake, scheduled-session,
   and rotation recordIds by rule, so a bot-origin file (no recordIds) and its cloud
   round-trip converge to the same ids rather than duplicating.
+- **Timestamp offsets** — timestamps compare as **instants**, not as text. Bot import
+  normalizes every timestamp to UTC before storing it (`2026-07-07T12:00:00+02:00` →
+  `2026-07-07T10:00:00Z`), because `modernc.org/sqlite` writes a non-UTC `time.Time`
+  in a text form its own reader cannot parse — leaving the row unreadable. The two
+  DATE columns (`scheduled_date`, `last_session_date`) carry a *calendar date*, not an
+  instant, and are stored as midnight-UTC of the date the file recorded.
 
 ## The golden fixture
 

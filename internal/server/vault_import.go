@@ -143,8 +143,8 @@ func importMedications(ctx context.Context, tx *sql.Tx, userID int64, d *VaultDa
 			  (id, name, dosage, schedule, archived, created_at, start_date, end_date,
 			   rxcui, normalized_name, inventory_count, supplement, tz_shift_policy)
 			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			m.ID, m.Name, m.Dosage, m.Schedule, m.Archived, m.CreatedAt,
-			nullTime(m.StartDate), nullTime(m.EndDate), m.RxCUI, m.NormalizedName,
+			m.ID, m.Name, m.Dosage, m.Schedule, m.Archived, m.CreatedAt.UTC(),
+			nullDate(m.StartDate), nullDate(m.EndDate), m.RxCUI, m.NormalizedName,
 			nullInt(m.InventoryCount), m.Supplement, m.TZShiftPolicy); err != nil {
 			return err
 		}
@@ -163,7 +163,7 @@ func importMedications(ctx context.Context, tx *sql.Tx, userID int64, d *VaultDa
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO medication_restocks (medication_id, quantity, note, restocked_at)
 			VALUES (?,?,?,?)`,
-			rs.MedicationID, rs.Quantity, rs.Note, rs.RestockedAt); err != nil {
+			rs.MedicationID, rs.Quantity, rs.Note, rs.RestockedAt.UTC()); err != nil {
 			return err
 		}
 	}
@@ -176,7 +176,7 @@ func importBP(ctx context.Context, tx *sql.Tx, userID int64, d *VaultData) error
 			INSERT INTO blood_pressure_readings
 			  (user_id, measured_at, systolic, diastolic, pulse, site, position, ignore_calc, notes, tag)
 			VALUES (?,?,?,?,?,?,?,?,?,?)`,
-			userID, b.MeasuredAt, b.Systolic, b.Diastolic, nullInt(b.Pulse),
+			userID, b.MeasuredAt.UTC(), b.Systolic, b.Diastolic, nullInt(b.Pulse),
 			b.Site, b.Position, b.IgnoreCalc, b.Notes, b.Tag); err != nil {
 			return err
 		}
@@ -198,7 +198,7 @@ func importWeight(ctx context.Context, tx *sql.Tx, userID int64, d *VaultData) e
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO weight_logs (user_id, measured_at, weight, body_fat, muscle_mass, notes)
 			VALUES (?,?,?,?,?,?)`,
-			userID, wl.MeasuredAt, wl.Weight, nullFloat(wl.BodyFat), nullFloat(wl.MuscleMass), wl.Notes); err != nil {
+			userID, wl.MeasuredAt.UTC(), wl.Weight, nullFloat(wl.BodyFat), nullFloat(wl.MuscleMass), wl.Notes); err != nil {
 			return err
 		}
 	}
@@ -248,7 +248,7 @@ func importFood(ctx context.Context, tx *sql.Tx, userID int64, d *VaultData) err
 			   usage_count, created_at, last_used_at, is_meal, total_weight_g)
 			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			p.ID, userID, p.Name, nullStr(p.Barcode), p.Carbs100g, p.Protein100g, p.Fat100g,
-			p.EnergyKcal100g, p.UsageCount, p.CreatedAt, p.LastUsedAt, p.IsMeal, p.TotalWeightG); err != nil {
+			p.EnergyKcal100g, p.UsageCount, p.CreatedAt.UTC(), p.LastUsedAt.UTC(), p.IsMeal, p.TotalWeightG); err != nil {
 			return err
 		}
 	}
@@ -256,7 +256,7 @@ func importFood(ctx context.Context, tx *sql.Tx, userID int64, d *VaultData) err
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO food_log (user_id, eaten_at, weight, carbs, protein, fat, calories, name, product_id)
 			VALUES (?,?,?,?,?,?,?,?,?)`,
-			userID, fl.EatenAt, fl.Weight, fl.Carbs, fl.Protein, fl.Fat, fl.Calories, fl.Name,
+			userID, fl.EatenAt.UTC(), fl.Weight, fl.Carbs, fl.Protein, fl.Fat, fl.Calories, fl.Name,
 			nullInt64(fl.ProductID)); err != nil {
 			return err
 		}
@@ -273,7 +273,7 @@ func importWorkouts(ctx context.Context, tx *sql.Tx, userID int64, d *VaultData)
 			   notification_advance_minutes, active, created_at, updated_at)
 			VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
 			g.ID, g.Name, g.Description, g.IsRotating, userID, g.DaysOfWeek, g.ScheduledTime,
-			g.NotificationAdvanceMinutes, g.Active, g.CreatedAt, g.UpdatedAt); err != nil {
+			g.NotificationAdvanceMinutes, g.Active, g.CreatedAt.UTC(), g.UpdatedAt.UTC()); err != nil {
 			return err
 		}
 	}
@@ -281,7 +281,7 @@ func importWorkouts(ctx context.Context, tx *sql.Tx, userID int64, d *VaultData)
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO workout_variants (id, group_id, name, rotation_order, description, created_at)
 			VALUES (?,?,?,?,?,?)`,
-			v.ID, v.GroupID, v.Name, nullInt(v.RotationOrder), v.Description, v.CreatedAt); err != nil {
+			v.ID, v.GroupID, v.Name, nullInt(v.RotationOrder), v.Description, v.CreatedAt.UTC()); err != nil {
 			return err
 		}
 	}
@@ -301,7 +301,7 @@ func importWorkouts(ctx context.Context, tx *sql.Tx, userID int64, d *VaultData)
 			  (id, user_id, name, default_sets, default_reps_min, default_reps_max, default_weight_kg, notes, created_at, updated_at)
 			VALUES (?,?,?,?,?,?,?,?,?,?)`,
 			l.ID, userID, l.Name, l.DefaultSets, l.DefaultRepsMin, nullInt(l.DefaultRepsMax),
-			nullFloat(l.DefaultWeightKg), l.Notes, l.CreatedAt, l.UpdatedAt); err != nil {
+			nullFloat(l.DefaultWeightKg), l.Notes, l.CreatedAt.UTC(), l.UpdatedAt.UTC()); err != nil {
 			return err
 		}
 	}
@@ -309,7 +309,7 @@ func importWorkouts(ctx context.Context, tx *sql.Tx, userID int64, d *VaultData)
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO workout_rotation_state (group_id, current_variant_id, last_session_date, updated_at)
 			VALUES (?,?,?,?)`,
-			rot.GroupID, rot.CurrentVariantID, nullTimeRFC(rot.LastSessionDate), rfc3339(rot.UpdatedAt)); err != nil {
+			rot.GroupID, rot.CurrentVariantID, nullDate(rot.LastSessionDate), rot.UpdatedAt.UTC()); err != nil {
 			return err
 		}
 	}
@@ -319,8 +319,8 @@ func importWorkouts(ctx context.Context, tx *sql.Tx, userID int64, d *VaultData)
 			  (id, group_id, variant_id, user_id, scheduled_date, scheduled_time, status,
 			   started_at, completed_at, snoozed_until, snooze_count, notification_message_id, notes)
 			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			ses.ID, ses.GroupID, ses.VariantID, userID, rfc3339(ses.ScheduledDate), ses.ScheduledTime, ses.Status,
-			nullTimeRFC(ses.StartedAt), nullTimeRFC(ses.CompletedAt), nullTimeRFC(ses.SnoozedUntil),
+			ses.ID, ses.GroupID, ses.VariantID, userID, utcDate(ses.ScheduledDate), ses.ScheduledTime, ses.Status,
+			nullTime(ses.StartedAt), nullTime(ses.CompletedAt), nullTime(ses.SnoozedUntil),
 			ses.SnoozeCount, nullInt(ses.NotificationMessageID), ses.Notes); err != nil {
 			return err
 		}
@@ -331,7 +331,7 @@ func importWorkouts(ctx context.Context, tx *sql.Tx, userID int64, d *VaultData)
 			  (session_id, exercise_id, exercise_name, sets_completed, reps_completed, weight_kg, status, notes, logged_at, source)
 			VALUES (?,?,?,?,?,?,?,?,?,?)`,
 			el.SessionID, el.ExerciseID, el.ExerciseName, nullInt(el.SetsCompleted),
-			nullInt(el.RepsCompleted), nullFloat(el.WeightKg), el.Status, el.Notes, rfc3339(el.LoggedAt), el.Source); err != nil {
+			nullInt(el.RepsCompleted), nullFloat(el.WeightKg), el.Status, el.Notes, el.LoggedAt.UTC(), el.Source); err != nil {
 			return err
 		}
 	}
@@ -369,7 +369,7 @@ func importVitals(ctx context.Context, tx *sql.Tx, userID int64, d *VaultData) e
 			  (user_id, start_time, end_time, timezone_offset, day, light_minutes, deep_minutes,
 			   rem_minutes, awake_minutes, total_minutes, turn_over_count, heart_rate_avg, spo2_avg, user_modified, notes)
 			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			userID, sl.StartTime, sl.EndTime, sl.TimezoneOffset, sl.Day, nullInt(sl.LightMinutes),
+			userID, sl.StartTime.UTC(), sl.EndTime.UTC(), sl.TimezoneOffset, sl.Day, nullInt(sl.LightMinutes),
 			nullInt(sl.DeepMinutes), nullInt(sl.REMMinutes), nullInt(sl.AwakeMinutes), nullInt(sl.TotalMinutes),
 			nullInt(sl.TurnOverCount), nullInt(sl.HeartRateAvg), nullInt(sl.SpO2Avg), sl.UserModified, sl.Notes); err != nil {
 			return err
@@ -416,7 +416,7 @@ func importDiary(ctx context.Context, tx *sql.Tx, userID int64, d *VaultData) er
 	for _, n := range d.Diary.Notes {
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO diary_notes (user_id, content, created_at, tag) VALUES (?,?,?,?)`,
-			userID, n.Content, n.CreatedAt, nullStr(n.Tag)); err != nil {
+			userID, n.Content, n.CreatedAt.UTC(), nullStr(n.Tag)); err != nil {
 			return err
 		}
 	}
@@ -427,7 +427,7 @@ func importTZ(ctx context.Context, tx *sql.Tx, d *VaultData) error {
 	for _, c := range d.TZ.History {
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO timezone_history (timezone, recorded_at) VALUES (?,?)`,
-			c.Timezone, c.ChangedAt); err != nil {
+			c.Timezone, c.ChangedAt.UTC()); err != nil {
 			return err
 		}
 	}
@@ -495,7 +495,7 @@ func importReminderState(ctx context.Context, tx *sql.Tx, userID int64, d *Vault
 			  (user_id, enabled, preferred_reminder_hour, snoozed_until, dont_remind_until)
 			VALUES (?,?,?,?,?)`,
 			userID, st.Enabled, st.PreferredReminderHour,
-			nullTimeRFC(st.SnoozedUntil), nullTimeRFC(st.DontRemindUntil))
+			nullTime(st.SnoozedUntil), nullTime(st.DontRemindUntil))
 		if err != nil {
 			return fmt.Errorf("%s: %w", table, err)
 		}
@@ -624,7 +624,7 @@ func importAPITokens(ctx context.Context, tx *sql.Tx, d *VaultData) error {
 	for _, t := range *d.APITokens {
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO api_tokens (name, token_hash, created_at, last_used_at) VALUES (?,?,?,?)`,
-			t.Name, t.TokenHash, rfc3339(t.CreatedAt), nullTimeRFC(t.LastUsedAt)); err != nil {
+			t.Name, t.TokenHash, t.CreatedAt.UTC(), nullTime(t.LastUsedAt)); err != nil {
 			return err
 		}
 	}
@@ -640,25 +640,34 @@ func nullBool(b *bool) any {
 	return *b
 }
 
+// nullTime / utcDate normalize a bound timestamp. A vault carries
+// offset-bearing RFC 3339 timestamps ("…+02:00"), and the modernc.org/sqlite
+// driver writes a non-UTC time.Time in Go's time.Time.String() form
+// ("2026-07-07 12:00:00 +0200 +0200") — a text form its own reader cannot
+// parse, so every later scan into time.Time / sql.NullTime hard-errors on that
+// row. A UTC time.Time is written as RFC 3339 ("…Z") and round-trips. Same
+// instant either way: this is a storage normalization, not a change of meaning.
+// So every bound time.Time goes through .UTC() (or utcDate, below).
 func nullTime(t *time.Time) any {
 	if t == nil {
 		return nil
 	}
-	return *t
+	return t.UTC()
 }
 
-// rfc3339 / nullTimeRFC store a time.Time as an offset-preserving RFC 3339
-// string. Binding a raw time.Time makes the modernc.org/sqlite driver write
-// Go's time.Time.String() form ("2006-01-02 15:04:05 -0700 -0700"), which is
-// not machine-parseable for non-UTC offsets and reads back as an unscannable
-// string under a UTC process. RFC 3339 text round-trips under any timezone.
-func rfc3339(t time.Time) string { return t.Format(time.RFC3339Nano) }
+// utcDate keeps the *calendar date* the vault recorded (in its own offset)
+// rather than the instant: workout_sessions.scheduled_date is a DATE column,
+// and plain .UTC() would move 2026-07-07T00:00:00+02:00 back to 2026-07-06.
+func utcDate(t time.Time) time.Time {
+	y, m, d := t.Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+}
 
-func nullTimeRFC(t *time.Time) any {
+func nullDate(t *time.Time) any {
 	if t == nil {
 		return nil
 	}
-	return t.Format(time.RFC3339Nano)
+	return utcDate(*t)
 }
 
 func nullUnix(t *time.Time) any {
