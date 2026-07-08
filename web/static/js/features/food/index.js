@@ -140,7 +140,14 @@ function toggleFoodLibraryView() {
 
         bindClick('add-food-inline-btn', () => showAddFoodModal());
         bindClick('add-food-photo-btn', () => triggerFoodPhotoPicker());
-        bindClick('scan-food-inline-btn', () => openFoodScannerModal());
+        bindClick('scan-food-inline-btn', () => {
+            if (typeof showAddFoodModal === 'function') {
+                showAddFoodModal();
+            }
+            if (typeof openFoodScannerModal === 'function') {
+                openFoodScannerModal();
+            }
+        });
         bindChange('food-photo-input', (e) => uploadFoodPhoto(e.target));
         bindClick('food-library-toggle-btn', () => toggleFoodLibraryView());
 

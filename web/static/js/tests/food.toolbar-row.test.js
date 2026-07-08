@@ -189,4 +189,19 @@ describe('Food day-nav toolbar row (Round-2 Task 6, defect #9)', () => {
         btn.click();
         expect(opened).toBe(1);
     });
+
+    it('clicking the inline Scan button opens the add modal then the scanner modal', () => {
+        const { document, window } = env;
+        let addOpened = 0;
+        let scanOpened = 0;
+
+        window.showAddFoodModal = () => { addOpened += 1; };
+        window.openFoodScannerModal = () => { scanOpened += 1; };
+
+        const btn = document.getElementById('scan-food-inline-btn');
+        btn.click();
+
+        expect(addOpened).toBe(1);
+        expect(scanOpened).toBe(1);
+    });
 });
