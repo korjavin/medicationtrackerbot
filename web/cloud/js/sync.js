@@ -90,12 +90,13 @@ async function readMeta() {
   try {
     const tx = db.transaction('sync_meta', 'readonly');
     const store = tx.objectStore('sync_meta');
-    const [localLastSeq, lastSnapshotSeq, lastSyncedAt, integrityErrors, forceSnapshotPending] = await Promise.all([
+    const [localLastSeq, lastSnapshotSeq, lastSyncedAt, integrityErrors, forceSnapshotPending, forceSnapshotError] = await Promise.all([
       reqToPromise(store.get('localLastSeq')),
       reqToPromise(store.get('lastSnapshotSeq')),
       reqToPromise(store.get('lastSyncedAt')),
       reqToPromise(store.get('integrityErrors')),
       reqToPromise(store.get('forceSnapshotPending')),
+      reqToPromise(store.get('forceSnapshotError')),
     ]);
     return {
       localLastSeq: localLastSeq ?? null,
@@ -103,6 +104,7 @@ async function readMeta() {
       lastSyncedAt: lastSyncedAt ?? null,
       integrityErrors: integrityErrors ?? 0,
       forceSnapshotPending: forceSnapshotPending ?? false,
+      forceSnapshotError: forceSnapshotError ?? null,
     };
   } finally {
     db.close();
@@ -397,7 +399,9 @@ export async function forceSnapshot(ctx) {
 // the pre-import data is already gone. Marking first makes that window safe: a
 // crash leaves a pending forced snapshot, which the next open retries.
 export async function markForceSnapshotPending() {
-  await writeMeta({ forceSnapshotPending: true });
+  // Clear any stale error from a previous oversized import so this fresh
+  // attempt doesn't inherit a "too large" banner while it's merely pending.
+  await writeMeta({ forceSnapshotPending: true, forceSnapshotError: null });
 }
 
 // Drives (or retries) a pending forced snapshot to completion: advance last_seq
