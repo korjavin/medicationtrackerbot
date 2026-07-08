@@ -241,6 +241,7 @@ func TestVaultExportSecretsOmitted(t *testing.T) {
 		{"", true}, {"?include_secrets=1", true}, {"?include_secrets=true", true},
 		{"?include_secrets=0", false}, {"?include_secrets=false", false},
 		{"?include_secrets=no", false}, {"?include_secrets=False", false}, {"?include_secrets=off", false},
+		{"?include_secrets=", false}, {"?include_secrets", false},
 	} {
 		req := httptest.NewRequest(http.MethodGet, "/api/export"+tc.query, nil)
 		req = req.WithContext(context.WithValue(req.Context(), UserCtxKey, &TelegramUser{ID: userID}))

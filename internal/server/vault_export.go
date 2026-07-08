@@ -41,12 +41,15 @@ func (s *Server) handleVaultExport(w http.ResponseWriter, r *http.Request) {
 	_ = rc.SetWriteDeadline(time.Now().Add(vaultIOTimeout))
 
 	// include_secrets: absent → include (the vault is a migration mechanism
-	// first). Any other value must be explicitly truthy, or api_tokens +
-	// settings.integrations are omitted so the file can be shared or stored
-	// casually — a typo'd value must not silently leak provider keys.
+	// first). Once present — including present-but-empty — the value must be
+	// explicitly truthy, or api_tokens + settings.integrations are omitted so
+	// the file can be shared or stored casually — a typo'd value must not
+	// silently leak provider keys. Hence Has(), not Get() != "".
 	// See docs/vault-format.md.
+	q := r.URL.Query()
 	includeSecrets := true
-	if v := r.URL.Query().Get("include_secrets"); v != "" {
+	if q.Has("include_secrets") {
+		v := q.Get("include_secrets")
 		includeSecrets = v == "1" || v == "true"
 	}
 
