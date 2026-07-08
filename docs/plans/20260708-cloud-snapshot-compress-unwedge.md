@@ -92,18 +92,18 @@ npm dependency.
 
 ### Task 1: Gzip snapshot plaintext before encryption (client)
 
-- [ ] Add small `gzip(bytes)` / `gunzip(bytes)` helpers in `web/cloud/js/crypto.js`
+- [x] Add small `gzip(bytes)` / `gunzip(bytes)` helpers in `web/cloud/js/crypto.js`
       (or a tiny shared util) using `CompressionStream`/`DecompressionStream('gzip')`,
       returning `Uint8Array`.
-- [ ] In `web/cloud/js/sync.js` `snapshotAt` (:335-337): after
+- [x] In `web/cloud/js/sync.js` `snapshotAt` (:335-337): after
       `JSON.stringify(records)` → `TextEncoder().encode(...)`, gzip the bytes and
       pass the **gzipped** bytes as `plaintext` to `encryptSnapshot`. (Encrypt the
       compressed bytes — do NOT change `encryptSnapshot`'s crypto/AAD.)
-- [ ] In `web/cloud/js/sync.js` `bootstrap` (:238-245): after `decryptSnapshot`,
+- [x] In `web/cloud/js/sync.js` `bootstrap` (:238-245): after `decryptSnapshot`,
       sniff the first two plaintext bytes — if `0x1f 0x8b`, `gunzip` before
       `TextDecoder().decode` + `JSON.parse`; otherwise decode as-is (legacy
       uncompressed snapshot). No `snapshot_seq`/nonce/AAD changes.
-- [ ] Confirm no other reader decrypts a snapshot (only `bootstrap` does) so the
+- [x] Confirm no other reader decrypts a snapshot (only `bootstrap` does) so the
       sniff lives in exactly one place.
 
 ### Task 2: Raise server snapshot caps + honest failure (server + client)

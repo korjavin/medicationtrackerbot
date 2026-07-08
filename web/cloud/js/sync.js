@@ -5,7 +5,7 @@
 // are { recordId, clientTs, deleted, ...body }, merged by last-write-wins on
 // clientTs; recordsPort() below exposes the generic list/put/del trio that
 // web/domain/'s domain modules are built on.
-import { deriveKData, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, toBase64, fromBase64 } from './crypto.js';
+import { deriveKData, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, toBase64, fromBase64, gzip, gunzip, isGzip } from './crypto.js';
 import { openDb } from './localdb.js';
 
 // Task 6: the NK (push notification key) is itself a vault record so every
@@ -242,7 +242,10 @@ async function bootstrap(ctx) {
         nonce: fromBase64(body.nonce),
         ct: fromBase64(body.ct),
       });
-      const records = JSON.parse(new TextDecoder().decode(plaintext));
+      // Snapshots are gzip-then-encrypt (magic 0x1f 0x8b); legacy uncompressed
+      // ones start with raw JSON, so sniff and gunzip only when compressed.
+      const json = isGzip(plaintext) ? await gunzip(plaintext) : plaintext;
+      const records = JSON.parse(new TextDecoder().decode(json));
       await replaceAllRecords(records);
       lastSnapshotSeq = body.snapshot_seq;
     } catch {
@@ -333,7 +336,9 @@ async function pullTail(ctx) {
 async function snapshotAt(ctx, snapshotSeq) {
   const kData = await getKData(ctx);
   const records = await readAllRecords();
-  const plaintext = new TextEncoder().encode(JSON.stringify(records));
+  // gzip the JSON before encryption so the ciphertext (POST body) shrinks ~10x;
+  // bootstrap sniffs the gzip magic bytes on decrypt. AAD/nonce unchanged.
+  const plaintext = await gzip(new TextEncoder().encode(JSON.stringify(records)));
   const { nonce, ct } = await encryptSnapshot({ kData, accountId: ctx.accountId, snapshotSeq, plaintext });
   let res;
   try {
