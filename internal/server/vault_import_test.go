@@ -48,7 +48,7 @@ func TestVaultImportRoundTrip(t *testing.T) {
 		t.Fatalf("importVault: %v", err)
 	}
 
-	exported, err := srv.buildVault(ctx, userID)
+	exported, err := srv.buildVault(ctx, userID, true)
 	if err != nil {
 		t.Fatalf("buildVault: %v", err)
 	}
@@ -273,7 +273,7 @@ func TestVaultImportReplaceHandler(t *testing.T) {
 		t.Fatalf("want 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	v, err := srv.buildVault(context.Background(), userID)
+	v, err := srv.buildVault(context.Background(), userID, true)
 	if err != nil {
 		t.Fatalf("buildVault: %v", err)
 	}

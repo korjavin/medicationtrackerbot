@@ -77,7 +77,7 @@ func TestVaultExportHandler(t *testing.T) {
 	ctx := context.Background()
 
 	// Empty-DB export must succeed and carry a valid envelope.
-	empty, err := srv.buildVault(ctx, userID)
+	empty, err := srv.buildVault(ctx, userID, true)
 	if err != nil {
 		t.Fatalf("buildVault on empty db: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestVaultExportHandler(t *testing.T) {
 		t.Fatalf("import miband: %v", err)
 	}
 
-	v, err := srv.buildVault(ctx, userID)
+	v, err := srv.buildVault(ctx, userID, true)
 	if err != nil {
 		t.Fatalf("buildVault: %v", err)
 	}
@@ -145,6 +145,163 @@ func TestVaultExportHandler(t *testing.T) {
 	if v.Data.Settings.FoodTargets == nil {
 		t.Fatalf("food targets missing from settings")
 	}
+
+	// No reminder-state row for this user yet → the block stays absent.
+	if v.Data.Settings.BPReminder != nil || v.Data.Settings.WeightReminder != nil {
+		t.Fatalf("reminder state should be absent before seeding: bp=%+v weight=%+v", v.Data.Settings.BPReminder, v.Data.Settings.WeightReminder)
+	}
+
+	// The four new domain walks, seeded raw (no store repos exist for them here).
+	seedNewVaultBlocks(t, db, userID)
+
+	v, err = srv.buildVault(ctx, userID, true)
+	if err != nil {
+		t.Fatalf("buildVault after seeding new blocks: %v", err)
+	}
+
+	bpRem, wtRem := v.Data.Settings.BPReminder, v.Data.Settings.WeightReminder
+	if bpRem == nil || !bpRem.Enabled || bpRem.PreferredReminderHour != 20 || bpRem.SnoozedUntil == nil || bpRem.DontRemindUntil != nil {
+		t.Fatalf("bp reminder state: %+v", bpRem)
+	}
+	if wtRem == nil || wtRem.Enabled || wtRem.PreferredReminderHour != 7 || wtRem.SnoozedUntil != nil {
+		t.Fatalf("weight reminder state: %+v", wtRem)
+	}
+
+	if len(v.Data.Gamification.Targets) != 2 || v.Data.Gamification.Targets[0].MetricKey != "sleep_minutes" {
+		t.Fatalf("gamification targets: %+v", v.Data.Gamification.Targets)
+	}
+	if len(v.Data.Gamification.Ledger) != 2 {
+		t.Fatalf("want 2 ledger rows, got %d", len(v.Data.Gamification.Ledger))
+	}
+	if got := v.Data.Gamification.Ledger[0].Day.UTC(); !got.Equal(time.Date(2026, 7, 6, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("ledger day unix→time wrong: %s", got)
+	}
+	if v.Data.Gamification.State == nil || v.Data.Gamification.State.LifetimeHP != 1355 {
+		t.Fatalf("gamification state: %+v", v.Data.Gamification.State)
+	}
+
+	if len(v.Data.TZ.TransitionPlans) != 2 {
+		t.Fatalf("want both tz plans (oldest first), got %d", len(v.Data.TZ.TransitionPlans))
+	}
+	if v.Data.TZ.TransitionPlans[0].Status != "COMPLETED" || v.Data.TZ.TransitionPlans[1].Status != "PENDING_APPROVAL" {
+		t.Fatalf("tz plans out of order: %+v", v.Data.TZ.TransitionPlans)
+	}
+	if p := v.Data.TZ.TransitionPlans[0]; p.PlanHash != "h1" || p.UserAction != "APPROVED" || p.ApprovedAt == nil || len(p.Steps) != 1 {
+		t.Fatalf("tz plan fields dropped: %+v", p)
+	}
+	if v.Data.TZ.TransitionPlans[1].ApprovedAt != nil {
+		t.Fatalf("pending plan should have null approved_at")
+	}
+
+	if v.Data.APITokens == nil || len(*v.Data.APITokens) != 2 {
+		t.Fatalf("api tokens: %+v", v.Data.APITokens)
+	}
+	if (*v.Data.APITokens)[0].Name != "mcp-laptop" || (*v.Data.APITokens)[1].LastUsedAt != nil {
+		t.Fatalf("api token fields wrong: %+v", *v.Data.APITokens)
+	}
+}
+
+// TestVaultExportSecretsOmitted pins the include_secrets toggle: the two
+// secret-bearing blocks must be *absent* (not empty) when it's off, since
+// absent is what tells the importer to leave the destination's secrets alone.
+func TestVaultExportSecretsOmitted(t *testing.T) {
+	db, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	srv := newServer(db, "tok", "sec", 123, OIDCConfig{}, "bot", "")
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
+
+	const userID = 123
+	seedNewVaultBlocks(t, db, userID)
+
+	off, err := srv.buildVault(context.Background(), userID, false)
+	if err != nil {
+		t.Fatalf("buildVault(includeSecrets=false): %v", err)
+	}
+	if off.Data.APITokens != nil {
+		t.Errorf("api_tokens present with include_secrets=0: %+v", *off.Data.APITokens)
+	}
+	if off.Data.Settings.Integrations != nil {
+		t.Errorf("settings.integrations present with include_secrets=0")
+	}
+	// Non-secret settings still export.
+	if off.Data.Settings.FoodTargets == nil {
+		t.Errorf("food targets dropped by include_secrets=0")
+	}
+
+	// The handler's query parsing: absent and "1" both include, "0"/"false" omit.
+	for _, tc := range []struct {
+		query string
+		want  bool
+	}{{"", true}, {"?include_secrets=1", true}, {"?include_secrets=0", false}, {"?include_secrets=false", false}} {
+		req := httptest.NewRequest(http.MethodGet, "/api/export"+tc.query, nil)
+		req = req.WithContext(context.WithValue(req.Context(), UserCtxKey, &TelegramUser{ID: userID}))
+		rec := httptest.NewRecorder()
+		srv.handleVaultExport(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("export%q: status %d", tc.query, rec.Code)
+		}
+		var body struct {
+			Data struct {
+				APITokens *[]VaultAPIToken `json:"api_tokens"`
+				Settings  struct {
+					Integrations *VaultIntegrations `json:"integrations"`
+				} `json:"settings"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("decode export%q: %v", tc.query, err)
+		}
+		hasTokens := body.Data.APITokens != nil
+		hasKeys := body.Data.Settings.Integrations != nil
+		if hasTokens != tc.want || hasKeys != tc.want {
+			t.Errorf("export%q: api_tokens=%v integrations=%v, want both %v", tc.query, hasTokens, hasKeys, tc.want)
+		}
+	}
+}
+
+// seedNewVaultBlocks writes gamification, api-token and two-plan tz rows
+// directly — these tables have no store repo the export path goes through.
+func seedNewVaultBlocks(t *testing.T, db *store.Repos, userID int64) {
+	t.Helper()
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := db.DB().Exec(q, args...); err != nil {
+			t.Fatalf("seed %q: %v", q, err)
+		}
+	}
+	exec(`INSERT INTO bp_reminder_state (user_id, enabled, snoozed_until, preferred_reminder_hour) VALUES (?, 1, ?, 20)`,
+		userID, "2026-07-08T18:00:00Z")
+	exec(`INSERT INTO weight_reminder_state (user_id, enabled, preferred_reminder_hour) VALUES (?, 0, 7)`, userID)
+
+	exec(`INSERT INTO gamification_targets (user_id, metric_key, low_val, high_val, falloff, mode, updated_at_unix)
+	      VALUES (?, 'steps', 6000, 12000, 2000, 'range', ?), (?, 'sleep_minutes', 420, NULL, NULL, 'at_least', ?)`,
+		userID, time.Date(2026, 6, 10, 8, 0, 0, 0, time.UTC).Unix(),
+		userID, time.Date(2026, 6, 11, 8, 0, 0, 0, time.UTC).Unix())
+	exec(`INSERT INTO gamification_ledger (user_id, day_unix, ring, source_metric, kind, hp, detail, created_at_unix)
+	      VALUES (?, ?, 'move', 'steps', 'in_range', 30, '{"steps":9500}', ?), (?, ?, 'rest', 'sleep_minutes', 'in_range', 25, NULL, ?)`,
+		userID, time.Date(2026, 7, 6, 0, 0, 0, 0, time.UTC).Unix(), time.Date(2026, 7, 7, 0, 5, 0, 0, time.UTC).Unix(),
+		userID, time.Date(2026, 7, 7, 0, 0, 0, 0, time.UTC).Unix(), time.Date(2026, 7, 8, 0, 5, 0, 0, time.UTC).Unix())
+	exec(`INSERT INTO gamification_state (user_id, lifetime_hp, level, current_streak, longest_streak, freezes, insight_tier, last_scored_day_unix, backfilled_at_unix, updated_at_unix)
+	      VALUES (?, 1355, 4, 6, 21, 1, 2, ?, ?, ?)`,
+		userID, time.Date(2026, 7, 7, 0, 0, 0, 0, time.UTC).Unix(),
+		time.Date(2026, 6, 1, 3, 0, 0, 0, time.UTC).Unix(), time.Date(2026, 7, 8, 0, 5, 0, 0, time.UTC).Unix())
+
+	exec(`INSERT INTO tz_transition_plans (old_tz, new_tz, created_at_unix, status, steps_json, inputs_json, plan_hash, approved_at_unix, user_action, notified_at_unix)
+	      VALUES ('America/New_York', 'Europe/Berlin', ?, 'COMPLETED', ?, '{}', 'h1', ?, 'APPROVED', ?)`,
+		time.Date(2026, 5, 2, 9, 0, 0, 0, time.UTC).Unix(),
+		`[{"medication_id":1,"med_name":"Lisinopril","step_number":1,"total_steps":1,"scheduled_at":"2026-05-03T08:00:00Z","note":"shift 1h later"}]`,
+		time.Date(2026, 5, 2, 9, 30, 0, 0, time.UTC).Unix(), time.Date(2026, 5, 2, 9, 5, 0, 0, time.UTC).Unix())
+	exec(`INSERT INTO tz_transition_plans (old_tz, new_tz, created_at_unix, status, steps_json, inputs_json, plan_hash)
+	      VALUES ('Europe/Berlin', 'America/New_York', ?, 'PENDING_APPROVAL', '[]', '{}', 'h2')`,
+		time.Date(2026, 7, 8, 10, 0, 0, 0, time.UTC).Unix())
+
+	exec(`INSERT INTO api_tokens (name, token_hash, created_at, last_used_at) VALUES ('mcp-laptop', 'hash-1', ?, ?)`,
+		"2026-05-20T12:00:00Z", "2026-07-07T19:30:00Z")
+	exec(`INSERT INTO api_tokens (name, token_hash, created_at, last_used_at) VALUES ('home-assistant', 'hash-2', ?, NULL)`,
+		"2026-06-02T12:00:00Z")
 }
 
 // TestVaultExportGzip pins the wire compression: a gzip-accepting client gets a

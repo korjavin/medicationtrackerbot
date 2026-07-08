@@ -72,9 +72,9 @@ Locked decisions (user-confirmed 2026-07-08):
 
 ### Task 2: Bot-mode export of the new blocks
 
-- [ ] `vault_export.go`: `exportReminderState` (both tables), `exportGamification` (targets + ledger + state), `exportAPITokens`, and rewrite `exportTZ`'s plan section to read **all** `tz_transition_plans` rows ordered by `created_at_unix ASC` (raw SQL, no cutoff — mirror the `exportMiBand` precedent). Carry nested `tz_transition_steps` rows if they hold data `steps_json` doesn't.
-- [ ] `buildVault` takes an `includeSecrets bool`; the handler reads `include_secrets` from the query (absent → true, `0`/`false` → false) and skips `exportAPITokens` + leaves `Settings.Integrations` nil when false.
-- [ ] Test: `TestVaultExportSecretsOmitted` + extend `TestVaultExportHandler` to cover the new domain walks against a migrated DB.
+- [x] `vault_export.go`: `exportReminderState` (both tables), `exportGamification` (targets + ledger + state), `exportAPITokens`, and rewrite `exportTZ`'s plan section to read **all** `tz_transition_plans` rows ordered by `created_at_unix ASC` (raw SQL, no cutoff — mirror the `exportMiBand` precedent). ⚠️ No nested `tz_transition_steps` to carry: migration 069 dropped that table; `steps_json` is the only home for steps.
+- [x] `buildVault` takes an `includeSecrets bool`; the handler reads `include_secrets` from the query (absent → true, `0`/`false` → false) and skips `exportAPITokens` + leaves `Settings.Integrations` nil when false.
+- [x] Test: `TestVaultExportSecretsOmitted` + extend `TestVaultExportHandler` to cover the new domain walks against a migrated DB. ✅ `TZ=UTC go test ./internal/server` — only `TestVaultImportRoundTrip` red, by design until Tasks 3–4 land the import side.
 
 ### Task 3: Bot-mode import of the new blocks + wipe-set sync
 

@@ -40,7 +40,7 @@ func TestGenerateBotExportFixture(t *testing.T) {
 	if err := srv.importVault(ctx, userID, &v); err != nil {
 		t.Fatalf("importVault: %v", err)
 	}
-	exported, err := srv.buildVault(ctx, userID)
+	exported, err := srv.buildVault(ctx, userID, true)
 	if err != nil {
 		t.Fatalf("buildVault: %v", err)
 	}
