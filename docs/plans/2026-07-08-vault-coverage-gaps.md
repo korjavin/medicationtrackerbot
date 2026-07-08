@@ -107,6 +107,6 @@ Locked decisions (user-confirmed 2026-07-08):
 
 ### Task 8: Docs
 
-- [ ] `docs/api.md`: `GET /api/export?include_secrets=0|1`.
-- [ ] `docs/features.md` + `docs/cloud-mode.md`: the vault now carries reminder prefs, gamification, full tz-plan history and API tokens; the toggle and its non-replace import semantics; the one intentionally-skipped table and why.
+- [x] `docs/api.md`: `GET /api/export?include_secrets=0|1` (plus the matching absent-block import semantics on `POST /api/import`).
+- [x] `docs/features.md` + `docs/cloud-mode.md`: the vault now carries reminder prefs, gamification, full tz-plan history and API tokens; the toggle and its non-replace import semantics; the one intentionally-skipped table and why. ➕ also fixed the stale C2e skip-list bullet (it still claimed API tokens / reminder-state / gamification were "not exported") and documented the wipe/vault coverage guard.
 - [x] Regenerate `tests/fixtures/vault-v1-botexport.json`. ➕ done in Task 6 (the Vitest cross-runtime test needed it).
