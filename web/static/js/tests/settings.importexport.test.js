@@ -80,7 +80,8 @@ describe('Settings → Import/Export section', () => {
 
         await window.SettingsImportExport.export();
 
-        expect(window.apiCall).toHaveBeenCalledWith('/api/export?include_secrets=0', 'GET');
+        expect(window.apiCall).toHaveBeenCalledWith('/api/export?include_secrets=0', 'GET', null,
+            expect.objectContaining({ timeoutMs: 600000 }));
     });
 
     it('cloud export passes includeSecrets:false through to CloudVault', async () => {
