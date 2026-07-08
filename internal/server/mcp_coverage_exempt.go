@@ -49,6 +49,7 @@ var mcpCoverageExempt = []routeExemption{
 	{Method: "", Path: "/auth/telegram/callback", Reason: "Telegram login callback; browser-only"},
 
 	// --- Internal MCP plumbing & external integrations ---
+	{Method: "POST", Path: "/api/weight/goal", Reason: "UI weight goal setter; agents lack weight.goal.set tool for now"},
 	{Method: "POST", Path: "/internal/mcp/bridge", Reason: "internal MCP→HTTP bridge; the proxy talks to itself, agents must not"},
 	{Method: "POST", Path: "/api/mcp-audit", Reason: "internal audit hook for the MCP server"},
 	{Method: "POST", Path: "/api/mcp-food-log", Reason: "HMAC-signed write-through for the legacy log_food_intake atomic tool; will be removed alongside that tool"},

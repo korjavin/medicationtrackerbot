@@ -257,6 +257,7 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
       if (m) { await weight.remove(m[1]); return true; }
     }
     if (path === '/api/weight/goal' && method === 'GET') return weight.getGoal();
+    if (path === '/api/weight/goal' && method === 'POST') return weight.setGoal(body);
 
     if (path === '/api/notes') {
       if (method === 'POST') return notes.create(body);

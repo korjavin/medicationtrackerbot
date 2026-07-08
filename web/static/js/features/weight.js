@@ -469,12 +469,70 @@ function renderWeightGoalCard(logs, goalData) {
     container.className = 'wg-weight-goal-card';
 
     const goalValue = goalData && Number(goalData.goal);
-    if (!Number.isFinite(goalValue)) {
-        container.hidden = true;
+    const hasGoal = Number.isFinite(goalValue);
+
+    container.hidden = false;
+    // Add position-relative class dynamically or rely on .wg-card which is already relative
+    container.classList.add('wg-card', 'wg-card--inset');
+    // Ensure the container is relative so the absolute button aligns correctly without inline styles
+    container.style.setProperty('position', 'relative');
+
+    const actionBtn = document.createElement('button');
+    actionBtn.type = 'button';
+    actionBtn.className = 'wg-icon-btn wg-weight-goal-card__action';
+    actionBtn.setAttribute('aria-label', hasGoal ? 'Edit weight goal' : 'Set weight goal');
+
+    const gloss = document.createElement('span');
+    gloss.className = 'wg-gloss';
+    if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
+        gloss.appendChild(window.WGIcons.iconSvg(hasGoal ? 'pencil' : 'plus', { size: 16 }));
+    }
+    actionBtn.appendChild(gloss);
+
+    actionBtn.addEventListener('click', () => {
+        const pref = getPreferredWeightUnit();
+        const currentDisplay = hasGoal ? formatWeight(goalValue, pref).value : "";
+        const valStr = prompt(`Enter target weight (in ${pref}):`, currentDisplay);
+        if (valStr !== null && valStr.trim() !== "") {
+            const num = parseFloat(valStr);
+            if (!isNaN(num) && num > 0) {
+                // Convert back to kg if user's display is lb
+                const kgValue = pref === 'lb' ? num / 2.20462 : num;
+
+                apiCall('/api/weight/goal', 'POST', { target_weight: kgValue }).then(res => {
+                    if (res) {
+                        window.DataStore.invalidateTags(['weight']).then(() => {
+                            if (window.DataStore.clearCached) {
+                                window.DataStore.clearCached('weight').then(() => loadWeightLogs());
+                            } else {
+                                loadWeightLogs();
+                            }
+                        });
+                    }
+                }).catch(err => {
+                    console.error("Failed to set weight goal:", err);
+                    safeAlert("Failed to set weight goal");
+                });
+            } else {
+                safeAlert("Invalid weight value");
+            }
+        }
+    });
+
+    container.appendChild(actionBtn);
+
+    if (!hasGoal) {
+        const emptyLabel = document.createElement('div');
+        emptyLabel.className = 'wg-section-label wg-weight-goal-card__label';
+        emptyLabel.textContent = 'WEIGHT GOAL';
+        container.appendChild(emptyLabel);
+
+        const emptyText = document.createElement('div');
+        emptyText.className = 'wg-muted wg-weight-goal-card__empty-text';
+        emptyText.textContent = 'Set a weight goal to track your progress.';
+        container.appendChild(emptyText);
         return;
     }
-    container.hidden = false;
-    container.classList.add('wg-card', 'wg-card--inset');
 
     const list = Array.isArray(logs) ? logs : [];
     const latestWeight = list.length > 0 ? Number(list[0].weight) : null;

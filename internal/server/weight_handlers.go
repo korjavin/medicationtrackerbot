@@ -212,6 +212,43 @@ func (s *Server) handleExportWeight(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) handleSetWeightGoal(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+
+	var req struct {
+		TargetWeight float64 `json:"target_weight"`
+		TargetDate   *string `json:"target_date,omitempty"` // yyyy-mm-dd
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.TargetWeight <= 0 {
+		http.Error(w, "Invalid target_weight", http.StatusBadRequest)
+		return
+	}
+
+	var targetDate time.Time
+	if req.TargetDate != nil && *req.TargetDate != "" {
+		parsed, err := time.Parse("2006-01-02", *req.TargetDate)
+		if err != nil {
+			http.Error(w, "Invalid target_date format, expected YYYY-MM-DD", http.StatusBadRequest)
+			return
+		}
+		targetDate = parsed
+	}
+
+	if err := s.weight.SetGoal(r.Context(), userID, req.TargetWeight, targetDate); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.handleGetWeightGoal(w, r)
+}
+
 func (s *Server) handleGetWeightGoal(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
