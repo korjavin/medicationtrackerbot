@@ -114,3 +114,72 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     expect(location.href).toBe('/unlock#claim=tok123');
   });
 });
+
+describe('CloudVault.importAll data-loss guard (null cursor)', () => {
+  // A full-vault import wipes the local store then re-inserts. If bootstrap
+  // never reached the server (localLastSeq null), forceSnapshot no-ops (no
+  // propagation, no retry marker) and the next open re-bootstraps the stale
+  // server snapshot over the import. importAll must refuse to wipe until the
+  // account cursor exists — throwing so importexport.js skips the reload.
+  function syncModule(overrides) {
+    const calls = { replaceAllRecords: 0, forceSnapshot: 0, dropPendingForTypes: [], order: [] };
+    return {
+      calls,
+      mod: {
+        pullOnOpen: async () => {},
+        readAllLiveRecords: async () => [],
+        replaceAllRecords: async () => { calls.replaceAllRecords += 1; calls.order.push('replace'); },
+        forceSnapshot: async () => { calls.forceSnapshot += 1; },
+        dropPendingForTypes: async (types) => { calls.dropPendingForTypes.push(types); calls.order.push('drop'); },
+        ...overrides,
+      },
+    };
+  }
+  const MANAGED = new Set(['note', 'bp']);
+  const VAULT_MOD = { vaultToRecords: () => [], VAULT_MANAGED_TYPES: MANAGED };
+  const VAULT_JSON = '{"format":"medtracker-vault","version":1,"data":{}}';
+
+  async function bootWithSync(sync) {
+    const { window } = await runBoot({
+      modules: {
+        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', dek: new Uint8Array(1) }) },
+        'apishim.js': { installApiShim: () => () => Promise.resolve(null) },
+        'sync.js': sync.mod,
+        '/domain/vault.js': VAULT_MOD,
+        'reminders.js': { scheduleReminderRecompute: () => {} },
+        'mcp-responder.js': { refreshResponder: () => {} },
+      },
+    });
+    return window;
+  }
+
+  it('throws and never wipes when the device is not bootstrapped', async () => {
+    const sync = syncModule({ isBootstrapped: async () => false });
+    const window = await bootWithSync(sync);
+    await expect(window.CloudVault.importAll(VAULT_JSON)).rejects.toThrow(/Sync not ready/);
+    expect(sync.calls.replaceAllRecords).toBe(0);
+    expect(sync.calls.forceSnapshot).toBe(0);
+    expect(sync.calls.dropPendingForTypes).toHaveLength(0);
+  });
+
+  it('wipes and forces a snapshot once bootstrapped', async () => {
+    const sync = syncModule({ isBootstrapped: async () => true });
+    const window = await bootWithSync(sync);
+    await window.CloudVault.importAll(VAULT_JSON);
+    expect(sync.calls.replaceAllRecords).toBe(1);
+    expect(sync.calls.forceSnapshot).toBe(1);
+  });
+
+  it('drops pending managed writes before the replace so they cannot survive the backup', async () => {
+    // Replace-only: a not-yet-flushed managed write (create/update/delete) must
+    // be discarded before replaceAllRecords, or its pending overlay resurrects
+    // it over the imported backup and later flushes over it.
+    const sync = syncModule({ isBootstrapped: async () => true });
+    const window = await bootWithSync(sync);
+    await window.CloudVault.importAll(VAULT_JSON);
+    expect(sync.calls.dropPendingForTypes).toHaveLength(1);
+    expect(sync.calls.dropPendingForTypes[0]).toBe(MANAGED);
+    // Drop must run before the replace, else the overlay re-adds the stale rows.
+    expect(sync.calls.order).toEqual(['drop', 'replace']);
+  });
+});

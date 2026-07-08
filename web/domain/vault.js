@@ -13,8 +13,13 @@
 //
 // Record-identity conventions encoded here (see docs/cloud-mode.md record
 // inventory + the web/domain/*.js modules they mirror):
-//   - medication / foodproduct: recordId IS the numeric id (medications.js /
-//     food.js read `id: record.recordId`); FK refs use that number.
+//   - medication: recordId IS the numeric id (medications.js reads
+//     `id: record.recordId`); intake/tzplan FK refs use that number.
+//   - foodproduct: recordId is a namespaced string (`foodproduct-<int>` on
+//     import, `foodproduct_<ts>_<rand>` native) so a small bot id can't collide
+//     with a numeric medication recordId in the shared `records` store; export
+//     recovers the numeric id the vault format needs and foodlog.product_id
+//     references the namespaced recordId.
 //   - workout group/variant/exercise/library/session/miband/exerciselog: a
 //     separate numeric body `id` (workout.js mintNumericId); recordId is a
 //     distinct string. Scheduled sessions re-mint `session-<groupId>-<date>`,
@@ -136,11 +141,26 @@ export function recordsToVault(records, { now } = {}) {
   };
 
   // --- food ---
-  const productsById = new Map(pick('foodproduct').map((r) => [r.recordId, r]));
+  // foodproduct recordIds are namespaced strings, so recover the plain number
+  // the vault format (and bot mode's int64 id/product_id columns) require: parse
+  // the `foodproduct-<int>` form, else assign a fresh id past the highest parsed
+  // one (legacy native `foodproduct_<ts>_<rand>` products). foodlog.product_id is
+  // remapped through the same map so references stay intact.
+  const productList = pick('foodproduct');
+  const productNumericId = new Map();
+  let synthProductId = productList.reduce((m, r) => {
+    const parsed = /^foodproduct-(\d+)$/.exec(String(r.recordId));
+    return parsed ? Math.max(m, Number(parsed[1])) : m;
+  }, 0);
+  for (const r of productList) {
+    const parsed = /^foodproduct-(\d+)$/.exec(String(r.recordId));
+    productNumericId.set(r.recordId, parsed ? Number(parsed[1]) : (synthProductId += 1));
+  }
+  const productsByRecordId = new Map(productList.map((r) => [r.recordId, r]));
   const food = {
     logs: sortBy(pick('foodlog'), (r) => r.eaten_at).map((r) => {
       const body = stripMeta(r);
-      const product = body.product_id != null ? productsById.get(body.product_id) : null;
+      const product = body.product_id != null ? productsByRecordId.get(body.product_id) : null;
       const out = {
         eaten_at: body.eaten_at,
         weight: body.weight,
@@ -151,11 +171,14 @@ export function recordsToVault(records, { now } = {}) {
         is_meal: !!(product && product.is_meal),
       };
       if (body.name) out.name = body.name;
-      if (body.product_id != null) out.product_id = body.product_id;
+      if (body.product_id != null) {
+        const mapped = productNumericId.get(body.product_id);
+        if (mapped != null) out.product_id = mapped;
+      }
       return out;
     }),
-    products: sortBy(pick('foodproduct'), (r) => Number(r.recordId))
-      .map((r) => ({ id: r.recordId, ...stripMeta(r) })),
+    products: sortBy(productList, (r) => productNumericId.get(r.recordId))
+      .map((r) => ({ id: productNumericId.get(r.recordId), ...stripMeta(r) })),
   };
 
   // --- workouts ---
@@ -316,15 +339,18 @@ export function vaultToRecords(vault, { now } = {}) {
   if (weight.goal) push('weightgoal', `weightgoal-${mintNum()}`, { ...weight.goal });
   if (weight.unit_pref) push('weightunitpref', 'weight-unit', { unit: weight.unit_pref === 'lb' ? 'lb' : 'kg' });
 
-  // --- food (products keep their numeric id as recordId; logs reference it) ---
+  // --- food (products get a namespaced recordId so their small bot ids can't
+  // collide with a numeric medication recordId in the shared `records` store;
+  // logs reference that namespaced recordId) ---
   const food = data.food || {};
   for (const p of food.products || []) {
     const { id, ...body } = p;
-    push('foodproduct', id, body);
+    push('foodproduct', `foodproduct-${id}`, body);
   }
   for (const l of food.logs || []) {
     const { is_meal, ...body } = l; // is_meal is derived from the product on read
-    push('foodlog', `foodlog-${mintNum()}`, { ...body, product_id: body.product_id ?? null });
+    const productId = body.product_id != null ? `foodproduct-${body.product_id}` : null;
+    push('foodlog', `foodlog-${mintNum()}`, { ...body, product_id: productId });
   }
 
   // --- workouts (separate numeric body id + a distinct recordId) ---
