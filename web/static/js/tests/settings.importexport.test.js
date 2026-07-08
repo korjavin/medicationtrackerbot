@@ -80,6 +80,13 @@ describe('Settings → Import/Export section', () => {
         expect(typeof window.SettingsImportExport.import).toBe('function');
     });
 
+    it('the file picker accepts every shape export writes', () => {
+        // Regression: accept=".json,.age" made the picker refuse the .json.gz
+        // that an unencrypted export produces — the backup was unimportable.
+        const accept = env.document.getElementById('importexport-import-file').getAttribute('accept');
+        for (const ext of ['.gz', '.age', '.json']) expect(accept).toContain(ext);
+    });
+
     it('include-secrets checkbox is checked by default', () => {
         expect(env.document.getElementById('importexport-include-secrets').checked).toBe(true);
     });
