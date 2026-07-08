@@ -1,9 +1,37 @@
 # Vault format v1 — full-user export/import (C2e)
 
 The canonical, no-lock-in backup format. One file holds **one user, all domains**,
-exportable and importable in **both** runtimes (bot mode + cloud mode). A plain
-`.json` file on disk (optionally `.json.age`-encrypted, see [cloud-mode.md](cloud-mode.md))
-is always the exit door.
+exportable and importable in **both** runtimes (bot mode + cloud mode). A
+gzipped JSON file on disk (optionally `.age`-encrypted, see
+[cloud-mode.md](cloud-mode.md)) is always the exit door.
+
+## On-disk shapes
+
+The UI writes `medtracker-vault-<date>.json.gz`, or `.json.gz.age` when a
+passphrase is given. **gzip happens before encryption** — age ciphertext is
+high-entropy and doesn't compress, so the other order saves nothing. Read either
+one with standard tools:
+
+```sh
+gunzip -c medtracker-vault-2026-07-08.json.gz | jq .
+age -d medtracker-vault-2026-07-08.json.gz.age | gunzip | jq .
+```
+
+Compression is not cosmetic: a two-year vault is 21 MB of pretty-printed JSON
+and **0.7 MB gzipped** (30x; the per-sample vitals streams and mi-band GPS
+tracks dominate the volume and compress extremely well). `POST /api/import` caps
+the body at 64 MB, so a large backup is only restorable *because* it's
+compressed — the browser gzips the upload too (`Content-Encoding: gzip`), and
+the server inflates it under a separate 1 GB ceiling so a small body can't be a
+decompression bomb.
+
+Import sniffs magic bytes rather than the filename, so all four shapes work and
+pre-compression backups keep importing: `.json`, `.json.gz`, `.json.age`,
+`.json.gz.age`.
+
+`GET /api/export` also serves the response `Content-Encoding: gzip` to any
+client that accepts it. That is transport only — `fetch` transparently
+decompresses it, and the browser compresses again for the file.
 
 This document is the cross-runtime contract. The Go exporter (`GET /api/export`),
 the Go importer (`POST /api/import`), and the cloud client (`window.CloudVault`)
