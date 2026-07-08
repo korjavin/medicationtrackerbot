@@ -52,6 +52,10 @@ function renderFoodInlineAddIcon() {
     if (photoBtn && !photoBtn.querySelector('svg')) {
         photoBtn.insertBefore(window.WGIcons.iconSvg('camera', { size: 14 }), photoBtn.firstChild);
     }
+    const scanBtn = document.getElementById('scan-food-inline-btn');
+    if (scanBtn && !scanBtn.querySelector('svg')) {
+        scanBtn.insertBefore(window.WGIcons.iconSvg('barcode', { size: 14 }), scanBtn.firstChild);
+    }
 }
 
 function toggleFoodLibraryView() {
@@ -136,6 +140,7 @@ function toggleFoodLibraryView() {
 
         bindClick('add-food-inline-btn', () => showAddFoodModal());
         bindClick('add-food-photo-btn', () => triggerFoodPhotoPicker());
+        bindClick('scan-food-inline-btn', () => openFoodScannerModal());
         bindChange('food-photo-input', (e) => uploadFoodPhoto(e.target));
         bindClick('food-library-toggle-btn', () => toggleFoodLibraryView());
 

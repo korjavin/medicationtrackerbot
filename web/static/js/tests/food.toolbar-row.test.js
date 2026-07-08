@@ -41,7 +41,7 @@ describe('Food day-nav toolbar row (Round-2 Task 6, defect #9)', () => {
         env = null;
     });
 
-    it('day-nav has exactly five direct-child elements in order: prev, center, next, Add, Photo', () => {
+    it('day-nav has exactly six direct-child elements in order: prev, center, next, Add, Photo, Scan', () => {
         const { document } = env;
         const nav = document.querySelector('#food-view .wg-food-day-nav');
         expect(nav).not.toBeNull();
@@ -50,13 +50,14 @@ describe('Food day-nav toolbar row (Round-2 Task 6, defect #9)', () => {
         // Filter out whitespace-only text nodes — only element children
         // participate in the grid layout.
         const children = Array.from(nav.children);
-        expect(children).toHaveLength(5);
+        expect(children).toHaveLength(6);
 
         expect(children[0].id).toBe('food-date-prev-btn');
         expect(children[1].classList.contains('wg-food-day-nav__center')).toBe(true);
         expect(children[2].id).toBe('food-date-next-btn');
         expect(children[3].id).toBe('add-food-inline-btn');
         expect(children[4].id).toBe('add-food-photo-btn');
+        expect(children[5].id).toBe('scan-food-inline-btn');
     });
 
     it('Add button is a sibling of the chevrons, not nested inside the center cell', () => {
@@ -104,15 +105,15 @@ describe('Food day-nav toolbar row (Round-2 Task 6, defect #9)', () => {
         expect(overrideIdx).toBeGreaterThan(baseIdx);
     });
 
-    it('CSS: .wg-food-day-nav--with-action declares a 5-column grid-template-columns (icon 1fr icon auto auto)', () => {
+    it('CSS: .wg-food-day-nav--with-action declares a 6-column grid-template-columns (icon 1fr icon auto auto auto)', () => {
         const css = fs.readFileSync(CSS_PATH, 'utf8');
         const openIdx = css.indexOf('\n.wg-food-day-nav--with-action {');
         expect(openIdx).toBeGreaterThan(0);
         const closeIdx = css.indexOf('}', openIdx);
         const rule = css.slice(openIdx, closeIdx);
 
-        // Five columns: icon width, flexible center, icon width, auto (Add), auto (Photo).
-        expect(rule).toMatch(/grid-template-columns\s*:[^;]*var\(--wg-food-day-nav-icon-size\)[^;]*1fr[^;]*var\(--wg-food-day-nav-icon-size\)[^;]*auto[^;]*auto/);
+        // Six columns: icon width, flexible center, icon width, auto (Add), auto (Photo), auto (Scan).
+        expect(rule).toMatch(/grid-template-columns\s*:[^;]*var\(--wg-food-day-nav-icon-size\)[^;]*1fr[^;]*var\(--wg-food-day-nav-icon-size\)[^;]*auto[^;]*auto[^;]*auto/);
     });
 
     it('Photo button uses .wg-toolbar-btn + .wg-toolbar-btn--primary, carries a camera icon, and triggers the hidden file input', () => {
@@ -150,6 +151,23 @@ describe('Food day-nav toolbar row (Round-2 Task 6, defect #9)', () => {
         // straight into the camera and the user can't pick an existing
         // photo from their library.
         expect(input.hasAttribute('capture')).toBe(false);
+    });
+
+    it('Scan button uses .wg-toolbar-btn + .wg-toolbar-btn--primary, carries a barcode icon, and triggers the scanner modal', () => {
+        const { document } = env;
+        const scan = document.getElementById('scan-food-inline-btn');
+        expect(scan).not.toBeNull();
+        expect(scan.classList.contains('wg-toolbar-btn')).toBe(true);
+        expect(scan.classList.contains('wg-toolbar-btn--primary')).toBe(true);
+        expect(scan.classList.contains('wg-toolbar-btn--secondary')).toBe(false);
+
+        const label = scan.querySelector('.wg-toolbar-btn__label');
+        expect(label).not.toBeNull();
+        expect(label.textContent).toBe('Scan');
+
+        const icon = scan.querySelector('svg[data-wg-icon="barcode"]');
+        expect(icon).not.toBeNull();
+        expect(icon.parentElement).toBe(scan);
     });
 
     it('CSS: the dead .wg-food-day-nav__add and __add-label rules are removed', () => {

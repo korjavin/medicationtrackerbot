@@ -70,6 +70,9 @@ describe('Food round-2 design parity', () => {
             const addButtons = document.querySelectorAll('#food-view [id^="add-food"]');
             const ids = Array.from(addButtons).map(el => el.id).sort();
             expect(ids).toEqual(['add-food-inline-btn', 'add-food-photo-btn']);
+
+            const scanBtn = document.getElementById('scan-food-inline-btn');
+            expect(scanBtn).not.toBeNull();
         });
     });
 
