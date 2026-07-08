@@ -325,7 +325,11 @@ async function pullTail(ctx) {
 
 // snapshotAt encrypts the whole local record store and POSTs it as the
 // compaction floor at `snapshotSeq`. Shared by the threshold-gated
-// maybeSnapshot and the C2e forced snapshot after a full-vault import.
+// maybeSnapshot and the C2e forced snapshot after a full-vault import. Returns
+// whether the snapshot landed; a rejected body (oversized, seq ahead of the
+// server) is only "offline" for the forced path, where it strands the import —
+// maybeSnapshot runs after a successful pull+flush, so failing it must not flip
+// a healthy app to offline for good.
 async function snapshotAt(ctx, snapshotSeq) {
   const kData = await getKData(ctx);
   const records = await readAllRecords();
@@ -340,18 +344,12 @@ async function snapshotAt(ctx, snapshotSeq) {
     });
   } catch {
     offline = true;
-    return;
+    return false;
   }
-  if (!res.ok) {
-    // A rejected snapshot (oversized body, seq ahead of the server) must not read
-    // as "synced": tryForceSnapshot leaves forceSnapshotPending set on failure,
-    // which blocks every later pull/flush. Surface it as offline so the status
-    // line is honest and the next open retries.
-    offline = true;
-    return;
-  }
+  if (!res.ok) return false;
   offline = false;
   await writeMeta({ lastSnapshotSeq: snapshotSeq });
+  return true;
 }
 
 async function maybeSnapshot(ctx) {
@@ -384,8 +382,17 @@ const IMPORT_BUMP_RECORD_ID = '__vault_import_bump__';
 // tryForceSnapshot, which pullOnOpen also re-runs (before any pull) every open
 // until the snapshot lands.
 export async function forceSnapshot(ctx) {
-  await writeMeta({ forceSnapshotPending: true });
+  await markForceSnapshotPending();
   await tryForceSnapshot(ctx);
+}
+
+// Set the durable marker BEFORE the destructive replaceAllRecords. Between the
+// replace landing and the marker being written, bootstrap()/pullOnOpen() see no
+// marker and re-bootstrap the stale server snapshot over the fresh import — and
+// the pre-import data is already gone. Marking first makes that window safe: a
+// crash leaves a pending forced snapshot, which the next open retries.
+export async function markForceSnapshotPending() {
+  await writeMeta({ forceSnapshotPending: true });
 }
 
 // Drives (or retries) a pending forced snapshot to completion: advance last_seq
@@ -445,7 +452,12 @@ async function tryForceSnapshot(ctx) {
   // Advance our cursor to the bump so a subsequent pull sees our own snapshot as
   // the floor (no re-bootstrap) once the marker clears.
   await writeMeta({ localLastSeq: snapshotSeq });
-  await snapshotAt(ctx, snapshotSeq);
+  // A rejected snapshot leaves forceSnapshotPending set, which blocks every later
+  // pull/flush. Surface that as offline so the status line is honest.
+  if (!(await snapshotAt(ctx, snapshotSeq))) {
+    offline = true;
+    return;
+  }
   if ((await readMeta()).lastSnapshotSeq >= snapshotSeq) {
     await writeMeta({ forceSnapshotPending: false });
   }

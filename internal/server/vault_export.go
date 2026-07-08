@@ -200,6 +200,8 @@ func (s *Server) exportMedications(ctx context.Context, userID int64, data *Vaul
 			Status:       in.Status,
 			SnoozedUntil: in.SnoozedUntil,
 			Source:       in.Source,
+			TZPlanID:     in.TZPlanID,
+			TZStepNumber: in.TZStepNumber,
 		})
 	}
 	return nil
@@ -531,17 +533,17 @@ func (s *Server) exportVitals(ctx context.Context, userID int64, data *VaultData
 			// an RFC3339 timestamp ("2026-07-08T00:00:00Z"); the canonical format
 			// (and the cloud record body) use a plain YYYY-MM-DD date. Trim to the
 			// date so bot and cloud exports agree.
-			Day: dateOnly(sl.Day),
-			LightMinutes:   sl.LightMinutes,
-			DeepMinutes:    sl.DeepMinutes,
-			REMMinutes:     sl.REMMinutes,
-			AwakeMinutes:   sl.AwakeMinutes,
-			TotalMinutes:   sl.TotalMinutes,
-			TurnOverCount:  sl.TurnOverCount,
-			HeartRateAvg:   sl.HeartRateAvg,
-			SpO2Avg:        sl.SpO2Avg,
-			UserModified:   sl.UserModified,
-			Notes:          sl.Notes,
+			Day:           dateOnly(sl.Day),
+			LightMinutes:  sl.LightMinutes,
+			DeepMinutes:   sl.DeepMinutes,
+			REMMinutes:    sl.REMMinutes,
+			AwakeMinutes:  sl.AwakeMinutes,
+			TotalMinutes:  sl.TotalMinutes,
+			TurnOverCount: sl.TurnOverCount,
+			HeartRateAvg:  sl.HeartRateAvg,
+			SpO2Avg:       sl.SpO2Avg,
+			UserModified:  sl.UserModified,
+			Notes:         sl.Notes,
 		})
 	}
 	days, err := s.store.Vitals.ListDayStats(ctx, userID, zero)
@@ -559,7 +561,7 @@ func (s *Server) exportVitals(ctx context.Context, userID int64, data *VaultData
 	}
 	for _, h := range heart {
 		data.Vitals.Heart = append(data.Vitals.Heart, VaultSample{
-			DateTime: h.DateTime, TzOffset: h.TzOffset, Value: h.Value,
+			DateTime: h.DateTime, TzOffset: h.TzOffset, Value: h.Value, Type: h.Type,
 		})
 	}
 	spo2, err := s.store.Vitals.ListSpO2(ctx, userID, zero, far)
@@ -568,7 +570,7 @@ func (s *Server) exportVitals(ctx context.Context, userID int64, data *VaultData
 	}
 	for _, sp := range spo2 {
 		data.Vitals.SpO2 = append(data.Vitals.SpO2, VaultSample{
-			DateTime: sp.DateTime, TzOffset: sp.TzOffset, Value: sp.Value,
+			DateTime: sp.DateTime, TzOffset: sp.TzOffset, Value: sp.Value, Type: sp.Type,
 		})
 	}
 	stress, err := s.store.Vitals.ListStress(ctx, userID, zero, far)
@@ -577,7 +579,7 @@ func (s *Server) exportVitals(ctx context.Context, userID int64, data *VaultData
 	}
 	for _, st := range stress {
 		data.Vitals.Stress = append(data.Vitals.Stress, VaultSample{
-			DateTime: st.DateTime, TzOffset: st.TzOffset, Value: st.Value, Info: st.Info,
+			DateTime: st.DateTime, TzOffset: st.TzOffset, Value: st.Value, Type: st.Type, Info: st.Info,
 		})
 	}
 	return nil
@@ -588,7 +590,11 @@ func (s *Server) exportDiary(ctx context.Context, userID int64, data *VaultData,
 	if err != nil {
 		return fmt.Errorf("list diary: %w", err)
 	}
-	for _, n := range notes {
+	// Diary.List orders by `id DESC` (newest first). Import re-inserts in array
+	// order and lets ids autoincrement, so emit oldest-first — otherwise a
+	// bot→bot round-trip inverts the whole feed and its beforeID cursor.
+	for i := len(notes) - 1; i >= 0; i-- {
+		n := notes[i]
 		data.Diary.Notes = append(data.Diary.Notes, VaultNote{
 			Content: n.Content, Tag: n.Tag, CreatedAt: n.CreatedAt,
 		})
@@ -606,7 +612,7 @@ func (s *Server) exportTZ(ctx context.Context, data *VaultData) error {
 	}
 
 	rows, err := s.store.DB().QueryContext(ctx,
-		`SELECT timezone, recorded_at FROM timezone_history ORDER BY recorded_at ASC`)
+		`SELECT timezone, recorded_at FROM timezone_history ORDER BY recorded_at ASC, id ASC`)
 	if err != nil {
 		return fmt.Errorf("tz history: %w", err)
 	}
@@ -627,7 +633,7 @@ func (s *Server) exportTZ(ctx context.Context, data *VaultData) error {
 	// feed history analysis. Steps live entirely in steps_json — the separate
 	// tz_transition_steps table was dropped in migration 069.
 	planRows, err := s.store.DB().QueryContext(ctx, `
-		SELECT old_tz, new_tz, status, created_at_unix, approved_at_unix, notified_at_unix,
+		SELECT id, old_tz, new_tz, status, created_at_unix, approved_at_unix, notified_at_unix,
 		       plan_hash, inputs_json, COALESCE(user_action, ''), steps_json
 		FROM tz_transition_plans
 		ORDER BY created_at_unix ASC, id ASC`)
@@ -640,7 +646,7 @@ func (s *Server) exportTZ(ctx context.Context, data *VaultData) error {
 		var createdUnix int64
 		var approvedUnix, notifiedUnix *int64
 		var stepsJSON string
-		if err := planRows.Scan(&p.OldTZ, &p.NewTZ, &p.Status, &createdUnix, &approvedUnix, &notifiedUnix,
+		if err := planRows.Scan(&p.ID, &p.OldTZ, &p.NewTZ, &p.Status, &createdUnix, &approvedUnix, &notifiedUnix,
 			&p.PlanHash, &p.InputsJSON, &p.UserAction, &stepsJSON); err != nil {
 			return fmt.Errorf("scan tz plan: %w", err)
 		}

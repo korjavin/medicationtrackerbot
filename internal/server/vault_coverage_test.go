@@ -50,7 +50,6 @@ var vaultCovered = []string{
 // vaultSkipped lists the wiped tables the vault deliberately does not carry.
 // Each entry is a decision, not an oversight; the reason is the record of it.
 var vaultSkipped = map[string]string{
-	"push_subscriptions":         "device-bound web-push endpoints + keys; meaningless on another browser or server",
 	"intake_reminders":           "Telegram message ids for reminder edits; transient chat state, not health data",
 	"change_events":              "SSE change-feed tag stream; rebuilt by triggers as the import writes rows",
 	"workout_schedule_snapshots": "write-only: CreateGroupSnapshot has callers, ListGroupSnapshots has none, so nothing can read the data back",

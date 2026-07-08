@@ -329,12 +329,16 @@ function reminderToVault(rec) {
 }
 
 function planToVault(rec) {
-  const out = {
+  const out = {};
+  // Bot-mode plan id — carried verbatim so intake_log.tz_plan_id keeps
+  // resolving after a cloud round-trip. Cloud-native plans have none.
+  if (rec.id) out.id = rec.id;
+  Object.assign(out, {
     old_tz: rec.old_tz,
     new_tz: rec.new_tz,
     status: rec.status,
     created_at: rec.created_at,
-  };
+  });
   if (rec.approved_at) out.approved_at = rec.approved_at;
   // Passthrough bot-only plan metadata — no cloud reader, carried for fidelity.
   if (rec.notified_at) out.notified_at = rec.notified_at;
@@ -373,9 +377,23 @@ export function vaultToRecords(vault, { now } = {}) {
   let seq = 0;
   const mintNum = () => nowMs * 1000 + (seq += 1);
   const base = () => ({ clientTs: nowMs, deleted: false });
-  const push = (recordType, recordId, body) => out.push({
-    recordType, recordId, ...base(), ...body,
-  });
+  // Meta fields are spread LAST: `body` comes verbatim from the file, and a
+  // hand-edited or truncated vault must not be able to set recordId/recordType/
+  // deleted from inside a domain object. A bad recordId is fatal downstream —
+  // importAll's replaceAllRecords clears the store before put()ing, and an
+  // undefined out-of-line key throws mid-transaction, leaving zero records — so
+  // validate here, before anything destructive runs.
+  const usedIds = new Set();
+  const push = (recordType, recordId, body) => {
+    const ok = (typeof recordId === 'string' && recordId !== '') || Number.isFinite(recordId);
+    if (!ok) throw new Error(`Corrupt backup: ${recordType} entry has no usable id`);
+    // Bot schemas allow rows that mint the same recordId (two workout_sessions
+    // for one group+day). Suffix rather than silently overwrite.
+    let unique = recordId;
+    for (let n = 2; usedIds.has(`${recordType}:${unique}`); n += 1) unique = `${recordId}-${n}`;
+    usedIds.add(`${recordType}:${unique}`);
+    out.push({ ...body, recordType, recordId: unique, ...base() });
+  };
 
   // --- medications (recordId IS the numeric id) ---
   const meds = data.medications || {};
@@ -385,9 +403,13 @@ export function vaultToRecords(vault, { now } = {}) {
   }
   for (const it of meds.intakes || []) {
     const manual = it.taken_at != null && it.taken_at === it.scheduled_at;
+    // A tz_step dose and its shadowed 'schedule' sibling legitimately share
+    // (medication_id, scheduled_at) in bot mode, so the source must be part of
+    // the id. 'schedule' keeps the bare form the live cloud readers look up.
+    const slot = `intake-${it.medication_id}-${Math.floor(Date.parse(it.scheduled_at) / 1000)}`;
     const recordId = manual
       ? `intake-manual-${nowMs}-${seq += 1}`
-      : `intake-${it.medication_id}-${Math.floor(Date.parse(it.scheduled_at) / 1000)}`;
+      : (it.source && it.source !== 'schedule' ? `${slot}-${it.source}` : slot);
     push('intake', recordId, { ...it });
   }
   for (const r of meds.restocks || []) push('restock', mintNum(), { ...r });
@@ -512,6 +534,7 @@ function reminderFromVault(st) {
 
 function planFromVault(plan) {
   const body = {
+    ...(plan.id ? { id: plan.id } : {}),
     old_tz: plan.old_tz,
     new_tz: plan.new_tz,
     status: plan.status,

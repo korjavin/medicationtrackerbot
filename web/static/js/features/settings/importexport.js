@@ -55,6 +55,15 @@
         const nudge = el('importexport-passphrase-nudge');
         // Shown only when exporting secrets unencrypted.
         if (nudge) nudge.hidden = !!passphrase || !includeSecrets;
+        // include_secrets defaults to on, so without this gate the user's first
+        // sight of the nudge is *after* their provider API keys and live API
+        // tokens have already landed in ~/Downloads in plain text.
+        if (includeSecrets && !passphrase) {
+            const ok = await safeConfirm(
+                'This backup will contain your provider API keys and access tokens in plain text. Download anyway?'
+            );
+            if (!ok) return;
+        }
 
         let json;
         try {
@@ -97,15 +106,20 @@
         });
     }
 
+    // Matches http.MaxBytesReader in internal/server/vault_import.go — reject
+    // client-side rather than materializing the file only to get a 400.
+    const MAX_BACKUP_BYTES = 64 * 1024 * 1024;
+
     // Reveal the decrypt-passphrase field iff the picked file is an age file.
+    // Only the 21-byte magic is read — the file itself can be hundreds of MB.
     async function onFileChange() {
         const field = el('importexport-import-passphrase-field');
         const file = el('importexport-import-file')?.files?.[0];
         if (!field) return;
         if (!file) { field.hidden = true; return; }
         try {
-            const bytes = await readFileBytes(file);
-            field.hidden = !window.BackupCrypto.isAgeFile(bytes);
+            const head = await readFileBytes(file.slice(0, 21));
+            field.hidden = !window.BackupCrypto.isAgeFile(head);
         } catch (_) {
             field.hidden = true;
         }
@@ -115,6 +129,10 @@
         const file = el('importexport-import-file')?.files?.[0];
         if (!file) {
             safeAlert('Choose a backup file first');
+            return;
+        }
+        if (file.size > MAX_BACKUP_BYTES) {
+            safeAlert('Backup too large (max 64 MB)');
             return;
         }
 

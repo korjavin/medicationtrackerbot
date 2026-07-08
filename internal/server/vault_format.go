@@ -87,6 +87,12 @@ type VaultIntake struct {
 	Status       string     `json:"status"`
 	SnoozedUntil *time.Time `json:"snoozed_until"`
 	Source       string     `json:"source"`
+	// source='tz_step' doses are only visible to the medication repo when they
+	// still point at their plan (the APPROVED/COMPLETED gate in
+	// medication/repo.go). Carry the FK — tz_transition_plans.id is preserved
+	// verbatim on import — or a restore permanently hides them.
+	TZPlanID     *int64 `json:"tz_plan_id,omitempty"`
+	TZStepNumber *int64 `json:"tz_step_number,omitempty"`
 }
 
 type VaultRestock struct {
@@ -277,20 +283,20 @@ type VaultExerciseLog struct {
 }
 
 type VaultMiBand struct {
-	ActivityType int             `json:"activity_type"`
-	ActivityName string          `json:"activity_name"`
-	SourceStartMs int64          `json:"source_start_ms"`
-	SourceEndMs  int64           `json:"source_end_ms"`
-	TzOffset     int             `json:"tz_offset"`
-	DurationSec  int             `json:"duration_sec"`
-	DistanceM    float64         `json:"distance_m"`
-	Steps        int             `json:"steps"`
-	Calories     int             `json:"calories"`
-	HeartRateAvg int             `json:"heart_rate_avg"`
-	SpO2Avg      int             `json:"spo2_avg"`
-	PauseMs      int64           `json:"pause_ms"`
-	Source       string          `json:"source"`
-	GPS          []VaultGPSPoint `json:"gps"`
+	ActivityType  int             `json:"activity_type"`
+	ActivityName  string          `json:"activity_name"`
+	SourceStartMs int64           `json:"source_start_ms"`
+	SourceEndMs   int64           `json:"source_end_ms"`
+	TzOffset      int             `json:"tz_offset"`
+	DurationSec   int             `json:"duration_sec"`
+	DistanceM     float64         `json:"distance_m"`
+	Steps         int             `json:"steps"`
+	Calories      int             `json:"calories"`
+	HeartRateAvg  int             `json:"heart_rate_avg"`
+	SpO2Avg       int             `json:"spo2_avg"`
+	PauseMs       int64           `json:"pause_ms"`
+	Source        string          `json:"source"`
+	GPS           []VaultGPSPoint `json:"gps"`
 }
 
 type VaultGPSPoint struct {
@@ -341,7 +347,10 @@ type VaultSample struct {
 	DateTime time.Time `json:"date_time"`
 	TzOffset int       `json:"tz_offset"`
 	Value    int       `json:"value"`
-	Info     string    `json:"info,omitempty"`
+	// Type is the per-sample discriminator the /api/health/* reads and the
+	// Mi Band importer both use. omitempty so the common 0 stays off the wire.
+	Type int    `json:"type,omitempty"`
+	Info string `json:"info,omitempty"`
 }
 
 // --- diary ---
@@ -373,6 +382,9 @@ type VaultTZChange struct {
 }
 
 type VaultTZPlan struct {
+	// ID is preserved verbatim on import so intake_log.tz_plan_id keeps
+	// resolving. Absent (cloud-native vaults) means "assign a fresh id".
+	ID         int64         `json:"id,omitempty"`
 	OldTZ      string        `json:"old_tz"`
 	NewTZ      string        `json:"new_tz"`
 	Status     string        `json:"status"`

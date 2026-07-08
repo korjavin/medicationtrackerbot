@@ -20,6 +20,12 @@ import (
 type vaultImportRequest struct {
 	Vault
 	Mode string `json:"mode"`
+	// Data shadows Vault.Data (shallower field wins in encoding/json) so the
+	// handler can tell "no data block at all" — a truncated body, a bad decrypt,
+	// a foreign file — from "an empty one". Without it a header-only body wipes
+	// the user and restores nothing, and the handler answers {"ok":true}.
+	// Unmarshaled into Vault.Data explicitly once validated.
+	Data json.RawMessage `json:"data"`
 }
 
 // handleVaultImport replaces the authed user's entire dataset with the posted
@@ -57,6 +63,10 @@ func (s *Server) handleVaultImport(w http.ResponseWriter, r *http.Request) {
 		writeVaultErrors(w, errs)
 		return
 	}
+	if err := json.Unmarshal(req.Data, &req.Vault.Data); err != nil {
+		http.Error(w, fmt.Sprintf("invalid data block: %v", err), http.StatusBadRequest)
+		return
+	}
 
 	if err := s.importVault(r.Context(), userID, &req.Vault); err != nil {
 		slog.Error("vault import failed", "error", err, "user_id", userID)
@@ -78,6 +88,9 @@ func validateVault(req *vaultImportRequest) []string {
 	}
 	if req.Mode != "replace" {
 		errs = append(errs, fmt.Sprintf("unsupported mode %q (want \"replace\")", req.Mode))
+	}
+	if len(req.Data) == 0 || string(req.Data) == "null" {
+		errs = append(errs, "missing \"data\" block — refusing to wipe and restore nothing")
 	}
 	return errs
 }
@@ -111,6 +124,8 @@ func (s *Server) importVault(ctx context.Context, userID int64, v *Vault) error 
 		name string
 		fn   func() error
 	}{
+		// tz first: intake_log.tz_plan_id points at tz_transition_plans.
+		{"tz", func() error { return importTZ(ctx, tx, d) }},
 		{"medications", func() error { return importMedications(ctx, tx, userID, d) }},
 		{"bp", func() error { return importBP(ctx, tx, userID, d) }},
 		{"weight", func() error { return importWeight(ctx, tx, userID, d) }},
@@ -118,7 +133,6 @@ func (s *Server) importVault(ctx context.Context, userID int64, v *Vault) error 
 		{"workouts", func() error { return importWorkouts(ctx, tx, userID, d) }},
 		{"vitals", func() error { return importVitals(ctx, tx, userID, d) }},
 		{"diary", func() error { return importDiary(ctx, tx, userID, d) }},
-		{"tz", func() error { return importTZ(ctx, tx, d) }},
 		{"settings", func() error { return importSettings(ctx, tx, d) }},
 		{"reminder_state", func() error { return importReminderState(ctx, tx, userID, d) }},
 		{"gamification", func() error { return importGamification(ctx, tx, userID, d) }},
@@ -152,10 +166,12 @@ func importMedications(ctx context.Context, tx *sql.Tx, userID int64, d *VaultDa
 	for _, in := range d.Medications.Intakes {
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO intake_log
-			  (medication_id, user_id, scheduled_at_unix, taken_at_unix, status, snoozed_until_unix, source)
-			VALUES (?,?,?,?,?,?,?)`,
+			  (medication_id, user_id, scheduled_at_unix, taken_at_unix, status, snoozed_until_unix,
+			   source, tz_plan_id, tz_step_number)
+			VALUES (?,?,?,?,?,?,?,?,?)`,
 			in.MedicationID, userID, in.ScheduledAt.UTC().Unix(),
-			nullUnix(in.TakenAt), in.Status, nullUnix(in.SnoozedUntil), in.Source); err != nil {
+			nullUnix(in.TakenAt), in.Status, nullUnix(in.SnoozedUntil), in.Source,
+			nullInt64(in.TZPlanID), nullInt64(in.TZStepNumber)); err != nil {
 			return err
 		}
 	}
@@ -382,19 +398,17 @@ func importVitals(ctx context.Context, tx *sql.Tx, userID int64, d *VaultData) e
 			return err
 		}
 	}
-	// vitals.type is not part of the wire shape (never read back by the list
-	// methods); store 0 as a neutral placeholder.
 	for _, h := range d.Vitals.Heart {
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO vitals_heart (user_id, date_time, tz_offset, value, type) VALUES (?,?,?,?,0)`,
-			userID, h.DateTime.UnixMilli(), h.TzOffset, h.Value); err != nil {
+			`INSERT INTO vitals_heart (user_id, date_time, tz_offset, value, type) VALUES (?,?,?,?,?)`,
+			userID, h.DateTime.UnixMilli(), h.TzOffset, h.Value, h.Type); err != nil {
 			return err
 		}
 	}
 	for _, sp := range d.Vitals.SpO2 {
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO vitals_spo2 (user_id, date_time, tz_offset, value, type) VALUES (?,?,?,?,0)`,
-			userID, sp.DateTime.UnixMilli(), sp.TzOffset, sp.Value); err != nil {
+			`INSERT INTO vitals_spo2 (user_id, date_time, tz_offset, value, type) VALUES (?,?,?,?,?)`,
+			userID, sp.DateTime.UnixMilli(), sp.TzOffset, sp.Value, sp.Type); err != nil {
 			return err
 		}
 	}
@@ -404,8 +418,8 @@ func importVitals(ctx context.Context, tx *sql.Tx, userID int64, d *VaultData) e
 			info = st.Info
 		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO vitals_stress (user_id, date_time, tz_offset, value, type, info) VALUES (?,?,?,?,0,?)`,
-			userID, st.DateTime.UnixMilli(), st.TzOffset, st.Value, info); err != nil {
+			`INSERT INTO vitals_stress (user_id, date_time, tz_offset, value, type, info) VALUES (?,?,?,?,?,?)`,
+			userID, st.DateTime.UnixMilli(), st.TzOffset, st.Value, st.Type, info); err != nil {
 			return err
 		}
 	}
@@ -465,12 +479,18 @@ func importTZ(ctx context.Context, tx *sql.Tx, d *VaultData) error {
 		if err != nil {
 			return fmt.Errorf("marshal tz steps: %w", err)
 		}
+		// Preserve the plan id (NULL id => autoincrement) so intake_log.tz_plan_id
+		// still resolves; cloud-native vaults carry no id and get a fresh one.
+		var planID any
+		if p.ID != 0 {
+			planID = p.ID
+		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO tz_transition_plans
-			  (old_tz, new_tz, created_at_unix, status, steps_json, inputs_json, plan_hash,
+			  (id, old_tz, new_tz, created_at_unix, status, steps_json, inputs_json, plan_hash,
 			   approved_at_unix, notified_at_unix, user_action)
-			VALUES (?,?,?,?,?,?,?,?,?,?)`,
-			p.OldTZ, p.NewTZ, p.CreatedAt.UTC().Unix(), p.Status, string(stepsJSON),
+			VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+			planID, p.OldTZ, p.NewTZ, p.CreatedAt.UTC().Unix(), p.Status, string(stepsJSON),
 			p.InputsJSON, p.PlanHash,
 			nullUnix(p.ApprovedAt), nullUnix(p.NotifiedAt), p.UserAction); err != nil {
 			return err

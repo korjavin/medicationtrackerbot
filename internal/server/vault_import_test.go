@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"testing"
 	"time"
@@ -255,6 +256,10 @@ func TestVaultImportValidation(t *testing.T) {
 		{"bad version", map[string]any{"format": vaultFormat, "version": 99, "mode": "replace"}},
 		{"missing mode", map[string]any{"format": vaultFormat, "version": 1}},
 		{"wrong mode", map[string]any{"format": vaultFormat, "version": 1, "mode": "merge"}},
+		// A valid header with no data block (truncated body, bad decrypt) would
+		// otherwise wipe the user and answer {"ok":true}.
+		{"no data block", map[string]any{"format": vaultFormat, "version": vaultVersion, "mode": "replace"}},
+		{"null data block", map[string]any{"format": vaultFormat, "version": vaultVersion, "mode": "replace", "data": nil}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -352,6 +357,26 @@ func TestVaultImportReminderStateGamificationAndTZPlans(t *testing.T) {
 	got, err := srv.buildVault(ctx, userID, true)
 	if err != nil {
 		t.Fatalf("buildVault: %v", err)
+	}
+
+	// A source='tz_step' dose must keep pointing at its plan: the medication repo
+	// hides any tz_step intake whose tz_plan_id doesn't resolve, so dropping the
+	// FK on import would make the fixture's pending dose permanently invisible.
+	var stepIntake *VaultIntake
+	for i := range got.Data.Medications.Intakes {
+		if got.Data.Medications.Intakes[i].Source == "tz_step" {
+			stepIntake = &got.Data.Medications.Intakes[i]
+		}
+	}
+	if stepIntake == nil || stepIntake.TZPlanID == nil || stepIntake.TZStepNumber == nil {
+		t.Fatalf("tz_step intake lost its plan link: %+v", stepIntake)
+	}
+	var planIDs []int64
+	for _, p := range got.Data.TZ.TransitionPlans {
+		planIDs = append(planIDs, p.ID)
+	}
+	if !slices.Contains(planIDs, *stepIntake.TZPlanID) {
+		t.Fatalf("tz_plan_id %d resolves to no exported plan (%v)", *stepIntake.TZPlanID, planIDs)
 	}
 
 	bp := got.Data.Settings.BPReminder

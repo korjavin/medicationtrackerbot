@@ -37,6 +37,16 @@
           "status": "TAKEN",
           "snoozed_until": null,
           "source": "schedule"
+        },
+        {
+          "medication_id": 1,
+          "scheduled_at": "2026-07-10T07:00:00Z",
+          "taken_at": null,
+          "status": "PENDING",
+          "snoozed_until": null,
+          "source": "tz_step",
+          "tz_plan_id": 2,
+          "tz_step_number": 1
         }
       ],
       "restocks": [
@@ -314,7 +324,8 @@
         {
           "date_time": "2026-07-07T23:50:00Z",
           "tz_offset": 7200,
-          "value": 58
+          "value": 58,
+          "type": 1
         },
         {
           "date_time": "2026-07-08T00:10:00Z",
@@ -362,6 +373,7 @@
       ],
       "transition_plans": [
         {
+          "id": 1,
           "old_tz": "America/New_York",
           "new_tz": "Europe/Berlin",
           "status": "COMPLETED",
@@ -383,6 +395,7 @@
           ]
         },
         {
+          "id": 2,
           "old_tz": "Europe/Berlin",
           "new_tz": "America/New_York",
           "status": "PENDING_APPROVAL",

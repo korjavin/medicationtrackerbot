@@ -74,7 +74,7 @@ window.MedTrackerCloudReady = (async function boot() {
             return JSON.stringify(recordsToVault(records, { now: Date.now(), includeSecrets }), null, 2);
         },
         async importAll(json) {
-            const [{ replaceAllRecords, forceSnapshot, readAllLiveRecords, isBootstrapped, dropPendingForTypes }, { vaultToRecords, managedTypesForImport }] = await Promise.all([
+            const [{ replaceAllRecords, forceSnapshot, markForceSnapshotPending, readAllLiveRecords, isBootstrapped, dropPendingForTypes }, { vaultToRecords, managedTypesForImport }] = await Promise.all([
                 import('/js/sync.js'),
                 import('/domain/vault.js'),
             ]);
@@ -102,6 +102,10 @@ window.MedTrackerCloudReady = (async function boot() {
             // replaceAllRecords' pending overlay resurrects them over the backup
             // (and they later flush over it). Non-managed pending (nk, reminder
             // prefs) stays queued — those records are in `survive`.
+            // Mark before the wipe: a crash between replaceAllRecords and the
+            // marker would let the next open re-bootstrap the stale server
+            // snapshot over the import (and the old data is already gone).
+            await markForceSnapshotPending();
             await dropPendingForTypes(VAULT_MANAGED_TYPES);
             await replaceAllRecords([...records, ...survive]);
             await forceSnapshot(ctx);

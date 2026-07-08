@@ -14,7 +14,8 @@ import (
 // fixture, re-export through the real Go handler, and write the result to
 // tests/fixtures/vault-v1-botexport.json (the cross-runtime full-loop pin in
 // cloud.vault-roundtrip.test.js). Run explicitly:
-//   GEN_BOTEXPORT=1 go test ./internal/server -run TestGenerateBotExportFixture
+//
+//	GEN_BOTEXPORT=1 go test ./internal/server -run TestGenerateBotExportFixture
 func TestGenerateBotExportFixture(t *testing.T) {
 	if os.Getenv("GEN_BOTEXPORT") == "" {
 		t.Skip("set GEN_BOTEXPORT=1 to regenerate the bot-export fixture")

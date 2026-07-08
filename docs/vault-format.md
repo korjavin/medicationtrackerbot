@@ -78,8 +78,13 @@ is called out as unix-seconds or milliseconds, it is an **RFC3339 string**.
   (num|null), `tz_shift_policy` (`flexible`|`medium`|`strict`), `created_at` (RFC3339).
 - **intake** — `medication_id` (number → medication.id), `scheduled_at` (RFC3339),
   `taken_at` (RFC3339|null), `status` (`PENDING`|`TAKEN`|`SKIPPED`), `snoozed_until`
-  (RFC3339|null), `source` (`schedule`|`tz_step`). No stored `id`: scheduled intakes
-  re-mint deterministically as `intake-<medId>-<slotUnixSeconds>` on cloud import;
+  (RFC3339|null), `source` (`schedule`|`tz_step`), plus `tz_plan_id` (number|absent →
+  `tz.transition_plans[].id`) and `tz_step_number` (number|absent), set only when
+  `source` is `tz_step` — such a dose that loses its plan link is permanently invisible
+  to every medication read. No stored `id`: scheduled intakes
+  re-mint deterministically as `intake-<medId>-<slotUnixSeconds>` on cloud import
+  (a non-`schedule` source is appended — `intake-<medId>-<slot>-tz_step` — since both
+  legitimately share one slot);
   manual intakes (`source` other than schedule / a `taken_at` with no schedule slot)
   re-mint as `intake-manual-<ms>-<rand>` unless the file already carries a cloud
   recordId to preserve.
@@ -209,7 +214,8 @@ Flat per-sample arrays — the format hides the cloud day-batching (see
   (num), `user_modified` (bool), `notes` (str).
 - **day_stat** — `day` (`YYYY-MM-DD`), `steps`, `calories`, `distance` (num).
 - **sample** (heart/spo2/stress) — `date_time` (RFC3339), `tz_offset` (seconds),
-  `value` (num), and optional `info` (str). Storage is unix-seconds INTEGER server-side;
+  `value` (num), optional `type` (int sample-kind discriminator, omitted when 0), and
+  optional `info` (str). Storage is unix-seconds INTEGER server-side;
   the format uses RFC3339, matching the vitals wire form and the cloud sample body.
 
 ### `diary`
@@ -233,7 +239,9 @@ Flat per-sample arrays — the format hides the cloud day-batching (see
 
 - **transition_plans** — **every** `tz_transition_plans` row, **oldest first** (not just
   the active/pending one): the wipe deletes them all, and past plans feed history
-  analysis. Each plan: `old_tz` (IANA), `new_tz` (IANA), `status`
+  analysis. Each plan: `id` (number|absent — preserved verbatim on import so
+  `intake.tz_plan_id` keeps resolving; cloud-native plans carry none and get a fresh id),
+  `old_tz` (IANA), `new_tz` (IANA), `status`
   (`PENDING_APPROVAL`|`APPROVED`|`REJECTED`|`COMPLETED`), `created_at` (RFC3339),
   `approved_at` (RFC3339|absent), `notified_at` (RFC3339|absent), `plan_hash` (str),
   `inputs_json` (str — the raw stored JSON blob, passed through unparsed),

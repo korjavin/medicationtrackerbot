@@ -37,7 +37,6 @@ var wipeScoped = []string{
 	"diary_notes",
 	"weight_reminder_state",
 	"bp_reminder_state",
-	"push_subscriptions",
 	"vitals_heart",
 	"vitals_spo2",
 	"vitals_stress",
@@ -83,7 +82,8 @@ var wipeWholesale = []wipeStep{
 	{"change_events", "DELETE FROM change_events"},
 }
 
-// WipedTables returns every table WipeUserTx deletes rows from. It is the
+// WipedTables returns every table WipeUserTx deletes rows from (WipeUser adds
+// push_subscriptions on top — see there for why the import path must not). It is the
 // authoritative "what belongs to one user" manifest; the vault must carry or
 // explicitly skip each of them.
 func WipedTables() []string {
@@ -123,6 +123,14 @@ func WipeUser(ctx context.Context, s *store.Store, userID int64) error {
 
 	if err := WipeUserTx(ctx, tx, userID); err != nil {
 		return err
+	}
+
+	// Seeder-only: the vault import shares WipeUserTx and must NOT drop push
+	// subscriptions. The browser keeps its PushSubscription across a restore, so
+	// deleting the server row silently stops every reminder while the Settings
+	// toggle still reads "enabled" — nothing ever re-subscribes.
+	if _, err := tx.ExecContext(ctx, "DELETE FROM push_subscriptions WHERE user_id = ?", userID); err != nil {
+		return fmt.Errorf("wipe push_subscriptions: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
