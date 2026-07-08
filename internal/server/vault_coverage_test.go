@@ -65,6 +65,19 @@ var vaultCoveredNotWiped = map[string]string{
 	"api_tokens": "asymmetric import: absent block leaves existing tokens alone, present block replaces them",
 }
 
+// nonUserTables lists the tables that hold no restorable user data, so they are
+// in neither the wipe manifest nor the vault. Every other table in the migrated
+// schema must be classified by one of the lists above — that is what makes a
+// newly-added table fail CI instead of silently shipping the "wiped but never
+// exported" (or "never wiped, never carried") defect this guard exists for.
+var nonUserTables = map[string]string{
+	"goose_db_version":   "migration bookkeeping",
+	"sqlite_sequence":    "sqlite internal",
+	"open_food_facts":    "shared product cache, refetched on demand; not user data",
+	"push_subscriptions": "device-bound endpoints + keys; deliberately outside WipeUserTx",
+	"used_login_hashes":  "short-lived auth replay guard",
+}
+
 func TestVaultWipeAndExportAgree(t *testing.T) {
 	covered := map[string]bool{}
 	for _, tbl := range vaultCovered {
@@ -152,6 +165,26 @@ func TestVaultWipeAndExportAgree(t *testing.T) {
 	for _, tbl := range named {
 		if !real[tbl] {
 			t.Errorf("table %q is named by the vault-coverage lists (or the wipe manifest) but does not exist in the migrated schema", tbl)
+		}
+	}
+
+	// Direction 3: every table in the schema must be classified. Directions 1
+	// and 2 only iterate the lists, so a table in NONE of them (the original
+	// gamification_* bug) is invisible to them.
+	for _, tbl := range sortedKeys(real) {
+		if covered[tbl] || wiped[tbl] || vaultSkipped[tbl] != "" || vaultCoveredNotWiped[tbl] != "" || nonUserTables[tbl] != "" {
+			continue
+		}
+		t.Errorf("table %q exists in the migrated schema but is classified by none of vaultCovered / vaultSkipped / "+
+			"vaultCoveredNotWiped / WipeUserTx / nonUserTables. If it holds user data it must be wiped AND exported "+
+			"(or skipped with a reason); if it does not, add it to nonUserTables with a reason.", tbl)
+	}
+	for _, tbl := range sortedKeys(nonUserTables) {
+		if !real[tbl] {
+			t.Errorf("nonUserTables lists %q but it does not exist in the migrated schema — drop the entry", tbl)
+		}
+		if covered[tbl] || wiped[tbl] {
+			t.Errorf("nonUserTables lists %q but the vault covers or wipes it — pick one", tbl)
 		}
 	}
 }

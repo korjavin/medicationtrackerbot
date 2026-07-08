@@ -108,7 +108,17 @@ window.MedTrackerCloudReady = (async function boot() {
             await markForceSnapshotPending();
             await dropPendingForTypes(VAULT_MANAGED_TYPES);
             await replaceAllRecords([...records, ...survive]);
-            await forceSnapshot(ctx);
+            // Past this line the import HAS happened locally. Propagation to the
+            // server is retryable (forceSnapshotPending stays set, next pullOnOpen
+            // retries), so a throw here must not reach importexport.js — it would
+            // report "Import failed" and skip the reload while the old data is
+            // already gone, leaving the user staring at pre-import UI over
+            // post-import data.
+            try {
+                await forceSnapshot(ctx);
+            } catch (err) {
+                console.warn('[cloud] import applied locally; sync to other devices deferred', err);
+            }
         },
     };
 

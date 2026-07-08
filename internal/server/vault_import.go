@@ -504,27 +504,37 @@ func importTZ(ctx context.Context, tx *sql.Tx, d *VaultData) error {
 // last_notification_sent_at / notification_message_id columns stay unset so a
 // restore never resurrects a stale Telegram message id. The rows were deleted by
 // the wipe, so this is a plain INSERT.
+//
+// A vault may legitimately omit either block (a cloud export only carries the
+// reminder prefs the user actually touched). The row must exist afterwards
+// regardless: the scheduler enumerates these tables directly
+// (bp.ListUsersForReminders / weight.ListReminderStates) and never self-heals,
+// so a missing row silences reminders until the user happens to open Settings.
+// Absent block => the migration's default row, i.e. the fresh-install state.
 func importReminderState(ctx context.Context, tx *sql.Tx, userID int64, d *VaultData) error {
-	write := func(table string, st *VaultReminderState) error {
-		if st == nil {
-			return nil
+	write := func(table string, st *VaultReminderState, defaultHour int) error {
+		enabled, hour := true, defaultHour
+		var snoozed, dontRemind any
+		if st != nil {
+			enabled, hour = st.Enabled, st.PreferredReminderHour
+			snoozed, dontRemind = nullTime(st.SnoozedUntil), nullTime(st.DontRemindUntil)
 		}
 		// #nosec G202 -- table is one of two in-package literals, not user input.
 		_, err := tx.ExecContext(ctx, `
 			INSERT INTO `+table+`
 			  (user_id, enabled, preferred_reminder_hour, snoozed_until, dont_remind_until)
 			VALUES (?,?,?,?,?)`,
-			userID, st.Enabled, st.PreferredReminderHour,
-			nullTime(st.SnoozedUntil), nullTime(st.DontRemindUntil))
+			userID, enabled, hour, snoozed, dontRemind)
 		if err != nil {
 			return fmt.Errorf("%s: %w", table, err)
 		}
 		return nil
 	}
-	if err := write("bp_reminder_state", d.Settings.BPReminder); err != nil {
+	// Defaults mirror migrations 015 / 016.
+	if err := write("bp_reminder_state", d.Settings.BPReminder, 20); err != nil {
 		return err
 	}
-	return write("weight_reminder_state", d.Settings.WeightReminder)
+	return write("weight_reminder_state", d.Settings.WeightReminder, 9)
 }
 
 func importGamification(ctx context.Context, tx *sql.Tx, userID int64, d *VaultData) error {

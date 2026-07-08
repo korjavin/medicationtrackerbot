@@ -574,3 +574,38 @@ func TestVaultImportOffsetTimestampsAreReadable(t *testing.T) {
 		t.Fatalf("created_at did not round-trip as an instant: %+v", notes)
 	}
 }
+
+// A vault that omits the reminder blocks (a cloud export only carries prefs the
+// user actually touched) must still leave the two scheduler-owned rows in place.
+// The wipe deletes them, and bp.ListUsersForReminders / weight.ListReminderStates
+// enumerate the tables directly — a missing row silences reminders forever.
+func TestVaultImportRestoresDefaultReminderRowsWhenBlocksAbsent(t *testing.T) {
+	db, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	srv := newServer(db, "tok", "sec", 123, OIDCConfig{}, "bot", "")
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
+	ctx := context.Background()
+
+	if err := srv.importVault(ctx, 1, &Vault{Format: vaultFormat, Version: vaultVersion}); err != nil {
+		t.Fatalf("importVault: %v", err)
+	}
+
+	for _, tc := range []struct {
+		table string
+		hour  int
+	}{{"bp_reminder_state", 20}, {"weight_reminder_state", 9}} {
+		var enabled bool
+		var hour int
+		err := db.DB().QueryRowContext(ctx,
+			"SELECT enabled, preferred_reminder_hour FROM "+tc.table+" WHERE user_id = 1").Scan(&enabled, &hour)
+		if err != nil {
+			t.Fatalf("%s row missing after import: %v", tc.table, err)
+		}
+		if !enabled || hour != tc.hour {
+			t.Errorf("%s: got enabled=%v hour=%d, want the migration default (true, %d)", tc.table, enabled, hour, tc.hour)
+		}
+	}
+}

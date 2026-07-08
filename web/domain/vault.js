@@ -406,7 +406,14 @@ export function vaultToRecords(vault, { now } = {}) {
     // A tz_step dose and its shadowed 'schedule' sibling legitimately share
     // (medication_id, scheduled_at) in bot mode, so the source must be part of
     // the id. 'schedule' keeps the bare form the live cloud readers look up.
-    const slot = `intake-${it.medication_id}-${Math.floor(Date.parse(it.scheduled_at) / 1000)}`;
+    const scheduledMs = Date.parse(it.scheduled_at);
+    // A missing/garbage scheduled_at would mint `intake-<med>-NaN`, which push()
+    // accepts (non-empty string) and the live readers can never look up — the
+    // dose silently disappears after the destructive replace. Fail the import.
+    if (!Number.isFinite(scheduledMs)) {
+      throw new Error(`Corrupt backup: intake has unparseable scheduled_at ${JSON.stringify(it.scheduled_at)}`);
+    }
+    const slot = `intake-${it.medication_id}-${Math.floor(scheduledMs / 1000)}`;
     const recordId = manual
       ? `intake-manual-${nowMs}-${seq += 1}`
       : (it.source && it.source !== 'schedule' ? `${slot}-${it.source}` : slot);
