@@ -101,9 +101,9 @@ Locked decisions (user-confirmed 2026-07-08):
 
 ### Task 7: Settings UI checkbox
 
-- [ ] Add a `wg-settings-row` checkbox to the Import/Export section — label *"Include API keys and external provider settings"*, checked by default, helper text noting the file will contain secrets and should be passphrase-encrypted.
-- [ ] Bot mode: append `?include_secrets=0` when unchecked. Cloud mode: pass `{ includeSecrets: false }` into `exportAll`.
-- [ ] Test: extend the existing vault/settings feature suite (no new `*-branches` file).
+- [x] Add a `wg-settings-row` checkbox to the Import/Export section — label *"Include API keys and external provider settings"*, checked by default, helper text noting the file will contain secrets and should be passphrase-encrypted. ⚠️ Used the surrounding `wg-settings-integrations__field` + `.checkbox-label` idiom (that section is built from the integrations markup, not `wg-settings-row-list`). The existing unencrypted-export nudge now also hides when secrets are excluded.
+- [x] Bot mode: `?include_secrets=1|0` always sent explicitly. Cloud mode: `CloudVault.exportAll({ includeSecrets })` — `cloud-boot.js` threads it into `recordsToVault` (the Task 6 leftover).
+- [x] Test: extended `settings.importexport.test.js` — default-checked, bot unchecked → `include_secrets=0`, cloud unchecked → `{includeSecrets:false}`. ✅ `pnpm test` green (2915 passed).
 
 ### Task 8: Docs
 

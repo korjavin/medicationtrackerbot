@@ -65,13 +65,13 @@ window.MedTrackerCloudReady = (async function boot() {
     // so other devices re-bootstrap. Lazy dynamic imports keep this off the
     // boot critical path.
     window.CloudVault = {
-        async exportAll() {
+        async exportAll({ includeSecrets = true } = {}) {
             const [{ readAllLiveRecords }, { recordsToVault }] = await Promise.all([
                 import('/js/sync.js'),
                 import('/domain/vault.js'),
             ]);
             const records = await readAllLiveRecords(ctx);
-            return JSON.stringify(recordsToVault(records, { now: Date.now() }), null, 2);
+            return JSON.stringify(recordsToVault(records, { now: Date.now(), includeSecrets }), null, 2);
         },
         async importAll(json) {
             const [{ replaceAllRecords, forceSnapshot, readAllLiveRecords, isBootstrapped, dropPendingForTypes }, { vaultToRecords, managedTypesForImport }] = await Promise.all([

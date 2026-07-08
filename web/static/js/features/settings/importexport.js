@@ -21,18 +21,21 @@
 
     function isCloud() { return !!window.__MEDTRACKER_CLOUD__; }
 
-    // Build the vault JSON string for the current mode.
-    async function readVaultJSON() {
+    // Build the vault JSON string for the current mode. includeSecrets=false drops
+    // settings.integrations + api_tokens (absent, not blank — the importer reads
+    // absence as "leave the destination's secrets alone").
+    async function readVaultJSON(includeSecrets) {
         if (isCloud()) {
             if (!window.CloudVault || typeof window.CloudVault.exportAll !== 'function') {
                 throw new Error('Vault not ready — unlock first');
             }
-            return await window.CloudVault.exportAll();
+            return await window.CloudVault.exportAll({ includeSecrets });
         }
         // A full vault is every domain over all history; the default 60s
         // apiCall timeout aborts long exports mid-download. Matches the
         // server's vaultIOTimeout.
-        const vault = await apiCall('/api/export', 'GET', null, { timeoutMs: 10 * 60_000 });
+        const vault = await apiCall(`/api/export?include_secrets=${includeSecrets ? '1' : '0'}`,
+            'GET', null, { timeoutMs: 10 * 60_000 });
         if (!vault) throw new Error('Export failed');
         return JSON.stringify(vault, null, 2);
     }
@@ -47,12 +50,15 @@
     async function doExport() {
         const passInput = el('importexport-export-passphrase');
         const passphrase = passInput ? passInput.value : '';
+        const secretsBox = el('importexport-include-secrets');
+        const includeSecrets = secretsBox ? secretsBox.checked : true;
         const nudge = el('importexport-passphrase-nudge');
-        if (nudge) nudge.hidden = !!passphrase; // shown only when exporting unencrypted
+        // Shown only when exporting secrets unencrypted.
+        if (nudge) nudge.hidden = !!passphrase || !includeSecrets;
 
         let json;
         try {
-            json = await readVaultJSON();
+            json = await readVaultJSON(includeSecrets);
         } catch (e) {
             console.error('Export failed:', e);
             safeAlert(e.message || 'Export failed');
