@@ -340,3 +340,41 @@ func TestSyncAPI_SnapshotCompressRoundTrip(t *testing.T) {
 		t.Fatalf("legacy snapshot ct not byte-identical: got %q, want %q", gotLegacy.CT, legacy)
 	}
 }
+
+// TestSyncAPI_SnapshotCapBoundary directly guards the 8→64 MiB cap raise, which
+// the round-trip test above does NOT: its gzipped body is ~1.5 MiB (well under
+// the old cap), so it would still pass if maxSnapshotBodyBytes regressed. Here
+// the CT is opaque bytes sized against the boundary — a ~16 MiB CT (base64 body
+// ~21 MiB, over the old 8 MiB cap) must be accepted, and a body past 64 MiB must
+// be rejected because io.LimitReader truncates it into an invalid JSON decode.
+func TestSyncAPI_SnapshotCapBoundary(t *testing.T) {
+	h, host, claimToken := newTestSyncHandler(t, 0)
+	session := registerAndGetSession(t, h, host, claimToken)
+
+	// last_seq >= 1 so a snapshot at seq 1 is accepted.
+	postOpsBatch(t, h, host, session, []opWire{
+		{RecordTypeTag: "note", Nonce: []byte("nonce-a"), CT: []byte("ciphertext-a")},
+	})
+
+	// ~16 MiB opaque CT: base64-encoded body exceeds the old 8 MiB cap but sits
+	// under the raised 64 MiB one. If the cap regressed to 8 MiB, LimitReader
+	// would truncate this into a decode failure → 400, failing the test.
+	const midCap = 16 << 20
+	if midCap <= 8<<20 || midCap >= maxSnapshotBodyBytes {
+		t.Fatalf("midCap %d must sit between old 8 MiB cap and raised cap %d", midCap, maxSnapshotBodyBytes)
+	}
+	resp := putSnapshot(t, h, host, session, putSnapshotRequest{
+		SnapshotSeq: 1, Nonce: []byte("snap-nonce"), CT: bytes.Repeat([]byte{0xAB}, midCap),
+	})
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("POST 16 MiB snapshot under raised cap: status = %d, want 204", resp.StatusCode)
+	}
+
+	// A body past the 64 MiB cap is truncated by LimitReader → invalid JSON → 400.
+	resp = putSnapshot(t, h, host, session, putSnapshotRequest{
+		SnapshotSeq: 2, Nonce: []byte("snap-nonce"), CT: bytes.Repeat([]byte{0xCD}, maxSnapshotBodyBytes+(1<<20)),
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("POST over-cap snapshot: status = %d, want 400", resp.StatusCode)
+	}
+}

@@ -404,6 +404,16 @@ export async function markForceSnapshotPending() {
   await writeMeta({ forceSnapshotPending: true, forceSnapshotError: null });
 }
 
+// A permanent 4xx means the request reached a server that refused it and will
+// keep refusing (oversized body → 400, quota exceeded → 413). Retrying wedges
+// the app forever, so the force-snapshot path records a durable error instead.
+// 401/403/408/429 are transient (auth expiry / proxy timeout / rate-limit — a
+// reverse proxy in front of cmd/cloud can return these even though the Go server
+// didn't); mirrors web/static/js/sync.js isPermanentSyncError.
+function isPermanentSyncStatus(status) {
+  return status >= 400 && status < 500 && ![401, 403, 408, 429].includes(status);
+}
+
 // Drives (or retries) a pending forced snapshot to completion: advance last_seq
 // with one throwaway op, then upload the snapshot at the server-assigned seq.
 // Clears the marker only once the snapshot upload actually succeeds
@@ -448,6 +458,14 @@ async function tryForceSnapshot(ctx) {
     return; // couldn't reach the server — marker stays set, retried next open
   }
   if (!res.ok) {
+    // A permanent 4xx on the bump (e.g. 413 quota exceeded) will keep failing;
+    // leaving forceSnapshotPending set would block every later pull/flush
+    // forever — the same wedge the snapshot leg below guards against.
+    if (isPermanentSyncStatus(res.status)) {
+      await writeMeta({ forceSnapshotPending: false, forceSnapshotError: { status: res.status, at: Date.now() } });
+      offline = false;
+      return;
+    }
     offline = true;
     return;
   }
@@ -462,21 +480,14 @@ async function tryForceSnapshot(ctx) {
   // the floor (no re-bootstrap) once the marker clears.
   await writeMeta({ localLastSeq: snapshotSeq });
   // A rejected snapshot leaves forceSnapshotPending set, which blocks every later
-  // pull/flush. A permanent 4xx means the body was accepted by the network but
-  // refused — the snapshot is larger than the server cap and will NEVER fit, so
-  // re-encrypting it every open wedges the app forever and blocks all pulls. Record
-  // a durable error, clear the pending marker so the pull/flush path proceeds, and
-  // surface it in the status line. A 5xx/offline failure is transient: leave the
-  // marker set and retry next open. 401/403/408/429 are also transient (auth
-  // expiry / proxy timeout / rate-limit — a reverse proxy in front of cmd/cloud
-  // can return these even though the Go server didn't), mirroring
-  // web/static/js/sync.js isPermanentSyncError; treating them as permanent would
-  // strand the import and stick a false "too large" banner.
+  // pull/flush. A permanent 4xx means the snapshot is larger than the server cap
+  // and will NEVER fit, so re-encrypting it every open wedges the app forever and
+  // blocks all pulls. Record a durable error, clear the pending marker so the
+  // pull/flush path proceeds, and surface it in the status line. A 5xx/offline
+  // failure is transient: leave the marker set and retry next open.
   const snap = await snapshotAt(ctx, snapshotSeq);
   if (!snap.ok) {
-    const permanent = snap.status >= 400 && snap.status < 500 &&
-      ![401, 403, 408, 429].includes(snap.status);
-    if (permanent) {
+    if (isPermanentSyncStatus(snap.status)) {
       await writeMeta({ forceSnapshotPending: false, forceSnapshotError: { status: snap.status, at: Date.now() } });
       offline = false;
       return;
