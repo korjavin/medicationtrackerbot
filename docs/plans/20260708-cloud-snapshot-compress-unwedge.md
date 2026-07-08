@@ -158,7 +158,7 @@ npm dependency.
 
 ### Task 5: [Final] Docs
 
-- [ ] Update `docs/cloud-crypto.md` "snapshot" section (and
+- [x] Update `docs/cloud-crypto.md` "snapshot" section (and
       `docs/cloud-mode.md` if it describes the snapshot payload) to note snapshots
       are gzip-then-encrypt with a magic-byte-sniffed back-compat read, and the
       64 MiB server caps.

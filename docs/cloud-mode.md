@@ -117,7 +117,7 @@ account inbox keypair (ECDH) — public half on server, private half in vault
 
 - **Encrypted oplog**: each write produces `{account_seq, device_id, record_type_tag, nonce, ciphertext}`. Server assigns the monotonic `account_seq`; clients push local ops and pull `since=<cursor>`. This mirrors the existing change-events + download-cursor design (`internal/store/settings`), with ciphertext bodies.
 - **Conflict resolution is client-side** (server can't merge what it can't read): last-writer-wins per record with vector timestamps, same semantics the offline write queue (`SyncManager`) already implements for server mode.
-- **Snapshots + compaction**: the server cannot compact ciphertext, so clients periodically upload a full encrypted snapshot; the server then drops ops below that seq. Bounds both restore time on a new device and storage growth.
+- **Snapshots + compaction**: the server cannot compact ciphertext, so clients periodically upload a full encrypted snapshot; the server then drops ops below that seq. Bounds both restore time on a new device and storage growth. The snapshot plaintext is **gzip-then-encrypt** (`gzip(utf8(JSON))` before AES-GCM), shrinking a large vault's POST body ~10x; the decrypt path sniffs the `0x1f 0x8b` gzip magic so legacy uncompressed snapshots still read. Server body/CT caps are **64 MiB**. See [docs/cloud-crypto.md](cloud-crypto.md).
 - Local layer stays Dexie/IndexedDB (already vendored); plaintext lives only in memory and IndexedDB on the user's device, cloud copy is authoritative.
 
 ## Push relay & reminder lifecycle
