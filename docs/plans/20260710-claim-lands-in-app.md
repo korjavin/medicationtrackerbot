@@ -124,14 +124,17 @@ criterion — *"a friend … claims it, creates a passkey, saves the Emergency K
 
 ### Task 2: Thread `ctx` to the wizard tail
 
-- [ ] change `renderTelegramStep(app)` to `renderTelegramStep(app, ctx)`
-- [ ] both call sites inside it — `mountTelegram(app, { onDone: ... })` and the `catch` fallback — call
-      `enterApp(ctx)` instead of `renderDone(app)`
-- [ ] in `renderEmergencyKit`'s `#kit-continue` handler, pass ctx through:
-      `ctx.onKitSaved ? ctx.onKitSaved() : renderTelegramStep(app, ctx)`
-- [ ] verify `recover.js:99` still wins via `ctx.onKitSaved` and is otherwise untouched (it supplies its own
-      `location.href = '/'` and its cache was established by `enrollWithToken`)
-- [ ] update `signup.js`'s top-of-file comment, which describes the wizard as ending at the Emergency Kit — it
+- [x] change `renderTelegramStep(app)` to `renderTelegramStep(app, ctx)` (landed in Task 1; confirmed at
+      `signup.js:310`)
+- [x] both call sites inside it — `mountTelegram(app, { onDone: ... })` and the `catch` fallback — call
+      `enterApp(ctx)` instead of `renderDone(app)` (landed in Task 1; confirmed at `signup.js:313,316`)
+- [x] in `renderEmergencyKit`'s `#kit-continue` handler, pass ctx through:
+      `ctx.onKitSaved ? ctx.onKitSaved() : renderTelegramStep(app, ctx)` (landed in Task 1; confirmed at
+      `signup.js:303`)
+- [x] verify `recover.js:99` still wins via `ctx.onKitSaved` and is otherwise untouched (it supplies its own
+      `location.href = '/'` and its cache was established by `enrollWithToken`) — `git diff` on `recover.js` is
+      empty, and `#kit-continue` evaluates `ctx.onKitSaved` before `renderTelegramStep` is ever reached
+- [x] update `signup.js`'s top-of-file comment, which describes the wizard as ending at the Emergency Kit — it
       now ends by entering the app
 
 ### Task 3: Cover the wizard tail

@@ -1,9 +1,10 @@
 // Claim/registration wizard: the passkey signup ceremony described in
 // docs/cloud-crypto.md "Signup (first device)". Drives the account shell
 // (signup.html's #app) through create-passkey -> loss-protection ack ->
-// Emergency Kit. Each screen is rendered fresh from the outcome of the
-// previous step rather than a stored step counter, per docs/cloud-mode.md
-// Onboarding ("the wizard is stateless").
+// Emergency Kit -> optional Telegram link, then enters the app itself. Each
+// screen is rendered fresh from the outcome of the previous step rather than a
+// stored step counter, per docs/cloud-mode.md Onboarding ("the wizard is
+// stateless").
 import {
   saltKek,
   generateDEK,
