@@ -25,13 +25,32 @@ const botExport = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'tests/fixture
 // Fixed clock so id minting is deterministic across runs.
 const NOW = Date.parse('2026-07-08T12:00:00Z');
 
+// gps is dropped at import (med-9z3.7): 44% of a real vault, no reader. Identity
+// therefore holds on everything BUT gps, so the expectation drops it too.
+const dropGps = (data) => {
+  const d = JSON.parse(JSON.stringify(data));
+  for (const w of d.workouts?.miband || []) delete w.gps;
+  return d;
+};
+
 describe('cloud vault round-trip (web/domain/vault.js)', () => {
-  it('fixture -> vaultToRecords -> recordsToVault is identity on data', () => {
+  it('fixture -> vaultToRecords -> recordsToVault is identity on data (minus dropped gps)', () => {
     const records = vaultToRecords(fixture, { now: NOW });
     const back = recordsToVault(records, { now: NOW });
     expect(back.format).toBe('medtracker-vault');
     expect(back.version).toBe(1);
-    expect(back.data).toEqual(fixture.data);
+    expect(back.data).toEqual(dropGps(fixture.data));
+  });
+
+  it('drops gps at import and keeps every other miband field', () => {
+    const records = vaultToRecords(fixture, { now: NOW });
+    const miband = records.filter((r) => r.recordType === 'miband');
+    expect(miband.length).toBe(fixture.data.workouts.miband.length);
+    for (const r of miband) expect('gps' in r).toBe(false);
+    const [src] = fixture.data.workouts.miband;
+    const { gps, ...expected } = src;
+    expect(gps.length).toBeGreaterThan(0); // fixture really does carry a track
+    expect(miband[0]).toMatchObject(expected);
   });
 
   it('canonicalizes a real bot export (Go output) back to the fixture (cross-runtime full loop)', () => {
@@ -41,7 +60,7 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     // normalizations (same two the Go TestVaultImportRoundTrip applies).
     const back = recordsToVault(vaultToRecords(botExport, { now: NOW }), { now: NOW });
     const strip = (data) => {
-      const d = JSON.parse(JSON.stringify(data));
+      const d = dropGps(data);
       delete d.settings.med_reminder_pref;
       // scheduled_date / last_session_date are DATE columns: the bot re-emits them
       // as UTC midnight, the hand fixture writes the local-midnight form. Only the

@@ -469,7 +469,13 @@ export function vaultToRecords(vault, { now } = {}) {
     push('workoutsession', recordId, { ...s });
   }
   for (const el of workouts.exercise_logs || []) push('exerciselog', `log-${mintNum()}`, { ...el, id: mintNum() });
-  for (const w of workouts.miband || []) push('miband', `miband-${mintNum()}`, { ...w, id: mintNum() });
+  for (const w of workouts.miband || []) {
+    // gps is 44% of a real vault (~77 MiB) and nothing renders it in either
+    // mode, yet it rides in every snapshot and is structured-cloned on every
+    // records.list(). Drop it at the door; bot mode's DB keeps the tracks.
+    const { gps, ...rest } = w;
+    push('miband', `miband-${mintNum()}`, { ...rest, id: mintNum() });
+  }
 
   // --- vitals (pack the flat sample arrays back into day-batches) ---
   const vitals = data.vitals || {};
