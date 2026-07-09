@@ -170,11 +170,12 @@ criterion — *"a friend … claims it, creates a passkey, saves the Emergency K
 
 ### Task 5: [Final] Update documentation
 
-- [ ] `docs/onboarding-wizard.md`: mark the claim→app seam as implemented; it currently describes this as the
-      change that "resolves `med-8eh` as a consequence"
-- [ ] `docs/cloud-mode.md`: update the Onboarding description — the claim wizard now ends by entering the app,
+- [x] `docs/onboarding-wizard.md`: mark the claim→app seam as implemented (status header, the "revive one"
+      ordering list, the seam section, and the work-breakdown row)
+- [x] `docs/cloud-mode.md`: update the Onboarding description — the claim wizard now ends by entering the app,
       where the first-run overlay mounts
-- [ ] note the degraded path (storage-blocked browser → `/unlock`) wherever the warm cache is described
+- [x] note the degraded path (storage-blocked browser → `/unlock`) wherever the warm cache is described — both
+      doc sites; `docs/cloud-crypto.md:149` already named the warm-cache-write-failure fallback
 
 ## Technical Details
 
