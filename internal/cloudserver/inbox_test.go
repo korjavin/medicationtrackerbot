@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -179,7 +180,7 @@ func TestInbox_SealAndQueueRequiresPublishedKey(t *testing.T) {
 	h, host, accountID, session, store := inboxTestServer(t)
 
 	err := SealAndQueue(context.Background(), store, accountID, []byte("secret"), time.Now().UTC())
-	if err != ErrNoInboxKey {
+	if !errors.Is(err, ErrNoInboxKey) {
 		t.Fatalf("SealAndQueue with no key = %v, want ErrNoInboxKey", err)
 	}
 	if got := listInbox(t, h, host, session); len(got.Events) != 0 {

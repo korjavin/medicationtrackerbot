@@ -80,7 +80,7 @@ func sealInbox(rnd io.Reader, inboxPub []byte, accountID string, plaintext []byt
 	curve := ecdh.X25519()
 	recipient, err := curve.NewPublicKey(inboxPub)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidInboxKey, err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidInboxKey, err)
 	}
 	// Read the ephemeral scalar straight from rnd rather than curve.GenerateKey:
 	// GenerateKey deliberately consumes an extra random byte (crypto/internal
@@ -97,7 +97,7 @@ func sealInbox(rnd io.Reader, inboxPub []byte, accountID string, plaintext []byt
 	}
 	shared, err := eph.ECDH(recipient)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidInboxKey, err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidInboxKey, err)
 	}
 
 	ephPub := eph.PublicKey().Bytes()
@@ -131,7 +131,7 @@ func openInbox(inboxPriv []byte, accountID string, packed []byte) ([]byte, error
 	curve := ecdh.X25519()
 	priv, err := curve.NewPrivateKey(inboxPriv)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidInboxKey, err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidInboxKey, err)
 	}
 	ephPub := packed[:inboxPubKeyLen]
 	nonce := packed[inboxPubKeyLen:inboxOverhead]
@@ -139,11 +139,11 @@ func openInbox(inboxPriv []byte, accountID string, packed []byte) ([]byte, error
 
 	eph, err := curve.NewPublicKey(ephPub)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidInboxKey, err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidInboxKey, err)
 	}
 	shared, err := priv.ECDH(eph)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidInboxKey, err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidInboxKey, err)
 	}
 	key, err := inboxDeriveKey(shared, ephPub, priv.PublicKey().Bytes())
 	if err != nil {
