@@ -1396,6 +1396,59 @@ describe('Architecture – design tokens', () => {
         }
     });
 
+    // The two scans above walk only web/static/js. The static HTML — shared
+    // verbatim between bot mode and the cloud origin — was never scanned, and
+    // the cloud origin serves style-src 'self' with no 'unsafe-inline' (see
+    // internal/cloudserver/router.go), so a single style= attribute is refused
+    // at parse time. Runtime .style.foo= setters do not trip style-src; only
+    // static attributes do.
+    it('no inline style= attributes in served HTML', () => {
+        const htmlFiles = ['web/static/index.html', 'web/cloud/index.html', 'web/cloud/signup.html'];
+        const inlineStyleRe = /style\s*=\s*["']/;
+        const violations = [];
+
+        for (const relPath of htmlFiles) {
+            const lines = fs.readFileSync(path.join(REPO_ROOT, relPath), 'utf8').split('\n');
+            for (let i = 0; i < lines.length; i++) {
+                if (inlineStyleRe.test(lines[i])) {
+                    violations.push(`  ${relPath}:${i + 1}: ${lines[i].trim()}`);
+                }
+            }
+        }
+
+        if (violations.length > 0) {
+            throw new Error(
+                `Found inline style= attributes in HTML:\n${violations.join('\n')}\n\n` +
+                `The cloud origin's CSP (style-src 'self') refuses these. Move the ` +
+                `declaration into styles.css. Note: .hidden is display:none !important, ` +
+                `so it cannot be used on elements whose visibility JS toggles via .style.display.`
+            );
+        }
+    });
+
+    it('no inline style= attributes or .style. assignments in web/cloud/js', () => {
+        const cloudJsDir = path.join(REPO_ROOT, 'web/cloud/js');
+        const files = fs.readdirSync(cloudJsDir).filter(f => f.endsWith('.js'));
+        const offenderRe = /style\s*=\s*["']|\.style\.[a-zA-Z]/;
+        const violations = [];
+
+        for (const file of files) {
+            const lines = fs.readFileSync(path.join(cloudJsDir, file), 'utf8').split('\n');
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                if (/^\s*\/\//.test(line) || /^\s*\/?\*/.test(line)) continue;
+                if (offenderRe.test(line)) violations.push(`  ${file}:${i + 1}: ${line.trim()}`);
+            }
+        }
+
+        if (violations.length > 0) {
+            throw new Error(
+                `Found inline styling in web/cloud/js:\n${violations.join('\n')}\n\n` +
+                `Use CSS classes and design tokens instead.`
+            );
+        }
+    });
+
     it('utility and component CSS classes are defined in styles.css', () => {
         const css = fs.readFileSync(CSS_PATH, 'utf8');
 
