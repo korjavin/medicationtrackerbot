@@ -149,6 +149,22 @@ func (r *Repo) CountAccountsCreatedBy(ctx context.Context, accountID string, sin
 	return n, err
 }
 
+// HasClaimedAccountCreatedBy reports whether createdBy has minted an account
+// that was actually claimed. A claimed account has a NULL claim_token_hash (see
+// consumeClaimTx) and survives SweepExpiredClaims, so this — unlike a plain
+// count — distinguishes "owns an account" from "has a pending invite".
+// An empty createdBy never matches: admin-CLI mints store NULL provenance.
+func (r *Repo) HasClaimedAccountCreatedBy(ctx context.Context, createdBy string) (bool, error) {
+	if createdBy == "" {
+		return false, nil
+	}
+	var exists bool
+	err := r.db.QueryRowContext(ctx,
+		`SELECT EXISTS(SELECT 1 FROM accounts WHERE created_by_account_id = ? AND claim_token_hash IS NULL)`,
+		createdBy).Scan(&exists)
+	return exists, err
+}
+
 // nullString turns "" into a driver NULL so an unset VAPID key never gets
 // stored as an empty-string value that would read as "present" to a NULL check.
 func nullString(s string) any {

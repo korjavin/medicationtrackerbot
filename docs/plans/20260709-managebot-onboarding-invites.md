@@ -118,13 +118,13 @@ a reasonable starting point and are reused where sound.
 
 ### Task 1: `HasClaimedAccountCreatedBy` store method
 
-- [ ] add `func (r *Repo) HasClaimedAccountCreatedBy(ctx context.Context, createdBy string) (bool, error)` to
+- [x] add `func (r *Repo) HasClaimedAccountCreatedBy(ctx context.Context, createdBy string) (bool, error)` to
       `internal/cloudstore/repo.go`, next to `CountAccountsCreatedBy` (`:144`)
-- [ ] SQL: `SELECT EXISTS(SELECT 1 FROM accounts WHERE created_by_account_id = ? AND claim_token_hash IS NULL)`
+- [x] SQL: `SELECT EXISTS(SELECT 1 FROM accounts WHERE created_by_account_id = ? AND claim_token_hash IS NULL)`
       — a NULL claim hash is the claimed state (see `consumeClaimTx`, `repo.go:312-314`)
-- [ ] guard: an empty `createdBy` must return `false, nil` without querying (admin-CLI mints are NULL and must
+- [x] guard: an empty `createdBy` must return `false, nil` without querying (admin-CLI mints are NULL and must
       never match)
-- [ ] the existing index `(created_by_account_id, created_at_unix)` covers the lookup; no new index
+- [x] the existing index `(created_by_account_id, created_at_unix)` covers the lookup; no new index
 
 ### Task 2: Thread `claimTTL` into `TelegramAPI`
 
