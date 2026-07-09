@@ -389,7 +389,16 @@ const (
 	onboardingClaimedMessage = "You already have a Med Tracker account. Open your subdomain and unlock it with your passkey — " +
 		"I can't create a second one for you."
 	onboardingMintFailMessage = "Sorry, I couldn't create your account just now. Please try again in a few minutes."
+	onboardingQuotaMessage    = "You've already created 3 accounts today — that's my limit per person. " +
+		"Please try again in a day."
 )
+
+// managerInviteDailyQuota caps how many invites one Telegram user may mint per
+// rolling managerInviteQuotaWindow. ponytail: hardcoded — env-var knob only if
+// someone asks. Same posture as inviteMonthlyQuota.
+const managerInviteDailyQuota = 3
+
+const managerInviteQuotaWindow = 24 * time.Hour
 
 // affirmatives / greetings classify the one-word replies this conversation
 // expects. Anything else gets the nudge.
@@ -436,7 +445,8 @@ func (t *TelegramAPI) handleManagerMessage(ctx context.Context, msg *tgclient.Me
 }
 
 // mintInvite provisions a fresh unclaimed account attributed to creator and
-// replies with its claim link.
+// replies with its claim link, refusing past managerInviteDailyQuota mints in
+// the rolling window.
 func (t *TelegramAPI) mintInvite(ctx context.Context, chatID int64, creator string) {
 	t.mintMu.Lock()
 	defer t.mintMu.Unlock()
@@ -447,7 +457,27 @@ func (t *TelegramAPI) mintInvite(ctx context.Context, chatID int64, creator stri
 	// table isn't worth it. We also can't re-send a pending invite's link — the
 	// token is hash-only at rest — so a user with a live unclaimed invite who
 	// asks again just gets a fresh one and the old one expires on its own.
-	inv, err := Provision(ctx, t.store, t.claimTTL, time.Now().UTC(), creator)
+	now := time.Now().UTC()
+	// Sweep before counting, same as InviteAPI.CreateInvite: a user sitting at
+	// the cap never reaches Provision, so without this their own expired
+	// unclaimed invites would occupy slots forever.
+	if _, err := t.store.SweepExpiredClaims(ctx, now); err != nil {
+		slog.Error("telegram manager message: sweep expired claims", "error", err)
+		t.reply(ctx, chatID, onboardingMintFailMessage)
+		return
+	}
+	minted, err := t.store.CountAccountsCreatedBy(ctx, creator, now.Add(-managerInviteQuotaWindow))
+	if err != nil {
+		slog.Error("telegram manager message: count mints", "error", err, "creator", creator)
+		t.reply(ctx, chatID, onboardingMintFailMessage)
+		return
+	}
+	if minted >= managerInviteDailyQuota {
+		t.reply(ctx, chatID, onboardingQuotaMessage)
+		return
+	}
+
+	inv, err := Provision(ctx, t.store, t.claimTTL, now, creator)
 	if err != nil {
 		slog.Error("telegram manager message: provision invite", "error", err, "creator", creator)
 		t.reply(ctx, chatID, onboardingMintFailMessage)

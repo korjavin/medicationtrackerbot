@@ -158,17 +158,17 @@ a reasonable starting point and are reused where sound.
 
 ### Task 4: Rate limit — 3 invites per Telegram user per 24h (bd med-bc9)
 
-- [ ] add `const managerInviteDailyQuota = 3` and `const managerInviteQuotaWindow = 24 * time.Hour` next to the
+- [x] add `const managerInviteDailyQuota = 3` and `const managerInviteQuotaWindow = 24 * time.Hour` next to the
       handler, with the same "hardcoded, env knob only if asked" `ponytail:` note as `invite.go:11-14`
-- [ ] the mint path takes `t.mintMu`, then calls `SweepExpiredClaims(ctx, now)` **before** counting — same
+- [x] the mint path takes `t.mintMu`, then calls `SweepExpiredClaims(ctx, now)` **before** counting — same
       ordering and same reason as `invite.go:82` (a capped user never reaches `Provision`, so their expired
       unclaimed invites would otherwise hold slots forever)
-- [ ] `minted := CountAccountsCreatedBy(ctx, creator, now.Add(-managerInviteQuotaWindow))`; if
+- [x] `minted := CountAccountsCreatedBy(ctx, creator, now.Add(-managerInviteQuotaWindow))`; if
       `minted >= managerInviteDailyQuota` reply with a polite, plain-language wait message naming the limit
       and that it resets within a day — then return without minting
-- [ ] otherwise `Provision(ctx, t.store, t.claimTTL, now, creator)` and reply with `inv.ClaimURL(t.baseDomain)`
+- [x] otherwise `Provision(ctx, t.store, t.claimTTL, now, creator)` and reply with `inv.ClaimURL(t.baseDomain)`
       plus one sentence on what to do next
-- [ ] on `Provision` error: `slog.Error` and reply with an apologetic try-again-later message; still 200
+- [x] on `Provision` error: `slog.Error` and reply with an apologetic try-again-later message; still 200
 
 ### Task 5: Integration tests for the manager message path
 
