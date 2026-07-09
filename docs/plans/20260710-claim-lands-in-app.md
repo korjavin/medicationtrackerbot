@@ -107,15 +107,20 @@ criterion — *"a friend … claims it, creates a passkey, saves the Emergency K
 
 ### Task 1: `enterApp` replaces the dead-end screen
 
-- [ ] in `web/cloud/js/signup.js`, add `import { establishLdkCache } from './unlock.js';` (static, as
+- [x] in `web/cloud/js/signup.js`, add `import { establishLdkCache } from './unlock.js';` (static, as
       `claim.js:20` does — `unlock.js` does not import `signup.js`, so there is no cycle)
-- [ ] replace `renderDone(app)` with `async function enterApp(ctx)` that does:
+- [x] replace `renderDone(app)` with `async function enterApp(ctx)` that does:
       `try { await establishLdkCache(ctx.dek, ctx.accountId); } catch { /* comment */ }` then
       `location.href = '/'`
-- [ ] copy `claim.js:169-172`'s rationale into the `catch`: the warm cache is an optimization; a storage-blocked
+- [x] copy `claim.js:169-172`'s rationale into the `catch`: the warm cache is an optimization; a storage-blocked
       browser must still reach the vault, and `cloud-boot` will route it to `/unlock` to sign in with the passkey
       it just created
-- [ ] delete the "The full app arrives with the next update." copy entirely — no replacement screen
+- [x] delete the "The full app arrives with the next update." copy entirely — no replacement screen
+- ➕ [x] `renderEmergencyKit`'s doc comment referenced the deleted "You're set up" screen — updated to describe
+      the telegram-step-then-enter-app tail
+- ⚠️ Task 2's first and third items (`renderTelegramStep(app, ctx)` signature + the `#kit-continue` pass-through)
+      were done here out of necessity: `enterApp(ctx)` has no valid `ctx` without them, so deferring them would
+      have committed a module that crashes on wizard completion. Their checkboxes are left for Task 2 to confirm.
 
 ### Task 2: Thread `ctx` to the wizard tail
 
