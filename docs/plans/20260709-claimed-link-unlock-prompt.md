@@ -186,12 +186,13 @@ Dependencies identified: none new. No migration, no new HTTP route, no new npm/G
 
 ### Task 6: [Final] Update documentation
 
-- [ ] in `docs/cloud-mode.md`, under the Onboarding section, document that `POST /api/webauthn/register/begin`
+- [x] in `docs/cloud-mode.md`, under the Onboarding section, document that `POST /api/webauthn/register/begin`
       returns `409 {"error":"already_claimed"}` when the account is already claimed, and that the wizard probes it
       on load so a claimed link routes to unlock
-- [ ] in `docs/api.md`, if the cloud WebAuthn endpoints are catalogued there, add the `409` response to
-      `POST /api/webauthn/register/begin`
-- [ ] note the claimed-but-no-credentials edge case (falls back to `403`) wherever the `409` is documented
+- [x] in `docs/api.md`, if the cloud WebAuthn endpoints are catalogued there, add the `409` response to
+      `POST /api/webauthn/register/begin` — n/a: `docs/api.md` catalogues the cloud food proxy, Telegram, and trial
+      routes but no cloud WebAuthn endpoints, so there is nothing to amend
+- [x] note the claimed-but-no-credentials edge case (falls back to `403`) wherever the `409` is documented
 
 ## Technical Details
 
