@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -264,8 +265,9 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		if upd.Message != nil {
 			t.handleManagerMessage(r.Context(), upd.Message)
+		} else {
+			slog.Info("telegram manager webhook: update without managed_bot_created", "update_id", upd.UpdateID)
 		}
-		slog.Info("telegram manager webhook: update without managed_bot_created", "update_id", upd.UpdateID)
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -389,9 +391,13 @@ const (
 	onboardingClaimedMessage = "You already have a Med Tracker account. Open your subdomain and unlock it with your passkey — " +
 		"I can't create a second one for you."
 	onboardingMintFailMessage = "Sorry, I couldn't create your account just now. Please try again in a few minutes."
-	onboardingQuotaMessage    = "You've already created 3 accounts today — that's my limit per person. " +
-		"Please try again in a day."
 )
+
+// onboardingQuotaMessage is built from the constants so the copy can't drift
+// from the actual cap.
+var onboardingQuotaMessage = fmt.Sprintf(
+	"You've already created %d accounts in the last %d hours — that's my limit per person. Please try again later.",
+	managerInviteDailyQuota, int(managerInviteQuotaWindow/time.Hour))
 
 // managerInviteDailyQuota caps how many invites one Telegram user may mint per
 // rolling managerInviteQuotaWindow. ponytail: hardcoded — env-var knob only if
