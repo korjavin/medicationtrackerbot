@@ -13,6 +13,7 @@ import (
 
 	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
 	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
+	"github.com/korjavin/medicationtrackerbot/internal/tgclient"
 )
 
 // Size caps on subscription fields: endpoints are push-service URLs (well
@@ -204,6 +205,7 @@ type scheduleEntryWire struct {
 	CT         []byte `json:"ct"`
 	Delivery   string `json:"delivery"`
 	TGText     string `json:"tg_text"`
+	TGCallback string `json:"tg_callback"`
 }
 
 type putScheduleRequest struct {
@@ -256,11 +258,20 @@ func (a *PushAPI) PutSchedule(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "schedule entry field too large or missing", http.StatusBadRequest)
 			return
 		}
+		// tg_callback becomes callback_data on an inline button, so it is only
+		// ever the "s:<slotUnix>" stem this server knows how to parse back.
+		// Rejecting anything else here keeps arbitrary client bytes out of the
+		// buttons the relay sends on the user's behalf.
+		if !tgclient.ValidCallbackStem(e.TGCallback) {
+			http.Error(w, "schedule entry field invalid or missing", http.StatusBadRequest)
+			return
+		}
 		entries[i] = cloudstore.ScheduledPushInput{
-			FireAt:   storedb.UnixToTime(e.FireAtUnix),
-			CT:       e.CT,
-			Delivery: delivery,
-			TGText:   e.TGText,
+			FireAt:     storedb.UnixToTime(e.FireAtUnix),
+			CT:         e.CT,
+			Delivery:   delivery,
+			TGText:     e.TGText,
+			TGCallback: e.TGCallback,
 		}
 	}
 

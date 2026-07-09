@@ -18,7 +18,7 @@ import {
   toBase64,
   fromBase64,
 } from './crypto.js';
-import { recordsPort } from './sync.js';
+import { recordsPort, flushConfirmed } from './sync.js';
 
 const INBOXKEY_RECORD_TYPE = 'inboxkey';
 const INBOXKEY_RECORD_ID = 'inboxkey';
@@ -103,4 +103,66 @@ export async function listInboxEvents(ctx, privateKey, { fetchImpl = fetch } = {
 export async function ackInboxEvent(id, { fetchImpl = fetch } = {}) {
   const res = await fetchImpl(`/api/inbox/${id}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`could not ack inbox event ${id} (${res.status})`);
+}
+
+// One drain at a time per account. Two overlapping drains in the SAME tab would
+// both apply every event and race on the ack; across tabs/devices that is fine
+// (deletes are idempotent, applies converge) but within a tab it is pure waste.
+const draining = new Set();
+
+// drainInbox applies every pending event, then acks it. The binding rules
+// (docs/cloud-mode.md → "Drain protocol") in the order they appear here:
+//
+//   4. Apply in SERVER-timestamp order. The mailbox returns rows in arrival
+//      order; `at_unix` is the sealed instant Telegram's tap actually happened.
+//      Those differ if the relay queued out of order, so we sort.
+//   1. Ack strictly AFTER flush. `apply` writes through the domain layer, then
+//      flushConfirmed() must resolve true — meaning the ops reached the sync
+//      log — before the event is deleted. A crash anywhere earlier leaves the
+//      event queued for the next drain, which is the whole point.
+//   2. At-least-once + idempotent. Re-draining an applied event must converge,
+//      not duplicate; `apply` is responsible for that (deterministic ids).
+//   3. Concurrent drainers are expected. A second drainer deleting an event we
+//      already deleted is a no-op, so nothing here locks across devices.
+//
+// One event's failure must not strand the rest: we log it, skip its ack (so it
+// is retried next drain) and continue. Returns a small report for tests/logs.
+export async function drainInbox(ctx, { apply, records, fetchImpl = fetch, flush = flushConfirmed } = {}) {
+  const key = (ctx && ctx.accountId) || ctx;
+  if (draining.has(key)) return { applied: 0, failed: 0, skipped: true };
+  draining.add(key);
+  try {
+    const privateKey = await readInboxKey(ctx, { records });
+    if (!privateKey) return { applied: 0, failed: 0 };
+
+    const pending = await listInboxEvents(ctx, privateKey, { fetchImpl });
+    if (pending.length === 0) return { applied: 0, failed: 0 };
+
+    // Rule 4. Ties (same second) fall back to arrival order.
+    pending.sort((a, b) => (a.event.at_unix - b.event.at_unix) || (a.id - b.id));
+
+    let applied = 0;
+    let failed = 0;
+    for (const { id, event } of pending) {
+      try {
+        await apply(event);
+        // Rule 1: the barrier. `false` means ops are still pending — leave the
+        // event queued rather than ack something that may never land.
+        const flushed = await flush(ctx);
+        if (!flushed) {
+          failed++;
+          console.warn('[inbox] ops not confirmed flushed; leaving event queued', id);
+          continue;
+        }
+        await ackInboxEvent(id, { fetchImpl });
+        applied++;
+      } catch (e) {
+        failed++;
+        console.error('[inbox] event failed, leaving it queued', id, e);
+      }
+    }
+    return { applied, failed };
+  } finally {
+    draining.delete(key);
+  }
 }

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"mime/multipart"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -277,16 +278,109 @@ func (c *Client) SendMessage(ctx context.Context, chatID int64, text string) err
 	}, nil)
 }
 
-// CallbackIntakePrefix reserves the callback_data namespace for the inline
-// Confirm/Snooze buttons that ride on medication reminders. The full shape is
-// "i:<intakeID>:<action>" — opaque to the relay and deterministic, so the
-// inbound side can seal and apply a tap idempotently.
+// InlineKeyboardButton is one tappable button. Only callback buttons are used —
+// a tap posts CallbackData back to the bot's webhook.
+type InlineKeyboardButton struct {
+	Text         string `json:"text"`
+	CallbackData string `json:"callback_data"`
+}
+
+// SendMessageWithButtons sends text plus a single row of inline buttons.
+// Separate from SendMessage because the vast majority of what this bot sends
+// (welcome, test, BP/weight reminders) has nothing to answer.
+func (c *Client) SendMessageWithButtons(ctx context.Context, chatID int64, text string, buttons []InlineKeyboardButton) error {
+	if len(buttons) == 0 {
+		return c.SendMessage(ctx, chatID, text)
+	}
+	return c.call(ctx, "sendMessage", map[string]any{
+		"chat_id":      chatID,
+		"text":         text,
+		"reply_markup": map[string]any{"inline_keyboard": [][]InlineKeyboardButton{buttons}},
+	}, nil)
+}
+
+// AnswerCallbackQuery acknowledges a button tap. Telegram spins the button's
+// progress indicator until this lands, so it must be sent on EVERY callback —
+// including ones we decline to act on.
+func (c *Client) AnswerCallbackQuery(ctx context.Context, callbackQueryID, text string) error {
+	params := map[string]any{"callback_query_id": callbackQueryID}
+	if text != "" {
+		params["text"] = text
+	}
+	return c.call(ctx, "answerCallbackQuery", params, nil)
+}
+
+// CallbackSlotPrefix namespaces the callback_data carried by the inline
+// Confirm/Snooze buttons on a medication reminder. The full shape is
+// "s:<slotUnix>:<action>", where slotUnix is the dose slot's instant.
 //
-// C3b outbound (med-76c.1) sends text-only reminders and attaches no keyboard:
-// a button with nobody to answer it would spin in the client. The buttons, the
-// callback_query webhook, and the sealed mailbox all land together in the
-// inbound half (med-76c.2), which consumes this constant.
-const CallbackIntakePrefix = "i:"
+// Slot-scoped, not intake-scoped, because a cloud dose reminder bundles every
+// medication due at the same instant into one message (web/domain/reminders.js
+// groups targets bySlot) — so one tap means "I took the meds due at 08:00", and
+// the client expands the slot to its intakes at drain time.
+//
+// The relay learns nothing new from it: the slot instant is already this row's
+// fire_at_unix, in the clear. It is deterministic, so re-applying a re-delivered
+// tap converges instead of duplicating.
+const CallbackSlotPrefix = "s:"
+
+// Callback actions carried in the third field of callback_data.
+const (
+	CallbackActionConfirm = "confirm"
+	CallbackActionSnooze  = "snooze"
+)
+
+// ValidCallbackStem reports whether s is a well-formed "s:<slotUnix>" stem — the
+// only callback_data the client may put on a queue entry. Guards the relay
+// against a client (or a tampered row) injecting arbitrary bytes into
+// callback_data, and keeps stem+":confirm" inside Telegram's 64-byte limit.
+// A stem must accept exactly what ParseCallbackData can read back: anything
+// else would let the relay render a button whose tap it then refuses. So the
+// slot is required to parse as a positive int64, not merely to look numeric.
+func ValidCallbackStem(s string) bool {
+	if s == "" {
+		return true // no buttons; the common case
+	}
+	if len(s) > 32 {
+		return false
+	}
+	rest, found := strings.CutPrefix(s, CallbackSlotPrefix)
+	if !found {
+		return false
+	}
+	slot, err := strconv.ParseInt(rest, 10, 64)
+	return err == nil && slot > 0
+}
+
+// ParseCallbackData splits "s:<slotUnix>:<action>" into its parts. ok is false
+// for anything else — an unknown namespace, a bad action, a non-numeric slot.
+func ParseCallbackData(data string) (slotUnix int64, action string, ok bool) {
+	rest, found := strings.CutPrefix(data, CallbackSlotPrefix)
+	if !found {
+		return 0, "", false
+	}
+	slotStr, action, found := strings.Cut(rest, ":")
+	if !found {
+		return 0, "", false
+	}
+	if action != CallbackActionConfirm && action != CallbackActionSnooze {
+		return 0, "", false
+	}
+	slotUnix, err := strconv.ParseInt(slotStr, 10, 64)
+	if err != nil || slotUnix <= 0 {
+		return 0, "", false
+	}
+	return slotUnix, action, true
+}
+
+// CallbackQuery is an inline-button tap. Message is optional — Telegram omits it
+// for messages too old to edit — so nothing may depend on it.
+type CallbackQuery struct {
+	ID      string   `json:"id"`
+	Data    string   `json:"data"`
+	From    *User    `json:"from,omitempty"`
+	Message *Message `json:"message,omitempty"`
+}
 
 // Update is the subset of a Telegram update our webhooks read. A managed-bot
 // creation arrives in TWO shapes (both observed live, Bot API 9.6, 2026-04):
@@ -294,9 +388,10 @@ const CallbackIntakePrefix = "i:"
 // (message.managed_bot_created.bot). We accept either; whichever binds first
 // consumes the pending row and the other no-ops.
 type Update struct {
-	UpdateID   int64             `json:"update_id"`
-	ManagedBot *ManagedBotUpdate `json:"managed_bot,omitempty"`
-	Message    *Message          `json:"message,omitempty"`
+	UpdateID      int64             `json:"update_id"`
+	ManagedBot    *ManagedBotUpdate `json:"managed_bot,omitempty"`
+	Message       *Message          `json:"message,omitempty"`
+	CallbackQuery *CallbackQuery    `json:"callback_query,omitempty"`
 }
 
 // ManagedBotUpdate is the top-level managed_bot update: the creator user and

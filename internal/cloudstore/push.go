@@ -123,22 +123,24 @@ func ValidDelivery(s string) bool {
 // client composes the message itself, at its chosen verbosity, and hands the
 // relay the exact bytes to forward. CT stays opaque either way.
 type ScheduledPush struct {
-	ID        int64
-	AccountID string
-	FireAt    time.Time
-	CT        []byte
-	SentAt    *time.Time
-	Delivery  string
-	TGText    string
+	ID         int64
+	AccountID  string
+	FireAt     time.Time
+	CT         []byte
+	SentAt     *time.Time
+	Delivery   string
+	TGText     string
+	TGCallback string
 }
 
 // ScheduledPushInput is one entry of a PUT /api/push/schedule replace-all
 // batch, before insertion. An empty Delivery is stored as DeliveryWebPush.
 type ScheduledPushInput struct {
-	FireAt   time.Time
-	CT       []byte
-	Delivery string
-	TGText   string
+	FireAt     time.Time
+	CT         []byte
+	Delivery   string
+	TGText     string
+	TGCallback string
 }
 
 // ReplaceSchedule replaces accountID's unsent schedule with entries in one
@@ -163,8 +165,8 @@ func (r *Repo) ReplaceSchedule(ctx context.Context, accountID string, entries []
 				ct = []byte{}
 			}
 			if _, err := tx.ExecContext(ctx,
-				`INSERT INTO scheduled_pushes (account_id, fire_at_unix, ct, delivery, tg_text) VALUES (?, ?, ?, ?, ?)`,
-				accountID, storedb.TimeToUnix(e.FireAt), ct, delivery, e.TGText); err != nil {
+				`INSERT INTO scheduled_pushes (account_id, fire_at_unix, ct, delivery, tg_text, tg_callback) VALUES (?, ?, ?, ?, ?, ?)`,
+				accountID, storedb.TimeToUnix(e.FireAt), ct, delivery, e.TGText, e.TGCallback); err != nil {
 				return err
 			}
 		}
@@ -176,7 +178,7 @@ func (r *Repo) ReplaceSchedule(ctx context.Context, accountID string, entries []
 // fire_at has passed — the relay sender's per-tick query.
 func (r *Repo) DueScheduledPushes(ctx context.Context, now time.Time) ([]ScheduledPush, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, account_id, fire_at_unix, ct, delivery, tg_text FROM scheduled_pushes WHERE sent_at_unix IS NULL AND fire_at_unix <= ? ORDER BY fire_at_unix`,
+		`SELECT id, account_id, fire_at_unix, ct, delivery, tg_text, tg_callback FROM scheduled_pushes WHERE sent_at_unix IS NULL AND fire_at_unix <= ? ORDER BY fire_at_unix`,
 		storedb.TimeToUnix(now))
 	if err != nil {
 		return nil, err
@@ -189,7 +191,7 @@ func (r *Repo) DueScheduledPushes(ctx context.Context, now time.Time) ([]Schedul
 			p        ScheduledPush
 			fireUnix int64
 		)
-		if err := rows.Scan(&p.ID, &p.AccountID, &fireUnix, &p.CT, &p.Delivery, &p.TGText); err != nil {
+		if err := rows.Scan(&p.ID, &p.AccountID, &fireUnix, &p.CT, &p.Delivery, &p.TGText, &p.TGCallback); err != nil {
 			return nil, err
 		}
 		p.FireAt = storedb.UnixToTime(fireUnix)

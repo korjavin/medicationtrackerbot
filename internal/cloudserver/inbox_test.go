@@ -87,7 +87,7 @@ func TestInbox_PublishSealDrainAck(t *testing.T) {
 		t.Fatalf("PUT /api/inbox/key = %d", code)
 	}
 
-	plaintext := []byte(`{"kind":"intake_action","action":"confirm"}`)
+	plaintext := []byte(`{"kind":"intake_slot_action","action":"confirm"}`)
 	now := time.Now().UTC().Truncate(time.Second)
 	if err := SealAndQueue(ctx, store, accountID, plaintext, now); err != nil {
 		t.Fatalf("SealAndQueue: %v", err)

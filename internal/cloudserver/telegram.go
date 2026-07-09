@@ -567,6 +567,11 @@ func (t *TelegramAPI) ChildWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
+	if upd.CallbackQuery != nil {
+		t.handleCallbackQuery(w, r, ref, bot, upd.CallbackQuery)
+		return
+	}
+
 	if upd.Message == nil || !strings.HasPrefix(upd.Message.Text, "/start") {
 		w.WriteHeader(http.StatusOK)
 		return
@@ -744,6 +749,104 @@ func (t *TelegramAPI) Test(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"sent": true})
 }
 
+// inboxEventKindIntakeSlot is the sealed-event kind a Confirm/Snooze tap
+// produces. The client's drain switches on it. AtUnix is the SERVER's timestamp
+// for the tap, not the drain's — a Confirm tapped at 09:00 records taken-at
+// 09:00 even if the app first opens at noon.
+const inboxEventKindIntakeSlot = "intake_slot_action"
+
+type intakeSlotEvent struct {
+	Kind     string `json:"kind"`
+	SlotUnix int64  `json:"slot_unix"`
+	Action   string `json:"action"`
+	AtUnix   int64  `json:"at_unix"`
+}
+
+// Replies to a button tap. Telegram spins the button until answerCallbackQuery
+// lands, so every path answers — including the ones that discard the tap.
+const (
+	callbackAckConfirm = "✅ Saved — it will be recorded when you next open the app."
+	callbackAckSnooze  = "⏰ Snoozed — it will apply when you next open the app."
+	callbackAckDropped = "Open the app once to finish setting up, then try again."
+	callbackAckUnknown = "Sorry — this button is no longer valid."
+)
+
+// handleCallbackQuery turns an inline Confirm/Snooze tap into a sealed mailbox
+// event. The server cannot apply the tap itself (it cannot write ciphertext it
+// cannot produce), so it seals the intent to the account's inbox key and lets an
+// unlocked client apply it through the domain layer at drain time.
+//
+// It always replies 200: a tap is not worth re-driving. Telegram redelivers a
+// non-2xx webhook, which for an already-sealed event would queue a duplicate —
+// harmless (the apply is idempotent) but pointless. The one thing we never do is
+// store the tap in the clear when no inbox key exists: that plaintext is exactly
+// what this design withholds.
+func (t *TelegramAPI) handleCallbackQuery(w http.ResponseWriter, r *http.Request, ref string, bot *cloudstore.TGBot, cq *tgclient.CallbackQuery) {
+	// Best-effort ack helper: a failure to answer only leaves a spinner.
+	answer := func(text string) {
+		if cq.ID == "" {
+			return
+		}
+		client, err := t.botClient(bot)
+		if err != nil {
+			slog.Error("telegram callback: open token", "error", err, "ref", ref)
+			return
+		}
+		if err := client.AnswerCallbackQuery(r.Context(), cq.ID, text); err != nil {
+			slog.Warn("telegram callback: answer failed", "error", err, "ref", ref)
+		}
+	}
+
+	// A callback from a chat other than the linked one is not this account's
+	// user. Telegram omits Message for old messages, so this can only be
+	// enforced when it is present.
+	if cq.Message != nil && bot.ChatID != nil && cq.Message.Chat.ID != *bot.ChatID {
+		slog.Warn("telegram callback: chat mismatch, ignoring", "ref", ref)
+		answer(callbackAckUnknown)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	slotUnix, action, ok := tgclient.ParseCallbackData(cq.Data)
+	if !ok {
+		slog.Warn("telegram callback: unparseable callback_data", "ref", ref)
+		answer(callbackAckUnknown)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	now := time.Now().UTC()
+	plaintext, err := json.Marshal(intakeSlotEvent{
+		Kind:     inboxEventKindIntakeSlot,
+		SlotUnix: slotUnix,
+		Action:   action,
+		AtUnix:   now.Unix(),
+	})
+	if err != nil {
+		slog.Error("telegram callback: marshal event", "error", err, "ref", ref)
+		answer(callbackAckUnknown)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// ref IS the account id (see BotByWebhookRef).
+	switch err := SealAndQueue(r.Context(), t.store, ref, plaintext, now); {
+	case errors.Is(err, ErrNoInboxKey):
+		// The account has never unlocked a client, so there is no key to seal
+		// to. Drop the tap rather than store it readable.
+		slog.Warn("telegram callback: no inbox key, dropping tap", "ref", ref)
+		answer(callbackAckDropped)
+	case err != nil:
+		slog.Error("telegram callback: seal and queue", "error", err, "ref", ref)
+		answer(callbackAckUnknown)
+	case action == tgclient.CallbackActionSnooze:
+		answer(callbackAckSnooze)
+	default:
+		answer(callbackAckConfirm)
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
 // ErrNoLinkedChat means the account has a bot row but the user never tapped
 // /start, so there is no chat to deliver to. The relay treats this as terminal
 // for that entry rather than retrying it forever.
@@ -754,7 +857,12 @@ var ErrNoLinkedChat = errors.New("telegram: bot has no linked chat")
 // cannot decrypt the vault — the client chose this exact string at its chosen
 // verbosity and handed it over knowing the relay reads it. Nothing here derives
 // text from account data.
-func (t *TelegramAPI) SendReminder(ctx context.Context, accountID, text string) error {
+//
+// callbackStem is "s:<slotUnix>" for a medication dose reminder and "" for
+// everything else. When set, Confirm/Snooze buttons ride along; a tap comes back
+// to ChildWebhook, is sealed to the account's inbox key, and is applied by an
+// unlocked client at drain time.
+func (t *TelegramAPI) SendReminder(ctx context.Context, accountID, text, callbackStem string) error {
 	bot, err := t.store.BotByAccount(ctx, accountID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNoLinkedChat
@@ -769,7 +877,19 @@ func (t *TelegramAPI) SendReminder(ctx context.Context, accountID, text string) 
 	if err != nil {
 		return err
 	}
-	return client.SendMessage(ctx, *bot.ChatID, text)
+	// A stem the client never should have sent (or a tampered row) would become
+	// callback_data we cannot parse back. Drop the buttons, keep the reminder.
+	if callbackStem != "" && !tgclient.ValidCallbackStem(callbackStem) {
+		slog.Warn("telegram send reminder: invalid callback stem, sending without buttons", "accountID", accountID)
+		callbackStem = ""
+	}
+	if callbackStem == "" {
+		return client.SendMessage(ctx, *bot.ChatID, text)
+	}
+	return client.SendMessageWithButtons(ctx, *bot.ChatID, text, []tgclient.InlineKeyboardButton{
+		{Text: "✅ Confirm", CallbackData: callbackStem + ":" + tgclient.CallbackActionConfirm},
+		{Text: "⏰ Snooze", CallbackData: callbackStem + ":" + tgclient.CallbackActionSnooze},
+	})
 }
 
 // Delete unlinks the account's bot: it deletes the Telegram webhook (best

@@ -264,3 +264,169 @@ func TestSetMyProfilePhotoMultipartShape(t *testing.T) {
 		t.Errorf("missing image payload")
 	}
 }
+
+// med-76c.2: callback_data is the only thing that crosses back from a button
+// tap, so its grammar is a contract. "s:<slotUnix>:<action>" — anything else is
+// a tap we must refuse rather than guess at.
+func TestParseCallbackData(t *testing.T) {
+	for _, tc := range []struct {
+		data     string
+		wantSlot int64
+		wantAct  string
+		wantOK   bool
+	}{
+		{data: "s:1767225600:confirm", wantSlot: 1767225600, wantAct: "confirm", wantOK: true},
+		{data: "s:1767225600:snooze", wantSlot: 1767225600, wantAct: "snooze", wantOK: true},
+		{data: "s:1767225600:detonate"},  // unknown action
+		{data: "i:intake-7-123:confirm"}, // retired per-intake namespace
+		{data: "s::confirm"},             // empty slot
+		{data: "s:abc:confirm"},          // non-numeric slot
+		{data: "s:-5:confirm"},           // non-positive slot
+		{data: "s:1767225600"},           // no action
+		{data: "confirm"},                // no namespace
+		{data: ""},                       // empty
+		{data: "s:1767225600:confirm:extra", wantSlot: 1767225600, wantAct: "", wantOK: false},
+	} {
+		slot, action, ok := ParseCallbackData(tc.data)
+		if ok != tc.wantOK {
+			t.Errorf("ParseCallbackData(%q) ok = %v, want %v", tc.data, ok, tc.wantOK)
+			continue
+		}
+		if ok && (slot != tc.wantSlot || action != tc.wantAct) {
+			t.Errorf("ParseCallbackData(%q) = (%d, %q), want (%d, %q)", tc.data, slot, action, tc.wantSlot, tc.wantAct)
+		}
+	}
+}
+
+// ValidCallbackStem gates what a client may put in the queue and therefore what
+// the relay puts in a button. Empty means "no buttons" and must stay legal.
+func TestValidCallbackStem(t *testing.T) {
+	valid := []string{"", "s:1", "s:1767225600"}
+	for _, s := range valid {
+		if !ValidCallbackStem(s) {
+			t.Errorf("ValidCallbackStem(%q) = false, want true", s)
+		}
+	}
+	invalid := []string{
+		"s:", "s:abc", "i:intake-7-1:confirm", "x:1", "1767225600",
+		"s:1767225600:confirm",         // an already-built callback_data, not a stem
+		"s:99999999999999999999999999", // over the length cap
+	}
+	for _, s := range invalid {
+		if ValidCallbackStem(s) {
+			t.Errorf("ValidCallbackStem(%q) = true, want false", s)
+		}
+	}
+}
+
+// A round-trip guard: whatever stem the relay accepts, appending an action must
+// produce data ParseCallbackData reads back — and stay inside Telegram's 64-byte
+// callback_data limit.
+func TestCallbackStemRoundTripsAndFitsTelegramLimit(t *testing.T) {
+	stem := "s:1767225600"
+	if !ValidCallbackStem(stem) {
+		t.Fatalf("stem %q rejected", stem)
+	}
+	for _, action := range []string{CallbackActionConfirm, CallbackActionSnooze} {
+		data := stem + ":" + action
+		if len(data) > 64 {
+			t.Errorf("callback_data %q is %d bytes, over Telegram's 64-byte limit", data, len(data))
+		}
+		slot, got, ok := ParseCallbackData(data)
+		if !ok || slot != 1767225600 || got != action {
+			t.Errorf("round-trip %q = (%d, %q, %v)", data, slot, got, ok)
+		}
+	}
+}
+
+func TestSendMessageWithButtonsPayloadShape(t *testing.T) {
+	f, srv := newFake(t)
+	defer srv.Close()
+
+	c := New("123:ABC", srv.URL)
+	err := c.SendMessageWithButtons(context.Background(), 42, "Time to take: Lisinopril", []InlineKeyboardButton{
+		{Text: "✅ Confirm", CallbackData: "s:1767225600:confirm"},
+		{Text: "⏰ Snooze", CallbackData: "s:1767225600:snooze"},
+	})
+	if err != nil {
+		t.Fatalf("SendMessageWithButtons: %v", err)
+	}
+	if f.lastMethod != "sendMessage" {
+		t.Fatalf("called %q, want sendMessage", f.lastMethod)
+	}
+	markup, ok := f.lastBody["reply_markup"].(map[string]any)
+	if !ok {
+		t.Fatalf("reply_markup missing: %#v", f.lastBody)
+	}
+	rows, ok := markup["inline_keyboard"].([]any)
+	if !ok || len(rows) != 1 {
+		t.Fatalf("inline_keyboard = %#v, want one row", markup["inline_keyboard"])
+	}
+	buttons, _ := rows[0].([]any)
+	if len(buttons) != 2 {
+		t.Fatalf("want 2 buttons, got %d", len(buttons))
+	}
+	first, _ := buttons[0].(map[string]any)
+	if first["callback_data"] != "s:1767225600:confirm" {
+		t.Errorf("first button = %#v", first)
+	}
+}
+
+// No buttons must mean no reply_markup at all — Telegram renders an empty
+// keyboard object as a stuck, tappable-but-dead row.
+func TestSendMessageWithButtonsOmitsMarkupWhenEmpty(t *testing.T) {
+	f, srv := newFake(t)
+	defer srv.Close()
+
+	c := New("123:ABC", srv.URL)
+	if err := c.SendMessageWithButtons(context.Background(), 42, "BP reminder", nil); err != nil {
+		t.Fatalf("SendMessageWithButtons: %v", err)
+	}
+	if _, present := f.lastBody["reply_markup"]; present {
+		t.Errorf("reply_markup present for a button-less message: %#v", f.lastBody)
+	}
+}
+
+func TestAnswerCallbackQueryPayloadShape(t *testing.T) {
+	f, srv := newFake(t)
+	defer srv.Close()
+
+	c := New("123:ABC", srv.URL)
+	if err := c.AnswerCallbackQuery(context.Background(), "cbq-1", "Saved"); err != nil {
+		t.Fatalf("AnswerCallbackQuery: %v", err)
+	}
+	if f.lastMethod != "answerCallbackQuery" {
+		t.Fatalf("called %q", f.lastMethod)
+	}
+	if f.lastBody["callback_query_id"] != "cbq-1" || f.lastBody["text"] != "Saved" {
+		t.Errorf("body = %#v", f.lastBody)
+	}
+}
+
+func TestUpdateDecodesCallbackQuery(t *testing.T) {
+	var upd Update
+	raw := `{"update_id":5,"callback_query":{"id":"cbq-9","data":"s:1767225600:confirm","from":{"id":7},"message":{"message_id":3,"chat":{"id":100,"type":"private"}}}}`
+	if err := json.Unmarshal([]byte(raw), &upd); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if upd.CallbackQuery == nil || upd.CallbackQuery.ID != "cbq-9" || upd.CallbackQuery.Data != "s:1767225600:confirm" {
+		t.Fatalf("callback_query = %#v", upd.CallbackQuery)
+	}
+	if upd.CallbackQuery.Message == nil || upd.CallbackQuery.Message.Chat.ID != 100 {
+		t.Fatalf("callback_query.message = %#v", upd.CallbackQuery.Message)
+	}
+}
+
+// The invariant the two functions must jointly hold: a stem the relay accepts,
+// with an action appended, is data the webhook can parse. Guards against the two
+// drifting apart (an over-long or overflowing slot was accepted once).
+func TestEveryAcceptedStemParsesBack(t *testing.T) {
+	for _, stem := range []string{"s:1", "s:1767225600", "s:9223372036854775807"} {
+		if !ValidCallbackStem(stem) {
+			continue // rejected is fine; accepted-but-unparseable is not
+		}
+		if _, _, ok := ParseCallbackData(stem + ":" + CallbackActionConfirm); !ok {
+			t.Errorf("stem %q accepted but its callback_data does not parse back", stem)
+		}
+	}
+}

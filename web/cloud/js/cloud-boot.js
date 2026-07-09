@@ -239,9 +239,23 @@ window.MedTrackerCloudReady = (async function boot() {
         // Telegram events to it (bd med-76c.2). Generates the keypair on the
         // first unlock that finds none. Best-effort: a failure here means
         // inbound events are refused server-side, not that the app degrades.
+        //
+        // Then drain whatever the relay sealed while we were away: a Confirm
+        // tapped in Telegram at 09:00 is applied here, backdated to 09:00, on
+        // the first unlock after it. Key publish must land first — draining
+        // needs the private key it reads from the vault. Reminders are recomputed
+        // afterwards because a confirmed dose removes its own re-reminders.
         import('/js/inbox.js')
-            .then(({ ensureInboxKey }) => ensureInboxKey(ctx))
-            .catch((e) => console.error('[cloud-boot] inbox key publish failed', e));
+            .then(async ({ ensureInboxKey, drainInbox }) => {
+                await ensureInboxKey(ctx);
+                const { createInboxApplier } = await import('/js/inbox-apply.js');
+                const result = await drainInbox(ctx, { apply: createInboxApplier(ctx) });
+                if (result.applied > 0) {
+                    const { scheduleReminderRecompute } = await import('/js/reminders.js');
+                    scheduleReminderRecompute(ctx);
+                }
+            })
+            .catch((e) => console.error('[cloud-boot] inbox key publish/drain failed', e));
 
         // Snooze / don't-bug taps from a push notification (med-9b8.3). The
         // service worker has no DEK, so it hands the action here instead of
