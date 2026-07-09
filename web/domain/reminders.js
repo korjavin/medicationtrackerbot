@@ -158,7 +158,11 @@ export function computeReminderHorizon({
     bySlot.set(t.scheduledAtMs, list);
   }
   for (const [slotMs, names] of bySlot) {
-    entries.push({ fireAtUnix: Math.floor(slotMs / 1000), kind: 'medication', text: doseSlotText(names), genericText: GENERIC_DOSE_TEXT });
+    const slotUnix = Math.floor(slotMs / 1000);
+    // callback carries the SLOT, not a medication: one Telegram message covers
+    // every med due at this instant, so one Confirm tap covers all of them.
+    // The relay appends ":confirm"/":snooze" to build the two buttons.
+    entries.push({ fireAtUnix: slotUnix, kind: 'medication', text: doseSlotText(names), genericText: GENERIC_DOSE_TEXT, callback: `s:${slotUnix}` });
   }
 
   // Ported from medication_reminder.go's Check: re-remind a still-PENDING
@@ -173,8 +177,12 @@ export function computeReminderHorizon({
     let fireMs = snoozedUntilMs !== null ? snoozedUntilMs : scheduledMs + REREMIND_GRACE_MS;
     if (fireMs < now) fireMs = now;
     const text = `\u{1F514} REMINDER: You haven't confirmed taking ${medDisplayName(med)} yet on ${formatHHMM(scheduledMs, timeZone)}!`;
+    // A re-reminder nags about one med, but its buttons act on the dose slot it
+    // was scheduled in — same stem as the original reminder, so confirming from
+    // either message converges on the same intakes.
+    const callback = `s:${Math.floor(scheduledMs / 1000)}`;
     for (let i = 0; i < MAX_REREMINDS_PER_INTAKE; i++) {
-      entries.push({ fireAtUnix: Math.floor(fireMs / 1000), kind: 'medication', text, genericText: GENERIC_REREMIND_TEXT });
+      entries.push({ fireAtUnix: Math.floor(fireMs / 1000), kind: 'medication', text, genericText: GENERIC_REREMIND_TEXT, callback });
       fireMs += REREMIND_INTERVAL_MS;
     }
   }

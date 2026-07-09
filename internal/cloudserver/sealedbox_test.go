@@ -27,6 +27,11 @@ type sealedVector struct {
 	RecipientPublic  string `json:"recipient_public_b64"`
 	Plaintext        string `json:"plaintext"`
 	Sealed           string `json:"sealed_b64"`
+	// A second event sealed to the same recipient, carrying an EARLIER at_unix.
+	// The browser's drain test uses it to prove it applies events in sealed
+	// server-timestamp order rather than in mailbox arrival order.
+	PlaintextEarlier string `json:"plaintext_earlier"`
+	SealedEarlier    string `json:"sealed_earlier_b64"`
 }
 
 // countingReader yields a fixed byte pattern so sealInbox picks a deterministic
@@ -59,7 +64,7 @@ func fixedRecipient(t *testing.T) (*ecdh.PrivateKey, []byte) {
 // key it holds, and only the private-key holder can open it.
 func TestSealInbox_RoundTrip(t *testing.T) {
 	priv, privRaw := fixedRecipient(t)
-	plaintext := []byte(`{"kind":"intake_action","intake_id":"intake-7-1767225600","action":"confirm","at_unix":1767225600}`)
+	plaintext := []byte(`{"kind":"intake_slot_action","slot_unix":1767225600,"action":"confirm","at_unix":1767225600}`)
 
 	sealed, err := sealInbox(rand.Reader, priv.PublicKey().Bytes(), "acct-1", plaintext)
 	if err != nil {
@@ -140,11 +145,17 @@ func TestSealInbox_RejectsBadPublicKey(t *testing.T) {
 // server seals. Rerun with -update-inbox-vector only when that is intended.
 func TestSealInbox_CrossLanguageVector(t *testing.T) {
 	priv, privRaw := fixedRecipient(t)
-	plaintext := `{"kind":"intake_action","intake_id":"intake-7-1767225600","action":"confirm","at_unix":1767225600}`
+	plaintext := `{"kind":"intake_slot_action","slot_unix":1767225600,"action":"confirm","at_unix":1767225600}`
 
 	sealed, err := sealInbox(&countingReader{}, priv.PublicKey().Bytes(), "acct-vector", []byte(plaintext))
 	if err != nil {
 		t.Fatalf("sealInbox: %v", err)
+	}
+
+	earlier := `{"kind":"intake_slot_action","slot_unix":1767225600,"action":"snooze","at_unix":1767225000}`
+	sealedEarlier, err := sealInbox(&countingReader{n: 99}, priv.PublicKey().Bytes(), "acct-vector", []byte(earlier))
+	if err != nil {
+		t.Fatalf("sealInbox earlier: %v", err)
 	}
 
 	got := sealedVector{
@@ -154,6 +165,8 @@ func TestSealInbox_CrossLanguageVector(t *testing.T) {
 		RecipientPublic:  base64.StdEncoding.EncodeToString(priv.PublicKey().Bytes()),
 		Plaintext:        plaintext,
 		Sealed:           base64.StdEncoding.EncodeToString(sealed),
+		PlaintextEarlier: earlier,
+		SealedEarlier:    base64.StdEncoding.EncodeToString(sealedEarlier),
 	}
 
 	if *updateVector {

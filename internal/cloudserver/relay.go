@@ -59,7 +59,7 @@ type PushSender interface {
 // and learns nothing else about the account. Nil when the deployment has no
 // manager bot configured, in which case telegram entries are dropped.
 type TelegramSender interface {
-	SendReminder(ctx context.Context, accountID, text string) error
+	SendReminder(ctx context.Context, accountID, text, callbackStem string) error
 }
 
 // WebPushSender is the production PushSender. ct is already NK-encrypted
@@ -241,7 +241,7 @@ func (rl *Relay) sendTelegram(ctx context.Context, p cloudstore.ScheduledPush) {
 		slog.Warn("push relay: telegram entry but no telegram sender configured", "accountID", p.AccountID)
 		return
 	}
-	if err := rl.tg.SendReminder(ctx, p.AccountID, p.TGText); err != nil {
+	if err := rl.tg.SendReminder(ctx, p.AccountID, p.TGText, p.TGCallback); err != nil {
 		slog.Error("push relay: telegram send", "accountID", p.AccountID, "error", err)
 	}
 }

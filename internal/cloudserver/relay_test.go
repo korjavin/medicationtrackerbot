@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -278,12 +279,14 @@ func TestVAPIDSubjectFor(t *testing.T) {
 // fakeTGSender records every reminder the relay forwards to Telegram, and can
 // fail on demand so the "never wedge the queue" contract is observable.
 type fakeTGSender struct {
-	sent []string
-	err  error
+	sent      []string
+	callbacks []string
+	err       error
 }
 
-func (f *fakeTGSender) SendReminder(ctx context.Context, accountID, text string) error {
+func (f *fakeTGSender) SendReminder(ctx context.Context, accountID, text, callbackStem string) error {
 	f.sent = append(f.sent, text)
+	f.callbacks = append(f.callbacks, callbackStem)
 	return f.err
 }
 
@@ -403,5 +406,83 @@ func TestRelay_TelegramEntryWithNoSenderIsDropped(t *testing.T) {
 	}
 	if len(due) != 0 {
 		t.Fatalf("telegram entry left unsent with no sender configured: %+v", due)
+	}
+}
+
+// med-76c.2 part 2: a medication entry carries an "s:<slotUnix>" stem, which the
+// relay hands to the Telegram sender so it can render Confirm/Snooze. BP/weight
+// entries carry none and must stay button-less.
+func TestRelay_ForwardsCallbackStemForButtons(t *testing.T) {
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+
+	webauthnAPI := NewWebAuthnAPI(store, "test-session-secret-at-least-32-bytes-long")
+	pushAPI := NewPushAPI(store, &fakeSender{}, "test-session-secret-at-least-32-bytes-long")
+	mux := http.NewServeMux()
+	webauthnAPI.RegisterRoutes(mux)
+	pushAPI.RegisterRoutes(mux)
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
+	session := registerAndGetSession(t, h, host, claimToken)
+
+	past := time.Now().Add(-time.Minute).Unix()
+	putSchedule(t, h, host, session, putScheduleRequest{Entries: []scheduleEntryWire{
+		{FireAtUnix: past, Delivery: "telegram", TGText: "Time to take: Lisinopril", TGCallback: "s:1767225600"},
+		{FireAtUnix: past, Delivery: "telegram", TGText: "Time to measure your BP"},
+	}})
+
+	tg := &fakeTGSender{}
+	NewRelay(store, &fakeSender{goneFor: map[string]bool{}}, tg, 0).Tick(context.Background())
+
+	if len(tg.callbacks) != 2 {
+		t.Fatalf("forwarded %d entries, want 2", len(tg.callbacks))
+	}
+	byText := map[string]string{}
+	for i, text := range tg.sent {
+		byText[text] = tg.callbacks[i]
+	}
+	if got := byText["Time to take: Lisinopril"]; got != "s:1767225600" {
+		t.Errorf("medication stem = %q, want s:1767225600", got)
+	}
+	if got := byText["Time to measure your BP"]; got != "" {
+		t.Errorf("BP reminder carried a stem %q — it has no intake to confirm", got)
+	}
+}
+
+// The stem becomes callback_data on a button the relay sends as the user. Only
+// the grammar the webhook can parse back may be stored.
+func TestPutSchedule_RejectsMalformedCallbackStem(t *testing.T) {
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+
+	webauthnAPI := NewWebAuthnAPI(store, "test-session-secret-at-least-32-bytes-long")
+	pushAPI := NewPushAPI(store, &fakeSender{}, "test-session-secret-at-least-32-bytes-long")
+	mux := http.NewServeMux()
+	webauthnAPI.RegisterRoutes(mux)
+	pushAPI.RegisterRoutes(mux)
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
+	session := registerAndGetSession(t, h, host, claimToken)
+
+	past := time.Now().Add(-time.Minute).Unix()
+	for _, stem := range []string{"i:intake-7-1", "s:abc", "s:", "s:1:confirm", strings.Repeat("s:1", 20)} {
+		body, _ := json.Marshal(putScheduleRequest{Entries: []scheduleEntryWire{
+			{FireAtUnix: past, Delivery: "telegram", TGText: "x", TGCallback: stem},
+		}})
+		rec := doReq(t, h, http.MethodPut, "http://"+host+"/api/push/schedule", host, session, body)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("stem %q accepted (status %d), want 400", stem, rec.Code)
+		}
+	}
+
+	// The legal shapes still pass.
+	for _, stem := range []string{"", "s:1767225600"} {
+		body, _ := json.Marshal(putScheduleRequest{Entries: []scheduleEntryWire{
+			{FireAtUnix: past, Delivery: "telegram", TGText: "x", TGCallback: stem},
+		}})
+		rec := doReq(t, h, http.MethodPut, "http://"+host+"/api/push/schedule", host, session, body)
+		if rec.Code != http.StatusNoContent {
+			t.Errorf("stem %q rejected (status %d)", stem, rec.Code)
+		}
 	}
 }

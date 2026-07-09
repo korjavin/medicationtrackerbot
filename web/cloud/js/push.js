@@ -171,6 +171,10 @@ export async function pushSchedule(ctx, reminders, pref = {}) {
     }
     if (needsText) {
       entry.tg_text = verbosity === 'generic' ? (r.genericText || r.text) : r.text;
+      // Medication entries carry an "s:<slotUnix>" stem; the relay turns it into
+      // Confirm/Snooze buttons. BP/weight reminders have no stem and no buttons.
+      // Safe at either verbosity: the slot instant is already fire_at_unix.
+      if (r.callback) entry.tg_callback = r.callback;
     }
     entries.push(entry);
   }

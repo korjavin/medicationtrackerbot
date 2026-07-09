@@ -3,16 +3,21 @@ package cloudserver
 import (
 	"bytes"
 	"context"
+	"crypto/ecdh"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/korjavin/medicationtrackerbot/internal/tgclient"
 
 	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
 )
@@ -209,7 +214,8 @@ type recordingTG struct {
 
 type recordMu struct {
 	sync.Mutex
-	sent []string
+	sent     []string
+	answered []string
 }
 
 func newRecordingTG(t *testing.T) *recordingTG {
@@ -234,6 +240,12 @@ func newRecordingTG(t *testing.T) *recordingTG {
 			rec.mu.sent = append(rec.mu.sent, string(b))
 			rec.mu.Unlock()
 			io.WriteString(w, `{"ok":true,"result":{}}`)
+		case "answerCallbackQuery":
+			b, _ := io.ReadAll(r.Body)
+			rec.mu.Lock()
+			rec.mu.answered = append(rec.mu.answered, string(b))
+			rec.mu.Unlock()
+			io.WriteString(w, `{"ok":true,"result":true}`)
 		default:
 			io.WriteString(w, `{"ok":true,"result":{}}`)
 		}
@@ -822,5 +834,225 @@ func TestChildWebhookRace(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("ChildWebhook timed out waiting for bot row")
+	}
+}
+
+// --- med-76c.2 part 2: inbound Confirm/Snooze taps -------------------------
+
+type tapFixture struct {
+	store     *cloudstore.Repo
+	accountID string
+	top       *http.ServeMux
+	childPath string
+	secret    string
+}
+
+// linkedBotTap builds an account whose bot is provisioned and whose chat (12345)
+// is linked — the state a Confirm/Snooze tap arrives in.
+func linkedBotTap(t *testing.T, tg *recordingTG) tapFixture {
+	t.Helper()
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+
+	webauthnAPI := NewWebAuthnAPI(store, tgTestSecret)
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, 14*24*time.Hour)
+	if err := tgAPI.Bootstrap(t.Context()); err != nil {
+		t.Fatalf("Bootstrap: %v", err)
+	}
+	apiMux := http.NewServeMux()
+	webauthnAPI.RegisterRoutes(apiMux)
+	tgAPI.RegisterAPIRoutes(apiMux)
+	router := New("localhost", store, testFS(), testAppFS(), testDomainFS(), apiMux, "", false, false)
+	top := http.NewServeMux()
+	tgAPI.RegisterWebhookRoutes(top)
+	top.Handle("/", router)
+
+	session := registerAndGetSession(t, top, host, claimToken)
+	provRec := doReq(t, top, http.MethodPost, "http://"+host+"/api/telegram/provision", host, session, nil)
+	if provRec.Code != http.StatusOK {
+		t.Fatalf("provision status = %d", provRec.Code)
+	}
+	var prov struct {
+		Suggested string `json:"suggested_username"`
+	}
+	if err := json.Unmarshal(provRec.Body.Bytes(), &prov); err != nil {
+		t.Fatalf("decode provision: %v", err)
+	}
+	managerSecret := deriveWebhookSecret(tgTestSecret, "mt/tg-manager-webhook/v1")
+	update := `{"update_id":1,"message":{"message_id":1,"from":{"id":6918132008},"chat":{"id":100,"type":"private"},"managed_bot_created":{"bot":{"id":909,"username":"` + prov.Suggested + `"}}}}`
+	if rec := postWebhook(t, top, "/tg/manager/"+managerSecret, managerSecret, update); rec.Code != http.StatusOK {
+		t.Fatalf("manager webhook status = %d", rec.Code)
+	}
+	bot, err := store.BotByAccount(t.Context(), account.ID)
+	if err != nil {
+		t.Fatalf("BotByAccount: %v", err)
+	}
+	childPath := "/tg/bot/" + account.ID + "/" + bot.WebhookSecret
+	start := `{"update_id":2,"message":{"message_id":1,"text":"/start","chat":{"id":12345,"type":"private"}}}`
+	if rec := postWebhook(t, top, childPath, bot.WebhookSecret, start); rec.Code != http.StatusOK {
+		t.Fatalf("/start webhook status = %d", rec.Code)
+	}
+
+	// Forget the welcome message so tests assert only on what the tap produced.
+	tg.mu.Lock()
+	tg.mu.sent = nil
+	tg.mu.answered = nil
+	tg.mu.Unlock()
+
+	return tapFixture{store: store, accountID: account.ID, top: top, childPath: childPath, secret: bot.WebhookSecret}
+}
+
+func callbackUpdate(data string, chatID int64) string {
+	return `{"update_id":3,"callback_query":{"id":"cbq-1","data":"` + data +
+		`","from":{"id":6918132008},"message":{"message_id":9,"chat":{"id":` +
+		strconv.FormatInt(chatID, 10) + `,"type":"private"}}}}`
+}
+
+// publishInboxKey gives the account a real X25519 inbox key and returns the raw
+// private half so the test can open whatever the webhook sealed.
+func publishInboxKey(t *testing.T, store *cloudstore.Repo, accountID string) []byte {
+	t.Helper()
+	priv, err := ecdh.X25519().GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate inbox key: %v", err)
+	}
+	if err := store.SetAccountInboxPublicKey(t.Context(), accountID, priv.PublicKey().Bytes()); err != nil {
+		t.Fatalf("SetAccountInboxPublicKey: %v", err)
+	}
+	return priv.Bytes()
+}
+
+func inboxCount(t *testing.T, store *cloudstore.Repo, accountID string) int {
+	t.Helper()
+	events, err := store.ListInboxEvents(t.Context(), accountID, 100)
+	if err != nil {
+		t.Fatalf("ListInboxEvents: %v", err)
+	}
+	return len(events)
+}
+
+// The happy path: a Confirm tap is sealed to the account's inbox key, queued,
+// and the button is answered. The server applies nothing and stores no plaintext.
+func TestChildWebhook_CallbackQuerySealsEventToMailbox(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg)
+	privRaw := publishInboxKey(t, f.store, f.accountID)
+
+	before := time.Now().UTC().Unix()
+	rec := postWebhook(t, f.top, f.childPath, f.secret, callbackUpdate("s:1767225600:confirm", 12345))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("callback webhook status = %d, body %q", rec.Code, rec.Body.String())
+	}
+
+	events, err := f.store.ListInboxEvents(t.Context(), f.accountID, 10)
+	if err != nil {
+		t.Fatalf("ListInboxEvents: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("queued %d events, want 1", len(events))
+	}
+	// Nothing readable is stored: the row must not contain the action in clear.
+	if bytes.Contains(events[0].CT, []byte("confirm")) || bytes.Contains(events[0].CT, []byte("intake_slot_action")) {
+		t.Fatal("mailbox row contains plaintext")
+	}
+
+	opened, err := openInbox(privRaw, f.accountID, events[0].CT)
+	if err != nil {
+		t.Fatalf("openInbox: %v", err)
+	}
+	var got intakeSlotEvent
+	if err := json.Unmarshal(opened, &got); err != nil {
+		t.Fatalf("unmarshal sealed event: %v", err)
+	}
+	if got.Kind != inboxEventKindIntakeSlot || got.SlotUnix != 1767225600 || got.Action != tgclient.CallbackActionConfirm {
+		t.Fatalf("sealed event = %+v", got)
+	}
+	// The SERVER stamps the tap instant — that is what backdates the intake.
+	if got.AtUnix < before || got.AtUnix > time.Now().UTC().Unix()+2 {
+		t.Errorf("at_unix = %d, want a server timestamp near now (%d)", got.AtUnix, before)
+	}
+
+	tg.mu.Lock()
+	defer tg.mu.Unlock()
+	if len(tg.mu.answered) != 1 || !strings.Contains(tg.mu.answered[0], "cbq-1") {
+		t.Fatalf("button not answered: %v", tg.mu.answered)
+	}
+}
+
+// The zero-knowledge invariant. An account that never unlocked a client has no
+// inbox key, so there is nothing to seal to. The tap is DROPPED — never written
+// readable — and the user is told to open the app.
+func TestChildWebhook_CallbackQueryWithoutInboxKeyDropsRatherThanStorePlaintext(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg) // no publishInboxKey
+
+	rec := postWebhook(t, f.top, f.childPath, f.secret, callbackUpdate("s:1767225600:confirm", 12345))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (a dropped tap is not re-driven)", rec.Code)
+	}
+	if n := inboxCount(t, f.store, f.accountID); n != 0 {
+		t.Fatalf("queued %d events without an inbox key, want 0", n)
+	}
+
+	tg.mu.Lock()
+	defer tg.mu.Unlock()
+	if len(tg.mu.answered) != 1 || !strings.Contains(tg.mu.answered[0], "Open the app") {
+		t.Fatalf("expected the open-the-app answer, got %v", tg.mu.answered)
+	}
+}
+
+// Garbage callback_data is answered (so the button stops spinning) and dropped.
+func TestChildWebhook_CallbackQueryUnparseableIsAnsweredAndDropped(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg)
+	publishInboxKey(t, f.store, f.accountID)
+
+	for _, data := range []string{"i:intake-7-1:confirm", "s:abc:confirm", "s:1767225600:detonate", "nonsense"} {
+		rec := postWebhook(t, f.top, f.childPath, f.secret, callbackUpdate(data, 12345))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("data %q: status = %d", data, rec.Code)
+		}
+	}
+	if n := inboxCount(t, f.store, f.accountID); n != 0 {
+		t.Fatalf("queued %d events from unparseable data, want 0", n)
+	}
+	tg.mu.Lock()
+	defer tg.mu.Unlock()
+	if len(tg.mu.answered) != 4 {
+		t.Fatalf("answered %d of 4 taps — a button would spin forever", len(tg.mu.answered))
+	}
+}
+
+// A tap from a chat that is not the linked one is not this account's user.
+func TestChildWebhook_CallbackQueryFromForeignChatIsIgnored(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg)
+	publishInboxKey(t, f.store, f.accountID)
+
+	rec := postWebhook(t, f.top, f.childPath, f.secret, callbackUpdate("s:1767225600:confirm", 999))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if n := inboxCount(t, f.store, f.accountID); n != 0 {
+		t.Fatalf("queued %d events from a foreign chat, want 0", n)
+	}
+}
+
+// Re-delivery of the same tap queues a second event. That is fine — the client's
+// apply is idempotent — but it must never be lost, and it must never 500.
+func TestChildWebhook_CallbackQueryRedeliveryQueuesAgainAndStays200(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg)
+	publishInboxKey(t, f.store, f.accountID)
+
+	body := callbackUpdate("s:1767225600:snooze", 12345)
+	for i := 0; i < 2; i++ {
+		if rec := postWebhook(t, f.top, f.childPath, f.secret, body); rec.Code != http.StatusOK {
+			t.Fatalf("delivery %d: status = %d", i, rec.Code)
+		}
+	}
+	if n := inboxCount(t, f.store, f.accountID); n != 2 {
+		t.Fatalf("queued %d events, want 2 (at-least-once; the client converges)", n)
 	}
 }
