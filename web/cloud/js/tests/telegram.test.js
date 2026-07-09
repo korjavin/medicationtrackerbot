@@ -73,6 +73,26 @@ describe('telegram.js onboarding module', () => {
     expect(app.querySelector('#tg-skip')).toBeNull();
   });
 
+  // med-vb7: in the wizard the section is the page and owns the <h1>; mounted
+  // in Settings it sits under the page's own <h1> next to <h2> siblings, so a
+  // second <h1> there would both look wrong and break the heading outline.
+  it('titles itself <h1> in the wizard but <h2> in settings mode', async () => {
+    const status = {
+      '/api/telegram/status': { ok: true, json: async () => ({ enabled: true, state: 'none' }) },
+    };
+
+    global.fetch = fetchStub(status);
+    await mountTelegram(app, { onDone: () => {} });
+    expect(app.querySelector('h1')).not.toBeNull();
+    expect(app.querySelector('h2')).toBeNull();
+
+    app.innerHTML = '';
+    global.fetch = fetchStub(status);
+    await mountTelegram(app, {});
+    expect(app.querySelector('h1')).toBeNull();
+    expect(app.querySelector('h2').textContent).toBe('Get reminders on Telegram');
+  });
+
   it('pending state renders the deep-link button, not a linkless waiting page', async () => {
     // Regression (med-eas.31): the poll on the 'pending' state used to clobber
     // the create-bot page with a linkless "waiting" page. Status now carries the

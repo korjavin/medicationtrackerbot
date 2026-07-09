@@ -55,6 +55,10 @@ export async function getStatus() {
 export async function mountTelegram(container, opts = {}) {
   const onDone = opts.onDone;
   const inWizard = typeof onDone === 'function';
+  // In the wizard this section is the whole page, so it owns the <h1>. In
+  // Settings it is one block under the page's own <h1>, alongside <h2>
+  // siblings like "Claude connector".
+  const h = inWizard ? 'h1' : 'h2';
   let timer = null;
 
   const stopPolling = () => {
@@ -139,7 +143,7 @@ export async function mountTelegram(container, opts = {}) {
     stopPolling();
     container.innerHTML = `
       <section class="wizard-step">
-        <h1>Get reminders on Telegram</h1>
+        <${h}>Get reminders on Telegram</${h}>
         <p>Optional. You can link a personal Telegram bot so this server can
            ring your medication reminders in a chat.</p>
         <p><strong>What the server sees:</strong> to send messages, the server
@@ -206,7 +210,7 @@ export async function mountTelegram(container, opts = {}) {
   function renderCreateBot(deepLink, suggested) {
     container.innerHTML = `
       <section class="wizard-step">
-        <h1>Create your bot</h1>
+        <${h}>Create your bot</${h}>
         <p>Tap below to open Telegram. It pre-fills a new bot named
            <strong>Med Tracker</strong> — <em>keep the suggested bot username</em>
            (<code id="tg-suggested"></code>) so we can link it automatically.</p>
@@ -267,7 +271,7 @@ export async function mountTelegram(container, opts = {}) {
   function renderOpenBot(status) {
     container.innerHTML = `
       <section class="wizard-step">
-        <h1>Open your bot</h1>
+        <${h}>Open your bot</${h}>
         <p>Your bot is ready. Open it and tap <strong>Start</strong> to connect
            it to your account.</p>
         <a id="tg-bot-link" class="button" target="_blank" rel="noopener"></a>
@@ -283,7 +287,7 @@ export async function mountTelegram(container, opts = {}) {
     stopPolling();
     container.innerHTML = `
       <section class="wizard-step">
-        <h1>Telegram connected</h1>
+        <${h}>Telegram connected</${h}>
         <p>Your bot <code id="tg-bot-username"></code> is linked. Send yourself
            a test notification to confirm it works.</p>
         <div class="wizard-actions">
