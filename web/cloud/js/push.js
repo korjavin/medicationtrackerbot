@@ -163,7 +163,10 @@ export async function pushSchedule(ctx, reminders, pref = {}) {
   for (const r of reminders) {
     const entry = { fire_at_unix: r.fireAtUnix, delivery };
     if (needsCT) {
-      const plaintext = new TextEncoder().encode(JSON.stringify({ title: 'Med Tracker', body: r.text }));
+      // `kind` rides inside the NK ciphertext (never on the wire in clear) so
+      // the service worker can attach the right Snooze / Don't-bug action
+      // buttons without the relay learning what sort of reminder this is.
+      const plaintext = new TextEncoder().encode(JSON.stringify({ title: 'Med Tracker', body: r.text, kind: r.kind }));
       entry.ct = toBase64(await encryptPushPayload(nk, plaintext));
     }
     if (needsText) {

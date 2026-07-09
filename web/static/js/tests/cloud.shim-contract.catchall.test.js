@@ -21,7 +21,8 @@ describe('cloud shim contract — unmapped-route fallback', () => {
     });
 
     it('rejects an unmapped write instead of resolving null', async () => {
-        await expect(env.window.offlineAwareApiCall('/api/bp/reminder/test', 'POST'))
+        // /api/bp/reminder/test used to live here; med-9b8.3 mapped it.
+        await expect(env.window.offlineAwareApiCall('/api/gamification/targets', 'PUT'))
             .rejects.toMatchObject({ status: 404 });
     });
 
