@@ -253,8 +253,8 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 	botID, botUsername, userID, ok := upd.ManagedBotCreatedInfo()
 	if !ok {
 		if upd.Message != nil && upd.Message.Chat.Type == "private" {
-			text := strings.TrimSpace(strings.ToLower(upd.Message.Text))
-			if text == "yes" || text == "sure" || text == "y" || text == "yeah" || text == "ok" || text == "okay" || text == "yep" || text == "absolutely" || text == "please" || text == "i do" {
+			switch text := strings.TrimSpace(strings.ToLower(upd.Message.Text)); text {
+			case "yes", "sure", "y", "yeah", "ok", "okay", "yep", "absolutely", "please", "i do":
 				now := time.Now()
 				inv, err := Provision(r.Context(), t.store, 14*24*time.Hour, now)
 				if err != nil {
@@ -265,10 +265,10 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 					msg := fmt.Sprintf("Great! Here is your invite link to claim your new Med Tracker account:\n\n%s\n\nOnce you claim it, you can follow the instructions to set up your own bot.", link)
 					t.manager.SendMessage(r.Context(), upd.Message.Chat.ID, msg)
 				}
-			} else if text == "/start" || text == "hi" || text == "hello" || text == "help" {
+			case "/start", "hi", "hello", "help":
 				msg := "Hi! I am the manager bot for Med Tracker. I help people set up their own personal health tracking bot (meds, vitals, food intake, weight, blood pressure).\n\nWould you like to try it out? If so, just reply with 'yes' and I will generate an invite link for you."
 				t.manager.SendMessage(r.Context(), upd.Message.Chat.ID, msg)
-			} else {
+			default:
 				msg := "I am a manager bot for Med Tracker. If you would like an invite to try it out, just reply with 'yes'."
 				t.manager.SendMessage(r.Context(), upd.Message.Chat.ID, msg)
 			}
