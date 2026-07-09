@@ -13,6 +13,9 @@ import {
   gzip,
   isGzip,
   parseRecoveryCode,
+  toBase64,
+  toBase64Url,
+  fromBase64,
   unwrapEnvelope,
   wrapEnvelope
 } from '../crypto.js';
@@ -146,5 +149,61 @@ describe('snapshot gzip (web/cloud/js/crypto.js gzip/gunzip/isGzip)', () => {
     expect(isGzip(new TextEncoder().encode('[{"recordId":"note-1"}]'))).toBe(false);
     expect(isGzip(new TextEncoder().encode('{}'))).toBe(false);
     expect(isGzip(new Uint8Array([0x1f]))).toBe(false); // too short to sniff
+  });
+});
+
+// med-9z3.8 — toBase64 sits on the snapshot upload path (snapshotAt -> toBase64(ct)),
+// so it runs on every import and every compaction. It used to grow the binary
+// string one char at a time (1096 ms per 24.5 MiB). Both the native path and the
+// chunked fallback must agree with each other and with Go's encoding/base64.
+describe('toBase64 (med-9z3.8)', () => {
+  const withoutNative = (fn) => {
+    const native = Uint8Array.prototype.toBase64;
+    // eslint-disable-next-line no-extend-native
+    if (native) delete Uint8Array.prototype.toBase64;
+    try {
+      return fn();
+    } finally {
+      // eslint-disable-next-line no-extend-native
+      if (native) Uint8Array.prototype.toBase64 = native;
+    }
+  };
+
+  // getRandomValues caps at 65,536 bytes, and a deterministic fill makes a
+  // failure reproducible anyway. Every byte value recurs, so a mangled chunk
+  // seam shows up as a base64 mismatch.
+  const filled = (n) => Uint8Array.from({ length: n }, (_, i) => (i * 31 + (i >> 8)) & 0xff);
+
+  const cases = [
+    ['empty', new Uint8Array(0)],
+    ['1 byte', new Uint8Array([0])],
+    ['every byte value', Uint8Array.from({ length: 256 }, (_, i) => i)],
+    // Straddle the 0x8000 chunk boundary: an off-by-one there corrupts the
+    // base64 mid-stream, and .apply() past ~65k args throws RangeError.
+    ['chunk boundary - 1', filled(0x8000 - 1)],
+    ['chunk boundary', filled(0x8000)],
+    ['chunk boundary + 1', filled(0x8000 + 1)],
+    ['multi-chunk, not a multiple of 3', filled(0x8000 * 2 + 7)],
+  ];
+
+  for (const [name, bytes] of cases) {
+    it(`matches Go's base64 and round-trips: ${name}`, () => {
+      const expected = Buffer.from(bytes).toString('base64');
+      expect(toBase64(bytes)).toBe(expected);
+      expect(withoutNative(() => toBase64(bytes))).toBe(expected);
+      expect(fromBase64(toBase64(bytes))).toEqual(bytes);
+    });
+  }
+
+  it('the chunked fallback agrees with the native method on a snapshot-sized buffer', () => {
+    const bytes = filled(1 << 20);
+    expect(withoutNative(() => toBase64(bytes))).toBe(toBase64(bytes));
+  });
+
+  it('toBase64Url still produces unpadded base64url over the fast path', () => {
+    const bytes = new Uint8Array([0xfb, 0xff, 0xfe, 0x00]);
+    expect(toBase64(bytes)).toBe('+//+AA==');
+    expect(toBase64Url(bytes)).toBe('-__-AA');
+    expect(withoutNative(() => toBase64Url(bytes))).toBe('-__-AA');
   });
 });
