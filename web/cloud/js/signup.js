@@ -23,6 +23,9 @@ const EXPIRED_LINK_MESSAGE = 'Could not start passkey registration — the invit
 // when the user clicks through and startRegistration calls begin again.
 export async function runSignupWizard(claimToken) {
   const app = document.getElementById('app');
+  // The probe is a network round-trip; without this #app would be blank until
+  // it resolves (and forever on a hung connection).
+  renderChecking(app);
   let res;
   try {
     res = await beginRegistration(claimToken);
@@ -46,6 +49,13 @@ function beginRegistration(claimToken) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ claim_token: claimToken }),
   });
+}
+
+function renderChecking(app) {
+  app.innerHTML = `
+    <section class="wizard-step">
+      <h1>Checking your invite…</h1>
+    </section>`;
 }
 
 function renderAlreadyClaimed(app) {

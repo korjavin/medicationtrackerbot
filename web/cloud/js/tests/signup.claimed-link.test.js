@@ -49,6 +49,21 @@ describe('runSignupWizard claim-state probe', () => {
     const app = dom.window.document.getElementById('app');
     expect(app.querySelector('#create-passkey')).not.toBeNull();
     expect(app.querySelector('.wizard-error')).toBeNull();
+    // Without the probe this case renders identically, so pin the call itself.
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      '/api/webauthn/register/begin',
+      expect.objectContaining({ body: JSON.stringify({ claim_token: 'tok123' }) }),
+    );
+  });
+
+  it('shows a wait screen while the probe is in flight, never a blank page', async () => {
+    globalThis.fetch = vi.fn(() => new Promise(() => {}));
+    runSignupWizard('tok123');
+    await Promise.resolve();
+
+    const app = dom.window.document.getElementById('app');
+    expect(app.textContent).toContain('Checking your invite');
+    expect(app.querySelector('#create-passkey')).toBeNull();
   });
 
   it('renders the passkey button with the expired-link message on 403', async () => {
