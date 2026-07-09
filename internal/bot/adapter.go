@@ -65,12 +65,6 @@ func (a *storeAdapter) GetWorkoutEnabled(ctx context.Context) (bool, error) {
 func (a *storeAdapter) GetFoodIntakeEnabled(ctx context.Context) (bool, error) {
 	return a.settings.GetFoodIntakeEnabled(ctx)
 }
-func (a *storeAdapter) GetLastDownload() (time.Time, error) {
-	return a.settings.GetLastDownload()
-}
-func (a *storeAdapter) UpdateLastDownload(t time.Time) error {
-	return a.settings.UpdateLastDownload(t)
-}
 func (a *storeAdapter) GetLatestChangeCursor(ctx context.Context) (int64, error) {
 	return a.settings.GetLatestChangeCursor(ctx)
 }
@@ -103,9 +97,6 @@ func (a *storeAdapter) ListLowOnStock(daysThreshold int) ([]store.Medication, er
 }
 func (a *storeAdapter) GetDaysOfStockRemaining(m *store.Medication) *float64 {
 	return a.med.GetDaysOfStockRemaining(m)
-}
-func (a *storeAdapter) ListIntakesSince(since time.Time) ([]store.IntakeWithMedication, error) {
-	return a.med.ListIntakesSince(since)
 }
 
 // Also satisfies domain.MedicationService's MedicationStore.

@@ -18,9 +18,6 @@ type MedicationStore interface {
 	GetIntakeBySchedule(medID int64, scheduledAt time.Time) (*store.IntakeLog, error)
 	ListLowOnStock(daysThreshold int) ([]store.Medication, error)
 	GetDaysOfStockRemaining(m *store.Medication) *float64
-	GetLastDownload() (time.Time, error)
-	ListIntakesSince(since time.Time) ([]store.IntakeWithMedication, error)
-	UpdateLastDownload(t time.Time) error
 }
 
 // BloodPressureStore is the subset of store operations needed for BP bot commands.
