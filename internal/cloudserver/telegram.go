@@ -252,7 +252,26 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	botID, botUsername, userID, ok := upd.ManagedBotCreatedInfo()
 	if !ok {
-		slog.Info("telegram manager webhook: update without managed_bot_created", "update_id", upd.UpdateID)
+		if upd.Message != nil && upd.Message.Text != "" {
+			text := strings.ToLower(strings.TrimSpace(upd.Message.Text))
+			if text == "yes" || text == "yep" || text == "sure" || text == "ok" || text == "try" || text == "y" || text == "agree" {
+				// User wants an invite
+				inv, err := Provision(r.Context(), t.store, 14*24*time.Hour, time.Now())
+				if err != nil {
+					slog.Error("telegram manager webhook: provision failed", "error", err)
+					_ = t.manager.SendMessage(r.Context(), upd.Message.Chat.ID, "Sorry, I couldn't generate an invite link right now. Please try again later.")
+				} else {
+					link := inv.ClaimURL(t.baseDomain)
+					_ = t.manager.SendMessage(r.Context(), upd.Message.Chat.ID, "Here is your invite link to get started: "+link)
+				}
+			} else {
+				// Ask if they want to onboard
+				msg := "Hi! I help with onboarding to a medbot for health tracking (meds, vitals, food intake, weight, bp).\n\nWould you like to try it out? Reply 'Yes' to get an invite link."
+				_ = t.manager.SendMessage(r.Context(), upd.Message.Chat.ID, msg)
+			}
+		} else {
+			slog.Info("telegram manager webhook: update without managed_bot_created", "update_id", upd.UpdateID)
+		}
 		w.WriteHeader(http.StatusOK)
 		return
 	}
