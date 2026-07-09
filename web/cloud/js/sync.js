@@ -656,6 +656,25 @@ export async function listRecords(ctx, recordType) {
     .sort((a, b) => b.clientTs - a.clientTs);
 }
 
+// Bounded record-store read over the PRIMARY key, for types whose recordId
+// embeds a lexicographically-chronological suffix (the vitals day-batches:
+// 'hrsample-2026-07-08'). Reading a 30-day window then costs 30 clones instead
+// of one per stored day — a multi-year account would otherwise re-expand every
+// day of history on every overview() call. Bot mode never loads those rows
+// either (SQL `date_time >=`, internal/store/vitals/repo.go).
+//
+// fromId/toId are INCLUSIVE. No index is needed: the store's keyPath is
+// recordId, and IDBKeyRange.bound over it is the primary-key range.
+export async function listRecordsInRange(ctx, recordType, fromId, toId) {
+  await bootstrapIfNeeded(ctx);
+  const records = await withStore('records', 'readonly', (store) => (
+    reqToPromise(store.getAll(IDBKeyRange.bound(fromId, toId)))
+  ));
+  return records
+    .filter((r) => r.recordType === recordType && !r.deleted)
+    .sort((a, b) => b.clientTs - a.clientTs);
+}
+
 export async function writeRecord(ctx, recordType, record) {
   await bootstrapIfNeeded(ctx);
   // Atomic w.r.t. replaceAllRecords' clear (see withRecordsLock): the record
@@ -670,13 +689,14 @@ export async function writeRecord(ctx, recordType, record) {
 }
 
 // Storage port handed to web/domain/'s createXDomain() factories: the generic
-// list/put/del trio, closed over ctx so domain code stays free of sync
-// internals (crypto, seq prediction, IndexedDB). del writes a tombstone via
+// list/listRange/put/del quartet, closed over ctx so domain code stays free of
+// sync internals (crypto, seq prediction, IndexedDB). del writes a tombstone via
 // writeRecord — same convergence semantics (LWW on clientTs) as every other
 // write.
 export function recordsPort(ctx) {
   return {
     list: (recordType) => listRecords(ctx, recordType),
+    listRange: (recordType, fromId, toId) => listRecordsInRange(ctx, recordType, fromId, toId),
     put: (recordType, record) => writeRecord(ctx, recordType, record),
     del: (recordType, recordId) => writeRecord(ctx, recordType, { recordId, clientTs: Date.now(), deleted: true }),
   };

@@ -35,6 +35,12 @@ function dayString(ms, timeZone) {
     .format(new Date(ms));
 }
 
+// The day-batch recordId suffix: the sample's UTC day (vault.js utcDay), which
+// is deliberately NOT dayString's local day.
+function utcDayString(ms) {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
 function calcAvg(values) {
   if (values.length === 0) return null;
   const sum = values.reduce((a, b) => a + b, 0);
@@ -90,8 +96,23 @@ function sleepToResponse(r) {
 //   now()    — current time in ms epoch
 //   timeZone — IANA zone string for the 7d/30d dashboard window boundaries
 export function createVitalsDomain({ records, now, timeZone }) {
-  async function readSamples(recordType) {
-    const all = await records.list(recordType);
+  // readSamples reads ONLY the day-batches overlapping [fromMs, toMs]. The batch
+  // recordIds are already '<type>-YYYY-MM-DD', and lexicographic order over that
+  // prefix is chronological, so a primary-key range is the whole window — no
+  // index, no schema change. Without the bound, a multi-year account re-expanded
+  // every stored day on every overview() call just to throw all but 30 away.
+  // Mirrors bot mode, which never loads those rows either (SQL `date_time >=`,
+  // internal/store/vitals/repo.go).
+  //
+  // The batch key is the sample's UTC day (vault.js utcDay), NOT its local day,
+  // so the range is derived in UTC and padded one day on each side: at a +14/-12
+  // offset the local day and the UTC day disagree, and an unpadded local-day
+  // bound would silently drop a whole edge batch. Overshooting costs at most two
+  // extra clones; the caller filters to the exact ms window anyway.
+  async function readSamples(recordType, fromMs, toMs) {
+    const fromDay = utcDayString(fromMs - DAY_MS);
+    const toDay = utcDayString(toMs + DAY_MS);
+    const all = await records.listRange(recordType, `${recordType}-${fromDay}`, `${recordType}-${toDay}`);
     const out = [];
     for (const rec of all) {
       if (rec.deleted || !Array.isArray(rec.samples)) continue;
@@ -118,7 +139,8 @@ export function createVitalsDomain({ records, now, timeZone }) {
   // vitalWindow computes 7d/30d averages + hourly history for one sample
   // stream, mirroring the repeated HR/SpO2/stress block in handleGetHealthOverview.
   async function vitalWindow(recordType, start7d, start30d, nowMs) {
-    const samples = (await readSamples(recordType)).filter((s) => s.ms >= start30d && s.ms <= nowMs);
+    const samples = (await readSamples(recordType, start30d, nowMs))
+      .filter((s) => s.ms >= start30d && s.ms <= nowMs);
     const samples7d = samples.filter((s) => s.ms >= start7d);
     return {
       avg7d: calcAvg(samples7d.map((s) => s.value)),

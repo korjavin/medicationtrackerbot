@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { deriveKData, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, generateDEK } from '../crypto.js';
-import { listRecords, readAllLiveRecords } from '../sync.js';
+import { listRecords, listRecordsInRange, readAllLiveRecords } from '../sync.js';
 import { openDb } from '../localdb.js';
 
 const accountId = 'amber-falcon-8k3q9x';
@@ -119,6 +119,43 @@ describe('listRecords reads via the recordType index (med-9z3.4)', () => {
     ]);
     const all = await readAllLiveRecords({});
     expect(all.map((r) => r.recordId).sort()).toEqual(['bp-1', 'hr-1']);
+  });
+
+  // med-9z3.3 — the vitals day-batch recordIds ('hrsample-2026-07-08') are
+  // lexicographically chronological, so a 30d window is a primary-key range. No
+  // index needed; the store's keyPath IS recordId.
+  it('listRecordsInRange returns only the requested type inside an inclusive key range', async () => {
+    await seed([
+      { recordId: 'hrsample-2026-06-30', recordType: 'hrsample', clientTs: 1, deleted: false },
+      { recordId: 'hrsample-2026-07-01', recordType: 'hrsample', clientTs: 2, deleted: false },
+      { recordId: 'hrsample-2026-07-05', recordType: 'hrsample', clientTs: 3, deleted: false },
+      { recordId: 'hrsample-2026-07-06', recordType: 'hrsample', clientTs: 4, deleted: true },
+      { recordId: 'hrsample-2026-07-09', recordType: 'hrsample', clientTs: 5, deleted: false },
+    ]);
+    const got = await listRecordsInRange({}, 'hrsample', 'hrsample-2026-07-01', 'hrsample-2026-07-06');
+    // Bounds inclusive; 06-30 and 07-09 fall outside; the 07-06 tombstone is dropped.
+    expect(got.map((r) => r.recordId)).toEqual(['hrsample-2026-07-05', 'hrsample-2026-07-01']);
+  });
+
+  it('listRecordsInRange never reads a whole day-batch stream (that is the point)', async () => {
+    const days = Array.from({ length: 400 }, (_, i) => {
+      const d = new Date(Date.UTC(2025, 0, 1) + i * 86400000).toISOString().slice(0, 10);
+      return { recordId: `hrsample-${d}`, recordType: 'hrsample', clientTs: i, deleted: false };
+    });
+    await seed(days);
+    const got = await listRecordsInRange({}, 'hrsample', 'hrsample-2025-03-01', 'hrsample-2025-03-30');
+    expect(got).toHaveLength(30);
+  });
+
+  it('a key range that spans into another type still returns only the requested type', async () => {
+    // 'intake-...' sorts after 'hrsample-...', but a caller passing a sloppy
+    // upper bound must not get foreign records back.
+    await seed([
+      { recordId: 'hrsample-2026-07-01', recordType: 'hrsample', clientTs: 1, deleted: false },
+      { recordId: 'intake-1-1751000000', recordType: 'intake', clientTs: 2, deleted: false },
+    ]);
+    const got = await listRecordsInRange({}, 'hrsample', 'hrsample-2026-07-01', 'zzz');
+    expect(got.map((r) => r.recordId)).toEqual(['hrsample-2026-07-01']);
   });
 
   it('upgrading a v2 database backfills the index from existing rows (no data migration)', async () => {
