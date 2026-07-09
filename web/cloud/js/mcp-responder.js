@@ -214,7 +214,7 @@ const RECONNECT_MAX_MS = 30000;
 // module). records/now/timeZone are the same ports apishim.js's domain
 // instances take.
 export function createResponder({
-  pairingId, key, records, now, timeZone, relayURL,
+  pairingId, key, records, now, timeZone, relayURL, onDefinitiveError,
 }) {
   const dispatcher = createDispatcher({
     bp: createBPDomain({ records, now, timeZone }),
@@ -267,9 +267,24 @@ export function createResponder({
     reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
   }
 
-  function connect() {
+  async function connect() {
     stopped = false;
     status = 'connecting';
+
+    // HTTP pre-flight to distinguish 404 (definitive rejection) from network drop
+    const httpURL = wsURL().replace(/^ws/, 'http');
+    try {
+      const res = await fetch(httpURL);
+      if (res.status === 404) {
+        status = 'idle';
+        if (onDefinitiveError) onDefinitiveError();
+        return;
+      }
+    } catch (e) {
+      // Network error during pre-flight, let the WS try/fail and backoff
+    }
+
+    if (stopped) return; // stopped while fetching
     ws = new WebSocket(wsURL());
     ws.binaryType = 'arraybuffer';
     ws.onopen = () => { status = 'linked'; reconnectDelay = RECONNECT_MIN_MS; };
@@ -323,12 +338,17 @@ async function reconcile() {
   if (!pairing) return;
   const { recordsPort } = await import('./sync.js');
   const { fromBase64 } = await import('./crypto.js');
+  const { disconnectClaude } = await import('./mcp-pairing.js');
   const responder = createResponder({
     pairingId: pairing.pairingId,
     key: fromBase64(pairing.key),
     records: recordsPort(controllerCtx),
     now: () => Date.now(),
     timeZone: (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC',
+    onDefinitiveError: () => {
+      console.warn('[mcp] pairing rejected by server (404), revoking vault record');
+      disconnectClaude(controllerCtx).catch((e) => console.error('[mcp] auto-disconnect failed', e));
+    },
   });
   active = { pairingId: pairing.pairingId, responder };
   responder.connect();
