@@ -179,15 +179,21 @@ module (it is exercised through the shim); any empty-vault signal in `bootstrapP
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] verify a fresh cloud vault reports `needs_first_run: true` and the overlay mounts
-- [ ] verify completing onboarding writes the vault record and a **reload** does not re-open the overlay
-      (the across-reload path, not just the in-page `_mounted` latch)
-- [ ] verify the flag round-trips through the encrypted record, i.e. it is on the `settings` singleton and not
-      a new record type
-- [ ] verify `GET /api/settings` and `GET /api/init` response shapes are unchanged
-- [ ] verify `VALID_STEPS` was **not** extended and no new screen module was added
-- [ ] `pnpm test` passes, including `architecture.domain-purity.test.js`
-- [ ] `go build ./...` and `go vet ./...` still pass (no Go changes expected — confirm the diff has none)
+- [x] verify a fresh cloud vault reports `needs_first_run: true` and the overlay mounts (asserted in
+      `cloud.shim-contract.settings.test.js` against a fresh in-memory records port)
+- [x] verify completing onboarding writes the vault record and a **reload** does not re-open the overlay
+      (the across-reload path, not just the in-page `_mounted` latch) — the POST → second `GET /api/bootstrap`
+      round trip in the same suite exercises exactly this, since `bootstrapPayload()` re-reads the vault
+- [x] verify the flag round-trips through the encrypted record, i.e. it is on the `settings` singleton and not
+      a new record type — `setFirstRunComplete` writes `GENERAL_RECORD_TYPE`/`GENERAL_RECORD_ID`, and the
+      no-clobber assertion on `dismissed_tz_suggestion` / `tab_order` proves it is the shared singleton
+- [x] verify `GET /api/settings` and `GET /api/init` response shapes are unchanged — `/api/settings` spreads
+      only `settingsBlock` + `features` (asserted: no `general`, no `first_run_complete`); `/api/init`
+      (`apishim.js:239`) never calls `settingsResponse()` and is untouched by the diff
+- [x] verify `VALID_STEPS` was **not** extended and no new screen module was added — still the four frozen
+      steps in `firstrun/state.js:22`; the diff touches 4 source files, none under `features/firstrun/`
+- [x] `pnpm test` passes, including `architecture.domain-purity.test.js` (281 files, 3006 passed, 29 skipped)
+- [x] `go build ./...` and `go vet ./...` still pass (no Go changes — the diff is JS + the plan file only)
 
 ### Task 6: [Final] Update documentation
 
