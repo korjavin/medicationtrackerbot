@@ -11,6 +11,46 @@
 // for the Telegram SDK upgrade.
 window.__MEDTRACKER_CLOUD__ = true;
 
+// Routes the service worker considers safe to replay from a notification tap.
+// Kept as an allowlist so a compromised/stale SW message can't drive arbitrary
+// shim writes (the SW is same-origin, but the page is the only holder of the DEK
+// and should decide what a notification button is allowed to do).
+const REMINDER_ACTION_ROUTES = {
+    bp_snooze: '/api/bp/reminder/snooze',
+    bp_dontbug: '/api/bp/reminder/dontbug',
+    weight_snooze: '/api/weight/reminder/snooze',
+    weight_dontbug: '/api/weight/reminder/dontbug',
+};
+
+function installReminderActionHandler(shimCall) {
+    const allowed = new Set(Object.values(REMINDER_ACTION_ROUTES));
+    const apply = (route) => {
+        if (!allowed.has(route)) return;
+        shimCall(route, 'POST').catch((e) => console.error('[cloud-boot] reminder action failed', e));
+    };
+
+    // Cold start: the SW opened us with ?reminder_action=<action>. Strip it so a
+    // refresh (or a shared link) can't replay the mute.
+    try {
+        const url = new URL(window.location.href);
+        const action = url.searchParams.get('reminder_action');
+        if (action) {
+            url.searchParams.delete('reminder_action');
+            window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+            apply(REMINDER_ACTION_ROUTES[action]);
+        }
+    } catch (e) {
+        console.error('[cloud-boot] reminder action url parse failed', e);
+    }
+
+    // Warm tab: the SW postMessages the route it resolved.
+    if (navigator.serviceWorker) {
+        navigator.serviceWorker.addEventListener('message', (event) => {
+            if (event.data && event.data.type === 'reminder-action') apply(event.data.route);
+        });
+    }
+}
+
 window.MedTrackerCloudReady = (async function boot() {
     // Invite/claim links (https://<acct>.cloud…/#claim=<token>) resolve to '/',
     // which serves web/static + this shim — not the passkey shell. Hand off to
@@ -194,6 +234,12 @@ window.MedTrackerCloudReady = (async function boot() {
         import('/js/mcp-responder.js')
             .then(({ refreshResponder }) => refreshResponder(ctx))
             .catch((e) => console.error('[cloud-boot] mcp responder failed', e));
+
+        // Snooze / don't-bug taps from a push notification (med-9b8.3). The
+        // service worker has no DEK, so it hands the action here instead of
+        // POSTing it itself: warm tab → postMessage, cold start → ?reminder_action.
+        // Runs only after unlock, which is exactly when shimCall can serve it.
+        installReminderActionHandler(shimCall);
     } catch (e) {
         // Boot the app degraded rather than redirecting — the vault is already
         // unlocked, so /unlock would just bounce straight back to / (med-eas.16).

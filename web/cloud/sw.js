@@ -112,11 +112,40 @@ async function decodePush(data) {
     if (!nk) return GENERIC_NOTIFICATION;
     const plaintext = await decryptPushPayload(nk, new Uint8Array(data));
     const payload = JSON.parse(new TextDecoder().decode(plaintext));
-    return { title: payload.title || GENERIC_NOTIFICATION.title, body: payload.body || GENERIC_NOTIFICATION.body };
+    return {
+      title: payload.title || GENERIC_NOTIFICATION.title,
+      body: payload.body || GENERIC_NOTIFICATION.body,
+      kind: payload.kind || '',
+    };
   } catch {
     return GENERIC_NOTIFICATION;
   }
 }
+
+// Snooze / don't-bug buttons, mirroring web/static/sw.js's bot-mode actions.
+// Only bp/weight have them — medication Confirm/Skip needs an intake id the
+// payload doesn't carry (bot mode reads it from the notification's data).
+const NOTIFICATION_ACTIONS = {
+  bp: [
+    { action: 'bp_snooze', title: 'Snooze 2h' },
+    { action: 'bp_dontbug', title: "Don't bug me" },
+  ],
+  weight: [
+    { action: 'weight_snooze', title: 'Snooze 2h' },
+    { action: 'weight_dontbug', title: "Don't bug me" },
+  ],
+};
+
+// The shim routes each action hits. Unlike bot mode — where the SW POSTs
+// straight to the server — the cloud shim lives in the PAGE and needs the DEK,
+// which the service worker does not have. So an action tap can only be handed
+// to an unlocked client; see the notificationclick handler below.
+const ACTION_ROUTES = {
+  bp_snooze: '/api/bp/reminder/snooze',
+  bp_dontbug: '/api/bp/reminder/dontbug',
+  weight_snooze: '/api/weight/reminder/snooze',
+  weight_dontbug: '/api/weight/reminder/dontbug',
+};
 
 self.addEventListener('push', (event) => {
   // PushMessageData.arrayBuffer() is synchronous (returns an ArrayBuffer, not a
@@ -125,19 +154,35 @@ self.addEventListener('push', (event) => {
   const buf = event.data ? event.data.arrayBuffer() : null;
   event.waitUntil(
     Promise.resolve(buf && buf.byteLength ? decodePush(buf) : GENERIC_NOTIFICATION).then((n) =>
-      self.registration.showNotification(n.title, { body: n.body })
+      self.registration.showNotification(n.title, {
+        body: n.body,
+        actions: NOTIFICATION_ACTIONS[n.kind] || [],
+      })
     )
   );
 });
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+  const route = ACTION_ROUTES[event.action];
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
-      for (const client of clients) {
-        if ('focus' in client) return client.focus();
+      const client = clients.find((c) => 'focus' in c);
+      if (!route) {
+        if (client) return client.focus();
+        return self.clients.openWindow ? self.clients.openWindow('/') : undefined;
       }
-      if (self.clients.openWindow) return self.clients.openWindow('/');
+      // An open tab may still be locked, so the page — not the SW — decides
+      // whether it can apply the action now or must wait for unlock. A cold
+      // start carries the action in the URL, which cloud-boot.js drains after
+      // the vault opens. Either way the SW never touches the vault.
+      if (client) {
+        client.postMessage({ type: 'reminder-action', route });
+        return client.focus();
+      }
+      return self.clients.openWindow
+        ? self.clients.openWindow(`/?reminder_action=${encodeURIComponent(event.action)}`)
+        : undefined;
     })
   );
 });

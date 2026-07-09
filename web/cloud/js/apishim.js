@@ -15,7 +15,7 @@ import { createFoodDomain } from '../../domain/food.js';
 import { createFoodAIDomain } from '../../domain/foodai.js';
 import { createWorkoutDomain } from '../../domain/workout.js';
 import { recordsPort } from './sync.js';
-import { scheduleReminderRecompute } from './reminders.js';
+import { scheduleReminderRecompute, sendTestPush } from './reminders.js';
 import { createRxnormPort } from './rxnorm.js';
 import { createAIClient } from './aiclient.js';
 import { createFoodDbClient } from './fooddb.js';
@@ -607,6 +607,39 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
       const status = await reminders.setWeightEnabled(!!(body && body.enabled));
       scheduleReminderRecompute(ctx, { records, timeZone });
       return status;
+    }
+
+    // Snooze (2h) / don't-bug (24h) mute the schedule without touching the
+    // enable flag, mirroring bp_handlers.go + weight_handlers.go. In cloud mode
+    // the horizon is precomputed and already sitting in the relay's queue, so
+    // the mute only takes effect once a horizon omitting the muted targets is
+    // re-uploaded. That re-upload is fired undebounced but NOT awaited: the mute
+    // is already durable in the vault, and a snooze tapped on a flaky connection
+    // must still succeed — the next unlock re-uploads the horizon anyway.
+    // Response bodies match bot mode so shared callers can't tell them apart.
+    if (method === 'POST') {
+      const reminderActions = {
+        '/api/bp/reminder/snooze': [reminders.snoozeBPReminder, 'BP reminder snoozed for 2 hours'],
+        '/api/bp/reminder/dontbug': [reminders.dontBugBPReminder, 'BP reminders disabled for 24 hours'],
+        '/api/weight/reminder/snooze': [reminders.snoozeWeightReminder, 'Weight reminder snoozed for 2 hours'],
+        '/api/weight/reminder/dontbug': [reminders.dontBugWeightReminder, 'Weight reminders disabled for 24 hours'],
+      };
+      const action = reminderActions[path];
+      if (action) {
+        const [mutate, message] = action;
+        await mutate();
+        scheduleReminderRecompute(ctx, { records, timeZone }, 0);
+        return { status: 'success', message };
+      }
+    }
+
+    // Bot mode fans a BP test card out through every notifier; cloud has no
+    // server-side notifier and no way to compose a payload it can read, so the
+    // honest equivalent is the encrypted this-device-only push the Settings
+    // test button already uses.
+    if (path === '/api/bp/reminder/test' && method === 'POST') {
+      await sendTestPush(ctx);
+      return { status: 'sent' };
     }
 
     // Medication reminders are functionally wired in cloud mode (Task 5): the
