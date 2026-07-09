@@ -227,6 +227,17 @@ Workout entities carry a numeric body `id` (FK glue; `-1` is the ad-hoc sentinel
 Flat per-sample arrays — the format hides the cloud day-batching (see
 [Vitals day-batching](#vitals-day-batching)).
 
+> **Cloud import downsamples old samples.** `vaultToRecords` collapses
+> `heart`/`spo2`/`stress` samples older than **60 days** to one per UTC hour,
+> `value` = round(mean). The shape is unchanged, so nothing downstream cares. The
+> cloud UI only ever renders hourly buckets over a 7d/30d window, so beyond that
+> window per-minute resolution is carried only to be discarded — on a real 3-year
+> archive it was 105 MiB, 57% of the vault. 60d leaves a month of margin on the
+> 30d window. Two losses, both invisible: a bucket's min/max collapse to its mean
+> (only surfaced inside the still-raw 30d window), and a stress sample's `info`
+> label is dropped. The transform is idempotent, so re-importing a cloud export
+> never drifts.
+
 ```json
 "vitals": {
   "sleep": [ { sleep_log } ],

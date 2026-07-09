@@ -478,12 +478,16 @@ export function vaultToRecords(vault, { now } = {}) {
   }
 
   // --- vitals (pack the flat sample arrays back into day-batches) ---
+  // With no clock (nowMs 0) the cutoff goes negative and every sample counts as
+  // fresh — a caller that can't say when "now" is gets no downsampling rather
+  // than a silently-collapsed history.
+  const sampleCutoffMs = nowMs - DOWNSAMPLE_AFTER_MS;
   const vitals = data.vitals || {};
   for (const sl of vitals.sleep || []) push('sleep', `sleep-${mintNum()}`, { ...sl });
   for (const ds of vitals.day_stats || []) push('daystats', `daystats-${ds.day}`, { ...ds });
-  packSamples('hrsample', vitals.heart || [], push);
-  packSamples('spo2sample', vitals.spo2 || [], push);
-  packSamples('stresssample', vitals.stress || [], push);
+  packSamples('hrsample', vitals.heart || [], push, sampleCutoffMs);
+  packSamples('spo2sample', vitals.spo2 || [], push, sampleCutoffMs);
+  packSamples('stresssample', vitals.stress || [], push, sampleCutoffMs);
 
   // --- diary (numeric-string recordId, as notes.js mints) ---
   for (const n of (data.diary || {}).notes || []) push('note', String(mintNum()), { ...n });
@@ -569,12 +573,63 @@ function planFromVault(plan) {
   return body;
 }
 
+// Beyond this age, per-sample resolution is carried only to be discarded:
+// vitals.js renders HOURLY buckets (bucketVitals) over a 7d/30d window, and
+// avg7d/avg30d are means over that window. The UI window starts at
+// todayStart - 29*DAY_MS, so 60d leaves a full month of margin as time passes.
+const DOWNSAMPLE_AFTER_MS = 60 * 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+
+// hourlyAverages collapses samples to one per UTC hour, value = round(mean).
+// UTC-hour alignment matches bucketVitals (Go's time.Truncate(time.Hour)
+// truncates the absolute instant, not the local wall clock), so bucketVitals
+// over the downsampled samples reproduces exactly the same buckets it would
+// have produced over the raw ones.
+//
+// The shape is unchanged — {date_time, tz_offset, value} — so vitals.js needs
+// no change, no new record type, no vault-format bump. Two deliberate losses,
+// both invisible: a bucket's min/max collapse to its mean (bucketVitals only
+// ever surfaces min/max inside the 30d window, which stays raw), and a stress
+// sample's `info` label is dropped (a text label has no mean).
+//
+// Idempotent: re-importing a cloud export re-buckets already-hourly samples to
+// themselves — one sample per hour, mean of one value, date_time already at the
+// hour start. A fixed point, so repeated import/export never drifts.
+function hourlyAverages(samples) {
+  const byHour = new Map();
+  for (const s of samples) {
+    const hour = Math.floor(Date.parse(s.date_time) / HOUR_MS) * HOUR_MS;
+    const b = byHour.get(hour);
+    if (b) {
+      b.sum += s.value;
+      b.count += 1;
+    } else {
+      byHour.set(hour, { sum: s.value, count: 1, tz_offset: s.tz_offset });
+    }
+  }
+  return [...byHour.entries()].map(([hour, b]) => ({
+    // Match the wire form of the samples we pass through untouched (no millis).
+    date_time: new Date(hour).toISOString().replace('.000Z', 'Z'),
+    tz_offset: b.tz_offset,
+    value: Math.round(b.sum / b.count),
+  }));
+}
+
 // packSamples groups the vault's flat per-sample array into one day-batched
 // record per UTC calendar day ({day, samples:[...]}), the storage shape
 // vitals.js readSamples expects. Samples within a batch stay ascending.
-function packSamples(recordType, samples, push) {
+//
+// Samples older than cutoffMs are hourly-averaged first: on a real 3-year
+// archive the raw heart/spo2/stress streams are 105 MiB (57% of the vault) that
+// the UI can never display. cutoffMs is relative to import time, not to the
+// vault's exported_at.
+function packSamples(recordType, samples, push, cutoffMs) {
+  const fresh = [];
+  const old = [];
+  for (const s of samples) (Date.parse(s.date_time) >= cutoffMs ? fresh : old).push(s);
+
   const byDay = new Map();
-  for (const s of samples) {
+  for (const s of [...hourlyAverages(old), ...fresh]) {
     const day = utcDay(s.date_time);
     const bucket = byDay.get(day);
     if (bucket) bucket.push(s);
