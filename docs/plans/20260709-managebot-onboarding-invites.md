@@ -187,14 +187,19 @@ a reasonable starting point and are reused where sound.
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] verify the managebot explains itself, offers onboarding, and mints an invite on agreement (med-39q)
-- [ ] verify the 4th invite in 24h is politely refused and nothing is minted (med-bc9)
-- [ ] verify an already-connected user is never handed a second account
-- [ ] verify `invite.go`'s 100/30d account quota is unaffected by `"tg:"`-prefixed rows (a session account id
+- [x] verify the managebot explains itself, offers onboarding, and mints an invite on agreement (med-39q)
+      — `TestManagerOnboarding/{start_explains_and_offers,yes_mints_one_invite_and_replies_with_its_claim_link}`
+- [x] verify the 4th invite in 24h is politely refused and nothing is minted (med-bc9)
+      — `TestManagerOnboarding/fourth_yes_in_the_window_is_refused`
+- [x] verify an already-connected user is never handed a second account
+      — `TestManagerOnboarding/already-claimed_user_is_never_handed_a_second_account`
+- [x] verify `invite.go`'s 100/30d account quota is unaffected by `"tg:"`-prefixed rows (a session account id
       can never equal a `tg:`-prefixed string) — assert it, don't assume it
-- [ ] `go build ./...` and `go build -tags mobile ./...` pass
-- [ ] `TZ=UTC go test ./...` passes (the repo has a known non-UTC time-storage landmine; run under UTC)
-- [ ] `go vet ./...` passes
+      — `TestInviteQuotaIgnoresManagebotProvenance` asserts both directions: 100 seeded `tg:` rows leave the
+      account's quota untouched (mint still 200), and the account's own mint is invisible to the `tg:` counter
+- [x] `go build ./...` and `go build -tags mobile ./...` pass
+- [x] `TZ=UTC go test ./...` passes (the repo has a known non-UTC time-storage landmine; run under UTC)
+- [x] `go vet ./...` passes
 
 ### Task 7: [Final] Update documentation
 

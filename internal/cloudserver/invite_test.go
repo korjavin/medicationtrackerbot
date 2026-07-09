@@ -100,6 +100,50 @@ func TestInviteAPI_Contract(t *testing.T) {
 	}
 }
 
+// TestInviteQuotaIgnoresManagebotProvenance pins the two-way isolation the
+// managebot's "tg:<uid>" provenance keys rely on: created_by_account_id is
+// matched by exact equality, so a session's account id never sees managebot
+// rows and vice versa. Without this, the managebot's mints would eat into a
+// user's 100/30d quota.
+func TestInviteQuotaIgnoresManagebotProvenance(t *testing.T) {
+	h, store, host, claimToken := newTestInviteHandler(t)
+	session := registerAndGetSession(t, h, host, claimToken)
+	accountID, _, ok := VerifySessionToken(session.Value, "test-session-secret-at-least-32-bytes-long")
+	if !ok {
+		t.Fatalf("could not verify session token")
+	}
+
+	// Exhaust the monthly quota's worth of rows — but attributed to a managebot
+	// creator key, not to this account.
+	now := time.Now().UTC()
+	for i := 0; i < inviteMonthlyQuota; i++ {
+		if _, err := Provision(t.Context(), store, 14*24*time.Hour, now, tgCreator); err != nil {
+			t.Fatalf("seed managebot mint %d: %v", i, err)
+		}
+	}
+
+	if rec := postInvite(t, h, host, session); rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/invite = %d, want 200 (managebot rows must not consume the account quota)", rec.Code)
+	}
+
+	since := now.Add(-inviteQuotaWindow)
+	n, err := store.CountAccountsCreatedBy(t.Context(), accountID, since)
+	if err != nil {
+		t.Fatalf("CountAccountsCreatedBy(%s): %v", accountID, err)
+	}
+	if n != 1 {
+		t.Errorf("accounts created by %s = %d, want 1 (managebot rows leaked into the account quota)", accountID, n)
+	}
+
+	n, err = store.CountAccountsCreatedBy(t.Context(), tgCreator, since)
+	if err != nil {
+		t.Fatalf("CountAccountsCreatedBy(%s): %v", tgCreator, err)
+	}
+	if n != inviteMonthlyQuota {
+		t.Errorf("accounts created by %s = %d, want %d (account mint leaked into the managebot quota)", tgCreator, n, inviteMonthlyQuota)
+	}
+}
+
 // TestInviteAPI_ConcurrentMintsRespectQuota pins that the quota check and the
 // account insert are serialized: without the lock, concurrent mints all read a
 // sub-quota count and every one of them provisions an account.
