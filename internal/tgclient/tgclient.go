@@ -40,13 +40,18 @@ func New(token, baseURL string) *Client {
 }
 
 // apiError carries Telegram's {ok:false, description} envelope so callers get
-// the server's own message instead of a bare HTTP status.
+// the server's own message instead of a bare HTTP status. RetryAfter carries
+// parameters.retry_after (seconds), which Telegram sets on 429.
 type apiError struct {
 	Code        int
 	Description string
+	RetryAfter  int
 }
 
 func (e *apiError) Error() string {
+	if e.RetryAfter > 0 {
+		return fmt.Sprintf("telegram api error %d: %s (retry after %ds)", e.Code, e.Description, e.RetryAfter)
+	}
 	return fmt.Sprintf("telegram api error %d: %s", e.Code, e.Description)
 }
 
@@ -83,12 +88,15 @@ func (c *Client) doRequest(ctx context.Context, method string, contentType strin
 		OK          bool            `json:"ok"`
 		Description string          `json:"description"`
 		Result      json.RawMessage `json:"result"`
+		Parameters  struct {
+			RetryAfter int `json:"retry_after"`
+		} `json:"parameters"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
 		return fmt.Errorf("decode telegram response: %w", err)
 	}
 	if !env.OK {
-		return &apiError{Code: resp.StatusCode, Description: env.Description}
+		return &apiError{Code: resp.StatusCode, Description: env.Description, RetryAfter: env.Parameters.RetryAfter}
 	}
 	if result != nil {
 		if err := json.Unmarshal(env.Result, result); err != nil {
@@ -143,12 +151,27 @@ func (c *Client) GetManagedBotToken(ctx context.Context, botID int64) (string, e
 // IsClientError reports whether err is a Telegram API error with a 4xx status —
 // a permanent rejection (bad/deleted/deactivated bot, invalid params) that
 // retrying won't fix, as opposed to a transient 5xx/network failure.
+//
+// 429 is the one 4xx that is NOT permanent: it means "too fast, come back in
+// retry_after seconds". Callers use this predicate to decide whether to drop an
+// event or let it be redelivered, so classifying a rate limit as permanent
+// would silently discard work that would have succeeded moments later.
 func IsClientError(err error) bool {
 	var ae *apiError
 	if errors.As(err, &ae) {
-		return ae.Code >= 400 && ae.Code < 500
+		return ae.Code >= 400 && ae.Code < 500 && ae.Code != http.StatusTooManyRequests
 	}
 	return false
+}
+
+// RetryAfter reports the cooldown Telegram asked for on a 429, if err is such
+// an error. ok is false for every other error.
+func RetryAfter(err error) (time.Duration, bool) {
+	var ae *apiError
+	if errors.As(err, &ae) && ae.Code == http.StatusTooManyRequests {
+		return time.Duration(ae.RetryAfter) * time.Second, true
+	}
+	return 0, false
 }
 
 // SetWebhook registers url as the bot's webhook with the given secret_token

@@ -304,6 +304,12 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
+		// Transient: 5xx, network, or a 429 rate limit. Answer non-2xx so
+		// Telegram redelivers — managed_bot_created is never re-sent on demand,
+		// so dropping it here would strand the account unbound forever.
+		if wait, ok := tgclient.RetryAfter(err); ok {
+			slog.Warn("telegram manager webhook: rate limited by telegram", "retry_after", wait, "bot_id", botID)
+		}
 		slog.Error("telegram manager webhook: get managed token", "error", err, "bot_id", botID)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
